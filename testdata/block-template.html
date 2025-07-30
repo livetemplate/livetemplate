@@ -1,0 +1,98 @@
+{{/* Base template with blocks */}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{block "title" .}}{{.Site.DefaultTitle}}{{end}}</title>
+    <meta name="description" content="{{block "description" .}}{{.Site.DefaultDescription}}{{end}}">
+    {{block "head-extra" .}}
+        <link rel="stylesheet" href="/css/default.css">
+    {{end}}
+</head>
+<body class="{{block "body-class" .}}default{{end}}">
+    <header>
+        {{block "header" .}}
+            <h1>{{.Site.Name}}</h1>
+            <nav>
+                {{range .Navigation.MainItems}}
+                    <a href="{{.URL}}">{{.Label}}</a>
+                {{end}}
+            </nav>
+        {{end}}
+    </header>
+
+    <main>
+        {{block "sidebar" .}}
+            <aside class="sidebar">
+                <div class="widget">
+                    <h3>Recent Posts</h3>
+                    {{range .Sidebar.RecentPosts}}
+                        <div class="recent-post">
+                            <a href="{{.URL}}">{{.Title}}</a>
+                            <small>{{.Date}}</small>
+                        </div>
+                    {{end}}
+                </div>
+                
+                <div class="widget">
+                    <h3>Categories</h3>
+                    {{range .Sidebar.Categories}}
+                        <a href="{{.URL}}" class="category">
+                            {{.Name}} ({{.Count}})
+                        </a>
+                    {{end}}
+                </div>
+                
+                {{if .User}}
+                    <div class="widget user-widget">
+                        <h3>Welcome {{.User.Name}}</h3>
+                        <p>You have {{.User.Notifications.Count}} notifications</p>
+                        <div class="user-stats">
+                            <span>Posts: {{.User.Stats.PostCount}}</span>
+                            <span>Comments: {{.User.Stats.CommentCount}}</span>
+                        </div>
+                    </div>
+                {{end}}
+            </aside>
+        {{end}}
+        
+        <div class="content">
+            {{block "content" .}}
+                <h2>Welcome to {{.Site.Name}}</h2>
+                <p>{{.Site.WelcomeMessage}}</p>
+                
+                <div class="featured-content">
+                    {{range .FeaturedPosts}}
+                        <article class="featured-post">
+                            <h3><a href="{{.URL}}">{{.Title}}</a></h3>
+                            <p>{{.Summary}}</p>
+                            <div class="post-meta">
+                                <span>By {{.Author.Name}}</span>
+                                <span>{{.PublishedAt}}</span>
+                                <span>{{.ReadTime}} min read</span>
+                            </div>
+                        </article>
+                    {{end}}
+                </div>
+            {{end}}
+        </div>
+    </main>
+
+    <footer>
+        {{block "footer" .}}
+            <div class="footer-content">
+                <p>&copy; {{.Copyright.Year}} {{.Copyright.Company}}</p>
+                <div class="footer-info">
+                    <span>Version: {{.BuildInfo.Version}}</span>
+                    <span>Built: {{.BuildInfo.Timestamp}}</span>
+                    <span>Environment: {{.Environment.Name}}</span>
+                </div>
+            </div>
+        {{end}}
+    </footer>
+
+    {{block "scripts" .}}
+        <script src="/js/common.js"></script>
+    {{end}}
+</body>
+</html>

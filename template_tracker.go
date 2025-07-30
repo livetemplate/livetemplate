@@ -1,7 +1,11 @@
 package statetemplate
 
 import (
+	"embed"
+	"fmt"
 	"html/template"
+	"io/fs"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -35,50 +39,104 @@ func (tt *TemplateTracker) AddTemplate(name string, tmpl *template.Template) {
 	tt.analyzeDependencies(name, tmpl)
 }
 
+// AddTemplateFromFile loads a template from a file and adds it to the tracker
+func (tt *TemplateTracker) AddTemplateFromFile(name, filepath string) error {
+	tmpl, err := template.ParseFiles(filepath)
+	if err != nil {
+		return fmt.Errorf("failed to parse template file %s: %w", filepath, err)
+	}
+
+	tt.AddTemplate(name, tmpl)
+	return nil
+}
+
+// AddTemplatesFromFiles loads multiple templates from files and adds them to the tracker
+func (tt *TemplateTracker) AddTemplatesFromFiles(files map[string]string) error {
+	for name, filepath := range files {
+		if err := tt.AddTemplateFromFile(name, filepath); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// AddTemplatesFromDirectory loads all template files from a directory
+func (tt *TemplateTracker) AddTemplatesFromDirectory(dir string, extensions ...string) error {
+	if len(extensions) == 0 {
+		extensions = []string{".html", ".tmpl", ".tpl", ".gohtml"}
+	}
+
+	return filepath.Walk(dir, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		// Check if file has one of the allowed extensions
+		ext := filepath.Ext(path)
+		for _, allowedExt := range extensions {
+			if ext == allowedExt {
+				// Use relative path as template name
+				relPath, err := filepath.Rel(dir, path)
+				if err != nil {
+					relPath = filepath.Base(path)
+				}
+				// Remove extension from name
+				name := strings.TrimSuffix(relPath, ext)
+
+				return tt.AddTemplateFromFile(name, path)
+			}
+		}
+
+		return nil
+	})
+}
+
+// AddTemplatesFromFS loads templates from an embedded filesystem
+func (tt *TemplateTracker) AddTemplatesFromFS(fsys fs.FS, pattern string) error {
+	matches, err := fs.Glob(fsys, pattern)
+	if err != nil {
+		return fmt.Errorf("failed to glob pattern %s: %w", pattern, err)
+	}
+
+	for _, match := range matches {
+		// Read the file content
+		content, err := fs.ReadFile(fsys, match)
+		if err != nil {
+			return fmt.Errorf("failed to read embedded file %s: %w", match, err)
+		}
+
+		// Parse template from content
+		tmpl, err := template.New(match).Parse(string(content))
+		if err != nil {
+			return fmt.Errorf("failed to parse embedded template %s: %w", match, err)
+		}
+
+		// Use filename without extension as template name
+		name := strings.TrimSuffix(filepath.Base(match), filepath.Ext(match))
+		tt.AddTemplate(name, tmpl)
+	}
+
+	return nil
+}
+
+// AddTemplatesFromEmbedFS is a convenience method for working with embed.FS
+func (tt *TemplateTracker) AddTemplatesFromEmbedFS(embedFS embed.FS, pattern string) error {
+	return tt.AddTemplatesFromFS(embedFS, pattern)
+}
+
 // analyzeDependencies extracts field dependencies from template
 func (tt *TemplateTracker) analyzeDependencies(name string, tmpl *template.Template) {
-	// This is a simplified implementation
-	// In a real implementation, you'd parse the template AST to find all field accesses
-	templateText := tmpl.Tree.Root.String()
-
-	// Simple regex-based approach to find {{.FieldName}} patterns
-	// This could be enhanced with proper AST parsing
-	fields := extractFieldReferences(templateText)
+	// Use the advanced analyzer for better dependency extraction
+	analyzer := NewAdvancedTemplateAnalyzer()
+	fields := analyzer.AnalyzeTemplate(tmpl)
 
 	for _, field := range fields {
 		tt.dependencies[name][field] = true
 	}
-}
-
-// extractFieldReferences extracts field references from template text
-func extractFieldReferences(templateText string) []string {
-	var fields []string
-
-	// This is a simplified implementation
-	// Look for patterns like {{.Field}}, {{.Nested.Field}}, etc.
-	// In practice, you'd want to use the template's parse tree
-
-	lines := strings.Split(templateText, "\n")
-	for _, line := range lines {
-		// Simple pattern matching - this should be enhanced
-		if strings.Contains(line, "{{") && strings.Contains(line, "}}") {
-			// Extract field references between {{ and }}
-			start := strings.Index(line, "{{")
-			end := strings.Index(line, "}}")
-			if start != -1 && end != -1 && end > start {
-				content := strings.TrimSpace(line[start+2 : end])
-				if strings.HasPrefix(content, ".") {
-					field := strings.TrimPrefix(content, ".")
-					// Handle nested fields like .User.Name
-					if !strings.Contains(field, " ") && field != "" {
-						fields = append(fields, field)
-					}
-				}
-			}
-		}
-	}
-
-	return fields
 }
 
 // DataUpdate represents a data structure update
@@ -303,4 +361,26 @@ func (tt *TemplateTracker) GetDependencies() map[string]map[string]bool {
 // DetectChanges is a public method for testing change detection
 func (tt *TemplateTracker) DetectChanges(oldData, newData interface{}) []string {
 	return tt.detectChanges(oldData, newData)
+}
+
+// GetTemplates returns a copy of all registered templates
+func (tt *TemplateTracker) GetTemplates() map[string]*template.Template {
+	tt.mu.RLock()
+	defer tt.mu.RUnlock()
+
+	result := make(map[string]*template.Template)
+	for name, tmpl := range tt.templates {
+		result[name] = tmpl
+	}
+
+	return result
+}
+
+// GetTemplate returns a specific template by name
+func (tt *TemplateTracker) GetTemplate(name string) (*template.Template, bool) {
+	tt.mu.RLock()
+	defer tt.mu.RUnlock()
+
+	tmpl, exists := tt.templates[name]
+	return tmpl, exists
 }

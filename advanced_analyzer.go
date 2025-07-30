@@ -17,15 +17,25 @@ func NewAdvancedTemplateAnalyzer() *AdvancedTemplateAnalyzer {
 func (ata *AdvancedTemplateAnalyzer) AnalyzeTemplate(tmpl *template.Template) []string {
 	var dependencies []string
 
-	if tmpl.Tree == nil || tmpl.Tree.Root == nil {
+	if tmpl == nil {
 		return dependencies
 	}
 
-	// Get the template text
-	templateText := tmpl.Tree.Root.String()
+	// Process the main template
+	if tmpl.Tree != nil && tmpl.Tree.Root != nil {
+		templateText := tmpl.Tree.Root.String()
+		deps := ata.extractFieldReferences(templateText)
+		dependencies = append(dependencies, deps...)
+	}
 
-	// Use regex to find field references
-	dependencies = ata.extractFieldReferences(templateText)
+	// Process all associated templates (from {{define}} blocks)
+	for _, associatedTmpl := range tmpl.Templates() {
+		if associatedTmpl != tmpl && associatedTmpl.Tree != nil && associatedTmpl.Tree.Root != nil {
+			templateText := associatedTmpl.Tree.Root.String()
+			deps := ata.extractFieldReferences(templateText)
+			dependencies = append(dependencies, deps...)
+		}
+	}
 
 	// Remove duplicates and return
 	return removeDuplicates(dependencies)
@@ -37,16 +47,23 @@ func (ata *AdvancedTemplateAnalyzer) extractFieldReferences(templateText string)
 
 	// Regex patterns for different template constructs
 	patterns := []string{
-		`\{\{\s*\.([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*)\s*\}\}`,         // {{.Field}} or {{.User.Name}}
-		`\{\{\s*if\s+\.([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*)\s*\}\}`,    // {{if .Field}}
-		`\{\{\s*range\s+\.([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*)\s*\}\}`, // {{range .Field}}
-		`\{\{\s*with\s+\.([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*)\s*\}\}`,  // {{with .Field}}
-		`template\s+"[^"]+"\s+\.([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*)`,  // template "name" .Field
+		`\{\{\s*\.([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*)\s*\}\}`,                      // {{.Field}} or {{.User.Name}}
+		`\{\{\s*if\s+\.([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*)\s*\}\}`,                 // {{if .Field}}
+		`\{\{\s*range\s+\.([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*)\s*\}\}`,              // {{range .Field}}
+		`\{\{\s*with\s+\.([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*)\s*\}\}`,               // {{with .Field}}
+		`\{\{\s*template\s+"[^"]+"\s+\.([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*)\s*\}\}`, // {{template "name" .Field}}
+		`\{\{\s*block\s+"[^"]+"\s+\.([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*)\s*\}\}`,    // {{block "name" .Field}}
+		`len\s+\.([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*)`,                              // len .Field (functions)
 	}
+
+	// Process the template text in a way that handles multi-line and nested definitions
+	// Remove comments first
+	commentPattern := regexp.MustCompile(`\{\{/\*.*?\*/\}\}`)
+	cleanText := commentPattern.ReplaceAllString(templateText, "")
 
 	for _, pattern := range patterns {
 		re := regexp.MustCompile(pattern)
-		matches := re.FindAllStringSubmatch(templateText, -1)
+		matches := re.FindAllStringSubmatch(cleanText, -1)
 
 		for _, match := range matches {
 			if len(match) > 1 && match[1] != "" {

@@ -1,0 +1,76 @@
+{{/* Main template with nested definitions */}}
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>{{.Page.Title}}</title>
+  </head>
+  <body>
+    <div class="container">
+      {{template "header" .}} {{template "content" .}} {{template "footer" .}}
+    </div>
+  </body>
+</html>
+
+{{/* Nested template definitions */}} {{define "header"}}
+<header class="site-header">
+  <h1>{{.Site.Name}}</h1>
+  <nav>
+    {{range .Navigation.Items}}
+    <a href="{{.URL}}" class="nav-link">{{.Title}}</a>
+    {{end}}
+  </nav>
+  {{if .User}}
+  <div class="user-info">Welcome, {{.User.Name}}! ({{.User.Role}})</div>
+  {{end}}
+</header>
+{{end}} {{define "content"}}
+<main class="main-content">
+  <article>
+    <h2>{{.Article.Title}}</h2>
+    <div class="meta">
+      <span>By {{.Article.Author.Name}}</span>
+      <span>{{.Article.PublishedAt}}</span>
+      <span>Category: {{.Article.Category}}</span>
+    </div>
+    <div class="content">{{.Article.Body}}</div>
+    <div class="tags">
+      {{range .Article.Tags}}
+      <span class="tag">{{.}}</span>
+      {{end}}
+    </div>
+  </article>
+
+  {{if .Comments}}
+  <section class="comments">
+    <h3>Comments ({{len .Comments}})</h3>
+    {{range .Comments}} {{template "comment" .}} {{end}}
+  </section>
+  {{end}}
+</main>
+{{end}} {{define "comment"}}
+<div class="comment">
+  <div class="comment-header">
+    <strong>{{.Author.Name}}</strong>
+    <small>{{.CreatedAt}}</small>
+  </div>
+  <div class="comment-body">{{.Body}}</div>
+  {{if .Replies}}
+  <div class="replies">{{range .Replies}} {{template "comment" .}} {{end}}</div>
+  {{end}}
+</div>
+{{end}} {{define "footer"}}
+<footer class="site-footer">
+  <p>&copy; {{.Site.Copyright.Year}} {{.Site.Copyright.Owner}}</p>
+  <div class="footer-links">
+    {{range .Footer.Links}}
+    <a href="{{.URL}}">{{.Text}}</a>
+    {{end}}
+  </div>
+  <div class="stats">
+    <small
+      >Page loaded in {{.Performance.LoadTime}}ms | {{.Performance.MemoryUsage}}
+      MB</small
+    >
+  </div>
+</footer>
+{{end}}

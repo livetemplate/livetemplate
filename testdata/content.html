@@ -1,0 +1,39 @@
+<main class="content">
+  <article class="post">
+    <header>
+      <h1>{{.Post.Title}}</h1>
+      <div class="meta">
+        <span class="author">By {{.Post.Author.Name}}</span>
+        <span class="date">{{.Post.PublishedAt}}</span>
+        <span class="category">{{.Post.Category}}</span>
+      </div>
+    </header>
+
+    <div class="post-content">{{.Post.Content}}</div>
+
+    <footer class="post-footer">
+      <div class="tags">
+        {{range .Post.Tags}}
+        <span class="tag">{{.}}</span>
+        {{end}}
+      </div>
+
+      <div class="actions">
+        <button data-post-id="{{.Post.ID}}">Like ({{.Post.LikeCount}})</button>
+        <button data-post-id="{{.Post.ID}}">Share</button>
+      </div>
+    </footer>
+  </article>
+
+  {{if .RelatedPosts}}
+  <section class="related-posts">
+    <h2>Related Posts</h2>
+    {{range .RelatedPosts}}
+    <div class="related-post">
+      <h3><a href="{{.URL}}">{{.Title}}</a></h3>
+      <p>{{.Summary}}</p>
+    </div>
+    {{end}}
+  </section>
+  {{end}}
+</main>

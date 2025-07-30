@@ -2,6 +2,8 @@ package statetemplate
 
 import (
 	"html/template"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -144,5 +146,279 @@ func TestLiveUpdates(t *testing.T) {
 
 	if len(update.ChangedFields) != 1 || update.ChangedFields[0] != "Message" {
 		t.Errorf("Expected field 'Message' to be changed, got %v", update.ChangedFields)
+	}
+}
+
+func TestTemplateTrackerFromFiles(t *testing.T) {
+	// Create test directory and files
+	tempDir := t.TempDir()
+
+	// Create test templates
+	templates := map[string]string{
+		"header.html":  `<h1>{{.Title}}</h1><p>User: {{.User.Name}}</p>`,
+		"footer.html":  `<footer>{{.Copyright}} - {{.Year}}</footer>`,
+		"sidebar.html": `<div>{{.User.Email}} - {{.Stats.Count}}</div>`,
+	}
+
+	for filename, content := range templates {
+		filepath := filepath.Join(tempDir, filename)
+		if err := os.WriteFile(filepath, []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to create test file %s: %v", filepath, err)
+		}
+	}
+
+	tracker := NewTemplateTracker()
+
+	// Test AddTemplatesFromDirectory
+	err := tracker.AddTemplatesFromDirectory(tempDir, ".html")
+	if err != nil {
+		t.Fatalf("Failed to load templates from directory: %v", err)
+	}
+
+	// Verify templates were loaded
+	loadedTemplates := tracker.GetTemplates()
+	if len(loadedTemplates) != 3 {
+		t.Errorf("Expected 3 templates, got %d", len(loadedTemplates))
+	}
+
+	expectedTemplates := []string{"header", "footer", "sidebar"}
+	for _, name := range expectedTemplates {
+		if _, exists := loadedTemplates[name]; !exists {
+			t.Errorf("Expected template %s to be loaded", name)
+		}
+	}
+
+	// Test dependencies
+	deps := tracker.GetDependencies()
+
+	// Check header template dependencies
+	headerDeps := deps["header"]
+	if !headerDeps["Title"] || !headerDeps["User.Name"] {
+		t.Errorf("Header template should depend on Title and User.Name, got %v", headerDeps)
+	}
+
+	// Check footer template dependencies
+	footerDeps := deps["footer"]
+	if !footerDeps["Copyright"] || !footerDeps["Year"] {
+		t.Errorf("Footer template should depend on Copyright and Year, got %v", footerDeps)
+	}
+}
+
+func TestTemplateTrackerFromFilesList(t *testing.T) {
+	// Create test directory and files
+	tempDir := t.TempDir()
+
+	template1Path := filepath.Join(tempDir, "template1.html")
+	template2Path := filepath.Join(tempDir, "template2.html")
+
+	if err := os.WriteFile(template1Path, []byte(`<div>{{.Name}}</div>`), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	if err := os.WriteFile(template2Path, []byte(`<span>{{.Email}}</span>`), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	tracker := NewTemplateTracker()
+
+	// Test AddTemplatesFromFiles
+	files := map[string]string{
+		"user-name":  template1Path,
+		"user-email": template2Path,
+	}
+
+	err := tracker.AddTemplatesFromFiles(files)
+	if err != nil {
+		t.Fatalf("Failed to load templates from files: %v", err)
+	}
+
+	// Verify templates were loaded
+	loadedTemplates := tracker.GetTemplates()
+	if len(loadedTemplates) != 2 {
+		t.Errorf("Expected 2 templates, got %d", len(loadedTemplates))
+	}
+
+	// Test individual template retrieval
+	nameTemplate, exists := tracker.GetTemplate("user-name")
+	if !exists {
+		t.Error("Expected user-name template to exist")
+	}
+	if nameTemplate == nil {
+		t.Error("Expected user-name template to not be nil")
+	}
+
+	emailTemplate, exists := tracker.GetTemplate("user-email")
+	if !exists {
+		t.Error("Expected user-email template to exist")
+	}
+	if emailTemplate == nil {
+		t.Error("Expected user-email template to not be nil")
+	}
+}
+
+func TestTemplateTrackerGetTemplate(t *testing.T) {
+	tracker := NewTemplateTracker()
+
+	// Add a test template
+	tmpl := template.Must(template.New("test").Parse(`<div>{{.Message}}</div>`))
+	tracker.AddTemplate("test-template", tmpl)
+
+	// Test getting existing template
+	retrieved, exists := tracker.GetTemplate("test-template")
+	if !exists {
+		t.Error("Expected template to exist")
+	}
+	if retrieved != tmpl {
+		t.Error("Expected retrieved template to match original")
+	}
+
+	// Test getting non-existent template
+	_, exists = tracker.GetTemplate("non-existent")
+	if exists {
+		t.Error("Expected non-existent template to not exist")
+	}
+}
+
+func TestTemplateTrackerFromTestData(t *testing.T) {
+	// Test loading templates from the testdata directory
+	tracker := NewTemplateTracker()
+
+	err := tracker.AddTemplatesFromDirectory("testdata")
+	if err != nil {
+		t.Fatalf("Failed to load templates from testdata: %v", err)
+	}
+
+	// Verify templates were loaded
+	templates := tracker.GetTemplates()
+	if len(templates) < 5 {
+		t.Errorf("Expected at least 5 templates from testdata, got %d", len(templates))
+	}
+
+	// Check specific templates exist
+	expectedTemplates := []string{"header", "footer", "sidebar", "content", "user-dashboard", "simple", "conditional"}
+	for _, expected := range expectedTemplates {
+		if _, exists := templates[expected]; !exists {
+			t.Errorf("Expected template %s not found in loaded templates", expected)
+		}
+	}
+
+	// Test dependencies for a complex template (sidebar)
+	deps := tracker.GetDependencies()
+	sidebarDeps := deps["sidebar"]
+
+	// Should find various nested dependencies
+	expectedDeps := []string{"Stats.UserCount", "User.Name", "User.Email", "RecentActivity"}
+	foundCount := 0
+	for _, expected := range expectedDeps {
+		if sidebarDeps[expected] {
+			foundCount++
+		}
+	}
+
+	if foundCount < 2 {
+		t.Errorf("Sidebar template should have found at least 2 dependencies, found %d", foundCount)
+		t.Logf("All sidebar dependencies: %v", sidebarDeps)
+	}
+}
+
+func TestNestedTemplateDefinitions(t *testing.T) {
+	tracker := NewTemplateTracker()
+
+	// Load the nested template file
+	err := tracker.AddTemplateFromFile("nested", "testdata/nested-templates.html")
+	if err != nil {
+		t.Fatalf("Failed to load nested template: %v", err)
+	}
+
+	// Verify template was loaded
+	templates := tracker.GetTemplates()
+	if _, exists := templates["nested"]; !exists {
+		t.Fatal("Nested template not found in loaded templates")
+	}
+
+	// Check dependencies
+	deps := tracker.GetDependencies()
+	nestedDeps := deps["nested"]
+
+	// Should find dependencies from various parts of the nested template
+	expectedDeps := []string{
+		"Page.Title", "Site.Name", "Navigation.Items", "User.Name",
+		"Article.Title", "Article.Author.Name", "Article.Body",
+		"Comments", "Site.Copyright.Year", "Performance.LoadTime",
+	}
+
+	foundCount := 0
+	for _, expected := range expectedDeps {
+		if nestedDeps[expected] {
+			foundCount++
+		}
+	}
+
+	if foundCount < 5 {
+		t.Errorf("Nested template should have found at least 5 dependencies, found %d", foundCount)
+		t.Logf("Expected: %v", expectedDeps)
+		t.Logf("Found dependencies: %v", nestedDeps)
+	}
+}
+
+func TestBlockTemplates(t *testing.T) {
+	tracker := NewTemplateTracker()
+
+	// Load block template files
+	blockFiles := map[string]string{
+		"base-template": "testdata/block-template.html",
+		"post-child":    "testdata/post-child.html",
+	}
+
+	err := tracker.AddTemplatesFromFiles(blockFiles)
+	if err != nil {
+		t.Fatalf("Failed to load block templates: %v", err)
+	}
+
+	// Verify templates were loaded
+	templates := tracker.GetTemplates()
+	if len(templates) != 2 {
+		t.Errorf("Expected 2 block templates, got %d", len(templates))
+	}
+
+	deps := tracker.GetDependencies()
+
+	// Test base template dependencies
+	baseDeps := deps["base-template"]
+	expectedBaseDeps := []string{
+		"Site.DefaultTitle", "Site.Name", "Navigation.MainItems",
+		"Sidebar.RecentPosts", "User.Name", "FeaturedPosts",
+		"Copyright.Year", "BuildInfo.Version",
+	}
+
+	baseFoundCount := 0
+	for _, expected := range expectedBaseDeps {
+		if baseDeps[expected] {
+			baseFoundCount++
+		}
+	}
+
+	if baseFoundCount < 3 {
+		t.Errorf("Base template should have found at least 3 dependencies, found %d", baseFoundCount)
+		t.Logf("Base template dependencies: %v", baseDeps)
+	}
+
+	// Test child template dependencies
+	childDeps := deps["post-child"]
+	expectedChildDeps := []string{
+		"Post.Title", "Post.MetaDescription", "Post.Author.Name",
+		"Post.Content", "Post.Tags", "RelatedPosts",
+	}
+
+	childFoundCount := 0
+	for _, expected := range expectedChildDeps {
+		if childDeps[expected] {
+			childFoundCount++
+		}
+	}
+
+	if childFoundCount < 3 {
+		t.Errorf("Child template should have found at least 3 dependencies, found %d", childFoundCount)
+		t.Logf("Child template dependencies: %v", childDeps)
 	}
 }
