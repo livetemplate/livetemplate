@@ -4,8 +4,8 @@ This directory contains utility scripts for development workflow automation and 
 
 ## 📁 Scripts Overview
 
-### 🧪 `validate-tests.sh` - Test Validation Script
-**Purpose:** Runs Go tests and validates code quality
+### 🧪 `validate-tests.sh` - Build & Test Validation Script
+**Purpose:** Runs Go build and tests to validate code quality
 
 **Usage:**
 ```bash
@@ -17,10 +17,12 @@ scripts/validate-tests.sh
 ```
 
 **Features:**
+- ✅ **Build validation** - Runs `go build ./...` to catch compilation errors
+- 🧪 **Test execution** - Runs `go test ./...` for comprehensive testing
 - ✅ **Automatic Go project detection** - Checks for `go.mod`
 - 📍 **Smart path handling** - Works from any directory in the project
-- 🔍 **Comprehensive testing** - Runs `go test ./...` for all packages
-- 💡 **Helpful error messages** - Provides tips when tests fail
+- 🔍 **Comprehensive validation** - Catches both build and test failures
+- 💡 **Helpful error messages** - Provides tips when build or tests fail
 - 🛡️ **Error handling** - Proper exit codes for CI/CD integration
 
 ### 🔧 `install-git-hooks.sh` - Git Hook Installer
@@ -33,8 +35,8 @@ scripts/validate-tests.sh
 ```
 
 **What it does:**
-- 🎯 **Creates pre-commit hook** - Automatically runs tests before commits
-- 🔗 **Links to validation script** - Uses `validate-tests.sh` for actual testing
+- 🎯 **Creates pre-commit hook** - Automatically runs build and tests before commits
+- 🔗 **Links to validation script** - Uses `validate-tests.sh` for actual validation
 - 🛡️ **Error checking** - Validates Git repository and script existence
 - 📋 **Clear feedback** - Shows exactly what was installed
 
@@ -62,18 +64,19 @@ cd <repository-name>
 
 ### Automatic Testing (via Git Hook)
 ```bash
-# Git will automatically run tests when you commit
+# Git will automatically run build and tests when you commit
 git commit -m "your changes"
-# → Tests run automatically
-# → Commit proceeds only if tests pass
+# → Build verification runs first
+# → Tests run if build succeeds
+# → Commit proceeds only if both build and tests pass
 ```
 
 ## 📊 Integration Benefits
 
 | Script | Use Case | When It Runs | Benefits |
 |--------|----------|--------------|----------|
-| `validate-tests.sh` | Manual testing | On demand | Quick feedback during development |
-| Git pre-commit hook | Automatic testing | Every `git commit` | Prevents broken code from being committed |
+| `validate-tests.sh` | Manual validation | On demand | Quick build + test feedback during development |
+| Git pre-commit hook | Automatic validation | Every `git commit` | Prevents broken code from being committed |
 
 ## 🔧 Customization
 
