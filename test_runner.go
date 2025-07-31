@@ -66,6 +66,14 @@ func RunAllTests() {
 		fmt.Println("❌ FAIL")
 	}
 
+	// Test 8: Fragment Extraction
+	fmt.Print("  Testing Fragment Extraction... ")
+	if testFragmentExtraction() {
+		fmt.Println("✅ PASS")
+	} else {
+		fmt.Println("❌ FAIL")
+	}
+
 	fmt.Println("\n🎉 All tests completed!")
 }
 
@@ -396,6 +404,87 @@ func testBlockTemplates() bool {
 	if childFoundCount < 4 {
 		fmt.Printf("Child template should have found at least 4 dependencies, found %d\n", childFoundCount)
 		return false
+	}
+
+	return true
+}
+
+func testFragmentExtraction() bool {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("Panic in testFragmentExtraction: %v\n", r)
+		}
+	}()
+
+	tracker := NewTemplateTracker()
+
+	// Test template with fragments that should be extracted
+	templateContent := `
+    <div>
+        <div>
+            Count updated: {{ .updated }} seconds ago
+        </div>
+
+        <hr />
+        <div>
+            Count: {{ .count }}
+        </div>
+        <button id="increment-btn">+</button>
+        <button id="decrement-btn">-</button>
+        
+        <p>User: {{ .user.name }}</p>
+    </div>`
+
+	// Add template with fragment extraction
+	tmpl, fragments, err := tracker.AddTemplateWithFragmentExtraction("test-fragments", templateContent)
+	if err != nil {
+		fmt.Printf("Failed to add template with fragments: %v\n", err)
+		return false
+	}
+
+	// Verify template was created
+	if tmpl == nil {
+		fmt.Printf("Template should not be nil\n")
+		return false
+	}
+
+	// Verify fragments were extracted
+	if len(fragments) == 0 {
+		fmt.Printf("Expected fragments to be extracted\n")
+		return false
+	}
+
+	// Check that fragments have valid IDs and content
+	for _, fragment := range fragments {
+		if len(fragment.ID) != 6 {
+			fmt.Printf("Fragment should have 6-character ID, got %d: %s\n", len(fragment.ID), fragment.ID)
+			return false
+		}
+
+		if fragment.Content == "" {
+			fmt.Printf("Fragment should have content\n")
+			return false
+		}
+
+		if len(fragment.Dependencies) == 0 {
+			fmt.Printf("Fragment should have dependencies\n")
+			return false
+		}
+	}
+
+	// Verify dependencies were stored for fragments
+	deps := tracker.GetDependencies()
+	for _, fragment := range fragments {
+		fragmentDeps, exists := deps[fragment.ID]
+		if !exists {
+			fmt.Printf("Fragment %s should have dependencies stored\n", fragment.ID)
+			return false
+		}
+
+		if len(fragmentDeps) == 0 {
+			fmt.Printf("Fragment %s should have non-empty dependencies\n", fragment.ID)
+			return false
+		}
 	}
 
 	return true

@@ -15,15 +15,19 @@ import (
 type TemplateTracker struct {
 	templates map[string]*template.Template
 	// Map template names to the data fields they depend on
-	dependencies map[string]map[string]bool // template -> field paths -> true
-	mu           sync.RWMutex
+	dependencies      map[string]map[string]bool     // template -> field paths -> true
+	fragments         map[string][]*TemplateFragment // template -> fragments
+	fragmentExtractor *FragmentExtractor
+	mu                sync.RWMutex
 }
 
 // NewTemplateTracker creates a new template tracker
 func NewTemplateTracker() *TemplateTracker {
 	return &TemplateTracker{
-		templates:    make(map[string]*template.Template),
-		dependencies: make(map[string]map[string]bool),
+		templates:         make(map[string]*template.Template),
+		dependencies:      make(map[string]map[string]bool),
+		fragments:         make(map[string][]*TemplateFragment),
+		fragmentExtractor: NewFragmentExtractor(),
 	}
 }
 
@@ -37,6 +41,36 @@ func (tt *TemplateTracker) AddTemplate(name string, tmpl *template.Template) {
 
 	// Analyze template for field dependencies
 	tt.analyzeDependencies(name, tmpl)
+}
+
+// AddTemplateWithFragmentExtraction adds a template with automatic fragment extraction
+func (tt *TemplateTracker) AddTemplateWithFragmentExtraction(name, templateContent string) (*template.Template, []*TemplateFragment, error) {
+	// Process template and extract fragments
+	tmpl, fragments, err := tt.fragmentExtractor.ProcessTemplateWithFragments(name, templateContent)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	tt.mu.Lock()
+	defer tt.mu.Unlock()
+
+	// Store the template and fragments
+	tt.templates[name] = tmpl
+	tt.fragments[name] = fragments
+	tt.dependencies[name] = make(map[string]bool)
+
+	// Analyze dependencies for the main template
+	tt.analyzeDependencies(name, tmpl)
+
+	// Analyze dependencies for each fragment and store them as separate templates
+	for _, fragment := range fragments {
+		tt.dependencies[fragment.ID] = make(map[string]bool)
+		for _, dep := range fragment.Dependencies {
+			tt.dependencies[fragment.ID][dep] = true
+		}
+	}
+
+	return tmpl, fragments, nil
 }
 
 // AddTemplateFromFile loads a template from a file and adds it to the tracker
@@ -383,4 +417,28 @@ func (tt *TemplateTracker) GetTemplate(name string) (*template.Template, bool) {
 
 	tmpl, exists := tt.templates[name]
 	return tmpl, exists
+}
+
+// GetFragments returns the fragments for a template
+func (tt *TemplateTracker) GetFragments(templateName string) ([]*TemplateFragment, bool) {
+	tt.mu.RLock()
+	defer tt.mu.RUnlock()
+
+	fragments, exists := tt.fragments[templateName]
+	return fragments, exists
+}
+
+// GetAllFragments returns all fragments for all templates
+func (tt *TemplateTracker) GetAllFragments() map[string][]*TemplateFragment {
+	tt.mu.RLock()
+	defer tt.mu.RUnlock()
+
+	result := make(map[string][]*TemplateFragment)
+	for name, fragments := range tt.fragments {
+		fragmentsCopy := make([]*TemplateFragment, len(fragments))
+		copy(fragmentsCopy, fragments)
+		result[name] = fragmentsCopy
+	}
+
+	return result
 }

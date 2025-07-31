@@ -422,3 +422,80 @@ func TestBlockTemplates(t *testing.T) {
 		t.Logf("Child template dependencies: %v", childDeps)
 	}
 }
+
+func TestFragmentExtraction(t *testing.T) {
+	tracker := NewTemplateTracker()
+
+	// Test template with fragments that should be extracted
+	templateContent := `
+    <div>
+        <div>
+            Count updated: {{ .updated }} seconds ago
+        </div>
+
+        <hr />
+        <div>
+            Count: {{ .count }}
+        </div>
+        <button id="increment-btn">+</button>
+        <button id="decrement-btn">-</button>
+        
+        <p>User: {{ .user.name }}</p>
+    </div>`
+
+	// Add template with fragment extraction
+	tmpl, fragments, err := tracker.AddTemplateWithFragmentExtraction("test-fragments", templateContent)
+	if err != nil {
+		t.Fatalf("Failed to add template with fragments: %v", err)
+	}
+
+	// Verify template was created
+	if tmpl == nil {
+		t.Fatal("Template should not be nil")
+	}
+
+	// Verify fragments were extracted
+	if len(fragments) == 0 {
+		t.Error("Expected fragments to be extracted")
+	}
+
+	// Check that fragments have valid IDs and content
+	for i, fragment := range fragments {
+		if len(fragment.ID) != 6 {
+			t.Errorf("Fragment %d should have 6-character ID, got %d: %s", i, len(fragment.ID), fragment.ID)
+		}
+
+		if fragment.Content == "" {
+			t.Errorf("Fragment %d should have content", i)
+		}
+
+		if len(fragment.Dependencies) == 0 {
+			t.Errorf("Fragment %d should have dependencies", i)
+		}
+
+		t.Logf("Fragment %d: ID=%s, Content=%q, Dependencies=%v", i, fragment.ID, fragment.Content, fragment.Dependencies)
+	}
+
+	// Verify dependencies were stored for fragments
+	deps := tracker.GetDependencies()
+	for _, fragment := range fragments {
+		fragmentDeps, exists := deps[fragment.ID]
+		if !exists {
+			t.Errorf("Fragment %s should have dependencies stored", fragment.ID)
+		}
+
+		if len(fragmentDeps) == 0 {
+			t.Errorf("Fragment %s should have non-empty dependencies", fragment.ID)
+		}
+	}
+
+	// Test retrieving fragments
+	retrievedFragments, exists := tracker.GetFragments("test-fragments")
+	if !exists {
+		t.Error("Should be able to retrieve fragments for template")
+	}
+
+	if len(retrievedFragments) != len(fragments) {
+		t.Errorf("Retrieved fragments count should match original: got %d, expected %d", len(retrievedFragments), len(fragments))
+	}
+}
