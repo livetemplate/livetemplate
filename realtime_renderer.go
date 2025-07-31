@@ -578,13 +578,16 @@ func (r *RealtimeRenderer) wrapNavigationFragment(html, fragmentID string) strin
 
 // wrapRangeFragmentItems wraps individual items within a range fragment with unique IDs
 func (r *RealtimeRenderer) wrapRangeFragmentItems(html string, rangeFragment *RangeFragment) string {
-	// For navigation items, wrap each <a> tag with an individual ID
+	// First, wrap the entire range container (e.g., <ul>, <nav>, etc.)
+	html = r.wrapRangeContainer(html, rangeFragment)
+
+	// Then wrap individual items based on the range type
 	if strings.Contains(rangeFragment.RangePath, "Navigation") {
 		return r.wrapNavigationItems(html, rangeFragment)
 	}
 
-	// Add support for other range types here as needed
-	return html
+	// Generic range item wrapping for any list items
+	return r.wrapGenericRangeItems(html, rangeFragment)
 }
 
 // wrapNavigationItems wraps individual navigation items with unique IDs
@@ -605,6 +608,94 @@ func (r *RealtimeRenderer) wrapNavigationItems(html string, rangeFragment *Range
 		}
 		return match
 	})
+}
+
+// wrapRangeContainer wraps the container element (ul, ol, nav, etc.) with the range fragment ID
+func (r *RealtimeRenderer) wrapRangeContainer(html string, rangeFragment *RangeFragment) string {
+	// For list containers, we should add the ID to the existing element rather than wrapping with a div
+	// This maintains valid HTML structure
+
+	listPatterns := []struct {
+		pattern     string
+		replacement string
+	}{
+		// Unordered lists - add ID to existing ul tag
+		{`(<ul)([^>]*>)(.*?)(</ul>)`, fmt.Sprintf(`$1 id="%s"$2$3$4`, rangeFragment.ContainerID)},
+		// Ordered lists - add ID to existing ol tag
+		{`(<ol)([^>]*>)(.*?)(</ol>)`, fmt.Sprintf(`$1 id="%s"$2$3$4`, rangeFragment.ContainerID)},
+		// Navigation elements - add ID to existing nav tag
+		{`(<nav)([^>]*>)(.*?)(</nav>)`, fmt.Sprintf(`$1 id="%s"$2$3$4`, rangeFragment.ContainerID)},
+	}
+
+	for _, listPattern := range listPatterns {
+		re := regexp.MustCompile(`(?s)` + listPattern.pattern) // (?s) makes . match newlines
+		if re.MatchString(html) {
+			return re.ReplaceAllString(html, listPattern.replacement)
+		}
+	}
+
+	// Fallback: wrap with div for other container types
+	containerPatterns := []string{
+		`(<div[^>]*>)(.*?)(</div>)`, // Generic div containers
+	}
+
+	for _, pattern := range containerPatterns {
+		re := regexp.MustCompile(`(?s)` + pattern) // (?s) makes . match newlines
+		if re.MatchString(html) {
+			return re.ReplaceAllString(html, fmt.Sprintf(`$1<div id="%s">$2</div>$3`, rangeFragment.ContainerID))
+		}
+	}
+
+	return html
+}
+
+// wrapGenericRangeItems wraps individual range items with unique fragment IDs
+func (r *RealtimeRenderer) wrapGenericRangeItems(html string, rangeFragment *RangeFragment) string {
+	itemIndex := 0
+
+	// For list items, add the fragment ID directly to the li element
+	liPattern := `(\s*<li)([^>]*)(>.*?</li>)`
+	liRe := regexp.MustCompile(`(?s)` + liPattern)
+	if liRe.MatchString(html) {
+		return liRe.ReplaceAllStringFunc(html, func(match string) string {
+			itemID := r.generateRangeItemID(rangeFragment.ContainerID, itemIndex)
+			itemIndex++
+
+			// Add the fragment ID to the li element
+			submatches := liRe.FindStringSubmatch(match)
+			if len(submatches) >= 4 {
+				liStart := submatches[1]       // "<li"
+				existingAttrs := submatches[2] // existing attributes
+				liContent := submatches[3]     // ">content</li>"
+
+				// Add the fragment ID to the existing attributes
+				return fmt.Sprintf(`%s id="%s"%s%s`, liStart, itemID, existingAttrs, liContent)
+			}
+			return match
+		})
+	}
+
+	// Fallback patterns for other item types that need div wrapping
+	itemPatterns := []string{
+		`(\s*<div[^>]*data-id[^>]*>.*?</div>)`, // Divs with data-id
+		`(\s*<article[^>]*>.*?</article>)`,     // Article elements
+		`(\s*<section[^>]*>.*?</section>)`,     // Section elements
+	}
+
+	for _, pattern := range itemPatterns {
+		re := regexp.MustCompile(`(?s)` + pattern) // (?s) makes . match newlines
+		if re.MatchString(html) {
+			return re.ReplaceAllStringFunc(html, func(match string) string {
+				itemID := r.generateRangeItemID(rangeFragment.ContainerID, itemIndex)
+				itemIndex++
+
+				// Wrap the entire matched element with a div containing the fragment ID
+				return fmt.Sprintf(`<div id="%s">%s</div>`, itemID, match)
+			})
+		}
+	}
+
+	return html
 }
 
 // extractBlockName extracts block name from template content
