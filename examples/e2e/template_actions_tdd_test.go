@@ -15,24 +15,24 @@ type TDDTestData struct {
 	Message    string `json:"message"`
 	Count      int    `json:"count"`
 	EmptyField string `json:"empty_field"`
-	
+
 	// Boolean fields for conditionals
 	IsVisible   bool `json:"is_visible"`
 	IsEnabled   bool `json:"is_enabled"`
 	HasContent  bool `json:"has_content"`
 	ShowDetails bool `json:"show_details"`
-	
+
 	// Collections for range operations
-	Items    []TDDItem    `json:"items"`
-	Users    []TDDUser    `json:"users"`
-	Tags     []string     `json:"tags"`
-	Numbers  []int        `json:"numbers"`
-	
+	Items   []TDDItem `json:"items"`
+	Users   []TDDUser `json:"users"`
+	Tags    []string  `json:"tags"`
+	Numbers []int     `json:"numbers"`
+
 	// Nested objects for with operations
-	Profile   *TDDProfile   `json:"profile,omitempty"`
-	Settings  *TDDSettings  `json:"settings,omitempty"`
-	Metadata  *TDDMetadata  `json:"metadata,omitempty"`
-	
+	Profile  *TDDProfile  `json:"profile,omitempty"`
+	Settings *TDDSettings `json:"settings,omitempty"`
+	Metadata *TDDMetadata `json:"metadata,omitempty"`
+
 	// Function test fields
 	Score     float64 `json:"score"`
 	Threshold float64 `json:"threshold"`
@@ -57,10 +57,10 @@ type TDDProfile struct {
 }
 
 type TDDSettings struct {
-	Theme      string `json:"theme"`
-	Language   string `json:"language"`
-	Timezone   string `json:"timezone"`
-	Advanced   *TDDAdvancedSettings `json:"advanced,omitempty"`
+	Theme    string               `json:"theme"`
+	Language string               `json:"language"`
+	Timezone string               `json:"timezone"`
+	Advanced *TDDAdvancedSettings `json:"advanced,omitempty"`
 }
 
 type TDDAdvancedSettings struct {
@@ -76,18 +76,18 @@ type TDDMetadata struct {
 
 // CommentTestSuite defines test cases for comment actions
 type CommentTestSuite struct {
-	name               string
-	template           string
-	data               *TDDTestData
-	shouldNotContain   []string
-	shouldContain      []string
-	description        string
+	name             string
+	template         string
+	data             *TDDTestData
+	shouldNotContain []string
+	shouldContain    []string
+	description      string
 }
 
 // TestTemplateActionComments tests comment actions using table-driven tests
 func TestTemplateActionComments(t *testing.T) {
 	t.Log("🧪 Testing Template Action: Comments")
-	
+
 	testSuite := []CommentTestSuite{
 		{
 			name: "BasicComments",
@@ -163,7 +163,7 @@ func TestTemplateActionComments(t *testing.T) {
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRealtimeRenderer(nil)
-			
+
 			err := renderer.AddTemplate("comments_"+tc.name, tc.template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
@@ -180,7 +180,7 @@ func TestTemplateActionComments(t *testing.T) {
 					t.Errorf("❌ Text '%s' should not appear in output", text)
 				}
 			}
-			
+
 			// Validate actual content is present
 			for _, text := range tc.shouldContain {
 				if !strings.Contains(html, text) {
@@ -207,7 +207,7 @@ type PipelineTestSuite struct {
 // TestTemplateActionPipelineOutput tests basic pipeline output using table-driven tests
 func TestTemplateActionPipelineOutput(t *testing.T) {
 	t.Log("🧪 Testing Template Action: Pipeline Output")
-	
+
 	testSuite := []PipelineTestSuite{
 		{
 			name: "BasicPipelineOutput",
@@ -276,7 +276,7 @@ func TestTemplateActionPipelineOutput(t *testing.T) {
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRealtimeRenderer(nil)
-			
+
 			err := renderer.AddTemplate("pipeline_"+tc.name, tc.template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
@@ -303,18 +303,18 @@ func TestTemplateActionPipelineOutput(t *testing.T) {
 
 // IfStatementTestSuite defines test cases for if/else conditionals
 type IfStatementTestSuite struct {
-	name        string
-	template    string
-	data        *TDDTestData
+	name             string
+	template         string
+	data             *TDDTestData
 	shouldContain    []string
 	shouldNotContain []string
-	description string
+	description      string
 }
 
 // TestTemplateActionIfStatements tests if/else conditionals using table-driven tests
 func TestTemplateActionIfStatements(t *testing.T) {
 	t.Log("🧪 Testing Template Action: If Statements")
-	
+
 	testSuite := []IfStatementTestSuite{
 		{
 			name: "AllTrueConditions",
@@ -422,7 +422,7 @@ func TestTemplateActionIfStatements(t *testing.T) {
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRealtimeRenderer(nil)
-			
+
 			err := renderer.AddTemplate("if_"+tc.name, tc.template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
@@ -439,7 +439,7 @@ func TestTemplateActionIfStatements(t *testing.T) {
 					t.Errorf("❌ Expected text '%s' not found in output", text)
 				}
 			}
-			
+
 			// Validate unwanted content is not present
 			for _, text := range tc.shouldNotContain {
 				if strings.Contains(html, text) {
@@ -456,18 +456,18 @@ func TestTemplateActionIfStatements(t *testing.T) {
 
 // IfElseChainsTestCase defines test cases for if-else-if chains
 type IfElseChainsTestCase struct {
-	name           string
-	count          int
-	score          float64
-	expectedCount  string
-	expectedScore  string
-	description    string
+	name          string
+	count         int
+	score         float64
+	expectedCount string
+	expectedScore string
+	description   string
 }
 
 // TestTemplateActionIfElseChains tests if-else-if chains using table-driven tests
 func TestTemplateActionIfElseChains(t *testing.T) {
 	t.Log("🧪 Testing Template Action: If-Else Chains")
-	
+
 	template := `<div>
 	{{if eq .Count 0}}
 		<p>No items</p>
@@ -544,7 +544,7 @@ func TestTemplateActionIfElseChains(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRealtimeRenderer(nil)
-			
+
 			err := renderer.AddTemplate("if_chains_"+tc.name, template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
@@ -587,7 +587,7 @@ type RangeLoopsTestSuite struct {
 // TestTemplateActionRangeLoops tests range iterations using table-driven tests
 func TestTemplateActionRangeLoops(t *testing.T) {
 	t.Log("🧪 Testing Template Action: Range Loops")
-	
+
 	baseTemplate := `<div>
 	<!-- Range over items -->
 	{{range .Items}}
@@ -635,7 +635,7 @@ func TestTemplateActionRangeLoops(t *testing.T) {
 				`class="number">1<`, `class="number">5<`,
 			},
 			shouldNotContain: []string{"No tags"},
-			description:     "Populated collections should render all items correctly",
+			description:      "Populated collections should render all items correctly",
 		},
 		{
 			name:     "EmptyCollections",
@@ -693,14 +693,14 @@ func TestTemplateActionRangeLoops(t *testing.T) {
 				"user", "user@test.com", "member",
 			},
 			shouldNotContain: []string{},
-			description:     "Range over complex structures should access all nested fields",
+			description:      "Range over complex structures should access all nested fields",
 		},
 	}
 
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRealtimeRenderer(nil)
-			
+
 			err := renderer.AddTemplate("range_"+tc.name, tc.template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
@@ -717,7 +717,7 @@ func TestTemplateActionRangeLoops(t *testing.T) {
 					t.Errorf("❌ Expected text '%s' not found in output", text)
 				}
 			}
-			
+
 			// Validate unwanted content is not present
 			for _, text := range tc.shouldNotContain {
 				if strings.Contains(html, text) {
@@ -745,7 +745,7 @@ type WithStatementsTestSuite struct {
 // TestTemplateActionWithStatements tests with context changes using table-driven tests
 func TestTemplateActionWithStatements(t *testing.T) {
 	t.Log("🧪 Testing Template Action: With Statements")
-	
+
 	baseTemplate := `<div>
 	<!-- Basic with -->
 	{{with .Profile}}
@@ -805,7 +805,7 @@ func TestTemplateActionWithStatements(t *testing.T) {
 				"Debug: true", "Log Level: info",
 			},
 			shouldNotContain: []string{"No settings configured", "No advanced settings"},
-			description:     "Populated with statements should access nested contexts correctly",
+			description:      "Populated with statements should access nested contexts correctly",
 		},
 		{
 			name:     "NilWithStatements",
@@ -880,7 +880,7 @@ func TestTemplateActionWithStatements(t *testing.T) {
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRealtimeRenderer(nil)
-			
+
 			err := renderer.AddTemplate("with_"+tc.name, tc.template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
@@ -897,7 +897,7 @@ func TestTemplateActionWithStatements(t *testing.T) {
 					t.Errorf("❌ Expected text '%s' not found in output", text)
 				}
 			}
-			
+
 			// Validate unwanted content is not present
 			for _, text := range tc.shouldNotContain {
 				if strings.Contains(html, text) {
@@ -925,7 +925,7 @@ type VariableAssignmentTestSuite struct {
 // TestTemplateActionVariableAssignment tests variable declarations and usage using table-driven tests
 func TestTemplateActionVariableAssignment(t *testing.T) {
 	t.Log("🧪 Testing Template Action: Variable Assignment")
-	
+
 	testSuite := []VariableAssignmentTestSuite{
 		{
 			name: "BasicVariableAssignment",
@@ -1043,7 +1043,7 @@ func TestTemplateActionVariableAssignment(t *testing.T) {
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRealtimeRenderer(nil)
-			
+
 			err := renderer.AddTemplate("variables_"+tc.name, tc.template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
@@ -1060,7 +1060,7 @@ func TestTemplateActionVariableAssignment(t *testing.T) {
 					t.Errorf("❌ Expected text '%s' not found in output", text)
 				}
 			}
-			
+
 			// Validate unwanted content is not present
 			for _, text := range tc.shouldNotContain {
 				if strings.Contains(html, text) {
@@ -1088,7 +1088,7 @@ type WhitespaceTrimmingTestSuite struct {
 // TestTemplateActionWhitespaceTrimming tests whitespace control using table-driven tests
 func TestTemplateActionWhitespaceTrimming(t *testing.T) {
 	t.Log("🧪 Testing Template Action: Whitespace Trimming")
-	
+
 	testSuite := []WhitespaceTrimmingTestSuite{
 		{
 			name: "BasicWhitespaceTrimming",
@@ -1178,7 +1178,7 @@ func TestTemplateActionWhitespaceTrimming(t *testing.T) {
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRealtimeRenderer(nil)
-			
+
 			err := renderer.AddTemplate("whitespace_"+tc.name, tc.template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
@@ -1195,7 +1195,7 @@ func TestTemplateActionWhitespaceTrimming(t *testing.T) {
 					t.Errorf("❌ Expected text '%s' not found in output", text)
 				}
 			}
-			
+
 			// Validate unwanted content is not present
 			for _, text := range tc.shouldNotContain {
 				if strings.Contains(html, text) {
@@ -1223,7 +1223,7 @@ type FunctionsTestSuite struct {
 // TestTemplateActionFunctions tests built-in and comparison functions using table-driven tests
 func TestTemplateActionFunctions(t *testing.T) {
 	t.Log("🧪 Testing Template Action: Functions")
-	
+
 	testSuite := []FunctionsTestSuite{
 		{
 			name: "ComparisonFunctions",
@@ -1357,7 +1357,7 @@ func TestTemplateActionFunctions(t *testing.T) {
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRealtimeRenderer(nil)
-			
+
 			err := renderer.AddTemplate("functions_"+tc.name, tc.template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
@@ -1374,7 +1374,7 @@ func TestTemplateActionFunctions(t *testing.T) {
 					t.Errorf("❌ Expected text '%s' not found in output", text)
 				}
 			}
-			
+
 			// Validate unwanted content is not present
 			for _, text := range tc.shouldNotContain {
 				if strings.Contains(html, text) {
@@ -1402,7 +1402,7 @@ type BlockDefinitionsTestSuite struct {
 // TestTemplateActionBlockDefinitions tests block definitions and overrides using table-driven tests
 func TestTemplateActionBlockDefinitions(t *testing.T) {
 	t.Log("🧪 Testing Template Action: Block Definitions")
-	
+
 	testSuite := []BlockDefinitionsTestSuite{
 		{
 			name: "BasicBlockDefinitions",
@@ -1518,7 +1518,7 @@ func TestTemplateActionBlockDefinitions(t *testing.T) {
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRealtimeRenderer(nil)
-			
+
 			err := renderer.AddTemplate("blocks_"+tc.name, tc.template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
@@ -1535,7 +1535,7 @@ func TestTemplateActionBlockDefinitions(t *testing.T) {
 					t.Errorf("❌ Expected text '%s' not found in output", text)
 				}
 			}
-			
+
 			// Validate unwanted content is not present
 			for _, text := range tc.shouldNotContain {
 				if strings.Contains(html, text) {
@@ -1564,7 +1564,7 @@ type RealTimeFragmentTestSuite struct {
 // TestTemplateActionRealTimeFragmentGeneration verifies all actions generate proper fragments using table-driven tests
 func TestTemplateActionRealTimeFragmentGeneration(t *testing.T) {
 	t.Log("🧪 Testing Real-time Fragment Generation for All Actions")
-	
+
 	testSuite := []RealTimeFragmentTestSuite{
 		{
 			name: "ComprehensiveFragmentGeneration",
@@ -1681,7 +1681,7 @@ func TestTemplateActionRealTimeFragmentGeneration(t *testing.T) {
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRealtimeRenderer(nil)
-			
+
 			err := renderer.AddTemplate("fragment_"+tc.name, tc.template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
@@ -1714,7 +1714,7 @@ func TestTemplateActionRealTimeFragmentGeneration(t *testing.T) {
 					t.Errorf("❌ Expected text '%s' not found in output", text)
 				}
 			}
-			
+
 			for _, text := range tc.shouldNotContain {
 				if strings.Contains(html, text) {
 					t.Errorf("❌ Unexpected text '%s' found in output", text)
@@ -1767,19 +1767,19 @@ func TestTemplateActionRealTimeFragmentGeneration(t *testing.T) {
 
 // IntegrationTestSuite defines test cases for integration of all actions
 type IntegrationTestSuite struct {
-	name                string
-	template            string
-	data                *TDDTestData
-	shouldContain       []string
-	shouldNotContain    []string
-	minFragmentCount    int
-	description         string
+	name             string
+	template         string
+	data             *TDDTestData
+	shouldContain    []string
+	shouldNotContain []string
+	minFragmentCount int
+	description      string
 }
 
 // TestAllTemplateActionsTogether tests integration of all actions using table-driven tests
 func TestAllTemplateActionsTogether(t *testing.T) {
 	t.Log("🧪 Testing All Template Actions Integration")
-	
+
 	testSuite := []IntegrationTestSuite{
 		{
 			name: "CompleteIntegration",
@@ -1881,9 +1881,9 @@ func TestAllTemplateActionsTogether(t *testing.T) {
 				"Debug Mode: Enabled", "Log Level: debug", "Above threshold",
 				"Score: 87.50 / 75.00",
 			},
-			shouldNotContain:    []string{"No users online", "No items available", "Below threshold", "Disabled"},
-			minFragmentCount:    5,
-			description:         "Complete integration should handle all template actions correctly",
+			shouldNotContain: []string{"No users online", "No items available", "Below threshold", "Disabled"},
+			minFragmentCount: 5,
+			description:      "Complete integration should handle all template actions correctly",
 		},
 		{
 			name: "EdgeCaseIntegration",
@@ -1911,10 +1911,10 @@ func TestAllTemplateActionsTogether(t *testing.T) {
 				Items:   []TDDItem{},
 				Profile: nil,
 			},
-			shouldContain:       []string{"Empty state", "Anonymous"},
-			shouldNotContain:    []string{},
-			minFragmentCount:    2,
-			description:         "Edge cases should be handled correctly in integration",
+			shouldContain:    []string{"Empty state", "Anonymous"},
+			shouldNotContain: []string{},
+			minFragmentCount: 2,
+			description:      "Edge cases should be handled correctly in integration",
 		},
 		{
 			name: "NestedContextIntegration",
@@ -1940,17 +1940,17 @@ func TestAllTemplateActionsTogether(t *testing.T) {
 					DisplayName: "Admin Profile",
 				},
 			},
-			shouldContain:       []string{"admin", "user", "Main profile"},
-			shouldNotContain:    []string{},
-			minFragmentCount:    1,
-			description:         "Nested contexts with global scope access should work correctly",
+			shouldContain:    []string{"admin", "user", "Main profile"},
+			shouldNotContain: []string{},
+			minFragmentCount: 1,
+			description:      "Nested contexts with global scope access should work correctly",
 		},
 	}
 
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRealtimeRenderer(nil)
-			
+
 			err := renderer.AddTemplate("integration_"+tc.name, tc.template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
@@ -1967,7 +1967,7 @@ func TestAllTemplateActionsTogether(t *testing.T) {
 					t.Errorf("❌ Expected text '%s' not found in output", text)
 				}
 			}
-			
+
 			for _, text := range tc.shouldNotContain {
 				if strings.Contains(html, text) {
 					t.Errorf("❌ Unexpected text '%s' found in output", text)
