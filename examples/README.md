@@ -19,22 +19,22 @@ Demonstrates the core functionality:
 - Real-time change notifications
 - Dependency-based selective updates
 
-### 2. `files/` - File-Based Template Loading
+### 2. `files/` - File-Based Template Loading  
 **File:** `examples/files/main.go`
+**Templates:** `examples/files/templates/*.html`
 
 Shows how to work with template files:
 - Loading templates from a directory
 - Loading specific template files with custom names
-- Template file creation and cleanup
+- Template file creation with real HTML templates
 - Directory-based template management
 
 **Key Features:**
 - `LoadTemplatesFromDirectory()` for bulk loading
 - `LoadTemplateFromFile()` for specific files
-- Automatic file extension filtering
+- Actual template files in `templates/` directory
 - Custom template naming
-
-### 3. `fragments/` - Automatic Fragment Extraction
+- Comprehensive dependency analysis### 3. `fragments/` - Automatic Fragment Extraction
 **File:** `examples/fragments/main.go`
 
 Demonstrates the most advanced feature:

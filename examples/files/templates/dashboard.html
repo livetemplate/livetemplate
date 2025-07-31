@@ -1,0 +1,24 @@
+<div class="dashboard-widget">
+  <div class="widget-header">
+    <h3>{{.Title}} Dashboard</h3>
+  </div>
+  <div class="widget-content">
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <h4>Active Users</h4>
+        <div class="metric-value">{{.Stats.UserCount}}</div>
+      </div>
+      <div class="metric-card">
+        <h4>Total Posts</h4>
+        <div class="metric-value">{{.Stats.PostCount}}</div>
+      </div>
+      <div class="metric-card">
+        <h4>Current User</h4>
+        <div class="metric-value">{{.CurrentUser.Name}}</div>
+      </div>
+    </div>
+    <div class="widget-footer">
+      <small>Last updated: {{.Stats.LastUpdate}}</small>
+    </div>
+  </div>
+</div>

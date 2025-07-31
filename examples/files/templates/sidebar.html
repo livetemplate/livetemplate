@@ -1,0 +1,31 @@
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <h2>Dashboard</h2>
+  </div>
+  <nav class="sidebar-nav">
+    <ul class="nav-list">
+      <li class="nav-item">
+        <span class="nav-label">User: {{.CurrentUser.Name}}</span>
+      </li>
+      <li class="nav-item">
+        <span class="nav-label">Email: {{.CurrentUser.Email}}</span>
+      </li>
+      <li class="nav-item">
+        <span class="nav-label">Role: {{.CurrentUser.Role}}</span>
+      </li>
+    </ul>
+  </nav>
+  <div class="sidebar-stats">
+    <div class="stat-item">
+      <span class="stat-label">Total Users:</span>
+      <span class="stat-value">{{.Stats.UserCount}}</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-label">Total Posts:</span>
+      <span class="stat-value">{{.Stats.PostCount}}</span>
+    </div>
+  </div>
+  <div class="sidebar-footer">
+    <small>Last updated: {{.Stats.LastUpdate}}</small>
+  </div>
+</aside>

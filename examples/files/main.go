@@ -29,97 +29,35 @@ type AppData struct {
 	Stats       *Stats `json:"stats"`
 }
 
-// Create example template files for demonstration
-func createExampleTemplates() error {
-	// Create a temporary directory for templates
-	templatesDir := "example-templates"
-	err := os.MkdirAll(templatesDir, 0755)
-	if err != nil {
-		return err
+// getTemplatesDir returns the correct path to the templates directory
+// regardless of where the example is run from
+func getTemplatesDir() string {
+	// First, try relative to current working directory
+	if _, err := os.Stat("templates"); err == nil {
+		return "templates"
 	}
 
-	// Create header template
-	headerContent := `<header class="app-header">
-    <h1>{{.Title}}</h1>
-    {{if .CurrentUser}}
-        <div class="user-welcome">
-            <span>Welcome, {{.CurrentUser.Name}}!</span>
-            <small>({{.CurrentUser.Role}})</small>
-        </div>
-    {{end}}
-</header>`
-
-	err = os.WriteFile(filepath.Join(templatesDir, "header.html"), []byte(headerContent), 0644)
-	if err != nil {
-		return err
+	// If not found, try relative to project root
+	if _, err := os.Stat("examples/files/templates"); err == nil {
+		return "examples/files/templates"
 	}
 
-	// Create sidebar template
-	sidebarContent := `<aside class="sidebar">
-    <div class="stats-widget">
-        <h3>Site Statistics</h3>
-        <ul>
-            <li>Users: {{.Stats.UserCount}}</li>
-            <li>Posts: {{.Stats.PostCount}}</li>
-            <li>Last Update: {{.Stats.LastUpdate}}</li>
-        </ul>
-    </div>
-    
-    {{if .CurrentUser}}
-        <div class="user-profile">
-            <h3>Your Profile</h3>
-            <p>Name: {{.CurrentUser.Name}}</p>
-            <p>Email: {{.CurrentUser.Email}}</p>
-            <p>Role: {{.CurrentUser.Role}}</p>
-        </div>
-    {{end}}
-</aside>`
-
-	err = os.WriteFile(filepath.Join(templatesDir, "sidebar.html"), []byte(sidebarContent), 0644)
-	if err != nil {
-		return err
-	}
-
-	// Create footer template
-	footerContent := `<footer class="app-footer">
-    <p>&copy; 2025 My Application</p>
-    <div class="footer-stats">
-        <span>{{.Stats.UserCount}} users registered</span>
-        <span>{{.Stats.PostCount}} posts published</span>
-    </div>
-</footer>`
-
-	err = os.WriteFile(filepath.Join(templatesDir, "footer.html"), []byte(footerContent), 0644)
-	if err != nil {
-		return err
-	}
-
-	log.Printf("✅ Created example templates in %s/", templatesDir)
-	return nil
+	// Default fallback
+	return "templates"
 }
 
 func main() {
 	log.Println("🔥 File Parsing Example")
 	log.Println("=====================")
 
-	// Create example template files
-	err := createExampleTemplates()
-	if err != nil {
-		log.Fatalf("Failed to create example templates: %v", err)
-	}
-
-	// Defer cleanup
-	defer func() {
-		os.RemoveAll("example-templates")
-		log.Println("🧹 Cleaned up example templates")
-	}()
-
 	// Create template tracker
 	tracker := statetemplate.NewTemplateTracker()
 
 	// Example 1: Load templates from directory
-	log.Println("\n📁 Loading templates from directory...")
-	err = tracker.AddTemplatesFromDirectory("example-templates", ".html")
+	log.Println("📁 Loading templates from directory...")
+	templatesDir := getTemplatesDir() // Auto-detect correct templates path
+	log.Printf("   Using templates directory: %s", templatesDir)
+	err := tracker.AddTemplatesFromDirectory(templatesDir, ".html")
 	if err != nil {
 		log.Fatalf("Failed to load templates from directory: %v", err)
 	}
@@ -150,9 +88,9 @@ func main() {
 	tracker2 := statetemplate.NewTemplateTracker()
 
 	fileMap := map[string]string{
-		"my-header":  "example-templates/header.html",
-		"my-sidebar": "example-templates/sidebar.html",
-		"my-footer":  "example-templates/footer.html",
+		"my-header":  filepath.Join(templatesDir, "header.html"),
+		"my-sidebar": filepath.Join(templatesDir, "sidebar.html"),
+		"my-footer":  filepath.Join(templatesDir, "footer.html"),
 	}
 
 	err = tracker2.AddTemplatesFromFiles(fileMap)
@@ -243,8 +181,11 @@ func main() {
 	time.Sleep(10 * time.Second)
 
 	log.Println("\n✅ File parsing example completed!")
-	log.Println("   This demonstrates loading templates from:")
-	log.Println("   - Directory (with file extension filtering)")
-	log.Println("   - Specific file mappings (custom names)")
-	log.Println("   - Automatic dependency tracking from file contents")
+	log.Println()
+	log.Println("🚀 This example demonstrates:")
+	log.Println("   📁 Loading templates from a directory (with file extension filtering)")
+	log.Println("   📝 Loading specific template files with custom names")
+	log.Println("   🔍 Dependency analysis showing which data fields each template uses")
+	log.Println("   ⚡ Live updates showing only affected templates when data changes")
+	log.Println("   🎯 Real template files instead of programmatically generated ones")
 }

@@ -1,0 +1,23 @@
+<div class="user-profile-widget">
+  <div class="profile-header">
+    <h3>User Profile</h3>
+  </div>
+  <div class="profile-content">
+    <div class="profile-field">
+      <label>Name:</label>
+      <span class="profile-value">{{.CurrentUser.Name}}</span>
+    </div>
+    <div class="profile-field">
+      <label>Email:</label>
+      <span class="profile-value">{{.CurrentUser.Email}}</span>
+    </div>
+    <div class="profile-field">
+      <label>Role:</label>
+      <span class="profile-value">{{.CurrentUser.Role}}</span>
+    </div>
+    <div class="profile-field">
+      <label>User ID:</label>
+      <span class="profile-value">#{{.CurrentUser.ID}}</span>
+    </div>
+  </div>
+</div>
