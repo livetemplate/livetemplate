@@ -211,7 +211,7 @@ func TestRangeDemoE2E(t *testing.T) {
 				break
 			}
 		}
-		
+
 		if modificationUpdate == nil {
 			t.Error("❌ Could not find replace update for modified first item")
 		} else {
@@ -231,7 +231,7 @@ func TestRangeDemoE2E(t *testing.T) {
 		if !strings.Contains(update.FragmentID, "-item-") {
 			t.Errorf("❌ Fragment ID '%s' should contain '-item-' pattern", update.FragmentID)
 		}
-		
+
 		// Fragment ID should be in format: containerID-item-index
 		parts := strings.Split(update.FragmentID, "-item-")
 		if len(parts) != 2 {
@@ -254,13 +254,13 @@ func TestRangeDemoE2E(t *testing.T) {
 func TestRangeDemoFragmentStructure(t *testing.T) {
 	// Create real-time renderer
 	config := &statetemplate.RealtimeConfig{
-		WrapperTag:     "div", 
+		WrapperTag:     "div",
 		IDPrefix:       "fragment-",
 		PreserveBlocks: true,
 	}
 	renderer := statetemplate.NewRealtimeRenderer(config)
 
-	// Range template 
+	// Range template
 	templateContent := `<div>
 	<h2>Item List</h2>
 	<ul>
@@ -309,7 +309,7 @@ func TestRangeDemoFragmentStructure(t *testing.T) {
 		t.Error("❌ Expected HTML to contain element IDs for fragment targeting")
 	}
 
-	// Check for proper ul container ID 
+	// Check for proper ul container ID
 	if !strings.Contains(fullHTML, `<ul id="`) {
 		t.Error("❌ Expected ul element to have container ID")
 	}

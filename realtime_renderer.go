@@ -132,6 +132,18 @@ func (r *RealtimeRenderer) createSimpleFragments(content, templateName string) [
 	rangeFragments := r.createRangeFragments(content, templateName, allDependencies)
 	r.rangeFragments[templateName] = rangeFragments
 
+	// Create conditional fragments for if/with blocks
+	conditionalFragments := r.createConditionalFragments(content, templateName, allDependencies)
+	for _, condFragment := range conditionalFragments {
+		fragments = append(fragments, condFragment.TemplateFragment)
+	}
+
+	// Create template include fragments
+	includeFragments := r.createTemplateIncludeFragments(content, templateName, allDependencies)
+	for _, includeFragment := range includeFragments {
+		fragments = append(fragments, includeFragment.TemplateFragment)
+	}
+
 	// Try to identify block fragments separately
 	r.addBlockFragments(&fragments, content, templateName, allDependencies)
 
@@ -164,13 +176,18 @@ func (r *RealtimeRenderer) createGranularFragments(content, templateName string,
 			continue
 		}
 
-		// Skip block/end constructs - these will be handled separately
-		if strings.Contains(trimmedLine, "{{block") || strings.Contains(trimmedLine, "{{end}}") ||
-			strings.Contains(trimmedLine, "{{range") {
+		// Skip control flow constructs that don't produce direct output
+		if strings.Contains(trimmedLine, "{{end}}") || strings.Contains(trimmedLine, "{{else}}") ||
+			strings.Contains(trimmedLine, "{{break}}") || strings.Contains(trimmedLine, "{{continue}}") {
 			continue
 		}
 
-		// Find dependencies for this specific line
+		// Skip complex constructs that are handled separately
+		if strings.Contains(trimmedLine, "{{block") || strings.Contains(trimmedLine, "{{range") ||
+			strings.Contains(trimmedLine, "{{if") || strings.Contains(trimmedLine, "{{with") ||
+			strings.Contains(trimmedLine, "{{template") {
+			continue
+		} // Find dependencies for this specific line
 		lineDependencies := r.findLineDependencies(line, allDependencies)
 		if len(lineDependencies) > 0 {
 			fragment := &TemplateFragment{
@@ -264,6 +281,209 @@ func (r *RealtimeRenderer) createRangeFragments(content, templateName string, al
 	}
 
 	return rangeFragments
+}
+
+// ConditionalFragment represents a fragment that contains conditional logic
+type ConditionalFragment struct {
+	*TemplateFragment
+	ConditionPath string // The path to the condition (e.g., "User.IsLoggedIn")
+	TrueContent   string // Content when condition is true
+	FalseContent  string // Content when condition is false (else block)
+	FragmentType  string // "if", "with"
+}
+
+// TemplateIncludeFragment represents a fragment that includes another template
+type TemplateIncludeFragment struct {
+	*TemplateFragment
+	TemplateName string // Name of the included template
+	DataPath     string // Path to the data passed to template (optional)
+}
+
+// createConditionalFragments creates fragments for if/with conditional blocks
+func (r *RealtimeRenderer) createConditionalFragments(content, templateName string, allDependencies []string) []*ConditionalFragment {
+	var conditionalFragments []*ConditionalFragment
+
+	lines := strings.Split(content, "\n")
+
+	// Track nested conditionals
+	var conditionStack []map[string]interface{}
+
+	for i, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+
+		// Detect if conditions
+		if strings.Contains(trimmedLine, "{{if") {
+			conditionPath := r.extractConditionPath(trimmedLine, "if")
+			if conditionPath != "" {
+				conditionStack = append(conditionStack, map[string]interface{}{
+					"type":      "if",
+					"path":      conditionPath,
+					"startLine": i,
+					"content":   []string{},
+				})
+			}
+		}
+
+		// Detect with conditions
+		if strings.Contains(trimmedLine, "{{with") {
+			conditionPath := r.extractConditionPath(trimmedLine, "with")
+			if conditionPath != "" {
+				conditionStack = append(conditionStack, map[string]interface{}{
+					"type":      "with",
+					"path":      conditionPath,
+					"startLine": i,
+					"content":   []string{},
+				})
+			}
+		}
+
+		// Handle else blocks
+		if strings.Contains(trimmedLine, "{{else}}") && len(conditionStack) > 0 {
+			// Mark transition to else content in current condition
+			currentCondition := conditionStack[len(conditionStack)-1]
+			currentCondition["elseStartLine"] = i
+			currentCondition["elseContent"] = []string{}
+		}
+
+		// Handle end blocks
+		if strings.Contains(trimmedLine, "{{end}}") && len(conditionStack) > 0 {
+			// Pop the most recent condition and create fragment
+			currentCondition := conditionStack[len(conditionStack)-1]
+			conditionStack = conditionStack[:len(conditionStack)-1]
+
+			fragmentType := currentCondition["type"].(string)
+			conditionPath := currentCondition["path"].(string)
+			startLine := currentCondition["startLine"].(int)
+
+			var trueContent, falseContent string
+			if content, ok := currentCondition["content"].([]string); ok {
+				trueContent = strings.Join(content, "\n")
+			}
+			if elseContent, ok := currentCondition["elseContent"].([]string); ok {
+				falseContent = strings.Join(elseContent, "\n")
+			}
+
+			// Create conditional fragment
+			fragment := &ConditionalFragment{
+				TemplateFragment: &TemplateFragment{
+					ID:           r.generateShortID(),
+					Content:      strings.Join(lines[startLine:i+1], "\n"),
+					Dependencies: []string{conditionPath},
+					StartPos:     startLine,
+					EndPos:       i + 1,
+				},
+				ConditionPath: conditionPath,
+				TrueContent:   trueContent,
+				FalseContent:  falseContent,
+				FragmentType:  fragmentType,
+			}
+			conditionalFragments = append(conditionalFragments, fragment)
+		}
+
+		// Collect content for active conditions
+		if len(conditionStack) > 0 {
+			currentCondition := conditionStack[len(conditionStack)-1]
+
+			// Skip the opening condition line itself
+			if i == currentCondition["startLine"].(int) {
+				continue
+			}
+
+			// Add to appropriate content collection
+			if _, hasElse := currentCondition["elseStartLine"]; hasElse {
+				if elseContent, ok := currentCondition["elseContent"].([]string); ok {
+					elseContent = append(elseContent, line)
+					currentCondition["elseContent"] = elseContent
+				}
+			} else {
+				if content, ok := currentCondition["content"].([]string); ok {
+					content = append(content, line)
+					currentCondition["content"] = content
+				}
+			}
+		}
+	}
+
+	return conditionalFragments
+}
+
+// createTemplateIncludeFragments creates fragments for template inclusion blocks
+func (r *RealtimeRenderer) createTemplateIncludeFragments(content, templateName string, allDependencies []string) []*TemplateIncludeFragment {
+	var includeFragments []*TemplateIncludeFragment
+
+	lines := strings.Split(content, "\n")
+
+	for i, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+
+		// Detect template inclusions
+		if strings.Contains(trimmedLine, "{{template") {
+			templateName, dataPath := r.extractTemplateIncludeInfo(trimmedLine)
+			if templateName != "" {
+				var dependencies []string
+				if dataPath != "" {
+					dependencies = []string{dataPath}
+				}
+
+				fragment := &TemplateIncludeFragment{
+					TemplateFragment: &TemplateFragment{
+						ID:           r.generateShortID(),
+						Content:      line,
+						Dependencies: dependencies,
+						StartPos:     i,
+						EndPos:       i + 1,
+					},
+					TemplateName: templateName,
+					DataPath:     dataPath,
+				}
+				includeFragments = append(includeFragments, fragment)
+			}
+		}
+	}
+
+	return includeFragments
+}
+
+// extractConditionPath extracts the condition path from if/with statements
+func (r *RealtimeRenderer) extractConditionPath(line, conditionType string) string {
+	// Patterns for different condition types
+	var pattern string
+	switch conditionType {
+	case "if":
+		pattern = `\{\{if\s+\.([^}]+)\}\}`
+	case "with":
+		pattern = `\{\{with\s+\.([^}]+)\}\}`
+	default:
+		return ""
+	}
+
+	re := regexp.MustCompile(pattern)
+	matches := re.FindStringSubmatch(line)
+	if len(matches) > 1 {
+		return matches[1]
+	}
+	return ""
+}
+
+// extractTemplateIncludeInfo extracts template name and data path from template inclusion
+func (r *RealtimeRenderer) extractTemplateIncludeInfo(line string) (templateName, dataPath string) {
+	// Pattern for template with data: {{template "name" .Data}}
+	templateWithDataPattern := `\{\{template\s+"([^"]+)"\s+\.([^}]+)\}\}`
+	re := regexp.MustCompile(templateWithDataPattern)
+	matches := re.FindStringSubmatch(line)
+	if len(matches) > 2 {
+		return matches[1], matches[2]
+	}
+
+	// Pattern for template without data: {{template "name"}}
+	templatePattern := `\{\{template\s+"([^"]+)"\}\}`
+	re = regexp.MustCompile(templatePattern)
+	matches = re.FindStringSubmatch(line)
+	if len(matches) > 1 {
+		return matches[1], ""
+	}
+
+	return "", ""
 }
 
 // generateShortID generates a short, unique 6-character ID
@@ -495,6 +715,10 @@ func (r *RealtimeRenderer) wrapRenderedFragments(renderedHTML, templateName stri
 			result = r.wrapSiteFragment(result, fragmentID)
 		} else if r.isNavigationFragment(fragment) {
 			result = r.wrapNavigationFragment(result, fragmentID)
+		} else if r.isConditionalFragment(fragment) {
+			result = r.wrapConditionalFragment(result, fragment, fragmentID)
+		} else if r.isTemplateIncludeFragment(fragment) {
+			result = r.wrapTemplateIncludeFragment(result, fragment, fragmentID)
 		}
 	}
 
@@ -560,6 +784,16 @@ func (r *RealtimeRenderer) isNavigationFragment(fragment *TemplateFragment) bool
 		}
 	}
 	return false
+}
+
+// isConditionalFragment checks if this fragment contains conditional logic (if/with)
+func (r *RealtimeRenderer) isConditionalFragment(fragment *TemplateFragment) bool {
+	return strings.Contains(fragment.Content, "{{if") || strings.Contains(fragment.Content, "{{with")
+}
+
+// isTemplateIncludeFragment checks if this fragment includes another template
+func (r *RealtimeRenderer) isTemplateIncludeFragment(fragment *TemplateFragment) bool {
+	return strings.Contains(fragment.Content, "{{template")
 }
 
 // wrapSiteFragment wraps the site heading with a div ID
@@ -693,6 +927,68 @@ func (r *RealtimeRenderer) wrapGenericRangeItems(html string, rangeFragment *Ran
 				return fmt.Sprintf(`<div id="%s">%s</div>`, itemID, match)
 			})
 		}
+	}
+
+	return html
+}
+
+// wrapConditionalFragment wraps conditional content (if/with blocks) with fragment IDs
+func (r *RealtimeRenderer) wrapConditionalFragment(html string, fragment *TemplateFragment, fragmentID string) string {
+	// For conditional blocks, we need to wrap the rendered output
+	// This is more complex as we need to detect what content was actually rendered
+
+	// Look for common conditional content patterns
+	conditionalPatterns := []string{
+		`(\s*<div[^>]*class="[^"]*conditional[^"]*"[^>]*>.*?</div>)`, // Div with conditional class
+		`(\s*<section[^>]*>.*?</section>)`,                           // Section elements
+		`(\s*<p[^>]*>.*?</p>)`,                                       // Paragraph elements
+		`(\s*<span[^>]*>.*?</span>)`,                                 // Span elements
+	}
+
+	for _, pattern := range conditionalPatterns {
+		re := regexp.MustCompile(`(?s)` + pattern) // (?s) makes . match newlines
+		if re.MatchString(html) {
+			return re.ReplaceAllString(html, fmt.Sprintf(`<div id="%s">$1</div>`, fragmentID))
+		}
+	}
+
+	// Fallback: wrap any block-level content that might be from the conditional
+	blockContentPattern := `(\s*<[^>]+>.*?</[^>]+>)`
+	re := regexp.MustCompile(`(?s)` + blockContentPattern)
+	if re.MatchString(html) {
+		return re.ReplaceAllString(html, fmt.Sprintf(`<div id="%s">$1</div>`, fragmentID))
+	}
+
+	return html
+}
+
+// wrapTemplateIncludeFragment wraps template inclusion content with fragment IDs
+func (r *RealtimeRenderer) wrapTemplateIncludeFragment(html string, fragment *TemplateFragment, fragmentID string) string {
+	// Template inclusions render their content directly into the output
+	// We need to wrap whatever content was rendered by the included template
+
+	// Look for common template inclusion patterns
+	includePatterns := []string{
+		`(\s*<div[^>]*class="[^"]*template[^"]*"[^>]*>.*?</div>)`, // Div with template class
+		`(\s*<article[^>]*>.*?</article>)`,                        // Article elements
+		`(\s*<section[^>]*>.*?</section>)`,                        // Section elements
+		`(\s*<aside[^>]*>.*?</aside>)`,                            // Aside elements
+		`(\s*<header[^>]*>.*?</header>)`,                          // Header elements
+		`(\s*<footer[^>]*>.*?</footer>)`,                          // Footer elements
+	}
+
+	for _, pattern := range includePatterns {
+		re := regexp.MustCompile(`(?s)` + pattern) // (?s) makes . match newlines
+		if re.MatchString(html) {
+			return re.ReplaceAllString(html, fmt.Sprintf(`<div id="%s">$1</div>`, fragmentID))
+		}
+	}
+
+	// Fallback: wrap any content that might be from the template inclusion
+	contentPattern := `(\s*<[^>]+>.*?</[^>]+>)`
+	re := regexp.MustCompile(`(?s)` + contentPattern)
+	if re.MatchString(html) {
+		return re.ReplaceAllString(html, fmt.Sprintf(`<div id="%s">$1</div>`, fragmentID))
 	}
 
 	return html
