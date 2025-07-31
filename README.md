@@ -2,6 +2,22 @@
 
 This Go package provides a sophisticated system for tracking dependencies between HTML templates and data structures, and efficiently determining which templates need re-rendering when data changes.
 
+## 🚀 Quick Start
+
+```bash
+# Clone and setup
+git clone <repository-url>
+cd statetemplate
+
+# Install Git hooks for automated testing
+./scripts/install-git-hooks.sh
+
+# Run examples
+go run examples/simple/main.go
+go run examples/files/main.go
+go run examples/fragments/main.go
+```
+
 ## Features
 
 - **Automatic Dependency Detection**: Analyzes Go HTML templates to extract field dependencies
