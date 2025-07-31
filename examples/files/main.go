@@ -18,9 +18,9 @@ type User struct {
 }
 
 type Stats struct {
-	UserCount    int `json:"user_count"`
-	PostCount    int `json:"post_count"`
-	LastUpdate   string `json:"last_update"`
+	UserCount  int    `json:"user_count"`
+	PostCount  int    `json:"post_count"`
+	LastUpdate string `json:"last_update"`
 }
 
 type AppData struct {
@@ -145,10 +145,10 @@ func main() {
 
 	// Example 2: Load specific files by name
 	log.Println("\n📝 Loading specific templates by file path...")
-	
+
 	// Create a new tracker for this example
 	tracker2 := statetemplate.NewTemplateTracker()
-	
+
 	fileMap := map[string]string{
 		"my-header":  "example-templates/header.html",
 		"my-sidebar": "example-templates/sidebar.html",
@@ -210,9 +210,9 @@ func main() {
 		updatedData := *initialData
 		updatedData.CurrentUser = &User{
 			ID:    1,
-			Name:  "Alice Smith", // Changed name
+			Name:  "Alice Smith",             // Changed name
 			Email: "alice.smith@example.com", // Changed email
-			Role:  "Super Admin", // Changed role
+			Role:  "Super Admin",             // Changed role
 		}
 		updatedData.Stats.LastUpdate = time.Now().Format("15:04:05")
 
@@ -241,7 +241,7 @@ func main() {
 
 	// Let it run
 	time.Sleep(10 * time.Second)
-	
+
 	log.Println("\n✅ File parsing example completed!")
 	log.Println("   This demonstrates loading templates from:")
 	log.Println("   - Directory (with file extension filtering)")

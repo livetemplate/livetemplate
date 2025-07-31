@@ -163,21 +163,21 @@ func main() {
 			log.Printf("🔄 Update notification:")
 			log.Printf("   Templates to re-render: %v", update.TemplateNames)
 			log.Printf("   Changed fields: %v", update.ChangedFields)
-			
+
 			// Show which fragments need updates
 			deps := tracker.GetDependencies()
 			log.Printf("   Fragments affected:")
 			for _, fragment := range fragments {
 				fragmentDeps := deps[fragment.ID]
 				needsUpdate := false
-				
+
 				for _, changedField := range update.ChangedFields {
 					if fragmentDeps[changedField] {
 						needsUpdate = true
 						break
 					}
 				}
-				
+
 				if needsUpdate {
 					log.Printf("     ✅ %s: %q", fragment.ID, fragment.Content)
 				}
@@ -191,7 +191,7 @@ func main() {
 		defer close(dataChannel)
 
 		log.Println("📊 Simulating data changes...")
-		
+
 		// Initial data
 		dataChannel <- statetemplate.DataUpdate{Data: testData}
 		time.Sleep(2 * time.Second)
@@ -200,9 +200,9 @@ func main() {
 		log.Println("🔢 Changing counter value...")
 		newData := *testData
 		newData.Counter = &Counter{
-			Value:       16, // Changed
+			Value:       16,         // Changed
 			LastUpdated: "just now", // Changed
-			UpdateCount: 24, // Changed
+			UpdateCount: 24,         // Changed
 		}
 		dataChannel <- statetemplate.DataUpdate{Data: &newData}
 		time.Sleep(2 * time.Second)
@@ -238,7 +238,7 @@ func main() {
 
 	// Let the simulation run
 	time.Sleep(10 * time.Second)
-	
+
 	log.Println("✅ Fragment extraction example completed!")
 	log.Println()
 	log.Println("🚀 Key Benefits Demonstrated:")
