@@ -16,6 +16,7 @@ cd statetemplate
 go run examples/simple/main.go
 go run examples/files/main.go
 go run examples/fragments/main.go
+go run examples/realtime/main.go
 ```
 
 ## Features
@@ -25,6 +26,7 @@ go run examples/fragments/main.go
 - **Efficient Re-rendering**: Only re-renders templates that depend on changed data fields
 - **Real-time Updates**: Processes data updates through channels for live applications
 - **Advanced AST Analysis**: Uses template AST parsing for accurate dependency tracking
+- **Realtime Web Rendering**: Fragment-based DOM updates for WebSocket integration and live patching
 
 ## How It Works
 
@@ -142,6 +144,36 @@ Provides sophisticated template AST analysis for more accurate dependency detect
 #### `UpdateTemplateTracker(tt *TemplateTracker, name string, tmpl *template.Template)`
 Registers a template using advanced AST analysis.
 
+## Realtime Web Rendering
+
+For real-time web applications with fragment-based DOM updates, use the `RealtimeRenderer`:
+
+```go
+// Create realtime renderer
+config := statetemplate.RealtimeConfig{
+    WrapperTagName: "div",
+    IDPrefix:       "fragment-",
+}
+renderer := statetemplate.NewRealtimeRenderer("main", mainTemplate, config)
+
+// Process initial data
+initialHTML, err := renderer.ProcessInitialData(data)
+
+// Set up update channel
+updateChan := make(chan statetemplate.DataUpdate)
+realtimeChan := make(chan statetemplate.RealtimeUpdate)
+
+go renderer.StartRealtimeUpdates(updateChan, realtimeChan)
+
+// Handle realtime updates for WebSocket
+for update := range realtimeChan {
+    // Send JSON to client: update.FragmentID, update.HTML, update.Action
+    websocket.WriteJSON(update)
+}
+```
+
+See `REALTIME.md` for comprehensive documentation and WebSocket integration examples.
+
 ## Example Data Structures
 
 ```go
@@ -238,11 +270,12 @@ go test -v
 - **Progressive Web Apps**: Optimized template rendering
 - **Real-time Dashboards**: Live data visualization updates
 - **Chat Applications**: Message and user state updates
+- **Fragment-based Updates**: DOM patching for WebSocket applications
 
 ## Integration
 
 This system can be integrated with:
-- WebSocket connections for real-time updates
+- WebSocket connections for real-time updates (see `REALTIME.md`)
 - HTTP SSE (Server-Sent Events) for live streaming
 - Message queues for distributed updates
 - Database change notifications

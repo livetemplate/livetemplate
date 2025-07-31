@@ -52,21 +52,42 @@ echo "🔍 Running: go test ./..."
 echo ""
 
 # Run all tests with verbose output for better debugging
-if TEST_OUTPUT=$(go test ./... 2>&1); then
+if TEST_OUTPUT=$(go test ./... -short 2>&1); then
     echo "$TEST_OUTPUT"
     echo ""
-    echo "✅ All tests passed!"
-    echo ""
-    echo "🎉 All validation checks passed!"
-    exit 0
+    echo "✅ Unit tests passed!"
 else
     echo "$TEST_OUTPUT"
     echo ""
-    echo "❌ Tests failed!"
+    echo "❌ Unit tests failed!"
     echo ""
     echo "💡 Tips:"
     echo "   • Run 'go test ./...' to see detailed test failures"
     echo "   • Fix failing tests before proceeding"
     echo "   • Run 'go test -v ./...' for verbose test output"
+    exit 1
+fi
+
+echo ""
+echo "🎯 Running end-to-end tests..."
+echo ""
+
+# Run E2E tests to ensure examples still work
+if E2E_OUTPUT=$(go test ./examples/e2e -v 2>&1); then
+    echo "$E2E_OUTPUT"
+    echo ""
+    echo "✅ E2E tests passed!"
+    echo ""
+    echo "🎉 All validation checks passed!"
+    exit 0
+else
+    echo "$E2E_OUTPUT"
+    echo ""
+    echo "❌ E2E tests failed!"
+    echo ""
+    echo "💡 Tips:"
+    echo "   • Run 'go test ./examples/e2e -v' to see detailed E2E failures"
+    echo "   • Examples may be broken - check template files and paths"
+    echo "   • Ensure all example dependencies are available"
     exit 1
 fi
