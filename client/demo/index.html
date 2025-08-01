@@ -125,14 +125,11 @@
 
     <script src="../dist/index.js"></script>
     <script>
-      // Initialize the StateTemplate client
-      const client = new StateTemplateClient.StateTemplateClient({
-        debug: true,
-      });
-
       // Initialize demo state
       let messageCount = 0;
       let updateCount = 0;
+      let client = null;
+      let autoUpdateInterval = null;
 
       // Logging function
       function log(message) {
@@ -142,8 +139,30 @@
         logDiv.scrollTop = logDiv.scrollHeight;
       }
 
+      // Initialize the StateTemplate client after DOM is loaded
+      function initializeClient() {
+        try {
+          // The UMD bundle exports StateTemplateClient as a property of the global StateTemplateClient object
+          client = new StateTemplateClient.StateTemplateClient({
+            debug: true,
+          });
+          log("StateTemplate Client initialized successfully");
+
+          // Start auto-update only after client is ready
+          autoUpdateInterval = setInterval(updateMetrics, 5000);
+          log("Auto-updating metrics every 5 seconds");
+        } catch (error) {
+          log(`Error initializing client: ${error.message}`);
+        }
+      }
+
       // Demo functions
       async function updateMetrics() {
+        if (!client) {
+          log("Client not initialized yet, skipping metrics update");
+          return;
+        }
+
         const cpu = Math.floor(Math.random() * 100);
         const memory = Math.floor(Math.random() * 100);
         const disk = Math.floor(Math.random() * 100);
@@ -182,6 +201,11 @@
       }
 
       async function addAlert() {
+        if (!client) {
+          log("Client not initialized yet, cannot add alert");
+          return;
+        }
+
         const alerts = [
           "High CPU usage detected",
           "Memory usage above threshold",
@@ -213,6 +237,11 @@
       }
 
       async function addMessage() {
+        if (!client) {
+          log("Client not initialized yet, cannot add message");
+          return;
+        }
+
         messageCount++;
         const messages = [
           "System backup completed successfully",
@@ -243,6 +272,11 @@
       }
 
       async function clearMessages() {
+        if (!client) {
+          log("Client not initialized yet, cannot clear messages");
+          return;
+        }
+
         try {
           const result = await client.applyUpdate({
             fragment_id: "messages",
@@ -262,15 +296,19 @@
       }
 
       function resetDemo() {
+        if (autoUpdateInterval) {
+          clearInterval(autoUpdateInterval);
+        }
         location.reload();
       }
 
-      // Auto-update demo
-      setInterval(updateMetrics, 5000);
-
-      // Welcome message
-      log("StateTemplate Client Demo initialized");
-      log("Auto-updating metrics every 5 seconds");
+      // Initialize when DOM is loaded
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", initializeClient);
+      } else {
+        // DOM is already loaded
+        initializeClient();
+      }
     </script>
   </body>
 </html>

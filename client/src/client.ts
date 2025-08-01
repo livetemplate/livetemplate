@@ -1,5 +1,5 @@
 // @ts-ignore - morphdom doesn't have proper type definitions
-const morphdom = require('morphdom');
+import morphdom from 'morphdom';
 import { RealtimeUpdate, ClientConfig, UpdateError, UpdateResult } from './types';
 
 /**

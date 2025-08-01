@@ -1,5 +1,6 @@
 import resolve from "@rollup/plugin-node-resolve";
 import typescript from "@rollup/plugin-typescript";
+import commonjs from "@rollup/plugin-commonjs";
 
 export default [
   // UMD build
@@ -12,7 +13,11 @@ export default [
       sourcemap: true,
     },
     plugins: [
-      resolve(),
+      resolve({
+        browser: true,
+        preferBuiltins: false,
+      }),
+      commonjs(),
       typescript({
         tsconfig: "./tsconfig.build.json",
         declaration: true,
@@ -28,6 +33,7 @@ export default [
       format: "esm",
       sourcemap: true,
     },
+    external: ["morphdom"],
     plugins: [
       resolve(),
       typescript({

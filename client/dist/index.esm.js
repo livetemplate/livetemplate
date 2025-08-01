@@ -1,3 +1,5 @@
+import morphdom from 'morphdom';
+
 /**
  * Error thrown when an update operation fails
  */
@@ -12,7 +14,6 @@ class UpdateError extends Error {
 }
 
 // @ts-ignore - morphdom doesn't have proper type definitions
-const morphdom = require('morphdom');
 /**
  * StateTemplate client for applying real-time HTML updates using morphdom
  */
