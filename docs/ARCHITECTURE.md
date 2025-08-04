@@ -4,6 +4,8 @@
 
 StateTemplate is a real-time template rendering library for Go that enables granular, fragment-based updates for web applications. It extends Go's standard `html/template` package with advanced fragment extraction, dependency tracking, and real-time update capabilities.
 
+> **Note**: This document describes the current architecture of StateTemplate v1.x. For API changes and migration guides, see [API_DESIGN.md](API_DESIGN.md).
+
 ## Core Architecture
 
 ```mermaid
@@ -48,7 +50,7 @@ graph TB
 
 ## Core Components
 
-### 1. RealtimeRenderer
+### 1. Renderer
 
 **Location**: `realtime_renderer.go`
 **Purpose**: Main orchestrator for real-time template rendering
@@ -61,19 +63,18 @@ graph TB
 - WebSocket-compatible output generation
 
 ```go
-type RealtimeRenderer struct {
+type Renderer struct {
     templates       map[string]*template.Template
-    fragmentTracker *FragmentExtractor
-    tracker         *TemplateTracker
+    fragmentStore   map[string][]*templateFragment
+    rangeFragments  map[string][]*rangeFragment
     currentData     interface{}
     updateChan      chan interface{}
-    outputChan      chan RealtimeUpdate
-    fragmentStore   map[string][]*TemplateFragment
-    rangeFragments  map[string][]*RangeFragment
+    outputChan      chan Update
+    // ... other fields
 }
 ```
 
-### 2. TemplateTracker
+### 2. templateTracker
 
 **Location**: `template_tracker.go`
 **Purpose**: Tracks data dependencies and changes
@@ -84,7 +85,7 @@ type RealtimeRenderer struct {
 - Change detection through reflection
 - Dependency graph construction
 
-### 3. FragmentExtractor
+### 3. fragmentExtractor
 
 **Location**: `fragment_extractor.go`
 **Purpose**: Extracts fragments from templates
@@ -96,9 +97,9 @@ type RealtimeRenderer struct {
 - **Range Fragments**: Loop constructs with granular item tracking
 - **Block Fragments**: Named template blocks
 
-### 4. TemplateAnalyzer
+### 4. advancedTemplateAnalyzer
 
-**Location**: `template_analyzer.go`
+**Location**: `advanced_analyzer.go`
 **Purpose**: Advanced template analysis and optimization
 
 ## Data Flow Architecture
@@ -108,21 +109,21 @@ type RealtimeRenderer struct {
 ```mermaid
 sequenceDiagram
     participant Client
-    participant RealtimeRenderer
+    participant Renderer
     participant TemplateParser
-    participant FragmentExtractor
-    participant TemplateTracker
+    participant fragmentExtractor
+    participant templateTracker
 
-    Client->>RealtimeRenderer: AddTemplate(name, content)
-    RealtimeRenderer->>TemplateParser: Parse template
-    TemplateParser->>FragmentExtractor: Extract fragments
-    FragmentExtractor->>RealtimeRenderer: Return fragments
-    RealtimeRenderer->>TemplateTracker: Register dependencies
+    Client->>Renderer: Parse/ParseFiles/ParseGlob/ParseFS
+    Renderer->>TemplateParser: Parse template
+    TemplateParser->>fragmentExtractor: Extract fragments
+    fragmentExtractor->>Renderer: Return fragments
+    Renderer->>templateTracker: Register dependencies
 
-    Client->>RealtimeRenderer: SetInitialData(data)
-    RealtimeRenderer->>RealtimeRenderer: renderFullHTML()
-    RealtimeRenderer->>RealtimeRenderer: wrapRenderedFragments()
-    RealtimeRenderer->>Client: Return wrapped HTML
+    Client->>Renderer: SetInitialData(data)
+    Renderer->>Renderer: renderFullHTML()
+    Renderer->>Renderer: wrapRenderedFragments()
+    Renderer->>Client: Return wrapped HTML
 ```
 
 ### Real-time Update Flow
@@ -130,17 +131,17 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Client
-    participant RealtimeRenderer
+    participant Renderer
     participant UpdateProcessor
     participant FragmentUpdater
     participant WebSocketClient
 
-    Client->>RealtimeRenderer: SendUpdate(newData)
-    RealtimeRenderer->>UpdateProcessor: Process data change
+    Client->>Renderer: SendUpdate(newData)
+    Renderer->>UpdateProcessor: Process data change
     UpdateProcessor->>UpdateProcessor: Compare old vs new data
     UpdateProcessor->>FragmentUpdater: Identify affected fragments
     FragmentUpdater->>FragmentUpdater: Render fragment updates
-    FragmentUpdater->>WebSocketClient: Send RealtimeUpdate
+    FragmentUpdater->>WebSocketClient: Send Update
     WebSocketClient->>Client: Apply DOM updates
 ```
 
@@ -192,24 +193,60 @@ graph LR
 
 ### Range Fragment Architecture
 
-Range fragments enable granular list operations:
+Range fragments enable granular list operations with enhanced capabilities for sorting, reordering, and dynamic list management:
 
 ```go
-type RangeFragment struct {
-    *TemplateFragment
+type rangeFragment struct {
+    *templateFragment
     RangePath    string                // "Navigation.MainItems"
     ItemTemplate string                // Template for individual items
-    Items        map[string]*RangeItem // Current items by key
+    Items        map[string]*rangeItem // Current items by key
     ContainerID  string                // Container element ID
 }
 
-type RangeItem struct {
+type rangeItem struct {
     ID    string      // Unique fragment ID
     Index int         // Array position
     Key   string      // Unique key (URL, ID field)
     Data  interface{} // Item data
     HTML  string      // Rendered HTML
 }
+```
+
+#### Enhanced Range Operations
+
+StateTemplate supports advanced range operations with stable, key-based fragment IDs:
+
+- **Stable IDs**: Range items use key-based IDs (`container-item-/task/1`) instead of index-based ones
+- **Precise Positioning**: `insertafter` and `insertbefore` actions for exact placement
+- **Minimal DOM Changes**: Only affected items are updated, preserving scroll and focus states
+
+#### Supported Range Actions
+
+| Action         | Description                             | Use Case                     |
+| -------------- | --------------------------------------- | ---------------------------- |
+| `insertafter`  | Insert element after reference element  | Precise positioning, sorting |
+| `insertbefore` | Insert element before reference element | Precise positioning, sorting |
+| `prepend`      | Insert at beginning of container        | Move to first position       |
+| `append`       | Insert at end of container              | Move to last position        |
+| `remove`       | Remove element                          | Delete items                 |
+| `replace`      | Replace element content                 | Update existing items        |
+
+#### Range Update Examples
+
+**Sorting Lists:**
+
+```go
+// Before: [Task A (Priority 3), Task B (Priority 1), Task C (Priority 2)]
+// After:  [Task B (Priority 1), Task C (Priority 2), Task A (Priority 3)]
+// Result: Precise insertafter/insertbefore actions to reorder items
+```
+
+**Dynamic Insertion:**
+
+```go
+// Insert new task at specific position
+// Result: insertafter action with RangeInfo.ReferenceID for positioning
 ```
 
 ## Update System Architecture
@@ -238,15 +275,19 @@ graph TD
     WS --> DOM[DOM Updates]
 ```
 
-### RealtimeUpdate Structure
+### Update Structure
 
 ```go
-type RealtimeUpdate struct {
+type Update struct {
     FragmentID  string `json:"fragment_id"`
     HTML        string `json:"html"`
     Action      string `json:"action"` // replace, append, remove, etc.
-    ItemIndex   int    `json:"item_index,omitempty"`
-    ContainerID string `json:"container_id,omitempty"`
+    *RangeInfo  `json:"range,omitempty"`
+}
+
+type RangeInfo struct {
+    ItemKey     string `json:"item_key"`
+    ReferenceID string `json:"reference_id,omitempty"`
 }
 ```
 
@@ -295,14 +336,17 @@ statetemplate/
 ├── realtime_renderer.go     # Main renderer orchestrator
 ├── template_tracker.go      # Data change tracking
 ├── fragment_extractor.go    # Fragment extraction logic
-├── template_analyzer.go     # Advanced template analysis
+├── advanced_analyzer.go     # Advanced template analysis
 ├── examples/                # Usage examples and demos
-│   ├── simple/             # Basic usage examples
-│   ├── realtime/           # Real-time update examples
-│   ├── fragments/          # Fragment-specific examples
-│   ├── range-demo/         # Range fragment demonstrations
-│   └── e2e/               # End-to-end tests
-└── scripts/                # Build and validation scripts
+│   ├── comprehensive-demo/  # Complete application examples
+│   ├── range-demo/          # Range fragment demonstrations
+│   └── e2e/                 # End-to-end tests
+├── docs/                    # Documentation
+│   ├── ARCHITECTURE.md      # This file
+│   ├── API_DESIGN.md        # Public API design
+│   └── README.md            # Examples guide
+├── testdata/                # Test template files
+└── scripts/                 # Build and validation scripts
 ```
 
 ## Technical Debt Analysis
@@ -368,8 +412,10 @@ statetemplate/
 ### Critical Coverage Gaps
 
 1. **Concurrency Testing**
-   - **Missing**: Multi-threaded access to RealtimeRenderer
+
+   - **Missing**: Multi-threaded access to Renderer
    - **Required**: Race condition detection, concurrent update handling
+
 2. **Error Scenarios**
 
    - **Missing**: Malformed template handling, invalid data structures
@@ -402,13 +448,24 @@ statetemplate/
 
 ### Current Test Coverage
 
-- **Template Actions**: ✅ Comprehensive (12 test suites, 50+ scenarios)
+- **Template Actions**: ✅ Comprehensive (via `examples/e2e/template_actions_tdd_test.go`)
+- **Parse APIs**: ✅ Complete coverage (via `parse_api_test.go`)
 - **Fragment Extraction**: ✅ Good coverage
 - **Real-time Updates**: ✅ Basic scenarios covered
-- **Integration**: ✅ Core functionality tested
+- **Integration**: ✅ Core functionality tested via examples
 - **Performance**: ❌ No benchmarks
 - **Concurrency**: ❌ Limited testing
 - **Error Handling**: ❌ Insufficient coverage
+
+### Testing Strategy
+
+StateTemplate uses a comprehensive table-driven testing approach:
+
+1. **Test Organization**: Tests organized by template action type
+2. **Real Files**: Tests use actual template files from `testdata/` directory
+3. **TDD Methodology**: Test-driven development with failing tests first
+4. **Embedded FS**: Tests include embedded filesystem scenarios
+5. **E2E Testing**: End-to-end tests in `examples/e2e/` directory
 
 ## Performance Characteristics
 

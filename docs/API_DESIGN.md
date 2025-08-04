@@ -1,106 +1,300 @@
-# StateTemplate Public API Design
+# StateTemplate API Reference
+
+## Overview
+
+StateTemplate provides a clean, focused API for real-time template rendering. The current public API centers around the `Renderer` type with supporting Parse methods and real-time update capabilities.
 
 ## Current Public API
 
-The StateTemplate library currently exposes many types publicly. For a cleaner API, we should only expose the essential types that users need to interact with directly.
+### Core Types
 
-## Recommended Public API
+#### `Renderer`
 
-### Core Public Types (Keep Exported)
-
-1. **`RealtimeRenderer`** - Main entry point for users
-2. **`RealtimeUpdate`** - Output type that users receive
-3. **`RangeInfo`** - Part of RealtimeUpdate, users need to access its fields
-4. **`RealtimeConfig`** - Configuration for creating renderer
-
-### Support Functions (Keep Exported)
-
-1. **`NewRealtimeRenderer(config *RealtimeConfig) *RealtimeRenderer`**
-2. **`(r *RealtimeRenderer) AddTemplate(name, content string) error`**
-3. **`(r *RealtimeRenderer) SetInitialData(data interface{}) (string, error)`**
-4. **`(r *RealtimeRenderer) GetUpdateChannel() <-chan RealtimeUpdate`**
-5. **`(r *RealtimeRenderer) SendUpdate(newData interface{})`**
-6. **`(r *RealtimeRenderer) Start()`**
-7. **`(r *RealtimeRenderer) Stop()`**
-
-## Types That Could Be Made Internal (Future Refactoring)
-
-These types are implementation details that users don't need to interact with directly:
-
-### Fragment Types (Make Unexported)
-
-- `TemplateFragment` → `templateFragment`
-- `FragmentExtractor` → `fragmentExtractor`
-- `RangeFragment` → `rangeFragment`
-- `RangeItem` → `rangeItem`
-- `ConditionalFragment` → `conditionalFragment`
-- `TemplateIncludeFragment` → `templateIncludeFragment`
-- `FragmentInfo` → `fragmentInfo`
-
-### Analysis Types (Make Unexported)
-
-- `AdvancedTemplateAnalyzer` → `advancedTemplateAnalyzer`
-- `TemplateTracker` → `templateTracker`
-- `DataUpdate` → `dataUpdate`
-- `TemplateUpdate` → `templateUpdate`
-
-### Proposal Types (Remove Entirely)
-
-These appear to be experimental/proposal files that can be removed:
-
-- `update_interface_proposal.go`
-- `enhanced_update.go`
-
-## Implementation Plan
-
-1. **Phase 1**: Document the intended public API (this document)
-2. **Phase 2**: Remove experimental/proposal files
-3. **Phase 3**: Make internal types unexported (requires updating all references)
-4. **Phase 4**: Move unexported types to `internal/` packages if needed
-
-## Current Status
-
-The library works correctly with the current API. The refactoring to hide internal types would be a breaking change but would result in a much cleaner API surface for users.
-
-## Example Clean Usage
-
-With the minimal API, users would only need to know about:
+The main entry point for template rendering and real-time updates.
 
 ```go
-import "github.com/livefir/statetemplate"
+type Renderer struct {
+    // Internal fields - not exposed
+}
+```
 
-// Create renderer
-renderer := statetemplate.NewRealtimeRenderer(&statetemplate.RealtimeConfig{
-    WrapperTag: "div",
-    IDPrefix:   "app-",
-})
+#### `Update`
 
-// Add template
-err := renderer.AddTemplate("main", templateContent)
+Output type for real-time fragment updates.
 
-// Set initial data and get HTML
+```go
+type Update struct {
+    FragmentID string `json:"fragment_id"` // The ID of the element to update
+    HTML       string `json:"html"`        // The new HTML content
+    Action     string `json:"action"`      // "replace", "append", "prepend", "remove", etc.
+    *RangeInfo `json:"range,omitempty"`   // Range operation info (optional)
+}
+```
+
+#### `RangeInfo`
+
+Contains range operation details for list updates.
+
+```go
+type RangeInfo struct {
+    ItemKey     string `json:"item_key"`               // Unique identifier for the item
+    ReferenceID string `json:"reference_id,omitempty"` // Reference element for positioning
+}
+```
+
+### Constructor and Options
+
+#### `NewRenderer(opts ...Option) *Renderer`
+
+Creates a new renderer instance with optional configuration.
+
+```go
+renderer := statetemplate.NewRenderer()
+// or with options
+renderer := statetemplate.NewRenderer(someOption)
+```
+
+### Template Parsing Methods
+
+#### `Parse(templateContent string) error`
+
+Parses template content from a string.
+
+```go
+err := renderer.Parse(`<h1>{{.Title}}</h1>`)
+```
+
+#### `ParseFiles(filenames ...string) error`
+
+Parses templates from files.
+
+```go
+err := renderer.ParseFiles("template.html", "layout.html")
+```
+
+#### `ParseGlob(pattern string) error`
+
+Parses templates matching a glob pattern.
+
+```go
+err := renderer.ParseGlob("templates/*.html")
+```
+
+#### `ParseFS(fsys fs.FS, patterns ...string) error`
+
+Parses templates from an embedded filesystem.
+
+```go
+//go:embed templates
+var templateFS embed.FS
+
+err := renderer.ParseFS(templateFS, "templates/*.html")
+```
+
+### Real-time Methods
+
+#### `SetInitialData(data interface{}) (string, error)`
+
+Sets initial data and returns complete HTML for page load.
+
+```go
+data := &MyData{Title: "Hello World"}
 html, err := renderer.SetInitialData(data)
+```
 
-// Start processing updates
-renderer.Start()
-defer renderer.Stop()
+#### `GetUpdateChannel() <-chan Update`
 
-// Listen for updates
+Returns channel for receiving real-time updates.
+
+```go
 updateChan := renderer.GetUpdateChannel()
-go func() {
-    for update := range updateChan {
-        // update is of type statetemplate.RealtimeUpdate
-        // Send to WebSocket clients
-        if update.RangeInfo != nil {
-            // Handle range operations
-            fmt.Printf("Range operation: %s, item: %s\n",
-                      update.Action, update.RangeInfo.ItemKey)
-        }
-    }
-}()
+for update := range updateChan {
+    // Send to WebSocket clients
+    sendToClients(update)
+}
+```
 
-// Send data updates
+#### `SendUpdate(newData interface{})`
+
+Sends new data that may trigger fragment updates.
+
+```go
+newData := &MyData{Title: "Updated Title"}
 renderer.SendUpdate(newData)
 ```
 
-Users would never need to interact with internal fragment types, analyzers, or trackers directly.
+#### `Start()` and `Stop()`
+
+Controls the background update processor.
+
+```go
+renderer.Start()
+defer renderer.Stop()
+```
+
+## Usage Examples
+
+### Basic Usage
+
+```go
+package main
+
+import (
+    "log"
+    "statetemplate"
+)
+
+func main() {
+    // Create renderer
+    renderer := statetemplate.NewRenderer()
+
+    // Parse template
+    err := renderer.Parse(`<h1>{{.Title}}</h1><p>{{.Content}}</p>`)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Set initial data
+    data := map[string]interface{}{
+        "Title":   "Welcome",
+        "Content": "Hello World",
+    }
+
+    html, err := renderer.SetInitialData(data)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // html contains the wrapped HTML ready for WebSocket updates
+    log.Println(html)
+}
+```
+
+### Real-time Updates
+
+```go
+// Start real-time processing
+renderer.Start()
+defer renderer.Stop()
+
+// Get update channel
+updateChan := renderer.GetUpdateChannel()
+go func() {
+    for update := range updateChan {
+        // Send to WebSocket clients
+        log.Printf("Fragment %s updated: %s", update.FragmentID, update.Action)
+        // sendToWebSocketClients(update)
+    }
+}()
+
+// Trigger updates
+newData := map[string]interface{}{
+    "Title":   "Updated Title",
+    "Content": "Updated Content",
+}
+renderer.SendUpdate(newData)
+```
+
+### File-based Templates
+
+```go
+renderer := statetemplate.NewRenderer()
+
+// Parse from files
+err := renderer.ParseFiles("header.html", "content.html", "footer.html")
+if err != nil {
+    log.Fatal(err)
+}
+
+// Or use glob patterns
+err = renderer.ParseGlob("templates/*.html")
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### Embedded Templates
+
+```go
+//go:embed templates
+var templateFS embed.FS
+
+renderer := statetemplate.NewRenderer()
+err := renderer.ParseFS(templateFS, "templates/*.html")
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+## Implementation Notes
+
+### Internal Types (Not Public API)
+
+The following types are implementation details and are not exported:
+
+- `templateFragment` - Internal fragment representation
+- `rangeFragment` - Range-specific fragment handling
+- `conditionalFragment` - Conditional block fragments
+- `templateTracker` - Data change tracking
+- `fragmentExtractor` - Fragment extraction logic
+- `advancedTemplateAnalyzer` - Template analysis
+
+### Fragment Actions
+
+The `Update.Action` field can contain:
+
+- `"replace"` - Replace element content
+- `"append"` - Add element to end of container
+- `"prepend"` - Add element to beginning of container
+- `"remove"` - Remove element
+- `"insertafter"` - Insert after reference element (requires RangeInfo.ReferenceID)
+- `"insertbefore"` - Insert before reference element (requires RangeInfo.ReferenceID)
+
+### Range Operations
+
+For templates with `{{range}}` blocks, StateTemplate automatically generates granular list updates:
+
+```html
+{{range .Items}}
+<div>{{.Name}}</div>
+{{end}}
+```
+
+When items are added, removed, or reordered, individual `Update` messages are generated with appropriate actions and range information.
+
+## Migration from Earlier Versions
+
+If you have code referencing older type names:
+
+- `RealtimeRenderer` → `Renderer`
+- `RealtimeUpdate` → `Update`
+- `RealtimeConfig` → (removed, use Options pattern)
+- `AddTemplate()` → Use Parse methods instead
+
+## Error Handling
+
+All Parse methods return errors for:
+
+- Template syntax errors
+- File not found errors
+- Filesystem access errors
+
+The real-time methods handle errors gracefully:
+
+- `SetInitialData()` returns rendering errors
+- `SendUpdate()` never blocks or panics
+- Failed fragment updates are logged but don't stop processing
+
+## Performance Considerations
+
+- Parse templates once at startup, not per request
+- Use `ParseFS` with embedded templates for better performance
+- Start/Stop the renderer appropriately to manage goroutines
+- Update channel is buffered but can be overwhelmed with high-frequency updates
+
+## Thread Safety
+
+- All public methods are thread-safe
+- Multiple goroutines can call `SendUpdate()` concurrently
+- The update channel can be consumed by a single goroutine
+- Template parsing should be done during initialization, not concurrently
