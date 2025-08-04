@@ -1,0 +1,7 @@
+<nav class="navigation">
+    <ul>
+        {{range .Nav.Items}}
+        <li><a href="{{.URL}}" {{if .Active}}class="active"{{end}}>{{.Label}}</a></li>
+        {{end}}
+    </ul>
+</nav>

@@ -68,7 +68,7 @@ Demonstrates the most advanced feature:
 
 **Key Features:**
 
-- `AddTemplateWithFragmentExtraction()` for automatic processing
+- `Parse()` for template processing
 - Fragment dependency tracking
 - Granular update notifications
 - Minimal re-rendering optimization

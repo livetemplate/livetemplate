@@ -114,7 +114,7 @@ func TestComprehensiveTemplateActions(t *testing.T) {
 </div>`
 
 	// Add template
-	err := renderer.AddTemplate("comprehensive", templateContent)
+	err := renderer.Parse("comprehensive", templateContent)
 	if err != nil {
 		t.Fatalf("Failed to add template: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestTemplateActionFragmentStructure(t *testing.T) {
 	{{end}}
 </div>`
 
-	err := renderer.AddTemplate("structure_test", templateContent)
+	err := renderer.Parse("structure_test", templateContent)
 	if err != nil {
 		t.Fatalf("Failed to add template: %v", err)
 	}

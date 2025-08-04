@@ -41,7 +41,7 @@ func main() {
 </div>`
 
 	// Add template
-	if err := renderer.AddTemplate("main", templateContent); err != nil {
+	if err := renderer.Parse("main", templateContent); err != nil {
 		log.Fatalf("Failed to add template: %v", err)
 	}
 

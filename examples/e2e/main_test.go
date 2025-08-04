@@ -36,7 +36,7 @@ func BenchmarkRealtimeExample(b *testing.B) {
 	renderer := statetemplate.NewRenderer()
 
 	template := `<div>Count: {{.Count}}, Message: {{.Message}}</div>`
-	err := renderer.AddTemplate("bench", template)
+	err := renderer.Parse("bench", template)
 	if err != nil {
 		b.Fatalf("Failed to add template: %v", err)
 	}

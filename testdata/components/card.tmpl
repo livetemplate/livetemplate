@@ -1,0 +1,15 @@
+<div class="card {{.Class}}">
+    {{if .Header}}
+    <div class="card-header">
+        <h3>{{.Header}}</h3>
+    </div>
+    {{end}}
+    <div class="card-body">
+        {{.Body}}
+    </div>
+    {{if .Footer}}
+    <div class="card-footer">
+        {{.Footer}}
+    </div>
+    {{end}}
+</div>

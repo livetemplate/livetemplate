@@ -60,7 +60,7 @@ func TestRealtimeExample(t *testing.T) {
 </div>`
 
 	// Add template
-	err := renderer.AddTemplate("main", templateContent)
+	err := renderer.Parse("main", templateContent)
 	if err != nil {
 		t.Fatalf("Failed to add template: %v", err)
 	}
@@ -189,7 +189,7 @@ func testRealtimeUpdatesSimple(t *testing.T, renderer *statetemplate.Renderer, u
 	{{end}}
 </div>`
 
-		if err := freshRenderer.AddTemplate("main", templateContent); err != nil {
+		if err := freshRenderer.Parse("main", templateContent); err != nil {
 			t.Fatalf("Failed to add template: %v", err)
 		}
 
@@ -253,7 +253,7 @@ func testRealtimeUpdatesSimple(t *testing.T, renderer *statetemplate.Renderer, u
 	{{end}}
 </div>`
 
-		if err := freshRenderer.AddTemplate("main", templateContent); err != nil {
+		if err := freshRenderer.Parse("main", templateContent); err != nil {
 			t.Fatalf("Failed to add template: %v", err)
 		}
 
@@ -305,7 +305,7 @@ func TestRealtimeRendererWebsocketCompatibility(t *testing.T) {
 
 	// Simple template
 	templateContent := `<div>Message: {{.Message}}</div>`
-	err := renderer.AddTemplate("simple", templateContent)
+	err := renderer.Parse("simple", templateContent)
 	if err != nil {
 		t.Fatalf("Failed to add template: %v", err)
 	}

@@ -164,7 +164,7 @@ func TestTemplateActionComments(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRenderer()
 
-			err := renderer.AddTemplate("comments_"+tc.name, tc.template)
+			err := renderer.Parse("comments_"+tc.name, tc.template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
 			}
@@ -277,7 +277,7 @@ func TestTemplateActionPipelineOutput(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRenderer()
 
-			err := renderer.AddTemplate("pipeline_"+tc.name, tc.template)
+			err := renderer.Parse("pipeline_"+tc.name, tc.template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
 			}
@@ -423,7 +423,7 @@ func TestTemplateActionIfStatements(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRenderer()
 
-			err := renderer.AddTemplate("if_"+tc.name, tc.template)
+			err := renderer.Parse("if_"+tc.name, tc.template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
 			}
@@ -545,7 +545,7 @@ func TestTemplateActionIfElseChains(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRenderer()
 
-			err := renderer.AddTemplate("if_chains_"+tc.name, template)
+			err := renderer.Parse("if_chains_"+tc.name, template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
 			}
@@ -701,7 +701,7 @@ func TestTemplateActionRangeLoops(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRenderer()
 
-			err := renderer.AddTemplate("range_"+tc.name, tc.template)
+			err := renderer.Parse("range_"+tc.name, tc.template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
 			}
@@ -881,7 +881,7 @@ func TestTemplateActionWithStatements(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRenderer()
 
-			err := renderer.AddTemplate("with_"+tc.name, tc.template)
+			err := renderer.Parse("with_"+tc.name, tc.template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
 			}
@@ -1044,7 +1044,7 @@ func TestTemplateActionVariableAssignment(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRenderer()
 
-			err := renderer.AddTemplate("variables_"+tc.name, tc.template)
+			err := renderer.Parse("variables_"+tc.name, tc.template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
 			}
@@ -1179,7 +1179,7 @@ func TestTemplateActionWhitespaceTrimming(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRenderer()
 
-			err := renderer.AddTemplate("whitespace_"+tc.name, tc.template)
+			err := renderer.Parse("whitespace_"+tc.name, tc.template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
 			}
@@ -1358,7 +1358,7 @@ func TestTemplateActionFunctions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRenderer()
 
-			err := renderer.AddTemplate("functions_"+tc.name, tc.template)
+			err := renderer.Parse("functions_"+tc.name, tc.template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
 			}
@@ -1519,7 +1519,7 @@ func TestTemplateActionBlockDefinitions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRenderer()
 
-			err := renderer.AddTemplate("blocks_"+tc.name, tc.template)
+			err := renderer.Parse("blocks_"+tc.name, tc.template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
 			}
@@ -1682,7 +1682,7 @@ func TestTemplateActionRealTimeFragmentGeneration(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRenderer()
 
-			err := renderer.AddTemplate("fragment_"+tc.name, tc.template)
+			err := renderer.Parse("fragment_"+tc.name, tc.template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
 			}
@@ -1950,7 +1950,7 @@ func TestAllTemplateActionsTogether(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			renderer := statetemplate.NewRenderer()
 
-			err := renderer.AddTemplate("integration_"+tc.name, tc.template)
+			err := renderer.Parse("integration_"+tc.name, tc.template)
 			if err != nil {
 				t.Fatalf("Failed to add template: %v", err)
 			}

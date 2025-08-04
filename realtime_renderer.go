@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"fmt"
 	"html/template"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
@@ -134,8 +137,8 @@ func NewRenderer(opts ...Option) *Renderer {
 	}
 }
 
-// AddTemplate adds a template for real-time rendering
-func (r *Renderer) AddTemplate(name, content string) error {
+// Parse adds a template by parsing the provided text content
+func (r *Renderer) Parse(name, content string) error {
 	r.dataMutex.Lock()
 	defer r.dataMutex.Unlock()
 
@@ -147,15 +150,89 @@ func (r *Renderer) AddTemplate(name, content string) error {
 
 	r.templates[name] = tmpl
 
-	// For now, create simple fragments based on template expressions
-	// This is more reliable than the complex fragment extraction
+	// Create fragments based on template content for real-time updates
 	fragments := r.createSimpleFragments(content, name)
-
-	// Store fragments for this template
 	r.fragmentStore[name] = fragments
 
 	// Also add to the tracker for dependency analysis
 	r.tracker.AddTemplate(name, tmpl)
+
+	return nil
+}
+
+// ParseFiles parses template files and adds them for real-time rendering
+func (r *Renderer) ParseFiles(filenames ...string) error {
+	if len(filenames) == 0 {
+		return fmt.Errorf("no filenames provided")
+	}
+
+	for _, filename := range filenames {
+		content, err := os.ReadFile(filename)
+		if err != nil {
+			return fmt.Errorf("failed to read file %s: %w", filename, err)
+		}
+
+		// Use the base filename (without path) as the template name
+		name := filepath.Base(filename)
+		// Remove file extension for cleaner template names
+		if ext := filepath.Ext(name); ext != "" {
+			name = name[:len(name)-len(ext)]
+		}
+
+		if err := r.Parse(name, string(content)); err != nil {
+			return fmt.Errorf("failed to parse template from file %s: %w", filename, err)
+		}
+	}
+
+	return nil
+}
+
+// ParseGlob parses template files matching the pattern and adds them for real-time rendering
+func (r *Renderer) ParseGlob(pattern string) error {
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return fmt.Errorf("failed to match pattern %s: %w", pattern, err)
+	}
+
+	if len(matches) == 0 {
+		return fmt.Errorf("no files match pattern: %s", pattern)
+	}
+
+	return r.ParseFiles(matches...)
+}
+
+// ParseFS parses template files from a filesystem and adds them for real-time rendering
+func (r *Renderer) ParseFS(fsys fs.FS, patterns ...string) error {
+	if len(patterns) == 0 {
+		return fmt.Errorf("no patterns provided")
+	}
+
+	var filenames []string
+	for _, pattern := range patterns {
+		matches, err := fs.Glob(fsys, pattern)
+		if err != nil {
+			return fmt.Errorf("failed to match pattern %s: %w", pattern, err)
+		}
+		filenames = append(filenames, matches...)
+	}
+
+	for _, filename := range filenames {
+		content, err := fs.ReadFile(fsys, filename)
+		if err != nil {
+			return fmt.Errorf("failed to read file %s: %w", filename, err)
+		}
+
+		// Use the base filename (without path) as the template name
+		name := filepath.Base(filename)
+		// Remove file extension for cleaner template names
+		if ext := filepath.Ext(name); ext != "" {
+			name = name[:len(name)-len(ext)]
+		}
+
+		if err := r.Parse(name, string(content)); err != nil {
+			return fmt.Errorf("failed to parse template from file %s: %w", filename, err)
+		}
+	}
 
 	return nil
 }

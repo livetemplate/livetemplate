@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>{{.Page.Title}}</title>
+    <meta charset="utf-8" />
+  </head>
+  <body>
+    <main>
+      <h1>{{.Page.Heading}}</h1>
+      <div class="content">{{.Page.Content}}</div>
+      {{if .Page.ShowFooter}}
+      <footer>
+        <p>Generated at {{.Page.Timestamp}}</p>
+      </footer>
+      {{end}}
+    </main>
+  </body>
+</html>
