@@ -60,7 +60,9 @@ else
     echo "❌ The following files need formatting:"
     echo "$UNFORMATTED"
     echo ""
-    echo "Run: go fmt ./..."
+    echo "💡 Code formatting should be handled by git hooks before commit."
+    echo "   If you're seeing this in CI, it means formatting wasn't applied during commit."
+    echo "   Run: go fmt ./... locally and commit the changes."
     exit 1
 fi
 
