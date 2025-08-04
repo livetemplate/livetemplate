@@ -33,7 +33,3 @@ go.sum
 .Trashes
 ehthumbs.db
 Thumbs.db
-
-# Golangci-lint config (using default config instead)
-.golangci.yml
-.golangci.yaml
