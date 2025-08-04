@@ -1,6 +1,6 @@
-# State Template - Live Template Update System
+# StateTemplate - Real-time Go Template Rendering Library
 
-This Go package provides a sophisticated system for tracking dependencies between HTML templates and data structures, and efficiently determining which templates need re-rendering when data changes.
+StateTemplate is a high-performance Go library for real-time HTML template rendering with granular fragment updates. It enables live updates to specific parts of rendered templates without full page reloads, making it ideal for building responsive web applications with WebSocket integration.
 
 ## 🚀 Quick Start
 
@@ -9,8 +9,8 @@ This Go package provides a sophisticated system for tracking dependencies betwee
 git clone <repository-url>
 cd statetemplate
 
-# Install Git hooks for automated testing
-./scripts/install-git-hooks.sh
+# Run tests (no bash scripts needed)
+go test -v
 
 # Run examples
 go run examples/simple/main.go
@@ -21,24 +21,35 @@ go run examples/realtime/main.go
 
 ## Features
 
-- **Automatic Dependency Detection**: Analyzes Go HTML templates to extract field dependencies
-- **Change Detection**: Compares data structures to detect which fields have changed
-- **Efficient Re-rendering**: Only re-renders templates that depend on changed data fields
-- **Real-time Updates**: Processes data updates through channels for live applications
-- **Advanced AST Analysis**: Uses template AST parsing for accurate dependency tracking
-- **Realtime Web Rendering**: Fragment-based DOM updates for WebSocket integration and live patching
+- **Fragment-based Updates**: Extract and track template fragments for granular updates
+- **Real-time Rendering**: WebSocket-compatible updates with minimal payloads
+- **Change Detection**: Efficient data monitoring through reflection-based tracking
+- **Template Composition**: Support for blocks, conditionals, ranges, and nested templates
+- **Performance Optimized**: Fragment caching and batch updates for high throughput
+- **Type Safety**: Full Go type system integration with comprehensive error handling
 
 ## How It Works
 
-1. **Template Registration**: Register your HTML templates with the system
-2. **Dependency Analysis**: The system analyzes each template to determine which data fields it depends on
-3. **Data Updates**: Send data updates through a channel
-4. **Change Detection**: The system compares new data with previous data to detect changes
-5. **Template Notification**: Receive notifications about which templates need re-rendering
+1. **Template Registration**: Register templates with automatic fragment extraction
+2. **Fragment Analysis**: System categorizes fragments (simple, conditional, range, block)
+3. **Dependency Tracking**: Map data dependencies to specific template fragments
+4. **Real-time Updates**: Monitor data changes and generate minimal update payloads
+5. **WebSocket Integration**: Send targeted fragment updates to connected clients
+
+## Architecture
+
+The library consists of four main components:
+
+- **RealtimeRenderer**: Main orchestrator managing template parsing and real-time updates
+- **TemplateTracker**: Monitors data dependencies and detects changes using reflection
+- **FragmentExtractor**: Extracts and categorizes template fragments for granular updates
+- **TemplateAnalyzer**: Provides advanced template analysis and optimization
+
+For detailed architecture documentation, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Usage
 
-### Basic Setup
+### Basic Real-time Rendering
 
 ```go
 package main
@@ -49,130 +60,193 @@ import (
 )
 
 func main() {
-    // Create template tracker
-    tracker := statetemplate.NewTemplateTracker()
-    
-    // Define your template
+    // Create realtime renderer
     tmpl := template.Must(template.New("example").Parse(`
         <div>
             <h1>{{.Title}}</h1>
             <p>Welcome, {{.User.Name}}!</p>
+            {{range .Items}}
+                <span>{{.}}</span>
+            {{end}}
         </div>
     `))
-    
-    // Register template
-    tracker.AddTemplate("example", tmpl)
-    
-    // Set up channels
-    dataChannel := make(chan statetemplate.DataUpdate)
-    updateChannel := make(chan statetemplate.TemplateUpdate)
-    
-    // Start live update processor
-    go tracker.StartLiveUpdates(dataChannel, updateChannel)
-    
-    // Handle updates
+
+    config := statetemplate.RealtimeConfig{
+        WrapperTagName: "div",
+        IDPrefix:       "fragment-",
+    }
+
+    renderer := statetemplate.NewRealtimeRenderer("main", tmpl, config)
+
+    // Initial render
+    data := struct {
+        Title string
+        User  struct { Name string }
+        Items []string
+    }{
+        Title: "My App",
+        User:  struct{ Name string }{Name: "John"},
+        Items: []string{"item1", "item2"},
+    }
+
+    initialHTML, err := renderer.ProcessInitialData(data)
+    if err != nil {
+        panic(err)
+    }
+
+    // Set up real-time updates
+    updateChan := make(chan statetemplate.DataUpdate)
+    realtimeChan := make(chan statetemplate.RealtimeUpdate)
+
+    go renderer.StartRealtimeUpdates(updateChan, realtimeChan)
+
+    // Handle real-time updates (for WebSocket)
     go func() {
-        for update := range updateChannel {
-            fmt.Printf("Re-render templates: %v\n", update.TemplateNames)
-            fmt.Printf("Changed fields: %v\n", update.ChangedFields)
+        for update := range realtimeChan {
+            // Send to WebSocket clients
+            fmt.Printf("Fragment %s: %s\n", update.FragmentID, update.HTML)
         }
     }()
-    
+
     // Send data updates
-    dataChannel <- statetemplate.DataUpdate{
+    updateChan <- statetemplate.DataUpdate{
         Data: struct {
             Title string
             User  struct { Name string }
+            Items []string
         }{
-            Title: "My App",
-            User:  struct{ Name string }{Name: "John"},
+            Title: "Updated App",
+            User:  struct{ Name string }{Name: "Jane"},
+            Items: []string{"item1", "item2", "item3"},
         },
     }
 }
 ```
 
-### Advanced Usage with AST Analysis
+### Fragment Extraction and Tracking
 
-For more accurate dependency detection, use the advanced analyzer:
+StateTemplate automatically extracts different types of fragments:
 
 ```go
-// Create advanced analyzer
-analyzer := statetemplate.NewAdvancedTemplateAnalyzer()
+// Simple fragments: {{.Field}}
+renderer.ExtractSimpleFragments(template)
 
-// Use advanced analysis when adding templates
-analyzer.UpdateTemplateTracker(tracker, "advanced", template)
+// Conditional fragments: {{if .Condition}}...{{end}}
+renderer.ExtractConditionalFragments(template)
+
+// Range fragments: {{range .Items}}...{{end}}
+renderer.ExtractRangeFragments(template)
+
+// Block fragments: {{block "name" .}}...{{end}}
+renderer.ExtractBlockFragments(template)
 ```
 
 ## API Reference
 
 ### Core Types
 
-#### `TemplateTracker`
-The main component that manages templates and tracks dependencies.
+#### `RealtimeRenderer`
 
-#### `DataUpdate`
+The main component that orchestrates template parsing, fragment extraction, and real-time updates.
+
+#### `RealtimeConfig`
+
 ```go
-type DataUpdate struct {
-    Data interface{}
+type RealtimeConfig struct {
+    WrapperTagName string // HTML tag for fragment wrapping
+    IDPrefix       string // Prefix for generated fragment IDs
 }
 ```
 
-#### `TemplateUpdate`
+#### `RealtimeUpdate`
+
 ```go
-type TemplateUpdate struct {
-    TemplateNames []string
-    ChangedFields []string
+type RealtimeUpdate struct {
+    FragmentID string // Unique fragment identifier
+    HTML       string // Updated HTML content
+    Action     string // Update action (replace, append, remove)
+}
+```
+
+#### `DataUpdate`
+
+```go
+type DataUpdate struct {
+    Data interface{} // New data state
 }
 ```
 
 ### Key Methods
 
-#### `NewTemplateTracker() *TemplateTracker`
-Creates a new template tracker.
+#### `NewRealtimeRenderer(name string, tmpl *template.Template, config RealtimeConfig) *RealtimeRenderer`
 
-#### `AddTemplate(name string, tmpl *template.Template)`
-Registers a template with basic dependency analysis.
+Creates a new realtime renderer with fragment extraction and tracking.
 
-#### `StartLiveUpdates(dataChannel <-chan DataUpdate, updateChannel chan<- TemplateUpdate)`
-Starts processing data updates and sending template update notifications.
+#### `ProcessInitialData(data interface{}) (string, error)`
 
-### Advanced Features
+Renders the complete template with initial data and sets up fragment tracking.
 
-#### `AdvancedTemplateAnalyzer`
-Provides sophisticated template AST analysis for more accurate dependency detection.
+#### `StartRealtimeUpdates(updateChan <-chan DataUpdate, realtimeChan chan<- RealtimeUpdate)`
+
+Starts processing data updates and generating minimal fragment updates for real-time synchronization.
+
+### Fragment Types
+
+StateTemplate supports four types of template fragments:
+
+#### Simple Fragments
+
+- Direct field access: `{{.Field}}`
+- Single data dependency with straightforward updates
+
+#### Conditional Fragments
+
+- If/with blocks: `{{if .Condition}}...{{end}}`
+- May appear or disappear based on data conditions
+
+#### Range Fragments
+
+- Loop constructs: `{{range .Items}}...{{end}}`
+- Granular item-level tracking for additions, removals, reordering
+
+#### Block Fragments
+
+- Named template sections: `{{block "name" .}}...{{end}}`
+- Template composition and inheritance support
 
 #### `UpdateTemplateTracker(tt *TemplateTracker, name string, tmpl *template.Template)`
+
 Registers a template using advanced AST analysis.
 
-## Realtime Web Rendering
+## WebSocket Integration
 
-For real-time web applications with fragment-based DOM updates, use the `RealtimeRenderer`:
+For real-time web applications, StateTemplate generates WebSocket-compatible updates:
 
 ```go
-// Create realtime renderer
-config := statetemplate.RealtimeConfig{
-    WrapperTagName: "div",
-    IDPrefix:       "fragment-",
-}
-renderer := statetemplate.NewRealtimeRenderer("main", mainTemplate, config)
+// Set up WebSocket handler
+func handleWebSocket(conn *websocket.Conn) {
+    // Create renderer and channels
+    renderer := statetemplate.NewRealtimeRenderer("main", template, config)
+    updateChan := make(chan statetemplate.DataUpdate)
+    realtimeChan := make(chan statetemplate.RealtimeUpdate)
 
-// Process initial data
-initialHTML, err := renderer.ProcessInitialData(data)
+    go renderer.StartRealtimeUpdates(updateChan, realtimeChan)
 
-// Set up update channel
-updateChan := make(chan statetemplate.DataUpdate)
-realtimeChan := make(chan statetemplate.RealtimeUpdate)
-
-go renderer.StartRealtimeUpdates(updateChan, realtimeChan)
-
-// Handle realtime updates for WebSocket
-for update := range realtimeChan {
-    // Send JSON to client: update.FragmentID, update.HTML, update.Action
-    websocket.WriteJSON(update)
+    // Forward real-time updates to WebSocket
+    go func() {
+        for update := range realtimeChan {
+            conn.WriteJSON(map[string]interface{}{
+                "type":       "fragment_update",
+                "fragmentId": update.FragmentID,
+                "html":       update.HTML,
+                "action":     update.Action,
+            })
+        }
+    }()
 }
 ```
 
-See `REALTIME.md` for comprehensive documentation and WebSocket integration examples.
+For comprehensive documentation and examples, see [`docs/REALTIME.md`](docs/REALTIME.md).
 
 ## Example Data Structures
 
@@ -194,25 +268,29 @@ type AppData struct {
 ## Template Examples
 
 ### Header Template
+
 ```html
 <header>
-    <h1>{{.Title}}</h1>
-    {{if .CurrentUser}}
-        <p>Welcome, {{.CurrentUser.Name}}!</p>
-    {{end}}
+  <h1>{{.Title}}</h1>
+  {{if .CurrentUser}}
+  <p>Welcome, {{.CurrentUser.Name}}!</p>
+  {{end}}
 </header>
 ```
+
 **Dependencies**: `Title`, `CurrentUser`, `CurrentUser.Name`
 
 ### Sidebar Template
+
 ```html
 <aside>
-    <p>Users: {{.UserCount}}</p>
-    {{if .CurrentUser}}
-        <p>Your ID: {{.CurrentUser.ID}}</p>
-    {{end}}
+  <p>Users: {{.UserCount}}</p>
+  {{if .CurrentUser}}
+  <p>Your ID: {{.CurrentUser.ID}}</p>
+  {{end}}
 </aside>
 ```
+
 **Dependencies**: `UserCount`, `CurrentUser`, `CurrentUser.ID`
 
 ## Change Detection
@@ -231,54 +309,64 @@ The system performs deep comparison of data structures:
 - **Memory Efficient**: Doesn't store large data structures, just tracks changes
 - **Concurrent Safe**: Thread-safe operations with proper synchronization
 
-## Running the Demo
-
-### Option 1: Run the executable demo
-```bash
-cd /Users/adnaan/code/livefir/statetemplate
-go run cmd/demo/main.go
-```
-
-### Option 2: Run examples
-```bash
-# Run the comprehensive example
-go run examples/example.go
-```
-
-### Option 3: Run tests
-```bash
-go test -v
-```
-
-This will run a complete demonstration showing:
-1. Template dependency detection
-2. Data updates simulation
-3. Real-time template update notifications
-
 ## Testing
 
-Run the test suite:
+Run the comprehensive test suite:
 
 ```bash
+# Run all tests
 go test -v
+
+# Run specific test suites
+go test -v -run "TestRealtimeRenderer"
+go test -v -run "TestTemplateTracker"
+go test -v -run "TestFragmentExtractor"
+
+# Run examples with timeout
+timeout 3s go run examples/simple/main.go
+timeout 3s go run examples/realtime/main.go
 ```
+
+The test suite uses table-driven tests for comprehensive coverage of template actions and fragment types.
 
 ## Use Cases
 
-- **Live Web Applications**: Real-time UI updates based on data changes
-- **Server-Side Rendering**: Efficient partial page updates
-- **Progressive Web Apps**: Optimized template rendering
-- **Real-time Dashboards**: Live data visualization updates
-- **Chat Applications**: Message and user state updates
-- **Fragment-based Updates**: DOM patching for WebSocket applications
+- **Real-time Web Applications**: Live UI updates with WebSocket integration
+- **Progressive Web Apps**: Efficient fragment-based updates for smooth UX
+- **Live Dashboards**: Real-time data visualization with minimal bandwidth
+- **Chat Applications**: Message and user state updates with granular control
+- **E-commerce Sites**: Dynamic cart, inventory, and pricing updates
+- **Content Management**: Live preview and collaborative editing features
+
+## Project Structure
+
+```text
+statetemplate/
+├── realtime_renderer.go       # Main renderer orchestrator
+├── template_tracker.go        # Data change tracking
+├── fragment_extractor.go      # Fragment extraction and categorization
+├── template_analyzer.go       # Advanced template analysis
+├── examples/                  # Usage examples and demos
+├── docs/                      # Comprehensive documentation
+├── scripts/                   # Development and validation scripts
+└── testdata/                  # Test templates and data
+```
 
 ## Integration
 
-This system can be integrated with:
-- WebSocket connections for real-time updates (see `REALTIME.md`)
-- HTTP SSE (Server-Sent Events) for live streaming
-- Message queues for distributed updates
-- Database change notifications
-- File system watchers
+StateTemplate integrates seamlessly with:
 
-The system is designed to be the foundation for building efficient, real-time web applications with minimal unnecessary re-rendering.
+- **WebSocket connections** for real-time bi-directional updates
+- **HTTP Server-Sent Events (SSE)** for live streaming
+- **Message queues** (Redis, RabbitMQ) for distributed updates
+- **Database change notifications** (PostgreSQL LISTEN/NOTIFY)
+- **File system watchers** for development and content updates
+
+The library provides the foundation for building efficient, real-time web applications with minimal client-side complexity and optimal bandwidth usage.
+
+## Documentation
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) - Detailed architectural overview
+- [`docs/REALTIME.md`](docs/REALTIME.md) - WebSocket integration guide
+- [`docs/ENHANCED_INTERFACE_IMPLEMENTATION_SUMMARY.md`](docs/ENHANCED_INTERFACE_IMPLEMENTATION_SUMMARY.md) - Implementation details
+- [`examples/README.md`](examples/README.md) - Usage examples and patterns

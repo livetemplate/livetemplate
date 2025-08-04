@@ -1,5 +1,5 @@
 ---
-applyTo: "*renderer*.go"
+applyTo: "**"
 ---
 
 # Renderer Component Instructions

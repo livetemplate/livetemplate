@@ -1,0 +1,4 @@
+<div>
+    <p>Keywords: {{range $i, $v := .Keywords}}{{if $i}},{{end}}{{$v}}{{end}}</p>
+    <p>Count: {{len .Keywords}}</p>
+</div>

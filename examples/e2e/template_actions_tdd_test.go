@@ -162,7 +162,7 @@ func TestTemplateActionComments(t *testing.T) {
 
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
-			renderer := statetemplate.NewRealtimeRenderer(nil)
+			renderer := statetemplate.NewRenderer(nil)
 
 			err := renderer.AddTemplate("comments_"+tc.name, tc.template)
 			if err != nil {
@@ -275,7 +275,7 @@ func TestTemplateActionPipelineOutput(t *testing.T) {
 
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
-			renderer := statetemplate.NewRealtimeRenderer(nil)
+			renderer := statetemplate.NewRenderer(nil)
 
 			err := renderer.AddTemplate("pipeline_"+tc.name, tc.template)
 			if err != nil {
@@ -421,7 +421,7 @@ func TestTemplateActionIfStatements(t *testing.T) {
 
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
-			renderer := statetemplate.NewRealtimeRenderer(nil)
+			renderer := statetemplate.NewRenderer(nil)
 
 			err := renderer.AddTemplate("if_"+tc.name, tc.template)
 			if err != nil {
@@ -543,7 +543,7 @@ func TestTemplateActionIfElseChains(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			renderer := statetemplate.NewRealtimeRenderer(nil)
+			renderer := statetemplate.NewRenderer(nil)
 
 			err := renderer.AddTemplate("if_chains_"+tc.name, template)
 			if err != nil {
@@ -699,7 +699,7 @@ func TestTemplateActionRangeLoops(t *testing.T) {
 
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
-			renderer := statetemplate.NewRealtimeRenderer(nil)
+			renderer := statetemplate.NewRenderer(nil)
 
 			err := renderer.AddTemplate("range_"+tc.name, tc.template)
 			if err != nil {
@@ -879,7 +879,7 @@ func TestTemplateActionWithStatements(t *testing.T) {
 
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
-			renderer := statetemplate.NewRealtimeRenderer(nil)
+			renderer := statetemplate.NewRenderer(nil)
 
 			err := renderer.AddTemplate("with_"+tc.name, tc.template)
 			if err != nil {
@@ -1042,7 +1042,7 @@ func TestTemplateActionVariableAssignment(t *testing.T) {
 
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
-			renderer := statetemplate.NewRealtimeRenderer(nil)
+			renderer := statetemplate.NewRenderer(nil)
 
 			err := renderer.AddTemplate("variables_"+tc.name, tc.template)
 			if err != nil {
@@ -1177,7 +1177,7 @@ func TestTemplateActionWhitespaceTrimming(t *testing.T) {
 
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
-			renderer := statetemplate.NewRealtimeRenderer(nil)
+			renderer := statetemplate.NewRenderer(nil)
 
 			err := renderer.AddTemplate("whitespace_"+tc.name, tc.template)
 			if err != nil {
@@ -1356,7 +1356,7 @@ func TestTemplateActionFunctions(t *testing.T) {
 
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
-			renderer := statetemplate.NewRealtimeRenderer(nil)
+			renderer := statetemplate.NewRenderer(nil)
 
 			err := renderer.AddTemplate("functions_"+tc.name, tc.template)
 			if err != nil {
@@ -1517,7 +1517,7 @@ func TestTemplateActionBlockDefinitions(t *testing.T) {
 
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
-			renderer := statetemplate.NewRealtimeRenderer(nil)
+			renderer := statetemplate.NewRenderer(nil)
 
 			err := renderer.AddTemplate("blocks_"+tc.name, tc.template)
 			if err != nil {
@@ -1680,7 +1680,7 @@ func TestTemplateActionRealTimeFragmentGeneration(t *testing.T) {
 
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
-			renderer := statetemplate.NewRealtimeRenderer(nil)
+			renderer := statetemplate.NewRenderer(nil)
 
 			err := renderer.AddTemplate("fragment_"+tc.name, tc.template)
 			if err != nil {
@@ -1727,7 +1727,7 @@ func TestTemplateActionRealTimeFragmentGeneration(t *testing.T) {
 				defer renderer.Stop()
 
 				updateChan := renderer.GetUpdateChannel()
-				var updates []statetemplate.RealtimeUpdate
+				var updates []statetemplate.Update
 
 				// Collect updates
 				go func() {
@@ -1949,7 +1949,7 @@ func TestAllTemplateActionsTogether(t *testing.T) {
 
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
-			renderer := statetemplate.NewRealtimeRenderer(nil)
+			renderer := statetemplate.NewRenderer(nil)
 
 			err := renderer.AddTemplate("integration_"+tc.name, tc.template)
 			if err != nil {

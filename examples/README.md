@@ -1,49 +1,73 @@
 # State Template Examples
 
-This directory contains three examples demonstrating different aspects of the state template system:
+This directory contains examples demonstrating different aspects of the state template system:
 
 ## 📁 Examples Overview
 
-### 1. `simple/` - Basic Template Tracking
+### Core Examples
+
+### 1. `comprehensive-demo/` - Full System Demo
+
+**File:** `examples/comprehensive-demo/main.go`
+
+Demonstrates comprehensive template system usage with real-time updates.
+
+### 2. `range-demo/` - Range Operations
+
+**File:** `examples/range-demo/main.go`
+
+Shows how to handle range/loop operations with granular updates.
+
+### Testing
+
+### 3. `e2e/` - End-to-End Tests
+
 **File:** `examples/simple/main.go`
 
 Demonstrates the core functionality:
+
 - Creating multiple templates with data dependencies
 - Setting up live data update channels
 - Automatic change detection and selective re-rendering
 - Basic template dependency tracking
 
 **Key Features:**
+
 - Multiple templates (header, sidebar, user-profile)
 - Channel-based data updates
 - Real-time change notifications
 - Dependency-based selective updates
 
-### 2. `files/` - File-Based Template Loading  
+### 2. `files/` - File-Based Template Loading
+
 **File:** `examples/files/main.go`
 **Templates:** `examples/files/templates/*.html`
 
 Shows how to work with template files:
+
 - Loading templates from a directory
 - Loading specific template files with custom names
 - Template file creation with real HTML templates
 - Directory-based template management
 
 **Key Features:**
+
 - `LoadTemplatesFromDirectory()` for bulk loading
 - `LoadTemplateFromFile()` for specific files
 - Actual template files in `templates/` directory
 - Custom template naming
 - Comprehensive dependency analysis### 3. `fragments/` - Automatic Fragment Extraction
-**File:** `examples/fragments/main.go`
+  **File:** `examples/fragments/main.go`
 
 Demonstrates the most advanced feature:
+
 - Automatic extraction of minimal template fragments
 - Smart dependency analysis per fragment
 - Fragment-level change detection
 - Optimized partial re-rendering
 
 **Key Features:**
+
 - `AddTemplateWithFragmentExtraction()` for automatic processing
 - Fragment dependency tracking
 - Granular update notifications
@@ -60,16 +84,16 @@ go run examples/fragments/main.go
 
 ## 📊 What Each Example Shows
 
-| Example | Templates | Data Changes | Key Benefit |
-|---------|-----------|--------------|-------------|
-| Simple | 3 named templates | 4 different updates | Basic dependency tracking |
-| Files | 6 templates (3 from dir, 3 from files) | 4 targeted updates | File-based workflow |
-| Fragments | 1 template → 12 auto-extracted fragments | 4 granular updates | Maximum optimization |
+| Example   | Templates                                | Data Changes        | Key Benefit               |
+| --------- | ---------------------------------------- | ------------------- | ------------------------- |
+| Simple    | 3 named templates                        | 4 different updates | Basic dependency tracking |
+| Files     | 6 templates (3 from dir, 3 from files)   | 4 targeted updates  | File-based workflow       |
+| Fragments | 1 template → 12 auto-extracted fragments | 4 granular updates  | Maximum optimization      |
 
 ## 🎯 Use Cases
 
 - **Simple**: Getting started, understanding the core concepts
 - **Files**: Production workflows with template files
-- **Fragments**: High-performance applications requiring minimal DOM updates
+- **Fragments**: High-performance applications requiring minimal template updates
 
 Each example includes detailed logging to show exactly what's happening during template processing and data updates.

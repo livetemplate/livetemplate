@@ -1,0 +1,97 @@
+# golangci-lint configuration for StateTemplate
+# See https://golangci-lint.run/usage/configuration/ for full reference
+
+run:
+  timeout: 5m
+  issues-exit-code: 1
+  tests: true
+  build-tags: []
+  skip-dirs: []
+  skip-files: []
+  modules-download-mode: readonly
+  go: "1.21"
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+  uniq-by-line: true
+  sort-results: true
+
+linters-settings:
+  govet:
+    check-shadowing: true
+    enable-all: true
+    disable:
+      - fieldalignment # Too noisy for this project
+  gofmt:
+    simplify: true
+  goimports:
+    local-prefixes: github.com/livefir/statetemplate
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+      - style
+    disabled-checks:
+      - hugeParam # Too noisy for template structs
+      - rangeValCopy # Common Go pattern we want to allow
+  revive:
+    min-confidence: 0.8
+    rules:
+      - name: exported
+        disabled: true # Disable exported name checking for now
+  misspell:
+    locale: US
+
+linters:
+  disable-all: true
+  enable:
+    # Essential linters
+    - errcheck # Check for unchecked errors
+    - gosimple # Simplify code
+    - govet # Go vet (but excluding problematic checks)
+    - ineffassign # Detect ineffectual assignments
+    - staticcheck # Advanced static analysis
+    - typecheck # Type checking
+    - unused # Find unused code
+
+    # Code quality linters
+    - gofmt # Code formatting
+    - goimports # Import organization
+    - revive # Replacement for golint (with custom config)
+    - misspell # Fix common spelling mistakes
+    - unconvert # Remove unnecessary conversions
+
+    # Security and best practices (less noisy ones)
+    - gosec # Security issues
+    - exportloopref # Detect loop variable capture issues
+
+issues:
+  exclude-rules:
+    # Exclude some linters from running on tests files
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+
+    # Exclude known false positives
+    - text: "Use of weak random number generator"
+      linters:
+        - gosec
+
+    # Exclude shadow warnings for err variables (common Go pattern)
+    - text: 'shadow: declaration of "err"'
+      linters:
+        - govet
+
+    # Exclude testdata files
+    - path: testdata/
+      linters:
+        - errcheck
+        - gosec
+        - revive
+
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  new: false

@@ -1,5 +1,5 @@
 ---
-applyTo: "*fragment*.go"
+applyTo: "**"
 ---
 
 # Fragment Extraction Instructions

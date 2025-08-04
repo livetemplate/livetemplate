@@ -11,19 +11,26 @@ import (
 	"time"
 )
 
-// RealtimeUpdate represents an update that can be sent to the client
-type RealtimeUpdate struct {
-	FragmentID  string `json:"fragment_id"`            // The ID of the div/element to update
-	HTML        string `json:"html"`                   // The new HTML content for that fragment
-	Action      string `json:"action"`                 // "replace", "append", "prepend", "insertafter", "insertbefore", "remove"
-	TargetID    string `json:"target_id,omitempty"`    // For insertafter/insertbefore actions - which element to insert relative to
-	ItemIndex   int    `json:"item_index,omitempty"`   // For range items - the index within the array
-	ItemKey     string `json:"item_key,omitempty"`     // For range items - unique key for the item (e.g., URL for nav items)
-	ContainerID string `json:"container_id,omitempty"` // For range operations - the ID of the containing range fragment
+// RangeInfo contains range operation information.
+// Only set for range operations (append, prepend, remove, insertafter, insertbefore).
+type RangeInfo struct {
+	ItemKey     string `json:"item_key"`               // Always present for range operations
+	ReferenceID string `json:"reference_id,omitempty"` // Only for insertafter/insertbefore positioning
 }
 
-// RangeItem represents a single item within a range loop
-type RangeItem struct {
+// Update represents an update that can be sent to the client.
+// This is the primary output type for real-time template updates.
+type Update struct {
+	FragmentID string `json:"fragment_id"` // The ID of the div/element to update
+	HTML       string `json:"html"`        // The new HTML content for that fragment
+	Action     string `json:"action"`      // "replace", "append", "prepend", "remove", "insertafter", "insertbefore"
+
+	// Range operation info - only set for range operations
+	*RangeInfo `json:"range,omitempty"`
+}
+
+// rangeItem represents a single item within a range loop
+type rangeItem struct {
 	ID    string      // Unique ID for this specific item instance
 	Index int         // Position in the array
 	Key   string      // Unique key for the item (e.g., URL, ID field)
@@ -31,63 +38,63 @@ type RangeItem struct {
 	HTML  string      // Rendered HTML for this item
 }
 
-// RangeFragment represents a fragment that contains a range loop
-type RangeFragment struct {
-	*TemplateFragment
+// rangeFragment represents a fragment that contains a range loop
+type rangeFragment struct {
+	*templateFragment
 	RangePath    string                // The path to the array (e.g., "Navigation.MainItems")
 	ItemTemplate string                // The template content for individual items
-	Items        map[string]*RangeItem // Current items keyed by their unique key
+	Items        map[string]*rangeItem // Current items keyed by their unique key
 	ContainerID  string                // ID of the container element
 }
 
-// RealtimeRenderer handles real-time template rendering with fragment targeting
-type RealtimeRenderer struct {
+// Renderer handles real-time template rendering with fragment targeting
+type Renderer struct {
 	templates       map[string]*template.Template
-	fragmentTracker *FragmentExtractor
-	tracker         *TemplateTracker // For change detection
+	fragmentTracker *fragmentExtractor
+	tracker         *templateTracker // For change detection
 	currentData     interface{}
 	dataMutex       sync.RWMutex
 	updateChan      chan interface{}
-	outputChan      chan RealtimeUpdate
+	outputChan      chan Update
 	running         bool
 	stopChan        chan bool
 	wrapperPattern  string                         // Pattern for wrapping fragments with IDs
-	fragmentStore   map[string][]*TemplateFragment // Store fragments by template name
-	rangeFragments  map[string][]*RangeFragment    // Store range-specific fragments by template name
+	fragmentStore   map[string][]*templateFragment // Store fragments by template name
+	rangeFragments  map[string][]*rangeFragment    // Store range-specific fragments by template name
 }
 
-// RealtimeConfig configures the real-time renderer
-type RealtimeConfig struct {
+// Config configures the real-time renderer
+type Config struct {
 	WrapperTag     string // HTML tag to wrap fragments (default: "div")
 	IDPrefix       string // Prefix for fragment IDs (default: "fragment-")
 	PreserveBlocks bool   // Whether to preserve block names as IDs when possible
 }
 
-// NewRealtimeRenderer creates a new real-time renderer
-func NewRealtimeRenderer(config *RealtimeConfig) *RealtimeRenderer {
+// NewRenderer creates a new real-time renderer
+func NewRenderer(config *Config) *Renderer {
 	if config == nil {
-		config = &RealtimeConfig{
+		config = &Config{
 			WrapperTag:     "div",
 			IDPrefix:       "fragment-",
 			PreserveBlocks: true,
 		}
 	}
 
-	return &RealtimeRenderer{
+	return &Renderer{
 		templates:       make(map[string]*template.Template),
-		fragmentTracker: NewFragmentExtractor(),
-		tracker:         NewTemplateTracker(),
+		fragmentTracker: newFragmentExtractor(),
+		tracker:         newTemplateTracker(),
 		updateChan:      make(chan interface{}, 100),
-		outputChan:      make(chan RealtimeUpdate, 100),
+		outputChan:      make(chan Update, 100),
 		stopChan:        make(chan bool),
 		wrapperPattern:  fmt.Sprintf("<%s id=\"%%s\">%%s</%s>", config.WrapperTag, config.WrapperTag),
-		fragmentStore:   make(map[string][]*TemplateFragment),
-		rangeFragments:  make(map[string][]*RangeFragment),
+		fragmentStore:   make(map[string][]*templateFragment),
+		rangeFragments:  make(map[string][]*rangeFragment),
 	}
 }
 
 // AddTemplate adds a template for real-time rendering
-func (r *RealtimeRenderer) AddTemplate(name, content string) error {
+func (r *Renderer) AddTemplate(name, content string) error {
 	r.dataMutex.Lock()
 	defer r.dataMutex.Unlock()
 
@@ -112,9 +119,18 @@ func (r *RealtimeRenderer) AddTemplate(name, content string) error {
 	return nil
 }
 
+// GetFragments returns the fragments for a template (for debugging)
+func (r *Renderer) GetFragments(templateName string) ([]*templateFragment, bool) {
+	r.dataMutex.Lock()
+	defer r.dataMutex.Unlock()
+
+	fragments, exists := r.fragmentStore[templateName]
+	return fragments, exists
+}
+
 // createSimpleFragments creates fragments from template expressions
-func (r *RealtimeRenderer) createSimpleFragments(content, templateName string) []*TemplateFragment {
-	var fragments []*TemplateFragment
+func (r *Renderer) createSimpleFragments(content, templateName string) []*templateFragment {
+	var fragments []*templateFragment
 
 	// Use the tracker's analyzer to find dependencies for the whole template
 	tmpl, err := template.New("temp").Parse(content)
@@ -122,26 +138,26 @@ func (r *RealtimeRenderer) createSimpleFragments(content, templateName string) [
 		return fragments
 	}
 
-	analyzer := NewAdvancedTemplateAnalyzer()
+	analyzer := newAdvancedTemplateAnalyzer()
 	allDependencies := analyzer.AnalyzeTemplate(tmpl)
 
 	// Create granular fragments for individual template expressions
 	fragments = r.createGranularFragments(content, templateName, allDependencies)
 
 	// Create range fragments for loop constructs
-	rangeFragments := r.createRangeFragments(content, templateName, allDependencies)
+	rangeFragments := r.createrangeFragments(content, templateName, allDependencies)
 	r.rangeFragments[templateName] = rangeFragments
 
 	// Create conditional fragments for if/with blocks
-	conditionalFragments := r.createConditionalFragments(content, templateName, allDependencies)
+	conditionalFragments := r.createconditionalFragments(content, templateName, allDependencies)
 	for _, condFragment := range conditionalFragments {
-		fragments = append(fragments, condFragment.TemplateFragment)
+		fragments = append(fragments, condFragment.templateFragment)
 	}
 
 	// Create template include fragments
-	includeFragments := r.createTemplateIncludeFragments(content, templateName, allDependencies)
+	includeFragments := r.createtemplateIncludeFragments(content, templateName, allDependencies)
 	for _, includeFragment := range includeFragments {
-		fragments = append(fragments, includeFragment.TemplateFragment)
+		fragments = append(fragments, includeFragment.templateFragment)
 	}
 
 	// Try to identify block fragments separately
@@ -149,7 +165,7 @@ func (r *RealtimeRenderer) createSimpleFragments(content, templateName string) [
 
 	// If no logical fragments were found, create a single fragment for the entire template
 	if len(fragments) == 0 {
-		fragment := &TemplateFragment{
+		fragment := &templateFragment{
 			ID:           r.generateShortID(),
 			Content:      content,
 			Dependencies: allDependencies,
@@ -163,8 +179,8 @@ func (r *RealtimeRenderer) createSimpleFragments(content, templateName string) [
 }
 
 // createGranularFragments creates individual fragments for each template expression line
-func (r *RealtimeRenderer) createGranularFragments(content, templateName string, allDependencies []string) []*TemplateFragment {
-	var fragments []*TemplateFragment
+func (r *Renderer) createGranularFragments(content, templateName string, allDependencies []string) []*templateFragment {
+	var fragments []*templateFragment
 
 	lines := strings.Split(content, "\n")
 
@@ -187,17 +203,33 @@ func (r *RealtimeRenderer) createGranularFragments(content, templateName string,
 			strings.Contains(trimmedLine, "{{if") || strings.Contains(trimmedLine, "{{with") ||
 			strings.Contains(trimmedLine, "{{template") {
 			continue
-		} // Find dependencies for this specific line
-		lineDependencies := r.findLineDependencies(line, allDependencies)
-		if len(lineDependencies) > 0 {
-			fragment := &TemplateFragment{
-				ID:           r.generateShortID(),
-				Content:      line,
-				Dependencies: lineDependencies,
-				StartPos:     i,
-				EndPos:       i + 1,
+		}
+
+		// Skip variable assignments as they don't produce direct output
+		if strings.Contains(trimmedLine, ":=") {
+			continue
+		}
+
+		// Create fragments for lines that produce output with template data
+		// This includes both HTML elements with template expressions and plain text with template expressions
+		if (strings.Contains(line, "<") && strings.Contains(line, ">")) ||
+			(strings.Contains(line, "{{") && strings.Contains(line, "}}") &&
+				!strings.Contains(trimmedLine, "{{/*") && !strings.Contains(trimmedLine, "*/}}")) {
+			// Find dependencies for this specific line
+			lineDependencies := r.findLineDependencies(line, allDependencies)
+			if len(lineDependencies) > 0 {
+				// Before storing the fragment, resolve any template variables to their actual field references
+				processedContent := r.resolveVariableReferences(line, content)
+
+				fragment := &templateFragment{
+					ID:           r.generateShortID(),
+					Content:      processedContent,
+					Dependencies: lineDependencies,
+					StartPos:     i,
+					EndPos:       i + 1,
+				}
+				fragments = append(fragments, fragment)
 			}
-			fragments = append(fragments, fragment)
 		}
 	}
 
@@ -205,22 +237,107 @@ func (r *RealtimeRenderer) createGranularFragments(content, templateName string,
 }
 
 // findLineDependencies finds which dependencies are used in a specific line
-func (r *RealtimeRenderer) findLineDependencies(line string, allDependencies []string) []string {
+func (r *Renderer) findLineDependencies(line string, allDependencies []string) []string {
 	var lineDeps []string
 
 	for _, dep := range allDependencies {
+		// Check for direct template references: {{.Field}}
 		templateRef := fmt.Sprintf("{{.%s}}", dep)
 		if strings.Contains(line, templateRef) {
 			lineDeps = append(lineDeps, dep)
+			continue
+		}
+
+		// Check for variable assignments: {{$var := .Field}}
+		varAssignRef := fmt.Sprintf(":= .%s}}", dep)
+		if strings.Contains(line, varAssignRef) {
+			lineDeps = append(lineDeps, dep)
+			continue
+		}
+
+		// Check for function calls on fields: {{len .Field}}
+		funcCallRef := fmt.Sprintf(" .%s}}", dep)
+		if strings.Contains(line, funcCallRef) {
+			lineDeps = append(lineDeps, dep)
+			continue
+		}
+	}
+
+	// Also check if this line uses template variables that were assigned from dependencies
+	// Look for {{$varname}} patterns and map them back to data dependencies
+	variablePattern := regexp.MustCompile(`\{\{\$(\w+)\}\}`)
+	varMatches := variablePattern.FindAllStringSubmatch(line, -1)
+
+	for _, match := range varMatches {
+		if len(match) > 1 {
+			varName := match[1]
+			// Find the dependency this variable was assigned from
+			if dep := r.findVariableDependency(varName, allDependencies); dep != "" {
+				lineDeps = append(lineDeps, dep)
+			}
 		}
 	}
 
 	return lineDeps
 }
 
-// createRangeFragments creates fragments for range loops to enable granular list operations
-func (r *RealtimeRenderer) createRangeFragments(content, templateName string, allDependencies []string) []*RangeFragment {
-	var rangeFragments []*RangeFragment
+// findVariableDependency finds what data dependency a template variable was assigned from
+// This is a simple heuristic that maps variable names to likely field names
+func (r *Renderer) findVariableDependency(varName string, allDependencies []string) string {
+	// Simple mapping: $title -> Title, $count -> Count, etc.
+	expectedFieldName := strings.Title(varName)
+
+	for _, dep := range allDependencies {
+		if dep == expectedFieldName {
+			return dep
+		}
+	}
+
+	return ""
+}
+
+// resolveVariableReferences replaces template variables in a line with their actual field references
+// For example, {{$title}} becomes {{.Title}} based on the variable assignment {{$title := .Title}}
+func (r *Renderer) resolveVariableReferences(line, fullTemplate string) string {
+	// Find all variable usages in the line: {{$varname}}
+	variablePattern := regexp.MustCompile(`\{\{\$(\w+)\}\}`)
+
+	result := line
+	matches := variablePattern.FindAllStringSubmatch(line, -1)
+
+	for _, match := range matches {
+		if len(match) > 1 {
+			varName := match[1]
+			fullVarUsage := match[0] // e.g., "{{$title}}"
+
+			// Find the assignment for this variable in the full template
+			if fieldRef := r.findVariableAssignment(varName, fullTemplate); fieldRef != "" {
+				result = strings.ReplaceAll(result, fullVarUsage, fieldRef)
+			}
+		}
+	}
+
+	return result
+}
+
+// findVariableAssignment finds the field reference for a variable assignment
+// For example, for $title in "{{$title := .Title}}", returns "{{.Title}}"
+func (r *Renderer) findVariableAssignment(varName, fullTemplate string) string {
+	// Look for assignment pattern: {{$varname := .Fieldname}}
+	assignmentPattern := regexp.MustCompile(`\{\{\$` + regexp.QuoteMeta(varName) + `\s*:=\s*(\.\w+)\}\}`)
+	matches := assignmentPattern.FindStringSubmatch(fullTemplate)
+
+	if len(matches) > 1 {
+		fieldRef := matches[1]        // e.g., ".Title"
+		return "{{" + fieldRef + "}}" // Convert to "{{.Title}}"
+	}
+
+	return ""
+}
+
+// createrangeFragments creates fragments for range loops to enable granular list operations
+func (r *Renderer) createrangeFragments(content, templateName string, allDependencies []string) []*rangeFragment {
+	var rangeFragments []*rangeFragment
 
 	lines := strings.Split(content, "\n")
 	inRange := false
@@ -238,7 +355,8 @@ func (r *RealtimeRenderer) createRangeFragments(content, templateName string, al
 			rangeContent = []string{}
 
 			// Extract the range path (e.g., ".Navigation.MainItems")
-			rangeRegex := regexp.MustCompile(`\{\{range\s+\.([^}]+)\}\}`)
+			// Handle both "{{range .Items}}" and "{{range $index, $item := .Items}}" syntax
+			rangeRegex := regexp.MustCompile(`\{\{range\s+(?:\$\w+,\s*\$\w+\s*:=\s*)?\.([^}]+)\}\}`)
 			matches := rangeRegex.FindStringSubmatch(trimmedLine)
 			if len(matches) > 1 {
 				rangePath = matches[1]
@@ -257,8 +375,8 @@ func (r *RealtimeRenderer) createRangeFragments(content, templateName string, al
 					containerID := r.generateShortID()
 					itemTemplate := strings.Join(rangeContent, "\n")
 
-					fragment := &RangeFragment{
-						TemplateFragment: &TemplateFragment{
+					fragment := &rangeFragment{
+						templateFragment: &templateFragment{
 							ID:           containerID,
 							Content:      strings.Join(lines[rangeStart:rangeEnd+1], "\n"),
 							Dependencies: []string{rangePath},
@@ -267,7 +385,7 @@ func (r *RealtimeRenderer) createRangeFragments(content, templateName string, al
 						},
 						RangePath:    rangePath,
 						ItemTemplate: itemTemplate,
-						Items:        make(map[string]*RangeItem),
+						Items:        make(map[string]*rangeItem),
 						ContainerID:  containerID,
 					}
 					rangeFragments = append(rangeFragments, fragment)
@@ -283,25 +401,25 @@ func (r *RealtimeRenderer) createRangeFragments(content, templateName string, al
 	return rangeFragments
 }
 
-// ConditionalFragment represents a fragment that contains conditional logic
-type ConditionalFragment struct {
-	*TemplateFragment
+// conditionalFragment represents a fragment that contains conditional logic
+type conditionalFragment struct {
+	*templateFragment
 	ConditionPath string // The path to the condition (e.g., "User.IsLoggedIn")
 	TrueContent   string // Content when condition is true
 	FalseContent  string // Content when condition is false (else block)
 	FragmentType  string // "if", "with"
 }
 
-// TemplateIncludeFragment represents a fragment that includes another template
-type TemplateIncludeFragment struct {
-	*TemplateFragment
+// templateIncludeFragment represents a fragment that includes another template
+type templateIncludeFragment struct {
+	*templateFragment
 	TemplateName string // Name of the included template
 	DataPath     string // Path to the data passed to template (optional)
 }
 
-// createConditionalFragments creates fragments for if/with conditional blocks
-func (r *RealtimeRenderer) createConditionalFragments(content, templateName string, allDependencies []string) []*ConditionalFragment {
-	var conditionalFragments []*ConditionalFragment
+// createconditionalFragments creates fragments for if/with conditional blocks
+func (r *Renderer) createconditionalFragments(content, templateName string, allDependencies []string) []*conditionalFragment {
+	var conditionalFragments []*conditionalFragment
 
 	lines := strings.Split(content, "\n")
 
@@ -364,8 +482,8 @@ func (r *RealtimeRenderer) createConditionalFragments(content, templateName stri
 			}
 
 			// Create conditional fragment
-			fragment := &ConditionalFragment{
-				TemplateFragment: &TemplateFragment{
+			fragment := &conditionalFragment{
+				templateFragment: &templateFragment{
 					ID:           r.generateShortID(),
 					Content:      strings.Join(lines[startLine:i+1], "\n"),
 					Dependencies: []string{conditionPath},
@@ -407,9 +525,9 @@ func (r *RealtimeRenderer) createConditionalFragments(content, templateName stri
 	return conditionalFragments
 }
 
-// createTemplateIncludeFragments creates fragments for template inclusion blocks
-func (r *RealtimeRenderer) createTemplateIncludeFragments(content, templateName string, allDependencies []string) []*TemplateIncludeFragment {
-	var includeFragments []*TemplateIncludeFragment
+// createtemplateIncludeFragments creates fragments for template inclusion blocks
+func (r *Renderer) createtemplateIncludeFragments(content, templateName string, allDependencies []string) []*templateIncludeFragment {
+	var includeFragments []*templateIncludeFragment
 
 	lines := strings.Split(content, "\n")
 
@@ -425,8 +543,8 @@ func (r *RealtimeRenderer) createTemplateIncludeFragments(content, templateName 
 					dependencies = []string{dataPath}
 				}
 
-				fragment := &TemplateIncludeFragment{
-					TemplateFragment: &TemplateFragment{
+				fragment := &templateIncludeFragment{
+					templateFragment: &templateFragment{
 						ID:           r.generateShortID(),
 						Content:      line,
 						Dependencies: dependencies,
@@ -445,7 +563,7 @@ func (r *RealtimeRenderer) createTemplateIncludeFragments(content, templateName 
 }
 
 // extractConditionPath extracts the condition path from if/with statements
-func (r *RealtimeRenderer) extractConditionPath(line, conditionType string) string {
+func (r *Renderer) extractConditionPath(line, conditionType string) string {
 	// Patterns for different condition types
 	var pattern string
 	switch conditionType {
@@ -466,7 +584,7 @@ func (r *RealtimeRenderer) extractConditionPath(line, conditionType string) stri
 }
 
 // extractTemplateIncludeInfo extracts template name and data path from template inclusion
-func (r *RealtimeRenderer) extractTemplateIncludeInfo(line string) (templateName, dataPath string) {
+func (r *Renderer) extractTemplateIncludeInfo(line string) (templateName, dataPath string) {
 	// Pattern for template with data: {{template "name" .Data}}
 	templateWithDataPattern := `\{\{template\s+"([^"]+)"\s+\.([^}]+)\}\}`
 	re := regexp.MustCompile(templateWithDataPattern)
@@ -487,7 +605,7 @@ func (r *RealtimeRenderer) extractTemplateIncludeInfo(line string) (templateName
 }
 
 // generateShortID generates a short, unique 6-character ID
-func (r *RealtimeRenderer) generateShortID() string {
+func (r *Renderer) generateShortID() string {
 	// Use a simple approach: timestamp + random component
 	timestamp := time.Now().UnixNano()
 
@@ -505,15 +623,15 @@ func (r *RealtimeRenderer) generateShortID() string {
 }
 
 // detectPatternFragments detects fragments based on common patterns
-func (r *RealtimeRenderer) detectPatternFragments(content, templateName string, allDependencies []string) []*TemplateFragment {
-	var fragments []*TemplateFragment
+func (r *Renderer) detectPatternFragments(content, templateName string, allDependencies []string) []*templateFragment {
+	var fragments []*templateFragment
 	// This could be extended to detect common UI patterns
 	// For now, we rely on granular line-based detection
 	return fragments
 }
 
 // addBlockFragments identifies and adds block fragments
-func (r *RealtimeRenderer) addBlockFragments(fragments *[]*TemplateFragment, content, templateName string, allDeps []string) {
+func (r *Renderer) addBlockFragments(fragments *[]*templateFragment, content, templateName string, allDeps []string) {
 	blockRegex := regexp.MustCompile(`\{\{block\s+"([^"]+)"[^}]*\}\}(.*?)\{\{end\}\}`)
 	matches := blockRegex.FindAllStringSubmatch(content, -1)
 
@@ -530,7 +648,7 @@ func (r *RealtimeRenderer) addBlockFragments(fragments *[]*TemplateFragment, con
 				*fragments = append(*fragments, blockFragments...)
 			} else {
 				// Add the entire block as a single fragment
-				fragment := &TemplateFragment{
+				fragment := &templateFragment{
 					ID:           blockName, // Use block name as ID
 					Content:      blockContent,
 					Dependencies: allDeps, // For simplicity, use all dependencies
@@ -544,8 +662,8 @@ func (r *RealtimeRenderer) addBlockFragments(fragments *[]*TemplateFragment, con
 }
 
 // detectSubFragmentsInBlock detects logical sub-fragments within a block
-func (r *RealtimeRenderer) detectSubFragmentsInBlock(blockContent, templateName, blockName string, allDeps []string) []*TemplateFragment {
-	var fragments []*TemplateFragment
+func (r *Renderer) detectSubFragmentsInBlock(blockContent, templateName, blockName string, allDeps []string) []*templateFragment {
+	var fragments []*templateFragment
 
 	// Group dependencies by their root field within this block
 	fieldGroups := make(map[string][]string)
@@ -567,7 +685,7 @@ func (r *RealtimeRenderer) detectSubFragmentsInBlock(blockContent, templateName,
 	for rootField, fieldDeps := range fieldGroups {
 		sectionContent := r.extractFieldSectionFromBlock(blockContent, fieldDeps)
 		if sectionContent != "" && len(strings.TrimSpace(sectionContent)) > 0 {
-			fragment := &TemplateFragment{
+			fragment := &templateFragment{
 				ID:           fmt.Sprintf("%s-%s", blockName, strings.ToLower(rootField)),
 				Content:      sectionContent,
 				Dependencies: fieldDeps,
@@ -582,7 +700,7 @@ func (r *RealtimeRenderer) detectSubFragmentsInBlock(blockContent, templateName,
 }
 
 // extractFieldSectionFromBlock extracts the template section within a block that uses the given field dependencies
-func (r *RealtimeRenderer) extractFieldSectionFromBlock(blockContent string, fieldDeps []string) string {
+func (r *Renderer) extractFieldSectionFromBlock(blockContent string, fieldDeps []string) string {
 	lines := strings.Split(blockContent, "\n")
 	var sectionLines []string
 	inSection := false
@@ -622,13 +740,13 @@ func (r *RealtimeRenderer) extractFieldSectionFromBlock(blockContent string, fie
 }
 
 // generateSimpleID generates a simple random ID as fallback
-func (r *RealtimeRenderer) generateSimpleID() string {
+func (r *Renderer) generateSimpleID() string {
 	// Simple ID generation for fallback
 	return fmt.Sprintf("frag-%d", time.Now().UnixNano()%1000000)
 }
 
 // SetInitialData sets the initial data and returns the full rendered HTML
-func (r *RealtimeRenderer) SetInitialData(data interface{}) (string, error) {
+func (r *Renderer) SetInitialData(data interface{}) (string, error) {
 	r.dataMutex.Lock()
 	r.currentData = data
 	r.dataMutex.Unlock()
@@ -637,12 +755,12 @@ func (r *RealtimeRenderer) SetInitialData(data interface{}) (string, error) {
 }
 
 // GetUpdateChannel returns the channel for receiving real-time updates
-func (r *RealtimeRenderer) GetUpdateChannel() <-chan RealtimeUpdate {
+func (r *Renderer) GetUpdateChannel() <-chan Update {
 	return r.outputChan
 }
 
 // SendUpdate sends new data that may trigger fragment updates
-func (r *RealtimeRenderer) SendUpdate(newData interface{}) {
+func (r *Renderer) SendUpdate(newData interface{}) {
 	if !r.running {
 		return
 	}
@@ -655,19 +773,19 @@ func (r *RealtimeRenderer) SendUpdate(newData interface{}) {
 }
 
 // Start begins processing real-time updates
-func (r *RealtimeRenderer) Start() {
+func (r *Renderer) Start() {
 	r.running = true
 	go r.processUpdates()
 }
 
 // Stop stops processing updates
-func (r *RealtimeRenderer) Stop() {
+func (r *Renderer) Stop() {
 	r.running = false
 	close(r.stopChan)
 }
 
 // renderFullHTML renders the complete HTML with fragment IDs
-func (r *RealtimeRenderer) renderFullHTML() (string, error) {
+func (r *Renderer) renderFullHTML() (string, error) {
 	if len(r.templates) == 0 {
 		return "", fmt.Errorf("no templates added")
 	}
@@ -691,7 +809,7 @@ func (r *RealtimeRenderer) renderFullHTML() (string, error) {
 }
 
 // wrapRenderedFragments identifies fragment sections in rendered HTML and wraps them with div IDs
-func (r *RealtimeRenderer) wrapRenderedFragments(renderedHTML, templateName string) string {
+func (r *Renderer) wrapRenderedFragments(renderedHTML, templateName string) string {
 	fragments := r.fragmentStore[templateName]
 	rangeFragments := r.rangeFragments[templateName]
 
@@ -715,23 +833,26 @@ func (r *RealtimeRenderer) wrapRenderedFragments(renderedHTML, templateName stri
 			result = r.wrapSiteFragment(result, fragmentID)
 		} else if r.isNavigationFragment(fragment) {
 			result = r.wrapNavigationFragment(result, fragmentID)
-		} else if r.isConditionalFragment(fragment) {
-			result = r.wrapConditionalFragment(result, fragment, fragmentID)
-		} else if r.isTemplateIncludeFragment(fragment) {
-			result = r.wrapTemplateIncludeFragment(result, fragment, fragmentID)
+		} else if r.isconditionalFragment(fragment) {
+			result = r.wrapconditionalFragment(result, fragment, fragmentID)
+		} else if r.istemplateIncludeFragment(fragment) {
+			result = r.wraptemplateIncludeFragment(result, fragment, fragmentID)
+		} else {
+			// Generic fragment wrapping for any template expressions
+			result = r.wrapGenericFragment(result, fragment, fragmentID)
 		}
 	}
 
 	// Process range fragments by wrapping individual items within the range
 	for _, rangeFragment := range rangeFragments {
-		result = r.wrapRangeFragmentItems(result, rangeFragment)
+		result = r.wraprangeFragmentItems(result, rangeFragment)
 	}
 
 	return result
 }
 
 // isCounterFieldFragment checks if this fragment contains a specific counter field
-func (r *RealtimeRenderer) isCounterFieldFragment(fragment *TemplateFragment) bool {
+func (r *Renderer) isCounterFieldFragment(fragment *templateFragment) bool {
 	for _, dep := range fragment.Dependencies {
 		if strings.HasPrefix(dep, "Counter.") {
 			return true
@@ -741,7 +862,7 @@ func (r *RealtimeRenderer) isCounterFieldFragment(fragment *TemplateFragment) bo
 }
 
 // wrapCounterFieldFragment wraps individual counter field lines with div IDs
-func (r *RealtimeRenderer) wrapCounterFieldFragment(html string, fragment *TemplateFragment, fragmentID string) string {
+func (r *Renderer) wrapCounterFieldFragment(html string, fragment *templateFragment, fragmentID string) string {
 	// Determine what type of counter field this is based on dependencies
 	var pattern string
 
@@ -767,7 +888,7 @@ func (r *RealtimeRenderer) wrapCounterFieldFragment(html string, fragment *Templ
 }
 
 // isSiteFragment checks if this fragment contains site-related dependencies
-func (r *RealtimeRenderer) isSiteFragment(fragment *TemplateFragment) bool {
+func (r *Renderer) isSiteFragment(fragment *templateFragment) bool {
 	for _, dep := range fragment.Dependencies {
 		if strings.HasPrefix(dep, "Site.") {
 			return true
@@ -777,7 +898,7 @@ func (r *RealtimeRenderer) isSiteFragment(fragment *TemplateFragment) bool {
 }
 
 // isNavigationFragment checks if this fragment contains navigation-related dependencies
-func (r *RealtimeRenderer) isNavigationFragment(fragment *TemplateFragment) bool {
+func (r *Renderer) isNavigationFragment(fragment *templateFragment) bool {
 	for _, dep := range fragment.Dependencies {
 		if strings.HasPrefix(dep, "Navigation.") || dep == "URL" || dep == "Label" {
 			return true
@@ -786,32 +907,32 @@ func (r *RealtimeRenderer) isNavigationFragment(fragment *TemplateFragment) bool
 	return false
 }
 
-// isConditionalFragment checks if this fragment contains conditional logic (if/with)
-func (r *RealtimeRenderer) isConditionalFragment(fragment *TemplateFragment) bool {
+// isconditionalFragment checks if this fragment contains conditional logic (if/with)
+func (r *Renderer) isconditionalFragment(fragment *templateFragment) bool {
 	return strings.Contains(fragment.Content, "{{if") || strings.Contains(fragment.Content, "{{with")
 }
 
-// isTemplateIncludeFragment checks if this fragment includes another template
-func (r *RealtimeRenderer) isTemplateIncludeFragment(fragment *TemplateFragment) bool {
+// istemplateIncludeFragment checks if this fragment includes another template
+func (r *Renderer) istemplateIncludeFragment(fragment *templateFragment) bool {
 	return strings.Contains(fragment.Content, "{{template")
 }
 
 // wrapSiteFragment wraps the site heading with a div ID
-func (r *RealtimeRenderer) wrapSiteFragment(html, fragmentID string) string {
+func (r *Renderer) wrapSiteFragment(html, fragmentID string) string {
 	// Look for h1 tags containing the site name
 	re := regexp.MustCompile(`(\s*<h1>.*?</h1>)`)
 	return re.ReplaceAllString(html, fmt.Sprintf(`<div id="%s">$1</div>`, fragmentID))
 }
 
 // wrapNavigationFragment wraps the navigation section with a div ID
-func (r *RealtimeRenderer) wrapNavigationFragment(html, fragmentID string) string {
+func (r *Renderer) wrapNavigationFragment(html, fragmentID string) string {
 	// Look for nav tags and their content
 	re := regexp.MustCompile(`(\s*<nav>.*?</nav>)`)
 	return re.ReplaceAllString(html, fmt.Sprintf(`<div id="%s">$1</div>`, fragmentID))
 }
 
-// wrapRangeFragmentItems wraps individual items within a range fragment with unique IDs
-func (r *RealtimeRenderer) wrapRangeFragmentItems(html string, rangeFragment *RangeFragment) string {
+// wraprangeFragmentItems wraps individual items within a range fragment with unique IDs
+func (r *Renderer) wraprangeFragmentItems(html string, rangeFragment *rangeFragment) string {
 	// First, wrap the entire range container (e.g., <ul>, <nav>, etc.)
 	html = r.wrapRangeContainer(html, rangeFragment)
 
@@ -821,17 +942,17 @@ func (r *RealtimeRenderer) wrapRangeFragmentItems(html string, rangeFragment *Ra
 	}
 
 	// Generic range item wrapping for any list items
-	return r.wrapGenericRangeItems(html, rangeFragment)
+	return r.wrapGenericrangeItems(html, rangeFragment)
 }
 
 // wrapNavigationItems wraps individual navigation items with unique IDs
-func (r *RealtimeRenderer) wrapNavigationItems(html string, rangeFragment *RangeFragment) string {
+func (r *Renderer) wrapNavigationItems(html string, rangeFragment *rangeFragment) string {
 	// Pattern to match individual navigation links
 	re := regexp.MustCompile(`(\s*<a href="([^"]*)"[^>]*>([^<]*)</a>)`)
 
 	itemIndex := 0
 	return re.ReplaceAllStringFunc(html, func(match string) string {
-		itemID := r.generateRangeItemID(rangeFragment.ContainerID, itemIndex)
+		itemID := r.generaterangeItemID(rangeFragment.ContainerID, itemIndex)
 		itemIndex++
 
 		// Extract the full <a> tag
@@ -845,7 +966,7 @@ func (r *RealtimeRenderer) wrapNavigationItems(html string, rangeFragment *Range
 }
 
 // wrapRangeContainer wraps the container element (ul, ol, nav, etc.) with the range fragment ID
-func (r *RealtimeRenderer) wrapRangeContainer(html string, rangeFragment *RangeFragment) string {
+func (r *Renderer) wrapRangeContainer(html string, rangeFragment *rangeFragment) string {
 	// For list containers, we should add the ID to the existing element rather than wrapping with a div
 	// This maintains valid HTML structure
 
@@ -883,8 +1004,8 @@ func (r *RealtimeRenderer) wrapRangeContainer(html string, rangeFragment *RangeF
 	return html
 }
 
-// wrapGenericRangeItems wraps individual range items with unique fragment IDs
-func (r *RealtimeRenderer) wrapGenericRangeItems(html string, rangeFragment *RangeFragment) string {
+// wrapGenericrangeItems wraps individual range items with unique fragment IDs
+func (r *Renderer) wrapGenericrangeItems(html string, rangeFragment *rangeFragment) string {
 	itemIndex := 0
 
 	// For list items, add the fragment ID directly to the li element
@@ -892,7 +1013,7 @@ func (r *RealtimeRenderer) wrapGenericRangeItems(html string, rangeFragment *Ran
 	liRe := regexp.MustCompile(`(?s)` + liPattern)
 	if liRe.MatchString(html) {
 		return liRe.ReplaceAllStringFunc(html, func(match string) string {
-			itemID := r.generateRangeItemID(rangeFragment.ContainerID, itemIndex)
+			itemID := r.generaterangeItemID(rangeFragment.ContainerID, itemIndex)
 			itemIndex++
 
 			// Add the fragment ID to the li element
@@ -920,7 +1041,7 @@ func (r *RealtimeRenderer) wrapGenericRangeItems(html string, rangeFragment *Ran
 		re := regexp.MustCompile(`(?s)` + pattern) // (?s) makes . match newlines
 		if re.MatchString(html) {
 			return re.ReplaceAllStringFunc(html, func(match string) string {
-				itemID := r.generateRangeItemID(rangeFragment.ContainerID, itemIndex)
+				itemID := r.generaterangeItemID(rangeFragment.ContainerID, itemIndex)
 				itemIndex++
 
 				// Wrap the entire matched element with a div containing the fragment ID
@@ -932,8 +1053,8 @@ func (r *RealtimeRenderer) wrapGenericRangeItems(html string, rangeFragment *Ran
 	return html
 }
 
-// wrapConditionalFragment wraps conditional content (if/with blocks) with fragment IDs
-func (r *RealtimeRenderer) wrapConditionalFragment(html string, fragment *TemplateFragment, fragmentID string) string {
+// wrapconditionalFragment wraps conditional content (if/with blocks) with fragment IDs
+func (r *Renderer) wrapconditionalFragment(html string, fragment *templateFragment, fragmentID string) string {
 	// For conditional blocks, we need to wrap the rendered output
 	// This is more complex as we need to detect what content was actually rendered
 
@@ -962,8 +1083,8 @@ func (r *RealtimeRenderer) wrapConditionalFragment(html string, fragment *Templa
 	return html
 }
 
-// wrapTemplateIncludeFragment wraps template inclusion content with fragment IDs
-func (r *RealtimeRenderer) wrapTemplateIncludeFragment(html string, fragment *TemplateFragment, fragmentID string) string {
+// wraptemplateIncludeFragment wraps template inclusion content with fragment IDs
+func (r *Renderer) wraptemplateIncludeFragment(html string, fragment *templateFragment, fragmentID string) string {
 	// Template inclusions render their content directly into the output
 	// We need to wrap whatever content was rendered by the included template
 
@@ -994,8 +1115,62 @@ func (r *RealtimeRenderer) wrapTemplateIncludeFragment(html string, fragment *Te
 	return html
 }
 
+// wrapGenericFragment wraps any HTML elements that contain template variables
+func (r *Renderer) wrapGenericFragment(html string, fragment *templateFragment, fragmentID string) string {
+	// For generic fragments, we need to identify lines/elements that would change when data updates
+	content := strings.TrimSpace(fragment.Content)
+
+	// If this fragment has template variables, try to find the corresponding rendered content
+	if strings.Contains(content, "{{") {
+		// Create a pattern to match the rendered output based on the fragment's content line
+
+		// Handle variable assignments (e.g., {{$title := .Title}})
+		if strings.Contains(content, ":=") {
+			// This is a variable assignment, skip wrapping as it doesn't produce output
+			return html
+		}
+
+		// Handle direct template expressions that produce HTML output
+		// Extract the HTML structure from the fragment content and match it precisely
+
+		// Remove template expressions from the line to get the HTML structure pattern
+		htmlPattern := content
+		htmlPattern = regexp.MustCompile(`\{\{[^}]*\}\}`).ReplaceAllString(htmlPattern, `[^<]*`)
+		htmlPattern = strings.TrimSpace(htmlPattern)
+
+		if htmlPattern != "" && strings.Contains(htmlPattern, "<") {
+			// Convert the line pattern to a regex that matches the rendered output
+			// Escape special regex characters except for our [^<]* placeholders
+			htmlPattern = regexp.QuoteMeta(htmlPattern)
+			htmlPattern = strings.ReplaceAll(htmlPattern, `\[\^<\]\*`, `[^<]*`)
+
+			// Only wrap if this specific pattern hasn't been wrapped yet
+			if !strings.Contains(html, fmt.Sprintf(`id="%s"`, fragmentID)) {
+				re := regexp.MustCompile(htmlPattern)
+				if re.MatchString(html) {
+					match := re.FindString(html)
+					if match != "" {
+						replacement := fmt.Sprintf(`<div id="%s">%s</div>`, fragmentID, match)
+						html = strings.Replace(html, match, replacement, 1)
+					}
+				}
+			}
+		}
+	}
+
+	return html
+}
+
+// elementContainsFragmentContent checks if an HTML element contains content related to fragment dependencies
+func (r *Renderer) elementContainsFragmentContent(element string, fragment *templateFragment) bool {
+	// This is a heuristic to match rendered HTML elements with their template fragment
+	// For now, we'll be permissive and assume the first matching element pattern is ours
+	// TODO: Could be made more sophisticated by analyzing the template structure
+	return true
+}
+
 // extractBlockName extracts block name from template content
-func (r *RealtimeRenderer) extractBlockName(content string) string {
+func (r *Renderer) extractBlockName(content string) string {
 	blockRegex := regexp.MustCompile(`\{\{block\s+"([^"]+)"`)
 	matches := blockRegex.FindStringSubmatch(content)
 	if len(matches) > 1 {
@@ -1005,7 +1180,7 @@ func (r *RealtimeRenderer) extractBlockName(content string) string {
 }
 
 // processUpdates processes incoming data updates and determines which fragments need updating
-func (r *RealtimeRenderer) processUpdates() {
+func (r *Renderer) processUpdates() {
 	for {
 		select {
 		case newData := <-r.updateChan:
@@ -1017,7 +1192,7 @@ func (r *RealtimeRenderer) processUpdates() {
 }
 
 // handleDataUpdate handles a single data update
-func (r *RealtimeRenderer) handleDataUpdate(newData interface{}) {
+func (r *Renderer) handleDataUpdate(newData interface{}) {
 	r.dataMutex.Lock()
 	oldData := r.currentData
 	r.currentData = newData
@@ -1056,8 +1231,8 @@ func (r *RealtimeRenderer) handleDataUpdate(newData interface{}) {
 }
 
 // handleRangeUpdates processes changes to range fragments and generates granular list updates
-func (r *RealtimeRenderer) handleRangeUpdates(oldData, newData interface{}, changedFields []string) []RealtimeUpdate {
-	var updates []RealtimeUpdate
+func (r *Renderer) handleRangeUpdates(oldData, newData interface{}, changedFields []string) []Update {
+	var updates []Update
 
 	// Check each template's range fragments
 	for _, rangeFragments := range r.rangeFragments {
@@ -1074,7 +1249,7 @@ func (r *RealtimeRenderer) handleRangeUpdates(oldData, newData interface{}, chan
 }
 
 // rangePathChanged checks if any of the changed fields affects this range path
-func (r *RealtimeRenderer) rangePathChanged(rangePath string, changedFields []string) bool {
+func (r *Renderer) rangePathChanged(rangePath string, changedFields []string) bool {
 	for _, field := range changedFields {
 		if strings.HasPrefix(field, rangePath) || strings.HasPrefix(rangePath, field) {
 			return true
@@ -1084,8 +1259,8 @@ func (r *RealtimeRenderer) rangePathChanged(rangePath string, changedFields []st
 }
 
 // processRangeChanges compares old and new range data to generate granular updates
-func (r *RealtimeRenderer) processRangeChanges(rangeFragment *RangeFragment, oldData, newData interface{}) []RealtimeUpdate {
-	var updates []RealtimeUpdate
+func (r *Renderer) processRangeChanges(rangeFragment *rangeFragment, oldData, newData interface{}) []Update {
+	var updates []Update
 
 	// Extract the array data from both old and new data
 	oldItems := r.extractRangeData(oldData, rangeFragment.RangePath)
@@ -1100,30 +1275,56 @@ func (r *RealtimeRenderer) processRangeChanges(rangeFragment *RangeFragment, old
 	if newLen > oldLen {
 		// Items were added
 		for i := oldLen; i < newLen; i++ {
-			itemHTML, err := r.renderRangeItem(rangeFragment, newItems[i], i)
+			itemHTML, err := r.renderrangeItem(rangeFragment, newItems[i], i)
 			if err != nil {
 				continue
 			}
 
-			itemID := r.generateRangeItemID(rangeFragment.ContainerID, i)
-			update := RealtimeUpdate{
-				FragmentID:  itemID,
-				HTML:        itemHTML,
-				Action:      "append",
-				ContainerID: rangeFragment.ContainerID,
-				ItemIndex:   i,
+			itemID := r.generaterangeItemID(rangeFragment.ContainerID, i)
+
+			// For simple item types (strings, numbers), use the item value as the key
+			// For complex types, use the index-based key
+			var itemKey string
+			if itemStr, ok := newItems[i].(string); ok {
+				itemKey = itemStr
+			} else {
+				itemKey = fmt.Sprintf("%s_%d", rangeFragment.ContainerID, i)
+			}
+
+			update := Update{
+				FragmentID: itemID,
+				HTML:       itemHTML,
+				Action:     "append",
+				RangeInfo: &RangeInfo{
+					ItemKey: itemKey,
+				},
 			}
 			updates = append(updates, update)
 		}
 	} else if newLen < oldLen {
 		// Items were removed
 		for i := newLen; i < oldLen; i++ {
-			itemID := r.generateRangeItemID(rangeFragment.ContainerID, i)
-			update := RealtimeUpdate{
-				FragmentID:  itemID,
-				Action:      "remove",
-				ContainerID: rangeFragment.ContainerID,
-				ItemIndex:   i,
+			itemID := r.generaterangeItemID(rangeFragment.ContainerID, i)
+
+			// For simple item types, use the item value as the key
+			// For removed items, we need to get the old item value
+			var itemKey string
+			if i < len(oldItems) {
+				if itemStr, ok := oldItems[i].(string); ok {
+					itemKey = itemStr
+				} else {
+					itemKey = fmt.Sprintf("%s_%d", rangeFragment.ContainerID, i)
+				}
+			} else {
+				itemKey = fmt.Sprintf("%s_%d", rangeFragment.ContainerID, i)
+			}
+
+			update := Update{
+				FragmentID: itemID,
+				Action:     "remove",
+				RangeInfo: &RangeInfo{
+					ItemKey: itemKey,
+				},
 			}
 			updates = append(updates, update)
 		}
@@ -1137,18 +1338,28 @@ func (r *RealtimeRenderer) processRangeChanges(rangeFragment *RangeFragment, old
 
 	for i := 0; i < minLen; i++ {
 		if !r.itemsEqual(oldItems[i], newItems[i]) {
-			itemHTML, err := r.renderRangeItem(rangeFragment, newItems[i], i)
+			itemHTML, err := r.renderrangeItem(rangeFragment, newItems[i], i)
 			if err != nil {
 				continue
 			}
 
-			itemID := r.generateRangeItemID(rangeFragment.ContainerID, i)
-			update := RealtimeUpdate{
-				FragmentID:  itemID,
-				HTML:        itemHTML,
-				Action:      "replace",
-				ContainerID: rangeFragment.ContainerID,
-				ItemIndex:   i,
+			itemID := r.generaterangeItemID(rangeFragment.ContainerID, i)
+
+			// For simple item types, use the item value as the key
+			var itemKey string
+			if itemStr, ok := newItems[i].(string); ok {
+				itemKey = itemStr
+			} else {
+				itemKey = fmt.Sprintf("%s_%d", rangeFragment.ContainerID, i)
+			}
+
+			update := Update{
+				FragmentID: itemID,
+				HTML:       itemHTML,
+				Action:     "replace",
+				RangeInfo: &RangeInfo{
+					ItemKey: itemKey,
+				},
 			}
 			updates = append(updates, update)
 		}
@@ -1157,16 +1368,16 @@ func (r *RealtimeRenderer) processRangeChanges(rangeFragment *RangeFragment, old
 	return updates
 }
 
-// FragmentInfo contains information about a fragment that needs updating
-type FragmentInfo struct {
+// fragmentInfo contains information about a fragment that needs updating
+type fragmentInfo struct {
 	ID           string
 	TemplateName string
-	Fragment     *TemplateFragment
+	Fragment     *templateFragment
 }
 
 // findAffectedFragments finds fragments that depend on the changed fields
-func (r *RealtimeRenderer) findAffectedFragments(changedFields []string) []FragmentInfo {
-	var affected []FragmentInfo
+func (r *Renderer) findAffectedFragments(changedFields []string) []fragmentInfo {
+	var affected []fragmentInfo
 	seen := make(map[string]bool) // Deduplicate fragments
 
 	for templateName, fragments := range r.fragmentStore {
@@ -1195,7 +1406,7 @@ func (r *RealtimeRenderer) findAffectedFragments(changedFields []string) []Fragm
 				fragmentKey := fmt.Sprintf("%s:%s", templateName, fragmentID)
 				if !seen[fragmentKey] {
 					seen[fragmentKey] = true
-					affected = append(affected, FragmentInfo{
+					affected = append(affected, fragmentInfo{
 						ID:           fragmentID,
 						TemplateName: templateName,
 						Fragment:     fragment,
@@ -1209,7 +1420,7 @@ func (r *RealtimeRenderer) findAffectedFragments(changedFields []string) []Fragm
 }
 
 // fieldMatches checks if a dependency matches a changed field
-func (r *RealtimeRenderer) fieldMatches(dependency, changedField string) bool {
+func (r *Renderer) fieldMatches(dependency, changedField string) bool {
 	// Direct match
 	if dependency == changedField {
 		return true
@@ -1229,20 +1440,20 @@ func (r *RealtimeRenderer) fieldMatches(dependency, changedField string) bool {
 }
 
 // renderFragmentUpdate renders a single fragment update
-func (r *RealtimeRenderer) renderFragmentUpdate(fragmentInfo FragmentInfo, data interface{}) (RealtimeUpdate, error) {
+func (r *Renderer) renderFragmentUpdate(fragmentInfo fragmentInfo, data interface{}) (Update, error) {
 	// Create a temporary template for just this fragment
 	tmpl, err := template.New("fragment").Parse(fragmentInfo.Fragment.Content)
 	if err != nil {
-		return RealtimeUpdate{}, fmt.Errorf("failed to parse fragment template: %w", err)
+		return Update{}, fmt.Errorf("failed to parse fragment template: %w", err)
 	}
 
 	// Render the fragment
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
-		return RealtimeUpdate{}, fmt.Errorf("failed to execute fragment template: %w", err)
+		return Update{}, fmt.Errorf("failed to execute fragment template: %w", err)
 	}
 
-	return RealtimeUpdate{
+	return Update{
 		FragmentID: fragmentInfo.ID,
 		HTML:       buf.String(),
 		Action:     "replace",
@@ -1250,7 +1461,7 @@ func (r *RealtimeRenderer) renderFragmentUpdate(fragmentInfo FragmentInfo, data 
 }
 
 // GetFragmentCount returns the number of fragments across all templates
-func (r *RealtimeRenderer) GetFragmentCount() int {
+func (r *Renderer) GetFragmentCount() int {
 	count := 0
 	for _, fragments := range r.fragmentStore {
 		count += len(fragments)
@@ -1259,7 +1470,7 @@ func (r *RealtimeRenderer) GetFragmentCount() int {
 }
 
 // GetFragmentIDs returns all fragment IDs for debugging/inspection
-func (r *RealtimeRenderer) GetFragmentIDs() map[string][]string {
+func (r *Renderer) GetFragmentIDs() map[string][]string {
 	result := make(map[string][]string)
 
 	for templateName, fragments := range r.fragmentStore {
@@ -1280,7 +1491,7 @@ func (r *RealtimeRenderer) GetFragmentIDs() map[string][]string {
 }
 
 // GetFragmentDetails returns detailed information about fragments for debugging
-func (r *RealtimeRenderer) GetFragmentDetails() map[string]map[string][]string {
+func (r *Renderer) GetFragmentDetails() map[string]map[string][]string {
 	result := make(map[string]map[string][]string)
 
 	for templateName, fragments := range r.fragmentStore {
@@ -1299,7 +1510,7 @@ func (r *RealtimeRenderer) GetFragmentDetails() map[string]map[string][]string {
 }
 
 // extractRangeData extracts array data from a data structure using a dot-separated path
-func (r *RealtimeRenderer) extractRangeData(data interface{}, rangePath string) []interface{} {
+func (r *Renderer) extractRangeData(data interface{}, rangePath string) []interface{} {
 	if data == nil {
 		return nil
 	}
@@ -1334,10 +1545,17 @@ func (r *RealtimeRenderer) extractRangeData(data interface{}, rangePath string) 
 	return nil
 }
 
-// renderRangeItem renders a single item within a range loop
-func (r *RealtimeRenderer) renderRangeItem(rangeFragment *RangeFragment, itemData interface{}, index int) (string, error) {
+// renderrangeItem renders a single item within a range loop
+func (r *Renderer) renderrangeItem(rangeFragment *rangeFragment, itemData interface{}, index int) (string, error) {
+	// Replace range variables with appropriate data access
+	// $item becomes . (current data context)
+	// $index becomes the actual index value
+	itemTemplate := rangeFragment.ItemTemplate
+	itemTemplate = strings.ReplaceAll(itemTemplate, "$item", ".")
+	itemTemplate = strings.ReplaceAll(itemTemplate, "$index", fmt.Sprintf("%d", index))
+
 	// Create a temporary template for the item
-	tmpl, err := template.New("item").Parse(rangeFragment.ItemTemplate)
+	tmpl, err := template.New("item").Parse(itemTemplate)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse item template: %w", err)
 	}
@@ -1351,12 +1569,12 @@ func (r *RealtimeRenderer) renderRangeItem(rangeFragment *RangeFragment, itemDat
 	return buf.String(), nil
 }
 
-// generateRangeItemID generates a unique ID for a range item
-func (r *RealtimeRenderer) generateRangeItemID(containerID string, index int) string {
+// generaterangeItemID generates a unique ID for a range item
+func (r *Renderer) generaterangeItemID(containerID string, index int) string {
 	return fmt.Sprintf("%s-item-%d", containerID, index)
 }
 
 // itemsEqual compares two items to see if they are equal
-func (r *RealtimeRenderer) itemsEqual(oldItem, newItem interface{}) bool {
+func (r *Renderer) itemsEqual(oldItem, newItem interface{}) bool {
 	return reflect.DeepEqual(oldItem, newItem)
 }

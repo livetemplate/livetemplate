@@ -24,12 +24,12 @@ func main() {
 	log.Println("===================================")
 
 	// Create real-time renderer
-	config := &statetemplate.RealtimeConfig{
+	config := &statetemplate.Config{
 		WrapperTag:     "div",
 		IDPrefix:       "fragment-",
 		PreserveBlocks: true,
 	}
-	renderer := statetemplate.NewRealtimeRenderer(config)
+	renderer := statetemplate.NewRenderer(config)
 
 	// Simple template with a range
 	templateContent := `<div>
@@ -78,11 +78,11 @@ func main() {
 			log.Printf("   Fragment ID: %s", update.FragmentID)
 			log.Printf("   Action: %s", update.Action)
 			log.Printf("   HTML: %s", update.HTML)
-			if update.ContainerID != "" {
-				log.Printf("   Container ID: %s", update.ContainerID)
-			}
-			if update.ItemIndex >= 0 {
-				log.Printf("   Item Index: %d", update.ItemIndex)
+			if update.RangeInfo != nil {
+				log.Printf("   Item Key: %s", update.RangeInfo.ItemKey)
+				if update.RangeInfo.ReferenceID != "" {
+					log.Printf("   Reference ID: %s", update.RangeInfo.ReferenceID)
+				}
 			}
 
 			updateJSON, _ := json.MarshalIndent(update, "   ", "  ")

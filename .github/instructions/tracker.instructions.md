@@ -1,5 +1,5 @@
 ---
-applyTo: "*tracker*.go"
+applyTo: "**"
 ---
 
 # Template Tracker Instructions

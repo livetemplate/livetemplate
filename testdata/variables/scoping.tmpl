@@ -1,0 +1,8 @@
+{{$scope := "outer"}}
+<div>
+    {{range $index, $item := .Items}}
+        {{$scope := "inner"}}
+        <p>{{$index}}: {{$item}} ({{$scope}})</p>
+    {{end}}
+    <p>Final scope: {{$scope}}</p>
+</div>

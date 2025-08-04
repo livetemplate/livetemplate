@@ -1,0 +1,11 @@
+<div>
+    {{if gt .Score 80}}
+    <p>Excellent Score!</p>
+    {{end}}
+    {{if ge .Count 10}}
+    <p>Count is double digits</p>
+    {{end}}
+    {{if .IsEnabled}}
+    <p>Feature is enabled</p>
+    {{end}}
+</div>

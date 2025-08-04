@@ -34,12 +34,12 @@ type TestAppData struct {
 // TestComprehensiveTemplateActions tests all major Go template actions with granular fragments
 func TestComprehensiveTemplateActions(t *testing.T) {
 	// Create real-time renderer
-	config := &statetemplate.RealtimeConfig{
+	config := &statetemplate.Config{
 		WrapperTag:     "div",
 		IDPrefix:       "fragment-",
 		PreserveBlocks: true,
 	}
-	renderer := statetemplate.NewRealtimeRenderer(config)
+	renderer := statetemplate.NewRenderer(config)
 
 	// Template with all major template actions
 	templateContent := `<div>
@@ -183,7 +183,7 @@ func TestComprehensiveTemplateActions(t *testing.T) {
 	defer renderer.Stop()
 
 	updateChan := renderer.GetUpdateChannel()
-	var receivedUpdates []statetemplate.RealtimeUpdate
+	var receivedUpdates []statetemplate.Update
 	updateTimeout := time.After(10 * time.Second)
 
 	// Collector goroutine
@@ -253,7 +253,7 @@ func TestComprehensiveTemplateActions(t *testing.T) {
 	t.Logf("📨 Received %d updates total", len(receivedUpdates))
 
 	// Analyze update types
-	var conditionalUpdates, contextUpdates, rangeUpdates []statetemplate.RealtimeUpdate
+	var conditionalUpdates, contextUpdates, rangeUpdates []statetemplate.Update
 
 	for _, update := range receivedUpdates {
 		updateJSON, _ := json.MarshalIndent(update, "  ", "  ")
@@ -266,7 +266,7 @@ func TestComprehensiveTemplateActions(t *testing.T) {
 		if strings.Contains(update.HTML, "Current User:") || strings.Contains(update.HTML, "profile") {
 			contextUpdates = append(contextUpdates, update)
 		}
-		if update.ContainerID != "" || strings.Contains(update.FragmentID, "-item-") ||
+		if update.RangeInfo != nil || strings.Contains(update.FragmentID, "-item-") ||
 			(update.Action == "remove" || update.Action == "append" || strings.Contains(update.HTML, "data-id")) {
 			rangeUpdates = append(rangeUpdates, update)
 		}
@@ -311,12 +311,12 @@ func TestComprehensiveTemplateActions(t *testing.T) {
 
 // TestTemplateActionFragmentStructure tests that all template actions generate proper fragment IDs
 func TestTemplateActionFragmentStructure(t *testing.T) {
-	config := &statetemplate.RealtimeConfig{
+	config := &statetemplate.Config{
 		WrapperTag:     "div",
 		IDPrefix:       "fragment-",
 		PreserveBlocks: true,
 	}
-	renderer := statetemplate.NewRealtimeRenderer(config)
+	renderer := statetemplate.NewRenderer(config)
 
 	// Minimal template with each action type
 	templateContent := `<div>

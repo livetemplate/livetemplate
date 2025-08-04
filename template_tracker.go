@@ -11,28 +11,38 @@ import (
 	"sync"
 )
 
-// TemplateTracker manages template dependencies and change detection
-type TemplateTracker struct {
+// templateTracker manages template dependencies and change detection
+type templateTracker struct {
 	templates map[string]*template.Template
 	// Map template names to the data fields they depend on
 	dependencies      map[string]map[string]bool     // template -> field paths -> true
-	fragments         map[string][]*TemplateFragment // template -> fragments
-	fragmentExtractor *FragmentExtractor
+	fragments         map[string][]*templateFragment // template -> fragments
+	fragmentExtractor *fragmentExtractor
 	mu                sync.RWMutex
 }
 
-// NewTemplateTracker creates a new template tracker
-func NewTemplateTracker() *TemplateTracker {
-	return &TemplateTracker{
+// NewtemplateTracker creates a new template tracker
+func newTemplateTracker() *templateTracker {
+	return &templateTracker{
 		templates:         make(map[string]*template.Template),
 		dependencies:      make(map[string]map[string]bool),
-		fragments:         make(map[string][]*TemplateFragment),
-		fragmentExtractor: NewFragmentExtractor(),
+		fragments:         make(map[string][]*templateFragment),
+		fragmentExtractor: newFragmentExtractor(),
+	}
+}
+
+// NewtemplateTrackerWithAnalyzer creates a new templateTracker with a shared analyzer
+func newTemplateTrackerWithAnalyzer(analyzer *advancedTemplateAnalyzer) *templateTracker {
+	return &templateTracker{
+		templates:         make(map[string]*template.Template),
+		dependencies:      make(map[string]map[string]bool),
+		fragments:         make(map[string][]*templateFragment),
+		fragmentExtractor: newFragmentExtractorWithAnalyzer(analyzer),
 	}
 }
 
 // AddTemplate adds a template and analyzes its dependencies
-func (tt *TemplateTracker) AddTemplate(name string, tmpl *template.Template) {
+func (tt *templateTracker) AddTemplate(name string, tmpl *template.Template) {
 	tt.mu.Lock()
 	defer tt.mu.Unlock()
 
@@ -44,7 +54,7 @@ func (tt *TemplateTracker) AddTemplate(name string, tmpl *template.Template) {
 }
 
 // AddTemplateWithFragmentExtraction adds a template with automatic fragment extraction
-func (tt *TemplateTracker) AddTemplateWithFragmentExtraction(name, templateContent string) (*template.Template, []*TemplateFragment, error) {
+func (tt *templateTracker) AddTemplateWithFragmentExtraction(name, templateContent string) (*template.Template, []*templateFragment, error) {
 	// Process template and extract fragments
 	tmpl, fragments, err := tt.fragmentExtractor.ProcessTemplateWithFragments(name, templateContent)
 	if err != nil {
@@ -74,7 +84,7 @@ func (tt *TemplateTracker) AddTemplateWithFragmentExtraction(name, templateConte
 }
 
 // AddTemplateFromFile loads a template from a file and adds it to the tracker
-func (tt *TemplateTracker) AddTemplateFromFile(name, filepath string) error {
+func (tt *templateTracker) AddTemplateFromFile(name, filepath string) error {
 	tmpl, err := template.ParseFiles(filepath)
 	if err != nil {
 		return fmt.Errorf("failed to parse template file %s: %w", filepath, err)
@@ -85,7 +95,7 @@ func (tt *TemplateTracker) AddTemplateFromFile(name, filepath string) error {
 }
 
 // AddTemplatesFromFiles loads multiple templates from files and adds them to the tracker
-func (tt *TemplateTracker) AddTemplatesFromFiles(files map[string]string) error {
+func (tt *templateTracker) AddTemplatesFromFiles(files map[string]string) error {
 	for name, filepath := range files {
 		if err := tt.AddTemplateFromFile(name, filepath); err != nil {
 			return err
@@ -95,7 +105,7 @@ func (tt *TemplateTracker) AddTemplatesFromFiles(files map[string]string) error 
 }
 
 // AddTemplatesFromDirectory loads all template files from a directory
-func (tt *TemplateTracker) AddTemplatesFromDirectory(dir string, extensions ...string) error {
+func (tt *templateTracker) AddTemplatesFromDirectory(dir string, extensions ...string) error {
 	if len(extensions) == 0 {
 		extensions = []string{".html", ".tmpl", ".tpl", ".gohtml"}
 	}
@@ -130,7 +140,7 @@ func (tt *TemplateTracker) AddTemplatesFromDirectory(dir string, extensions ...s
 }
 
 // AddTemplatesFromFS loads templates from an embedded filesystem
-func (tt *TemplateTracker) AddTemplatesFromFS(fsys fs.FS, pattern string) error {
+func (tt *templateTracker) AddTemplatesFromFS(fsys fs.FS, pattern string) error {
 	matches, err := fs.Glob(fsys, pattern)
 	if err != nil {
 		return fmt.Errorf("failed to glob pattern %s: %w", pattern, err)
@@ -158,14 +168,14 @@ func (tt *TemplateTracker) AddTemplatesFromFS(fsys fs.FS, pattern string) error 
 }
 
 // AddTemplatesFromEmbedFS is a convenience method for working with embed.FS
-func (tt *TemplateTracker) AddTemplatesFromEmbedFS(embedFS embed.FS, pattern string) error {
+func (tt *templateTracker) AddTemplatesFromEmbedFS(embedFS embed.FS, pattern string) error {
 	return tt.AddTemplatesFromFS(embedFS, pattern)
 }
 
 // analyzeDependencies extracts field dependencies from template
-func (tt *TemplateTracker) analyzeDependencies(name string, tmpl *template.Template) {
+func (tt *templateTracker) analyzeDependencies(name string, tmpl *template.Template) {
 	// Use the advanced analyzer for better dependency extraction
-	analyzer := NewAdvancedTemplateAnalyzer()
+	analyzer := newAdvancedTemplateAnalyzer()
 	fields := analyzer.AnalyzeTemplate(tmpl)
 
 	for _, field := range fields {
@@ -173,21 +183,21 @@ func (tt *TemplateTracker) analyzeDependencies(name string, tmpl *template.Templ
 	}
 }
 
-// DataUpdate represents a data structure update
-type DataUpdate struct {
+// dataUpdate represents a data structure update
+type dataUpdate struct {
 	Data interface{}
 }
 
-// TemplateUpdate represents templates that need re-rendering
-type TemplateUpdate struct {
+// templateUpdate represents templates that need re-rendering
+type templateUpdate struct {
 	TemplateNames []string
 	ChangedFields []string
 }
 
 // StartLiveUpdates starts the live update processor
-func (tt *TemplateTracker) StartLiveUpdates(
-	dataChannel <-chan DataUpdate,
-	updateChannel chan<- TemplateUpdate,
+func (tt *templateTracker) StartLiveUpdates(
+	dataChannel <-chan dataUpdate,
+	updateChannel chan<- templateUpdate,
 ) {
 	var lastData interface{}
 
@@ -197,7 +207,7 @@ func (tt *TemplateTracker) StartLiveUpdates(
 			affectedTemplates := tt.getAffectedTemplates(changedFields)
 
 			if len(affectedTemplates) > 0 {
-				updateChannel <- TemplateUpdate{
+				updateChannel <- templateUpdate{
 					TemplateNames: affectedTemplates,
 					ChangedFields: changedFields,
 				}
@@ -210,7 +220,7 @@ func (tt *TemplateTracker) StartLiveUpdates(
 }
 
 // detectChanges compares two data structures and returns changed field paths
-func (tt *TemplateTracker) detectChanges(oldData, newData interface{}) []string {
+func (tt *templateTracker) detectChanges(oldData, newData interface{}) []string {
 	if oldData == nil {
 		// First update, consider all fields as changed
 		return tt.extractAllFieldPaths(newData)
@@ -220,7 +230,7 @@ func (tt *TemplateTracker) detectChanges(oldData, newData interface{}) []string 
 }
 
 // compareStructures recursively compares two structures
-func (tt *TemplateTracker) compareStructures(prefix string, oldData, newData interface{}) []string {
+func (tt *templateTracker) compareStructures(prefix string, oldData, newData interface{}) []string {
 	var changedFields []string
 
 	if oldData == nil && newData == nil {
@@ -262,6 +272,36 @@ func (tt *TemplateTracker) compareStructures(prefix string, oldData, newData int
 				}
 			}
 		}
+	case reflect.Slice:
+		// Handle slice changes
+		if oldVal.Len() != newVal.Len() {
+			// Length changed, mark the entire slice as changed
+			if prefix != "" {
+				changedFields = append(changedFields, prefix)
+			}
+		} else {
+			// Same length, check individual elements
+			for i := 0; i < oldVal.Len(); i++ {
+				indexPath := prefix
+				if prefix != "" {
+					indexPath = fmt.Sprintf("%s[%d]", prefix, i)
+				} else {
+					indexPath = fmt.Sprintf("[%d]", i)
+				}
+
+				oldElem := oldVal.Index(i).Interface()
+				newElem := newVal.Index(i).Interface()
+
+				if !reflect.DeepEqual(oldElem, newElem) {
+					if isComplexType(oldVal.Index(i)) {
+						nestedChanges := tt.compareStructures(indexPath, oldElem, newElem)
+						changedFields = append(changedFields, nestedChanges...)
+					} else {
+						changedFields = append(changedFields, indexPath)
+					}
+				}
+			}
+		}
 	case reflect.Ptr:
 		if oldVal.IsNil() && newVal.IsNil() {
 			return changedFields
@@ -291,14 +331,14 @@ func isComplexType(val reflect.Value) bool {
 }
 
 // extractAllFieldPaths extracts all field paths from a data structure
-func (tt *TemplateTracker) extractAllFieldPaths(data interface{}) []string {
+func (tt *templateTracker) extractAllFieldPaths(data interface{}) []string {
 	var paths []string
 	tt.extractFieldPaths("", reflect.ValueOf(data), &paths)
 	return paths
 }
 
 // extractFieldPaths recursively extracts field paths
-func (tt *TemplateTracker) extractFieldPaths(prefix string, val reflect.Value, paths *[]string) {
+func (tt *templateTracker) extractFieldPaths(prefix string, val reflect.Value, paths *[]string) {
 	switch val.Kind() {
 	case reflect.Struct:
 		for i := 0; i < val.NumField(); i++ {
@@ -326,7 +366,7 @@ func (tt *TemplateTracker) extractFieldPaths(prefix string, val reflect.Value, p
 }
 
 // getAffectedTemplates returns templates that depend on the changed fields
-func (tt *TemplateTracker) getAffectedTemplates(changedFields []string) []string {
+func (tt *templateTracker) getAffectedTemplates(changedFields []string) []string {
 	tt.mu.RLock()
 	defer tt.mu.RUnlock()
 
@@ -351,7 +391,7 @@ func (tt *TemplateTracker) getAffectedTemplates(changedFields []string) []string
 }
 
 // templateDependsOnField checks if a template depends on a specific field
-func (tt *TemplateTracker) templateDependsOnField(dependencies map[string]bool, changedField string) bool {
+func (tt *templateTracker) templateDependsOnField(dependencies map[string]bool, changedField string) bool {
 	// Direct dependency
 	if dependencies[changedField] {
 		return true
@@ -377,7 +417,7 @@ func (tt *TemplateTracker) templateDependsOnField(dependencies map[string]bool, 
 }
 
 // GetDependencies returns a copy of the current template dependencies
-func (tt *TemplateTracker) GetDependencies() map[string]map[string]bool {
+func (tt *templateTracker) GetDependencies() map[string]map[string]bool {
 	tt.mu.RLock()
 	defer tt.mu.RUnlock()
 
@@ -393,12 +433,12 @@ func (tt *TemplateTracker) GetDependencies() map[string]map[string]bool {
 }
 
 // DetectChanges is a public method for testing change detection
-func (tt *TemplateTracker) DetectChanges(oldData, newData interface{}) []string {
+func (tt *templateTracker) DetectChanges(oldData, newData interface{}) []string {
 	return tt.detectChanges(oldData, newData)
 }
 
 // GetTemplates returns a copy of all registered templates
-func (tt *TemplateTracker) GetTemplates() map[string]*template.Template {
+func (tt *templateTracker) GetTemplates() map[string]*template.Template {
 	tt.mu.RLock()
 	defer tt.mu.RUnlock()
 
@@ -411,7 +451,7 @@ func (tt *TemplateTracker) GetTemplates() map[string]*template.Template {
 }
 
 // GetTemplate returns a specific template by name
-func (tt *TemplateTracker) GetTemplate(name string) (*template.Template, bool) {
+func (tt *templateTracker) GetTemplate(name string) (*template.Template, bool) {
 	tt.mu.RLock()
 	defer tt.mu.RUnlock()
 
@@ -420,7 +460,7 @@ func (tt *TemplateTracker) GetTemplate(name string) (*template.Template, bool) {
 }
 
 // GetFragments returns the fragments for a template
-func (tt *TemplateTracker) GetFragments(templateName string) ([]*TemplateFragment, bool) {
+func (tt *templateTracker) GetFragments(templateName string) ([]*templateFragment, bool) {
 	tt.mu.RLock()
 	defer tt.mu.RUnlock()
 
@@ -429,13 +469,13 @@ func (tt *TemplateTracker) GetFragments(templateName string) ([]*TemplateFragmen
 }
 
 // GetAllFragments returns all fragments for all templates
-func (tt *TemplateTracker) GetAllFragments() map[string][]*TemplateFragment {
+func (tt *templateTracker) GetAllFragments() map[string][]*templateFragment {
 	tt.mu.RLock()
 	defer tt.mu.RUnlock()
 
-	result := make(map[string][]*TemplateFragment)
+	result := make(map[string][]*templateFragment)
 	for name, fragments := range tt.fragments {
-		fragmentsCopy := make([]*TemplateFragment, len(fragments))
+		fragmentsCopy := make([]*templateFragment, len(fragments))
 		copy(fragmentsCopy, fragments)
 		result[name] = fragmentsCopy
 	}

@@ -37,12 +37,12 @@ type PageData struct {
 // TestRealtimeExample tests the real-time web rendering functionality
 func TestRealtimeExample(t *testing.T) {
 	// Create real-time renderer
-	config := &statetemplate.RealtimeConfig{
+	config := &statetemplate.Config{
 		WrapperTag:     "div",
 		IDPrefix:       "fragment-",
 		PreserveBlocks: true,
 	}
-	renderer := statetemplate.NewRealtimeRenderer(config)
+	renderer := statetemplate.NewRenderer(config)
 
 	// Template with block (similar to your example)
 	templateContent := `<div>
@@ -137,7 +137,7 @@ func TestRealtimeExample(t *testing.T) {
 }
 
 // testRealtimeUpdates tests various real-time update scenarios
-func testRealtimeUpdatesSimple(t *testing.T, renderer *statetemplate.RealtimeRenderer, updateChan <-chan statetemplate.RealtimeUpdate, baseData *PageData) {
+func testRealtimeUpdatesSimple(t *testing.T, renderer *statetemplate.Renderer, updateChan <-chan statetemplate.Update, baseData *PageData) {
 
 	// Test 1: Update counter value
 	t.Run("CounterUpdate", func(t *testing.T) {
@@ -176,12 +176,12 @@ func testRealtimeUpdatesSimple(t *testing.T, renderer *statetemplate.RealtimeRen
 	// Test 2: Update site name
 	t.Run("SiteNameUpdate", func(t *testing.T) {
 		// Create a fresh renderer for this test
-		freshConfig := &statetemplate.RealtimeConfig{
+		freshConfig := &statetemplate.Config{
 			WrapperTag:     "div",
 			IDPrefix:       "fragment-",
 			PreserveBlocks: true,
 		}
-		freshRenderer := statetemplate.NewRealtimeRenderer(freshConfig)
+		freshRenderer := statetemplate.NewRenderer(freshConfig)
 
 		// Use the same template content
 		templateContent := `<div>
@@ -241,12 +241,12 @@ func testRealtimeUpdatesSimple(t *testing.T, renderer *statetemplate.RealtimeRen
 	// Test 3: No update for identical data
 	t.Run("NoChangeUpdate", func(t *testing.T) {
 		// Create a fresh renderer for this test
-		freshConfig := &statetemplate.RealtimeConfig{
+		freshConfig := &statetemplate.Config{
 			WrapperTag:     "div",
 			IDPrefix:       "fragment-",
 			PreserveBlocks: true,
 		}
-		freshRenderer := statetemplate.NewRealtimeRenderer(freshConfig)
+		freshRenderer := statetemplate.NewRenderer(freshConfig)
 
 		// Use the same template content
 		templateContent := `<div>
@@ -312,7 +312,7 @@ func testRealtimeUpdatesSimple(t *testing.T, renderer *statetemplate.RealtimeRen
 
 // TestRealtimeRendererWebsocketCompatibility tests JSON serialization for websocket use
 func TestRealtimeRendererWebsocketCompatibility(t *testing.T) {
-	renderer := statetemplate.NewRealtimeRenderer(nil)
+	renderer := statetemplate.NewRenderer(nil)
 
 	// Simple template
 	templateContent := `<div>Message: {{.Message}}</div>`

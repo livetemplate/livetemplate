@@ -1,5 +1,5 @@
 ---
-applyTo: "*_test.go"
+applyTo: "**"
 ---
 
 # Testing Instructions for StateTemplate

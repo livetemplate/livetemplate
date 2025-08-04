@@ -8,8 +8,8 @@ import (
 	"strings"
 )
 
-// TemplateFragment represents an extracted template fragment
-type TemplateFragment struct {
+// templateFragment represents an extracted template fragment
+type templateFragment struct {
 	ID           string   // 6-character random ID
 	Content      string   // The minimal HTML content with template expressions
 	Dependencies []string // Field dependencies found in this fragment
@@ -17,21 +17,28 @@ type TemplateFragment struct {
 	EndPos       int      // End position in original template
 }
 
-// FragmentExtractor handles automatic extraction of template fragments
-type FragmentExtractor struct {
-	analyzer *AdvancedTemplateAnalyzer
+// fragmentExtractor handles automatic extraction of template fragments
+type fragmentExtractor struct {
+	analyzer *advancedTemplateAnalyzer
 }
 
-// NewFragmentExtractor creates a new fragment extractor
-func NewFragmentExtractor() *FragmentExtractor {
-	return &FragmentExtractor{
-		analyzer: NewAdvancedTemplateAnalyzer(),
+// NewfragmentExtractor creates a new fragment extractor
+func newFragmentExtractor() *fragmentExtractor {
+	return &fragmentExtractor{
+		analyzer: newAdvancedTemplateAnalyzer(),
+	}
+}
+
+// NewfragmentExtractorWithAnalyzer creates a new fragmentExtractor with a shared analyzer
+func newFragmentExtractorWithAnalyzer(analyzer *advancedTemplateAnalyzer) *fragmentExtractor {
+	return &fragmentExtractor{
+		analyzer: analyzer,
 	}
 }
 
 // ExtractFragments automatically extracts minimal template fragments from template content
-func (fe *FragmentExtractor) ExtractFragments(templateContent string) ([]*TemplateFragment, string, error) {
-	var fragments []*TemplateFragment
+func (fe *fragmentExtractor) ExtractFragments(templateContent string) ([]*templateFragment, string, error) {
+	var fragments []*templateFragment
 	modifiedContent := templateContent
 
 	// Find all template expressions {{.*}}
@@ -59,7 +66,7 @@ func (fe *FragmentExtractor) ExtractFragments(templateContent string) ([]*Templa
 }
 
 // extractMinimalFragment extracts the minimal HTML context around a template expression
-func (fe *FragmentExtractor) extractMinimalFragment(content string, exprStart, exprEnd int) *TemplateFragment {
+func (fe *fragmentExtractor) extractMinimalFragment(content string, exprStart, exprEnd int) *templateFragment {
 	// Find the minimal containing element or text node
 
 	// Look backwards to find the start of the containing element or text
@@ -80,9 +87,9 @@ func (fe *FragmentExtractor) extractMinimalFragment(content string, exprStart, e
 	id := fe.generateRandomID()
 
 	// Analyze dependencies in this fragment
-	dependencies := fe.analyzer.extractFieldReferences(fragmentContent)
+	dependencies := fe.analyzer.extractFieldReferencesWithExistingMappings(fragmentContent)
 
-	return &TemplateFragment{
+	return &templateFragment{
 		ID:           id,
 		Content:      fragmentContent,
 		Dependencies: dependencies,
@@ -92,7 +99,7 @@ func (fe *FragmentExtractor) extractMinimalFragment(content string, exprStart, e
 }
 
 // findFragmentStart finds the logical start of a template fragment
-func (fe *FragmentExtractor) findFragmentStart(content string, exprStart int) int {
+func (fe *fragmentExtractor) findFragmentStart(content string, exprStart int) int {
 	// Look backwards for meaningful boundaries
 	i := exprStart
 
@@ -126,7 +133,7 @@ func (fe *FragmentExtractor) findFragmentStart(content string, exprStart int) in
 }
 
 // findFragmentEnd finds the logical end of a template fragment
-func (fe *FragmentExtractor) findFragmentEnd(content string, exprEnd int) int {
+func (fe *fragmentExtractor) findFragmentEnd(content string, exprEnd int) int {
 	i := exprEnd
 
 	// Skip whitespace forwards
@@ -139,9 +146,18 @@ func (fe *FragmentExtractor) findFragmentEnd(content string, exprEnd int) int {
 		return i
 	}
 
-	// Otherwise, continue until we hit a tag or end of meaningful content
+	// If we hit another template expression, we're done
+	if i < len(content)-1 && content[i] == '{' && content[i+1] == '{' {
+		return i
+	}
+
+	// Otherwise, continue until we hit a tag or another template expression
 	for i < len(content) {
 		if content[i] == '<' || content[i] == '>' {
+			break
+		}
+		// Stop if we encounter another template expression
+		if i < len(content)-1 && content[i] == '{' && content[i+1] == '{' {
 			break
 		}
 		i++
@@ -151,7 +167,7 @@ func (fe *FragmentExtractor) findFragmentEnd(content string, exprEnd int) int {
 }
 
 // generateRandomID generates a 6-character random ID
-func (fe *FragmentExtractor) generateRandomID() string {
+func (fe *fragmentExtractor) generateRandomID() string {
 	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
 	b := make([]byte, 6)
 	if _, err := rand.Read(b); err != nil {
@@ -167,14 +183,14 @@ func (fe *FragmentExtractor) generateRandomID() string {
 }
 
 // replaceFragmentsWithCalls replaces extracted fragments with template calls
-func (fe *FragmentExtractor) replaceFragmentsWithCalls(original string, fragments []*TemplateFragment) (string, error) {
+func (fe *fragmentExtractor) replaceFragmentsWithCalls(original string, fragments []*templateFragment) (string, error) {
 	if len(fragments) == 0 {
 		return original, nil
 	}
 
 	// Sort fragments by start position (descending) to replace from end to beginning
 	// This prevents position shifts from affecting later replacements
-	sortedFragments := make([]*TemplateFragment, len(fragments))
+	sortedFragments := make([]*templateFragment, len(fragments))
 	copy(sortedFragments, fragments)
 
 	// Simple bubble sort by StartPos (descending)
@@ -198,7 +214,7 @@ func (fe *FragmentExtractor) replaceFragmentsWithCalls(original string, fragment
 }
 
 // AddFragmentsToTemplate adds extracted fragments as named templates to a template
-func (fe *FragmentExtractor) AddFragmentsToTemplate(tmpl *template.Template, fragments []*TemplateFragment) error {
+func (fe *fragmentExtractor) AddFragmentsToTemplate(tmpl *template.Template, fragments []*templateFragment) error {
 	for _, fragment := range fragments {
 		_, err := tmpl.New(fragment.ID).Parse(fragment.Content)
 		if err != nil {
@@ -209,7 +225,7 @@ func (fe *FragmentExtractor) AddFragmentsToTemplate(tmpl *template.Template, fra
 }
 
 // ProcessTemplateWithFragments processes a template string and returns a template with fragments
-func (fe *FragmentExtractor) ProcessTemplateWithFragments(name, templateContent string) (*template.Template, []*TemplateFragment, error) {
+func (fe *fragmentExtractor) ProcessTemplateWithFragments(name, templateContent string) (*template.Template, []*templateFragment, error) {
 	// Extract fragments
 	fragments, modifiedContent, err := fe.ExtractFragments(templateContent)
 	if err != nil {
