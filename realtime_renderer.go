@@ -61,6 +61,7 @@ type Renderer struct {
 	wrapperPattern  string                         // Pattern for wrapping fragments with IDs
 	fragmentStore   map[string][]*templateFragment // Store fragments by template name
 	rangeFragments  map[string][]*rangeFragment    // Store range-specific fragments by template name
+	debugMode       bool                           // Enable debug mode features
 }
 
 // Config configures the real-time renderer
@@ -68,6 +69,7 @@ type Config struct {
 	WrapperTag     string // HTML tag to wrap fragments (default: "div")
 	IDPrefix       string // Prefix for fragment IDs (default: "fragment-")
 	PreserveBlocks bool   // Whether to preserve block names as IDs when possible
+	DebugMode      bool   // Enable debug logging and extended statistics
 }
 
 // NewRenderer creates a new real-time renderer
@@ -90,6 +92,7 @@ func NewRenderer(config *Config) *Renderer {
 		wrapperPattern:  fmt.Sprintf("<%s id=\"%%s\">%%s</%s>", config.WrapperTag, config.WrapperTag),
 		fragmentStore:   make(map[string][]*templateFragment),
 		rangeFragments:  make(map[string][]*rangeFragment),
+		debugMode:       config.DebugMode,
 	}
 }
 
@@ -119,13 +122,131 @@ func (r *Renderer) AddTemplate(name, content string) error {
 	return nil
 }
 
-// GetFragments returns the fragments for a template (for debugging)
-func (r *Renderer) GetFragments(templateName string) ([]*templateFragment, bool) {
-	r.dataMutex.Lock()
-	defer r.dataMutex.Unlock()
+// Stats returns rendering statistics for monitoring and debugging
+type Stats struct {
+	TemplateCount     int            `json:"template_count"`
+	TotalFragments    int            `json:"total_fragments"`
+	FragmentsByType   map[string]int `json:"fragments_by_type"`
+	ActiveConnections int            `json:"active_connections"`
+	UpdatesProcessed  int64          `json:"updates_processed"`
+	FailedUpdates     int64          `json:"failed_updates"`
+	AverageRenderTime float64        `json:"average_render_time_ms"`
+}
 
-	fragments, exists := r.fragmentStore[templateName]
-	return fragments, exists
+// GetStats returns performance and usage statistics
+func (r *Renderer) GetStats() Stats {
+	r.dataMutex.RLock()
+	defer r.dataMutex.RUnlock()
+
+	stats := Stats{
+		TemplateCount:     len(r.templates),
+		TotalFragments:    0,
+		FragmentsByType:   make(map[string]int),
+		ActiveConnections: 0, // TODO: implement connection tracking
+		UpdatesProcessed:  0, // TODO: implement update tracking
+		FailedUpdates:     0, // TODO: implement error tracking
+		AverageRenderTime: 0, // TODO: implement timing metrics
+	}
+
+	// Count fragments by template
+	for _, fragments := range r.fragmentStore {
+		stats.TotalFragments += len(fragments)
+		for _, fragment := range fragments {
+			// Categorize fragment types
+			if strings.Contains(fragment.Content, "{{range") {
+				stats.FragmentsByType["range"]++
+			} else if strings.Contains(fragment.Content, "{{if") || strings.Contains(fragment.Content, "{{with") {
+				stats.FragmentsByType["conditional"]++
+			} else if strings.Contains(fragment.Content, "{{template") {
+				stats.FragmentsByType["include"]++
+			} else if strings.Contains(fragment.Content, "{{block") {
+				stats.FragmentsByType["block"]++
+			} else {
+				stats.FragmentsByType["simple"]++
+			}
+		}
+	}
+
+	return stats
+}
+
+// IsHealthy returns true if the renderer is in a good state
+func (r *Renderer) IsHealthy() bool {
+	r.dataMutex.RLock()
+	defer r.dataMutex.RUnlock()
+
+	// Basic health checks
+	if len(r.templates) == 0 {
+		return false
+	}
+
+	if len(r.fragmentStore) == 0 {
+		return false
+	}
+
+	// TODO: Add more sophisticated health checks:
+	// - Check for goroutine leaks
+	// - Check channel buffer status
+	// - Check error rates
+	// - Check memory usage
+
+	return true
+}
+
+// DebugInfo provides detailed debugging information when debug mode is enabled
+type DebugInfo struct {
+	TemplateNames   []string                       `json:"template_names"`
+	FragmentCount   int                            `json:"fragment_count"`
+	FragmentIDs     map[string][]string            `json:"fragment_ids"`
+	FragmentDetails map[string]map[string][]string `json:"fragment_details"`
+	RangeFragments  map[string]int                 `json:"range_fragments_count"`
+}
+
+// GetDebugInfo returns detailed debugging information (only available in debug mode)
+func (r *Renderer) GetDebugInfo() *DebugInfo {
+	if !r.debugMode {
+		return nil
+	}
+
+	r.dataMutex.RLock()
+	defer r.dataMutex.RUnlock()
+
+	debug := &DebugInfo{
+		TemplateNames:   make([]string, 0, len(r.templates)),
+		FragmentIDs:     make(map[string][]string),
+		FragmentDetails: make(map[string]map[string][]string),
+		RangeFragments:  make(map[string]int),
+	}
+
+	// Collect template names
+	for name := range r.templates {
+		debug.TemplateNames = append(debug.TemplateNames, name)
+	}
+
+	// Collect fragment information
+	for templateName, fragments := range r.fragmentStore {
+		var ids []string
+		debug.FragmentDetails[templateName] = make(map[string][]string)
+
+		for _, fragment := range fragments {
+			fragmentID := fragment.ID
+			if blockName := r.extractBlockName(fragment.Content); blockName != "" {
+				fragmentID = blockName
+			}
+			ids = append(ids, fragmentID)
+			debug.FragmentDetails[templateName][fragmentID] = fragment.Dependencies
+			debug.FragmentCount++
+		}
+
+		debug.FragmentIDs[templateName] = ids
+	}
+
+	// Collect range fragment counts
+	for templateName, rangeFragments := range r.rangeFragments {
+		debug.RangeFragments[templateName] = len(rangeFragments)
+	}
+
+	return debug
 }
 
 // createSimpleFragments creates fragments from template expressions
@@ -1440,55 +1561,6 @@ func (r *Renderer) renderFragmentUpdate(fragmentInfo fragmentInfo, data interfac
 		HTML:       buf.String(),
 		Action:     "replace",
 	}, nil
-}
-
-// GetFragmentCount returns the number of fragments across all templates
-func (r *Renderer) GetFragmentCount() int {
-	count := 0
-	for _, fragments := range r.fragmentStore {
-		count += len(fragments)
-	}
-	return count
-}
-
-// GetFragmentIDs returns all fragment IDs for debugging/inspection
-func (r *Renderer) GetFragmentIDs() map[string][]string {
-	result := make(map[string][]string)
-
-	for templateName, fragments := range r.fragmentStore {
-		var ids []string
-
-		for _, fragment := range fragments {
-			fragmentID := fragment.ID
-			if blockName := r.extractBlockName(fragment.Content); blockName != "" {
-				fragmentID = blockName
-			}
-			ids = append(ids, fragmentID)
-		}
-
-		result[templateName] = ids
-	}
-
-	return result
-}
-
-// GetFragmentDetails returns detailed information about fragments for debugging
-func (r *Renderer) GetFragmentDetails() map[string]map[string][]string {
-	result := make(map[string]map[string][]string)
-
-	for templateName, fragments := range r.fragmentStore {
-		result[templateName] = make(map[string][]string)
-
-		for _, fragment := range fragments {
-			fragmentID := fragment.ID
-			if blockName := r.extractBlockName(fragment.Content); blockName != "" {
-				fragmentID = blockName
-			}
-			result[templateName][fragmentID] = fragment.Dependencies
-		}
-	}
-
-	return result
 }
 
 // extractRangeData extracts array data from a data structure using a dot-separated path

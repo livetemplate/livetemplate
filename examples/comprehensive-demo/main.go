@@ -40,6 +40,7 @@ func main() {
 		WrapperTag:     "div",
 		IDPrefix:       "fragment-",
 		PreserveBlocks: true,
+		DebugMode:      true, // Enable debug mode for detailed introspection
 	}
 	renderer := statetemplate.NewRenderer(config)
 
@@ -152,14 +153,20 @@ func main() {
 	log.Println("\n🎯 Initial HTML with All Template Actions:")
 	fmt.Println(fullHTML)
 
-	// Check fragment information
-	fragmentDetails := renderer.GetFragmentDetails()
-	fragmentIDs := renderer.GetFragmentIDs()
+	// Check renderer statistics
+	stats := renderer.GetStats()
+	log.Printf("\n📊 Renderer Statistics:")
+	log.Printf("   Template count: %d", stats.TemplateCount)
+	log.Printf("   Total fragments: %d", stats.TotalFragments)
+	log.Printf("   Fragments by type: %+v", stats.FragmentsByType)
 
-	log.Printf("\n📊 Fragment Analysis:")
-	log.Printf("   Total fragments: %d", renderer.GetFragmentCount())
-	log.Printf("   Fragment IDs: %+v", fragmentIDs)
-	log.Printf("   Fragment details: %+v", fragmentDetails)
+	// Check debug information (available because debug mode is enabled)
+	if debugInfo := renderer.GetDebugInfo(); debugInfo != nil {
+		log.Printf("\n🐛 Debug Information:")
+		log.Printf("   Template names: %+v", debugInfo.TemplateNames)
+		log.Printf("   Fragment IDs: %+v", debugInfo.FragmentIDs)
+		log.Printf("   Range fragments: %+v", debugInfo.RangeFragments)
+	}
 
 	// Start the renderer
 	renderer.Start()

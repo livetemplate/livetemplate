@@ -171,12 +171,12 @@ func TestComprehensiveTemplateActions(t *testing.T) {
 
 	t.Logf("✅ Initial HTML structure validation passed")
 
-	// Check fragment generation
-	fragmentCount := renderer.GetFragmentCount()
-	if fragmentCount == 0 {
+	// Check fragment generation using stats
+	stats := renderer.GetStats()
+	if stats.TotalFragments == 0 {
 		t.Error("Expected fragments to be generated for template actions")
 	}
-	t.Logf("📊 Generated %d fragments for comprehensive template", fragmentCount)
+	t.Logf("📊 Generated %d fragments for comprehensive template", stats.TotalFragments)
 
 	// Start renderer for real-time testing
 	renderer.Start()
@@ -357,17 +357,13 @@ func TestTemplateActionFragmentStructure(t *testing.T) {
 		t.Fatalf("Failed to set initial data: %v", err)
 	}
 
-	// Validate fragment structure
-	fragmentCount := renderer.GetFragmentCount()
-	fragmentIDs := renderer.GetFragmentIDs()
-	fragmentDetails := renderer.GetFragmentDetails()
-
+	// Validate fragment structure using stats
+	stats := renderer.GetStats()
 	t.Logf("📊 Fragment Analysis:")
-	t.Logf("   Total fragments: %d", fragmentCount)
-	t.Logf("   Fragment IDs: %+v", fragmentIDs)
-	t.Logf("   Fragment details: %+v", fragmentDetails)
+	t.Logf("   Total fragments: %d", stats.TotalFragments)
+	t.Logf("   Fragments by type: %+v", stats.FragmentsByType)
 
-	if fragmentCount == 0 {
+	if stats.TotalFragments == 0 {
 		t.Error("❌ Expected fragments to be generated")
 	}
 

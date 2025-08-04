@@ -66,27 +66,19 @@ func TestRealtimeExample(t *testing.T) {
 		t.Fatalf("Failed to add template: %v", err)
 	}
 
-	// Verify fragments were created
-	fragmentCount := renderer.GetFragmentCount()
-	if fragmentCount == 0 {
+	// Verify fragments were created using stats
+	stats := renderer.GetStats()
+	if stats.TotalFragments == 0 {
 		t.Error("Expected fragments to be extracted")
 	}
 
-	fragmentIDs := renderer.GetFragmentIDs()
-	if len(fragmentIDs["main"]) == 0 {
-		t.Error("Expected fragment IDs for main template")
+	if stats.TemplateCount == 0 {
+		t.Error("Expected at least one template")
 	}
 
-	t.Logf("Fragment count: %d", fragmentCount)
-	t.Logf("Fragment IDs: %v", fragmentIDs)
-
-	// Debug: Show fragment details
-	fragmentDetails := renderer.GetFragmentDetails()
-	for _, fragMap := range fragmentDetails {
-		for fragID, deps := range fragMap {
-			t.Logf("Fragment %s depends on: %v", fragID, deps)
-		}
-	}
+	t.Logf("Template count: %d", stats.TemplateCount)
+	t.Logf("Fragment count: %d", stats.TotalFragments)
+	t.Logf("Fragments by type: %+v", stats.FragmentsByType)
 
 	// Initial data
 	initialData := &PageData{

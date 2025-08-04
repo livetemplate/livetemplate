@@ -1692,15 +1692,14 @@ func TestTemplateActionRealTimeFragmentGeneration(t *testing.T) {
 				t.Fatalf("Failed to render template: %v", err)
 			}
 
-			// Verify fragments are generated
-			fragmentCount := renderer.GetFragmentCount()
-			if fragmentCount == 0 {
+			// Verify fragments are generated using stats
+			stats := renderer.GetStats()
+			if stats.TotalFragments == 0 {
 				t.Error("❌ No fragments generated for template")
 			}
 
-			fragmentIDs := renderer.GetFragmentIDs()
-			if len(fragmentIDs) == 0 {
-				t.Error("❌ No fragment IDs generated")
+			if stats.TemplateCount == 0 {
+				t.Error("❌ No templates registered")
 			}
 
 			// Verify HTML contains fragment IDs
@@ -1758,7 +1757,7 @@ func TestTemplateActionRealTimeFragmentGeneration(t *testing.T) {
 				}
 			}
 
-			t.Logf("✅ Generated %d fragments for %s", fragmentCount, tc.description)
+			t.Logf("✅ Generated %d fragments for %s", stats.TotalFragments, tc.description)
 		})
 	}
 
@@ -1974,13 +1973,13 @@ func TestAllTemplateActionsTogether(t *testing.T) {
 				}
 			}
 
-			// Verify fragment generation for complex template
-			fragmentCount := renderer.GetFragmentCount()
-			if fragmentCount < tc.minFragmentCount {
-				t.Errorf("❌ Expected at least %d fragments, got %d", tc.minFragmentCount, fragmentCount)
+			// Verify fragment generation for complex template using stats
+			stats := renderer.GetStats()
+			if stats.TotalFragments < tc.minFragmentCount {
+				t.Errorf("❌ Expected at least %d fragments, got %d", tc.minFragmentCount, stats.TotalFragments)
 			}
 
-			t.Logf("✅ %s: Generated %d fragments for %s", tc.name, fragmentCount, tc.description)
+			t.Logf("✅ %s: Generated %d fragments for %s", tc.name, stats.TotalFragments, tc.description)
 		})
 	}
 
