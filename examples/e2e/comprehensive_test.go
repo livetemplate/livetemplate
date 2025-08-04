@@ -33,13 +33,12 @@ type TestAppData struct {
 
 // TestComprehensiveTemplateActions tests all major Go template actions with granular fragments
 func TestComprehensiveTemplateActions(t *testing.T) {
-	// Create real-time renderer
-	config := &statetemplate.Config{
-		WrapperTag:     "div",
-		IDPrefix:       "fragment-",
-		PreserveBlocks: true,
-	}
-	renderer := statetemplate.NewRenderer(config)
+	// Create real-time renderer with functional options
+	renderer := statetemplate.NewRenderer(
+		statetemplate.WithWrapperTag("div"),
+		statetemplate.WithIDPrefix("fragment-"),
+		statetemplate.WithPreserveBlocks(true),
+	)
 
 	// Template with all major template actions
 	templateContent := `<div>
@@ -311,12 +310,11 @@ func TestComprehensiveTemplateActions(t *testing.T) {
 
 // TestTemplateActionFragmentStructure tests that all template actions generate proper fragment IDs
 func TestTemplateActionFragmentStructure(t *testing.T) {
-	config := &statetemplate.Config{
-		WrapperTag:     "div",
-		IDPrefix:       "fragment-",
-		PreserveBlocks: true,
-	}
-	renderer := statetemplate.NewRenderer(config)
+	renderer := statetemplate.NewRenderer(
+		statetemplate.WithWrapperTag("div"),
+		statetemplate.WithIDPrefix("fragment-"),
+		statetemplate.WithPreserveBlocks(true),
+	)
 
 	// Minimal template with each action type
 	templateContent := `<div>

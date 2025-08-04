@@ -24,12 +24,11 @@ func main() {
 	log.Println("===================================")
 
 	// Create real-time renderer
-	config := &statetemplate.Config{
-		WrapperTag:     "div",
-		IDPrefix:       "fragment-",
-		PreserveBlocks: true,
-	}
-	renderer := statetemplate.NewRenderer(config)
+	renderer := statetemplate.NewRenderer(
+		statetemplate.WithWrapperTag("div"),
+		statetemplate.WithIDPrefix("fragment-"),
+		statetemplate.WithPreserveBlocks(true),
+	)
 
 	// Simple template with a range
 	templateContent := `<div>

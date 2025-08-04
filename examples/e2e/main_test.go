@@ -33,7 +33,7 @@ func TestAllExamples(t *testing.T) {
 
 // BenchmarkRealtimeExample measures performance of real-time rendering
 func BenchmarkRealtimeExample(b *testing.B) {
-	renderer := statetemplate.NewRenderer(nil)
+	renderer := statetemplate.NewRenderer()
 
 	template := `<div>Count: {{.Count}}, Message: {{.Message}}</div>`
 	err := renderer.AddTemplate("bench", template)

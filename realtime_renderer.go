@@ -64,22 +64,60 @@ type Renderer struct {
 	debugMode       bool                           // Enable debug mode features
 }
 
-// Config configures the real-time renderer
-type Config struct {
-	WrapperTag     string // HTML tag to wrap fragments (default: "div")
-	IDPrefix       string // Prefix for fragment IDs (default: "fragment-")
-	PreserveBlocks bool   // Whether to preserve block names as IDs when possible
-	DebugMode      bool   // Enable debug logging and extended statistics
+// Option represents a configuration option for the renderer
+type Option func(*rendererConfig)
+
+// rendererConfig holds the internal configuration
+type rendererConfig struct {
+	wrapperTag     string
+	idPrefix       string
+	preserveBlocks bool
+	debugMode      bool
 }
 
-// NewRenderer creates a new real-time renderer
-func NewRenderer(config *Config) *Renderer {
-	if config == nil {
-		config = &Config{
-			WrapperTag:     "div",
-			IDPrefix:       "fragment-",
-			PreserveBlocks: true,
-		}
+// WithWrapperTag sets the HTML tag used to wrap fragments (default: "div")
+func WithWrapperTag(tag string) Option {
+	return func(c *rendererConfig) {
+		c.wrapperTag = tag
+	}
+}
+
+// WithIDPrefix sets the prefix for fragment IDs (default: "fragment-")
+func WithIDPrefix(prefix string) Option {
+	return func(c *rendererConfig) {
+		c.idPrefix = prefix
+	}
+}
+
+// WithPreserveBlocks sets whether to preserve block names as IDs when possible (default: true)
+func WithPreserveBlocks(preserve bool) Option {
+	return func(c *rendererConfig) {
+		c.preserveBlocks = preserve
+	}
+}
+
+// WithDebugMode enables debug logging and extended statistics (default: false)
+func WithDebugMode(enabled bool) Option {
+	return func(c *rendererConfig) {
+		c.debugMode = enabled
+	}
+}
+
+// defaultConfig returns the default configuration
+func defaultConfig() *rendererConfig {
+	return &rendererConfig{
+		wrapperTag:     "div",
+		idPrefix:       "fragment-",
+		preserveBlocks: true,
+		debugMode:      false,
+	}
+}
+
+// NewRenderer creates a new real-time renderer with functional options
+func NewRenderer(opts ...Option) *Renderer {
+	config := defaultConfig()
+	for _, opt := range opts {
+		opt(config)
 	}
 
 	return &Renderer{
@@ -89,10 +127,10 @@ func NewRenderer(config *Config) *Renderer {
 		updateChan:      make(chan interface{}, 100),
 		outputChan:      make(chan Update, 100),
 		stopChan:        make(chan bool),
-		wrapperPattern:  fmt.Sprintf("<%s id=\"%%s\">%%s</%s>", config.WrapperTag, config.WrapperTag),
+		wrapperPattern:  fmt.Sprintf("<%s id=\"%%s\">%%s</%s>", config.wrapperTag, config.wrapperTag),
 		fragmentStore:   make(map[string][]*templateFragment),
 		rangeFragments:  make(map[string][]*rangeFragment),
-		debugMode:       config.DebugMode,
+		debugMode:       config.debugMode,
 	}
 }
 

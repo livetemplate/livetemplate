@@ -36,13 +36,12 @@ type PageData struct {
 
 // TestRealtimeExample tests the real-time web rendering functionality
 func TestRealtimeExample(t *testing.T) {
-	// Create real-time renderer
-	config := &statetemplate.Config{
-		WrapperTag:     "div",
-		IDPrefix:       "fragment-",
-		PreserveBlocks: true,
-	}
-	renderer := statetemplate.NewRenderer(config)
+	// Create real-time renderer with functional options
+	renderer := statetemplate.NewRenderer(
+		statetemplate.WithWrapperTag("div"),
+		statetemplate.WithIDPrefix("fragment-"),
+		statetemplate.WithPreserveBlocks(true),
+	)
 
 	// Template with block (similar to your example)
 	templateContent := `<div>
@@ -168,12 +167,11 @@ func testRealtimeUpdatesSimple(t *testing.T, renderer *statetemplate.Renderer, u
 	// Test 2: Update site name
 	t.Run("SiteNameUpdate", func(t *testing.T) {
 		// Create a fresh renderer for this test
-		freshConfig := &statetemplate.Config{
-			WrapperTag:     "div",
-			IDPrefix:       "fragment-",
-			PreserveBlocks: true,
-		}
-		freshRenderer := statetemplate.NewRenderer(freshConfig)
+		freshRenderer := statetemplate.NewRenderer(
+			statetemplate.WithWrapperTag("div"),
+			statetemplate.WithIDPrefix("fragment-"),
+			statetemplate.WithPreserveBlocks(true),
+		)
 
 		// Use the same template content
 		templateContent := `<div>
@@ -233,12 +231,11 @@ func testRealtimeUpdatesSimple(t *testing.T, renderer *statetemplate.Renderer, u
 	// Test 3: No update for identical data
 	t.Run("NoChangeUpdate", func(t *testing.T) {
 		// Create a fresh renderer for this test
-		freshConfig := &statetemplate.Config{
-			WrapperTag:     "div",
-			IDPrefix:       "fragment-",
-			PreserveBlocks: true,
-		}
-		freshRenderer := statetemplate.NewRenderer(freshConfig)
+		freshRenderer := statetemplate.NewRenderer(
+			statetemplate.WithWrapperTag("div"),
+			statetemplate.WithIDPrefix("fragment-"),
+			statetemplate.WithPreserveBlocks(true),
+		)
 
 		// Use the same template content
 		templateContent := `<div>
@@ -304,7 +301,7 @@ func testRealtimeUpdatesSimple(t *testing.T, renderer *statetemplate.Renderer, u
 
 // TestRealtimeRendererWebsocketCompatibility tests JSON serialization for websocket use
 func TestRealtimeRendererWebsocketCompatibility(t *testing.T) {
-	renderer := statetemplate.NewRenderer(nil)
+	renderer := statetemplate.NewRenderer()
 
 	// Simple template
 	templateContent := `<div>Message: {{.Message}}</div>`

@@ -35,14 +35,13 @@ func main() {
 	log.Println("🌟 StateTemplate Comprehensive Template Actions Demo")
 	log.Println("==================================================")
 
-	// Create real-time renderer
-	config := &statetemplate.Config{
-		WrapperTag:     "div",
-		IDPrefix:       "fragment-",
-		PreserveBlocks: true,
-		DebugMode:      true, // Enable debug mode for detailed introspection
-	}
-	renderer := statetemplate.NewRenderer(config)
+	// Create real-time renderer with functional options
+	renderer := statetemplate.NewRenderer(
+		statetemplate.WithWrapperTag("div"),
+		statetemplate.WithIDPrefix("fragment-"),
+		statetemplate.WithPreserveBlocks(true),
+		statetemplate.WithDebugMode(true), // Enable debug mode for detailed introspection
+	)
 
 	// Comprehensive template showcasing all actions
 	templateContent := `<div>
