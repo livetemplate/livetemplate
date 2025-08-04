@@ -17,7 +17,7 @@ command_exists() {
 install_golangci_lint() {
     echo "📦 Installing golangci-lint..."
     
-    # Use the official installation script with latest version
+    # Use the official installation script with latest version for Go 1.24 compatibility
     if command_exists curl; then
         curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin latest
     else
@@ -77,13 +77,35 @@ fi
 echo ""
 echo "4️⃣  Running golangci-lint..."
 echo "-----------------------------"
-if golangci-lint run --timeout=5m; then
+
+# Capture golangci-lint output for parsing
+LINT_OUTPUT=$(golangci-lint run --timeout=5m 2>&1)
+LINT_EXIT_CODE=$?
+
+if [ $LINT_EXIT_CODE -eq 0 ]; then
     echo "✅ golangci-lint passed"
 else
-    echo "⚠️  golangci-lint had issues, but continuing..."
-    echo "ℹ️  You can run 'golangci-lint run --timeout=5m' manually to see details"
-    # Don't exit on golangci-lint failure for now due to version compatibility issues
-    # exit 1
+    echo "❌ golangci-lint found issues that need to be fixed"
+    echo ""
+    echo "🤖 LLM-PARSEABLE GOLANGCI-LINT ISSUES:"
+    echo "======================================"
+    echo "The following issues were found by golangci-lint and need to be addressed:"
+    echo ""
+    
+    # Extract just the issue lines (file:line:column format)
+    echo "$LINT_OUTPUT" | grep -E "^[^[:space:]].*:[0-9]+:[0-9]+:" | head -20
+    
+    echo ""
+    echo "INSTRUCTIONS FOR LLM:"
+    echo "- Each line above shows: file:line:column: message (linter)"
+    echo "- Fix ineffassign issues by removing or using assigned variables"
+    echo "- Fix staticcheck issues according to Go best practices"  
+    echo "- Fix unused issues by removing unused functions/variables or adding // nolint:unused if intentionally kept"
+    echo "- Use replace_string_in_file tool to fix each issue"
+    echo "- Include sufficient context (3-5 lines before/after) when using replace_string_in_file"
+    echo "======================================"
+    echo ""
+    exit 1
 fi
 
 echo ""
@@ -91,21 +113,19 @@ echo "5️⃣  Checking go mod tidy..."
 echo "---------------------------"
 go mod tidy
 
-# Check if there are changes (only fail if go.mod changes, go.sum changes are often just cached deps)
+# Check if there are changes after running go mod tidy
 if git diff --exit-code go.mod; then
     echo "✅ go.mod is tidy"
-    
-    # Check go.sum but don't fail the build for it (cache inconsistencies are common)
-    if git diff --exit-code go.sum; then
-        echo "✅ go.sum is tidy"
-    else
-        echo "⚠️  go.sum has changes (likely cached dependencies), but continuing..."
-        echo "ℹ️  This is often due to module cache inconsistencies and doesn't indicate actual issues"
-    fi
 else
-    echo "❌ go.mod needs tidying"
-    echo "Run: go mod tidy"
-    exit 1
+    echo "✅ go.mod was updated by go mod tidy"
+fi
+
+# Check go.sum but don't fail the build for it (cache inconsistencies are common)
+if git diff --exit-code go.sum; then
+    echo "✅ go.sum is tidy"
+else
+    echo "⚠️  go.sum has changes (likely cached dependencies), but continuing..."
+    echo "ℹ️  This is often due to module cache inconsistencies and doesn't indicate actual issues"
 fi
 
 echo ""

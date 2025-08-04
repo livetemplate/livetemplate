@@ -29,17 +29,9 @@ func newFragmentExtractor() *fragmentExtractor {
 	}
 }
 
-// NewfragmentExtractorWithAnalyzer creates a new fragmentExtractor with a shared analyzer
-func newFragmentExtractorWithAnalyzer(analyzer *advancedTemplateAnalyzer) *fragmentExtractor {
-	return &fragmentExtractor{
-		analyzer: analyzer,
-	}
-}
-
 // ExtractFragments automatically extracts minimal template fragments from template content
 func (fe *fragmentExtractor) ExtractFragments(templateContent string) ([]*templateFragment, string, error) {
 	var fragments []*templateFragment
-	modifiedContent := templateContent
 
 	// Find all template expressions {{.*}}
 	expressionRegex := regexp.MustCompile(`\{\{[^}]*\}\}`)

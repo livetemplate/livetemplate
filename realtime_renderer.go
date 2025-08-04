@@ -285,7 +285,11 @@ func (r *Renderer) findLineDependencies(line string, allDependencies []string) [
 // This is a simple heuristic that maps variable names to likely field names
 func (r *Renderer) findVariableDependency(varName string, allDependencies []string) string {
 	// Simple mapping: $title -> Title, $count -> Count, etc.
-	expectedFieldName := strings.Title(varName)
+	// Using manual title case to avoid deprecated strings.Title
+	expectedFieldName := ""
+	if len(varName) > 0 {
+		expectedFieldName = strings.ToUpper(varName[:1]) + strings.ToLower(varName[1:])
+	}
 
 	for _, dep := range allDependencies {
 		if dep == expectedFieldName {
@@ -622,14 +626,6 @@ func (r *Renderer) generateShortID() string {
 	return id
 }
 
-// detectPatternFragments detects fragments based on common patterns
-func (r *Renderer) detectPatternFragments(content, templateName string, allDependencies []string) []*templateFragment {
-	var fragments []*templateFragment
-	// This could be extended to detect common UI patterns
-	// For now, we rely on granular line-based detection
-	return fragments
-}
-
 // addBlockFragments identifies and adds block fragments
 func (r *Renderer) addBlockFragments(fragments *[]*templateFragment, content, templateName string, allDeps []string) {
 	blockRegex := regexp.MustCompile(`\{\{block\s+"([^"]+)"[^}]*\}\}(.*?)\{\{end\}\}`)
@@ -737,12 +733,6 @@ func (r *Renderer) extractFieldSectionFromBlock(blockContent string, fieldDeps [
 	}
 
 	return strings.Join(sectionLines, "\n")
-}
-
-// generateSimpleID generates a simple random ID as fallback
-func (r *Renderer) generateSimpleID() string {
-	// Simple ID generation for fallback
-	return fmt.Sprintf("frag-%d", time.Now().UnixNano()%1000000)
 }
 
 // SetInitialData sets the initial data and returns the full rendered HTML
@@ -1159,14 +1149,6 @@ func (r *Renderer) wrapGenericFragment(html string, fragment *templateFragment, 
 	}
 
 	return html
-}
-
-// elementContainsFragmentContent checks if an HTML element contains content related to fragment dependencies
-func (r *Renderer) elementContainsFragmentContent(element string, fragment *templateFragment) bool {
-	// This is a heuristic to match rendered HTML elements with their template fragment
-	// For now, we'll be permissive and assume the first matching element pattern is ours
-	// TODO: Could be made more sophisticated by analyzing the template structure
-	return true
 }
 
 // extractBlockName extracts block name from template content

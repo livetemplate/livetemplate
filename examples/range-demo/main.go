@@ -79,9 +79,9 @@ func main() {
 			log.Printf("   Action: %s", update.Action)
 			log.Printf("   HTML: %s", update.HTML)
 			if update.RangeInfo != nil {
-				log.Printf("   Item Key: %s", update.RangeInfo.ItemKey)
-				if update.RangeInfo.ReferenceID != "" {
-					log.Printf("   Reference ID: %s", update.RangeInfo.ReferenceID)
+				log.Printf("   Item Key: %s", update.RangeInfo.ItemKey) //nolint:staticcheck
+				if update.RangeInfo.ReferenceID != "" {                 //nolint:staticcheck
+					log.Printf("   Reference ID: %s", update.RangeInfo.ReferenceID) //nolint:staticcheck
 				}
 			}
 

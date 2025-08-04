@@ -31,16 +31,6 @@ func newTemplateTracker() *templateTracker {
 	}
 }
 
-// NewtemplateTrackerWithAnalyzer creates a new templateTracker with a shared analyzer
-func newTemplateTrackerWithAnalyzer(analyzer *advancedTemplateAnalyzer) *templateTracker {
-	return &templateTracker{
-		templates:         make(map[string]*template.Template),
-		dependencies:      make(map[string]map[string]bool),
-		fragments:         make(map[string][]*templateFragment),
-		fragmentExtractor: newFragmentExtractorWithAnalyzer(analyzer),
-	}
-}
-
 // AddTemplate adds a template and analyzes its dependencies
 func (tt *templateTracker) AddTemplate(name string, tmpl *template.Template) {
 	tt.mu.Lock()
@@ -282,7 +272,7 @@ func (tt *templateTracker) compareStructures(prefix string, oldData, newData int
 		} else {
 			// Same length, check individual elements
 			for i := 0; i < oldVal.Len(); i++ {
-				indexPath := prefix
+				var indexPath string
 				if prefix != "" {
 					indexPath = fmt.Sprintf("%s[%d]", prefix, i)
 				} else {

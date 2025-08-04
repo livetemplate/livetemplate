@@ -264,7 +264,7 @@ func TestComprehensiveTemplateActions(t *testing.T) {
 			conditionalUpdates = append(conditionalUpdates, update)
 		}
 		if strings.Contains(update.HTML, "Current User:") || strings.Contains(update.HTML, "profile") {
-			contextUpdates = append(contextUpdates, update)
+			contextUpdates = append(contextUpdates, update) //nolint:staticcheck
 		}
 		if update.RangeInfo != nil || strings.Contains(update.FragmentID, "-item-") ||
 			(update.Action == "remove" || update.Action == "append" || strings.Contains(update.HTML, "data-id")) {
