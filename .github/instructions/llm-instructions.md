@@ -163,6 +163,52 @@ func TestFeature(t *testing.T) {
 }
 ```
 
+### Test Organization Guidelines
+
+**Test Case Naming:**
+
+- Use descriptive names that explain the scenario being tested
+- Format: `"action_type with condition"` (e.g., `"comment action with single line"`)
+- Include edge cases: `"empty data"`, `"nil values"`, `"malformed template"`
+
+**Template Action Test Categories:**
+
+- **Comment Tests**: Template comments and their handling
+- **Variable Tests**: Variable assignment and scoping
+- **Pipeline Tests**: Function chains and data transformation
+- **Conditional Tests**: If/else logic and branching
+- **Loop Tests**: Range and with statements
+- **Function Tests**: Built-in and custom function calls
+- **Comparison Tests**: Equality and logical operations
+- **Block Tests**: Template composition and inheritance
+
+**Test Data Patterns:**
+
+Use realistic data structures that reflect real-world usage:
+
+```go
+data := map[string]interface{}{
+    "Name":  "John",
+    "Items": []string{"item1", "item2"},
+    "User":  struct{Name string}{Name: "Alice"},
+}
+```
+
+**Fragment Testing Specifics:**
+
+- Verify fragment boundaries are correctly identified
+- Test dependency tracking for data changes
+- Validate minimal update generation
+- Check fragment type categorization (simple, conditional, range, block)
+
+**TDD Workflow:**
+
+1. Write failing test that describes expected behavior
+2. Run test to confirm it fails
+3. Implement minimal code to make test pass
+4. Refactor while keeping tests green
+5. Add edge cases and error scenarios
+
 ### File Organization Rules (MANDATORY)
 
 **❌ Never Create:**
@@ -320,12 +366,24 @@ func TestDebug_DataTracking(t *testing.T) {
 
 ### Documentation Updates
 
-When making changes:
+**MANDATORY**: Always update documentation after ANY code change:
 
 1. **Architecture changes** → Update `docs/ARCHITECTURE.md`
 2. **API changes** → Update `docs/API_DESIGN.md`
 3. **New features** → Add examples to `docs/EXAMPLES.md`
 4. **Instructions** → Update this file for future LLMs
+5. **Tests** → Update test documentation and add examples
+6. **Examples** → Update `examples/` directory with working demos
+
+### Documentation Standards
+
+**CRITICAL RULES**:
+
+- ✅ **ALWAYS** update docs, instructions, tests, and examples after code changes
+- ❌ **NEVER** generate new documentation for summaries or temporary content
+- 📁 **ALL** new documentation MUST go in the `docs/` folder (no exceptions)
+- 📝 Keep documentation current with code - no outdated examples
+- 🧪 Include test examples that demonstrate new functionality
 
 ### Code Generation Guidelines
 
@@ -342,8 +400,10 @@ When making changes:
 - [ ] All tests pass (`go test ./...`)
 - [ ] CI validation succeeds (`./scripts/validate-ci.sh`)
 - [ ] Code follows existing patterns and style
-- [ ] Documentation updated appropriately
-- [ ] Examples provided for new features
+- [ ] **MANDATORY**: Documentation updated in `docs/` folder
+- [ ] **MANDATORY**: Examples updated with new functionality
+- [ ] **MANDATORY**: Tests include documentation of new behavior
+- [ ] **MANDATORY**: Instructions updated for future LLMs
 - [ ] Performance implications considered
 - [ ] Error handling implemented
 - [ ] Thread safety addressed if relevant
@@ -355,6 +415,81 @@ When making changes:
 - **Best**: Code is optimized, well-documented, and future-proof
 
 ## 💡 Advanced LLM Guidance
+
+### Component Implementation Details
+
+#### FragmentExtractor Patterns
+
+**Boundary Detection:**
+
+- Identify start and end positions of extractable segments
+- Handle nested template structures correctly
+- Account for whitespace and formatting preservation
+- Validate fragment completeness and syntax
+
+**Dependency Analysis:**
+
+- Map template variables to data structure fields
+- Track deep object path dependencies
+- Identify circular dependency risks
+- Build dependency graphs for change propagation
+
+**Fragment Identification:**
+
+- Generate unique, stable fragment IDs
+- Maintain ID consistency across template updates
+- Support fragment renaming and restructuring
+- Handle fragment merging and splitting scenarios
+
+#### RealtimeRenderer Implementation
+
+**Template Registration:**
+
+- Parse templates immediately upon registration
+- Extract fragments during registration phase
+- Build dependency maps for change tracking
+- Validate template syntax and structure
+
+**Fragment Management:**
+
+- Categorize fragments by type (simple, conditional, range, block)
+- Maintain fragment-to-data dependency mappings
+- Store rendered fragment cache for performance
+- Handle fragment lifecycle (creation, update, removal)
+
+**Real-time Update Processing:**
+
+- Monitor data changes through TemplateTracker
+- Generate minimal update payloads
+- Batch related updates for efficiency
+- Maintain update ordering for consistency
+
+**Concurrency Considerations:**
+
+- Use proper mutex protection for shared state
+- Handle goroutine lifecycle management
+- Implement graceful shutdown procedures
+- Avoid race conditions in fragment updates
+
+#### TemplateTracker Implementation
+
+**Data Structure Handling:**
+
+- **Primitive Types**: Direct value comparison, handle nil pointers safely
+- **Complex Types**: Recursive comparison for nested structures, map operations, slice modifications
+- **Special Cases**: Unexported fields, custom comparison methods, time.Time handling
+
+**Change Detection Strategies:**
+
+- **Reflection-Based Monitoring**: Use reflect package for dynamic analysis
+- **Dependency Graph Management**: Map data fields to template fragments
+- **Performance Optimization**: Cache reflection metadata, minimize overhead
+
+**Integration Patterns:**
+
+- **Fragment Coordination**: Notify FragmentExtractor of data changes
+- **Real-time Processing**: Efficient change polling, configurable intervals
+- **Error Handling**: Handle reflection panics, concurrent modifications
 
 ### Template AST Understanding
 
@@ -395,6 +530,50 @@ type Update struct {
 
 This structure enables precise DOM manipulation on the client side.
 
----
+### Performance Optimization Techniques
+
+**Fragment-Level Optimizations:**
+
+- Cache fragment analysis results
+- Minimize template re-parsing overhead
+- Use efficient string parsing algorithms
+- Parallelize independent extraction operations
+
+**Memory Management:**
+
+- Pool fragment objects for reuse
+- Minimize memory allocation in hot paths
+- Clean up unused fragment references
+- Implement fragment garbage collection
+
+**Rendering Optimizations:**
+
+- Cache parsed templates to avoid re-parsing
+- Pool buffers for rendering operations
+- Minimize reflection usage in hot paths
+- Batch multiple updates into single WebSocket messages
+
+### Error Handling Patterns
+
+**Template-Level Errors:**
+
+- Validate template syntax during extraction
+- Handle malformed template structures gracefully
+- Provide detailed error context for debugging
+- Implement fallback strategies for extraction failures
+
+**Runtime Error Handling:**
+
+- Provide detailed error context for template parsing failures
+- Handle missing data gracefully with default values
+- Log fragment extraction issues for debugging
+- Implement recovery mechanisms for update failures
+
+**WebSocket Error Handling:**
+
+- Handle client connection lifecycle events
+- Implement proper backpressure handling
+- Support multiple concurrent client connections
+- Graceful degradation for connection failures---
 
 _This document is maintained for LLM understanding and should be updated when architectural changes occur._
