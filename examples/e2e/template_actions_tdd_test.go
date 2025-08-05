@@ -1550,8 +1550,8 @@ func TestTemplateActionBlockDefinitions(t *testing.T) {
 	t.Log("✅ Block definition actions test suite completed")
 }
 
-// RealTimeFragmentTestSuite defines test cases for real-time fragment generation
-type RealTimeFragmentTestSuite struct {
+// FragmentTestSuite defines test cases for real-time fragment generation
+type FragmentTestSuite struct {
 	name             string
 	template         string
 	initialData      *TDDTestData
@@ -1561,11 +1561,11 @@ type RealTimeFragmentTestSuite struct {
 	description      string
 }
 
-// TestTemplateActionRealTimeFragmentGeneration verifies all actions generate proper fragments using table-driven tests
-func TestTemplateActionRealTimeFragmentGeneration(t *testing.T) {
+// TestTemplateActionFragmentGeneration verifies all actions generate proper fragments using table-driven tests
+func TestTemplateActionFragmentGeneration(t *testing.T) {
 	t.Log("🧪 Testing Real-time Fragment Generation for All Actions")
 
-	testSuite := []RealTimeFragmentTestSuite{
+	testSuite := []FragmentTestSuite{
 		{
 			name: "ComprehensiveFragmentGeneration",
 			template: `<div>

@@ -8,7 +8,7 @@ import (
 	"github.com/livefir/statetemplate"
 )
 
-// Test data structures for realtime testing
+// Test data structures for real-time testing
 type Counter struct {
 	Value       int    `json:"value"`
 	LastUpdated string `json:"last_updated"`
@@ -34,8 +34,8 @@ type PageData struct {
 	Navigation *Navigation `json:"navigation"`
 }
 
-// TestRealtimeExample tests the real-time web rendering functionality
-func TestRealtimeExample(t *testing.T) {
+// TestRendererExample tests the real-time web rendering functionality
+func TestRendererExample(t *testing.T) {
 	// Create real-time renderer with functional options
 	renderer := statetemplate.NewRenderer(
 		statetemplate.WithWrapperTag("div"),
@@ -124,11 +124,11 @@ func TestRealtimeExample(t *testing.T) {
 	updateChan := renderer.GetUpdateChannel()
 
 	// Test real-time updates
-	testRealtimeUpdatesSimple(t, renderer, updateChan, initialData)
+	testUpdatesSimple(t, renderer, updateChan, initialData)
 }
 
-// testRealtimeUpdates tests various real-time update scenarios
-func testRealtimeUpdatesSimple(t *testing.T, renderer *statetemplate.Renderer, updateChan <-chan statetemplate.Update, baseData *PageData) {
+// testUpdates tests various real-time update scenarios
+func testUpdatesSimple(t *testing.T, renderer *statetemplate.Renderer, updateChan <-chan statetemplate.Update, baseData *PageData) {
 
 	// Test 1: Update counter value
 	t.Run("CounterUpdate", func(t *testing.T) {
@@ -299,8 +299,8 @@ func testRealtimeUpdatesSimple(t *testing.T, renderer *statetemplate.Renderer, u
 	})
 }
 
-// TestRealtimeRendererWebsocketCompatibility tests JSON serialization for websocket use
-func TestRealtimeRendererWebsocketCompatibility(t *testing.T) {
+// TestRendererWebsocketCompatibility tests JSON serialization for websocket use
+func TestRendererWebsocketCompatibility(t *testing.T) {
 	renderer := statetemplate.NewRenderer()
 
 	// Simple template

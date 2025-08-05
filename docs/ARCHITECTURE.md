@@ -16,7 +16,7 @@ graph TB
     end
 
     subgraph "StateTemplate Core"
-        RT[RealtimeRenderer]
+        RT[Renderer]
         TT[TemplateTracker]
         FE[FragmentExtractor]
         TA[TemplateAnalyzer]
@@ -265,9 +265,9 @@ graph TD
     FT -->|Range| RF[Range Fragment Update]
     FT -->|Block| BF[Block Fragment Update]
 
-    SF --> RU[RealtimeUpdate]
+    SF --> RU[Update]
     CF2 --> RU
-    RF --> RU2[Multiple RealtimeUpdates]
+    RF --> RU2[Multiple Updates]
     BF --> RU
 
     RU --> WS[WebSocket]

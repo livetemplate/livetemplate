@@ -16,7 +16,7 @@ go test -v
 go run examples/simple/main.go
 go run examples/files/main.go
 go run examples/fragments/main.go
-go run examples/realtime/main.go
+go run examples/e2e/main.go
 ```
 
 ## Features
@@ -40,7 +40,7 @@ go run examples/realtime/main.go
 
 The library consists of four main components:
 
-- **RealtimeRenderer**: Main orchestrator managing template parsing and real-time updates
+- **Renderer**: Main orchestrator managing template parsing and real-time updates
 - **TemplateTracker**: Monitors data dependencies and detects changes using reflection
 - **FragmentExtractor**: Extracts and categorizes template fragments for granular updates
 - **TemplateAnalyzer**: Provides advanced template analysis and optimization
@@ -60,7 +60,7 @@ import (
 )
 
 func main() {
-    // Create realtime renderer
+    // Create renderer
     tmpl := template.Must(template.New("example").Parse(`
         <div>
             <h1>{{.Title}}</h1>
@@ -71,12 +71,12 @@ func main() {
         </div>
     `))
 
-    config := statetemplate.RealtimeConfig{
+    config := statetemplate.Config{
         WrapperTagName: "div",
         IDPrefix:       "fragment-",
     }
 
-    renderer := statetemplate.NewRealtimeRenderer("main", tmpl, config)
+    renderer := statetemplate.NewRenderer("main", tmpl, config)
 
     // Initial render
     data := struct {
@@ -89,36 +89,49 @@ func main() {
         Items: []string{"item1", "item2"},
     }
 
-    initialHTML, err := renderer.ProcessInitialData(data)
+    // Create StateTemplate instance
+    st := statetemplate.New(tmpl,
+        statetemplate.WithExpiration(24*time.Hour),
+    )
+
+    // For initial page load - get full HTML with session info
+    initial, err := st.NewSession(context.Background(), data)
     if err != nil {
         panic(err)
     }
 
-    // Set up real-time updates
-    updateChan := make(chan statetemplate.DataUpdate)
-    realtimeChan := make(chan statetemplate.RealtimeUpdate)
+    fmt.Printf("Initial HTML: %s\n", initial.HTML)
+    fmt.Printf("Session ID: %s\n", initial.SessionID)
 
-    go renderer.StartRealtimeUpdates(updateChan, realtimeChan)
+    // For real-time updates - get existing session and stream updates
+    session, err := st.GetSession(initial.SessionID, initial.Token)
+    if err != nil {
+        panic(err)
+    }
+    defer session.Close()
 
-    // Handle real-time updates (for WebSocket)
+    // Listen for real-time fragment updates
     go func() {
-        for update := range realtimeChan {
+        for update := range session.Updates() {
             // Send to WebSocket clients
             fmt.Printf("Fragment %s: %s\n", update.FragmentID, update.HTML)
         }
     }()
 
-    // Send data updates
-    updateChan <- statetemplate.DataUpdate{
-        Data: struct {
-            Title string
-            User  struct { Name string }
-            Items []string
-        }{
-            Title: "Updated App",
-            User:  struct{ Name string }{Name: "Jane"},
-            Items: []string{"item1", "item2", "item3"},
-        },
+    // Trigger updates with new data
+    newData := struct {
+        Title string
+        User  struct { Name string }
+        Items []string
+    }{
+        Title: "Updated App",
+        User:  struct{ Name string }{Name: "Jane"},
+        Items: []string{"item1", "item2", "item3"},
+    }
+
+    // This sends fragment updates to session.Updates() channel
+    if err := session.Render(context.Background(), newData); err != nil {
+        panic(err)
     }
 }
 ```
@@ -145,50 +158,151 @@ renderer.ExtractBlockFragments(template)
 
 ### Core Types
 
-#### `RealtimeRenderer`
+#### `StateTemplate`
 
-The main component that orchestrates template parsing, fragment extraction, and real-time updates.
+The main entry point that manages sessions and template rendering.
 
-#### `RealtimeConfig`
+#### `Session`
+
+Represents an isolated rendering session for a single client.
+
+#### `Config`
 
 ```go
-type RealtimeConfig struct {
-    WrapperTagName string // HTML tag for fragment wrapping
-    IDPrefix       string // Prefix for generated fragment IDs
+type Config struct {
+    Expiration      time.Duration // Session expiration (default: 24h)
+    Store           sessionStore  // Session storage backend
+    SigningKey      []byte        // For secure session tokens
+    MaxSessions     int           // Maximum concurrent sessions
+    CleanupInterval time.Duration // Cleanup frequency (default: 5m)
 }
 ```
 
-#### `RealtimeUpdate`
+#### `Update`
 
 ```go
-type RealtimeUpdate struct {
-    FragmentID string // Unique fragment identifier
-    HTML       string // Updated HTML content
-    Action     string // Update action (replace, append, remove)
+type Update struct {
+    FragmentID string    `json:"fragment_id"`
+    HTML       string    `json:"html"`
+    Action     string    `json:"action"` // "replace", "append", "remove"
+    Timestamp  time.Time `json:"timestamp"`
 }
 ```
 
-#### `DataUpdate`
+#### `InitialRender`
 
 ```go
-type DataUpdate struct {
-    Data interface{} // New data state
+type InitialRender struct {
+    HTML      string `json:"html"`       // Full annotated HTML
+    SessionID string `json:"session_id"` // For subsequent updates
+    Token     string `json:"token"`      // For session authentication
 }
 ```
 
 ### Key Methods
 
-#### `NewRealtimeRenderer(name string, tmpl *template.Template, config RealtimeConfig) *RealtimeRenderer`
+#### `New(templates *template.Template, options ...Option) *StateTemplate`
 
-Creates a new realtime renderer with fragment extraction and tracking.
+Creates a new StateTemplate instance with configuration options.
 
-#### `ProcessInitialData(data interface{}) (string, error)`
+#### `NewSession(ctx context.Context, data interface{}) (*InitialRender, error)`
 
-Renders the complete template with initial data and sets up fragment tracking.
+Creates a new session and renders the complete template with initial data. Use this for initial page loads.
 
-#### `StartRealtimeUpdates(updateChan <-chan DataUpdate, realtimeChan chan<- RealtimeUpdate)`
+#### `GetSession(sessionID, token string) (*Session, error)`
 
-Starts processing data updates and generating minimal fragment updates for real-time synchronization.
+Retrieves an existing session for real-time updates. Use this for WebSocket connections.
+
+#### `Render(ctx context.Context, data interface{}) error`
+
+Processes new data and triggers fragment updates. Updates are sent to the `Updates()` channel.
+
+#### `Updates() <-chan Update`
+
+Returns a channel that streams incremental fragment updates. Use this for real-time connections.
+
+#### `Close() error`
+
+Closes the session and releases resources.
+
+## Usage Patterns
+
+### Pattern 1: Initial Page Load (HTTP Handler)
+
+Use `NewSession()` for server-side rendering of the initial page:
+
+```go
+func pageHandler(w http.ResponseWriter, r *http.Request) {
+    st := statetemplate.New(templates,
+        statetemplate.WithExpiration(24*time.Hour),
+    )
+
+    data := getPageData(r)
+
+    // Get full HTML for initial page load
+    initial, err := st.NewSession(ctx, data)
+    if err != nil {
+        http.Error(w, err.Error(), 500)
+        return
+    }
+
+    // Render page template with session info for JavaScript
+    pageTemplate.Execute(w, struct {
+        Content   string
+        SessionID string
+        Token     string
+    }{
+        Content:   initial.HTML,
+        SessionID: initial.SessionID,
+        Token:     initial.Token,
+    })
+}
+```
+
+### Pattern 2: Real-time Updates (WebSocket Handler)
+
+Use `GetSession()` + `Updates()` for incremental updates:
+
+```go
+func websocketHandler(w http.ResponseWriter, r *http.Request) {
+    sessionID := r.URL.Query().Get("session_id")
+    token := r.URL.Query().Get("token")
+
+    // Get existing session from initial page load
+    session, err := st.GetSession(sessionID, token)
+    if err != nil {
+        http.Error(w, "Invalid session", 401)
+        return
+    }
+    defer session.Close()
+
+    conn, err := upgrader.Upgrade(w, r, nil)
+    if err != nil {
+        return
+    }
+    defer conn.Close()
+
+    // Stream incremental updates
+    go func() {
+        for update := range session.Updates() {
+            conn.WriteJSON(update)
+        }
+    }()
+
+    // Process data changes
+    for {
+        var newData PageData
+        if err := conn.ReadJSON(&newData); err != nil {
+            break
+        }
+
+        // Trigger fragment updates
+        if err := session.Render(ctx, &newData); err != nil {
+            log.Printf("Render error: %v", err)
+        }
+    }
+}
+```
 
 ### Fragment Types
 
@@ -226,15 +340,15 @@ For real-time web applications, StateTemplate generates WebSocket-compatible upd
 // Set up WebSocket handler
 func handleWebSocket(conn *websocket.Conn) {
     // Create renderer and channels
-    renderer := statetemplate.NewRealtimeRenderer("main", template, config)
+    renderer := statetemplate.NewRenderer("main", template, config)
     updateChan := make(chan statetemplate.DataUpdate)
-    realtimeChan := make(chan statetemplate.RealtimeUpdate)
+    fragmentChan := make(chan statetemplate.Update)
 
-    go renderer.StartRealtimeUpdates(updateChan, realtimeChan)
+    go renderer.StartUpdates(updateChan, fragmentChan)
 
     // Forward real-time updates to WebSocket
     go func() {
-        for update := range realtimeChan {
+        for update := range fragmentChan {
             conn.WriteJSON(map[string]interface{}{
                 "type":       "fragment_update",
                 "fragmentId": update.FragmentID,
@@ -246,7 +360,7 @@ func handleWebSocket(conn *websocket.Conn) {
 }
 ```
 
-For comprehensive documentation and examples, see [`docs/REALTIME.md`](docs/REALTIME.md).
+For comprehensive documentation and examples, see [`docs/EXAMPLES.md`](docs/EXAMPLES.md).
 
 ## Example Data Structures
 
@@ -318,13 +432,13 @@ Run the comprehensive test suite:
 go test -v
 
 # Run specific test suites
-go test -v -run "TestRealtimeRenderer"
+go test -v -run "TestRenderer"
 go test -v -run "TestTemplateTracker"
 go test -v -run "TestFragmentExtractor"
 
 # Run examples with timeout
 timeout 3s go run examples/simple/main.go
-timeout 3s go run examples/realtime/main.go
+timeout 3s go run examples/e2e/main.go
 ```
 
 The test suite uses table-driven tests for comprehensive coverage of template actions and fragment types.
@@ -342,7 +456,7 @@ The test suite uses table-driven tests for comprehensive coverage of template ac
 
 ```text
 statetemplate/
-├── realtime_renderer.go       # Main renderer orchestrator
+├── renderer.go                # Main renderer orchestrator
 ├── template_tracker.go        # Data change tracking
 ├── fragment_extractor.go      # Fragment extraction and categorization
 ├── template_analyzer.go       # Advanced template analysis
@@ -366,7 +480,8 @@ The library provides the foundation for building efficient, real-time web applic
 
 ## Documentation
 
+- [`docs/SESSION_DESIGN.md`](docs/SESSION_DESIGN.md) - Session-based architecture design and implementation
+- [`docs/SESSION_IMPLEMENTATION.md`](docs/SESSION_IMPLEMENTATION.md) - Session API implementation guide
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) - Detailed architectural overview
-- [`docs/REALTIME.md`](docs/REALTIME.md) - WebSocket integration guide
-- [`docs/ENHANCED_INTERFACE_IMPLEMENTATION_SUMMARY.md`](docs/ENHANCED_INTERFACE_IMPLEMENTATION_SUMMARY.md) - Implementation details
+- [`docs/EXAMPLES.md`](docs/EXAMPLES.md) - WebSocket integration guide
 - [`examples/README.md`](examples/README.md) - Usage examples and patterns

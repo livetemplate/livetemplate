@@ -266,9 +266,9 @@ When items are added, removed, or reordered, individual `Update` messages are ge
 
 If you have code referencing older type names:
 
-- `RealtimeRenderer` → `Renderer`
-- `RealtimeUpdate` → `Update`
-- `RealtimeConfig` → (removed, use Options pattern)
+- `Renderer` → `Renderer` (already clean)
+- `Update` → `Update` (already clean)
+- `Config` → (removed, use Options pattern)
 - `AddTemplate()` → Use Parse methods instead
 
 ## Error Handling

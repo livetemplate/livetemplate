@@ -230,7 +230,7 @@ data := map[string]interface{}{
 
 ```mermaid
 graph TB
-    RT[RealtimeRenderer] --> TT[TemplateTracker]
+    RT[Renderer] --> TT[TemplateTracker]
     RT --> FE[FragmentExtractor]
     RT --> TA[TemplateAnalyzer]
 
@@ -441,7 +441,7 @@ func TestDebug_DataTracking(t *testing.T) {
 - Support fragment renaming and restructuring
 - Handle fragment merging and splitting scenarios
 
-#### RealtimeRenderer Implementation
+#### Renderer Implementation
 
 **Template Registration:**
 

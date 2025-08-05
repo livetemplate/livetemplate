@@ -18,12 +18,12 @@ func TestMain(m *testing.M) {
 
 // TestAllExamples runs all example tests together for comprehensive validation
 func TestAllExamples(t *testing.T) {
-	t.Run("Realtime", func(t *testing.T) {
-		TestRealtimeExample(t)
+	t.Run("Renderer", func(t *testing.T) {
+		TestRendererExample(t)
 	})
 
-	t.Run("RealtimeWebsocket", func(t *testing.T) {
-		TestRealtimeRendererWebsocketCompatibility(t)
+	t.Run("RendererWebsocket", func(t *testing.T) {
+		TestRendererWebsocketCompatibility(t)
 	})
 
 	t.Run("Comprehensive", func(t *testing.T) {
@@ -31,8 +31,8 @@ func TestAllExamples(t *testing.T) {
 	})
 }
 
-// BenchmarkRealtimeExample measures performance of real-time rendering
-func BenchmarkRealtimeExample(b *testing.B) {
+// BenchmarkRendererExample measures performance of real-time rendering
+func BenchmarkRendererExample(b *testing.B) {
 	renderer := statetemplate.NewRenderer()
 
 	template := `<div>Count: {{.Count}}, Message: {{.Message}}</div>`

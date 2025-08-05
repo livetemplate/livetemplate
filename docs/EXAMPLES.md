@@ -556,7 +556,7 @@ If upgrading from an earlier version:
 
 ```go
 // Old API (if you had it)
-// renderer := statetemplate.NewRealtimeRenderer(config)
+// renderer := statetemplate.NewRenderer(config)
 // renderer.AddTemplate("name", content)
 
 // New API
@@ -564,8 +564,8 @@ renderer := statetemplate.NewRenderer()
 renderer.Parse(content) // or ParseFiles, ParseGlob, ParseFS
 
 // Update types changed
-// RealtimeUpdate -> Update
-// RealtimeRenderer -> Renderer
+// Update -> Update
+// Renderer -> Renderer
 ```
 
 For more examples, see the `examples/` directory in the repository.
