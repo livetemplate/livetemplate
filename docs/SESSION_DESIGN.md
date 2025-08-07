@@ -139,24 +139,50 @@ func (r *Renderer) InvalidateSession(token string) error
 func (r *Renderer) ValidateToken(token string) bool
 ```
 
-### Update Model with Range Operations
+### Update Model with Built-in Cache Intelligence
 
 ```go
-// Enhanced update model supporting list operations
+// Single update model with built-in cache intelligence
 type Update struct {
     FragmentID  string    `json:"fragment_id"`
-    HTML        string    `json:"html"`
-    Action      string    `json:"action"`       // "replace", "append", "remove", "insertAfter", "insertBefore"
-    TargetID    string    `json:"target_id,omitempty"`    // For insertAfter/insertBefore operations
+    HTML        string    `json:"html,omitempty"`        // Only sent if HTML changed
+    Action      string    `json:"action"`                // "replace", "append", "remove", "insertAfter", "insertBefore"
+    TargetID    string    `json:"target_id,omitempty"`   // For insertAfter/insertBefore operations
     Timestamp   time.Time `json:"timestamp"`
+
+    // Cache intelligence fields (automatically managed by library)
+    IsNoOp      bool      `json:"is_noop,omitempty"`     // True if no changes detected
+    HTMLHash    string    `json:"html_hash,omitempty"`   // For client-side validation
+    CacheKey    string    `json:"cache_key,omitempty"`   // Fragment cache identifier
 }
+```
+
+**Cache Control via HTML Annotations:**
+
+```html
+<!-- Default: cache enabled automatically -->
+<div id="user-stats">{{.UserStats}}</div>
+
+<!-- Disable optimization for always-fresh content -->
+<div id="live-time" data-cache="false">{{.CurrentTime}}</div>
+
+<!-- Automatically optimized notifications -->
+<div id="notifications">{{.Notifications}}</div>
+
+<!-- Automatically optimized weather widget -->
+<div id="weather-widget">{{.Weather}}</div>
+
+<!-- Real-time counter (optimization disabled) -->
+<div id="live-counter" data-cache="false">{{.Counter}}</div>
+<div id="user-profile">{{.UserProfile}}</div>
 ```
 
 **Range Operations Support:**
 
 - **Standard Operations**: replace, append, remove for basic updates
 - **Positioning Operations**: insertAfter, insertBefore for sorted lists and dynamic positioning
-- **Use Cases**: Real-time collaboration, live sorting, paginated content insertion
+- **Cache-Aware Operations**: All operations include automatic cache benefits
+- **Use Cases**: Real-time collaboration, live sorting, paginated content insertion with automatic bandwidth savings
 
 ## User Flows
 
@@ -284,7 +310,7 @@ Sessions have independent lifecycles that don't interfere with each other. Multi
            id:         sessionID,
            data:       data,
            created:    time.Now(),
-           updates:    make(chan FragmentUpdate, 100),
+           updates:    make(chan Update, 100),
            closed:     make(chan struct{}),
            // Session has independent lifecycle - NOT tied to HTTP request context
        }
@@ -636,269 +662,274 @@ func (sm *ShardedSessionManager) getShard(sessionID string) *SessionManagerShard
 - Session data compressed in Redis store using gzip
 - Fragment caching shared across sessions for identical template outputs
 
-### Idempotency and Duplicate Update Handling
+### Simple Automatic Optimization (Livewire-Inspired)
 
-**Problem**: Repeated data updates can cause unnecessary fragment regeneration and network traffic, especially during rapid state changes or network retries.
+**Zero-Configuration Approach**: Following Livewire's philosophy, StateTemplate implements smart optimizations automatically without requiring any configuration from developers.
 
-**Solution Strategy:**
+**Core Optimization Strategy:**
 
 ```go
 type Session struct {
     // ... existing fields ...
 
-    // Content versioning for idempotency
-    lastDataHash     string                    // SHA-256 of last processed data
-    fragmentVersions map[string]string         // fragment_id -> content_hash
-    updateSequence   uint64                    // Monotonic sequence number
-
-    // Deduplication settings
-    enableDeduplication bool                   // Default: true
-    hashingEnabled      bool                   // Default: true for performance
+    // Simple optimization state (internal only)
+    lastDataHash     string    // Hash of last data payload
+    lastHTML         string    // HTML from previous render
+    htmlHash         string    // Hash of current HTML
 }
 
-type FragmentUpdate struct {
-    // ... existing fields ...
+// Single Update structure - always optimized by default, no library user decisions needed
+type Update struct {
+    FragmentID  string    `json:"fragment_id"`
+    HTML        string    `json:"html,omitempty"`        // Only sent if HTML changed
+    Action      string    `json:"action"`                // "replace", "append", etc.
+    TargetID    string    `json:"target_id,omitempty"`   // For positioning operations
+    Timestamp   time.Time `json:"timestamp"`
 
-    // Idempotency metadata
-    SequenceNumber  uint64 `json:"sequence_number"`
-    ContentHash     string `json:"content_hash,omitempty"`
-    IsNoOp          bool   `json:"is_noop,omitempty"`     // Signals no actual change
-}
-```
-
-**Implementation Details:**
-
-1. **Data-Level Deduplication**: Hash entire data payload to detect identical updates
-2. **Fragment-Level Deduplication**: Hash individual fragment content to avoid regenerating unchanged fragments
-3. **Sequence Numbers**: Monotonic ordering to handle out-of-order delivery and retries
-4. **No-Op Updates**: Explicitly signal when an update produces no changes
-
-**Performance Benefits:**
-
-- Avoid redundant template execution for identical data
-- Reduce WebSocket bandwidth for unchanged fragments
-- Minimize DOM manipulation on client-side
-- Enable client-side update batching and optimization
-
-**Configuration:**
-
-```go
-type Config struct {
-    // ... existing fields ...
-
-    // Idempotency controls
-    EnableIdempotency    bool          // Default: true
-    ContentHashing       bool          // Default: true
-    MaxHashCacheSize     int           // Default: 1000 fragments per session
-    HashAlgorithm        string        // Default: "sha256-truncated" (first 16 bytes)
+    // Automatic optimization fields (managed by library, transparent to users)
+    IsNoOp      bool      `json:"is_noop,omitempty"`     // True if no changes detected
+    HTMLHash    string    `json:"html_hash,omitempty"`   // For client-side validation
+    DataChanged []string  `json:"data_changed,omitempty"` // What data properties changed
 }
 ```
 
-### Client-Side Caching and Bandwidth Optimization
+**Cache Control via HTML Annotations:**
 
-**Problem**: Full fragment updates include static structure (HTML tags, CSS classes, attributes) that rarely change, wasting bandwidth and processing time.
+```html
+<!-- Default: cache enabled automatically for all fragments -->
+<div id="user-stats">{{.UserStats}}</div>
 
-**Solution Strategy - Structured Fragment Updates:**
+<!-- Disable cache for real-time content -->
+<div id="live-timestamp" data-cache="false">
+  {{.CurrentTime.Format "15:04:05"}}
+</div>
 
-```go
-type OptimizedFragmentUpdate struct {
-    FragmentID      string                    `json:"fragment_id"`
-    SequenceNumber  uint64                    `json:"sequence_number"`
-    UpdateType      FragmentUpdateType        `json:"update_type"`
-
-    // Selective content updates
-    Structure       *StructuralChanges        `json:"structure,omitempty"`     // HTML tags, attributes
-    Content         *ContentChanges           `json:"content,omitempty"`       // Text nodes, inner content
-    Styling         *StylingChanges           `json:"styling,omitempty"`       // CSS classes, inline styles
-
-    // Full fallback
-    FullHTML        string                    `json:"full_html,omitempty"`     // Complete fragment when client requests
-
-    // Client cache coordination
-    ClientVersion   string                    `json:"client_version,omitempty"` // Client's cached version
-    RequiresRefresh bool                      `json:"requires_refresh"`         // Force full update
-}
-
-type FragmentUpdateType string
-const (
-    UpdateTypeIncremental FragmentUpdateType = "incremental"  // Partial changes only
-    UpdateTypeFull        FragmentUpdateType = "full"         // Complete fragment
-    UpdateTypeStructural  FragmentUpdateType = "structural"   // Layout/structure changed
-    UpdateTypeContent     FragmentUpdateType = "content"      // Content-only changes
-)
-
-type StructuralChanges struct {
-    TagChanges        map[string]string        `json:"tag_changes,omitempty"`        // tag_path -> new_tag
-    AttributeChanges  map[string]string        `json:"attribute_changes,omitempty"`  // attr_path -> new_value
-    ClassChanges      map[string][]string      `json:"class_changes,omitempty"`      // element_path -> class_list
-    RemovedElements   []string                 `json:"removed_elements,omitempty"`   // element_paths to remove
-    AddedElements     map[string]string        `json:"added_elements,omitempty"`     // position -> html
-}
-
-type ContentChanges struct {
-    TextNodes         map[string]string        `json:"text_nodes,omitempty"`         // node_path -> new_text
-    InnerHTML         map[string]string        `json:"inner_html,omitempty"`         // element_path -> content
-    VariableUpdates   map[string]interface{}   `json:"variable_updates,omitempty"`   // template_var -> value
-}
-
-type StylingChanges struct {
-    InlineStyles      map[string]string        `json:"inline_styles,omitempty"`      // element_path -> style
-    ClassAdditions    map[string][]string      `json:"class_additions,omitempty"`    // element_path -> classes
-    ClassRemovals     map[string][]string      `json:"class_removals,omitempty"`     // element_path -> classes
-}
+<!-- Everything else automatically optimized - no configuration needed -->
+<div id="notifications">{{range .Notifications}}...{{end}}</div>
 ```
 
-**Client-Side Cache Headers:**
+**Automatic Optimizations (No Configuration Required):**
+
+1. **Data Change Detection**: Hash incoming data - if identical to last update, skip processing entirely
+2. **HTML Change Detection**: Hash rendered HTML - only send to client if HTML actually changed
+3. **Fragment-Level Intelligence**: Each fragment independently checked for changes
+4. **Client-Side Morphing**: Use morphdom to update only changed DOM elements
+5. **Dirty Detection**: Only send data properties that actually changed (like Livewire)
+
+**Implementation - Zero Configuration:**
 
 ```go
-// WebSocket connection upgrade headers for cache coordination
-type CacheHeaders struct {
-    ClientFragmentVersions map[string]string `json:"client_fragment_versions"` // fragment_id -> version_hash
-    CacheCapabilities      []string          `json:"cache_capabilities"`       // ["incremental", "structural", "content"]
-    ClientVersion          string            `json:"client_version"`           // Client library version
-    MaxCacheSize           int               `json:"max_cache_size"`           // Client cache limits
-}
+func (s *Session) RenderData(ctx context.Context, data interface{}) error {
+    // 1. Quick data change detection
+    newDataHash := s.hashData(data)
+    if newDataHash == s.lastDataHash {
+        // Data hasn't changed - send no-op update
+        s.sendNoOpUpdate()
+        return nil
+    }
+    s.lastDataHash = newDataHash
 
-// Server response during WebSocket handshake
-type CacheHandshake struct {
-    ServerCapabilities     []string          `json:"server_capabilities"`      // Supported optimization types
-    RecommendedCacheSize   int               `json:"recommended_cache_size"`   // Server recommendation
-    FragmentCachePolicy    map[string]int    `json:"fragment_cache_policy"`    // fragment_pattern -> ttl_seconds
-}
-```
-
-**Bandwidth Optimization Techniques:**
-
-1. **Incremental Updates**: Send only changed parts of fragments
-2. **Client Version Tracking**: Avoid sending cached content the client already has
-3. **Structured Diffing**: Separate content changes from structural changes
-4. **Compression**: gzip WebSocket messages for large updates
-5. **Batching**: Combine multiple small updates into single message
-
-**Implementation Strategy:**
-
-```go
-type CacheAwareSession struct {
-    *Session
-
-    // Client cache state
-    clientCapabilities   CacheCapabilities     `json:"client_capabilities"`
-    clientFragmentCache  map[string]string     `json:"client_fragment_cache"`  // fragment_id -> client_version
-
-    // Server-side optimization
-    lastFullUpdate       map[string]time.Time  `json:"last_full_update"`       // fragment_id -> timestamp
-    optimizationLevel    OptimizationLevel     `json:"optimization_level"`
-}
-
-type OptimizationLevel int
-const (
-    OptimizationNone         OptimizationLevel = iota  // Always send full HTML
-    OptimizationContent      OptimizationLevel = iota  // Optimize content-only changes
-    OptimizationStructural   OptimizationLevel = iota  // Optimize structural changes
-    OptimizationMaximal      OptimizationLevel = iota  // All optimizations enabled
-)
-
-// Enhanced RenderData method with cache awareness
-func (s *CacheAwareSession) RenderData(data interface{}) ([]OptimizedFragmentUpdate, error) {
-    newFragments := s.generateFragments(data)
-    optimizedUpdates := make([]OptimizedFragmentUpdate, 0, len(newFragments))
-
-    for fragmentID, newHTML := range newFragments {
-        update := s.createOptimizedUpdate(fragmentID, newHTML)
-        optimizedUpdates = append(optimizedUpdates, update)
+    // 2. Render new HTML
+    newHTML, err := s.renderHTML(data)
+    if err != nil {
+        return err
     }
 
-    return optimizedUpdates, nil
-}
-
-func (s *CacheAwareSession) createOptimizedUpdate(fragmentID, newHTML string) OptimizedFragmentUpdate {
-    clientVersion := s.clientFragmentCache[fragmentID]
-    lastHTML := s.fragmentVersions[fragmentID]
-
-    // If client has current version, send no-op
-    if clientVersion == s.hashContent(newHTML) {
-        return OptimizedFragmentUpdate{
-            FragmentID:     fragmentID,
-            UpdateType:     UpdateTypeIncremental,
-            SequenceNumber: s.nextSequence(),
-            RequiresRefresh: false,
-        }
+    // 3. HTML change detection
+    newHTMLHash := s.hashHTML(newHTML)
+    if newHTMLHash == s.htmlHash {
+        // HTML hasn't changed despite data change - send no-op
+        s.sendNoOpUpdate()
+        return nil
     }
 
-    // Determine optimization level based on changes
-    if s.optimizationLevel >= OptimizationContent {
-        if structuralChanges := s.detectStructuralChanges(lastHTML, newHTML); structuralChanges != nil {
-            return s.createStructuralUpdate(fragmentID, structuralChanges, newHTML)
+    // 4. Send only changed fragments automatically
+    s.sendFragmentUpdates(newHTML, newHTMLHash)
+
+    // 5. Update internal state
+    s.lastHTML = newHTML
+    s.htmlHash = newHTMLHash
+    s.currentData = data
+
+    return nil
+}
+
+func (s *Session) sendFragmentUpdates(newHTML, htmlHash string) {
+    fragments := s.extractFragments(newHTML)
+
+    for fragmentID, fragmentHTML := range fragments {
+        // Check if this specific fragment changed
+        if !s.fragmentChanged(fragmentID, fragmentHTML) {
+            continue // Skip unchanged fragments
         }
 
-        if contentChanges := s.detectContentChanges(lastHTML, newHTML); contentChanges != nil {
-            return s.createContentUpdate(fragmentID, contentChanges)
+        update := Update{
+            FragmentID: fragmentID,
+            HTML:       fragmentHTML,
+            Action:     "replace",
+            HTMLHash:   s.hashFragment(fragmentHTML),
+            Timestamp:  time.Now(),
         }
-    }
 
-    // Fallback to full update
-    return OptimizedFragmentUpdate{
-        FragmentID:      fragmentID,
-        UpdateType:      UpdateTypeFull,
-        FullHTML:        newHTML,
-        SequenceNumber:  s.nextSequence(),
-        RequiresRefresh: true,
+        s.updates <- update
     }
 }
-```
 
-**Configuration and Feature Flags:**
-
-```go
-type CacheConfig struct {
-    // Server-side caching
-    EnableFragmentCache     bool              `json:"enable_fragment_cache"`      // Default: true
-    FragmentCacheSize       int               `json:"fragment_cache_size"`        // Default: 10000
-    FragmentCacheTTL        time.Duration     `json:"fragment_cache_ttl"`         // Default: 1 hour
-
-    // Client coordination
-    EnableClientCache       bool              `json:"enable_client_cache"`        // Default: true
-    DefaultOptimizationLevel OptimizationLevel `json:"default_optimization_level"` // Default: OptimizationContent
-
-    // Bandwidth optimization
-    EnableCompression       bool              `json:"enable_compression"`         // Default: true
-    EnableUpdateBatching    bool              `json:"enable_update_batching"`     // Default: true
-    BatchingDelay           time.Duration     `json:"batching_delay"`             // Default: 10ms
-    MaxBatchSize            int               `json:"max_batch_size"`             // Default: 50 updates
-
-    // Fallback behavior
-    FallbackToFullUpdate    bool              `json:"fallback_to_full_update"`    // Default: true
-    MaxOptimizationAttempts int               `json:"max_optimization_attempts"`  // Default: 3
+func (s *Session) sendNoOpUpdate() {
+    // Let client know no changes occurred (prevents unnecessary processing)
+    update := Update{
+        IsNoOp:    true,
+        Timestamp: time.Now(),
+    }
+    s.updates <- update
 }
 ```
 
-**Performance Metrics and Monitoring:**
+**Client-Side Auto-Intelligence (JavaScript):**
 
-```go
-type CacheMetrics struct {
-    // Idempotency effectiveness
-    TotalUpdates            int64             `json:"total_updates"`
-    DeduplicatedUpdates     int64             `json:"deduplicated_updates"`
-    IdempotencyHitRate      float64           `json:"idempotency_hit_rate"`      // percentage
+```javascript
+class StateTemplateClient {
+  constructor(token) {
+    this.token = token;
+    this.fragmentCache = new Map(); // Simple fragment cache
+    this.ws = null;
+  }
 
-    // Caching effectiveness
-    ClientCacheHits         int64             `json:"client_cache_hits"`
-    ClientCacheMisses       int64             `json:"client_cache_misses"`
-    ClientCacheHitRate      float64           `json:"client_cache_hit_rate"`     // percentage
+  connect() {
+    this.ws = new WebSocket(`ws://localhost:8080/ws?token=${this.token}`);
+    this.ws.onmessage = (event) => {
+      const update = JSON.parse(event.data);
+      this.handleUpdate(update);
+    };
+  }
 
-    // Bandwidth savings
-    BytesSavedByOptimization int64            `json:"bytes_saved_by_optimization"`
-    FullUpdateBytes         int64             `json:"full_update_bytes"`
-    OptimizedUpdateBytes    int64             `json:"optimized_update_bytes"`
-    BandwidthSavingsRate    float64           `json:"bandwidth_savings_rate"`    // percentage
+  handleUpdate(update) {
+    // Handle no-op updates (no DOM changes needed)
+    if (update.is_noop) {
+      return; // Nothing to do - perfect cache intelligence
+    }
 
-    // Update type distribution
-    FullUpdates             int64             `json:"full_updates"`
-    IncrementalUpdates      int64             `json:"incremental_updates"`
-    StructuralUpdates       int64             `json:"structural_updates"`
-    ContentOnlyUpdates      int64             `json:"content_only_updates"`
+    // Check client-side cache
+    const cachedHash = this.fragmentCache.get(update.fragment_id);
+    if (cachedHash === update.html_hash) {
+      return; // Already have this HTML cached
+    }
+
+    // Update DOM using morphdom (only changes what's different)
+    const element = document.getElementById(update.fragment_id);
+    if (element) {
+      // Use morphdom to intelligently update only changed parts
+      morphdom(element, update.html);
+
+      // Update cache
+      this.fragmentCache.set(update.fragment_id, update.html_hash);
+    }
+  }
+
+  sendUpdate(action, data) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ action, ...data }));
+    }
+  }
+}
+
+// Usage is dead simple - no configuration needed
+const client = new StateTemplateClient(sessionToken);
+client.connect();
+
+// All cache intelligence happens automatically
+function incrementCounter() {
+  client.sendUpdate("increment_counter", {});
 }
 ```
+
+**Benefits of Simple Approach:**
+
+✅ **Zero Configuration**: No knobs to tune, just works optimally by default  
+✅ **Automatic Detection**: Data and HTML change detection built-in  
+✅ **Bandwidth Efficient**: Only sends fragments that actually changed  
+✅ **Client-Side Smart**: Morphdom updates only changed DOM elements  
+✅ **Developer Friendly**: Same simple API, maximum performance underneath  
+✅ **Livewire-Inspired**: Proven approach used by thousands of applications
+
+**What Happens Automatically:**
+
+- **Duplicate Data**: Same data sent twice = no-op update
+- **Unchanged HTML**: Data changed but HTML identical = no-op update
+- **Fragment-Level**: Only fragments with changes sent to client
+- **DOM Updates**: Only changed DOM elements are updated (via morphdom)
+- **Network Traffic**: Minimum possible bandwidth usage
+- **Rendering**: Skip template processing for identical data
+
+**Developer Experience:**
+
+```go
+// Developers write simple code
+if err := session.RenderData(ctx, newData); err != nil {
+    return err
+}
+
+// Library automatically handles:
+// ✅ Detects if data actually changed
+// ✅ Skips rendering if HTML would be identical
+// ✅ Sends only changed fragments
+// ✅ Uses efficient DOM morphing on client
+// ✅ Caches everything intelligently
+```
+
+This approach provides all the performance benefits of complex caching with zero configuration required from developers.
+
+### Implementation of Cache Control via HTML Attributes
+
+**Automatic Fragment Optimization:**
+
+```go
+// Simplified fragment processing with automatic optimization
+func (s *Session) sendFragmentUpdates(newHTML, htmlHash string) {
+    fragments := s.extractFragments(newHTML)
+
+    for fragmentID, fragmentHTML := range fragments {
+        // Check if optimization is disabled for this fragment
+        if s.isOptimizationDisabled(fragmentHTML) {
+            // Force update regardless of cache
+            s.sendFragmentUpdate(fragmentID, fragmentHTML)
+            continue
+        }
+
+        // Automatic optimization: skip if fragment hasn't changed
+        if !s.fragmentChanged(fragmentID, fragmentHTML) {
+            continue // Skip unchanged fragments
+        }
+
+        // Send optimized update
+        update := Update{
+            FragmentID: fragmentID,
+            HTML:       fragmentHTML,
+            Action:     "replace",
+            HTMLHash:   s.hashFragment(fragmentHTML),
+            Timestamp:  time.Now(),
+        }
+
+        s.updates <- update
+    }
+}
+
+// Simple optimization control check
+func (s *Session) isOptimizationDisabled(fragmentHTML string) bool {
+    return strings.Contains(fragmentHTML, `data-cache="false"`)
+}
+```
+
+**Benefits for Library Users:**
+
+✅ **Zero Configuration**: Automatic optimization works out of the box  
+✅ **Minimal API Surface**: Only `data-cache="false"` escape hatch when needed  
+✅ **Template-Level Control**: Optimization behavior defined where content is defined  
+✅ **Granular Control**: Per-fragment optimization settings without affecting others  
+✅ **Backwards Compatible**: All existing templates get optimization by default  
+✅ **Self-Documenting**: Optimization behavior visible in template source code  
+✅ **Runtime Flexibility**: Optimization settings can be dynamic based on template data  
+✅ **Ecosystem Compatibility**: Works with htmx, Alpine.js, and other frameworks
 
 ### Error Handling Strategy
 
@@ -1271,7 +1302,7 @@ func (r *Renderer) CreateSession(ctx context.Context, data interface{}, opts ...
         id:      sessionID,
         data:    data,
         created: time.Now(),
-        updates: make(chan FragmentUpdate, 100),
+        updates: make(chan Update, 100),
         closed:  make(chan struct{}),
     }
 
@@ -1465,6 +1496,10 @@ This comprehensive example demonstrates StateTemplate's fragment annotation syst
 **templates/dashboard.html:**
 
 ```html
+<!-- 
+Template demonstrating simplified optimization control.
+Only data-cache="false" disables optimization - everything else is optimized automatically.
+-->
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -1575,7 +1610,7 @@ This comprehensive example demonstrates StateTemplate's fragment annotation syst
       </section>
 
       <!-- Notifications Panel - Fragment for dynamic messages -->
-      <section id="notifications-panel">
+      <section id="notifications-panel" data-cache="false">
         {{if .Notifications}} {{range $notification := .Notifications}}
         <div
           id="notification-{{$notification.ID}}"
@@ -1604,6 +1639,7 @@ This comprehensive example demonstrates StateTemplate's fragment annotation syst
       <section
         id="counter-section"
         style="margin: 30px 0; padding: 20px; border: 1px solid #ddd; border-radius: 8px;"
+        data-cache="false"
       >
         <h2>Live Counter</h2>
         <div style="display: flex; align-items: center; gap: 20px;">
@@ -1751,6 +1787,7 @@ This comprehensive example demonstrates StateTemplate's fragment annotation syst
       <footer
         id="status-footer"
         style="margin-top: 50px; padding: 20px; border-top: 1px solid #ddd; font-size: 0.9em; color: #666;"
+        data-cache="false"
       >
         <div style="display: flex; justify-content: space-between;">
           <span
@@ -1887,6 +1924,16 @@ This comprehensive example demonstrates StateTemplate's fragment annotation syst
     </script>
   </body>
 </html>
+<!-- 
+Optimization Control Summary for this template:
+- notification-count: Automatically optimized (standard behavior)
+- stats-section: Automatically optimized (standard behavior)
+- notifications-panel: data-cache="false" (always fresh for alerts)
+- counter-section: data-cache="false" (real-time interactive)
+- task-list: Automatically optimized (standard behavior)
+- status-footer: data-cache="false" (real-time connection status)
+All other fragments use automatic optimization with intelligent change detection
+-->
 ```
 
 **Data Structure for Template:**
@@ -1951,438 +1998,6 @@ type CounterChange struct {
     Timestamp time.Time `json:"timestamp"`
 }
 ```
-
-## Cache-Aware Reference Implementation
-
-This enhanced reference implementation demonstrates the cache strategy with minimal complexity for developers:
-
-### Server-Side Implementation (Go)
-
-```go
-package main
-
-import (
-    "context"
-    "encoding/json"
-    "html/template"
-    "log"
-    "net/http"
-    "time"
-
-    "github.com/gorilla/websocket"
-    "github.com/livefir/statetemplate"
-)
-
-type CachedDashboardData struct {
-    UserName   string   `json:"user_name"`
-    Counter    int      `json:"counter"`
-    Items      []string `json:"items"`
-    Timestamp  int64    `json:"timestamp"`  // For client cache validation
-}
-
-func main() {
-    tmpl := template.Must(template.ParseGlob("templates/*.html"))
-
-    // Create renderer with caching enabled
-    renderer := statetemplate.New(tmpl,
-        statetemplate.WithCaching(true),                    // Enable cache strategy
-        statetemplate.WithOptimizationLevel("content"),     // content|structural|maximal
-        statetemplate.WithClientCacheSupport(true),         // Enable client coordination
-        statetemplate.WithExpiration(24*time.Hour),
-        statetemplate.WithRedisStore("redis://localhost:6379"),
-    )
-
-    // Standard HTTP handler - no cache complexity for developers
-    http.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
-        sessionID := getSessionID(r)
-
-        initialData := &CachedDashboardData{
-            UserName:  getUserName(r),
-            Counter:   0,
-            Items:     []string{"apple", "banana"},
-            Timestamp: time.Now().Unix(),
-        }
-
-        // Library handles all cache logic internally
-        html, token, err := renderer.NewSession(r.Context(), sessionID, initialData)
-        if err != nil {
-            http.Error(w, err.Error(), 500)
-            return
-        }
-
-        renderPageWithSession(w, html, sessionID, token)
-    })
-
-    // Enhanced WebSocket handler with transparent caching
-    upgrader := websocket.Upgrader{
-        CheckOrigin: func(r *http.Request) bool { return true },
-        // Cache negotiation happens automatically in upgrade headers
-    }
-
-    http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-        sessionID := r.URL.Query().Get("session_id")
-        token := r.URL.Query().Get("token")
-
-        session, err := renderer.GetSession(sessionID, token)
-        if err != nil {
-            http.Error(w, "Invalid session", 401)
-            return
-        }
-        defer session.Close()
-
-        conn, err := upgrader.Upgrade(w, r, nil)
-        if err != nil {
-            return
-        }
-        defer conn.Close()
-
-        // Enhanced session with automatic cache optimization
-        cachedSession := session.WithCacheOptimization(conn) // Library method
-        defer cachedSession.Close()
-
-        // Stream optimized updates - library handles all cache logic
-        go func() {
-            for update := range cachedSession.OptimizedUpdates() { // New method
-                // update.Type can be: "full", "incremental", "content-only", "no-op"
-                if err := conn.WriteJSON(update); err != nil {
-                    log.Printf("WebSocket write error: %v", err)
-                    return
-                }
-            }
-        }()
-
-        // Standard data processing - no cache complexity
-        for {
-            var newData CachedDashboardData
-            if err := conn.ReadJSON(&newData); err != nil {
-                log.Printf("WebSocket read error: %v", err)
-                break
-            }
-
-            // Add timestamp for client cache validation
-            newData.Timestamp = time.Now().Unix()
-
-            // Library automatically handles idempotency and caching
-            if err := cachedSession.RenderData(r.Context(), &newData); err != nil {
-                log.Printf("RenderData error: %v", err)
-                break
-            }
-        }
-    })
-
-    log.Println("Server starting on :8080 with cache optimization")
-    log.Fatal(http.ListenAndServe(":8080", nil))
-}
-
-// Cache-aware session methods (provided by library)
-type CachedSession interface {
-    Session                                      // Embed existing interface
-    WithCacheOptimization(conn *websocket.Conn) CachedSession
-    OptimizedUpdates() <-chan OptimizedUpdate   // Enhanced update channel
-    GetCacheStats() CacheStats                  // Optional monitoring
-}
-
-type OptimizedUpdate struct {
-    // Standard fields
-    FragmentID   string `json:"fragment_id"`
-    Action       string `json:"action"`       // "replace", "append", etc.
-
-    // Enhanced cache fields (handled automatically by library)
-    Type         string `json:"type"`         // "full", "incremental", "content-only", "no-op"
-    HTML         string `json:"html,omitempty"`
-
-    // Advanced optimization (optional for complex UIs)
-    ContentOnly  *ContentChanges `json:"content,omitempty"`  // Only if Type == "content-only"
-    IsIdempotent bool           `json:"is_idempotent"`      // True if this is a duplicate
-
-    // Metadata (for debugging/monitoring)
-    BytesSaved   int            `json:"bytes_saved,omitempty"`
-    CacheHit     bool           `json:"cache_hit,omitempty"`
-}
-
-type ContentChanges struct {
-    TextNodes   map[string]string      `json:"text_nodes,omitempty"`    // element_id -> new_text
-    Attributes  map[string]string      `json:"attributes,omitempty"`    // element_id.attr -> value
-    Classes     map[string][]string    `json:"classes,omitempty"`       // element_id -> class_list
-}
-
-type CacheStats struct {
-    TotalUpdates     int64   `json:"total_updates"`
-    CacheHits        int64   `json:"cache_hits"`
-    BytesSaved       int64   `json:"bytes_saved"`
-    HitRate          float64 `json:"hit_rate"`
-}
-```
-
-### Client-Side Implementation (JavaScript) - Simplified for Developers
-
-```javascript
-// StateTemplate Client Library - handles all cache complexity internally
-class StateTemplateClient {
-  constructor(sessionId, token, options = {}) {
-    this.sessionId = sessionId;
-    this.token = token;
-    this.options = {
-      enableCaching: true,
-      maxCacheSize: 1000,
-      debugMode: false,
-      ...options,
-    };
-
-    // Internal cache - completely transparent to developer
-    this._fragmentCache = new Map();
-    this._cacheStats = { hits: 0, misses: 0, bytesReceived: 0, bytesSaved: 0 };
-    this.ws = null;
-  }
-
-  // Simple connection method - cache negotiation is automatic
-  connect() {
-    const wsUrl = `ws://localhost:8080/ws?session_id=${this.sessionId}&token=${this.token}`;
-    this.ws = new WebSocket(wsUrl);
-
-    // Cache capabilities sent automatically in connection headers
-    this.ws.onopen = () => {
-      console.log("Connected with cache optimization enabled");
-      this._sendCacheCapabilities();
-    };
-
-    this.ws.onmessage = (event) => {
-      const update = JSON.parse(event.data);
-      this._handleOptimizedUpdate(update); // Internal cache logic
-    };
-
-    this.ws.onclose = () => {
-      console.log("Disconnected");
-      setTimeout(() => this.connect(), 5000); // Auto-reconnect
-    };
-  }
-
-  // Developer-friendly method - no cache complexity
-  sendUpdate(action, data) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ action, ...data }));
-    }
-  }
-
-  // Optional: Get cache performance stats
-  getCacheStats() {
-    return {
-      ...this._cacheStats,
-      hitRate:
-        this._cacheStats.hits /
-        (this._cacheStats.hits + this._cacheStats.misses),
-      cacheSize: this._fragmentCache.size,
-    };
-  }
-
-  // Internal methods - hidden from developer
-  _sendCacheCapabilities() {
-    const capabilities = {
-      type: "cache_handshake",
-      client_version: "1.0.0",
-      supported_optimizations: ["content-only", "incremental", "structural"],
-      max_cache_size: this.options.maxCacheSize,
-      fragment_versions: this._getFragmentVersions(),
-    };
-    this.ws.send(JSON.stringify(capabilities));
-  }
-
-  _handleOptimizedUpdate(update) {
-    // Library handles all cache logic automatically
-    switch (update.type) {
-      case "no-op":
-        // No DOM changes needed - perfect cache hit
-        this._cacheStats.hits++;
-        if (this.options.debugMode) {
-          console.log(`Cache hit for fragment ${update.fragment_id}`);
-        }
-        break;
-
-      case "full":
-        // Full HTML update - cache miss or structural change
-        this._updateFullFragment(update);
-        this._cacheStats.misses++;
-        break;
-
-      case "content-only":
-        // Optimized content update - partial cache hit
-        this._updateContentOnly(update);
-        this._cacheStats.hits++;
-        this._cacheStats.bytesSaved += update.bytes_saved || 0;
-        break;
-
-      case "incremental":
-        // Incremental DOM update
-        this._updateIncremental(update);
-        this._cacheStats.bytesSaved += update.bytes_saved || 0;
-        break;
-    }
-
-    // Track performance
-    this._cacheStats.bytesReceived += JSON.stringify(update).length;
-
-    // Optional: Emit event for developer monitoring
-    if (this.options.debugMode) {
-      this._emitCacheEvent(update);
-    }
-  }
-
-  _updateFullFragment(update) {
-    const element = document.getElementById(update.fragment_id);
-    if (element) {
-      element.outerHTML = update.html;
-      // Update cache
-      this._fragmentCache.set(update.fragment_id, {
-        html: update.html,
-        version: this._generateVersion(update.html),
-        timestamp: Date.now(),
-      });
-    }
-  }
-
-  _updateContentOnly(update) {
-    // Apply only content changes without full DOM replacement
-    const changes = update.content_only;
-
-    // Update text nodes
-    if (changes.text_nodes) {
-      for (const [elementId, newText] of Object.entries(changes.text_nodes)) {
-        const element = document.getElementById(elementId);
-        if (element) element.textContent = newText;
-      }
-    }
-
-    // Update attributes
-    if (changes.attributes) {
-      for (const [attrPath, value] of Object.entries(changes.attributes)) {
-        const [elementId, attrName] = attrPath.split(".");
-        const element = document.getElementById(elementId);
-        if (element) element.setAttribute(attrName, value);
-      }
-    }
-
-    // Update classes
-    if (changes.classes) {
-      for (const [elementId, classList] of Object.entries(changes.classes)) {
-        const element = document.getElementById(elementId);
-        if (element) element.className = classList.join(" ");
-      }
-    }
-  }
-
-  _updateIncremental(update) {
-    // Standard fragment update logic
-    const element = document.getElementById(update.fragment_id);
-    if (!element) return;
-
-    switch (update.action) {
-      case "replace":
-        element.outerHTML = update.html;
-        break;
-      case "append":
-        element.insertAdjacentHTML("beforeend", update.html);
-        break;
-      // ... other actions
-    }
-  }
-
-  _generateVersion(html) {
-    // Simple hash for cache versioning
-    let hash = 0;
-    for (let i = 0; i < html.length; i++) {
-      const char = html.charCodeAt(i);
-      hash = (hash << 5) - hash + char;
-      hash = hash & hash; // Convert to 32-bit integer
-    }
-    return hash.toString(36);
-  }
-
-  _getFragmentVersions() {
-    const versions = {};
-    for (const [fragmentId, cache] of this._fragmentCache.entries()) {
-      versions[fragmentId] = cache.version;
-    }
-    return versions;
-  }
-
-  _emitCacheEvent(update) {
-    // Optional: Custom event for developer monitoring
-    window.dispatchEvent(
-      new CustomEvent("statetemplate:cache", {
-        detail: { update, stats: this.getCacheStats() },
-      })
-    );
-  }
-}
-
-// Developer usage - extremely simple
-const client = new StateTemplateClient(sessionId, sessionToken, {
-  enableCaching: true, // Default: true
-  debugMode: false, // Default: false (enable for development)
-});
-
-client.connect();
-
-// Standard interactions - no cache complexity
-function incrementCounter() {
-  client.sendUpdate("increment_counter", {});
-}
-
-function addTask() {
-  const title = prompt("Enter task title:");
-  if (title) {
-    client.sendUpdate("add_task", { title, priority: "medium" });
-  }
-}
-
-// Optional: Monitor cache performance in development
-if (process.env.NODE_ENV === "development") {
-  window.addEventListener("statetemplate:cache", (event) => {
-    console.log("Cache stats:", event.detail.stats);
-  });
-
-  // Show cache stats in UI
-  setInterval(() => {
-    const stats = client.getCacheStats();
-    console.log(
-      `Cache hit rate: ${(stats.hitRate * 100).toFixed(1)}%, Bytes saved: ${
-        stats.bytesSaved
-      }`
-    );
-  }, 10000);
-}
-```
-
-### Developer Experience Analysis
-
-**✅ What's Simple for Developers:**
-
-1. **Zero Configuration**: Caching works by default with `statetemplate.WithCaching(true)`
-2. **Transparent Operation**: No API changes - existing `RenderData()` calls automatically optimized
-3. **Standard WebSocket Usage**: Same connection patterns, enhanced with automatic optimization
-4. **Optional Monitoring**: Cache stats available but not required for basic usage
-5. **Backward Compatibility**: Works with existing templates and data structures
-
-**✅ What the Library Handles Automatically:**
-
-1. **Cache Negotiation**: Client capabilities sent during WebSocket handshake
-2. **Content Hashing**: Automatic idempotency detection
-3. **Fragment Versioning**: Server tracks what client has cached
-4. **Optimization Decisions**: Library chooses best update strategy (full/incremental/content-only)
-5. **Fallback Handling**: Graceful degradation when optimization fails
-
-**⚠️ Potential Complexity (Mitigated):**
-
-1. **Update Types**: Developers see different update.type values but handling is transparent
-2. **Debug Information**: Optional cache stats may overwhelm - hidden by default
-3. **Browser Compatibility**: Library handles differences between WebSocket implementations
-
-**📊 Performance Benefits for Developers:**
-
-- **Bandwidth Reduction**: 60-80% for typical applications
-- **Faster Updates**: Content-only changes avoid full DOM replacement
-- **Better UX**: Reduced loading states and smoother transitions
-- **Auto-Optimization**: Library learns and improves performance over time
 
 ## Key Validation Points
 
