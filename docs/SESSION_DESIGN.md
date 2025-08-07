@@ -119,17 +119,14 @@ func New(templates *html.Template, options ...Option) *Renderer
 // Step 1: Create session with data, returns secure token
 func (r *Renderer) CreateSession(ctx context.Context, data interface{}) (token string, err error)
 
-// Step 2: Render session to HTML using token
-func (r *Renderer) RenderSession(token string) (html string, err error)
+// Step 2: Render complete page HTML using token
+func (r *Renderer) RenderPage(token string) (html string, err error)
 
 // Real-time updates: get session for incremental updates using token only
 func (r *Renderer) GetSession(token string) (*Session, error)
 
-// Data processing: pushes data AND triggers fragment rendering
-func (s *Session) RenderData(ctx context.Context, data interface{}) error
-
-// Update stream: incremental fragment changes
-func (s *Session) Updates() <-chan Update
+// Data processing: pushes data AND returns fragment updates directly
+func (s *Session) RenderFragments(ctx context.Context, data interface{}) ([]Update, error)
 
 // Cleanup: release session resources
 func (s *Session) Close() error
@@ -142,7 +139,7 @@ func (r *Renderer) ValidateToken(token string) bool
 ### Update Model with Built-in Cache Intelligence
 
 ```go
-// Single update model with built-in cache intelligence
+// Single update model with built-in optimization intelligence
 type Update struct {
     FragmentID  string    `json:"fragment_id"`
     HTML        string    `json:"html,omitempty"`        // Only sent if HTML changed
@@ -150,10 +147,10 @@ type Update struct {
     TargetID    string    `json:"target_id,omitempty"`   // For insertAfter/insertBefore operations
     Timestamp   time.Time `json:"timestamp"`
 
-    // Cache intelligence fields (automatically managed by library)
+    // Automatic optimization fields (managed by library)
     IsNoOp      bool      `json:"is_noop,omitempty"`     // True if no changes detected
     HTMLHash    string    `json:"html_hash,omitempty"`   // For client-side validation
-    CacheKey    string    `json:"cache_key,omitempty"`   // Fragment cache identifier
+    DataChanged []string  `json:"data_changed,omitempty"` // What data properties changed
 }
 ```
 
@@ -199,7 +196,7 @@ sequenceDiagram
     WebServer->>Renderer: CreateSession(ctx, pageData)
     Renderer->>SessionStore: Create(sessionData)
     Renderer-->>WebServer: sessionToken
-    WebServer->>Renderer: RenderSession(sessionToken)
+    WebServer->>Renderer: RenderPage(sessionToken)
     Renderer->>Renderer: Render full HTML with fragments
     Renderer-->>WebServer: annotatedHTML
     WebServer-->>Browser: HTML page + token in secure cookie
@@ -219,11 +216,11 @@ sequenceDiagram
 
     loop Real-time updates
         Browser->>Session: Send new data via WebSocket
-        Session->>Session: RenderData(ctx, newData)
+        Session->>Session: RenderFragments(ctx, newData)
         Session->>TemplateTracker: DetectChanges(previous, current)
         TemplateTracker-->>Session: Changed field paths
         Session->>Session: Generate fragment updates
-        Session-->>Browser: Fragment update via Updates() channel
+        Session-->>Browser: Return updates directly to WebSocket handler
     end
 ```
 
@@ -331,7 +328,7 @@ Sessions have independent lifecycles that don't interfere with each other. Multi
        return token, nil
    }
 
-   func (r *Renderer) RenderSession(token string) (string, error) {
+   func (r *Renderer) RenderPage(token string) (string, error) {
        // Extract session ID from token
        sessionID, err := r.extractSessionID(token)
        if err != nil {
@@ -376,17 +373,27 @@ Sessions have independent lifecycles that don't interfere with each other. Multi
        wsCtx, wsCancel := context.WithCancel(context.Background())
        defer wsCancel()
 
-       // Monitor WebSocket context for this specific connection
-       go func() {
-           <-wsCtx.Done()
-           session.CloseConnection(conn) // Close only this connection, not the session
-       }()
-
-       // Session continues to exist for other connections
-       for update := range session.Updates() {
-           if err := conn.WriteJSON(update); err != nil {
-               wsCancel() // This connection is broken, cancel its context
+       // Process WebSocket messages - no channels needed
+       for {
+           var newData interface{} // Receive data from client
+           if err := conn.ReadJSON(&newData); err != nil {
+               wsCancel() // Connection broken, cancel context
                break
+           }
+
+           // Get updates directly from RenderFragments
+           updates, err := session.RenderFragments(wsCtx, newData)
+           if err != nil {
+               wsCancel() // Error occurred, cancel context
+               break
+           }
+
+           // Send updates to this specific connection
+           for _, update := range updates {
+               if err := conn.WriteJSON(update); err != nil {
+                   wsCancel() // This connection is broken, cancel its context
+                   break
+               }
            }
        }
    }
@@ -396,8 +403,8 @@ Sessions have independent lifecycles that don't interfere with each other. Multi
 
 1. Client provides sessionID + token for session retrieval
 2. Token validation ensures session ownership and prevents replay attacks
-3. RenderData() triggers fragment comparison and update generation
-4. Updates streamed via session.Updates() channel
+3. RenderFragments() triggers fragment comparison and update generation
+4. Updates returned directly from RenderFragments() to client via WebSocket
 5. Context cancellation immediately terminates all session operations
 
 ### Session Expiration
@@ -474,9 +481,9 @@ graph TB
 1. WebSocket handler calls `renderer.GetSession(sessionID, token)`
 2. Token validation and session retrieval from SessionStore
 3. Client sends new data via WebSocket
-4. `session.RenderData(data)` triggers change detection via TemplateTracker
+4. `session.RenderFragments(data)` triggers change detection via TemplateTracker
 5. FragmentExtractor generates incremental updates
-6. Updates sent to client via `session.Updates()` channel
+6. Updates returned directly to client via WebSocket handler
 
 ## Core Implementation
 
@@ -494,8 +501,6 @@ type Session struct {
     id          string
     sessionID   string
     token       string
-    updateChan  chan Update
-    closed      chan struct{}
 
     // Context management for automatic cleanup
     ctx         context.Context  // Context from NewSession (e.g., http.Request.Context())
@@ -617,21 +622,27 @@ func (sm *sessionManager) validateToken(tokenStr string) (*SessionToken, error) 
 - **Store-Level**: All SessionStore implementations must be thread-safe
 - **Processing Components**: TemplateTracker and FragmentExtractor are completely stateless
 
-**Channel Lifecycle and Context Integration:**
+**Session Lifecycle and Context Integration:**
 
-- `session.Updates()` channel is automatically closed when:
-  - **Context cancellation**: The context passed to `NewSession()` is cancelled (e.g., HTTP request context when client disconnects)
+- Session operations are automatically terminated when:
+  - **Context cancellation**: The context passed to `CreateSession()` is cancelled (e.g., HTTP request context when client disconnects)
   - **Explicit closure**: `session.Close()` is called manually
   - **Session expiration**: Session reaches configured timeout
   - **Store failure**: Session store becomes permanently unavailable
 - **Goroutine Management**: Context cancellation terminates all session-related goroutines to prevent leaks
-- **Client Handling**: Applications should range over the channel or check for closure:
+- **Client Handling**: Applications handle updates directly from RenderFragments:
+
   ```go
-  for update := range session.Updates() {
-      // Handle update
+  updates, err := session.RenderFragments(ctx, newData)
+  if err != nil {
+      // Handle error (session expired, context cancelled, etc.)
+      return err
+  }
+
+  for _, update := range updates {
       if err := sendToClient(update); err != nil {
-          // Client disconnected, context will be cancelled automatically
-          break
+          // Client disconnected, return error to terminate session
+          return err
       }
   }
   ```
@@ -719,43 +730,42 @@ type Update struct {
 **Implementation - Zero Configuration:**
 
 ```go
-func (s *Session) RenderData(ctx context.Context, data interface{}) error {
+func (s *Session) RenderFragments(ctx context.Context, data interface{}) ([]Update, error) {
     // 1. Quick data change detection
     newDataHash := s.hashData(data)
     if newDataHash == s.lastDataHash {
-        // Data hasn't changed - send no-op update
-        s.sendNoOpUpdate()
-        return nil
+        // Data hasn't changed - return no-op update
+        return []Update{{IsNoOp: true, Timestamp: time.Now()}}, nil
     }
     s.lastDataHash = newDataHash
 
     // 2. Render new HTML
     newHTML, err := s.renderHTML(data)
     if err != nil {
-        return err
+        return nil, err
     }
 
     // 3. HTML change detection
     newHTMLHash := s.hashHTML(newHTML)
     if newHTMLHash == s.htmlHash {
-        // HTML hasn't changed despite data change - send no-op
-        s.sendNoOpUpdate()
-        return nil
+        // HTML hasn't changed despite data change - return no-op
+        return []Update{{IsNoOp: true, Timestamp: time.Now()}}, nil
     }
 
-    // 4. Send only changed fragments automatically
-    s.sendFragmentUpdates(newHTML, newHTMLHash)
+    // 4. Generate and return fragment updates directly
+    updates := s.generateFragmentUpdates(newHTML, newHTMLHash)
 
     // 5. Update internal state
     s.lastHTML = newHTML
     s.htmlHash = newHTMLHash
     s.currentData = data
 
-    return nil
+    return updates, nil
 }
 
-func (s *Session) sendFragmentUpdates(newHTML, htmlHash string) {
+func (s *Session) generateFragmentUpdates(newHTML, htmlHash string) []Update {
     fragments := s.extractFragments(newHTML)
+    var updates []Update
 
     for fragmentID, fragmentHTML := range fragments {
         // Check if this specific fragment changed
@@ -771,18 +781,12 @@ func (s *Session) sendFragmentUpdates(newHTML, htmlHash string) {
             Timestamp:  time.Now(),
         }
 
-        s.updates <- update
+        updates = append(updates, update)
     }
+
+    return updates
 }
 
-func (s *Session) sendNoOpUpdate() {
-    // Let client know no changes occurred (prevents unnecessary processing)
-    update := Update{
-        IsNoOp:    true,
-        Timestamp: time.Now(),
-    }
-    s.updates <- update
-}
 ```
 
 **Client-Side Auto-Intelligence (JavaScript):**
@@ -865,16 +869,24 @@ function incrementCounter() {
 
 ```go
 // Developers write simple code
-if err := session.RenderData(ctx, newData); err != nil {
+updates, err := session.RenderFragments(ctx, newData)
+if err != nil {
     return err
+}
+
+// Send updates directly to client
+for _, update := range updates {
+    if err := sendToClient(update); err != nil {
+        return err
+    }
 }
 
 // Library automatically handles:
 // ✅ Detects if data actually changed
 // ✅ Skips rendering if HTML would be identical
-// ✅ Sends only changed fragments
-// ✅ Uses efficient DOM morphing on client
-// ✅ Caches everything intelligently
+// ✅ Returns only changed fragments
+// ✅ Enables efficient DOM morphing on client
+// ✅ Optimizes everything intelligently
 ```
 
 This approach provides all the performance benefits of complex caching with zero configuration required from developers.
@@ -1113,8 +1125,8 @@ func main() {
             return
         }
 
-        // Step 2: Render session to HTML
-        html, err := renderer.RenderSession(token)
+        // Step 2: Render page HTML using token
+        html, err := renderer.RenderPage(token)
         if err != nil {
             http.Error(w, err.Error(), 500)
             return
@@ -1161,17 +1173,7 @@ func main() {
         }
         defer conn.Close()
 
-        // Stream incremental fragment updates to client
-        go func() {
-            for update := range session.Updates() {
-                if err := conn.WriteJSON(update); err != nil {
-                    log.Printf("WebSocket write error: %v", err)
-                    return
-                }
-            }
-        }()
-
-        // Process data changes from client
+        // Direct fragment processing - much simpler than channel-based approach
         for {
             var newData DashboardData
             if err := conn.ReadJSON(&newData); err != nil {
@@ -1179,12 +1181,22 @@ func main() {
                 break
             }
 
-            // Trigger data processing and fragment rendering
-            if err := session.RenderData(r.Context(), &newData); err != nil {
-                log.Printf("RenderData error: %v", err)
+            // Get fragment updates directly from RenderFragments
+            updates, err := session.RenderFragments(r.Context(), &newData)
+            if err != nil {
+                log.Printf("RenderFragments error: %v", err)
                 if errors.Is(err, statetemplate.ErrSessionExpired) {
                     conn.WriteJSON(map[string]string{"error": "session_expired"})
                     break
+                }
+                continue
+            }
+
+            // Send each update to client
+            for _, update := range updates {
+                if err := conn.WriteJSON(update); err != nil {
+                    log.Printf("WebSocket write error: %v", err)
+                    return
                 }
             }
         }
@@ -1284,7 +1296,7 @@ The cleanest design uses tokens as the single source of truth for session manage
 type Renderer interface {
     // Session lifecycle
     CreateSession(ctx context.Context, data interface{}) (token string, err error)
-    RenderSession(token string) (html string, err error)
+    RenderPage(token string) (html string, err error)
     GetSession(token string) (Session, error)
     InvalidateSession(token string) error
 
@@ -1407,14 +1419,15 @@ http.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
     }
     defer session.Close()
 
-    // Render with data
-    if err := session.RenderData(r.Context(), initialData); err != nil {
+    // Render fragments with data (though for initial load we just get HTML)
+    _, err = session.RenderFragments(r.Context(), initialData)
+    if err != nil {
         http.Error(w, err.Error(), 500)
         return
     }
 
-    // Get rendered HTML
-    html, err := renderer.RenderSession(token)
+    // Get rendered HTML page
+    html, err := renderer.RenderPage(token)
     if err != nil {
         http.Error(w, err.Error(), 500)
         return
@@ -1443,16 +1456,7 @@ http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
     }
     defer conn.Close()
 
-    // Standard WebSocket logic with clean token-only approach
-    go func() {
-        for update := range session.Updates() {
-            if err := conn.WriteJSON(update); err != nil {
-                log.Printf("WebSocket write error: %v", err)
-                return
-            }
-        }
-    }()
-
+    // Clean, direct update handling - no channels or goroutines needed
     for {
         var newData DashboardData
         if err := conn.ReadJSON(&newData); err != nil {
@@ -1460,9 +1464,19 @@ http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
             break
         }
 
-        if err := session.RenderData(r.Context(), &newData); err != nil {
-            log.Printf("RenderData error: %v", err)
+        // Get updates directly
+        updates, err := session.RenderFragments(r.Context(), &newData)
+        if err != nil {
+            log.Printf("RenderFragments error: %v", err)
             break
+        }
+
+        // Send updates to client
+        for _, update := range updates {
+            if err := conn.WriteJSON(update); err != nil {
+                log.Printf("WebSocket write error: %v", err)
+                return
+            }
         }
     }
 })
