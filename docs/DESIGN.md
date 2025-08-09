@@ -52,6 +52,9 @@ StateTemplate currently operates with a page-centric model where there is no bui
 - FR2: Applications must not access each other's pages
 - FR3: System must automatically optimize update bandwidth
 - FR4: Developers must get clear feedback on optimization opportunities
+- FR5: Initial page render must return the full HTML document with fragment annotations (identifiers/markers) that enable subsequent incremental updates.
+- FR6: Subsequent updates must apply without a full page reload via available transports (AJAX, WebSocket, or SSE), selected transparently by the client.
+- FR7: Incremental update design is transport-agnostic: the primary concern is the shape and size of update messages; underlying network transfer specifics are out of scope of this design.
 
 #### Non-Functional Requirements
 
@@ -63,6 +66,14 @@ StateTemplate currently operates with a page-centric model where there is no bui
 - NFR6: Coalescing and operation caps per render cycle (overflow triggers safe fallback)
 - NFR7: Per-page memory budget for tracking analysis/artifacts with graceful degradation when exceeded
 - NFR8: Backpressure and rate limiting under high-change workloads (updates are batched and throttled)
+- NFR9: Protocol versioning and backward-compatible evolution with negotiated features
+- NFR10: p95 end-to-end update latency target (configure; default ≤ 150 ms under 100 RPS)
+- NFR11: First-class observability: metrics, structured logs, and tracing for Render/RenderUpdates
+- NFR12: Fast recovery: reconnect and resync within 2 seconds on transient disconnects
+- NFR13: Defined browser support matrix and WS fallback (SSE/long-poll) strategy
+- NFR14: Accessibility baseline for dynamic regions (screen reader-friendly updates)
+- NFR15: Internationalization-safe updates (UTF-8, bidi, formatting stability)
+- NFR16: Compliance-aware data handling (PII minimization, retention controls)
 
 ### Key Stakeholders
 
@@ -143,6 +154,10 @@ sequenceDiagram
     Server->>Server: 7. Validates token from WebSocket context
     Server-->>Browser: 8. Confirms connection, ready for real-time updates
 ```
+
+#### Initial Render and Fragment Annotations
+
+The first `Render()` returns the full HTML document instrumented with stable fragment identifiers (e.g., data-fragment-id) so subsequent incremental updates can be applied in-place without a full page reload over AJAX, WebSocket, or SSE.
 
 #### Automatic Update Mode Selection
 
@@ -353,6 +368,79 @@ To prevent unbounded growth of per-page tracking and data snapshots:
 - Apply TTL and LRU to inactive pages; close and reclaim resources when idle beyond a threshold.
 - Avoid deep copies of large data structures; use structural sharing where possible and compute diffs lazily.
 - Provide configuration hooks for per-page memory budget and per-fragment ceilings; exceed → degrade from value patch to fragment replace.
+
+### Fragment Identity and Stability
+
+- Fragment IDs must be stable across renders for the same logical region.
+- For ranges/lists, derive IDs from stable keys (not indexes) to avoid churn; if no key exists, the planner prefers replace.
+- Nested fragments inherit hierarchical boundaries; collisions are prevented by namespacing.
+- Document how fragment_id is computed or configured to ensure reproducibility in tests.
+
+### Concurrency and Consistency
+
+- Page methods are thread-safe; concurrent RenderUpdates are serialized per page.
+- Last-write-wins for updates within the same fragment and sequence window.
+- Sequence numbers are per-connection; on reconnect, a new connection starts a new sequence unless resume is used.
+
+### Flow Control and Slow Clients
+
+- Each connection has a bounded server-side queue; when full, apply backpressure and collapse intermediate states.
+- Drop policy: prefer dropping intermediate deltas in favor of sending the latest state for each fragment.
+- Heartbeats/keepalives and idle timeouts ensure timely detection of dead connections.
+
+### Reconnection and Resync
+
+- Clients send last acked seq on reconnect to resume; server either resumes from next seq if retained or instructs a resync.
+- Resync semantics: server sends replace updates for affected fragments or a full-page re-render when necessary.
+
+### Security Hardening
+
+- Enforce WebSocket origin checks and strict CORS on initial HTTP endpoints.
+- Recommend CSP policies compatible with dynamic updates; avoid unsafe-inline where possible.
+- Key rotation/invalidation: tokens expire; rotation schedule documented; audit logs capture access and failures.
+- Template function allowlist; deny or sandbox unknown functions that alter structure.
+
+### Configurability and Tunables
+
+- All caps and budgets are configurable per application and optionally per page: ops-per-fragment/page, payload cap, batching window, memory budget, backoff timings.
+- Circuit breaker: automatically switch to replace-only when fallback/error rates exceed thresholds.
+
+### Observability and SLOs
+
+- Metrics: update bytes, p50/p95/p99 latency, coalescing hit rate, fallback rate, chunking rate, queue depth, dropped updates, reconnects, memory per page.
+- Tracing: spans for Render, Analyze, Plan, Serialize, Send.
+- Logs: structured with fragment_id and correlation IDs.
+- SLO examples: p95 update latency ≤ target under defined load; fallback rate ≤ threshold.
+
+### Failure Modes and Recovery
+
+- Redis/backing-store outages: degrade to in-memory with documented data loss boundaries; resync clients after recovery.
+- Server restart: pages either restored (if persisted) or require client resync.
+- Network faults: exponential backoff with jitter; cap max backoff.
+
+### Testing Strategy Additions
+
+- Fuzz parsing/analyzer and property tests for deterministic mode selection.
+- Load/soak and chaos tests: packet loss, reordering, reconnect storms, slow clients, 10k+ appends.
+- Golden tests for wire protocol framing versions and backward compatibility.
+
+### Internationalization and Accessibility
+
+- UTF-8, Unicode normalization, bidi/RTL safety; stable formatting for numbers/dates under value patching.
+- ARIA live-region guidance for dynamic fragments; minimize layout thrash on replace.
+
+### Browser Support and Fallbacks
+
+- Define supported browser matrix; when WS unavailable, fall back to SSE or long-poll.
+- Compression: permessage-deflate and HTTP compression guidance.
+
+### Compliance and Privacy
+
+- PII minimization in messages; retention settings for per-page artifacts; erasure flows.
+
+### Versioning and Rollout
+
+- Wire protocol versioning and negotiation; feature flags and canarying; deprecation policy for breaking changes.
 
 ### Security Considerations
 
@@ -593,19 +681,34 @@ func (p *Page) GetCapabilityReport() CapabilityReport
 
 The system supports two update protocols based on template analysis:
 
+#### Framing and Semantics
+
+- version: protocol version (semantic, e.g., "1.0").
+- seq: monotonically increasing per-connection sequence number assigned by server.
+- ack: last sequence number the client has applied (used for resume/backpressure).
+- atomic batch: updates array is applied atomically; partial failures trigger a resync.
+- ordering: server preserves order within a connection; clients must apply in seq order.
+- resync: on gap detection or chunk timeout, client requests a full-fragment replace or full page re-render.
+
 #### Value-Based Update Protocol
 
 ```json
 {
-  "fragment_id": "counter-section",
-  "action": "value_updates",
-  "data": [
+  "version": "1.0",
+  "seq": 1024,
+  "updates": [
     {
-      "position": 156,
-      "length": 2,
-      "new_value": "42",
-      "value_type": "string",
-      "data_path": "counter"
+      "fragment_id": "counter-section",
+      "action": "value_updates",
+      "data": [
+        {
+          "position": 156,
+          "length": 2,
+          "new_value": "42",
+          "value_type": "string",
+          "data_path": "counter"
+        }
+      ]
     }
   ],
   "timestamp": "2025-08-08T14:30:26.123Z"
@@ -616,9 +719,15 @@ The system supports two update protocols based on template analysis:
 
 ```json
 {
-  "fragment_id": "dynamic-section",
-  "action": "replace",
-  "data": "<fragment html elided>",
+  "version": "1.0",
+  "seq": 1025,
+  "updates": [
+    {
+      "fragment_id": "dynamic-section",
+      "action": "replace",
+      "data": "<fragment html elided>"
+    }
+  ],
   "timestamp": "2025-08-08T14:30:26.123Z"
 }
 ```
@@ -661,3 +770,125 @@ Notes:
 This list should evolve as TemplateAnalyzer gains capabilities. Keep examples in tests aligned with these categories.
 
 ---
+
+## Appendix: Message Envelope JSON Schema (v1.0)
+
+The following JSON Schema formally specifies the wire message envelope and update payloads described in "Update Protocol Specification". It captures framing (version, seq, ack), batch semantics (updates array), and per-update shapes for value-based and fragment-replace messages. The schema is intentionally strict to aid interoperability and validation.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.livefir.dev/statetemplate/update-message-1.0.json",
+  "title": "StateTemplate Update Message v1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "seq", "updates", "timestamp"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "enum": ["1.0"]
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ack": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "updates": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/update" }
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "chunk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seq", "total", "id"],
+      "properties": {
+        "seq": { "type": "integer", "minimum": 1 },
+        "total": { "type": "integer", "minimum": 1 },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "value_update_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["position", "length", "new_value", "data_path"],
+      "properties": {
+        "position": { "type": "integer", "minimum": 0 },
+        "length": { "type": "integer", "minimum": 0 },
+        "new_value": { "type": "string" },
+        "value_type": {
+          "type": "string",
+          "enum": ["string", "number", "bool", "html", "json"],
+          "default": "string"
+        },
+        "data_path": { "type": "string", "minLength": 1 }
+      }
+    },
+    "update": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fragment_id", "action", "data"],
+      "properties": {
+        "fragment_id": { "type": "string", "minLength": 1 },
+        "action": { "type": "string", "enum": ["value_updates", "replace"] },
+        "data": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": { "$ref": "#/$defs/value_update_item" }
+            },
+            { "type": "string" }
+          ]
+        },
+        "chunk": { "$ref": "#/$defs/chunk" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "action": { "const": "value_updates" } } },
+          "then": { "properties": { "data": { "type": "array" } } }
+        },
+        {
+          "if": { "properties": { "action": { "const": "replace" } } },
+          "then": { "properties": { "data": { "type": "string" } } }
+        }
+      ]
+    }
+  }
+}
+```
+
+Notes:
+
+- The optional "ack" is client-to-server metadata typically sent in a separate control frame; it appears here to allow unified validation if echoed in messages.
+- The optional "chunk" object on an update is used only when payload chunking is active for large fragments; clients must assemble all chunks for a given id before applying.
+- Future protocol versions will publish new schema IDs and should remain backward compatible within a major version.
+
+---
+
+## Appendix: Supported Browser Matrix and Fallbacks
+
+The following matrix documents the baseline supported browsers and transport fallbacks. When WebSocket is unavailable (blocked proxy, captive portal, etc.), the client falls back to SSE and finally to long-polling.
+
+| Browser                  | Min Version | WebSocket | Server-Sent Events (SSE) | Fallback Strategy    |
+| ------------------------ | ----------- | --------- | ------------------------ | -------------------- |
+| Chrome (Desktop/Mobile)  | 80+         | Yes       | Yes                      | WS → SSE → Long-poll |
+| Firefox (Desktop/Mobile) | 78+         | Yes       | Yes                      | WS → SSE → Long-poll |
+| Safari (macOS)           | 13+         | Yes       | Yes                      | WS → SSE → Long-poll |
+| Safari (iOS/iPadOS)      | 13+         | Yes       | Yes                      | WS → SSE → Long-poll |
+| Edge (Chromium)          | 80+         | Yes       | Yes                      | WS → SSE → Long-poll |
+| IE 11                    | N/A         | No        | No                       | Not supported        |
+
+Operational notes:
+
+- Corporate proxies may terminate or block WebSockets; ensure SSE endpoints are accessible and cache-busted.
+- Mobile networks may suspend background connections; the client should resume and request resync using the last acked seq.
+- Enable permessage-deflate for WebSockets and HTTP compression for SSE/long-poll responses where appropriate.
