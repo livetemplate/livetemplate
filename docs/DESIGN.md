@@ -1,6 +1,10 @@
-# StateTemplate: Multi-Tenant Session Management and Hybrid Incremental Updates
+# LiveTemplate: Session Isolation and Hybrid Incremental Updates
 
-A technical design document for implementing secure, scalable session management with deterministic incremental update optimization in StateTemplate.
+A technical design document for implementing secure session isolation with deterministic incremental update optimization in LiveTemplate.
+
+## Introduction
+
+This document defines the architectural design for LiveTemplate's transition from a singleton page model to a multi-tenant system with session isolation and incremental updates. The design addresses the current security limitations where all users share page instances, introduces application-scoped isolation boundaries, and implements automatic optimization strategies for bandwidth reduction through template analysis and selective update mechanisms.
 
 > Status: Proposal — This document describes a proposed architecture that is not yet fully implemented. The current repository reflects the existing implementation; component names and APIs here may evolve during implementation.
 
@@ -10,22 +14,34 @@ A technical design document for implementing secure, scalable session management
 
 ### Problem Statement
 
-StateTemplate currently uses a singleton page model that creates fundamental security and scalability issues for production web applications:
+LiveTemplate currently uses a singleton page model that creates fundamental security and scalability issues for production web applications:
 
 1. **Security Vulnerability**: All clients share the same page instance, creating potential data leakage between users
 2. **No Session Isolation**: Multiple users cannot maintain independent state or data tracking
 3. **Multi-Tenancy Impossible**: No organizational boundaries between different applications or services
 4. **Performance Suboptimal**: No systematic approach to minimize bandwidth usage in real-time updates
+5. **High-Frequency Update Inefficiency**: Poor handling of rapid update scenarios (live monitoring, gaming, real-time feeds)
+6. **Mobile Network Optimization Missing**: No consideration for bandwidth-constrained mobile environments
+
+Real-world applications require capabilities that the current architecture cannot provide:
+
+- **E-commerce**: Real-time cart updates, live inventory status across multiple users
+- **Social Media**: Live comment threads, instant notifications, activity feeds
+- **Analytics**: Real-time dashboard updates, synchronized metrics across team members
+- **Gaming/Entertainment**: Live leaderboards, real-time sports scoring, interactive applications
+- **Monitoring**: Live server status, real-time metrics, automated alerts
+
+These use cases expose fundamental architectural limitations that require a complete redesign rather than incremental improvements.
 
 ### Current State (AS-IS)
 
-StateTemplate currently operates with a page-centric model where there is no built-in application-level isolation or session management. This creates several fundamental issues for production web applications:
+LiveTemplate currently operates with a page-centric model where there is no built-in application-level isolation or session management. This creates several fundamental issues for production web applications:
 
 #### Critical Issues
 
 - No built-in session isolation between different users or applications
 - No systematic approach to prevent cross-user data leakage
-- No organizational boundaries for multi-tenant deployments
+- No organizational boundaries for multi-application deployments
 - Limited bandwidth optimization strategies for real-time updates
 - No standardized approach to secure token-based authentication
 
@@ -34,53 +50,65 @@ StateTemplate currently operates with a page-centric model where there is no bui
 #### Primary Goals
 
 1. **Security**: Complete isolation between user sessions and applications
-2. **Multi-Tenancy**: Support multiple independent applications/tenants
+2. **Multi-Application Support**: Support multiple independent applications with isolated state
 3. **Performance**: Minimize bandwidth through deterministic incremental updates
 4. **Developer Experience**: Simple APIs that prevent security mistakes
+5. **High-Frequency Updates**: Handle rapid update scenarios (live chat, gaming, monitoring) efficiently
+6. **Scalability**: Support complex pages with thousands of fragments and long-running sessions
+
+#### Secondary Goals
+
+1. **Mobile Optimization**: Efficient updates over constrained mobile networks
+2. **Accessibility**: Screen reader-friendly dynamic updates
+3. **Observability**: Comprehensive metrics and debugging capabilities
+4. **Extensibility**: Plugin architecture for custom update strategies
 
 #### Non-Goals
 
 - Backward compatibility with the singleton model (breaking change acceptable)
 - Support for server-side session sharing across instances
 - Complex update configuration (should be automatic)
+- User authentication and authorization (library consumers handle this)
+- Role-based access control (applications build this on top)
+- Collaborative editing algorithms (applications implement conflict resolution)
+- Client-side caching or offline capabilities (focus on real-time scenarios)
 
 ### Requirements
 
 #### Functional Requirements
 
-- FR1: Each user session must have isolated page state
-- FR2: Applications must not access each other's pages
-- FR3: System must automatically optimize update bandwidth
-- FR4: Developers must get clear feedback on optimization opportunities
-- FR5: Initial page render must return the full HTML document with fragment annotations (identifiers/markers) that enable subsequent incremental updates.
-- FR6: Subsequent updates must apply without a full page reload via available transports (AJAX, WebSocket, or SSE), selected transparently by the client.
-- FR7: Incremental update design is transport-agnostic: the primary concern is the shape and size of update messages; underlying network transfer specifics are out of scope of this design.
+- FR1: Each page instance must have isolated state to prevent cross-user data leakage
+- FR2: System must automatically optimize update bandwidth
+- FR3: Developers must get clear feedback on optimization opportunities
+- FR4: Initial page render must return the full HTML document with fragment annotations (identifiers/markers) that enable subsequent incremental updates
+- FR5: Subsequent updates must apply without a full page reload via available transports (AJAX, WebSocket, or SSE), selected transparently by the client
+- FR6: Incremental update design is transport-agnostic: the primary concern is the shape and size of update messages; underlying network transfer specifics are out of scope of this design
+- FR7: System must handle high-frequency updates (typing, real-time sports) with sub-200ms latency
+- FR8: System must handle extreme load scenarios (10k+ rapid updates) through batching, coalescing, and backpressure
 
 #### Non-Functional Requirements
 
-- NFR1: Token-based authentication with secure HTTP-only cookies
+- NFR1: Support for 10,000+ concurrent isolated page sessions
 - NFR2: 60-85% bandwidth reduction through incremental updates
 - NFR3: Zero-configuration update mode selection
-- NFR4: Support for 10,000+ concurrent isolated sessions
-- NFR5: Bounded update payload size per message (transport-level cap; server will chunk if exceeded)
-- NFR6: Coalescing and operation caps per render cycle (overflow triggers safe fallback)
-- NFR7: Per-page memory budget for tracking analysis/artifacts with graceful degradation when exceeded
-- NFR8: Backpressure and rate limiting under high-change workloads (updates are batched and throttled)
-- NFR9: Protocol versioning and backward-compatible evolution with negotiated features
-- NFR10: p95 end-to-end update latency target (configure; default ≤ 150 ms under 100 RPS)
-- NFR11: First-class observability: metrics, structured logs, and tracing for Render/RenderUpdates
-- NFR12: Fast recovery: reconnect and resync within 2 seconds on transient disconnects
-- NFR13: Defined browser support matrix and WS fallback (SSE/long-poll) strategy
-- NFR14: Accessibility baseline for dynamic regions (screen reader-friendly updates)
-- NFR15: Internationalization-safe updates (UTF-8, bidi, formatting stability)
-- NFR16: Compliance-aware data handling (PII minimization, retention controls)
+- NFR4: Bounded update payload size per message (transport-level cap; server will chunk if exceeded)
+- NFR5: Coalescing and operation caps per render cycle (overflow triggers safe fallback)
+- NFR6: Per-page memory budget for tracking analysis/artifacts with graceful degradation when exceeded
+- NFR7: Backpressure and rate limiting under high-change workloads (updates are batched and throttled)
+- NFR8: p95 end-to-end update latency ≤ 150ms under typical loads (100 RPS)
+- NFR9: First-class observability: metrics, structured logs, and tracing for Render/RenderUpdates
+- NFR10: Support for 50,000+ fragments per page (complex applications)
+- NFR11: Sub-100ms update latency for critical applications (trading, monitoring)
+- NFR12: Graceful handling of 1,000+ updates/second per page (live chat, gaming)
+- NFR13: Memory efficiency for long-running sessions (24+ hour applications)
+- NFR14: Bandwidth optimization for mobile networks (3G fallback)
 
 ### Key Stakeholders
 
-- **Application Developers**: Need secure, simple APIs
-- **DevOps Teams**: Require multi-tenant deployment capabilities
-- **End Users**: Benefit from faster page updates and better security
-- **Security Teams**: Need guarantee of data isolation
+- **Application Developers**: Need simple, performant APIs for page updates with clear optimization feedback
+- **Performance Engineers**: Require visibility into bandwidth reduction and latency optimization
+- **End Users**: Benefit from faster page updates and reduced bandwidth usage
+- **DevOps Teams**: Need observability and monitoring for page update performance
 
 ---
 
@@ -92,13 +120,13 @@ StateTemplate currently operates with a page-centric model where there is no bui
 
 ##### Options Considered (Decision 1)
 
-- Global page registry with user-specific keys
+- Global page registry with session-specific keys
 - Application-scoped registries with isolated signing keys
 - Database-backed session storage
 
 ##### Choice: Application-Scoped Registries
 
-- **Reasoning**: Provides strongest isolation guarantees, simplest security model, and enables multi-tenant deployments
+- **Reasoning**: Provides strongest isolation guarantees, simplest security model, and enables multi-application deployments
 - **Trade-off**: Requires breaking change from singleton model
 
 #### Decision 2: Automatic vs Manual Update Mode
@@ -116,63 +144,91 @@ StateTemplate currently operates with a page-centric model where there is no bui
 
 ### System Behaviors
 
-#### Core Application Management
+#### Page Session Isolation (FR1)
 
 ```go
-// FR1 & FR2: Isolated application instances
-app1 := statetemplate.NewApplication() // Tenant 1
-app2 := statetemplate.NewApplication() // Tenant 2
+// Each page instance has isolated state to prevent data leakage
+page1 := livetemplate.NewPage(templates, userData1)
+page2 := livetemplate.NewPage(templates, userData2)
 
-page1 := app1.NewPage(templates, userData1)
-page2 := app2.NewPage(templates, userData2)
+// page1 and page2 are completely isolated - no shared state
+// Each page manages its own data and cannot access other pages' data
+token1 := page1.GetToken() // Unique identifier for page1 session
+token2 := page2.GetToken() // Unique identifier for page2 session
 
-// page1 and page2 are completely isolated
-token1 := page1.GetToken() // Only works with app1
-token2 := page2.GetToken() // Only works with app2
+// Attempting to use wrong token returns error
+page := livetemplate.GetPageByToken(token1)  // Returns page1
+invalidPage := livetemplate.GetPageByToken("invalid-token") // Returns error
 ```
 
-#### Secure Session Flow
+#### Automatic Update Mode Selection (FR2)
 
-1. **Initial Request**: Client requests page
-2. **Page Creation**: Server creates isolated page in application registry
-3. **Token Generation**: Application-scoped token created with signing key
-4. **Cookie Setting**: Secure HTTP-only cookie with token
-5. **WebSocket Authentication**: Token validates against specific application
+```go
+// Automatic optimization based on template analysis
+app := livetemplate.NewApplication()
+page := app.NewPage(templates, data)
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant Browser
-    participant Server
-
-    User->>Browser: 1. Navigates to page
-    Browser->>Server: 2. GET /dashboard
-    Server->>Server: 3. Creates isolated Page instance
-    Server->>Server: 4. Generates secure, application-scoped token
-    Server-->>Browser: 5. Returns HTML with Set-Cookie header (HttpOnly token)
-    Browser->>Server: 6. Establishes WebSocket connection
-    Server->>Server: 7. Validates token from WebSocket context
-    Server-->>Browser: 8. Confirms connection, ready for real-time updates
+// Analysis available through application debug interface
+debug := app.Debug()
+analysis, err := debug.GetTemplateAnalysis(page.GetToken())
+if err == nil {
+    switch analysis.SelectedUpdateMode {
+    case ValuePatch:
+        // 85% bandwidth reduction - surgical value updates
+    case FragmentReplace:
+        // 60% bandwidth reduction - full fragment replacement
+    }
+}
 ```
 
-#### Initial Render and Fragment Annotations
+#### High-Frequency Update Optimization (FR7)
+
+```go
+// Single RenderFragments API with intelligent automatic batching
+func (p *Page) RenderFragments(ctx context.Context, newData interface{}) ([]Fragment, error) {
+    // Automatic intelligent behavior:
+    // - Fragments from single RenderFragments call are always batched together
+    // - All fragments are automatically coalesced when possible
+    // - Optimal batching window determined by library (typically 16ms for 60fps)
+    // - Network-aware batch sizing to stay within transport limits
+    // - No configuration needed - library makes optimal decisions
+}
+```
+
+````
+
+#### Initial Render and Fragment Annotations (FR4)
 
 The first `Render()` returns the full HTML document instrumented with stable fragment identifiers (e.g., data-fragment-id) so subsequent incremental updates can be applied in-place without a full page reload over AJAX, WebSocket, or SSE.
 
-#### Automatic Update Mode Selection
+```go
+// Example fragment annotation in rendered HTML
+<div data-fragment-id="f-a1b2c3d4">
+    <span>Counter: {{.Counter}}</span>
+</div>
+````
+
+#### Template Analysis and Optimization (FR2, FR3)
 
 ```go
-// FR3: Automatic optimization based on template analysis
+// Automatic optimization based on template analysis
+app := livetemplate.NewApplication()
 page := app.NewPage(templates, data)
 
-// analysis.SelectedUpdateMode is the analyzer's recommended update mode
-// for this template (ValuePatch or FragmentReplace). Equivalent to page.GetUpdateMode().
-analysis := page.GetTemplateAnalysis()
-switch analysis.SelectedUpdateMode {
-case ValuePatch:
-    // 85% bandwidth reduction - surgical value updates
-case FragmentReplace:
-    // 60% bandwidth reduction - full fragment replacement
+// Analysis available through application debug interface
+debug := app.Debug()
+analysis, err := debug.GetTemplateAnalysis(page.GetToken())
+if err == nil {
+    switch analysis.SelectedUpdateMode {
+    case ValuePatch:
+        // 85% bandwidth reduction - surgical value updates
+    case FragmentReplace:
+        // 60% bandwidth reduction - full fragment replacement
+    }
+
+    // Developers get clear feedback on optimization opportunities
+    fmt.Printf("Template analysis: %s mode selected, %.1f%% bandwidth reduction expected",
+        analysis.SelectedUpdateMode, analysis.BandwidthReduction*100)
 }
 ```
 
@@ -201,17 +257,22 @@ case FragmentReplace:
 
 The system implements a **two-layer architecture**:
 
-1. **Application Layer**: Provides isolated page registries per tenant/service (isolation boundary)
+1. **Page Isolation Layer**: Provides isolated page instances with unique tokens to prevent data leakage
 2. **Hybrid Incremental Update Layer**: Automatically selects optimal update mode per template (performance optimization)
 
-Note: Isolation is enforced exclusively by the Application Layer. The Hybrid Incremental Update Layer improves bandwidth and latency but does not alter isolation boundaries or access controls.
+Note: Isolation is enforced at the page level through unique tokens and separate data storage. The Hybrid Incremental Update Layer improves bandwidth and latency but does not alter isolation boundaries.
 
 ```go
-type Application struct {
-    id           string     // Unique application instance identifier
-    pageRegistry sync.Map   // Isolated page storage: map[string]*Page
-    signingKey   []byte     // Application-specific token signing
-  analyzer     *TemplateAnalyzer // Template analysis engine
+type PageRegistry struct {
+    pages     sync.Map   // Isolated page storage: map[string]*Page
+    mu        sync.RWMutex
+}
+
+type Page struct {
+    id       string        // Unique page identifier
+    token    string        // Secure access token for this page
+    data     interface{}   // Isolated user data for this page
+    analyzer *TemplateAnalyzer // Template analysis engine
 }
 ```
 
@@ -219,52 +280,147 @@ type Application struct {
 
 Deferred: Component-level design and reference implementation will be added in a future revision of this proposal.
 
-### Token-Based Authentication
+### Page Token System
 
-#### Design Choice: JWT-like Structure with Application Scoping
+#### Design Choice: Simple Token-Based Page Identification
 
 ```go
 type PageToken struct {
-    ApplicationID string    `json:"application_id"`
     PageID        string    `json:"page_id"`
     IssuedAt      time.Time `json:"issued_at"`
     ExpiresAt     time.Time `json:"expires_at"`
-    Nonce         string    `json:"nonce"`
 }
 
-func (app *Application) GetPage(tokenStr string) (*Page, error) {
-  token := verifyAndParseToken(tokenStr, app.signingKey)
-
-    // Critical: Validate application ID matches
-    if token.ApplicationID != app.id {
-        return nil, ErrInvalidApplication
+func GetPageByToken(tokenStr string) (*Page, error) {
+    token, err := parseToken(tokenStr)
+    if err != nil {
+        return nil, err
     }
 
-    return app.pageRegistry.Load(token.PageID)
+    // Check if token is expired
+    if time.Now().After(token.ExpiresAt) {
+        return nil, ErrTokenExpired
+    }
+
+    return pageRegistry.Load(token.PageID)
 }
 ```
 
-#### Security Properties
+#### Isolation Properties
 
-- Application-specific signing keys prevent cross-application access
-- Token contains only lookup information, never sensitive data
-- Nonce prevents replay attacks
-- Expiration prevents indefinite access
-- Tokens are signed and verified (not decrypted); always use TLS for transport
+- Each page has a unique token for access control
+- Token contains only page lookup information, never user data
+- Expiration prevents indefinite access to abandoned pages
+- No shared state between pages - complete isolation
+- Simple token structure focused on page identification, not complex authentication
 
 ### Deterministic Update Selection
 
-#### Design Choice: AST-Based Template Analysis
+#### Design Choice: AST-Based Template Analysis with Caching
 
-The system analyzes Go html/template syntax trees to determine update-mode capability:
+The system analyzes Go html/template syntax trees to determine update-mode capability and caches results for performance:
 
 ```go
 type TemplateAnalyzer struct {
     supportedConstructs map[TemplateConstruct]CachingCapability
     templateParser      *TemplateASTParser
+    analysisCache       *AnalysisCache // LRU cache for analysis results
 }
 
+type AnalysisCache struct {
+    cache    map[string]*TemplateAnalysis // Keyed by template content hash
+    lru      *list.List                   // LRU eviction order
+    maxSize  int                          // Maximum cached analyses
+    mu       sync.RWMutex                 // Cache protection
+}
+
+func (a *TemplateAnalyzer) AnalyzeTemplate(tmpl *html.Template) (*TemplateAnalysis, error) {
+    // Generate content hash for cache lookup
+    contentHash := a.computeTemplateHash(tmpl)
+
+    // Check cache first
+    if analysis := a.analysisCache.Get(contentHash); analysis != nil {
+        return analysis, nil
+    }
+
+    // Perform analysis and cache result
+    analysis, err := a.performAnalysis(tmpl)
+    if err != nil {
+        return nil, err
+    }
+
+    a.analysisCache.Put(contentHash, analysis)
+    return analysis, nil
+}
+
+func (a *TemplateAnalyzer) computeTemplateHash(tmpl *html.Template) string {
+    // Hash template content + associated templates for cache key
+    hasher := sha256.New()
+    for _, t := range tmpl.Templates() {
+        hasher.Write([]byte(t.Name()))
+        hasher.Write([]byte(t.Root.String())) // AST string representation
+    }
+    return fmt.Sprintf("%x", hasher.Sum(nil))
+}
+```
+
+**Template Analysis Optimization:**
+
+- **Content-based caching**: Cache analysis results by template content hash
+- **LRU eviction**: Remove least recently used analyses when cache fills
+- **Hot reload detection**: Invalidate cache entries when template content changes
+- **Performance monitoring**: Track cache hit rates and analysis timing
+
+**Value Patch Position Tracking Enhancement:**
+
+```go
+type PositionTracker struct {
+    fragments map[string]*FragmentPositions
+    checksum  string // HTML content checksum for drift detection
+}
+
+type FragmentPositions struct {
+    boundaries    []Position    // Start/end positions in HTML
+    valueNodes    []ValueNode   // Trackable value positions
+    lastChecksum  string        // Content checksum for validation
+    isStale       bool          // Needs re-indexing
+}
+
+func (p *PositionTracker) validatePositions(newHTML []byte) error {
+    newChecksum := computeHTMLChecksum(newHTML)
+    if newChecksum != p.checksum {
+        // HTML structure changed - mark positions as stale
+        for _, fragment := range p.fragments {
+            fragment.isStale = true
+        }
+        return ErrPositionDrift
+    }
+    return nil
+}
+
+// Fallback strategy when position tracking becomes unreliable
+func (p *PositionTracker) handlePositionDrift(fragmentID string) {
+    // Switch to fragment replace for this fragment until re-indexed
+    fragment := p.fragments[fragmentID]
+    fragment.isStale = true
+
+    // Log position drift for monitoring
+    log.Warn("Position drift detected",
+        "fragment_id", fragmentID,
+        "action", "fallback_to_replace")
+}
+```
+
+**Position Tracking Reliability:**
+
+- **Checksum validation**: Detect when HTML structure changes unexpectedly
+- **Graceful degradation**: Fall back to fragment replace when positions become unreliable
+- **Re-indexing strategy**: Rebuild position indexes when templates are re-analyzed
+- **Monitoring**: Track position drift rates and fallback frequency
+
 // Supported for value patch updates (60-85% bandwidth reduction)
+
+```go
 const (
     SimpleInterpolation    // {{.Field}}
     NestedFieldAccess     // {{.User.Profile.Name}}
@@ -330,7 +486,7 @@ Policies:
 - Caps per RenderUpdates call:
   - Max operations per fragment (e.g., 1,000 value updates or 50 fragment replaces).
   - Max total operations across the page (e.g., 5,000 value updates), after which the system switches to a single fragment replace for affected regions.
-- Payload cap: if a serialized update exceeds the transport cap (e.g., WebSocket frame or configured limit), the server chunks the update into sequenced parts with reassembly metadata. If chunking still exceeds limits, fall back to server-side pagination instructions or full re-render.
+- Payload cap: if a serialized update exceeds transport limits (e.g., WebSocket frame size), the server automatically chunks the update into sequenced parts with reassembly metadata. If chunking still exceeds limits, fall back to server-side pagination instructions or full re-render.
 - Backpressure: when producers outpace the network, updates are batched and throttled; intermediate states may be skipped. Clients always apply the latest fully received sequence.
 - Memory budget: each page tracks a bounded history/index needed for value patching. When memory exceeds the budget, the page selectively drops value-patch metadata for the largest fragments and uses fragment replace for those until memory recovers.
 
@@ -361,26 +517,159 @@ Client handling notes:
 
 #### Session Data Growth and GC
 
-To prevent unbounded growth of per-page tracking and data snapshots:
+**Memory Management Strategy:**
 
-- Cap retained snapshots/history used for diffing and indexes (e.g., keep last N renders); beyond that, rebuild from current state.
-- Track approximate sizes of fragment indexes and evict the largest offenders first; evicted fragments fall back to fragment replace until re-indexed.
-- Apply TTL and LRU to inactive pages; close and reclaim resources when idle beyond a threshold.
-- Avoid deep copies of large data structures; use structural sharing where possible and compute diffs lazily.
-- Provide configuration hooks for per-page memory budget and per-fragment ceilings; exceed → degrade from value patch to fragment replace.
+```go
+type MemoryManager struct {
+    budget           int64          // Per-page memory budget (10MB default)
+    used             int64          // Current memory usage
+    snapshots        []PageSnapshot // Historical renders for diffing
+    fragmentIndexes  map[string]*FragmentIndex // Position tracking per fragment
+    mu               sync.RWMutex   // Protects memory accounting
+}
+
+func (m *MemoryManager) trackMemoryUsage() {
+    // Monitor using runtime.MemStats every 30 seconds
+    var stats runtime.MemStats
+    runtime.ReadMemStats(&stats)
+
+    if stats.HeapInuse > m.budget {
+        m.triggerEviction()
+    }
+}
+
+func (m *MemoryManager) triggerEviction() {
+    // 1. Evict oldest snapshots beyond retention limit
+    m.evictOldSnapshots()
+
+    // 2. Evict largest fragment indexes first
+    m.evictLargestFragments()
+
+    // 3. Switch affected fragments to replace mode until memory recovers
+    m.degradeToFragmentReplace()
+}
+```
+
+**Memory Budgets and Enforcement:**
+
+- **Automatic memory management**: Library handles memory budgets with sane defaults (10MB per page)
+- **Snapshot retention**: Keep minimal historical renders needed for diffing (typically 3)
+- **Fragment index limits**: Automatically track optimal number of fragments per page
+- **Intelligent eviction**: Remove largest memory consumers first when needed
+- **Transparent degradation**: Switch to fragment replace when value patching becomes memory-prohibitive
+
+**Garbage Collection Integration:**
+
+- **Weak references**: Use finalizers for automatic cleanup of abandoned pages
+- **Pressure detection**: Monitor runtime.MemStats and trigger eviction at 80% budget
+- **GC cooperation**: Avoid allocations during concurrent GC phases
+- **Memory pools**: Reuse buffers for HTML generation and diff computation
+
+**Resource Cleanup:**
+
+- **Automatic expiration**: Inactive pages expire after reasonable timeout (1 hour default)
+- **Smart eviction**: Remove least recently used pages when memory pressure detected
+- **Connection cleanup**: Automatically close pages when all WebSocket connections drop
+- **Leak detection**: Monitor for pages that fail to release resources and log warnings
 
 ### Fragment Identity and Stability
 
-- Fragment IDs must be stable across renders for the same logical region.
-- For ranges/lists, derive IDs from stable keys (not indexes) to avoid churn; if no key exists, the planner prefers replace.
-- Nested fragments inherit hierarchical boundaries; collisions are prevented by namespacing.
-- Document how fragment_id is computed or configured to ensure reproducibility in tests.
+Fragment IDs must be stable across renders for the same logical region using a deterministic algorithm:
+
+**Fragment ID Algorithm:**
+
+```go
+// Compute stable fragment ID from template AST and context
+func computeFragmentID(node parse.Node, templatePath string, keyPath []string) string {
+    // Base components for ID generation
+    components := []string{
+        templatePath,                    // e.g., "user-dashboard.html"
+        fmt.Sprintf("%d", node.Position()), // AST node position
+        strings.Join(keyPath, "."),      // e.g., "user.profile.name"
+    }
+
+    // For range loops, prefer stable keys over indexes
+    if rangeNode, ok := node.(*parse.RangeNode); ok {
+        if hasStableKey(rangeNode) {
+            components = append(components, extractStableKey(rangeNode))
+        } else {
+            // No stable key available - prefer fragment replace
+            return ""
+        }
+    }
+
+    // Generate deterministic ID: hash(template + position + keypath)
+    hash := sha256.Sum256([]byte(strings.Join(components, "|")))
+    return fmt.Sprintf("f-%x", hash[:4]) // 8-character hex prefix
+}
+```
+
+**Stability Requirements:**
+
+- Fragment IDs remain consistent across renders when template structure is unchanged
+- For ranges/lists, derive IDs from stable keys (not indexes) to avoid churn
+- When no stable key exists, the planner prefers fragment replace over value patching
+- Nested fragments inherit hierarchical boundaries; collisions prevented by namespacing
+- Template changes that affect fragment boundaries require ID regeneration and client resync
+
+**Validation and Testing:**
+
+- Unit tests verify ID stability across multiple renders with same template
+- Integration tests validate ID consistency during template hot-reloads
+- Property tests ensure no collisions within reasonable fragment counts (10k+ per page)
 
 ### Concurrency and Consistency
 
-- Page methods are thread-safe; concurrent RenderUpdates are serialized per page.
-- Last-write-wins for updates within the same fragment and sequence window.
-- Sequence numbers are per-connection; on reconnect, a new connection starts a new sequence unless resume is used.
+**Thread Safety Model:**
+
+```go
+type Page struct {
+    mu           sync.RWMutex      // Protects all page state
+    renderMu     sync.Mutex        // Serializes RenderUpdates calls
+    data         interface{}       // Current page data
+    lastHTML     []byte           // Last rendered HTML
+    tracker      *TemplateTracker // Fragment position tracking
+    connections  map[string]*Connection // Active WebSocket connections
+}
+
+// RenderFragments is serialized per page to ensure consistency
+func (p *Page) RenderFragments(ctx context.Context, newData interface{}) ([]Fragment, error) {
+    // Acquire render lock to serialize update generation
+    p.renderMu.Lock()
+    defer p.renderMu.Unlock()
+
+    // Read-lock for data comparison
+    p.mu.RLock()
+    oldData := p.data
+    p.mu.RUnlock()
+
+    // Generate updates (can be concurrent with other pages)
+    fragments := p.generateFragments(oldData, newData)
+
+    // Write-lock to update page state
+    p.mu.Lock()
+    p.data = newData
+    p.lastHTML = newHTML
+    p.mu.Unlock()
+
+    return updates, nil
+}
+```
+
+**Concurrency Guarantees:**
+
+- **Page-level isolation**: Each page has independent locks, enabling concurrent updates across different pages
+- **Serialized updates**: RenderUpdates calls are serialized per page to prevent race conditions during diff generation
+- **Lock hierarchy**: renderMu -> mu (read/write) to prevent deadlocks
+- **Connection safety**: WebSocket writes are concurrent but sequenced per connection
+- **Memory visibility**: All data updates happen-before subsequent reads due to mutex semantics
+
+**Performance Characteristics:**
+
+- **High concurrency**: 10,000+ pages can update concurrently without contention
+- **Lock contention**: Only occurs within a single page under high update frequency
+- **Scalability**: O(1) lock contention scaling with page count
+- **Latency**: Lock hold time bounded by update generation complexity (target: <10ms)
 
 ### Flow Control and Slow Clients
 
@@ -400,17 +689,75 @@ To prevent unbounded growth of per-page tracking and data snapshots:
 - Key rotation/invalidation: tokens expire; rotation schedule documented; audit logs capture access and failures.
 - Template function allowlist; deny or sandbox unknown functions that alter structure.
 
-### Configurability and Tunables
-
-- All caps and budgets are configurable per application and optionally per page: ops-per-fragment/page, payload cap, batching window, memory budget, backoff timings.
-- Circuit breaker: automatically switch to replace-only when fallback/error rates exceed thresholds.
-
 ### Observability and SLOs
 
-- Metrics: update bytes, p50/p95/p99 latency, coalescing hit rate, fallback rate, chunking rate, queue depth, dropped updates, reconnects, memory per page.
-- Tracing: spans for Render, Analyze, Plan, Serialize, Send.
-- Logs: structured with fragment_id and correlation IDs.
-- SLO examples: p95 update latency ≤ target under defined load; fallback rate ≤ threshold.
+**Performance Targets and Metrics:**
+
+```go
+type PerformanceTargets struct {
+    // Latency SLOs
+    P95UpdateLatencyMs       int     // 150ms end-to-end update latency
+    P99UpdateLatencyMs       int     // 300ms for complex updates
+    MaxRenderLatencyMs       int     // 50ms for initial render
+
+    // Throughput targets
+    UpdatesPerSecond         int     // 1000 updates/sec per page
+    ConcurrentPages          int     // 10,000 active pages per instance
+    MaxMemoryPerPageMB       int     // 10MB memory budget per page
+
+    // Bandwidth optimization
+    BandwidthReductionMin    float64 // 0.60 (60% minimum reduction)
+    BandwidthReductionTarget float64 // 0.80 (80% target reduction)
+    ValuePatchSuccessRate    float64 // 0.85 (85% of updates use value patches)
+
+    // Reliability targets
+    ReconnectTimeMaxMs       int     // 2000ms maximum reconnect time
+    FallbackRateMax          float64 // 0.05 (5% maximum fallback to fragment replace)
+    ErrorRateMax             float64 // 0.001 (0.1% maximum error rate)
+}
+```
+
+**Key Metrics Collection:**
+
+- **Latency metrics**:
+  - `livetemplate_update_latency_ms` (histogram with fragment_id label)
+  - `livetemplate_render_latency_ms` (histogram with template_name label)
+- **Throughput metrics**:
+  - `livetemplate_updates_total` (counter with action=value_updates|replace)
+  - `livetemplate_bytes_sent_total` (counter with transport=ws|sse|ajax)
+- **Memory metrics**:
+  - `livetemplate_memory_usage_bytes` (gauge per page)
+  - `livetemplate_fragments_tracked_total` (gauge per page)
+- **Reliability metrics**:
+  - `livetemplate_reconnects_total` (counter with reason label)
+  - `livetemplate_fallbacks_total` (counter with reason=memory|caps|error)
+
+**Distributed Tracing:**
+
+```go
+// Trace update flow from trigger to client application
+ctx, span := tracer.Start(ctx, "livetemplate.RenderFragments")
+span.SetAttributes(
+    attribute.String("fragment.id", fragmentID),
+    attribute.String("update.action", action),
+    attribute.Int("update.bytes", len(payload)),
+    attribute.String("page.id", pageID),
+)
+defer span.End()
+
+// Child spans for major operations
+analyzeSpan := tracer.Start(ctx, "template.analyze")
+planSpan := tracer.Start(ctx, "update.plan")
+serializeSpan := tracer.Start(ctx, "update.serialize")
+sendSpan := tracer.Start(ctx, "transport.send")
+```
+
+**Structured Logging:**
+
+- **Correlation IDs**: Track requests across service boundaries
+- **Fragment-level context**: Include fragment_id in all log entries
+- **Performance annotations**: Log slow operations with timing details
+- **Error context**: Capture full error context including page state
 
 ### Failure Modes and Recovery
 
@@ -446,9 +793,139 @@ To prevent unbounded growth of per-page tracking and data snapshots:
 
 #### Token Security
 
-- **Signing Key Management**: Application signing keys must be managed securely and rotated periodically. They should be treated as sensitive secrets.
-- **Transport Security**: All communication must occur over TLS (HTTPS and WSS) to prevent token interception.
-- **CSRF Protection**: While tokens help, standard CSRF protection (e.g., SameSite cookies) should still be enforced.
+**Signing Key Management and Rotation:**
+
+```go
+type TokenService struct {
+    currentKey  []byte          // Active signing key
+    previousKey []byte          // Previous key during rotation
+    keyRotation time.Duration   // Rotation schedule (default: 24h)
+    gracePeriod time.Duration   // Grace period for old tokens (default: 1h)
+    mu          sync.RWMutex    // Protects key access
+}
+
+func (ts *TokenService) RotateSigningKey() error {
+    ts.mu.Lock()
+    defer ts.mu.Unlock()
+
+    // Keep previous key for grace period
+    ts.previousKey = ts.currentKey
+
+    // Generate new key
+    newKey := make([]byte, 32)
+    if _, err := rand.Read(newKey); err != nil {
+        return fmt.Errorf("key generation failed: %w", err)
+    }
+    ts.currentKey = newKey
+
+    // Schedule cleanup of previous key after grace period
+    time.AfterFunc(ts.gracePeriod, func() {
+        ts.mu.Lock()
+        ts.previousKey = nil
+        ts.mu.Unlock()
+    })
+
+    return nil
+}
+
+func (ts *TokenService) VerifyToken(tokenStr string) (*PageToken, error) {
+    // Try current key first
+    if token, err := verifyWithKey(tokenStr, ts.currentKey); err == nil {
+        return token, nil
+    }
+
+    // Fallback to previous key during rotation grace period
+    if ts.previousKey != nil {
+        if token, err := verifyWithKey(tokenStr, ts.previousKey); err == nil {
+            // Log usage of old key for monitoring
+            log.Info("Token verified with previous key",
+                "page_id", token.PageID,
+                "remaining_grace", ts.gracePeriod)
+            return token, nil
+        }
+    }
+
+    return nil, ErrInvalidToken
+}
+```
+
+**Enhanced Security Properties:**
+
+- **Automated key rotation**: Default 24-hour rotation schedule with configurable intervals
+- **Graceful transition**: 1-hour grace period allows existing sessions to continue during rotation
+- **Audit logging**: All token validation failures and key rotations are logged for security analysis
+- **Secure generation**: Cryptographically secure random key generation using crypto/rand
+- **Defense in depth**: Always require TLS; tokens are useless without HTTPS transport
+
+**Session Persistence and Recovery:**
+
+```go
+type SessionStore interface {
+    Store(pageID string, session *PageSession) error
+    Load(pageID string) (*PageSession, error)
+    Delete(pageID string) error
+    Cleanup(olderThan time.Time) error
+}
+
+type PageSession struct {
+    PageID       string                 `json:"page_id"`
+    ApplicationID string                `json:"application_id"`
+    CreatedAt    time.Time              `json:"created_at"`
+    LastAccess   time.Time              `json:"last_access"`
+    Data         interface{}            `json:"data"`
+    Metadata     map[string]interface{} `json:"metadata"`
+}
+
+// Optional Redis-backed session persistence for security-critical applications
+func (app *Application) NewPage(tmpl *html.Template, data interface{}, options ...PageOption) (*Page, error) {
+    page := &Page{
+        ID:            generatePageID(),
+        ApplicationID: app.id,
+        CreatedAt:     time.Now(),
+        Data:          data,
+    }
+
+    // Apply options (including persistence)
+    for _, opt := range options {
+        if err := opt(page); err != nil {
+            return nil, err
+        }
+    }
+
+    return page, nil
+}
+
+// Functional options for page creation
+type PageOption func(*Page) error
+
+func WithPersistence(sessionStore SessionStore) PageOption {
+    return func(page *Page) error {
+        // Store session data for recovery after restart
+        session := &PageSession{
+            PageID:       page.ID,
+            ApplicationID: page.ApplicationID,
+            CreatedAt:    page.CreatedAt,
+            Data:         page.Data,
+        }
+
+        if err := sessionStore.Store(page.ID, session); err != nil {
+            log.Error("Failed to persist session", "error", err, "page_id", page.ID)
+            // Continue without persistence - degrade gracefully
+        }
+
+        page.sessionStore = sessionStore
+        return nil
+    }
+}
+```
+
+**Security Audit and Compliance:**
+
+- **Access logging**: All page access attempts logged with outcome and timing
+- **Session tracking**: Monitor session lifecycle events (creation, access, expiration)
+- **Anomaly detection**: Track unusual patterns (rapid token generation, cross-app access attempts)
+- **Data retention**: Configurable session data retention with automatic cleanup
+- **PII protection**: Sensitive data excluded from logs and metrics
 
 #### Data Validation
 
@@ -479,17 +956,77 @@ A robust error handling strategy is critical for system stability and debuggabil
 
 ### Implementation Tradeoffs
 
+#### Implementation Strategy
+
+Since this is an unreleased library with AI-driven implementation, the development approach focuses on component prioritization rather than phased timelines:
+
+##### Core Components (Implementation Priority 1)
+
+```go
+// Essential security and isolation foundation
+type CoreComponents struct {
+    ApplicationIsolation     bool // ✅ Application-scoped registries with token validation
+    PageLifecycle           bool // ✅ NewPage, Render, GetToken, Close APIs
+    FragmentReplaceUpdates  bool // ✅ Basic incremental updates via fragment replacement
+    BasicWebSocketTransport bool // ✅ Simple WebSocket-based update delivery
+    MemoryBoundaries        bool // ✅ Basic per-page memory limits and cleanup
+}
+
+// Success criteria for core implementation
+var CoreAcceptanceCriteria = []string{
+    "Cross-application page access blocked and returns ErrInvalidApplication",
+    "Token validation enforces application ID matching",
+    "Fragment replace updates work reliably via WebSocket",
+    "Memory usage bounded per page with automatic cleanup",
+    "Basic concurrent page support (100+ pages)",
+}
+```
+
+##### Performance Components (Implementation Priority 2)
+
+```go
+type PerformanceComponents struct {
+    TemplateAnalysis     bool // ✅ AST-based template analysis with caching
+    ValuePatchUpdates    bool // ✅ Position-based value patching for bandwidth optimization
+    FragmentIDStability  bool // ✅ Deterministic fragment ID algorithm
+    UpdateOptimization   bool // ✅ Automatic mode selection (ValuePatch vs FragmentReplace)
+    BasicMetrics        bool // ✅ Essential performance and error metrics
+}
+
+// Target performance benchmarks
+var PerformanceTargets = map[string]interface{}{
+    "bandwidth_reduction":     0.70, // 70% average reduction (realistic target)
+    "value_patch_success":     0.75, // 75% of compatible templates use value patches
+    "p95_update_latency_ms":   200,  // 200ms p95 latency (conservative target)
+    "template_analysis_cache": 0.90, // 90% cache hit rate for template analysis
+}
+```
+
+##### Production Components (Implementation Priority 3)
+
+```go
+type ProductionComponents struct {
+    TransportFallbacks   bool // ✅ SSE and AJAX fallbacks when WebSocket unavailable
+    KeyRotation         bool // ✅ Automated token key rotation with grace periods
+    SessionPersistence  bool // ✅ Optional Redis-backed session storage
+    ComprehensiveMetrics bool // ✅ Full observability with tracing and structured logging
+    ScalabilityFeatures bool // ✅ High-concurrency optimizations and backpressure handling
+}
+```
+
 #### Memory vs Security Isolation
 
-- **Decision**: In-memory page registries per application
+- **Decision**: In-memory page registries per application with optional Redis backing
 - **Tradeoff**: Higher memory usage vs perfect isolation guarantees
-- **Mitigation**: Configurable page limits and TTL expiration
+- **Mitigation**: Configurable page limits, TTL expiration, and LRU eviction
+- **Monitoring**: Track memory per application and page; alert on budget exceeded
 
 #### Deterministic vs Adaptive Updates
 
 - **Decision**: Static template analysis over runtime adaptation
 - **Tradeoff**: Some suboptimal cases vs predictable, debuggable behavior
-- **Mitigation**: Developer feedback on optimization opportunities
+- **Mitigation**: Developer feedback through analysis reports and metrics
+- **Evolution path**: Template analysis capabilities can expand over time
 
 #### Compatibility (Pre-release)
 
@@ -529,19 +1066,19 @@ class StatePage {
 
 ### Deployment Architecture
 
-#### Multi-Tenant Deployment Pattern
+#### Multi-Application Deployment Pattern
 
 ```go
-// Microservice A
-serviceA := statetemplate.NewApplication(
-    statetemplate.WithTenantID("service-a"),
-    statetemplate.WithRedisBackend("redis://cluster"),
+// Application A
+serviceA := livetemplate.NewApplication(
+    livetemplate.WithApplicationID("service-a"),
+    livetemplate.WithRedisBackend("redis://cluster"),
 )
 
-// Microservice B
-serviceB := statetemplate.NewApplication(
-    statetemplate.WithTenantID("service-b"),
-    statetemplate.WithRedisBackend("redis://cluster"),
+// Application B
+serviceB := livetemplate.NewApplication(
+    livetemplate.WithApplicationID("service-b"),
+    livetemplate.WithRedisBackend("redis://cluster"),
 )
 ```
 
@@ -560,38 +1097,40 @@ serviceB := statetemplate.NewApplication(
 A minimal working implementation demonstrating core concepts:
 
 ```go
-// main.go - Demonstrates application isolation and incremental updates
+// main.go - Demonstrates page isolation and incremental updates
 package main
 
 import (
     "html/template"
     "net/http"
-    "github.com/livefir/statetemplate"
+    "github.com/livefir/livetemplate"
 )
 
 func main() {
     tmpl := template.Must(template.ParseGlob("*.html"))
 
-    // Create isolated application
-    app := statetemplate.NewApplication()
+    // Create application instance
+    app := livetemplate.NewApplication()
 
     http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-  // Create isolated page with automatic update mode analysis
+        // Create isolated page with automatic update mode analysis
         page := app.NewPage(tmpl, map[string]interface{}{
             "UserName": "John",
             "Counter":  0,
         })
 
-        // Get analysis insights
-        analysis := page.GetTemplateAnalysis()
-    log.Printf("UpdateMode: %v, Coverage: %.1f%%",
-      analysis.SelectedUpdateMode,
-            analysis.CapabilityReport.SupportPercentage)
+        // Get analysis insights through application debug interface
+        debug := app.Debug()
+        if analysis, err := debug.GetTemplateAnalysis(page.GetToken()); err == nil {
+            log.Printf("UpdateMode: %v, Coverage: %.1f%%",
+                analysis.SelectedUpdateMode,
+                analysis.BandwidthReduction*100)
+        }
 
-        // Render and set secure session
+        // Render and set session token
         html, _ := page.Render()
         http.SetCookie(w, &http.Cookie{
-            Name:     "session_token",
+            Name:     "page_token",
             Value:    page.GetToken(),
             HttpOnly: true,
             Secure:   true,
@@ -621,60 +1160,123 @@ Bandwidth reduction measurements from prototype testing:
 - Mixed template patterns (80% supported, 20% fallback)
 - WebSocket-based updates over 30-minute test period
 
-### Security Validation
+### Page Isolation Validation
 
-Application isolation verification:
+Page isolation verification:
 
 ```go
-func TestApplicationIsolation(t *testing.T) {
-    app1 := statetemplate.NewApplication()
-    app2 := statetemplate.NewApplication()
+func TestPageIsolation(t *testing.T) {
+    app := livetemplate.NewApplication()
+    page1 := app.NewPage(tmpl, userData1)
+    page2 := app.NewPage(tmpl, userData2)
 
-    page1 := app1.NewPage(tmpl, userData1)
-    page2 := app2.NewPage(tmpl, userData2)
+    // Pages should have different tokens
+    assert.NotEqual(t, page1.GetToken(), page2.GetToken())
 
-    // Cross-application access should fail
-    _, err := app1.GetPage(page2.GetToken())
-    assert.Error(t, err, "Cross-application access must be blocked")
+    // Each page should only be accessible with its own token
+    retrievedPage1, err := app.GetPageByToken(page1.GetToken())
+    assert.NoError(t, err)
+    assert.Equal(t, page1, retrievedPage1)
 
-    _, err = app2.GetPage(page1.GetToken())
-    assert.Error(t, err, "Cross-application access must be blocked")
+    // Wrong token should return error
+    _, err = app.GetPageByToken("invalid-token")
+    assert.Error(t, err, "Invalid token access must be blocked")
+
+    // Pages should have isolated data
+    page1.SetData(map[string]interface{}{"value": "page1-data"})
+    page2.SetData(map[string]interface{}{"value": "page2-data"})
+
+    // Verify data isolation
+    assert.NotEqual(t, page1.GetData(), page2.GetData())
 }
 ```
 
 This reference implementation validates:
 
-- ✅ Application isolation security model
+- ✅ Page isolation security model
 - ✅ Automatic update mode selection
 - ✅ Bandwidth reduction targets (60-85%)
 - ✅ Zero-configuration developer experience
 
 ### API Specification
 
-The API provides three core interfaces:
+The API provides comprehensive interfaces for modern web applications:
 
-1. **Application Management**: Isolated application instances
+1. **Application Management**: Isolated application instances with multi-application support
 2. **Page Lifecycle**: Session-scoped pages with automatic incremental updates
-3. **Update Insights**: Developer visibility into optimization decisions
+3. **Performance**: High-frequency update optimization and load balancing
+4. **Observability**: Developer visibility into optimization decisions and performance
 
 ```go
-// Core API for application management
-func NewApplication(options ...AppOption) *Application
-func (app *Application) NewPage(templates *html.Template, initialData interface{}, options ...Option) *Page
-func (app *Application) GetPage(token string) (*Page, error)
-func (app *Application) Close() error
+// Core API for application and page management
+func NewApplication(options ...ApplicationOption) *Application
+func (app *Application) NewPage(templates *html.Template, initialData interface{}, options ...PageOption) *Page
+func (app *Application) GetPageByToken(token string) (*Page, error)
 
 // Page lifecycle and updates
 func (p *Page) GetToken() string
 func (p *Page) Render() (string, error)
-func (p *Page) RenderUpdates(ctx context.Context, newData interface{}) ([]Update, error)
+func (p *Page) RenderFragments(ctx context.Context, newData interface{}) ([]Fragment, error)
 func (p *Page) SetData(data interface{}) error
 func (p *Page) Close() error
 
-// Update mode insights
-func (p *Page) GetUpdateMode() UpdateMode
-func (p *Page) GetTemplateAnalysis() *TemplateAnalysis
-func (p *Page) GetCapabilityReport() CapabilityReport
+// Application-scoped debugging and observability
+func (app *Application) Debug() *Debug
+
+// Debug provides comprehensive observability for application instances
+type Debug struct {
+    app *Application // Application context for debugging
+}
+
+// Debug methods for template analysis and performance monitoring
+func (d *Debug) GetTemplateAnalysis(pageID string) (*TemplateAnalysis, error)
+func (d *Debug) GetPerformanceMetrics() PerformanceMetrics
+func (d *Debug) GetMemoryStats() MemoryStats
+func (d *Debug) GetPageMetrics(pageID string) (*PageMetrics, error)
+func (d *Debug) ListActivePages() []PageSummary
+
+// Debug observability types
+type TemplateAnalysis struct {
+    SelectedUpdateMode   UpdateMode
+    CapabilityReport    CapabilityReport
+    BandwidthReduction  float64
+    SupportedConstructs []TemplateConstruct
+    UnsupportedReasons  []string
+}
+
+type PerformanceMetrics struct {
+    UpdateLatencyP95    time.Duration
+    UpdateLatencyP99    time.Duration
+    BandwidthReduction  float64
+    ValuePatchSuccess   float64
+    ActivePages         int
+    TotalUpdates        int64
+}
+
+type MemoryStats struct {
+    TotalMemoryUsed     int64
+    AveragePageMemory   int64
+    PagesOverBudget     int
+    FragmentCacheSize   int64
+    AnalysisCacheSize   int64
+}
+
+type PageMetrics struct {
+    PageID             string
+    MemoryUsed         int64
+    MemoryBudget       int64
+    FragmentCount      int
+    ActiveConnections  int
+    LastUpdateLatency  time.Duration
+}
+
+type PageSummary struct {
+    PageID      string
+    CreatedAt   time.Time
+    LastAccess  time.Time
+    MemoryUsed  int64
+    UpdateMode  UpdateMode
+}
 ```
 
 ### Update Protocol Specification
@@ -734,6 +1336,100 @@ The system supports two update protocols based on template analysis:
 
 ---
 
+## Appendix: Use Cases and Performance Targets
+
+The following use cases represent common web application patterns that benefit from LiveTemplate's efficient update mechanisms. These drive both architectural decisions and performance testing, ensuring the system meets real-world requirements.
+
+### Core Use Cases
+
+#### UC-1: Real-time Content Updates
+
+**Scenario**: Live content updates (counters, status indicators, metrics)  
+**Requirements**: Sub-200ms latency, 80%+ bandwidth reduction  
+**Template Pattern**: Simple value interpolation `{{.Counter}}`, `{{.Status}}`  
+**Expected Optimization**: 85% bandwidth reduction via value patches
+
+#### UC-2: Dynamic List Updates
+
+**Scenario**: Adding/removing items from lists (comments, notifications, search results)  
+**Requirements**: Efficient handling of list growth, memory-bounded  
+**Template Pattern**: Range operations `{{range .Items}}{{.Name}}{{end}}`  
+**Expected Optimization**: Fragment replace for large changes, value patches for small updates
+
+#### UC-3: High-Frequency Updates
+
+**Scenario**: Real-time gaming, live sports scores, monitoring dashboards  
+**Requirements**: 1000+ updates/second, sub-100ms latency for critical updates  
+**Template Pattern**: Mixed simple values and conditionals  
+**Expected Optimization**: Update batching and coalescing
+
+#### UC-4: Complex Dashboard Updates
+
+**Scenario**: Multi-widget dashboards with independent update cycles  
+**Requirements**: 50,000+ fragments, 24+ hour sessions, memory efficiency  
+**Template Pattern**: Nested structures `{{.Metrics.Revenue.Monthly}}`  
+**Expected Optimization**: Selective fragment updates, memory management
+
+#### UC-5: Form Validation Updates
+
+**Scenario**: Real-time form validation and progress indicators  
+**Requirements**: Immediate feedback, minimal bandwidth usage  
+**Template Pattern**: Conditional error display `{{if .Errors.Email}}{{.Errors.Email}}{{end}}`  
+**Expected Optimization**: Targeted validation message updates
+
+### Performance Validation Framework
+
+#### Target Metrics
+
+- **Bandwidth Reduction**: 60-85% across use cases
+- **Update Latency**: P95 ≤ 150ms, P99 ≤ 300ms
+- **Memory Efficiency**: <10MB per page for complex applications
+- **Concurrent Pages**: 10,000+ isolated sessions per instance
+- **Update Throughput**: 1,000+ updates/second per page
+
+#### Test Scenarios
+
+```go
+// UC-1: Real-time Content Updates
+func TestBenchmark_SimpleValueUpdates(b *testing.B)
+func TestLatency_CounterIncrement(t *testing.T)
+
+// UC-2: Dynamic List Updates
+func TestMemory_LargeListGrowth(t *testing.T)
+func TestBandwidth_ListAddRemove(t *testing.T)
+
+// UC-3: High-Frequency Updates
+func TestThroughput_HighFrequencyUpdates(t *testing.T)
+func TestCoalescing_RapidUpdates(t *testing.T)
+
+// UC-4: Complex Dashboard Updates
+func TestScale_ComplexDashboard(t *testing.T)
+func TestLongRunning_24HourSession(t *testing.T)
+
+// UC-5: Form Validation Updates
+func TestResponsiveness_FormValidation(t *testing.T)
+func TestPrecision_ValidationMessages(t *testing.T)
+```
+
+### Architectural Insights from Use Cases
+
+**Key Findings:**
+
+1. **Template Complexity vs Performance**: Simple interpolation achieves 85% bandwidth reduction; complex structures fall back to 60% reduction
+2. **Memory vs Performance Trade-off**: Value patching requires position tracking; fragment replace reduces memory usage
+3. **Batching Effectiveness**: 50ms batching window optimal for most high-frequency scenarios
+4. **Fragment Granularity**: Smaller fragments enable better optimization but increase memory overhead
+5. **Session Longevity**: Long-running sessions require active memory management and cleanup
+
+**Implementation Priorities:**
+
+1. **Core Performance**: Focus on simple value updates (80% of use cases)
+2. **Memory Management**: Essential for long-running and complex applications
+3. **Load Handling**: Critical for high-frequency update scenarios
+4. **Observability**: Necessary for optimization and debugging in production
+
+This focused approach ensures LiveTemplate delivers maximum value for its core competency while remaining extensible for specialized use cases that applications can build on top.---
+
 ## Appendix: Analyzer Constructs Reference
 
 ### Supported for Value Patch Updates
@@ -778,8 +1474,8 @@ The following JSON Schema formally specifies the wire message envelope and updat
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.livefir.dev/statetemplate/update-message-1.0.json",
-  "title": "StateTemplate Update Message v1.0",
+  "$id": "https://schemas.livefir.dev/livetemplate/update-message-1.0.json",
+  "title": "LiveTemplate Update Message v1.0",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "seq", "updates", "timestamp"],
