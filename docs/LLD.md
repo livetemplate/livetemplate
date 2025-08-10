@@ -31,8 +31,9 @@ type PageOption func(*Page) error
 ```go
 // Application management
 func NewApplication(options ...ApplicationOption) *Application
-func (app *Application) NewPage(tmpl *html.Template, data interface{}, options ...PageOption) *Page
-func (app *Application) GetPageByToken(token string) (*Page, error)
+func (app *Application) NewPage(tmpl *html.Template, data interface{}, options ...PageOption) (*Page, error)
+func (app *Application) GetPage(token string) (*Page, error)
+func (app *Application) Debug() *Debug
 func (app *Application) Close() error
 
 // Page lifecycle
@@ -44,8 +45,8 @@ func (p *Page) Close() error
 
 // Application management and observability
 func NewApplication(options ...ApplicationOption) *Application
-func (app *Application) NewPage(templates *html.Template, data interface{}, options ...PageOption) *Page
-func (app *Application) GetPageByToken(token string) (*Page, error)
+func (app *Application) NewPage(tmpl *html.Template, data interface{}, options ...PageOption) (*Page, error)
+func (app *Application) GetPage(token string) (*Page, error)
 func (app *Application) Debug() *Debug
 
 // Debug provides application-scoped observability
@@ -200,7 +201,7 @@ pageA1 := appA.NewPage(template, userDataA1)
 pageA2 := appA.NewPage(template, userDataA2)
 
 // Cross-application access is blocked
-invalidPage := appA.GetPageByToken(pageB1.GetToken()) // Returns ErrInvalidApplication
+invalidPage := appA.GetPage(pageB1.GetToken()) // Returns ErrInvalidApplication
 ```
 
 #### 3. Automatic Performance Optimization
@@ -353,7 +354,7 @@ pageA := appA.NewPage(template, userData1)
 pageB := appB.NewPage(template, userData2)
 
 // This returns ErrInvalidApplication - complete isolation guaranteed
-invalidAccess := appA.GetPageByToken(pageB.GetToken())
+invalidAccess := appA.GetPage(pageB.GetToken())
 ```
 
 ---
@@ -389,41 +390,32 @@ type applicationConfig struct {
     sessionStore     SessionStore      // Optional Redis backing
 }
 
-type AppMetrics struct {
-    ActivePages      int64
-    TotalPages       int64
-    TokenGenerations int64
-    TokenValidations int64
-    MemoryUsage      int64
-    LastActivity     time.Time
-}
-
 // Core operations
-func NewApplication(options ...AppOption) *Application
+func NewApplication(options ...ApplicationOption) *Application
 func (app *Application) NewPage(tmpl *html.Template, data interface{}, options ...PageOption) (*Page, error)
-func (app *Application) GetPageByToken(token string) (*Page, error)
-func (app *Application) GetMetrics() *AppMetrics
+func (app *Application) GetPage(token string) (*Page, error)
+func (app *Application) Debug() *Debug
 func (app *Application) Close() error
 
 // Configuration options
-type AppOption func(*Application) error
+type ApplicationOption func(*Application) error
 
-func WithApplicationID(id string) AppOption
-func WithMaxPages(max int) AppOption
-func WithSessionStore(store SessionStore) AppOption
-func WithSigningKey(key []byte) AppOption
+func WithApplicationID(id string) ApplicationOption
+func WithMaxPages(max int) ApplicationOption
+func WithSessionStore(store SessionStore) ApplicationOption
+func WithSigningKey(key []byte) ApplicationOption
 ```
 
 #### Implementation Strategy
 
 ```go
-func NewApplication(options ...AppOption) *Application {
+func NewApplication(options ...ApplicationOption) *Application {
     app := &Application{
         id:           generateApplicationID(),
         pageRegistry: NewPageRegistry(),
         tokenService: NewTokenService(),
         config:       DefaultAppConfig(),
-        metrics:      &AppMetrics{},
+        debug:        NewDebug(app),
     }
 
     // Apply functional options
@@ -488,7 +480,7 @@ func (app *Application) NewPage(tmpl *html.Template, data interface{}, options .
     return page, nil
 }
 
-func (app *Application) GetPageByToken(tokenStr string) (*Page, error) {
+func (app *Application) GetPage(tokenStr string) (*Page, error) {
     // Validate token and extract page ID
     pageToken, err := app.tokenService.ValidateToken(tokenStr)
     if err != nil {
@@ -535,14 +527,14 @@ func TestApplicationIsolation(t *testing.T) {
     require.NoError(t, err)
 
     // Cross-application access should be blocked
-    _, err = appA.GetPageByToken(pageB.GetToken())
+    _, err = appA.GetPage(pageB.GetToken())
     assert.Equal(t, ErrInvalidApplication, err)
 
-    _, err = appB.GetPageByToken(pageA.GetToken())
+    _, err = appB.GetPage(pageA.GetToken())
     assert.Equal(t, ErrInvalidApplication, err)
 
     // Same-application access should work
-    retrievedA, err := appA.GetPageByToken(pageA.GetToken())
+    retrievedA, err := appA.GetPage(pageA.GetToken())
     assert.NoError(t, err)
     assert.Equal(t, pageA.id, retrievedA.id)
 }
@@ -1580,7 +1572,7 @@ func TestApplicationIsolationIntegration(t *testing.T) {
     pageB, _ := appB.NewPage(template, userData2)
 
     // Cross-application access should be automatically blocked
-    _, err := appA.GetPageByToken(pageB.GetToken())
+    _, err := appA.GetPage(pageB.GetToken())
     assert.Equal(t, ErrInvalidApplication, err)
 }
 ```
@@ -2124,7 +2116,7 @@ type PageConfig struct {
     TokenTTL           time.Duration // Default: 24 hours
 }
 
-type PageOption func(*PageConfig)
+type PageOption func(*Page) error
 
 type PageStats struct {
     ID              string
@@ -4260,8 +4252,9 @@ type PageOption func(*Page) error
 
 // Core API functions - zero configuration by default
 func NewApplication(options ...ApplicationOption) *Application
-func (app *Application) NewPage(tmpl *html.Template, data interface{}, options ...PageOption) *Page
-func (app *Application) GetPageByToken(token string) (*Page, error)
+func (app *Application) NewPage(tmpl *html.Template, data interface{}, options ...PageOption) (*Page, error)
+func (app *Application) GetPage(token string) (*Page, error)
+func (app *Application) Debug() *Debug
 func (app *Application) Close() error
 
 func (p *Page) GetToken() string
@@ -4271,7 +4264,6 @@ func (p *Page) SetData(data interface{}) error
 func (p *Page) Close() error
 
 // Application-scoped debugging and observability
-func (app *Application) Debug() *Debug
 
 type Debug struct {
     app *Application
@@ -4309,11 +4301,11 @@ func (d *Debug) ListActivePages() []PageSummary
 
 ## Public API to Internal Wiring
 
-- `NewApplication(options ...AppOption) *Application`
+- `NewApplication(options ...ApplicationOption) *Application`
 
   - Creates `Application` with `AppConfig`, `TemplateAnalyzer`, `Observability`, and `TokenService`.
 
-- `(*Application) NewPage(tmpl *html.Template, initialData any, options ...Option) *Page`
+- `(*Application) NewPage(tmpl *html.Template, initialData any, options ...PageOption) (*Page, error)`
 
   - Constructs `Page` with `PageConfig` and initializes `TemplateTracker`, `MemoryManager`, `MessageDelivery`.
 

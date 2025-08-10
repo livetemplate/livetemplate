@@ -148,8 +148,9 @@ LiveTemplate currently operates with a page-centric model where there is no buil
 
 ```go
 // Each page instance has isolated state to prevent data leakage
-page1 := livetemplate.NewPage(templates, userData1)
-page2 := livetemplate.NewPage(templates, userData2)
+app := livetemplate.NewApplication()
+page1, _ := app.NewPage(templates, userData1)
+page2, _ := app.NewPage(templates, userData2)
 
 // page1 and page2 are completely isolated - no shared state
 // Each page manages its own data and cannot access other pages' data
@@ -157,8 +158,8 @@ token1 := page1.GetToken() // Unique identifier for page1 session
 token2 := page2.GetToken() // Unique identifier for page2 session
 
 // Attempting to use wrong token returns error
-page := livetemplate.GetPageByToken(token1)  // Returns page1
-invalidPage := livetemplate.GetPageByToken("invalid-token") // Returns error
+page := app.GetPage(token1)  // Returns page1
+invalidPage := app.GetPage("invalid-token") // Returns error
 ```
 
 #### Automatic Update Mode Selection (FR2)
@@ -291,7 +292,7 @@ type PageToken struct {
     ExpiresAt     time.Time `json:"expires_at"`
 }
 
-func GetPageByToken(tokenStr string) (*Page, error) {
+func (app *Application) GetPage(tokenStr string) (*Page, error) {
     token, err := parseToken(tokenStr)
     if err != nil {
         return nil, err
@@ -1174,12 +1175,12 @@ func TestPageIsolation(t *testing.T) {
     assert.NotEqual(t, page1.GetToken(), page2.GetToken())
 
     // Each page should only be accessible with its own token
-    retrievedPage1, err := app.GetPageByToken(page1.GetToken())
+    retrievedPage1, err := app.GetPage(page1.GetToken())
     assert.NoError(t, err)
     assert.Equal(t, page1, retrievedPage1)
 
     // Wrong token should return error
-    _, err = app.GetPageByToken("invalid-token")
+    _, err = app.GetPage("invalid-token")
     assert.Error(t, err, "Invalid token access must be blocked")
 
     // Pages should have isolated data
@@ -1211,7 +1212,7 @@ The API provides comprehensive interfaces for modern web applications:
 // Core API for application and page management
 func NewApplication(options ...ApplicationOption) *Application
 func (app *Application) NewPage(templates *html.Template, initialData interface{}, options ...PageOption) *Page
-func (app *Application) GetPageByToken(token string) (*Page, error)
+func (app *Application) GetPage(token string) (*Page, error)
 
 // Page lifecycle and updates
 func (p *Page) GetToken() string
