@@ -43,12 +43,6 @@ func (p *Page) RenderFragments(ctx context.Context, newData interface{}) ([]Frag
 func (p *Page) SetData(data interface{}) error
 func (p *Page) Close() error
 
-// Application management and observability
-func NewApplication(options ...ApplicationOption) *Application
-func (app *Application) NewPage(tmpl *html.Template, data interface{}, options ...PageOption) (*Page, error)
-func (app *Application) GetPage(token string) (*Page, error)
-func (app *Application) Debug() *Debug
-
 // Debug provides application-scoped observability
 type Debug struct {
     // Application-scoped debugging and metrics
@@ -96,13 +90,6 @@ This LLD transforms LiveTemplate from a singleton page model into a production-r
 - **Zero-Configuration Optimization**: Automatic template analysis selects optimal update modes (85% bandwidth reduction via value patches, 60% via fragment replacement)
 - **High-Performance Updates**: Sub-200ms latency supporting 10,000+ concurrent sessions with intelligent batching and coalescing
 - **Production-Ready Security**: Token rotation, memory management, and comprehensive observability
-
-### Key Design Principles
-
-1. **Zero-Configuration Operation**: Intelligent defaults with automatic mode selection
-2. **Security-First Architecture**: Complete isolation with no shared state between sessions
-3. **Performance by Default**: Automatic bandwidth optimization without developer configuration
-4. **Test-Driven Implementation**: Comprehensive test coverage from unit to end-to-end scenarios
 
 ---
 
@@ -278,87 +265,6 @@ The system automatically optimizes bandwidth based on template analysis:
 
 ---
 
-## Architecture Overview
-
-### Two-Layer Architecture
-
-LiveTemplate implements a **two-layer architecture** providing both security and performance optimization:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                 Page Isolation Layer                        │
-│                 (Security & Session Management)             │
-│                                                             │
-│  ┌─────────────────┐    ┌──────────────────────────────────┐ │
-│  │   Application   │◄──►│        TokenService              │ │
-│  │   (Multi-tenant)│    │    (Secure Authentication)       │ │
-│  └─────────────────┘    └──────────────────────────────────┘ │
-│           │                                                  │
-│           ▼                                                  │
-│  ┌─────────────────┐    ┌──────────────────────────────────┐ │
-│  │   PageRegistry  │◄──►│         Page                     │ │
-│  │   (Isolation)   │    │     (Session State)              │ │
-│  └─────────────────┘    └──────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│           Hybrid Incremental Update Layer                  │
-│           (Performance & Bandwidth Optimization)           │
-│                                                             │
-│  ┌─────────────────┐    ┌──────────────────────────────────┐ │
-│  │ TemplateAnalyzer│◄──►│      AnalysisCache               │ │
-│  │  (AST Parser)   │    │     (LRU Cache)                  │ │
-│  └─────────────────┘    └──────────────────────────────────┘ │
-│           │                                                  │
-│           ▼                                                  │
-│  ┌─────────────────┐    ┌──────────────────────────────────┐ │
-│  │ FragmentTracker │◄──►│      UpdatePlanner               │ │
-│  │ (Position Data) │    │   (Mode Selection)               │ │
-│  └─────────────────┘    └──────────────────────────────────┘ │
-│           │                                                  │
-│           ▼                                                  │
-│  ┌─────────────────┐    ┌──────────────────────────────────┐ │
-│  │ MessageFormatter│◄──►│      MemoryManager               │ │
-│  │  (Wire Protocol)│    │   (Resource Control)             │ │
-│  └─────────────────┘    └──────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Zero-Configuration Design Principles
-
-#### 1. Automatic Optimization
-
-```go
-// No configuration required - library makes optimal decisions
-page := livetemplate.NewPage(template, data)
-fragments, err := page.RenderFragments(ctx, newData)
-
-// Automatic behaviors:
-// - Template analysis determines update mode capability
-// - Value patches preferred (85% bandwidth reduction)
-// - Fragment replacement fallback (60% bandwidth reduction)
-// - Intelligent batching and coalescing
-// - Memory management with graceful degradation
-```
-
-#### 2. Security-First Architecture
-
-```go
-// Complete isolation between applications and sessions
-appA := livetemplate.NewApplication(livetemplate.WithApplicationID("service-a"))
-appB := livetemplate.NewApplication(livetemplate.WithApplicationID("service-b"))
-
-// Cross-application access automatically blocked
-pageA := appA.NewPage(template, userData1)
-pageB := appB.NewPage(template, userData2)
-
-// This returns ErrInvalidApplication - complete isolation guaranteed
-invalidAccess := appA.GetPage(pageB.GetToken())
-```
-
----
-
 ## Security Foundation Components (Internal)
 
 > **Note**: All components in this section are internal implementation details in the `internal/` package and are not exposed in the public API.
@@ -377,7 +283,8 @@ type application struct {
     pageRegistry *pageRegistry
     tokenService *security.TokenService
     config       *config.ApplicationConfig
-    metrics      *observability.ApplicationMetrics
+    debug        *Debug
+    debugOnce    sync.Once
     mu           sync.RWMutex
 }
 
@@ -415,7 +322,7 @@ func NewApplication(options ...ApplicationOption) *Application {
         pageRegistry: NewPageRegistry(),
         tokenService: NewTokenService(),
         config:       DefaultAppConfig(),
-        debug:        NewDebug(app),
+        // Debug initialized lazily via Debug() method
     }
 
     // Apply functional options
@@ -434,6 +341,14 @@ func NewApplication(options ...ApplicationOption) *Application {
     }
 
     return app
+}
+
+// Debug returns the debug interface with lazy initialization
+func (app *Application) Debug() *Debug {
+    app.debugOnce.Do(func() {
+        app.debug = newDebug(app) // internal function, not exported
+    })
+    return app.debug
 }
 
 func (app *Application) NewPage(tmpl *html.Template, data interface{}, options ...PageOption) (*Page, error) {
@@ -2933,26 +2848,38 @@ func NewFragmentTracker(config *TrackerConfig) *FragmentTracker {
 }
 
 func (ft *FragmentTracker) ComputeFragmentID(node parse.Node, templatePath string, keyPath []string) string {
-    // Base components for deterministic ID generation
-    components := []string{
-        templatePath,                           // Template file path
-        fmt.Sprintf("%d", node.Position()),     // AST node position
-        strings.Join(keyPath, "."),             // Data path (e.g., "user.profile.name")
+    // Required imports: crypto/sha256, encoding/hex, encoding/binary
+
+    // Use SHA-256 with field separation to prevent collisions
+    hasher := sha256.New()
+
+    // Write template path with separator
+    hasher.Write([]byte(templatePath))
+    hasher.Write([]byte{0x00}) // separator prevents path ambiguity
+
+    // Write data path components with separators
+    for _, segment := range keyPath {
+        hasher.Write([]byte(segment))
+        hasher.Write([]byte{0x00}) // separator
     }
+
+    // Write AST node position
+    position := node.Position()
+    binary.Write(hasher, binary.BigEndian, int64(position))
 
     // Special handling for range nodes
     if rangeNode, ok := node.(*parse.RangeNode); ok {
         if stableKey := ft.extractStableKey(rangeNode); stableKey != "" {
-            components = append(components, stableKey)
+            hasher.Write([]byte{0x00}) // separator
+            hasher.Write([]byte(stableKey))
         } else {
             // No stable key available - return empty to signal fallback
             return ""
         }
     }
 
-    // Generate deterministic hash
-    ft.idGenerator.hasher.Reset()
-    ft.idGenerator.hasher.Write([]byte(strings.Join(components, "|")))
+    // Return first 16 bytes as 32-char hex string for readability
+    return hex.EncodeToString(hasher.Sum(nil)[:16])
     ft.idGenerator.hasher.Write(ft.idGenerator.salt)
 
     hash := ft.idGenerator.hasher.Sum(nil)
@@ -3622,26 +3549,12 @@ func (de *DiffEngine) OptimizeDiff(diff *DataDiff) (*DataDiff, error)
 
 ---
 
-## Test-Driven Development Strategy
+## Integration Patterns
 
-### Testing Pyramid
+### Dependency Injection Architecture
 
-```
-                ┌─────────────────────┐
-                │   Integration Tests │ 20%
-                │   (E2E Scenarios)   │
-                └─────────────────────┘
-              ┌───────────────────────────┐
-              │     Component Tests       │ 30%
-              │  (Inter-component APIs)   │
-              └───────────────────────────┘
-          ┌─────────────────────────────────────┐
-          │           Unit Tests                │ 50%
-          │     (Individual Components)         │
-          └─────────────────────────────────────┘
-```
-
-### Test Categories and Requirements
+````go
+// ServiceContainer manages component dependencies
 
 #### Unit Tests (50% of test effort)
 
@@ -3672,7 +3585,7 @@ func TestComponent_Configuration(t *testing.T) {
     // Test default values
     // Test runtime configuration changes
 }
-```
+````
 
 #### Component Tests (30% of test effort)
 
@@ -3838,11 +3751,11 @@ func TestConcurrentPageUpdates(t *testing.T) {
 
 ---
 
-## Implementation Roadmap
+## API Boundary Summary
 
-### Priority 1: Core Security Foundation (Tasks 1-20)
+### What's Exported (Public API)
 
-**Objective**: Establish secure, isolated multi-tenant architecture with basic functionality.
+````go
 
 #### Phase 1A: Foundation Components (Tasks 1-8)
 
@@ -3975,7 +3888,7 @@ gantt
     Message Protocol  :p3a, after p2c, 5
     Advanced Features :p3b, after p3a, 5
     Observability     :p3c, after p3b, 5
-```
+````
 
 ### Delivery Milestones
 

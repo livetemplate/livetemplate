@@ -1466,6 +1466,244 @@ Notes:
 
 This list should evolve as TemplateAnalyzer gains capabilities. Keep examples in tests aligned with these categories.
 
+## Core Heuristics and Algorithms
+
+LiveTemplate employs several automatic behaviors that require explicit algorithmic definitions for production deployment.
+
+### Fragment Batching Strategy
+
+**Default Batching Window:** 16ms (60fps rendering alignment)
+
+```go
+type BatchConfig struct {
+    WindowDuration time.Duration // Default: 16ms
+    MaxFragments   int           // Default: 50 fragments/batch
+    MaxPayloadSize int           // Default: 64KB
+}
+
+func (b *Batcher) shouldFlush() bool {
+    return time.Since(b.windowStart) >= b.config.WindowDuration ||
+           len(b.pendingFragments) >= b.config.MaxFragments ||
+           b.payloadSize >= b.config.MaxPayloadSize
+}
+```
+
+**Rationale:** 16ms aligns with browser's 60fps rendering cycle, ensuring updates don't exceed one frame boundary. This prevents visual stuttering while maximizing batching efficiency.
+
+### Update Coalescing Strategy
+
+**Default Algorithm:** Last-write-wins with timestamp ordering
+
+```go
+type CoalescingStrategy interface {
+    Coalesce(existing, incoming Fragment) Fragment
+}
+
+// LastWriteWinsStrategy implements temporal coalescing
+type LastWriteWinsStrategy struct{}
+
+func (s *LastWriteWinsStrategy) Coalesce(existing, incoming Fragment) Fragment {
+    if incoming.Timestamp.After(existing.Timestamp) {
+        return incoming // Newer update wins
+    }
+    return existing // Keep existing if newer or equal
+}
+```
+
+**Field-Level Coalescing:** For value updates within the same Fragment ID, merge at the field granularity rather than replacing entire fragments.
+
+### Memory Eviction Policy
+
+**Default Strategy:** LRU with activity-weighted scoring
+
+```go
+type MemoryEviction struct {
+    maxPages     int // Default: 1000 active pages
+    maxFragments int // Default: 10,000 cached fragments
+    evictionRate float64 // Default: 0.1 (10% when threshold exceeded)
+}
+
+func (e *MemoryEviction) calculateEvictionScore(page *Page) float64 {
+    timeSinceAccess := time.Since(page.LastAccessed)
+
+    // Higher score = more likely to be evicted
+    return float64(timeSinceAccess.Seconds()) /
+           (1.0 + float64(page.AccessCount))
+}
+```
+
+**Eviction Triggers:**
+
+- Memory usage exceeds 80% of configured limits
+- Page inactive for >30 minutes with no client connections
+- Fragment cache size exceeds per-page limits (default: 100 fragments/page)
+
+### Fragment ID Generation Algorithm
+
+**Collision-Resistant Hashing:** SHA-256 with field separation
+
+```go
+func generateFragmentID(templatePath string, dataPath []string, position int) string {
+    hasher := sha256.New()
+
+    // Write components with separator to prevent collisions
+    hasher.Write([]byte(templatePath))
+    hasher.Write([]byte{0x00}) // separator
+
+    for _, segment := range dataPath {
+        hasher.Write([]byte(segment))
+        hasher.Write([]byte{0x00}) // separator
+    }
+
+    binary.Write(hasher, binary.BigEndian, int64(position))
+
+    return hex.EncodeToString(hasher.Sum(nil)[:16]) // 32-char hex string
+}
+```
+
+**Collision Prevention:** Field separators (0x00 bytes) prevent path ambiguity like `["user", "name"]` vs `["use", "rname"]`.
+
+### Network Transport Fallback Sequence
+
+**Default Priority Order:** WebSocket → Server-Sent Events → Long-Polling
+
+```go
+type TransportFallback struct {
+    attempts map[string]int // Track failed attempts per transport
+    backoff  time.Duration  // Exponential backoff between attempts
+}
+
+func (t *TransportFallback) nextTransport(failed string) string {
+    switch failed {
+    case "websocket":
+        return "sse"     // Immediate fallback to SSE
+    case "sse":
+        return "polling" // Fallback to long-polling
+    default:
+        return "websocket" // Reset to primary after cool-down
+    }
+}
+```
+
+**Retry Logic:** Exponential backoff (2^attempt \* 1s, max 30s) with circuit breaker pattern after 3 consecutive failures.
+
+## Client-Side Contract
+
+LiveTemplate requires specific client-side behaviors to maintain consistency and performance. These responsibilities are mandatory for proper operation.
+
+### DOM Fragment Application
+
+**Fragment Replacement Rules:**
+
+```javascript
+// Client must apply fragments atomically
+function applyFragment(fragmentId, newContent) {
+  const element = document.querySelector(`[data-fragment-id="${fragmentId}"]`);
+  if (!element) {
+    console.warn(`Fragment ${fragmentId} not found - possible DOM drift`);
+    return false;
+  }
+
+  // Atomic replacement to prevent layout thrashing
+  element.innerHTML = newContent;
+  return true;
+}
+```
+
+**Required Behaviors:**
+
+- **Atomic Updates:** Apply fragment content in a single DOM operation to prevent intermediate states
+- **Error Handling:** Log missing fragments but continue processing remaining updates
+- **Sequence Integrity:** Apply fragments in the order received within each batch
+
+### Fragment ID Persistence
+
+**DOM Attribute Management:**
+
+```html
+<!-- Server-generated template with stable IDs -->
+<div data-fragment-id="a1b2c3d4">{{.UserName}}</div>
+<ul data-fragment-id="e5f6g7h8">
+  {{range .Items}}
+  <li data-fragment-id="{{.FragmentID}}">{{.Name}}</li>
+  {{end}}
+</ul>
+```
+
+**Client Responsibilities:**
+
+- **Preserve Attributes:** Never remove or modify `data-fragment-id` attributes
+- **Nested Fragments:** Support hierarchical fragment updates without breaking parent/child relationships
+- **Dynamic Content:** Maintain fragment IDs when manipulating DOM programmatically
+
+### Connection Recovery Protocol
+
+**Automatic Reconnection:**
+
+```javascript
+class LiveTemplateClient {
+  constructor(config) {
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = 10;
+    this.reconnectDelay = 1000; // Start with 1s delay
+  }
+
+  handleDisconnection() {
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      setTimeout(() => {
+        this.reconnect();
+        this.reconnectAttempts++;
+        this.reconnectDelay *= 2; // Exponential backoff
+      }, this.reconnectDelay);
+    }
+  }
+
+  async reconnect() {
+    // Request full page resync to handle missed updates
+    await this.requestPageSync(this.currentPageToken);
+  }
+}
+```
+
+**Required Recovery Steps:**
+
+1. **Detect Disconnection:** Monitor WebSocket/SSE connection status
+2. **Exponential Backoff:** Implement 1s → 2s → 4s → 8s → ... → 30s max delay between attempts
+3. **Full Resync:** Request complete page state after reconnection to handle missed updates
+4. **Circuit Breaker:** Stop reconnection attempts after 10 consecutive failures
+
+### Performance Requirements
+
+**Update Application Timing:**
+
+- **Batch Processing:** Apply all fragments in a batch within 16ms (one frame)
+- **Large Fragments:** For fragments >10KB, use `requestIdleCallback()` for non-blocking updates
+- **Memory Management:** Release references to old fragment content after successful application
+
+**Error Reporting:**
+
+```javascript
+// Required client-side error reporting
+window.addEventListener("livetemplate-error", (event) => {
+  // Report to server for debugging
+  fetch("/api/client-errors", {
+    method: "POST",
+    body: JSON.stringify({
+      type: event.detail.type,
+      fragmentId: event.detail.fragmentId,
+      error: event.detail.message,
+      pageToken: window.livetemplate.pageToken,
+    }),
+  });
+});
+```
+
+**Mandatory Error Types:**
+
+- `fragment-not-found`: Fragment ID exists in update but not in DOM
+- `application-timeout`: Fragment update took >100ms to apply
+- `connection-failed`: Transport fallback exhausted, manual intervention needed
+
 ---
 
 ## Appendix: Message Envelope JSON Schema (v1.0)
