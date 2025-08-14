@@ -1,13 +1,13 @@
-# StateTemplate - Real-time Go Template Rendering Library
+# LiveTemplate - Real-time Go Template Rendering Library
 
-StateTemplate is a high-performance Go library for real-time HTML template rendering with granular fragment updates. It enables live updates to specific parts of rendered templates without full page reloads, making it ideal for building responsive web applications with WebSocket integration.
+LiveTemplate is a high-performance Go library for real-time HTML template rendering with granular fragment updates. It enables live updates to specific parts of rendered templates without full page reloads, making it ideal for building responsive web applications with WebSocket integration.
 
 ## 🚀 Quick Start
 
 ```bash
 # Clone and setup
 git clone <repository-url>
-cd statetemplate
+cd livetemplate
 
 # Run tests (no bash scripts needed)
 go test -v
@@ -56,7 +56,7 @@ package main
 
 import (
     "html/template"
-    "github.com/livefir/statetemplate"
+    "github.com/livefir/livetemplate"
 )
 
 func main() {
@@ -71,12 +71,12 @@ func main() {
         </div>
     `))
 
-    config := statetemplate.Config{
+    config := livetemplate.Config{
         WrapperTagName: "div",
         IDPrefix:       "fragment-",
     }
 
-    renderer := statetemplate.NewRenderer("main", tmpl, config)
+    renderer := livetemplate.NewRenderer("main", tmpl, config)
 
     // Initial render
     data := struct {
@@ -89,9 +89,9 @@ func main() {
         Items: []string{"item1", "item2"},
     }
 
-    // Create StateTemplate instance
-    st := statetemplate.New(tmpl,
-        statetemplate.WithExpiration(24*time.Hour),
+    // Create LiveTemplate instance
+    st := livetemplate.New(tmpl,
+        livetemplate.WithExpiration(24*time.Hour),
     )
 
     // For initial page load - get full HTML with session info
@@ -138,7 +138,7 @@ func main() {
 
 ### Fragment Extraction and Tracking
 
-StateTemplate automatically extracts different types of fragments:
+LiveTemplate automatically extracts different types of fragments:
 
 ```go
 // Simple fragments: {{.Field}}
@@ -158,7 +158,7 @@ renderer.ExtractBlockFragments(template)
 
 ### Core Types
 
-#### `StateTemplate`
+#### `LiveTemplate`
 
 The main entry point that manages sessions and template rendering.
 
@@ -201,9 +201,9 @@ type InitialRender struct {
 
 ### Key Methods
 
-#### `New(templates *template.Template, options ...Option) *StateTemplate`
+#### `New(templates *template.Template, options ...Option) *LiveTemplate`
 
-Creates a new StateTemplate instance with configuration options.
+Creates a new LiveTemplate instance with configuration options.
 
 #### `NewSession(ctx context.Context, data interface{}) (*InitialRender, error)`
 
@@ -233,8 +233,8 @@ Use `NewSession()` for server-side rendering of the initial page:
 
 ```go
 func pageHandler(w http.ResponseWriter, r *http.Request) {
-    st := statetemplate.New(templates,
-        statetemplate.WithExpiration(24*time.Hour),
+    st := livetemplate.New(templates,
+        livetemplate.WithExpiration(24*time.Hour),
     )
 
     data := getPageData(r)
@@ -306,7 +306,7 @@ func websocketHandler(w http.ResponseWriter, r *http.Request) {
 
 ### Fragment Types
 
-StateTemplate supports four types of template fragments:
+LiveTemplate supports four types of template fragments:
 
 #### Simple Fragments
 
@@ -334,15 +334,15 @@ Registers a template using advanced AST analysis.
 
 ## WebSocket Integration
 
-For real-time web applications, StateTemplate generates WebSocket-compatible updates:
+For real-time web applications, LiveTemplate generates WebSocket-compatible updates:
 
 ```go
 // Set up WebSocket handler
 func handleWebSocket(conn *websocket.Conn) {
     // Create renderer and channels
-    renderer := statetemplate.NewRenderer("main", template, config)
-    updateChan := make(chan statetemplate.DataUpdate)
-    fragmentChan := make(chan statetemplate.Update)
+    renderer := livetemplate.NewRenderer("main", template, config)
+    updateChan := make(chan livetemplate.DataUpdate)
+    fragmentChan := make(chan livetemplate.Update)
 
     go renderer.StartUpdates(updateChan, fragmentChan)
 
@@ -455,7 +455,7 @@ The test suite uses table-driven tests for comprehensive coverage of template ac
 ## Project Structure
 
 ```text
-statetemplate/
+livetemplate/
 ├── renderer.go                # Main renderer orchestrator
 ├── template_tracker.go        # Data change tracking
 ├── fragment_extractor.go      # Fragment extraction and categorization
@@ -468,7 +468,7 @@ statetemplate/
 
 ## Integration
 
-StateTemplate integrates seamlessly with:
+LiveTemplate integrates seamlessly with:
 
 - **WebSocket connections** for real-time bi-directional updates
 - **HTTP Server-Sent Events (SSE)** for live streaming
@@ -480,8 +480,8 @@ The library provides the foundation for building efficient, real-time web applic
 
 ## Documentation
 
-- [`docs/SESSION_DESIGN.md`](docs/SESSION_DESIGN.md) - Session-based architecture design and implementation
-- [`docs/SESSION_IMPLEMENTATION.md`](docs/SESSION_IMPLEMENTATION.md) - Session API implementation guide
+- [`docs/HLD.md`](docs/HLD.md) - High-level design and architectural decisions
+- [`docs/LLD.md`](docs/LLD.md) - Low-level design and implementation specifications
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) - Detailed architectural overview
 - [`docs/EXAMPLES.md`](docs/EXAMPLES.md) - WebSocket integration guide
 - [`examples/README.md`](examples/README.md) - Usage examples and patterns

@@ -1,6 +1,6 @@
-# StateTemplate Examples Guide
+# LiveTemplate Examples Guide
 
-This guide provides practical examples for using StateTemplate in real-world applications.
+This guide provides practical examples for using LiveTemplate in real-world applications.
 
 ## Quick Start
 
@@ -11,12 +11,12 @@ package main
 
 import (
     "log"
-    "statetemplate"
+    "livetemplate"
 )
 
 func main() {
     // Create renderer
-    renderer := statetemplate.NewRenderer()
+    renderer := livetemplate.NewRenderer()
 
     // Parse template
     err := renderer.Parse(`<h1>{{.Title}}</h1><p>{{.Content}}</p>`)
@@ -47,11 +47,11 @@ package main
 import (
     "log"
     "time"
-    "statetemplate"
+    "livetemplate"
 )
 
 func main() {
-    renderer := statetemplate.NewRenderer()
+    renderer := livetemplate.NewRenderer()
 
     // Parse template with fragments
     template := `
@@ -107,11 +107,11 @@ package main
 
 import (
     "log"
-    "statetemplate"
+    "livetemplate"
 )
 
 func main() {
-    renderer := statetemplate.NewRenderer()
+    renderer := livetemplate.NewRenderer()
 
     // Parse templates from files
     err := renderer.ParseFiles("header.html", "content.html", "footer.html")
@@ -153,14 +153,14 @@ package main
 import (
     "embed"
     "log"
-    "statetemplate"
+    "livetemplate"
 )
 
 //go:embed templates
 var templateFS embed.FS
 
 func main() {
-    renderer := statetemplate.NewRenderer()
+    renderer := livetemplate.NewRenderer()
 
     // Parse from embedded filesystem
     err := renderer.ParseFS(templateFS, "templates/*.html")
@@ -196,7 +196,7 @@ import (
     "time"
 
     "github.com/gorilla/websocket"
-    "statetemplate"
+    "livetemplate"
 )
 
 type AppData struct {
@@ -213,14 +213,14 @@ var upgrader = websocket.Upgrader{
 
 func main() {
     // Create renderer
-    renderer := statetemplate.NewRenderer()
+    renderer := livetemplate.NewRenderer()
 
     // Parse template
     template := `
     <!DOCTYPE html>
     <html>
     <head>
-        <title>StateTemplate Demo</title>
+        <title>LiveTemplate Demo</title>
     </head>
     <body>
         <div id="app">
@@ -265,7 +265,7 @@ func main() {
     // Initialize data
     appData := &AppData{
         Counter:   0,
-        Message:   "Welcome to StateTemplate!",
+        Message:   "Welcome to LiveTemplate!",
         Timestamp: time.Now().Format("15:04:05"),
     }
 
@@ -328,7 +328,7 @@ package main
 
 import (
     "log"
-    "statetemplate"
+    "livetemplate"
 )
 
 type Task struct {
@@ -339,7 +339,7 @@ type Task struct {
 }
 
 func main() {
-    renderer := statetemplate.NewRenderer()
+    renderer := livetemplate.NewRenderer()
 
     // Template with range
     template := `
@@ -458,7 +458,7 @@ template := `
 ### Error Handling
 
 ```go
-renderer := statetemplate.NewRenderer()
+renderer := livetemplate.NewRenderer()
 
 // Always check parse errors
 if err := renderer.ParseFiles("template.html"); err != nil {
@@ -519,7 +519,7 @@ import "github.com/gorilla/websocket"
 ```go
 import "github.com/gin-gonic/gin"
 
-func setupWebSocket(renderer *statetemplate.Renderer) gin.HandlerFunc {
+func setupWebSocket(renderer *livetemplate.Renderer) gin.HandlerFunc {
     return gin.WrapH(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         conn, _ := upgrader.Upgrade(w, r, nil)
         defer conn.Close()
@@ -535,7 +535,7 @@ func setupWebSocket(renderer *statetemplate.Renderer) gin.HandlerFunc {
 ### With Server-Sent Events
 
 ```go
-func setupSSE(renderer *statetemplate.Renderer) http.HandlerFunc {
+func setupSSE(renderer *livetemplate.Renderer) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
         w.Header().Set("Content-Type", "text/event-stream")
         w.Header().Set("Cache-Control", "no-cache")
@@ -556,11 +556,11 @@ If upgrading from an earlier version:
 
 ```go
 // Old API (if you had it)
-// renderer := statetemplate.NewRenderer(config)
+// renderer := livetemplate.NewRenderer(config)
 // renderer.AddTemplate("name", content)
 
 // New API
-renderer := statetemplate.NewRenderer()
+renderer := livetemplate.NewRenderer()
 renderer.Parse(content) // or ParseFiles, ParseGlob, ParseFS
 
 // Update types changed

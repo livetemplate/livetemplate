@@ -1,8 +1,8 @@
-# StateTemplate API Reference
+# LiveTemplate API Reference
 
 ## Overview
 
-StateTemplate provides a clean, focused API for real-time template rendering. The current public API centers around the `Renderer` type with supporting Parse methods and real-time update capabilities.
+LiveTemplate provides a clean, focused API for real-time template rendering. The current public API centers around the `Renderer` type with supporting Parse methods and real-time update capabilities.
 
 ## Current Public API
 
@@ -49,9 +49,9 @@ type RangeInfo struct {
 Creates a new renderer instance with optional configuration.
 
 ```go
-renderer := statetemplate.NewRenderer()
+renderer := livetemplate.NewRenderer()
 // or with options
-renderer := statetemplate.NewRenderer(someOption)
+renderer := livetemplate.NewRenderer(someOption)
 ```
 
 ### Template Parsing Methods
@@ -141,12 +141,12 @@ package main
 
 import (
     "log"
-    "statetemplate"
+    "livetemplate"
 )
 
 func main() {
     // Create renderer
-    renderer := statetemplate.NewRenderer()
+    renderer := livetemplate.NewRenderer()
 
     // Parse template
     err := renderer.Parse(`<h1>{{.Title}}</h1><p>{{.Content}}</p>`)
@@ -198,7 +198,7 @@ renderer.SendUpdate(newData)
 ### File-based Templates
 
 ```go
-renderer := statetemplate.NewRenderer()
+renderer := livetemplate.NewRenderer()
 
 // Parse from files
 err := renderer.ParseFiles("header.html", "content.html", "footer.html")
@@ -219,7 +219,7 @@ if err != nil {
 //go:embed templates
 var templateFS embed.FS
 
-renderer := statetemplate.NewRenderer()
+renderer := livetemplate.NewRenderer()
 err := renderer.ParseFS(templateFS, "templates/*.html")
 if err != nil {
     log.Fatal(err)
@@ -252,7 +252,7 @@ The `Update.Action` field can contain:
 
 ### Range Operations
 
-For templates with `{{range}}` blocks, StateTemplate automatically generates granular list updates:
+For templates with `{{range}}` blocks, LiveTemplate automatically generates granular list updates:
 
 ```html
 {{range .Items}}

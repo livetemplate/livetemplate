@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# CI Validation Script for StateTemplate
+# CI Validation Script for LiveTemplate
 # Runs comprehensive validation including tests, formatting, vetting, and linting
 
 set -e
 
-echo "🚀 Starting CI validation for StateTemplate..."
+echo "🚀 Starting CI validation for LiveTemplate..."
 echo "================================================"
 
 # Function to check if a command exists
