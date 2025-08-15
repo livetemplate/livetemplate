@@ -2,7 +2,27 @@ package strategy
 
 import (
 	"strings"
+
+	"github.com/livefir/livetemplate/internal/diff"
 )
+
+// ConditionalSlot represents a conditional dynamic slot for enhanced Strategy 1
+type ConditionalSlot struct {
+	// Position in the statics array where this conditional applies
+	Position int `json:"position"`
+
+	// ConditionType indicates the type of conditional ("boolean", "nil-notnil", "show-hide")
+	ConditionType string `json:"condition_type"`
+
+	// TruthyValue is the content when condition is true/not-nil/shown
+	TruthyValue string `json:"truthy_value"`
+
+	// FalsyValue is the content when condition is false/nil/hidden (usually empty)
+	FalsyValue string `json:"falsy_value,omitempty"`
+
+	// IsFullElement indicates if this conditional controls an entire element
+	IsFullElement bool `json:"is_full_element,omitempty"`
+}
 
 // StaticDynamicData represents Strategy 1 fragment data for maximum bandwidth efficiency
 type StaticDynamicData struct {
@@ -11,6 +31,9 @@ type StaticDynamicData struct {
 
 	// Dynamics maps placeholder positions to dynamic values
 	Dynamics map[int]string `json:"dynamics"`
+
+	// Conditionals maps placeholder positions to conditional logic
+	Conditionals map[int]*ConditionalSlot `json:"conditionals,omitempty"`
 
 	// IsEmpty indicates if this represents an empty state (show/hide scenario)
 	IsEmpty bool `json:"is_empty,omitempty"`
@@ -54,6 +77,23 @@ func (g *StaticDynamicGenerator) Generate(oldHTML, newHTML, fragmentID string) (
 
 	// Normal text-only change scenario
 	return g.generateTextChanges(oldHTML, newHTML, fragmentID)
+}
+
+// GenerateConditional creates a conditional static/dynamic fragment from detected pattern
+func (g *StaticDynamicGenerator) GenerateConditional(conditionalPattern *diff.ConditionalPattern, fragmentID string) (*StaticDynamicData, error) {
+	switch conditionalPattern.Type {
+	case diff.ConditionalBoolean:
+		return g.generateBooleanConditional(conditionalPattern, fragmentID)
+	case diff.ConditionalShowHide:
+		return g.generateShowHideConditional(conditionalPattern, fragmentID)
+	case diff.ConditionalNilNotNil:
+		return g.generateNilNotNilConditional(conditionalPattern, fragmentID)
+	case diff.ConditionalIfElse:
+		return g.generateIfElseConditional(conditionalPattern, fragmentID)
+	default:
+		// Fallback to regular generation
+		return g.Generate(conditionalPattern.States[0], conditionalPattern.States[1], fragmentID)
+	}
 }
 
 // generateShowContent handles showing previously hidden content
@@ -323,4 +363,205 @@ func (g *StaticDynamicGenerator) ReconstructHTML(data *StaticDynamicData) string
 	}
 
 	return result.String()
+}
+
+// generateBooleanConditional handles boolean attribute conditionals like {{if .Flag}} disabled{{end}}
+func (g *StaticDynamicGenerator) generateBooleanConditional(pattern *diff.ConditionalPattern, fragmentID string) (*StaticDynamicData, error) {
+	// Extract the difference between the two states
+	falsyHTML := pattern.States[0]  // State without attribute
+	truthyHTML := pattern.States[1] // State with attribute
+
+	// Find the difference position
+	diffPos := g.findAttributeDifference(falsyHTML, truthyHTML)
+	if diffPos == -1 {
+		// Fallback to regular generation if we can't find the difference
+		return g.Generate(falsyHTML, truthyHTML, fragmentID)
+	}
+
+	// Split the HTML at the difference position
+	statics := []string{
+		falsyHTML[:diffPos],
+		falsyHTML[diffPos:],
+	}
+
+	// Extract the conditional content (the attribute)
+	conditionalContent := truthyHTML[diffPos : diffPos+(len(truthyHTML)-len(falsyHTML))]
+
+	conditionals := map[int]*ConditionalSlot{
+		0: {
+			Position:      0,
+			ConditionType: "boolean",
+			TruthyValue:   conditionalContent,
+			FalsyValue:    "",
+			IsFullElement: false,
+		},
+	}
+
+	return &StaticDynamicData{
+		Statics:      statics,
+		Dynamics:     map[int]string{},
+		Conditionals: conditionals,
+		IsEmpty:      false,
+		FragmentID:   fragmentID,
+	}, nil
+}
+
+// generateShowHideConditional handles show/hide element conditionals like {{if .Show}}<element>{{end}}
+func (g *StaticDynamicGenerator) generateShowHideConditional(pattern *diff.ConditionalPattern, fragmentID string) (*StaticDynamicData, error) {
+	hiddenHTML := pattern.States[0] // Empty state
+	shownHTML := pattern.States[1]  // Content state
+
+	// For show/hide, we have a simple conditional slot
+	conditionals := map[int]*ConditionalSlot{
+		0: {
+			Position:      0,
+			ConditionType: "show-hide",
+			TruthyValue:   shownHTML,
+			FalsyValue:    hiddenHTML,
+			IsFullElement: true,
+		},
+	}
+
+	return &StaticDynamicData{
+		Statics:      []string{""}, // Single empty static slot
+		Dynamics:     map[int]string{},
+		Conditionals: conditionals,
+		IsEmpty:      false,
+		FragmentID:   fragmentID,
+	}, nil
+}
+
+// generateNilNotNilConditional handles nil/not-nil conditionals like {{if .Value}} class="{{.Value}}"{{end}}
+func (g *StaticDynamicGenerator) generateNilNotNilConditional(pattern *diff.ConditionalPattern, fragmentID string) (*StaticDynamicData, error) {
+	// Similar to boolean but with actual values
+	nilHTML := pattern.States[0]   // State without attribute/content
+	valueHTML := pattern.States[1] // State with attribute/content
+
+	// Find the difference position
+	diffPos := g.findAttributeDifference(nilHTML, valueHTML)
+	if diffPos == -1 {
+		// Fallback to regular generation if we can't find the difference
+		return g.Generate(nilHTML, valueHTML, fragmentID)
+	}
+
+	// Split the HTML at the difference position
+	statics := []string{
+		nilHTML[:diffPos],
+		nilHTML[diffPos:],
+	}
+
+	// Extract the conditional content
+	conditionalContent := valueHTML[diffPos : diffPos+(len(valueHTML)-len(nilHTML))]
+
+	conditionals := map[int]*ConditionalSlot{
+		0: {
+			Position:      0,
+			ConditionType: "nil-notnil",
+			TruthyValue:   conditionalContent,
+			FalsyValue:    "",
+			IsFullElement: false,
+		},
+	}
+
+	return &StaticDynamicData{
+		Statics:      statics,
+		Dynamics:     map[int]string{},
+		Conditionals: conditionals,
+		IsEmpty:      false,
+		FragmentID:   fragmentID,
+	}, nil
+}
+
+// generateIfElseConditional handles if-else structural conditionals like {{if .Flag}}<table>{{else}}<div>{{end}}
+func (g *StaticDynamicGenerator) generateIfElseConditional(pattern *diff.ConditionalPattern, fragmentID string) (*StaticDynamicData, error) {
+	falsyHTML := pattern.States[0]  // False condition structure
+	truthyHTML := pattern.States[1] // True condition structure
+
+	// For if-else structural conditionals, we need to extract common dynamic values
+	// and create a conditional slot for the structural switch
+	statics, dynamics, err := g.extractDynamicValues(falsyHTML, truthyHTML)
+	if err != nil {
+		// If we can't extract dynamic values, treat as pure structural switch
+		statics = []string{""}
+		dynamics = map[int]string{}
+	}
+
+	// Create the conditional slot for structural switching
+	conditionals := map[int]*ConditionalSlot{
+		0: {
+			Position:      0,
+			ConditionType: "if-else",
+			TruthyValue:   truthyHTML,
+			FalsyValue:    falsyHTML,
+			IsFullElement: true,
+		},
+	}
+
+	return &StaticDynamicData{
+		Statics:      statics,
+		Dynamics:     dynamics,
+		Conditionals: conditionals,
+		IsEmpty:      false,
+		FragmentID:   fragmentID,
+	}, nil
+}
+
+// extractDynamicValues attempts to find common dynamic values between two structural templates
+func (g *StaticDynamicGenerator) extractDynamicValues(html1, html2 string) ([]string, map[int]string, error) {
+	// Look for common patterns in both HTML structures that might be dynamic values
+	// This is a heuristic approach to find dynamic content within different structures
+
+	// Extract text content from both structures
+	text1 := g.extractTextContent(html1)
+	text2 := g.extractTextContent(html2)
+
+	// If there are common text values, treat them as dynamics
+	if text1 != "" && text1 == text2 {
+		// Same text content in different structures - this is a dynamic value
+		return []string{""}, map[int]string{0: text1}, nil
+	}
+
+	// If texts are different but both non-empty, include both as possible dynamics
+	if text1 != "" && text2 != "" && text1 != text2 {
+		// Different text content - could be part of the change
+		return []string{""}, map[int]string{0: text2}, nil // Use the new text
+	}
+
+	// No common dynamic values found
+	return []string{""}, map[int]string{}, nil
+}
+
+// extractTextContent extracts text content from HTML
+func (g *StaticDynamicGenerator) extractTextContent(html string) string {
+	var text strings.Builder
+	inTag := false
+
+	for _, char := range html {
+		if char == '<' {
+			inTag = true
+		} else if char == '>' {
+			inTag = false
+		} else if !inTag && char != ' ' && char != '\t' && char != '\n' {
+			text.WriteRune(char)
+		}
+	}
+
+	return strings.TrimSpace(text.String())
+}
+
+// findAttributeDifference finds the position where two HTML strings differ (for attribute changes)
+func (g *StaticDynamicGenerator) findAttributeDifference(shorter, longer string) int {
+	// Find the first position where they differ
+	for i := 0; i < len(shorter) && i < len(longer); i++ {
+		if shorter[i] != longer[i] {
+			return i
+		}
+	}
+
+	// If shorter string is a prefix of longer, difference starts at end of shorter
+	if len(shorter) < len(longer) {
+		return len(shorter)
+	}
+
+	return -1 // No difference found
 }

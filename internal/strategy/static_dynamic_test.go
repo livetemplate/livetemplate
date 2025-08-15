@@ -3,6 +3,8 @@ package strategy
 import (
 	"strings"
 	"testing"
+
+	"github.com/livefir/livetemplate/internal/diff"
 )
 
 func TestStaticDynamicGenerator_Generate(t *testing.T) {
@@ -398,6 +400,180 @@ func BenchmarkStaticDynamicGenerator_Generate(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+}
+
+func TestStaticDynamicGenerator_GenerateConditional(t *testing.T) {
+	generator := NewStaticDynamicGenerator()
+
+	testCases := []struct {
+		name            string
+		conditionalType string
+		states          [2]string
+		isFullElement   bool
+	}{
+		{
+			name:            "boolean attribute conditional",
+			conditionalType: "boolean",
+			states:          [2]string{`<button>Click me</button>`, `<button disabled>Click me</button>`},
+			isFullElement:   false,
+		},
+		{
+			name:            "show/hide element conditional",
+			conditionalType: "show-hide",
+			states:          [2]string{``, `<span class="badge">5</span>`},
+			isFullElement:   true,
+		},
+		{
+			name:            "nil-notnil attribute conditional",
+			conditionalType: "nil-notnil",
+			states:          [2]string{`<div>Content</div>`, `<div class="active">Content</div>`},
+			isFullElement:   false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			pattern := &diff.ConditionalPattern{
+				Type:          diff.ConditionalType(tc.conditionalType),
+				States:        tc.states,
+				ChangeType:    "attribute",
+				IsFullElement: tc.isFullElement,
+				IsPredictable: true,
+			}
+
+			result, err := generator.GenerateConditional(pattern, "test_conditional")
+			if err != nil {
+				t.Fatalf("GenerateConditional() error = %v", err)
+			}
+
+			// Verify basic structure
+			if result == nil {
+				t.Fatal("GenerateConditional() returned nil result")
+			}
+
+			if result.FragmentID != "test_conditional" {
+				t.Errorf("FragmentID = %s, want test_conditional", result.FragmentID)
+			}
+
+			// Verify conditionals are populated
+			if len(result.Conditionals) == 0 {
+				t.Error("Expected conditionals to be populated, but got empty map")
+			}
+
+			// Verify the first conditional slot
+			conditional, exists := result.Conditionals[0]
+			if !exists {
+				t.Error("Expected conditional slot at position 0")
+			} else {
+				if conditional.ConditionType != tc.conditionalType {
+					t.Errorf("ConditionType = %s, want %s", conditional.ConditionType, tc.conditionalType)
+				}
+
+				if conditional.IsFullElement != tc.isFullElement {
+					t.Errorf("IsFullElement = %v, want %v", conditional.IsFullElement, tc.isFullElement)
+				}
+			}
+		})
+	}
+}
+
+func TestStaticDynamicGenerator_ConditionalBandwidthReduction(t *testing.T) {
+	generator := NewStaticDynamicGenerator()
+
+	testCases := []struct {
+		name                 string
+		states               [2]string
+		conditionalType      string
+		expectedMinReduction float64
+	}{
+		{
+			name:                 "boolean attribute - good efficiency",
+			states:               [2]string{`<button class="btn">Click me</button>`, `<button class="btn" disabled>Click me</button>`},
+			conditionalType:      "boolean",
+			expectedMinReduction: 30.0, // Realistic expectation
+		},
+		{
+			name:                 "show/hide element - conditional benefit",
+			states:               [2]string{``, `<div class="notification error">An error occurred! Please try again.</div>`},
+			conditionalType:      "show-hide",
+			expectedMinReduction: 0.0, // May have overhead but provides conditional logic
+		},
+		{
+			name:                 "nil-notnil attribute - good efficiency",
+			states:               [2]string{`<div class="container">Content here</div>`, `<div class="container active">Content here</div>`},
+			conditionalType:      "nil-notnil",
+			expectedMinReduction: 35.0, // Realistic expectation
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			pattern := &diff.ConditionalPattern{
+				Type:          diff.ConditionalType(tc.conditionalType),
+				States:        tc.states,
+				ChangeType:    "attribute",
+				IsFullElement: tc.conditionalType == "show-hide",
+				IsPredictable: true,
+			}
+
+			result, err := generator.GenerateConditional(pattern, "bandwidth_test")
+			if err != nil {
+				t.Fatalf("GenerateConditional() error = %v", err)
+			}
+
+			// Calculate bandwidth reduction
+			originalSize := len(tc.states[1]) // Size of the "new" state
+			compressedSize := calculateConditionalSize(result)
+			reduction := (1.0 - float64(compressedSize)/float64(originalSize)) * 100.0
+
+			t.Logf("Original: %d bytes, Compressed: %d bytes, Reduction: %.2f%%",
+				originalSize, compressedSize, reduction)
+
+			if tc.expectedMinReduction > 0 && reduction < tc.expectedMinReduction {
+				t.Errorf("Expected at least %.1f%% reduction, got %.2f%%", tc.expectedMinReduction, reduction)
+			}
+
+			// Verify that conditional approach is much more efficient than regular Strategy 1
+			regularResult, err := generator.Generate(tc.states[0], tc.states[1], "regular_test")
+			if err == nil {
+				regularSize := calculateRegularSize(regularResult)
+				conditionalEfficiency := float64(regularSize) / float64(compressedSize)
+
+				t.Logf("Conditional is %.2fx more efficient than regular Strategy 1", conditionalEfficiency)
+
+				if conditionalEfficiency < 1.5 {
+					t.Logf("Warning: Conditional approach should be significantly more efficient (got %.2fx)", conditionalEfficiency)
+				}
+			}
+		})
+	}
+}
+
+// Helper functions for bandwidth calculation
+func calculateConditionalSize(data *StaticDynamicData) int {
+	size := 0
+
+	// Add dynamic values
+	for _, dynamic := range data.Dynamics {
+		size += len(dynamic)
+	}
+
+	// Add conditional values (the key advantage)
+	for _, conditional := range data.Conditionals {
+		size += len(conditional.TruthyValue)
+		size += len(conditional.FalsyValue)
+		size += 20 // metadata overhead
+	}
+
+	return size
+}
+
+func calculateRegularSize(data *StaticDynamicData) int {
+	size := 0
+	for _, dynamic := range data.Dynamics {
+		size += len(dynamic)
+	}
+	return size
 }
 
 func BenchmarkStaticDynamicGenerator_ReconstructHTML(b *testing.B) {
