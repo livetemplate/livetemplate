@@ -89,23 +89,33 @@ if [ $LINT_EXIT_CODE -eq 0 ]; then
 else
     echo "❌ golangci-lint found issues that need to be fixed"
     echo ""
-    echo "🤖 LLM-PARSEABLE GOLANGCI-LINT ISSUES:"
+    echo "🤖 FULL GOLANGCI-LINT OUTPUT:"
     echo "======================================"
-    echo "The following issues were found by golangci-lint and need to be addressed:"
+    echo "$LINT_OUTPUT"
+    echo "======================================"
     echo ""
     
-    # Extract just the issue lines (file:line:column format)
-    echo "$LINT_OUTPUT" | grep -E "^[^[:space:]].*:[0-9]+:[0-9]+:" | head -20
+    # Try to extract specific issue lines for structured parsing
+    ISSUE_LINES=$(echo "$LINT_OUTPUT" | grep -E "^[^[:space:]].*:[0-9]+:[0-9]+:" | head -20)
     
-    echo ""
-    echo "INSTRUCTIONS FOR LLM:"
-    echo "- Each line above shows: file:line:column: message (linter)"
-    echo "- Fix ineffassign issues by removing or using assigned variables"
-    echo "- Fix staticcheck issues according to Go best practices"  
-    echo "- Fix unused issues by removing unused functions/variables or adding // nolint:unused if intentionally kept"
-    echo "- Use replace_string_in_file tool to fix each issue"
-    echo "- Include sufficient context (3-5 lines before/after) when using replace_string_in_file"
-    echo "======================================"
+    if [ -n "$ISSUE_LINES" ]; then
+        echo "🔍 PARSED ISSUES FOR LLM:"
+        echo "-------------------------"
+        echo "$ISSUE_LINES"
+        echo ""
+        echo "INSTRUCTIONS FOR LLM:"
+        echo "- Each line above shows: file:line:column: message (linter)"
+        echo "- Fix errcheck issues by checking returned errors"
+        echo "- Fix ineffassign issues by removing or using assigned variables"
+        echo "- Fix staticcheck issues according to Go best practices"  
+        echo "- Fix unused issues by removing unused functions/variables or adding // nolint:unused if intentionally kept"
+        echo "- Fix modernize issues by updating to modern Go syntax"
+        echo "- Use Edit/MultiEdit tools to fix each issue"
+        echo "- Include sufficient context when making edits"
+    else
+        echo "⚠️  Could not parse issue format. Please check the full output above."
+    fi
+    
     echo ""
     exit 1
 fi
