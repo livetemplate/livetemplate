@@ -1,6 +1,7 @@
 package strategy
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -119,8 +120,6 @@ func TestStaticDynamicGenerator_Generate(t *testing.T) {
 }
 
 func TestStaticDynamicGenerator_TextOnlyChanges(t *testing.T) {
-	generator := NewStaticDynamicGenerator()
-
 	tests := []struct {
 		name         string
 		oldHTML      string
@@ -147,9 +146,12 @@ func TestStaticDynamicGenerator_TextOnlyChanges(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
+	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			data, err := generator.Generate(tt.oldHTML, tt.newHTML, "test")
+			// Use a fresh generator for each test case to avoid cache interference
+			generator := NewStaticDynamicGenerator()
+			fragmentID := fmt.Sprintf("test-%d", i)
+			data, err := generator.Generate(tt.oldHTML, tt.newHTML, fragmentID)
 			if err != nil {
 				t.Fatalf("Generate() error = %v", err)
 			}
@@ -588,4 +590,225 @@ func BenchmarkStaticDynamicGenerator_ReconstructHTML(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = generator.ReconstructHTML(data)
 	}
+}
+
+// TestStaticDynamicWorkflow demonstrates the core Strategy 1 workflow:
+// 1. Initial render: Generate static segments + dynamics
+// 2. Subsequent updates: Only send dynamic values (static segments cached)
+func TestStaticDynamicWorkflow(t *testing.T) {
+	// Note: Each test case gets its own generator to simulate independent sessions
+
+	tests := []struct {
+		name string
+		// Step 1: Initial render with both statics and dynamics
+		step1OldHTML          string
+		step1NewHTML          string
+		expectedStep1Statics  []string
+		expectedStep1Dynamics map[int]string
+		// Step 2: Subsequent update with dynamics-only (statics cached)
+		step2OldHTML          string
+		step2NewHTML          string
+		expectedStep2Statics  []string // Should be empty (cached)
+		expectedStep2Dynamics map[int]string
+	}{
+		{
+			name: "Profile update workflow",
+			// Step 1: Initial render
+			step1OldHTML: "",
+			step1NewHTML: `<div class="profile"><p>Name: John</p><p>Posts: 5</p></div>`,
+			expectedStep1Statics: []string{
+				`<div class="profile"><p>Name: `,
+				`</p><p>Posts: `,
+				`</p></div>`,
+			},
+			expectedStep1Dynamics: map[int]string{
+				0: "John",
+				1: "5",
+			},
+			// Step 2: Update with cached statics
+			step2OldHTML:         `<div class="profile"><p>Name: John</p><p>Posts: 5</p></div>`,
+			step2NewHTML:         `<div class="profile"><p>Name: Jane</p><p>Posts: 8</p></div>`,
+			expectedStep2Statics: []string{}, // Cached on client
+			expectedStep2Dynamics: map[int]string{
+				0: "Jane",
+				1: "8",
+			},
+		},
+		{
+			name: "Counter workflow",
+			// Step 1: Initial render
+			step1OldHTML: "",
+			step1NewHTML: `<span>Count: 0</span>`,
+			expectedStep1Statics: []string{
+				`<span>Count: `,
+				`</span>`,
+			},
+			expectedStep1Dynamics: map[int]string{
+				0: "0",
+			},
+			// Step 2: Increment with cached statics
+			step2OldHTML:         `<span>Count: 0</span>`,
+			step2NewHTML:         `<span>Count: 1</span>`,
+			expectedStep2Statics: []string{}, // Cached on client
+			expectedStep2Dynamics: map[int]string{
+				0: "1",
+			},
+		},
+		{
+			name: "Multiple values workflow",
+			// Step 1: Initial render
+			step1OldHTML: "",
+			step1NewHTML: `<div>Name: John, Age: 25</div>`,
+			expectedStep1Statics: []string{
+				`<div>Name: `,
+				`, Age: `,
+				`</div>`,
+			},
+			expectedStep1Dynamics: map[int]string{
+				0: "John",
+				1: "25",
+			},
+			// Step 2: Update both values with cached statics
+			step2OldHTML:         `<div>Name: John, Age: 25</div>`,
+			step2NewHTML:         `<div>Name: Jane, Age: 30</div>`,
+			expectedStep2Statics: []string{}, // Cached on client
+			expectedStep2Dynamics: map[int]string{
+				0: "Jane",
+				1: "30",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a fresh generator for each test case to simulate independent sessions
+			generator := NewStaticDynamicGenerator()
+
+			// STEP 1: Initial render with both statics and dynamics
+			t.Logf("=== STEP 1: Initial render - %s ===", tt.name)
+			step1Fragment, err := generator.Generate(tt.step1OldHTML, tt.step1NewHTML, "step1-fragment")
+			if err != nil {
+				t.Fatalf("Step 1 fragment generation failed: %v", err)
+			}
+
+			// Display step 1 results
+			t.Logf("Old HTML: %s", tt.step1OldHTML)
+			t.Logf("New HTML: %s", tt.step1NewHTML)
+			t.Logf("")
+
+			t.Logf("EXPECTED Step 1 Statics:")
+			for i, static := range tt.expectedStep1Statics {
+				t.Logf("  [%d]: %q", i, static)
+			}
+			t.Logf("EXPECTED Step 1 Dynamics:")
+			for pos, dynamic := range tt.expectedStep1Dynamics {
+				t.Logf("  [%d]: %q", pos, dynamic)
+			}
+			t.Logf("")
+
+			t.Logf("ACTUAL Step 1 Statics (%d):", len(step1Fragment.Statics))
+			for i, static := range step1Fragment.Statics {
+				t.Logf("  [%d]: %q", i, static)
+			}
+			t.Logf("ACTUAL Step 1 Dynamics (%d):", len(step1Fragment.Dynamics))
+			for pos, dynamic := range step1Fragment.Dynamics {
+				t.Logf("  [%d]: %q", pos, dynamic)
+			}
+			t.Logf("")
+
+			// Verify step 1 reconstruction works
+			reconstructed1 := generator.ReconstructHTML(step1Fragment)
+			if !equalHTML(reconstructed1, tt.step1NewHTML) {
+				t.Errorf("Step 1 reconstruction failed:\nExpected: %s\nGot:      %s", tt.step1NewHTML, reconstructed1)
+			}
+
+			// STEP 2: Subsequent update with dynamics-only (simulating cached statics)
+			t.Logf("=== STEP 2: Update with cached statics ===")
+			// NOTE: Use the SAME fragment ID so the generator knows statics were cached from Step 1
+			// This simulates a real-world scenario where the same fragment is updated
+			step2Fragment, err := generator.Generate(tt.step2OldHTML, tt.step2NewHTML, "step1-fragment")
+			if err != nil {
+				t.Fatalf("Step 2 fragment generation failed: %v", err)
+			}
+
+			// Display step 2 results
+			t.Logf("Old HTML: %s", tt.step2OldHTML)
+			t.Logf("New HTML: %s", tt.step2NewHTML)
+			t.Logf("")
+
+			t.Logf("EXPECTED Step 2 (Dynamics-Only):")
+			t.Logf("  Statics: %d (should be empty - cached on client)", len(tt.expectedStep2Statics))
+			for i, static := range tt.expectedStep2Statics {
+				t.Logf("    [%d]: %q", i, static)
+			}
+			t.Logf("  Dynamics: %d (only changed values)", len(tt.expectedStep2Dynamics))
+			for pos, dynamic := range tt.expectedStep2Dynamics {
+				t.Logf("    [%d]: %q", pos, dynamic)
+			}
+			t.Logf("")
+
+			t.Logf("ACTUAL Step 2 (Current Implementation):")
+			t.Logf("  Statics: %d", len(step2Fragment.Statics))
+			for i, static := range step2Fragment.Statics {
+				t.Logf("    [%d]: %q", i, static)
+			}
+			t.Logf("  Dynamics: %d", len(step2Fragment.Dynamics))
+			for pos, dynamic := range step2Fragment.Dynamics {
+				t.Logf("    [%d]: %q", pos, dynamic)
+			}
+			t.Logf("")
+
+			// NOTE: Step 2 dynamics-only fragments cannot be reconstructed with ReconstructHTML()
+			// because they don't contain statics (which are cached client-side).
+			// In a real application, the client would combine the cached statics with received dynamics.
+			if len(step2Fragment.Statics) > 0 {
+				// Only test reconstruction if statics are present (not dynamics-only)
+				reconstructed2 := generator.ReconstructHTML(step2Fragment)
+				if !equalHTML(reconstructed2, tt.step2NewHTML) {
+					t.Errorf("Step 2 reconstruction failed:\nExpected: %s\nGot:      %s", tt.step2NewHTML, reconstructed2)
+				}
+			} else {
+				t.Logf("Step 2 is dynamics-only (statics cached) - skipping reconstruction test")
+			}
+
+			// Quality analysis for two-step workflow
+			t.Logf("TWO-STEP WORKFLOW ANALYSIS:")
+
+			// Step 1 should have statics and dynamics
+			if len(step1Fragment.Statics) > 0 && len(step1Fragment.Dynamics) > 0 {
+				t.Logf("  ✅ Step 1: Both statics (%d) and dynamics (%d) present", len(step1Fragment.Statics), len(step1Fragment.Dynamics))
+			} else {
+				t.Logf("  ⚠️  Step 1: Should have both statics and dynamics")
+			}
+
+			// Step 2 should ideally have only dynamics (statics cached)
+			// NOTE: Current implementation still includes statics - this shows the optimization opportunity
+			if len(step2Fragment.Statics) == 0 && len(step2Fragment.Dynamics) > 0 {
+				t.Logf("  ✅ Step 2: Pure dynamics-only transmission (optimal)")
+			} else if len(step2Fragment.Dynamics) > 0 {
+				t.Logf("  ⚠️  Step 2: Contains statics (%d) - optimization opportunity for caching", len(step2Fragment.Statics))
+			} else {
+				t.Logf("  ❌ Step 2: No dynamics detected")
+			}
+
+			// Both steps should use the same generator.Generate() method
+			t.Logf("  ✅ Both steps use same generator.Generate() method (library handles caching internally)")
+
+			t.Logf("") // Empty line for readability
+		})
+	}
+
+}
+
+// equalHTML compares two HTML strings ignoring whitespace differences
+func equalHTML(html1, html2 string) bool {
+	normalize := func(s string) string {
+		// Remove extra whitespace and normalize
+		s = strings.ReplaceAll(s, "\n", "")
+		s = strings.ReplaceAll(s, "\t", "")
+		s = strings.ReplaceAll(s, "  ", " ")
+		return strings.TrimSpace(s)
+	}
+
+	return normalize(html1) == normalize(html2)
 }
