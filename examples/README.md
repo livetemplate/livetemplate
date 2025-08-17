@@ -1,99 +1,25 @@
-# State Template Examples
+# Examples
 
-This directory contains examples demonstrating different aspects of the state template system:
+## 🔧 Currently Under Renovation
 
-## 📁 Examples Overview
+**Note:** The examples directory is currently being updated to align with the new four-tier strategy architecture.
 
-### Core Examples
+The legacy examples have been removed as they were based on the old fragment-based approach. New examples demonstrating the HTML diffing-enhanced four-tier strategy will be added as part of the upcoming implementation tasks.
 
-### 1. `comprehensive-demo/` - Full System Demo
+## 🎯 Planned Examples
 
-**File:** `examples/comprehensive-demo/main.go`
+Once the new architecture is implemented, this directory will contain:
 
-Demonstrates comprehensive template system usage with real-time updates.
+1. **Static/Dynamic Strategy Demo** - Demonstrating the primary update generation approach
+2. **Marker Compilation Demo** - Showing short marker insertion for complex templates  
+3. **Granular Operations Demo** - Illustrating precise DOM manipulation techniques
+4. **Fragment Replacement Demo** - Full fragment replacement as fallback
+5. **HTML Diffing Integration** - How strategy selection works with change pattern analysis
 
-### 2. `range-demo/` - Range Operations
+## 🚀 Current State
 
-**File:** `examples/range-demo/main.go`
+- ❌ Legacy fragment-based examples (removed)
+- 🔄 New architecture implementation (in progress) 
+- ⏳ New examples (planned for upcoming tasks)
 
-Shows how to handle range/loop operations with granular updates.
-
-### Testing
-
-### 3. `e2e/` - End-to-End Tests
-
-**File:** `examples/simple/main.go`
-
-Demonstrates the core functionality:
-
-- Creating multiple templates with data dependencies
-- Setting up live data update channels
-- Automatic change detection and selective re-rendering
-- Basic template dependency tracking
-
-**Key Features:**
-
-- Multiple templates (header, sidebar, user-profile)
-- Channel-based data updates
-- Real-time change notifications
-- Dependency-based selective updates
-
-### 2. `files/` - File-Based Template Loading
-
-**File:** `examples/files/main.go`
-**Templates:** `examples/files/templates/*.html`
-
-Shows how to work with template files:
-
-- Loading templates from a directory
-- Loading specific template files with custom names
-- Template file creation with real HTML templates
-- Directory-based template management
-
-**Key Features:**
-
-- `LoadTemplatesFromDirectory()` for bulk loading
-- `LoadTemplateFromFile()` for specific files
-- Actual template files in `templates/` directory
-- Custom template naming
-- Comprehensive dependency analysis### 3. `fragments/` - Automatic Fragment Extraction
-  **File:** `examples/fragments/main.go`
-
-Demonstrates the most advanced feature:
-
-- Automatic extraction of minimal template fragments
-- Smart dependency analysis per fragment
-- Fragment-level change detection
-- Optimized partial re-rendering
-
-**Key Features:**
-
-- `Parse()` for template processing
-- Fragment dependency tracking
-- Granular update notifications
-- Minimal re-rendering optimization
-
-## 🚀 Running the Examples
-
-```bash
-# Run each example from the project root:
-go run examples/simple/main.go
-go run examples/files/main.go
-go run examples/fragments/main.go
-```
-
-## 📊 What Each Example Shows
-
-| Example   | Templates                                | Data Changes        | Key Benefit               |
-| --------- | ---------------------------------------- | ------------------- | ------------------------- |
-| Simple    | 3 named templates                        | 4 different updates | Basic dependency tracking |
-| Files     | 6 templates (3 from dir, 3 from files)   | 4 targeted updates  | File-based workflow       |
-| Fragments | 1 template → 12 auto-extracted fragments | 4 granular updates  | Maximum optimization      |
-
-## 🎯 Use Cases
-
-- **Simple**: Getting started, understanding the core concepts
-- **Files**: Production workflows with template files
-- **Fragments**: High-performance applications requiring minimal template updates
-
-Each example includes detailed logging to show exactly what's happening during template processing and data updates.
+Check back after the four-tier strategy implementation is complete for comprehensive examples of the new approach.

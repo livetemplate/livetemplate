@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Install Git Hooks for StateTemplate
+# Install Git Hooks for LiveTemplate
 
 set -e
 
-echo "Installing git hooks for StateTemplate..."
+echo "Installing git hooks for LiveTemplate..."
 
 # Create hooks directory if it doesn't exist
 mkdir -p .git/hooks
@@ -13,7 +13,7 @@ mkdir -p .git/hooks
 cat > .git/hooks/pre-commit << 'EOF'
 #!/bin/bash
 
-# Pre-commit hook for StateTemplate
+# Pre-commit hook for LiveTemplate
 # Automatically formats code and runs validation
 
 set -e
