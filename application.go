@@ -11,6 +11,13 @@ import (
 // Application provides secure multi-tenant isolation with JWT-based authentication
 type Application struct {
 	internal *app.Application
+	config   *ApplicationConfig
+}
+
+// ApplicationConfig contains configuration for the public Application
+type ApplicationConfig struct {
+	MaxMemoryMB    int
+	MetricsEnabled bool
 }
 
 // ApplicationOption configures an Application instance
@@ -18,18 +25,31 @@ type ApplicationOption func(*Application) error
 
 // NewApplication creates a new isolated Application instance
 func NewApplication(options ...ApplicationOption) (*Application, error) {
-	// Convert public options to internal options
-	var internalOptions []app.Option
+	// Initialize with default configuration
+	publicApp := &Application{
+		config: &ApplicationConfig{
+			MaxMemoryMB:    100,
+			MetricsEnabled: true,
+		},
+	}
 
-	// Apply all public options first to collect configuration
-	publicApp := &Application{}
+	// Apply public options to collect configuration
 	for _, option := range options {
 		if err := option(publicApp); err != nil {
 			return nil, err
 		}
 	}
 
-	// Create internal application with default configuration
+	// Convert public options to internal options
+	var internalOptions []app.Option
+	if publicApp.config.MaxMemoryMB != 100 {
+		internalOptions = append(internalOptions, app.WithMaxMemoryMB(publicApp.config.MaxMemoryMB))
+	}
+	if !publicApp.config.MetricsEnabled {
+		internalOptions = append(internalOptions, app.WithMetricsEnabled(false))
+	}
+
+	// Create internal application with collected configuration
 	internal, err := app.NewApplication(internalOptions...)
 	if err != nil {
 		return nil, err
@@ -58,7 +78,7 @@ func WithPageTTL(ttl time.Duration) ApplicationOption {
 // WithMaxMemoryMB sets the maximum memory usage in MB
 func WithMaxMemoryMB(memoryMB int) ApplicationOption {
 	return func(a *Application) error {
-		// Configuration will be applied when creating internal application
+		a.config.MaxMemoryMB = memoryMB
 		return nil
 	}
 }
@@ -66,7 +86,7 @@ func WithMaxMemoryMB(memoryMB int) ApplicationOption {
 // WithApplicationMetricsEnabled configures metrics collection for the application
 func WithApplicationMetricsEnabled(enabled bool) ApplicationOption {
 	return func(a *Application) error {
-		// Configuration will be applied when creating internal application
+		a.config.MetricsEnabled = enabled
 		return nil
 	}
 }
