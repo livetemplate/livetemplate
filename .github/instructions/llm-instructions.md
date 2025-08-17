@@ -2,13 +2,13 @@
 applyTo: "**"
 ---
 
-# StateTemplate LLM Instructions
+# LiveTemplate LLM Instructions
 
-This document provides comprehensive guidance for Language Learning Models (LLMs) working with the StateTemplate codebase.
+This document provides comprehensive guidance for Language Learning Models (LLMs) working with the LiveTemplate codebase.
 
 ## 🎯 Project Overview
 
-StateTemplate is a real-time Go template rendering library that enables granular fragment-based updates for web applications. It extends Go's `html/template` package with:
+LiveTemplate is a real-time Go template rendering library that enables granular fragment-based updates for web applications. It extends Go's `html/template` package with:
 
 - **Fragment Extraction**: Automatic identification of updateable template segments
 - **Dependency Tracking**: Smart detection of data-to-template relationships
@@ -18,7 +18,7 @@ StateTemplate is a real-time Go template rendering library that enables granular
 ## 📁 Repository Structure
 
 ```text
-statetemplate/
+livetemplate/
 ├── realtime_renderer.go     # 🎬 Main orchestrator - entry point for LLM analysis
 ├── template_tracker.go      # 📊 Data change detection via reflection
 ├── fragment_extractor.go    # ✂️ Template fragment identification and extraction
@@ -64,7 +64,7 @@ When analyzing code, prioritize understanding:
 
 ## 🔍 Fragment Types (Critical Concept)
 
-Understanding fragment types is essential for StateTemplate work:
+Understanding fragment types is essential for LiveTemplate work:
 
 ### Simple Fragments
 
@@ -106,7 +106,7 @@ Understanding fragment types is essential for StateTemplate work:
 
 ## 🎯 Template Actions (Complete Reference)
 
-StateTemplate supports all Go template actions. Key patterns:
+LiveTemplate supports all Go template actions. Key patterns:
 
 | Action Type      | Syntax                     | LLM Consideration                    |
 | ---------------- | -------------------------- | ------------------------------------ |
@@ -137,7 +137,7 @@ This script MUST pass for any milestone success. It includes:
 
 ### Testing Strategy
 
-StateTemplate uses **table-driven testing**:
+LiveTemplate uses **table-driven testing**:
 
 ```go
 func TestFeature(t *testing.T) {
@@ -230,7 +230,7 @@ data := map[string]interface{}{
 
 ```mermaid
 graph TB
-    RT[RealtimeRenderer] --> TT[TemplateTracker]
+    RT[Renderer] --> TT[TemplateTracker]
     RT --> FE[FragmentExtractor]
     RT --> TA[TemplateAnalyzer]
 
@@ -252,7 +252,7 @@ graph TB
 
 ```go
 // Constructor
-renderer := statetemplate.NewRenderer(opts...)
+renderer := livetemplate.NewRenderer(opts...)
 
 // Template Loading
 renderer.Parse(templateString)
@@ -441,7 +441,7 @@ func TestDebug_DataTracking(t *testing.T) {
 - Support fragment renaming and restructuring
 - Handle fragment merging and splitting scenarios
 
-#### RealtimeRenderer Implementation
+#### Renderer Implementation
 
 **Template Registration:**
 
@@ -493,7 +493,7 @@ func TestDebug_DataTracking(t *testing.T) {
 
 ### Template AST Understanding
 
-StateTemplate heavily uses Go's `text/template` and `html/template` parsing:
+LiveTemplate heavily uses Go's `text/template` and `html/template` parsing:
 
 ```go
 // Template AST nodes relevant for fragment extraction

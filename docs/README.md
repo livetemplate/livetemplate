@@ -1,6 +1,6 @@
-# StateTemplate Documentation
+# LiveTemplate Documentation
 
-This directory contains comprehensive documentation for the StateTemplate library, optimized for both developers and AI assistants.
+This directory contains comprehensive documentation for the LiveTemplate library, optimized for both developers and AI assistants.
 
 ## 🗺️ Documentation Overview
 
@@ -19,6 +19,34 @@ This directory contains comprehensive documentation for the StateTemplate librar
 - Technical debt analysis and improvement roadmap
 - Test coverage status and gap analysis
 - Security model and considerations
+
+### [HLD.md](HLD.md) - High Level Design
+
+**Purpose**: High-level architecture and key technical decisions for session isolation and incremental updates
+**Best for**: Understanding architectural decisions, security model, performance optimizations
+
+**Contents:**
+
+- Problem definition and solution architecture
+- Multi-tenant session isolation design
+- Update optimization strategies (Value Patch vs Fragment Replace)
+- Core technical concepts (Application isolation, Page sessions, Template analysis)
+- Security architecture with JWT-based authentication
+- Functional and non-functional requirements
+
+### [LLD.md](LLD.md) - Low Level Design
+
+**Purpose**: Implementation-ready specifications for production deployment
+**Best for**: Implementation teams, detailed component design, technical specifications
+
+**Contents:**
+
+- Concrete component interfaces and specifications
+- Implementation roadmap with task breakdown
+- Security implementation details (JWT, replay protection, key rotation)
+- Performance optimization algorithms and caching strategies
+- Integration patterns and configuration options
+- Comprehensive test requirements and validation criteria
 
 ### [API_DESIGN.md](API_DESIGN.md) - Developer Reference
 
@@ -54,7 +82,7 @@ This directory contains comprehensive documentation for the StateTemplate librar
 
 ### [.github/instructions/llm-instructions.md](../.github/instructions/llm-instructions.md) - AI Assistant Guide
 
-**Purpose**: Comprehensive guidance for Language Learning Models working with StateTemplate
+**Purpose**: Comprehensive guidance for Language Learning Models working with LiveTemplate
 **Best for**: AI assistants, automated analysis, code generation
 
 **Contents:**
@@ -73,7 +101,7 @@ This directory contains comprehensive documentation for the StateTemplate librar
 
 ```go
 // 1. Create renderer
-renderer := statetemplate.NewRenderer()
+renderer := livetemplate.NewRenderer()
 
 // 2. Parse template
 err := renderer.Parse(`<h1>{{.Title}}</h1>`)
@@ -119,19 +147,23 @@ defer renderer.Stop()
 
 1. **Start Here**: [EXAMPLES.md](EXAMPLES.md) - Basic usage and patterns
 2. **Deep Dive**: [API_DESIGN.md](API_DESIGN.md) - Complete API reference
-3. **Advanced**: [ARCHITECTURE.md](ARCHITECTURE.md) - Internal architecture
+3. **Architecture**: [HLD.md](HLD.md) - High-level design decisions
+4. **Advanced**: [ARCHITECTURE.md](ARCHITECTURE.md) - Internal architecture
 
 ### For AI Assistants
 
 1. **Essential**: [llm-instructions.md](../.github/instructions/llm-instructions.md) - LLM-specific guidance
-2. **Context**: [ARCHITECTURE.md](ARCHITECTURE.md) - Technical understanding
-3. **Patterns**: [EXAMPLES.md](EXAMPLES.md) - Usage patterns
+2. **Context**: [HLD.md](HLD.md) - Architectural decisions and concepts
+3. **Technical**: [ARCHITECTURE.md](ARCHITECTURE.md) - Implementation details
+4. **Patterns**: [EXAMPLES.md](EXAMPLES.md) - Usage patterns
 
 ### For Contributors
 
-1. **Architecture**: [ARCHITECTURE.md](ARCHITECTURE.md) - Understanding internals
-2. **Testing**: Component-specific instructions in `.github/instructions/`
-3. **API**: [API_DESIGN.md](API_DESIGN.md) - Public interface stability
+1. **Design**: [HLD.md](HLD.md) - Understanding architectural decisions
+2. **Implementation**: [LLD.md](LLD.md) - Component specifications
+3. **Architecture**: [ARCHITECTURE.md](ARCHITECTURE.md) - Understanding internals
+4. **Testing**: Component-specific instructions in `.github/instructions/`
+5. **API**: [API_DESIGN.md](API_DESIGN.md) - Public interface stability
 
 ## 🔧 Development Workflow
 
@@ -162,7 +194,8 @@ This ensures:
 
 | Change Type              | Update Required             |
 | ------------------------ | --------------------------- |
-| **Architecture changes** | ARCHITECTURE.md             |
+| **Architecture changes** | HLD.md + ARCHITECTURE.md    |
+| **Implementation specs** | LLD.md                      |
 | **Public API changes**   | API_DESIGN.md               |
 | **New features**         | EXAMPLES.md + API_DESIGN.md |
 | **LLM workflow**         | llm-instructions.md         |
@@ -176,4 +209,4 @@ This ensures:
 
 ---
 
-_This documentation structure supports StateTemplate v1.x. See individual files for version-specific details and migration guidance._
+_This documentation structure supports LiveTemplate v1.x. See individual files for version-specific details and migration guidance._

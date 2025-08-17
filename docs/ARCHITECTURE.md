@@ -1,10 +1,10 @@
-# StateTemplate Architecture
+# LiveTemplate Architecture
 
 ## Overview
 
-StateTemplate is a real-time template rendering library for Go that enables granular, fragment-based updates for web applications. It extends Go's standard `html/template` package with advanced fragment extraction, dependency tracking, and real-time update capabilities.
+LiveTemplate is a real-time template rendering library for Go that enables granular, fragment-based updates for web applications. It extends Go's standard `html/template` package with advanced fragment extraction, dependency tracking, and real-time update capabilities.
 
-> **Note**: This document describes the current architecture of StateTemplate v1.x. For API changes and migration guides, see [API_DESIGN.md](API_DESIGN.md).
+> **Note**: This document describes the current architecture of LiveTemplate v1.x. For API changes and migration guides, see [API_DESIGN.md](API_DESIGN.md).
 
 ## Core Architecture
 
@@ -15,8 +15,8 @@ graph TB
         WS[WebSocket Client]
     end
 
-    subgraph "StateTemplate Core"
-        RT[RealtimeRenderer]
+    subgraph "LiveTemplate Core"
+        RT[Renderer]
         TT[TemplateTracker]
         FE[FragmentExtractor]
         TA[TemplateAnalyzer]
@@ -215,7 +215,7 @@ type rangeItem struct {
 
 #### Enhanced Range Operations
 
-StateTemplate supports advanced range operations with stable, key-based fragment IDs:
+LiveTemplate supports advanced range operations with stable, key-based fragment IDs:
 
 - **Stable IDs**: Range items use key-based IDs (`container-item-/task/1`) instead of index-based ones
 - **Precise Positioning**: `insertafter` and `insertbefore` actions for exact placement
@@ -265,9 +265,9 @@ graph TD
     FT -->|Range| RF[Range Fragment Update]
     FT -->|Block| BF[Block Fragment Update]
 
-    SF --> RU[RealtimeUpdate]
+    SF --> RU[Update]
     CF2 --> RU
-    RF --> RU2[Multiple RealtimeUpdates]
+    RF --> RU2[Multiple Updates]
     BF --> RU
 
     RU --> WS[WebSocket]
@@ -332,7 +332,7 @@ graph LR
 ## File Structure
 
 ```text
-statetemplate/
+livetemplate/
 ├── realtime_renderer.go     # Main renderer orchestrator
 ├── template_tracker.go      # Data change tracking
 ├── fragment_extractor.go    # Fragment extraction logic
@@ -459,7 +459,7 @@ statetemplate/
 
 ### Testing Strategy
 
-StateTemplate uses a comprehensive table-driven testing approach:
+LiveTemplate uses a comprehensive table-driven testing approach:
 
 1. **Test Organization**: Tests organized by template action type
 2. **Real Files**: Tests use actual template files from `testdata/` directory
@@ -516,6 +516,6 @@ StateTemplate uses a comprehensive table-driven testing approach:
 
 ## Conclusion
 
-StateTemplate provides a solid foundation for real-time web applications with its fragment-based architecture. The main strengths are its granular update capabilities and comprehensive template action support. Key areas for improvement include error handling, performance optimization, and test coverage expansion.
+LiveTemplate provides a solid foundation for real-time web applications with its fragment-based architecture. The main strengths are its granular update capabilities and comprehensive template action support. Key areas for improvement include error handling, performance optimization, and test coverage expansion.
 
 The architecture is designed for extensibility and can accommodate future enhancements while maintaining backward compatibility.
