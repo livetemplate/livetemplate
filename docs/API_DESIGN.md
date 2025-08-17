@@ -373,6 +373,54 @@ token := page.GetToken()
 retrievedPage, _ := app.GetApplicationPage(token)
 ```
 
+<<<<<<< HEAD
+## Implementation Notes
+
+### Internal Types (Not Public API)
+
+The following types are implementation details and are not exported:
+
+- `templateFragment` - Internal fragment representation
+- `rangeFragment` - Range-specific fragment handling
+- `conditionalFragment` - Conditional block fragments
+- `templateTracker` - Data change tracking
+- `fragmentExtractor` - Fragment extraction logic
+- `advancedTemplateAnalyzer` - Template analysis
+
+### Fragment Actions
+
+The `Update.Action` field can contain:
+
+- `"replace"` - Replace element content
+- `"append"` - Add element to end of container
+- `"prepend"` - Add element to beginning of container
+- `"remove"` - Remove element
+- `"insertafter"` - Insert after reference element (requires RangeInfo.ReferenceID)
+- `"insertbefore"` - Insert before reference element (requires RangeInfo.ReferenceID)
+
+### Range Operations
+
+For templates with `{{range}}` blocks, StateTemplate automatically generates granular list updates:
+
+```html
+{{range .Items}}
+<div>{{.Name}}</div>
+{{end}}
+```
+
+When items are added, removed, or reordered, individual `Update` messages are generated with appropriate actions and range information.
+
+## Migration from Earlier Versions
+
+If you have code referencing older type names:
+
+- `Renderer` → `Renderer` (already clean)
+- `Update` → `Update` (already clean)
+- `Config` → (removed, use Options pattern)
+- `AddTemplate()` → Use Parse methods instead
+
+=======
+>>>>>>> abfb306309a06c9ffc279d7e7cda8acfc64b604d
 ## Error Handling
 
 ### Common Error Scenarios

@@ -1118,4 +1118,4 @@ func main() {
 }
 ```
 
-This comprehensive examples guide demonstrates the full capabilities of LiveTemplate v1.0, including security, performance, multi-tenancy, and real-world integration patterns.
+This comprehensive examples guide demonstrates the full capabilities of LiveTemplate v0.1, including security, performance, multi-tenancy, and real-world integration patterns.
