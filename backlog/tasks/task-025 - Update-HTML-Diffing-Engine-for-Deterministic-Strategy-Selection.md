@@ -16,14 +16,14 @@ Update the HTML diffing engine implementation to align with the new deterministi
 
 ## Acceptance Criteria
 
-- [ ] DOM parser maintains current HTML tree parsing functionality
-- [ ] DOM comparator identifies differences without confidence scoring
-- [ ] Pattern classifier uses deterministic rules for strategy selection
-- [ ] No confidence fields in data structures
-- [ ] Strategy selection based purely on change type patterns
-- [ ] HTML diff analysis returns structured results without confidence scores
-- [ ] Integration tests validate deterministic behavior
-- [ ] All existing HTML patterns work with new deterministic approach
+- [x] DOM parser maintains current HTML tree parsing functionality
+- [x] DOM comparator identifies differences without confidence scoring
+- [x] Pattern classifier uses deterministic rules for strategy selection
+- [x] No confidence fields in data structures
+- [x] Strategy selection based purely on change type patterns
+- [x] HTML diff analysis returns structured results without confidence scores
+- [x] Integration tests validate deterministic behavior
+- [x] All existing HTML patterns work with new deterministic approach
 
 ## Implementation Notes
 

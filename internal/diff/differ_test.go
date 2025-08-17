@@ -97,56 +97,194 @@ func TestHTMLDiffer_Diff(t *testing.T) {
 func TestHTMLDiffer_QuickDiff(t *testing.T) {
 	differ := NewHTMLDiffer()
 
-	oldHTML := "<p>Hello World</p>"
-	newHTML := "<p>Hello Universe</p>"
-
-	rec, err := differ.QuickDiff(oldHTML, newHTML)
-	if err != nil {
-		t.Fatalf("QuickDiff() error = %v", err)
+	tests := []struct {
+		name                string
+		oldHTML             string
+		newHTML             string
+		wantErr             bool
+		expectValidStrategy bool
+		expectReason        bool
+	}{
+		{
+			name:                "simple text change",
+			oldHTML:             "<p>Hello World</p>",
+			newHTML:             "<p>Hello Universe</p>",
+			wantErr:             false,
+			expectValidStrategy: true,
+			expectReason:        true,
+		},
+		{
+			name:                "no changes",
+			oldHTML:             "<p>Same content</p>",
+			newHTML:             "<p>Same content</p>",
+			wantErr:             false,
+			expectValidStrategy: true,
+			expectReason:        true,
+		},
+		{
+			name:                "complex structural change",
+			oldHTML:             `<div class="old"><p>Hello</p></div>`,
+			newHTML:             `<section class="new"><h1>Hi</h1><p>World</p></section>`,
+			wantErr:             false,
+			expectValidStrategy: true,
+			expectReason:        true,
+		},
+		{
+			name:                "empty to content",
+			oldHTML:             "<div></div>",
+			newHTML:             "<div><p>New content</p></div>",
+			wantErr:             false,
+			expectValidStrategy: true,
+			expectReason:        true,
+		},
+		{
+			name:                "content to empty",
+			oldHTML:             "<div><p>Old content</p></div>",
+			newHTML:             "<div></div>",
+			wantErr:             false,
+			expectValidStrategy: true,
+			expectReason:        true,
+		},
 	}
 
-	if rec == nil {
-		t.Fatal("expected non-nil recommendation")
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec, err := differ.QuickDiff(tt.oldHTML, tt.newHTML)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("QuickDiff() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
 
-	if rec.Strategy < 1 || rec.Strategy > 4 {
-		t.Errorf("QuickDiff() strategy = %d, want 1-4", rec.Strategy)
-	}
+			if err != nil {
+				return
+			}
 
-	// Strategy should be deterministic
-	if rec.Reason == "" {
-		t.Error("QuickDiff() should include a reason")
+			if rec == nil {
+				t.Fatal("expected non-nil recommendation")
+			}
+
+			if tt.expectValidStrategy {
+				if rec.Strategy < 1 || rec.Strategy > 4 {
+					t.Errorf("QuickDiff() strategy = %d, want 1-4", rec.Strategy)
+				}
+			}
+
+			if tt.expectReason {
+				if rec.Reason == "" {
+					t.Error("QuickDiff() should include a reason")
+				}
+			}
+		})
 	}
 }
 
 func TestHTMLDiffer_AnalyzeChanges(t *testing.T) {
 	differ := NewHTMLDiffer()
 
-	oldHTML := "<p>Hello World</p>"
-	newHTML := "<p>Hello Universe</p>"
-
-	changes, err := differ.AnalyzeChanges(oldHTML, newHTML)
-	if err != nil {
-		t.Fatalf("AnalyzeChanges() error = %v", err)
+	tests := []struct {
+		name                 string
+		oldHTML              string
+		newHTML              string
+		wantErr              bool
+		expectChanges        bool
+		minChangeCount       int
+		validateChangeFields bool
+	}{
+		{
+			name:                 "simple text change",
+			oldHTML:              "<p>Hello World</p>",
+			newHTML:              "<p>Hello Universe</p>",
+			wantErr:              false,
+			expectChanges:        true,
+			minChangeCount:       1,
+			validateChangeFields: true,
+		},
+		{
+			name:                 "no changes",
+			oldHTML:              "<p>Same content</p>",
+			newHTML:              "<p>Same content</p>",
+			wantErr:              false,
+			expectChanges:        false,
+			minChangeCount:       0,
+			validateChangeFields: false,
+		},
+		{
+			name:                 "attribute change",
+			oldHTML:              `<div class="old">Content</div>`,
+			newHTML:              `<div class="new">Content</div>`,
+			wantErr:              false,
+			expectChanges:        true,
+			minChangeCount:       1,
+			validateChangeFields: true,
+		},
+		{
+			name:                 "structural change",
+			oldHTML:              "<div>Content</div>",
+			newHTML:              "<div>Content<span>Added</span></div>",
+			wantErr:              false,
+			expectChanges:        true,
+			minChangeCount:       1,
+			validateChangeFields: true,
+		},
+		{
+			name:                 "complex mixed changes",
+			oldHTML:              `<div class="old"><p>Text</p></div>`,
+			newHTML:              `<section class="new"><h1>Title</h1><p>Different text</p></section>`,
+			wantErr:              false,
+			expectChanges:        true,
+			minChangeCount:       1,
+			validateChangeFields: true,
+		},
+		{
+			name:                 "empty to content",
+			oldHTML:              "<div></div>",
+			newHTML:              "<div><p>New content</p></div>",
+			wantErr:              false,
+			expectChanges:        true,
+			minChangeCount:       1,
+			validateChangeFields: true,
+		},
 	}
 
-	if len(changes) == 0 {
-		t.Error("expected at least one change for different HTML")
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			changes, err := differ.AnalyzeChanges(tt.oldHTML, tt.newHTML)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("AnalyzeChanges() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
 
-	// Check that changes have required fields
-	for i, change := range changes {
-		if change.Type == "" {
-			t.Errorf("change %d missing type", i)
-		}
+			if err != nil {
+				return
+			}
 
-		if change.Path == "" {
-			t.Errorf("change %d missing path", i)
-		}
+			if tt.expectChanges {
+				if len(changes) < tt.minChangeCount {
+					t.Errorf("expected at least %d change(s), got %d", tt.minChangeCount, len(changes))
+				}
+			} else {
+				if len(changes) > 0 {
+					t.Errorf("expected no changes, got %d", len(changes))
+				}
+			}
 
-		if change.Description == "" {
-			t.Errorf("change %d has empty description", i)
-		}
+			if tt.validateChangeFields {
+				// Check that changes have required fields
+				for i, change := range changes {
+					if change.Type == "" {
+						t.Errorf("change %d missing type", i)
+					}
+
+					if change.Path == "" {
+						t.Errorf("change %d missing path", i)
+					}
+
+					if change.Description == "" {
+						t.Errorf("change %d has empty description", i)
+					}
+				}
+			}
+		})
 	}
 }
 
@@ -306,8 +444,19 @@ func TestGetPatternName(t *testing.T) {
 func TestHTMLDiffer_PerformanceMetrics(t *testing.T) {
 	differ := NewHTMLDiffer()
 
-	// Test with moderately complex HTML to ensure measurable timing
-	oldHTML := `
+	tests := []struct {
+		name                  string
+		oldHTML               string
+		newHTML               string
+		wantErr               bool
+		expectPositiveTimes   bool
+		expectReasonableTotal bool
+		maxTotalTime          time.Duration
+		validateComponentSum  bool
+	}{
+		{
+			name: "moderate complexity HTML",
+			oldHTML: `
 	<div class="container">
 		<h1>Title</h1>
 		<p>Paragraph 1</p>
@@ -315,9 +464,8 @@ func TestHTMLDiffer_PerformanceMetrics(t *testing.T) {
 			<li>Item 1</li>
 			<li>Item 2</li>
 		</ul>
-	</div>`
-
-	newHTML := `
+	</div>`,
+			newHTML: `
 	<div class="container updated">
 		<h1>New Title</h1>
 		<p>Paragraph 1</p>
@@ -326,37 +474,99 @@ func TestHTMLDiffer_PerformanceMetrics(t *testing.T) {
 			<li>Item 2</li>
 			<li>Item 3</li>
 		</ul>
-	</div>`
-
-	result, err := differ.Diff(oldHTML, newHTML)
-	if err != nil {
-		t.Fatalf("Diff() error = %v", err)
+	</div>`,
+			wantErr:               false,
+			expectPositiveTimes:   true,
+			expectReasonableTotal: true,
+			maxTotalTime:          100 * time.Millisecond,
+			validateComponentSum:  true,
+		},
+		{
+			name:                  "simple text change",
+			oldHTML:               "<p>Hello World</p>",
+			newHTML:               "<p>Hello Universe</p>",
+			wantErr:               false,
+			expectPositiveTimes:   true,
+			expectReasonableTotal: true,
+			maxTotalTime:          50 * time.Millisecond,
+			validateComponentSum:  true,
+		},
+		{
+			name:                  "no changes",
+			oldHTML:               "<div><p>Same content</p></div>",
+			newHTML:               "<div><p>Same content</p></div>",
+			wantErr:               false,
+			expectPositiveTimes:   true,
+			expectReasonableTotal: true,
+			maxTotalTime:          30 * time.Millisecond,
+			validateComponentSum:  true,
+		},
+		{
+			name:                  "complex structural changes",
+			oldHTML:               `<table><tr><td>Old structure</td></tr></table>`,
+			newHTML:               `<div class="grid"><article><h1>Title</h1><section><p>New structure</p></section></article></div>`,
+			wantErr:               false,
+			expectPositiveTimes:   true,
+			expectReasonableTotal: true,
+			maxTotalTime:          200 * time.Millisecond,
+			validateComponentSum:  true,
+		},
+		{
+			name:                  "empty to content",
+			oldHTML:               "<div></div>",
+			newHTML:               "<div><h1>New content</h1><p>Added content</p></div>",
+			wantErr:               false,
+			expectPositiveTimes:   true,
+			expectReasonableTotal: true,
+			maxTotalTime:          75 * time.Millisecond,
+			validateComponentSum:  true,
+		},
 	}
 
-	// Check that performance metrics are reasonable
-	perf := result.Performance
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := differ.Diff(tt.oldHTML, tt.newHTML)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Diff() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
 
-	if perf.TotalTime <= 0 {
-		t.Error("TotalTime should be positive")
-	}
+			if err != nil {
+				return
+			}
 
-	if perf.CompareTime <= 0 {
-		t.Error("CompareTime should be positive")
-	}
+			// Check that performance metrics are reasonable
+			perf := result.Performance
 
-	if perf.ClassifyTime <= 0 {
-		t.Error("ClassifyTime should be positive")
-	}
+			if tt.expectPositiveTimes {
+				if perf.TotalTime <= 0 {
+					t.Error("TotalTime should be positive")
+				}
 
-	// Total time should be sum of components (approximately)
-	componentSum := perf.ParseTime + perf.CompareTime + perf.ClassifyTime
-	if perf.TotalTime < componentSum {
-		t.Error("TotalTime should be >= sum of component times")
-	}
+				if perf.CompareTime <= 0 {
+					t.Error("CompareTime should be positive")
+				}
 
-	// Performance should be reasonable (less than 100ms for simple cases)
-	if perf.TotalTime > 100*time.Millisecond {
-		t.Errorf("Performance seems slow: %v", perf.TotalTime)
+				if perf.ClassifyTime <= 0 {
+					t.Error("ClassifyTime should be positive")
+				}
+			}
+
+			if tt.validateComponentSum {
+				// Total time should be sum of components (approximately)
+				componentSum := perf.ParseTime + perf.CompareTime + perf.ClassifyTime
+				if perf.TotalTime < componentSum {
+					t.Error("TotalTime should be >= sum of component times")
+				}
+			}
+
+			if tt.expectReasonableTotal {
+				// Performance should be reasonable
+				if perf.TotalTime > tt.maxTotalTime {
+					t.Errorf("Performance seems slow: %v, expected <= %v", perf.TotalTime, tt.maxTotalTime)
+				}
+			}
+		})
 	}
 }
 

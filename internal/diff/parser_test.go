@@ -144,49 +144,116 @@ func TestDOMParser_ParseFragment(t *testing.T) {
 func TestDOMParser_NormalizeNode(t *testing.T) {
 	parser := NewDOMParser()
 
-	// Create a test node with whitespace text
-	node := &DOMNode{
-		Type: html.ElementNode,
-		Data: "div",
-		Attributes: map[string]string{
-			"id":    "fragment-abc123",
-			"class": "test",
-		},
-		Children: []*DOMNode{
-			{
-				Type: html.TextNode,
-				Data: "  \n\t  ", // Whitespace only
+	tests := []struct {
+		name                   string
+		inputNode              *DOMNode
+		expectedChildrenCount  int
+		expectedAttributes     map[string]string
+		shouldFilterFragmentID bool
+		expectedFirstChildData string
+	}{
+		{
+			name: "remove whitespace-only text and fragment ID",
+			inputNode: &DOMNode{
+				Type: html.ElementNode,
+				Data: "div",
+				Attributes: map[string]string{
+					"id":    "fragment-abc123",
+					"class": "test",
+				},
+				Children: []*DOMNode{
+					{
+						Type: html.TextNode,
+						Data: "  \n\t  ", // Whitespace only
+					},
+					{
+						Type: html.TextNode,
+						Data: "Hello World",
+					},
+				},
 			},
-			{
-				Type: html.TextNode,
-				Data: "Hello World",
+			expectedChildrenCount:  1,
+			expectedAttributes:     map[string]string{"class": "test"},
+			shouldFilterFragmentID: true,
+			expectedFirstChildData: "Hello World",
+		},
+		{
+			name: "preserve non-fragment ID attributes",
+			inputNode: &DOMNode{
+				Type: html.ElementNode,
+				Data: "span",
+				Attributes: map[string]string{
+					"id":    "user-id-123",
+					"class": "highlight",
+					"data":  "value",
+				},
+				Children: []*DOMNode{
+					{
+						Type: html.TextNode,
+						Data: "Content",
+					},
+				},
 			},
+			expectedChildrenCount: 1,
+			expectedAttributes: map[string]string{
+				"id":    "user-id-123",
+				"class": "highlight",
+				"data":  "value",
+			},
+			shouldFilterFragmentID: false,
+			expectedFirstChildData: "Content",
+		},
+		{
+			name: "empty node normalization",
+			inputNode: &DOMNode{
+				Type:       html.ElementNode,
+				Data:       "p",
+				Attributes: map[string]string{},
+				Children:   []*DOMNode{},
+			},
+			expectedChildrenCount:  0,
+			expectedAttributes:     map[string]string{},
+			shouldFilterFragmentID: false,
+			expectedFirstChildData: "",
 		},
 	}
 
-	normalized := parser.NormalizeNode(node)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			normalized := parser.NormalizeNode(tt.inputNode)
 
-	if normalized == nil {
-		t.Fatal("expected non-nil normalized node")
-	}
+			if normalized == nil {
+				t.Fatal("expected non-nil normalized node")
+			}
 
-	// Should skip fragment ID
-	if _, exists := normalized.Attributes["id"]; exists {
-		t.Error("fragment ID should be filtered out")
-	}
+			// Check children count
+			if len(normalized.Children) != tt.expectedChildrenCount {
+				t.Errorf("expected %d children after normalization, got %d", tt.expectedChildrenCount, len(normalized.Children))
+			}
 
-	// Should keep other attributes
-	if normalized.Attributes["class"] != "test" {
-		t.Error("class attribute should be preserved")
-	}
+			// Check first child data if expected
+			if tt.expectedChildrenCount > 0 && tt.expectedFirstChildData != "" {
+				if normalized.Children[0].Data != tt.expectedFirstChildData {
+					t.Errorf("expected first child data '%s', got '%s'", tt.expectedFirstChildData, normalized.Children[0].Data)
+				}
+			}
 
-	// Should have only one child (whitespace-only text removed)
-	if len(normalized.Children) != 1 {
-		t.Errorf("expected 1 child after normalization, got %d", len(normalized.Children))
-	}
+			// Check fragment ID filtering
+			if tt.shouldFilterFragmentID {
+				if _, exists := normalized.Attributes["id"]; exists {
+					t.Error("fragment ID should be filtered out")
+				}
+			}
 
-	if normalized.Children[0].Data != "Hello World" {
-		t.Errorf("expected 'Hello World', got '%s'", normalized.Children[0].Data)
+			// Check expected attributes
+			for key, expectedValue := range tt.expectedAttributes {
+				if actualValue, exists := normalized.Attributes[key]; !exists {
+					t.Errorf("expected attribute '%s' to be preserved", key)
+				} else if actualValue != expectedValue {
+					t.Errorf("expected attribute '%s' value '%s', got '%s'", key, expectedValue, actualValue)
+				}
+			}
+		})
 	}
 }
 
@@ -256,37 +323,119 @@ func TestDOMNode_GetPath(t *testing.T) {
 }
 
 func TestDOMNode_GetTextContent(t *testing.T) {
-	// Create a node with mixed content
-	div := &DOMNode{
-		Type: html.ElementNode,
-		Data: "div",
-		Children: []*DOMNode{
-			{
-				Type: html.TextNode,
-				Data: "Hello ",
-			},
-			{
+	tests := []struct {
+		name     string
+		node     *DOMNode
+		expected string
+	}{
+		{
+			name: "mixed content with nested elements",
+			node: &DOMNode{
 				Type: html.ElementNode,
-				Data: "strong",
+				Data: "div",
 				Children: []*DOMNode{
 					{
 						Type: html.TextNode,
-						Data: "World",
+						Data: "Hello ",
+					},
+					{
+						Type: html.ElementNode,
+						Data: "strong",
+						Children: []*DOMNode{
+							{
+								Type: html.TextNode,
+								Data: "World",
+							},
+						},
+					},
+					{
+						Type: html.TextNode,
+						Data: "!",
 					},
 				},
 			},
-			{
+			expected: "Hello World!",
+		},
+		{
+			name: "simple text node",
+			node: &DOMNode{
 				Type: html.TextNode,
-				Data: "!",
+				Data: "Simple text",
 			},
+			expected: "Simple text",
+		},
+		{
+			name: "element with only text children",
+			node: &DOMNode{
+				Type: html.ElementNode,
+				Data: "p",
+				Children: []*DOMNode{
+					{
+						Type: html.TextNode,
+						Data: "First part",
+					},
+					{
+						Type: html.TextNode,
+						Data: " second part",
+					},
+				},
+			},
+			expected: "First part second part",
+		},
+		{
+			name: "empty element",
+			node: &DOMNode{
+				Type:     html.ElementNode,
+				Data:     "div",
+				Children: []*DOMNode{},
+			},
+			expected: "",
+		},
+		{
+			name: "deeply nested structure",
+			node: &DOMNode{
+				Type: html.ElementNode,
+				Data: "article",
+				Children: []*DOMNode{
+					{
+						Type: html.ElementNode,
+						Data: "header",
+						Children: []*DOMNode{
+							{
+								Type: html.ElementNode,
+								Data: "h1",
+								Children: []*DOMNode{
+									{
+										Type: html.TextNode,
+										Data: "Title",
+									},
+								},
+							},
+						},
+					},
+					{
+						Type: html.ElementNode,
+						Data: "section",
+						Children: []*DOMNode{
+							{
+								Type: html.TextNode,
+								Data: " Content",
+							},
+						},
+					},
+				},
+			},
+			expected: "Title Content",
 		},
 	}
 
-	textContent := div.GetTextContent()
-	expected := "Hello World!"
-
-	if textContent != expected {
-		t.Errorf("GetTextContent() = '%s', expected '%s'", textContent, expected)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			textContent := tt.node.GetTextContent()
+			if textContent != tt.expected {
+				t.Errorf("GetTextContent() = '%s', expected '%s'", textContent, tt.expected)
+			}
+		})
 	}
 }
 
@@ -305,35 +454,145 @@ func TestDOMNode_HelperMethods(t *testing.T) {
 		Data: "Hello",
 	}
 
-	// Test IsElementNode
-	if !elementNode.IsElementNode() {
-		t.Error("element node should return true for IsElementNode()")
-	}
-	if textNode.IsElementNode() {
-		t.Error("text node should return false for IsElementNode()")
-	}
+	t.Run("IsElementNode", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			node     *DOMNode
+			expected bool
+		}{
+			{
+				name:     "element node should return true",
+				node:     elementNode,
+				expected: true,
+			},
+			{
+				name:     "text node should return false",
+				node:     textNode,
+				expected: false,
+			},
+		}
 
-	// Test IsTextNode
-	if elementNode.IsTextNode() {
-		t.Error("element node should return false for IsTextNode()")
-	}
-	if !textNode.IsTextNode() {
-		t.Error("text node should return true for IsTextNode()")
-	}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				result := tt.node.IsElementNode()
+				if result != tt.expected {
+					t.Errorf("IsElementNode() = %v, expected %v", result, tt.expected)
+				}
+			})
+		}
+	})
 
-	// Test HasAttribute
-	if !elementNode.HasAttribute("class") {
-		t.Error("element should have class attribute")
-	}
-	if elementNode.HasAttribute("nonexistent") {
-		t.Error("element should not have nonexistent attribute")
-	}
+	t.Run("IsTextNode", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			node     *DOMNode
+			expected bool
+		}{
+			{
+				name:     "element node should return false",
+				node:     elementNode,
+				expected: false,
+			},
+			{
+				name:     "text node should return true",
+				node:     textNode,
+				expected: true,
+			},
+		}
 
-	// Test GetAttribute
-	if elementNode.GetAttribute("class") != "test" {
-		t.Error("class attribute should be 'test'")
-	}
-	if elementNode.GetAttribute("nonexistent") != "" {
-		t.Error("nonexistent attribute should return empty string")
-	}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				result := tt.node.IsTextNode()
+				if result != tt.expected {
+					t.Errorf("IsTextNode() = %v, expected %v", result, tt.expected)
+				}
+			})
+		}
+	})
+
+	t.Run("HasAttribute", func(t *testing.T) {
+		tests := []struct {
+			name      string
+			node      *DOMNode
+			attribute string
+			expected  bool
+		}{
+			{
+				name:      "element should have existing class attribute",
+				node:      elementNode,
+				attribute: "class",
+				expected:  true,
+			},
+			{
+				name:      "element should have existing id attribute",
+				node:      elementNode,
+				attribute: "id",
+				expected:  true,
+			},
+			{
+				name:      "element should not have nonexistent attribute",
+				node:      elementNode,
+				attribute: "nonexistent",
+				expected:  false,
+			},
+			{
+				name:      "text node should not have attributes",
+				node:      textNode,
+				attribute: "class",
+				expected:  false,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				result := tt.node.HasAttribute(tt.attribute)
+				if result != tt.expected {
+					t.Errorf("HasAttribute(%s) = %v, expected %v", tt.attribute, result, tt.expected)
+				}
+			})
+		}
+	})
+
+	t.Run("GetAttribute", func(t *testing.T) {
+		tests := []struct {
+			name      string
+			node      *DOMNode
+			attribute string
+			expected  string
+		}{
+			{
+				name:      "get existing class attribute",
+				node:      elementNode,
+				attribute: "class",
+				expected:  "test",
+			},
+			{
+				name:      "get existing id attribute",
+				node:      elementNode,
+				attribute: "id",
+				expected:  "myid",
+			},
+			{
+				name:      "get nonexistent attribute returns empty string",
+				node:      elementNode,
+				attribute: "nonexistent",
+				expected:  "",
+			},
+			{
+				name:      "text node attribute returns empty string",
+				node:      textNode,
+				attribute: "class",
+				expected:  "",
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				result := tt.node.GetAttribute(tt.attribute)
+				if result != tt.expected {
+					t.Errorf("GetAttribute(%s) = %s, expected %s", tt.attribute, result, tt.expected)
+				}
+			})
+		}
+	})
 }

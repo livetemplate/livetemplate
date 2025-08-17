@@ -221,142 +221,278 @@ func TestUpdateGenerator_TemplateRendering(t *testing.T) {
 }
 
 func TestUpdateGenerator_FallbackHandling(t *testing.T) {
-	generator := NewUpdateGenerator()
-
-	// Create a template that might cause strategy failures in some edge cases
-	tmpl, err := template.New("test").Parse(`<div class="{{.Class}}">{{.Text}}</div>`)
-	if err != nil {
-		t.Fatalf("Template parsing failed: %v", err)
+	tests := []struct {
+		name                     string
+		templateText             string
+		oldData                  interface{}
+		newData                  interface{}
+		fallbackEnabled          bool
+		expectFragmentsWithFB    bool
+		expectFragmentsWithoutFB bool
+	}{
+		{
+			name:                     "mixed attribute and text change - fallback enabled",
+			templateText:             `<div class="{{.Class}}">{{.Text}}</div>`,
+			oldData:                  map[string]interface{}{"Class": "old", "Text": "Before"},
+			newData:                  map[string]interface{}{"Class": "new", "Text": "After"},
+			fallbackEnabled:          true,
+			expectFragmentsWithFB:    true,
+			expectFragmentsWithoutFB: true,
+		},
+		{
+			name:                     "complex template - fallback enabled",
+			templateText:             `<article><h1 class="{{.TitleClass}}">{{.Title}}</h1><p>{{.Content}}</p></article>`,
+			oldData:                  map[string]interface{}{"TitleClass": "h1-old", "Title": "Old Title", "Content": "Old content"},
+			newData:                  map[string]interface{}{"TitleClass": "h1-new", "Title": "New Title", "Content": "New content"},
+			fallbackEnabled:          true,
+			expectFragmentsWithFB:    true,
+			expectFragmentsWithoutFB: true,
+		},
+		{
+			name:                     "simple text change - fallback enabled",
+			templateText:             `<span>{{.Message}}</span>`,
+			oldData:                  map[string]interface{}{"Message": "Hello"},
+			newData:                  map[string]interface{}{"Message": "World"},
+			fallbackEnabled:          true,
+			expectFragmentsWithFB:    true,
+			expectFragmentsWithoutFB: true,
+		},
 	}
 
-	oldData := map[string]interface{}{"Class": "old", "Text": "Before"}
-	newData := map[string]interface{}{"Class": "new", "Text": "After"}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpl, err := template.New("test").Parse(tt.templateText)
+			if err != nil {
+				t.Fatalf("Template parsing failed: %v", err)
+			}
 
-	// Test with fallback enabled
-	generator.SetFallbackEnabled(true)
-	fragments, err := generator.GenerateUpdate(tmpl, oldData, newData)
-	if err != nil {
-		t.Errorf("Update generation with fallback failed: %v", err)
-	}
-	if len(fragments) == 0 {
-		t.Error("Expected at least one fragment with fallback enabled")
-	}
+			// Test with fallback enabled
+			generator := NewUpdateGenerator()
+			generator.SetFallbackEnabled(tt.fallbackEnabled)
+			fragments, err := generator.GenerateUpdate(tmpl, tt.oldData, tt.newData)
+			if err != nil {
+				t.Errorf("Update generation with fallback failed: %v", err)
+			}
+			if tt.expectFragmentsWithFB && len(fragments) == 0 {
+				t.Error("Expected at least one fragment with fallback enabled")
+			}
 
-	// Test with fallback disabled
-	generator.SetFallbackEnabled(false)
-	fragments2, err2 := generator.GenerateUpdate(tmpl, oldData, newData)
-	if err2 != nil {
-		t.Errorf("Update generation without fallback failed: %v", err2)
-	}
-	if len(fragments2) == 0 {
-		t.Error("Expected at least one fragment with fallback disabled")
+			// Test with fallback disabled
+			generator.SetFallbackEnabled(false)
+			fragments2, err2 := generator.GenerateUpdate(tmpl, tt.oldData, tt.newData)
+			if err2 != nil {
+				t.Errorf("Update generation without fallback failed: %v", err2)
+			}
+			if tt.expectFragmentsWithoutFB && len(fragments2) == 0 {
+				t.Error("Expected at least one fragment with fallback disabled")
+			}
+		})
 	}
 }
 
 func TestUpdateGenerator_Metrics(t *testing.T) {
-	generator := NewUpdateGenerator()
-	generator.SetMetricsEnabled(true)
-
-	tmpl, err := template.New("test").Parse(`<span>{{.Text}}</span>`)
-	if err != nil {
-		t.Fatalf("Template parsing failed: %v", err)
-	}
-
-	// Generate several updates
-	testData := []struct {
-		oldData interface{}
-		newData interface{}
+	tests := []struct {
+		name               string
+		templateText       string
+		testData           []struct{ oldData, newData interface{} }
+		expectedTotalGen   int64
+		expectedSuccessGen int64
+		expectedFailedGen  int64
+		testReset          bool
 	}{
 		{
-			map[string]interface{}{"Text": "A"},
-			map[string]interface{}{"Text": "B"},
+			name:         "simple text changes metrics",
+			templateText: `<span>{{.Text}}</span>`,
+			testData: []struct{ oldData, newData interface{} }{
+				{
+					map[string]interface{}{"Text": "A"},
+					map[string]interface{}{"Text": "B"},
+				},
+				{
+					map[string]interface{}{"Text": "C"},
+					map[string]interface{}{"Text": "D"},
+				},
+				{
+					map[string]interface{}{"Text": "E"},
+					map[string]interface{}{"Text": "F"},
+				},
+			},
+			expectedTotalGen:   3,
+			expectedSuccessGen: 3,
+			expectedFailedGen:  0,
+			testReset:          true,
 		},
 		{
-			map[string]interface{}{"Text": "C"},
-			map[string]interface{}{"Text": "D"},
+			name:         "attribute changes metrics",
+			templateText: `<div class="{{.Class}}">Content</div>`,
+			testData: []struct{ oldData, newData interface{} }{
+				{
+					map[string]interface{}{"Class": "red"},
+					map[string]interface{}{"Class": "blue"},
+				},
+				{
+					map[string]interface{}{"Class": "green"},
+					map[string]interface{}{"Class": "yellow"},
+				},
+			},
+			expectedTotalGen:   2,
+			expectedSuccessGen: 2,
+			expectedFailedGen:  0,
+			testReset:          true,
 		},
 		{
-			map[string]interface{}{"Text": "E"},
-			map[string]interface{}{"Text": "F"},
+			name:         "mixed changes metrics",
+			templateText: `<div class="{{.Class}}">{{.Text}}</div>`,
+			testData: []struct{ oldData, newData interface{} }{
+				{
+					map[string]interface{}{"Class": "old", "Text": "Before"},
+					map[string]interface{}{"Class": "new", "Text": "After"},
+				},
+			},
+			expectedTotalGen:   1,
+			expectedSuccessGen: 1,
+			expectedFailedGen:  0,
+			testReset:          false,
 		},
 	}
 
-	for _, data := range testData {
-		_, err := generator.GenerateUpdate(tmpl, data.oldData, data.newData)
-		if err != nil {
-			t.Errorf("Update generation failed: %v", err)
-		}
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			generator := NewUpdateGenerator()
+			generator.SetMetricsEnabled(true)
 
-	// Check metrics
-	metrics := generator.GetMetrics()
+			tmpl, err := template.New("test").Parse(tt.templateText)
+			if err != nil {
+				t.Fatalf("Template parsing failed: %v", err)
+			}
 
-	if metrics.TotalGenerations != int64(len(testData)) {
-		t.Errorf("TotalGenerations = %d, want %d", metrics.TotalGenerations, len(testData))
-	}
+			// Generate updates from test data
+			for _, data := range tt.testData {
+				_, err := generator.GenerateUpdate(tmpl, data.oldData, data.newData)
+				if err != nil {
+					t.Errorf("Update generation failed: %v", err)
+				}
+			}
 
-	if metrics.SuccessfulGenerations != int64(len(testData)) {
-		t.Errorf("SuccessfulGenerations = %d, want %d", metrics.SuccessfulGenerations, len(testData))
-	}
+			// Check metrics
+			metrics := generator.GetMetrics()
 
-	if metrics.FailedGenerations != 0 {
-		t.Errorf("FailedGenerations = %d, want 0", metrics.FailedGenerations)
-	}
+			if metrics.TotalGenerations != tt.expectedTotalGen {
+				t.Errorf("TotalGenerations = %d, want %d", metrics.TotalGenerations, tt.expectedTotalGen)
+			}
 
-	if len(metrics.StrategyUsage) == 0 {
-		t.Error("StrategyUsage should not be empty")
-	}
+			if metrics.SuccessfulGenerations != tt.expectedSuccessGen {
+				t.Errorf("SuccessfulGenerations = %d, want %d", metrics.SuccessfulGenerations, tt.expectedSuccessGen)
+			}
 
-	if metrics.AverageGenerationTime <= 0 {
-		t.Error("AverageGenerationTime should be positive")
-	}
+			if metrics.FailedGenerations != tt.expectedFailedGen {
+				t.Errorf("FailedGenerations = %d, want %d", metrics.FailedGenerations, tt.expectedFailedGen)
+			}
 
-	// Test metrics reset
-	generator.ResetMetrics()
-	resetMetrics := generator.GetMetrics()
+			if len(metrics.StrategyUsage) == 0 {
+				t.Error("StrategyUsage should not be empty")
+			}
 
-	if resetMetrics.TotalGenerations != 0 {
-		t.Error("Metrics should be reset")
+			if metrics.AverageGenerationTime <= 0 {
+				t.Error("AverageGenerationTime should be positive")
+			}
+
+			if tt.testReset {
+				// Test metrics reset
+				generator.ResetMetrics()
+				resetMetrics := generator.GetMetrics()
+
+				if resetMetrics.TotalGenerations != 0 {
+					t.Error("Metrics should be reset")
+				}
+			}
+		})
 	}
 }
 
 func TestUpdateGenerator_PerformanceOptimization(t *testing.T) {
-	generator := NewUpdateGenerator()
-
-	// Test that repeated identical updates are efficiently handled
-	tmpl, err := template.New("test").Parse(`<div>{{.Value}}</div>`)
-	if err != nil {
-		t.Fatalf("Template parsing failed: %v", err)
+	tests := []struct {
+		name              string
+		templateText      string
+		oldData           interface{}
+		newData           interface{}
+		iterations        int
+		maxDuration       time.Duration
+		expectFragments   bool
+		validateBandwidth bool
+	}{
+		{
+			name:              "identical data optimization",
+			templateText:      `<div>{{.Value}}</div>`,
+			oldData:           map[string]interface{}{"Value": "Same"},
+			newData:           map[string]interface{}{"Value": "Same"},
+			iterations:        10,
+			maxDuration:       100 * time.Millisecond,
+			expectFragments:   true,
+			validateBandwidth: true,
+		},
+		{
+			name:              "repeated text changes optimization",
+			templateText:      `<span>{{.Text}}</span>`,
+			oldData:           map[string]interface{}{"Text": "Hello"},
+			newData:           map[string]interface{}{"Text": "World"},
+			iterations:        15,
+			maxDuration:       150 * time.Millisecond,
+			expectFragments:   true,
+			validateBandwidth: true,
+		},
+		{
+			name:              "repeated attribute changes optimization",
+			templateText:      `<div class="{{.Class}}">Content</div>`,
+			oldData:           map[string]interface{}{"Class": "active"},
+			newData:           map[string]interface{}{"Class": "inactive"},
+			iterations:        8,
+			maxDuration:       80 * time.Millisecond,
+			expectFragments:   true,
+			validateBandwidth: true,
+		},
 	}
 
-	oldData := map[string]interface{}{"Value": "Same"}
-	newData := map[string]interface{}{"Value": "Same"}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			generator := NewUpdateGenerator()
 
-	start := time.Now()
+			tmpl, err := template.New("test").Parse(tt.templateText)
+			if err != nil {
+				t.Fatalf("Template parsing failed: %v", err)
+			}
 
-	// Run multiple identical updates
-	for i := 0; i < 10; i++ {
-		fragments, err := generator.GenerateUpdate(tmpl, oldData, newData)
-		if err != nil {
-			t.Errorf("Update generation failed: %v", err)
-		}
+			start := time.Now()
 
-		if len(fragments) == 0 {
-			t.Error("Expected at least one fragment")
-		}
-	}
+			// Run multiple identical updates
+			for i := 0; i < tt.iterations; i++ {
+				fragments, err := generator.GenerateUpdate(tmpl, tt.oldData, tt.newData)
+				if err != nil {
+					t.Errorf("Update generation failed: %v", err)
+				}
 
-	duration := time.Since(start)
+				if tt.expectFragments && len(fragments) == 0 {
+					t.Error("Expected at least one fragment")
+				}
+			}
 
-	// Should complete quickly due to caching and optimization
-	if duration > 100*time.Millisecond {
-		t.Errorf("Performance test took too long: %v", duration)
-	}
+			duration := time.Since(start)
 
-	// Test bandwidth optimization metrics
-	metrics := generator.GetMetrics()
-	if metrics.TotalBandwidthSaved < 0 {
-		t.Error("TotalBandwidthSaved should not be negative")
+			// Should complete within expected time due to caching and optimization
+			if duration > tt.maxDuration {
+				t.Errorf("Performance test took too long: %v, expected <= %v", duration, tt.maxDuration)
+			}
+
+			if tt.validateBandwidth {
+				// Test bandwidth optimization metrics
+				metrics := generator.GetMetrics()
+				if metrics.TotalBandwidthSaved < 0 {
+					t.Error("TotalBandwidthSaved should not be negative")
+				}
+			}
+
+			t.Logf("Performance test completed in %v for %d iterations", duration, tt.iterations)
+		})
 	}
 }
 

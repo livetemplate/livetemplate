@@ -150,148 +150,207 @@ func TestDOMComparator_ClassifyChanges(t *testing.T) {
 func TestDOMComparator_SpecificChangeTypes(t *testing.T) {
 	comparator := NewDOMComparator()
 
-	t.Run("attribute addition", func(t *testing.T) {
-		oldHTML := `<div>Hello</div>`
-		newHTML := `<div class="new">Hello</div>`
+	tests := []struct {
+		name                string
+		oldHTML             string
+		newHTML             string
+		expectedChangeCount int
+		expectedChangeType  ChangeType
+		expectedOldValue    string
+		expectedNewValue    string
+		validateChanges     func(t *testing.T, changes []DOMChange, comparator *DOMComparator)
+	}{
+		{
+			name:                "attribute addition",
+			oldHTML:             `<div>Hello</div>`,
+			newHTML:             `<div class="new">Hello</div>`,
+			expectedChangeCount: 1,
+			expectedChangeType:  ChangeAttribute,
+			expectedOldValue:    "",
+			expectedNewValue:    "new",
+			validateChanges: func(t *testing.T, changes []DOMChange, comparator *DOMComparator) {
+				change := changes[0]
+				if change.Type != ChangeAttribute {
+					t.Errorf("expected ChangeAttribute, got %v", change.Type)
+				}
+				if change.OldValue != "" {
+					t.Errorf("expected empty old value, got %s", change.OldValue)
+				}
+				if change.NewValue != "new" {
+					t.Errorf("expected 'new', got %s", change.NewValue)
+				}
+			},
+		},
+		{
+			name:                "attribute removal",
+			oldHTML:             `<div class="old">Hello</div>`,
+			newHTML:             `<div>Hello</div>`,
+			expectedChangeCount: 1,
+			expectedChangeType:  ChangeAttribute,
+			expectedOldValue:    "old",
+			expectedNewValue:    "",
+			validateChanges: func(t *testing.T, changes []DOMChange, comparator *DOMComparator) {
+				change := changes[0]
+				if change.Type != ChangeAttribute {
+					t.Errorf("expected ChangeAttribute, got %v", change.Type)
+				}
+				if change.OldValue != "old" {
+					t.Errorf("expected 'old', got %s", change.OldValue)
+				}
+				if change.NewValue != "" {
+					t.Errorf("expected empty new value, got %s", change.NewValue)
+				}
+			},
+		},
+		{
+			name:                "element type change",
+			oldHTML:             `<div>Hello</div>`,
+			newHTML:             `<span>Hello</span>`,
+			expectedChangeCount: 1, // At least one change
+			expectedChangeType:  ChangeStructure,
+			validateChanges: func(t *testing.T, changes []DOMChange, comparator *DOMComparator) {
+				if len(changes) == 0 {
+					t.Fatal("expected at least one change")
+				}
+				// Should detect as structural change
+				changeType := comparator.ClassifyChanges(changes)
+				if changeType != ChangeStructure {
+					t.Errorf("expected ChangeStructure, got %v", changeType)
+				}
+			},
+		},
+	}
 
-		changes, err := comparator.Compare(oldHTML, newHTML)
-		if err != nil {
-			t.Fatalf("Compare() error = %v", err)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			changes, err := comparator.Compare(tt.oldHTML, tt.newHTML)
+			if err != nil {
+				t.Fatalf("Compare() error = %v", err)
+			}
 
-		if len(changes) != 1 {
-			t.Fatalf("expected 1 change, got %d", len(changes))
-		}
+			if len(changes) < tt.expectedChangeCount {
+				t.Fatalf("expected at least %d change(s), got %d", tt.expectedChangeCount, len(changes))
+			}
 
-		change := changes[0]
-		if change.Type != ChangeAttribute {
-			t.Errorf("expected ChangeAttribute, got %v", change.Type)
-		}
-
-		if change.OldValue != "" {
-			t.Errorf("expected empty old value, got %s", change.OldValue)
-		}
-
-		if change.NewValue != "new" {
-			t.Errorf("expected 'new', got %s", change.NewValue)
-		}
-	})
-
-	t.Run("attribute removal", func(t *testing.T) {
-		oldHTML := `<div class="old">Hello</div>`
-		newHTML := `<div>Hello</div>`
-
-		changes, err := comparator.Compare(oldHTML, newHTML)
-		if err != nil {
-			t.Fatalf("Compare() error = %v", err)
-		}
-
-		if len(changes) != 1 {
-			t.Fatalf("expected 1 change, got %d", len(changes))
-		}
-
-		change := changes[0]
-		if change.Type != ChangeAttribute {
-			t.Errorf("expected ChangeAttribute, got %v", change.Type)
-		}
-
-		if change.OldValue != "old" {
-			t.Errorf("expected 'old', got %s", change.OldValue)
-		}
-
-		if change.NewValue != "" {
-			t.Errorf("expected empty new value, got %s", change.NewValue)
-		}
-	})
-
-	t.Run("element type change", func(t *testing.T) {
-		oldHTML := `<div>Hello</div>`
-		newHTML := `<span>Hello</span>`
-
-		changes, err := comparator.Compare(oldHTML, newHTML)
-		if err != nil {
-			t.Fatalf("Compare() error = %v", err)
-		}
-
-		if len(changes) == 0 {
-			t.Fatal("expected at least one change")
-		}
-
-		// Should detect as structural change
-		changeType := comparator.ClassifyChanges(changes)
-		if changeType != ChangeStructure {
-			t.Errorf("expected ChangeStructure, got %v", changeType)
-		}
-	})
+			if tt.validateChanges != nil {
+				tt.validateChanges(t, changes, comparator)
+			}
+		})
+	}
 }
 
 func TestDOMComparator_EmptyStateHandling(t *testing.T) {
 	comparator := NewDOMComparator()
 
-	t.Run("empty to content", func(t *testing.T) {
-		oldHTML := `<div></div>`
-		newHTML := `<div><p>Hello</p></div>`
+	tests := []struct {
+		name               string
+		oldHTML            string
+		newHTML            string
+		expectChanges      bool
+		expectedChangeType ChangeType
+	}{
+		{
+			name:               "empty to content",
+			oldHTML:            `<div></div>`,
+			newHTML:            `<div><p>Hello</p></div>`,
+			expectChanges:      true,
+			expectedChangeType: ChangeStructure,
+		},
+		{
+			name:               "content to empty",
+			oldHTML:            `<div><p>Hello</p></div>`,
+			newHTML:            `<div></div>`,
+			expectChanges:      true,
+			expectedChangeType: ChangeStructure,
+		},
+	}
 
-		changes, err := comparator.Compare(oldHTML, newHTML)
-		if err != nil {
-			t.Fatalf("Compare() error = %v", err)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			changes, err := comparator.Compare(tt.oldHTML, tt.newHTML)
+			if err != nil {
+				t.Fatalf("Compare() error = %v", err)
+			}
 
-		if len(changes) == 0 {
-			t.Fatal("expected changes for empty to content transition")
-		}
+			if tt.expectChanges && len(changes) == 0 {
+				t.Fatalf("expected changes for %s transition", tt.name)
+			}
 
-		// Should be classified as structural
-		changeType := comparator.ClassifyChanges(changes)
-		if changeType != ChangeStructure {
-			t.Errorf("expected ChangeStructure for empty state, got %v", changeType)
-		}
-	})
+			if !tt.expectChanges && len(changes) > 0 {
+				t.Fatalf("expected no changes for %s transition, got %d", tt.name, len(changes))
+			}
 
-	t.Run("content to empty", func(t *testing.T) {
-		oldHTML := `<div><p>Hello</p></div>`
-		newHTML := `<div></div>`
-
-		changes, err := comparator.Compare(oldHTML, newHTML)
-		if err != nil {
-			t.Fatalf("Compare() error = %v", err)
-		}
-
-		if len(changes) == 0 {
-			t.Fatal("expected changes for content to empty transition")
-		}
-
-		// Should be classified as structural
-		changeType := comparator.ClassifyChanges(changes)
-		if changeType != ChangeStructure {
-			t.Errorf("expected ChangeStructure for empty state, got %v", changeType)
-		}
-	})
+			if tt.expectChanges {
+				// Should be classified as expected type
+				changeType := comparator.ClassifyChanges(changes)
+				if changeType != tt.expectedChangeType {
+					t.Errorf("expected %v for %s, got %v", tt.expectedChangeType, tt.name, changeType)
+				}
+			}
+		})
+	}
 }
 
 func TestDOMChange_Structure(t *testing.T) {
 	comparator := NewDOMComparator()
 
-	// Test that change structure is valid
-	oldHTML := `<p>Hello World</p>`
-	newHTML := `<p>Hello Universe</p>`
-
-	changes, err := comparator.Compare(oldHTML, newHTML)
-	if err != nil {
-		t.Fatalf("Compare() error = %v", err)
+	tests := []struct {
+		name          string
+		oldHTML       string
+		newHTML       string
+		expectChanges bool
+	}{
+		{
+			name:          "text change produces valid structure",
+			oldHTML:       `<p>Hello World</p>`,
+			newHTML:       `<p>Hello Universe</p>`,
+			expectChanges: true,
+		},
+		{
+			name:          "attribute change produces valid structure",
+			oldHTML:       `<div class="old">Content</div>`,
+			newHTML:       `<div class="new">Content</div>`,
+			expectChanges: true,
+		},
+		{
+			name:          "structural change produces valid structure",
+			oldHTML:       `<div>Content</div>`,
+			newHTML:       `<div>Content<span>Added</span></div>`,
+			expectChanges: true,
+		},
+		{
+			name:          "no change produces no structure",
+			oldHTML:       `<p>Same Content</p>`,
+			newHTML:       `<p>Same Content</p>`,
+			expectChanges: false,
+		},
 	}
 
-	if len(changes) == 0 {
-		t.Fatal("expected at least one change")
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			changes, err := comparator.Compare(tt.oldHTML, tt.newHTML)
+			if err != nil {
+				t.Fatalf("Compare() error = %v", err)
+			}
 
-	for i, change := range changes {
-		if change.Type == "" {
-			t.Errorf("change %d has empty type", i)
-		}
+			if tt.expectChanges && len(changes) == 0 {
+				t.Fatal("expected at least one change")
+			}
 
-		if change.Description == "" {
-			t.Errorf("change %d has empty description", i)
-		}
+			if !tt.expectChanges && len(changes) > 0 {
+				t.Fatalf("expected no changes, got %d", len(changes))
+			}
+
+			// Validate structure of any changes
+			for i, change := range changes {
+				if change.Type == "" {
+					t.Errorf("change %d has empty type", i)
+				}
+
+				if change.Description == "" {
+					t.Errorf("change %d has empty description", i)
+				}
+			}
+		})
 	}
 }

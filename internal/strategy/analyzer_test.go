@@ -223,73 +223,145 @@ func TestStrategyAnalyzer_QuickAnalyze(t *testing.T) {
 }
 
 func TestStrategyAnalyzer_Caching(t *testing.T) {
-	analyzer := NewStrategyAnalyzer()
-
-	oldHTML := `<div>Hello</div>`
-	newHTML := `<div>Hi there</div>`
-
-	// First analysis
-	result1, err := analyzer.AnalyzeStrategy(oldHTML, newHTML)
-	if err != nil {
-		t.Fatalf("First analysis failed: %v", err)
+	tests := []struct {
+		name                 string
+		oldHTML              string
+		newHTML              string
+		expectFirstCacheHit  bool
+		expectSecondCacheHit bool
+		validateStats        bool
+	}{
+		{
+			name:                 "text change caching",
+			oldHTML:              `<div>Hello</div>`,
+			newHTML:              `<div>Hi there</div>`,
+			expectFirstCacheHit:  false,
+			expectSecondCacheHit: true,
+			validateStats:        true,
+		},
+		{
+			name:                 "attribute change caching",
+			oldHTML:              `<div class="old">Content</div>`,
+			newHTML:              `<div class="new">Content</div>`,
+			expectFirstCacheHit:  false,
+			expectSecondCacheHit: true,
+			validateStats:        true,
+		},
+		{
+			name:                 "structural change caching",
+			oldHTML:              `<ul><li>Item 1</li></ul>`,
+			newHTML:              `<ul><li>Item 1</li><li>Item 2</li></ul>`,
+			expectFirstCacheHit:  false,
+			expectSecondCacheHit: true,
+			validateStats:        true,
+		},
 	}
 
-	if result1.CacheHit {
-		t.Error("First analysis should not be a cache hit")
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			analyzer := NewStrategyAnalyzer()
 
-	// Second analysis - should hit cache
-	result2, err := analyzer.AnalyzeStrategy(oldHTML, newHTML)
-	if err != nil {
-		t.Fatalf("Second analysis failed: %v", err)
-	}
+			// First analysis
+			result1, err := analyzer.AnalyzeStrategy(tt.oldHTML, tt.newHTML)
+			if err != nil {
+				t.Fatalf("First analysis failed: %v", err)
+			}
 
-	if !result2.CacheHit {
-		t.Error("Second analysis should be a cache hit")
-	}
+			if result1.CacheHit != tt.expectFirstCacheHit {
+				t.Errorf("First analysis cache hit = %v, want %v", result1.CacheHit, tt.expectFirstCacheHit)
+			}
 
-	// Results should be identical except for cache hit flag
-	if result1.Strategy != result2.Strategy {
-		t.Errorf("Cached strategy differs: %d vs %d", result1.Strategy, result2.Strategy)
-	}
+			// Second analysis - should hit cache
+			result2, err := analyzer.AnalyzeStrategy(tt.oldHTML, tt.newHTML)
+			if err != nil {
+				t.Fatalf("Second analysis failed: %v", err)
+			}
 
-	// Test cache stats
-	stats := analyzer.GetCacheStats()
-	if stats["cache_size"].(int) == 0 {
-		t.Error("Cache should contain entries")
-	}
+			if result2.CacheHit != tt.expectSecondCacheHit {
+				t.Errorf("Second analysis cache hit = %v, want %v", result2.CacheHit, tt.expectSecondCacheHit)
+			}
 
-	if !stats["cache_enabled"].(bool) {
-		t.Error("Cache should be enabled")
+			// Results should be identical except for cache hit flag
+			if result1.Strategy != result2.Strategy {
+				t.Errorf("Cached strategy differs: %d vs %d", result1.Strategy, result2.Strategy)
+			}
+
+			if tt.validateStats {
+				// Test cache stats
+				stats := analyzer.GetCacheStats()
+				if stats["cache_size"].(int) == 0 {
+					t.Error("Cache should contain entries")
+				}
+
+				if !stats["cache_enabled"].(bool) {
+					t.Error("Cache should be enabled")
+				}
+			}
+		})
 	}
 }
 
 func TestStrategyAnalyzer_CacheDisabled(t *testing.T) {
-	analyzer := NewStrategyAnalyzer()
-	analyzer.SetCacheEnabled(false)
-
-	oldHTML := `<div>Hello</div>`
-	newHTML := `<div>Hi there</div>`
-
-	// First analysis
-	result1, err := analyzer.AnalyzeStrategy(oldHTML, newHTML)
-	if err != nil {
-		t.Fatalf("First analysis failed: %v", err)
+	tests := []struct {
+		name                  string
+		oldHTML               string
+		newHTML               string
+		expectNoCacheHits     bool
+		validateCacheDisabled bool
+	}{
+		{
+			name:                  "text change with cache disabled",
+			oldHTML:               `<div>Hello</div>`,
+			newHTML:               `<div>Hi there</div>`,
+			expectNoCacheHits:     true,
+			validateCacheDisabled: true,
+		},
+		{
+			name:                  "attribute change with cache disabled",
+			oldHTML:               `<span class="old">Text</span>`,
+			newHTML:               `<span class="new">Text</span>`,
+			expectNoCacheHits:     true,
+			validateCacheDisabled: true,
+		},
+		{
+			name:                  "structural change with cache disabled",
+			oldHTML:               `<ul><li>A</li></ul>`,
+			newHTML:               `<ul><li>A</li><li>B</li></ul>`,
+			expectNoCacheHits:     true,
+			validateCacheDisabled: true,
+		},
 	}
 
-	// Second analysis - should not hit cache
-	result2, err := analyzer.AnalyzeStrategy(oldHTML, newHTML)
-	if err != nil {
-		t.Fatalf("Second analysis failed: %v", err)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			analyzer := NewStrategyAnalyzer()
+			analyzer.SetCacheEnabled(false)
 
-	if result1.CacheHit || result2.CacheHit {
-		t.Error("With cache disabled, no results should be cache hits")
-	}
+			// First analysis
+			result1, err := analyzer.AnalyzeStrategy(tt.oldHTML, tt.newHTML)
+			if err != nil {
+				t.Fatalf("First analysis failed: %v", err)
+			}
 
-	stats := analyzer.GetCacheStats()
-	if stats["cache_enabled"].(bool) {
-		t.Error("Cache should be disabled")
+			// Second analysis - should not hit cache
+			result2, err := analyzer.AnalyzeStrategy(tt.oldHTML, tt.newHTML)
+			if err != nil {
+				t.Fatalf("Second analysis failed: %v", err)
+			}
+
+			if tt.expectNoCacheHits {
+				if result1.CacheHit || result2.CacheHit {
+					t.Error("With cache disabled, no results should be cache hits")
+				}
+			}
+
+			if tt.validateCacheDisabled {
+				stats := analyzer.GetCacheStats()
+				if stats["cache_enabled"].(bool) {
+					t.Error("Cache should be disabled")
+				}
+			}
+		})
 	}
 }
 
@@ -410,50 +482,92 @@ func TestStrategyAnalyzer_FallbackLogic(t *testing.T) {
 }
 
 func TestStrategyAnalyzer_CacheManagement(t *testing.T) {
-	analyzer := NewStrategyAnalyzer()
-
-	// Set small cache size for testing
-	analyzer.maxCacheSize = 2
-	analyzer.SetCacheTTL(100 * time.Millisecond)
-
-	// Fill cache beyond capacity
-	testInputs := []struct{ old, new string }{
-		{"<div>1</div>", "<div>1a</div>"},
-		{"<div>2</div>", "<div>2a</div>"},
-		{"<div>3</div>", "<div>3a</div>"}, // This should trigger cache cleanup
+	tests := []struct {
+		name              string
+		maxCacheSize      int
+		cacheTTL          time.Duration
+		inputs            []struct{ old, new string }
+		expectSizeLimit   bool
+		testTTLExpiration bool
+		testCacheClearing bool
+	}{
+		{
+			name:         "cache size limit enforcement",
+			maxCacheSize: 2,
+			cacheTTL:     100 * time.Millisecond,
+			inputs: []struct{ old, new string }{
+				{"<div>1</div>", "<div>1a</div>"},
+				{"<div>2</div>", "<div>2a</div>"},
+				{"<div>3</div>", "<div>3a</div>"}, // This should trigger cache cleanup
+			},
+			expectSizeLimit:   true,
+			testTTLExpiration: true,
+			testCacheClearing: true,
+		},
+		{
+			name:         "larger cache with attribute changes",
+			maxCacheSize: 3,
+			cacheTTL:     200 * time.Millisecond,
+			inputs: []struct{ old, new string }{
+				{`<div class="a">Text</div>`, `<div class="b">Text</div>`},
+				{`<span id="x">Content</span>`, `<span id="y">Content</span>`},
+				{`<p>Old</p>`, `<p>New</p>`},
+				{`<h1>Title</h1>`, `<h1>Updated</h1>`}, // Should trigger cleanup
+			},
+			expectSizeLimit:   true,
+			testTTLExpiration: false, // Skip TTL test for this scenario
+			testCacheClearing: true,
+		},
 	}
 
-	for _, input := range testInputs {
-		_, err := analyzer.AnalyzeStrategy(input.old, input.new)
-		if err != nil {
-			t.Fatalf("Analysis failed: %v", err)
-		}
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			analyzer := NewStrategyAnalyzer()
 
-	stats := analyzer.GetCacheStats()
-	cacheSize := stats["cache_size"].(int)
-	if cacheSize > analyzer.maxCacheSize {
-		t.Errorf("Cache size %d exceeds max size %d", cacheSize, analyzer.maxCacheSize)
-	}
+			// Set cache parameters for testing
+			analyzer.maxCacheSize = tt.maxCacheSize
+			analyzer.SetCacheTTL(tt.cacheTTL)
 
-	// Test TTL expiration
-	time.Sleep(150 * time.Millisecond) // Wait for TTL to expire
+			// Fill cache with test inputs
+			for _, input := range tt.inputs {
+				_, err := analyzer.AnalyzeStrategy(input.old, input.new)
+				if err != nil {
+					t.Fatalf("Analysis failed: %v", err)
+				}
+			}
 
-	// Access an expired entry (should not be found)
-	result, err := analyzer.AnalyzeStrategy(testInputs[0].old, testInputs[0].new)
-	if err != nil {
-		t.Fatalf("Analysis failed: %v", err)
-	}
+			if tt.expectSizeLimit {
+				stats := analyzer.GetCacheStats()
+				cacheSize := stats["cache_size"].(int)
+				if cacheSize > analyzer.maxCacheSize {
+					t.Errorf("Cache size %d exceeds max size %d", cacheSize, analyzer.maxCacheSize)
+				}
+			}
 
-	if result.CacheHit {
-		t.Error("Should not get cache hit for expired entry")
-	}
+			if tt.testTTLExpiration {
+				// Test TTL expiration
+				time.Sleep(tt.cacheTTL + 50*time.Millisecond) // Wait for TTL to expire
 
-	// Test cache clearing
-	analyzer.ClearCache()
-	statsAfterClear := analyzer.GetCacheStats()
-	if statsAfterClear["cache_size"].(int) != 0 {
-		t.Error("Cache should be empty after clearing")
+				// Access an expired entry (should not be found)
+				result, err := analyzer.AnalyzeStrategy(tt.inputs[0].old, tt.inputs[0].new)
+				if err != nil {
+					t.Fatalf("Analysis failed: %v", err)
+				}
+
+				if result.CacheHit {
+					t.Error("Should not get cache hit for expired entry")
+				}
+			}
+
+			if tt.testCacheClearing {
+				// Test cache clearing
+				analyzer.ClearCache()
+				statsAfterClear := analyzer.GetCacheStats()
+				if statsAfterClear["cache_size"].(int) != 0 {
+					t.Error("Cache should be empty after clearing")
+				}
+			}
+		})
 	}
 }
 

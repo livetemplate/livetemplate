@@ -15,19 +15,19 @@ Remove confidence-based strategy selection and replace with deterministic rule-b
 
 ## Acceptance Criteria
 
-- [ ] Strategy selection uses binary rules based on change types
-- [ ] not confidence thresholds
-- [ ] Text-only changes always use Strategy 1 (Static/Dynamic)
-- [ ] Attribute changes always use Strategy 2 (Markers)
-- [ ] Structural changes always use Strategy 3 (Granular)
-- [ ] Complex changes always use Strategy 4 (Replacement)
-- [ ] Confidence scores only used for quality metrics and debugging info
-- [ ] Updated HLD.md with deterministic strategy selection rules
-- [ ] Updated LLD.md with rule-based classification logic
-- [ ] Updated CLAUDE.md with deterministic guidance
-- [ ] Implementation refactored to remove confidence-based selection
-- [ ] All tests updated to reflect deterministic behavior
-- [ ] Library behavior is completely predictable for same template constructs
+- [x] Strategy selection uses binary rules based on change types
+- [x] not confidence thresholds
+- [x] Text-only changes always use Strategy 1 (Static/Dynamic)
+- [x] Attribute changes always use Strategy 2 (Markers)
+- [x] Structural changes always use Strategy 3 (Granular)
+- [x] Complex changes always use Strategy 4 (Replacement)
+- [x] Confidence scores only used for quality metrics and debugging info
+- [x] Updated HLD.md with deterministic strategy selection rules
+- [x] Updated LLD.md with rule-based classification logic
+- [x] Updated CLAUDE.md with deterministic guidance
+- [x] Implementation refactored to remove confidence-based selection
+- [x] All tests updated to reflect deterministic behavior
+- [x] Library behavior is completely predictable for same template constructs
 
 ## Implementation Notes
 

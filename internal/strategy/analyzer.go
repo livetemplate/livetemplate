@@ -82,7 +82,7 @@ func (sa *StrategyAnalyzer) AnalyzeStrategy(oldHTML, newHTML string) (*AnalysisR
 	// Check cache first
 	if sa.cacheEnabled {
 		if cached := sa.getCachedResult(cacheKey); cached != nil {
-			sa.updateMetrics(cached, true)
+			sa.updateMetricsOnly(cached, true)
 			return cached, nil
 		}
 	}
@@ -109,16 +109,13 @@ func (sa *StrategyAnalyzer) AnalyzeStrategy(oldHTML, newHTML string) (*AnalysisR
 		UsesFallback:   false,
 	}
 
-	// Track rule correctness
-	sa.trackRuleCorrectness(diffResult)
-
 	// Cache the result
 	if sa.cacheEnabled {
 		sa.cacheResult(cacheKey, result)
 	}
 
-	// Update metrics
-	sa.updateMetrics(result, false)
+	// Update metrics and track rule correctness in single critical section
+	sa.updateMetricsAndRuleCorrectness(result, diffResult, false)
 
 	return result, nil
 }
@@ -295,36 +292,8 @@ func (sa *StrategyAnalyzer) cleanCache() {
 	}
 }
 
-// trackRuleCorrectness tracks how well deterministic rules are working
-func (sa *StrategyAnalyzer) trackRuleCorrectness(diffResult *diff.DiffResult) {
-	sa.metricsMutex.Lock()
-	defer sa.metricsMutex.Unlock()
-
-	// Track pattern to strategy mapping correctness
-	pattern := diffResult.Strategy.Pattern
-	strategy := diffResult.Strategy.Strategy
-
-	ruleKey := fmt.Sprintf("%s->strategy%d", pattern, strategy)
-	sa.metrics.RuleCorrectness[ruleKey]++
-
-	// Track expected mappings
-	expectedMappings := map[diff.PatternType]int{
-		diff.PatternStaticDynamic: 1,
-		diff.PatternMarkerizable:  2,
-		diff.PatternGranular:      3,
-		diff.PatternReplacement:   4,
-	}
-
-	expectedStrategy, exists := expectedMappings[pattern]
-	if exists && expectedStrategy == strategy {
-		sa.metrics.RuleCorrectness["correct_mapping"]++
-	} else {
-		sa.metrics.RuleCorrectness["unexpected_mapping"]++
-	}
-}
-
-// updateMetrics updates analysis metrics
-func (sa *StrategyAnalyzer) updateMetrics(result *AnalysisResult, fromCache bool) {
+// updateMetricsOnly updates only analysis metrics (for cache hits)
+func (sa *StrategyAnalyzer) updateMetricsOnly(result *AnalysisResult, fromCache bool) {
 	sa.metricsMutex.Lock()
 	defer sa.metricsMutex.Unlock()
 
@@ -349,6 +318,58 @@ func (sa *StrategyAnalyzer) updateMetrics(result *AnalysisResult, fromCache bool
 	if !fromCache {
 		totalTime := time.Duration(sa.metrics.TotalAnalyses-1)*sa.metrics.AverageAnalysisTime + result.AnalysisTime
 		sa.metrics.AverageAnalysisTime = totalTime / time.Duration(sa.metrics.TotalAnalyses)
+	}
+}
+
+// updateMetricsAndRuleCorrectness updates both metrics and rule correctness in single critical section
+func (sa *StrategyAnalyzer) updateMetricsAndRuleCorrectness(result *AnalysisResult, diffResult *diff.DiffResult, fromCache bool) {
+	sa.metricsMutex.Lock()
+	defer sa.metricsMutex.Unlock()
+
+	// Update basic metrics
+	sa.metrics.TotalAnalyses++
+	sa.metrics.StrategyUsage[result.Strategy]++
+
+	if result.Recommendation != nil {
+		sa.metrics.PatternDistribution[result.Recommendation.Pattern]++
+	}
+
+	// Update cache hit rate
+	cacheHits := int64(0)
+	for _, entry := range sa.cache {
+		cacheHits += entry.Hits
+	}
+
+	if sa.metrics.TotalAnalyses > 0 {
+		sa.metrics.CacheHitRate = float64(cacheHits) / float64(sa.metrics.TotalAnalyses)
+	}
+
+	// Update average analysis time (only for non-cached results)
+	if !fromCache {
+		totalTime := time.Duration(sa.metrics.TotalAnalyses-1)*sa.metrics.AverageAnalysisTime + result.AnalysisTime
+		sa.metrics.AverageAnalysisTime = totalTime / time.Duration(sa.metrics.TotalAnalyses)
+	}
+
+	// Track rule correctness (previously in trackRuleCorrectness)
+	pattern := diffResult.Strategy.Pattern
+	strategy := diffResult.Strategy.Strategy
+
+	ruleKey := fmt.Sprintf("%s->strategy%d", pattern, strategy)
+	sa.metrics.RuleCorrectness[ruleKey]++
+
+	// Track expected mappings
+	expectedMappings := map[diff.PatternType]int{
+		diff.PatternStaticDynamic: 1,
+		diff.PatternMarkerizable:  2,
+		diff.PatternGranular:      3,
+		diff.PatternReplacement:   4,
+	}
+
+	expectedStrategy, exists := expectedMappings[pattern]
+	if exists && expectedStrategy == strategy {
+		sa.metrics.RuleCorrectness["correct_mapping"]++
+	} else {
+		sa.metrics.RuleCorrectness["unexpected_mapping"]++
 	}
 }
 
