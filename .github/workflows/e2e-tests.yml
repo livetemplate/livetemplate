@@ -1,0 +1,451 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run daily at 6 AM UTC to catch flaky tests
+    - cron: '0 6 * * *'
+
+env:
+  GO_VERSION: '1.23'
+  BROWSER_TESTS_TIMEOUT: '10m'
+  ARTIFACT_RETENTION_DAYS: 30
+
+jobs:
+  # Standard unit and integration tests
+  unit-tests:
+    name: Unit & Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Run CI validation script
+      run: |
+        chmod +x ./scripts/validate-ci.sh
+        ./scripts/validate-ci.sh
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: unit-test-results
+        path: |
+          coverage.out
+          test-results.xml
+        retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
+
+  # E2E browser tests with Chrome
+  e2e-chrome:
+    name: E2E Tests (Chrome)
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    timeout-minutes: 30
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        # Split tests for parallel execution
+        test-group: [
+          "infrastructure",
+          "browser-lifecycle", 
+          "performance",
+          "error-scenarios",
+          "concurrent-users",
+          "cross-browser"
+        ]
+
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Install Chrome
+      uses: browser-actions/setup-chrome@v1
+      with:
+        chrome-version: stable
+
+    - name: Verify Chrome installation
+      run: |
+        google-chrome --version
+        which google-chrome
+
+    - name: Create screenshots directory
+      run: mkdir -p screenshots test-artifacts
+
+    - name: Run E2E tests with retries
+      id: e2e-tests
+      continue-on-error: true
+      env:
+        CHROME_BIN: google-chrome
+        LIVETEMPLATE_E2E_SCREENSHOTS: true
+        LIVETEMPLATE_E2E_ARTIFACTS: ./test-artifacts
+      run: |
+        # Create test result files
+        touch test-results.json test-metrics.json
+
+        # Function to run tests with retry logic
+        run_with_retry() {
+          local test_name=$1
+          local max_attempts=3
+          local attempt=1
+          
+          while [ $attempt -le $max_attempts ]; do
+            echo "🔄 Running $test_name (attempt $attempt/$max_attempts)"
+            
+            if run_test_group "$test_name"; then
+              echo "✅ $test_name passed on attempt $attempt"
+              return 0
+            else
+              echo "❌ $test_name failed on attempt $attempt"
+              if [ $attempt -lt $max_attempts ]; then
+                echo "⏰ Waiting 30 seconds before retry..."
+                sleep 30
+              fi
+              attempt=$((attempt + 1))
+            fi
+          done
+          
+          echo "💥 $test_name failed after $max_attempts attempts"
+          return 1
+        }
+
+        # Function to run specific test group
+        run_test_group() {
+          local group=$1
+          case $group in
+            "infrastructure")
+              timeout ${{ env.BROWSER_TESTS_TIMEOUT }} go test -v -run "TestE2EInfrastructure" ./... -json > test-results-$group.json 2>&1
+              ;;
+            "browser-lifecycle") 
+              timeout ${{ env.BROWSER_TESTS_TIMEOUT }} go test -v -run "TestE2EBrowserLifecycle" ./... -json > test-results-$group.json 2>&1
+              ;;
+            "performance")
+              timeout ${{ env.BROWSER_TESTS_TIMEOUT }} go test -v -run "TestE2EPerformance|BenchmarkE2E" ./... -bench=. -json > test-results-$group.json 2>&1
+              ;;
+            "error-scenarios")
+              timeout ${{ env.BROWSER_TESTS_TIMEOUT }} go test -v -run "TestE2EError" ./... -json > test-results-$group.json 2>&1
+              ;;
+            "concurrent-users")
+              timeout ${{ env.BROWSER_TESTS_TIMEOUT }} go test -v -run "TestE2EConcurrent|TestLoadTesting" ./... -json > test-results-$group.json 2>&1
+              ;;
+            "cross-browser")
+              timeout ${{ env.BROWSER_TESTS_TIMEOUT }} go test -v -run "TestCrossBrowser" ./... -json > test-results-$group.json 2>&1
+              ;;
+            *)
+              echo "Unknown test group: $group"
+              return 1
+              ;;
+          esac
+        }
+
+        # Run the specific test group for this matrix job
+        echo "🚀 Starting E2E test group: ${{ matrix.test-group }}"
+        
+        # Set exit code based on test results
+        if run_with_retry "${{ matrix.test-group }}"; then
+          echo "SUCCESS=true" >> $GITHUB_ENV
+          exit 0
+        else
+          echo "SUCCESS=false" >> $GITHUB_ENV
+          exit 1
+        fi
+
+    - name: Capture failure screenshots
+      if: failure() && steps.e2e-tests.outcome == 'failure'
+      run: |
+        echo "📸 Capturing failure screenshots..."
+        # Screenshots should be captured by test code, we just verify they exist
+        if [ -d "screenshots" ] && [ "$(ls -A screenshots)" ]; then
+          echo "Found screenshots:"
+          ls -la screenshots/
+        else
+          echo "No screenshots found"
+        fi
+
+    - name: Collect performance metrics
+      if: always()
+      run: |
+        echo "📊 Collecting performance metrics..."
+        
+        # Create performance metrics file
+        cat > performance-metrics.json << EOF
+        {
+          "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)",
+          "test_group": "${{ matrix.test-group }}",
+          "runner": "${{ runner.os }}",
+          "go_version": "${{ env.GO_VERSION }}",
+          "chrome_version": "$(google-chrome --version 2>/dev/null || echo 'unknown')",
+          "success": "${SUCCESS:-false}",
+          "duration_seconds": ${{ job.steps.e2e-tests.outputs.duration || 0 }},
+          "memory_usage_mb": $(free -m 2>/dev/null | grep '^Mem:' | awk '{print $3}' || echo 0),
+          "cpu_cores": $(nproc),
+          "artifacts_size_kb": $(du -sk test-artifacts 2>/dev/null | cut -f1 || echo 0)
+        }
+        EOF
+
+        echo "Performance metrics collected:"
+        cat performance-metrics.json
+
+    - name: Upload test artifacts
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: e2e-test-artifacts-${{ matrix.test-group }}
+        path: |
+          test-results-*.json
+          performance-metrics.json
+          screenshots/
+          test-artifacts/
+          *.log
+        retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
+
+    - name: Check for flaky tests
+      if: always()
+      run: |
+        echo "🔍 Analyzing test results for flakiness..."
+        
+        # Simple flakiness detection based on retry patterns
+        if [ -f test-results-${{ matrix.test-group }}.json ]; then
+          # Count test retries and failures
+          retry_count=$(grep -c "attempt [2-3]" test-results-${{ matrix.test-group }}.json || echo 0)
+          failure_count=$(grep -c '"Action":"fail"' test-results-${{ matrix.test-group }}.json || echo 0)
+          
+          if [ $retry_count -gt 0 ] || [ $failure_count -gt 0 ]; then
+            echo "⚠️ Potential flaky tests detected in ${{ matrix.test-group }}"
+            echo "Retries: $retry_count, Failures: $failure_count"
+            
+            # Create flakiness report
+            cat > flakiness-report.json << EOF
+            {
+              "test_group": "${{ matrix.test-group }}",
+              "retry_count": $retry_count,
+              "failure_count": $failure_count,
+              "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)",
+              "flaky": $([ $retry_count -gt 0 ] && echo true || echo false)
+            }
+        EOF
+          else
+            echo "✅ No flakiness detected in ${{ matrix.test-group }}"
+          fi
+        fi
+
+    - name: Upload flakiness report
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: flakiness-report-${{ matrix.test-group }}
+        path: flakiness-report.json
+        retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
+
+  # Aggregate results and generate reports
+  test-report:
+    name: Test Report & Analytics
+    runs-on: ubuntu-latest
+    needs: [unit-tests, e2e-chrome]
+    if: always()
+    timeout-minutes: 10
+
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+
+    - name: Download all test artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: all-artifacts
+
+    - name: Generate comprehensive test report
+      run: |
+        echo "📋 Generating comprehensive test report..."
+        
+        # Create comprehensive report
+        cat > test-report.md << 'EOF'
+        # LiveTemplate E2E Test Report
+
+        **Workflow Run:** [${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+        **Commit:** ${{ github.sha }}
+        **Branch:** ${{ github.ref_name }}
+        **Triggered by:** ${{ github.event_name }}
+        **Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+        ## Test Results Summary
+
+        | Test Group | Status | Duration | Artifacts |
+        |------------|--------|----------|-----------|
+        EOF
+
+        # Process each test group
+        for group in infrastructure browser-lifecycle performance error-scenarios concurrent-users cross-browser; do
+          if [ -d "all-artifacts/e2e-test-artifacts-$group" ]; then
+            # Check if performance metrics exist
+            if [ -f "all-artifacts/e2e-test-artifacts-$group/performance-metrics.json" ]; then
+              status=$(jq -r '.success' all-artifacts/e2e-test-artifacts-$group/performance-metrics.json 2>/dev/null || echo "unknown")
+              duration=$(jq -r '.duration_seconds // 0' all-artifacts/e2e-test-artifacts-$group/performance-metrics.json 2>/dev/null || echo "0")
+              artifacts_size=$(jq -r '.artifacts_size_kb // 0' all-artifacts/e2e-test-artifacts-$group/performance-metrics.json 2>/dev/null || echo "0")
+              
+              status_emoji=$([ "$status" = "true" ] && echo "✅" || echo "❌")
+              echo "| $group | $status_emoji $status | ${duration}s | ${artifacts_size}KB |" >> test-report.md
+            else
+              echo "| $group | ❓ unknown | -s | -KB |" >> test-report.md
+            fi
+          else
+            echo "| $group | ❌ missing | -s | -KB |" >> test-report.md
+          fi
+        done
+
+        # Add flakiness section
+        echo "" >> test-report.md
+        echo "## Flakiness Analysis" >> test-report.md
+        echo "" >> test-report.md
+        
+        flaky_found=false
+        for group in infrastructure browser-lifecycle performance error-scenarios concurrent-users cross-browser; do
+          if [ -f "all-artifacts/flakiness-report-$group/flakiness-report.json" ]; then
+            is_flaky=$(jq -r '.flaky' all-artifacts/flakiness-report-$group/flakiness-report.json 2>/dev/null || echo "false")
+            if [ "$is_flaky" = "true" ]; then
+              retry_count=$(jq -r '.retry_count' all-artifacts/flakiness-report-$group/flakiness-report.json 2>/dev/null || echo "0")
+              echo "⚠️ **$group**: $retry_count retries required" >> test-report.md
+              flaky_found=true
+            fi
+          fi
+        done
+        
+        if [ "$flaky_found" = "false" ]; then
+          echo "✅ No flaky tests detected" >> test-report.md
+        fi
+
+        # Add performance metrics section
+        echo "" >> test-report.md
+        echo "## Performance Metrics" >> test-report.md
+        echo "" >> test-report.md
+        
+        total_duration=0
+        total_memory=0
+        group_count=0
+        
+        for group in infrastructure browser-lifecycle performance error-scenarios concurrent-users cross-browser; do
+          if [ -f "all-artifacts/e2e-test-artifacts-$group/performance-metrics.json" ]; then
+            duration=$(jq -r '.duration_seconds // 0' all-artifacts/e2e-test-artifacts-$group/performance-metrics.json 2>/dev/null || echo "0")
+            memory=$(jq -r '.memory_usage_mb // 0' all-artifacts/e2e-test-artifacts-$group/performance-metrics.json 2>/dev/null || echo "0")
+            
+            total_duration=$(echo "$total_duration + $duration" | bc -l 2>/dev/null || echo "$total_duration")
+            total_memory=$(echo "$total_memory + $memory" | bc -l 2>/dev/null || echo "$total_memory")
+            group_count=$((group_count + 1))
+          fi
+        done
+        
+        if [ $group_count -gt 0 ]; then
+          avg_memory=$(echo "$total_memory / $group_count" | bc -l 2>/dev/null || echo "0")
+          echo "- **Total Duration:** ${total_duration}s" >> test-report.md
+          echo "- **Average Memory Usage:** ${avg_memory}MB" >> test-report.md
+          echo "- **Parallel Test Groups:** $group_count" >> test-report.md
+        fi
+
+        # Add artifacts section
+        echo "" >> test-report.md
+        echo "## Available Artifacts" >> test-report.md
+        echo "" >> test-report.md
+        
+        if [ -d "all-artifacts" ]; then
+          find all-artifacts -name "*.json" -o -name "*.log" -o -name "*.png" | head -10 | while read file; do
+            echo "- $file" >> test-report.md
+          done
+        fi
+
+        echo "" >> test-report.md
+        echo "---" >> test-report.md
+        echo "*Report generated by GitHub Actions E2E pipeline*" >> test-report.md
+
+        echo "Test report generated:"
+        cat test-report.md
+
+    - name: Create performance trends data
+      run: |
+        echo "📈 Creating performance trends data..."
+        
+        # Aggregate performance data for trending
+        cat > performance-trends.json << EOF
+        {
+          "run_id": "${{ github.run_id }}",
+          "run_number": ${{ github.run_number }},
+          "commit_sha": "${{ github.sha }}",
+          "branch": "${{ github.ref_name }}",
+          "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)",
+          "test_groups": []
+        }
+        EOF
+
+        # Add each group's performance data
+        for group in infrastructure browser-lifecycle performance error-scenarios concurrent-users cross-browser; do
+          if [ -f "all-artifacts/e2e-test-artifacts-$group/performance-metrics.json" ]; then
+            jq ".test_groups += [$(cat all-artifacts/e2e-test-artifacts-$group/performance-metrics.json)]" performance-trends.json > temp.json && mv temp.json performance-trends.json
+          fi
+        done
+
+        echo "Performance trends data:"
+        cat performance-trends.json
+
+    - name: Comment on PR with test results
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          
+          if (fs.existsSync('test-report.md')) {
+            const report = fs.readFileSync('test-report.md', 'utf8');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: report
+            });
+          }
+
+    - name: Upload final test report
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: final-test-report
+        path: |
+          test-report.md
+          performance-trends.json
+        retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
+
+    - name: Fail job if any E2E tests failed
+      if: needs.e2e-chrome.result == 'failure'
+      run: |
+        echo "❌ E2E tests failed - failing the workflow"
+        exit 1

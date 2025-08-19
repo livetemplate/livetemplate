@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# CI Validation Script for LiveTemplate
-# Runs comprehensive validation including tests, formatting, vetting, and linting
+# Fast CI Validation Script for LiveTemplate (Pre-commit)
+# Runs essential validation checks without heavy E2E tests
 
 set -e
 
-echo "🚀 Starting CI validation for LiveTemplate..."
-echo "================================================"
+echo "🚀 Starting fast CI validation for LiveTemplate (pre-commit)..."
+echo "============================================================"
 
 # Function to check if a command exists
 command_exists() {
@@ -44,17 +44,28 @@ echo "Running go fmt ..."
 go fmt ./...
 
 echo ""
-echo "1️⃣  Running Go tests..."
-echo "------------------------"
-if go test ./... -v; then
-    echo "✅ All tests passed"
+echo "1️⃣  Running core tests (fast)..."
+echo "--------------------------------"
+# Run only core functionality tests, skip heavy E2E/load/performance tests
+if timeout 60s go test -v -run="Test(Application|Page|Fragment|Template)" ./...; then
+    echo "✅ Core tests passed"
 else
-    echo "❌ Tests failed"
+    echo "❌ Core tests failed"
     exit 1
 fi
 
 echo ""
-echo "2️⃣  Checking code formatting..."
+echo "2️⃣  Checking code compilation..."
+echo "--------------------------------"
+if go build ./...; then
+    echo "✅ Code compiles successfully"
+else
+    echo "❌ Code compilation failed"
+    exit 1
+fi
+
+echo ""
+echo "3️⃣  Checking code formatting..."
 echo "--------------------------------"
 UNFORMATTED=$(gofmt -l .)
 if [ -z "$UNFORMATTED" ]; then
@@ -63,14 +74,12 @@ else
     echo "❌ The following files need formatting:"
     echo "$UNFORMATTED"
     echo ""
-    echo "💡 Code formatting should be handled by git hooks before commit."
-    echo "   If you're seeing this in CI, it means formatting wasn't applied during commit."
-    echo "   Run: go fmt ./... locally and commit the changes."
+    echo "💡 Run: go fmt ./... to fix formatting"
     exit 1
 fi
 
 echo ""
-echo "3️⃣  Running go vet..."
+echo "4️⃣  Running go vet..."
 echo "---------------------"
 if go vet ./...; then
     echo "✅ go vet passed"
@@ -80,7 +89,7 @@ else
 fi
 
 echo ""
-echo "4️⃣  Running golangci-lint..."
+echo "5️⃣  Running golangci-lint..."
 echo "-----------------------------"
 
 # Capture golangci-lint output for parsing, temporarily disable exit on error
@@ -126,7 +135,7 @@ else
 fi
 
 echo ""
-echo "5️⃣  Checking go mod tidy..."
+echo "6️⃣  Checking go mod tidy..."
 echo "---------------------------"
 go mod tidy
 
@@ -146,38 +155,8 @@ else
 fi
 
 echo ""
-echo "🎉 All CI validation checks passed!"
-echo "===================================="
-
-# Integration with enhanced E2E testing system
-if [ "${LIVETEMPLATE_CI_INTEGRATION:-false}" = "true" ]; then
-    echo ""
-    echo "📊 Saving CI validation results for integrated pipeline..."
-    
-    # Create artifacts directory if it doesn't exist
-    ARTIFACTS_DIR="${LIVETEMPLATE_E2E_ARTIFACTS:-./test-artifacts}"
-    mkdir -p "$ARTIFACTS_DIR"
-    
-    # Save validation success marker
-    echo "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" > "$ARTIFACTS_DIR/ci-validation-success"
-    
-    # Save validation metrics
-    cat > "$ARTIFACTS_DIR/ci-validation-metrics.json" << EOF
-{
-  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)",
-  "validation_checks": {
-    "tests": "passed",
-    "formatting": "passed",
-    "vetting": "passed",
-    "linting": "passed",
-    "mod_tidy": "passed"
-  },
-  "go_version": "$(go version | awk '{print $3}')",
-  "golangci_lint_version": "$(golangci-lint version --format short 2>/dev/null || echo 'unknown')",
-  "duration_seconds": $SECONDS,
-  "environment": "${CI:-local}"
-}
-EOF
-    
-    echo "✅ CI validation metrics saved to: $ARTIFACTS_DIR/ci-validation-metrics.json"
-fi
+echo "🎉 Fast CI validation passed! Ready for commit."
+echo "==============================================="
+echo ""
+echo "💡 Note: This runs core tests only. Full E2E tests will run in CI."
+echo "   To run full validation: ./scripts/validate-ci.sh"

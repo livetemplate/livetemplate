@@ -18,6 +18,9 @@ LiveTemplate is a Go library for ultra-efficient HTML template update generation
 # Run all tests
 go test -v ./...
 
+# Run core tests only (fast)
+go test -v -run="Test(Application|Page|Fragment|Template)" ./...
+
 # Run specific test files
 go test -v ./examples/e2e/
 go test -v -run "TestRenderer"
@@ -34,7 +37,10 @@ timeout 3s go run examples/e2e/main.go
 
 ### Code Quality
 ```bash
-# Run full CI validation (includes tests, formatting, vetting, linting)
+# Fast CI validation for pre-commit (recommended)
+./scripts/validate-ci-fast.sh
+
+# Full CI validation (includes comprehensive E2E tests)
 ./scripts/validate-ci.sh
 
 # Individual quality checks

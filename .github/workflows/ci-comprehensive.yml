@@ -1,0 +1,424 @@
+name: Comprehensive CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'CHANGELOG.md'
+  pull_request:
+    branches: [ main, develop ]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'CHANGELOG.md'
+  workflow_dispatch:
+    inputs:
+      run_performance_tests:
+        description: 'Run performance tests'
+        required: false
+        default: 'true'
+        type: boolean
+      run_docker_tests:
+        description: 'Run Docker-based tests'
+        required: false  
+        default: 'false'
+        type: boolean
+
+env:
+  GO_VERSION: '1.23'
+  NODE_VERSION: '20'
+
+jobs:
+  # Code quality and unit tests
+  quality-gate:
+    name: Code Quality Gate
+    runs-on: ubuntu-latest
+    outputs:
+      cache-key: ${{ steps.cache-key.outputs.key }}
+      
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+
+    - name: Generate cache key
+      id: cache-key
+      run: echo "key=${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}-${{ github.sha }}" >> $GITHUB_OUTPUT
+
+    - name: Install dependencies
+      run: go mod download
+
+    - name: Run CI validation
+      run: |
+        chmod +x ./scripts/validate-ci.sh
+        ./scripts/validate-ci.sh
+
+    - name: Generate coverage report  
+      run: |
+        go test -coverprofile=coverage.out -covermode=atomic ./...
+        go tool cover -html=coverage.out -o coverage.html
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.out
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+    - name: Upload quality artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: quality-reports
+        path: |
+          coverage.out
+          coverage.html
+        retention-days: 7
+
+  # Cross-platform build verification
+  build-verification:
+    name: Build Verification (${{ matrix.os }})
+    needs: quality-gate
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+
+    - name: Build application
+      run: go build -v ./...
+
+    - name: Run unit tests
+      run: go test -short -v ./...
+
+  # E2E tests on multiple browsers and platforms
+  e2e-matrix:
+    name: E2E Tests (${{ matrix.os }}, ${{ matrix.browser }})
+    needs: [quality-gate, build-verification]
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        browser: [chrome, chromium]
+        exclude:
+          # Exclude combinations that don't work well
+          - os: macos-latest
+            browser: chromium
+    
+    timeout-minutes: 45
+
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+
+    - name: Install browser (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        case "${{ matrix.browser }}" in
+          chrome)
+            wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+            echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+            sudo apt-get update
+            sudo apt-get install -y google-chrome-stable
+            which google-chrome-stable
+            google-chrome-stable --version
+            echo "CHROME_BIN=google-chrome-stable" >> $GITHUB_ENV
+            ;;
+          chromium)
+            sudo apt-get update
+            sudo apt-get install -y chromium-browser
+            which chromium-browser
+            chromium-browser --version
+            echo "CHROME_BIN=chromium-browser" >> $GITHUB_ENV
+            ;;
+        esac
+
+    - name: Install browser (macOS)
+      if: matrix.os == 'macos-latest' && matrix.browser == 'chrome'
+      run: |
+        brew install --cask google-chrome
+        echo "CHROME_BIN=/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" >> $GITHUB_ENV
+
+    - name: Verify browser installation
+      run: |
+        echo "Browser binary: $CHROME_BIN"
+        "$CHROME_BIN" --version
+
+    - name: Create test directories
+      run: |
+        mkdir -p test-artifacts screenshots
+
+    - name: Run E2E tests with comprehensive reporting
+      env:
+        LIVETEMPLATE_E2E_SCREENSHOTS: true
+        LIVETEMPLATE_E2E_ARTIFACTS: ./test-artifacts
+        E2E_RETRY_ATTEMPTS: 3
+      run: |
+        chmod +x ./scripts/run-e2e-tests.sh
+        ./scripts/run-e2e-tests.sh all
+
+    - name: Upload E2E test artifacts
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: e2e-artifacts-${{ matrix.os }}-${{ matrix.browser }}
+        path: |
+          test-artifacts/
+          screenshots/
+        retention-days: 7
+
+    - name: Upload failure screenshots
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: failure-screenshots-${{ matrix.os }}-${{ matrix.browser }}
+        path: screenshots/
+        retention-days: 14
+
+  # Docker-based E2E tests  
+  e2e-docker:
+    name: E2E Tests (Docker)
+    needs: [quality-gate]
+    runs-on: ubuntu-latest
+    if: github.event.inputs.run_docker_tests == 'true' || github.event_name != 'workflow_dispatch'
+    
+    services:
+      chrome:
+        image: selenium/standalone-chrome:latest
+        ports:
+          - 4444:4444
+        options: --shm-size=2g
+
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4  
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+
+    - name: Wait for Chrome to be ready
+      run: |
+        timeout 60s bash -c 'until curl -s http://localhost:4444/status; do sleep 1; done'
+        echo "Chrome service is ready"
+
+    - name: Run Docker-based E2E tests
+      env:
+        SELENIUM_URL: http://localhost:4444/wd/hub
+        LIVETEMPLATE_E2E_DOCKER: true
+        LIVETEMPLATE_E2E_SCREENSHOTS: true
+        LIVETEMPLATE_E2E_ARTIFACTS: ./test-artifacts
+      run: |
+        mkdir -p test-artifacts screenshots
+        go test -v -run "TestE2EDocker" -timeout 20m ./...
+
+    - name: Upload Docker E2E artifacts
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: e2e-docker-artifacts
+        path: |
+          test-artifacts/
+          screenshots/
+        retention-days: 7
+
+  # Performance testing
+  performance-tests:
+    name: Performance Benchmarks
+    needs: [quality-gate]
+    runs-on: ubuntu-latest
+    if: github.event.inputs.run_performance_tests == 'true' || github.event_name != 'workflow_dispatch'
+    
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+
+    - name: Install Chrome
+      uses: browser-actions/setup-chrome@v1
+      with:
+        chrome-version: stable
+
+    - name: Run performance benchmarks
+      env:
+        CHROME_BIN: google-chrome
+        LIVETEMPLATE_E2E_SCREENSHOTS: false
+        LIVETEMPLATE_E2E_ARTIFACTS: ./perf-artifacts
+      run: |
+        mkdir -p perf-artifacts
+        go test -v -run "TestE2EPerformance" -bench=. -benchmem -timeout 30m ./... | tee perf-artifacts/benchmark-results.txt
+
+    - name: Upload performance results
+      uses: actions/upload-artifact@v3
+      with:
+        name: performance-benchmarks
+        path: |
+          perf-artifacts/
+        retention-days: 30
+
+  # Security and vulnerability scanning
+  security-scan:
+    name: Security Scan
+    needs: quality-gate
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+
+    - name: Run Gosec security scanner
+      uses: securecodewarrior/github-action-gosec@master
+      with:
+        args: './...'
+
+    - name: Run Nancy vulnerability scanner
+      run: |
+        go list -json -deps ./... | docker run --rm -i sonatypecommunity/nancy:latest sleuth
+
+  # Final reporting and deployment preparation
+  final-report:
+    name: Final Test Report  
+    needs: [e2e-matrix, e2e-docker, performance-tests, security-scan]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: all-artifacts
+
+    - name: Generate comprehensive report
+      run: |
+        cat > final-report.md << 'EOF'
+        # LiveTemplate CI/CD Pipeline Report
+
+        **Commit:** ${{ github.sha }}
+        **Branch:** ${{ github.ref_name }}
+        **Workflow:** [${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+        **Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+        ## Pipeline Results
+
+        | Stage | Status | Duration | Artifacts |
+        |-------|---------|----------|-----------|
+        | Quality Gate | ${{ needs.quality-gate.result == 'success' && '✅' || '❌' }} | - | Coverage Reports |
+        | Build Verification | ${{ needs.build-verification.result == 'success' && '✅' || '❌' }} | - | Build Logs |
+        | E2E Matrix Tests | ${{ needs.e2e-matrix.result == 'success' && '✅' || needs.e2e-matrix.result == 'skipped' && '⏭️' || '❌' }} | - | Screenshots, Logs |
+        | E2E Docker Tests | ${{ needs.e2e-docker.result == 'success' && '✅' || needs.e2e-docker.result == 'skipped' && '⏭️' || '❌' }} | - | Docker Artifacts |
+        | Performance Tests | ${{ needs.performance-tests.result == 'success' && '✅' || needs.performance-tests.result == 'skipped' && '⏭️' || '❌' }} | - | Benchmarks |
+        | Security Scan | ${{ needs.security-scan.result == 'success' && '✅' || needs.security-scan.result == 'skipped' && '⏭️' || '❌' }} | - | Security Reports |
+
+        ## Test Coverage
+
+        EOF
+
+        # Add coverage information if available
+        if [ -f "all-artifacts/quality-reports/coverage.out" ]; then
+          coverage=$(go tool cover -func=all-artifacts/quality-reports/coverage.out | tail -1 | awk '{print $3}')
+          echo "**Overall Coverage:** $coverage" >> final-report.md
+        fi
+
+        # Add artifact summary
+        echo "" >> final-report.md
+        echo "## Artifacts Summary" >> final-report.md
+        echo "" >> final-report.md
+        
+        artifact_count=0
+        if [ -d "all-artifacts" ]; then
+          artifact_count=$(find all-artifacts -type f | wc -l)
+        fi
+        
+        echo "- **Total Artifacts:** $artifact_count files" >> final-report.md
+        echo "- **Screenshots Captured:** $(find all-artifacts -name "*.png" 2>/dev/null | wc -l)" >> final-report.md
+        echo "- **Test Reports:** $(find all-artifacts -name "*-report.md" 2>/dev/null | wc -l)" >> final-report.md
+        echo "- **Performance Data:** $(find all-artifacts -name "*benchmark*" 2>/dev/null | wc -l)" >> final-report.md
+
+        echo "" >> final-report.md
+        echo "---" >> final-report.md
+        echo "*Generated by LiveTemplate CI/CD Pipeline*" >> final-report.md
+
+        cat final-report.md
+
+    - name: Comment on PR with results
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          const report = fs.readFileSync('final-report.md', 'utf8');
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,  
+            repo: context.repo.repo,
+            body: report
+          });
+
+    - name: Upload final report
+      uses: actions/upload-artifact@v3
+      with:
+        name: final-ci-report
+        path: |
+          final-report.md
+        retention-days: 30
+
+    - name: Check overall pipeline status
+      run: |
+        echo "Quality Gate: ${{ needs.quality-gate.result }}"
+        echo "Build Verification: ${{ needs.build-verification.result }}"
+        echo "E2E Matrix: ${{ needs.e2e-matrix.result }}"
+        echo "E2E Docker: ${{ needs.e2e-docker.result }}"
+        echo "Performance: ${{ needs.performance-tests.result }}"
+        echo "Security: ${{ needs.security-scan.result }}"
+
+        # Fail if any required job failed
+        if [ "${{ needs.quality-gate.result }}" = "failure" ] || \
+           [ "${{ needs.build-verification.result }}" = "failure" ] || \
+           [ "${{ needs.e2e-matrix.result }}" = "failure" ]; then
+          echo "❌ Required jobs failed - failing pipeline"
+          exit 1
+        fi
+
+        # Optional jobs don't fail the pipeline
+        echo "✅ All required jobs passed"
