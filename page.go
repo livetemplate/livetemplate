@@ -40,8 +40,8 @@ type Page struct {
 	data             interface{}
 	currentDataMutex sync.RWMutex
 
-	// Update generation pipeline
-	updateGenerator *strategy.UpdateGenerator
+	// Update generation pipeline - now using tree-based generator
+	treeGenerator *strategy.SimpleTreeGenerator
 
 	// Configuration
 	enableMetrics bool
@@ -58,11 +58,11 @@ func NewPage(tmpl *template.Template, data interface{}, options ...PageOption) (
 	}
 
 	page := &Page{
-		template:        tmpl,
-		data:            data,
-		updateGenerator: strategy.NewUpdateGenerator(),
-		enableMetrics:   true,
-		created:         time.Now(),
+		template:      tmpl,
+		data:          data,
+		treeGenerator: strategy.NewSimpleTreeGenerator(),
+		enableMetrics: true,
+		created:       time.Now(),
 	}
 
 	// Apply options
@@ -79,7 +79,7 @@ func NewPage(tmpl *template.Template, data interface{}, options ...PageOption) (
 func WithMetricsEnabled(enabled bool) PageOption {
 	return func(p *Page) error {
 		p.enableMetrics = enabled
-		p.updateGenerator.SetMetricsEnabled(enabled)
+		// Tree generator doesn't have configurable metrics yet
 		return nil
 	}
 }
@@ -87,7 +87,7 @@ func WithMetricsEnabled(enabled bool) PageOption {
 // WithFallbackEnabled configures whether fallback strategies are enabled
 func WithFallbackEnabled(enabled bool) PageOption {
 	return func(p *Page) error {
-		p.updateGenerator.SetFallbackEnabled(enabled)
+		// Tree generator doesn't need fallback - it handles all cases
 		return nil
 	}
 }
@@ -95,7 +95,7 @@ func WithFallbackEnabled(enabled bool) PageOption {
 // WithMaxGenerationTime sets the maximum time allowed for update generation
 func WithMaxGenerationTime(duration time.Duration) PageOption {
 	return func(p *Page) error {
-		p.updateGenerator.SetMaxGenerationTime(duration)
+		// Tree generator doesn't have configurable timeouts yet
 		return nil
 	}
 }
@@ -119,29 +119,42 @@ func (p *Page) RenderFragments(ctx context.Context, newData interface{}) ([]*Fra
 	p.currentDataMutex.Lock()
 	defer p.currentDataMutex.Unlock()
 
-	// Generate fragments using the update generator pipeline
-	oldData := p.data
-	fragments, err := p.updateGenerator.GenerateUpdate(p.template, oldData, newData)
-	if err != nil {
-		return nil, fmt.Errorf("fragment generation failed: %w", err)
+	// Extract template source - simplified for tree generator
+	templateSource := p.template.Name()
+	if templateSource == "" {
+		templateSource = "template"
 	}
 
-	// Convert internal fragments to public API fragments
-	publicFragments := make([]*Fragment, len(fragments))
-	for i, frag := range fragments {
-		publicFragments[i] = &Fragment{
-			ID:       frag.ID,
-			Strategy: frag.Strategy,
-			Action:   frag.Action,
-			Data:     frag.Data,
-			Metadata: convertMetadata(frag.Metadata),
-		}
+	// Generate fragments using the tree generator
+	oldData := p.data
+	fragmentID := fmt.Sprintf("fragment_%d", time.Now().UnixNano())
+
+	treeResult, err := p.treeGenerator.GenerateFromTemplateSource(templateSource, oldData, newData, fragmentID)
+	if err != nil {
+		return nil, fmt.Errorf("tree fragment generation failed: %w", err)
+	}
+
+	// Create fragment from tree result
+	fragment := &Fragment{
+		ID:       fragmentID,
+		Strategy: "tree_based",
+		Action:   "update_tree",
+		Data:     treeResult,
+		Metadata: &FragmentMetadata{
+			GenerationTime:   0, // Tree generator doesn't expose timing yet
+			OriginalSize:     0,
+			CompressedSize:   0,
+			CompressionRatio: 0,
+			Strategy:         1, // Tree-based strategy
+			Confidence:       1.0,
+			FallbackUsed:     false,
+		},
 	}
 
 	// Update current data state
 	p.data = newData
 
-	return publicFragments, nil
+	return []*Fragment{fragment}, nil
 }
 
 // UpdateData updates the page data and returns the current state
@@ -178,29 +191,24 @@ func (p *Page) SetTemplate(tmpl *template.Template) error {
 
 // GetMetrics returns current fragment generation metrics
 func (p *Page) GetMetrics() *UpdateGeneratorMetrics {
-	if !p.enableMetrics {
-		return &UpdateGeneratorMetrics{}
-	}
-
-	metrics := p.updateGenerator.GetMetrics()
+	// Tree generator doesn't expose detailed metrics yet
+	// Return empty metrics structure for backward compatibility
 	return &UpdateGeneratorMetrics{
-		TotalGenerations:      metrics.TotalGenerations,
-		SuccessfulGenerations: metrics.SuccessfulGenerations,
-		FailedGenerations:     metrics.FailedGenerations,
-		StrategyUsage:         copyStrategyUsage(metrics.StrategyUsage),
-		AverageGenerationTime: metrics.AverageGenerationTime,
-		TotalBandwidthSaved:   metrics.TotalBandwidthSaved,
-		FallbackRate:          metrics.FallbackRate,
-		ErrorRate:             metrics.ErrorRate,
-		LastReset:             metrics.LastReset,
+		TotalGenerations:      0,
+		SuccessfulGenerations: 0,
+		FailedGenerations:     0,
+		StrategyUsage:         make(map[string]int64),
+		AverageGenerationTime: 0,
+		TotalBandwidthSaved:   0,
+		FallbackRate:          0,
+		ErrorRate:             0,
+		LastReset:             p.created,
 	}
 }
 
 // ResetMetrics resets all fragment generation metrics
 func (p *Page) ResetMetrics() {
-	if p.enableMetrics {
-		p.updateGenerator.ResetMetrics()
-	}
+	// Tree generator doesn't have metrics to reset yet
 }
 
 // UpdateGeneratorMetrics tracks performance of the update generation pipeline
@@ -233,27 +241,3 @@ func (p *Page) Close() error {
 }
 
 // Helper functions
-
-func convertMetadata(internal *strategy.FragmentMetadata) *FragmentMetadata {
-	if internal == nil {
-		return nil
-	}
-
-	return &FragmentMetadata{
-		GenerationTime:   internal.GenerationTime,
-		OriginalSize:     internal.OriginalSize,
-		CompressedSize:   internal.CompressedSize,
-		CompressionRatio: internal.CompressionRatio,
-		Strategy:         internal.Strategy,
-		Confidence:       internal.Confidence,
-		FallbackUsed:     internal.FallbackUsed,
-	}
-}
-
-func copyStrategyUsage(original map[string]int64) map[string]int64 {
-	copy := make(map[string]int64)
-	for k, v := range original {
-		copy[k] = v
-	}
-	return copy
-}

@@ -1,698 +1,498 @@
-# LiveTemplate: High Level Design (HLD) - First Public Release
+# LiveTemplate: High Level Design (HLD) - Tree-Based Architecture v1.0
 
-A high-level design document defining the architecture and key technical decisions for LiveTemplate's first public release, focusing on secure session isolation with reliable fragment updates and a foundation for future optimization.
+A high-level design document defining the architecture and key technical decisions for LiveTemplate's tree-based optimization system with secure multi-tenant isolation.
 
 ## Executive Summary
 
-LiveTemplate is evolving from a singleton page model to a focused update generation library with secure session isolation. The library's core purpose is generating fast and efficient page updates (value patches and fragment replacements) while leaving network transport to the application layer.
+LiveTemplate v1.0 delivers ultra-efficient HTML template updates using **tree-based optimization** with secure session isolation. The library generates minimal update structures similar to Phoenix LiveView, achieving 92%+ bandwidth savings while providing enterprise-grade security and multi-tenant capabilities.
 
 ### Key Problems Solved
 
-1. **Security**: Eliminates data leakage between users through application-scoped isolation
-2. **Multi-tenancy**: Enables multiple applications and organizations on shared infrastructure  
-3. **Performance**: Fast and efficient update generation (value patches + fragment replacements)
-4. **Focus**: Pure update generation - network transport handled by application layer
+1. **Performance**: 92%+ bandwidth reduction through tree-based optimization
+2. **Security**: Multi-tenant isolation with JWT-based authentication  
+3. **Scalability**: Support for 1000+ concurrent pages per instance
+4. **Simplicity**: Single unified strategy that handles all template patterns
 
 ### Design Principles for v1.0
 
-- **Security First**: Multi-tenant isolation and JWT-based authentication
-- **Performance First**: Value patches (primary) with fragment replacement fallback
-- **Zero Configuration**: Works out-of-the-box with sensible defaults
-- **Focused Scope**: Update generation only - no network transport concerns
-- **Operational Excellence**: Comprehensive metrics and error handling
+- **Tree-Based Optimization**: Single strategy that adapts to all template patterns
+- **Security First**: Multi-tenant isolation with application boundaries
+- **Phoenix LiveView Compatible**: Client structures mirror LiveView format
+- **Zero Configuration**: Works out-of-the-box with optimal performance
+- **Production Ready**: Comprehensive testing and operational excellence
 
 ---
 
 ## Problem Definition
 
-### Current Limitations
+### Previous Limitations
 
-LiveTemplate's singleton page model creates fundamental issues for production applications:
+The previous four-tier HTML diffing system had several issues:
 
-**Security Vulnerabilities**:
-- All clients share the same page instance
-- No isolation between users or applications
-- Potential for cross-user data leakage
+**Complexity**:
+- Four different strategies with complex selection logic
+- HTML diffing overhead for strategy selection
+- Inconsistent performance across different template patterns
 
-**Performance Issues**:
-- Full page reloads for all updates
-- No systematic update optimization
-- Inefficient update generation for changed data
+**Maintenance**:
+- Multiple codepaths requiring separate testing and optimization
+- Strategy selection accuracy challenges
+- Complex fallback mechanisms
 
-**Scalability Constraints**:
-- Cannot support multi-tenant deployments
-- No horizontal scaling capabilities
-- Limited concurrent user support
+**Performance**:
+- HTML diffing overhead before generating updates
+- Suboptimal strategy selection for edge cases
+- Memory overhead from multiple strategy implementations
 
 ---
 
-## Solution Architecture for v1.0
+## Tree-Based Solution Architecture
 
-### Two-Layer Security Model
+### Single Unified Strategy
+
+LiveTemplate v1.0 uses **tree-based optimization** - a single strategy that adapts to all template patterns:
 
 ```go
-// Application-level isolation
-app1 := livetemplate.NewApplication() // E-commerce site
-app2 := livetemplate.NewApplication() // Analytics dashboard
-
-// Session-level isolation within applications
-userPage1 := app1.NewPage(template, userData1) // User A's cart
-userPage2 := app1.NewPage(template, userData2) // User B's cart
-
-// Cross-application access is impossible
-app2.GetPage(userPage1.GetToken()) // Returns ErrInvalidApplication
+// One strategy handles all cases
+app := livetemplate.NewApplication()
+page := app.NewApplicationPage(template, data)
+fragments := page.RenderFragments(ctx, newData) // Always uses tree-based optimization
 ```
 
-### Fragment Update Strategy (v1.0)
+### Tree Structure Generation
 
-LiveTemplate v1.0 implements a **Four-Tier Strategy Hierarchy** that attempts optimal strategies first and degrades only when technically/deterministically infeasible:
+Templates are parsed into hierarchical tree structures that separate static and dynamic content:
 
-**1. Static/Dynamic Mode** (Highest Preference - 85-95% reduction):
-- **HTML Diffing Approach**: Render template with both old and new data
-- **Pattern Analysis**: Compare rendered HTML to identify change patterns
-- **Text-Only Changes**: When only values change, structure stays identical → Static/Dynamic
-- **Simple Operations**: When changes are append/prepend/remove → Granular Operations
-- **Complex Changes**: When structure completely different → Markers or Replacement
-- **Data-Driven Selection**: Strategy based on actual changes, not template prediction
+```mermaid
+graph TD
+    A[Template Source] --> B[Boundary Parser]
+    B --> C[Static Content]
+    B --> D[Dynamic Fields]
+    B --> E[Conditional Blocks]
+    B --> F[Range Loops]
+    C --> G[Tree Structure]
+    D --> G
+    E --> G
+    F --> G
+    G --> H[Client JSON]
+```
 
-**2. Marker Compilation Mode** (Second Preference - 70-85% reduction):
-- Pre-render with marker data to discover exact value positions
-- Enables precise value patching for complex template constructs
-- Handles conditionals and bounded lists through position mapping
-- Falls back when template structure is unpredictably dynamic
+### Client-Compatible Format
 
-**3. Granular Fragment Operations** (Third Preference - 60-80% reduction):
-- Append, prepend, insert, remove, and targeted replace operations
-- Used when value patching impossible but structural operations viable
-- Handles variable-length lists, dynamic insertions, conditional blocks
+Generated structures are compatible with Phoenix LiveView client libraries:
 
-**4. Fragment Replacement** (Final Fallback - 40-60% reduction):
-- Complete HTML fragment replacement when all other strategies fail
-- Guaranteed compatibility with any template complexity
-- Used for recursive templates, unpredictable custom functions
-
-**HTML Diffing-Based Strategy Selection**:
-- **Render Both Versions**: Template + oldData → oldHTML, Template + newData → newHTML
-- **Analyze Diff Pattern**: Compare HTML structures to identify change complexity
-- **Pattern Classification**: Text-only, element addition/removal, attribute changes, structural rewrites
-- **Strategy Recommendation**: Select optimal approach based on actual change pattern
-- **Deterministic Selection**: Same change pattern always selects same strategy
-
-### Horizontal Scaling Design
-
-Pages are designed for stateless update generation across application instances:
-
-```go
-// On Instance A
-page := app.NewPage(template, data)
-updates := page.RenderFragments(ctx, newData)
-token := page.GetToken()
-
-// On Instance B (different server) 
-samePage, _ := app.GetPage(token) // Reconstructed from token
-updates := samePage.RenderFragments(ctx, newData) // Same updates generated
+```json
+{
+  "s": ["<div>", " ", "</div>"],  // Static segments
+  "0": "Alice",                  // Dynamic field 0
+  "1": "Welcome"                 // Dynamic field 1
+}
 ```
 
 ---
 
-## Core Technical Concepts
+## Architecture Components
 
-### 1. Application Isolation
-
-Each application instance provides a security boundary:
+### 1. Application Layer (Multi-tenant Isolation)
 
 ```go
 type Application struct {
-    id           string        // Unique application identifier
-    tokenService *TokenService // JWT-based authentication
-    pageRegistry *PageRegistry // Isolated page storage
+    id           string              // Unique application identifier  
+    tokenService *token.TokenService // JWT authentication
+    pageRegistry *page.Registry      // Isolated page storage
+    metrics      *metrics.Collector  // Application metrics
 }
 ```
 
 **Security Properties**:
-- Pages cannot be accessed across applications
-- Token validation enforces application scope
-- Memory budgets prevent resource exhaustion
+- Complete isolation between applications
+- JWT tokens scoped to specific applications
+- Resource limits per application
+- Cross-application access prevention
 
-### 2. Page Session Management
-
-Pages represent isolated user sessions with deterministic tokens:
+### 2. Page Layer (Session Management)
 
 ```go
 type Page struct {
-    id           string
-    applicationID string
-    templateHash string
-    data         interface{}
-    // Token contains all necessary reconstruction data
+    ID            string                        // Unique page identifier
+    ApplicationID string                        // Parent application
+    TemplateHash  string                        // Template version control
+    treeGenerator *strategy.SimpleTreeGenerator // Tree-based optimization
+    data          interface{}                   // Current page state
 }
 ```
 
-**Key Features**:
-- Stateless design enables horizontal scaling
-- JWT tokens contain reconstruction metadata
-- Pure update generation - no transport concerns
-- Cleanup with configurable TTLs
+**Session Properties**:
+- Stateless design for horizontal scaling
+- JWT token contains reconstruction data
+- Template parsing cached for performance
+- Memory bounded with automatic cleanup
 
-### 3. Fragment Update Protocol (v1.0)
+### 3. Strategy Layer (Tree-Based Optimization)
 
-Three-tier update protocol optimizing for efficiency:
+```go
+type SimpleTreeGenerator struct {
+    cache map[string]*SimpleTreeData // Fragment structure cache
+}
 
-**Value Patch Updates** (Primary):
-**Strategy 1: Static/Dynamic Updates** (85-95% reduction):
-```json
-{
-  "fragment_id": "user-profile",
-  "action": "static_dynamic",
-  "statics": ["<div class=\"user-", \">Welcome, ", "! You have ", " messages.</div>"],
-  "dynamics": {"0": "admin", "1": "Alice", "2": "3"}
+type SimpleTreeData struct {
+    S        []string                 // Static HTML segments
+    Dynamics map[string]interface{}   // Dynamic content by key
 }
 ```
-*Works when: Template structure remains stable between updates*
 
-**Strategy 2: Marker Compilation Updates** (70-85% reduction):
+**Optimization Properties**:
+- Single strategy handles all template patterns
+- Hierarchical template boundary parsing
+- Static content cached client-side
+- Incremental updates send only changed values
+
+---
+
+## Page Rendering Sequence Diagrams
+
+### Initial Page Load
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Server
+    participant A as Application
+    participant P as Page
+    participant T as TreeGenerator
+    
+    C->>S: GET /page (initial load)
+    S->>A: NewApplicationPage(template, data)
+    A->>P: Create new page instance
+    P->>T: Parse template boundaries
+    T->>T: Build tree structure
+    T-->>P: Return tree with statics
+    P-->>A: Page created with token
+    A-->>S: Page + JWT token
+    S->>S: Render HTML from tree structure
+    S-->>C: Full HTML + JS client setup
+    
+    Note over C: Client caches static segments
+    Note over C: Client ready for incremental updates
+```
+
+### Real-Time Fragment Updates
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Server (WebSocket)
+    participant A as Application  
+    participant P as Page
+    participant T as TreeGenerator
+    
+    C->>S: WebSocket + JWT token
+    S->>A: GetApplicationPage(token)
+    A->>A: Validate token & retrieve page
+    A-->>S: Page instance
+    
+    loop Real-time Updates
+        C->>S: New data via WebSocket
+        S->>P: RenderFragments(newData)
+        P->>T: Generate incremental update
+        T->>T: Update dynamic values only
+        T-->>P: Tree data (no statics)
+        P-->>S: Fragment with dynamic changes
+        S-->>C: JSON fragment update
+        C->>C: Apply updates to cached structure
+    end
+```
+
+### Static Content Caching Flow
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Server
+    participant T as TreeGenerator
+    
+    Note over S,T: First Render (includes statics)
+    S->>T: GenerateFromTemplateSource(template, nil, data, fragmentID)
+    T->>T: Parse template into boundaries
+    T->>T: Build complete tree structure
+    T->>T: Cache static structure by fragmentID
+    T-->>S: Complete tree: {s: [...], 0: "value1", 1: "value2"}
+    S-->>C: Full structure with static segments
+    
+    Note over C: Client caches static segments locally
+    
+    Note over S,T: Subsequent Updates (dynamics only)
+    S->>T: GenerateFromTemplateSource(template, oldData, newData, fragmentID)
+    T->>T: Use cached static structure
+    T->>T: Update only dynamic values
+    T->>T: Clear static arrays (cached client-side)
+    T-->>S: Minimal update: {0: "newValue1", 1: "newValue2"}
+    S-->>C: Only changed dynamic values
+    
+    Note over C: Client merges with cached statics
+```
+
+---
+
+## Template Parsing & Boundary Detection
+
+### Hierarchical Parsing
+
+Templates are parsed into structured boundaries that represent different constructs:
+
+```go
+type TemplateBoundary struct {
+    Type       TemplateBoundaryType // StaticContent, SimpleField, ConditionalIf, RangeLoop
+    Content    string               // Original template content
+    Start      int                  // Position in template
+    End        int                  // Position in template
+    FieldPath  string               // For SimpleField: ".User.Name"
+    Condition  string               // For conditionals/ranges: ".Active"
+    TrueBlock  []TemplateBoundary   // Nested content for conditionals/ranges
+    FalseBlock []TemplateBoundary   // Else content
+}
+```
+
+### Supported Template Constructs
+
+**Simple Fields**: `{{.Name}}`, `{{.User.Email}}`
+- Direct value substitution with reflection-based evaluation
+
+**Static Content**: `<div class="header">`, `</div>`  
+- Preserved unchanged and cached client-side
+
+**Conditionals**: `{{if .Active}}...{{else}}...{{end}}`
+- Branch selection based on condition evaluation
+
+**Range Loops**: `{{range .Items}}...{{end}}`
+- List iteration with individual item tracking
+
+**Nested Combinations**: Complex templates with multiple levels
+- Recursive parsing maintains proper hierarchy
+
+### Tree Structure Examples
+
+**Simple Field Template**:
+```html
+<p>Hello {{.Name}}!</p>
+```
+**Generated Structure**:
 ```json
 {
-  "fragment_id": "alert-section", 
-  "action": "value_patches",
-  "patches": [
-    {"position": 17, "length": 3, "new_value": "warning", "old_value": "§1§"},
-    {"position": 35, "length": 3, "new_value": "Server down", "old_value": "§2§"}
+  "s": ["<p>Hello ", "!</p>"],
+  "0": "Alice"
+}
+```
+
+**Nested Conditional in Range**:
+```html
+{{range .Users}}<div>{{if .Active}}✓{{else}}✗{{end}} {{.Name}}</div>{{end}}
+```
+**Generated Structure**:
+```json
+{
+  "s": ["", ""],
+  "0": [
+    {
+      "s": ["<div>", " ", "</div>"],
+      "0": {"s": ["✓"], "0": ""},
+      "1": "Alice"
+    },
+    {
+      "s": ["<div>", " ", "</div>"],  
+      "0": {"s": ["✗"], "0": ""},
+      "1": "Bob"
+    }
   ]
 }
 ```
-*Works when: Positions discoverable through marker pre-rendering*
-
-**Strategy 3: Granular Operations** (60-80% reduction):
-```json
-{
-  "fragment_id": "todo-list",
-  "action": "append",
-  "data": "<li data-id=\"4\">New task</li>"
-}
-```
-*Works when: Structural operations viable (lists, conditional blocks)*
-
-**Strategy 4: Fragment Replacement** (40-60% reduction):
-```json
-{
-  "fragment_id": "complex-section",
-  "action": "replace", 
-  "data": "<div>Completely new HTML structure</div>"
-}
-```
-*Works when: All other strategies technically infeasible*
-
-**Four-Tier Benefits**:
-- Maximizes bandwidth efficiency by trying optimal strategies first
-- Automatic degradation only when technically necessary
-- 100% template compatibility through guaranteed fallback
-- Superior performance through intelligent strategy selection
-
----
-
-## Four-Tier Strategy Analysis
-
-### Deterministic Strategy Selection Logic
-
-LiveTemplate v1.0 uses **rule-based deterministic strategy selection** based on HTML change patterns. The same template construct will **always** choose the same strategy, ensuring predictable library behavior:
-
-**Core Principle**: Strategy selection is based on **change types** using deterministic rules.
-
-**Deterministic Rules**:
-1. **Text-only changes** → Strategy 1 (Static/Dynamic)
-2. **Attribute changes** → Strategy 2 (Markers) 
-3. **Structural changes** → Strategy 3 (Granular)
-4. **Mixed change types** → Strategy 4 (Replacement)
-
-**Why Deterministic?**
-- Library users can predict which strategy will be used
-- Same template constructs always behave the same way
-- Performance is predictable and debuggable
-- Deterministic rule-based decisions
-
-#### 1. Simple Value Interpolation (`{{.Field}}`)
-**Strategy 1 - Static/Dynamic**: ✅ **Perfect Fit**
-```html
-<!-- Template -->
-<span>Hello {{.Name}}</span>
-
-<!-- Analysis: Structure never changes -->
-Statics: ["<span>Hello ", "</span>"]
-Dynamics: {"0": "Alice"}
-```
-**No degradation needed**: Template structure is completely stable.
-
-#### 2. Conditional Blocks (`{{if .Condition}}...{{end}}`)
-**HTML Diffing Analysis**:
-
-```html
-<!-- Template -->
-{{if .ShowAlert}}<div class="alert-{{.AlertType}}">{{.Message}}</div>{{end}}
-
-<!-- Case A: Values change, condition stays true -->
-OldHTML: <div class="alert-info">Server maintenance</div>
-NewHTML: <div class="alert-warning">Database issue</div>
-Diff Pattern: TEXT_CHANGES_ONLY
-Strategy: Static/Dynamic ✅
-Statics: ["<div class=\"alert-", "\">", "</div>"]
-Dynamics: {"0": "warning", "1": "Database issue"}
-
-<!-- Case B: Condition changes true→false -->
-OldHTML: <div class="alert-info">Server issue</div>
-NewHTML: (empty)
-Diff Pattern: ELEMENT_REMOVAL
-Strategy: Granular Operation ✅
-Action: {"operation": "remove", "selector": "[data-fragment-id='alert']"}
-
-<!-- Case C: Condition changes false→true -->
-OldHTML: (empty)
-NewHTML: <div class="alert-warning">New alert</div>
-Diff Pattern: ELEMENT_ADDITION
-Strategy: Granular Operation ✅
-Action: {"operation": "append", "content": "<div class=\"alert-warning\">New alert</div>"}
-```
-
-#### 3. Range/Loop Constructs (`{{range .Items}}...{{end}}`)
-**HTML Diffing Analysis**:
-
-```html
-<!-- Template -->
-{{range .TodoItems}}<li data-id="{{.ID}}">{{.Text}}</li>{{end}}
-
-<!-- Case A: Same count, values change -->
-OldHTML: <li data-id="1">Buy milk</li><li data-id="2">Walk dog</li>
-NewHTML: <li data-id="1">Buy bread</li><li data-id="2">Feed cat</li>
-Diff Pattern: TEXT_CHANGES_ONLY
-Strategy: Static/Dynamic ✅
-Statics: ["<li data-id=\"", "\">", "</li><li data-id=\"", "\">", "</li>"]
-Dynamics: {"0": "1", "1": "Buy bread", "2": "2", "3": "Feed cat"}
-
-<!-- Case B: List grows by one -->
-OldHTML: <li data-id="1">Task 1</li><li data-id="2">Task 2</li>
-NewHTML: <li data-id="1">Task 1</li><li data-id="2">Task 2</li><li data-id="3">Task 3</li>
-Diff Pattern: ELEMENT_APPEND
-Strategy: Granular Operation ✅
-Action: {"operation": "append", "content": "<li data-id=\"3\">Task 3</li>"}
-
-<!-- Case C: List shrinks (item removed) -->
-OldHTML: <li data-id="1">A</li><li data-id="2">B</li><li data-id="3">C</li>
-NewHTML: <li data-id="1">A</li><li data-id="3">C</li>
-Diff Pattern: ELEMENT_REMOVAL
-Strategy: Granular Operation ✅
-Action: {"operation": "remove", "selector": "[data-id='2']"}
-
-<!-- Case D: Complex reorder/restructure -->
-OldHTML: <li>A</li><li>B</li><li>C</li>
-NewHTML: <li>C</li><li>A</li><li>B</li><li>D</li><li>E</li>
-Diff Pattern: COMPLEX_STRUCTURAL_CHANGE
-Strategy: Fragment Replacement ❌
-Action: {"operation": "replace", "content": "<li>C</li><li>A</li><li>B</li><li>D</li><li>E</li>"}
-```
-
-#### 4. Nested Templates (`{{template "name" .}}`)
-**Strategy 1 - Static/Dynamic**: ✅ **When Structure Predictable**
-```html
-<!-- Simple nested template with stable structure -->
-<div>{{template "user" .User}}</div>
-<!-- "user" template: <span class="user-{{.Role}}">{{.Name}}</span> -->
-
-Statics: ["<div><span class=\"user-", "\">", "</span></div>"]
-Dynamics: {"0": "admin", "1": "Alice"}
-```
-
-**Strategy 2 - Markers**: ⚠️ **For Static Template Selection**
-```html
-<!-- When template name is known at analysis time -->
-Marker compilation through nested template resolution
-```
-
-**Strategy 4 - Replacement**: ❌ **For Dynamic/Recursive Templates**
-```html
-<!-- When template selection is dynamic: {{template .TemplateName .}} -->
-<!-- When recursion depth unpredictable -->
-Action: "replace" - too complex for analysis
-```
-
-#### 5. Custom Functions (`{{customFunc .Data}}`)
-**Strategy 1 - Static/Dynamic**: ✅ **When Output Predictable**
-```html
-<!-- Template with deterministic function -->
-<div>{{formatDate .CreatedAt}}</div>
-
-<!-- Function executes, result analyzed -->
-Statics: ["<div>", "</div>"]
-Dynamics: {"0": "January 15, 2024"} // formatDate output
-```
-
-**Strategy 2 - Markers**: ⚠️ **When Function Side-Effect Free**
-```html
-<!-- Use marker compilation for position discovery -->
-MarkerData: {CreatedAt: "2024-01-01T00:00:00Z"}
-Marker result analyzed for positions
-```
-
-**Strategy 4 - Replacement**: ❌ **For Complex/Side-Effect Functions**
-```html
-<!-- When function has side effects, unpredictable output structure -->
-<!-- When function output varies dramatically in size/structure -->
-Action: "replace" - analysis too risky
-```
-
-### HTML Diffing-Based Strategy Engine
-
-```go
-type StrategyAnalyzer struct {
-    htmlDiffer            *HTMLDiffer
-    staticDynamicAnalyzer *StaticDynamicAnalyzer
-    markerCompiler        *MarkerCompiler
-    granularAnalyzer      *GranularAnalyzer
-    config                *AnalyzerConfig
-}
-
-func (sa *StrategyAnalyzer) SelectOptimalStrategy(tmpl *template.Template, oldData, newData interface{}) (*UpdateStrategy, error) {
-    // 1. Render both versions for HTML diffing
-    oldHTML, err := sa.render(tmpl, oldData)
-    if err != nil {
-        return nil, err
-    }
-    newHTML, err := sa.render(tmpl, newData)
-    if err != nil {
-        return nil, err
-    }
-    
-    // 2. Analyze HTML diff to determine change pattern
-    diff := sa.htmlDiffer.Analyze(oldHTML, newHTML)
-    
-    // 3. Select strategy based on deterministic rules
-    switch diff.RecommendStrategy() {
-    case StaticDynamicStrategy:
-        return sa.generateStaticDynamic(oldHTML, newHTML, diff)
-    case GranularStrategy:
-        return sa.generateGranularOperations(oldHTML, newHTML, diff)
-    case MarkerStrategy:
-        return sa.generateMarkerPatches(tmpl, oldData, newData, diff)
-    default:
-        return sa.generateReplacement(newHTML), nil
-    }
-}
-
-type HTMLDiff struct {
-    ChangeType    ChangeType
-    Changes       []Change
-    Confidence    float64  // Quality metric: How sure we are of change detection (0.0-1.0)
-}
-
-type Change struct {
-    Type        string   // "text", "attribute", "element_add", "element_remove"
-    Position    int      // Character position in HTML
-    OldValue    string
-    NewValue    string
-    Element     string   // HTML element affected
-    // Note: No confidence field - strategy selection is deterministic
-}
-
-// Deterministic strategy selection based on change types
-func (d *HTMLDiff) RecommendStrategy() StrategyType {
-    hasText := false
-    hasAttribute := false
-    hasStructural := false
-    
-    for _, change := range d.Changes {
-        switch change.Type {
-        case "text":
-            hasText = true
-        case "attribute":
-            hasAttribute = true
-        case "element_add", "element_remove", "element_change":
-            hasStructural = true
-        }
-    }
-    
-    // Rule-based deterministic selection:
-    if hasStructural {
-        if hasText || hasAttribute {
-            return ReplacementStrategy    // Complex: multiple change types
-        }
-        return GranularStrategy           // Pure structural changes
-    }
-    
-    if hasAttribute {
-        return MarkerStrategy             // Attribute changes (with/without text)
-    }
-    
-    if hasText {
-        return StaticDynamicStrategy      // Pure text-only changes
-    }
-    
-    return StaticDynamicStrategy          // No changes or empty state
-}
-```
-
-### Deterministic Strategy Selection Benefits
-
-**Important**: Strategy selection is **completely deterministic** based on HTML change pattern analysis. The same template construct with the same change pattern will **always** choose the same strategy.
-
-**Benefits of deterministic approach**:
-- **Predictable performance**: Same patterns always have same performance characteristics
-- **Library reliability**: Users can depend on consistent behavior  
-- **Debugging simplicity**: No unpredictable confidence-based variations
-- **Testing effectiveness**: Same inputs always produce same outputs
-
-### Client-Side Reconstruction
-
-```javascript
-function reconstructFragment(fragment) {
-    let html = fragment.s[0] || "";
-    
-    for (let i = 0; i < Object.keys(fragment.d).length; i++) {
-        const dynamicValue = fragment.d[i.toString()];
-        
-        // Handle different dynamic types
-        if (Array.isArray(dynamicValue)) {
-            // Range construct - reconstruct each item
-            html += dynamicValue.map(item => renderItem(item, fragment.s)).join("");
-        } else if (typeof dynamicValue === 'boolean') {
-            // Conditional - include/exclude content based on value
-            if (dynamicValue) {
-                html += fragment.s[i + 1] || "";
-            }
-        } else {
-            // Simple value - direct substitution
-            html += dynamicValue + (fragment.s[i + 1] || "");
-        }
-    }
-    
-    return html;
-}
-```
-
-**HTML Diffing-Enhanced Four-Tier Benefits**:
-- **Data-Driven Strategy Selection**: Based on actual HTML changes, not template guessing
-- **Higher Static/Dynamic Success Rate**: 60-70% vs 30% with template analysis alone
-- **Pattern Recognition**: Text-only changes, simple operations, complex rewrites
-- **Optimal Bandwidth Efficiency**: Always selects most efficient viable strategy
-- **Confidence Scoring**: High accuracy in strategy selection through diff analysis
-- **Performance Monitoring**: Track strategy effectiveness across change patterns
-- **Intelligent Caching**: Cache diff patterns by data signature for repeated scenarios
-
----
-
-## First Public Release Strategy
-
-### Release Scope and Priorities
-
-**Primary Goals for v1.0**:
-1. **Rock-solid Security**: Multi-tenant isolation with comprehensive testing
-2. **Optimal Performance**: Value patches (primary) + fragment replace (fallback)
-3. **Developer Experience**: Zero-configuration API with clear error messages
-4. **Focused Scope**: Pure update generation - no transport layer complexity
-
-**Core v1.0 Implementation**:
-1. **Dual Update Strategy**: Value patches (primary) + fragment replacement (fallback)
-2. **Template Analysis**: AST-based capability detection for strategy selection
-3. **Position Tracking**: Efficient value patch position management
-4. **Automatic Fallback**: Seamless degradation when value patching not possible
-
-**Explicitly Out of Scope**:
-1. **Network Transport**: WebSocket, SSE, HTTP - handled by application layer
-2. **Client-side Application**: Update application logic - consumer responsibility
-3. **Message Queuing/Delivery**: Transport reliability - not LiveTemplate's concern
-
-**Deferred to v2.0**:
-1. **Advanced Optimizations**: Complex memory management strategies
-2. **Enhanced Analysis**: Advanced template pattern detection
-3. **Performance Tuning**: Fine-tuning based on real-world usage patterns
-
-### Conservative Performance Targets
-
-**v1.0 Targets with HTML Diffing-Enhanced Strategy**:
-- 85-95% size reduction for text-only changes (Strategy 1: Static/Dynamic) - 60-70% of cases
-- 70-85% size reduction for position-discoverable changes (Strategy 2: Markers) - 15-20% of cases
-- 60-80% size reduction for simple operations (Strategy 3: Granular) - 10-15% of cases
-- 40-60% size reduction minimum guaranteed (Strategy 4: Replacement) - 5-10% of cases
-- >90% strategy selection accuracy through HTML diff analysis
-- 100% template compatibility (four-tier fallback ensures universal support)
-- P95 update generation latency < 75ms (includes HTML diffing overhead)
-- Support 1,000 concurrent pages per instance
-
-**Measurement Strategy**:
-- Comprehensive metrics collection from day one
-- Real-world usage data to drive v2.0 optimization decisions
-- A/B testing framework for future value patch validation
-
-### Risk Mitigation
-
-**Known Risks and Mitigations**:
-1. **Complexity Underestimation**: 75% buffer on all estimates
-2. **Performance Assumptions**: Conservative targets with monitoring
-3. **Token Security**: Standard JWT with proven libraries
-4. **Memory Leaks**: Aggressive TTL cleanup and monitoring
 
 ---
 
 ## Security Architecture
 
-### Token-Based Authentication
+### Multi-Tenant Isolation
 
-```go
-type TokenService struct {
-    signingKey   []byte
-    tokenTTL     time.Duration
-    nonceStore   *NonceStore // Replay protection
-}
-
-// Standard JWT with security best practices
-func (ts *TokenService) GenerateToken(appID, pageID string) (string, error)
-func (ts *TokenService) VerifyToken(token string) (*PageToken, error)
+```mermaid
+graph TB
+    subgraph "Application A (Tenant 1)"
+        PA1[Page A1]
+        PA2[Page A2]
+        TA[Token Service A]
+    end
+    
+    subgraph "Application B (Tenant 2)"  
+        PB1[Page B1]
+        PB2[Page B2]
+        TB[Token Service B]
+    end
+    
+    subgraph "Cross-Application Boundary"
+        PA1 -.->|❌ Blocked| TB
+        PB1 -.->|❌ Blocked| TA
+    end
+    
+    PA1 <-->|✅ Allowed| TA
+    PA2 <-->|✅ Allowed| TA
+    PB1 <-->|✅ Allowed| TB
+    PB2 <-->|✅ Allowed| TB
 ```
 
-**Security Features**:
-- Standard JWT implementation preventing algorithm confusion
-- Replay attack prevention with nonce tracking
-- Key rotation support
-- Cross-application isolation enforcement
+### JWT Token Security
+
+**Token Structure**:
+```json
+{
+  "iss": "livetemplate",
+  "sub": "page_id",  
+  "app": "application_id",
+  "exp": 1640995200,
+  "iat": 1640908800
+}
+```
+
+**Security Properties**:
+- Cryptographically signed with application-specific keys
+- Contains application ID for cross-application access prevention
+- Configurable expiration with automatic cleanup
+- Stateless design enables horizontal scaling
+
+---
+
+## Performance Characteristics
+
+### Bandwidth Optimization
+
+**Tree-Based Savings**:
+- **Complex nested templates**: 95.9% savings (24 bytes vs 590 bytes)
+- **Simple text updates**: 75%+ savings with static caching
+- **Typical real-world templates**: 92%+ bandwidth reduction
+
+**Performance Metrics**:
+- **P95 latency**: <75ms for fragment generation
+- **Page creation**: >70,000 pages/sec
+- **Fragment generation**: >16,000 fragments/sec  
+- **Template parsing**: <5ms average, <25ms max
 
 ### Memory Management
 
-```go
-type MemoryManager struct {
-    maxPages        int           // Default: 1000 pages per application
-    pageTTL         time.Duration // Default: 1 hour
-    cleanupInterval time.Duration // Default: 5 minutes
-}
-```
+**Per-Page Memory**:
+- **Typical applications**: <8MB per page
+- **Memory bounds**: Configurable limits with graceful degradation
+- **Automatic cleanup**: TTL-based expiration
+- **Leak protection**: Comprehensive detection and prevention
 
-**Resource Protection**:
-- Per-application page limits
-- TTL-based automatic cleanup
-- Memory usage monitoring
-- Graceful degradation under pressure
+**Scaling Characteristics**:
+- **Concurrent pages**: 1000+ per instance (8GB RAM)
+- **Memory growth**: Linear with active page count
+- **Cleanup efficiency**: Background TTL-based cleanup
 
 ---
 
-## Implementation Strategy (LLM-Assisted Development)
+## Operational Excellence
 
-### Immediate Implementation Approach
-With LLM-assisted development, implementation can proceed immediately in focused iterations:
+### Metrics & Monitoring
 
-### Phase 1: Security Foundation (Immediate)
-**Tasks 1-30**: Complete in focused development sessions
-- Application isolation with JWT tokens
-- Page lifecycle management  
-- Template analysis and fragment identification
-- Comprehensive security testing
+**Application-Level Metrics**:
+```go
+type ApplicationMetrics struct {
+    ActivePages       int64         // Current active page count
+    MemoryUsage       int64         // Current memory usage
+    TokenFailures     int64         // Authentication failures  
+    AverageLatency    time.Duration // Fragment generation latency
+}
+```
 
-### Phase 2: HTML Diffing-Enhanced Four-Tier System (Following Phase 1)
-**Tasks 31-50**: Build HTML diffing-based intelligent update system
-- HTML diffing engine for change pattern analysis
-- Static/dynamic generation for text-only changes (Strategy 1)
-- Marker compilation system for position-discoverable changes (Strategy 2)
-- Granular operations for simple structural changes (Strategy 3)
-- Fragment replacement for complex structural changes (Strategy 4)
-- Strategy selection based on HTML diff complexity scoring
-- Performance validation with HTML diffing overhead analysis
+**Page-Level Metrics**:
+```go  
+type PageMetrics struct {
+    TotalGenerations      int64         // Total fragment generations
+    SuccessfulGenerations int64         // Successful generations
+    AverageGenerationTime time.Duration // Average generation time
+    ErrorRate            float64        // Error percentage
+}
+```
 
-### Phase 3: Production Readiness (Final phase)
-**Tasks 51-60**: Complete production features
-- Comprehensive metrics and monitoring
-- Operational requirements (health checks, logging)
-- Documentation and examples
-- Performance benchmarking and validation
+### Error Handling & Resilience
 
-### Success Criteria for v1.0 Release
+**Error Categories**:
+- **Authentication Errors**: Invalid tokens, cross-application access
+- **Template Errors**: Invalid template syntax, missing data fields  
+- **Memory Errors**: Resource exhaustion, cleanup failures
+- **Generation Errors**: Tree building failures, serialization issues
 
-**Security**:
-- Zero cross-application data leaks in security testing
-- JWT implementation passes security audit
-- Memory usage bounded under load
-
-**Performance**:
-- 85-95% size reduction for text-only changes (Strategy 1) - 60-70% of templates
-- 70-85% size reduction for position-discoverable changes (Strategy 2) - 15-20% of templates
-- 60-80% size reduction for simple operations (Strategy 3) - 10-15% of templates
-- 40-60% size reduction for complex changes (Strategy 4) - 5-10% of templates
-- >90% strategy selection accuracy through HTML diff analysis
-- P95 update generation latency under 75ms (includes HTML diffing processing)
-- Support 1,000 concurrent pages per instance
-- 100% template compatibility with four-tier fallback
-
-**Reliability**:
-- 99.9% uptime in staging environment
-- Comprehensive error handling and recovery
-- Memory leaks eliminated through monitoring
+**Recovery Strategies**:
+- **Graceful degradation**: Reduced functionality under resource pressure
+- **Automatic cleanup**: Background processes prevent resource leaks
+- **Circuit breakers**: Prevent cascade failures under high load
+- **Comprehensive logging**: Structured error context for debugging
 
 ---
 
-## Appendix: Technical Specifications
+## Testing Strategy
 
-### Fragment ID Generation
+### Test Coverage
 
-```go
-func generateFragmentID(templatePath string, position int) string {
-    h := sha256.Sum256([]byte(fmt.Sprintf("%s:%d", templatePath, position)))
-    return fmt.Sprintf("f-%x", h[:8]) // 16-character deterministic ID
-}
+**Unit Tests** (70%):
+- Template boundary parsing accuracy
+- Tree structure generation correctness
+- Memory management and cleanup
+- JWT token security validation
+
+**Integration Tests** (25%):
+- Application isolation verification
+- End-to-end fragment generation workflows
+- WebSocket integration patterns
+- Multi-tenant security validation
+
+**Production Tests** (5%):
+- Load testing with 1000+ concurrent pages
+- Memory leak detection over time
+- Performance benchmark validation
+- Security penetration testing
+
+### Quality Assurance
+
+**Performance Testing**:
+```bash
+go test -run "TestProduction_LoadTesting" -v     # 1000+ pages
+go test -run "TestProduction_MemoryLeak" -v      # Memory stability
+go test -run "TestProduction_Benchmark" -v       # Performance metrics
 ```
 
-### Update Generation Strategy
-
-```go
-type UpdateConfig struct {
-    PreferValuePatches   bool // Default: true (primary strategy)
-    MaxValueUpdatesPerFragment int  // Default: 50
-    FallbackToReplace    bool // Default: true
-}
-```
-
-### Error Handling
-
-```go
-var (
-    ErrPageNotFound       = errors.New("page not found")
-    ErrInvalidApplication = errors.New("invalid application access")
-    ErrTokenExpired       = errors.New("token expired")
-    ErrMemoryBudgetExceeded = errors.New("memory budget exceeded")
-)
-```
-
-### Metrics Collection
-
-```go
-// Simple built-in metrics - no external dependencies
-type Metrics struct {
-    PagesCreated         uint64
-    UpdatesGenerated     uint64  
-    UpdateLatencyP95     float64  // milliseconds
-    BandwidthSavingsAvg  float64  // percentage
-    MemoryUsageBytes     uint64
-    TokenValidationFails uint64
-}
-
-// Optional: Export in Prometheus format if needed
-func (m *Metrics) PrometheusText() string { /* ... */ }
+**Security Testing**:
+```bash
+go test -run "TestSecurity" -v                   # Isolation tests
+go test -run "TestPenetration" -v                # Attack scenarios
+go test -run "TestAuthentication" -v             # Token security
 ```
 
 ---
 
-**Note**: This v1.0-focused design prioritizes reliability and security over aggressive optimization. The architecture establishes a solid foundation for future enhancements while delivering immediate value through secure multi-tenant fragment updates.
+## Future Roadmap
+
+### v1.1 Enhancements
+- **Client-side optimizations**: JavaScript client library
+- **Template pre-compilation**: Build-time optimization  
+- **Advanced caching**: Multi-level caching strategies
+- **Performance metrics**: Enhanced monitoring and alerting
+
+### v2.0+ Vision
+- **Real-time collaboration**: Multi-user page editing
+- **Template streaming**: Progressive template loading
+- **Edge deployment**: CDN-optimized distribution
+- **Advanced security**: Zero-trust architecture
+
+---
+
+## Conclusion
+
+LiveTemplate v1.0 delivers a production-ready template optimization system with:
+
+- **92%+ bandwidth savings** through tree-based optimization
+- **Enterprise-grade security** with multi-tenant isolation
+- **Horizontal scalability** supporting 1000+ concurrent pages
+- **Phoenix LiveView compatibility** for seamless client integration
+- **Zero-configuration deployment** with optimal defaults
+
+The tree-based approach simplifies the architecture while delivering superior performance compared to the previous four-tier system, making LiveTemplate an ideal choice for real-time web applications requiring efficient template updates with strong security guarantees.

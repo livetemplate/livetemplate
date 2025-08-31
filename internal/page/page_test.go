@@ -92,8 +92,8 @@ func TestNewPage(t *testing.T) {
 				t.Error("page should store the provided data")
 			}
 
-			if page.updateGenerator == nil {
-				t.Error("page should have an update generator")
+			if page.treeGenerator == nil {
+				t.Error("page should have a tree generator")
 			}
 
 			// Verify timestamps

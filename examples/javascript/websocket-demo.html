@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LiveTemplate WebSocket Demo - Real Network Traffic</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            text-align: center;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }
+        
+        .connection-status {
+            padding: 10px;
+            border-radius: 6px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        
+        .connected {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .disconnected {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .demo-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        
+        /* Live Components */
+        .components-panel {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }
+        
+        .component {
+            background: #f8f9fa;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 15px 0;
+            transition: all 0.3s ease;
+        }
+        
+        .component.updating {
+            border-color: #28a745;
+            background: #d4edda;
+            box-shadow: 0 4px 16px rgba(40,167,69,0.3);
+        }
+        
+        
+        /* Controls */
+        .controls {
+            background: rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 8px;
+            margin: 15px 0;
+            text-align: center;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #007bff, #0056b3);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+            transition: transform 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+        }
+        
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        
+        /* Component Styles */
+        .user-dashboard {
+            padding: 15px;
+            background: #f0f8ff;
+            border-radius: 6px;
+        }
+        
+        .user-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .avatar {
+            font-size: 24px;
+            margin-right: 10px;
+        }
+        
+        .user-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+        
+        .stat {
+            text-align: center;
+            padding: 8px;
+            background: white;
+            border-radius: 4px;
+        }
+        
+        .stat label {
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .stat span {
+            display: block;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .product-catalog {
+            padding: 15px;
+        }
+        
+        .product {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+            margin: 8px 0;
+            border-left: 4px solid #007bff;
+        }
+        
+        .product .name {
+            font-weight: bold;
+        }
+        
+        .product .price {
+            color: #28a745;
+            font-weight: bold;
+        }
+        
+        .live-chat {
+            padding: 15px;
+            max-height: 300px;
+        }
+        
+        .messages {
+            max-height: 200px;
+            overflow-y: auto;
+            background: white;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        
+        .message {
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .message:last-child {
+            border-bottom: none;
+        }
+        
+        .message .user {
+            font-weight: bold;
+            color: #007bff;
+        }
+        
+        .message .time {
+            font-size: 11px;
+            color: #666;
+            float: right;
+        }
+        
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .demo-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 LiveTemplate WebSocket Demo</h1>
+            <p>Real network traffic visualization showing tree-based optimization in action</p>
+            
+            <div id="connectionStatus" class="connection-status disconnected">
+                🔌 Connecting to WebSocket server...
+            </div>
+            
+            <div class="controls">
+                <button id="connectBtn" onclick="connect()">📡 Connect</button>
+                <button id="updateUserBtn" onclick="updateUser()" disabled>👤 Update User</button>
+                <button id="updateProductsBtn" onclick="updateProducts()" disabled>🛍️ Update Products</button>
+                <button id="addChatBtn" onclick="addChatMessage()" disabled>💬 Add Chat Message</button>
+                <button id="realtimeBtn" onclick="startRealtime()" disabled>🎭 Start Realtime (30s)</button>
+            </div>
+        </div>
+        
+        
+        <div class="demo-grid">
+            <!-- Live Components -->
+            <div class="components-panel">
+                <h3>🎯 Live Components (Real HTML Updates)</h3>
+                <p>Watch these components update in real-time as fragments arrive over WebSocket</p>
+                
+                <div class="component" id="userDashboardComponent">
+                    <h4>👤 User Dashboard</h4>
+                    <div id="user-dashboard">
+                        <div class="user-dashboard">
+                            <div style="text-align: center; padding: 20px; color: #666;">
+                                🔌 Connect to WebSocket to see live updates
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="component" id="productCatalogComponent">
+                    <h4>🛍️ Product Catalog</h4>
+                    <div id="product-catalog">
+                        <div style="text-align: center; padding: 20px; color: #666;">
+                            🔌 Connect to WebSocket to see live updates
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="component" id="liveChatComponent">
+                    <h4>💬 Live Chat</h4>
+                    <div id="live-chat">
+                        <div style="text-align: center; padding: 20px; color: #666;">
+                            🔌 Connect to WebSocket to see live updates
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let isConnected = false;
+        
+        // Tree Fragment Client (simplified for WebSocket demo)
+        class TreeFragmentProcessor {
+            constructor() {
+                this.staticCache = new Map();
+            }
+            
+            processFragment(fragment) {
+                if (fragment.type === 'initial') {
+                    // Cache all static structures recursively
+                    this.cacheStaticStructures(fragment.id, fragment.data);
+                    return this.reconstructHTML(fragment.data);
+                } else {
+                    // Merge cached statics with new dynamics
+                    const mergedData = this.mergeWithCache(fragment.id, fragment.data);
+                    return this.reconstructHTML(mergedData);
+                }
+            }
+            
+            cacheStaticStructures(id, data) {
+                if (data && typeof data === 'object' && data.s) {
+                    this.staticCache.set(id, data.s);
+                    
+                    // Cache nested array structures
+                    Object.keys(data).forEach(key => {
+                        if (key !== 's' && Array.isArray(data[key])) {
+                            data[key].forEach((item, index) => {
+                                if (item && item.s) {
+                                    this.staticCache.set(`${id}_${key}_${index}`, item.s);
+                                }
+                            });
+                        }
+                    });
+                }
+            }
+            
+            mergeWithCache(id, data) {
+                const result = { ...data };
+                
+                // Add cached root statics
+                const cachedStatics = this.staticCache.get(id);
+                if (cachedStatics) {
+                    result.s = cachedStatics;
+                }
+                
+                // Add cached array item statics
+                Object.keys(data).forEach(key => {
+                    if (Array.isArray(data[key])) {
+                        result[key] = data[key].map((item, index) => {
+                            if (item && typeof item === 'object') {
+                                const itemStatics = this.staticCache.get(`${id}_${key}_${index}`);
+                                if (itemStatics) {
+                                    return { ...item, s: itemStatics };
+                                }
+                            }
+                            return item;
+                        });
+                    }
+                });
+                
+                return result;
+            }
+            
+            reconstructHTML(data) {
+                if (!data || typeof data !== 'object') return data || '';
+                if (!data.s) return JSON.stringify(data);
+                
+                let html = '';
+                const statics = data.s;
+                const dynamicKeys = Object.keys(data).filter(k => k !== 's').sort((a, b) => parseInt(a) - parseInt(b));
+                
+                statics.forEach((staticPart, i) => {
+                    html += staticPart;
+                    if (i < dynamicKeys.length) {
+                        const value = data[dynamicKeys[i]];
+                        if (Array.isArray(value)) {
+                            html += value.map(item => {
+                                if (typeof item === 'object' && item !== null) {
+                                    return this.reconstructHTML(item);
+                                }
+                                return item || '';
+                            }).join('');
+                        } else if (typeof value === 'object' && value !== null && value.s) {
+                            html += this.reconstructHTML(value);
+                        } else {
+                            html += value || '';
+                        }
+                    }
+                });
+                
+                return html;
+            }
+        }
+        
+        const fragmentProcessor = new TreeFragmentProcessor();
+        
+        function connect() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                return;
+            }
+            
+            ws = new WebSocket('ws://localhost:8080/ws');
+            
+            ws.onopen = function() {
+                isConnected = true;
+                updateConnectionStatus(true);
+            };
+            
+            ws.onmessage = function(event) {
+                const message = JSON.parse(event.data);
+                handleWebSocketMessage(message);
+            };
+            
+            ws.onclose = function() {
+                isConnected = false;
+                updateConnectionStatus(false);
+            };
+            
+            ws.onerror = function(error) {
+                console.error('WebSocket error:', error);
+            };
+        }
+        
+        function handleWebSocketMessage(message) {
+            if (message.type === 'fragment') {
+                handleFragment(message.fragment, message.timestamp);
+            }
+        }
+        
+        function handleFragment(fragment, timestamp) {
+            // Add visual indicator
+            const component = document.getElementById(fragment.id + 'Component');
+            if (component) {
+                component.classList.add('updating');
+                setTimeout(() => component.classList.remove('updating'), 1000);
+            }
+            
+            // Process and render fragment
+            const html = fragmentProcessor.processFragment(fragment);
+            const element = document.getElementById(fragment.id);
+            if (element) {
+                element.innerHTML = html;
+            }
+            
+        }
+        
+        
+        function updateConnectionStatus(connected) {
+            const status = document.getElementById('connectionStatus');
+            const buttons = ['updateUserBtn', 'updateProductsBtn', 'addChatBtn', 'realtimeBtn'];
+            
+            if (connected) {
+                status.className = 'connection-status connected';
+                status.innerHTML = '✅ Connected to WebSocket server - Real-time updates active';
+                buttons.forEach(id => document.getElementById(id).disabled = false);
+            } else {
+                status.className = 'connection-status disconnected';
+                status.innerHTML = '❌ Disconnected from WebSocket server';
+                buttons.forEach(id => document.getElementById(id).disabled = true);
+            }
+        }
+        
+        
+        function updateUser() {
+            if (!isConnected) return;
+            ws.send(JSON.stringify({ action: 'update_user' }));
+        }
+        
+        function updateProducts() {
+            if (!isConnected) return;
+            ws.send(JSON.stringify({ action: 'update_products' }));
+        }
+        
+        function addChatMessage() {
+            if (!isConnected) return;
+            ws.send(JSON.stringify({ action: 'add_chat_message' }));
+        }
+        
+        function startRealtime() {
+            if (!isConnected) return;
+            const btn = document.getElementById('realtimeBtn');
+            btn.disabled = true;
+            btn.textContent = '🎭 Realtime Active...';
+            
+            ws.send(JSON.stringify({ 
+                action: 'simulate_realtime',
+                duration: 30
+            }));
+            
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.textContent = '🎭 Start Realtime (30s)';
+            }, 32000);
+        }
+        
+        
+        
+        // Auto-connect on page load
+        window.addEventListener('load', () => {
+            setTimeout(connect, 1000);
+        });
+    </script>
+</body>
+</html>
