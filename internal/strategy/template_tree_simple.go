@@ -113,16 +113,16 @@ func (g *SimpleTreeGenerator) buildSimpleTree(boundaries []TemplateBoundary, dat
 			tree.S = append(tree.S, boundary.Content)
 			i++
 
-		case SimpleField:
+		case SimpleField, Function:
 			// Add static up to this point
 			if len(tree.S) == dynamicIndex {
 				tree.S = append(tree.S, "")
 			}
 
-			// Evaluate dynamic value
+			// Evaluate dynamic value (either field access or function call)
 			value, err := g.evaluateFieldPath(boundary.FieldPath, data)
 			if err != nil {
-				return nil, fmt.Errorf("failed to evaluate field %s: %v", boundary.FieldPath, err)
+				return nil, fmt.Errorf("failed to evaluate %s %s: %v", boundary.Type, boundary.FieldPath, err)
 			}
 
 			dynamicKey := fmt.Sprintf("%d", dynamicIndex)
@@ -353,7 +353,16 @@ func (g *SimpleTreeGenerator) buildRangeTree(boundaries []TemplateBoundary, star
 				items[i] = s
 			}
 		default:
-			return nil, 0, fmt.Errorf("range data is not iterable: %T", rangeData)
+			// Use reflection to handle any slice type
+			rv := reflect.ValueOf(rangeData)
+			if rv.Kind() != reflect.Slice {
+				return nil, 0, fmt.Errorf("range data is not iterable: %T", rangeData)
+			}
+
+			items = make([]interface{}, rv.Len())
+			for i := 0; i < rv.Len(); i++ {
+				items[i] = rv.Index(i).Interface()
+			}
 		}
 	}
 
@@ -571,15 +580,16 @@ func (g *SimpleTreeGenerator) buildWithElseCase(boundaries []TemplateBoundary, s
 
 // evaluateCondition evaluates conditional expression
 func (g *SimpleTreeGenerator) evaluateCondition(condition string, data interface{}) (string, error) {
-	// Clean condition - remove leading/trailing spaces and dots
+	// Clean condition - remove leading/trailing spaces
 	condition = strings.TrimSpace(condition)
 
-	// Create conditional template - ensure condition has proper format
+	// Create conditional template - handle different condition formats
 	var conditionTemplate string
-	if strings.HasPrefix(condition, ".") {
+	if strings.HasPrefix(condition, ".") || strings.Contains(condition, " ") {
+		// Field reference (.Field) or function call (gt .Field 0) - use as-is
 		conditionTemplate = fmt.Sprintf("{{if %s}}true{{else}}false{{end}}", condition)
 	} else {
-		// Add leading dot if missing for simple field references
+		// Simple field name without dot - add prefix
 		conditionTemplate = fmt.Sprintf("{{if .%s}}true{{else}}false{{end}}", condition)
 	}
 

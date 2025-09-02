@@ -205,3 +205,10 @@ func convertMetadata(internal *page.Metadata) *Metadata {
 		FallbackUsed:     internal.FallbackUsed,
 	}
 }
+
+// SetTemplateSource sets the template source for the page
+func (p *Page) SetTemplateSource(templateSource string) {
+	if p.internal != nil {
+		p.internal.SetTemplateSource(templateSource)
+	}
+}

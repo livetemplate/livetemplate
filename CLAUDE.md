@@ -702,3 +702,4 @@ Full help: `backlog --help`
 - When users mention to create a task, they mean to create a task using Backlog.md CLI tool.
 
 <!-- BACKLOG.MD GUIDELINES END -->
+- memorize this workaround completely defeats the purpose of livetemplate. please fix the root cause and never do this workaround again

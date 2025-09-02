@@ -7,26 +7,30 @@ import (
 	"encoding/hex"
 	"fmt"
 	"html/template"
+	"reflect"
 	"strings"
 	"sync"
+	"text/template/parse"
 	"time"
+	"unsafe"
 
 	"github.com/livefir/livetemplate/internal/strategy"
 )
 
 // Page represents an isolated user session with stateless design
 type Page struct {
-	ID            string
-	ApplicationID string
-	TemplateHash  string
-	template      *template.Template
-	data          interface{}
-	createdAt     time.Time
-	lastAccessed  time.Time
-	fragmentCache map[string]string
-	treeGenerator *strategy.SimpleTreeGenerator
-	config        *Config
-	mu            sync.RWMutex
+	ID             string
+	ApplicationID  string
+	TemplateHash   string
+	template       *template.Template
+	templateSource string // Store original template source for tree analysis
+	data           interface{}
+	createdAt      time.Time
+	lastAccessed   time.Time
+	fragmentCache  map[string]string
+	treeGenerator  *strategy.SimpleTreeGenerator
+	config         *Config
+	mu             sync.RWMutex
 }
 
 // Config defines Page configuration
@@ -85,7 +89,7 @@ func NewPage(applicationID string, tmpl *template.Template, data interface{}, co
 	return page, nil
 }
 
-// Render generates the complete HTML output for the current page state
+// Render generates the complete HTML output for the current page state with fragment annotations
 func (p *Page) Render() (string, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -96,7 +100,39 @@ func (p *Page) Render() (string, error) {
 		return "", fmt.Errorf("template execution failed: %w", err)
 	}
 
-	return buf.String(), nil
+	html := buf.String()
+
+	// Add fragment annotation to enable LiveTemplate updates
+	// Generate a fragment ID for the entire page content
+	templateSource, err := p.extractTemplateSource()
+	if err != nil {
+		// If we can't extract template source, return HTML without annotations
+		// This maintains backward compatibility
+		return html, nil
+	}
+
+	fragmentID := p.generateFragmentID(templateSource, nil, p.data)
+
+	// Find the main container and add fragment ID
+	// Look for common container patterns
+	annotatedHTML := html
+	containerPatterns := []string{
+		`<div class="container">`,
+		`<body>`,
+		`<div class="app">`,
+		`<main>`,
+	}
+
+	for _, pattern := range containerPatterns {
+		if strings.Contains(html, pattern) {
+			// Insert data-fragment-id attribute
+			replacement := strings.Replace(pattern, ">", fmt.Sprintf(` data-fragment-id="%s">`, fragmentID), 1)
+			annotatedHTML = strings.Replace(html, pattern, replacement, 1)
+			break
+		}
+	}
+
+	return annotatedHTML, nil
 }
 
 // RenderFragments generates fragment updates for the given new data
@@ -353,24 +389,201 @@ func estimateDataSize(data interface{}) int64 {
 
 // extractTemplateSource extracts the source code from a template for analysis
 func (p *Page) extractTemplateSource() (string, error) {
-	// For now, we use a placeholder approach since Go templates don't expose their source
-	// In a real implementation, we would need to store the original template source
-	// or use template introspection techniques
-
-	// Simple heuristic: use template name as a proxy for template content
-	// This is a limitation of the current Go template system
 	if p.template == nil {
 		return "", fmt.Errorf("template is nil")
 	}
 
-	// Use template name as identifier - in production, we'd store actual source
-	templateName := p.template.Name()
-	if templateName == "" {
-		templateName = "unnamed_template"
+	// If we have stored template source, use it
+	if p.templateSource != "" {
+		return p.templateSource, nil
 	}
 
-	// Return a placeholder that represents this template
-	return fmt.Sprintf("{{/* Template: %s */}}", templateName), nil
+	// Extract template source from the template's parse tree
+	templateSource, err := p.extractTemplateSourceFromTemplate(p.template)
+	if err != nil {
+		return "", fmt.Errorf("failed to extract template source: %w", err)
+	}
+
+	if templateSource == "" {
+		return "", fmt.Errorf("extracted template source is empty")
+	}
+
+	// Cache the extracted source
+	p.templateSource = templateSource
+	return templateSource, nil
+}
+
+// extractTemplateSourceFromTemplate attempts to extract original template source using reflection
+func (p *Page) extractTemplateSourceFromTemplate(tmpl *template.Template) (string, error) {
+	if tmpl == nil {
+		return "", fmt.Errorf("template is nil")
+	}
+
+	// Get the main template - use the template itself if named, or find the main one
+	mainTemplate := tmpl
+	if tmpl.Name() == "" {
+		// If no name, try to find the first template
+		templates := tmpl.Templates()
+		if len(templates) == 0 {
+			return "", fmt.Errorf("no templates found")
+		}
+		mainTemplate = templates[0]
+	}
+
+	// Try to access the html/template's parse tree directly
+	val := reflect.ValueOf(mainTemplate)
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
+	}
+
+	// html/template has a Tree field directly accessible
+	treeField := val.FieldByName("Tree")
+	if !treeField.IsValid() {
+		return "", fmt.Errorf("cannot access template Tree field")
+	}
+
+	// Use unsafe to access private field if necessary
+	if !treeField.CanInterface() {
+		treeField = reflect.NewAt(treeField.Type(), unsafe.Pointer(treeField.UnsafeAddr())).Elem()
+	}
+
+	if treeField.IsNil() {
+		return "", fmt.Errorf("template parse tree is nil")
+	}
+
+	parseTree, ok := treeField.Interface().(*parse.Tree)
+	if !ok {
+		return "", fmt.Errorf("cannot cast to parse tree")
+	}
+
+	// Reconstruct template source from parse tree
+	reconstructed := p.reconstructTemplateFromParseTree(parseTree)
+	if reconstructed == "" {
+		return "", fmt.Errorf("failed to reconstruct template source")
+	}
+
+	return reconstructed, nil
+}
+
+// reconstructTemplateFromParseTree reconstructs template source from parse tree
+func (p *Page) reconstructTemplateFromParseTree(tree *parse.Tree) string {
+	if tree == nil || tree.Root == nil {
+		return ""
+	}
+
+	var result strings.Builder
+	p.reconstructNodeRecursive(tree.Root, &result)
+	return result.String()
+}
+
+// reconstructNodeRecursive recursively reconstructs template source from parse nodes
+func (p *Page) reconstructNodeRecursive(node parse.Node, result *strings.Builder) {
+	if node == nil {
+		return
+	}
+
+	switch n := node.(type) {
+	case *parse.ListNode:
+		if n != nil && n.Nodes != nil {
+			for _, child := range n.Nodes {
+				p.reconstructNodeRecursive(child, result)
+			}
+		}
+	case *parse.TextNode:
+		if n != nil && len(n.Text) > 0 {
+			result.Write(n.Text)
+		}
+	case *parse.ActionNode:
+		if n != nil {
+			result.WriteString("{{")
+			if n.Pipe != nil {
+				p.reconstructPipeNode(n.Pipe, result)
+			}
+			result.WriteString("}}")
+		}
+	case *parse.IfNode:
+		if n != nil {
+			result.WriteString("{{if ")
+			if n.Pipe != nil {
+				p.reconstructPipeNode(n.Pipe, result)
+			}
+			result.WriteString("}}")
+			if n.List != nil {
+				p.reconstructNodeRecursive(n.List, result)
+			}
+			if n.ElseList != nil {
+				result.WriteString("{{else}}")
+				p.reconstructNodeRecursive(n.ElseList, result)
+			}
+			result.WriteString("{{end}}")
+		}
+	case *parse.RangeNode:
+		if n != nil {
+			result.WriteString("{{range ")
+			if n.Pipe != nil {
+				p.reconstructPipeNode(n.Pipe, result)
+			}
+			result.WriteString("}}")
+			if n.List != nil {
+				p.reconstructNodeRecursive(n.List, result)
+			}
+			if n.ElseList != nil {
+				result.WriteString("{{else}}")
+				p.reconstructNodeRecursive(n.ElseList, result)
+			}
+			result.WriteString("{{end}}")
+		}
+	case *parse.WithNode:
+		if n != nil {
+			result.WriteString("{{with ")
+			if n.Pipe != nil {
+				p.reconstructPipeNode(n.Pipe, result)
+			}
+			result.WriteString("}}")
+			if n.List != nil {
+				p.reconstructNodeRecursive(n.List, result)
+			}
+			if n.ElseList != nil {
+				result.WriteString("{{else}}")
+				p.reconstructNodeRecursive(n.ElseList, result)
+			}
+			result.WriteString("{{end}}")
+		}
+	case *parse.TemplateNode:
+		if n != nil {
+			result.WriteString("{{template ")
+			result.WriteString(fmt.Sprintf(`"%s"`, n.Name))
+			if n.Pipe != nil {
+				result.WriteString(" ")
+				p.reconstructPipeNode(n.Pipe, result)
+			}
+			result.WriteString("}}")
+		}
+	default:
+		// For other node types, use string representation as fallback
+		if node != nil {
+			result.WriteString(node.String())
+		}
+	}
+}
+
+// reconstructPipeNode reconstructs a pipeline from parse tree
+func (p *Page) reconstructPipeNode(pipe *parse.PipeNode, result *strings.Builder) {
+	if pipe == nil || len(pipe.Cmds) == 0 {
+		return
+	}
+
+	for i, cmd := range pipe.Cmds {
+		if i > 0 {
+			result.WriteString(" | ")
+		}
+		for j, arg := range cmd.Args {
+			if j > 0 {
+				result.WriteString(" ")
+			}
+			result.WriteString(arg.String())
+		}
+	}
 }
 
 // generateFragmentID creates a deterministic fragment ID
@@ -386,4 +599,11 @@ func (p *Page) generateFragmentID(templateSource string, oldData, newData interf
 	}
 
 	return fmt.Sprintf("fragment_%s", hash)
+}
+
+// SetTemplateSource sets the template source for the page
+func (p *Page) SetTemplateSource(templateSource string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.templateSource = templateSource
 }

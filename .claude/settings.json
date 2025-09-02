@@ -1,0 +1,14 @@
+{
+    "permissions": {
+        "allow": [
+            "Bash(timeout:*)",
+            "Bash(go*)"
+        ],
+        "deny": [],
+        "ask": [],
+        "defaultMode": "acceptEdits",
+        "additionalDirectories": [
+            "/private/tmp"
+        ]
+    }
+}

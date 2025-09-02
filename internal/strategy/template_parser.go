@@ -128,8 +128,15 @@ func (tp *TemplateParser) parseAction(action string) (TemplateBoundaryType, stri
 		return BlockDefinition, ""
 	}
 
-	// Pipelines and functions
+	// Pipelines and functions - but check for simple HTML escaping first
 	if strings.Contains(inner, "|") {
+		// Check if this is just a field with HTML escaping (common in html/template)
+		if tp.isSimpleFieldWithHTMLEscaping(inner) {
+			// Extract the field path before the pipe
+			parts := strings.Split(inner, "|")
+			fieldPath := strings.TrimSpace(parts[0])
+			return SimpleField, fieldPath
+		}
 		return Pipeline, ""
 	}
 
@@ -150,6 +157,45 @@ func (tp *TemplateParser) parseAction(action string) (TemplateBoundaryType, stri
 
 	// Everything else is complex
 	return Complex, ""
+}
+
+// isSimpleFieldWithHTMLEscaping checks if this is a simple field with HTML escaping pipeline
+func (tp *TemplateParser) isSimpleFieldWithHTMLEscaping(s string) bool {
+	// Split by pipe
+	parts := strings.Split(s, "|")
+	if len(parts) != 2 {
+		return false
+	}
+
+	// First part should be a simple field path
+	fieldPart := strings.TrimSpace(parts[0])
+	if !tp.isSimpleFieldPath(fieldPart) {
+		return false
+	}
+
+	// Second part should be an HTML escaping function without parameters
+	escapeFunc := strings.TrimSpace(parts[1])
+	htmlEscapeFunctions := []string{
+		"_html_template_htmlescaper",
+		"html",
+		"js",
+		"urlquery",
+		"print",
+		"printf",
+		"println",
+	}
+
+	// Check for exact match (no parameters) or functions that don't take parameters
+	for _, fn := range htmlEscapeFunctions {
+		if escapeFunc == fn {
+			return true
+		}
+	}
+
+	// Functions with parameters are NOT considered simple HTML escaping
+	// This handles cases like 'printf "%d"' which should be treated as complex pipelines
+
+	return false
 }
 
 // isSimpleFieldPath checks if a string looks like a simple field path
