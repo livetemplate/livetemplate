@@ -86,9 +86,15 @@ func TestApplication_PageLifecycle(t *testing.T) {
 		t.Errorf("failed to render page: %v", err)
 	}
 
-	expected := "<div>Hello World</div>"
-	if html != expected {
-		t.Errorf("expected HTML %q, got %q", expected, html)
+	// Check that HTML contains expected content and lvt-id annotation
+	if !strings.Contains(html, "Hello World") {
+		t.Errorf("HTML should contain 'Hello World', got %q", html)
+	}
+	if !strings.Contains(html, "lvt-id=") {
+		t.Errorf("HTML should contain lvt-id annotation, got %q", html)
+	}
+	if !strings.HasPrefix(html, "<div") || !strings.HasSuffix(html, "</div>") {
+		t.Errorf("HTML should be wrapped in div tags, got %q", html)
 	}
 
 	// Close the page

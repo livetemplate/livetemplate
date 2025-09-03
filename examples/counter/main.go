@@ -32,7 +32,11 @@ func NewServer() *Server {
 		log.Fatal(err)
 	}
 	
-	tmpl := template.Must(template.New("counter").Parse(`{{.Counter}}`))
+	// Parse the full HTML template file - library should extract dynamic parts automatically
+	tmpl, err := template.ParseFiles("templates/index.html")
+	if err != nil {
+		log.Fatal("Failed to parse template file:", err)
+	}
 	
 	return &Server{
 		app:     app,
@@ -47,19 +51,27 @@ func NewServer() *Server {
 }
 
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
-	t, err := template.ParseFiles("templates/index.html")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
 	data := map[string]any{
 		"Counter": s.counter,
 	}
 
-	if err := t.Execute(w, data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	// Use LiveTemplate to render with annotations instead of direct template execution
+	page, err := s.app.NewApplicationPage(s.tmpl, data)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to create page: %v", err), http.StatusInternalServerError)
 		return
+	}
+	defer page.Close()
+
+	html, err := page.Render()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to render page: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	if _, err := w.Write([]byte(html)); err != nil {
+		log.Printf("Error writing response: %v", err)
 	}
 }
 

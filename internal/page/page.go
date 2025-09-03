@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"html/template"
 	"reflect"
+	"regexp"
 	"strings"
 	"sync"
 	"text/template/parse"
@@ -102,48 +103,105 @@ func (p *Page) Render() (string, error) {
 
 	html := buf.String()
 
-	// Add fragment annotation to enable LiveTemplate updates
-	// Generate a fragment ID for the entire page content
-	templateSource, err := p.extractTemplateSource()
-	if err != nil {
-		// If we can't extract template source, return HTML without annotations
-		// This maintains backward compatibility
-		return html, nil
+	// Detect dynamic regions and annotate them with lvt-id attributes
+	regions, err := p.detectTemplateRegions()
+	if err != nil || len(regions) == 0 {
+		// For simple templates or when region detection fails, use legacy approach
+		return p.annotateLegacyHTML(html)
 	}
 
-	fragmentID := p.generateFragmentID(templateSource, nil, p.data)
-
-	// Find the main container and add fragment ID
-	// Look for common container patterns
+	// Annotate HTML with lvt-id attributes for each dynamic region
 	annotatedHTML := html
-	containerPatterns := []string{
-		`<div class="container">`,
-		`<body>`,
-		`<div class="app">`,
-		`<main>`,
-	}
-
-	for _, pattern := range containerPatterns {
-		if strings.Contains(html, pattern) {
-			// Insert data-fragment-id attribute
-			replacement := strings.Replace(pattern, ">", fmt.Sprintf(` data-fragment-id="%s">`, fragmentID), 1)
-			annotatedHTML = strings.Replace(html, pattern, replacement, 1)
-			break
-		}
+	for _, region := range regions {
+		annotatedHTML = p.annotateDynamicElement(annotatedHTML, region)
 	}
 
 	return annotatedHTML, nil
 }
 
+// FragmentOption configures fragment generation behavior
+type FragmentOption func(*FragmentConfig)
+
+// FragmentConfig controls fragment generation options
+type FragmentConfig struct {
+	IncludeMetadata bool // Whether to include performance metadata (default: false)
+}
+
+// WithMetadata enables metadata collection in fragments
+func WithMetadata() FragmentOption {
+	return func(config *FragmentConfig) {
+		config.IncludeMetadata = true
+	}
+}
+
 // RenderFragments generates fragment updates for the given new data
-func (p *Page) RenderFragments(ctx context.Context, newData interface{}) ([]*Fragment, error) {
+func (p *Page) RenderFragments(ctx context.Context, newData interface{}, opts ...FragmentOption) ([]*Fragment, error) {
+	// Apply options
+	config := &FragmentConfig{
+		IncludeMetadata: false, // Default: no metadata for minimal payload
+	}
+	for _, opt := range opts {
+		opt(config)
+	}
+
+	return p.renderFragmentsWithConfig(ctx, newData, config)
+}
+
+// renderFragmentsWithConfig generates fragments with the specified configuration
+func (p *Page) renderFragmentsWithConfig(ctx context.Context, newData interface{}, config *FragmentConfig) ([]*Fragment, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	// Update last accessed time
 	p.lastAccessed = time.Now()
 
-	// Generate fragments using tree-based strategy (now the only strategy)
+	// Detect template regions for full HTML templates
+	regions, err := p.detectTemplateRegions()
+	if err != nil || len(regions) == 0 {
+		// Fallback to original full-template approach for simple templates
+		return p.renderFragmentsLegacyWithConfig(newData, config)
+	}
+
+	// Generate fragments for each dynamic region
+	var fragments []*Fragment
+	var startTime time.Time
+	if config.IncludeMetadata {
+		startTime = time.Now()
+	}
+
+	for _, region := range regions {
+		fragment, err := p.generateRegionFragmentWithConfig(region, newData, config)
+		if err != nil {
+			// Log error but continue with other regions
+			continue
+		}
+		fragments = append(fragments, fragment)
+	}
+
+	if len(fragments) == 0 {
+		// If no region fragments were generated, fall back to legacy approach
+		return p.renderFragmentsLegacyWithConfig(newData, config)
+	}
+
+	// Update metadata for all fragments if requested
+	if config.IncludeMetadata {
+		generationTime := time.Since(startTime)
+		for _, frag := range fragments {
+			if frag.Metadata != nil {
+				frag.Metadata.GenerationTime = generationTime
+			}
+		}
+	}
+
+	// Update current data state
+	p.data = newData
+
+	return fragments, nil
+}
+
+// renderFragmentsLegacyWithConfig provides the original full-template fragment generation with config
+func (p *Page) renderFragmentsLegacyWithConfig(newData interface{}, config *FragmentConfig) ([]*Fragment, error) {
+	// Original implementation for simple templates
 	oldData := p.data
 
 	// Extract template source for the tree generator
@@ -156,12 +214,15 @@ func (p *Page) RenderFragments(ctx context.Context, newData interface{}) ([]*Fra
 	fragmentID := p.generateFragmentID(templateSource, oldData, newData)
 
 	// Use tree generator to create fragment data
-	startTime := time.Now()
+	var startTime time.Time
+	if config.IncludeMetadata {
+		startTime = time.Now()
+	}
+
 	treeResult, err := p.treeGenerator.GenerateFromTemplateSource(templateSource, oldData, newData, fragmentID)
 	if err != nil {
 		return nil, fmt.Errorf("tree fragment generation failed: %w", err)
 	}
-	generationTime := time.Since(startTime)
 
 	// Create fragment from tree result
 	fragment := &Fragment{
@@ -169,7 +230,13 @@ func (p *Page) RenderFragments(ctx context.Context, newData interface{}) ([]*Fra
 		Strategy: "tree_based",
 		Action:   "update_tree",
 		Data:     treeResult,
-		Metadata: &Metadata{
+		Metadata: nil, // Will be set conditionally below
+	}
+
+	// Add metadata only if requested
+	if config.IncludeMetadata {
+		generationTime := time.Since(startTime)
+		fragment.Metadata = &Metadata{
 			GenerationTime:   generationTime,
 			OriginalSize:     0,   // TODO: Calculate if needed for metrics
 			CompressedSize:   0,   // TODO: Calculate if needed for metrics
@@ -177,7 +244,7 @@ func (p *Page) RenderFragments(ctx context.Context, newData interface{}) ([]*Fra
 			Strategy:         1,   // Tree-based strategy
 			Confidence:       1.0, // Always confident with tree-based
 			FallbackUsed:     false,
-		},
+		}
 	}
 
 	fragments := []*Fragment{fragment}
@@ -606,4 +673,91 @@ func (p *Page) SetTemplateSource(templateSource string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.templateSource = templateSource
+}
+
+// annotateDynamicElement adds lvt-id attribute to a dynamic HTML element
+func (p *Page) annotateDynamicElement(html string, region TemplateRegion) string {
+	// The challenge: we need to find the rendered element (with actual values)
+	// not the template source. For example:
+	// Template: <div class="{{.class}}">Hello {{.Counter}}</div>
+	// Rendered: <div class="item">Hello 4</div>
+
+	// Check if the original attributes contain templates
+	templatePattern := regexp.MustCompile(`\{\{[^}]+\}\}`)
+	hasTemplateInAttributes := templatePattern.MatchString(region.OriginalAttrs)
+
+	var pattern string
+	var replacement string
+
+	if hasTemplateInAttributes {
+		// For attributes with templates, match any content within the same tag type
+		// Pattern: <tag [any attributes]>content</tag> with capture groups for attributes and content
+		pattern = fmt.Sprintf(`<%s([^>]*)>([^<]*)</%s>`,
+			regexp.QuoteMeta(region.ElementTag),
+			regexp.QuoteMeta(region.ElementTag))
+
+		// Replacement: <tag [existing attributes] lvt-id="ID">content</tag>
+		replacement = fmt.Sprintf(`<%s $1 lvt-id="%s">$2</%s>`,
+			region.ElementTag,
+			region.ID,
+			region.ElementTag)
+	} else {
+		// For elements without template attributes, match exact attributes
+		pattern = fmt.Sprintf(`<%s%s>([^<]*)</%s>`,
+			regexp.QuoteMeta(region.ElementTag),
+			regexp.QuoteMeta(region.OriginalAttrs),
+			regexp.QuoteMeta(region.ElementTag))
+
+		replacement = fmt.Sprintf(`<%s%s lvt-id="%s">$1</%s>`,
+			region.ElementTag,
+			region.OriginalAttrs,
+			region.ID,
+			region.ElementTag)
+	}
+
+	regex := regexp.MustCompile(pattern)
+
+	// Check if this element matches our pattern
+	matches := regex.FindAllStringSubmatch(html, -1)
+	if len(matches) == 0 {
+		// No matches found, return original HTML
+		return html
+	}
+
+	// Replace all occurrences (usually just one per region)
+	return regex.ReplaceAllString(html, replacement)
+}
+
+// annotateLegacyHTML provides legacy annotation for simple templates
+func (p *Page) annotateLegacyHTML(html string) (string, error) {
+	// Generate a fragment ID for the entire page content
+	templateSource, err := p.extractTemplateSource()
+	if err != nil {
+		// If we can't extract template source, return HTML without annotations
+		// This maintains backward compatibility
+		return html, nil
+	}
+
+	fragmentID := p.generateFragmentID(templateSource, nil, p.data)
+
+	// Find the main container and add fragment ID
+	// Look for common container patterns
+	annotatedHTML := html
+	containerPatterns := []string{
+		`<div class="container">`,
+		`<body>`,
+		`<div class="app">`,
+		`<main>`,
+	}
+
+	for _, pattern := range containerPatterns {
+		if strings.Contains(html, pattern) {
+			// Insert data-fragment-id attribute
+			replacement := strings.Replace(pattern, ">", fmt.Sprintf(` data-fragment-id="%s">`, fragmentID), 1)
+			annotatedHTML = strings.Replace(html, pattern, replacement, 1)
+			break
+		}
+	}
+
+	return annotatedHTML, nil
 }

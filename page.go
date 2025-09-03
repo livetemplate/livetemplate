@@ -114,8 +114,36 @@ func (p *Page) Render() (string, error) {
 	return buf.String(), nil
 }
 
+// FragmentOption configures fragment generation behavior
+type FragmentOption func(*FragmentConfig)
+
+// FragmentConfig controls fragment generation options
+type FragmentConfig struct {
+	IncludeMetadata bool // Whether to include performance metadata (default: false)
+}
+
+// WithMetadata enables metadata collection in fragments
+func WithMetadata() FragmentOption {
+	return func(config *FragmentConfig) {
+		config.IncludeMetadata = true
+	}
+}
+
 // RenderFragments generates fragment updates for the given new data
-func (p *Page) RenderFragments(ctx context.Context, newData interface{}) ([]*Fragment, error) {
+func (p *Page) RenderFragments(ctx context.Context, newData interface{}, opts ...FragmentOption) ([]*Fragment, error) {
+	// Apply options
+	config := &FragmentConfig{
+		IncludeMetadata: false, // Default: no metadata for minimal payload
+	}
+	for _, opt := range opts {
+		opt(config)
+	}
+
+	return p.renderFragmentsWithConfig(ctx, newData, config)
+}
+
+// renderFragmentsWithConfig generates fragments with the specified configuration
+func (p *Page) renderFragmentsWithConfig(ctx context.Context, newData interface{}, config *FragmentConfig) ([]*Fragment, error) {
 	p.currentDataMutex.Lock()
 	defer p.currentDataMutex.Unlock()
 
@@ -129,6 +157,11 @@ func (p *Page) RenderFragments(ctx context.Context, newData interface{}) ([]*Fra
 	oldData := p.data
 	fragmentID := fmt.Sprintf("fragment_%d", time.Now().UnixNano())
 
+	var startTime time.Time
+	if config.IncludeMetadata {
+		startTime = time.Now()
+	}
+
 	treeResult, err := p.treeGenerator.GenerateFromTemplateSource(templateSource, oldData, newData, fragmentID)
 	if err != nil {
 		return nil, fmt.Errorf("tree fragment generation failed: %w", err)
@@ -140,15 +173,21 @@ func (p *Page) RenderFragments(ctx context.Context, newData interface{}) ([]*Fra
 		Strategy: "tree_based",
 		Action:   "update_tree",
 		Data:     treeResult,
-		Metadata: &FragmentMetadata{
-			GenerationTime:   0, // Tree generator doesn't expose timing yet
+		Metadata: nil, // Will be set conditionally below
+	}
+
+	// Add metadata only if requested
+	if config.IncludeMetadata {
+		generationTime := time.Since(startTime)
+		fragment.Metadata = &FragmentMetadata{
+			GenerationTime:   generationTime,
 			OriginalSize:     0,
 			CompressedSize:   0,
 			CompressionRatio: 0,
 			Strategy:         1, // Tree-based strategy
 			Confidence:       1.0,
 			FallbackUsed:     false,
-		},
+		}
 	}
 
 	// Update current data state

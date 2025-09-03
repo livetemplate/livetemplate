@@ -4,8 +4,8 @@
     <title>Counter App</title>
   </head>
   <body>
-    <h1>Simple Counter</h1>
-    <div id="counter">Hello {{.Counter}}</div>
+    <h1 style="color: blue">Simple Counter</h1>
+    <div>Hello {{.Counter}} World</div>
     <button onclick="sendAction('increment')">+</button>
     <button onclick="sendAction('decrement')">-</button>
 
@@ -57,8 +57,24 @@
         fragments.forEach((fragment) => {
           console.log("Updating fragment:", fragment);
 
-          // Find element by looking for counter div (since fragment ID might be auto-generated)
-          const element = document.getElementById("counter");
+          // Find element by LiveTemplate ID (lvt-id) for automatic targeting
+          let element = null;
+
+          // For region-based fragments, look for lvt-id attribute
+          if (
+            fragment.strategy === "tree_based_region" &&
+            fragment.id &&
+            fragment.id.startsWith("region_")
+          ) {
+            const lvtId = fragment.id.replace("region_", "");
+            element = document.querySelector(`[lvt-id="${lvtId}"]`);
+          }
+
+          // Fallback: look for any element with dynamic content (legacy compatibility)
+          if (!element) {
+            element = document.querySelector("div"); // Find first div as fallback
+          }
+
           if (element && fragment.data) {
             let content = "";
             let statics = fragment.data.s;
