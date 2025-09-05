@@ -188,7 +188,7 @@ func (p *Page) renderFragmentsWithConfig(ctx context.Context, newData interface{
 
 	// Use cached template regions to ensure consistent IDs with HTML
 	regions := p.regions
-	if regions == nil || len(regions) == 0 {
+	if len(regions) == 0 {
 		// Fallback to original full-template approach for simple templates
 		return p.renderFragmentsLegacyWithConfig(newData, config)
 	}
