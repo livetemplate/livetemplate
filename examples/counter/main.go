@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"log"
 	"math/rand"
 	"net/http"
@@ -34,7 +33,6 @@ type Server struct {
 	counter  int
 	color    string
 	upgrader websocket.Upgrader
-	tmpl     *template.Template
 }
 
 type ActionMessage struct {
@@ -49,16 +47,15 @@ func NewServer() *Server {
 		log.Fatal(err)
 	}
 	
-	// Parse the full HTML template file - library should extract dynamic parts automatically
-	tmpl, err := template.ParseFiles("templates/index.html")
+	// Register the template once with the application
+	err = app.RegisterTemplateFromFile("counter", "templates/index.html")
 	if err != nil {
-		log.Fatal("Failed to parse template file:", err)
+		log.Fatal("Failed to register template:", err)
 	}
 	
 	server := &Server{
 		app:     app,
 		counter: 0,
-		tmpl:    tmpl,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return true
@@ -98,7 +95,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	log.Printf("HTTP render with data: Counter=%d, Color=%s", s.counter, s.color)
 
 	// Use LiveTemplate to render with annotations instead of direct template execution
-	page, err := s.app.NewApplicationPage(s.tmpl, data)
+	page, err := s.app.NewPageFromTemplate("counter", data)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to create page: %v", err), http.StatusInternalServerError)
 		return
@@ -133,7 +130,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	log.Printf("WebSocket creating page with initial data: Counter=%d, Color=%s", s.counter, s.color)
 	log.Printf("Initial data map: %+v", initialData)
 	
-	page, err := s.app.NewApplicationPage(s.tmpl, initialData)
+	page, err := s.app.NewPageFromTemplate("counter", initialData)
 	if err != nil {
 		log.Printf("Error creating page: %v", err)
 		return

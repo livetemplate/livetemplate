@@ -2,6 +2,7 @@ package livetemplate
 
 import (
 	"context"
+	"fmt"
 	"html/template"
 	"time"
 
@@ -10,8 +11,9 @@ import (
 
 // Application provides secure multi-tenant isolation with JWT-based authentication
 type Application struct {
-	internal *app.Application
-	config   *ApplicationConfig
+	internal  *app.Application
+	config    *ApplicationConfig
+	templates map[string]*template.Template // Template registry for reuse
 }
 
 // ApplicationConfig contains configuration for the public Application
@@ -31,6 +33,7 @@ func NewApplication(options ...ApplicationOption) (*Application, error) {
 			MaxMemoryMB:    100,
 			MetricsEnabled: true,
 		},
+		templates: make(map[string]*template.Template), // Initialize template registry
 	}
 
 	// Apply public options to collect configuration
@@ -121,6 +124,48 @@ func (a *Application) NewApplicationPage(tmpl *template.Template, data interface
 	}
 
 	return publicPage, nil
+}
+
+// RegisterTemplate registers a template with a name for reuse
+func (a *Application) RegisterTemplate(name string, tmpl *template.Template) error {
+	if tmpl == nil {
+		return fmt.Errorf("template cannot be nil")
+	}
+	if name == "" {
+		return fmt.Errorf("template name cannot be empty")
+	}
+
+	a.templates[name] = tmpl
+	return nil
+}
+
+// RegisterTemplateFromFile parses and registers a template from a file
+func (a *Application) RegisterTemplateFromFile(name string, filepath string) error {
+	tmpl, err := template.ParseFiles(filepath)
+	if err != nil {
+		return fmt.Errorf("failed to parse template file %s: %w", filepath, err)
+	}
+
+	return a.RegisterTemplate(name, tmpl)
+}
+
+// NewPageFromTemplate creates a new page using a registered template
+func (a *Application) NewPageFromTemplate(templateName string, data interface{}, options ...ApplicationPageOption) (*ApplicationPage, error) {
+	tmpl, exists := a.templates[templateName]
+	if !exists {
+		return nil, fmt.Errorf("template %q not registered", templateName)
+	}
+
+	return a.NewApplicationPage(tmpl, data, options...)
+}
+
+// GetRegisteredTemplates returns the names of all registered templates
+func (a *Application) GetRegisteredTemplates() []string {
+	names := make([]string, 0, len(a.templates))
+	for name := range a.templates {
+		names = append(names, name)
+	}
+	return names
 }
 
 // GetApplicationPage retrieves a page by JWT token with application boundary enforcement
