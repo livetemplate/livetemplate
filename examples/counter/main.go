@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/gorilla/websocket"
 	"github.com/livefir/livetemplate"
@@ -94,13 +95,12 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("HTTP render with data: Counter=%d, Color=%s", s.counter, s.color)
 
-	// Use LiveTemplate to render with annotations instead of direct template execution
+	// Create page (don't close it - WebSocket will use it)
 	page, err := s.app.NewPage("counter", data)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to create page: %v", err), http.StatusInternalServerError)
 		return
 	}
-	defer page.Close()
 
 	html, err := page.Render()
 	if err != nil {
@@ -108,10 +108,15 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Embed token in HTML for WebSocket to use
+	html = strings.ReplaceAll(html, "PAGE_TOKEN_PLACEHOLDER", page.GetToken())
+
 	w.Header().Set("Content-Type", "text/html")
 	if _, err := w.Write([]byte(html)); err != nil {
 		log.Printf("Error writing response: %v", err)
 	}
+
+	// Don't close page - WebSocket will use it
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -122,39 +127,21 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	// Create a page for this WebSocket connection using a simple counter template
-	initialData := map[string]any{
-		"Counter": s.counter,
-		"Color":   s.color,
-	}
-	log.Printf("WebSocket creating page with initial data: Counter=%d, Color=%s", s.counter, s.color)
-	log.Printf("Initial data map: %+v", initialData)
-	
-	page, err := s.app.NewPage("counter", initialData)
-	if err != nil {
-		log.Printf("Error creating page: %v", err)
+	// Get token from query param
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		log.Printf("No token provided in WebSocket connection")
 		return
 	}
-	defer page.Close()
 
-	// Debug: Check initial render
-	initialRender, err := page.Render()
+	// Get existing page by token
+	page, err := s.app.GetPage(token)
 	if err != nil {
-		log.Printf("Error rendering initial page: %v", err)
-	} else {
-		log.Printf("Initial page render: %s", initialRender)
-	}
-
-	// Send page token to client
-	tokenMessage := map[string]any{
-		"type":  "page_token",
-		"token": page.GetToken(),
-	}
-	
-	if err := conn.WriteJSON(tokenMessage); err != nil {
-		log.Printf("Error sending token: %v", err)
+		log.Printf("Error getting page: %v", err)
 		return
 	}
+
+	log.Printf("WebSocket connected to existing page with token: %s", token)
 
 	// Handle messages
 	for {
