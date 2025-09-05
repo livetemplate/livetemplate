@@ -83,8 +83,14 @@ func TestNewPage(t *testing.T) {
 				t.Error("page should have a template hash")
 			}
 
-			if page.template != tt.template {
-				t.Error("page should store the provided template")
+			// Template should be cloned, not the same instance
+			if page.template == tt.template {
+				t.Error("page should store a cloned template, not the original")
+			}
+
+			// But the template should exist
+			if page.template == nil {
+				t.Error("page should have a template")
 			}
 
 			// Note: Don't compare data directly as maps are not comparable

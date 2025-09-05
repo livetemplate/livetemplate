@@ -2,135 +2,66 @@
 <html>
   <head>
     <title>Counter App</title>
+    <style>
+      .color-red {
+        color: #ff6b6b;
+      }
+      .color-teal {
+        color: #4ecdc4;
+      }
+      .color-blue {
+        color: #45b7d1;
+      }
+      .color-green {
+        color: #96ceb4;
+      }
+      .color-yellow {
+        color: #feca57;
+      }
+      .color-pink {
+        color: #ff6fa6;
+      }
+      .color-purple {
+        color: #9b59b6;
+      }
+      .color-lightblue {
+        color: #3498db;
+      }
+      .color-orange {
+        color: #e67e22;
+      }
+      .color-turquoise {
+        color: #1abc9c;
+      }
+      .color-darkred {
+        color: #e74c3c;
+      }
+      .color-emerald {
+        color: #2ecc71;
+      }
+    </style>
   </head>
   <body>
-    <h1 style="color: blue">Simple Counter</h1>
+    <h1><span class="{{.Color}}">Simple Counter</span></h1>
     <div>Hello {{.Counter}} World</div>
     <button onclick="sendAction('increment')">+</button>
     <button onclick="sendAction('decrement')">-</button>
 
+    <script src="../../client/livetemplate-client.js"></script>
     <script>
-      let ws;
-      let pageToken;
-
-      function connect() {
-        const port = window.location.port || "8080";
-        ws = new WebSocket(`ws://localhost:${port}/ws`);
-
-        ws.onopen = function () {
-          console.log("WebSocket connected");
-        };
-
-        ws.onmessage = function (event) {
-          console.log("Received:", event.data);
-          const message = JSON.parse(event.data);
-
-          if (message.type === "page_token") {
-            pageToken = message.token;
-            console.log("Page token received:", pageToken);
-          } else if (message.type === "fragments") {
-            updateFragments(message.fragments);
-          }
-        };
-
-        ws.onclose = function () {
-          console.log("WebSocket disconnected");
-        };
-      }
+      let client;
 
       function sendAction(action) {
-        if (ws && pageToken) {
-          const message = {
-            type: "action",
-            action: action,
-            token: pageToken,
-            data: {},
-          };
-          ws.send(JSON.stringify(message));
-        }
+        client.sendAction(action);
       }
 
-      // Cache for static parts (client-side caching like LiveView)
-      let staticCache = {};
+      // Initialize client and connect
+      client = new LiveTemplateClient({
+        onOpen: () => console.log("Counter app connected to LiveTemplate"),
+        onClose: () => console.log("Counter app disconnected"),
+      });
 
-      function updateFragments(fragments) {
-        fragments.forEach((fragment) => {
-          console.log("Updating fragment:", fragment);
-
-          // Find element by LiveTemplate ID (lvt-id) for automatic targeting
-          let element = null;
-
-          // For region-based fragments, look for lvt-id attribute
-          if (
-            fragment.strategy === "tree_based_region" &&
-            fragment.id &&
-            fragment.id.startsWith("region_")
-          ) {
-            const lvtId = fragment.id.replace("region_", "");
-            element = document.querySelector(`[lvt-id="${lvtId}"]`);
-          }
-
-          // Fallback: look for any element with dynamic content (legacy compatibility)
-          if (!element) {
-            element = document.querySelector("div"); // Find first div as fallback
-          }
-
-          if (element && fragment.data) {
-            let content = "";
-            let statics = fragment.data.s;
-
-            // Handle incremental updates - use cached statics if current statics are empty/null
-            if (!statics || statics.length === 0) {
-              if (staticCache[fragment.id]) {
-                statics = staticCache[fragment.id];
-                console.log(
-                  "Using cached statics for fragment:",
-                  fragment.id,
-                  statics
-                );
-              } else {
-                // Fallback: assume simple field with empty before/after
-                statics = ["", ""];
-                console.log("Using fallback statics for simple field");
-              }
-            } else {
-              // Cache statics for future incremental updates
-              staticCache[fragment.id] = statics;
-              console.log("Cached statics for fragment:", fragment.id, statics);
-            }
-
-            // Reconstruct content using statics and dynamics
-            if (statics.length === 1) {
-              // Simple case: just static content
-              content = statics[0];
-            } else if (
-              statics.length === 2 &&
-              fragment.data["0"] !== undefined
-            ) {
-              // Dynamic content between statics
-              content = statics[0] + fragment.data["0"] + statics[1];
-            } else if (statics.length > 2) {
-              // Multiple dynamics - interleave statics and dynamics
-              content = statics[0];
-              for (let i = 0; i < statics.length - 1; i++) {
-                if (fragment.data[i.toString()] !== undefined) {
-                  content += fragment.data[i.toString()];
-                }
-                if (i + 1 < statics.length) {
-                  content += statics[i + 1];
-                }
-              }
-            }
-
-            // For a simple counter, just update the text content
-            element.textContent = content;
-            console.log("Updated counter with content:", content);
-          }
-        });
-      }
-
-      // Connect on page load
-      connect();
+      client.connect();
     </script>
   </body>
 </html>

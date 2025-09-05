@@ -191,8 +191,6 @@ func (p *ApplicationPage) RenderFragments(ctx context.Context, newData interface
 	for i, frag := range internalFragments {
 		fragments[i] = &Fragment{
 			ID:       frag.ID,
-			Strategy: frag.Strategy,
-			Action:   frag.Action,
 			Data:     frag.Data,
 			Metadata: convertInternalMetadata(frag.Metadata),
 		}

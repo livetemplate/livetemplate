@@ -14,9 +14,7 @@ import (
 // Fragment represents a generated update fragment with strategy-specific data
 type Fragment struct {
 	ID       string            `json:"id"`
-	Strategy string            `json:"strategy"` // "static_dynamic", "markers", "granular", "replacement"
-	Action   string            `json:"action"`   // Strategy-specific action
-	Data     interface{}       `json:"data"`     // Strategy-specific payload
+	Data     interface{}       `json:"data"` // Strategy-specific payload
 	Metadata *FragmentMetadata `json:"metadata,omitempty"`
 }
 
@@ -170,8 +168,6 @@ func (p *Page) renderFragmentsWithConfig(ctx context.Context, newData interface{
 	// Create fragment from tree result
 	fragment := &Fragment{
 		ID:       fragmentID,
-		Strategy: "tree_based",
-		Action:   "update_tree",
 		Data:     treeResult,
 		Metadata: nil, // Will be set conditionally below
 	}

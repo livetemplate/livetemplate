@@ -112,14 +112,6 @@ func TestAutomaticTemplateExtractionIntegration(t *testing.T) {
 					if frag.ID == "" {
 						t.Errorf("Fragment %d has empty ID", i)
 					}
-					// Accept both tree_based (legacy) and tree_based_region (new) strategies
-					if frag.Strategy != "tree_based" && frag.Strategy != "tree_based_region" {
-						t.Errorf("Fragment %d has unexpected strategy: %s", i, frag.Strategy)
-					}
-					// Accept both update_tree (legacy) and update_region (new) actions
-					if frag.Action != "update_tree" && frag.Action != "update_region" {
-						t.Errorf("Fragment %d has unexpected action: %s", i, frag.Action)
-					}
 					if frag.Data == nil {
 						t.Errorf("Fragment %d has nil data", i)
 					}
@@ -326,11 +318,13 @@ func TestBandwidthOptimizationWithExtraction(t *testing.T) {
 		t.Fatalf("Expected fragments from both updates")
 	}
 
-	// Verify that we're getting tree-based optimization (accept both legacy and new strategies)
-	strategy1, strategy2 := fragments1[0].Strategy, fragments2[0].Strategy
-	validStrategies := map[string]bool{"tree_based": true, "tree_based_region": true}
-	if !validStrategies[strategy1] || !validStrategies[strategy2] {
-		t.Errorf("Expected tree_based strategy for bandwidth optimization, got %s and %s", strategy1, strategy2)
+	// Verify that we're getting proper fragment optimization
+	if fragments1[0].Data == nil || fragments2[0].Data == nil {
+		t.Error("Expected fragments with data for proper optimization")
+	}
+
+	if fragments1[0].ID == "" || fragments2[0].ID == "" {
+		t.Error("Expected fragments with IDs for proper optimization")
 	}
 
 	// The data should contain the updated values

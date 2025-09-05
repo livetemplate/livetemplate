@@ -1,6 +1,7 @@
 package page
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"regexp"
 	"strings"
@@ -8,6 +9,23 @@ import (
 
 // Forward reference to avoid circular dependencies
 // FragmentConfig is defined in page.go
+
+// generateDeterministicShortID generates a short ID based on page and region content
+func (p *Page) generateDeterministicShortID(regionContent string, regionIndex int) string {
+	// Create a deterministic hash from region content + index only
+	// (removing page ID to ensure consistent IDs across page instances)
+	combined := fmt.Sprintf("%s|%d", regionContent, regionIndex)
+
+	// Use SHA256 hash and take first 8 chars for short ID
+	hasher := sha256.New()
+	hasher.Write([]byte(combined))
+	hashBytes := hasher.Sum(nil)
+	hash := fmt.Sprintf("%x", hashBytes)
+	if len(hash) >= 8 {
+		return hash[:8]
+	}
+	return hash
+}
 
 // TemplateRegion represents a dynamic region within a full HTML template
 type TemplateRegion struct {
@@ -26,21 +44,30 @@ func (p *Page) detectTemplateRegions() ([]TemplateRegion, error) {
 		return nil, fmt.Errorf("template is nil")
 	}
 
-	// Extract the full template source
-	templateSource, err := p.extractTemplateSourceFromTemplate(p.template)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract template source: %w", err)
+	// Use the original template source (not the potentially contaminated one from template object)
+	var templateSource string
+	if p.templateSource != "" {
+		// Use the pre-stored original template source
+		templateSource = p.templateSource
+	} else {
+		// Fallback: extract from template (may contain security pipelines)
+		var err error
+		templateSource, err = p.extractTemplateSourceFromTemplate(p.template)
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract template source: %w", err)
+		}
 	}
 
 	// Find HTML elements that contain template expressions
 	regions := []TemplateRegion{}
 
-	// Updated regex to capture any HTML element
-	// Captures: <tag attributes>content</tag>
-	elementRegex := regexp.MustCompile(`<(\w+)([^>]*)>([^<]*)</(\w+)>`)
-	matches := elementRegex.FindAllStringSubmatch(templateSource, -1)
+	// Find HTML elements that contain template expressions by parsing properly
+	matches := findCompleteElementMatches(templateSource)
 
-	for i, match := range matches {
+	// Debug info removed for cleaner output
+
+	regionIndex := 0
+	for _, match := range matches {
 		if len(match) >= 5 {
 			startTagName := match[1]
 			attributes := match[2]
@@ -61,14 +88,16 @@ func (p *Page) detectTemplateRegions() ([]TemplateRegion, error) {
 				continue
 			}
 
-			// Extract ID from tag attributes if available, otherwise generate globally unique ID
+			// Extract ID from tag attributes if available, otherwise generate globally unique random ID
 			extractedID := extractIDFromTag(attributes)
 			var lvtID string
 			if extractedID != "" {
 				lvtID = extractedID
 			} else {
-				// Generate region ID using region index
-				lvtID = fmt.Sprintf("region_%d", i)
+				// Generate deterministic short ID based on region content and position
+				regionContent := fmt.Sprintf("<%s%s>%s</%s>", startTagName, attributes, content, endTagName)
+				lvtID = p.generateDeterministicShortID(regionContent, regionIndex)
+				regionIndex++
 			}
 
 			// Extract field paths from template expressions in both attributes and content
@@ -151,6 +180,103 @@ func extractFieldPaths(content string) []string {
 	return fields
 }
 
+// findCompleteElementMatches finds properly matched HTML elements with their complete content
+func findCompleteElementMatches(templateSource string) [][]string {
+	var matches [][]string
+
+	// Find all opening tags
+	openTagRegex := regexp.MustCompile(`<(\w+)([^>]*)>`)
+	openMatches := openTagRegex.FindAllStringSubmatch(templateSource, -1)
+	openIndexes := openTagRegex.FindAllStringSubmatchIndex(templateSource, -1)
+
+	for i, openMatch := range openMatches {
+		if len(openMatch) < 3 {
+			continue
+		}
+
+		tagName := openMatch[1]
+		attributes := openMatch[2]
+		openStart := openIndexes[i][0]
+		openEnd := openIndexes[i][1]
+
+		// Find the matching closing tag
+		closeTag := "</" + tagName + ">"
+		closeIndex := findMatchingCloseTag(templateSource, openEnd, tagName)
+
+		if closeIndex == -1 {
+			continue // No matching close tag found
+		}
+
+		// Extract the content between open and close tags
+		content := templateSource[openEnd:closeIndex]
+
+		// Create match array similar to regex: [fullMatch, openTag, attributes, content, closeTag]
+		fullMatch := templateSource[openStart : closeIndex+len(closeTag)]
+		match := []string{fullMatch, tagName, attributes, content, tagName}
+		matches = append(matches, match)
+	}
+
+	return matches
+}
+
+// findMatchingCloseTag finds the position of the matching closing tag, accounting for nested tags
+func findMatchingCloseTag(source string, startPos int, tagName string) int {
+	openTag := "<" + tagName
+	closeTag := "</" + tagName + ">"
+
+	pos := startPos
+	depth := 1 // We're already inside one tag
+
+	for pos < len(source) && depth > 0 {
+		// Look for next occurrence of either open or close tag
+		nextOpen := strings.Index(source[pos:], openTag)
+		nextClose := strings.Index(source[pos:], closeTag)
+
+		// Adjust positions to be absolute
+		if nextOpen != -1 {
+			nextOpen += pos
+		}
+		if nextClose != -1 {
+			nextClose += pos
+		}
+
+		// Determine which comes first
+		if nextClose == -1 {
+			return -1 // No closing tag found
+		}
+
+		if nextOpen != -1 && nextOpen < nextClose {
+			// Found opening tag before closing tag
+			// Check if it's actually an opening tag (not part of attribute)
+			if isActualOpenTag(source, nextOpen, tagName) {
+				depth++
+			}
+			pos = nextOpen + len(openTag)
+		} else {
+			// Found closing tag
+			depth--
+			if depth == 0 {
+				return nextClose // Found our matching close tag
+			}
+			pos = nextClose + len(closeTag)
+		}
+	}
+
+	return -1 // No matching close tag found
+}
+
+// isActualOpenTag checks if a position is actually an opening tag (not part of an attribute)
+func isActualOpenTag(source string, pos int, tagName string) bool {
+	// Simple check: ensure it's followed by space or >
+	tagEnd := pos + len("<"+tagName)
+	if tagEnd >= len(source) {
+		return false
+	}
+
+	nextChar := source[tagEnd]
+	return nextChar == ' ' || nextChar == '>' || nextChar == '\n' || nextChar == '\t'
+}
+
 // generateRegionFragment creates a fragment update for a specific template region (with metadata)
 func (p *Page) generateRegionFragment(region TemplateRegion, newData interface{}) (*Fragment, error) {
 	config := &FragmentConfig{IncludeMetadata: true} // Legacy behavior includes metadata
@@ -161,7 +287,8 @@ func (p *Page) generateRegionFragment(region TemplateRegion, newData interface{}
 func (p *Page) generateRegionFragmentWithConfig(region TemplateRegion, newData interface{}, config *FragmentConfig) (*Fragment, error) {
 	// Use the tree generator on just this region
 	oldData := p.data
-	fragmentID := fmt.Sprintf("region_%s", region.ID)
+	// Use region ID directly as fragment ID (it's already unique)
+	fragmentID := region.ID
 
 	treeResult, err := p.treeGenerator.GenerateFromTemplateSource(region.TemplateSource, oldData, newData, fragmentID)
 	if err != nil {
@@ -170,8 +297,6 @@ func (p *Page) generateRegionFragmentWithConfig(region TemplateRegion, newData i
 
 	fragment := &Fragment{
 		ID:       fragmentID,
-		Strategy: "tree_based_region",
-		Action:   "update_region",
 		Data:     treeResult,
 		Metadata: nil, // Will be set conditionally below
 	}

@@ -236,13 +236,12 @@ func TestExtractFieldPaths(t *testing.T) {
 
 func TestGenerateRegionFragment(t *testing.T) {
 	tests := []struct {
-		name             string
-		region           TemplateRegion
-		oldData          interface{}
-		newData          interface{}
-		shouldError      bool
-		expectedID       string
-		expectedStrategy string
+		name        string
+		region      TemplateRegion
+		oldData     interface{}
+		newData     interface{}
+		shouldError bool
+		expectedID  string
 	}{
 		{
 			name: "Simple region fragment",
@@ -251,11 +250,10 @@ func TestGenerateRegionFragment(t *testing.T) {
 				TemplateSource: "Hello {{.Counter}}",
 				FieldPaths:     []string{".Counter"},
 			},
-			oldData:          map[string]interface{}{"Counter": 1},
-			newData:          map[string]interface{}{"Counter": 2},
-			shouldError:      false,
-			expectedID:       "region_counter",
-			expectedStrategy: "tree_based_region",
+			oldData:     map[string]interface{}{"Counter": 1},
+			newData:     map[string]interface{}{"Counter": 2},
+			shouldError: false,
+			expectedID:  "counter",
 		},
 		{
 			name: "Complex region fragment",
@@ -264,11 +262,10 @@ func TestGenerateRegionFragment(t *testing.T) {
 				TemplateSource: "{{if .Active}}{{.Name}} is online{{else}}Offline{{end}}",
 				FieldPaths:     []string{".Active", ".Name"},
 			},
-			oldData:          map[string]interface{}{"Active": false, "Name": "Alice"},
-			newData:          map[string]interface{}{"Active": true, "Name": "Alice"},
-			shouldError:      false,
-			expectedID:       "region_user-status",
-			expectedStrategy: "tree_based_region",
+			oldData:     map[string]interface{}{"Active": false, "Name": "Alice"},
+			newData:     map[string]interface{}{"Active": true, "Name": "Alice"},
+			shouldError: false,
+			expectedID:  "user-status",
 		},
 	}
 
@@ -300,12 +297,9 @@ func TestGenerateRegionFragment(t *testing.T) {
 				t.Errorf("Expected fragment ID %q, got %q", tt.expectedID, fragment.ID)
 			}
 
-			if fragment.Strategy != tt.expectedStrategy {
-				t.Errorf("Expected strategy %q, got %q", tt.expectedStrategy, fragment.Strategy)
-			}
-
-			if fragment.Action != "update_region" {
-				t.Errorf("Expected action 'update_region', got %q", fragment.Action)
+			// Strategy and Action fields removed - verify basic fragment structure
+			if fragment.Data == nil {
+				t.Error("Expected fragment with data")
 			}
 
 			if fragment.Data == nil {

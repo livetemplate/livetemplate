@@ -13,7 +13,6 @@ func TestFullTemplateVsSimpleTemplate(t *testing.T) {
 		templateSource        string
 		isFullHTML            bool
 		expectedFragmentCount int
-		expectedStrategy      string
 		expectedUsesRegions   bool
 	}{
 		{
@@ -21,7 +20,6 @@ func TestFullTemplateVsSimpleTemplate(t *testing.T) {
 			templateSource:        "{{.Counter}}",
 			isFullHTML:            false,
 			expectedFragmentCount: 1,
-			expectedStrategy:      "tree_based",
 			expectedUsesRegions:   false,
 		},
 		{
@@ -29,7 +27,6 @@ func TestFullTemplateVsSimpleTemplate(t *testing.T) {
 			templateSource:        "Hello {{.Name}}!",
 			isFullHTML:            false,
 			expectedFragmentCount: 1,
-			expectedStrategy:      "tree_based",
 			expectedUsesRegions:   false,
 		},
 		{
@@ -45,7 +42,6 @@ func TestFullTemplateVsSimpleTemplate(t *testing.T) {
 </html>`,
 			isFullHTML:            true,
 			expectedFragmentCount: 1,
-			expectedStrategy:      "tree_based_region",
 			expectedUsesRegions:   true,
 		},
 		{
@@ -61,7 +57,6 @@ func TestFullTemplateVsSimpleTemplate(t *testing.T) {
 </html>`,
 			isFullHTML:            true,
 			expectedFragmentCount: 3,
-			expectedStrategy:      "tree_based_region",
 			expectedUsesRegions:   true,
 		},
 		{
@@ -76,7 +71,6 @@ func TestFullTemplateVsSimpleTemplate(t *testing.T) {
 </html>`,
 			isFullHTML:            true,
 			expectedFragmentCount: 1, // Falls back to legacy
-			expectedStrategy:      "tree_based",
 			expectedUsesRegions:   false,
 		},
 	}
@@ -136,24 +130,14 @@ func TestFullTemplateVsSimpleTemplate(t *testing.T) {
 				t.Errorf("Expected %d fragments, got %d", tt.expectedFragmentCount, len(fragments))
 			}
 
-			// Verify fragment strategy
+			// Verify fragment data
 			for i, fragment := range fragments {
-				if fragment.Strategy != tt.expectedStrategy {
-					t.Errorf("Fragment %d: expected strategy %q, got %q", i, tt.expectedStrategy, fragment.Strategy)
-				}
-
 				if fragment.Data == nil {
 					t.Errorf("Fragment %d: expected non-nil data", i)
 				}
 
-				// Verify region-based fragments have correct action
-				if tt.expectedUsesRegions && fragment.Action != "update_region" {
-					t.Errorf("Fragment %d: expected action 'update_region', got %q", i, fragment.Action)
-				}
-
-				// Verify legacy fragments have correct action
-				if !tt.expectedUsesRegions && fragment.Action != "update_tree" {
-					t.Errorf("Fragment %d: expected action 'update_tree', got %q", i, fragment.Action)
+				if fragment.ID == "" {
+					t.Errorf("Fragment %d: expected non-empty ID", i)
 				}
 			}
 		})
@@ -209,15 +193,13 @@ func TestRenderFragmentsFallbackBehavior(t *testing.T) {
 				t.Fatalf("Expected at least one fragment")
 			}
 
-			usedLegacy := fragments[0].Strategy == "tree_based"
-			usedRegions := fragments[0].Strategy == "tree_based_region"
-
-			if tt.shouldFallback && !usedLegacy {
-				t.Errorf("%s: Expected fallback to legacy strategy, but used %q", tt.reason, fragments[0].Strategy)
+			// Strategy and Action fields removed - just verify fragment is generated
+			if fragments[0].Data == nil {
+				t.Errorf("%s: Expected fragment with data", tt.reason)
 			}
 
-			if !tt.shouldFallback && !usedRegions {
-				t.Errorf("%s: Expected region strategy, but used %q", tt.reason, fragments[0].Strategy)
+			if fragments[0].ID == "" {
+				t.Errorf("%s: Expected fragment with ID", tt.reason)
 			}
 		})
 	}
@@ -277,14 +259,14 @@ func TestFullTemplateStaticContentPreservation(t *testing.T) {
 
 	fragment := fragments[0]
 
-	// Should be region-based
-	if fragment.Strategy != "tree_based_region" {
-		t.Errorf("Expected tree_based_region strategy, got %q", fragment.Strategy)
+	// Fragment should have valid data and ID
+	if fragment.Data == nil {
+		t.Error("Expected fragment with data")
 	}
 
-	// Fragment ID should indicate it's for the dynamic region
-	if !strings.Contains(fragment.ID, "region_") {
-		t.Errorf("Expected fragment ID to contain 'region_', got %q", fragment.ID)
+	// Fragment should have a valid ID
+	if fragment.ID == "" {
+		t.Error("Expected fragment with non-empty ID")
 	}
 
 	// The fragment data should be much smaller than the full template

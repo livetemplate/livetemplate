@@ -380,6 +380,98 @@ func BenchmarkSimpleTreeGeneration(t *testing.B) {
 	}
 }
 
+// TestContentAndAttributeChanges tests that both content and attribute changes generate fragments
+func TestContentAndAttributeChanges(t *testing.T) {
+	generator := NewSimpleTreeGenerator()
+
+	// Template with both content and attribute variables
+	templateSource := `<h1><span class="{{.Color}}">Counter: {{.Counter}}</span></h1><div>Value: {{.Counter}}</div>`
+	fragmentID := "content-attr-test"
+
+	// Initial data
+	initialData := map[string]interface{}{
+		"Counter": 0,
+		"Color":   "red",
+	}
+
+	// First render
+	firstResult, err := generator.GenerateFromTemplateSource(templateSource, nil, initialData, fragmentID)
+	if err != nil {
+		t.Fatalf("First render failed: %v", err)
+	}
+
+	firstJSON, _ := json.Marshal(firstResult)
+	t.Logf("First render: %s", string(firstJSON))
+
+	// Update both counter and color
+	updatedData := map[string]interface{}{
+		"Counter": 1,      // Changed content
+		"Color":   "blue", // Changed attribute
+	}
+
+	// Generate incremental update
+	updateResult, err := generator.GenerateFromTemplateSource(templateSource, initialData, updatedData, fragmentID)
+	if err != nil {
+		t.Fatalf("Incremental update failed: %v", err)
+	}
+
+	updateJSON, _ := json.Marshal(updateResult)
+	t.Logf("Update render: %s", string(updateJSON))
+
+	// Parse the update structure to verify both changes are captured
+	var updateData map[string]interface{}
+	if err := json.Unmarshal(updateJSON, &updateData); err != nil {
+		t.Fatalf("Failed to parse update JSON: %v", err)
+	}
+
+	// The update should contain changes for both Counter (content) and Color (attribute)
+	// We expect dynamics to be updated even when statics are not included in incremental updates
+	if updateData["0"] == nil && updateData["1"] == nil {
+		t.Error("Update should contain dynamic changes for both content and attribute changes")
+		t.Logf("Update structure: %+v", updateData)
+	}
+
+	// Verify the update actually contains both the counter and color values
+	found_counter := false
+	found_color := false
+
+	// Check if counter and color values are present in any form in the update
+	for key, value := range updateData {
+		if value == "1" || value == 1 {
+			found_counter = true
+			t.Logf("Found counter value at key %s: %v", key, value)
+		}
+		if value == "blue" {
+			found_color = true
+			t.Logf("Found color value at key %s: %v", key, value)
+		}
+
+		// Check nested structures for color/counter values
+		if nestedMap, ok := value.(map[string]interface{}); ok {
+			for nestedKey, nestedValue := range nestedMap {
+				if nestedValue == "1" || nestedValue == 1 {
+					found_counter = true
+					t.Logf("Found counter value at nested key %s.%s: %v", key, nestedKey, nestedValue)
+				}
+				if nestedValue == "blue" {
+					found_color = true
+					t.Logf("Found color value at nested key %s.%s: %v", key, nestedKey, nestedValue)
+				}
+			}
+		}
+	}
+
+	if !found_counter {
+		t.Error("Update should contain the new counter value (1)")
+	}
+
+	if !found_color {
+		t.Error("Update should contain the new color value (blue)")
+	}
+
+	t.Logf("Content + Attribute test passed: counter=%v, color=%v", found_counter, found_color)
+}
+
 // compareJSONStructures compares two JSON structures for equality
 func compareJSONStructures(expected, actual interface{}) bool {
 	return reflect.DeepEqual(expected, actual)

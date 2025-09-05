@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>LiveTemplate Client Example</title>
+</head>
+<body>
+    <h1>LiveTemplate Client Example</h1>
+    <div id="status">Disconnected</div>
+    
+    <!-- Your dynamic content with lvt-id attributes -->
+    <div lvt-id="example-fragment">
+        <p>Content will be updated here...</p>
+    </div>
+    
+    <button onclick="sendExampleAction()">Send Action</button>
+    
+    <script src="livetemplate-client.js"></script>
+    <script>
+        let client;
+        
+        function sendExampleAction() {
+            client.sendAction('example_action', { key: 'value' });
+        }
+        
+        // Initialize and connect
+        client = new LiveTemplateClient({
+            port: "8080",
+            host: "localhost",
+            onOpen: () => {
+                document.getElementById('status').textContent = 'Connected';
+                console.log("Connected to LiveTemplate server");
+            },
+            onClose: () => {
+                document.getElementById('status').textContent = 'Disconnected';
+                console.log("Disconnected from LiveTemplate server");
+            },
+            onError: (error) => {
+                console.error("Connection error:", error);
+            },
+            onMessage: (message) => {
+                console.log("Custom message handler:", message);
+            }
+        });
+        
+        client.connect();
+    </script>
+</body>
+</html>

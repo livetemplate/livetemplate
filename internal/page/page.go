@@ -31,6 +31,7 @@ type Page struct {
 	fragmentCache  map[string]string
 	treeGenerator  *strategy.SimpleTreeGenerator
 	config         *Config
+	regions        []TemplateRegion // Cache template regions to ensure consistent IDs
 	mu             sync.RWMutex
 }
 
@@ -62,13 +63,20 @@ func NewPage(applicationID string, tmpl *template.Template, data interface{}, co
 		config = DefaultConfig()
 	}
 
+	// CRITICAL: Clone the template to prevent contamination from shared usage
+	// Each page gets its own isolated template copy
+	clonedTmpl, err := tmpl.Clone()
+	if err != nil {
+		return nil, fmt.Errorf("failed to clone template: %w", err)
+	}
+
 	// Generate unique page ID
 	pageID, err := generatePageID()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate page ID: %w", err)
 	}
 
-	// Generate template hash for identification
+	// Generate template hash for identification (use original for consistency)
 	templateHash := generateTemplateHash(tmpl)
 
 	// Create tree-based generator (now the only strategy)
@@ -78,7 +86,7 @@ func NewPage(applicationID string, tmpl *template.Template, data interface{}, co
 		ID:            pageID,
 		ApplicationID: applicationID,
 		TemplateHash:  templateHash,
-		template:      tmpl,
+		template:      clonedTmpl, // Use the cloned template
 		data:          data,
 		createdAt:     time.Now(),
 		lastAccessed:  time.Now(),
@@ -87,13 +95,24 @@ func NewPage(applicationID string, tmpl *template.Template, data interface{}, co
 		config:        config,
 	}
 
+	// Extract and store original template source at creation time
+	// This ensures we always have the clean, uncontaminated source
+	// Extract from cloned template before any execution contaminates it
+	templateSource, err := page.extractTemplateSourceFromTemplate(clonedTmpl)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract template source: %w", err)
+	}
+	page.templateSource = templateSource
+
+	// Regions will be detected and cached during first Render() call
+
 	return page, nil
 }
 
 // Render generates the complete HTML output for the current page state with fragment annotations
 func (p *Page) Render() (string, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	var buf strings.Builder
 	err := p.template.Execute(&buf, p.data)
@@ -103,18 +122,30 @@ func (p *Page) Render() (string, error) {
 
 	html := buf.String()
 
-	// Detect dynamic regions and annotate them with lvt-id attributes
+	// Detect regions and cache them for fragment generation
 	regions, err := p.detectTemplateRegions()
 	if err != nil || len(regions) == 0 {
 		// For simple templates or when region detection fails, use legacy approach
 		return p.annotateLegacyHTML(html)
 	}
 
-	// Annotate HTML with lvt-id attributes for each dynamic region
+	// Filter regions to only include those that can be properly annotated
+	// (skip regions with nested HTML content that regex can't handle)
+	var annotatedRegions []TemplateRegion
 	annotatedHTML := html
+
 	for _, region := range regions {
-		annotatedHTML = p.annotateDynamicElement(annotatedHTML, region)
+		// Try to annotate this region
+		newHTML := p.annotateDynamicElement(annotatedHTML, region)
+		// Check if annotation was successful (HTML changed)
+		if newHTML != annotatedHTML {
+			annotatedRegions = append(annotatedRegions, region)
+			annotatedHTML = newHTML
+		}
 	}
+
+	// Cache only the successfully annotated regions for fragment generation
+	p.regions = annotatedRegions
 
 	return annotatedHTML, nil
 }
@@ -155,9 +186,9 @@ func (p *Page) renderFragmentsWithConfig(ctx context.Context, newData interface{
 	// Update last accessed time
 	p.lastAccessed = time.Now()
 
-	// Detect template regions for full HTML templates
-	regions, err := p.detectTemplateRegions()
-	if err != nil || len(regions) == 0 {
+	// Use cached template regions to ensure consistent IDs with HTML
+	regions := p.regions
+	if regions == nil || len(regions) == 0 {
 		// Fallback to original full-template approach for simple templates
 		return p.renderFragmentsLegacyWithConfig(newData, config)
 	}
@@ -172,7 +203,6 @@ func (p *Page) renderFragmentsWithConfig(ctx context.Context, newData interface{
 	for _, region := range regions {
 		fragment, err := p.generateRegionFragmentWithConfig(region, newData, config)
 		if err != nil {
-			// Log error but continue with other regions
 			continue
 		}
 		fragments = append(fragments, fragment)
@@ -227,8 +257,6 @@ func (p *Page) renderFragmentsLegacyWithConfig(newData interface{}, config *Frag
 	// Create fragment from tree result
 	fragment := &Fragment{
 		ID:       fragmentID,
-		Strategy: "tree_based",
-		Action:   "update_tree",
 		Data:     treeResult,
 		Metadata: nil, // Will be set conditionally below
 	}
@@ -362,8 +390,6 @@ func (p *Page) Close() error {
 // Fragment represents a generated update fragment
 type Fragment struct {
 	ID       string      `json:"id"`
-	Strategy string      `json:"strategy"`
-	Action   string      `json:"action"`
 	Data     interface{} `json:"data"`
 	Metadata *Metadata   `json:"metadata,omitempty"`
 }

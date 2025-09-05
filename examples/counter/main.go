@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 
@@ -16,6 +17,7 @@ import (
 type Server struct {
 	app      *livetemplate.Application
 	counter  int
+	color    string
 	upgrader websocket.Upgrader
 	tmpl     *template.Template
 }
@@ -41,6 +43,7 @@ func NewServer() *Server {
 	return &Server{
 		app:     app,
 		counter: 0,
+		color:   getRandomColor(),
 		tmpl:    tmpl,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
@@ -50,10 +53,64 @@ func NewServer() *Server {
 	}
 }
 
+// getRandomColor generates a random CSS class name
+func getRandomColor() string {
+	colors := []string{
+		"color-red",
+		"color-teal", 
+		"color-blue",
+		"color-green",
+		"color-yellow",
+		"color-pink",
+		"color-purple",
+		"color-lightblue",
+		"color-orange",
+		"color-turquoise",
+		"color-darkred",
+		"color-emerald",
+	}
+	return colors[rand.Intn(len(colors))]
+}
+
+// getNextColor ensures color always changes from current color
+func (s *Server) getNextColor() string {
+	colors := []string{
+		"color-red",
+		"color-teal", 
+		"color-blue",
+		"color-green",
+		"color-yellow",
+		"color-pink",
+		"color-purple",
+		"color-lightblue",
+		"color-orange",
+		"color-turquoise",
+		"color-darkred",
+		"color-emerald",
+	}
+	
+	// Filter out current color to ensure it changes
+	var availableColors []string
+	for _, color := range colors {
+		if color != s.color {
+			availableColors = append(availableColors, color)
+		}
+	}
+	
+	if len(availableColors) == 0 {
+		// Fallback if somehow no colors available
+		return "color-red"
+	}
+	
+	return availableColors[rand.Intn(len(availableColors))]
+}
+
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{
 		"Counter": s.counter,
+		"Color":   s.color,
 	}
+	log.Printf("HTTP render with data: Counter=%d, Color=%s", s.counter, s.color)
 
 	// Use LiveTemplate to render with annotations instead of direct template execution
 	page, err := s.app.NewApplicationPage(s.tmpl, data)
@@ -86,7 +143,10 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Create a page for this WebSocket connection using a simple counter template
 	initialData := map[string]any{
 		"Counter": s.counter,
+		"Color":   s.color,
 	}
+	log.Printf("WebSocket creating page with initial data: Counter=%d, Color=%s", s.counter, s.color)
+	log.Printf("Initial data map: %+v", initialData)
 	
 	page, err := s.app.NewApplicationPage(s.tmpl, initialData)
 	if err != nil {
@@ -130,18 +190,24 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		switch msg.Action {
 		case "increment":
 			s.counter++
+			s.color = s.getNextColor() // Change color on increment (guaranteed different)
 		case "decrement":
 			s.counter--
+			s.color = s.getNextColor() // Change color on decrement (guaranteed different)
 		default:
 			log.Printf("Unknown action: %s", msg.Action)
 			continue
 		}
 
-		log.Printf("Counter updated from %d to %d", oldValue, s.counter)
+		log.Printf("Counter updated from %d to %d with color %s", oldValue, s.counter, s.color)
 
-		// Generate fragments using proper LiveTemplate API
-		newData := map[string]any{"Counter": s.counter}
-		log.Printf("Generating fragments with new data: %+v", newData)
+		// Generate fragments using proper LiveTemplate API with both Counter and Color
+		newData := map[string]any{
+			"Counter": s.counter,
+			"Color":   s.color,
+		}
+		log.Printf("Generating fragments with new data: Counter=%d, Color=%s", s.counter, s.color)
+		log.Printf("New data map: %+v", newData)
 
 		fragments, err := page.RenderFragments(context.Background(), newData)
 		if err != nil {
@@ -150,9 +216,9 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 		
 
-		log.Printf("Generated %d fragments", len(fragments))
+		log.Printf("Generated %d fragments (Expected: 2 for both Counter and Color changes)", len(fragments))
 		for i, frag := range fragments {
-			log.Printf("Fragment %d: ID=%s, Strategy=%s, Data=%+v", i, frag.ID, frag.Strategy, frag.Data)
+			log.Printf("Fragment %d: ID=%s, Data=%+v", i, frag.ID, frag.Data)
 			
 			// Debug: Check JSON marshaling
 			if jsonData, err := json.Marshal(frag.Data); err == nil {

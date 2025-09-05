@@ -49,8 +49,6 @@ func (p *Page) RenderFragments(ctx context.Context, newData interface{}) ([]*Fra
 	for i, frag := range internalFragments {
 		fragments[i] = &Fragment{
 			ID:       frag.ID,
-			Strategy: frag.Strategy,
-			Action:   frag.Action,
 			Data:     frag.Data,
 			Metadata: convertMetadata(frag.Metadata),
 		}
@@ -153,8 +151,6 @@ func (p *Page) Close() error {
 // Fragment represents a generated update fragment for the public API
 type Fragment struct {
 	ID       string      `json:"id"`
-	Strategy string      `json:"strategy"`
-	Action   string      `json:"action"`
 	Data     interface{} `json:"data"`
 	Metadata *Metadata   `json:"metadata,omitempty"`
 }
