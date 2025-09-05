@@ -221,6 +221,12 @@ func main() {
 	http.HandleFunc("/", server.handleHome)
 	http.HandleFunc("/ws", server.handleWebSocket)
 	
+	// Serve the LiveTemplate client library
+	http.HandleFunc("/client/livetemplate-client.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		http.ServeFile(w, r, "../../client/livetemplate-client.js")
+	})
+	
 	fmt.Printf("Counter app running on http://localhost:%s\n", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }

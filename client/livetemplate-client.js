@@ -1,7 +1,7 @@
 class LiveTemplateClient {
   constructor(options = {}) {
     this.ws = null;
-    this.pageToken = null;
+    this.pageToken = options.presetToken || null;
     this.staticCache = {};
     this.port = options.port || window.location.port || "8080";
     this.host = options.host || "localhost";
@@ -13,11 +13,15 @@ class LiveTemplateClient {
     this.onMessage = options.onMessage || null;
   }
 
-  connect() {
-    const url = `${this.protocol}://${this.host}:${this.port}${this.endpoint}`;
+  connect(customUrl = null) {
+    const url = customUrl || `${this.protocol}://${this.host}:${this.port}${this.endpoint}`;
     this.ws = new WebSocket(url);
 
     this.ws.onopen = () => {
+      // If we have a preset token, log it and notify ready
+      if (this.pageToken) {
+        console.log("Using preset token:", this.pageToken);
+      }
       this.onOpen();
     };
 
