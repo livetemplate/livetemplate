@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/gorilla/websocket"
 	"github.com/livefir/livetemplate"
@@ -29,10 +30,84 @@ var availableColors = []string{
 	"color-emerald",
 }
 
+// Counter represents the counter data model
+type Counter struct {
+	mu    sync.RWMutex
+	Value int    `json:"Counter"`
+	Color string `json:"Color"`
+}
+
+// NewCounter creates a new counter with initial state
+func NewCounter() *Counter {
+	c := &Counter{
+		Value: 0,
+		Color: "",
+	}
+	c.Color = c.getNextColor()
+	return c
+}
+
+// Increment increases the counter value and changes color
+func (c *Counter) Increment() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Value++
+	c.Color = c.getNextColor()
+}
+
+// Decrement decreases the counter value and changes color
+func (c *Counter) Decrement() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Value--
+	c.Color = c.getNextColor()
+}
+
+// getNextColor ensures color always changes from current color
+func (c *Counter) getNextColor() string {
+	// Filter out current color to ensure it changes
+	var filteredColors []string
+	for _, color := range availableColors {
+		if color != c.Color {
+			filteredColors = append(filteredColors, color)
+		}
+	}
+	
+	if len(filteredColors) == 0 {
+		// Fallback if somehow no colors available (shouldn't happen with initial empty color)
+		return availableColors[0]
+	}
+	
+	return filteredColors[rand.Intn(len(filteredColors))]
+}
+
+// ToMap converts the counter to a map for template rendering
+func (c *Counter) ToMap() map[string]any {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return map[string]any{
+		"Counter": c.Value,
+		"Color":   c.Color,
+	}
+}
+
+// GetValue returns the current counter value (thread-safe)
+func (c *Counter) GetValue() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Value
+}
+
+// GetColor returns the current color (thread-safe)
+func (c *Counter) GetColor() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Color
+}
+
 type Server struct {
 	app      *livetemplate.Application
-	counter  int
-	color    string
+	counter  *Counter
 	upgrader websocket.Upgrader
 }
 
@@ -56,7 +131,7 @@ func NewServer() *Server {
 	
 	server := &Server{
 		app:     app,
-		counter: 0,
+		counter: NewCounter(),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return true
@@ -64,36 +139,13 @@ func NewServer() *Server {
 		},
 	}
 	
-	// Set initial color using the same logic as getNextColor
-	server.color = server.getNextColor()
-	
 	return server
 }
 
-// getNextColor ensures color always changes from current color
-func (s *Server) getNextColor() string {
-	// Filter out current color to ensure it changes
-	var filteredColors []string
-	for _, color := range availableColors {
-		if color != s.color {
-			filteredColors = append(filteredColors, color)
-		}
-	}
-	
-	if len(filteredColors) == 0 {
-		// Fallback if somehow no colors available (shouldn't happen with initial empty color)
-		return availableColors[0]
-	}
-	
-	return filteredColors[rand.Intn(len(filteredColors))]
-}
 
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
-	data := map[string]any{
-		"Counter": s.counter,
-		"Color":   s.color,
-	}
-	log.Printf("HTTP render with data: Counter=%d, Color=%s", s.counter, s.color)
+	data := s.counter.ToMap()
+	log.Printf("HTTP render with data: Counter=%d, Color=%s", s.counter.GetValue(), s.counter.GetColor())
 
 	// Create page (don't close it - WebSocket will use it)
 	page, err := s.app.NewPage("counter", data)
@@ -155,27 +207,22 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Received action: %s", msg.Action)
 
 		// Update counter based on action
-		oldValue := s.counter
+		oldValue := s.counter.GetValue()
 		switch msg.Action {
 		case "increment":
-			s.counter++
-			s.color = s.getNextColor() // Change color on increment (guaranteed different)
+			s.counter.Increment()
 		case "decrement":
-			s.counter--
-			s.color = s.getNextColor() // Change color on decrement (guaranteed different)
+			s.counter.Decrement()
 		default:
 			log.Printf("Unknown action: %s", msg.Action)
 			continue
 		}
 
-		log.Printf("Counter updated from %d to %d with color %s", oldValue, s.counter, s.color)
+		log.Printf("Counter updated from %d to %d with color %s", oldValue, s.counter.GetValue(), s.counter.GetColor())
 
 		// Generate fragments using proper LiveTemplate API with both Counter and Color
-		newData := map[string]any{
-			"Counter": s.counter,
-			"Color":   s.color,
-		}
-		log.Printf("Generating fragments with new data: Counter=%d, Color=%s", s.counter, s.color)
+		newData := s.counter.ToMap()
+		log.Printf("Generating fragments with new data: Counter=%d, Color=%s", s.counter.GetValue(), s.counter.GetColor())
 		log.Printf("New data map: %+v", newData)
 
 		fragments, err := page.RenderFragments(context.Background(), newData)
@@ -201,7 +248,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		log.Printf("Counter updated to: %d", s.counter)
+		log.Printf("Counter updated to: %d", s.counter.GetValue())
 	}
 }
 
