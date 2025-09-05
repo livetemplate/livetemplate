@@ -25,9 +25,9 @@ func TestTemplateRegistry(t *testing.T) {
 		t.Errorf("Expected ['greeting'], got %v", names)
 	}
 
-	// Test NewPageFromTemplate
+	// Test NewPage (simplified API)
 	data := map[string]interface{}{"Name": "World"}
-	page, err := app.NewPageFromTemplate("greeting", data)
+	page, err := app.NewPage("greeting", data)
 	if err != nil {
 		t.Fatalf("Failed to create page from template: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestTemplateRegistry(t *testing.T) {
 		t.Error("Expected error for nil template")
 	}
 
-	_, err = app.NewPageFromTemplate("non-existent", data)
+	_, err = app.NewPage("non-existent", data)
 	if err == nil {
 		t.Error("Expected error for non-existent template")
 	}

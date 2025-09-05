@@ -95,7 +95,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	log.Printf("HTTP render with data: Counter=%d, Color=%s", s.counter, s.color)
 
 	// Use LiveTemplate to render with annotations instead of direct template execution
-	page, err := s.app.NewPageFromTemplate("counter", data)
+	page, err := s.app.NewPage("counter", data)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to create page: %v", err), http.StatusInternalServerError)
 		return
@@ -130,7 +130,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	log.Printf("WebSocket creating page with initial data: Counter=%d, Color=%s", s.counter, s.color)
 	log.Printf("Initial data map: %+v", initialData)
 	
-	page, err := s.app.NewPageFromTemplate("counter", initialData)
+	page, err := s.app.NewPage("counter", initialData)
 	if err != nil {
 		log.Printf("Error creating page: %v", err)
 		return

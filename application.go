@@ -159,6 +159,11 @@ func (a *Application) NewPageFromTemplate(templateName string, data interface{},
 	return a.NewApplicationPage(tmpl, data, options...)
 }
 
+// NewPage creates a new page using a registered template (simplified name)
+func (a *Application) NewPage(templateName string, data interface{}, options ...ApplicationPageOption) (*ApplicationPage, error) {
+	return a.NewPageFromTemplate(templateName, data, options...)
+}
+
 // GetRegisteredTemplates returns the names of all registered templates
 func (a *Application) GetRegisteredTemplates() []string {
 	names := make([]string, 0, len(a.templates))
@@ -176,6 +181,11 @@ func (a *Application) GetApplicationPage(token string) (*ApplicationPage, error)
 	}
 
 	return &ApplicationPage{internal: internal}, nil
+}
+
+// GetPage retrieves a page by JWT token (simplified name)
+func (a *Application) GetPage(token string) (*ApplicationPage, error) {
+	return a.GetApplicationPage(token)
 }
 
 // GetPageCount returns the total number of active pages
