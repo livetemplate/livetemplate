@@ -29,11 +29,12 @@ class LiveTemplateClient {
       console.log("Received:", event.data);
       const message = JSON.parse(event.data);
 
-      if (message.type === "page_token") {
+      // Check if message is an array of fragments
+      if (Array.isArray(message)) {
+        this.updateFragments(message);
+      } else if (message.type === "page_token") {
         this.pageToken = message.token;
         console.log("Page token received:", this.pageToken);
-      } else if (message.type === "fragments") {
-        this.updateFragments(message.fragments);
       }
 
       if (this.onMessage) {

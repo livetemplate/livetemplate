@@ -195,13 +195,8 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Send fragments to client
-		response := map[string]any{
-			"type":      "fragments", 
-			"fragments": fragments,
-		}
-
-		if err := conn.WriteJSON(response); err != nil {
+		// Send fragments directly to client
+		if err := conn.WriteJSON(fragments); err != nil {
 			log.Printf("Error sending fragments: %v", err)
 			break
 		}
