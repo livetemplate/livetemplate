@@ -14,6 +14,21 @@ import (
 	"github.com/livefir/livetemplate"
 )
 
+var availableColors = []string{
+	"color-red",
+	"color-teal",
+	"color-blue",
+	"color-green",
+	"color-yellow",
+	"color-pink",
+	"color-purple",
+	"color-lightblue",
+	"color-orange",
+	"color-turquoise",
+	"color-darkred",
+	"color-emerald",
+}
+
 type Server struct {
 	app      *livetemplate.Application
 	counter  int
@@ -40,10 +55,9 @@ func NewServer() *Server {
 		log.Fatal("Failed to parse template file:", err)
 	}
 	
-	return &Server{
+	server := &Server{
 		app:     app,
 		counter: 0,
-		color:   getRandomColor(),
 		tmpl:    tmpl,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
@@ -51,58 +65,29 @@ func NewServer() *Server {
 			},
 		},
 	}
-}
-
-// getRandomColor generates a random CSS class name
-func getRandomColor() string {
-	colors := []string{
-		"color-red",
-		"color-teal", 
-		"color-blue",
-		"color-green",
-		"color-yellow",
-		"color-pink",
-		"color-purple",
-		"color-lightblue",
-		"color-orange",
-		"color-turquoise",
-		"color-darkred",
-		"color-emerald",
-	}
-	return colors[rand.Intn(len(colors))]
+	
+	// Set initial color using the same logic as getNextColor
+	server.color = server.getNextColor()
+	
+	return server
 }
 
 // getNextColor ensures color always changes from current color
 func (s *Server) getNextColor() string {
-	colors := []string{
-		"color-red",
-		"color-teal", 
-		"color-blue",
-		"color-green",
-		"color-yellow",
-		"color-pink",
-		"color-purple",
-		"color-lightblue",
-		"color-orange",
-		"color-turquoise",
-		"color-darkred",
-		"color-emerald",
-	}
-	
 	// Filter out current color to ensure it changes
-	var availableColors []string
-	for _, color := range colors {
+	var filteredColors []string
+	for _, color := range availableColors {
 		if color != s.color {
-			availableColors = append(availableColors, color)
+			filteredColors = append(filteredColors, color)
 		}
 	}
 	
-	if len(availableColors) == 0 {
-		// Fallback if somehow no colors available
-		return "color-red"
+	if len(filteredColors) == 0 {
+		// Fallback if somehow no colors available (shouldn't happen with initial empty color)
+		return availableColors[0]
 	}
 	
-	return availableColors[rand.Intn(len(availableColors))]
+	return filteredColors[rand.Intn(len(filteredColors))]
 }
 
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
