@@ -95,29 +95,37 @@ class LiveTemplateClient {
   }
 
   connect(customUrl = null) {
-    const url = customUrl || `${this.protocol}://${this.host}:${this.port}${this.endpoint}`;
+    // Load cache before connecting if we have a token
+    if (this.pageToken && Object.keys(this.staticCache).length === 0) {
+      this.loadStaticsFromCache();
+    }
+    
+    // Build URL with cache status in query parameters
+    let url = customUrl;
+    if (!url) {
+      url = `${this.protocol}://${this.host}:${this.port}${this.endpoint}`;
+    }
+    
+    // Add cache status to URL if not already included
+    if (this.pageToken && !url.includes('has_cache=')) {
+      const urlObj = new URL(url, `${this.protocol}://${this.host}:${this.port}`);
+      urlObj.searchParams.set('has_cache', this.hasCachedStatics() ? 'true' : 'false');
+      
+      // Add cached fragment IDs if we have cache
+      if (this.hasCachedStatics()) {
+        urlObj.searchParams.set('cached_fragments', Object.keys(this.staticCache).join(','));
+      }
+      
+      url = urlObj.toString();
+      console.log(`Connecting with cache status: ${this.hasCachedStatics() ? 'HAS_CACHE' : 'NO_CACHE'} (${Object.keys(this.staticCache).length} fragments)`);
+    }
+    
     this.ws = new WebSocket(url);
 
     this.ws.onopen = () => {
-      // If we have a preset token, log it and notify ready
+      // If we have a preset token, log it
       if (this.pageToken) {
         console.log("Using preset token:", this.pageToken);
-        
-        // Load cache for this token if not already loaded
-        if (Object.keys(this.staticCache).length === 0) {
-          this.loadStaticsFromCache();
-        }
-        
-        // Send cache status to server
-        const cacheStatus = {
-          type: "cache_status",
-          token: this.pageToken,
-          has_cache: this.hasCachedStatics(),
-          cached_fragments: Object.keys(this.staticCache)
-        };
-        
-        this.ws.send(JSON.stringify(cacheStatus));
-        console.log(`Sent cache status: ${this.hasCachedStatics() ? 'HAS_CACHE' : 'NO_CACHE'} (${Object.keys(this.staticCache).length} fragments)`);
       }
       this.onOpen();
     };

@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"html/template"
+	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/livefir/livetemplate/internal/app"
@@ -97,9 +100,18 @@ func WithApplicationMetricsEnabled(enabled bool) ApplicationOption {
 // ApplicationPageOption configures a page created by an Application
 type ApplicationPageOption func(*ApplicationPage) error
 
+// WithCacheInfo sets the client cache information for the page
+func WithCacheInfo(cacheInfo *ClientCacheInfo) ApplicationPageOption {
+	return func(p *ApplicationPage) error {
+		p.cacheInfo = cacheInfo
+		return nil
+	}
+}
+
 // ApplicationPage represents a page managed by an Application with JWT token support
 type ApplicationPage struct {
-	internal *app.Page
+	internal  *app.Page
+	cacheInfo *ClientCacheInfo
 }
 
 // NewApplicationPage creates a new isolated page session with JWT token
@@ -174,18 +186,43 @@ func (a *Application) GetRegisteredTemplates() []string {
 }
 
 // GetApplicationPage retrieves a page by JWT token with application boundary enforcement
-func (a *Application) GetApplicationPage(token string) (*ApplicationPage, error) {
+func (a *Application) GetApplicationPage(token string, options ...ApplicationPageOption) (*ApplicationPage, error) {
 	internal, err := a.internal.GetPage(token)
 	if err != nil {
 		return nil, err
 	}
 
-	return &ApplicationPage{internal: internal}, nil
+	publicPage := &ApplicationPage{internal: internal}
+
+	// Apply options
+	for _, option := range options {
+		if err := option(publicPage); err != nil {
+			return nil, err
+		}
+	}
+
+	return publicPage, nil
 }
 
 // GetPage retrieves a page by JWT token (simplified name)
-func (a *Application) GetPage(token string) (*ApplicationPage, error) {
-	return a.GetApplicationPage(token)
+func (a *Application) GetPage(token string, options ...ApplicationPageOption) (*ApplicationPage, error) {
+	return a.GetApplicationPage(token, options...)
+}
+
+// GetPageFromRequest extracts token from request and cache info from query params
+// This is the most convenient method for WebSocket handlers
+func (a *Application) GetPageFromRequest(r *http.Request) (*ApplicationPage, error) {
+	// Extract token from query param
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		return nil, fmt.Errorf("no token provided in request")
+	}
+
+	// Parse cache information from URL query parameters
+	cacheInfo := ParseCacheInfoFromURL(r.URL.Query())
+
+	// Get page with cache context
+	return a.GetPage(token, WithCacheInfo(cacheInfo))
 }
 
 // GetPageCount returns the total number of active pages
@@ -234,7 +271,14 @@ func (p *ApplicationPage) Render() (string, error) {
 	return p.internal.Render()
 }
 
+// ClientCacheInfo contains information about what the client has cached
+type ClientCacheInfo struct {
+	HasCache        bool            `json:"has_cache"`
+	CachedFragments map[string]bool `json:"cached_fragments"`
+}
+
 // RenderFragments generates fragment updates for the given new data
+// Automatically uses the page's cache information if set
 func (p *ApplicationPage) RenderFragments(ctx context.Context, newData interface{}) ([]*Fragment, error) {
 	internalFragments, err := p.internal.RenderFragments(ctx, newData)
 	if err != nil {
@@ -251,7 +295,44 @@ func (p *ApplicationPage) RenderFragments(ctx context.Context, newData interface
 		}
 	}
 
+	// Apply client cache filtering if cache info is set on the page
+	if p.cacheInfo != nil && p.cacheInfo.HasCache {
+		fragments = p.filterStaticsFromFragments(fragments, p.cacheInfo.CachedFragments)
+	}
+
 	return fragments, nil
+}
+
+// filterStaticsFromFragments removes statics from fragments that client already has cached
+func (p *ApplicationPage) filterStaticsFromFragments(fragments []*Fragment, cachedFragments map[string]bool) []*Fragment {
+	var filtered []*Fragment
+
+	for _, frag := range fragments {
+		// Create a copy of the fragment
+		newFrag := &Fragment{
+			ID:       frag.ID,
+			Data:     frag.Data,
+			Metadata: frag.Metadata,
+		}
+
+		// If client has this fragment cached, remove statics from data
+		if cachedFragments[frag.ID] {
+			if treeData, ok := frag.Data.(map[string]interface{}); ok {
+				// Create new tree data without statics
+				newTreeData := make(map[string]interface{})
+				for k, v := range treeData {
+					if k != "s" { // Remove statics ("s" field)
+						newTreeData[k] = v
+					}
+				}
+				newFrag.Data = newTreeData
+			}
+		}
+
+		filtered = append(filtered, newFrag)
+	}
+
+	return filtered
 }
 
 // GetToken returns the JWT token for this page
@@ -262,6 +343,16 @@ func (p *ApplicationPage) GetToken() string {
 // SetData updates the page data state
 func (p *ApplicationPage) SetData(data interface{}) error {
 	return p.internal.SetData(data)
+}
+
+// SetCacheInfo updates the client cache information for this page
+func (p *ApplicationPage) SetCacheInfo(cacheInfo *ClientCacheInfo) {
+	p.cacheInfo = cacheInfo
+}
+
+// GetCacheInfo returns the current cache information for this page
+func (p *ApplicationPage) GetCacheInfo() *ClientCacheInfo {
+	return p.cacheInfo
 }
 
 // GetData returns the current page data
@@ -340,6 +431,28 @@ type ApplicationPageMetrics struct {
 }
 
 // Helper functions
+
+// ParseCacheInfoFromURL extracts cache information from URL query parameters
+func ParseCacheInfoFromURL(queryValues url.Values) *ClientCacheInfo {
+	hasCache := queryValues.Get("has_cache") == "true"
+	if !hasCache {
+		return &ClientCacheInfo{HasCache: false, CachedFragments: make(map[string]bool)}
+	}
+
+	cachedFragments := make(map[string]bool)
+	if fragmentsList := queryValues.Get("cached_fragments"); fragmentsList != "" {
+		for _, fragID := range strings.Split(fragmentsList, ",") {
+			if fragID != "" {
+				cachedFragments[fragID] = true
+			}
+		}
+	}
+
+	return &ClientCacheInfo{
+		HasCache:        true,
+		CachedFragments: cachedFragments,
+	}
+}
 
 // convertInternalMetadata converts internal metadata to existing FragmentMetadata format
 func convertInternalMetadata(internal *app.Metadata) *FragmentMetadata {

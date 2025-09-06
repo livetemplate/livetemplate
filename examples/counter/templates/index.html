@@ -68,6 +68,7 @@
         onClose: () => console.log("Counter app disconnected"),
       });
 
+      // Connect with token - client will automatically add cache status
       client.connect(`ws://${window.location.hostname}:${window.location.port || 8080}/ws?token=${pageToken}`);
     </script>
   </body>
