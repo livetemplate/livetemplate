@@ -69,9 +69,25 @@ func (p *Page) RenderFragments(ctx context.Context, newData interface{}) ([]*Fra
 	return fragments, nil
 }
 
-// GetToken returns the JWT token for this page
+// GetToken returns the stable cache token for this page
 func (p *Page) GetToken() string {
 	return p.token
+}
+
+// GetID returns the page ID
+func (p *Page) GetID() string {
+	return p.internal.GetID()
+}
+
+// GenerateSecurityToken creates a fresh JWT token for secure operations
+// This prevents replay protection issues by generating a new token each time
+func (p *Page) GenerateSecurityToken() (string, error) {
+	if p.app.closed {
+		return "", fmt.Errorf("application is closed")
+	}
+
+	// Generate a new token for the same page ID to avoid replay protection
+	return p.app.tokenService.GenerateToken(p.app.id, p.internal.ID)
 }
 
 // SetData updates the page data state

@@ -2,32 +2,30 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
 	"os"
-	"strings"
 	"sync"
 
 	"github.com/gorilla/websocket"
 	"github.com/livefir/livetemplate"
 )
 
-var availableColors = []string{
-	"color-red",
-	"color-teal",
-	"color-blue",
-	"color-green",
-	"color-yellow",
-	"color-pink",
-	"color-purple",
-	"color-lightblue",
-	"color-orange",
-	"color-turquoise",
-	"color-darkred",
-	"color-emerald",
+var availableColors = map[string]string{
+	"color-red":       "#ff6b6b",
+	"color-teal":      "#4ecdc4",
+	"color-blue":      "#45b7d1",
+	"color-green":     "#96ceb4",
+	"color-yellow":    "#feca57",
+	"color-pink":      "#ff6fa6",
+	"color-purple":    "#9b59b6",
+	"color-lightblue": "#3498db",
+	"color-orange":    "#e67e22",
+	"color-turquoise": "#1abc9c",
+	"color-darkred":   "#e74c3c",
+	"color-emerald":   "#2ecc71",
 }
 
 // Counter represents the counter data model
@@ -67,15 +65,17 @@ func (c *Counter) Decrement() {
 func (c *Counter) getNextColor() string {
 	// Filter out current color to ensure it changes
 	var filteredColors []string
-	for _, color := range availableColors {
-		if color != c.Color {
-			filteredColors = append(filteredColors, color)
+	for colorName := range availableColors {
+		if colorName != c.Color {
+			filteredColors = append(filteredColors, colorName)
 		}
 	}
 	
 	if len(filteredColors) == 0 {
 		// Fallback if somehow no colors available (shouldn't happen with initial empty color)
-		return availableColors[0]
+		for colorName := range availableColors {
+			return colorName
+		}
 	}
 	
 	return filteredColors[rand.Intn(len(filteredColors))]
@@ -85,9 +85,15 @@ func (c *Counter) getNextColor() string {
 func (c *Counter) ToMap() map[string]any {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+	
+	colorHex := availableColors[c.Color]
+	if colorHex == "" {
+		colorHex = availableColors["color-red"] // fallback
+	}
+	
 	return map[string]any{
 		"Counter": c.Value,
-		"Color":   c.Color,
+		"Color":   colorHex, // Now Color contains the hex value directly
 	}
 }
 
@@ -108,14 +114,7 @@ func (c *Counter) GetColor() string {
 type Server struct {
 	app          *livetemplate.Application
 	counter      *Counter
-	upgrader     websocket.Upgrader
 	templatePage *livetemplate.ApplicationPage // Template page for stable token and rendering
-}
-
-type ActionMessage struct {
-	Type   string         `json:"type"`
-	Action string         `json:"action"`
-	Data   map[string]any `json:"data"`
 }
 
 func NewServer() *Server {
@@ -138,15 +137,21 @@ func NewServer() *Server {
 		log.Fatal("Failed to create template page:", err)
 	}
 	
+	// Register action handlers at the application level
+	app.RegisterAction("increment", func(currentData interface{}, actionData map[string]interface{}) (interface{}, error) {
+		counter.Increment()
+		return counter.ToMap(), nil
+	})
+	
+	app.RegisterAction("decrement", func(currentData interface{}, actionData map[string]interface{}) (interface{}, error) {
+		counter.Decrement()
+		return counter.ToMap(), nil
+	})
+
 	server := &Server{
 		app:          app,
 		counter:      counter,
 		templatePage: templatePage,
-		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool {
-				return true
-			},
-		},
 	}
 	
 	log.Printf("Created template page with stable token: %s", templatePage.GetToken())
@@ -158,105 +163,90 @@ func NewServer() *Server {
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	data := s.counter.ToMap()
 	log.Printf("HTTP render with data: Counter=%d, Color=%s", s.counter.GetValue(), s.counter.GetColor())
+	log.Printf("Request from: %s, User-Agent: %s", r.RemoteAddr, r.Header.Get("User-Agent"))
 
-	// Update template page with current data
-	err := s.templatePage.SetData(data)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to update page data: %v", err), http.StatusInternalServerError)
+	// Clean and intuitive: render with data and serve in one call
+	if err := s.templatePage.ServeHTTP(w, data); err != nil {
+		log.Printf("Error serving page: %v", err)
+		http.Error(w, "Failed to serve page", http.StatusInternalServerError)
 		return
-	}
-
-	// Render using the template page (same token every time)
-	html, err := s.templatePage.Render()
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to render page: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Embed stable token in HTML for WebSocket to use
-	html = strings.ReplaceAll(html, "PAGE_TOKEN_PLACEHOLDER", s.templatePage.GetToken())
-
-	w.Header().Set("Content-Type", "text/html")
-	if _, err := w.Write([]byte(html)); err != nil {
-		log.Printf("Error writing response: %v", err)
 	}
 
 	log.Printf("Served page with stable token: %s", s.templatePage.GetToken())
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	conn, err := s.upgrader.Upgrade(w, r, nil)
+	log.Printf("WebSocket connection attempt from: %s", r.RemoteAddr)
+	log.Printf("WebSocket URL: %s", r.URL.String())
+	log.Printf("WebSocket Query params: %v", r.URL.Query())
+	
+	// Get page from request - handles all authentication complexity internally
+	page, err := s.app.GetPage(r)
 	if err != nil {
-		log.Printf("WebSocket upgrade error: %v", err)
+		log.Printf("Failed to get page from WebSocket request: %v", err)
+		http.Error(w, fmt.Sprintf("Failed to get page: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("WebSocket page retrieved successfully")
+
+	// Upgrade to WebSocket
+	upgrader := &websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade failed: %v", err)
 		return
 	}
 	defer conn.Close()
 
-	// Get page with token and cache info in one simple call
-	page, err := s.app.GetPageFromRequest(r)
-	if err != nil {
-		log.Printf("Failed to get page from request: %v", err)
-		return
-	}
+	log.Printf("WebSocket connected with actions registered: %t", page.HasActions())
 
-	cacheInfo := page.GetCacheInfo()
-	log.Printf("WebSocket connected with token: %s, cache: %t (%d fragments)", 
-		page.GetToken(), cacheInfo.HasCache, len(cacheInfo.CachedFragments))
-
-	// Handle messages
+	// Handle messages using the page with registered actions
 	for {
-		var msg ActionMessage
-		err := conn.ReadJSON(&msg)
+		var message map[string]interface{}
+		err := conn.ReadJSON(&message)
 		if err != nil {
-			log.Printf("WebSocket read error: %v", err)
 			break
 		}
 
-		log.Printf("Received action: %s", msg.Action)
-
-		// Update counter based on action
-		oldValue := s.counter.GetValue()
-		switch msg.Action {
-		case "increment":
-			s.counter.Increment()
-		case "decrement":
-			s.counter.Decrement()
-		default:
-			log.Printf("Unknown action: %s", msg.Action)
+		// Check message type
+		msgType, _ := message["type"].(string)
+		if msgType != "action" {
 			continue
 		}
 
-		log.Printf("Counter updated from %d to %d with color %s", oldValue, s.counter.GetValue(), s.counter.GetColor())
+		// Extract action name
+		actionName, ok := message["action"].(string)
+		if !ok {
+			continue
+		}
 
-		// Generate fragments using LiveTemplate's transparent cache-aware API
-		newData := s.counter.ToMap()
-		log.Printf("Generating fragments with new data: Counter=%d, Color=%s", s.counter.GetValue(), s.counter.GetColor())
-		log.Printf("New data map: %+v", newData)
+		log.Printf("Processing action: %s", actionName)
 
-		// LiveTemplate automatically handles cache filtering based on page's cache info
-		fragments, err := page.RenderFragments(context.Background(), newData)
+		// Process action using the page with registered actions
+		actionData, _ := message["data"].(map[string]interface{})
+		if actionData == nil {
+			actionData = make(map[string]interface{})
+		}
+
+		fragments, err := page.HandleAction(context.Background(), actionName, actionData)
 		if err != nil {
-			log.Printf("Error rendering fragments: %v", err)
+			log.Printf("Action handler error: %v", err)
 			continue
 		}
 
 		log.Printf("Generated %d fragments", len(fragments))
-		for i, frag := range fragments {
-			log.Printf("Fragment %d: ID=%s, Data=%+v", i, frag.ID, frag.Data)
-			
-			// Debug: Check JSON marshaling
-			if jsonData, err := json.Marshal(frag.Data); err == nil {
-				log.Printf("Fragment %d JSON: %s", i, string(jsonData))
-			}
-		}
 
-		// Send fragments directly to client
+		// Send fragments to client
 		if err := conn.WriteJSON(fragments); err != nil {
-			log.Printf("Error sending fragments: %v", err)
+			log.Printf("WebSocket send error: %v", err)
 			break
 		}
-
-		log.Printf("Counter updated to: %d", s.counter.GetValue())
 	}
 }
 
@@ -274,7 +264,11 @@ func main() {
 	
 	// Serve the LiveTemplate client library
 	http.HandleFunc("/client/livetemplate-client.js", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Serving client JS to: %s", r.RemoteAddr)
 		w.Header().Set("Content-Type", "application/javascript")
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
 		http.ServeFile(w, r, "../../client/livetemplate-client.js")
 	})
 	

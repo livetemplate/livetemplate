@@ -1,7 +1,6 @@
 package page
 
 import (
-	"crypto/sha256"
 	"fmt"
 	"regexp"
 	"strings"
@@ -9,23 +8,6 @@ import (
 
 // Forward reference to avoid circular dependencies
 // FragmentConfig is defined in page.go
-
-// generateDeterministicShortID generates a short ID based on page and region content
-func (p *Page) generateDeterministicShortID(regionContent string, regionIndex int) string {
-	// Create a deterministic hash from region content + index only
-	// (removing page ID to ensure consistent IDs across page instances)
-	combined := fmt.Sprintf("%s|%d", regionContent, regionIndex)
-
-	// Use SHA256 hash and take first 8 chars for short ID
-	hasher := sha256.New()
-	hasher.Write([]byte(combined))
-	hashBytes := hasher.Sum(nil)
-	hash := fmt.Sprintf("%x", hashBytes)
-	if len(hash) >= 8 {
-		return hash[:8]
-	}
-	return hash
-}
 
 // TemplateRegion represents a dynamic region within a full HTML template
 type TemplateRegion struct {
@@ -66,8 +48,11 @@ func (p *Page) detectTemplateRegions() ([]TemplateRegion, error) {
 
 	// Debug info removed for cleaner output
 
+	// Filter to only get leaf elements (elements that don't contain other template-containing elements)
+	leafMatches := filterToLeafElements(matches)
+
 	regionIndex := 0
-	for _, match := range matches {
+	for _, match := range leafMatches {
 		if len(match) >= 5 {
 			startTagName := match[1]
 			attributes := match[2]
@@ -88,15 +73,14 @@ func (p *Page) detectTemplateRegions() ([]TemplateRegion, error) {
 				continue
 			}
 
-			// Extract ID from tag attributes if available, otherwise generate globally unique random ID
+			// Extract ID from tag attributes if available, otherwise generate ID
 			extractedID := extractIDFromTag(attributes)
 			var lvtID string
 			if extractedID != "" {
 				lvtID = extractedID
 			} else {
-				// Generate deterministic short ID based on region content and position
-				regionContent := fmt.Sprintf("<%s%s>%s</%s>", startTagName, attributes, content, endTagName)
-				lvtID = p.generateDeterministicShortID(regionContent, regionIndex)
+				// For elements without ID, generate a simple sequential ID
+				lvtID = fmt.Sprintf("region_%d", regionIndex)
 				regionIndex++
 			}
 
@@ -217,6 +201,59 @@ func findCompleteElementMatches(templateSource string) [][]string {
 	}
 
 	return matches
+}
+
+// filterToLeafElements filters matches to only include leaf elements (no nested template-containing elements)
+func filterToLeafElements(matches [][]string) [][]string {
+	var leafMatches [][]string
+	templatePattern := regexp.MustCompile(`\{\{[^}]+\}\}`)
+
+	for i, match := range matches {
+		if len(match) < 5 {
+			continue
+		}
+
+		fullMatch := match[0]
+		attributes := match[2]
+		content := match[3]
+
+		// Check if this element contains template expressions
+		hasTemplateInAttributes := templatePattern.MatchString(attributes)
+		hasTemplateInContent := templatePattern.MatchString(content)
+
+		if !hasTemplateInAttributes && !hasTemplateInContent {
+			continue // Skip elements without templates
+		}
+
+		// Check if any other match is contained within this one
+		// If so, this is not a leaf element
+		isLeaf := true
+
+		for j, otherMatch := range matches {
+			if i == j || len(otherMatch) < 5 {
+				continue
+			}
+
+			otherFull := otherMatch[0]
+			otherContent := otherMatch[3]
+			otherAttrs := otherMatch[2]
+
+			// Check if other element has templates
+			otherHasTemplate := templatePattern.MatchString(otherContent) || templatePattern.MatchString(otherAttrs)
+
+			if otherHasTemplate && strings.Contains(fullMatch, otherFull) && fullMatch != otherFull {
+				// This match contains another template-containing element
+				isLeaf = false
+				break
+			}
+		}
+
+		if isLeaf {
+			leafMatches = append(leafMatches, match)
+		}
+	}
+
+	return leafMatches
 }
 
 // findMatchingCloseTag finds the position of the matching closing tag, accounting for nested tags

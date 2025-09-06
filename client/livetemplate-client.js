@@ -157,16 +157,15 @@ class LiveTemplateClient {
   }
 
   sendAction(action, data = {}) {
-    if (this.ws && this.pageToken) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       const message = {
         type: "action",
         action: action,
-        token: this.pageToken,
         data: data,
       };
       this.ws.send(JSON.stringify(message));
     } else {
-      console.warn("WebSocket not connected or page token not available");
+      console.warn("WebSocket not connected");
     }
   }
 
@@ -291,9 +290,80 @@ class LiveTemplateClient {
   }
 }
 
+// Auto-initialization function
+function autoInitializeLiveTemplate() {
+  // Look for embedded page token in script tags or meta tags
+  let pageToken = null;
+  
+  // Method 1: Look for token in script tag content
+  const scripts = document.querySelectorAll('script');
+  for (const script of scripts) {
+    const content = script.textContent || script.innerText;
+    const tokenMatch = content.match(/LIVETEMPLATE_TOKEN['"]\s*:\s*['"]([^'"]+)['"]/);
+    if (tokenMatch) {
+      pageToken = tokenMatch[1];
+      break;
+    }
+  }
+  
+  // Method 2: Look for meta tag
+  if (!pageToken) {
+    const metaTag = document.querySelector('meta[name="livetemplate-token"]');
+    if (metaTag) {
+      pageToken = metaTag.getAttribute('content');
+    }
+  }
+  
+  // Method 3: Look for data attribute on body
+  if (!pageToken) {
+    pageToken = document.body.getAttribute('data-livetemplate-token');
+  }
+  
+  if (pageToken && pageToken !== 'PAGE_TOKEN_PLACEHOLDER') {
+    console.log('LiveTemplate: Auto-detected page token');
+    
+    // Create and connect client automatically
+    const client = new LiveTemplateClient({
+      presetToken: pageToken,
+      onOpen: () => console.log('LiveTemplate: Connected'),
+      onClose: () => console.log('LiveTemplate: Disconnected'),
+      onError: (error) => console.error('LiveTemplate error:', error)
+    });
+    
+    // Auto-connect using session cookies (no token needed)
+    const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
+    const wsUrl = `ws://${window.location.hostname}:${port}/ws?has_cache=${client.hasCachedStatics() ? 'true' : 'false'}`;
+    console.log('LiveTemplate: Connecting to:', wsUrl);
+    console.log('LiveTemplate: Detected port:', port, 'from window.location.port:', window.location.port);
+    client.connect(wsUrl);
+    
+    // Make client globally available for actions
+    window.liveTemplateClient = client;
+    
+    // Set up automatic action handling for elements with data-lvt-action
+    document.addEventListener('click', (e) => {
+      const action = e.target.getAttribute('data-lvt-action');
+      if (action && client.isConnected()) {
+        client.sendAction(action);
+      }
+    });
+    
+    return client;
+  }
+  
+  return null;
+}
+
 // Export for both CommonJS and ES modules
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = LiveTemplateClient;
 } else if (typeof window !== 'undefined') {
   window.LiveTemplateClient = LiveTemplateClient;
+  
+  // Auto-initialize when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', autoInitializeLiveTemplate);
+  } else {
+    autoInitializeLiveTemplate();
+  }
 }

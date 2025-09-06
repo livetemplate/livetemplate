@@ -287,6 +287,30 @@ func (app *Application) GetPage(tokenString string) (*Page, error) {
 	}, nil
 }
 
+// GetPageByID retrieves a page directly by ID, bypassing token validation
+// This is used for session-based authentication where tokens are not required
+func (app *Application) GetPageByID(pageID string) (*Page, error) {
+	app.mu.RLock()
+	defer app.mu.RUnlock()
+
+	if app.closed {
+		return nil, fmt.Errorf("application is closed")
+	}
+
+	// Retrieve page from registry directly
+	internalPage, err := app.pageRegistry.Get(pageID, app.id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve page: %w", err)
+	}
+
+	// Create public page wrapper without token validation
+	return &Page{
+		internal: internalPage,
+		token:    internalPage.ID, // Use page ID as token for compatibility
+		app:      app,
+	}, nil
+}
+
 // GetPageCount returns the total number of active pages
 func (app *Application) GetPageCount() int {
 	app.mu.RLock()
@@ -378,6 +402,13 @@ type ApplicationMetrics struct {
 	RegistryCapacity   float64       `json:"registry_capacity"`
 	Uptime             time.Duration `json:"uptime"`
 	StartTime          time.Time     `json:"start_time"`
+}
+
+// GetID returns the application ID
+func (app *Application) GetID() string {
+	app.mu.RLock()
+	defer app.mu.RUnlock()
+	return app.id
 }
 
 // Close releases all application resources

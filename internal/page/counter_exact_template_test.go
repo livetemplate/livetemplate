@@ -76,6 +76,9 @@ func TestCounterExactTemplate(t *testing.T) {
 		t.Logf("Region %d: ID=%s, Source=%q", i, region.ID, region.TemplateSource)
 	}
 
+	// Store the detected regions in the page for fragment generation
+	page.regions = regions
+
 	// New data with both changes
 	newData := map[string]interface{}{"Counter": 1, "Color": "color-blue"}
 

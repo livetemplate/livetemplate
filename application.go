@@ -9,14 +9,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/livefir/livetemplate/internal/app"
+	"github.com/livefir/livetemplate/internal/session"
 )
 
-// Application provides secure multi-tenant isolation with JWT-based authentication
+// Application provides secure multi-tenant isolation with session-based authentication
 type Application struct {
-	internal  *app.Application
-	config    *ApplicationConfig
-	templates map[string]*template.Template // Template registry for reuse
+	internal       *app.Application
+	config         *ApplicationConfig
+	templates      map[string]*template.Template // Template registry for reuse
+	actions        map[string]ActionHandler      // Global action registry
+	sessionManager *session.Manager              // Session management
 }
 
 // ApplicationConfig contains configuration for the public Application
@@ -36,7 +40,9 @@ func NewApplication(options ...ApplicationOption) (*Application, error) {
 			MaxMemoryMB:    100,
 			MetricsEnabled: true,
 		},
-		templates: make(map[string]*template.Template), // Initialize template registry
+		templates:      make(map[string]*template.Template), // Initialize template registry
+		actions:        make(map[string]ActionHandler),      // Initialize action registry
+		sessionManager: session.NewManager(24 * time.Hour),  // Initialize session manager
 	}
 
 	// Apply public options to collect configuration
@@ -108,13 +114,19 @@ func WithCacheInfo(cacheInfo *ClientCacheInfo) ApplicationPageOption {
 	}
 }
 
-// ApplicationPage represents a page managed by an Application with JWT token support
+// ActionHandler is a function that processes an action and returns updated data
+type ActionHandler func(currentData interface{}, actionData map[string]interface{}) (interface{}, error)
+
+// ApplicationPage represents a page managed by an Application with session-based authentication
 type ApplicationPage struct {
 	internal  *app.Page
 	cacheInfo *ClientCacheInfo
+	actions   map[string]ActionHandler // Registered action handlers
+	sessionID string                   // Session ID for this page
+	app       *Application             // Reference to parent application
 }
 
-// NewApplicationPage creates a new isolated page session with JWT token
+// NewApplicationPage creates a new isolated page session with session-based authentication
 func (a *Application) NewApplicationPage(tmpl *template.Template, data interface{}, options ...ApplicationPageOption) (*ApplicationPage, error) {
 	// Convert public options to internal options
 	var internalOptions []app.PageOption
@@ -125,7 +137,19 @@ func (a *Application) NewApplicationPage(tmpl *template.Template, data interface
 		return nil, err
 	}
 
-	publicPage := &ApplicationPage{internal: internal}
+	// Create session for this page
+	sess, err := a.sessionManager.CreateSession(a.internal.GetID(), internal.GetID(), internal.GetToken())
+	if err != nil {
+		_ = internal.Close() // Cleanup internal page on error
+		return nil, fmt.Errorf("failed to create session: %w", err)
+	}
+
+	publicPage := &ApplicationPage{
+		internal:  internal,
+		actions:   a.actions, // Use application's action registry
+		sessionID: sess.ID,
+		app:       a,
+	}
 
 	// Apply public options
 	for _, option := range options {
@@ -185,44 +209,72 @@ func (a *Application) GetRegisteredTemplates() []string {
 	return names
 }
 
-// GetApplicationPage retrieves a page by JWT token with application boundary enforcement
-func (a *Application) GetApplicationPage(token string, options ...ApplicationPageOption) (*ApplicationPage, error) {
-	internal, err := a.internal.GetPage(token)
+// RegisterAction registers an action handler at the application level
+func (a *Application) RegisterAction(actionName string, handler ActionHandler) {
+	a.actions[actionName] = handler
+}
+
+// GetPage retrieves a page from an HTTP request, handling all authentication complexity internally
+// This is the primary API that users should use for all page retrieval needs
+func (a *Application) GetPage(r *http.Request) (*ApplicationPage, error) {
+	// Get session cookie
+	cookie, err := r.Cookie("livetemplate_session")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("no session cookie found: %w", err)
 	}
 
-	publicPage := &ApplicationPage{internal: internal}
-
-	// Apply options
-	for _, option := range options {
-		if err := option(publicPage); err != nil {
-			return nil, err
-		}
-	}
-
-	return publicPage, nil
-}
-
-// GetPage retrieves a page by JWT token (simplified name)
-func (a *Application) GetPage(token string, options ...ApplicationPageOption) (*ApplicationPage, error) {
-	return a.GetApplicationPage(token, options...)
-}
-
-// GetPageFromRequest extracts token from request and cache info from query params
-// This is the most convenient method for WebSocket handlers
-func (a *Application) GetPageFromRequest(r *http.Request) (*ApplicationPage, error) {
-	// Extract token from query param
-	token := r.URL.Query().Get("token")
-	if token == "" {
-		return nil, fmt.Errorf("no token provided in request")
+	// Validate session
+	sess, exists := a.sessionManager.GetSession(cookie.Value)
+	if !exists {
+		return nil, fmt.Errorf("invalid or expired session")
 	}
 
 	// Parse cache information from URL query parameters
 	cacheInfo := ParseCacheInfoFromURL(r.URL.Query())
 
-	// Get page with cache context
-	return a.GetPage(token, WithCacheInfo(cacheInfo))
+	// Get the internal page directly by ID to bypass JWT token validation
+	internalPage, err := a.internal.GetPageByID(sess.PageID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get page: %w", err)
+	}
+
+	// Create ApplicationPage with session context
+	page := &ApplicationPage{
+		internal:  internalPage,
+		actions:   a.actions,
+		sessionID: sess.ID,
+		app:       a,
+		cacheInfo: cacheInfo,
+	}
+
+	return page, nil
+}
+
+// ServeHTTP serves the page as HTML response, optionally updating data first
+func (p *ApplicationPage) ServeHTTP(w http.ResponseWriter, data ...interface{}) error {
+	// Set session cookie before rendering
+	http.SetCookie(w, &http.Cookie{
+		Name:     "livetemplate_session",
+		Value:    p.sessionID,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   false, // Set to true in production with HTTPS
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   24 * 3600, // 24 hours
+	})
+
+	// Render with optional data update and automatic token embedding
+	html, err := p.Render(data...)
+	if err != nil {
+		return fmt.Errorf("failed to render page: %w", err)
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	if _, err := w.Write([]byte(html)); err != nil {
+		return fmt.Errorf("failed to write response: %w", err)
+	}
+
+	return nil
 }
 
 // GetPageCount returns the total number of active pages
@@ -266,9 +318,38 @@ func (a *Application) Close() error {
 
 // ApplicationPage methods
 
-// Render generates the complete HTML output for the current page state
-func (p *ApplicationPage) Render() (string, error) {
-	return p.internal.Render()
+// Render generates the complete HTML output, optionally updating data first
+// Automatically embeds the page token in the HTML
+func (p *ApplicationPage) Render(data ...interface{}) (string, error) {
+	// Update data if provided
+	if len(data) > 0 {
+		if err := p.SetData(data[0]); err != nil {
+			return "", fmt.Errorf("failed to update page data: %w", err)
+		}
+	}
+
+	html, err := p.internal.Render()
+	if err != nil {
+		return "", err
+	}
+
+	// Automatically embed the page token via meta tag
+	token := p.GetToken()
+
+	// Replace placeholder if it exists
+	html = strings.ReplaceAll(html, "PAGE_TOKEN_PLACEHOLDER", token)
+
+	// Also inject meta tag if not already present
+	if !strings.Contains(html, `meta name="livetemplate-token"`) {
+		metaTag := fmt.Sprintf(`<meta name="livetemplate-token" content="%s">`, token)
+		if strings.Contains(html, "</head>") {
+			html = strings.Replace(html, "</head>", metaTag+"\n</head>", 1)
+		} else if strings.Contains(html, "<head>") {
+			html = strings.Replace(html, "<head>", "<head>\n"+metaTag, 1)
+		}
+	}
+
+	return html, nil
 }
 
 // ClientCacheInfo contains information about what the client has cached
@@ -335,9 +416,20 @@ func (p *ApplicationPage) filterStaticsFromFragments(fragments []*Fragment, cach
 	return filtered
 }
 
-// GetToken returns the JWT token for this page
-func (p *ApplicationPage) GetToken() string {
+// GetSessionID returns the session ID for this page
+func (p *ApplicationPage) GetSessionID() string {
+	return p.sessionID
+}
+
+// GetCacheToken returns the stable token used for client-side cache identification
+// This token remains the same across page reloads to maintain cache consistency
+func (p *ApplicationPage) GetCacheToken() string {
 	return p.internal.GetToken()
+}
+
+// GetToken returns the session ID (legacy method for backward compatibility)
+func (p *ApplicationPage) GetToken() string {
+	return p.GetSessionID()
 }
 
 // SetData updates the page data state
@@ -353,6 +445,113 @@ func (p *ApplicationPage) SetCacheInfo(cacheInfo *ClientCacheInfo) {
 // GetCacheInfo returns the current cache information for this page
 func (p *ApplicationPage) GetCacheInfo() *ClientCacheInfo {
 	return p.cacheInfo
+}
+
+// RegisterAction registers an action handler for the given action name
+func (p *ApplicationPage) RegisterAction(actionName string, handler ActionHandler) {
+	p.actions[actionName] = handler
+}
+
+// HasActions returns true if any actions are registered
+func (p *ApplicationPage) HasActions() bool {
+	return len(p.actions) > 0
+}
+
+// HandleAction processes an action and returns updated fragments
+func (p *ApplicationPage) HandleAction(ctx context.Context, actionName string, actionData map[string]interface{}) ([]*Fragment, error) {
+	handler, exists := p.actions[actionName]
+	if !exists {
+		return nil, fmt.Errorf("action %q not registered", actionName)
+	}
+
+	// Get current data
+	currentData := p.GetData()
+
+	// Call the handler to get new data
+	newData, err := handler(currentData, actionData)
+	if err != nil {
+		return nil, fmt.Errorf("action handler failed: %w", err)
+	}
+
+	// Update page data and generate fragments
+	return p.RenderFragments(ctx, newData)
+}
+
+// ServeWebSocket provides a complete WebSocket handler that automatically processes actions
+func (a *Application) ServeWebSocket() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Get page from request
+		page, err := a.GetPage(r)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to get page: %v", err), http.StatusBadRequest)
+			return
+		}
+
+		// Debug logging
+		fmt.Printf("WebSocket connected: token=%s, actions=%d\n", page.GetToken(), len(page.actions))
+
+		// Upgrade to WebSocket
+		upgrader := &websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool {
+				return true // Allow all origins in this example
+			},
+		}
+
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		// Handle messages
+		for {
+			var message map[string]interface{}
+			err := conn.ReadJSON(&message)
+			if err != nil {
+				break
+			}
+
+			// Check message type
+			msgType, _ := message["type"].(string)
+			if msgType != "action" {
+				continue // Skip non-action messages
+			}
+
+			// Extract action information
+			actionName, ok := message["action"].(string)
+			if !ok {
+				continue
+			}
+
+			// Validate token matches (optional security check)
+			if token, ok := message["token"].(string); ok && token != page.GetToken() {
+				continue // Skip messages with mismatched tokens
+			}
+
+			actionData, _ := message["data"].(map[string]interface{})
+			if actionData == nil {
+				actionData = make(map[string]interface{})
+			}
+
+			// Debug logging
+			fmt.Printf("Processing action: %s\n", actionName)
+
+			// Process action and get fragments
+			fragments, err := page.HandleAction(r.Context(), actionName, actionData)
+			if err != nil {
+				fmt.Printf("Action handler error: %v\n", err)
+				continue
+			}
+
+			fmt.Printf("Generated %d fragments\n", len(fragments))
+
+			// Send fragments to client
+			if err := conn.WriteJSON(fragments); err != nil {
+				fmt.Printf("WebSocket send error: %v\n", err)
+				break
+			}
+		}
+	}
 }
 
 // GetData returns the current page data

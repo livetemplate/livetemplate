@@ -186,11 +186,19 @@ func (p *Page) renderFragmentsWithConfig(ctx context.Context, newData interface{
 	// Update last accessed time
 	p.lastAccessed = time.Now()
 
-	// Use cached template regions to ensure consistent IDs with HTML
+	// Use cached template regions, detect them if not already cached
 	regions := p.regions
 	if len(regions) == 0 {
-		// Fallback to original full-template approach for simple templates
-		return p.renderFragmentsLegacyWithConfig(newData, config)
+		// Try to detect regions if not already done
+		detectedRegions, err := p.detectTemplateRegions()
+		if err == nil && len(detectedRegions) > 0 {
+			// Cache the detected regions for future use
+			p.regions = detectedRegions
+			regions = detectedRegions
+		} else {
+			// Fallback to original full-template approach for simple templates
+			return p.renderFragmentsLegacyWithConfig(newData, config)
+		}
 	}
 
 	// Generate fragments for each dynamic region
@@ -305,6 +313,13 @@ func (p *Page) GetTemplate() *template.Template {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.template
+}
+
+// GetID returns the page ID
+func (p *Page) GetID() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.ID
 }
 
 // UpdateLastAccessed updates the last accessed timestamp

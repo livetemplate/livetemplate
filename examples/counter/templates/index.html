@@ -2,74 +2,13 @@
 <html>
   <head>
     <title>Counter App</title>
-    <style>
-      .color-red {
-        color: #ff6b6b;
-      }
-      .color-teal {
-        color: #4ecdc4;
-      }
-      .color-blue {
-        color: #45b7d1;
-      }
-      .color-green {
-        color: #96ceb4;
-      }
-      .color-yellow {
-        color: #feca57;
-      }
-      .color-pink {
-        color: #ff6fa6;
-      }
-      .color-purple {
-        color: #9b59b6;
-      }
-      .color-lightblue {
-        color: #3498db;
-      }
-      .color-orange {
-        color: #e67e22;
-      }
-      .color-turquoise {
-        color: #1abc9c;
-      }
-      .color-darkred {
-        color: #e74c3c;
-      }
-      .color-emerald {
-        color: #2ecc71;
-      }
-    </style>
   </head>
   <body>
-    <h1><span class="{{.Color}}">Simple Counter</span></h1>
-    <div>Hello {{.Counter}} World</div>
-    <button onclick="sendAction('increment')">+</button>
-    <button onclick="sendAction('decrement')">-</button>
+    <div style="color: {{.Color}}">Hello {{.Counter}} World</div>
+    <button data-lvt-action="increment">+</button>
+    <button data-lvt-action="decrement">-</button>
 
-    <!-- Load LiveTemplate client library -->
+    <!-- Load LiveTemplate client library - auto-initializes with embedded token -->
     <script src="/client/livetemplate-client.js"></script>
-    
-    <script>
-      // Counter app setup
-      let client;
-
-      function sendAction(action) {
-        client.sendAction(action);
-      }
-
-      // Token embedded from server
-      const pageToken = "PAGE_TOKEN_PLACEHOLDER"; 
-
-      // Initialize client and connect with existing token
-      client = new LiveTemplateClient({
-        presetToken: pageToken,
-        onOpen: () => console.log("Counter app connected to LiveTemplate"),
-        onClose: () => console.log("Counter app disconnected"),
-      });
-
-      // Connect with token - client will automatically add cache status
-      client.connect(`ws://${window.location.hostname}:${window.location.port || 8080}/ws?token=${pageToken}`);
-    </script>
   </body>
 </html>
