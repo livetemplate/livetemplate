@@ -11,6 +11,87 @@ class LiveTemplateClient {
     this.onClose = options.onClose || (() => console.log("WebSocket disconnected"));
     this.onError = options.onError || ((error) => console.error("WebSocket error:", error));
     this.onMessage = options.onMessage || null;
+    
+    // Initialize persistent cache
+    this.initializePersistentCache();
+  }
+
+  // Initialize persistent cache based on page token and URL parameters
+  initializePersistentCache() {
+    // Check for cache=empty parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    const forceClear = urlParams.get('cache') === 'empty';
+    
+    if (forceClear) {
+      console.log("Force clearing cache due to ?cache=empty");
+      this.clearPersistentCache();
+      return;
+    }
+
+    if (!this.pageToken) {
+      return; // No token yet, can't load cache
+    }
+
+    // Load cached statics for this page token
+    this.loadStaticsFromCache();
+  }
+
+  // Load statics from localStorage for current page token
+  loadStaticsFromCache() {
+    if (!this.pageToken) return;
+
+    try {
+      const cacheKey = `livetemplate_cache_${this.pageToken}`;
+      const cached = localStorage.getItem(cacheKey);
+      
+      if (cached) {
+        const cacheData = JSON.parse(cached);
+        this.staticCache = cacheData.statics || {};
+        console.log(`Loaded ${Object.keys(this.staticCache).length} cached statics for token ${this.pageToken}`);
+      } else {
+        console.log(`No cached statics found for token ${this.pageToken}`);
+      }
+    } catch (e) {
+      console.warn("Failed to load statics from cache:", e);
+      this.staticCache = {};
+    }
+  }
+
+  // Save statics to localStorage for current page token
+  saveStaticsToCache() {
+    if (!this.pageToken || Object.keys(this.staticCache).length === 0) return;
+
+    try {
+      const cacheKey = `livetemplate_cache_${this.pageToken}`;
+      const cacheData = {
+        token: this.pageToken,
+        timestamp: Date.now(),
+        statics: this.staticCache
+      };
+      
+      localStorage.setItem(cacheKey, JSON.stringify(cacheData));
+      console.log(`Saved ${Object.keys(this.staticCache).length} statics to cache for token ${this.pageToken}`);
+    } catch (e) {
+      console.warn("Failed to save statics to cache:", e);
+    }
+  }
+
+  // Clear all cached statics
+  clearPersistentCache() {
+    try {
+      // Remove all livetemplate cache entries
+      const keys = Object.keys(localStorage).filter(key => key.startsWith('livetemplate_cache_'));
+      keys.forEach(key => localStorage.removeItem(key));
+      console.log(`Cleared ${keys.length} cache entries`);
+    } catch (e) {
+      console.warn("Failed to clear persistent cache:", e);
+    }
+    this.staticCache = {};
+  }
+
+  // Check if we have cached statics
+  hasCachedStatics() {
+    return Object.keys(this.staticCache).length > 0;
   }
 
   connect(customUrl = null) {
@@ -21,6 +102,22 @@ class LiveTemplateClient {
       // If we have a preset token, log it and notify ready
       if (this.pageToken) {
         console.log("Using preset token:", this.pageToken);
+        
+        // Load cache for this token if not already loaded
+        if (Object.keys(this.staticCache).length === 0) {
+          this.loadStaticsFromCache();
+        }
+        
+        // Send cache status to server
+        const cacheStatus = {
+          type: "cache_status",
+          token: this.pageToken,
+          has_cache: this.hasCachedStatics(),
+          cached_fragments: Object.keys(this.staticCache)
+        };
+        
+        this.ws.send(JSON.stringify(cacheStatus));
+        console.log(`Sent cache status: ${this.hasCachedStatics() ? 'HAS_CACHE' : 'NO_CACHE'} (${Object.keys(this.staticCache).length} fragments)`);
       }
       this.onOpen();
     };
@@ -66,12 +163,16 @@ class LiveTemplateClient {
   }
 
   updateFragments(fragments) {
+    let staticsUpdated = false;
+    
     fragments.forEach((fragment) => {
       console.log("Updating fragment:", fragment);
 
       // Cache statics if provided
       if (fragment.data && fragment.data.s) {
         this.staticCache[fragment.id] = fragment.data.s;
+        staticsUpdated = true;
+        console.log(`Cached statics for fragment ${fragment.id}`);
       }
 
       // Find element by LiveTemplate ID (lvt-id)
@@ -85,6 +186,11 @@ class LiveTemplateClient {
         this.updateElementFromTreeData(element, fragment.data, fragment.id);
       }
     });
+    
+    // Save updated statics to persistent cache
+    if (staticsUpdated) {
+      this.saveStaticsToCache();
+    }
   }
 
   updateElementFromTreeData(element, treeData, fragmentId) {

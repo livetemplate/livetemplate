@@ -106,15 +106,23 @@ func (c *Counter) GetColor() string {
 }
 
 type Server struct {
-	app      *livetemplate.Application
-	counter  *Counter
-	upgrader websocket.Upgrader
+	app        *livetemplate.Application
+	counter    *Counter
+	upgrader   websocket.Upgrader
+	sharedPage *livetemplate.ApplicationPage // Single shared page for all clients
 }
 
 type ActionMessage struct {
 	Type   string         `json:"type"`
 	Action string         `json:"action"`
 	Data   map[string]any `json:"data"`
+}
+
+type CacheStatusMessage struct {
+	Type            string   `json:"type"`
+	Token           string   `json:"token"`
+	HasCache        bool     `json:"has_cache"`
+	CachedFragments []string `json:"cached_fragments"`
 }
 
 func NewServer() *Server {
@@ -129,15 +137,26 @@ func NewServer() *Server {
 		log.Fatal("Failed to register template:", err)
 	}
 	
+	counter := NewCounter()
+	
+	// Create a single shared page that persists across reloads
+	sharedPage, err := app.NewPage("counter", counter.ToMap())
+	if err != nil {
+		log.Fatal("Failed to create shared page:", err)
+	}
+	
 	server := &Server{
-		app:     app,
-		counter: NewCounter(),
+		app:        app,
+		counter:    counter,
+		sharedPage: sharedPage,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return true
 			},
 		},
 	}
+	
+	log.Printf("Created shared page with stable token: %s", sharedPage.GetToken())
 	
 	return server
 }
@@ -147,28 +166,29 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	data := s.counter.ToMap()
 	log.Printf("HTTP render with data: Counter=%d, Color=%s", s.counter.GetValue(), s.counter.GetColor())
 
-	// Create page (don't close it - WebSocket will use it)
-	page, err := s.app.NewPage("counter", data)
+	// Update shared page with current data
+	err := s.sharedPage.SetData(data)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to create page: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Failed to update page data: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	html, err := page.Render()
+	// Render using the shared page (same token every time)
+	html, err := s.sharedPage.Render()
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to render page: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Embed token in HTML for WebSocket to use
-	html = strings.ReplaceAll(html, "PAGE_TOKEN_PLACEHOLDER", page.GetToken())
+	// Embed stable token in HTML for WebSocket to use
+	html = strings.ReplaceAll(html, "PAGE_TOKEN_PLACEHOLDER", s.sharedPage.GetToken())
 
 	w.Header().Set("Content-Type", "text/html")
 	if _, err := w.Write([]byte(html)); err != nil {
 		log.Printf("Error writing response: %v", err)
 	}
 
-	// Don't close page - WebSocket will use it
+	log.Printf("Served page with stable token: %s", s.sharedPage.GetToken())
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -186,70 +206,145 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get existing page by token
-	page, err := s.app.GetPage(token)
-	if err != nil {
-		log.Printf("Error getting page: %v", err)
+	// Verify token matches our shared page
+	if token != s.sharedPage.GetToken() {
+		log.Printf("Token mismatch: expected %s, got %s", s.sharedPage.GetToken(), token)
 		return
 	}
 
-	log.Printf("WebSocket connected to existing page with token: %s", token)
+	log.Printf("WebSocket connected to shared page with stable token: %s", token)
+	
+	// Track client cache status
+	clientHasCache := false
+	cachedFragments := make(map[string]bool)
 
 	// Handle messages
 	for {
-		var msg ActionMessage
-		err := conn.ReadJSON(&msg)
+		var rawMessage map[string]interface{}
+		err := conn.ReadJSON(&rawMessage)
 		if err != nil {
 			log.Printf("WebSocket read error: %v", err)
 			break
 		}
 
-		log.Printf("Received action: %s", msg.Action)
-
-		// Update counter based on action
-		oldValue := s.counter.GetValue()
-		switch msg.Action {
-		case "increment":
-			s.counter.Increment()
-		case "decrement":
-			s.counter.Decrement()
-		default:
-			log.Printf("Unknown action: %s", msg.Action)
+		messageType, ok := rawMessage["type"].(string)
+		if !ok {
+			log.Printf("Invalid message: missing or invalid type")
 			continue
 		}
 
-		log.Printf("Counter updated from %d to %d with color %s", oldValue, s.counter.GetValue(), s.counter.GetColor())
-
-		// Generate fragments using proper LiveTemplate API with both Counter and Color
-		newData := s.counter.ToMap()
-		log.Printf("Generating fragments with new data: Counter=%d, Color=%s", s.counter.GetValue(), s.counter.GetColor())
-		log.Printf("New data map: %+v", newData)
-
-		fragments, err := page.RenderFragments(context.Background(), newData)
-		if err != nil {
-			log.Printf("Error rendering fragments: %v", err)
+		switch messageType {
+		case "cache_status":
+			// Handle cache status message
+			var cacheMsg CacheStatusMessage
+			msgBytes, _ := json.Marshal(rawMessage)
+			json.Unmarshal(msgBytes, &cacheMsg)
+			
+			clientHasCache = cacheMsg.HasCache
+			cachedFragments = make(map[string]bool)
+			for _, fragID := range cacheMsg.CachedFragments {
+				cachedFragments[fragID] = true
+			}
+			
+			log.Printf("Client cache status: %t (%d cached fragments)", clientHasCache, len(cacheMsg.CachedFragments))
 			continue
+
+		case "action":
+			// Handle action message
+			var actionMsg ActionMessage
+			msgBytes, _ := json.Marshal(rawMessage)
+			json.Unmarshal(msgBytes, &actionMsg)
+			
+			log.Printf("Received action: %s", actionMsg.Action)
+
+			// Update counter based on action
+			oldValue := s.counter.GetValue()
+			switch actionMsg.Action {
+			case "increment":
+				s.counter.Increment()
+			case "decrement":
+				s.counter.Decrement()
+			default:
+				log.Printf("Unknown action: %s", actionMsg.Action)
+				continue
+			}
+
+			log.Printf("Counter updated from %d to %d with color %s", oldValue, s.counter.GetValue(), s.counter.GetColor())
+
+			// Generate fragments using proper LiveTemplate API with both Counter and Color
+			newData := s.counter.ToMap()
+			log.Printf("Generating fragments with new data: Counter=%d, Color=%s", s.counter.GetValue(), s.counter.GetColor())
+			log.Printf("New data map: %+v", newData)
+
+			fragments, err := s.sharedPage.RenderFragments(context.Background(), newData)
+			if err != nil {
+				log.Printf("Error rendering fragments: %v", err)
+				continue
+			}
+
+			// Modify fragments based on client cache status
+			if clientHasCache {
+				log.Printf("Client has cache, filtering statics from %d fragments", len(fragments))
+				fragments = s.filterStaticsFromFragments(fragments, cachedFragments)
+				log.Printf("Filtered to %d fragments without statics", len(fragments))
+			}
+
+			log.Printf("Generated %d fragments", len(fragments))
+			for i, frag := range fragments {
+				log.Printf("Fragment %d: ID=%s, Data=%+v", i, frag.ID, frag.Data)
+				
+				// Debug: Check JSON marshaling
+				if jsonData, err := json.Marshal(frag.Data); err == nil {
+					log.Printf("Fragment %d JSON: %s", i, string(jsonData))
+				}
+			}
+
+			// Send fragments directly to client
+			if err := conn.WriteJSON(fragments); err != nil {
+				log.Printf("Error sending fragments: %v", err)
+				break
+			}
+
+			log.Printf("Counter updated to: %d", s.counter.GetValue())
+		
+		default:
+			log.Printf("Unknown message type: %s", messageType)
+			continue
+		}
+	}
+}
+
+// filterStaticsFromFragments removes statics from fragments that client already has cached
+func (s *Server) filterStaticsFromFragments(fragments []*livetemplate.Fragment, cachedFragments map[string]bool) []*livetemplate.Fragment {
+	var filtered []*livetemplate.Fragment
+	
+	for _, frag := range fragments {
+		// Create a copy of the fragment
+		newFrag := &livetemplate.Fragment{
+			ID:       frag.ID,
+			Data:     frag.Data,
+			Metadata: frag.Metadata,
 		}
 		
-
-		log.Printf("Generated %d fragments (Expected: 2 for both Counter and Color changes)", len(fragments))
-		for i, frag := range fragments {
-			log.Printf("Fragment %d: ID=%s, Data=%+v", i, frag.ID, frag.Data)
-			
-			// Debug: Check JSON marshaling
-			if jsonData, err := json.Marshal(frag.Data); err == nil {
-				log.Printf("Fragment %d JSON: %s", i, string(jsonData))
+		// If client has this fragment cached, remove statics from data
+		if cachedFragments[frag.ID] {
+			if treeData, ok := frag.Data.(map[string]interface{}); ok {
+				// Create new tree data without statics
+				newTreeData := make(map[string]interface{})
+				for k, v := range treeData {
+					if k != "s" { // Remove statics ("s" field)
+						newTreeData[k] = v
+					}
+				}
+				newFrag.Data = newTreeData
+				log.Printf("Removed statics from fragment %s", frag.ID)
 			}
 		}
-
-		// Send fragments directly to client
-		if err := conn.WriteJSON(fragments); err != nil {
-			log.Printf("Error sending fragments: %v", err)
-			break
-		}
-
-		log.Printf("Counter updated to: %d", s.counter.GetValue())
+		
+		filtered = append(filtered, newFrag)
 	}
+	
+	return filtered
 }
 
 func main() {
