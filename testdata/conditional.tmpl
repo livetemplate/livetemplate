@@ -1,0 +1,11 @@
+<div>
+  <h2>{{.User.Name}}</h2>
+  {{if .User.Premium}}
+    <span class="badge">Premium Member</span>
+  {{end}}
+  {{if .User.Online}}
+    <span class="status online">Online</span>
+  {{else}}
+    <span class="status offline">Offline</span>
+  {{end}}
+</div>

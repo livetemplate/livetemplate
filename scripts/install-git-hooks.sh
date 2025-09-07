@@ -37,13 +37,14 @@ else
     exit 1
 fi
 
-# Step 2: Run CI validation (which now only checks, doesn't format)
-if [ -f "./scripts/validate-ci.sh" ]; then
-    echo "📋 Running CI validation script..."
-    ./scripts/validate-ci.sh
+# Step 2: Run fast CI validation for pre-commit
+if [ -f "./scripts/ci.sh" ]; then
+    echo "📋 Running fast CI validation script..."
+    LIVETEMPLATE_PRE_COMMIT=true ./scripts/ci.sh --mode fast
 else
-    echo "❌ validate-ci.sh script not found at ./scripts/validate-ci.sh"
-    exit 1
+    echo "❌ ci.sh script not found at ./scripts/ci.sh"
+    echo "💡 Falling back to basic tests..."
+    go test -short ./...
 fi
 
 echo "✅ Pre-commit validation completed successfully"
@@ -53,4 +54,5 @@ EOF
 chmod +x .git/hooks/pre-commit
 
 echo "✅ Git hooks installed successfully"
-echo "Pre-commit hook will now run tests and validation before each commit"
+echo "Pre-commit hook will now run fast validation (core tests + linting) before each commit"
+echo "💡 Full tests will run in CI - this keeps commits fast while ensuring quality"

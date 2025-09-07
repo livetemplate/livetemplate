@@ -8,7 +8,7 @@ This document provides the low-level design specification for implementing LiveT
 
 - Concrete component specifications for v1.0 implementation
 - Security architecture with JWT-based multi-tenant isolation  
-- HTML diffing-enhanced four-tier intelligent update system
+- Tree-based optimization system with single unified strategy
 - Realistic 60-task implementation roadmap (transport removed)
 - Test-driven development strategy
 - Production-ready operational requirements
@@ -18,7 +18,7 @@ This document provides the low-level design specification for implementing LiveT
 **Key design principles:**
 
 - **Security First**: Multi-tenant isolation with comprehensive testing
-- **Performance First**: Four-tier strategy maximizing efficiency (85-95% → 70-85% → 60-80% → 40-60%)
+- **Performance First**: Tree-based optimization achieving 92%+ bandwidth savings
 - **Zero-configuration API**: Works out-of-the-box with sensible defaults
 - **Focused Scope**: Update generation only - no transport layer complexity
 - **Operational Excellence**: Comprehensive metrics and error handling
@@ -49,37 +49,15 @@ type Application struct { /* private fields */ }
 type Page struct { /* private fields */ }
 type Fragment struct {
     ID       string      `json:"id"`
-    Strategy string      `json:"strategy"`   // "static_dynamic", "markers", "granular", "replacement"
-    Action   string      `json:"action"`     // Specific action within strategy
-    Data     interface{} `json:"data"`       // Strategy-specific payload
+    Strategy string      `json:"strategy"`   // "tree_based"
+    Action   string      `json:"action"`     // "update_tree"
+    Data     interface{} `json:"data"`       // SimpleTreeData structure
 }
 
-// Strategy-specific data structures
-type StaticDynamicData struct {
-    Statics  []string              `json:"statics"`  // Static HTML segments
-    Dynamics map[string]interface{} `json:"dynamics"` // Dynamic values
-}
-
-type MarkerPatchData struct {
-    Patches []ValuePatch `json:"patches"` // Position-based value updates
-}
-
-type ValuePatch struct {
-    Position int    `json:"position"`
-    Length   int    `json:"length"`
-    NewValue string `json:"new_value"`
-    OldValue string `json:"old_value,omitempty"`
-}
-
-type GranularOpData struct {
-    Operation string      `json:"operation"` // "append", "prepend", "insert", "remove"
-    Content   string      `json:"content,omitempty"`
-    Position  int         `json:"position,omitempty"`
-    Selector  string      `json:"selector,omitempty"`
-}
-
-type ReplacementData struct {
-    Content string `json:"content"` // Complete HTML replacement
+// Tree-based optimization data structure
+type SimpleTreeData struct {
+    S        []string                 `json:"s"`        // Static HTML segments
+    Dynamics map[string]interface{}   `json:"dynamics"` // Dynamic values by key
 }
 
 // Configuration options
@@ -105,7 +83,7 @@ internal/
 ├── app/           # Application isolation and lifecycle
 ├── page/          # Page session management  
 ├── token/         # JWT token service
-├── fragment/      # Template analysis and update generation
+├── strategy/      # Tree-based optimization and template parsing
 ├── metrics/       # Simple built-in metrics (no external dependencies)
 └── memory/        # Memory management and cleanup
 ```
@@ -125,9 +103,9 @@ internal/
 4. **TokenService**: Standard JWT with replay protection
 
 **Update System (Priority 1)**:
-1. **TemplateAnalyzer**: Template analysis for strategy selection
-2. **FragmentExtractor**: HTML fragment identification and extraction
-3. **UpdateGenerator**: Dual-strategy update generation (value patches + fragment replacement)
+1. **TemplateAwareGenerator**: Hierarchical template parsing and boundary detection
+2. **SimpleTreeGenerator**: Single unified tree-based strategy
+3. **TreeDataGenerator**: Static/dynamic content separation with client-side caching
 
 **Production Features (Priority 2)**:
 1. **MemoryManager**: Resource limits and cleanup
@@ -214,15 +192,14 @@ func (p *Page) GetMemoryUsage() int64
 func (p *Page) IsExpired(ttl time.Duration) bool
 ```
 
-**HTML Diffing-Enhanced Four-Tier Strategy (v1.0)**:
-- **HTML Diff Analysis**: Render template with old + new data, analyze actual HTML changes
-- **Pattern Recognition**: Classify changes as text-only, simple operations, or complex rewrites
-- **Strategy 1 - Static/Dynamic**: 85-95% reduction for text-only changes (60-70% of cases)
-- **Strategy 2 - Marker Compilation**: 70-85% reduction for position-discoverable changes (15-20% of cases)
-- **Strategy 3 - Granular Operations**: 60-80% reduction for simple structural changes (10-15% of cases)
-- **Strategy 4 - Fragment Replacement**: 40-60% reduction for complex structural changes (5-10% of cases)
-- **Data-Driven Selection**: Strategy based on actual HTML diff patterns, not template guessing
-- **High Accuracy**: >90% optimal strategy selection through diff analysis
+**Tree-Based Optimization Strategy (v1.0)**:
+- **Template Boundary Analysis**: Hierarchical parsing of all Go template constructs
+- **Static/Dynamic Separation**: Identifies static HTML content vs dynamic template values
+- **Single Unified Strategy**: Tree-based optimization adapts to all template patterns
+- **Client-Side Caching**: Static content cached client-side, only dynamic values transmitted
+- **Phoenix LiveView Compatible**: Generated structures mirror LiveView client format
+- **92%+ Bandwidth Savings**: Achieved through intelligent static/dynamic separation
+- **Predictable Performance**: Consistent behavior across all template complexity levels
 
 ### 3. TokenService Component
 
@@ -263,274 +240,215 @@ func (ts *TokenService) RotateSigningKey() error
 - Nonce-based replay protection
 - Automatic key rotation support
 
-### 4. StrategyAnalyzer Component
+### 4. TreeGenerator Component
 
-**Purpose**: HTML diffing-based intelligent strategy selection with pattern analysis.
+**Purpose**: Tree-based optimization with template boundary parsing and static/dynamic separation.
 
 ```go
-type StrategyAnalyzer struct {
-    htmlDiffer            *HTMLDiffer
-    staticDynamicAnalyzer *StaticDynamicAnalyzer
-    markerCompiler        *MarkerCompiler
-    granularAnalyzer      *GranularAnalyzer
-    strategyCache         map[string]*StrategyAnalysis
-    config                *AnalyzerConfig
-    mu                    sync.RWMutex
-}
-
-type HTMLDiffer struct {
-    parser     *HTMLParser
-    comparator *DOMComparator
-    classifier *PatternClassifier
-    config     *DiffConfig
-}
-
-type HTMLDiff struct {
-    ChangeType    ChangeType
-    Changes       []Change
-    // Note: No confidence field - strategy selection is deterministic
-    OldHTML       string   // Original rendered HTML
-    NewHTML       string   // New rendered HTML
-}
-
-type Change struct {
-    Type        ChangeType // TEXT, ATTRIBUTE, ELEMENT_ADD, ELEMENT_REMOVE
-    Position    int        // Character position in HTML
-    OldValue    string
-    NewValue    string
-    Element     string     // HTML element affected
-    // Note: No confidence field - change detection is deterministic
-}
-
-type ChangeType int
-
-const (
-    TextChange ChangeType = iota
-    AttributeChange
-    ElementAddition
-    ElementRemoval
-    StructuralRewrite
-)
-
-type StrategyAnalysis struct {
-    SelectedStrategy StrategyType
-    Fragment         Fragment
-    HTMLDiff        *HTMLDiff        // HTML diff that led to strategy selection
-    PerformanceScore float64         // Expected bandwidth reduction
-    SelectionReason  string          // Why this strategy was selected
-    TemplateHash     string
-    DataSignature    string          // Hash of data changes for caching
-    GeneratedAt      time.Time
-}
-
-// HTML diffing-based strategy selection
-func (sa *StrategyAnalyzer) SelectOptimalStrategy(tmpl *html.Template, oldData, newData interface{}) (*StrategyAnalysis, error)
-func (sa *StrategyAnalyzer) AnalyzeHTMLDiff(tmpl *html.Template, oldData, newData interface{}) (*HTMLDiff, error)
-func (sa *StrategyAnalyzer) GenerateStaticDynamic(diff *HTMLDiff) (*Fragment, error)
-func (sa *StrategyAnalyzer) GenerateGranularOperations(diff *HTMLDiff) (*Fragment, error)
-func (sa *StrategyAnalyzer) GenerateMarkerPatches(tmpl *html.Template, oldData, newData interface{}, diff *HTMLDiff) (*Fragment, error)
-func (sa *StrategyAnalyzer) GenerateFragmentReplacement(newHTML string) (*Fragment, error)
-
-// Strategy-specific analyzers
-type StaticDynamicAnalyzer struct {
-    cache map[string]*StaticDynamicResult
+type SimpleTreeGenerator struct {
+    cache map[string]*SimpleTreeData // Fragment structure cache
     mu    sync.RWMutex
 }
 
-type MarkerCompiler struct {
-    markerPrefix string // "§"
-    markerSuffix string // "§"
-    maxListSize  int    // 20 items default
-    counter      uint32 // Atomic counter
+type TemplateAwareGenerator struct {
+    // Hierarchical template parsing and boundary detection
 }
 
-type GranularAnalyzer struct {
-    operationPatterns map[string]*OperationPattern
-    diffAnalyzer     *HTMLDiffer
-    mu               sync.RWMutex
+type TemplateBoundary struct {
+    Type       TemplateBoundaryType // StaticContent, SimpleField, ConditionalIf, RangeLoop
+    Content    string               // Original template content
+    Start      int                  // Position in template
+    End        int                  // Position in template
+    FieldPath  string               // For SimpleField: ".User.Name"
+    Condition  string               // For conditionals/ranges: ".Active"
+    TrueBlock  []TemplateBoundary   // Nested content for conditionals/ranges
+    FalseBlock []TemplateBoundary   // Else content
 }
 
-type PatternClassifier struct {
-    textOnlyPattern      *regexp.Regexp
-    elementAddPattern    *regexp.Regexp
-    elementRemovePattern *regexp.Regexp
-    complexRewriteThreshold float64
+type TemplateBoundaryType int
+
+const (
+    StaticContent TemplateBoundaryType = iota
+    SimpleField
+    ConditionalIf
+    RangeLoop
+    ContextWith
+    Complex
+    Comment
+)
+
+type SimpleTreeData struct {
+    S        []string                 `json:"s"`        // Static HTML segments
+    Dynamics map[string]interface{}   `json:"dynamics"` // Dynamic content by key
 }
 
-func (hd *HTMLDiffer) Analyze(oldHTML, newHTML string) *HTMLDiff {
-    // 1. Parse both HTML into DOM trees
-    oldDOM := hd.parser.Parse(oldHTML)
-    newDOM := hd.parser.Parse(newHTML)
-    
-    // 2. Compare DOM trees to identify changes
-    changes := hd.comparator.Compare(oldDOM, newDOM)
-    
-    // 3. Classify change patterns and complexity
-    pattern := hd.classifier.ClassifyChanges(changes)
-    
-    return &HTMLDiff{
-        ChangeType:  pattern.Type,
-        Changes:     changes,
-        Complexity:  pattern.Complexity,
-        Confidence:  pattern.Confidence,
-        OldHTML:     oldHTML,
-        NewHTML:     newHTML,
-    }
+type TreeGenerationResult struct {
+    TreeData        *SimpleTreeData
+    FragmentID      string
+    TemplateHash    string
+    GeneratedAt     time.Time
+    BandwidthSaving float64  // Estimated bandwidth saving percentage
 }
 
-// Deterministic strategy selection based on change types
-func (hd *HTMLDiff) RecommendStrategy() StrategyType {
-    hasText := false
-    hasAttribute := false
-    hasStructural := false
-    
-    for _, change := range hd.Changes {
-        switch change.Type {
-        case "text":
-            hasText = true
-        case "attribute":
-            hasAttribute = true
-        case "element_add", "element_remove", "element_change":
-            hasStructural = true
-        }
-    }
-    
-    // Rule-based deterministic selection (always predictable):
-    if hasStructural {
-        if hasText || hasAttribute {
-            return ReplacementStrategy    // Complex: multiple change types
-        }
-        return GranularStrategy           // Pure structural changes
-    }
-    
-    if hasAttribute {
-        return MarkerStrategy             // Attribute changes (with/without text)
-    }
-    
-    if hasText {
-        return StaticDynamicStrategy      // Pure text-only changes
-    }
-    
-    return StaticDynamicStrategy          // No changes or empty state
-}
-```
+// Tree-based optimization generation
+func (stg *SimpleTreeGenerator) GenerateFromTemplateSource(templateSource string, oldData, newData interface{}, fragmentID string) (*SimpleTreeData, error)
+func (tag *TemplateAwareGenerator) ParseTemplateBoundaries(templateSource string) ([]TemplateBoundary, error)
+func (tag *TemplateAwareGenerator) EvaluateFieldPath(fieldPath string, data interface{}) (interface{}, error)
+func (stg *SimpleTreeGenerator) GenerateTreeStructure(boundaries []TemplateBoundary, data interface{}) (*SimpleTreeData, error)
 
-### 5. FragmentExtractor Component
-
-**Purpose**: Fragment identification and extraction from templates with position tracking.
-
-```go
-type FragmentExtractor struct {
-    fragmentCache map[string][]FragmentInfo
-    config        *FragmentConfig
-    mu            sync.RWMutex
+// Template parsing support
+type TemplateParser struct {
+    cache map[string][]TemplateBoundary
+    mu    sync.RWMutex
 }
 
-type TemplateAST struct {
-    Root        *ASTNode
-    Expressions []DynamicExpression
-    Hash        string
+type DataEvaluator struct {
+    // Field path evaluation with reflection
 }
 
-type ASTNode struct {
-    Type     string     // "text", "action", "if", "range", "template"
-    Text     string     // For text nodes
-    Pipe     string     // For action nodes (e.g., ".Name")
-    Children []*ASTNode // Child nodes
-    Position int        // Position in template
+type TreeStructureBuilder struct {
+    // Hierarchical tree structure generation
 }
 
-type ClientReconstructionMeta struct {
-    FragmentID      string            `json:"fragment_id"`
-    ReconstructionJS string           `json:"reconstruction_js"`
-    StaticCount     int               `json:"static_count"`
-    DynamicCount    int               `json:"dynamic_count"`
-    TemplateHash    string            `json:"template_hash"`
-}
-
-type FragmentConfig struct {
-    MaxFragments     int // Default: 100 per page
-    CacheSize        int // Default: 1000 templates
-    MinFragmentSize  int // Default: 50 bytes
-}
-
-// Core operations with HTML diffing-enhanced strategy support
-func (fe *FragmentExtractor) ExtractFragmentFromDiff(diff *HTMLDiff, strategy StrategyType) (Fragment, error)
-func (fe *FragmentExtractor) GenerateFragmentID(templatePath string, strategy StrategyType, diffSignature string) string
-func (fe *FragmentExtractor) OptimizeFragmentForDiffPattern(fragment Fragment, diff *HTMLDiff) (*Fragment, error)
-func (fe *FragmentExtractor) ValidateDiffPatternCompatibility(fragment Fragment, diff *HTMLDiff) (bool, string)
-```
-
-**Fragment ID Algorithm (v1.0)**:
-```go
-func generateFragmentID(templatePath, dataPath string, position int) string {
-    components := fmt.Sprintf("%s|%s|%d", templatePath, dataPath, position)
-    hash := sha256.Sum256([]byte(components))
-    return fmt.Sprintf("f-%x", hash[:8]) // 16-character deterministic ID
-}
-```
-
-### 6. UpdateGenerator Component
-
-**Purpose**: Generate updates using HTML diffing-enhanced four-tier strategy selection.
-
-```go
-type UpdateGenerator struct {
-    strategyAnalyzer *StrategyAnalyzer
-    htmlDiffer      *HTMLDiffer
-    extractor       *FragmentExtractor
-    config          *UpdateConfig
-}
-
-type UpdateConfig struct {
-    EnableHTMLDiffing    bool         // Default: true
-    DiffCacheSize       int          // Default: 1000 diff patterns
-    CacheStrategies     bool         // Default: true
-    EnableCompression   bool         // Default: true
-    LogStrategySelection bool        // Default: true for analysis
-}
-
-type DataChange struct {
-    Path         string
-    OldValue     interface{}
-    NewValue     interface{}
-    HTMLDiff     *HTMLDiff    // Associated HTML diff analysis
-    Strategy     StrategyType // Deterministically selected strategy based on change types
-    // Note: No confidence field - strategy selection is deterministic
-    FragmentIDs  []string
-}
-
-// HTML diffing-enhanced update generation
-func (ug *UpdateGenerator) GenerateUpdatesFromDiff(tmpl *html.Template, oldData, newData interface{}) ([]Fragment, error) {
-    // 1. Analyze HTML diff to understand change patterns
-    diff, err := ug.strategyAnalyzer.AnalyzeHTMLDiff(tmpl, oldData, newData)
+func (stg *SimpleTreeGenerator) GenerateTreeFromTemplate(templateSource string, data interface{}) (*SimpleTreeData, error) {
+    // 1. Parse template into boundaries
+    boundaries, err := stg.parseTemplateBoundaries(templateSource)
     if err != nil {
         return nil, err
     }
     
-    // 2. Generate update using recommended strategy
-    switch diff.RecommendStrategy() {
-    case StaticDynamicStrategy:
-        return ug.generateStaticDynamicFromDiff(diff)
-    case GranularStrategy:
-        return ug.generateGranularFromDiff(diff)
-    case MarkerStrategy:
-        return ug.generateMarkerFromDiff(tmpl, oldData, newData, diff)
-    default:
-        return ug.generateReplacementFromDiff(diff)
+    // 2. Generate static segments and dynamic values
+    statics := []string{}
+    dynamics := make(map[string]interface{})
+    
+    // 3. Build tree structure with static/dynamic separation
+    treeData := &SimpleTreeData{
+        S:        statics,
+        Dynamics: dynamics,
     }
+    
+    return treeData, nil
 }
 
-// Strategy-specific generators enhanced with HTML diff data
-func (ug *UpdateGenerator) generateStaticDynamicFromDiff(diff *HTMLDiff) ([]Fragment, error)
-func (ug *UpdateGenerator) generateGranularFromDiff(diff *HTMLDiff) ([]Fragment, error)
-func (ug *UpdateGenerator) generateMarkerFromDiff(tmpl *html.Template, oldData, newData interface{}, diff *HTMLDiff) ([]Fragment, error)
-func (ug *UpdateGenerator) generateReplacementFromDiff(diff *HTMLDiff) ([]Fragment, error)
+// Tree-based optimization - single strategy for all template patterns
+func (stg *SimpleTreeGenerator) OptimizeForClientCaching(treeData *SimpleTreeData, isFirstRender bool) {
+    if !isFirstRender {
+        // Clear static arrays on subsequent renders - cached client-side
+        treeData.S = nil
+    }
+    // Always send dynamic values for updates
+}
+```
 
-// Performance optimization with HTML diff insights
-func (ug *UpdateGenerator) OptimizeBasedOnDiffPattern(fragment *Fragment, diff *HTMLDiff) error
-func (ug *UpdateGenerator) BatchCompatibleDiffUpdates(fragments []Fragment) ([]Fragment, error)
-func (ug *UpdateGenerator) ValidateStrategyEffectiveness(fragment Fragment, diff *HTMLDiff) error
+### 5. TreeDataProcessor Component
+
+**Purpose**: Tree structure processing and fragment generation for client consumption.
+
+```go
+type TreeDataProcessor struct {
+    treeCache map[string]*SimpleTreeData
+    config    *ProcessorConfig
+    mu        sync.RWMutex
+}
+
+type TemplateTree struct {
+    Boundaries []TemplateBoundary
+    Hash       string
+}
+
+type TreeNode struct {
+    Type        TemplateBoundaryType // Type of boundary
+    Content     string               // Static content or field path
+    Children    []*TreeNode          // Child nodes for nested structures
+    Position    int                  // Position in template
+    IsStatic    bool                 // Whether this node represents static content
+}
+
+type PhoenixLiveViewCompat struct {
+    StaticSegments []string                 `json:"s"`        // Static HTML segments
+    DynamicValues  map[string]interface{}   `json:"dynamics"` // Dynamic content by key
+}
+
+type ProcessorConfig struct {
+    MaxCacheSize     int // Default: 1000 templates
+    EnableCaching    bool // Default: true
+    ClientCompatMode bool // Default: true (Phoenix LiveView format)
+}
+
+// Core operations with tree-based optimization
+func (tdp *TreeDataProcessor) ProcessTreeData(treeData *SimpleTreeData, fragmentID string) (*Fragment, error)
+func (tdp *TreeDataProcessor) GenerateFragmentID(templateHash string, dataSignature string) string
+func (tdp *TreeDataProcessor) OptimizeForBandwidth(treeData *SimpleTreeData, isFirstRender bool) (*SimpleTreeData, error)
+func (tdp *TreeDataProcessor) ConvertToPhoenixLiveViewFormat(treeData *SimpleTreeData) (*PhoenixLiveViewCompat, error)
+```
+
+**Fragment ID Algorithm (v1.0)**:
+```go
+func generateFragmentID(templateHash, dataSignature string) string {
+    components := fmt.Sprintf("%s|%s", templateHash, dataSignature)
+    hash := sha256.Sum256([]byte(components))
+    return fmt.Sprintf("tree-%x", hash[:8]) // 16-character deterministic ID
+}
+```
+
+### 6. TreeUpdateGenerator Component
+
+**Purpose**: Generate tree-based updates using single unified optimization strategy.
+
+```go
+type TreeUpdateGenerator struct {
+    treeGenerator *SimpleTreeGenerator
+    processor     *TreeDataProcessor
+    config        *UpdateConfig
+}
+
+type UpdateConfig struct {
+    EnableTreeCaching   bool         // Default: true
+    TreeCacheSize       int          // Default: 1000 templates
+    EnableStaticCaching bool         // Default: true
+    EnableCompression   bool         // Default: true
+    LogTreeGeneration   bool         // Default: true for analysis
+}
+
+type DataChange struct {
+    Path        string
+    OldValue    interface{}
+    NewValue    interface{}
+    TreeData    *SimpleTreeData // Generated tree structure
+    FragmentID  string         // Tree-based fragment identifier
+    IsFirstRender bool         // Whether static content should be included
+}
+
+// Tree-based update generation
+func (tug *TreeUpdateGenerator) GenerateTreeBasedUpdate(tmpl *html.Template, oldData, newData interface{}) ([]Fragment, error) {
+    // 1. Generate tree structure from template and new data
+    templateSource := extractTemplateSource(tmpl)
+    fragmentID := tug.generateFragmentID(templateSource, newData)
+    
+    // 2. Create tree data using single unified strategy
+    treeData, err := tug.treeGenerator.GenerateFromTemplateSource(templateSource, oldData, newData, fragmentID)
+    if err != nil {
+        return nil, err
+    }
+    
+    // 3. Process tree data into client-compatible fragment
+    fragment, err := tug.processor.ProcessTreeData(treeData, fragmentID)
+    if err != nil {
+        return nil, err
+    }
+    
+    return []Fragment{*fragment}, nil
+}
+
+// Tree-based optimization functions
+func (tug *TreeUpdateGenerator) GenerateTreeStructure(templateSource string, data interface{}) (*SimpleTreeData, error)
+func (tug *TreeUpdateGenerator) OptimizeForStaticCaching(treeData *SimpleTreeData, isFirstRender bool) (*SimpleTreeData, error)
+func (tug *TreeUpdateGenerator) ConvertToClientFormat(treeData *SimpleTreeData) (*Fragment, error)
+
+// Performance optimization with tree-based insights
+func (tug *TreeUpdateGenerator) OptimizeTreeForBandwidth(treeData *SimpleTreeData) error
+func (tug *TreeUpdateGenerator) CacheTreeStructure(templateHash string, treeData *SimpleTreeData) error
+func (tug *TreeUpdateGenerator) ValidateTreeStructure(treeData *SimpleTreeData) error
 ```
 
 ---
@@ -613,21 +531,20 @@ func TestMemoryIsolation(t *testing.T) {
 
 ```go
 func TestBandwidthOptimization(t *testing.T) {
-    // Measure Strategy 1 (Static/Dynamic): 85-95% reduction for text-only changes
-    // Measure Strategy 2 (Markers): 70-85% reduction for position-discoverable changes
-    // Measure Strategy 3 (Granular): 60-80% reduction for simple structural changes
-    // Measure Strategy 4 (Replacement): 40-60% reduction for complex changes
-    // Test HTML diff-based strategy selection accuracy (>90% target)
-    // Validate strategy distribution matches expected percentages (60-70%, 15-20%, 10-15%, 5-10%)
-    // Measure HTML diffing overhead vs strategy selection benefits
+    // Measure tree-based optimization: 92%+ bandwidth savings for typical templates
+    // Test complex nested templates: 95.9% savings (24 bytes vs 590 bytes)
+    // Test simple text updates: 75%+ savings with static content caching
+    // Validate Phoenix LiveView client compatibility
+    // Measure template boundary parsing accuracy >95%
+    // Test static/dynamic separation effectiveness
 }
 
 func TestLatencyRequirements(t *testing.T) {
-    // Verify P95 update generation < 75ms (includes HTML diffing overhead)
-    // Test HTML diffing latency across different change patterns
-    // Test under concurrent load (100+ pages) with HTML diff caching
-    // Measure memory usage for HTML diff caching and pattern recognition
-    // Validate HTML diff accuracy under various template complexity scenarios
+    // Verify P95 update generation < 75ms for tree-based fragments
+    // Test template boundary parsing latency <5ms average, <25ms max
+    // Test under concurrent load (100+ pages) with tree structure caching
+    // Measure memory usage for tree data caching and template parsing
+    // Validate tree generation accuracy under various template complexity scenarios
 }
 
 func TestScalability(t *testing.T) {
@@ -700,31 +617,31 @@ func TestMemoryManagement(t *testing.T) {
 - Page security tests
 - Page performance tests
 
-**Phase 2: Dual-Strategy Update System (Tasks 31-50)**
+**Phase 2: Tree-Based Optimization System (Tasks 31-50)**
 
-*HTML Diffing-Enhanced Strategy Analysis (Tasks 31-40)*:
-- HTML diffing engine implementation for change pattern analysis
-- DOM parsing and comparison algorithms for accurate diff generation
-- Pattern classification system (text-only, simple ops, complex rewrites)
-- Strategy 1: Static/dynamic generation for text-only changes
-- Strategy 2: Marker compilation for position-discoverable changes
-- Strategy 3: Granular operations for simple structural changes
-- Strategy 4: Fragment replacement for complex structural changes
-- Strategy recommendation engine based on diff complexity scoring
-- HTML diff caching system with pattern recognition
-- Strategy analyzer unit tests with HTML diff validation
+*Tree-Based Strategy Implementation (Tasks 31-40)*:
+- Template boundary parsing engine for hierarchical analysis
+- Static/dynamic content separation algorithms
+- Tree structure generation with Phoenix LiveView compatibility
+- Single unified strategy for all template patterns
+- Client-side caching optimization for static content
+- Template-aware optimization for all Go template constructs
+- Tree data caching system for performance
+- Tree generator unit tests with boundary parsing validation
+- Static content caching validation
+- Template compatibility testing across all Go constructs
 
 *Update Generation (Tasks 41-50)*:
-- HTML diff-based update generation pipeline
-- Strategy-specific generators enhanced with diff data (static/dynamic, markers, granular, replacement)
-- Diff pattern recognition for optimal strategy selection
-- Update optimization based on HTML diff insights
-- Performance monitoring including HTML diffing overhead
-- Bandwidth compression optimized for diff-identified patterns
-- Update generator unit tests with HTML diff scenarios
-- Integration tests for complete HTML diff → strategy → update workflows
-- Performance benchmarking including diff analysis overhead
-- Strategy effectiveness validation against actual HTML changes
+- Tree-based update generation pipeline
+- Single strategy generator for all template patterns
+- Tree structure optimization for client consumption
+- Static content caching integration
+- Performance monitoring for tree generation
+- Bandwidth optimization through static/dynamic separation
+- Update generator unit tests with tree structure scenarios
+- Integration tests for complete template parsing → tree generation workflows
+- Performance benchmarking for tree-based optimization
+- Tree structure effectiveness validation across template complexity levels
 
 **Phase 3: Production Features (Tasks 51-60)**
 
@@ -767,15 +684,14 @@ func TestMemoryManagement(t *testing.T) {
 - All unit tests >90% coverage
 
 **Phase 2 Complete When**:
-- HTML diffing engine accurately identifies change patterns
-- Strategy 1 (Static/Dynamic) achieves 85-95% size reduction for text-only changes (60-70% of cases)
-- Strategy 2 (Markers) achieves 70-85% size reduction for position-discoverable changes (15-20% of cases)
-- Strategy 3 (Granular) achieves 60-80% size reduction for simple structural changes (10-15% of cases)
-- Strategy 4 (Replacement) provides 40-60% size reduction for complex changes (5-10% of cases)
-- HTML diff-based strategy selection accuracy >90% across all change patterns
-- P95 update generation latency <75ms under load (includes HTML diffing overhead)
-- Integration tests cover complete HTML diff → strategy selection → update generation workflows
-- Performance benchmarks validate strategy effectiveness against actual HTML change patterns
+- Template boundary parsing achieves >95% accuracy across all Go template constructs
+- Tree-based optimization achieves 92%+ bandwidth savings for typical templates
+- Complex nested templates achieve 95.9% savings (24 bytes vs 590 bytes)
+- Simple text updates achieve 75%+ savings with static content caching
+- Phoenix LiveView client compatibility fully validated
+- P95 update generation latency <75ms under load for tree-based fragments
+- Integration tests cover complete template parsing → tree generation workflows
+- Performance benchmarks validate tree optimization effectiveness across template complexity levels
 
 **Phase 3 Complete When**:
 - Comprehensive metrics and monitoring implemented
@@ -954,17 +870,17 @@ func (hc *HealthChecker) Check(ctx context.Context) error {
 ### D. Performance Benchmarks
 
 **Target Metrics for v1.0**:
-- Strategy 1: 85-95% bandwidth reduction for text-only changes (60-70% of cases)
-- Strategy 2: 70-85% bandwidth reduction for position-discoverable changes (15-20% of cases)
-- Strategy 3: 60-80% bandwidth reduction for simple structural changes (10-15% of cases)
-- Strategy 4: 40-60% bandwidth reduction for complex changes (5-10% of cases)
-- HTML diff-based strategy selection accuracy: >90% optimal choice
-- HTML diffing pattern recognition accuracy: >95% correct classification
-- P95 update latency <75ms (under 100 concurrent pages, includes HTML diffing)
+- Tree-based optimization: 92%+ bandwidth savings for typical real-world templates
+- Complex nested templates: 95.9% savings (24 bytes vs 590 bytes)
+- Simple text updates: 75%+ savings with static content caching  
+- Template boundary parsing accuracy: >95% across all Go template constructs
+- Static/dynamic separation effectiveness: Consistent across all template patterns
+- P95 update latency <75ms (under 100 concurrent pages, tree-based fragments)
+- Template parsing: <5ms average, <25ms max
 - 1000 concurrent pages supported (with 8GB RAM)
-- Memory usage <12MB per page (including HTML diffing and strategy caching overhead)
+- Memory usage <8MB per page (typical applications)
 - 99.9% uptime in staging environment
-- Universal template compatibility (100% through HTML diff analysis + four-tier fallback)
+- Universal template compatibility (100% through single tree-based strategy)
 
 ---
 

@@ -49,8 +49,6 @@ func (p *Page) RenderFragments(ctx context.Context, newData interface{}) ([]*Fra
 	for i, frag := range internalFragments {
 		fragments[i] = &Fragment{
 			ID:       frag.ID,
-			Strategy: frag.Strategy,
-			Action:   frag.Action,
 			Data:     frag.Data,
 			Metadata: convertMetadata(frag.Metadata),
 		}
@@ -71,9 +69,25 @@ func (p *Page) RenderFragments(ctx context.Context, newData interface{}) ([]*Fra
 	return fragments, nil
 }
 
-// GetToken returns the JWT token for this page
+// GetToken returns the stable cache token for this page
 func (p *Page) GetToken() string {
 	return p.token
+}
+
+// GetID returns the page ID
+func (p *Page) GetID() string {
+	return p.internal.GetID()
+}
+
+// GenerateSecurityToken creates a fresh JWT token for secure operations
+// This prevents replay protection issues by generating a new token each time
+func (p *Page) GenerateSecurityToken() (string, error) {
+	if p.app.closed {
+		return "", fmt.Errorf("application is closed")
+	}
+
+	// Generate a new token for the same page ID to avoid replay protection
+	return p.app.tokenService.GenerateToken(p.app.id, p.internal.ID)
 }
 
 // SetData updates the page data state
@@ -153,8 +167,6 @@ func (p *Page) Close() error {
 // Fragment represents a generated update fragment for the public API
 type Fragment struct {
 	ID       string      `json:"id"`
-	Strategy string      `json:"strategy"`
-	Action   string      `json:"action"`
 	Data     interface{} `json:"data"`
 	Metadata *Metadata   `json:"metadata,omitempty"`
 }
@@ -203,5 +215,12 @@ func convertMetadata(internal *page.Metadata) *Metadata {
 		Strategy:         internal.Strategy,
 		Confidence:       internal.Confidence,
 		FallbackUsed:     internal.FallbackUsed,
+	}
+}
+
+// SetTemplateSource sets the template source for the page
+func (p *Page) SetTemplateSource(templateSource string) {
+	if p.internal != nil {
+		p.internal.SetTemplateSource(templateSource)
 	}
 }
