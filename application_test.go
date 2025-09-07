@@ -513,3 +513,413 @@ func TestApplication_ConcurrentSessions(t *testing.T) {
 		}
 	}
 }
+
+// TestCounter is a test data model for testing data model registration
+type TestCounter struct {
+	Value int
+}
+
+func (c *TestCounter) Increment(ctx *ActionContext) error {
+	c.Value++
+	return ctx.Data(map[string]interface{}{"Value": c.Value})
+}
+
+func (c *TestCounter) Decrement(ctx *ActionContext) error {
+	c.Value--
+	return ctx.Data(map[string]interface{}{"Value": c.Value})
+}
+
+func (c *TestCounter) Reset(ctx *ActionContext) error {
+	// Demonstrate ActionContext.GetInt() usage
+	newValue := ctx.GetInt("value")
+	c.Value = newValue
+	return ctx.Data(map[string]interface{}{"Value": c.Value})
+}
+
+// TestCounter2 is a second test data model for testing conflict resolution
+type TestCounter2 struct {
+	Count int
+}
+
+func (c *TestCounter2) Increment(ctx *ActionContext) error {
+	c.Count++
+	return ctx.Data(map[string]interface{}{"Count": c.Count})
+}
+
+func TestApplicationPage_RegisterDataModel(t *testing.T) {
+	app, err := NewApplication()
+	if err != nil {
+		t.Fatalf("NewApplication failed: %v", err)
+	}
+	defer app.Close()
+
+	tmpl := template.Must(template.New("test").Parse("<div>{{.Value}}</div>"))
+	err = app.RegisterTemplate("test", tmpl)
+	if err != nil {
+		t.Fatalf("RegisterTemplate failed: %v", err)
+	}
+
+	page, err := app.NewPage("test", map[string]int{"Value": 0})
+	if err != nil {
+		t.Fatalf("NewPage failed: %v", err)
+	}
+
+	// Test successful registration
+	counter := &TestCounter{Value: 5}
+	err = page.RegisterDataModel(counter)
+	if err != nil {
+		t.Fatalf("RegisterDataModel failed: %v", err)
+	}
+
+	// Verify data model is registered
+	if len(page.dataModels) != 1 {
+		t.Errorf("expected 1 data model, got %d", len(page.dataModels))
+	}
+
+	model := page.dataModels[0]
+	if model.Name != "testcounter" {
+		t.Errorf("expected model name 'testcounter', got %q", model.Name)
+	}
+
+	expectedMethods := []string{"increment", "decrement", "reset"}
+	if len(model.ActionMethods) != len(expectedMethods) {
+		t.Errorf("expected %d action methods, got %d", len(expectedMethods), len(model.ActionMethods))
+	}
+
+	for _, methodName := range expectedMethods {
+		if _, exists := model.ActionMethods[methodName]; !exists {
+			t.Errorf("expected action method %q not found", methodName)
+		}
+	}
+}
+
+func TestApplicationPage_RegisterDataModel_InvalidInputs(t *testing.T) {
+	app, err := NewApplication()
+	if err != nil {
+		t.Fatalf("NewApplication failed: %v", err)
+	}
+	defer app.Close()
+
+	tmpl := template.Must(template.New("test").Parse("<div>Test</div>"))
+	err = app.RegisterTemplate("test", tmpl)
+	if err != nil {
+		t.Fatalf("RegisterTemplate failed: %v", err)
+	}
+
+	page, err := app.NewPage("test", nil)
+	if err != nil {
+		t.Fatalf("NewPage failed: %v", err)
+	}
+
+	// Test nil model
+	err = page.RegisterDataModel(nil)
+	if err == nil {
+		t.Error("expected error for nil data model")
+	}
+
+	// Test non-struct model
+	err = page.RegisterDataModel("not a struct")
+	if err == nil {
+		t.Error("expected error for non-struct data model")
+	}
+
+	// Test struct with no valid action methods
+	type EmptyModel struct {
+		Value int
+	}
+	err = page.RegisterDataModel(&EmptyModel{})
+	if err == nil {
+		t.Error("expected error for model with no valid action methods")
+	}
+}
+
+func TestApplicationPage_DataModelActionExecution(t *testing.T) {
+	app, err := NewApplication()
+	if err != nil {
+		t.Fatalf("NewApplication failed: %v", err)
+	}
+	defer app.Close()
+
+	tmpl := template.Must(template.New("test").Parse("<div>{{.Value}}</div>"))
+	err = app.RegisterTemplate("test", tmpl)
+	if err != nil {
+		t.Fatalf("RegisterTemplate failed: %v", err)
+	}
+
+	page, err := app.NewPage("test", map[string]int{"Value": 0})
+	if err != nil {
+		t.Fatalf("NewPage failed: %v", err)
+	}
+
+	// Register data model
+	counter := &TestCounter{Value: 5}
+	err = page.RegisterDataModel(counter)
+	if err != nil {
+		t.Fatalf("RegisterDataModel failed: %v", err)
+	}
+
+	// Test increment action
+	_, err = page.HandleAction(context.TODO(), NewActionMessage("increment", nil))
+	if err != nil {
+		t.Fatalf("HandleAction increment failed: %v", err)
+	}
+
+	if counter.Value != 6 {
+		t.Errorf("expected counter value 6, got %d", counter.Value)
+	}
+
+	// Test decrement action
+	_, err = page.HandleAction(context.TODO(), NewActionMessage("decrement", nil))
+	if err != nil {
+		t.Fatalf("HandleAction decrement failed: %v", err)
+	}
+
+	if counter.Value != 5 {
+		t.Errorf("expected counter value 5, got %d", counter.Value)
+	}
+
+	// Test reset action
+	_, err = page.HandleAction(context.TODO(), NewActionMessage("reset", nil))
+	if err != nil {
+		t.Fatalf("HandleAction reset failed: %v", err)
+	}
+
+	if counter.Value != 0 {
+		t.Errorf("expected counter value 0, got %d", counter.Value)
+	}
+}
+
+func TestApplicationPage_ActionConflictDetection(t *testing.T) {
+	app, err := NewApplication()
+	if err != nil {
+		t.Fatalf("NewApplication failed: %v", err)
+	}
+	defer app.Close()
+
+	tmpl := template.Must(template.New("test").Parse("<div>Test</div>"))
+	err = app.RegisterTemplate("test", tmpl)
+	if err != nil {
+		t.Fatalf("RegisterTemplate failed: %v", err)
+	}
+
+	page, err := app.NewPage("test", nil)
+	if err != nil {
+		t.Fatalf("NewPage failed: %v", err)
+	}
+
+	// Register two models with conflicting action names
+	counter1 := &TestCounter{Value: 1}
+	counter2 := &TestCounter2{Count: 2}
+
+	err = page.RegisterDataModel(counter1)
+	if err != nil {
+		t.Fatalf("RegisterDataModel counter1 failed: %v", err)
+	}
+
+	err = page.RegisterDataModel(counter2)
+	if err != nil {
+		t.Fatalf("RegisterDataModel counter2 failed: %v", err)
+	}
+
+	// Test conflict detection - should fail for direct action
+	_, err = page.HandleAction(context.TODO(), NewActionMessage("increment", nil))
+	if err == nil {
+		t.Error("expected error due to action conflict")
+	}
+
+	expectedError := "action \"increment\" conflicts between multiple data models. Use namespaced actions: testcounter.increment, testcounter2.increment"
+	if err.Error() != expectedError {
+		t.Errorf("expected error message: %s\ngot: %s", expectedError, err.Error())
+	}
+}
+
+func TestApplicationPage_NamespacedActions(t *testing.T) {
+	app, err := NewApplication()
+	if err != nil {
+		t.Fatalf("NewApplication failed: %v", err)
+	}
+	defer app.Close()
+
+	tmpl := template.Must(template.New("test").Parse("<div>Test</div>"))
+	err = app.RegisterTemplate("test", tmpl)
+	if err != nil {
+		t.Fatalf("RegisterTemplate failed: %v", err)
+	}
+
+	page, err := app.NewPage("test", nil)
+	if err != nil {
+		t.Fatalf("NewPage failed: %v", err)
+	}
+
+	// Register two models with conflicting action names
+	counter1 := &TestCounter{Value: 1}
+	counter2 := &TestCounter2{Count: 2}
+
+	err = page.RegisterDataModel(counter1)
+	if err != nil {
+		t.Fatalf("RegisterDataModel counter1 failed: %v", err)
+	}
+
+	err = page.RegisterDataModel(counter2)
+	if err != nil {
+		t.Fatalf("RegisterDataModel counter2 failed: %v", err)
+	}
+
+	// Test namespaced action for first counter
+	_, err = page.HandleAction(context.TODO(), NewActionMessage("testcounter.increment", nil))
+	if err != nil {
+		t.Fatalf("HandleAction testcounter.increment failed: %v", err)
+	}
+
+	if counter1.Value != 2 {
+		t.Errorf("expected counter1 value 2, got %d", counter1.Value)
+	}
+
+	if counter2.Count != 2 {
+		t.Errorf("expected counter2 count unchanged at 2, got %d", counter2.Count)
+	}
+
+	// Test namespaced action for second counter
+	_, err = page.HandleAction(context.TODO(), NewActionMessage("testcounter2.increment", nil))
+	if err != nil {
+		t.Fatalf("HandleAction testcounter2.increment failed: %v", err)
+	}
+
+	if counter1.Value != 2 {
+		t.Errorf("expected counter1 value unchanged at 2, got %d", counter1.Value)
+	}
+
+	if counter2.Count != 3 {
+		t.Errorf("expected counter2 count 3, got %d", counter2.Count)
+	}
+}
+
+func TestApplicationPage_ActionPriorityOrder(t *testing.T) {
+	app, err := NewApplication()
+	if err != nil {
+		t.Fatalf("NewApplication failed: %v", err)
+	}
+	defer app.Close()
+
+	tmpl := template.Must(template.New("test").Parse("<div>Test</div>"))
+	err = app.RegisterTemplate("test", tmpl)
+	if err != nil {
+		t.Fatalf("RegisterTemplate failed: %v", err)
+	}
+
+	page, err := app.NewPage("test", nil)
+	if err != nil {
+		t.Fatalf("NewPage failed: %v", err)
+	}
+
+	// Register a regular action handler first
+	handlerCalled := false
+	page.RegisterAction("increment", func(currentData interface{}, actionData map[string]interface{}) (interface{}, error) {
+		handlerCalled = true
+		return map[string]interface{}{"handler": "called"}, nil
+	})
+
+	// Register data model with same action name
+	counter := &TestCounter{Value: 5}
+	err = page.RegisterDataModel(counter)
+	if err != nil {
+		t.Fatalf("RegisterDataModel failed: %v", err)
+	}
+
+	// Test that action handler takes priority over data model
+	_, err = page.HandleAction(context.TODO(), NewActionMessage("increment", nil))
+	if err != nil {
+		t.Fatalf("HandleAction failed: %v", err)
+	}
+
+	if !handlerCalled {
+		t.Error("expected action handler to be called, but it wasn't")
+	}
+
+	if counter.Value != 5 {
+		t.Errorf("expected counter value unchanged at 5, got %d", counter.Value)
+	}
+}
+
+func TestActionContext_DataBinding(t *testing.T) {
+	// Test data binding functionality
+	actionData := map[string]interface{}{
+		"name":   "Test Counter",
+		"value":  42.0, // JSON numbers are float64
+		"active": true,
+	}
+
+	ctx := NewActionContext(actionData)
+
+	// Test individual getters
+	if name := ctx.GetString("name"); name != "Test Counter" {
+		t.Errorf("GetString: expected 'Test Counter', got %q", name)
+	}
+
+	if value := ctx.GetInt("value"); value != 42 {
+		t.Errorf("GetInt: expected 42, got %d", value)
+	}
+
+	if active := ctx.GetBool("active"); !active {
+		t.Errorf("GetBool: expected true, got %v", active)
+	}
+
+	// Test struct binding
+	type TestStruct struct {
+		Name   string `json:"name"`
+		Value  int    `json:"value"`
+		Active bool   `json:"active"`
+	}
+
+	var target TestStruct
+	err := ctx.Bind(&target)
+	if err != nil {
+		t.Fatalf("Bind failed: %v", err)
+	}
+
+	if target.Name != "Test Counter" {
+		t.Errorf("Bind Name: expected 'Test Counter', got %q", target.Name)
+	}
+
+	if target.Value != 42 {
+		t.Errorf("Bind Value: expected 42, got %d", target.Value)
+	}
+
+	if !target.Active {
+		t.Errorf("Bind Active: expected true, got %v", target.Active)
+	}
+}
+
+func TestActionContext_ResponseData(t *testing.T) {
+	ctx := NewActionContext(nil)
+
+	// Test setting response data
+	responseData := map[string]interface{}{
+		"status": "success",
+		"value":  123,
+	}
+
+	err := ctx.Data(responseData)
+	if err != nil {
+		t.Errorf("Data() failed: %v", err)
+	}
+
+	// Test getting response data
+	result := ctx.GetResponse()
+	if result == nil {
+		t.Fatal("GetResponse() returned nil")
+	}
+
+	resultMap, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("GetResponse() returned wrong type: %T", result)
+	}
+
+	if status := resultMap["status"]; status != "success" {
+		t.Errorf("Response status: expected 'success', got %v", status)
+	}
+
+	if value := resultMap["value"]; value != 123 {
+		t.Errorf("Response value: expected 123, got %v", value)
+	}
+}

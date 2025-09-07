@@ -1,9 +1,12 @@
 package page
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // Forward reference to avoid circular dependencies
@@ -79,8 +82,8 @@ func (p *Page) detectTemplateRegions() ([]TemplateRegion, error) {
 			if extractedID != "" {
 				lvtID = extractedID
 			} else {
-				// For elements without ID, generate a simple sequential ID
-				lvtID = fmt.Sprintf("region_%d", regionIndex)
+				// Generate globally unique random ID instead of predictable sequential ID
+				lvtID = generateGloballyUniqueFragmentID()
 				regionIndex++
 			}
 
@@ -348,4 +351,18 @@ func (p *Page) generateRegionFragmentWithConfig(region TemplateRegion, newData i
 	}
 
 	return fragment, nil
+}
+
+// generateGloballyUniqueFragmentID creates a cryptographically secure, globally unique fragment ID
+func generateGloballyUniqueFragmentID() string {
+	// Generate 8 random bytes (64 bits of entropy) for shorter but still globally unique IDs
+	bytes := make([]byte, 8)
+	if _, err := rand.Read(bytes); err != nil {
+		// Fallback to timestamp-based ID if crypto/rand fails (should never happen in practice)
+		return fmt.Sprintf("f%x", time.Now().UnixNano()&0xFFFFFFFFFFFFFF)
+	}
+
+	// Convert to hex string for a clean, globally unique ID (16 characters)
+	// Add "f" prefix to ensure it starts with a letter for valid HTML/CSS IDs
+	return "f" + hex.EncodeToString(bytes)
 }

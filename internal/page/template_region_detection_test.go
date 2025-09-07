@@ -2,6 +2,7 @@ package page
 
 import (
 	"html/template"
+	"strings"
 	"testing"
 )
 
@@ -113,7 +114,15 @@ func TestDetectTemplateRegions(t *testing.T) {
 					continue
 				}
 
-				if region.ID != tt.expectedIDs[i] {
+				// For auto-generated IDs, just verify it's not empty and has the right format
+				if tt.expectedIDs[i] == "region_0" {
+					// This is an auto-generated ID case - verify it's a valid hex ID
+					if region.ID == "" {
+						t.Errorf("Region %d: expected auto-generated ID, got empty", i)
+					} else if !strings.HasPrefix(region.ID, "f") || len(region.ID) != 17 {
+						t.Errorf("Region %d: expected auto-generated ID format (f + 16 hex chars), got %q", i, region.ID)
+					}
+				} else if region.ID != tt.expectedIDs[i] {
 					t.Errorf("Region %d: expected ID %q, got %q", i, tt.expectedIDs[i], region.ID)
 				}
 

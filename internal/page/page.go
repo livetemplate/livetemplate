@@ -122,11 +122,19 @@ func (p *Page) Render() (string, error) {
 
 	html := buf.String()
 
-	// Detect regions and cache them for fragment generation
-	regions, err := p.detectTemplateRegions()
-	if err != nil || len(regions) == 0 {
-		// For simple templates or when region detection fails, use legacy approach
-		return p.annotateLegacyHTML(html)
+	// Use cached regions if available, otherwise detect and cache them
+	var regions []TemplateRegion
+	if len(p.regions) > 0 {
+		// Reuse cached regions to ensure consistent IDs
+		regions = p.regions
+	} else {
+		// Detect regions and cache them for fragment generation
+		detectedRegions, err := p.detectTemplateRegions()
+		if err != nil || len(detectedRegions) == 0 {
+			// For simple templates or when region detection fails, use legacy approach
+			return p.annotateLegacyHTML(html)
+		}
+		regions = detectedRegions
 	}
 
 	// Filter regions to only include those that can be properly annotated

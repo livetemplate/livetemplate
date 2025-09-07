@@ -6,7 +6,9 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -21,6 +23,8 @@ type Application struct {
 	templates      map[string]*template.Template // Template registry for reuse
 	actions        map[string]ActionHandler      // Global action registry
 	sessionManager *session.Manager              // Session management
+	pageDataModels map[string][]DataModel        // Data models per page (keyed by page ID)
+	dataModelsMu   sync.RWMutex                  // Mutex for pageDataModels map
 }
 
 // ApplicationConfig contains configuration for the public Application
@@ -43,6 +47,7 @@ func NewApplication(options ...ApplicationOption) (*Application, error) {
 		templates:      make(map[string]*template.Template), // Initialize template registry
 		actions:        make(map[string]ActionHandler),      // Initialize action registry
 		sessionManager: session.NewManager(24 * time.Hour),  // Initialize session manager
+		pageDataModels: make(map[string][]DataModel),        // Initialize data models registry
 	}
 
 	// Apply public options to collect configuration
@@ -117,6 +122,165 @@ func WithCacheInfo(cacheInfo *ClientCacheInfo) ApplicationPageOption {
 // ActionHandler is a function that processes an action and returns updated data
 type ActionHandler func(currentData interface{}, actionData map[string]interface{}) (interface{}, error)
 
+// DataModel represents a registered data model that can handle actions through methods
+type DataModel struct {
+	Instance      interface{}               // The actual data model instance
+	Name          string                    // Model name for namespacing (derived from type name)
+	ActionMethods map[string]reflect.Method // Map of action name to reflect.Method
+}
+
+// ActionContext provides a clean interface for action methods to interact with request data and responses
+type ActionContext struct {
+	actionData map[string]interface{} // Raw action data from client
+	response   interface{}            // Response data to return
+}
+
+// NewActionContext creates a new ActionContext with the provided action data
+func NewActionContext(actionData map[string]interface{}) *ActionContext {
+	if actionData == nil {
+		actionData = make(map[string]interface{})
+	}
+	return &ActionContext{
+		actionData: actionData,
+	}
+}
+
+// Bind parses action data into the provided struct using JSON-like field matching
+func (ctx *ActionContext) Bind(target interface{}) error {
+	// Simple field-by-field binding (can be enhanced with reflection)
+	targetValue := reflect.ValueOf(target)
+	if targetValue.Kind() != reflect.Ptr || targetValue.Elem().Kind() != reflect.Struct {
+		return fmt.Errorf("bind target must be a pointer to struct")
+	}
+
+	targetStruct := targetValue.Elem()
+	targetType := targetStruct.Type()
+
+	for i := 0; i < targetStruct.NumField(); i++ {
+		field := targetStruct.Field(i)
+		fieldType := targetType.Field(i)
+
+		// Skip unexported fields
+		if !field.CanSet() {
+			continue
+		}
+
+		// Get field name (use json tag if available, otherwise use field name)
+		fieldName := fieldType.Tag.Get("json")
+		if fieldName == "" || fieldName == "-" {
+			fieldName = fieldType.Name
+		}
+
+		// Get value from action data
+		if value, exists := ctx.actionData[fieldName]; exists {
+			if err := ctx.setFieldValue(field, value); err != nil {
+				return fmt.Errorf("failed to set field %s: %w", fieldName, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// setFieldValue sets a reflect.Value with appropriate type conversion
+func (ctx *ActionContext) setFieldValue(field reflect.Value, value interface{}) error {
+	if value == nil {
+		return nil
+	}
+
+	valueReflect := reflect.ValueOf(value)
+	fieldType := field.Type()
+
+	// Handle type conversions
+	switch fieldType.Kind() {
+	case reflect.String:
+		if str, ok := value.(string); ok {
+			field.SetString(str)
+		} else {
+			field.SetString(fmt.Sprintf("%v", value))
+		}
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if num, ok := value.(float64); ok { // JSON numbers are float64
+			field.SetInt(int64(num))
+		} else if valueReflect.CanConvert(fieldType) {
+			field.Set(valueReflect.Convert(fieldType))
+		}
+	case reflect.Float32, reflect.Float64:
+		if num, ok := value.(float64); ok {
+			field.SetFloat(num)
+		} else if valueReflect.CanConvert(fieldType) {
+			field.Set(valueReflect.Convert(fieldType))
+		}
+	case reflect.Bool:
+		if b, ok := value.(bool); ok {
+			field.SetBool(b)
+		}
+	default:
+		if valueReflect.Type().AssignableTo(fieldType) {
+			field.Set(valueReflect)
+		}
+	}
+
+	return nil
+}
+
+// Get retrieves a value from the action data
+func (ctx *ActionContext) Get(key string) (interface{}, bool) {
+	value, exists := ctx.actionData[key]
+	return value, exists
+}
+
+// GetString retrieves a string value from action data
+func (ctx *ActionContext) GetString(key string) string {
+	if value, exists := ctx.actionData[key]; exists {
+		if str, ok := value.(string); ok {
+			return str
+		}
+		return fmt.Sprintf("%v", value)
+	}
+	return ""
+}
+
+// GetInt retrieves an integer value from action data
+func (ctx *ActionContext) GetInt(key string) int {
+	if value, exists := ctx.actionData[key]; exists {
+		if num, ok := value.(float64); ok { // JSON numbers are float64
+			return int(num)
+		}
+		if num, ok := value.(int); ok {
+			return num
+		}
+	}
+	return 0
+}
+
+// GetBool retrieves a boolean value from action data
+func (ctx *ActionContext) GetBool(key string) bool {
+	if value, exists := ctx.actionData[key]; exists {
+		if b, ok := value.(bool); ok {
+			return b
+		}
+	}
+	return false
+}
+
+// Data sets the response data that will be returned to the client
+func (ctx *ActionContext) Data(data interface{}) error {
+	fmt.Printf("DEBUG: ActionContext.Data called with: %v\n", data)
+	ctx.response = data
+	fmt.Printf("DEBUG: ActionContext.Data set response, returning\n")
+	return nil
+}
+
+// GetResponse returns the response data (internal use)
+func (ctx *ActionContext) GetResponse() interface{} {
+	return ctx.response
+}
+
+// ActionMethodSignature defines the new expected signature for action methods
+// Methods should have signature: func(ctx *ActionContext) error
+type ActionMethodSignature func(ctx *ActionContext) error
+
 // ActionMessage represents an action message from the client
 type ActionMessage struct {
 	Type   string                 `json:"type"`   // Message type (usually "action")
@@ -136,11 +300,12 @@ func NewActionMessage(action string, data map[string]interface{}) *ActionMessage
 
 // ApplicationPage represents a page managed by an Application with session-based authentication
 type ApplicationPage struct {
-	internal  *app.Page
-	cacheInfo *ClientCacheInfo
-	actions   map[string]ActionHandler // Registered action handlers
-	sessionID string                   // Session ID for this page
-	app       *Application             // Reference to parent application
+	internal   *app.Page
+	cacheInfo  *ClientCacheInfo
+	actions    map[string]ActionHandler // Registered action handlers
+	dataModels []DataModel              // Registered data models with method-based actions
+	sessionID  string                   // Session ID for this page
+	app        *Application             // Reference to parent application
 }
 
 // NewApplicationPage creates a new isolated page session with session-based authentication
@@ -162,10 +327,11 @@ func (a *Application) NewApplicationPage(tmpl *template.Template, data interface
 	}
 
 	publicPage := &ApplicationPage{
-		internal:  internal,
-		actions:   a.actions, // Use application's action registry
-		sessionID: sess.ID,
-		app:       a,
+		internal:   internal,
+		actions:    a.actions,            // Use application's action registry
+		dataModels: make([]DataModel, 0), // Initialize empty data models slice
+		sessionID:  sess.ID,
+		app:        a,
 	}
 
 	// Apply public options
@@ -255,13 +421,20 @@ func (a *Application) GetPage(r *http.Request) (*ApplicationPage, error) {
 		return nil, fmt.Errorf("failed to get page: %w", err)
 	}
 
+	// Load data models for this page
+	a.dataModelsMu.RLock()
+	pageDataModels := make([]DataModel, len(a.pageDataModels[sess.PageID]))
+	copy(pageDataModels, a.pageDataModels[sess.PageID])
+	a.dataModelsMu.RUnlock()
+
 	// Create ApplicationPage with session context
 	page := &ApplicationPage{
-		internal:  internalPage,
-		actions:   a.actions,
-		sessionID: sess.ID,
-		app:       a,
-		cacheInfo: cacheInfo,
+		internal:   internalPage,
+		actions:    a.actions,
+		dataModels: pageDataModels,
+		sessionID:  sess.ID,
+		app:        a,
+		cacheInfo:  cacheInfo,
 	}
 
 	return page, nil
@@ -469,9 +642,218 @@ func (p *ApplicationPage) RegisterAction(actionName string, handler ActionHandle
 	p.actions[actionName] = handler
 }
 
-// HasActions returns true if any actions are registered
+// RegisterDataModel registers a data model that can handle actions through methods
+// The data model must be a struct with public methods that match the ActionMethodSignature
+// Method signature: func(actionData map[string]interface{}) (interface{}, error)
+func (p *ApplicationPage) RegisterDataModel(model interface{}) error {
+	if model == nil {
+		return fmt.Errorf("data model cannot be nil")
+	}
+
+	// Use reflection to analyze the model
+	modelType := reflect.TypeOf(model)
+
+	// Store the original type for method lookup (preserve pointer type)
+	originalType := modelType
+
+	// Get the underlying type for name extraction
+	if modelType.Kind() == reflect.Ptr {
+		modelType = modelType.Elem()
+	}
+
+	// Ensure it's a struct
+	if modelType.Kind() != reflect.Struct {
+		return fmt.Errorf("data model must be a struct, got %s", modelType.Kind())
+	}
+
+	// Generate model name from type (e.g., "Counter" from type Counter)
+	modelName := strings.ToLower(modelType.Name())
+	if modelName == "" {
+		return fmt.Errorf("data model must have a named type")
+	}
+
+	// Extract action methods using the original type (with pointer)
+	actionMethods := make(map[string]reflect.Method)
+	numMethods := originalType.NumMethod()
+
+	for i := 0; i < numMethods; i++ {
+		method := originalType.Method(i)
+
+		// Only consider exported methods
+		if !method.IsExported() {
+			continue
+		}
+
+		// Check method signature: func(receiver, *ActionContext) error
+		if p.isValidActionMethod(method.Type) {
+			actionName := strings.ToLower(method.Name)
+			actionMethods[actionName] = method
+		}
+	}
+
+	if len(actionMethods) == 0 {
+		return fmt.Errorf("data model %s has no valid action methods", modelName)
+	}
+
+	// Create and register the data model
+	dataModel := DataModel{
+		Instance:      model,
+		Name:          modelName,
+		ActionMethods: actionMethods,
+	}
+
+	// Store data model at the application level for persistence across GetPage calls
+	pageID := p.internal.GetID()
+	p.app.dataModelsMu.Lock()
+	p.app.pageDataModels[pageID] = append(p.app.pageDataModels[pageID], dataModel)
+	p.app.dataModelsMu.Unlock()
+
+	// Also store locally for immediate access
+	p.dataModels = append(p.dataModels, dataModel)
+	return nil
+}
+
+// isValidActionMethod checks if a method has the correct signature for an action method
+// Expected: func(receiver, *ActionContext) error
+func (p *ApplicationPage) isValidActionMethod(methodType reflect.Type) bool {
+	// Method should have 2 parameters (receiver + actionContext)
+	if methodType.NumIn() != 2 {
+		return false
+	}
+
+	// Method should have 1 return value (error)
+	if methodType.NumOut() != 1 {
+		return false
+	}
+
+	// Check parameter types: first is receiver (skip), second should be *ActionContext
+	paramType := methodType.In(1)
+	expectedParamType := reflect.TypeOf((*ActionContext)(nil))
+	if paramType != expectedParamType {
+		return false
+	}
+
+	// Check return type: should be error
+	returnType := methodType.Out(0)
+	expectedReturnType := reflect.TypeOf((*error)(nil)).Elem()
+
+	return returnType == expectedReturnType
+}
+
+// resolveAndExecuteAction handles action resolution with conflict detection and namespacing
+func (p *ApplicationPage) resolveAndExecuteAction(actionName string, actionData map[string]interface{}) (interface{}, error) {
+	// First, check for exact match in registered action handlers
+	if handler, exists := p.actions[actionName]; exists {
+		currentData := p.GetData()
+		return handler(currentData, actionData)
+	}
+
+	// Then check if it's a namespaced action (e.g., "counter.increment")
+	if strings.Contains(actionName, ".") {
+		return p.executeNamespacedAction(actionName, actionData)
+	}
+
+	// Finally, check for direct action in data models with conflict detection
+	return p.executeDirectAction(actionName, actionData)
+}
+
+// executeNamespacedAction handles actions with explicit namespace (e.g., "counter.increment")
+func (p *ApplicationPage) executeNamespacedAction(actionName string, actionData map[string]interface{}) (interface{}, error) {
+	parts := strings.SplitN(actionName, ".", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid namespaced action format: %q", actionName)
+	}
+
+	modelName := strings.ToLower(parts[0])
+	methodName := strings.ToLower(parts[1])
+
+	// Find the specific data model by name
+	for _, model := range p.dataModels {
+		if model.Name == modelName {
+			if method, exists := model.ActionMethods[methodName]; exists {
+				return p.callDataModelMethod(model.Instance, method, actionData)
+			}
+			return nil, fmt.Errorf("action method %q not found on model %q", methodName, modelName)
+		}
+	}
+
+	return nil, fmt.Errorf("data model %q not found for action %q", modelName, actionName)
+}
+
+// executeDirectAction handles direct actions with conflict detection
+func (p *ApplicationPage) executeDirectAction(actionName string, actionData map[string]interface{}) (interface{}, error) {
+	var matchingModels []DataModel
+	var matchingMethods []reflect.Method
+
+	// Find all models that have this action method
+	for _, model := range p.dataModels {
+		if method, exists := model.ActionMethods[actionName]; exists {
+			matchingModels = append(matchingModels, model)
+			matchingMethods = append(matchingMethods, method)
+		}
+	}
+
+	if len(matchingModels) == 0 {
+		return nil, fmt.Errorf("action %q not found in any registered handlers or data models", actionName)
+	}
+
+	if len(matchingModels) == 1 {
+		// No conflict, execute the action
+		return p.callDataModelMethod(matchingModels[0].Instance, matchingMethods[0], actionData)
+	}
+
+	// Conflict detected - provide helpful error message with namespacing suggestions
+	var modelNames []string
+	for _, model := range matchingModels {
+		modelNames = append(modelNames, fmt.Sprintf("%s.%s", model.Name, actionName))
+	}
+
+	return nil, fmt.Errorf("action %q conflicts between multiple data models. Use namespaced actions: %s",
+		actionName, strings.Join(modelNames, ", "))
+}
+
+// callDataModelMethod invokes a data model method using reflection
+func (p *ApplicationPage) callDataModelMethod(instance interface{}, method reflect.Method, actionData map[string]interface{}) (interface{}, error) {
+	// Create ActionContext with the action data
+	ctx := NewActionContext(actionData)
+
+	// Prepare method arguments: receiver + actionContext
+	args := []reflect.Value{
+		reflect.ValueOf(instance),
+		reflect.ValueOf(ctx),
+	}
+
+	// Call the method
+	results := method.Func.Call(args)
+
+	// Extract error result
+	errInterface := results[0].Interface()
+
+	// Handle error result
+	if errInterface != nil {
+		if err, ok := errInterface.(error); ok {
+			return nil, fmt.Errorf("data model action failed: %w", err)
+		}
+	}
+
+	// Get response data from context (may be nil)
+	return ctx.GetResponse(), nil
+}
+
+// HasActions returns true if any actions are registered (either handlers or data models)
 func (p *ApplicationPage) HasActions() bool {
-	return len(p.actions) > 0
+	if len(p.actions) > 0 {
+		return true
+	}
+
+	// Check if any data models have action methods
+	for _, model := range p.dataModels {
+		if len(model.ActionMethods) > 0 {
+			return true
+		}
+	}
+
+	return false
 }
 
 // HandleAction processes an action message and returns updated fragments
@@ -501,19 +883,10 @@ func (p *ApplicationPage) HandleAction(ctx context.Context, msg *ActionMessage) 
 		msg.Data = make(map[string]interface{})
 	}
 
-	// Check if action is registered
-	handler, exists := p.actions[msg.Action]
-	if !exists {
-		return nil, fmt.Errorf("action %q not registered", msg.Action)
-	}
-
-	// Get current data
-	currentData := p.GetData()
-
-	// Call the handler to get new data
-	newData, err := handler(currentData, msg.Data)
+	// Try to resolve the action (with conflict detection and namespacing)
+	newData, err := p.resolveAndExecuteAction(msg.Action, msg.Data)
 	if err != nil {
-		return nil, fmt.Errorf("action handler failed: %w", err)
+		return nil, err
 	}
 
 	// Update page data and generate fragments

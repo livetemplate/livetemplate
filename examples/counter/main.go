@@ -29,6 +29,7 @@ var availableColors = map[string]string{
 }
 
 // Counter represents the counter data model
+// This struct now serves as a LiveTemplate data model with action methods
 type Counter struct {
 	mu    sync.RWMutex
 	Value int    `json:"Counter"`
@@ -45,20 +46,46 @@ func NewCounter() *Counter {
 	return c
 }
 
-// Increment increases the counter value and changes color
-func (c *Counter) Increment() {
+// Increment increases the counter value and changes color (data model action method)
+func (c *Counter) Increment(ctx *livetemplate.ActionContext) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.Value++
 	c.Color = c.getNextColor()
+	
+	// Get the data while holding the lock to avoid deadlock with ToMap()
+	colorHex := availableColors[c.Color]
+	if colorHex == "" {
+		colorHex = availableColors["color-red"] // fallback
+	}
+	data := map[string]any{
+		"Counter": c.Value,
+		"Color":   colorHex,
+	}
+	c.mu.Unlock()
+	
+	// Set response data using the clean ActionContext API
+	return ctx.Data(data)
 }
 
-// Decrement decreases the counter value and changes color
-func (c *Counter) Decrement() {
+// Decrement decreases the counter value and changes color (data model action method)
+func (c *Counter) Decrement(ctx *livetemplate.ActionContext) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.Value--
 	c.Color = c.getNextColor()
+	
+	// Get the data while holding the lock to avoid deadlock with ToMap()
+	colorHex := availableColors[c.Color]
+	if colorHex == "" {
+		colorHex = availableColors["color-red"] // fallback
+	}
+	data := map[string]any{
+		"Counter": c.Value,
+		"Color":   colorHex,
+	}
+	c.mu.Unlock()
+	
+	// Set response data using the clean ActionContext API
+	return ctx.Data(data)
 }
 
 // getNextColor ensures color always changes from current color
@@ -137,16 +164,15 @@ func NewServer() *Server {
 		log.Fatal("Failed to create template page:", err)
 	}
 	
-	// Register action handlers at the application level
-	app.RegisterAction("increment", func(currentData interface{}, actionData map[string]interface{}) (interface{}, error) {
-		counter.Increment()
-		return counter.ToMap(), nil
-	})
-	
-	app.RegisterAction("decrement", func(currentData interface{}, actionData map[string]interface{}) (interface{}, error) {
-		counter.Decrement()
-		return counter.ToMap(), nil
-	})
+	// NEW APPROACH: Register counter as a data model 
+	// Actions will be automatically detected from methods with the clean signature:
+	// func(ctx *livetemplate.ActionContext) error
+	// This replaces the old manual app.RegisterAction() calls
+	err = templatePage.RegisterDataModel(counter)
+	if err != nil {
+		log.Fatal("Failed to register counter data model:", err)
+	}
+	log.Printf("Registered counter data model with actions: increment, decrement")
 
 	server := &Server{
 		app:          app,
