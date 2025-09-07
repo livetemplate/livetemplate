@@ -481,6 +481,16 @@ func (p *ApplicationPage) HandleAction(ctx context.Context, msg *ActionMessage) 
 		return nil, fmt.Errorf("action message is nil")
 	}
 
+	// Validate message type
+	if msg.Type != "" && msg.Type != "action" {
+		return nil, fmt.Errorf("invalid message type: %q, expected \"action\"", msg.Type)
+	}
+
+	// Validate action name
+	if msg.Action == "" {
+		return nil, fmt.Errorf("action name is empty")
+	}
+
 	// Optional: validate token if provided
 	if msg.Token != "" && msg.Token != p.GetToken() {
 		return nil, fmt.Errorf("invalid token")

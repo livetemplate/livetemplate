@@ -208,33 +208,15 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Handle messages using the page with registered actions
 	for {
-		var message map[string]interface{}
+		var message livetemplate.ActionMessage
 		err := conn.ReadJSON(&message)
 		if err != nil {
 			break
 		}
 
-		// Check message type
-		msgType, _ := message["type"].(string)
-		if msgType != "action" {
-			continue
-		}
+		log.Printf("Processing action: %s", message.Action)
 
-		// Extract action name
-		actionName, ok := message["action"].(string)
-		if !ok {
-			continue
-		}
-
-		log.Printf("Processing action: %s", actionName)
-
-		// Process action using the page with registered actions
-		actionData, _ := message["data"].(map[string]interface{})
-		if actionData == nil {
-			actionData = make(map[string]interface{})
-		}
-
-		fragments, err := page.HandleAction(context.Background(), livetemplate.NewActionMessage(actionName, actionData))
+		fragments, err := page.HandleAction(context.Background(), &message)
 		if err != nil {
 			log.Printf("Action handler error: %v", err)
 			continue
