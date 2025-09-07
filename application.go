@@ -117,6 +117,23 @@ func WithCacheInfo(cacheInfo *ClientCacheInfo) ApplicationPageOption {
 // ActionHandler is a function that processes an action and returns updated data
 type ActionHandler func(currentData interface{}, actionData map[string]interface{}) (interface{}, error)
 
+// ActionMessage represents an action message from the client
+type ActionMessage struct {
+	Type   string                 `json:"type"`   // Message type (usually "action")
+	Action string                 `json:"action"` // Action name to execute
+	Token  string                 `json:"token"`  // Optional security token
+	Data   map[string]interface{} `json:"data"`   // Action payload data
+}
+
+// NewActionMessage creates a new ActionMessage with the given action name and data
+func NewActionMessage(action string, data map[string]interface{}) *ActionMessage {
+	return &ActionMessage{
+		Type:   "action",
+		Action: action,
+		Data:   data,
+	}
+}
+
 // ApplicationPage represents a page managed by an Application with session-based authentication
 type ApplicationPage struct {
 	internal  *app.Page
@@ -457,18 +474,34 @@ func (p *ApplicationPage) HasActions() bool {
 	return len(p.actions) > 0
 }
 
-// HandleAction processes an action and returns updated fragments
-func (p *ApplicationPage) HandleAction(ctx context.Context, actionName string, actionData map[string]interface{}) ([]*Fragment, error) {
-	handler, exists := p.actions[actionName]
+// HandleAction processes an action message and returns updated fragments
+func (p *ApplicationPage) HandleAction(ctx context.Context, msg *ActionMessage) ([]*Fragment, error) {
+	// Validate message
+	if msg == nil {
+		return nil, fmt.Errorf("action message is nil")
+	}
+
+	// Optional: validate token if provided
+	if msg.Token != "" && msg.Token != p.GetToken() {
+		return nil, fmt.Errorf("invalid token")
+	}
+
+	// Ensure data is not nil
+	if msg.Data == nil {
+		msg.Data = make(map[string]interface{})
+	}
+
+	// Check if action is registered
+	handler, exists := p.actions[msg.Action]
 	if !exists {
-		return nil, fmt.Errorf("action %q not registered", actionName)
+		return nil, fmt.Errorf("action %q not registered", msg.Action)
 	}
 
 	// Get current data
 	currentData := p.GetData()
 
 	// Call the handler to get new data
-	newData, err := handler(currentData, actionData)
+	newData, err := handler(currentData, msg.Data)
 	if err != nil {
 		return nil, fmt.Errorf("action handler failed: %w", err)
 	}
@@ -505,39 +538,22 @@ func (a *Application) ServeWebSocket() http.HandlerFunc {
 
 		// Handle messages
 		for {
-			var message map[string]interface{}
-			err := conn.ReadJSON(&message)
+			var actionMsg ActionMessage
+			err := conn.ReadJSON(&actionMsg)
 			if err != nil {
 				break
 			}
 
 			// Check message type
-			msgType, _ := message["type"].(string)
-			if msgType != "action" {
+			if actionMsg.Type != "action" {
 				continue // Skip non-action messages
 			}
 
-			// Extract action information
-			actionName, ok := message["action"].(string)
-			if !ok {
-				continue
-			}
-
-			// Validate token matches (optional security check)
-			if token, ok := message["token"].(string); ok && token != page.GetToken() {
-				continue // Skip messages with mismatched tokens
-			}
-
-			actionData, _ := message["data"].(map[string]interface{})
-			if actionData == nil {
-				actionData = make(map[string]interface{})
-			}
-
 			// Debug logging
-			fmt.Printf("Processing action: %s\n", actionName)
+			fmt.Printf("Processing action: %s\n", actionMsg.Action)
 
 			// Process action and get fragments
-			fragments, err := page.HandleAction(r.Context(), actionName, actionData)
+			fragments, err := page.HandleAction(r.Context(), &actionMsg)
 			if err != nil {
 				fmt.Printf("Action handler error: %v\n", err)
 				continue

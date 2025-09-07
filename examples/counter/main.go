@@ -234,7 +234,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			actionData = make(map[string]interface{})
 		}
 
-		fragments, err := page.HandleAction(context.Background(), actionName, actionData)
+		fragments, err := page.HandleAction(context.Background(), livetemplate.NewActionMessage(actionName, actionData))
 		if err != nil {
 			log.Printf("Action handler error: %v", err)
 			continue

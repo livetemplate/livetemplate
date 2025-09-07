@@ -283,7 +283,7 @@ func TestApplication_ActionHandling(t *testing.T) {
 	}
 
 	// Test increment action
-	_, err = retrievedPage.HandleAction(context.TODO(), "increment", nil)
+	_, err = retrievedPage.HandleAction(context.TODO(), NewActionMessage("increment", nil))
 	if err != nil {
 		t.Fatalf("HandleAction increment failed: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestApplication_ActionHandling(t *testing.T) {
 	}
 
 	// Test decrement action
-	_, err = retrievedPage.HandleAction(context.TODO(), "decrement", nil)
+	_, err = retrievedPage.HandleAction(context.TODO(), NewActionMessage("decrement", nil))
 	if err != nil {
 		t.Fatalf("HandleAction decrement failed: %v", err)
 	}
