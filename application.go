@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -366,6 +367,68 @@ func (a *Application) RegisterTemplateFromFile(name string, filepath string) err
 	}
 
 	return a.RegisterTemplate(name, tmpl)
+}
+
+// ParseFiles parses template definitions from files and registers them automatically
+// The template name is derived from the first file's base name (without extension)
+// Returns the parsed template for further use if needed
+func (a *Application) ParseFiles(filenames ...string) (*template.Template, error) {
+	if len(filenames) == 0 {
+		return nil, fmt.Errorf("no filenames provided")
+	}
+
+	tmpl, err := template.ParseFiles(filenames...)
+	if err != nil {
+		return nil, err
+	}
+
+	// Auto-register using the first file's base name (without extension)
+	name := strings.TrimSuffix(filepath.Base(filenames[0]), filepath.Ext(filenames[0]))
+	a.templates[name] = tmpl
+
+	return tmpl, nil
+}
+
+// MustParseFiles is like ParseFiles but panics if parsing fails
+func (a *Application) MustParseFiles(filenames ...string) *template.Template {
+	tmpl, err := a.ParseFiles(filenames...)
+	if err != nil {
+		panic(err)
+	}
+	return tmpl
+}
+
+// ParseGlob parses template definitions from files matching pattern and registers them automatically
+// The template name is derived from the pattern (directory name if pattern contains path)
+// Returns the parsed template for further use if needed
+func (a *Application) ParseGlob(pattern string) (*template.Template, error) {
+	tmpl, err := template.ParseGlob(pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	// Auto-register using a name derived from the pattern
+	// Use directory name if pattern has path, otherwise use "templates"
+	dir := filepath.Dir(pattern)
+	var name string
+	if dir != "." && dir != "" {
+		name = filepath.Base(dir)
+	} else {
+		name = "templates"
+	}
+
+	a.templates[name] = tmpl
+
+	return tmpl, nil
+}
+
+// MustParseGlob is like ParseGlob but panics if parsing fails
+func (a *Application) MustParseGlob(pattern string) *template.Template {
+	tmpl, err := a.ParseGlob(pattern)
+	if err != nil {
+		panic(err)
+	}
+	return tmpl
 }
 
 // NewPageFromTemplate creates a new page using a registered template

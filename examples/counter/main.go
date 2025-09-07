@@ -150,16 +150,18 @@ func NewServer() *Server {
 		log.Fatal(err)
 	}
 	
-	// Register the template once with the application
-	err = app.RegisterTemplateFromFile("counter", "templates/index.html")
+	// Parse and auto-register the template using standard ParseFiles pattern
+	// Template will be registered as "index" (filename without extension)
+	_, err = app.ParseFiles("templates/index.html")
 	if err != nil {
-		log.Fatal("Failed to register template:", err)
+		log.Fatal("Failed to parse template:", err)
 	}
 	
 	counter := NewCounter()
 	
 	// Create a template page with stable token for consistent rendering
-	templatePage, err := app.NewPage("counter", counter.ToMap())
+	// Use "index" since that's what ParseFiles registered (filename without extension)
+	templatePage, err := app.NewPage("index", counter.ToMap())
 	if err != nil {
 		log.Fatal("Failed to create template page:", err)
 	}
