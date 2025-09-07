@@ -538,45 +538,21 @@ func (a *Application) ServeWebSocket() http.HandlerFunc {
 
 		// Handle messages
 		for {
-			var message map[string]interface{}
-			err := conn.ReadJSON(&message)
+			var actionMsg ActionMessage
+			err := conn.ReadJSON(&actionMsg)
 			if err != nil {
 				break
 			}
 
 			// Check message type
-			msgType, _ := message["type"].(string)
-			if msgType != "action" {
+			if actionMsg.Type != "action" {
 				continue // Skip non-action messages
 			}
 
-			// Extract action name
-			actionName, ok := message["action"].(string)
-			if !ok {
-				continue
-			}
-
-			fmt.Printf("Processing action: %s\n", actionName)
-
-			// Extract action data
-			actionData, _ := message["data"].(map[string]interface{})
-			if actionData == nil {
-				actionData = make(map[string]interface{})
-			}
-
-			// Extract optional token
-			token, _ := message["token"].(string)
-
-			// Create ActionMessage
-			actionMsg := &ActionMessage{
-				Type:   msgType,
-				Action: actionName,
-				Token:  token,
-				Data:   actionData,
-			}
+			fmt.Printf("Processing action: %s\n", actionMsg.Action)
 
 			// Process action and get fragments
-			fragments, err := page.HandleAction(r.Context(), actionMsg)
+			fragments, err := page.HandleAction(r.Context(), &actionMsg)
 			if err != nil {
 				fmt.Printf("Action handler error: %v\n", err)
 				continue
