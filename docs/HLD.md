@@ -97,16 +97,16 @@ Generated structures are compatible with Phoenix LiveView client libraries:
 
 ```go
 type Application struct {
-    id           string              // Unique application identifier  
-    tokenService *token.TokenService // JWT authentication
-    pageRegistry *page.Registry      // Isolated page storage
-    metrics      *metrics.Collector  // Application metrics
+    id             string              // Unique application identifier  
+    sessionManager *session.Manager    // Session-based authentication
+    pageRegistry   *page.Registry      // Isolated page storage
+    metrics        *metrics.Collector  // Application metrics
 }
 ```
 
 **Security Properties**:
 - Complete isolation between applications
-- JWT tokens scoped to specific applications
+- Sessions scoped to specific applications  
 - Resource limits per application
 - Cross-application access prevention
 
@@ -123,10 +123,10 @@ type Page struct {
 ```
 
 **Session Properties**:
-- Stateless design for horizontal scaling
-- JWT token contains reconstruction data
+- Session-based design with server-side state management
+- Session tokens provide page access authentication
 - Template parsing cached for performance
-- Memory bounded with automatic cleanup
+- Memory bounded with automatic cleanup via TTL
 
 ### 3. Strategy Layer (Tree-Based Optimization)
 
@@ -162,13 +162,13 @@ sequenceDiagram
     participant T as TreeGenerator
     
     C->>S: GET /page (initial load)
-    S->>A: NewApplicationPage(template, data)
+    S->>A: NewPage(templateName, data)
     A->>P: Create new page instance
     P->>T: Parse template boundaries
     T->>T: Build tree structure
     T-->>P: Return tree with statics
-    P-->>A: Page created with token
-    A-->>S: Page + JWT token
+    P-->>A: Page created with session
+    A-->>S: Page + session token
     S->>S: Render HTML from tree structure
     S-->>C: Full HTML + JS client setup
     
@@ -186,9 +186,9 @@ sequenceDiagram
     participant P as Page
     participant T as TreeGenerator
     
-    C->>S: WebSocket + JWT token
-    S->>A: GetApplicationPage(token)
-    A->>A: Validate token & retrieve page
+    C->>S: WebSocket + session token
+    S->>A: GetPage(request)
+    A->>A: Validate session & retrieve page
     A-->>S: Page instance
     
     loop Real-time Updates
@@ -338,24 +338,35 @@ graph TB
     PB2 <-->|✅ Allowed| TB
 ```
 
-### JWT Token Security
+### Session-Based Authentication
 
-**Token Structure**:
-```json
-{
-  "iss": "livetemplate",
-  "sub": "page_id",  
-  "app": "application_id",
-  "exp": 1640995200,
-  "iat": 1640908800
+**Current Implementation**: LiveTemplate v1.0 uses **session-based authentication** as the primary mechanism with optional JWT support.
+
+**Session Structure**:
+```go
+type Session struct {
+    ID         string    // Unique session identifier
+    PageID     string    // Associated page ID
+    AppID      string    // Application ID for isolation
+    CreatedAt  time.Time // Creation timestamp
+    LastAccess time.Time // Last access for TTL cleanup
+    CacheToken string    // Stable token for client-side caching
 }
 ```
 
+**Authentication Flow**:
+1. **Page Creation**: `app.NewPage()` creates session with unique ID
+2. **Token Generation**: `page.GetToken()` returns session token
+3. **WebSocket Auth**: `app.GetPage(r)` validates session from HTTP request
+4. **Cross-App Isolation**: Sessions scoped to specific applications
+
 **Security Properties**:
-- Cryptographically signed with application-specific keys
-- Contains application ID for cross-application access prevention
-- Configurable expiration with automatic cleanup
-- Stateless design enables horizontal scaling
+- Session-based isolation prevents cross-application access
+- Automatic TTL cleanup prevents session accumulation
+- Thread-safe session management for concurrent access
+- Cache tokens provide stable client-side identifiers
+
+> **Note**: LiveTemplate v1.0 includes both session management (primary) and JWT token infrastructure (available but not currently used in the main API). Future versions may leverage JWT tokens for advanced use cases like distributed deployments or stateless scaling.
 
 ---
 
