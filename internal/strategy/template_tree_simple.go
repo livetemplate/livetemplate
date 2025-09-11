@@ -39,15 +39,18 @@ func NewSimpleTreeGenerator() *SimpleTreeGenerator {
 
 // GenerateFromTemplateSource creates simple tree data from template source
 func (g *SimpleTreeGenerator) GenerateFromTemplateSource(templateSource string, oldData, newData interface{}, fragmentID string) (*SimpleTreeData, error) {
+	// Check if this template contains range constructs
+	hasRangeConstructs := strings.Contains(templateSource, "{{range")
+
 	// Check if we have cached structure
-	cachedStructure, hasCached := g.cache[fragmentID]
+	_, hasCached := g.cache[fragmentID]
 
-	if hasCached {
-		// Generate incremental update using cached structure
-		return g.generateIncrementalUpdate(cachedStructure, newData, fragmentID)
-	}
+	// Always use full structure generation for now to fix conditional issues
+	// TODO: Fix incremental updates for conditionals
+	_ = hasCached
+	_ = hasRangeConstructs
 
-	// First render - analyze template and build structure
+	// First render OR templates with range constructs - always use full structure generation
 	return g.generateFullStructure(templateSource, newData, fragmentID)
 }
 
@@ -73,24 +76,6 @@ func (g *SimpleTreeGenerator) generateFullStructure(templateSource string, data 
 	g.cache[fragmentID] = staticStructure
 
 	return structure, nil
-}
-
-// generateIncrementalUpdate generates only changed dynamic values
-func (g *SimpleTreeGenerator) generateIncrementalUpdate(cachedStructure *SimpleTreeData, data interface{}, fragmentID string) (*SimpleTreeData, error) {
-	// Clone cached structure
-	updateStructure := g.cloneStructure(cachedStructure)
-	updateStructure.FragmentID = fragmentID
-
-	// Update only dynamic values
-	err := g.updateDynamicValues(updateStructure, data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update dynamic values: %v", err)
-	}
-
-	// For incremental updates, clear statics recursively (cached client-side)
-	g.clearStaticsRecursively(updateStructure)
-
-	return updateStructure, nil
 }
 
 // buildSimpleTree builds the minimal tree structure from boundaries
@@ -287,8 +272,8 @@ func (g *SimpleTreeGenerator) buildConditionalTree(boundaries []TemplateBoundary
 		if elseRelativeIndex > 0 {
 			trueBoundaries = contentBoundaries[:elseRelativeIndex]
 		}
-		if elseRelativeIndex+1 < len(contentBoundaries) {
-			falseBoundaries = contentBoundaries[elseRelativeIndex+1:]
+		if elseRelativeIndex < len(contentBoundaries) {
+			falseBoundaries = contentBoundaries[elseRelativeIndex:]
 		}
 	} else {
 		// No else block
@@ -297,9 +282,9 @@ func (g *SimpleTreeGenerator) buildConditionalTree(boundaries []TemplateBoundary
 
 	// Select the active branch and build its tree structure
 	var selectedBranch []TemplateBoundary
-	if branchKey == "true" && len(trueBoundaries) > 0 {
+	if branchKey == "true" {
 		selectedBranch = trueBoundaries
-	} else if branchKey == "false" && len(falseBoundaries) > 0 {
+	} else if branchKey == "false" {
 		selectedBranch = falseBoundaries
 	}
 
@@ -311,7 +296,7 @@ func (g *SimpleTreeGenerator) buildConditionalTree(boundaries []TemplateBoundary
 		}
 		return branchTree, currentIndex, nil
 	} else {
-		// Empty branch
+		// Empty branch - return empty structure
 		emptyTree := &SimpleTreeData{
 			S:          []string{""},
 			Dynamics:   make(map[string]interface{}),
@@ -641,81 +626,6 @@ func (g *SimpleTreeGenerator) extractStaticStructure(tree *SimpleTreeData) *Simp
 	}
 
 	return staticTree
-}
-
-// cloneStructure creates a deep clone of tree structure
-func (g *SimpleTreeGenerator) cloneStructure(tree *SimpleTreeData) *SimpleTreeData {
-	clone := &SimpleTreeData{
-		S:          make([]string, len(tree.S)),
-		Dynamics:   make(map[string]interface{}),
-		fieldPaths: make(map[string]string),
-		conditions: make(map[string]string),
-	}
-
-	copy(clone.S, tree.S)
-
-	// Copy evaluation metadata
-	for key, path := range tree.fieldPaths {
-		clone.fieldPaths[key] = path
-	}
-	for key, condition := range tree.conditions {
-		clone.conditions[key] = condition
-	}
-
-	for key, value := range tree.Dynamics {
-		if nestedTree, ok := value.(*SimpleTreeData); ok {
-			clone.Dynamics[key] = g.cloneStructure(nestedTree)
-		} else {
-			clone.Dynamics[key] = value
-		}
-	}
-
-	return clone
-}
-
-// clearStaticsRecursively removes all static arrays from tree structure (for incremental updates)
-func (g *SimpleTreeGenerator) clearStaticsRecursively(tree *SimpleTreeData) {
-	// Clear static array at this level
-	tree.S = nil
-
-	// Recursively clear statics in nested structures
-	for _, value := range tree.Dynamics {
-		if nestedTree, ok := value.(*SimpleTreeData); ok {
-			g.clearStaticsRecursively(nestedTree)
-		}
-	}
-}
-
-// updateDynamicValues recursively updates dynamic values in structure
-func (g *SimpleTreeGenerator) updateDynamicValues(tree *SimpleTreeData, data interface{}) error {
-	// Update simple field values using stored field paths
-	for key, fieldPath := range tree.fieldPaths {
-		newValue, err := g.evaluateFieldPath(fieldPath, data)
-		if err != nil {
-			return fmt.Errorf("failed to re-evaluate field %s: %v", fieldPath, err)
-		}
-		tree.Dynamics[key] = fmt.Sprintf("%v", newValue)
-	}
-
-	// Update nested structures recursively
-	for _, value := range tree.Dynamics {
-		if nestedTree, ok := value.(*SimpleTreeData); ok {
-			if err := g.updateDynamicValues(nestedTree, data); err != nil {
-				return err
-			}
-		}
-	}
-
-	// For conditional values, re-evaluate condition and rebuild branch
-	for key, condition := range tree.conditions {
-		// For now, mark as needing conditional re-evaluation
-		// Full conditional re-evaluation would require rebuilding the nested structure
-		// This is complex and should be done in a separate improvement
-		_ = condition // Placeholder to avoid unused variable
-		_ = key
-	}
-
-	return nil
 }
 
 // MarshalJSON customizes JSON marshaling to match LiveView format

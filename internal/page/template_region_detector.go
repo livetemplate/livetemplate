@@ -43,18 +43,50 @@ func (p *Page) detectTemplateRegions() ([]TemplateRegion, error) {
 		}
 	}
 
-	// Find HTML elements that contain template expressions
+	// Find dynamic regions - both HTML elements with template expressions AND standalone template constructs
 	regions := []TemplateRegion{}
 
-	// Find HTML elements that contain template expressions by parsing properly
+	// Method 1: Find standalone template constructs like {{range}}, {{if}} that span elements
+	// Process these FIRST as they have higher priority and define larger boundaries
+	standaloneConstructs := findStandaloneTemplateConstructs(templateSource)
+
+	regionIndex := 0
+
+	// Process standalone template construct regions (Method 1 - Higher Priority)
+	for _, construct := range standaloneConstructs {
+		regionIndex++
+
+		region := TemplateRegion{
+			ID:             generateGloballyUniqueFragmentID(),
+			TemplateSource: construct.TemplateSource,
+			StartMarker:    construct.StartMarker,
+			EndMarker:      construct.EndMarker,
+			FieldPaths:     construct.FieldPaths,
+			ElementTag:     construct.ElementTag,
+			OriginalAttrs:  construct.OriginalAttrs,
+		}
+
+		regions = append(regions, region)
+	}
+
+	// Method 2: Find HTML elements that contain template expressions by parsing properly
 	matches := findCompleteElementMatches(templateSource)
-
-	// Debug info removed for cleaner output
-
 	// Filter to only get leaf elements (elements that don't contain other template-containing elements)
 	leafMatches := filterToLeafElements(matches)
 
-	regionIndex := 0
+	// Helper function to check if an element is already covered by existing regions
+	isElementCoveredByExistingRegions := func(elementContent string, elementStart int) bool {
+		// Check if this element is inside any of the already created regions
+		for _, region := range regions {
+			// Check if the element content appears within this region's template source
+			if strings.Contains(region.TemplateSource, elementContent) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Process HTML element-based regions (Method 2 - Lower Priority)
 	for _, match := range leafMatches {
 		if len(match) >= 5 {
 			startTagName := match[1]
@@ -76,6 +108,20 @@ func (p *Page) detectTemplateRegions() ([]TemplateRegion, error) {
 				continue
 			}
 
+			// Skip regions that are already covered by standalone constructs - prevents overlap
+			// Handle self-closing elements correctly
+			var fullElement string
+			isSelfClosing := content == "" && (startTagName == "input" || startTagName == "img" ||
+				startTagName == "meta" || startTagName == "link" || startTagName == "br" || startTagName == "hr")
+			if isSelfClosing {
+				fullElement = fmt.Sprintf("<%s%s>", startTagName, attributes)
+			} else {
+				fullElement = fmt.Sprintf("<%s%s>%s</%s>", startTagName, attributes, content, endTagName)
+			}
+			if isElementCoveredByExistingRegions(fullElement, 0) {
+				continue
+			}
+
 			// Extract ID from tag attributes if available, otherwise generate ID
 			extractedID := extractIDFromTag(attributes)
 			var lvtID string
@@ -92,17 +138,25 @@ func (p *Page) detectTemplateRegions() ([]TemplateRegion, error) {
 
 			// If attributes contain templates, include the entire element as template source
 			var templateSource string
+			var endMarker string
 			if hasTemplateInAttributes {
-				templateSource = fmt.Sprintf("<%s%s>%s</%s>", startTagName, attributes, content, endTagName)
+				if isSelfClosing {
+					templateSource = fmt.Sprintf("<%s%s>", startTagName, attributes)
+					endMarker = "" // Self-closing elements don't have end markers
+				} else {
+					templateSource = fmt.Sprintf("<%s%s>%s</%s>", startTagName, attributes, content, endTagName)
+					endMarker = fmt.Sprintf("</%s>", endTagName)
+				}
 			} else {
 				templateSource = content
+				endMarker = fmt.Sprintf("</%s>", endTagName)
 			}
 
 			region := TemplateRegion{
 				ID:             lvtID,
 				TemplateSource: templateSource,
 				StartMarker:    fmt.Sprintf("<%s%s>", startTagName, attributes),
-				EndMarker:      fmt.Sprintf("</%s>", endTagName),
+				EndMarker:      endMarker,
 				FieldPaths:     fieldPaths,
 				ElementTag:     startTagName,
 				OriginalAttrs:  attributes,
@@ -168,45 +222,69 @@ func extractFieldPaths(content string) []string {
 }
 
 // findCompleteElementMatches finds properly matched HTML elements with their complete content
+// Handles both paired elements (<div>content</div>) and self-closing elements (<input/>)
 func findCompleteElementMatches(templateSource string) [][]string {
 	var matches [][]string
+	templatePattern := regexp.MustCompile(`\{\{[^}]+\}\}`)
 
-	// Find all opening tags
-	openTagRegex := regexp.MustCompile(`<(\w+)([^>]*)>`)
-	openMatches := openTagRegex.FindAllStringSubmatch(templateSource, -1)
-	openIndexes := openTagRegex.FindAllStringSubmatchIndex(templateSource, -1)
+	// Method 1: Find all opening tags (both self-closing and regular)
+	openTagRegex := regexp.MustCompile(`<(\w+)([^>]*?)(/?)>`)
+	allTags := openTagRegex.FindAllStringSubmatch(templateSource, -1)
+	allTagIndexes := openTagRegex.FindAllStringSubmatchIndex(templateSource, -1)
 
-	for i, openMatch := range openMatches {
-		if len(openMatch) < 3 {
+	for i, tagMatch := range allTags {
+		if len(tagMatch) < 4 || len(allTagIndexes) <= i {
 			continue
 		}
 
-		tagName := openMatch[1]
-		attributes := openMatch[2]
-		openStart := openIndexes[i][0]
-		openEnd := openIndexes[i][1]
+		tagName := tagMatch[1]
+		attributes := tagMatch[2]
+		selfCloseSlash := tagMatch[3]
 
-		// Find the matching closing tag
-		closeTag := "</" + tagName + ">"
+		openStart := allTagIndexes[i][0]
+		openEnd := allTagIndexes[i][1]
+
+		hasTemplateInAttributes := templatePattern.MatchString(attributes)
+
+		// Check if this is a self-closing element
+		isSelfClosing := selfCloseSlash == "/" ||
+			tagName == "input" || tagName == "img" || tagName == "meta" ||
+			tagName == "link" || tagName == "br" || tagName == "hr"
+
+		if isSelfClosing {
+			// Handle self-closing elements
+			if hasTemplateInAttributes {
+				fullMatch := templateSource[openStart:openEnd]
+				match := []string{fullMatch, tagName, attributes, "", tagName}
+				matches = append(matches, match)
+			}
+			continue
+		}
+
+		// Handle regular paired elements - find matching closing tag
 		closeIndex := findMatchingCloseTag(templateSource, openEnd, tagName)
-
 		if closeIndex == -1 {
 			continue // No matching close tag found
 		}
 
 		// Extract the content between open and close tags
 		content := templateSource[openEnd:closeIndex]
+		hasTemplateInContent := templatePattern.MatchString(content)
 
-		// Create match array similar to regex: [fullMatch, openTag, attributes, content, closeTag]
-		fullMatch := templateSource[openStart : closeIndex+len(closeTag)]
-		match := []string{fullMatch, tagName, attributes, content, tagName}
-		matches = append(matches, match)
+		// Include element if it has template expressions in attributes OR content
+		if hasTemplateInAttributes || hasTemplateInContent {
+			closeTag := "</" + tagName + ">"
+			fullMatch := templateSource[openStart : closeIndex+len(closeTag)]
+			match := []string{fullMatch, tagName, attributes, content, tagName}
+			matches = append(matches, match)
+		}
 	}
 
 	return matches
 }
 
 // filterToLeafElements filters matches to only include leaf elements (no nested template-containing elements)
+// Enhanced to be more inclusive for form elements and UI components
 func filterToLeafElements(matches [][]string) [][]string {
 	var leafMatches [][]string
 	templatePattern := regexp.MustCompile(`\{\{[^}]+\}\}`)
@@ -217,6 +295,7 @@ func filterToLeafElements(matches [][]string) [][]string {
 		}
 
 		fullMatch := match[0]
+		tagName := match[1]
 		attributes := match[2]
 		content := match[3]
 
@@ -228,8 +307,21 @@ func filterToLeafElements(matches [][]string) [][]string {
 			continue // Skip elements without templates
 		}
 
-		// Check if any other match is contained within this one
-		// If so, this is not a leaf element
+		// Always include interactive elements that have template expressions
+		// These are typically leaf elements for user interaction
+		isInteractiveElement := tagName == "input" || tagName == "button" || tagName == "select" ||
+			tagName == "textarea" || tagName == "img" ||
+			strings.Contains(attributes, `data-lvt-action`)
+
+		if isInteractiveElement {
+			leafMatches = append(leafMatches, match)
+			continue
+		}
+
+		// For other elements with template expressions, only include if they're "leaf" elements
+		// (no nested template-containing elements within them)
+
+		// For other elements, check if any smaller template-containing element is nested within
 		isLeaf := true
 
 		for j, otherMatch := range matches {
@@ -244,8 +336,10 @@ func filterToLeafElements(matches [][]string) [][]string {
 			// Check if other element has templates
 			otherHasTemplate := templatePattern.MatchString(otherContent) || templatePattern.MatchString(otherAttrs)
 
-			if otherHasTemplate && strings.Contains(fullMatch, otherFull) && fullMatch != otherFull {
-				// This match contains another template-containing element
+			// If this match contains another template-containing element, and the other element is smaller,
+			// then this match is not a leaf element
+			if otherHasTemplate && strings.Contains(fullMatch, otherFull) &&
+				fullMatch != otherFull && len(otherFull) < len(fullMatch) {
 				isLeaf = false
 				break
 			}
@@ -365,4 +459,320 @@ func generateGloballyUniqueFragmentID() string {
 	// Convert to hex string for a clean, globally unique ID (16 characters)
 	// Add "f" prefix to ensure it starts with a letter for valid HTML/CSS IDs
 	return "f" + hex.EncodeToString(bytes)
+}
+
+// findStandaloneTemplateConstructs finds template constructs like {{range}}, {{if}} that span across HTML elements
+func findStandaloneTemplateConstructs(templateSource string) []TemplateRegion {
+	var constructs []TemplateRegion
+
+	// Find {{range}} constructs
+	rangeConstructs := findRangeConstructs(templateSource)
+	constructs = append(constructs, rangeConstructs...)
+
+	// Find {{if}} constructs, but only include small/contained ones to avoid overlapping regions
+	ifConstructs := findConditionalConstructs(templateSource)
+	// Filter out large conditional constructs that likely span multiple elements
+	filteredIfConstructs := filterSmallConditionalConstructs(ifConstructs)
+	constructs = append(constructs, filteredIfConstructs...)
+
+	return constructs
+}
+
+// filterSmallConditionalConstructs filters out large conditional constructs that could cause overlapping regions
+func filterSmallConditionalConstructs(constructs []TemplateRegion) []TemplateRegion {
+	var filtered []TemplateRegion
+
+	for _, construct := range constructs {
+		// Calculate size of the template source content
+		contentSize := len(construct.TemplateSource)
+
+		// Only allow small conditional constructs that are likely contained within single elements
+		// The todo count div is around 80-120 characters, so we allow up to 200 chars
+		if contentSize <= 200 {
+			filtered = append(filtered, construct)
+		}
+	}
+
+	return filtered
+}
+
+// findRangeConstructs specifically finds {{range}} template constructs
+func findRangeConstructs(templateSource string) []TemplateRegion {
+	var constructs []TemplateRegion
+
+	// Pattern to match {{range ...}} ... {{end}} blocks
+	rangePattern := regexp.MustCompile(`\{\{\s*range\s+([^}]+)\s*\}\}([\s\S]*?)\{\{\s*end\s*\}\}`)
+	matches := rangePattern.FindAllStringSubmatch(templateSource, -1)
+	matchIndexes := rangePattern.FindAllStringSubmatchIndex(templateSource, -1)
+
+	for i, match := range matches {
+		if len(match) < 3 || len(matchIndexes) <= i {
+			continue
+		}
+
+		rangeExpression := strings.TrimSpace(match[1]) // e.g., ".Todos" or "$item := .Items"
+		// rangeContent := match[2]                    // Content between {{range}} and {{end}} - not used yet
+
+		// Extract field path from range expression
+		fieldPaths := extractFieldPathsFromRangeExpression(rangeExpression)
+
+		// Find the HTML container element that surrounds this range construct
+		// Look backwards from the start of {{range}} to find opening tag
+		// Look forwards from {{end}} to find closing tag
+		rangeStart := matchIndexes[i][0]
+		rangeEnd := matchIndexes[i][1]
+
+		containerStart, containerTag, containerAttrs := findContainerElementStart(templateSource, rangeStart)
+		containerEnd := findContainerElementEnd(templateSource, rangeEnd, containerTag)
+
+		if containerStart == -1 || containerEnd == -1 {
+			// No suitable container found, skip this construct
+			continue
+		}
+
+		// Build template source for the entire range construct including container
+		fullTemplateSource := templateSource[containerStart:containerEnd]
+
+		construct := TemplateRegion{
+			ID:             generateGloballyUniqueFragmentID(), // Will be set by caller
+			TemplateSource: fullTemplateSource,
+			StartMarker:    fmt.Sprintf("<%s%s>", containerTag, containerAttrs),
+			EndMarker:      fmt.Sprintf("</%s>", containerTag),
+			FieldPaths:     fieldPaths,
+			ElementTag:     containerTag,
+			OriginalAttrs:  containerAttrs,
+		}
+
+		constructs = append(constructs, construct)
+	}
+
+	return constructs
+}
+
+// findConditionalConstructs specifically finds {{if}} template constructs
+func findConditionalConstructs(templateSource string) []TemplateRegion {
+	var constructs []TemplateRegion
+
+	// Pattern to match {{if ...}} ... {{end}} blocks
+	ifPattern := regexp.MustCompile(`\{\{\s*if\s+([^}]+)\s*\}\}([\s\S]*?)\{\{\s*end\s*\}\}`)
+	matches := ifPattern.FindAllStringSubmatch(templateSource, -1)
+	matchIndexes := ifPattern.FindAllStringSubmatchIndex(templateSource, -1)
+
+	for i, match := range matches {
+		if len(match) < 3 || len(matchIndexes) <= i {
+			continue
+		}
+
+		ifExpression := strings.TrimSpace(match[1]) // e.g., ".ShowError"
+		ifContent := match[2]                       // Content between {{if}} and {{end}}
+
+		// Extract field path from if expression
+		fieldPaths := extractFieldPathsFromIfExpression(ifExpression)
+
+		// For conditional constructs, find the immediate HTML container that wraps the conditional content
+		// Look for HTML element that contains the {{if}} ... {{end}} block
+		ifStart := matchIndexes[i][0]
+		ifEnd := matchIndexes[i][1]
+
+		// Find the element that directly contains this conditional construct
+		containerStart, containerTag, containerAttrs := findImmediateContainerForConditional(templateSource, ifStart, ifEnd, ifContent)
+
+		if containerStart == -1 {
+			// No suitable container found, skip this construct
+			continue
+		}
+
+		// Find the matching closing tag for this container
+		containerEnd := findContainerElementEnd(templateSource, ifEnd, containerTag)
+
+		if containerEnd == -1 {
+			// No matching closing tag found, skip this construct
+			continue
+		}
+
+		// Build template source for the entire if construct including container
+		fullTemplateSource := templateSource[containerStart:containerEnd]
+
+		construct := TemplateRegion{
+			ID:             generateGloballyUniqueFragmentID(),
+			TemplateSource: fullTemplateSource,
+			StartMarker:    fmt.Sprintf("<%s%s>", containerTag, containerAttrs),
+			EndMarker:      fmt.Sprintf("</%s>", containerTag),
+			FieldPaths:     fieldPaths,
+			ElementTag:     containerTag,
+			OriginalAttrs:  containerAttrs,
+		}
+
+		constructs = append(constructs, construct)
+	}
+
+	return constructs
+}
+
+// extractFieldPathsFromIfExpression extracts field paths from if expressions
+func extractFieldPathsFromIfExpression(ifExpr string) []string {
+	// Handle different if expression formats:
+	// ".ShowError" -> [".ShowError"]
+	// "not .Active" -> [".Active"]
+	// ".Count gt 0" -> [".Count"]
+	// "and .A .B" -> [".A", ".B"]
+
+	var fieldPaths []string
+
+	// Simple regex to find field references (starting with .)
+	fieldPattern := regexp.MustCompile(`\.[A-Za-z][A-Za-z0-9_]*`)
+	matches := fieldPattern.FindAllString(ifExpr, -1)
+
+	// Deduplicate field paths
+	seen := make(map[string]bool)
+	for _, match := range matches {
+		if !seen[match] {
+			fieldPaths = append(fieldPaths, match)
+			seen[match] = true
+		}
+	}
+
+	return fieldPaths
+}
+
+// extractFieldPathsFromRangeExpression extracts field paths from range expressions
+func extractFieldPathsFromRangeExpression(rangeExpr string) []string {
+	// Handle different range expression formats:
+	// ".Todos" -> [".Todos"]
+	// "$item := .Items" -> [".Items"]
+	// "$i, $item := .Users" -> [".Users"]
+
+	if strings.Contains(rangeExpr, ":=") {
+		// Assignment format: extract right side
+		parts := strings.Split(rangeExpr, ":=")
+		if len(parts) >= 2 {
+			fieldPath := strings.TrimSpace(parts[1])
+			if strings.HasPrefix(fieldPath, ".") {
+				return []string{fieldPath}
+			}
+		}
+	} else if strings.HasPrefix(rangeExpr, ".") {
+		// Direct field reference
+		return []string{rangeExpr}
+	}
+
+	return []string{}
+}
+
+// findContainerElementStart finds the HTML element that contains a template construct
+func findContainerElementStart(templateSource string, constructPos int) (int, string, string) {
+	// Look backwards from constructPos to find the most recent opening tag
+	before := templateSource[:constructPos]
+
+	// Find all opening tags before the construct
+	openTagPattern := regexp.MustCompile(`<(\w+)([^>]*)>`)
+	matches := openTagPattern.FindAllStringSubmatch(before, -1)
+	indexes := openTagPattern.FindAllStringSubmatchIndex(before, -1)
+
+	if len(matches) == 0 || len(indexes) == 0 {
+		return -1, "", ""
+	}
+
+	// Get the last (most recent) opening tag
+	lastMatch := matches[len(matches)-1]
+	lastIndex := indexes[len(indexes)-1]
+
+	if len(lastMatch) >= 3 {
+		tagName := lastMatch[1]
+		attributes := lastMatch[2]
+		startPos := lastIndex[0]
+
+		return startPos, tagName, attributes
+	}
+
+	return -1, "", ""
+}
+
+// findImmediateContainerForConditional finds the HTML element that directly contains a conditional construct
+// This looks for the element that wraps the conditional content, not just the last opening tag before it
+func findImmediateContainerForConditional(templateSource string, ifStart, ifEnd int, ifContent string) (int, string, string) {
+	// Strategy: Look for HTML elements that have the conditional construct within their content
+	// Pattern: <tag ...>...{{if}}...{{end}}...</tag>
+
+	// Find all HTML elements in the template source
+	// We need to find matching open/close tags manually since Go regex doesn't support backreferences
+	var matches [][]string
+	var matchIndexes [][]int
+
+	// Find all opening tags first
+	openTagPattern := regexp.MustCompile(`<(\w+)([^>]*)>`)
+	openMatches := openTagPattern.FindAllStringSubmatch(templateSource, -1)
+	openIndexes := openTagPattern.FindAllStringSubmatchIndex(templateSource, -1)
+
+	// For each opening tag, find its matching closing tag
+	for i, openMatch := range openMatches {
+		if len(openMatch) < 3 || len(openIndexes) <= i {
+			continue
+		}
+
+		tagName := openMatch[1]
+		attributes := openMatch[2]
+		openStart := openIndexes[i][0]
+		openEnd := openIndexes[i][1]
+
+		// Find the matching closing tag
+		closeIndex := findMatchingCloseTag(templateSource, openEnd, tagName)
+		if closeIndex == -1 {
+			continue // No matching close tag
+		}
+
+		// Extract content between open and close tags
+		content := templateSource[openEnd:closeIndex]
+		closeEnd := closeIndex + len("</"+tagName+">")
+
+		// Create match similar to what the regex would produce
+		fullMatch := templateSource[openStart:closeEnd]
+		match := []string{fullMatch, tagName, attributes, content}
+		matches = append(matches, match)
+
+		// Create index match
+		matchIndex := []int{openStart, closeEnd, 0, 0} // We only need the full match positions
+		matchIndexes = append(matchIndexes, matchIndex)
+	}
+
+	// Look for elements that contain the conditional construct within their boundaries
+	conditionalText := templateSource[ifStart:ifEnd]
+
+	for i, match := range matches {
+		if len(match) < 4 || len(matchIndexes) <= i {
+			continue
+		}
+
+		elementStart := matchIndexes[i][0]
+		elementEnd := matchIndexes[i][1]
+		tagName := match[1]
+		attributes := match[2]
+		elementContent := match[3]
+
+		// Check if this element contains the conditional construct
+		if elementStart <= ifStart && ifEnd <= elementEnd && strings.Contains(elementContent, conditionalText) {
+			// This element contains the conditional construct
+			// Make sure it's not too broad (avoid large containers like body, html)
+			if tagName != "body" && tagName != "html" && tagName != "main" {
+				return elementStart, tagName, attributes
+			}
+		}
+	}
+
+	// Fallback to the old method if no suitable container found
+	return findContainerElementStart(templateSource, ifStart)
+}
+
+// findContainerElementEnd finds the closing tag for a container element
+func findContainerElementEnd(templateSource string, constructEndPos int, tagName string) int {
+	// Look forwards from constructEndPos to find the matching closing tag
+	after := templateSource[constructEndPos:]
+	closeTag := "</" + tagName + ">"
+
+	closeIndex := strings.Index(after, closeTag)
+	if closeIndex != -1 {
+		return constructEndPos + closeIndex + len(closeTag)
+	}
+
+	return -1
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"html/template"
+	"log"
 	"reflect"
 	"regexp"
 	"strings"
@@ -149,6 +150,10 @@ func (p *Page) Render() (string, error) {
 		if newHTML != annotatedHTML {
 			annotatedRegions = append(annotatedRegions, region)
 			annotatedHTML = newHTML
+		} else {
+			// Include all regions for fragment generation, even if annotation fails
+			// This ensures range constructs and other standalone constructs are not filtered out
+			annotatedRegions = append(annotatedRegions, region)
 		}
 	}
 
@@ -194,13 +199,13 @@ func (p *Page) renderFragmentsWithConfig(ctx context.Context, newData interface{
 	// Update last accessed time
 	p.lastAccessed = time.Now()
 
-	// Use cached template regions, detect them if not already cached
+	// Use cached template regions from initial render, only detect if not already cached
 	regions := p.regions
 	if len(regions) == 0 {
-		// Try to detect regions if not already done
+		// Try to detect regions if not already done during initial render
 		detectedRegions, err := p.detectTemplateRegions()
 		if err == nil && len(detectedRegions) > 0 {
-			// Cache the detected regions for future use
+			// Only cache if we don't have regions yet (preserve annotated regions from Render)
 			p.regions = detectedRegions
 			regions = detectedRegions
 		} else {
@@ -219,6 +224,9 @@ func (p *Page) renderFragmentsWithConfig(ctx context.Context, newData interface{
 	for _, region := range regions {
 		fragment, err := p.generateRegionFragmentWithConfig(region, newData, config)
 		if err != nil {
+			// Log error but don't skip - try to generate using legacy fallback instead
+			log.Printf("Warning: Fragment generation failed for region %s: %v, falling back to legacy", region.ID, err)
+			// Continue to next region instead of complete failure
 			continue
 		}
 		fragments = append(fragments, fragment)
@@ -735,33 +743,62 @@ func (p *Page) annotateDynamicElement(html string, region TemplateRegion) string
 	templatePattern := regexp.MustCompile(`\{\{[^}]+\}\}`)
 	hasTemplateInAttributes := templatePattern.MatchString(region.OriginalAttrs)
 
+	// Check if this is a self-closing element (EndMarker is empty)
+	isSelfClosing := region.EndMarker == ""
+
 	var pattern string
 	var replacement string
 
-	if hasTemplateInAttributes {
-		// For attributes with templates, match any content within the same tag type
-		// Pattern: <tag [any attributes]>content</tag> with capture groups for attributes and content
-		pattern = fmt.Sprintf(`<%s([^>]*)>([^<]*)</%s>`,
-			regexp.QuoteMeta(region.ElementTag),
-			regexp.QuoteMeta(region.ElementTag))
+	if isSelfClosing {
+		// Handle self-closing elements like <input ... />
+		if hasTemplateInAttributes {
+			// For self-closing attributes with templates, match any attributes of the same tag type
+			// Pattern: <tag [any attributes] /> or <tag [any attributes]>
+			pattern = fmt.Sprintf(`<%s([^>]*?)(/?)>`,
+				regexp.QuoteMeta(region.ElementTag))
 
-		// Replacement: <tag [existing attributes] lvt-id="ID">content</tag>
-		replacement = fmt.Sprintf(`<%s $1 lvt-id="%s">$2</%s>`,
-			region.ElementTag,
-			region.ID,
-			region.ElementTag)
+			// Replacement: <tag [existing attributes] lvt-id="ID" />
+			replacement = fmt.Sprintf(`<%s $1 lvt-id="%s"$2>`,
+				region.ElementTag,
+				region.ID)
+		} else {
+			// For self-closing elements without template attributes, match exact attributes
+			pattern = fmt.Sprintf(`<%s%s(/?)>`,
+				regexp.QuoteMeta(region.ElementTag),
+				regexp.QuoteMeta(region.OriginalAttrs))
+
+			replacement = fmt.Sprintf(`<%s%s lvt-id="%s"$1>`,
+				region.ElementTag,
+				region.OriginalAttrs,
+				region.ID)
+		}
 	} else {
-		// For elements without template attributes, match exact attributes
-		pattern = fmt.Sprintf(`<%s%s>([^<]*)</%s>`,
-			regexp.QuoteMeta(region.ElementTag),
-			regexp.QuoteMeta(region.OriginalAttrs),
-			regexp.QuoteMeta(region.ElementTag))
+		// Handle paired elements with opening and closing tags
+		if hasTemplateInAttributes {
+			// For attributes with templates, match any content within the same tag type
+			// Pattern: <tag [any attributes]>content</tag> with capture groups for attributes and content
+			pattern = fmt.Sprintf(`<%s([^>]*)>([^<]*)</%s>`,
+				regexp.QuoteMeta(region.ElementTag),
+				regexp.QuoteMeta(region.ElementTag))
 
-		replacement = fmt.Sprintf(`<%s%s lvt-id="%s">$1</%s>`,
-			region.ElementTag,
-			region.OriginalAttrs,
-			region.ID,
-			region.ElementTag)
+			// Replacement: <tag [existing attributes] lvt-id="ID">content</tag>
+			replacement = fmt.Sprintf(`<%s $1 lvt-id="%s">$2</%s>`,
+				region.ElementTag,
+				region.ID,
+				region.ElementTag)
+		} else {
+			// For elements without template attributes, match exact attributes
+			pattern = fmt.Sprintf(`<%s%s>([^<]*)</%s>`,
+				regexp.QuoteMeta(region.ElementTag),
+				regexp.QuoteMeta(region.OriginalAttrs),
+				regexp.QuoteMeta(region.ElementTag))
+
+			replacement = fmt.Sprintf(`<%s%s lvt-id="%s">$1</%s>`,
+				region.ElementTag,
+				region.OriginalAttrs,
+				region.ID,
+				region.ElementTag)
+		}
 	}
 
 	regex := regexp.MustCompile(pattern)

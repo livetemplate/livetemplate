@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Todo App</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        max-width: 600px;
+        margin: 50px auto;
+        padding: 20px;
+      }
+
+      h1 {
+        color: #333;
+      }
+
+      .add-todo {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 20px;
+      }
+
+      .add-todo input {
+        flex: 1;
+        padding: 10px;
+        font-size: 16px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+
+      .add-todo button {
+        padding: 10px 20px;
+        font-size: 16px;
+        background: #4caf50;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+
+      .add-todo button:hover {
+        background: #45a049;
+      }
+
+      .error {
+        color: #f44336;
+        font-size: 14px;
+        margin-top: 5px;
+      }
+
+      .todo-list {
+        list-style: none;
+        padding: 0;
+      }
+
+      .todo-item {
+        display: flex;
+        align-items: center;
+        padding: 10px;
+        border: 1px solid #eee;
+        border-radius: 4px;
+        margin-bottom: 10px;
+        background: white;
+      }
+
+      .todo-item:hover {
+        background: #f9f9f9;
+      }
+
+      .todo-checkbox {
+        margin-right: 10px;
+        width: 20px;
+        height: 20px;
+        cursor: pointer;
+      }
+
+      .todo-text {
+        flex: 1;
+        font-size: 16px;
+      }
+
+      .todo-text.completed {
+        text-decoration: line-through;
+        color: #999;
+      }
+
+      .remove-btn {
+        padding: 5px 10px;
+        background: #f44336;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+      }
+
+      .remove-btn:hover {
+        background: #da190b;
+      }
+
+      .todo-count {
+        color: #666;
+        font-size: 14px;
+        margin-top: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Todo List</h1>
+
+    <div class="add-todo">
+      <input
+        type="text"
+        name="todo-input"
+        placeholder="What needs to be done?"
+        value="{{.InputText}}"
+      />
+      <button data-lvt-action="addtodo">Add Todo</button>
+    </div>
+
+    <div
+      class="error-section"
+      style="display: {{if .ShowError}}block{{else}}none{{end}}"
+    >
+      {{.ErrorText}}
+    </div>
+
+    <div class="todo-container">
+      {{range .Todos}}
+      <div class="todo-item">
+        <input
+          type="checkbox"
+          class="todo-checkbox"
+          {{if
+          .Completed}}checked{{end}}
+          data-lvt-action="toggletodo"
+          data-lvt-params='{"todo-id": "{{.ID}}"}'
+        />
+        <span class="todo-text {{if .Completed}}completed{{end}}">
+          {{.Text}}
+        </span>
+        <button
+          class="remove-btn"
+          data-lvt-action="removetodo"
+          data-lvt-params='{"todo-id": "{{.ID}}"}'
+        >
+          Remove
+        </button>
+      </div>
+      {{end}}
+    </div>
+
+    <div class="todo-count">
+      Total: {{.TodoCount}} {{if eq .TodoCount 1}}todo{{else}}todos{{end}}
+    </div>
+
+    <!-- Embed LiveTemplate token for client authentication -->
+    <script>
+      var config = { LIVETEMPLATE_TOKEN: "PAGE_TOKEN_PLACEHOLDER" };
+    </script>
+
+    <!-- Load LiveTemplate client library - auto-initializes with embedded token -->
+    <script src="/client/livetemplate-client.js"></script>
+  </body>
+</html>

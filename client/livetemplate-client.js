@@ -1,250 +1,275 @@
+/**
+ * LiveTemplate Client Library
+ * 
+ * A generic WebSocket-based client for LiveTemplate server-side rendering.
+ * This client handles fragment updates from the server and applies them to the DOM.
+ */
 class LiveTemplateClient {
   constructor(options = {}) {
+    this.wsUrl = options.wsUrl || this.buildWebSocketUrl();
+    this.pageToken = null;
     this.ws = null;
-    this.pageToken = options.presetToken || null;
     this.staticCache = {};
-    this.port = options.port || window.location.port || "8080";
-    this.host = options.host || "localhost";
-    this.protocol = options.protocol || "ws";
-    this.endpoint = options.endpoint || "/ws";
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = options.maxReconnectAttempts || 5;
+    this.reconnectDelay = options.reconnectDelay || 1000;
+    
+    // Callbacks
     this.onOpen = options.onOpen || (() => console.log("WebSocket connected"));
     this.onClose = options.onClose || (() => console.log("WebSocket disconnected"));
     this.onError = options.onError || ((error) => console.error("WebSocket error:", error));
     this.onMessage = options.onMessage || null;
     
-    // Initialize persistent cache
-    this.initializePersistentCache();
+    // Fragment processing callback - allows apps to hook into fragment processing
+    this.onFragmentUpdate = options.onFragmentUpdate || null;
   }
 
-  // Initialize persistent cache based on page token and URL parameters
-  initializePersistentCache() {
-    // Check for cache=empty parameter
-    const urlParams = new URLSearchParams(window.location.search);
-    const forceClear = urlParams.get('cache') === 'empty';
-    
-    if (forceClear) {
-      console.log("Force clearing cache due to ?cache=empty");
-      this.clearPersistentCache();
+  buildWebSocketUrl() {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    return `${protocol}//${host}/ws`;
+  }
+
+  connect(token) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      console.log("Already connected");
       return;
     }
 
-    if (!this.pageToken) {
-      return; // No token yet, can't load cache
-    }
-
-    // Load cached statics for this page token
-    this.loadStaticsFromCache();
-  }
-
-  // Load statics from localStorage for current page token
-  loadStaticsFromCache() {
-    if (!this.pageToken) return;
-
-    try {
-      const cacheKey = `livetemplate_cache_${this.pageToken}`;
-      const cached = localStorage.getItem(cacheKey);
-      
-      if (cached) {
-        const cacheData = JSON.parse(cached);
-        this.staticCache = cacheData.statics || {};
-        console.log(`Loaded ${Object.keys(this.staticCache).length} cached statics for token ${this.pageToken}`);
-      } else {
-        console.log(`No cached statics found for token ${this.pageToken}`);
-      }
-    } catch (e) {
-      console.warn("Failed to load statics from cache:", e);
-      this.staticCache = {};
-    }
-  }
-
-  // Save statics to localStorage for current page token
-  saveStaticsToCache() {
-    if (!this.pageToken || Object.keys(this.staticCache).length === 0) return;
-
-    try {
-      const cacheKey = `livetemplate_cache_${this.pageToken}`;
-      const cacheData = {
-        token: this.pageToken,
-        timestamp: Date.now(),
-        statics: this.staticCache
-      };
-      
-      localStorage.setItem(cacheKey, JSON.stringify(cacheData));
-      console.log(`Saved ${Object.keys(this.staticCache).length} statics to cache for token ${this.pageToken}`);
-    } catch (e) {
-      console.warn("Failed to save statics to cache:", e);
-    }
-  }
-
-  // Clear all cached statics
-  clearPersistentCache() {
-    try {
-      // Remove all livetemplate cache entries
-      const keys = Object.keys(localStorage).filter(key => key.startsWith('livetemplate_cache_'));
-      keys.forEach(key => localStorage.removeItem(key));
-      console.log(`Cleared ${keys.length} cache entries`);
-    } catch (e) {
-      console.warn("Failed to clear persistent cache:", e);
-    }
-    this.staticCache = {};
-  }
-
-  // Check if we have cached statics
-  hasCachedStatics() {
-    return Object.keys(this.staticCache).length > 0;
-  }
-
-  connect(customUrl = null) {
-    // Load cache before connecting if we have a token
-    if (this.pageToken && Object.keys(this.staticCache).length === 0) {
-      this.loadStaticsFromCache();
-    }
+    this.pageToken = token;
+    const url = `${this.wsUrl}?token=${token}`;
     
-    // Build URL with cache status in query parameters
-    let url = customUrl;
-    if (!url) {
-      url = `${this.protocol}://${this.host}:${this.port}${this.endpoint}`;
-    }
-    
-    // Add cache status to URL if not already included
-    if (this.pageToken && !url.includes('has_cache=')) {
-      const urlObj = new URL(url, `${this.protocol}://${this.host}:${this.port}`);
-      urlObj.searchParams.set('has_cache', this.hasCachedStatics() ? 'true' : 'false');
-      
-      // Add cached fragment IDs if we have cache
-      if (this.hasCachedStatics()) {
-        urlObj.searchParams.set('cached_fragments', Object.keys(this.staticCache).join(','));
-      }
-      
-      url = urlObj.toString();
-      console.log(`Connecting with cache status: ${this.hasCachedStatics() ? 'HAS_CACHE' : 'NO_CACHE'} (${Object.keys(this.staticCache).length} fragments)`);
-    }
-    
+    console.log("Connecting to WebSocket:", url);
     this.ws = new WebSocket(url);
+    
+    this.setupEventHandlers();
+  }
 
+  setupEventHandlers() {
     this.ws.onopen = () => {
-      // If we have a preset token, log it
-      if (this.pageToken) {
-        console.log("Using preset token:", this.pageToken);
-      }
+      console.log("WebSocket connection established");
+      this.reconnectAttempts = 0;
       this.onOpen();
     };
 
-    this.ws.onmessage = (event) => {
-      console.log("Received:", event.data);
-      const message = JSON.parse(event.data);
-
-      // Check if message is an array of fragments
-      if (Array.isArray(message)) {
-        this.updateFragments(message);
-      } else if (message.type === "page_token") {
-        this.pageToken = message.token;
-        console.log("Page token received:", this.pageToken);
-      }
-
-      if (this.onMessage) {
-        this.onMessage(message);
-      }
-    };
-
-    this.ws.onclose = () => {
+    this.ws.onclose = (event) => {
+      console.log("WebSocket connection closed", event);
       this.onClose();
+      this.attemptReconnect();
     };
 
     this.ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
       this.onError(error);
+    };
+
+    this.ws.onmessage = (event) => {
+      try {
+        const fragments = JSON.parse(event.data);
+        console.log("Received fragments:", fragments);
+        
+        if (Array.isArray(fragments)) {
+          this.applyFragments(fragments);
+        }
+        
+        if (this.onMessage) {
+          this.onMessage(fragments);
+        }
+      } catch (error) {
+        console.error("Error processing message:", error);
+      }
     };
   }
 
-  sendAction(action, data = {}) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      const message = {
-        type: "action",
-        action: action,
-        data: data,
-      };
-      this.ws.send(JSON.stringify(message));
-    } else {
-      console.warn("WebSocket not connected");
+  attemptReconnect() {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error("Max reconnection attempts reached");
+      return;
     }
+
+    this.reconnectAttempts++;
+    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+    
+    console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts}) in ${delay}ms...`);
+    
+    setTimeout(() => {
+      if (this.pageToken) {
+        this.connect(this.pageToken);
+      }
+    }, delay);
   }
 
-  updateFragments(fragments) {
-    let staticsUpdated = false;
+  applyFragments(fragments) {
+    console.log(`Applying ${fragments.length} fragments`);
     
-    fragments.forEach((fragment) => {
-      console.log("Updating fragment:", fragment);
-
-      // Cache statics if provided
-      if (fragment.data && fragment.data.s) {
-        this.staticCache[fragment.id] = fragment.data.s;
-        staticsUpdated = true;
-        console.log(`Cached statics for fragment ${fragment.id}`);
-      }
-
-      // Find element by LiveTemplate ID (lvt-id)
-      let element = null;
-      if (fragment.id) {
-        element = document.querySelector(`[lvt-id="${fragment.id}"]`);
-        console.log("Found element for", fragment.id, ":", element);
-      }
-
-      if (element && fragment.data) {
-        this.updateElementFromTreeData(element, fragment.data, fragment.id);
+    // Apply fragments sequentially to avoid race conditions
+    fragments.forEach((fragment, index) => {
+      try {
+        console.log(`Applying fragment ${index + 1}/${fragments.length}: ${fragment.id}`);
+        this.applyFragment(fragment);
+        
+        // Call the optional callback for custom processing
+        if (this.onFragmentUpdate) {
+          this.onFragmentUpdate(fragment);
+        }
+      } catch (error) {
+        console.error(`Error applying fragment ${fragment.id}:`, error);
       }
     });
-    
-    // Save updated statics to persistent cache
-    if (staticsUpdated) {
-      this.saveStaticsToCache();
-    }
+    console.log(`✅ Completed applying all ${fragments.length} fragments`);
   }
 
-  updateElementFromTreeData(element, treeData, fragmentId) {
-    // Generic function to reconstruct content from tree-based fragment data
-    // Works with any template structure by using statics and dynamics
+  applyFragment(fragment) {
+    console.log(`Applying fragment: ${fragment.id}`);
     
-    if (!treeData) {
-      console.log("No tree data found");
+    // Find the element with the matching fragment ID
+    // Try both lvt-id and data-lvt-fragment for compatibility
+    let element = document.querySelector(`[lvt-id="${fragment.id}"]`);
+    if (!element) {
+      element = document.querySelector(`[data-lvt-fragment="${fragment.id}"]`);
+    }
+    
+    if (!element) {
+      console.warn(`Element not found for fragment: ${fragment.id}`);
       return;
     }
     
-    // Use cached statics if not provided in this update
-    const statics = treeData.s || this.staticCache[fragmentId] || [""];
-    const content = this.reconstructContent(statics, treeData);
+    // Handle different fragment strategies
+    if (fragment.strategy === "tree_based" || !fragment.strategy) {
+      this.applyTreeBasedFragment(element, fragment);
+    } else {
+      console.warn(`Unknown fragment strategy: ${fragment.strategy}`);
+    }
+  }
+
+  applyTreeBasedFragment(element, fragment) {
+    if (!fragment.data || typeof fragment.data !== 'object') {
+      console.warn(`Invalid fragment data for ${fragment.id}`);
+      return;
+    }
     
-    console.log("Reconstructed content:", content);
-    
-    // Check if this looks like HTML content with attributes
-    if (content.includes('<') && content.includes('>')) {
-      // Parse HTML content and apply to element
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = content;
+    // Check if this is a tree structure with static parts
+    // Handle both lowercase 's' and uppercase 'S' for backward compatibility
+    const statics = fragment.data.s || fragment.data.S;
+    if (statics && Array.isArray(statics)) {
+      // Convert Dynamics object to numbered keys format if needed
+      const dynamics = fragment.data.Dynamics || fragment.data;
+      const content = this.reconstructContent(statics, dynamics);
       
-      if (tempDiv.children.length === 1) {
-        // Single element - copy attributes and inner content
-        const newElement = tempDiv.children[0];
+      console.log(`🔧 Fragment ${fragment.id}:`);
+      console.log(`   Target element:`, element.tagName, element.className, element.id);
+      console.log(`   Current innerHTML length:`, element.innerHTML.length);
+      console.log(`   New content length:`, content.length);
+      console.log(`   New content preview:`, content.substring(0, 100) + '...');
+      
+      // Apply the content to the element with explicit replacement
+      const oldHTML = element.innerHTML;
+      
+      // Check if content is a complete element that matches the target element
+      // Handle both self-closing elements (like input) and regular elements (like div)
+      const tagName = element.tagName.toLowerCase();
+      let elementMatch = null;
+      
+      if (tagName === 'input') {
+        // Self-closing input element
+        elementMatch = content.match(new RegExp(`^<input([^>]*)\\s*/?\\s*>$`, 'is'));
+        if (elementMatch) {
+          elementMatch[2] = ''; // Input elements don't have inner content
+        }
+      } else {
+        // Regular elements with opening and closing tags
+        elementMatch = content.match(new RegExp(`^<${tagName}([^>]*)>(.*)</${tagName}>$`, 'is'));
+      }
+      
+      if (elementMatch) {
+        // Content is a complete element - extract attributes and inner content separately
+        const attributesStr = elementMatch[1];
+        const innerContent = elementMatch[2];
         
-        // Copy all attributes from reconstructed element
-        Array.from(newElement.attributes).forEach(attr => {
-          element.setAttribute(attr.name, attr.value);
-        });
+        console.log(`🔄 Fragment ${fragment.id}: Detected complete ${element.tagName} element`);
+        console.log(`   Target element:`, element);
+        console.log(`   Attributes: ${attributesStr.trim()}`);
+        console.log(`   Inner content: ${innerContent.substring(0, 50)}...`);
+        console.log(`   Full reconstructed content:`, content);
         
-        // Copy inner content if it exists
-        if (newElement.innerHTML !== element.innerHTML) {
-          element.innerHTML = newElement.innerHTML;
+        // Update attributes
+        if (attributesStr.trim()) {
+          this.updateElementAttributes(element, attributesStr);
         }
         
-        console.log("Updated element with HTML content and attributes");
+        // Update inner content
+        element.innerHTML = '';  // Clear first
+        
+        // Check if innerContent is plain text or contains HTML
+        const trimmedContent = innerContent.trim();
+        if (trimmedContent && !trimmedContent.includes('<')) {
+          // Plain text content - use textContent to avoid browser translation wrapping
+          element.textContent = trimmedContent;
+          console.log(`   Used textContent for plain text: "${trimmedContent}"`);
+        } else {
+          // HTML content - use innerHTML
+          element.innerHTML = innerContent;
+          console.log(`   Used innerHTML for HTML content`);
+        }
+        
+        console.log(`✅ Fragment ${fragment.id}: Updated both attributes and content`);
+      } else if (element.tagName === 'INPUT' && element.type !== 'checkbox' && element.type !== 'radio') {
+        // Special handling for input elements
+        const valueMatch = content.match(/value="([^"]*)"/);
+        if (valueMatch) {
+          element.value = valueMatch[1];
+          console.log(`✅ Fragment ${fragment.id}: Updated input value to "${element.value}"`);
+        } else {
+          console.log(`✅ Fragment ${fragment.id}: No value attribute found, clearing input`);
+          element.value = '';
+        }
       } else {
-        // Multiple elements or complex structure - replace innerHTML
-        element.innerHTML = content;
-        console.log("Updated element innerHTML with complex content");
+        // Standard content-only update
+        element.innerHTML = '';  // Clear first
+        element.innerHTML = content;  // Then set new content
+        
+        console.log(`✅ Fragment ${fragment.id}: ${oldHTML.length} → ${element.innerHTML.length} chars`);
       }
     } else {
-      // Plain text content
-      element.textContent = content;
-      console.log("Updated element textContent:", content);
+      console.warn(`Fragment ${fragment.id} does not have expected tree structure`);
+    }
+  }
+
+  updateElementAttributes(element, attributesStr) {
+    // Parse attributes from string like ' style="color: red" class="highlight"'
+    const attributePattern = /\s+([a-zA-Z-]+)=["']([^"']*)["']/g;
+    let match;
+    
+    console.log(`🔧 Updating attributes on ${element.tagName}: ${attributesStr}`);
+    
+    // Special check for todo input
+    if (element.tagName === 'INPUT' && element.getAttribute('name') === 'todo-input') {
+      console.log(`🎯 UPDATING TODO INPUT ATTRIBUTES!`);
+      console.log(`   Before update - element.value: "${element.value}"`);
+      console.log(`   Before update - value attr: "${element.getAttribute('value')}"`);
+    }
+    
+    while ((match = attributePattern.exec(attributesStr)) !== null) {
+      const [, attrName, attrValue] = match;
+      
+      // Handle special attribute mappings
+      if (attrName === 'class') {
+        element.className = attrValue;
+      } else if (attrName === 'style') {
+        element.style.cssText = attrValue;
+      } else if (attrName === 'value' && element.tagName === 'INPUT') {
+        // Special handling for input value - set both the DOM property AND the attribute
+        // The DOM property takes precedence for what user sees, so set it AFTER the attribute
+        element.setAttribute('value', attrValue);  // Updates HTML attribute first
+        element.value = attrValue;  // Force DOM property update (what user sees)
+        
+        // Force a change event to ensure any listeners are notified
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+      } else {
+        element.setAttribute(attrName, attrValue);
+      }
+      
+      console.log(`   Set ${attrName}="${attrValue}"`);
     }
   }
 
@@ -256,12 +281,29 @@ class LiveTemplateClient {
       result += statics[i];
       
       // Add dynamic value if it exists
-      if (i < statics.length - 1 && dynamics[i.toString()] !== undefined) {
-        const dynamicValue = dynamics[i.toString()];
-        
-        if (typeof dynamicValue === 'object' && dynamicValue !== null) {
+      // Check both string and number keys for compatibility
+      const dynamicValue = dynamics[i.toString()] || dynamics[i];
+      
+      if (i < statics.length - 1 && dynamicValue !== undefined) {
+        if (Array.isArray(dynamicValue)) {
+          // Handle arrays (e.g., range constructs with multiple items)
+          const arrayContent = dynamicValue.map(item => {
+            if (typeof item === 'object' && item !== null && (item.s || item.S)) {
+              // This is a tree structure for a single array item
+              const itemStatics = item.s || item.S;
+              const itemDynamics = item.Dynamics || item;
+              return this.reconstructContent(itemStatics, itemDynamics);
+            } else {
+              // Simple value
+              return item;
+            }
+          }).join('');
+          result += arrayContent;
+        } else if (typeof dynamicValue === 'object' && dynamicValue !== null) {
           // Nested tree data - recursively reconstruct
-          result += this.reconstructContent(dynamicValue.s || [""], dynamicValue);
+          const nestedStatics = dynamicValue.s || dynamicValue.S || [""];
+          const nestedDynamics = dynamicValue.Dynamics || dynamicValue;
+          result += this.reconstructContent(nestedStatics, nestedDynamics);
         } else {
           // Simple value
           result += dynamicValue;
@@ -270,6 +312,21 @@ class LiveTemplateClient {
     }
     
     return result;
+  }
+
+  sendAction(action, params = {}) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.error("WebSocket is not connected");
+      return;
+    }
+    
+    const message = {
+      action: action,
+      data: params
+    };
+    
+    console.log("Sending action:", message);
+    this.ws.send(JSON.stringify(message));
   }
 
   disconnect() {
@@ -284,86 +341,119 @@ class LiveTemplateClient {
   isConnected() {
     return this.ws && this.ws.readyState === WebSocket.OPEN;
   }
-
-  getPageToken() {
-    return this.pageToken;
-  }
 }
 
-// Auto-initialization function
-function autoInitializeLiveTemplate() {
-  // Look for embedded page token in script tags or meta tags
-  let pageToken = null;
+// Auto-initialize when DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+  // Extract the LiveTemplate token from the page
+  let token = null;
   
-  // Method 1: Look for token in script tag content
-  const scripts = document.querySelectorAll('script');
-  for (const script of scripts) {
-    const content = script.textContent || script.innerText;
-    const tokenMatch = content.match(/LIVETEMPLATE_TOKEN['"]\s*:\s*['"]([^'"]+)['"]/);
-    if (tokenMatch) {
-      pageToken = tokenMatch[1];
-      break;
+  // Try to get token from embedded config
+  if (typeof config !== 'undefined' && config.LIVETEMPLATE_TOKEN) {
+    token = config.LIVETEMPLATE_TOKEN;
+  }
+  
+  // Fallback: try to extract from script tag
+  if (!token) {
+    const scripts = document.getElementsByTagName('script');
+    for (let script of scripts) {
+      const match = script.textContent.match(/["']?LIVETEMPLATE_TOKEN["']?\s*:\s*["']([^"']+)["']/);
+      if (match) {
+        token = match[1];
+        break;
+      }
     }
   }
   
-  // Method 2: Look for meta tag
-  if (!pageToken) {
-    const metaTag = document.querySelector('meta[name="livetemplate-token"]');
-    if (metaTag) {
-      pageToken = metaTag.getAttribute('content');
+  if (!token || token === 'PAGE_TOKEN_PLACEHOLDER') {
+    console.log('LiveTemplate: No valid token found, skipping auto-initialization');
+    return;
+  }
+  
+  // Initialize the client
+  window.liveTemplate = new LiveTemplateClient({
+    onOpen: () => console.log('LiveTemplate: Connected'),
+    onClose: () => console.log('LiveTemplate: Disconnected'),
+    onError: (error) => console.error('LiveTemplate error:', error)
+  });
+  
+  // Connect with the token
+  window.liveTemplate.connect(token);
+  
+  // Set up action handlers for elements with data-lvt-action
+  document.addEventListener('click', function(e) {
+    const target = e.target.closest('[data-lvt-action]');
+    if (!target) return;
+    
+    e.preventDefault();
+    
+    const action = target.getAttribute('data-lvt-action');
+    if (!action) return;
+    
+    // Collect form data from the surrounding form or container
+    const actionData = {};
+    
+    // Check for explicit params
+    const paramsAttr = target.getAttribute('data-lvt-params');
+    if (paramsAttr) {
+      try {
+        const explicitParams = JSON.parse(paramsAttr);
+        Object.assign(actionData, explicitParams);
+        console.log('LiveTemplate: Parsed action data:', actionData);
+      } catch (err) {
+        console.error('Invalid data-lvt-params JSON:', err);
+      }
     }
-  }
-  
-  // Method 3: Look for data attribute on body
-  if (!pageToken) {
-    pageToken = document.body.getAttribute('data-livetemplate-token');
-  }
-  
-  if (pageToken && pageToken !== 'PAGE_TOKEN_PLACEHOLDER') {
-    console.log('LiveTemplate: Auto-detected page token');
     
-    // Create and connect client automatically
-    const client = new LiveTemplateClient({
-      presetToken: pageToken,
-      onOpen: () => console.log('LiveTemplate: Connected'),
-      onClose: () => console.log('LiveTemplate: Disconnected'),
-      onError: (error) => console.error('LiveTemplate error:', error)
-    });
+    // Collect input values from the form or container
+    // Strategy 1: Look for form element
+    let container = target.closest('form');
     
-    // Auto-connect using session cookies (no token needed)
-    const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
-    const wsUrl = `ws://${window.location.hostname}:${port}/ws?has_cache=${client.hasCachedStatics() ? 'true' : 'false'}`;
-    console.log('LiveTemplate: Connecting to:', wsUrl);
-    console.log('LiveTemplate: Detected port:', port, 'from window.location.port:', window.location.port);
-    client.connect(wsUrl);
+    // Strategy 2: Try parent elements walking up the DOM tree
+    if (!container) {
+      let current = target.parentElement;
+      while (current && current !== document.body) {
+        const inputs = current.querySelectorAll('input, select, textarea');
+        if (inputs.length > 0) {
+          container = current;
+          break;
+        }
+        current = current.parentElement;
+      }
+    }
     
-    // Make client globally available for actions
-    window.liveTemplateClient = client;
+    // Strategy 3: Try generic semantic containers
+    if (!container) {
+      container = target.closest('form, .form, [role="form"]');
+    }
     
-    // Set up automatic action handling for elements with data-lvt-action
-    document.addEventListener('click', (e) => {
-      const action = e.target.getAttribute('data-lvt-action');
-      if (action && client.isConnected()) {
-        client.sendAction(action);
+    // Strategy 4: Search entire document for inputs if container not found
+    if (!container) {
+      container = document;
+    }
+    
+    // Collect form data from the container
+    const inputs = container.querySelectorAll('input, select, textarea');
+    inputs.forEach(input => {
+      if (input.name) {
+        if (input.type === 'checkbox') {
+          actionData[input.name] = input.checked;
+        } else if (input.type === 'radio') {
+          if (input.checked) {
+            actionData[input.name] = input.value;
+          }
+        } else {
+          actionData[input.name] = input.value;
+        }
       }
     });
     
-    return client;
-  }
-  
-  return null;
-}
-
-// Export for both CommonJS and ES modules
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = LiveTemplateClient;
-} else if (typeof window !== 'undefined') {
-  window.LiveTemplateClient = LiveTemplateClient;
-  
-  // Auto-initialize when DOM is ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', autoInitializeLiveTemplate);
-  } else {
-    autoInitializeLiveTemplate();
-  }
-}
+    console.log(`LiveTemplate: Sending action '${action}' with data:`, actionData);
+    
+    if (window.liveTemplate && window.liveTemplate.isConnected()) {
+      window.liveTemplate.sendAction(action, actionData);
+    } else {
+      console.error('LiveTemplate: Not connected to server');
+    }
+  });
+});

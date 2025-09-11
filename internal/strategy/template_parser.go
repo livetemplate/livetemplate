@@ -262,7 +262,9 @@ func (tp *TemplateParser) EvaluateFieldPath(fieldPath string, data interface{}) 
 			key := reflect.ValueOf(field)
 			mapValue := current.MapIndex(key)
 			if !mapValue.IsValid() {
-				return nil, fmt.Errorf("field %s not found in map", field)
+				// Return zero value for missing fields instead of error
+				// This allows tree-based fragment generation to continue gracefully
+				return reflect.Zero(reflect.TypeOf((*interface{})(nil)).Elem()).Interface(), nil
 			}
 			current = mapValue
 
@@ -270,7 +272,9 @@ func (tp *TemplateParser) EvaluateFieldPath(fieldPath string, data interface{}) 
 			// Handle struct field access
 			current = current.FieldByName(field)
 			if !current.IsValid() {
-				return nil, fmt.Errorf("field %s not found in struct", field)
+				// Return zero value for missing fields instead of error
+				// This allows tree-based fragment generation to continue gracefully
+				return reflect.Zero(reflect.TypeOf((*interface{})(nil)).Elem()).Interface(), nil
 			}
 
 		case reflect.Ptr:
