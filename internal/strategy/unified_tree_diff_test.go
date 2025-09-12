@@ -159,7 +159,7 @@ func TestUnifiedTreeDiff_JSONSerialization(t *testing.T) {
 	if len(decoded.S) > 0 {
 		t.Error("Update should not have statics in JSON")
 	}
-	if len(decoded.D) != 1 {
+	if len(decoded.Dynamics) != 1 {
 		t.Error("Update should have exactly 1 dynamic value")
 	}
 }

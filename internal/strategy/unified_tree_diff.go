@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"regexp"
@@ -23,22 +24,20 @@ func NewUnifiedTreeDiff() *UnifiedTreeDiff {
 	return &UnifiedTreeDiff{}
 }
 
-// UnifiedTreeUpdate - Simple and elegant structure
+// UnifiedTreeUpdate - Simple and elegant structure with positional dynamics
 type UnifiedTreeUpdate struct {
 	// Static segments - sent on first render, cached forever
-	// Can be as large as the full HTML if template has no dynamics
 	S []string `json:"s,omitempty"`
 
-	// Dynamic values - always sent when values change
-	// Empty map means no dynamic values (pure static template)
-	D map[string]interface{} `json:"d,omitempty"`
+	// Dynamic values by position - will be marshaled directly to root level
+	Dynamics map[string]any `json:"-"`
 
 	// Hash of statics for cache validation (optional)
 	H string `json:"h,omitempty"`
 }
 
 // Generate creates the optimal tree update
-func (u *UnifiedTreeDiff) Generate(templateSource string, oldData, newData interface{}) (*UnifiedTreeUpdate, error) {
+func (u *UnifiedTreeDiff) Generate(templateSource string, oldData, newData any) (*UnifiedTreeUpdate, error) {
 	// Store template for analysis
 	if u.templateSource == "" || u.templateSource != templateSource {
 		u.templateSource = templateSource
@@ -65,40 +64,42 @@ func (u *UnifiedTreeDiff) Generate(templateSource string, oldData, newData inter
 		u.lastRendered = newRendered
 		u.staticHash = u.calculateHash(statics)
 
-		return &UnifiedTreeUpdate{
-			S: statics,
-			D: dynamics,
-			H: u.staticHash,
-		}, nil
+		update := &UnifiedTreeUpdate{
+			S:        statics,
+			Dynamics: dynamics,
+			H:        u.staticHash,
+		}
+		return update, nil
 	}
 
 	// Same output - no update needed
 	if u.lastRendered == newRendered {
 		return &UnifiedTreeUpdate{
-			// Empty update - nothing changed
+			Dynamics: make(map[string]any),
 		}, nil
 	}
 
 	// Only dynamics changed - send just dynamics
 	u.lastRendered = newRendered
-	return &UnifiedTreeUpdate{
-		D: dynamics,
-	}, nil
+	update := &UnifiedTreeUpdate{
+		Dynamics: dynamics,
+	}
+	return update, nil
 }
 
 // extractStaticsAndDynamics splits template into static and dynamic parts
-func (u *UnifiedTreeDiff) extractStaticsAndDynamics(templateSource string, data interface{}) ([]string, map[string]interface{}) {
+func (u *UnifiedTreeDiff) extractStaticsAndDynamics(templateSource string, data any) ([]string, map[string]any) {
 	// Find all template expressions
 	exprRegex := regexp.MustCompile(`{{[^}]*}}`)
 	matches := exprRegex.FindAllStringIndex(templateSource, -1)
 
 	// If no template expressions, entire template is static
 	if len(matches) == 0 {
-		return []string{templateSource}, make(map[string]interface{})
+		return []string{templateSource}, make(map[string]any)
 	}
 
 	var statics []string
-	dynamics := make(map[string]interface{})
+	dynamics := make(map[string]any)
 	lastEnd := 0
 
 	// Extract static segments between expressions
@@ -131,7 +132,7 @@ func (u *UnifiedTreeDiff) extractStaticsAndDynamics(templateSource string, data 
 }
 
 // evaluateExpression evaluates a template expression
-func (u *UnifiedTreeDiff) evaluateExpression(expr string, data interface{}) interface{} {
+func (u *UnifiedTreeDiff) evaluateExpression(expr string, data any) any {
 	// For complex expressions (if/range/etc), we treat them as static
 	// and return the entire evaluated result
 	if strings.Contains(expr, "if ") || strings.Contains(expr, "range ") {
@@ -174,7 +175,7 @@ func (u *UnifiedTreeDiff) calculateHash(statics []string) string {
 
 // IsEmpty returns true if update contains no changes
 func (u *UnifiedTreeUpdate) IsEmpty() bool {
-	return len(u.S) == 0 && len(u.D) == 0
+	return len(u.S) == 0 && len(u.Dynamics) == 0
 }
 
 // HasStatics returns true if update contains static segments
@@ -184,7 +185,7 @@ func (u *UnifiedTreeUpdate) HasStatics() bool {
 
 // HasDynamics returns true if update contains dynamic values
 func (u *UnifiedTreeUpdate) HasDynamics() bool {
-	return len(u.D) > 0
+	return len(u.Dynamics) > 0
 }
 
 // GetSize returns approximate size in bytes
@@ -193,7 +194,7 @@ func (u *UnifiedTreeUpdate) GetSize() int {
 	for _, s := range u.S {
 		size += len(s)
 	}
-	for k, v := range u.D {
+	for k, v := range u.Dynamics {
 		size += len(k) + len(fmt.Sprintf("%v", v)) + 10
 	}
 	if u.H != "" {
@@ -222,9 +223,9 @@ func (u *UnifiedTreeUpdate) String() string {
 	}
 
 	if u.HasDynamics() {
-		parts = append(parts, fmt.Sprintf("Dynamics[%d]", len(u.D)))
-		for k, v := range u.D {
-			parts = append(parts, fmt.Sprintf("  D[%s]: %v", k, v))
+		parts = append(parts, fmt.Sprintf("Dynamics[%d]", len(u.Dynamics)))
+		for k, v := range u.Dynamics {
+			parts = append(parts, fmt.Sprintf("  %s: %v", k, v))
 		}
 	}
 
@@ -247,7 +248,7 @@ func (u *UnifiedTreeUpdate) Reconstruct(cachedStatics []string) string {
 	}
 
 	// If no dynamics, just join statics
-	if len(u.D) == 0 {
+	if len(u.Dynamics) == 0 {
 		return strings.Join(statics, "")
 	}
 
@@ -257,11 +258,73 @@ func (u *UnifiedTreeUpdate) Reconstruct(cachedStatics []string) string {
 		result.WriteString(statics[i])
 		// Only insert dynamic value between static segments
 		if i < len(statics)-1 {
-			if dynValue, ok := u.D[fmt.Sprintf("%d", i)]; ok {
+			if dynValue, ok := u.Dynamics[fmt.Sprintf("%d", i)]; ok {
 				result.WriteString(fmt.Sprintf("%v", dynValue))
 			}
 		}
 	}
 
 	return result.String()
+}
+
+// MarshalJSON implements custom JSON marshaling for the flat positional structure
+func (u *UnifiedTreeUpdate) MarshalJSON() ([]byte, error) {
+	// Create a map with all fields
+	result := make(map[string]any)
+
+	// Add statics if present
+	if len(u.S) > 0 {
+		result["s"] = u.S
+	}
+
+	// Add hash if present
+	if u.H != "" {
+		result["h"] = u.H
+	}
+
+	// Add dynamics directly to root level
+	for k, v := range u.Dynamics {
+		result[k] = v
+	}
+
+	return json.Marshal(result)
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for the flat positional structure
+func (u *UnifiedTreeUpdate) UnmarshalJSON(data []byte) error {
+	// Parse into generic map first
+	var temp map[string]any
+	if err := json.Unmarshal(data, &temp); err != nil {
+		return err
+	}
+
+	// Extract known fields
+	if s, ok := temp["s"]; ok {
+		if sArray, ok := s.([]any); ok {
+			u.S = make([]string, len(sArray))
+			for i, v := range sArray {
+				if str, ok := v.(string); ok {
+					u.S[i] = str
+				}
+			}
+		}
+		delete(temp, "s")
+	}
+
+	if h, ok := temp["h"]; ok {
+		if hStr, ok := h.(string); ok {
+			u.H = hStr
+		}
+		delete(temp, "h")
+	}
+
+	// Everything else goes into Dynamics
+	if u.Dynamics == nil {
+		u.Dynamics = make(map[string]any)
+	}
+	for k, v := range temp {
+		u.Dynamics[k] = v
+	}
+
+	return nil
 }
