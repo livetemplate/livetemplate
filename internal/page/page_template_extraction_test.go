@@ -21,7 +21,7 @@ func TestExtractTemplateSource(t *testing.T) {
 		{
 			name:           "Template with static content",
 			templateSource: `<div>{{.Name}}</div>`,
-			expectedSource: `<div>{{.Name}}</div>`,
+			expectedSource: `<div data-lvt-id="a1">{{.Name}}</div>`,
 			shouldError:    false,
 		},
 		{
@@ -45,7 +45,7 @@ func TestExtractTemplateSource(t *testing.T) {
 		{
 			name:           "Nested conditional in range",
 			templateSource: `{{range .Users}}<div>{{if .Active}}✓{{else}}✗{{end}} {{.Name}}</div>{{end}}`,
-			expectedSource: `{{range .Users}}<div>{{if .Active}}✓{{else}}✗{{end}} {{.Name}}</div>{{end}}`,
+			expectedSource: `{{range .Users}}<div data-lvt-id="a1">{{if .Active}}✓{{else}}✗{{end}} {{.Name}}</div>{{end}}`,
 			shouldError:    false,
 		},
 		{

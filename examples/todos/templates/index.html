@@ -1,202 +1,70 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <title>Todo App</title>
-    <style>
-      body {
-        font-family: system-ui, -apple-system, sans-serif;
-        max-width: 600px;
-        margin: 50px auto;
-        padding: 20px;
-      }
-
-      h1 {
-        color: #333;
-      }
-
-      .add-todo {
-        display: flex;
-        gap: 10px;
-        margin-bottom: 20px;
-      }
-
-      .add-todo input {
-        flex: 1;
-        padding: 10px;
-        font-size: 16px;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-      }
-
-      .add-todo button {
-        padding: 10px 20px;
-        font-size: 16px;
-        background: #4caf50;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-      }
-
-      .add-todo button:hover {
-        background: #45a049;
-      }
-
-      .error {
-        color: #f44336;
-        font-size: 14px;
-        margin-top: 5px;
-      }
-
-      .todo-list {
-        list-style: none;
-        padding: 0;
-      }
-
-      .todo-item {
-        display: flex;
-        align-items: center;
-        padding: 10px;
-        border: 1px solid #eee;
-        border-radius: 4px;
-        margin-bottom: 10px;
-        background: white;
-      }
-
-      .todo-item:hover {
-        background: #f9f9f9;
-      }
-
-      .todo-checkbox {
-        margin-right: 10px;
-        width: 20px;
-        height: 20px;
-        cursor: pointer;
-      }
-
-      .todo-text {
-        flex: 1;
-        font-size: 16px;
-      }
-
-      .todo-text.completed {
-        text-decoration: line-through;
-        color: #999;
-      }
-
-      .remove-btn {
-        padding: 5px 10px;
-        background: #f44336;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 14px;
-      }
-
-      .remove-btn:hover {
-        background: #da190b;
-      }
-
-      .todo-count {
-        color: #666;
-        font-size: 14px;
-        margin-top: 10px;
-      }
-    </style>
-  </head>
-  <body>
-    <h1>Todo List</h1>
-
-    <div class="add-todo">
-      <input
-        type="text"
-        name="todo-input"
-        placeholder="What needs to be done?"
-        value="{{.InputText}}"
-      />
-      <button data-lvt-action="addtodo">Add Todo</button>
-    </div>
-
-    <div
-      class="error-section"
-      style="display: {{if .ShowError}}block{{else}}none{{end}}"
-    >
-      {{.ErrorText}}
-    </div>
-
-    <div class="todo-container">
-      {{range .Todos}}
-      <div class="todo-item">
-        <input
-          type="checkbox"
-          class="todo-checkbox"
-          {{if
-          .Completed}}checked{{end}}
-          data-lvt-action="toggletodo"
-          data-lvt-params='{"todo-id": "{{.ID}}"}'
-        />
-        <span class="todo-text {{if .Completed}}completed{{end}}">
-          {{.Text}}
-        </span>
-        <button
-          class="remove-btn"
-          data-lvt-action="removetodo"
-          data-lvt-params='{"todo-id": "{{.ID}}"}'
-        >
-          Remove
-        </button>
-      </div>
-      {{end}}
-    </div>
-
-    <div class="todo-count">
-      Total: {{.TodoCount}} {{if eq .TodoCount 1}}todo{{else}}todos{{end}}
-    </div>
-
-    <!-- LiveTemplate bundled client -->
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>Todos</title>
+    <meta name="livetemplate-token" content="{{.Token}}">
+    
+    <!-- Pico CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    
+    <!-- LiveTemplate bundled client (includes morphdom) -->
     <script src="/dist/livetemplate-client.min.js"></script>
     
-    <script>
-      document.addEventListener('DOMContentLoaded', function() {
-        const tokenScript = document.querySelector('script[data-livetemplate-token]');
-        const token = tokenScript ? tokenScript.getAttribute('data-livetemplate-token') : 'PAGE_TOKEN_PLACEHOLDER';
-        
-        const client = new LiveTemplateClient({
-          onOpen: () => console.log('🔌 Todo app connected to LiveTemplate'),
-          onError: (error) => console.error('❌ LiveTemplate error:', error)
-        });
-        
-        client.connect(token);
-        
-        // Handle action buttons
-        document.addEventListener('click', function(e) {
-          const action = e.target.getAttribute('data-lvt-action');
-          if (action) {
-            const data = {};
-            // Get data attributes for the action
-            for (const attr of e.target.attributes) {
-              if (attr.name.startsWith('data-') && attr.name !== 'data-lvt-action') {
-                const key = attr.name.replace('data-', '').replace(/-([a-z])/g, (g) => g[1].toUpperCase());
-                data[key] = attr.value;
-              }
-            }
-            client.sendAction(action, data);
-          }
-        });
-        
-        // Handle form submissions
-        document.addEventListener('submit', function(e) {
-          const action = e.target.getAttribute('data-lvt-action');
-          if (action) {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            const data = Object.fromEntries(formData.entries());
-            client.sendAction(action, data);
-            e.target.reset(); // Clear form after submission
-          }
-        });
-      });
-    </script>
-  </body>
+    <!-- LiveTemplate auto-initializes when this script loads -->
+</head>
+<body>
+    <main class="container">
+        <h1>Todo List</h1>
+
+        <div class="grid">
+            <input
+                type="text"
+                id="todo-input"
+                name="todo-input"
+                placeholder="What needs to be done?"
+                value="{{.InputText}}"
+            />
+            <button 
+                data-lvt-action="addtodo"
+                data-lvt-element="todo-input"
+            >Add Todo</button>
+        </div>
+
+        <div style="display: {{if .ShowError}}block{{else}}none{{end}}">
+            <mark>{{.ErrorText}}</mark>
+        </div>
+
+        <div class="todo-container">
+            {{range .Todos}}
+            <article>
+                <label>
+                    <input
+                        type="checkbox"
+                        {{if .Completed}}checked{{end}}
+                        data-lvt-action="toggletodo"
+                        data-lvt-params='{"todo-id": "{{.ID}}"}'
+                    />
+                    <span {{if .Completed}}style="text-decoration: line-through; color: var(--pico-muted-color);"{{end}}>
+                        {{.Text}}
+                    </span>
+                </label>
+                <button
+                    class="secondary"
+                    data-lvt-action="removetodo"
+                    data-lvt-params='{"todo-id": "{{.ID}}"}'
+                >
+                    Remove
+                </button>
+            </article>
+            {{end}}
+        </div>
+
+        <small>
+            Total: {{.TodoCount}} {{if eq .TodoCount 1}}todo{{else}}todos{{end}}
+        </small>
+    </main>
+</body>
 </html>

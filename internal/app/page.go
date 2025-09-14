@@ -224,3 +224,10 @@ func (p *Page) SetTemplateSource(templateSource string) {
 		p.internal.SetTemplateSource(templateSource)
 	}
 }
+
+// SetTemplateRegions sets the cached template regions for consistent ID generation
+func (p *Page) SetTemplateRegions(regions []page.TemplateRegion) {
+	if p.internal != nil {
+		p.internal.SetTemplateRegions(regions)
+	}
+}

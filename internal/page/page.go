@@ -33,6 +33,7 @@ type Page struct {
 	treeGenerator  *diff.Generator
 	config         *Config
 	regions        []TemplateRegion // Cache template regions to ensure consistent IDs
+	htmlProcessor  *HTMLProcessor   // Runtime HTML processor for lvt-id injection
 	mu             sync.RWMutex
 }
 
@@ -103,9 +104,53 @@ func NewPage(applicationID string, tmpl *template.Template, data interface{}, co
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract template source: %w", err)
 	}
-	page.templateSource = templateSource
 
-	// Regions will be detected and cached during first Render() call
+	// Check if the template source already has data-lvt-id attributes injected
+	// This happens when the template was created through the Application path
+	var regions []TemplateRegion
+	if strings.Contains(templateSource, "data-lvt-id=") {
+		// Template already has data-lvt-id attributes, use as-is (Application path)
+		page.templateSource = templateSource
+		// Regions will be set later via SetTemplateRegions if this is an Application-created page
+		regions = []TemplateRegion{}
+	} else {
+		// Direct Page creation - inject data-lvt-id attributes now
+		modifiedSource, regionsFromInjection, err := InjectLvtIDsIntoTemplate(templateSource)
+		if err != nil {
+			log.Printf("Warning: Failed to inject lvt-id attributes: %v", err)
+			// Continue with original source and detect regions the old way
+			page.templateSource = templateSource
+			regions, err = page.detectTemplateRegions()
+			if err != nil {
+				log.Printf("Warning: Failed to detect template regions: %v", err)
+				regions = []TemplateRegion{} // Continue with empty regions
+			}
+		} else {
+			// Use the modified source with injected lvt-id attributes
+			page.templateSource = modifiedSource
+			regions = regionsFromInjection
+
+			// Create a new template from the modified source to ensure lvt-id attributes are in the parsed template
+			templateName := clonedTmpl.Name()
+			if templateName == "" {
+				templateName = "injected_template"
+			}
+			injectedTmpl, err := template.New(templateName).Parse(modifiedSource)
+			if err != nil {
+				log.Printf("Warning: Failed to create template from modified source: %v", err)
+				// Fall back to original template
+				page.templateSource = templateSource
+			} else {
+				// Use the new template with injected lvt-id attributes
+				page.template = injectedTmpl
+			}
+		}
+	}
+
+	page.regions = regions
+
+	// Initialize HTML processor for runtime lvt-id injection
+	page.htmlProcessor = NewHTMLProcessor(regions)
 
 	return page, nil
 }
@@ -123,44 +168,46 @@ func (p *Page) Render() (string, error) {
 
 	html := buf.String()
 
-	// Use cached regions if available, otherwise detect and cache them
+	// DISABLED: Runtime injection - reverting to parse-time injection for simplicity
+	// The runtime injection approach introduced ID conflicts and complexity
+	// Parse-time injection works well for most cases, with filtering for dynamic elements
+	if false && p.htmlProcessor != nil && len(p.regions) > 0 {
+		processedHTML, err := p.htmlProcessor.ProcessRenderedHTML(html, p.data, p.regions)
+		if err != nil {
+			log.Printf("Warning: Failed to process HTML for lvt-id injection: %v", err)
+			// Continue with unprocessed HTML
+		} else {
+			html = processedHTML
+		}
+	}
+
 	var regions []TemplateRegion
 	if len(p.regions) > 0 {
-		// Reuse cached regions to ensure consistent IDs
+		// Use cached regions for consistent fragment generation
 		regions = p.regions
 	} else {
-		// Detect regions and cache them for fragment generation
-		detectedRegions, err := p.detectTemplateRegions()
-		if err != nil || len(detectedRegions) == 0 {
-			// For simple templates or when region detection fails, use legacy approach
-			return p.annotateLegacyHTML(html)
-		}
-		regions = detectedRegions
-	}
-
-	// Filter regions to only include those that can be properly annotated
-	// (skip regions with nested HTML content that regex can't handle)
-	var annotatedRegions []TemplateRegion
-	annotatedHTML := html
-
-	for _, region := range regions {
-		// Try to annotate this region
-		newHTML := p.annotateDynamicElement(annotatedHTML, region)
-		// Check if annotation was successful (HTML changed)
-		if newHTML != annotatedHTML {
-			annotatedRegions = append(annotatedRegions, region)
-			annotatedHTML = newHTML
+		// Extract regions from rendered HTML by parsing existing lvt-id attributes
+		extractedRegions := p.extractRegionsFromHTML(html)
+		if len(extractedRegions) == 0 {
+			// Fallback: If no lvt-id attributes found, try legacy detection
+			detectedRegions, err := p.detectTemplateRegions()
+			if err != nil || len(detectedRegions) == 0 {
+				return p.annotateLegacyHTML(html)
+			}
+			regions = detectedRegions
 		} else {
-			// Include all regions for fragment generation, even if annotation fails
-			// This ensures range constructs and other standalone constructs are not filtered out
-			annotatedRegions = append(annotatedRegions, region)
+			regions = extractedRegions
 		}
 	}
 
-	// Cache only the successfully annotated regions for fragment generation
-	p.regions = annotatedRegions
+	// IMPORTANT: Post-processing annotation is no longer needed!
+	// lvt-id attributes are now injected directly into the template during parsing,
+	// so the rendered HTML already contains all necessary lvt-id attributes.
+	// We just need to cache the regions for fragment generation.
 
-	return annotatedHTML, nil
+	p.regions = regions
+
+	return html, nil
 }
 
 // FragmentOption configures fragment generation behavior
@@ -214,6 +261,20 @@ func (p *Page) renderFragmentsWithConfig(ctx context.Context, newData interface{
 		}
 	}
 
+	// DISABLED: Runtime region detection - using simpler range loop filtering instead
+	if false && p.htmlProcessor != nil {
+		// Render with new data to determine active regions
+		var newBuf strings.Builder
+		if err := p.template.Execute(&newBuf, newData); err == nil {
+			newHTML := newBuf.String()
+			// Process to determine active regions
+			_, err := p.htmlProcessor.ProcessRenderedHTML(newHTML, newData, regions)
+			if err != nil {
+				log.Printf("Warning: Failed to process HTML for active region detection: %v", err)
+			}
+		}
+	}
+
 	// Generate fragments for each dynamic region
 	var fragments []*Fragment
 	var startTime time.Time
@@ -222,13 +283,49 @@ func (p *Page) renderFragmentsWithConfig(ctx context.Context, newData interface{
 	}
 
 	for _, region := range regions {
+		// DISABLED: Runtime region checking - reverting to simpler range loop filtering
+		if false && p.htmlProcessor != nil && !p.htmlProcessor.IsRegionActive(region.ID) {
+			log.Printf("RUNTIME_FILTER: Skipping fragment for region %s (not active in current DOM)", region.ID)
+			continue
+		}
+
 		fragment, err := p.generateRegionFragmentWithConfig(region, newData, config)
 		if err != nil {
+			// Check if this is a range loop filtering error (expected behavior)
+			if strings.Contains(err.Error(), "inside an empty range loop") {
+				// This is now redundant with the runtime check above, but keep for safety
+				continue // Skip this fragment as expected
+			}
 			// Log error but don't skip - try to generate using legacy fallback instead
-			log.Printf("Warning: Fragment generation failed for region %s: %v, falling back to legacy", region.ID, err)
+			log.Printf("Warning: Fragment generation failed for region %s: %v", region.ID, err)
 			// Continue to next region instead of complete failure
 			continue
 		}
+
+		// Additional filtering for specific cases where tree-level filtering might miss
+		// Very specific filtering: only filter meta tag fragments with livetemplate-token pattern
+		if update, ok := fragment.Data.(*diff.Update); ok {
+			if len(update.Dynamics) == 1 {
+				if value, exists := update.Dynamics["0"]; exists {
+					if strValue := fmt.Sprintf("%v", value); strValue == "" {
+						// Check if this has meta tag statics pattern (contains "livetemplate-token")
+						hasMetaTokenPattern := false
+						for _, static := range update.S {
+							if strings.Contains(static, "livetemplate-token") {
+								hasMetaTokenPattern = true
+								break
+							}
+						}
+						if hasMetaTokenPattern {
+							// This is definitely a meta tag with unchanged token - filter it out
+							continue
+						}
+						// For all other single empty dynamics, let them through (meaningful changes)
+					}
+				}
+			}
+		}
+
 		fragments = append(fragments, fragment)
 	}
 
@@ -277,6 +374,9 @@ func (p *Page) renderFragmentsLegacyWithConfig(newData interface{}, config *Frag
 	if err != nil {
 		return nil, fmt.Errorf("tree fragment generation failed: %w", err)
 	}
+
+	// Note: Empty fragment filtering is handled at the tree level in diff.GenerateFromTemplateSource
+	// which has access to old vs new rendered content for proper context-aware filtering
 
 	// Create fragment from tree result
 	fragment := &Fragment{
@@ -723,6 +823,13 @@ func (p *Page) SetTemplateSource(templateSource string) {
 	p.templateSource = templateSource
 }
 
+// SetTemplateRegions sets the cached template regions for consistent ID generation
+func (p *Page) SetTemplateRegions(regions []TemplateRegion) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.regions = regions
+}
+
 // annotateDynamicElement adds lvt-id attribute to a dynamic HTML element
 func (p *Page) annotateDynamicElement(html string, region TemplateRegion) string {
 	// The challenge: we need to find the rendered element (with actual values)
@@ -766,11 +873,42 @@ func (p *Page) annotateDynamicElement(html string, region TemplateRegion) string
 	} else {
 		// Handle paired elements with opening and closing tags
 		if hasTemplateInAttributes {
-			// For attributes with templates, match any content within the same tag type
-			// Pattern: <tag [any attributes]>content</tag> with capture groups for attributes and content
-			pattern = fmt.Sprintf(`<%s([^>]*)>([^<]*)</%s>`,
-				regexp.QuoteMeta(region.ElementTag),
-				regexp.QuoteMeta(region.ElementTag))
+			// For attributes with templates, we need to match the specific element more precisely
+			// Use a pattern that identifies the element by a unique attribute or attribute pattern
+			// This prevents matching multiple similar elements
+
+			// Try to find a unique identifier in the original attributes
+			uniqueAttr := p.extractUniqueIdentifier(region.OriginalAttrs)
+
+			if uniqueAttr != "" {
+				// Match based on unique attribute (e.g., style with specific pattern, class, etc.)
+				pattern = fmt.Sprintf(`<%s([^>]*?%s[^>]*)>(?s:(.*?))</%s>`,
+					regexp.QuoteMeta(region.ElementTag),
+					uniqueAttr, // Don't quote uniqueAttr since it already contains escaped quotes
+					regexp.QuoteMeta(region.ElementTag))
+			} else {
+				// Enhanced fallback: Try to match by exact template content or partial content to be more specific
+				if strings.Contains(region.TemplateSource, region.ElementTag) {
+					// For elements without unique attributes, try to match by a portion of their content
+					contentPattern := p.extractContentPattern(region.TemplateSource)
+					if contentPattern != "" {
+						pattern = fmt.Sprintf(`<%s([^>]*)>(?s:(%s.*?))</%s>`,
+							regexp.QuoteMeta(region.ElementTag),
+							regexp.QuoteMeta(contentPattern),
+							regexp.QuoteMeta(region.ElementTag))
+					} else {
+						// Last resort: match first occurrence only
+						pattern = fmt.Sprintf(`<%s([^>]*)>(?s:(.*?))</%s>`,
+							regexp.QuoteMeta(region.ElementTag),
+							regexp.QuoteMeta(region.ElementTag))
+					}
+				} else {
+					// Default fallback
+					pattern = fmt.Sprintf(`<%s([^>]*)>(?s:(.*?))</%s>`,
+						regexp.QuoteMeta(region.ElementTag),
+						regexp.QuoteMeta(region.ElementTag))
+				}
+			}
 
 			// Replacement: <tag [existing attributes] lvt-id="ID">content</tag>
 			replacement = fmt.Sprintf(`<%s $1 lvt-id="%s">$2</%s>`,
@@ -837,4 +975,123 @@ func (p *Page) annotateLegacyHTML(html string) (string, error) {
 	}
 
 	return annotatedHTML, nil
+}
+
+// extractUniqueIdentifier analyzes element attributes to find a unique identifying pattern
+// that can be used in regex matching to distinguish this specific element from others
+func (p *Page) extractUniqueIdentifier(originalAttrs string) string {
+	if originalAttrs == "" {
+		return ""
+	}
+
+	// Look for unique attributes in order of preference
+	uniquePatterns := []struct {
+		name    string
+		pattern string
+	}{
+		// Style attribute (often unique)
+		{"style", `style="([^"]*?)"`},
+		// Class with specific patterns
+		{"class", `class="([^"]*?)"`},
+		// ID attribute (always unique if present)
+		{"id", `id="([^"]*?)"`},
+		// Name attribute (often unique in forms)
+		{"name", `name="([^"]*?)"`},
+		// Type attribute for inputs
+		{"type", `type="([^"]*?)"`},
+	}
+
+	for _, pattern := range uniquePatterns {
+		re := regexp.MustCompile(pattern.pattern)
+		if matches := re.FindStringSubmatch(originalAttrs); len(matches) > 1 && matches[1] != "" {
+			// For style attributes, use a partial match to avoid matching too broadly
+			if pattern.name == "style" && len(matches[1]) > 10 {
+				// Use first 20 characters of style to create a unique but not overly specific pattern
+				return fmt.Sprintf(`%s="%s`, pattern.name, regexp.QuoteMeta(matches[1][:min(20, len(matches[1]))]))
+			}
+			// For other attributes, use the full value
+			return fmt.Sprintf(`%s="%s"`, pattern.name, regexp.QuoteMeta(matches[1]))
+		}
+	}
+
+	// If no unique attribute found, return empty string to use fallback matching
+	return ""
+}
+
+// extractContentPattern extracts a unique content pattern from template source
+// to help distinguish between similar elements
+func (p *Page) extractContentPattern(templateSource string) string {
+	// Remove template tags and normalize whitespace to find stable content patterns
+	content := strings.ReplaceAll(templateSource, "\n", " ")
+	content = strings.ReplaceAll(content, "\t", " ")
+
+	// Look for distinctive text content or attribute values that can help identify the element
+
+	// Try to find a unique text snippet (first 10-20 characters of meaningful content)
+	re := regexp.MustCompile(`>([^<{]{3,20})<`)
+	if matches := re.FindStringSubmatch(content); len(matches) > 1 {
+		text := strings.TrimSpace(matches[1])
+		if text != "" && len(text) >= 3 {
+			return text[:min(15, len(text))]
+		}
+	}
+
+	// Try to find unique attribute values
+	attrRe := regexp.MustCompile(`(\w+)="([^"]{3,20})"`)
+	matches := attrRe.FindAllStringSubmatch(content, -1)
+	for _, match := range matches {
+		if len(match) > 2 {
+			attrName := match[1]
+			attrValue := match[2]
+
+			// Skip template expressions and common attributes
+			if !strings.Contains(attrValue, "{{") &&
+				attrName != "type" && attrName != "class" &&
+				len(attrValue) >= 3 && len(attrValue) <= 20 {
+				return fmt.Sprintf(`%s="%s"`, attrName, regexp.QuoteMeta(attrValue))
+			}
+		}
+	}
+
+	return ""
+}
+
+// extractRegionsFromHTML extracts template regions from rendered HTML by parsing existing lvt-id attributes
+// This ensures runtime regions match the IDs that were injected during template parsing
+func (p *Page) extractRegionsFromHTML(html string) []TemplateRegion {
+	var regions []TemplateRegion
+
+	// Find all elements with lvt-id attributes
+	re := regexp.MustCompile(`<(\w+)([^>]*?\s+lvt-id="([^"]+)"[^>]*?)(?:\s*/>|>)`)
+	matches := re.FindAllStringSubmatch(html, -1)
+
+	for _, match := range matches {
+		if len(match) >= 4 {
+			elementTag := match[1]
+			attributes := match[2]
+			lvtID := match[3]
+
+			// Create a basic region structure
+			// Note: We don't have the original template source, so we use minimal info
+			region := TemplateRegion{
+				ID:            lvtID,
+				ElementTag:    elementTag,
+				OriginalAttrs: attributes,
+				StartMarker:   fmt.Sprintf("<%s%s>", elementTag, attributes),
+				FieldPaths:    []string{}, // We can't easily determine field paths from rendered HTML
+			}
+
+			regions = append(regions, region)
+		}
+	}
+
+	return regions
+}
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

@@ -11,41 +11,49 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 	"github.com/gorilla/websocket"
 	"github.com/livefir/livetemplate"
 	"github.com/livefir/livetemplate/internal/diff"
 )
 
-// TestDirectActionCaching tests caching behavior by calling HandleAction directly
+// TestDirectActionCaching tests caching behavior using page-token-based tracking
 func TestDirectActionCaching(t *testing.T) {
 	server := NewServer()
 
-	// Test 1: First action call (no cache info)
+	// Test 1: First action call (page-token-based tracking automatically begins)
 	firstMessage := &livetemplate.ActionMessage{
 		Action: "increment",
 		Data:   make(map[string]interface{}),
-		Cache:  []string{}, // No cache on first call
 	}
 
-	fmt.Printf("=== FIRST ACTION (no cache info) ===\n")
-	firstFragments, err := server.templatePage.HandleAction(context.Background(), firstMessage)
+	fmt.Printf("=== FIRST ACTION (page-token tracking: initial) ===\n")
+	firstFragmentMap, err := server.templatePage.HandleAction(context.Background(), firstMessage)
 	if err != nil {
 		t.Fatalf("First HandleAction failed: %v", err)
 	}
 
-	if len(firstFragments) == 0 {
+	if len(firstFragmentMap) == 0 {
 		t.Fatalf("Expected at least one fragment from first action")
 	}
 
-	firstFragment := firstFragments[0]
-	firstJSON, _ := json.MarshalIndent(firstFragment, "", "  ")
-	fmt.Printf("First fragment:\n%s\n", string(firstJSON))
+	// Get first fragment from map
+	var firstFragmentID string
+	var firstFragmentData interface{}
+	for id, data := range firstFragmentMap {
+		firstFragmentID = id
+		firstFragmentData = data
+		break
+	}
+
+	firstJSON, _ := json.MarshalIndent(firstFragmentData, "", "  ")
+	fmt.Printf("First fragment (ID=%s):\n%s\n", firstFragmentID, string(firstJSON))
 
 	// Check if first fragment has statics
-	firstUpdate, ok := firstFragment.Data.(*diff.Update)
+	firstUpdate, ok := firstFragmentData.(*diff.Update)
 	if !ok {
-		t.Fatalf("Expected fragment data to be *diff.Update, got %T", firstFragment.Data)
+		t.Fatalf("Expected fragment data to be *diff.Update, got %T", firstFragmentData)
 	}
 
 	hasFirstStatics := len(firstUpdate.S) > 0
@@ -56,33 +64,36 @@ func TestDirectActionCaching(t *testing.T) {
 		t.Errorf("Expected first fragment to have statics")
 	}
 
-	// Test 2: Second action call WITH cache info
+	// Test 2: Second action call (same page token - optimization continues)
 	secondMessage := &livetemplate.ActionMessage{
 		Action: "increment",
 		Data:   make(map[string]interface{}),
-		Cache:  []string{firstFragment.ID}, // Client claims to have cached this fragment
 	}
 
-	fmt.Printf("\n=== SECOND ACTION (with cache info) ===\n")
-	fmt.Printf("Cache info: cached_fragments=%v\n", secondMessage.Cache)
+	fmt.Printf("\n=== SECOND ACTION (page-token tracking: optimized) ===\n")
 
-	secondFragments, err := server.templatePage.HandleAction(context.Background(), secondMessage)
+	secondFragmentMap, err := server.templatePage.HandleAction(context.Background(), secondMessage)
 	if err != nil {
 		t.Fatalf("Second HandleAction failed: %v", err)
 	}
 
-	if len(secondFragments) == 0 {
+	if len(secondFragmentMap) == 0 {
 		t.Fatalf("Expected at least one fragment from second action")
 	}
 
-	secondFragment := secondFragments[0]
-	secondJSON, _ := json.MarshalIndent(secondFragment, "", "  ")
-	fmt.Printf("Second fragment:\n%s\n", string(secondJSON))
+	// Get second fragment data for same ID
+	secondFragmentData, exists := secondFragmentMap[firstFragmentID]
+	if !exists {
+		t.Fatalf("Fragment %s not found in second response", firstFragmentID)
+	}
+
+	secondJSON, _ := json.MarshalIndent(secondFragmentData, "", "  ")
+	fmt.Printf("Second fragment (ID=%s):\n%s\n", firstFragmentID, string(secondJSON))
 
 	// Check if second fragment has statics (should NOT if caching works)
-	secondUpdate, ok := secondFragment.Data.(*diff.Update)
+	secondUpdate, ok := secondFragmentData.(*diff.Update)
 	if !ok {
-		t.Fatalf("Expected fragment data to be *diff.Update, got %T", secondFragment.Data)
+		t.Fatalf("Expected fragment data to be *diff.Update, got %T", secondFragmentData)
 	}
 
 	hasSecondStatics := len(secondUpdate.S) > 0
@@ -115,18 +126,26 @@ func TestDirectActionCaching(t *testing.T) {
 		fmt.Printf("✅ Good bandwidth savings: %.1f%%\n", savings)
 	}
 
-	// Test 3: Third action call with same cache info (should also work)
-	fmt.Printf("\n=== THIRD ACTION (same cache info) ===\n")
-	thirdFragments, err := server.templatePage.HandleAction(context.Background(), secondMessage)
+	// Test 3: Third action call (same page token - continues optimization)
+	thirdMessage := &livetemplate.ActionMessage{
+		Action: "increment",
+		Data:   make(map[string]interface{}),
+	}
+
+	fmt.Printf("\n=== THIRD ACTION (page-token tracking: persistent) ===\n")
+	thirdFragmentMap, err := server.templatePage.HandleAction(context.Background(), thirdMessage)
 	if err != nil {
 		t.Fatalf("Third HandleAction failed: %v", err)
 	}
 
-	if len(thirdFragments) > 0 {
-		thirdFragment := thirdFragments[0]
-		thirdUpdate, ok := thirdFragment.Data.(*diff.Update)
+	if len(thirdFragmentMap) > 0 {
+		thirdFragmentData, exists := thirdFragmentMap[firstFragmentID]
+		if !exists {
+			t.Fatalf("Fragment %s not found in third response", firstFragmentID)
+		}
+		thirdUpdate, ok := thirdFragmentData.(*diff.Update)
 		if !ok {
-			t.Fatalf("Expected fragment data to be *diff.Update, got %T", thirdFragment.Data)
+			t.Fatalf("Expected fragment data to be *diff.Update, got %T", thirdFragmentData)
 		}
 
 		hasThirdStatics := len(thirdUpdate.S) > 0
@@ -199,10 +218,11 @@ func TestWebSocketCaching(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// Test 1: First action (no cache)
+	// Test 1: First action (no cache yet)
 	firstMessage := map[string]interface{}{
 		"action": "increment",
-		"cache":  []string{}, // No cache initially
+		"data":   map[string]interface{}{},
+		"cache":  []string{}, // Empty cache initially
 	}
 
 	if err := conn.WriteJSON(firstMessage); err != nil {
@@ -227,10 +247,21 @@ func TestWebSocketCaching(t *testing.T) {
 		t.Fatalf("No fragment ID found in first response")
 	}
 
-	// Test 2: Second action WITH cache
+	// Build cache info from first response
+	firstFragmentMap, ok := firstResponse[fragmentID].(map[string]interface{})
+	if !ok {
+		t.Fatalf("Failed to convert first fragment to map")
+	}
+	var hash string
+	if h, ok := firstFragmentMap["h"]; ok {
+		hash = h.(string)
+	}
+
+	// Test 2: Second action WITH cache info
 	secondMessage := map[string]interface{}{
 		"action": "increment",
-		"cache":  []string{fragmentID}, // Include cached fragment
+		"data":   map[string]interface{}{},
+		"cache":  []string{fragmentID + ":" + hash}, // Include cache from first response
 	}
 
 	if err := conn.WriteJSON(secondMessage); err != nil {
@@ -297,7 +328,7 @@ func TestUnifiedCounterE2E(t *testing.T) {
 	handler.HandleFunc("/ws", server.handleWebSocket)
 	handler.HandleFunc("/dist/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/javascript")
-		http.StripPrefix("/dist/", http.FileServer(http.Dir("../../dist/"))).ServeHTTP(w, r)
+		http.StripPrefix("/dist/", http.FileServer(http.Dir("../../client/dist/"))).ServeHTTP(w, r)
 	})
 
 	httpServer := &http.Server{
@@ -361,4 +392,419 @@ func TestUnifiedCounterE2E(t *testing.T) {
 	}
 
 	t.Logf("✅ E2E test passed - Page loaded with counter: %s, color: %s", initialCounter, initialColor)
+}
+
+// TestMorphdomInPlaceUpdate verifies that elements are morphed in-place without nesting
+func TestMorphdomInPlaceUpdate(t *testing.T) {
+	// Start the counter server
+	server := NewServer()
+	handler := http.NewServeMux()
+	handler.HandleFunc("/", server.handleHome)
+	handler.HandleFunc("/ws", server.handleWebSocket)
+	handler.HandleFunc("/dist/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		http.StripPrefix("/dist/", http.FileServer(http.Dir("../../client/dist/"))).ServeHTTP(w, r)
+	})
+
+	httpServer := &http.Server{
+		Addr:    ":8087",
+		Handler: handler,
+	}
+
+	go func() {
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			t.Logf("HTTP server error: %v", err)
+		}
+	}()
+	defer httpServer.Close()
+
+	// Wait for server to start
+	time.Sleep(200 * time.Millisecond)
+
+	// Create browser context
+	ctx, cancel := chromedp.NewContext(context.Background())
+	defer cancel()
+
+	// Set a timeout for the entire test
+	ctx, cancel = context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	var htmlBefore, htmlAfter string
+	var hasNestedDiv bool
+
+	err := chromedp.Run(ctx,
+		// Navigate to the counter app
+		chromedp.Navigate("http://localhost:8087"),
+
+		// Wait for page to load
+		chromedp.WaitVisible(`button[data-lvt-action="increment"]`, chromedp.ByQuery),
+		chromedp.Sleep(1*time.Second), // Wait for WebSocket connection
+
+		// Get initial HTML structure
+		chromedp.OuterHTML(`div[data-lvt-id="a2"]`, &htmlBefore, chromedp.ByQuery),
+
+		// Click increment button
+		chromedp.Click(`button[data-lvt-action="increment"]`, chromedp.ByQuery),
+		chromedp.Sleep(500*time.Millisecond), // Wait for update
+
+		// Get HTML structure after increment
+		chromedp.OuterHTML(`div[data-lvt-id="a2"]`, &htmlAfter, chromedp.ByQuery),
+
+		// Check if there's a nested div with lvt-id
+		chromedp.Evaluate(`document.querySelector('div[data-lvt-id="a2"] div[data-lvt-id]') !== null`, &hasNestedDiv),
+	)
+
+	if err != nil {
+		t.Fatalf("Browser test failed: %v", err)
+	}
+
+	t.Logf("HTML before increment: %s", htmlBefore)
+	t.Logf("HTML after increment: %s", htmlAfter)
+
+	// Verify no nesting occurred
+	if hasNestedDiv {
+		t.Errorf("❌ FAILED: Found nested div with data-lvt-id after morphdom update")
+		t.Errorf("   This indicates the element was not updated in-place")
+		t.Errorf("   HTML after: %s", htmlAfter)
+	} else {
+		t.Logf("✅ PASSED: Element updated in-place without nesting")
+	}
+
+	// Verify that the content actually changed (counter incremented)
+	if htmlBefore == htmlAfter {
+		t.Errorf("❌ Content should have changed after increment")
+	}
+
+	// Verify structure is correct (single div with data-lvt-id)
+	if !strings.Contains(htmlAfter, `data-lvt-id="a2"`) {
+		t.Errorf("❌ Missing data-lvt-id attribute after update")
+	}
+
+	// Count occurrences of data-lvt-id="a2" - should be exactly 1
+	lvtIdCount := strings.Count(htmlAfter, `data-lvt-id="a2"`)
+	if lvtIdCount != 1 {
+		t.Errorf("❌ Expected exactly 1 occurrence of data-lvt-id=\"a2\", found %d", lvtIdCount)
+	}
+}
+
+// TestMetaTagUpdate verifies that meta tags (void elements) update correctly without console errors
+func TestMetaTagUpdate(t *testing.T) {
+	// Start the counter server
+	server := NewServer()
+	handler := http.NewServeMux()
+	handler.HandleFunc("/", server.handleHome)
+	handler.HandleFunc("/ws", server.handleWebSocket)
+	handler.HandleFunc("/dist/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		http.StripPrefix("/dist/", http.FileServer(http.Dir("../../client/dist/"))).ServeHTTP(w, r)
+	})
+
+	httpServer := &http.Server{
+		Addr:    ":8088",
+		Handler: handler,
+	}
+
+	go func() {
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			t.Logf("HTTP server error: %v", err)
+		}
+	}()
+	defer httpServer.Close()
+
+	// Wait for server to start
+	time.Sleep(200 * time.Millisecond)
+
+	// Create browser context with console logging
+	ctx, cancel := chromedp.NewContext(context.Background())
+	defer cancel()
+
+	// Set a timeout for the entire test
+	ctx, cancel = context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	// Capture console errors
+	var consoleErrors []string
+	chromedp.ListenTarget(ctx, func(ev interface{}) {
+		switch ev := ev.(type) {
+		case *runtime.EventConsoleAPICalled:
+			if ev.Type == runtime.APITypeError {
+				for _, arg := range ev.Args {
+					if arg.Value != nil {
+						var val string
+						if err := json.Unmarshal(arg.Value, &val); err == nil {
+							consoleErrors = append(consoleErrors, val)
+						}
+					}
+				}
+			}
+		}
+	})
+
+	var metaContentBefore, metaContentAfter string
+
+	err := chromedp.Run(ctx,
+		// Navigate to the counter app
+		chromedp.Navigate("http://localhost:8088"),
+
+		// Wait for page to load
+		chromedp.WaitVisible(`button[data-lvt-action="increment"]`, chromedp.ByQuery),
+		chromedp.Sleep(1*time.Second), // Wait for WebSocket connection
+
+		// Get initial meta tag content
+		chromedp.AttributeValue(`meta[data-lvt-id="a1"]`, "content", &metaContentBefore, nil, chromedp.ByQuery),
+
+		// Click increment button to trigger updates
+		chromedp.Click(`button[data-lvt-action="increment"]`, chromedp.ByQuery),
+		chromedp.Sleep(500*time.Millisecond), // Wait for update
+
+		// Get meta tag content after update (should be unchanged as token doesn't change)
+		chromedp.AttributeValue(`meta[data-lvt-id="a1"]`, "content", &metaContentAfter, nil, chromedp.ByQuery),
+	)
+
+	if err != nil {
+		t.Fatalf("Browser test failed: %v", err)
+	}
+
+	// Check for console errors
+	if len(consoleErrors) > 0 {
+		t.Errorf("❌ Console errors detected during meta tag update:")
+		for _, err := range consoleErrors {
+			t.Errorf("   - %s", err)
+		}
+	} else {
+		t.Logf("✅ No console errors during meta tag update")
+	}
+
+	// Verify meta tag is present and has expected attributes
+	if metaContentBefore == "" {
+		t.Errorf("❌ Meta tag should have content attribute")
+	} else {
+		t.Logf("✅ Meta tag found with content: %s", metaContentBefore)
+	}
+}
+
+// TestCachePersistence verifies that cache persists across page reloads
+func TestCachePersistence(t *testing.T) {
+	// Start the counter server
+	server := NewServer()
+	handler := http.NewServeMux()
+	handler.HandleFunc("/", server.handleHome)
+	handler.HandleFunc("/ws", server.handleWebSocket)
+	handler.HandleFunc("/dist/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		http.StripPrefix("/dist/", http.FileServer(http.Dir("../../client/dist/"))).ServeHTTP(w, r)
+	})
+
+	httpServer := &http.Server{
+		Addr:    ":8089",
+		Handler: handler,
+	}
+
+	go func() {
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			t.Logf("HTTP server error: %v", err)
+		}
+	}()
+	defer httpServer.Close()
+
+	// Wait for server to start
+	time.Sleep(200 * time.Millisecond)
+
+	// Create browser context
+	ctx, cancel := chromedp.NewContext(context.Background())
+	defer cancel()
+
+	// Set a timeout for the entire test
+	ctx, cancel = context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+
+	var cacheSize1, cacheSize2, cacheSize3 int
+	var hasLocalStorage bool
+	var consoleLogs []string
+
+	// Capture console logs
+	chromedp.ListenTarget(ctx, func(ev interface{}) {
+		switch ev := ev.(type) {
+		case *runtime.EventConsoleAPICalled:
+			for _, arg := range ev.Args {
+				if arg.Value != nil {
+					var val string
+					if err := json.Unmarshal(arg.Value, &val); err == nil {
+						consoleLogs = append(consoleLogs, val)
+					}
+				}
+			}
+		}
+	})
+
+	err := chromedp.Run(ctx,
+		// First visit - build cache
+		chromedp.Navigate("http://localhost:8089"),
+		chromedp.WaitVisible(`button[data-lvt-action="increment"]`, chromedp.ByQuery),
+		chromedp.Sleep(1*time.Second),
+
+		// Click increment to trigger cache save
+		chromedp.Click(`button[data-lvt-action="increment"]`, chromedp.ByQuery),
+		chromedp.Sleep(500*time.Millisecond),
+
+		// Check cache size after first action
+		chromedp.Evaluate(`window.liveTemplateClient ? window.liveTemplateClient.staticCache.size : 0`, &cacheSize1),
+
+		// Check if localStorage has our cache
+		chromedp.Evaluate(`localStorage.getItem('livetemplate-cache') !== null`, &hasLocalStorage),
+
+		// Reload page to test persistence
+		chromedp.Reload(),
+		chromedp.WaitVisible(`button[data-lvt-action="increment"]`, chromedp.ByQuery),
+		chromedp.Sleep(1*time.Second),
+
+		// Check cache size after reload (should be restored from localStorage)
+		chromedp.Evaluate(`window.liveTemplateClient ? window.liveTemplateClient.staticCache.size : 0`, &cacheSize2),
+
+		// Click increment again to verify cached fragments are used
+		chromedp.Click(`button[data-lvt-action="increment"]`, chromedp.ByQuery),
+		chromedp.Sleep(500*time.Millisecond),
+
+		// Check final cache size
+		chromedp.Evaluate(`window.liveTemplateClient ? window.liveTemplateClient.staticCache.size : 0`, &cacheSize3),
+	)
+
+	if err != nil {
+		t.Fatalf("Browser test failed: %v", err)
+	}
+
+	// Verify cache was built on first visit
+	if cacheSize1 == 0 {
+		t.Errorf("❌ Cache should have been populated after first action, but size was 0")
+	} else {
+		t.Logf("✅ Cache populated after first action: %d fragments", cacheSize1)
+	}
+
+	// Verify localStorage was used
+	if !hasLocalStorage {
+		t.Errorf("❌ localStorage should contain 'livetemplate-cache' after first action")
+	} else {
+		t.Logf("✅ Cache saved to localStorage")
+	}
+
+	// Verify cache was restored after reload
+	if cacheSize2 == 0 {
+		t.Errorf("❌ Cache should have been restored from localStorage after reload")
+	} else if cacheSize2 == cacheSize1 {
+		t.Logf("✅ Cache successfully restored after reload: %d fragments", cacheSize2)
+	} else {
+		t.Logf("⚠️  Cache size changed after reload: %d → %d", cacheSize1, cacheSize2)
+	}
+
+	// Check for cache-related logs
+	foundCacheLog := false
+	for _, log := range consoleLogs {
+		if strings.Contains(log, "Loaded") && strings.Contains(log, "cached fragments") {
+			foundCacheLog = true
+			t.Logf("✅ Found cache restore log: %s", log)
+			break
+		}
+	}
+
+	if !foundCacheLog && cacheSize2 > 0 {
+		t.Logf("⚠️  Cache was restored but no log message found")
+	}
+}
+
+// TestOnlyChangedFragmentsSent verifies that unchanged fragments (like meta tag) are not sent in updates
+func TestOnlyChangedFragmentsSent(t *testing.T) {
+	server := NewServer()
+
+	// First action to establish baseline
+	firstMessage := &livetemplate.ActionMessage{
+		Action: "increment",
+		Data:   make(map[string]interface{}),
+	}
+
+	firstFragmentMap, err := server.templatePage.HandleAction(context.Background(), firstMessage)
+	if err != nil {
+		t.Fatalf("First HandleAction failed: %v", err)
+	}
+
+	// With the optimization, we should only get fragments that have actual changes
+	// The meta tag with empty token won't be sent
+	if len(firstFragmentMap) < 1 {
+		t.Errorf("Expected at least 1 fragment on first action, got %d", len(firstFragmentMap))
+	}
+
+	// Check if a1 (meta tag) exists in first response
+	// With optimization, it shouldn't be there since token is empty/unchanged
+	_, hasMetaFirst := firstFragmentMap["a1"]
+	if hasMetaFirst {
+		t.Logf("Note: Meta tag fragment (a1) present in first response (token must have a value)")
+	} else {
+		t.Logf("✅ Meta tag fragment (a1) correctly excluded (empty/unchanged token)")
+	}
+
+	// Second action - only counter changes, token stays the same
+	secondMessage := &livetemplate.ActionMessage{
+		Action: "increment",
+		Data:   make(map[string]interface{}),
+	}
+
+	secondFragmentMap, err := server.templatePage.HandleAction(context.Background(), secondMessage)
+	if err != nil {
+		t.Fatalf("Second HandleAction failed: %v", err)
+	}
+
+	// Check if a1 (meta tag) is NOT in the second response
+	metaFragment, hasMetaSecond := secondFragmentMap["a1"]
+
+	// The meta tag should either be absent or have no real changes
+	if hasMetaSecond {
+		// Debug: log what we got
+		t.Logf("Meta fragment a1 present in second update")
+
+		// If it's present, check if it has actual changes
+		if update, ok := metaFragment.(*diff.Update); ok {
+			t.Logf("Meta fragment update: Dynamics=%+v, Statics=%d items, Hash=%s",
+				update.Dynamics, len(update.S), update.H)
+
+			// Check if all dynamics are empty strings
+			hasRealChanges := false
+			for k, v := range update.Dynamics {
+				t.Logf("  Dynamic[%s] = %v (type: %T)", k, v, v)
+				if str, ok := v.(string); !ok || str != "" {
+					hasRealChanges = true
+					break
+				}
+			}
+
+			if !hasRealChanges && len(update.S) == 0 {
+				t.Errorf("❌ Meta tag fragment (a1) sent with no real changes - should be filtered out")
+				t.Errorf("   Fragment data: %+v", update.Dynamics)
+				t.Errorf("   HasChanges() returned: %v", update.HasChanges())
+			} else if hasRealChanges {
+				t.Logf("Meta fragment has real changes")
+			}
+		}
+	} else {
+		t.Logf("✅ Meta tag fragment (a1) correctly excluded from second update")
+	}
+
+	// Verify the counter fragment (a2) is present and has changes
+	counterFragment, hasCounter := secondFragmentMap["a2"]
+	if !hasCounter {
+		t.Errorf("❌ Counter fragment (a2) should be present in second update")
+	} else {
+		if update, ok := counterFragment.(*diff.Update); ok {
+			// Counter should have changed (new value)
+			if val, exists := update.Dynamics["1"]; exists {
+				if intVal, ok := val.(int); ok && intVal > 0 {
+					t.Logf("✅ Counter fragment has updated value: %d", intVal)
+				}
+			}
+		}
+	}
+
+	// Log fragment counts
+	t.Logf("Fragment counts - First: %d, Second: %d", len(firstFragmentMap), len(secondFragmentMap))
+	if len(secondFragmentMap) < len(firstFragmentMap) {
+		t.Logf("✅ Fewer fragments in second update (unchanged fragments filtered)")
+	}
 }

@@ -44,6 +44,48 @@ type Update struct {
 	H string `json:"h,omitempty"`
 }
 
+// HasChanges returns true if this update contains any actual changes
+// This checks if dynamics exist - the caller should determine if the change is meaningful
+func (u *Update) HasChanges() bool {
+	if u == nil {
+		return false
+	}
+
+	// If there are no dynamics, no changes (statics alone don't count as changes)
+	if len(u.Dynamics) == 0 {
+		return false
+	}
+
+	// Any dynamics indicate potential changes - let the generation logic handle emptiness
+	return true
+}
+
+// HasMeaningfulChanges returns true if this update contains meaningful changes
+// This is used internally to filter out truly empty/meaningless updates
+func (u *Update) HasMeaningfulChanges() bool {
+	if u == nil {
+		return false
+	}
+
+	// If there are no dynamics, no changes
+	if len(u.Dynamics) == 0 {
+		return false
+	}
+
+	// Check if all dynamic values are effectively empty/meaningless
+	for _, value := range u.Dynamics {
+		// Convert value to string and check if it's meaningful
+		strValue := fmt.Sprintf("%v", value)
+		// Consider whitespace-only content as empty
+		if strings.TrimSpace(strValue) != "" {
+			return true // Found at least one meaningful value
+		}
+	}
+
+	// All dynamics are empty/whitespace-only
+	return false
+}
+
 // Generate creates the optimal tree update
 func (u *Tree) Generate(templateSource string, oldData, newData any) (*Update, error) {
 	return u.GenerateWithFragmentID(templateSource, oldData, newData, "default")
@@ -58,22 +100,32 @@ func (u *Tree) GenerateWithFragmentID(templateSource string, oldData, newData an
 		u.fragmentCache = make(map[string]*FragmentCache)
 	}
 
-	// Render with new data
+	// Render with old data for comparison
+	var oldRendered string
 	tmpl, err := template.New("unified").Parse(templateSource)
 	if err != nil {
 		return nil, fmt.Errorf("template parse error: %v", err)
 	}
 
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, newData); err != nil {
+	if oldData != nil {
+		var oldBuf bytes.Buffer
+		if err := tmpl.Execute(&oldBuf, oldData); err != nil {
+			return nil, fmt.Errorf("template execute error with old data: %v", err)
+		}
+		oldRendered = oldBuf.String()
+	}
+
+	// Render with new data
+	var newBuf bytes.Buffer
+	if err := tmpl.Execute(&newBuf, newData); err != nil {
 		return nil, fmt.Errorf("template execute error: %v", err)
 	}
-	newRendered := buf.String()
+	newRendered := newBuf.String()
 
-	// Inject lvt-id attribute into template source for consistent fragment generation
+	// Inject data-lvt-id attribute into template source for consistent fragment generation
 	templateWithLvtId := u.injectLvtIdIntoTemplate(templateSource, fragmentID)
 
-	// Extract statics and dynamics from template with lvt-id
+	// Extract statics and dynamics from template with data-lvt-id
 	statics, dynamics := u.extractStaticsAndDynamics(templateWithLvtId, newData)
 
 	// Get or create fragment cache
@@ -94,6 +146,16 @@ func (u *Tree) GenerateWithFragmentID(templateSource string, oldData, newData an
 			Dynamics: dynamics,
 			H:        fragmentCache.staticHash,
 		}
+
+		// Even for first render, check if there are meaningful changes
+		// This prevents sending empty initial fragments
+		if !update.HasMeaningfulChanges() && len(update.S) == 0 {
+			// Empty initial fragment - return empty update
+			return &Update{
+				Dynamics: make(map[string]any),
+			}, nil
+		}
+
 		return update, nil
 	}
 
@@ -109,11 +171,48 @@ func (u *Tree) GenerateWithFragmentID(templateSource string, oldData, newData an
 	update := &Update{
 		Dynamics: dynamics,
 	}
+
+	// Check if this update represents a meaningful change by comparing old and new content
+	if u.isEmptyContentChange(oldRendered, newRendered) {
+		// Return empty update for truly meaningless changes
+		return &Update{
+			Dynamics: make(map[string]any),
+		}, nil
+	}
+
 	return update, nil
 }
 
 // extractStaticsAndDynamics splits template into static and dynamic parts
 func (u *Tree) extractStaticsAndDynamics(templateSource string, data any) ([]string, map[string]any) {
+	// Check if template has complex constructs (range, if, etc.)
+	hasRange := strings.Contains(templateSource, "{{range ")
+	hasIf := strings.Contains(templateSource, "{{if ")
+
+	if hasRange || hasIf {
+		// For complex templates, render first and extract entire content as dynamic
+		tmpl, err := template.New("complex").Parse(templateSource)
+		if err != nil {
+			return []string{templateSource}, make(map[string]any)
+		}
+
+		var buf bytes.Buffer
+		if err := tmpl.Execute(&buf, data); err != nil {
+			return []string{templateSource}, make(map[string]any)
+		}
+
+		renderedHTML := buf.String()
+
+		// Return minimal structure: empty static at start, dynamic content, empty static at end
+		return []string{"", ""}, map[string]any{"0": renderedHTML}
+	}
+
+	// For simple templates without complex constructs, use field-level extraction
+	return u.extractSimpleFields(templateSource, data)
+}
+
+// extractSimpleFields handles simple field expressions like {{.Name}}
+func (u *Tree) extractSimpleFields(templateSource string, data any) ([]string, map[string]any) {
 	// Find all template expressions
 	exprRegex := regexp.MustCompile(`{{[^}]*}}`)
 	matches := exprRegex.FindAllStringIndex(templateSource, -1)
@@ -354,23 +453,39 @@ func (u *Update) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// injectLvtIdIntoTemplate adds lvt-id attribute to elements that would get them during rendering
+// isEmptyContentChange determines if a change from old to new content is meaningless
+func (u *Tree) isEmptyContentChange(oldContent, newContent string) bool {
+	// Normalize content by trimming whitespace
+	oldTrimmed := strings.TrimSpace(oldContent)
+	newTrimmed := strings.TrimSpace(newContent)
+
+	// If both are effectively empty, no meaningful change
+	if oldTrimmed == "" && newTrimmed == "" {
+		return true
+	}
+
+	// Any other change is meaningful (including content->empty or empty->content)
+	return false
+}
+
+// injectLvtIdIntoTemplate adds data-lvt-id attribute to elements that would get them during rendering
 func (u *Tree) injectLvtIdIntoTemplate(templateSource string, fragmentID string) string {
-	// For templates with style attributes or class attributes, inject lvt-id
+	// For templates with style attributes or class attributes, inject data-lvt-id
 	// This mirrors the logic in Page.injectLvtIds but works on template source
 
-	// Look for div elements with style or class attributes (including ones with template expressions)
+	// Look for elements with style/class attributes or input elements with template expressions
 	// Updated regex to handle style attributes with template expressions like style="color: {{.Color}};"
-	elementRegex := regexp.MustCompile(`<(div|span|p|h[1-6]|section|article|main)([^>]*?)(style="[^"]*"|class="[^"]*")([^>]*?)>`)
+	// Also handle input elements with value="{{...}}" template expressions
+	elementRegex := regexp.MustCompile(`(?s)<(div|span|p|h[1-6]|section|article|main|input)([^>]*?)(style="[^"]*"|class="[^"]*"|value="[^"]*\{\{[^}]*\}\}[^"]*")([^>]*?)>`)
 
 	result := elementRegex.ReplaceAllStringFunc(templateSource, func(match string) string {
-		// Check if this element already has an lvt-id attribute
-		if strings.Contains(match, "lvt-id=") {
+		// Check if this element already has a data-lvt-id attribute
+		if strings.Contains(match, "data-lvt-id=") {
 			return match
 		}
 
-		// Insert lvt-id attribute before the closing >
-		return strings.Replace(match, ">", fmt.Sprintf(` lvt-id="%s">`, fragmentID), 1)
+		// Insert data-lvt-id attribute before the closing >
+		return strings.Replace(match, ">", fmt.Sprintf(` data-lvt-id="%s">`, fragmentID), 1)
 	})
 
 	return result

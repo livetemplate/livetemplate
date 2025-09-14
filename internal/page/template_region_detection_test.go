@@ -24,7 +24,7 @@ func TestDetectTemplateRegions(t *testing.T) {
 </body>
 </html>`,
 			expectedRegions: 1,
-			expectedIDs:     []string{"counter"},
+			expectedIDs:     []string{"a1"},
 			expectedSources: []string{"Hello {{.Counter}}"},
 		},
 		{
@@ -37,7 +37,7 @@ func TestDetectTemplateRegions(t *testing.T) {
 </body>
 </html>`,
 			expectedRegions: 2,
-			expectedIDs:     []string{"name", "status"},
+			expectedIDs:     []string{"a1", "a2"},
 			expectedSources: []string{"Welcome {{.User.Name}}", "Status: {{.Status}}"},
 		},
 		{
@@ -48,7 +48,7 @@ func TestDetectTemplateRegions(t *testing.T) {
 </body>
 </html>`,
 			expectedRegions: 1,
-			expectedIDs:     []string{"1"},
+			expectedIDs:     []string{"a1"},
 			expectedSources: []string{"Count: {{.Counter}}"},
 		},
 		{
@@ -72,10 +72,10 @@ func TestDetectTemplateRegions(t *testing.T) {
 </body>
 </html>`,
 			expectedRegions: 2,
-			expectedIDs:     []string{"1", "2"},
+			expectedIDs:     []string{"a3", "a4"},
 			expectedSources: []string{
-				"<div id=\"items\">Items: {{range .Items}}{{.Name}} {{end}}</div>",
-				"<div id=\"user-info\">{{.User.Name}} ({{if .User.Active}}Active{{else}}Inactive{{end}})</div>",
+				"<div id=\"items\" data-lvt-id=\"a1\">Items: {{range .Items}}{{.Name}} {{end}}</div>",
+				"<div id=\"user-info\" data-lvt-id=\"a2\">{{.User.Name}} ({{if .User.Active}}Active{{else}}Inactive{{end}})</div>",
 			},
 		},
 	}

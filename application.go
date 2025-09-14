@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/livefir/livetemplate/internal/app"
 	"github.com/livefir/livetemplate/internal/diff"
+	"github.com/livefir/livetemplate/internal/page"
 	"github.com/livefir/livetemplate/internal/session"
 )
 
@@ -24,12 +26,13 @@ import (
 type Application struct {
 	internal        *app.Application
 	config          *ApplicationConfig
-	templates       map[string]*template.Template // Template registry for reuse
-	templateSources map[string]string             // Template source code for unified diff
-	actions         map[string]ActionHandler      // Global action registry
-	sessionManager  *session.Manager              // Session management
-	pageDataModels  map[string][]DataModel        // Data models per page (keyed by page ID)
-	dataModelsMu    sync.RWMutex                  // Mutex for pageDataModels map
+	templates       map[string]*template.Template    // Template registry for reuse
+	templateSources map[string]string                // Template source code for unified diff
+	templateRegions map[string][]page.TemplateRegion // Store detected regions for consistency
+	actions         map[string]ActionHandler         // Global action registry
+	sessionManager  *session.Manager                 // Session management
+	pageDataModels  map[string][]DataModel           // Data models per page (keyed by page ID)
+	dataModelsMu    sync.RWMutex                     // Mutex for pageDataModels map
 }
 
 // ApplicationConfig contains configuration for the public Application
@@ -49,11 +52,12 @@ func NewApplication(options ...ApplicationOption) (*Application, error) {
 			MaxMemoryMB:    100,
 			MetricsEnabled: true,
 		},
-		templates:       make(map[string]*template.Template), // Initialize template registry
-		templateSources: make(map[string]string),             // Initialize template source registry
-		actions:         make(map[string]ActionHandler),      // Initialize action registry
-		sessionManager:  session.NewManager(24 * time.Hour),  // Initialize session manager
-		pageDataModels:  make(map[string][]DataModel),        // Initialize data models registry
+		templates:       make(map[string]*template.Template),    // Initialize template registry
+		templateSources: make(map[string]string),                // Initialize template source registry
+		templateRegions: make(map[string][]page.TemplateRegion), // Initialize template regions registry
+		actions:         make(map[string]ActionHandler),         // Initialize action registry
+		sessionManager:  session.NewManager(24 * time.Hour),     // Initialize session manager
+		pageDataModels:  make(map[string][]DataModel),           // Initialize data models registry
 	}
 
 	// Apply public options to collect configuration
@@ -289,17 +293,14 @@ type ActionMethodSignature func(ctx *ActionContext) error
 
 // ActionMessage represents an action message from the client
 type ActionMessage struct {
-	Type   string                 `json:"type"`   // Message type (usually "action")
 	Action string                 `json:"action"` // Action name to execute
 	Token  string                 `json:"token"`  // Optional security token
 	Data   map[string]interface{} `json:"data"`   // Action payload data
-	Cache  []string               `json:"cache"`  // Fragment IDs that the client has cached
 }
 
 // NewActionMessage creates a new ActionMessage with the given action name and data
 func NewActionMessage(action string, data map[string]interface{}) *ActionMessage {
 	return &ActionMessage{
-		Type:   "action",
 		Action: action,
 		Data:   data,
 	}
@@ -307,12 +308,14 @@ func NewActionMessage(action string, data map[string]interface{}) *ActionMessage
 
 // ApplicationPage represents a page managed by an Application with session-based authentication
 type ApplicationPage struct {
-	internal   *app.Page
-	cacheInfo  *ClientCacheInfo
-	actions    map[string]ActionHandler // Registered action handlers
-	dataModels []DataModel              // Registered data models with method-based actions
-	sessionID  string                   // Session ID for this page
-	app        *Application             // Reference to parent application
+	internal      *app.Page
+	cacheInfo     *ClientCacheInfo
+	actions       map[string]ActionHandler // Registered action handlers
+	dataModels    []DataModel              // Registered data models with method-based actions
+	sessionID     string                   // Session ID for this page
+	app           *Application             // Reference to parent application
+	sentFragments *ConnectionFragmentState // Fragment tracking for this page token
+	sentFragMu    sync.RWMutex             // Protects sentFragments
 }
 
 // NewApplicationPage creates a new isolated page session with session-based authentication
@@ -334,11 +337,12 @@ func (a *Application) NewApplicationPage(tmpl *template.Template, data interface
 	}
 
 	publicPage := &ApplicationPage{
-		internal:   internal,
-		actions:    a.actions,            // Use application's action registry
-		dataModels: make([]DataModel, 0), // Initialize empty data models slice
-		sessionID:  sess.ID,
-		app:        a,
+		internal:      internal,
+		actions:       a.actions,            // Use application's action registry
+		dataModels:    make([]DataModel, 0), // Initialize empty data models slice
+		sessionID:     sess.ID,
+		app:           a,
+		sentFragments: NewConnectionFragmentState(), // Initialize fragment tracking for this page
 	}
 
 	// Apply public options
@@ -389,15 +393,32 @@ func (a *Application) ParseFiles(filenames ...string) (*template.Template, error
 		return nil, fmt.Errorf("failed to read template source: %w", err)
 	}
 
-	tmpl, err := template.ParseFiles(filenames...)
+	// RE-ENABLED: Parse-time injection is simpler and more reliable than runtime injection
+	// Handle dynamic elements with improved range loop filtering
+
+	// Inject lvt-id attributes at parse time and use the modified source
+	modifiedSource, regions, err := page.InjectLvtIDsIntoTemplate(source)
 	if err != nil {
-		return nil, err
+		// Continue without regions - they'll be detected at runtime
+		regions = []page.TemplateRegion{}
+		log.Printf("Warning: Failed to detect template regions: %v", err)
+	} else {
+		// Use the modified source with injected lvt-id attributes
+		source = modifiedSource
+		log.Printf("INFO: Injected %d lvt-id attributes into template", len(regions))
+	}
+
+	// Parse the modified template source (with lvt-id attributes injected)
+	tmpl, err := template.New(filepath.Base(filenames[0])).Parse(source)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse template: %w", err)
 	}
 
 	// Auto-register using the first file's base name (without extension)
 	name := strings.TrimSuffix(filepath.Base(filenames[0]), filepath.Ext(filenames[0]))
 	a.templates[name] = tmpl
-	a.templateSources[name] = source // Store source for unified diff
+	a.templateSources[name] = source  // Store ORIGINAL source (not modified)
+	a.templateRegions[name] = regions // Store detected regions for runtime processing
 
 	return tmpl, nil
 }
@@ -469,12 +490,16 @@ func (a *Application) NewPageFromTemplate(templateName string, data interface{},
 
 	// Get template source for unified diff integration
 	templateSource := a.templateSources[templateName]
+	// Get cached regions for consistent ID generation
+	templateRegions := a.templateRegions[templateName]
 
 	// Create page with template source for unified diff optimization
 	pageOptions := []ApplicationPageOption{
 		func(page *ApplicationPage) error {
 			// Set template source on the internal page for unified diff
 			page.internal.SetTemplateSource(templateSource)
+			// Set cached regions to ensure consistent ID generation
+			page.internal.SetTemplateRegions(templateRegions)
 			return nil
 		},
 	}
@@ -536,12 +561,13 @@ func (a *Application) GetPage(r *http.Request) (*ApplicationPage, error) {
 
 	// Create ApplicationPage with session context
 	page := &ApplicationPage{
-		internal:   internalPage,
-		actions:    a.actions,
-		dataModels: pageDataModels,
-		sessionID:  sess.ID,
-		app:        a,
-		cacheInfo:  cacheInfo,
+		internal:      internalPage,
+		actions:       a.actions,
+		dataModels:    pageDataModels,
+		sessionID:     sess.ID,
+		app:           a,
+		cacheInfo:     cacheInfo,
+		sentFragments: NewConnectionFragmentState(), // Initialize fragment tracking
 	}
 
 	return page, nil
@@ -651,8 +677,51 @@ func (p *ApplicationPage) Render(data ...interface{}) (string, error) {
 
 // ClientCacheInfo contains information about what the client has cached
 type ClientCacheInfo struct {
-	CachedFragments     map[string]bool `json:"-"` // Internal map for filtering
-	CachedFragmentsList []string        `json:"cached_fragments"`
+	CachedFragments     map[string]bool   `json:"-"` // Internal map for filtering
+	CachedFragmentsList []string          `json:"cached_fragments"`
+	CachedHashes        map[string]string `json:"-"` // Fragment ID to hash mapping
+}
+
+// ConnectionFragmentState tracks what fragments (by hash) have been sent to a specific connection
+type ConnectionFragmentState struct {
+	SentFragmentHashes map[string]string // Fragment ID -> hash mapping for sent fragments
+	mu                 sync.RWMutex      // Protects concurrent access
+}
+
+// NewConnectionFragmentState creates a new connection state tracker
+func NewConnectionFragmentState() *ConnectionFragmentState {
+	return &ConnectionFragmentState{
+		SentFragmentHashes: make(map[string]string),
+	}
+}
+
+// HasFragment returns true if a fragment with the given ID and hash has been sent
+func (c *ConnectionFragmentState) HasFragment(fragmentID, hash string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	sentHash, exists := c.SentFragmentHashes[fragmentID]
+	return exists && sentHash == hash
+}
+
+// MarkFragmentSent records that a fragment has been sent to this connection
+func (c *ConnectionFragmentState) MarkFragmentSent(fragmentID, hash string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.SentFragmentHashes[fragmentID] = hash
+}
+
+// GetSentFragments returns a copy of all sent fragment hashes
+func (c *ConnectionFragmentState) GetSentFragments() map[string]string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	result := make(map[string]string)
+	for id, hash := range c.SentFragmentHashes {
+		result[id] = hash
+	}
+	return result
 }
 
 // RenderFragments generates fragment updates for the given new data
@@ -675,14 +744,57 @@ func (p *ApplicationPage) RenderFragments(ctx context.Context, newData interface
 
 	// Apply client cache filtering if cache info is set on the page
 	if p.cacheInfo != nil && len(p.cacheInfo.CachedFragmentsList) > 0 {
-		fragments = p.filterStaticsFromFragments(fragments, p.cacheInfo.CachedFragments)
+		fragments = p.filterStaticsFromFragments(fragments, p.cacheInfo.CachedFragments, p.cacheInfo.CachedHashes)
 	}
 
 	return fragments, nil
 }
 
-// filterStaticsFromFragments removes statics from fragments that client already has cached
-func (p *ApplicationPage) filterStaticsFromFragments(fragments []*Fragment, cachedFragments map[string]bool) []*Fragment {
+// RenderFragmentsWithConnectionState generates fragment updates optimized for server-side tracking
+// This method filters fragments based on what has already been sent to this connection
+func (p *ApplicationPage) RenderFragmentsWithConnectionState(ctx context.Context, newData interface{}, connState *ConnectionFragmentState) ([]*Fragment, error) {
+	internalFragments, err := p.internal.RenderFragments(ctx, newData)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to existing Fragment type format and apply server-side filtering
+	var filteredFragments []*Fragment
+	for _, frag := range internalFragments {
+		newFrag := &Fragment{
+			ID:       frag.ID,
+			Data:     frag.Data,
+			Metadata: convertInternalMetadata(frag.Metadata),
+		}
+
+		// Check if we need to send statics based on server-side tracking
+		if treeUpdate, ok := frag.Data.(*diff.Update); ok {
+			currentHash := treeUpdate.H
+
+			// If we have a hash and the client already has this fragment with the same hash,
+			// remove statics (client can use cached version)
+			if currentHash != "" && connState.HasFragment(frag.ID, currentHash) {
+				// Create update without statics - client has valid cache
+				newUpdate := &diff.Update{
+					S:        nil, // Remove statics
+					Dynamics: treeUpdate.Dynamics,
+					H:        "", // Remove hash since no statics
+				}
+				newFrag.Data = newUpdate
+			} else if currentHash != "" {
+				// This is either a new fragment or hash changed - mark as sent
+				connState.MarkFragmentSent(frag.ID, currentHash)
+			}
+		}
+
+		filteredFragments = append(filteredFragments, newFrag)
+	}
+
+	return filteredFragments, nil
+}
+
+// filterStaticsFromFragments removes statics from fragments that client already has cached with valid hashes
+func (p *ApplicationPage) filterStaticsFromFragments(fragments []*Fragment, cachedFragments map[string]bool, cachedHashes map[string]string) []*Fragment {
 	var filtered []*Fragment
 
 	for _, frag := range fragments {
@@ -693,26 +805,43 @@ func (p *ApplicationPage) filterStaticsFromFragments(fragments []*Fragment, cach
 			Metadata: frag.Metadata,
 		}
 
-		// If client has this fragment cached, remove statics from data
+		// Check if client has this fragment cached
 		if cachedFragments[frag.ID] {
-			// Handle diff.Update type (the actual type from tree generator)
+			// Validate hash if available
+			shouldFilterStatics := true
+
 			if treeUpdate, ok := frag.Data.(*diff.Update); ok {
-				// Create new update without statics
-				newUpdate := &diff.Update{
-					S:        nil, // Remove statics
-					Dynamics: treeUpdate.Dynamics,
-					H:        "", // Remove hash since no statics
-				}
-				newFrag.Data = newUpdate
-			} else if treeData, ok := frag.Data.(map[string]interface{}); ok {
-				// Handle map type (legacy fallback)
-				newTreeData := make(map[string]interface{})
-				for k, v := range treeData {
-					if k != "s" { // Remove statics ("s" field)
-						newTreeData[k] = v
+				// Check if hash matches
+				if clientHash, hasClientHash := cachedHashes[frag.ID]; hasClientHash {
+					serverHash := treeUpdate.H
+					if serverHash != "" && clientHash != serverHash {
+						// Hash mismatch - client's cache is stale, send full update
+						shouldFilterStatics = false
+						fmt.Printf("Cache invalidated for fragment %s: hash mismatch (client: %s, server: %s)\n",
+							frag.ID, clientHash, serverHash)
 					}
 				}
-				newFrag.Data = newTreeData
+
+				if shouldFilterStatics {
+					// Create new update without statics (client has valid cache)
+					newUpdate := &diff.Update{
+						S:        nil, // Remove statics
+						Dynamics: treeUpdate.Dynamics,
+						H:        "", // Remove hash since no statics
+					}
+					newFrag.Data = newUpdate
+				}
+			} else if treeData, ok := frag.Data.(map[string]interface{}); ok {
+				// Handle map type (legacy fallback)
+				if shouldFilterStatics {
+					newTreeData := make(map[string]interface{})
+					for k, v := range treeData {
+						if k != "s" && k != "h" { // Remove statics ("s" field) and hash
+							newTreeData[k] = v
+						}
+					}
+					newFrag.Data = newTreeData
+				}
 			}
 		}
 
@@ -956,6 +1085,19 @@ func (p *ApplicationPage) callDataModelMethod(instance interface{}, method refle
 	return ctx.GetResponse(), nil
 }
 
+// TransformFragmentsToMap converts fragment array to key-value map format for client efficiency
+// This is the preferred format for sending to clients as it provides cleaner structure
+func TransformFragmentsToMap(fragments []*Fragment) map[string]interface{} {
+	fragmentMap := make(map[string]interface{})
+
+	for _, fragment := range fragments {
+		// Use the fragment ID as the outer key and the data as the value
+		fragmentMap[fragment.ID] = fragment.Data
+	}
+
+	return fragmentMap
+}
+
 // HasActions returns true if any actions are registered (either handlers or data models)
 func (p *ApplicationPage) HasActions() bool {
 	if len(p.actions) > 0 {
@@ -972,16 +1114,11 @@ func (p *ApplicationPage) HasActions() bool {
 	return false
 }
 
-// HandleAction processes an action message and returns updated fragments
-func (p *ApplicationPage) HandleAction(ctx context.Context, msg *ActionMessage) ([]*Fragment, error) {
+// HandleActionWithConnectionState processes an action message and returns updated fragments optimized for server-side tracking
+func (p *ApplicationPage) HandleActionWithConnectionState(ctx context.Context, msg *ActionMessage, connState *ConnectionFragmentState) (map[string]interface{}, error) {
 	// Validate message
 	if msg == nil {
 		return nil, fmt.Errorf("action message is nil")
-	}
-
-	// Validate message type
-	if msg.Type != "" && msg.Type != "action" {
-		return nil, fmt.Errorf("invalid message type: %q, expected \"action\"", msg.Type)
 	}
 
 	// Validate action name
@@ -999,20 +1136,48 @@ func (p *ApplicationPage) HandleAction(ctx context.Context, msg *ActionMessage) 
 		msg.Data = make(map[string]interface{})
 	}
 
-	// Set cache information from the message
-	if len(msg.Cache) > 0 {
-		// Convert array to map for internal use
-		cachedFragments := make(map[string]bool)
-		for _, fragID := range msg.Cache {
-			cachedFragments[fragID] = true
-		}
-		p.SetCacheInfo(&ClientCacheInfo{
-			CachedFragmentsList: msg.Cache,
-			CachedFragments:     cachedFragments,
-		})
-	} else {
-		// Clear any existing cache info if no cache array provided
-		p.SetCacheInfo(nil)
+	// Try to resolve the action (with conflict detection and namespacing)
+	newData, err := p.resolveAndExecuteAction(msg.Action, msg.Data)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update page data and generate fragments with connection state tracking
+	fragments, err := p.RenderFragmentsWithConnectionState(ctx, newData, connState)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert fragments to map format for client efficiency
+	fragmentMap := make(map[string]interface{})
+	for _, fragment := range fragments {
+		fragmentMap[fragment.ID] = fragment.Data
+	}
+
+	return fragmentMap, nil
+}
+
+// HandleAction processes an action message and returns updated fragments as a map
+// Automatically handles page-token-based fragment optimization transparently
+func (p *ApplicationPage) HandleAction(ctx context.Context, msg *ActionMessage) (map[string]interface{}, error) {
+	// Validate message
+	if msg == nil {
+		return nil, fmt.Errorf("action message is nil")
+	}
+
+	// Validate action name
+	if msg.Action == "" {
+		return nil, fmt.Errorf("action name is empty")
+	}
+
+	// Optional: validate token if provided
+	if msg.Token != "" && msg.Token != p.GetToken() {
+		return nil, fmt.Errorf("invalid token")
+	}
+
+	// Ensure data is not nil
+	if msg.Data == nil {
+		msg.Data = make(map[string]interface{})
 	}
 
 	// Try to resolve the action (with conflict detection and namespacing)
@@ -1021,8 +1186,19 @@ func (p *ApplicationPage) HandleAction(ctx context.Context, msg *ActionMessage) 
 		return nil, err
 	}
 
-	// Update page data and generate fragments
-	return p.RenderFragments(ctx, newData)
+	// Update page data and generate fragments with automatic page-token-based tracking
+	fragments, err := p.RenderFragmentsWithConnectionState(ctx, newData, p.sentFragments)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert fragments to map format for client efficiency
+	fragmentMap := make(map[string]interface{})
+	for _, fragment := range fragments {
+		fragmentMap[fragment.ID] = fragment.Data
+	}
+
+	return fragmentMap, nil
 }
 
 // ServeWebSocket provides a complete WebSocket handler that automatically processes actions
@@ -1034,9 +1210,6 @@ func (a *Application) ServeWebSocket() http.HandlerFunc {
 			http.Error(w, fmt.Sprintf("Failed to get page: %v", err), http.StatusBadRequest)
 			return
 		}
-
-		// Debug logging
-		fmt.Printf("WebSocket connected: token=%s, actions=%d\n", page.GetToken(), len(page.actions))
 
 		// Upgrade to WebSocket
 		upgrader := &websocket.Upgrader{
@@ -1051,6 +1224,8 @@ func (a *Application) ServeWebSocket() http.HandlerFunc {
 		}
 		defer conn.Close()
 
+		fmt.Printf("WebSocket connected - page-token-based optimization enabled\n")
+
 		// Handle messages
 		for {
 			var actionMsg ActionMessage
@@ -1059,21 +1234,16 @@ func (a *Application) ServeWebSocket() http.HandlerFunc {
 				break
 			}
 
-			// Check message type
-			if actionMsg.Type != "action" {
-				continue // Skip non-action messages
-			}
-
 			fmt.Printf("Processing action: %s\n", actionMsg.Action)
 
-			// Process action and get fragments
-			fragments, err := page.HandleAction(r.Context(), &actionMsg)
+			// Process action with page-token-based tracking
+			fragments, err := page.HandleAction(context.TODO(), &actionMsg)
 			if err != nil {
 				fmt.Printf("Action handler error: %v\n", err)
 				continue
 			}
 
-			fmt.Printf("Generated %d fragments\n", len(fragments))
+			fmt.Printf("Generated %d fragment updates (page-token optimized)\n", len(fragments))
 
 			// Send fragments to client
 			if err := conn.WriteJSON(fragments); err != nil {
@@ -1081,6 +1251,8 @@ func (a *Application) ServeWebSocket() http.HandlerFunc {
 				break
 			}
 		}
+
+		fmt.Printf("WebSocket disconnected\n")
 	}
 }
 

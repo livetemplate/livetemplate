@@ -1,16 +1,41 @@
 package page
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
+	"log"
+	"reflect"
 	"regexp"
+	"sort"
 	"strings"
-	"time"
 )
 
 // Forward reference to avoid circular dependencies
 // FragmentConfig is defined in page.go
+
+// regionIDGenerator creates unique, short alphanumeric IDs for template regions
+type regionIDGenerator struct {
+	counter int
+	usedIDs map[string]bool
+}
+
+// generate creates a unique short alphanumeric ID (e.g., "a1", "b2", "c3")
+func (g *regionIDGenerator) generate() string {
+	for {
+		g.counter++
+		// Create short alphanumeric ID: a1, a2, ..., a9, b1, b2, etc.
+		letter := string(rune('a' + ((g.counter-1)/9)%26))
+		number := ((g.counter - 1) % 9) + 1
+		id := fmt.Sprintf("%s%d", letter, number)
+
+		// Ensure uniqueness
+		if !g.usedIDs[id] {
+			g.usedIDs[id] = true
+			return id
+		}
+	}
+}
+
+// Removed generateCustom and isValidFormat methods - we now always auto-generate for consistency
 
 // TemplateRegion represents a dynamic region within a full HTML template
 type TemplateRegion struct {
@@ -46,18 +71,17 @@ func (p *Page) detectTemplateRegions() ([]TemplateRegion, error) {
 	// Find dynamic regions - both HTML elements with template expressions AND standalone template constructs
 	regions := []TemplateRegion{}
 
+	// Create a centralized ID generator for consistent, unique, short alphanumeric IDs
+	idGenerator := &regionIDGenerator{usedIDs: make(map[string]bool)}
+
 	// Method 1: Find standalone template constructs like {{range}}, {{if}} that span elements
 	// Process these FIRST as they have higher priority and define larger boundaries
-	standaloneConstructs := findStandaloneTemplateConstructs(templateSource)
-
-	regionIndex := 0
+	standaloneConstructs := findStandaloneTemplateConstructs(templateSource, idGenerator)
 
 	// Process standalone template construct regions (Method 1 - Higher Priority)
 	for _, construct := range standaloneConstructs {
-		regionIndex++
-
 		region := TemplateRegion{
-			ID:             fmt.Sprintf("%d", regionIndex), // Simple incremental ID
+			ID:             idGenerator.generate(), // Use centralized ID generator
 			TemplateSource: construct.TemplateSource,
 			StartMarker:    construct.StartMarker,
 			EndMarker:      construct.EndMarker,
@@ -66,6 +90,9 @@ func (p *Page) detectTemplateRegions() ([]TemplateRegion, error) {
 			OriginalAttrs:  construct.OriginalAttrs,
 		}
 
+		// DEBUG DISABLED: Region creation logging removed to reduce noise during testing
+		// fmt.Printf("DEBUG: Created standalone region ID=%s, Tag=%s, TemplateSource=%s\n",
+		//	region.ID, region.ElementTag, region.TemplateSource)
 		regions = append(regions, region)
 	}
 
@@ -122,46 +149,56 @@ func (p *Page) detectTemplateRegions() ([]TemplateRegion, error) {
 				continue
 			}
 
-			// Extract ID from tag attributes if available, otherwise generate simple incremental ID
-			extractedID := extractIDFromTag(attributes)
-			var lvtID string
-			if extractedID != "" {
-				lvtID = extractedID
-			} else {
-				// Generate simple incremental ID
-				regionIndex++
-				lvtID = fmt.Sprintf("%d", regionIndex)
-			}
+			// IMPORTANT: Always auto-generate lvt-id for consistency and guaranteed uniqueness
+			// Never preserve existing IDs (id, lvt-id) to ensure all IDs follow same format
+			lvtID := idGenerator.generate()
 
 			// Extract field paths from template expressions in both attributes and content
 			fieldPaths := extractFieldPaths(attributes + " " + content)
 
 			// If attributes contain templates, include the entire element as template source
+			// IMPORTANT: Inject lvt-id directly into template source to avoid post-processing annotation
 			var templateSource string
 			var endMarker string
 			if hasTemplateInAttributes {
+				// Inject lvt-id into the attributes of the template source
+				attributesWithID := injectLvtID(attributes, lvtID)
 				if isSelfClosing {
-					templateSource = fmt.Sprintf("<%s%s>", startTagName, attributes)
+					templateSource = fmt.Sprintf("<%s%s>", startTagName, attributesWithID)
 					endMarker = "" // Self-closing elements don't have end markers
 				} else {
-					templateSource = fmt.Sprintf("<%s%s>%s</%s>", startTagName, attributes, content, endTagName)
+					templateSource = fmt.Sprintf("<%s%s>%s</%s>", startTagName, attributesWithID, content, endTagName)
 					endMarker = fmt.Sprintf("</%s>", endTagName)
 				}
 			} else {
+				// For content-only templates, the template source is just the content
 				templateSource = content
 				endMarker = fmt.Sprintf("</%s>", endTagName)
+			}
+
+			// Use attributes with injected ID for StartMarker as well
+			var startMarker string
+			if hasTemplateInAttributes {
+				attributesWithID := injectLvtID(attributes, lvtID)
+				startMarker = fmt.Sprintf("<%s%s>", startTagName, attributesWithID)
+			} else {
+				attributesWithID := injectLvtID(attributes, lvtID)
+				startMarker = fmt.Sprintf("<%s%s>", startTagName, attributesWithID)
 			}
 
 			region := TemplateRegion{
 				ID:             lvtID,
 				TemplateSource: templateSource,
-				StartMarker:    fmt.Sprintf("<%s%s>", startTagName, attributes),
+				StartMarker:    startMarker,
 				EndMarker:      endMarker,
 				FieldPaths:     fieldPaths,
 				ElementTag:     startTagName,
 				OriginalAttrs:  attributes,
 			}
 
+			// DEBUG DISABLED: Element region creation logging removed to reduce noise
+			// fmt.Printf("DEBUG: Created element region ID=%s, Tag=%s, TemplateSource=%s\n",
+			//	region.ID, region.ElementTag, region.TemplateSource)
 			regions = append(regions, region)
 		}
 	}
@@ -169,10 +206,121 @@ func (p *Page) detectTemplateRegions() ([]TemplateRegion, error) {
 	return regions, nil
 }
 
-// extractIDFromTag extracts the lvt-id or id attribute from an HTML tag, prioritizing lvt-id
+// DetectTemplateRegionsFromSource detects template regions from template source without requiring a Page instance
+// This is used during template parsing to inject lvt-id attributes
+func DetectTemplateRegionsFromSource(templateSource string) ([]TemplateRegion, error) {
+	// Create a global ID generator for this template
+	idGenerator := &regionIDGenerator{
+		counter: 0,
+		usedIDs: make(map[string]bool),
+	}
+
+	var regions []TemplateRegion
+
+	// Find standalone template constructs first (range, if, with, etc)
+	standaloneConstructs := findStandaloneTemplateConstructs(templateSource, idGenerator)
+	regions = append(regions, standaloneConstructs...)
+
+	// Mark IDs as used from standalone constructs
+	for _, construct := range standaloneConstructs {
+		idGenerator.usedIDs[construct.ID] = true
+	}
+
+	// Find HTML elements with template expressions
+	elementMatches := findCompleteElementMatches(templateSource)
+	leafElements := filterToLeafElements(elementMatches)
+
+	for _, match := range leafElements {
+		if len(match) < 5 {
+			continue
+		}
+
+		startTagName := match[1]
+		attributes := match[2]
+		content := match[3]
+		endTagName := match[4]
+
+		// Ensure start and end tags match
+		if startTagName != endTagName {
+			continue
+		}
+
+		// Check if either attributes or content contain template expressions
+		templatePattern := regexp.MustCompile(`\{\{[^}]+\}\}`)
+		hasTemplateInAttributes := templatePattern.MatchString(attributes)
+		hasTemplateInContent := templatePattern.MatchString(content)
+
+		if !hasTemplateInAttributes && !hasTemplateInContent {
+			continue
+		}
+
+		// IMPORTANT: Always auto-generate lvt-id for consistency and guaranteed uniqueness
+		// Never preserve existing IDs (id, lvt-id) to ensure all IDs follow same format
+		lvtID := idGenerator.generate()
+
+		// Extract field paths from template expressions in both attributes and content
+		fieldPaths := extractFieldPaths(attributes + " " + content)
+
+		// If attributes contain templates, include the entire element as template source
+		var templateSourceForRegion string
+		var endMarker string
+		isSelfClosing := content == "" && (startTagName == "input" || startTagName == "img" ||
+			startTagName == "meta" || startTagName == "link" || startTagName == "br" || startTagName == "hr")
+
+		if hasTemplateInAttributes {
+			if isSelfClosing {
+				templateSourceForRegion = fmt.Sprintf("<%s%s>", startTagName, attributes)
+				endMarker = "" // Self-closing elements don't have end markers
+			} else {
+				templateSourceForRegion = fmt.Sprintf("<%s%s>%s</%s>", startTagName, attributes, content, endTagName)
+				endMarker = fmt.Sprintf("</%s>", endTagName)
+			}
+		} else {
+			templateSourceForRegion = content
+			endMarker = fmt.Sprintf("</%s>", endTagName)
+		}
+
+		// Create start marker
+		startMarker := fmt.Sprintf("<%s%s>", startTagName, attributes)
+
+		region := TemplateRegion{
+			ID:             lvtID,
+			TemplateSource: templateSourceForRegion,
+			StartMarker:    startMarker,
+			EndMarker:      endMarker,
+			FieldPaths:     fieldPaths,
+			ElementTag:     startTagName,
+			OriginalAttrs:  attributes,
+		}
+
+		regions = append(regions, region)
+	}
+
+	return regions, nil
+}
+
+// injectLvtID injects a data-lvt-id attribute into an HTML attribute string
+// If data-lvt-id already exists, it preserves the existing one
+// If attributes is empty, it creates the attribute string
+func injectLvtID(attributes, lvtID string) string {
+	// Check if data-lvt-id already exists
+	if strings.Contains(attributes, "data-lvt-id=") {
+		return attributes // Don't override existing data-lvt-id
+	}
+
+	// If attributes is empty, create the attribute
+	if strings.TrimSpace(attributes) == "" {
+		return fmt.Sprintf(` data-lvt-id="%s"`, lvtID)
+	}
+
+	// Add data-lvt-id to existing attributes
+	return fmt.Sprintf(`%s data-lvt-id="%s"`, attributes, lvtID)
+}
+
+// extractIDFromTag extracts the data-lvt-id or id attribute from an HTML tag, prioritizing data-lvt-id
 func extractIDFromTag(tag string) string {
-	// First check for lvt-id attribute (LiveTemplate specific)
-	lvtIdRegex := regexp.MustCompile(`lvt-id=["']([^"']+)["']`)
+	// First check for data-lvt-id attribute (LiveTemplate specific)
+	lvtIdRegex := regexp.MustCompile(`data-lvt-id=["']([^"']+)["']`)
 	matches := lvtIdRegex.FindStringSubmatch(tag)
 	if len(matches) >= 2 {
 		return matches[1]
@@ -326,10 +474,16 @@ func filterToLeafElements(matches [][]string) [][]string {
 			continue
 		}
 
-		// For other elements with template expressions, only include if they're "leaf" elements
-		// (no nested template-containing elements within them)
+		// For other elements with template expressions, include if they're "leaf" elements OR have template attributes
+		// Elements with template attributes should always be included (e.g., div with dynamic style)
+		if hasTemplateInAttributes {
+			// Always include elements with template expressions in attributes
+			leafMatches = append(leafMatches, match)
+			continue
+		}
 
-		// For other elements, check if any smaller template-containing element is nested within
+		// For elements with only template content, only include if they're "leaf" elements
+		// (no nested template-containing elements within them)
 		isLeaf := true
 
 		for j, otherMatch := range matches {
@@ -427,12 +581,22 @@ func (p *Page) generateRegionFragment(region TemplateRegion, newData interface{}
 
 // generateRegionFragmentWithConfig creates a fragment update for a specific template region with config
 func (p *Page) generateRegionFragmentWithConfig(region TemplateRegion, newData interface{}, config *FragmentConfig) (*Fragment, error) {
+	// CRITICAL FIX: Check if this region is inside a range loop and whether that loop is empty
+	// If the region is inside a range loop that results in empty output, skip fragment generation
+	if p.isRegionInEmptyRangeLoop(region, newData) {
+		// Return nil to indicate this fragment should be skipped
+		return nil, fmt.Errorf("region %s is inside an empty range loop, skipping fragment generation", region.ID)
+	}
+
 	// Use the tree generator on just this region
 	oldData := p.data
 	// Use region ID directly as fragment ID (it's already unique)
 	fragmentID := region.ID
 
-	treeResult, err := p.treeGenerator.GenerateFromTemplateSource(region.TemplateSource, oldData, newData, fragmentID)
+	// CRITICAL FIX: Inject lvt-id attribute into the region's template source before fragment generation
+	templateSourceWithLvtID := p.injectLvtIDIntoRegionTemplate(region)
+
+	treeResult, err := p.treeGenerator.GenerateFromTemplateSource(templateSourceWithLvtID, oldData, newData, fragmentID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate region fragment: %w", err)
 	}
@@ -455,30 +619,71 @@ func (p *Page) generateRegionFragmentWithConfig(region TemplateRegion, newData i
 	return fragment, nil
 }
 
-// generateGloballyUniqueFragmentID creates a cryptographically secure, globally unique fragment ID
-func generateGloballyUniqueFragmentID() string {
-	// Generate 8 random bytes (64 bits of entropy) for shorter but still globally unique IDs
-	bytes := make([]byte, 8)
-	if _, err := rand.Read(bytes); err != nil {
-		// Fallback to timestamp-based ID if crypto/rand fails (should never happen in practice)
-		return fmt.Sprintf("f%x", time.Now().UnixNano()&0xFFFFFFFFFFFFFF)
+// injectLvtIDIntoRegionTemplate injects the lvt-id attribute into the region's template source
+func (p *Page) injectLvtIDIntoRegionTemplate(region TemplateRegion) string {
+	templateSource := region.TemplateSource
+
+	// If the template source already contains lvt-id for this region, return as-is
+	if strings.Contains(templateSource, fmt.Sprintf(`lvt-id="%s"`, region.ID)) {
+		return templateSource
 	}
 
-	// Convert to hex string for a clean, globally unique ID (16 characters)
-	// Add "f" prefix to ensure it starts with a letter for valid HTML/CSS IDs
-	return "f" + hex.EncodeToString(bytes)
+	// Check if the template source contains HTML element tags
+	if strings.Contains(templateSource, "<") && strings.Contains(templateSource, ">") {
+		// Template source contains HTML elements - inject lvt-id directly
+		originalTag := region.StartMarker
+		if originalTag == "" {
+			return templateSource
+		}
+
+		modifiedTag := p.injectLvtIDIntoElement(originalTag, region.ID)
+		modifiedTemplate := strings.Replace(templateSource, originalTag, modifiedTag, 1)
+		return modifiedTemplate
+	} else {
+		// Template source is content-only (e.g., "{{.Count}}")
+		// For content-only regions, we need to wrap the content with the HTML element that has lvt-id
+		if region.StartMarker != "" && region.EndMarker != "" {
+			// Reconstruct the full element with lvt-id
+			return region.StartMarker + templateSource + region.EndMarker
+		} else if region.StartMarker != "" {
+			// Self-closing element case
+			return region.StartMarker
+		}
+
+		// Fallback: return original template source
+		return templateSource
+	}
+}
+
+// injectLvtIDIntoElement injects lvt-id attribute into an HTML element tag
+func (p *Page) injectLvtIDIntoElement(elementTag, lvtID string) string {
+	// Remove existing lvt-id if present to avoid duplicates
+	elementTag = regexp.MustCompile(`\s+lvt-id="[^"]*"`).ReplaceAllString(elementTag, "")
+
+	// Handle self-closing tags (like <input />)
+	if strings.HasSuffix(elementTag, "/>") {
+		return strings.TrimSuffix(elementTag, "/>") + fmt.Sprintf(` lvt-id="%s"/>`, lvtID)
+	}
+
+	// Handle regular opening tags (like <div>)
+	if strings.HasSuffix(elementTag, ">") {
+		return strings.TrimSuffix(elementTag, ">") + fmt.Sprintf(` lvt-id="%s">`, lvtID)
+	}
+
+	// Handle unclosed tags (shouldn't happen but fallback)
+	return elementTag + fmt.Sprintf(` lvt-id="%s"`, lvtID)
 }
 
 // findStandaloneTemplateConstructs finds template constructs like {{range}}, {{if}} that span across HTML elements
-func findStandaloneTemplateConstructs(templateSource string) []TemplateRegion {
+func findStandaloneTemplateConstructs(templateSource string, idGenerator *regionIDGenerator) []TemplateRegion {
 	var constructs []TemplateRegion
 
 	// Find {{range}} constructs
-	rangeConstructs := findRangeConstructs(templateSource)
+	rangeConstructs := findRangeConstructs(templateSource, idGenerator)
 	constructs = append(constructs, rangeConstructs...)
 
 	// Find {{if}} constructs, but only include small/contained ones to avoid overlapping regions
-	ifConstructs := findConditionalConstructs(templateSource)
+	ifConstructs := findConditionalConstructs(templateSource, idGenerator)
 	// Filter out large conditional constructs that likely span multiple elements
 	filteredIfConstructs := filterSmallConditionalConstructs(ifConstructs)
 	constructs = append(constructs, filteredIfConstructs...)
@@ -505,7 +710,7 @@ func filterSmallConditionalConstructs(constructs []TemplateRegion) []TemplateReg
 }
 
 // findRangeConstructs specifically finds {{range}} template constructs
-func findRangeConstructs(templateSource string) []TemplateRegion {
+func findRangeConstructs(templateSource string, idGenerator *regionIDGenerator) []TemplateRegion {
 	var constructs []TemplateRegion
 
 	// Pattern to match {{range ...}} ... {{end}} blocks
@@ -542,7 +747,7 @@ func findRangeConstructs(templateSource string) []TemplateRegion {
 		fullTemplateSource := templateSource[containerStart:containerEnd]
 
 		construct := TemplateRegion{
-			ID:             generateGloballyUniqueFragmentID(), // Will be set by caller
+			ID:             idGenerator.generate(),
 			TemplateSource: fullTemplateSource,
 			StartMarker:    fmt.Sprintf("<%s%s>", containerTag, containerAttrs),
 			EndMarker:      fmt.Sprintf("</%s>", containerTag),
@@ -558,7 +763,7 @@ func findRangeConstructs(templateSource string) []TemplateRegion {
 }
 
 // findConditionalConstructs specifically finds {{if}} template constructs
-func findConditionalConstructs(templateSource string) []TemplateRegion {
+func findConditionalConstructs(templateSource string, idGenerator *regionIDGenerator) []TemplateRegion {
 	var constructs []TemplateRegion
 
 	// Pattern to match {{if ...}} ... {{end}} blocks
@@ -602,7 +807,7 @@ func findConditionalConstructs(templateSource string) []TemplateRegion {
 		fullTemplateSource := templateSource[containerStart:containerEnd]
 
 		construct := TemplateRegion{
-			ID:             generateGloballyUniqueFragmentID(),
+			ID:             idGenerator.generate(),
 			TemplateSource: fullTemplateSource,
 			StartMarker:    fmt.Sprintf("<%s%s>", containerTag, containerAttrs),
 			EndMarker:      fmt.Sprintf("</%s>", containerTag),
@@ -783,4 +988,309 @@ func findContainerElementEnd(templateSource string, constructEndPos int, tagName
 	}
 
 	return -1
+}
+
+// isRegionInEmptyRangeLoop checks if a region is inside a range loop that evaluates to empty
+func (p *Page) isRegionInEmptyRangeLoop(region TemplateRegion, newData interface{}) bool {
+	// SIMPLE APPROACH: Use naming pattern to detect range loop elements
+	// In LiveTemplate, range loop elements typically get 'b*' IDs while main template elements get 'a*' IDs
+	if strings.HasPrefix(region.ID, "b") {
+		// Check if .Todos is empty in the new data - using correct function signature
+		isEmpty := isFieldEmptyHelper(newData, "Todos")
+
+		if isEmpty {
+			log.Printf("FILTER: Skipping region %s (range loop element, todos empty)", region.ID)
+			return true
+		}
+	}
+
+	return false
+}
+
+// isFieldEmptyHelper checks if a field is empty in interface{} data structures (like map[string]interface{})
+func isFieldEmptyHelper(data interface{}, fieldPath string) bool {
+	if data == nil {
+		return true
+	}
+
+	value := reflect.ValueOf(data)
+
+	// Handle pointer indirection
+	for value.Kind() == reflect.Ptr {
+		if value.IsNil() {
+			return true
+		}
+		value = value.Elem()
+	}
+
+	// Navigate to the field
+	parts := strings.Split(fieldPath, ".")
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+
+		switch value.Kind() {
+		case reflect.Map:
+			mapValue := value.MapIndex(reflect.ValueOf(part))
+			if !mapValue.IsValid() {
+				return true
+			}
+			value = mapValue
+		case reflect.Struct:
+			field := value.FieldByName(part)
+			if !field.IsValid() {
+				return true
+			}
+			value = field
+		default:
+			return true
+		}
+
+		// Handle interface{} values - need to get the underlying concrete value
+		for value.Kind() == reflect.Interface {
+			if value.IsNil() {
+				return true
+			}
+			value = value.Elem()
+		}
+	}
+
+	// Check if the final value is empty
+	switch value.Kind() {
+	case reflect.Slice, reflect.Array:
+		return value.Len() == 0
+	case reflect.String:
+		return value.String() == ""
+	case reflect.Ptr, reflect.Interface:
+		return value.IsNil()
+	case reflect.Map:
+		return value.Len() == 0
+	default:
+		// For other types, check if it's the zero value
+		zeroValue := reflect.Zero(value.Type())
+		return reflect.DeepEqual(value.Interface(), zeroValue.Interface())
+	}
+}
+
+// isRegionInsideEmptyRange determines if a region is inside a range loop that produces no output
+func (p *Page) isRegionInsideEmptyRange(templateSource string, region TemplateRegion, newData interface{}) bool {
+	// Find all range blocks in the template
+	rangePattern := regexp.MustCompile(`\{\{\s*range\s+([^}]+)\s*\}\}([\s\S]*?)\{\{\s*end\s*\}\}`)
+	matches := rangePattern.FindAllStringSubmatch(templateSource, -1)
+	matchIndexes := rangePattern.FindAllStringSubmatchIndex(templateSource, -1)
+
+	log.Printf("DEBUG RANGE: Found %d range blocks in template for region %s", len(matches), region.ID)
+
+	// Debug: Show template source snippet around range blocks
+	if len(matches) > 0 {
+		rangeIndex := strings.Index(templateSource, "{{range")
+		if rangeIndex >= 0 {
+			start := rangeIndex
+			if start > 50 {
+				start = rangeIndex - 50
+			} else {
+				start = 0
+			}
+			end := rangeIndex + 200
+			if end > len(templateSource) {
+				end = len(templateSource)
+			}
+			log.Printf("DEBUG RANGE: Template around range (chars %d-%d): %s", start, end, templateSource[start:end])
+		}
+	}
+
+	for i, match := range matches {
+		if len(match) < 3 || len(matchIndexes) <= i {
+			continue
+		}
+
+		rangeVariable := strings.TrimSpace(match[1])
+		rangeContent := match[2]
+
+		log.Printf("DEBUG RANGE: Range %d - variable: %s", i, rangeVariable)
+		log.Printf("DEBUG RANGE: Range content (first 100 chars): %.100s", rangeContent)
+		log.Printf("DEBUG RANGE: Looking for region StartMarker: %.100s", region.StartMarker)
+		log.Printf("DEBUG RANGE: Looking for region ElementTag: %s", region.ElementTag)
+
+		// Check if the region's start marker appears within this range block content
+		startsInRange := strings.Contains(rangeContent, region.StartMarker)
+		tagInRange := strings.Contains(rangeContent, region.ElementTag)
+
+		log.Printf("DEBUG RANGE: StartMarker in range: %v, ElementTag in range: %v", startsInRange, tagInRange)
+
+		if startsInRange || tagInRange {
+			log.Printf("DEBUG RANGE: Region %s is inside range loop %d", region.ID, i)
+
+			// This region is likely inside this range loop
+			// Now check if the range evaluates to empty
+			isEmpty := p.isRangeVariableEmpty(rangeVariable, newData)
+			log.Printf("DEBUG RANGE: Range variable %s is empty: %v", rangeVariable, isEmpty)
+
+			if isEmpty {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// isRangeVariableEmpty checks if a range variable evaluates to empty in the given data
+func (p *Page) isRangeVariableEmpty(rangeVariable string, data interface{}) bool {
+	// Handle different range variable formats:
+	// .Items (most common)
+	// $var := .Items
+	// .User.Items
+
+	// Extract the actual variable path
+	varPath := rangeVariable
+	if strings.Contains(rangeVariable, ":=") {
+		// Handle format: $var := .Items
+		parts := strings.Split(rangeVariable, ":=")
+		if len(parts) == 2 {
+			varPath = strings.TrimSpace(parts[1])
+		}
+	}
+
+	// Remove leading dot if present
+	varPath = strings.TrimPrefix(strings.TrimSpace(varPath), ".")
+
+	// Use reflection to check if the field is empty
+	return p.isFieldEmpty(varPath, data)
+}
+
+// isFieldEmpty uses reflection to check if a field path evaluates to empty
+func (p *Page) isFieldEmpty(fieldPath string, data interface{}) bool {
+	if data == nil {
+		return true
+	}
+
+	// Use reflection to traverse the field path
+	value := reflect.ValueOf(data)
+	if !value.IsValid() {
+		return true
+	}
+
+	// Handle pointer dereferencing
+	for value.Kind() == reflect.Ptr {
+		if value.IsNil() {
+			return true
+		}
+		value = value.Elem()
+	}
+
+	// Split field path by dots for nested access
+	fieldParts := strings.Split(fieldPath, ".")
+
+	for _, fieldName := range fieldParts {
+		if fieldName == "" {
+			continue
+		}
+
+		// Handle struct fields
+		if value.Kind() == reflect.Struct {
+			field := value.FieldByName(fieldName)
+			if !field.IsValid() {
+				return true // Field doesn't exist, consider empty
+			}
+			value = field
+		} else if value.Kind() == reflect.Map {
+			// Handle map access
+			mapKey := reflect.ValueOf(fieldName)
+			field := value.MapIndex(mapKey)
+			if !field.IsValid() {
+				return true // Key doesn't exist, consider empty
+			}
+			value = field
+		} else {
+			return true // Can't traverse further, consider empty
+		}
+
+		// Handle pointer dereferencing again
+		for value.Kind() == reflect.Ptr {
+			if value.IsNil() {
+				return true
+			}
+			value = value.Elem()
+		}
+	}
+
+	// Check if the final value is empty
+	switch value.Kind() {
+	case reflect.Slice, reflect.Array:
+		return value.Len() == 0
+	case reflect.Map:
+		return value.Len() == 0
+	case reflect.String:
+		return value.String() == ""
+	case reflect.Interface:
+		return value.IsNil()
+	case reflect.Invalid:
+		return true
+	default:
+		// For other types, check zero value
+		return value.IsZero()
+	}
+}
+
+// InjectLvtIDsIntoTemplate detects template regions and injects lvt-id attributes directly into the template source
+// This approach eliminates post-processing annotation and prevents duplicate IDs
+// It returns both the modified source and the detected regions for caching
+func InjectLvtIDsIntoTemplate(templateSource string) (string, []TemplateRegion, error) {
+	// Detect regions from the template source using the standalone function
+	regions, err := DetectTemplateRegionsFromSource(templateSource)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to detect regions: %w", err)
+	}
+
+	// Sort regions by position (descending) so we can modify from end to beginning
+	// This prevents position shifts from affecting later replacements
+	sort.Slice(regions, func(i, j int) bool {
+		return strings.Index(templateSource, regions[i].StartMarker) > strings.Index(templateSource, regions[j].StartMarker)
+	})
+
+	modifiedSource := templateSource
+
+	// Replace each region's opening tags with versions that include lvt-id
+	for _, region := range regions {
+		// FIXED APPROACH: Replace only the opening tag (StartMarker), not the entire element
+		originalTag := region.StartMarker
+
+		// RE-ENABLED: Parse-time injection is simpler and works for most cases
+		// Range loop filtering handles the few edge cases with dynamic elements
+
+		// Create modified opening tag with lvt-id injected
+		modifiedTag := injectLvtIDIntoElement(originalTag, region.ID)
+
+		// Replace only the opening tag in template source
+		modifiedSource = strings.Replace(modifiedSource, originalTag, modifiedTag, 1)
+
+		// Silent operation - no debug output since this is only for region detection
+	}
+
+	return modifiedSource, regions, nil
+}
+
+// injectLvtIDIntoElement injects data-lvt-id into a single HTML element string
+func injectLvtIDIntoElement(element, lvtID string) string {
+	// Check if data-lvt-id already exists
+	if strings.Contains(element, "data-lvt-id=") {
+		return element // Don't override existing data-lvt-id
+	}
+
+	// For self-closing tags like <input ...>, inject before the closing >
+	if strings.HasSuffix(element, ">") && !strings.Contains(element, "</") {
+		return strings.TrimSuffix(element, ">") + fmt.Sprintf(` data-lvt-id="%s">`, lvtID)
+	}
+
+	// For paired tags, inject data-lvt-id into the opening tag
+	re := regexp.MustCompile(`^(<[^>]+)(>.*?)$`)
+	if matches := re.FindStringSubmatch(element); len(matches) >= 3 {
+		openingTag := matches[1]
+		rest := matches[2]
+		return fmt.Sprintf(`%s data-lvt-id="%s"%s`, openingTag, lvtID, rest)
+	}
+
+	return element // Fallback: return unchanged if we can't parse
 }

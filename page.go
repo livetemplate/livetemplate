@@ -182,6 +182,13 @@ func (p *Page) renderFragmentsWithConfig(ctx context.Context, newData interface{
 		return nil, fmt.Errorf("unified tree generation failed: %w", err)
 	}
 
+	// Check if the update contains changes
+	if !unifiedUpdate.HasChanges() {
+		// No changes - return empty fragment list to save bandwidth
+		p.data = newData // Still update internal state
+		return []*Fragment{}, nil
+	}
+
 	// Create fragment from unified update result
 	fragment := &Fragment{
 		ID:       fragmentID,

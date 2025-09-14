@@ -35,7 +35,7 @@ func TestUnifiedTreeDiff_CounterExample(t *testing.T) {
 	reconstructed := update1.Reconstruct(nil)
 	t.Logf("Reconstructed HTML: %s", reconstructed)
 
-	if reconstructed != `<div style="color: #ff6b6b" lvt-id="default">Hello 0 World</div>` {
+	if reconstructed != `<div style="color: #ff6b6b" data-lvt-id="default">Hello 0 World</div>` {
 		t.Errorf("Reconstruction failed. Got: %s", reconstructed)
 	}
 
@@ -64,7 +64,7 @@ func TestUnifiedTreeDiff_CounterExample(t *testing.T) {
 	reconstructed2 := update2.Reconstruct(update1.S)
 	t.Logf("Reconstructed with cached statics: %s", reconstructed2)
 
-	if reconstructed2 != `<div style="color: #45b7d1" lvt-id="default">Hello 1 World</div>` {
+	if reconstructed2 != `<div style="color: #45b7d1" data-lvt-id="default">Hello 1 World</div>` {
 		t.Errorf("Update reconstruction failed. Got: %s", reconstructed2)
 	}
 

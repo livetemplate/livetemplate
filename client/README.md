@@ -1,117 +1,181 @@
 # LiveTemplate JavaScript Client
 
-A unified WebSocket-based client for LiveTemplate tree-based diff updates. Works exclusively with the `diff.Update` format from the Go backend.
+JavaScript client library for LiveTemplate, providing real-time DOM updates via WebSocket with tree-based diff optimization.
 
-## Features
+## 📁 Project Structure
 
-- ✅ **Unified**: Single client for all LiveTemplate updates
-- ✅ **Tree-based**: Works with `diff.Update` structure only
-- ✅ **Efficient**: Caches static segments for bandwidth optimization
-- ✅ **Modern**: ES6 modules with morphdom for DOM updates
-- ✅ **Bundled**: Includes all dependencies in a single file
+```
+client/
+├── livetemplate-client.js    # Main client library (ES6)
+├── dist/                     # Built distributions
+│   ├── livetemplate-client.js      # Development build (unminified + sourcemap)
+│   └── livetemplate-client.min.js  # Production build (minified)
+├── tests/                    # Test suite
+│   ├── LiveTemplateClient.unit.test.js  # Unit tests
+│   ├── setup.js             # Jest test setup
+│   └── README.md             # Testing documentation
+├── coverage/                 # Test coverage reports
+├── package.json              # NPM configuration
+├── jest.config.js           # Jest test configuration
+└── README.md                # This file
+```
 
-## Quick Start
+## 🚀 Quick Start
 
-### Use the Pre-built Bundle
+### Installation
 
+The client can be used in two ways:
+
+#### 1. ES6 Module (Recommended)
+```javascript
+import LiveTemplateClient from './livetemplate-client.js';
+```
+
+#### 2. Browser Global (IIFE)
 ```html
-<script src="/dist/livetemplate-client.min.js"></script>
+<script src="dist/livetemplate-client.min.js"></script>
 <script>
+  // LiveTemplateClient is now available globally
   const client = new LiveTemplateClient();
-  const token = document.querySelector('meta[name="page-token"]').content;
-  client.connect(token);
 </script>
 ```
 
-### WebSocket Connection
+### Auto-Initialization
 
-The client automatically connects to `/ws` on the current host:
+The client auto-initializes when:
+1. DOM is ready
+2. A `<meta name="livetemplate-token" content="{{.Token}}">` tag is found
 
-```javascript
-const client = new LiveTemplateClient({
-  onOpen: () => console.log('Connected!'),
-  onFragmentUpdate: (fragment, element) => {
-    console.log('Fragment updated:', fragment.id);
-  }
-});
-
-client.connect(pageToken);
+#### Template Setup
+Add this to your HTML template:
+```html
+<meta name="livetemplate-token" content="{{.Token}}">
 ```
 
-### Sending Actions
+#### Action Buttons
+Use data attributes for automatic action handling:
+```html
+<!-- Simple action -->
+<button data-lvt-action="increment">+</button>
 
-```javascript
-// Simple action
-client.sendAction('increment');
+<!-- Action with element capture -->
+<input id="todo-input" type="text">
+<button data-lvt-action="addTodo" data-lvt-element="todo-input">Add Todo</button>
 
-// Action with data
-client.sendAction('update_user', { name: 'Alice', age: 30 });
+<!-- Action with JSON parameters -->
+<button data-lvt-action="deleteItem" data-lvt-params='{"id": 123}'>Delete</button>
 ```
 
-## How It Works
+## 🔧 Development
 
-1. **Static Caching**: First update includes static HTML segments (`s` array)
-2. **Dynamic Updates**: Subsequent updates only send dynamic values
-3. **Reconstruction**: Client reconstructs full content from cached statics + new dynamics
-4. **DOM Updates**: Uses morphdom to efficiently update only changed elements
-
-### Fragment Format
-
-The client expects fragments in this format:
-
-```javascript
-{
-  "1": {           // Fragment ID
-    "s": ["<div style=\"color: ", ";\">Hello ", " World</div>"],  // Static segments (cached)
-    "0": "#ff6b6b", // Dynamic value at position 0
-    "1": "42"       // Dynamic value at position 1  
-  }
-}
-```
-
-## Building
+### Building
 
 ```bash
-# Development build (with sourcemap)
-npm run build:dev
-
 # Production build (minified)
 npm run build
 
-# Watch mode
+# Development build (with sourcemap)  
+npm run build:dev
+
+# Watch mode for development
 npm run watch
 ```
 
-## API Reference
+### Testing
 
-### Constructor Options
+```bash
+# Run tests
+npm test
 
-```javascript
-new LiveTemplateClient({
-  wsUrl: 'ws://localhost:8080/ws',  // Custom WebSocket URL
-  maxReconnectAttempts: 5,          // Reconnection limit
-  reconnectDelay: 1000,             // Base reconnection delay (ms)
-  onOpen: () => {},                 // Connection opened callback
-  onClose: (event) => {},           // Connection closed callback  
-  onError: (error) => {},           // Error callback
-  onFragmentUpdate: (fragment, element) => {} // Fragment update callback
-});
+# Run tests with coverage
+npm run test:coverage
+
+# Run tests in watch mode
+npm run test:watch
 ```
 
+**Current Test Coverage**: 37% statements, 36% branches, 45% functions
+- ✅ 26 unit tests covering core functionality
+- ✅ WebSocket connection management
+- ✅ Fragment reconstruction logic
+- ✅ Static cache operations
+- ✅ Error handling and edge cases
+
+## 🎯 Features
+
+- 🚀 **Tree-based optimization** - 92%+ bandwidth reduction
+- 💾 **Static content caching** - Reuse cached HTML segments  
+- 🔄 **Automatic reconnection** - Exponential backoff on connection loss
+- 🎯 **Smart element targeting** - `lvt-id` and fallback to `id`
+- 📦 **Morphdom integration** - Efficient DOM updates preserving state
+- 🛡️ **Error resilience** - Graceful handling of malformed data
+
+## 📡 Tree-Based Updates
+
+LiveTemplate uses tree-based optimization for minimal data transfer:
+
+```javascript
+// Server sends minimal diff data
+{
+  "s": ["<p>Hello ", "!</p>"],  // Static HTML segments (cached)
+  "0": "World"                  // Dynamic values by position
+}
+
+// Client reconstructs: "<p>Hello World!</p>"
+```
+
+## 🔌 Manual Usage
+
+```javascript
+const client = new LiveTemplateClient({
+  wsUrl: 'ws://localhost:8080/ws',
+  onOpen: () => console.log('Connected'),
+  onError: (error) => console.error('Error:', error),
+  onFragmentUpdate: (fragment, element) => {
+    console.log(`Updated fragment ${fragment.id}`);
+  }
+});
+
+// Connect with page token
+client.connect('your-page-token');
+
+// Send actions
+client.sendAction('updateCounter', { value: 42 });
+
+// Disconnect
+client.disconnect();
+```
+
+## 📚 API Reference
+
+### Constructor Options
+- `wsUrl` - WebSocket URL (auto-detected from location)
+- `maxReconnectAttempts` - Max reconnection attempts (default: 5)
+- `reconnectDelay` - Initial reconnect delay in ms (default: 1000)
+- `onOpen` - Connection opened callback
+- `onClose` - Connection closed callback  
+- `onError` - Error callback
+- `onFragmentUpdate` - Fragment update callback
+
 ### Methods
-
 - `connect(token)` - Connect with page token
+- `disconnect()` - Close connection and cleanup
 - `sendAction(action, data)` - Send action to server
-- `disconnect()` - Close connection and clear cache
+- `applyFragments(fragments)` - Apply fragment updates to DOM
 
-### Static Caching
+## 🌐 Browser Support
 
-The client automatically caches static HTML segments from the server:
-- First fragment update: Contains both static segments and dynamic values
-- Subsequent updates: Only dynamic values (92%+ bandwidth savings)
-- Cache is scoped per fragment ID for isolation
+- Modern browsers with WebSocket support
+- ES6+ features (use build for older browsers)
+- DOM manipulation APIs (querySelector, morphdom)
 
-## Architecture
+## 📄 Dependencies
+
+- **morphdom** - Efficient DOM diffing and patching
+- **esbuild** - Fast JavaScript bundler (dev dependency)
+- **jest** - JavaScript testing framework (dev dependency)
+
+## 🏗️ Architecture
 
 ```
 LiveTemplate Client
@@ -121,4 +185,4 @@ LiveTemplate Client
 └── DOM Updates (morphdom)
 ```
 
-The client is designed to work exclusively with Go's `diff.Update` structure, providing maximum efficiency and simplicity.
+The client is designed to work exclusively with Go's `diff.Update` structure, providing maximum efficiency and tree-based optimization for real-time web applications.

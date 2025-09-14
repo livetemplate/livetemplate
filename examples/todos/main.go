@@ -189,6 +189,9 @@ func NewServer() *Server {
 
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	data := s.todoList.ToMap()
+	// Add the token to the template data so client can connect to WebSocket
+	data["Token"] = s.templatePage.GetToken()
+
 	log.Printf("HTTP render with %d todos", len(s.todoList.Todos))
 
 	// Render and serve the page
@@ -219,6 +222,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		CheckOrigin: func(r *http.Request) bool {
 			return true
 		},
+		HandshakeTimeout: 10 * time.Second,
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -226,33 +230,48 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		log.Printf("WebSocket upgrade failed: %v", err)
 		return
 	}
-	defer conn.Close()
 
 	log.Printf("WebSocket connected with actions registered: %t", page.HasActions())
 
-	// Handle messages
+	// Set connection timeouts and handle cleanup
+	defer func() {
+		conn.Close()
+		log.Printf("WebSocket connection closed")
+	}()
+
+	// Set read/write timeouts
+	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+
+	// Handle messages with proper error checking
 	for {
 		var message livetemplate.ActionMessage
+
+		// Reset read deadline on each message
+		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+
 		err := conn.ReadJSON(&message)
 		if err != nil {
+			// Check if this is a normal close or timeout
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("WebSocket read error: %v", err)
+			}
 			break
 		}
 
 		log.Printf("Processing action: %s", message.Action)
 
-		fragments, err := page.HandleAction(context.Background(), &message)
+		fragmentMap, err := page.HandleAction(context.Background(), &message)
 		if err != nil {
 			log.Printf("Action handler error: %v", err)
 			continue
 		}
 
-		log.Printf("Generated %d fragments", len(fragments))
-		for i, frag := range fragments {
-			log.Printf("  Fragment %d: ID=%s", i, frag.ID)
-		}
+		log.Printf("Generated %d fragment updates", len(fragmentMap))
 
-		// Send fragments to client
-		if err := conn.WriteJSON(fragments); err != nil {
+		// Set write deadline and send response
+		conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		if err := conn.WriteJSON(fragmentMap); err != nil {
 			log.Printf("WebSocket send error: %v", err)
 			break
 		}
@@ -275,7 +294,7 @@ func main() {
 		log.Printf("Serving bundled client to: %s", r.RemoteAddr)
 		w.Header().Set("Content-Type", "application/javascript")
 		w.Header().Set("Cache-Control", "public, max-age=3600")
-		http.StripPrefix("/dist/", http.FileServer(http.Dir("../../dist/"))).ServeHTTP(w, r)
+		http.StripPrefix("/dist/", http.FileServer(http.Dir("../../client/dist/"))).ServeHTTP(w, r)
 	})
 
 	fmt.Printf("Todo app running on http://localhost:%s\n", port)

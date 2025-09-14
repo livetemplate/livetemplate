@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
@@ -206,8 +205,6 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	log.Printf("🔌 WebSocket connection attempt from: %s", r.RemoteAddr)
-	log.Printf("📋 WebSocket URL: %s", r.URL.String())
-	log.Printf("🔍 WebSocket Query params: %v", r.URL.Query())
 
 	// Get page from request - handles all authentication complexity internally
 	page, err := s.app.GetPage(r)
@@ -233,9 +230,9 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	log.Printf("🚀 WebSocket connected with unified tree diff enabled: %t", page.HasActions())
+	log.Printf("🚀 WebSocket connected - page-token-based optimization enabled")
 
-	// Handle messages using the page with registered actions
+	// Extremely simple message loop - no connection management needed!
 	for {
 		var message livetemplate.ActionMessage
 		err := conn.ReadJSON(&message)
@@ -245,61 +242,23 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 
 		log.Printf("⚡ Processing action: %s", message.Action)
-		log.Printf("🔍 DEBUG: Message cache: %+v", message.Cache)
-		if len(message.Cache) > 0 {
-			log.Printf("🔍 DEBUG: Cached fragments: %v", message.Cache)
-		} else {
-			log.Printf("🔍 DEBUG: No cache in message - sending full statics")
-		}
 
-		fragments, err := page.HandleAction(context.TODO(), &message)
+		// Ultra-simple: just call HandleAction - page token tracks everything!
+		fragmentMap, err := page.HandleAction(context.TODO(), &message)
 		if err != nil {
 			log.Printf("❌ Action handler error: %v", err)
 			continue
 		}
 
-		log.Printf("📦 Generated %d unified tree diff fragments", len(fragments))
+		log.Printf("📦 Generated %d fragment updates (page-token optimized)", len(fragmentMap))
 
-		// Log fragment details for debugging
-		if len(fragments) > 0 {
-			fragment := fragments[0]
-			log.Printf("🔧 Fragment strategy: %d, size: ~%d bytes",
-				func() int {
-					if fragment.Metadata != nil {
-						return fragment.Metadata.Strategy
-					}
-					return 0
-				}(),
-				len(fmt.Sprintf("%v", fragment.Data)))
-
-			// DEBUG: Log the actual fragment structure
-			fragmentJSON, _ := json.MarshalIndent(fragment, "", "  ")
-			log.Printf("🔍 DEBUG Fragment structure:\n%s", string(fragmentJSON))
-		}
-
-		// Transform fragments to new efficient format where lvt-id is the outer key
-		fragmentMap := transformFragmentsToMap(fragments)
-
-		// Send fragments to client in new format
 		if err := conn.WriteJSON(fragmentMap); err != nil {
 			log.Printf("❌ WebSocket send error: %v", err)
 			break
 		}
 
-		log.Printf("✅ Sent unified tree diff fragments to client")
+		log.Printf("✅ Sent optimized fragments (reconnection-friendly)")
 	}
-}
-
-// transformFragmentsToMap converts fragment array to key-value map format for efficiency
-func transformFragmentsToMap(fragments []*livetemplate.Fragment) map[string]interface{} {
-	fragmentMap := make(map[string]interface{})
-
-	for _, fragment := range fragments {
-		// Use the fragment ID as the outer key and the data as the value
-		fragmentMap[fragment.ID] = fragment.Data
-	}
-
-	return fragmentMap
 }
 
 func main() {
@@ -321,7 +280,7 @@ func main() {
 		log.Printf("📦 Serving bundled client to: %s", r.RemoteAddr)
 		w.Header().Set("Content-Type", "application/javascript")
 		w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
-		http.StripPrefix("/dist/", http.FileServer(http.Dir("../../dist/"))).ServeHTTP(w, r)
+		http.StripPrefix("/dist/", http.FileServer(http.Dir("../../client/dist/"))).ServeHTTP(w, r)
 	})
 
 	fmt.Printf("🌟 Unified Counter app running on http://localhost:%s\n", port)
