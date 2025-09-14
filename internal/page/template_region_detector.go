@@ -177,7 +177,7 @@ func extractIDFromTag(tag string) string {
 	if len(matches) >= 2 {
 		return matches[1]
 	}
-	
+
 	// Fallback to regular id attribute
 	idRegex := regexp.MustCompile(`id=["']([^"']+)["']`)
 	matches = idRegex.FindStringSubmatch(tag)

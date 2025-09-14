@@ -22,14 +22,14 @@ import (
 
 // Application provides secure multi-tenant isolation with session-based authentication
 type Application struct {
-	internal       *app.Application
-	config         *ApplicationConfig
-	templates      map[string]*template.Template // Template registry for reuse
-	templateSources map[string]string            // Template source code for unified diff
-	actions        map[string]ActionHandler      // Global action registry
-	sessionManager *session.Manager              // Session management
-	pageDataModels map[string][]DataModel        // Data models per page (keyed by page ID)
-	dataModelsMu   sync.RWMutex                  // Mutex for pageDataModels map
+	internal        *app.Application
+	config          *ApplicationConfig
+	templates       map[string]*template.Template // Template registry for reuse
+	templateSources map[string]string             // Template source code for unified diff
+	actions         map[string]ActionHandler      // Global action registry
+	sessionManager  *session.Manager              // Session management
+	pageDataModels  map[string][]DataModel        // Data models per page (keyed by page ID)
+	dataModelsMu    sync.RWMutex                  // Mutex for pageDataModels map
 }
 
 // ApplicationConfig contains configuration for the public Application
@@ -50,10 +50,10 @@ func NewApplication(options ...ApplicationOption) (*Application, error) {
 			MetricsEnabled: true,
 		},
 		templates:       make(map[string]*template.Template), // Initialize template registry
-		templateSources: make(map[string]string),            // Initialize template source registry
+		templateSources: make(map[string]string),             // Initialize template source registry
 		actions:         make(map[string]ActionHandler),      // Initialize action registry
-		sessionManager:  session.NewManager(24 * time.Hour), // Initialize session manager
-		pageDataModels:  make(map[string][]DataModel),       // Initialize data models registry
+		sessionManager:  session.NewManager(24 * time.Hour),  // Initialize session manager
+		pageDataModels:  make(map[string][]DataModel),        // Initialize data models registry
 	}
 
 	// Apply public options to collect configuration
@@ -478,7 +478,7 @@ func (a *Application) NewPageFromTemplate(templateName string, data interface{},
 			return nil
 		},
 	}
-	
+
 	// Append any additional user options
 	pageOptions = append(pageOptions, options...)
 
@@ -699,9 +699,9 @@ func (p *ApplicationPage) filterStaticsFromFragments(fragments []*Fragment, cach
 			if treeUpdate, ok := frag.Data.(*diff.Update); ok {
 				// Create new update without statics
 				newUpdate := &diff.Update{
-					S:        nil,        // Remove statics
+					S:        nil, // Remove statics
 					Dynamics: treeUpdate.Dynamics,
-					H:        "",         // Remove hash since no statics
+					H:        "", // Remove hash since no statics
 				}
 				newFrag.Data = newUpdate
 			} else if treeData, ok := frag.Data.(map[string]interface{}); ok {
@@ -1181,7 +1181,7 @@ func ParseCacheInfoFromURL(queryValues url.Values) *ClientCacheInfo {
 	for fragID := range cachedFragments {
 		cachedFragmentsList = append(cachedFragmentsList, fragID)
 	}
-	
+
 	return &ClientCacheInfo{
 		CachedFragments:     cachedFragments,
 		CachedFragmentsList: cachedFragmentsList,

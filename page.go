@@ -33,7 +33,7 @@ type FragmentMetadata struct {
 // Page represents a template page instance for rendering and fragment generation
 type Page struct {
 	// Template for rendering
-	template *template.Template
+	template       *template.Template
 	templateSource string // Store template source for unified diff
 
 	// Current data state
@@ -42,7 +42,7 @@ type Page struct {
 
 	// Update generation pipeline - using unified tree-based generator
 	unifiedGenerator *diff.Generator
-	
+
 	// Fragment ID generation
 	fragmentIDCounter int // Simple counter for generating fragment IDs
 
@@ -63,10 +63,10 @@ func NewPage(tmpl *template.Template, data interface{}, options ...PageOption) (
 	page := &Page{
 		template:         tmpl,
 		templateSource:   "", // Will need to be provided separately for unified diff
-		data:            data,
+		data:             data,
 		unifiedGenerator: diff.NewGenerator(),
-		enableMetrics:   true,
-		created:         time.Now(),
+		enableMetrics:    true,
+		created:          time.Now(),
 	}
 
 	// Apply options
@@ -170,9 +170,9 @@ func (p *Page) renderFragmentsWithConfig(ctx context.Context, newData interface{
 
 	// Generate fragments using the unified tree generator
 	oldData := p.data
-	
+
 	// Use a stable numeric fragment ID for consistent caching
-	// For a single template page, always use fragment ID "1" 
+	// For a single template page, always use fragment ID "1"
 	fragmentID := "1"
 
 	var startTime time.Time
@@ -254,7 +254,7 @@ func (p *Page) SetTemplateSource(source string) error {
 func (p *Page) GetMetrics() *UpdateGeneratorMetrics {
 	// Unified generator metrics
 	unifiedMetrics := p.unifiedGenerator.GetMetrics()
-	
+
 	return &UpdateGeneratorMetrics{
 		TotalGenerations:      unifiedMetrics.TotalGenerations,
 		SuccessfulGenerations: unifiedMetrics.SuccessfulGenerations,
@@ -296,32 +296,32 @@ func (p *Page) GetCreatedTime() time.Time {
 func (p *Page) renderFragmentsBasic(ctx context.Context, newData interface{}, config *FragmentConfig) ([]*Fragment, error) {
 	// Basic approach: render full HTML and return as single fragment
 	// This maintains compatibility but doesn't provide optimal bandwidth savings
-	
+
 	// Use stable fragment ID for consistency with unified approach
 	fragmentID := "1"
-	
+
 	var startTime time.Time
 	if config.IncludeMetadata {
 		startTime = time.Now()
 	}
-	
+
 	// Render new template with new data
 	var buf strings.Builder
 	err := p.template.Execute(&buf, newData)
 	if err != nil {
 		return nil, fmt.Errorf("template execution failed: %w", err)
 	}
-	
+
 	// Create a basic fragment with the full HTML
 	fragment := &Fragment{
-		ID:   fragmentID,
+		ID: fragmentID,
 		Data: map[string]interface{}{
 			"html": buf.String(),
 			"type": "full_replace",
 		},
 		Metadata: nil,
 	}
-	
+
 	// Add metadata if requested
 	if config.IncludeMetadata {
 		generationTime := time.Since(startTime)
@@ -335,10 +335,10 @@ func (p *Page) renderFragmentsBasic(ctx context.Context, newData interface{}, co
 			FallbackUsed:     true,
 		}
 	}
-	
+
 	// Update current data state
 	p.data = newData
-	
+
 	return []*Fragment{fragment}, nil
 }
 
@@ -358,18 +358,18 @@ func (p *Page) injectLvtIds(html string) string {
 	// Find elements that contain template expressions and need fragment tracking
 	// For simplicity, we'll look for any elements that might contain dynamic content
 	// This is a simple implementation - could be made more sophisticated
-	
+
 	// Reset fragment counter for rendering (keeps consistent IDs)
 	lvtIdCounter := 0
-	
+
 	// First, remove ALL existing lvt-id attributes from ALL elements
 	// We'll add them back in a controlled manner based on our logic
 	html = regexp.MustCompile(`\s*lvt-id="[^"]*"`).ReplaceAllString(html, "")
-	
+
 	// Regex to find elements that contain template expressions or existing lvt-id attributes
 	// We'll inject lvt-id into div elements that seem to have dynamic content
 	elementRegex := regexp.MustCompile(`<(div|span|p|h[1-6]|section|article|main)([^>]*?)>`)
-	
+
 	result := elementRegex.ReplaceAllStringFunc(html, func(match string) string {
 		// Check if this element needs an lvt-id attribute
 		// Simple heuristic: if the content contains style attributes or class attributes (dynamic content)
@@ -378,10 +378,10 @@ func (p *Page) injectLvtIds(html string) string {
 			// Insert lvt-id attribute before the closing >
 			return strings.Replace(match, ">", fmt.Sprintf(` lvt-id="%d">`, lvtIdCounter), 1)
 		}
-		
+
 		return match
 	})
-	
+
 	return result
 }
 

@@ -27,13 +27,13 @@ func TestUnifiedTreeDiff_ComprehensiveTemplateConstructs(t *testing.T) {
 			description:    "Simple field substitution",
 		},
 		{
-			name:        "MultipleFields",
-			template:    `<div>{{.Name}} has {{.Score}} points and lives in {{.City}}</div>`,
-			initialData: map[string]any{"Name": "Alice", "Score": 100, "City": "NYC"},
-			updatedData: map[string]any{"Name": "Bob", "Score": 150, "City": "LA"},
-			expectedFirst: `{"0":"Alice","1":"100","2":"NYC","h":"...","s":["<div>"," has "," points and lives in ","</div>"]}`,
+			name:           "MultipleFields",
+			template:       `<div>{{.Name}} has {{.Score}} points and lives in {{.City}}</div>`,
+			initialData:    map[string]any{"Name": "Alice", "Score": 100, "City": "NYC"},
+			updatedData:    map[string]any{"Name": "Bob", "Score": 150, "City": "LA"},
+			expectedFirst:  `{"0":"Alice","1":"100","2":"NYC","h":"...","s":["<div>"," has "," points and lives in ","</div>"]}`,
 			expectedUpdate: `{"0":"Bob","1":"150","2":"LA"}`,
-			description: "Multiple fields in sequence",
+			description:    "Multiple fields in sequence",
 		},
 		{
 			name:           "FieldsWithAttributes",
@@ -74,16 +74,16 @@ func TestUnifiedTreeDiff_ComprehensiveTemplateConstructs(t *testing.T) {
 			description:    "Toggle between if and else blocks",
 		},
 		{
-			name:        "NestedConditionals",
-			template:    `<div>{{if .User}}{{if .User.IsAdmin}}Admin: {{.User.Name}}{{else}}User: {{.User.Name}}{{end}}{{else}}No user{{end}}</div>`,
-			initialData: map[string]any{"User": map[string]any{"Name": "Alice", "IsAdmin": true}},
-			updatedData: map[string]any{"User": map[string]any{"Name": "Bob", "IsAdmin": false}},
-			expectedFirst: `{"0":"Admin: Alice","h":"...","s":["<div>","</div>"]}`,
+			name:           "NestedConditionals",
+			template:       `<div>{{if .User}}{{if .User.IsAdmin}}Admin: {{.User.Name}}{{else}}User: {{.User.Name}}{{end}}{{else}}No user{{end}}</div>`,
+			initialData:    map[string]any{"User": map[string]any{"Name": "Alice", "IsAdmin": true}},
+			updatedData:    map[string]any{"User": map[string]any{"Name": "Bob", "IsAdmin": false}},
+			expectedFirst:  `{"0":"Admin: Alice","h":"...","s":["<div>","</div>"]}`,
 			expectedUpdate: `{"0":"User: Bob"}`,
-			description: "Nested conditional expressions",
+			description:    "Nested conditional expressions",
 		},
 
-		// Range Tests  
+		// Range Tests
 		{
 			name:           "SimpleRange",
 			template:       `<ul>{{range .Items}}<li>{{.}}</li>{{end}}</ul>`,
@@ -94,13 +94,13 @@ func TestUnifiedTreeDiff_ComprehensiveTemplateConstructs(t *testing.T) {
 			description:    "Simple range over string slice",
 		},
 		{
-			name:        "RangeWithIndex",
-			template:    `<div>{{range $i, $item := .Items}}{{$i}}: {{$item.Name}} {{end}}</div>`,
-			initialData: map[string]any{"Items": []map[string]any{{"Name": "First"}, {"Name": "Second"}}},
-			updatedData: map[string]any{"Items": []map[string]any{{"Name": "Updated"}, {"Name": "Items"}}},
-			expectedFirst: `{"0":"0: First 1: Second ","h":"...","s":["<div>","</div>"]}`,
+			name:           "RangeWithIndex",
+			template:       `<div>{{range $i, $item := .Items}}{{$i}}: {{$item.Name}} {{end}}</div>`,
+			initialData:    map[string]any{"Items": []map[string]any{{"Name": "First"}, {"Name": "Second"}}},
+			updatedData:    map[string]any{"Items": []map[string]any{{"Name": "Updated"}, {"Name": "Items"}}},
+			expectedFirst:  `{"0":"0: First 1: Second ","h":"...","s":["<div>","</div>"]}`,
 			expectedUpdate: `{"0":"0: Updated 1: Items "}`,
-			description: "Range with index and item access",
+			description:    "Range with index and item access",
 		},
 		{
 			name:           "RangeWithStructs",
@@ -210,7 +210,7 @@ func TestUnifiedTreeDiff_ComprehensiveTemplateConstructs(t *testing.T) {
 				</tbody>
 			</table>`,
 			initialData: map[string]any{
-				"TableClass": "users-table",
+				"TableClass":  "users-table",
 				"ShowActions": true,
 				"Users": []map[string]any{
 					{"ID": "1", "Name": "Alice", "Status": "Online", "Active": true},
@@ -218,7 +218,7 @@ func TestUnifiedTreeDiff_ComprehensiveTemplateConstructs(t *testing.T) {
 				},
 			},
 			updatedData: map[string]any{
-				"TableClass": "users-table updated",
+				"TableClass":  "users-table updated",
 				"ShowActions": false,
 				"Users": []map[string]any{
 					{"ID": "1", "Name": "Alice", "Status": "Away", "Active": true},
@@ -338,7 +338,7 @@ func TestUnifiedTreeDiff_ComprehensiveTemplateConstructs(t *testing.T) {
 						"Type": "product", "HasImage": true, "Image": "/img/product1.jpg",
 						"Title": "Awesome Product", "Subtitle": "Best Seller",
 						"Description": "This is an amazing product you'll love",
-						"Price": 29.99, "Available": true,
+						"Price":       29.99, "Available": true,
 						"Tags": []map[string]any{
 							{"Name": "New", "Featured": true},
 							{"Name": "Popular", "Featured": false},
@@ -352,7 +352,7 @@ func TestUnifiedTreeDiff_ComprehensiveTemplateConstructs(t *testing.T) {
 						"Type": "product sale", "HasImage": true, "Image": "/img/product1.jpg",
 						"Title": "Awesome Product", "Subtitle": "On Sale!",
 						"Description": "This is an amazing product you'll love - now on sale!",
-						"Price": 19.99, "Available": false,
+						"Price":       19.99, "Available": false,
 						"Tags": []map[string]any{
 							{"Name": "Sale", "Featured": true},
 							{"Name": "Limited", "Featured": true},
@@ -362,7 +362,7 @@ func TestUnifiedTreeDiff_ComprehensiveTemplateConstructs(t *testing.T) {
 						"Type": "info", "HasImage": false, "Image": "",
 						"Title": "Special Offer", "Subtitle": "",
 						"Description": "Get 20% off your next purchase!",
-						"Price": 0, "Available": true,
+						"Price":       0, "Available": true,
 						"Tags": []map[string]any{},
 					},
 				},
@@ -452,9 +452,9 @@ func TestUnifiedTreeDiff_ComprehensiveTemplateConstructs(t *testing.T) {
 			updateSize := len(updateJSON)
 			if firstSize > 0 && updateSize > 0 {
 				savings := float64(firstSize-updateSize) / float64(firstSize) * 100
-				t.Logf("Bandwidth analysis - First: %d bytes, Update: %d bytes, Savings: %.1f%%", 
+				t.Logf("Bandwidth analysis - First: %d bytes, Update: %d bytes, Savings: %.1f%%",
 					firstSize, updateSize, savings)
-				
+
 				// For most real templates, we should see significant savings
 				if savings < 30 && firstSize > 50 {
 					t.Logf("Lower than expected savings (%.1f%%) - this may be normal for simple templates", savings)
@@ -595,7 +595,7 @@ func BenchmarkUnifiedTreeDiff(b *testing.B) {
 						"Active": true, "Tags": []string{"tag1", "tag2"},
 					},
 					{
-						"Title": "Item 2", "Description": "Second item", 
+						"Title": "Item 2", "Description": "Second item",
 						"Active": false, "Tags": []string{"tag3"},
 					},
 				},

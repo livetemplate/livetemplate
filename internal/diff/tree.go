@@ -72,7 +72,7 @@ func (u *Tree) GenerateWithFragmentID(templateSource string, oldData, newData an
 
 	// Inject lvt-id attribute into template source for consistent fragment generation
 	templateWithLvtId := u.injectLvtIdIntoTemplate(templateSource, fragmentID)
-	
+
 	// Extract statics and dynamics from template with lvt-id
 	statics, dynamics := u.extractStaticsAndDynamics(templateWithLvtId, newData)
 
@@ -358,20 +358,20 @@ func (u *Update) UnmarshalJSON(data []byte) error {
 func (u *Tree) injectLvtIdIntoTemplate(templateSource string, fragmentID string) string {
 	// For templates with style attributes or class attributes, inject lvt-id
 	// This mirrors the logic in Page.injectLvtIds but works on template source
-	
+
 	// Look for div elements with style or class attributes (including ones with template expressions)
 	// Updated regex to handle style attributes with template expressions like style="color: {{.Color}};"
 	elementRegex := regexp.MustCompile(`<(div|span|p|h[1-6]|section|article|main)([^>]*?)(style="[^"]*"|class="[^"]*")([^>]*?)>`)
-	
+
 	result := elementRegex.ReplaceAllStringFunc(templateSource, func(match string) string {
 		// Check if this element already has an lvt-id attribute
 		if strings.Contains(match, "lvt-id=") {
 			return match
 		}
-		
+
 		// Insert lvt-id attribute before the closing >
 		return strings.Replace(match, ">", fmt.Sprintf(` lvt-id="%s">`, fragmentID), 1)
 	})
-	
+
 	return result
 }

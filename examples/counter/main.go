@@ -16,7 +16,7 @@ import (
 
 var availableColors = map[string]string{
 	"color-red":       "#ff6b6b",
-	"color-teal":      "#4ecdc4", 
+	"color-teal":      "#4ecdc4",
 	"color-blue":      "#45b7d1",
 	"color-green":     "#96ceb4",
 	"color-yellow":    "#feca57",
@@ -51,7 +51,7 @@ func (c *Counter) Increment(ctx *livetemplate.ActionContext) error {
 	c.mu.Lock()
 	c.Value++
 	c.Color = c.getNextColor()
-	
+
 	// Get the data while holding the lock to avoid deadlock with ToMap()
 	colorHex := availableColors[c.Color]
 	if colorHex == "" {
@@ -62,7 +62,7 @@ func (c *Counter) Increment(ctx *livetemplate.ActionContext) error {
 		"Color":   colorHex,
 	}
 	c.mu.Unlock()
-	
+
 	// Set response data using the clean ActionContext API
 	return ctx.Data(data)
 }
@@ -72,7 +72,7 @@ func (c *Counter) Decrement(ctx *livetemplate.ActionContext) error {
 	c.mu.Lock()
 	c.Value--
 	c.Color = c.getNextColor()
-	
+
 	// Get the data while holding the lock to avoid deadlock with ToMap()
 	colorHex := availableColors[c.Color]
 	if colorHex == "" {
@@ -83,7 +83,7 @@ func (c *Counter) Decrement(ctx *livetemplate.ActionContext) error {
 		"Color":   colorHex,
 	}
 	c.mu.Unlock()
-	
+
 	// Set response data using the clean ActionContext API
 	return ctx.Data(data)
 }
@@ -97,14 +97,14 @@ func (c *Counter) getNextColor() string {
 			filteredColors = append(filteredColors, colorName)
 		}
 	}
-	
+
 	if len(filteredColors) == 0 {
 		// Fallback if somehow no colors available (shouldn't happen with initial empty color)
 		for colorName := range availableColors {
 			return colorName
 		}
 	}
-	
+
 	return filteredColors[rand.Intn(len(filteredColors))]
 }
 
@@ -112,12 +112,12 @@ func (c *Counter) getNextColor() string {
 func (c *Counter) ToMap() map[string]any {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	colorHex := availableColors[c.Color]
 	if colorHex == "" {
 		colorHex = availableColors["color-red"] // fallback
 	}
-	
+
 	return map[string]any{
 		"Counter": c.Value,
 		"Color":   colorHex, // Now Color contains the hex value directly
@@ -149,24 +149,24 @@ func NewServer() *Server {
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	// Parse and auto-register the template using standard ParseFiles pattern
 	// Template will be registered as "index" (filename without extension)
 	_, err = app.ParseFiles("templates/index.html")
 	if err != nil {
 		log.Fatal("Failed to parse template:", err)
 	}
-	
+
 	counter := NewCounter()
-	
+
 	// Create a template page with stable token for consistent rendering
 	// Use "index" since that's what ParseFiles registered (filename without extension)
 	templatePage, err := app.NewPage("index", counter.ToMap())
 	if err != nil {
 		log.Fatal("Failed to create template page:", err)
 	}
-	
-	// Register counter as a data model 
+
+	// Register counter as a data model
 	// Actions will be automatically detected from methods with the clean signature:
 	// func(ctx *livetemplate.ActionContext) error
 	err = templatePage.RegisterDataModel(counter)
@@ -180,18 +180,17 @@ func NewServer() *Server {
 		counter:      counter,
 		templatePage: templatePage,
 	}
-	
+
 	log.Printf("Created template page with stable token: %s", templatePage.GetToken())
-	
+
 	return server
 }
-
 
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	data := s.counter.ToMap()
 	// Add the token to the template data so client can connect to WebSocket
 	data["Token"] = s.templatePage.GetToken()
-	
+
 	log.Printf("🌐 HTTP render with unified tree diff - Counter=%d, Color=%s", s.counter.GetValue(), s.counter.GetColor())
 	log.Printf("📡 Request from: %s, User-Agent: %s", r.RemoteAddr, r.Header.Get("User-Agent"))
 
@@ -209,7 +208,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	log.Printf("🔌 WebSocket connection attempt from: %s", r.RemoteAddr)
 	log.Printf("📋 WebSocket URL: %s", r.URL.String())
 	log.Printf("🔍 WebSocket Query params: %v", r.URL.Query())
-	
+
 	// Get page from request - handles all authentication complexity internally
 	page, err := s.app.GetPage(r)
 	if err != nil {
@@ -264,15 +263,15 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		// Log fragment details for debugging
 		if len(fragments) > 0 {
 			fragment := fragments[0]
-			log.Printf("🔧 Fragment strategy: %d, size: ~%d bytes", 
-				func() int { 
-					if fragment.Metadata != nil { 
-						return fragment.Metadata.Strategy 
-					} 
-					return 0 
-				}(), 
+			log.Printf("🔧 Fragment strategy: %d, size: ~%d bytes",
+				func() int {
+					if fragment.Metadata != nil {
+						return fragment.Metadata.Strategy
+					}
+					return 0
+				}(),
 				len(fmt.Sprintf("%v", fragment.Data)))
-			
+
 			// DEBUG: Log the actual fragment structure
 			fragmentJSON, _ := json.MarshalIndent(fragment, "", "  ")
 			log.Printf("🔍 DEBUG Fragment structure:\n%s", string(fragmentJSON))
@@ -294,12 +293,12 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 // transformFragmentsToMap converts fragment array to key-value map format for efficiency
 func transformFragmentsToMap(fragments []*livetemplate.Fragment) map[string]interface{} {
 	fragmentMap := make(map[string]interface{})
-	
+
 	for _, fragment := range fragments {
 		// Use the fragment ID as the outer key and the data as the value
 		fragmentMap[fragment.ID] = fragment.Data
 	}
-	
+
 	return fragmentMap
 }
 
@@ -313,10 +312,10 @@ func main() {
 	fmt.Println("===================================")
 
 	server := NewServer()
-	
+
 	http.HandleFunc("/", server.handleHome)
 	http.HandleFunc("/ws", server.handleWebSocket)
-	
+
 	// Serve the bundled LiveTemplate client library
 	http.HandleFunc("/dist/", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("📦 Serving bundled client to: %s", r.RemoteAddr)
@@ -324,7 +323,7 @@ func main() {
 		w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
 		http.StripPrefix("/dist/", http.FileServer(http.Dir("../../dist/"))).ServeHTTP(w, r)
 	})
-	
+
 	fmt.Printf("🌟 Unified Counter app running on http://localhost:%s\n", port)
 	fmt.Println("💡 Features:")
 	fmt.Println("  • Unified tree diff optimization")
@@ -333,6 +332,6 @@ func main() {
 	fmt.Println("  • Phoenix LiveView compatible JSON structure")
 	fmt.Println("  • Real-time WebSocket updates")
 	fmt.Println()
-	
+
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }

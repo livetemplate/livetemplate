@@ -25,14 +25,14 @@ func NewGenerator() *Generator {
 func (g *Generator) GenerateFromTemplateSource(templateSource string, oldData, newData interface{}, fragmentID string) (*Update, error) {
 	// Extract actual template source from template object if needed
 	actualTemplateSource := templateSource
-	
+
 	// If templateSource doesn't contain template expressions, treat it as pure static HTML
 	if !strings.Contains(templateSource, "{{") {
 		// Pure static template - return as single static segment
 		return &Update{
-			S: []string{templateSource},
+			S:        []string{templateSource},
 			Dynamics: make(map[string]any),
-			H: "", // No hash needed for static-only content
+			H:        "", // No hash needed for static-only content
 		}, nil
 	}
 
@@ -55,7 +55,7 @@ func (g *Generator) GenerateFromTemplate(tmpl *template.Template, oldData, newDa
 	// Extract template source - this is tricky with Go's template package
 	// We'll need to render the template to get comparable output
 	templateSource := g.extractTemplateSource(tmpl)
-	
+
 	if templateSource == "" {
 		return nil, fmt.Errorf("unable to extract template source from template")
 	}

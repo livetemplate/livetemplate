@@ -167,27 +167,58 @@ class LiveTemplateClient {
   }
 
   applyContentUpdate(element, newContent, fragmentId) {
+    // Enhanced logging for fragment 2 (color div)
+    if (fragmentId === "2") {
+      const oldStyle = element.getAttribute('style') || 'no style';
+      console.log(`🎨 Fragment ${fragmentId} BEFORE update: style="${oldStyle}"`);
+      console.log(`🎨 Fragment ${fragmentId} BEFORE update: innerHTML="${element.innerHTML}"`);
+    }
+
     // Create a temporary element with the new content
     const tempElement = element.cloneNode(false);
     tempElement.innerHTML = newContent;
 
     console.log(`🔄 Updating fragment ${fragmentId}:`, {
-      element: element.tagName + (element.className ? '.' + element.className : ''),
-      oldContent: element.innerHTML.substring(0, 50) + (element.innerHTML.length > 50 ? '...' : ''),
-      newContent: newContent.substring(0, 50) + (newContent.length > 50 ? '...' : '')
+      element: element.tagName + (element.className ? '.' + element.className : '') + 
+               (element.getAttribute('lvt-id') ? `[lvt-id="${element.getAttribute('lvt-id')}"]` : ''),
+      oldContent: element.innerHTML.substring(0, 100) + (element.innerHTML.length > 100 ? '...' : ''),
+      newContent: newContent.substring(0, 100) + (newContent.length > 100 ? '...' : '')
     });
 
     // Use morphdom to efficiently update only what changed
     morphdom(element, tempElement, {
       onBeforeElUpdated: (fromEl, toEl) => {
+        // Enhanced logging for style changes
+        if (fragmentId === "2") {
+          const fromStyle = fromEl.getAttribute('style') || 'no style';
+          const toStyle = toEl.getAttribute('style') || 'no style';
+          console.log(`🔧 Fragment ${fragmentId} morphdom: "${fromStyle}" → "${toStyle}"`);
+        }
+        
         // Preserve focus if the element is focused
         if (fromEl === document.activeElement) {
           return true;
         }
         return true;
       },
-      childrenOnly: true // Only update children, preserve the element itself
+      childrenOnly: false // FIXED: Allow element attributes to be updated too
     });
+
+    // Enhanced logging for fragment 2 (color div)
+    if (fragmentId === "2") {
+      const newStyle = element.getAttribute('style') || 'no style';
+      console.log(`🎨 Fragment ${fragmentId} AFTER update: style="${newStyle}"`);
+      console.log(`🎨 Fragment ${fragmentId} AFTER update: innerHTML="${element.innerHTML}"`);
+      
+      // Extra verification by querying the DOM directly
+      setTimeout(() => {
+        const verifyEl = document.querySelector('[lvt-id="2"]');
+        if (verifyEl) {
+          const verifyStyle = verifyEl.getAttribute('style') || 'no style';
+          console.log(`🔍 Fragment ${fragmentId} VERIFICATION (10ms later): style="${verifyStyle}"`);
+        }
+      }, 10);
+    }
 
     console.log(`✅ Fragment ${fragmentId}: Applied diff update`);
   }

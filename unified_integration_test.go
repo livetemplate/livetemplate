@@ -76,7 +76,7 @@ func TestUnifiedTreeDiffIntegration(t *testing.T) {
 	// Calculate bandwidth savings
 	firstSize := firstUpdate.GetSize()
 	secondSize := secondUpdate.GetSize()
-	
+
 	if secondSize >= firstSize {
 		t.Errorf("Expected second update to be smaller than first, got %d >= %d", secondSize, firstSize)
 	}
@@ -151,7 +151,7 @@ func TestUnifiedTreeDiffWithPageAPI(t *testing.T) {
 	// The fragment data should be UnifiedTreeUpdate
 	if update, ok := fragment.Data.(*diff.Update); ok {
 		t.Logf("Update structure: %s", update.String())
-		
+
 		// Should have dynamics for the updated values
 		if !update.HasDynamics() {
 			t.Error("Expected fragment to have dynamic updates")
@@ -171,7 +171,7 @@ func BenchmarkUnifiedTreeDiffVsBasic(b *testing.B) {
 
 	b.Run("UnifiedTreeDiff", func(b *testing.B) {
 		differ := diff.NewTree()
-		
+
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			update, err := differ.Generate(templateSource, oldData, newData)
