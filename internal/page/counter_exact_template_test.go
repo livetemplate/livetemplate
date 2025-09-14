@@ -5,7 +5,7 @@ import (
 	"html/template"
 	"testing"
 
-	"github.com/livefir/livetemplate/internal/strategy"
+	"github.com/livefir/livetemplate/internal/diff"
 )
 
 // TestCounterExactTemplate tests with the exact counter template
@@ -62,7 +62,7 @@ func TestCounterExactTemplate(t *testing.T) {
 		ID:            "test-page",
 		template:      tmpl,
 		data:          map[string]interface{}{"Counter": 0, "Color": "color-red"},
-		treeGenerator: strategy.NewSimpleTreeGenerator(),
+		treeGenerator: diff.NewGenerator(),
 	}
 
 	// Detect regions

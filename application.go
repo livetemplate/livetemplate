@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"html/template"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/livefir/livetemplate/internal/app"
+	"github.com/livefir/livetemplate/internal/diff"
 	"github.com/livefir/livetemplate/internal/session"
 )
 
@@ -22,6 +25,7 @@ type Application struct {
 	internal       *app.Application
 	config         *ApplicationConfig
 	templates      map[string]*template.Template // Template registry for reuse
+	templateSources map[string]string            // Template source code for unified diff
 	actions        map[string]ActionHandler      // Global action registry
 	sessionManager *session.Manager              // Session management
 	pageDataModels map[string][]DataModel        // Data models per page (keyed by page ID)
@@ -45,10 +49,11 @@ func NewApplication(options ...ApplicationOption) (*Application, error) {
 			MaxMemoryMB:    100,
 			MetricsEnabled: true,
 		},
-		templates:      make(map[string]*template.Template), // Initialize template registry
-		actions:        make(map[string]ActionHandler),      // Initialize action registry
-		sessionManager: session.NewManager(24 * time.Hour),  // Initialize session manager
-		pageDataModels: make(map[string][]DataModel),        // Initialize data models registry
+		templates:       make(map[string]*template.Template), // Initialize template registry
+		templateSources: make(map[string]string),            // Initialize template source registry
+		actions:         make(map[string]ActionHandler),      // Initialize action registry
+		sessionManager:  session.NewManager(24 * time.Hour), // Initialize session manager
+		pageDataModels:  make(map[string][]DataModel),       // Initialize data models registry
 	}
 
 	// Apply public options to collect configuration
@@ -288,6 +293,7 @@ type ActionMessage struct {
 	Action string                 `json:"action"` // Action name to execute
 	Token  string                 `json:"token"`  // Optional security token
 	Data   map[string]interface{} `json:"data"`   // Action payload data
+	Cache  []string               `json:"cache"`  // Fragment IDs that the client has cached
 }
 
 // NewActionMessage creates a new ActionMessage with the given action name and data
@@ -377,6 +383,12 @@ func (a *Application) ParseFiles(filenames ...string) (*template.Template, error
 		return nil, fmt.Errorf("no filenames provided")
 	}
 
+	// Read the first file to get the source for unified diff
+	source, err := a.readFileContent(filenames[0])
+	if err != nil {
+		return nil, fmt.Errorf("failed to read template source: %w", err)
+	}
+
 	tmpl, err := template.ParseFiles(filenames...)
 	if err != nil {
 		return nil, err
@@ -385,6 +397,7 @@ func (a *Application) ParseFiles(filenames ...string) (*template.Template, error
 	// Auto-register using the first file's base name (without extension)
 	name := strings.TrimSuffix(filepath.Base(filenames[0]), filepath.Ext(filenames[0]))
 	a.templates[name] = tmpl
+	a.templateSources[name] = source // Store source for unified diff
 
 	return tmpl, nil
 }
@@ -396,6 +409,22 @@ func (a *Application) MustParseFiles(filenames ...string) *template.Template {
 		panic(err)
 	}
 	return tmpl
+}
+
+// readFileContent reads file content as string
+func (a *Application) readFileContent(filename string) (string, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	content, err := io.ReadAll(file)
+	if err != nil {
+		return "", err
+	}
+
+	return string(content), nil
 }
 
 // ParseGlob parses template definitions from files matching pattern and registers them automatically
@@ -438,7 +467,22 @@ func (a *Application) NewPageFromTemplate(templateName string, data interface{},
 		return nil, fmt.Errorf("template %q not registered", templateName)
 	}
 
-	return a.NewApplicationPage(tmpl, data, options...)
+	// Get template source for unified diff integration
+	templateSource := a.templateSources[templateName]
+
+	// Create page with template source for unified diff optimization
+	pageOptions := []ApplicationPageOption{
+		func(page *ApplicationPage) error {
+			// Set template source on the internal page for unified diff
+			page.internal.SetTemplateSource(templateSource)
+			return nil
+		},
+	}
+	
+	// Append any additional user options
+	pageOptions = append(pageOptions, options...)
+
+	return a.NewApplicationPage(tmpl, data, pageOptions...)
 }
 
 // NewPage creates a new page using a registered template (simplified name)
@@ -607,8 +651,8 @@ func (p *ApplicationPage) Render(data ...interface{}) (string, error) {
 
 // ClientCacheInfo contains information about what the client has cached
 type ClientCacheInfo struct {
-	HasCache        bool            `json:"has_cache"`
-	CachedFragments map[string]bool `json:"cached_fragments"`
+	CachedFragments     map[string]bool `json:"-"` // Internal map for filtering
+	CachedFragmentsList []string        `json:"cached_fragments"`
 }
 
 // RenderFragments generates fragment updates for the given new data
@@ -630,7 +674,7 @@ func (p *ApplicationPage) RenderFragments(ctx context.Context, newData interface
 	}
 
 	// Apply client cache filtering if cache info is set on the page
-	if p.cacheInfo != nil && p.cacheInfo.HasCache {
+	if p.cacheInfo != nil && len(p.cacheInfo.CachedFragmentsList) > 0 {
 		fragments = p.filterStaticsFromFragments(fragments, p.cacheInfo.CachedFragments)
 	}
 
@@ -651,8 +695,17 @@ func (p *ApplicationPage) filterStaticsFromFragments(fragments []*Fragment, cach
 
 		// If client has this fragment cached, remove statics from data
 		if cachedFragments[frag.ID] {
-			if treeData, ok := frag.Data.(map[string]interface{}); ok {
-				// Create new tree data without statics
+			// Handle diff.Update type (the actual type from tree generator)
+			if treeUpdate, ok := frag.Data.(*diff.Update); ok {
+				// Create new update without statics
+				newUpdate := &diff.Update{
+					S:        nil,        // Remove statics
+					Dynamics: treeUpdate.Dynamics,
+					H:        "",         // Remove hash since no statics
+				}
+				newFrag.Data = newUpdate
+			} else if treeData, ok := frag.Data.(map[string]interface{}); ok {
+				// Handle map type (legacy fallback)
 				newTreeData := make(map[string]interface{})
 				for k, v := range treeData {
 					if k != "s" { // Remove statics ("s" field)
@@ -946,6 +999,22 @@ func (p *ApplicationPage) HandleAction(ctx context.Context, msg *ActionMessage) 
 		msg.Data = make(map[string]interface{})
 	}
 
+	// Set cache information from the message
+	if len(msg.Cache) > 0 {
+		// Convert array to map for internal use
+		cachedFragments := make(map[string]bool)
+		for _, fragID := range msg.Cache {
+			cachedFragments[fragID] = true
+		}
+		p.SetCacheInfo(&ClientCacheInfo{
+			CachedFragmentsList: msg.Cache,
+			CachedFragments:     cachedFragments,
+		})
+	} else {
+		// Clear any existing cache info if no cache array provided
+		p.SetCacheInfo(nil)
+	}
+
 	// Try to resolve the action (with conflict detection and namespacing)
 	newData, err := p.resolveAndExecuteAction(msg.Action, msg.Data)
 	if err != nil {
@@ -1096,7 +1165,7 @@ type ApplicationPageMetrics struct {
 func ParseCacheInfoFromURL(queryValues url.Values) *ClientCacheInfo {
 	hasCache := queryValues.Get("has_cache") == "true"
 	if !hasCache {
-		return &ClientCacheInfo{HasCache: false, CachedFragments: make(map[string]bool)}
+		return &ClientCacheInfo{CachedFragments: make(map[string]bool), CachedFragmentsList: []string{}}
 	}
 
 	cachedFragments := make(map[string]bool)
@@ -1108,9 +1177,14 @@ func ParseCacheInfoFromURL(queryValues url.Values) *ClientCacheInfo {
 		}
 	}
 
+	cachedFragmentsList := make([]string, 0, len(cachedFragments))
+	for fragID := range cachedFragments {
+		cachedFragmentsList = append(cachedFragmentsList, fragID)
+	}
+	
 	return &ClientCacheInfo{
-		HasCache:        true,
-		CachedFragments: cachedFragments,
+		CachedFragments:     cachedFragments,
+		CachedFragmentsList: cachedFragmentsList,
 	}
 }
 

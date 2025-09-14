@@ -154,12 +154,49 @@
       Total: {{.TodoCount}} {{if eq .TodoCount 1}}todo{{else}}todos{{end}}
     </div>
 
-    <!-- Embed LiveTemplate token for client authentication -->
+    <!-- LiveTemplate bundled client -->
+    <script src="/dist/livetemplate-client.min.js"></script>
+    
     <script>
-      var config = { LIVETEMPLATE_TOKEN: "PAGE_TOKEN_PLACEHOLDER" };
+      document.addEventListener('DOMContentLoaded', function() {
+        const tokenScript = document.querySelector('script[data-livetemplate-token]');
+        const token = tokenScript ? tokenScript.getAttribute('data-livetemplate-token') : 'PAGE_TOKEN_PLACEHOLDER';
+        
+        const client = new LiveTemplateClient({
+          onOpen: () => console.log('🔌 Todo app connected to LiveTemplate'),
+          onError: (error) => console.error('❌ LiveTemplate error:', error)
+        });
+        
+        client.connect(token);
+        
+        // Handle action buttons
+        document.addEventListener('click', function(e) {
+          const action = e.target.getAttribute('data-lvt-action');
+          if (action) {
+            const data = {};
+            // Get data attributes for the action
+            for (const attr of e.target.attributes) {
+              if (attr.name.startsWith('data-') && attr.name !== 'data-lvt-action') {
+                const key = attr.name.replace('data-', '').replace(/-([a-z])/g, (g) => g[1].toUpperCase());
+                data[key] = attr.value;
+              }
+            }
+            client.sendAction(action, data);
+          }
+        });
+        
+        // Handle form submissions
+        document.addEventListener('submit', function(e) {
+          const action = e.target.getAttribute('data-lvt-action');
+          if (action) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+            client.sendAction(action, data);
+            e.target.reset(); // Clear form after submission
+          }
+        });
+      });
     </script>
-
-    <!-- Load LiveTemplate client library - auto-initializes with embedded token -->
-    <script src="/client/livetemplate-client.js"></script>
   </body>
 </html>

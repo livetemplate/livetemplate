@@ -16,24 +16,25 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/livefir/livetemplate/internal/strategy"
+	"github.com/livefir/livetemplate/internal/diff"
 )
 
 // Page represents an isolated user session with stateless design
 type Page struct {
-	ID             string
-	ApplicationID  string
-	TemplateHash   string
-	template       *template.Template
-	templateSource string // Store original template source for tree analysis
-	data           interface{}
-	createdAt      time.Time
-	lastAccessed   time.Time
-	fragmentCache  map[string]string
-	treeGenerator  *strategy.SimpleTreeGenerator
-	config         *Config
-	regions        []TemplateRegion // Cache template regions to ensure consistent IDs
-	mu             sync.RWMutex
+	ID               string
+	ApplicationID    string
+	TemplateHash     string
+	template         *template.Template
+	templateSource   string // Store original template source for tree analysis
+	data             interface{}
+	createdAt        time.Time
+	lastAccessed     time.Time
+	fragmentCache    map[string]string
+	treeGenerator    *diff.Generator
+	config           *Config
+	regions          []TemplateRegion // Cache template regions to ensure consistent IDs
+	fragmentIDCounter int              // Simple counter for generating fragment IDs
+	mu               sync.RWMutex
 }
 
 // Config defines Page configuration
@@ -81,7 +82,7 @@ func NewPage(applicationID string, tmpl *template.Template, data interface{}, co
 	templateHash := generateTemplateHash(tmpl)
 
 	// Create tree-based generator (now the only strategy)
-	treeGenerator := strategy.NewSimpleTreeGenerator()
+	treeGenerator := diff.NewGenerator()
 
 	page := &Page{
 		ID:            pageID,
@@ -710,19 +711,10 @@ func (p *Page) reconstructPipeNode(pipe *parse.PipeNode, result *strings.Builder
 	}
 }
 
-// generateFragmentID creates a deterministic fragment ID
+// generateFragmentID creates a stable fragment ID for consistent caching
 func (p *Page) generateFragmentID(templateSource string, oldData, newData interface{}) string {
-	// Use template hash and data signature to create deterministic ID
-	dataHash := fmt.Sprintf("%v-%v", oldData, newData)
-	combined := p.TemplateHash + "|" + templateSource + "|" + dataHash
-
-	// Simple hash for fragment ID
-	hash := fmt.Sprintf("%x", []byte(combined))
-	if len(hash) > 16 {
-		hash = hash[:16]
-	}
-
-	return fmt.Sprintf("fragment_%s", hash)
+	// Use stable fragment ID for consistent caching - same template always gets same ID
+	return "1"
 }
 
 // SetTemplateSource sets the template source for the page

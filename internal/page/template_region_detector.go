@@ -57,7 +57,7 @@ func (p *Page) detectTemplateRegions() ([]TemplateRegion, error) {
 		regionIndex++
 
 		region := TemplateRegion{
-			ID:             generateGloballyUniqueFragmentID(),
+			ID:             fmt.Sprintf("%d", regionIndex), // Simple incremental ID
 			TemplateSource: construct.TemplateSource,
 			StartMarker:    construct.StartMarker,
 			EndMarker:      construct.EndMarker,
@@ -122,15 +122,15 @@ func (p *Page) detectTemplateRegions() ([]TemplateRegion, error) {
 				continue
 			}
 
-			// Extract ID from tag attributes if available, otherwise generate ID
+			// Extract ID from tag attributes if available, otherwise generate simple incremental ID
 			extractedID := extractIDFromTag(attributes)
 			var lvtID string
 			if extractedID != "" {
 				lvtID = extractedID
 			} else {
-				// Generate globally unique random ID instead of predictable sequential ID
-				lvtID = generateGloballyUniqueFragmentID()
+				// Generate simple incremental ID
 				regionIndex++
+				lvtID = fmt.Sprintf("%d", regionIndex)
 			}
 
 			// Extract field paths from template expressions in both attributes and content
@@ -169,10 +169,18 @@ func (p *Page) detectTemplateRegions() ([]TemplateRegion, error) {
 	return regions, nil
 }
 
-// extractIDFromTag extracts the ID attribute from an HTML tag
+// extractIDFromTag extracts the lvt-id or id attribute from an HTML tag, prioritizing lvt-id
 func extractIDFromTag(tag string) string {
+	// First check for lvt-id attribute (LiveTemplate specific)
+	lvtIdRegex := regexp.MustCompile(`lvt-id=["']([^"']+)["']`)
+	matches := lvtIdRegex.FindStringSubmatch(tag)
+	if len(matches) >= 2 {
+		return matches[1]
+	}
+	
+	// Fallback to regular id attribute
 	idRegex := regexp.MustCompile(`id=["']([^"']+)["']`)
-	matches := idRegex.FindStringSubmatch(tag)
+	matches = idRegex.FindStringSubmatch(tag)
 	if len(matches) >= 2 {
 		return matches[1]
 	}

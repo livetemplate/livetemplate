@@ -1,0 +1,17 @@
+{
+  "name": "livetemplate",
+  "version": "1.0.0",
+  "description": "LiveTemplate JavaScript client with tree-based diff updates",
+  "main": "client/livetemplate-client.js",
+  "scripts": {
+    "build": "esbuild client/livetemplate-client.js --bundle --outfile=dist/livetemplate-client.min.js --minify --format=iife --keep-names",
+    "build:dev": "esbuild client/livetemplate-client.js --bundle --outfile=dist/livetemplate-client.js --format=iife --global-name=LiveTemplateClient --sourcemap",
+    "watch": "esbuild client/livetemplate-client.js --bundle --outfile=dist/livetemplate-client.js --format=iife --global-name=LiveTemplateClient --sourcemap --watch"
+  },
+  "devDependencies": {
+    "esbuild": "^0.19.0"
+  },
+  "dependencies": {
+    "morphdom": "^2.7.0"
+  }
+}

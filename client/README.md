@@ -1,43 +1,41 @@
 # LiveTemplate JavaScript Client
 
-A reusable JavaScript client library for connecting to LiveTemplate WebSocket servers and handling real-time fragment updates.
+A unified WebSocket-based client for LiveTemplate tree-based diff updates. Works exclusively with the `diff.Update` format from the Go backend.
 
 ## Features
 
-- WebSocket connection management
-- Automatic page token handling
-- Fragment update processing with tree-based reconstruction
-- Static content caching for optimal performance
-- Generic DOM element updating for any template structure
-- Configurable connection options and event handlers
+- ✅ **Unified**: Single client for all LiveTemplate updates
+- ✅ **Tree-based**: Works with `diff.Update` structure only
+- ✅ **Efficient**: Caches static segments for bandwidth optimization
+- ✅ **Modern**: ES6 modules with morphdom for DOM updates
+- ✅ **Bundled**: Includes all dependencies in a single file
 
-## Usage
+## Quick Start
 
-### Basic Setup
+### Use the Pre-built Bundle
 
 ```html
-<script src="livetemplate-client.js"></script>
+<script src="/dist/livetemplate-client.min.js"></script>
 <script>
-    const client = new LiveTemplateClient();
-    client.connect();
+  const client = new LiveTemplateClient();
+  const token = document.querySelector('meta[name="page-token"]').content;
+  client.connect(token);
 </script>
 ```
 
-### Advanced Configuration
+### WebSocket Connection
+
+The client automatically connects to `/ws` on the current host:
 
 ```javascript
 const client = new LiveTemplateClient({
-    port: "8080",
-    host: "localhost", 
-    protocol: "ws",
-    endpoint: "/ws",
-    onOpen: () => console.log("Connected!"),
-    onClose: () => console.log("Disconnected!"),
-    onError: (error) => console.error("Error:", error),
-    onMessage: (message) => console.log("Message:", message)
+  onOpen: () => console.log('Connected!'),
+  onFragmentUpdate: (fragment, element) => {
+    console.log('Fragment updated:', fragment.id);
+  }
 });
 
-client.connect();
+client.connect(pageToken);
 ```
 
 ### Sending Actions
@@ -47,62 +45,80 @@ client.connect();
 client.sendAction('increment');
 
 // Action with data
-client.sendAction('update_user', { id: 123, name: 'John' });
+client.sendAction('update_user', { name: 'Alice', age: 30 });
 ```
 
-### HTML Template Requirements
+## How It Works
 
-Elements that should receive fragment updates must have `lvt-id` attributes:
+1. **Static Caching**: First update includes static HTML segments (`s` array)
+2. **Dynamic Updates**: Subsequent updates only send dynamic values
+3. **Reconstruction**: Client reconstructs full content from cached statics + new dynamics
+4. **DOM Updates**: Uses morphdom to efficiently update only changed elements
 
-```html
-<div lvt-id="counter-display">{{.Counter}}</div>
-<span lvt-id="user-name" class="{{.UserClass}}">{{.UserName}}</span>
+### Fragment Format
+
+The client expects fragments in this format:
+
+```javascript
+{
+  "1": {           // Fragment ID
+    "s": ["<div style=\"color: ", ";\">Hello ", " World</div>"],  // Static segments (cached)
+    "0": "#ff6b6b", // Dynamic value at position 0
+    "1": "42"       // Dynamic value at position 1  
+  }
+}
+```
+
+## Building
+
+```bash
+# Development build (with sourcemap)
+npm run build:dev
+
+# Production build (minified)
+npm run build
+
+# Watch mode
+npm run watch
 ```
 
 ## API Reference
 
 ### Constructor Options
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `port` | string | `window.location.port` or `"8080"` | WebSocket server port |
-| `host` | string | `"localhost"` | WebSocket server host |
-| `protocol` | string | `"ws"` | WebSocket protocol (`"ws"` or `"wss"`) |
-| `endpoint` | string | `"/ws"` | WebSocket endpoint path |
-| `onOpen` | function | Default console log | Connection opened callback |
-| `onClose` | function | Default console log | Connection closed callback |
-| `onError` | function | Default console error | Connection error callback |
-| `onMessage` | function | `null` | Custom message handler |
+```javascript
+new LiveTemplateClient({
+  wsUrl: 'ws://localhost:8080/ws',  // Custom WebSocket URL
+  maxReconnectAttempts: 5,          // Reconnection limit
+  reconnectDelay: 1000,             // Base reconnection delay (ms)
+  onOpen: () => {},                 // Connection opened callback
+  onClose: (event) => {},           // Connection closed callback  
+  onError: (error) => {},           // Error callback
+  onFragmentUpdate: (fragment, element) => {} // Fragment update callback
+});
+```
 
 ### Methods
 
-#### `connect()`
-Establishes WebSocket connection to the server.
+- `connect(token)` - Connect with page token
+- `sendAction(action, data)` - Send action to server
+- `disconnect()` - Close connection and clear cache
 
-#### `sendAction(action, data = {})`
-Sends an action message to the server.
+### Static Caching
 
-- `action` (string): Action name
-- `data` (object): Optional action data
+The client automatically caches static HTML segments from the server:
+- First fragment update: Contains both static segments and dynamic values
+- Subsequent updates: Only dynamic values (92%+ bandwidth savings)
+- Cache is scoped per fragment ID for isolation
 
-#### `disconnect()`
-Closes WebSocket connection and cleans up resources.
+## Architecture
 
-#### `isConnected()`
-Returns `true` if WebSocket is connected.
+```
+LiveTemplate Client
+├── WebSocket Connection (/ws?token=...)  
+├── Static Cache (Map<fragmentId, statics[]>)
+├── Fragment Processing (diff.Update format)
+└── DOM Updates (morphdom)
+```
 
-#### `getPageToken()`
-Returns the current page token received from server.
-
-## How It Works
-
-1. **Connection**: Client connects to WebSocket server and receives a page token
-2. **Fragment Updates**: Server sends fragment updates with tree-based data structures
-3. **DOM Updates**: Client reconstructs content from static/dynamic parts and updates DOM elements
-4. **Caching**: Static content is cached client-side for optimal bandwidth usage
-
-## Examples
-
-See `example.html` for a complete working example.
-
-For a real application example, see the counter app in `../examples/counter/`.
+The client is designed to work exclusively with Go's `diff.Update` structure, providing maximum efficiency and simplicity.

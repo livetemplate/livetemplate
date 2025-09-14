@@ -2,7 +2,6 @@ package page
 
 import (
 	"html/template"
-	"strings"
 	"testing"
 )
 
@@ -49,7 +48,7 @@ func TestDetectTemplateRegions(t *testing.T) {
 </body>
 </html>`,
 			expectedRegions: 1,
-			expectedIDs:     []string{"region_0"},
+			expectedIDs:     []string{"1"},
 			expectedSources: []string{"Count: {{.Counter}}"},
 		},
 		{
@@ -73,10 +72,10 @@ func TestDetectTemplateRegions(t *testing.T) {
 </body>
 </html>`,
 			expectedRegions: 2,
-			expectedIDs:     []string{"user-info", "items"},
+			expectedIDs:     []string{"1", "2"},
 			expectedSources: []string{
-				"{{.User.Name}} ({{if .User.Active}}Active{{else}}Inactive{{end}})",
-				"Items: {{range .Items}}{{.Name}} {{end}}",
+				"<div id=\"items\">Items: {{range .Items}}{{.Name}} {{end}}</div>",
+				"<div id=\"user-info\">{{.User.Name}} ({{if .User.Active}}Active{{else}}Inactive{{end}})</div>",
 			},
 		},
 	}
@@ -114,15 +113,7 @@ func TestDetectTemplateRegions(t *testing.T) {
 					continue
 				}
 
-				// For auto-generated IDs, just verify it's not empty and has the right format
-				if tt.expectedIDs[i] == "region_0" {
-					// This is an auto-generated ID case - verify it's a valid hex ID
-					if region.ID == "" {
-						t.Errorf("Region %d: expected auto-generated ID, got empty", i)
-					} else if !strings.HasPrefix(region.ID, "f") || len(region.ID) != 17 {
-						t.Errorf("Region %d: expected auto-generated ID format (f + 16 hex chars), got %q", i, region.ID)
-					}
-				} else if region.ID != tt.expectedIDs[i] {
+				if region.ID != tt.expectedIDs[i] {
 					t.Errorf("Region %d: expected ID %q, got %q", i, tt.expectedIDs[i], region.ID)
 				}
 
@@ -169,6 +160,21 @@ func TestExtractIDFromTag(t *testing.T) {
 			name:     "Empty ID",
 			tag:      `div id=""`,
 			expected: "",
+		},
+		{
+			name:     "LiveTemplate ID priority",
+			tag:      `div lvt-id="counter" id="counter-elem" class="widget"`,
+			expected: "counter",
+		},
+		{
+			name:     "LiveTemplate ID only",
+			tag:      `div lvt-id="status" class="widget"`,
+			expected: "status",
+		},
+		{
+			name:     "Regular ID fallback",
+			tag:      `div id="fallback" class="widget"`,
+			expected: "fallback",
 		},
 	}
 

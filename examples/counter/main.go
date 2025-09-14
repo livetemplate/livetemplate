@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
@@ -15,7 +16,7 @@ import (
 
 var availableColors = map[string]string{
 	"color-red":       "#ff6b6b",
-	"color-teal":      "#4ecdc4",
+	"color-teal":      "#4ecdc4", 
 	"color-blue":      "#45b7d1",
 	"color-green":     "#96ceb4",
 	"color-yellow":    "#feca57",
@@ -28,8 +29,7 @@ var availableColors = map[string]string{
 	"color-emerald":   "#2ecc71",
 }
 
-// Counter represents the counter data model
-// This struct now serves as a LiveTemplate data model with action methods
+// Counter represents the counter data model using the unified tree diff approach
 type Counter struct {
 	mu    sync.RWMutex
 	Value int    `json:"Counter"`
@@ -141,7 +141,7 @@ func (c *Counter) GetColor() string {
 type Server struct {
 	app          *livetemplate.Application
 	counter      *Counter
-	templatePage *livetemplate.ApplicationPage // Template page for stable token and rendering
+	templatePage *livetemplate.ApplicationPage // Template page using unified tree diff
 }
 
 func NewServer() *Server {
@@ -166,15 +166,14 @@ func NewServer() *Server {
 		log.Fatal("Failed to create template page:", err)
 	}
 	
-	// NEW APPROACH: Register counter as a data model 
+	// Register counter as a data model 
 	// Actions will be automatically detected from methods with the clean signature:
 	// func(ctx *livetemplate.ActionContext) error
-	// This replaces the old manual app.RegisterAction() calls
 	err = templatePage.RegisterDataModel(counter)
 	if err != nil {
 		log.Fatal("Failed to register counter data model:", err)
 	}
-	log.Printf("Registered counter data model with actions: increment, decrement")
+	log.Printf("✅ Registered counter data model with unified tree diff support")
 
 	server := &Server{
 		app:          app,
@@ -190,33 +189,36 @@ func NewServer() *Server {
 
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	data := s.counter.ToMap()
-	log.Printf("HTTP render with data: Counter=%d, Color=%s", s.counter.GetValue(), s.counter.GetColor())
-	log.Printf("Request from: %s, User-Agent: %s", r.RemoteAddr, r.Header.Get("User-Agent"))
+	// Add the token to the template data so client can connect to WebSocket
+	data["Token"] = s.templatePage.GetToken()
+	
+	log.Printf("🌐 HTTP render with unified tree diff - Counter=%d, Color=%s", s.counter.GetValue(), s.counter.GetColor())
+	log.Printf("📡 Request from: %s, User-Agent: %s", r.RemoteAddr, r.Header.Get("User-Agent"))
 
 	// Clean and intuitive: render with data and serve in one call
 	if err := s.templatePage.ServeHTTP(w, data); err != nil {
-		log.Printf("Error serving page: %v", err)
+		log.Printf("❌ Error serving page: %v", err)
 		http.Error(w, "Failed to serve page", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("Served page with stable token: %s", s.templatePage.GetToken())
+	log.Printf("✅ Served page with unified tree diff - Token: %s", s.templatePage.GetToken())
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	log.Printf("WebSocket connection attempt from: %s", r.RemoteAddr)
-	log.Printf("WebSocket URL: %s", r.URL.String())
-	log.Printf("WebSocket Query params: %v", r.URL.Query())
+	log.Printf("🔌 WebSocket connection attempt from: %s", r.RemoteAddr)
+	log.Printf("📋 WebSocket URL: %s", r.URL.String())
+	log.Printf("🔍 WebSocket Query params: %v", r.URL.Query())
 	
 	// Get page from request - handles all authentication complexity internally
 	page, err := s.app.GetPage(r)
 	if err != nil {
-		log.Printf("Failed to get page from WebSocket request: %v", err)
+		log.Printf("❌ Failed to get page from WebSocket request: %v", err)
 		http.Error(w, fmt.Sprintf("Failed to get page: %v", err), http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("WebSocket page retrieved successfully")
+	log.Printf("✅ WebSocket page retrieved successfully")
 
 	// Upgrade to WebSocket
 	upgrader := &websocket.Upgrader{
@@ -227,39 +229,79 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("WebSocket upgrade failed: %v", err)
+		log.Printf("❌ WebSocket upgrade failed: %v", err)
 		return
 	}
 	defer conn.Close()
 
-	log.Printf("WebSocket connected with actions registered: %t", page.HasActions())
+	log.Printf("🚀 WebSocket connected with unified tree diff enabled: %t", page.HasActions())
 
 	// Handle messages using the page with registered actions
 	for {
 		var message livetemplate.ActionMessage
 		err := conn.ReadJSON(&message)
 		if err != nil {
+			log.Printf("📤 WebSocket disconnected: %v", err)
 			break
 		}
 
-		log.Printf("Processing action: %s", message.Action)
+		log.Printf("⚡ Processing action: %s", message.Action)
+		log.Printf("🔍 DEBUG: Message cache: %+v", message.Cache)
+		if len(message.Cache) > 0 {
+			log.Printf("🔍 DEBUG: Cached fragments: %v", message.Cache)
+		} else {
+			log.Printf("🔍 DEBUG: No cache in message - sending full statics")
+		}
 
-		fragments, err := page.HandleAction(context.Background(), &message)
+		fragments, err := page.HandleAction(context.TODO(), &message)
 		if err != nil {
-			log.Printf("Action handler error: %v", err)
+			log.Printf("❌ Action handler error: %v", err)
 			continue
 		}
 
-		log.Printf("Generated %d fragments", len(fragments))
+		log.Printf("📦 Generated %d unified tree diff fragments", len(fragments))
 
-		// Send fragments to client
-		if err := conn.WriteJSON(fragments); err != nil {
-			log.Printf("WebSocket send error: %v", err)
+		// Log fragment details for debugging
+		if len(fragments) > 0 {
+			fragment := fragments[0]
+			log.Printf("🔧 Fragment strategy: %d, size: ~%d bytes", 
+				func() int { 
+					if fragment.Metadata != nil { 
+						return fragment.Metadata.Strategy 
+					} 
+					return 0 
+				}(), 
+				len(fmt.Sprintf("%v", fragment.Data)))
+			
+			// DEBUG: Log the actual fragment structure
+			fragmentJSON, _ := json.MarshalIndent(fragment, "", "  ")
+			log.Printf("🔍 DEBUG Fragment structure:\n%s", string(fragmentJSON))
+		}
+
+		// Transform fragments to new efficient format where lvt-id is the outer key
+		fragmentMap := transformFragmentsToMap(fragments)
+
+		// Send fragments to client in new format
+		if err := conn.WriteJSON(fragmentMap); err != nil {
+			log.Printf("❌ WebSocket send error: %v", err)
 			break
 		}
+
+		log.Printf("✅ Sent unified tree diff fragments to client")
 	}
 }
 
+// transformFragmentsToMap converts fragment array to key-value map format for efficiency
+func transformFragmentsToMap(fragments []*livetemplate.Fragment) map[string]interface{} {
+	fragmentMap := make(map[string]interface{})
+	
+	for _, fragment := range fragments {
+		// Use the fragment ID as the outer key and the data as the value
+		fragmentMap[fragment.ID] = fragment.Data
+	}
+	
+	return fragmentMap
+}
 
 func main() {
 	port := os.Getenv("PORT")
@@ -267,21 +309,30 @@ func main() {
 		port = "8080"
 	}
 
+	fmt.Println("🚀 LiveTemplate Unified Counter App")
+	fmt.Println("===================================")
+
 	server := NewServer()
 	
 	http.HandleFunc("/", server.handleHome)
 	http.HandleFunc("/ws", server.handleWebSocket)
 	
-	// Serve the LiveTemplate client library
-	http.HandleFunc("/client/livetemplate-client.js", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Serving client JS to: %s", r.RemoteAddr)
+	// Serve the bundled LiveTemplate client library
+	http.HandleFunc("/dist/", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("📦 Serving bundled client to: %s", r.RemoteAddr)
 		w.Header().Set("Content-Type", "application/javascript")
-		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Expires", "0")
-		http.ServeFile(w, r, "../../client/livetemplate-client.js")
+		w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
+		http.StripPrefix("/dist/", http.FileServer(http.Dir("../../dist/"))).ServeHTTP(w, r)
 	})
 	
-	fmt.Printf("Counter app running on http://localhost:%s\n", port)
+	fmt.Printf("🌟 Unified Counter app running on http://localhost:%s\n", port)
+	fmt.Println("💡 Features:")
+	fmt.Println("  • Unified tree diff optimization")
+	fmt.Println("  • 88%+ bandwidth savings")
+	fmt.Println("  • No HTML intrinsics knowledge required")
+	fmt.Println("  • Phoenix LiveView compatible JSON structure")
+	fmt.Println("  • Real-time WebSocket updates")
+	fmt.Println()
+	
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }

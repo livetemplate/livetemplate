@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 	"html/template"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/livefir/livetemplate/internal/strategy"
+	"github.com/livefir/livetemplate/internal/diff"
 )
 
 // Fragment represents a generated update fragment with strategy-specific data
@@ -33,13 +34,17 @@ type FragmentMetadata struct {
 type Page struct {
 	// Template for rendering
 	template *template.Template
+	templateSource string // Store template source for unified diff
 
 	// Current data state
 	data             interface{}
 	currentDataMutex sync.RWMutex
 
-	// Update generation pipeline - now using tree-based generator
-	treeGenerator *strategy.SimpleTreeGenerator
+	// Update generation pipeline - using unified tree-based generator
+	unifiedGenerator *diff.Generator
+	
+	// Fragment ID generation
+	fragmentIDCounter int // Simple counter for generating fragment IDs
 
 	// Configuration
 	enableMetrics bool
@@ -56,11 +61,12 @@ func NewPage(tmpl *template.Template, data interface{}, options ...PageOption) (
 	}
 
 	page := &Page{
-		template:      tmpl,
-		data:          data,
-		treeGenerator: strategy.NewSimpleTreeGenerator(),
-		enableMetrics: true,
-		created:       time.Now(),
+		template:         tmpl,
+		templateSource:   "", // Will need to be provided separately for unified diff
+		data:            data,
+		unifiedGenerator: diff.NewGenerator(),
+		enableMetrics:   true,
+		created:         time.Now(),
 	}
 
 	// Apply options
@@ -73,11 +79,18 @@ func NewPage(tmpl *template.Template, data interface{}, options ...PageOption) (
 	return page, nil
 }
 
+// WithTemplateSource sets the template source for unified diff generation
+func WithTemplateSource(source string) PageOption {
+	return func(p *Page) error {
+		p.templateSource = source
+		return nil
+	}
+}
+
 // WithMetricsEnabled configures whether metrics collection is enabled
 func WithMetricsEnabled(enabled bool) PageOption {
 	return func(p *Page) error {
 		p.enableMetrics = enabled
-		// Tree generator doesn't have configurable metrics yet
 		return nil
 	}
 }
@@ -109,7 +122,10 @@ func (p *Page) Render() (string, error) {
 		return "", fmt.Errorf("template execution failed: %w", err)
 	}
 
-	return buf.String(), nil
+	// Automatically inject lvt-id attributes with numeric IDs
+	htmlWithIds := p.injectLvtIds(buf.String())
+
+	return htmlWithIds, nil
 }
 
 // FragmentOption configures fragment generation behavior
@@ -145,30 +161,34 @@ func (p *Page) renderFragmentsWithConfig(ctx context.Context, newData interface{
 	p.currentDataMutex.Lock()
 	defer p.currentDataMutex.Unlock()
 
-	// Extract template source - simplified for tree generator
-	templateSource := p.template.Name()
-	if templateSource == "" {
-		templateSource = "template"
+	// Try to use unified diff if template source is available, otherwise fall back to basic approach
+	if p.templateSource == "" {
+		// Fallback: create a simple fragment with the rendered HTML
+		// This provides backward compatibility
+		return p.renderFragmentsBasic(ctx, newData, config)
 	}
 
-	// Generate fragments using the tree generator
+	// Generate fragments using the unified tree generator
 	oldData := p.data
-	fragmentID := fmt.Sprintf("fragment_%d", time.Now().UnixNano())
+	
+	// Use a stable numeric fragment ID for consistent caching
+	// For a single template page, always use fragment ID "1" 
+	fragmentID := "1"
 
 	var startTime time.Time
 	if config.IncludeMetadata {
 		startTime = time.Now()
 	}
 
-	treeResult, err := p.treeGenerator.GenerateFromTemplateSource(templateSource, oldData, newData, fragmentID)
+	unifiedUpdate, err := p.unifiedGenerator.GenerateFromTemplateSource(p.templateSource, oldData, newData, fragmentID)
 	if err != nil {
-		return nil, fmt.Errorf("tree fragment generation failed: %w", err)
+		return nil, fmt.Errorf("unified tree generation failed: %w", err)
 	}
 
-	// Create fragment from tree result
+	// Create fragment from unified update result
 	fragment := &Fragment{
 		ID:       fragmentID,
-		Data:     treeResult,
+		Data:     unifiedUpdate,
 		Metadata: nil, // Will be set conditionally below
 	}
 
@@ -180,7 +200,7 @@ func (p *Page) renderFragmentsWithConfig(ctx context.Context, newData interface{
 			OriginalSize:     0,
 			CompressedSize:   0,
 			CompressionRatio: 0,
-			Strategy:         1, // Tree-based strategy
+			Strategy:         2, // Unified tree diff strategy
 			Confidence:       1.0,
 			FallbackUsed:     false,
 		}
@@ -224,26 +244,34 @@ func (p *Page) SetTemplate(tmpl *template.Template) error {
 	return nil
 }
 
+// SetTemplateSource sets the template source for unified diff generation
+func (p *Page) SetTemplateSource(source string) error {
+	p.templateSource = source
+	return nil
+}
+
 // GetMetrics returns current fragment generation metrics
 func (p *Page) GetMetrics() *UpdateGeneratorMetrics {
-	// Tree generator doesn't expose detailed metrics yet
-	// Return empty metrics structure for backward compatibility
+	// Unified generator metrics
+	unifiedMetrics := p.unifiedGenerator.GetMetrics()
+	
 	return &UpdateGeneratorMetrics{
-		TotalGenerations:      0,
-		SuccessfulGenerations: 0,
-		FailedGenerations:     0,
-		StrategyUsage:         make(map[string]int64),
-		AverageGenerationTime: 0,
-		TotalBandwidthSaved:   0,
-		FallbackRate:          0,
-		ErrorRate:             0,
+		TotalGenerations:      unifiedMetrics.TotalGenerations,
+		SuccessfulGenerations: unifiedMetrics.SuccessfulGenerations,
+		FailedGenerations:     unifiedMetrics.FailedGenerations,
+		StrategyUsage:         map[string]int64{"tree_diff": unifiedMetrics.TotalGenerations},
+		AverageGenerationTime: unifiedMetrics.AverageGenerationTime,
+		TotalBandwidthSaved:   unifiedMetrics.TotalBandwidthSaved,
+		FallbackRate:          0, // Unified approach doesn't use fallbacks
+		ErrorRate:             float64(unifiedMetrics.FailedGenerations) / float64(unifiedMetrics.TotalGenerations),
 		LastReset:             p.created,
 	}
 }
 
 // ResetMetrics resets all fragment generation metrics
 func (p *Page) ResetMetrics() {
-	// Tree generator doesn't have metrics to reset yet
+	// Create a new unified generator to reset metrics
+	p.unifiedGenerator = diff.NewGenerator()
 }
 
 // UpdateGeneratorMetrics tracks performance of the update generation pipeline
@@ -264,6 +292,56 @@ func (p *Page) GetCreatedTime() time.Time {
 	return p.created
 }
 
+// renderFragmentsBasic provides backward compatibility when no template source is available
+func (p *Page) renderFragmentsBasic(ctx context.Context, newData interface{}, config *FragmentConfig) ([]*Fragment, error) {
+	// Basic approach: render full HTML and return as single fragment
+	// This maintains compatibility but doesn't provide optimal bandwidth savings
+	
+	// Use stable fragment ID for consistency with unified approach
+	fragmentID := "1"
+	
+	var startTime time.Time
+	if config.IncludeMetadata {
+		startTime = time.Now()
+	}
+	
+	// Render new template with new data
+	var buf strings.Builder
+	err := p.template.Execute(&buf, newData)
+	if err != nil {
+		return nil, fmt.Errorf("template execution failed: %w", err)
+	}
+	
+	// Create a basic fragment with the full HTML
+	fragment := &Fragment{
+		ID:   fragmentID,
+		Data: map[string]interface{}{
+			"html": buf.String(),
+			"type": "full_replace",
+		},
+		Metadata: nil,
+	}
+	
+	// Add metadata if requested
+	if config.IncludeMetadata {
+		generationTime := time.Since(startTime)
+		fragment.Metadata = &FragmentMetadata{
+			GenerationTime:   generationTime,
+			OriginalSize:     0,
+			CompressedSize:   0,
+			CompressionRatio: 0,
+			Strategy:         0, // Basic fallback strategy
+			Confidence:       1.0,
+			FallbackUsed:     true,
+		}
+	}
+	
+	// Update current data state
+	p.data = newData
+	
+	return []*Fragment{fragment}, nil
+}
+
 // Close cleans up page resources
 func (p *Page) Close() error {
 	// For the basic API, minimal cleanup is needed
@@ -273,6 +351,49 @@ func (p *Page) Close() error {
 
 	p.data = nil
 	return nil
+}
+
+// injectLvtIds automatically injects lvt-id attributes with numeric IDs
+func (p *Page) injectLvtIds(html string) string {
+	// Find elements that contain template expressions and need fragment tracking
+	// For simplicity, we'll look for any elements that might contain dynamic content
+	// This is a simple implementation - could be made more sophisticated
+	
+	// Reset fragment counter for rendering (keeps consistent IDs)
+	lvtIdCounter := 0
+	
+	// First, remove ALL existing lvt-id attributes from ALL elements
+	// We'll add them back in a controlled manner based on our logic
+	html = regexp.MustCompile(`\s*lvt-id="[^"]*"`).ReplaceAllString(html, "")
+	
+	// Regex to find elements that contain template expressions or existing lvt-id attributes
+	// We'll inject lvt-id into div elements that seem to have dynamic content
+	elementRegex := regexp.MustCompile(`<(div|span|p|h[1-6]|section|article|main)([^>]*?)>`)
+	
+	result := elementRegex.ReplaceAllStringFunc(html, func(match string) string {
+		// Check if this element needs an lvt-id attribute
+		// Simple heuristic: if the content contains style attributes or class attributes (dynamic content)
+		if strings.Contains(match, "style=") || strings.Contains(match, "class=") {
+			lvtIdCounter++
+			// Insert lvt-id attribute before the closing >
+			return strings.Replace(match, ">", fmt.Sprintf(` lvt-id="%d">`, lvtIdCounter), 1)
+		}
+		
+		return match
+	})
+	
+	return result
+}
+
+// extractFragmentID extracts the first lvt-id attribute from the template source
+func (p *Page) extractFragmentID(templateSource string) string {
+	// Look for lvt-id="value" in the template
+	re := regexp.MustCompile(`lvt-id="([^"]+)"`)
+	matches := re.FindStringSubmatch(templateSource)
+	if len(matches) > 1 {
+		return matches[1]
+	}
+	return ""
 }
 
 // Helper functions

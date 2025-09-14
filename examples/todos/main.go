@@ -270,14 +270,12 @@ func main() {
 	http.HandleFunc("/", server.handleHome)
 	http.HandleFunc("/ws", server.handleWebSocket)
 
-	// Serve the LiveTemplate client library
-	http.HandleFunc("/client/livetemplate-client.js", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Serving client JS to: %s", r.RemoteAddr)
+	// Serve the bundled LiveTemplate client library
+	http.HandleFunc("/dist/", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Serving bundled client to: %s", r.RemoteAddr)
 		w.Header().Set("Content-Type", "application/javascript")
-		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Expires", "0")
-		http.ServeFile(w, r, "../../client/livetemplate-client.js")
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		http.StripPrefix("/dist/", http.FileServer(http.Dir("../../dist/"))).ServeHTTP(w, r)
 	})
 
 	fmt.Printf("Todo app running on http://localhost:%s\n", port)
