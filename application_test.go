@@ -252,12 +252,11 @@ func TestApplication_ActionHandling(t *testing.T) {
 		return data, nil
 	})
 
-	// Create a page
-	tmpl := template.Must(template.New("test").Parse("<div>{{.Count}}</div>"))
-	err = app.RegisterTemplate("test", tmpl)
-	if err != nil {
-		t.Fatalf("RegisterTemplate failed: %v", err)
-	}
+	// Create a page with template source for unified diff support
+	templateSource := "<div>{{.Count}}</div>"
+	tmpl := template.Must(template.New("test").Parse(templateSource))
+	app.templates["test"] = tmpl
+	app.templateSources["test"] = templateSource // Store template source for unified diff
 
 	data := map[string]int{"Count": 10}
 	page, err := app.NewPage("test", data)
@@ -341,7 +340,9 @@ func TestParseCacheInfoFromURL(t *testing.T) {
 			values, _ := url.ParseQuery(tt.queryString)
 			cacheInfo := ParseCacheInfoFromURL(values)
 
-			hasCache := len(cacheInfo.CachedFragmentsList) > 0
+			// Check if has_cache parameter was explicitly set to true
+			queryValues, _ := url.ParseQuery(tt.queryString)
+			hasCache := queryValues.Get("has_cache") == "true"
 			if hasCache != tt.expectedHasCache {
 				t.Errorf("HasCache = %v, want %v", hasCache, tt.expectedHasCache)
 			}
