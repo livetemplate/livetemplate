@@ -43,9 +43,6 @@ type Page struct {
 	// Update generation pipeline - using unified tree-based generator
 	unifiedGenerator *diff.Generator
 
-	// Fragment ID generation
-	fragmentIDCounter int // Simple counter for generating fragment IDs
-
 	// Configuration
 	enableMetrics bool
 	created       time.Time
@@ -383,17 +380,6 @@ func (p *Page) injectLvtIds(html string) string {
 	})
 
 	return result
-}
-
-// extractFragmentID extracts the first lvt-id attribute from the template source
-func (p *Page) extractFragmentID(templateSource string) string {
-	// Look for lvt-id="value" in the template
-	re := regexp.MustCompile(`lvt-id="([^"]+)"`)
-	matches := re.FindStringSubmatch(templateSource)
-	if len(matches) > 1 {
-		return matches[1]
-	}
-	return ""
 }
 
 // Helper functions

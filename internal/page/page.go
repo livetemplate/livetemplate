@@ -21,20 +21,19 @@ import (
 
 // Page represents an isolated user session with stateless design
 type Page struct {
-	ID                string
-	ApplicationID     string
-	TemplateHash      string
-	template          *template.Template
-	templateSource    string // Store original template source for tree analysis
-	data              interface{}
-	createdAt         time.Time
-	lastAccessed      time.Time
-	fragmentCache     map[string]string
-	treeGenerator     *diff.Generator
-	config            *Config
-	regions           []TemplateRegion // Cache template regions to ensure consistent IDs
-	fragmentIDCounter int              // Simple counter for generating fragment IDs
-	mu                sync.RWMutex
+	ID             string
+	ApplicationID  string
+	TemplateHash   string
+	template       *template.Template
+	templateSource string // Store original template source for tree analysis
+	data           interface{}
+	createdAt      time.Time
+	lastAccessed   time.Time
+	fragmentCache  map[string]string
+	treeGenerator  *diff.Generator
+	config         *Config
+	regions        []TemplateRegion // Cache template regions to ensure consistent IDs
+	mu             sync.RWMutex
 }
 
 // Config defines Page configuration

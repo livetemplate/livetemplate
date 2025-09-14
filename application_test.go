@@ -174,12 +174,12 @@ func TestApplication_GetPageWithCacheInfo(t *testing.T) {
 		t.Fatal("cache info should not be nil")
 	}
 
-	if !cacheInfo.HasCache {
-		t.Error("HasCache should be true")
+	if len(cacheInfo.CachedFragmentsList) == 0 {
+		t.Error("should have cached fragments")
 	}
 
-	if len(cacheInfo.CachedFragments) != 2 {
-		t.Errorf("expected 2 cached fragments, got %d", len(cacheInfo.CachedFragments))
+	if len(cacheInfo.CachedFragmentsList) != 2 {
+		t.Errorf("expected 2 cached fragments, got %d", len(cacheInfo.CachedFragmentsList))
 	}
 }
 
@@ -307,7 +307,7 @@ func TestParseCacheInfoFromURL(t *testing.T) {
 	tests := []struct {
 		name              string
 		queryString       string
-		expectedHasCache  bool
+		expectedHasCache  bool // deprecated but kept for test structure
 		expectedFragments int
 	}{
 		{
@@ -341,13 +341,14 @@ func TestParseCacheInfoFromURL(t *testing.T) {
 			values, _ := url.ParseQuery(tt.queryString)
 			cacheInfo := ParseCacheInfoFromURL(values)
 
-			if cacheInfo.HasCache != tt.expectedHasCache {
-				t.Errorf("HasCache = %v, want %v", cacheInfo.HasCache, tt.expectedHasCache)
+			hasCache := len(cacheInfo.CachedFragmentsList) > 0
+			if hasCache != tt.expectedHasCache {
+				t.Errorf("HasCache = %v, want %v", hasCache, tt.expectedHasCache)
 			}
 
-			if len(cacheInfo.CachedFragments) != tt.expectedFragments {
-				t.Errorf("CachedFragments length = %d, want %d",
-					len(cacheInfo.CachedFragments), tt.expectedFragments)
+			if len(cacheInfo.CachedFragmentsList) != tt.expectedFragments {
+				t.Errorf("CachedFragmentsList length = %d, want %d",
+					len(cacheInfo.CachedFragmentsList), tt.expectedFragments)
 			}
 		})
 	}
