@@ -1,0 +1,17 @@
+[
+  {
+    "text": "Learn Go templates",
+    "completed": false,
+    "priority": "High"
+  },
+  {
+    "text": "Build live updates", 
+    "completed": true,
+    "priority": "Medium"
+  },
+  {
+    "text": "Write documentation",
+    "completed": false,
+    "priority": "Low"
+  }
+]

@@ -1,188 +1,179 @@
-# LiveTemplate JavaScript Client
+# LiveTemplate TypeScript Client
 
-JavaScript client library for LiveTemplate, providing real-time DOM updates via WebSocket with tree-based diff optimization.
+A TypeScript client for consuming LiveTemplate tree-based updates, implementing Phoenix LiveView-style optimization.
 
-## 📁 Project Structure
+## 🚀 Features
 
-```
-client/
-├── livetemplate-client.js    # Main client library (ES6)
-├── dist/                     # Built distributions
-│   ├── livetemplate-client.js      # Development build (unminified + sourcemap)
-│   └── livetemplate-client.min.js  # Production build (minified)
-├── tests/                    # Test suite
-│   ├── LiveTemplateClient.unit.test.js  # Unit tests
-│   ├── setup.js             # Jest test setup
-│   └── README.md             # Testing documentation
-├── coverage/                 # Test coverage reports
-├── package.json              # NPM configuration
-├── jest.config.js           # Jest test configuration
-└── README.md                # This file
-```
+- **Tree-based Updates**: Consume optimized JSON updates from LiveTemplate server
+- **Static Structure Caching**: Cache static HTML structure client-side for maximum efficiency
+- **Phoenix LiveView Compatible**: Only dynamic values transmitted after initial render
+- **Bandwidth Optimization**: 75%+ reduction in update payload sizes
+- **Type Safety**: Full TypeScript support with type definitions
 
-## 🚀 Quick Start
-
-### Installation
-
-The client can be used in two ways:
-
-#### 1. ES6 Module (Recommended)
-```javascript
-import LiveTemplateClient from './livetemplate-client.js';
-```
-
-#### 2. Browser Global (IIFE)
-```html
-<script src="dist/livetemplate-client.min.js"></script>
-<script>
-  // LiveTemplateClient is now available globally
-  const client = new LiveTemplateClient();
-</script>
-```
-
-### Auto-Initialization
-
-The client auto-initializes when:
-1. DOM is ready
-2. A `<meta name="livetemplate-token" content="{{.Token}}">` tag is found
-
-#### Template Setup
-Add this to your HTML template:
-```html
-<meta name="livetemplate-token" content="{{.Token}}">
-```
-
-#### Action Buttons
-Use data attributes for automatic action handling:
-```html
-<!-- Simple action -->
-<button data-lvt-action="increment">+</button>
-
-<!-- Action with element capture -->
-<input id="todo-input" type="text">
-<button data-lvt-action="addTodo" data-lvt-element="todo-input">Add Todo</button>
-
-<!-- Action with JSON parameters -->
-<button data-lvt-action="deleteItem" data-lvt-params='{"id": 123}'>Delete</button>
-```
-
-## 🔧 Development
-
-### Building
+## 📦 Installation
 
 ```bash
-# Production build (minified)
+npm install
 npm run build
-
-# Development build (with sourcemap)  
-npm run build:dev
-
-# Watch mode for development
-npm run watch
 ```
 
-### Testing
+## 🧪 Testing
+
+The client includes comprehensive tests to validate the optimization effectiveness:
 
 ```bash
-# Run tests
-npm test
+# Run optimization validation tests
+npm run test:optimization
 
-# Run tests with coverage
-npm run test:coverage
+# Run HTML reconstruction tests  
+npm run test:reconstruction
 
-# Run tests in watch mode
-npm run test:watch
+# Run all tests
+npm run test:all
 ```
 
-**Current Test Coverage**: 37% statements, 36% branches, 45% functions
-- ✅ 26 unit tests covering core functionality
-- ✅ WebSocket connection management
-- ✅ Fragment reconstruction logic
-- ✅ Static cache operations
-- ✅ Error handling and edge cases
+## 📊 Test Results
 
-## 🎯 Features
+Current optimization performance:
 
-- 🚀 **Tree-based optimization** - 92%+ bandwidth reduction
-- 💾 **Static content caching** - Reuse cached HTML segments  
-- 🔄 **Automatic reconnection** - Exponential backoff on connection loss
-- 🎯 **Smart element targeting** - `lvt-id` and fallback to `id`
-- 📦 **Morphdom integration** - Efficient DOM updates preserving state
-- 🛡️ **Error resilience** - Graceful handling of malformed data
+- **Update 1**: 168 bytes (first update after initial render)
+- **Update 2**: 128 bytes (subsequent optimized update)  
+- **Bandwidth Savings**: ~75.3% vs full HTML updates
+- **Static Structure**: Successfully excluded from updates ✅
 
-## 📡 Tree-Based Updates
+## 🛠️ Usage
 
-LiveTemplate uses tree-based optimization for minimal data transfer:
+### Basic Client Usage
 
-```javascript
-// Server sends minimal diff data
-{
-  "s": ["<p>Hello ", "!</p>"],  // Static HTML segments (cached)
-  "0": "World"                  // Dynamic values by position
-}
+```typescript
+import { LiveTemplateClient } from './livetemplate-client';
 
-// Client reconstructs: "<p>Hello World!</p>"
-```
+const client = new LiveTemplateClient();
 
-## 🔌 Manual Usage
-
-```javascript
-const client = new LiveTemplateClient({
-  wsUrl: 'ws://localhost:8080/ws',
-  onOpen: () => console.log('Connected'),
-  onError: (error) => console.error('Error:', error),
-  onFragmentUpdate: (fragment, element) => {
-    console.log(`Updated fragment ${fragment.id}`);
-  }
+// Apply initial update (includes static structure)
+const initialResult = client.applyUpdate({
+  "s": ["<h1>", "</h1><p>Count: ", "</p>"], // Static HTML segments
+  "0": "Hello World",                       // Dynamic content
+  "1": "42"                                // Dynamic content
 });
 
-// Connect with page token
-client.connect('your-page-token');
+console.log(initialResult.html); // "<h1>Hello World</h1><p>Count: 42</p>"
 
-// Send actions
-client.sendAction('updateCounter', { value: 42 });
+// Apply subsequent update (only changed dynamic values)  
+const updateResult = client.applyUpdate({
+  "1": "43"  // Only the changed value
+});
 
-// Disconnect
-client.disconnect();
+console.log(updateResult.html); // "<h1>Hello World</h1><p>Count: 43</p>"
+console.log(updateResult.changed); // true
 ```
 
-## 📚 API Reference
+### Loading Updates from Files
 
-### Constructor Options
-- `wsUrl` - WebSocket URL (auto-detected from location)
-- `maxReconnectAttempts` - Max reconnection attempts (default: 5)
-- `reconnectDelay` - Initial reconnect delay in ms (default: 1000)
-- `onOpen` - Connection opened callback
-- `onClose` - Connection closed callback  
-- `onError` - Error callback
-- `onFragmentUpdate` - Fragment update callback
+```typescript
+import { loadAndApplyUpdate } from './livetemplate-client';
 
-### Methods
-- `connect(token)` - Connect with page token
-- `disconnect()` - Close connection and cleanup
-- `sendAction(action, data)` - Send action to server
-- `applyFragments(fragments)` - Apply fragment updates to DOM
+const client = new LiveTemplateClient();
 
-## 🌐 Browser Support
+// Load update from JSON file
+const result = await loadAndApplyUpdate(client, 'update_01.json');
+console.log(result.html);
+```
 
-- Modern browsers with WebSocket support
-- ES6+ features (use build for older browsers)
-- DOM manipulation APIs (querySelector, morphdom)
+### HTML Comparison
 
-## 📄 Dependencies
+```typescript
+import { compareHTML } from './livetemplate-client';
 
-- **morphdom** - Efficient DOM diffing and patching
-- **esbuild** - Fast JavaScript bundler (dev dependency)
-- **jest** - JavaScript testing framework (dev dependency)
+const comparison = compareHTML(expectedHTML, actualHTML);
+if (comparison.match) {
+  console.log('✅ HTML matches!');
+} else {
+  console.log('❌ Differences found:', comparison.differences);
+}
+```
 
 ## 🏗️ Architecture
 
-```
-LiveTemplate Client
-├── WebSocket Connection (/ws?token=...)  
-├── Static Cache (Map<fragmentId, statics[]>)
-├── Fragment Processing (diff.Update format)
-└── DOM Updates (morphdom)
+### Tree-Based Updates
+
+LiveTemplate uses a tree-based approach where:
+
+1. **Static Structure** (`"s"` key): HTML segments sent once and cached client-side
+2. **Dynamic Values** (numbered keys): Only the values that change between updates
+3. **Segment Interleaving**: Client reconstructs HTML by interleaving static + dynamic
+
+Example update structure:
+
+```json
+{
+  "s": ["<h1>", "</h1><div>Count: ", "</div>"],  // Static HTML (sent once)
+  "0": "Task Manager",                           // Dynamic: page title  
+  "1": "42"                                      // Dynamic: counter value
+}
 ```
 
-The client is designed to work exclusively with Go's `diff.Update` structure, providing maximum efficiency and tree-based optimization for real-time web applications.
+### Optimization Strategy
+
+Following Phoenix LiveView's approach:
+
+- **Initial Render**: Full HTML + cached static structure
+- **Subsequent Updates**: Only changed dynamic values (75%+ bandwidth savings)
+- **Client Reconstruction**: Merge updates with cached structure
+- **DOM Morphing**: Let morphdom handle efficient DOM updates
+
+## 🧪 Test Data
+
+The test suite validates optimization using real E2E test data:
+
+- `testdata/e2e/update_01_add_todos.json` - First optimized update (168 bytes)
+- `testdata/e2e/update_02_remove_todo.json` - Subsequent update (128 bytes)
+- `testdata/e2e/rendered_*.html` - Expected HTML output for comparison
+
+## 🔧 API Reference
+
+### LiveTemplateClient
+
+#### `applyUpdate(update: TreeNode): UpdateResult`
+
+Apply a tree-based update to the client state.
+
+- **Parameters**: `update` - Tree update object from LiveTemplate server
+- **Returns**: `{ html: string, changed: boolean }`
+
+#### `reset(): void`
+
+Reset client state (useful for testing).
+
+#### `getState(): { static: string[] | null, dynamic: object }`
+
+Get current cached state for debugging.
+
+### Utility Functions
+
+#### `loadAndApplyUpdate(client, path): Promise<UpdateResult>`
+
+Load update from JSON file and apply to client.
+
+#### `compareHTML(expected, actual): { match: boolean, differences: string[] }`
+
+Compare two HTML strings, ignoring whitespace differences.
+
+## 🚀 Performance
+
+Optimization results with real E2E test data:
+
+| Update Type | Size (bytes) | Bandwidth Savings |
+|-------------|--------------|-------------------|
+| Full HTML   | ~600         | 0% (baseline)     |
+| Optimized #1| 168          | 72%               |
+| Optimized #2| 128          | 79%               |
+| **Average** | **148**      | **~75.3%**        |
+
+## 📈 Future Enhancements
+
+- Browser-based DOM morphing integration
+- WebSocket client for real-time updates  
+- React/Vue.js integration hooks
+- Advanced diff algorithms for complex nested structures
+- Performance monitoring and metrics

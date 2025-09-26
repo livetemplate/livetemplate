@@ -1,21 +1,15 @@
+/** @type {import('ts-jest').JestConfigWithTsJest} */
 module.exports = {
-  testEnvironment: 'jsdom',
-  setupFilesAfterEnv: ['<rootDir>/tests/setup.js'],
-  testMatch: ['<rootDir>/tests/**/*.test.js'],
+  preset: 'ts-jest',
+  testEnvironment: 'node',
+  roots: ['<rootDir>/tests'],
+  testMatch: ['**/*.test.ts', '**/*.spec.ts'],
   collectCoverageFrom: [
-    'livetemplate-client.js',
-    '!tests/**'
+    'livetemplate-client.ts',
+    '!tests/**',
+    '!dist/**'
   ],
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'lcov', 'html'],
-  transform: {
-    '^.+\\.js$': ['babel-jest', {
-      presets: [
-        ['@babel/preset-env', { targets: { node: 'current' } }]
-      ]
-    }]
-  },
-  moduleNameMapper: {
-    '^morphdom$': '<rootDir>/node_modules/morphdom/dist/morphdom.js'
-  }
+  verbose: true
 };

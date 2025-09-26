@@ -1,28 +1,36 @@
 {
-  "name": "livetemplate",
+  "name": "livetemplate-client",
   "version": "1.0.0",
-  "description": "LiveTemplate JavaScript client with tree-based diff updates",
-  "main": "livetemplate-client.js",
+  "description": "TypeScript client for LiveTemplate tree-based updates",
+  "main": "dist/livetemplate-client.js",
   "scripts": {
-    "build": "esbuild livetemplate-client.js --bundle --outfile=dist/livetemplate-client.min.js --minify --format=iife --keep-names",
-    "build:dev": "esbuild livetemplate-client.js --bundle --outfile=dist/livetemplate-client.js --format=iife --global-name=LiveTemplateClient --sourcemap",
-    "watch": "esbuild livetemplate-client.js --bundle --outfile=dist/livetemplate-client.js --format=iife --global-name=LiveTemplateClient --sourcemap --watch",
+    "build": "tsc",
     "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "test:reconstruction": "jest test-reconstruction",
+    "clean": "rm -rf dist"
   },
+  "keywords": [
+    "livetemplate",
+    "html",
+    "tree-updates",
+    "phoenix-liveview",
+    "client"
+  ],
+  "author": "LiveTemplate",
+  "license": "MIT",
   "devDependencies": {
-    "@babel/core": "^7.28.4",
-    "@babel/preset-env": "^7.28.3",
-    "@testing-library/jest-dom": "^6.8.0",
-    "babel-jest": "^30.1.2",
-    "esbuild": "^0.19.0",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20.0.0",
     "jest": "^30.1.3",
-    "jest-environment-jsdom": "^30.1.2",
-    "jsdom": "^27.0.0",
-    "ws": "^8.18.3"
+    "ts-jest": "^29.4.4",
+    "typescript": "^5.0.0"
   },
+  "files": [
+    "dist/**/*",
+    "README.md"
+  ],
   "dependencies": {
-    "morphdom": "^2.7.0"
+    "@types/morphdom": "^2.3.0",
+    "morphdom": "^2.7.7"
   }
 }
