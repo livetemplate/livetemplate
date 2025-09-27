@@ -20,6 +20,7 @@ export interface UpdateResult {
 
 export class LiveTemplateClient {
   private treeState: TreeNode = {};
+  private rangeState: { [fieldKey: string]: any[] } = {}; // Track range items by field key
   private lvtId: string | null = null;
 
   /**
@@ -68,7 +69,7 @@ export class LiveTemplateClient {
         if (i < node.s.length - 1) {
           const dynamicKey = i.toString();
           if (node[dynamicKey] !== undefined) {
-            html += this.renderValue(node[dynamicKey]);
+            html += this.renderValue(node[dynamicKey], dynamicKey);
           }
         }
       }
@@ -86,23 +87,40 @@ export class LiveTemplateClient {
   /**
    * Render a dynamic value (could be string, nested tree, or array)
    */
-  private renderValue(value: any): string {
+  private renderValue(value: any, fieldKey?: string): string {
     if (value === null || value === undefined) {
       return '';
     }
-    
+
     // Skip template control expressions
     if (typeof value === 'string' && value.startsWith('{{') && value.endsWith('}}')) {
       return ''; // Don't render template expressions
     }
-    
-    // If it's a nested tree structure
-    if (typeof value === 'object' && !Array.isArray(value) && value.s) {
-      return this.reconstructFromTree(value);
+
+    // Handle range structures with 'd' (dynamics) and 's' (statics) arrays
+    if (typeof value === 'object' && !Array.isArray(value)) {
+      // Check if this is a range structure with 'd' and 's'
+      if (value.d && Array.isArray(value.d) && value.s && Array.isArray(value.s)) {
+        // Store the range items in our state for differential operations
+        if (fieldKey) {
+          this.rangeState[fieldKey] = value.d;
+        }
+        return this.renderRangeStructure(value);
+      }
+      // Regular nested tree structure
+      if (value.s) {
+        return this.reconstructFromTree(value);
+      }
     }
-    
-    // If it's an array (from range iteration)
+
+    // Handle differential operations array
     if (Array.isArray(value)) {
+      // Check if this is a differential operations array
+      if (value.length > 0 && Array.isArray(value[0]) && typeof value[0][0] === 'string') {
+        return this.applyDifferentialOperations(value, fieldKey);
+      }
+
+      // Regular array (from range iteration)
       return value.map(item => {
         // Each item should be a tree node with its own static/dynamic structure
         if (typeof item === 'object' && item.s) {
@@ -111,9 +129,143 @@ export class LiveTemplateClient {
         return this.renderValue(item);
       }).join('');
     }
-    
+
     // Simple string/number value
     return String(value);
+  }
+
+  /**
+   * Render a range structure with 'd' (dynamics) and 's' (statics) arrays
+   */
+  private renderRangeStructure(rangeNode: any): string {
+    const { d: dynamics, s: statics } = rangeNode;
+
+    if (!dynamics || !Array.isArray(dynamics)) {
+      return '';
+    }
+
+    // For empty ranges
+    if (dynamics.length === 0) {
+      // Check if there's alternative content for empty ranges
+      if (rangeNode['else']) {
+        return this.renderValue(rangeNode['else']);
+      }
+      return '';
+    }
+
+    // If we have statics, use them as the template for each item
+    if (statics && Array.isArray(statics)) {
+      return dynamics.map((item: any) => {
+        let html = '';
+
+        for (let i = 0; i < statics.length; i++) {
+          html += statics[i];
+
+          // Add dynamic value if not at the last static segment
+          if (i < statics.length - 1) {
+            const fieldKey = i.toString();
+            if (item[fieldKey] !== undefined) {
+              html += this.renderValue(item[fieldKey]);
+            }
+          }
+        }
+
+        return html;
+      }).join('');
+    }
+
+    // Fallback: render items as-is if no statics template
+    return dynamics.map(item => this.renderValue(item)).join('');
+  }
+
+  /**
+   * Apply differential operations to existing range items
+   * Operations: ["r", key] for remove, ["u", key, changes] for update, ["a", key, data] for add
+   */
+  private applyDifferentialOperations(operations: any[], fieldKey?: string): string {
+    if (!fieldKey || !this.rangeState[fieldKey]) {
+      // If we don't have previous range state, we can't apply differential operations
+      // This happens on the first load - just return empty for now
+      return '';
+    }
+
+    const currentItems = [...this.rangeState[fieldKey]]; // Clone current items
+
+    // Apply each operation
+    for (const operation of operations) {
+      if (!Array.isArray(operation) || operation.length < 2) {
+        continue;
+      }
+
+      const [opType, key, data] = operation;
+      const itemIndex = currentItems.findIndex((item: any) => item['1'] === key); // Field '1' contains the key
+
+      switch (opType) {
+        case 'r': // Remove
+          if (itemIndex >= 0) {
+            currentItems.splice(itemIndex, 1);
+          }
+          break;
+
+        case 'u': // Update
+          if (itemIndex >= 0 && data) {
+            // Merge the changes into the existing item
+            currentItems[itemIndex] = { ...currentItems[itemIndex], ...data };
+          }
+          break;
+
+        case 'a': // Add
+          if (data) {
+            currentItems.push(data);
+          }
+          break;
+      }
+    }
+
+    // Update our range state
+    this.rangeState[fieldKey] = currentItems;
+
+    // Render using the current range structure template
+    const rangeStructure = this.getCurrentRangeStructure(fieldKey);
+    if (rangeStructure && rangeStructure.s) {
+      return this.renderItemsWithStatics(currentItems, rangeStructure.s);
+    }
+
+    return currentItems.map(item => this.renderValue(item)).join('');
+  }
+
+  /**
+   * Get the current range structure for a field
+   */
+  private getCurrentRangeStructure(fieldKey: string): any {
+    const fieldValue = this.treeState[fieldKey];
+    if (fieldValue && typeof fieldValue === 'object' && fieldValue.s) {
+      return fieldValue;
+    }
+    return null;
+  }
+
+  /**
+   * Render items using static template
+   */
+  private renderItemsWithStatics(items: any[], statics: string[]): string {
+    return items.map((item: any) => {
+      let html = '';
+
+      for (let i = 0; i < statics.length; i++) {
+        html += statics[i];
+
+        // Add dynamic value if not at the last static segment
+        if (i < statics.length - 1) {
+          const fieldKey = i.toString();
+          if (item[fieldKey] !== undefined) {
+            html += this.renderValue(item[fieldKey]);
+          }
+        }
+      }
+
+      return html;
+    }).join('');
   }
 
   /**
@@ -185,6 +337,7 @@ export class LiveTemplateClient {
    */
   reset(): void {
     this.treeState = {};
+    this.rangeState = {};
     this.lvtId = null;
   }
 
