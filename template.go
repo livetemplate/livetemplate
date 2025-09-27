@@ -361,12 +361,13 @@ func (t *Template) compareTreesAndGetChanges(oldTree, newTree TreeNode) TreeNode
 			if matchedOldField, isRangeMatch := rangeMatches[k]; isRangeMatch {
 				// Get the corresponding old range construct
 				oldRangeValue := oldTree[matchedOldField]
-				// Range match found
 				// Generate differential operations for matched range constructs
 				diffOps := generateRangeDifferentialOperations(oldRangeValue, newValue)
-				// Generated differential operations
 				if len(diffOps) > 0 {
 					changes[k] = diffOps
+				} else {
+					// Fall back to full update if no differential operations
+					changes[k] = newValue
 				}
 			} else {
 				// Regular change detection for non-range values

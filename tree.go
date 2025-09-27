@@ -1567,8 +1567,23 @@ func extractRangeFieldName(rangeText string) string {
 // getFieldValue gets a field value from data using reflection
 func getFieldValue(data interface{}, fieldName string) (interface{}, error) {
 	dataValue := reflect.ValueOf(data)
+
+	// Handle maps
+	if dataValue.Kind() == reflect.Map {
+		mapData, ok := data.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("map must be map[string]interface{}")
+		}
+		value, exists := mapData[fieldName]
+		if !exists {
+			return nil, fmt.Errorf("field %s not found", fieldName)
+		}
+		return value, nil
+	}
+
+	// Handle structs
 	if dataValue.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("data must be struct")
+		return nil, fmt.Errorf("data must be struct or map")
 	}
 
 	field := dataValue.FieldByName(fieldName)
@@ -1859,46 +1874,158 @@ func evaluateRangeExpression(expr string, item interface{}, index int) interface
 	return cleanExpr
 }
 
-// evaluateConditionalInRangeContext evaluates conditionals within range items
+// extractFieldFromCondition extracts the field name from a conditional expression like {{if .FieldName}}
+func extractFieldFromCondition(expr string) string {
+	// Look for pattern {{if .FieldName}}
+	start := strings.Index(expr, "{{if .")
+	if start == -1 {
+		return ""
+	}
+
+	// Find the end of the field name (could be }}, space, or comparison operator)
+	fieldStart := start + 6 // len("{{if .")
+	fieldEnd := fieldStart
+
+	for fieldEnd < len(expr) {
+		ch := expr[fieldEnd]
+		if ch == '}' || ch == ' ' || ch == '=' || ch == '!' || ch == '<' || ch == '>' {
+			break
+		}
+		fieldEnd++
+	}
+
+	if fieldEnd > fieldStart {
+		return expr[fieldStart:fieldEnd]
+	}
+	return ""
+}
+
+// evaluateCondition evaluates whether a value is "truthy" for conditionals
+func evaluateCondition(value interface{}) bool {
+	if value == nil {
+		return false
+	}
+
+	// Handle different types
+	switch v := value.(type) {
+	case bool:
+		return v
+	case string:
+		return v != ""
+	case int, int8, int16, int32, int64:
+		return reflect.ValueOf(v).Int() != 0
+	case uint, uint8, uint16, uint32, uint64:
+		return reflect.ValueOf(v).Uint() != 0
+	case float32, float64:
+		return reflect.ValueOf(v).Float() != 0.0
+	default:
+		// For slices, arrays, maps, check if not empty
+		rv := reflect.ValueOf(value)
+		switch rv.Kind() {
+		case reflect.Slice, reflect.Array, reflect.Map:
+			return rv.Len() > 0
+		case reflect.Ptr:
+			return !rv.IsNil()
+		default:
+			// Default: non-nil values are truthy
+			return true
+		}
+	}
+}
+
+// evaluateEmbeddedFields evaluates field references within conditional content
+func evaluateEmbeddedFields(content string, item interface{}) interface{} {
+	// If the content contains {{.Field}}, evaluate it
+	if strings.Contains(content, "{{.") && strings.Contains(content, "}}") {
+		// Find and evaluate field expressions
+		result := content
+
+		// Find all {{.Field}} patterns
+		re := regexp.MustCompile(`\{\{\.(\w+)\}\}`)
+		matches := re.FindAllStringSubmatch(content, -1)
+
+		for _, match := range matches {
+			if len(match) >= 2 {
+				fieldName := match[1]
+				fieldValue, err := getFieldValue(item, fieldName)
+				if err == nil && fieldValue != nil {
+					// Replace the pattern with the field value
+					result = strings.Replace(result, match[0], fmt.Sprintf("%v", fieldValue), -1)
+				}
+			}
+		}
+
+		return result
+	}
+
+	// Return content as-is if no field references
+	return content
+}
+
+// evaluateConditionalInRangeContext evaluates conditionals within range items generically
 func evaluateConditionalInRangeContext(expr string, item interface{}) interface{} {
-	// Handle if-else patterns first (more specific) like {{if .Completed}}✓{{else}}○{{end}}
-	if strings.Contains(expr, "if .Completed") && strings.Contains(expr, "{{else}}") {
-		completed, _ := getFieldValue(item, "Completed")
-		if completed == true {
+	// Generic pattern matching for {{if .FieldName}}...{{else}}...{{end}}
+	if strings.Contains(expr, "{{if ") && strings.Contains(expr, "{{else}}") {
+		// Extract the field name from {{if .FieldName}}
+		fieldName := extractFieldFromCondition(expr)
+		if fieldName == "" {
+			return ""
+		}
+
+		// Get field value dynamically
+		fieldValue, err := getFieldValue(item, fieldName)
+		if err != nil {
+			return ""
+		}
+
+		// Evaluate the condition based on the field value
+		conditionTrue := evaluateCondition(fieldValue)
+
+		if conditionTrue {
 			// Extract content between }}...{{else}}
 			start := strings.Index(expr, "}}")
 			end := strings.Index(expr, "{{else}}")
 			if start != -1 && end != -1 && start < end {
-				return strings.TrimSpace(expr[start+2 : end])
+				content := strings.TrimSpace(expr[start+2 : end])
+				// If content contains field references, evaluate them
+				return evaluateEmbeddedFields(content, item)
 			}
 		} else {
 			// Extract content between {{else}}...{{end}}
 			start := strings.Index(expr, "{{else}}")
 			end := strings.Index(expr, "{{end}}")
 			if start != -1 && end != -1 && start < end {
-				return strings.TrimSpace(expr[start+8 : end])
+				content := strings.TrimSpace(expr[start+8 : end])
+				// If content contains field references, evaluate them
+				return evaluateEmbeddedFields(content, item)
 			}
 		}
 		return ""
 	}
 
-	// Handle simple boolean conditionals like {{if .Completed}}completed{{end}}
-	if strings.Contains(expr, "if .Completed") {
-		completed, _ := getFieldValue(item, "Completed")
-		if completed == true {
-			if strings.Contains(expr, "}}completed{{") {
-				return "completed"
-			}
+	// Generic pattern matching for {{if .FieldName}}...{{end}} (no else clause)
+	if strings.Contains(expr, "{{if ") && strings.Contains(expr, "{{end}}") {
+		// Extract the field name from {{if .FieldName}}
+		fieldName := extractFieldFromCondition(expr)
+		if fieldName == "" {
+			return ""
 		}
-		return ""
-	}
 
-	// Handle priority conditionals like {{if .Priority}} (Priority: {{.Priority}}){{end}}
-	if strings.Contains(expr, "if .Priority") {
-		priority, _ := getFieldValue(item, "Priority")
-		if priority != nil && priority != "" {
-			if strings.Contains(expr, "(Priority:") {
-				return fmt.Sprintf("(Priority: %v)", priority)
+		// Get field value dynamically
+		fieldValue, err := getFieldValue(item, fieldName)
+		if err != nil {
+			return ""
+		}
+
+		// Evaluate the condition based on the field value
+		if evaluateCondition(fieldValue) {
+			// Extract content between }}...{{end}}
+			start := strings.Index(expr, "}}")
+			end := strings.Index(expr, "{{end}}")
+			if start != -1 && end != -1 && start < end {
+				content := strings.TrimSpace(expr[start+2 : end])
+				// If content contains field references, evaluate them
+				return evaluateEmbeddedFields(content, item)
 			}
 		}
 		return ""
