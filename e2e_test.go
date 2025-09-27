@@ -205,12 +205,12 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		expectedUpdates := []string{
 			"\"0\":\"Task Manager\"",        // Title in segment 0
 			"\"1\":\"3\"",                   // Counter value in segment 1
-			"\"2\":\"3\"",                   // Total todos in segment 2
-			"\"3\":\"1\"",                   // Completed count in segment 3
-			"\"4\":\"2\"",                   // Remaining count in segment 4
-			"\"5\":\"33\"",                  // Completion rate in segment 5
-			"\"6\":\"2023-01-01 10:15:00\"", // Last updated in segment 6
-			"\"7\":\"session-12345\"",       // Session ID in segment 7
+			"\"4\":\"3\"",                   // Total todos in segment 4
+			"\"5\":\"1\"",                   // Completed count in segment 5
+			"\"6\":\"2\"",                   // Remaining count in segment 6
+			"\"7\":\"33%\"",                 // Completion rate in segment 7
+			"\"9\":\"2023-01-01 10:15:00\"", // Last updated in segment 9
+			"\"10\":\"session-12345\"",      // Session ID in segment 10
 		}
 
 		for _, expected := range expectedUpdates {
@@ -287,12 +287,12 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		expectedUpdates := []string{
 			"\"1\":\"Task Manager\"",        // Title in segment 1
 			"\"2\":\"8\"",                   // Counter value in segment 2
-			"\"3\":\"2\"",                   // Total todos in segment 3 (reduced from 3 to 2)
-			"\"4\":\"1\"",                   // Completed count in segment 4
-			"\"5\":\"1\"",                   // Remaining count in segment 5
-			"\"6\":\"50\"",                  // Completion rate in segment 6 (changed from 33 to 50)
-			"\"7\":\"2023-01-01 10:30:00\"", // Last updated in segment 7
-			"\"8\":\"session-12345\"",       // Session ID in segment 8
+			"\"5\":\"2\"",                   // Total todos in segment 5 (reduced from 3 to 2)
+			"\"6\":\"1\"",                   // Completed count in segment 6
+			"\"7\":\"1\"",                   // Remaining count in segment 7
+			"\"8\":\"50%\"",                 // Completion rate in segment 8 (changed from 33 to 50)
+			"\"10\":\"2023-01-01 10:30:00\"", // Last updated in segment 10
+			"\"11\":\"session-12345\"",      // Session ID in segment 11
 		}
 
 		for _, expected := range expectedUpdates {
@@ -371,10 +371,10 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		// Verify conditional branching changes - completion changes completed status
 		updateStr := string(updateJSON)
 		expectedUpdates := []string{
-			"\"4\":\"2\"",                   // Completed count changed from 1 to 2
-			"\"5\":\"0\"",                   // Remaining count changed from 1 to 0
-			"\"6\":\"100\"",                 // Completion rate changed from 50 to 100
-			"\"7\":\"2023-01-01 10:45:00\"", // Last updated timestamp
+			"\"6\":\"2\"",                   // Completed count changed from 1 to 2
+			"\"7\":\"0\"",                   // Remaining count changed from 1 to 0
+			"\"8\":\"100%\"",               // Completion rate changed from 50 to 100
+			"\"10\":\"2023-01-01 10:45:00\"", // Last updated timestamp
 		}
 
 		for _, expected := range expectedUpdates {

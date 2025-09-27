@@ -1,18 +1,4 @@
 {
-  "s": [
-    "<div class=\"container\"><header><h1>",
-    "</h1><div class=\"counter\">Count: ",
-    "</div><div class=\"status ",
-    "\">Status: ",
-    "</div></header><main><section class=\"stats\"><h2>Statistics</h2><p>Total Todos: ",
-    "</p><p>Completed: ",
-    "</p><p>Remaining: ",
-    "</p><p>Completion Rate: ",
-    "</p></section><section class=\"todos\"><h2>Todo List</h2><div class=\"todo-list\">",
-    "</div></section></main><footer><p>Last updated: ",
-    "</p><p>Session ID: ",
-    "</p></footer></div>"
-  ],
   "0": "Task Manager",
   "1": "3",
   "2": "inactive",
@@ -22,19 +8,10 @@
   "6": "2",
   "7": "33%",
   "8": {
-    "s": [
-      "<div class=\"todo-item ",
-      "\" data-lvt-key=\"",
-      "\"><strong>",
-      ":</strong> ",
-      " ",
-      "",
-      "</div>"
-    ],
     "d": [
       {
         "0": "",
-        "1": "k7a3f",
+        "1": "k1pskw",
         "2": "#0",
         "3": "Learn Go templates",
         "4": "○",
@@ -42,7 +19,7 @@
       },
       {
         "0": "completed",
-        "1": "k9b2e",
+        "1": "k1142q",
         "2": "#1",
         "3": "Build live updates",
         "4": "✓",
@@ -50,14 +27,38 @@
       },
       {
         "0": "",
-        "1": "k4c8d",
+        "1": "k1aqr4",
         "2": "#2",
         "3": "Write documentation",
         "4": "○",
         "5": "(Priority: Low)"
       }
+    ],
+    "s": [
+      "\n                    <div class=\"todo-item ",
+      "\" data-lvt-key=\"",
+      "\">",
+      ">\n                        <strong>",
+      ":</strong> \n                        ",
+      " \n                        ",
+      "\n                        ",
+      "\n                    </div>\n                    "
     ]
   },
   "9": "2023-01-01 10:15:00",
-  "10": "session-12345"
+  "10": "session-12345",
+  "s": [
+    "<div class=\"container\">\n        <header>\n            <h1>",
+    "</h1>\n            <div class=\"counter\">Count: ",
+    "</div>\n            <div class=\"status ",
+    "\">\n                Status: ",
+    "\n            </div>\n        </header>\n        \n        <main>\n            <section class=\"stats\">\n                <h2>Statistics</h2>\n                <p>Total Todos: ",
+    "</p>\n                <p>Completed: ",
+    "</p>\n                <p>Remaining: ",
+    "</p>\n                <p>Completion Rate: ",
+    "</p>\n            </section>\n            \n            <section class=\"todos\">\n                <h2>Todo List</h2>\n                ",
+    "\n            </section>\n        </main>\n        \n        <footer>\n            <p>Last updated: ",
+    "</p>\n            <p>Session ID: ",
+    "</p>\n        </footer>\n    </div>"
+  ]
 }

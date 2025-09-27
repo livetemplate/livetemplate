@@ -282,50 +282,6 @@ func (t *Template) generateInitialTree(html string, data interface{}) (TreeNode,
 	return addFingerprintToTree(tree), nil
 }
 
-// mergeTreeStructures intelligently merges original tree (accurate dynamics) with full tree (complete structure)
-func (t *Template) mergeTreeStructures(originalTree, fullTree TreeNode) TreeNode {
-	merged := make(TreeNode)
-
-	// Use the full tree's complete static structure
-	if fullStatics, hasFull := fullTree["s"].([]string); hasFull {
-		merged["s"] = fullStatics
-	} else if originalStatics, hasOriginal := originalTree["s"].([]string); hasOriginal {
-		merged["s"] = originalStatics
-	}
-
-	// Use the original tree's accurate dynamic values
-	// The original parser is better at evaluating conditional expressions
-	for k, v := range originalTree {
-		if k != "s" { // Skip static structure - we use full tree's structure
-			merged[k] = v
-		}
-	}
-
-	// If the original tree doesn't have enough dynamic values,
-	// fill in missing ones from the full tree (this handles cases where
-	// the original parser missed some dynamic content)
-	if fullStatics, hasFull := fullTree["s"].([]string); hasFull {
-		// Count empty segments in full tree structure (these need dynamic values)
-		expectedDynamics := 0
-		for _, segment := range fullStatics {
-			if segment == "" {
-				expectedDynamics++
-			}
-		}
-
-		// Fill in missing dynamics from full tree
-		for i := 0; i < expectedDynamics; i++ {
-			dynamicKey := fmt.Sprintf("%d", i)
-			if _, hasOriginal := originalTree[dynamicKey]; !hasOriginal {
-				if fullValue, hasFull := fullTree[dynamicKey]; hasFull {
-					merged[dynamicKey] = fullValue
-				}
-			}
-		}
-	}
-
-	return merged
-}
 
 // generateDiffBasedTree creates tree based on diff analysis
 func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newData interface{}) (TreeNode, error) {
@@ -381,55 +337,15 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 	return addFingerprintToTree(tree), nil
 }
 
-// getChangedSegments compares newTree with lastTree and returns only changed segments
-func (t *Template) getChangedSegments(newTree TreeNode) TreeNode {
-	changedTree := make(TreeNode)
 
-	// If no previous tree, return all segments (first update)
-	if t.lastTree == nil {
-		return newTree
-	}
 
-	// Compare each segment in newTree with lastTree
-	for key, newValue := range newTree {
-		// Skip static structure - never include in dynamics-only updates
-		if key == "s" {
-			continue
-		}
-
-		lastValue, existed := t.lastTree[key]
-
-		// Include segment if:
-		// 1. It's new (didn't exist before)
-		// 2. The value changed
-		if !existed || !segmentValuesEqual(lastValue, newValue) {
-			changedTree[key] = newValue
-		}
-	}
-
-	return changedTree
-}
-
-// segmentValuesEqual compares two segment values for equality
-func segmentValuesEqual(a, b interface{}) bool {
-	// Simple comparison - could be enhanced for complex types
-	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
-}
-
-// getTreeWithoutStatics returns a copy of the tree without the static structure
-func (t *Template) getTreeWithoutStatics(tree TreeNode) TreeNode {
-	result := make(TreeNode)
-	for key, value := range tree {
-		if key != "s" {
-			result[key] = value
-		}
-	}
-	return result
-}
 
 // compareTreesAndGetChanges compares two trees and returns only changed dynamics
 func (t *Template) compareTreesAndGetChanges(oldTree, newTree TreeNode) TreeNode {
 	changes := make(TreeNode)
+
+	// First, find range constructs in both trees and match them by content signature
+	rangeMatches := findRangeConstructMatches(oldTree, newTree)
 
 	// Compare dynamic segments (skip statics "s" and fingerprint "f")
 	for k, newValue := range newTree {
@@ -438,11 +354,89 @@ func (t *Template) compareTreesAndGetChanges(oldTree, newTree TreeNode) TreeNode
 		}
 
 		oldValue, exists := oldTree[k]
-		if !exists || !deepEqual(oldValue, newValue) {
+		if !exists {
 			changes[k] = newValue
+		} else if !deepEqual(oldValue, newValue) {
+			// Check if this field has a range construct match
+			if matchedOldField, isRangeMatch := rangeMatches[k]; isRangeMatch {
+				// Get the corresponding old range construct
+				oldRangeValue := oldTree[matchedOldField]
+				// Range match found
+				// Generate differential operations for matched range constructs
+				diffOps := generateRangeDifferentialOperations(oldRangeValue, newValue)
+				// Generated differential operations
+				if len(diffOps) > 0 {
+					changes[k] = diffOps
+				}
+			} else {
+				// Regular change detection for non-range values
+				changes[k] = newValue
+			}
 		}
 	}
 	return changes
+}
+
+// findRangeConstructMatches finds range constructs in both trees and matches them by content signature
+// Returns a map of newField -> oldField for range constructs that represent the same template construct
+func findRangeConstructMatches(oldTree, newTree TreeNode) map[string]string {
+	matches := make(map[string]string)
+
+	// Find all range constructs in both trees
+	oldRanges := findRangeConstructs(oldTree)
+	newRanges := findRangeConstructs(newTree)
+
+	// Match range constructs by their static template signature
+	for newField, newRange := range newRanges {
+		newSignature := getRangeSignature(newRange)
+
+		for oldField, oldRange := range oldRanges {
+			oldSignature := getRangeSignature(oldRange)
+
+			// If signatures match, this is the same template construct
+			if newSignature == oldSignature {
+				matches[newField] = oldField
+				break // Each new range should match at most one old range
+			}
+		}
+	}
+
+	return matches
+}
+
+// findRangeConstructs finds all range constructs in a tree
+func findRangeConstructs(tree TreeNode) map[string]interface{} {
+	ranges := make(map[string]interface{})
+
+	for field, value := range tree {
+		if field == "s" || field == "f" {
+			continue // Skip static segments and fingerprint
+		}
+
+		if isRangeConstruct(value) {
+			ranges[field] = value
+		}
+	}
+
+	return ranges
+}
+
+// getRangeSignature creates a signature for a range construct based on its static template structure
+// This signature should be the same for the same template construct regardless of data
+func getRangeSignature(rangeValue interface{}) string {
+	rangeMap, ok := rangeValue.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+
+	// Use the static parts ("s") as the signature since they represent the template structure
+	staticParts, exists := rangeMap["s"]
+	if !exists {
+		return ""
+	}
+
+	// Convert static parts to a string signature
+	return fmt.Sprintf("%v", staticParts)
 }
 
 // deepEqual compares two values deeply
@@ -450,102 +444,138 @@ func deepEqual(a, b interface{}) bool {
 	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
 }
 
-// getTreeKeys returns the keys of a TreeNode for debugging
-
-// generateDynamicsOnlyTree creates a tree with only dynamic values, using cached structure
-func (t *Template) generateDynamicsOnlyTree(data interface{}) (TreeNode, error) {
-	// Try to use the fine-grained approach to extract only dynamic values
-	newTree, err := parseTemplateToTreeDynamicsOnly(t.templateStr, data)
-	if err == nil {
-		// Compare with previous tree and return only changed segments
-		changedTree := t.getChangedSegments(newTree)
-		// Store the new tree for next comparison
-		t.lastTree = newTree
-		return changedTree, nil
+// isRangeConstruct checks if a value is a range construct (has "d" and "s" keys)
+func isRangeConstruct(value interface{}) bool {
+	if valueMap, ok := value.(map[string]interface{}); ok {
+		_, hasD := valueMap["d"]
+		_, hasS := valueMap["s"]
+		return hasD && hasS
 	}
-	// If fine-grained fails, we need to leverage the cached structure more intelligently
-	currentHTML, execErr := t.executeTemplate(data)
-	if execErr != nil {
-		return nil, execErr
-	}
-
-	// Extract content from wrapper if we have one
-	var contentToAnalyze string
-	if t.wrapperID != "" {
-		contentToAnalyze = extractTemplateContent(currentHTML, t.wrapperID)
-	} else {
-		contentToAnalyze = currentHTML
-	}
-
-	// Compare against cached HTML to find what changed
-	if contentToAnalyze == t.lastHTML {
-		// No changes, return empty tree
-		return TreeNode{}, nil
-	}
-
-	// If we have cached initial structure, use it to create a more intelligent dynamics-only tree
-	if t.hasInitialTree {
-		return t.createDynamicsFromCachedStructure(contentToAnalyze)
-	}
-
-	// Last resort: return entire content as single dynamic (should rarely happen)
-	return TreeNode{"0": contentToAnalyze}, nil
+	return false
 }
 
-// extractDynamicsOnly removes static parts and returns only dynamic values
+// generateRangeDifferentialOperations generates differential operations for range constructs
+func generateRangeDifferentialOperations(oldValue, newValue interface{}) []interface{} {
+	var operations []interface{}
 
-// createDynamicsFromCachedStructure creates dynamics-only tree by leveraging cached static structure
-func (t *Template) createDynamicsFromCachedStructure(currentHTML string) (TreeNode, error) {
-	// Check if the initial tree used a simple structure that we can leverage
-	if t.initialTree != nil {
-		if statics, hasStatics := t.initialTree["s"]; hasStatics {
-			if staticParts, ok := statics.([]string); ok && len(staticParts) == 2 {
-				// Handle simple prefix/suffix structure
-				prefix := staticParts[0]
-				suffix := staticParts[1]
+	oldRange, ok1 := oldValue.(map[string]interface{})
+	newRange, ok2 := newValue.(map[string]interface{})
 
-				// If current HTML matches the expected pattern, extract the dynamic part
-				if strings.HasPrefix(currentHTML, prefix) && strings.HasSuffix(currentHTML, suffix) {
-					start := len(prefix)
-					end := len(currentHTML) - len(suffix)
-					if start <= end {
-						dynamicPart := currentHTML[start:end]
-						return TreeNode{"0": dynamicPart}, nil
-					}
+	if !ok1 || !ok2 {
+		// Type conversion failed
+		return operations
+	}
+
+	// Extract old and new item arrays
+	oldItems, ok1 := oldRange["d"].([]interface{})
+	newItems, ok2 := newRange["d"].([]interface{})
+
+	// Try alternative type assertion if the first one fails
+	if !ok1 {
+		if oldMaps, ok := oldRange["d"].([]map[string]interface{}); ok {
+			oldItems = make([]interface{}, len(oldMaps))
+			for i, m := range oldMaps {
+				oldItems[i] = m
+			}
+			ok1 = true
+		}
+	}
+
+	if !ok2 {
+		if newMaps, ok := newRange["d"].([]map[string]interface{}); ok {
+			newItems = make([]interface{}, len(newMaps))
+			for i, m := range newMaps {
+				newItems[i] = m
+			}
+			ok2 = true
+		}
+	}
+
+	if !ok1 || !ok2 {
+		// Item extraction failed
+		// Debug: could examine keys and types here if needed
+		return operations
+	}
+
+	// Comparing old items vs new items
+
+	// Create maps for easy lookup by keys
+	oldItemsByKey := make(map[string]interface{})
+	newItemsByKey := make(map[string]interface{})
+
+	// Map old items by their auto-generated keys (field "1")
+	for _, item := range oldItems {
+		if itemMap, ok := item.(map[string]interface{}); ok {
+			if key, exists := itemMap["1"]; exists {
+				if keyStr, ok := key.(string); ok {
+					oldItemsByKey[keyStr] = item
 				}
 			}
 		}
 	}
 
-	// Fallback to diff-based approach
-	return t.analyzeChangeAndCreateDynamicsOnly(t.lastHTML, currentHTML)
-}
-
-// analyzeChangeAndCreateDynamicsOnly creates dynamics-only tree by analyzing HTML changes
-func (t *Template) analyzeChangeAndCreateDynamicsOnly(oldHTML, newHTML string) (TreeNode, error) {
-	// Find common prefix and suffix to understand what changed
-	commonPrefix := findCommonPrefix(oldHTML, newHTML)
-	commonSuffix := findCommonSuffix(oldHTML, newHTML)
-
-	// Calculate change boundaries
-	changeStart := len(commonPrefix)
-	changeEnd := len(newHTML) - len(commonSuffix)
-
-	// If entire content changed, return full dynamic content
-	if changeStart >= changeEnd || (changeStart == 0 && changeEnd == len(newHTML)) {
-		return TreeNode{"0": minifyHTML(newHTML)}, nil
+	// Map new items by their auto-generated keys (field "1")
+	for _, item := range newItems {
+		if itemMap, ok := item.(map[string]interface{}); ok {
+			if key, exists := itemMap["1"]; exists {
+				if keyStr, ok := key.(string); ok {
+					newItemsByKey[keyStr] = item
+				}
+			}
+		}
 	}
 
-	// If we have minimal changes, try to return just the changed part
-	if changeStart > 0 || changeEnd < len(newHTML) {
-		dynamicPart := newHTML[changeStart:changeEnd]
-		// Return dynamics-only tree with the changed content
-		return TreeNode{"0": minifyHTML(dynamicPart)}, nil
+	// Find removed items (in old but not in new)
+	for key := range oldItemsByKey {
+		if _, exists := newItemsByKey[key]; !exists {
+			operations = append(operations, []interface{}{"r", key})
+		}
 	}
 
-	// Default to full content
-	return TreeNode{"0": minifyHTML(newHTML)}, nil
+	// Find updated items (in both, but changed)
+	for key, newItem := range newItemsByKey {
+		if oldItem, exists := oldItemsByKey[key]; exists {
+			// Compare items and generate update operation if different
+			changes := compareRangeItemsForChanges(oldItem, newItem)
+			if len(changes) > 0 {
+				operations = append(operations, []interface{}{"u", key, changes})
+			}
+		}
+	}
+
+	return operations
 }
+
+// compareRangeItemsForChanges compares two range items and returns a map of field changes
+func compareRangeItemsForChanges(oldItem, newItem interface{}) map[string]interface{} {
+	changes := make(map[string]interface{})
+
+	oldItemMap, ok1 := oldItem.(map[string]interface{})
+	newItemMap, ok2 := newItem.(map[string]interface{})
+
+	if !ok1 || !ok2 {
+		return changes
+	}
+
+	// Compare each field (except the key field "1")
+	for fieldKey, newValue := range newItemMap {
+		if fieldKey == "1" {
+			continue // Skip the auto-generated key field
+		}
+
+		oldValue, exists := oldItemMap[fieldKey]
+		if !exists || !deepEqual(oldValue, newValue) {
+			changes[fieldKey] = newValue
+		}
+	}
+
+	return changes
+}
+
+
+
+
+
 
 // analyzeChangeAndCreateTree determines the best tree structure based on the type of change
 func (t *Template) analyzeChangeAndCreateTree(oldHTML, newHTML string, _, _ interface{}) (TreeNode, error) {

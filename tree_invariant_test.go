@@ -3,6 +3,7 @@ package livetemplate
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"testing"
 )
 
@@ -151,49 +152,12 @@ func TestTreeInvariantInTemplate(t *testing.T) {
 }
 
 func TestE2EInvariantGuarantee(t *testing.T) {
-	// Read the E2E template content directly
-	templateContent := `<div class="container">
-        <header>
-            <h1>{{.Title}}</h1>
-            <div class="counter">Count: {{.Counter}}</div>
-            <div class="status {{if gt .Counter 5}}active{{else}}inactive{{end}}">
-                Status: {{if gt .Counter 5}}High Activity{{else}}Low Activity{{end}}
-            </div>
-        </header>
-        
-        <main>
-            <section class="stats">
-                <h2>Statistics</h2>
-                <p>Total Todos: {{.TodoCount}}</p>
-                <p>Completed: {{.CompletedCount}}</p>
-                <p>Remaining: {{.RemainingCount}}</p>
-                <p>Completion Rate: {{if gt .TodoCount 0}}{{.CompletionRate}}%{{else}}0%{{end}}</p>
-            </section>
-            
-            <section class="todos">
-                <h2>Todo List</h2>
-                {{if .Todos}}
-                <div class="todo-list">
-                    {{range $index, $todo := .Todos}}
-                    <div class="todo-item {{if .Completed}}completed{{end}}">
-                        <strong>{{$index | printf "#%d"}}:</strong> 
-                        {{.Text}} 
-                        {{if .Completed}}✓{{else}}○{{end}}
-                        {{if .Priority}} (Priority: {{.Priority}}){{end}}
-                    </div>
-                    {{end}}
-                </div>
-                {{else}}
-                <p>No todos yet. Add some tasks!</p>
-                {{end}}
-            </section>
-        </main>
-        
-        <footer>
-            <p>Last updated: {{.LastUpdated}}</p>
-            <p>Session ID: {{.SessionID}}</p>
-        </footer>
-    </div>`
+	// Read the E2E template content from input.tmpl
+	templateBytes, err := os.ReadFile("testdata/e2e/input.tmpl")
+	if err != nil {
+		t.Fatalf("Failed to read template file: %v", err)
+	}
+	templateContent := string(templateBytes)
 
 	// Test data similar to E2E test
 	data := struct {
