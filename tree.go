@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
 	"html/template"
 	"reflect"
 	"regexp"
@@ -357,11 +356,12 @@ func classifyExpression(expr string) string {
 func (pt *PreparedTemplate) RenderToTree(data interface{}) (TreeNode, error) {
 	// Use the previous working approach but fix the range handling
 	// This maintains backward compatibility while addressing the core issue
-	return parseTemplateToTree(pt.TemplateStr, data)
+	// Use global key generator for legacy PreparedTemplate (which doesn't have its own KeyGenerator)
+	return parseTemplateToTree(pt.TemplateStr, data, globalKeyGenerator)
 }
 
 // parseTemplateToTree parses a template using render → parse approach
-func parseTemplateToTree(templateStr string, data interface{}) (TreeNode, error) {
+func parseTemplateToTree(templateStr string, data interface{}, keyGen *KeyGenerator) (TreeNode, error) {
 	// Use the working old system for now - extract expressions and build tree
 
 	// First render the template to get the final HTML
@@ -379,7 +379,7 @@ func parseTemplateToTree(templateStr string, data interface{}) (TreeNode, error)
 
 	// Extract expressions and build tree
 	expressions := extractFlattenedExpressions(templateStr)
-	return buildTreeFromExpressions(templateStr, rendered, expressions, data)
+	return buildTreeFromExpressions(templateStr, rendered, expressions, data, keyGen)
 }
 
 // extractFlattenedExpressions extracts all template expressions with Phoenix LiveView optimization
@@ -621,7 +621,7 @@ type CompiledConstruct interface {
 	GetStaticParts() []string
 }
 
-// Field construct: {{.Name}}, {{.User.Email}}
+// Field construct: {{.FieldName}}, {{.Object.Property}}
 type FieldConstruct struct {
 	Expression string
 	Text       string // Original template text
@@ -644,7 +644,7 @@ func (f *FieldConstruct) Evaluate(data interface{}) (interface{}, error) {
 	return evaluateFieldExpression(f.Expression, data), nil
 }
 
-// Conditional construct: {{if .Active}}...{{else}}...{{end}}
+// Conditional construct: {{if .Condition}}...{{else}}...{{end}}
 type ConditionalConstruct struct {
 	Condition   string
 	TrueBranch  []Construct
@@ -692,7 +692,7 @@ func (r *RangeConstruct) Evaluate(data interface{}) (interface{}, error) {
 	return evaluateRangeBlock(r.Collection, data), nil
 }
 
-// With construct: {{with .User}}...{{end}}
+// With construct: {{with .Object}}...{{end}}
 type WithConstruct struct {
 	Variable string
 	Body     []Construct
@@ -1151,7 +1151,7 @@ func extractRangeVariables(rangeText string) (string, string) {
 }
 
 func extractWithVariable(withText string) string {
-	// Extract variable from {{with .User}}
+	// Extract variable from {{with .Object}}
 	start := strings.Index(withText, "{{with ")
 	if start == -1 {
 		return ""
@@ -1274,7 +1274,7 @@ func extractConditionalBlock(templateStr string, start int) (TemplateExpression,
 }
 
 // buildTreeFromExpressions builds the tree by mapping rendered values to expression positions
-func buildTreeFromExpressions(templateStr, rendered string, expressions []TemplateExpression, data interface{}) (TreeNode, error) {
+func buildTreeFromExpressions(templateStr, rendered string, expressions []TemplateExpression, data interface{}, keyGen *KeyGenerator) (TreeNode, error) {
 	tree := TreeNode{}
 	var statics []string
 	var dynamicIndex int
@@ -1293,7 +1293,7 @@ func buildTreeFromExpressions(templateStr, rendered string, expressions []Templa
 		switch expr.Type {
 		case "range":
 			// Create Phoenix comprehension for range blocks
-			comprehension, err := buildRangeComprehension(expr, data)
+			comprehension, err := buildRangeComprehension(expr, data, keyGen)
 			if err != nil {
 				return nil, err
 			}
@@ -1333,18 +1333,18 @@ func buildTreeFromExpressions(templateStr, rendered string, expressions []Templa
 }
 
 // buildRangeComprehension creates a Phoenix comprehension for range expressions
-func buildRangeComprehension(expr TemplateExpression, data interface{}) (interface{}, error) {
+func buildRangeComprehension(expr TemplateExpression, data interface{}, keyGen *KeyGenerator) (interface{}, error) {
 	// Check if this is a Phoenix pattern (conditional wrapping a range)
 	if strings.Contains(expr.Text, "{{if ") && strings.Contains(expr.Text, "{{range ") {
-		return buildConditionalRange(expr, data)
+		return buildConditionalRange(expr, data, keyGen)
 	}
 
 	// Regular range comprehension
-	return buildRegularRangeComprehension(expr, data)
+	return buildRegularRangeComprehension(expr, data, keyGen)
 }
 
 // buildPhoenixConditionalRangeComprehension handles {{if .Field}}...{{range}}...{{end}}...{{else}}...{{end}} patterns
-func buildConditionalRange(expr TemplateExpression, data interface{}) (interface{}, error) {
+func buildConditionalRange(expr TemplateExpression, data interface{}, keyGen *KeyGenerator) (interface{}, error) {
 	// Extract the range field from the conditional-range pattern
 	rangeField := extractRangeField(expr.Text)
 	if rangeField == "" {
@@ -1369,43 +1369,50 @@ func buildConditionalRange(expr TemplateExpression, data interface{}) (interface
 	// Extract the range content from inside the conditional
 	rangeContent := extractRangeContent(expr.Text)
 
-	// Use generic template parsing to extract expressions
-	innerExpressions := extractFlattenedExpressions(rangeContent)
+	// Wrap range content with data-lvt-key wrapper div
+	wrappedContent := wrapRangeContentWithKey(rangeContent)
+
+	// Use generic template parsing to extract expressions from wrapped content
+	innerExpressions := extractFlattenedExpressions(wrappedContent)
 
 
-	// Extract static parts from range content (simple approach)
+	// Extract static parts from wrapped content (includes wrapper div)
 	var statics []string
 	lastPos := 0
 	for _, expr := range innerExpressions {
 		// Add static part before this expression
 		if expr.Start > lastPos {
-			static := rangeContent[lastPos:expr.Start]
+			static := wrappedContent[lastPos:expr.Start]
 			statics = append(statics, static)
 		}
 		lastPos = expr.End
 	}
 	// Add final static part
-	if lastPos < len(rangeContent) {
-		statics = append(statics, rangeContent[lastPos:])
+	if lastPos < len(wrappedContent) {
+		statics = append(statics, wrappedContent[lastPos:])
 	}
 
-	// For now, manually adjust statics to match golden file structure
-	// Golden expects: [static0, " data-lvt-key=\"", static1, ...]
-	if len(statics) >= 2 {
-		// Insert data-lvt-key attribute between first two statics
-		newStatics := []string{statics[0], "\" data-lvt-key=\"", "\">"}
-		if len(statics) > 1 {
-			// Append the rest of the first static (after removing the leading quote)
-			remainder := statics[1]
-			if strings.HasPrefix(remainder, "\"") {
-				remainder = remainder[1:]
+	// Replace key placeholder in statics with actual key injection point
+	// The statics array will have the wrapper div structure with {{.__LVT_KEY__}} placeholder
+	for i, static := range statics {
+		if strings.Contains(static, "{{.__LVT_KEY__}}") {
+			// Replace placeholder with template-like structure for key injection
+			statics[i] = strings.ReplaceAll(static, "{{.__LVT_KEY__}}", "")
+			// Split around the data-lvt-key attribute to create proper static segments
+			if strings.Contains(statics[i], `data-lvt-key=""`) {
+				parts := strings.Split(statics[i], `data-lvt-key=""`)
+				if len(parts) == 2 {
+					// Create new statics with key injection point
+					newStatics := make([]string, 0, len(statics)+1)
+					newStatics = append(newStatics, statics[:i]...)
+					newStatics = append(newStatics, parts[0]+`data-lvt-key="`)
+					newStatics = append(newStatics, `"`+parts[1])
+					newStatics = append(newStatics, statics[i+1:]...)
+					statics = newStatics
+					break
+				}
 			}
-			newStatics = append(newStatics, remainder)
 		}
-		if len(statics) > 2 {
-			newStatics = append(newStatics, statics[2:]...)
-		}
-		statics = newStatics
 	}
 
 	// Ensure we have at least one static part for the invariant
@@ -1413,29 +1420,48 @@ func buildConditionalRange(expr TemplateExpression, data interface{}) (interface
 		statics = []string{""}
 	}
 
-	// Process collection items using existing logic
+	// Find the position where the key should be injected
+	keyPosition := -1
+	for i, static := range statics {
+		if strings.Contains(static, `data-lvt-key="`) {
+			keyPosition = i
+			break
+		}
+	}
+
+	// Process collection items with key injection
 	var dynamics []map[string]interface{}
 	for i := 0; i < sliceValue.Len(); i++ {
 		item := sliceValue.Index(i).Interface()
 		itemData := make(map[string]interface{})
 
-		// Insert auto-generated key as field 1
-		autoKey := generateAutoKey(i, item)
+		// Generate a simple wrapper key
+		injectedKey := generateWrapperKey(keyGen)
 
-		for j, expr := range innerExpressions {
-			// Evaluate expression in range context with item data and index
-			value := evaluateRangeExpression(expr.Text, item, i)
+		// Track dynamic field index
+		dynamicIndex := 0
 
-			// Shift field indices to make room for auto-key at position 1
-			fieldIndex := j
-			if j >= 1 {
-				fieldIndex = j + 1  // Shift everything after field 0 to make room for auto-key
+		// Add the key at the correct position
+		if keyPosition >= 0 {
+			itemData[fmt.Sprintf("%d", keyPosition)] = injectedKey
+			// Skip this position for other expressions
+			if keyPosition == dynamicIndex {
+				dynamicIndex++
 			}
-			itemData[fmt.Sprintf("%d", fieldIndex)] = fmt.Sprintf("%v", value)
 		}
 
-		// Add auto-generated key at field 1
-		itemData["1"] = autoKey
+		for _, expr := range innerExpressions {
+			// Skip the key placeholder expression
+			if strings.Contains(expr.Text, ".__LVT_KEY__") {
+				continue
+			}
+
+			// Evaluate expression in range context
+			value := evaluateRangeExpression(expr.Text, item, i)
+			itemData[fmt.Sprintf("%d", dynamicIndex)] = fmt.Sprintf("%v", value)
+			dynamicIndex++
+		}
+
 		dynamics = append(dynamics, itemData)
 	}
 
@@ -1449,7 +1475,7 @@ func buildConditionalRange(expr TemplateExpression, data interface{}) (interface
 }
 
 // buildRegularRangeComprehension handles regular {{range}}...{{end}} patterns
-func buildRegularRangeComprehension(expr TemplateExpression, data interface{}) (interface{}, error) {
+func buildRegularRangeComprehension(expr TemplateExpression, data interface{}, keyGen *KeyGenerator) (interface{}, error) {
 	// Parse the range expression to find what field is being iterated
 	rangeField := extractRangeFieldName(expr.Text)
 	if rangeField == "" {
@@ -1555,7 +1581,7 @@ func extractRangeContent(conditionalText string) string {
 
 // extractRangeFieldName extracts the field name from a range expression
 func extractRangeFieldName(rangeText string) string {
-	// Look for patterns like "{{range .Todos}}" in the range text
+	// Look for patterns like "{{range .Collection}}" in the range text
 	re := regexp.MustCompile(`\{\{\s*range\s+\.(\w+)`)
 	matches := re.FindStringSubmatch(rangeText)
 	if len(matches) > 1 {
@@ -1635,7 +1661,7 @@ func generateDynamicDataForItems(items []interface{}, rangeText string) []map[st
 // evaluateConditionalBlock evaluates a conditional if-else-end block
 func evaluateConditionalBlock(expr TemplateExpression, data interface{}) string {
 	// Now expr.Text contains the full conditional block like:
-	// "{{if gt .Counter 5}}active{{else}}inactive{{end}}"
+	// "{{if gt .Value 5}}active{{else}}inactive{{end}}"
 
 	// Parse and execute the complete conditional template
 	tmpl, err := template.New("conditional").Parse(expr.Text)
@@ -1654,124 +1680,54 @@ func evaluateConditionalBlock(expr TemplateExpression, data interface{}) string 
 
 // Helper functions
 
-func generateAutoKey(_ int, item interface{}) string {
-	// Generate stable key based on item's immutable characteristics ONLY
-	// Position-independent to ensure stable tracking across reorders/removals
-	h := fnv.New32a()
 
-	// Use only the item's stable identity, not position
-	stableContent := extractStableIdentity(item)
-	h.Write([]byte(stableContent))
-
-	hash := h.Sum32()
-	return fmt.Sprintf("k%s", strconv.FormatUint(uint64(hash), 36)[:5])
+// Simple counter-based key generation for wrapper approach
+type KeyGenerator struct {
+	counter int
 }
 
-// extractStableIdentity extracts stable identifying characteristics from an item
-// This is generic and works by finding immutable fields or using structural position
-func extractStableIdentity(item interface{}) string {
-	if item == nil {
-		return "nil"
-	}
-
-	// For structs, try to find stable identifying fields
-	v := reflect.ValueOf(item)
-	if v.Kind() == reflect.Struct {
-		t := v.Type()
-		var stableFields []string
-
-		// Look for common stable field names (generic approach)
-		stableFieldNames := []string{"ID", "Id", "Name", "Text", "Title", "Key", "Identifier"}
-
-		for _, fieldName := range stableFieldNames {
-			if field, found := t.FieldByName(fieldName); found {
-				fieldValue := v.FieldByIndex(field.Index)
-				if fieldValue.IsValid() && fieldValue.CanInterface() {
-					stableFields = append(stableFields, fmt.Sprintf("%v", fieldValue.Interface()))
-				}
-			}
-		}
-
-		// If we found stable fields, use them
-		if len(stableFields) > 0 {
-			return strings.Join(stableFields, "_")
-		}
-	}
-
-	// Fallback: attempt to create a structural fingerprint
-	// Try to identify immutable vs mutable fields by common patterns
-	if v.Kind() == reflect.Struct {
-		t := v.Type()
-		var structuralFields []string
-
-		// Collect fields that are likely to be structural/immutable
-		for i := 0; i < v.NumField(); i++ {
-			field := t.Field(i)
-			fieldValue := v.Field(i)
-
-			// Skip common mutable field patterns
-			fieldName := strings.ToLower(field.Name)
-			if isMutableField(fieldName) {
-				continue
-			}
-
-			// Include this field in structural identity
-			if fieldValue.IsValid() && fieldValue.CanInterface() {
-				structuralFields = append(structuralFields, fmt.Sprintf("%s:%v", field.Name, fieldValue.Interface()))
-			}
-		}
-
-		// If we found structural fields, use them
-		if len(structuralFields) > 0 {
-			h := fnv.New32a()
-			structuralData := strings.Join(structuralFields, "|")
-			h.Write([]byte(structuralData))
-			hash := h.Sum32()
-			hashStr := strconv.FormatUint(uint64(hash), 36)
-			if len(hashStr) > 8 {
-				hashStr = hashStr[:8]
-			}
-			return fmt.Sprintf("struct_%s", hashStr)
-		}
-	}
-
-	// Ultimate fallback: content-based (will change if any field changes)
-	// This is not ideal but ensures uniqueness
-	h := fnv.New32a()
-	itemStr := fmt.Sprintf("%+v", item)
-	h.Write([]byte(itemStr))
-	hash := h.Sum32()
-	hashStr := strconv.FormatUint(uint64(hash), 36)
-	if len(hashStr) > 8 {
-		hashStr = hashStr[:8]
-	}
-	return fmt.Sprintf("content_%s", hashStr)
+// NewKeyGenerator creates a new key generator for a template instance
+func NewKeyGenerator() *KeyGenerator {
+	return &KeyGenerator{counter: 0}
 }
 
-// isMutableField identifies field names that are likely to be mutable/state fields
-func isMutableField(fieldName string) bool {
-	// Common patterns for mutable fields
-	mutablePatterns := []string{
-		"completed", "active", "enabled", "disabled", "selected", "checked",
-		"status", "state", "visible", "hidden", "open", "closed",
-		"count", "total", "amount", "quantity", "balance", "score",
-		"updated", "modified", "changed", "timestamp", "time",
-		"current", "latest", "last", "recent",
-		"temp", "temporary", "cache", "buffer",
-	}
-
-	for _, pattern := range mutablePatterns {
-		if strings.Contains(fieldName, pattern) {
-			return true
-		}
-	}
-
-	return false
+// NextKey generates the next sequential key
+func (kg *KeyGenerator) NextKey() string {
+	kg.counter++
+	return fmt.Sprintf("%d", kg.counter)
 }
+
+// Reset resets the counter (useful for testing)
+func (kg *KeyGenerator) Reset() {
+	kg.counter = 0
+}
+
+// Global key generator for template instances
+var globalKeyGenerator = NewKeyGenerator()
+
+// resetKeyGenerator resets the global key generator for testing
+func resetKeyGenerator() {
+	globalKeyGenerator.Reset()
+}
+
+// generateWrapperKey generates a simple wrapper key using provided generator
+func generateWrapperKey(keyGen *KeyGenerator) string {
+	return keyGen.NextKey()
+}
+
+// wrapRangeContentWithKey wraps range content with a data-lvt-key wrapper div
+func wrapRangeContentWithKey(content string) string {
+	// Wrap content in a div with a placeholder for the key
+	// The key will be injected during tree generation
+	return fmt.Sprintf(`<div data-lvt-key="{{.__LVT_KEY__}}">%s</div>`, content)
+}
+
+
+
 
 // ParseTemplateToTree parses a template using existing working approach (exported for testing)
 func ParseTemplateToTree(templateStr string, data interface{}) (TreeNode, error) {
-	return parseTemplateToTree(templateStr, data)
+	return parseTemplateToTree(templateStr, data, globalKeyGenerator)
 }
 
 // calculateTemplateFingerprint creates a fingerprint of template structure
@@ -2362,7 +2318,7 @@ func executeTemplateContent(templateContent string, data interface{}) string {
 type RangeBlock struct {
 	Start     int    // Start position in template
 	End       int    // End position in template
-	Variable  string // Range variable (e.g., ".Todos")
+	Variable  string // Range variable (e.g., ".Collection")
 	Content   string // Content inside the range block
 	FullBlock string // Full range block including {{range}} and {{end}}
 }

@@ -27,13 +27,24 @@ type Template struct {
 	initialTree     TreeNode
 	hasInitialTree  bool
 	lastFingerprint string // Fingerprint of the last generated tree for change detection
+	keyGen          *KeyGenerator // Per-template key generation for wrapper approach
 }
 
 // New creates a new, undefined template with the given name.
 // This matches the signature of html/template.New().
 func New(name string) *Template {
 	return &Template{
-		name: name,
+		name:   name,
+		keyGen: NewKeyGenerator(),
+	}
+}
+
+// resetKeyGeneration resets the key generator for a fresh render
+func (t *Template) resetKeyGeneration() {
+	if t.keyGen == nil {
+		t.keyGen = NewKeyGenerator()
+	} else {
+		t.keyGen.Reset()
 	}
 }
 
@@ -209,6 +220,9 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}) error {
 
 // generateTreeInternal is the internal implementation that returns TreeNode
 func (t *Template) generateTreeInternal(data interface{}) (TreeNode, error) {
+	// Reset key generation for fresh render
+	t.resetKeyGeneration()
+
 	// Execute template with current data
 	currentHTML, err := t.executeTemplate(data)
 	if err != nil {
@@ -262,7 +276,7 @@ func (t *Template) generateInitialTree(html string, data interface{}) (TreeNode,
 	}
 
 	// Use the original parser - it maintains the correct invariant and handles dynamics properly
-	tree, err := parseTemplateToTree(templateContent, data)
+	tree, err := parseTemplateToTree(templateContent, data, t.keyGen)
 	if err != nil {
 		// Fallback to HTML structure-based strategy
 		tree = t.createHTMLStructureBasedTree(contentToAnalyze)
