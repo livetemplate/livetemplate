@@ -842,8 +842,185 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		t.Logf("Update keys: %v", getMapKeys(updateTree))
 	})
 
-	// Step 6: Verify caching behavior with identical data
-	t.Run("6_No_Change_Update", func(t *testing.T) {
+	// Step 6: Multiple range operations in single update
+	t.Run("6_Multiple_Range_Operations", func(t *testing.T) {
+		// Create state with multiple simultaneous changes: removes, updates, and adds
+		multipleOpsState := E2EAppState{
+			Title:   "Task Manager",
+			Counter: 11, // Increment counter
+			Todos: []TodoItem{
+				// todo-5 removed (was "Configure CI/CD pipeline")
+				// todo-4 remains but marked completed
+				{ID: "todo-4", Text: "Setup development environment", Completed: true, Priority: "High"},
+				// todo-1 remains unchanged
+				{ID: "todo-1", Text: "Learn Go templates", Completed: true, Priority: "High"},
+				// todo-3 removed (was "Write documentation")
+				// NEW todos added
+				{ID: "todo-6", Text: "Deploy to production", Completed: false, Priority: "Critical"},
+				{ID: "todo-7", Text: "Monitor performance", Completed: false, Priority: "Medium"},
+			},
+			TodoCount:      4,
+			CompletedCount: 2, // todo-4 and todo-1 are completed
+			RemainingCount: 2, // todo-6 and todo-7 are not
+			CompletionRate: 50,
+			LastUpdated:    "2023-01-01 11:30:00",
+			SessionID:      "session-12345",
+		}
+
+		// Define the previous state (after insert in middle)
+		insertMiddleState := E2EAppState{
+			Title:   "Task Manager",
+			Counter: 10,
+			Todos: []TodoItem{
+				{ID: "todo-4", Text: "Setup development environment", Completed: false, Priority: "High"},
+				{ID: "todo-5", Text: "Configure CI/CD pipeline", Completed: false, Priority: "Medium"},
+				{ID: "todo-1", Text: "Learn Go templates", Completed: true, Priority: "High"},
+				{ID: "todo-3", Text: "Write documentation", Completed: false, Priority: "Low"},
+			},
+			TodoCount:      4,
+			CompletedCount: 1,
+			RemainingCount: 3,
+			CompletionRate: 25,
+			LastUpdated:    "2023-01-01 11:15:00",
+			SessionID:      "session-12345",
+		}
+
+		insertStartState := E2EAppState{
+			Title:   "Task Manager",
+			Counter: 9,
+			Todos: []TodoItem{
+				{ID: "todo-4", Text: "Setup development environment", Completed: false, Priority: "High"},
+				{ID: "todo-1", Text: "Learn Go templates", Completed: true, Priority: "High"},
+				{ID: "todo-3", Text: "Write documentation", Completed: false, Priority: "Low"},
+			},
+			TodoCount:      3,
+			CompletedCount: 1,
+			RemainingCount: 2,
+			CompletionRate: 33,
+			LastUpdated:    "2023-01-01 11:00:00",
+			SessionID:      "session-12345",
+		}
+
+		sortedState := E2EAppState{
+			Title:   "Task Manager",
+			Counter: 8,
+			Todos: []TodoItem{
+				{ID: "todo-1", Text: "Learn Go templates", Completed: true, Priority: "High"},
+				{ID: "todo-3", Text: "Write documentation", Completed: false, Priority: "Low"},
+			},
+			TodoCount:      2,
+			CompletedCount: 1,
+			RemainingCount: 1,
+			CompletionRate: 50,
+			LastUpdated:    "2023-01-01 10:50:00",
+			SessionID:      "session-12345",
+		}
+
+		// Continue with the same template to maintain state from all previous tests
+		var prevBuf1, prevBuf2, prevBuf3, prevBuf4, prevBuf5, prevBuf6 bytes.Buffer
+		// Establish prior state (including all previous steps)
+		tmpl.ExecuteUpdates(&prevBuf1, update1State)
+		tmpl.ExecuteUpdates(&prevBuf2, update2State)
+		tmpl.ExecuteUpdates(&prevBuf3, update3State)
+		tmpl.ExecuteUpdates(&prevBuf4, sortedState)
+		tmpl.ExecuteUpdates(&prevBuf5, insertStartState)
+		tmpl.ExecuteUpdates(&prevBuf6, insertMiddleState)
+
+		// Apply multiple operations
+		var buf bytes.Buffer
+		err = tmpl.ExecuteUpdates(&buf, multipleOpsState)
+		if err != nil {
+			t.Fatalf("ExecuteUpdates failed: %v", err)
+		}
+
+		updateJSON := buf.Bytes()
+
+		// Parse and verify the update
+		var updateTree map[string]interface{}
+		err = json.Unmarshal(updateJSON, &updateTree)
+		if err != nil {
+			t.Fatalf("Failed to parse update JSON: %v", err)
+		}
+
+		// Save the update for review
+		var jsonBuf bytes.Buffer
+		encoder := json.NewEncoder(&jsonBuf)
+		encoder.SetEscapeHTML(false)
+		encoder.SetIndent("", "  ")
+		encoder.Encode(updateTree)
+		err = os.WriteFile("testdata/e2e/update_06_multiple_ops.json", jsonBuf.Bytes(), 0644)
+		if err != nil {
+			t.Logf("Warning: Could not save update_06_multiple_ops.json: %v", err)
+		}
+
+		// Verify multiple range operations were generated
+		operations, hasOps := updateTree["9"].([]interface{})
+		if hasOps {
+			removeCount := 0
+			updateCount := 0
+			addCount := 0
+
+			for _, op := range operations {
+				if opSlice, ok := op.([]interface{}); ok && len(opSlice) >= 2 {
+					switch opSlice[0].(string) {
+					case "r":
+						removeCount++
+					case "u":
+						updateCount++
+					case "a":
+						addCount++
+					case "i":
+						addCount++ // Count insert as add for simplicity
+					}
+				}
+			}
+
+			t.Logf("✅ Multiple operations generated: %d removes, %d updates, %d adds",
+				removeCount, updateCount, addCount)
+
+			// Verify we have operations of multiple types
+			operationTypes := 0
+			if removeCount > 0 {
+				operationTypes++
+			}
+			if updateCount > 0 {
+				operationTypes++
+			}
+			if addCount > 0 {
+				operationTypes++
+			}
+
+			if operationTypes < 2 {
+				t.Errorf("Expected multiple operation types, only got %d type(s)", operationTypes)
+			}
+		} else {
+			t.Logf("Note: No range operations found, might be using full state update")
+		}
+
+		// Generate full HTML render to verify final state
+		var htmlBuf bytes.Buffer
+		err = tmpl.Execute(&htmlBuf, multipleOpsState)
+		if err != nil {
+			t.Fatalf("Failed to render HTML after multiple operations: %v", err)
+		} else {
+			renderedHTML := htmlBuf.String()
+			err = os.WriteFile("testdata/e2e/rendered_06_multiple_ops.html", []byte(renderedHTML), 0644)
+			if err != nil {
+				t.Logf("Warning: Could not save rendered_06_multiple_ops.html: %v", err)
+			}
+		}
+
+		// Compare with golden file if it exists
+		if len(updateTree) > 0 {
+			compareWithGoldenFile(t, "update_06_multiple_ops", updateTree)
+		}
+
+		t.Logf("✅ Multiple range operations complete - JSON length: %d bytes", len(updateJSON))
+		t.Logf("Update keys: %v", getMapKeys(updateTree))
+	})
+
+	// Step 7: Verify caching behavior with identical data
+	t.Run("7_No_Change_Update", func(t *testing.T) {
 		// Use the same sequence as step 4 to ensure proper fingerprint comparison
 		tmplSequence3 := New("e2e-sequence-3")
 		_, err := tmplSequence3.ParseFiles("testdata/e2e/input.tmpl")
@@ -886,8 +1063,8 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		t.Logf("✅ No-change update verified - %d bytes (should be minimal)", len(updateJSON))
 	})
 
-	// Step 6: Performance verification
-	t.Run("7_Performance_Check", func(t *testing.T) {
+	// Step 8: Performance verification
+	t.Run("8_Performance_Check", func(t *testing.T) {
 		// Measure update generation time
 		start := time.Now()
 		for i := 0; i < 100; i++ {
