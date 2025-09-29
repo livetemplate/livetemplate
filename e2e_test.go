@@ -3,11 +3,14 @@ package livetemplate
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"os"
 	"strings"
 	"testing"
 	"time"
 )
+
+var updateGolden = flag.Bool("update-golden", false, "update golden files")
 
 // E2E test data structures
 type TodoItem struct {
@@ -118,12 +121,6 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 
 		renderedHTML := buf.String()
 
-		// Save rendered HTML for review
-		err = os.WriteFile("testdata/e2e/todos/rendered_00_initial.html", []byte(renderedHTML), 0644)
-		if err != nil {
-			t.Logf("Warning: Could not save rendered_00_initial.html: %v", err)
-		}
-
 		// Verify key content is present
 		expectedContent := []string{
 			"<!DOCTYPE html>",
@@ -166,10 +163,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 					}
 				}
 
-				err = os.WriteFile("testdata/e2e/todos/tree_00_initial.json", initialTreeJSON, 0644)
-				if err != nil {
-					t.Logf("Warning: Could not save tree_00_initial.json: %v", err)
-				}
+				_ = initialTreeJSON // Keep variable to avoid unused variable error
 			}
 		}
 
@@ -213,23 +207,17 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		} else {
 			formattedJSON = jsonBuf.Bytes()
 		}
-		err = os.WriteFile("testdata/e2e/todos/update_01_add_todos.json", formattedJSON, 0644)
-		if err != nil {
-			t.Logf("Warning: Could not save update_01_add_todos.json: %v", err)
-		}
+		_ = formattedJSON // Keep variable to avoid unused variable error
 
 		// Compare with golden file
-		compareWithGoldenFile(t, "update_01_add_todos", updateTree)
+		compareWithGoldenFile(t, "todos", "update_01_add_todos", updateTree)
 
 		// Render and save the full HTML after this update for reviewability
 		var htmlBuf bytes.Buffer
 		err = tmpl.Execute(&htmlBuf, update1State)
 		if err == nil {
 			renderedHTML := htmlBuf.String()
-			err = os.WriteFile("testdata/e2e/todos/rendered_01_add_todos.html", []byte(renderedHTML), 0644)
-			if err != nil {
-				t.Logf("Warning: Could not save rendered_01_add_todos.html: %v", err)
-			}
+			_ = renderedHTML // Keep variable to avoid unused variable error
 		}
 
 		// SHOULD contain static structure for first update (client needs to cache it)
@@ -299,10 +287,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		} else {
 			formattedJSON = jsonBuf.Bytes()
 		}
-		err = os.WriteFile("testdata/e2e/todos/update_02_remove_todo.json", formattedJSON, 0644)
-		if err != nil {
-			t.Logf("Warning: Could not save update_02_remove_todo.json: %v", err)
-		}
+		_ = formattedJSON // Keep variable to avoid unused variable error
 
 		// Verify essential behavior rather than exact order (due to non-deterministic map iteration)
 		operations, hasOps := updateTree["9"].([]interface{})
@@ -336,10 +321,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		err = tmpl.Execute(&htmlBuf, update2State)
 		if err == nil {
 			renderedHTML := htmlBuf.String()
-			err = os.WriteFile("testdata/e2e/todos/rendered_02_remove_todo.html", []byte(renderedHTML), 0644)
-			if err != nil {
-				t.Logf("Warning: Could not save rendered_02_remove_todo.html: %v", err)
-			}
+			_ = renderedHTML // Keep variable to avoid unused variable error
 		}
 
 		// Should NOT contain static structure on subsequent updates (cache-aware)
@@ -412,10 +394,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		} else {
 			formattedJSON = jsonBuf.Bytes()
 		}
-		err = os.WriteFile("testdata/e2e/todos/update_03_complete_todo.json", formattedJSON, 0644)
-		if err != nil {
-			t.Logf("Warning: Could not save update_03_complete_todo.json: %v", err)
-		}
+		_ = formattedJSON // Keep variable to avoid unused variable error
 
 		// Compare with golden file
 		// Verify essential behavior rather than exact order (due to non-deterministic map iteration)
@@ -446,10 +425,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		err = tmpl.Execute(&htmlBuf, update3State)
 		if err == nil {
 			renderedHTML := htmlBuf.String()
-			err = os.WriteFile("testdata/e2e/todos/rendered_03_complete_todo.html", []byte(renderedHTML), 0644)
-			if err != nil {
-				t.Logf("Warning: Could not save rendered_03_complete_todo.html: %v", err)
-			}
+			_ = renderedHTML // Keep variable to avoid unused variable error
 		}
 
 		// Should NOT contain static structure on subsequent updates
@@ -524,10 +500,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		encoder.SetEscapeHTML(false)
 		encoder.SetIndent("", "  ")
 		encoder.Encode(updateTree)
-		err = os.WriteFile("testdata/e2e/todos/update_04_sort_todos.json", jsonBuf.Bytes(), 0644)
-		if err != nil {
-			t.Logf("Warning: Could not save update_04_sort_todos.json: %v", err)
-		}
+		_ = jsonBuf.Bytes() // Keep variable to avoid unused variable error
 
 		// Verify ordering operation was generated
 		operations, hasOps := updateTree["9"].([]interface{})
@@ -571,10 +544,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 			t.Fatalf("Failed to render HTML after sorting: %v", err)
 		} else {
 			renderedHTML := htmlBuf.String()
-			err = os.WriteFile("testdata/e2e/todos/rendered_04_sort_todos.html", []byte(renderedHTML), 0644)
-			if err != nil {
-				t.Logf("Warning: Could not save rendered_04_sort_todos.html: %v", err)
-			}
+			_ = renderedHTML // Keep variable to avoid unused variable error
 		}
 
 		// Verify minimal update (should mainly have timestamp and ordering)
@@ -583,7 +553,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		}
 
 		// Compare with golden file
-		compareWithGoldenFile(t, "update_04_sort_todos", updateTree)
+		compareWithGoldenFile(t, "todos", "update_04_sort_todos", updateTree)
 
 		t.Logf("✅ Sort todos update complete - JSON length: %d bytes", len(updateJSON))
 		t.Logf("Update keys: %v", getMapKeys(updateTree))
@@ -656,10 +626,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		encoder.SetEscapeHTML(false)
 		encoder.SetIndent("", "  ")
 		encoder.Encode(updateTree)
-		err = os.WriteFile("testdata/e2e/todos/update_05a_insert_single_start.json", jsonBuf.Bytes(), 0644)
-		if err != nil {
-			t.Logf("Warning: Could not save update_05a_insert_single_start.json: %v", err)
-		}
+		_ = jsonBuf.Bytes() // Keep variable to avoid unused variable error
 
 		// Verify insertion operation was generated
 		operations, hasOps := updateTree["9"].([]interface{})
@@ -695,15 +662,12 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 			t.Fatalf("Failed to render HTML after insertion at start: %v", err)
 		} else {
 			renderedHTML := htmlBuf.String()
-			err = os.WriteFile("testdata/e2e/todos/rendered_05a_insert_single_start.html", []byte(renderedHTML), 0644)
-			if err != nil {
-				t.Logf("Warning: Could not save rendered_05a_insert_single_start.html: %v", err)
-			}
+			_ = renderedHTML // Keep variable to avoid unused variable error
 		}
 
 		// Compare with golden file if it exists
 		if len(updateTree) > 0 {
-			compareWithGoldenFile(t, "update_05a_insert_single_start", updateTree)
+			compareWithGoldenFile(t, "todos", "update_05a_insert_single_start", updateTree)
 		}
 
 		t.Logf("✅ Insert single item at start complete - JSON length: %d bytes", len(updateJSON))
@@ -796,10 +760,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		encoder.SetEscapeHTML(false)
 		encoder.SetIndent("", "  ")
 		encoder.Encode(updateTree)
-		err = os.WriteFile("testdata/e2e/todos/update_05b_insert_single_middle.json", jsonBuf.Bytes(), 0644)
-		if err != nil {
-			t.Logf("Warning: Could not save update_05b_insert_single_middle.json: %v", err)
-		}
+		_ = jsonBuf.Bytes() // Keep variable to avoid unused variable error
 
 		// Verify insertion operation was generated
 		operations, hasOps := updateTree["9"].([]interface{})
@@ -835,15 +796,12 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 			t.Fatalf("Failed to render HTML after insertion in middle: %v", err)
 		} else {
 			renderedHTML := htmlBuf.String()
-			err = os.WriteFile("testdata/e2e/todos/rendered_05b_insert_single_middle.html", []byte(renderedHTML), 0644)
-			if err != nil {
-				t.Logf("Warning: Could not save rendered_05b_insert_single_middle.html: %v", err)
-			}
+			_ = renderedHTML // Keep variable to avoid unused variable error
 		}
 
 		// Compare with golden file if it exists
 		if len(updateTree) > 0 {
-			compareWithGoldenFile(t, "update_05b_insert_single_middle", updateTree)
+			compareWithGoldenFile(t, "todos", "update_05b_insert_single_middle", updateTree)
 		}
 
 		t.Logf("✅ Insert single item in middle complete - JSON length: %d bytes", len(updateJSON))
@@ -956,10 +914,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		encoder.SetEscapeHTML(false)
 		encoder.SetIndent("", "  ")
 		encoder.Encode(updateTree)
-		err = os.WriteFile("testdata/e2e/todos/update_06_multiple_ops.json", jsonBuf.Bytes(), 0644)
-		if err != nil {
-			t.Logf("Warning: Could not save update_06_multiple_ops.json: %v", err)
-		}
+		_ = jsonBuf.Bytes() // Keep variable to avoid unused variable error
 
 		// Verify multiple range operations were generated
 		operations, hasOps := updateTree["9"].([]interface{})
@@ -1012,15 +967,12 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 			t.Fatalf("Failed to render HTML after multiple operations: %v", err)
 		} else {
 			renderedHTML := htmlBuf.String()
-			err = os.WriteFile("testdata/e2e/todos/rendered_06_multiple_ops.html", []byte(renderedHTML), 0644)
-			if err != nil {
-				t.Logf("Warning: Could not save rendered_06_multiple_ops.html: %v", err)
-			}
+			_ = renderedHTML // Keep variable to avoid unused variable error
 		}
 
 		// Compare with golden file if it exists
 		if len(updateTree) > 0 {
-			compareWithGoldenFile(t, "update_06_multiple_ops", updateTree)
+			compareWithGoldenFile(t, "todos", "update_06_multiple_ops", updateTree)
 		}
 
 		t.Logf("✅ Multiple range operations complete - JSON length: %d bytes", len(updateJSON))
@@ -1099,9 +1051,78 @@ func getMapKeys(m map[string]interface{}) []string {
 	return keys
 }
 
+// compareWithGoldenHTML compares generated HTML with expected golden file
+func compareWithGoldenHTML(t *testing.T, appType, fileName string, generatedHTML string) {
+	goldenFile := "testdata/e2e/" + appType + "/" + fileName + ".golden.html"
+
+	if *updateGolden {
+		// Update mode: write the generated HTML to golden file
+		err := os.WriteFile(goldenFile, []byte(generatedHTML), 0644)
+		if err != nil {
+			t.Fatalf("Failed to write golden HTML file %s: %v", goldenFile, err)
+		}
+
+		t.Logf("✅ Updated golden HTML file: %s", goldenFile)
+		return
+	}
+
+	// Read golden file
+	goldenData, err := os.ReadFile(goldenFile)
+	if err != nil {
+		t.Logf("Golden HTML file %s not found, creating reference...", goldenFile)
+		return
+	}
+
+	expectedHTML := strings.TrimSpace(string(goldenData))
+	actualHTML := strings.TrimSpace(generatedHTML)
+
+	if expectedHTML != actualHTML {
+		t.Errorf("Generated HTML for %s does not match golden file", fileName)
+		t.Logf("Expected length: %d, Actual length: %d", len(expectedHTML), len(actualHTML))
+
+		// Show first few differences
+		minLen := len(expectedHTML)
+		if len(actualHTML) < minLen {
+			minLen = len(actualHTML)
+		}
+
+		for i := 0; i < minLen && i < 500; i++ { // Show first 500 characters of differences
+			if expectedHTML[i] != actualHTML[i] {
+				start := max(0, i-50)
+				end := min(minLen, i+50)
+				t.Logf("First difference at position %d:", i)
+				t.Logf("Expected: ...%q...", expectedHTML[start:end])
+				t.Logf("Actual:   ...%q...", actualHTML[start:end])
+				break
+			}
+		}
+	} else {
+		t.Logf("✅ %s HTML matches golden file perfectly", fileName)
+	}
+}
+
 // compareWithGoldenFile compares generated update with expected golden file
-func compareWithGoldenFile(t *testing.T, updateName string, generatedUpdate TreeNode) {
-	goldenFile := "testdata/e2e/todos/" + updateName + ".golden.json"
+func compareWithGoldenFile(t *testing.T, appType, updateName string, generatedUpdate TreeNode) {
+	goldenFile := "testdata/e2e/" + appType + "/" + updateName + ".golden.json"
+
+	// Convert generated update to map for comparison
+	generated := map[string]interface{}(generatedUpdate)
+
+	if *updateGolden {
+		// Update mode: write the generated data to golden file
+		generatedJSON, err := json.MarshalIndent(generated, "", "  ")
+		if err != nil {
+			t.Fatalf("Failed to marshal generated update: %v", err)
+		}
+
+		err = os.WriteFile(goldenFile, generatedJSON, 0644)
+		if err != nil {
+			t.Fatalf("Failed to write golden file %s: %v", goldenFile, err)
+		}
+
+		t.Logf("✅ Updated golden file: %s", goldenFile)
+		return
+	}
 
 	// Read golden file
 	goldenData, err := os.ReadFile(goldenFile)
@@ -1116,9 +1137,6 @@ func compareWithGoldenFile(t *testing.T, updateName string, generatedUpdate Tree
 	if err != nil {
 		t.Fatalf("Failed to parse golden file %s: %v", goldenFile, err)
 	}
-
-	// Convert generated update to map for comparison
-	generated := map[string]interface{}(generatedUpdate)
 
 	// Compare structures
 	if !deepEqual(expected, generated) {
@@ -1240,10 +1258,6 @@ func TestTemplate_E2E_SimpleCounter(t *testing.T) {
 		renderedHTML := buf.String()
 
 		// Save rendered HTML for review
-		err = os.WriteFile("testdata/e2e/counter/rendered_00_initial.html", []byte(renderedHTML), 0644)
-		if err != nil {
-			t.Logf("Warning: Could not save rendered_00_initial.html: %v", err)
-		}
 
 		// Verify key content is present
 		expectedContent := []string{
@@ -1286,10 +1300,7 @@ func TestTemplate_E2E_SimpleCounter(t *testing.T) {
 					}
 				}
 
-				err = os.WriteFile("testdata/e2e/counter/tree_00_initial.json", initialTreeJSON, 0644)
-				if err != nil {
-					t.Logf("Warning: Could not save tree_00_initial.json: %v", err)
-				}
+				_ = initialTreeJSON // Keep variable to avoid unused variable error
 			}
 		}
 
@@ -1332,20 +1343,17 @@ func TestTemplate_E2E_SimpleCounter(t *testing.T) {
 		} else {
 			formattedJSON = jsonBuf.Bytes()
 		}
-		err = os.WriteFile("testdata/e2e/counter/update_01_increment.json", formattedJSON, 0644)
-		if err != nil {
-			t.Logf("Warning: Could not save update_01_increment.json: %v", err)
-		}
+		_ = formattedJSON // Keep variable to avoid unused variable error
+
+		// Compare with golden file
+		compareWithGoldenFile(t, "counter", "update_01_increment", updateTree)
 
 		// Render and save the full HTML after this update for reviewability
 		var htmlBuf bytes.Buffer
 		err = tmpl.Execute(&htmlBuf, update1State)
 		if err == nil {
 			renderedHTML := htmlBuf.String()
-			err = os.WriteFile("testdata/e2e/counter/rendered_01_increment.html", []byte(renderedHTML), 0644)
-			if err != nil {
-				t.Logf("Warning: Could not save rendered_01_increment.html: %v", err)
-			}
+			_ = renderedHTML // Keep variable to avoid unused variable error
 		}
 
 		// Should contain static structure on first update
@@ -1400,20 +1408,17 @@ func TestTemplate_E2E_SimpleCounter(t *testing.T) {
 		encoder.SetEscapeHTML(false)
 		encoder.SetIndent("", "  ")
 		encoder.Encode(updateTree)
-		err = os.WriteFile("testdata/e2e/counter/update_02_large_increment.json", jsonBuf.Bytes(), 0644)
-		if err != nil {
-			t.Logf("Warning: Could not save update_02_large_increment.json: %v", err)
-		}
+		_ = jsonBuf.Bytes() // Keep variable to avoid unused variable error
+
+		// Compare with golden file
+		compareWithGoldenFile(t, "counter", "update_02_large_increment", updateTree)
 
 		// Render and save the full HTML after this update
 		var htmlBuf bytes.Buffer
 		err = tmpl.Execute(&htmlBuf, update2State)
 		if err == nil {
 			renderedHTML := htmlBuf.String()
-			err = os.WriteFile("testdata/e2e/counter/rendered_02_large_increment.html", []byte(renderedHTML), 0644)
-			if err != nil {
-				t.Logf("Warning: Could not save rendered_02_large_increment.html: %v", err)
-			}
+			_ = renderedHTML // Keep variable to avoid unused variable error
 		}
 
 		// Should NOT contain static structure on subsequent updates
@@ -1465,20 +1470,17 @@ func TestTemplate_E2E_SimpleCounter(t *testing.T) {
 		encoder.SetEscapeHTML(false)
 		encoder.SetIndent("", "  ")
 		encoder.Encode(updateTree)
-		err = os.WriteFile("testdata/e2e/counter/update_03_decrement.json", jsonBuf.Bytes(), 0644)
-		if err != nil {
-			t.Logf("Warning: Could not save update_03_decrement.json: %v", err)
-		}
+		_ = jsonBuf.Bytes() // Keep variable to avoid unused variable error
+
+		// Compare with golden file
+		compareWithGoldenFile(t, "counter", "update_03_decrement", updateTree)
 
 		// Render and save the full HTML after this update
 		var htmlBuf bytes.Buffer
 		err = tmpl.Execute(&htmlBuf, update3State)
 		if err == nil {
 			renderedHTML := htmlBuf.String()
-			err = os.WriteFile("testdata/e2e/counter/rendered_03_decrement.html", []byte(renderedHTML), 0644)
-			if err != nil {
-				t.Logf("Warning: Could not save rendered_03_decrement.html: %v", err)
-			}
+			_ = renderedHTML // Keep variable to avoid unused variable error
 		}
 
 		t.Logf("✅ Decrement update complete - JSON length: %d bytes", len(updateJSON))
@@ -1514,20 +1516,17 @@ func TestTemplate_E2E_SimpleCounter(t *testing.T) {
 		encoder.SetEscapeHTML(false)
 		encoder.SetIndent("", "  ")
 		encoder.Encode(updateTree)
-		err = os.WriteFile("testdata/e2e/counter/update_04_negative.json", jsonBuf.Bytes(), 0644)
-		if err != nil {
-			t.Logf("Warning: Could not save update_04_negative.json: %v", err)
-		}
+		_ = jsonBuf.Bytes() // Keep variable to avoid unused variable error
+
+		// Compare with golden file
+		compareWithGoldenFile(t, "counter", "update_04_negative", updateTree)
 
 		// Render and save the full HTML after this update
 		var htmlBuf bytes.Buffer
 		err = tmpl.Execute(&htmlBuf, update4State)
 		if err == nil {
 			renderedHTML := htmlBuf.String()
-			err = os.WriteFile("testdata/e2e/counter/rendered_04_negative.html", []byte(renderedHTML), 0644)
-			if err != nil {
-				t.Logf("Warning: Could not save rendered_04_negative.html: %v", err)
-			}
+			_ = renderedHTML // Keep variable to avoid unused variable error
 		}
 
 		// Verify conditional branch changes - should update both counter and conditional content
@@ -1577,20 +1576,17 @@ func TestTemplate_E2E_SimpleCounter(t *testing.T) {
 		encoder.SetEscapeHTML(false)
 		encoder.SetIndent("", "  ")
 		encoder.Encode(updateTree)
-		err = os.WriteFile("testdata/e2e/counter/update_05_reset.json", jsonBuf.Bytes(), 0644)
-		if err != nil {
-			t.Logf("Warning: Could not save update_05_reset.json: %v", err)
-		}
+		_ = jsonBuf.Bytes() // Keep variable to avoid unused variable error
+
+		// Compare with golden file
+		compareWithGoldenFile(t, "counter", "update_05_reset", updateTree)
 
 		// Render and save the full HTML after this update
 		var htmlBuf bytes.Buffer
 		err = tmpl.Execute(&htmlBuf, update5State)
 		if err == nil {
 			renderedHTML := htmlBuf.String()
-			err = os.WriteFile("testdata/e2e/counter/rendered_05_reset.html", []byte(renderedHTML), 0644)
-			if err != nil {
-				t.Logf("Warning: Could not save rendered_05_reset.html: %v", err)
-			}
+			_ = renderedHTML // Keep variable to avoid unused variable error
 		}
 
 		// Verify reset to zero updates both counter and conditional content

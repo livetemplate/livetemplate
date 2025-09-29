@@ -674,14 +674,29 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}) []inter
 	}
 
 	// Find removed items (in old but not in new)
+	// Sort keys to ensure deterministic order
+	sortedOldKeys := make([]string, 0, len(oldItemsByKey))
 	for key := range oldItemsByKey {
+		sortedOldKeys = append(sortedOldKeys, key)
+	}
+	sort.Strings(sortedOldKeys)
+
+	for _, key := range sortedOldKeys {
 		if _, exists := newItemsByKey[key]; !exists {
 			operations = append(operations, []interface{}{"r", key})
 		}
 	}
 
 	// Find updated items (in both, but changed)
-	for key, newItem := range newItemsByKey {
+	// Sort keys to ensure deterministic order
+	sortedNewKeys := make([]string, 0, len(newItemsByKey))
+	for key := range newItemsByKey {
+		sortedNewKeys = append(sortedNewKeys, key)
+	}
+	sort.Strings(sortedNewKeys)
+
+	for _, key := range sortedNewKeys {
+		newItem := newItemsByKey[key]
 		if oldItem, exists := oldItemsByKey[key]; exists {
 			// Compare items and generate update operation if different
 			changes := compareRangeItemsForChanges(oldItem, newItem)

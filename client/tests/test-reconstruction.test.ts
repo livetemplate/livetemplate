@@ -19,20 +19,20 @@ interface TestCase {
 const TODOS_TEST_CASES: TestCase[] = [
   {
     name: 'add_todos_update',
-    updateFile: 'testdata/e2e/todos/update_01_add_todos.json',
-    renderedFile: 'testdata/e2e/todos/rendered_01_add_todos.html',
+    updateFile: 'testdata/e2e/todos/update_01_add_todos.golden.json',
+    renderedFile: 'testdata/e2e/todos/rendered_01_add_todos.golden.html',
     description: 'Add todos to empty list'
   },
   {
     name: 'remove_todo_update',
-    updateFile: 'testdata/e2e/todos/update_02_remove_todo.json',
-    renderedFile: 'testdata/e2e/todos/rendered_02_remove_todo.html',
+    updateFile: 'testdata/e2e/todos/update_02_remove_todo.golden.json',
+    renderedFile: 'testdata/e2e/todos/rendered_02_remove_todo.golden.html',
     description: 'Remove todo from list (only changed segments)'
   },
   {
     name: 'complete_todo_update',
-    updateFile: 'testdata/e2e/todos/update_03_complete_todo.json',
-    renderedFile: 'testdata/e2e/todos/rendered_03_complete_todo.html',
+    updateFile: 'testdata/e2e/todos/update_03_complete_todo.golden.json',
+    renderedFile: 'testdata/e2e/todos/rendered_03_complete_todo.golden.html',
     description: 'Complete todo and update stats (conditional branching)'
   }
 ];
@@ -40,26 +40,26 @@ const TODOS_TEST_CASES: TestCase[] = [
 const COUNTER_TEST_CASES: TestCase[] = [
   {
     name: 'increment_counter',
-    updateFile: 'testdata/e2e/counter/update_01_increment.json',
-    renderedFile: 'testdata/e2e/counter/rendered_01_increment.html',
+    updateFile: 'testdata/e2e/counter/update_01_increment.golden.json',
+    renderedFile: 'testdata/e2e/counter/rendered_01_increment.golden.html',
     description: 'Increment counter from 0 to 5'
   },
   {
     name: 'large_increment_counter',
-    updateFile: 'testdata/e2e/counter/update_02_large_increment.json',
-    renderedFile: 'testdata/e2e/counter/rendered_02_large_increment.html',
+    updateFile: 'testdata/e2e/counter/update_02_large_increment.golden.json',
+    renderedFile: 'testdata/e2e/counter/rendered_02_large_increment.golden.html',
     description: 'Large increment counter from 5 to 25'
   },
   {
     name: 'negative_counter',
-    updateFile: 'testdata/e2e/counter/update_04_negative.json',
-    renderedFile: 'testdata/e2e/counter/rendered_04_negative.html',
+    updateFile: 'testdata/e2e/counter/update_04_negative.golden.json',
+    renderedFile: 'testdata/e2e/counter/rendered_04_negative.golden.html',
     description: 'Counter goes negative (-3) with conditional change'
   },
   {
     name: 'reset_counter',
-    updateFile: 'testdata/e2e/counter/update_05_reset.json',
-    renderedFile: 'testdata/e2e/counter/rendered_05_reset.html',
+    updateFile: 'testdata/e2e/counter/update_05_reset.golden.json',
+    renderedFile: 'testdata/e2e/counter/rendered_05_reset.golden.html',
     description: 'Reset counter to zero with conditional change'
   }
 ];
@@ -88,7 +88,7 @@ describe('LiveTemplate Client Reconstruction Tests', () => {
 
   describe('Basic Client Functionality', () => {
     it('should initialize and handle todos updates correctly', () => {
-      const initialTree = loadJSON('testdata/e2e/todos/tree_00_initial.json');
+      const initialTree = loadJSON('testdata/e2e/todos/tree_00_initial.golden.json');
 
       const result = client.applyUpdate(initialTree);
       expect(result.changed).toBe(true);
@@ -102,7 +102,7 @@ describe('LiveTemplate Client Reconstruction Tests', () => {
     });
 
     it('should initialize and handle counter updates correctly', () => {
-      const initialTree = loadJSON('testdata/e2e/counter/tree_00_initial.json');
+      const initialTree = loadJSON('testdata/e2e/counter/tree_00_initial.golden.json');
 
       const result = client.applyUpdate(initialTree);
       expect(result.changed).toBe(true);
@@ -116,7 +116,7 @@ describe('LiveTemplate Client Reconstruction Tests', () => {
     });
 
     it('should reset client state', () => {
-      const initialTree = loadJSON('testdata/e2e/todos/tree_00_initial.json');
+      const initialTree = loadJSON('testdata/e2e/todos/tree_00_initial.golden.json');
 
       client.applyUpdate(initialTree);
       expect(client.getStaticStructure()).toBeDefined();
@@ -207,11 +207,11 @@ describe('LiveTemplate Client Reconstruction Tests', () => {
     };
 
     it('should apply todos updates and match expected rendered files', () => {
-      testReconstructionSequence('todos', TODOS_TEST_CASES, 'testdata/e2e/todos/rendered_00_initial.html');
+      testReconstructionSequence('todos', TODOS_TEST_CASES, 'testdata/e2e/todos/rendered_00_initial.golden.html');
     });
 
     it('should apply counter updates and match expected rendered files', () => {
-      testReconstructionSequence('counter', COUNTER_TEST_CASES, 'testdata/e2e/counter/rendered_00_initial.html');
+      testReconstructionSequence('counter', COUNTER_TEST_CASES, 'testdata/e2e/counter/rendered_00_initial.golden.html');
     });
     
     // Verify all test cases have valid structure and complete data

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -366,8 +367,15 @@ func ConvertFullTreeToSimpleTree(fullTree *FullTreeNode) TreeNode {
 		result["s"] = statics
 	}
 
-	for k, v := range dynamics {
-		result[k] = v
+	// Sort keys to ensure deterministic output
+	keys := make([]string, 0, len(dynamics))
+	for k := range dynamics {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		result[k] = dynamics[k]
 	}
 
 	return result
