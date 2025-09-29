@@ -220,8 +220,15 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}) error {
 
 // generateTreeInternal is the internal implementation that returns TreeNode
 func (t *Template) generateTreeInternal(data interface{}) (TreeNode, error) {
-	// Reset key generation for fresh render
-	t.resetKeyGeneration()
+	// Initialize key generator if needed (but don't reset - keys should increment globally)
+	if t.keyGen == nil {
+		t.keyGen = NewKeyGenerator()
+	}
+
+	// Load existing key mappings from previous render if available
+	if t.lastTree != nil {
+		t.loadExistingKeyMappings(t.lastTree)
+	}
 
 	// Execute template with current data
 	currentHTML, err := t.executeTemplate(data)
@@ -518,10 +525,10 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}) []inter
 	oldItemsByKey := make(map[string]interface{})
 	newItemsByKey := make(map[string]interface{})
 
-	// Map old items by their auto-generated keys (field "1")
+	// Map old items by their auto-generated keys (field "0")
 	for _, item := range oldItems {
 		if itemMap, ok := item.(map[string]interface{}); ok {
-			if key, exists := itemMap["1"]; exists {
+			if key, exists := itemMap["0"]; exists {
 				if keyStr, ok := key.(string); ok {
 					oldItemsByKey[keyStr] = item
 				}
@@ -529,10 +536,10 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}) []inter
 		}
 	}
 
-	// Map new items by their auto-generated keys (field "1")
+	// Map new items by their auto-generated keys (field "0")
 	for _, item := range newItems {
 		if itemMap, ok := item.(map[string]interface{}); ok {
-			if key, exists := itemMap["1"]; exists {
+			if key, exists := itemMap["0"]; exists {
 				if keyStr, ok := key.(string); ok {
 					newItemsByKey[keyStr] = item
 				}
@@ -572,9 +579,9 @@ func compareRangeItemsForChanges(oldItem, newItem interface{}) map[string]interf
 		return changes
 	}
 
-	// Compare each field (except the key field "1")
+	// Compare each field (except the key field "0")
 	for fieldKey, newValue := range newItemMap {
-		if fieldKey == "1" {
+		if fieldKey == "0" {
 			continue // Skip the auto-generated key field
 		}
 
@@ -822,4 +829,19 @@ func marshalValue(value interface{}) ([]byte, error) {
 	// Remove trailing newline that Encode adds
 	result := bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
 	return result, nil
+}
+
+// loadExistingKeyMappings loads existing key mappings from the last tree node
+func (t *Template) loadExistingKeyMappings(lastTree TreeNode) {
+	// Look for range data in the tree and load existing key mappings
+	for _, value := range lastTree {
+		if rangeData, ok := value.(map[string]interface{}); ok {
+			// Check if this looks like range data with "d" field
+			if dynData, exists := rangeData["d"]; exists {
+				if dynSlice, ok := dynData.([]interface{}); ok {
+					t.keyGen.LoadExistingKeys(dynSlice)
+				}
+			}
+		}
+	}
 }

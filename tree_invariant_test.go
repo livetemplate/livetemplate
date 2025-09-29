@@ -168,6 +168,7 @@ func TestE2EInvariantGuarantee(t *testing.T) {
 		RemainingCount int
 		CompletionRate float64
 		Todos          []struct {
+			ID        string
 			Text      string
 			Completed bool
 			Priority  string
@@ -182,13 +183,14 @@ func TestE2EInvariantGuarantee(t *testing.T) {
 		RemainingCount: 2,
 		CompletionRate: 33.33,
 		Todos: []struct {
+			ID        string
 			Text      string
 			Completed bool
 			Priority  string
 		}{
-			{"Learn Go templates", false, "high"},
-			{"Build live updates", false, "medium"},
-			{"Write documentation", true, "low"},
+			{"todo-1", "Learn Go templates", false, "high"},
+			{"todo-2", "Build live updates", false, "medium"},
+			{"todo-3", "Write documentation", true, "low"},
 		},
 		LastUpdated: "2023-01-01 10:15:00",
 		SessionID:   "session-12345",

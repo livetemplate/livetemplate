@@ -198,7 +198,7 @@ export class LiveTemplateClient {
       }
 
       const [opType, key, data] = operation;
-      const itemIndex = currentItems.findIndex((item: any) => item['1'] === key); // Field '1' contains the key
+      const itemIndex = currentItems.findIndex((item: any) => item['0'] === key); // Field '0' contains the key
 
       switch (opType) {
         case 'r': // Remove

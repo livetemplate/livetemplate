@@ -3,11 +3,11 @@ package livetemplate
 import (
 	"bytes"
 	"crypto/md5"
-	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"math/rand"
 	"reflect"
 	"regexp"
 	"sort"
@@ -1328,6 +1328,8 @@ func buildTreeFromExpressions(templateStr, rendered string, expressions []Templa
 		statics = append(statics, "")
 	}
 
+	// Minify static content to reduce size
+	statics = minifyStatics(statics)
 	tree["s"] = statics
 	return tree, nil
 }
@@ -1420,14 +1422,7 @@ func buildConditionalRange(expr TemplateExpression, data interface{}, keyGen *Ke
 		statics = []string{""}
 	}
 
-	// Find the position where the key should be injected
-	keyPosition := -1
-	for i, static := range statics {
-		if strings.Contains(static, `data-lvt-key="`) {
-			keyPosition = i
-			break
-		}
-	}
+	// Key position is tracked during template expression processing
 
 	// Process collection items with key injection
 	var dynamics []map[string]interface{}
@@ -1435,24 +1430,16 @@ func buildConditionalRange(expr TemplateExpression, data interface{}, keyGen *Ke
 		item := sliceValue.Index(i).Interface()
 		itemData := make(map[string]interface{})
 
-		// Generate a simple wrapper key
-		injectedKey := generateWrapperKey(keyGen)
-
-		// Track dynamic field index
+		// First, evaluate all expressions to get the rendered content
 		dynamicIndex := 0
+		var keyFieldIndex int = -1
 
-		// Add the key at the correct position
-		if keyPosition >= 0 {
-			itemData[fmt.Sprintf("%d", keyPosition)] = injectedKey
-			// Skip this position for other expressions
-			if keyPosition == dynamicIndex {
-				dynamicIndex++
-			}
-		}
-
+		// Process all expressions first to build the complete item
 		for _, expr := range innerExpressions {
-			// Skip the key placeholder expression
+			// Skip the key placeholder expression for now
 			if strings.Contains(expr.Text, ".__LVT_KEY__") {
+				keyFieldIndex = dynamicIndex
+				dynamicIndex++
 				continue
 			}
 
@@ -1462,17 +1449,28 @@ func buildConditionalRange(expr TemplateExpression, data interface{}, keyGen *Ke
 			dynamicIndex++
 		}
 
+		// Extract key from item data or generate fallback
+		injectedKey := keyGen.extractKeyFromItem(item)
+
+		// Add the key at the correct position
+		if keyFieldIndex >= 0 {
+			itemData[fmt.Sprintf("%d", keyFieldIndex)] = injectedKey
+		}
+
 		dynamics = append(dynamics, itemData)
 	}
 
+	// No need to store previous data with explicit key approach
+
 	// Create the Phoenix comprehension structure
 	comprehension := map[string]interface{}{
-		"s": statics,
+		"s": minifyStatics(statics),
 		"d": dynamics,
 	}
 
 	return comprehension, nil
 }
+
 
 // buildRegularRangeComprehension handles regular {{range}}...{{end}} patterns
 func buildRegularRangeComprehension(expr TemplateExpression, data interface{}, keyGen *KeyGenerator) (interface{}, error) {
@@ -1507,7 +1505,7 @@ func buildRegularRangeComprehension(expr TemplateExpression, data interface{}, k
 
 	// Create the Phoenix comprehension structure
 	comprehension := map[string]interface{}{
-		"s": statics,
+		"s": minifyStatics(statics),
 		"d": dynamics,
 	}
 
@@ -1681,14 +1679,41 @@ func evaluateConditionalBlock(expr TemplateExpression, data interface{}) string 
 // Helper functions
 
 
+// KeyAttributeConfig defines which attributes to check for explicit keys
+type KeyAttributeConfig struct {
+	AttributeNames []string
+}
+
+// DefaultKeyAttributes provides sensible defaults for key attribute names
+var DefaultKeyAttributes = KeyAttributeConfig{
+	AttributeNames: []string{
+		"key",
+		"lvt-key",
+		"data-key",
+		"data-lvt-key",
+		"data-id",
+		"id",
+		"x-key", // Alpine.js compatibility
+		"v-key", // Vue.js compatibility
+	},
+}
+
 // Simple counter-based key generation for wrapper approach
 type KeyGenerator struct {
-	counter int
+	counter      int
+	usedKeys     map[string]bool         // Track used keys to prevent duplicates
+	fallbackKeys []string               // Position-based fallback keys
+	keyConfig    KeyAttributeConfig      // Configuration for key attribute names
 }
 
 // NewKeyGenerator creates a new key generator for a template instance
 func NewKeyGenerator() *KeyGenerator {
-	return &KeyGenerator{counter: 0}
+	return &KeyGenerator{
+		counter:      0,
+		usedKeys:     make(map[string]bool),
+		fallbackKeys: []string{},
+		keyConfig:    DefaultKeyAttributes,
+	}
 }
 
 // NextKey generates the next sequential key
@@ -1697,9 +1722,222 @@ func (kg *KeyGenerator) NextKey() string {
 	return fmt.Sprintf("%d", kg.counter)
 }
 
+
+
 // Reset resets the counter (useful for testing)
 func (kg *KeyGenerator) Reset() {
 	kg.counter = 0
+	kg.usedKeys = make(map[string]bool)
+	kg.fallbackKeys = []string{}
+}
+
+// LoadExistingKeys stores previous data and updates counter
+func (kg *KeyGenerator) LoadExistingKeys(oldRangeData []interface{}) {
+	// Reset used keys tracking
+	kg.usedKeys = make(map[string]bool)
+
+	// Extract max key to update counter
+	for _, item := range oldRangeData {
+		if itemMap, ok := item.(map[string]interface{}); ok {
+			// Track this key as used
+			if keyValue, exists := itemMap["0"]; exists {
+				if keyStr, ok := keyValue.(string); ok {
+					kg.usedKeys[keyStr] = true
+
+					// Update counter if it's a numeric key
+					if keyInt, err := strconv.Atoi(keyStr); err == nil && keyInt > kg.counter {
+						kg.counter = keyInt
+					}
+				}
+			}
+		}
+	}
+}
+
+
+
+// generateShortUUID creates a short random UUID for fallback keys
+func generateShortUUID() string {
+	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, 8)
+	for i := range b {
+		b[i] = chars[rand.Intn(len(chars))]
+	}
+	return string(b)
+}
+
+// extractKeyFromItem extracts key from item data structure
+func (kg *KeyGenerator) extractKeyFromItem(item interface{}) string {
+	// Try to extract key from the data structure
+	v := reflect.ValueOf(item)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+
+	if v.Kind() == reflect.Struct {
+		// Look for common key field names
+		for _, fieldName := range []string{"ID", "Id", "Key", "LvtKey", "DataKey"} {
+			field := v.FieldByName(fieldName)
+			if field.IsValid() && field.CanInterface() {
+				if keyStr := fmt.Sprintf("%v", field.Interface()); keyStr != "" && keyStr != "<nil>" {
+					return keyStr
+				}
+			}
+		}
+	} else if v.Kind() == reflect.Map {
+		// Look for key in map
+		mapValue := v
+		for _, keyName := range []string{"id", "ID", "key", "Key", "lvt_key", "data_key"} {
+			if mapValue.MapIndex(reflect.ValueOf(keyName)).IsValid() {
+				val := mapValue.MapIndex(reflect.ValueOf(keyName))
+				if keyStr := fmt.Sprintf("%v", val.Interface()); keyStr != "" && keyStr != "<nil>" {
+					return keyStr
+				}
+			}
+		}
+	}
+
+	// Fallback: generate random UUID
+	return generateShortUUID()
+}
+
+// extractKeyFromRangeItem extracts explicit key from template or generates fallback
+func (kg *KeyGenerator) extractKeyFromRangeItem(itemHTML string, itemData interface{}) string {
+	// Try each configured attribute name in order
+	for _, attrName := range kg.keyConfig.AttributeNames {
+		pattern := fmt.Sprintf(`\s%s="([^"]*)"`, regexp.QuoteMeta(attrName))
+		re := regexp.MustCompile(pattern)
+
+		if matches := re.FindStringSubmatch(itemHTML); len(matches) > 1 {
+			key := matches[1]
+			// If it's a template expression, evaluate it
+			if strings.Contains(key, "{{") && strings.Contains(key, "}}") {
+				// Extract the field expression and evaluate it
+				return kg.evaluateKeyExpression(key, itemData)
+			}
+			return key
+		}
+	}
+
+	// No explicit key found - generate random UUID fallback
+	return generateShortUUID()
+}
+
+// evaluateKeyExpression evaluates a Go template expression for key
+func (kg *KeyGenerator) evaluateKeyExpression(expr string, itemData interface{}) string {
+	// Simple expression evaluation for {{.Field}} patterns
+	re := regexp.MustCompile(`{{\.(\w+)}}`)
+	matches := re.FindStringSubmatch(expr)
+	if len(matches) > 1 {
+		fieldName := matches[1]
+
+		// Use reflection to get the field value
+		v := reflect.ValueOf(itemData)
+		if v.Kind() == reflect.Ptr {
+			v = v.Elem()
+		}
+
+		if v.Kind() == reflect.Struct {
+			field := v.FieldByName(fieldName)
+			if field.IsValid() {
+				return fmt.Sprintf("%v", field.Interface())
+			}
+		}
+
+		// If it's a map, try map access
+		if v.Kind() == reflect.Map {
+			mapVal := v.MapIndex(reflect.ValueOf(fieldName))
+			if mapVal.IsValid() {
+				return fmt.Sprintf("%v", mapVal.Interface())
+			}
+		}
+	}
+
+	// Fallback - return the expression as-is or generate UUID
+	return generateShortUUID()
+}
+
+// getOrGenerateKey gets key for position or generates fallback
+func (kg *KeyGenerator) getOrGenerateKey(position int, explicitKey string) string {
+	if explicitKey != "" && !kg.usedKeys[explicitKey] {
+		kg.usedKeys[explicitKey] = true
+		return explicitKey
+	}
+
+	// Check for existing fallback key at this position
+	if position < len(kg.fallbackKeys) && kg.fallbackKeys[position] != "" {
+		key := kg.fallbackKeys[position]
+		if !kg.usedKeys[key] {
+			kg.usedKeys[key] = true
+			return key
+		}
+	}
+
+	// Generate new random key
+	key := generateShortUUID()
+	for kg.usedKeys[key] {
+		key = generateShortUUID()
+	}
+	kg.usedKeys[key] = true
+
+	// Expand slice if needed
+	for len(kg.fallbackKeys) <= position {
+		kg.fallbackKeys = append(kg.fallbackKeys, "")
+	}
+	kg.fallbackKeys[position] = key
+
+	return key
+}
+
+
+// renderItemDataToHTML converts item data to HTML representation
+func (kg *KeyGenerator) renderItemDataToHTML(itemData map[string]interface{}) string {
+	// This is a simplified HTML reconstruction
+	// In a real implementation, this would use the actual template structure
+	var parts []string
+
+	// Add the key as data-lvt-key attribute
+	if keyValue, exists := itemData["0"]; exists {
+		parts = append(parts, fmt.Sprintf(`<div data-lvt-key="%v">`, keyValue))
+	} else {
+		parts = append(parts, `<div>`)
+	}
+
+	// Add content fields in order
+	for i := 1; i < 10; i++ { // Reasonable upper bound
+		if value, exists := itemData[fmt.Sprintf("%d", i)]; exists {
+			parts = append(parts, fmt.Sprintf("%v", value))
+		}
+	}
+
+	parts = append(parts, `</div>`)
+	return strings.Join(parts, "")
+}
+
+// extractKeyFromHTML uses regex to extract data-lvt-key value from HTML
+func (kg *KeyGenerator) extractKeyFromHTML(html string) string {
+	re := regexp.MustCompile(`data-lvt-key="([^"]*)"`)
+	matches := re.FindStringSubmatch(html)
+	if len(matches) > 1 {
+		return matches[1]
+	}
+	return ""
+}
+
+// removeKeyFromHTML removes data-lvt-key attributes for content comparison
+func (kg *KeyGenerator) removeKeyFromHTML(html string) string {
+	re := regexp.MustCompile(`\s*data-lvt-key="[^"]*"`)
+	return re.ReplaceAllString(html, "")
+}
+
+// htmlContentMatches compares HTML content ignoring keys and whitespace
+func (kg *KeyGenerator) htmlContentMatches(html1, html2 string) bool {
+	// Normalize whitespace and compare
+	normalize := func(s string) string {
+		return regexp.MustCompile(`\s+`).ReplaceAllString(strings.TrimSpace(s), " ")
+	}
+
+	return normalize(html1) == normalize(html2)
 }
 
 // Global key generator for template instances

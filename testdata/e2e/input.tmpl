@@ -40,9 +40,9 @@
                 {{if .Todos}}
                 <div class="todo-list">
                     {{range $index, $todo := .Todos}}
-                    <div class="todo-item {{if .Completed}}completed{{end}}">
-                        <strong>{{$index | printf "#%d"}}:</strong> 
-                        {{.Text}} 
+                    <div class="todo-item {{if .Completed}}completed{{end}}" data-key="{{.ID}}">
+                        <strong>{{$index | printf "#%d"}}:</strong>
+                        {{.Text}}
                         {{if .Completed}}✓{{else}}○{{end}}
                         {{if .Priority}} (Priority: {{.Priority}}){{end}}
                     </div>
