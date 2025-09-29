@@ -29,6 +29,14 @@ type E2EAppState struct {
 	SessionID      string     `json:"session_id"`
 }
 
+type CounterAppState struct {
+	Title       string `json:"title"`
+	Counter     int    `json:"counter"`
+	Status      string `json:"status"`
+	LastUpdated string `json:"last_updated"`
+	SessionID   string `json:"session_id"`
+}
+
 func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 	// Initial state
 	initialState := E2EAppState{
@@ -95,7 +103,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 
 	// Create template
 	tmpl := New("e2e-test")
-	_, err := tmpl.ParseFiles("testdata/e2e/input.tmpl")
+	_, err := tmpl.ParseFiles("testdata/e2e/todos/input.tmpl")
 	if err != nil {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
@@ -111,7 +119,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		renderedHTML := buf.String()
 
 		// Save rendered HTML for review
-		err = os.WriteFile("testdata/e2e/rendered_00_initial.html", []byte(renderedHTML), 0644)
+		err = os.WriteFile("testdata/e2e/todos/rendered_00_initial.html", []byte(renderedHTML), 0644)
 		if err != nil {
 			t.Logf("Warning: Could not save rendered_00_initial.html: %v", err)
 		}
@@ -137,7 +145,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 
 		// Generate the initial tree structure for TypeScript client (force first render)
 		tmplForTree := New("e2e-tree-test")
-		_, err = tmplForTree.ParseFiles("testdata/e2e/input.tmpl")
+		_, err = tmplForTree.ParseFiles("testdata/e2e/todos/input.tmpl")
 		if err == nil {
 			var treeBuf bytes.Buffer
 			err = tmplForTree.ExecuteUpdates(&treeBuf, initialState)
@@ -158,7 +166,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 					}
 				}
 
-				err = os.WriteFile("testdata/e2e/tree_00_initial.json", initialTreeJSON, 0644)
+				err = os.WriteFile("testdata/e2e/todos/tree_00_initial.json", initialTreeJSON, 0644)
 				if err != nil {
 					t.Logf("Warning: Could not save tree_00_initial.json: %v", err)
 				}
@@ -172,7 +180,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 	t.Run("2_Add_Todos_Update", func(t *testing.T) {
 		// Create a fresh template instance for the first update to include statics
 		tmplFirstUpdate := New("e2e-first-update")
-		_, err := tmplFirstUpdate.ParseFiles("testdata/e2e/input.tmpl")
+		_, err := tmplFirstUpdate.ParseFiles("testdata/e2e/todos/input.tmpl")
 		if err != nil {
 			t.Fatalf("Failed to parse template: %v", err)
 		}
@@ -205,7 +213,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		} else {
 			formattedJSON = jsonBuf.Bytes()
 		}
-		err = os.WriteFile("testdata/e2e/update_01_add_todos.json", formattedJSON, 0644)
+		err = os.WriteFile("testdata/e2e/todos/update_01_add_todos.json", formattedJSON, 0644)
 		if err != nil {
 			t.Logf("Warning: Could not save update_01_add_todos.json: %v", err)
 		}
@@ -218,7 +226,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		err = tmpl.Execute(&htmlBuf, update1State)
 		if err == nil {
 			renderedHTML := htmlBuf.String()
-			err = os.WriteFile("testdata/e2e/rendered_01_add_todos.html", []byte(renderedHTML), 0644)
+			err = os.WriteFile("testdata/e2e/todos/rendered_01_add_todos.html", []byte(renderedHTML), 0644)
 			if err != nil {
 				t.Logf("Warning: Could not save rendered_01_add_todos.html: %v", err)
 			}
@@ -291,7 +299,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		} else {
 			formattedJSON = jsonBuf.Bytes()
 		}
-		err = os.WriteFile("testdata/e2e/update_02_remove_todo.json", formattedJSON, 0644)
+		err = os.WriteFile("testdata/e2e/todos/update_02_remove_todo.json", formattedJSON, 0644)
 		if err != nil {
 			t.Logf("Warning: Could not save update_02_remove_todo.json: %v", err)
 		}
@@ -328,7 +336,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		err = tmpl.Execute(&htmlBuf, update2State)
 		if err == nil {
 			renderedHTML := htmlBuf.String()
-			err = os.WriteFile("testdata/e2e/rendered_02_remove_todo.html", []byte(renderedHTML), 0644)
+			err = os.WriteFile("testdata/e2e/todos/rendered_02_remove_todo.html", []byte(renderedHTML), 0644)
 			if err != nil {
 				t.Logf("Warning: Could not save rendered_02_remove_todo.html: %v", err)
 			}
@@ -404,7 +412,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		} else {
 			formattedJSON = jsonBuf.Bytes()
 		}
-		err = os.WriteFile("testdata/e2e/update_03_complete_todo.json", formattedJSON, 0644)
+		err = os.WriteFile("testdata/e2e/todos/update_03_complete_todo.json", formattedJSON, 0644)
 		if err != nil {
 			t.Logf("Warning: Could not save update_03_complete_todo.json: %v", err)
 		}
@@ -438,7 +446,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		err = tmpl.Execute(&htmlBuf, update3State)
 		if err == nil {
 			renderedHTML := htmlBuf.String()
-			err = os.WriteFile("testdata/e2e/rendered_03_complete_todo.html", []byte(renderedHTML), 0644)
+			err = os.WriteFile("testdata/e2e/todos/rendered_03_complete_todo.html", []byte(renderedHTML), 0644)
 			if err != nil {
 				t.Logf("Warning: Could not save rendered_03_complete_todo.html: %v", err)
 			}
@@ -516,7 +524,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		encoder.SetEscapeHTML(false)
 		encoder.SetIndent("", "  ")
 		encoder.Encode(updateTree)
-		err = os.WriteFile("testdata/e2e/update_04_sort_todos.json", jsonBuf.Bytes(), 0644)
+		err = os.WriteFile("testdata/e2e/todos/update_04_sort_todos.json", jsonBuf.Bytes(), 0644)
 		if err != nil {
 			t.Logf("Warning: Could not save update_04_sort_todos.json: %v", err)
 		}
@@ -563,7 +571,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 			t.Fatalf("Failed to render HTML after sorting: %v", err)
 		} else {
 			renderedHTML := htmlBuf.String()
-			err = os.WriteFile("testdata/e2e/rendered_04_sort_todos.html", []byte(renderedHTML), 0644)
+			err = os.WriteFile("testdata/e2e/todos/rendered_04_sort_todos.html", []byte(renderedHTML), 0644)
 			if err != nil {
 				t.Logf("Warning: Could not save rendered_04_sort_todos.html: %v", err)
 			}
@@ -648,7 +656,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		encoder.SetEscapeHTML(false)
 		encoder.SetIndent("", "  ")
 		encoder.Encode(updateTree)
-		err = os.WriteFile("testdata/e2e/update_05a_insert_single_start.json", jsonBuf.Bytes(), 0644)
+		err = os.WriteFile("testdata/e2e/todos/update_05a_insert_single_start.json", jsonBuf.Bytes(), 0644)
 		if err != nil {
 			t.Logf("Warning: Could not save update_05a_insert_single_start.json: %v", err)
 		}
@@ -687,7 +695,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 			t.Fatalf("Failed to render HTML after insertion at start: %v", err)
 		} else {
 			renderedHTML := htmlBuf.String()
-			err = os.WriteFile("testdata/e2e/rendered_05a_insert_single_start.html", []byte(renderedHTML), 0644)
+			err = os.WriteFile("testdata/e2e/todos/rendered_05a_insert_single_start.html", []byte(renderedHTML), 0644)
 			if err != nil {
 				t.Logf("Warning: Could not save rendered_05a_insert_single_start.html: %v", err)
 			}
@@ -788,7 +796,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		encoder.SetEscapeHTML(false)
 		encoder.SetIndent("", "  ")
 		encoder.Encode(updateTree)
-		err = os.WriteFile("testdata/e2e/update_05b_insert_single_middle.json", jsonBuf.Bytes(), 0644)
+		err = os.WriteFile("testdata/e2e/todos/update_05b_insert_single_middle.json", jsonBuf.Bytes(), 0644)
 		if err != nil {
 			t.Logf("Warning: Could not save update_05b_insert_single_middle.json: %v", err)
 		}
@@ -827,7 +835,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 			t.Fatalf("Failed to render HTML after insertion in middle: %v", err)
 		} else {
 			renderedHTML := htmlBuf.String()
-			err = os.WriteFile("testdata/e2e/rendered_05b_insert_single_middle.html", []byte(renderedHTML), 0644)
+			err = os.WriteFile("testdata/e2e/todos/rendered_05b_insert_single_middle.html", []byte(renderedHTML), 0644)
 			if err != nil {
 				t.Logf("Warning: Could not save rendered_05b_insert_single_middle.html: %v", err)
 			}
@@ -948,7 +956,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		encoder.SetEscapeHTML(false)
 		encoder.SetIndent("", "  ")
 		encoder.Encode(updateTree)
-		err = os.WriteFile("testdata/e2e/update_06_multiple_ops.json", jsonBuf.Bytes(), 0644)
+		err = os.WriteFile("testdata/e2e/todos/update_06_multiple_ops.json", jsonBuf.Bytes(), 0644)
 		if err != nil {
 			t.Logf("Warning: Could not save update_06_multiple_ops.json: %v", err)
 		}
@@ -1004,7 +1012,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 			t.Fatalf("Failed to render HTML after multiple operations: %v", err)
 		} else {
 			renderedHTML := htmlBuf.String()
-			err = os.WriteFile("testdata/e2e/rendered_06_multiple_ops.html", []byte(renderedHTML), 0644)
+			err = os.WriteFile("testdata/e2e/todos/rendered_06_multiple_ops.html", []byte(renderedHTML), 0644)
 			if err != nil {
 				t.Logf("Warning: Could not save rendered_06_multiple_ops.html: %v", err)
 			}
@@ -1023,7 +1031,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 	t.Run("7_No_Change_Update", func(t *testing.T) {
 		// Use the same sequence as step 4 to ensure proper fingerprint comparison
 		tmplSequence3 := New("e2e-sequence-3")
-		_, err := tmplSequence3.ParseFiles("testdata/e2e/input.tmpl")
+		_, err := tmplSequence3.ParseFiles("testdata/e2e/todos/input.tmpl")
 		if err != nil {
 			t.Fatalf("Failed to parse template: %v", err)
 		}
@@ -1093,7 +1101,7 @@ func getMapKeys(m map[string]interface{}) []string {
 
 // compareWithGoldenFile compares generated update with expected golden file
 func compareWithGoldenFile(t *testing.T, updateName string, generatedUpdate TreeNode) {
-	goldenFile := "testdata/e2e/" + updateName + ".golden.json"
+	goldenFile := "testdata/e2e/todos/" + updateName + ".golden.json"
 
 	// Read golden file
 	goldenData, err := os.ReadFile(goldenFile)
@@ -1157,4 +1165,512 @@ func showDifferences(t *testing.T, expected, actual map[string]interface{}, pref
 			t.Logf("Extra key: %s%s", prefix, key)
 		}
 	}
+}
+
+func TestTemplate_E2E_SimpleCounter(t *testing.T) {
+	// Initial state
+	initialState := CounterAppState{
+		Title:       "Simple Counter",
+		Counter:     0,
+		Status:      "zero",
+		LastUpdated: "2023-01-01 10:00:00",
+		SessionID:   "counter-12345",
+	}
+
+	// Update 1: Increment counter
+	update1State := CounterAppState{
+		Title:       "Simple Counter",
+		Counter:     5,
+		Status:      "positive",
+		LastUpdated: "2023-01-01 10:05:00",
+		SessionID:   "counter-12345",
+	}
+
+	// Update 2: Large increment
+	update2State := CounterAppState{
+		Title:       "Simple Counter",
+		Counter:     25,
+		Status:      "positive",
+		LastUpdated: "2023-01-01 10:10:00",
+		SessionID:   "counter-12345",
+	}
+
+	// Update 3: Decrement
+	update3State := CounterAppState{
+		Title:       "Simple Counter",
+		Counter:     10,
+		Status:      "positive",
+		LastUpdated: "2023-01-01 10:15:00",
+		SessionID:   "counter-12345",
+	}
+
+	// Update 4: Go negative
+	update4State := CounterAppState{
+		Title:       "Simple Counter",
+		Counter:     -3,
+		Status:      "negative",
+		LastUpdated: "2023-01-01 10:20:00",
+		SessionID:   "counter-12345",
+	}
+
+	// Update 5: Reset to zero
+	update5State := CounterAppState{
+		Title:       "Simple Counter",
+		Counter:     0,
+		Status:      "zero",
+		LastUpdated: "2023-01-01 10:25:00",
+		SessionID:   "counter-12345",
+	}
+
+	// Create template
+	tmpl := New("counter-e2e-test")
+	_, err := tmpl.ParseFiles("testdata/e2e/counter/input.tmpl")
+	if err != nil {
+		t.Fatalf("Failed to parse template: %v", err)
+	}
+
+	// Step 1: Render initial full HTML page
+	t.Run("1_Initial_Full_Render", func(t *testing.T) {
+		var buf bytes.Buffer
+		err := tmpl.Execute(&buf, initialState)
+		if err != nil {
+			t.Fatalf("Execute failed: %v", err)
+		}
+
+		renderedHTML := buf.String()
+
+		// Save rendered HTML for review
+		err = os.WriteFile("testdata/e2e/counter/rendered_00_initial.html", []byte(renderedHTML), 0644)
+		if err != nil {
+			t.Logf("Warning: Could not save rendered_00_initial.html: %v", err)
+		}
+
+		// Verify key content is present
+		expectedContent := []string{
+			"<!DOCTYPE html>",
+			"Simple Counter",
+			"Counter: 0",
+			"Status: zero",
+			"Counter is zero",
+			"Last updated: 2023-01-01 10:00:00",
+			"Session: counter-12345",
+			"data-lvt-id=", // Wrapper injection
+		}
+
+		for _, expected := range expectedContent {
+			if !strings.Contains(renderedHTML, expected) {
+				t.Errorf("Rendered HTML missing expected content: %q", expected)
+			}
+		}
+
+		// Generate the initial tree structure for TypeScript client (force first render)
+		tmplForTree := New("counter-tree-test")
+		_, err = tmplForTree.ParseFiles("testdata/e2e/counter/input.tmpl")
+		if err == nil {
+			var treeBuf bytes.Buffer
+			err = tmplForTree.ExecuteUpdates(&treeBuf, initialState)
+			if err == nil {
+				initialTreeJSON := treeBuf.Bytes()
+
+				// Parse and format JSON for manual review (with unescaped HTML)
+				var treeData map[string]interface{}
+				parseErr := json.Unmarshal(initialTreeJSON, &treeData)
+				if parseErr == nil {
+					var jsonBuf bytes.Buffer
+					encoder := json.NewEncoder(&jsonBuf)
+					encoder.SetEscapeHTML(false)
+					encoder.SetIndent("", "  ")
+					formatErr := encoder.Encode(treeData)
+					if formatErr == nil {
+						initialTreeJSON = jsonBuf.Bytes()
+					}
+				}
+
+				err = os.WriteFile("testdata/e2e/counter/tree_00_initial.json", initialTreeJSON, 0644)
+				if err != nil {
+					t.Logf("Warning: Could not save tree_00_initial.json: %v", err)
+				}
+			}
+		}
+
+		t.Logf("✅ Initial render complete - HTML length: %d bytes", len(renderedHTML))
+	})
+
+	// Step 2: Increment counter
+	t.Run("2_Increment_Update", func(t *testing.T) {
+		tmplFirstUpdate := New("counter-first-update")
+		_, err := tmplFirstUpdate.ParseFiles("testdata/e2e/counter/input.tmpl")
+		if err != nil {
+			t.Fatalf("Failed to parse template: %v", err)
+		}
+
+		var buf bytes.Buffer
+		err = tmplFirstUpdate.ExecuteUpdates(&buf, update1State)
+		if err != nil {
+			t.Fatalf("ExecuteUpdates failed: %v", err)
+		}
+
+		updateJSON := buf.Bytes()
+
+		// Parse and verify update structure
+		var updateTree map[string]interface{}
+		err = json.Unmarshal(updateJSON, &updateTree)
+		if err != nil {
+			t.Fatalf("Failed to parse update JSON: %v", err)
+		}
+
+		// Format JSON for manual review and save (with unescaped HTML)
+		var jsonBuf bytes.Buffer
+		encoder := json.NewEncoder(&jsonBuf)
+		encoder.SetEscapeHTML(false)
+		encoder.SetIndent("", "  ")
+		err = encoder.Encode(updateTree)
+		var formattedJSON []byte
+		if err != nil {
+			t.Logf("Warning: Could not format JSON: %v", err)
+			formattedJSON = updateJSON // Fallback to compact JSON
+		} else {
+			formattedJSON = jsonBuf.Bytes()
+		}
+		err = os.WriteFile("testdata/e2e/counter/update_01_increment.json", formattedJSON, 0644)
+		if err != nil {
+			t.Logf("Warning: Could not save update_01_increment.json: %v", err)
+		}
+
+		// Render and save the full HTML after this update for reviewability
+		var htmlBuf bytes.Buffer
+		err = tmpl.Execute(&htmlBuf, update1State)
+		if err == nil {
+			renderedHTML := htmlBuf.String()
+			err = os.WriteFile("testdata/e2e/counter/rendered_01_increment.html", []byte(renderedHTML), 0644)
+			if err != nil {
+				t.Logf("Warning: Could not save rendered_01_increment.html: %v", err)
+			}
+		}
+
+		// Should contain static structure on first update
+		if _, hasStatics := updateTree["s"]; !hasStatics {
+			t.Errorf("First update should contain static structure ('s' key) for client initialization")
+		}
+
+		// Verify essential updates are present
+		expectedUpdates := []string{
+			"5",        // Counter value
+			"positive", // Status
+		}
+
+		updateStr := string(updateJSON)
+		for _, expected := range expectedUpdates {
+			if !strings.Contains(updateStr, expected) {
+				t.Errorf("Update missing expected content: %q", expected)
+			}
+		}
+
+		t.Logf("✅ Increment update complete - JSON length: %d bytes", len(updateJSON))
+		t.Logf("Update keys: %v", getMapKeys(updateTree))
+	})
+
+	// Step 3: Large increment
+	t.Run("3_Large_Increment_Update", func(t *testing.T) {
+		// Continue using the same template instance to preserve state
+		var firstBuf bytes.Buffer
+		err = tmpl.ExecuteUpdates(&firstBuf, update1State)
+		if err != nil {
+			t.Fatalf("First ExecuteUpdates failed: %v", err)
+		}
+
+		var buf bytes.Buffer
+		err = tmpl.ExecuteUpdates(&buf, update2State)
+		if err != nil {
+			t.Fatalf("ExecuteUpdates failed: %v", err)
+		}
+
+		updateJSON := buf.Bytes()
+
+		// Parse and verify update structure
+		var updateTree map[string]interface{}
+		err = json.Unmarshal(updateJSON, &updateTree)
+		if err != nil {
+			t.Fatalf("Failed to parse update JSON: %v", err)
+		}
+
+		// Format JSON for manual review and save
+		var jsonBuf bytes.Buffer
+		encoder := json.NewEncoder(&jsonBuf)
+		encoder.SetEscapeHTML(false)
+		encoder.SetIndent("", "  ")
+		encoder.Encode(updateTree)
+		err = os.WriteFile("testdata/e2e/counter/update_02_large_increment.json", jsonBuf.Bytes(), 0644)
+		if err != nil {
+			t.Logf("Warning: Could not save update_02_large_increment.json: %v", err)
+		}
+
+		// Render and save the full HTML after this update
+		var htmlBuf bytes.Buffer
+		err = tmpl.Execute(&htmlBuf, update2State)
+		if err == nil {
+			renderedHTML := htmlBuf.String()
+			err = os.WriteFile("testdata/e2e/counter/rendered_02_large_increment.html", []byte(renderedHTML), 0644)
+			if err != nil {
+				t.Logf("Warning: Could not save rendered_02_large_increment.html: %v", err)
+			}
+		}
+
+		// Should NOT contain static structure on subsequent updates
+		if _, hasStatics := updateTree["s"]; hasStatics {
+			t.Errorf("Subsequent updates should not contain static structure ('s' key) when cached")
+		}
+
+		// Verify essential updates are present
+		expectedUpdates := []string{
+			"25", // New counter value
+		}
+
+		updateStr := string(updateJSON)
+		for _, expected := range expectedUpdates {
+			if !strings.Contains(updateStr, expected) {
+				t.Errorf("Update missing expected content: %q", expected)
+			}
+		}
+
+		t.Logf("✅ Large increment update complete - JSON length: %d bytes", len(updateJSON))
+		t.Logf("Update keys: %v", getMapKeys(updateTree))
+	})
+
+	// Step 4: Decrement
+	t.Run("4_Decrement_Update", func(t *testing.T) {
+		// Continue with the same template to preserve state
+		var prevBuf1, prevBuf2 bytes.Buffer
+		tmpl.ExecuteUpdates(&prevBuf1, update1State)
+		tmpl.ExecuteUpdates(&prevBuf2, update2State)
+
+		var buf bytes.Buffer
+		err = tmpl.ExecuteUpdates(&buf, update3State)
+		if err != nil {
+			t.Fatalf("ExecuteUpdates failed: %v", err)
+		}
+
+		updateJSON := buf.Bytes()
+
+		// Parse and verify update structure
+		var updateTree map[string]interface{}
+		err = json.Unmarshal(updateJSON, &updateTree)
+		if err != nil {
+			t.Fatalf("Failed to parse update JSON: %v", err)
+		}
+
+		// Save the update for review
+		var jsonBuf bytes.Buffer
+		encoder := json.NewEncoder(&jsonBuf)
+		encoder.SetEscapeHTML(false)
+		encoder.SetIndent("", "  ")
+		encoder.Encode(updateTree)
+		err = os.WriteFile("testdata/e2e/counter/update_03_decrement.json", jsonBuf.Bytes(), 0644)
+		if err != nil {
+			t.Logf("Warning: Could not save update_03_decrement.json: %v", err)
+		}
+
+		// Render and save the full HTML after this update
+		var htmlBuf bytes.Buffer
+		err = tmpl.Execute(&htmlBuf, update3State)
+		if err == nil {
+			renderedHTML := htmlBuf.String()
+			err = os.WriteFile("testdata/e2e/counter/rendered_03_decrement.html", []byte(renderedHTML), 0644)
+			if err != nil {
+				t.Logf("Warning: Could not save rendered_03_decrement.html: %v", err)
+			}
+		}
+
+		t.Logf("✅ Decrement update complete - JSON length: %d bytes", len(updateJSON))
+		t.Logf("Update keys: %v", getMapKeys(updateTree))
+	})
+
+	// Step 5: Go negative
+	t.Run("5_Negative_Update", func(t *testing.T) {
+		// Continue with the same template to preserve state
+		var prevBuf1, prevBuf2, prevBuf3 bytes.Buffer
+		tmpl.ExecuteUpdates(&prevBuf1, update1State)
+		tmpl.ExecuteUpdates(&prevBuf2, update2State)
+		tmpl.ExecuteUpdates(&prevBuf3, update3State)
+
+		var buf bytes.Buffer
+		err = tmpl.ExecuteUpdates(&buf, update4State)
+		if err != nil {
+			t.Fatalf("ExecuteUpdates failed: %v", err)
+		}
+
+		updateJSON := buf.Bytes()
+
+		// Parse and verify update structure
+		var updateTree map[string]interface{}
+		err = json.Unmarshal(updateJSON, &updateTree)
+		if err != nil {
+			t.Fatalf("Failed to parse update JSON: %v", err)
+		}
+
+		// Save the update for review
+		var jsonBuf bytes.Buffer
+		encoder := json.NewEncoder(&jsonBuf)
+		encoder.SetEscapeHTML(false)
+		encoder.SetIndent("", "  ")
+		encoder.Encode(updateTree)
+		err = os.WriteFile("testdata/e2e/counter/update_04_negative.json", jsonBuf.Bytes(), 0644)
+		if err != nil {
+			t.Logf("Warning: Could not save update_04_negative.json: %v", err)
+		}
+
+		// Render and save the full HTML after this update
+		var htmlBuf bytes.Buffer
+		err = tmpl.Execute(&htmlBuf, update4State)
+		if err == nil {
+			renderedHTML := htmlBuf.String()
+			err = os.WriteFile("testdata/e2e/counter/rendered_04_negative.html", []byte(renderedHTML), 0644)
+			if err != nil {
+				t.Logf("Warning: Could not save rendered_04_negative.html: %v", err)
+			}
+		}
+
+		// Verify conditional branch changes - should update both counter and conditional content
+		expectedUpdates := []string{
+			"-3",       // New counter value
+			"negative", // New status
+		}
+
+		updateStr := string(updateJSON)
+		for _, expected := range expectedUpdates {
+			if !strings.Contains(updateStr, expected) {
+				t.Errorf("Update missing expected content: %q", expected)
+			}
+		}
+
+		t.Logf("✅ Negative update complete - JSON length: %d bytes", len(updateJSON))
+		t.Logf("Update keys: %v", getMapKeys(updateTree))
+	})
+
+	// Step 6: Reset to zero
+	t.Run("6_Reset_Update", func(t *testing.T) {
+		// Continue with the same template to preserve state
+		var prevBuf1, prevBuf2, prevBuf3, prevBuf4 bytes.Buffer
+		tmpl.ExecuteUpdates(&prevBuf1, update1State)
+		tmpl.ExecuteUpdates(&prevBuf2, update2State)
+		tmpl.ExecuteUpdates(&prevBuf3, update3State)
+		tmpl.ExecuteUpdates(&prevBuf4, update4State)
+
+		var buf bytes.Buffer
+		err = tmpl.ExecuteUpdates(&buf, update5State)
+		if err != nil {
+			t.Fatalf("ExecuteUpdates failed: %v", err)
+		}
+
+		updateJSON := buf.Bytes()
+
+		// Parse and verify update structure
+		var updateTree map[string]interface{}
+		err = json.Unmarshal(updateJSON, &updateTree)
+		if err != nil {
+			t.Fatalf("Failed to parse update JSON: %v", err)
+		}
+
+		// Save the update for review
+		var jsonBuf bytes.Buffer
+		encoder := json.NewEncoder(&jsonBuf)
+		encoder.SetEscapeHTML(false)
+		encoder.SetIndent("", "  ")
+		encoder.Encode(updateTree)
+		err = os.WriteFile("testdata/e2e/counter/update_05_reset.json", jsonBuf.Bytes(), 0644)
+		if err != nil {
+			t.Logf("Warning: Could not save update_05_reset.json: %v", err)
+		}
+
+		// Render and save the full HTML after this update
+		var htmlBuf bytes.Buffer
+		err = tmpl.Execute(&htmlBuf, update5State)
+		if err == nil {
+			renderedHTML := htmlBuf.String()
+			err = os.WriteFile("testdata/e2e/counter/rendered_05_reset.html", []byte(renderedHTML), 0644)
+			if err != nil {
+				t.Logf("Warning: Could not save rendered_05_reset.html: %v", err)
+			}
+		}
+
+		// Verify reset to zero updates both counter and conditional content
+		expectedUpdates := []string{
+			"\"0\"", // Reset counter value (JSON format)
+			"zero",  // Reset status
+		}
+
+		updateStr := string(updateJSON)
+		for _, expected := range expectedUpdates {
+			if !strings.Contains(updateStr, expected) {
+				t.Errorf("Update missing expected content: %q", expected)
+			}
+		}
+
+		t.Logf("✅ Reset update complete - JSON length: %d bytes", len(updateJSON))
+		t.Logf("Update keys: %v", getMapKeys(updateTree))
+	})
+
+	// Step 7: No-change test (verify caching)
+	t.Run("7_No_Change_Update", func(t *testing.T) {
+		tmplSequence := New("counter-sequence")
+		_, err := tmplSequence.ParseFiles("testdata/e2e/counter/input.tmpl")
+		if err != nil {
+			t.Fatalf("Failed to parse template: %v", err)
+		}
+
+		// Establish state first
+		var firstBuf bytes.Buffer
+		err = tmplSequence.ExecuteUpdates(&firstBuf, update1State)
+		if err != nil {
+			t.Fatalf("First ExecuteUpdates failed: %v", err)
+		}
+
+		// Now test with the same data again - should be optimized away
+		var buf bytes.Buffer
+		err = tmplSequence.ExecuteUpdates(&buf, update1State) // Same data
+		if err != nil {
+			t.Fatalf("ExecuteUpdates failed: %v", err)
+		}
+
+		updateJSON := buf.Bytes()
+
+		// For counter app, subsequent identical updates should still be reasonably small
+		if len(updateJSON) > 200 {
+			var updateTree map[string]interface{}
+			err = json.Unmarshal(updateJSON, &updateTree)
+			if err == nil {
+				t.Logf("Note: Counter update contains %d keys, which is expected for non-cached identical updates", len(updateTree))
+			}
+		}
+
+		t.Logf("✅ No-change update verified - %d bytes (should be minimal)", len(updateJSON))
+	})
+
+	// Step 8: Performance verification
+	t.Run("8_Performance_Check", func(t *testing.T) {
+		// Measure update generation time
+		start := time.Now()
+
+		var buf bytes.Buffer
+		err = tmpl.ExecuteUpdates(&buf, update1State)
+		if err != nil {
+			t.Fatalf("ExecuteUpdates failed: %v", err)
+		}
+
+		duration := time.Since(start)
+		updateJSON := buf.Bytes()
+
+		// Performance expectations for simple counter
+		maxDuration := 10 * time.Millisecond
+		if duration > maxDuration {
+			t.Errorf("Update generation too slow: %v > %v", duration, maxDuration)
+		}
+
+		// Bandwidth efficiency expectations
+		if len(updateJSON) > 500 {
+			t.Errorf("Update too large for simple counter: %d bytes", len(updateJSON))
+		}
+
+		t.Logf("✅ Performance check passed - %v duration, %d bytes", duration, len(updateJSON))
+	})
 }

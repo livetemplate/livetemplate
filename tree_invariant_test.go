@@ -153,7 +153,7 @@ func TestTreeInvariantInTemplate(t *testing.T) {
 
 func TestE2EInvariantGuarantee(t *testing.T) {
 	// Read the E2E template content from input.tmpl
-	templateBytes, err := os.ReadFile("testdata/e2e/input.tmpl")
+	templateBytes, err := os.ReadFile("testdata/e2e/todos/input.tmpl")
 	if err != nil {
 		t.Fatalf("Failed to read template file: %v", err)
 	}
