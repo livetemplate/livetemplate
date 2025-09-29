@@ -1,6 +1,5 @@
 package livetemplate
 
-
 // HTMLTreeNode represents a complete HTML tree structure with static and dynamic parts
 type HTMLTreeNode struct {
 	Type       string                 `json:"type,omitempty"`     // "element", "text", "dynamic"
@@ -13,16 +12,5 @@ type HTMLTreeNode struct {
 	Value      interface{}            `json:"value,omitempty"`    // Evaluated value (for dynamic nodes)
 }
 
-
-
-
-
-
-
 // convertFullTreeToSegmentTree converts a full HTML tree to the segment-based format
 // This maintains backward compatibility with the current client expectations
-
-
-
-
-

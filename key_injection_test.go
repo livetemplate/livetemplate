@@ -58,13 +58,19 @@ func TestKeyInjectionUniversalCompatibility(t *testing.T) {
 
 	// Test that wrapper approach works with ANY data type
 	testCases := []interface{}{
-		42,                                                      // primitive int
-		"hello",                                                 // primitive string
-		true,                                                    // primitive bool
-		[]int{1, 2, 3},                                         // slice
-		map[string]interface{}{"key": "value"},                 // map
-		struct{ Count int; Active bool }{Count: 5, Active: true}, // struct without stable fields
-		struct{ ID string; Name string }{ID: "123", Name: "John"}, // struct with potential stable fields
+		42,                                     // primitive int
+		"hello",                                // primitive string
+		true,                                   // primitive bool
+		[]int{1, 2, 3},                         // slice
+		map[string]interface{}{"key": "value"}, // map
+		struct {
+			Count  int
+			Active bool
+		}{Count: 5, Active: true}, // struct without stable fields
+		struct {
+			ID   string
+			Name string
+		}{ID: "123", Name: "John"}, // struct with potential stable fields
 	}
 
 	for i, item := range testCases {

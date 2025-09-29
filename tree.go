@@ -882,7 +882,6 @@ func (ct *CompiledTemplate) GenerateUpdateTree(oldData, newData interface{}) (Tr
 	return tree, nil
 }
 
-
 // Helper function for data fingerprinting
 func calculateDataFingerprint(data interface{}) string {
 	hasher := md5.New()
@@ -1377,7 +1376,6 @@ func buildConditionalRange(expr TemplateExpression, data interface{}, keyGen *Ke
 	// Use generic template parsing to extract expressions from wrapped content
 	innerExpressions := extractFlattenedExpressions(wrappedContent)
 
-
 	// Extract static parts from wrapped content (includes wrapper div)
 	var statics []string
 	lastPos := 0
@@ -1470,7 +1468,6 @@ func buildConditionalRange(expr TemplateExpression, data interface{}, keyGen *Ke
 
 	return comprehension, nil
 }
-
 
 // buildRegularRangeComprehension handles regular {{range}}...{{end}} patterns
 func buildRegularRangeComprehension(expr TemplateExpression, data interface{}, keyGen *KeyGenerator) (interface{}, error) {
@@ -1678,7 +1675,6 @@ func evaluateConditionalBlock(expr TemplateExpression, data interface{}) string 
 
 // Helper functions
 
-
 // KeyAttributeConfig defines which attributes to check for explicit keys
 type KeyAttributeConfig struct {
 	AttributeNames []string
@@ -1701,9 +1697,9 @@ var DefaultKeyAttributes = KeyAttributeConfig{
 // Simple counter-based key generation for wrapper approach
 type KeyGenerator struct {
 	counter      int
-	usedKeys     map[string]bool         // Track used keys to prevent duplicates
-	fallbackKeys []string               // Position-based fallback keys
-	keyConfig    KeyAttributeConfig      // Configuration for key attribute names
+	usedKeys     map[string]bool    // Track used keys to prevent duplicates
+	fallbackKeys []string           // Position-based fallback keys
+	keyConfig    KeyAttributeConfig // Configuration for key attribute names
 }
 
 // NewKeyGenerator creates a new key generator for a template instance
@@ -1721,8 +1717,6 @@ func (kg *KeyGenerator) NextKey() string {
 	kg.counter++
 	return fmt.Sprintf("%d", kg.counter)
 }
-
-
 
 // Reset resets the counter (useful for testing)
 func (kg *KeyGenerator) Reset() {
@@ -1753,8 +1747,6 @@ func (kg *KeyGenerator) LoadExistingKeys(oldRangeData []interface{}) {
 		}
 	}
 }
-
-
 
 // generateShortUUID creates a short random UUID for fallback keys
 func generateShortUUID() string {
@@ -1889,7 +1881,6 @@ func (kg *KeyGenerator) getOrGenerateKey(position int, explicitKey string) strin
 	return key
 }
 
-
 // renderItemDataToHTML converts item data to HTML representation
 func (kg *KeyGenerator) renderItemDataToHTML(itemData map[string]interface{}) string {
 	// This is a simplified HTML reconstruction
@@ -1959,9 +1950,6 @@ func wrapRangeContentWithKey(content string) string {
 	// The key will be injected during tree generation
 	return fmt.Sprintf(`<div data-lvt-key="{{.__LVT_KEY__}}">%s</div>`, content)
 }
-
-
-
 
 // ParseTemplateToTree parses a template using existing working approach (exported for testing)
 func ParseTemplateToTree(templateStr string, data interface{}) (TreeNode, error) {

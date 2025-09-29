@@ -214,10 +214,61 @@ export class LiveTemplateClient {
           }
           break;
 
-        case 'a': // Add
+        case 'a': // Add (append) - support both single item and array
           if (data) {
-            currentItems.push(data);
+            if (Array.isArray(data)) {
+              currentItems.push(...data);
+            } else {
+              currentItems.push(data);
+            }
           }
+          break;
+
+        case 'i': // Insert with position - support both single item and array
+          const [, targetKey, position, insertData] = operation;
+          if (insertData) {
+            const itemsToInsert = Array.isArray(insertData) ? insertData : [insertData];
+
+            if (targetKey === null) {
+              if (position === "start") {
+                currentItems.unshift(...itemsToInsert);
+              } else { // "end"
+                currentItems.push(...itemsToInsert);
+              }
+            } else {
+              const targetIndex = currentItems.findIndex(item => item['0'] === targetKey);
+              if (targetIndex >= 0) {
+                const insertIndex = position === "before" ? targetIndex : targetIndex + 1;
+                currentItems.splice(insertIndex, 0, ...itemsToInsert);
+              }
+            }
+          }
+          break;
+
+        case 'o': // Order (reordering)
+          // key contains the new order array
+          const newOrder = key as string[];
+          const reorderedItems: any[] = [];
+
+          // Build a map of current items by key for efficient lookup
+          const itemsByKey = new Map();
+          for (const item of currentItems) {
+            if (item['0']) {
+              itemsByKey.set(item['0'], item);
+            }
+          }
+
+          // Reorder items according to the new key order
+          for (const orderedKey of newOrder) {
+            const item = itemsByKey.get(orderedKey);
+            if (item) {
+              reorderedItems.push(item);
+            }
+          }
+
+          // Replace currentItems with reordered items
+          currentItems.length = 0;
+          currentItems.push(...reorderedItems);
           break;
       }
     }

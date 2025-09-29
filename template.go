@@ -26,7 +26,7 @@ type Template struct {
 	lastTree        TreeNode // Store previous tree segments for comparison
 	initialTree     TreeNode
 	hasInitialTree  bool
-	lastFingerprint string // Fingerprint of the last generated tree for change detection
+	lastFingerprint string        // Fingerprint of the last generated tree for change detection
 	keyGen          *KeyGenerator // Per-template key generation for wrapper approach
 }
 
@@ -303,7 +303,6 @@ func (t *Template) generateInitialTree(html string, data interface{}) (TreeNode,
 	return addFingerprintToTree(tree), nil
 }
 
-
 // generateDiffBasedTree creates tree based on diff analysis
 func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newData interface{}) (TreeNode, error) {
 	// Extract content from wrapper if we have one for proper comparison
@@ -357,9 +356,6 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 	// Add fingerprint to tree for client-side tracking
 	return addFingerprintToTree(tree), nil
 }
-
-
-
 
 // compareTreesAndGetChanges compares two trees and returns only changed dynamics
 func (t *Template) compareTreesAndGetChanges(oldTree, newTree TreeNode) TreeNode {
@@ -476,6 +472,127 @@ func isRangeConstruct(value interface{}) bool {
 	return false
 }
 
+// extractItemKeys extracts the keys (field "0") from a slice of range items
+func extractItemKeys(items []interface{}) []string {
+	var keys []string
+	for _, item := range items {
+		if itemMap, ok := item.(map[string]interface{}); ok {
+			if key, exists := itemMap["0"]; exists {
+				if keyStr, ok := key.(string); ok {
+					keys = append(keys, keyStr)
+				}
+			}
+		}
+	}
+	return keys
+}
+
+// isPureReordering checks if the items are the same but just in different order
+func isPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []string) bool {
+	// Must have same number of items
+	if len(oldKeys) != len(newKeys) {
+		return false
+	}
+
+	// Check if keys are the same (just different order)
+	oldKeySet := make(map[string]bool)
+	newKeySet := make(map[string]bool)
+
+	for _, k := range oldKeys {
+		oldKeySet[k] = true
+	}
+	for _, k := range newKeys {
+		newKeySet[k] = true
+	}
+
+	// If key sets don't match, it's not pure reordering
+	if len(oldKeySet) != len(newKeySet) {
+		return false
+	}
+	for k := range oldKeySet {
+		if !newKeySet[k] {
+			return false
+		}
+	}
+
+	// Now check if the items with same keys have identical content
+	oldItemsByKey := make(map[string]interface{})
+	newItemsByKey := make(map[string]interface{})
+
+	for _, item := range oldItems {
+		if itemMap, ok := item.(map[string]interface{}); ok {
+			if key, exists := itemMap["0"]; exists {
+				if keyStr, ok := key.(string); ok {
+					oldItemsByKey[keyStr] = item
+				}
+			}
+		}
+	}
+
+	for _, item := range newItems {
+		if itemMap, ok := item.(map[string]interface{}); ok {
+			if key, exists := itemMap["0"]; exists {
+				if keyStr, ok := key.(string); ok {
+					newItemsByKey[keyStr] = item
+				}
+			}
+		}
+	}
+
+	// Compare each item's content (excluding position-dependent fields)
+	for key, oldItem := range oldItemsByKey {
+		newItem, exists := newItemsByKey[key]
+		if !exists {
+			return false
+		}
+
+		// Compare items excluding position field (field "3" contains "#0:", "#1:", etc.)
+		oldItemMap, ok1 := oldItem.(map[string]interface{})
+		newItemMap, ok2 := newItem.(map[string]interface{})
+
+		if !ok1 || !ok2 {
+			// If we can't compare as maps, fall back to full comparison
+			if !deepEqual(oldItem, newItem) {
+				return false
+			}
+			continue
+		}
+
+		// Compare all fields except position field
+		for field, oldValue := range oldItemMap {
+			// Skip position field (field "3" contains positional display like "#0:")
+			if field == "3" {
+				continue
+			}
+
+			newValue, exists := newItemMap[field]
+			if !exists || !deepEqual(oldValue, newValue) {
+				return false
+			}
+		}
+
+		// Also check that new item doesn't have extra fields (except position)
+		for field := range newItemMap {
+			if field == "3" {
+				continue
+			}
+			if _, exists := oldItemMap[field]; !exists {
+				return false
+			}
+		}
+	}
+
+	// Check if order actually changed
+	for i := range oldKeys {
+		if oldKeys[i] != newKeys[i] {
+			return true // Same items, different order = pure reordering
+		}
+	}
+
+	// Same items, same order = no change
+	return false
+}
+
 // generateRangeDifferentialOperations generates differential operations for range constructs
 func generateRangeDifferentialOperations(oldValue, newValue interface{}) []interface{} {
 	var operations []interface{}
@@ -521,6 +638,15 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}) []inter
 
 	// Comparing old items vs new items
 
+	// First, check if this is a pure reordering (same items, different order)
+	oldKeys := extractItemKeys(oldItems)
+	newKeys := extractItemKeys(newItems)
+
+	if isPureReordering(oldItems, newItems, oldKeys, newKeys) {
+		// Generate ordering operation
+		return []interface{}{[]interface{}{"o", newKeys}}
+	}
+
 	// Create maps for easy lookup by keys
 	oldItemsByKey := make(map[string]interface{})
 	newItemsByKey := make(map[string]interface{})
@@ -565,6 +691,74 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}) []inter
 		}
 	}
 
+	// Smart insertion pattern detection for added items
+	addedKeys := findNewItems(oldItems, newItems)
+	if len(addedKeys) > 0 {
+		// Check if it's a complex pattern that should fall back to full state
+		if isComplexInsertionPattern(addedKeys, oldItems, newItems) {
+			// Fall back to full state replacement - return empty operations to trigger fallback
+			return operations
+		}
+
+		// Check if all items are appended at the end (bulk append)
+		if areAllItemsAtEnd(addedKeys, oldItems, newItems) {
+			// Create array of new items in order
+			var newItemsToAdd []interface{}
+			for _, key := range addedKeys {
+				if item, exists := newItemsByKey[key]; exists {
+					newItemsToAdd = append(newItemsToAdd, item)
+				}
+			}
+			operations = append(operations, []interface{}{"a", newItemsToAdd})
+		} else {
+			// Check if all items are at the same position (single-point insertion)
+			if isSamePosition, targetKey, position := areAllItemsAtSamePosition(addedKeys, oldItems, newItems); isSamePosition {
+				var newItemsToInsert []interface{}
+				for _, key := range addedKeys {
+					if item, exists := newItemsByKey[key]; exists {
+						newItemsToInsert = append(newItemsToInsert, item)
+					}
+				}
+				if targetKey == "" {
+					operations = append(operations, []interface{}{"i", nil, position, newItemsToInsert})
+				} else {
+					operations = append(operations, []interface{}{"i", targetKey, position, newItemsToInsert})
+				}
+			} else {
+				// Multiple individual insertions at different positions
+				for _, key := range addedKeys {
+					if newItem, exists := newItemsByKey[key]; exists {
+						// Find position for this specific item
+						for i, item := range newItems {
+							if itemMap, ok := item.(map[string]interface{}); ok {
+								if itemKey, exists := itemMap["0"]; exists {
+									if keyStr, ok := itemKey.(string); ok && keyStr == key {
+										// Determine insertion position
+										if i == 0 {
+											operations = append(operations, []interface{}{"i", nil, "start", newItem})
+										} else if i == len(newItems)-1 {
+											operations = append(operations, []interface{}{"a", newItem})
+										} else {
+											// Find the item before this one
+											if prevItem, ok := newItems[i-1].(map[string]interface{}); ok {
+												if prevKey, exists := prevItem["0"]; exists {
+													if prevKeyStr, ok := prevKey.(string); ok {
+														operations = append(operations, []interface{}{"i", prevKeyStr, "after", newItem})
+													}
+												}
+											}
+										}
+										break
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
 	return operations
 }
 
@@ -594,10 +788,192 @@ func compareRangeItemsForChanges(oldItem, newItem interface{}) map[string]interf
 	return changes
 }
 
+// Smart pattern detection functions for enhanced insertion operations
 
+// findNewItems returns keys of items that exist in new but not in old
+func findNewItems(oldItems, newItems []interface{}) []string {
+	oldKeys := make(map[string]bool)
+	for _, item := range oldItems {
+		if itemMap, ok := item.(map[string]interface{}); ok {
+			if key, exists := itemMap["0"]; exists {
+				if keyStr, ok := key.(string); ok {
+					oldKeys[keyStr] = true
+				}
+			}
+		}
+	}
 
+	var newKeys []string
+	for _, item := range newItems {
+		if itemMap, ok := item.(map[string]interface{}); ok {
+			if key, exists := itemMap["0"]; exists {
+				if keyStr, ok := key.(string); ok {
+					if !oldKeys[keyStr] {
+						newKeys = append(newKeys, keyStr)
+					}
+				}
+			}
+		}
+	}
 
+	return newKeys
+}
 
+// areAllItemsAtEnd checks if all new items are appended at the end
+func areAllItemsAtEnd(newKeys []string, oldItems, newItems []interface{}) bool {
+	if len(newKeys) == 0 {
+		return false
+	}
+
+	oldCount := len(oldItems)
+	newCount := len(newItems)
+
+	// Check if new items are exactly at the end positions
+	for i, key := range newKeys {
+		expectedIndex := oldCount + i
+		if expectedIndex >= newCount {
+			return false
+		}
+
+		// Get the item at this position in newItems
+		if itemMap, ok := newItems[expectedIndex].(map[string]interface{}); ok {
+			if itemKey, exists := itemMap["0"]; exists {
+				if keyStr, ok := itemKey.(string); ok {
+					if keyStr != key {
+						return false
+					}
+				} else {
+					return false
+				}
+			} else {
+				return false
+			}
+		} else {
+			return false
+		}
+	}
+
+	return true
+}
+
+// areAllItemsAtSamePosition checks if all new items are inserted at the same position
+func areAllItemsAtSamePosition(newKeys []string, oldItems, newItems []interface{}) (bool, string, string) {
+	if len(newKeys) <= 1 {
+		return false, "", "" // Single items don't need this optimization
+	}
+
+	// Find the first new item's position
+	var firstNewIndex = -1
+	var targetKey = ""
+	var position = ""
+
+	for i, item := range newItems {
+		if itemMap, ok := item.(map[string]interface{}); ok {
+			if key, exists := itemMap["0"]; exists {
+				if keyStr, ok := key.(string); ok {
+					// Check if this is a new key
+					for _, newKey := range newKeys {
+						if newKey == keyStr {
+							if firstNewIndex == -1 {
+								firstNewIndex = i
+								// Determine the target and position
+								if i > 0 {
+									// Check the item before
+									if prevItem, ok := newItems[i-1].(map[string]interface{}); ok {
+										if prevKey, exists := prevItem["0"]; exists {
+											if prevKeyStr, ok := prevKey.(string); ok {
+												targetKey = prevKeyStr
+												position = "after"
+											}
+										}
+									}
+								} else {
+									// At the beginning
+									targetKey = ""
+									position = "start"
+								}
+							}
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if firstNewIndex == -1 {
+		return false, "", ""
+	}
+
+	// Verify all new items are contiguous starting from firstNewIndex
+	for i, newKey := range newKeys {
+		expectedIndex := firstNewIndex + i
+		if expectedIndex >= len(newItems) {
+			return false, "", ""
+		}
+
+		if itemMap, ok := newItems[expectedIndex].(map[string]interface{}); ok {
+			if key, exists := itemMap["0"]; exists {
+				if keyStr, ok := key.(string); ok {
+					if keyStr != newKey {
+						return false, "", ""
+					}
+				} else {
+					return false, "", ""
+				}
+			} else {
+				return false, "", ""
+			}
+		} else {
+			return false, "", ""
+		}
+	}
+
+	return true, targetKey, position
+}
+
+// isComplexInsertionPattern checks if the insertion pattern is too complex for simple operations
+func isComplexInsertionPattern(newKeys []string, oldItems, newItems []interface{}) bool {
+	// Consider it complex if there are more than 3 separate insertion points
+	const maxInsertionPoints = 3
+
+	if len(newKeys) == 0 {
+		return false
+	}
+
+	insertionPoints := make(map[string]bool)
+
+	for i, item := range newItems {
+		if itemMap, ok := item.(map[string]interface{}); ok {
+			if key, exists := itemMap["0"]; exists {
+				if keyStr, ok := key.(string); ok {
+					// Check if this is a new key
+					for _, newKey := range newKeys {
+						if newKey == keyStr {
+							// Determine insertion point
+							var insertionPoint string
+							if i > 0 {
+								if prevItem, ok := newItems[i-1].(map[string]interface{}); ok {
+									if prevKey, exists := prevItem["0"]; exists {
+										if prevKeyStr, ok := prevKey.(string); ok {
+											insertionPoint = prevKeyStr + ":after"
+										}
+									}
+								}
+							} else {
+								insertionPoint = "start"
+							}
+							insertionPoints[insertionPoint] = true
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return len(insertionPoints) > maxInsertionPoints
+}
 
 // analyzeChangeAndCreateTree determines the best tree structure based on the type of change
 func (t *Template) analyzeChangeAndCreateTree(oldHTML, newHTML string, _, _ interface{}) (TreeNode, error) {
