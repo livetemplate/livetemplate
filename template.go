@@ -274,10 +274,18 @@ func (t *Template) generateInitialTree(html string, data interface{}) (TreeNode,
 		contentToAnalyze = html
 	}
 
-	// For first render, try the new full tree parser that preserves HTML structure
+	// Get the template source (with {{}} placeholders) and strip scripts
+	// We need the template source, not rendered HTML, so parseTemplateToTree can identify dynamics
 	var templateContent string
 	if t.wrapperID != "" {
-		templateContent = extractTemplateBodyContent(t.templateStr)
+		// Extract body content from template, then remove <script> tags
+		bodyContent := extractTemplateBodyContent(t.templateStr)
+		// Strip out everything from first <script to end (scripts should be at the end)
+		if scriptIdx := strings.Index(bodyContent, "<script"); scriptIdx != -1 {
+			templateContent = bodyContent[:scriptIdx]
+		} else {
+			templateContent = bodyContent
+		}
 	} else {
 		templateContent = t.templateStr
 	}
@@ -317,8 +325,16 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 
 	// Generate new complete tree for comparison
 	if t.hasInitialTree {
-		// Generate complete tree with current data
-		newTree, err := ParseTemplateToTree(t.templateStr, newData)
+		// Generate complete tree with current data using the template instance's keyGen
+		// to ensure consistent key mapping across renders
+		// Strip scripts from template content (same as in generateInitialTree)
+		bodyContent := extractTemplateBodyContent(t.templateStr)
+		templateContent := bodyContent
+		if scriptIdx := strings.Index(bodyContent, "<script"); scriptIdx != -1 {
+			templateContent = bodyContent[:scriptIdx]
+		}
+
+		newTree, err := parseTemplateToTree(templateContent, newData, t.keyGen)
 		if err != nil {
 			return nil, err
 		}

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{.Title}}</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+    <h1>{{.Title}}</h1>
+    <div>
+        <p>Counter: {{.Counter}}</p>
+        <p>Status: {{.Status}}</p>
+        {{if gt .Counter 0}}
+            <p>Counter is positive</p>
+        {{else if lt .Counter 0}}
+            <p>Counter is negative</p>
+        {{else}}
+            <p>Counter is zero</p>
+        {{end}}
+
+        <div>
+            <button onclick="sendMessage('increment')">+1</button>
+            <button onclick="sendMessage('decrement')">-1</button>
+            <button onclick="sendMessage('reset')">Reset</button>
+        </div>
+    </div>
+    <footer>
+        <p>Last updated: {{.LastUpdated}}</p>
+        <p>Session: {{.SessionID}}</p>
+    </footer>
+
+    <script src="livetemplate-client.js"></script>
+    <script>
+        window.ws = null;
+        window.client = null;
+
+        function connect() {
+                // Use current page's hostname and port for WebSocket
+                const wsUrl = 'ws://' + window.location.host + '/ws';
+                window.ws = new WebSocket(wsUrl);
+                window.client = new LiveTemplateClient.LiveTemplateClient();
+
+                window.ws.onopen = function() {
+                    console.log('WebSocket connected to', wsUrl);
+                };
+
+                window.ws.onmessage = function(event) {
+                    try {
+                        const update = JSON.parse(event.data);
+                        console.log('Received update:', update);
+
+                        // Find the LiveTemplate wrapper div
+                        const wrapper = document.querySelector('[data-lvt-id]');
+                        if (wrapper) {
+                            // Apply update using the client's updateDOM method
+                            window.client.updateDOM(wrapper, update);
+                            console.log('Update applied successfully');
+                        } else {
+                            console.error('LiveTemplate wrapper not found');
+                        }
+                    } catch (error) {
+                        console.error('Error applying update:', error, error.stack);
+                    }
+                };
+
+                window.ws.onclose = function() {
+                    console.log('WebSocket disconnected');
+                    setTimeout(connect, 1000); // Reconnect after 1 second
+                };
+
+                window.ws.onerror = function(error) {
+                    console.error('WebSocket error:', error);
+                };
+            }
+
+            function sendMessage(action) {
+                if (window.ws && window.ws.readyState === WebSocket.OPEN) {
+                    window.ws.send(action);
+                }
+            }
+
+            // Connect when page loads
+            connect();
+        </script>
+</body>
+</html>

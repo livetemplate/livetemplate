@@ -40,28 +40,28 @@
     ],
     "s": [
       "\u003cdiv data-lvt-key=\"",
-      "\"\u003e\u003cdiv class=\"todo-item",
+      "\"\u003e\u003cdiv class=\"todo-item ",
       "\" data-key=\"",
       "\"\u003e\u003cstrong\u003e",
-      ":\u003c/strong\u003e",
-      " ",
-      " ",
-      "\u003c/div\u003e\u003c/div\u003e"
+      ":\u003c/strong\u003e ",
+      "",
+      "",
+      " \u003c/div\u003e\u003c/div\u003e"
     ]
   },
   "9": "2023-01-01 10:15:00",
   "s": [
     "\u003cdiv class=\"container\"\u003e\u003cheader\u003e\u003ch1\u003e",
-    "\u003c/h1\u003e\u003cdiv class=\"counter\"\u003eCount:",
-    "\u003c/div\u003e\u003cdiv class=\"status",
-    "\"\u003e Status:",
-    "\u003c/div\u003e\u003c/header\u003e\u003cmain\u003e\u003csection class=\"stats\"\u003e\u003ch2\u003eStatistics\u003c/h2\u003e\u003cp\u003eTotal Todos:",
-    "\u003c/p\u003e\u003cp\u003eCompleted:",
-    "\u003c/p\u003e\u003cp\u003eRemaining:",
-    "\u003c/p\u003e\u003cp\u003eCompletion Rate:",
-    "\u003c/p\u003e\u003c/section\u003e\u003csection class=\"todos\"\u003e\u003ch2\u003eTodo List\u003c/h2\u003e",
-    "\u003c/section\u003e\u003c/main\u003e\u003cfooter\u003e\u003cp\u003eLast updated:",
-    "\u003c/p\u003e\u003cp\u003eSession ID:",
+    "\u003c/h1\u003e\u003cdiv class=\"counter\"\u003eCount: ",
+    "\u003c/div\u003e\u003cdiv class=\"status ",
+    "\"\u003e Status: ",
+    " \u003c/div\u003e\u003c/header\u003e\u003cmain\u003e\u003csection class=\"stats\"\u003e\u003ch2\u003eStatistics\u003c/h2\u003e\u003cp\u003eTotal Todos: ",
+    "\u003c/p\u003e\u003cp\u003eCompleted: ",
+    "\u003c/p\u003e\u003cp\u003eRemaining: ",
+    "\u003c/p\u003e\u003cp\u003eCompletion Rate: ",
+    "\u003c/p\u003e\u003c/section\u003e\u003csection class=\"todos\"\u003e\u003ch2\u003eTodo List\u003c/h2\u003e ",
+    " \u003c/section\u003e\u003c/main\u003e\u003cfooter\u003e\u003cp\u003eLast updated: ",
+    "\u003c/p\u003e\u003cp\u003eSession ID: ",
     "\u003c/p\u003e\u003c/footer\u003e\u003c/div\u003e"
   ]
 }

@@ -4,7 +4,8 @@
   "description": "TypeScript client for LiveTemplate tree-based updates",
   "main": "dist/livetemplate-client.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run build:browser",
+    "build:browser": "esbuild livetemplate-client.ts --bundle --format=iife --global-name=LiveTemplateClient --outfile=dist/livetemplate-client.browser.js --sourcemap",
     "test": "jest",
     "test:reconstruction": "jest test-reconstruction",
     "clean": "rm -rf dist"
@@ -21,6 +22,7 @@
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "@types/node": "^20.0.0",
+    "esbuild": "^0.25.10",
     "jest": "^30.1.3",
     "ts-jest": "^29.4.4",
     "typescript": "^5.0.0"

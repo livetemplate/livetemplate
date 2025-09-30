@@ -20,6 +20,10 @@ func minifyHTMLWhitespace(html string) string {
 		return html
 	}
 
+	// Preserve leading/trailing space flags before any processing
+	hasLeadingSpace := len(html) > 0 && (html[0] == ' ' || html[0] == '\t' || html[0] == '\n' || html[0] == '\r')
+	hasTrailingSpace := len(html) > 0 && (html[len(html)-1] == ' ' || html[len(html)-1] == '\t' || html[len(html)-1] == '\n' || html[len(html)-1] == '\r')
+
 	// Replace newlines and tabs with spaces first
 	html = newlinePattern.ReplaceAllString(html, " ")
 
@@ -29,12 +33,19 @@ func minifyHTMLWhitespace(html string) string {
 	// Remove spaces between tags (but preserve attribute trailing spaces)
 	html = spaceAroundTags.ReplaceAllString(html, "><")
 
-	// Trim leading and trailing whitespace only if the entire string is whitespace
-	if strings.TrimSpace(html) != "" {
-		html = strings.TrimSpace(html)
+	// Trim interior whitespace
+	trimmed := strings.TrimSpace(html)
+
+	// If after trimming we have content and there was originally leading/trailing whitespace,
+	// ensure we have exactly one space (not more)
+	if hasLeadingSpace && len(trimmed) > 0 {
+		trimmed = " " + trimmed
+	}
+	if hasTrailingSpace && len(trimmed) > 0 {
+		trimmed = trimmed + " "
 	}
 
-	return html
+	return trimmed
 }
 
 // minifyStatics applies minification to an array of static strings

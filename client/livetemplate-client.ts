@@ -357,30 +357,31 @@ export class LiveTemplateClient {
 
   /**
    * Update a live DOM element with new tree data
-   * @param element - DOM element containing the LiveTemplate content
+   * @param element - DOM element containing the LiveTemplate content (the wrapper div)
    * @param update - Tree update object from LiveTemplate server
    */
   updateDOM(element: Element, update: TreeNode): void {
-    const currentHTML = element.outerHTML;
-    const updatedHTML = this.applyUpdateToHTML(currentHTML, update);
-    
-    // Create temporary container for updated HTML
-    const tempContainer = document.createElement('div');
-    tempContainer.innerHTML = updatedHTML;
-    const newElement = tempContainer.firstElementChild;
-    
-    if (newElement) {
-      // Use morphdom to efficiently update the DOM
-      morphdom(element, newElement, {
-        onBeforeElUpdated: (fromEl, toEl) => {
-          // Preserve lvt-id attribute
-          if (fromEl.hasAttribute('data-lvt-id') && !toEl.hasAttribute('data-lvt-id')) {
-            toEl.setAttribute('data-lvt-id', fromEl.getAttribute('data-lvt-id')!);
-          }
-          return true;
-        }
-      });
+    // Apply update to internal state and get reconstructed HTML
+    const result = this.applyUpdate(update);
+
+    if (!result.changed && !update.s) {
+      // No changes detected and no statics in update, skip morphdom
+      return;
     }
+
+    // Create temporary container with the reconstructed inner content
+    const tempContainer = document.createElement('div');
+    tempContainer.innerHTML = result.html;
+
+    // Use morphdom to efficiently update only the children of the wrapper element
+    // This preserves the wrapper div itself (with data-lvt-id) and only updates its contents
+    morphdom(element, tempContainer, {
+      childrenOnly: true,  // Only update children, preserve the wrapper element itself
+      onBeforeElUpdated: (fromEl, toEl) => {
+        // Allow all updates
+        return true;
+      }
+    });
   }
 
   /**

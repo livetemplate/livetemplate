@@ -88,6 +88,7 @@ func generateRandomID() string {
 }
 
 // injectWrapperDiv injects a wrapper div around body content with the specified ID
+// Excludes <script> tags from the wrapper to prevent them from being part of the dynamic content
 func injectWrapperDiv(htmlDoc string, wrapperID string) string {
 	// Find the body opening tag and extract the content between <body> and </body>
 	bodyStart := strings.Index(htmlDoc, "<body")
@@ -112,8 +113,21 @@ func injectWrapperDiv(htmlDoc string, wrapperID string) string {
 	// Extract the body content
 	bodyContent := htmlDoc[bodyTagEnd:bodyEnd]
 
+	// Find the first <script tag to exclude scripts from the wrapper
+	scriptStart := strings.Index(bodyContent, "<script")
+	var contentToWrap, scriptsSection string
+	if scriptStart != -1 {
+		// Split content: wrap everything before first script, leave scripts outside
+		contentToWrap = bodyContent[:scriptStart]
+		scriptsSection = bodyContent[scriptStart:]
+	} else {
+		// No scripts found, wrap entire body content
+		contentToWrap = bodyContent
+		scriptsSection = ""
+	}
+
 	// Create the wrapper div with the specified ID
-	wrappedContent := fmt.Sprintf(`<div data-lvt-id="%s">%s</div>`, wrapperID, bodyContent)
+	wrappedContent := fmt.Sprintf(`<div data-lvt-id="%s">%s</div>%s`, wrapperID, contentToWrap, scriptsSection)
 
 	// Reconstruct the HTML with the wrapper
 	result := htmlDoc[:bodyTagEnd] + wrappedContent + htmlDoc[bodyEnd:]

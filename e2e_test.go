@@ -290,7 +290,22 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		_ = formattedJSON // Keep variable to avoid unused variable error
 
 		// Verify essential behavior rather than exact order (due to non-deterministic map iteration)
-		operations, hasOps := updateTree["9"].([]interface{})
+		// Range operations key depends on template structure - find it dynamically
+		var operations []interface{}
+		var hasOps bool
+		for key, val := range updateTree {
+			if ops, ok := val.([]interface{}); ok && len(ops) > 0 {
+				// Check if it looks like range operations (has arrays with action strings)
+				if opSlice, isSlice := ops[0].([]interface{}); isSlice && len(opSlice) >= 2 {
+					if _, isString := opSlice[0].(string); isString {
+						operations = ops
+						hasOps = true
+						t.Logf("Found range operations at key %q", key)
+						break
+					}
+				}
+			}
+		}
 		if !hasOps {
 			t.Errorf("Expected range operations for todo removal")
 		} else {
@@ -331,22 +346,25 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 
 		// Verify status change from counter > 5 and todo removal
 		updateStr := string(updateJSON)
-		expectedUpdates := []string{
-			"\"2\":\"8\"",                    // Counter value in segment 2
-			"\"5\":\"2\"",                    // Total todos in segment 5 (reduced from 3 to 2)
-			"\"6\":\"0\"",                    // Completed count in segment 6 (0 since no completed todos)
-			"\"8\":\"0%\"",                   // Completion rate in segment 8 (0% since no completed todos)
-			"\"10\":\"2023-01-01 10:30:00\"", // Last updated in segment 10
+		expectedValues := []string{
+			"\"8\"",                   // Counter value (key may vary)
+			"\"2\"",                   // Total todos (reduced from 3 to 2)
+			"\"0\"",                   // Completed count (0 since no completed todos)
+			"\"0%\"",                  // Completion rate (0% since no completed todos)
+			"\"2023-01-01 10:30:00\"", // Last updated timestamp
 		}
 
-		for _, expected := range expectedUpdates {
+		for _, expected := range expectedValues {
 			if !strings.Contains(updateStr, expected) {
-				t.Errorf("Update 2 missing expected content: %q", expected)
+				t.Errorf("Update 2 missing expected value: %q", expected)
 			}
 		}
 
 		t.Logf("✅ Remove todo update complete - JSON length: %d bytes", len(updateJSON))
 		t.Logf("Update keys: %v", getMapKeys(updateTree))
+
+		// Compare with golden file
+		compareWithGoldenFile(t, "todos", "update_02_remove_todo", updateTree)
 	})
 
 	// Step 4: Complete todo update - tests conditional branching fingerprinting
@@ -398,7 +416,22 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 
 		// Compare with golden file
 		// Verify essential behavior rather than exact order (due to non-deterministic map iteration)
-		operations, hasOps := updateTree["9"].([]interface{})
+		// Range operations key depends on template structure - find it dynamically
+		var operations []interface{}
+		var hasOps bool
+		for key, val := range updateTree {
+			if ops, ok := val.([]interface{}); ok && len(ops) > 0 {
+				// Check if it looks like range operations (has arrays with action strings)
+				if opSlice, isSlice := ops[0].([]interface{}); isSlice && len(opSlice) >= 2 {
+					if _, isString := opSlice[0].(string); isString {
+						operations = ops
+						hasOps = true
+						t.Logf("Found range operations at key %q", key)
+						break
+					}
+				}
+			}
+		}
 		if !hasOps || len(operations) < 1 {
 			t.Errorf("Expected at least 1 operation for todo completion changes, got %d", len(operations))
 		} else {
@@ -435,21 +468,23 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 
 		// Verify conditional branching changes - completion changes completed status
 		updateStr := string(updateJSON)
-		expectedUpdates := []string{
-			"\"6\":\"1\"",                    // Completed count: 1 todo completed
-			"\"7\":\"1\"",                    // Remaining count: 1 todo remaining
-			"\"8\":\"50%\"",                  // Completion rate: 50% (1 out of 2 todos completed)
-			"\"10\":\"2023-01-01 10:45:00\"", // Last updated timestamp
+		expectedValues := []string{
+			"\"1\"",                   // Completed count: 1 todo completed (key may vary)
+			"\"50%\"",                 // Completion rate: 50% (1 out of 2 todos completed)
+			"\"2023-01-01 10:45:00\"", // Last updated timestamp
 		}
 
-		for _, expected := range expectedUpdates {
+		for _, expected := range expectedValues {
 			if !strings.Contains(updateStr, expected) {
-				t.Errorf("Update 3 missing expected content: %q", expected)
+				t.Errorf("Update 3 missing expected value: %q", expected)
 			}
 		}
 
 		t.Logf("✅ Complete todo update complete - JSON length: %d bytes", len(updateJSON))
 		t.Logf("Update keys: %v", getMapKeys(updateTree))
+
+		// Compare with golden file
+		compareWithGoldenFile(t, "todos", "update_03_complete_todo", updateTree)
 	})
 
 	// Step 5: Sort todos alphabetically
@@ -503,7 +538,22 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		_ = jsonBuf.Bytes() // Keep variable to avoid unused variable error
 
 		// Verify ordering operation was generated
-		operations, hasOps := updateTree["9"].([]interface{})
+		// Range operations key depends on template structure - find it dynamically
+		var operations []interface{}
+		var hasOps bool
+		for key, val := range updateTree {
+			if ops, ok := val.([]interface{}); ok && len(ops) > 0 {
+				// Check if it looks like range operations (has arrays with action strings)
+				if opSlice, isSlice := ops[0].([]interface{}); isSlice && len(opSlice) >= 1 {
+					if _, isString := opSlice[0].(string); isString {
+						operations = ops
+						hasOps = true
+						t.Logf("Found range operations at key %q", key)
+						break
+					}
+				}
+			}
+		}
 		if !hasOps {
 			t.Errorf("Expected range operations for sorting")
 		} else {
@@ -1374,6 +1424,20 @@ func TestTemplate_E2E_SimpleCounter(t *testing.T) {
 			}
 		}
 
+		// Validate key consistency: counter should be at key "1"
+		if counterVal, exists := updateTree["1"]; !exists {
+			t.Errorf("Counter value should be at key '1', but key not found in update")
+		} else if counterVal != "5" {
+			t.Errorf("Counter value at key '1' should be '5', got: %v", counterVal)
+		}
+
+		// Validate key consistency: status should be at key "2"
+		if statusVal, exists := updateTree["2"]; !exists {
+			t.Errorf("Status value should be at key '2', but key not found in update")
+		} else if statusVal != "positive" {
+			t.Errorf("Status value at key '2' should be 'positive', got: %v", statusVal)
+		}
+
 		t.Logf("✅ Increment update complete - JSON length: %d bytes", len(updateJSON))
 		t.Logf("Update keys: %v", getMapKeys(updateTree))
 	})
@@ -1436,6 +1500,14 @@ func TestTemplate_E2E_SimpleCounter(t *testing.T) {
 			if !strings.Contains(updateStr, expected) {
 				t.Errorf("Update missing expected content: %q", expected)
 			}
+		}
+
+		// CRITICAL: Validate key consistency across renders
+		// Counter should STILL be at key "1" (not shifted to a different key)
+		if counterVal, exists := updateTree["1"]; !exists {
+			t.Errorf("Counter value should remain at key '1' in dynamics-only update, but key not found")
+		} else if counterVal != "25" {
+			t.Errorf("Counter value at key '1' should be '25', got: %v", counterVal)
 		}
 
 		t.Logf("✅ Large increment update complete - JSON length: %d bytes", len(updateJSON))
