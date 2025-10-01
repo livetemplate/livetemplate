@@ -9,11 +9,12 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	e2etest "github.com/livefir/livetemplate/internal/testing"
 )
 
 func TestWebSocketBasic(t *testing.T) {
 	// Get a free port
-	port, err := GetFreePort()
+	port, err := e2etest.GetFreePort()
 	if err != nil {
 		t.Fatalf("Failed to get free port: %v", err)
 	}
