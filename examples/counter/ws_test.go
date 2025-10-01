@@ -11,6 +11,11 @@ import (
 )
 
 func TestWebSocketBasic(t *testing.T) {
+	// Kill any lingering processes on port 8095 from previous runs
+	killCmd := exec.Command("sh", "-c", "lsof -ti:8095 | xargs kill -9 2>/dev/null || true")
+	killCmd.Run()
+	time.Sleep(1 * time.Second) // Give OS time to release the port
+
 	// Start server on unique port to avoid conflicts
 	cmd := exec.Command("go", "run", "main.go")
 	cmd.Env = append([]string{"PORT=8095"}, cmd.Environ()...)

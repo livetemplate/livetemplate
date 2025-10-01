@@ -79,27 +79,16 @@ func startDockerChrome(t *testing.T) *exec.Cmd {
 			"--network", "host",
 			"--name", "chrome-e2e-test",
 			dockerImage,
-			"--remote-debugging-address=0.0.0.0",
-			"--remote-debugging-port=9222",
-			"--disable-gpu",
-			"--headless",
-			"--no-sandbox",
-			"--disable-dev-shm-usage",
 		)
 	} else {
 		// On macOS/Windows, map port 9222 for remote debugging
 		// (container will use host.docker.internal to reach host)
+		// Note: Don't pass Chrome flags - the image has a built-in setup
 		cmd = exec.Command("docker", "run", "--rm",
 			"-p", "9222:9222",
 			"--name", "chrome-e2e-test",
 			"--add-host", "host.docker.internal:host-gateway",
 			dockerImage,
-			"--remote-debugging-address=0.0.0.0",
-			"--remote-debugging-port=9222",
-			"--disable-gpu",
-			"--headless",
-			"--no-sandbox",
-			"--disable-dev-shm-usage",
 		)
 	}
 
@@ -134,10 +123,16 @@ func stopDockerChrome(t *testing.T, cmd *exec.Cmd) {
 	t.Helper()
 	t.Log("Stopping Chrome Docker container...")
 
-	// Stop the container gracefully
-	stopCmd := exec.Command("docker", "stop", "chrome-e2e-test")
-	if err := stopCmd.Run(); err != nil {
-		t.Logf("Warning: Failed to stop Docker container: %v", err)
+	// Check if container exists before trying to stop it
+	checkCmd := exec.Command("docker", "ps", "-a", "-q", "-f", "name=chrome-e2e-test")
+	output, _ := checkCmd.Output()
+
+	if len(output) > 0 {
+		// Container exists, stop it gracefully
+		stopCmd := exec.Command("docker", "stop", "chrome-e2e-test")
+		if err := stopCmd.Run(); err != nil {
+			t.Logf("Warning: Failed to stop Docker container: %v", err)
+		}
 	}
 
 	// Kill the process if still running
