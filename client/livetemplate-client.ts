@@ -20,6 +20,7 @@ export interface UpdateResult {
 
 export interface LiveTemplateClientOptions {
   wsUrl?: string;  // WebSocket URL (defaults to current host)
+  liveUrl?: string; // HTTP endpoint URL (defaults to /live)
   autoReconnect?: boolean;  // Auto-reconnect on disconnect (default: true)
   reconnectDelay?: number;  // Reconnect delay in ms (default: 1000)
   onConnect?: () => void;
@@ -32,16 +33,19 @@ export class LiveTemplateClient {
   private rangeState: { [fieldKey: string]: any[] } = {}; // Track range items by field key
   private lvtId: string | null = null;
 
-  // WebSocket properties
+  // Transport properties
   private ws: WebSocket | null = null;
   private wrapperElement: Element | null = null;
   private options: LiveTemplateClientOptions;
   private reconnectTimer: number | null = null;
+  private useHTTP: boolean = false; // True when WebSocket is unavailable
+  private sessionCookie: string | null = null; // For HTTP mode session tracking
 
   constructor(options: LiveTemplateClientOptions = {}) {
     this.options = {
-      autoReconnect: true,
+      autoReconnect: false, // Disable autoReconnect by default to avoid connection loops
       reconnectDelay: 1000,
+      liveUrl: '/live',
       ...options
     };
   }
@@ -57,48 +61,8 @@ export class LiveTemplateClient {
         const client = new LiveTemplateClient();
         client.wrapperElement = wrapper;
 
-        // Determine WebSocket URL
-        const wsUrl = client.options.wsUrl || `ws://${window.location.host}/ws`;
-
-        // Create WebSocket connection
-        client.ws = new WebSocket(wsUrl);
-
-        client.ws.onopen = () => {
-          if (client.options.onConnect) {
-            client.options.onConnect();
-          }
-        };
-
-        client.ws.onmessage = (event) => {
-          try {
-            const update = JSON.parse(event.data);
-
-            if (client.wrapperElement) {
-              client.updateDOM(client.wrapperElement, update);
-            }
-          } catch (error) {
-            console.error('LiveTemplate error:', error);
-          }
-        };
-
-        client.ws.onclose = () => {
-          if (client.options.onDisconnect) {
-            client.options.onDisconnect();
-          }
-
-          if (client.options.autoReconnect) {
-            client.reconnectTimer = window.setTimeout(() => {
-              LiveTemplateClient.autoInit();
-            }, client.options.reconnectDelay);
-          }
-        };
-
-        client.ws.onerror = (error) => {
-          console.error('LiveTemplate WebSocket error:', error);
-          if (client.options.onError) {
-            client.options.onError(error);
-          }
-        };
+        // Try WebSocket first (most efficient)
+        client.connectWebSocket();
 
         // Set up event delegation
         client.setupEventDelegation();
@@ -117,29 +81,73 @@ export class LiveTemplateClient {
   }
 
   /**
-   * Connect to WebSocket and start receiving updates
-   * @param wrapperSelector - CSS selector for the LiveTemplate wrapper (defaults to '[data-lvt-id]')
+   * Check if WebSocket is available on the server
+   * Makes a HEAD request to probe the endpoint without fetching data
    */
-  connect(wrapperSelector: string = '[data-lvt-id]'): void {
-    // Find the wrapper element
-    this.wrapperElement = document.querySelector(wrapperSelector);
-    if (!this.wrapperElement) {
-      throw new Error(`LiveTemplate wrapper not found with selector: ${wrapperSelector}`);
-    }
+  private async checkWebSocketAvailability(): Promise<boolean> {
+    try {
+      const liveUrl = this.options.liveUrl || '/live';
 
+      // Try HEAD request first (most efficient)
+      const response = await fetch(liveUrl, {
+        method: 'HEAD'
+      });
+
+      // Check the X-LiveTemplate-WebSocket header
+      const wsHeader = response.headers.get('X-LiveTemplate-WebSocket');
+
+      if (wsHeader) {
+        return wsHeader === 'enabled';
+      }
+
+      // If no header, assume WebSocket is enabled (backward compatibility)
+      return true;
+    } catch (error) {
+      console.error('Failed to check WebSocket availability:', error);
+      // On error, assume WebSocket is available and try to connect
+      return true;
+    }
+  }
+
+  /**
+   * Fetch initial state via HTTP GET
+   */
+  private async fetchInitialState(): Promise<void> {
+    try {
+      const liveUrl = this.options.liveUrl || '/live';
+      const response = await fetch(liveUrl, {
+        method: 'GET',
+        credentials: 'include', // Include cookies for session
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch initial state: ${response.status}`);
+      }
+
+      const update = await response.json();
+      if (this.wrapperElement) {
+        this.updateDOM(this.wrapperElement, update);
+      }
+    } catch (error) {
+      console.error('Failed to fetch initial state:', error);
+    }
+  }
+
+  /**
+   * Connect via WebSocket
+   */
+  private connectWebSocket(): void {
     // Determine WebSocket URL
-    const wsUrl = this.options.wsUrl || `ws://${window.location.host}/ws`;
-
-    // Clear any existing reconnect timer
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
+    const wsUrl = this.options.wsUrl || `ws://${window.location.host}${this.options.liveUrl || '/live'}`;
 
     // Create WebSocket connection
     this.ws = new WebSocket(wsUrl);
 
     this.ws.onopen = () => {
+      console.log('LiveTemplate: WebSocket connected');
       if (this.options.onConnect) {
         this.options.onConnect();
       }
@@ -153,29 +161,65 @@ export class LiveTemplateClient {
           this.updateDOM(this.wrapperElement, update);
         }
       } catch (error) {
-        console.error('Error applying update:', error, (error as Error).stack);
+        console.error('LiveTemplate error:', error);
       }
     };
 
     this.ws.onclose = () => {
+      console.log('LiveTemplate: WebSocket disconnected');
       if (this.options.onDisconnect) {
         this.options.onDisconnect();
       }
 
-      // Auto-reconnect if enabled
       if (this.options.autoReconnect) {
         this.reconnectTimer = window.setTimeout(() => {
-          this.connect(wrapperSelector);
+          console.log('LiveTemplate: Attempting to reconnect...');
+          this.connectWebSocket();
         }, this.options.reconnectDelay);
       }
     };
 
     this.ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
+      console.error('LiveTemplate WebSocket error:', error);
       if (this.options.onError) {
         this.options.onError(error);
       }
     };
+  }
+
+  /**
+   * Connect to WebSocket and start receiving updates
+   * @param wrapperSelector - CSS selector for the LiveTemplate wrapper (defaults to '[data-lvt-id]')
+   */
+  async connect(wrapperSelector: string = '[data-lvt-id]'): Promise<void> {
+    // Find the wrapper element
+    this.wrapperElement = document.querySelector(wrapperSelector);
+    if (!this.wrapperElement) {
+      throw new Error(`LiveTemplate wrapper not found with selector: ${wrapperSelector}`);
+    }
+
+    // Clear any existing reconnect timer
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    // Check if WebSocket is available on the server
+    // Note: checkWebSocketAvailability() will also fetch initial state if WS is disabled
+    const wsAvailable = await this.checkWebSocketAvailability();
+
+    if (wsAvailable) {
+      // Use WebSocket mode
+      this.connectWebSocket();
+    } else {
+      // Fall back to HTTP mode
+      // Initial state already fetched by checkWebSocketAvailability()
+      console.log('LiveTemplate: WebSocket not available, using HTTP mode');
+      this.useHTTP = true;
+      if (this.options.onConnect) {
+        this.options.onConnect();
+      }
+    }
 
     // Set up event delegation for lvt-* attributes
     this.setupEventDelegation();
@@ -233,30 +277,35 @@ export class LiveTemplateClient {
               e.preventDefault();
             }
 
-            // Build message with action and optional data
-            const message: any = { action };
+            // Build message with action and data map
+            const message: any = { action, data: {} };
 
-            // Include form data for submit events
+            // 1. Form data (for submit events)
             if (eventType === 'submit' && element instanceof HTMLFormElement) {
               const formData = new FormData(element);
-              const data: any = {};
               formData.forEach((value, key) => {
-                data[key] = value;
+                message.data[key] = this.parseValue(value as string);
               });
-              message.data = data;
             }
 
-            // Include input value for change/input events
+            // 2. Input value (for change/input events)
             if ((eventType === 'change' || eventType === 'input') && element instanceof HTMLInputElement) {
-              message.value = element.value;
+              message.data.value = this.parseValue(element.value);
             }
 
-            // Include any lvt-data-* attributes
+            // 3. lvt-data-* attributes (custom data)
             Array.from(element.attributes).forEach((attr) => {
               if (attr.name.startsWith('lvt-data-')) {
                 const key = attr.name.replace('lvt-data-', '');
-                if (!message.data) message.data = {};
-                message.data[key] = attr.value;
+                message.data[key] = this.parseValue(attr.value);
+              }
+            });
+
+            // 4. lvt-value-* attributes (explicit multiple values)
+            Array.from(element.attributes).forEach((attr) => {
+              if (attr.name.startsWith('lvt-value-')) {
+                const key = attr.name.replace('lvt-value-', '');
+                message.data[key] = this.parseValue(attr.value);
               }
             });
 
@@ -290,15 +339,73 @@ export class LiveTemplateClient {
   }
 
   /**
-   * Send a message to the server via WebSocket
+   * Send a message to the server via WebSocket or HTTP
    * @param message - Message to send (will be JSON stringified)
    */
   send(message: any): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    if (this.useHTTP) {
+      // HTTP mode: send via POST and handle response
+      this.sendHTTP(message);
+    } else if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      // WebSocket mode
       this.ws.send(JSON.stringify(message));
+    } else if (this.ws) {
+      // WebSocket is connecting or closing, fall back to HTTP temporarily
+      console.log('LiveTemplate: WebSocket not ready, using HTTP fallback');
+      this.sendHTTP(message);
     } else {
-      console.error('WebSocket is not connected');
+      console.error('LiveTemplate: No transport available');
     }
+  }
+
+  /**
+   * Send action via HTTP POST
+   */
+  private async sendHTTP(message: any): Promise<void> {
+    try {
+      const liveUrl = this.options.liveUrl || '/live';
+      const response = await fetch(liveUrl, {
+        method: 'POST',
+        credentials: 'include', // Include cookies for session
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(message)
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP request failed: ${response.status}`);
+      }
+
+      // Handle the update response
+      const update = await response.json();
+      if (this.wrapperElement) {
+        this.updateDOM(this.wrapperElement, update);
+      }
+    } catch (error) {
+      console.error('Failed to send HTTP request:', error);
+    }
+  }
+
+  /**
+   * Parse a string value into appropriate type (number, boolean, or string)
+   * @param value - String value to parse
+   * @returns Parsed value with correct type
+   */
+  private parseValue(value: string): any {
+    // Try to parse as number
+    const num = parseFloat(value);
+    if (!isNaN(num) && value.trim() === num.toString()) {
+      return num;
+    }
+
+    // Try to parse as boolean
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+
+    // Return as string
+    return value;
   }
 
   /**

@@ -39,6 +39,30 @@ func New(name string) *Template {
 	}
 }
 
+// Clone creates a deep copy of the template with fresh state.
+// This is useful for creating per-connection template instances that don't interfere with each other.
+func (t *Template) Clone() (*Template, error) {
+	// Cannot clone an executed html/template, must re-parse from source
+	// Create a fresh template instance with the same configuration
+	clone := &Template{
+		name:        t.name,
+		templateStr: t.templateStr,
+		wrapperID:   t.wrapperID, // Share wrapper ID
+		keyGen:      NewKeyGenerator(),
+		// Don't copy lastData, lastHTML, lastTree, etc. - start fresh
+	}
+
+	// Re-parse the template from source
+	if t.templateStr != "" {
+		_, err := clone.Parse(t.templateStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to re-parse template: %w", err)
+		}
+	}
+
+	return clone, nil
+}
+
 // resetKeyGeneration resets the key generator for a fresh render
 func (t *Template) resetKeyGeneration() {
 	if t.keyGen == nil {

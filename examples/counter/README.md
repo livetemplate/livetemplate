@@ -1,14 +1,15 @@
 # LiveTemplate Counter Example
 
-A real-time counter application demonstrating LiveTemplate's tree-based optimization over WebSocket.
+A real-time counter application demonstrating LiveTemplate's reactive state management and tree-based optimization.
 
 ## Features
 
-- **Real-time updates**: Counter changes are sent via WebSocket using LiveTemplate's differential updates
+- **Reactive state**: Changes to state automatically generate and broadcast updates
+- **Transport-agnostic**: Works over WebSocket or plain HTTP/AJAX
 - **Minimal bandwidth**: Only the changed values are transmitted, not the entire HTML
 - **No custom JavaScript**: Uses only the LiveTemplate client library
 - **Template-based**: HTML is generated from Go templates with conditional rendering
-- **WebSocket communication**: Interactive buttons trigger server-side state changes
+- **Simple API**: Mount a store with a single function call
 
 ## Running the Example
 
@@ -43,13 +44,49 @@ A real-time counter application demonstrating LiveTemplate's tree-based optimiza
 
 ### Server Side (Go)
 
-- **Single Template Instance**: One parsed template used for both HTTP and WebSocket
-- **State Management**: `CounterState` struct tracks counter value, status, and metadata
-- **HTTP Handler**: Serves initial HTML with `Execute()`
-- **WebSocket Handler**: Sends initial tree on connect, then differential updates with `ExecuteUpdates()`
-- **Conditional Logic**: Template shows different messages based on counter value (positive/negative/zero)
+The server is extremely simple with the new reactive API:
 
-**Note**: For production with multiple concurrent users, each WebSocket connection should have its own template instance to avoid state conflicts.
+```go
+type CounterState struct {
+    Counter     int    `json:"counter"`
+    Status      string `json:"status"`
+    // ... other fields
+}
+
+// Implement the Store interface
+func (s *CounterState) Change(action string, data map[string]interface{}) {
+    switch action {
+    case "increment":
+        s.Counter++
+    case "decrement":
+        s.Counter--
+    case "reset":
+        s.Counter = 0
+    }
+
+    // Update derived state
+    s.Status = getStatus(s.Counter)
+    s.LastUpdated = formatTime()
+}
+
+func main() {
+    tmpl := livetemplate.New("counter")
+    tmpl.ParseFiles("counter.tmpl")
+
+    state := &CounterState{Counter: 0, Status: "zero"}
+
+    // Mount handles everything: WebSocket, HTTP, state cloning, updates
+    http.Handle("/live", livetemplate.Mount(tmpl, state))
+    http.ListenAndServe(":8080", nil)
+}
+```
+
+**Key concepts:**
+- **Store Interface**: Any struct with a `Change(action string, data map[string]interface{})` method
+- **Auto Updates**: Mount automatically generates and sends updates after Change() is called
+- **Auto Cloning**: Each WebSocket connection gets its own cloned state
+- **Session Management**: HTTP connections automatically get session-based state persistence
+- **Transport Detection**: Mount auto-detects WebSocket vs HTTP requests
 
 ### Client Side (JavaScript)
 
@@ -67,19 +104,53 @@ A real-time counter application demonstrating LiveTemplate's tree-based optimiza
 
 That's it! No JavaScript code needed. The client library auto-initializes and handles:
 - **Declarative event binding** via `lvt-*` attributes (`lvt-click`, `lvt-submit`, `lvt-change`, `lvt-input`, etc.)
-- **Automatic WebSocket connection** to `/ws` endpoint
+- **Automatic WebSocket connection** to `/live` endpoint
 - **Automatic reconnection** on disconnect (configurable)
 - **Automatic DOM updates** when updates arrive
 - **Event delegation** - works with dynamically updated elements
 
+#### Sending Actions with Data
+
+Actions can include multiple values from forms, inputs, and custom data attributes:
+
+```html
+<!-- Simple action -->
+<button lvt-click="increment">+1</button>
+
+<!-- Action with input value -->
+<input type="number" lvt-change="setValue">
+
+<!-- Action with form data (all fields sent in data map) -->
+<form lvt-submit="addTodo">
+    <input name="title" type="text">
+    <input name="priority" type="number">
+    <button>Add</button>
+</form>
+
+<!-- Action with custom data attributes -->
+<button lvt-click="delete" lvt-data-id="123" lvt-data-confirm="true">
+    Delete Item
+</button>
+```
+
+All values are collected into a `data` map and passed to the store's `Change()` method:
+```go
+func (s *Store) Change(action string, data map[string]interface{}) {
+    id := livetemplate.GetInt(data, "id")
+    title := livetemplate.GetString(data, "title")
+    // ...
+}
+```
+
 #### Supported lvt-* attributes:
 - `lvt-click` - Handle click events
-- `lvt-submit` - Handle form submissions (prevents default)
-- `lvt-change` - Handle input change events
-- `lvt-input` - Handle input events (real-time)
+- `lvt-submit` - Handle form submissions (prevents default, sends all form fields)
+- `lvt-change` - Handle input change events (sends input value as "value")
+- `lvt-input` - Handle input events for real-time updates (sends input value as "value")
 - `lvt-keydown` - Handle keydown events
 - `lvt-keyup` - Handle keyup events
-- `lvt-data-*` - Include custom data in messages
+- `lvt-data-*` - Include custom data in the data map (e.g., `lvt-data-id="123"`)
+- `lvt-value-*` - Include explicit multiple values (e.g., `lvt-value-quantity="5"`)
 
 ### LiveTemplate Integration
 
@@ -91,16 +162,21 @@ That's it! No JavaScript code needed. The client library auto-initializes and ha
 ## Architecture
 
 ```
-Browser                    WebSocket                    Go Server
-┌─────────────────┐        ┌─────────┐                ┌──────────────────┐
-│ counter.tmpl    │        │         │                │ CounterState     │
-│ (rendered HTML) │        │         │                │ - Counter: int   │
-│                 │        │         │                │ - Status: string │
-│ [+1] [-1] [Reset]◄──────►│   /ws   │◄──────────────►│ - LastUpdated   │
-│                 │        │         │                │ - SessionID      │
-│ LiveTemplate    │        │         │                │                  │
-│ Client JS       │        │         │                │ Template Engine  │
-└─────────────────┘        └─────────┘                └──────────────────┘
+Browser                    WebSocket/HTTP              Go Server
+┌─────────────────┐        ┌──────────┐               ┌──────────────────┐
+│ counter.tmpl    │        │          │               │ CounterState     │
+│ (rendered HTML) │        │          │               │   implements     │
+│                 │        │          │               │   Store          │
+│ [+1] [-1] [Reset]◄──────►│  /live   │◄─────────────►│                  │
+│                 │        │          │               │ Change(action,   │
+│ LiveTemplate    │        │          │               │   data)          │
+│ Client JS       │        │          │               │                  │
+│                 │        │          │               │ Mount()          │
+│ lvt-* attrs     │        │ Auto-    │               │ - Clones state   │
+│ - click         │        │ detects  │               │ - Generates      │
+│ - submit        │        │ transport│               │   updates        │
+│ - change        │        │          │               │ - Broadcasts     │
+└─────────────────┘        └──────────┘               └──────────────────┘
 ```
 
 ## Example Update Payloads
@@ -144,8 +220,29 @@ The template follows the same pattern as `testdata/e2e/counter/input.tmpl`:
 ## Development Notes
 
 - **Port**: Defaults to `:8080`, can be overridden with `PORT` environment variable
-- **CORS**: Configured to allow all origins for development (change for production)
+- **Endpoint**: `/live` handles both WebSocket upgrades and HTTP POST requests
 - **Template Path**: Reads from `examples/counter/counter.tmpl`
-- **Client Library**: Serves `client/dist/livetemplate-client.browser.js` (browser-compatible IIFE bundle)
+- **Client Library**: Serves `client/dist/livetemplate-client.browser.js` via `ServeClientLibrary()`
 - **Building Client**: Run `cd client && npm run build` to regenerate the browser bundle
-- **Error Handling**: WebSocket reconnection and error logging included
+- **State Isolation**: Each WebSocket connection gets its own cloned state
+- **Session Management**: HTTP connections use cookie-based sessions for state persistence
+- **Error Handling**: Automatic WebSocket reconnection and comprehensive error logging
+
+## Multiple Stores
+
+For applications with multiple state objects, use `MountStores()` with dot notation:
+
+```go
+stores := livetemplate.Stores{
+    "counter": &CounterState{},
+    "user":    &UserState{},
+}
+
+http.Handle("/live", livetemplate.MountStores(tmpl, stores))
+```
+
+Then use store prefixes in actions:
+```html
+<button lvt-click="counter.increment">+1</button>
+<button lvt-click="user.logout">Logout</button>
+```
