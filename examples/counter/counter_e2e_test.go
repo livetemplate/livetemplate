@@ -180,12 +180,6 @@ func TestCounterE2E(t *testing.T) {
 		if !strings.Contains(initialHTML, "Counter: 0") {
 			t.Error("Initial counter value not found")
 		}
-		if !strings.Contains(initialHTML, "Status: zero") {
-			t.Error("Initial status not found")
-		}
-		if !strings.Contains(initialHTML, "Counter is zero") {
-			t.Error("Initial conditional text not found")
-		}
 
 		t.Log("✅ Initial page load verified")
 	})

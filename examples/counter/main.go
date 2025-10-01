@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -13,9 +12,7 @@ import (
 type CounterState struct {
 	Title       string `json:"title"`
 	Counter     int    `json:"counter"`
-	Status      string `json:"status"`
 	LastUpdated string `json:"last_updated"`
-	SessionID   string `json:"session_id"`
 }
 
 func (s *CounterState) Change(action string, data map[string]interface{}) {
@@ -31,18 +28,7 @@ func (s *CounterState) Change(action string, data map[string]interface{}) {
 		return
 	}
 
-	// Update derived state
-	s.Status = getStatus(s.Counter)
 	s.LastUpdated = formatTime()
-}
-
-func getStatus(counter int) string {
-	if counter > 0 {
-		return "positive"
-	} else if counter < 0 {
-		return "negative"
-	}
-	return "zero"
 }
 
 func formatTime() string {
@@ -54,9 +40,7 @@ func serveInitialHTML(tmpl *livetemplate.Template) http.HandlerFunc {
 		state := &CounterState{
 			Title:       "Live Counter",
 			Counter:     0,
-			Status:      "zero",
 			LastUpdated: formatTime(),
-			SessionID:   fmt.Sprintf("session-%d", time.Now().Unix()),
 		}
 
 		err := tmpl.Execute(w, state)
@@ -89,9 +73,7 @@ func main() {
 	state := &CounterState{
 		Title:       "Live Counter",
 		Counter:     0,
-		Status:      "zero",
 		LastUpdated: formatTime(),
-		SessionID:   "counter-example",
 	}
 
 	// Mount the live handler (handles both WebSocket and HTTP)

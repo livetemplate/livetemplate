@@ -9,15 +9,6 @@
     <h1>{{.Title}}</h1>
     <div>
         <p>Counter: {{.Counter}}</p>
-        <p>Status: {{.Status}}</p>
-        {{if gt .Counter 0}}
-            <p>Counter is positive</p>
-        {{else if lt .Counter 0}}
-            <p>Counter is negative</p>
-        {{else}}
-            <p>Counter is zero</p>
-        {{end}}
-
         <div>
             <button lvt-click="increment">+1</button>
             <button lvt-click="decrement">-1</button>
@@ -26,7 +17,6 @@
     </div>
     <footer>
         <p>Last updated: {{.LastUpdated}}</p>
-        <p>Session: {{.SessionID}}</p>
     </footer>
 
     <script src="livetemplate-client.js"></script>
