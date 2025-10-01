@@ -37,32 +37,20 @@ func formatTime() string {
 }
 
 func main() {
-	// Initialize template
-	tmpl := livetemplate.New("counter")
-
-	// Try to load template from current directory first, then from project root
-	templatePath := "counter.tmpl"
-	_, err := tmpl.ParseFiles(templatePath)
-	if err != nil {
-		// Try from project root
-		templatePath = "examples/counter/counter.tmpl"
-		_, err = tmpl.ParseFiles(templatePath)
-		if err != nil {
-			log.Fatalf("Failed to parse template: %v", err)
-		}
-	}
-
 	log.Println("LiveTemplate Counter Server starting...")
 
-	// Create initial state for the store
+	// Create initial state
 	state := &CounterState{
 		Title:       "Live Counter",
 		Counter:     0,
 		LastUpdated: formatTime(),
 	}
 
-	// Mount the live handler - handles initial page, WebSocket, and HTTP actions
-	http.Handle("/", livetemplate.Mount(tmpl, state))
+	// Create template - auto-discovers counter.tmpl
+	tmpl := livetemplate.New("counter")
+
+	// Mount handler - auto-handles initial page, WebSocket, and HTTP actions
+	http.Handle("/", tmpl.Handle(state))
 
 	// Serve client library (development only - use CDN in production)
 	http.HandleFunc("/livetemplate-client.js", e2etest.ServeClientLibrary)
@@ -71,12 +59,9 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-	if port[0] != ':' {
-		port = ":" + port
-	}
-	log.Printf("Server starting on http://localhost%s", port)
+	log.Printf("Server starting on http://localhost:%s", port)
 
-	err = http.ListenAndServe(port, nil)
+	err := http.ListenAndServe(":"+port, nil)
 	if err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}

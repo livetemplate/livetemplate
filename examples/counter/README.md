@@ -70,23 +70,24 @@ func (s *CounterState) Change(action string, data map[string]interface{}) {
 }
 
 func main() {
-    tmpl := livetemplate.New("counter")
-    tmpl.ParseFiles("counter.tmpl")
-
     state := &CounterState{Counter: 0, Status: "zero"}
 
-    // Mount handles everything: WebSocket, HTTP, state cloning, updates
-    http.Handle("/live", livetemplate.Mount(tmpl, state))
+    // Auto-discovers counter.tmpl in current directory
+    tmpl := livetemplate.New("counter")
+
+    // Handle() auto-configures: WebSocket, HTTP, state cloning, updates
+    http.Handle("/", tmpl.Handle(state))
     http.ListenAndServe(":8080", nil)
 }
 ```
 
 **Key concepts:**
 - **Store Interface**: Any struct with a `Change(action string, data map[string]interface{})` method
-- **Auto Updates**: Mount automatically generates and sends updates after Change() is called
+- **Auto-discovery**: Automatically finds and parses `.tmpl`, `.html`, `.gotmpl` files
+- **Auto Updates**: Handle() automatically generates and sends updates after Change() is called
 - **Auto Cloning**: Each WebSocket connection gets its own cloned state
 - **Session Management**: HTTP connections automatically get session-based state persistence
-- **Transport Detection**: Mount auto-detects WebSocket vs HTTP requests
+- **Transport Detection**: Auto-detects WebSocket vs HTTP requests
 
 ### Client Side (JavaScript)
 
@@ -230,19 +231,21 @@ The template follows the same pattern as `testdata/e2e/counter/input.tmpl`:
 
 ## Multiple Stores
 
-For applications with multiple state objects, use `MountStores()` with dot notation:
+For applications with multiple state objects, pass them to `Handle()`:
 
 ```go
-stores := livetemplate.Stores{
-    "counter": &CounterState{},
-    "user":    &UserState{},
-}
+counter := &CounterState{}
+user := &UserState{}
 
-http.Handle("/live", livetemplate.MountStores(tmpl, stores))
+tmpl := livetemplate.New("app")
+http.Handle("/", tmpl.Handle(counter, user))
 ```
 
-Then use store prefixes in actions:
+**Store names are auto-derived from struct types** (case-insensitive):
+- `CounterState` → actions use `"counterstate.increment"` or `"CounterState.increment"`
+- `UserState` → actions use `"userstate.logout"` or `"UserState.logout"`
+
 ```html
-<button lvt-click="counter.increment">+1</button>
-<button lvt-click="user.logout">Logout</button>
+<button lvt-click="counterstate.increment">+1</button>
+<button lvt-click="userstate.logout">Logout</button>
 ```

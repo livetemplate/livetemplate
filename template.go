@@ -6,12 +6,24 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/gorilla/websocket"
 )
+
+// Config holds template configuration options
+type Config struct {
+	Upgrader          *websocket.Upgrader
+	SessionStore      SessionStore
+	WebSocketDisabled bool
+	TemplateFiles     []string // If set, overrides auto-discovery
+}
 
 // Template represents a live template with caching and tree-based optimization capabilities.
 // It provides an API similar to html/template.Template but with additional ExecuteUpdates method
@@ -28,15 +40,73 @@ type Template struct {
 	hasInitialTree  bool
 	lastFingerprint string        // Fingerprint of the last generated tree for change detection
 	keyGen          *KeyGenerator // Per-template key generation for wrapper approach
+	config          Config        // Template configuration
 }
 
-// New creates a new, undefined template with the given name.
-// This matches the signature of html/template.New().
-func New(name string) *Template {
-	return &Template{
+// Option is a functional option for configuring a Template
+type Option func(*Config)
+
+// WithParseFiles specifies template files to parse, overriding auto-discovery
+func WithParseFiles(files ...string) Option {
+	return func(c *Config) {
+		c.TemplateFiles = files
+	}
+}
+
+// WithUpgrader sets a custom WebSocket upgrader
+func WithUpgrader(upgrader *websocket.Upgrader) Option {
+	return func(c *Config) {
+		c.Upgrader = upgrader
+	}
+}
+
+// WithSessionStore sets a custom session store for HTTP requests
+func WithSessionStore(store SessionStore) Option {
+	return func(c *Config) {
+		c.SessionStore = store
+	}
+}
+
+// WithWebSocketDisabled disables WebSocket support, forcing HTTP-only mode
+func WithWebSocketDisabled() Option {
+	return func(c *Config) {
+		c.WebSocketDisabled = true
+	}
+}
+
+// New creates a new template with the given name and options.
+// Auto-discovers and parses .tmpl, .html, .gotmpl files unless WithParseFiles is used.
+func New(name string, opts ...Option) *Template {
+	// Default configuration
+	config := Config{
+		Upgrader: &websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool { return true },
+		},
+		SessionStore: NewMemorySessionStore(),
+	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(&config)
+	}
+
+	tmpl := &Template{
 		name:   name,
 		keyGen: NewKeyGenerator(),
+		config: config,
 	}
+
+	// Auto-discover and parse templates if not explicitly provided
+	if len(config.TemplateFiles) == 0 {
+		files, err := discoverTemplateFiles()
+		if err == nil && len(files) > 0 {
+			tmpl.ParseFiles(files...)
+		}
+	} else {
+		tmpl.ParseFiles(config.TemplateFiles...)
+	}
+
+	return tmpl
 }
 
 // Clone creates a deep copy of the template with fresh state.
@@ -49,6 +119,7 @@ func (t *Template) Clone() (*Template, error) {
 		templateStr: t.templateStr,
 		wrapperID:   t.wrapperID, // Share wrapper ID
 		keyGen:      NewKeyGenerator(),
+		config:      t.config, // Preserve configuration
 		// Don't copy lastData, lastHTML, lastTree, etc. - start fresh
 	}
 
@@ -1275,4 +1346,49 @@ func (t *Template) loadExistingKeyMappings(lastTree TreeNode) {
 			}
 		}
 	}
+}
+
+// Handle creates an http.Handler for the template with the given stores.
+// For single store: actions like "increment", "decrement"
+// For multiple stores: actions like "counterstate.increment", "userstate.logout"
+// Store names are automatically derived from struct type names (case-insensitive matching).
+func (t *Template) Handle(stores ...Store) http.Handler {
+	if len(stores) == 0 {
+		panic("Handle requires at least one store")
+	}
+
+	// Build stores map with auto-derived names
+	storesMap := make(Stores)
+	isSingleStore := len(stores) == 1
+
+	if isSingleStore {
+		// Single store mode - use empty key
+		storesMap[""] = stores[0]
+	} else {
+		// Multi-store mode - derive names from struct types
+		for _, store := range stores {
+			name := getStoreName(store)
+			storesMap[name] = store
+		}
+	}
+
+	config := MountConfig{
+		Template:          t,
+		Stores:            storesMap,
+		IsSingleStore:     isSingleStore,
+		Upgrader:          t.config.Upgrader,
+		SessionStore:      t.config.SessionStore,
+		WebSocketDisabled: t.config.WebSocketDisabled,
+	}
+
+	return &liveHandler{config: config}
+}
+
+// getStoreName derives the store name from the struct type
+func getStoreName(store Store) string {
+	t := reflect.TypeOf(store)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	return t.Name() // e.g., "CounterState", "UserState"
 }

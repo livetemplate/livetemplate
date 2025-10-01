@@ -66,28 +66,8 @@ func MountStores(tmpl *Template, stores Stores, opts ...MountOption) http.Handle
 }
 
 // MountOption is a functional option for configuring Mount/MountStores
+// Deprecated: Use Option with Template.Handle() instead
 type MountOption func(*MountConfig)
-
-// WithUpgrader sets a custom WebSocket upgrader
-func WithUpgrader(upgrader *websocket.Upgrader) MountOption {
-	return func(c *MountConfig) {
-		c.Upgrader = upgrader
-	}
-}
-
-// WithSessionStore sets a custom session store for HTTP requests
-func WithSessionStore(store SessionStore) MountOption {
-	return func(c *MountConfig) {
-		c.SessionStore = store
-	}
-}
-
-// WithWebSocketDisabled disables WebSocket support, forcing HTTP-only mode
-func WithWebSocketDisabled() MountOption {
-	return func(c *MountConfig) {
-		c.WebSocketDisabled = true
-	}
-}
 
 // liveHandler handles both WebSocket and HTTP requests
 type liveHandler struct {
@@ -295,9 +275,9 @@ func (h *liveHandler) handleAction(msg Message, stores Stores) error {
 				msg.Action, h.getStoreNames())
 		}
 
-		// Get the named store
-		store, ok := stores[storeName]
-		if !ok {
+		// Find store using case-insensitive matching
+		store := h.findStore(stores, storeName)
+		if store == nil {
 			return fmt.Errorf(
 				"unknown store: '%s' in action '%s'\n"+
 					"Available stores: %v",
@@ -306,6 +286,19 @@ func (h *liveHandler) handleAction(msg Message, stores Stores) error {
 
 		// Call Change with action ONLY (no store prefix)
 		store.Change(action, msg.Data)
+	}
+
+	return nil
+}
+
+// findStore finds a store by name using case-insensitive matching
+func (h *liveHandler) findStore(stores Stores, name string) Store {
+	normalized := normalizeStoreName(name)
+
+	for storeName, store := range stores {
+		if normalizeStoreName(storeName) == normalized {
+			return store
+		}
 	}
 
 	return nil
