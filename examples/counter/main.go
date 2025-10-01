@@ -52,21 +52,6 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Client connected from %s", conn.RemoteAddr())
 
-	// Create a NEW template instance for this WebSocket connection
-	// This ensures ExecuteUpdates sends the full tree with statics on first call
-	wsTmpl := livetemplate.New("counter-ws")
-	templatePath := "counter.tmpl"
-	_, err = wsTmpl.ParseFiles(templatePath)
-	if err != nil {
-		// Try from project root
-		templatePath = "examples/counter/counter.tmpl"
-		_, err = wsTmpl.ParseFiles(templatePath)
-		if err != nil {
-			log.Printf("Failed to parse template for WebSocket: %v", err)
-			return
-		}
-	}
-
 	// Initial state
 	state := &CounterState{
 		Title:       "Live Counter",
@@ -77,8 +62,10 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send initial full tree with statics on connection
+	// Note: For production with multiple concurrent users, each WebSocket connection
+	// should have its own template instance to avoid state conflicts
 	var initialBuf bytes.Buffer
-	err = wsTmpl.ExecuteUpdates(&initialBuf, state)
+	err = tmpl.ExecuteUpdates(&initialBuf, state)
 	if err != nil {
 		log.Printf("Failed to generate initial tree: %v", err)
 		return
@@ -134,9 +121,9 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		state.Status = getStatus(state.Counter)
 		state.LastUpdated = formatTime()
 
-		// Generate update using the WebSocket template instance
+		// Generate update using the shared template
 		var updateBuf bytes.Buffer
-		err = wsTmpl.ExecuteUpdates(&updateBuf, state)
+		err = tmpl.ExecuteUpdates(&updateBuf, state)
 		if err != nil {
 			log.Printf("Template update execution failed: %v", err)
 			continue

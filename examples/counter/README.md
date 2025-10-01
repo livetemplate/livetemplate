@@ -43,14 +43,17 @@ A real-time counter application demonstrating LiveTemplate's tree-based optimiza
 
 ### Server Side (Go)
 
-- **Template**: Uses `counter.tmpl` matching the E2E test pattern
+- **Single Template Instance**: One parsed template used for both HTTP and WebSocket
 - **State Management**: `CounterState` struct tracks counter value, status, and metadata
-- **WebSocket Handler**: Receives action messages and sends LiveTemplate updates
+- **HTTP Handler**: Serves initial HTML with `Execute()`
+- **WebSocket Handler**: Sends initial tree on connect, then differential updates with `ExecuteUpdates()`
 - **Conditional Logic**: Template shows different messages based on counter value (positive/negative/zero)
+
+**Note**: For production with multiple concurrent users, each WebSocket connection should have its own template instance to avoid state conflicts.
 
 ### Client Side (JavaScript)
 
-**Ultra-simple integration** using declarative `lvt-*` attributes:
+**Zero-config integration** - just add one script tag:
 
 ```html
 <!-- In your template -->
@@ -58,16 +61,11 @@ A real-time counter application demonstrating LiveTemplate's tree-based optimiza
 <button lvt-click="decrement">-1</button>
 <button lvt-click="reset">Reset</button>
 
-<!-- In your script -->
-<script>
-    window.addEventListener('DOMContentLoaded', function() {
-        window.client = new LiveTemplateClient.LiveTemplateClient();
-        window.client.connect();
-    });
-</script>
+<!-- Auto-initializing client library -->
+<script src="livetemplate-client.js"></script>
 ```
 
-The client handles:
+That's it! No JavaScript code needed. The client library auto-initializes and handles:
 - **Declarative event binding** via `lvt-*` attributes (`lvt-click`, `lvt-submit`, `lvt-change`, `lvt-input`, etc.)
 - **Automatic WebSocket connection** to `/ws` endpoint
 - **Automatic reconnection** on disconnect (configurable)
