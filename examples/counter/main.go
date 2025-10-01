@@ -35,22 +35,6 @@ func formatTime() string {
 	return time.Now().Format("2006-01-02 15:04:05")
 }
 
-func serveInitialHTML(tmpl *livetemplate.Template) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		state := &CounterState{
-			Title:       "Live Counter",
-			Counter:     0,
-			LastUpdated: formatTime(),
-		}
-
-		err := tmpl.Execute(w, state)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	}
-}
-
 func main() {
 	// Initialize template
 	tmpl := livetemplate.New("counter")
@@ -76,11 +60,8 @@ func main() {
 		LastUpdated: formatTime(),
 	}
 
-	// Mount the live handler (handles both WebSocket and HTTP)
-	http.Handle("/live", livetemplate.Mount(tmpl, state))
-
-	// Serve initial HTML
-	http.HandleFunc("/", serveInitialHTML(tmpl))
+	// Mount the live handler - handles initial page, WebSocket, and HTTP actions
+	http.Handle("/", livetemplate.Mount(tmpl, state))
 
 	// Serve client library
 	http.HandleFunc("/livetemplate-client.js", livetemplate.ServeClientLibrary)
@@ -93,7 +74,6 @@ func main() {
 		port = ":" + port
 	}
 	log.Printf("Server starting on http://localhost%s", port)
-	log.Printf("Live endpoint (WebSocket/HTTP): http://localhost%s/live", port)
 
 	err = http.ListenAndServe(port, nil)
 	if err != nil {

@@ -45,7 +45,7 @@ export class LiveTemplateClient {
     this.options = {
       autoReconnect: false, // Disable autoReconnect by default to avoid connection loops
       reconnectDelay: 1000,
-      liveUrl: '/live',
+      liveUrl: '/',
       ...options
     };
   }

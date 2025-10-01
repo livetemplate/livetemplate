@@ -41,7 +41,7 @@ func TestWebSocketBasic(t *testing.T) {
 
 	// Try to connect
 	dialer := websocket.Dialer{}
-	conn, resp, err := dialer.Dial("ws://localhost:8095/live", nil)
+	conn, resp, err := dialer.Dial("ws://localhost:8095/", nil)
 	if err != nil {
 		t.Fatalf("Failed to connect: %v, response: %v", err, resp)
 	}

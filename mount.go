@@ -224,15 +224,13 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Handle GET request for initial state
+	// Handle GET request for initial HTML page
 	if r.Method == http.MethodGet {
-		var buf bytes.Buffer
-		err := h.config.Template.ExecuteUpdates(&buf, h.getTemplateData(stores.(Stores)))
+		err := h.config.Template.Execute(w, h.getTemplateData(stores.(Stores)))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		WriteUpdateHTTP(w, buf.Bytes())
 		return
 	}
 
