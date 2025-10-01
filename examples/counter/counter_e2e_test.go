@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -14,10 +15,20 @@ import (
 
 const (
 	testPort        = "8090"
-	testURL         = "http://localhost:" + testPort
+	testURL         = "http://localhost:" + testPort // For host-side health checks
 	dockerImage     = "chromedp/headless-shell:latest"
 	chromeRemoteURL = "http://localhost:9222"
 )
+
+// getChromeTestURL returns the URL for Chrome (in Docker) to access the test server
+// On Linux with host networking: use localhost
+// On macOS/Windows: use host.docker.internal
+func getChromeTestURL() string {
+	if runtime.GOOS == "linux" {
+		return "http://localhost:" + testPort
+	}
+	return "http://host.docker.internal:" + testPort
+}
 
 // startDockerChrome starts the chromedp headless-shell Docker container
 func startDockerChrome(t *testing.T) *exec.Cmd {
@@ -28,26 +39,69 @@ func startDockerChrome(t *testing.T) *exec.Cmd {
 		t.Skip("Docker not available, skipping E2E test")
 	}
 
-	// Pull the image if not exists
-	t.Log("Pulling chromedp/headless-shell Docker image...")
-	pullCmd := exec.Command("docker", "pull", dockerImage)
-	if err := pullCmd.Run(); err != nil {
-		t.Logf("Warning: Failed to pull Docker image: %v", err)
+	// Check if image exists, if not try to pull it (with timeout)
+	checkCmd := exec.Command("docker", "image", "inspect", dockerImage)
+	if err := checkCmd.Run(); err != nil {
+		// Image doesn't exist, try to pull with timeout
+		t.Log("Pulling chromedp/headless-shell Docker image...")
+		pullCmd := exec.Command("docker", "pull", dockerImage)
+		if err := pullCmd.Start(); err != nil {
+			t.Fatalf("Failed to start docker pull: %v", err)
+		}
+
+		// Wait for pull with timeout
+		pullDone := make(chan error, 1)
+		go func() {
+			pullDone <- pullCmd.Wait()
+		}()
+
+		select {
+		case err := <-pullDone:
+			if err != nil {
+				t.Fatalf("Failed to pull Docker image: %v", err)
+			}
+			t.Log("✅ Docker image pulled successfully")
+		case <-time.After(60 * time.Second):
+			pullCmd.Process.Kill()
+			t.Fatal("Docker pull timed out after 60 seconds")
+		}
+	} else {
+		t.Log("✅ Docker image already exists, skipping pull")
 	}
 
-	// Start the container with host networking so it can reach the test server
+	// Start the container
 	t.Log("Starting Chrome headless Docker container...")
-	cmd := exec.Command("docker", "run", "--rm",
-		"--network", "host",
-		"--name", "chrome-e2e-test",
-		dockerImage,
-		"--remote-debugging-address=0.0.0.0",
-		"--remote-debugging-port=9222",
-		"--disable-gpu",
-		"--headless",
-		"--no-sandbox",
-		"--disable-dev-shm-usage",
-	)
+	var cmd *exec.Cmd
+
+	if runtime.GOOS == "linux" {
+		// On Linux, use host networking so container can access localhost
+		cmd = exec.Command("docker", "run", "--rm",
+			"--network", "host",
+			"--name", "chrome-e2e-test",
+			dockerImage,
+			"--remote-debugging-address=0.0.0.0",
+			"--remote-debugging-port=9222",
+			"--disable-gpu",
+			"--headless",
+			"--no-sandbox",
+			"--disable-dev-shm-usage",
+		)
+	} else {
+		// On macOS/Windows, map port 9222 for remote debugging
+		// (container will use host.docker.internal to reach host)
+		cmd = exec.Command("docker", "run", "--rm",
+			"-p", "9222:9222",
+			"--name", "chrome-e2e-test",
+			"--add-host", "host.docker.internal:host-gateway",
+			dockerImage,
+			"--remote-debugging-address=0.0.0.0",
+			"--remote-debugging-port=9222",
+			"--disable-gpu",
+			"--headless",
+			"--no-sandbox",
+			"--disable-dev-shm-usage",
+		)
+	}
 
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("Failed to start Chrome Docker container: %v", err)
@@ -140,14 +194,12 @@ func TestCounterE2E(t *testing.T) {
 		}
 	}()
 
-	// Use headless Chrome - works on both local and CI
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("headless", true),
-		chromedp.Flag("disable-gpu", true),
-		chromedp.Flag("no-sandbox", true),
-	)
+	// Start Docker Chrome container
+	chromeCmd := startDockerChrome(t)
+	defer stopDockerChrome(t, chromeCmd)
 
-	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	// Connect to Docker Chrome via remote debugging
+	allocCtx, allocCancel := chromedp.NewRemoteAllocator(context.Background(), chromeRemoteURL)
 	defer allocCancel()
 
 	ctx, cancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(t.Logf))
@@ -157,13 +209,11 @@ func TestCounterE2E(t *testing.T) {
 	ctx, cancel = context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	t.Log("✅ Using headless Chrome for testing")
-
 	t.Run("Initial Load", func(t *testing.T) {
 		var initialHTML string
 
 		err := chromedp.Run(ctx,
-			chromedp.Navigate(testURL),
+			chromedp.Navigate(getChromeTestURL()),
 			chromedp.WaitVisible(`h1`, chromedp.ByQuery),
 			chromedp.Sleep(2*time.Second), // Wait for WebSocket connection
 			chromedp.OuterHTML(`body`, &initialHTML, chromedp.ByQuery),
