@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"os/exec"
 	"testing"
@@ -11,14 +12,19 @@ import (
 )
 
 func TestWebSocketBasic(t *testing.T) {
-	// Kill any lingering processes on port 8095 from previous runs
-	killCmd := exec.Command("sh", "-c", "lsof -ti:8095 | xargs kill -9 2>/dev/null || true")
-	killCmd.Run()
-	time.Sleep(1 * time.Second) // Give OS time to release the port
+	// Get a free port
+	port, err := GetFreePort()
+	if err != nil {
+		t.Fatalf("Failed to get free port: %v", err)
+	}
 
-	// Start server on unique port to avoid conflicts
+	portStr := fmt.Sprintf("%d", port)
+	serverURL := fmt.Sprintf("http://localhost:%s", portStr)
+	wsURL := fmt.Sprintf("ws://localhost:%s/", portStr)
+
+	// Start server on dynamic port
 	cmd := exec.Command("go", "run", "main.go")
-	cmd.Env = append([]string{"PORT=8095"}, cmd.Environ()...)
+	cmd.Env = append([]string{"PORT=" + portStr}, cmd.Environ()...)
 
 	serverLogs := &bytes.Buffer{}
 	cmd.Stdout = serverLogs
@@ -35,7 +41,7 @@ func TestWebSocketBasic(t *testing.T) {
 	// Wait for server
 	time.Sleep(2 * time.Second)
 	for i := 0; i < 30; i++ {
-		if resp, err := http.Get("http://localhost:8095"); err == nil {
+		if resp, err := http.Get(serverURL); err == nil {
 			resp.Body.Close()
 			break
 		}
@@ -46,7 +52,7 @@ func TestWebSocketBasic(t *testing.T) {
 
 	// Try to connect
 	dialer := websocket.Dialer{}
-	conn, resp, err := dialer.Dial("ws://localhost:8095/", nil)
+	conn, resp, err := dialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("Failed to connect: %v, response: %v", err, resp)
 	}

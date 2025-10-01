@@ -14,24 +14,22 @@ import (
 )
 
 const (
-	testPort        = "8090"
-	testURL         = "http://localhost:" + testPort // For host-side health checks
-	dockerImage     = "chromedp/headless-shell:latest"
-	chromeRemoteURL = "http://localhost:9222"
+	dockerImage = "chromedp/headless-shell:latest"
 )
 
 // getChromeTestURL returns the URL for Chrome (in Docker) to access the test server
 // On Linux with host networking: use localhost
 // On macOS/Windows: use host.docker.internal
-func getChromeTestURL() string {
+func getChromeTestURL(port int) string {
+	portStr := fmt.Sprintf("%d", port)
 	if runtime.GOOS == "linux" {
-		return "http://localhost:" + testPort
+		return "http://localhost:" + portStr
 	}
-	return "http://host.docker.internal:" + testPort
+	return "http://host.docker.internal:" + portStr
 }
 
 // startDockerChrome starts the chromedp headless-shell Docker container
-func startDockerChrome(t *testing.T) *exec.Cmd {
+func startDockerChrome(t *testing.T, debugPort int) *exec.Cmd {
 	t.Helper()
 
 	// Check if Docker is available
@@ -72,6 +70,7 @@ func startDockerChrome(t *testing.T) *exec.Cmd {
 	// Start the container
 	t.Log("Starting Chrome headless Docker container...")
 	var cmd *exec.Cmd
+	portMapping := fmt.Sprintf("%d:9222", debugPort)
 
 	if runtime.GOOS == "linux" {
 		// On Linux, use host networking so container can access localhost
@@ -81,11 +80,11 @@ func startDockerChrome(t *testing.T) *exec.Cmd {
 			dockerImage,
 		)
 	} else {
-		// On macOS/Windows, map port 9222 for remote debugging
+		// On macOS/Windows, map port for remote debugging
 		// (container will use host.docker.internal to reach host)
 		// Note: Don't pass Chrome flags - the image has a built-in setup
 		cmd = exec.Command("docker", "run", "--rm",
-			"-p", "9222:9222",
+			"-p", portMapping,
 			"--name", "chrome-e2e-test",
 			"--add-host", "host.docker.internal:host-gateway",
 			dockerImage,
@@ -98,9 +97,10 @@ func startDockerChrome(t *testing.T) *exec.Cmd {
 
 	// Wait for Chrome to be ready
 	t.Log("Waiting for Chrome to be ready...")
+	chromeURL := fmt.Sprintf("http://localhost:%d/json/version", debugPort)
 	ready := false
 	for i := 0; i < 30; i++ {
-		resp, err := http.Get(chromeRemoteURL + "/json/version")
+		resp, err := http.Get(chromeURL)
 		if err == nil {
 			resp.Body.Close()
 			ready = true
@@ -142,12 +142,15 @@ func stopDockerChrome(t *testing.T, cmd *exec.Cmd) {
 }
 
 // startCounterServer starts the counter example server
-func startCounterServer(t *testing.T) *exec.Cmd {
+func startCounterServer(t *testing.T, port int) *exec.Cmd {
 	t.Helper()
 
-	t.Log("Starting counter server on port " + testPort)
+	portStr := fmt.Sprintf("%d", port)
+	serverURL := fmt.Sprintf("http://localhost:%d", port)
+
+	t.Log("Starting counter server on port " + portStr)
 	cmd := exec.Command("go", "run", "main.go")
-	cmd.Env = append([]string{"PORT=" + testPort}, cmd.Environ()...)
+	cmd.Env = append([]string{"PORT=" + portStr}, cmd.Environ()...)
 
 	// Start the server and capture output for debugging
 	if err := cmd.Start(); err != nil {
@@ -157,7 +160,7 @@ func startCounterServer(t *testing.T) *exec.Cmd {
 	// Wait for server to be ready
 	ready := false
 	for i := 0; i < 50; i++ { // Increased to 5 seconds
-		resp, err := http.Get(testURL)
+		resp, err := http.Get(serverURL)
 		if err == nil {
 			resp.Body.Close()
 			ready = true
@@ -171,7 +174,7 @@ func startCounterServer(t *testing.T) *exec.Cmd {
 		t.Fatal("Server failed to start within 5 seconds")
 	}
 
-	t.Log("✅ Counter server ready at " + testURL)
+	t.Log("✅ Counter server ready at " + serverURL)
 	return cmd
 }
 
@@ -181,8 +184,19 @@ func TestCounterE2E(t *testing.T) {
 		t.Skip("Skipping E2E test in short mode")
 	}
 
+	// Get free ports for server and Chrome debugging
+	serverPort, err := GetFreePort()
+	if err != nil {
+		t.Fatalf("Failed to get free port for server: %v", err)
+	}
+
+	debugPort, err := GetFreePort()
+	if err != nil {
+		t.Fatalf("Failed to get free port for Chrome: %v", err)
+	}
+
 	// Start counter server
-	serverCmd := startCounterServer(t)
+	serverCmd := startCounterServer(t, serverPort)
 	defer func() {
 		if serverCmd != nil && serverCmd.Process != nil {
 			serverCmd.Process.Kill()
@@ -190,11 +204,12 @@ func TestCounterE2E(t *testing.T) {
 	}()
 
 	// Start Docker Chrome container
-	chromeCmd := startDockerChrome(t)
+	chromeCmd := startDockerChrome(t, debugPort)
 	defer stopDockerChrome(t, chromeCmd)
 
 	// Connect to Docker Chrome via remote debugging
-	allocCtx, allocCancel := chromedp.NewRemoteAllocator(context.Background(), chromeRemoteURL)
+	chromeURL := fmt.Sprintf("http://localhost:%d", debugPort)
+	allocCtx, allocCancel := chromedp.NewRemoteAllocator(context.Background(), chromeURL)
 	defer allocCancel()
 
 	ctx, cancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(t.Logf))
@@ -208,7 +223,7 @@ func TestCounterE2E(t *testing.T) {
 		var initialHTML string
 
 		err := chromedp.Run(ctx,
-			chromedp.Navigate(getChromeTestURL()),
+			chromedp.Navigate(getChromeTestURL(serverPort)),
 			chromedp.WaitVisible(`h1`, chromedp.ByQuery),
 			chromedp.Sleep(2*time.Second), // Wait for WebSocket connection
 			chromedp.OuterHTML(`body`, &initialHTML, chromedp.ByQuery),
