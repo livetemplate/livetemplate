@@ -18,10 +18,288 @@ export interface UpdateResult {
   dom?: Element;
 }
 
+export interface LiveTemplateClientOptions {
+  wsUrl?: string;  // WebSocket URL (defaults to current host)
+  autoReconnect?: boolean;  // Auto-reconnect on disconnect (default: true)
+  reconnectDelay?: number;  // Reconnect delay in ms (default: 1000)
+  onConnect?: () => void;
+  onDisconnect?: () => void;
+  onError?: (error: Event) => void;
+}
+
 export class LiveTemplateClient {
   private treeState: TreeNode = {};
   private rangeState: { [fieldKey: string]: any[] } = {}; // Track range items by field key
   private lvtId: string | null = null;
+
+  // WebSocket properties
+  private ws: WebSocket | null = null;
+  private wrapperElement: Element | null = null;
+  private options: LiveTemplateClientOptions;
+  private reconnectTimer: number | null = null;
+
+  constructor(options: LiveTemplateClientOptions = {}) {
+    this.options = {
+      autoReconnect: true,
+      reconnectDelay: 1000,
+      ...options
+    };
+  }
+
+  /**
+   * Auto-initialize when DOM is ready
+   * Called automatically when script loads
+   */
+  static autoInit(): void {
+    const init = () => {
+      const wrapper = document.querySelector('[data-lvt-id]');
+      if (wrapper) {
+        const client = new LiveTemplateClient();
+        client.wrapperElement = wrapper;
+
+        // Determine WebSocket URL
+        const wsUrl = client.options.wsUrl || `ws://${window.location.host}/ws`;
+
+        // Create WebSocket connection
+        client.ws = new WebSocket(wsUrl);
+
+        client.ws.onopen = () => {
+          if (client.options.onConnect) {
+            client.options.onConnect();
+          }
+        };
+
+        client.ws.onmessage = (event) => {
+          try {
+            const update = JSON.parse(event.data);
+
+            if (client.wrapperElement) {
+              client.updateDOM(client.wrapperElement, update);
+            }
+          } catch (error) {
+            console.error('LiveTemplate error:', error);
+          }
+        };
+
+        client.ws.onclose = () => {
+          if (client.options.onDisconnect) {
+            client.options.onDisconnect();
+          }
+
+          if (client.options.autoReconnect) {
+            client.reconnectTimer = window.setTimeout(() => {
+              LiveTemplateClient.autoInit();
+            }, client.options.reconnectDelay);
+          }
+        };
+
+        client.ws.onerror = (error) => {
+          console.error('LiveTemplate WebSocket error:', error);
+          if (client.options.onError) {
+            client.options.onError(error);
+          }
+        };
+
+        // Set up event delegation
+        client.setupEventDelegation();
+
+        // Expose as global for programmatic access
+        (window as any).liveTemplateClient = client;
+      }
+    };
+
+    // Initialize when DOM is ready
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+  }
+
+  /**
+   * Connect to WebSocket and start receiving updates
+   * @param wrapperSelector - CSS selector for the LiveTemplate wrapper (defaults to '[data-lvt-id]')
+   */
+  connect(wrapperSelector: string = '[data-lvt-id]'): void {
+    // Find the wrapper element
+    this.wrapperElement = document.querySelector(wrapperSelector);
+    if (!this.wrapperElement) {
+      throw new Error(`LiveTemplate wrapper not found with selector: ${wrapperSelector}`);
+    }
+
+    // Determine WebSocket URL
+    const wsUrl = this.options.wsUrl || `ws://${window.location.host}/ws`;
+
+    // Clear any existing reconnect timer
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    // Create WebSocket connection
+    this.ws = new WebSocket(wsUrl);
+
+    this.ws.onopen = () => {
+      if (this.options.onConnect) {
+        this.options.onConnect();
+      }
+    };
+
+    this.ws.onmessage = (event) => {
+      try {
+        const update = JSON.parse(event.data);
+
+        if (this.wrapperElement) {
+          this.updateDOM(this.wrapperElement, update);
+        }
+      } catch (error) {
+        console.error('Error applying update:', error, (error as Error).stack);
+      }
+    };
+
+    this.ws.onclose = () => {
+      if (this.options.onDisconnect) {
+        this.options.onDisconnect();
+      }
+
+      // Auto-reconnect if enabled
+      if (this.options.autoReconnect) {
+        this.reconnectTimer = window.setTimeout(() => {
+          this.connect(wrapperSelector);
+        }, this.options.reconnectDelay);
+      }
+    };
+
+    this.ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      if (this.options.onError) {
+        this.options.onError(error);
+      }
+    };
+
+    // Set up event delegation for lvt-* attributes
+    this.setupEventDelegation();
+  }
+
+  /**
+   * Set up event delegation for elements with lvt-* attributes
+   * Uses event delegation to handle dynamically updated elements
+   * Supports: lvt-click, lvt-submit, lvt-change, lvt-input, lvt-keydown, lvt-keyup
+   */
+  private setupEventDelegation(): void {
+    if (!this.wrapperElement) return;
+
+    const eventTypes = ['click', 'submit', 'change', 'input', 'keydown', 'keyup'];
+    const wrapperId = this.wrapperElement.getAttribute('data-lvt-id');
+
+    eventTypes.forEach((eventType) => {
+      // Remove existing delegated listener if any
+      const listenerKey = `__lvt_delegated_${eventType}_${wrapperId}`;
+      const existingListener = (document as any)[listenerKey];
+      if (existingListener) {
+        document.removeEventListener(eventType, existingListener, false);
+      }
+
+      // Create delegated listener on document
+      const listener = (e: Event) => {
+        const target = e.target as Element;
+        if (!target) return;
+
+
+        // Check if target is within our LiveTemplate wrapper
+        let element: Element | null = target;
+        let inWrapper = false;
+
+        while (element) {
+          if (element === this.wrapperElement) {
+            inWrapper = true;
+            break;
+          }
+          element = element.parentElement;
+        }
+
+
+        if (!inWrapper) return;
+
+        // Check if target or any parent has the lvt-* attribute
+        const attrName = `lvt-${eventType}`;
+        element = target;
+
+        while (element && element !== this.wrapperElement!.parentElement) {
+          const action = element.getAttribute(attrName);
+          if (action) {
+            // Prevent default for submit events
+            if (eventType === 'submit') {
+              e.preventDefault();
+            }
+
+            // Build message with action and optional data
+            const message: any = { action };
+
+            // Include form data for submit events
+            if (eventType === 'submit' && element instanceof HTMLFormElement) {
+              const formData = new FormData(element);
+              const data: any = {};
+              formData.forEach((value, key) => {
+                data[key] = value;
+              });
+              message.data = data;
+            }
+
+            // Include input value for change/input events
+            if ((eventType === 'change' || eventType === 'input') && element instanceof HTMLInputElement) {
+              message.value = element.value;
+            }
+
+            // Include any lvt-data-* attributes
+            Array.from(element.attributes).forEach((attr) => {
+              if (attr.name.startsWith('lvt-data-')) {
+                const key = attr.name.replace('lvt-data-', '');
+                if (!message.data) message.data = {};
+                message.data[key] = attr.value;
+              }
+            });
+
+            // Send message to server
+            this.send(message);
+            return;
+          }
+          element = element.parentElement;
+        }
+      };
+
+      // Store and add listener on document with bubble phase
+      (document as any)[listenerKey] = listener;
+      document.addEventListener(eventType, listener, false);
+    });
+  }
+
+  /**
+   * Disconnect from WebSocket
+   */
+  disconnect(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+  }
+
+  /**
+   * Send a message to the server via WebSocket
+   * @param message - Message to send (will be JSON stringified)
+   */
+  send(message: any): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(message));
+    } else {
+      console.error('WebSocket is not connected');
+    }
+  }
 
   /**
    * Apply an update to the current state and reconstruct HTML
@@ -369,16 +647,20 @@ export class LiveTemplateClient {
       return;
     }
 
-    // Create temporary container with the reconstructed inner content
+    // Create temporary container with the reconstructed content
+    // Note: The reconstructed HTML is the content WITHOUT the wrapper div
+    // The wrapper is preserved on the client side
     const tempContainer = document.createElement('div');
     tempContainer.innerHTML = result.html;
 
     // Use morphdom to efficiently update only the children of the wrapper element
-    // This preserves the wrapper div itself (with data-lvt-id) and only updates its contents
     morphdom(element, tempContainer, {
       childrenOnly: true,  // Only update children, preserve the wrapper element itself
       onBeforeElUpdated: (fromEl, toEl) => {
-        // Allow all updates
+        // Only update if content actually changed
+        if (fromEl.isEqualNode(toEl)) {
+          return false;
+        }
         return true;
       }
     });
@@ -473,4 +755,9 @@ export function compareHTML(expected: string, actual: string): {
   }
   
   return { match: false, differences };
+}
+
+// Auto-initialize when script loads (for browser use)
+if (typeof window !== 'undefined') {
+  LiveTemplateClient.autoInit();
 }

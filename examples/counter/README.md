@@ -50,10 +50,38 @@ A real-time counter application demonstrating LiveTemplate's tree-based optimiza
 
 ### Client Side (JavaScript)
 
-- **LiveTemplate Client**: Loads `livetemplate-client.js` for HTML patching
-- **WebSocket Connection**: Connects to `/ws` endpoint for real-time communication
-- **Interactive Buttons**: Send simple text messages (`increment`, `decrement`, `reset`)
-- **Automatic Updates**: Received updates are applied to the DOM automatically
+**Ultra-simple integration** using declarative `lvt-*` attributes:
+
+```html
+<!-- In your template -->
+<button lvt-click="increment">+1</button>
+<button lvt-click="decrement">-1</button>
+<button lvt-click="reset">Reset</button>
+
+<!-- In your script -->
+<script>
+    window.addEventListener('DOMContentLoaded', function() {
+        window.client = new LiveTemplateClient.LiveTemplateClient();
+        window.client.connect();
+    });
+</script>
+```
+
+The client handles:
+- **Declarative event binding** via `lvt-*` attributes (`lvt-click`, `lvt-submit`, `lvt-change`, `lvt-input`, etc.)
+- **Automatic WebSocket connection** to `/ws` endpoint
+- **Automatic reconnection** on disconnect (configurable)
+- **Automatic DOM updates** when updates arrive
+- **Event delegation** - works with dynamically updated elements
+
+#### Supported lvt-* attributes:
+- `lvt-click` - Handle click events
+- `lvt-submit` - Handle form submissions (prevents default)
+- `lvt-change` - Handle input change events
+- `lvt-input` - Handle input events (real-time)
+- `lvt-keydown` - Handle keydown events
+- `lvt-keyup` - Handle keyup events
+- `lvt-data-*` - Include custom data in messages
 
 ### LiveTemplate Integration
 

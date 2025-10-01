@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -75,6 +76,22 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		SessionID:   fmt.Sprintf("session-%d", time.Now().Unix()),
 	}
 
+	// Send initial full tree with statics on connection
+	var initialBuf bytes.Buffer
+	err = wsTmpl.ExecuteUpdates(&initialBuf, state)
+	if err != nil {
+		log.Printf("Failed to generate initial tree: %v", err)
+		return
+	}
+	initialJSON := initialBuf.Bytes()
+	log.Printf("Sending initial tree: %s", string(initialJSON))
+
+	err = conn.WriteMessage(websocket.TextMessage, initialJSON)
+	if err != nil {
+		log.Printf("Failed to send initial tree: %v", err)
+		return
+	}
+
 	for {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
@@ -84,7 +101,20 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		action := string(message)
+		// Parse JSON message
+		var msg struct {
+			Action string                 `json:"action"`
+			Data   map[string]interface{} `json:"data,omitempty"`
+			Value  interface{}            `json:"value,omitempty"`
+		}
+
+		err = json.Unmarshal(message, &msg)
+		if err != nil {
+			log.Printf("Failed to parse message: %v", err)
+			continue
+		}
+
+		action := msg.Action
 		log.Printf("Received action: %s", action)
 
 		// Update state based on action
