@@ -222,7 +222,7 @@ The template follows the same pattern as `testdata/e2e/counter/input.tmpl`:
 - **Port**: Defaults to `:8080`, can be overridden with `PORT` environment variable
 - **Endpoint**: `/live` handles both WebSocket upgrades and HTTP POST requests
 - **Template Path**: Reads from `examples/counter/counter.tmpl`
-- **Client Library**: Serves `client/dist/livetemplate-client.browser.js` via `ServeClientLibrary()`
+- **Client Library**: Serves `client/dist/livetemplate-client.browser.js` via `internal/testing.ServeClientLibrary()` (development only - use CDN in production)
 - **Building Client**: Run `cd client && npm run build` to regenerate the browser bundle
 - **State Isolation**: Each WebSocket connection gets its own cloned state
 - **Session Management**: HTTP connections use cookie-based sessions for state persistence

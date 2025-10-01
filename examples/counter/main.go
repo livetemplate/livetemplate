@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/livefir/livetemplate"
+	e2etest "github.com/livefir/livetemplate/internal/testing"
 )
 
 type CounterState struct {
@@ -63,8 +64,8 @@ func main() {
 	// Mount the live handler - handles initial page, WebSocket, and HTTP actions
 	http.Handle("/", livetemplate.Mount(tmpl, state))
 
-	// Serve client library
-	http.HandleFunc("/livetemplate-client.js", livetemplate.ServeClientLibrary)
+	// Serve client library (development only - use CDN in production)
+	http.HandleFunc("/livetemplate-client.js", e2etest.ServeClientLibrary)
 
 	port := os.Getenv("PORT")
 	if port == "" {

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/gorilla/websocket"
@@ -112,25 +111,6 @@ func GetBool(data map[string]interface{}, key string) bool {
 		return v
 	}
 	return false
-}
-
-// ServeClientLibrary serves the LiveTemplate client browser bundle
-func ServeClientLibrary(w http.ResponseWriter, r *http.Request) {
-	// Try multiple paths for the client library
-	paths := []string{
-		"client/dist/livetemplate-client.browser.js",
-		"../../client/dist/livetemplate-client.browser.js",
-		"../client/dist/livetemplate-client.browser.js",
-	}
-
-	for _, path := range paths {
-		if _, err := os.Stat(path); err == nil {
-			http.ServeFile(w, r, path)
-			return
-		}
-	}
-
-	http.Error(w, "Client library not found", http.StatusNotFound)
 }
 
 // WriteJSON writes a JSON response

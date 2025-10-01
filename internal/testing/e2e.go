@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"runtime"
 	"testing"
@@ -187,4 +188,24 @@ func StartTestServer(t *testing.T, mainPath string, port int) *exec.Cmd {
 
 	t.Logf("✅ Test server ready at %s", serverURL)
 	return cmd
+}
+
+// ServeClientLibrary serves the LiveTemplate client browser bundle
+// This is for development/testing purposes only. In production, serve from CDN.
+func ServeClientLibrary(w http.ResponseWriter, r *http.Request) {
+	// Try multiple paths for the client library
+	paths := []string{
+		"client/dist/livetemplate-client.browser.js",
+		"../../client/dist/livetemplate-client.browser.js",
+		"../client/dist/livetemplate-client.browser.js",
+	}
+
+	for _, path := range paths {
+		if _, err := os.Stat(path); err == nil {
+			http.ServeFile(w, r, path)
+			return
+		}
+	}
+
+	http.Error(w, "Client library not found", http.StatusNotFound)
 }

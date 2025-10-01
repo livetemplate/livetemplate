@@ -453,7 +453,9 @@ func main() {
     tmpl.ParseFiles("form.html")
 
     http.Handle("/", livetemplate.Mount(tmpl, state))
-    http.HandleFunc("/livetemplate-client.js", livetemplate.ServeClientLibrary)
+    // In production: serve from CDN
+    // For development: use internal/testing.ServeClientLibrary
+    http.HandleFunc("/livetemplate-client.js", e2etest.ServeClientLibrary)
 
     log.Println("Server starting on :8080")
     http.ListenAndServe(":8080", nil)
