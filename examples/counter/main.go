@@ -16,8 +16,8 @@ type CounterState struct {
 	LastUpdated string `json:"last_updated"`
 }
 
-func (s *CounterState) Change(action string, data map[string]interface{}) {
-	switch action {
+func (s *CounterState) Change(ctx *livetemplate.ActionContext) error {
+	switch ctx.Action {
 	case "increment":
 		s.Counter++
 	case "decrement":
@@ -25,11 +25,12 @@ func (s *CounterState) Change(action string, data map[string]interface{}) {
 	case "reset":
 		s.Counter = 0
 	default:
-		log.Printf("Unknown action: %s", action)
-		return
+		log.Printf("Unknown action: %s", ctx.Action)
+		return nil
 	}
 
 	s.LastUpdated = formatTime()
+	return nil
 }
 
 func formatTime() string {

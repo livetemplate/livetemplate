@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -239,27 +240,38 @@ func (t *Template) ParseGlob(pattern string) (*Template, error) {
 // Phase 1: For full HTML documents (containing <!DOCTYPE html> or <html>),
 // the body content is automatically wrapped in a div with a randomly generated data-lvt-id.
 // Phase 2: The complete HTML (with wrapper) is rendered and written to wr.
-func (t *Template) Execute(wr io.Writer, data interface{}) error {
+//
+// Optional errors parameter provides error context for template via lvt namespace.
+func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]string) error {
 	if t.tmpl == nil {
 		return fmt.Errorf("template not parsed")
 	}
 
-	// Execute the template with wrapper injection already applied during Parse
-	err := t.tmpl.Execute(wr, data)
+	var errMap map[string]string
+	if len(errors) > 0 {
+		errMap = errors[0]
+	}
+	if errMap == nil {
+		errMap = make(map[string]string)
+	}
+
+	// Execute the template with wrapper injection and lvt context
+	htmlBytes, err := executeTemplateWithContext(t.tmpl, data, errMap)
+	if err != nil {
+		return err
+	}
+	_, err = wr.Write(htmlBytes)
 	if err != nil {
 		return err
 	}
 
 	// Initialize caching state for future ExecuteUpdates calls
 	// Execute template again to get HTML for caching
-	var buf bytes.Buffer
-	execErr := t.tmpl.Execute(&buf, data)
+	currentHTML, execErr := t.executeTemplateWithErrors(data, errMap)
 	if execErr != nil {
 		// Don't fail the main Execute call if caching setup fails
 		return nil
 	}
-
-	currentHTML := buf.String()
 
 	// Extract content from wrapper for consistent caching
 	var contentToCache string
@@ -293,12 +305,19 @@ func (t *Template) Execute(wr io.Writer, data interface{}) error {
 // Tree generation phases:
 // 1. Compile time: Template is analyzed to separate static/dynamic parts
 // 2. Runtime: Dynamic parts are hydrated with data and compared with previous state
-func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}) error {
+//
+// Optional errors parameter provides error context for template via lvt namespace.
+func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, errors ...map[string]string) error {
 	if t.tmpl == nil {
 		return fmt.Errorf("template not parsed")
 	}
 
-	tree, err := t.generateTreeInternal(data)
+	var errMap map[string]string
+	if len(errors) > 0 {
+		errMap = errors[0]
+	}
+
+	tree, err := t.generateTreeInternalWithErrors(data, errMap)
 	if err != nil {
 		return fmt.Errorf("tree generation failed: %w", err)
 	}
@@ -315,18 +334,26 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}) error {
 
 // generateTreeInternal is the internal implementation that returns TreeNode
 func (t *Template) generateTreeInternal(data interface{}) (TreeNode, error) {
+	return t.generateTreeInternalWithErrors(data, nil)
+}
+
+// generateTreeInternalWithErrors is the internal implementation that returns TreeNode with error context
+func (t *Template) generateTreeInternalWithErrors(data interface{}, errors map[string]string) (TreeNode, error) {
 	// Initialize key generator if needed (but don't reset - keys should increment globally)
 	if t.keyGen == nil {
 		t.keyGen = NewKeyGenerator()
 	}
+
+	// Convert data to include lvt context for consistent template execution
+	dataWithLvt := t.addLvtToData(data, errors)
 
 	// Load existing key mappings from previous render if available
 	if t.lastTree != nil {
 		t.loadExistingKeyMappings(t.lastTree)
 	}
 
-	// Execute template with current data
-	currentHTML, err := t.executeTemplate(data)
+	// Execute template with current data and errors
+	currentHTML, err := t.executeTemplateWithErrors(data, errors)
 	if err != nil {
 		return nil, fmt.Errorf("template execution error: %w", err)
 	}
@@ -341,22 +368,81 @@ func (t *Template) generateTreeInternal(data interface{}) (TreeNode, error) {
 			contentToCache = currentHTML
 		}
 
-		t.lastData = data
+		t.lastData = dataWithLvt
 		t.lastHTML = contentToCache
-		return t.generateInitialTree(currentHTML, data)
+		return t.generateInitialTree(currentHTML, dataWithLvt)
 	}
 
 	// Subsequent renders - use diffing approach
-	return t.generateDiffBasedTree(t.lastHTML, currentHTML, t.lastData, data)
+	return t.generateDiffBasedTree(t.lastHTML, currentHTML, t.lastData, dataWithLvt)
+}
+
+// addLvtToData converts data to include lvt context
+func (t *Template) addLvtToData(data interface{}, errors map[string]string) interface{} {
+	if errors == nil {
+		errors = make(map[string]string)
+	}
+
+	// Use the same logic as executeTemplateWithContext to convert data
+	lvtContext := &TemplateContext{
+		errors: errors,
+	}
+
+	templateData := make(map[string]interface{})
+	templateData["lvt"] = lvtContext
+
+	val := reflect.ValueOf(data)
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
+	}
+
+	if val.Kind() == reflect.Struct {
+		typ := val.Type()
+		for i := 0; i < val.NumField(); i++ {
+			field := typ.Field(i)
+
+			if !field.IsExported() {
+				continue
+			}
+
+			fieldName := field.Name
+			if jsonTag := field.Tag.Get("json"); jsonTag != "" {
+				if commaIdx := strings.Index(jsonTag, ","); commaIdx > 0 {
+					fieldName = jsonTag[:commaIdx]
+				} else if jsonTag != "-" {
+					fieldName = jsonTag
+				}
+			}
+			templateData[fieldName] = val.Field(i).Interface()
+			templateData[field.Name] = val.Field(i).Interface()
+		}
+	} else if val.Kind() == reflect.Map {
+		for _, key := range val.MapKeys() {
+			templateData[key.String()] = val.MapIndex(key).Interface()
+		}
+	}
+
+	return templateData
 }
 
 // executeTemplate executes the template with given data
 func (t *Template) executeTemplate(data interface{}) (string, error) {
-	var buf bytes.Buffer
-	if err := t.tmpl.Execute(&buf, data); err != nil {
+	return t.executeTemplateWithErrors(data, nil)
+}
+
+// executeTemplateWithErrors executes the template with given data and errors for lvt context
+func (t *Template) executeTemplateWithErrors(data interface{}, errors map[string]string) (string, error) {
+	// Always use executeTemplateWithContext to ensure lvt namespace is available
+	if errors == nil {
+		errors = make(map[string]string)
+	}
+
+	// Execute with lvt context
+	htmlBytes, err := executeTemplateWithContext(t.tmpl, data, errors)
+	if err != nil {
 		return "", err
 	}
-	return buf.String(), nil
+	return string(htmlBytes), nil
 }
 
 // generateInitialTree creates tree with statics and dynamics for first render
@@ -585,13 +671,19 @@ func isRangeConstruct(value interface{}) bool {
 
 // findKeyPositionFromStatics parses the statics array to find which position contains the key
 func findKeyPositionFromStatics(statics interface{}) int {
+	// Priority order for key attributes (same as server-side)
+	keyAttrs := []string{`data-lvt-key="`, `data-key="`, `key="`, `id="`}
+
 	// Try []interface{} first
 	if staticsArr, ok := statics.([]interface{}); ok {
 		for i, static := range staticsArr {
 			if staticStr, ok := static.(string); ok {
-				if strings.Contains(staticStr, `data-lvt-key="`) {
-					// The next position after this static contains the key value
-					return i
+				// Check for any of the key attributes in priority order
+				for _, keyAttr := range keyAttrs {
+					if strings.Contains(staticStr, keyAttr) {
+						// The next position after this static contains the key value
+						return i
+					}
 				}
 			}
 		}
@@ -601,9 +693,12 @@ func findKeyPositionFromStatics(statics interface{}) int {
 	// Try []string
 	if staticsArr, ok := statics.([]string); ok {
 		for i, staticStr := range staticsArr {
-			if strings.Contains(staticStr, `data-lvt-key="`) {
-				// The next position after this static contains the key value
-				return i
+			// Check for any of the key attributes in priority order
+			for _, keyAttr := range keyAttrs {
+				if strings.Contains(staticStr, keyAttr) {
+					// The next position after this static contains the key value
+					return i
+				}
 			}
 		}
 		return 0 // Not found, default to 0
@@ -641,6 +736,25 @@ func extractItemKeys(items []interface{}, statics interface{}) []string {
 		}
 	}
 	return keys
+}
+
+// detectPositionField finds the field containing positional display like "#0", "#1", etc.
+func detectPositionField(itemsByKey map[string]interface{}) string {
+	positionPattern := regexp.MustCompile(`^#\d+`)
+
+	for _, item := range itemsByKey {
+		if itemMap, ok := item.(map[string]interface{}); ok {
+			for field, value := range itemMap {
+				if strValue, ok := value.(string); ok {
+					if positionPattern.MatchString(strValue) {
+						return field
+					}
+				}
+			}
+		}
+		break
+	}
+	return ""
 }
 
 // isPureReordering checks if the items are the same but just in different order
@@ -691,6 +805,9 @@ func isPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []strin
 		}
 	}
 
+	// Detect position field by finding field with pattern like "#0", "#1", etc.
+	positionField := detectPositionField(oldItemsByKey)
+
 	// Compare each item's content (excluding position-dependent fields)
 	for key, oldItem := range oldItemsByKey {
 		newItem, exists := newItemsByKey[key]
@@ -698,7 +815,7 @@ func isPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []strin
 			return false
 		}
 
-		// Compare items excluding position field (field "3" contains "#0:", "#1:", etc.)
+		// Compare items excluding position field (field contains "#0:", "#1:", etc.)
 		oldItemMap, ok1 := oldItem.(map[string]interface{})
 		newItemMap, ok2 := newItem.(map[string]interface{})
 
@@ -716,9 +833,9 @@ func isPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []strin
 
 		// Compare all fields except position field and key field
 		for field, oldValue := range oldItemMap {
-			// Skip position field (field "3" contains positional display like "#0:")
+			// Skip position field (contains positional display like "#0:")
 			// Skip key field (determined from statics)
-			if field == "3" || field == keyPosStr {
+			if field == positionField || field == keyPosStr {
 				continue
 			}
 
@@ -730,7 +847,7 @@ func isPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []strin
 
 		// Also check that new item doesn't have extra fields (except position and key)
 		for field := range newItemMap {
-			if field == "3" || field == keyPosStr {
+			if field == positionField || field == keyPosStr {
 				continue
 			}
 			if _, exists := oldItemMap[field]; !exists {

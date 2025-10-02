@@ -1961,10 +1961,55 @@ func generateWrapperKey(keyGen *KeyGenerator) string {
 	return keyGen.NextKey()
 }
 
+// detectAndReuseKeyAttribute checks if the root element already has a key attribute
+// (data-key, key, or id) with a template expression, and if so, replaces it with {{.__LVT_KEY__}}
+// Returns the modified content and true if a key was found and reused, empty string and false otherwise
+func detectAndReuseKeyAttribute(content string) (string, bool) {
+	trimmed := strings.TrimSpace(content)
+
+	// Only process if there's a single root element
+	if !hasSingleRootElement(trimmed) {
+		return "", false
+	}
+
+	// Find the opening tag
+	endOfTag := strings.Index(trimmed, ">")
+	if endOfTag <= 0 {
+		return "", false
+	}
+
+	openTag := trimmed[:endOfTag]
+	rest := trimmed[endOfTag:]
+
+	// Priority order: data-lvt-key (already optimized), data-key, key, id
+	// Pattern matches: data-key="{{.Field}}" or key="{{expr}}" or id="{{...}}"
+	keyAttrs := []string{"data-lvt-key", "data-key", "key", "id"}
+
+	for _, attr := range keyAttrs {
+		// Build regex pattern for this attribute
+		// Matches: attr="{{...}}" (with template expression)
+		pattern := regexp.MustCompile(fmt.Sprintf(`(?i)%s\s*=\s*"(\{\{[^}]+\}\})"`, regexp.QuoteMeta(attr)))
+
+		if matches := pattern.FindStringSubmatch(openTag); len(matches) > 1 {
+			// Found a key attribute with template expression
+			// Replace the template expression with {{.__LVT_KEY__}}
+			newOpenTag := pattern.ReplaceAllString(openTag, fmt.Sprintf(`%s="{{.__LVT_KEY__}}"`, attr))
+			return newOpenTag + rest, true
+		}
+	}
+
+	return "", false
+}
+
 // wrapRangeContentWithKey wraps range content with a data-lvt-key wrapper div
 // or injects the key into the root element if there's a single root element
 func wrapRangeContentWithKey(content string) string {
 	trimmed := strings.TrimSpace(content)
+
+	// First, try to detect and reuse existing key attributes
+	if reusedContent, found := detectAndReuseKeyAttribute(trimmed); found {
+		return reusedContent
+	}
 
 	// Check if content has a single root HTML element
 	if hasSingleRootElement(trimmed) {

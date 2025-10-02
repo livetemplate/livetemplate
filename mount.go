@@ -77,7 +77,33 @@ type liveHandler struct {
 }
 
 type connState struct {
-	stores Stores // Each connection gets cloned stores
+	stores   Stores            // Each connection gets cloned stores
+	errors   map[string]string // Field errors from last action
+	errorsMu sync.RWMutex      // Mutex for thread-safe error access
+}
+
+func (c *connState) setError(field, message string) {
+	c.errorsMu.Lock()
+	defer c.errorsMu.Unlock()
+	c.errors[field] = message
+}
+
+func (c *connState) clearErrors() {
+	c.errorsMu.Lock()
+	defer c.errorsMu.Unlock()
+	c.errors = make(map[string]string)
+}
+
+func (c *connState) getErrors() map[string]string {
+	c.errorsMu.RLock()
+	defer c.errorsMu.RUnlock()
+
+	// Return copy to avoid race conditions
+	result := make(map[string]string, len(c.errors))
+	for k, v := range c.errors {
+		result[k] = v
+	}
+	return result
 }
 
 func (h *liveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -118,12 +144,15 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Clone stores for this connection
-	stores := h.cloneStores()
+	// Create connection state
+	state := &connState{
+		stores: h.cloneStores(),
+		errors: make(map[string]string),
+	}
 
 	// Send initial tree
 	var buf bytes.Buffer
-	err = connTmpl.ExecuteUpdates(&buf, h.getTemplateData(stores))
+	err = connTmpl.ExecuteUpdates(&buf, h.getTemplateData(state.stores), state.getErrors())
 	if err != nil {
 		log.Printf("Failed to generate initial tree: %v", err)
 		return
@@ -153,14 +182,14 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Handle action
-		if err := h.handleAction(msg, stores); err != nil {
+		if err := h.handleAction(msg, state); err != nil {
 			log.Printf("Action error: %v", err)
 			continue
 		}
 
 		// Generate and send update
 		buf.Reset()
-		err = connTmpl.ExecuteUpdates(&buf, h.getTemplateData(stores))
+		err = connTmpl.ExecuteUpdates(&buf, h.getTemplateData(state.stores), state.getErrors())
 		if err != nil {
 			log.Printf("Template update execution failed: %v", err)
 			continue
@@ -183,14 +212,21 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get or create session stores
+	// Get or create session state
 	sessionID := getSessionID(r)
 	isNewSession := false
-	stores := h.config.SessionStore.Get(sessionID)
-	if stores == nil {
-		stores = h.cloneStores()
-		h.config.SessionStore.Set(sessionID, stores)
+	sessionData := h.config.SessionStore.Get(sessionID)
+
+	var state *connState
+	if sessionData == nil {
+		state = &connState{
+			stores: h.cloneStores(),
+			errors: make(map[string]string),
+		}
+		h.config.SessionStore.Set(sessionID, state)
 		isNewSession = true
+	} else {
+		state = sessionData.(*connState)
 	}
 
 	// Set session cookie if this is a new session
@@ -206,7 +242,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Handle GET request for initial HTML page
 	if r.Method == http.MethodGet {
-		err := h.config.Template.Execute(w, h.getTemplateData(stores.(Stores)))
+		err := h.config.Template.Execute(w, h.getTemplateData(state.stores), state.getErrors())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -228,17 +264,17 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Handle action
-	if err := h.handleAction(msg, stores.(Stores)); err != nil {
+	if err := h.handleAction(msg, state); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Save session
-	h.config.SessionStore.Set(sessionID, stores)
+	h.config.SessionStore.Set(sessionID, state)
 
 	// Generate and send update
 	var buf bytes.Buffer
-	err = h.config.Template.ExecuteUpdates(&buf, h.getTemplateData(stores.(Stores)))
+	err = h.config.Template.ExecuteUpdates(&buf, h.getTemplateData(state.stores), state.getErrors())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -247,11 +283,15 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	WriteUpdateHTTP(w, buf.Bytes())
 }
 
-// handleAction routes the action to the correct store
-func (h *liveHandler) handleAction(msg Message, stores Stores) error {
+// handleAction routes the action to the correct store and captures errors
+func (h *liveHandler) handleAction(msg Message, state *connState) error {
+	// Clear previous errors
+	state.clearErrors()
+
 	// Parse action to extract store name
 	storeName, action := ParseAction(msg.Action)
 
+	var store Store
 	if h.config.IsSingleStore {
 		// Single store mode
 		if storeName != "" {
@@ -262,8 +302,7 @@ func (h *liveHandler) handleAction(msg Message, stores Stores) error {
 		}
 
 		// Get the single store
-		store := stores[""]
-		store.Change(action, msg.Data)
+		store = state.stores[""]
 
 	} else {
 		// Multi-store mode
@@ -276,16 +315,36 @@ func (h *liveHandler) handleAction(msg Message, stores Stores) error {
 		}
 
 		// Find store using case-insensitive matching
-		store := h.findStore(stores, storeName)
+		store = h.findStore(state.stores, storeName)
 		if store == nil {
 			return fmt.Errorf(
 				"unknown store: '%s' in action '%s'\n"+
 					"Available stores: %v",
 				storeName, msg.Action, h.getStoreNames())
 		}
+	}
 
-		// Call Change with action ONLY (no store prefix)
-		store.Change(action, msg.Data)
+	// Create action context
+	ctx := &ActionContext{
+		Action: action,
+		Data:   NewActionData(msg.Data),
+	}
+
+	// Call Change and capture error
+	err := store.Change(ctx)
+
+	if err != nil {
+		// Process the error
+		switch e := err.(type) {
+		case FieldError:
+			state.setError(e.Field, e.Message)
+		case MultiError:
+			for _, fieldErr := range e {
+				state.setError(fieldErr.Field, fieldErr.Message)
+			}
+		default:
+			state.setError("_general", err.Error())
+		}
 	}
 
 	return nil

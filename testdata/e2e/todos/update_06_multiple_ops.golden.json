@@ -16,7 +16,7 @@
       "u",
       "todo-1",
       {
-        "3": "#1"
+        "2": "#1"
       }
     ],
     [
@@ -24,7 +24,7 @@
       "todo-4",
       {
         "0": "completed",
-        "5": "✓"
+        "4": "✓"
       }
     ],
     [
@@ -35,20 +35,18 @@
         {
           "0": "",
           "1": "todo-6",
-          "2": "todo-6",
-          "3": "#2",
-          "4": "Deploy to production",
-          "5": "○",
-          "6": "(Priority: Critical)"
+          "2": "#2",
+          "3": "Deploy to production",
+          "4": "○",
+          "5": "(Priority: Critical)"
         },
         {
           "0": "",
           "1": "todo-7",
-          "2": "todo-7",
-          "3": "#3",
-          "4": "Monitor performance",
-          "5": "○",
-          "6": "(Priority: Medium)"
+          "2": "#3",
+          "3": "Monitor performance",
+          "4": "○",
+          "5": "(Priority: Medium)"
         }
       ]
     ]

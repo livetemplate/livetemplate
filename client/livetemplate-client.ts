@@ -30,7 +30,7 @@ export interface LiveTemplateClientOptions {
 
 export class LiveTemplateClient {
   private treeState: TreeNode = {};
-  private rangeState: { [fieldKey: string]: any[] } = {}; // Track range items by field key
+  private rangeState: { [fieldKey: string]: { items: any[], statics: any[] } } = {}; // Track range items and statics by field key
   private lvtId: string | null = null;
 
   // Transport properties
@@ -486,9 +486,12 @@ export class LiveTemplateClient {
     if (typeof value === 'object' && !Array.isArray(value)) {
       // Check if this is a range structure with 'd' and 's'
       if (value.d && Array.isArray(value.d) && value.s && Array.isArray(value.s)) {
-        // Store the range items in our state for differential operations
+        // Store the range items AND statics for differential operations
         if (fieldKey) {
-          this.rangeState[fieldKey] = value.d;
+          this.rangeState[fieldKey] = {
+            items: value.d,
+            statics: value.s
+          };
         }
         return this.renderRangeStructure(value);
       }
@@ -564,8 +567,36 @@ export class LiveTemplateClient {
   }
 
   /**
+   * Find the position where the key attribute appears in statics array
+   * Priority order: data-lvt-key, data-key, key, id (same as server-side)
+   */
+  private findKeyPositionFromStatics(statics: any[]): number {
+    const keyAttrs = ['data-lvt-key="', 'data-key="', 'key="', 'id="'];
+
+    for (let i = 0; i < statics.length; i++) {
+      const staticStr = String(statics[i]);
+      for (const keyAttr of keyAttrs) {
+        if (staticStr.includes(keyAttr)) {
+          return i; // The next position after this static contains the key value
+        }
+      }
+    }
+
+    return 0; // Default to position 0 for backward compatibility
+  }
+
+  /**
+   * Get item key from item data using statics to find correct position
+   */
+  private getItemKey(item: any, statics: any[]): string | null {
+    const keyPos = this.findKeyPositionFromStatics(statics);
+    const keyPosStr = keyPos.toString();
+    return item[keyPosStr] || null;
+  }
+
+  /**
    * Apply differential operations to existing range items
-   * Operations: ["r", key] for remove, ["u", key, changes] for update, ["a", key, data] for add
+   * Operations: ["r", key] for remove, ["u", key, changes] for update, ["a", items] for append
    */
   private applyDifferentialOperations(operations: any[], fieldKey?: string): string {
     if (!fieldKey || !this.rangeState[fieldKey]) {
@@ -574,7 +605,9 @@ export class LiveTemplateClient {
       return '';
     }
 
-    const currentItems = [...this.rangeState[fieldKey]]; // Clone current items
+    const rangeData = this.rangeState[fieldKey];
+    const currentItems = [...rangeData.items]; // Clone current items
+    const statics = rangeData.statics;
 
     // Apply each operation
     for (const operation of operations) {
@@ -582,35 +615,47 @@ export class LiveTemplateClient {
         continue;
       }
 
-      const [opType, key, data] = operation;
-      const itemIndex = currentItems.findIndex((item: any) => item['0'] === key); // Field '0' contains the key
+      const opType = operation[0];
 
       switch (opType) {
-        case 'r': // Remove
-          if (itemIndex >= 0) {
-            currentItems.splice(itemIndex, 1);
+        case 'r': // Remove: ["r", key]
+          const removeKey = operation[1];
+          const removeIndex = currentItems.findIndex((item: any) =>
+            this.getItemKey(item, statics) === removeKey
+          );
+          if (removeIndex >= 0) {
+            currentItems.splice(removeIndex, 1);
           }
           break;
 
-        case 'u': // Update
-          if (itemIndex >= 0 && data) {
+        case 'u': // Update: ["u", key, changes]
+          const updateKey = operation[1];
+          const changes = operation[2];
+          const updateIndex = currentItems.findIndex((item: any) =>
+            this.getItemKey(item, statics) === updateKey
+          );
+          if (updateIndex >= 0 && changes) {
             // Merge the changes into the existing item
-            currentItems[itemIndex] = { ...currentItems[itemIndex], ...data };
+            currentItems[updateIndex] = { ...currentItems[updateIndex], ...changes };
           }
           break;
 
-        case 'a': // Add (append) - support both single item and array
-          if (data) {
-            if (Array.isArray(data)) {
-              currentItems.push(...data);
+        case 'a': // Append: ["a", items] (items can be single item or array)
+          const itemsToAppend = operation[1];
+          if (itemsToAppend) {
+            if (Array.isArray(itemsToAppend)) {
+              currentItems.push(...itemsToAppend);
             } else {
-              currentItems.push(data);
+              currentItems.push(itemsToAppend);
             }
           }
           break;
 
-        case 'i': // Insert with position - support both single item and array
-          const [, targetKey, position, insertData] = operation;
+        case 'i': // Insert: ["i", targetKey, position, items]
+          const targetKey = operation[1];
+          const position = operation[2];
+          const insertData = operation[3];
+
           if (insertData) {
             const itemsToInsert = Array.isArray(insertData) ? insertData : [insertData];
 
@@ -621,7 +666,9 @@ export class LiveTemplateClient {
                 currentItems.push(...itemsToInsert);
               }
             } else {
-              const targetIndex = currentItems.findIndex(item => item['0'] === targetKey);
+              const targetIndex = currentItems.findIndex((item: any) =>
+                this.getItemKey(item, statics) === targetKey
+              );
               if (targetIndex >= 0) {
                 const insertIndex = position === "before" ? targetIndex : targetIndex + 1;
                 currentItems.splice(insertIndex, 0, ...itemsToInsert);
@@ -630,16 +677,16 @@ export class LiveTemplateClient {
           }
           break;
 
-        case 'o': // Order (reordering)
-          // key contains the new order array
-          const newOrder = key as string[];
+        case 'o': // Order (reordering): ["o", [key1, key2, ...]]
+          const newOrder = operation[1] as string[];
           const reorderedItems: any[] = [];
 
           // Build a map of current items by key for efficient lookup
           const itemsByKey = new Map();
           for (const item of currentItems) {
-            if (item['0']) {
-              itemsByKey.set(item['0'], item);
+            const itemKey = this.getItemKey(item, statics);
+            if (itemKey) {
+              itemsByKey.set(itemKey, item);
             }
           }
 
@@ -658,8 +705,11 @@ export class LiveTemplateClient {
       }
     }
 
-    // Update our range state
-    this.rangeState[fieldKey] = currentItems;
+    // Update our range state with new items (keep statics unchanged)
+    this.rangeState[fieldKey] = {
+      items: currentItems,
+      statics: statics
+    };
 
     // Render using the current range structure template
     const rangeStructure = this.getCurrentRangeStructure(fieldKey);
@@ -674,6 +724,15 @@ export class LiveTemplateClient {
    * Get the current range structure for a field
    */
   private getCurrentRangeStructure(fieldKey: string): any {
+    // First check if we have it in rangeState (from differential operations)
+    if (this.rangeState[fieldKey]) {
+      return {
+        d: this.rangeState[fieldKey].items,
+        s: this.rangeState[fieldKey].statics
+      };
+    }
+
+    // Fallback to treeState
     const fieldValue = this.treeState[fieldKey];
     if (fieldValue && typeof fieldValue === 'object' && fieldValue.s) {
       return fieldValue;

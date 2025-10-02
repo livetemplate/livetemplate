@@ -100,6 +100,70 @@ func TestTodosE2E(t *testing.T) {
 		_ = logs // Prevent unused variable error
 	})
 
+	t.Run("Add First Todo", func(t *testing.T) {
+		var html string
+
+		// Add first todo
+		err := chromedp.Run(ctx,
+			chromedp.WaitVisible(`input[name="text"]`, chromedp.ByQuery),
+			chromedp.SendKeys(`input[name="text"]`, "First Todo Item", chromedp.ByQuery),
+			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
+			chromedp.Sleep(1*time.Second), // Wait for WebSocket update
+			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to add first todo: %v", err)
+		}
+
+		// Verify first todo was added
+		if !strings.Contains(html, "First Todo Item") {
+			t.Errorf("First todo not found in HTML. HTML: %s", html)
+		}
+
+		// Check for [object Object] bug
+		if strings.Contains(html, "[object Object]") {
+			t.Errorf("Found [object Object] bug after adding first todo. HTML: %s", html)
+		}
+
+		t.Log("✅ First todo added successfully")
+	})
+
+	t.Run("Add Second Todo", func(t *testing.T) {
+		var html string
+
+		// Add second todo
+		err := chromedp.Run(ctx,
+			chromedp.WaitVisible(`input[name="text"]`, chromedp.ByQuery),
+			chromedp.SendKeys(`input[name="text"]`, "Second Todo Item", chromedp.ByQuery),
+			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
+			chromedp.Sleep(1*time.Second), // Wait for WebSocket update
+			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to add second todo: %v", err)
+		}
+
+		t.Logf("Section HTML after adding second todo: %s", html)
+
+		// Verify both todos are present
+		if !strings.Contains(html, "First Todo Item") {
+			t.Errorf("First todo disappeared after adding second. HTML: %s", html)
+		}
+
+		if !strings.Contains(html, "Second Todo Item") {
+			t.Errorf("Second todo not found in HTML. HTML: %s", html)
+		}
+
+		// Check for [object Object] bug - THIS IS THE KEY TEST
+		if strings.Contains(html, "[object Object]") {
+			t.Errorf("Found [object Object] bug after adding second todo. HTML: %s", html)
+		}
+
+		t.Log("✅ Second todo added successfully")
+	})
+
 	t.Run("LiveTemplate Updates", func(t *testing.T) {
 		// Take a screenshot for debugging
 		var buf []byte
