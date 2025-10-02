@@ -907,25 +907,21 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}) []inter
 						// Find position for this specific item
 						for i, item := range newItems {
 							if itemMap, ok := item.(map[string]interface{}); ok {
-								if itemKey, exists := itemMap["0"]; exists {
-									if keyStr, ok := itemKey.(string); ok && keyStr == key {
-										// Determine insertion position
-										if i == 0 {
-											operations = append(operations, []interface{}{"i", nil, "start", newItem})
-										} else if i == len(newItems)-1 {
-											operations = append(operations, []interface{}{"a", newItem})
-										} else {
-											// Find the item before this one
-											if prevItem, ok := newItems[i-1].(map[string]interface{}); ok {
-												if prevKey, exists := prevItem["0"]; exists {
-													if prevKeyStr, ok := prevKey.(string); ok {
-														operations = append(operations, []interface{}{"i", prevKeyStr, "after", newItem})
-													}
-												}
+								if itemKey, ok := getItemKey(itemMap, statics); ok && itemKey == key {
+									// Determine insertion position
+									if i == 0 {
+										operations = append(operations, []interface{}{"i", nil, "start", newItem})
+									} else if i == len(newItems)-1 {
+										operations = append(operations, []interface{}{"a", newItem})
+									} else {
+										// Find the item before this one
+										if prevItem, ok := newItems[i-1].(map[string]interface{}); ok {
+											if prevKey, ok := getItemKey(prevItem, statics); ok {
+												operations = append(operations, []interface{}{"i", prevKey, "after", newItem})
 											}
 										}
-										break
 									}
+									break
 								}
 							}
 						}
