@@ -23,7 +23,7 @@
       "u",
       "todo-4",
       {
-        "1": "completed",
+        "0": "completed",
         "5": "✓"
       }
     ],
@@ -33,8 +33,8 @@
       "after",
       [
         {
-          "0": "todo-6",
-          "1": "",
+          "0": "",
+          "1": "todo-6",
           "2": "todo-6",
           "3": "#2",
           "4": "Deploy to production",
@@ -42,8 +42,8 @@
           "6": "(Priority: Critical)"
         },
         {
-          "0": "todo-7",
-          "1": "",
+          "0": "",
+          "1": "todo-7",
           "2": "todo-7",
           "3": "#3",
           "4": "Monitor performance",

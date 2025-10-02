@@ -1434,8 +1434,6 @@ func buildConditionalRange(expr TemplateExpression, data interface{}, keyGen *Ke
 		statics = []string{""}
 	}
 
-	// Key position is tracked during template expression processing
-
 	// Process collection items with key injection
 	var dynamics []map[string]interface{}
 	for i := 0; i < sliceValue.Len(); i++ {
@@ -1614,6 +1612,11 @@ func getFieldValue(data interface{}, fieldName string) (interface{}, error) {
 			return nil, fmt.Errorf("field %s not found", fieldName)
 		}
 		return value, nil
+	}
+
+	// Dereference pointers
+	if dataValue.Kind() == reflect.Ptr {
+		dataValue = dataValue.Elem()
 	}
 
 	// Handle structs
@@ -1959,10 +1962,61 @@ func generateWrapperKey(keyGen *KeyGenerator) string {
 }
 
 // wrapRangeContentWithKey wraps range content with a data-lvt-key wrapper div
+// or injects the key into the root element if there's a single root element
 func wrapRangeContentWithKey(content string) string {
-	// Wrap content in a div with a placeholder for the key
-	// The key will be injected during tree generation
+	trimmed := strings.TrimSpace(content)
+
+	// Check if content has a single root HTML element
+	if hasSingleRootElement(trimmed) {
+		// Find the end of the opening tag
+		endOfTag := strings.Index(trimmed, ">")
+		if endOfTag > 0 {
+			// Inject data-lvt-key attribute into the root element
+			openTag := trimmed[:endOfTag]
+			rest := trimmed[endOfTag:]
+			return fmt.Sprintf(`%s data-lvt-key="{{.__LVT_KEY__}}"%s`, openTag, rest)
+		}
+	}
+
+	// Default: wrap content in a div with a placeholder for the key
 	return fmt.Sprintf(`<div data-lvt-key="{{.__LVT_KEY__}}">%s</div>`, content)
+}
+
+// hasSingleRootElement checks if HTML content has a single root element
+func hasSingleRootElement(html string) bool {
+	html = strings.TrimSpace(html)
+
+	// Must start with an HTML tag
+	if !strings.HasPrefix(html, "<") || strings.HasPrefix(html, "<!") {
+		return false
+	}
+
+	// Find the tag name
+	endOfTagName := strings.IndexAny(html[1:], " \t\n\r>")
+	if endOfTagName == -1 {
+		return false
+	}
+
+	tagName := html[1 : endOfTagName+1]
+
+	// Self-closing tag (e.g., <img />, <br />)
+	if strings.HasSuffix(strings.TrimSpace(html), "/>") {
+		return true
+	}
+
+	// Find the closing tag
+	closingTag := fmt.Sprintf("</%s>", tagName)
+	closingIdx := strings.LastIndex(html, closingTag)
+
+	if closingIdx == -1 {
+		return false
+	}
+
+	// Check if anything significant exists after the closing tag
+	afterClosing := strings.TrimSpace(html[closingIdx+len(closingTag):])
+
+	// Only whitespace or comments after closing tag means single root element
+	return afterClosing == "" || strings.HasPrefix(afterClosing, "<!--")
 }
 
 // ParseTemplateToTree parses a template using existing working approach (exported for testing)
