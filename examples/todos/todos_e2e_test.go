@@ -11,8 +11,8 @@ import (
 	e2etest "github.com/livefir/livetemplate/internal/testing"
 )
 
-// TestCounterE2E tests the counter app end-to-end with a real browser
-func TestCounterE2E(t *testing.T) {
+// TestTodosE2E tests the todo app end-to-end with a real browser
+func TestTodosE2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping E2E test in short mode")
 	}
@@ -28,7 +28,7 @@ func TestCounterE2E(t *testing.T) {
 		t.Fatalf("Failed to get free port for Chrome: %v", err)
 	}
 
-	// Start counter server
+	// Start todo server
 	serverCmd := e2etest.StartTestServer(t, "main.go", serverPort)
 	defer func() {
 		if serverCmd != nil && serverCmd.Process != nil {
@@ -67,18 +67,21 @@ func TestCounterE2E(t *testing.T) {
 		}
 
 		// Verify initial state
-		if !strings.Contains(initialHTML, "Live Counter") {
+		if !strings.Contains(initialHTML, "Todo App") {
 			t.Error("Page title not found")
 		}
-		if !strings.Contains(initialHTML, "Counter: 0") {
-			t.Error("Initial counter value not found")
+		if !strings.Contains(initialHTML, "Statistics") {
+			t.Error("Statistics section not found")
+		}
+		// Check for either empty state or table structure
+		hasEmptyState := strings.Contains(initialHTML, "No tasks")
+		hasTasksSection := strings.Contains(initialHTML, "Tasks")
+		if !hasEmptyState && !hasTasksSection {
+			t.Error("Tasks section not found")
 		}
 
 		t.Log("✅ Initial page load verified")
 	})
-
-	// Note: Increment/Decrement tests removed due to chromedp timing issues
-	// Core functionality is verified by TestWebSocketBasic
 
 	t.Run("WebSocket Connection", func(t *testing.T) {
 		// Check for console errors
@@ -127,7 +130,38 @@ func TestCounterE2E(t *testing.T) {
 		t.Log("✅ LiveTemplate wrapper preserved after updates")
 	})
 
+	t.Run("Pico CSS Loaded", func(t *testing.T) {
+		// Verify Pico CSS is loaded by checking for specific styles
+		var hasPicoStyles bool
+		err := chromedp.Run(ctx,
+			chromedp.Evaluate(`
+				const mainEl = document.querySelector('main.container');
+				const hasContainer = mainEl !== null;
+				const article = document.querySelector('article');
+				const hasArticle = article !== null;
+				hasContainer && hasArticle;
+			`, &hasPicoStyles),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to check Pico CSS: %v", err)
+		}
+
+		if !hasPicoStyles {
+			t.Error("Pico CSS semantic elements not found")
+		}
+
+		t.Log("✅ Pico CSS loaded and semantic elements present")
+	})
+
 	fmt.Println("\n" + strings.Repeat("=", 60))
 	fmt.Println("🎉 All E2E tests passed!")
 	fmt.Println(strings.Repeat("=", 60))
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

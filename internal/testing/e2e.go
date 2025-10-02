@@ -82,12 +82,13 @@ func StartDockerChrome(t *testing.T, debugPort int) *exec.Cmd {
 	t.Log("Starting Chrome headless Docker container...")
 	var cmd *exec.Cmd
 	portMapping := fmt.Sprintf("%d:9222", debugPort)
+	containerName := fmt.Sprintf("chrome-e2e-test-%d", debugPort) // Unique name per test
 
 	if runtime.GOOS == "linux" {
 		// On Linux, use host networking so container can access localhost
 		cmd = exec.Command("docker", "run", "--rm",
 			"--network", "host",
-			"--name", "chrome-e2e-test",
+			"--name", containerName,
 			dockerImage,
 		)
 	} else {
@@ -96,7 +97,7 @@ func StartDockerChrome(t *testing.T, debugPort int) *exec.Cmd {
 		// Note: Don't pass Chrome flags - the image has a built-in setup
 		cmd = exec.Command("docker", "run", "--rm",
 			"-p", portMapping,
-			"--name", "chrome-e2e-test",
+			"--name", containerName,
 			"--add-host", "host.docker.internal:host-gateway",
 			dockerImage,
 		)
@@ -106,11 +107,11 @@ func StartDockerChrome(t *testing.T, debugPort int) *exec.Cmd {
 		t.Fatalf("Failed to start Chrome Docker container: %v", err)
 	}
 
-	// Wait for Chrome to be ready
+	// Wait for Chrome to be ready (increased timeout for slower systems)
 	t.Log("Waiting for Chrome to be ready...")
 	chromeURL := fmt.Sprintf("http://localhost:%d/json/version", debugPort)
 	ready := false
-	for i := 0; i < 30; i++ {
+	for i := 0; i < 60; i++ { // 60 iterations × 500ms = 30 seconds
 		resp, err := http.Get(chromeURL)
 		if err == nil {
 			resp.Body.Close()
@@ -122,7 +123,7 @@ func StartDockerChrome(t *testing.T, debugPort int) *exec.Cmd {
 
 	if !ready {
 		cmd.Process.Kill()
-		t.Fatal("Chrome failed to start within 15 seconds")
+		t.Fatal("Chrome failed to start within 30 seconds")
 	}
 
 	t.Log("✅ Chrome headless Docker container ready")
@@ -130,17 +131,20 @@ func StartDockerChrome(t *testing.T, debugPort int) *exec.Cmd {
 }
 
 // StopDockerChrome stops the Chrome Docker container
-func StopDockerChrome(t *testing.T, cmd *exec.Cmd) {
+func StopDockerChrome(t *testing.T, cmd *exec.Cmd, debugPort int) {
 	t.Helper()
 	t.Log("Stopping Chrome Docker container...")
 
+	containerName := fmt.Sprintf("chrome-e2e-test-%d", debugPort)
+
 	// Check if container exists before trying to stop it
-	checkCmd := exec.Command("docker", "ps", "-a", "-q", "-f", "name=chrome-e2e-test")
+	filterName := fmt.Sprintf("name=%s", containerName)
+	checkCmd := exec.Command("docker", "ps", "-a", "-q", "-f", filterName)
 	output, _ := checkCmd.Output()
 
 	if len(output) > 0 {
 		// Container exists, stop it gracefully
-		stopCmd := exec.Command("docker", "stop", "chrome-e2e-test")
+		stopCmd := exec.Command("docker", "stop", containerName)
 		if err := stopCmd.Run(); err != nil {
 			t.Logf("Warning: Failed to stop Docker container: %v", err)
 		}
