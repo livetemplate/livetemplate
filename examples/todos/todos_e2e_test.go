@@ -321,6 +321,89 @@ func TestTodosE2E(t *testing.T) {
 		t.Log("✅ Pico CSS loaded and semantic elements present")
 	})
 
+	t.Run("Search Functionality", func(t *testing.T) {
+		var html string
+
+		// Test search with "First" - should match "First Todo Item"
+		err := chromedp.Run(ctx,
+			chromedp.WaitVisible(`input[name="query"]`, chromedp.ByQuery),
+			chromedp.SendKeys(`input[name="query"]`, "First", chromedp.ByQuery),
+			chromedp.Sleep(1*time.Second), // Wait for debounce (300ms) and update
+			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to search todos: %v", err)
+		}
+
+		// Verify only "First Todo Item" is visible
+		if !strings.Contains(html, "First Todo Item") {
+			t.Errorf("First todo not found after searching. HTML: %s", html)
+		}
+		if strings.Contains(html, "Second Todo Item") {
+			t.Errorf("Second todo should be filtered out. HTML: %s", html)
+		}
+
+		t.Log("✅ Search filtering works correctly")
+
+		// Clear search by setting value to empty and triggering change event
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`
+				const input = document.querySelector('input[name="query"]');
+				input.value = '';
+				input.dispatchEvent(new Event('input', { bubbles: true }));
+			`, nil),
+			chromedp.Sleep(1*time.Second), // Wait for debounce (300ms) and update
+			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to clear search: %v", err)
+		}
+
+		// Verify all todos are visible again
+		todos := []string{"First Todo Item", "Second Todo Item", "Third Todo Item", "Fourth Todo Item", "Fifth Todo Item"}
+		for _, todo := range todos {
+			if !strings.Contains(html, todo) {
+				t.Errorf("Todo '%s' not found after clearing search. HTML: %s", todo, html)
+			}
+		}
+
+		t.Log("✅ Search cleared successfully")
+
+		// Test search with no results
+		err = chromedp.Run(ctx,
+			chromedp.SendKeys(`input[name="query"]`, "NonExistent", chromedp.ByQuery),
+			chromedp.Sleep(1*time.Second), // Wait for debounce (300ms) and update
+			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to search for non-existent todo: %v", err)
+		}
+
+		// Verify no results message is shown
+		if !strings.Contains(html, "No todos found matching") {
+			t.Errorf("No results message not found. HTML: %s", html)
+		}
+
+		t.Log("✅ Empty search results handled correctly")
+
+		// Clear search again for cleanup
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`
+				const input = document.querySelector('input[name="query"]');
+				input.value = '';
+				input.dispatchEvent(new Event('input', { bubbles: true }));
+			`, nil),
+			chromedp.Sleep(1*time.Second),
+		)
+
+		if err != nil {
+			t.Logf("Warning: Failed to clear search in cleanup: %v", err)
+		}
+	})
+
 	fmt.Println("\n" + strings.Repeat("=", 60))
 	fmt.Println("🎉 All E2E tests passed!")
 	fmt.Println(strings.Repeat("=", 60))

@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-playground/validator/v10"
@@ -32,9 +33,15 @@ type DeleteInput struct {
 	ID string `json:"id" validate:"required"`
 }
 
+type SearchInput struct {
+	Query string `json:"query"`
+}
+
 type TodoState struct {
 	Title          string     `json:"title"`
 	Todos          []TodoItem `json:"todos"`
+	SearchQuery    string     `json:"search_query"`
+	FilteredTodos  []TodoItem `json:"filtered_todos"`
 	TotalCount     int        `json:"total_count"`
 	CompletedCount int        `json:"completed_count"`
 	RemainingCount int        `json:"remaining_count"`
@@ -93,6 +100,13 @@ func (s *TodoState) Change(ctx *livetemplate.ActionContext) error {
 			}
 		}
 
+	case "search":
+		var input SearchInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+		s.SearchQuery = input.Query
+
 	case "clear_completed":
 		remaining := []TodoItem{}
 		for _, todo := range s.Todos {
@@ -109,6 +123,7 @@ func (s *TodoState) Change(ctx *livetemplate.ActionContext) error {
 
 	// Update computed fields
 	s.updateStats()
+	s.updateFilteredTodos()
 	s.LastUpdated = formatTime()
 	return nil
 }
@@ -126,6 +141,21 @@ func (s *TodoState) updateStats() {
 	s.RemainingCount = s.TotalCount - s.CompletedCount
 }
 
+func (s *TodoState) updateFilteredTodos() {
+	if s.SearchQuery == "" {
+		s.FilteredTodos = s.Todos
+		return
+	}
+
+	s.FilteredTodos = []TodoItem{}
+	query := strings.ToLower(s.SearchQuery)
+	for _, todo := range s.Todos {
+		if strings.Contains(strings.ToLower(todo.Text), query) {
+			s.FilteredTodos = append(s.FilteredTodos, todo)
+		}
+	}
+}
+
 func formatTime() string {
 	return time.Now().Format("2006-01-02 15:04:05")
 }
@@ -140,6 +170,7 @@ func main() {
 		LastUpdated: formatTime(),
 	}
 	state.updateStats()
+	state.updateFilteredTodos()
 
 	// Create template - auto-discovers todos.tmpl
 	tmpl := livetemplate.New("todos")

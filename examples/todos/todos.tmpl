@@ -32,32 +32,30 @@
             </form>
 
             <!-- Statistics -->
-            <article>
-                <header><strong>Statistics</strong></header>
-                <table>
-                    <tbody>
-                        <tr>
-                            <td>Total</td>
-                            <td><strong>{{.TotalCount}}</strong></td>
-                        </tr>
-                        <tr>
-                            <td>Completed</td>
-                            <td><strong>{{.CompletedCount}}</strong></td>
-                        </tr>
-                        <tr>
-                            <td>Remaining</td>
-                            <td><strong>{{.RemainingCount}}</strong></td>
-                        </tr>
-                    </tbody>
-                </table>
-            </article>
+            <p>
+                <small>
+                    Total: <strong>{{.TotalCount}}</strong> •
+                    Completed: <strong>{{.CompletedCount}}</strong> •
+                    Remaining: <strong>{{.RemainingCount}}</strong>
+                </small>
+            </p>
+
+            <!-- Search -->
+            <form lvt-change="search" lvt-debounce="300">
+                <input
+                    type="search"
+                    name="query"
+                    placeholder="Search todos..."
+                    value="{{.SearchQuery}}"
+                >
+            </form>
 
             <!-- Todo List -->
             <section>
                 <header><strong>Tasks</strong></header>
                 <table>
                     <tbody>
-                        {{range .Todos}}
+                        {{range .FilteredTodos}}
                         <tr data-key="{{.ID}}">
                             <td>
                                 <input
@@ -83,6 +81,16 @@
                         {{end}}
                     </tbody>
                 </table>
+                {{if eq (len .FilteredTodos) 0}}
+                <p>
+                    {{if ne .SearchQuery ""}}
+                    <small>No todos found matching "{{.SearchQuery}}"</small>
+                    {{end}}
+                    {{if eq .SearchQuery ""}}
+                    <small>No todos yet. Add one above!</small>
+                    {{end}}
+                </p>
+                {{end}}
 
                 {{if gt .CompletedCount 0}}
                 <button lvt-click="clear_completed" class="secondary">
