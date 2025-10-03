@@ -1,110 +1,125 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{.Title}} - LiveTemplate with Pico CSS</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-</head>
-<body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ .Title }} - LiveTemplate with Pico CSS</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"
+    />
+  </head>
+  <body>
     <main class="container">
-        <article>
-            <header>
-                <h1>{{.Title}}</h1>
-                <p>A simple todo app with real-time updates</p>
-            </header>
+      <article>
+        <header>
+          <h1>{{ .Title }}</h1>
+          <p>A simple todo app with real-time updates</p>
+        </header>
 
-            <!-- Add Todo Form -->
-            <form lvt-change="validate" lvt-submit="add" lvt-debounce="300">
-                <fieldset role="group">
-                    <input
-                        type="text"
-                        name="text"
-                        placeholder="What needs to be done?"
-                        required
-                        {{if .lvt.HasError "text"}}aria-invalid="true"{{end}}
-                    >
-                    <button type="submit" lvt-disable-with="Adding...">Add</button>
-                </fieldset>
-                {{if .lvt.HasError "text"}}
-                <small style="color: var(--pico-del-color);">{{.lvt.Error "text"}}</small>
-                {{end}}
-            </form>
+        <!-- Add Todo Form -->
+        <form lvt-submit="add">
+          <fieldset role="group">
+            <input type="text" name="text" placeholder="What needs to be done?" required {{if .lvt.HasError "text"}}aria-invalid="true"{{end}}>
+            <button type="submit" lvt-disable-with="Adding...">Add</button>
+          </fieldset>
+{{if .lvt.HasError "text"}}
+          <small style="color: var(--pico-del-color);">{{.lvt.Error "text"}}</small>
+{{end}}
+        </form>
 
-            <!-- Statistics -->
-            <p>
-                <small>
-                    Total: <strong>{{.TotalCount}}</strong> •
-                    Completed: <strong>{{.CompletedCount}}</strong> •
-                    Remaining: <strong>{{.RemainingCount}}</strong>
-                </small>
-            </p>
+        <!-- Statistics -->
+        <p>
+          <small>
+            Total: <strong>{{ .TotalCount }}</strong> • Completed:
+            <strong>{{ .CompletedCount }}</strong> • Remaining:
+            <strong>{{ .RemainingCount }}</strong>
+          </small>
+        </p>
 
-            <!-- Search -->
-            <form lvt-change="search" lvt-debounce="300">
-                <input
-                    type="search"
-                    name="query"
-                    placeholder="Search todos..."
-                    value="{{.SearchQuery}}"
-                >
-            </form>
+        <!-- Search -->
+        <form lvt-change="search" lvt-debounce="300">
+          <input
+            type="search"
+            name="query"
+            placeholder="Search todos..."
+            value="{{ .SearchQuery }}"
+          />
+        </form>
 
-            <!-- Todo List -->
-            <section>
-                <header><strong>Tasks</strong></header>
-                <table>
-                    <tbody>
-                        {{range .FilteredTodos}}
-                        <tr data-key="{{.ID}}">
-                            <td>
-                                <input
-                                    type="checkbox"
-                                    {{if .Completed}}checked{{end}}
-                                    lvt-change="toggle"
-                                    lvt-data-id="{{.ID}}"
-                                >
-                            </td>
-                            <td style="{{if .Completed}}text-decoration: line-through; opacity: 0.6;{{end}}">
-                                {{.Text}}
-                            </td>
-                            <td>
-                                <button
-                                    lvt-click="delete"
-                                    lvt-data-id="{{.ID}}"
-                                    class="secondary"
-                                >
-                                    Delete
-                                </button>
-                            </td>
-                        </tr>
-                        {{end}}
-                    </tbody>
-                </table>
-                {{if eq (len .FilteredTodos) 0}}
-                <p>
-                    {{if ne .SearchQuery ""}}
-                    <small>No todos found matching "{{.SearchQuery}}"</small>
-                    {{end}}
-                    {{if eq .SearchQuery ""}}
-                    <small>No todos yet. Add one above!</small>
-                    {{end}}
-                </p>
-                {{end}}
+        <!-- Sort -->
+        <div>
+          <label for="sort_by">Sort by:</label>
+          <select name="sort_by" id="sort_by" lvt-change="sort">
+            <option value="" {{if eq .SortBy ""}}selected{{end}}>Newest First</option>
+            <option value="alphabetical" {{if eq .SortBy "alphabetical"}}selected{{end}}>Alphabetical (A-Z)</option>
+            <option value="reverse_alphabetical" {{if eq .SortBy "reverse_alphabetical"}}selected{{end}}>Alphabetical (Z-A)</option>
+            <option value="oldest_first" {{if eq .SortBy "oldest_first"}}selected{{end}}>Oldest First</option>
+          </select>
+        </div>
 
-                {{if gt .CompletedCount 0}}
-                <button lvt-click="clear_completed" class="secondary">
-                    Clear Completed ({{.CompletedCount}})
-                </button>
-                {{end}}
-            </section>
+        <!-- Todo List -->
+        <section>
+          <header><strong>Tasks</strong></header>
+          <table>
+            <tbody>
+{{range .PaginatedTodos}}
+              <tr data-key="{{.ID}}">
+                <td>
+                  <input type="checkbox" {{if .Completed}}checked{{end}} lvt-change="toggle" lvt-data-id="{{.ID}}">
+                </td>
+                <td style="{{if .Completed}}text-decoration: line-through; opacity: 0.6;{{end}}">
+                  {{.Text}}
+                </td>
+                <td>
+                  <button lvt-click="delete" lvt-data-id="{{.ID}}" class="secondary">
+                    Delete
+                  </button>
+                </td>
+              </tr>
+{{end}}
+            </tbody>
+          </table>
+{{if eq (len .PaginatedTodos) 0}}
+          <p>
+{{if ne .SearchQuery ""}}
+            <small>No todos found matching "{{.SearchQuery}}"</small>
+{{end}}
+{{if eq .SearchQuery ""}}
+            <small>No todos yet. Add one above!</small>
+{{end}}
+          </p>
+{{end}}
 
-            <footer>
-                <small>Last updated: {{.LastUpdated}}</small>
-            </footer>
-        </article>
+
+          <!-- Pagination Controls -->
+{{if gt .TotalPages 1}}
+          <nav aria-label="Pagination">
+            <ul style="display: flex; justify-content: center; align-items: center; gap: 1rem; list-style: none; padding: 0;">
+              <li>
+                <button lvt-click="prev_page" {{if eq .CurrentPage 1}}disabled{{end}} class="secondary">Previous</button>
+              </li>
+              <li>
+                <small>Page {{.CurrentPage}} of {{.TotalPages}}</small>
+              </li>
+              <li>
+                <button lvt-click="next_page" {{if eq .CurrentPage .TotalPages}}disabled{{end}} class="secondary">Next</button>
+              </li>
+            </ul>
+          </nav>
+{{end}}
+
+{{if gt .CompletedCount 0}}
+          <button lvt-click="clear_completed" class="secondary">Clear Completed ({{.CompletedCount}})</button>
+{{end}}
+        </section>
+
+        <footer>
+          <small>Last updated: {{ .LastUpdated }}</small>
+        </footer>
+      </article>
     </main>
 
     <script src="livetemplate-client.js"></script>
-</body>
+  </body>
 </html>

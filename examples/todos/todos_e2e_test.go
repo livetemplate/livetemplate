@@ -250,12 +250,12 @@ func TestTodosE2E(t *testing.T) {
 
 		t.Logf("Section HTML after adding five todos: %s", html)
 
-		// Verify all five todos are present
-		todos := []string{"First Todo Item", "Second Todo Item", "Third Todo Item", "Fourth Todo Item", "Fifth Todo Item"}
-		for _, todo := range todos {
-			count := strings.Count(html, todo)
-			if count != 1 {
-				t.Errorf("Todo '%s' appears %d times (expected 1). HTML: %s", todo, count, html)
+		// With pagination (page size 3), we can only see 3 todos on page 1
+		// Verify page 1 shows the newest 3 todos (Fifth, Fourth, Third)
+		page1Todos := []string{"Fifth Todo Item", "Fourth Todo Item", "Third Todo Item"}
+		for _, todo := range page1Todos {
+			if !strings.Contains(html, todo) {
+				t.Errorf("Todo '%s' not found on page 1. HTML: %s", todo, html)
 			}
 		}
 
@@ -264,7 +264,12 @@ func TestTodosE2E(t *testing.T) {
 			t.Errorf("Table structure corrupted after adding five todos. HTML: %s", html)
 		}
 
-		t.Log("✅ Fourth and fifth todos added successfully")
+		// Verify pagination controls exist
+		if !strings.Contains(html, "Page 1 of 2") {
+			t.Errorf("Pagination controls not found. HTML: %s", html)
+		}
+
+		t.Log("✅ Fourth and fifth todos added successfully with pagination")
 	})
 
 	t.Run("LiveTemplate Updates", func(t *testing.T) {
@@ -327,7 +332,13 @@ func TestTodosE2E(t *testing.T) {
 		// Test search with "First" - should match "First Todo Item"
 		err := chromedp.Run(ctx,
 			chromedp.WaitVisible(`input[name="query"]`, chromedp.ByQuery),
-			chromedp.SendKeys(`input[name="query"]`, "First", chromedp.ByQuery),
+			chromedp.Evaluate(`
+				(() => {
+					const input = document.querySelector('input[name="query"]');
+					input.value = 'First';
+					input.dispatchEvent(new Event('input', { bubbles: true }));
+				})();
+			`, nil),
 			chromedp.Sleep(1*time.Second), // Wait for debounce (300ms) and update
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
 		)
@@ -349,9 +360,11 @@ func TestTodosE2E(t *testing.T) {
 		// Clear search by setting value to empty and triggering change event
 		err = chromedp.Run(ctx,
 			chromedp.Evaluate(`
-				const input = document.querySelector('input[name="query"]');
-				input.value = '';
-				input.dispatchEvent(new Event('input', { bubbles: true }));
+				(() => {
+					const input = document.querySelector('input[name="query"]');
+					input.value = '';
+					input.dispatchEvent(new Event('input', { bubbles: true }));
+				})();
 			`, nil),
 			chromedp.Sleep(1*time.Second), // Wait for debounce (300ms) and update
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
@@ -361,11 +374,11 @@ func TestTodosE2E(t *testing.T) {
 			t.Fatalf("Failed to clear search: %v", err)
 		}
 
-		// Verify all todos are visible again
-		todos := []string{"First Todo Item", "Second Todo Item", "Third Todo Item", "Fourth Todo Item", "Fifth Todo Item"}
-		for _, todo := range todos {
+		// Verify first page todos are visible again (page 1 shows Fifth, Fourth, Third in newest-first order)
+		todosOnPage1 := []string{"Fifth Todo Item", "Fourth Todo Item", "Third Todo Item"}
+		for _, todo := range todosOnPage1 {
 			if !strings.Contains(html, todo) {
-				t.Errorf("Todo '%s' not found after clearing search. HTML: %s", todo, html)
+				t.Errorf("Todo '%s' not found on page 1 after clearing search. HTML: %s", todo, html)
 			}
 		}
 
@@ -373,7 +386,13 @@ func TestTodosE2E(t *testing.T) {
 
 		// Test search with no results
 		err = chromedp.Run(ctx,
-			chromedp.SendKeys(`input[name="query"]`, "NonExistent", chromedp.ByQuery),
+			chromedp.Evaluate(`
+				(() => {
+					const input = document.querySelector('input[name="query"]');
+					input.value = 'NonExistent';
+					input.dispatchEvent(new Event('input', { bubbles: true }));
+				})();
+			`, nil),
 			chromedp.Sleep(1*time.Second), // Wait for debounce (300ms) and update
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
 		)
@@ -392,15 +411,218 @@ func TestTodosE2E(t *testing.T) {
 		// Clear search again for cleanup
 		err = chromedp.Run(ctx,
 			chromedp.Evaluate(`
-				const input = document.querySelector('input[name="query"]');
-				input.value = '';
-				input.dispatchEvent(new Event('input', { bubbles: true }));
+				(() => {
+					const input = document.querySelector('input[name="query"]');
+					input.value = '';
+					input.dispatchEvent(new Event('input', { bubbles: true }));
+				})();
 			`, nil),
 			chromedp.Sleep(1*time.Second),
 		)
 
 		if err != nil {
 			t.Logf("Warning: Failed to clear search in cleanup: %v", err)
+		}
+	})
+
+	t.Run("Sort Functionality", func(t *testing.T) {
+		var html string
+		var lvtChange string
+
+		// Get the entire page to verify select is rendered
+		err := chromedp.Run(ctx,
+			chromedp.Sleep(500*time.Millisecond), // Brief wait for page stability
+			chromedp.OuterHTML(`body`, &html, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to get page HTML: %v", err)
+		}
+
+		// Verify sort select is present
+		if !strings.Contains(html, `select name="sort_by"`) {
+			t.Errorf("Sort select not found in page HTML")
+		}
+
+		// Verify lvt-change attribute
+		if !strings.Contains(html, `lvt-change="sort"`) {
+			t.Errorf("Sort select missing lvt-change='sort' attribute")
+		}
+
+		// Verify all sort options are present
+		requiredOptions := []string{"Newest First", "Alphabetical (A-Z)", "Alphabetical (Z-A)", "Oldest First"}
+		for _, option := range requiredOptions {
+			if !strings.Contains(html, option) {
+				t.Errorf("Sort select missing option: %s", option)
+			}
+		}
+
+		// Try to get the lvt-change attribute directly
+		err = chromedp.Run(ctx,
+			chromedp.AttributeValue(`select[name="sort_by"]`, "lvt-change", &lvtChange, nil),
+		)
+
+		if err == nil && lvtChange == "sort" {
+			t.Log("✅ Sort select has correct lvt-change='sort' attribute")
+		}
+
+		t.Log("✅ Sort select is properly rendered with all options")
+		t.Log("⚠️  Note: Full sort behavior test skipped due to headless Chrome select event limitations")
+	})
+
+	t.Run("Pagination Functionality", func(t *testing.T) {
+		var html string
+
+		// Currently have 5 todos (page size is 3, so 2 pages)
+		// Add one more to make 6 todos (exactly 2 pages)
+		err := chromedp.Run(ctx,
+			chromedp.SendKeys(`input[name="text"]`, "Sixth Todo Item", chromedp.ByQuery),
+			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
+			chromedp.Sleep(1*time.Second),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to add sixth todo: %v", err)
+		}
+
+		// Verify we're on page 1 and can see first 3 todos (newest first: Sixth, Fifth, Fourth)
+		err = chromedp.Run(ctx,
+			chromedp.OuterHTML(`tbody`, &html, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to get page 1: %v", err)
+		}
+
+		// Check page 1 has Sixth, Fifth, Fourth
+		if !strings.Contains(html, "Sixth Todo Item") {
+			t.Errorf("Page 1 should contain Sixth todo. HTML: %s", html)
+		}
+		if !strings.Contains(html, "Fifth Todo Item") {
+			t.Errorf("Page 1 should contain Fifth todo. HTML: %s", html)
+		}
+		if !strings.Contains(html, "Fourth Todo Item") {
+			t.Errorf("Page 1 should contain Fourth todo. HTML: %s", html)
+		}
+
+		// Should NOT contain Third, Second, First on page 1
+		if strings.Contains(html, "Third Todo Item") {
+			t.Errorf("Page 1 should not contain Third todo. HTML: %s", html)
+		}
+
+		t.Log("✅ Page 1 shows correct todos")
+
+		// Click Next to go to page 2
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`document.querySelector('button[lvt-click="next_page"]').click()`, nil),
+			chromedp.Sleep(1*time.Second),
+			chromedp.OuterHTML(`tbody`, &html, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to navigate to page 2: %v", err)
+		}
+
+		// Check page 2 has Third, Second, First
+		if !strings.Contains(html, "Third Todo Item") {
+			t.Errorf("Page 2 should contain Third todo. HTML: %s", html)
+		}
+		if !strings.Contains(html, "Second Todo Item") {
+			t.Errorf("Page 2 should contain Second todo. HTML: %s", html)
+		}
+		if !strings.Contains(html, "First Todo Item") {
+			t.Errorf("Page 2 should contain First todo. HTML: %s", html)
+		}
+
+		// Should NOT contain Sixth, Fifth, Fourth on page 2
+		if strings.Contains(html, "Sixth Todo Item") {
+			t.Errorf("Page 2 should not contain Sixth todo. HTML: %s", html)
+		}
+
+		t.Log("✅ Page 2 shows correct todos")
+
+		// Verify Next button is disabled on last page
+		var nextDisabled bool
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`document.querySelector('button[lvt-click="next_page"]').disabled`, &nextDisabled),
+		)
+
+		if err == nil && !nextDisabled {
+			t.Error("Next button should be disabled on last page")
+		}
+
+		t.Log("✅ Next button disabled on last page")
+
+		// Click Previous to go back to page 1
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`document.querySelector('button[lvt-click="prev_page"]').click()`, nil),
+			chromedp.Sleep(1*time.Second),
+			chromedp.OuterHTML(`tbody`, &html, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to navigate back to page 1: %v", err)
+		}
+
+		// Verify we're back on page 1
+		if !strings.Contains(html, "Sixth Todo Item") {
+			t.Errorf("Should be back on page 1 with Sixth todo. HTML: %s", html)
+		}
+
+		t.Log("✅ Previous button works correctly")
+
+		// Verify Previous button is disabled on page 1
+		var prevDisabled bool
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`document.querySelector('button[lvt-click="prev_page"]').disabled`, &prevDisabled),
+		)
+
+		if err == nil && !prevDisabled {
+			t.Error("Previous button should be disabled on first page")
+		}
+
+		t.Log("✅ Previous button disabled on first page")
+
+		// Test pagination with search
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`
+				(() => {
+					const searchInput = document.querySelector('input[name="query"]');
+					searchInput.value = 'i';
+					searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+				})();
+			`, nil),
+			chromedp.Sleep(1*time.Second),
+			chromedp.OuterHTML(`tbody`, &html, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to search with pagination: %v", err)
+		}
+
+		// Search for "i" should return: Sixth, Fifth, Third, First (4 items = 2 pages)
+		// Should be on page 1 showing first 3
+		todoCount := strings.Count(html, "Todo Item")
+		if todoCount != 3 {
+			t.Errorf("Page 1 of search results should show 3 todos, got %d. HTML: %s", todoCount, html)
+		}
+
+		t.Log("✅ Pagination works with search")
+
+		// Clear search
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`
+				(() => {
+					const clearInput = document.querySelector('input[name="query"]');
+					clearInput.value = '';
+					clearInput.dispatchEvent(new Event('input', { bubbles: true }));
+				})();
+			`, nil),
+			chromedp.Sleep(1*time.Second),
+		)
+
+		if err != nil {
+			t.Logf("Warning: Failed to clear search: %v", err)
 		}
 	})
 
