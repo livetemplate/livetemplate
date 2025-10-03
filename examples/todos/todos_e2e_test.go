@@ -164,6 +164,109 @@ func TestTodosE2E(t *testing.T) {
 		t.Log("✅ Second todo added successfully")
 	})
 
+	t.Run("Add Third Todo", func(t *testing.T) {
+		var html string
+
+		// Add third todo
+		err := chromedp.Run(ctx,
+			chromedp.WaitVisible(`input[name="text"]`, chromedp.ByQuery),
+			chromedp.SendKeys(`input[name="text"]`, "Third Todo Item", chromedp.ByQuery),
+			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
+			chromedp.Sleep(1*time.Second), // Wait for WebSocket update
+			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to add third todo: %v", err)
+		}
+
+		t.Logf("Section HTML after adding third todo: %s", html)
+
+		// Verify all three todos are present
+		if !strings.Contains(html, "First Todo Item") {
+			t.Errorf("First todo disappeared after adding third. HTML: %s", html)
+		}
+		if !strings.Contains(html, "Second Todo Item") {
+			t.Errorf("Second todo disappeared after adding third. HTML: %s", html)
+		}
+		if !strings.Contains(html, "Third Todo Item") {
+			t.Errorf("Third todo not found in HTML. HTML: %s", html)
+		}
+
+		// Verify table structure is preserved
+		if !strings.Contains(html, "<table>") {
+			t.Errorf("Table element missing after adding third todo. HTML: %s", html)
+		}
+		if !strings.Contains(html, "<tbody>") {
+			t.Errorf("Tbody element missing after adding third todo. HTML: %s", html)
+		}
+		if !strings.Contains(html, "<tr") {
+			t.Errorf("Table row elements missing after adding third todo. HTML: %s", html)
+		}
+
+		// Check that each todo appears exactly once
+		firstCount := strings.Count(html, "First Todo Item")
+		secondCount := strings.Count(html, "Second Todo Item")
+		thirdCount := strings.Count(html, "Third Todo Item")
+
+		if firstCount != 1 {
+			t.Errorf("First todo appears %d times (expected 1). HTML: %s", firstCount, html)
+		}
+		if secondCount != 1 {
+			t.Errorf("Second todo appears %d times (expected 1). HTML: %s", secondCount, html)
+		}
+		if thirdCount != 1 {
+			t.Errorf("Third todo appears %d times (expected 1). HTML: %s", thirdCount, html)
+		}
+
+		t.Log("✅ Third todo added successfully")
+	})
+
+	t.Run("Add Fourth and Fifth Todos", func(t *testing.T) {
+		var html string
+
+		// Add fourth todo
+		err := chromedp.Run(ctx,
+			chromedp.WaitVisible(`input[name="text"]`, chromedp.ByQuery),
+			chromedp.SendKeys(`input[name="text"]`, "Fourth Todo Item", chromedp.ByQuery),
+			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
+			chromedp.Sleep(1*time.Second),
+		)
+		if err != nil {
+			t.Fatalf("Failed to add fourth todo: %v", err)
+		}
+
+		// Add fifth todo
+		err = chromedp.Run(ctx,
+			chromedp.WaitVisible(`input[name="text"]`, chromedp.ByQuery),
+			chromedp.SendKeys(`input[name="text"]`, "Fifth Todo Item", chromedp.ByQuery),
+			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
+			chromedp.Sleep(1*time.Second),
+			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
+		)
+		if err != nil {
+			t.Fatalf("Failed to add fifth todo: %v", err)
+		}
+
+		t.Logf("Section HTML after adding five todos: %s", html)
+
+		// Verify all five todos are present
+		todos := []string{"First Todo Item", "Second Todo Item", "Third Todo Item", "Fourth Todo Item", "Fifth Todo Item"}
+		for _, todo := range todos {
+			count := strings.Count(html, todo)
+			if count != 1 {
+				t.Errorf("Todo '%s' appears %d times (expected 1). HTML: %s", todo, count, html)
+			}
+		}
+
+		// Verify table structure is still intact
+		if !strings.Contains(html, "<table>") || !strings.Contains(html, "<tbody>") || !strings.Contains(html, "<tr") {
+			t.Errorf("Table structure corrupted after adding five todos. HTML: %s", html)
+		}
+
+		t.Log("✅ Fourth and fifth todos added successfully")
+	})
+
 	t.Run("LiveTemplate Updates", func(t *testing.T) {
 		// Take a screenshot for debugging
 		var buf []byte

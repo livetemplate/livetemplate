@@ -689,15 +689,27 @@ export class LiveTemplateClient {
 
     // Merge the update into our tree state
     for (const [key, value] of Object.entries(update)) {
-      if (JSON.stringify(this.treeState[key]) !== JSON.stringify(value)) {
+      // Check if this is a differential operations array
+      const isDifferentialOps = Array.isArray(value) && value.length > 0 &&
+          Array.isArray(value[0]) && typeof value[0][0] === 'string';
+
+      if (isDifferentialOps) {
+        // This is a differential operations array - just store it
+        // rangeState will be used during rendering
         this.treeState[key] = value;
         changed = true;
+      } else {
+        // Regular value update (including initial range structures with d and s)
+        if (JSON.stringify(this.treeState[key]) !== JSON.stringify(value)) {
+          this.treeState[key] = value;
+          changed = true;
+        }
       }
     }
 
     // Reconstruct HTML from the complete tree state
     const html = this.reconstructFromTree(this.treeState);
-    
+
     return { html, changed };
   }
 
@@ -982,6 +994,13 @@ export class LiveTemplateClient {
       statics: statics
     };
 
+    // IMPORTANT: Replace the differential operations in treeState with the updated range structure
+    // This prevents the operations from being applied again on the next render
+    this.treeState[fieldKey] = {
+      d: currentItems,
+      s: statics
+    };
+
     // Render using the current range structure template
     const rangeStructure = this.getCurrentRangeStructure(fieldKey);
     if (rangeStructure && rangeStructure.s) {
@@ -1015,7 +1034,7 @@ export class LiveTemplateClient {
    * Render items using static template
    */
   private renderItemsWithStatics(items: any[], statics: string[]): string {
-    return items.map((item: any) => {
+    const result = items.map((item: any) => {
       let html = '';
 
       for (let i = 0; i < statics.length; i++) {
@@ -1032,6 +1051,12 @@ export class LiveTemplateClient {
 
       return html;
     }).join('');
+
+    console.log('[renderItemsWithStatics] statics:', statics);
+    console.log('[renderItemsWithStatics] items count:', items.length);
+    console.log('[renderItemsWithStatics] result:', result.substring(0, 200));
+
+    return result;
   }
 
   /**
@@ -1085,15 +1110,33 @@ export class LiveTemplateClient {
       return;
     }
 
-    // Create temporary container with the reconstructed content
-    // Note: The reconstructed HTML is the content WITHOUT the wrapper div
-    // The wrapper is preserved on the client side
-    const tempContainer = document.createElement('div');
-    tempContainer.innerHTML = result.html;
+    // Create a temporary wrapper to hold the new content
+    // We need to create a DOM element of the same type as 'element' to avoid browser HTML corrections
+    // For example, if we put <tr> elements in a <div>, the browser strips them out
+    const tempWrapper = document.createElement(element.tagName);
 
-    // Use morphdom to efficiently update only the children of the wrapper element
-    morphdom(element, tempContainer, {
+    console.log('[updateDOM] element.tagName:', element.tagName);
+    console.log('[updateDOM] result.html (first 500 chars):', result.html.substring(0, 500));
+    console.log('[updateDOM] Has <table> tag:', result.html.includes('<table>'));
+    console.log('[updateDOM] Has <tbody> tag:', result.html.includes('<tbody>'));
+    console.log('[updateDOM] Has <tr> tag:', result.html.includes('<tr'));
+
+    tempWrapper.innerHTML = result.html;
+
+    console.log('[updateDOM] tempWrapper.innerHTML after setting (first 500 chars):', tempWrapper.innerHTML.substring(0, 500));
+    console.log('[updateDOM] tempWrapper has <table>:', tempWrapper.innerHTML.includes('<table>'));
+    console.log('[updateDOM] tempWrapper has <tbody>:', tempWrapper.innerHTML.includes('<tbody>'));
+    console.log('[updateDOM] tempWrapper has <tr>:', tempWrapper.innerHTML.includes('<tr'));
+
+    // Use morphdom to efficiently update the element
+    morphdom(element, tempWrapper, {
       childrenOnly: true,  // Only update children, preserve the wrapper element itself
+      getNodeKey: (node: any) => {
+        // Use data-key or data-lvt-key for efficient reconciliation
+        if (node.nodeType === 1) {
+          return node.getAttribute('data-key') || node.getAttribute('data-lvt-key') || undefined;
+        }
+      },
       onBeforeElUpdated: (fromEl, toEl) => {
         // Only update if content actually changed
         if (fromEl.isEqualNode(toEl)) {

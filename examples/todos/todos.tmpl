@@ -55,7 +55,6 @@
             <!-- Todo List -->
             <section>
                 <header><strong>Tasks</strong></header>
-                {{if .Todos}}
                 <table>
                     <tbody>
                         {{range .Todos}}
@@ -89,10 +88,6 @@
                 <button lvt-click="clear_completed" class="secondary">
                     Clear Completed ({{.CompletedCount}})
                 </button>
-                {{end}}
-
-                {{else}}
-                <p><em>No tasks yet. Add one above!</em></p>
                 {{end}}
             </section>
 
