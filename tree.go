@@ -374,8 +374,27 @@ func (pt *PreparedTemplate) RenderToTree(data interface{}) (TreeNode, error) {
 	return parseTemplateToTree(pt.TemplateStr, data, globalKeyGenerator)
 }
 
+// normalizeTemplateSpacing normalizes spacing in template tags to prevent formatter issues
+// Converts "{{ if .X }}" to "{{if .X}}" and "{{ range .Y }}" to "{{range .Y}}"
+func normalizeTemplateSpacing(templateStr string) string {
+	// Pattern to match template tags: {{ ... }}
+	// Captures the content between {{ and }}
+	re := regexp.MustCompile(`\{\{\s*(.+?)\s*\}\}`)
+
+	return re.ReplaceAllStringFunc(templateStr, func(match string) string {
+		// Extract content between {{ and }}
+		content := strings.TrimSpace(match[2 : len(match)-2])
+
+		// Reconstruct with no spaces after {{ and before }}
+		return "{{" + content + "}}"
+	})
+}
+
 // parseTemplateToTree parses a template using render → parse approach
 func parseTemplateToTree(templateStr string, data interface{}, keyGen *KeyGenerator) (TreeNode, error) {
+	// Normalize template spacing to handle formatter-added spaces
+	templateStr = normalizeTemplateSpacing(templateStr)
+
 	// Use the working old system for now - extract expressions and build tree
 
 	// First render the template to get the final HTML

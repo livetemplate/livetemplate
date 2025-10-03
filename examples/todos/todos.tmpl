@@ -20,12 +20,20 @@
         <!-- Add Todo Form -->
         <form lvt-submit="add">
           <fieldset role="group">
-            <input type="text" name="text" placeholder="What needs to be done?" required {{if .lvt.HasError "text"}}aria-invalid="true"{{end}}>
+            <input
+              type="text"
+              name="text"
+              placeholder="What needs to be done?"
+              required
+              {{ if .lvt.HasError "text" }}aria-invalid="true"{{ end }}
+            />
             <button type="submit" lvt-disable-with="Adding...">Add</button>
           </fieldset>
-{{if .lvt.HasError "text"}}
-          <small style="color: var(--pico-del-color);">{{.lvt.Error "text"}}</small>
-{{end}}
+          {{ if .lvt.HasError "text" }}
+            <small style="color: var(--pico-del-color);"
+              >{{ .lvt.Error "text" }}</small
+            >
+          {{ end }}
         </form>
 
         <!-- Statistics -->
@@ -51,10 +59,27 @@
         <div>
           <label for="sort_by">Sort by:</label>
           <select name="sort_by" id="sort_by" lvt-change="sort">
-            <option value="" {{if eq .SortBy ""}}selected{{end}}>Newest First</option>
-            <option value="alphabetical" {{if eq .SortBy "alphabetical"}}selected{{end}}>Alphabetical (A-Z)</option>
-            <option value="reverse_alphabetical" {{if eq .SortBy "reverse_alphabetical"}}selected{{end}}>Alphabetical (Z-A)</option>
-            <option value="oldest_first" {{if eq .SortBy "oldest_first"}}selected{{end}}>Oldest First</option>
+            <option value="" {{ if eq .SortBy "" }}selected{{ end }}>
+              Newest First
+            </option>
+            <option
+              value="alphabetical"
+              {{ if eq .SortBy "alphabetical" }}selected{{ end }}
+            >
+              Alphabetical (A-Z)
+            </option>
+            <option
+              value="reverse_alphabetical"
+              {{ if eq .SortBy "reverse_alphabetical" }}selected{{ end }}
+            >
+              Alphabetical (Z-A)
+            </option>
+            <option
+              value="oldest_first"
+              {{ if eq .SortBy "oldest_first" }}selected{{ end }}
+            >
+              Oldest First
+            </option>
           </select>
         </div>
 
@@ -63,55 +88,84 @@
           <header><strong>Tasks</strong></header>
           <table>
             <tbody>
-{{range .PaginatedTodos}}
-              <tr data-key="{{.ID}}">
-                <td>
-                  <input type="checkbox" {{if .Completed}}checked{{end}} lvt-change="toggle" lvt-data-id="{{.ID}}">
-                </td>
-                <td style="{{if .Completed}}text-decoration: line-through; opacity: 0.6;{{end}}">
-                  {{.Text}}
-                </td>
-                <td>
-                  <button lvt-click="delete" lvt-data-id="{{.ID}}" class="secondary">
-                    Delete
-                  </button>
-                </td>
-              </tr>
-{{end}}
+              {{ range .PaginatedTodos }}
+                <tr data-key="{{ .ID }}">
+                  <td>
+                    <input
+                      type="checkbox"
+                      {{ if .Completed }}checked{{ end }}
+                      lvt-change="toggle"
+                      lvt-data-id="{{ .ID }}"
+                    />
+                  </td>
+                  <td
+                    style="{{ if .Completed }}
+                      text-decoration: line-through; opacity: 0.6;
+                    {{ end }}"
+                  >
+                    {{ .Text }}
+                  </td>
+                  <td>
+                    <button
+                      lvt-click="delete"
+                      lvt-data-id="{{ .ID }}"
+                      class="secondary"
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              {{ end }}
             </tbody>
           </table>
-{{if eq (len .PaginatedTodos) 0}}
-          <p>
-{{if ne .SearchQuery ""}}
-            <small>No todos found matching "{{.SearchQuery}}"</small>
-{{end}}
-{{if eq .SearchQuery ""}}
-            <small>No todos yet. Add one above!</small>
-{{end}}
-          </p>
-{{end}}
+          {{ if eq (len .PaginatedTodos) 0 }}
+            <p>
+              {{ if ne .SearchQuery "" }}
+                <small>No todos found matching "{{ .SearchQuery }}"</small>
+              {{ end }}
+              {{ if eq .SearchQuery "" }}
+                <small>No todos yet. Add one above!</small>
+              {{ end }}
+            </p>
+          {{ end }}
 
 
           <!-- Pagination Controls -->
-{{if gt .TotalPages 1}}
-          <nav aria-label="Pagination">
-            <ul style="display: flex; justify-content: center; align-items: center; gap: 1rem; list-style: none; padding: 0;">
-              <li>
-                <button lvt-click="prev_page" {{if eq .CurrentPage 1}}disabled{{end}} class="secondary">Previous</button>
-              </li>
-              <li>
-                <small>Page {{.CurrentPage}} of {{.TotalPages}}</small>
-              </li>
-              <li>
-                <button lvt-click="next_page" {{if eq .CurrentPage .TotalPages}}disabled{{end}} class="secondary">Next</button>
-              </li>
-            </ul>
-          </nav>
-{{end}}
+          {{ if gt .TotalPages 1 }}
+            <nav aria-label="Pagination">
+              <ul
+                style="display: flex; justify-content: center; align-items: center; gap: 1rem; list-style: none; padding: 0;"
+              >
+                <li>
+                  <button
+                    lvt-click="prev_page"
+                    {{ if eq .CurrentPage 1 }}disabled{{ end }}
+                    class="secondary"
+                  >
+                    Previous
+                  </button>
+                </li>
+                <li>
+                  <small>Page {{ .CurrentPage }} of {{ .TotalPages }}</small>
+                </li>
+                <li>
+                  <button
+                    lvt-click="next_page"
+                    {{ if eq .CurrentPage .TotalPages }}disabled{{ end }}
+                    class="secondary"
+                  >
+                    Next
+                  </button>
+                </li>
+              </ul>
+            </nav>
+          {{ end }}
 
-{{if gt .CompletedCount 0}}
-          <button lvt-click="clear_completed" class="secondary">Clear Completed ({{.CompletedCount}})</button>
-{{end}}
+          {{ if gt .CompletedCount 0 }}
+            <button lvt-click="clear_completed" class="secondary">
+              Clear Completed ({{ .CompletedCount }})
+            </button>
+          {{ end }}
         </section>
 
         <footer>

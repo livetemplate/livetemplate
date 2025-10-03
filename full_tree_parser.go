@@ -23,6 +23,9 @@ type FullTreeNode struct {
 // ParseTemplateToFullTree parses a template string into a complete tree structure
 // that preserves HTML structure and separates static from dynamic content
 func ParseTemplateToFullTree(templateStr string, data interface{}) (*FullTreeNode, error) {
+	// Normalize template spacing to handle formatter-added spaces
+	templateStr = normalizeTemplateSpacing(templateStr)
+
 	// Parse and execute the template to get values
 	tmpl, err := template.New("temp").Parse(templateStr)
 	if err != nil {

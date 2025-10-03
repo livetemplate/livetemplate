@@ -160,6 +160,10 @@ func (t *Template) resetKeyGeneration() {
 // Parse parses text as a template body for the template t.
 // This matches the signature of html/template.Template.Parse().
 func (t *Template) Parse(text string) (*Template, error) {
+	// Normalize template spacing to handle formatter-added spaces
+	// This prevents issues when formatters add spaces like "{{ range" instead of "{{range"
+	text = normalizeTemplateSpacing(text)
+
 	// Store the template text for tree generation
 	t.templateStr = text
 

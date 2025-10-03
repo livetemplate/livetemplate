@@ -350,9 +350,21 @@ export class LiveTemplateClient {
                   message.data[key] = this.parseValue(value as string);
                 });
               }
-              // 2. Input value (for change/input events on inputs)
-              else if ((eventType === 'change' || eventType === 'input') && targetElement instanceof HTMLInputElement) {
-                message.data.value = this.parseValue(targetElement.value);
+              // 2. Input/Select/Textarea value (for change/input events)
+              else if (eventType === 'change' || eventType === 'input') {
+                if (targetElement instanceof HTMLInputElement) {
+                  // For named inputs, use name as key; otherwise use 'value'
+                  const key = targetElement.name || 'value';
+                  message.data[key] = this.parseValue(targetElement.value);
+                } else if (targetElement instanceof HTMLSelectElement) {
+                  // For select elements, use name as key
+                  const key = targetElement.name || 'value';
+                  message.data[key] = this.parseValue(targetElement.value);
+                } else if (targetElement instanceof HTMLTextAreaElement) {
+                  // For textarea elements, use name as key
+                  const key = targetElement.name || 'value';
+                  message.data[key] = this.parseValue(targetElement.value);
+                }
               }
 
               // 3. lvt-data-* attributes (custom data)
