@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{.Title}}</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+    <h1>{{.Title}}</h1>
+    <div>
+        <p>Counter: {{.Counter}}</p>
+        <div>
+            <button lvt-click="increment">+1</button>
+            <button lvt-click="decrement">-1</button>
+            <button lvt-click="reset">Reset</button>
+        </div>
+    </div>
+    <footer>
+        <p>Last updated: {{.LastUpdated}}</p>
+    </footer>
+
+    <script src="livetemplate-client.js"></script>
+</body>
+</html>

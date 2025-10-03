@@ -1,0 +1,17 @@
+{
+  "0": "Simple Counter",
+  "1": "5",
+  "2": "positive",
+  "3": "\u003cp\u003eCounter is positive\u003c/p\u003e",
+  "4": "2023-01-01 10:05:00",
+  "5": "counter-12345",
+  "s": [
+    "\u003ch1\u003e",
+    "\u003c/h1\u003e\u003cdiv\u003e\u003cp\u003eCounter: ",
+    "\u003c/p\u003e\u003cp\u003eStatus: ",
+    "\u003c/p\u003e ",
+    " \u003c/div\u003e\u003cfooter\u003e\u003cp\u003eLast updated: ",
+    "\u003c/p\u003e\u003cp\u003eSession: ",
+    "\u003c/p\u003e\u003c/footer\u003e"
+  ]
+}

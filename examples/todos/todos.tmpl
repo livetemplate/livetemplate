@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - LiveTemplate with Pico CSS</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+</head>
+<body>
+    <main class="container">
+        <article>
+            <header>
+                <h1>{{.Title}}</h1>
+                <p>A simple todo app with real-time updates</p>
+            </header>
+
+            <!-- Add Todo Form -->
+            <form lvt-change="validate" lvt-submit="add" lvt-debounce="300">
+                <fieldset role="group">
+                    <input
+                        type="text"
+                        name="text"
+                        placeholder="What needs to be done?"
+                        required
+                        {{if .lvt.HasError "text"}}aria-invalid="true"{{end}}
+                    >
+                    <button type="submit" lvt-disable-with="Adding...">Add</button>
+                </fieldset>
+                {{if .lvt.HasError "text"}}
+                <small style="color: var(--pico-del-color);">{{.lvt.Error "text"}}</small>
+                {{end}}
+            </form>
+
+            <!-- Statistics -->
+            <article>
+                <header><strong>Statistics</strong></header>
+                <table>
+                    <tbody>
+                        <tr>
+                            <td>Total</td>
+                            <td><strong>{{.TotalCount}}</strong></td>
+                        </tr>
+                        <tr>
+                            <td>Completed</td>
+                            <td><strong>{{.CompletedCount}}</strong></td>
+                        </tr>
+                        <tr>
+                            <td>Remaining</td>
+                            <td><strong>{{.RemainingCount}}</strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </article>
+
+            <!-- Todo List -->
+            <section>
+                <header><strong>Tasks</strong></header>
+                {{if .Todos}}
+                <table>
+                    <tbody>
+                        {{range .Todos}}
+                        <tr data-key="{{.ID}}">
+                            <td>
+                                <input
+                                    type="checkbox"
+                                    {{if .Completed}}checked{{end}}
+                                    lvt-change="toggle"
+                                    lvt-data-id="{{.ID}}"
+                                >
+                            </td>
+                            <td style="{{if .Completed}}text-decoration: line-through; opacity: 0.6;{{end}}">
+                                {{.Text}}
+                            </td>
+                            <td>
+                                <button
+                                    lvt-click="delete"
+                                    lvt-data-id="{{.ID}}"
+                                    class="secondary"
+                                >
+                                    Delete
+                                </button>
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+
+                {{if gt .CompletedCount 0}}
+                <button lvt-click="clear_completed" class="secondary">
+                    Clear Completed ({{.CompletedCount}})
+                </button>
+                {{end}}
+
+                {{else}}
+                <p><em>No tasks yet. Add one above!</em></p>
+                {{end}}
+            </section>
+
+            <footer>
+                <small>Last updated: {{.LastUpdated}}</small>
+            </footer>
+        </article>
+    </main>
+
+    <script src="livetemplate-client.js"></script>
+</body>
+</html>

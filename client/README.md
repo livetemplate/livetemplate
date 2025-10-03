@@ -1,108 +1,179 @@
-# LiveTemplate JavaScript Client
+# LiveTemplate TypeScript Client
 
-A reusable JavaScript client library for connecting to LiveTemplate WebSocket servers and handling real-time fragment updates.
+A TypeScript client for consuming LiveTemplate tree-based updates, implementing Phoenix LiveView-style optimization.
 
-## Features
+## 🚀 Features
 
-- WebSocket connection management
-- Automatic page token handling
-- Fragment update processing with tree-based reconstruction
-- Static content caching for optimal performance
-- Generic DOM element updating for any template structure
-- Configurable connection options and event handlers
+- **Tree-based Updates**: Consume optimized JSON updates from LiveTemplate server
+- **Static Structure Caching**: Cache static HTML structure client-side for maximum efficiency
+- **Phoenix LiveView Compatible**: Only dynamic values transmitted after initial render
+- **Bandwidth Optimization**: 75%+ reduction in update payload sizes
+- **Type Safety**: Full TypeScript support with type definitions
 
-## Usage
+## 📦 Installation
 
-### Basic Setup
-
-```html
-<script src="livetemplate-client.js"></script>
-<script>
-    const client = new LiveTemplateClient();
-    client.connect();
-</script>
+```bash
+npm install
+npm run build
 ```
 
-### Advanced Configuration
+## 🧪 Testing
 
-```javascript
-const client = new LiveTemplateClient({
-    port: "8080",
-    host: "localhost", 
-    protocol: "ws",
-    endpoint: "/ws",
-    onOpen: () => console.log("Connected!"),
-    onClose: () => console.log("Disconnected!"),
-    onError: (error) => console.error("Error:", error),
-    onMessage: (message) => console.log("Message:", message)
+The client includes comprehensive tests to validate the optimization effectiveness:
+
+```bash
+# Run optimization validation tests
+npm run test:optimization
+
+# Run HTML reconstruction tests  
+npm run test:reconstruction
+
+# Run all tests
+npm run test:all
+```
+
+## 📊 Test Results
+
+Current optimization performance:
+
+- **Update 1**: 168 bytes (first update after initial render)
+- **Update 2**: 128 bytes (subsequent optimized update)  
+- **Bandwidth Savings**: ~75.3% vs full HTML updates
+- **Static Structure**: Successfully excluded from updates ✅
+
+## 🛠️ Usage
+
+### Basic Client Usage
+
+```typescript
+import { LiveTemplateClient } from './livetemplate-client';
+
+const client = new LiveTemplateClient();
+
+// Apply initial update (includes static structure)
+const initialResult = client.applyUpdate({
+  "s": ["<h1>", "</h1><p>Count: ", "</p>"], // Static HTML segments
+  "0": "Hello World",                       // Dynamic content
+  "1": "42"                                // Dynamic content
 });
 
-client.connect();
+console.log(initialResult.html); // "<h1>Hello World</h1><p>Count: 42</p>"
+
+// Apply subsequent update (only changed dynamic values)  
+const updateResult = client.applyUpdate({
+  "1": "43"  // Only the changed value
+});
+
+console.log(updateResult.html); // "<h1>Hello World</h1><p>Count: 43</p>"
+console.log(updateResult.changed); // true
 ```
 
-### Sending Actions
+### Loading Updates from Files
 
-```javascript
-// Simple action
-client.sendAction('increment');
+```typescript
+import { loadAndApplyUpdate } from './livetemplate-client';
 
-// Action with data
-client.sendAction('update_user', { id: 123, name: 'John' });
+const client = new LiveTemplateClient();
+
+// Load update from JSON file
+const result = await loadAndApplyUpdate(client, 'update_01.json');
+console.log(result.html);
 ```
 
-### HTML Template Requirements
+### HTML Comparison
 
-Elements that should receive fragment updates must have `lvt-id` attributes:
+```typescript
+import { compareHTML } from './livetemplate-client';
 
-```html
-<div lvt-id="counter-display">{{.Counter}}</div>
-<span lvt-id="user-name" class="{{.UserClass}}">{{.UserName}}</span>
+const comparison = compareHTML(expectedHTML, actualHTML);
+if (comparison.match) {
+  console.log('✅ HTML matches!');
+} else {
+  console.log('❌ Differences found:', comparison.differences);
+}
 ```
 
-## API Reference
+## 🏗️ Architecture
 
-### Constructor Options
+### Tree-Based Updates
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `port` | string | `window.location.port` or `"8080"` | WebSocket server port |
-| `host` | string | `"localhost"` | WebSocket server host |
-| `protocol` | string | `"ws"` | WebSocket protocol (`"ws"` or `"wss"`) |
-| `endpoint` | string | `"/ws"` | WebSocket endpoint path |
-| `onOpen` | function | Default console log | Connection opened callback |
-| `onClose` | function | Default console log | Connection closed callback |
-| `onError` | function | Default console error | Connection error callback |
-| `onMessage` | function | `null` | Custom message handler |
+LiveTemplate uses a tree-based approach where:
 
-### Methods
+1. **Static Structure** (`"s"` key): HTML segments sent once and cached client-side
+2. **Dynamic Values** (numbered keys): Only the values that change between updates
+3. **Segment Interleaving**: Client reconstructs HTML by interleaving static + dynamic
 
-#### `connect()`
-Establishes WebSocket connection to the server.
+Example update structure:
 
-#### `sendAction(action, data = {})`
-Sends an action message to the server.
+```json
+{
+  "s": ["<h1>", "</h1><div>Count: ", "</div>"],  // Static HTML (sent once)
+  "0": "Task Manager",                           // Dynamic: page title  
+  "1": "42"                                      // Dynamic: counter value
+}
+```
 
-- `action` (string): Action name
-- `data` (object): Optional action data
+### Optimization Strategy
 
-#### `disconnect()`
-Closes WebSocket connection and cleans up resources.
+Following Phoenix LiveView's approach:
 
-#### `isConnected()`
-Returns `true` if WebSocket is connected.
+- **Initial Render**: Full HTML + cached static structure
+- **Subsequent Updates**: Only changed dynamic values (75%+ bandwidth savings)
+- **Client Reconstruction**: Merge updates with cached structure
+- **DOM Morphing**: Let morphdom handle efficient DOM updates
 
-#### `getPageToken()`
-Returns the current page token received from server.
+## 🧪 Test Data
 
-## How It Works
+The test suite validates optimization using real E2E test data:
 
-1. **Connection**: Client connects to WebSocket server and receives a page token
-2. **Fragment Updates**: Server sends fragment updates with tree-based data structures
-3. **DOM Updates**: Client reconstructs content from static/dynamic parts and updates DOM elements
-4. **Caching**: Static content is cached client-side for optimal bandwidth usage
+- `testdata/e2e/update_01_add_todos.json` - First optimized update (168 bytes)
+- `testdata/e2e/update_02_remove_todo.json` - Subsequent update (128 bytes)
+- `testdata/e2e/rendered_*.html` - Expected HTML output for comparison
 
-## Examples
+## 🔧 API Reference
 
-See `example.html` for a complete working example.
+### LiveTemplateClient
 
-For a real application example, see the counter app in `../examples/counter/`.
+#### `applyUpdate(update: TreeNode): UpdateResult`
+
+Apply a tree-based update to the client state.
+
+- **Parameters**: `update` - Tree update object from LiveTemplate server
+- **Returns**: `{ html: string, changed: boolean }`
+
+#### `reset(): void`
+
+Reset client state (useful for testing).
+
+#### `getState(): { static: string[] | null, dynamic: object }`
+
+Get current cached state for debugging.
+
+### Utility Functions
+
+#### `loadAndApplyUpdate(client, path): Promise<UpdateResult>`
+
+Load update from JSON file and apply to client.
+
+#### `compareHTML(expected, actual): { match: boolean, differences: string[] }`
+
+Compare two HTML strings, ignoring whitespace differences.
+
+## 🚀 Performance
+
+Optimization results with real E2E test data:
+
+| Update Type | Size (bytes) | Bandwidth Savings |
+|-------------|--------------|-------------------|
+| Full HTML   | ~600         | 0% (baseline)     |
+| Optimized #1| 168          | 72%               |
+| Optimized #2| 128          | 79%               |
+| **Average** | **148**      | **~75.3%**        |
+
+## 📈 Future Enhancements
+
+- Browser-based DOM morphing integration
+- WebSocket client for real-time updates  
+- React/Vue.js integration hooks
+- Advanced diff algorithms for complex nested structures
+- Performance monitoring and metrics

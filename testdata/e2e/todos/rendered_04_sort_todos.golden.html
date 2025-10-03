@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Manager - LiveTemplate Demo</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        .counter { font-size: 2em; text-align: center; margin: 20px 0; }
+        .status { padding: 10px; border-radius: 5px; margin: 10px 0; }
+        .active { background-color: #d4edda; color: #155724; }
+        .inactive { background-color: #f8d7da; color: #721c24; }
+        .todo-item { padding: 8px; border-bottom: 1px solid #eee; }
+        .completed { text-decoration: line-through; opacity: 0.6; }
+        .stats { background-color: #f8f9fa; padding: 15px; border-radius: 5px; }
+    </style>
+</head>
+<body><div data-lvt-id="lvt-ddfc3a4f4aa59887">
+    <div class="container">
+        <header>
+            <h1>Task Manager</h1>
+            <div class="counter">Count: 8</div>
+            <div class="status active">
+                Status: High Activity
+            </div>
+        </header>
+        
+        <main>
+            <section class="stats">
+                <h2>Statistics</h2>
+                <p>Total Todos: 2</p>
+                <p>Completed: 1</p>
+                <p>Remaining: 1</p>
+                <p>Completion Rate: 50%</p>
+            </section>
+            
+            <section class="todos">
+                <h2>Todo List</h2>
+                
+                <div class="todo-list">
+                    
+                    <div class="todo-item completed" data-key="todo-1">
+                        <strong>#0:</strong>
+                        Learn Go templates
+                        ✓
+                         (Priority: High)
+                    </div>
+                    
+                    <div class="todo-item " data-key="todo-3">
+                        <strong>#1:</strong>
+                        Write documentation
+                        ○
+                         (Priority: Low)
+                    </div>
+                    
+                </div>
+                
+            </section>
+        </main>
+        
+        <footer>
+            <p>Last updated: 2023-01-01 10:50:00</p>
+            <p>Session ID: session-12345</p>
+        </footer>
+    </div>
+</div></body>
+</html>

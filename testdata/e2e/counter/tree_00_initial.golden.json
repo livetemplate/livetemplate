@@ -1,0 +1,17 @@
+{
+  "0": "Simple Counter",
+  "1": "0",
+  "2": "zero",
+  "3": "<p>Counter is zero</p>",
+  "4": "2023-01-01 10:00:00",
+  "5": "counter-12345",
+  "s": [
+    "<h1>",
+    "</h1><div><p>Counter:",
+    "</p><p>Status:",
+    "</p>",
+    "</div><footer><p>Last updated:",
+    "</p><p>Session:",
+    "</p></footer>"
+  ]
+}

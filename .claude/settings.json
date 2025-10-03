@@ -2,7 +2,8 @@
     "permissions": {
         "allow": [
             "Bash(timeout:*)",
-            "Bash(go*)"
+            "Bash(go:*)",
+            "Bash(PORT:*)"
         ],
         "deny": [],
         "ask": [],

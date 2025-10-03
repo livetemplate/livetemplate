@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - LiveTemplate Demo</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        .counter { font-size: 2em; text-align: center; margin: 20px 0; }
+        .status { padding: 10px; border-radius: 5px; margin: 10px 0; }
+        .active { background-color: #d4edda; color: #155724; }
+        .inactive { background-color: #f8d7da; color: #721c24; }
+        .todo-item { padding: 8px; border-bottom: 1px solid #eee; }
+        .completed { text-decoration: line-through; opacity: 0.6; }
+        .stats { background-color: #f8f9fa; padding: 15px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>{{.Title}}</h1>
+            <div class="counter">Count: {{.Counter}}</div>
+            <div class="status {{if gt .Counter 5}}active{{else}}inactive{{end}}">
+                Status: {{if gt .Counter 5}}High Activity{{else}}Low Activity{{end}}
+            </div>
+        </header>
+        
+        <main>
+            <section class="stats">
+                <h2>Statistics</h2>
+                <p>Total Todos: {{.TodoCount}}</p>
+                <p>Completed: {{.CompletedCount}}</p>
+                <p>Remaining: {{.RemainingCount}}</p>
+                <p>Completion Rate: {{if gt .TodoCount 0}}{{.CompletionRate}}%{{else}}0%{{end}}</p>
+            </section>
+            
+            <section class="todos">
+                <h2>Todo List</h2>
+                {{if .Todos}}
+                <div class="todo-list">
+                    {{range $index, $todo := .Todos}}
+                    <div class="todo-item {{if .Completed}}completed{{end}}" data-key="{{.ID}}">
+                        <strong>{{$index | printf "#%d"}}:</strong>
+                        {{.Text}}
+                        {{if .Completed}}✓{{else}}○{{end}}
+                        {{if .Priority}} (Priority: {{.Priority}}){{end}}
+                    </div>
+                    {{end}}
+                </div>
+                {{else}}
+                <p>No todos yet. Add some tasks!</p>
+                {{end}}
+            </section>
+        </main>
+        
+        <footer>
+            <p>Last updated: {{.LastUpdated}}</p>
+            <p>Session ID: {{.SessionID}}</p>
+        </footer>
+    </div>
+</body>
+</html>

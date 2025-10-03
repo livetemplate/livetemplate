@@ -33,3 +33,4 @@ go.sum
 .Trashes
 ehthumbs.db
 Thumbs.db
+client/dist
