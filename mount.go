@@ -2,6 +2,7 @@ package livetemplate
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -158,7 +159,30 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = WriteUpdateWebSocket(conn, buf.Bytes())
+	// Parse tree from buffer
+	var tree TreeNode
+	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
+		log.Printf("Failed to parse initial tree: %v", err)
+		return
+	}
+
+	// Wrap with metadata (initial load has no action)
+	response := UpdateResponse{
+		Tree: tree,
+		Meta: &ResponseMetadata{
+			Success: len(state.getErrors()) == 0,
+			Errors:  state.getErrors(),
+		},
+	}
+
+	// Encode and send wrapped response
+	responseBytes, err := json.Marshal(response)
+	if err != nil {
+		log.Printf("Failed to marshal initial response: %v", err)
+		return
+	}
+
+	err = WriteUpdateWebSocket(conn, responseBytes)
 	if err != nil {
 		log.Printf("Failed to send initial tree: %v", err)
 		return
@@ -187,7 +211,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// Generate and send update
+		// Generate tree update
 		buf.Reset()
 		err = connTmpl.ExecuteUpdates(&buf, h.getTemplateData(state.stores), state.getErrors())
 		if err != nil {
@@ -195,7 +219,31 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		err = WriteUpdateWebSocket(conn, buf.Bytes())
+		// Parse tree from buffer
+		var tree TreeNode
+		if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
+			log.Printf("Failed to parse tree: %v", err)
+			continue
+		}
+
+		// Wrap with metadata
+		response := UpdateResponse{
+			Tree: tree,
+			Meta: &ResponseMetadata{
+				Success: len(state.getErrors()) == 0,
+				Errors:  state.getErrors(),
+				Action:  msg.Action,
+			},
+		}
+
+		// Encode and send wrapped response
+		responseBytes, err := json.Marshal(response)
+		if err != nil {
+			log.Printf("Failed to marshal response: %v", err)
+			continue
+		}
+
+		err = WriteUpdateWebSocket(conn, responseBytes)
 		if err != nil {
 			log.Printf("WebSocket write failed: %v", err)
 			break
@@ -272,7 +320,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Save session
 	h.config.SessionStore.Set(sessionID, state)
 
-	// Generate and send update
+	// Generate tree update
 	var buf bytes.Buffer
 	err = h.config.Template.ExecuteUpdates(&buf, h.getTemplateData(state.stores), state.getErrors())
 	if err != nil {
@@ -280,7 +328,28 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	WriteUpdateHTTP(w, buf.Bytes())
+	// Parse tree from buffer
+	var tree TreeNode
+	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Wrap with metadata
+	response := UpdateResponse{
+		Tree: tree,
+		Meta: &ResponseMetadata{
+			Success: len(state.getErrors()) == 0,
+			Errors:  state.getErrors(),
+			Action:  msg.Action,
+		},
+	}
+
+	// Send wrapped response
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 // handleAction routes the action to the correct store and captures errors

@@ -15,7 +15,7 @@
             </header>
 
             <!-- Add Todo Form -->
-            <form lvt-submit="add">
+            <form lvt-change="validate" lvt-submit="add" lvt-debounce="300">
                 <fieldset role="group">
                     <input
                         type="text"
@@ -24,7 +24,7 @@
                         required
                         {{if .lvt.HasError "text"}}aria-invalid="true"{{end}}
                     >
-                    <button type="submit">Add</button>
+                    <button type="submit" lvt-disable-with="Adding...">Add</button>
                 </fieldset>
                 {{if .lvt.HasError "text"}}
                 <small style="color: var(--pico-del-color);">{{.lvt.Error "text"}}</small>

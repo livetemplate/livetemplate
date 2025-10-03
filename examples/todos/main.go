@@ -43,6 +43,15 @@ type TodoState struct {
 
 func (s *TodoState) Change(ctx *livetemplate.ActionContext) error {
 	switch ctx.Action {
+	case "validate":
+		// Validate input without saving
+		var input AddInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+		// Validation succeeded, no changes to state
+		return nil
+
 	case "add":
 		var input AddInput
 		if err := ctx.BindAndValidate(&input, validate); err != nil {

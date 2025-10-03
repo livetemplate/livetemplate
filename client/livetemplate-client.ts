@@ -18,6 +18,17 @@ export interface UpdateResult {
   dom?: Element;
 }
 
+export interface ResponseMetadata {
+  success: boolean;      // true if no validation errors
+  errors: { [key: string]: string };  // field errors
+  action?: string;       // action name
+}
+
+export interface UpdateResponse {
+  tree: TreeNode;
+  meta?: ResponseMetadata;
+}
+
 export interface LiveTemplateClientOptions {
   wsUrl?: string;  // WebSocket URL (defaults to current host)
   liveUrl?: string; // HTTP endpoint URL (defaults to /live)
@@ -40,6 +51,14 @@ export class LiveTemplateClient {
   private reconnectTimer: number | null = null;
   private useHTTP: boolean = false; // True when WebSocket is unavailable
   private sessionCookie: string | null = null; // For HTTP mode session tracking
+
+  // Form lifecycle tracking
+  private activeForm: HTMLFormElement | null = null; // The form that submitted the current action
+  private activeButton: HTMLButtonElement | null = null; // The button that triggered the action
+  private originalButtonText: string | null = null; // Original button text for restore
+
+  // Rate limiting: cache of debounced/throttled handlers per element+eventType
+  private rateLimitedHandlers: WeakMap<Element, Map<string, Function>> = new WeakMap();
 
   constructor(options: LiveTemplateClientOptions = {}) {
     this.options = {
@@ -66,6 +85,8 @@ export class LiveTemplateClient {
 
         // Set up event delegation
         client.setupEventDelegation();
+        client.setupWindowEventDelegation();
+        client.setupClickAwayDelegation();
 
         // Expose as global for programmatic access
         (window as any).liveTemplateClient = client;
@@ -151,14 +172,18 @@ export class LiveTemplateClient {
       if (this.options.onConnect) {
         this.options.onConnect();
       }
+      // Dispatch connected event on wrapper element
+      if (this.wrapperElement) {
+        this.wrapperElement.dispatchEvent(new Event('lvt:connected'));
+      }
     };
 
     this.ws.onmessage = (event) => {
       try {
-        const update = JSON.parse(event.data);
+        const response: UpdateResponse = JSON.parse(event.data);
 
         if (this.wrapperElement) {
-          this.updateDOM(this.wrapperElement, update);
+          this.updateDOM(this.wrapperElement, response.tree, response.meta);
         }
       } catch (error) {
         console.error('LiveTemplate error:', error);
@@ -169,6 +194,10 @@ export class LiveTemplateClient {
       console.log('LiveTemplate: WebSocket disconnected');
       if (this.options.onDisconnect) {
         this.options.onDisconnect();
+      }
+      // Dispatch disconnected event on wrapper element
+      if (this.wrapperElement) {
+        this.wrapperElement.dispatchEvent(new Event('lvt:disconnected'));
       }
 
       if (this.options.autoReconnect) {
@@ -223,17 +252,24 @@ export class LiveTemplateClient {
 
     // Set up event delegation for lvt-* attributes
     this.setupEventDelegation();
+
+    // Set up window-* event delegation
+    this.setupWindowEventDelegation();
+
+    // Set up click-away delegation
+    this.setupClickAwayDelegation();
   }
 
   /**
    * Set up event delegation for elements with lvt-* attributes
    * Uses event delegation to handle dynamically updated elements
-   * Supports: lvt-click, lvt-submit, lvt-change, lvt-input, lvt-keydown, lvt-keyup
+   * Supports: lvt-click, lvt-submit, lvt-change, lvt-input, lvt-keydown, lvt-keyup,
+   *           lvt-focus, lvt-blur, lvt-mouseenter, lvt-mouseleave
    */
   private setupEventDelegation(): void {
     if (!this.wrapperElement) return;
 
-    const eventTypes = ['click', 'submit', 'change', 'input', 'keydown', 'keyup'];
+    const eventTypes = ['click', 'submit', 'change', 'input', 'keydown', 'keyup', 'focus', 'blur', 'mouseenter', 'mouseleave'];
     const wrapperId = this.wrapperElement.getAttribute('data-lvt-id');
 
     eventTypes.forEach((eventType) => {
@@ -270,47 +306,130 @@ export class LiveTemplateClient {
         element = target;
 
         while (element && element !== this.wrapperElement!.parentElement) {
-          const action = element.getAttribute(attrName);
-          if (action) {
+          let action = element.getAttribute(attrName);
+          let actionElement = element; // Element that has the action attribute
+
+          // For change/input events, also check if element is inside a form with lvt-change
+          if (!action && (eventType === 'change' || eventType === 'input')) {
+            const formElement: HTMLFormElement | null = element.closest('form');
+            if (formElement && formElement.hasAttribute('lvt-change')) {
+              action = formElement.getAttribute('lvt-change');
+              actionElement = formElement; // Use the form as the action element
+            }
+          }
+
+          if (action && actionElement) {
             // Prevent default for submit events
             if (eventType === 'submit') {
               e.preventDefault();
             }
 
-            // Build message with action and data map
-            const message: any = { action, data: {} };
+            // Check for lvt-key filtering on keyboard events
+            if ((eventType === 'keydown' || eventType === 'keyup') && actionElement.hasAttribute('lvt-key')) {
+              const keyFilter = actionElement.getAttribute('lvt-key');
+              const keyboardEvent = e as KeyboardEvent;
+              if (keyFilter && keyboardEvent.key !== keyFilter) {
+                // Key doesn't match filter, skip this handler
+                element = element.parentElement;
+                continue;
+              }
+            }
 
-            // 1. Form data (for submit events)
-            if (eventType === 'submit' && element instanceof HTMLFormElement) {
-              const formData = new FormData(element);
-              formData.forEach((value, key) => {
-                message.data[key] = this.parseValue(value as string);
+            // Capture element reference for closure
+            const targetElement = actionElement;
+
+            // Define the action handler
+            const handleAction = () => {
+              // Build message with action and data map
+              const message: any = { action, data: {} };
+
+              // 1. Form data (for submit events or form-level change events)
+              if (targetElement instanceof HTMLFormElement) {
+                const formData = new FormData(targetElement);
+                formData.forEach((value, key) => {
+                  message.data[key] = this.parseValue(value as string);
+                });
+              }
+              // 2. Input value (for change/input events on inputs)
+              else if ((eventType === 'change' || eventType === 'input') && targetElement instanceof HTMLInputElement) {
+                message.data.value = this.parseValue(targetElement.value);
+              }
+
+              // 3. lvt-data-* attributes (custom data)
+              Array.from(targetElement.attributes).forEach((attr) => {
+                if (attr.name.startsWith('lvt-data-')) {
+                  const key = attr.name.replace('lvt-data-', '');
+                  message.data[key] = this.parseValue(attr.value);
+                }
               });
+
+              // 4. lvt-value-* attributes (explicit multiple values)
+              Array.from(targetElement.attributes).forEach((attr) => {
+                if (attr.name.startsWith('lvt-value-')) {
+                  const key = attr.name.replace('lvt-value-', '');
+                  message.data[key] = this.parseValue(attr.value);
+                }
+              });
+
+              // Track form lifecycle for submit events
+              if (eventType === 'submit' && targetElement instanceof HTMLFormElement) {
+                this.activeForm = targetElement;
+
+                // Find submit button if it exists and has lvt-disable-with
+                const submitEvent = e as SubmitEvent;
+                const submitButton = submitEvent.submitter as HTMLButtonElement | null;
+                if (submitButton && submitButton.hasAttribute('lvt-disable-with')) {
+                  this.activeButton = submitButton;
+                  this.originalButtonText = submitButton.textContent;
+                  submitButton.disabled = true;
+                  submitButton.textContent = submitButton.getAttribute('lvt-disable-with');
+                }
+
+                // Emit lvt:pending event
+                targetElement.dispatchEvent(new CustomEvent('lvt:pending', { detail: message }));
+              }
+
+              // Send message to server
+              this.send(message);
+            };
+
+            // Apply rate limiting if specified
+            // Note: throttle takes precedence over debounce
+            const throttleValue = actionElement.getAttribute('lvt-throttle');
+            const debounceValue = actionElement.getAttribute('lvt-debounce');
+
+            if (throttleValue || debounceValue) {
+              // Get or create handler cache for this element
+              if (!this.rateLimitedHandlers.has(actionElement)) {
+                this.rateLimitedHandlers.set(actionElement, new Map());
+              }
+              const handlerCache = this.rateLimitedHandlers.get(actionElement)!;
+              const cacheKey = `${eventType}:${action}`;
+
+              // Get or create rate-limited handler
+              let rateLimitedHandler = handlerCache.get(cacheKey);
+              if (!rateLimitedHandler) {
+                if (throttleValue) {
+                  const limit = parseInt(throttleValue, 10);
+                  rateLimitedHandler = throttle(handleAction, limit);
+                } else if (debounceValue) {
+                  const wait = parseInt(debounceValue, 10);
+                  rateLimitedHandler = debounce(handleAction, wait);
+                }
+                if (rateLimitedHandler) {
+                  handlerCache.set(cacheKey, rateLimitedHandler);
+                }
+              }
+
+              // Call rate-limited handler
+              if (rateLimitedHandler) {
+                rateLimitedHandler();
+              }
+            } else {
+              // No rate limiting, call directly
+              handleAction();
             }
 
-            // 2. Input value (for change/input events)
-            if ((eventType === 'change' || eventType === 'input') && element instanceof HTMLInputElement) {
-              message.data.value = this.parseValue(element.value);
-            }
-
-            // 3. lvt-data-* attributes (custom data)
-            Array.from(element.attributes).forEach((attr) => {
-              if (attr.name.startsWith('lvt-data-')) {
-                const key = attr.name.replace('lvt-data-', '');
-                message.data[key] = this.parseValue(attr.value);
-              }
-            });
-
-            // 4. lvt-value-* attributes (explicit multiple values)
-            Array.from(element.attributes).forEach((attr) => {
-              if (attr.name.startsWith('lvt-value-')) {
-                const key = attr.name.replace('lvt-value-', '');
-                message.data[key] = this.parseValue(attr.value);
-              }
-            });
-
-            // Send message to server
-            this.send(message);
             return;
           }
           element = element.parentElement;
@@ -321,6 +440,158 @@ export class LiveTemplateClient {
       (document as any)[listenerKey] = listener;
       document.addEventListener(eventType, listener, false);
     });
+  }
+
+  /**
+   * Set up window-level event delegation for lvt-window-* attributes
+   * Supports: lvt-window-keydown, lvt-window-keyup, lvt-window-scroll,
+   *           lvt-window-resize, lvt-window-focus, lvt-window-blur
+   */
+  private setupWindowEventDelegation(): void {
+    if (!this.wrapperElement) return;
+
+    const windowEvents = ['keydown', 'keyup', 'scroll', 'resize', 'focus', 'blur'];
+    const wrapperId = this.wrapperElement.getAttribute('data-lvt-id');
+
+    windowEvents.forEach((eventType) => {
+      const listenerKey = `__lvt_window_${eventType}_${wrapperId}`;
+      const existingListener = (window as any)[listenerKey];
+      if (existingListener) {
+        window.removeEventListener(eventType, existingListener);
+      }
+
+      const listener = (e: Event) => {
+        if (!this.wrapperElement) return;
+
+        // Find all elements with lvt-window-* attribute for this event
+        const attrName = `lvt-window-${eventType}`;
+        const elements = this.wrapperElement.querySelectorAll(`[${attrName}]`);
+
+        elements.forEach((element) => {
+          const action = element.getAttribute(attrName);
+          if (!action) return;
+
+          // Check for lvt-key filtering on keyboard events
+          if ((eventType === 'keydown' || eventType === 'keyup') && element.hasAttribute('lvt-key')) {
+            const keyFilter = element.getAttribute('lvt-key');
+            const keyboardEvent = e as KeyboardEvent;
+            if (keyFilter && keyboardEvent.key !== keyFilter) {
+              return; // Key doesn't match filter
+            }
+          }
+
+          // Build and send message
+          const message: any = { action, data: {} };
+
+          // Add lvt-data-* attributes
+          Array.from(element.attributes).forEach((attr) => {
+            if (attr.name.startsWith('lvt-data-')) {
+              const key = attr.name.replace('lvt-data-', '');
+              message.data[key] = this.parseValue(attr.value);
+            }
+          });
+
+          // Add lvt-value-* attributes
+          Array.from(element.attributes).forEach((attr) => {
+            if (attr.name.startsWith('lvt-value-')) {
+              const key = attr.name.replace('lvt-value-', '');
+              message.data[key] = this.parseValue(attr.value);
+            }
+          });
+
+          // Apply rate limiting if specified
+          const throttleValue = element.getAttribute('lvt-throttle');
+          const debounceValue = element.getAttribute('lvt-debounce');
+
+          const handleAction = () => this.send(message);
+
+          if (throttleValue || debounceValue) {
+            if (!this.rateLimitedHandlers.has(element)) {
+              this.rateLimitedHandlers.set(element, new Map());
+            }
+            const handlerCache = this.rateLimitedHandlers.get(element)!;
+            const cacheKey = `window-${eventType}:${action}`;
+
+            let rateLimitedHandler = handlerCache.get(cacheKey);
+            if (!rateLimitedHandler) {
+              if (throttleValue) {
+                const limit = parseInt(throttleValue, 10);
+                rateLimitedHandler = throttle(handleAction, limit);
+              } else if (debounceValue) {
+                const wait = parseInt(debounceValue, 10);
+                rateLimitedHandler = debounce(handleAction, wait);
+              }
+              if (rateLimitedHandler) {
+                handlerCache.set(cacheKey, rateLimitedHandler);
+              }
+            }
+
+            if (rateLimitedHandler) {
+              rateLimitedHandler();
+            }
+          } else {
+            handleAction();
+          }
+        });
+      };
+
+      (window as any)[listenerKey] = listener;
+      window.addEventListener(eventType, listener);
+    });
+  }
+
+  /**
+   * Set up click-away event delegation for lvt-click-away attribute
+   * Triggers when clicking outside the element
+   */
+  private setupClickAwayDelegation(): void {
+    if (!this.wrapperElement) return;
+
+    const wrapperId = this.wrapperElement.getAttribute('data-lvt-id');
+    const listenerKey = `__lvt_click_away_${wrapperId}`;
+    const existingListener = (document as any)[listenerKey];
+    if (existingListener) {
+      document.removeEventListener('click', existingListener);
+    }
+
+    const listener = (e: Event) => {
+      if (!this.wrapperElement) return;
+
+      const target = e.target as Element;
+      const elements = this.wrapperElement.querySelectorAll('[lvt-click-away]');
+
+      elements.forEach((element) => {
+        // Check if click was outside this element
+        if (!element.contains(target)) {
+          const action = element.getAttribute('lvt-click-away');
+          if (!action) return;
+
+          // Build and send message
+          const message: any = { action, data: {} };
+
+          // Add lvt-data-* attributes
+          Array.from(element.attributes).forEach((attr) => {
+            if (attr.name.startsWith('lvt-data-')) {
+              const key = attr.name.replace('lvt-data-', '');
+              message.data[key] = this.parseValue(attr.value);
+            }
+          });
+
+          // Add lvt-value-* attributes
+          Array.from(element.attributes).forEach((attr) => {
+            if (attr.name.startsWith('lvt-value-')) {
+              const key = attr.name.replace('lvt-value-', '');
+              message.data[key] = this.parseValue(attr.value);
+            }
+          });
+
+          this.send(message);
+        }
+      });
+    };
+
+    (document as any)[listenerKey] = listener;
+    document.addEventListener('click', listener);
   }
 
   /**
@@ -379,9 +650,9 @@ export class LiveTemplateClient {
       }
 
       // Handle the update response
-      const update = await response.json();
+      const updateResponse: UpdateResponse = await response.json();
       if (this.wrapperElement) {
-        this.updateDOM(this.wrapperElement, update);
+        this.updateDOM(this.wrapperElement, updateResponse.tree, updateResponse.meta);
       }
     } catch (error) {
       console.error('Failed to send HTTP request:', error);
@@ -803,8 +1074,9 @@ export class LiveTemplateClient {
    * Update a live DOM element with new tree data
    * @param element - DOM element containing the LiveTemplate content (the wrapper div)
    * @param update - Tree update object from LiveTemplate server
+   * @param meta - Optional metadata about the update (action, success, errors)
    */
-  updateDOM(element: Element, update: TreeNode): void {
+  updateDOM(element: Element, update: TreeNode, meta?: ResponseMetadata): void {
     // Apply update to internal state and get reconstructed HTML
     const result = this.applyUpdate(update);
 
@@ -827,9 +1099,91 @@ export class LiveTemplateClient {
         if (fromEl.isEqualNode(toEl)) {
           return false;
         }
+        // Execute lvt-updated lifecycle hook
+        this.executeLifecycleHook(fromEl, 'lvt-updated');
+        return true;
+      },
+      onNodeAdded: (node) => {
+        // Execute lvt-mounted lifecycle hook
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          this.executeLifecycleHook(node as Element, 'lvt-mounted');
+        }
+      },
+      onBeforeNodeDiscarded: (node) => {
+        // Execute lvt-destroyed lifecycle hook
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          this.executeLifecycleHook(node as Element, 'lvt-destroyed');
+        }
         return true;
       }
     });
+
+    // Handle form lifecycle if metadata is present
+    if (meta) {
+      this.handleFormLifecycle(meta);
+    }
+  }
+
+  /**
+   * Handle form lifecycle after receiving server response
+   * @param meta - Response metadata containing success status and errors
+   */
+  private handleFormLifecycle(meta: ResponseMetadata): void {
+    // Emit lvt:done event
+    if (this.activeForm) {
+      this.activeForm.dispatchEvent(new CustomEvent('lvt:done', { detail: meta }));
+    }
+
+    if (meta.success) {
+      // Success: no validation errors
+      if (this.activeForm) {
+        // Emit lvt:success event
+        this.activeForm.dispatchEvent(new CustomEvent('lvt:success', { detail: meta }));
+
+        // Auto-reset form unless lvt-preserve is present
+        if (!this.activeForm.hasAttribute('lvt-preserve')) {
+          this.activeForm.reset();
+        }
+      }
+    } else {
+      // Error: validation errors present
+      if (this.activeForm) {
+        // Emit lvt:error event
+        this.activeForm.dispatchEvent(new CustomEvent('lvt:error', { detail: meta }));
+      }
+    }
+
+    // Re-enable button if it was disabled
+    if (this.activeButton && this.originalButtonText !== null) {
+      this.activeButton.disabled = false;
+      this.activeButton.textContent = this.originalButtonText;
+    }
+
+    // Clear active form/button state
+    this.activeForm = null;
+    this.activeButton = null;
+    this.originalButtonText = null;
+  }
+
+  /**
+   * Execute lifecycle hook on an element
+   * @param element - Element with lifecycle hook attribute
+   * @param hookName - Name of the lifecycle hook attribute (e.g., 'lvt-mounted')
+   */
+  private executeLifecycleHook(element: Element, hookName: string): void {
+    const hookValue = element.getAttribute(hookName);
+    if (!hookValue) {
+      return;
+    }
+
+    try {
+      // Create a function from the hook value and execute it
+      // The function has access to 'this' (the element) and 'event'
+      const hookFunction = new Function('element', hookValue);
+      hookFunction.call(element, element);
+    } catch (error) {
+      console.error(`Error executing ${hookName} hook:`, error);
+    }
   }
 
   /**
@@ -921,6 +1275,58 @@ export function compareHTML(expected: string, actual: string): {
   }
   
   return { match: false, differences };
+}
+
+/**
+ * Debounce function: delays execution until after a pause in calls
+ * @param func - Function to debounce
+ * @param wait - Wait time in milliseconds
+ * @returns Debounced function
+ */
+function debounce<T extends (...args: any[]) => any>(
+  func: T,
+  wait: number
+): (...args: Parameters<T>) => void {
+  let timeout: number | null = null;
+
+  return function(this: any, ...args: Parameters<T>) {
+    const context = this;
+
+    if (timeout !== null) {
+      clearTimeout(timeout);
+    }
+
+    timeout = window.setTimeout(() => {
+      func.apply(context, args);
+    }, wait);
+  };
+}
+
+/**
+ * Throttle function: limits execution to at most once per time period
+ * First call executes immediately, subsequent calls are delayed
+ * @param func - Function to throttle
+ * @param limit - Minimum time between executions in milliseconds
+ * @returns Throttled function
+ */
+function throttle<T extends (...args: any[]) => any>(
+  func: T,
+  limit: number
+): (...args: Parameters<T>) => void {
+  let inThrottle = false;
+
+  return function(this: any, ...args: Parameters<T>) {
+    const context = this;
+
+    if (!inThrottle) {
+      func.apply(context, args);
+      inThrottle = true;
+
+      setTimeout(() => {
+        inThrottle = false;
+      }, limit);
+    }
+  };
 }
 
 // Auto-initialize when script loads (for browser use)

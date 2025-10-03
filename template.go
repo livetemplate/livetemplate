@@ -44,6 +44,19 @@ type Template struct {
 	config          Config        // Template configuration
 }
 
+// UpdateResponse wraps a tree update with metadata for form lifecycle
+type UpdateResponse struct {
+	Tree TreeNode          `json:"tree"`
+	Meta *ResponseMetadata `json:"meta,omitempty"`
+}
+
+// ResponseMetadata contains information about the action that generated the update
+type ResponseMetadata struct {
+	Success bool              `json:"success"` // true if no validation errors
+	Errors  map[string]string `json:"errors"`  // field errors
+	Action  string            `json:"action,omitempty"`
+}
+
 // Option is a functional option for configuring a Template
 type Option func(*Config)
 
