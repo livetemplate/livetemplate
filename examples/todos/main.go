@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"math"
@@ -12,17 +13,14 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/livefir/livetemplate"
+	"github.com/livefir/livetemplate/examples/todos/db"
 	e2etest "github.com/livefir/livetemplate/internal/testing"
 )
 
 var validate = validator.New()
 
-type TodoItem struct {
-	ID        string    `json:"id"`
-	Text      string    `json:"text"`
-	Completed bool      `json:"completed"`
-	CreatedAt time.Time `json:"created_at"`
-}
+// TodoItem is an alias for the database model
+type TodoItem = db.Todo
 
 type AddInput struct {
 	Text string `json:"text" validate:"required,min=3"`
@@ -49,22 +47,24 @@ type PaginationInput struct {
 }
 
 type TodoState struct {
-	Title          string     `json:"title"`
-	Todos          []TodoItem `json:"todos"`
-	SearchQuery    string     `json:"search_query"`
-	SortBy         string     `json:"sort_by"`
-	FilteredTodos  []TodoItem `json:"filtered_todos"`
-	CurrentPage    int        `json:"current_page"`
-	PageSize       int        `json:"page_size"`
-	TotalPages     int        `json:"total_pages"`
-	PaginatedTodos []TodoItem `json:"paginated_todos"`
-	TotalCount     int        `json:"total_count"`
-	CompletedCount int        `json:"completed_count"`
-	RemainingCount int        `json:"remaining_count"`
-	LastUpdated    string     `json:"last_updated"`
+	Title          string      `json:"title"`
+	Queries        *db.Queries `json:"-"` // Database queries (exported but not in JSON)
+	SearchQuery    string      `json:"search_query"`
+	SortBy         string      `json:"sort_by"`
+	FilteredTodos  []TodoItem  `json:"filtered_todos"`
+	CurrentPage    int         `json:"current_page"`
+	PageSize       int         `json:"page_size"`
+	TotalPages     int         `json:"total_pages"`
+	PaginatedTodos []TodoItem  `json:"paginated_todos"`
+	TotalCount     int         `json:"total_count"`
+	CompletedCount int         `json:"completed_count"`
+	RemainingCount int         `json:"remaining_count"`
+	LastUpdated    string      `json:"last_updated"`
 }
 
 func (s *TodoState) Change(ctx *livetemplate.ActionContext) error {
+	dbCtx := context.Background()
+
 	switch ctx.Action {
 	case "add":
 		var input AddInput
@@ -76,12 +76,21 @@ func (s *TodoState) Change(ctx *livetemplate.ActionContext) error {
 		now := time.Now()
 		id := fmt.Sprintf("todo-%d", now.UnixNano())
 
-		s.Todos = append(s.Todos, TodoItem{
+		// Insert into database
+		_, err := s.Queries.CreateTodo(dbCtx, db.CreateTodoParams{
 			ID:        id,
 			Text:      input.Text,
 			Completed: false,
 			CreatedAt: now,
 		})
+		if err != nil {
+			return fmt.Errorf("failed to create todo: %w", err)
+		}
+
+		// Reload todos from database
+		if err := s.loadTodos(dbCtx); err != nil {
+			return err
+		}
 
 	case "toggle":
 		var input ToggleInput
@@ -89,11 +98,24 @@ func (s *TodoState) Change(ctx *livetemplate.ActionContext) error {
 			return err
 		}
 
-		for i := range s.Todos {
-			if s.Todos[i].ID == input.ID {
-				s.Todos[i].Completed = !s.Todos[i].Completed
-				break
-			}
+		// Get current todo to toggle its completed status
+		todo, err := s.Queries.GetTodoByID(dbCtx, input.ID)
+		if err != nil {
+			return fmt.Errorf("failed to get todo: %w", err)
+		}
+
+		// Update in database
+		err = s.Queries.UpdateTodoCompleted(dbCtx, db.UpdateTodoCompletedParams{
+			Completed: !todo.Completed,
+			ID:        input.ID,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to update todo: %w", err)
+		}
+
+		// Reload todos from database
+		if err := s.loadTodos(dbCtx); err != nil {
+			return err
 		}
 
 	case "delete":
@@ -102,11 +124,15 @@ func (s *TodoState) Change(ctx *livetemplate.ActionContext) error {
 			return err
 		}
 
-		for i, todo := range s.Todos {
-			if todo.ID == input.ID {
-				s.Todos = append(s.Todos[:i], s.Todos[i+1:]...)
-				break
-			}
+		// Delete from database
+		err := s.Queries.DeleteTodo(dbCtx, input.ID)
+		if err != nil {
+			return fmt.Errorf("failed to delete todo: %w", err)
+		}
+
+		// Reload todos from database
+		if err := s.loadTodos(dbCtx); err != nil {
+			return err
 		}
 
 	case "search":
@@ -116,6 +142,11 @@ func (s *TodoState) Change(ctx *livetemplate.ActionContext) error {
 		}
 		s.SearchQuery = input.Query
 
+		// Reload todos with new search filter
+		if err := s.loadTodos(dbCtx); err != nil {
+			return err
+		}
+
 	case "sort":
 		var input SortInput
 		if err := ctx.BindAndValidate(&input, validate); err != nil {
@@ -123,14 +154,29 @@ func (s *TodoState) Change(ctx *livetemplate.ActionContext) error {
 		}
 		s.SortBy = input.SortBy
 
+		// Reload todos with new sort order
+		if err := s.loadTodos(dbCtx); err != nil {
+			return err
+		}
+
 	case "next_page":
 		if s.CurrentPage < s.TotalPages {
 			s.CurrentPage++
 		}
 
+		// Reload todos to update pagination
+		if err := s.loadTodos(dbCtx); err != nil {
+			return err
+		}
+
 	case "prev_page":
 		if s.CurrentPage > 1 {
 			s.CurrentPage--
+		}
+
+		// Reload todos to update pagination
+		if err := s.loadTodos(dbCtx); err != nil {
+			return err
 		}
 
 	case "goto_page":
@@ -142,57 +188,85 @@ func (s *TodoState) Change(ctx *livetemplate.ActionContext) error {
 			s.CurrentPage = input.Page
 		}
 
-	case "clear_completed":
-		remaining := []TodoItem{}
-		for _, todo := range s.Todos {
-			if !todo.Completed {
-				remaining = append(remaining, todo)
-			}
+		// Reload todos to update pagination
+		if err := s.loadTodos(dbCtx); err != nil {
+			return err
 		}
-		s.Todos = remaining
+
+	case "clear_completed":
+		// Delete all completed todos from database
+		err := s.Queries.DeleteCompletedTodos(dbCtx)
+		if err != nil {
+			return fmt.Errorf("failed to delete completed todos: %w", err)
+		}
+
+		// Reload todos from database
+		if err := s.loadTodos(dbCtx); err != nil {
+			return err
+		}
 
 	default:
 		log.Printf("Unknown action: %s", ctx.Action)
 		return nil
 	}
 
-	// Update computed fields
-	s.updateStats()
-	s.updateFilteredTodos()
+	// Update timestamp
 	s.LastUpdated = formatTime()
 	return nil
 }
 
-func (s *TodoState) updateStats() {
-	s.TotalCount = len(s.Todos)
-	s.CompletedCount = 0
-
-	for _, todo := range s.Todos {
-		if todo.Completed {
-			s.CompletedCount++
-		}
-	}
-
-	s.RemainingCount = s.TotalCount - s.CompletedCount
+// Init implements livetemplate.StoreInitializer
+// This is called when the store is cloned for a new session (e.g., page refresh)
+func (s *TodoState) Init() error {
+	return s.loadTodos(context.Background())
 }
 
-func (s *TodoState) updateFilteredTodos() {
+// loadTodos loads todos from database and updates computed fields
+func (s *TodoState) loadTodos(ctx context.Context) error {
+	// Get all todos from database
+	todos, err := s.Queries.GetAllTodos(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to load todos: %w", err)
+	}
+
+	// Apply search filter
 	if s.SearchQuery == "" {
-		// Create a copy of Todos to avoid modifying the original when sorting
-		s.FilteredTodos = make([]TodoItem, len(s.Todos))
-		copy(s.FilteredTodos, s.Todos)
+		s.FilteredTodos = todos
 	} else {
 		s.FilteredTodos = []TodoItem{}
 		query := strings.ToLower(s.SearchQuery)
-		for _, todo := range s.Todos {
+		for _, todo := range todos {
 			if strings.Contains(strings.ToLower(todo.Text), query) {
 				s.FilteredTodos = append(s.FilteredTodos, todo)
 			}
 		}
 	}
 
+	// Update statistics
+	s.TotalCount = len(todos)
+	s.CompletedCount = 0
+	for _, todo := range todos {
+		if todo.Completed {
+			s.CompletedCount++
+		}
+	}
+	s.RemainingCount = s.TotalCount - s.CompletedCount
+
+	// Apply sorting and pagination
 	s.applySorting()
 	s.applyPagination()
+
+	return nil
+}
+
+func (s *TodoState) updateStats() {
+	// Stats are now calculated in loadTodos
+	// This is kept for backward compatibility but does nothing
+}
+
+func (s *TodoState) updateFilteredTodos() {
+	// Filtering is now done in loadTodos
+	// This is kept for backward compatibility but does nothing
 }
 
 func (s *TodoState) applySorting() {
@@ -254,16 +328,27 @@ func formatTime() string {
 func main() {
 	log.Println("LiveTemplate Todo App starting...")
 
+	// Initialize database
+	dbPath := GetDBPath()
+	queries, err := InitDB(dbPath)
+	if err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer CloseDB()
+
 	// Create initial state
 	state := &TodoState{
 		Title:       "Todo App",
-		Todos:       []TodoItem{},
+		Queries:     queries,
 		CurrentPage: 1,
 		PageSize:    3,
 		LastUpdated: formatTime(),
 	}
-	state.updateStats()
-	state.updateFilteredTodos()
+
+	// Load initial todos from database
+	if err := state.loadTodos(context.Background()); err != nil {
+		log.Fatalf("Failed to load initial todos: %v", err)
+	}
 
 	// Create template - auto-discovers todos.tmpl
 	tmpl := livetemplate.New("todos")
@@ -280,7 +365,7 @@ func main() {
 	}
 	log.Printf("Server starting on http://localhost:%s", port)
 
-	err := http.ListenAndServe(":"+port, nil)
+	err = http.ListenAndServe(":"+port, nil)
 	if err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}

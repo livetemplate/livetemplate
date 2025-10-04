@@ -26,8 +26,8 @@ func TestWebSocketBasic(t *testing.T) {
 	wsURL := fmt.Sprintf("ws://localhost:%s/", portStr)
 
 	// Start server on dynamic port
-	cmd := exec.Command("go", "run", "main.go")
-	cmd.Env = append([]string{"PORT=" + portStr}, cmd.Environ()...)
+	cmd := exec.Command("go", "run", "main.go", "db_manager.go")
+	cmd.Env = append([]string{"PORT=" + portStr, "TEST_MODE=1"}, cmd.Environ()...)
 
 	serverLogs := &bytes.Buffer{}
 	cmd.Stdout = serverLogs

@@ -213,6 +213,13 @@ type Store interface {
 	Change(ctx *ActionContext) error
 }
 
+// StoreInitializer is an optional interface that stores can implement
+// to perform initialization after being cloned for a new session.
+// This is useful for loading data from external sources like databases.
+type StoreInitializer interface {
+	Init() error
+}
+
 // Stores is a map of named stores
 type Stores map[string]Store
 

@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -28,13 +30,41 @@ func TestTodosE2E(t *testing.T) {
 		t.Fatalf("Failed to get free port for Chrome: %v", err)
 	}
 
-	// Start todo server
-	serverCmd := e2etest.StartTestServer(t, "main.go", serverPort)
+	// Start todo server with both main.go and db_manager.go
+	portStr := fmt.Sprintf("%d", serverPort)
+	serverURL := fmt.Sprintf("http://localhost:%d", serverPort)
+
+	t.Logf("Starting test server on port %s", portStr)
+	serverCmd := exec.Command("go", "run", "main.go", "db_manager.go")
+	serverCmd.Env = append([]string{"PORT=" + portStr, "TEST_MODE=1"}, serverCmd.Environ()...)
+
+	if err := serverCmd.Start(); err != nil {
+		t.Fatalf("Failed to start server: %v", err)
+	}
 	defer func() {
 		if serverCmd != nil && serverCmd.Process != nil {
 			serverCmd.Process.Kill()
 		}
 	}()
+
+	// Wait for server to be ready
+	ready := false
+	for i := 0; i < 50; i++ { // 5 seconds
+		resp, err := http.Get(serverURL)
+		if err == nil {
+			resp.Body.Close()
+			ready = true
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if !ready {
+		serverCmd.Process.Kill()
+		t.Fatal("Server failed to start within 5 seconds")
+	}
+
+	t.Logf("✅ Test server ready at %s", serverURL)
 
 	// Start Docker Chrome container
 	chromeCmd := e2etest.StartDockerChrome(t, debugPort)
