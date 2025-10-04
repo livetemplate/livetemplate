@@ -34,3 +34,4 @@ go.sum
 ehthumbs.db
 Thumbs.db
 client/dist
+*.db

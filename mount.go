@@ -469,6 +469,15 @@ func cloneStore(store Store) Store {
 	// Copy field values
 	copyStruct(newStore, store)
 
+	// Call Init() if the store implements StoreInitializer
+	if initializer, ok := newStore.(StoreInitializer); ok {
+		if err := initializer.Init(); err != nil {
+			// Log the error but don't fail - store is in a partially initialized state
+			// The error will be handled when the store is actually used
+			log.Printf("Warning: Store initialization failed: %v", err)
+		}
+	}
+
 	return newStore
 }
 
