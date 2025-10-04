@@ -1,0 +1,280 @@
+package user
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"math"
+	"net/http"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/go-playground/validator/v10"
+	"github.com/livefir/livetemplate"
+	"testmodule/internal/database/models"
+)
+
+var validate = validator.New()
+
+type UserItem = models.User
+
+type AddInput struct {
+	Name string `json:"name" validate:"required"`
+	Age int64 `json:"age" validate:"required"`
+}
+
+type UpdateInput struct {
+	ID string `json:"id" validate:"required"`
+	Name string `json:"name" validate:"required"`
+	Age int64 `json:"age" validate:"required"`
+}
+
+type DeleteInput struct {
+	ID string `json:"id" validate:"required"`
+}
+
+type SearchInput struct {
+	Query string `json:"query"`
+}
+
+type SortInput struct {
+	SortBy string `json:"sort_by"`
+}
+
+type PaginationInput struct {
+	Page int `json:"page" validate:"required,min=1"`
+}
+
+type UserState struct {
+	Title        string                `json:"title"`
+	Queries      *models.Queries       `json:"-"`
+	SearchQuery  string                `json:"search_query"`
+	SortBy       string                `json:"sort_by"`
+	FilteredUsers  []UserItem `json:"filtered_users"`
+	CurrentPage  int                   `json:"current_page"`
+	PageSize     int                   `json:"page_size"`
+	TotalPages   int                   `json:"total_pages"`
+	PaginatedUsers []UserItem `json:"paginated_users"`
+	TotalCount   int                   `json:"total_count"`
+	LastUpdated  string                `json:"last_updated"`
+}
+
+func (s *UserState) Change(ctx *livetemplate.ActionContext) error {
+	dbCtx := context.Background()
+
+	switch ctx.Action {
+	case "add":
+		var input AddInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+
+		now := time.Now()
+		id := fmt.Sprintf("user-%d", now.UnixNano())
+
+		_, err := s.Queries.CreateUser(dbCtx, models.CreateUserParams{
+			ID:        id,
+			Name: input.Name,
+			Age: input.Age,
+			CreatedAt: now,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create user: %w", err)
+		}
+
+		if err := s.loadUsers(dbCtx); err != nil {
+			return err
+		}
+
+	case "update":
+		var input UpdateInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+
+		err := s.Queries.UpdateUser(dbCtx, models.UpdateUserParams{
+			ID: input.ID,
+			Name: input.Name,
+			Age: input.Age,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to update user: %w", err)
+		}
+
+		if err := s.loadUsers(dbCtx); err != nil {
+			return err
+		}
+
+	case "delete":
+		var input DeleteInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+
+		err := s.Queries.DeleteUser(dbCtx, input.ID)
+		if err != nil {
+			return fmt.Errorf("failed to delete user: %w", err)
+		}
+
+		if err := s.loadUsers(dbCtx); err != nil {
+			return err
+		}
+
+	case "search":
+		var input SearchInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+		s.SearchQuery = input.Query
+
+		if err := s.loadUsers(dbCtx); err != nil {
+			return err
+		}
+
+	case "sort":
+		var input SortInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+		s.SortBy = input.SortBy
+
+		if err := s.loadUsers(dbCtx); err != nil {
+			return err
+		}
+
+	case "next_page":
+		if s.CurrentPage < s.TotalPages {
+			s.CurrentPage++
+		}
+		if err := s.loadUsers(dbCtx); err != nil {
+			return err
+		}
+
+	case "prev_page":
+		if s.CurrentPage > 1 {
+			s.CurrentPage--
+		}
+		if err := s.loadUsers(dbCtx); err != nil {
+			return err
+		}
+
+	case "goto_page":
+		var input PaginationInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+		if input.Page >= 1 && input.Page <= s.TotalPages {
+			s.CurrentPage = input.Page
+		}
+		if err := s.loadUsers(dbCtx); err != nil {
+			return err
+		}
+
+	default:
+		log.Printf("Unknown action: %s", ctx.Action)
+		return nil
+	}
+
+	s.LastUpdated = formatTime()
+	return nil
+}
+
+func (s *UserState) Init() error {
+	return s.loadUsers(context.Background())
+}
+
+func (s *UserState) loadUsers(ctx context.Context) error {
+	users, err := s.Queries.GetAllUsers(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to load users: %w", err)
+	}
+
+	if s.SearchQuery == "" {
+		s.FilteredUsers = users
+	} else {
+		s.FilteredUsers = []UserItem{}
+		query := strings.ToLower(s.SearchQuery)
+		for _, item := range users {
+			// Search across all text fields
+			if strings.Contains(strings.ToLower(item.Name), query) {
+				s.FilteredUsers = append(s.FilteredUsers, item)
+				continue
+			}
+		}
+	}
+
+	s.TotalCount = len(users)
+	s.applySorting()
+	s.applyPagination()
+
+	return nil
+}
+
+func (s *UserState) applySorting() {
+	switch s.SortBy {
+	case "name_asc":
+		sort.Slice(s.FilteredUsers, func(i, j int) bool {
+			return strings.ToLower(s.FilteredUsers[i].Name) < strings.ToLower(s.FilteredUsers[j].Name)
+		})
+	case "name_desc":
+		sort.Slice(s.FilteredUsers, func(i, j int) bool {
+			return strings.ToLower(s.FilteredUsers[i].Name) > strings.ToLower(s.FilteredUsers[j].Name)
+		})
+	case "oldest_first":
+		sort.Slice(s.FilteredUsers, func(i, j int) bool {
+			return s.FilteredUsers[i].CreatedAt.Before(s.FilteredUsers[j].CreatedAt)
+		})
+	default:
+		sort.Slice(s.FilteredUsers, func(i, j int) bool {
+			return s.FilteredUsers[i].CreatedAt.After(s.FilteredUsers[j].CreatedAt)
+		})
+	}
+}
+
+func (s *UserState) applyPagination() {
+	if len(s.FilteredUsers) == 0 {
+		s.TotalPages = 1
+		s.CurrentPage = 1
+		s.PaginatedUsers = []UserItem{}
+		return
+	}
+
+	s.TotalPages = int(math.Ceil(float64(len(s.FilteredUsers)) / float64(s.PageSize)))
+
+	if s.CurrentPage < 1 {
+		s.CurrentPage = 1
+	}
+	if s.CurrentPage > s.TotalPages {
+		s.CurrentPage = s.TotalPages
+	}
+
+	start := (s.CurrentPage - 1) * s.PageSize
+	end := start + s.PageSize
+	if end > len(s.FilteredUsers) {
+		end = len(s.FilteredUsers)
+	}
+
+	s.PaginatedUsers = s.FilteredUsers[start:end]
+}
+
+func formatTime() string {
+	return time.Now().Format("2006-01-02 15:04:05")
+}
+
+func Handler(queries *models.Queries) http.Handler {
+	state := &UserState{
+		Title:       "User Management",
+		Queries:     queries,
+		CurrentPage: 1,
+		PageSize:    10,
+		LastUpdated: formatTime(),
+	}
+
+	if err := state.Init(); err != nil {
+		log.Printf("Failed to initialize user state: %v", err)
+	}
+
+	tmpl := livetemplate.New("user")
+	return tmpl.Handle(state)
+}

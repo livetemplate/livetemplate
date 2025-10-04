@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css">
+  </head>
+  <body>
+    <section class="section">
+      <div class="container">
+        <h1 class="title">{{.Title}}</h1>
+
+        <!-- Add Form -->
+        <div class="box">
+          <h2 class="subtitle">Add New [[.ResourceName]]</h2>
+          <form lvt-submit="add">
+[[- range .Fields]]
+            <div class="field">
+              <label class="label">[[.Name | title]]</label>
+              <div class="control">
+[[- if eq .GoType "string"]]
+                <input class="input" type="text" name="[[.Name]]" placeholder="Enter [[.Name]]" required
+                  {{if .lvt.HasError "[[.Name]]"}}class="input is-danger"{{end}}>
+[[- else if eq .GoType "int64"]]
+                <input class="input" type="number" name="[[.Name]]" placeholder="Enter [[.Name]]" required
+                  {{if .lvt.HasError "[[.Name]]"}}class="input is-danger"{{end}}>
+[[- else if eq .GoType "bool"]]
+                <label class="checkbox">
+                  <input type="checkbox" name="[[.Name]]">
+                  [[.Name | title]]
+                </label>
+[[- else if eq .GoType "float64"]]
+                <input class="input" type="number" step="0.01" name="[[.Name]]" placeholder="Enter [[.Name]]" required
+                  {{if .lvt.HasError "[[.Name]]"}}class="input is-danger"{{end}}>
+[[- end]]
+              </div>
+              {{if .lvt.HasError "[[.Name]]"}}
+                <p class="help is-danger">{{.lvt.Error "[[.Name]]"}}</p>
+              {{end}}
+            </div>
+[[- end]]
+            <div class="field">
+              <div class="control">
+                <button class="button is-primary" type="submit" lvt-disable-with="Adding...">Add [[.ResourceName]]</button>
+              </div>
+            </div>
+          </form>
+        </div>
+
+        <!-- Statistics -->
+        <div class="box">
+          <p>Total: <strong>{{.TotalCount}}</strong></p>
+        </div>
+
+        <!-- Search -->
+        <div class="box">
+          <div class="field">
+            <label class="label">Search</label>
+            <div class="control">
+              <input class="input" type="search" name="query" placeholder="Search [[.ResourceNameLower]]s..."
+                value="{{.SearchQuery}}" lvt-change="search" lvt-debounce="300">
+            </div>
+          </div>
+        </div>
+
+        <!-- Sort -->
+        <div class="box">
+          <div class="field">
+            <label class="label">Sort by</label>
+            <div class="control">
+              <div class="select">
+                <select name="sort_by" lvt-change="sort">
+                  <option value="" {{if eq .SortBy ""}}selected{{end}}>Newest First</option>
+[[- range .Fields]]
+[[- if eq .GoType "string"]]
+                  <option value="[[.Name]]_asc" {{if eq .SortBy "[[.Name]]_asc"}}selected{{end}}>[[.Name | title]] (A-Z)</option>
+                  <option value="[[.Name]]_desc" {{if eq .SortBy "[[.Name]]_desc"}}selected{{end}}>[[.Name | title]] (Z-A)</option>
+[[- end]]
+[[- end]]
+                  <option value="oldest_first" {{if eq .SortBy "oldest_first"}}selected{{end}}>Oldest First</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Table -->
+        <div class="box">
+          <h2 class="subtitle">[[.ResourceName]]s</h2>
+          {{if gt (len .Paginated[[.ResourceName]]s) 0}}
+            <table class="table is-fullwidth is-striped">
+              <thead>
+                <tr>
+[[- range .Fields]]
+                  <th>[[.Name | title]]</th>
+[[- end]]
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{range .Paginated[[.ResourceName]]s}}
+                  <tr data-key="{{.ID}}">
+[[- range .Fields]]
+                    <td>
+[[- if eq .GoType "bool"]]
+                      {{if .[[.Name | title]]}}✓{{else}}✗{{end}}
+[[- else if eq .GoType "time.Time"]]
+                      {{.[[.Name | title]].Format "2006-01-02 15:04"}}
+[[- else]]
+                      {{.[[.Name | title]]}}
+[[- end]]
+                    </td>
+[[- end]]
+                    <td>
+                      <button class="button is-small is-danger" lvt-click="delete" lvt-data-id="{{.ID}}">
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                {{end}}
+              </tbody>
+            </table>
+          {{else}}
+            <p>
+              {{if ne .SearchQuery ""}}
+                No [[.ResourceNameLower]]s found matching "{{.SearchQuery}}"
+              {{else}}
+                No [[.ResourceNameLower]]s yet. Add one above!
+              {{end}}
+            </p>
+          {{end}}
+
+          <!-- Pagination -->
+          {{if gt .TotalPages 1}}
+            <nav class="pagination" role="navigation" aria-label="pagination">
+              <button class="pagination-previous button" lvt-click="prev_page" {{if eq .CurrentPage 1}}disabled{{end}}>
+                Previous
+              </button>
+              <button class="pagination-next button" lvt-click="next_page" {{if eq .CurrentPage .TotalPages}}disabled{{end}}>
+                Next
+              </button>
+              <div class="pagination-list">
+                <span class="pagination-link is-current">
+                  Page {{.CurrentPage}} of {{.TotalPages}}
+                </span>
+              </div>
+            </nav>
+          {{end}}
+        </div>
+
+        <footer class="box">
+          <p><small>Last updated: {{.LastUpdated}}</small></p>
+        </footer>
+      </div>
+    </section>
+
+    <script src="/livetemplate-client.js"></script>
+  </body>
+</html>

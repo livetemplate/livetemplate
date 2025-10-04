@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css">
+  </head>
+  <body>
+    <section class="section">
+      <div class="container">
+        <div class="box">
+          <h1 class="title">{{.Title}}</h1>
+
+          <!-- Add your content here -->
+          <div class="content">
+            <p>This is a view-only handler. Add your UI elements here.</p>
+          </div>
+
+          <footer>
+            <p><small>Last updated: {{.LastUpdated}}</small></p>
+          </footer>
+        </div>
+      </div>
+    </section>
+
+    <script src="/livetemplate-client.js"></script>
+  </body>
+</html>

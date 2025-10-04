@@ -1,0 +1,18 @@
+-- +goose Up
+-- +goose StatementBegin
+CREATE TABLE IF NOT EXISTS [[.TableName]] (
+  id TEXT PRIMARY KEY,
+[[- range .Fields]]
+  [[.Name]] [[.SQLType]] NOT NULL,
+[[- end]]
+  created_at DATETIME NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_[[.TableName]]_created_at ON [[.TableName]](created_at);
+-- +goose StatementEnd
+
+-- +goose Down
+-- +goose StatementBegin
+DROP INDEX IF EXISTS idx_[[.TableName]]_created_at;
+DROP TABLE IF EXISTS [[.TableName]];
+-- +goose StatementEnd

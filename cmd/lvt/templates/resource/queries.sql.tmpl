@@ -1,0 +1,22 @@
+-- name: GetAll{{.ResourceName}}s :many
+SELECT * FROM {{.TableName}}
+ORDER BY created_at DESC;
+
+-- name: Get{{.ResourceName}}ByID :one
+SELECT * FROM {{.TableName}}
+WHERE id = ?
+LIMIT 1;
+
+-- name: Create{{.ResourceName}} :one
+INSERT INTO {{.TableName}} (id{{range .Fields}}, {{.Name}}{{end}}, created_at)
+VALUES (?{{range .Fields}}, ?{{end}}, ?)
+RETURNING *;
+
+-- name: Update{{.ResourceName}} :exec
+UPDATE {{.TableName}}
+SET {{range $i, $f := .Fields}}{{if $i}}, {{end}}{{$f.Name}} = ?{{end}}
+WHERE id = ?;
+
+-- name: Delete{{.ResourceName}} :exec
+DELETE FROM {{.TableName}}
+WHERE id = ?;

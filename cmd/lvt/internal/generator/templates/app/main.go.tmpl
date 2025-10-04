@@ -1,0 +1,46 @@
+package main
+
+import (
+	"log"
+	"net/http"
+	"os"
+
+	"[[.ModuleName]]/internal/database"
+	e2etest "github.com/livefir/livetemplate/internal/testing"
+)
+
+func main() {
+	log.Println("[[.AppName]] starting...")
+
+	// Initialize database
+	dbPath := getDBPath()
+	queries, err := database.InitDB(dbPath)
+	if err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer database.CloseDB()
+
+	// Serve client library (development only - use CDN in production)
+	http.HandleFunc("/livetemplate-client.js", e2etest.ServeClientLibrary)
+
+	// TODO: Add routes here
+	// Example: http.Handle("/users", users.Handler(queries))
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	log.Printf("Server starting on http://localhost:%s", port)
+
+	err = http.ListenAndServe(":"+port, nil)
+	if err != nil {
+		log.Fatalf("Server failed to start: %v", err)
+	}
+}
+
+func getDBPath() string {
+	if os.Getenv("TEST_MODE") == "1" {
+		return ":memory:"
+	}
+	return "app.db"
+}

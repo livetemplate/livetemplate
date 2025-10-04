@@ -1,0 +1,41 @@
+package [[.PackageName]]
+
+import (
+	"log"
+	"net/http"
+	"time"
+
+	"github.com/livefir/livetemplate"
+)
+
+type [[.ViewName]]State struct {
+	Title       string `json:"title"`
+	LastUpdated string `json:"last_updated"`
+	// Add your state fields here
+}
+
+func (s *[[.ViewName]]State) Change(ctx *livetemplate.ActionContext) error {
+	switch ctx.Action {
+	// Add your actions here
+	default:
+		log.Printf("Unknown action: %s", ctx.Action)
+		return nil
+	}
+
+	s.LastUpdated = formatTime()
+	return nil
+}
+
+func formatTime() string {
+	return time.Now().Format("2006-01-02 15:04:05")
+}
+
+func Handler() http.Handler {
+	state := &[[.ViewName]]State{
+		Title:       "[[.ViewName]]",
+		LastUpdated: formatTime(),
+	}
+
+	tmpl := livetemplate.New("[[.ViewNameLower]]")
+	return tmpl.Handle(state)
+}
