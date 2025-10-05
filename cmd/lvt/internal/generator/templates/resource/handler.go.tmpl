@@ -21,14 +21,14 @@ type [[.ResourceName]]Item = models.[[.ResourceNameSingular]]
 
 type AddInput struct {
 [[- range .Fields]]
-	[[.Name | title]] [[.GoType]] `json:"[[.Name]]" validate:"required"`
+	[[.Name | camelCase]] [[.GoType]] `json:"[[.Name]]" validate:"required"`
 [[- end]]
 }
 
 type UpdateInput struct {
 	ID string `json:"id" validate:"required"`
 [[- range .Fields]]
-	[[.Name | title]] [[.GoType]] `json:"[[.Name]]" validate:"required"`
+	[[.Name | camelCase]] [[.GoType]] `json:"[[.Name]]" validate:"required"`
 [[- end]]
 }
 
@@ -78,7 +78,7 @@ func (s *[[.ResourceName]]State) Change(ctx *livetemplate.ActionContext) error {
 		_, err := s.Queries.Create[[.ResourceNameSingular]](dbCtx, models.Create[[.ResourceNameSingular]]Params{
 			ID:        id,
 [[- range .Fields]]
-			[[.Name | title]]: input.[[.Name | title]],
+			[[.Name | camelCase]]: input.[[.Name | camelCase]],
 [[- end]]
 			CreatedAt: now,
 		})
@@ -99,7 +99,7 @@ func (s *[[.ResourceName]]State) Change(ctx *livetemplate.ActionContext) error {
 		err := s.Queries.Update[[.ResourceNameSingular]](dbCtx, models.Update[[.ResourceNameSingular]]Params{
 			ID: input.ID,
 [[- range .Fields]]
-			[[.Name | title]]: input.[[.Name | title]],
+			[[.Name | camelCase]]: input.[[.Name | camelCase]],
 [[- end]]
 		})
 		if err != nil {
@@ -203,7 +203,7 @@ func (s *[[.ResourceName]]State) load[[.ResourceName]]s(ctx context.Context) err
 			// Search across all text fields
 [[- range .Fields]]
 [[- if eq .GoType "string"]]
-			if strings.Contains(strings.ToLower(item.[[.Name | title]]), query) {
+			if strings.Contains(strings.ToLower(item.[[.Name | camelCase]]), query) {
 				s.Filtered[[$.ResourceName]]s = append(s.Filtered[[$.ResourceName]]s, item)
 				continue
 			}
@@ -225,11 +225,11 @@ func (s *[[.ResourceName]]State) applySorting() {
 [[- if eq .GoType "string"]]
 	case "[[.Name]]_asc":
 		sort.Slice(s.Filtered[[$.ResourceName]]s, func(i, j int) bool {
-			return strings.ToLower(s.Filtered[[$.ResourceName]]s[i].[[.Name | title]]) < strings.ToLower(s.Filtered[[$.ResourceName]]s[j].[[.Name | title]])
+			return strings.ToLower(s.Filtered[[$.ResourceName]]s[i].[[.Name | camelCase]]) < strings.ToLower(s.Filtered[[$.ResourceName]]s[j].[[.Name | camelCase]])
 		})
 	case "[[.Name]]_desc":
 		sort.Slice(s.Filtered[[$.ResourceName]]s, func(i, j int) bool {
-			return strings.ToLower(s.Filtered[[$.ResourceName]]s[i].[[.Name | title]]) > strings.ToLower(s.Filtered[[$.ResourceName]]s[j].[[.Name | title]])
+			return strings.ToLower(s.Filtered[[$.ResourceName]]s[i].[[.Name | camelCase]]) > strings.ToLower(s.Filtered[[$.ResourceName]]s[j].[[.Name | camelCase]])
 		})
 [[- end]]
 [[- end]]

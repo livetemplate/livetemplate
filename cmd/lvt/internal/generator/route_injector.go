@@ -33,10 +33,15 @@ func InjectRoute(mainGoPath string, route RouteInfo) error {
 		return fmt.Errorf("failed to read main.go: %w", err)
 	}
 
-	// Check if route already exists (check for the route pattern)
+	// Check if route already exists (check for the route pattern, but ignore comments)
 	routePattern := fmt.Sprintf(`http.Handle("%s", %s)`, route.Path, route.HandlerCall)
 	for _, line := range lines {
-		if strings.Contains(line, routePattern) {
+		trimmedLine := strings.TrimSpace(line)
+		// Skip comments
+		if strings.HasPrefix(trimmedLine, "//") {
+			continue
+		}
+		if trimmedLine == routePattern || strings.Contains(line, routePattern) {
 			// Route already exists, don't add again
 			return nil
 		}
@@ -46,15 +51,26 @@ func InjectRoute(mainGoPath string, route RouteInfo) error {
 	importLine := fmt.Sprintf(`	"%s"`, route.ImportPath)
 	importExists := false
 	importInsertIndex := -1
+	inImportBlock := false
 
 	for i, line := range lines {
-		// Check if import exists (check if line contains the import path)
-		if strings.Contains(line, `"`+route.ImportPath+`"`) {
+		trimmed := strings.TrimSpace(line)
+
+		// Track if we're in an import block
+		if strings.HasPrefix(trimmed, "import (") {
+			inImportBlock = true
+		}
+		if inImportBlock && trimmed == ")" {
+			inImportBlock = false
+		}
+
+		// Check if import exists (only within import block)
+		if inImportBlock && strings.Contains(line, `"`+route.ImportPath+`"`) {
 			importExists = true
 		}
 
-		// Find where to insert import (after internal/database import)
-		if strings.Contains(line, "/internal/database") {
+		// Find where to insert import (after internal/database import, within import block)
+		if inImportBlock && strings.Contains(line, "/internal/database\"") {
 			importInsertIndex = i + 1
 		}
 	}
@@ -62,6 +78,19 @@ func InjectRoute(mainGoPath string, route RouteInfo) error {
 	if !importExists && importInsertIndex != -1 {
 		// Insert import
 		lines = insertLine(lines, importInsertIndex, importLine)
+	} else if !importExists {
+		// Fallback: if no /internal/database import found, add at end of import block
+		for i, line := range lines {
+			if strings.TrimSpace(line) == ")" && i > 0 {
+				// Check if previous lines are imports
+				prevLine := strings.TrimSpace(lines[i-1])
+				if strings.Contains(prevLine, `"`) || strings.Contains(prevLine, "import") {
+					// Insert before the )
+					lines = insertLine(lines, i, importLine)
+					break
+				}
+			}
+		}
 	}
 
 	// Find where to insert route (after TODO comment or before port := line)

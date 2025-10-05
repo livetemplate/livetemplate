@@ -192,7 +192,10 @@ func (m genViewModel) renderContent() string {
 func (m genViewModel) generateView() tea.Msg {
 	viewNameLower := strings.ToLower(m.viewName)
 
-	if err := generator.GenerateView(m.basePath, m.moduleName, viewNameLower); err != nil {
+	// Use default CSS framework for now (TODO: add interactive selection)
+	cssFramework := "tailwind"
+
+	if err := generator.GenerateView(m.basePath, m.moduleName, viewNameLower, cssFramework); err != nil {
 		m.err = err
 		m.stage = 0
 		return m

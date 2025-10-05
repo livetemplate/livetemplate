@@ -26,14 +26,18 @@ func Migration(args []string) error {
 		if err := runner.Up(); err != nil {
 			return err
 		}
-		fmt.Println("✅ All migrations applied successfully!")
+		fmt.Println("✅ Migrations complete!")
+		fmt.Println()
+		fmt.Println("Next steps:")
+		fmt.Println("  go mod tidy              # Resolve dependencies")
+		fmt.Println("  go run cmd/*/main.go     # Run your app")
 
 	case "down":
 		fmt.Println("Rolling back last migration...")
 		if err := runner.Down(); err != nil {
 			return err
 		}
-		fmt.Println("✅ Migration rolled back successfully!")
+		fmt.Println("✅ Rollback complete!")
 
 	case "status":
 		fmt.Println("Migration status:")

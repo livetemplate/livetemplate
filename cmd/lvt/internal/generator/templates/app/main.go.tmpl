@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"[[.ModuleName]]/internal/database"
-	e2etest "github.com/livefir/livetemplate/internal/testing"
 )
 
 func main() {
@@ -19,9 +18,6 @@ func main() {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 	defer database.CloseDB()
-
-	// Serve client library (development only - use CDN in production)
-	http.HandleFunc("/livetemplate-client.js", e2etest.ServeClientLibrary)
 
 	// TODO: Add routes here
 	// Example: http.Handle("/users", users.Handler(queries))

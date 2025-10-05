@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 )
 
 const (
-	defaultDBPath        = "internal/database/db.sqlite"
+	defaultDBPath        = "app.db"
 	defaultMigrationsDir = "internal/database/migrations"
 	migrationsTableName  = "goose_db_version"
 )
@@ -63,19 +64,33 @@ func (r *Runner) Close() error {
 	return nil
 }
 
-// Up runs all pending migrations
+// Up runs all pending migrations and regenerates sqlc code
 func (r *Runner) Up() error {
 	if err := goose.Up(r.db, r.migrationsDir); err != nil {
 		return fmt.Errorf("migration up failed: %w", err)
 	}
+
+	// Run sqlc generate after successful migration
+	if err := r.runSqlcGenerate(); err != nil {
+		fmt.Printf("⚠️  Warning: sqlc generate failed: %v\n", err)
+		fmt.Println("   You can run it manually: cd internal/database && sqlc generate")
+	}
+
 	return nil
 }
 
-// Down rolls back the most recent migration
+// Down rolls back the most recent migration and regenerates sqlc code
 func (r *Runner) Down() error {
 	if err := goose.Down(r.db, r.migrationsDir); err != nil {
 		return fmt.Errorf("migration down failed: %w", err)
 	}
+
+	// Run sqlc generate after successful rollback
+	if err := r.runSqlcGenerate(); err != nil {
+		fmt.Printf("⚠️  Warning: sqlc generate failed: %v\n", err)
+		fmt.Println("   You can run it manually: cd internal/database && sqlc generate")
+	}
+
 	return nil
 }
 
@@ -145,10 +160,16 @@ func findMigrationsDir() (string, error) {
 	return "", fmt.Errorf("migrations directory not found (looking for %s)", defaultMigrationsDir)
 }
 
-// findDatabasePath locates the SQLite database file
+// findDatabasePath locates the SQLite database file and creates it if it doesn't exist
 func findDatabasePath() (string, error) {
 	// Try current directory first
 	if _, err := os.Stat(defaultDBPath); err == nil {
+		return defaultDBPath, nil
+	} else if os.IsNotExist(err) {
+		// Create the database file if it doesn't exist
+		if err := createEmptyDB(defaultDBPath); err != nil {
+			return "", fmt.Errorf("failed to create database: %w", err)
+		}
 		return defaultDBPath, nil
 	}
 
@@ -162,16 +183,62 @@ func findDatabasePath() (string, error) {
 		checkPath := filepath.Join(currentDir, defaultDBPath)
 		if _, err := os.Stat(checkPath); err == nil {
 			return checkPath, nil
+		} else if os.IsNotExist(err) && currentDir == "." {
+			// Create in current directory
+			if err := createEmptyDB(checkPath); err != nil {
+				return "", fmt.Errorf("failed to create database: %w", err)
+			}
+			return checkPath, nil
 		}
 
 		// Move up one directory
 		parent := filepath.Dir(currentDir)
 		if parent == currentDir {
-			// Reached root
-			break
+			// Reached root - create in original location
+			if err := createEmptyDB(defaultDBPath); err != nil {
+				return "", fmt.Errorf("failed to create database: %w", err)
+			}
+			return defaultDBPath, nil
 		}
 		currentDir = parent
 	}
+}
 
-	return "", fmt.Errorf("database file not found (looking for %s)", defaultDBPath)
+// createEmptyDB creates an empty SQLite database file
+func createEmptyDB(path string) error {
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	// Ping to ensure the file is created
+	if err := db.Ping(); err != nil {
+		return err
+	}
+
+	fmt.Printf("Created database: %s\n", path)
+	return nil
+}
+
+// runSqlcGenerate runs sqlc generate in the database directory
+func (r *Runner) runSqlcGenerate() error {
+	// Find the internal/database directory
+	dbDir := filepath.Dir(r.migrationsDir) // migrations is inside database
+
+	fmt.Println("Generating database code with sqlc...")
+
+	// Run sqlc generate
+	cmd := exec.Command("go", "run", "github.com/sqlc-dev/sqlc/cmd/sqlc", "generate")
+	cmd.Dir = dbDir
+	cmd.Env = append(os.Environ(), "GOWORK=off") // Disable workspace mode for nested modules
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("sqlc generate failed: %w", err)
+	}
+
+	fmt.Println("✅ Database code generated successfully!")
+	return nil
 }

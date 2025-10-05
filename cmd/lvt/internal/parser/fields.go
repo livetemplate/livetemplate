@@ -6,10 +6,13 @@ import (
 )
 
 type Field struct {
-	Name    string
-	Type    string
-	GoType  string
-	SQLType string
+	Name            string
+	Type            string
+	GoType          string
+	SQLType         string
+	IsReference     bool
+	ReferencedTable string
+	OnDelete        string // CASCADE, SET NULL, RESTRICT, etc.
 }
 
 // ParseFields parses field definitions in the format "name:type name2:type2"
@@ -41,19 +44,59 @@ func ParseFields(args []string) ([]Field, error) {
 			return nil, fmt.Errorf("field '%s': %w", name, err)
 		}
 
-		fields = append(fields, Field{
+		// Parse reference metadata if it's a reference type
+		field := Field{
 			Name:    name,
 			Type:    typ,
 			GoType:  goType,
 			SQLType: sqlType,
-		})
+		}
+
+		if strings.HasPrefix(strings.ToLower(typ), "references:") {
+			// Parse: references:table_name[:on_delete_action]
+			parts := strings.Split(typ, ":")
+			if len(parts) < 2 {
+				return nil, fmt.Errorf("field '%s': invalid references syntax, expected 'references:table_name'", name)
+			}
+
+			field.IsReference = true
+			field.ReferencedTable = parts[1]
+
+			// Default to CASCADE
+			field.OnDelete = "CASCADE"
+
+			// Check for custom on_delete action
+			if len(parts) > 2 {
+				action := strings.ToUpper(parts[2])
+				switch action {
+				case "CASCADE", "SET NULL", "RESTRICT", "NO ACTION", "SET_NULL":
+					if action == "SET_NULL" {
+						action = "SET NULL"
+					}
+					field.OnDelete = action
+				default:
+					return nil, fmt.Errorf("field '%s': invalid ON DELETE action '%s' (supported: CASCADE, SET_NULL, RESTRICT, NO_ACTION)", name, parts[2])
+				}
+			}
+		}
+
+		fields = append(fields, field)
 	}
 
 	return fields, nil
 }
 
 // MapType maps a user-provided type to Go and SQL types
+// Also handles references syntax: references:table_name[:on_delete_action]
 func MapType(typ string) (goType, sqlType string, err error) {
+	// Check if it's a reference type
+	if strings.HasPrefix(strings.ToLower(typ), "references:") {
+		// Format: references:table_name[:on_delete_action]
+		// We return TEXT type to match our primary key type
+		// The reference metadata is handled separately
+		return "string", "TEXT", nil
+	}
+
 	switch strings.ToLower(typ) {
 	case "string", "str", "text":
 		return "string", "TEXT", nil
@@ -66,7 +109,7 @@ func MapType(typ string) (goType, sqlType string, err error) {
 	case "time", "datetime", "timestamp":
 		return "time.Time", "DATETIME", nil
 	default:
-		return "", "", fmt.Errorf("unsupported type '%s' (supported: string, int, bool, float, time)", typ)
+		return "", "", fmt.Errorf("unsupported type '%s' (supported: string, int, bool, float, time, references:table)", typ)
 	}
 }
 

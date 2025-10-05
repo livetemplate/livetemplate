@@ -20,6 +20,11 @@ go build -o lvt ./cmd/lvt
 
 You can use `lvt` in two modes: **Interactive** (TUI wizards) or **Direct** (CLI arguments).
 
+**Important:** Create apps **outside** of existing Go module directories. If you create an app inside another Go module (e.g., for testing), you'll need to use `GOWORK=off` when running commands:
+```bash
+GOWORK=off go run cmd/myapp/main.go
+```
+
 ### Interactive Mode (Recommended for New Users)
 
 ```bash
@@ -66,13 +71,16 @@ This generates:
 - `internal/app/users/users_test.go` - Chromedp E2E tests
 - Database schema and queries (appended)
 
-### 3. Generate Database Code
+### 3. Run Migrations
 
 ```bash
-cd internal/database
-go run github.com/sqlc-dev/sqlc/cmd/sqlc generate
-cd ../..
+lvt migration up  # Runs pending migrations and auto-generates database code
 ```
+
+This automatically:
+- Applies pending database migrations
+- Runs `sqlc generate` to create Go database code
+- Updates your query interfaces
 
 ### 4. Wire Up Routes
 
@@ -92,6 +100,239 @@ go run cmd/myapp/main.go
 ```
 
 Open http://localhost:8080/users
+
+## Tutorial: Building a Blog System
+
+Let's build a complete blog system with posts, comments, and categories to demonstrate lvt's capabilities.
+
+### Step 1: Create the Blog App
+
+```bash
+lvt new myblog
+cd myblog
+```
+
+This creates your project structure with database setup, main.go, and configuration. Dependencies are automatically installed via `go get ./...`.
+
+### Step 2: Generate Resources
+
+```bash
+lvt gen posts title content:string published:bool
+lvt gen categories name description
+lvt gen comments post_id:references:posts author text
+```
+
+This generates for each resource:
+- ✅ `internal/app/{resource}/{resource}.go` - CRUD handler with LiveTemplate integration
+- ✅ `internal/app/{resource}/{resource}.tmpl` - Component-based template with Tailwind CSS
+- ✅ `internal/app/{resource}/{resource}_test.go` - E2E tests with chromedp
+- ✅ Database migration file with unique timestamps
+- ✅ SQL queries appended to `internal/database/queries.sql`
+
+For the `comments` resource with `post_id:references:posts`:
+- ✅ Creates `post_id` field as TEXT (matching posts.id type)
+- ✅ Adds foreign key constraint: `FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE`
+- ✅ Creates index on `post_id` for query performance
+- ✅ No manual migration needed!
+
+### Step 3: Run Migrations
+
+```bash
+lvt migration up
+```
+
+This command:
+- ✅ Runs all pending database migrations
+- ✅ Automatically generates Go database code with sqlc
+- ✅ Creates type-safe query interfaces
+
+You'll see output like:
+```
+Running pending migrations...
+OK   20240315120000_create_posts.sql
+OK   20240315120001_create_categories.sql
+OK   20240315120002_create_comments.sql
+Generating database code with sqlc...
+✅ Database code generated successfully!
+✅ Migrations complete!
+```
+
+### Step 4: Resolve Dependencies
+
+```bash
+go mod tidy
+```
+
+This resolves all internal package imports created by the generated code. Required before running the app.
+
+### Step 5: Wire Up Routes
+
+The routes are auto-injected, but verify in `cmd/myblog/main.go`:
+
+```go
+import (
+    "myblog/internal/app/posts"
+    "myblog/internal/app/categories"
+    "myblog/internal/app/comments"
+)
+
+func main() {
+    // ... database setup ...
+
+    // Routes (auto-injected)
+    http.Handle("/posts", posts.Handler(queries))
+    http.Handle("/categories", categories.Handler(queries))
+    http.Handle("/comments", comments.Handler(queries))
+
+    // Start server
+    http.ListenAndServe(":8080", nil)
+}
+```
+
+### Step 6: Run the Blog
+
+```bash
+go run cmd/myblog/main.go
+```
+
+Visit:
+- http://localhost:8080/posts - Create and manage blog posts
+- http://localhost:8080/categories - Organize posts by category
+- http://localhost:8080/comments - View all comments
+
+**Note:** Visiting http://localhost:8080/ will show a 404 since no root handler exists. You can add a homepage next.
+
+### Step 7: Add a Custom View for the Homepage (Optional)
+
+```bash
+lvt gen view home
+go mod tidy
+go run cmd/myblog/main.go
+```
+
+This creates a view-only handler (no database operations). Edit `internal/app/home/home.tmpl` to create your landing page, then visit http://localhost:8080/home.
+
+### Step 8: Test the Application
+
+```bash
+# Run all tests (E2E + WebSocket)
+go test ./...
+
+# Run specific resource tests
+go test ./internal/app/posts -v
+```
+
+### Customization Ideas
+
+**1. Switch CSS Framework:**
+```bash
+# Generate with Bulma
+lvt gen tags name --css bulma
+
+# Generate with Pico (semantic/classless)
+lvt gen authors name bio --css pico
+
+# Generate without CSS
+lvt gen drafts title --css none
+```
+
+**2. Use Type Inference:**
+```bash
+# Field types are inferred from names
+lvt gen articles title content published_at author email price
+
+# Infers: title=string, content=string, published_at=time,
+#         author=string, email=string, price=float
+```
+
+**3. Create Custom Templates:**
+```bash
+# Copy templates to customize
+lvt template copy all
+
+# Edit templates in .lvt/templates/
+# Your customizations apply to all new resources
+```
+
+**4. Define Relationships with `references`:**
+```bash
+# Basic reference (ON DELETE CASCADE - default)
+lvt gen comments post_id:references:posts author text
+
+# Custom ON DELETE behavior
+lvt gen audit_logs user_id:references:users:set_null action:string
+  # Makes user_id nullable, sets NULL when user deleted
+
+# Multiple references
+lvt gen likes user_id:references:users post_id:references:posts
+
+# Restrict deletion (prevent deleting parent if children exist)
+lvt gen invoices customer_id:references:customers:restrict amount:float
+```
+
+**5. Add More Features:**
+```bash
+# Tags for posts
+lvt gen tags name color:string
+
+# Post-tag relationship (many-to-many with references)
+lvt gen post_tags post_id:references:posts tag_id:references:tags
+
+# User accounts
+lvt gen users username email password_hash:string
+
+# Post reactions with proper relationships
+lvt gen reactions post_id:references:posts user_id:references:users type:string
+```
+
+### Project Structure
+
+After completing the tutorial, your project looks like:
+
+```
+myblog/
+├── cmd/myblog/main.go
+├── internal/
+│   ├── app/
+│   │   ├── posts/
+│   │   │   ├── posts.go
+│   │   │   ├── posts.tmpl
+│   │   │   ├── posts_test.go
+│   │   │   └── posts_ws_test.go
+│   │   ├── categories/
+│   │   ├── comments/
+│   │   └── home/
+│   └── database/
+│       ├── db.go
+│       ├── migrations/
+│       │   ├── 20240315120000_create_posts.sql
+│       │   ├── 20240315120001_create_categories.sql
+│       │   └── ...
+│       ├── queries.sql
+│       └── models/          # Generated by sqlc
+│           ├── db.go
+│           ├── models.go
+│           └── queries.sql.go
+└── go.mod
+```
+
+### Next Steps
+
+1. **Add Authentication** - Integrate session management
+2. **Rich Text Editor** - Add markdown or WYSIWYG editor to post content
+3. **Image Uploads** - Add image upload functionality
+4. **Search** - Implement full-text search across posts
+5. **RSS Feed** - Generate RSS feed from posts
+6. **Admin Dashboard** - Create `lvt gen view admin`
+7. **API Endpoints** - Add JSON API alongside HTML views
+
+### Tips
+
+- **Start simple** - Begin with core resources, add features incrementally
+- **Use migrations** - Always use `lvt migration create` for schema changes
+- **Test continuously** - Run `go test ./...` after each change
+- **Customize templates** - Copy and modify templates to match your design
+- **Component mode** - Use `--mode single` for SPA-style applications
 
 ## Commands
 
@@ -370,9 +611,9 @@ Generated `go.mod` includes:
 //go:tool github.com/sqlc-dev/sqlc/cmd/sqlc
 ```
 
-Run sqlc via:
+Run migrations (automatically runs sqlc):
 ```bash
-go run github.com/sqlc-dev/sqlc/cmd/sqlc generate
+lvt migration up
 ```
 
 ## CSS Framework
@@ -394,7 +635,7 @@ Components used:
 
 1. **Create app:** `lvt new myapp`
 2. **Generate resources:** `lvt gen users name:string email:string`
-3. **Generate DB code:** `cd internal/database && go run github.com/sqlc-dev/sqlc/cmd/sqlc generate`
+3. **Run migrations:** `lvt migration up` (auto-generates DB code)
 4. **Wire routes** in `main.go`
 5. **Run tests:** `go test ./...`
 6. **Run app:** `go run cmd/myapp/main.go`
@@ -413,10 +654,8 @@ lvt gen posts title:string content:string published:bool
 # Generate comments resource
 lvt gen comments post_id:string author:string text:string
 
-# Generate DB code
-cd internal/database
-go run github.com/sqlc-dev/sqlc/cmd/sqlc generate
-cd ../..
+# Run migrations (auto-generates DB code)
+lvt migration up
 
 # Run
 go run cmd/myblog/main.go
@@ -432,7 +671,7 @@ lvt gen products name:string price:float stock:int
 lvt gen customers name:string email:string
 lvt gen orders customer_id:string total:float
 
-cd internal/database && go run github.com/sqlc-dev/sqlc/cmd/sqlc generate && cd ../..
+lvt migration up  # Runs migrations and generates DB code
 go run cmd/mystore/main.go
 ```
 
@@ -519,7 +758,16 @@ go test ./cmd/lvt -v
   - [x] User-wide templates in `~/.config/lvt/templates/`
   - [x] Selective override (only customize what you need)
   - [x] Zero breaking changes (~250 lines total)
-- [ ] Multiple CSS frameworks
+- [x] ~~Multiple CSS frameworks~~ ✅ Complete
+  - [x] Tailwind CSS v4 (default)
+  - [x] Bulma 1.0.4
+  - [x] Pico CSS v2
+  - [x] None (pure HTML)
+  - [x] `--css` flag for CLI: `lvt gen users name email --css bulma`
+  - [x] 57 CSS helper functions for framework abstraction
+  - [x] Conditional template rendering (single source of truth)
+  - [x] Semantic HTML support for Pico CSS (<main>, <article>)
+  - [x] Zero breaking changes (~550 lines total)
 - [ ] GraphQL support
 
 ## Contributing

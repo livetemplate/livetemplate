@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -283,7 +284,7 @@ func (m newAppModel) renderContent() string {
 				"Next steps:\n" +
 				fmt.Sprintf("  1. cd %s\n", m.appName) +
 				"  2. lvt gen users name:string email:string\n" +
-				"  3. cd internal/database && go run github.com/sqlc-dev/sqlc/cmd/sqlc generate && cd ../..\n" +
+				"  3. lvt migration up\n" +
 				fmt.Sprintf("  4. go run cmd/%s/main.go", m.appName),
 		))
 		b.WriteString("\n\n")
@@ -294,7 +295,7 @@ func (m newAppModel) renderContent() string {
 }
 
 func (m newAppModel) generateApp() tea.Msg {
-	if err := generator.GenerateApp(m.appName); err != nil {
+	if err := generator.GenerateApp(m.appName, m.appName); err != nil {
 		m.err = err
 		m.stage = 0
 		m.focusIndex = 0
@@ -302,6 +303,11 @@ func (m newAppModel) generateApp() tea.Msg {
 		m.inputs[1].Blur()
 		return m
 	}
+
+	// Install dependencies
+	cmd := exec.Command("go", "mod", "tidy")
+	cmd.Dir = m.appName
+	_ = cmd.Run() // Silently install, errors are not critical
 
 	m.stage = 3
 	return m

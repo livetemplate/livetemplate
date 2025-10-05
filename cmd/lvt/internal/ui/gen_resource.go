@@ -19,9 +19,11 @@ type fieldEntry struct {
 
 type genResourceModel struct {
 	textInput       textinput.Model
-	stage           int // 0: resource name, 1: add fields, 2: confirm, 3: generating, 4: success
+	stage           int // 0: resource name, 1: add fields, 2: CSS framework, 3: confirm, 4: generating, 5: success
 	resourceName    string
 	fields          []fieldEntry
+	cssFramework    string
+	cssCursor       int // cursor position for CSS framework selection
 	moduleName      string
 	basePath        string
 	err             error
@@ -324,8 +326,8 @@ func (m genResourceModel) renderContent() string {
 		content += "Route auto-injected:\n"
 		content += fmt.Sprintf("  http.Handle(\"/%s\", %s.Handler(queries))\n\n", resourceNameLower, resourceNameLower)
 		content += "Next steps:\n"
-		content += "  1. Generate database code:\n"
-		content += "     cd internal/database && go run github.com/sqlc-dev/sqlc/cmd/sqlc generate && cd ../..\n"
+		content += "  1. Run migration:\n"
+		content += "     lvt migration up\n"
 		content += "  2. Run your app"
 
 		b.WriteString(BoxStyle.Render(content))
@@ -348,7 +350,16 @@ func (m genResourceModel) generateResource() tea.Msg {
 		}
 	}
 
-	if err := generator.GenerateResource(m.basePath, m.moduleName, resourceNameLower, fields); err != nil {
+	// Use default CSS framework for now (TODO: add interactive selection)
+	cssFramework := "tailwind"
+	if m.cssFramework != "" {
+		cssFramework = m.cssFramework
+	}
+
+	// Use default app mode (multi-page)
+	appMode := "multi"
+
+	if err := generator.GenerateResource(m.basePath, m.moduleName, resourceNameLower, fields, cssFramework, appMode); err != nil {
 		m.err = err
 		m.stage = 1
 		return m

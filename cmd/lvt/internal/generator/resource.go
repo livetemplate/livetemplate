@@ -12,7 +12,15 @@ import (
 	"github.com/livefir/livetemplate/cmd/lvt/internal/parser"
 )
 
-func GenerateResource(basePath, moduleName, resourceName string, fields []parser.Field) error {
+func GenerateResource(basePath, moduleName, resourceName string, fields []parser.Field, cssFramework, appMode string) error {
+	// Defaults
+	if cssFramework == "" {
+		cssFramework = "tailwind"
+	}
+	if appMode == "" {
+		appMode = "multi"
+	}
+
 	// Capitalize resource name and derive singular/plural forms
 	resourceNameLower := strings.ToLower(resourceName)
 	resourceName = strings.Title(resourceNameLower)
@@ -27,9 +35,12 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 	var fieldData []FieldData
 	for _, f := range fields {
 		fieldData = append(fieldData, FieldData{
-			Name:    f.Name,
-			GoType:  f.GoType,
-			SQLType: f.SQLType,
+			Name:            f.Name,
+			GoType:          f.GoType,
+			SQLType:         f.SQLType,
+			IsReference:     f.IsReference,
+			ReferencedTable: f.ReferencedTable,
+			OnDelete:        f.OnDelete,
 		})
 	}
 
@@ -42,6 +53,7 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 		ResourceNamePlural:   resourceNamePluralCap,
 		TableName:            tableName,
 		Fields:               fieldData,
+		CSSFramework:         cssFramework,
 	}
 
 	// Create resource directory
@@ -59,9 +71,53 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 		return fmt.Errorf("failed to read handler template: %w", err)
 	}
 
-	templateTmpl, err := loader.Load("resource/template.tmpl.tmpl")
-	if err != nil {
-		return fmt.Errorf("failed to read template template: %w", err)
+	// Load main template based on mode
+	var templateTmpl []byte
+	if appMode == "multi" {
+		// Load component-based template for multi-page apps
+		// Need to concatenate all component templates with main template
+		components := []string{
+			"components/layout.tmpl",
+			"components/form.tmpl",
+			"components/table.tmpl",
+			"components/pagination.tmpl",
+			"components/search.tmpl",
+			"components/stats.tmpl",
+			"components/sort.tmpl",
+			"resource/template_components.tmpl.tmpl",
+		}
+
+		var fullTemplate string
+		for _, comp := range components {
+			compTmpl, err := loader.Load(comp)
+			if err != nil {
+				return fmt.Errorf("failed to load component %s: %w", comp, err)
+			}
+			fullTemplate += string(compTmpl) + "\n\n"
+		}
+		templateTmpl = []byte(fullTemplate)
+	} else {
+		// Single mode - just component definitions (no layout)
+		// Components can be composed into a single-page app layout
+		components := []string{
+			"components/form.tmpl",
+			"components/table.tmpl",
+			"components/pagination.tmpl",
+			"components/search.tmpl",
+			"components/stats.tmpl",
+			"components/sort.tmpl",
+			"resource/template_components_single.tmpl.tmpl",
+		}
+
+		var fullTemplate string
+		for _, comp := range components {
+			compTmpl, err := loader.Load(comp)
+			if err != nil {
+				return fmt.Errorf("failed to load component %s: %w", comp, err)
+			}
+			fullTemplate += string(compTmpl) + "\n\n"
+		}
+		templateTmpl = []byte(fullTemplate)
 	}
 
 	queriesTmpl, err := loader.Load("resource/queries.sql.tmpl")
@@ -69,19 +125,19 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 		return fmt.Errorf("failed to read queries template: %w", err)
 	}
 
-	wsTestTmpl, err := loader.Load("resource/ws_test.go.tmpl")
+	testTmpl, err := loader.Load("resource/test.go.tmpl")
 	if err != nil {
-		return fmt.Errorf("failed to read ws_test template: %w", err)
-	}
-
-	e2eTestTmpl, err := loader.Load("resource/e2e_test.go.tmpl")
-	if err != nil {
-		return fmt.Errorf("failed to read e2e_test template: %w", err)
+		return fmt.Errorf("failed to read test template: %w", err)
 	}
 
 	migrationTmpl, err := loader.Load("resource/migration.sql.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read migration template: %w", err)
+	}
+
+	schemaTmpl, err := loader.Load("resource/schema.sql.tmpl")
+	if err != nil {
+		return fmt.Errorf("failed to read schema template: %w", err)
 	}
 
 	// Generate handler
@@ -101,11 +157,32 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 		return fmt.Errorf("failed to create migrations directory: %w", err)
 	}
 
-	timestamp := time.Now().Format("20060102150405")
-	migrationFilename := fmt.Sprintf("%s_create_%s.sql", timestamp, tableName)
-	migrationPath := filepath.Join(migrationsDir, migrationFilename)
+	// Generate unique timestamp for migration
+	// Check if file exists and increment timestamp if needed to avoid conflicts
+	timestamp := time.Now()
+	migrationFilename := ""
+	migrationPath := ""
+	for {
+		timestampStr := timestamp.Format("20060102150405")
+		migrationFilename = fmt.Sprintf("%s_create_%s.sql", timestampStr, tableName)
+		migrationPath = filepath.Join(migrationsDir, migrationFilename)
+
+		// Check if any migration file exists with this timestamp prefix
+		matches, _ := filepath.Glob(filepath.Join(migrationsDir, timestampStr+"_*.sql"))
+		if len(matches) == 0 {
+			break
+		}
+
+		// Increment by 1 second and try again
+		timestamp = timestamp.Add(1 * time.Second)
+	}
 	if err := generateFile(string(migrationTmpl), data, migrationPath); err != nil {
 		return fmt.Errorf("failed to generate migration: %w", err)
+	}
+
+	// Also append to schema.sql for sqlc
+	if err := appendToFile(string(schemaTmpl), data, filepath.Join(dbDir, "schema.sql"), "\n"); err != nil {
+		return fmt.Errorf("failed to append to schema: %w", err)
 	}
 
 	// Append to queries.sql
@@ -113,14 +190,9 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 		return fmt.Errorf("failed to append to queries: %w", err)
 	}
 
-	// Generate WebSocket test
-	if err := generateFile(string(wsTestTmpl), data, filepath.Join(resourceDir, resourceNameLower+"_ws_test.go")); err != nil {
-		return fmt.Errorf("failed to generate ws_test: %w", err)
-	}
-
-	// Generate E2E test
-	if err := generateFile(string(e2eTestTmpl), data, filepath.Join(resourceDir, resourceNameLower+"_test.go")); err != nil {
-		return fmt.Errorf("failed to generate e2e_test: %w", err)
+	// Generate consolidated test file (E2E + WebSocket)
+	if err := generateFile(string(testTmpl), data, filepath.Join(resourceDir, resourceNameLower+"_test.go")); err != nil {
+		return fmt.Errorf("failed to generate test: %w", err)
 	}
 
 	// Inject route into main.go
@@ -144,8 +216,17 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 }
 
 func generateFile(tmplStr string, data interface{}, outPath string) error {
+	// Merge base funcMap with CSS helpers
+	funcs := make(template.FuncMap)
+	for k, v := range funcMap {
+		funcs[k] = v
+	}
+	for k, v := range CSSHelpers() {
+		funcs[k] = v
+	}
+
 	// Use custom delimiters to avoid conflicts with Go template syntax in the generated files
-	tmpl, err := template.New("template").Delims("[[", "]]").Funcs(funcMap).Parse(tmplStr)
+	tmpl, err := template.New("template").Delims("[[", "]]").Funcs(funcs).Parse(tmplStr)
 	if err != nil {
 		return fmt.Errorf("failed to parse template: %w", err)
 	}

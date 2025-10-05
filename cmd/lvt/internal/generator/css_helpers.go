@@ -1,6 +1,9 @@
 package generator
 
-import "text/template"
+import (
+	"fmt"
+	"text/template"
+)
 
 // CSSHelpers returns template functions for CSS framework selection
 func CSSHelpers() template.FuncMap {
@@ -330,6 +333,97 @@ func CSSHelpers() template.FuncMap {
 		// Check if framework needs article tags (Pico)
 		"needsArticle": func(framework string) bool {
 			return framework == "pico"
+		},
+
+		// Select element styling
+		"selectClass": func(framework string) string {
+			switch framework {
+			case "tailwind":
+				return "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+			case "bulma":
+				return "" // Bulma uses wrapper div.select
+			default:
+				return ""
+			}
+		},
+
+		// Error state styling
+		"errorClass": func(framework string) string {
+			switch framework {
+			case "tailwind":
+				return "border-red-500"
+			case "bulma":
+				return "is-danger"
+			default:
+				return ""
+			}
+		},
+
+		// Table wrapper for overflow
+		"needsTableWrapper": func(framework string) bool {
+			return framework == "tailwind"
+		},
+
+		"tableWrapperClass": func(framework string) string {
+			switch framework {
+			case "tailwind":
+				return "overflow-x-auto"
+			default:
+				return ""
+			}
+		},
+
+		// Pagination button styling
+		"paginationButtonClass": func(framework string) string {
+			switch framework {
+			case "tailwind":
+				return "px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+			case "bulma":
+				return "button"
+			default:
+				return ""
+			}
+		},
+
+		// Pagination info container
+		"paginationInfoClass": func(framework string) string {
+			switch framework {
+			case "tailwind":
+				return "flex items-center justify-center"
+			case "bulma":
+				return "pagination-list"
+			default:
+				return ""
+			}
+		},
+
+		// Pagination current page indicator
+		"paginationCurrentClass": func(framework string) string {
+			switch framework {
+			case "tailwind":
+				return "px-4 py-2"
+			case "bulma":
+				return "pagination-link is-current"
+			default:
+				return ""
+			}
+		},
+
+		// dict creates a map for passing multiple values to nested templates
+		// Usage: {{template "formField" (dict "Field" . "CSS" $.CSSFramework)}}
+		"dict": func(values ...interface{}) (map[string]interface{}, error) {
+			if len(values)%2 != 0 {
+				return nil, fmt.Errorf("dict requires even number of arguments (key-value pairs)")
+			}
+			m := make(map[string]interface{}, len(values)/2)
+			for i := 0; i < len(values); i += 2 {
+				key, ok := values[i].(string)
+				if !ok {
+					return nil, fmt.Errorf("dict keys must be strings")
+				}
+				m[key] = values[i+1]
+			}
+			return m, nil
 		},
 	}
 }

@@ -15,7 +15,12 @@ type ViewData struct {
 	CSSFramework  string // CSS framework: "tailwind", "bulma", "pico", "none"
 }
 
-func GenerateView(basePath, moduleName, viewName string) error {
+func GenerateView(basePath, moduleName, viewName string, cssFramework string) error {
+	// Default to tailwind if not specified
+	if cssFramework == "" {
+		cssFramework = "tailwind"
+	}
+
 	// Ensure view name is capitalized
 	viewName = strings.Title(viewName)
 	viewNameLower := strings.ToLower(viewName)
@@ -25,6 +30,7 @@ func GenerateView(basePath, moduleName, viewName string) error {
 		ModuleName:    moduleName,
 		ViewName:      viewName,
 		ViewNameLower: viewNameLower,
+		CSSFramework:  cssFramework,
 	}
 
 	// Create view directory
@@ -47,14 +53,9 @@ func GenerateView(basePath, moduleName, viewName string) error {
 		return fmt.Errorf("failed to read template template: %w", err)
 	}
 
-	wsTestTmpl, err := loader.Load("view/ws_test.go.tmpl")
+	testTmpl, err := loader.Load("view/test.go.tmpl")
 	if err != nil {
-		return fmt.Errorf("failed to read ws_test template: %w", err)
-	}
-
-	e2eTestTmpl, err := loader.Load("view/e2e_test.go.tmpl")
-	if err != nil {
-		return fmt.Errorf("failed to read e2e_test template: %w", err)
+		return fmt.Errorf("failed to read test template: %w", err)
 	}
 
 	// Generate handler
@@ -67,14 +68,9 @@ func GenerateView(basePath, moduleName, viewName string) error {
 		return fmt.Errorf("failed to generate template: %w", err)
 	}
 
-	// Generate WebSocket test
-	if err := generateFile(string(wsTestTmpl), data, filepath.Join(viewDir, viewNameLower+"_ws_test.go")); err != nil {
-		return fmt.Errorf("failed to generate ws_test: %w", err)
-	}
-
-	// Generate E2E test
-	if err := generateFile(string(e2eTestTmpl), data, filepath.Join(viewDir, viewNameLower+"_test.go")); err != nil {
-		return fmt.Errorf("failed to generate e2e_test: %w", err)
+	// Generate consolidated test file (E2E + WebSocket)
+	if err := generateFile(string(testTmpl), data, filepath.Join(viewDir, viewNameLower+"_test.go")); err != nil {
+		return fmt.Errorf("failed to generate test: %w", err)
 	}
 
 	// Inject route into main.go

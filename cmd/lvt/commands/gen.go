@@ -19,11 +19,43 @@ func Gen(args []string) error {
 		return GenView(args[1:])
 	}
 
-	resourceName := args[0]
-	fieldArgs := args[1:]
+	// Parse flags
+	cssFramework := "tailwind" // default
+	appMode := "multi"         // default
+	var filteredArgs []string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--css" && i+1 < len(args) {
+			cssFramework = args[i+1]
+			i++ // skip next arg
+		} else if args[i] == "--mode" && i+1 < len(args) {
+			appMode = args[i+1]
+			i++ // skip next arg
+		} else {
+			filteredArgs = append(filteredArgs, args[i])
+		}
+	}
+
+	if len(filteredArgs) < 1 {
+		return fmt.Errorf("resource name required")
+	}
+
+	resourceName := filteredArgs[0]
+	fieldArgs := filteredArgs[1:]
 
 	if len(fieldArgs) == 0 {
 		return fmt.Errorf("at least one field required (format: name:type)")
+	}
+
+	// Validate CSS framework
+	validFrameworks := map[string]bool{"tailwind": true, "bulma": true, "pico": true, "none": true}
+	if !validFrameworks[cssFramework] {
+		return fmt.Errorf("invalid CSS framework: %s (valid: tailwind, bulma, pico, none)", cssFramework)
+	}
+
+	// Validate app mode
+	validModes := map[string]bool{"multi": true, "single": true}
+	if !validModes[appMode] {
+		return fmt.Errorf("invalid mode: %s (valid: multi, single)", appMode)
 	}
 
 	// Parse fields with type inference support
@@ -45,6 +77,7 @@ func Gen(args []string) error {
 	}
 
 	fmt.Printf("Generating CRUD resource: %s\n", resourceName)
+	fmt.Printf("CSS Framework: %s\n", cssFramework)
 	fmt.Printf("Fields: ")
 	for i, f := range fields {
 		if i > 0 {
@@ -54,7 +87,7 @@ func Gen(args []string) error {
 	}
 	fmt.Println()
 
-	if err := generator.GenerateResource(basePath, moduleName, resourceName, fields); err != nil {
+	if err := generator.GenerateResource(basePath, moduleName, resourceName, fields, cssFramework, appMode); err != nil {
 		return err
 	}
 
@@ -71,15 +104,13 @@ func Gen(args []string) error {
 	fmt.Println("  internal/database/schema.sql")
 	fmt.Println("  internal/database/queries.sql")
 	fmt.Println()
+	fmt.Println("Route auto-injected:")
+	fmt.Printf("  http.Handle(\"/%s\", %s.Handler(queries))\n", resourceNameLower, resourceNameLower)
+	fmt.Println()
 	fmt.Println("Next steps:")
-	fmt.Println("  1. Run sqlc to generate database code:")
-	fmt.Println("     cd internal/database && go run github.com/sqlc-dev/sqlc/cmd/sqlc generate && cd ../..")
-	fmt.Println()
-	fmt.Println("  2. Add route to cmd/*/main.go:")
-	fmt.Printf("     http.Handle(\"/%s\", %s.Handler(queries))\n", resourceNameLower, resourceNameLower)
-	fmt.Println()
-	fmt.Println("  3. Add import in main.go:")
-	fmt.Printf("     \"%s/internal/app/%s\"\n", moduleName, resourceNameLower)
+	fmt.Println("  1. Run migration:")
+	fmt.Println("     lvt migration up")
+	fmt.Println("  2. Run your app")
 	fmt.Println()
 
 	return nil
@@ -90,7 +121,29 @@ func GenView(args []string) error {
 		return fmt.Errorf("view name required")
 	}
 
-	viewName := args[0]
+	// Parse --css flag
+	cssFramework := "tailwind" // default
+	var filteredArgs []string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--css" && i+1 < len(args) {
+			cssFramework = args[i+1]
+			i++ // skip next arg
+		} else {
+			filteredArgs = append(filteredArgs, args[i])
+		}
+	}
+
+	if len(filteredArgs) < 1 {
+		return fmt.Errorf("view name required")
+	}
+
+	// Validate CSS framework
+	validFrameworks := map[string]bool{"tailwind": true, "bulma": true, "pico": true, "none": true}
+	if !validFrameworks[cssFramework] {
+		return fmt.Errorf("invalid CSS framework: %s (valid: tailwind, bulma, pico, none)", cssFramework)
+	}
+
+	viewName := filteredArgs[0]
 
 	// Get module name from go.mod
 	moduleName, err := getModuleName()
@@ -105,8 +158,9 @@ func GenView(args []string) error {
 	}
 
 	fmt.Printf("Generating view-only handler: %s\n", viewName)
+	fmt.Printf("CSS Framework: %s\n", cssFramework)
 
-	if err := generator.GenerateView(basePath, moduleName, viewName); err != nil {
+	if err := generator.GenerateView(basePath, moduleName, viewName, cssFramework); err != nil {
 		return err
 	}
 
@@ -118,18 +172,15 @@ func GenView(args []string) error {
 	fmt.Println("Files created:")
 	fmt.Printf("  internal/app/%s/%s.go\n", viewNameLower, viewNameLower)
 	fmt.Printf("  internal/app/%s/%s.tmpl\n", viewNameLower, viewNameLower)
-	fmt.Printf("  internal/app/%s/%s_ws_test.go\n", viewNameLower, viewNameLower)
 	fmt.Printf("  internal/app/%s/%s_test.go\n", viewNameLower, viewNameLower)
 	fmt.Println()
+	fmt.Println("Route auto-injected:")
+	fmt.Printf("  http.Handle(\"/%s\", %s.Handler())\n", viewNameLower, viewNameLower)
+	fmt.Println()
 	fmt.Println("Next steps:")
-	fmt.Println("  1. Add route to cmd/*/main.go:")
-	fmt.Printf("     http.Handle(\"/%s\", %s.Handler())\n", viewNameLower, viewNameLower)
-	fmt.Println()
-	fmt.Println("  2. Add import in main.go:")
-	fmt.Printf("     \"%s/internal/app/%s\"\n", moduleName, viewNameLower)
-	fmt.Println()
-	fmt.Println("  3. Customize the handler in:")
-	fmt.Printf("     internal/app/%s/%s.go\n", viewNameLower, viewNameLower)
+	fmt.Printf("  1. Customize handler: internal/app/%s/%s.go\n", viewNameLower, viewNameLower)
+	fmt.Printf("  2. Edit template: internal/app/%s/%s.tmpl\n", viewNameLower, viewNameLower)
+	fmt.Println("  3. Run your app")
 	fmt.Println()
 
 	return nil
@@ -163,12 +214,41 @@ func parseFieldsWithInference(fieldArgs []string) ([]parser.Field, error) {
 			return nil, fmt.Errorf("field '%s': %w", name, err)
 		}
 
-		fields = append(fields, parser.Field{
+		// Create field with reference metadata
+		field := parser.Field{
 			Name:    name,
 			Type:    typ,
 			GoType:  goType,
 			SQLType: sqlType,
-		})
+		}
+
+		// Parse reference metadata if it's a reference type
+		if strings.HasPrefix(strings.ToLower(typ), "references:") {
+			parts := strings.Split(typ, ":")
+			if len(parts) < 2 {
+				return nil, fmt.Errorf("field '%s': invalid references syntax, expected 'references:table_name'", name)
+			}
+
+			field.IsReference = true
+			field.ReferencedTable = parts[1]
+			field.OnDelete = "CASCADE" // Default
+
+			// Check for custom on_delete action
+			if len(parts) > 2 {
+				action := strings.ToUpper(parts[2])
+				switch action {
+				case "CASCADE", "SET NULL", "RESTRICT", "NO ACTION", "SET_NULL":
+					if action == "SET_NULL" {
+						action = "SET NULL"
+					}
+					field.OnDelete = action
+				default:
+					return nil, fmt.Errorf("field '%s': invalid ON DELETE action '%s'", name, parts[2])
+				}
+			}
+		}
+
+		fields = append(fields, field)
 	}
 
 	return fields, nil

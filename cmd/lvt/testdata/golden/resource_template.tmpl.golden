@@ -1,147 +1,194 @@
+{{define "layout"}}
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>{{.Title}}</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css">
+    {{block "head" .}}
+      <title>{{.Title}}</title>
+      <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    {{end}}
   </head>
   <body>
-    <section class="section">
-      <div class="container">
-        <h1 class="title">{{.Title}}</h1>
-
-        <!-- Add Form -->
-        <div class="box">
-          <h2 class="subtitle">Add New Post</h2>
-          <form lvt-submit="add">
-            <div class="field">
-              <label class="label">Title</label>
-              <div class="control">
-                <input class="input" type="text" name="title" placeholder="Enter title" required
-                  {{if .lvt.HasError "title"}}class="input is-danger"{{end}}>
-              </div>
-              {{if .lvt.HasError "title"}}
-                <p class="help is-danger">{{.lvt.Error "title"}}</p>
-              {{end}}
-            </div>
-            <div class="field">
-              <label class="label">Published</label>
-              <div class="control">
-                <label class="checkbox">
-                  <input type="checkbox" name="published">
-                  Published
-                </label>
-              </div>
-              {{if .lvt.HasError "published"}}
-                <p class="help is-danger">{{.lvt.Error "published"}}</p>
-              {{end}}
-            </div>
-            <div class="field">
-              <div class="control">
-                <button class="button is-primary" type="submit" lvt-disable-with="Adding...">Add Post</button>
-              </div>
-            </div>
-          </form>
-        </div>
-
-        <!-- Statistics -->
-        <div class="box">
-          <p>Total: <strong>{{.TotalCount}}</strong></p>
-        </div>
-
-        <!-- Search -->
-        <div class="box">
-          <div class="field">
-            <label class="label">Search</label>
-            <div class="control">
-              <input class="input" type="search" name="query" placeholder="Search posts..."
-                value="{{.SearchQuery}}" lvt-change="search" lvt-debounce="300">
-            </div>
-          </div>
-        </div>
-
-        <!-- Sort -->
-        <div class="box">
-          <div class="field">
-            <label class="label">Sort by</label>
-            <div class="control">
-              <div class="select">
-                <select name="sort_by" lvt-change="sort">
-                  <option value="" {{if eq .SortBy ""}}selected{{end}}>Newest First</option>
-                  <option value="title_asc" {{if eq .SortBy "title_asc"}}selected{{end}}>Title (A-Z)</option>
-                  <option value="title_desc" {{if eq .SortBy "title_desc"}}selected{{end}}>Title (Z-A)</option>
-                  <option value="oldest_first" {{if eq .SortBy "oldest_first"}}selected{{end}}>Oldest First</option>
-                </select>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Table -->
-        <div class="box">
-          <h2 class="subtitle">Posts</h2>
-          {{if gt (len .PaginatedPosts) 0}}
-            <table class="table is-fullwidth is-striped">
-              <thead>
-                <tr>
-                  <th>Title</th>
-                  <th>Published</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {{range .PaginatedPosts}}
-                  <tr data-key="{{.ID}}">
-                    <td>
-                      {{.Title}}
-                    </td>
-                    <td>
-                      {{if .Published}}✓{{else}}✗{{end}}
-                    </td>
-                    <td>
-                      <button class="button is-small is-danger" lvt-click="delete" lvt-data-id="{{.ID}}">
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                {{end}}
-              </tbody>
-            </table>
-          {{else}}
-            <p>
-              {{if ne .SearchQuery ""}}
-                No posts found matching "{{.SearchQuery}}"
-              {{else}}
-                No posts yet. Add one above!
-              {{end}}
-            </p>
-          {{end}}
-
-          <!-- Pagination -->
-          {{if gt .TotalPages 1}}
-            <nav class="pagination" role="navigation" aria-label="pagination">
-              <button class="pagination-previous button" lvt-click="prev_page" {{if eq .CurrentPage 1}}disabled{{end}}>
-                Previous
-              </button>
-              <button class="pagination-next button" lvt-click="next_page" {{if eq .CurrentPage .TotalPages}}disabled{{end}}>
-                Next
-              </button>
-              <div class="pagination-list">
-                <span class="pagination-link is-current">
-                  Page {{.CurrentPage}} of {{.TotalPages}}
-                </span>
-              </div>
-            </nav>
-          {{end}}
-        </div>
-
-        <footer class="box">
-          <p><small>Last updated: {{.LastUpdated}}</small></p>
-        </footer>
-      </div>
-    </section>
-
-    <script src="/livetemplate-client.js"></script>
+    <div class="max-w-7xl mx-auto px-4 py-8">
+      {{block "content" .}}{{end}}
+    </div>
+    {{block "scripts" .}}
+      <script src="https://unpkg.com/@livefir/livetemplate-client@0.1/dist/livetemplate-client.browser.js"></script>
+    {{end}}
   </body>
 </html>
+{{end}}
+
+
+{{/* Form wrapper component */}}
+{{define "formBox"}}
+<div class="bg-white shadow rounded-lg p-6 mb-6">
+  {{block "formContent" .}}{{end}}
+</div>
+{{end}}
+
+{{/* Add form for resource */}}
+{{define "addForm"}}
+  <h2 class="text-xl font-semibold text-gray-700 mb-4">Add New Post</h2>
+  <form lvt-submit="add">
+    <div class="mb-4">
+      <label class="block text-sm font-medium text-gray-700 mb-2">Title</label>
+      <input class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" type="text" name="title" placeholder="Enter title" required>
+    </div>
+    <div class="mb-4">
+      <label class="block text-sm font-medium text-gray-700 mb-2">Published</label>
+      <label class="flex items-center">
+        <input type="checkbox" name="published">
+        Published
+      </label>
+    </div>
+    <div class="mb-4">
+      <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" type="submit" lvt-disable-with="Adding...">Add Post</button>
+    </div>
+  </form>
+{{end}}
+
+
+{{/* Table wrapper component */}}
+{{define "tableBox"}}
+<div class="bg-white shadow rounded-lg p-6 mb-6">
+  {{block "tableContent" .}}{{end}}
+</div>
+{{end}}
+
+{{/* Resource table with data */}}
+{{define "resourceTable"}}
+  <h2 class="text-xl font-semibold text-gray-700 mb-4">Posts</h2>
+  {{if gt (len .PaginatedPosts) 0}}
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>Published</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .PaginatedPosts}}
+            <tr data-key="{{.ID}}">
+              <td>
+                {{.Title}}
+              </td>
+              <td>
+                {{if .Published}}✓{{else}}✗{{end}}
+              </td>
+              <td>
+                <button class="bg-red-600 text-white px-2 py-1 text-sm rounded hover:bg-red-700" lvt-click="delete" lvt-data-id="{{.ID}}">
+                  Delete
+                </button>
+              </td>
+            </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  {{else}}
+    <p>
+      {{if ne .SearchQuery ""}}
+        No posts found matching "{{.SearchQuery}}"
+      {{else}}
+        No posts yet. Add one above!
+      {{end}}
+    </p>
+  {{end}}
+{{end}}
+
+
+{{/* Pagination controls */}}
+{{define "pagination"}}
+  {{if gt .TotalPages 1}}
+    <nav class="flex justify-between items-center mt-4" role="navigation" aria-label="pagination">
+      <button class="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" lvt-click="prev_page" {{if eq .CurrentPage 1}}disabled{{end}}>
+        Previous
+      </button>
+      <button class="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" lvt-click="next_page" {{if eq .CurrentPage .TotalPages}}disabled{{end}}>
+        Next
+      </button>
+      <div class="flex items-center justify-center">
+        <span class="px-4 py-2">
+          Page {{.CurrentPage}} of {{.TotalPages}}
+        </span>
+      </div>
+    </nav>
+  {{end}}
+{{end}}
+
+
+{{/* Search box component */}}
+{{define "searchBox"}}
+<div class="bg-white shadow rounded-lg p-6 mb-6">
+  <div class="mb-4">
+    <label class="block text-sm font-medium text-gray-700 mb-2">Search</label>
+    <input class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" type="search" name="query" placeholder="Search posts..." value="{{.SearchQuery}}" lvt-change="search" lvt-debounce="300">
+  </div>
+</div>
+{{end}}
+
+
+{{/* Statistics display component */}}
+{{define "stats"}}
+<div class="bg-white shadow rounded-lg p-6 mb-6">
+  <p>Total: <strong>{{.TotalCount}}</strong></p>
+</div>
+{{end}}
+
+
+{{/* Sort dropdown component */}}
+{{define "sortBox"}}
+<div class="bg-white shadow rounded-lg p-6 mb-6">
+  <div class="mb-4">
+    <label class="block text-sm font-medium text-gray-700 mb-2">Sort by</label>
+      <select class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" name="sort_by" lvt-change="sort">
+        <option value="" {{if eq .SortBy ""}}selected{{end}}>Newest First</option>
+        <option value="title_asc" {{if eq .SortBy "title_asc"}}selected{{end}}>Title (A-Z)</option>
+        <option value="title_desc" {{if eq .SortBy "title_desc"}}selected{{end}}>Title (Z-A)</option>
+        <option value="oldest_first" {{if eq .SortBy "oldest_first"}}selected{{end}}>Oldest First</option>
+      </select>
+  </div>
+</div>
+{{end}}
+
+
+{{template "layout" .}}
+
+{{define "content"}}
+  <h1 class="text-3xl font-bold text-gray-900 mb-6">{{.Title}}</h1>
+
+  <!-- Add Form -->
+  {{template "formBox" .}}
+
+  <!-- Statistics -->
+  {{template "stats" .}}
+
+  <!-- Search -->
+  {{template "searchBox" .}}
+
+  <!-- Sort -->
+  {{template "sortBox" .}}
+
+  <!-- Table -->
+  {{template "tableBox" .}}
+
+  <!-- Footer -->
+  <footer class="bg-white shadow rounded-lg p-6 mb-6">
+    <p><small>Last updated: {{.LastUpdated}}</small></p>
+  </footer>
+{{end}}
+
+{{define "formContent"}}
+  {{template "addForm" .}}
+{{end}}
+
+{{define "tableContent"}}
+  {{template "resourceTable" .}}
+  {{template "pagination" .}}
+{{end}}
+
+

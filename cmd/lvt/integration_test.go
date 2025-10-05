@@ -27,12 +27,12 @@ func TestGeneratedCodeSyntax(t *testing.T) {
 		{Name: "email", Type: "string", GoType: "string", SQLType: "TEXT"},
 	}
 
-	if err := generator.GenerateResource(tmpDir, "testmodule", "User", fields); err != nil {
+	if err := generator.GenerateResource(tmpDir, "testmodule", "User", fields, "tailwind", "multi"); err != nil {
 		t.Fatalf("Failed to generate resource: %v", err)
 	}
 
 	// Generate view
-	if err := generator.GenerateView(tmpDir, "testmodule", "Counter"); err != nil {
+	if err := generator.GenerateView(tmpDir, "testmodule", "Counter", "tailwind"); err != nil {
 		t.Fatalf("Failed to generate view: %v", err)
 	}
 
@@ -66,7 +66,7 @@ func TestGeneratedFilesExist(t *testing.T) {
 		t.Fatalf("Failed to change directory: %v", err)
 	}
 
-	if err := generator.GenerateApp("testapp"); err != nil {
+	if err := generator.GenerateApp("testapp", "testapp"); err != nil {
 		t.Fatalf("Failed to generate app: %v", err)
 	}
 
@@ -95,7 +95,7 @@ func TestGeneratedFilesExist(t *testing.T) {
 		{Name: "title", Type: "string", GoType: "string", SQLType: "TEXT"},
 	}
 
-	if err := generator.GenerateResource(appDir, "testapp", "Post", fields); err != nil {
+	if err := generator.GenerateResource(appDir, "testapp", "Post", fields, "tailwind", "multi"); err != nil {
 		t.Fatalf("Failed to generate resource: %v", err)
 	}
 
@@ -103,7 +103,6 @@ func TestGeneratedFilesExist(t *testing.T) {
 	expectedResourceFiles := []string{
 		"internal/app/post/post.go",
 		"internal/app/post/post.tmpl",
-		"internal/app/post/post_ws_test.go",
 		"internal/app/post/post_test.go",
 	}
 
@@ -115,7 +114,7 @@ func TestGeneratedFilesExist(t *testing.T) {
 	}
 
 	// Generate view
-	if err := generator.GenerateView(appDir, "testapp", "Dashboard"); err != nil {
+	if err := generator.GenerateView(appDir, "testapp", "Dashboard", "tailwind"); err != nil {
 		t.Fatalf("Failed to generate view: %v", err)
 	}
 
@@ -123,7 +122,6 @@ func TestGeneratedFilesExist(t *testing.T) {
 	expectedViewFiles := []string{
 		"internal/app/dashboard/dashboard.go",
 		"internal/app/dashboard/dashboard.tmpl",
-		"internal/app/dashboard/dashboard_ws_test.go",
 		"internal/app/dashboard/dashboard_test.go",
 	}
 
@@ -135,4 +133,108 @@ func TestGeneratedFilesExist(t *testing.T) {
 	}
 
 	t.Log("✅ All expected files generated")
+}
+
+// TestForeignKeyGeneration validates that foreign keys are properly generated
+func TestForeignKeyGeneration(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create database directory structure
+	dbDir := filepath.Join(tmpDir, "internal", "database", "migrations")
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		t.Fatalf("Failed to create database directory: %v", err)
+	}
+
+	// Generate parent resource (posts)
+	parentFields := []parser.Field{
+		{Name: "title", Type: "string", GoType: "string", SQLType: "TEXT"},
+		{Name: "content", Type: "string", GoType: "string", SQLType: "TEXT"},
+	}
+
+	if err := generator.GenerateResource(tmpDir, "testmodule", "Post", parentFields, "tailwind", "multi"); err != nil {
+		t.Fatalf("Failed to generate parent resource: %v", err)
+	}
+
+	// Generate child resource with foreign key
+	childFields := []parser.Field{
+		{
+			Name:            "post_id",
+			Type:            "references:posts",
+			GoType:          "string",
+			SQLType:         "TEXT",
+			IsReference:     true,
+			ReferencedTable: "posts",
+			OnDelete:        "CASCADE",
+		},
+		{Name: "author", Type: "string", GoType: "string", SQLType: "TEXT"},
+		{Name: "text", Type: "string", GoType: "string", SQLType: "TEXT"},
+	}
+
+	if err := generator.GenerateResource(tmpDir, "testmodule", "Comment", childFields, "tailwind", "multi"); err != nil {
+		t.Fatalf("Failed to generate child resource: %v", err)
+	}
+
+	// Read the generated migration file for comments
+	migrationsDir := filepath.Join(tmpDir, "internal", "database", "migrations")
+	entries, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		t.Fatalf("Failed to read migrations directory: %v", err)
+	}
+
+	var commentsMigration string
+	for _, entry := range entries {
+		if strings.Contains(entry.Name(), "comments") {
+			data, err := os.ReadFile(filepath.Join(migrationsDir, entry.Name()))
+			if err != nil {
+				t.Fatalf("Failed to read migration file: %v", err)
+			}
+			commentsMigration = string(data)
+			break
+		}
+	}
+
+	if commentsMigration == "" {
+		t.Fatal("Comments migration file not found")
+	}
+
+	// Validate that foreign key is defined inline (not using ALTER TABLE)
+	if strings.Contains(commentsMigration, "ALTER TABLE") && strings.Contains(commentsMigration, "ADD CONSTRAINT") {
+		t.Errorf("Migration uses ALTER TABLE ADD CONSTRAINT which is not supported in SQLite")
+	}
+
+	// Validate that inline FOREIGN KEY definition exists
+	if !strings.Contains(commentsMigration, "FOREIGN KEY") {
+		t.Errorf("Migration missing FOREIGN KEY definition")
+	}
+
+	// Validate that FOREIGN KEY references the correct table
+	if !strings.Contains(commentsMigration, "REFERENCES posts(id)") {
+		t.Errorf("FOREIGN KEY does not reference posts(id)")
+	}
+
+	// Validate ON DELETE CASCADE
+	if !strings.Contains(commentsMigration, "ON DELETE CASCADE") {
+		t.Errorf("FOREIGN KEY missing ON DELETE CASCADE")
+	}
+
+	// Validate that index is created for foreign key column
+	if !strings.Contains(commentsMigration, "idx_comments_post_id") {
+		t.Errorf("Index not created for foreign key column post_id")
+	}
+
+	// Check schema.sql as well
+	schemaPath := filepath.Join(tmpDir, "internal", "database", "schema.sql")
+	schemaData, err := os.ReadFile(schemaPath)
+	if err != nil {
+		t.Fatalf("Failed to read schema.sql: %v", err)
+	}
+	schema := string(schemaData)
+
+	// Validate schema also has inline FOREIGN KEY
+	if !strings.Contains(schema, "FOREIGN KEY (post_id) REFERENCES posts(id)") {
+		t.Errorf("schema.sql missing inline FOREIGN KEY definition")
+	}
+
+	t.Log("✅ Foreign key generation test passed")
+	t.Logf("Migration content:\n%s", commentsMigration)
 }

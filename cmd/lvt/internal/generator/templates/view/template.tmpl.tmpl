@@ -4,26 +4,42 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{{.Title}}</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css">
+    [[csscdn .CSSFramework]]
   </head>
   <body>
-    <section class="section">
-      <div class="container">
-        <div class="box">
-          <h1 class="title">{{.Title}}</h1>
+[[- if needsWrapper .CSSFramework]]
+    <main[[if ne (containerClass .CSSFramework) ""]] class="[[containerClass .CSSFramework]]"[[end]]>
+[[- else]]
+    <div[[if ne (containerClass .CSSFramework) ""]] class="[[containerClass .CSSFramework]]"[[end]]>
+[[- end]]
+[[- if needsArticle .CSSFramework]]
+      <article>
+[[- else if ne (boxClass .CSSFramework) ""]]
+      <div class="[[boxClass .CSSFramework]]">
+[[- else]]
+      <div>
+[[- end]]
+        <h1[[if ne (titleClass .CSSFramework) ""]] class="[[titleClass .CSSFramework]]"[[end]]>{{.Title}}</h1>
 
-          <!-- Add your content here -->
-          <div class="content">
-            <p>This is a view-only handler. Add your UI elements here.</p>
-          </div>
-
-          <footer>
-            <p><small>Last updated: {{.LastUpdated}}</small></p>
-          </footer>
+        <!-- Add your content here -->
+        <div>
+          <p>This is a view-only handler. Add your UI elements here.</p>
         </div>
-      </div>
-    </section>
 
-    <script src="/livetemplate-client.js"></script>
+        <footer>
+          <p><small>Last updated: {{.LastUpdated}}</small></p>
+        </footer>
+[[- if needsArticle .CSSFramework]]
+      </article>
+[[- else]]
+      </div>
+[[- end]]
+[[- if needsWrapper .CSSFramework]]
+    </main>
+[[- else]]
+    </div>
+[[- end]]
+
+    <script src="https://unpkg.com/@livefir/livetemplate-client@0.1/dist/livetemplate-client.browser.js"></script>
   </body>
 </html>

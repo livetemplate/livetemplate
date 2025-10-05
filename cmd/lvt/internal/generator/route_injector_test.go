@@ -85,6 +85,9 @@ func getDBPath() string {
 
 	resultStr := string(result)
 
+	// Debug: print result
+	t.Logf("Result file contents:\n%s", resultStr)
+
 	// Verify import was added
 	if !strings.Contains(resultStr, `"testapp/internal/app/users"`) {
 		t.Error("Import was not added")
@@ -195,10 +198,22 @@ func getDBPath() string {
 		t.Fatalf("Failed to read result: %v", err)
 	}
 
-	// Count occurrences of the route
-	count := strings.Count(string(result), `http.Handle("/users", users.Handler(queries))`)
+	t.Logf("Result after second injection:\n%s", string(result))
+
+	// Count occurrences of the route (excluding comments)
+	lines := strings.Split(string(result), "\n")
+	count := 0
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+		if strings.Contains(line, `http.Handle("/users", users.Handler(queries))`) {
+			count++
+		}
+	}
 	if count != 1 {
-		t.Errorf("Expected route to appear exactly once, got %d occurrences", count)
+		t.Errorf("Expected route to appear exactly once (excluding comments), got %d occurrences", count)
 	}
 
 	t.Log("✅ Route injection is idempotent")

@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func GenerateApp(appName string) error {
+func GenerateApp(appName, moduleName string) error {
 	// Sanitize app name
 	appName = strings.ToLower(strings.TrimSpace(appName))
 	if appName == "" {
@@ -19,9 +19,7 @@ func GenerateApp(appName string) error {
 		return fmt.Errorf("directory '%s' already exists", appName)
 	}
 
-	// Default module name
-	moduleName := appName
-
+	// Module name is provided by caller (defaults to app name)
 	data := AppData{
 		AppName:    appName,
 		ModuleName: moduleName,
@@ -68,6 +66,11 @@ func GenerateApp(appName string) error {
 		return fmt.Errorf("failed to read sqlc.yaml template: %w", err)
 	}
 
+	modelsGoTmpl, err := loader.Load("app/models.go.tmpl")
+	if err != nil {
+		return fmt.Errorf("failed to read models.go template: %w", err)
+	}
+
 	// Generate main.go
 	if err := generateFile(string(mainGoTmpl), data, filepath.Join(appName, "cmd", appName, "main.go")); err != nil {
 		return fmt.Errorf("failed to generate main.go: %w", err)
@@ -86,6 +89,11 @@ func GenerateApp(appName string) error {
 	// Generate database/sqlc.yaml
 	if err := generateFile(string(sqlcYamlTmpl), data, filepath.Join(appName, "internal", "database", "sqlc.yaml")); err != nil {
 		return fmt.Errorf("failed to generate sqlc.yaml: %w", err)
+	}
+
+	// Generate placeholder models.go (will be replaced by sqlc)
+	if err := generateFile(string(modelsGoTmpl), data, filepath.Join(appName, "internal", "database", "models", "models.go")); err != nil {
+		return fmt.Errorf("failed to generate models.go: %w", err)
 	}
 
 	// Create empty schema.sql and queries.sql
