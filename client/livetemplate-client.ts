@@ -7,6 +7,23 @@
 
 import morphdom from 'morphdom';
 
+// Focusable input types (from Phoenix LiveView)
+const FOCUSABLE_INPUTS = [
+  "text",
+  "textarea",
+  "number",
+  "email",
+  "password",
+  "search",
+  "tel",
+  "url",
+  "date",
+  "time",
+  "datetime-local",
+  "color",
+  "range"
+];
+
 export interface TreeNode {
   [key: string]: any;
   s?: string[];  // Static HTML segments (sent once, cached client-side)
@@ -63,6 +80,12 @@ export class LiveTemplateClient {
   // Initialization tracking for loading indicator
   private isInitialized: boolean = false;
   private loadingBar: HTMLElement | null = null;
+
+  // Focus preservation
+  private focusableElements: HTMLElement[] = [];
+  private focusedElementSelector: string | null = null;
+  private focusedSelectionStart: number | null = null;
+  private focusedSelectionEnd: number | null = null;
 
   constructor(options: LiveTemplateClientOptions = {}) {
     this.options = {
@@ -151,6 +174,106 @@ export class LiveTemplateClient {
   }
 
   /**
+   * Update the list of focusable elements in the wrapper
+   */
+  private updateFocusableElements(): void {
+    if (!this.wrapperElement) return;
+
+    // Build selector for all focusable input types
+    const inputSelectors = FOCUSABLE_INPUTS.map(type =>
+      type === 'textarea'
+        ? 'textarea:not([disabled])'
+        : `input[type="${type}"]:not([disabled])`
+    ).join(', ');
+
+    const otherFocusable = 'select:not([disabled]), button:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
+    const selector = `${inputSelectors}, ${otherFocusable}`;
+
+    this.focusableElements = Array.from(this.wrapperElement.querySelectorAll(selector));
+  }
+
+  /**
+   * Check if an element is a textual input that supports selection range
+   */
+  private isTextualInput(el: Element): el is HTMLInputElement | HTMLTextAreaElement {
+    if (el instanceof HTMLTextAreaElement) return true;
+    if (el instanceof HTMLInputElement) {
+      return FOCUSABLE_INPUTS.indexOf(el.type) >= 0;
+    }
+    return false;
+  }
+
+  /**
+   * Get a unique selector for an element
+   * Priority: id > name > data-key > index in focusable array
+   */
+  private getElementSelector(el: HTMLElement): string | null {
+    if (el.id) return `#${el.id}`;
+    if ((el as any).name) return `[name="${(el as any).name}"]`;
+    if (el.getAttribute('data-key')) return `[data-key="${el.getAttribute('data-key')}]`;
+
+    const index = this.focusableElements.indexOf(el);
+    return index >= 0 ? `data-focus-index-${index}` : null;
+  }
+
+  /**
+   * Save the currently focused element and cursor position before DOM update
+   */
+  private saveFocusedElement(): void {
+    const active = document.activeElement as HTMLElement;
+    if (!active || active === document.body || !this.wrapperElement?.contains(active)) {
+      this.focusedElementSelector = null;
+      return;
+    }
+
+    this.focusedElementSelector = this.getElementSelector(active);
+
+    if (this.isTextualInput(active)) {
+      this.focusedSelectionStart = active.selectionStart;
+      this.focusedSelectionEnd = active.selectionEnd;
+    }
+  }
+
+  /**
+   * Restore focus and cursor position after DOM update
+   */
+  private restoreFocusedElement(): void {
+    if (!this.focusedElementSelector || !this.wrapperElement) return;
+
+    // Refresh focusable elements list after DOM update
+    this.updateFocusableElements();
+
+    let element: HTMLElement | null = null;
+
+    if (this.focusedElementSelector.startsWith('data-focus-index-')) {
+      const index = parseInt(this.focusedElementSelector.replace('data-focus-index-', ''));
+      element = this.focusableElements[index] || null;
+    } else {
+      element = this.wrapperElement.querySelector(this.focusedElementSelector);
+    }
+
+    if (!element) {
+      this.focusedElementSelector = null;
+      return;
+    }
+
+    const wasFocused = element.matches(':focus');
+    if (!wasFocused) {
+      element.focus();
+    }
+
+    if (this.isTextualInput(element) &&
+        this.focusedSelectionStart !== null &&
+        this.focusedSelectionEnd !== null) {
+      element.setSelectionRange(this.focusedSelectionStart, this.focusedSelectionEnd);
+    }
+
+    this.focusedElementSelector = null;
+    this.focusedSelectionStart = null;
+    this.focusedSelectionEnd = null;
+  }
+
+  /**
    * Auto-initialize when DOM is ready
    * Called automatically when script loads
    */
@@ -175,6 +298,9 @@ export class LiveTemplateClient {
         client.setupEventDelegation();
         client.setupWindowEventDelegation();
         client.setupClickAwayDelegation();
+
+        // Initialize focusable elements tracking
+        client.updateFocusableElements();
 
         // Expose as global for programmatic access
         (window as any).liveTemplateClient = client;
@@ -1284,6 +1410,10 @@ export class LiveTemplateClient {
       return;
     }
 
+    // Update focusable elements list and save focused element before morphdom
+    this.updateFocusableElements();
+    this.saveFocusedElement();
+
     // Create a temporary wrapper to hold the new content
     // We need to create a DOM element of the same type as 'element' to avoid browser HTML corrections
     // For example, if we put <tr> elements in a <div>, the browser strips them out
@@ -1312,6 +1442,17 @@ export class LiveTemplateClient {
         }
       },
       onBeforeElUpdated: (fromEl, toEl) => {
+        // Preserve value for focused textual inputs
+        if (this.focusedElementSelector && fromEl.matches) {
+          try {
+            if (fromEl.matches(this.focusedElementSelector) && this.isTextualInput(fromEl)) {
+              (toEl as any).value = (fromEl as any).value;
+            }
+          } catch (e) {
+            // Invalid selector, ignore
+          }
+        }
+
         // Only update if content actually changed
         if (fromEl.isEqualNode(toEl)) {
           return false;
@@ -1334,6 +1475,9 @@ export class LiveTemplateClient {
         return true;
       }
     });
+
+    // Restore focus to previously focused element
+    this.restoreFocusedElement();
 
     // Handle form lifecycle if metadata is present
     if (meta) {
