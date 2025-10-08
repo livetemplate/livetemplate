@@ -61,6 +61,16 @@ func TestGeneratedCodeSyntax(t *testing.T) {
 func TestGeneratedFilesExist(t *testing.T) {
 	tmpDir := t.TempDir()
 
+	// Save original working directory
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get current directory: %v", err)
+	}
+	// Restore working directory after test
+	t.Cleanup(func() {
+		os.Chdir(origDir)
+	})
+
 	// Generate app
 	if err := os.Chdir(tmpDir); err != nil {
 		t.Fatalf("Failed to change directory: %v", err)

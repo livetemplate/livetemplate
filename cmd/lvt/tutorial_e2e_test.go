@@ -23,11 +23,6 @@ func TestTutorialE2E(t *testing.T) {
 		t.Skip("Skipping E2E tutorial test in short mode")
 	}
 
-	// Skip if we can't build (e.g., when running from wrong directory)
-	if _, err := exec.Command("go", "list", ".").Output(); err != nil {
-		t.Skip("Skipping E2E test: not in correct directory")
-	}
-
 	// Create temp directory for test blog
 	tmpDir := t.TempDir()
 	blogDir := filepath.Join(tmpDir, "testblog")
