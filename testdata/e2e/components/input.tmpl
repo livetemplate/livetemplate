@@ -1,0 +1,33 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>{{.Title}}</title>
+</head>
+<body>
+    {{template "content" .}}
+</body>
+</html>
+{{end}}
+
+{{define "stats"}}
+<div class="stats">
+    <p>Total: {{.TodoCount}}</p>
+    <p>Completed: {{.CompletedCount}}</p>
+</div>
+{{end}}
+
+{{template "layout" .}}
+
+{{define "content"}}
+<h1>{{.Title}}</h1>
+{{template "stats" .}}
+<div class="todos">
+    {{range .Todos}}
+    <div class="todo" data-key="{{.ID}}">
+        {{.Text}} {{if .Completed}}✓{{end}}
+    </div>
+    {{end}}
+</div>
+<footer>Updated: {{.LastUpdated}}</footer>
+{{end}}

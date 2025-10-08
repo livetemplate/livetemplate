@@ -1,0 +1,66 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{.Title}}</title>
+    [[csscdn .CSSFramework]]
+  </head>
+  <body>
+[[- if needsWrapper .CSSFramework]]
+    [[- $class := containerClass .CSSFramework -]]
+    <main[[if ne $class ""]] class="[[$class]]"[[end]]>
+      {{template "content" .}}
+    </main>
+[[- else]]
+    [[- $class := containerClass .CSSFramework -]]
+    <div[[if ne $class ""]] class="[[$class]]"[[end]]>
+      {{template "content" .}}
+    </div>
+[[- end]]
+    {{block "scripts" .}}
+      [[- if .DevMode]]
+      <script src="/livetemplate-client.js"></script>
+      [[- else]]
+      <script src="https://unpkg.com/@livefir/livetemplate-client@latest/dist/livetemplate-client.browser.js"></script>
+      [[- end]]
+    {{end}}
+  </body>
+</html>
+{{end}}
+
+{{define "content"}}
+  <div[[if ne (boxClass .CSSFramework) ""]] class="[[boxClass .CSSFramework]]"[[end]] style="margin-top: 2rem;">
+    <h1[[if ne (titleClass .CSSFramework) ""]] class="[[titleClass .CSSFramework]]"[[end]]>Welcome to {{.Title}}</h1>
+
+    <p[[if ne (textClass .CSSFramework) ""]] class="[[textClass .CSSFramework]]"[[end]] style="margin-top: 1rem;">
+      This is your LiveTemplate application. Get started by generating resources:
+    </p>
+
+    <pre[[if ne (codeClass .CSSFramework) ""]] class="[[codeClass .CSSFramework]]"[[end]] style="margin-top: 1rem; padding: 1rem; background: #f5f5f5; border-radius: 4px;">lvt gen users name:string email:string
+lvt migration up
+go run cmd/[[.AppName]]/main.go</pre>
+
+    {{if .Resources}}
+    <div style="margin-top: 2rem;">
+      <h2[[if ne (subtitleClass .CSSFramework) ""]] class="[[subtitleClass .CSSFramework]]"[[end]]>Resources</h2>
+      <ul[[if ne (listClass .CSSFramework) ""]] class="[[listClass .CSSFramework]]"[[end]] style="margin-top: 1rem;">
+        {{range .Resources}}
+        <li[[if ne (listItemClass $.CSSFramework) ""]] class="[[listItemClass $.CSSFramework]]"[[end]] style="margin: 0.5rem 0;">
+          <a href="{{.Path}}"[[if ne (linkClass $.CSSFramework) ""]] class="[[linkClass $.CSSFramework]]"[[end]]>{{.Name}}</a>
+        </li>
+        {{end}}
+      </ul>
+    </div>
+    {{end}}
+
+    <footer style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #e0e0e0;">
+      <p[[if ne (textClass .CSSFramework) ""]] class="[[textClass .CSSFramework]]"[[end]] style="font-size: 0.875rem; color: #666;">
+        Last updated: {{.LastUpdated}}
+      </p>
+    </footer>
+  </div>
+{{end}}
+
+{{template "layout" .}}
