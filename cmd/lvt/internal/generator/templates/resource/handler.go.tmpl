@@ -21,14 +21,22 @@ type [[.ResourceName]]Item = models.[[.ResourceNameSingular]]
 
 type AddInput struct {
 [[- range .Fields]]
+[[- if eq .GoType "bool"]]
+	[[.Name | camelCase]] [[.GoType]] `json:"[[.Name]]"`
+[[- else]]
 	[[.Name | camelCase]] [[.GoType]] `json:"[[.Name]]" validate:"required"`
+[[- end]]
 [[- end]]
 }
 
 type UpdateInput struct {
 	ID string `json:"id" validate:"required"`
 [[- range .Fields]]
+[[- if eq .GoType "bool"]]
+	[[.Name | camelCase]] [[.GoType]] `json:"[[.Name]]"`
+[[- else]]
 	[[.Name | camelCase]] [[.GoType]] `json:"[[.Name]]" validate:"required"`
+[[- end]]
 [[- end]]
 }
 

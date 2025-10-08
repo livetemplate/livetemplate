@@ -42,7 +42,7 @@
             <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="number" name="[[.Name]]" placeholder="Enter [[.Name]]" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
 [[- else if eq .GoType "bool"]]
             <label[[if ne (checkboxClass $.CSSFramework) ""]] class="[[checkboxClass $.CSSFramework]]"[[end]]>
-              <input type="checkbox" name="[[.Name]]" {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+              <input type="checkbox" name="[[.Name]]" value="true" {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
               [[.Name | title]]
             </label>
 [[- else if eq .GoType "float64"]]
