@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 
+	"[[.ModuleName]]/internal/app/home"
 	"[[.ModuleName]]/internal/database"
 )
 
@@ -18,6 +19,14 @@ func main() {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 	defer database.CloseDB()
+
+	// Home page
+	http.Handle("/", home.Handler())
+
+	// Serve LiveTemplate client library
+	// For development: loads from node_modules or local copy
+	// For production: serve from CDN or embed in binary
+	http.HandleFunc("/livetemplate-client.js", serveClientLibrary)
 
 	// TODO: Add routes here
 	// Example: http.Handle("/users", users.Handler(queries))
@@ -39,4 +48,26 @@ func getDBPath() string {
 		return ":memory:"
 	}
 	return "app.db"
+}
+
+func serveClientLibrary(w http.ResponseWriter, r *http.Request) {
+	// Try multiple paths for the client library (development/testing)
+	paths := []string{
+		"livetemplate-client.js",                                  // Local copy (for testing)
+		"../../client/dist/livetemplate-client.browser.js",        // When running from cmd/app
+		"../../../client/dist/livetemplate-client.browser.js",     // When running from deeper
+		"../../../../client/dist/livetemplate-client.browser.js",  // When running even deeper
+	}
+
+	for _, path := range paths {
+		content, err := os.ReadFile(path)
+		if err == nil {
+			w.Header().Set("Content-Type", "application/javascript")
+			w.Write(content)
+			return
+		}
+	}
+
+	// If not found locally, return error with CDN suggestion
+	http.Error(w, "Client library not found. For production, use CDN: https://cdn.jsdelivr.net/npm/@livefir/livetemplate-client/dist/livetemplate-client.browser.js", http.StatusNotFound)
 }

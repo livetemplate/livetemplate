@@ -44,6 +44,9 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 		})
 	}
 
+	// Read dev mode setting from .lvtrc
+	devMode := ReadDevMode(basePath)
+
 	data := ResourceData{
 		PackageName:          resourceNameLower,
 		ModuleName:           moduleName,
@@ -54,6 +57,7 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 		TableName:            tableName,
 		Fields:               fieldData,
 		CSSFramework:         cssFramework,
+		DevMode:              devMode,
 	}
 
 	// Create resource directory
@@ -72,10 +76,11 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 	}
 
 	// Load main template based on mode
+	// With template flattening support, we can now use component-based templates
 	var templateTmpl []byte
 	if appMode == "multi" {
 		// Load component-based template for multi-page apps
-		// Need to concatenate all component templates with main template
+		// Template flattening will resolve all {{define}}/{{template}} constructs
 		components := []string{
 			"components/layout.tmpl",
 			"components/form.tmpl",
@@ -97,27 +102,11 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 		}
 		templateTmpl = []byte(fullTemplate)
 	} else {
-		// Single mode - just component definitions (no layout)
-		// Components can be composed into a single-page app layout
-		components := []string{
-			"components/form.tmpl",
-			"components/table.tmpl",
-			"components/pagination.tmpl",
-			"components/search.tmpl",
-			"components/stats.tmpl",
-			"components/sort.tmpl",
-			"resource/template_components_single.tmpl.tmpl",
+		// Single mode - use simple template
+		templateTmpl, err = loader.Load("resource/template.tmpl.tmpl")
+		if err != nil {
+			return fmt.Errorf("failed to load template: %w", err)
 		}
-
-		var fullTemplate string
-		for _, comp := range components {
-			compTmpl, err := loader.Load(comp)
-			if err != nil {
-				return fmt.Errorf("failed to load component %s: %w", comp, err)
-			}
-			fullTemplate += string(compTmpl) + "\n\n"
-		}
-		templateTmpl = []byte(fullTemplate)
 	}
 
 	queriesTmpl, err := loader.Load("resource/queries.sql.tmpl")
@@ -195,7 +184,7 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 		return fmt.Errorf("failed to generate test: %w", err)
 	}
 
-	// Inject route into main.go
+	// Inject router registration into main.go
 	mainGoPath := findMainGo(basePath)
 	if mainGoPath != "" {
 		route := RouteInfo{
@@ -210,6 +199,11 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 			fmt.Printf("   Please add manually: http.Handle(\"/%s\", %s.Handler(queries))\n",
 				resourceNameLower, resourceNameLower)
 		}
+	}
+
+	// Register resource for home page
+	if err := RegisterResource(basePath, data.ResourceName, "/"+resourceNameLower, "resource"); err != nil {
+		fmt.Printf("⚠️  Could not register resource in home page: %v\n", err)
 	}
 
 	return nil

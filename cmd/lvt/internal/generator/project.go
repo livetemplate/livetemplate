@@ -1,13 +1,14 @@
 package generator
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-func GenerateApp(appName, moduleName string) error {
+func GenerateApp(appName, moduleName string, devMode bool) error {
 	// Sanitize app name
 	appName = strings.ToLower(strings.TrimSpace(appName))
 	if appName == "" {
@@ -21,8 +22,10 @@ func GenerateApp(appName, moduleName string) error {
 
 	// Module name is provided by caller (defaults to app name)
 	data := AppData{
-		AppName:    appName,
-		ModuleName: moduleName,
+		AppName:      appName,
+		ModuleName:   moduleName,
+		DevMode:      devMode,
+		CSSFramework: "tailwind", // Default to Tailwind for home page
 	}
 
 	// Create directory structure
@@ -30,6 +33,7 @@ func GenerateApp(appName, moduleName string) error {
 		appName,
 		filepath.Join(appName, "cmd", appName),
 		filepath.Join(appName, "internal", "app"),
+		filepath.Join(appName, "internal", "app", "home"), // Home page directory
 		filepath.Join(appName, "internal", "database", "models"),
 		filepath.Join(appName, "internal", "database", "migrations"),
 		filepath.Join(appName, "internal", "shared"),
@@ -71,6 +75,16 @@ func GenerateApp(appName, moduleName string) error {
 		return fmt.Errorf("failed to read models.go template: %w", err)
 	}
 
+	homeGoTmpl, err := loader.Load("app/home.go.tmpl")
+	if err != nil {
+		return fmt.Errorf("failed to read home.go template: %w", err)
+	}
+
+	homeTmplTmpl, err := loader.Load("app/home.tmpl.tmpl")
+	if err != nil {
+		return fmt.Errorf("failed to read home.tmpl template: %w", err)
+	}
+
 	// Generate main.go
 	if err := generateFile(string(mainGoTmpl), data, filepath.Join(appName, "cmd", appName, "main.go")); err != nil {
 		return fmt.Errorf("failed to generate main.go: %w", err)
@@ -103,6 +117,16 @@ func GenerateApp(appName, moduleName string) error {
 
 	if err := os.WriteFile(filepath.Join(appName, "internal", "database", "queries.sql"), []byte("-- Database queries\n"), 0644); err != nil {
 		return fmt.Errorf("failed to create queries.sql: %w", err)
+	}
+
+	// Generate home page handler
+	if err := generateFile(string(homeGoTmpl), data, filepath.Join(appName, "internal", "app", "home", "home.go")); err != nil {
+		return fmt.Errorf("failed to generate home.go: %w", err)
+	}
+
+	// Generate home page template
+	if err := generateFile(string(homeTmplTmpl), data, filepath.Join(appName, "internal", "app", "home", "home.tmpl")); err != nil {
+		return fmt.Errorf("failed to generate home.tmpl: %w", err)
 	}
 
 	// Create README
@@ -178,5 +202,38 @@ go test ./...
 		return fmt.Errorf("failed to create README.md: %w", err)
 	}
 
+	// Create .lvtrc config file to store dev mode setting
+	lvtrcContent := fmt.Sprintf("dev_mode=%v\n", devMode)
+	if err := os.WriteFile(filepath.Join(appName, ".lvtrc"), []byte(lvtrcContent), 0644); err != nil {
+		return fmt.Errorf("failed to create .lvtrc: %w", err)
+	}
+
+	// Create empty .lvtresources file for tracking resources
+	if err := os.WriteFile(filepath.Join(appName, ".lvtresources"), []byte("[]"), 0644); err != nil {
+		return fmt.Errorf("failed to create .lvtresources: %w", err)
+	}
+
 	return nil
+}
+
+// ReadDevMode reads the dev_mode setting from .lvtrc in the current directory
+// Returns false if .lvtrc doesn't exist or dev_mode is not set
+func ReadDevMode(basePath string) bool {
+	lvtrcPath := filepath.Join(basePath, ".lvtrc")
+	file, err := os.Open(lvtrcPath)
+	if err != nil {
+		return false // .lvtrc doesn't exist, default to production (CDN)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "dev_mode=") {
+			value := strings.TrimPrefix(line, "dev_mode=")
+			return value == "true"
+		}
+	}
+
+	return false // dev_mode not found in .lvtrc
 }

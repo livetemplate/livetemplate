@@ -64,7 +64,7 @@ export class LiveTemplateClient {
     this.options = {
       autoReconnect: false, // Disable autoReconnect by default to avoid connection loops
       reconnectDelay: 1000,
-      liveUrl: '/',
+      liveUrl: window.location.pathname, // Connect to current page
       ...options
     };
   }
@@ -107,7 +107,7 @@ export class LiveTemplateClient {
    */
   private async checkWebSocketAvailability(): Promise<boolean> {
     try {
-      const liveUrl = this.options.liveUrl || '/live';
+      const liveUrl = this.options.liveUrl || window.location.pathname;
 
       // Try HEAD request first (most efficient)
       const response = await fetch(liveUrl, {
@@ -135,7 +135,7 @@ export class LiveTemplateClient {
    */
   private async fetchInitialState(): Promise<void> {
     try {
-      const liveUrl = this.options.liveUrl || '/live';
+      const liveUrl = this.options.liveUrl || window.location.pathname;
       const response = await fetch(liveUrl, {
         method: 'GET',
         credentials: 'include', // Include cookies for session
@@ -282,6 +282,12 @@ export class LiveTemplateClient {
 
       // Create delegated listener on document
       const listener = (e: Event) => {
+        // Set debug flag for testing
+        if (eventType === 'submit') {
+          (window as any).__lvtSubmitListenerTriggered = true;
+          (window as any).__lvtSubmitEventTarget = (e.target as Element)?.tagName;
+        }
+        console.log('[LiveTemplate DEBUG] Event listener triggered:', eventType, e.target);
         const target = e.target as Element;
         if (!target) return;
 
@@ -298,6 +304,10 @@ export class LiveTemplateClient {
           element = element.parentElement;
         }
 
+        if (eventType === 'submit') {
+          (window as any).__lvtInWrapper = inWrapper;
+          (window as any).__lvtWrapperElement = this.wrapperElement?.getAttribute('data-lvt-id');
+        }
 
         if (!inWrapper) return;
 
@@ -319,6 +329,12 @@ export class LiveTemplateClient {
           }
 
           if (action && actionElement) {
+            // Set debug flag for testing
+            if (eventType === 'submit') {
+              (window as any).__lvtActionFound = action;
+              (window as any).__lvtActionElement = actionElement.tagName;
+            }
+
             // Prevent default for submit events
             if (eventType === 'submit') {
               e.preventDefault();
@@ -340,15 +356,37 @@ export class LiveTemplateClient {
 
             // Define the action handler
             const handleAction = () => {
+              console.log('[LiveTemplate DEBUG] handleAction called', { action, eventType, targetElement });
+
               // Build message with action and data map
               const message: any = { action, data: {} };
 
               // 1. Form data (for submit events or form-level change events)
               if (targetElement instanceof HTMLFormElement) {
+                console.log('[LiveTemplate DEBUG] Processing form element');
                 const formData = new FormData(targetElement);
-                formData.forEach((value, key) => {
-                  message.data[key] = this.parseValue(value as string);
+
+                // First, collect all checkbox names to handle unchecked checkboxes
+                const checkboxes = Array.from(targetElement.querySelectorAll('input[type="checkbox"][name]')) as HTMLInputElement[];
+                const checkboxNames = new Set(checkboxes.map(cb => cb.name));
+
+                // Initialize all checkboxes to false (they won't appear in FormData if unchecked)
+                checkboxNames.forEach(name => {
+                  message.data[name] = false;
                 });
+
+                // Now process FormData, converting checkbox "on" to boolean true
+                formData.forEach((value, key) => {
+                  if (checkboxNames.has(key)) {
+                    // Checkbox field - convert "on" to boolean true
+                    message.data[key] = true;
+                    console.log('[LiveTemplate DEBUG] Converted checkbox', key, 'to true');
+                  } else {
+                    // Regular field - parse value
+                    message.data[key] = this.parseValue(value as string);
+                  }
+                });
+                console.log('[LiveTemplate DEBUG] Form data collected:', message.data);
               }
               // 2. Input/Select/Textarea value (for change/input events)
               else if (eventType === 'change' || eventType === 'input') {
@@ -386,6 +424,7 @@ export class LiveTemplateClient {
               // Track form lifecycle for submit events
               if (eventType === 'submit' && targetElement instanceof HTMLFormElement) {
                 this.activeForm = targetElement;
+                console.log('[LiveTemplate DEBUG] Tracking submit form lifecycle');
 
                 // Find submit button if it exists and has lvt-disable-with
                 const submitEvent = e as SubmitEvent;
@@ -395,14 +434,19 @@ export class LiveTemplateClient {
                   this.originalButtonText = submitButton.textContent;
                   submitButton.disabled = true;
                   submitButton.textContent = submitButton.getAttribute('lvt-disable-with');
+                  console.log('[LiveTemplate DEBUG] Disabled submit button');
                 }
 
                 // Emit lvt:pending event
                 targetElement.dispatchEvent(new CustomEvent('lvt:pending', { detail: message }));
+                console.log('[LiveTemplate DEBUG] Emitted lvt:pending event');
               }
 
               // Send message to server
+              console.log('[LiveTemplate DEBUG] About to send message:', message);
+              console.log('[LiveTemplate DEBUG] WebSocket state:', this.ws?.readyState);
               this.send(message);
+              console.log('[LiveTemplate DEBUG] send() called');
             };
 
             // Apply rate limiting if specified
@@ -439,7 +483,13 @@ export class LiveTemplateClient {
               }
             } else {
               // No rate limiting, call directly
+              if (eventType === 'submit') {
+                (window as any).__lvtBeforeHandleAction = true;
+              }
               handleAction();
+              if (eventType === 'submit') {
+                (window as any).__lvtAfterHandleAction = true;
+              }
             }
 
             return;
@@ -451,6 +501,7 @@ export class LiveTemplateClient {
       // Store and add listener on document with bubble phase
       (document as any)[listenerKey] = listener;
       document.addEventListener(eventType, listener, false);
+      console.log('[LiveTemplate DEBUG] Registered event listener for:', eventType, 'with key:', listenerKey);
     });
   }
 
@@ -626,18 +677,34 @@ export class LiveTemplateClient {
    * @param message - Message to send (will be JSON stringified)
    */
   send(message: any): void {
+    // Debug flag for testing
+    (window as any).__lvtSendCalled = true;
+    (window as any).__lvtMessageAction = message?.action;
+
+    console.log('[LiveTemplate DEBUG] send() method called with message:', message);
+    console.log('[LiveTemplate DEBUG] useHTTP:', this.useHTTP, 'ws:', !!this.ws, 'ws.readyState:', this.ws?.readyState);
+
     if (this.useHTTP) {
       // HTTP mode: send via POST and handle response
+      console.log('[LiveTemplate DEBUG] Using HTTP mode');
+      (window as any).__lvtSendPath = 'http';
       this.sendHTTP(message);
     } else if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       // WebSocket mode
+      console.log('[LiveTemplate DEBUG] Sending via WebSocket');
+      (window as any).__lvtSendPath = 'websocket';
+      (window as any).__lvtWSMessage = JSON.stringify(message);
       this.ws.send(JSON.stringify(message));
+      console.log('[LiveTemplate DEBUG] WebSocket send complete');
+      (window as any).__lvtWSSendComplete = true;
     } else if (this.ws) {
       // WebSocket is connecting or closing, fall back to HTTP temporarily
-      console.log('LiveTemplate: WebSocket not ready, using HTTP fallback');
+      console.log('LiveTemplate: WebSocket not ready (state: ' + this.ws.readyState + '), using HTTP fallback');
+      (window as any).__lvtSendPath = 'http-fallback';
       this.sendHTTP(message);
     } else {
       console.error('LiveTemplate: No transport available');
+      (window as any).__lvtSendPath = 'no-transport';
     }
   }
 
@@ -1208,6 +1275,14 @@ export class LiveTemplateClient {
       }
     }
 
+    // Re-enable button and clear form state
+    this.restoreFormState();
+  }
+
+  /**
+   * Restore form state after an action completes (re-enable button, clear active state)
+   */
+  private restoreFormState(): void {
     // Re-enable button if it was disabled
     if (this.activeButton && this.originalButtonText !== null) {
       this.activeButton.disabled = false;

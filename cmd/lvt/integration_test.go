@@ -66,7 +66,7 @@ func TestGeneratedFilesExist(t *testing.T) {
 		t.Fatalf("Failed to change directory: %v", err)
 	}
 
-	if err := generator.GenerateApp("testapp", "testapp"); err != nil {
+	if err := generator.GenerateApp("testapp", "testapp", false); err != nil { // false = production mode
 		t.Fatalf("Failed to generate app: %v", err)
 	}
 

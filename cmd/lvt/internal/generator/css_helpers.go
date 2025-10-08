@@ -409,6 +409,86 @@ func CSSHelpers() template.FuncMap {
 			}
 		},
 
+		// Text/paragraph classes
+		"textClass": func(framework string) string {
+			switch framework {
+			case "tailwind":
+				return "text-gray-700"
+			case "bulma":
+				return ""
+			case "pico":
+				return ""
+			case "none":
+				return ""
+			default:
+				return "text-gray-700"
+			}
+		},
+
+		// Code block classes
+		"codeClass": func(framework string) string {
+			switch framework {
+			case "tailwind":
+				return "bg-gray-100 text-gray-800 rounded p-4"
+			case "bulma":
+				return "content"
+			case "pico":
+				return ""
+			case "none":
+				return ""
+			default:
+				return "bg-gray-100 text-gray-800 rounded p-4"
+			}
+		},
+
+		// List classes
+		"listClass": func(framework string) string {
+			switch framework {
+			case "tailwind":
+				return "space-y-2"
+			case "bulma":
+				return "content"
+			case "pico":
+				return ""
+			case "none":
+				return ""
+			default:
+				return "space-y-2"
+			}
+		},
+
+		// List item classes
+		"listItemClass": func(framework string) string {
+			switch framework {
+			case "tailwind":
+				return ""
+			case "bulma":
+				return ""
+			case "pico":
+				return ""
+			case "none":
+				return ""
+			default:
+				return ""
+			}
+		},
+
+		// Link classes
+		"linkClass": func(framework string) string {
+			switch framework {
+			case "tailwind":
+				return "text-blue-600 hover:text-blue-800 underline"
+			case "bulma":
+				return ""
+			case "pico":
+				return ""
+			case "none":
+				return ""
+			default:
+				return "text-blue-600 hover:text-blue-800 underline"
+			}
+		},
+
 		// dict creates a map for passing multiple values to nested templates
 		// Usage: {{template "formField" (dict "Field" . "CSS" $.CSSFramework)}}
 		"dict": func(values ...interface{}) (map[string]interface{}, error) {

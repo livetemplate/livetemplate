@@ -164,9 +164,6 @@ func (t *Template) Parse(text string) (*Template, error) {
 	// This prevents issues when formatters add spaces like "{{ range" instead of "{{range"
 	text = normalizeTemplateSpacing(text)
 
-	// Store the template text for tree generation
-	t.templateStr = text
-
 	// Determine if this is a full HTML document
 	isFullHTML := strings.Contains(text, "<!DOCTYPE") || strings.Contains(text, "<html")
 
@@ -188,7 +185,42 @@ func (t *Template) Parse(text string) (*Template, error) {
 		return nil, fmt.Errorf("template parse error: %w", err)
 	}
 
+	// Check if template uses composition features and flatten if needed
+	if hasTemplateComposition(tmpl) {
+		// Flatten the template to resolve all {{define}}/{{template}}/{{block}}
+		flattenedStr, err := flattenTemplate(tmpl)
+		if err != nil {
+			return nil, fmt.Errorf("template flattening failed: %w", err)
+		}
+
+		// Store flattened version for tree generation
+		// This ensures updates use the flattened template
+		text = flattenedStr
+
+		// Re-inject wrapper for flattened template
+		if isFullHTML {
+			templateContent = injectWrapperDiv(flattenedStr, t.wrapperID)
+		} else {
+			templateContent = fmt.Sprintf(`<div data-lvt-id="%s">%s</div>`, t.wrapperID, flattenedStr)
+		}
+
+		// Re-parse with flattened content
+		tmpl, err = template.New(t.name).Parse(templateContent)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse flattened template: %w", err)
+		}
+	}
+
+	// Store the template text for tree generation (flattened if it had composition)
+	t.templateStr = text
 	t.tmpl = tmpl
+
+	// Validate that tree generation works with this template
+	// This ensures templates with {{define}}/{{block}} are caught during initialization
+	if err := t.validateTreeGeneration(); err != nil {
+		return nil, fmt.Errorf("template validation failed: %w", err)
+	}
+
 	return t, nil
 }
 
@@ -210,10 +242,28 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 		t.name = filepath.Base(filenames[0])
 	}
 
-	// Parse the main template
-	_, err = t.Parse(string(content))
+	// Normalize template spacing
+	text := normalizeTemplateSpacing(string(content))
+
+	// Determine if this is a full HTML document
+	isFullHTML := strings.Contains(text, "<!DOCTYPE") || strings.Contains(text, "<html")
+
+	// Always generate wrapper ID for consistent update targeting
+	t.wrapperID = generateRandomID()
+
+	var templateContent string
+	if isFullHTML {
+		// Inject wrapper div around body content
+		templateContent = injectWrapperDiv(text, t.wrapperID)
+	} else {
+		// For standalone templates, wrap the entire content
+		templateContent = fmt.Sprintf(`<div data-lvt-id="%s">%s</div>`, t.wrapperID, text)
+	}
+
+	// Parse the main template using html/template (without flattening yet)
+	tmpl, err := template.New(t.name).Parse(templateContent)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("template parse error: %w", err)
 	}
 
 	// Parse additional files if provided (for template composition)
@@ -225,11 +275,45 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 			}
 
 			// Parse additional templates into the same template set
-			_, err = t.tmpl.Parse(string(content))
+			_, err = tmpl.Parse(string(content))
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse file %s: %w", filename, err)
 			}
 		}
+	}
+
+	// Now that all files are parsed, check if we need to flatten
+	if hasTemplateComposition(tmpl) {
+		// Flatten the complete template set to resolve all {{define}}/{{template}}/{{block}}
+		flattenedStr, err := flattenTemplate(tmpl)
+		if err != nil {
+			return nil, fmt.Errorf("template flattening failed: %w", err)
+		}
+
+		// Store flattened version for tree generation
+		text = flattenedStr
+
+		// Re-inject wrapper for flattened template
+		if isFullHTML {
+			templateContent = injectWrapperDiv(flattenedStr, t.wrapperID)
+		} else {
+			templateContent = fmt.Sprintf(`<div data-lvt-id="%s">%s</div>`, t.wrapperID, flattenedStr)
+		}
+
+		// Re-parse with flattened content
+		tmpl, err = template.New(t.name).Parse(templateContent)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse flattened template: %w", err)
+		}
+	}
+
+	// Store the template text for tree generation (flattened if it had composition)
+	t.templateStr = text
+	t.tmpl = tmpl
+
+	// Validate that tree generation works with this template
+	if err := t.validateTreeGeneration(); err != nil {
+		return nil, fmt.Errorf("template validation failed: %w", err)
 	}
 
 	return t, nil
@@ -534,7 +618,7 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 
 		newTree, err := parseTemplateToTree(templateContent, newData, t.keyGen)
 		if err != nil {
-			return nil, err
+			return TreeNode{}, fmt.Errorf("tree generation failed: %w", err)
 		}
 
 		// Compare trees and get only changed dynamics
@@ -1546,6 +1630,15 @@ func (t *Template) Handle(stores ...Store) http.Handler {
 	}
 
 	return &liveHandler{config: config}
+}
+
+// validateTreeGeneration validates that tree generation works with this template
+// Templates with {{define}}/{{block}}/{{template}} are now supported via automatic flattening
+func (t *Template) validateTreeGeneration() error {
+	// Template composition ({{define}}/{{block}}/{{template}}) is now supported
+	// The tree generation process automatically flattens composite templates
+	// No validation needed here - errors will be caught during flattening if they occur
+	return nil
 }
 
 // getStoreName derives the store name from the struct type

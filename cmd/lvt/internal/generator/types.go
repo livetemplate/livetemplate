@@ -19,6 +19,7 @@ type ResourceData struct {
 	TableName            string // Plural table name (e.g., "users")
 	Fields               []FieldData
 	CSSFramework         string // CSS framework: "tailwind", "bulma", "pico", "none"
+	DevMode              bool   // Use local client library instead of CDN
 }
 
 type FieldData struct {
@@ -31,8 +32,10 @@ type FieldData struct {
 }
 
 type AppData struct {
-	AppName    string
-	ModuleName string
+	AppName      string
+	ModuleName   string
+	DevMode      bool   // Use local client library instead of CDN
+	CSSFramework string // CSS framework for home page
 }
 
 var funcMap = template.FuncMap{

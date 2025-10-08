@@ -262,6 +262,7 @@ func formatTime() string {
 	return time.Now().Format("2006-01-02 15:04:05")
 }
 
+// Handler creates an http.Handler for this resource
 func Handler(queries *models.Queries) http.Handler {
 	state := &UserState{
 		Title:       "User Management",
@@ -276,5 +277,9 @@ func Handler(queries *models.Queries) http.Handler {
 	}
 
 	tmpl := livetemplate.New("user")
-	return tmpl.Handle(state)
+	if _, err := tmpl.ParseFiles("internal/app/user/user.tmpl"); err != nil {
+		log.Fatalf("Failed to parse template: %v", err)
+	}
+
+	return livetemplate.Mount(tmpl, state)
 }

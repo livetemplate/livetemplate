@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"{{.ModuleName}}/internal/database"
+	"github.com/livefir/livetemplate"
 )
 
 func main() {
@@ -19,8 +20,14 @@ func main() {
 	}
 	defer database.CloseDB()
 
-	// TODO: Add routes here
-	// Example: http.Handle("/users", users.Handler(queries))
+	// Create router for unified /live endpoint
+	router := livetemplate.NewRouter()
+
+	// TODO: Register resources here
+	// Example: router.Register("users", users.NewStore(queries))
+
+	// Mount unified endpoint
+	http.Handle("/live", router)
 
 	port := os.Getenv("PORT")
 	if port == "" {

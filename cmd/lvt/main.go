@@ -52,6 +52,8 @@ func main() {
 		err = commands.Migration(args)
 	case "template":
 		err = commands.Template(args)
+	case "parse":
+		err = commands.Parse(args)
 	case "version", "--version", "-v":
 		printVersion()
 		return
@@ -76,13 +78,15 @@ func printVersion() {
 	// Try to get build info from debug.ReadBuildInfo()
 	if info, ok := debug.ReadBuildInfo(); ok {
 		// Get VCS info if available
-		var vcsRevision, vcsTime string
+		var vcsRevision, vcsTime, vcsModified string
 		for _, setting := range info.Settings {
 			switch setting.Key {
 			case "vcs.revision":
 				vcsRevision = setting.Value
 			case "vcs.time":
 				vcsTime = setting.Value
+			case "vcs.modified":
+				vcsModified = setting.Value
 			}
 		}
 
@@ -97,25 +101,28 @@ func printVersion() {
 			fmt.Printf("commit: %s\n", vcsRevision)
 		}
 
-		// Show commit or build date
+		// Show build timestamp - this is the actual binary build time
 		if date != "unknown" {
 			fmt.Printf("built: %s\n", date)
 		} else if vcsTime != "" {
-			// Parse and format VCS time (this is commit time, not build time)
+			// Parse and format VCS time (commit time, not build time)
 			if t, err := time.Parse(time.RFC3339, vcsTime); err == nil {
 				fmt.Printf("commit date: %s\n", t.Format("2006-01-02 15:04:05 MST"))
 			}
 		}
 
 		// Show if working directory has uncommitted changes
-		for _, setting := range info.Settings {
-			if setting.Key == "vcs.modified" && setting.Value == "true" {
-				fmt.Printf("modified: true (uncommitted changes)\n")
-				break
-			}
+		if vcsModified == "true" {
+			fmt.Printf("modified: true (uncommitted changes)\n")
 		}
 
 		fmt.Printf("go: %s\n", info.GoVersion)
+	}
+
+	// If no build timestamp was injected, show when this binary could have been built
+	if date == "unknown" {
+		fmt.Printf("\nNote: Build without timestamp. To add build info, use:\n")
+		fmt.Printf("  go build -ldflags \"-X main.date=$(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ)\" -o lvt\n")
 	}
 }
 
@@ -128,6 +135,7 @@ func printUsage() {
 	fmt.Println("  lvt gen view [<name>]                     Generate view-only handler")
 	fmt.Println("  lvt migration <command>                   Manage database migrations")
 	fmt.Println("  lvt template <command>                    Manage custom templates")
+	fmt.Println("  lvt parse <template-file>                 Validate and analyze template file")
 	fmt.Println("  lvt version                               Show version information")
 	fmt.Println()
 	fmt.Println("Interactive Mode (no arguments):")

@@ -2,6 +2,7 @@ package livetemplate
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -11,6 +12,62 @@ import (
 
 	"github.com/gorilla/websocket"
 )
+
+// Broadcaster allows stores to push updates to connected clients without user interaction
+type Broadcaster interface {
+	Send() error // Re-renders template and sends update to this connection
+}
+
+// BroadcastAware is implemented by stores that need server-initiated updates
+// Examples: live notifications, stock tickers, background job status, real-time sync
+type BroadcastAware interface {
+	OnConnect(ctx context.Context, b Broadcaster) error
+	OnDisconnect()
+}
+
+// broadcaster implements the Broadcaster interface for a single WebSocket connection
+type broadcaster struct {
+	conn     *websocket.Conn
+	template *Template
+	state    *connState
+	handler  *liveHandler
+	mu       sync.Mutex
+}
+
+func (b *broadcaster) Send() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	// Generate tree update
+	var buf bytes.Buffer
+	err := b.template.ExecuteUpdates(&buf, b.handler.getTemplateData(b.state.stores), b.state.getErrors())
+	if err != nil {
+		return fmt.Errorf("template update failed: %w", err)
+	}
+
+	// Parse tree from buffer
+	var tree TreeNode
+	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
+		return fmt.Errorf("failed to parse tree: %w", err)
+	}
+
+	// Wrap with metadata
+	response := UpdateResponse{
+		Tree: tree,
+		Meta: &ResponseMetadata{
+			Success: len(b.state.getErrors()) == 0,
+			Errors:  b.state.getErrors(),
+		},
+	}
+
+	// Encode and send
+	responseBytes, err := json.Marshal(response)
+	if err != nil {
+		return fmt.Errorf("failed to marshal response: %w", err)
+	}
+
+	return WriteUpdateWebSocket(b.conn, responseBytes)
+}
 
 // MountConfig configures the mount handler
 type MountConfig struct {
@@ -151,8 +208,32 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		errors: make(map[string]string),
 	}
 
+	// Create context for broadcaster lifecycle
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Create broadcaster for server-initiated updates
+	bc := &broadcaster{
+		conn:     conn,
+		template: connTmpl,
+		state:    state,
+		handler:  h,
+	}
+
+	// Call OnConnect for stores that implement BroadcastAware
+	for _, store := range state.stores {
+		if aware, ok := store.(BroadcastAware); ok {
+			if err := aware.OnConnect(ctx, bc); err != nil {
+				log.Printf("OnConnect failed for store: %v", err)
+			}
+			// Schedule OnDisconnect call when WebSocket closes
+			defer aware.OnDisconnect()
+		}
+	}
+
 	// Send initial tree
 	var buf bytes.Buffer
+
 	err = connTmpl.ExecuteUpdates(&buf, h.getTemplateData(state.stores), state.getErrors())
 	if err != nil {
 		log.Printf("Failed to generate initial tree: %v", err)
@@ -290,10 +371,19 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Handle GET request for initial HTML page
 	if r.Method == http.MethodGet {
+		// Always reload data from database for GET requests to ensure fresh data
+		// This prevents stale session state when WebSocket actions modify data
+		for _, store := range state.stores {
+			if initializer, ok := store.(StoreInitializer); ok {
+				if err := initializer.Init(); err != nil {
+					log.Printf("Warning: Store initialization failed for GET request: %v", err)
+				}
+			}
+		}
+
 		err := h.config.Template.Execute(w, h.getTemplateData(state.stores), state.getErrors())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
 		}
 		return
 	}

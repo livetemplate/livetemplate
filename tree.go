@@ -1400,8 +1400,17 @@ func buildConditionalRange(expr TemplateExpression, data interface{}, keyGen *Ke
 		}, nil
 	}
 
-	// Extract the range content from inside the conditional
-	rangeContent := extractRangeContent(expr.Text)
+	// Extract wrapper HTML and range content
+	prefixHTML, rangeContent, suffixHTML := extractRangeContentWithWrappers(expr.Text)
+
+	// Fallback to simple extraction if wrapper extraction failed
+	if rangeContent == "" {
+		rangeContent = extractRangeContent(expr.Text)
+	}
+
+	// Check if wrapper HTML contains table tags
+	hasTableWrapper := (strings.Contains(prefixHTML, "<table") || strings.Contains(prefixHTML, "<tbody") ||
+		strings.Contains(prefixHTML, "<thead") || strings.Contains(prefixHTML, "<tfoot"))
 
 	// Wrap range content with data-lvt-key wrapper div
 	wrappedContent := wrapRangeContentWithKey(rangeContent)
@@ -1423,6 +1432,13 @@ func buildConditionalRange(expr TemplateExpression, data interface{}, keyGen *Ke
 	// Add final static part
 	if lastPos < len(wrappedContent) {
 		statics = append(statics, wrappedContent[lastPos:])
+	}
+
+	// Include table wrapper HTML in statics if present
+	// This ensures table/tbody/thead tags are included in the tree
+	if hasTableWrapper && len(statics) > 0 {
+		statics[0] = prefixHTML + statics[0]
+		statics[len(statics)-1] = statics[len(statics)-1] + suffixHTML
 	}
 
 	// Replace key placeholder in statics with actual key injection point
@@ -1603,6 +1619,119 @@ func extractRangeContent(conditionalText string) string {
 	}
 
 	return ""
+}
+
+// extractRangeContentWithWrappers extracts range content and wrapper HTML from conditional-range patterns
+// Returns: (prefixHTML, rangeContent, suffixHTML)
+// For {{if...}}<table><tbody>{{range...}}<tr>{{end}}</tbody></table>{{end}}
+// Returns: ("<table><tbody>", "<tr>", "</tbody></table>")
+func extractRangeContentWithWrappers(conditionalText string) (string, string, string) {
+	// Find the {{if ...}} start and end
+	ifStart := strings.Index(conditionalText, "{{if ")
+	if ifStart == -1 {
+		return "", "", ""
+	}
+
+	ifHeaderEnd := strings.Index(conditionalText[ifStart:], "}}")
+	if ifHeaderEnd == -1 {
+		return "", "", ""
+	}
+	ifHeaderEnd += ifStart + 2
+
+	// Find the {{range...}} start
+	rangeStart := strings.Index(conditionalText[ifHeaderEnd:], "{{range ")
+	if rangeStart == -1 {
+		return "", "", ""
+	}
+	rangeStart += ifHeaderEnd
+
+	rangeHeaderEnd := strings.Index(conditionalText[rangeStart:], "}}")
+	if rangeHeaderEnd == -1 {
+		return "", "", ""
+	}
+	rangeHeaderEnd += rangeStart + 2
+
+	// Find the matching {{end}} for the range
+	depth := 0
+	i := rangeStart
+	rangeEndPos := -1
+	for i < len(conditionalText) {
+		if i+2 < len(conditionalText) && conditionalText[i:i+2] == "{{" {
+			exprEnd := strings.Index(conditionalText[i+2:], "}}")
+			if exprEnd == -1 {
+				break
+			}
+			exprEnd += i + 4
+			expr := strings.TrimSpace(conditionalText[i+2 : exprEnd-2])
+
+			if strings.HasPrefix(expr, "range") || strings.HasPrefix(expr, "if") {
+				depth++
+			} else if expr == "end" {
+				depth--
+				if depth == 0 {
+					rangeEndPos = i
+					break
+				}
+			}
+			i = exprEnd
+		} else {
+			i++
+		}
+	}
+
+	if rangeEndPos == -1 {
+		return "", "", ""
+	}
+
+	// Find the conditional's {{end}} or {{else}}
+	conditionalEndPos := -1
+	depth = 0
+	i = ifStart
+	for i < len(conditionalText) {
+		if i+2 < len(conditionalText) && conditionalText[i:i+2] == "{{" {
+			exprEnd := strings.Index(conditionalText[i+2:], "}}")
+			if exprEnd == -1 {
+				break
+			}
+			exprEnd += i + 4
+			expr := strings.TrimSpace(conditionalText[i+2 : exprEnd-2])
+
+			if strings.HasPrefix(expr, "if") || strings.HasPrefix(expr, "range") {
+				depth++
+			} else if expr == "else" && depth == 1 {
+				conditionalEndPos = i
+				break
+			} else if expr == "end" {
+				depth--
+				if depth == 0 {
+					conditionalEndPos = i
+					break
+				}
+			}
+			i = exprEnd
+		} else {
+			i++
+		}
+	}
+
+	if conditionalEndPos == -1 {
+		return "", "", ""
+	}
+
+	// Extract the three parts
+	prefixHTML := conditionalText[ifHeaderEnd:rangeStart]
+	rangeContent := conditionalText[rangeHeaderEnd:rangeEndPos]
+
+	// Find the end of the range {{end}} tag
+	rangeEndTagEnd := strings.Index(conditionalText[rangeEndPos:], "}}")
+	if rangeEndTagEnd == -1 {
+		return "", "", ""
+	}
+	rangeEndTagEnd += rangeEndPos + 2
+
+	suffixHTML := conditionalText[rangeEndTagEnd:conditionalEndPos]
+
+	return prefixHTML, rangeContent, suffixHTML
 }
 
 // extractRangeFieldName extracts the field name from a range expression

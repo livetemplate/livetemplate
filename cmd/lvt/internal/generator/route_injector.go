@@ -11,11 +11,11 @@ import (
 type RouteInfo struct {
 	Path        string // e.g., "/users"
 	PackageName string // e.g., "users"
-	HandlerCall string // e.g., "users.Handler(queries)" or "counter.Handler()"
+	HandlerCall string // e.g., "users.Handler(queries)"
 	ImportPath  string // e.g., "myapp/internal/app/users"
 }
 
-// InjectRoute adds a route and import to main.go
+// InjectRoute adds an http.Handle route and import to main.go
 func InjectRoute(mainGoPath string, route RouteInfo) error {
 	// Read the file
 	file, err := os.Open(mainGoPath)
@@ -33,7 +33,7 @@ func InjectRoute(mainGoPath string, route RouteInfo) error {
 		return fmt.Errorf("failed to read main.go: %w", err)
 	}
 
-	// Check if route already exists (check for the route pattern, but ignore comments)
+	// Check if route already exists (check for the pattern, but ignore comments)
 	routePattern := fmt.Sprintf(`http.Handle("%s", %s)`, route.Path, route.HandlerCall)
 	for _, line := range lines {
 		trimmedLine := strings.TrimSpace(line)
@@ -93,12 +93,10 @@ func InjectRoute(mainGoPath string, route RouteInfo) error {
 		}
 	}
 
-	// Find where to insert route (after TODO comment or before port := line)
+	// Find where to insert route (after TODO comment)
 	routeInsertIndex := -1
 	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		// Look for TODO comment about routes
+		// Look for TODO comment about adding routes
 		if strings.Contains(line, "TODO: Add routes here") {
 			// Insert after the example comment
 			for j := i + 1; j < len(lines); j++ {
@@ -106,17 +104,6 @@ func InjectRoute(mainGoPath string, route RouteInfo) error {
 					routeInsertIndex = j
 					break
 				}
-			}
-			break
-		}
-
-		// Fallback: insert before port := line
-		if strings.Contains(trimmed, `port := os.Getenv("PORT")`) {
-			routeInsertIndex = i
-			// Add blank line before if needed
-			if i > 0 && strings.TrimSpace(lines[i-1]) != "" {
-				lines = insertLine(lines, i, "")
-				routeInsertIndex = i + 1
 			}
 			break
 		}

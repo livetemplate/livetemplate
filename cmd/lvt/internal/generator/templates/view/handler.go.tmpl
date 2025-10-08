@@ -30,6 +30,7 @@ func formatTime() string {
 	return time.Now().Format("2006-01-02 15:04:05")
 }
 
+// Handler creates an http.Handler for this view
 func Handler() http.Handler {
 	state := &[[.ViewName]]State{
 		Title:       "[[.ViewName]]",
@@ -37,5 +38,5 @@ func Handler() http.Handler {
 	}
 
 	tmpl := livetemplate.New("[[.ViewNameLower]]")
-	return tmpl.Handle(state)
+	return livetemplate.Mount(tmpl, state)
 }

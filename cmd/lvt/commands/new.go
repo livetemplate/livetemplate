@@ -15,16 +15,22 @@ func New(args []string) error {
 
 	appName := args[0]
 	moduleName := appName // Default to app name
+	devMode := false      // Default to production (use CDN)
 
-	// Check for --module flag
+	// Check for flags
 	for i := 1; i < len(args); i++ {
 		if args[i] == "--module" && i+1 < len(args) {
 			moduleName = args[i+1]
-			break
+			i++ // Skip next arg
+		} else if args[i] == "--dev" {
+			devMode = true
 		}
 	}
 
 	fmt.Printf("Creating new LiveTemplate app: %s\n", appName)
+	if devMode {
+		fmt.Println("Mode: Development (using local client library)")
+	}
 
 	// Check if we're inside another Go module
 	isNested := false
@@ -32,7 +38,7 @@ func New(args []string) error {
 		isNested = true
 	}
 
-	if err := generator.GenerateApp(appName, moduleName); err != nil {
+	if err := generator.GenerateApp(appName, moduleName, devMode); err != nil {
 		return err
 	}
 

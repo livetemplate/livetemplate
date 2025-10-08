@@ -1742,3 +1742,103 @@ func TestTemplate_E2E_SimpleCounter(t *testing.T) {
 		t.Logf("✅ Performance check passed - %v duration, %d bytes", duration, len(updateJSON))
 	})
 }
+
+func TestTemplate_E2E_ComponentBased(t *testing.T) {
+	// Test with component-based template (like generated myblog resources)
+	initialState := E2EAppState{
+		Title:          "Component Test",
+		Counter:        1,
+		Todos:          []TodoItem{},
+		TodoCount:      0,
+		CompletedCount: 0,
+		RemainingCount: 0,
+		CompletionRate: 0,
+		LastUpdated:    "2023-01-01 10:00:00",
+		SessionID:      "comp-12345",
+	}
+
+	updateState := E2EAppState{
+		Title:   "Component Test",
+		Counter: 5,
+		Todos: []TodoItem{
+			{ID: "todo-1", Text: "Test component templates", Completed: false},
+			{ID: "todo-2", Text: "Verify flattening works", Completed: true},
+		},
+		TodoCount:      2,
+		CompletedCount: 1,
+		RemainingCount: 1,
+		CompletionRate: 50,
+		LastUpdated:    "2023-01-01 10:15:00",
+		SessionID:      "comp-12345",
+	}
+
+	// Create template using component-based template file
+	tmpl := New("component-test")
+	_, err := tmpl.ParseFiles("testdata/e2e/components/input.tmpl")
+	if err != nil {
+		t.Fatalf("Failed to parse component-based template: %v", err)
+	}
+
+	// Initial render
+	t.Run("1_Initial_Render_Components", func(t *testing.T) {
+		var buf bytes.Buffer
+		err := tmpl.Execute(&buf, initialState)
+		if err != nil {
+			t.Fatalf("Execute failed: %v", err)
+		}
+
+		html := buf.String()
+		// Verify it contains expected content from flattened template
+		expectedContent := []string{
+			"Component Test",
+			"Total: 0",
+			"Completed: 0",
+			"Updated: 2023-01-01 10:00:00",
+		}
+
+		for _, expected := range expectedContent {
+			if !strings.Contains(html, expected) {
+				t.Errorf("Missing expected content: %q\nGot: %s", expected, html)
+			}
+		}
+
+		t.Log("✅ Component-based template initial render succeeded")
+	})
+
+	// Update with new data
+	t.Run("2_Update_With_Components", func(t *testing.T) {
+		var buf bytes.Buffer
+		err := tmpl.ExecuteUpdates(&buf, updateState)
+		if err != nil {
+			t.Fatalf("ExecuteUpdates failed: %v", err)
+		}
+
+		updateJSON := buf.Bytes()
+		if len(updateJSON) == 0 {
+			t.Fatal("Update generated no output")
+		}
+
+		// Log the actual update JSON for debugging
+		updateStr := string(updateJSON)
+		t.Logf("Update JSON: %s", updateStr)
+
+		// Verify update contains expected data
+		// Note: Updates send dynamic values only, not literal HTML strings
+		// Position 1 = TodoCount, Position 2 = CompletedCount, Position 3 = Todos array, Position 4 = LastUpdated
+		expectedInUpdate := []string{
+			"Test component templates",  // Todo text in the list
+			"Verify flattening works",   // Todo text in the list
+			`"1":"2"`,                   // TodoCount changed to 2
+			`"2":"1"`,                   // CompletedCount changed to 1
+			`"4":"2023-01-01 10:15:00"`, // LastUpdated timestamp
+		}
+
+		for _, expected := range expectedInUpdate {
+			if !strings.Contains(updateStr, expected) {
+				t.Errorf("Update missing expected content: %q", expected)
+			}
+		}
+
+		t.Logf("✅ Component-based template updates work - JSON length: %d bytes", len(updateJSON))
+	})
+}

@@ -175,8 +175,8 @@ func (m genViewModel) renderContent() string {
 		b.WriteString("\n\n")
 		b.WriteString(BoxStyle.Render(
 			fmt.Sprintf("View '%s' is ready\n\n", HighlightStyle.Render(viewNameLower)) +
-				"Route auto-injected:\n" +
-				fmt.Sprintf("  http.Handle(\"/%s\", %s.Handler())\n\n", viewNameLower, viewNameLower) +
+				"Registration auto-injected:\n" +
+				fmt.Sprintf("  router.Register(\"%s\", %s.NewStore())\n\n", viewNameLower, viewNameLower) +
 				"Next steps:\n" +
 				fmt.Sprintf("  1. Customize handler: internal/app/%s/%s.go\n", viewNameLower, viewNameLower) +
 				fmt.Sprintf("  2. Edit template: internal/app/%s/%s.tmpl\n", viewNameLower, viewNameLower) +

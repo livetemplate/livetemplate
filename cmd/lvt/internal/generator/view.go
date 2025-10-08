@@ -13,6 +13,7 @@ type ViewData struct {
 	ViewName      string
 	ViewNameLower string
 	CSSFramework  string // CSS framework: "tailwind", "bulma", "pico", "none"
+	DevMode       bool   // Use local client library instead of CDN
 }
 
 func GenerateView(basePath, moduleName, viewName string, cssFramework string) error {
@@ -25,12 +26,16 @@ func GenerateView(basePath, moduleName, viewName string, cssFramework string) er
 	viewName = strings.Title(viewName)
 	viewNameLower := strings.ToLower(viewName)
 
+	// Read dev mode setting from .lvtrc
+	devMode := ReadDevMode(basePath)
+
 	data := ViewData{
 		PackageName:   viewNameLower,
 		ModuleName:    moduleName,
 		ViewName:      viewName,
 		ViewNameLower: viewNameLower,
 		CSSFramework:  cssFramework,
+		DevMode:       devMode,
 	}
 
 	// Create view directory
@@ -73,7 +78,7 @@ func GenerateView(basePath, moduleName, viewName string, cssFramework string) er
 		return fmt.Errorf("failed to generate test: %w", err)
 	}
 
-	// Inject route into main.go
+	// Inject router registration into main.go
 	mainGoPath := findMainGo(basePath)
 	if mainGoPath != "" {
 		route := RouteInfo{
@@ -88,6 +93,11 @@ func GenerateView(basePath, moduleName, viewName string, cssFramework string) er
 			fmt.Printf("   Please add manually: http.Handle(\"/%s\", %s.Handler())\n",
 				viewNameLower, viewNameLower)
 		}
+	}
+
+	// Register view for home page
+	if err := RegisterResource(basePath, data.ViewName, "/"+viewNameLower, "view"); err != nil {
+		fmt.Printf("⚠️  Could not register view in home page: %v\n", err)
 	}
 
 	return nil

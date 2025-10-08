@@ -295,7 +295,7 @@ func (m newAppModel) renderContent() string {
 }
 
 func (m newAppModel) generateApp() tea.Msg {
-	if err := generator.GenerateApp(m.appName, m.appName); err != nil {
+	if err := generator.GenerateApp(m.appName, m.appName, false); err != nil { // false = production mode (use CDN)
 		m.err = err
 		m.stage = 0
 		m.focusIndex = 0

@@ -323,8 +323,8 @@ func (m genResourceModel) renderContent() string {
 		b.WriteString("\n\n")
 
 		content := fmt.Sprintf("Resource '%s' is ready\n\n", HighlightStyle.Render(resourceNameLower))
-		content += "Route auto-injected:\n"
-		content += fmt.Sprintf("  http.Handle(\"/%s\", %s.Handler(queries))\n\n", resourceNameLower, resourceNameLower)
+		content += "Registration auto-injected:\n"
+		content += fmt.Sprintf("  router.Register(\"%s\", %s.NewStore(queries))\n\n", resourceNameLower, resourceNameLower)
 		content += "Next steps:\n"
 		content += "  1. Run migration:\n"
 		content += "     lvt migration up\n"

@@ -267,6 +267,33 @@ The client automatically:
 - Applies DOM updates using morphdom
 - Manages form lifecycle and validation errors
 
+## Building the CLI
+
+The `lvt` CLI tool can generate LiveTemplate applications with CRUD resources.
+
+### Quick Build
+```bash
+make build       # Build with timestamp
+./lvt version    # Check version and build info
+```
+
+### Build Commands
+```bash
+make build                    # Build with timestamp
+make dev                      # Build with dev version tag
+make install                  # Install to $GOPATH/bin
+make build VERSION=v1.0.0     # Build with specific version
+```
+
+### Without Make
+```bash
+# Build with timestamp manually
+go build -ldflags "-X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  -o lvt cmd/lvt/*.go
+```
+
+The build timestamp is especially helpful during development to track which version you're running when code is not yet committed.
+
 ## Testing
 
 ```bash
