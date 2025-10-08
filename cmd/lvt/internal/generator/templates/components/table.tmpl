@@ -1,0 +1,69 @@
+{{/* Table wrapper component */}}
+{{define "tableBox"}}
+[[- if needsArticle .CSSFramework]]
+<article>
+[[- else if ne (boxClass .CSSFramework) ""]]
+<div class="[[boxClass .CSSFramework]]">
+[[- else]]
+<div>
+[[- end]]
+  {{block "tableContent" .}}{{end}}
+[[- if needsArticle .CSSFramework]]
+</article>
+[[- else]]
+</div>
+[[- end]]
+{{end}}
+
+{{/* Resource table with data */}}
+{{define "resourceTable"}}
+  <h2[[if ne (subtitleClass .CSSFramework) ""]] class="[[subtitleClass .CSSFramework]]"[[end]]>[[.ResourceName]]s</h2>
+  {{if gt (len .Paginated[[.ResourceName]]s) 0}}
+[[- if needsTableWrapper .CSSFramework]]
+    <div class="[[tableWrapperClass .CSSFramework]]">
+[[- end]]
+      <table[[if ne (tableClass .CSSFramework) ""]] class="[[tableClass .CSSFramework]]"[[end]]>
+        <thead>
+          <tr>
+[[- range .Fields]]
+            <th>[[.Name | title]]</th>
+[[- end]]
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Paginated[[.ResourceName]]s}}
+            <tr data-key="{{.ID}}">
+[[- range .Fields]]
+              <td>
+[[- if eq .GoType "bool"]]
+                {{if .[[.Name | title]]}}✓{{else}}✗{{end}}
+[[- else if eq .GoType "time.Time"]]
+                {{.[[.Name | title]].Format "2006-01-02 15:04"}}
+[[- else]]
+                {{.[[.Name | title]]}}
+[[- end]]
+              </td>
+[[- end]]
+              <td>
+                <button[[if ne (buttonClass .CSSFramework "danger") ""]] class="[[buttonClass .CSSFramework "danger"]]"[[end]] lvt-click="delete" lvt-data-id="{{.ID}}">
+                  Delete
+                </button>
+              </td>
+            </tr>
+          {{end}}
+        </tbody>
+      </table>
+[[- if needsTableWrapper .CSSFramework]]
+    </div>
+[[- end]]
+  {{else}}
+    <p>
+      {{if ne .SearchQuery ""}}
+        No [[.ResourceNameLower]]s found matching "{{.SearchQuery}}"
+      {{else}}
+        No [[.ResourceNameLower]]s yet. Add one above!
+      {{end}}
+    </p>
+  {{end}}
+{{end}}

@@ -1,9 +1,0 @@
-CREATE TABLE IF NOT EXISTS {{.TableName}} (
-  id TEXT PRIMARY KEY,
-{{- range .Fields}}
-  {{.Name}} {{.SQLType}} NOT NULL,
-{{- end}}
-  created_at DATETIME NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_{{.TableName}}_created_at ON {{.TableName}}(created_at);

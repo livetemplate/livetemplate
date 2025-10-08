@@ -1,0 +1,23 @@
+{{/* Pagination controls */}}
+{{define "pagination"}}
+  {{if gt .TotalPages 1}}
+    <nav[[if ne (paginationClass .CSSFramework) ""]] class="[[paginationClass .CSSFramework]]"[[end]] role="navigation" aria-label="pagination">
+      <button[[if ne (paginationButtonClass .CSSFramework) ""]] class="[[paginationButtonClass .CSSFramework]]"[[end]] lvt-click="prev_page" {{if eq .CurrentPage 1}}disabled{{end}}>
+        Previous
+      </button>
+      <button[[if ne (paginationButtonClass .CSSFramework) ""]] class="[[paginationButtonClass .CSSFramework]]"[[end]] lvt-click="next_page" {{if eq .CurrentPage .TotalPages}}disabled{{end}}>
+        Next
+      </button>
+[[- if ne (paginationInfoClass .CSSFramework) ""]]
+      <div class="[[paginationInfoClass .CSSFramework]]">
+        <span class="[[paginationCurrentClass .CSSFramework]]">
+[[- else]]
+      <div>
+        <span>
+[[- end]]
+          Page {{.CurrentPage}} of {{.TotalPages}}
+        </span>
+      </div>
+    </nav>
+  {{end}}
+{{end}}

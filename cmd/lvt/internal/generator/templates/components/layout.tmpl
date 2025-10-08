@@ -1,0 +1,33 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    {{block "head" .}}
+      <title>{{.Title}}</title>
+      [[csscdn .CSSFramework]]
+    {{end}}
+  </head>
+  <body>
+[[- if needsWrapper .CSSFramework -]]
+[[- $class := containerClass .CSSFramework -]]
+    <main[[if ne $class ""]] class="[[$class]]"[[end]]>
+      {{block "content" .}}{{end}}
+    </main>
+[[- else -]]
+[[- $class := containerClass .CSSFramework -]]
+    <div[[if ne $class ""]] class="[[$class]]"[[end]]>
+      {{block "content" .}}{{end}}
+    </div>
+[[- end -]]
+    {{block "scripts" .}}
+      [[- if .DevMode]]
+      <script src="/livetemplate-client.js"></script>
+      [[- else]]
+      <script src="https://unpkg.com/@livefir/livetemplate-client@latest/dist/livetemplate-client.browser.js"></script>
+      [[- end]]
+    {{end}}
+  </body>
+</html>
+{{end}}

@@ -47,7 +47,7 @@
     <div class="mb-4">
       <label class="block text-sm font-medium text-gray-700 mb-2">Published</label>
       <label class="flex items-center">
-        <input type="checkbox" name="published" {{if .lvt.HasError "published"}}aria-invalid="true"{{end}}>
+        <input type="checkbox" name="published" value="true" {{if .lvt.HasError "published"}}aria-invalid="true"{{end}}>
         Published
       </label>
       {{if .lvt.HasError "published"}}

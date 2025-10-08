@@ -1,0 +1,53 @@
+{{/* Form wrapper component */}}
+{{define "formBox"}}
+[[- if needsArticle .CSSFramework]]
+<article>
+[[- else if ne (boxClass .CSSFramework) ""]]
+<div class="[[boxClass .CSSFramework]]">
+[[- else]]
+<div>
+[[- end]]
+  {{block "formContent" .}}{{end}}
+[[- if needsArticle .CSSFramework]]
+</article>
+[[- else]]
+</div>
+[[- end]]
+{{end}}
+
+{{/* Add form for resource */}}
+{{define "addForm"}}
+  <h2[[if ne (subtitleClass .CSSFramework) ""]] class="[[subtitleClass .CSSFramework]]"[[end]]>Add New [[.ResourceName]]</h2>
+
+  {{if .lvt.HasError "_general"}}
+  <div style="margin-bottom: 1rem; padding: 0.75rem; background-color: #fee; border: 1px solid #fcc; border-radius: 0.25rem; color: #c00;">
+    {{.lvt.Error "_general"}}
+  </div>
+  {{end}}
+
+  <form lvt-submit="add">
+[[- range .Fields]]
+    <div[[if ne (fieldClass $.CSSFramework) ""]] class="[[fieldClass $.CSSFramework]]"[[end]]>
+      <label[[if ne (labelClass $.CSSFramework) ""]] class="[[labelClass $.CSSFramework]]"[[end]]>[[.Name | title]]</label>
+[[- if eq .GoType "string"]]
+      <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="text" name="[[.Name]]" placeholder="Enter [[.Name]]" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+[[- else if eq .GoType "int64"]]
+      <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="number" name="[[.Name]]" placeholder="Enter [[.Name]]" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+[[- else if eq .GoType "bool"]]
+      <label[[if ne (checkboxClass $.CSSFramework) ""]] class="[[checkboxClass $.CSSFramework]]"[[end]]>
+        <input type="checkbox" name="[[.Name]]" value="true" {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+        [[.Name | title]]
+      </label>
+[[- else if eq .GoType "float64"]]
+      <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="number" step="0.01" name="[[.Name]]" placeholder="Enter [[.Name]]" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+[[- end]]
+      {{if .lvt.HasError "[[.Name]]"}}
+      <small style="color: #c00; font-size: 0.875rem;">{{.lvt.Error "[[.Name]]"}}</small>
+      {{end}}
+    </div>
+[[- end]]
+    <div[[if ne (fieldClass .CSSFramework) ""]] class="[[fieldClass .CSSFramework]]"[[end]]>
+      <button[[if ne (buttonClass .CSSFramework "primary") ""]] class="[[buttonClass .CSSFramework "primary"]]"[[end]] type="submit" lvt-disable-with="Adding...">Add [[.ResourceName]]</button>
+    </div>
+  </form>
+{{end}}
