@@ -23,6 +23,8 @@ type AddInput struct {
 [[- range .Fields]]
 [[- if eq .GoType "bool"]]
 	[[.Name | camelCase]] [[.GoType]] `json:"[[.Name]]"`
+[[- else if eq .GoType "string"]]
+	[[.Name | camelCase]] [[.GoType]] `json:"[[.Name]]" validate:"required,min=3"`
 [[- else]]
 	[[.Name | camelCase]] [[.GoType]] `json:"[[.Name]]" validate:"required"`
 [[- end]]
@@ -34,6 +36,8 @@ type UpdateInput struct {
 [[- range .Fields]]
 [[- if eq .GoType "bool"]]
 	[[.Name | camelCase]] [[.GoType]] `json:"[[.Name]]"`
+[[- else if eq .GoType "string"]]
+	[[.Name | camelCase]] [[.GoType]] `json:"[[.Name]]" validate:"required,min=3"`
 [[- else]]
 	[[.Name | camelCase]] [[.GoType]] `json:"[[.Name]]" validate:"required"`
 [[- end]]
