@@ -23,6 +23,7 @@ type Config struct {
 	Upgrader          *websocket.Upgrader
 	SessionStore      SessionStore
 	WebSocketDisabled bool
+	LoadingDisabled   bool     // Disables automatic loading indicator on page load
 	TemplateFiles     []string // If set, overrides auto-discovery
 }
 
@@ -85,6 +86,13 @@ func WithSessionStore(store SessionStore) Option {
 func WithWebSocketDisabled() Option {
 	return func(c *Config) {
 		c.WebSocketDisabled = true
+	}
+}
+
+// WithLoadingDisabled disables the automatic loading indicator shown during page initialization
+func WithLoadingDisabled() Option {
+	return func(c *Config) {
+		c.LoadingDisabled = true
 	}
 }
 
@@ -173,10 +181,14 @@ func (t *Template) Parse(text string) (*Template, error) {
 	var templateContent string
 	if isFullHTML {
 		// Inject wrapper div around body content
-		templateContent = injectWrapperDiv(text, t.wrapperID)
+		templateContent = injectWrapperDiv(text, t.wrapperID, t.config.LoadingDisabled)
 	} else {
 		// For standalone templates, wrap the entire content
-		templateContent = fmt.Sprintf(`<div data-lvt-id="%s">%s</div>`, t.wrapperID, text)
+		loadingAttr := ""
+		if !t.config.LoadingDisabled {
+			loadingAttr = ` data-lvt-loading="true"`
+		}
+		templateContent = fmt.Sprintf(`<div data-lvt-id="%s"%s>%s</div>`, t.wrapperID, loadingAttr, text)
 	}
 
 	// Parse the template using html/template
@@ -199,9 +211,13 @@ func (t *Template) Parse(text string) (*Template, error) {
 
 		// Re-inject wrapper for flattened template
 		if isFullHTML {
-			templateContent = injectWrapperDiv(flattenedStr, t.wrapperID)
+			templateContent = injectWrapperDiv(flattenedStr, t.wrapperID, t.config.LoadingDisabled)
 		} else {
-			templateContent = fmt.Sprintf(`<div data-lvt-id="%s">%s</div>`, t.wrapperID, flattenedStr)
+			loadingAttr := ""
+			if !t.config.LoadingDisabled {
+				loadingAttr = ` data-lvt-loading="true"`
+			}
+			templateContent = fmt.Sprintf(`<div data-lvt-id="%s"%s>%s</div>`, t.wrapperID, loadingAttr, flattenedStr)
 		}
 
 		// Re-parse with flattened content
@@ -254,10 +270,14 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 	var templateContent string
 	if isFullHTML {
 		// Inject wrapper div around body content
-		templateContent = injectWrapperDiv(text, t.wrapperID)
+		templateContent = injectWrapperDiv(text, t.wrapperID, t.config.LoadingDisabled)
 	} else {
 		// For standalone templates, wrap the entire content
-		templateContent = fmt.Sprintf(`<div data-lvt-id="%s">%s</div>`, t.wrapperID, text)
+		loadingAttr := ""
+		if !t.config.LoadingDisabled {
+			loadingAttr = ` data-lvt-loading="true"`
+		}
+		templateContent = fmt.Sprintf(`<div data-lvt-id="%s"%s>%s</div>`, t.wrapperID, loadingAttr, text)
 	}
 
 	// Parse the main template using html/template (without flattening yet)
@@ -295,9 +315,13 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 
 		// Re-inject wrapper for flattened template
 		if isFullHTML {
-			templateContent = injectWrapperDiv(flattenedStr, t.wrapperID)
+			templateContent = injectWrapperDiv(flattenedStr, t.wrapperID, t.config.LoadingDisabled)
 		} else {
-			templateContent = fmt.Sprintf(`<div data-lvt-id="%s">%s</div>`, t.wrapperID, flattenedStr)
+			loadingAttr := ""
+			if !t.config.LoadingDisabled {
+				loadingAttr = ` data-lvt-loading="true"`
+			}
+			templateContent = fmt.Sprintf(`<div data-lvt-id="%s"%s>%s</div>`, t.wrapperID, loadingAttr, flattenedStr)
 		}
 
 		// Re-parse with flattened content

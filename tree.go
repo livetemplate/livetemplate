@@ -89,7 +89,7 @@ func generateRandomID() string {
 
 // injectWrapperDiv injects a wrapper div around body content with the specified ID
 // Excludes <script> tags from the wrapper to prevent them from being part of the dynamic content
-func injectWrapperDiv(htmlDoc string, wrapperID string) string {
+func injectWrapperDiv(htmlDoc string, wrapperID string, loadingDisabled bool) string {
 	// Find the body opening tag and extract the content between <body> and </body>
 	bodyStart := strings.Index(htmlDoc, "<body")
 	if bodyStart == -1 {
@@ -126,8 +126,14 @@ func injectWrapperDiv(htmlDoc string, wrapperID string) string {
 		scriptsSection = ""
 	}
 
-	// Create the wrapper div with the specified ID
-	wrappedContent := fmt.Sprintf(`<div data-lvt-id="%s">%s</div>%s`, wrapperID, contentToWrap, scriptsSection)
+	// Add loading attribute if not disabled
+	loadingAttr := ""
+	if !loadingDisabled {
+		loadingAttr = ` data-lvt-loading="true"`
+	}
+
+	// Create the wrapper div with the specified ID and optional loading attribute
+	wrappedContent := fmt.Sprintf(`<div data-lvt-id="%s"%s>%s</div>%s`, wrapperID, loadingAttr, contentToWrap, scriptsSection)
 
 	// Reconstruct the HTML with the wrapper
 	result := htmlDoc[:bodyTagEnd] + wrappedContent + htmlDoc[bodyEnd:]

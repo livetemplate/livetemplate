@@ -60,6 +60,10 @@ export class LiveTemplateClient {
   // Rate limiting: cache of debounced/throttled handlers per element+eventType
   private rateLimitedHandlers: WeakMap<Element, Map<string, Function>> = new WeakMap();
 
+  // Initialization tracking for loading indicator
+  private isInitialized: boolean = false;
+  private loadingBar: HTMLElement | null = null;
+
   constructor(options: LiveTemplateClientOptions = {}) {
     this.options = {
       autoReconnect: false, // Disable autoReconnect by default to avoid connection loops
@@ -67,6 +71,83 @@ export class LiveTemplateClient {
       liveUrl: window.location.pathname, // Connect to current page
       ...options
     };
+  }
+
+  /**
+   * Create a loading bar indicator at the top of the page
+   * Shows an animated progress bar while waiting for WebSocket initialization
+   */
+  private createLoadingBar(): void {
+    if (this.loadingBar) return; // Already created
+
+    const bar = document.createElement('div');
+    bar.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #3b82f6 0%, #60a5fa 50%, #3b82f6 100%);
+      background-size: 200% 100%;
+      z-index: 9999;
+      animation: lvt-loading-shimmer 1.5s ease-in-out infinite;
+    `;
+
+    // Add keyframes animation if not already added
+    if (!document.getElementById('lvt-loading-styles')) {
+      const style = document.createElement('style');
+      style.id = 'lvt-loading-styles';
+      style.textContent = `
+        @keyframes lvt-loading-shimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    document.body.insertBefore(bar, document.body.firstChild);
+    this.loadingBar = bar;
+  }
+
+  /**
+   * Remove the loading bar indicator
+   */
+  private removeLoadingBar(): void {
+    if (this.loadingBar && this.loadingBar.parentNode) {
+      this.loadingBar.parentNode.removeChild(this.loadingBar);
+      this.loadingBar = null;
+    }
+  }
+
+  /**
+   * Disable all forms within the wrapper element
+   */
+  private disableForms(): void {
+    if (!this.wrapperElement) return;
+
+    const forms = this.wrapperElement.querySelectorAll('form');
+    forms.forEach(form => {
+      const inputs = form.querySelectorAll('input, textarea, select, button');
+      inputs.forEach(input => {
+        (input as HTMLInputElement).disabled = true;
+      });
+    });
+  }
+
+  /**
+   * Enable all forms within the wrapper element
+   */
+  private enableForms(): void {
+    if (!this.wrapperElement) return;
+
+    const forms = this.wrapperElement.querySelectorAll('form');
+    forms.forEach(form => {
+      const inputs = form.querySelectorAll('input, textarea, select, button');
+      inputs.forEach(input => {
+        (input as HTMLInputElement).disabled = false;
+      });
+    });
   }
 
   /**
@@ -79,6 +160,13 @@ export class LiveTemplateClient {
       if (wrapper) {
         const client = new LiveTemplateClient();
         client.wrapperElement = wrapper;
+
+        // Check if loading indicator should be shown
+        const shouldShowLoading = wrapper.getAttribute('data-lvt-loading') === 'true';
+        if (shouldShowLoading) {
+          client.createLoadingBar();
+          client.disableForms();
+        }
 
         // Try WebSocket first (most efficient)
         client.connectWebSocket();
@@ -181,6 +269,13 @@ export class LiveTemplateClient {
     this.ws.onmessage = (event) => {
       try {
         const response: UpdateResponse = JSON.parse(event.data);
+
+        // On first message, remove loading indicator and enable forms
+        if (!this.isInitialized) {
+          this.removeLoadingBar();
+          this.enableForms();
+          this.isInitialized = true;
+        }
 
         if (this.wrapperElement) {
           this.updateDOM(this.wrapperElement, response.tree, response.meta);
