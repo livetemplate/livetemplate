@@ -4,25 +4,15 @@
   <h1[[if ne (titleClass .CSSFramework) ""]] class="[[titleClass .CSSFramework]]"[[end]]>{{.Title}}</h1>
 
   <!-- Add Form -->
-  {{if eq .EditingID ""}}
   {{template "formBox" .}}
-  {{end}}
 
-  <!-- Edit Form -->
+  <!-- Edit Modal -->
   {{if ne .EditingID ""}}
-[[- if needsArticle .CSSFramework]]
-  <article>
-[[- else if ne (boxClass .CSSFramework) ""]]
-  <div class="[[boxClass .CSSFramework]]">
-[[- else]]
-  <div>
-[[- end]]
-    {{template "editForm" .}}
-[[- if needsArticle .CSSFramework]]
-  </article>
-[[- else]]
+  <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+    <div style="background: white; border-radius: 8px; padding: 2rem; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
+      {{template "editForm" .}}
+    </div>
   </div>
-[[- end]]
   {{end}}
 
   <!-- Statistics -->
