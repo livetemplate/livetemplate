@@ -27,7 +27,7 @@ echo "✅ lvt built"
 # Step 3: Create new myblog app
 echo "📦 Creating new myblog app..."
 cd "$(dirname $MYBLOG_DIR)"
-"$LVT_BINARY" new myblog --module myblog
+"$LVT_BINARY" new myblog --module myblog --dev
 echo "✅ App created"
 
 # Step 4: Generate resources

@@ -8,7 +8,7 @@
   "scripts": {
     "build": "tsc && npm run build:browser",
     "build:browser": "esbuild livetemplate-client.ts --bundle --format=iife --global-name=LiveTemplateClient --outfile=dist/livetemplate-client.browser.js --sourcemap",
-    "test": "jest",
+    "test": "jest --no-cache",
     "test:reconstruction": "jest test-reconstruction",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build"

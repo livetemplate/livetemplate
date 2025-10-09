@@ -122,6 +122,7 @@ func TestFocusPreservation(t *testing.T) {
 	var inputValue string
 	var cursorPosition int
 	var counterValue string
+	var hasFocus bool
 
 	// Test sequence
 	err := chromedp.Run(ctx,
@@ -158,6 +159,9 @@ func TestFocusPreservation(t *testing.T) {
 		// Get cursor position (should still be 5)
 		chromedp.Evaluate(`document.getElementById('username').selectionStart`, &cursorPosition),
 
+		// Check if input still has focus
+		chromedp.Evaluate(`document.getElementById('username') === document.activeElement`, &hasFocus),
+
 		// Verify counter was incremented
 		chromedp.Text(`#counter`, &counterValue, chromedp.ByID),
 	)
@@ -176,6 +180,11 @@ func TestFocusPreservation(t *testing.T) {
 		t.Errorf("Cursor position should be preserved. Expected 5, got %d", cursorPosition)
 	}
 
+	// Verify element still has focus
+	if !hasFocus {
+		t.Errorf("Input should still have focus after update")
+	}
+
 	// Verify counter was actually updated
 	if counterValue != "1" {
 		t.Errorf("Counter should be updated. Expected '1', got '%s'", counterValue)
@@ -183,6 +192,7 @@ func TestFocusPreservation(t *testing.T) {
 
 	t.Log("✅ Input value preserved:", inputValue)
 	t.Log("✅ Cursor position preserved:", cursorPosition)
+	t.Log("✅ Focus preserved:", hasFocus)
 	t.Log("✅ Counter updated:", counterValue)
 }
 

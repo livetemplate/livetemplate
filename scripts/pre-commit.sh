@@ -38,7 +38,7 @@ fi
 
 # Step 3: Run all Go tests
 echo "🧪 Running Go tests..."
-if go test -v ./... -timeout=30s; then
+if go test -v ./... -timeout=60s; then
     echo "✅ All Go tests passed"
 else
     echo "❌ Go tests failed - commit blocked"

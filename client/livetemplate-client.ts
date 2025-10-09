@@ -83,9 +83,9 @@ export class LiveTemplateClient {
 
   // Focus preservation
   private focusableElements: HTMLElement[] = [];
-  private focusedElementSelector: string | null = null;
-  private focusedSelectionStart: number | null = null;
-  private focusedSelectionEnd: number | null = null;
+  private lastFocusedElement: HTMLElement | null = null; // Track last focused element continuously
+  private lastFocusedSelectionStart: number | null = null;
+  private lastFocusedSelectionEnd: number | null = null;
 
   constructor(options: LiveTemplateClientOptions = {}) {
     this.options = {
@@ -193,6 +193,66 @@ export class LiveTemplateClient {
   }
 
   /**
+   * Set up focus tracking to remember the last focused element
+   * This is called once during initialization
+   */
+  private setupFocusTracking(): void {
+    if (!this.wrapperElement) return;
+
+    const wrapperId = this.wrapperElement.getAttribute('data-lvt-id');
+
+    // Set up focus listener to track focused elements
+    const focusListener = (e: Event) => {
+      const target = e.target as HTMLElement;
+      if (!target || !this.wrapperElement?.contains(target)) return;
+
+      // Only track focusable inputs, not buttons
+      if (this.isTextualInput(target) || target instanceof HTMLSelectElement) {
+        this.lastFocusedElement = target;
+        console.log('[Focus Debug] Tracked focus on:', target.tagName, target.id || target.getAttribute('name'));
+
+        // Save cursor position if it's a textual input
+        if (this.isTextualInput(target)) {
+          this.lastFocusedSelectionStart = target.selectionStart;
+          this.lastFocusedSelectionEnd = target.selectionEnd;
+        }
+      }
+    };
+
+    // Set up blur listener to save cursor position when input loses focus
+    const blurListener = (e: Event) => {
+      const target = e.target as HTMLElement;
+      if (!target || !this.wrapperElement?.contains(target)) return;
+
+      // Save cursor position on blur for textual inputs
+      if (this.isTextualInput(target) && target === this.lastFocusedElement) {
+        this.lastFocusedSelectionStart = target.selectionStart;
+        this.lastFocusedSelectionEnd = target.selectionEnd;
+        console.log('[Focus Debug] Saved cursor on blur:', this.lastFocusedSelectionStart, '-', this.lastFocusedSelectionEnd);
+      }
+    };
+
+    // Remove existing listeners if any
+    const focusKey = `__lvt_focus_tracker_${wrapperId}`;
+    const blurKey = `__lvt_blur_tracker_${wrapperId}`;
+
+    if ((document as any)[focusKey]) {
+      document.removeEventListener('focus', (document as any)[focusKey], true);
+    }
+    if ((document as any)[blurKey]) {
+      document.removeEventListener('blur', (document as any)[blurKey], true);
+    }
+
+    // Add new listeners (use capture phase to catch focus events)
+    (document as any)[focusKey] = focusListener;
+    (document as any)[blurKey] = blurListener;
+    document.addEventListener('focus', focusListener, true);
+    document.addEventListener('blur', blurListener, true);
+
+    console.log('[Focus Debug] Focus tracking set up');
+  }
+
+  /**
    * Check if an element is a textual input that supports selection range
    */
   private isTextualInput(el: Element): el is HTMLInputElement | HTMLTextAreaElement {
@@ -217,60 +277,61 @@ export class LiveTemplateClient {
   }
 
   /**
-   * Save the currently focused element and cursor position before DOM update
+   * Restore focus and cursor position to the last focused element after DOM update
    */
-  private saveFocusedElement(): void {
-    const active = document.activeElement as HTMLElement;
-    if (!active || active === document.body || !this.wrapperElement?.contains(active)) {
-      this.focusedElementSelector = null;
+  private restoreFocusedElement(): void {
+    console.log('[Focus Debug] restoreFocusedElement - lastFocusedElement:', this.lastFocusedElement?.tagName, this.lastFocusedElement?.id || this.lastFocusedElement?.getAttribute('name'));
+
+    if (!this.lastFocusedElement || !this.wrapperElement) {
+      console.log('[Focus Debug] No element to restore');
       return;
     }
 
-    this.focusedElementSelector = this.getElementSelector(active);
+    // Get the selector for the last focused element
+    const selector = this.getElementSelector(this.lastFocusedElement);
+    console.log('[Focus Debug] Selector for last focused:', selector);
 
-    if (this.isTextualInput(active)) {
-      this.focusedSelectionStart = active.selectionStart;
-      this.focusedSelectionEnd = active.selectionEnd;
+    if (!selector) {
+      console.log('[Focus Debug] Could not generate selector');
+      return;
     }
-  }
 
-  /**
-   * Restore focus and cursor position after DOM update
-   */
-  private restoreFocusedElement(): void {
-    if (!this.focusedElementSelector || !this.wrapperElement) return;
-
-    // Refresh focusable elements list after DOM update
-    this.updateFocusableElements();
-
+    // Find the element in the updated DOM
     let element: HTMLElement | null = null;
 
-    if (this.focusedElementSelector.startsWith('data-focus-index-')) {
-      const index = parseInt(this.focusedElementSelector.replace('data-focus-index-', ''));
+    if (selector.startsWith('data-focus-index-')) {
+      // Index-based lookup (fallback)
+      this.updateFocusableElements();
+      const index = parseInt(selector.replace('data-focus-index-', ''));
       element = this.focusableElements[index] || null;
+      console.log('[Focus Debug] Found by index:', index, element?.tagName);
     } else {
-      element = this.wrapperElement.querySelector(this.focusedElementSelector);
+      // Selector-based lookup (preferred)
+      element = this.wrapperElement.querySelector(selector);
+      console.log('[Focus Debug] Found by selector:', selector, element?.tagName);
     }
 
     if (!element) {
-      this.focusedElementSelector = null;
+      console.log('[Focus Debug] Element not found in updated DOM');
       return;
     }
 
+    // Restore focus
     const wasFocused = element.matches(':focus');
+    console.log('[Focus Debug] Already focused:', wasFocused);
+
     if (!wasFocused) {
       element.focus();
+      console.log('[Focus Debug] Restored focus');
     }
 
+    // Restore cursor position for textual inputs
     if (this.isTextualInput(element) &&
-        this.focusedSelectionStart !== null &&
-        this.focusedSelectionEnd !== null) {
-      element.setSelectionRange(this.focusedSelectionStart, this.focusedSelectionEnd);
+        this.lastFocusedSelectionStart !== null &&
+        this.lastFocusedSelectionEnd !== null) {
+      element.setSelectionRange(this.lastFocusedSelectionStart, this.lastFocusedSelectionEnd);
+      console.log('[Focus Debug] Restored cursor:', this.lastFocusedSelectionStart, '-', this.lastFocusedSelectionEnd);
     }
-
-    this.focusedElementSelector = null;
-    this.focusedSelectionStart = null;
-    this.focusedSelectionEnd = null;
   }
 
   /**
@@ -301,6 +362,9 @@ export class LiveTemplateClient {
 
         // Initialize focusable elements tracking
         client.updateFocusableElements();
+
+        // Set up focus tracking to preserve focus during updates
+        client.setupFocusTracking();
 
         // Expose as global for programmatic access
         (window as any).liveTemplateClient = client;
@@ -1410,10 +1474,6 @@ export class LiveTemplateClient {
       return;
     }
 
-    // Update focusable elements list and save focused element before morphdom
-    this.updateFocusableElements();
-    this.saveFocusedElement();
-
     // Create a temporary wrapper to hold the new content
     // We need to create a DOM element of the same type as 'element' to avoid browser HTML corrections
     // For example, if we put <tr> elements in a <div>, the browser strips them out
@@ -1442,14 +1502,11 @@ export class LiveTemplateClient {
         }
       },
       onBeforeElUpdated: (fromEl, toEl) => {
-        // Preserve value for focused textual inputs
-        if (this.focusedElementSelector && fromEl.matches) {
-          try {
-            if (fromEl.matches(this.focusedElementSelector) && this.isTextualInput(fromEl)) {
-              (toEl as any).value = (fromEl as any).value;
-            }
-          } catch (e) {
-            // Invalid selector, ignore
+        // Preserve value for the last focused textual input
+        if (this.lastFocusedElement && this.isTextualInput(fromEl)) {
+          if (fromEl === this.lastFocusedElement) {
+            // Preserve the current value being typed
+            (toEl as any).value = (fromEl as any).value;
           }
         }
 
