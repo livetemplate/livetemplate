@@ -72,6 +72,8 @@ type [[.ResourceName]]State struct {
 	Paginated[[.ResourceName]]s [][[.ResourceName]]Item `json:"paginated_[[.ResourceNameLower]]s"`
 	TotalCount   int                   `json:"total_count"`
 	LastUpdated  string                `json:"last_updated"`
+	EditingID    string                `json:"editing_id"`
+	Editing[[.ResourceName]] *[[.ResourceName]]Item   `json:"editing_[[.ResourceNameLower]]"`
 }
 
 func (s *[[.ResourceName]]State) Change(ctx *livetemplate.ActionContext) error {
@@ -102,6 +104,27 @@ func (s *[[.ResourceName]]State) Change(ctx *livetemplate.ActionContext) error {
 			return err
 		}
 
+	case "edit":
+		var input DeleteInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+
+		// Find the item to edit
+		[[.ResourceNameLower]]s, err := s.Queries.GetAll[[.ResourceNamePlural]](dbCtx)
+		if err != nil {
+			return fmt.Errorf("failed to load [[.ResourceNameLower]]s: %w", err)
+		}
+
+		for _, item := range [[.ResourceNameLower]]s {
+			if item.ID == input.ID {
+				s.EditingID = input.ID
+				itemCopy := item
+				s.Editing[[.ResourceName]] = &itemCopy
+				break
+			}
+		}
+
 	case "update":
 		var input UpdateInput
 		if err := ctx.BindAndValidate(&input, validate); err != nil {
@@ -118,9 +141,17 @@ func (s *[[.ResourceName]]State) Change(ctx *livetemplate.ActionContext) error {
 			return fmt.Errorf("failed to update [[.ResourceNameLower]]: %w", err)
 		}
 
+		// Clear editing state
+		s.EditingID = ""
+		s.Editing[[.ResourceName]] = nil
+
 		if err := s.load[[.ResourceName]]s(dbCtx); err != nil {
 			return err
 		}
+
+	case "cancel_edit":
+		s.EditingID = ""
+		s.Editing[[.ResourceName]] = nil
 
 	case "delete":
 		var input DeleteInput

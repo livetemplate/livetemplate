@@ -4,7 +4,26 @@
   <h1[[if ne (titleClass .CSSFramework) ""]] class="[[titleClass .CSSFramework]]"[[end]]>{{.Title}}</h1>
 
   <!-- Add Form -->
+  {{if eq .EditingID ""}}
   {{template "formBox" .}}
+  {{end}}
+
+  <!-- Edit Form -->
+  {{if ne .EditingID ""}}
+[[- if needsArticle .CSSFramework]]
+  <article>
+[[- else if ne (boxClass .CSSFramework) ""]]
+  <div class="[[boxClass .CSSFramework]]">
+[[- else]]
+  <div>
+[[- end]]
+    {{template "editForm" .}}
+[[- if needsArticle .CSSFramework]]
+  </article>
+[[- else]]
+  </div>
+[[- end]]
+  {{end}}
 
   <!-- Statistics -->
   {{template "stats" .}}

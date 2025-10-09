@@ -63,6 +63,57 @@
       </div>
 [[- end]]
 
+      <!-- Edit Form -->
+      {{if ne .EditingID 0}}
+[[- if needsArticle .CSSFramework]]
+      <article>
+[[- else if ne (boxClass .CSSFramework) ""]]
+      <div class="[[boxClass .CSSFramework]]">
+[[- else]]
+      <div>
+[[- end]]
+        <h2[[if ne (subtitleClass .CSSFramework) ""]] class="[[subtitleClass .CSSFramework]]"[[end]]>Edit [[.ResourceName]]</h2>
+
+        {{if .lvt.HasError "_general"}}
+        <div style="margin-bottom: 1rem; padding: 0.75rem; background-color: #fee; border: 1px solid #fcc; border-radius: 0.25rem; color: #c00;">
+          {{.lvt.Error "_general"}}
+        </div>
+        {{end}}
+
+        <form lvt-submit="update">
+          <input type="hidden" name="id" value="{{.EditingID}}">
+[[- range .Fields]]
+          <div[[if ne (fieldClass $.CSSFramework) ""]] class="[[fieldClass $.CSSFramework]]"[[end]]>
+            <label[[if ne (labelClass $.CSSFramework) ""]] class="[[labelClass $.CSSFramework]]"[[end]]>[[.Name | title]]</label>
+[[- if eq .GoType "string"]]
+            <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="text" name="[[.Name]]" placeholder="Enter [[.Name]]" value="{{.Editing[[$.ResourceName]].[[.Name | title]]}}" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+[[- else if eq .GoType "int64"]]
+            <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="number" name="[[.Name]]" placeholder="Enter [[.Name]]" value="{{.Editing[[$.ResourceName]].[[.Name | title]]}}" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+[[- else if eq .GoType "bool"]]
+            <label[[if ne (checkboxClass $.CSSFramework) ""]] class="[[checkboxClass $.CSSFramework]]"[[end]]>
+              <input type="checkbox" name="[[.Name]]" value="true" {{if .Editing[[$.ResourceName]].[[.Name | title]]}}checked{{end}} {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+              [[.Name | title]]
+            </label>
+[[- else if eq .GoType "float64"]]
+            <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="number" step="0.01" name="[[.Name]]" placeholder="Enter [[.Name]]" value="{{.Editing[[$.ResourceName]].[[.Name | title]]}}" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+[[- end]]
+            {{if .lvt.HasError "[[.Name]]"}}
+            <small style="color: #c00; font-size: 0.875rem;">{{.lvt.Error "[[.Name]]"}}</small>
+            {{end}}
+          </div>
+[[- end]]
+          <div[[if ne (fieldClass .CSSFramework) ""]] class="[[fieldClass .CSSFramework]]"[[end]]>
+            <button[[if ne (buttonClass .CSSFramework "primary") ""]] class="[[buttonClass .CSSFramework "primary"]]"[[end]] type="submit" lvt-disable-with="Updating...">Update [[.ResourceName]]</button>
+            <button[[if ne (buttonClass .CSSFramework "secondary") ""]] class="[[buttonClass .CSSFramework "secondary"]]"[[end]] type="button" lvt-click="cancel_edit">Cancel</button>
+          </div>
+        </form>
+[[- if needsArticle .CSSFramework]]
+      </article>
+[[- else]]
+      </div>
+[[- end]]
+      {{end}}
+
       <!-- Statistics -->
 [[- if needsArticle .CSSFramework]]
       <article>
@@ -166,6 +217,9 @@
                     </td>
 [[- end]]
                     <td>
+                      <button[[if ne (buttonClass $.CSSFramework "primary") ""]] class="[[buttonClass $.CSSFramework "primary"]]"[[end]] lvt-click="edit" lvt-data-id="{{.ID}}">
+                        Edit
+                      </button>
                       <button[[if ne (buttonClass $.CSSFramework "danger") ""]] class="[[buttonClass $.CSSFramework "danger"]]"[[end]] lvt-click="delete" lvt-data-id="{{.ID}}">
                         Delete
                       </button>

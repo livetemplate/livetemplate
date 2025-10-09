@@ -58,6 +58,8 @@ type UserState struct {
 	PaginatedUsers []UserItem `json:"paginated_users"`
 	TotalCount   int                   `json:"total_count"`
 	LastUpdated  string                `json:"last_updated"`
+	EditingID    string                `json:"editing_id"`
+	EditingUser *UserItem   `json:"editing_user"`
 }
 
 func (s *UserState) Change(ctx *livetemplate.ActionContext) error {
@@ -87,6 +89,27 @@ func (s *UserState) Change(ctx *livetemplate.ActionContext) error {
 			return err
 		}
 
+	case "edit":
+		var input DeleteInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+
+		// Find the item to edit
+		users, err := s.Queries.GetAllUsers(dbCtx)
+		if err != nil {
+			return fmt.Errorf("failed to load users: %w", err)
+		}
+
+		for _, item := range users {
+			if item.ID == input.ID {
+				s.EditingID = input.ID
+				itemCopy := item
+				s.EditingUser = &itemCopy
+				break
+			}
+		}
+
 	case "update":
 		var input UpdateInput
 		if err := ctx.BindAndValidate(&input, validate); err != nil {
@@ -102,9 +125,17 @@ func (s *UserState) Change(ctx *livetemplate.ActionContext) error {
 			return fmt.Errorf("failed to update user: %w", err)
 		}
 
+		// Clear editing state
+		s.EditingID = ""
+		s.EditingUser = nil
+
 		if err := s.loadUsers(dbCtx); err != nil {
 			return err
 		}
+
+	case "cancel_edit":
+		s.EditingID = ""
+		s.EditingUser = nil
 
 	case "delete":
 		var input DeleteInput

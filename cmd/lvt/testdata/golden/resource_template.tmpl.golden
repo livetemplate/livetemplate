@@ -60,6 +60,44 @@
   </form>
 {{end}}
 
+{{/* Edit form for resource */}}
+{{define "editForm"}}
+  {{if ne .EditingID ""}}
+  <h2 class="text-xl font-semibold text-gray-700 mb-4">Edit Post</h2>
+
+  {{if .lvt.HasError "_general"}}
+  <div style="margin-bottom: 1rem; padding: 0.75rem; background-color: #fee; border: 1px solid #fcc; border-radius: 0.25rem; color: #c00;">
+    {{.lvt.Error "_general"}}
+  </div>
+  {{end}}
+
+  <form lvt-submit="update">
+    <input type="hidden" name="id" value="{{.EditingID}}">
+    <div class="mb-4">
+      <label class="block text-sm font-medium text-gray-700 mb-2">Title</label>
+      <input class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" type="text" name="title" placeholder="Enter title" value="{{.EditingPost.Title}}" required {{if .lvt.HasError "title"}}aria-invalid="true"{{end}}>
+      {{if .lvt.HasError "title"}}
+      <small style="color: #c00; font-size: 0.875rem;">{{.lvt.Error "title"}}</small>
+      {{end}}
+    </div>
+    <div class="mb-4">
+      <label class="block text-sm font-medium text-gray-700 mb-2">Published</label>
+      <label class="flex items-center">
+        <input type="checkbox" name="published" value="true" {{if .EditingPost.Published}}checked{{end}} {{if .lvt.HasError "published"}}aria-invalid="true"{{end}}>
+        Published
+      </label>
+      {{if .lvt.HasError "published"}}
+      <small style="color: #c00; font-size: 0.875rem;">{{.lvt.Error "published"}}</small>
+      {{end}}
+    </div>
+    <div class="mb-4">
+      <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" type="submit" lvt-disable-with="Updating...">Update Post</button>
+      <button class="bg-red-600 text-white px-2 py-1 text-sm rounded hover:bg-red-700" type="button" lvt-click="cancel_edit">Cancel</button>
+    </div>
+  </form>
+  {{end}}
+{{end}}
+
 
 {{/* Table wrapper component */}}
 {{define "tableBox"}}
@@ -91,6 +129,9 @@
                 {{if .Published}}✓{{else}}✗{{end}}
               </td>
               <td>
+                <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" lvt-click="edit" lvt-data-id="{{.ID}}">
+                  Edit
+                </button>
                 <button class="bg-red-600 text-white px-2 py-1 text-sm rounded hover:bg-red-700" lvt-click="delete" lvt-data-id="{{.ID}}">
                   Delete
                 </button>
@@ -173,7 +214,16 @@
   <h1 class="text-3xl font-bold text-gray-900 mb-6">{{.Title}}</h1>
 
   <!-- Add Form -->
+  {{if eq .EditingID ""}}
   {{template "formBox" .}}
+  {{end}}
+
+  <!-- Edit Form -->
+  {{if ne .EditingID ""}}
+  <div class="bg-white shadow rounded-lg p-6 mb-6">
+    {{template "editForm" .}}
+  </div>
+  {{end}}
 
   <!-- Statistics -->
   {{template "stats" .}}
