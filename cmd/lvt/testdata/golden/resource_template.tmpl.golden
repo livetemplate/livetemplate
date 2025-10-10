@@ -60,7 +60,7 @@
     </div>
     <div class="mb-4">
       <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" type="submit" lvt-disable-with="Adding...">Add Post</button>
-      <button class="bg-red-600 text-white px-2 py-1 text-sm rounded hover:bg-red-700" type="button" lvt-click="cancel_add">Cancel</button>
+      <button class="bg-gray-600 text-white px-2 py-1 text-sm rounded hover:bg-gray-700" type="button" lvt-click="cancel_add">Cancel</button>
     </div>
   </form>
 {{end}}
@@ -97,7 +97,7 @@
     </div>
     <div class="mb-4">
       <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" type="submit" lvt-disable-with="Updating...">Update Post</button>
-      <button class="bg-red-600 text-white px-2 py-1 text-sm rounded hover:bg-red-700" type="button" lvt-click="cancel_edit">Cancel</button>
+      <button class="bg-gray-600 text-white px-2 py-1 text-sm rounded hover:bg-gray-700" type="button" lvt-click="cancel_edit">Cancel</button>
     </div>
   </form>
   {{end}}
@@ -158,7 +158,7 @@
                 {{.Title}}
               </td>
               <td>
-                <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" lvt-click="edit" lvt-data-id="{{.ID}}">
+                <button class="bg-gray-600 text-white px-2 py-1 text-sm rounded hover:bg-gray-700" lvt-click="edit" lvt-data-id="{{.ID}}">
                   Edit
                 </button>
                 <button class="bg-red-600 text-white px-2 py-1 text-sm rounded hover:bg-red-700" lvt-click="delete" lvt-data-id="{{.ID}}">
