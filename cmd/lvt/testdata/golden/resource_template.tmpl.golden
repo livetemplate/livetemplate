@@ -144,20 +144,20 @@
   <h2 class="text-xl font-semibold text-gray-700 mb-4">Posts</h2>
   {{if gt (len .PaginatedPosts) 0}}
     <div class="overflow-x-auto">
-      <table class="min-w-full divide-y divide-gray-200">
+      <table class="min-w-full divide-y divide-gray-200" style="table-layout: fixed;">
         <thead>
           <tr>
-            <th>Title</th>
-            <th>Actions</th>
+            <th style="width: auto;">Title</th>
+            <th style="width: 140px;">Actions</th>
           </tr>
         </thead>
         <tbody>
           {{range .PaginatedPosts}}
             <tr data-key="{{.ID}}">
-              <td>
+              <td style="word-wrap: break-word; overflow-wrap: break-word;">
                 {{.Title}}
               </td>
-              <td>
+              <td style="white-space: nowrap;">
                 <button class="bg-gray-600 text-white px-2 py-1 text-sm rounded hover:bg-gray-700" lvt-click="edit" lvt-data-id="{{.ID}}">
                   Edit
                 </button>
