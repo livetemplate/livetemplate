@@ -25,26 +25,23 @@
       <table[[if ne (tableClass .CSSFramework) ""]] class="[[tableClass .CSSFramework]]"[[end]]>
         <thead>
           <tr>
-[[- range .Fields]]
-            <th>[[.Name | title]]</th>
-[[- end]]
+[[- $displayField := displayField .Fields]]
+            <th>[[- $displayField.Name | title]]</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           {{range .Paginated[[.ResourceName]]s}}
             <tr data-key="{{.ID}}">
-[[- range .Fields]]
               <td>
-[[- if eq .GoType "bool"]]
-                {{if .[[.Name | title]]}}✓{{else}}✗{{end}}
-[[- else if eq .GoType "time.Time"]]
-                {{.[[.Name | title]].Format "2006-01-02 15:04"}}
+[[- if eq $displayField.GoType "bool"]]
+                {{if .[[$displayField.Name | title]]}}✓{{else}}✗{{end}}
+[[- else if eq $displayField.GoType "time.Time"]]
+                {{.[[$displayField.Name | title]].Format "2006-01-02 15:04"}}
 [[- else]]
-                {{.[[.Name | title]]}}
+                {{.[[$displayField.Name | title]]}}
 [[- end]]
               </td>
-[[- end]]
               <td>
                 <button[[if ne (buttonClass $.CSSFramework "primary") ""]] class="[[buttonClass $.CSSFramework "primary"]]"[[end]] lvt-click="edit" lvt-data-id="{{.ID}}">
                   Edit

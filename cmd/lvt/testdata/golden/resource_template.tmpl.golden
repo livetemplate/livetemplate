@@ -148,7 +148,6 @@
         <thead>
           <tr>
             <th>Title</th>
-            <th>Published</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -157,9 +156,6 @@
             <tr data-key="{{.ID}}">
               <td>
                 {{.Title}}
-              </td>
-              <td>
-                {{if .Published}}✓{{else}}✗{{end}}
               </td>
               <td>
                 <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" lvt-click="edit" lvt-data-id="{{.ID}}">

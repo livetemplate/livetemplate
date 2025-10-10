@@ -39,10 +39,11 @@ type AppData struct {
 }
 
 var funcMap = template.FuncMap{
-	"title":     strings.Title,
-	"lower":     strings.ToLower,
-	"upper":     strings.ToUpper,
-	"camelCase": toCamelCase,
+	"title":        strings.Title,
+	"lower":        strings.ToLower,
+	"upper":        strings.ToUpper,
+	"camelCase":    toCamelCase,
+	"displayField": getDisplayField,
 }
 
 // toCamelCase converts snake_case to CamelCase following Go conventions
@@ -67,4 +68,36 @@ func toCamelCase(s string) string {
 		}
 	}
 	return strings.Join(parts, "")
+}
+
+// getDisplayField returns the primary display field from a list of fields
+// Priority: title > name > id > first field
+func getDisplayField(fields []FieldData) FieldData {
+	if len(fields) == 0 {
+		return FieldData{Name: "id", GoType: "string"}
+	}
+
+	// Check for "title" field first
+	for _, field := range fields {
+		if strings.ToLower(field.Name) == "title" {
+			return field
+		}
+	}
+
+	// Check for "name" field second
+	for _, field := range fields {
+		if strings.ToLower(field.Name) == "name" {
+			return field
+		}
+	}
+
+	// Check for "id" field third
+	for _, field := range fields {
+		if strings.ToLower(field.Name) == "id" {
+			return field
+		}
+	}
+
+	// Default to first field
+	return fields[0]
 }
