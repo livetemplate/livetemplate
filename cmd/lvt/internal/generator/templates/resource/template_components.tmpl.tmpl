@@ -3,8 +3,11 @@
 {{define "content"}}
   <h1[[if ne (titleClass .CSSFramework) ""]] class="[[titleClass .CSSFramework]]"[[end]]>{{.Title}}</h1>
 
-  <!-- Add Form -->
-  {{template "formBox" .}}
+  <!-- Toolbar with Add, Search, and Sort -->
+  {{template "toolbar" .}}
+
+  <!-- Add Modal -->
+  {{template "addModal" .}}
 
   <!-- Edit Modal -->
   {{if ne .EditingID ""}}
@@ -17,12 +20,6 @@
 
   <!-- Statistics -->
   {{template "stats" .}}
-
-  <!-- Search -->
-  {{template "searchBox" .}}
-
-  <!-- Sort -->
-  {{template "sortBox" .}}
 
   <!-- Table -->
   {{template "tableBox" .}}

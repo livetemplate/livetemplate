@@ -84,6 +84,7 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 		components := []string{
 			"components/layout.tmpl",
 			"components/form.tmpl",
+			"components/toolbar.tmpl",
 			"components/table.tmpl",
 			"components/pagination.tmpl",
 			"components/search.tmpl",

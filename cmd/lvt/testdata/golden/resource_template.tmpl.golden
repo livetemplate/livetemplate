@@ -19,11 +19,15 @@
 {{end}}
 
 
-{{/* Form wrapper component */}}
-{{define "formBox"}}
-<div class="bg-white shadow rounded-lg p-6 mb-6">
-  {{block "formContent" .}}{{end}}
-</div>
+{{/* Add Modal - Modal wrapper for add form */}}
+{{define "addModal"}}
+  {{if .IsAdding}}
+  <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+    <div style="background: white; border-radius: 8px; padding: 2rem; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
+      {{template "addForm" .}}
+    </div>
+  </div>
+  {{end}}
 {{end}}
 
 {{/* Add form for resource */}}
@@ -56,6 +60,7 @@
     </div>
     <div class="mb-4">
       <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" type="submit" lvt-disable-with="Adding...">Add Post</button>
+      <button class="bg-red-600 text-white px-2 py-1 text-sm rounded hover:bg-red-700" type="button" lvt-click="cancel_add">Cancel</button>
     </div>
   </form>
 {{end}}
@@ -96,6 +101,34 @@
     </div>
   </form>
   {{end}}
+{{end}}
+
+
+{{/* Toolbar component with Add button, Search, and Sort */}}
+{{define "toolbar"}}
+<div class="bg-white shadow rounded-lg p-6 mb-6">
+  <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+    <!-- Add Button -->
+    <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" lvt-click="open_add">
+      + Add Post
+    </button>
+
+    <!-- Search -->
+    <div style="flex: 1; min-width: 200px;">
+      <input class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" type="search" name="query" placeholder="Search posts..." value="{{.SearchQuery}}" lvt-change="search" lvt-debounce="300">
+    </div>
+
+    <!-- Sort -->
+    <div style="min-width: 200px;">
+        <select class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" name="sort_by" lvt-change="sort">
+          <option value="" {{if eq .SortBy ""}}selected{{end}}>Newest First</option>
+          <option value="title_asc" {{if eq .SortBy "title_asc"}}selected{{end}}>Title (A-Z)</option>
+          <option value="title_desc" {{if eq .SortBy "title_desc"}}selected{{end}}>Title (Z-A)</option>
+          <option value="oldest_first" {{if eq .SortBy "oldest_first"}}selected{{end}}>Oldest First</option>
+        </select>
+    </div>
+  </div>
+</div>
 {{end}}
 
 
@@ -213,8 +246,11 @@
 {{define "content"}}
   <h1 class="text-3xl font-bold text-gray-900 mb-6">{{.Title}}</h1>
 
-  <!-- Add Form -->
-  {{template "formBox" .}}
+  <!-- Toolbar with Add, Search, and Sort -->
+  {{template "toolbar" .}}
+
+  <!-- Add Modal -->
+  {{template "addModal" .}}
 
   <!-- Edit Modal -->
   {{if ne .EditingID ""}}
@@ -227,12 +263,6 @@
 
   <!-- Statistics -->
   {{template "stats" .}}
-
-  <!-- Search -->
-  {{template "searchBox" .}}
-
-  <!-- Sort -->
-  {{template "sortBox" .}}
 
   <!-- Table -->
   {{template "tableBox" .}}

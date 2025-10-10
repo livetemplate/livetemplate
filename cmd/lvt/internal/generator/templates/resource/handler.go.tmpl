@@ -72,6 +72,7 @@ type [[.ResourceName]]State struct {
 	Paginated[[.ResourceName]]s [][[.ResourceName]]Item `json:"paginated_[[.ResourceNameLower]]s"`
 	TotalCount   int                   `json:"total_count"`
 	LastUpdated  string                `json:"last_updated"`
+	IsAdding     bool                  `json:"is_adding"`
 	EditingID    string                `json:"editing_id"`
 	Editing[[.ResourceName]] *[[.ResourceName]]Item   `json:"editing_[[.ResourceNameLower]]"`
 }
@@ -80,6 +81,9 @@ func (s *[[.ResourceName]]State) Change(ctx *livetemplate.ActionContext) error {
 	dbCtx := context.Background()
 
 	switch ctx.Action {
+	case "open_add":
+		s.IsAdding = true
+
 	case "add":
 		var input AddInput
 		if err := ctx.BindAndValidate(&input, validate); err != nil {
@@ -99,6 +103,9 @@ func (s *[[.ResourceName]]State) Change(ctx *livetemplate.ActionContext) error {
 		if err != nil {
 			return fmt.Errorf("failed to create [[.ResourceNameLower]]: %w", err)
 		}
+
+		// Close add modal after successful creation
+		s.IsAdding = false
 
 		if err := s.load[[.ResourceName]]s(dbCtx); err != nil {
 			return err
@@ -152,6 +159,9 @@ func (s *[[.ResourceName]]State) Change(ctx *livetemplate.ActionContext) error {
 	case "cancel_edit":
 		s.EditingID = ""
 		s.Editing[[.ResourceName]] = nil
+
+	case "cancel_add":
+		s.IsAdding = false
 
 	case "delete":
 		var input DeleteInput

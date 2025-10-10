@@ -58,6 +58,7 @@ type UserState struct {
 	PaginatedUsers []UserItem `json:"paginated_users"`
 	TotalCount   int                   `json:"total_count"`
 	LastUpdated  string                `json:"last_updated"`
+	IsAdding     bool                  `json:"is_adding"`
 	EditingID    string                `json:"editing_id"`
 	EditingUser *UserItem   `json:"editing_user"`
 }
@@ -66,6 +67,9 @@ func (s *UserState) Change(ctx *livetemplate.ActionContext) error {
 	dbCtx := context.Background()
 
 	switch ctx.Action {
+	case "open_add":
+		s.IsAdding = true
+
 	case "add":
 		var input AddInput
 		if err := ctx.BindAndValidate(&input, validate); err != nil {
@@ -84,6 +88,9 @@ func (s *UserState) Change(ctx *livetemplate.ActionContext) error {
 		if err != nil {
 			return fmt.Errorf("failed to create user: %w", err)
 		}
+
+		// Close add modal after successful creation
+		s.IsAdding = false
 
 		if err := s.loadUsers(dbCtx); err != nil {
 			return err
@@ -136,6 +143,9 @@ func (s *UserState) Change(ctx *livetemplate.ActionContext) error {
 	case "cancel_edit":
 		s.EditingID = ""
 		s.EditingUser = nil
+
+	case "cancel_add":
+		s.IsAdding = false
 
 	case "delete":
 		var input DeleteInput
