@@ -70,19 +70,19 @@ func Parse(args []string) error {
 	// Test 3: Try to execute with sample data
 	fmt.Println("\n4. Testing template execution...")
 	testData := map[string]interface{}{
-		"Title":           "Test Title",
-		"CSSFramework":    "tailwind",
-		"DevMode":         true,
-		"AppName":         "TestApp",
-		"Resources":       []interface{}{},
-		"LastUpdated":     "2025-01-01",
-		"TotalCount":      0,
-		"CurrentPage":     1,
-		"TotalPages":      1,
-		"SearchQuery":     "",
-		"SortBy":          "",
-		"PaginatedPostss": []interface{}{},
-		"FilteredPostss":  []interface{}{},
+		"Title":          "Test Title",
+		"CSSFramework":   "tailwind",
+		"DevMode":        true,
+		"AppName":        "TestApp",
+		"Resources":      []interface{}{},
+		"LastUpdated":    "2025-01-01",
+		"TotalCount":     0,
+		"CurrentPage":    1,
+		"TotalPages":     1,
+		"SearchQuery":    "",
+		"SortBy":         "",
+		"PaginatedPosts": []interface{}{},
+		"FilteredPosts":  []interface{}{},
 	}
 
 	var testBuf strings.Builder

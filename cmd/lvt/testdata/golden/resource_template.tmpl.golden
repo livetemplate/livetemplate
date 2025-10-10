@@ -108,11 +108,6 @@
 {{define "toolbar"}}
 <div class="bg-white shadow rounded-lg p-6 mb-6">
   <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
-    <!-- Add Button -->
-    <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" lvt-click="open_add">
-      + Add Post
-    </button>
-
     <!-- Search -->
     <div style="flex: 1; min-width: 200px;">
       <input class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" type="search" name="query" placeholder="Search posts..." value="{{.SearchQuery}}" lvt-change="search" lvt-debounce="300">
@@ -127,6 +122,11 @@
           <option value="oldest_first" {{if eq .SortBy "oldest_first"}}selected{{end}}>Oldest First</option>
         </select>
     </div>
+
+    <!-- Add Button -->
+    <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" lvt-click="open_add">
+      + Add Post
+    </button>
   </div>
 </div>
 {{end}}
