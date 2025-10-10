@@ -166,21 +166,6 @@
       </div>
       {{end}}
 
-      <!-- Statistics -->
-[[- if needsArticle .CSSFramework]]
-      <article>
-[[- else if ne (boxClass .CSSFramework) ""]]
-      <div class="[[boxClass .CSSFramework]]">
-[[- else]]
-      <div>
-[[- end]]
-        <p>Total: <strong>{{.TotalCount}}</strong></p>
-[[- if needsArticle .CSSFramework]]
-      </article>
-[[- else]]
-      </div>
-[[- end]]
-
       <!-- Table -->
 [[- if needsArticle .CSSFramework]]
       <article>
@@ -268,10 +253,6 @@
 [[- else]]
       </div>
 [[- end]]
-
-      <footer[[if ne (boxClass .CSSFramework) ""]] class="[[boxClass .CSSFramework]]"[[end]]>
-        <p><small>Last updated: {{.LastUpdated}}</small></p>
-      </footer>
 [[- if needsWrapper .CSSFramework]]
     </main>
 [[- else]]

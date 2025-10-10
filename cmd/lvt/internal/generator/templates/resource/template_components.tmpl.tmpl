@@ -18,16 +18,8 @@
   </div>
   {{end}}
 
-  <!-- Statistics -->
-  {{template "stats" .}}
-
   <!-- Table -->
   {{template "tableBox" .}}
-
-  <!-- Footer -->
-  <footer[[if ne (boxClass .CSSFramework) ""]] class="[[boxClass .CSSFramework]]"[[end]]>
-    <p><small>Last updated: {{.LastUpdated}}</small></p>
-  </footer>
 {{end}}
 
 {{define "formContent"}}

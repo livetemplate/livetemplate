@@ -261,16 +261,8 @@
   </div>
   {{end}}
 
-  <!-- Statistics -->
-  {{template "stats" .}}
-
   <!-- Table -->
   {{template "tableBox" .}}
-
-  <!-- Footer -->
-  <footer class="bg-white shadow rounded-lg p-6 mb-6">
-    <p><small>Last updated: {{.LastUpdated}}</small></p>
-  </footer>
 {{end}}
 
 {{define "formContent"}}
