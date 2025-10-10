@@ -383,13 +383,18 @@ func TestTutorialE2E(t *testing.T) {
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
 			chromedp.Sleep(1*time.Second), // Wait for WebSocket connection
 
-			// Fill in the form
+			// Click the "+ Add Posts" button in toolbar to open modal
+			chromedp.WaitVisible(`button[lvt-click="open_add"]`, chromedp.ByQuery),
+			chromedp.Click(`button[lvt-click="open_add"]`, chromedp.ByQuery),
+			chromedp.Sleep(500*time.Millisecond), // Wait for modal to appear
+
+			// Fill in the form in the modal
 			chromedp.WaitVisible(`input[name="title"]`, chromedp.ByQuery),
 			chromedp.SendKeys(`input[name="title"]`, "My First Blog Post", chromedp.ByQuery),
 			chromedp.SendKeys(`input[name="content"]`, "This is the content of my first blog post", chromedp.ByQuery),
 			chromedp.Click(`input[name="published"]`, chromedp.ByQuery),
 
-			// Click the submit button
+			// Click the submit button in the modal
 			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
 
 			// Wait for the post to appear in the table
@@ -547,6 +552,11 @@ func TestTutorialE2E(t *testing.T) {
 			chromedp.Navigate(testURL+"/posts"),
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
 			chromedp.Sleep(1*time.Second),
+
+			// Click the "+ Add Posts" button in toolbar to open modal
+			chromedp.WaitVisible(`button[lvt-click="open_add"]`, chromedp.ByQuery),
+			chromedp.Click(`button[lvt-click="open_add"]`, chromedp.ByQuery),
+			chromedp.Sleep(500*time.Millisecond), // Wait for modal to appear
 
 			// Submit form WITHOUT filling required fields
 			chromedp.WaitVisible(`form[lvt-submit]`, chromedp.ByQuery),
