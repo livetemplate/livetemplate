@@ -61,6 +61,10 @@ type UserState struct {
 	IsAdding     bool                  `json:"is_adding"`
 	EditingID    string                `json:"editing_id"`
 	EditingUser *UserItem   `json:"editing_user"`
+	PaginationMode string              `json:"pagination_mode"` // "infinite", "load-more", "prev-next", "numbers"
+	LoadedCount    int                 `json:"loaded_count"`    // For infinite/load-more modes
+	HasMore        bool                `json:"has_more"`        // Whether more items available
+	IsLoading      bool                `json:"is_loading"`      // Loading indicator
 }
 
 func (s *UserState) Change(ctx *livetemplate.ActionContext) error {
@@ -168,6 +172,10 @@ func (s *UserState) Change(ctx *livetemplate.ActionContext) error {
 			return err
 		}
 		s.SearchQuery = input.Query
+		// Reset infinite scroll when searching
+		if s.PaginationMode == "infinite" || s.PaginationMode == "load-more" {
+			s.LoadedCount = s.PageSize
+		}
 
 		if err := s.loadUsers(dbCtx); err != nil {
 			return err
@@ -179,6 +187,10 @@ func (s *UserState) Change(ctx *livetemplate.ActionContext) error {
 			return err
 		}
 		s.SortBy = input.SortBy
+		// Reset infinite scroll when sorting
+		if s.PaginationMode == "infinite" || s.PaginationMode == "load-more" {
+			s.LoadedCount = s.PageSize
+		}
 
 		if err := s.loadUsers(dbCtx); err != nil {
 			return err
@@ -210,6 +222,18 @@ func (s *UserState) Change(ctx *livetemplate.ActionContext) error {
 		}
 		if err := s.loadUsers(dbCtx); err != nil {
 			return err
+		}
+
+	case "load_more":
+		if s.PaginationMode == "infinite" || s.PaginationMode == "load-more" {
+			if s.HasMore && !s.IsLoading {
+				s.IsLoading = true
+				s.LoadedCount += s.PageSize
+				if err := s.loadUsers(dbCtx); err != nil {
+					return err
+				}
+				s.IsLoading = false
+			}
 		}
 
 	default:
@@ -274,6 +298,36 @@ func (s *UserState) applySorting() {
 }
 
 func (s *UserState) applyPagination() {
+	if s.PaginationMode == "infinite" || s.PaginationMode == "load-more" {
+		s.applyInfiniteScroll()
+	} else {
+		s.applyPagedNavigation()
+	}
+}
+
+func (s *UserState) applyInfiniteScroll() {
+	// Initialize LoadedCount if not set
+	if s.LoadedCount == 0 {
+		s.LoadedCount = s.PageSize
+	}
+
+	if len(s.FilteredUsers) == 0 {
+		s.PaginatedUsers = []UserItem{}
+		s.HasMore = false
+		return
+	}
+
+	// Load items from 0 to LoadedCount
+	end := s.LoadedCount
+	if end > len(s.FilteredUsers) {
+		end = len(s.FilteredUsers)
+	}
+
+	s.PaginatedUsers = s.FilteredUsers[0:end]
+	s.HasMore = end < len(s.FilteredUsers)
+}
+
+func (s *UserState) applyPagedNavigation() {
 	if len(s.FilteredUsers) == 0 {
 		s.TotalPages = 1
 		s.CurrentPage = 1
@@ -306,11 +360,13 @@ func formatTime() string {
 // Handler creates an http.Handler for this resource
 func Handler(queries *models.Queries) http.Handler {
 	state := &UserState{
-		Title:       "User Management",
-		Queries:     queries,
-		CurrentPage: 1,
-		PageSize:    10,
-		LastUpdated: formatTime(),
+		Title:          "User Management",
+		Queries:        queries,
+		CurrentPage:    1,
+		PageSize:       20,
+		PaginationMode: "infinite",
+		LoadedCount:    20,
+		LastUpdated:    formatTime(),
 	}
 
 	if err := state.Init(); err != nil {

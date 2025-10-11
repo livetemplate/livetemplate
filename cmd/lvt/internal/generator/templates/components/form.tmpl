@@ -41,7 +41,7 @@
     </div>
 [[- end]]
     <div[[if ne (fieldClass .CSSFramework) ""]] class="[[fieldClass .CSSFramework]]"[[end]]>
-      <button[[if ne (buttonClass .CSSFramework "primary") ""]] class="[[buttonClass .CSSFramework "primary"]]"[[end]] type="submit" lvt-disable-with="Adding...">Add [[.ResourceName]]</button>
+      <button[[if ne (buttonClass .CSSFramework "primary") ""]] class="[[buttonClass .CSSFramework "primary"]]"[[end]] style="margin-right: 8px;" type="submit" lvt-disable-with="Adding...">Add [[.ResourceName]]</button>
       <button[[if ne (buttonClass .CSSFramework "secondary") ""]] class="[[buttonClass .CSSFramework "secondary"]]"[[end]] type="button" lvt-click="cancel_add">Cancel</button>
     </div>
   </form>
@@ -81,7 +81,7 @@
     </div>
 [[- end]]
     <div[[if ne (fieldClass .CSSFramework) ""]] class="[[fieldClass .CSSFramework]]"[[end]]>
-      <button[[if ne (buttonClass .CSSFramework "primary") ""]] class="[[buttonClass .CSSFramework "primary"]]"[[end]] type="submit" lvt-disable-with="Updating...">Update [[.ResourceName]]</button>
+      <button[[if ne (buttonClass .CSSFramework "primary") ""]] class="[[buttonClass .CSSFramework "primary"]]"[[end]] style="margin-right: 8px;" type="submit" lvt-disable-with="Updating...">Update [[.ResourceName]]</button>
       <button[[if ne (buttonClass .CSSFramework "secondary") ""]] class="[[buttonClass .CSSFramework "secondary"]]"[[end]] type="button" lvt-click="cancel_edit">Cancel</button>
     </div>
   </form>

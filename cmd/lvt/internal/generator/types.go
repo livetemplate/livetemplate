@@ -20,6 +20,8 @@ type ResourceData struct {
 	Fields               []FieldData
 	CSSFramework         string // CSS framework: "tailwind", "bulma", "pico", "none"
 	DevMode              bool   // Use local client library instead of CDN
+	PaginationMode       string // Pagination mode: "infinite", "load-more", "prev-next", "numbers"
+	PageSize             int    // Page size for pagination
 }
 
 type FieldData struct {

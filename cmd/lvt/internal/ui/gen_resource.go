@@ -359,7 +359,11 @@ func (m genResourceModel) generateResource() tea.Msg {
 	// Use default app mode (multi-page)
 	appMode := "multi"
 
-	if err := generator.GenerateResource(m.basePath, m.moduleName, resourceNameLower, fields, cssFramework, appMode); err != nil {
+	// Use default pagination mode (infinite scroll) and page size (20)
+	paginationMode := "infinite"
+	pageSize := 20
+
+	if err := generator.GenerateResource(m.basePath, m.moduleName, resourceNameLower, fields, cssFramework, appMode, paginationMode, pageSize); err != nil {
 		m.err = err
 		m.stage = 1
 		return m

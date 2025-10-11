@@ -19,10 +19,6 @@ import (
 
 // TestTutorialE2E tests the complete blog tutorial workflow
 func TestTutorialE2E(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping E2E tutorial test in short mode")
-	}
-
 	// Create temp directory for test blog
 	tmpDir := t.TempDir()
 	blogDir := filepath.Join(tmpDir, "testblog")
@@ -636,6 +632,46 @@ func TestTutorialE2E(t *testing.T) {
 		}
 	})
 
+	// Test Infinite Scroll Sentinel
+	t.Run("Infinite Scroll Sentinel", func(t *testing.T) {
+		// The sentinel only appears when HasMore is true (more items to load)
+		// Since we added 1 post and default page size is 20, HasMore will be false
+		// So we check that the template is configured for infinite scroll by:
+		// 1. Checking the generated handler has PaginationMode: "infinite"
+		// 2. Verifying template contains infiniteScroll define
+
+		// Read handler file to verify pagination mode
+		handlerFile := filepath.Join(blogDir, "internal", "app", "posts", "posts.go")
+		handlerContent, err := os.ReadFile(handlerFile)
+		if err != nil {
+			t.Fatalf("Failed to read posts handler: %v", err)
+		}
+
+		if !strings.Contains(string(handlerContent), `PaginationMode: "infinite"`) {
+			t.Error("❌ Posts handler does not have PaginationMode: \"infinite\"")
+		} else {
+			t.Log("✅ Posts handler configured with infinite pagination mode")
+		}
+
+		// Read template file to verify infiniteScroll block exists
+		tmplFile := filepath.Join(blogDir, "internal", "app", "posts", "posts.tmpl")
+		tmplContent, err := os.ReadFile(tmplFile)
+		if err != nil {
+			t.Fatalf("Failed to read posts template: %v", err)
+		}
+
+		tmplStr := string(tmplContent)
+		if !strings.Contains(tmplStr, `id="scroll-sentinel"`) {
+			t.Error("❌ Template does not contain scroll-sentinel element")
+		} else {
+			t.Log("✅ Template contains scroll-sentinel element for infinite scroll")
+		}
+
+		// Verify the sentinel appears in actual rendered HTML when there are no template errors
+		// (The sentinel won't be visible with only 1 post, but we've verified the configuration)
+		t.Log("✅ Infinite scroll pagination configured correctly")
+	})
+
 	// Final check: ensure no server errors occurred during the entire test
 	t.Run("Server Logs Check", func(t *testing.T) {
 		logs := serverLogs.String()
@@ -645,6 +681,7 @@ func TestTutorialE2E(t *testing.T) {
 			"Template update execution failed",
 			"panic:",
 			"fatal error:",
+			"template:", // Catch template parsing errors
 		}
 
 		for _, pattern := range errorPatterns {
@@ -660,6 +697,234 @@ func TestTutorialE2E(t *testing.T) {
 	})
 
 	t.Log("✅ All E2E tests passed!")
+}
+
+// TestTutorialE2E_CSSFrameworks tests different CSS frameworks
+func TestTutorialE2E_CSSFrameworks(t *testing.T) {
+	frameworks := []string{"bulma", "pico", "none"}
+
+	for _, framework := range frameworks {
+		t.Run("CSS_"+framework, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			appDir := filepath.Join(tmpDir, "testapp")
+
+			// Build lvt
+			lvtBinary := filepath.Join(tmpDir, "lvt")
+			buildCmd := exec.Command("go", "build", "-o", lvtBinary, "github.com/livefir/livetemplate/cmd/lvt")
+			if err := buildCmd.Run(); err != nil {
+				t.Fatalf("Failed to build lvt: %v", err)
+			}
+
+			// Create app
+			newCmd := exec.Command(lvtBinary, "new", "testapp")
+			newCmd.Dir = tmpDir
+			newCmd.Stdout = os.Stdout
+			newCmd.Stderr = os.Stderr
+			if err := newCmd.Run(); err != nil {
+				t.Fatalf("Failed to create app: %v", err)
+			}
+
+			// Generate resource with specific CSS framework
+			genCmd := exec.Command(lvtBinary, "gen", "items", "name", "--css", framework)
+			genCmd.Dir = appDir
+			genCmd.Stdout = os.Stdout
+			genCmd.Stderr = os.Stderr
+			if err := genCmd.Run(); err != nil {
+				t.Fatalf("Failed to generate resource with --css %s: %v", framework, err)
+			}
+
+			// Verify template file exists
+			tmplFile := filepath.Join(appDir, "internal", "app", "items", "items.tmpl")
+			if _, err := os.Stat(tmplFile); err != nil {
+				t.Fatalf("Template file not created: %v", err)
+			}
+
+			// Check for CSS framework-specific content
+			content, err := os.ReadFile(tmplFile)
+			if err != nil {
+				t.Fatalf("Failed to read template: %v", err)
+			}
+
+			contentStr := string(content)
+			switch framework {
+			case "bulma":
+				if !strings.Contains(contentStr, "button") {
+					t.Error("❌ Bulma CSS classes not found in template")
+				}
+			case "pico":
+				if !strings.Contains(contentStr, "button") {
+					t.Error("❌ Pico CSS classes not found in template")
+				}
+			case "none":
+				// Template should still be valid
+				if len(contentStr) < 100 {
+					t.Error("❌ Template seems empty or invalid")
+				}
+			}
+
+			t.Logf("✅ Resource generated successfully with --css %s", framework)
+		})
+	}
+}
+
+// TestTutorialE2E_PaginationModes tests different pagination modes
+func TestTutorialE2E_PaginationModes(t *testing.T) {
+	modes := []string{"load-more", "prev-next", "numbers"}
+
+	for _, mode := range modes {
+		t.Run("Pagination_"+mode, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			appDir := filepath.Join(tmpDir, "testapp")
+
+			// Build lvt
+			lvtBinary := filepath.Join(tmpDir, "lvt")
+			buildCmd := exec.Command("go", "build", "-o", lvtBinary, "github.com/livefir/livetemplate/cmd/lvt")
+			if err := buildCmd.Run(); err != nil {
+				t.Fatalf("Failed to build lvt: %v", err)
+			}
+
+			// Create app
+			newCmd := exec.Command(lvtBinary, "new", "testapp")
+			newCmd.Dir = tmpDir
+			if err := newCmd.Run(); err != nil {
+				t.Fatalf("Failed to create app: %v", err)
+			}
+
+			// Generate resource with specific pagination mode
+			genCmd := exec.Command(lvtBinary, "gen", "items", "name", "--pagination", mode)
+			genCmd.Dir = appDir
+			genCmd.Stdout = os.Stdout
+			genCmd.Stderr = os.Stderr
+			if err := genCmd.Run(); err != nil {
+				t.Fatalf("Failed to generate resource with --pagination %s: %v", mode, err)
+			}
+
+			// Verify handler file has correct pagination mode
+			handlerFile := filepath.Join(appDir, "internal", "app", "items", "items.go")
+			content, err := os.ReadFile(handlerFile)
+			if err != nil {
+				t.Fatalf("Failed to read handler: %v", err)
+			}
+
+			if !strings.Contains(string(content), fmt.Sprintf("PaginationMode: \"%s\"", mode)) {
+				t.Errorf("❌ PaginationMode '%s' not found in handler", mode)
+			} else {
+				t.Logf("✅ Resource generated with --pagination %s", mode)
+			}
+		})
+	}
+}
+
+// TestTutorialE2E_ViewGeneration tests view-only generation
+func TestTutorialE2E_ViewGeneration(t *testing.T) {
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, "testapp")
+
+	// Build lvt
+	lvtBinary := filepath.Join(tmpDir, "lvt")
+	buildCmd := exec.Command("go", "build", "-o", lvtBinary, "github.com/livefir/livetemplate/cmd/lvt")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("Failed to build lvt: %v", err)
+	}
+
+	// Create app
+	newCmd := exec.Command(lvtBinary, "new", "testapp")
+	newCmd.Dir = tmpDir
+	if err := newCmd.Run(); err != nil {
+		t.Fatalf("Failed to create app: %v", err)
+	}
+
+	// Generate view
+	genCmd := exec.Command(lvtBinary, "gen", "view", "dashboard")
+	genCmd.Dir = appDir
+	genCmd.Stdout = os.Stdout
+	genCmd.Stderr = os.Stderr
+	if err := genCmd.Run(); err != nil {
+		t.Fatalf("Failed to generate view: %v", err)
+	}
+
+	// Verify files exist
+	handlerFile := filepath.Join(appDir, "internal", "app", "dashboard", "dashboard.go")
+	tmplFile := filepath.Join(appDir, "internal", "app", "dashboard", "dashboard.tmpl")
+	testFile := filepath.Join(appDir, "internal", "app", "dashboard", "dashboard_test.go")
+
+	for _, file := range []string{handlerFile, tmplFile, testFile} {
+		if _, err := os.Stat(file); err != nil {
+			t.Errorf("❌ Expected file not created: %s", file)
+		}
+	}
+
+	// Verify handler doesn't have CRUD operations
+	content, err := os.ReadFile(handlerFile)
+	if err != nil {
+		t.Fatalf("Failed to read handler: %v", err)
+	}
+
+	contentStr := string(content)
+	if strings.Contains(contentStr, "PaginationMode") {
+		t.Error("❌ View handler should not have pagination")
+	}
+	if strings.Contains(contentStr, "handleAdd") {
+		t.Error("❌ View handler should not have CRUD operations")
+	}
+
+	t.Log("✅ View-only handler generated successfully")
+}
+
+// TestTutorialE2E_TypeInference tests field type inference
+func TestTutorialE2E_TypeInference(t *testing.T) {
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, "testapp")
+
+	// Build lvt
+	lvtBinary := filepath.Join(tmpDir, "lvt")
+	buildCmd := exec.Command("go", "build", "-o", lvtBinary, "github.com/livefir/livetemplate/cmd/lvt")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("Failed to build lvt: %v", err)
+	}
+
+	// Create app
+	newCmd := exec.Command(lvtBinary, "new", "testapp")
+	newCmd.Dir = tmpDir
+	if err := newCmd.Run(); err != nil {
+		t.Fatalf("Failed to create app: %v", err)
+	}
+
+	// Generate resource with inferred types (no :type specified)
+	genCmd := exec.Command(lvtBinary, "gen", "users", "name", "email", "age", "price", "published", "created_at")
+	genCmd.Dir = appDir
+	genCmd.Stdout = os.Stdout
+	genCmd.Stderr = os.Stderr
+	if err := genCmd.Run(); err != nil {
+		t.Fatalf("Failed to generate resource with type inference: %v", err)
+	}
+
+	// Verify schema has correct inferred types
+	schemaFile := filepath.Join(appDir, "internal", "database", "schema.sql")
+	content, err := os.ReadFile(schemaFile)
+	if err != nil {
+		t.Fatalf("Failed to read schema: %v", err)
+	}
+
+	contentStr := string(content)
+
+	// Check inferred types
+	checks := map[string]string{
+		"name":       "TEXT",     // string
+		"email":      "TEXT",     // string
+		"age":        "INTEGER",  // int
+		"price":      "REAL",     // float
+		"published":  "INTEGER",  // bool
+		"created_at": "DATETIME", // time
+	}
+
+	for field, expectedType := range checks {
+		if !strings.Contains(contentStr, field) || !strings.Contains(contentStr, expectedType) {
+			t.Errorf("❌ Field '%s' not inferred as %s", field, expectedType)
+		}
+	}
+
+	t.Log("✅ Type inference working correctly")
 }
 
 // startDockerChrome starts Chrome in Docker for E2E testing

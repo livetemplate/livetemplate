@@ -25,7 +25,7 @@ func TestResourceHandlerGolden(t *testing.T) {
 		{Name: "age", Type: "int", GoType: "int64", SQLType: "INTEGER"},
 	}
 
-	if err := generator.GenerateResource(tmpDir, "testmodule", "User", fields, "tailwind", "multi"); err != nil {
+	if err := generator.GenerateResource(tmpDir, "testmodule", "User", fields, "tailwind", "multi", "infinite", 20); err != nil {
 		t.Fatalf("Failed to generate resource: %v", err)
 	}
 
@@ -142,7 +142,7 @@ func TestResourceTemplateGolden(t *testing.T) {
 		{Name: "published", Type: "bool", GoType: "bool", SQLType: "BOOLEAN"},
 	}
 
-	if err := generator.GenerateResource(tmpDir, "testmodule", "Post", fields, "tailwind", "multi"); err != nil {
+	if err := generator.GenerateResource(tmpDir, "testmodule", "Post", fields, "tailwind", "multi", "prev-next", 10); err != nil {
 		t.Fatalf("Failed to generate resource: %v", err)
 	}
 

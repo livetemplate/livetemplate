@@ -12,13 +12,19 @@ import (
 	"github.com/livefir/livetemplate/cmd/lvt/internal/parser"
 )
 
-func GenerateResource(basePath, moduleName, resourceName string, fields []parser.Field, cssFramework, appMode string) error {
+func GenerateResource(basePath, moduleName, resourceName string, fields []parser.Field, cssFramework, appMode, paginationMode string, pageSize int) error {
 	// Defaults
 	if cssFramework == "" {
 		cssFramework = "tailwind"
 	}
 	if appMode == "" {
 		appMode = "multi"
+	}
+	if paginationMode == "" {
+		paginationMode = "infinite"
+	}
+	if pageSize <= 0 {
+		pageSize = 20
 	}
 
 	// Capitalize resource name and derive singular/plural forms
@@ -58,6 +64,8 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 		Fields:               fieldData,
 		CSSFramework:         cssFramework,
 		DevMode:              devMode,
+		PaginationMode:       paginationMode,
+		PageSize:             pageSize,
 	}
 
 	// Create resource directory

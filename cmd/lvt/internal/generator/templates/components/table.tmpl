@@ -17,23 +17,17 @@
 
 {{/* Resource table with data */}}
 {{define "resourceTable"}}
-  <h2[[if ne (subtitleClass .CSSFramework) ""]] class="[[subtitleClass .CSSFramework]]"[[end]]>[[.ResourceName]]s</h2>
+  <h2[[if ne (subtitleClass .CSSFramework) ""]] class="[[subtitleClass .CSSFramework]]"[[end]]>[[.ResourceNamePlural]]</h2>
   {{if gt (len .Paginated[[.ResourceName]]s) 0}}
 [[- if needsTableWrapper .CSSFramework]]
     <div class="[[tableWrapperClass .CSSFramework]]">
 [[- end]]
       <table[[if ne (tableClass .CSSFramework) ""]] class="[[tableClass .CSSFramework]]"[[end]] style="table-layout: fixed;">
-        <thead>
-          <tr>
 [[- $displayField := displayField .Fields]]
-            <th style="width: auto;">[[- $displayField.Name | title]]</th>
-            <th style="width: 140px;">Actions</th>
-          </tr>
-        </thead>
         <tbody>
           {{range .Paginated[[.ResourceName]]s}}
             <tr data-key="{{.ID}}">
-              <td style="word-wrap: break-word; overflow-wrap: break-word;">
+              <td style="word-wrap: break-word; overflow-wrap: break-word; width: auto; padding: 12px 8px;">
 [[- if eq $displayField.GoType "bool"]]
                 {{if .[[$displayField.Name | title]]}}✓{{else}}✗{{end}}
 [[- else if eq $displayField.GoType "time.Time"]]
@@ -42,8 +36,8 @@
                 {{.[[$displayField.Name | title]]}}
 [[- end]]
               </td>
-              <td style="white-space: nowrap;">
-                <button[[if ne (buttonClass $.CSSFramework "secondary") ""]] class="[[buttonClass $.CSSFramework "secondary"]]"[[end]] lvt-click="edit" lvt-data-id="{{.ID}}">
+              <td style="white-space: nowrap; width: 140px; text-align: right; padding: 12px 8px;">
+                <button[[if ne (buttonClass $.CSSFramework "secondary") ""]] class="[[buttonClass $.CSSFramework "secondary"]]"[[end]] style="margin-right: 8px;" lvt-click="edit" lvt-data-id="{{.ID}}">
                   Edit
                 </button>
                 <button[[if ne (buttonClass $.CSSFramework "danger") ""]] class="[[buttonClass $.CSSFramework "danger"]]"[[end]] lvt-click="delete" lvt-data-id="{{.ID}}">
@@ -60,9 +54,9 @@
   {{else}}
     <p>
       {{if ne .SearchQuery ""}}
-        No [[.ResourceNameLower]]s found matching "{{.SearchQuery}}"
+        No [[.ResourceNameLower]] found matching "{{.SearchQuery}}"
       {{else}}
-        No [[.ResourceNameLower]]s yet. Add one above!
+        No [[.ResourceNameLower]] yet. Add one above!
       {{end}}
     </p>
   {{end}}

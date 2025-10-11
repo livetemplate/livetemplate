@@ -87,6 +87,10 @@ export class LiveTemplateClient {
   private lastFocusedSelectionStart: number | null = null;
   private lastFocusedSelectionEnd: number | null = null;
 
+  // Infinite scroll
+  private infiniteScrollObserver: IntersectionObserver | null = null;
+  private mutationObserver: MutationObserver | null = null;
+
   constructor(options: LiveTemplateClientOptions = {}) {
     this.options = {
       autoReconnect: false, // Disable autoReconnect by default to avoid connection loops
@@ -277,6 +281,67 @@ export class LiveTemplateClient {
   }
 
   /**
+   * Set up infinite scroll observer
+   * Watches for a sentinel element with id="scroll-sentinel" and triggers load_more action
+   * when it comes into view
+   */
+  private setupInfiniteScrollObserver(): void {
+    if (!this.wrapperElement) return;
+
+    const sentinel = document.getElementById('scroll-sentinel');
+    if (!sentinel) {
+      // Sentinel not found, will retry on next DOM update via MutationObserver
+      return;
+    }
+
+    // Disconnect old observer if it exists
+    if (this.infiniteScrollObserver) {
+      this.infiniteScrollObserver.disconnect();
+    }
+
+    // Create new IntersectionObserver
+    this.infiniteScrollObserver = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        // Sentinel is visible, trigger load_more action
+        console.log('[InfiniteScroll] Sentinel visible, sending load_more action');
+        this.send({ action: 'load_more' });
+      }
+    }, {
+      rootMargin: '200px' // Trigger 200px before sentinel becomes visible
+    });
+
+    this.infiniteScrollObserver.observe(sentinel);
+    console.log('[InfiniteScroll] Observer set up successfully');
+  }
+
+  /**
+   * Set up mutation observer to re-establish infinite scroll after DOM updates
+   * This is necessary because the sentinel div gets replaced during updates
+   */
+  private setupInfiniteScrollMutationObserver(): void {
+    if (!this.wrapperElement) return;
+
+    // Disconnect old observer if it exists
+    if (this.mutationObserver) {
+      this.mutationObserver.disconnect();
+    }
+
+    // Create mutation observer to watch for DOM changes
+    this.mutationObserver = new MutationObserver(() => {
+      // Re-setup infinite scroll observer after DOM changes
+      this.setupInfiniteScrollObserver();
+    });
+
+    // Start observing the wrapper element for child list changes
+    this.mutationObserver.observe(this.wrapperElement, {
+      childList: true,
+      subtree: true
+    });
+
+    console.log('[InfiniteScroll] MutationObserver set up successfully');
+  }
+
+  /**
    * Restore focus and cursor position to the last focused element after DOM update
    */
   private restoreFocusedElement(): void {
@@ -365,6 +430,10 @@ export class LiveTemplateClient {
 
         // Set up focus tracking to preserve focus during updates
         client.setupFocusTracking();
+
+        // Set up infinite scroll observer
+        client.setupInfiniteScrollObserver();
+        client.setupInfiniteScrollMutationObserver();
 
         // Expose as global for programmatic access
         (window as any).liveTemplateClient = client;

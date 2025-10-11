@@ -20,8 +20,10 @@ func Gen(args []string) error {
 	}
 
 	// Parse flags
-	cssFramework := "tailwind" // default
-	appMode := "multi"         // default
+	cssFramework := "tailwind"   // default
+	appMode := "multi"           // default
+	paginationMode := "infinite" // default
+	pageSize := 20               // default
 	var filteredArgs []string
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--css" && i+1 < len(args) {
@@ -29,6 +31,14 @@ func Gen(args []string) error {
 			i++ // skip next arg
 		} else if args[i] == "--mode" && i+1 < len(args) {
 			appMode = args[i+1]
+			i++ // skip next arg
+		} else if args[i] == "--pagination" && i+1 < len(args) {
+			paginationMode = args[i+1]
+			i++ // skip next arg
+		} else if args[i] == "--page-size" && i+1 < len(args) {
+			if size, err := fmt.Sscanf(args[i+1], "%d", &pageSize); err != nil || size == 0 || pageSize < 1 {
+				pageSize = 20 // fallback to default
+			}
 			i++ // skip next arg
 		} else {
 			filteredArgs = append(filteredArgs, args[i])
@@ -58,6 +68,12 @@ func Gen(args []string) error {
 		return fmt.Errorf("invalid mode: %s (valid: multi, single)", appMode)
 	}
 
+	// Validate pagination mode
+	validPaginationModes := map[string]bool{"infinite": true, "load-more": true, "prev-next": true, "numbers": true}
+	if !validPaginationModes[paginationMode] {
+		return fmt.Errorf("invalid pagination mode: %s (valid: infinite, load-more, prev-next, numbers)", paginationMode)
+	}
+
 	// Parse fields with type inference support
 	fields, err := parseFieldsWithInference(fieldArgs)
 	if err != nil {
@@ -78,6 +94,7 @@ func Gen(args []string) error {
 
 	fmt.Printf("Generating CRUD resource: %s\n", resourceName)
 	fmt.Printf("CSS Framework: %s\n", cssFramework)
+	fmt.Printf("Pagination: %s (page size: %d)\n", paginationMode, pageSize)
 	fmt.Printf("Fields: ")
 	for i, f := range fields {
 		if i > 0 {
@@ -87,7 +104,7 @@ func Gen(args []string) error {
 	}
 	fmt.Println()
 
-	if err := generator.GenerateResource(basePath, moduleName, resourceName, fields, cssFramework, appMode); err != nil {
+	if err := generator.GenerateResource(basePath, moduleName, resourceName, fields, cssFramework, appMode, paginationMode, pageSize); err != nil {
 		return err
 	}
 

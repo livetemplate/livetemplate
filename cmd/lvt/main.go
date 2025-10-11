@@ -54,6 +54,10 @@ func main() {
 		err = commands.Template(args)
 	case "parse":
 		err = commands.Parse(args)
+	case "resource", "res":
+		err = commands.Resource(args)
+	case "seed":
+		err = commands.Seed(args)
 	case "version", "--version", "-v":
 		printVersion()
 		return
@@ -134,6 +138,8 @@ func printUsage() {
 	fmt.Println("  lvt gen [<resource> <field:type>...]      Generate CRUD resource with database")
 	fmt.Println("  lvt gen view [<name>]                     Generate view-only handler")
 	fmt.Println("  lvt migration <command>                   Manage database migrations")
+	fmt.Println("  lvt resource <command>                    Inspect resources and schemas")
+	fmt.Println("  lvt seed <resource> [--count N] [--cleanup]  Generate test data")
 	fmt.Println("  lvt template <command>                    Manage custom templates")
 	fmt.Println("  lvt parse <template-file>                 Validate and analyze template file")
 	fmt.Println("  lvt version                               Show version information")
@@ -158,6 +164,15 @@ func printUsage() {
 	fmt.Println("  lvt migration down                        Rollback last migration")
 	fmt.Println("  lvt migration status                      Show migration status")
 	fmt.Println("  lvt migration create <name>               Create new migration file")
+	fmt.Println()
+	fmt.Println("Resource Commands:")
+	fmt.Println("  lvt resource list                         List all available resources")
+	fmt.Println("  lvt resource describe <name>              Show detailed schema for a resource")
+	fmt.Println()
+	fmt.Println("Seed Commands:")
+	fmt.Println("  lvt seed tasks --count 50                 Generate 50 test records")
+	fmt.Println("  lvt seed tasks --cleanup                  Remove all test data")
+	fmt.Println("  lvt seed tasks --count 30 --cleanup       Cleanup then seed 30 new records")
 	fmt.Println()
 	fmt.Println("Template Commands:")
 	fmt.Println("  lvt template copy resource                Copy resource templates to .lvt/templates/")

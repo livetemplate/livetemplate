@@ -10,7 +10,7 @@
   <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
     <!-- Search -->
     <div style="flex: 1; min-width: 200px;">
-      <input[[if ne (inputClass .CSSFramework) ""]] class="[[inputClass .CSSFramework]]"[[end]] type="search" name="query" placeholder="Search [[.ResourceNameLower]]s..." value="{{.SearchQuery}}" lvt-change="search" lvt-debounce="300">
+      <input[[if ne (inputClass .CSSFramework) ""]] class="[[inputClass .CSSFramework]]"[[end]] type="search" name="query" placeholder="Search [[.ResourceNameLower]]..." value="{{.SearchQuery}}" lvt-change="search" lvt-debounce="300">
     </div>
 
     <!-- Sort -->
@@ -35,7 +35,7 @@
 
     <!-- Add Button -->
     <button[[if ne (buttonClass .CSSFramework "primary") ""]] class="[[buttonClass .CSSFramework "primary"]]"[[end]] lvt-click="open_add">
-      + Add [[.ResourceName]]
+      + Add [[.ResourceNameSingular]]
     </button>
   </div>
 [[- if needsArticle .CSSFramework]]

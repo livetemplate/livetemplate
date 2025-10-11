@@ -75,6 +75,10 @@ type [[.ResourceName]]State struct {
 	IsAdding     bool                  `json:"is_adding"`
 	EditingID    string                `json:"editing_id"`
 	Editing[[.ResourceName]] *[[.ResourceName]]Item   `json:"editing_[[.ResourceNameLower]]"`
+	PaginationMode string              `json:"pagination_mode"` // "infinite", "load-more", "prev-next", "numbers"
+	LoadedCount    int                 `json:"loaded_count"`    // For infinite/load-more modes
+	HasMore        bool                `json:"has_more"`        // Whether more items available
+	IsLoading      bool                `json:"is_loading"`      // Loading indicator
 }
 
 func (s *[[.ResourceName]]State) Change(ctx *livetemplate.ActionContext) error {
@@ -184,6 +188,10 @@ func (s *[[.ResourceName]]State) Change(ctx *livetemplate.ActionContext) error {
 			return err
 		}
 		s.SearchQuery = input.Query
+		// Reset infinite scroll when searching
+		if s.PaginationMode == "infinite" || s.PaginationMode == "load-more" {
+			s.LoadedCount = s.PageSize
+		}
 
 		if err := s.load[[.ResourceName]]s(dbCtx); err != nil {
 			return err
@@ -195,6 +203,10 @@ func (s *[[.ResourceName]]State) Change(ctx *livetemplate.ActionContext) error {
 			return err
 		}
 		s.SortBy = input.SortBy
+		// Reset infinite scroll when sorting
+		if s.PaginationMode == "infinite" || s.PaginationMode == "load-more" {
+			s.LoadedCount = s.PageSize
+		}
 
 		if err := s.load[[.ResourceName]]s(dbCtx); err != nil {
 			return err
@@ -226,6 +238,18 @@ func (s *[[.ResourceName]]State) Change(ctx *livetemplate.ActionContext) error {
 		}
 		if err := s.load[[.ResourceName]]s(dbCtx); err != nil {
 			return err
+		}
+
+	case "load_more":
+		if s.PaginationMode == "infinite" || s.PaginationMode == "load-more" {
+			if s.HasMore && !s.IsLoading {
+				s.IsLoading = true
+				s.LoadedCount += s.PageSize
+				if err := s.load[[.ResourceName]]s(dbCtx); err != nil {
+					return err
+				}
+				s.IsLoading = false
+			}
 		}
 
 	default:
@@ -298,6 +322,36 @@ func (s *[[.ResourceName]]State) applySorting() {
 }
 
 func (s *[[.ResourceName]]State) applyPagination() {
+	if s.PaginationMode == "infinite" || s.PaginationMode == "load-more" {
+		s.applyInfiniteScroll()
+	} else {
+		s.applyPagedNavigation()
+	}
+}
+
+func (s *[[.ResourceName]]State) applyInfiniteScroll() {
+	// Initialize LoadedCount if not set
+	if s.LoadedCount == 0 {
+		s.LoadedCount = s.PageSize
+	}
+
+	if len(s.Filtered[[.ResourceName]]s) == 0 {
+		s.Paginated[[.ResourceName]]s = [][[.ResourceName]]Item{}
+		s.HasMore = false
+		return
+	}
+
+	// Load items from 0 to LoadedCount
+	end := s.LoadedCount
+	if end > len(s.Filtered[[.ResourceName]]s) {
+		end = len(s.Filtered[[.ResourceName]]s)
+	}
+
+	s.Paginated[[.ResourceName]]s = s.Filtered[[.ResourceName]]s[0:end]
+	s.HasMore = end < len(s.Filtered[[.ResourceName]]s)
+}
+
+func (s *[[.ResourceName]]State) applyPagedNavigation() {
 	if len(s.Filtered[[.ResourceName]]s) == 0 {
 		s.TotalPages = 1
 		s.CurrentPage = 1
@@ -330,11 +384,13 @@ func formatTime() string {
 // Handler creates an http.Handler for this resource
 func Handler(queries *models.Queries) http.Handler {
 	state := &[[.ResourceName]]State{
-		Title:       "[[.ResourceName]] Management",
-		Queries:     queries,
-		CurrentPage: 1,
-		PageSize:    10,
-		LastUpdated: formatTime(),
+		Title:          "[[.ResourceName]] Management",
+		Queries:        queries,
+		CurrentPage:    1,
+		PageSize:       [[.PageSize]],
+		PaginationMode: "[[.PaginationMode]]",
+		LoadedCount:    [[if or (eq .PaginationMode "infinite") (eq .PaginationMode "load-more")]][[.PageSize]][[else]]0[[end]],
+		LastUpdated:    formatTime(),
 	}
 
 	if err := state.Init(); err != nil {

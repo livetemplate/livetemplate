@@ -1,8 +1,6 @@
 {{/* Single-page app component - no full HTML wrapper */}}
 {{define "content"}}
   <div>
-    <h1[[if ne (titleClass .CSSFramework) ""]] class="[[titleClass .CSSFramework]]"[[end]]>{{.Title}}</h1>
-
     <!-- Add Form -->
     {{template "formBox" .}}
 

@@ -511,5 +511,42 @@ func CSSHelpers() template.FuncMap {
 			}
 			return m, nil
 		},
+
+		// Loading indicator styling
+		"loadingClass": func(framework string) string {
+			switch framework {
+			case "tailwind":
+				return "text-gray-600 animate-pulse"
+			case "bulma":
+				return "has-text-grey"
+			default:
+				return ""
+			}
+		},
+
+		// Pagination active page indicator
+		"paginationActiveClass": func(framework string) string {
+			switch framework {
+			case "tailwind":
+				return "bg-blue-600 text-white px-3 py-1 rounded"
+			case "bulma":
+				return "pagination-link is-current"
+			default:
+				return ""
+			}
+		},
+
+		// Helper functions for numbered pagination
+		"until": func(count int) []int {
+			result := make([]int, count)
+			for i := 0; i < count; i++ {
+				result[i] = i
+			}
+			return result
+		},
+
+		"add": func(a, b int) int {
+			return a + b
+		},
 	}
 }
