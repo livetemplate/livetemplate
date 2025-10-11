@@ -178,6 +178,26 @@ func (t *Template) Parse(text string) (*Template, error) {
 	// Always generate wrapper ID for consistent update targeting
 	t.wrapperID = generateRandomID()
 
+	// First, parse WITHOUT wrapper to check if flattening is needed
+	tmpl, err := template.New(t.name).Parse(text)
+	if err != nil {
+		return nil, fmt.Errorf("template parse error: %w", err)
+	}
+
+	// Check if template uses composition features and flatten if needed
+	if hasTemplateComposition(tmpl) {
+		// Flatten the template to resolve all {{define}}/{{template}}/{{block}}
+		flattenedStr, err := flattenTemplate(tmpl)
+		if err != nil {
+			return nil, fmt.Errorf("template flattening failed: %w", err)
+		}
+
+		// Store flattened version for tree generation (WITHOUT wrapper)
+		// This ensures updates use the flattened template
+		text = flattenedStr
+	}
+
+	// Now add wrapper to the (possibly flattened) template for execution
 	var templateContent string
 	if isFullHTML {
 		// Inject wrapper div around body content
@@ -191,40 +211,10 @@ func (t *Template) Parse(text string) (*Template, error) {
 		templateContent = fmt.Sprintf(`<div data-lvt-id="%s"%s>%s</div>`, t.wrapperID, loadingAttr, text)
 	}
 
-	// Parse the template using html/template
-	tmpl, err := template.New(t.name).Parse(templateContent)
+	// Parse the template with wrapper for execution
+	tmpl, err = template.New(t.name).Parse(templateContent)
 	if err != nil {
-		return nil, fmt.Errorf("template parse error: %w", err)
-	}
-
-	// Check if template uses composition features and flatten if needed
-	if hasTemplateComposition(tmpl) {
-		// Flatten the template to resolve all {{define}}/{{template}}/{{block}}
-		flattenedStr, err := flattenTemplate(tmpl)
-		if err != nil {
-			return nil, fmt.Errorf("template flattening failed: %w", err)
-		}
-
-		// Store flattened version for tree generation
-		// This ensures updates use the flattened template
-		text = flattenedStr
-
-		// Re-inject wrapper for flattened template
-		if isFullHTML {
-			templateContent = injectWrapperDiv(flattenedStr, t.wrapperID, t.config.LoadingDisabled)
-		} else {
-			loadingAttr := ""
-			if !t.config.LoadingDisabled {
-				loadingAttr = ` data-lvt-loading="true"`
-			}
-			templateContent = fmt.Sprintf(`<div data-lvt-id="%s"%s>%s</div>`, t.wrapperID, loadingAttr, flattenedStr)
-		}
-
-		// Re-parse with flattened content
-		tmpl, err = template.New(t.name).Parse(templateContent)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse flattened template: %w", err)
-		}
+		return nil, fmt.Errorf("failed to parse template with wrapper: %w", err)
 	}
 
 	// Store the template text for tree generation (flattened if it had composition)
@@ -267,21 +257,8 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 	// Always generate wrapper ID for consistent update targeting
 	t.wrapperID = generateRandomID()
 
-	var templateContent string
-	if isFullHTML {
-		// Inject wrapper div around body content
-		templateContent = injectWrapperDiv(text, t.wrapperID, t.config.LoadingDisabled)
-	} else {
-		// For standalone templates, wrap the entire content
-		loadingAttr := ""
-		if !t.config.LoadingDisabled {
-			loadingAttr = ` data-lvt-loading="true"`
-		}
-		templateContent = fmt.Sprintf(`<div data-lvt-id="%s"%s>%s</div>`, t.wrapperID, loadingAttr, text)
-	}
-
-	// Parse the main template using html/template (without flattening yet)
-	tmpl, err := template.New(t.name).Parse(templateContent)
+	// First, parse WITHOUT wrapper to check if flattening is needed
+	tmpl, err := template.New(t.name).Parse(text)
 	if err != nil {
 		return nil, fmt.Errorf("template parse error: %w", err)
 	}
@@ -310,25 +287,28 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 			return nil, fmt.Errorf("template flattening failed: %w", err)
 		}
 
-		// Store flattened version for tree generation
+		// Store flattened version for tree generation (WITHOUT wrapper)
 		text = flattenedStr
+	}
 
-		// Re-inject wrapper for flattened template
-		if isFullHTML {
-			templateContent = injectWrapperDiv(flattenedStr, t.wrapperID, t.config.LoadingDisabled)
-		} else {
-			loadingAttr := ""
-			if !t.config.LoadingDisabled {
-				loadingAttr = ` data-lvt-loading="true"`
-			}
-			templateContent = fmt.Sprintf(`<div data-lvt-id="%s"%s>%s</div>`, t.wrapperID, loadingAttr, flattenedStr)
+	// Now add wrapper to the (possibly flattened) template for execution
+	var templateContent string
+	if isFullHTML {
+		// Inject wrapper div around body content
+		templateContent = injectWrapperDiv(text, t.wrapperID, t.config.LoadingDisabled)
+	} else {
+		// For standalone templates, wrap the entire content
+		loadingAttr := ""
+		if !t.config.LoadingDisabled {
+			loadingAttr = ` data-lvt-loading="true"`
 		}
+		templateContent = fmt.Sprintf(`<div data-lvt-id="%s"%s>%s</div>`, t.wrapperID, loadingAttr, text)
+	}
 
-		// Re-parse with flattened content
-		tmpl, err = template.New(t.name).Parse(templateContent)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse flattened template: %w", err)
-		}
+	// Parse the template with wrapper for execution
+	tmpl, err = template.New(t.name).Parse(templateContent)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse template with wrapper: %w", err)
 	}
 
 	// Store the template text for tree generation (flattened if it had composition)
@@ -584,8 +564,12 @@ func (t *Template) generateInitialTree(html string, data interface{}) (TreeNode,
 	// We need the template source, not rendered HTML, so parseTemplateToTree can identify dynamics
 	var templateContent string
 	if t.wrapperID != "" {
-		// Extract body content from template, then remove <script> tags
+		// For templates with <body> tags, extract body content
+		// For templates without <body> tags (including flattened templates), use template as-is
 		bodyContent := extractTemplateBodyContent(t.templateStr)
+		// extractTemplateBodyContent returns the full template if no <body> tag found
+		// So we can use it directly - it will be the flattened template content without wrapper
+
 		// Strip out everything from first <script to end (scripts should be at the end)
 		if scriptIdx := strings.Index(bodyContent, "<script"); scriptIdx != -1 {
 			templateContent = bodyContent[:scriptIdx]
@@ -599,7 +583,7 @@ func (t *Template) generateInitialTree(html string, data interface{}) (TreeNode,
 	// Use the original parser - it maintains the correct invariant and handles dynamics properly
 	tree, err := parseTemplateToTree(templateContent, data, t.keyGen)
 	if err != nil {
-		// Fallback to HTML structure-based strategy
+		// parseTemplateToTree failed, falling back to HTML structure
 		tree = t.createHTMLStructureBasedTree(contentToAnalyze)
 	}
 

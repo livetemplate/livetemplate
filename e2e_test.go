@@ -228,14 +228,14 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		// Verify update contains new content
 		updateStr := string(updateJSON)
 		expectedUpdates := []string{
-			"\"0\":\"Task Manager\"",        // Title in segment 0
-			"\"1\":\"3\"",                   // Counter value in segment 1
-			"\"4\":\"3\"",                   // Total todos in segment 4
-			"\"5\":\"1\"",                   // Completed count in segment 5
-			"\"6\":\"2\"",                   // Remaining count in segment 6
-			"\"7\":\"33%\"",                 // Completion rate in segment 7
-			"\"9\":\"2023-01-01 10:15:00\"", // Last updated in segment 9
-			"\"10\":\"session-12345\"",      // Session ID in segment 10
+			"\"0\":\"Task Manager\"",         // Title in segment 0
+			"\"1\":\"3\"",                    // Counter value in segment 1
+			"\"4\":\"3\"",                    // Total todos in segment 4
+			"\"5\":\"1\"",                    // Completed count in segment 5
+			"\"6\":\"2\"",                    // Remaining count in segment 6
+			"\"7\":\"33%\"",                  // Completion rate in segment 7
+			"\"10\":\"2023-01-01 10:15:00\"", // Last updated - field number changed after Phoenix pattern fix
+			"\"11\":\"session-12345\"",       // Session ID - field number changed after Phoenix pattern fix
 		}
 
 		for _, expected := range expectedUpdates {

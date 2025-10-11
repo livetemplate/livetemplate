@@ -533,6 +533,10 @@ export class LiveTemplateClient {
         if (!this.isInitialized) {
           this.removeLoadingBar();
           this.enableForms();
+          // Remove data-lvt-loading attribute from wrapper
+          if (this.wrapperElement && this.wrapperElement.hasAttribute('data-lvt-loading')) {
+            this.wrapperElement.removeAttribute('data-lvt-loading');
+          }
           this.isInitialized = true;
         }
 

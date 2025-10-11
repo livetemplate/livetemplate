@@ -1,22 +1,16 @@
 {
   "1": "8",
+  "10": "2023-01-01 10:30:00",
   "2": "active",
   "3": "High Activity",
   "4": "2",
   "5": "0",
   "7": "0%",
-  "8": [
+  "8": "\u003cdiv class=\"todo-list\"\u003e\n                    \n                    \u003cdiv class=\"todo-item \" data-key=\"todo-1\"\u003e\n                        \u003cstrong\u003e#0:\u003c/strong\u003e\n                        Learn Go templates\n                        ○\n                         (Priority: High)\n                    \u003c/div\u003e\n                    \n                    \u003cdiv class=\"todo-item \" data-key=\"todo-3\"\u003e\n                        \u003cstrong\u003e#1:\u003c/strong\u003e\n                        Write documentation\n                        ○\n                         (Priority: Low)\n                    \u003c/div\u003e\n                    \n                \u003c/div\u003e",
+  "9": [
     [
       "r",
       "todo-2"
-    ],
-    [
-      "u",
-      "todo-3",
-      {
-        "2": "#1"
-      }
     ]
-  ],
-  "9": "2023-01-01 10:30:00"
+  ]
 }

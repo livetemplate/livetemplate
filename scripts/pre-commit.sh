@@ -36,9 +36,9 @@ else
     exit 1
 fi
 
-# Step 3: Run all Go tests
+# Step 3: Run all Go tests with increased timeout for slow e2e tests
 echo "🧪 Running Go tests..."
-if go test -v ./... -timeout=60s; then
+if go test -v ./... -timeout=120s; then
     echo "✅ All Go tests passed"
 else
     echo "❌ Go tests failed - commit blocked"

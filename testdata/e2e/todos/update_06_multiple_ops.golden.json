@@ -1,9 +1,11 @@
 {
   "1": "11",
+  "10": "2023-01-01 11:30:00",
   "5": "2",
   "6": "2",
   "7": "50%",
-  "8": [
+  "8": "\u003cdiv class=\"todo-list\"\u003e\n                    \n                    \u003cdiv class=\"todo-item completed\" data-key=\"todo-4\"\u003e\n                        \u003cstrong\u003e#0:\u003c/strong\u003e\n                        Setup development environment\n                        ✓\n                         (Priority: High)\n                    \u003c/div\u003e\n                    \n                    \u003cdiv class=\"todo-item completed\" data-key=\"todo-1\"\u003e\n                        \u003cstrong\u003e#1:\u003c/strong\u003e\n                        Learn Go templates\n                        ✓\n                         (Priority: High)\n                    \u003c/div\u003e\n                    \n                    \u003cdiv class=\"todo-item \" data-key=\"todo-6\"\u003e\n                        \u003cstrong\u003e#2:\u003c/strong\u003e\n                        Deploy to production\n                        ○\n                         (Priority: Critical)\n                    \u003c/div\u003e\n                    \n                    \u003cdiv class=\"todo-item \" data-key=\"todo-7\"\u003e\n                        \u003cstrong\u003e#3:\u003c/strong\u003e\n                        Monitor performance\n                        ○\n                         (Priority: Medium)\n                    \u003c/div\u003e\n                    \n                \u003c/div\u003e",
+  "9": [
     [
       "r",
       "todo-3"
@@ -13,43 +15,17 @@
       "todo-5"
     ],
     [
-      "u",
-      "todo-1",
-      {
-        "2": "#1"
-      }
-    ],
-    [
-      "u",
-      "todo-4",
-      {
-        "0": "completed",
-        "4": "✓"
-      }
-    ],
-    [
       "i",
       "todo-1",
       "after",
       [
         {
-          "0": "",
-          "1": "todo-6",
-          "2": "#2",
-          "3": "Deploy to production",
-          "4": "○",
-          "5": "(Priority: Critical)"
+          "0": "todo-6"
         },
         {
-          "0": "",
-          "1": "todo-7",
-          "2": "#3",
-          "3": "Monitor performance",
-          "4": "○",
-          "5": "(Priority: Medium)"
+          "0": "todo-7"
         }
       ]
     ]
-  ],
-  "9": "2023-01-01 11:30:00"
+  ]
 }

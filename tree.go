@@ -418,6 +418,7 @@ func parseTemplateToTree(templateStr string, data interface{}, keyGen *KeyGenera
 
 	// Extract expressions and build tree
 	expressions := extractFlattenedExpressions(templateStr)
+
 	return buildTreeFromExpressions(templateStr, rendered, expressions, data, keyGen)
 }
 
@@ -579,7 +580,8 @@ func isInsideSimpleRange(pos int, ranges []ConditionalRange) bool {
 func detectConditionalRanges(templateStr string) []ConditionalRange {
 	var patterns []ConditionalRange
 
-	// Look for patterns like {{if .Field}}...{{range}}...{{end}}...{{else}}...{{end}}
+	// Look for patterns like {{if gt (len .Field) 0}}...{{range .Field}}...{{end}}...{{else}}...{{end}}
+	// This is a Phoenix LiveView optimization for list rendering
 	i := 0
 	for i < len(templateStr) {
 		// Find {{if ...}}
@@ -596,20 +598,90 @@ func detectConditionalRanges(templateStr string) []ConditionalRange {
 			continue
 		}
 
-		// Check if this conditional contains a range
+		// Check if this is a TRUE Phoenix pattern:
+		// 1. Must contain a {{range }}
+		// 2. The {{if}} condition should check length/presence of a collection
+		// 3. The {{range}} should be at the TOP LEVEL of the if block, not nested in another conditional
 		if strings.Contains(condExpr.Text, "{{range ") {
-			patterns = append(patterns, ConditionalRange{
-				Text:  condExpr.Text,
-				Start: ifStart,
-				End:   condEnd,
-			})
-			i = condEnd
-		} else {
-			i = ifStart + 5
+			// Extract the if condition to see if it checks a collection length
+			ifCondition := extractIfCondition(templateStr[ifStart:])
+
+			// Check if condition mentions "len" or "gt" which are typical for Phoenix patterns
+			if strings.Contains(ifCondition, "len ") || strings.Contains(ifCondition, "gt ") {
+				// Check if the range is at the TOP LEVEL (not nested in another {{if}})
+				isTopLevel := isRangeAtTopLevel(condExpr.Text)
+
+				if isTopLevel {
+					patterns = append(patterns, ConditionalRange{
+						Text:  condExpr.Text,
+						Start: ifStart,
+						End:   condEnd,
+					})
+					i = condEnd
+					continue
+				}
+			}
 		}
+
+		i = ifStart + 5
 	}
 
 	return patterns
+}
+
+// extractIfCondition extracts the condition from an {{if ...}} expression
+func extractIfCondition(ifBlock string) string {
+	start := strings.Index(ifBlock, "{{if ")
+	if start == -1 {
+		return ""
+	}
+	end := strings.Index(ifBlock[start:], "}}")
+	if end == -1 {
+		return ""
+	}
+	return ifBlock[start+5 : start+end]
+}
+
+// isRangeAtTopLevel checks if the range is at the top level of the conditional block
+// (not nested inside another {{if}})
+func isRangeAtTopLevel(condText string) bool {
+	// Find the first {{range}} position
+	rangePos := strings.Index(condText, "{{range ")
+	if rangePos == -1 {
+		return false
+	}
+
+	// Skip the opening {{if ...}} of this conditional block
+	// We want to check if there are NESTED {{if}} blocks before the range,
+	// not count the opening {{if}} of the block we're analyzing
+	startPos := 0
+	if strings.HasPrefix(condText, "{{if ") {
+		// Find the end of the opening {{if ...}} expression
+		endOfIf := strings.Index(condText, "}}")
+		if endOfIf != -1 {
+			startPos = endOfIf + 2
+		}
+	}
+
+	// Check if there's a nested {{if}} between startPos and {{range}}
+	// that hasn't been closed yet
+	depth := 0
+	pos := startPos
+	for pos < rangePos {
+		if strings.HasPrefix(condText[pos:], "{{if ") {
+			depth++
+			pos += 5
+		} else if strings.HasPrefix(condText[pos:], "{{end}}") {
+			depth--
+			pos += 7
+		} else {
+			pos++
+		}
+	}
+
+	// If depth > 0, the range is inside a nested {{if}}
+	// If depth == 0, the range is at the top level (directly in the if/else branches)
+	return depth == 0
 }
 
 // isInsidePhoenixPattern checks if a position is inside any Phoenix pattern
@@ -1689,10 +1761,18 @@ func extractRangeContentWithWrappers(conditionalText string) (string, string, st
 		return "", "", ""
 	}
 
+	// Find the end of the range {{end}} tag
+	rangeEndTagEnd := strings.Index(conditionalText[rangeEndPos:], "}}")
+	if rangeEndTagEnd == -1 {
+		return "", "", ""
+	}
+	rangeEndTagEnd += rangeEndPos + 2
+
 	// Find the conditional's {{end}} or {{else}}
+	// Start searching AFTER the range's {{end}} tag to find the conditional's {{end}}
 	conditionalEndPos := -1
 	depth = 0
-	i = ifStart
+	i = rangeEndTagEnd
 	for i < len(conditionalText) {
 		if i+2 < len(conditionalText) && conditionalText[i:i+2] == "{{" {
 			exprEnd := strings.Index(conditionalText[i+2:], "}}")
@@ -1704,15 +1784,15 @@ func extractRangeContentWithWrappers(conditionalText string) (string, string, st
 
 			if strings.HasPrefix(expr, "if") || strings.HasPrefix(expr, "range") {
 				depth++
-			} else if expr == "else" && depth == 1 {
+			} else if expr == "else" && depth == 0 {
 				conditionalEndPos = i
 				break
 			} else if expr == "end" {
-				depth--
 				if depth == 0 {
 					conditionalEndPos = i
 					break
 				}
+				depth--
 			}
 			i = exprEnd
 		} else {
@@ -1727,13 +1807,6 @@ func extractRangeContentWithWrappers(conditionalText string) (string, string, st
 	// Extract the three parts
 	prefixHTML := conditionalText[ifHeaderEnd:rangeStart]
 	rangeContent := conditionalText[rangeHeaderEnd:rangeEndPos]
-
-	// Find the end of the range {{end}} tag
-	rangeEndTagEnd := strings.Index(conditionalText[rangeEndPos:], "}}")
-	if rangeEndTagEnd == -1 {
-		return "", "", ""
-	}
-	rangeEndTagEnd += rangeEndPos + 2
 
 	suffixHTML := conditionalText[rangeEndTagEnd:conditionalEndPos]
 
