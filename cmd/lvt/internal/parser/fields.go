@@ -13,6 +13,7 @@ type Field struct {
 	IsReference     bool
 	ReferencedTable string
 	OnDelete        string // CASCADE, SET NULL, RESTRICT, etc.
+	IsTextarea      bool   // true if field should render as textarea
 }
 
 // ParseFields parses field definitions in the format "name:type name2:type2"
@@ -39,17 +40,18 @@ func ParseFields(args []string) ([]Field, error) {
 		}
 
 		// Validate type
-		goType, sqlType, err := MapType(typ)
+		goType, sqlType, isTextarea, err := MapType(typ)
 		if err != nil {
 			return nil, fmt.Errorf("field '%s': %w", name, err)
 		}
 
 		// Parse reference metadata if it's a reference type
 		field := Field{
-			Name:    name,
-			Type:    typ,
-			GoType:  goType,
-			SQLType: sqlType,
+			Name:       name,
+			Type:       typ,
+			GoType:     goType,
+			SQLType:    sqlType,
+			IsTextarea: isTextarea,
 		}
 
 		if strings.HasPrefix(strings.ToLower(typ), "references:") {
@@ -88,28 +90,31 @@ func ParseFields(args []string) ([]Field, error) {
 
 // MapType maps a user-provided type to Go and SQL types
 // Also handles references syntax: references:table_name[:on_delete_action]
-func MapType(typ string) (goType, sqlType string, err error) {
+// Returns: goType, sqlType, isTextarea, error
+func MapType(typ string) (goType, sqlType string, isTextarea bool, err error) {
 	// Check if it's a reference type
 	if strings.HasPrefix(strings.ToLower(typ), "references:") {
 		// Format: references:table_name[:on_delete_action]
 		// We return TEXT type to match our primary key type
 		// The reference metadata is handled separately
-		return "string", "TEXT", nil
+		return "string", "TEXT", false, nil
 	}
 
 	switch strings.ToLower(typ) {
-	case "string", "str", "text":
-		return "string", "TEXT", nil
+	case "string", "str":
+		return "string", "TEXT", false, nil
+	case "text", "textarea", "longtext":
+		return "string", "TEXT", true, nil
 	case "int", "integer":
-		return "int64", "INTEGER", nil
+		return "int64", "INTEGER", false, nil
 	case "bool", "boolean":
-		return "bool", "BOOLEAN", nil
+		return "bool", "BOOLEAN", false, nil
 	case "float", "float64", "decimal":
-		return "float64", "REAL", nil
+		return "float64", "REAL", false, nil
 	case "time", "datetime", "timestamp":
-		return "time.Time", "DATETIME", nil
+		return "time.Time", "DATETIME", false, nil
 	default:
-		return "", "", fmt.Errorf("unsupported type '%s' (supported: string, int, bool, float, time, references:table)", typ)
+		return "", "", false, fmt.Errorf("unsupported type '%s' (supported: string, text, int, bool, float, time, references:table)", typ)
 	}
 }
 

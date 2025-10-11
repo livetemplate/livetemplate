@@ -23,7 +23,9 @@
 [[- range .Fields]]
     <div[[if ne (fieldClass $.CSSFramework) ""]] class="[[fieldClass $.CSSFramework]]"[[end]]>
       <label[[if ne (labelClass $.CSSFramework) ""]] class="[[labelClass $.CSSFramework]]"[[end]]>[[.Name | title]]</label>
-[[- if eq .GoType "string"]]
+[[- if .IsTextarea]]
+      <textarea[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] name="[[.Name]]" placeholder="Enter [[.Name]]" rows="5" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}></textarea>
+[[- else if eq .GoType "string"]]
       <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="text" name="[[.Name]]" placeholder="Enter [[.Name]]" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
 [[- else if eq .GoType "int64"]]
       <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="number" name="[[.Name]]" placeholder="Enter [[.Name]]" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
@@ -63,7 +65,9 @@
 [[- range .Fields]]
     <div[[if ne (fieldClass $.CSSFramework) ""]] class="[[fieldClass $.CSSFramework]]"[[end]]>
       <label[[if ne (labelClass $.CSSFramework) ""]] class="[[labelClass $.CSSFramework]]"[[end]]>[[.Name | title]]</label>
-[[- if eq .GoType "string"]]
+[[- if .IsTextarea]]
+      <textarea[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] name="[[.Name]]" placeholder="Enter [[.Name]]" rows="5" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>{{.Editing[[$.ResourceName]].[[.Name | camelCase]]}}</textarea>
+[[- else if eq .GoType "string"]]
       <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="text" name="[[.Name]]" placeholder="Enter [[.Name]]" value="{{.Editing[[$.ResourceName]].[[.Name | camelCase]]}}" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
 [[- else if eq .GoType "int64"]]
       <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="number" name="[[.Name]]" placeholder="Enter [[.Name]]" value="{{.Editing[[$.ResourceName]].[[.Name | camelCase]]}}" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>

@@ -47,6 +47,7 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 			IsReference:     f.IsReference,
 			ReferencedTable: f.ReferencedTable,
 			OnDelete:        f.OnDelete,
+			IsTextarea:      f.IsTextarea,
 		})
 	}
 

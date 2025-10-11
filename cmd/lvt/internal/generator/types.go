@@ -31,6 +31,7 @@ type FieldData struct {
 	IsReference     bool
 	ReferencedTable string
 	OnDelete        string
+	IsTextarea      bool // true if field should render as textarea
 }
 
 type AppData struct {

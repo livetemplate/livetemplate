@@ -226,17 +226,18 @@ func parseFieldsWithInference(fieldArgs []string) ([]parser.Field, error) {
 		}
 
 		// Map to Go and SQL types
-		goType, sqlType, err := parser.MapType(typ)
+		goType, sqlType, isTextarea, err := parser.MapType(typ)
 		if err != nil {
 			return nil, fmt.Errorf("field '%s': %w", name, err)
 		}
 
 		// Create field with reference metadata
 		field := parser.Field{
-			Name:    name,
-			Type:    typ,
-			GoType:  goType,
-			SQLType: sqlType,
+			Name:       name,
+			Type:       typ,
+			GoType:     goType,
+			SQLType:    sqlType,
+			IsTextarea: isTextarea,
 		}
 
 		// Parse reference metadata if it's a reference type
@@ -277,7 +278,7 @@ func inferTypeForDirectMode(fieldName string) string {
 	// Exact matches for common field names
 	exactMatches := map[string]string{
 		"name": "string", "email": "string", "title": "string",
-		"description": "string", "content": "string", "body": "string",
+		"description": "text", "content": "text", "body": "text",
 		"username": "string", "password": "string", "token": "string",
 		"url": "string", "slug": "string", "path": "string",
 		"address": "string", "city": "string", "state": "string",

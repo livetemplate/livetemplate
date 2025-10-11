@@ -70,29 +70,32 @@ func TestParseFields(t *testing.T) {
 
 func TestMapType(t *testing.T) {
 	tests := []struct {
-		input   string
-		wantGo  string
-		wantSQL string
-		wantErr bool
+		input        string
+		wantGo       string
+		wantSQL      string
+		wantTextarea bool
+		wantErr      bool
 	}{
-		{"string", "string", "TEXT", false},
-		{"str", "string", "TEXT", false},
-		{"text", "string", "TEXT", false},
-		{"int", "int64", "INTEGER", false},
-		{"integer", "int64", "INTEGER", false},
-		{"bool", "bool", "BOOLEAN", false},
-		{"boolean", "bool", "BOOLEAN", false},
-		{"float", "float64", "REAL", false},
-		{"float64", "float64", "REAL", false},
-		{"time", "time.Time", "DATETIME", false},
-		{"datetime", "time.Time", "DATETIME", false},
-		{"uuid", "", "", true},
-		{"unknown", "", "", true},
+		{"string", "string", "TEXT", false, false},
+		{"str", "string", "TEXT", false, false},
+		{"text", "string", "TEXT", true, false},
+		{"textarea", "string", "TEXT", true, false},
+		{"longtext", "string", "TEXT", true, false},
+		{"int", "int64", "INTEGER", false, false},
+		{"integer", "int64", "INTEGER", false, false},
+		{"bool", "bool", "BOOLEAN", false, false},
+		{"boolean", "bool", "BOOLEAN", false, false},
+		{"float", "float64", "REAL", false, false},
+		{"float64", "float64", "REAL", false, false},
+		{"time", "time.Time", "DATETIME", false, false},
+		{"datetime", "time.Time", "DATETIME", false, false},
+		{"uuid", "", "", false, true},
+		{"unknown", "", "", false, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			goType, sqlType, err := MapType(tt.input)
+			goType, sqlType, isTextarea, err := MapType(tt.input)
 			if tt.wantErr {
 				if err == nil {
 					t.Error("expected error, got nil")
@@ -108,6 +111,9 @@ func TestMapType(t *testing.T) {
 			}
 			if sqlType != tt.wantSQL {
 				t.Errorf("got SQL type %s, want %s", sqlType, tt.wantSQL)
+			}
+			if isTextarea != tt.wantTextarea {
+				t.Errorf("got isTextarea %v, want %v", isTextarea, tt.wantTextarea)
 			}
 		})
 	}
