@@ -24,6 +24,7 @@ func Gen(args []string) error {
 	appMode := "multi"           // default
 	paginationMode := "infinite" // default
 	pageSize := 20               // default
+	editMode := "modal"          // default
 	var filteredArgs []string
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--css" && i+1 < len(args) {
@@ -39,6 +40,9 @@ func Gen(args []string) error {
 			if size, err := fmt.Sscanf(args[i+1], "%d", &pageSize); err != nil || size == 0 || pageSize < 1 {
 				pageSize = 20 // fallback to default
 			}
+			i++ // skip next arg
+		} else if args[i] == "--edit-mode" && i+1 < len(args) {
+			editMode = args[i+1]
 			i++ // skip next arg
 		} else {
 			filteredArgs = append(filteredArgs, args[i])
@@ -74,6 +78,12 @@ func Gen(args []string) error {
 		return fmt.Errorf("invalid pagination mode: %s (valid: infinite, load-more, prev-next, numbers)", paginationMode)
 	}
 
+	// Validate edit mode
+	validEditModes := map[string]bool{"modal": true, "page": true}
+	if !validEditModes[editMode] {
+		return fmt.Errorf("invalid edit mode: %s (valid: modal, page)", editMode)
+	}
+
 	// Parse fields with type inference support
 	fields, err := parseFieldsWithInference(fieldArgs)
 	if err != nil {
@@ -95,6 +105,7 @@ func Gen(args []string) error {
 	fmt.Printf("Generating CRUD resource: %s\n", resourceName)
 	fmt.Printf("CSS Framework: %s\n", cssFramework)
 	fmt.Printf("Pagination: %s (page size: %d)\n", paginationMode, pageSize)
+	fmt.Printf("Edit Mode: %s\n", editMode)
 	fmt.Printf("Fields: ")
 	for i, f := range fields {
 		if i > 0 {
@@ -104,7 +115,7 @@ func Gen(args []string) error {
 	}
 	fmt.Println()
 
-	if err := generator.GenerateResource(basePath, moduleName, resourceName, fields, cssFramework, appMode, paginationMode, pageSize); err != nil {
+	if err := generator.GenerateResource(basePath, moduleName, resourceName, fields, cssFramework, appMode, paginationMode, pageSize, editMode); err != nil {
 		return err
 	}
 

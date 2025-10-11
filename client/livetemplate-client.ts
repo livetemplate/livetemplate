@@ -712,6 +712,15 @@ export class LiveTemplateClient {
             const handleAction = () => {
               console.log('[LiveTemplate DEBUG] handleAction called', { action, eventType, targetElement });
 
+              // Check if this is a delete action and needs confirmation
+              if (action === 'delete' && targetElement.hasAttribute('lvt-confirm')) {
+                const confirmMessage = targetElement.getAttribute('lvt-confirm') || 'Are you sure you want to delete this item?';
+                if (!confirm(confirmMessage)) {
+                  console.log('[LiveTemplate DEBUG] Delete action cancelled by user');
+                  return; // User cancelled, don't proceed
+                }
+              }
+
               // Build message with action and data map
               const message: any = { action, data: {} };
 

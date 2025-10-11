@@ -172,8 +172,8 @@
 [[- else]]
       <div>
 [[- end]]
-        <h2[[if ne (subtitleClass .CSSFramework) ""]] class="[[subtitleClass .CSSFramework]]"[[end]]>[[.ResourceName]]s</h2>
-        {{if gt (len .Paginated[[.ResourceName]]s) 0}}
+        <h2[[if ne (subtitleClass .CSSFramework) ""]] class="[[subtitleClass .CSSFramework]]"[[end]]>[[.ResourceNamePlural]]</h2>
+        {{if gt (len .Paginated[[.ResourceNamePlural]]) 0}}
 [[- if needsTableWrapper .CSSFramework]]
           <div class="[[tableWrapperClass .CSSFramework]]">
 [[- end]]
@@ -186,7 +186,7 @@
                 </tr>
               </thead>
               <tbody>
-                {{range .Paginated[[.ResourceName]]s}}
+                {{range .Paginated[[.ResourceNamePlural]]}}
                   <tr data-key="{{.ID}}">
                     <td style="word-wrap: break-word; overflow-wrap: break-word;">
 [[- if eq $displayField.GoType "bool"]]
@@ -243,7 +243,7 @@
               </button>
             {{end}}
             <p style="margin-top: 0.5rem; color: #666; font-size: 0.875rem;">
-              Showing {{len .Paginated[[.ResourceName]]s}} of {{.TotalCount}} items
+              Showing {{len .Paginated[[.ResourceNamePlural]]}} of {{.TotalCount}} items
             </p>
           </div>
         {{end}}

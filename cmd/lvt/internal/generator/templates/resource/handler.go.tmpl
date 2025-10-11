@@ -65,11 +65,11 @@ type [[.ResourceName]]State struct {
 	Queries      *models.Queries       `json:"-"`
 	SearchQuery  string                `json:"search_query"`
 	SortBy       string                `json:"sort_by"`
-	Filtered[[.ResourceName]]s  [][[.ResourceName]]Item `json:"filtered_[[.ResourceNameLower]]s"`
+	Filtered[[.ResourceNamePlural]]  [][[.ResourceName]]Item `json:"filtered_[[.ResourceNameLower]]s"`
 	CurrentPage  int                   `json:"current_page"`
 	PageSize     int                   `json:"page_size"`
 	TotalPages   int                   `json:"total_pages"`
-	Paginated[[.ResourceName]]s [][[.ResourceName]]Item `json:"paginated_[[.ResourceNameLower]]s"`
+	Paginated[[.ResourceNamePlural]] [][[.ResourceName]]Item `json:"paginated_[[.ResourceNameLower]]s"`
 	TotalCount   int                   `json:"total_count"`
 	LastUpdated  string                `json:"last_updated"`
 	IsAdding     bool                  `json:"is_adding"`
@@ -167,6 +167,32 @@ func (s *[[.ResourceName]]State) Change(ctx *livetemplate.ActionContext) error {
 	case "cancel_add":
 		s.IsAdding = false
 
+	case "view":
+		var input DeleteInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+
+		// Find the item to view/edit
+		[[.ResourceNameLower]]s, err := s.Queries.GetAll[[.ResourceNamePlural]](dbCtx)
+		if err != nil {
+			return fmt.Errorf("failed to load [[.ResourceNameLower]]s: %w", err)
+		}
+
+		for _, item := range [[.ResourceNameLower]]s {
+			if item.ID == input.ID {
+				s.EditingID = input.ID
+				itemCopy := item
+				s.Editing[[.ResourceName]] = &itemCopy
+				break
+			}
+		}
+
+	case "back":
+		// Return to list view
+		s.EditingID = ""
+		s.Editing[[.ResourceName]] = nil
+
 	case "delete":
 		var input DeleteInput
 		if err := ctx.BindAndValidate(&input, validate); err != nil {
@@ -177,6 +203,10 @@ func (s *[[.ResourceName]]State) Change(ctx *livetemplate.ActionContext) error {
 		if err != nil {
 			return fmt.Errorf("failed to delete [[.ResourceNameLower]]: %w", err)
 		}
+
+		// Clear editing state (for page mode)
+		s.EditingID = ""
+		s.Editing[[.ResourceName]] = nil
 
 		if err := s.load[[.ResourceName]]s(dbCtx); err != nil {
 			return err
@@ -272,16 +302,16 @@ func (s *[[.ResourceName]]State) load[[.ResourceName]]s(ctx context.Context) err
 	}
 
 	if s.SearchQuery == "" {
-		s.Filtered[[.ResourceName]]s = [[.ResourceNameLower]]s
+		s.Filtered[[.ResourceNamePlural]] = [[.ResourceNameLower]]s
 	} else {
-		s.Filtered[[.ResourceName]]s = [][[.ResourceName]]Item{}
+		s.Filtered[[.ResourceNamePlural]] = [][[.ResourceName]]Item{}
 		query := strings.ToLower(s.SearchQuery)
 		for _, item := range [[.ResourceNameLower]]s {
 			// Search across all text fields
 [[- range .Fields]]
 [[- if eq .GoType "string"]]
 			if strings.Contains(strings.ToLower(item.[[.Name | camelCase]]), query) {
-				s.Filtered[[$.ResourceName]]s = append(s.Filtered[[$.ResourceName]]s, item)
+				s.Filtered[[$.ResourceNamePlural]] = append(s.Filtered[[$.ResourceNamePlural]], item)
 				continue
 			}
 [[- end]]
@@ -301,22 +331,22 @@ func (s *[[.ResourceName]]State) applySorting() {
 [[- range .Fields]]
 [[- if eq .GoType "string"]]
 	case "[[.Name]]_asc":
-		sort.Slice(s.Filtered[[$.ResourceName]]s, func(i, j int) bool {
-			return strings.ToLower(s.Filtered[[$.ResourceName]]s[i].[[.Name | camelCase]]) < strings.ToLower(s.Filtered[[$.ResourceName]]s[j].[[.Name | camelCase]])
+		sort.Slice(s.Filtered[[$.ResourceNamePlural]], func(i, j int) bool {
+			return strings.ToLower(s.Filtered[[$.ResourceNamePlural]][i].[[.Name | camelCase]]) < strings.ToLower(s.Filtered[[$.ResourceNamePlural]][j].[[.Name | camelCase]])
 		})
 	case "[[.Name]]_desc":
-		sort.Slice(s.Filtered[[$.ResourceName]]s, func(i, j int) bool {
-			return strings.ToLower(s.Filtered[[$.ResourceName]]s[i].[[.Name | camelCase]]) > strings.ToLower(s.Filtered[[$.ResourceName]]s[j].[[.Name | camelCase]])
+		sort.Slice(s.Filtered[[$.ResourceNamePlural]], func(i, j int) bool {
+			return strings.ToLower(s.Filtered[[$.ResourceNamePlural]][i].[[.Name | camelCase]]) > strings.ToLower(s.Filtered[[$.ResourceNamePlural]][j].[[.Name | camelCase]])
 		})
 [[- end]]
 [[- end]]
 	case "oldest_first":
-		sort.Slice(s.Filtered[[.ResourceName]]s, func(i, j int) bool {
-			return s.Filtered[[.ResourceName]]s[i].CreatedAt.Before(s.Filtered[[.ResourceName]]s[j].CreatedAt)
+		sort.Slice(s.Filtered[[.ResourceNamePlural]], func(i, j int) bool {
+			return s.Filtered[[.ResourceNamePlural]][i].CreatedAt.Before(s.Filtered[[.ResourceNamePlural]][j].CreatedAt)
 		})
 	default:
-		sort.Slice(s.Filtered[[.ResourceName]]s, func(i, j int) bool {
-			return s.Filtered[[.ResourceName]]s[i].CreatedAt.After(s.Filtered[[.ResourceName]]s[j].CreatedAt)
+		sort.Slice(s.Filtered[[.ResourceNamePlural]], func(i, j int) bool {
+			return s.Filtered[[.ResourceNamePlural]][i].CreatedAt.After(s.Filtered[[.ResourceNamePlural]][j].CreatedAt)
 		})
 	}
 }
@@ -335,31 +365,31 @@ func (s *[[.ResourceName]]State) applyInfiniteScroll() {
 		s.LoadedCount = s.PageSize
 	}
 
-	if len(s.Filtered[[.ResourceName]]s) == 0 {
-		s.Paginated[[.ResourceName]]s = [][[.ResourceName]]Item{}
+	if len(s.Filtered[[.ResourceNamePlural]]) == 0 {
+		s.Paginated[[.ResourceNamePlural]] = [][[.ResourceName]]Item{}
 		s.HasMore = false
 		return
 	}
 
 	// Load items from 0 to LoadedCount
 	end := s.LoadedCount
-	if end > len(s.Filtered[[.ResourceName]]s) {
-		end = len(s.Filtered[[.ResourceName]]s)
+	if end > len(s.Filtered[[.ResourceNamePlural]]) {
+		end = len(s.Filtered[[.ResourceNamePlural]])
 	}
 
-	s.Paginated[[.ResourceName]]s = s.Filtered[[.ResourceName]]s[0:end]
-	s.HasMore = end < len(s.Filtered[[.ResourceName]]s)
+	s.Paginated[[.ResourceNamePlural]] = s.Filtered[[.ResourceNamePlural]][0:end]
+	s.HasMore = end < len(s.Filtered[[.ResourceNamePlural]])
 }
 
 func (s *[[.ResourceName]]State) applyPagedNavigation() {
-	if len(s.Filtered[[.ResourceName]]s) == 0 {
+	if len(s.Filtered[[.ResourceNamePlural]]) == 0 {
 		s.TotalPages = 1
 		s.CurrentPage = 1
-		s.Paginated[[.ResourceName]]s = [][[.ResourceName]]Item{}
+		s.Paginated[[.ResourceNamePlural]] = [][[.ResourceName]]Item{}
 		return
 	}
 
-	s.TotalPages = int(math.Ceil(float64(len(s.Filtered[[.ResourceName]]s)) / float64(s.PageSize)))
+	s.TotalPages = int(math.Ceil(float64(len(s.Filtered[[.ResourceNamePlural]])) / float64(s.PageSize)))
 
 	if s.CurrentPage < 1 {
 		s.CurrentPage = 1
@@ -370,11 +400,11 @@ func (s *[[.ResourceName]]State) applyPagedNavigation() {
 
 	start := (s.CurrentPage - 1) * s.PageSize
 	end := start + s.PageSize
-	if end > len(s.Filtered[[.ResourceName]]s) {
-		end = len(s.Filtered[[.ResourceName]]s)
+	if end > len(s.Filtered[[.ResourceNamePlural]]) {
+		end = len(s.Filtered[[.ResourceNamePlural]])
 	}
 
-	s.Paginated[[.ResourceName]]s = s.Filtered[[.ResourceName]]s[start:end]
+	s.Paginated[[.ResourceNamePlural]] = s.Filtered[[.ResourceNamePlural]][start:end]
 }
 
 func formatTime() string {

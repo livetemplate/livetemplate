@@ -18,15 +18,19 @@
 {{/* Resource table with data */}}
 {{define "resourceTable"}}
   <h2[[if ne (subtitleClass .CSSFramework) ""]] class="[[subtitleClass .CSSFramework]]"[[end]]>[[.ResourceNamePlural]]</h2>
-  {{if gt (len .Paginated[[.ResourceName]]s) 0}}
+  {{if gt (len .Paginated[[.ResourceNamePlural]]) 0}}
 [[- if needsTableWrapper .CSSFramework]]
     <div class="[[tableWrapperClass .CSSFramework]]">
 [[- end]]
       <table[[if ne (tableClass .CSSFramework) ""]] class="[[tableClass .CSSFramework]]"[[end]] style="table-layout: fixed;">
 [[- $displayField := displayField .Fields]]
         <tbody>
-          {{range .Paginated[[.ResourceName]]s}}
+          {{range .Paginated[[.ResourceNamePlural]]}}
+[[- if eq $.EditMode "page"]]
+            <tr data-key="{{.ID}}" style="cursor: pointer;" lvt-click="view" lvt-data-id="{{.ID}}">
+[[- else]]
             <tr data-key="{{.ID}}">
+[[- end]]
               <td style="word-wrap: break-word; overflow-wrap: break-word; width: auto; padding: 12px 8px;">
 [[- if eq $displayField.GoType "bool"]]
                 {{if .[[$displayField.Name | title]]}}✓{{else}}✗{{end}}
@@ -36,14 +40,13 @@
                 {{.[[$displayField.Name | title]]}}
 [[- end]]
               </td>
-              <td style="white-space: nowrap; width: 140px; text-align: right; padding: 12px 8px;">
-                <button[[if ne (buttonClass $.CSSFramework "secondary") ""]] class="[[buttonClass $.CSSFramework "secondary"]]"[[end]] style="margin-right: 8px;" lvt-click="edit" lvt-data-id="{{.ID}}">
+[[- if eq $.EditMode "modal"]]
+              <td style="white-space: nowrap; width: 70px; text-align: right; padding: 12px 8px;">
+                <button[[if ne (buttonClass $.CSSFramework "secondary") ""]] class="[[buttonClass $.CSSFramework "secondary"]]"[[end]] lvt-click="edit" lvt-data-id="{{.ID}}">
                   Edit
                 </button>
-                <button[[if ne (buttonClass $.CSSFramework "danger") ""]] class="[[buttonClass $.CSSFramework "danger"]]"[[end]] lvt-click="delete" lvt-data-id="{{.ID}}">
-                  Delete
-                </button>
               </td>
+[[- end]]
             </tr>
           {{end}}
         </tbody>

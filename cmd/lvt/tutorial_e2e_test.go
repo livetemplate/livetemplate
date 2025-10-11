@@ -448,8 +448,8 @@ func TestTutorialE2E(t *testing.T) {
 		t.Log("✅ Post 'My First Blog Post' added successfully and appears in table")
 	})
 
-	// Test Delete Post
-	t.Run("Delete Post", func(t *testing.T) {
+	// Test Modal Delete with Confirmation
+	t.Run("Modal Delete with Confirmation", func(t *testing.T) {
 		// First, verify the post exists
 		var postExists bool
 		err := chromedp.Run(ctx,
@@ -476,7 +476,8 @@ func TestTutorialE2E(t *testing.T) {
 			t.Fatal("❌ Post 'My First Blog Post' not found - cannot test deletion")
 		}
 
-		// Find and click the delete button for the post
+		// Verify there's NO delete button in table rows (modal mode)
+		var deleteButtonInRow bool
 		err = chromedp.Run(ctx,
 			chromedp.Evaluate(`
 				(() => {
@@ -489,17 +490,168 @@ func TestTutorialE2E(t *testing.T) {
 					});
 					if (targetRow) {
 						const deleteButton = targetRow.querySelector('button[lvt-click="delete"]');
-						if (deleteButton) {
-							deleteButton.click();
+						return !!deleteButton;
+					}
+					return false;
+				})()
+			`, &deleteButtonInRow),
+		)
+		if err != nil {
+			t.Fatalf("Failed to check for delete button in row: %v", err)
+		}
+
+		if deleteButtonInRow {
+			t.Error("❌ Delete button should NOT be in table rows in modal mode")
+		} else {
+			t.Log("✅ No delete button in table rows (modal mode)")
+		}
+
+		// Click Edit button to open modal
+		var editButtonFound bool
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`
+				(() => {
+					const table = document.querySelector('table');
+					if (!table) return false;
+					const rows = Array.from(table.querySelectorAll('tbody tr'));
+					const targetRow = rows.find(row => {
+						const cells = row.querySelectorAll('td');
+						return cells.length > 0 && cells[0].textContent.trim() === 'My First Blog Post';
+					});
+					if (targetRow) {
+						const editButton = targetRow.querySelector('button[lvt-click="edit"]');
+						if (editButton) {
+							editButton.click();
+							return true;
+						}
+					}
+					return false;
+				})()
+			`, &editButtonFound),
+			chromedp.Sleep(1*time.Second), // Wait for modal to open
+		)
+		if err != nil {
+			t.Fatalf("Failed to click edit button: %v", err)
+		}
+
+		if !editButtonFound {
+			t.Fatal("❌ Edit button not found in table row")
+		}
+		t.Log("✅ Edit button clicked, modal should be open")
+
+		// Verify delete button exists in modal with lvt-confirm attribute
+		var deleteButtonInModal bool
+		var hasConfirmAttr bool
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`
+				(() => {
+					const deleteButton = document.querySelector('button[lvt-click="delete"]');
+					return !!deleteButton;
+				})()
+			`, &deleteButtonInModal),
+			chromedp.Evaluate(`
+				(() => {
+					const deleteButton = document.querySelector('button[lvt-click="delete"]');
+					return deleteButton ? deleteButton.hasAttribute('lvt-confirm') : false;
+				})()
+			`, &hasConfirmAttr),
+		)
+		if err != nil {
+			t.Fatalf("Failed to check delete button in modal: %v", err)
+		}
+
+		if !deleteButtonInModal {
+			t.Fatal("❌ Delete button not found in modal")
+		}
+		t.Log("✅ Delete button found in modal")
+
+		if !hasConfirmAttr {
+			t.Error("❌ Delete button missing lvt-confirm attribute")
+		} else {
+			t.Log("✅ Delete button has lvt-confirm attribute")
+		}
+
+		// We've already verified the key requirements:
+		// 1. No delete button in table rows ✅
+		// 2. Delete button exists in modal ✅
+		// 3. Delete button has lvt-confirm attribute ✅
+		// The confirmation dialog functionality is client-side JavaScript (window.confirm)
+		// which is tested implicitly through the next test case
+
+		t.Log("✅ Modal delete confirmation setup verified")
+	})
+
+	// Test Delete Post (Accept Confirmation)
+	t.Run("Delete Post with Accepted Confirmation", func(t *testing.T) {
+		// Navigate and verify post exists
+		var postExists bool
+		err := chromedp.Run(ctx,
+			chromedp.Navigate(testURL+"/posts"),
+			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
+			chromedp.Sleep(1*time.Second),
+			chromedp.Evaluate(`
+				(() => {
+					const table = document.querySelector('table');
+					if (!table) return false;
+					const rows = Array.from(table.querySelectorAll('tbody tr'));
+					return rows.some(row => {
+						const cells = row.querySelectorAll('td');
+						return cells.length > 0 && cells[0].textContent.trim() === 'My First Blog Post';
+					});
+				})()
+			`, &postExists),
+		)
+		if err != nil {
+			t.Fatalf("Failed to check for post: %v", err)
+		}
+
+		if !postExists {
+			t.Fatal("❌ Post 'My First Blog Post' not found - cannot test deletion")
+		}
+
+		// Click Edit button to open modal
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`
+				(() => {
+					const table = document.querySelector('table');
+					if (!table) return false;
+					const rows = Array.from(table.querySelectorAll('tbody tr'));
+					const targetRow = rows.find(row => {
+						const cells = row.querySelectorAll('td');
+						return cells.length > 0 && cells[0].textContent.trim() === 'My First Blog Post';
+					});
+					if (targetRow) {
+						const editButton = targetRow.querySelector('button[lvt-click="edit"]');
+						if (editButton) {
+							editButton.click();
 							return true;
 						}
 					}
 					return false;
 				})()
 			`, &postExists),
+			chromedp.Sleep(1*time.Second),
+		)
+		if err != nil {
+			t.Fatalf("Failed to open edit modal: %v", err)
+		}
+
+		// Override window.confirm to return true (accept)
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`window.confirm = () => true;`, nil),
+			chromedp.Evaluate(`
+				(() => {
+					const deleteButton = document.querySelector('button[lvt-click="delete"]');
+					if (deleteButton) {
+						deleteButton.click();
+						return true;
+					}
+					return false;
+				})()
+			`, &postExists),
 			chromedp.Sleep(2*time.Second), // Wait for deletion to process
 
-			// Reload page to see the deletion result (workaround for tree update issue)
+			// Reload page to see the deletion result
 			chromedp.Reload(),
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
 			chromedp.Sleep(500*time.Millisecond),
@@ -531,7 +683,7 @@ func TestTutorialE2E(t *testing.T) {
 			t.Fatal("❌ Post 'My First Blog Post' still exists after deletion")
 		}
 
-		t.Log("✅ Post 'My First Blog Post' deleted successfully")
+		t.Log("✅ Post 'My First Blog Post' deleted successfully after confirming")
 	})
 
 	// Test Validation Errors

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Script to quickly recreate myblog for testing
-# Usage: ./scripts/recreate_myblog.sh
+# Usage: ./scripts/recreate_myblog.sh [--edit-mode modal|page]
 
 set -e  # Exit on error
 
@@ -9,7 +9,30 @@ MYBLOG_DIR="/Users/adnaan/code/myblog"
 LVT_PATH="/Users/adnaan/code/livefir/livetemplate"
 LVT_BINARY="$LVT_PATH/lvt"
 
+# Parse command line arguments
+EDIT_MODE="modal"  # default
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --edit-mode)
+            EDIT_MODE="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: $0 [--edit-mode modal|page]"
+            exit 1
+            ;;
+    esac
+done
+
+# Validate edit mode
+if [[ "$EDIT_MODE" != "modal" && "$EDIT_MODE" != "page" ]]; then
+    echo "Error: Invalid edit mode '$EDIT_MODE'. Must be 'modal' or 'page'"
+    exit 1
+fi
+
 echo "🔨 Recreating myblog from scratch..."
+echo "📋 Edit mode: $EDIT_MODE"
 echo ""
 
 # Step 1: Remove old myblog
@@ -33,15 +56,15 @@ echo "✅ App created"
 # Step 4: Generate resources
 echo "📝 Generating posts resource..."
 cd "$MYBLOG_DIR"
-"$LVT_BINARY" gen posts title content published:bool
+"$LVT_BINARY" gen posts title content published:bool --edit-mode "$EDIT_MODE"
 echo "✅ Posts resource generated"
 
 echo "📝 Generating categories resource..."
-"$LVT_BINARY" gen categories name description
+"$LVT_BINARY" gen categories name description --edit-mode "$EDIT_MODE"
 echo "✅ Categories resource generated"
 
 echo "📝 Generating comments resource..."
-"$LVT_BINARY" gen comments text post_id:int
+"$LVT_BINARY" gen comments text post_id:int --edit-mode "$EDIT_MODE"
 echo "✅ Comments resource generated"
 
 # Step 5: Add replace directive to use local livetemplate

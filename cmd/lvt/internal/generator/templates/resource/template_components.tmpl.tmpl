@@ -1,10 +1,19 @@
 {{template "layout" .}}
 
 {{define "content"}}
-  <!-- Toolbar with Add, Search, and Sort -->
+[[- if eq .EditMode "page"]]
+  {{if ne .EditingID ""}}
+    <!-- Page mode: Detail view -->
+    {{template "detailPage" .}}
+  {{else}}
+    <!-- Page mode: List view -->
+    {{template "toolbar" .}}
+    {{template "addModal" .}}
+    {{template "tableBox" .}}
+  {{end}}
+[[- else]]
+  <!-- Modal mode: List with modals -->
   {{template "toolbar" .}}
-
-  <!-- Add Modal -->
   {{template "addModal" .}}
 
   <!-- Edit Modal -->
@@ -16,8 +25,8 @@
   </div>
   {{end}}
 
-  <!-- Table -->
   {{template "tableBox" .}}
+[[- end]]
 {{end}}
 
 {{define "formContent"}}

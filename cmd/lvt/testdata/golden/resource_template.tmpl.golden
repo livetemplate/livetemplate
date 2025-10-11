@@ -95,9 +95,10 @@
       <small style="color: #c00; font-size: 0.875rem;">{{.lvt.Error "published"}}</small>
       {{end}}
     </div>
-    <div class="mb-4">
-      <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" style="margin-right: 8px;" type="submit" lvt-disable-with="Updating...">Update Post</button>
+    <div class="mb-4" style="display: flex; gap: 8px; margin-top: 1.5rem;">
+      <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" type="submit" lvt-disable-with="Updating...">Save</button>
       <button class="bg-gray-600 text-white px-2 py-1 text-sm rounded hover:bg-gray-700" type="button" lvt-click="cancel_edit">Cancel</button>
+      <button class="bg-red-600 text-white px-2 py-1 text-sm rounded hover:bg-red-700" type="button" lvt-click="delete" lvt-data-id="{{.EditingID}}" lvt-confirm="Are you sure you want to delete this post?" style="margin-left: auto;">Delete</button>
     </div>
   </form>
   {{end}}
@@ -151,12 +152,9 @@
               <td style="word-wrap: break-word; overflow-wrap: break-word; width: auto; padding: 12px 8px;">
                 {{.Title}}
               </td>
-              <td style="white-space: nowrap; width: 140px; text-align: right; padding: 12px 8px;">
-                <button class="bg-gray-600 text-white px-2 py-1 text-sm rounded hover:bg-gray-700" style="margin-right: 8px;" lvt-click="edit" lvt-data-id="{{.ID}}">
+              <td style="white-space: nowrap; width: 70px; text-align: right; padding: 12px 8px;">
+                <button class="bg-gray-600 text-white px-2 py-1 text-sm rounded hover:bg-gray-700" lvt-click="edit" lvt-data-id="{{.ID}}">
                   Edit
-                </button>
-                <button class="bg-red-600 text-white px-2 py-1 text-sm rounded hover:bg-red-700" lvt-click="delete" lvt-data-id="{{.ID}}">
-                  Delete
                 </button>
               </td>
             </tr>
@@ -313,13 +311,45 @@
 {{end}}
 
 
+{{/* Detail page for page mode - view/edit a single resource */}}
+{{define "detailPage"}}
+  {{if .EditingPost}}
+  <!-- Detail Page Toolbar -->
+  <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid #e5e7eb;">
+    <button class="bg-gray-600 text-white px-2 py-1 text-sm rounded hover:bg-gray-700" lvt-click="back" style="margin-right: auto;">
+      ← Back
+    </button>
+    <button class="bg-red-600 text-white px-2 py-1 text-sm rounded hover:bg-red-700" lvt-click="delete" lvt-data-id="{{.EditingID}}" lvt-confirm="Are you sure you want to delete this post?">
+      Delete
+    </button>
+  </div>
+
+  <!-- Detail Content -->
+  <h2 class="text-xl font-semibold text-gray-700 mb-4">Post Details</h2>
+
+  <div style="max-width: 600px;">
+    <div class="mb-4">
+      <label class="block text-sm font-medium text-gray-700 mb-2" style="font-weight: 600;">Title</label>
+      <div style="padding: 0.5rem 0;">
+        {{$.EditingPost.Title}}
+      </div>
+    </div>
+    <div class="mb-4">
+      <label class="block text-sm font-medium text-gray-700 mb-2" style="font-weight: 600;">Published</label>
+      <div style="padding: 0.5rem 0;">
+        {{if $.EditingPost.Published}}✓ Yes{{else}}✗ No{{end}}
+      </div>
+    </div>
+  </div>
+  {{end}}
+{{end}}
+
+
 {{template "layout" .}}
 
 {{define "content"}}
-  <!-- Toolbar with Add, Search, and Sort -->
+  <!-- Modal mode: List with modals -->
   {{template "toolbar" .}}
-
-  <!-- Add Modal -->
   {{template "addModal" .}}
 
   <!-- Edit Modal -->
@@ -331,7 +361,6 @@
   </div>
   {{end}}
 
-  <!-- Table -->
   {{template "tableBox" .}}
 {{end}}
 

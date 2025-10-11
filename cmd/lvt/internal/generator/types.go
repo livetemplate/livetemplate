@@ -22,6 +22,7 @@ type ResourceData struct {
 	DevMode              bool   // Use local client library instead of CDN
 	PaginationMode       string // Pagination mode: "infinite", "load-more", "prev-next", "numbers"
 	PageSize             int    // Page size for pagination
+	EditMode             string // Edit mode: "modal", "page"
 }
 
 type FieldData struct {
