@@ -79,6 +79,8 @@ type [[.ResourceName]]State struct {
 	LoadedCount    int                 `json:"loaded_count"`    // For infinite/load-more modes
 	HasMore        bool                `json:"has_more"`        // Whether more items available
 	IsLoading      bool                `json:"is_loading"`      // Loading indicator
+	CSSFramework   string              `json:"-"`               // CSS framework for templates
+	DevMode        bool                `json:"-"`               // Development mode (local vs CDN client)
 }
 
 func (s *[[.ResourceName]]State) Change(ctx *livetemplate.ActionContext) error {
@@ -421,6 +423,8 @@ func Handler(queries *models.Queries) http.Handler {
 		PaginationMode: "[[.PaginationMode]]",
 		LoadedCount:    [[if or (eq .PaginationMode "infinite") (eq .PaginationMode "load-more")]][[.PageSize]][[else]]0[[end]],
 		LastUpdated:    formatTime(),
+		CSSFramework:   "[[.CSSFramework]]",
+		DevMode:        [[.DevMode]],
 	}
 
 	if err := state.Init(); err != nil {

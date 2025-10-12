@@ -16,15 +16,30 @@ func flattenTemplate(tmpl *template.Template) (string, error) {
 	mainTemplate := tmpl
 
 	// Check if the main template itself is executable
-	// If it only contains {{define}} nodes with no actual execution, we need to find the right one
+	// If it only contains {{define}} nodes with no actual execution, we need to find the entry point
 	if mainTemplate.Tree != nil && mainTemplate.Tree.Root != nil {
 		if !hasExecutableContent(mainTemplate.Tree.Root) {
-			// Main template is only definitions, find the first template with executable content
-			for _, t := range tmpl.Templates() {
-				if t.Tree != nil && t.Tree.Root != nil && t.Name() != mainTemplate.Name() {
-					if hasExecutableContent(t.Tree.Root) {
+			// Main template is only definitions, find the template invoked at top level
+			// Look for {{template "name" .}} invocations to identify the entry point
+			entryPointName := findTopLevelTemplateInvocation(mainTemplate.Tree.Root)
+
+			if entryPointName != "" {
+				// Found a top-level {{template}} invocation - use that as entry point
+				for _, t := range tmpl.Templates() {
+					if t.Name() == entryPointName {
 						mainTemplate = t
 						break
+					}
+				}
+			} else {
+				// No top-level invocation found, fall back to first template with executable content
+				// This handles edge cases where template structure is unusual
+				for _, t := range tmpl.Templates() {
+					if t.Tree != nil && t.Tree.Root != nil && t.Name() != mainTemplate.Name() {
+						if hasExecutableContent(t.Tree.Root) {
+							mainTemplate = t
+							break
+						}
 					}
 				}
 			}
@@ -284,6 +299,28 @@ func hasTemplateComposition(tmpl *template.Template) bool {
 	}
 
 	return false
+}
+
+// findTopLevelTemplateInvocation finds the first {{template}} invocation at the top level
+// (not inside {{define}} blocks) and returns the template name being invoked
+func findTopLevelTemplateInvocation(node *parse.ListNode) string {
+	if node == nil || len(node.Nodes) == 0 {
+		return ""
+	}
+
+	for _, n := range node.Nodes {
+		switch child := n.(type) {
+		case *parse.TemplateNode:
+			// Found a top-level {{template}} invocation
+			return child.Name
+		case *parse.ActionNode:
+			// Skip {{define}} and {{block}} declarations - we only want invocations
+			// These are not top-level invocations, they are declarations
+			continue
+		}
+	}
+
+	return ""
 }
 
 // hasTemplateNode recursively checks for {{template}} or {{block}} nodes

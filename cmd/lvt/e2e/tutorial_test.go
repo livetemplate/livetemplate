@@ -317,8 +317,9 @@ func TestTutorialE2E(t *testing.T) {
 		var liveUrl string
 		err = chromedp.Run(ctx,
 			chromedp.Navigate(testURL+"/posts"),
+			waitForWebSocketReady(5*time.Second), // Wait for WebSocket init and first update
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
-			chromedp.Sleep(2*time.Second), // Wait for WebSocket to connect
+			validateNoTemplateExpressions("[data-lvt-id]"), // Validate no raw template expressions
 			chromedp.Evaluate(`window.location.pathname`, &pathname),
 			chromedp.Evaluate(`window.liveTemplateClient ? window.liveTemplateClient.options.liveUrl : null`, &liveUrl),
 			chromedp.Evaluate(`(() => {
@@ -375,8 +376,9 @@ func TestTutorialE2E(t *testing.T) {
 		err := chromedp.Run(ctx,
 			// Navigate to /posts and wait for it to load
 			chromedp.Navigate(testURL+"/posts"),
+			waitForWebSocketReady(5*time.Second), // Wait for WebSocket init and first update
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
-			chromedp.Sleep(1*time.Second), // Wait for WebSocket connection
+			validateNoTemplateExpressions("[data-lvt-id]"), // Validate no raw template expressions
 
 			// Click the "+ Add Posts" button in toolbar to open modal
 			chromedp.WaitVisible(`button[lvt-click="open_add"]`, chromedp.ByQuery),
@@ -453,8 +455,9 @@ func TestTutorialE2E(t *testing.T) {
 		var postExists bool
 		err := chromedp.Run(ctx,
 			chromedp.Navigate(testURL+"/posts"),
+			waitForWebSocketReady(5*time.Second), // Wait for WebSocket init and first update
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
-			chromedp.Sleep(1*time.Second),
+			validateNoTemplateExpressions("[data-lvt-id]"), // Validate no raw template expressions
 			chromedp.Evaluate(`
 				(() => {
 					const table = document.querySelector('table');
@@ -586,8 +589,9 @@ func TestTutorialE2E(t *testing.T) {
 		var postExists bool
 		err := chromedp.Run(ctx,
 			chromedp.Navigate(testURL+"/posts"),
+			waitForWebSocketReady(5*time.Second), // Wait for WebSocket init and first update
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
-			chromedp.Sleep(1*time.Second),
+			validateNoTemplateExpressions("[data-lvt-id]"), // Validate no raw template expressions
 			chromedp.Evaluate(`
 				(() => {
 					const table = document.querySelector('table');
@@ -697,8 +701,9 @@ func TestTutorialE2E(t *testing.T) {
 		err := chromedp.Run(ctx,
 			// Navigate to /posts
 			chromedp.Navigate(testURL+"/posts"),
+			waitForWebSocketReady(5*time.Second), // Wait for WebSocket init and first update
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
-			chromedp.Sleep(1*time.Second),
+			validateNoTemplateExpressions("[data-lvt-id]"), // Validate no raw template expressions
 
 			// Click the "+ Add Posts" button in toolbar to open modal
 			chromedp.WaitVisible(`button[lvt-click="open_add"]`, chromedp.ByQuery),

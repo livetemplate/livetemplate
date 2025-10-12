@@ -1,14 +1,18 @@
 package testing
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/chromedp/chromedp"
 )
 
 const (
@@ -212,4 +216,92 @@ func ServeClientLibrary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Error(w, "Client library not found", http.StatusNotFound)
+}
+
+// WaitForWebSocketReady waits for the first WebSocket update to be applied
+// by polling for the removal of data-lvt-loading attribute (condition-based waiting).
+// This ensures E2E tests run after the WebSocket connection is established and
+// the initial tree update has been applied to the DOM.
+//
+// The client removes data-lvt-loading after receiving the first WebSocket message,
+// which makes this a reliable signal that the page is in its final state.
+func WaitForWebSocketReady(timeout time.Duration) chromedp.Action {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		// First wait for wrapper to exist
+		if err := chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery).Do(ctx); err != nil {
+			return fmt.Errorf("wrapper element not found: %w", err)
+		}
+
+		// Poll for data-lvt-loading attribute removal (condition-based waiting)
+		startTime := time.Now()
+		for {
+			var loadingRemoved bool
+			err := chromedp.Evaluate(`
+				(() => {
+					const wrapper = document.querySelector('[data-lvt-id]');
+					return wrapper && !wrapper.hasAttribute('data-lvt-loading');
+				})()
+			`, &loadingRemoved).Do(ctx)
+
+			if err != nil {
+				return fmt.Errorf("failed to check loading state: %w", err)
+			}
+
+			if loadingRemoved {
+				// Loading indicator removed - WebSocket update applied
+				return nil
+			}
+
+			if time.Since(startTime) > timeout {
+				return fmt.Errorf("timeout waiting for WebSocket ready (data-lvt-loading not removed after %v)", timeout)
+			}
+
+			// Poll every 10ms (condition-based, not arbitrary)
+			time.Sleep(10 * time.Millisecond)
+		}
+	})
+}
+
+// ValidateNoTemplateExpressions checks that the specified element does not contain
+// raw Go template expressions like {{if}}, {{range}}, {{define}}, etc.
+// This catches the bug where unflattened templates are used in WebSocket tree generation.
+func ValidateNoTemplateExpressions(selector string) chromedp.Action {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		var innerHTML string
+		if err := chromedp.InnerHTML(selector, &innerHTML, chromedp.ByQuery).Do(ctx); err != nil {
+			return fmt.Errorf("failed to get innerHTML of %s: %w", selector, err)
+		}
+
+		// Check for common template expressions
+		templateExpressions := []string{
+			"{{if",
+			"{{range",
+			"{{define",
+			"{{template",
+			"{{with",
+			"{{block",
+			"{{else",
+			"{{end}}",
+		}
+
+		for _, expr := range templateExpressions {
+			if strings.Contains(innerHTML, expr) {
+				// Find context around the expression for better error messages
+				idx := strings.Index(innerHTML, expr)
+				start := idx - 50
+				if start < 0 {
+					start = 0
+				}
+				end := idx + 100
+				if end > len(innerHTML) {
+					end = len(innerHTML)
+				}
+				context := innerHTML[start:end]
+
+				return fmt.Errorf("raw template expression '%s' found in HTML. Context: ...%s...", expr, context)
+			}
+		}
+
+		return nil
+	})
 }

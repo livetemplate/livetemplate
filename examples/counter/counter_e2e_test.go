@@ -57,8 +57,9 @@ func TestCounterE2E(t *testing.T) {
 
 		err := chromedp.Run(ctx,
 			chromedp.Navigate(e2etest.GetChromeTestURL(serverPort)),
+			e2etest.WaitForWebSocketReady(5*time.Second), // Wait for WebSocket init and first update
 			chromedp.WaitVisible(`h1`, chromedp.ByQuery),
-			chromedp.Sleep(2*time.Second), // Wait for WebSocket connection
+			e2etest.ValidateNoTemplateExpressions("[data-lvt-id]"), // Validate no raw template expressions
 			chromedp.OuterHTML(`body`, &initialHTML, chromedp.ByQuery),
 		)
 

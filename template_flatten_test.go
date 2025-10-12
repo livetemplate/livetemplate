@@ -295,6 +295,91 @@ func TestFlattenTemplate_IntegrationWithTreeGeneration(t *testing.T) {
 	}
 }
 
+func TestFlattenTemplate_ComponentPattern(t *testing.T) {
+	// Test the component pattern used in testdata/e2e/components/input.tmpl
+	// This is the pattern that was causing the bug: {{define}} blocks followed by {{template}} invocation
+	templateStr := `{{define "layout"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>{{.Title}}</title>
+</head>
+<body>
+    {{template "content" .}}
+</body>
+</html>
+{{end}}
+
+{{define "stats"}}
+<div class="stats">
+    <p>Total: {{.TodoCount}}</p>
+    <p>Completed: {{.CompletedCount}}</p>
+</div>
+{{end}}
+
+{{template "layout" .}}
+
+{{define "content"}}
+<h1>{{.Title}}</h1>
+{{template "stats" .}}
+<div class="todos">
+    {{range .Todos}}
+    <div class="todo" data-key="{{.ID}}">
+        {{.Text}} {{if .Completed}}✓{{end}}
+    </div>
+    {{end}}
+</div>
+<footer>Updated: {{.LastUpdated}}</footer>
+{{end}}
+`
+
+	tmpl, err := template.New(t.Name()).Parse(templateStr)
+	if err != nil {
+		t.Fatalf("Failed to parse template: %v", err)
+	}
+
+	flattened, err := flattenTemplate(tmpl)
+	if err != nil {
+		t.Fatalf("Failed to flatten template: %v", err)
+	}
+
+	// Should contain all the dynamic fields
+	if !strings.Contains(flattened, "{{.Title}}") {
+		t.Errorf("Flattened template missing {{.Title}}")
+	}
+	if !strings.Contains(flattened, "{{.TodoCount}}") {
+		t.Errorf("Flattened template missing {{.TodoCount}}")
+	}
+	if !strings.Contains(flattened, "{{.CompletedCount}}") {
+		t.Errorf("Flattened template missing {{.CompletedCount}}")
+	}
+	if !strings.Contains(flattened, "{{range .Todos}}") {
+		t.Errorf("Flattened template missing {{range .Todos}}")
+	}
+	if !strings.Contains(flattened, "{{.Text}}") {
+		t.Errorf("Flattened template missing {{.Text}}")
+	}
+	if !strings.Contains(flattened, "{{if .Completed}}") {
+		t.Errorf("Flattened template missing {{if .Completed}}")
+	}
+	if !strings.Contains(flattened, "{{.LastUpdated}}") {
+		t.Errorf("Flattened template missing {{.LastUpdated}}")
+	}
+
+	// Should NOT contain {{define}} or {{template}}
+	if strings.Contains(flattened, "{{define") {
+		t.Errorf("Flattened template still contains {{define}}")
+	}
+	if strings.Contains(flattened, "{{template") {
+		t.Errorf("Flattened template still contains {{template}}")
+	}
+
+	// Should contain HTML structure
+	if !strings.Contains(flattened, "<!DOCTYPE html>") {
+		t.Errorf("Flattened template missing DOCTYPE")
+	}
+}
+
 func TestFlattenTemplate_ErrorCases(t *testing.T) {
 	tests := []struct {
 		name     string

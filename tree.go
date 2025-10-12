@@ -1390,8 +1390,14 @@ func buildTreeFromExpressions(templateStr, rendered string, expressions []Templa
 	var dynamicIndex int
 
 	currentPos := 0
+	var maxProcessedEnd int // Track the maximum end position we've processed
 
 	for _, expr := range expressions {
+		// Skip expressions that are nested inside previously processed expressions
+		if expr.Start < maxProcessedEnd {
+			continue
+		}
+
 		// Add static content before this expression
 		if expr.Start > currentPos {
 			statics = append(statics, templateStr[currentPos:expr.Start])
@@ -1410,6 +1416,7 @@ func buildTreeFromExpressions(templateStr, rendered string, expressions []Templa
 			tree[fmt.Sprintf("%d", dynamicIndex)] = comprehension
 			dynamicIndex++
 			currentPos = expr.End
+			maxProcessedEnd = max(maxProcessedEnd, expr.End)
 
 		case "conditional":
 			// Evaluate the conditional expression
@@ -1417,6 +1424,7 @@ func buildTreeFromExpressions(templateStr, rendered string, expressions []Templa
 			tree[fmt.Sprintf("%d", dynamicIndex)] = value
 			dynamicIndex++
 			currentPos = expr.End
+			maxProcessedEnd = max(maxProcessedEnd, expr.End)
 
 		case "field":
 			// Evaluate the field expression (need to wrap in {{}})
@@ -1425,6 +1433,7 @@ func buildTreeFromExpressions(templateStr, rendered string, expressions []Templa
 			tree[fmt.Sprintf("%d", dynamicIndex)] = fmt.Sprintf("%v", value)
 			dynamicIndex++
 			currentPos = expr.End
+			maxProcessedEnd = max(maxProcessedEnd, expr.End)
 		}
 	}
 
