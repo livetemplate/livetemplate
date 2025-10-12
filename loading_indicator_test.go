@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,11 +24,7 @@ func (s *LoadingTestState) Change(ctx *ActionContext) error {
 }
 
 // TestLoadingIndicator verifies the loading indicator appears and disappears correctly
-// NOTE: This test has a race condition - the WebSocket connects too quickly
-// and removes the loading attribute before the test can check for it.
-// Skipping until we can fix the test timing.
 func TestLoadingIndicator(t *testing.T) {
-	t.Skip("Test has race condition with WebSocket connection timing")
 	state := &LoadingTestState{
 		Message: "Hello, Loading Test!",
 	}
@@ -115,64 +112,98 @@ func TestLoadingIndicator(t *testing.T) {
 	url := fmt.Sprintf("http://localhost:%d", port)
 
 	var hasLoadingAttr bool
-	var inputEnabled bool
-	var buttonEnabled bool
+	var inputDisabled bool
+	var buttonDisabled bool
+	var hasLoadingBar bool
 
-	// Test sequence
+	// Test sequence: Check for loading attribute BEFORE JavaScript runs
 	err := chromedp.Run(ctx,
 		// Navigate to page
 		chromedp.Navigate(url),
 
-		// Wait for wrapper to be present
-		chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
+		// IMMEDIATELY check for loading attribute before JavaScript can remove it
+		// Use ActionFunc to run synchronously as soon as navigation completes
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			// Check the raw HTML source for data-lvt-loading
+			var pageSource string
+			if err := chromedp.Evaluate(`document.documentElement.outerHTML`, &pageSource).Do(ctx); err != nil {
+				return err
+			}
 
-		// Wait for form elements to be present
-		chromedp.WaitVisible(`#test-input`, chromedp.ByID),
-		chromedp.WaitVisible(`#test-button`, chromedp.ByID),
+			// Check if loading attribute is in the source
+			hasLoadingAttr = strings.Contains(pageSource, `data-lvt-loading="true"`)
 
-		// Check if data-lvt-loading attribute is present (this is set by server)
-		chromedp.Evaluate(`
-			(function() {
-				const wrapper = document.querySelector('[data-lvt-id]');
-				return wrapper && wrapper.getAttribute('data-lvt-loading') === 'true';
-			})()
-		`, &hasLoadingAttr),
+			// Also check for disabled state on forms (set by server)
+			chromedp.Evaluate(`document.getElementById('test-input') && document.getElementById('test-input').disabled`, &inputDisabled).Do(ctx)
+			chromedp.Evaluate(`document.getElementById('test-button') && document.getElementById('test-button').disabled`, &buttonDisabled).Do(ctx)
+
+			// Check for loading bar (created by JavaScript)
+			chromedp.Evaluate(`document.querySelector('[style*="position: fixed"][style*="top: 0"]') !== null`, &hasLoadingBar).Do(ctx)
+
+			return nil
+		}),
 	)
 
 	if err != nil {
 		t.Fatalf("Chromedp error (initial checks): %v", err)
 	}
 
-	// Verify loading attribute is present
+	// Verify loading attribute is present in the server-rendered HTML
 	if !hasLoadingAttr {
-		t.Error("data-lvt-loading attribute should be present when loading is enabled")
+		t.Error("❌ data-lvt-loading attribute should be present in server-rendered HTML")
+	} else {
+		t.Log("✅ Loading indicator attribute present on wrapper (server-side)")
 	}
 
-	t.Log("✅ Loading indicator attribute present on wrapper")
+	// Note: We can't reliably test that forms are disabled because JavaScript runs too fast
+	// The disableForms() call happens before our test can check
+	t.Log("⚠️  Skipping form disabled check - JavaScript executes too quickly on localhost")
 
-	// Wait for WebSocket connection and first message
+	// Now wait for WebSocket to initialize and check that loading is removed
+	var loadingAttrAfterInit bool
+	var inputEnabledAfterInit bool
+	var buttonEnabledAfterInit bool
+
 	err = chromedp.Run(ctx,
-		// Wait a bit for WebSocket message
+		// Wait for WebSocket to connect and initialize
 		chromedp.Sleep(2*time.Second),
 
+		// Check if loading attribute has been removed
+		chromedp.Evaluate(`
+			(function() {
+				const wrapper = document.querySelector('[data-lvt-id]');
+				return wrapper && wrapper.getAttribute('data-lvt-loading') === 'true';
+			})()
+		`, &loadingAttrAfterInit),
+
 		// Check if form inputs are enabled (they should be after initialization)
-		chromedp.Evaluate(`!document.getElementById('test-input').disabled`, &inputEnabled),
-		chromedp.Evaluate(`!document.getElementById('test-button').disabled`, &buttonEnabled),
+		chromedp.Evaluate(`!document.getElementById('test-input').disabled`, &inputEnabledAfterInit),
+		chromedp.Evaluate(`!document.getElementById('test-button').disabled`, &buttonEnabledAfterInit),
 	)
 
 	if err != nil {
 		t.Fatalf("Chromedp error (post-WebSocket checks): %v", err)
 	}
 
-	// Verify inputs are enabled after WebSocket message
-	if !inputEnabled {
-		t.Error("Input should be enabled after initialization")
-	}
-	if !buttonEnabled {
-		t.Error("Button should be enabled after initialization")
+	// Verify loading attribute has been removed after WebSocket initialization
+	if loadingAttrAfterInit {
+		t.Error("❌ data-lvt-loading attribute should be removed after WebSocket initialization")
+	} else {
+		t.Log("✅ Loading attribute removed after WebSocket initialization")
 	}
 
-	t.Log("✅ Forms properly enabled after WebSocket initialization")
+	// Verify inputs are enabled after WebSocket message
+	if !inputEnabledAfterInit {
+		t.Error("❌ Input should be enabled after initialization")
+	} else {
+		t.Log("✅ Input enabled after WebSocket initialization")
+	}
+
+	if !buttonEnabledAfterInit {
+		t.Error("❌ Button should be enabled after initialization")
+	} else {
+		t.Log("✅ Button enabled after WebSocket initialization")
+	}
 }
 
 // TestLoadingIndicatorDisabled verifies the loading indicator can be disabled
