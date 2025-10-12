@@ -345,8 +345,6 @@
 {{end}}
 
 
-{{template "layout" .}}
-
 {{define "content"}}
   <!-- Modal mode: List with modals -->
   {{template "toolbar" .}}
@@ -372,5 +370,7 @@
   {{template "resourceTable" .}}
   {{template "pagination" .}}
 {{end}}
+
+{{template "layout" .}}
 
 

@@ -1,5 +1,3 @@
-{{template "layout" .}}
-
 {{define "content"}}
 [[- if eq .EditMode "page"]]
   {{if ne .EditingID ""}}
@@ -37,3 +35,5 @@
   {{template "resourceTable" .}}
   {{template "pagination" .}}
 {{end}}
+
+{{template "layout" .}}
