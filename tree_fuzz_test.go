@@ -59,6 +59,22 @@ func FuzzParseTemplateToTree(f *testing.F) {
 	// Phase 2: Complex nesting
 	f.Add("{{range .Items}}{{if .Active}}{{with .Details}}{{.Text}}{{end}}{{end}}{{end}}")
 
+	// Phase 3: Variable scope in nested contexts
+	f.Add("{{range $i, $v := .Items}}{{$i}}: {{$v}}{{end}}")
+	f.Add("{{range $i, $v := .ItemsWithSub}}{{range $j, $w := .Sub}}{{$i}},{{$j}}: {{$w}}{{end}}{{end}}")
+
+	// Phase 3: Accessing parent context with $
+	f.Add("{{with .User}}{{$.Title}}: {{.Name}}{{end}}")
+
+	// Phase 3: Variable in if block
+	f.Add("{{$x := \"\"}}{{if .Cond}}{{$x = \"yes\"}}{{else}}{{$x = \"no\"}}{{end}}{{$x}}")
+
+	// Phase 3: Variable shadowing
+	f.Add("{{$v := .Name}}{{range .Items}}{{$v := .}}inner:{{$v}}{{end}}outer:{{$v}}")
+
+	// Phase 3: Multiple variable declarations
+	f.Add("{{$a := .A}}{{$b := .B}}{{$a}}{{$b}}")
+
 	f.Fuzz(func(t *testing.T, templateStr string) {
 		// Only test templates that Go's parser accepts
 		_, err := template.New("fuzz").Parse(templateStr)
@@ -97,6 +113,14 @@ func FuzzParseTemplateToTree(f *testing.F) {
 				{"Inner": []string{"p", "q"}},
 			},
 			"EmptyString": "",
+
+			// Phase 3: Variable scope and context testing
+			"Root": "root-value",
+			"Cond": true,
+			"ItemsWithSub": []map[string]interface{}{
+				{"Name": "item1", "Sub": []string{"s1", "s2"}},
+				{"Name": "item2", "Sub": []string{"s3", "s4"}},
+			},
 		}
 
 		// Test current AST-based parser

@@ -4,8 +4,8 @@
 
 This document outlines a comprehensive fuzz testing strategy for LiveTemplate's AST-based template parser. It serves as the single source of truth for systematic testing across multiple development sessions and context compactions.
 
-**Status**: Phase 2 completed (2025-10-14)
-**Next**: Phase 3 (Variable scope & context)
+**Status**: Phase 3 completed (2025-10-14)
+**Next**: Phase 4 (Data types)
 
 ---
 
@@ -216,7 +216,7 @@ f.Add("{{range .Items}}{{if .Active}}{{with .Details}}{{.Text}}{{end}}{{end}}{{e
 
 ---
 
-### Phase 3: Variable Scope & Context
+### Phase 3: Variable Scope & Context ✅ COMPLETED
 
 **Goal**: Test variable scoping edge cases and context switching
 
@@ -251,10 +251,18 @@ f.Add("{{$a := .A}}{{$b := .B}}{{$a}}{{$b}}")
 ```
 
 **Acceptance Criteria**:
-- Variable scope correctly isolated to control structures
-- `$` correctly accesses root context
-- Variable shadowing works as expected
-- No scope leakage between contexts
+- ✅ Variable scope correctly isolated to control structures
+- ✅ `$` correctly accesses root context
+- ✅ Variable shadowing works as expected
+- ✅ No scope leakage between contexts
+- ✅ 1-hour fuzzer run: 0 crashes
+
+**Implementation Summary**:
+- Added 6 new fuzz seeds covering variable scope and context patterns
+- Expanded test data with Root, Cond, ItemsWithSub fields
+- Baseline coverage increased from 1583 to 1889 seeds (35 explicit seeds)
+- Fuzzer successfully executed 2M+ test cases with 0 crashes
+- All core tests (E2E, tree invariant, key injection) pass
 
 ---
 
@@ -505,6 +513,13 @@ Will include:
 - **Empty States**: Empty slices, nil slices, nil values, empty strings
 - **Validation**: Structure only (enhanced validation in future phases)
 
+### After Phase 3
+- **Seeds**: 35 explicit seeds
+- **Feature Coverage**: ~70% of Go template features
+- **Data Types**: String slices, maps, nil values, nested structures with Sub fields
+- **Empty States**: Empty slices, nil slices, nil values, empty strings
+- **Validation**: Structure only (enhanced validation in future phases)
+
 ### After All Phases (Target)
 - **Seeds**: ~60+
 - **Feature Coverage**: ~95% of Go template features
@@ -561,6 +576,6 @@ Will include:
 
 ## Maintenance
 
-**Last Updated**: 2025-10-14 (Phase 2 completion)
-**Next Review**: After Phase 3 completion
+**Last Updated**: 2025-10-14 (Phase 3 completion)
+**Next Review**: After Phase 4 completion
 **Owner**: LiveTemplate core team
