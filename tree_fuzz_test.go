@@ -75,6 +75,57 @@ func FuzzParseTemplateToTree(f *testing.F) {
 	// Phase 3: Multiple variable declarations
 	f.Add("{{$a := .A}}{{$b := .B}}{{$a}}{{$b}}")
 
+	// Phase 4: Maps
+	f.Add("{{range $k, $v := .StringMap}}{{$k}}: {{$v}}, {{end}}")
+
+	// Phase 4: Int slices
+	f.Add("{{range .Numbers}}{{.}},{{end}}")
+	f.Add("{{range $i, $n := .Numbers}}[{{$i}}]={{$n}} {{end}}")
+
+	// Phase 4: Bool slices
+	f.Add("{{range .Flags}}{{if .}}yes{{else}}no{{end}} {{end}}")
+
+	// Phase 4: Interface slices (mixed types)
+	f.Add("{{range .Mixed}}{{.}}{{end}}")
+
+	// Phase 4: Pointer fields
+	f.Add("{{if .PtrField}}{{.PtrField}}{{else}}nil{{end}}")
+
+	// Phase 5: Whitespace trimming
+	f.Add("{{- .Field -}}")
+	f.Add("text {{- .Field}}")
+	f.Add("{{.Field -}} text")
+
+	// Phase 5: Negative number vs trim
+	f.Add("{{-3}}")
+	f.Add("{{- 3}}")
+
+	// Phase 5: Empty templates
+	f.Add("")
+	f.Add("{{/* comment only */}}")
+
+	// Phase 5: Whitespace in ranges
+	f.Add("{{range .Items -}}\n  {{.}}\n{{- end}}")
+
+	// Phase 6: Function pipelines
+	f.Add("{{.Value | printf \"%d\"}}")
+
+	// Phase 6: Comparison functions
+	f.Add("{{if eq .A .B}}equal{{end}}")
+	f.Add("{{if ne .A .B}}not equal{{end}}")
+	f.Add("{{if lt .Count 10}}small{{else}}large{{end}}")
+	f.Add("{{if gt (len .Items) 0}}has items{{end}}")
+
+	// Phase 6: Logical functions
+	f.Add("{{if and .A .B}}both{{end}}")
+	f.Add("{{if or .A .B}}either{{end}}")
+	f.Add("{{if not .Empty}}has value{{end}}")
+
+	// Phase 6: Index and len functions
+	f.Add("{{index .Items 0}}")
+	f.Add("{{len .Items}}")
+	f.Add("{{len .Name}}")
+
 	f.Fuzz(func(t *testing.T, templateStr string) {
 		// Only test templates that Go's parser accepts
 		_, err := template.New("fuzz").Parse(templateStr)
@@ -121,6 +172,20 @@ func FuzzParseTemplateToTree(f *testing.F) {
 				{"Name": "item1", "Sub": []string{"s1", "s2"}},
 				{"Name": "item2", "Sub": []string{"s3", "s4"}},
 			},
+
+			// Phase 4: Data type testing
+			"StringMap": map[string]string{"key1": "val1", "key2": "val2"},
+			"Numbers":   []int{1, 2, 3, 4, 5},
+			"Flags":     []bool{true, false, true},
+			"Mixed":     []interface{}{"string", 42, true},
+			"PtrField":  (*string)(nil),
+
+			// Phase 5: Whitespace testing
+			"Field": "value",
+
+			// Phase 6: Function testing
+			"Value": 42,
+			"Empty": false,
 		}
 
 		// Test current AST-based parser
