@@ -39,6 +39,26 @@ func FuzzParseTemplateToTree(f *testing.F) {
 	// Phase 1: Accessing parent context with $
 	f.Add("{{range .Items}}{{$.Title}}: {{.}}{{end}}")
 
+	// Phase 2: Break and continue (Go 1.18+)
+	f.Add("{{range .Items}}{{if eq . \"stop\"}}{{break}}{{end}}{{.}}{{end}}")
+	f.Add("{{range .Items}}{{if eq . \"skip\"}}{{continue}}{{end}}{{.}}{{end}}")
+	f.Add("{{range .Items}}{{if gt (len .) 3}}{{break}}{{end}}{{.}}{{end}}")
+
+	// Phase 2: Else-if chains
+	f.Add("{{if eq .Type \"a\"}}A{{else if eq .Type \"b\"}}B{{else}}C{{end}}")
+	f.Add("{{if .A}}first{{else if .B}}second{{else if .C}}third{{else}}none{{end}}")
+
+	// Phase 2: Nested ranges
+	f.Add("{{range .Outer}}{{range .Inner}}{{.}}{{end}}{{end}}")
+	f.Add("{{range .Outer}}<div>{{range .Inner}}<span>{{.}}</span>{{end}}</div>{{end}}")
+
+	// Phase 2: With with else
+	f.Add("{{with .User}}Hello {{.Name}}{{else}}No user{{end}}")
+	f.Add("{{with .EmptyString}}has value{{else}}empty string{{end}}")
+
+	// Phase 2: Complex nesting
+	f.Add("{{range .Items}}{{if .Active}}{{with .Details}}{{.Text}}{{end}}{{end}}{{end}}")
+
 	f.Fuzz(func(t *testing.T, templateStr string) {
 		// Only test templates that Go's parser accepts
 		_, err := template.New("fuzz").Parse(templateStr)
@@ -68,6 +88,15 @@ func FuzzParseTemplateToTree(f *testing.F) {
 
 			// Phase 1: Map testing
 			"Map": map[string]string{"key1": "val1", "key2": "val2"},
+
+			// Phase 2: Control flow testing
+			"Type": "a",
+			"C":    false,
+			"Outer": []map[string]interface{}{
+				{"Inner": []string{"x", "y"}},
+				{"Inner": []string{"p", "q"}},
+			},
+			"EmptyString": "",
 		}
 
 		// Test current AST-based parser
