@@ -17,6 +17,17 @@ import (
 	"golang.org/x/net/html"
 )
 
+// UseASTParser is a feature flag to switch between regex and AST-based parsing
+// Set to true to use the new AST-based parser (tree_ast.go)
+// Set to false to use the legacy regex-based parser
+// Default: true (AST parser is now the default as of October 2025)
+var UseASTParser = true
+
+// ParseTemplateToTreeForTesting exports parseTemplateToTree for external testing
+func ParseTemplateToTreeForTesting(templateStr string, data interface{}, keyGen *KeyGenerator) (TreeNode, error) {
+	return parseTemplateToTree(templateStr, data, keyGen)
+}
+
 // TreeNode represents the tree-based static/dynamic structure
 type TreeNode map[string]interface{}
 
@@ -397,7 +408,21 @@ func normalizeTemplateSpacing(templateStr string) string {
 }
 
 // parseTemplateToTree parses a template using render → parse approach
-func parseTemplateToTree(templateStr string, data interface{}, keyGen *KeyGenerator) (TreeNode, error) {
+// It dispatches to either regex-based or AST-based parser based on UseASTParser flag
+func parseTemplateToTree(templateStr string, data interface{}, keyGen *KeyGenerator) (tree TreeNode, err error) {
+	// Recover from panics in template execution (can happen with fuzz-generated templates)
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("template execution panic: %v", r)
+		}
+	}()
+
+	// Feature flag: choose between AST and regex-based parsing
+	if UseASTParser {
+		return parseTemplateToTreeAST(templateStr, data, keyGen)
+	}
+
+	// Legacy regex-based implementation
 	// Normalize template spacing to handle formatter-added spaces
 	templateStr = normalizeTemplateSpacing(templateStr)
 

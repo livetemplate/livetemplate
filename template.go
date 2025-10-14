@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -25,6 +26,7 @@ type Config struct {
 	WebSocketDisabled bool
 	LoadingDisabled   bool     // Disables automatic loading indicator on page load
 	TemplateFiles     []string // If set, overrides auto-discovery
+	DevMode           bool     // Development mode - use local client library instead of CDN
 }
 
 // Template represents a live template with caching and tree-based optimization capabilities.
@@ -96,6 +98,13 @@ func WithLoadingDisabled() Option {
 	}
 }
 
+// WithDevMode enables development mode - uses local client library instead of CDN
+func WithDevMode(enabled bool) Option {
+	return func(c *Config) {
+		c.DevMode = enabled
+	}
+}
+
 // New creates a new template with the given name and options.
 // Auto-discovers and parses .tmpl, .html, .gotmpl files unless WithParseFiles is used.
 func New(name string, opts ...Option) *Template {
@@ -111,6 +120,9 @@ func New(name string, opts ...Option) *Template {
 	for _, opt := range opts {
 		opt(&config)
 	}
+
+	// Log DevMode configuration for debugging
+	log.Printf("livetemplate.New(%q): DevMode=%v", name, config.DevMode)
 
 	tmpl := &Template{
 		name:   name,
@@ -361,7 +373,7 @@ func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]
 	}
 
 	// Execute the template with wrapper injection and lvt context
-	htmlBytes, err := executeTemplateWithContext(t.tmpl, data, errMap)
+	htmlBytes, err := executeTemplateWithContext(t.tmpl, data, errMap, t.config.DevMode)
 	if err != nil {
 		return err
 	}
@@ -490,7 +502,8 @@ func (t *Template) addLvtToData(data interface{}, errors map[string]string) inte
 
 	// Use the same logic as executeTemplateWithContext to convert data
 	lvtContext := &TemplateContext{
-		errors: errors,
+		errors:  errors,
+		DevMode: t.config.DevMode,
 	}
 
 	templateData := make(map[string]interface{})
@@ -543,7 +556,7 @@ func (t *Template) executeTemplateWithErrors(data interface{}, errors map[string
 	}
 
 	// Execute with lvt context
-	htmlBytes, err := executeTemplateWithContext(t.tmpl, data, errors)
+	htmlBytes, err := executeTemplateWithContext(t.tmpl, data, errors, t.config.DevMode)
 	if err != nil {
 		return "", err
 	}
@@ -560,7 +573,7 @@ func (t *Template) generateInitialTree(html string, data interface{}) (TreeNode,
 		contentToAnalyze = html
 	}
 
-	// Get the template source (with {{}} placeholders) and strip scripts
+	// Get the template source (with {{}} placeholders)
 	// We need the template source, not rendered HTML, so parseTemplateToTree can identify dynamics
 	var templateContent string
 	if t.wrapperID != "" {
@@ -570,12 +583,9 @@ func (t *Template) generateInitialTree(html string, data interface{}) (TreeNode,
 		// extractTemplateBodyContent returns the full template if no <body> tag found
 		// So we can use it directly - it will be the flattened template content without wrapper
 
-		// Strip out everything from first <script to end (scripts should be at the end)
-		if scriptIdx := strings.Index(bodyContent, "<script"); scriptIdx != -1 {
-			templateContent = bodyContent[:scriptIdx]
-		} else {
-			templateContent = bodyContent
-		}
+		// Don't strip scripts - they may contain template logic like {{if .DevMode}}
+		// that needs to be parsed correctly
+		templateContent = bodyContent
 	} else {
 		templateContent = t.templateStr
 	}
@@ -617,12 +627,9 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 	if t.hasInitialTree {
 		// Generate complete tree with current data using the template instance's keyGen
 		// to ensure consistent key mapping across renders
-		// Strip scripts from template content (same as in generateInitialTree)
+		// Don't strip scripts - they may contain template logic
 		bodyContent := extractTemplateBodyContent(t.templateStr)
 		templateContent := bodyContent
-		if scriptIdx := strings.Index(bodyContent, "<script"); scriptIdx != -1 {
-			templateContent = bodyContent[:scriptIdx]
-		}
 
 		newTree, err := parseTemplateToTree(templateContent, newData, t.keyGen)
 		if err != nil {

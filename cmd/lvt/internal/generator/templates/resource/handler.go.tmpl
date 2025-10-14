@@ -80,7 +80,6 @@ type [[.ResourceName]]State struct {
 	HasMore        bool                `json:"has_more"`        // Whether more items available
 	IsLoading      bool                `json:"is_loading"`      // Loading indicator
 	CSSFramework   string              `json:"-"`               // CSS framework for templates
-	DevMode        bool                `json:"-"`               // Development mode (local vs CDN client)
 }
 
 func (s *[[.ResourceName]]State) Change(ctx *livetemplate.ActionContext) error {
@@ -424,14 +423,13 @@ func Handler(queries *models.Queries) http.Handler {
 		LoadedCount:    [[if or (eq .PaginationMode "infinite") (eq .PaginationMode "load-more")]][[.PageSize]][[else]]0[[end]],
 		LastUpdated:    formatTime(),
 		CSSFramework:   "[[.CSSFramework]]",
-		DevMode:        [[.DevMode]],
 	}
 
 	if err := state.Init(); err != nil {
 		log.Printf("Failed to initialize [[.ResourceNameLower]] state: %v", err)
 	}
 
-	tmpl := livetemplate.New("[[.ResourceNameLower]]")
+	tmpl := livetemplate.New("[[.ResourceNameLower]]", livetemplate.WithDevMode([[.DevMode]]))
 	if _, err := tmpl.ParseFiles("internal/app/[[.ResourceNameLower]]/[[.ResourceNameLower]].tmpl"); err != nil {
 		log.Fatalf("Failed to parse template: %v", err)
 	}

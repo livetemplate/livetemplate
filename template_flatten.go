@@ -199,11 +199,34 @@ func walkAndFlatten(node parse.Node, templates map[string]*template.Template, bu
 			return fmt.Errorf("template %q has no parse tree", n.Name)
 		}
 
-		// Handle data context
-		// If template passes data (e.g., {{template "name" .Field}}), we need to adjust context
-		// For now, we inline the template as-is and the context will be handled at execution
-		if err := walkAndFlatten(refTemplate.Tree.Root, templates, buf); err != nil {
-			return err
+		// Handle data context changes
+		// If template invocation passes a different context (e.g., {{template "name" .Field}}),
+		// we need to wrap the inlined template in {{with}} to change the context
+		needsContextWrapper := false
+		if n.Pipe != nil {
+			pipeStr := formatPipe(n.Pipe)
+			// Only wrap if the pipe is not "." (which means same context)
+			if pipeStr != "." {
+				needsContextWrapper = true
+			}
+		}
+
+		if needsContextWrapper {
+			// Wrap template body in {{with}} to change context
+			buf.WriteString("{{with ")
+			buf.WriteString(formatPipe(n.Pipe))
+			buf.WriteString("}}")
+
+			if err := walkAndFlatten(refTemplate.Tree.Root, templates, buf); err != nil {
+				return err
+			}
+
+			buf.WriteString("{{end}}")
+		} else {
+			// No context change needed - inline as-is
+			if err := walkAndFlatten(refTemplate.Tree.Root, templates, buf); err != nil {
+				return err
+			}
 		}
 
 	default:

@@ -37,6 +37,6 @@ func Handler() http.Handler {
 		LastUpdated: formatTime(),
 	}
 
-	tmpl := livetemplate.New("[[.ViewNameLower]]")
+	tmpl := livetemplate.New("[[.ViewNameLower]]", livetemplate.WithDevMode([[.DevMode]]))
 	return livetemplate.Mount(tmpl, state)
 }

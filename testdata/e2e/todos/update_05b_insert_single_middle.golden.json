@@ -3,6 +3,56 @@
   "4": "4",
   "6": "3",
   "7": "25%",
-  "8": "\u003cdiv class=\"todo-list\"\u003e\n                    \n                    \u003cdiv class=\"todo-item \" data-key=\"todo-4\"\u003e\n                        \u003cstrong\u003e#0:\u003c/strong\u003e\n                        Setup development environment\n                        ○\n                         (Priority: High)\n                    \u003c/div\u003e\n                    \n                    \u003cdiv class=\"todo-item \" data-key=\"todo-5\"\u003e\n                        \u003cstrong\u003e#1:\u003c/strong\u003e\n                        Configure CI/CD pipeline\n                        ○\n                         (Priority: Medium)\n                    \u003c/div\u003e\n                    \n                    \u003cdiv class=\"todo-item completed\" data-key=\"todo-1\"\u003e\n                        \u003cstrong\u003e#2:\u003c/strong\u003e\n                        Learn Go templates\n                        ✓\n                         (Priority: High)\n                    \u003c/div\u003e\n                    \n                    \u003cdiv class=\"todo-item \" data-key=\"todo-3\"\u003e\n                        \u003cstrong\u003e#3:\u003c/strong\u003e\n                        Write documentation\n                        ○\n                         (Priority: Low)\n                    \u003c/div\u003e\n                    \n                \u003c/div\u003e",
+  "8": {
+    "0": {
+      "d": [
+        {
+          "0": "",
+          "1": "todo-4",
+          "2": "",
+          "3": "Setup development environment",
+          "4": "○",
+          "5": " (Priority: High)"
+        },
+        {
+          "0": "",
+          "1": "todo-5",
+          "2": "",
+          "3": "Configure CI/CD pipeline",
+          "4": "○",
+          "5": " (Priority: Medium)"
+        },
+        {
+          "0": "completed",
+          "1": "todo-1",
+          "2": "",
+          "3": "Learn Go templates",
+          "4": "✓",
+          "5": " (Priority: High)"
+        },
+        {
+          "0": "",
+          "1": "todo-3",
+          "2": "",
+          "3": "Write documentation",
+          "4": "○",
+          "5": " (Priority: Low)"
+        }
+      ],
+      "s": [
+        "\n                    \u003cdiv class=\"todo-item ",
+        "\" data-key=\"",
+        "\"\u003e\n                        \u003cstrong\u003e",
+        ":\u003c/strong\u003e\n                        ",
+        "\n                        ",
+        "\n                        ",
+        "\n                    \u003c/div\u003e\n                    "
+      ]
+    },
+    "s": [
+      "\n                \u003cdiv class=\"todo-list\"\u003e\n                    ",
+      "\n                \u003c/div\u003e\n                "
+    ]
+  },
   "9": "2023-01-01 11:15:00"
 }

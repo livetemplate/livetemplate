@@ -15,7 +15,6 @@ type HomeState struct {
 	Resources   []Resource `json:"resources"`
 	LastUpdated string     `json:"last_updated"`
 	CSSFramework string    `json:"-"`
-	DevMode      bool       `json:"-"`
 }
 
 type Resource struct {
@@ -39,10 +38,9 @@ func Handler() http.Handler {
 		Resources:    resources,
 		LastUpdated:  formatTime(),
 		CSSFramework: "[[.CSSFramework]]",
-		DevMode:      [[.DevMode]],
 	}
 
-	tmpl := livetemplate.New("home")
+	tmpl := livetemplate.New("home", livetemplate.WithDevMode([[.DevMode]]))
 	return livetemplate.Mount(tmpl, state)
 }
 

@@ -147,10 +147,23 @@ func StopDockerChrome(t *testing.T, cmd *exec.Cmd, debugPort int) {
 	output, _ := checkCmd.Output()
 
 	if len(output) > 0 {
-		// Container exists, stop it gracefully
-		stopCmd := exec.Command("docker", "stop", containerName)
-		if err := stopCmd.Run(); err != nil {
-			t.Logf("Warning: Failed to stop Docker container: %v", err)
+		// Container exists, stop it gracefully with timeout
+		stopCmd := exec.Command("docker", "stop", "-t", "2", containerName)
+		stopDone := make(chan error, 1)
+		go func() {
+			stopDone <- stopCmd.Run()
+		}()
+
+		// Wait for stop with 5 second timeout
+		select {
+		case err := <-stopDone:
+			if err != nil {
+				t.Logf("Warning: Failed to stop Docker container: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			// Force kill if graceful stop hangs
+			t.Logf("Warning: docker stop timed out, forcing kill")
+			exec.Command("docker", "kill", containerName).Run()
 		}
 	}
 

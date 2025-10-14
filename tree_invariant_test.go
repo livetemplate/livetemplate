@@ -231,6 +231,49 @@ func checkTreeInvariant(tree TreeNode, context string) error {
 		return fmt.Errorf("%s: statics is not a string array, got %T", context, statics)
 	}
 
+	// Check if this is a range comprehension (has "d" key with items)
+	if itemsRaw, hasD := tree["d"]; hasD {
+		// For range comprehensions, validate the item structure
+		// The invariant is: len(statics) = len(item_dynamics) + 1
+
+		// Get items array
+		var items []interface{}
+		switch v := itemsRaw.(type) {
+		case []interface{}:
+			items = v
+		case []map[string]interface{}:
+			items = make([]interface{}, len(v))
+			for i, item := range v {
+				items[i] = item
+			}
+		default:
+			return fmt.Errorf("%s: range comprehension 'd' key has unexpected type: %T", context, itemsRaw)
+		}
+
+		if len(items) == 0 {
+			// Empty range - no items to validate
+			return nil
+		}
+
+		// Get first item to check dynamics count
+		firstItem, ok := items[0].(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("%s: range item is not a map, got %T", context, items[0])
+		}
+
+		// Count dynamics in the item (all keys are dynamics)
+		itemDynamicsCount := len(firstItem)
+
+		// Verify the invariant for range items
+		if staticsCount != itemDynamicsCount+1 {
+			return fmt.Errorf("%s: INVARIANT VIOLATED for range comprehension - len(statics)=%d, len(item_dynamics)=%d, expected len(statics)=len(item_dynamics)+1",
+				context, staticsCount, itemDynamicsCount)
+		}
+
+		return nil
+	}
+
+	// Regular tree (not a range comprehension)
 	// Count dynamics (exclude 's' and 'f')
 	dynamicsCount := 0
 	for k := range tree {

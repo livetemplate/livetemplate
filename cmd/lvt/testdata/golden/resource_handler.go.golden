@@ -65,6 +65,7 @@ type UserState struct {
 	LoadedCount    int                 `json:"loaded_count"`    // For infinite/load-more modes
 	HasMore        bool                `json:"has_more"`        // Whether more items available
 	IsLoading      bool                `json:"is_loading"`      // Loading indicator
+	CSSFramework   string              `json:"-"`               // CSS framework for templates
 }
 
 func (s *UserState) Change(ctx *livetemplate.ActionContext) error {
@@ -397,13 +398,14 @@ func Handler(queries *models.Queries) http.Handler {
 		PaginationMode: "infinite",
 		LoadedCount:    20,
 		LastUpdated:    formatTime(),
+		CSSFramework:   "tailwind",
 	}
 
 	if err := state.Init(); err != nil {
 		log.Printf("Failed to initialize user state: %v", err)
 	}
 
-	tmpl := livetemplate.New("user")
+	tmpl := livetemplate.New("user", livetemplate.WithDevMode(false))
 	if _, err := tmpl.ParseFiles("internal/app/user/user.tmpl"); err != nil {
 		log.Fatalf("Failed to parse template: %v", err)
 	}

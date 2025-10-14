@@ -37,6 +37,6 @@ func Handler() http.Handler {
 		LastUpdated: formatTime(),
 	}
 
-	tmpl := livetemplate.New("counter")
+	tmpl := livetemplate.New("counter", livetemplate.WithDevMode(false))
 	return livetemplate.Mount(tmpl, state)
 }
