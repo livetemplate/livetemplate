@@ -219,12 +219,14 @@ func FuzzParseTemplateToTree(f *testing.F) {
 		}
 
 		// Level 3: Verify round-trip consistency (Parse → Render → Parse → Compare)
-		// NOTE: Currently disabled because the parser can produce different but equivalent
-		// tree structures for the same template (e.g., dynamics at different positions).
-		// While the HTML renders correctly, the tree structures don't always match exactly.
-		// This is a known limitation that doesn't affect correctness.
-		// The function is kept for potential future use with more sophisticated comparison.
-		_ = validateTreeRoundTrip
+		// With deterministic variable iteration (using orderedVars), the parser now produces
+		// identical tree structures across multiple parses. This validation ensures that
+		// parsing the same template with the same data twice produces structurally identical trees.
+		ok, msg := validateTreeRoundTrip(templateStr, data, keyGen)
+		if !ok {
+			t.Errorf("Round-trip validation failed\nTemplate: %q\nReason: %s",
+				templateStr, msg)
+		}
 
 		// Level 4: Verify empty→non-empty state transitions
 		// This directly tests the critical bug found in examples/todos where

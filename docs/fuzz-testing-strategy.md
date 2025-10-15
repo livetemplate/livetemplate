@@ -445,7 +445,7 @@ if err != nil {
 }
 ```
 
-### Level 3: Round-Trip Validation (Implemented 2025-10-15)
+### Level 3: Round-Trip Validation (Implemented and Active 2025-10-15)
 ```go
 // Parse tree → Render HTML → Parse again → Compare
 func validateTreeRoundTrip(templateStr string, data map[string]interface{}, keyGen *KeyGenerator) (bool, string) {
@@ -455,12 +455,16 @@ func validateTreeRoundTrip(templateStr string, data map[string]interface{}, keyG
     return treesEqual(tree1, tree2), ""
 }
 ```
-**Status**: Implemented with sorted comparison but **disabled** due to parser producing different equivalent trees.
-- The parser can generate different tree structures for the same template (e.g., dynamics at different positions)
-- While HTML renders correctly, tree structures don't always match exactly
-- This is a known limitation that doesn't affect correctness
-- Implemented `rangeComprehensionsEqual()` with sorting to handle map iteration, but deeper parser variations remain
-- TODO: Investigate parser determinism or develop more sophisticated equivalence checking
+**Status**: ✅ **Complete and active** in fuzz test (2025-10-15)
+- Fixed parser non-determinism by replacing `map[string]interface{}` with `orderedVars` (slice-based ordered map)
+- Fixed tree merging non-determinism by using sorted numeric keys when iterating over TreeNode dynamics
+- Parser now produces identical tree structures across multiple parses with the same data
+- Round-trip validation (Parse → Render → Parse → Compare) now passes for all test cases
+- Implementation details:
+  - tree_ast.go:12-87: `orderedVars` type with deterministic iteration methods
+  - tree_ast.go:63-87: `getOrderedDynamicKeys()` helper for sorted TreeNode iteration
+  - tree_ast.go:559-561: varContext uses `orderedVars` instead of map
+  - tree_fuzz_test.go:221-229: Level 3 validation enabled and active
 
 ### Level 4: Empty→Non-Empty Transition (Implemented 2025-10-15)
 ```go
@@ -596,7 +600,7 @@ Will include:
 ✅ Enhanced validation Level 1 (structure) - Complete
 ✅ Enhanced validation Level 2 (render) - Complete (2025-10-15)
 ✅ Documentation of all supported vs unsupported patterns - Complete (see `docs/template-support-matrix.md`)
-⚠️ Enhanced validation Level 3 (round-trip) - Implemented but disabled due to non-deterministic map iteration (2025-10-15)
+✅ Enhanced validation Level 3 (round-trip) - Complete and active (2025-10-15, fixed parser non-determinism)
 ✅ Enhanced validation Level 4 (transitions) - Complete (2025-10-15)
 
 ---
@@ -613,6 +617,6 @@ Will include:
 
 ## Maintenance
 
-**Last Updated**: 2025-10-15 (Enhanced validation Levels 2-4 implemented, Level 4 active)
-**Next Review**: Investigate Level 3 parser determinism issues
+**Last Updated**: 2025-10-15 (Enhanced validation Levels 2-4 implemented and active, parser determinism fixed)
+**Next Review**: Monitor long-term fuzz testing results with all validation levels active
 **Owner**: LiveTemplate core team

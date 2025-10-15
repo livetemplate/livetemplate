@@ -9,6 +9,83 @@ import (
 	"text/template/parse"
 )
 
+// orderedVars is a deterministic map-like structure that preserves insertion order
+// This ensures that variable iteration is deterministic, which is critical for
+// reproducible tree generation across multiple parses
+type orderedVars []struct {
+	key   string
+	value interface{}
+}
+
+// newOrderedVars creates an empty orderedVars
+func newOrderedVars() orderedVars {
+	return make(orderedVars, 0, 2) // Most ranges have 1-2 variables
+}
+
+// Set adds or updates a key-value pair
+func (ov *orderedVars) Set(key string, value interface{}) {
+	// Check if key exists - update it
+	for i := range *ov {
+		if (*ov)[i].key == key {
+			(*ov)[i].value = value
+			return
+		}
+	}
+	// Key doesn't exist - append it
+	*ov = append(*ov, struct {
+		key   string
+		value interface{}
+	}{key, value})
+}
+
+// Get retrieves a value by key
+func (ov orderedVars) Get(key string) (interface{}, bool) {
+	for _, pair := range ov {
+		if pair.key == key {
+			return pair.value, true
+		}
+	}
+	return nil, false
+}
+
+// Len returns the number of key-value pairs
+func (ov orderedVars) Len() int {
+	return len(ov)
+}
+
+// Range iterates over all key-value pairs in insertion order
+func (ov orderedVars) Range(fn func(key string, value interface{})) {
+	for _, pair := range ov {
+		fn(pair.key, pair.value)
+	}
+}
+
+// getOrderedDynamicKeys returns numeric keys from a TreeNode in sorted order
+// This ensures deterministic iteration over tree dynamics
+func getOrderedDynamicKeys(tree TreeNode) []string {
+	var keys []string
+	for k := range tree {
+		if k != "s" && k != "f" && k != "d" {
+			keys = append(keys, k)
+		}
+	}
+
+	// Simple bubble sort for numeric string keys like "0", "1", "2"
+	for i := 0; i < len(keys); i++ {
+		for j := i + 1; j < len(keys); j++ {
+			// Parse as integers for comparison
+			var iVal, jVal int
+			fmt.Sscanf(keys[i], "%d", &iVal)
+			fmt.Sscanf(keys[j], "%d", &jVal)
+			if iVal > jVal {
+				keys[i], keys[j] = keys[j], keys[i]
+			}
+		}
+	}
+
+	return keys
+}
+
 // parseTemplateToTreeAST is the AST-based parser that replaces regex approach
 // It walks the parse tree from Go's template/parse package directly
 func parseTemplateToTreeAST(templateStr string, data interface{}, keyGen *KeyGenerator) (tree TreeNode, err error) {
@@ -146,12 +223,10 @@ func buildTreeFromList(node *parse.ListNode, data interface{}, keyGen *KeyGenera
 			statics = append(statics, childStatics[1:]...)
 		}
 
-		// Copy dynamic values from child, renumbering them
-		for k, v := range childTree {
-			if k != "s" && k != "f" && k != "d" {
-				tree[fmt.Sprintf("%d", dynamicIndex)] = v
-				dynamicIndex++
-			}
+		// Copy dynamic values from child, renumbering them (deterministic order)
+		for _, k := range getOrderedDynamicKeys(childTree) {
+			tree[fmt.Sprintf("%d", dynamicIndex)] = childTree[k]
+			dynamicIndex++
 		}
 	}
 
@@ -430,7 +505,7 @@ func executeRangeBodyWithVars(node *parse.RangeNode, index int, item interface{}
 	// Create a variable context that maps variable names to their values
 	varCtx := &varContext{
 		parent: data,
-		vars:   make(map[string]interface{}),
+		vars:   newOrderedVars(),
 		dot:    item,
 	}
 
@@ -438,13 +513,13 @@ func executeRangeBodyWithVars(node *parse.RangeNode, index int, item interface{}
 	if len(node.Pipe.Decl) == 1 {
 		// {{range $v := ...}} - single variable (value)
 		varName := node.Pipe.Decl[0].Ident[0]
-		varCtx.vars[varName] = item
+		varCtx.vars.Set(varName, item)
 	} else if len(node.Pipe.Decl) >= 2 {
 		// {{range $i, $v := ...}} - index and value
 		indexVar := node.Pipe.Decl[0].Ident[0]
 		valueVar := node.Pipe.Decl[1].Ident[0]
-		varCtx.vars[indexVar] = index
-		varCtx.vars[valueVar] = item
+		varCtx.vars.Set(indexVar, index)
+		varCtx.vars.Set(valueVar, item)
 	}
 
 	// Walk the range body AST with the variable context
@@ -457,7 +532,7 @@ func executeRangeBodyWithVarsMap(node *parse.RangeNode, key interface{}, item in
 	// Create a variable context that maps variable names to their values
 	varCtx := &varContext{
 		parent: data,
-		vars:   make(map[string]interface{}),
+		vars:   newOrderedVars(),
 		dot:    item,
 	}
 
@@ -465,13 +540,13 @@ func executeRangeBodyWithVarsMap(node *parse.RangeNode, key interface{}, item in
 	if len(node.Pipe.Decl) == 1 {
 		// {{range $v := ...}} - single variable (value)
 		varName := node.Pipe.Decl[0].Ident[0]
-		varCtx.vars[varName] = item
+		varCtx.vars.Set(varName, item)
 	} else if len(node.Pipe.Decl) >= 2 {
 		// {{range $k, $v := ...}} - key and value
 		keyVar := node.Pipe.Decl[0].Ident[0]
 		valueVar := node.Pipe.Decl[1].Ident[0]
-		varCtx.vars[keyVar] = key
-		varCtx.vars[valueVar] = item
+		varCtx.vars.Set(keyVar, key)
+		varCtx.vars.Set(valueVar, item)
 	}
 
 	// Walk the range body AST with the variable context
@@ -480,9 +555,9 @@ func executeRangeBodyWithVarsMap(node *parse.RangeNode, key interface{}, item in
 
 // varContext holds variable bindings for template execution
 type varContext struct {
-	parent interface{}            // Original data
-	vars   map[string]interface{} // Variable bindings ($index, $todo, etc.)
-	dot    interface{}            // Current dot context
+	parent interface{} // Original data
+	vars   orderedVars // Variable bindings ($index, $todo, etc.) - deterministic order
+	dot    interface{} // Current dot context
 }
 
 // buildTreeFromASTWithVars is like buildTreeFromAST but handles variable references
@@ -547,11 +622,10 @@ func buildTreeFromListWithVars(node *parse.ListNode, varCtx *varContext, keyGen 
 			statics = append(statics, childStatics[1:]...)
 		}
 
-		for k, v := range childTree {
-			if k != "s" && k != "f" && k != "d" {
-				tree[fmt.Sprintf("%d", dynamicIndex)] = v
-				dynamicIndex++
-			}
+		// Copy dynamic values from child, renumbering them (deterministic order)
+		for _, k := range getOrderedDynamicKeys(childTree) {
+			tree[fmt.Sprintf("%d", dynamicIndex)] = childTree[k]
+			dynamicIndex++
 		}
 	}
 
@@ -632,19 +706,19 @@ func evaluateActionWithVars(actionStr string, varCtx *varContext) string {
 	// then executes the action body.
 
 	// Identify which variables are used in the action
-	usedVars := make(map[string]interface{})
-	for varName, varValue := range varCtx.vars {
+	usedVars := newOrderedVars()
+	varCtx.vars.Range(func(varName string, varValue interface{}) {
 		if strings.Contains(actionStr, "$"+varName) {
-			usedVars[varName] = varValue
+			usedVars.Set(varName, varValue)
 		}
-	}
+	})
 
 	// If we have 2 variables (index and value), build a range over a single-item slice
 	// If we have 1 variable (just value), do the same
 	// This is a bit hacky but it works: We create a slice with one element,
 	// then range over it assigning the variables as needed
 
-	if len(usedVars) == 0 {
+	if usedVars.Len() == 0 {
 		// No variables used - shouldn't happen but handle gracefully
 		return ""
 	}
@@ -658,7 +732,7 @@ func evaluateActionWithVars(actionStr string, varCtx *varContext) string {
 	var tmplStr string
 	var execData interface{}
 
-	if len(usedVars) == 2 {
+	if usedVars.Len() == 2 {
 		// Two variables - we need to know which is index and which is value
 		// We can't rely on range index because we need the actual index value from varCtx
 		// Better approach: Create a struct with both values as fields
@@ -666,35 +740,34 @@ func evaluateActionWithVars(actionStr string, varCtx *varContext) string {
 
 		// Collect variable names and values
 		varData := make(map[string]interface{})
-		for varName, varValue := range usedVars {
+		usedVars.Range(func(varName string, varValue interface{}) {
 			varData[varName] = varValue
-		}
+		})
 
 		// Transform $var references to .Var references (capitalize first letter)
 		transformedAction := actionStr
-		for varName := range usedVars {
+		usedVars.Range(func(varName string, varValue interface{}) {
 			// Capitalize first letter for field access
 			fieldName := strings.ToUpper(varName[:1]) + varName[1:]
 			transformedAction = strings.Replace(transformedAction, "$"+varName, "."+fieldName, -1)
-		}
+		})
 
 		// Build exec data with capitalized field names
 		execData = make(map[string]interface{})
-		for varName, varValue := range usedVars {
+		usedVars.Range(func(varName string, varValue interface{}) {
 			fieldName := strings.ToUpper(varName[:1]) + varName[1:]
 			execData.(map[string]interface{})[fieldName] = varValue
-		}
+		})
 
 		tmplStr = transformedAction
 	} else {
 		// One variable - same approach as two variables
 		var varName string
 		var varValue interface{}
-		for vn, vv := range usedVars {
+		usedVars.Range(func(vn string, vv interface{}) {
 			varName = vn
 			varValue = vv
-			break
-		}
+		})
 
 		// Transform $var to .Var
 		fieldName := strings.ToUpper(varName[:1]) + varName[1:]
@@ -1003,12 +1076,10 @@ func buildFlatTreeFromList(node *parse.ListNode, data interface{}, keyGen *KeyGe
 				statics = append(statics, flatStatics[1:]...)
 			}
 
-			// Merge dynamics
-			for k, v := range flatTree {
-				if k != "s" && k != "f" {
-					tree[fmt.Sprintf("%d", dynamicIndex)] = v
-					dynamicIndex++
-				}
+			// Merge dynamics (deterministic order)
+			for _, k := range getOrderedDynamicKeys(flatTree) {
+				tree[fmt.Sprintf("%d", dynamicIndex)] = flatTree[k]
+				dynamicIndex++
 			}
 		} else {
 			// Normal node - process as usual
@@ -1030,11 +1101,10 @@ func buildFlatTreeFromList(node *parse.ListNode, data interface{}, keyGen *KeyGe
 				statics = append(statics, childStatics[1:]...)
 			}
 
-			for k, v := range childTree {
-				if k != "s" && k != "f" && k != "d" {
-					tree[fmt.Sprintf("%d", dynamicIndex)] = v
-					dynamicIndex++
-				}
+			// Copy dynamics from child (deterministic order)
+			for _, k := range getOrderedDynamicKeys(childTree) {
+				tree[fmt.Sprintf("%d", dynamicIndex)] = childTree[k]
+				dynamicIndex++
 			}
 		}
 	}
@@ -1117,18 +1187,18 @@ func flattenRangeNode(node *parse.RangeNode, data interface{}, keyGen *KeyGenera
 				// Create a template with the range variables defined
 				varCtx := &varContext{
 					parent: data,
-					vars:   make(map[string]interface{}),
+					vars:   newOrderedVars(),
 					dot:    item,
 				}
 
 				if len(node.Pipe.Decl) == 1 {
 					varName := node.Pipe.Decl[0].Ident[0]
-					varCtx.vars[varName] = item
+					varCtx.vars.Set(varName, item)
 				} else if len(node.Pipe.Decl) >= 2 {
 					indexVar := node.Pipe.Decl[0].Ident[0]
 					valueVar := node.Pipe.Decl[1].Ident[0]
-					varCtx.vars[indexVar] = key.Interface()
-					varCtx.vars[valueVar] = item
+					varCtx.vars.Set(indexVar, key.Interface())
+					varCtx.vars.Set(valueVar, item)
 				}
 
 				// Render the range body to HTML with variables
@@ -1161,18 +1231,18 @@ func flattenRangeNode(node *parse.RangeNode, data interface{}, keyGen *KeyGenera
 				// Create a template with the range variables defined
 				varCtx := &varContext{
 					parent: data,
-					vars:   make(map[string]interface{}),
+					vars:   newOrderedVars(),
 					dot:    item,
 				}
 
 				if len(node.Pipe.Decl) == 1 {
 					varName := node.Pipe.Decl[0].Ident[0]
-					varCtx.vars[varName] = item
+					varCtx.vars.Set(varName, item)
 				} else if len(node.Pipe.Decl) >= 2 {
 					indexVar := node.Pipe.Decl[0].Ident[0]
 					valueVar := node.Pipe.Decl[1].Ident[0]
-					varCtx.vars[indexVar] = i
-					varCtx.vars[valueVar] = item
+					varCtx.vars.Set(indexVar, i)
+					varCtx.vars.Set(valueVar, item)
 				}
 
 				// Render the range body to HTML with variables
@@ -1342,13 +1412,13 @@ func renderNodeWithVars(node *parse.ListNode, varCtx *varContext) (string, error
 	var tmplStr string
 	var execData interface{}
 
-	if len(varCtx.vars) == 2 {
+	if varCtx.vars.Len() == 2 {
 		// Two variables - build range over single-item slice
 		var indexVar, valueVar string
 		var valueVal interface{}
 
 		first := true
-		for varName, varValue := range varCtx.vars {
+		varCtx.vars.Range(func(varName string, varValue interface{}) {
 			if first {
 				indexVar = varName
 				first = false
@@ -1356,22 +1426,21 @@ func renderNodeWithVars(node *parse.ListNode, varCtx *varContext) (string, error
 				valueVar = varName
 				valueVal = varValue
 			}
-		}
+		})
 
 		// Build: {{range $i, $v := .Data}}BODY{{end}}
 		tmplStr = fmt.Sprintf("{{range $%s, $%s := .Data}}%s{{end}}", indexVar, valueVar, nodeContent)
 		execData = map[string]interface{}{
 			"Data": []interface{}{valueVal},
 		}
-	} else if len(varCtx.vars) == 1 {
+	} else if varCtx.vars.Len() == 1 {
 		// One variable
 		var varName string
 		var varValue interface{}
-		for vn, vv := range varCtx.vars {
+		varCtx.vars.Range(func(vn string, vv interface{}) {
 			varName = vn
 			varValue = vv
-			break
-		}
+		})
 
 		tmplStr = fmt.Sprintf("{{range $%s := .Data}}%s{{end}}", varName, nodeContent)
 		execData = map[string]interface{}{
