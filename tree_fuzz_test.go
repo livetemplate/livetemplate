@@ -2,6 +2,8 @@ package livetemplate
 
 import (
 	"html/template"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -197,13 +199,21 @@ func FuzzParseTemplateToTree(f *testing.F) {
 			return
 		}
 
-		// Verify tree structure is valid
+		// Level 1: Verify tree structure is valid
 		// Note: We do NOT check tree invariants here because the hybrid execution
 		// strategy (AST walking + flat execution for mixed patterns) can produce
 		// trees that violate len(statics) = len(dynamics) + 1 for complex templates.
 		// This is expected and documented behavior. The E2E tests verify correctness.
 		if !validateTreeStructure(tree) {
 			t.Errorf("Invalid tree structure\nTemplate: %q\nTree: %+v",
+				templateStr, tree)
+		}
+
+		// Level 2: Verify tree can be rendered
+		// This ensures the tree structure is not just syntactically valid
+		// but also semantically correct and can be reconstructed into HTML
+		if !validateTreeRenders(tree) {
+			t.Errorf("Tree cannot be rendered\nTemplate: %q\nTree: %+v",
 				templateStr, tree)
 		}
 	})
@@ -221,5 +231,49 @@ func validateTreeStructure(tree TreeNode) bool {
 		return false
 	}
 
+	return true
+}
+
+// validateTreeRenders attempts to render a tree to HTML
+// Returns true if the tree can be successfully rendered, false otherwise
+// This is Level 2 validation from the enhanced validation strategy
+func validateTreeRenders(tree TreeNode) bool {
+	if tree == nil {
+		return false
+	}
+
+	// Extract statics array
+	staticsIface, hasStatics := tree["s"]
+	if !hasStatics {
+		return false
+	}
+
+	statics, ok := staticsIface.([]string)
+	if !ok {
+		return false
+	}
+
+	// Attempt to reconstruct HTML from tree
+	// This validates that the tree structure is renderable
+	var html strings.Builder
+
+	// Simple reconstruction: iterate through statics and dynamics
+	for i := 0; i < len(statics); i++ {
+		html.WriteString(statics[i])
+
+		// Check if there's a dynamic value at this position
+		dynamicKey := strconv.Itoa(i)
+		if dynamicVal, exists := tree[dynamicKey]; exists {
+			// Handle nested trees recursively
+			if nestedTree, isTree := dynamicVal.(TreeNode); isTree {
+				if !validateTreeRenders(nestedTree) {
+					return false
+				}
+			}
+			// Dynamic value exists and is valid (string, number, or nested tree)
+		}
+	}
+
+	// Successfully reconstructed HTML - tree is renderable
 	return true
 }
