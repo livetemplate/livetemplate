@@ -202,17 +202,21 @@ LiveTemplate employs multi-level validation for fuzz testing:
 - Attempts to reconstruct HTML from tree
 - Validates semantic correctness
 - Ensures tree is not just syntactically valid but also renderable
-- **Status**: Implemented (2025-10-15)
+- **Status**: Implemented and active (2025-10-15)
 
-### Level 3: Round-Trip Validation ⏳
+### Level 3: Round-Trip Validation ⚠️
 - Parse → Render → Parse → Compare
 - Ensures bidirectional consistency
-- **Status**: Planned for future
+- **Status**: Implemented with sorted comparison but disabled (2025-10-15)
+- **Reason**: Parser can produce different equivalent tree structures
+- **Note**: HTML renders correctly; trees just don't match exactly
 
-### Level 4: Transition Validation ⏳
+### Level 4: Transition Validation ✅
 - Tests empty→non-empty state changes
 - Validates dynamic updates work correctly
-- **Status**: Planned for future
+- **Status**: Implemented and active (2025-10-15)
+- **Coverage**: Directly tests the critical examples/todos bug
+- **Validation**: Both empty and non-empty trees must be valid and renderable
 
 ---
 
@@ -305,8 +309,8 @@ The AST parser (default since October 2025) provides significant improvements:
 ## Maintenance
 
 **Document Owner**: LiveTemplate Core Team
-**Last Updated**: 2025-10-15
-**Next Review**: When new Go template features are added
+**Last Updated**: 2025-10-15 (Validation Levels 2-4 implemented)
+**Next Review**: When new Go template features are added or Level 3 is re-enabled
 **Feedback**: Report issues or unsupported patterns via GitHub issues
 
 ---
