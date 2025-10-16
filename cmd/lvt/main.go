@@ -58,6 +58,10 @@ func main() {
 		err = commands.Resource(args)
 	case "seed":
 		err = commands.Seed(args)
+	case "components", "comp":
+		err = commands.Components(args)
+	case "kits", "kit":
+		err = commands.Kits(args)
 	case "version", "--version", "-v":
 		printVersion()
 		return
@@ -140,6 +144,8 @@ func printUsage() {
 	fmt.Println("  lvt migration <command>                   Manage database migrations")
 	fmt.Println("  lvt resource <command>                    Inspect resources and schemas")
 	fmt.Println("  lvt seed <resource> [--count N] [--cleanup]  Generate test data")
+	fmt.Println("  lvt components <command>                  Manage UI components")
+	fmt.Println("  lvt kits <command>                        Manage CSS framework kits")
 	fmt.Println("  lvt template <command>                    Manage custom templates")
 	fmt.Println("  lvt parse <template-file>                 Validate and analyze template file")
 	fmt.Println("  lvt version                               Show version information")
@@ -179,6 +185,21 @@ func printUsage() {
 	fmt.Println("  lvt template copy view                    Copy view templates to .lvt/templates/")
 	fmt.Println("  lvt template copy app                     Copy app templates to .lvt/templates/")
 	fmt.Println("  lvt template copy all                     Copy all templates to .lvt/templates/")
+	fmt.Println()
+	fmt.Println("Components Commands:")
+	fmt.Println("  lvt components list                       List all available components")
+	fmt.Println("  lvt components list --filter system       List only system components")
+	fmt.Println("  lvt components list --search navbar       Search for components")
+	fmt.Println("  lvt components list --format json         Output as JSON")
+	fmt.Println("  lvt components create navbar              Create a new component")
+	fmt.Println("  lvt components info navbar                Show component details")
+	fmt.Println()
+	fmt.Println("Kits Commands:")
+	fmt.Println("  lvt kits list                             List all available kits")
+	fmt.Println("  lvt kits list --filter local              List only local kits")
+	fmt.Println("  lvt kits list --format table              Output as table (default)")
+	fmt.Println("  lvt kits create mykit                     Create a new CSS framework kit")
+	fmt.Println("  lvt kits info tailwind                    Show kit details")
 	fmt.Println()
 	fmt.Println("Type Mappings:")
 	fmt.Println("  string  -> Go: string,     SQL: TEXT")
