@@ -1,0 +1,64 @@
+name: pagination
+version: 1.0.0
+description: Pagination components with multiple modes (infinite scroll, load more, prev/next, numbered)
+category: navigation
+author: LiveTemplate Team
+license: MIT
+
+inputs:
+  - name: PaginationMode
+    type: string
+    required: true
+    description: Pagination mode (infinite, load-more, prev-next, numbers)
+
+  - name: CSSFramework
+    type: string
+    required: false
+    default: "tailwind"
+    description: CSS framework/kit name for styling
+
+  - name: HasMore
+    type: bool
+    required: false
+    description: Whether there are more items to load (for infinite/load-more)
+
+  - name: IsLoading
+    type: bool
+    required: false
+    description: Whether currently loading more items
+
+  - name: TotalPages
+    type: int
+    required: false
+    description: Total number of pages (for prev-next/numbers)
+
+  - name: CurrentPage
+    type: int
+    required: false
+    description: Current page number (for prev-next/numbers)
+
+  - name: TotalCount
+    type: int
+    required: false
+    description: Total item count (for load-more)
+
+  - name: ResourceNamePlural
+    type: string
+    required: false
+    description: Plural name of resource for item count display
+
+  - name: PaginatedResourceNamePlural
+    type: array
+    required: false
+    description: Current paginated items for count display
+
+dependencies: []
+
+templates:
+  - pagination.tmpl
+
+tags:
+  - pagination
+  - navigation
+  - infinite-scroll
+  - load-more
