@@ -1,0 +1,44 @@
+name: none
+version: 1.0.0
+description: Plain HTML with no CSS framework (vanilla)
+author: LiveTemplate Team
+license: MIT
+
+css_cdn: ""
+
+features:
+  - Pure semantic HTML
+  - Zero dependencies
+  - Maximum control
+  - Lightweight
+  - Custom CSS ready
+  - Browser defaults
+
+characteristics:
+  needs_wrapper: false
+  needs_article: false
+  needs_table_wrapper: false
+
+styling:
+  container: ""
+  box: ""
+  title: ""
+  subtitle: ""
+  button_primary: ""
+  button_secondary: ""
+  button_danger: ""
+  field: ""
+  label: ""
+  input: ""
+  select: ""
+  textarea: ""
+  table: ""
+  pagination: ""
+
+documentation: ""
+
+tags:
+  - vanilla
+  - plain
+  - semantic
+  - no-framework

@@ -157,27 +157,23 @@
   - [x] detail.tmpl (from templates/components/detail.tmpl)
   - [x] README.md
 
-### 2.2 Extract System Kits
+### 2.2 Extract System Kits ✅ COMPLETED
 
-- [ ] Create `cmd/lvt/internal/kits/system/tailwind/`
-  - [ ] kit.yaml
-  - [ ] helpers.go (extract from css_helpers.go)
-  - [ ] README.md
+- [x] Create `cmd/lvt/internal/kits/system/tailwind/`
+  - [x] kit.yaml
+  - [x] README.md
 
-- [ ] Create `cmd/lvt/internal/kits/system/bulma/`
-  - [ ] kit.yaml
-  - [ ] helpers.go (extract from css_helpers.go)
-  - [ ] README.md
+- [x] Create `cmd/lvt/internal/kits/system/bulma/`
+  - [x] kit.yaml
+  - [x] README.md
 
-- [ ] Create `cmd/lvt/internal/kits/system/pico/`
-  - [ ] kit.yaml
-  - [ ] helpers.go (extract from css_helpers.go)
-  - [ ] README.md
+- [x] Create `cmd/lvt/internal/kits/system/pico/`
+  - [x] kit.yaml
+  - [x] README.md
 
-- [ ] Create `cmd/lvt/internal/kits/system/none/`
-  - [ ] kit.yaml
-  - [ ] helpers.go (extract from css_helpers.go)
-  - [ ] README.md
+- [x] Create `cmd/lvt/internal/kits/system/none/`
+  - [x] kit.yaml
+  - [x] README.md
 
 ### 2.3 Testing
 
@@ -689,13 +685,13 @@
 
 **Phase 0:** ✅ Complete (Planning)
 **Phase 1:** ✅ Complete (23/23 tasks) - 1.1 ✅ | 1.2 ✅ | 1.3 ✅ | 1.4 Pending
-**Phase 2:** 🚧 In Progress (6/11 tasks) - 2.1 ✅ Complete
+**Phase 2:** 🚧 In Progress (10/11 tasks) - 2.1 ✅ | 2.2 ✅ Complete
 **Phase 3:** 📋 Not Started (0/9 tasks)
 **Phase 4:** 📋 Not Started (0/16 tasks)
 **Phase 5:** 📋 Not Started (0/19 tasks)
 **Phase 6:** 📋 Not Started (0/9 tasks)
 
-**Overall:** 26/87 tasks complete (30%)
+**Overall:** 30/87 tasks complete (34%)
 
 **Estimated completion:** 5-6 weeks remaining
 
