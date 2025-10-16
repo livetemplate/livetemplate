@@ -125,7 +125,7 @@
 
 **Goal:** Extract existing templates into component/kit structure
 
-### 2.1 Extract System Components 🚧 IN PROGRESS
+### 2.1 Extract System Components ✅ COMPLETED
 
 - [x] Create `cmd/lvt/internal/components/system/layout/`
   - [x] component.yaml
@@ -152,10 +152,10 @@
   - [x] toolbar.tmpl (from templates/components/toolbar.tmpl)
   - [x] README.md
 
-- [ ] Create `cmd/lvt/internal/components/system/detail/`
-  - [ ] component.yaml
-  - [ ] detail.tmpl (from templates/components/detail.tmpl)
-  - [ ] README.md
+- [x] Create `cmd/lvt/internal/components/system/detail/`
+  - [x] component.yaml
+  - [x] detail.tmpl (from templates/components/detail.tmpl)
+  - [x] README.md
 
 ### 2.2 Extract System Kits
 
@@ -689,13 +689,13 @@
 
 **Phase 0:** ✅ Complete (Planning)
 **Phase 1:** ✅ Complete (23/23 tasks) - 1.1 ✅ | 1.2 ✅ | 1.3 ✅ | 1.4 Pending
-**Phase 2:** 🚧 In Progress (5/11 tasks) - 2.1 🚧 layout, form, table, pagination, toolbar complete
+**Phase 2:** 🚧 In Progress (6/11 tasks) - 2.1 ✅ Complete
 **Phase 3:** 📋 Not Started (0/9 tasks)
 **Phase 4:** 📋 Not Started (0/16 tasks)
 **Phase 5:** 📋 Not Started (0/19 tasks)
 **Phase 6:** 📋 Not Started (0/9 tasks)
 
-**Overall:** 25/87 tasks complete (29%)
+**Overall:** 26/87 tasks complete (30%)
 
 **Estimated completion:** 5-6 weeks remaining
 
