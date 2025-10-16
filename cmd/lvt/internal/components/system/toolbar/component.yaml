@@ -1,0 +1,49 @@
+name: toolbar
+version: 1.0.0
+description: Toolbar component with search, sort, and add button functionality
+category: toolbar
+author: LiveTemplate Team
+license: MIT
+
+inputs:
+  - name: ResourceNameLower
+    type: string
+    required: true
+    description: Lowercase singular name of the resource (e.g., "product", "user")
+
+  - name: ResourceNameSingular
+    type: string
+    required: true
+    description: Singular display name of the resource (e.g., "Product", "User")
+
+  - name: CSSFramework
+    type: string
+    required: false
+    default: "tailwind"
+    description: CSS framework/kit name for styling
+
+  - name: SearchQuery
+    type: string
+    required: false
+    description: Current search query value
+
+  - name: SortBy
+    type: string
+    required: false
+    description: Current sort field and direction (e.g., "name_asc", "oldest_first")
+
+  - name: Fields
+    type: array
+    required: true
+    description: Array of field definitions with Name, GoType properties for sort options
+
+dependencies: []
+
+templates:
+  - toolbar.tmpl
+
+tags:
+  - toolbar
+  - search
+  - sort
+  - actions
