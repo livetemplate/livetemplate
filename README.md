@@ -267,17 +267,120 @@ The client automatically:
 - Applies DOM updates using morphdom
 - Manages form lifecycle and validation errors
 
-## Building the CLI
+## LiveTemplate CLI (`lvt`)
 
-The `lvt` CLI tool can generate LiveTemplate applications with CRUD resources.
+The `lvt` CLI provides rapid application scaffolding with a complete components and kits system.
 
-### Quick Build
+### Installation
+
+```bash
+go install github.com/livefir/livetemplate/cmd/lvt@latest
+```
+
+### Quick Start
+
+```bash
+# Create a new app
+lvt new myapp --css tailwind
+cd myapp
+
+# Generate a CRUD resource
+lvt gen products name price:float stock:int
+
+# Start development server with hot reload
+lvt serve
+```
+
+### Components & Kits System
+
+LiveTemplate includes a powerful components and kits system for rapid UI development:
+
+**Components** - Reusable UI template blocks (forms, tables, layouts, pagination)
+**Kits** - CSS framework integrations (Tailwind, Bulma, Pico, or plain HTML)
+
+```bash
+# List available components
+lvt components list
+
+# List available kits
+lvt kits list
+
+# Create custom component
+lvt components create alert --category feedback
+
+# Create custom kit
+lvt kits create mykit
+```
+
+### Development Server
+
+The `lvt serve` command provides three development modes with hot reload:
+
+- **Component Mode** - Live preview for component development
+- **Kit Mode** - CSS helper showcase and testing
+- **App Mode** - Full Go app with auto-rebuild and restart
+
+```bash
+# Auto-detect mode and start server
+lvt serve
+
+# Component development (in component directory)
+cd ~/.lvt/components/mycomponent
+lvt serve  # Opens live preview with JSON test data editor
+
+# Kit development (in kit directory)
+cd ~/.lvt/kits/mykit
+lvt serve  # Shows CSS helper showcase
+
+# App development (in app directory)
+cd myapp
+lvt serve  # Runs app with hot reload on file changes
+```
+
+### Documentation
+
+Full documentation available in the `docs/` directory:
+
+- **[User Guide](docs/user-guide.md)** - Getting started and usage
+- **[Component Development](docs/component-development.md)** - Creating custom components
+- **[Kit Development](docs/kit-development.md)** - Creating custom CSS kits
+- **[Serve Guide](docs/serve-guide.md)** - Development server guide
+- **[API Reference](docs/api-reference.md)** - Complete API reference
+
+### CLI Commands
+
+```bash
+# App scaffolding
+lvt new <name>              # Create new app
+lvt gen <resource> [fields] # Generate CRUD resource
+lvt gen view <name>         # Generate view-only handler
+
+# Components & Kits
+lvt components list         # List components
+lvt components create <name>  # Create component
+lvt components validate <path>  # Validate component
+lvt kits list              # List kits
+lvt kits create <name>     # Create kit
+lvt kits validate <path>   # Validate kit
+
+# Database
+lvt migration up           # Run migrations
+lvt migration down         # Rollback migration
+lvt migration status       # Migration status
+
+# Development
+lvt serve                  # Start dev server with hot reload
+lvt parse <file>          # Validate template syntax
+```
+
+### Building from Source
+
 ```bash
 make build       # Build with timestamp
 ./lvt version    # Check version and build info
 ```
 
-### Build Commands
+Build commands:
 ```bash
 make build                    # Build with timestamp
 make dev                      # Build with dev version tag
@@ -285,14 +388,11 @@ make install                  # Install to $GOPATH/bin
 make build VERSION=v1.0.0     # Build with specific version
 ```
 
-### Without Make
+Without Make:
 ```bash
-# Build with timestamp manually
 go build -ldflags "-X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   -o lvt cmd/lvt/*.go
 ```
-
-The build timestamp is especially helpful during development to track which version you're running when code is not yet committed.
 
 ## Testing
 

@@ -62,6 +62,10 @@ func main() {
 		err = commands.Components(args)
 	case "kits", "kit":
 		err = commands.Kits(args)
+	case "config", "cfg":
+		err = commands.Config(args)
+	case "serve", "server":
+		err = commands.Serve(args)
 	case "version", "--version", "-v":
 		printVersion()
 		return
@@ -146,6 +150,8 @@ func printUsage() {
 	fmt.Println("  lvt seed <resource> [--count N] [--cleanup]  Generate test data")
 	fmt.Println("  lvt components <command>                  Manage UI components")
 	fmt.Println("  lvt kits <command>                        Manage CSS framework kits")
+	fmt.Println("  lvt config <command>                      Manage configuration")
+	fmt.Println("  lvt serve [options]                       Start development server with hot reload")
 	fmt.Println("  lvt template <command>                    Manage custom templates")
 	fmt.Println("  lvt parse <template-file>                 Validate and analyze template file")
 	fmt.Println("  lvt version                               Show version information")
@@ -191,8 +197,9 @@ func printUsage() {
 	fmt.Println("  lvt components list --filter system       List only system components")
 	fmt.Println("  lvt components list --search navbar       Search for components")
 	fmt.Println("  lvt components list --format json         Output as JSON")
-	fmt.Println("  lvt components create navbar              Create a new component")
+	fmt.Println("  lvt components create navbar --category navigation  Create a new component")
 	fmt.Println("  lvt components info navbar                Show component details")
+	fmt.Println("  lvt components validate <path>            Validate component structure")
 	fmt.Println()
 	fmt.Println("Kits Commands:")
 	fmt.Println("  lvt kits list                             List all available kits")
@@ -200,6 +207,21 @@ func printUsage() {
 	fmt.Println("  lvt kits list --format table              Output as table (default)")
 	fmt.Println("  lvt kits create mykit                     Create a new CSS framework kit")
 	fmt.Println("  lvt kits info tailwind                    Show kit details")
+	fmt.Println("  lvt kits validate <path>                  Validate kit implementation")
+	fmt.Println()
+	fmt.Println("Config Commands:")
+	fmt.Println("  lvt config list                           List all configuration")
+	fmt.Println("  lvt config get components_paths           Get configuration value")
+	fmt.Println("  lvt config set components_paths <path>    Set configuration value")
+	fmt.Println()
+	fmt.Println("Serve Commands:")
+	fmt.Println("  lvt serve                                 Start dev server (auto-detect mode)")
+	fmt.Println("  lvt serve --port 8080                     Start on custom port")
+	fmt.Println("  lvt serve --mode component                Force component development mode")
+	fmt.Println("  lvt serve --mode kit                      Force kit development mode")
+	fmt.Println("  lvt serve --mode app                      Force app development mode")
+	fmt.Println("  lvt serve --no-browser                    Don't open browser automatically")
+	fmt.Println("  lvt serve --no-reload                     Disable live reload")
 	fmt.Println()
 	fmt.Println("Type Mappings:")
 	fmt.Println("  string  -> Go: string,     SQL: TEXT")
@@ -217,6 +239,14 @@ func printUsage() {
 	fmt.Println("App Mode Options:")
 	fmt.Println("  multi (default)    - Multi-page app with full HTML layout")
 	fmt.Println("  single             - Single-page app (components only, no layout)")
+	fmt.Println()
+	fmt.Println("Documentation:")
+	fmt.Println("  Full documentation available at docs/ directory")
+	fmt.Println("  - docs/user-guide.md           Getting started and usage")
+	fmt.Println("  - docs/component-development.md  Creating custom components")
+	fmt.Println("  - docs/kit-development.md       Creating custom kits")
+	fmt.Println("  - docs/serve-guide.md           Development server guide")
+	fmt.Println("  - docs/api-reference.md         Complete API reference")
 }
 
 func printGenUsage() {

@@ -1,6 +1,8 @@
 package components
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -300,6 +302,695 @@ func TestComponentDependencies(t *testing.T) {
 					t.Errorf("Component %q depends on %q which is not available",
 						comp.Manifest.Name, dep)
 				}
+			}
+		})
+	}
+}
+
+// Unit tests for ComponentLoader core functionality
+
+func TestNewLoader_Initialization(t *testing.T) {
+	loader := NewLoader(nil)
+
+	if loader == nil {
+		t.Fatal("Expected non-nil loader")
+	}
+
+	if loader.cache == nil {
+		t.Error("Expected cache to be initialized")
+	}
+
+	if loader.searchPaths == nil {
+		t.Error("Expected searchPaths to be initialized")
+	}
+}
+
+func TestLoad_FromLocalPath(t *testing.T) {
+	// Create temporary component
+	tmpDir := t.TempDir()
+	componentDir := filepath.Join(tmpDir, "test-component")
+	if err := os.MkdirAll(componentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create valid component
+	manifest := `name: test-component
+version: 1.0.0
+description: A test component
+category: layout
+templates:
+  - test.tmpl
+`
+	if err := os.WriteFile(filepath.Join(componentDir, "component.yaml"), []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	template := `[[ define "test" ]]
+<div>Test Component</div>
+[[ end ]]
+`
+	if err := os.WriteFile(filepath.Join(componentDir, "test.tmpl"), []byte(template), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create loader and add search path
+	loader := NewLoader(nil)
+	loader.AddSearchPath(tmpDir)
+
+	// Load component
+	comp, err := loader.Load("test-component")
+	if err != nil {
+		t.Fatalf("Failed to load component: %v", err)
+	}
+
+	if comp.Manifest.Name != "test-component" {
+		t.Errorf("Expected name 'test-component', got '%s'", comp.Manifest.Name)
+	}
+
+	if comp.Source != SourceLocal {
+		t.Errorf("Expected source 'local', got '%s'", comp.Source)
+	}
+
+	if len(comp.Templates) != 1 {
+		t.Errorf("Expected 1 template, got %d", len(comp.Templates))
+	}
+
+	if _, ok := comp.Templates["test.tmpl"]; !ok {
+		t.Error("Expected template 'test.tmpl' to be loaded")
+	}
+}
+
+func TestLoad_CacheHit(t *testing.T) {
+	tmpDir := t.TempDir()
+	componentDir := filepath.Join(tmpDir, "cached-comp")
+	if err := os.MkdirAll(componentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := `name: cached-comp
+version: 1.0.0
+description: Cached component
+category: base
+templates:
+  - test.tmpl
+`
+	if err := os.WriteFile(filepath.Join(componentDir, "component.yaml"), []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	template := `[[ define "test" ]]<div>Test</div>[[ end ]]`
+	if err := os.WriteFile(filepath.Join(componentDir, "test.tmpl"), []byte(template), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	loader := NewLoader(nil)
+	loader.AddSearchPath(tmpDir)
+
+	// First load
+	comp1, err := loader.Load("cached-comp")
+	if err != nil {
+		t.Fatalf("Failed to load component: %v", err)
+	}
+
+	// Second load should come from cache
+	comp2, err := loader.Load("cached-comp")
+	if err != nil {
+		t.Fatalf("Failed to load cached component: %v", err)
+	}
+
+	// Should be the same pointer (from cache)
+	if comp1 != comp2 {
+		t.Error("Expected cached component to be same instance")
+	}
+}
+
+func TestLoad_InvalidManifest(t *testing.T) {
+	tmpDir := t.TempDir()
+	componentDir := filepath.Join(tmpDir, "invalid-comp")
+	if err := os.MkdirAll(componentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create invalid manifest (missing required fields)
+	manifest := `name: invalid-comp
+version: 1.0.0
+`
+	if err := os.WriteFile(filepath.Join(componentDir, "component.yaml"), []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	loader := NewLoader(nil)
+	loader.AddSearchPath(tmpDir)
+
+	_, err := loader.Load("invalid-comp")
+
+	if err == nil {
+		t.Error("Expected error for invalid manifest")
+	}
+}
+
+func TestLoad_MissingTemplateFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	componentDir := filepath.Join(tmpDir, "missing-template")
+	if err := os.MkdirAll(componentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Manifest references a template that doesn't exist
+	manifest := `name: missing-template
+version: 1.0.0
+description: Component with missing template
+category: base
+templates:
+  - missing.tmpl
+`
+	if err := os.WriteFile(filepath.Join(componentDir, "component.yaml"), []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	loader := NewLoader(nil)
+	loader.AddSearchPath(tmpDir)
+
+	_, err := loader.Load("missing-template")
+
+	if err == nil {
+		t.Error("Expected error for missing template file")
+	}
+
+	// Load() returns ErrComponentNotFound when it fails to load from any source
+	if _, ok := err.(ErrComponentNotFound); !ok {
+		t.Errorf("Expected ErrComponentNotFound (failed to load), got %T: %v", err, err)
+	}
+}
+
+func TestLoad_NameMismatch(t *testing.T) {
+	tmpDir := t.TempDir()
+	componentDir := filepath.Join(tmpDir, "dir-name")
+	if err := os.MkdirAll(componentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Name in manifest doesn't match directory name
+	manifest := `name: wrong-name
+version: 1.0.0
+description: Test component
+category: base
+templates:
+  - test.tmpl
+`
+	if err := os.WriteFile(filepath.Join(componentDir, "component.yaml"), []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	template := `[[ define "test" ]]<div>Test</div>[[ end ]]`
+	if err := os.WriteFile(filepath.Join(componentDir, "test.tmpl"), []byte(template), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	loader := NewLoader(nil)
+	loader.AddSearchPath(tmpDir)
+
+	_, err := loader.Load("dir-name")
+
+	if err == nil {
+		t.Error("Expected error for name mismatch")
+	}
+
+	// Load() returns ErrComponentNotFound when it fails to load from any source
+	if _, ok := err.(ErrComponentNotFound); !ok {
+		t.Errorf("Expected ErrComponentNotFound (failed to load), got %T: %v", err, err)
+	}
+}
+
+func TestList_FilterByCategory(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create components with different categories
+	categories := []struct {
+		name string
+		cat  string
+	}{
+		{"comp1", "base"},
+		{"comp2", "layout"},
+		{"comp3", "form"},
+		{"comp4", "layout"},
+	}
+
+	for _, tc := range categories {
+		componentDir := filepath.Join(tmpDir, tc.name)
+		if err := os.MkdirAll(componentDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		manifest := "name: " + tc.name + "\nversion: 1.0.0\ndescription: Test\ncategory: " + tc.cat + "\ntemplates:\n  - test.tmpl\n"
+		if err := os.WriteFile(filepath.Join(componentDir, "component.yaml"), []byte(manifest), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		template := `[[ define "test" ]]<div>Test</div>[[ end ]]`
+		if err := os.WriteFile(filepath.Join(componentDir, "test.tmpl"), []byte(template), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	loader := NewLoader(nil)
+	loader.AddSearchPath(tmpDir)
+
+	// Filter by layout category
+	opts := &ComponentSearchOptions{
+		Category: CategoryLayout,
+	}
+
+	list, err := loader.List(opts)
+	if err != nil {
+		t.Fatalf("Failed to list components: %v", err)
+	}
+
+	if len(list) != 2 {
+		t.Errorf("Expected 2 layout components, got %d", len(list))
+	}
+
+	for _, comp := range list {
+		if comp.Manifest.Category != CategoryLayout {
+			t.Errorf("Expected category 'layout', got '%s'", comp.Manifest.Category)
+		}
+	}
+}
+
+func TestList_FilterByQuery(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create components with different names/descriptions/tags
+	testCases := []struct {
+		name        string
+		description string
+		tags        []string
+	}{
+		{"user-profile", "User profile component", []string{"user", "profile"}},
+		{"product-card", "Product card component", []string{"product", "card"}},
+		{"search-bar", "Search bar component", []string{"search"}},
+	}
+
+	for _, tc := range testCases {
+		componentDir := filepath.Join(tmpDir, tc.name)
+		if err := os.MkdirAll(componentDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		manifest := "name: " + tc.name + "\nversion: 1.0.0\ndescription: " + tc.description + "\ncategory: base\ntemplates:\n  - test.tmpl\ntags:\n"
+		for _, tag := range tc.tags {
+			manifest += "  - " + tag + "\n"
+		}
+
+		if err := os.WriteFile(filepath.Join(componentDir, "component.yaml"), []byte(manifest), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		template := `[[ define "test" ]]<div>Test</div>[[ end ]]`
+		if err := os.WriteFile(filepath.Join(componentDir, "test.tmpl"), []byte(template), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	loader := NewLoader(nil)
+	loader.AddSearchPath(tmpDir)
+
+	tests := []struct {
+		query         string
+		expectedCount int
+		expectedName  string
+	}{
+		{"user", 1, "user-profile"},
+		{"product", 1, "product-card"},
+		{"search", 1, "search-bar"},
+		{"card", 1, "product-card"},
+		{"component", 3, ""},
+		{"nonexistent", 0, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run("Query_"+tt.query, func(t *testing.T) {
+			opts := &ComponentSearchOptions{
+				Query: tt.query,
+			}
+
+			list, err := loader.List(opts)
+			if err != nil {
+				t.Fatalf("Failed to list components: %v", err)
+			}
+
+			if len(list) != tt.expectedCount {
+				t.Errorf("Expected %d components matching '%s', got %d", tt.expectedCount, tt.query, len(list))
+			}
+
+			if tt.expectedName != "" && len(list) > 0 {
+				if list[0].Manifest.Name != tt.expectedName {
+					t.Errorf("Expected component '%s', got '%s'", tt.expectedName, list[0].Manifest.Name)
+				}
+			}
+		})
+	}
+}
+
+func TestList_NoDuplicates(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create two search paths with same component name
+	dir1 := filepath.Join(tmpDir, "path1", "test-comp")
+	dir2 := filepath.Join(tmpDir, "path2", "test-comp")
+
+	for _, dir := range []string{dir1, dir2} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		manifest := `name: test-comp
+version: 1.0.0
+description: Test component
+category: base
+templates:
+  - test.tmpl
+`
+		if err := os.WriteFile(filepath.Join(dir, "component.yaml"), []byte(manifest), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		template := `[[ define "test" ]]<div>Test</div>[[ end ]]`
+		if err := os.WriteFile(filepath.Join(dir, "test.tmpl"), []byte(template), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	loader := NewLoader(nil)
+	loader.AddSearchPath(filepath.Join(tmpDir, "path1"))
+	loader.AddSearchPath(filepath.Join(tmpDir, "path2"))
+
+	// List should not contain duplicates (first path wins)
+	list, err := loader.List(nil)
+	if err != nil {
+		t.Fatalf("Failed to list components: %v", err)
+	}
+
+	if len(list) != 1 {
+		t.Errorf("Expected 1 component (no duplicates), got %d", len(list))
+	}
+}
+
+func TestAddSearchPath(t *testing.T) {
+	loader := NewLoader(nil)
+	initialPaths := len(loader.GetSearchPaths())
+
+	customPath := "/custom/path"
+	loader.AddSearchPath(customPath)
+
+	paths := loader.GetSearchPaths()
+	if len(paths) != initialPaths+1 {
+		t.Errorf("Expected %d search paths, got %d", initialPaths+1, len(paths))
+	}
+
+	found := false
+	for _, p := range paths {
+		if p == customPath {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Error("Expected custom path to be in search paths")
+	}
+}
+
+func TestAddSearchPath_ClearsCache(t *testing.T) {
+	tmpDir := t.TempDir()
+	componentDir := filepath.Join(tmpDir, "cached-comp")
+	if err := os.MkdirAll(componentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := `name: cached-comp
+version: 1.0.0
+description: Cached component
+category: base
+templates:
+  - test.tmpl
+`
+	if err := os.WriteFile(filepath.Join(componentDir, "component.yaml"), []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	template := `[[ define "test" ]]<div>Test</div>[[ end ]]`
+	if err := os.WriteFile(filepath.Join(componentDir, "test.tmpl"), []byte(template), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	loader := NewLoader(nil)
+	loader.AddSearchPath(tmpDir)
+
+	// Load to populate cache
+	_, err := loader.Load("cached-comp")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(loader.cache) != 1 {
+		t.Error("Expected cache to have 1 entry")
+	}
+
+	// Add search path should clear cache
+	loader.AddSearchPath("/another/path")
+
+	if len(loader.cache) != 0 {
+		t.Error("Expected cache to be cleared after adding search path")
+	}
+}
+
+func TestClearCache_EmptiesCache(t *testing.T) {
+	tmpDir := t.TempDir()
+	componentDir := filepath.Join(tmpDir, "test-comp")
+	if err := os.MkdirAll(componentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := `name: test-comp
+version: 1.0.0
+description: Test component
+category: base
+templates:
+  - test.tmpl
+`
+	if err := os.WriteFile(filepath.Join(componentDir, "component.yaml"), []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	template := `[[ define "test" ]]<div>Test</div>[[ end ]]`
+	if err := os.WriteFile(filepath.Join(componentDir, "test.tmpl"), []byte(template), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	loader := NewLoader(nil)
+	loader.AddSearchPath(tmpDir)
+
+	// Load to populate cache
+	_, err := loader.Load("test-comp")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(loader.cache) != 1 {
+		t.Error("Expected cache to have 1 entry")
+	}
+
+	// Clear cache
+	loader.ClearCache()
+
+	if len(loader.cache) != 0 {
+		t.Error("Expected cache to be empty after ClearCache()")
+	}
+}
+
+func TestGetSearchPaths_ReturnsCopy(t *testing.T) {
+	loader := NewLoader(nil)
+	loader.AddSearchPath("/path1")
+
+	paths := loader.GetSearchPaths()
+	originalLen := len(paths)
+
+	// Modify the returned slice
+	paths = append(paths, "/modified")
+
+	// Original should be unchanged
+	newPaths := loader.GetSearchPaths()
+	if len(newPaths) != originalLen {
+		t.Error("GetSearchPaths should return a copy, not original slice")
+	}
+}
+
+func TestMatchesOptions_NilOptions(t *testing.T) {
+	comp := &Component{
+		Manifest: ComponentManifest{
+			Name:     "test",
+			Category: CategoryBase,
+		},
+		Source: SourceLocal,
+	}
+
+	if !matchesOptions(comp, nil) {
+		t.Error("Expected nil options to match any component")
+	}
+}
+
+func TestMatchesOptions_EmptyOptions(t *testing.T) {
+	comp := &Component{
+		Manifest: ComponentManifest{
+			Name:     "test",
+			Category: CategoryBase,
+		},
+		Source: SourceLocal,
+	}
+
+	opts := &ComponentSearchOptions{}
+
+	if !matchesOptions(comp, opts) {
+		t.Error("Expected empty options to match any component")
+	}
+}
+
+func TestMatchesOptions_SourceFilter(t *testing.T) {
+	comp := &Component{
+		Manifest: ComponentManifest{
+			Name:     "test",
+			Category: CategoryBase,
+		},
+		Source: SourceLocal,
+	}
+
+	tests := []struct {
+		name    string
+		source  ComponentSource
+		matches bool
+	}{
+		{"matching source", SourceLocal, true},
+		{"non-matching source", SourceSystem, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := &ComponentSearchOptions{Source: tt.source}
+			result := matchesOptions(comp, opts)
+			if result != tt.matches {
+				t.Errorf("Expected %v, got %v", tt.matches, result)
+			}
+		})
+	}
+}
+
+func TestMatchesOptions_CategoryFilter(t *testing.T) {
+	comp := &Component{
+		Manifest: ComponentManifest{
+			Name:     "test",
+			Category: CategoryLayout,
+		},
+		Source: SourceLocal,
+	}
+
+	tests := []struct {
+		name     string
+		category ComponentCategory
+		matches  bool
+	}{
+		{"matching category", CategoryLayout, true},
+		{"non-matching category", CategoryForm, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := &ComponentSearchOptions{Category: tt.category}
+			result := matchesOptions(comp, opts)
+			if result != tt.matches {
+				t.Errorf("Expected %v, got %v", tt.matches, result)
+			}
+		})
+	}
+}
+
+func TestMatchesOptions_QueryFilter(t *testing.T) {
+	comp := &Component{
+		Manifest: ComponentManifest{
+			Name:        "user-profile",
+			Description: "A component for displaying user information",
+			Category:    CategoryLayout,
+			Tags:        []string{"user", "profile", "display"},
+		},
+		Source: SourceLocal,
+	}
+
+	tests := []struct {
+		name    string
+		query   string
+		matches bool
+	}{
+		{"matches name", "user", true},
+		{"matches description", "displaying", true},
+		{"matches tag", "profile", true},
+		{"no match", "product", false},
+		{"case insensitive", "USER", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := &ComponentSearchOptions{Query: tt.query}
+			result := matchesOptions(comp, opts)
+			if result != tt.matches {
+				t.Errorf("Expected %v, got %v for query '%s'", tt.matches, result, tt.query)
+			}
+		})
+	}
+}
+
+func TestMatchesOptions_MultipleFilters(t *testing.T) {
+	comp := &Component{
+		Manifest: ComponentManifest{
+			Name:        "user-form",
+			Description: "Form for user input",
+			Category:    CategoryForm,
+			Tags:        []string{"user", "input"},
+		},
+		Source: SourceLocal,
+	}
+
+	tests := []struct {
+		name    string
+		opts    *ComponentSearchOptions
+		matches bool
+	}{
+		{
+			"all match",
+			&ComponentSearchOptions{Source: SourceLocal, Category: CategoryForm, Query: "user"},
+			true,
+		},
+		{
+			"source fails",
+			&ComponentSearchOptions{Source: SourceSystem, Category: CategoryForm, Query: "user"},
+			false,
+		},
+		{
+			"category fails",
+			&ComponentSearchOptions{Source: SourceLocal, Category: CategoryLayout, Query: "user"},
+			false,
+		},
+		{
+			"query fails",
+			&ComponentSearchOptions{Source: SourceLocal, Category: CategoryForm, Query: "product"},
+			false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := matchesOptions(comp, tt.opts)
+			if result != tt.matches {
+				t.Errorf("Expected %v, got %v", tt.matches, result)
 			}
 		})
 	}

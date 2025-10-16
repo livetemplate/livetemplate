@@ -36,3 +36,10 @@ Thumbs.db
 client/dist
 *.db
 .lvtresources
+
+# Build binaries
+/lvt
+/cmd/lvt/lvt
+
+# Client build artifacts
+/livetemplate-client.browser.js
