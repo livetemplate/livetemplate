@@ -1,0 +1,55 @@
+name: table
+version: 1.0.0
+description: Table components for displaying resource lists with kit support
+category: table
+author: LiveTemplate Team
+license: MIT
+
+inputs:
+  - name: ResourceNamePlural
+    type: string
+    required: true
+    description: Plural name of the resource (e.g., "Products", "Users")
+
+  - name: ResourceNameLower
+    type: string
+    required: true
+    description: Lowercase singular name of the resource (e.g., "product", "user")
+
+  - name: CSSFramework
+    type: string
+    required: false
+    default: "tailwind"
+    description: CSS framework/kit name for styling
+
+  - name: Fields
+    type: array
+    required: true
+    description: Array of field definitions with Name, GoType properties
+
+  - name: PaginatedResourceNamePlural
+    type: array
+    required: true
+    description: Paginated list of resources to display (dynamic key based on ResourceNamePlural)
+
+  - name: EditMode
+    type: string
+    required: false
+    default: "modal"
+    description: Edit mode (modal or page)
+
+  - name: SearchQuery
+    type: string
+    required: false
+    description: Current search query for empty state message
+
+dependencies: []
+
+templates:
+  - table.tmpl
+
+tags:
+  - table
+  - list
+  - crud
+  - data-display
