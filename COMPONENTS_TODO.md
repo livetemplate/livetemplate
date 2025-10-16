@@ -91,20 +91,26 @@
   - [x] `helpers_pico.go` - Pico CSS helpers
   - [x] `helpers_none.go` - Plain HTML helpers
 
-### 1.3 Config System
+### 1.3 Config System ✅ COMPLETED
 
-- [ ] Create `cmd/lvt/internal/config/config.go`
-  - [ ] Config struct for ~/.config/lvt/config.yaml
-  - [ ] LoadConfig() function
-  - [ ] SaveConfig() function
-  - [ ] Path management functions
-  - [ ] Default config values
+- [x] Create `cmd/lvt/internal/config/config.go`
+  - [x] Config struct for ~/.config/lvt/config.yaml
+  - [x] LoadConfig() function
+  - [x] SaveConfig() function
+  - [x] Path management functions
+  - [x] Default config values
 
-- [ ] Create `cmd/lvt/commands/config.go`
-  - [ ] `lvt config set` command
-  - [ ] `lvt config get` command
-  - [ ] `lvt config list` command
-  - [ ] Path validation
+- [x] Create `cmd/lvt/commands/config.go`
+  - [x] `lvt config set` command
+  - [x] `lvt config get` command
+  - [x] `lvt config list` command
+  - [x] Path validation
+  - [x] `add-component-path` and `remove-component-path` commands
+  - [x] `add-kit-path` and `remove-kit-path` commands
+
+- [x] Integrate config with loaders
+  - [x] Updated ComponentLoader to load config paths
+  - [x] Updated KitLoader to load config paths
 
 ### 1.4 Testing
 
@@ -574,7 +580,7 @@
 
 ## Session Notes
 
-### Session 2025-10-16 (Planning & Phase 1.1)
+### Session 2025-10-16 (Planning & Phase 1.1-1.3)
 
 **Completed:**
 - ✅ Designed complete architecture
@@ -584,6 +590,7 @@
 - ✅ Initial commit
 - ✅ Phase 1.1: Component System Core - ALL TASKS
 - ✅ Phase 1.2: Kit System Core - ALL TASKS
+- ✅ Phase 1.3: Config System - ALL TASKS
 
 **Decisions Made:**
 - Path-based auto-discovery (no manual add/remove)
@@ -592,18 +599,23 @@
 - Backward compatibility: --css flag maps to kit names
 - Validation before contribution
 - Scaffolding with boilerplate generation
+- Config file at ~/.config/lvt/config.yaml
 
 **Technical Details:**
 - Created component package with types, manifest parser, loader, embed support
 - Created kit package with interface, types, manifest parser, loader, embed support
 - Implemented CSSHelpers interface with ~60 methods
 - Created helper implementations for tailwind, bulma, pico, and none frameworks
+- Created config package with YAML parser and path management
+- Created config commands: get, set, list, add-*-path, remove-*-path
+- Integrated config with component and kit loaders
 - All code compiles successfully, all tests pass
 
 **Next Session:**
-- Start Phase 1.3: Config System
-- Create config.go with YAML parser
-- Implement config commands
+- Start Phase 1.4: Testing
+- Write unit tests for loaders
+- Write unit tests for config
+- Complete Phase 1
 
 ---
 
@@ -653,14 +665,14 @@
 ## Progress Summary
 
 **Phase 0:** ✅ Complete (Planning)
-**Phase 1:** 🚧 In Progress (13/23 tasks) - 1.1 ✅ | 1.2 ✅ | 1.3-1.4 Pending
+**Phase 1:** 🚧 In Progress (20/23 tasks) - 1.1 ✅ | 1.2 ✅ | 1.3 ✅ | 1.4 Pending
 **Phase 2:** 📋 Not Started (0/11 tasks)
 **Phase 3:** 📋 Not Started (0/9 tasks)
 **Phase 4:** 📋 Not Started (0/16 tasks)
 **Phase 5:** 📋 Not Started (0/19 tasks)
 **Phase 6:** 📋 Not Started (0/9 tasks)
 
-**Overall:** 13/87 tasks complete (15%)
+**Overall:** 20/87 tasks complete (23%)
 
 **Estimated completion:** 5-6 weeks remaining
 

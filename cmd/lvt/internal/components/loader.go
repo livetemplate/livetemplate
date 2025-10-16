@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"text/template"
+
+	"github.com/livefir/livetemplate/cmd/lvt/internal/config"
 )
 
 // ComponentLoader handles loading components from various sources
@@ -43,9 +45,11 @@ func (l *ComponentLoader) buildSearchPaths() {
 		paths = append(paths, projectPath)
 	}
 
-	// 2. Config paths (to be loaded from config)
-	// TODO: Load from ~/.config/lvt/config.yaml when config package is ready
-	// For now, we'll just use these search paths
+	// 2. Config paths
+	if cfg, err := config.LoadConfig(); err == nil {
+		l.configPaths = cfg.ComponentPaths
+		paths = append(paths, cfg.ComponentPaths...)
+	}
 
 	l.searchPaths = paths
 }

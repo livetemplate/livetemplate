@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/livefir/livetemplate/cmd/lvt/internal/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -44,8 +45,11 @@ func (l *KitLoader) buildSearchPaths() {
 		paths = append(paths, projectPath)
 	}
 
-	// 2. Config paths (to be loaded from config)
-	// TODO: Load from ~/.config/lvt/config.yaml when config package is ready
+	// 2. Config paths
+	if cfg, err := config.LoadConfig(); err == nil {
+		l.configPaths = cfg.KitPaths
+		paths = append(paths, cfg.KitPaths...)
+	}
 
 	l.searchPaths = paths
 }
