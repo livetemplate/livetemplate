@@ -14,6 +14,7 @@ require (
 	github.com/pressly/goose/v3 v3.26.0
 	github.com/tdewolff/minify/v2 v2.24.3
 	golang.org/x/net v0.44.0
+	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.39.0
 )
 
