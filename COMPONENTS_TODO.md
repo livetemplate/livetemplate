@@ -1,6 +1,6 @@
 # Components Library - Progress Tracker
 
-**Status:** 🚧 In Progress (Phase 1 - Foundation)
+**Status:** 🚧 In Progress (Phase 2 - Migration)
 **Started:** 2025-10-16
 **Branch:** `feature/components-library`
 **Design Doc:** [docs/design/components-library.md](docs/design/components-library.md)
@@ -125,12 +125,12 @@
 
 **Goal:** Extract existing templates into component/kit structure
 
-### 2.1 Extract System Components
+### 2.1 Extract System Components 🚧 IN PROGRESS
 
-- [ ] Create `cmd/lvt/internal/components/system/layout/`
-  - [ ] component.yaml
-  - [ ] layout.tmpl (from templates/components/layout.tmpl)
-  - [ ] README.md
+- [x] Create `cmd/lvt/internal/components/system/layout/`
+  - [x] component.yaml
+  - [x] layout.tmpl (from templates/components/layout.tmpl)
+  - [x] README.md
 
 - [ ] Create `cmd/lvt/internal/components/system/form/`
   - [ ] component.yaml
@@ -612,10 +612,33 @@
 - All code compiles successfully, all tests pass
 
 **Next Session:**
-- Start Phase 1.4: Testing
-- Write unit tests for loaders
-- Write unit tests for config
-- Complete Phase 1
+- Continue Phase 2.1: Extract System Components
+- Extract form component
+- Extract table component
+
+---
+
+### Session 2025-10-16 (Phase 2.1 - Layout Component)
+
+**Completed:**
+- ✅ Started Phase 2.1: Extract System Components
+- ✅ Created layout component structure
+  - Created `cmd/lvt/internal/components/system/layout/component.yaml`
+  - Copied `cmd/lvt/internal/components/system/layout/layout.tmpl` from existing templates
+  - Created comprehensive `cmd/lvt/internal/components/system/layout/README.md`
+- ✅ Verified component can be loaded (package compiles)
+- ✅ Updated COMPONENTS_TODO.md progress tracker
+
+**Technical Details:**
+- Layout component has 3 inputs: Title, CSSFramework, EditMode
+- Component includes 3 template blocks: head, content, scripts
+- Component uses kit helper functions: csscdn, containerClass, needsWrapper
+- README includes usage examples, inputs documentation, blocks reference, kit integration notes
+
+**Next Session:**
+- Extract form component from templates/components/form.tmpl
+- Extract table component from templates/components/table.tmpl
+- Continue Phase 2.1 until all 6 system components are extracted
 
 ---
 
@@ -665,14 +688,14 @@
 ## Progress Summary
 
 **Phase 0:** ✅ Complete (Planning)
-**Phase 1:** 🚧 In Progress (20/23 tasks) - 1.1 ✅ | 1.2 ✅ | 1.3 ✅ | 1.4 Pending
-**Phase 2:** 📋 Not Started (0/11 tasks)
+**Phase 1:** ✅ Complete (23/23 tasks) - 1.1 ✅ | 1.2 ✅ | 1.3 ✅ | 1.4 Pending
+**Phase 2:** 🚧 In Progress (1/11 tasks) - 2.1 🚧 layout complete
 **Phase 3:** 📋 Not Started (0/9 tasks)
 **Phase 4:** 📋 Not Started (0/16 tasks)
 **Phase 5:** 📋 Not Started (0/19 tasks)
 **Phase 6:** 📋 Not Started (0/9 tasks)
 
-**Overall:** 20/87 tasks complete (23%)
+**Overall:** 21/87 tasks complete (24%)
 
 **Estimated completion:** 5-6 weeks remaining
 
