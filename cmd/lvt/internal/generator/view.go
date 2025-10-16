@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
 )
 
 type ViewData struct {
@@ -12,14 +14,22 @@ type ViewData struct {
 	ModuleName    string
 	ViewName      string
 	ViewNameLower string
-	CSSFramework  string // CSS framework: "tailwind", "bulma", "pico", "none"
-	DevMode       bool   // Use local client library instead of CDN
+	Kit           *kits.KitInfo // CSS framework kit (new)
+	CSSFramework  string        // CSS framework: "tailwind", "bulma", "pico", "none" (for backward compatibility)
+	DevMode       bool          // Use local client library instead of CDN
 }
 
 func GenerateView(basePath, moduleName, viewName string, cssFramework string) error {
 	// Default to tailwind if not specified
 	if cssFramework == "" {
 		cssFramework = "tailwind"
+	}
+
+	// Load kit using KitLoader
+	kitLoader := kits.DefaultLoader()
+	kit, err := kitLoader.Load(cssFramework)
+	if err != nil {
+		return fmt.Errorf("failed to load kit %q: %w", cssFramework, err)
 	}
 
 	// Ensure view name is capitalized
@@ -34,7 +44,8 @@ func GenerateView(basePath, moduleName, viewName string, cssFramework string) er
 		ModuleName:    moduleName,
 		ViewName:      viewName,
 		ViewNameLower: viewNameLower,
-		CSSFramework:  cssFramework,
+		Kit:           kit,
+		CSSFramework:  cssFramework, // Keep for backward compatibility
 		DevMode:       devMode,
 	}
 
@@ -64,17 +75,17 @@ func GenerateView(basePath, moduleName, viewName string, cssFramework string) er
 	}
 
 	// Generate handler
-	if err := generateFile(string(handlerTmpl), data, filepath.Join(viewDir, viewNameLower+".go")); err != nil {
+	if err := generateFile(string(handlerTmpl), data, filepath.Join(viewDir, viewNameLower+".go"), kit); err != nil {
 		return fmt.Errorf("failed to generate handler: %w", err)
 	}
 
 	// Generate template
-	if err := generateFile(string(templateTmpl), data, filepath.Join(viewDir, viewNameLower+".tmpl")); err != nil {
+	if err := generateFile(string(templateTmpl), data, filepath.Join(viewDir, viewNameLower+".tmpl"), kit); err != nil {
 		return fmt.Errorf("failed to generate template: %w", err)
 	}
 
 	// Generate consolidated test file (E2E + WebSocket)
-	if err := generateFile(string(testTmpl), data, filepath.Join(viewDir, viewNameLower+"_test.go")); err != nil {
+	if err := generateFile(string(testTmpl), data, filepath.Join(viewDir, viewNameLower+"_test.go"), kit); err != nil {
 		return fmt.Errorf("failed to generate test: %w", err)
 	}
 

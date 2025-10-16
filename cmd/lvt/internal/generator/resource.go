@@ -9,6 +9,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
 	"github.com/livefir/livetemplate/cmd/lvt/internal/parser"
 )
 
@@ -28,6 +29,13 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 	}
 	if editMode == "" {
 		editMode = "modal"
+	}
+
+	// Load kit using KitLoader
+	kitLoader := kits.DefaultLoader()
+	kit, err := kitLoader.Load(cssFramework)
+	if err != nil {
+		return fmt.Errorf("failed to load kit %q: %w", cssFramework, err)
 	}
 
 	// Capitalize resource name and derive singular/plural forms
@@ -66,7 +74,8 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 		ResourceNamePlural:   resourceNamePluralCap,
 		TableName:            tableName,
 		Fields:               fieldData,
-		CSSFramework:         cssFramework,
+		Kit:                  kit,
+		CSSFramework:         cssFramework, // Keep for backward compatibility
 		DevMode:              devMode,
 		PaginationMode:       paginationMode,
 		PageSize:             pageSize,
@@ -145,12 +154,12 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 	}
 
 	// Generate handler
-	if err := generateFile(string(handlerTmpl), data, filepath.Join(resourceDir, resourceNameLower+".go")); err != nil {
+	if err := generateFile(string(handlerTmpl), data, filepath.Join(resourceDir, resourceNameLower+".go"), kit); err != nil {
 		return fmt.Errorf("failed to generate handler: %w", err)
 	}
 
 	// Generate template
-	if err := generateFile(string(templateTmpl), data, filepath.Join(resourceDir, resourceNameLower+".tmpl")); err != nil {
+	if err := generateFile(string(templateTmpl), data, filepath.Join(resourceDir, resourceNameLower+".tmpl"), kit); err != nil {
 		return fmt.Errorf("failed to generate template: %w", err)
 	}
 
@@ -180,22 +189,22 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 		// Increment by 1 second and try again
 		timestamp = timestamp.Add(1 * time.Second)
 	}
-	if err := generateFile(string(migrationTmpl), data, migrationPath); err != nil {
+	if err := generateFile(string(migrationTmpl), data, migrationPath, kit); err != nil {
 		return fmt.Errorf("failed to generate migration: %w", err)
 	}
 
 	// Also append to schema.sql for sqlc
-	if err := appendToFile(string(schemaTmpl), data, filepath.Join(dbDir, "schema.sql"), "\n"); err != nil {
+	if err := appendToFile(string(schemaTmpl), data, filepath.Join(dbDir, "schema.sql"), "\n", kit); err != nil {
 		return fmt.Errorf("failed to append to schema: %w", err)
 	}
 
 	// Append to queries.sql
-	if err := appendToFile(string(queriesTmpl), data, filepath.Join(dbDir, "queries.sql"), "\n"); err != nil {
+	if err := appendToFile(string(queriesTmpl), data, filepath.Join(dbDir, "queries.sql"), "\n", kit); err != nil {
 		return fmt.Errorf("failed to append to queries: %w", err)
 	}
 
 	// Generate consolidated test file (E2E + WebSocket)
-	if err := generateFile(string(testTmpl), data, filepath.Join(resourceDir, resourceNameLower+"_test.go")); err != nil {
+	if err := generateFile(string(testTmpl), data, filepath.Join(resourceDir, resourceNameLower+"_test.go"), kit); err != nil {
 		return fmt.Errorf("failed to generate test: %w", err)
 	}
 
@@ -239,14 +248,76 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 	return nil
 }
 
-func generateFile(tmplStr string, data interface{}, outPath string) error {
-	// Merge base funcMap with CSS helpers
+func generateFile(tmplStr string, data interface{}, outPath string, kit *kits.KitInfo) error {
+	// Merge base funcMap with kit helpers
 	funcs := make(template.FuncMap)
 	for k, v := range funcMap {
 		funcs[k] = v
 	}
-	for k, v := range CSSHelpers() {
-		funcs[k] = v
+
+	// Use kit helpers if provided, otherwise fallback to static CSSHelpers() for backward compatibility
+	if kit != nil && kit.Helpers != nil {
+		// Get kit-specific helpers using the CSSHelpers interface
+		// Note: Old templates pass framework parameter (e.g., [[csscdn .CSSFramework]])
+		// but kit helpers don't need it since they're already kit-specific
+		// We accept the parameter but ignore it for backward compatibility
+		funcs["csscdn"] = func(args ...interface{}) string { return kit.Helpers.CSSCDN() }
+		funcs["containerClass"] = func(args ...interface{}) string { return kit.Helpers.ContainerClass() }
+		funcs["sectionClass"] = func(args ...interface{}) string { return kit.Helpers.SectionClass() }
+		funcs["boxClass"] = func(args ...interface{}) string { return kit.Helpers.BoxClass() }
+		funcs["titleClass"] = func(args ...interface{}) string { return kit.Helpers.TitleClass(1) }
+		funcs["subtitleClass"] = func(args ...interface{}) string { return kit.Helpers.SubtitleClass() }
+		funcs["fieldClass"] = func(args ...interface{}) string { return kit.Helpers.FieldClass() }
+		funcs["labelClass"] = func(args ...interface{}) string { return kit.Helpers.LabelClass() }
+		funcs["controlClass"] = func(args ...interface{}) string { return "" } // Not in interface, return empty
+		funcs["inputClass"] = func(args ...interface{}) string { return kit.Helpers.InputClass() }
+		funcs["inputErrorClass"] = func(args ...interface{}) string { return kit.Helpers.InputClass() } // Fallback to inputClass
+		funcs["selectClass"] = func(args ...interface{}) string { return kit.Helpers.SelectClass() }
+		funcs["selectWrapperClass"] = func(args ...interface{}) string { return "" } // Not in interface
+		funcs["checkboxClass"] = func(args ...interface{}) string { return kit.Helpers.CheckboxClass() }
+		funcs["textareaClass"] = func(args ...interface{}) string { return kit.Helpers.TextareaClass() }
+		funcs["buttonClass"] = func(variant string, args ...interface{}) string { return kit.Helpers.ButtonClass(variant) }
+		funcs["buttonGroupClass"] = func(args ...interface{}) string { return kit.Helpers.ButtonGroupClass() }
+		funcs["formClass"] = func(args ...interface{}) string { return kit.Helpers.FormClass() }
+		funcs["tableClass"] = func(args ...interface{}) string { return kit.Helpers.TableClass() }
+		funcs["tableContainerClass"] = func(args ...interface{}) string { return kit.Helpers.TableContainerClass() }
+		funcs["theadClass"] = func(args ...interface{}) string { return kit.Helpers.TheadClass() }
+		funcs["thClass"] = func(args ...interface{}) string { return kit.Helpers.ThClass() }
+		funcs["tbodyClass"] = func(args ...interface{}) string { return kit.Helpers.TbodyClass() }
+		funcs["trClass"] = func(args ...interface{}) string { return kit.Helpers.TrClass() }
+		funcs["tdClass"] = func(args ...interface{}) string { return kit.Helpers.TdClass() }
+		funcs["textClass"] = func(args ...interface{}) string { return kit.Helpers.TextClass("") }
+		funcs["textMutedClass"] = func(args ...interface{}) string { return kit.Helpers.TextMutedClass() }
+		funcs["textPrimaryClass"] = func(args ...interface{}) string { return kit.Helpers.TextPrimaryClass() }
+		funcs["textDangerClass"] = func(args ...interface{}) string { return kit.Helpers.TextDangerClass() }
+		funcs["paginationClass"] = func(args ...interface{}) string { return kit.Helpers.PaginationClass() }
+		funcs["paginationButtonClass"] = func(args ...interface{}) string { return kit.Helpers.PaginationButtonClass("") }
+		funcs["paginationActiveClass"] = func(args ...interface{}) string { return kit.Helpers.PaginationButtonClass("active") }
+		funcs["paginationCurrentClass"] = func(args ...interface{}) string { return kit.Helpers.PaginationButtonClass("current") }
+		funcs["paginationInfoClass"] = func(args ...interface{}) string { return kit.Helpers.PaginationListClass() }
+		funcs["helpTextClass"] = func(args ...interface{}) string { return kit.Helpers.TextMutedClass() } // Use textMuted as fallback
+		funcs["errorClass"] = func(args ...interface{}) string { return kit.Helpers.TextDangerClass() }   // Use textDanger as fallback
+		funcs["loadingClass"] = func(args ...interface{}) string { return kit.Helpers.LoadingClass() }
+		funcs["codeClass"] = func(args ...interface{}) string { return "" }     // Not in interface
+		funcs["listClass"] = func(args ...interface{}) string { return "" }     // Not in interface
+		funcs["listItemClass"] = func(args ...interface{}) string { return "" } // Not in interface
+		funcs["linkClass"] = func(args ...interface{}) string { return "" }     // Not in interface
+		funcs["needsWrapper"] = func(args ...interface{}) bool { return kit.Helpers.NeedsWrapper() }
+		funcs["needsArticle"] = func(args ...interface{}) bool { return kit.Helpers.NeedsArticle() }
+		funcs["needsTableWrapper"] = func(args ...interface{}) bool {
+			// Use TableContainerClass as a proxy for whether table wrapper is needed
+			return kit.Helpers.TableContainerClass() != ""
+		}
+		funcs["tableWrapperClass"] = func(args ...interface{}) string { return kit.Helpers.TableContainerClass() }
+		// Add dict helper from kit
+		funcs["dict"] = kit.Helpers.Dict
+		funcs["until"] = kit.Helpers.Until
+		funcs["add"] = kit.Helpers.Add
+	} else {
+		// Fallback to static CSS helpers for backward compatibility
+		for k, v := range CSSHelpers() {
+			funcs[k] = v
+		}
 	}
 
 	// Use custom delimiters to avoid conflicts with Go template syntax in the generated files
@@ -267,9 +338,74 @@ func generateFile(tmplStr string, data interface{}, outPath string) error {
 	return nil
 }
 
-func appendToFile(tmplStr string, data interface{}, outPath, separator string) error {
+func appendToFile(tmplStr string, data interface{}, outPath, separator string, kit *kits.KitInfo) error {
+	// Merge base funcMap with kit helpers
+	funcs := make(template.FuncMap)
+	for k, v := range funcMap {
+		funcs[k] = v
+	}
+
+	// Use kit helpers if provided (same logic as generateFile)
+	if kit != nil && kit.Helpers != nil {
+		// Accept optional framework parameter for backward compatibility
+		funcs["csscdn"] = func(args ...interface{}) string { return kit.Helpers.CSSCDN() }
+		funcs["containerClass"] = func(args ...interface{}) string { return kit.Helpers.ContainerClass() }
+		funcs["sectionClass"] = func(args ...interface{}) string { return kit.Helpers.SectionClass() }
+		funcs["boxClass"] = func(args ...interface{}) string { return kit.Helpers.BoxClass() }
+		funcs["titleClass"] = func(args ...interface{}) string { return kit.Helpers.TitleClass(1) }
+		funcs["subtitleClass"] = func(args ...interface{}) string { return kit.Helpers.SubtitleClass() }
+		funcs["fieldClass"] = func(args ...interface{}) string { return kit.Helpers.FieldClass() }
+		funcs["labelClass"] = func(args ...interface{}) string { return kit.Helpers.LabelClass() }
+		funcs["controlClass"] = func(args ...interface{}) string { return "" } // Not in interface, return empty
+		funcs["inputClass"] = func(args ...interface{}) string { return kit.Helpers.InputClass() }
+		funcs["inputErrorClass"] = func(args ...interface{}) string { return kit.Helpers.InputClass() } // Fallback to inputClass
+		funcs["selectClass"] = func(args ...interface{}) string { return kit.Helpers.SelectClass() }
+		funcs["selectWrapperClass"] = func(args ...interface{}) string { return "" } // Not in interface
+		funcs["checkboxClass"] = func(args ...interface{}) string { return kit.Helpers.CheckboxClass() }
+		funcs["textareaClass"] = func(args ...interface{}) string { return kit.Helpers.TextareaClass() }
+		funcs["buttonClass"] = func(variant string, args ...interface{}) string { return kit.Helpers.ButtonClass(variant) }
+		funcs["buttonGroupClass"] = func(args ...interface{}) string { return kit.Helpers.ButtonGroupClass() }
+		funcs["formClass"] = func(args ...interface{}) string { return kit.Helpers.FormClass() }
+		funcs["tableClass"] = func(args ...interface{}) string { return kit.Helpers.TableClass() }
+		funcs["tableContainerClass"] = func(args ...interface{}) string { return kit.Helpers.TableContainerClass() }
+		funcs["theadClass"] = func(args ...interface{}) string { return kit.Helpers.TheadClass() }
+		funcs["thClass"] = func(args ...interface{}) string { return kit.Helpers.ThClass() }
+		funcs["tbodyClass"] = func(args ...interface{}) string { return kit.Helpers.TbodyClass() }
+		funcs["trClass"] = func(args ...interface{}) string { return kit.Helpers.TrClass() }
+		funcs["tdClass"] = func(args ...interface{}) string { return kit.Helpers.TdClass() }
+		funcs["textClass"] = func(args ...interface{}) string { return kit.Helpers.TextClass("") }
+		funcs["textMutedClass"] = func(args ...interface{}) string { return kit.Helpers.TextMutedClass() }
+		funcs["textPrimaryClass"] = func(args ...interface{}) string { return kit.Helpers.TextPrimaryClass() }
+		funcs["textDangerClass"] = func(args ...interface{}) string { return kit.Helpers.TextDangerClass() }
+		funcs["paginationClass"] = func(args ...interface{}) string { return kit.Helpers.PaginationClass() }
+		funcs["paginationButtonClass"] = func(args ...interface{}) string { return kit.Helpers.PaginationButtonClass("") }
+		funcs["paginationActiveClass"] = func(args ...interface{}) string { return kit.Helpers.PaginationButtonClass("active") }
+		funcs["paginationCurrentClass"] = func(args ...interface{}) string { return kit.Helpers.PaginationButtonClass("current") }
+		funcs["paginationInfoClass"] = func(args ...interface{}) string { return kit.Helpers.PaginationListClass() }
+		funcs["helpTextClass"] = func(args ...interface{}) string { return kit.Helpers.TextMutedClass() } // Use textMuted as fallback
+		funcs["errorClass"] = func(args ...interface{}) string { return kit.Helpers.TextDangerClass() }   // Use textDanger as fallback
+		funcs["loadingClass"] = func(args ...interface{}) string { return kit.Helpers.LoadingClass() }
+		funcs["codeClass"] = func(args ...interface{}) string { return "" }     // Not in interface
+		funcs["listClass"] = func(args ...interface{}) string { return "" }     // Not in interface
+		funcs["listItemClass"] = func(args ...interface{}) string { return "" } // Not in interface
+		funcs["linkClass"] = func(args ...interface{}) string { return "" }     // Not in interface
+		funcs["needsWrapper"] = func(args ...interface{}) bool { return kit.Helpers.NeedsWrapper() }
+		funcs["needsArticle"] = func(args ...interface{}) bool { return kit.Helpers.NeedsArticle() }
+		funcs["needsTableWrapper"] = func(args ...interface{}) bool {
+			return kit.Helpers.TableContainerClass() != ""
+		}
+		funcs["tableWrapperClass"] = func(args ...interface{}) string { return kit.Helpers.TableContainerClass() }
+		funcs["dict"] = kit.Helpers.Dict
+		funcs["until"] = kit.Helpers.Until
+		funcs["add"] = kit.Helpers.Add
+	} else {
+		for k, v := range CSSHelpers() {
+			funcs[k] = v
+		}
+	}
+
 	// Use custom delimiters to avoid conflicts with Go template syntax in the generated files
-	tmpl, err := template.New("template").Delims("[[", "]]").Funcs(funcMap).Parse(tmplStr)
+	tmpl, err := template.New("template").Delims("[[", "]]").Funcs(funcs).Parse(tmplStr)
 	if err != nil {
 		return fmt.Errorf("failed to parse template: %w", err)
 	}

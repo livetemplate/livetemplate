@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
 )
 
 func GenerateApp(appName, moduleName string, devMode bool) error {
@@ -20,12 +22,23 @@ func GenerateApp(appName, moduleName string, devMode bool) error {
 		return fmt.Errorf("directory '%s' already exists", appName)
 	}
 
+	// Default CSS framework for home page
+	cssFramework := "tailwind"
+
+	// Load kit using KitLoader
+	kitLoader := kits.DefaultLoader()
+	kit, err := kitLoader.Load(cssFramework)
+	if err != nil {
+		return fmt.Errorf("failed to load kit %q: %w", cssFramework, err)
+	}
+
 	// Module name is provided by caller (defaults to app name)
 	data := AppData{
 		AppName:      appName,
 		ModuleName:   moduleName,
 		DevMode:      devMode,
-		CSSFramework: "tailwind", // Default to Tailwind for home page
+		Kit:          kit,
+		CSSFramework: cssFramework, // Keep for backward compatibility
 	}
 
 	// Create directory structure
@@ -86,27 +99,27 @@ func GenerateApp(appName, moduleName string, devMode bool) error {
 	}
 
 	// Generate main.go
-	if err := generateFile(string(mainGoTmpl), data, filepath.Join(appName, "cmd", appName, "main.go")); err != nil {
+	if err := generateFile(string(mainGoTmpl), data, filepath.Join(appName, "cmd", appName, "main.go"), kit); err != nil {
 		return fmt.Errorf("failed to generate main.go: %w", err)
 	}
 
 	// Generate go.mod
-	if err := generateFile(string(goModTmpl), data, filepath.Join(appName, "go.mod")); err != nil {
+	if err := generateFile(string(goModTmpl), data, filepath.Join(appName, "go.mod"), kit); err != nil {
 		return fmt.Errorf("failed to generate go.mod: %w", err)
 	}
 
 	// Generate database/db.go
-	if err := generateFile(string(dbGoTmpl), data, filepath.Join(appName, "internal", "database", "db.go")); err != nil {
+	if err := generateFile(string(dbGoTmpl), data, filepath.Join(appName, "internal", "database", "db.go"), kit); err != nil {
 		return fmt.Errorf("failed to generate db.go: %w", err)
 	}
 
 	// Generate database/sqlc.yaml
-	if err := generateFile(string(sqlcYamlTmpl), data, filepath.Join(appName, "internal", "database", "sqlc.yaml")); err != nil {
+	if err := generateFile(string(sqlcYamlTmpl), data, filepath.Join(appName, "internal", "database", "sqlc.yaml"), kit); err != nil {
 		return fmt.Errorf("failed to generate sqlc.yaml: %w", err)
 	}
 
 	// Generate placeholder models.go (will be replaced by sqlc)
-	if err := generateFile(string(modelsGoTmpl), data, filepath.Join(appName, "internal", "database", "models", "models.go")); err != nil {
+	if err := generateFile(string(modelsGoTmpl), data, filepath.Join(appName, "internal", "database", "models", "models.go"), kit); err != nil {
 		return fmt.Errorf("failed to generate models.go: %w", err)
 	}
 
@@ -120,12 +133,12 @@ func GenerateApp(appName, moduleName string, devMode bool) error {
 	}
 
 	// Generate home page handler
-	if err := generateFile(string(homeGoTmpl), data, filepath.Join(appName, "internal", "app", "home", "home.go")); err != nil {
+	if err := generateFile(string(homeGoTmpl), data, filepath.Join(appName, "internal", "app", "home", "home.go"), kit); err != nil {
 		return fmt.Errorf("failed to generate home.go: %w", err)
 	}
 
 	// Generate home page template
-	if err := generateFile(string(homeTmplTmpl), data, filepath.Join(appName, "internal", "app", "home", "home.tmpl")); err != nil {
+	if err := generateFile(string(homeTmplTmpl), data, filepath.Join(appName, "internal", "app", "home", "home.tmpl"), kit); err != nil {
 		return fmt.Errorf("failed to generate home.tmpl: %w", err)
 	}
 

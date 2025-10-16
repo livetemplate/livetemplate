@@ -4,6 +4,8 @@ import (
 	"embed"
 	"strings"
 	"text/template"
+
+	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
 )
 
 //go:embed templates/*
@@ -18,11 +20,12 @@ type ResourceData struct {
 	ResourceNamePlural   string // Plural, capitalized (e.g., "Users")
 	TableName            string // Plural table name (e.g., "users")
 	Fields               []FieldData
-	CSSFramework         string // CSS framework: "tailwind", "bulma", "pico", "none"
-	DevMode              bool   // Use local client library instead of CDN
-	PaginationMode       string // Pagination mode: "infinite", "load-more", "prev-next", "numbers"
-	PageSize             int    // Page size for pagination
-	EditMode             string // Edit mode: "modal", "page"
+	Kit                  *kits.KitInfo // CSS framework kit (new)
+	CSSFramework         string        // CSS framework name: "tailwind", "bulma", "pico", "none" (for backward compatibility)
+	DevMode              bool          // Use local client library instead of CDN
+	PaginationMode       string        // Pagination mode: "infinite", "load-more", "prev-next", "numbers"
+	PageSize             int           // Page size for pagination
+	EditMode             string        // Edit mode: "modal", "page"
 }
 
 type FieldData struct {
@@ -38,8 +41,9 @@ type FieldData struct {
 type AppData struct {
 	AppName      string
 	ModuleName   string
-	DevMode      bool   // Use local client library instead of CDN
-	CSSFramework string // CSS framework for home page
+	Kit          *kits.KitInfo // CSS framework kit (new)
+	DevMode      bool          // Use local client library instead of CDN
+	CSSFramework string        // CSS framework name for home page (for backward compatibility)
 }
 
 var funcMap = template.FuncMap{
