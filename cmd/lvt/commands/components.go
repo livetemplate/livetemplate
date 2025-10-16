@@ -9,11 +9,12 @@ import (
 
 	"github.com/livefir/livetemplate/cmd/lvt/internal/components"
 	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
+	"github.com/livefir/livetemplate/cmd/lvt/internal/validator"
 )
 
 func Components(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("command required: list, create, info")
+		return fmt.Errorf("command required: list, create, info, validate")
 	}
 
 	command := args[0]
@@ -25,8 +26,10 @@ func Components(args []string) error {
 		return createComponent(args[1:])
 	case "info":
 		return infoComponent(args[1:])
+	case "validate":
+		return validateComponent(args[1:])
 	default:
-		return fmt.Errorf("unknown command: %s (expected: list, create, info)", command)
+		return fmt.Errorf("unknown command: %s (expected: list, create, info, validate)", command)
 	}
 }
 
@@ -348,6 +351,27 @@ func infoComponent(args []string) error {
 		fmt.Println("Documentation:")
 		fmt.Println(strings.Repeat("-", 60))
 		fmt.Println(string(content))
+	}
+
+	return nil
+}
+
+func validateComponent(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("component path required")
+	}
+
+	componentPath := args[0]
+
+	// Run validation
+	result := validator.ValidateComponent(componentPath)
+
+	// Print results
+	fmt.Println(result.Format())
+
+	// Return error if validation failed
+	if !result.Valid {
+		return fmt.Errorf("validation failed with %d error(s)", result.ErrorCount())
 	}
 
 	return nil

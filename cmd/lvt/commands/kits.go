@@ -8,11 +8,12 @@ import (
 	"strings"
 
 	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
+	"github.com/livefir/livetemplate/cmd/lvt/internal/validator"
 )
 
 func Kits(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("command required: list, create, info")
+		return fmt.Errorf("command required: list, create, info, validate")
 	}
 
 	command := args[0]
@@ -24,8 +25,10 @@ func Kits(args []string) error {
 		return createKit(args[1:])
 	case "info":
 		return infoKit(args[1:])
+	case "validate":
+		return validateKit(args[1:])
 	default:
-		return fmt.Errorf("unknown command: %s (expected: list, create, info)", command)
+		return fmt.Errorf("unknown command: %s (expected: list, create, info, validate)", command)
 	}
 }
 
@@ -434,6 +437,27 @@ func infoKit(args []string) error {
 		fmt.Println("Documentation:")
 		fmt.Println(strings.Repeat("-", 60))
 		fmt.Println(string(content))
+	}
+
+	return nil
+}
+
+func validateKit(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("kit path required")
+	}
+
+	kitPath := args[0]
+
+	// Run validation
+	result := validator.ValidateKit(kitPath)
+
+	// Print results
+	fmt.Println(result.Format())
+
+	// Return error if validation failed
+	if !result.Valid {
+		return fmt.Errorf("validation failed with %d error(s)", result.ErrorCount())
 	}
 
 	return nil
