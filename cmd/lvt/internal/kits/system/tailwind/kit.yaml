@@ -1,10 +1,11 @@
 name: tailwind
 version: 3.4.0
 description: Tailwind CSS utility-first framework kit
+framework: tailwind
 author: LiveTemplate Team
 license: MIT
 
-css_cdn: https://cdn.jsdelivr.net/npm/tailwindcss@3.4.0/dist/tailwind.min.css
+cdn: https://cdn.jsdelivr.net/npm/tailwindcss@3.4.0/dist/tailwind.min.css
 
 features:
   - Utility-first CSS classes

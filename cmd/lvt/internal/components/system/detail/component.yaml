@@ -48,7 +48,7 @@ inputs:
     description: Array of field definitions with Name, GoType, IsTextarea properties
 
 dependencies:
-  - editForm
+  - form
 
 templates:
   - detail.tmpl

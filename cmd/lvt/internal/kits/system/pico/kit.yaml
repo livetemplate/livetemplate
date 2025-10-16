@@ -1,10 +1,11 @@
 name: pico
 version: 1.5.0
 description: Pico CSS minimal semantic framework kit
+framework: pico
 author: LiveTemplate Team
 license: MIT
 
-css_cdn: https://cdn.jsdelivr.net/npm/@picocss/pico@1.5.0/css/pico.min.css
+cdn: https://cdn.jsdelivr.net/npm/@picocss/pico@1.5.0/css/pico.min.css
 
 features:
   - Minimal and semantic HTML

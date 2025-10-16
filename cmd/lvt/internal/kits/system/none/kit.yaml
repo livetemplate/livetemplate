@@ -1,10 +1,11 @@
 name: none
 version: 1.0.0
 description: Plain HTML with no CSS framework (vanilla)
+framework: none
 author: LiveTemplate Team
 license: MIT
 
-css_cdn: ""
+cdn: ""
 
 features:
   - Pure semantic HTML

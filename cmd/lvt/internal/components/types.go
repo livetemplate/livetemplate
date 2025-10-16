@@ -22,6 +22,9 @@ const (
 	CategoryLayout     ComponentCategory = "layout"
 	CategoryData       ComponentCategory = "data"
 	CategoryNavigation ComponentCategory = "navigation"
+	CategoryTable      ComponentCategory = "table"
+	CategoryToolbar    ComponentCategory = "toolbar"
+	CategoryDetail     ComponentCategory = "detail"
 )
 
 // InputType represents the type of an input parameter
@@ -99,11 +102,14 @@ func (m *ComponentManifest) Validate() error {
 		CategoryLayout:     true,
 		CategoryData:       true,
 		CategoryNavigation: true,
+		CategoryTable:      true,
+		CategoryToolbar:    true,
+		CategoryDetail:     true,
 	}
 	if !validCategories[m.Category] {
 		return ErrInvalidManifest{
 			Field:  "category",
-			Reason: "category must be one of: base, form, layout, data, navigation",
+			Reason: "category must be one of: base, form, layout, data, navigation, table, toolbar, detail",
 		}
 	}
 

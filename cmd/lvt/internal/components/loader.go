@@ -303,7 +303,9 @@ func loadTemplates(componentPath string, templateFiles []string) (map[string]*te
 			}
 		}
 
-		tmpl, err := template.New(filename).Parse(string(data))
+		// Parse with [[ ]] delimiters for generation-time templates
+		// Provide stub FuncMap for kit helper functions
+		tmpl, err := template.New(filename).Delims("[[", "]]").Funcs(getStubFuncMap()).Parse(string(data))
 		if err != nil {
 			return nil, ErrTemplateParse{
 				Path: templatePath,
@@ -331,7 +333,9 @@ func loadTemplatesFromEmbed(embedFS *embed.FS, componentPath string, templateFil
 			}
 		}
 
-		tmpl, err := template.New(filename).Parse(string(data))
+		// Parse with [[ ]] delimiters for generation-time templates
+		// Provide stub FuncMap for kit helper functions
+		tmpl, err := template.New(filename).Delims("[[", "]]").Funcs(getStubFuncMap()).Parse(string(data))
 		if err != nil {
 			return nil, ErrTemplateParse{
 				Path: templatePath,
@@ -343,6 +347,70 @@ func loadTemplatesFromEmbed(embedFS *embed.FS, componentPath string, templateFil
 	}
 
 	return templates, nil
+}
+
+// getStubFuncMap returns a FuncMap with stub implementations of all kit helper functions
+// This allows component templates to be parsed without errors
+func getStubFuncMap() template.FuncMap {
+	stubString := func(args ...interface{}) string { return "" }
+	stubBool := func(args ...interface{}) bool { return false }
+
+	return template.FuncMap{
+		// Container & Layout
+		"containerClass": stubString,
+		"boxClass":       stubString,
+		"needsWrapper":   stubBool,
+		"needsArticle":   stubBool,
+
+		// Typography
+		"titleClass":    stubString,
+		"subtitleClass": stubString,
+
+		// Buttons
+		"buttonClass": stubString,
+
+		// Forms
+		"fieldClass":         stubString,
+		"labelClass":         stubString,
+		"inputClass":         stubString,
+		"selectClass":        stubString,
+		"selectWrapperClass": stubString,
+		"textareaClass":      stubString,
+		"checkboxClass":      stubString,
+		"checkboxInputClass": stubString,
+		"checkboxLabelClass": stubString,
+
+		// Tables
+		"tableClass":        stubString,
+		"needsTableWrapper": stubBool,
+		"tableWrapperClass": stubString,
+
+		// Pagination
+		"paginationClass":        stubString,
+		"paginationButtonClass":  stubString,
+		"paginationInfoClass":    stubString,
+		"paginationCurrentClass": stubString,
+		"paginationActiveClass":  stubString,
+
+		// Loading & Error States
+		"loadingClass": stubString,
+		"errorClass":   stubString,
+
+		// Display Field
+		"displayField": func(fields []string) string {
+			if len(fields) > 0 {
+				return fields[0]
+			}
+			return ""
+		},
+
+		// CSS CDN
+		"csscdn": stubString,
+
+		// Template helper functions
+		"title":     func(s string) string { return s },
+		"camelCase": func(s string) string { return s },
+	}
 }
 
 // matchesOptions checks if a component matches search options
