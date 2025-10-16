@@ -72,9 +72,9 @@ type [[.ResourceName]]State struct {
 	Paginated[[.ResourceNamePlural]] [][[.ResourceName]]Item `json:"paginated_[[.ResourceNameLower]]s"`
 	TotalCount   int                   `json:"total_count"`
 	LastUpdated  string                `json:"last_updated"`
-	IsAdding     bool                  `json:"is_adding"`
 	EditingID    string                `json:"editing_id"`
 	Editing[[.ResourceName]] *[[.ResourceName]]Item   `json:"editing_[[.ResourceNameLower]]"`
+	IsEditingMode bool                 `json:"is_editing_mode"` // For page mode: true when at /resource/:id/edit
 	PaginationMode string              `json:"pagination_mode"` // "infinite", "load-more", "prev-next", "numbers"
 	LoadedCount    int                 `json:"loaded_count"`    // For infinite/load-more modes
 	HasMore        bool                `json:"has_more"`        // Whether more items available
@@ -86,9 +86,6 @@ func (s *[[.ResourceName]]State) Change(ctx *livetemplate.ActionContext) error {
 	dbCtx := context.Background()
 
 	switch ctx.Action {
-	case "open_add":
-		s.IsAdding = true
-
 	case "add":
 		var input AddInput
 		if err := ctx.BindAndValidate(&input, validate); err != nil {
@@ -108,9 +105,6 @@ func (s *[[.ResourceName]]State) Change(ctx *livetemplate.ActionContext) error {
 		if err != nil {
 			return fmt.Errorf("failed to create [[.ResourceNameLower]]: %w", err)
 		}
-
-		// Close add modal after successful creation
-		s.IsAdding = false
 
 		if err := s.load[[.ResourceName]]s(dbCtx); err != nil {
 			return err
@@ -153,20 +147,29 @@ func (s *[[.ResourceName]]State) Change(ctx *livetemplate.ActionContext) error {
 			return fmt.Errorf("failed to update [[.ResourceNameLower]]: %w", err)
 		}
 
-		// Clear editing state
-		s.EditingID = ""
-		s.Editing[[.ResourceName]] = nil
+		// For page mode: Exit edit mode and stay on detail view
+		s.IsEditingMode = false
 
+		// Reload the updated resource
 		if err := s.load[[.ResourceName]]s(dbCtx); err != nil {
 			return err
+		}
+
+		// Re-fetch the updated resource for display
+		[[.ResourceNameLower]]s, err := s.Queries.GetAll[[.ResourceNamePlural]](dbCtx)
+		if err == nil {
+			for _, item := range [[.ResourceNameLower]]s {
+				if item.ID == input.ID {
+					itemCopy := item
+					s.Editing[[.ResourceName]] = &itemCopy
+					break
+				}
+			}
 		}
 
 	case "cancel_edit":
 		s.EditingID = ""
 		s.Editing[[.ResourceName]] = nil
-
-	case "cancel_add":
-		s.IsAdding = false
 
 	case "view":
 		var input DeleteInput
@@ -434,5 +437,65 @@ func Handler(queries *models.Queries) http.Handler {
 		log.Fatalf("Failed to parse template: %v", err)
 	}
 
+[[- if eq .EditMode "page"]]
+	// Page mode: Support URL-based routing for resource detail and edit views
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Parse resource ID from URL path (e.g., /products/product-123 or /products/product-123/edit)
+		urlPath := strings.TrimPrefix(r.URL.Path, "/[[.ResourceNameLower]]")
+		urlPath = strings.TrimPrefix(urlPath, "/")
+
+		if urlPath != "" && r.Method == http.MethodGet {
+			// Check if this is an edit URL (/products/:id/edit)
+			isEditMode := strings.HasSuffix(urlPath, "/edit")
+			if isEditMode {
+				urlPath = strings.TrimSuffix(urlPath, "/edit")
+			}
+
+			// Extract resource ID
+			resourceID := strings.Split(urlPath, "/")[0]
+			if resourceID == "" {
+				// Invalid URL, fall back to list view
+				livetemplate.Mount(tmpl, state).ServeHTTP(w, r)
+				return
+			}
+
+			// Create state with EditingID and IsEditingMode set
+			resourceState := &[[.ResourceName]]State{
+				Title:          "[[.ResourceName]] Management",
+				Queries:        queries,
+				CurrentPage:    1,
+				PageSize:       [[.PageSize]],
+				PaginationMode: "[[.PaginationMode]]",
+				LoadedCount:    [[if or (eq .PaginationMode "infinite") (eq .PaginationMode "load-more")]][[.PageSize]][[else]]0[[end]],
+				LastUpdated:    formatTime(),
+				CSSFramework:   "[[.CSSFramework]]",
+				IsEditingMode:  isEditMode,
+			}
+
+			if err := resourceState.Init(); err == nil {
+				// Find and set the editing resource
+				[[.ResourceNameLower]]s, err := queries.GetAll[[.ResourceNamePlural]](context.Background())
+				if err == nil {
+					for _, item := range [[.ResourceNameLower]]s {
+						if item.ID == resourceID {
+							resourceState.EditingID = resourceID
+							itemCopy := item
+							resourceState.Editing[[.ResourceName]] = &itemCopy
+							break
+						}
+					}
+				}
+			}
+
+			// Mount with custom state
+			livetemplate.Mount(tmpl, resourceState).ServeHTTP(w, r)
+			return
+		}
+
+		// Default: list view
+		livetemplate.Mount(tmpl, state).ServeHTTP(w, r)
+	})
+[[- else]]
 	return livetemplate.Mount(tmpl, state)
+[[- end]]
 }

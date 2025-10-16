@@ -381,8 +381,8 @@ func TestTutorialE2E(t *testing.T) {
 			validateNoTemplateExpressions("[data-lvt-id]"), // Validate no raw template expressions
 
 			// Click the "+ Add Posts" button in toolbar to open modal
-			chromedp.WaitVisible(`button[lvt-click="open_add"]`, chromedp.ByQuery),
-			chromedp.Click(`button[lvt-click="open_add"]`, chromedp.ByQuery),
+			chromedp.WaitVisible(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
+			chromedp.Click(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
 			chromedp.Sleep(500*time.Millisecond), // Wait for modal to appear
 
 			// Fill in the form in the modal
@@ -706,8 +706,8 @@ func TestTutorialE2E(t *testing.T) {
 			validateNoTemplateExpressions("[data-lvt-id]"), // Validate no raw template expressions
 
 			// Click the "+ Add Posts" button in toolbar to open modal
-			chromedp.WaitVisible(`button[lvt-click="open_add"]`, chromedp.ByQuery),
-			chromedp.Click(`button[lvt-click="open_add"]`, chromedp.ByQuery),
+			chromedp.WaitVisible(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
+			chromedp.Click(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
 			chromedp.Sleep(500*time.Millisecond), // Wait for modal to appear
 
 			// Submit form WITHOUT filling required fields

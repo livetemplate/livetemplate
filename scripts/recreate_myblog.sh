@@ -86,8 +86,22 @@ echo "✅ Migrations complete"
 echo ""
 echo "✨ myblog recreated successfully!"
 echo ""
-echo "To run the app:"
-echo "  cd $MYBLOG_DIR"
-echo "  go run cmd/myblog/main.go"
+
+# Step 8: Kill any previous server on port 8080
+echo "🔪 Checking for existing server on port 8080..."
+if lsof -ti:8080 > /dev/null 2>&1; then
+    echo "   Killing existing server..."
+    lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+    sleep 1
+    echo "✅ Previous server stopped"
+else
+    echo "✅ No existing server found"
+fi
+
+# Step 9: Start the new server
 echo ""
-echo "Then visit: http://localhost:8080"
+echo "🚀 Starting myblog server..."
+echo "   Visit: http://localhost:8080"
+echo ""
+cd "$MYBLOG_DIR"
+go run cmd/myblog/main.go

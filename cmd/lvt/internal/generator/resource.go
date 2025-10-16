@@ -202,17 +202,32 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 	// Inject router registration into main.go
 	mainGoPath := findMainGo(basePath)
 	if mainGoPath != "" {
-		route := RouteInfo{
-			Path:        "/" + resourceNameLower,
-			PackageName: resourceNameLower,
-			HandlerCall: resourceNameLower + ".Handler(queries)",
-			ImportPath:  moduleName + "/internal/app/" + resourceNameLower,
+		routes := []RouteInfo{
+			{
+				Path:        "/" + resourceNameLower,
+				PackageName: resourceNameLower,
+				HandlerCall: resourceNameLower + ".Handler(queries)",
+				ImportPath:  moduleName + "/internal/app/" + resourceNameLower,
+			},
 		}
-		if err := InjectRoute(mainGoPath, route); err != nil {
-			// Log warning but don't fail - user can add route manually
-			fmt.Printf("⚠️  Could not auto-inject route: %v\n", err)
-			fmt.Printf("   Please add manually: http.Handle(\"/%s\", %s.Handler(queries))\n",
-				resourceNameLower, resourceNameLower)
+
+		// For page mode, also register wildcard route for resource detail URLs
+		if editMode == "page" {
+			routes = append(routes, RouteInfo{
+				Path:        "/" + resourceNameLower + "/",
+				PackageName: resourceNameLower,
+				HandlerCall: resourceNameLower + ".Handler(queries)",
+				ImportPath:  moduleName + "/internal/app/" + resourceNameLower,
+			})
+		}
+
+		for _, route := range routes {
+			if err := InjectRoute(mainGoPath, route); err != nil {
+				// Log warning but don't fail - user can add route manually
+				fmt.Printf("⚠️  Could not auto-inject route %s: %v\n", route.Path, err)
+				fmt.Printf("   Please add manually: http.Handle(\"%s\", %s.Handler(queries))\n",
+					route.Path, resourceNameLower)
+			}
 		}
 	}
 

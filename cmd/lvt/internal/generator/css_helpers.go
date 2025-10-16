@@ -197,14 +197,14 @@ func CSSHelpers() template.FuncMap {
 				} else if variant == "secondary" {
 					return "bg-gray-600 text-white px-2 py-1 text-sm rounded hover:bg-gray-700"
 				}
-				return "bg-red-600 text-white px-2 py-1 text-sm rounded hover:bg-red-700"
+				return "bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 disabled:opacity-50"
 			case "bulma":
 				if variant == "primary" {
 					return "button is-primary"
 				} else if variant == "secondary" {
 					return "button is-small"
 				}
-				return "button is-danger is-small"
+				return "button is-danger"
 			case "pico":
 				return "" // Pico styles buttons automatically
 			case "none":
@@ -215,7 +215,7 @@ func CSSHelpers() template.FuncMap {
 				} else if variant == "secondary" {
 					return "bg-gray-600 text-white px-2 py-1 text-sm rounded hover:bg-gray-700"
 				}
-				return "bg-red-600 text-white px-2 py-1 text-sm rounded hover:bg-red-700"
+				return "bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 disabled:opacity-50"
 			}
 		},
 

@@ -1,11 +1,24 @@
 {{/* Detail page for page mode - view/edit a single resource */}}
 {{define "detailPage"}}
   {{if .Editing[[.ResourceName]]}}
-  <!-- Detail Page Toolbar -->
+  {{if .IsEditingMode}}
+  <!-- Edit Mode -->
   <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid #e5e7eb;">
-    <button[[if ne (buttonClass .CSSFramework "secondary") ""]] class="[[buttonClass .CSSFramework "secondary"]]"[[end]] lvt-click="back" style="margin-right: auto;">
+    <a href="/[[.ResourceNameLower]]/{{.EditingID}}"[[if ne (buttonClass .CSSFramework "secondary") ""]] class="[[buttonClass .CSSFramework "secondary"]]"[[end]] style="margin-right: auto; text-decoration: none;">
       ← Back
-    </button>
+    </a>
+  </div>
+
+  {{template "editForm" .}}
+  {{else}}
+  <!-- View Mode -->
+  <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid #e5e7eb;">
+    <a href="/[[.ResourceNameLower]]"[[if ne (buttonClass .CSSFramework "secondary") ""]] class="[[buttonClass .CSSFramework "secondary"]]"[[end]] style="margin-right: auto; text-decoration: none;">
+      ← Back
+    </a>
+    <a href="/[[.ResourceNameLower]]/{{.EditingID}}/edit"[[if ne (buttonClass .CSSFramework "primary") ""]] class="[[buttonClass .CSSFramework "primary"]]"[[end]] style="text-decoration: none;">
+      Edit
+    </a>
     <button[[if ne (buttonClass .CSSFramework "danger") ""]] class="[[buttonClass .CSSFramework "danger"]]"[[end]] lvt-click="delete" lvt-data-id="{{.EditingID}}" lvt-confirm="Are you sure you want to delete this [[.ResourceNameLower]]?">
       Delete
     </button>
@@ -32,5 +45,6 @@
     </div>
 [[- end]]
   </div>
+  {{end}}
   {{end}}
 {{end}}

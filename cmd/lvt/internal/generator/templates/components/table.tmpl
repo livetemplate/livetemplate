@@ -26,18 +26,20 @@
 [[- $displayField := displayField .Fields]]
         <tbody>
           {{range .Paginated[[.ResourceNamePlural]]}}
-[[- if eq $.EditMode "page"]]
-            <tr data-key="{{.ID}}" style="cursor: pointer;" lvt-click="view" lvt-data-id="{{.ID}}">
-[[- else]]
             <tr data-key="{{.ID}}">
-[[- end]]
               <td style="word-wrap: break-word; overflow-wrap: break-word; width: auto; padding: 12px 8px;">
+[[- if eq $.EditMode "page"]]
+                <a href="/[[$.ResourceNameLower]]/{{.ID}}" style="display: block; text-decoration: none; color: inherit;">
+[[- end]]
 [[- if eq $displayField.GoType "bool"]]
-                {{if .[[$displayField.Name | title]]}}✓{{else}}✗{{end}}
+                  {{if .[[$displayField.Name | title]]}}✓{{else}}✗{{end}}
 [[- else if eq $displayField.GoType "time.Time"]]
-                {{.[[$displayField.Name | title]].Format "2006-01-02 15:04"}}
+                  {{.[[$displayField.Name | title]].Format "2006-01-02 15:04"}}
 [[- else]]
-                {{.[[$displayField.Name | title]]}}
+                  {{.[[$displayField.Name | title]]}}
+[[- end]]
+[[- if eq $.EditMode "page"]]
+                </a>
 [[- end]]
               </td>
 [[- if eq $.EditMode "modal"]]

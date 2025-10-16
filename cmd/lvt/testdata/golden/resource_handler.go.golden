@@ -58,9 +58,9 @@ type UserState struct {
 	PaginatedUsers []UserItem `json:"paginated_users"`
 	TotalCount   int                   `json:"total_count"`
 	LastUpdated  string                `json:"last_updated"`
-	IsAdding     bool                  `json:"is_adding"`
 	EditingID    string                `json:"editing_id"`
 	EditingUser *UserItem   `json:"editing_user"`
+	IsEditingMode bool                 `json:"is_editing_mode"` // For page mode: true when at /resource/:id/edit
 	PaginationMode string              `json:"pagination_mode"` // "infinite", "load-more", "prev-next", "numbers"
 	LoadedCount    int                 `json:"loaded_count"`    // For infinite/load-more modes
 	HasMore        bool                `json:"has_more"`        // Whether more items available
@@ -72,9 +72,6 @@ func (s *UserState) Change(ctx *livetemplate.ActionContext) error {
 	dbCtx := context.Background()
 
 	switch ctx.Action {
-	case "open_add":
-		s.IsAdding = true
-
 	case "add":
 		var input AddInput
 		if err := ctx.BindAndValidate(&input, validate); err != nil {
@@ -93,9 +90,6 @@ func (s *UserState) Change(ctx *livetemplate.ActionContext) error {
 		if err != nil {
 			return fmt.Errorf("failed to create user: %w", err)
 		}
-
-		// Close add modal after successful creation
-		s.IsAdding = false
 
 		if err := s.loadUsers(dbCtx); err != nil {
 			return err
@@ -137,20 +131,29 @@ func (s *UserState) Change(ctx *livetemplate.ActionContext) error {
 			return fmt.Errorf("failed to update user: %w", err)
 		}
 
-		// Clear editing state
-		s.EditingID = ""
-		s.EditingUser = nil
+		// For page mode: Exit edit mode and stay on detail view
+		s.IsEditingMode = false
 
+		// Reload the updated resource
 		if err := s.loadUsers(dbCtx); err != nil {
 			return err
+		}
+
+		// Re-fetch the updated resource for display
+		users, err := s.Queries.GetAllUsers(dbCtx)
+		if err == nil {
+			for _, item := range users {
+				if item.ID == input.ID {
+					itemCopy := item
+					s.EditingUser = &itemCopy
+					break
+				}
+			}
 		}
 
 	case "cancel_edit":
 		s.EditingID = ""
 		s.EditingUser = nil
-
-	case "cancel_add":
-		s.IsAdding = false
 
 	case "view":
 		var input DeleteInput
@@ -409,6 +412,5 @@ func Handler(queries *models.Queries) http.Handler {
 	if _, err := tmpl.ParseFiles("internal/app/user/user.tmpl"); err != nil {
 		log.Fatalf("Failed to parse template: %v", err)
 	}
-
 	return livetemplate.Mount(tmpl, state)
 }

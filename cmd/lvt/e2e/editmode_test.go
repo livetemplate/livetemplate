@@ -73,15 +73,15 @@ func TestEditModePage(t *testing.T) {
 		t.Log("✅ Template has detailPage definition for page mode")
 	}
 
-	// Check for clickable table rows with lvt-click="view"
-	if !strings.Contains(tmplStr, `lvt-click="view"`) {
-		t.Error("❌ Template missing view click handler on table rows")
+	// Check for clickable table rows with anchor links (page mode uses standard navigation)
+	if !strings.Contains(tmplStr, `<a href="/`) || !strings.Contains(tmplStr, `{{.ID}}">`) {
+		t.Error("❌ Template missing anchor links for navigation on table rows")
 	} else {
-		t.Log("✅ Template has view click handler on table rows")
+		t.Log("✅ Template has anchor links for navigation on table rows")
 	}
 
-	// Check for back button
-	if !strings.Contains(tmplStr, `lvt-click="back"`) {
+	// Check for back button with anchor link (page mode uses standard navigation)
+	if !strings.Contains(tmplStr, `← Back`) {
 		t.Error("❌ Template missing back button")
 	} else {
 		t.Log("✅ Template has back button for returning to list")

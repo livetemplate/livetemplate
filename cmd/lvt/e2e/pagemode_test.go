@@ -335,7 +335,7 @@ func TestPageModeRendering(t *testing.T) {
 		e2etest.WaitForWebSocketReady(5*time.Second),           // Wait for WebSocket init and first update
 		e2etest.ValidateNoTemplateExpressions("[data-lvt-id]"), // Validate no raw template expressions
 		chromedp.OuterHTML("html", &pageHTML),
-		chromedp.Evaluate(`document.querySelector('[lvt-click="open_add"]') !== null`, &addButtonExists),
+		chromedp.Evaluate(`document.querySelector('[lvt-modal-open="add-modal"]') !== null`, &addButtonExists),
 		chromedp.Evaluate(`document.querySelector('table') !== null || document.querySelector('p') !== null`, &tableExists),
 		chromedp.Evaluate(`document.body.innerText.includes('No products') || document.body.innerText.includes('Add')`, &emptyMessageExists),
 	)

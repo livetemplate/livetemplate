@@ -424,6 +424,7 @@ export class LiveTemplateClient {
         client.setupEventDelegation();
         client.setupWindowEventDelegation();
         client.setupClickAwayDelegation();
+        client.setupModalDelegation();
 
         // Initialize focusable elements tracking
         client.updateFocusableElements();
@@ -1022,6 +1023,159 @@ export class LiveTemplateClient {
 
     (document as any)[listenerKey] = listener;
     document.addEventListener('click', listener);
+  }
+
+  /**
+   * Set up modal handling for lvt-modal-open and lvt-modal-close attributes
+   * Allows client-side modal toggling without server roundtrip
+   */
+  private setupModalDelegation(): void {
+    if (!this.wrapperElement) return;
+
+    const wrapperId = this.wrapperElement.getAttribute('data-lvt-id');
+
+    // Handle modal open buttons
+    const openListenerKey = `__lvt_modal_open_${wrapperId}`;
+    const existingOpenListener = (document as any)[openListenerKey];
+    if (existingOpenListener) {
+      document.removeEventListener('click', existingOpenListener);
+    }
+
+    const openListener = (e: Event) => {
+      const target = (e.target as Element)?.closest('[lvt-modal-open]');
+      if (!target || !this.wrapperElement?.contains(target)) return;
+
+      const modalId = target.getAttribute('lvt-modal-open');
+      if (!modalId) return;
+
+      e.preventDefault();
+      this.openModal(modalId);
+    };
+
+    (document as any)[openListenerKey] = openListener;
+    document.addEventListener('click', openListener);
+
+    // Handle modal close buttons
+    const closeListenerKey = `__lvt_modal_close_${wrapperId}`;
+    const existingCloseListener = (document as any)[closeListenerKey];
+    if (existingCloseListener) {
+      document.removeEventListener('click', existingCloseListener);
+    }
+
+    const closeListener = (e: Event) => {
+      const target = (e.target as Element)?.closest('[lvt-modal-close]');
+
+      if (!target || !this.wrapperElement?.contains(target)) {
+        return;
+      }
+
+      const modalId = target.getAttribute('lvt-modal-close');
+      if (!modalId) return;
+
+      e.preventDefault();
+      this.closeModal(modalId);
+    };
+
+    (document as any)[closeListenerKey] = closeListener;
+    document.addEventListener('click', closeListener);
+
+    // Handle backdrop clicks (close on click outside)
+    const backdropListenerKey = `__lvt_modal_backdrop_${wrapperId}`;
+    const existingBackdropListener = (document as any)[backdropListenerKey];
+    if (existingBackdropListener) {
+      document.removeEventListener('click', existingBackdropListener);
+    }
+
+    const backdropListener = (e: Event) => {
+      const target = e.target as Element;
+      if (!target.hasAttribute('data-modal-backdrop')) return;
+
+      const modalId = target.getAttribute('data-modal-id');
+      if (modalId) {
+        this.closeModal(modalId);
+      }
+    };
+
+    (document as any)[backdropListenerKey] = backdropListener;
+    document.addEventListener('click', backdropListener);
+
+    // Handle Escape key to close modals
+    const escapeListenerKey = `__lvt_modal_escape_${wrapperId}`;
+    const existingEscapeListener = (document as any)[escapeListenerKey];
+    if (existingEscapeListener) {
+      document.removeEventListener('keydown', existingEscapeListener);
+    }
+
+    const escapeListener = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (!this.wrapperElement) return;
+
+      // Find any open modal (one without hidden attribute)
+      const openModals = this.wrapperElement.querySelectorAll('[role="dialog"]:not([hidden])');
+      if (openModals.length > 0) {
+        // Close the last opened modal (topmost)
+        const lastModal = openModals[openModals.length - 1];
+        if (lastModal.id) {
+          this.closeModal(lastModal.id);
+        }
+      }
+    };
+
+    (document as any)[escapeListenerKey] = escapeListener;
+    document.addEventListener('keydown', escapeListener);
+  }
+
+  /**
+   * Open a modal by ID
+   */
+  private openModal(modalId: string): void {
+    const modal = document.getElementById(modalId);
+    if (!modal) {
+      console.warn(`Modal with id="${modalId}" not found`);
+      return;
+    }
+
+    // Remove hidden attribute and explicitly set display to flex
+    // This ensures the modal is centered (closeModal sets display: none)
+    modal.removeAttribute('hidden');
+    modal.style.display = 'flex';
+
+    // Add aria attributes for accessibility
+    modal.setAttribute('aria-hidden', 'false');
+
+    // Emit custom event
+    modal.dispatchEvent(new CustomEvent('lvt:modal-opened', { bubbles: true }));
+
+    console.log(`[Modal] Opened modal: ${modalId}`);
+
+    // Focus first input in modal
+    const firstInput = modal.querySelector('input, textarea, select') as HTMLElement;
+    if (firstInput) {
+      setTimeout(() => firstInput.focus(), 100);
+    }
+  }
+
+  /**
+   * Close a modal by ID
+   */
+  private closeModal(modalId: string): void {
+    const modal = document.getElementById(modalId);
+    if (!modal) {
+      console.warn(`Modal with id="${modalId}" not found`);
+      return;
+    }
+
+    // Add hidden attribute and set display to none (inline flex style overrides hidden attribute)
+    modal.setAttribute('hidden', '');
+    modal.style.display = 'none';
+
+    // Add aria attributes for accessibility
+    modal.setAttribute('aria-hidden', 'true');
+
+    // Emit custom event
+    modal.dispatchEvent(new CustomEvent('lvt:modal-closed', { bubbles: true }));
+
+    console.log(`[Modal] Closed modal: ${modalId}`);
   }
 
   /**
@@ -1639,6 +1793,12 @@ export class LiveTemplateClient {
       if (this.activeForm) {
         // Emit lvt:success event
         this.activeForm.dispatchEvent(new CustomEvent('lvt:success', { detail: meta }));
+
+        // Auto-close modal if form is inside one
+        const modalParent = this.activeForm.closest('[role="dialog"]');
+        if (modalParent && modalParent.id) {
+          this.closeModal(modalParent.id);
+        }
 
         // Auto-reset form unless lvt-preserve is present
         if (!this.activeForm.hasAttribute('lvt-preserve')) {
