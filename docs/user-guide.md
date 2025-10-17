@@ -18,12 +18,13 @@ Welcome to the LiveTemplate components and kits system! This guide will help you
 
 ## Overview
 
-LiveTemplate provides two main building blocks for rapid web application development:
+LiveTemplate provides a unified **Kits** system for rapid web application development. Each kit is a complete package that includes:
 
-1. **Components** - Reusable UI template blocks (forms, tables, layouts, pagination, etc.)
-2. **Kits** - CSS framework integrations (Tailwind, Bulma, Pico, or plain HTML)
+1. **CSS Framework Integration** - Helpers for your chosen CSS framework
+2. **Components** - Reusable UI template blocks (forms, tables, layouts, pagination, etc.)
+3. **Templates** - Generator templates for resources, views, and apps
 
-Components are CSS-independent, while kits provide the styling layer. This separation allows you to use any component with any kit, giving you maximum flexibility.
+Kits are complete starter packages that include everything you need to build applications with a consistent design system.
 
 ### Key Features
 
@@ -89,69 +90,26 @@ The development server will:
 
 ---
 
-## Understanding Components
-
-Components are reusable template blocks that define UI structures. They are CSS-independent and work with any kit.
-
-### System Components
-
-LiveTemplate ships with these built-in components:
-
-| Component | Description | Inputs |
-|-----------|-------------|--------|
-| **layout** | Page layout with head, content, scripts | Title, EditMode |
-| **form** | Form with fields and validation | Resource, Fields, SubmitURL, Method |
-| **table** | Data table with pagination | Resource, Rows, Fields, Actions |
-| **pagination** | Page navigation controls | TotalPages, CurrentPage, BaseURL |
-| **toolbar** | Action toolbar with buttons | Title, Actions, SearchURL |
-| **detail** | Detail view for single record | Resource, Fields, Item |
-
-### Listing Components
-
-```bash
-# List all components
-lvt components list
-
-# Filter by source
-lvt components list --filter=system
-lvt components list --filter=local
-
-# Search by name
-lvt components list --search=form
-
-# Output as JSON
-lvt components list --format=json
-```
-
-### Component Information
-
-```bash
-# Get detailed information about a component
-lvt components info form
-
-# Output shows:
-# - Component name and version
-# - Description
-# - Inputs (data structure)
-# - Templates included
-# - Dependencies
-# - README content
-```
-
----
-
 ## Understanding Kits
 
-Kits provide CSS framework integration through a unified helper interface. Each kit implements ~60 helper methods that return appropriate CSS classes for the selected framework.
+Kits are complete starter packages that include:
+
+1. **CSS Framework Integration** - ~60 helper methods for generating CSS classes
+2. **Components** - Pre-built UI template blocks (form, table, layout, pagination, etc.)
+3. **Templates** - Generator templates for resources, views, and apps
+
+This unified approach ensures consistency across your application and makes it easy to switch or customize frameworks.
 
 ### System Kits
 
-| Kit | Framework | CDN | Description |
-|-----|-----------|-----|-------------|
-| **tailwind** | Tailwind CSS | ✅ | Utility-first CSS framework |
-| **bulma** | Bulma | ✅ | Modern CSS framework based on Flexbox |
-| **pico** | Pico CSS | ✅ | Minimal CSS framework for semantic HTML |
-| **none** | Plain HTML | ❌ | No CSS framework, semantic HTML only |
+| Kit | Framework | Includes | Description |
+|-----|-----------|----------|-------------|
+| **tailwind** | Tailwind CSS | CSS + Components + Templates | Utility-first CSS framework |
+| **bulma** | Bulma | CSS + Components + Templates | Modern CSS framework based on Flexbox |
+| **pico** | Pico CSS | CSS + Components + Templates | Minimal CSS framework for semantic HTML |
+| **none** | Plain HTML | CSS + Components + Templates | No CSS framework, semantic HTML only |
+
+Each system kit includes 9 components (form, table, layout, pagination, toolbar, detail, search, sort, stats) and complete generator templates.
 
 ### Listing Kits
 
@@ -186,106 +144,54 @@ lvt kits info tailwind
 
 ---
 
-## Using Components in Your Project
+## Customizing Kits
 
-### Method 1: Using `lvt gen` (Recommended)
+You can customize kits to match your project's specific needs. When you customize a kit, you copy it to your project or user directory where it can be modified.
 
-The easiest way to use components is through the `lvt gen` command:
+### Customization Command
 
 ```bash
-# Generate a resource with CRUD UI
-lvt gen products name price:float stock:int --css bulma
+# Copy entire kit to project directory (.lvt/kits/tailwind/)
+lvt kits customize tailwind
+
+# Copy to global config for all projects (~/.config/lvt/kits/tailwind/)
+lvt kits customize tailwind --global
+
+# Copy only components
+lvt kits customize tailwind --only components
+
+# Copy only templates
+lvt kits customize tailwind --only templates
 ```
 
-This automatically:
-1. Loads the specified kit (bulma)
-2. Uses system components (form, table, detail, layout)
-3. Generates handler files with proper data structures
-4. Generates template files using components
-5. Injects kit helper functions into templates
+### Customization Cascade
 
-### Method 2: Manual Template Usage
+LiveTemplate searches for kits in this order:
 
-You can also use components directly in your templates:
+1. **Project**: `.lvt/kits/<name>/` (highest priority)
+2. **User**: `~/.config/lvt/kits/<name>/`
+3. **System**: Embedded kits (fallback)
 
-```go
-// In your handler
-import "github.com/livefir/livetemplate/cmd/lvt/internal/kits"
+This allows you to:
+- Override kits per-project (`.lvt/kits/`)
+- Override kits globally (`~/.config/lvt/kits/`)
+- Fall back to system defaults
 
-// Load kit
-kitLoader := kits.DefaultLoader()
-kit, err := kitLoader.Load("tailwind")
-if err != nil {
-    log.Fatal(err)
-}
+### Example Workflow
 
-// Load component
-componentLoader := components.DefaultLoader()
-component, err := componentLoader.Load("form")
-if err != nil {
-    log.Fatal(err)
-}
+```bash
+# Start with Tailwind
+lvt new myapp --css tailwind
 
-// Create template with kit helpers
-tmpl := template.New("page").Funcs(kit.Helpers.TemplateFuncs())
-tmpl, err = tmpl.ParseFiles(component.GetTemplate("form"))
-if err != nil {
-    log.Fatal(err)
-}
+# Customize the form component
+lvt kits customize tailwind --only components
+cd .lvt/kits/tailwind/components
+# Edit form.tmpl to add custom fields or styling
 
-// Execute template
-data := map[string]interface{}{
-    "Title": "Create Product",
-    "Resource": "products",
-    "Fields": []Field{
-        {Name: "name", Type: "text", Label: "Product Name"},
-        {Name: "price", Type: "number", Label: "Price"},
-    },
-}
-tmpl.Execute(w, data)
+# Regenerate with customized component
+lvt gen products name price --css tailwind
+# Uses your customized form.tmpl from .lvt/kits/tailwind/
 ```
-
-### Available Helper Functions in Templates
-
-All kits provide these helper functions in templates:
-
-```html
-<!-- CDN link for CSS framework -->
-<link rel="stylesheet" href="[[csscdn]]">
-
-<!-- Layout helpers -->
-<div class="[[containerClass]]">
-  <section class="[[sectionClass]]">
-    <!-- content -->
-  </section>
-</div>
-
-<!-- Form helpers -->
-<form>
-  <div class="[[fieldClass]]">
-    <label class="[[labelClass]]">Name</label>
-    <input class="[[inputClass]]" type="text">
-  </div>
-  <button class="[[buttonClass "primary"]]">Submit</button>
-</form>
-
-<!-- Table helpers -->
-<table class="[[tableClass]]">
-  <thead class="[[tableHeaderClass]]">
-    <tr class="[[tableRowClass]]">
-      <th class="[[tableCellClass]]">Header</th>
-    </tr>
-  </thead>
-</table>
-
-<!-- Card helpers -->
-<div class="[[cardClass]]">
-  <div class="[[cardHeaderClass]]">Header</div>
-  <div class="[[cardBodyClass]]">Body</div>
-</div>
-```
-
-See [API Reference](api-reference.md) for complete list of helper functions.
 
 ---
 
@@ -386,22 +292,6 @@ lvt gen <resource> [fields...] [--css framework]
 lvt serve [--port 3000] [--mode app|component|kit]
 ```
 
-### Component Commands
-
-```bash
-# List components
-lvt components list [--filter system|local|all] [--format table|json]
-
-# Get component info
-lvt components info <name>
-
-# Create new component
-lvt components create <name> [--category category]
-
-# Validate component
-lvt components validate <path>
-```
-
 ### Kit Commands
 
 ```bash
@@ -413,6 +303,9 @@ lvt kits info <name>
 
 # Create new kit
 lvt kits create <name>
+
+# Customize existing kit
+lvt kits customize <name> [--global] [--only components|templates]
 
 # Validate kit
 lvt kits validate <path>

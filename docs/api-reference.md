@@ -159,14 +159,21 @@ version: string                  # Semantic version (e.g., "1.0.0")
 description: string              # Brief description of CSS framework
 
 # Framework information
-framework:
-  name: string                   # Framework display name (e.g., "Tailwind CSS")
-  version: string                # Framework version (e.g., "3.4.0")
-  url: string                    # Framework homepage URL
-  js: string                     # JavaScript CDN (optional)
+framework: string                # Framework name (e.g., "tailwind", "bulma")
+author: string                   # Kit author (optional)
+license: string                  # License (e.g., "MIT") (optional)
 
 # CDN link (optional but recommended)
 cdn: string                      # CSS CDN URL
+
+# Components included in this kit
+components: []string             # List of component template files
+
+# Templates included in this kit
+templates:
+  resource: bool                 # Includes resource templates
+  view: bool                     # Includes view templates
+  app: bool                      # Includes app templates
 
 # Categorization
 tags: []string                   # Searchable tags
@@ -179,11 +186,14 @@ tags: []string                   # Searchable tags
 | `name` | string | Yes | Unique kit name (lowercase, alphanumeric, hyphens only) |
 | `version` | string | Yes | Semantic version following semver spec |
 | `description` | string | Yes | Brief description of the CSS framework |
-| `framework.name` | string | Yes | Human-readable framework name |
-| `framework.version` | string | Yes | CSS framework version |
-| `framework.url` | string | No | Framework homepage or documentation URL |
-| `framework.js` | string | No | JavaScript CDN URL (for frameworks needing JS) |
+| `framework` | string | Yes | Framework identifier (e.g., "tailwind", "bulma", "pico") |
+| `author` | string | No | Kit author name or organization |
+| `license` | string | No | License type (e.g., "MIT", "Apache 2.0") |
 | `cdn` | string | No | CSS CDN URL (recommended if framework provides CDN) |
+| `components` | []string | No | List of component template files included in this kit |
+| `templates.resource` | bool | No | Whether kit includes resource templates |
+| `templates.view` | bool | No | Whether kit includes view templates |
+| `templates.app` | bool | No | Whether kit includes app templates |
 | `tags` | []string | No | Searchable tags |
 
 ### Example: Tailwind Kit
@@ -192,37 +202,59 @@ tags: []string                   # Searchable tags
 name: tailwind
 version: 1.0.0
 description: Tailwind CSS utility-first framework integration
-framework:
-  name: Tailwind CSS
-  version: 3.4.0
-  url: https://tailwindcss.com
-cdn: https://cdn.jsdelivr.net/npm/tailwindcss@3.4.0/dist/tailwind.min.css
+framework: tailwind
+author: LiveTemplate Team
+license: MIT
+cdn: https://cdn.tailwindcss.com
+components:
+  - detail.tmpl
+  - form.tmpl
+  - layout.tmpl
+  - pagination.tmpl
+  - search.tmpl
+  - sort.tmpl
+  - stats.tmpl
+  - table.tmpl
+  - toolbar.tmpl
+templates:
+  resource: true
+  view: true
+  app: true
 tags:
   - css
   - utility
   - tailwind
   - responsive
-  - modern
 ```
 
-### Example: Bootstrap Kit
+### Example: Pico Kit
 
 ```yaml
-name: bootstrap
+name: pico
 version: 1.0.0
-description: Bootstrap 5 CSS framework integration
-framework:
-  name: Bootstrap
-  version: 5.3.0
-  url: https://getbootstrap.com
-  js: https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js
-cdn: https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css
+description: Pico CSS semantic/classless framework starter kit
+framework: pico
+author: LiveTemplate Team
+license: MIT
+cdn: <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+components:
+  - detail.tmpl
+  - form.tmpl
+  - layout.tmpl
+  - pagination.tmpl
+  - search.tmpl
+  - sort.tmpl
+  - stats.tmpl
+  - table.tmpl
+  - toolbar.tmpl
+templates:
+  resource: true
+  view: true
+  app: true
 tags:
   - css
-  - framework
-  - bootstrap
-  - responsive
-  - components
+  - semantic
+  - classless
 ```
 
 ---
@@ -895,6 +927,47 @@ lvt kits validate <path>
 lvt kits validate ~/.lvt/kits/mykit
 lvt kits validate .
 ```
+
+---
+
+#### lvt kits customize
+
+Copy a kit for customization.
+
+```bash
+lvt kits customize <name> [options]
+```
+
+**Arguments:**
+- `<name>` - Kit name to customize
+
+**Options:**
+- `--global` - Copy to user config directory (`~/.config/lvt/kits/`) instead of project directory (`.lvt/kits/`)
+- `--only <type>` - Copy only specific parts (components or templates)
+
+**Examples:**
+```bash
+# Copy entire kit to project directory
+lvt kits customize tailwind
+
+# Copy to global config for all projects
+lvt kits customize tailwind --global
+
+# Copy only components
+lvt kits customize tailwind --only components
+
+# Copy only templates
+lvt kits customize tailwind --only templates
+```
+
+**Kit Customization Cascade:**
+
+When you customize a kit, LiveTemplate searches in this order:
+1. **Project**: `.lvt/kits/<name>/` (highest priority)
+2. **User**: `~/.config/lvt/kits/<name>/`
+3. **System**: Embedded kits (fallback)
+
+This allows project-specific and user-specific overrides.
 
 ---
 

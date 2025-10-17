@@ -24,10 +24,14 @@ Kits are CSS framework integrations that provide a unified helper interface for 
 ### Kit Components
 
 1. **kit.yaml** - Manifest describing the kit
-2. **helpers.go** - Go code implementing the CSSHelpers interface
-3. **README.md** - Documentation for users
-4. **assets/** - (Optional) Custom CSS, fonts, JavaScript
-5. **LICENSE** - (Optional) License file
+2. **helpers.go** - Go code implementing the CSSHelpers interface (for system kits)
+3. **components/** - (Optional) Component templates specific to this kit
+4. **templates/** - (Optional) Resource, view, and app templates
+5. **README.md** - Documentation for users
+6. **assets/** - (Optional) Custom CSS, fonts, JavaScript
+7. **LICENSE** - (Optional) License file
+
+**Note**: Kits can be CSS-only (just helpers.go) or complete packages including components and templates. System kits (Tailwind, Bulma, Pico, None) include both.
 
 ### Supported Frameworks
 
@@ -44,7 +48,20 @@ You can create kits for any CSS framework:
 ```
 mykit/
 ├── kit.yaml               # Manifest (required)
-├── helpers.go             # Helper implementation (required)
+├── helpers.go             # Helper implementation (optional, for Go-based helpers)
+├── components/            # Component templates (optional)
+│   ├── form.tmpl
+│   ├── table.tmpl
+│   ├── layout.tmpl
+│   └── ...
+├── templates/             # Generator templates (optional)
+│   ├── resource/
+│   │   ├── handler.go.tmpl
+│   │   └── template.tmpl
+│   ├── view/
+│   │   └── view.tmpl
+│   └── app/
+│       └── main.go.tmpl
 ├── README.md              # Documentation (recommended)
 ├── assets/                # Optional assets
 │   ├── custom.css
@@ -54,13 +71,21 @@ mykit/
 
 ### Required Files
 
-- **kit.yaml**: Kit metadata
-- **helpers.go**: CSSHelpers interface implementation
+- **kit.yaml**: Kit metadata (always required)
 
-### Recommended Files
+### Optional Files
 
-- **README.md**: Usage documentation
+- **helpers.go**: CSSHelpers interface implementation (for system kits with Go helpers)
+- **components/**: Component template files (.tmpl) specific to this kit
+- **templates/**: Resource, view, and app generator templates
+- **README.md**: Usage documentation (recommended)
 - **assets/**: Framework assets (if not using CDN)
+
+### Kit Types
+
+1. **CSS-Only Kit**: Just helpers.go with CSS class mappings
+2. **Components Kit**: Includes helpers.go + components/
+3. **Complete Kit**: Includes helpers.go + components/ + templates/ (like system kits)
 
 ---
 
@@ -86,12 +111,21 @@ This creates:
 name: bootstrap
 version: 1.0.0
 description: Bootstrap 5 CSS framework integration
-framework:
-  name: Bootstrap
-  version: 5.3.0
-  url: https://getbootstrap.com
+framework: bootstrap
+author: Your Name
+license: MIT
 
 cdn: https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css
+
+components:
+  - form.tmpl
+  - table.tmpl
+  - layout.tmpl
+
+templates:
+  resource: true
+  view: true
+  app: true
 
 tags:
   - css
@@ -282,13 +316,24 @@ version: 1.0.0                  # Semantic versioning
 description: Brief description of the CSS framework
 
 # Framework information
-framework:
-  name: Framework Name          # Display name
-  version: 5.3.0               # Framework version
-  url: https://framework.com   # Framework homepage
+framework: framework-name       # Framework identifier (e.g., "tailwind", "bulma")
+author: Author Name             # Kit author (optional)
+license: MIT                    # License (optional)
 
 # CDN link (optional but recommended)
 cdn: https://cdn.example.com/framework.min.css
+
+# Components included in this kit (optional)
+components:
+  - form.tmpl
+  - table.tmpl
+  - layout.tmpl
+
+# Templates included in this kit (optional)
+templates:
+  resource: true                # Includes resource templates
+  view: true                    # Includes view templates
+  app: true                     # Includes app templates
 
 # Categorization
 tags:
@@ -303,16 +348,28 @@ tags:
 ```yaml
 name: tailwind
 version: 1.0.0
-description: Tailwind CSS utility-first framework
-framework:
-  name: Tailwind CSS
-  version: 3.4.0
-  url: https://tailwindcss.com
-cdn: https://cdn.jsdelivr.net/npm/tailwindcss@3.4.0/dist/tailwind.min.css
+description: Tailwind CSS utility-first framework starter kit
+framework: tailwind
+author: LiveTemplate Team
+license: MIT
+cdn: https://cdn.tailwindcss.com
+components:
+  - detail.tmpl
+  - form.tmpl
+  - layout.tmpl
+  - pagination.tmpl
+  - search.tmpl
+  - sort.tmpl
+  - stats.tmpl
+  - table.tmpl
+  - toolbar.tmpl
+templates:
+  resource: true
+  view: true
+  app: true
 tags:
   - css
   - utility
-  - tailwind
   - responsive
 ```
 
