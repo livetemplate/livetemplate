@@ -17,7 +17,6 @@ import (
 
 // TestPageModeURLRouting tests URL routing functionality in page mode
 func TestPageModeURLRouting(t *testing.T) {
-	t.Skip("Temporarily skipping - has issues with test data persistence")
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, "testapp")
 
@@ -100,7 +99,7 @@ func TestPageModeURLRouting(t *testing.T) {
 
 	serverCmd := exec.Command(serverBinary)
 	serverCmd.Dir = appDir
-	serverCmd.Env = append(os.Environ(), fmt.Sprintf("PORT=%d", port), "TEST_MODE=1")
+	serverCmd.Env = append(os.Environ(), fmt.Sprintf("PORT=%d", port))
 	serverCmd.Stdout = os.Stdout
 	serverCmd.Stderr = os.Stderr
 
@@ -146,6 +145,32 @@ func TestPageModeURLRouting(t *testing.T) {
 	testURL := fmt.Sprintf("%s/products", e2etest.GetChromeTestURL(port))
 	t.Logf("Testing URL routing at: %s", testURL)
 
+	// Helper to wait for element to appear
+	waitForElement := func(selector string, timeout time.Duration) chromedp.ActionFunc {
+		return func(ctx context.Context) error {
+			ctx, cancel := context.WithTimeout(ctx, timeout)
+			defer cancel()
+
+			ticker := time.NewTicker(100 * time.Millisecond)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return fmt.Errorf("timeout waiting for element: %s", selector)
+				case <-ticker.C:
+					var exists bool
+					if err := chromedp.Evaluate(fmt.Sprintf(`document.querySelector('%s') !== null`, selector), &exists).Do(ctx); err != nil {
+						continue
+					}
+					if exists {
+						return nil
+					}
+				}
+			}
+		}
+	}
+
 	// Setup: Create test products first
 	t.Run("Setup: Create test products", func(t *testing.T) {
 		var pageHTML string
@@ -161,30 +186,128 @@ func TestPageModeURLRouting(t *testing.T) {
 		t.Logf("DEBUG: Initial page loaded, body length: %d", len(pageHTML))
 		t.Logf("DEBUG: Body HTML (first 500 chars):\n%s", pageHTML[:min(500, len(pageHTML))])
 
+		// Add first product
+		t.Log("Adding first product...")
 		err = chromedp.Run(ctx,
 			// Click Add Product button to open modal
 			chromedp.Click(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
 			chromedp.Sleep(500*time.Millisecond),
-			// Fill form and submit
+		)
+		if err != nil {
+			t.Fatalf("Failed to open modal: %v", err)
+		}
+
+		// Verify modal is open
+		var modalVisible bool
+		chromedp.Evaluate(`!document.getElementById('add-modal').hasAttribute('hidden')`, &modalVisible).Do(ctx)
+		t.Logf("Modal visible: %v", modalVisible)
+
+		// Fill form and submit
+		err = chromedp.Run(ctx,
 			chromedp.SendKeys(`input[name="name"]`, "Test Product 1"),
-			chromedp.Submit(`form[lvt-submit="add"]`),
-			chromedp.Sleep(1*time.Second),
-			// Add second product
+		)
+		if err != nil {
+			t.Fatalf("Failed to fill form: %v", err)
+		}
+
+		// Log form data before submit
+		var formValue string
+		chromedp.Evaluate(`document.querySelector('input[name="name"]').value`, &formValue).Do(ctx)
+		t.Logf("Form value before submit: '%s'", formValue)
+
+		// Click the submit button (using Click instead of Submit to trigger LiveTemplate's WebSocket handler)
+		err = chromedp.Run(ctx,
+			chromedp.Click(`form[lvt-submit="add"] button[type="submit"]`, chromedp.ByQuery),
+		)
+		if err != nil {
+			t.Fatalf("Failed to submit first product: %v", err)
+		}
+		t.Log("Submit button clicked")
+
+		// Wait for modal to close and WebSocket to reconnect
+		t.Log("Waiting for modal to close...")
+		err = chromedp.Run(ctx,
+			chromedp.Sleep(500*time.Millisecond),
+		)
+		if err != nil {
+			t.Fatalf("Error during sleep: %v", err)
+		}
+
+		// Check if WebSocket is still connected
+		var wsConnected bool
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`typeof window.liveTemplateClient !== 'undefined' && window.liveTemplateClient.ws && window.liveTemplateClient.ws.readyState === 1`, &wsConnected),
+		)
+		t.Logf("WebSocket connected: %v", wsConnected)
+
+		// Wait for WebSocket reconnection if needed
+		if !wsConnected {
+			t.Log("WebSocket not connected, waiting for reconnection...")
+			err = chromedp.Run(ctx,
+				e2etest.WaitForWebSocketReady(10*time.Second),
+			)
+			if err != nil {
+				t.Fatalf("WebSocket failed to reconnect: %v", err)
+			}
+			t.Log("✅ WebSocket reconnected")
+		}
+
+		// Wait for table to appear (structural change from <p> to <table>)
+		t.Log("Waiting for table to appear...")
+		err = chromedp.Run(ctx,
+			waitForElement("table tbody tr", 10*time.Second),
+		)
+		if err != nil {
+			// Debug: show what we actually have
+			var bodyHTML string
+			var bodyLength int
+			chromedp.Evaluate(`document.body.innerHTML`, &bodyHTML).Do(ctx)
+			bodyLength = len(bodyHTML)
+			t.Logf("DEBUG: Body HTML length: %d", bodyLength)
+			if bodyLength > 0 {
+				t.Logf("DEBUG: Body HTML (first 2000 chars):\n%s", bodyHTML[:min(2000, bodyLength)])
+			} else {
+				t.Log("DEBUG: Body HTML is EMPTY!")
+			}
+
+			// Check for error messages
+			var hasError bool
+			chromedp.Evaluate(`document.body.innerText.includes('error') || document.body.innerText.includes('Error')`, &hasError).Do(ctx)
+			t.Logf("DEBUG: Page contains error: %v", hasError)
+
+			t.Fatalf("Table did not appear after adding first product: %v", err)
+		}
+		t.Log("✅ First product added, table appeared")
+
+		// Add second product
+		t.Log("Adding second product...")
+		err = chromedp.Run(ctx,
 			chromedp.Click(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
 			chromedp.Sleep(500*time.Millisecond),
 			chromedp.SendKeys(`input[name="name"]`, "Test Product 2"),
-			chromedp.Submit(`form[lvt-submit="add"]`),
-			chromedp.Sleep(1*time.Second),
+			chromedp.Click(`form[lvt-submit="add"] button[type="submit"]`, chromedp.ByQuery),
+			chromedp.Sleep(2*time.Second), // Wait for WebSocket update
 		)
 		if err != nil {
-			t.Fatalf("Failed to create test products: %v", err)
+			t.Fatalf("Failed to submit second product: %v", err)
 		}
-		t.Log("✅ Test products created")
+		t.Log("✅ Second product added")
 
-		// Debug: Check if products are visible in table
-		var tableHTML string
-		chromedp.Evaluate(`document.querySelector('table')?.outerHTML || 'NO TABLE'`, &tableHTML).Do(ctx)
-		t.Logf("DEBUG: Table HTML after adding products (first 500 chars):\n%s", tableHTML[:min(500, len(tableHTML))])
+		// Verify we now have 2 rows
+		var rowCount int
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`document.querySelectorAll('table tbody tr').length`, &rowCount),
+		)
+		if err != nil {
+			t.Fatalf("Failed to count rows: %v", err)
+		}
+		t.Logf("Found %d product rows in table", rowCount)
+		if rowCount < 2 {
+			var tableHTML string
+			chromedp.Evaluate(`document.querySelector('table')?.outerHTML || 'NO TABLE'`, &tableHTML).Do(ctx)
+			t.Logf("DEBUG: Table HTML:\n%s", tableHTML)
+			t.Fatalf("Expected at least 2 rows, got %d", rowCount)
+		}
 	})
 
 	// Test 1: URL updates when clicking resource
@@ -227,8 +350,8 @@ func TestPageModeURLRouting(t *testing.T) {
 			t.Fatalf("Failed to click resource: %v", err)
 		}
 
-		if !strings.Contains(currentURL, "/products/product-") {
-			t.Errorf("URL not updated. Expected /products/product-*, got %s", currentURL)
+		if !strings.Contains(currentURL, "/products/products-") {
+			t.Errorf("URL not updated. Expected /products/products-*, got %s", currentURL)
 		} else {
 			t.Logf("✅ URL updated to: %s", currentURL)
 		}

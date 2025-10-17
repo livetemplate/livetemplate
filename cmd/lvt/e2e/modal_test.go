@@ -18,7 +18,7 @@ import (
 // This test verifies the critical modal bug fix where modals wouldn't reopen after being closed
 func TestModalFunctionality(t *testing.T) {
 	// Find the client file
-	clientPath, err := filepath.Abs(filepath.Join("..", "..", "..", "livetemplate-client.browser.js"))
+	clientPath, err := filepath.Abs(filepath.Join("..", "..", "..", "client", "dist", "livetemplate-client.browser.js"))
 	if err != nil {
 		t.Fatalf("Failed to resolve client path: %v", err)
 	}
