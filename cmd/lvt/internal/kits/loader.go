@@ -268,6 +268,93 @@ func (l *KitLoader) AddSearchPath(path string) {
 	l.ClearCache() // Clear cache when paths change
 }
 
+// LoadKitComponent loads a component template from a kit following cascade priority
+// Cascade: Project (.lvt/kits/) → User (~/.config/lvt/kits/) → System (embedded)
+func (l *KitLoader) LoadKitComponent(kitName, componentName string) ([]byte, error) {
+	// Try search paths first (project and user kits)
+	for _, basePath := range l.searchPaths {
+		kitPath := filepath.Join(basePath, kitName)
+		componentPath := filepath.Join(kitPath, "components", componentName)
+
+		if data, err := os.ReadFile(componentPath); err == nil {
+			return data, nil
+		}
+	}
+
+	// Try embedded system kits
+	if l.embedFS != nil {
+		embeddedPath := filepath.Join("system", kitName, "components", componentName)
+		if data, err := l.embedFS.ReadFile(embeddedPath); err == nil {
+			return data, nil
+		}
+	}
+
+	return nil, fmt.Errorf("component %s not found in kit %s", componentName, kitName)
+}
+
+// LoadKitTemplate loads a generator template from a kit following cascade priority
+// Cascade: Project (.lvt/kits/) → User (~/.config/lvt/kits/) → System (embedded)
+// templatePath should be relative, e.g., "resource/handler.go.tmpl"
+func (l *KitLoader) LoadKitTemplate(kitName, templatePath string) ([]byte, error) {
+	// Try search paths first (project and user kits)
+	for _, basePath := range l.searchPaths {
+		kitPath := filepath.Join(basePath, kitName)
+		fullPath := filepath.Join(kitPath, "templates", templatePath)
+
+		if data, err := os.ReadFile(fullPath); err == nil {
+			return data, nil
+		}
+	}
+
+	// Try embedded system kits
+	if l.embedFS != nil {
+		embeddedPath := filepath.Join("system", kitName, "templates", templatePath)
+		if data, err := l.embedFS.ReadFile(embeddedPath); err == nil {
+			return data, nil
+		}
+	}
+
+	return nil, fmt.Errorf("template %s not found in kit %s", templatePath, kitName)
+}
+
+// ListComponents returns all component names available in a kit
+func (l *KitLoader) ListComponents(kitName string) ([]string, error) {
+	var components []string
+	seen := make(map[string]bool)
+
+	// Check search paths
+	for _, basePath := range l.searchPaths {
+		compDir := filepath.Join(basePath, kitName, "components")
+		if entries, err := os.ReadDir(compDir); err == nil {
+			for _, entry := range entries {
+				if !entry.IsDir() && !seen[entry.Name()] {
+					components = append(components, entry.Name())
+					seen[entry.Name()] = true
+				}
+			}
+		}
+	}
+
+	// Check embedded kits
+	if l.embedFS != nil {
+		compDir := filepath.Join("system", kitName, "components")
+		if entries, err := l.embedFS.ReadDir(compDir); err == nil {
+			for _, entry := range entries {
+				if !entry.IsDir() && !seen[entry.Name()] {
+					components = append(components, entry.Name())
+					seen[entry.Name()] = true
+				}
+			}
+		}
+	}
+
+	if len(components) == 0 {
+		return nil, fmt.Errorf("no components found in kit %s", kitName)
+	}
+
+	return components, nil
+}
+
 // Helper functions
 
 // findProjectKitDir walks up to find .lvt/kits/ directory

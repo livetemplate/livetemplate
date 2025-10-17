@@ -50,16 +50,12 @@ func main() {
 		}
 	case "migration":
 		err = commands.Migration(args)
-	case "template":
-		err = commands.Template(args)
 	case "parse":
 		err = commands.Parse(args)
 	case "resource", "res":
 		err = commands.Resource(args)
 	case "seed":
 		err = commands.Seed(args)
-	case "components", "comp":
-		err = commands.Components(args)
 	case "kits", "kit":
 		err = commands.Kits(args)
 	case "config", "cfg":
@@ -148,11 +144,9 @@ func printUsage() {
 	fmt.Println("  lvt migration <command>                   Manage database migrations")
 	fmt.Println("  lvt resource <command>                    Inspect resources and schemas")
 	fmt.Println("  lvt seed <resource> [--count N] [--cleanup]  Generate test data")
-	fmt.Println("  lvt components <command>                  Manage UI components")
 	fmt.Println("  lvt kits <command>                        Manage CSS framework kits")
 	fmt.Println("  lvt config <command>                      Manage configuration")
 	fmt.Println("  lvt serve [options]                       Start development server with hot reload")
-	fmt.Println("  lvt template <command>                    Manage custom templates")
 	fmt.Println("  lvt parse <template-file>                 Validate and analyze template file")
 	fmt.Println("  lvt version                               Show version information")
 	fmt.Println()
@@ -185,21 +179,6 @@ func printUsage() {
 	fmt.Println("  lvt seed tasks --count 50                 Generate 50 test records")
 	fmt.Println("  lvt seed tasks --cleanup                  Remove all test data")
 	fmt.Println("  lvt seed tasks --count 30 --cleanup       Cleanup then seed 30 new records")
-	fmt.Println()
-	fmt.Println("Template Commands:")
-	fmt.Println("  lvt template copy resource                Copy resource templates to .lvt/templates/")
-	fmt.Println("  lvt template copy view                    Copy view templates to .lvt/templates/")
-	fmt.Println("  lvt template copy app                     Copy app templates to .lvt/templates/")
-	fmt.Println("  lvt template copy all                     Copy all templates to .lvt/templates/")
-	fmt.Println()
-	fmt.Println("Components Commands:")
-	fmt.Println("  lvt components list                       List all available components")
-	fmt.Println("  lvt components list --filter system       List only system components")
-	fmt.Println("  lvt components list --search navbar       Search for components")
-	fmt.Println("  lvt components list --format json         Output as JSON")
-	fmt.Println("  lvt components create navbar --category navigation  Create a new component")
-	fmt.Println("  lvt components info navbar                Show component details")
-	fmt.Println("  lvt components validate <path>            Validate component structure")
 	fmt.Println()
 	fmt.Println("Kits Commands:")
 	fmt.Println("  lvt kits list                             List all available kits")

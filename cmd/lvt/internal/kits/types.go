@@ -9,17 +9,26 @@ const (
 	SourceCommunity KitSource = "community" // From registry (future)
 )
 
+// KitTemplates defines which generator templates are included in a kit
+type KitTemplates struct {
+	Resource bool `yaml:"resource"` // Resource generator templates
+	View     bool `yaml:"view"`     // View generator templates
+	App      bool `yaml:"app"`      // App generator templates
+}
+
 // KitManifest represents the kit.yaml file structure
 type KitManifest struct {
-	Name        string   `yaml:"name"`
-	Version     string   `yaml:"version"`
-	Description string   `yaml:"description"`
-	Framework   string   `yaml:"framework"` // e.g., "tailwind", "bulma", "pico", "none"
-	Author      string   `yaml:"author,omitempty"`
-	License     string   `yaml:"license,omitempty"`
-	CDN         string   `yaml:"cdn,omitempty"`        // CDN link for CSS framework
-	CustomCSS   string   `yaml:"custom_css,omitempty"` // Path to custom CSS file
-	Tags        []string `yaml:"tags,omitempty"`
+	Name        string       `yaml:"name"`
+	Version     string       `yaml:"version"`
+	Description string       `yaml:"description"`
+	Framework   string       `yaml:"framework"` // e.g., "tailwind", "bulma", "pico", "none"
+	Author      string       `yaml:"author,omitempty"`
+	License     string       `yaml:"license,omitempty"`
+	CDN         string       `yaml:"cdn,omitempty"`        // CDN link for CSS framework
+	CustomCSS   string       `yaml:"custom_css,omitempty"` // Path to custom CSS file
+	Tags        []string     `yaml:"tags,omitempty"`
+	Components  []string     `yaml:"components,omitempty"` // List of component template names
+	Templates   KitTemplates `yaml:"templates,omitempty"`  // Generator templates included
 }
 
 // KitInfo represents a loaded kit with its metadata and helpers

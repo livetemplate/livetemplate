@@ -11,16 +11,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/components"
 	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
 	"gopkg.in/yaml.v3"
 )
 
 type ComponentMode struct {
-	server    *Server
-	component *components.Component
-	kit       *kits.KitInfo
-	tmpl      *template.Template
+	server *Server
+	kit    *kits.KitInfo
+	tmpl   *template.Template
 }
 
 type ComponentManifest struct {
