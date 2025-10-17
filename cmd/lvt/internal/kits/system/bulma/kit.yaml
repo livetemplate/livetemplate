@@ -1,58 +1,27 @@
 name: bulma
-version: 0.9.4
-description: Bulma CSS modern component-based framework kit
+version: 1.0.0
+description: Bulma CSS component-based framework starter kit
 framework: bulma
 author: LiveTemplate Team
 license: MIT
-
-cdn: https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css
-
-features:
-  - Component-based CSS classes
-  - Flexbox-based grid system
-  - Modular and lightweight
-  - Responsive by default
-  - Rich component library
-  - Easy to customize
-
-characteristics:
-  needs_wrapper: false
-  needs_article: false
-  needs_table_wrapper: false
-
-styling:
-  container: "container"
-  box: "box"
-
-  # Typography
-  title: "title is-3"
-  subtitle: "subtitle is-4"
-
-  # Buttons
-  button_primary: "button is-primary"
-  button_secondary: "button"
-  button_danger: "button is-danger"
-
-  # Forms
-  field: "field"
-  label: "label"
-  input: "input"
-  select: "select"
-  textarea: "textarea"
-  checkbox: "checkbox"
-
-  # Tables
-  table: "table is-fullwidth is-hoverable"
-
-  # Pagination
-  pagination: "pagination is-centered"
-  pagination_button: "pagination-link"
-  pagination_active: "pagination-link is-current"
-
-documentation: https://bulma.io/documentation/
-
+cdn: <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
 tags:
+  - css
   - component-based
   - flexbox
-  - modular
-  - modern
+
+components:
+  - detail.tmpl
+  - form.tmpl
+  - layout.tmpl
+  - pagination.tmpl
+  - search.tmpl
+  - sort.tmpl
+  - stats.tmpl
+  - table.tmpl
+  - toolbar.tmpl
+
+templates:
+  resource: true
+  view: true
+  app: true

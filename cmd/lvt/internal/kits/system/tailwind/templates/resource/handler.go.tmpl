@@ -1,0 +1,501 @@
+package [[.PackageName]]
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"math"
+	"net/http"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/go-playground/validator/v10"
+	"github.com/livefir/livetemplate"
+	"[[.ModuleName]]/internal/database/models"
+)
+
+var validate = validator.New()
+
+type [[.ResourceName]]Item = models.[[.ResourceNameSingular]]
+
+type AddInput struct {
+[[- range .Fields]]
+[[- if eq .GoType "bool"]]
+	[[.Name | camelCase]] [[.GoType]] `json:"[[.Name]]"`
+[[- else if eq .GoType "string"]]
+	[[.Name | camelCase]] [[.GoType]] `json:"[[.Name]]" validate:"required,min=3"`
+[[- else]]
+	[[.Name | camelCase]] [[.GoType]] `json:"[[.Name]]" validate:"required"`
+[[- end]]
+[[- end]]
+}
+
+type UpdateInput struct {
+	ID string `json:"id" validate:"required"`
+[[- range .Fields]]
+[[- if eq .GoType "bool"]]
+	[[.Name | camelCase]] [[.GoType]] `json:"[[.Name]]"`
+[[- else if eq .GoType "string"]]
+	[[.Name | camelCase]] [[.GoType]] `json:"[[.Name]]" validate:"required,min=3"`
+[[- else]]
+	[[.Name | camelCase]] [[.GoType]] `json:"[[.Name]]" validate:"required"`
+[[- end]]
+[[- end]]
+}
+
+type DeleteInput struct {
+	ID string `json:"id" validate:"required"`
+}
+
+type SearchInput struct {
+	Query string `json:"query"`
+}
+
+type SortInput struct {
+	SortBy string `json:"sort_by"`
+}
+
+type PaginationInput struct {
+	Page int `json:"page" validate:"required,min=1"`
+}
+
+type [[.ResourceName]]State struct {
+	Title        string                `json:"title"`
+	Queries      *models.Queries       `json:"-"`
+	SearchQuery  string                `json:"search_query"`
+	SortBy       string                `json:"sort_by"`
+	Filtered[[.ResourceNamePlural]]  [][[.ResourceName]]Item `json:"filtered_[[.ResourceNameLower]]s"`
+	CurrentPage  int                   `json:"current_page"`
+	PageSize     int                   `json:"page_size"`
+	TotalPages   int                   `json:"total_pages"`
+	Paginated[[.ResourceNamePlural]] [][[.ResourceName]]Item `json:"paginated_[[.ResourceNameLower]]s"`
+	TotalCount   int                   `json:"total_count"`
+	LastUpdated  string                `json:"last_updated"`
+	EditingID    string                `json:"editing_id"`
+	Editing[[.ResourceName]] *[[.ResourceName]]Item   `json:"editing_[[.ResourceNameLower]]"`
+	IsEditingMode bool                 `json:"is_editing_mode"` // For page mode: true when at /resource/:id/edit
+	PaginationMode string              `json:"pagination_mode"` // "infinite", "load-more", "prev-next", "numbers"
+	LoadedCount    int                 `json:"loaded_count"`    // For infinite/load-more modes
+	HasMore        bool                `json:"has_more"`        // Whether more items available
+	IsLoading      bool                `json:"is_loading"`      // Loading indicator
+	CSSFramework   string              `json:"-"`               // CSS framework for templates
+}
+
+func (s *[[.ResourceName]]State) Change(ctx *livetemplate.ActionContext) error {
+	dbCtx := context.Background()
+
+	switch ctx.Action {
+	case "add":
+		var input AddInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+
+		now := time.Now()
+		id := fmt.Sprintf("[[.ResourceNameLower]]-%d", now.UnixNano())
+
+		_, err := s.Queries.Create[[.ResourceNameSingular]](dbCtx, models.Create[[.ResourceNameSingular]]Params{
+			ID:        id,
+[[- range .Fields]]
+			[[.Name | camelCase]]: input.[[.Name | camelCase]],
+[[- end]]
+			CreatedAt: now,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create [[.ResourceNameLower]]: %w", err)
+		}
+
+		if err := s.load[[.ResourceName]]s(dbCtx); err != nil {
+			return err
+		}
+
+	case "edit":
+		var input DeleteInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+
+		// Find the item to edit
+		[[.ResourceNameLower]]s, err := s.Queries.GetAll[[.ResourceNamePlural]](dbCtx)
+		if err != nil {
+			return fmt.Errorf("failed to load [[.ResourceNameLower]]s: %w", err)
+		}
+
+		for _, item := range [[.ResourceNameLower]]s {
+			if item.ID == input.ID {
+				s.EditingID = input.ID
+				itemCopy := item
+				s.Editing[[.ResourceName]] = &itemCopy
+				break
+			}
+		}
+
+	case "update":
+		var input UpdateInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+
+		err := s.Queries.Update[[.ResourceNameSingular]](dbCtx, models.Update[[.ResourceNameSingular]]Params{
+			ID: input.ID,
+[[- range .Fields]]
+			[[.Name | camelCase]]: input.[[.Name | camelCase]],
+[[- end]]
+		})
+		if err != nil {
+			return fmt.Errorf("failed to update [[.ResourceNameLower]]: %w", err)
+		}
+
+		// For page mode: Exit edit mode and stay on detail view
+		s.IsEditingMode = false
+
+		// Reload the updated resource
+		if err := s.load[[.ResourceName]]s(dbCtx); err != nil {
+			return err
+		}
+
+		// Re-fetch the updated resource for display
+		[[.ResourceNameLower]]s, err := s.Queries.GetAll[[.ResourceNamePlural]](dbCtx)
+		if err == nil {
+			for _, item := range [[.ResourceNameLower]]s {
+				if item.ID == input.ID {
+					itemCopy := item
+					s.Editing[[.ResourceName]] = &itemCopy
+					break
+				}
+			}
+		}
+
+	case "cancel_edit":
+		s.EditingID = ""
+		s.Editing[[.ResourceName]] = nil
+
+	case "view":
+		var input DeleteInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+
+		// Find the item to view/edit
+		[[.ResourceNameLower]]s, err := s.Queries.GetAll[[.ResourceNamePlural]](dbCtx)
+		if err != nil {
+			return fmt.Errorf("failed to load [[.ResourceNameLower]]s: %w", err)
+		}
+
+		for _, item := range [[.ResourceNameLower]]s {
+			if item.ID == input.ID {
+				s.EditingID = input.ID
+				itemCopy := item
+				s.Editing[[.ResourceName]] = &itemCopy
+				break
+			}
+		}
+
+	case "back":
+		// Return to list view
+		s.EditingID = ""
+		s.Editing[[.ResourceName]] = nil
+
+	case "delete":
+		var input DeleteInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+
+		err := s.Queries.Delete[[.ResourceNameSingular]](dbCtx, input.ID)
+		if err != nil {
+			return fmt.Errorf("failed to delete [[.ResourceNameLower]]: %w", err)
+		}
+
+		// Clear editing state (for page mode)
+		s.EditingID = ""
+		s.Editing[[.ResourceName]] = nil
+
+		if err := s.load[[.ResourceName]]s(dbCtx); err != nil {
+			return err
+		}
+
+	case "search":
+		var input SearchInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+		s.SearchQuery = input.Query
+		// Reset infinite scroll when searching
+		if s.PaginationMode == "infinite" || s.PaginationMode == "load-more" {
+			s.LoadedCount = s.PageSize
+		}
+
+		if err := s.load[[.ResourceName]]s(dbCtx); err != nil {
+			return err
+		}
+
+	case "sort":
+		var input SortInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+		s.SortBy = input.SortBy
+		// Reset infinite scroll when sorting
+		if s.PaginationMode == "infinite" || s.PaginationMode == "load-more" {
+			s.LoadedCount = s.PageSize
+		}
+
+		if err := s.load[[.ResourceName]]s(dbCtx); err != nil {
+			return err
+		}
+
+	case "next_page":
+		if s.CurrentPage < s.TotalPages {
+			s.CurrentPage++
+		}
+		if err := s.load[[.ResourceName]]s(dbCtx); err != nil {
+			return err
+		}
+
+	case "prev_page":
+		if s.CurrentPage > 1 {
+			s.CurrentPage--
+		}
+		if err := s.load[[.ResourceName]]s(dbCtx); err != nil {
+			return err
+		}
+
+	case "goto_page":
+		var input PaginationInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+		if input.Page >= 1 && input.Page <= s.TotalPages {
+			s.CurrentPage = input.Page
+		}
+		if err := s.load[[.ResourceName]]s(dbCtx); err != nil {
+			return err
+		}
+
+	case "load_more":
+		if s.PaginationMode == "infinite" || s.PaginationMode == "load-more" {
+			if s.HasMore && !s.IsLoading {
+				s.IsLoading = true
+				s.LoadedCount += s.PageSize
+				if err := s.load[[.ResourceName]]s(dbCtx); err != nil {
+					return err
+				}
+				s.IsLoading = false
+			}
+		}
+
+	default:
+		log.Printf("Unknown action: %s", ctx.Action)
+		return nil
+	}
+
+	s.LastUpdated = formatTime()
+	return nil
+}
+
+func (s *[[.ResourceName]]State) Init() error {
+	return s.load[[.ResourceName]]s(context.Background())
+}
+
+func (s *[[.ResourceName]]State) load[[.ResourceName]]s(ctx context.Context) error {
+	[[.ResourceNameLower]]s, err := s.Queries.GetAll[[.ResourceNamePlural]](ctx)
+	if err != nil {
+		return fmt.Errorf("failed to load [[.ResourceNameLower]]s: %w", err)
+	}
+
+	if s.SearchQuery == "" {
+		s.Filtered[[.ResourceNamePlural]] = [[.ResourceNameLower]]s
+	} else {
+		s.Filtered[[.ResourceNamePlural]] = [][[.ResourceName]]Item{}
+		query := strings.ToLower(s.SearchQuery)
+		for _, item := range [[.ResourceNameLower]]s {
+			// Search across all text fields
+[[- range .Fields]]
+[[- if eq .GoType "string"]]
+			if strings.Contains(strings.ToLower(item.[[.Name | camelCase]]), query) {
+				s.Filtered[[$.ResourceNamePlural]] = append(s.Filtered[[$.ResourceNamePlural]], item)
+				continue
+			}
+[[- end]]
+[[- end]]
+		}
+	}
+
+	s.TotalCount = len([[.ResourceNameLower]]s)
+	s.applySorting()
+	s.applyPagination()
+
+	return nil
+}
+
+func (s *[[.ResourceName]]State) applySorting() {
+	switch s.SortBy {
+[[- range .Fields]]
+[[- if eq .GoType "string"]]
+	case "[[.Name]]_asc":
+		sort.Slice(s.Filtered[[$.ResourceNamePlural]], func(i, j int) bool {
+			return strings.ToLower(s.Filtered[[$.ResourceNamePlural]][i].[[.Name | camelCase]]) < strings.ToLower(s.Filtered[[$.ResourceNamePlural]][j].[[.Name | camelCase]])
+		})
+	case "[[.Name]]_desc":
+		sort.Slice(s.Filtered[[$.ResourceNamePlural]], func(i, j int) bool {
+			return strings.ToLower(s.Filtered[[$.ResourceNamePlural]][i].[[.Name | camelCase]]) > strings.ToLower(s.Filtered[[$.ResourceNamePlural]][j].[[.Name | camelCase]])
+		})
+[[- end]]
+[[- end]]
+	case "oldest_first":
+		sort.Slice(s.Filtered[[.ResourceNamePlural]], func(i, j int) bool {
+			return s.Filtered[[.ResourceNamePlural]][i].CreatedAt.Before(s.Filtered[[.ResourceNamePlural]][j].CreatedAt)
+		})
+	default:
+		sort.Slice(s.Filtered[[.ResourceNamePlural]], func(i, j int) bool {
+			return s.Filtered[[.ResourceNamePlural]][i].CreatedAt.After(s.Filtered[[.ResourceNamePlural]][j].CreatedAt)
+		})
+	}
+}
+
+func (s *[[.ResourceName]]State) applyPagination() {
+	if s.PaginationMode == "infinite" || s.PaginationMode == "load-more" {
+		s.applyInfiniteScroll()
+	} else {
+		s.applyPagedNavigation()
+	}
+}
+
+func (s *[[.ResourceName]]State) applyInfiniteScroll() {
+	// Initialize LoadedCount if not set
+	if s.LoadedCount == 0 {
+		s.LoadedCount = s.PageSize
+	}
+
+	if len(s.Filtered[[.ResourceNamePlural]]) == 0 {
+		s.Paginated[[.ResourceNamePlural]] = [][[.ResourceName]]Item{}
+		s.HasMore = false
+		return
+	}
+
+	// Load items from 0 to LoadedCount
+	end := s.LoadedCount
+	if end > len(s.Filtered[[.ResourceNamePlural]]) {
+		end = len(s.Filtered[[.ResourceNamePlural]])
+	}
+
+	s.Paginated[[.ResourceNamePlural]] = s.Filtered[[.ResourceNamePlural]][0:end]
+	s.HasMore = end < len(s.Filtered[[.ResourceNamePlural]])
+}
+
+func (s *[[.ResourceName]]State) applyPagedNavigation() {
+	if len(s.Filtered[[.ResourceNamePlural]]) == 0 {
+		s.TotalPages = 1
+		s.CurrentPage = 1
+		s.Paginated[[.ResourceNamePlural]] = [][[.ResourceName]]Item{}
+		return
+	}
+
+	s.TotalPages = int(math.Ceil(float64(len(s.Filtered[[.ResourceNamePlural]])) / float64(s.PageSize)))
+
+	if s.CurrentPage < 1 {
+		s.CurrentPage = 1
+	}
+	if s.CurrentPage > s.TotalPages {
+		s.CurrentPage = s.TotalPages
+	}
+
+	start := (s.CurrentPage - 1) * s.PageSize
+	end := start + s.PageSize
+	if end > len(s.Filtered[[.ResourceNamePlural]]) {
+		end = len(s.Filtered[[.ResourceNamePlural]])
+	}
+
+	s.Paginated[[.ResourceNamePlural]] = s.Filtered[[.ResourceNamePlural]][start:end]
+}
+
+func formatTime() string {
+	return time.Now().Format("2006-01-02 15:04:05")
+}
+
+// Handler creates an http.Handler for this resource
+func Handler(queries *models.Queries) http.Handler {
+	state := &[[.ResourceName]]State{
+		Title:          "[[.ResourceName]] Management",
+		Queries:        queries,
+		CurrentPage:    1,
+		PageSize:       [[.PageSize]],
+		PaginationMode: "[[.PaginationMode]]",
+		LoadedCount:    [[if or (eq .PaginationMode "infinite") (eq .PaginationMode "load-more")]][[.PageSize]][[else]]0[[end]],
+		LastUpdated:    formatTime(),
+		CSSFramework:   "[[.CSSFramework]]",
+	}
+
+	if err := state.Init(); err != nil {
+		log.Printf("Failed to initialize [[.ResourceNameLower]] state: %v", err)
+	}
+
+	tmpl := livetemplate.New("[[.ResourceNameLower]]", livetemplate.WithDevMode([[.DevMode]]))
+	if _, err := tmpl.ParseFiles("internal/app/[[.ResourceNameLower]]/[[.ResourceNameLower]].tmpl"); err != nil {
+		log.Fatalf("Failed to parse template: %v", err)
+	}
+
+[[- if eq .EditMode "page"]]
+	// Page mode: Support URL-based routing for resource detail and edit views
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Parse resource ID from URL path (e.g., /products/product-123 or /products/product-123/edit)
+		urlPath := strings.TrimPrefix(r.URL.Path, "/[[.ResourceNameLower]]")
+		urlPath = strings.TrimPrefix(urlPath, "/")
+
+		if urlPath != "" && r.Method == http.MethodGet {
+			// Check if this is an edit URL (/products/:id/edit)
+			isEditMode := strings.HasSuffix(urlPath, "/edit")
+			if isEditMode {
+				urlPath = strings.TrimSuffix(urlPath, "/edit")
+			}
+
+			// Extract resource ID
+			resourceID := strings.Split(urlPath, "/")[0]
+			if resourceID == "" {
+				// Invalid URL, fall back to list view
+				livetemplate.Mount(tmpl, state).ServeHTTP(w, r)
+				return
+			}
+
+			// Create state with EditingID and IsEditingMode set
+			resourceState := &[[.ResourceName]]State{
+				Title:          "[[.ResourceName]] Management",
+				Queries:        queries,
+				CurrentPage:    1,
+				PageSize:       [[.PageSize]],
+				PaginationMode: "[[.PaginationMode]]",
+				LoadedCount:    [[if or (eq .PaginationMode "infinite") (eq .PaginationMode "load-more")]][[.PageSize]][[else]]0[[end]],
+				LastUpdated:    formatTime(),
+				CSSFramework:   "[[.CSSFramework]]",
+				IsEditingMode:  isEditMode,
+			}
+
+			if err := resourceState.Init(); err == nil {
+				// Find and set the editing resource
+				[[.ResourceNameLower]]s, err := queries.GetAll[[.ResourceNamePlural]](context.Background())
+				if err == nil {
+					for _, item := range [[.ResourceNameLower]]s {
+						if item.ID == resourceID {
+							resourceState.EditingID = resourceID
+							itemCopy := item
+							resourceState.Editing[[.ResourceName]] = &itemCopy
+							break
+						}
+					}
+				}
+			}
+
+			// Mount with custom state
+			livetemplate.Mount(tmpl, resourceState).ServeHTTP(w, r)
+			return
+		}
+
+		// Default: list view
+		livetemplate.Mount(tmpl, state).ServeHTTP(w, r)
+	})
+[[- else]]
+	return livetemplate.Mount(tmpl, state)
+[[- end]]
+}

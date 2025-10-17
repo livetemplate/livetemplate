@@ -1,0 +1,46 @@
+{{/* Toolbar component with Add button, Search, and Sort */}}
+{{define "toolbar"}}
+[[- if needsArticle .CSSFramework]]
+<article>
+[[- else if ne (boxClass .CSSFramework) ""]]
+<div class="[[boxClass .CSSFramework]]">
+[[- else]]
+<div>
+[[- end]]
+  <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+    <!-- Search -->
+    <div style="flex: 1; min-width: 200px;">
+      <input[[if ne (inputClass .CSSFramework) ""]] class="[[inputClass .CSSFramework]]"[[end]] type="search" name="query" placeholder="Search [[.ResourceNameLower]]..." value="{{.SearchQuery}}" lvt-change="search" lvt-debounce="300">
+    </div>
+
+    <!-- Sort -->
+    <div style="min-width: 200px;">
+[[- if ne (selectWrapperClass .CSSFramework) ""]]
+      <div class="[[selectWrapperClass .CSSFramework]]">
+[[- end]]
+        <select[[if ne (selectClass .CSSFramework) ""]] class="[[selectClass .CSSFramework]]"[[end]] name="sort_by" lvt-change="sort">
+          <option value="" {{if eq .SortBy ""}}selected{{end}}>Newest First</option>
+[[- range .Fields]]
+[[- if eq .GoType "string"]]
+          <option value="[[.Name]]_asc" {{if eq .SortBy "[[.Name]]_asc"}}selected{{end}}>[[.Name | title]] (A-Z)</option>
+          <option value="[[.Name]]_desc" {{if eq .SortBy "[[.Name]]_desc"}}selected{{end}}>[[.Name | title]] (Z-A)</option>
+[[- end]]
+[[- end]]
+          <option value="oldest_first" {{if eq .SortBy "oldest_first"}}selected{{end}}>Oldest First</option>
+        </select>
+[[- if ne (selectWrapperClass .CSSFramework) ""]]
+      </div>
+[[- end]]
+    </div>
+
+    <!-- Add Button -->
+    <button[[if ne (buttonClass .CSSFramework "primary") ""]] class="[[buttonClass .CSSFramework "primary"]]"[[end]] lvt-modal-open="add-modal">
+      + Add [[.ResourceNameSingular]]
+    </button>
+  </div>
+[[- if needsArticle .CSSFramework]]
+</article>
+[[- else]]
+</div>
+[[- end]]
+{{end}}

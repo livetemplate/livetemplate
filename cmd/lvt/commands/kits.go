@@ -13,7 +13,7 @@ import (
 
 func Kits(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("command required: list, create, info, validate")
+		return fmt.Errorf("command required: list, create, info, validate, customize")
 	}
 
 	command := args[0]
@@ -27,8 +27,10 @@ func Kits(args []string) error {
 		return infoKit(args[1:])
 	case "validate":
 		return validateKit(args[1:])
+	case "customize":
+		return customizeKit(args[1:])
 	default:
-		return fmt.Errorf("unknown command: %s (expected: list, create, info, validate)", command)
+		return fmt.Errorf("unknown command: %s (expected: list, create, info, validate, customize)", command)
 	}
 }
 
@@ -458,6 +460,188 @@ func validateKit(args []string) error {
 	// Return error if validation failed
 	if !result.Valid {
 		return fmt.Errorf("validation failed with %d error(s)", result.ErrorCount())
+	}
+
+	return nil
+}
+
+func customizeKit(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("kit name required")
+	}
+
+	kitName := args[0]
+
+	// Parse flags
+	global := false
+	only := "" // Can be "components" or "templates"
+
+	for i := 1; i < len(args); i++ {
+		if args[i] == "--global" {
+			global = true
+		} else if args[i] == "--only" && i+1 < len(args) {
+			only = args[i+1]
+			i++ // skip next arg
+		}
+	}
+
+	// Validate --only flag
+	if only != "" && only != "components" && only != "templates" {
+		return fmt.Errorf("invalid --only value: %s (expected: components or templates)", only)
+	}
+
+	// Load the kit to copy
+	loader := kits.DefaultLoader()
+	kit, err := loader.Load(kitName)
+	if err != nil {
+		return fmt.Errorf("failed to load kit %q: %w", kitName, err)
+	}
+
+	// Determine destination directory
+	var destDir string
+	if global {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("failed to get home directory: %w", err)
+		}
+		destDir = filepath.Join(homeDir, ".config", "lvt", "kits", kitName)
+	} else {
+		currentDir, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get current directory: %w", err)
+		}
+		destDir = filepath.Join(currentDir, ".lvt", "kits", kitName)
+	}
+
+	// Create destination directory
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	copiedItems := []string{}
+
+	// Copy kit.yaml (always copy unless --only is specified)
+	if only == "" {
+		manifestSrc := filepath.Join(kit.Path, "kit.yaml")
+		manifestDest := filepath.Join(destDir, "kit.yaml")
+		if err := copyFile(manifestSrc, manifestDest); err != nil {
+			return fmt.Errorf("failed to copy kit.yaml: %w", err)
+		}
+		copiedItems = append(copiedItems, "kit.yaml")
+	}
+
+	// Copy components if requested
+	if only == "" || only == "components" {
+		componentsSrc := filepath.Join(kit.Path, "components")
+		componentsDest := filepath.Join(destDir, "components")
+		if info, err := os.Stat(componentsSrc); err == nil && info.IsDir() {
+			if err := copyDir(componentsSrc, componentsDest); err != nil {
+				return fmt.Errorf("failed to copy components: %w", err)
+			}
+			copiedItems = append(copiedItems, "components/")
+		}
+	}
+
+	// Copy templates if requested
+	if only == "" || only == "templates" {
+		templatesSrc := filepath.Join(kit.Path, "templates")
+		templatesDest := filepath.Join(destDir, "templates")
+		if info, err := os.Stat(templatesSrc); err == nil && info.IsDir() {
+			if err := copyDir(templatesSrc, templatesDest); err != nil {
+				return fmt.Errorf("failed to copy templates: %w", err)
+			}
+			copiedItems = append(copiedItems, "templates/")
+		}
+	}
+
+	// Copy helpers.go if it exists (only if copying everything)
+	if only == "" {
+		helpersSrc := filepath.Join(kit.Path, "helpers.go")
+		helpersDest := filepath.Join(destDir, "helpers.go")
+		if _, err := os.Stat(helpersSrc); err == nil {
+			if err := copyFile(helpersSrc, helpersDest); err != nil {
+				return fmt.Errorf("failed to copy helpers.go: %w", err)
+			}
+			copiedItems = append(copiedItems, "helpers.go")
+		}
+	}
+
+	// Copy README.md if it exists (only if copying everything)
+	if only == "" {
+		readmeSrc := filepath.Join(kit.Path, "README.md")
+		readmeDest := filepath.Join(destDir, "README.md")
+		if _, err := os.Stat(readmeSrc); err == nil {
+			if err := copyFile(readmeSrc, readmeDest); err != nil {
+				return fmt.Errorf("failed to copy README.md: %w", err)
+			}
+			copiedItems = append(copiedItems, "README.md")
+		}
+	}
+
+	// Success message
+	fmt.Println("✅ Kit customized successfully!")
+	fmt.Println()
+	if global {
+		fmt.Printf("Location: %s\n", destDir)
+	} else {
+		fmt.Printf("Location: .lvt/kits/%s/\n", kitName)
+	}
+	fmt.Println()
+	fmt.Println("Copied items:")
+	for _, item := range copiedItems {
+		fmt.Printf("  - %s\n", item)
+	}
+	fmt.Println()
+	fmt.Println("Next steps:")
+	fmt.Println("  1. Customize the copied files to match your needs")
+	if global {
+		fmt.Println("  2. The customized kit will be used for all projects")
+	} else {
+		fmt.Println("  2. The customized kit will override system/user kits for this project")
+	}
+	fmt.Println()
+
+	return nil
+}
+
+// copyFile copies a single file from src to dst
+func copyFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, 0644)
+}
+
+// copyDir recursively copies a directory from src to dst
+func copyDir(src, dst string) error {
+	// Create destination directory
+	if err := os.MkdirAll(dst, 0755); err != nil {
+		return err
+	}
+
+	// Read source directory
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+
+	// Copy each entry
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+
+		if entry.IsDir() {
+			// Recursively copy subdirectory
+			if err := copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			// Copy file
+			if err := copyFile(srcPath, dstPath); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil

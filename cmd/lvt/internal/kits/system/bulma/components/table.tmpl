@@ -1,0 +1,68 @@
+{{/* Table wrapper component */}}
+{{define "tableBox"}}
+[[- if needsArticle .CSSFramework]]
+<article>
+[[- else if ne (boxClass .CSSFramework) ""]]
+<div class="[[boxClass .CSSFramework]]">
+[[- else]]
+<div>
+[[- end]]
+  {{block "tableContent" .}}{{end}}
+[[- if needsArticle .CSSFramework]]
+</article>
+[[- else]]
+</div>
+[[- end]]
+{{end}}
+
+{{/* Resource table with data */}}
+{{define "resourceTable"}}
+  <h2[[if ne (subtitleClass .CSSFramework) ""]] class="[[subtitleClass .CSSFramework]]"[[end]]>[[.ResourceNamePlural]]</h2>
+  {{if gt (len .Paginated[[.ResourceNamePlural]]) 0}}
+[[- if needsTableWrapper .CSSFramework]]
+    <div class="[[tableWrapperClass .CSSFramework]]">
+[[- end]]
+      <table[[if ne (tableClass .CSSFramework) ""]] class="[[tableClass .CSSFramework]]"[[end]] style="table-layout: fixed;">
+[[- $displayField := displayField .Fields]]
+        <tbody>
+          {{range .Paginated[[.ResourceNamePlural]]}}
+            <tr data-key="{{.ID}}">
+              <td style="word-wrap: break-word; overflow-wrap: break-word; width: auto; padding: 12px 8px;">
+[[- if eq $.EditMode "page"]]
+                <a href="/[[$.ResourceNameLower]]/{{.ID}}" style="display: block; text-decoration: none; color: inherit;">
+[[- end]]
+[[- if eq $displayField.GoType "bool"]]
+                  {{if .[[$displayField.Name | title]]}}✓{{else}}✗{{end}}
+[[- else if eq $displayField.GoType "time.Time"]]
+                  {{.[[$displayField.Name | title]].Format "2006-01-02 15:04"}}
+[[- else]]
+                  {{.[[$displayField.Name | title]]}}
+[[- end]]
+[[- if eq $.EditMode "page"]]
+                </a>
+[[- end]]
+              </td>
+[[- if eq $.EditMode "modal"]]
+              <td style="white-space: nowrap; width: 70px; text-align: right; padding: 12px 8px;">
+                <button[[if ne (buttonClass $.CSSFramework "secondary") ""]] class="[[buttonClass $.CSSFramework "secondary"]]"[[end]] lvt-click="edit" lvt-data-id="{{.ID}}">
+                  Edit
+                </button>
+              </td>
+[[- end]]
+            </tr>
+          {{end}}
+        </tbody>
+      </table>
+[[- if needsTableWrapper .CSSFramework]]
+    </div>
+[[- end]]
+  {{else}}
+    <p>
+      {{if ne .SearchQuery ""}}
+        No [[.ResourceNameLower]] found matching "{{.SearchQuery}}"
+      {{else}}
+        No [[.ResourceNameLower]] yet. Add one above!
+      {{end}}
+    </p>
+  {{end}}
+{{end}}

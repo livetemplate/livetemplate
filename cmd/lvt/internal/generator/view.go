@@ -55,21 +55,18 @@ func GenerateView(basePath, moduleName, viewName string, cssFramework string) er
 		return fmt.Errorf("failed to create view directory: %w", err)
 	}
 
-	// Initialize template loader for cascading template lookup
-	loader := NewTemplateLoader()
-
-	// Read templates using loader (checks custom templates first, falls back to embedded)
-	handlerTmpl, err := loader.Load("view/handler.go.tmpl")
+	// Read templates using kit loader (checks project kits, user kits, then embedded)
+	handlerTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "view/handler.go.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read handler template: %w", err)
 	}
 
-	templateTmpl, err := loader.Load("view/template.tmpl.tmpl")
+	templateTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "view/template.tmpl.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read template template: %w", err)
 	}
 
-	testTmpl, err := loader.Load("view/test.go.tmpl")
+	testTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "view/test.go.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read test template: %w", err)
 	}

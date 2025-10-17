@@ -88,11 +88,8 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 		return fmt.Errorf("failed to create resource directory: %w", err)
 	}
 
-	// Initialize template loader for cascading template lookup
-	loader := NewTemplateLoader()
-
-	// Read templates using loader (checks custom templates first, falls back to embedded)
-	handlerTmpl, err := loader.Load("resource/handler.go.tmpl")
+	// Read templates using kit loader (checks project kits, user kits, then embedded)
+	handlerTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "resource/handler.go.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read handler template: %w", err)
 	}
@@ -103,52 +100,59 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 	if appMode == "multi" {
 		// Load component-based template for multi-page apps
 		// Template flattening will resolve all {{define}}/{{template}} constructs
-		components := []string{
-			"components/layout.tmpl",
-			"components/form.tmpl",
-			"components/toolbar.tmpl",
-			"components/table.tmpl",
-			"components/pagination.tmpl",
-			"components/search.tmpl",
-			"components/stats.tmpl",
-			"components/sort.tmpl",
-			"components/detail.tmpl",
-			"resource/template_components.tmpl.tmpl",
+		componentNames := []string{
+			"layout.tmpl",
+			"form.tmpl",
+			"toolbar.tmpl",
+			"table.tmpl",
+			"pagination.tmpl",
+			"search.tmpl",
+			"stats.tmpl",
+			"sort.tmpl",
+			"detail.tmpl",
 		}
 
 		var fullTemplate string
-		for _, comp := range components {
-			compTmpl, err := loader.Load(comp)
+		for _, compName := range componentNames {
+			compTmpl, err := kitLoader.LoadKitComponent(cssFramework, compName)
 			if err != nil {
-				return fmt.Errorf("failed to load component %s: %w", comp, err)
+				return fmt.Errorf("failed to load component %s: %w", compName, err)
 			}
 			fullTemplate += string(compTmpl) + "\n\n"
 		}
+
+		// Load the main template file that uses these components
+		mainTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "resource/template_components.tmpl.tmpl")
+		if err != nil {
+			return fmt.Errorf("failed to load main template: %w", err)
+		}
+		fullTemplate += string(mainTmpl)
+
 		templateTmpl = []byte(fullTemplate)
 	} else {
 		// Single mode - use simple template
-		templateTmpl, err = loader.Load("resource/template.tmpl.tmpl")
+		templateTmpl, err = kitLoader.LoadKitTemplate(cssFramework, "resource/template.tmpl.tmpl")
 		if err != nil {
 			return fmt.Errorf("failed to load template: %w", err)
 		}
 	}
 
-	queriesTmpl, err := loader.Load("resource/queries.sql.tmpl")
+	queriesTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "resource/queries.sql.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read queries template: %w", err)
 	}
 
-	testTmpl, err := loader.Load("resource/test.go.tmpl")
+	testTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "resource/test.go.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read test template: %w", err)
 	}
 
-	migrationTmpl, err := loader.Load("resource/migration.sql.tmpl")
+	migrationTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "resource/migration.sql.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read migration template: %w", err)
 	}
 
-	schemaTmpl, err := loader.Load("resource/schema.sql.tmpl")
+	schemaTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "resource/schema.sql.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read schema template: %w", err)
 	}

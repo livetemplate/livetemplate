@@ -59,41 +59,38 @@ func GenerateApp(appName, moduleName string, devMode bool) error {
 		}
 	}
 
-	// Initialize template loader for cascading template lookup
-	loader := NewTemplateLoader()
-
-	// Read templates using loader (checks custom templates first, falls back to embedded)
-	mainGoTmpl, err := loader.Load("app/main.go.tmpl")
+	// Read templates using kit loader (checks project kits, user kits, then embedded)
+	mainGoTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "app/main.go.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read main.go template: %w", err)
 	}
 
-	goModTmpl, err := loader.Load("app/go.mod.tmpl")
+	goModTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "app/go.mod.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read go.mod template: %w", err)
 	}
 
-	dbGoTmpl, err := loader.Load("app/db.go.tmpl")
+	dbGoTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "app/db.go.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read db.go template: %w", err)
 	}
 
-	sqlcYamlTmpl, err := loader.Load("app/sqlc.yaml.tmpl")
+	sqlcYamlTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "app/sqlc.yaml.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read sqlc.yaml template: %w", err)
 	}
 
-	modelsGoTmpl, err := loader.Load("app/models.go.tmpl")
+	modelsGoTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "app/models.go.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read models.go template: %w", err)
 	}
 
-	homeGoTmpl, err := loader.Load("app/home.go.tmpl")
+	homeGoTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "app/home.go.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read home.go template: %w", err)
 	}
 
-	homeTmplTmpl, err := loader.Load("app/home.tmpl.tmpl")
+	homeTmplTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "app/home.tmpl.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read home.tmpl template: %w", err)
 	}

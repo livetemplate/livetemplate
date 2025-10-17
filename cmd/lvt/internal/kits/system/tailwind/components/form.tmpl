@@ -1,0 +1,95 @@
+{{/* Add Modal - Modal wrapper for add form */}}
+{{define "addModal"}}
+  <div id="add-modal" hidden aria-hidden="true" role="dialog" data-modal-backdrop data-modal-id="add-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+    <div style="background: white; border-radius: 8px; padding: 2rem; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
+      {{template "addForm" .}}
+    </div>
+  </div>
+{{end}}
+
+{{/* Add form for resource */}}
+{{define "addForm"}}
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+    <h2[[if ne (subtitleClass .CSSFramework) ""]] class="[[subtitleClass .CSSFramework]]"[[end]] style="margin: 0;">Add New [[.ResourceName]]</h2>
+    <button type="button" lvt-modal-close="add-modal" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; padding: 0; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;" aria-label="Close">&times;</button>
+  </div>
+
+  {{if .lvt.HasError "_general"}}
+  <div style="margin-bottom: 1rem; padding: 0.75rem; background-color: #fee; border: 1px solid #fcc; border-radius: 0.25rem; color: #c00;">
+    {{.lvt.Error "_general"}}
+  </div>
+  {{end}}
+
+  <form lvt-submit="add">
+[[- range .Fields]]
+    <div[[if ne (fieldClass $.CSSFramework) ""]] class="[[fieldClass $.CSSFramework]]"[[end]]>
+      <label[[if ne (labelClass $.CSSFramework) ""]] class="[[labelClass $.CSSFramework]]"[[end]]>[[.Name | title]]</label>
+[[- if .IsTextarea]]
+      <textarea[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] name="[[.Name]]" placeholder="Enter [[.Name]]" rows="5" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}></textarea>
+[[- else if eq .GoType "string"]]
+      <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="text" name="[[.Name]]" placeholder="Enter [[.Name]]" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+[[- else if eq .GoType "int64"]]
+      <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="number" name="[[.Name]]" placeholder="Enter [[.Name]]" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+[[- else if eq .GoType "bool"]]
+      <label[[if ne (checkboxClass $.CSSFramework) ""]] class="[[checkboxClass $.CSSFramework]]"[[end]]>
+        <input type="checkbox" name="[[.Name]]" value="true" {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+        [[.Name | title]]
+      </label>
+[[- else if eq .GoType "float64"]]
+      <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="number" step="0.01" name="[[.Name]]" placeholder="Enter [[.Name]]" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+[[- end]]
+      {{if .lvt.HasError "[[.Name]]"}}
+      <small style="color: #c00; font-size: 0.875rem;">{{.lvt.Error "[[.Name]]"}}</small>
+      {{end}}
+    </div>
+[[- end]]
+    <div[[if ne (fieldClass .CSSFramework) ""]] class="[[fieldClass .CSSFramework]]"[[end]]>
+      <button[[if ne (buttonClass .CSSFramework "primary") ""]] class="[[buttonClass .CSSFramework "primary"]]"[[end]] style="margin-right: 8px; padding: 0.5rem 1rem; font-size: 1rem; min-width: 100px;" type="submit" lvt-disable-with="Adding...">Add [[.ResourceName]]</button>
+      <button[[if ne (buttonClass .CSSFramework "secondary") ""]] class="[[buttonClass .CSSFramework "secondary"]]"[[end]] style="padding: 0.5rem 1rem; font-size: 1rem; min-width: 100px;" type="button" lvt-modal-close="add-modal">Cancel</button>
+    </div>
+  </form>
+{{end}}
+
+{{/* Edit form for resource */}}
+{{define "editForm"}}
+  {{if ne .EditingID ""}}
+  <h2[[if ne (subtitleClass .CSSFramework) ""]] class="[[subtitleClass .CSSFramework]]"[[end]]>Edit [[.ResourceName]]</h2>
+
+  {{if .lvt.HasError "_general"}}
+  <div style="margin-bottom: 1rem; padding: 0.75rem; background-color: #fee; border: 1px solid #fcc; border-radius: 0.25rem; color: #c00;">
+    {{.lvt.Error "_general"}}
+  </div>
+  {{end}}
+
+  <form lvt-submit="update">
+    <input type="hidden" name="id" value="{{.EditingID}}">
+[[- range .Fields]]
+    <div[[if ne (fieldClass $.CSSFramework) ""]] class="[[fieldClass $.CSSFramework]]"[[end]]>
+      <label[[if ne (labelClass $.CSSFramework) ""]] class="[[labelClass $.CSSFramework]]"[[end]]>[[.Name | title]]</label>
+[[- if .IsTextarea]]
+      <textarea[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] name="[[.Name]]" placeholder="Enter [[.Name]]" rows="5" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>{{.Editing[[$.ResourceName]].[[.Name | camelCase]]}}</textarea>
+[[- else if eq .GoType "string"]]
+      <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="text" name="[[.Name]]" placeholder="Enter [[.Name]]" value="{{.Editing[[$.ResourceName]].[[.Name | camelCase]]}}" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+[[- else if eq .GoType "int64"]]
+      <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="number" name="[[.Name]]" placeholder="Enter [[.Name]]" value="{{.Editing[[$.ResourceName]].[[.Name | camelCase]]}}" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+[[- else if eq .GoType "bool"]]
+      <label[[if ne (checkboxClass $.CSSFramework) ""]] class="[[checkboxClass $.CSSFramework]]"[[end]]>
+        <input type="checkbox" name="[[.Name]]" value="true" {{if .Editing[[$.ResourceName]].[[.Name | camelCase]]}}checked{{end}} {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+        [[.Name | title]]
+      </label>
+[[- else if eq .GoType "float64"]]
+      <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="number" step="0.01" name="[[.Name]]" placeholder="Enter [[.Name]]" value="{{.Editing[[$.ResourceName]].[[.Name | camelCase]]}}" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+[[- end]]
+      {{if .lvt.HasError "[[.Name]]"}}
+      <small style="color: #c00; font-size: 0.875rem;">{{.lvt.Error "[[.Name]]"}}</small>
+      {{end}}
+    </div>
+[[- end]]
+    <div[[if ne (fieldClass .CSSFramework) ""]] class="[[fieldClass .CSSFramework]]"[[end]] style="display: flex; gap: 8px; margin-top: 1.5rem;">
+      <button[[if ne (buttonClass .CSSFramework "primary") ""]] class="[[buttonClass .CSSFramework "primary"]]"[[end]] type="submit" lvt-disable-with="Updating...">Save</button>
+      <a href="/[[.ResourceNameLower]]/{{.EditingID}}"[[if ne (buttonClass .CSSFramework "secondary") ""]] class="[[buttonClass .CSSFramework "secondary"]]"[[end]] style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center;">Cancel</a>
+      <button[[if ne (buttonClass .CSSFramework "danger") ""]] class="[[buttonClass .CSSFramework "danger"]]"[[end]] type="button" lvt-click="delete" lvt-data-id="{{.EditingID}}" lvt-confirm="Are you sure you want to delete this [[.ResourceNameLower]]?" style="margin-left: auto;">Delete</button>
+    </div>
+  </form>
+  {{end}}
+{{end}}

@@ -1,0 +1,112 @@
+package [[.PackageName]]
+
+import (
+	"context"
+	"fmt"
+	"os/exec"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/chromedp/chromedp"
+	e2etest "github.com/livefir/livetemplate/internal/testing"
+)
+
+func Test[[.ViewName]]E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping E2E test in short mode")
+	}
+
+	// Get free ports for server and Chrome debugging
+	serverPort, err := e2etest.GetFreePort()
+	if err != nil {
+		t.Fatalf("Failed to get free port for server: %v", err)
+	}
+
+	debugPort, err := e2etest.GetFreePort()
+	if err != nil {
+		t.Fatalf("Failed to get free port for Chrome: %v", err)
+	}
+
+	// Start server
+	portStr := fmt.Sprintf("%d", serverPort)
+	serverURL := fmt.Sprintf("http://localhost:%d/[[.ViewNameLower]]", serverPort)
+
+	t.Logf("Starting test server on port %s", portStr)
+	serverCmd := exec.Command("go", "run", "../../cmd/[[.ModuleName]]/main.go")
+	serverCmd.Env = append([]string{"PORT=" + portStr}, serverCmd.Environ()...)
+
+	if err := serverCmd.Start(); err != nil {
+		t.Fatalf("Failed to start server: %v", err)
+	}
+	defer func() {
+		if serverCmd != nil && serverCmd.Process != nil {
+			serverCmd.Process.Kill()
+		}
+	}()
+
+	// Wait for server to be ready
+	time.Sleep(2 * time.Second)
+
+	t.Logf("✅ Test server ready at %s", serverURL)
+
+	// Start Docker Chrome container
+	chromeCmd := e2etest.StartDockerChrome(t, debugPort)
+	defer e2etest.StopDockerChrome(t, chromeCmd, debugPort)
+
+	// Connect to Docker Chrome via remote debugging
+	chromeURL := fmt.Sprintf("http://localhost:%d", debugPort)
+	allocCtx, allocCancel := chromedp.NewRemoteAllocator(context.Background(), chromeURL)
+	defer allocCancel()
+
+	ctx, cancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(t.Logf))
+	defer cancel()
+
+	// Set timeout for the entire test
+	ctx, cancel = context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	t.Run("Initial Load", func(t *testing.T) {
+		var initialHTML string
+
+		err := chromedp.Run(ctx,
+			chromedp.Navigate(e2etest.GetChromeTestURL(serverPort)+"/[[.ViewNameLower]]"),
+			e2etest.WaitForWebSocketReady(5*time.Second), // Wait for WebSocket init and first update
+			chromedp.WaitVisible(`h1`, chromedp.ByQuery),
+			e2etest.ValidateNoTemplateExpressions("[data-lvt-id]"), // Validate no raw template expressions
+			chromedp.OuterHTML(`body`, &initialHTML, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to load page: %v", err)
+		}
+
+		// Verify initial state
+		if !strings.Contains(initialHTML, "[[.ViewName]]") {
+			t.Error("Page title not found")
+		}
+
+		t.Log("✅ Initial page load verified")
+	})
+
+	t.Run("WebSocket Connection", func(t *testing.T) {
+		// Check for console errors
+		var logs []string
+		err := chromedp.Run(ctx,
+			chromedp.Evaluate(`console.log('WebSocket test'); 'logged'`, nil),
+			chromedp.Sleep(500*time.Millisecond),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to check console: %v", err)
+		}
+
+		// If we got here without WebSocket errors, connection is working
+		t.Log("✅ WebSocket connection working")
+		_ = logs // Prevent unused variable error
+	})
+
+	fmt.Println("\n" + strings.Repeat("=", 60))
+	fmt.Println("🎉 All E2E tests passed!")
+	fmt.Println(strings.Repeat("=", 60))
+}

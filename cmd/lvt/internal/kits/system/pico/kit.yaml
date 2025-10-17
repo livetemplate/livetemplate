@@ -1,58 +1,27 @@
 name: pico
-version: 1.5.0
-description: Pico CSS minimal semantic framework kit
+version: 1.0.0
+description: Pico CSS semantic/classless framework starter kit
 framework: pico
 author: LiveTemplate Team
 license: MIT
-
-cdn: https://cdn.jsdelivr.net/npm/@picocss/pico@1.5.0/css/pico.min.css
-
-features:
-  - Minimal and semantic HTML
-  - Classless by default
-  - Native form styling
-  - Dark mode built-in
-  - Lightweight (~10KB)
-  - Accessibility focused
-
-characteristics:
-  needs_wrapper: true
-  needs_article: true
-  needs_table_wrapper: false
-
-styling:
-  container: ""
-  box: ""
-
-  # Typography
-  title: ""
-  subtitle: ""
-
-  # Buttons (Pico uses native elements with minimal classes)
-  button_primary: ""
-  button_secondary: "secondary"
-  button_danger: "contrast"
-
-  # Forms (mostly classless)
-  field: ""
-  label: ""
-  input: ""
-  select: ""
-  textarea: ""
-
-  # Tables (native styling)
-  table: ""
-
-  # Pagination (minimal classes)
-  pagination: ""
-  pagination_button: ""
-  pagination_active: ""
-
-documentation: https://picocss.com/docs
-
+cdn: <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
 tags:
-  - minimal
+  - css
   - semantic
   - classless
-  - lightweight
-  - accessible
+
+components:
+  - detail.tmpl
+  - form.tmpl
+  - layout.tmpl
+  - pagination.tmpl
+  - search.tmpl
+  - sort.tmpl
+  - stats.tmpl
+  - table.tmpl
+  - toolbar.tmpl
+
+templates:
+  resource: true
+  view: true
+  app: true

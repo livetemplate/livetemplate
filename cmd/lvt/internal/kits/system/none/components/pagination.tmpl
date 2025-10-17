@@ -1,0 +1,113 @@
+{{/* Pagination - renders based on mode */}}
+{{define "pagination"}}
+  [[- if eq .PaginationMode "infinite"]]
+    {{template "infiniteScroll" .}}
+  [[- else if eq .PaginationMode "load-more"]]
+    {{template "loadMoreButton" .}}
+  [[- else if eq .PaginationMode "prev-next"]]
+    {{template "prevNextPagination" .}}
+  [[- else if eq .PaginationMode "numbers"]]
+    {{template "numberedPagination" .}}
+  [[- end]]
+{{end}}
+
+{{/* Infinite scroll with sentinel */}}
+{{define "infiniteScroll"}}
+  {{if .HasMore}}
+    {{if .IsLoading}}
+      <div[[if ne (loadingClass .CSSFramework) ""]] class="[[loadingClass .CSSFramework]]"[[end]] style="text-align: center; padding: 1rem;">
+        Loading more...
+      </div>
+    {{end}}
+    <div id="scroll-sentinel" style="height: 1px;"></div>
+  {{end}}
+{{end}}
+
+{{/* Load more button */}}
+{{define "loadMoreButton"}}
+  {{if .HasMore}}
+    <div style="text-align: center; margin-top: 1rem;">
+      {{if .IsLoading}}
+        <div[[if ne (loadingClass .CSSFramework) ""]] class="[[loadingClass .CSSFramework]]"[[end]]>Loading...</div>
+      {{else}}
+        <button[[if ne (buttonClass .CSSFramework "primary") ""]] class="[[buttonClass .CSSFramework "primary"]]"[[end]] lvt-click="load_more">
+          Load More
+        </button>
+      {{end}}
+      <p style="margin-top: 0.5rem; color: #666; font-size: 0.875rem;">
+        Showing {{len .Paginated[[.ResourceNamePlural]]}} of {{.TotalCount}} items
+      </p>
+    </div>
+  {{end}}
+{{end}}
+
+{{/* Previous/Next pagination */}}
+{{define "prevNextPagination"}}
+  {{if gt .TotalPages 1}}
+    <nav[[if ne (paginationClass .CSSFramework) ""]] class="[[paginationClass .CSSFramework]]"[[end]] role="navigation" aria-label="pagination">
+      <button[[if ne (paginationButtonClass .CSSFramework) ""]] class="[[paginationButtonClass .CSSFramework]]"[[end]] lvt-click="prev_page" {{if eq .CurrentPage 1}}disabled{{end}}>
+        Previous
+      </button>
+[[- if ne (paginationInfoClass .CSSFramework) ""]]
+      <div class="[[paginationInfoClass .CSSFramework]]">
+        <span class="[[paginationCurrentClass .CSSFramework]]">
+[[- else]]
+      <div>
+        <span>
+[[- end]]
+          Page {{.CurrentPage}} of {{.TotalPages}}
+        </span>
+      </div>
+      <button[[if ne (paginationButtonClass .CSSFramework) ""]] class="[[paginationButtonClass .CSSFramework]]"[[end]] lvt-click="next_page" {{if eq .CurrentPage .TotalPages}}disabled{{end}}>
+        Next
+      </button>
+    </nav>
+  {{end}}
+{{end}}
+
+{{/* Numbered pagination */}}
+{{define "numberedPagination"}}
+  {{if gt .TotalPages 1}}
+    <nav[[if ne (paginationClass .CSSFramework) ""]] class="[[paginationClass .CSSFramework]]"[[end]] role="navigation" aria-label="pagination" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-top: 1rem;">
+      <button[[if ne (paginationButtonClass .CSSFramework) ""]] class="[[paginationButtonClass .CSSFramework]]"[[end]] lvt-click="prev_page" {{if eq .CurrentPage 1}}disabled{{end}}>
+        &laquo; Prev
+      </button>
+
+      <div style="display: flex; align-items: center; gap: 0.25rem;">
+        {{if eq .CurrentPage 1}}
+          <span[[if ne (paginationActiveClass .CSSFramework) ""]] class="[[paginationActiveClass .CSSFramework]]"[[end]] style="padding: 0.5rem 0.75rem; font-weight: bold;">1</span>
+        {{else}}
+          <button[[if ne (paginationButtonClass .CSSFramework) ""]] class="[[paginationButtonClass .CSSFramework]]"[[end]] lvt-click="goto_page" lvt-data-page="1">1</button>
+        {{end}}
+
+        {{if gt .TotalPages 2}}
+          {{if gt .CurrentPage 3}}
+            <span style="padding: 0 0.5rem;">...</span>
+          {{end}}
+
+          {{if and (gt .CurrentPage 1) (lt .CurrentPage .TotalPages)}}
+            {{if gt .CurrentPage 2}}
+              <button[[if ne (paginationButtonClass .CSSFramework) ""]] class="[[paginationButtonClass .CSSFramework]]"[[end]] lvt-click="goto_page" lvt-data-page="{{.CurrentPage | printf "%d"}}">{{.CurrentPage}}</button>
+            {{end}}
+          {{end}}
+
+          {{if lt .CurrentPage (printf "%d" (.TotalPages | printf "%d"))}}
+            <span style="padding: 0 0.5rem;">...</span>
+          {{end}}
+        {{end}}
+
+        {{if gt .TotalPages 1}}
+          {{if eq .CurrentPage .TotalPages}}
+            <span[[if ne (paginationActiveClass .CSSFramework) ""]] class="[[paginationActiveClass .CSSFramework]]"[[end]] style="padding: 0.5rem 0.75rem; font-weight: bold;">{{.TotalPages}}</span>
+          {{else}}
+            <button[[if ne (paginationButtonClass .CSSFramework) ""]] class="[[paginationButtonClass .CSSFramework]]"[[end]] lvt-click="goto_page" lvt-data-page="{{.TotalPages}}">{{.TotalPages}}</button>
+          {{end}}
+        {{end}}
+      </div>
+
+      <button[[if ne (paginationButtonClass .CSSFramework) ""]] class="[[paginationButtonClass .CSSFramework]]"[[end]] lvt-click="next_page" {{if eq .CurrentPage .TotalPages}}disabled{{end}}>
+        Next &raquo;
+      </button>
+    </nav>
+  {{end}}
+{{end}}

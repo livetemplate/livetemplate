@@ -1,56 +1,27 @@
 name: tailwind
-version: 3.4.0
-description: Tailwind CSS utility-first framework kit
+version: 1.0.0
+description: Tailwind CSS v4 utility-first framework starter kit
 framework: tailwind
 author: LiveTemplate Team
 license: MIT
-
-cdn: https://cdn.jsdelivr.net/npm/tailwindcss@3.4.0/dist/tailwind.min.css
-
-features:
-  - Utility-first CSS classes
-  - Highly customizable
-  - Responsive design built-in
-  - Modern component styling
-  - Flexbox and Grid utilities
-  - Dark mode support
-
-characteristics:
-  needs_wrapper: false
-  needs_article: false
-  needs_table_wrapper: false
-
-styling:
-  container: "container mx-auto px-4"
-  box: "bg-white rounded-lg shadow-md p-6 mb-6"
-
-  # Typography
-  title: "text-3xl font-bold mb-6"
-  subtitle: "text-2xl font-semibold mb-4"
-
-  # Buttons
-  button_primary: "bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-  button_secondary: "bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded"
-  button_danger: "bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
-
-  # Forms
-  input: "shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-  select: "shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-  textarea: "shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-  label: "block text-gray-700 text-sm font-bold mb-2"
-
-  # Tables
-  table: "min-w-full divide-y divide-gray-200"
-
-  # Pagination
-  pagination: "flex items-center justify-center space-x-2"
-  pagination_button: "px-3 py-1 border rounded hover:bg-gray-100"
-  pagination_active: "px-3 py-1 bg-blue-500 text-white rounded"
-
-documentation: https://tailwindcss.com/docs
-
+cdn: <script src="https://cdn.tailwindcss.com"></script>
 tags:
+  - css
   - utility-first
-  - modern
   - responsive
-  - customizable
+
+components:
+  - detail.tmpl
+  - form.tmpl
+  - layout.tmpl
+  - pagination.tmpl
+  - search.tmpl
+  - sort.tmpl
+  - stats.tmpl
+  - table.tmpl
+  - toolbar.tmpl
+
+templates:
+  resource: true
+  view: true
+  app: true
