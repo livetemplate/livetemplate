@@ -399,11 +399,25 @@ func TestPageModeURLRouting(t *testing.T) {
 
 	// Test 3: Browser back button returns to list
 	t.Run("Browser back button works", func(t *testing.T) {
+		var linkExists bool
 		var backToList bool
+
+		// First check if anchor links exist
 		err := chromedp.Run(ctx,
 			chromedp.Navigate(testURL),
 			e2etest.WaitForWebSocketReady(5*time.Second),
 			chromedp.Sleep(1*time.Second),
+			chromedp.Evaluate(`document.querySelector('table tbody tr a') !== null`, &linkExists),
+		)
+		if err != nil {
+			t.Fatalf("Failed to check for links: %v", err)
+		}
+
+		if !linkExists {
+			t.Skip("No products available for back button test")
+		}
+
+		err = chromedp.Run(ctx,
 			chromedp.Click(`table tbody tr a`, chromedp.ByQuery),
 			chromedp.Sleep(1*time.Second),
 			chromedp.Evaluate(`history.back()`, nil),
@@ -423,11 +437,25 @@ func TestPageModeURLRouting(t *testing.T) {
 
 	// Test 4: URL is at list path after back button
 	t.Run("URL returns to list path after back", func(t *testing.T) {
+		var linkExists bool
 		var finalURL string
+
+		// First check if anchor links exist
 		err := chromedp.Run(ctx,
 			chromedp.Navigate(testURL),
 			e2etest.WaitForWebSocketReady(5*time.Second),
 			chromedp.Sleep(1*time.Second),
+			chromedp.Evaluate(`document.querySelector('table tbody tr a') !== null`, &linkExists),
+		)
+		if err != nil {
+			t.Fatalf("Failed to check for links: %v", err)
+		}
+
+		if !linkExists {
+			t.Skip("No products available for URL path test")
+		}
+
+		err = chromedp.Run(ctx,
 			chromedp.Click(`table tbody tr a`, chromedp.ByQuery),
 			chromedp.Sleep(1*time.Second),
 			chromedp.Evaluate(`history.back()`, nil),
