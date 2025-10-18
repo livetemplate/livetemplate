@@ -3,6 +3,9 @@ package parser
 import (
 	"fmt"
 	"strings"
+
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 type Field struct {
@@ -123,7 +126,7 @@ func FieldsToGoStruct(fields []Field) string {
 	var sb strings.Builder
 	for _, f := range fields {
 		// Capitalize first letter for export
-		fieldName := strings.Title(f.Name)
+		fieldName := cases.Title(language.English).String(f.Name)
 		sb.WriteString(fmt.Sprintf("\t%s %s `json:\"%s\"`\n", fieldName, f.GoType, f.Name))
 	}
 	return sb.String()

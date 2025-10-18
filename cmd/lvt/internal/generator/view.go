@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 type ViewData struct {
@@ -35,7 +37,7 @@ func GenerateView(basePath, moduleName, viewName string, kitName, cssFramework s
 	}
 
 	// Ensure view name is capitalized
-	viewName = strings.Title(viewName)
+	viewName = cases.Title(language.English).String(viewName)
 	viewNameLower := strings.ToLower(viewName)
 
 	// Read dev mode setting from .lvtrc

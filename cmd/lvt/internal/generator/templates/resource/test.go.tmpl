@@ -108,7 +108,7 @@ func Test[[.ResourceName]]WebSocket(t *testing.T) {
 
 		// Verify response contains update
 		response := string(msg)
-		if !strings.Contains(response, "Test [[(index .Fields 0).Name | title]]") {
+		if !strings.Contains(response, "Test {{(index .Fields 0).Name | title}}") {
 			t.Errorf("Response doesn't contain expected data: %s", response)
 		}
 

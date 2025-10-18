@@ -87,11 +87,11 @@
 
           {{if and (gt .CurrentPage 1) (lt .CurrentPage .TotalPages)}}
             {{if gt .CurrentPage 2}}
-              <button[[if ne (paginationButtonClass .CSSFramework) ""]] class="[[paginationButtonClass .CSSFramework]]"[[end]] lvt-click="goto_page" lvt-data-page="{{.CurrentPage | printf "%d"}}">{{.CurrentPage}}</button>
+              <button[[if ne (paginationButtonClass .CSSFramework) ""]] class="[[paginationButtonClass .CSSFramework]]"[[end]] lvt-click="goto_page" lvt-data-page="{{.CurrentPage}}">{{.CurrentPage}}</button>
             {{end}}
           {{end}}
 
-          {{if lt .CurrentPage (printf "%d" (.TotalPages | printf "%d"))}}
+          {{if lt .CurrentPage .TotalPages}}
             <span style="padding: 0 0.5rem;">...</span>
           {{end}}
         {{end}}
