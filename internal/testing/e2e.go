@@ -75,7 +75,7 @@ func StartDockerChrome(t *testing.T, debugPort int) *exec.Cmd {
 			}
 			t.Log("✅ Docker image pulled successfully")
 		case <-time.After(60 * time.Second):
-			pullCmd.Process.Kill()
+			_ = pullCmd.Process.Kill()
 			t.Fatal("Docker pull timed out after 60 seconds")
 		}
 	} else {
@@ -126,7 +126,7 @@ func StartDockerChrome(t *testing.T, debugPort int) *exec.Cmd {
 	}
 
 	if !ready {
-		cmd.Process.Kill()
+		_ = cmd.Process.Kill()
 		t.Fatal("Chrome failed to start within 30 seconds")
 	}
 
@@ -163,13 +163,13 @@ func StopDockerChrome(t *testing.T, cmd *exec.Cmd, debugPort int) {
 		case <-time.After(5 * time.Second):
 			// Force kill if graceful stop hangs
 			t.Logf("Warning: docker stop timed out, forcing kill")
-			exec.Command("docker", "kill", containerName).Run()
+			_ = exec.Command("docker", "kill", containerName).Run()
 		}
 	}
 
 	// Kill the process if still running
 	if cmd != nil && cmd.Process != nil {
-		cmd.Process.Kill()
+		_ = cmd.Process.Kill()
 	}
 }
 
@@ -203,7 +203,7 @@ func StartTestServer(t *testing.T, mainPath string, port int) *exec.Cmd {
 	}
 
 	if !ready {
-		cmd.Process.Kill()
+		_ = cmd.Process.Kill()
 		t.Fatal("Server failed to start within 5 seconds")
 	}
 

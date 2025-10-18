@@ -95,7 +95,7 @@ func TestWatcher_IgnoresPatterns(t *testing.T) {
 	defer watcher.Stop()
 
 	gitDir := filepath.Join(tmpDir, ".git")
-	os.MkdirAll(gitDir, 0755)
+	_ = os.MkdirAll(gitDir, 0755)
 	gitFile := filepath.Join(gitDir, "config")
 	os.WriteFile(gitFile, []byte("test"), 0644)
 

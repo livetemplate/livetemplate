@@ -53,7 +53,7 @@ func TestWebSocketManager_Broadcast(t *testing.T) {
 
 	wsm.Broadcast(testData)
 
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, message, err := conn.ReadMessage()
 	if err != nil {
 		t.Fatalf("Failed to read message: %v", err)
@@ -102,7 +102,7 @@ func TestWebSocketManager_MultipleClients(t *testing.T) {
 	wsm.Broadcast(map[string]string{"message": "broadcast"})
 
 	for i, conn := range []*websocket.Conn{conn1, conn2} {
-		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 		_, message, err := conn.ReadMessage()
 		if err != nil {
 			t.Fatalf("Client %d failed to read: %v", i+1, err)

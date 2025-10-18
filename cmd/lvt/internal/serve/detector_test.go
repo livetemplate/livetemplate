@@ -16,7 +16,7 @@ func TestModeDetector_DetectMode(t *testing.T) {
 		{
 			name: "detects component mode",
 			setupFunc: func(dir string) {
-				os.WriteFile(filepath.Join(dir, "component.yaml"), []byte("name: test"), 0644)
+				_ = os.WriteFile(filepath.Join(dir, "component.yaml"), []byte("name: test"), 0644)
 			},
 			wantMode: ModeComponent,
 			wantErr:  false,
@@ -24,7 +24,7 @@ func TestModeDetector_DetectMode(t *testing.T) {
 		{
 			name: "detects component mode with tmpl file",
 			setupFunc: func(dir string) {
-				os.WriteFile(filepath.Join(dir, "component.tmpl"), []byte("<div>test</div>"), 0644)
+				_ = os.WriteFile(filepath.Join(dir, "component.tmpl"), []byte("<div>test</div>"), 0644)
 			},
 			wantMode: ModeComponent,
 			wantErr:  false,
@@ -32,7 +32,7 @@ func TestModeDetector_DetectMode(t *testing.T) {
 		{
 			name: "detects kit mode",
 			setupFunc: func(dir string) {
-				os.WriteFile(filepath.Join(dir, "kit.yaml"), []byte("name: test"), 0644)
+				_ = os.WriteFile(filepath.Join(dir, "kit.yaml"), []byte("name: test"), 0644)
 			},
 			wantMode: ModeKit,
 			wantErr:  false,

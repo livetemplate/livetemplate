@@ -338,7 +338,7 @@ func (km *KitMode) handleHelpers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(helpers)
+	_ = json.NewEncoder(w).Encode(helpers)
 }
 
 func (km *KitMode) Reload() error {
@@ -373,6 +373,6 @@ func renderKitComponent(kit *kits.KitInfo, componentType string) string {
 
 	tmpl, _ = tmpl.Parse(content)
 	var buf strings.Builder
-	tmpl.Execute(&buf, nil)
+	_ = tmpl.Execute(&buf, nil)
 	return buf.String()
 }

@@ -199,7 +199,7 @@ func (am *AppMode) stopAppLocked() {
 
 	log.Printf("Stopping app (PID: %d)...", am.appProcess.Process.Pid)
 
-	am.appProcess.Process.Kill()
+	_ = am.appProcess.Process.Kill()
 
 	done := make(chan error, 1)
 	go func() {
@@ -211,7 +211,7 @@ func (am *AppMode) stopAppLocked() {
 		log.Println("App stopped")
 	case <-time.After(5 * time.Second):
 		log.Println("App failed to stop gracefully, force killing")
-		am.appProcess.Process.Kill()
+		_ = am.appProcess.Process.Kill()
 	}
 
 	am.appProcess = nil

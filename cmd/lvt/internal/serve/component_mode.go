@@ -351,12 +351,12 @@ func (cm *ComponentMode) handleIndex(w http.ResponseWriter, r *http.Request) {
 </html>`
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(html))
+	_, _ = w.Write([]byte(html))
 }
 
 func (cm *ComponentMode) handlePreview(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte("<p>Preview placeholder</p>"))
+	_, _ = w.Write([]byte("<p>Preview placeholder</p>"))
 }
 
 func (cm *ComponentMode) handleRender(w http.ResponseWriter, r *http.Request) {
@@ -392,7 +392,7 @@ func (cm *ComponentMode) handleRender(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(buf.String()))
+	_, _ = w.Write([]byte(buf.String()))
 }
 
 func (cm *ComponentMode) handleReload(w http.ResponseWriter, r *http.Request) {
@@ -402,7 +402,7 @@ func (cm *ComponentMode) handleReload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	_ = json.NewEncoder(w).Encode(map[string]string{
 		"status": "reloaded",
 	})
 }
