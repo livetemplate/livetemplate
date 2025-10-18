@@ -34,8 +34,9 @@ func NewLoader(embedFS *embed.FS) *KitLoader {
 
 // buildSearchPaths constructs the search paths in priority order:
 // 1. Project path (.lvt/kits/)
-// 2. Config paths (from ~/.config/lvt/config.yaml)
-// 3. Embedded system kits (fallback)
+// 2. User path (~/.config/lvt/kits/) - automatic
+// 3. Config paths (from ~/.config/lvt/config.yaml) - optional additional paths
+// 4. Embedded system kits (fallback)
 func (l *KitLoader) buildSearchPaths() {
 	var paths []string
 
@@ -45,7 +46,12 @@ func (l *KitLoader) buildSearchPaths() {
 		paths = append(paths, projectPath)
 	}
 
-	// 2. Config paths
+	// 2. User path (~/.config/lvt/kits/) - automatic
+	if userKitPath := getUserKitDir(); userKitPath != "" {
+		paths = append(paths, userKitPath)
+	}
+
+	// 3. Config paths (optional additional paths)
 	if cfg, err := config.LoadConfig(); err == nil {
 		l.configPaths = cfg.KitPaths
 		paths = append(paths, cfg.KitPaths...)
@@ -382,10 +388,37 @@ func findProjectKitDir() string {
 	return ""
 }
 
+// getUserKitDir returns the user's global kit directory (~/.config/lvt/kits/)
+func getUserKitDir() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+
+	userKitPath := filepath.Join(homeDir, ".config", "lvt", "kits")
+
+	// Check if it exists, if not return empty (no need to create it)
+	if info, err := os.Stat(userKitPath); err == nil && info.IsDir() {
+		return userKitPath
+	}
+
+	return ""
+}
+
 // loadHelpers loads the appropriate CSS helpers implementation based on framework
 func loadHelpers(framework string, kitPath string) (CSSHelpers, error) {
-	// TODO: Implement actual helper loading
-	// For now, return a factory-based helper
+	// If framework is empty, return nil (CSS-agnostic kit)
+	// Helpers will be loaded on-demand based on project config
+	if framework == "" {
+		return nil, nil
+	}
+
+	return LoadHelpersForFramework(framework)
+}
+
+// LoadHelpersForFramework loads CSS helpers for a specific framework
+// This is a public function used by both kit loading and dynamic helper injection
+func LoadHelpersForFramework(framework string) (CSSHelpers, error) {
 	switch framework {
 	case "tailwind":
 		return NewTailwindHelpers(), nil

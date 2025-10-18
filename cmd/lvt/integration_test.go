@@ -27,12 +27,12 @@ func TestGeneratedCodeSyntax(t *testing.T) {
 		{Name: "email", Type: "string", GoType: "string", SQLType: "TEXT"},
 	}
 
-	if err := generator.GenerateResource(tmpDir, "testmodule", "User", fields, "tailwind", "multi", "infinite", 20, "modal"); err != nil {
+	if err := generator.GenerateResource(tmpDir, "testmodule", "User", fields, "multi", "tailwind", "infinite", 20, "modal"); err != nil {
 		t.Fatalf("Failed to generate resource: %v", err)
 	}
 
 	// Generate view
-	if err := generator.GenerateView(tmpDir, "testmodule", "Counter", "tailwind"); err != nil {
+	if err := generator.GenerateView(tmpDir, "testmodule", "Counter", "multi", "tailwind"); err != nil {
 		t.Fatalf("Failed to generate view: %v", err)
 	}
 
@@ -76,7 +76,7 @@ func TestGeneratedFilesExist(t *testing.T) {
 		t.Fatalf("Failed to change directory: %v", err)
 	}
 
-	if err := generator.GenerateApp("testapp", "testapp", false); err != nil { // false = production mode
+	if err := generator.GenerateApp("testapp", "testapp", "multi", "tailwind", false); err != nil { // false = production mode
 		t.Fatalf("Failed to generate app: %v", err)
 	}
 
@@ -105,7 +105,7 @@ func TestGeneratedFilesExist(t *testing.T) {
 		{Name: "title", Type: "string", GoType: "string", SQLType: "TEXT"},
 	}
 
-	if err := generator.GenerateResource(appDir, "testapp", "Post", fields, "tailwind", "multi", "infinite", 20, "modal"); err != nil {
+	if err := generator.GenerateResource(appDir, "testapp", "Post", fields, "multi", "tailwind", "infinite", 20, "modal"); err != nil {
 		t.Fatalf("Failed to generate resource: %v", err)
 	}
 
@@ -124,7 +124,7 @@ func TestGeneratedFilesExist(t *testing.T) {
 	}
 
 	// Generate view
-	if err := generator.GenerateView(appDir, "testapp", "Dashboard", "tailwind"); err != nil {
+	if err := generator.GenerateView(appDir, "testapp", "Dashboard", "multi", "tailwind"); err != nil {
 		t.Fatalf("Failed to generate view: %v", err)
 	}
 
@@ -161,7 +161,7 @@ func TestForeignKeyGeneration(t *testing.T) {
 		{Name: "content", Type: "string", GoType: "string", SQLType: "TEXT"},
 	}
 
-	if err := generator.GenerateResource(tmpDir, "testmodule", "Post", parentFields, "tailwind", "multi", "infinite", 20, "modal"); err != nil {
+	if err := generator.GenerateResource(tmpDir, "testmodule", "Post", parentFields, "multi", "tailwind", "infinite", 20, "modal"); err != nil {
 		t.Fatalf("Failed to generate parent resource: %v", err)
 	}
 
@@ -180,7 +180,7 @@ func TestForeignKeyGeneration(t *testing.T) {
 		{Name: "text", Type: "string", GoType: "string", SQLType: "TEXT"},
 	}
 
-	if err := generator.GenerateResource(tmpDir, "testmodule", "Comment", childFields, "tailwind", "multi", "infinite", 20, "modal"); err != nil {
+	if err := generator.GenerateResource(tmpDir, "testmodule", "Comment", childFields, "multi", "tailwind", "infinite", 20, "modal"); err != nil {
 		t.Fatalf("Failed to generate child resource: %v", err)
 	}
 

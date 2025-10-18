@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/livefir/livetemplate/cmd/lvt/internal/config"
 	"github.com/livefir/livetemplate/cmd/lvt/internal/generator"
 	"github.com/livefir/livetemplate/cmd/lvt/internal/parser"
 )
@@ -19,21 +20,28 @@ func Gen(args []string) error {
 		return GenView(args[1:])
 	}
 
-	// Parse flags
-	cssFramework := "tailwind"   // default
-	appMode := "multi"           // default
+	// Get current directory for project config
+	basePath, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	// Load project config
+	projectConfig, err := config.LoadProjectConfig(basePath)
+	if err != nil {
+		return fmt.Errorf("failed to load project config: %w", err)
+	}
+
+	kit := projectConfig.GetKit()
+	cssFramework := projectConfig.GetCSSFramework()
+
+	// Parse flags (removed --css and --mode, they're now locked in config)
 	paginationMode := "infinite" // default
 	pageSize := 20               // default
 	editMode := "modal"          // default
 	var filteredArgs []string
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--css" && i+1 < len(args) {
-			cssFramework = args[i+1]
-			i++ // skip next arg
-		} else if args[i] == "--mode" && i+1 < len(args) {
-			appMode = args[i+1]
-			i++ // skip next arg
-		} else if args[i] == "--pagination" && i+1 < len(args) {
+		if args[i] == "--pagination" && i+1 < len(args) {
 			paginationMode = args[i+1]
 			i++ // skip next arg
 		} else if args[i] == "--page-size" && i+1 < len(args) {
@@ -60,18 +68,6 @@ func Gen(args []string) error {
 		return fmt.Errorf("at least one field required (format: name:type)")
 	}
 
-	// Validate CSS framework
-	validFrameworks := map[string]bool{"tailwind": true, "bulma": true, "pico": true, "none": true}
-	if !validFrameworks[cssFramework] {
-		return fmt.Errorf("invalid CSS framework: %s (valid: tailwind, bulma, pico, none)", cssFramework)
-	}
-
-	// Validate app mode
-	validModes := map[string]bool{"multi": true, "single": true}
-	if !validModes[appMode] {
-		return fmt.Errorf("invalid mode: %s (valid: multi, single)", appMode)
-	}
-
 	// Validate pagination mode
 	validPaginationModes := map[string]bool{"infinite": true, "load-more": true, "prev-next": true, "numbers": true}
 	if !validPaginationModes[paginationMode] {
@@ -96,13 +92,8 @@ func Gen(args []string) error {
 		return fmt.Errorf("failed to get module name: %w (are you in a Go project?)", err)
 	}
 
-	// Get current directory
-	basePath, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
-	}
-
 	fmt.Printf("Generating CRUD resource: %s\n", resourceName)
+	fmt.Printf("Kit: %s\n", kit)
 	fmt.Printf("CSS Framework: %s\n", cssFramework)
 	fmt.Printf("Pagination: %s (page size: %d)\n", paginationMode, pageSize)
 	fmt.Printf("Edit Mode: %s\n", editMode)
@@ -115,7 +106,7 @@ func Gen(args []string) error {
 	}
 	fmt.Println()
 
-	if err := generator.GenerateResource(basePath, moduleName, resourceName, fields, cssFramework, appMode, paginationMode, pageSize, editMode); err != nil {
+	if err := generator.GenerateResource(basePath, moduleName, resourceName, fields, kit, cssFramework, paginationMode, pageSize, editMode); err != nil {
 		return err
 	}
 
@@ -149,29 +140,22 @@ func GenView(args []string) error {
 		return fmt.Errorf("view name required")
 	}
 
-	// Parse --css flag
-	cssFramework := "tailwind" // default
-	var filteredArgs []string
-	for i := 0; i < len(args); i++ {
-		if args[i] == "--css" && i+1 < len(args) {
-			cssFramework = args[i+1]
-			i++ // skip next arg
-		} else {
-			filteredArgs = append(filteredArgs, args[i])
-		}
+	// Get current directory for project config
+	basePath, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
 	}
 
-	if len(filteredArgs) < 1 {
-		return fmt.Errorf("view name required")
+	// Load project config
+	projectConfig, err := config.LoadProjectConfig(basePath)
+	if err != nil {
+		return fmt.Errorf("failed to load project config: %w", err)
 	}
 
-	// Validate CSS framework
-	validFrameworks := map[string]bool{"tailwind": true, "bulma": true, "pico": true, "none": true}
-	if !validFrameworks[cssFramework] {
-		return fmt.Errorf("invalid CSS framework: %s (valid: tailwind, bulma, pico, none)", cssFramework)
-	}
+	kit := projectConfig.GetKit()
+	cssFramework := projectConfig.GetCSSFramework()
 
-	viewName := filteredArgs[0]
+	viewName := args[0]
 
 	// Get module name from go.mod
 	moduleName, err := getModuleName()
@@ -179,16 +163,11 @@ func GenView(args []string) error {
 		return fmt.Errorf("failed to get module name: %w (are you in a Go project?)", err)
 	}
 
-	// Get current directory
-	basePath, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
-	}
-
 	fmt.Printf("Generating view-only handler: %s\n", viewName)
+	fmt.Printf("Kit: %s\n", kit)
 	fmt.Printf("CSS Framework: %s\n", cssFramework)
 
-	if err := generator.GenerateView(basePath, moduleName, viewName, cssFramework); err != nil {
+	if err := generator.GenerateView(basePath, moduleName, viewName, kit, cssFramework); err != nil {
 		return err
 	}
 

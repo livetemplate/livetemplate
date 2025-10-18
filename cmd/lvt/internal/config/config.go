@@ -8,6 +8,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// globalConfigPath stores the custom config path if set via --config flag
+var globalConfigPath string
+
+// SetConfigPath sets a custom config path for the current session
+func SetConfigPath(path string) {
+	globalConfigPath = path
+}
+
 const (
 	// ConfigFileName is the name of the config file
 	ConfigFileName = "config.yaml"
@@ -19,14 +27,9 @@ const (
 
 // Config represents the lvt configuration
 type Config struct {
-	// ComponentPaths are additional paths to search for components
-	ComponentPaths []string `yaml:"component_paths,omitempty"`
-
 	// KitPaths are additional paths to search for kits
+	// Standard paths (~/.config/lvt/kits/ and .lvt/kits/) are searched automatically
 	KitPaths []string `yaml:"kit_paths,omitempty"`
-
-	// DefaultKit is the default kit to use when none is specified
-	DefaultKit string `yaml:"default_kit,omitempty"`
 
 	// Version tracks the config file version for future migrations
 	Version string `yaml:"version,omitempty"`
@@ -35,10 +38,8 @@ type Config struct {
 // DefaultConfig returns a new Config with default values
 func DefaultConfig() *Config {
 	return &Config{
-		ComponentPaths: []string{},
-		KitPaths:       []string{},
-		DefaultKit:     "tailwind",
-		Version:        "1.0",
+		KitPaths: []string{},
+		Version:  "1.0",
 	}
 }
 
@@ -79,38 +80,22 @@ func EnsureConfigDir() error {
 
 // LoadConfig loads the configuration from the config file
 // If the file doesn't exist, returns a default config
+// Uses custom config path if set via SetConfigPath, otherwise uses default
 func LoadConfig() (*Config, error) {
-	configPath, err := GetConfigPath()
-	if err != nil {
-		return nil, err
+	var configPath string
+	var err error
+
+	// Use custom config path if set, otherwise use default
+	if globalConfigPath != "" {
+		configPath = globalConfigPath
+	} else {
+		configPath, err = GetConfigPath()
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	// If config file doesn't exist, return default config
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return DefaultConfig(), nil
-	}
-
-	// Read config file
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
-	}
-
-	// Parse YAML
-	var config Config
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
-	}
-
-	// Set defaults for missing fields
-	if config.DefaultKit == "" {
-		config.DefaultKit = "tailwind"
-	}
-	if config.Version == "" {
-		config.Version = "1.0"
-	}
-
-	return &config, nil
+	return LoadConfigFromPath(configPath)
 }
 
 // SaveConfig saves the configuration to the config file
@@ -136,56 +121,6 @@ func SaveConfig(config *Config) error {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
-	return nil
-}
-
-// AddComponentPath adds a component path to the config
-func (c *Config) AddComponentPath(path string) error {
-	// Validate path exists
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return fmt.Errorf("path does not exist: %s", path)
-	}
-
-	// Convert to absolute path
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return fmt.Errorf("failed to get absolute path: %w", err)
-	}
-
-	// Check if already exists
-	for _, p := range c.ComponentPaths {
-		if p == absPath {
-			return fmt.Errorf("path already exists in config: %s", absPath)
-		}
-	}
-
-	c.ComponentPaths = append(c.ComponentPaths, absPath)
-	return nil
-}
-
-// RemoveComponentPath removes a component path from the config
-func (c *Config) RemoveComponentPath(path string) error {
-	// Convert to absolute path for comparison
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		absPath = path // Use as-is if can't resolve
-	}
-
-	found := false
-	newPaths := []string{}
-	for _, p := range c.ComponentPaths {
-		if p != absPath {
-			newPaths = append(newPaths, p)
-		} else {
-			found = true
-		}
-	}
-
-	if !found {
-		return fmt.Errorf("path not found in config: %s", path)
-	}
-
-	c.ComponentPaths = newPaths
 	return nil
 }
 
@@ -239,28 +174,8 @@ func (c *Config) RemoveKitPath(path string) error {
 	return nil
 }
 
-// SetDefaultKit sets the default kit
-func (c *Config) SetDefaultKit(kit string) {
-	c.DefaultKit = kit
-}
-
-// GetDefaultKit returns the default kit
-func (c *Config) GetDefaultKit() string {
-	if c.DefaultKit == "" {
-		return "tailwind"
-	}
-	return c.DefaultKit
-}
-
 // Validate validates the configuration
 func (c *Config) Validate() error {
-	// Validate component paths exist
-	for _, path := range c.ComponentPaths {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			return fmt.Errorf("component path does not exist: %s", path)
-		}
-	}
-
 	// Validate kit paths exist
 	for _, path := range c.KitPaths {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -269,4 +184,31 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+// LoadConfigFromPath loads configuration from a specific path
+func LoadConfigFromPath(configPath string) (*Config, error) {
+	// If config file doesn't exist, return default config
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		return DefaultConfig(), nil
+	}
+
+	// Read config file
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	// Parse YAML
+	var config Config
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	// Set defaults for missing fields
+	if config.Version == "" {
+		config.Version = "1.0"
+	}
+
+	return &config, nil
 }

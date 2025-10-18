@@ -13,13 +13,13 @@ import (
 	"github.com/livefir/livetemplate/cmd/lvt/internal/parser"
 )
 
-func GenerateResource(basePath, moduleName, resourceName string, fields []parser.Field, cssFramework, appMode, paginationMode string, pageSize int, editMode string) error {
+func GenerateResource(basePath, moduleName, resourceName string, fields []parser.Field, kitName, cssFramework, paginationMode string, pageSize int, editMode string) error {
 	// Defaults
+	if kitName == "" {
+		kitName = "multi"
+	}
 	if cssFramework == "" {
 		cssFramework = "tailwind"
-	}
-	if appMode == "" {
-		appMode = "multi"
 	}
 	if paginationMode == "" {
 		paginationMode = "infinite"
@@ -31,11 +31,21 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 		editMode = "modal"
 	}
 
+	// appMode is the same as kit name in the new architecture
+	appMode := kitName
+
 	// Load kit using KitLoader
 	kitLoader := kits.DefaultLoader()
-	kit, err := kitLoader.Load(cssFramework)
+	kit, err := kitLoader.Load(kitName)
 	if err != nil {
-		return fmt.Errorf("failed to load kit %q: %w", cssFramework, err)
+		return fmt.Errorf("failed to load kit %q: %w", kitName, err)
+	}
+
+	// Inject CSS helpers based on CSS framework if kit doesn't have helpers
+	if kit.Helpers == nil {
+		if err := kit.SetHelpersForFramework(cssFramework); err != nil {
+			return fmt.Errorf("failed to load CSS helpers for framework %q: %w", cssFramework, err)
+		}
 	}
 
 	// Capitalize resource name and derive singular/plural forms
@@ -89,7 +99,7 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 	}
 
 	// Read templates using kit loader (checks project kits, user kits, then embedded)
-	handlerTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "resource/handler.go.tmpl")
+	handlerTmpl, err := kitLoader.LoadKitTemplate(kitName, "resource/handler.go.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read handler template: %w", err)
 	}
@@ -114,7 +124,7 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 
 		var fullTemplate string
 		for _, compName := range componentNames {
-			compTmpl, err := kitLoader.LoadKitComponent(cssFramework, compName)
+			compTmpl, err := kitLoader.LoadKitComponent(kitName, compName)
 			if err != nil {
 				return fmt.Errorf("failed to load component %s: %w", compName, err)
 			}
@@ -122,7 +132,7 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 		}
 
 		// Load the main template file that uses these components
-		mainTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "resource/template_components.tmpl.tmpl")
+		mainTmpl, err := kitLoader.LoadKitTemplate(kitName, "resource/template_components.tmpl.tmpl")
 		if err != nil {
 			return fmt.Errorf("failed to load main template: %w", err)
 		}
@@ -131,28 +141,28 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 		templateTmpl = []byte(fullTemplate)
 	} else {
 		// Single mode - use simple template
-		templateTmpl, err = kitLoader.LoadKitTemplate(cssFramework, "resource/template.tmpl.tmpl")
+		templateTmpl, err = kitLoader.LoadKitTemplate(kitName, "resource/template.tmpl.tmpl")
 		if err != nil {
 			return fmt.Errorf("failed to load template: %w", err)
 		}
 	}
 
-	queriesTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "resource/queries.sql.tmpl")
+	queriesTmpl, err := kitLoader.LoadKitTemplate(kitName, "resource/queries.sql.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read queries template: %w", err)
 	}
 
-	testTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "resource/test.go.tmpl")
+	testTmpl, err := kitLoader.LoadKitTemplate(kitName, "resource/test.go.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read test template: %w", err)
 	}
 
-	migrationTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "resource/migration.sql.tmpl")
+	migrationTmpl, err := kitLoader.LoadKitTemplate(kitName, "resource/migration.sql.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read migration template: %w", err)
 	}
 
-	schemaTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "resource/schema.sql.tmpl")
+	schemaTmpl, err := kitLoader.LoadKitTemplate(kitName, "resource/schema.sql.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read schema template: %w", err)
 	}

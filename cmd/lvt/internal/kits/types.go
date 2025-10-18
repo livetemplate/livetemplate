@@ -21,7 +21,7 @@ type KitManifest struct {
 	Name        string       `yaml:"name"`
 	Version     string       `yaml:"version"`
 	Description string       `yaml:"description"`
-	Framework   string       `yaml:"framework"` // e.g., "tailwind", "bulma", "pico", "none"
+	Framework   string       `yaml:"framework,omitempty"` // Optional: for legacy CSS-specific kits
 	Author      string       `yaml:"author,omitempty"`
 	License     string       `yaml:"license,omitempty"`
 	CDN         string       `yaml:"cdn,omitempty"`        // CDN link for CSS framework
@@ -62,9 +62,7 @@ func (m *KitManifest) Validate() error {
 		return ErrInvalidManifest{Field: "description", Reason: "description is required"}
 	}
 
-	if m.Framework == "" {
-		return ErrInvalidManifest{Field: "framework", Reason: "framework is required"}
-	}
+	// Framework is now optional (for modern kits that are CSS-agnostic)
 
 	return nil
 }
@@ -111,6 +109,28 @@ func (k *KitInfo) Version() string {
 
 func (k *KitInfo) GetHelpers() CSSHelpers {
 	return k.Helpers
+}
+
+// SetHelpersForFramework sets CSS helpers based on framework name
+// Used for CSS-agnostic kits that need helpers loaded dynamically
+func (k *KitInfo) SetHelpersForFramework(framework string) error {
+	if framework == "" {
+		return ErrInvalidManifest{Field: "framework", Reason: "framework cannot be empty"}
+	}
+
+	// Already has helpers
+	if k.Helpers != nil {
+		return nil
+	}
+
+	// Load helpers based on framework
+	helpers, err := LoadHelpersForFramework(framework)
+	if err != nil {
+		return err
+	}
+
+	k.Helpers = helpers
+	return nil
 }
 
 // contains is a case-insensitive substring check

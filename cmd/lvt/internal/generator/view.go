@@ -19,17 +19,19 @@ type ViewData struct {
 	DevMode       bool          // Use local client library instead of CDN
 }
 
-func GenerateView(basePath, moduleName, viewName string, cssFramework string) error {
-	// Default to tailwind if not specified
-	if cssFramework == "" {
-		cssFramework = "tailwind"
-	}
-
+func GenerateView(basePath, moduleName, viewName string, kitName, cssFramework string) error {
 	// Load kit using KitLoader
 	kitLoader := kits.DefaultLoader()
-	kit, err := kitLoader.Load(cssFramework)
+	kit, err := kitLoader.Load(kitName)
 	if err != nil {
-		return fmt.Errorf("failed to load kit %q: %w", cssFramework, err)
+		return fmt.Errorf("failed to load kit %q: %w", kitName, err)
+	}
+
+	// Inject CSS helpers if kit is CSS-agnostic
+	if kit.Helpers == nil {
+		if err := kit.SetHelpersForFramework(cssFramework); err != nil {
+			return fmt.Errorf("failed to load CSS helpers for framework %q: %w", cssFramework, err)
+		}
 	}
 
 	// Ensure view name is capitalized
@@ -56,17 +58,17 @@ func GenerateView(basePath, moduleName, viewName string, cssFramework string) er
 	}
 
 	// Read templates using kit loader (checks project kits, user kits, then embedded)
-	handlerTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "view/handler.go.tmpl")
+	handlerTmpl, err := kitLoader.LoadKitTemplate(kitName, "view/handler.go.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read handler template: %w", err)
 	}
 
-	templateTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "view/template.tmpl.tmpl")
+	templateTmpl, err := kitLoader.LoadKitTemplate(kitName, "view/template.tmpl.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read template template: %w", err)
 	}
 
-	testTmpl, err := kitLoader.LoadKitTemplate(cssFramework, "view/test.go.tmpl")
+	testTmpl, err := kitLoader.LoadKitTemplate(kitName, "view/test.go.tmpl")
 	if err != nil {
 		return fmt.Errorf("failed to read test template: %w", err)
 	}

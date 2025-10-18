@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/livefir/livetemplate/cmd/lvt/internal/config"
 	"github.com/livefir/livetemplate/cmd/lvt/internal/generator"
 )
 
@@ -192,10 +193,18 @@ func (m genViewModel) renderContent() string {
 func (m genViewModel) generateView() tea.Msg {
 	viewNameLower := strings.ToLower(m.viewName)
 
-	// Use default CSS framework for now (TODO: add interactive selection)
-	cssFramework := "tailwind"
+	// Load project config
+	projectConfig, err := config.LoadProjectConfig(m.basePath)
+	if err != nil {
+		m.err = fmt.Errorf("failed to load project config: %w", err)
+		m.stage = 0
+		return m
+	}
 
-	if err := generator.GenerateView(m.basePath, m.moduleName, viewNameLower, cssFramework); err != nil {
+	kit := projectConfig.GetKit()
+	cssFramework := projectConfig.GetCSSFramework()
+
+	if err := generator.GenerateView(m.basePath, m.moduleName, viewNameLower, kit, cssFramework); err != nil {
 		m.err = err
 		m.stage = 0
 		return m

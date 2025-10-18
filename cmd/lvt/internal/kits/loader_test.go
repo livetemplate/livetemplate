@@ -12,10 +12,9 @@ func TestLoadSystemKits(t *testing.T) {
 
 	// List of all system kits that should be available
 	expectedKits := []string{
-		"tailwind",
-		"bulma",
-		"pico",
-		"none",
+		"multi",
+		"simple",
+		"single",
 	}
 
 	for _, name := range expectedKits {
@@ -45,10 +44,8 @@ func TestLoadSystemKits(t *testing.T) {
 				t.Errorf("Kit %q manifest validation failed: %v", name, err)
 			}
 
-			// Verify helpers are loaded
-			if kit.Helpers == nil {
-				t.Errorf("Kit %q helpers are nil", name)
-			}
+			// Helpers can be nil for app mode kits (multi/simple/single)
+			// which are CSS-agnostic and load helpers dynamically
 		})
 	}
 }
@@ -65,9 +62,9 @@ func TestListSystemKits(t *testing.T) {
 		t.Fatalf("Failed to list system kits: %v", err)
 	}
 
-	// We should have exactly 4 system kits
-	if len(kits) != 4 {
-		t.Errorf("Expected 4 system kits, got %d", len(kits))
+	// We should have exactly 3 system kits
+	if len(kits) != 3 {
+		t.Errorf("Expected 3 system kits, got %d", len(kits))
 	}
 
 	// Verify all kits are from system source
@@ -101,9 +98,8 @@ func TestKitManifestParsing(t *testing.T) {
 			if kit.Manifest.Description == "" {
 				t.Error("Kit description is empty")
 			}
-			if kit.Manifest.Framework == "" {
-				t.Error("Kit framework is empty")
-			}
+			// Framework can be empty for app mode kits (multi/simple/single)
+			// which are CSS-agnostic
 			if kit.Manifest.Author == "" {
 				t.Error("Kit author is empty")
 			}
@@ -111,10 +107,7 @@ func TestKitManifestParsing(t *testing.T) {
 				t.Error("Kit license is empty")
 			}
 
-			// CDN can be empty for "none" kit
-			if kit.Manifest.Name != "none" && kit.Manifest.CDN == "" {
-				t.Logf("Warning: Kit %q has no CSS CDN", kit.Manifest.Name)
-			}
+			// CDN can be empty for app mode kits which are CSS-agnostic
 		})
 	}
 }
@@ -134,8 +127,10 @@ func TestKitHelpersInterface(t *testing.T) {
 		t.Run("Helpers_"+kit.Manifest.Name, func(t *testing.T) {
 			helpers := kit.Helpers
 
+			// Helpers can be nil for app mode kits (multi/simple/single)
+			// which are CSS-agnostic and load helpers dynamically based on user choice
 			if helpers == nil {
-				t.Fatal("Helpers are nil")
+				return
 			}
 
 			// Test all required interface methods
@@ -199,13 +194,13 @@ func TestKitCache(t *testing.T) {
 	loader := DefaultLoader()
 
 	// Load a kit
-	kit1, err := loader.Load("tailwind")
+	kit1, err := loader.Load("multi")
 	if err != nil {
 		t.Fatalf("Failed to load kit: %v", err)
 	}
 
 	// Load the same kit again
-	kit2, err := loader.Load("tailwind")
+	kit2, err := loader.Load("multi")
 	if err != nil {
 		t.Fatalf("Failed to load kit again: %v", err)
 	}
@@ -219,7 +214,7 @@ func TestKitCache(t *testing.T) {
 	loader.ClearCache()
 
 	// Load again after cache clear
-	kit3, err := loader.Load("tailwind")
+	kit3, err := loader.Load("multi")
 	if err != nil {
 		t.Fatalf("Failed to load kit after cache clear: %v", err)
 	}
@@ -258,11 +253,10 @@ func TestKitFrameworkMapping(t *testing.T) {
 
 	for _, kit := range kits {
 		t.Run("Framework_"+kit.Manifest.Name, func(t *testing.T) {
-			// Verify framework field matches kit name
-			if kit.Manifest.Framework != kit.Manifest.Name {
-				t.Errorf("Framework mismatch: manifest.framework = %q, manifest.name = %q",
-					kit.Manifest.Framework, kit.Manifest.Name)
-			}
+			// App mode kits (multi/simple/single) are CSS-agnostic and have empty framework
+			// Framework-specific kits would have framework matching the CSS framework name
+			// For now, we just verify the field is present (can be empty)
+			_ = kit.Manifest.Framework
 		})
 	}
 }
@@ -271,24 +265,22 @@ func TestKitFrameworkMapping(t *testing.T) {
 func TestKitCDN(t *testing.T) {
 	loader := DefaultLoader()
 
+	// App mode kits (multi/simple/single) are CSS-agnostic and don't have CDNs
+	// They load CSS helpers dynamically based on user's framework choice
 	testCases := []struct {
 		kitName   string
 		expectCDN bool
 	}{
 		{
-			kitName:   "tailwind",
-			expectCDN: true,
+			kitName:   "multi",
+			expectCDN: false,
 		},
 		{
-			kitName:   "bulma",
-			expectCDN: true,
+			kitName:   "simple",
+			expectCDN: false,
 		},
 		{
-			kitName:   "pico",
-			expectCDN: true,
-		},
-		{
-			kitName:   "none",
+			kitName:   "single",
 			expectCDN: false,
 		},
 	}
@@ -301,23 +293,21 @@ func TestKitCDN(t *testing.T) {
 			}
 
 			cdn := kit.Manifest.CDN
-			helperCDN := kit.Helpers.CSSCDN()
 
 			if tc.expectCDN {
 				if cdn == "" {
 					t.Errorf("Expected non-empty CDN for %q", tc.kitName)
 				}
-				// CSSCDN() should return HTML containing the CDN URL
-				if helperCDN == "" {
-					t.Errorf("Expected non-empty CSSCDN() for %q", tc.kitName)
+				// Only test CSSCDN() if helpers are loaded
+				if kit.Helpers != nil {
+					helperCDN := kit.Helpers.CSSCDN()
+					if helperCDN == "" {
+						t.Errorf("Expected non-empty CSSCDN() for %q", tc.kitName)
+					}
 				}
 			} else {
 				if cdn != "" {
-					t.Errorf("Expected empty CDN for %q, got %q", tc.kitName, cdn)
-				}
-				// CSSCDN() should also be empty for none kit
-				if helperCDN != "" {
-					t.Errorf("Expected empty CSSCDN() for %q, got %q", tc.kitName, helperCDN)
+					t.Errorf("Expected empty CDN for %q (app mode kits are CSS-agnostic), got %q", tc.kitName, cdn)
 				}
 			}
 		})

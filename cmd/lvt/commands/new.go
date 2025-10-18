@@ -16,6 +16,8 @@ func New(args []string) error {
 	appName := args[0]
 	moduleName := appName // Default to app name
 	devMode := false      // Default to production (use CDN)
+	kit := "multi"        // Default kit
+	cssFramework := ""    // Will be determined by kit if not specified
 
 	// Check for flags
 	for i := 1; i < len(args); i++ {
@@ -24,10 +26,39 @@ func New(args []string) error {
 			i++ // Skip next arg
 		} else if args[i] == "--dev" {
 			devMode = true
+		} else if args[i] == "--kit" && i+1 < len(args) {
+			kit = args[i+1]
+			i++ // Skip next arg
+		} else if args[i] == "--css" && i+1 < len(args) {
+			cssFramework = args[i+1]
+			i++ // Skip next arg
 		}
 	}
 
+	// Validate kit
+	validKits := map[string]bool{"multi": true, "single": true, "simple": true}
+	if !validKits[kit] {
+		return fmt.Errorf("invalid kit: %s (valid: multi, single, simple)", kit)
+	}
+
+	// Set CSS framework default based on kit if not specified
+	if cssFramework == "" {
+		if kit == "simple" {
+			cssFramework = "pico"
+		} else {
+			cssFramework = "tailwind"
+		}
+	}
+
+	// Validate CSS framework
+	validFrameworks := map[string]bool{"tailwind": true, "bulma": true, "pico": true, "none": true}
+	if !validFrameworks[cssFramework] {
+		return fmt.Errorf("invalid CSS framework: %s (valid: tailwind, bulma, pico, none)", cssFramework)
+	}
+
 	fmt.Printf("Creating new LiveTemplate app: %s\n", appName)
+	fmt.Printf("Kit: %s\n", kit)
+	fmt.Printf("CSS Framework: %s\n", cssFramework)
 	if devMode {
 		fmt.Println("Mode: Development (using local client library)")
 	}
@@ -38,7 +69,7 @@ func New(args []string) error {
 		isNested = true
 	}
 
-	if err := generator.GenerateApp(appName, moduleName, devMode); err != nil {
+	if err := generator.GenerateApp(appName, moduleName, kit, cssFramework, devMode); err != nil {
 		return err
 	}
 

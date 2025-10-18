@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/livefir/livetemplate/cmd/lvt/commands"
+	"github.com/livefir/livetemplate/cmd/lvt/internal/config"
 	"github.com/livefir/livetemplate/cmd/lvt/internal/ui"
 )
 
@@ -23,8 +24,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	command := os.Args[1]
-	args := os.Args[2:]
+	// Parse global flags (--config) before command
+	command, args := parseGlobalFlags(os.Args[1:])
 
 	var err error
 
@@ -58,8 +59,6 @@ func main() {
 		err = commands.Seed(args)
 	case "kits", "kit":
 		err = commands.Kits(args)
-	case "config", "cfg":
-		err = commands.Config(args)
 	case "serve", "server":
 		err = commands.Serve(args)
 	case "version", "--version", "-v":
@@ -138,6 +137,9 @@ func printUsage() {
 	fmt.Println("LiveTemplate CLI Generator")
 	fmt.Println()
 	fmt.Println("Usage:")
+	fmt.Println("  lvt [--config <path>] <command> [args...] Run command with optional config file")
+	fmt.Println()
+	fmt.Println("Commands:")
 	fmt.Println("  lvt new [<app-name>] [--module <name>]   Create a new LiveTemplate app")
 	fmt.Println("  lvt gen [<resource> <field:type>...]      Generate CRUD resource with database")
 	fmt.Println("  lvt gen view [<name>]                     Generate view-only handler")
@@ -145,7 +147,6 @@ func printUsage() {
 	fmt.Println("  lvt resource <command>                    Inspect resources and schemas")
 	fmt.Println("  lvt seed <resource> [--count N] [--cleanup]  Generate test data")
 	fmt.Println("  lvt kits <command>                        Manage CSS framework kits")
-	fmt.Println("  lvt config <command>                      Manage configuration")
 	fmt.Println("  lvt serve [options]                       Start development server with hot reload")
 	fmt.Println("  lvt parse <template-file>                 Validate and analyze template file")
 	fmt.Println("  lvt version                               Show version information")
@@ -187,11 +188,6 @@ func printUsage() {
 	fmt.Println("  lvt kits create mykit                     Create a new CSS framework kit")
 	fmt.Println("  lvt kits info tailwind                    Show kit details")
 	fmt.Println("  lvt kits validate <path>                  Validate kit implementation")
-	fmt.Println()
-	fmt.Println("Config Commands:")
-	fmt.Println("  lvt config list                           List all configuration")
-	fmt.Println("  lvt config get components_paths           Get configuration value")
-	fmt.Println("  lvt config set components_paths <path>    Set configuration value")
 	fmt.Println()
 	fmt.Println("Serve Commands:")
 	fmt.Println("  lvt serve                                 Start dev server (auto-detect mode)")
@@ -236,4 +232,28 @@ func printGenUsage() {
 	fmt.Println("Examples:")
 	fmt.Println("  lvt gen users name:string email:string")
 	fmt.Println("  lvt gen view counter")
+}
+
+// parseGlobalFlags parses global flags like --config and returns the command and remaining args
+func parseGlobalFlags(args []string) (string, []string) {
+	var filteredArgs []string
+	var command string
+
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--config" && i+1 < len(args) {
+			// Set the custom config path
+			config.SetConfigPath(args[i+1])
+			i++ // Skip the next argument (the path)
+			continue
+		}
+
+		// First non-flag argument is the command
+		if command == "" {
+			command = args[i]
+		} else {
+			filteredArgs = append(filteredArgs, args[i])
+		}
+	}
+
+	return command, filteredArgs
 }
