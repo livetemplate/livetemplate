@@ -1,0 +1,25 @@
+name: multi
+version: 1.0.0
+description: Multi-page application kit with full HTML layout and page-based CRUD
+author: LiveTemplate Team
+license: MIT
+tags:
+  - multi-page
+  - crud
+  - full-layout
+
+components:
+  - detail.tmpl
+  - form.tmpl
+  - layout.tmpl
+  - pagination.tmpl
+  - search.tmpl
+  - sort.tmpl
+  - stats.tmpl
+  - table.tmpl
+  - toolbar.tmpl
+
+templates:
+  resource: true
+  view: true
+  app: true

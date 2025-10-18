@@ -1,0 +1,39 @@
+{{define "content"}}
+[[- if eq .EditMode "page"]]
+  {{if ne .EditingID ""}}
+    <!-- Page mode: Detail view -->
+    {{template "detailPage" .}}
+  {{else}}
+    <!-- Page mode: List view -->
+    {{template "toolbar" .}}
+    {{template "addModal" .}}
+    {{template "tableBox" .}}
+  {{end}}
+[[- else]]
+  <!-- Modal mode: List with modals -->
+  {{template "toolbar" .}}
+  {{template "addModal" .}}
+
+  <!-- Edit Modal -->
+  {{if ne .EditingID ""}}
+  <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+    <div style="background: white; border-radius: 8px; padding: 2rem; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
+      {{template "editForm" .}}
+    </div>
+  </div>
+  {{end}}
+
+  {{template "tableBox" .}}
+[[- end]]
+{{end}}
+
+{{define "formContent"}}
+  {{template "addForm" .}}
+{{end}}
+
+{{define "tableContent"}}
+  {{template "resourceTable" .}}
+  {{template "pagination" .}}
+{{end}}
+
+{{template "layout" .}}

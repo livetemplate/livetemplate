@@ -1,0 +1,91 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    {{block "head" .}}
+      <title>{{.Title}}</title>
+      [[csscdn .CSSFramework]]
+    {{end}}
+  </head>
+  <body>
+[[- if needsWrapper .CSSFramework -]]
+[[- $class := containerClass .CSSFramework -]]
+    <main[[if ne $class ""]] class="[[$class]]"[[end]]>
+      {{block "content" .}}{{end}}
+    </main>
+[[- else -]]
+[[- $class := containerClass .CSSFramework -]]
+    <div[[if ne $class ""]] class="[[$class]]"[[end]]>
+      {{block "content" .}}{{end}}
+    </div>
+[[- end -]]
+    {{block "scripts" .}}
+      <!-- DEBUG: DevMode={{.lvt.DevMode}} -->
+      {{if .lvt.DevMode}}
+      <script src="/livetemplate-client.js"></script>
+      {{else}}
+      <script src="https://unpkg.com/@livefir/livetemplate-client@latest/dist/livetemplate-client.browser.js"></script>
+      {{end}}
+      {{template "pageRouting" .}}
+    {{end}}
+  </body>
+</html>
+{{end}}
+
+{{/* Page mode enhancements - navigate after delete */}}
+{{define "pageRouting"}}
+[[- if eq .EditMode "page"]]
+<script>
+(function() {
+  'use strict';
+
+  // Wait for LiveTemplate client to initialize
+  function waitForClient(callback) {
+    if (window.liveTemplateClient) {
+      callback(window.liveTemplateClient);
+    } else {
+      setTimeout(() => waitForClient(callback), 50);
+    }
+  }
+
+  waitForClient(function(client) {
+    const originalSend = client.send.bind(client);
+
+    // Intercept delete action to navigate to list page after successful deletion
+    client.send = function(message) {
+      const action = message.action;
+
+      if (action === 'delete') {
+        // Call original send to perform the delete
+        originalSend(message);
+
+        // Navigate to list view after delete completes
+        // Extract base path (e.g., /products from /products/product-123)
+        const pathParts = window.location.pathname.split('/').filter(p => p);
+        const basePath = '/' + (pathParts[0] || '');
+        window.location.href = basePath;
+        return;
+      }
+
+      // Call original send for other actions
+      originalSend(message);
+    };
+
+    // Listen for successful form submission to redirect from edit to detail view
+    document.addEventListener('lvt:success', function(e) {
+      const form = e.target;
+      if (form && form.hasAttribute('lvt-submit') && form.getAttribute('lvt-submit') === 'update') {
+        // After successful update, redirect from /edit to detail view
+        if (window.location.pathname.endsWith('/edit')) {
+          const viewURL = window.location.pathname.replace(/\/edit$/, '');
+          window.location.href = viewURL;
+        }
+      }
+    });
+  });
+})();
+</script>
+[[- end]]
+{{end}}

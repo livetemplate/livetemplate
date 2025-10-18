@@ -473,21 +473,27 @@ func customizeKit(args []string) error {
 	kitName := args[0]
 
 	// Parse flags
-	global := false
-	only := "" // Can be "components" or "templates"
+	scope := "project"      // default to project-level
+	componentsOnly := false // for backward compatibility with --components-only
 
 	for i := 1; i < len(args); i++ {
-		if args[i] == "--global" {
-			global = true
-		} else if args[i] == "--only" && i+1 < len(args) {
-			only = args[i+1]
+		switch args[i] {
+		case "--scope":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--scope requires an argument (project or global)")
+			}
+			scope = args[i+1]
 			i++ // skip next arg
+		case "--global":
+			scope = "global" // backward compatibility
+		case "--components-only":
+			componentsOnly = true
 		}
 	}
 
-	// Validate --only flag
-	if only != "" && only != "components" && only != "templates" {
-		return fmt.Errorf("invalid --only value: %s (expected: components or templates)", only)
+	// Validate scope
+	if scope != "project" && scope != "global" {
+		return fmt.Errorf("invalid scope: %s (expected: project or global)", scope)
 	}
 
 	// Load the kit to copy
@@ -499,12 +505,17 @@ func customizeKit(args []string) error {
 
 	// Determine destination directory
 	var destDir string
-	if global {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("failed to get home directory: %w", err)
+	if scope == "global" {
+		// Respect XDG_CONFIG_HOME if set, otherwise use ~/.config
+		configHome := os.Getenv("XDG_CONFIG_HOME")
+		if configHome == "" {
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("failed to get home directory: %w", err)
+			}
+			configHome = filepath.Join(homeDir, ".config")
 		}
-		destDir = filepath.Join(homeDir, ".config", "lvt", "kits", kitName)
+		destDir = filepath.Join(configHome, "lvt", "kits", kitName)
 	} else {
 		currentDir, err := os.Getwd()
 		if err != nil {
@@ -519,21 +530,43 @@ func customizeKit(args []string) error {
 	}
 
 	copiedItems := []string{}
+	isSystemKit := kit.Source == kits.SourceSystem
 
-	// Copy kit.yaml (always copy unless --only is specified)
-	if only == "" {
-		manifestSrc := filepath.Join(kit.Path, "kit.yaml")
+	// Copy kit.yaml (always copy unless --components-only)
+	if !componentsOnly {
 		manifestDest := filepath.Join(destDir, "kit.yaml")
-		if err := copyFile(manifestSrc, manifestDest); err != nil {
-			return fmt.Errorf("failed to copy kit.yaml: %w", err)
+		var data []byte
+		if isSystemKit {
+			// Read from embedded FS via loader
+			manifestPath := filepath.Join(kit.Path, "kit.yaml")
+			data, err = loader.ReadEmbeddedFile(manifestPath)
+			if err != nil {
+				return fmt.Errorf("failed to read embedded kit.yaml: %w", err)
+			}
+		} else {
+			// Read from regular filesystem
+			manifestSrc := filepath.Join(kit.Path, "kit.yaml")
+			data, err = os.ReadFile(manifestSrc)
+			if err != nil {
+				return fmt.Errorf("failed to read kit.yaml: %w", err)
+			}
+		}
+		if err := os.WriteFile(manifestDest, data, 0644); err != nil {
+			return fmt.Errorf("failed to write kit.yaml: %w", err)
 		}
 		copiedItems = append(copiedItems, "kit.yaml")
 	}
 
-	// Copy components if requested
-	if only == "" || only == "components" {
+	// Copy components if they exist
+	componentsDest := filepath.Join(destDir, "components")
+	if isSystemKit {
+		// Copy from embedded FS
+		if err := copyEmbeddedDir(loader, filepath.Join(kit.Path, "components"), componentsDest); err == nil {
+			copiedItems = append(copiedItems, "components/")
+		}
+	} else {
+		// Copy from regular filesystem
 		componentsSrc := filepath.Join(kit.Path, "components")
-		componentsDest := filepath.Join(destDir, "components")
 		if info, err := os.Stat(componentsSrc); err == nil && info.IsDir() {
 			if err := copyDir(componentsSrc, componentsDest); err != nil {
 				return fmt.Errorf("failed to copy components: %w", err)
@@ -542,46 +575,73 @@ func customizeKit(args []string) error {
 		}
 	}
 
-	// Copy templates if requested
-	if only == "" || only == "templates" {
-		templatesSrc := filepath.Join(kit.Path, "templates")
+	// Copy templates if not components-only
+	if !componentsOnly {
 		templatesDest := filepath.Join(destDir, "templates")
-		if info, err := os.Stat(templatesSrc); err == nil && info.IsDir() {
-			if err := copyDir(templatesSrc, templatesDest); err != nil {
-				return fmt.Errorf("failed to copy templates: %w", err)
+		if isSystemKit {
+			// Copy from embedded FS
+			if err := copyEmbeddedDir(loader, filepath.Join(kit.Path, "templates"), templatesDest); err == nil {
+				copiedItems = append(copiedItems, "templates/")
 			}
-			copiedItems = append(copiedItems, "templates/")
+		} else {
+			// Copy from regular filesystem
+			templatesSrc := filepath.Join(kit.Path, "templates")
+			if info, err := os.Stat(templatesSrc); err == nil && info.IsDir() {
+				if err := copyDir(templatesSrc, templatesDest); err != nil {
+					return fmt.Errorf("failed to copy templates: %w", err)
+				}
+				copiedItems = append(copiedItems, "templates/")
+			}
 		}
 	}
 
-	// Copy helpers.go if it exists (only if copying everything)
-	if only == "" {
-		helpersSrc := filepath.Join(kit.Path, "helpers.go")
+	// Copy helpers.go and README.md if not components-only
+	if !componentsOnly {
+		// helpers.go
 		helpersDest := filepath.Join(destDir, "helpers.go")
-		if _, err := os.Stat(helpersSrc); err == nil {
-			if err := copyFile(helpersSrc, helpersDest); err != nil {
-				return fmt.Errorf("failed to copy helpers.go: %w", err)
+		if isSystemKit {
+			helpersPath := filepath.Join(kit.Path, "helpers.go")
+			if data, err := loader.ReadEmbeddedFile(helpersPath); err == nil {
+				if err := os.WriteFile(helpersDest, data, 0644); err != nil {
+					return fmt.Errorf("failed to write helpers.go: %w", err)
+				}
+				copiedItems = append(copiedItems, "helpers.go")
 			}
-			copiedItems = append(copiedItems, "helpers.go")
+		} else {
+			helpersSrc := filepath.Join(kit.Path, "helpers.go")
+			if _, err := os.Stat(helpersSrc); err == nil {
+				if err := copyFile(helpersSrc, helpersDest); err != nil {
+					return fmt.Errorf("failed to copy helpers.go: %w", err)
+				}
+				copiedItems = append(copiedItems, "helpers.go")
+			}
 		}
-	}
 
-	// Copy README.md if it exists (only if copying everything)
-	if only == "" {
-		readmeSrc := filepath.Join(kit.Path, "README.md")
+		// README.md
 		readmeDest := filepath.Join(destDir, "README.md")
-		if _, err := os.Stat(readmeSrc); err == nil {
-			if err := copyFile(readmeSrc, readmeDest); err != nil {
-				return fmt.Errorf("failed to copy README.md: %w", err)
+		if isSystemKit {
+			readmePath := filepath.Join(kit.Path, "README.md")
+			if data, err := loader.ReadEmbeddedFile(readmePath); err == nil {
+				if err := os.WriteFile(readmeDest, data, 0644); err != nil {
+					return fmt.Errorf("failed to write README.md: %w", err)
+				}
+				copiedItems = append(copiedItems, "README.md")
 			}
-			copiedItems = append(copiedItems, "README.md")
+		} else {
+			readmeSrc := filepath.Join(kit.Path, "README.md")
+			if _, err := os.Stat(readmeSrc); err == nil {
+				if err := copyFile(readmeSrc, readmeDest); err != nil {
+					return fmt.Errorf("failed to copy README.md: %w", err)
+				}
+				copiedItems = append(copiedItems, "README.md")
+			}
 		}
 	}
 
 	// Success message
 	fmt.Println("✅ Kit customized successfully!")
 	fmt.Println()
-	if global {
+	if scope == "global" {
 		fmt.Printf("Location: %s\n", destDir)
 	} else {
 		fmt.Printf("Location: .lvt/kits/%s/\n", kitName)
@@ -594,7 +654,7 @@ func customizeKit(args []string) error {
 	fmt.Println()
 	fmt.Println("Next steps:")
 	fmt.Println("  1. Customize the copied files to match your needs")
-	if global {
+	if scope == "global" {
 		fmt.Println("  2. The customized kit will be used for all projects")
 	} else {
 		fmt.Println("  2. The customized kit will override system/user kits for this project")
@@ -639,6 +699,44 @@ func copyDir(src, dst string) error {
 		} else {
 			// Copy file
 			if err := copyFile(srcPath, dstPath); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// copyEmbeddedDir copies a directory from embedded FS to regular filesystem
+func copyEmbeddedDir(loader *kits.KitLoader, embeddedPath, dst string) error {
+	// Create destination directory
+	if err := os.MkdirAll(dst, 0755); err != nil {
+		return err
+	}
+
+	// Read embedded directory
+	entries, err := loader.ReadEmbeddedDir(embeddedPath)
+	if err != nil {
+		return err
+	}
+
+	// Copy each entry
+	for _, entry := range entries {
+		srcPath := filepath.Join(embeddedPath, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+
+		if entry.IsDir() {
+			// Recursively copy subdirectory
+			if err := copyEmbeddedDir(loader, srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			// Copy file
+			data, err := loader.ReadEmbeddedFile(srcPath)
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(dstPath, data, 0644); err != nil {
 				return err
 			}
 		}

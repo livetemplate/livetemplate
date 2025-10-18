@@ -361,6 +361,22 @@ func (l *KitLoader) ListComponents(kitName string) ([]string, error) {
 	return components, nil
 }
 
+// ReadEmbeddedFile reads a file from the embedded filesystem
+func (l *KitLoader) ReadEmbeddedFile(path string) ([]byte, error) {
+	if l.embedFS == nil {
+		return nil, fmt.Errorf("embedded filesystem not available")
+	}
+	return l.embedFS.ReadFile(path)
+}
+
+// ReadEmbeddedDir reads a directory from the embedded filesystem
+func (l *KitLoader) ReadEmbeddedDir(path string) ([]os.DirEntry, error) {
+	if l.embedFS == nil {
+		return nil, fmt.Errorf("embedded filesystem not available")
+	}
+	return l.embedFS.ReadDir(path)
+}
+
 // Helper functions
 
 // findProjectKitDir walks up to find .lvt/kits/ directory
