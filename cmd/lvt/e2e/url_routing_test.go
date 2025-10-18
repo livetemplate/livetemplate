@@ -261,7 +261,7 @@ func TestPageModeURLRouting(t *testing.T) {
 			// Debug: show what we actually have
 			var bodyHTML string
 			var bodyLength int
-			chromedp.Evaluate(`document.body.innerHTML`, &bodyHTML).Do(ctx)
+			_ = chromedp.Evaluate(`document.body.innerHTML`, &bodyHTML).Do(ctx)
 			bodyLength = len(bodyHTML)
 			t.Logf("DEBUG: Body HTML length: %d", bodyLength)
 			if bodyLength > 0 {
@@ -272,7 +272,7 @@ func TestPageModeURLRouting(t *testing.T) {
 
 			// Check for error messages
 			var hasError bool
-			chromedp.Evaluate(`document.body.innerText.includes('error') || document.body.innerText.includes('Error')`, &hasError).Do(ctx)
+			_ = chromedp.Evaluate(`document.body.innerText.includes('error') || document.body.innerText.includes('Error')`, &hasError).Do(ctx)
 			t.Logf("DEBUG: Page contains error: %v", hasError)
 
 			t.Fatalf("Table did not appear after adding first product: %v", err)
@@ -304,7 +304,7 @@ func TestPageModeURLRouting(t *testing.T) {
 		t.Logf("Found %d product rows in table", rowCount)
 		if rowCount < 2 {
 			var tableHTML string
-			chromedp.Evaluate(`document.querySelector('table')?.outerHTML || 'NO TABLE'`, &tableHTML).Do(ctx)
+			_ = chromedp.Evaluate(`document.querySelector('table')?.outerHTML || 'NO TABLE'`, &tableHTML).Do(ctx)
 			t.Logf("DEBUG: Table HTML:\n%s", tableHTML)
 			t.Fatalf("Expected at least 2 rows, got %d", rowCount)
 		}
@@ -329,11 +329,11 @@ func TestPageModeURLRouting(t *testing.T) {
 		if !linkExists {
 			// Debug: Dump HTML to see what's actually rendered
 			var bodyHTML string
-			chromedp.Evaluate(`document.body.innerHTML`, &bodyHTML).Do(ctx)
+			_ = chromedp.Evaluate(`document.body.innerHTML`, &bodyHTML).Do(ctx)
 			t.Logf("DEBUG: Body HTML (first 1000 chars):\n%s", bodyHTML[:min(1000, len(bodyHTML))])
 
 			var tableHTML string
-			chromedp.Evaluate(`document.querySelector('table')?.outerHTML || 'NO TABLE'`, &tableHTML).Do(ctx)
+			_ = chromedp.Evaluate(`document.querySelector('table')?.outerHTML || 'NO TABLE'`, &tableHTML).Do(ctx)
 			t.Logf("DEBUG: Table HTML:\n%s", tableHTML)
 
 			t.Skip("No products available (no anchor links found)")

@@ -102,7 +102,7 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 	serverCmd := startAppServer(t, appBinary, serverPort)
 	defer func() {
 		if serverCmd != nil && serverCmd.Process != nil {
-			serverCmd.Process.Kill()
+			_ = serverCmd.Process.Kill()
 		}
 	}()
 

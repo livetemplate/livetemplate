@@ -1517,7 +1517,7 @@ func findCommonSuffix(s1, s2 string) string {
 
 // marshalOrderedJSON marshals a TreeNode to JSON with keys in sorted order
 func marshalOrderedJSON(tree TreeNode) ([]byte, error) {
-	if tree == nil || len(tree) == 0 {
+	if len(tree) == 0 {
 		return []byte("{}"), nil
 	}
 

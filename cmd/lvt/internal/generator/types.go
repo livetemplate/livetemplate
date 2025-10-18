@@ -1,15 +1,11 @@
 package generator
 
 import (
-	"embed"
 	"strings"
 	"text/template"
 
 	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
 )
-
-//go:embed templates/*
-var templatesFS embed.FS
 
 type ResourceData struct {
 	PackageName          string

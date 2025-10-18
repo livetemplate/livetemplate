@@ -82,11 +82,11 @@ func TestModalFunctionality(t *testing.T) {
 	// Serve the test HTML
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(testHTML))
+		_, _ = w.Write([]byte(testHTML))
 	})
 
 	// Start server
-	go http.Serve(listener, mux)
+	go func() { _ = http.Serve(listener, mux) }()
 
 	// Give server time to start
 	time.Sleep(200 * time.Millisecond)
@@ -183,7 +183,7 @@ func TestModalFunctionality(t *testing.T) {
 			if display != "flex" {
 				// Log more details for debugging
 				var hidden bool
-				chromedp.Evaluate(`document.getElementById('add-modal').hasAttribute('hidden')`, &hidden).Do(ctx)
+				_ = chromedp.Evaluate(`document.getElementById('add-modal').hasAttribute('hidden')`, &hidden).Do(ctx)
 				return fmt.Errorf("modal should have display: flex, got: %s (hidden=%v)", display, hidden)
 			}
 
@@ -332,7 +332,7 @@ func TestModalFunctionality(t *testing.T) {
 				if err := chromedp.Click("#open-btn", chromedp.ByQuery).Do(ctx); err != nil {
 					return fmt.Errorf("cycle %d: failed to open modal: %v", i, err)
 				}
-				chromedp.Sleep(300 * time.Millisecond).Do(ctx)
+				_ = chromedp.Sleep(300 * time.Millisecond).Do(ctx)
 
 				// Verify opened
 				var display string
@@ -347,7 +347,7 @@ func TestModalFunctionality(t *testing.T) {
 				if err := chromedp.Click("#close-x", chromedp.ByQuery).Do(ctx); err != nil {
 					return fmt.Errorf("cycle %d: failed to click close button: %v", i, err)
 				}
-				chromedp.Sleep(300 * time.Millisecond).Do(ctx)
+				_ = chromedp.Sleep(300 * time.Millisecond).Do(ctx)
 
 				// Verify closed
 				if err := chromedp.Evaluate(`document.getElementById('add-modal').style.display`, &display).Do(ctx); err != nil {

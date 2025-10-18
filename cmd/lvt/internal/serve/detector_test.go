@@ -40,7 +40,7 @@ func TestModeDetector_DetectMode(t *testing.T) {
 		{
 			name: "detects app mode with go.mod",
 			setupFunc: func(dir string) {
-				os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0644)
+				_ = os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0644)
 			},
 			wantMode: ModeApp,
 			wantErr:  false,
@@ -48,7 +48,7 @@ func TestModeDetector_DetectMode(t *testing.T) {
 		{
 			name: "detects app mode with main.go",
 			setupFunc: func(dir string) {
-				os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main"), 0644)
+				_ = os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main"), 0644)
 			},
 			wantMode: ModeApp,
 			wantErr:  false,
@@ -56,8 +56,8 @@ func TestModeDetector_DetectMode(t *testing.T) {
 		{
 			name: "prefers component over app",
 			setupFunc: func(dir string) {
-				os.WriteFile(filepath.Join(dir, "component.yaml"), []byte("name: test"), 0644)
-				os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0644)
+				_ = os.WriteFile(filepath.Join(dir, "component.yaml"), []byte("name: test"), 0644)
+				_ = os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0644)
 			},
 			wantMode: ModeComponent,
 			wantErr:  false,
@@ -65,8 +65,8 @@ func TestModeDetector_DetectMode(t *testing.T) {
 		{
 			name: "prefers kit over app",
 			setupFunc: func(dir string) {
-				os.WriteFile(filepath.Join(dir, "kit.yaml"), []byte("name: test"), 0644)
-				os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0644)
+				_ = os.WriteFile(filepath.Join(dir, "kit.yaml"), []byte("name: test"), 0644)
+				_ = os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0644)
 			},
 			wantMode: ModeKit,
 			wantErr:  false,

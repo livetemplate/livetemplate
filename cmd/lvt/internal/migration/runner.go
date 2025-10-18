@@ -110,7 +110,7 @@ func (r *Runner) Create(name string) error {
 	filepath := filepath.Join(r.migrationsDir, filename)
 
 	// Create migration file with goose format
-	content := fmt.Sprintf(`-- +goose Up
+	content := `-- +goose Up
 -- +goose StatementBegin
 -- Add your SQL here
 -- +goose StatementEnd
@@ -119,7 +119,7 @@ func (r *Runner) Create(name string) error {
 -- +goose StatementBegin
 -- Add your SQL here
 -- +goose StatementEnd
-`)
+`
 
 	if err := os.WriteFile(filepath, []byte(content), 0644); err != nil {
 		return fmt.Errorf("failed to create migration file: %w", err)

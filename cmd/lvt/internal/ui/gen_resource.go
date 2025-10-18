@@ -23,7 +23,6 @@ type genResourceModel struct {
 	resourceName    string
 	fields          []fieldEntry
 	cssFramework    string
-	cssCursor       int // cursor position for CSS framework selection
 	moduleName      string
 	basePath        string
 	err             error

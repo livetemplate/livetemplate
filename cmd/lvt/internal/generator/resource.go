@@ -11,6 +11,8 @@ import (
 
 	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
 	"github.com/livefir/livetemplate/cmd/lvt/internal/parser"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 func GenerateResource(basePath, moduleName, resourceName string, fields []parser.Field, kitName, cssFramework, paginationMode string, pageSize int, editMode string) error {
@@ -50,12 +52,13 @@ func GenerateResource(basePath, moduleName, resourceName string, fields []parser
 
 	// Capitalize resource name and derive singular/plural forms
 	resourceNameLower := strings.ToLower(resourceName)
-	resourceName = strings.Title(resourceNameLower)
+	titleCaser := cases.Title(language.English)
+	resourceName = titleCaser.String(resourceNameLower)
 
 	// Derive singular and plural forms for struct/function names and table name
 	resourceNameSingular := singularize(resourceNameLower)
-	resourceNameSingularCap := strings.Title(resourceNameSingular)
-	resourceNamePluralCap := strings.Title(pluralize(resourceNameSingular))
+	resourceNameSingularCap := titleCaser.String(resourceNameSingular)
+	resourceNamePluralCap := titleCaser.String(pluralize(resourceNameSingular))
 	tableName := pluralize(resourceNameSingular)
 
 	// Convert parser.Field to FieldData

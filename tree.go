@@ -3,11 +3,11 @@ package livetemplate
 import (
 	"bytes"
 	"crypto/md5"
+	cryptorand "crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"math/rand"
 	"reflect"
 	"regexp"
 	"sort"
@@ -94,7 +94,7 @@ func addFingerprintToTree(tree TreeNode) TreeNode {
 // generateRandomID generates a random ID for the wrapper div
 func generateRandomID() string {
 	b := make([]byte, 8)
-	rand.Read(b)
+	_, _ = cryptorand.Read(b)
 	return "lvt-" + hex.EncodeToString(b)
 }
 
@@ -2030,8 +2030,10 @@ func (kg *KeyGenerator) LoadExistingKeys(oldRangeData []interface{}) {
 func generateShortUUID() string {
 	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
 	b := make([]byte, 8)
+	randBytes := make([]byte, 8)
+	_, _ = cryptorand.Read(randBytes)
 	for i := range b {
-		b[i] = chars[rand.Intn(len(chars))]
+		b[i] = chars[int(randBytes[i])%len(chars)]
 	}
 	return string(b)
 }

@@ -224,16 +224,6 @@ func printUsage() {
 	fmt.Println("  - docs/api-reference.md         Complete API reference")
 }
 
-func printGenUsage() {
-	fmt.Println("Usage:")
-	fmt.Println("  lvt gen <resource> <field:type>...  Generate CRUD resource")
-	fmt.Println("  lvt gen view <name>                 Generate view-only handler")
-	fmt.Println()
-	fmt.Println("Examples:")
-	fmt.Println("  lvt gen users name:string email:string")
-	fmt.Println("  lvt gen view counter")
-}
-
 // parseGlobalFlags parses global flags like --config and returns the command and remaining args
 func parseGlobalFlags(args []string) (string, []string) {
 	var filteredArgs []string

@@ -3,7 +3,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
+	e2etest "github.com/livefir/livetemplate/internal/testing"
 )
 
 // AppOptions contains options for creating a test app
@@ -259,7 +259,7 @@ func verifyWebSocketConnected(t *testing.T, ctx context.Context, url string) {
 
 	err := chromedp.Run(ctx,
 		chromedp.Navigate(url),
-		waitForWebSocketReady(5*time.Second),
+		e2etest.WaitForWebSocketReady(5*time.Second),
 		chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
 		chromedp.Evaluate(`window.liveTemplateClient && window.liveTemplateClient.ws ? window.liveTemplateClient.ws.url : null`, &wsURL),
 		chromedp.Evaluate(`window.liveTemplateClient && window.liveTemplateClient.ws ? window.liveTemplateClient.ws.readyState : -1`, &wsReadyState),
@@ -303,18 +303,4 @@ func readLvtrc(t *testing.T, appDir string) (kit, css string) {
 	}
 
 	return kit, css
-}
-
-// captureServerLogs captures server logs from a running command
-func captureServerLogs(cmd *exec.Cmd) io.Reader {
-	// For this implementation, logs are already being captured to stdout/stderr
-	// This is a placeholder for more sophisticated log capture if needed
-	return nil
-}
-
-// assertNoServerErrors checks server logs for errors
-func assertNoServerErrors(t *testing.T, logReader io.Reader) {
-	t.Helper()
-	// Implementation depends on how logs are captured
-	// For now, we rely on visual inspection of test output
 }

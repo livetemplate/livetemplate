@@ -3,7 +3,6 @@ package serve
 import (
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"log"
 	"net/http"
 	"os"
@@ -343,36 +342,4 @@ func (km *KitMode) handleHelpers(w http.ResponseWriter, r *http.Request) {
 
 func (km *KitMode) Reload() error {
 	return km.loadKit()
-}
-
-func renderKitComponent(kit *kits.KitInfo, componentType string) string {
-	helpers := kit.Helpers
-
-	tmpl := template.New("component")
-	funcs := createTemplateFuncs(helpers)
-	tmpl.Funcs(funcs)
-
-	var content string
-	switch componentType {
-	case "button":
-		content = `<button class="{{buttonClass "primary"}}">Primary Button</button>
-			<button class="{{buttonClass "secondary"}}">Secondary Button</button>`
-	case "form":
-		content = `<div class="{{formGroupClass}}">
-			<label class="{{labelClass}}">Name</label>
-			<input type="text" class="{{inputClass}}" placeholder="Enter name">
-		</div>`
-	case "table":
-		content = `<table class="{{tableClass}}">
-			<thead><tr><th>Name</th><th>Email</th></tr></thead>
-			<tbody><tr><td>John</td><td>john@example.com</td></tr></tbody>
-		</table>`
-	default:
-		content = "<p>Unknown component type</p>"
-	}
-
-	tmpl, _ = tmpl.Parse(content)
-	var buf strings.Builder
-	_ = tmpl.Execute(&buf, nil)
-	return buf.String()
 }

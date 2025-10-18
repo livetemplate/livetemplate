@@ -202,8 +202,8 @@ func TestPageModeRendering(t *testing.T) {
 	}
 	defer func() {
 		if serverCmd.Process != nil {
-			serverCmd.Process.Kill()
-			serverCmd.Wait() // Wait for I/O to complete
+			_ = serverCmd.Process.Kill()
+			_ = serverCmd.Wait() // Wait for I/O to complete
 		}
 	}()
 
@@ -253,7 +253,7 @@ func TestPageModeRendering(t *testing.T) {
 
 		// Check server logs for DevMode value
 		time.Sleep(500 * time.Millisecond) // Give log writes time to flush
-		logFile.Sync()
+		_ = logFile.Sync()
 		serverLogs, logErr := os.ReadFile(serverLogFile)
 		if logErr == nil {
 			logsStr := string(serverLogs)
