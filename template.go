@@ -1,3 +1,85 @@
+// Package livetemplate provides a library for building real-time, reactive web applications
+// in Go with minimal code. It uses tree-based DOM diffing to send only what changed over
+// WebSocket or HTTP, inspired by Phoenix LiveView.
+//
+// # Quick Start
+//
+// Define your application state as a Go struct that implements the Store interface:
+//
+//	type CounterState struct {
+//	    Counter int `json:"counter"`
+//	}
+//
+//	func (s *CounterState) Change(ctx *livetemplate.ActionContext) error {
+//	    switch ctx.Action {
+//	    case "increment":
+//	        s.Counter++
+//	    case "decrement":
+//	        s.Counter--
+//	    }
+//	    return nil
+//	}
+//
+// Create a template with `lvt-*` attributes for event binding:
+//
+//	<!-- counter.tmpl -->
+//	<h1>Counter: {{.Counter}}</h1>
+//	<button lvt-click="increment">+</button>
+//	<button lvt-click="decrement">-</button>
+//
+// Wire it up in your main function:
+//
+//	func main() {
+//	    state := &CounterState{Counter: 0}
+//	    tmpl := livetemplate.New("counter")
+//	    http.Handle("/", tmpl.Handle(state))
+//	    http.ListenAndServe(":8080", nil)
+//	}
+//
+// # How It Works
+//
+// LiveTemplate separates static and dynamic content in templates:
+//
+//   - Static content (HTML structure, unchanging text) is sent once and cached client-side
+//   - Dynamic content (data values) is sent on every update as a minimal tree diff
+//   - This achieves 50-90% bandwidth reduction compared to sending full HTML
+//
+// The client library (TypeScript) handles WebSocket communication, event delegation,
+// and applying DOM updates efficiently.
+//
+// # Tree-Based Updates
+//
+// Templates are parsed into a tree structure that separates statics and dynamics:
+//
+//	{
+//	    "s": ["<div>Count: ", "</div>"],  // Statics (cached)
+//	    "0": "42"                          // Dynamic value
+//	}
+//
+// Subsequent updates only send changed dynamic values:
+//
+//	{
+//	    "0": "43"  // Only the changed value
+//	}
+//
+// # Key Types
+//
+//   - Template: Manages template parsing, execution, and update generation
+//   - Store: Interface for application state and action handlers
+//   - ActionContext: Provides action data and utilities in Change() method
+//   - ActionData: Type-safe data extraction and validation
+//   - Broadcaster: Share state updates across all connected clients
+//   - SessionStore: Per-session state management
+//
+// # Advanced Features
+//
+//   - Multi-store pattern: Namespace multiple stores in one template
+//   - Broadcasting: Real-time updates to all connected clients
+//   - Server-side validation: Automatic error handling with go-playground/validator
+//   - Form lifecycle events: Client-side hooks for pending, success, error, done
+//   - Focus preservation: Maintains input focus and scroll position during updates
+//
+// For complete documentation, see https://github.com/livefir/livetemplate
 package livetemplate
 
 import (
@@ -107,7 +189,45 @@ func WithDevMode(enabled bool) Option {
 }
 
 // New creates a new template with the given name and options.
-// Auto-discovers and parses .tmpl, .html, .gotmpl files unless WithParseFiles is used.
+//
+// By default, New auto-discovers template files in the current directory and common
+// template directories (templates/, views/, etc.), looking for files with extensions:
+// .tmpl, .html, .gotmpl
+//
+// # Template Discovery
+//
+// The template name is used to find the template file. For example:
+//
+//	livetemplate.New("counter")
+//
+// Will look for counter.tmpl, counter.html, or counter.gotmpl in:
+//   - Current directory
+//   - ./templates/
+//   - ./views/
+//
+// # Options
+//
+// Use functional options to configure the template:
+//
+//	// Override auto-discovery with specific files
+//	tmpl := livetemplate.New("app", livetemplate.WithParseFiles("app.tmpl", "partials.tmpl"))
+//
+//	// Disable WebSocket, use HTTP only
+//	tmpl := livetemplate.New("app", livetemplate.WithWebSocketDisabled())
+//
+//	// Use custom session store
+//	tmpl := livetemplate.New("app", livetemplate.WithSessionStore(myStore))
+//
+// # Configuration
+//
+// The template is configured with sensible defaults:
+//   - WebSocket upgrader with permissive CheckOrigin
+//   - In-memory session store
+//   - Auto-discovery enabled
+//   - Loading indicator enabled
+//   - Production mode (CDN client library)
+//
+// See the With* functions for available options.
 func New(name string, opts ...Option) *Template {
 	// Default configuration
 	config := Config{

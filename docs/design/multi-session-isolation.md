@@ -3,7 +3,7 @@
 **Status**: Draft
 **Author**: LiveTemplate Team
 **Created**: 2025-10-19
-**Last Updated**: 2025-10-19 (All review feedback incorporated)
+**Last Updated**: 2025-10-19 (Review cycle complete)
 
 ## Table of Contents
 1. [Problem Statement](#problem-statement)
@@ -13,9 +13,8 @@
 5. [Architecture](#architecture)
 6. [API Design](#api-design)
 7. [Examples](#examples)
-8. [Migration Path](#migration-path)
-9. [Alternatives Considered](#alternatives-considered)
-10. [Implementation Plan](#implementation-plan)
+8. [Alternatives Considered](#alternatives-considered)
+9. [Implementation Plan](#implementation-plan)
 
 ---
 
@@ -444,14 +443,17 @@ type ConnectionRegistry struct {
 ### 5. Broadcasting
 
 ```go
-// On liveHandler
+// Broadcasting interface (implemented by liveHandler)
+type Broadcaster interface {
+    Broadcast(filter func(userID string) bool) error
+    BroadcastToUsers(userIDs ...string) error
+    BroadcastToGroup(groupID string) error
+}
+
+// liveHandler implements Broadcaster
 func (h *liveHandler) Broadcast(filter func(userID string) bool) error
 func (h *liveHandler) BroadcastToUsers(userIDs []string) error
 func (h *liveHandler) BroadcastToGroup(groupID string) error
-
-// On Template (public API)
-func (t *Template) Broadcast(filter func(userID string) bool) error
-func (t *Template) BroadcastToUsers(userIDs ...string) error
 ```
 
 **Design Rationale:**
@@ -459,6 +461,165 @@ func (t *Template) BroadcastToUsers(userIDs ...string) error
 - User-centric: filter by userID (most common case)
 - Group-aware: can broadcast to session groups directly
 - Error handling: logs failures but continues to other connections
+
+**How Broadcasting Works:**
+
+Broadcasting is done via the handler, not the template. The handler manages connections and can broadcast to them:
+
+```go
+// Handle() returns the handler (which implements http.Handler)
+handler := tmpl.Handle(state)
+http.Handle("/", handler)
+
+// Type assertion to access broadcasting methods
+type Broadcaster interface {
+    Broadcast(filter func(userID string) bool) error
+    BroadcastToUsers(userIDs ...string) error
+}
+
+broadcaster := handler.(Broadcaster)
+
+// Now broadcast from background jobs
+broadcaster.Broadcast(func(userID string) bool {
+    return true // All users
+})
+```
+
+**Why broadcast on handler, not template?**
+
+- **Template**: Responsible for parsing and rendering HTML
+- **Handler**: Responsible for HTTP/WebSocket connections and routing
+- **Broadcasting**: Sends updates to active connections (handler's responsibility)
+
+This separation is clearer and more intuitive.
+
+**Real-World Broadcasting Example:**
+
+Complete flow showing how broadcasting works in practice:
+
+```go
+package main
+
+import (
+    "fmt"
+    "net/http"
+    "time"
+    "github.com/livefir/livetemplate"
+)
+
+// Store with state
+type ProductStore struct {
+    ProductName  string
+    Price        float64
+    Stock        int
+    LastUpdated  string
+}
+
+// Change method - handles user actions
+func (s *ProductStore) Change(ctx *livetemplate.ActionContext) error {
+    switch ctx.Action {
+    case "update_price":
+        newPrice := ctx.GetFloat("price")
+        s.Price = newPrice
+        s.LastUpdated = time.Now().Format("15:04:05")
+        // State updated - all connections in this session group will see it
+
+    case "update_stock":
+        s.Stock = ctx.GetInt("stock")
+        s.LastUpdated = time.Now().Format("15:04:05")
+    }
+    return nil
+}
+
+func main() {
+    // Initial state
+    productState := &ProductStore{
+        ProductName: "MacBook Pro",
+        Price:       2499.00,
+        Stock:       10,
+    }
+
+    // Create template and handler
+    tmpl := livetemplate.New("product")
+    handler := tmpl.Handle(productState)
+
+    // Mount HTTP handler
+    http.Handle("/", handler)
+
+    // Type assert to access broadcasting methods
+    type Broadcaster interface {
+        Broadcast(filter func(userID string) bool) error
+        BroadcastToUsers(userIDs ...string) error
+    }
+    broadcaster := handler.(Broadcaster)
+
+    // Background job: External price updates (from admin panel, API, etc.)
+    go func() {
+        time.Sleep(10 * time.Second)
+
+        // Admin updates price externally (not via user action)
+        // Need to broadcast to all users viewing this product
+
+        // Use handler to broadcast (handler manages connections)
+        broadcaster.Broadcast(func(userID string) bool {
+            // Send to all users (could filter by permissions)
+            return true
+        })
+
+        fmt.Println("Broadcasted price update to all connected users")
+    }()
+
+    http.ListenAndServe(":8080", nil)
+}
+```
+
+**Flow Breakdown:**
+
+1. **User Action Flow:**
+   ```
+   User clicks "Update Price"
+   → WebSocket sends {action: "update_price", data: {price: 2599}}
+   → handler.handleAction() calls ProductStore.Change()
+   → Change() updates s.Price = 2599
+   → handler sends update to that user's session group
+   → All tabs for that user see new price
+   ```
+
+2. **Broadcasting Flow (External Update):**
+   ```
+   Background job runs
+   → Calls broadcaster.Broadcast(filter)
+   → Handler gets all connections from ConnectionRegistry
+   → Filters by userID using provided callback
+   → For each connection:
+       - Renders template with that connection's stores
+       - Sends WebSocket update
+   → All authorized users see the update
+   ```
+
+**Key Insight:**
+
+The Change method handles **user-initiated** actions (button clicks, form submits).
+Broadcasting handles **server-initiated** updates (background jobs, admin actions, external events).
+
+```go
+// User action: updates only that user's session group
+productStore.Change(ctx)  // Called automatically by handler
+
+// Server action: updates all authorized users
+broadcaster.Broadcast(filter)    // Called explicitly by you
+```
+
+**Why This Architecture?**
+
+Separating user actions from server broadcasts provides flexibility:
+
+| Trigger | API | Use Case |
+|---------|-----|----------|
+| User clicks button | `Change(ctx)` | User increments their own counter |
+| Admin updates data | `broadcaster.Broadcast()` | Admin changes product price → notify all |
+| Background job | `broadcaster.Broadcast()` | Stock level changes → update viewers |
+| External webhook | `broadcaster.Broadcast()` | Payment confirmed → update order status |
 
 ---
 
@@ -515,23 +676,33 @@ http.Handle("/", tmpl.Handle(state))
 ### Broadcasting
 
 ```go
+// Get handler and type assert to broadcaster
+handler := tmpl.Handle(state)
+http.Handle("/", handler)
+
+type Broadcaster interface {
+    Broadcast(filter func(userID string) bool) error
+    BroadcastToUsers(userIDs ...string) error
+}
+broadcaster := handler.(Broadcaster)
+
 // Broadcast to all authenticated users
-tmpl.Broadcast(func(userID string) bool {
+broadcaster.Broadcast(func(userID string) bool {
     return userID != "" // Only authenticated users
 })
 
 // Broadcast to specific users
-tmpl.BroadcastToUsers("user123", "user456")
+broadcaster.BroadcastToUsers("user123", "user456")
 
 // Broadcast to admins only
-tmpl.Broadcast(func(userID string) bool {
+broadcaster.Broadcast(func(userID string) bool {
     return isAdmin(userID)
 })
 
 // Broadcast from background goroutine
 go func() {
     time.Sleep(5 * time.Second)
-    tmpl.Broadcast(func(userID string) bool {
+    broadcaster.Broadcast(func(userID string) bool {
         return true // All users
     })
 }()
@@ -656,14 +827,21 @@ func main() {
     auth := NewRoleBasedAuthenticator()
     tmpl := livetemplate.New("dashboard", livetemplate.WithAuthenticator(auth))
 
-    http.Handle("/", tmpl.Handle(&DashboardState{}))
+    handler := tmpl.Handle(&DashboardState{})
+    http.Handle("/", handler)
+
+    // Type assert to access broadcasting
+    type Broadcaster interface {
+        Broadcast(filter func(userID string) bool) error
+    }
+    broadcaster := handler.(Broadcaster)
 
     // Background job: broadcast notifications
     go func() {
         ticker := time.NewTicker(30 * time.Second)
         for range ticker.C {
             // Broadcast to all users
-            tmpl.Broadcast(func(userID string) bool {
+            broadcaster.Broadcast(func(userID string) bool {
                 return true // All users
             })
         }
@@ -677,39 +855,6 @@ func main() {
 - Admin sends announcement → all users receive update
 - Background jobs can push updates to UI
 - Filter by user role for targeted notifications
-
----
-
-## Migration Path
-
-### Backward Compatibility
-
-**Existing apps continue to work unchanged:**
-
-```go
-// Old code (still works)
-tmpl := livetemplate.New("counter")
-http.Handle("/", tmpl.Handle(state))
-```
-
-**What changes:**
-- Before: Each WebSocket connection gets independent state
-- After: Connections from same browser share state
-- **This is the desired behavior!** Users expect multi-tab sharing
-
-### Breaking Changes
-
-**None.** The new default behavior is strictly better:
-- Anonymous users get browser-based grouping automatically
-- No API changes required
-- Existing apps get multi-tab sharing for free
-
-### Deprecations
-
-**Old SessionStore usage (HTTP-only):**
-- `SessionStore` interface changes to store `Stores` instead of `interface{}`
-- Old HTTP session cookies still work
-- Migration: Update custom SessionStore implementations
 
 ---
 
@@ -835,16 +980,17 @@ http.Handle("/", authMiddleware.Wrap(tmpl.Handle(state)))
 ---
 
 ### Phase 6: Broadcasting System
-**Files:** `broadcast.go` (new), `template.go` (modify)
+**Files:** `broadcast.go` (new)
 
 **Tasks:**
-- [ ] Implement `Broadcast()` with filter callback
-- [ ] Implement `BroadcastToUsers()`
-- [ ] Implement `BroadcastToGroup()`
-- [ ] Add public API on Template
+- [ ] Define `Broadcaster` interface
+- [ ] Implement `Broadcast()` with filter callback on liveHandler
+- [ ] Implement `BroadcastToUsers()` on liveHandler
+- [ ] Implement `BroadcastToGroup()` on liveHandler
 - [ ] Handle connection failures gracefully
 - [ ] Write tests for broadcasting
 - [ ] Test concurrent broadcasts
+- [ ] Test type assertion from handler to Broadcaster
 
 **Estimated Effort:** 1.5 sessions
 
