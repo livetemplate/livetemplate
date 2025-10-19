@@ -8,12 +8,28 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// globalConfigPath stores the custom config path if set via --config flag
-var globalConfigPath string
+// Manager manages configuration loading and saving with optional custom paths
+type Manager struct {
+	customPath string
+}
 
-// SetConfigPath sets a custom config path for the current session
+// NewManager creates a new configuration manager
+func NewManager() *Manager {
+	return &Manager{}
+}
+
+// SetCustomPath sets a custom config path for this manager instance
+func (m *Manager) SetCustomPath(path string) {
+	m.customPath = path
+}
+
+// defaultManager is the package-level default manager for backward compatibility
+var defaultManager = NewManager()
+
+// SetConfigPath sets a custom config path for the default manager
+// Deprecated: Use Manager.SetCustomPath for better thread safety
 func SetConfigPath(path string) {
-	globalConfigPath = path
+	defaultManager.SetCustomPath(path)
 }
 
 const (
@@ -43,8 +59,13 @@ func DefaultConfig() *Config {
 	}
 }
 
-// GetConfigPath returns the path to the config file
-func GetConfigPath() (string, error) {
+// GetConfigPath returns the path to the config file for this manager
+func (m *Manager) GetConfigPath() (string, error) {
+	// If custom path is set, return it
+	if m.customPath != "" {
+		return m.customPath, nil
+	}
+
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get home directory: %w", err)
@@ -54,12 +75,11 @@ func GetConfigPath() (string, error) {
 	return filepath.Join(configDir, ConfigFileName), nil
 }
 
-// GetConfigDir returns the directory containing the config file
-// Uses custom config path if set via SetConfigPath
-func GetConfigDir() (string, error) {
+// GetConfigDir returns the directory containing the config file for this manager
+func (m *Manager) GetConfigDir() (string, error) {
 	// If custom config path is set, return its directory
-	if globalConfigPath != "" {
-		return filepath.Dir(globalConfigPath), nil
+	if m.customPath != "" {
+		return filepath.Dir(m.customPath), nil
 	}
 
 	homeDir, err := os.UserHomeDir()
@@ -71,8 +91,8 @@ func GetConfigDir() (string, error) {
 }
 
 // EnsureConfigDir creates the config directory if it doesn't exist
-func EnsureConfigDir() error {
-	configDir, err := GetConfigDir()
+func (m *Manager) EnsureConfigDir() error {
+	configDir, err := m.GetConfigDir()
 	if err != nil {
 		return err
 	}
@@ -84,45 +104,42 @@ func EnsureConfigDir() error {
 	return nil
 }
 
-// LoadConfig loads the configuration from the config file
-// If the file doesn't exist, returns a default config
-// Uses custom config path if set via SetConfigPath, otherwise uses default
-func LoadConfig() (*Config, error) {
-	var configPath string
-	var err error
+// GetConfigPath returns the path to the config file using the default manager
+func GetConfigPath() (string, error) {
+	return defaultManager.GetConfigPath()
+}
 
-	// Use custom config path if set, otherwise use default
-	if globalConfigPath != "" {
-		configPath = globalConfigPath
-	} else {
-		configPath, err = GetConfigPath()
-		if err != nil {
-			return nil, err
-		}
+// GetConfigDir returns the directory containing the config file using the default manager
+func GetConfigDir() (string, error) {
+	return defaultManager.GetConfigDir()
+}
+
+// EnsureConfigDir creates the config directory if it doesn't exist using the default manager
+func EnsureConfigDir() error {
+	return defaultManager.EnsureConfigDir()
+}
+
+// LoadConfig loads the configuration from the config file for this manager
+// If the file doesn't exist, returns a default config
+func (m *Manager) LoadConfig() (*Config, error) {
+	configPath, err := m.GetConfigPath()
+	if err != nil {
+		return nil, err
 	}
 
 	return LoadConfigFromPath(configPath)
 }
 
-// SaveConfig saves the configuration to the config file
-// Uses custom config path if set via SetConfigPath
-func SaveConfig(config *Config) error {
+// SaveConfig saves the configuration to the config file for this manager
+func (m *Manager) SaveConfig(config *Config) error {
 	// Ensure config directory exists
-	if err := EnsureConfigDir(); err != nil {
+	if err := m.EnsureConfigDir(); err != nil {
 		return err
 	}
 
-	var configPath string
-	var err error
-
-	// Use custom config path if set, otherwise use default
-	if globalConfigPath != "" {
-		configPath = globalConfigPath
-	} else {
-		configPath, err = GetConfigPath()
-		if err != nil {
-			return err
-		}
+	configPath, err := m.GetConfigPath()
+	if err != nil {
+		return err
 	}
 
 	// Marshal to YAML
@@ -137,6 +154,17 @@ func SaveConfig(config *Config) error {
 	}
 
 	return nil
+}
+
+// LoadConfig loads the configuration from the config file using the default manager
+// If the file doesn't exist, returns a default config
+func LoadConfig() (*Config, error) {
+	return defaultManager.LoadConfig()
+}
+
+// SaveConfig saves the configuration to the config file using the default manager
+func SaveConfig(config *Config) error {
+	return defaultManager.SaveConfig(config)
 }
 
 // AddKitPath adds a kit path to the config

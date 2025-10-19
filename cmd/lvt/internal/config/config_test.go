@@ -138,12 +138,12 @@ func TestLoadConfig_NonExistent(t *testing.T) {
 	tmpDir := t.TempDir()
 	testConfigPath := filepath.Join(tmpDir, "config.yaml")
 
-	// Set custom config path for this test
-	SetConfigPath(testConfigPath)
-	defer SetConfigPath("") // Reset after test
+	// Create a dedicated manager for this test
+	mgr := NewManager()
+	mgr.SetCustomPath(testConfigPath)
 
 	// Load config - should return default config since file doesn't exist
-	config, err := LoadConfig()
+	config, err := mgr.LoadConfig()
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
@@ -166,9 +166,9 @@ func TestSaveConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	testConfigPath := filepath.Join(tmpDir, "config.yaml")
 
-	// Set custom config path for this test
-	SetConfigPath(testConfigPath)
-	defer SetConfigPath("") // Reset after test
+	// Create a dedicated manager for this test
+	mgr := NewManager()
+	mgr.SetCustomPath(testConfigPath)
 
 	// Create config with test data
 	config := &Config{
@@ -177,7 +177,7 @@ func TestSaveConfig(t *testing.T) {
 	}
 
 	// Save config
-	err := SaveConfig(config)
+	err := mgr.SaveConfig(config)
 	if err != nil {
 		t.Fatalf("SaveConfig failed: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestSaveConfig(t *testing.T) {
 	}
 
 	// Load config back and verify
-	loadedConfig, err := LoadConfig()
+	loadedConfig, err := mgr.LoadConfig()
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
@@ -396,4 +396,56 @@ func TestSetConfigPath(t *testing.T) {
 	// We can't directly test this without exposing it, but we can test
 	// that LoadConfig uses it indirectly
 	defer SetConfigPath("") // Reset after test
+}
+
+func TestManager_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	// Create multiple managers with different config paths
+	managers := make([]*Manager, 10)
+	for i := 0; i < 10; i++ {
+		mgr := NewManager()
+		configPath := filepath.Join(tmpDir, "config-"+string(rune('0'+i))+".yaml")
+		mgr.SetCustomPath(configPath)
+		managers[i] = mgr
+	}
+
+	// Run concurrent operations on different managers
+	done := make(chan bool)
+	for i, mgr := range managers {
+		go func(idx int, m *Manager) {
+			defer func() { done <- true }()
+
+			// Create test config
+			cfg := &Config{
+				Version:  "1.0",
+				KitPaths: []string{tmpDir},
+			}
+
+			// Save config
+			if err := m.SaveConfig(cfg); err != nil {
+				t.Errorf("Manager %d: SaveConfig failed: %v", idx, err)
+				return
+			}
+
+			// Load config back
+			loadedCfg, err := m.LoadConfig()
+			if err != nil {
+				t.Errorf("Manager %d: LoadConfig failed: %v", idx, err)
+				return
+			}
+
+			// Verify
+			if loadedCfg.Version != cfg.Version {
+				t.Errorf("Manager %d: Version mismatch", idx)
+			}
+		}(i, mgr)
+	}
+
+	// Wait for all goroutines to complete
+	for i := 0; i < len(managers); i++ {
+		<-done
+	}
 }
