@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -447,5 +448,320 @@ func TestManager_ConcurrentAccess(t *testing.T) {
 	// Wait for all goroutines to complete
 	for i := 0; i < len(managers); i++ {
 		<-done
+	}
+}
+
+func TestLoadConfig_InvalidYAML(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "invalid.yaml")
+
+	// Create invalid YAML file
+	invalidYAML := `
+kit_paths:
+  - /test/path
+version: 1.0
+  invalid: indentation
+`
+	if err := os.WriteFile(configPath, []byte(invalidYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Try to load invalid config
+	cfg, err := LoadConfigFromPath(configPath)
+	if err == nil {
+		t.Error("Expected error for invalid YAML, got nil")
+	}
+	if cfg != nil {
+		t.Error("Expected nil config for invalid YAML")
+	}
+}
+
+func TestPackageLevelFunctions(t *testing.T) {
+	// Test package-level wrapper functions
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.yaml")
+
+	// Set custom path
+	SetConfigPath(configPath)
+	defer SetConfigPath("") // Reset
+
+	// Test GetConfigPath
+	path, err := GetConfigPath()
+	if err != nil {
+		t.Fatalf("GetConfigPath failed: %v", err)
+	}
+	if path != configPath {
+		t.Errorf("Expected path %s, got %s", configPath, path)
+	}
+
+	// Test GetConfigDir
+	dir, err := GetConfigDir()
+	if err != nil {
+		t.Fatalf("GetConfigDir failed: %v", err)
+	}
+	if dir != tmpDir {
+		t.Errorf("Expected dir %s, got %s", tmpDir, dir)
+	}
+
+	// Test EnsureConfigDir
+	if err := EnsureConfigDir(); err != nil {
+		t.Fatalf("EnsureConfigDir failed: %v", err)
+	}
+
+	// Test LoadConfig and SaveConfig wrappers
+	testConfig := &Config{
+		Version:  "1.0",
+		KitPaths: []string{"/test/path"},
+	}
+
+	if err := SaveConfig(testConfig); err != nil {
+		t.Fatalf("SaveConfig failed: %v", err)
+	}
+
+	loadedConfig, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	if loadedConfig.Version != testConfig.Version {
+		t.Errorf("Version mismatch: expected %s, got %s", testConfig.Version, loadedConfig.Version)
+	}
+}
+
+func TestManager_GetConfigPath_WithoutCustomPath(t *testing.T) {
+	mgr := NewManager()
+
+	path, err := mgr.GetConfigPath()
+	if err != nil {
+		t.Fatalf("GetConfigPath failed: %v", err)
+	}
+
+	// Should contain default config file name
+	if !strings.Contains(path, ConfigFileName) {
+		t.Errorf("Expected path to contain %s, got %s", ConfigFileName, path)
+	}
+
+	// Should contain default config dir
+	if !strings.Contains(path, DefaultConfigDir) {
+		t.Errorf("Expected path to contain %s, got %s", DefaultConfigDir, path)
+	}
+}
+
+func TestLoadConfigFromPath_WithMissingVersionField(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "no-version.yaml")
+
+	// Create YAML without version field
+	yamlContent := `kit_paths:
+  - /test/path
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfigFromPath(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfigFromPath failed: %v", err)
+	}
+
+	// Should default to "1.0"
+	if cfg.Version != "1.0" {
+		t.Errorf("Expected default version '1.0', got '%s'", cfg.Version)
+	}
+}
+
+// Project config tests
+
+func TestDefaultProjectConfig(t *testing.T) {
+	cfg := DefaultProjectConfig()
+
+	if cfg == nil {
+		t.Fatal("Expected non-nil project config")
+	}
+
+	if cfg.Kit != "multi" {
+		t.Errorf("Expected kit 'multi', got '%s'", cfg.Kit)
+	}
+
+	if cfg.CSSFramework != "tailwind" {
+		t.Errorf("Expected CSS framework 'tailwind', got '%s'", cfg.CSSFramework)
+	}
+
+	if cfg.DevMode != false {
+		t.Error("Expected DevMode false")
+	}
+}
+
+func TestLoadProjectConfig_NonExistent(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Load config from directory without .lvtrc
+	cfg, err := LoadProjectConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("LoadProjectConfig failed: %v", err)
+	}
+
+	if cfg == nil {
+		t.Fatal("Expected default config, got nil")
+	}
+
+	// Should return default values
+	if cfg.Kit != "multi" {
+		t.Errorf("Expected default kit 'multi', got '%s'", cfg.Kit)
+	}
+}
+
+func TestLoadProjectConfig_WithFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ProjectConfigFileName)
+
+	// Create .lvtrc file with correct key names
+	content := `# Project configuration
+kit=simple
+css_framework=bulma
+dev_mode=true
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Load config
+	cfg, err := LoadProjectConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("LoadProjectConfig failed: %v", err)
+	}
+
+	if cfg.Kit != "simple" {
+		t.Errorf("Expected kit 'simple', got '%s'", cfg.Kit)
+	}
+
+	if cfg.CSSFramework != "bulma" {
+		t.Errorf("Expected CSS 'bulma', got '%s'", cfg.CSSFramework)
+	}
+
+	if !cfg.DevMode {
+		t.Error("Expected DevMode true")
+	}
+}
+
+func TestSaveProjectConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := &ProjectConfig{
+		Kit:          "bulma",
+		CSSFramework: "bulma",
+		DevMode:      true,
+	}
+
+	// Save config
+	if err := SaveProjectConfig(tmpDir, cfg); err != nil {
+		t.Fatalf("SaveProjectConfig failed: %v", err)
+	}
+
+	// Verify file was created
+	configPath := filepath.Join(tmpDir, ProjectConfigFileName)
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		t.Fatal("Config file was not created")
+	}
+
+	// Load it back
+	loadedCfg, err := LoadProjectConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("LoadProjectConfig failed: %v", err)
+	}
+
+	if loadedCfg.Kit != cfg.Kit {
+		t.Errorf("Kit mismatch: expected %s, got %s", cfg.Kit, loadedCfg.Kit)
+	}
+
+	if loadedCfg.CSSFramework != cfg.CSSFramework {
+		t.Errorf("CSS mismatch: expected %s, got %s", cfg.CSSFramework, loadedCfg.CSSFramework)
+	}
+
+	if loadedCfg.DevMode != cfg.DevMode {
+		t.Errorf("DevMode mismatch: expected %v, got %v", cfg.DevMode, loadedCfg.DevMode)
+	}
+}
+
+func TestProjectConfig_GetKit(t *testing.T) {
+	cfg := &ProjectConfig{
+		Kit: "pico",
+	}
+
+	if cfg.GetKit() != "pico" {
+		t.Errorf("Expected 'pico', got '%s'", cfg.GetKit())
+	}
+}
+
+func TestProjectConfig_GetCSSFramework(t *testing.T) {
+	cfg := &ProjectConfig{
+		CSSFramework: "bulma",
+	}
+
+	if cfg.GetCSSFramework() != "bulma" {
+		t.Errorf("Expected 'bulma', got '%s'", cfg.GetCSSFramework())
+	}
+
+	// Test fallback for simple kit (returns pico)
+	cfg2 := &ProjectConfig{
+		Kit:          "simple",
+		CSSFramework: "",
+	}
+
+	if cfg2.GetCSSFramework() != "pico" {
+		t.Errorf("Expected 'pico' for simple kit, got '%s'", cfg2.GetCSSFramework())
+	}
+
+	// Test default fallback (returns tailwind)
+	cfg3 := &ProjectConfig{
+		Kit:          "multi",
+		CSSFramework: "",
+	}
+
+	if cfg3.GetCSSFramework() != "tailwind" {
+		t.Errorf("Expected default 'tailwind', got '%s'", cfg3.GetCSSFramework())
+	}
+}
+
+func TestProjectConfig_Validate(t *testing.T) {
+	// Valid config with multi kit
+	cfg := &ProjectConfig{
+		Kit:          "multi",
+		CSSFramework: "tailwind",
+		DevMode:      false,
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Expected valid config, got error: %v", err)
+	}
+
+	// Valid config with simple kit and pico
+	cfg2 := &ProjectConfig{
+		Kit:          "simple",
+		CSSFramework: "pico",
+	}
+
+	if err := cfg2.Validate(); err != nil {
+		t.Errorf("Expected valid config, got error: %v", err)
+	}
+
+	// Invalid: invalid kit name
+	cfg3 := &ProjectConfig{
+		Kit:          "invalid-kit",
+		CSSFramework: "tailwind",
+	}
+
+	if err := cfg3.Validate(); err == nil {
+		t.Error("Expected error for invalid kit")
+	}
+
+	// Invalid: invalid CSS framework
+	cfg4 := &ProjectConfig{
+		Kit:          "multi",
+		CSSFramework: "invalid-css",
+	}
+
+	if err := cfg4.Validate(); err == nil {
+		t.Error("Expected error for invalid CSS framework")
 	}
 }
