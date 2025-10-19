@@ -192,7 +192,7 @@ func FuzzParseTemplateToTree(f *testing.F) {
 		}
 
 		// Test current AST-based parser
-		keyGen := NewKeyGenerator()
+		keyGen := newKeyGenerator()
 		tree, err := parseTemplateToTree(templateStr, data, keyGen)
 
 		if err != nil {
@@ -243,7 +243,7 @@ func FuzzParseTemplateToTree(f *testing.F) {
 }
 
 // validateTreeStructure performs basic validation of tree structure
-func validateTreeStructure(tree TreeNode) bool {
+func validateTreeStructure(tree treeNode) bool {
 	if tree == nil {
 		return false
 	}
@@ -256,7 +256,7 @@ func validateTreeStructure(tree TreeNode) bool {
 // validateTreeRenders attempts to render a tree to HTML
 // Returns true if the tree can be successfully rendered, false otherwise
 // This is Level 2 validation from the enhanced validation strategy
-func validateTreeRenders(tree TreeNode) bool {
+func validateTreeRenders(tree treeNode) bool {
 	if tree == nil {
 		return false
 	}
@@ -284,7 +284,7 @@ func validateTreeRenders(tree TreeNode) bool {
 		dynamicKey := strconv.Itoa(i)
 		if dynamicVal, exists := tree[dynamicKey]; exists {
 			// Handle nested trees recursively
-			if nestedTree, isTree := dynamicVal.(TreeNode); isTree {
+			if nestedTree, isTree := dynamicVal.(treeNode); isTree {
 				if !validateTreeRenders(nestedTree) {
 					return false
 				}
@@ -300,7 +300,7 @@ func validateTreeRenders(tree TreeNode) bool {
 // treesEqual performs deep equality comparison of two tree structures
 // Used for round-trip validation (Level 3)
 // Handles non-deterministic map iteration by sorting range comprehension items
-func treesEqual(tree1, tree2 TreeNode) bool {
+func treesEqual(tree1, tree2 treeNode) bool {
 	if tree1 == nil && tree2 == nil {
 		return true
 	}
@@ -379,8 +379,8 @@ func treesEqual(tree1, tree2 TreeNode) bool {
 		}
 
 		// Both values exist, compare them
-		nested1, isTree1 := val1.(TreeNode)
-		nested2, isTree2 := val2.(TreeNode)
+		nested1, isTree1 := val1.(treeNode)
+		nested2, isTree2 := val2.(treeNode)
 
 		if isTree1 != isTree2 {
 			return false
@@ -404,7 +404,7 @@ func treesEqual(tree1, tree2 TreeNode) bool {
 
 // rangeComprehensionsEqual compares two range comprehensions with sorted items
 // This handles non-deterministic map iteration order
-func rangeComprehensionsEqual(d1, d2 interface{}, tree1, tree2 TreeNode) bool {
+func rangeComprehensionsEqual(d1, d2 interface{}, tree1, tree2 treeNode) bool {
 	// Extract items arrays
 	items1, ok1 := d1.([]interface{})
 	items2, ok2 := d2.([]interface{})
@@ -469,7 +469,7 @@ func rangeComprehensionsEqual(d1, d2 interface{}, tree1, tree2 TreeNode) bool {
 
 // validateTreeRoundTrip performs round-trip validation: Parse → Render → Parse → Compare
 // This is Level 3 validation from the enhanced validation strategy
-func validateTreeRoundTrip(templateStr string, data map[string]interface{}, keyGen *KeyGenerator) (bool, string) {
+func validateTreeRoundTrip(templateStr string, data map[string]interface{}, keyGen *keyGenerator) (bool, string) {
 	// Parse template to tree1
 	tree1, err := parseTemplateToTree(templateStr, data, keyGen)
 	if err != nil {
@@ -484,7 +484,7 @@ func validateTreeRoundTrip(templateStr string, data map[string]interface{}, keyG
 
 	// Parse template again with same data to tree2
 	// NOTE: We use a new key generator to ensure consistent keys
-	keyGen2 := NewKeyGenerator()
+	keyGen2 := newKeyGenerator()
 	tree2, err := parseTemplateToTree(templateStr, data, keyGen2)
 	if err != nil {
 		return false, fmt.Sprintf("second parse failed: %v", err)
@@ -536,7 +536,7 @@ func makeEmptyData(data map[string]interface{}) map[string]interface{} {
 
 // validateTreeTransition checks that two trees (from different data states) are consistent
 // Used for Level 4 validation to ensure empty→non-empty transitions work correctly
-func validateTreeTransition(tree1, tree2 TreeNode) (bool, string) {
+func validateTreeTransition(tree1, tree2 treeNode) (bool, string) {
 	if tree1 == nil || tree2 == nil {
 		return false, "one or both trees are nil"
 	}
@@ -573,14 +573,14 @@ func validateEmptyToNonEmptyTransition(templateStr string, data map[string]inter
 	emptyData := makeEmptyData(data)
 
 	// Parse with empty data
-	keyGen1 := NewKeyGenerator()
+	keyGen1 := newKeyGenerator()
 	tree1, err := parseTemplateToTree(templateStr, emptyData, keyGen1)
 	if err != nil {
 		return false, fmt.Sprintf("parse with empty data failed: %v", err)
 	}
 
 	// Parse with non-empty data
-	keyGen2 := NewKeyGenerator()
+	keyGen2 := newKeyGenerator()
 	tree2, err := parseTemplateToTree(templateStr, data, keyGen2)
 	if err != nil {
 		return false, fmt.Sprintf("parse with non-empty data failed: %v", err)
@@ -593,13 +593,13 @@ func validateEmptyToNonEmptyTransition(templateStr string, data map[string]inter
 	}
 
 	// Also test the reverse: non-empty→empty
-	keyGen3 := NewKeyGenerator()
+	keyGen3 := newKeyGenerator()
 	tree3, err := parseTemplateToTree(templateStr, data, keyGen3)
 	if err != nil {
 		return false, fmt.Sprintf("second parse with non-empty data failed: %v", err)
 	}
 
-	keyGen4 := NewKeyGenerator()
+	keyGen4 := newKeyGenerator()
 	tree4, err := parseTemplateToTree(templateStr, emptyData, keyGen4)
 	if err != nil {
 		return false, fmt.Sprintf("second parse with empty data failed: %v", err)

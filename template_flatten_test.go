@@ -279,7 +279,7 @@ func TestFlattenTemplate_IntegrationWithTreeGeneration(t *testing.T) {
 		},
 	}
 
-	tree, err := parseTemplateToTree(flattened, data, NewKeyGenerator())
+	tree, err := parseTemplateToTree(flattened, data, newKeyGenerator())
 	if err != nil {
 		t.Fatalf("Failed to generate tree from flattened template: %v", err)
 	}

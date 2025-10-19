@@ -60,9 +60,9 @@ func (ov orderedVars) Range(fn func(key string, value interface{})) {
 	}
 }
 
-// getOrderedDynamicKeys returns numeric keys from a TreeNode in sorted order
+// getOrderedDynamicKeys returns numeric keys from a treeNode in sorted order
 // This ensures deterministic iteration over tree dynamics
-func getOrderedDynamicKeys(tree TreeNode) []string {
+func getOrderedDynamicKeys(tree treeNode) []string {
 	var keys []string
 	for k := range tree {
 		if k != "s" && k != "f" && k != "d" {
@@ -88,7 +88,7 @@ func getOrderedDynamicKeys(tree TreeNode) []string {
 
 // parseTemplateToTreeAST is the AST-based parser that replaces regex approach
 // It walks the parse tree from Go's template/parse package directly
-func parseTemplateToTreeAST(templateStr string, data interface{}, keyGen *KeyGenerator) (tree TreeNode, err error) {
+func parseTemplateToTreeAST(templateStr string, data interface{}, keyGen *keyGenerator) (tree treeNode, err error) {
 	// Recover from panics in template execution (can happen with fuzz-generated templates)
 	defer func() {
 		if r := recover(); r != nil {
@@ -134,9 +134,9 @@ func parseTemplateToTreeAST(templateStr string, data interface{}, keyGen *KeyGen
 
 // buildTreeFromAST recursively walks the AST and constructs the tree structure
 // This is the core function that replaces regex-based expression extraction
-func buildTreeFromAST(node parse.Node, data interface{}, keyGen *KeyGenerator) (TreeNode, error) {
+func buildTreeFromAST(node parse.Node, data interface{}, keyGen *keyGenerator) (treeNode, error) {
 	if node == nil {
-		return TreeNode{"s": []string{""}}, nil
+		return treeNode{"s": []string{""}}, nil
 	}
 
 	switch n := node.(type) {
@@ -145,7 +145,7 @@ func buildTreeFromAST(node parse.Node, data interface{}, keyGen *KeyGenerator) (
 
 	case *parse.TextNode:
 		// Pure static text
-		return TreeNode{"s": []string{string(n.Text)}}, nil
+		return treeNode{"s": []string{string(n.Text)}}, nil
 
 	case *parse.ActionNode:
 		return handleActionNode(n, data, keyGen)
@@ -169,15 +169,15 @@ func buildTreeFromAST(node parse.Node, data interface{}, keyGen *KeyGenerator) (
 }
 
 // buildTreeFromList processes a list of nodes and merges their trees
-func buildTreeFromList(node *parse.ListNode, data interface{}, keyGen *KeyGenerator) (TreeNode, error) {
+func buildTreeFromList(node *parse.ListNode, data interface{}, keyGen *keyGenerator) (treeNode, error) {
 	if node == nil || len(node.Nodes) == 0 {
-		return TreeNode{"s": []string{""}}, nil
+		return treeNode{"s": []string{""}}, nil
 	}
 
 	// Walk AST and merge trees from all nodes
 	// Ranges will return comprehension format with "d" key
 	var statics []string
-	tree := make(TreeNode)
+	tree := make(treeNode)
 	dynamicIndex := 0
 
 	// Start with empty static
@@ -239,7 +239,7 @@ func buildTreeFromList(node *parse.ListNode, data interface{}, keyGen *KeyGenera
 }
 
 // handleActionNode processes {{.Field}} or {{.Method}} expressions
-func handleActionNode(node *parse.ActionNode, data interface{}, keyGen *KeyGenerator) (TreeNode, error) {
+func handleActionNode(node *parse.ActionNode, data interface{}, keyGen *keyGenerator) (treeNode, error) {
 	// Execute the action to get its value
 	nodeStr := node.String()
 	tmpl, err := template.New("action").Parse(nodeStr)
@@ -253,14 +253,14 @@ func handleActionNode(node *parse.ActionNode, data interface{}, keyGen *KeyGener
 	}
 
 	// Create tree with one dynamic value
-	return TreeNode{
+	return treeNode{
 		"s": []string{"", ""},
 		"0": buf.String(),
 	}, nil
 }
 
 // handleIfNode processes {{if}}...{{else}}...{{end}} constructs
-func handleIfNode(node *parse.IfNode, data interface{}, keyGen *KeyGenerator) (TreeNode, error) {
+func handleIfNode(node *parse.IfNode, data interface{}, keyGen *keyGenerator) (treeNode, error) {
 	// Evaluate condition by executing just the if part
 	condTmpl := fmt.Sprintf("{{if %s}}true{{else}}false{{end}}", formatPipe(node.Pipe))
 	tmpl, err := template.New("cond").Parse(condTmpl)
@@ -282,7 +282,7 @@ func handleIfNode(node *parse.IfNode, data interface{}, keyGen *KeyGenerator) (T
 	} else {
 		// Condition false and no else - treat as dynamic segment with empty value
 		// This allows the conditional to be tracked in diffs
-		return TreeNode{
+		return treeNode{
 			"s": []string{"", ""},
 			"0": "",
 		}, nil
@@ -299,7 +299,7 @@ func handleIfNode(node *parse.IfNode, data interface{}, keyGen *KeyGenerator) (T
 	// If not, wrap as single dynamic value
 	if hasRangeInTree(branchTree) {
 		// Preserve tree structure - just mark it as dynamic by wrapping
-		return TreeNode{
+		return treeNode{
 			"s": []string{"", ""},
 			"0": branchTree,
 		}, nil
@@ -311,14 +311,14 @@ func handleIfNode(node *parse.IfNode, data interface{}, keyGen *KeyGenerator) (T
 		return nil, err
 	}
 
-	return TreeNode{
+	return treeNode{
 		"s": []string{"", ""},
 		"0": branchHTML,
 	}, nil
 }
 
 // hasRangeInTree checks if a tree contains range comprehensions
-func hasRangeInTree(tree TreeNode) bool {
+func hasRangeInTree(tree treeNode) bool {
 	for k, v := range tree {
 		if k == "s" || k == "f" {
 			continue
@@ -329,7 +329,7 @@ func hasRangeInTree(tree TreeNode) bool {
 				return true
 			}
 		}
-		if vMap, ok := v.(TreeNode); ok {
+		if vMap, ok := v.(treeNode); ok {
 			if _, hasD := vMap["d"]; hasD {
 				return true
 			}
@@ -339,7 +339,7 @@ func hasRangeInTree(tree TreeNode) bool {
 }
 
 // handleRangeNode processes {{range}}...{{end}} constructs
-func handleRangeNode(node *parse.RangeNode, data interface{}, keyGen *KeyGenerator) (TreeNode, error) {
+func handleRangeNode(node *parse.RangeNode, data interface{}, keyGen *keyGenerator) (treeNode, error) {
 	// For range with variable declarations like {{range $i, $v := .Items}}
 	// We need to extract just the collection expression (.Items)
 	// The pipe.Decl contains the variable declarations ($i, $v)
@@ -386,7 +386,7 @@ func handleRangeNode(node *parse.RangeNode, data interface{}, keyGen *KeyGenerat
 			return buildTreeFromAST(node.ElseList, data, keyGen)
 		}
 		// Return empty comprehension with at least one empty static
-		return TreeNode{
+		return treeNode{
 			"s": []string{""},
 			"d": []interface{}{},
 		}, nil
@@ -412,7 +412,7 @@ func handleRangeNode(node *parse.RangeNode, data interface{}, keyGen *KeyGenerat
 		for _, key := range collectionValue.MapKeys() {
 			item := collectionValue.MapIndex(key).Interface()
 
-			var itemTree TreeNode
+			var itemTree treeNode
 			var err error
 
 			if hasVarDecls {
@@ -452,7 +452,7 @@ func handleRangeNode(node *parse.RangeNode, data interface{}, keyGen *KeyGenerat
 		for i := 0; i < collectionValue.Len(); i++ {
 			item := collectionValue.Index(i).Interface()
 
-			var itemTree TreeNode
+			var itemTree treeNode
 			var err error
 
 			if hasVarDecls {
@@ -491,7 +491,7 @@ func handleRangeNode(node *parse.RangeNode, data interface{}, keyGen *KeyGenerat
 	}
 
 	// Return range comprehension format
-	return TreeNode{
+	return treeNode{
 		"s": itemStatics,
 		"d": itemTrees,
 	}, nil
@@ -500,7 +500,7 @@ func handleRangeNode(node *parse.RangeNode, data interface{}, keyGen *KeyGenerat
 // executeRangeBodyWithVars executes a range body with variable declarations
 // This properly handles {{range $i, $v := .Collection}} by executing the body
 // within a template context that has the variables defined
-func executeRangeBodyWithVars(node *parse.RangeNode, index int, item interface{}, data interface{}, keyGen *KeyGenerator) (TreeNode, error) {
+func executeRangeBodyWithVars(node *parse.RangeNode, index int, item interface{}, data interface{}, keyGen *keyGenerator) (treeNode, error) {
 	// Create a variable context that maps variable names to their values
 	varCtx := &varContext{
 		parent: data,
@@ -527,7 +527,7 @@ func executeRangeBodyWithVars(node *parse.RangeNode, index int, item interface{}
 
 // executeRangeBodyWithVarsMap executes a range body with variable declarations for maps
 // This handles {{range $k, $v := .Map}} by executing the body with key and value
-func executeRangeBodyWithVarsMap(node *parse.RangeNode, key interface{}, item interface{}, data interface{}, keyGen *KeyGenerator) (TreeNode, error) {
+func executeRangeBodyWithVarsMap(node *parse.RangeNode, key interface{}, item interface{}, data interface{}, keyGen *keyGenerator) (treeNode, error) {
 	// Create a variable context that maps variable names to their values
 	varCtx := &varContext{
 		parent: data,
@@ -560,9 +560,9 @@ type varContext struct {
 }
 
 // buildTreeFromASTWithVars is like buildTreeFromAST but handles variable references
-func buildTreeFromASTWithVars(node parse.Node, varCtx *varContext, keyGen *KeyGenerator) (TreeNode, error) {
+func buildTreeFromASTWithVars(node parse.Node, varCtx *varContext, keyGen *keyGenerator) (treeNode, error) {
 	if node == nil {
-		return TreeNode{"s": []string{""}}, nil
+		return treeNode{"s": []string{""}}, nil
 	}
 
 	switch n := node.(type) {
@@ -570,7 +570,7 @@ func buildTreeFromASTWithVars(node parse.Node, varCtx *varContext, keyGen *KeyGe
 		return buildTreeFromListWithVars(n, varCtx, keyGen)
 
 	case *parse.TextNode:
-		return TreeNode{"s": []string{string(n.Text)}}, nil
+		return treeNode{"s": []string{string(n.Text)}}, nil
 
 	case *parse.ActionNode:
 		return handleActionNodeWithVars(n, varCtx, keyGen)
@@ -591,13 +591,13 @@ func buildTreeFromASTWithVars(node parse.Node, varCtx *varContext, keyGen *KeyGe
 }
 
 // buildTreeFromListWithVars processes a list of nodes with variable context
-func buildTreeFromListWithVars(node *parse.ListNode, varCtx *varContext, keyGen *KeyGenerator) (TreeNode, error) {
+func buildTreeFromListWithVars(node *parse.ListNode, varCtx *varContext, keyGen *keyGenerator) (treeNode, error) {
 	if node == nil || len(node.Nodes) == 0 {
-		return TreeNode{"s": []string{""}}, nil
+		return treeNode{"s": []string{""}}, nil
 	}
 
 	var statics []string
-	tree := make(TreeNode)
+	tree := make(treeNode)
 	dynamicIndex := 0
 	statics = append(statics, "")
 
@@ -637,7 +637,7 @@ func buildTreeFromListWithVars(node *parse.ListNode, varCtx *varContext, keyGen 
 }
 
 // handleActionNodeWithVars handles {{.Field}} or {{$var}} with variable context
-func handleActionNodeWithVars(node *parse.ActionNode, varCtx *varContext, keyGen *KeyGenerator) (TreeNode, error) {
+func handleActionNodeWithVars(node *parse.ActionNode, varCtx *varContext, keyGen *keyGenerator) (treeNode, error) {
 	// For actions with variable references, we need to execute them in a context
 	// where the variables are defined. We can't just create a mini-template because
 	// Go templates don't allow defining variables inline.
@@ -673,7 +673,7 @@ func handleActionNodeWithVars(node *parse.ActionNode, varCtx *varContext, keyGen
 			return nil, fmt.Errorf("action execute error: %w", err)
 		}
 
-		return TreeNode{
+		return treeNode{
 			"s": []string{"", ""},
 			"0": buf.String(),
 		}, nil
@@ -688,7 +688,7 @@ func handleActionNodeWithVars(node *parse.ActionNode, varCtx *varContext, keyGen
 	// and execute the action after transforming variable references to field references
 	result := evaluateActionWithVars(nodeStr, varCtx)
 
-	return TreeNode{
+	return treeNode{
 		"s": []string{"", ""},
 		"0": result,
 	}, nil
@@ -795,7 +795,7 @@ func evaluateActionWithVars(actionStr string, varCtx *varContext) string {
 }
 
 // handleIfNodeWithVars handles if/else with variable context
-func handleIfNodeWithVars(node *parse.IfNode, varCtx *varContext, keyGen *KeyGenerator) (TreeNode, error) {
+func handleIfNodeWithVars(node *parse.IfNode, varCtx *varContext, keyGen *keyGenerator) (treeNode, error) {
 	// Evaluate condition - this is tricky with variables
 	// For now, execute the condition with dot context
 	condTmpl := fmt.Sprintf("{{if %s}}true{{else}}false{{end}}", formatPipe(node.Pipe))
@@ -816,7 +816,7 @@ func handleIfNodeWithVars(node *parse.IfNode, varCtx *varContext, keyGen *KeyGen
 		branch = node.ElseList
 	} else {
 		// Condition false and no else - treat as dynamic segment with empty value
-		return TreeNode{
+		return treeNode{
 			"s": []string{"", ""},
 			"0": "",
 		}, nil
@@ -833,7 +833,7 @@ func handleIfNodeWithVars(node *parse.IfNode, varCtx *varContext, keyGen *KeyGen
 	// If not, wrap as single dynamic value
 	if hasRangeInTree(branchTree) {
 		// Preserve tree structure - just mark it as dynamic by wrapping
-		return TreeNode{
+		return treeNode{
 			"s": []string{"", ""},
 			"0": branchTree,
 		}, nil
@@ -845,14 +845,14 @@ func handleIfNodeWithVars(node *parse.IfNode, varCtx *varContext, keyGen *KeyGen
 		return nil, err
 	}
 
-	return TreeNode{
+	return treeNode{
 		"s": []string{"", ""},
 		"0": branchHTML,
 	}, nil
 }
 
 // handleWithNode processes {{with}}...{{end}} constructs
-func handleWithNode(node *parse.WithNode, data interface{}, keyGen *KeyGenerator) (TreeNode, error) {
+func handleWithNode(node *parse.WithNode, data interface{}, keyGen *keyGenerator) (treeNode, error) {
 	// Evaluate the with pipe to get the new context
 	pipeStr := formatPipe(node.Pipe)
 
@@ -869,7 +869,7 @@ func handleWithNode(node *parse.WithNode, data interface{}, keyGen *KeyGenerator
 			return buildTreeFromAST(node.ElseList, data, keyGen)
 		}
 		// Return empty tree
-		return TreeNode{"s": []string{""}}, nil
+		return treeNode{"s": []string{""}}, nil
 	}
 
 	// Execute body with new context
@@ -938,7 +938,7 @@ func isZeroValue(v reflect.Value) bool {
 }
 
 // renderTreeToHTML renders a tree structure back to HTML by merging statics and dynamics
-func renderTreeToHTML(tree TreeNode) (string, error) {
+func renderTreeToHTML(tree treeNode) (string, error) {
 	// Check if this is a range comprehension (has "d" key with items)
 	if itemsRaw, hasD := tree["d"]; hasD {
 		return renderRangeComprehensionToHTML(tree, itemsRaw)
@@ -961,15 +961,15 @@ func renderTreeToHTML(tree TreeNode) (string, error) {
 			dynKey := fmt.Sprintf("%d", dynamicIndex)
 			if dynValue, exists := tree[dynKey]; exists {
 				// Handle nested trees (like ranges)
-				if nestedTree, ok := dynValue.(TreeNode); ok {
+				if nestedTree, ok := dynValue.(treeNode); ok {
 					nestedHTML, err := renderTreeToHTML(nestedTree)
 					if err != nil {
 						return "", err
 					}
 					result.WriteString(nestedHTML)
 				} else if nestedMap, ok := dynValue.(map[string]interface{}); ok {
-					// Also handle as TreeNode
-					nestedHTML, err := renderTreeToHTML(TreeNode(nestedMap))
+					// Also handle as treeNode
+					nestedHTML, err := renderTreeToHTML(treeNode(nestedMap))
 					if err != nil {
 						return "", err
 					}
@@ -987,7 +987,7 @@ func renderTreeToHTML(tree TreeNode) (string, error) {
 }
 
 // renderRangeComprehensionToHTML renders a range comprehension (with "d" and "s" keys) to HTML
-func renderRangeComprehensionToHTML(tree TreeNode, itemsRaw interface{}) (string, error) {
+func renderRangeComprehensionToHTML(tree treeNode, itemsRaw interface{}) (string, error) {
 	// Get statics for the range items
 	statics, ok := tree["s"].([]string)
 	if !ok {
@@ -1026,14 +1026,14 @@ func renderRangeComprehensionToHTML(tree TreeNode, itemsRaw interface{}) (string
 				dynKey := fmt.Sprintf("%d", i)
 				if dynValue, exists := itemMap[dynKey]; exists {
 					// Recursively render nested trees
-					if nestedTree, ok := dynValue.(TreeNode); ok {
+					if nestedTree, ok := dynValue.(treeNode); ok {
 						nestedHTML, err := renderTreeToHTML(nestedTree)
 						if err != nil {
 							return "", err
 						}
 						result.WriteString(nestedHTML)
 					} else if nestedMap, ok := dynValue.(map[string]interface{}); ok {
-						nestedHTML, err := renderTreeToHTML(TreeNode(nestedMap))
+						nestedHTML, err := renderTreeToHTML(treeNode(nestedMap))
 						if err != nil {
 							return "", err
 						}

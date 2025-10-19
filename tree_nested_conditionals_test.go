@@ -24,7 +24,7 @@ func TestParseTemplateToTree_NestedConditionals(t *testing.T) {
 		"IsLoading": true,
 	}
 
-	keyGen := NewKeyGenerator()
+	keyGen := newKeyGenerator()
 	tree, err := parseTemplateToTree(templateStr, data, keyGen)
 	if err != nil {
 		t.Fatalf("parseTemplateToTree failed: %v", err)
@@ -75,7 +75,7 @@ func TestParseTemplateToTree_NestedConditionals_FalseFlags(t *testing.T) {
 		"IsLoading": false,
 	}
 
-	keyGen := NewKeyGenerator()
+	keyGen := newKeyGenerator()
 	tree, err := parseTemplateToTree(templateStr, data, keyGen)
 	if err != nil {
 		t.Fatalf("parseTemplateToTree failed: %v", err)

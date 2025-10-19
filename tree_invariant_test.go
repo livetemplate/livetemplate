@@ -89,7 +89,7 @@ func TestTreeInvariantGuarantee(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tree, err := parseTemplateToTree(tt.template, tt.data, NewKeyGenerator())
+			tree, err := parseTemplateToTree(tt.template, tt.data, newKeyGenerator())
 			if err != nil {
 				t.Errorf("parseTemplateToTree() error = %v", err)
 				return
@@ -138,7 +138,7 @@ func TestTreeInvariantInTemplate(t *testing.T) {
 	}
 
 	// Test the parseTemplateToTree function directly (this is what Template uses internally)
-	tree, err := parseTemplateToTree(templateContent, data, NewKeyGenerator())
+	tree, err := parseTemplateToTree(templateContent, data, newKeyGenerator())
 	if err != nil {
 		t.Fatalf("parseTemplateToTree error: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestE2EInvariantGuarantee(t *testing.T) {
 	}
 
 	// Test initial tree generation using the same function as the Template
-	tree, err := parseTemplateToTree(templateContent, data, NewKeyGenerator())
+	tree, err := parseTemplateToTree(templateContent, data, newKeyGenerator())
 	if err != nil {
 		t.Fatalf("parseTemplateToTree error: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestE2EInvariantGuarantee(t *testing.T) {
 }
 
 // checkTreeInvariant verifies the statics/dynamics invariant
-func checkTreeInvariant(tree TreeNode, context string) error {
+func checkTreeInvariant(tree treeNode, context string) error {
 	// Check if this is a dynamics-only update (no statics)
 	statics, hasStatics := tree["s"]
 	if !hasStatics {

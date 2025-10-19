@@ -67,7 +67,7 @@ func TestDeepNesting(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			keyGen := NewKeyGenerator()
+			keyGen := newKeyGenerator()
 			tree, err := parseTemplateToTree(tt.template, data, keyGen)
 
 			if err != nil {
@@ -146,7 +146,7 @@ func TestTemplateComposition(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			keyGen := NewKeyGenerator()
+			keyGen := newKeyGenerator()
 			tree, err := parseTemplateToTree(tt.template, data, keyGen)
 
 			if err != nil {

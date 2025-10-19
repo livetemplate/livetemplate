@@ -15,18 +15,12 @@ import (
 	"golang.org/x/net/html"
 )
 
-// minifyHTMLWhitespace removes unnecessary whitespace from HTML content
-// while preserving space in important contexts
-func ParseTemplateToTreeForTesting(templateStr string, data interface{}, keyGen *KeyGenerator) (TreeNode, error) {
-	return parseTemplateToTree(templateStr, data, keyGen)
-}
-
-// TreeNode represents the tree-based static/dynamic structure
-type TreeNode map[string]interface{}
+// treeNode represents the tree-based static/dynamic structure (internal use only)
+type treeNode map[string]interface{}
 
 // calculateFingerprint calculates a 64-bit fingerprint (MD5 hash) for a tree's statics and dynamics
 // This allows detecting when a subtree has changed, similar to LiveView's optimization #2
-func calculateFingerprint(tree TreeNode) string {
+func calculateFingerprint(tree treeNode) string {
 	// Create a canonical representation of the tree for hashing
 	// Include both statics (template structure) and dynamics (data values)
 	hasher := md5.New()
@@ -73,7 +67,7 @@ func calculateFingerprint(tree TreeNode) string {
 
 // addFingerprintToTree adds the fingerprint to the tree for client-side tracking
 // NOTE: This should be internal-only for conditional branch detection
-func addFingerprintToTree(tree TreeNode) TreeNode {
+func addFingerprintToTree(tree treeNode) treeNode {
 	if len(tree) == 0 {
 		return tree // Don't add fingerprint to empty trees
 	}
@@ -269,7 +263,7 @@ func normalizeTemplateSpacing(templateStr string) string {
 }
 
 // parseTemplateToTree parses a template using the AST-based parser
-func parseTemplateToTree(templateStr string, data interface{}, keyGen *KeyGenerator) (tree TreeNode, err error) {
+func parseTemplateToTree(templateStr string, data interface{}, keyGen *keyGenerator) (tree treeNode, err error) {
 	// Recover from panics in template execution (can happen with fuzz-generated templates)
 	defer func() {
 		if r := recover(); r != nil {
@@ -316,13 +310,13 @@ func getFieldValue(data interface{}, fieldName string) (interface{}, error) {
 	return field.Interface(), nil
 }
 
-// KeyAttributeConfig defines which attributes to check for explicit keys
-type KeyAttributeConfig struct {
+// keyAttributeConfig defines which attributes to check for explicit keys (internal use only)
+type keyAttributeConfig struct {
 	AttributeNames []string
 }
 
-// DefaultKeyAttributes provides sensible defaults for key attribute names
-var DefaultKeyAttributes = KeyAttributeConfig{
+// defaultKeyAttributes provides sensible defaults for key attribute names (internal use only)
+var defaultKeyAttributes = keyAttributeConfig{
 	AttributeNames: []string{
 		"key",
 		"lvt-key",
@@ -335,39 +329,39 @@ var DefaultKeyAttributes = KeyAttributeConfig{
 	},
 }
 
-// Simple counter-based key generation for wrapper approach
-type KeyGenerator struct {
+// keyGenerator provides counter-based key generation for wrapper approach (internal use only)
+type keyGenerator struct {
 	counter      int
 	usedKeys     map[string]bool    // Track used keys to prevent duplicates
 	fallbackKeys []string           // Position-based fallback keys
-	keyConfig    KeyAttributeConfig // Configuration for key attribute names
+	keyConfig    keyAttributeConfig // Configuration for key attribute names
 }
 
-// NewKeyGenerator creates a new key generator for a template instance
-func NewKeyGenerator() *KeyGenerator {
-	return &KeyGenerator{
+// newKeyGenerator creates a new key generator for a template instance
+func newKeyGenerator() *keyGenerator {
+	return &keyGenerator{
 		counter:      0,
 		usedKeys:     make(map[string]bool),
 		fallbackKeys: []string{},
-		keyConfig:    DefaultKeyAttributes,
+		keyConfig:    defaultKeyAttributes,
 	}
 }
 
-// NextKey generates the next sequential key
-func (kg *KeyGenerator) NextKey() string {
+// nextKey generates the next sequential key
+func (kg *keyGenerator) nextKey() string {
 	kg.counter++
 	return fmt.Sprintf("%d", kg.counter)
 }
 
-// Reset resets the counter (useful for testing)
-func (kg *KeyGenerator) Reset() {
+// reset resets the counter (useful for testing)
+func (kg *keyGenerator) reset() {
 	kg.counter = 0
 	kg.usedKeys = make(map[string]bool)
 	kg.fallbackKeys = []string{}
 }
 
-// LoadExistingKeys stores previous data and updates counter
-func (kg *KeyGenerator) LoadExistingKeys(oldRangeData []interface{}) {
+// loadExistingKeys stores previous data and updates counter
+func (kg *keyGenerator) loadExistingKeys(oldRangeData []interface{}) {
 	// Reset used keys tracking
 	kg.usedKeys = make(map[string]bool)
 
@@ -389,20 +383,15 @@ func (kg *KeyGenerator) LoadExistingKeys(oldRangeData []interface{}) {
 	}
 }
 
-// Global key generator for template instances
-var globalKeyGenerator = NewKeyGenerator()
+// globalKeyGenerator is the global key generator for template instances
+var globalKeyGenerator = newKeyGenerator()
 
 // resetKeyGenerator resets the global key generator for testing
 func resetKeyGenerator() {
-	globalKeyGenerator.Reset()
+	globalKeyGenerator.reset()
 }
 
 // generateWrapperKey generates a simple wrapper key using provided generator
-func generateWrapperKey(keyGen *KeyGenerator) string {
-	return keyGen.NextKey()
-}
-
-// ParseTemplateToTree parses a template using existing working approach (exported for testing)
-func ParseTemplateToTree(templateStr string, data interface{}) (TreeNode, error) {
-	return parseTemplateToTree(templateStr, data, globalKeyGenerator)
+func generateWrapperKey(keyGen *keyGenerator) string {
+	return keyGen.nextKey()
 }

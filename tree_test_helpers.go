@@ -7,7 +7,7 @@ import (
 
 // reconstructHTML rebuilds HTML string from tree structure
 // Used by tree testing to verify tree structure produces correct output
-func reconstructHTML(tree TreeNode) string {
+func reconstructHTML(tree treeNode) string {
 	if tree == nil {
 		return ""
 	}
@@ -37,11 +37,11 @@ func reconstructHTML(tree TreeNode) string {
 				if i < len(statics)-1 {
 					key := fmt.Sprintf("%d", i)
 					if val, exists := itemMap[key]; exists {
-						if nestedTree, ok := val.(TreeNode); ok {
+						if nestedTree, ok := val.(treeNode); ok {
 							result.WriteString(reconstructHTML(nestedTree))
 						} else if nestedMap, ok := val.(map[string]interface{}); ok {
-							// Handle nested TreeNode represented as map[string]interface{}
-							result.WriteString(reconstructHTML(TreeNode(nestedMap)))
+							// Handle nested treeNode represented as map[string]interface{}
+							result.WriteString(reconstructHTML(treeNode(nestedMap)))
 						} else {
 							result.WriteString(fmt.Sprintf("%v", val))
 						}
@@ -67,11 +67,11 @@ func reconstructHTML(tree TreeNode) string {
 			key := fmt.Sprintf("%d", i)
 			if val, exists := tree[key]; exists {
 				// Check if value is nested tree
-				if nestedTree, ok := val.(TreeNode); ok {
+				if nestedTree, ok := val.(treeNode); ok {
 					result.WriteString(reconstructHTML(nestedTree))
 				} else if nestedMap, ok := val.(map[string]interface{}); ok {
-					// Handle nested TreeNode represented as map[string]interface{}
-					result.WriteString(reconstructHTML(TreeNode(nestedMap)))
+					// Handle nested treeNode represented as map[string]interface{}
+					result.WriteString(reconstructHTML(treeNode(nestedMap)))
 				} else {
 					result.WriteString(fmt.Sprintf("%v", val))
 				}

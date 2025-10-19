@@ -39,17 +39,18 @@ type Template struct {
 	wrapperID       string
 	lastData        interface{}
 	lastHTML        string
-	lastTree        TreeNode // Store previous tree segments for comparison
-	initialTree     TreeNode
+	lastTree        treeNode // Store previous tree segments for comparison
+	initialTree     treeNode
 	hasInitialTree  bool
 	lastFingerprint string        // Fingerprint of the last generated tree for change detection
-	keyGen          *KeyGenerator // Per-template key generation for wrapper approach
+	keyGen          *keyGenerator // Per-template key generation for wrapper approach
 	config          Config        // Template configuration
 }
 
-// UpdateResponse wraps a tree update with metadata for form lifecycle
+// UpdateResponse wraps a tree update with metadata for form lifecycle.
+// Tree is an opaque type representing the update payload - the client library handles this automatically.
 type UpdateResponse struct {
-	Tree TreeNode          `json:"tree"`
+	Tree interface{}       `json:"tree"` // Opaque tree update (internal format)
 	Meta *ResponseMetadata `json:"meta,omitempty"`
 }
 
@@ -126,7 +127,7 @@ func New(name string, opts ...Option) *Template {
 
 	tmpl := &Template{
 		name:   name,
-		keyGen: NewKeyGenerator(),
+		keyGen: newKeyGenerator(),
 		config: config,
 	}
 
@@ -156,7 +157,7 @@ func (t *Template) Clone() (*Template, error) {
 		name:        t.name,
 		templateStr: t.templateStr,
 		wrapperID:   t.wrapperID, // Share wrapper ID
-		keyGen:      NewKeyGenerator(),
+		keyGen:      newKeyGenerator(),
 		config:      t.config, // Preserve configuration
 		// Don't copy lastData, lastHTML, lastTree, etc. - start fresh
 	}
@@ -444,11 +445,11 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, errors ...map[
 	return err
 }
 
-// generateTreeInternalWithErrors is the internal implementation that returns TreeNode with error context
-func (t *Template) generateTreeInternalWithErrors(data interface{}, errors map[string]string) (TreeNode, error) {
+// generateTreeInternalWithErrors is the internal implementation that returns treeNode with error context
+func (t *Template) generateTreeInternalWithErrors(data interface{}, errors map[string]string) (treeNode, error) {
 	// Initialize key generator if needed (but don't reset - keys should increment globally)
 	if t.keyGen == nil {
-		t.keyGen = NewKeyGenerator()
+		t.keyGen = newKeyGenerator()
 	}
 
 	// Convert data to include lvt context for consistent template execution
@@ -549,7 +550,7 @@ func (t *Template) executeTemplateWithErrors(data interface{}, errors map[string
 }
 
 // generateInitialTree creates tree with statics and dynamics for first render
-func (t *Template) generateInitialTree(html string, data interface{}) (TreeNode, error) {
+func (t *Template) generateInitialTree(html string, data interface{}) (treeNode, error) {
 	// Extract content from wrapper if we have one
 	var contentToAnalyze string
 	if t.wrapperID != "" {
@@ -597,7 +598,7 @@ func (t *Template) generateInitialTree(html string, data interface{}) (TreeNode,
 }
 
 // generateDiffBasedTree creates tree based on diff analysis
-func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newData interface{}) (TreeNode, error) {
+func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newData interface{}) (treeNode, error) {
 	// Extract content from wrapper if we have one for proper comparison
 	var oldContent, newContent string
 	if t.wrapperID != "" {
@@ -618,7 +619,7 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 
 		newTree, err := parseTemplateToTree(templateContent, newData, t.keyGen)
 		if err != nil {
-			return TreeNode{}, fmt.Errorf("tree generation failed: %w", err)
+			return treeNode{}, fmt.Errorf("tree generation failed: %w", err)
 		}
 
 		// Compare trees and get only changed dynamics
@@ -626,7 +627,7 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 
 		// If no changes, return empty
 		if len(changedTree) == 0 {
-			return TreeNode{}, nil
+			return treeNode{}, nil
 		}
 
 		// Update cached state for next comparison
@@ -656,8 +657,8 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 }
 
 // compareTreesAndGetChanges compares two trees and returns only changed dynamics
-func (t *Template) compareTreesAndGetChanges(oldTree, newTree TreeNode) TreeNode {
-	changes := make(TreeNode)
+func (t *Template) compareTreesAndGetChanges(oldTree, newTree treeNode) treeNode {
+	changes := make(treeNode)
 
 	// First, find range constructs in both trees and match them by content signature
 	rangeMatches := findRangeConstructMatches(oldTree, newTree)
@@ -695,7 +696,7 @@ func (t *Template) compareTreesAndGetChanges(oldTree, newTree TreeNode) TreeNode
 
 // findRangeConstructMatches finds range constructs in both trees and matches them by content signature
 // Returns a map of newField -> oldField for range constructs that represent the same template construct
-func findRangeConstructMatches(oldTree, newTree TreeNode) map[string]string {
+func findRangeConstructMatches(oldTree, newTree treeNode) map[string]string {
 	matches := make(map[string]string)
 
 	// Find all range constructs in both trees
@@ -721,7 +722,7 @@ func findRangeConstructMatches(oldTree, newTree TreeNode) map[string]string {
 }
 
 // findRangeConstructs finds all range constructs in a tree
-func findRangeConstructs(tree TreeNode) map[string]interface{} {
+func findRangeConstructs(tree treeNode) map[string]interface{} {
 	ranges := make(map[string]interface{})
 
 	for field, value := range tree {
@@ -1350,7 +1351,7 @@ func isComplexInsertionPattern(newKeys []string, oldItems, newItems []interface{
 }
 
 // analyzeChangeAndCreateTree determines the best tree structure based on the type of change
-func (t *Template) analyzeChangeAndCreateTree(oldHTML, newHTML string, _, _ interface{}) (TreeNode, error) {
+func (t *Template) analyzeChangeAndCreateTree(oldHTML, newHTML string, _, _ interface{}) (treeNode, error) {
 	// Find common prefix and suffix to understand change patterns
 	commonPrefix := findCommonPrefix(oldHTML, newHTML)
 	commonSuffix := findCommonSuffix(oldHTML, newHTML)
@@ -1361,7 +1362,7 @@ func (t *Template) analyzeChangeAndCreateTree(oldHTML, newHTML string, _, _ inte
 
 	// If entire content changed, return full dynamic content
 	if changeStart >= changeEnd || (changeStart == 0 && changeEnd == len(newHTML)) {
-		return TreeNode{
+		return treeNode{
 			"s": []string{"", ""},
 			"0": minifyHTML(newHTML),
 		}, nil
@@ -1370,21 +1371,21 @@ func (t *Template) analyzeChangeAndCreateTree(oldHTML, newHTML string, _, _ inte
 	// If we have stable prefix/suffix, create tree with static parts
 	if commonPrefix != "" || commonSuffix != "" {
 		dynamicPart := newHTML[changeStart:changeEnd]
-		return TreeNode{
+		return treeNode{
 			"s": []string{commonPrefix, commonSuffix},
 			"0": minifyHTML(dynamicPart),
 		}, nil
 	}
 
 	// Default to full dynamic content
-	return TreeNode{
+	return treeNode{
 		"s": []string{"", ""},
 		"0": minifyHTML(newHTML),
 	}, nil
 }
 
 // createHTMLStructureBasedTree implements deterministic segmentation strategies for HTML content
-func (t *Template) createHTMLStructureBasedTree(html string) TreeNode {
+func (t *Template) createHTMLStructureBasedTree(html string) treeNode {
 	// Define block-level elements that create natural segment boundaries
 	blockTags := []string{"<div", "<article", "<section", "<main", "<aside", "<nav", "<ul", "<ol", "<table"}
 
@@ -1445,7 +1446,7 @@ func (t *Template) createHTMLStructureBasedTree(html string) TreeNode {
 		}
 
 		// Build the tree
-		tree := TreeNode{"s": statics}
+		tree := treeNode{"s": statics}
 		for i, dyn := range dynamics {
 			// Minify HTML content if it's a string containing HTML
 			if strDyn, ok := dyn.(string); ok && strings.Contains(strDyn, "<") {
@@ -1461,7 +1462,7 @@ func (t *Template) createHTMLStructureBasedTree(html string) TreeNode {
 	}
 
 	// Fallback to single segment strategy
-	return TreeNode{
+	return treeNode{
 		"s": []string{"", ""},
 		"0": minifyHTML(html),
 	}
@@ -1500,8 +1501,8 @@ func findCommonSuffix(s1, s2 string) string {
 	return s1[len1-minLen:]
 }
 
-// marshalOrderedJSON marshals a TreeNode to JSON with keys in sorted order
-func marshalOrderedJSON(tree TreeNode) ([]byte, error) {
+// marshalOrderedJSON marshals a treeNode to JSON with keys in sorted order
+func marshalOrderedJSON(tree treeNode) ([]byte, error) {
 	if len(tree) == 0 {
 		return []byte("{}"), nil
 	}
@@ -1582,14 +1583,14 @@ func marshalValue(value interface{}) ([]byte, error) {
 }
 
 // loadExistingKeyMappings loads existing key mappings from the last tree node
-func (t *Template) loadExistingKeyMappings(lastTree TreeNode) {
+func (t *Template) loadExistingKeyMappings(lastTree treeNode) {
 	// Look for range data in the tree and load existing key mappings
 	for _, value := range lastTree {
 		if rangeData, ok := value.(map[string]interface{}); ok {
 			// Check if this looks like range data with "d" field
 			if dynData, exists := rangeData["d"]; exists {
 				if dynSlice, ok := dynData.([]interface{}); ok {
-					t.keyGen.LoadExistingKeys(dynSlice)
+					t.keyGen.loadExistingKeys(dynSlice)
 				}
 			}
 		}
