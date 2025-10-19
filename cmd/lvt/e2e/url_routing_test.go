@@ -81,6 +81,18 @@ func TestPageModeURLRouting(t *testing.T) {
 		t.Fatalf("Failed to run migration: %v", err)
 	}
 
+	// Seed test data directly into database to ensure products exist
+	dbPath := filepath.Join(appDir, "testapp.db")
+	seedCmd := exec.Command("sqlite3", dbPath,
+		"INSERT INTO products (id, name, created_at, updated_at) VALUES ('test-prod-1', 'Test Product 1', datetime('now'), datetime('now')); "+
+			"INSERT INTO products (id, name, created_at, updated_at) VALUES ('test-prod-2', 'Test Product 2', datetime('now'), datetime('now'));")
+	if seedErr := seedCmd.Run(); seedErr != nil {
+		t.Logf("Warning: Failed to seed test data: %v (will rely on UI creation)", seedErr)
+		// Don't fail here - UI creation will be attempted as fallback
+	} else {
+		t.Log("✅ Test data seeded successfully")
+	}
+
 	// Start the app server
 	port, err := e2etest.GetFreePort()
 	if err != nil {
@@ -339,7 +351,7 @@ func TestPageModeURLRouting(t *testing.T) {
 			_ = chromedp.Evaluate(`document.querySelector('table')?.outerHTML || 'NO TABLE'`, &tableHTML).Do(ctx)
 			t.Logf("DEBUG: Table HTML:\n%s", tableHTML)
 
-			t.Skip("No products available (no anchor links found)")
+			t.Fatalf("No products available - seeded data not found (anchor links missing)")
 		}
 
 		// In page mode, clicking anchor link causes full page navigation
@@ -372,13 +384,13 @@ func TestPageModeURLRouting(t *testing.T) {
 			chromedp.Evaluate(`document.querySelector('table tbody tr a')?.getAttribute('href') || null`, &firstResourceHref),
 		)
 		if err != nil || firstResourceHref == "" {
-			t.Skip("No resources available for direct navigation test")
+			t.Fatalf("No resources available for direct navigation test - seeded data not found (err: %v, href: %s)", err, firstResourceHref)
 		}
 
 		// Extract resource ID from href (format: /products/product-xxx)
 		parts := strings.Split(firstResourceHref, "/")
 		if len(parts) < 3 {
-			t.Skip("Invalid resource href format")
+			t.Fatalf("Invalid resource href format: %s (parts: %v)", firstResourceHref, parts)
 		}
 		firstResourceID := parts[len(parts)-1]
 
@@ -417,7 +429,7 @@ func TestPageModeURLRouting(t *testing.T) {
 		}
 
 		if !linkExists {
-			t.Skip("No products available for back button test")
+			t.Fatalf("No products available for back button test - seeded data not found")
 		}
 
 		err = chromedp.Run(ctx,
@@ -455,7 +467,7 @@ func TestPageModeURLRouting(t *testing.T) {
 		}
 
 		if !linkExists {
-			t.Skip("No products available for URL path test")
+			t.Fatalf("No products available for URL path test - seeded data not found")
 		}
 
 		err = chromedp.Run(ctx,

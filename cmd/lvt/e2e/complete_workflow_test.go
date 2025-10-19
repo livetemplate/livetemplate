@@ -268,8 +268,15 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 			chromedp.Navigate(testURL+"/posts"),
 			waitForWebSocketReady(5*time.Second),
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
+		)
+		if err != nil {
+			t.Fatalf("Failed to navigate to posts page: %v", err)
+		}
+		t.Log("✅ Navigated to posts page")
 
-			// Click Edit button
+		// Click Edit button
+		var editButtonClicked bool
+		err = chromedp.Run(ctx,
 			chromedp.Evaluate(`
 				(() => {
 					const table = document.querySelector('table');
@@ -288,20 +295,64 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 					}
 					return false;
 				})()
-			`, nil),
-			chromedp.Sleep(3*time.Second),
+			`, &editButtonClicked),
+		)
+		if err != nil || !editButtonClicked {
+			t.Fatalf("Failed to click edit button: %v (clicked: %v)", err, editButtonClicked)
+		}
+		t.Log("✅ Edit button clicked")
 
-			// Update title
-			chromedp.WaitVisible(`input[name="title"]`, chromedp.ByQuery),
+		// Wait for modal to open and input to be visible with retries
+		maxRetries := 10
+		inputVisible := false
+		for i := 0; i < maxRetries && !inputVisible; i++ {
+			time.Sleep(500 * time.Millisecond)
+			var modalOpen bool
+			_ = chromedp.Evaluate(`
+				(() => {
+					const modal = document.getElementById('edit-modal');
+					const input = document.querySelector('input[name="title"]');
+					return modal && !modal.hasAttribute('hidden') && input !== null;
+				})()
+			`, &modalOpen).Do(ctx)
+
+			if modalOpen {
+				inputVisible = true
+				t.Logf("✅ Modal opened and input visible (attempt %d/%d)", i+1, maxRetries)
+				break
+			}
+			t.Logf("Waiting for modal... (attempt %d/%d)", i+1, maxRetries)
+		}
+
+		if !inputVisible {
+			var debugHTML string
+			_ = chromedp.Evaluate(`document.body.innerHTML`, &debugHTML).Do(ctx)
+			t.Logf("DEBUG: Body HTML (first 2000 chars):\n%s", debugHTML[:min(2000, len(debugHTML))])
+			t.Fatal("Edit modal did not open - input field not visible after retries")
+		}
+
+		// Update title
+		err = chromedp.Run(ctx,
 			chromedp.Clear(`input[name="title"]`),
 			chromedp.SendKeys(`input[name="title"]`, "My Updated Blog Post", chromedp.ByQuery),
+		)
+		if err != nil {
+			t.Fatalf("Failed to update title: %v", err)
+		}
+		t.Log("✅ Title updated in form")
 
-			// Submit
+		// Submit and wait for WebSocket update
+		err = chromedp.Run(ctx,
 			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
-			chromedp.Sleep(3*time.Second),
+		)
+		if err != nil {
+			t.Fatalf("Failed to submit form: %v", err)
+		}
 
-			// Verify updated title appears in table (without reload)
-			chromedp.Evaluate(`
+		// Wait for update to appear in table with retries
+		for i := 0; i < 10; i++ {
+			time.Sleep(500 * time.Millisecond)
+			_ = chromedp.Evaluate(`
 				(() => {
 					const table = document.querySelector('table');
 					if (!table) return false;
@@ -311,14 +362,19 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 						return cells.length > 0 && cells[0].textContent.trim() === 'My Updated Blog Post';
 					});
 				})()
-			`, &updatedPostInTable),
-		)
-		if err != nil {
-			t.Fatalf("Failed to edit post: %v", err)
+			`, &updatedPostInTable).Do(ctx)
+
+			if updatedPostInTable {
+				t.Logf("✅ Updated post found in table (attempt %d/10)", i+1)
+				break
+			}
 		}
 
 		if !updatedPostInTable {
-			t.Fatal("❌ Updated post not found")
+			var tableHTML string
+			_ = chromedp.Evaluate(`document.querySelector('table')?.outerHTML || 'NO TABLE'`, &tableHTML).Do(ctx)
+			t.Logf("DEBUG: Table HTML:\n%s", tableHTML)
+			t.Fatal("❌ Updated post 'My Updated Blog Post' not found in table")
 		}
 
 		t.Log("✅ Post updated successfully")

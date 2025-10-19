@@ -3,7 +3,7 @@
 **Status**: Draft
 **Author**: LiveTemplate Team
 **Created**: 2025-10-19
-**Last Updated**: 2025-10-19 (Review feedback incorporated)
+**Last Updated**: 2025-10-19 (All review feedback incorporated)
 
 ## Table of Contents
 1. [Problem Statement](#problem-statement)
@@ -158,7 +158,7 @@ HTTP uses session cookies, but:
 
 **1. Session Groups**
 
-A session group is the fundamental concept that enables state sharing across connections while maintaining isolation between different users or contexts.
+A session group is the fundamental concept that enables state sharing across connections while maintaining isolation between different users.
 
 **What is a session group?**
 - A collection of WebSocket/HTTP connections that share the same state (Stores)
@@ -208,6 +208,66 @@ With session groups:
 // SessionStore.Set("bob", &ChatState{Messages: []})
 // Bob's data completely isolated from Alice ✅
 ```
+
+**Relationship: userID and groupID**
+
+The Authenticator controls the mapping between users and session groups via two methods:
+- `Identify(r)` → returns `userID` (who you are)
+- `GetSessionGroup(r, userID)` → returns `groupID` (which session group you belong to)
+
+**Default mappings in our implementation:**
+
+| Scenario | userID | groupID | Behavior |
+|----------|--------|---------|----------|
+| Anonymous | `""` | `"cookie-abc123"` | Browser-based grouping |
+| User Alice | `"alice"` | `"alice"` | User-based grouping |
+| User Bob | `"bob"` | `"bob"` | Isolated from Alice |
+
+**Key point:** In the default implementation, `groupID = userID` for authenticated users. This ensures each user has isolated data.
+
+**Why separate userID and groupID?**
+
+The separation provides flexibility:
+- **userID**: Identity (who you are)
+- **groupID**: State isolation boundary (which data you see)
+
+For most apps: `groupID = userID` (simple, 1:1 mapping)
+
+For advanced apps: custom mapping enables collaboration or multi-context sessions
+
+**Advanced scenarios (not in v1, but architecture allows):**
+
+*Scenario 1: Collaborative Workspaces - Multiple users share one session group*
+```go
+// Multiple users share one session group
+func (a *WorkspaceAuthenticator) GetSessionGroup(r *http.Request, userID string) (string, error) {
+    workspaceID := getWorkspaceFromURL(r) // e.g., "workspace-123"
+    return workspaceID, nil
+}
+
+// Result:
+// Alice: userID="alice", groupID="workspace-123"
+// Bob: userID="bob", groupID="workspace-123"
+// Both see same shared state (Google Docs-style collaboration)
+```
+
+*Scenario 2: Multi-Context Sessions - One user has multiple session groups*
+```go
+// Same user, different contexts (e.g., admin panel vs public view)
+func (a *MultiContextAuthenticator) GetSessionGroup(r *http.Request, userID string) (string, error) {
+    context := r.Header.Get("X-Context") // "admin" or "public"
+    return fmt.Sprintf("%s-%s", userID, context), nil
+}
+
+// Result:
+// Admin viewing admin panel: userID="admin", groupID="admin-admin"
+// Admin viewing public site: userID="admin", groupID="admin-public"
+// Isolated state for each context
+```
+
+**Can multiple userIDs share one groupID?**
+
+Yes, in advanced scenarios (collaborative workspaces), but not in the default implementation. The architecture is designed to support this flexibility, though v1 focuses on the simple 1:1 mapping.
 
 **2. Authentication**
 - Authenticator identifies users from requests

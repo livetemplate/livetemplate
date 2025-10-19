@@ -55,7 +55,13 @@ func GetConfigPath() (string, error) {
 }
 
 // GetConfigDir returns the directory containing the config file
+// Uses custom config path if set via SetConfigPath
 func GetConfigDir() (string, error) {
+	// If custom config path is set, return its directory
+	if globalConfigPath != "" {
+		return filepath.Dir(globalConfigPath), nil
+	}
+
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get home directory: %w", err)
@@ -99,15 +105,24 @@ func LoadConfig() (*Config, error) {
 }
 
 // SaveConfig saves the configuration to the config file
+// Uses custom config path if set via SetConfigPath
 func SaveConfig(config *Config) error {
 	// Ensure config directory exists
 	if err := EnsureConfigDir(); err != nil {
 		return err
 	}
 
-	configPath, err := GetConfigPath()
-	if err != nil {
-		return err
+	var configPath string
+	var err error
+
+	// Use custom config path if set, otherwise use default
+	if globalConfigPath != "" {
+		configPath = globalConfigPath
+	} else {
+		configPath, err = GetConfigPath()
+		if err != nil {
+			return err
+		}
 	}
 
 	// Marshal to YAML

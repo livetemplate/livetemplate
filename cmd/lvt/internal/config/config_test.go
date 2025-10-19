@@ -134,17 +134,78 @@ func TestValidate_InvalidKitPath(t *testing.T) {
 }
 
 func TestLoadConfig_NonExistent(t *testing.T) {
-	// This test requires modifying GetConfigPath to support a test mode
-	// or using environment variables. For now, we test that it returns
-	// default config when file doesn't exist (which it does in the real implementation)
-	// Skip this test as it depends on user's home directory
-	t.Skip("Skipping test that depends on user home directory")
+	// Use temp directory for testing
+	tmpDir := t.TempDir()
+	testConfigPath := filepath.Join(tmpDir, "config.yaml")
+
+	// Set custom config path for this test
+	SetConfigPath(testConfigPath)
+	defer SetConfigPath("") // Reset after test
+
+	// Load config - should return default config since file doesn't exist
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	if config == nil {
+		t.Fatal("Expected default config, got nil")
+	}
+
+	if config.Version != "1.0" {
+		t.Errorf("Expected version 1.0, got %s", config.Version)
+	}
+
+	if len(config.KitPaths) != 0 {
+		t.Errorf("Expected empty kit paths, got %d paths", len(config.KitPaths))
+	}
 }
 
 func TestSaveConfig(t *testing.T) {
-	// This test requires a temporary config directory
-	// Skip for now as it depends on user's home directory
-	t.Skip("Skipping test that depends on user home directory")
+	// Use temp directory for testing
+	tmpDir := t.TempDir()
+	testConfigPath := filepath.Join(tmpDir, "config.yaml")
+
+	// Set custom config path for this test
+	SetConfigPath(testConfigPath)
+	defer SetConfigPath("") // Reset after test
+
+	// Create config with test data
+	config := &Config{
+		Version:  "1.0",
+		KitPaths: []string{"/test/path1", "/test/path2"},
+	}
+
+	// Save config
+	err := SaveConfig(config)
+	if err != nil {
+		t.Fatalf("SaveConfig failed: %v", err)
+	}
+
+	// Verify file was created
+	if _, err := os.Stat(testConfigPath); os.IsNotExist(err) {
+		t.Fatal("Config file was not created")
+	}
+
+	// Load config back and verify
+	loadedConfig, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	if loadedConfig.Version != config.Version {
+		t.Errorf("Version mismatch: expected %s, got %s", config.Version, loadedConfig.Version)
+	}
+
+	if len(loadedConfig.KitPaths) != len(config.KitPaths) {
+		t.Errorf("KitPaths length mismatch: expected %d, got %d", len(config.KitPaths), len(loadedConfig.KitPaths))
+	}
+
+	for i, path := range config.KitPaths {
+		if i >= len(loadedConfig.KitPaths) || loadedConfig.KitPaths[i] != path {
+			t.Errorf("KitPath[%d] mismatch: expected %s, got %s", i, path, loadedConfig.KitPaths[i])
+		}
+	}
 }
 
 func TestConfigPaths(t *testing.T) {
