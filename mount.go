@@ -342,18 +342,18 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Get or create session state
 	sessionID := getSessionID(r)
 	isNewSession := false
-	sessionData := h.config.SessionStore.Get(sessionID)
+	stores := h.config.SessionStore.Get(sessionID)
 
-	var state *connState
-	if sessionData == nil {
-		state = &connState{
-			stores: h.cloneStores(),
-			errors: make(map[string]string),
-		}
-		h.config.SessionStore.Set(sessionID, state)
+	if stores == nil {
+		stores = h.cloneStores()
+		h.config.SessionStore.Set(sessionID, stores)
 		isNewSession = true
-	} else {
-		state = sessionData.(*connState)
+	}
+
+	// Create connection state (errors are per-request, not persisted)
+	state := &connState{
+		stores: stores,
+		errors: make(map[string]string),
 	}
 
 	// Set session cookie if this is a new session
@@ -405,8 +405,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save session
-	h.config.SessionStore.Set(sessionID, state)
+	// Note: No need to save session - stores are modified in-place and already in SessionStore
 
 	// Generate tree update
 	var buf bytes.Buffer
