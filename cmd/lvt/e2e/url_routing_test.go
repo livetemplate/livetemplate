@@ -81,12 +81,22 @@ func TestPageModeURLRouting(t *testing.T) {
 		t.Fatalf("Failed to run migration: %v", err)
 	}
 
-	// Seed test data directly into database to ensure products exist
+	// Seed test data using parameterized queries for safety
 	dbPath := filepath.Join(appDir, "testapp.db")
-	seedCmd := exec.Command("sqlite3", dbPath,
-		"INSERT INTO products (id, name, created_at, updated_at) VALUES ('test-prod-1', 'Test Product 1', datetime('now'), datetime('now')); "+
-			"INSERT INTO products (id, name, created_at, updated_at) VALUES ('test-prod-2', 'Test Product 2', datetime('now'), datetime('now'));")
-	if seedErr := seedCmd.Run(); seedErr != nil {
+	seedErr := seedTestData(dbPath, []struct {
+		SQL  string
+		Args []interface{}
+	}{
+		{
+			SQL:  "INSERT INTO products (id, name, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))",
+			Args: []interface{}{"test-prod-1", "Test Product 1"},
+		},
+		{
+			SQL:  "INSERT INTO products (id, name, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))",
+			Args: []interface{}{"test-prod-2", "Test Product 2"},
+		},
+	})
+	if seedErr != nil {
 		t.Logf("Warning: Failed to seed test data: %v (will rely on UI creation)", seedErr)
 		// Don't fail here - UI creation will be attempted as fallback
 	} else {
@@ -157,30 +167,13 @@ func TestPageModeURLRouting(t *testing.T) {
 	testURL := fmt.Sprintf("%s/products", e2etest.GetChromeTestURL(port))
 	t.Logf("Testing URL routing at: %s", testURL)
 
-	// Helper to wait for element to appear
+	// Helper to wait for element to appear using polling
 	waitForElement := func(selector string, timeout time.Duration) chromedp.ActionFunc {
-		return func(ctx context.Context) error {
-			ctx, cancel := context.WithTimeout(ctx, timeout)
-			defer cancel()
-
-			ticker := time.NewTicker(100 * time.Millisecond)
-			defer ticker.Stop()
-
-			for {
-				select {
-				case <-ctx.Done():
-					return fmt.Errorf("timeout waiting for element: %s", selector)
-				case <-ticker.C:
-					var exists bool
-					if err := chromedp.Evaluate(fmt.Sprintf(`document.querySelector('%s') !== null`, selector), &exists).Do(ctx); err != nil {
-						continue
-					}
-					if exists {
-						return nil
-					}
-				}
-			}
-		}
+		return waitForCondition(ctx,
+			fmt.Sprintf(`document.querySelector('%s') !== null`, selector),
+			timeout,
+			quickPollDelay,
+		)
 	}
 
 	// Setup: Create test products first

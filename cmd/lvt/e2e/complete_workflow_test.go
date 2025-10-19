@@ -263,7 +263,6 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 		ctx, timeoutCancel := context.WithTimeout(ctx, 60*time.Second)
 		defer timeoutCancel()
 
-		var updatedPostInTable bool
 		err := chromedp.Run(ctx,
 			chromedp.Navigate(testURL+"/posts"),
 			waitForWebSocketReady(5*time.Second),
@@ -302,34 +301,24 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 		}
 		t.Log("✅ Edit button clicked")
 
-		// Wait for modal to open and input to be visible with retries
-		maxRetries := 10
-		inputVisible := false
-		for i := 0; i < maxRetries && !inputVisible; i++ {
-			time.Sleep(shortDelay)
-			var modalOpen bool
-			_ = chromedp.Evaluate(`
+		// Wait for modal to open and input to be visible using polling helper
+		err = chromedp.Run(ctx,
+			waitForCondition(ctx, `
 				(() => {
 					const modal = document.getElementById('edit-modal');
 					const input = document.querySelector('input[name="title"]');
 					return modal && !modal.hasAttribute('hidden') && input !== null;
 				})()
-			`, &modalOpen).Do(ctx)
+			`, 5*time.Second, shortDelay),
+		)
 
-			if modalOpen {
-				inputVisible = true
-				t.Logf("✅ Modal opened and input visible (attempt %d/%d)", i+1, maxRetries)
-				break
-			}
-			t.Logf("Waiting for modal... (attempt %d/%d)", i+1, maxRetries)
-		}
-
-		if !inputVisible {
+		if err != nil {
 			var debugHTML string
 			_ = chromedp.Evaluate(`document.body.innerHTML`, &debugHTML).Do(ctx)
 			t.Logf("DEBUG: Body HTML (first 2000 chars):\n%s", debugHTML[:min(2000, len(debugHTML))])
-			t.Fatal("Edit modal did not open - input field not visible after retries")
+			t.Fatalf("Edit modal did not open - input field not visible: %v", err)
 		}
+		t.Log("✅ Modal opened and input visible")
 
 		// Update title
 		err = chromedp.Run(ctx,
@@ -349,10 +338,9 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 			t.Fatalf("Failed to submit form: %v", err)
 		}
 
-		// Wait for update to appear in table with retries
-		for i := 0; i < 10; i++ {
-			time.Sleep(shortDelay)
-			_ = chromedp.Evaluate(`
+		// Wait for update to appear in table using polling helper
+		err = chromedp.Run(ctx,
+			waitForCondition(ctx, `
 				(() => {
 					const table = document.querySelector('table');
 					if (!table) return false;
@@ -362,19 +350,14 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 						return cells.length > 0 && cells[0].textContent.trim() === 'My Updated Blog Post';
 					});
 				})()
-			`, &updatedPostInTable).Do(ctx)
+			`, 5*time.Second, shortDelay),
+		)
 
-			if updatedPostInTable {
-				t.Logf("✅ Updated post found in table (attempt %d/10)", i+1)
-				break
-			}
-		}
-
-		if !updatedPostInTable {
+		if err != nil {
 			var tableHTML string
 			_ = chromedp.Evaluate(`document.querySelector('table')?.outerHTML || 'NO TABLE'`, &tableHTML).Do(ctx)
 			t.Logf("DEBUG: Table HTML:\n%s", tableHTML)
-			t.Fatal("❌ Updated post 'My Updated Blog Post' not found in table")
+			t.Fatalf("❌ Updated post 'My Updated Blog Post' not found in table: %v", err)
 		}
 
 		t.Log("✅ Post updated successfully")
