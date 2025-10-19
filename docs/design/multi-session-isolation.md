@@ -3,7 +3,7 @@
 **Status**: Draft
 **Author**: LiveTemplate Team
 **Created**: 2025-10-19
-**Last Updated**: 2025-10-19 (Review cycle complete)
+**Last Updated**: 2025-10-19 (API revised: broadcasting via handler)
 
 ## Table of Contents
 1. [Problem Statement](#problem-statement)
@@ -1152,10 +1152,12 @@ type SessionStore interface {
     List() []string
 }
 
-// Broadcasting methods
-func (h *liveHandler) Broadcast(filter func(userID string) bool) error
-func (h *liveHandler) BroadcastToUsers(userIDs []string) error
-func (h *liveHandler) BroadcastToGroup(groupID string) error
+// Broadcaster interface (implemented by liveHandler)
+type Broadcaster interface {
+    Broadcast(filter func(userID string) bool) error
+    BroadcastToUsers(userIDs ...string) error
+    BroadcastToGroup(groupID string) error
+}
 ```
 
 ---
