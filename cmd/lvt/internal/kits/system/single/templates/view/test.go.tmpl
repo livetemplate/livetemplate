@@ -1,0 +1,115 @@
+package [[.PackageName]]
+
+import (
+	"fmt"
+	"net"
+	"net/http"
+	"os/exec"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/gorilla/websocket"
+)
+
+// getFreePort asks the kernel for a free open port that is ready to use
+func getFreePort() (port int, err error) {
+	var a *net.TCPAddr
+	if a, err = net.ResolveTCPAddr("tcp", "localhost:0"); err == nil {
+		var l *net.TCPListener
+		if l, err = net.ListenTCP("tcp", a); err == nil {
+			defer l.Close()
+			return l.Addr().(*net.TCPAddr).Port, nil
+		}
+	}
+	return
+}
+
+func Test[[.ViewName]]WebSocket(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping WebSocket test in short mode")
+	}
+
+	// Get free port for server
+	serverPort, err := getFreePort()
+	if err != nil {
+		t.Fatalf("Failed to get free port for server: %v", err)
+	}
+
+	// Start server
+	portStr := fmt.Sprintf("%d", serverPort)
+	wsURL := fmt.Sprintf("ws://localhost:%d/[[.ViewNameLower]]", serverPort)
+
+	t.Logf("Starting test server on port %s", portStr)
+	serverCmd := exec.Command("go", "run", "../../cmd/[[.ModuleName]]/main.go")
+	serverCmd.Env = append([]string{"PORT=" + portStr}, serverCmd.Environ()...)
+
+	if err := serverCmd.Start(); err != nil {
+		t.Fatalf("Failed to start server: %v", err)
+	}
+	defer func() {
+		if serverCmd != nil && serverCmd.Process != nil {
+			serverCmd.Process.Kill()
+		}
+	}()
+
+	// Wait for server to be ready
+	httpURL := fmt.Sprintf("http://localhost:%d/[[.ViewNameLower]]", serverPort)
+	for i := 0; i < 30; i++ {
+		resp, err := http.Get(httpURL)
+		if err == nil {
+			resp.Body.Close()
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	t.Log("✅ Test server ready")
+
+	// Test HTTP endpoint
+	t.Run("HTTPEndpoint", func(t *testing.T) {
+		resp, err := http.Get(httpURL)
+		if err != nil {
+			t.Fatalf("Failed to GET [[.ViewNameLower]]: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+		}
+
+		t.Log("✅ HTTP endpoint working")
+	})
+
+	// Connect to WebSocket
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("Failed to connect to WebSocket: %v", err)
+	}
+	defer conn.Close()
+
+	t.Log("✅ WebSocket connected")
+
+	// Test: WebSocket connection and basic message
+	t.Run("WebSocketConnection", func(t *testing.T) {
+		// Set read deadline
+		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+
+		// Try to read initial message or any message
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			// WebSocket might not send initial message - that's OK
+			t.Logf("No initial message (this is OK): %v", err)
+		} else {
+			response := string(msg)
+			t.Logf("Received message: %s", response)
+
+			// Verify it's valid HTML
+			if !strings.Contains(response, "<") {
+				t.Errorf("Response doesn't look like HTML: %s", response)
+			}
+		}
+
+		t.Log("✅ WebSocket connection verified")
+	})
+}

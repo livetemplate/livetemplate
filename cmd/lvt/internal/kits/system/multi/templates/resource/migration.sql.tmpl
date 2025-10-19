@@ -1,0 +1,29 @@
+-- +goose Up
+-- +goose StatementBegin
+CREATE TABLE IF NOT EXISTS [[.TableName]] (
+  id TEXT PRIMARY KEY,
+[[- range .Fields]]
+  [[.Name]] [[.SQLType]] NOT NULL,
+[[- end]]
+  created_at DATETIME NOT NULL[[range .Fields]][[if .IsReference]],
+  FOREIGN KEY ([[.Name]]) REFERENCES [[.ReferencedTable]](id)[[if .OnDelete]] ON DELETE [[.OnDelete]][[end]][[end]][[end]]
+);
+
+[[- range .Fields]]
+[[- if .IsReference]]
+CREATE INDEX IF NOT EXISTS idx_[[$.TableName]]_[[.Name]] ON [[$.TableName]]([[.Name]]);
+[[- end]]
+[[- end]]
+CREATE INDEX IF NOT EXISTS idx_[[.TableName]]_created_at ON [[.TableName]](created_at);
+-- +goose StatementEnd
+
+-- +goose Down
+-- +goose StatementBegin
+[[- range .Fields]]
+[[- if .IsReference]]
+DROP INDEX IF EXISTS idx_[[$.TableName]]_[[.Name]];
+[[- end]]
+[[- end]]
+DROP INDEX IF EXISTS idx_[[.TableName]]_created_at;
+DROP TABLE IF EXISTS [[.TableName]];
+-- +goose StatementEnd

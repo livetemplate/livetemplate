@@ -1,0 +1,167 @@
+package [[.PackageName]]
+
+import (
+	"context"
+	"fmt"
+	"os/exec"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/chromedp/chromedp"
+	e2etest "github.com/livefir/livetemplate/internal/testing"
+)
+
+func Test[[.ResourceName]]E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping E2E test in short mode")
+	}
+
+	// Get free ports for server and Chrome debugging
+	serverPort, err := e2etest.GetFreePort()
+	if err != nil {
+		t.Fatalf("Failed to get free port for server: %v", err)
+	}
+
+	debugPort, err := e2etest.GetFreePort()
+	if err != nil {
+		t.Fatalf("Failed to get free port for Chrome: %v", err)
+	}
+
+	// Start server
+	portStr := fmt.Sprintf("%d", serverPort)
+	serverURL := fmt.Sprintf("http://localhost:%d/[[.ResourceNameLower]]", serverPort)
+
+	t.Logf("Starting test server on port %s", portStr)
+	serverCmd := exec.Command("go", "run", "../../cmd/[[.ModuleName]]/main.go", "../../internal/database/db.go")
+	serverCmd.Env = append([]string{"PORT=" + portStr, "TEST_MODE=1"}, serverCmd.Environ()...)
+
+	if err := serverCmd.Start(); err != nil {
+		t.Fatalf("Failed to start server: %v", err)
+	}
+	defer func() {
+		if serverCmd != nil && serverCmd.Process != nil {
+			serverCmd.Process.Kill()
+		}
+	}()
+
+	// Wait for server to be ready
+	time.Sleep(2 * time.Second)
+
+	t.Logf("✅ Test server ready at %s", serverURL)
+
+	// Start Docker Chrome container
+	chromeCmd := e2etest.StartDockerChrome(t, debugPort)
+	defer e2etest.StopDockerChrome(t, chromeCmd, debugPort)
+
+	// Connect to Docker Chrome via remote debugging
+	chromeURL := fmt.Sprintf("http://localhost:%d", debugPort)
+	allocCtx, allocCancel := chromedp.NewRemoteAllocator(context.Background(), chromeURL)
+	defer allocCancel()
+
+	ctx, cancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(t.Logf))
+	defer cancel()
+
+	// Set timeout for the entire test
+	ctx, cancel = context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	t.Run("Initial Load", func(t *testing.T) {
+		var initialHTML string
+
+		err := chromedp.Run(ctx,
+			chromedp.Navigate(e2etest.GetChromeTestURL(serverPort)+"/[[.ResourceNameLower]]"),
+			e2etest.WaitForWebSocketReady(5*time.Second), // Wait for WebSocket init and first update
+			chromedp.WaitVisible(`h1`, chromedp.ByQuery),
+			e2etest.ValidateNoTemplateExpressions("[data-lvt-id]"), // Validate no raw template expressions
+			chromedp.OuterHTML(`body`, &initialHTML, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to load page: %v", err)
+		}
+
+		// Verify initial state
+		if !strings.Contains(initialHTML, "[[.ResourceName]] Management") {
+			t.Error("Page title not found")
+		}
+
+		t.Log("✅ Initial page load verified")
+	})
+
+	t.Run("Add [[.ResourceName]]", func(t *testing.T) {
+		var html string
+
+		// Fill and submit form
+		err := chromedp.Run(ctx,
+[[- range .Fields]]
+[[- if eq .GoType "string"]]
+			chromedp.WaitVisible(`input[name="[[.Name]]"]`, chromedp.ByQuery),
+			chromedp.SendKeys(`input[name="[[.Name]]"]`, "Test [[.Name | title]]", chromedp.ByQuery),
+[[- else if eq .GoType "int64"]]
+			chromedp.SendKeys(`input[name="[[.Name]]"]`, "42", chromedp.ByQuery),
+[[- else if eq .GoType "bool"]]
+			chromedp.Click(`input[name="[[.Name]]"]`, chromedp.ByQuery),
+[[- else if eq .GoType "float64"]]
+			chromedp.SendKeys(`input[name="[[.Name]]"]`, "3.14", chromedp.ByQuery),
+[[- end]]
+[[- end]]
+			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
+			chromedp.Sleep(1*time.Second), // Wait for WebSocket update
+			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to add [[.ResourceNameLower]]: %v", err)
+		}
+
+		// Verify [[.ResourceNameLower]] was added
+[[- range .Fields]]
+[[- if eq .GoType "string"]]
+		if !strings.Contains(html, "Test [[.Name | title]]") {
+			t.Errorf("[[$.ResourceName]] [[.Name]] not found in HTML. HTML: %s", html)
+		}
+[[- end]]
+[[- end]]
+
+		t.Log("✅ [[.ResourceName]] added successfully")
+	})
+
+	t.Run("Search [[.ResourceName]]s", func(t *testing.T) {
+		var html string
+
+[[- $firstStringField := "" -]]
+[[- range .Fields -]]
+[[- if and (eq .GoType "string") (eq $firstStringField "") -]]
+[[- $firstStringField = .Name -]]
+		// Search for [[.Name]]
+		err := chromedp.Run(ctx,
+			chromedp.WaitVisible(`input[name="query"]`, chromedp.ByQuery),
+			chromedp.Evaluate(`
+				(() => {
+					const input = document.querySelector('input[name="query"]');
+					input.value = 'Test';
+					input.dispatchEvent(new Event('input', { bubbles: true }));
+				})();
+			`, nil),
+			chromedp.Sleep(1*time.Second),
+			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to search: %v", err)
+		}
+
+		if !strings.Contains(html, "Test") {
+			t.Errorf("Search results not found. HTML: %s", html)
+		}
+
+		t.Log("✅ Search functionality works")
+[[- end -]]
+[[- end]]
+	})
+
+	fmt.Println("\n" + strings.Repeat("=", 60))
+	fmt.Println("🎉 All E2E tests passed!")
+	fmt.Println(strings.Repeat("=", 60))
+}

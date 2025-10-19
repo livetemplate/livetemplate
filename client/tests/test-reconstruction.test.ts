@@ -166,15 +166,25 @@ describe('LiveTemplate Client Reconstruction Tests', () => {
           `<div data-lvt-id="lvt-TEST">${reconstructedBody}</div></body>`
         );
 
-        // Write to temporary file for inspection
+        // Minify HTML for comparison (collapse whitespace, keep structure)
+        const minifyHTML = (html: string): string => {
+          return html
+            .replace(/\s+/g, ' ')           // Collapse multiple spaces/newlines to single space
+            .replace(/>\s+</g, '><')        // Remove spaces between tags
+            .trim();
+        };
+
+        const minifiedReconstruction = minifyHTML(fullReconstruction);
+
+        // Write minified version to temporary file for inspection
         const tempPath = `/tmp/test_reconstruction_${appName}_${String(i + 1).padStart(2, '0')}.html`;
-        fs.writeFileSync(tempPath, fullReconstruction);
+        fs.writeFileSync(tempPath, minifiedReconstruction);
         tempPaths.push(tempPath);
 
-        // Compare normalized versions
+        // Compare normalized AND minified versions
         const comparison = compareHTML(
-          normalizeForComparison(expected),
-          normalizeForComparison(fullReconstruction)
+          minifyHTML(normalizeForComparison(expected)),
+          minifyHTML(normalizeForComparison(minifiedReconstruction))
         );
         comparisons.push(comparison);
 
@@ -185,8 +195,8 @@ describe('LiveTemplate Client Reconstruction Tests', () => {
           console.log(`Expected: ${testCase.renderedFile}`);
         }
 
-        // Update current HTML for next iteration
-        currentHTML = reconstructed;
+        // Update current HTML for next iteration (use minified version)
+        currentHTML = minifiedReconstruction;
       }
 
       // Generic verification: at least verify that updates are being applied

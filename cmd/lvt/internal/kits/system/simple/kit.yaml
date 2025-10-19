@@ -1,0 +1,17 @@
+name: simple
+version: 1.0.0
+description: Simple prototype kit with minimal counter and clock example
+author: LiveTemplate Team
+license: MIT
+tags:
+  - prototype
+  - minimal
+  - example
+
+components:
+  - layout.tmpl
+
+templates:
+  resource: false
+  view: false
+  app: true

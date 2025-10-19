@@ -1,0 +1,2 @@
+go test fuzz v1
+string("<div>{{.Title}}</div>{{range .Items}}<span>{{.}}</span>{{end}}<p>{{.Footer}}</p>")

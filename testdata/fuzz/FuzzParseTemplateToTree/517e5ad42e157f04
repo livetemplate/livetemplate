@@ -1,0 +1,2 @@
+go test fuzz v1
+string("0{{range.}}0{{end}}0{{.0}}")

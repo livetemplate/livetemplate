@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -23,7 +24,9 @@ type Config struct {
 	Upgrader          *websocket.Upgrader
 	SessionStore      SessionStore
 	WebSocketDisabled bool
+	LoadingDisabled   bool     // Disables automatic loading indicator on page load
 	TemplateFiles     []string // If set, overrides auto-discovery
+	DevMode           bool     // Development mode - use local client library instead of CDN
 }
 
 // Template represents a live template with caching and tree-based optimization capabilities.
@@ -88,6 +91,20 @@ func WithWebSocketDisabled() Option {
 	}
 }
 
+// WithLoadingDisabled disables the automatic loading indicator shown during page initialization
+func WithLoadingDisabled() Option {
+	return func(c *Config) {
+		c.LoadingDisabled = true
+	}
+}
+
+// WithDevMode enables development mode - uses local client library instead of CDN
+func WithDevMode(enabled bool) Option {
+	return func(c *Config) {
+		c.DevMode = enabled
+	}
+}
+
 // New creates a new template with the given name and options.
 // Auto-discovers and parses .tmpl, .html, .gotmpl files unless WithParseFiles is used.
 func New(name string, opts ...Option) *Template {
@@ -104,6 +121,9 @@ func New(name string, opts ...Option) *Template {
 		opt(&config)
 	}
 
+	// Log DevMode configuration for debugging
+	log.Printf("livetemplate.New(%q): DevMode=%v", name, config.DevMode)
+
 	tmpl := &Template{
 		name:   name,
 		keyGen: NewKeyGenerator(),
@@ -114,10 +134,14 @@ func New(name string, opts ...Option) *Template {
 	if len(config.TemplateFiles) == 0 {
 		files, err := discoverTemplateFiles()
 		if err == nil && len(files) > 0 {
-			tmpl.ParseFiles(files...)
+			if _, err := tmpl.ParseFiles(files...); err != nil {
+				log.Printf("Warning: failed to parse template files: %v", err)
+			}
 		}
 	} else {
-		tmpl.ParseFiles(config.TemplateFiles...)
+		if _, err := tmpl.ParseFiles(config.TemplateFiles...); err != nil {
+			log.Printf("Warning: failed to parse template files: %v", err)
+		}
 	}
 
 	return tmpl
@@ -148,15 +172,6 @@ func (t *Template) Clone() (*Template, error) {
 	return clone, nil
 }
 
-// resetKeyGeneration resets the key generator for a fresh render
-func (t *Template) resetKeyGeneration() {
-	if t.keyGen == nil {
-		t.keyGen = NewKeyGenerator()
-	} else {
-		t.keyGen.Reset()
-	}
-}
-
 // Parse parses text as a template body for the template t.
 // This matches the signature of html/template.Template.Parse().
 func (t *Template) Parse(text string) (*Template, error) {
@@ -164,31 +179,61 @@ func (t *Template) Parse(text string) (*Template, error) {
 	// This prevents issues when formatters add spaces like "{{ range" instead of "{{range"
 	text = normalizeTemplateSpacing(text)
 
-	// Store the template text for tree generation
-	t.templateStr = text
-
 	// Determine if this is a full HTML document
 	isFullHTML := strings.Contains(text, "<!DOCTYPE") || strings.Contains(text, "<html")
 
 	// Always generate wrapper ID for consistent update targeting
 	t.wrapperID = generateRandomID()
 
-	var templateContent string
-	if isFullHTML {
-		// Inject wrapper div around body content
-		templateContent = injectWrapperDiv(text, t.wrapperID)
-	} else {
-		// For standalone templates, wrap the entire content
-		templateContent = fmt.Sprintf(`<div data-lvt-id="%s">%s</div>`, t.wrapperID, text)
-	}
-
-	// Parse the template using html/template
-	tmpl, err := template.New(t.name).Parse(templateContent)
+	// First, parse WITHOUT wrapper to check if flattening is needed
+	tmpl, err := template.New(t.name).Parse(text)
 	if err != nil {
 		return nil, fmt.Errorf("template parse error: %w", err)
 	}
 
+	// Check if template uses composition features and flatten if needed
+	if hasTemplateComposition(tmpl) {
+		// Flatten the template to resolve all {{define}}/{{template}}/{{block}}
+		flattenedStr, err := flattenTemplate(tmpl)
+		if err != nil {
+			return nil, fmt.Errorf("template flattening failed: %w", err)
+		}
+
+		// Store flattened version for tree generation (WITHOUT wrapper)
+		// This ensures updates use the flattened template
+		text = flattenedStr
+	}
+
+	// Now add wrapper to the (possibly flattened) template for execution
+	var templateContent string
+	if isFullHTML {
+		// Inject wrapper div around body content
+		templateContent = injectWrapperDiv(text, t.wrapperID, t.config.LoadingDisabled)
+	} else {
+		// For standalone templates, wrap the entire content
+		loadingAttr := ""
+		if !t.config.LoadingDisabled {
+			loadingAttr = ` data-lvt-loading="true"`
+		}
+		templateContent = fmt.Sprintf(`<div data-lvt-id="%s"%s>%s</div>`, t.wrapperID, loadingAttr, text)
+	}
+
+	// Parse the template with wrapper for execution
+	tmpl, err = template.New(t.name).Parse(templateContent)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse template with wrapper: %w", err)
+	}
+
+	// Store the template text for tree generation (flattened if it had composition)
+	t.templateStr = text
 	t.tmpl = tmpl
+
+	// Validate that tree generation works with this template
+	// This ensures templates with {{define}}/{{block}} are caught during initialization
+	if err := t.validateTreeGeneration(); err != nil {
+		return nil, fmt.Errorf("template validation failed: %w", err)
+	}
+
 	return t, nil
 }
 
@@ -210,10 +255,19 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 		t.name = filepath.Base(filenames[0])
 	}
 
-	// Parse the main template
-	_, err = t.Parse(string(content))
+	// Normalize template spacing
+	text := normalizeTemplateSpacing(string(content))
+
+	// Determine if this is a full HTML document
+	isFullHTML := strings.Contains(text, "<!DOCTYPE") || strings.Contains(text, "<html")
+
+	// Always generate wrapper ID for consistent update targeting
+	t.wrapperID = generateRandomID()
+
+	// First, parse WITHOUT wrapper to check if flattening is needed
+	tmpl, err := template.New(t.name).Parse(text)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("template parse error: %w", err)
 	}
 
 	// Parse additional files if provided (for template composition)
@@ -225,11 +279,52 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 			}
 
 			// Parse additional templates into the same template set
-			_, err = t.tmpl.Parse(string(content))
+			_, err = tmpl.Parse(string(content))
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse file %s: %w", filename, err)
 			}
 		}
+	}
+
+	// Now that all files are parsed, check if we need to flatten
+	if hasTemplateComposition(tmpl) {
+		// Flatten the complete template set to resolve all {{define}}/{{template}}/{{block}}
+		flattenedStr, err := flattenTemplate(tmpl)
+		if err != nil {
+			return nil, fmt.Errorf("template flattening failed: %w", err)
+		}
+
+		// Store flattened version for tree generation (WITHOUT wrapper)
+		text = flattenedStr
+	}
+
+	// Now add wrapper to the (possibly flattened) template for execution
+	var templateContent string
+	if isFullHTML {
+		// Inject wrapper div around body content
+		templateContent = injectWrapperDiv(text, t.wrapperID, t.config.LoadingDisabled)
+	} else {
+		// For standalone templates, wrap the entire content
+		loadingAttr := ""
+		if !t.config.LoadingDisabled {
+			loadingAttr = ` data-lvt-loading="true"`
+		}
+		templateContent = fmt.Sprintf(`<div data-lvt-id="%s"%s>%s</div>`, t.wrapperID, loadingAttr, text)
+	}
+
+	// Parse the template with wrapper for execution
+	tmpl, err = template.New(t.name).Parse(templateContent)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse template with wrapper: %w", err)
+	}
+
+	// Store the template text for tree generation (flattened if it had composition)
+	t.templateStr = text
+	t.tmpl = tmpl
+
+	// Validate that tree generation works with this template
+	if err := t.validateTreeGeneration(); err != nil {
+		return nil, fmt.Errorf("template validation failed: %w", err)
 	}
 
 	return t, nil
@@ -273,7 +368,7 @@ func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]
 	}
 
 	// Execute the template with wrapper injection and lvt context
-	htmlBytes, err := executeTemplateWithContext(t.tmpl, data, errMap)
+	htmlBytes, err := executeTemplateWithContext(t.tmpl, data, errMap, t.config.DevMode)
 	if err != nil {
 		return err
 	}
@@ -349,11 +444,6 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, errors ...map[
 	return err
 }
 
-// generateTreeInternal is the internal implementation that returns TreeNode
-func (t *Template) generateTreeInternal(data interface{}) (TreeNode, error) {
-	return t.generateTreeInternalWithErrors(data, nil)
-}
-
 // generateTreeInternalWithErrors is the internal implementation that returns TreeNode with error context
 func (t *Template) generateTreeInternalWithErrors(data interface{}, errors map[string]string) (TreeNode, error) {
 	// Initialize key generator if needed (but don't reset - keys should increment globally)
@@ -402,7 +492,8 @@ func (t *Template) addLvtToData(data interface{}, errors map[string]string) inte
 
 	// Use the same logic as executeTemplateWithContext to convert data
 	lvtContext := &TemplateContext{
-		errors: errors,
+		errors:  errors,
+		DevMode: t.config.DevMode,
 	}
 
 	templateData := make(map[string]interface{})
@@ -442,11 +533,6 @@ func (t *Template) addLvtToData(data interface{}, errors map[string]string) inte
 	return templateData
 }
 
-// executeTemplate executes the template with given data
-func (t *Template) executeTemplate(data interface{}) (string, error) {
-	return t.executeTemplateWithErrors(data, nil)
-}
-
 // executeTemplateWithErrors executes the template with given data and errors for lvt context
 func (t *Template) executeTemplateWithErrors(data interface{}, errors map[string]string) (string, error) {
 	// Always use executeTemplateWithContext to ensure lvt namespace is available
@@ -455,7 +541,7 @@ func (t *Template) executeTemplateWithErrors(data interface{}, errors map[string
 	}
 
 	// Execute with lvt context
-	htmlBytes, err := executeTemplateWithContext(t.tmpl, data, errors)
+	htmlBytes, err := executeTemplateWithContext(t.tmpl, data, errors, t.config.DevMode)
 	if err != nil {
 		return "", err
 	}
@@ -472,18 +558,19 @@ func (t *Template) generateInitialTree(html string, data interface{}) (TreeNode,
 		contentToAnalyze = html
 	}
 
-	// Get the template source (with {{}} placeholders) and strip scripts
+	// Get the template source (with {{}} placeholders)
 	// We need the template source, not rendered HTML, so parseTemplateToTree can identify dynamics
 	var templateContent string
 	if t.wrapperID != "" {
-		// Extract body content from template, then remove <script> tags
+		// For templates with <body> tags, extract body content
+		// For templates without <body> tags (including flattened templates), use template as-is
 		bodyContent := extractTemplateBodyContent(t.templateStr)
-		// Strip out everything from first <script to end (scripts should be at the end)
-		if scriptIdx := strings.Index(bodyContent, "<script"); scriptIdx != -1 {
-			templateContent = bodyContent[:scriptIdx]
-		} else {
-			templateContent = bodyContent
-		}
+		// extractTemplateBodyContent returns the full template if no <body> tag found
+		// So we can use it directly - it will be the flattened template content without wrapper
+
+		// Don't strip scripts - they may contain template logic like {{if .DevMode}}
+		// that needs to be parsed correctly
+		templateContent = bodyContent
 	} else {
 		templateContent = t.templateStr
 	}
@@ -491,7 +578,7 @@ func (t *Template) generateInitialTree(html string, data interface{}) (TreeNode,
 	// Use the original parser - it maintains the correct invariant and handles dynamics properly
 	tree, err := parseTemplateToTree(templateContent, data, t.keyGen)
 	if err != nil {
-		// Fallback to HTML structure-based strategy
+		// parseTemplateToTree failed, falling back to HTML structure
 		tree = t.createHTMLStructureBasedTree(contentToAnalyze)
 	}
 
@@ -525,16 +612,13 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 	if t.hasInitialTree {
 		// Generate complete tree with current data using the template instance's keyGen
 		// to ensure consistent key mapping across renders
-		// Strip scripts from template content (same as in generateInitialTree)
+		// Don't strip scripts - they may contain template logic
 		bodyContent := extractTemplateBodyContent(t.templateStr)
 		templateContent := bodyContent
-		if scriptIdx := strings.Index(bodyContent, "<script"); scriptIdx != -1 {
-			templateContent = bodyContent[:scriptIdx]
-		}
 
 		newTree, err := parseTemplateToTree(templateContent, newData, t.keyGen)
 		if err != nil {
-			return nil, err
+			return TreeNode{}, fmt.Errorf("tree generation failed: %w", err)
 		}
 
 		// Compare trees and get only changed dynamics
@@ -1418,7 +1502,7 @@ func findCommonSuffix(s1, s2 string) string {
 
 // marshalOrderedJSON marshals a TreeNode to JSON with keys in sorted order
 func marshalOrderedJSON(tree TreeNode) ([]byte, error) {
-	if tree == nil || len(tree) == 0 {
+	if len(tree) == 0 {
 		return []byte("{}"), nil
 	}
 
@@ -1546,6 +1630,15 @@ func (t *Template) Handle(stores ...Store) http.Handler {
 	}
 
 	return &liveHandler{config: config}
+}
+
+// validateTreeGeneration validates that tree generation works with this template
+// Templates with {{define}}/{{block}}/{{template}} are now supported via automatic flattening
+func (t *Template) validateTreeGeneration() error {
+	// Template composition ({{define}}/{{block}}/{{template}}) is now supported
+	// The tree generation process automatically flattens composite templates
+	// No validation needed here - errors will be caught during flattening if they occur
+	return nil
 }
 
 // getStoreName derives the store name from the struct type

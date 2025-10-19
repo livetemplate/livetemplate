@@ -1,0 +1,399 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    {{block "head" .}}
+      <title>{{.Title}}</title>
+      <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    {{end}}
+  </head>
+  <body><div class="max-w-7xl mx-auto px-4 py-8">
+      {{block "content" .}}{{end}}
+    </div>{{block "scripts" .}}
+      <!-- DEBUG: DevMode={{.lvt.DevMode}} -->
+      {{if .lvt.DevMode}}
+      <script src="/livetemplate-client.js"></script>
+      {{else}}
+      <script src="https://unpkg.com/@livefir/livetemplate-client@latest/dist/livetemplate-client.browser.js"></script>
+      {{end}}
+      {{template "pageRouting" .}}
+    {{end}}
+  </body>
+</html>
+{{end}}
+
+{{/* Page mode enhancements - navigate after delete */}}
+{{define "pageRouting"}}
+{{end}}
+
+
+{{/* Add Modal - Modal wrapper for add form */}}
+{{define "addModal"}}
+  <div id="add-modal" hidden aria-hidden="true" role="dialog" data-modal-backdrop data-modal-id="add-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+    <div style="background: white; border-radius: 8px; padding: 2rem; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
+      {{template "addForm" .}}
+    </div>
+  </div>
+{{end}}
+
+{{/* Add form for resource */}}
+{{define "addForm"}}
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+    <h2 class="text-xl font-semibold text-gray-700 mb-4" style="margin: 0;">Add New Post</h2>
+    <button type="button" lvt-modal-close="add-modal" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; padding: 0; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;" aria-label="Close">&times;</button>
+  </div>
+
+  {{if .lvt.HasError "_general"}}
+  <div style="margin-bottom: 1rem; padding: 0.75rem; background-color: #fee; border: 1px solid #fcc; border-radius: 0.25rem; color: #c00;">
+    {{.lvt.Error "_general"}}
+  </div>
+  {{end}}
+
+  <form lvt-submit="add">
+    <div class="mb-4">
+      <label class="block text-sm font-medium text-gray-700 mb-2">Title</label>
+      <input class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" type="text" name="title" placeholder="Enter title" required {{if .lvt.HasError "title"}}aria-invalid="true"{{end}}>
+      {{if .lvt.HasError "title"}}
+      <small style="color: #c00; font-size: 0.875rem;">{{.lvt.Error "title"}}</small>
+      {{end}}
+    </div>
+    <div class="mb-4">
+      <label class="block text-sm font-medium text-gray-700 mb-2">Published</label>
+      <label class="flex items-center">
+        <input type="checkbox" name="published" value="true" {{if .lvt.HasError "published"}}aria-invalid="true"{{end}}>
+        Published
+      </label>
+      {{if .lvt.HasError "published"}}
+      <small style="color: #c00; font-size: 0.875rem;">{{.lvt.Error "published"}}</small>
+      {{end}}
+    </div>
+    <div class="mb-4">
+      <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" style="margin-right: 8px; padding: 0.5rem 1rem; font-size: 1rem; min-width: 100px;" type="submit" lvt-disable-with="Adding...">Add Post</button>
+      <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" style="padding: 0.5rem 1rem; font-size: 1rem; min-width: 100px;" type="button" lvt-modal-close="add-modal">Cancel</button>
+    </div>
+  </form>
+{{end}}
+
+{{/* Edit form for resource */}}
+{{define "editForm"}}
+  {{if ne .EditingID ""}}
+  <h2 class="text-xl font-semibold text-gray-700 mb-4">Edit Post</h2>
+
+  {{if .lvt.HasError "_general"}}
+  <div style="margin-bottom: 1rem; padding: 0.75rem; background-color: #fee; border: 1px solid #fcc; border-radius: 0.25rem; color: #c00;">
+    {{.lvt.Error "_general"}}
+  </div>
+  {{end}}
+
+  <form lvt-submit="update">
+    <input type="hidden" name="id" value="{{.EditingID}}">
+    <div class="mb-4">
+      <label class="block text-sm font-medium text-gray-700 mb-2">Title</label>
+      <input class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" type="text" name="title" placeholder="Enter title" value="{{.EditingPost.Title}}" required {{if .lvt.HasError "title"}}aria-invalid="true"{{end}}>
+      {{if .lvt.HasError "title"}}
+      <small style="color: #c00; font-size: 0.875rem;">{{.lvt.Error "title"}}</small>
+      {{end}}
+    </div>
+    <div class="mb-4">
+      <label class="block text-sm font-medium text-gray-700 mb-2">Published</label>
+      <label class="flex items-center">
+        <input type="checkbox" name="published" value="true" {{if .EditingPost.Published}}checked{{end}} {{if .lvt.HasError "published"}}aria-invalid="true"{{end}}>
+        Published
+      </label>
+      {{if .lvt.HasError "published"}}
+      <small style="color: #c00; font-size: 0.875rem;">{{.lvt.Error "published"}}</small>
+      {{end}}
+    </div>
+    <div class="mb-4" style="display: flex; gap: 8px; margin-top: 1.5rem;">
+      <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" type="submit" lvt-disable-with="Updating...">Save</button>
+      <a href="/post/{{.EditingID}}" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center;">Cancel</a>
+      <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" type="button" lvt-click="delete" lvt-data-id="{{.EditingID}}" lvt-confirm="Are you sure you want to delete this post?" style="margin-left: auto;">Delete</button>
+    </div>
+  </form>
+  {{end}}
+{{end}}
+
+
+{{/* Toolbar component with Add button, Search, and Sort */}}
+{{define "toolbar"}}
+<div class="bg-white shadow rounded-lg p-6 mb-6">
+  <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+    <!-- Search -->
+    <div style="flex: 1; min-width: 200px;">
+      <input class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" type="search" name="query" placeholder="Search post..." value="{{.SearchQuery}}" lvt-change="search" lvt-debounce="300">
+    </div>
+
+    <!-- Sort -->
+    <div style="min-width: 200px;">
+        <select class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" name="sort_by" lvt-change="sort">
+          <option value="" {{if eq .SortBy ""}}selected{{end}}>Newest First</option>
+          <option value="title_asc" {{if eq .SortBy "title_asc"}}selected{{end}}>Title (A-Z)</option>
+          <option value="title_desc" {{if eq .SortBy "title_desc"}}selected{{end}}>Title (Z-A)</option>
+          <option value="oldest_first" {{if eq .SortBy "oldest_first"}}selected{{end}}>Oldest First</option>
+        </select>
+    </div>
+
+    <!-- Add Button -->
+    <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" lvt-modal-open="add-modal">
+      + Add Post
+    </button>
+  </div>
+</div>
+{{end}}
+
+
+{{/* Table wrapper component */}}
+{{define "tableBox"}}
+<div class="bg-white shadow rounded-lg p-6 mb-6">
+  {{block "tableContent" .}}{{end}}
+</div>
+{{end}}
+
+{{/* Resource table with data */}}
+{{define "resourceTable"}}
+  <h2 class="text-xl font-semibold text-gray-700 mb-4">Posts</h2>
+  {{if gt (len .PaginatedPosts) 0}}
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200" style="table-layout: fixed;">
+        <tbody>
+          {{range .PaginatedPosts}}
+            <tr data-key="{{.ID}}">
+              <td style="word-wrap: break-word; overflow-wrap: break-word; width: auto; padding: 12px 8px;">
+                  {{.Title}}
+              </td>
+              <td style="white-space: nowrap; width: 70px; text-align: right; padding: 12px 8px;">
+                <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" lvt-click="edit" lvt-data-id="{{.ID}}">
+                  Edit
+                </button>
+              </td>
+            </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  {{else}}
+    <p>
+      {{if ne .SearchQuery ""}}
+        No post found matching "{{.SearchQuery}}"
+      {{else}}
+        No post yet. Add one above!
+      {{end}}
+    </p>
+  {{end}}
+{{end}}
+
+
+{{/* Pagination - renders based on mode */}}
+{{define "pagination"}}
+    {{template "prevNextPagination" .}}
+{{end}}
+
+{{/* Infinite scroll with sentinel */}}
+{{define "infiniteScroll"}}
+  {{if .HasMore}}
+    {{if .IsLoading}}
+      <div class="text-gray-600 animate-pulse" style="text-align: center; padding: 1rem;">
+        Loading more...
+      </div>
+    {{end}}
+    <div id="scroll-sentinel" style="height: 1px;"></div>
+  {{end}}
+{{end}}
+
+{{/* Load more button */}}
+{{define "loadMoreButton"}}
+  {{if .HasMore}}
+    <div style="text-align: center; margin-top: 1rem;">
+      {{if .IsLoading}}
+        <div class="text-gray-600 animate-pulse">Loading...</div>
+      {{else}}
+        <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" lvt-click="load_more">
+          Load More
+        </button>
+      {{end}}
+      <p style="margin-top: 0.5rem; color: #666; font-size: 0.875rem;">
+        Showing {{len .PaginatedPosts}} of {{.TotalCount}} items
+      </p>
+    </div>
+  {{end}}
+{{end}}
+
+{{/* Previous/Next pagination */}}
+{{define "prevNextPagination"}}
+  {{if gt .TotalPages 1}}
+    <nav class="flex justify-between items-center mt-4" role="navigation" aria-label="pagination">
+      <button class="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" lvt-click="prev_page" {{if eq .CurrentPage 1}}disabled{{end}}>
+        Previous
+      </button>
+      <div class="flex items-center space-x-2">
+        <span class="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+          Page {{.CurrentPage}} of {{.TotalPages}}
+        </span>
+      </div>
+      <button class="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" lvt-click="next_page" {{if eq .CurrentPage .TotalPages}}disabled{{end}}>
+        Next
+      </button>
+    </nav>
+  {{end}}
+{{end}}
+
+{{/* Numbered pagination */}}
+{{define "numberedPagination"}}
+  {{if gt .TotalPages 1}}
+    <nav class="flex justify-between items-center mt-4" role="navigation" aria-label="pagination" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-top: 1rem;">
+      <button class="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" lvt-click="prev_page" {{if eq .CurrentPage 1}}disabled{{end}}>
+        &laquo; Prev
+      </button>
+
+      <div style="display: flex; align-items: center; gap: 0.25rem;">
+        {{if eq .CurrentPage 1}}
+          <span class="bg-blue-600 text-white px-3 py-1 rounded" style="padding: 0.5rem 0.75rem; font-weight: bold;">1</span>
+        {{else}}
+          <button class="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" lvt-click="goto_page" lvt-data-page="1">1</button>
+        {{end}}
+
+        {{if gt .TotalPages 2}}
+          {{if gt .CurrentPage 3}}
+            <span style="padding: 0 0.5rem;">...</span>
+          {{end}}
+
+          {{if and (gt .CurrentPage 1) (lt .CurrentPage .TotalPages)}}
+            {{if gt .CurrentPage 2}}
+              <button class="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" lvt-click="goto_page" lvt-data-page="{{.CurrentPage | printf "%d"}}">{{.CurrentPage}}</button>
+            {{end}}
+          {{end}}
+
+          {{if lt .CurrentPage (printf "%d" (.TotalPages | printf "%d"))}}
+            <span style="padding: 0 0.5rem;">...</span>
+          {{end}}
+        {{end}}
+
+        {{if gt .TotalPages 1}}
+          {{if eq .CurrentPage .TotalPages}}
+            <span class="bg-blue-600 text-white px-3 py-1 rounded" style="padding: 0.5rem 0.75rem; font-weight: bold;">{{.TotalPages}}</span>
+          {{else}}
+            <button class="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" lvt-click="goto_page" lvt-data-page="{{.TotalPages}}">{{.TotalPages}}</button>
+          {{end}}
+        {{end}}
+      </div>
+
+      <button class="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" lvt-click="next_page" {{if eq .CurrentPage .TotalPages}}disabled{{end}}>
+        Next &raquo;
+      </button>
+    </nav>
+  {{end}}
+{{end}}
+
+
+{{/* Search box component */}}
+{{define "searchBox"}}
+<div class="bg-white shadow rounded-lg p-6 mb-6">
+  <div class="mb-4">
+    <label class="block text-sm font-medium text-gray-700 mb-2">Search</label>
+    <input class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" type="search" name="query" placeholder="Search posts..." value="{{.SearchQuery}}" lvt-change="search" lvt-debounce="300">
+  </div>
+</div>
+{{end}}
+
+
+{{/* Statistics display component */}}
+{{define "stats"}}
+<div class="bg-white shadow rounded-lg p-6 mb-6">
+  <p>Total: <strong>{{.TotalCount}}</strong></p>
+</div>
+{{end}}
+
+
+{{/* Sort dropdown component */}}
+{{define "sortBox"}}
+<div class="bg-white shadow rounded-lg p-6 mb-6">
+  <div class="mb-4">
+    <label class="block text-sm font-medium text-gray-700 mb-2">Sort by</label>
+      <select class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" name="sort_by" lvt-change="sort">
+        <option value="" {{if eq .SortBy ""}}selected{{end}}>Newest First</option>
+        <option value="title_asc" {{if eq .SortBy "title_asc"}}selected{{end}}>Title (A-Z)</option>
+        <option value="title_desc" {{if eq .SortBy "title_desc"}}selected{{end}}>Title (Z-A)</option>
+        <option value="oldest_first" {{if eq .SortBy "oldest_first"}}selected{{end}}>Oldest First</option>
+      </select>
+  </div>
+</div>
+{{end}}
+
+
+{{/* Detail page for page mode - view/edit a single resource */}}
+{{define "detailPage"}}
+  {{if .EditingPost}}
+  {{if .IsEditingMode}}
+  <!-- Edit Mode -->
+  <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid #e5e7eb;">
+    <a href="/post/{{.EditingID}}" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" style="margin-right: auto; text-decoration: none;">
+      ← Back
+    </a>
+  </div>
+
+  {{template "editForm" .}}
+  {{else}}
+  <!-- View Mode -->
+  <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid #e5e7eb;">
+    <a href="/post" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" style="margin-right: auto; text-decoration: none;">
+      ← Back
+    </a>
+    <a href="/post/{{.EditingID}}/edit" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" style="text-decoration: none;">
+      Edit
+    </a>
+    <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50" lvt-click="delete" lvt-data-id="{{.EditingID}}" lvt-confirm="Are you sure you want to delete this post?">
+      Delete
+    </button>
+  </div>
+
+  <!-- Detail Content -->
+  <h2 class="text-xl font-semibold text-gray-700 mb-4">Post Details</h2>
+
+  <div style="max-width: 600px;">
+    <div class="mb-4">
+      <label class="block text-sm font-medium text-gray-700 mb-2" style="font-weight: 600;">Title</label>
+      <div style="padding: 0.5rem 0;">
+        {{$.EditingPost.Title}}
+      </div>
+    </div>
+    <div class="mb-4">
+      <label class="block text-sm font-medium text-gray-700 mb-2" style="font-weight: 600;">Published</label>
+      <div style="padding: 0.5rem 0;">
+        {{if $.EditingPost.Published}}✓ Yes{{else}}✗ No{{end}}
+      </div>
+    </div>
+  </div>
+  {{end}}
+  {{end}}
+{{end}}
+
+
+{{define "content"}}
+  <!-- Modal mode: List with modals -->
+  {{template "toolbar" .}}
+  {{template "addModal" .}}
+
+  <!-- Edit Modal -->
+  {{if ne .EditingID ""}}
+  <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+    <div style="background: white; border-radius: 8px; padding: 2rem; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
+      {{template "editForm" .}}
+    </div>
+  </div>
+  {{end}}
+
+  {{template "tableBox" .}}
+{{end}}
+
+{{define "formContent"}}
+  {{template "addForm" .}}
+{{end}}
+
+{{define "tableContent"}}
+  {{template "resourceTable" .}}
+  {{template "pagination" .}}
+{{end}}
+
+{{template "layout" .}}

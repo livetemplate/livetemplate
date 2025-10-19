@@ -1,7 +1,13 @@
 # LiveTemplate - Development Guidelines
 
 ## Project Overview
-LiveTemplate is a high-performance Go library for generating ultra-efficient HTML template updates using tree-based optimization. It provides an API similar to `html/template` but with the additional capability of generating minimal, tree-based updates that can be efficiently transmitted to clients.
+
+LiveTemplate is a high-performance Go library and CLI tool for building reactive web applications. The project consists of two main parts:
+
+1. **Core Library** - Go library for generating ultra-efficient HTML template updates using tree-based optimization
+2. **CLI Tool (lvt)** - Code generator and development server for rapid application development
+
+The core library provides an API similar to `html/template` but with the additional capability of generating minimal, tree-based updates that can be efficiently transmitted to clients.
 
 ## Core Architecture
 
@@ -201,3 +207,88 @@ The repository has a pre-commit hook that:
 - Optimize memory usage for large trees
 - Add metrics and profiling hooks
 - Enhance client-side caching strategies
+
+---
+
+## CLI Tool (lvt)
+
+The `lvt` CLI tool provides code generation and development server capabilities for rapid application development.
+
+### Tool Structure
+
+```
+cmd/lvt/
+├── main.go                     # CLI entry point
+├── commands/                   # CLI commands
+│   ├── new.go                  # Create new apps
+│   ├── gen.go                  # Generate resources
+│   ├── kits.go                 # Kit management
+│   ├── config.go               # Configuration
+│   └── serve.go                # Development server
+├── internal/
+│   ├── generator/              # Code generation
+│   ├── kits/                   # Kit system
+│   │   ├── loader.go           # Kit loading
+│   │   ├── types.go            # Kit types
+│   │   ├── manifest.go         # Manifest parsing
+│   │   └── system/             # System kits
+│   │       ├── tailwind/
+│   │       ├── bulma/
+│   │       ├── pico/
+│   │       └── none/
+│   ├── config/                 # Configuration management
+│   ├── validator/              # Validation
+│   └── serve/                  # Development server
+```
+
+### Kits System
+
+Kits are complete starter packages that include:
+- **CSS Helpers**: ~60 methods for generating CSS classes
+- **Components**: Reusable UI template blocks (form, table, layout, etc.)
+- **Templates**: Generator templates for resources, views, and apps
+
+#### System Kits
+
+Four built-in kits are embedded in the `lvt` binary:
+1. **Tailwind** - Utility-first CSS framework
+2. **Bulma** - Component-based CSS framework
+3. **Pico** - Minimal semantic CSS framework
+4. **None** - Plain HTML with no framework
+
+#### Kit Cascade
+
+Kits are loaded with cascade priority:
+1. Project: `.lvt/kits/<name>/` (highest priority)
+2. User: `~/.config/lvt/kits/<name>/`
+3. System: Embedded in binary (fallback)
+
+### CLI Commands
+
+#### Application Commands
+- `lvt new <name> --css <framework>` - Create new app
+- `lvt gen <resource> [fields...] --css <framework>` - Generate CRUD resource
+
+#### Kit Commands
+- `lvt kits list` - List available kits
+- `lvt kits info <name>` - Show kit information
+- `lvt kits create <name>` - Create new kit
+- `lvt kits customize <name>` - Copy kit for customization
+- `lvt kits validate <path>` - Validate kit structure
+
+#### Development Server
+- `lvt serve` - Start development server with hot reload
+
+### Development Conventions (CLI)
+
+1. **Kit Manifests**: All kits have a `kit.yaml` manifest
+2. **Component Templates**: Use `[[ ]]` delimiters (not `{{ }}`)
+3. **Embedded Resources**: System kits are embedded via `//go:embed`
+4. **Cascade Loading**: Project > User > System priority
+
+### Key Implementation Details (CLI)
+
+- **Kit Loader**: Automatically discovers and loads kits from configured paths
+- **Generator**: Uses templates from kits to generate code
+- **Hot Reload**: WebSocket-based reload for development server
+- **Validation**: Validates kit structure, manifest, and templates before use

@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{.Title}}</title>
+    [[csscdn .CSSFramework]]
+  </head>
+  <body>
+[[- if needsWrapper .CSSFramework]]
+    [[- $class := containerClass .CSSFramework -]]
+    <main[[if ne $class ""]] class="[[$class]]"[[end]]>
+[[- else]]
+    [[- $class := containerClass .CSSFramework -]]
+    <div[[if ne $class ""]] class="[[$class]]"[[end]]>
+[[- end]]
+      <!-- Toolbar -->
+[[- if needsArticle .CSSFramework]]
+      <article>
+[[- else if ne (boxClass .CSSFramework) ""]]
+      <div class="[[boxClass .CSSFramework]]">
+[[- else]]
+      <div>
+[[- end]]
+        <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+          <!-- Search -->
+          <div style="flex: 1; min-width: 200px;">
+            <input[[if ne (inputClass .CSSFramework) ""]] class="[[inputClass .CSSFramework]]"[[end]] type="search" name="query" placeholder="Search [[.ResourceNameLower]]s..." value="{{.SearchQuery}}" lvt-change="search" lvt-debounce="300">
+          </div>
+
+          <!-- Sort -->
+          <div style="min-width: 200px;">
+[[- if ne (selectWrapperClass .CSSFramework) ""]]
+            <div class="[[selectWrapperClass .CSSFramework]]">
+[[- end]]
+              <select[[if ne (selectClass .CSSFramework) ""]] class="[[selectClass .CSSFramework]]"[[end]] name="sort_by" lvt-change="sort">
+                <option value="" {{if eq .SortBy ""}}selected{{end}}>Newest First</option>
+[[- range .Fields]]
+[[- if eq .GoType "string"]]
+                <option value="[[.Name]]_asc" {{if eq .SortBy "[[.Name]]_asc"}}selected{{end}}>[[.Name | title]] (A-Z)</option>
+                <option value="[[.Name]]_desc" {{if eq .SortBy "[[.Name]]_desc"}}selected{{end}}>[[.Name | title]] (Z-A)</option>
+[[- end]]
+[[- end]]
+                <option value="oldest_first" {{if eq .SortBy "oldest_first"}}selected{{end}}>Oldest First</option>
+              </select>
+[[- if ne (selectWrapperClass .CSSFramework) ""]]
+            </div>
+[[- end]]
+          </div>
+
+          <!-- Add Button -->
+          <button[[if ne (buttonClass .CSSFramework "primary") ""]] class="[[buttonClass .CSSFramework "primary"]]"[[end]] lvt-click="open_add">
+            + Add [[.ResourceName]]
+          </button>
+        </div>
+[[- if needsArticle .CSSFramework]]
+      </article>
+[[- else]]
+      </div>
+[[- end]]
+
+      <!-- Add Modal -->
+      {{if .IsAdding}}
+      <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+[[- if needsArticle .CSSFramework]]
+        <article style="max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
+[[- else if ne (boxClass .CSSFramework) ""]]
+        <div class="[[boxClass .CSSFramework]]" style="max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto; background: white;">
+[[- else]]
+        <div style="background: white; border-radius: 8px; padding: 2rem; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
+[[- end]]
+          <h2[[if ne (subtitleClass .CSSFramework) ""]] class="[[subtitleClass .CSSFramework]]"[[end]]>Add New [[.ResourceName]]</h2>
+
+          {{if .lvt.HasError "_general"}}
+          <div style="margin-bottom: 1rem; padding: 0.75rem; background-color: #fee; border: 1px solid #fcc; border-radius: 0.25rem; color: #c00;">
+            {{.lvt.Error "_general"}}
+          </div>
+          {{end}}
+
+          <form lvt-submit="add">
+[[- range .Fields]]
+            <div[[if ne (fieldClass $.CSSFramework) ""]] class="[[fieldClass $.CSSFramework]]"[[end]]>
+              <label[[if ne (labelClass $.CSSFramework) ""]] class="[[labelClass $.CSSFramework]]"[[end]]>[[.Name | title]]</label>
+[[- if eq .GoType "string"]]
+              <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="text" name="[[.Name]]" placeholder="Enter [[.Name]]" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+[[- else if eq .GoType "int64"]]
+              <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="number" name="[[.Name]]" placeholder="Enter [[.Name]]" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+[[- else if eq .GoType "bool"]]
+              <label[[if ne (checkboxClass $.CSSFramework) ""]] class="[[checkboxClass $.CSSFramework]]"[[end]]>
+                <input type="checkbox" name="[[.Name]]" value="true" {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+                [[.Name | title]]
+              </label>
+[[- else if eq .GoType "float64"]]
+              <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="number" step="0.01" name="[[.Name]]" placeholder="Enter [[.Name]]" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+[[- end]]
+              {{if .lvt.HasError "[[.Name]]"}}
+              <small style="color: #c00; font-size: 0.875rem;">{{.lvt.Error "[[.Name]]"}}</small>
+              {{end}}
+            </div>
+[[- end]]
+            <div[[if ne (fieldClass .CSSFramework) ""]] class="[[fieldClass .CSSFramework]]"[[end]]>
+              <button[[if ne (buttonClass .CSSFramework "primary") ""]] class="[[buttonClass .CSSFramework "primary"]]"[[end]] type="submit" lvt-disable-with="Adding...">Add [[.ResourceName]]</button>
+              <button[[if ne (buttonClass .CSSFramework "secondary") ""]] class="[[buttonClass .CSSFramework "secondary"]]"[[end]] type="button" lvt-click="cancel_add">Cancel</button>
+            </div>
+          </form>
+[[- if needsArticle .CSSFramework]]
+        </article>
+[[- else]]
+        </div>
+[[- end]]
+      </div>
+      {{end}}
+
+      <!-- Edit Modal -->
+      {{if ne .EditingID 0}}
+      <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+[[- if needsArticle .CSSFramework]]
+        <article style="max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
+[[- else if ne (boxClass .CSSFramework) ""]]
+        <div class="[[boxClass .CSSFramework]]" style="max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto; background: white;">
+[[- else]]
+        <div style="background: white; border-radius: 8px; padding: 2rem; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto;">
+[[- end]]
+          <h2[[if ne (subtitleClass .CSSFramework) ""]] class="[[subtitleClass .CSSFramework]]"[[end]]>Edit [[.ResourceName]]</h2>
+
+          {{if .lvt.HasError "_general"}}
+          <div style="margin-bottom: 1rem; padding: 0.75rem; background-color: #fee; border: 1px solid #fcc; border-radius: 0.25rem; color: #c00;">
+            {{.lvt.Error "_general"}}
+          </div>
+          {{end}}
+
+          <form lvt-submit="update">
+            <input type="hidden" name="id" value="{{.EditingID}}">
+[[- range .Fields]]
+            <div[[if ne (fieldClass $.CSSFramework) ""]] class="[[fieldClass $.CSSFramework]]"[[end]]>
+              <label[[if ne (labelClass $.CSSFramework) ""]] class="[[labelClass $.CSSFramework]]"[[end]]>[[.Name | title]]</label>
+[[- if eq .GoType "string"]]
+              <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="text" name="[[.Name]]" placeholder="Enter [[.Name]]" value="{{.Editing[[$.ResourceName]].[[.Name | title]]}}" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+[[- else if eq .GoType "int64"]]
+              <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="number" name="[[.Name]]" placeholder="Enter [[.Name]]" value="{{.Editing[[$.ResourceName]].[[.Name | title]]}}" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+[[- else if eq .GoType "bool"]]
+              <label[[if ne (checkboxClass $.CSSFramework) ""]] class="[[checkboxClass $.CSSFramework]]"[[end]]>
+                <input type="checkbox" name="[[.Name]]" value="true" {{if .Editing[[$.ResourceName]].[[.Name | title]]}}checked{{end}} {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+                [[.Name | title]]
+              </label>
+[[- else if eq .GoType "float64"]]
+              <input[[if ne (inputClass $.CSSFramework) ""]] class="[[inputClass $.CSSFramework]]"[[end]] type="number" step="0.01" name="[[.Name]]" placeholder="Enter [[.Name]]" value="{{.Editing[[$.ResourceName]].[[.Name | title]]}}" required {{if .lvt.HasError "[[.Name]]"}}aria-invalid="true"{{end}}>
+[[- end]]
+              {{if .lvt.HasError "[[.Name]]"}}
+              <small style="color: #c00; font-size: 0.875rem;">{{.lvt.Error "[[.Name]]"}}</small>
+              {{end}}
+            </div>
+[[- end]]
+            <div[[if ne (fieldClass .CSSFramework) ""]] class="[[fieldClass .CSSFramework]]"[[end]]>
+              <button[[if ne (buttonClass .CSSFramework "primary") ""]] class="[[buttonClass .CSSFramework "primary"]]"[[end]] type="submit" lvt-disable-with="Updating...">Update [[.ResourceName]]</button>
+              <button[[if ne (buttonClass .CSSFramework "secondary") ""]] class="[[buttonClass .CSSFramework "secondary"]]"[[end]] type="button" lvt-click="cancel_edit">Cancel</button>
+            </div>
+          </form>
+[[- if needsArticle .CSSFramework]]
+        </article>
+[[- else]]
+        </div>
+[[- end]]
+      </div>
+      {{end}}
+
+      <!-- Table -->
+[[- if needsArticle .CSSFramework]]
+      <article>
+[[- else if ne (boxClass .CSSFramework) ""]]
+      <div class="[[boxClass .CSSFramework]]">
+[[- else]]
+      <div>
+[[- end]]
+        <h2[[if ne (subtitleClass .CSSFramework) ""]] class="[[subtitleClass .CSSFramework]]"[[end]]>[[.ResourceNamePlural]]</h2>
+        {{if gt (len .Paginated[[.ResourceNamePlural]]) 0}}
+[[- if needsTableWrapper .CSSFramework]]
+          <div class="[[tableWrapperClass .CSSFramework]]">
+[[- end]]
+            <table[[if ne (tableClass .CSSFramework) ""]] class="[[tableClass .CSSFramework]]"[[end]] style="table-layout: fixed;">
+              <thead>
+                <tr>
+[[- $displayField := displayField .Fields]]
+                  <th style="width: auto;">[[- $displayField.Name | title]]</th>
+                  <th style="width: 140px;">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{range .Paginated[[.ResourceNamePlural]]}}
+                  <tr data-key="{{.ID}}">
+                    <td style="word-wrap: break-word; overflow-wrap: break-word;">
+[[- if eq $displayField.GoType "bool"]]
+                      {{if .[[$displayField.Name | title]]}}✓{{else}}✗{{end}}
+[[- else if eq $displayField.GoType "time.Time"]]
+                      {{.[[$displayField.Name | title]].Format "2006-01-02 15:04"}}
+[[- else]]
+                      {{.[[$displayField.Name | title]]}}
+[[- end]]
+                    </td>
+                    <td style="white-space: nowrap;">
+                      <button[[if ne (buttonClass $.CSSFramework "secondary") ""]] class="[[buttonClass $.CSSFramework "secondary"]]"[[end]] lvt-click="edit" lvt-data-id="{{.ID}}">
+                        Edit
+                      </button>
+                      <button[[if ne (buttonClass $.CSSFramework "danger") ""]] class="[[buttonClass $.CSSFramework "danger"]]"[[end]] lvt-click="delete" lvt-data-id="{{.ID}}">
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                {{end}}
+              </tbody>
+            </table>
+[[- if needsTableWrapper .CSSFramework]]
+          </div>
+[[- end]]
+        {{else}}
+          <p>
+            {{if ne .SearchQuery ""}}
+              No [[.ResourceNameLower]]s found matching "{{.SearchQuery}}"
+            {{else}}
+              No [[.ResourceNameLower]]s yet. Add one above!
+            {{end}}
+          </p>
+        {{end}}
+
+        <!-- Pagination -->
+[[- if eq .PaginationMode "infinite"]]
+        {{if .HasMore}}
+          {{if .IsLoading}}
+            <div[[if ne (loadingClass .CSSFramework) ""]] class="[[loadingClass .CSSFramework]]"[[end]] style="text-align: center; padding: 1rem;">
+              Loading more...
+            </div>
+          {{end}}
+          <div id="scroll-sentinel" style="height: 1px;"></div>
+        {{end}}
+[[- else if eq .PaginationMode "load-more"]]
+        {{if .HasMore}}
+          <div style="text-align: center; margin-top: 1rem;">
+            {{if .IsLoading}}
+              <div[[if ne (loadingClass .CSSFramework) ""]] class="[[loadingClass .CSSFramework]]"[[end]]>Loading...</div>
+            {{else}}
+              <button[[if ne (buttonClass .CSSFramework "primary") ""]] class="[[buttonClass .CSSFramework "primary"]]"[[end]] lvt-click="load_more">
+                Load More
+              </button>
+            {{end}}
+            <p style="margin-top: 0.5rem; color: #666; font-size: 0.875rem;">
+              Showing {{len .Paginated[[.ResourceNamePlural]]}} of {{.TotalCount}} items
+            </p>
+          </div>
+        {{end}}
+[[- else if eq .PaginationMode "numbers"]]
+        {{if gt .TotalPages 1}}
+          <nav[[if ne (paginationClass .CSSFramework) ""]] class="[[paginationClass .CSSFramework]]"[[end]] role="navigation" aria-label="pagination" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-top: 1rem;">
+            <button[[if ne (paginationButtonClass .CSSFramework) ""]] class="[[paginationButtonClass .CSSFramework]]"[[end]] lvt-click="prev_page" {{if eq .CurrentPage 1}}disabled{{end}}>
+              &laquo; Prev
+            </button>
+
+            <div style="display: flex; align-items: center; gap: 0.25rem;">
+              {{if eq .CurrentPage 1}}
+                <span[[if ne (paginationActiveClass .CSSFramework) ""]] class="[[paginationActiveClass .CSSFramework]]"[[end]] style="padding: 0.5rem 0.75rem; font-weight: bold;">1</span>
+              {{else}}
+                <button[[if ne (paginationButtonClass .CSSFramework) ""]] class="[[paginationButtonClass .CSSFramework]]"[[end]] lvt-click="goto_page" lvt-data-page="1">1</button>
+              {{end}}
+
+              {{if gt .TotalPages 2}}
+                {{if gt .CurrentPage 3}}
+                  <span style="padding: 0 0.5rem;">...</span>
+                {{end}}
+
+                {{if and (gt .CurrentPage 1) (lt .CurrentPage .TotalPages)}}
+                  {{if gt .CurrentPage 2}}
+                    <button[[if ne (paginationButtonClass .CSSFramework) ""]] class="[[paginationButtonClass .CSSFramework]]"[[end]] lvt-click="goto_page" lvt-data-page="{{.CurrentPage}}">{{.CurrentPage}}</button>
+                  {{end}}
+                {{end}}
+
+                {{if lt .CurrentPage .TotalPages}}
+                  <span style="padding: 0 0.5rem;">...</span>
+                {{end}}
+              {{end}}
+
+              {{if gt .TotalPages 1}}
+                {{if eq .CurrentPage .TotalPages}}
+                  <span[[if ne (paginationActiveClass .CSSFramework) ""]] class="[[paginationActiveClass .CSSFramework]]"[[end]] style="padding: 0.5rem 0.75rem; font-weight: bold;">{{.TotalPages}}</span>
+                {{else}}
+                  <button[[if ne (paginationButtonClass .CSSFramework) ""]] class="[[paginationButtonClass .CSSFramework]]"[[end]] lvt-click="goto_page" lvt-data-page="{{.TotalPages}}">{{.TotalPages}}</button>
+                {{end}}
+              {{end}}
+            </div>
+
+            <button[[if ne (paginationButtonClass .CSSFramework) ""]] class="[[paginationButtonClass .CSSFramework]]"[[end]] lvt-click="next_page" {{if eq .CurrentPage .TotalPages}}disabled{{end}}>
+              Next &raquo;
+            </button>
+          </nav>
+        {{end}}
+[[- else]]
+        {{if gt .TotalPages 1}}
+          <nav[[if ne (paginationClass .CSSFramework) ""]] class="[[paginationClass .CSSFramework]]"[[end]] role="navigation" aria-label="pagination">
+            <button[[if ne (paginationButtonClass .CSSFramework) ""]] class="[[paginationButtonClass .CSSFramework]]"[[end]] lvt-click="prev_page" {{if eq .CurrentPage 1}}disabled{{end}}>
+              Previous
+            </button>
+[[- if ne (paginationInfoClass .CSSFramework) ""]]
+            <div class="[[paginationInfoClass .CSSFramework]]">
+              <span class="[[paginationCurrentClass .CSSFramework]]">
+[[- else]]
+            <div>
+              <span>
+[[- end]]
+                Page {{.CurrentPage}} of {{.TotalPages}}
+              </span>
+            </div>
+            <button[[if ne (paginationButtonClass .CSSFramework) ""]] class="[[paginationButtonClass .CSSFramework]]"[[end]] lvt-click="next_page" {{if eq .CurrentPage .TotalPages}}disabled{{end}}>
+              Next
+            </button>
+          </nav>
+        {{end}}
+[[- end]]
+[[- if needsArticle .CSSFramework]]
+      </article>
+[[- else]]
+      </div>
+[[- end]]
+[[- if needsWrapper .CSSFramework]]
+    </main>
+[[- else]]
+    </div>
+[[- end]]
+
+    <!-- DEBUG: DevMode={{.lvt.DevMode}} -->
+    {{if .lvt.DevMode}}
+    <script src="/livetemplate-client.js"></script>
+    {{else}}
+    <script src="https://unpkg.com/@livefir/livetemplate-client@latest/dist/livetemplate-client.browser.js"></script>
+    {{end}}
+
+    [[- if eq .PaginationMode "infinite"]]
+    <script>
+      (function() {
+        // Wait for DOM to be ready
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', setupInfiniteScroll);
+        } else {
+          setupInfiniteScroll();
+        }
+
+        function setupInfiniteScroll() {
+          const sentinel = document.getElementById('scroll-sentinel');
+          if (!sentinel) return;
+
+          const observer = new IntersectionObserver(function(entries) {
+            if (entries[0].isIntersecting) {
+              // Trigger load_more action via LiveTemplate
+              if (window.livetemplate && window.livetemplate.send) {
+                window.livetemplate.send({ action: 'load_more' });
+              }
+            }
+          }, { rootMargin: '200px' }); // Start loading 200px before reaching end
+
+          observer.observe(sentinel);
+        }
+      })();
+    </script>
+    [[- end]]
+  </body>
+</html>

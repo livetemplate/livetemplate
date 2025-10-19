@@ -1,0 +1,83 @@
+package serve
+
+import (
+	"html/template"
+
+	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
+)
+
+// createTemplateFuncs converts CSSHelpers interface into template.FuncMap
+// This mirrors the approach used in the generator package
+func createTemplateFuncs(helpers kits.CSSHelpers) template.FuncMap {
+	funcs := template.FuncMap{
+		"csscdn":                func() string { return helpers.CSSCDN() },
+		"containerClass":        func() string { return helpers.ContainerClass() },
+		"sectionClass":          func() string { return helpers.SectionClass() },
+		"boxClass":              func() string { return helpers.BoxClass() },
+		"columnClass":           func() string { return helpers.ColumnClass() },
+		"columnsClass":          func() string { return helpers.ColumnsClass() },
+		"fieldClass":            func() string { return helpers.FieldClass() },
+		"labelClass":            func() string { return helpers.LabelClass() },
+		"inputClass":            func() string { return helpers.InputClass() },
+		"textareaClass":         func() string { return helpers.TextareaClass() },
+		"selectClass":           func() string { return helpers.SelectClass() },
+		"checkboxClass":         func() string { return helpers.CheckboxClass() },
+		"radioClass":            func() string { return helpers.RadioClass() },
+		"buttonClass":           func(variant string) string { return helpers.ButtonClass(variant) },
+		"buttonGroupClass":      func() string { return helpers.ButtonGroupClass() },
+		"formClass":             func() string { return helpers.FormClass() },
+		"tableClass":            func() string { return helpers.TableClass() },
+		"theadClass":            func() string { return helpers.TheadClass() },
+		"tbodyClass":            func() string { return helpers.TbodyClass() },
+		"thClass":               func() string { return helpers.ThClass() },
+		"tdClass":               func() string { return helpers.TdClass() },
+		"trClass":               func() string { return helpers.TrClass() },
+		"tableContainerClass":   func() string { return helpers.TableContainerClass() },
+		"navbarClass":           func() string { return helpers.NavbarClass() },
+		"navbarBrandClass":      func() string { return helpers.NavbarBrandClass() },
+		"navbarMenuClass":       func() string { return helpers.NavbarMenuClass() },
+		"navbarItemClass":       func() string { return helpers.NavbarItemClass() },
+		"navbarStartClass":      func() string { return helpers.NavbarStartClass() },
+		"navbarEndClass":        func() string { return helpers.NavbarEndClass() },
+		"titleClass":            func(level int) string { return helpers.TitleClass(level) },
+		"subtitleClass":         func() string { return helpers.SubtitleClass() },
+		"textClass":             func(size string) string { return helpers.TextClass(size) },
+		"textMutedClass":        func() string { return helpers.TextMutedClass() },
+		"textPrimaryClass":      func() string { return helpers.TextPrimaryClass() },
+		"textDangerClass":       func() string { return helpers.TextDangerClass() },
+		"textSuccessClass":      func() string { return helpers.TextSuccessClass() },
+		"textWarningClass":      func() string { return helpers.TextWarningClass() },
+		"paginationClass":       func() string { return helpers.PaginationClass() },
+		"paginationButtonClass": func(state string) string { return helpers.PaginationButtonClass(state) },
+		"paginationListClass":   func() string { return helpers.PaginationListClass() },
+		"paginationItemClass":   func() string { return helpers.PaginationItemClass() },
+		"cardClass":             func() string { return helpers.CardClass() },
+		"cardHeaderClass":       func() string { return helpers.CardHeaderClass() },
+		"cardBodyClass":         func() string { return helpers.CardBodyClass() },
+		"cardFooterClass":       func() string { return helpers.CardFooterClass() },
+		"modalClass":            func() string { return helpers.ModalClass() },
+		"modalBackgroundClass":  func() string { return helpers.ModalBackgroundClass() },
+		"modalContentClass":     func() string { return helpers.ModalContentClass() },
+		"modalCloseClass":       func() string { return helpers.ModalCloseClass() },
+		"alertClass":            func(variant string) string { return helpers.AlertClass(variant) },
+		"notificationClass":     func(variant string) string { return helpers.NotificationClass(variant) },
+		"badgeClass":            func(variant string) string { return helpers.BadgeClass(variant) },
+		"tagClass":              func(variant string) string { return helpers.TagClass(variant) },
+		"spinnerClass":          func() string { return helpers.SpinnerClass() },
+		"loadingClass":          func() string { return helpers.LoadingClass() },
+		"gridClass":             func() string { return helpers.GridClass() },
+		"gridItemClass":         func() string { return helpers.GridItemClass() },
+		"flexClass":             func() string { return helpers.FlexClass() },
+		"flexItemClass":         func() string { return helpers.FlexItemClass() },
+		"marginClass":           func(size string) string { return helpers.MarginClass(size) },
+		"paddingClass":          func(size string) string { return helpers.PaddingClass(size) },
+		"hiddenClass":           func() string { return helpers.HiddenClass() },
+		"visibleClass":          func() string { return helpers.VisibleClass() },
+		"needsWrapper":          func() bool { return helpers.NeedsWrapper() },
+		"needsArticle":          func() bool { return helpers.NeedsArticle() },
+		"dict":                  helpers.Dict,
+		"until":                 helpers.Until,
+		"add":                   helpers.Add,
+	}
+	return funcs
+}

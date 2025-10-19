@@ -1,0 +1,416 @@
+package user
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"math"
+	"net/http"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/go-playground/validator/v10"
+	"github.com/livefir/livetemplate"
+	"testmodule/internal/database/models"
+)
+
+var validate = validator.New()
+
+type UserItem = models.User
+
+type AddInput struct {
+	Name string `json:"name" validate:"required,min=3"`
+	Age int64 `json:"age" validate:"required"`
+}
+
+type UpdateInput struct {
+	ID string `json:"id" validate:"required"`
+	Name string `json:"name" validate:"required,min=3"`
+	Age int64 `json:"age" validate:"required"`
+}
+
+type DeleteInput struct {
+	ID string `json:"id" validate:"required"`
+}
+
+type SearchInput struct {
+	Query string `json:"query"`
+}
+
+type SortInput struct {
+	SortBy string `json:"sort_by"`
+}
+
+type PaginationInput struct {
+	Page int `json:"page" validate:"required,min=1"`
+}
+
+type UserState struct {
+	Title        string                `json:"title"`
+	Queries      *models.Queries       `json:"-"`
+	SearchQuery  string                `json:"search_query"`
+	SortBy       string                `json:"sort_by"`
+	FilteredUsers  []UserItem `json:"filtered_users"`
+	CurrentPage  int                   `json:"current_page"`
+	PageSize     int                   `json:"page_size"`
+	TotalPages   int                   `json:"total_pages"`
+	PaginatedUsers []UserItem `json:"paginated_users"`
+	TotalCount   int                   `json:"total_count"`
+	LastUpdated  string                `json:"last_updated"`
+	EditingID    string                `json:"editing_id"`
+	EditingUser *UserItem   `json:"editing_user"`
+	IsEditingMode bool                 `json:"is_editing_mode"` // For page mode: true when at /resource/:id/edit
+	PaginationMode string              `json:"pagination_mode"` // "infinite", "load-more", "prev-next", "numbers"
+	LoadedCount    int                 `json:"loaded_count"`    // For infinite/load-more modes
+	HasMore        bool                `json:"has_more"`        // Whether more items available
+	IsLoading      bool                `json:"is_loading"`      // Loading indicator
+	CSSFramework   string              `json:"-"`               // CSS framework for templates
+}
+
+func (s *UserState) Change(ctx *livetemplate.ActionContext) error {
+	dbCtx := context.Background()
+
+	switch ctx.Action {
+	case "add":
+		var input AddInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+
+		now := time.Now()
+		id := fmt.Sprintf("user-%d", now.UnixNano())
+
+		_, err := s.Queries.CreateUser(dbCtx, models.CreateUserParams{
+			ID:        id,
+			Name: input.Name,
+			Age: input.Age,
+			CreatedAt: now,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create user: %w", err)
+		}
+
+		if err := s.loadUsers(dbCtx); err != nil {
+			return err
+		}
+
+	case "edit":
+		var input DeleteInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+
+		// Find the item to edit
+		users, err := s.Queries.GetAllUsers(dbCtx)
+		if err != nil {
+			return fmt.Errorf("failed to load users: %w", err)
+		}
+
+		for _, item := range users {
+			if item.ID == input.ID {
+				s.EditingID = input.ID
+				itemCopy := item
+				s.EditingUser = &itemCopy
+				break
+			}
+		}
+
+	case "update":
+		var input UpdateInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+
+		err := s.Queries.UpdateUser(dbCtx, models.UpdateUserParams{
+			ID: input.ID,
+			Name: input.Name,
+			Age: input.Age,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to update user: %w", err)
+		}
+
+		// For page mode: Exit edit mode and stay on detail view
+		s.IsEditingMode = false
+
+		// Reload the updated resource
+		if err := s.loadUsers(dbCtx); err != nil {
+			return err
+		}
+
+		// Re-fetch the updated resource for display
+		users, err := s.Queries.GetAllUsers(dbCtx)
+		if err == nil {
+			for _, item := range users {
+				if item.ID == input.ID {
+					itemCopy := item
+					s.EditingUser = &itemCopy
+					break
+				}
+			}
+		}
+
+	case "cancel_edit":
+		s.EditingID = ""
+		s.EditingUser = nil
+
+	case "view":
+		var input DeleteInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+
+		// Find the item to view/edit
+		users, err := s.Queries.GetAllUsers(dbCtx)
+		if err != nil {
+			return fmt.Errorf("failed to load users: %w", err)
+		}
+
+		for _, item := range users {
+			if item.ID == input.ID {
+				s.EditingID = input.ID
+				itemCopy := item
+				s.EditingUser = &itemCopy
+				break
+			}
+		}
+
+	case "back":
+		// Return to list view
+		s.EditingID = ""
+		s.EditingUser = nil
+
+	case "delete":
+		var input DeleteInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+
+		err := s.Queries.DeleteUser(dbCtx, input.ID)
+		if err != nil {
+			return fmt.Errorf("failed to delete user: %w", err)
+		}
+
+		// Clear editing state (for page mode)
+		s.EditingID = ""
+		s.EditingUser = nil
+
+		if err := s.loadUsers(dbCtx); err != nil {
+			return err
+		}
+
+	case "search":
+		var input SearchInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+		s.SearchQuery = input.Query
+		// Reset infinite scroll when searching
+		if s.PaginationMode == "infinite" || s.PaginationMode == "load-more" {
+			s.LoadedCount = s.PageSize
+		}
+
+		if err := s.loadUsers(dbCtx); err != nil {
+			return err
+		}
+
+	case "sort":
+		var input SortInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+		s.SortBy = input.SortBy
+		// Reset infinite scroll when sorting
+		if s.PaginationMode == "infinite" || s.PaginationMode == "load-more" {
+			s.LoadedCount = s.PageSize
+		}
+
+		if err := s.loadUsers(dbCtx); err != nil {
+			return err
+		}
+
+	case "next_page":
+		if s.CurrentPage < s.TotalPages {
+			s.CurrentPage++
+		}
+		if err := s.loadUsers(dbCtx); err != nil {
+			return err
+		}
+
+	case "prev_page":
+		if s.CurrentPage > 1 {
+			s.CurrentPage--
+		}
+		if err := s.loadUsers(dbCtx); err != nil {
+			return err
+		}
+
+	case "goto_page":
+		var input PaginationInput
+		if err := ctx.BindAndValidate(&input, validate); err != nil {
+			return err
+		}
+		if input.Page >= 1 && input.Page <= s.TotalPages {
+			s.CurrentPage = input.Page
+		}
+		if err := s.loadUsers(dbCtx); err != nil {
+			return err
+		}
+
+	case "load_more":
+		if s.PaginationMode == "infinite" || s.PaginationMode == "load-more" {
+			if s.HasMore && !s.IsLoading {
+				s.IsLoading = true
+				s.LoadedCount += s.PageSize
+				if err := s.loadUsers(dbCtx); err != nil {
+					return err
+				}
+				s.IsLoading = false
+			}
+		}
+
+	default:
+		log.Printf("Unknown action: %s", ctx.Action)
+		return nil
+	}
+
+	s.LastUpdated = formatTime()
+	return nil
+}
+
+func (s *UserState) Init() error {
+	return s.loadUsers(context.Background())
+}
+
+func (s *UserState) loadUsers(ctx context.Context) error {
+	users, err := s.Queries.GetAllUsers(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to load users: %w", err)
+	}
+
+	if s.SearchQuery == "" {
+		s.FilteredUsers = users
+	} else {
+		s.FilteredUsers = []UserItem{}
+		query := strings.ToLower(s.SearchQuery)
+		for _, item := range users {
+			// Search across all text fields
+			if strings.Contains(strings.ToLower(item.Name), query) {
+				s.FilteredUsers = append(s.FilteredUsers, item)
+				continue
+			}
+		}
+	}
+
+	s.TotalCount = len(users)
+	s.applySorting()
+	s.applyPagination()
+
+	return nil
+}
+
+func (s *UserState) applySorting() {
+	switch s.SortBy {
+	case "name_asc":
+		sort.Slice(s.FilteredUsers, func(i, j int) bool {
+			return strings.ToLower(s.FilteredUsers[i].Name) < strings.ToLower(s.FilteredUsers[j].Name)
+		})
+	case "name_desc":
+		sort.Slice(s.FilteredUsers, func(i, j int) bool {
+			return strings.ToLower(s.FilteredUsers[i].Name) > strings.ToLower(s.FilteredUsers[j].Name)
+		})
+	case "oldest_first":
+		sort.Slice(s.FilteredUsers, func(i, j int) bool {
+			return s.FilteredUsers[i].CreatedAt.Before(s.FilteredUsers[j].CreatedAt)
+		})
+	default:
+		sort.Slice(s.FilteredUsers, func(i, j int) bool {
+			return s.FilteredUsers[i].CreatedAt.After(s.FilteredUsers[j].CreatedAt)
+		})
+	}
+}
+
+func (s *UserState) applyPagination() {
+	if s.PaginationMode == "infinite" || s.PaginationMode == "load-more" {
+		s.applyInfiniteScroll()
+	} else {
+		s.applyPagedNavigation()
+	}
+}
+
+func (s *UserState) applyInfiniteScroll() {
+	// Initialize LoadedCount if not set
+	if s.LoadedCount == 0 {
+		s.LoadedCount = s.PageSize
+	}
+
+	if len(s.FilteredUsers) == 0 {
+		s.PaginatedUsers = []UserItem{}
+		s.HasMore = false
+		return
+	}
+
+	// Load items from 0 to LoadedCount
+	end := s.LoadedCount
+	if end > len(s.FilteredUsers) {
+		end = len(s.FilteredUsers)
+	}
+
+	s.PaginatedUsers = s.FilteredUsers[0:end]
+	s.HasMore = end < len(s.FilteredUsers)
+}
+
+func (s *UserState) applyPagedNavigation() {
+	if len(s.FilteredUsers) == 0 {
+		s.TotalPages = 1
+		s.CurrentPage = 1
+		s.PaginatedUsers = []UserItem{}
+		return
+	}
+
+	s.TotalPages = int(math.Ceil(float64(len(s.FilteredUsers)) / float64(s.PageSize)))
+
+	if s.CurrentPage < 1 {
+		s.CurrentPage = 1
+	}
+	if s.CurrentPage > s.TotalPages {
+		s.CurrentPage = s.TotalPages
+	}
+
+	start := (s.CurrentPage - 1) * s.PageSize
+	end := start + s.PageSize
+	if end > len(s.FilteredUsers) {
+		end = len(s.FilteredUsers)
+	}
+
+	s.PaginatedUsers = s.FilteredUsers[start:end]
+}
+
+func formatTime() string {
+	return time.Now().Format("2006-01-02 15:04:05")
+}
+
+// Handler creates an http.Handler for this resource
+func Handler(queries *models.Queries) http.Handler {
+	state := &UserState{
+		Title:          "User Management",
+		Queries:        queries,
+		CurrentPage:    1,
+		PageSize:       20,
+		PaginationMode: "infinite",
+		LoadedCount:    20,
+		LastUpdated:    formatTime(),
+		CSSFramework:   "tailwind",
+	}
+
+	if err := state.Init(); err != nil {
+		log.Printf("Failed to initialize user state: %v", err)
+	}
+
+	tmpl := livetemplate.New("user", livetemplate.WithDevMode(false))
+	if _, err := tmpl.ParseFiles("internal/app/user/user.tmpl"); err != nil {
+		log.Fatalf("Failed to parse template: %v", err)
+	}
+	return livetemplate.Mount(tmpl, state)
+}

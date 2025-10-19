@@ -9,7 +9,8 @@ import (
 
 // TemplateContext provides utility functions for templates via the lvt namespace
 type TemplateContext struct {
-	errors map[string]string
+	errors  map[string]string
+	DevMode bool // Development mode - use local client library instead of CDN
 }
 
 // Error returns the error message for a field
@@ -43,10 +44,11 @@ func (t *TemplateContext) AllErrors() map[string]string {
 }
 
 // executeTemplateWithContext adds lvt context to template execution by augmenting the data
-func executeTemplateWithContext(tmpl *template.Template, data interface{}, errors map[string]string) ([]byte, error) {
+func executeTemplateWithContext(tmpl *template.Template, data interface{}, errors map[string]string, devMode bool) ([]byte, error) {
 	// Create context object
 	lvtContext := &TemplateContext{
-		errors: errors,
+		errors:  errors,
+		DevMode: devMode,
 	}
 
 	// Create a map that includes both the original data fields and lvt

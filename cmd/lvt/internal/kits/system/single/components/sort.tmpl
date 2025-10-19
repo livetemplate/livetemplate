@@ -1,0 +1,34 @@
+{{/* Sort dropdown component */}}
+{{define "sortBox"}}
+[[- if needsArticle .CSSFramework]]
+<article>
+[[- else if ne (boxClass .CSSFramework) ""]]
+<div class="[[boxClass .CSSFramework]]">
+[[- else]]
+<div>
+[[- end]]
+  <div[[if ne (fieldClass .CSSFramework) ""]] class="[[fieldClass .CSSFramework]]"[[end]]>
+    <label[[if ne (labelClass .CSSFramework) ""]] class="[[labelClass .CSSFramework]]"[[end]]>Sort by</label>
+[[- if ne (selectWrapperClass .CSSFramework) ""]]
+    <div class="[[selectWrapperClass .CSSFramework]]">
+[[- end]]
+      <select[[if ne (selectClass .CSSFramework) ""]] class="[[selectClass .CSSFramework]]"[[end]] name="sort_by" lvt-change="sort">
+        <option value="" {{if eq .SortBy ""}}selected{{end}}>Newest First</option>
+[[- range .Fields]]
+[[- if eq .GoType "string"]]
+        <option value="[[.Name]]_asc" {{if eq .SortBy "[[.Name]]_asc"}}selected{{end}}>[[.Name | title]] (A-Z)</option>
+        <option value="[[.Name]]_desc" {{if eq .SortBy "[[.Name]]_desc"}}selected{{end}}>[[.Name | title]] (Z-A)</option>
+[[- end]]
+[[- end]]
+        <option value="oldest_first" {{if eq .SortBy "oldest_first"}}selected{{end}}>Oldest First</option>
+      </select>
+[[- if ne (selectWrapperClass .CSSFramework) ""]]
+    </div>
+[[- end]]
+  </div>
+[[- if needsArticle .CSSFramework]]
+</article>
+[[- else]]
+</div>
+[[- end]]
+{{end}}

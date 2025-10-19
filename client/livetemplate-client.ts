@@ -7,6 +7,23 @@
 
 import morphdom from 'morphdom';
 
+// Focusable input types (from Phoenix LiveView)
+const FOCUSABLE_INPUTS = [
+  "text",
+  "textarea",
+  "number",
+  "email",
+  "password",
+  "search",
+  "tel",
+  "url",
+  "date",
+  "time",
+  "datetime-local",
+  "color",
+  "range"
+];
+
 export interface TreeNode {
   [key: string]: any;
   s?: string[];  // Static HTML segments (sent once, cached client-side)
@@ -60,13 +77,326 @@ export class LiveTemplateClient {
   // Rate limiting: cache of debounced/throttled handlers per element+eventType
   private rateLimitedHandlers: WeakMap<Element, Map<string, Function>> = new WeakMap();
 
+  // Initialization tracking for loading indicator
+  private isInitialized: boolean = false;
+  private loadingBar: HTMLElement | null = null;
+
+  // Focus preservation
+  private focusableElements: HTMLElement[] = [];
+  private lastFocusedElement: HTMLElement | null = null; // Track last focused element continuously
+  private lastFocusedSelectionStart: number | null = null;
+  private lastFocusedSelectionEnd: number | null = null;
+
+  // Infinite scroll
+  private infiniteScrollObserver: IntersectionObserver | null = null;
+  private mutationObserver: MutationObserver | null = null;
+
   constructor(options: LiveTemplateClientOptions = {}) {
     this.options = {
       autoReconnect: false, // Disable autoReconnect by default to avoid connection loops
       reconnectDelay: 1000,
-      liveUrl: '/',
+      liveUrl: window.location.pathname, // Connect to current page
       ...options
     };
+  }
+
+  /**
+   * Create a loading bar indicator at the top of the page
+   * Shows an animated progress bar while waiting for WebSocket initialization
+   */
+  private createLoadingBar(): void {
+    if (this.loadingBar) return; // Already created
+
+    const bar = document.createElement('div');
+    bar.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #3b82f6 0%, #60a5fa 50%, #3b82f6 100%);
+      background-size: 200% 100%;
+      z-index: 9999;
+      animation: lvt-loading-shimmer 1.5s ease-in-out infinite;
+    `;
+
+    // Add keyframes animation if not already added
+    if (!document.getElementById('lvt-loading-styles')) {
+      const style = document.createElement('style');
+      style.id = 'lvt-loading-styles';
+      style.textContent = `
+        @keyframes lvt-loading-shimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    document.body.insertBefore(bar, document.body.firstChild);
+    this.loadingBar = bar;
+  }
+
+  /**
+   * Remove the loading bar indicator
+   */
+  private removeLoadingBar(): void {
+    if (this.loadingBar && this.loadingBar.parentNode) {
+      this.loadingBar.parentNode.removeChild(this.loadingBar);
+      this.loadingBar = null;
+    }
+  }
+
+  /**
+   * Disable all forms within the wrapper element
+   */
+  private disableForms(): void {
+    if (!this.wrapperElement) return;
+
+    const forms = this.wrapperElement.querySelectorAll('form');
+    forms.forEach(form => {
+      const inputs = form.querySelectorAll('input, textarea, select, button');
+      inputs.forEach(input => {
+        (input as HTMLInputElement).disabled = true;
+      });
+    });
+  }
+
+  /**
+   * Enable all forms within the wrapper element
+   */
+  private enableForms(): void {
+    if (!this.wrapperElement) return;
+
+    const forms = this.wrapperElement.querySelectorAll('form');
+    forms.forEach(form => {
+      const inputs = form.querySelectorAll('input, textarea, select, button');
+      inputs.forEach(input => {
+        (input as HTMLInputElement).disabled = false;
+      });
+    });
+  }
+
+  /**
+   * Update the list of focusable elements in the wrapper
+   */
+  private updateFocusableElements(): void {
+    if (!this.wrapperElement) return;
+
+    // Build selector for all focusable input types
+    const inputSelectors = FOCUSABLE_INPUTS.map(type =>
+      type === 'textarea'
+        ? 'textarea:not([disabled])'
+        : `input[type="${type}"]:not([disabled])`
+    ).join(', ');
+
+    const otherFocusable = 'select:not([disabled]), button:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
+    const selector = `${inputSelectors}, ${otherFocusable}`;
+
+    this.focusableElements = Array.from(this.wrapperElement.querySelectorAll(selector));
+  }
+
+  /**
+   * Set up focus tracking to remember the last focused element
+   * This is called once during initialization
+   */
+  private setupFocusTracking(): void {
+    if (!this.wrapperElement) return;
+
+    const wrapperId = this.wrapperElement.getAttribute('data-lvt-id');
+
+    // Set up focus listener to track focused elements
+    const focusListener = (e: Event) => {
+      const target = e.target as HTMLElement;
+      if (!target || !this.wrapperElement?.contains(target)) return;
+
+      // Only track focusable inputs, not buttons
+      if (this.isTextualInput(target) || target instanceof HTMLSelectElement) {
+        this.lastFocusedElement = target;
+        console.log('[Focus Debug] Tracked focus on:', target.tagName, target.id || target.getAttribute('name'));
+
+        // Save cursor position if it's a textual input
+        if (this.isTextualInput(target)) {
+          this.lastFocusedSelectionStart = target.selectionStart;
+          this.lastFocusedSelectionEnd = target.selectionEnd;
+        }
+      }
+    };
+
+    // Set up blur listener to save cursor position when input loses focus
+    const blurListener = (e: Event) => {
+      const target = e.target as HTMLElement;
+      if (!target || !this.wrapperElement?.contains(target)) return;
+
+      // Save cursor position on blur for textual inputs
+      if (this.isTextualInput(target) && target === this.lastFocusedElement) {
+        this.lastFocusedSelectionStart = target.selectionStart;
+        this.lastFocusedSelectionEnd = target.selectionEnd;
+        console.log('[Focus Debug] Saved cursor on blur:', this.lastFocusedSelectionStart, '-', this.lastFocusedSelectionEnd);
+      }
+    };
+
+    // Remove existing listeners if any
+    const focusKey = `__lvt_focus_tracker_${wrapperId}`;
+    const blurKey = `__lvt_blur_tracker_${wrapperId}`;
+
+    if ((document as any)[focusKey]) {
+      document.removeEventListener('focus', (document as any)[focusKey], true);
+    }
+    if ((document as any)[blurKey]) {
+      document.removeEventListener('blur', (document as any)[blurKey], true);
+    }
+
+    // Add new listeners (use capture phase to catch focus events)
+    (document as any)[focusKey] = focusListener;
+    (document as any)[blurKey] = blurListener;
+    document.addEventListener('focus', focusListener, true);
+    document.addEventListener('blur', blurListener, true);
+
+    console.log('[Focus Debug] Focus tracking set up');
+  }
+
+  /**
+   * Check if an element is a textual input that supports selection range
+   */
+  private isTextualInput(el: Element): el is HTMLInputElement | HTMLTextAreaElement {
+    if (el instanceof HTMLTextAreaElement) return true;
+    if (el instanceof HTMLInputElement) {
+      return FOCUSABLE_INPUTS.indexOf(el.type) >= 0;
+    }
+    return false;
+  }
+
+  /**
+   * Get a unique selector for an element
+   * Priority: id > name > data-key > index in focusable array
+   */
+  private getElementSelector(el: HTMLElement): string | null {
+    if (el.id) return `#${el.id}`;
+    if ((el as any).name) return `[name="${(el as any).name}"]`;
+    if (el.getAttribute('data-key')) return `[data-key="${el.getAttribute('data-key')}]`;
+
+    const index = this.focusableElements.indexOf(el);
+    return index >= 0 ? `data-focus-index-${index}` : null;
+  }
+
+  /**
+   * Set up infinite scroll observer
+   * Watches for a sentinel element with id="scroll-sentinel" and triggers load_more action
+   * when it comes into view
+   */
+  private setupInfiniteScrollObserver(): void {
+    if (!this.wrapperElement) return;
+
+    const sentinel = document.getElementById('scroll-sentinel');
+    if (!sentinel) {
+      // Sentinel not found, will retry on next DOM update via MutationObserver
+      return;
+    }
+
+    // Disconnect old observer if it exists
+    if (this.infiniteScrollObserver) {
+      this.infiniteScrollObserver.disconnect();
+    }
+
+    // Create new IntersectionObserver
+    this.infiniteScrollObserver = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        // Sentinel is visible, trigger load_more action
+        console.log('[InfiniteScroll] Sentinel visible, sending load_more action');
+        this.send({ action: 'load_more' });
+      }
+    }, {
+      rootMargin: '200px' // Trigger 200px before sentinel becomes visible
+    });
+
+    this.infiniteScrollObserver.observe(sentinel);
+    console.log('[InfiniteScroll] Observer set up successfully');
+  }
+
+  /**
+   * Set up mutation observer to re-establish infinite scroll after DOM updates
+   * This is necessary because the sentinel div gets replaced during updates
+   */
+  private setupInfiniteScrollMutationObserver(): void {
+    if (!this.wrapperElement) return;
+
+    // Disconnect old observer if it exists
+    if (this.mutationObserver) {
+      this.mutationObserver.disconnect();
+    }
+
+    // Create mutation observer to watch for DOM changes
+    this.mutationObserver = new MutationObserver(() => {
+      // Re-setup infinite scroll observer after DOM changes
+      this.setupInfiniteScrollObserver();
+    });
+
+    // Start observing the wrapper element for child list changes
+    this.mutationObserver.observe(this.wrapperElement, {
+      childList: true,
+      subtree: true
+    });
+
+    console.log('[InfiniteScroll] MutationObserver set up successfully');
+  }
+
+  /**
+   * Restore focus and cursor position to the last focused element after DOM update
+   */
+  private restoreFocusedElement(): void {
+    console.log('[Focus Debug] restoreFocusedElement - lastFocusedElement:', this.lastFocusedElement?.tagName, this.lastFocusedElement?.id || this.lastFocusedElement?.getAttribute('name'));
+
+    if (!this.lastFocusedElement || !this.wrapperElement) {
+      console.log('[Focus Debug] No element to restore');
+      return;
+    }
+
+    // Get the selector for the last focused element
+    const selector = this.getElementSelector(this.lastFocusedElement);
+    console.log('[Focus Debug] Selector for last focused:', selector);
+
+    if (!selector) {
+      console.log('[Focus Debug] Could not generate selector');
+      return;
+    }
+
+    // Find the element in the updated DOM
+    let element: HTMLElement | null = null;
+
+    if (selector.startsWith('data-focus-index-')) {
+      // Index-based lookup (fallback)
+      this.updateFocusableElements();
+      const index = parseInt(selector.replace('data-focus-index-', ''));
+      element = this.focusableElements[index] || null;
+      console.log('[Focus Debug] Found by index:', index, element?.tagName);
+    } else {
+      // Selector-based lookup (preferred)
+      element = this.wrapperElement.querySelector(selector);
+      console.log('[Focus Debug] Found by selector:', selector, element?.tagName);
+    }
+
+    if (!element) {
+      console.log('[Focus Debug] Element not found in updated DOM');
+      return;
+    }
+
+    // Restore focus
+    const wasFocused = element.matches(':focus');
+    console.log('[Focus Debug] Already focused:', wasFocused);
+
+    if (!wasFocused) {
+      element.focus();
+      console.log('[Focus Debug] Restored focus');
+    }
+
+    // Restore cursor position for textual inputs
+    if (this.isTextualInput(element) &&
+        this.lastFocusedSelectionStart !== null &&
+        this.lastFocusedSelectionEnd !== null) {
+      element.setSelectionRange(this.lastFocusedSelectionStart, this.lastFocusedSelectionEnd);
+      console.log('[Focus Debug] Restored cursor:', this.lastFocusedSelectionStart, '-', this.lastFocusedSelectionEnd);
+    }
   }
 
   /**
@@ -80,6 +410,13 @@ export class LiveTemplateClient {
         const client = new LiveTemplateClient();
         client.wrapperElement = wrapper;
 
+        // Check if loading indicator should be shown
+        const shouldShowLoading = wrapper.getAttribute('data-lvt-loading') === 'true';
+        if (shouldShowLoading) {
+          client.createLoadingBar();
+          client.disableForms();
+        }
+
         // Try WebSocket first (most efficient)
         client.connectWebSocket();
 
@@ -87,6 +424,17 @@ export class LiveTemplateClient {
         client.setupEventDelegation();
         client.setupWindowEventDelegation();
         client.setupClickAwayDelegation();
+        client.setupModalDelegation();
+
+        // Initialize focusable elements tracking
+        client.updateFocusableElements();
+
+        // Set up focus tracking to preserve focus during updates
+        client.setupFocusTracking();
+
+        // Set up infinite scroll observer
+        client.setupInfiniteScrollObserver();
+        client.setupInfiniteScrollMutationObserver();
 
         // Expose as global for programmatic access
         (window as any).liveTemplateClient = client;
@@ -107,7 +455,7 @@ export class LiveTemplateClient {
    */
   private async checkWebSocketAvailability(): Promise<boolean> {
     try {
-      const liveUrl = this.options.liveUrl || '/live';
+      const liveUrl = this.options.liveUrl || window.location.pathname;
 
       // Try HEAD request first (most efficient)
       const response = await fetch(liveUrl, {
@@ -135,7 +483,7 @@ export class LiveTemplateClient {
    */
   private async fetchInitialState(): Promise<void> {
     try {
-      const liveUrl = this.options.liveUrl || '/live';
+      const liveUrl = this.options.liveUrl || window.location.pathname;
       const response = await fetch(liveUrl, {
         method: 'GET',
         credentials: 'include', // Include cookies for session
@@ -181,6 +529,17 @@ export class LiveTemplateClient {
     this.ws.onmessage = (event) => {
       try {
         const response: UpdateResponse = JSON.parse(event.data);
+
+        // On first message, remove loading indicator and enable forms
+        if (!this.isInitialized) {
+          this.removeLoadingBar();
+          this.enableForms();
+          // Remove data-lvt-loading attribute from wrapper
+          if (this.wrapperElement && this.wrapperElement.hasAttribute('data-lvt-loading')) {
+            this.wrapperElement.removeAttribute('data-lvt-loading');
+          }
+          this.isInitialized = true;
+        }
 
         if (this.wrapperElement) {
           this.updateDOM(this.wrapperElement, response.tree, response.meta);
@@ -282,6 +641,12 @@ export class LiveTemplateClient {
 
       // Create delegated listener on document
       const listener = (e: Event) => {
+        // Set debug flag for testing
+        if (eventType === 'submit') {
+          (window as any).__lvtSubmitListenerTriggered = true;
+          (window as any).__lvtSubmitEventTarget = (e.target as Element)?.tagName;
+        }
+        console.log('[LiveTemplate DEBUG] Event listener triggered:', eventType, e.target);
         const target = e.target as Element;
         if (!target) return;
 
@@ -298,6 +663,10 @@ export class LiveTemplateClient {
           element = element.parentElement;
         }
 
+        if (eventType === 'submit') {
+          (window as any).__lvtInWrapper = inWrapper;
+          (window as any).__lvtWrapperElement = this.wrapperElement?.getAttribute('data-lvt-id');
+        }
 
         if (!inWrapper) return;
 
@@ -319,6 +688,12 @@ export class LiveTemplateClient {
           }
 
           if (action && actionElement) {
+            // Set debug flag for testing
+            if (eventType === 'submit') {
+              (window as any).__lvtActionFound = action;
+              (window as any).__lvtActionElement = actionElement.tagName;
+            }
+
             // Prevent default for submit events
             if (eventType === 'submit') {
               e.preventDefault();
@@ -340,15 +715,46 @@ export class LiveTemplateClient {
 
             // Define the action handler
             const handleAction = () => {
+              console.log('[LiveTemplate DEBUG] handleAction called', { action, eventType, targetElement });
+
+              // Check if this is a delete action and needs confirmation
+              if (action === 'delete' && targetElement.hasAttribute('lvt-confirm')) {
+                const confirmMessage = targetElement.getAttribute('lvt-confirm') || 'Are you sure you want to delete this item?';
+                if (!confirm(confirmMessage)) {
+                  console.log('[LiveTemplate DEBUG] Delete action cancelled by user');
+                  return; // User cancelled, don't proceed
+                }
+              }
+
               // Build message with action and data map
               const message: any = { action, data: {} };
 
               // 1. Form data (for submit events or form-level change events)
               if (targetElement instanceof HTMLFormElement) {
+                console.log('[LiveTemplate DEBUG] Processing form element');
                 const formData = new FormData(targetElement);
-                formData.forEach((value, key) => {
-                  message.data[key] = this.parseValue(value as string);
+
+                // First, collect all checkbox names to handle unchecked checkboxes
+                const checkboxes = Array.from(targetElement.querySelectorAll('input[type="checkbox"][name]')) as HTMLInputElement[];
+                const checkboxNames = new Set(checkboxes.map(cb => cb.name));
+
+                // Initialize all checkboxes to false (they won't appear in FormData if unchecked)
+                checkboxNames.forEach(name => {
+                  message.data[name] = false;
                 });
+
+                // Now process FormData, converting checkbox "on" to boolean true
+                formData.forEach((value, key) => {
+                  if (checkboxNames.has(key)) {
+                    // Checkbox field - convert "on" to boolean true
+                    message.data[key] = true;
+                    console.log('[LiveTemplate DEBUG] Converted checkbox', key, 'to true');
+                  } else {
+                    // Regular field - parse value
+                    message.data[key] = this.parseValue(value as string);
+                  }
+                });
+                console.log('[LiveTemplate DEBUG] Form data collected:', message.data);
               }
               // 2. Input/Select/Textarea value (for change/input events)
               else if (eventType === 'change' || eventType === 'input') {
@@ -386,6 +792,7 @@ export class LiveTemplateClient {
               // Track form lifecycle for submit events
               if (eventType === 'submit' && targetElement instanceof HTMLFormElement) {
                 this.activeForm = targetElement;
+                console.log('[LiveTemplate DEBUG] Tracking submit form lifecycle');
 
                 // Find submit button if it exists and has lvt-disable-with
                 const submitEvent = e as SubmitEvent;
@@ -395,14 +802,19 @@ export class LiveTemplateClient {
                   this.originalButtonText = submitButton.textContent;
                   submitButton.disabled = true;
                   submitButton.textContent = submitButton.getAttribute('lvt-disable-with');
+                  console.log('[LiveTemplate DEBUG] Disabled submit button');
                 }
 
                 // Emit lvt:pending event
                 targetElement.dispatchEvent(new CustomEvent('lvt:pending', { detail: message }));
+                console.log('[LiveTemplate DEBUG] Emitted lvt:pending event');
               }
 
               // Send message to server
+              console.log('[LiveTemplate DEBUG] About to send message:', message);
+              console.log('[LiveTemplate DEBUG] WebSocket state:', this.ws?.readyState);
               this.send(message);
+              console.log('[LiveTemplate DEBUG] send() called');
             };
 
             // Apply rate limiting if specified
@@ -439,7 +851,13 @@ export class LiveTemplateClient {
               }
             } else {
               // No rate limiting, call directly
+              if (eventType === 'submit') {
+                (window as any).__lvtBeforeHandleAction = true;
+              }
               handleAction();
+              if (eventType === 'submit') {
+                (window as any).__lvtAfterHandleAction = true;
+              }
             }
 
             return;
@@ -451,6 +869,7 @@ export class LiveTemplateClient {
       // Store and add listener on document with bubble phase
       (document as any)[listenerKey] = listener;
       document.addEventListener(eventType, listener, false);
+      console.log('[LiveTemplate DEBUG] Registered event listener for:', eventType, 'with key:', listenerKey);
     });
   }
 
@@ -607,6 +1026,159 @@ export class LiveTemplateClient {
   }
 
   /**
+   * Set up modal handling for lvt-modal-open and lvt-modal-close attributes
+   * Allows client-side modal toggling without server roundtrip
+   */
+  private setupModalDelegation(): void {
+    if (!this.wrapperElement) return;
+
+    const wrapperId = this.wrapperElement.getAttribute('data-lvt-id');
+
+    // Handle modal open buttons
+    const openListenerKey = `__lvt_modal_open_${wrapperId}`;
+    const existingOpenListener = (document as any)[openListenerKey];
+    if (existingOpenListener) {
+      document.removeEventListener('click', existingOpenListener);
+    }
+
+    const openListener = (e: Event) => {
+      const target = (e.target as Element)?.closest('[lvt-modal-open]');
+      if (!target || !this.wrapperElement?.contains(target)) return;
+
+      const modalId = target.getAttribute('lvt-modal-open');
+      if (!modalId) return;
+
+      e.preventDefault();
+      this.openModal(modalId);
+    };
+
+    (document as any)[openListenerKey] = openListener;
+    document.addEventListener('click', openListener);
+
+    // Handle modal close buttons
+    const closeListenerKey = `__lvt_modal_close_${wrapperId}`;
+    const existingCloseListener = (document as any)[closeListenerKey];
+    if (existingCloseListener) {
+      document.removeEventListener('click', existingCloseListener);
+    }
+
+    const closeListener = (e: Event) => {
+      const target = (e.target as Element)?.closest('[lvt-modal-close]');
+
+      if (!target || !this.wrapperElement?.contains(target)) {
+        return;
+      }
+
+      const modalId = target.getAttribute('lvt-modal-close');
+      if (!modalId) return;
+
+      e.preventDefault();
+      this.closeModal(modalId);
+    };
+
+    (document as any)[closeListenerKey] = closeListener;
+    document.addEventListener('click', closeListener);
+
+    // Handle backdrop clicks (close on click outside)
+    const backdropListenerKey = `__lvt_modal_backdrop_${wrapperId}`;
+    const existingBackdropListener = (document as any)[backdropListenerKey];
+    if (existingBackdropListener) {
+      document.removeEventListener('click', existingBackdropListener);
+    }
+
+    const backdropListener = (e: Event) => {
+      const target = e.target as Element;
+      if (!target.hasAttribute('data-modal-backdrop')) return;
+
+      const modalId = target.getAttribute('data-modal-id');
+      if (modalId) {
+        this.closeModal(modalId);
+      }
+    };
+
+    (document as any)[backdropListenerKey] = backdropListener;
+    document.addEventListener('click', backdropListener);
+
+    // Handle Escape key to close modals
+    const escapeListenerKey = `__lvt_modal_escape_${wrapperId}`;
+    const existingEscapeListener = (document as any)[escapeListenerKey];
+    if (existingEscapeListener) {
+      document.removeEventListener('keydown', existingEscapeListener);
+    }
+
+    const escapeListener = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (!this.wrapperElement) return;
+
+      // Find any open modal (one without hidden attribute)
+      const openModals = this.wrapperElement.querySelectorAll('[role="dialog"]:not([hidden])');
+      if (openModals.length > 0) {
+        // Close the last opened modal (topmost)
+        const lastModal = openModals[openModals.length - 1];
+        if (lastModal.id) {
+          this.closeModal(lastModal.id);
+        }
+      }
+    };
+
+    (document as any)[escapeListenerKey] = escapeListener;
+    document.addEventListener('keydown', escapeListener);
+  }
+
+  /**
+   * Open a modal by ID
+   */
+  private openModal(modalId: string): void {
+    const modal = document.getElementById(modalId);
+    if (!modal) {
+      console.warn(`Modal with id="${modalId}" not found`);
+      return;
+    }
+
+    // Remove hidden attribute and explicitly set display to flex
+    // This ensures the modal is centered (closeModal sets display: none)
+    modal.removeAttribute('hidden');
+    modal.style.display = 'flex';
+
+    // Add aria attributes for accessibility
+    modal.setAttribute('aria-hidden', 'false');
+
+    // Emit custom event
+    modal.dispatchEvent(new CustomEvent('lvt:modal-opened', { bubbles: true }));
+
+    console.log(`[Modal] Opened modal: ${modalId}`);
+
+    // Focus first input in modal
+    const firstInput = modal.querySelector('input, textarea, select') as HTMLElement;
+    if (firstInput) {
+      setTimeout(() => firstInput.focus(), 100);
+    }
+  }
+
+  /**
+   * Close a modal by ID
+   */
+  private closeModal(modalId: string): void {
+    const modal = document.getElementById(modalId);
+    if (!modal) {
+      console.warn(`Modal with id="${modalId}" not found`);
+      return;
+    }
+
+    // Add hidden attribute and set display to none (inline flex style overrides hidden attribute)
+    modal.setAttribute('hidden', '');
+    modal.style.display = 'none';
+
+    // Add aria attributes for accessibility
+    modal.setAttribute('aria-hidden', 'true');
+
+    // Emit custom event
+    modal.dispatchEvent(new CustomEvent('lvt:modal-closed', { bubbles: true }));
+
+    console.log(`[Modal] Closed modal: ${modalId}`);
+  }
+
+  /**
    * Disconnect from WebSocket
    */
   disconnect(): void {
@@ -626,18 +1198,34 @@ export class LiveTemplateClient {
    * @param message - Message to send (will be JSON stringified)
    */
   send(message: any): void {
+    // Debug flag for testing
+    (window as any).__lvtSendCalled = true;
+    (window as any).__lvtMessageAction = message?.action;
+
+    console.log('[LiveTemplate DEBUG] send() method called with message:', message);
+    console.log('[LiveTemplate DEBUG] useHTTP:', this.useHTTP, 'ws:', !!this.ws, 'ws.readyState:', this.ws?.readyState);
+
     if (this.useHTTP) {
       // HTTP mode: send via POST and handle response
+      console.log('[LiveTemplate DEBUG] Using HTTP mode');
+      (window as any).__lvtSendPath = 'http';
       this.sendHTTP(message);
     } else if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       // WebSocket mode
+      console.log('[LiveTemplate DEBUG] Sending via WebSocket');
+      (window as any).__lvtSendPath = 'websocket';
+      (window as any).__lvtWSMessage = JSON.stringify(message);
       this.ws.send(JSON.stringify(message));
+      console.log('[LiveTemplate DEBUG] WebSocket send complete');
+      (window as any).__lvtWSSendComplete = true;
     } else if (this.ws) {
       // WebSocket is connecting or closing, fall back to HTTP temporarily
-      console.log('LiveTemplate: WebSocket not ready, using HTTP fallback');
+      console.log('LiveTemplate: WebSocket not ready (state: ' + this.ws.readyState + '), using HTTP fallback');
+      (window as any).__lvtSendPath = 'http-fallback';
       this.sendHTTP(message);
     } else {
       console.error('LiveTemplate: No transport available');
+      (window as any).__lvtSendPath = 'no-transport';
     }
   }
 
@@ -1150,6 +1738,14 @@ export class LiveTemplateClient {
         }
       },
       onBeforeElUpdated: (fromEl, toEl) => {
+        // Preserve value for the last focused textual input
+        if (this.lastFocusedElement && this.isTextualInput(fromEl)) {
+          if (fromEl === this.lastFocusedElement) {
+            // Preserve the current value being typed
+            (toEl as any).value = (fromEl as any).value;
+          }
+        }
+
         // Only update if content actually changed
         if (fromEl.isEqualNode(toEl)) {
           return false;
@@ -1173,6 +1769,9 @@ export class LiveTemplateClient {
       }
     });
 
+    // Restore focus to previously focused element
+    this.restoreFocusedElement();
+
     // Handle form lifecycle if metadata is present
     if (meta) {
       this.handleFormLifecycle(meta);
@@ -1195,6 +1794,12 @@ export class LiveTemplateClient {
         // Emit lvt:success event
         this.activeForm.dispatchEvent(new CustomEvent('lvt:success', { detail: meta }));
 
+        // Auto-close modal if form is inside one
+        const modalParent = this.activeForm.closest('[role="dialog"]');
+        if (modalParent && modalParent.id) {
+          this.closeModal(modalParent.id);
+        }
+
         // Auto-reset form unless lvt-preserve is present
         if (!this.activeForm.hasAttribute('lvt-preserve')) {
           this.activeForm.reset();
@@ -1208,6 +1813,14 @@ export class LiveTemplateClient {
       }
     }
 
+    // Re-enable button and clear form state
+    this.restoreFormState();
+  }
+
+  /**
+   * Restore form state after an action completes (re-enable button, clear active state)
+   */
+  private restoreFormState(): void {
     // Re-enable button if it was disabled
     if (this.activeButton && this.originalButtonText !== null) {
       this.activeButton.disabled = false;

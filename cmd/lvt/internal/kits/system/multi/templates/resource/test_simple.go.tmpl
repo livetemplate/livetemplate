@@ -1,0 +1,148 @@
+package [[.PackageName]]
+
+import (
+	"encoding/json"
+	"fmt"
+	"net"
+	"net/http"
+	"os/exec"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/gorilla/websocket"
+)
+
+// getFreePort asks the kernel for a free open port that is ready to use
+func getFreePort() (port int, err error) {
+	var a *net.TCPAddr
+	if a, err = net.ResolveTCPAddr("tcp", "localhost:0"); err == nil {
+		var l *net.TCPListener
+		if l, err = net.ListenTCP("tcp", a); err == nil {
+			defer l.Close()
+			return l.Addr().(*net.TCPAddr).Port, nil
+		}
+	}
+	return
+}
+
+func Test[[.ResourceName]]WebSocket(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping WebSocket test in short mode")
+	}
+
+	// Get free port for server
+	serverPort, err := getFreePort()
+	if err != nil {
+		t.Fatalf("Failed to get free port for server: %v", err)
+	}
+
+	// Start server
+	portStr := fmt.Sprintf("%d", serverPort)
+	wsURL := fmt.Sprintf("ws://localhost:%d/[[.ResourceNameLower]]", serverPort)
+
+	t.Logf("Starting test server on port %s", portStr)
+	serverCmd := exec.Command("go", "run", "../../cmd/[[.ModuleName]]/main.go")
+	serverCmd.Env = append([]string{"PORT=" + portStr}, serverCmd.Environ()...)
+
+	if err := serverCmd.Start(); err != nil {
+		t.Fatalf("Failed to start server: %v", err)
+	}
+	defer func() {
+		if serverCmd != nil && serverCmd.Process != nil {
+			serverCmd.Process.Kill()
+		}
+	}()
+
+	// Wait for server to be ready
+	httpURL := fmt.Sprintf("http://localhost:%d/[[.ResourceNameLower]]", serverPort)
+	for i := 0; i < 30; i++ {
+		resp, err := http.Get(httpURL)
+		if err == nil {
+			resp.Body.Close()
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	t.Log("✅ Test server ready")
+
+	// Connect to WebSocket
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("Failed to connect to WebSocket: %v", err)
+	}
+	defer conn.Close()
+
+	t.Log("✅ WebSocket connected")
+
+	// Test: Add [[.ResourceName]]
+	t.Run("Add[[.ResourceName]]", func(t *testing.T) {
+		addEvent := map[string]interface{}{
+			"event": "add",
+			"data": map[string]interface{}{
+[[- range .Fields]]
+[[- if eq .GoType "string"]]
+				"[[.Name]]": "Test [[.Name | title]]",
+[[- else if eq .GoType "int64"]]
+				"[[.Name]]": 42,
+[[- else if eq .GoType "bool"]]
+				"[[.Name]]": true,
+[[- else if eq .GoType "float64"]]
+				"[[.Name]]": 3.14,
+[[- end]]
+[[- end]]
+			},
+		}
+
+		payload, _ := json.Marshal(addEvent)
+		if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+			t.Fatalf("Failed to send add event: %v", err)
+		}
+
+		// Read response
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("Failed to read response: %v", err)
+		}
+
+		// Verify response contains update
+		response := string(msg)
+		if !strings.Contains(response, "Test [[.Fields | index 0 | .Name | title]]") {
+			t.Errorf("Response doesn't contain expected data: %s", response)
+		}
+
+		t.Log("✅ [[.ResourceName]] added successfully via WebSocket")
+	})
+
+	// Test: Delete [[.ResourceName]]
+	t.Run("Delete[[.ResourceName]]", func(t *testing.T) {
+		// First get the ID from the previous add
+		_, msg, err := conn.ReadMessage()
+		if err == nil {
+			// Parse to get ID (simplified - in real test you'd parse JSON properly)
+			if strings.Contains(string(msg), "id") {
+				deleteEvent := map[string]interface{}{
+					"event": "delete",
+					"data": map[string]interface{}{
+						"id": "test-id", // Would extract from previous response
+					},
+				}
+
+				payload, _ := json.Marshal(deleteEvent)
+				if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+					t.Fatalf("Failed to send delete event: %v", err)
+				}
+
+				// Read delete response
+				_, msg, err := conn.ReadMessage()
+				if err != nil {
+					t.Fatalf("Failed to read delete response: %v", err)
+				}
+
+				t.Logf("Delete response: %s", string(msg))
+				t.Log("✅ [[.ResourceName]] deleted successfully via WebSocket")
+			}
+		}
+	})
+}

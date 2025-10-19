@@ -1,0 +1,25 @@
+name: single
+version: 1.0.0
+description: Single-page application kit with component-only architecture (no layout)
+author: LiveTemplate Team
+license: MIT
+tags:
+  - single-page
+  - spa
+  - components
+
+components:
+  - detail.tmpl
+  - form.tmpl
+  - layout.tmpl
+  - pagination.tmpl
+  - search.tmpl
+  - sort.tmpl
+  - stats.tmpl
+  - table.tmpl
+  - toolbar.tmpl
+
+templates:
+  resource: true
+  view: true
+  app: true

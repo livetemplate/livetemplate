@@ -1,0 +1,33 @@
+{{/* Single-page app component - no full HTML wrapper */}}
+{{define "content"}}
+  <div>
+    <!-- Add Form -->
+    {{template "formBox" .}}
+
+    <!-- Statistics -->
+    {{template "stats" .}}
+
+    <!-- Search -->
+    {{template "searchBox" .}}
+
+    <!-- Sort -->
+    {{template "sortBox" .}}
+
+    <!-- Table -->
+    {{template "tableBox" .}}
+
+    <!-- Footer -->
+    <footer[[if ne (boxClass .CSSFramework) ""]] class="[[boxClass .CSSFramework]]"[[end]]>
+      <p><small>Last updated: {{.LastUpdated}}</small></p>
+    </footer>
+  </div>
+{{end}}
+
+{{define "formContent"}}
+  {{template "addForm" .}}
+{{end}}
+
+{{define "tableContent"}}
+  {{template "resourceTable" .}}
+  {{template "pagination" .}}
+{{end}}

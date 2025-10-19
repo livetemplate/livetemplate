@@ -1,0 +1,19 @@
+{{/* Search box component */}}
+{{define "searchBox"}}
+[[- if needsArticle .CSSFramework]]
+<article>
+[[- else if ne (boxClass .CSSFramework) ""]]
+<div class="[[boxClass .CSSFramework]]">
+[[- else]]
+<div>
+[[- end]]
+  <div[[if ne (fieldClass .CSSFramework) ""]] class="[[fieldClass .CSSFramework]]"[[end]]>
+    <label[[if ne (labelClass .CSSFramework) ""]] class="[[labelClass .CSSFramework]]"[[end]]>Search</label>
+    <input[[if ne (inputClass .CSSFramework) ""]] class="[[inputClass .CSSFramework]]"[[end]] type="search" name="query" placeholder="Search [[.ResourceNameLower]]s..." value="{{.SearchQuery}}" lvt-change="search" lvt-debounce="300">
+  </div>
+[[- if needsArticle .CSSFramework]]
+</article>
+[[- else]]
+</div>
+[[- end]]
+{{end}}
