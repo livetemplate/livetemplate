@@ -3,7 +3,7 @@
 **Status**: Draft
 **Author**: LiveTemplate Team
 **Created**: 2025-10-19
-**Last Updated**: 2025-10-19 (All review feedback incorporated)
+**Last Updated**: 2025-10-19 (API finalized: LiveHandler interface)
 
 ## Table of Contents
 1. [Problem Statement](#problem-statement)
@@ -13,7 +13,7 @@
 5. [Architecture](#architecture)
 6. [API Design](#api-design)
 7. [Examples](#examples)
-8. [Migration Path](#migration-path)
+8. [Security](#security)
 9. [Alternatives Considered](#alternatives-considered)
 10. [Implementation Plan](#implementation-plan)
 
@@ -444,14 +444,25 @@ type ConnectionRegistry struct {
 ### 5. Broadcasting
 
 ```go
-// On liveHandler
-func (h *liveHandler) Broadcast(filter func(userID string) bool) error
-func (h *liveHandler) BroadcastToUsers(userIDs []string) error
-func (h *liveHandler) BroadcastToGroup(groupID string) error
+// LiveHandler is returned by Handle() and provides both HTTP handling and broadcasting
+type LiveHandler interface {
+    http.Handler
 
-// On Template (public API)
-func (t *Template) Broadcast(filter func(userID string) bool) error
-func (t *Template) BroadcastToUsers(userIDs ...string) error
+    // Broadcasting methods
+    Broadcast(filter func(userID string) bool) error
+    BroadcastToUsers(userIDs ...string) error
+    BroadcastToGroup(groupID string) error
+}
+
+// liveHandler implements LiveHandler
+type liveHandler struct {
+    // ... fields
+}
+
+func (h *liveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
+func (h *liveHandler) Broadcast(filter func(userID string) bool) error
+func (h *liveHandler) BroadcastToUsers(userIDs ...string) error
+func (h *liveHandler) BroadcastToGroup(groupID string) error
 ```
 
 **Design Rationale:**
@@ -459,6 +470,155 @@ func (t *Template) BroadcastToUsers(userIDs ...string) error
 - User-centric: filter by userID (most common case)
 - Group-aware: can broadcast to session groups directly
 - Error handling: logs failures but continues to other connections
+
+**How Broadcasting Works:**
+
+Broadcasting is done via the handler, not the template. The handler manages connections and can broadcast to them.
+
+**API Design:**
+
+```go
+// Handle() returns LiveHandler (implements both http.Handler and broadcasting)
+handler := tmpl.Handle(state)  // Returns LiveHandler interface
+
+// Use as http.Handler
+http.Handle("/", handler)
+
+// Use broadcasting methods directly (no type assertion needed!)
+handler.Broadcast(func(userID string) bool {
+    return true // All users
+})
+```
+
+**Why this design?**
+
+- **Template**: Responsible for parsing and rendering HTML
+- **Handler**: Responsible for HTTP/WebSocket connections, routing, and broadcasting
+- **LiveHandler interface**: Clean API that exposes both HTTP serving and broadcasting
+- **No type assertion**: Broadcasting is a first-class feature, not an optional add-on
+
+This makes broadcasting as easy to use as serving HTTP requests.
+
+**Real-World Broadcasting Example:**
+
+Complete flow showing how broadcasting works in practice:
+
+```go
+package main
+
+import (
+    "fmt"
+    "net/http"
+    "time"
+    "github.com/livefir/livetemplate"
+)
+
+// Store with state
+type ProductStore struct {
+    ProductName  string
+    Price        float64
+    Stock        int
+    LastUpdated  string
+}
+
+// Change method - handles user actions
+func (s *ProductStore) Change(ctx *livetemplate.ActionContext) error {
+    switch ctx.Action {
+    case "update_price":
+        newPrice := ctx.GetFloat("price")
+        s.Price = newPrice
+        s.LastUpdated = time.Now().Format("15:04:05")
+        // State updated - all connections in this session group will see it
+
+    case "update_stock":
+        s.Stock = ctx.GetInt("stock")
+        s.LastUpdated = time.Now().Format("15:04:05")
+    }
+    return nil
+}
+
+func main() {
+    // Initial state
+    productState := &ProductStore{
+        ProductName: "MacBook Pro",
+        Price:       2499.00,
+        Stock:       10,
+    }
+
+    // Create template and handler
+    tmpl := livetemplate.New("product")
+    handler := tmpl.Handle(productState)  // Returns LiveHandler
+
+    // Mount HTTP handler
+    http.Handle("/", handler)
+
+    // Background job: External price updates (from admin panel, API, etc.)
+    go func() {
+        time.Sleep(10 * time.Second)
+
+        // Admin updates price externally (not via user action)
+        // Need to broadcast to all users viewing this product
+
+        // Use handler to broadcast directly (no type assertion!)
+        handler.Broadcast(func(userID string) bool {
+            // Send to all users (could filter by permissions)
+            return true
+        })
+
+        fmt.Println("Broadcasted price update to all connected users")
+    }()
+
+    http.ListenAndServe(":8080", nil)
+}
+```
+
+**Flow Breakdown:**
+
+1. **User Action Flow:**
+   ```
+   User clicks "Update Price"
+   → WebSocket sends {action: "update_price", data: {price: 2599}}
+   → handler.handleAction() calls ProductStore.Change()
+   → Change() updates s.Price = 2599
+   → handler sends update to that user's session group
+   → All tabs for that user see new price
+   ```
+
+2. **Broadcasting Flow (External Update):**
+   ```
+   Background job runs
+   → Calls handler.Broadcast(filter)
+   → Handler gets all connections from ConnectionRegistry
+   → Filters by userID using provided callback
+   → For each connection:
+       - Renders template with that connection's stores
+       - Sends WebSocket update
+   → All authorized users see the update
+   ```
+
+**Key Insight:**
+
+The Change method handles **user-initiated** actions (button clicks, form submits).
+Broadcasting handles **server-initiated** updates (background jobs, admin actions, external events).
+
+```go
+// User action: updates only that user's session group
+productStore.Change(ctx)  // Called automatically by handler
+
+// Server action: updates all authorized users
+handler.Broadcast(filter)    // Called explicitly by you
+```
+
+**Why This Architecture?**
+
+Separating user actions from server broadcasts provides flexibility:
+
+| Trigger | API | Use Case |
+|---------|-----|----------|
+| User clicks button | `Change(ctx)` | User increments their own counter |
+| Admin updates data | `handler.Broadcast()` | Admin changes product price → notify all |
+| Background job | `handler.Broadcast()` | Stock level changes → update viewers |
+| External webhook | `handler.Broadcast()` | Payment confirmed → update order status |
 
 ---
 
@@ -515,23 +675,27 @@ http.Handle("/", tmpl.Handle(state))
 ### Broadcasting
 
 ```go
+// Get handler (LiveHandler interface)
+handler := tmpl.Handle(state)
+http.Handle("/", handler)
+
 // Broadcast to all authenticated users
-tmpl.Broadcast(func(userID string) bool {
+handler.Broadcast(func(userID string) bool {
     return userID != "" // Only authenticated users
 })
 
 // Broadcast to specific users
-tmpl.BroadcastToUsers("user123", "user456")
+handler.BroadcastToUsers("user123", "user456")
 
 // Broadcast to admins only
-tmpl.Broadcast(func(userID string) bool {
+handler.Broadcast(func(userID string) bool {
     return isAdmin(userID)
 })
 
 // Broadcast from background goroutine
 go func() {
     time.Sleep(5 * time.Second)
-    tmpl.Broadcast(func(userID string) bool {
+    handler.Broadcast(func(userID string) bool {
         return true // All users
     })
 }()
@@ -656,14 +820,15 @@ func main() {
     auth := NewRoleBasedAuthenticator()
     tmpl := livetemplate.New("dashboard", livetemplate.WithAuthenticator(auth))
 
-    http.Handle("/", tmpl.Handle(&DashboardState{}))
+    handler := tmpl.Handle(&DashboardState{})
+    http.Handle("/", handler)
 
     // Background job: broadcast notifications
     go func() {
         ticker := time.NewTicker(30 * time.Second)
         for range ticker.C {
             // Broadcast to all users
-            tmpl.Broadcast(func(userID string) bool {
+            handler.Broadcast(func(userID string) bool {
                 return true // All users
             })
         }
@@ -680,36 +845,406 @@ func main() {
 
 ---
 
-## Migration Path
+## Security
 
-### Backward Compatibility
+### Overview
 
-**Existing apps continue to work unchanged:**
+Multi-session systems with authentication and session management require careful security design. This section addresses all security concerns for the proposed architecture.
+
+---
+
+### 1. Session Cookie Security
+
+**Cookie Configuration:**
 
 ```go
-// Old code (still works)
-tmpl := livetemplate.New("counter")
-http.Handle("/", tmpl.Handle(state))
+http.SetCookie(w, &http.Cookie{
+    Name:     "livetemplate-id",
+    Value:    sessionID,
+    Path:     "/",
+    HttpOnly: true,              // Prevents JavaScript access (XSS protection)
+    Secure:   true,              // HTTPS only in production
+    SameSite: http.SameSiteLaxMode, // CSRF protection
+    MaxAge:   365 * 24 * 60 * 60,   // 1 year
+})
 ```
 
-**What changes:**
-- Before: Each WebSocket connection gets independent state
-- After: Connections from same browser share state
-- **This is the desired behavior!** Users expect multi-tab sharing
+**Security Properties:**
 
-### Breaking Changes
+| Property | Purpose | Implementation |
+|----------|---------|----------------|
+| `HttpOnly` | Prevents XSS attacks from stealing session IDs | Set to `true` always |
+| `Secure` | Forces HTTPS in production | Set to `true` in production, `false` in dev |
+| `SameSite=Lax` | Prevents CSRF attacks | Blocks cross-site POST requests |
+| `Path=/` | Limits cookie scope to application | Prevents leakage to other paths |
 
-**None.** The new default behavior is strictly better:
-- Anonymous users get browser-based grouping automatically
-- No API changes required
-- Existing apps get multi-tab sharing for free
+**Session ID Generation:**
 
-### Deprecations
+```go
+func generateRandomID() string {
+    // Use crypto/rand for cryptographically secure random IDs
+    b := make([]byte, 32)
+    _, err := rand.Read(b)
+    if err != nil {
+        panic(err) // Should never happen
+    }
+    return base64.URLEncoding.EncodeToString(b)
+}
+```
 
-**Old SessionStore usage (HTTP-only):**
-- `SessionStore` interface changes to store `Stores` instead of `interface{}`
-- Old HTTP session cookies still work
-- Migration: Update custom SessionStore implementations
+- **Length**: 32 bytes (256 bits) → ~43 character base64 string
+- **Entropy**: Sufficient to prevent brute force attacks
+- **Source**: `crypto/rand` (not `math/rand`)
+- **Uniqueness**: Collision probability negligible
+
+**Session Fixation Protection:**
+
+- New session ID generated on each initial connection
+- Authenticated users should regenerate session ID on login:
+
+```go
+func (a *BasicAuthenticator) GetSessionGroup(r *http.Request, userID string) (string, error) {
+    // For authenticated users, don't reuse anonymous session
+    // Generate new session ID to prevent session fixation
+    return generateRandomID(), nil
+}
+```
+
+---
+
+### 2. WebSocket Security
+
+**Origin Validation:**
+
+LiveTemplate handles WebSocket upgrades internally. Origin validation is configured via the API:
+
+**Development (default - allows all origins):**
+```go
+// No configuration needed
+tmpl := livetemplate.New("app")
+http.Handle("/", tmpl.Handle(state))
+
+// Internally: CheckOrigin returns true for all origins
+```
+
+**Production (specify allowed origins):**
+```go
+tmpl := livetemplate.New("app",
+    livetemplate.WithAllowedOrigins([]string{
+        "https://yourdomain.com",
+        "https://www.yourdomain.com",
+    }))
+
+http.Handle("/", tmpl.Handle(state))
+
+// Internally: CheckOrigin validates against this list
+// - Empty origin → allowed (same-origin)
+// - Matching origin → allowed
+// - Non-matching origin → rejected (403)
+```
+
+**TLS/WSS in Production:**
+
+- **Development**: `ws://localhost:8080` (unencrypted)
+- **Production**: `wss://yourdomain.com` (TLS encrypted)
+- Cookie with `Secure=true` requires HTTPS/WSS
+
+**Authentication on WebSocket Upgrade:**
+
+LiveTemplate automatically authenticates WebSocket connections during the upgrade process using the configured Authenticator. The authentication happens **before** the WebSocket upgrade is accepted:
+
+```go
+// User code: Just configure the authenticator
+auth := livetemplate.NewBasicAuthenticator(validateUser)
+tmpl := livetemplate.New("app", livetemplate.WithAuthenticator(auth))
+
+// Internally (handled by livetemplate):
+// 1. Client requests WebSocket upgrade
+// 2. Authenticator.Identify(r) called BEFORE upgrade
+// 3. If authentication fails → 401 Unauthorized (no WebSocket)
+// 4. If authentication succeeds → WebSocket upgrade proceeds
+// 5. Connection registered with userID from authenticator
+```
+
+**Security Properties:**
+- ✅ Unauthenticated users cannot establish WebSocket connections
+- ✅ Session hijacking via WebSocket is prevented
+- ✅ Origin validation prevents cross-site WebSocket hijacking
+- ✅ No manual authentication code needed in handlers
+
+---
+
+### 3. SessionStore Security
+
+**Memory Store Security:**
+
+**Thread Safety:**
+- All operations protected by `sync.RWMutex`
+- Safe for concurrent access from multiple goroutines
+
+**Memory Leaks:**
+```go
+type MemorySessionStore struct {
+    groups    map[string]Stores
+    lastAccess map[string]time.Time // NEW: Track last access
+    mu        sync.RWMutex
+}
+
+// Cleanup goroutine
+func (s *MemorySessionStore) StartCleanup() {
+    ticker := time.NewTicker(1 * time.Hour)
+    go func() {
+        for range ticker.C {
+            s.cleanupStale(24 * time.Hour)
+        }
+    }()
+}
+
+func (s *MemorySessionStore) cleanupStale(maxAge time.Duration) {
+    s.mu.Lock()
+    defer s.mu.Unlock()
+
+    now := time.Now()
+    for groupID, lastAccess := range s.lastAccess {
+        if now.Sub(lastAccess) > maxAge {
+            delete(s.groups, groupID)
+            delete(s.lastAccess, groupID)
+        }
+    }
+}
+```
+
+**Isolation Guarantees:**
+
+Each session group has its own Stores instance:
+```go
+// Group "alice" cannot access group "bob" data
+aliceStores := sessionStore.Get("alice")  // Returns Alice's stores
+bobStores := sessionStore.Get("bob")      // Returns Bob's stores
+// aliceStores != bobStores (guaranteed)
+```
+
+**Redis Store Security (Production):**
+
+```go
+type RedisSessionStore struct {
+    client *redis.Client
+    ttl    time.Duration
+}
+
+func (r *RedisSessionStore) Set(groupID string, stores Stores) {
+    // Serialize stores
+    data, _ := json.Marshal(stores)
+
+    // Store with TTL (automatic expiration)
+    r.client.Set(context.Background(),
+        "session:"+groupID,
+        data,
+        r.ttl) // Expires after TTL
+}
+```
+
+**Benefits:**
+- Automatic expiration (no manual cleanup needed)
+- Persistence across server restarts
+- Shared across multiple server instances
+- Encrypted at rest (depending on Redis config)
+
+---
+
+### 4. Data Isolation
+
+**Session Group Isolation:**
+
+Users in different session groups CANNOT access each other's data:
+
+```go
+// Guaranteed isolation at architecture level:
+// 1. Each session group gets unique groupID
+// 2. SessionStore.Get(groupID) returns isolated Stores
+// 3. WebSocket connections only access their own groupID stores
+// 4. Broadcasting filters by userID/groupID
+
+// Example:
+User A (groupID="alice") → Stores instance #1
+User B (groupID="bob")   → Stores instance #2
+// Instance #1 != Instance #2 (completely separate memory)
+```
+
+**No Shared State Between Groups:**
+
+```go
+// Anti-pattern (would violate isolation):
+var globalCounter int  // ❌ Shared across all users
+
+// Correct pattern (isolated per group):
+type CounterStore struct {
+    Counter int  // ✅ Isolated per session group
+}
+```
+
+---
+
+### 5. CSRF Protection
+
+**SameSite Cookies:**
+
+`SameSite=Lax` prevents CSRF on state-changing operations:
+
+```go
+// Attacker site tries:
+<form action="https://victim.com/action" method="POST">
+  <input name="action" value="delete_account">
+</form>
+
+// Browser blocks: Cookie not sent due to SameSite=Lax
+// Result: Unauthenticated request → rejected
+```
+
+**WebSocket CSRF:**
+
+WebSockets are protected by:
+1. Origin validation (rejects cross-origin connections)
+2. Cookie-based authentication (requires valid session cookie)
+
+**CSRF Tokens:**
+
+LiveTemplate does **not** automatically inject CSRF tokens for the following reasons:
+
+1. **SameSite Cookies**: `SameSite=Lax` provides robust CSRF protection for most use cases
+2. **WebSocket-Centric**: Primary communication is via WebSocket (protected by origin validation)
+3. **Flexibility**: Users may have existing CSRF solutions they want to integrate
+4. **Out of Scope**: Form handling and AJAX CSRF token management is typically handled at the application level
+
+**If you need CSRF tokens** (e.g., for legacy browser support or defense-in-depth):
+
+```go
+// Application-level CSRF token implementation
+type MyStore struct {
+    CSRFToken string  // Generated per session
+}
+
+// In template:
+<form method="POST" action="/update">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <!-- form fields -->
+</form>
+
+// In handler:
+func handleUpdate(w http.ResponseWriter, r *http.Request) {
+    // Validate CSRF token before processing
+    if r.FormValue("csrf_token") != expectedToken {
+        http.Error(w, "Invalid CSRF token", http.StatusForbidden)
+        return
+    }
+    // Process request
+}
+```
+
+**Recommendation**: Rely on `SameSite=Lax` cookies for modern browsers (99%+ browser support). Add custom CSRF tokens only if you have specific requirements.
+
+---
+
+### 6. XSS Protection
+
+**Template Auto-Escaping:**
+
+All user data rendered through `html/template` is automatically escaped:
+
+```go
+type ProductStore struct {
+    Name string  // e.g., "<script>alert('xss')</script>"
+}
+
+// In template:
+<div>{{.Name}}</div>
+
+// Rendered output (safe):
+<div>&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;</div>
+```
+
+**HttpOnly Cookies:**
+
+Session cookies cannot be accessed by JavaScript:
+```javascript
+document.cookie  // Does not include livetemplate-id (HttpOnly)
+```
+
+---
+
+### 7. Broadcasting Authorization
+
+**Filter-Based Authorization:**
+
+Broadcasting uses callback filters to enforce authorization:
+
+```go
+// Only send to users with permission
+handler.Broadcast(func(userID string) bool {
+    return hasPermission(userID, "view_sensitive_data")
+})
+
+// Example: Admin-only broadcasts
+handler.Broadcast(func(userID string) bool {
+    return isAdmin(userID)  // Only admins receive update
+})
+```
+
+**Guarantees:**
+
+- Filter evaluated for EVERY connection
+- Failed filter → no data sent to that connection
+- No way to bypass filter (enforced at handler level)
+
+---
+
+### 8. Session Hijacking Protection
+
+**Mitigations:**
+
+1. **HTTPS Only** (prevents session ID interception)
+2. **HttpOnly Cookies** (prevents XSS theft)
+3. **SameSite Cookies** (prevents CSRF)
+4. **Short Session Lifetime** (limits exposure window)
+5. **Session Regeneration** (on authentication events)
+
+**Optional: IP Validation**
+
+```go
+func (s *MemorySessionStore) Get(groupID string, clientIP string) Stores {
+    // Optionally bind session to IP address
+    session := s.groups[groupID]
+    if session.BindIP != clientIP {
+        return nil // Session hijack detected
+    }
+    return session.Stores
+}
+```
+
+**Trade-off:** Breaks legitimate use cases (mobile users, NAT)
+
+---
+
+### Security Checklist
+
+**Development:**
+- [ ] Use `crypto/rand` for session IDs
+- [ ] Set `HttpOnly=true` on cookies
+- [ ] Set `SameSite=Lax` on cookies
+- [ ] Validate WebSocket origins (at least log rejections)
+- [ ] Implement session cleanup (prevent memory leaks)
+- [ ] Use `html/template` for all rendering (auto-escape)
+
+**Production:**
+- [ ] Enable HTTPS/TLS (port 443)
+- [ ] Set `Secure=true` on cookies
+- [ ] Strict WebSocket origin validation
+- [ ] Use Redis or persistent SessionStore
+- [ ] Enable session TTL/expiration
+- [ ] Implement rate limiting
+- [ ] Add HSTS header
+- [ ] Monitor for suspicious activity
+- [ ] Regular security audits
 
 ---
 
@@ -838,10 +1373,11 @@ http.Handle("/", authMiddleware.Wrap(tmpl.Handle(state)))
 **Files:** `broadcast.go` (new), `template.go` (modify)
 
 **Tasks:**
-- [ ] Implement `Broadcast()` with filter callback
-- [ ] Implement `BroadcastToUsers()`
-- [ ] Implement `BroadcastToGroup()`
-- [ ] Add public API on Template
+- [ ] Define `LiveHandler` interface (embeds http.Handler + broadcasting methods)
+- [ ] Update `Handle()` to return `LiveHandler` instead of `http.Handler`
+- [ ] Implement `Broadcast()` with filter callback on liveHandler
+- [ ] Implement `BroadcastToUsers()` on liveHandler
+- [ ] Implement `BroadcastToGroup()` on liveHandler
 - [ ] Handle connection failures gracefully
 - [ ] Write tests for broadcasting
 - [ ] Test concurrent broadcasts
@@ -1006,10 +1542,17 @@ type SessionStore interface {
     List() []string
 }
 
-// Broadcasting methods
-func (h *liveHandler) Broadcast(filter func(userID string) bool) error
-func (h *liveHandler) BroadcastToUsers(userIDs []string) error
-func (h *liveHandler) BroadcastToGroup(groupID string) error
+// LiveHandler combines HTTP serving with broadcasting
+type LiveHandler interface {
+    http.Handler
+
+    Broadcast(filter func(userID string) bool) error
+    BroadcastToUsers(userIDs ...string) error
+    BroadcastToGroup(groupID string) error
+}
+
+// Handle() returns LiveHandler
+func (t *Template) Handle(stores ...Store) LiveHandler
 ```
 
 ---

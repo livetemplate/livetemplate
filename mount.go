@@ -46,7 +46,7 @@ func (b *broadcaster) Send() error {
 	}
 
 	// Parse tree from buffer
-	var tree TreeNode
+	var tree treeNode
 	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
 		return fmt.Errorf("failed to parse tree: %w", err)
 	}
@@ -66,7 +66,7 @@ func (b *broadcaster) Send() error {
 		return fmt.Errorf("failed to marshal response: %w", err)
 	}
 
-	return WriteUpdateWebSocket(b.conn, responseBytes)
+	return writeUpdateWebSocket(b.conn, responseBytes)
 }
 
 // MountConfig configures the mount handler
@@ -239,7 +239,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse tree from buffer
-	var tree TreeNode
+	var tree treeNode
 	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
 		log.Printf("Failed to parse initial tree: %v", err)
 		return
@@ -261,13 +261,13 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = WriteUpdateWebSocket(conn, responseBytes)
+	err = writeUpdateWebSocket(conn, responseBytes)
 	if err != nil {
 		log.Printf("Failed to send initial tree: %v", err)
 		return
 	}
 
-	// Message loop
+	// message loop
 	for {
 		_, data, err := conn.ReadMessage()
 		if err != nil {
@@ -278,7 +278,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Parse message
-		msg, err := ParseActionFromWebSocket(data)
+		msg, err := parseActionFromWebSocket(data)
 		if err != nil {
 			log.Printf("Failed to parse message: %v", err)
 			continue
@@ -299,7 +299,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Parse tree from buffer
-		var tree TreeNode
+		var tree treeNode
 		if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
 			log.Printf("Failed to parse tree: %v", err)
 			continue
@@ -322,7 +322,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		err = WriteUpdateWebSocket(conn, responseBytes)
+		err = writeUpdateWebSocket(conn, responseBytes)
 		if err != nil {
 			log.Printf("WebSocket write failed: %v", err)
 			break
@@ -393,7 +393,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse message
-	msg, err := ParseActionFromHTTP(r)
+	msg, err := parseActionFromHTTP(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -417,7 +417,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse tree from buffer
-	var tree TreeNode
+	var tree treeNode
 	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -441,12 +441,12 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleAction routes the action to the correct store and captures errors
-func (h *liveHandler) handleAction(msg Message, state *connState) error {
+func (h *liveHandler) handleAction(msg message, state *connState) error {
 	// Clear previous errors
 	state.clearErrors()
 
 	// Parse action to extract store name
-	storeName, action := ParseAction(msg.Action)
+	storeName, action := parseAction(msg.Action)
 
 	var store Store
 	if h.config.IsSingleStore {
@@ -484,7 +484,7 @@ func (h *liveHandler) handleAction(msg Message, state *connState) error {
 	// Create action context
 	ctx := &ActionContext{
 		Action: action,
-		Data:   NewActionData(msg.Data),
+		Data:   newActionData(msg.Data),
 	}
 
 	// Call Change and capture error
