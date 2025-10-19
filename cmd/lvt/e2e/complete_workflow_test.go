@@ -207,7 +207,7 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 			// Click Add button to open modal
 			chromedp.WaitVisible(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
 			chromedp.Click(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
-			chromedp.Sleep(500*time.Millisecond),
+			chromedp.Sleep(shortDelay),
 
 			// Fill form
 			chromedp.WaitVisible(`input[name="title"]`, chromedp.ByQuery),
@@ -217,12 +217,12 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 
 			// Submit
 			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
-			chromedp.Sleep(2*time.Second),
+			chromedp.Sleep(formSubmitDelay),
 
 			// Reload to see persisted post
 			chromedp.Reload(),
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
-			chromedp.Sleep(500*time.Millisecond),
+			chromedp.Sleep(shortDelay),
 		)
 		if err != nil {
 			t.Fatalf("Failed to create post: %v", err)
@@ -306,7 +306,7 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 		maxRetries := 10
 		inputVisible := false
 		for i := 0; i < maxRetries && !inputVisible; i++ {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(shortDelay)
 			var modalOpen bool
 			_ = chromedp.Evaluate(`
 				(() => {
@@ -351,7 +351,7 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 
 		// Wait for update to appear in table with retries
 		for i := 0; i < 10; i++ {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(shortDelay)
 			_ = chromedp.Evaluate(`
 				(() => {
 					const table = document.querySelector('table');
@@ -411,7 +411,7 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 					return false;
 				})()
 			`, nil),
-			chromedp.Sleep(1*time.Second),
+			chromedp.Sleep(standardDelay),
 
 			// Override window.confirm to accept
 			chromedp.Evaluate(`window.confirm = () => true;`, nil),
@@ -427,12 +427,12 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 					return false;
 				})()
 			`, nil),
-			chromedp.Sleep(2*time.Second),
+			chromedp.Sleep(formSubmitDelay),
 
 			// Reload
 			chromedp.Reload(),
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
-			chromedp.Sleep(500*time.Millisecond),
+			chromedp.Sleep(shortDelay),
 		)
 		if err != nil {
 			t.Fatalf("Failed to delete post: %v", err)
@@ -481,7 +481,7 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 			// Click Add button
 			chromedp.WaitVisible(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
 			chromedp.Click(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
-			chromedp.Sleep(500*time.Millisecond),
+			chromedp.Sleep(shortDelay),
 
 			// Submit without filling fields
 			chromedp.WaitVisible(`form[lvt-submit]`, chromedp.ByQuery),
@@ -491,7 +491,7 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 					form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 				}
 			`, nil),
-			chromedp.Sleep(3*time.Second),
+			chromedp.Sleep(modalAnimationDelay),
 
 			// Check for error messages
 			chromedp.Evaluate(`

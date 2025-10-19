@@ -128,7 +128,7 @@ func TestPageModeURLRouting(t *testing.T) {
 	// Wait for server to start
 	serverReady := false
 	for i := 0; i < 30; i++ {
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(quickPollDelay)
 		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/", port))
 		if err == nil {
 			resp.Body.Close()
@@ -189,7 +189,7 @@ func TestPageModeURLRouting(t *testing.T) {
 		err := chromedp.Run(ctx,
 			chromedp.Navigate(testURL),
 			e2etest.WaitForWebSocketReady(5*time.Second),
-			chromedp.Sleep(1*time.Second),
+			chromedp.Sleep(standardDelay),
 			chromedp.Evaluate(`document.body.innerHTML`, &pageHTML),
 		)
 		if err != nil {
@@ -203,7 +203,7 @@ func TestPageModeURLRouting(t *testing.T) {
 		err = chromedp.Run(ctx,
 			// Click Add Product button to open modal
 			chromedp.Click(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
-			chromedp.Sleep(500*time.Millisecond),
+			chromedp.Sleep(shortDelay),
 		)
 		if err != nil {
 			t.Fatalf("Failed to open modal: %v", err)
@@ -239,7 +239,7 @@ func TestPageModeURLRouting(t *testing.T) {
 		// Wait for modal to close and WebSocket to reconnect
 		t.Log("Waiting for modal to close...")
 		err = chromedp.Run(ctx,
-			chromedp.Sleep(500*time.Millisecond),
+			chromedp.Sleep(shortDelay),
 		)
 		if err != nil {
 			t.Fatalf("Error during sleep: %v", err)
@@ -298,10 +298,10 @@ func TestPageModeURLRouting(t *testing.T) {
 		t.Log("Adding second product...")
 		err = chromedp.Run(ctx,
 			chromedp.Click(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
-			chromedp.Sleep(500*time.Millisecond),
+			chromedp.Sleep(shortDelay),
 			chromedp.SendKeys(`input[name="name"]`, "Test Product 2"),
 			chromedp.Click(`form[lvt-submit="add"] button[type="submit"]`, chromedp.ByQuery),
-			chromedp.Sleep(2*time.Second), // Wait for WebSocket update
+			chromedp.Sleep(formSubmitDelay), // Wait for WebSocket update
 		)
 		if err != nil {
 			t.Fatalf("Failed to submit second product: %v", err)
@@ -333,7 +333,7 @@ func TestPageModeURLRouting(t *testing.T) {
 		err := chromedp.Run(ctx,
 			chromedp.Navigate(testURL),
 			e2etest.WaitForWebSocketReady(5*time.Second),
-			chromedp.Sleep(1*time.Second),
+			chromedp.Sleep(standardDelay),
 			// Check if anchor link exists
 			chromedp.Evaluate(`document.querySelector('table tbody tr a') !== null`, &linkExists),
 		)
@@ -358,7 +358,7 @@ func TestPageModeURLRouting(t *testing.T) {
 		// Don't wait for WebSocket after click since it's a new page load
 		err = chromedp.Run(ctx,
 			chromedp.Click(`table tbody tr a`, chromedp.ByQuery),
-			chromedp.Sleep(1*time.Second),
+			chromedp.Sleep(standardDelay),
 			chromedp.Location(&currentURL),
 		)
 		if err != nil {
@@ -380,7 +380,7 @@ func TestPageModeURLRouting(t *testing.T) {
 		err := chromedp.Run(ctx,
 			chromedp.Navigate(testURL),
 			e2etest.WaitForWebSocketReady(5*time.Second),
-			chromedp.Sleep(1*time.Second),
+			chromedp.Sleep(standardDelay),
 			chromedp.Evaluate(`document.querySelector('table tbody tr a')?.getAttribute('href') || null`, &firstResourceHref),
 		)
 		if err != nil || firstResourceHref == "" {
@@ -398,7 +398,7 @@ func TestPageModeURLRouting(t *testing.T) {
 		directURL := fmt.Sprintf("%s/%s", testURL, firstResourceID)
 		err = chromedp.Run(ctx,
 			chromedp.Navigate(directURL),
-			chromedp.Sleep(2*time.Second),
+			chromedp.Sleep(formSubmitDelay),
 			chromedp.Evaluate(`document.body.innerText.includes('Details') || document.body.innerText.includes('Back')`, &detailVisible),
 		)
 		if err != nil {
@@ -421,7 +421,7 @@ func TestPageModeURLRouting(t *testing.T) {
 		err := chromedp.Run(ctx,
 			chromedp.Navigate(testURL),
 			e2etest.WaitForWebSocketReady(5*time.Second),
-			chromedp.Sleep(1*time.Second),
+			chromedp.Sleep(standardDelay),
 			chromedp.Evaluate(`document.querySelector('table tbody tr a') !== null`, &linkExists),
 		)
 		if err != nil {
@@ -434,9 +434,9 @@ func TestPageModeURLRouting(t *testing.T) {
 
 		err = chromedp.Run(ctx,
 			chromedp.Click(`table tbody tr a`, chromedp.ByQuery),
-			chromedp.Sleep(1*time.Second),
+			chromedp.Sleep(standardDelay),
 			chromedp.Evaluate(`history.back()`, nil),
-			chromedp.Sleep(1*time.Second),
+			chromedp.Sleep(standardDelay),
 			chromedp.Evaluate(`document.querySelector('table') !== null`, &backToList),
 		)
 		if err != nil {
@@ -459,7 +459,7 @@ func TestPageModeURLRouting(t *testing.T) {
 		err := chromedp.Run(ctx,
 			chromedp.Navigate(testURL),
 			e2etest.WaitForWebSocketReady(5*time.Second),
-			chromedp.Sleep(1*time.Second),
+			chromedp.Sleep(standardDelay),
 			chromedp.Evaluate(`document.querySelector('table tbody tr a') !== null`, &linkExists),
 		)
 		if err != nil {
@@ -472,9 +472,9 @@ func TestPageModeURLRouting(t *testing.T) {
 
 		err = chromedp.Run(ctx,
 			chromedp.Click(`table tbody tr a`, chromedp.ByQuery),
-			chromedp.Sleep(1*time.Second),
+			chromedp.Sleep(standardDelay),
 			chromedp.Evaluate(`history.back()`, nil),
-			chromedp.Sleep(1*time.Second),
+			chromedp.Sleep(standardDelay),
 			chromedp.Location(&finalURL),
 		)
 		if err != nil {
