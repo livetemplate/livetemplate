@@ -1,20 +1,54 @@
 # LiveTemplate
 
-LiveTemplate is a Go library for building real-time web applications with minimal code. It uses tree-based DOM diffing to send only what changed over WebSocket or HTTP, inspired by Phoenix LiveView.
+Build real-time, reactive web applications in Go with minimal code. LiveTemplate uses tree-based DOM diffing to send only what changed over WebSocket or HTTP, inspired by Phoenix LiveView.
+
+**[Quick Start](#quick-start)** • **[Documentation](#documentation)** • **[Examples](#examples)** • **[CLI Tool](#cli-tool)** • **[Contributing](CONTRIBUTING.md)**
+
+---
+
+## Why LiveTemplate?
+
+LiveTemplate brings Phoenix LiveView's developer experience to Go:
+
+- **Server-side state** - Your state lives in Go, not scattered across client and server
+- **Automatic updates** - Change state, UI updates automatically. No manual DOM manipulation
+- **Ultra-efficient** - Tree-based diffing sends 50-90% less data than full HTML
+- **Type-safe** - Leverage Go's type system for your entire application
+- **Zero frontend build** - No webpack, no npm dependencies for your app
+- **Production-ready** - Built-in session management, validation, and error handling
+
+### When to Use LiveTemplate
+
+**Perfect for:**
+- Admin dashboards and internal tools
+- Real-time collaborative features
+- Forms with complex validation
+- Server-side state is your source of truth
+- Teams that prefer Go over JavaScript frameworks
+
+**Consider alternatives if:**
+- You need offline-first capabilities
+- Heavy client-side interactions (games, drawing apps)
+- Mobile app with native feel
+- SEO is critical and SSR isn't enough
 
 ## Quick Start
+
+### Installation
 
 ```bash
 go get github.com/livefir/livetemplate
 ```
 
-## Basic Example
+### Your First App (5 minutes)
+
+**1. Create your state**
 
 ```go
+// main.go
 package main
 
 import (
-    "log"
     "net/http"
     "github.com/livefir/livetemplate"
 )
@@ -29,161 +63,176 @@ func (s *CounterState) Change(ctx *livetemplate.ActionContext) error {
         s.Counter++
     case "decrement":
         s.Counter--
+    case "reset":
+        s.Counter = 0
     }
     return nil
 }
 
 func main() {
     state := &CounterState{Counter: 0}
-    tmpl := livetemplate.New("counter") // auto-discovers counter.tmpl
+    tmpl := livetemplate.New("counter")
 
     http.Handle("/", tmpl.Handle(state))
     http.ListenAndServe(":8080", nil)
 }
 ```
 
-**counter.tmpl:**
+**2. Create your template**
+
 ```html
+<!-- counter.tmpl -->
 <!DOCTYPE html>
 <html>
+<head>
+    <title>Counter</title>
+</head>
 <body>
     <h1>Counter: {{.Counter}}</h1>
     <button lvt-click="increment">+</button>
     <button lvt-click="decrement">-</button>
+    <button lvt-click="reset">Reset</button>
 
-    <script src="livetemplate-client.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@livefir/livetemplate-client@latest/dist/livetemplate-client.min.js"></script>
 </body>
 </html>
 ```
 
+**3. Run it**
+
+```bash
+go run main.go
+# Open http://localhost:8080
+```
+
+That's it! Click buttons and watch the counter update in real-time.
+
 ## How It Works
 
-1. **Server**: Define state and actions using the `Store` interface
-2. **Template**: Use `lvt-*` attributes to bind UI events to actions
-3. **Client**: JavaScript library handles WebSocket/HTTP communication and DOM updates
-4. **Updates**: Only changed data is sent using tree-based diffing
+```
+User clicks button → Client sends action → Server updates state →
+Server renders template → Tree diff → Minimal update → Client applies patch
+```
 
-## Event Bindings
+1. **Define state**: Your Go struct holds application state
+2. **Handle actions**: Implement `Change(ctx)` to handle user interactions
+3. **Render template**: Use standard Go templates with `lvt-*` attributes
+4. **Automatic updates**: LiveTemplate handles the rest
 
-### Basic Events
+## Comparison with Other Frameworks
+
+| Feature | LiveTemplate | Phoenix LiveView | Datastar | HTMX | Hotwire Turbo | Alpine.js |
+|---------|-------------|------------------|----------|------|---------------|-----------|
+| **Language** | Go | Elixir | Any | Any | Any | JavaScript |
+| **Approach** | Server-side state | Server-side state | Hypermedia + Signals | HTML over wire | HTML over wire | Client-side only |
+| **State Location** | Server (Go) | Server (Elixir) | Client + Server | Server | Server | Client (JS) |
+| **Transport** | WebSocket/HTTP | WebSocket | SSE/WebSocket | HTTP | HTTP | N/A |
+| **Update Mechanism** | Tree diffing | Minimal DOM patches | Signal updates | Full/partial HTML | Full page/frame | Reactive JS |
+| **Bandwidth Efficiency** | 50-90% reduction | Very high | Medium-High | Medium | Medium-Low | N/A |
+| **Learning Curve** | Low (Go + templates) | Medium (Elixir) | Low-Medium | Very low | Very low | Low |
+| **Type Safety** | Full (Go) | Full (Elixir) | Depends on backend | Depends on backend | Depends on backend | None |
+| **Real-time Support** | Built-in | Built-in | Built-in (SSE) | Polling only | Polling/Streams | Requires backend |
+| **Client JS Required** | Minimal (~15KB) | Minimal | Minimal (~10KB) | Minimal (~14KB) | Minimal (~30KB) | Full framework |
+| **Form Validation** | Server-side | Server-side | Server or client | Server-side | Server-side | Client-side |
+| **Best For** | Go apps, dashboards | Elixir ecosystem | Hypermedia apps | Simple interactions | Rails/Django apps | Enhancing static sites |
+| **Maturity** | Alpha | Production | Alpha | Production | Production | Production |
+
+### Key Differentiators
+
+**vs Phoenix LiveView**
+- LiveTemplate brings the LiveView pattern to Go
+- Simpler deployment (single binary vs Elixir/Erlang VM)
+- Go's performance and ecosystem
+- Tree-based approach vs LiveView's DOM patch commands
+
+**vs HTMX**
+- LiveTemplate maintains WebSocket connections for instant updates
+- More efficient updates (tree diff vs full HTML)
+- Built-in state management
+- HTMX is simpler but less efficient for frequent updates
+
+**vs Datastar**
+- Both are inspired by LiveView, but different approaches
+- LiveTemplate uses WebSocket/tree diff, Datastar uses SSE/signals
+- LiveTemplate is Go-focused, Datastar is language-agnostic
+- Similar goals, different implementation strategies
+
+**vs Hotwire Turbo**
+- LiveTemplate is for real-time apps, Turbo for enhanced navigation
+- WebSocket vs HTTP
+- Turbo focuses on full-page updates, LiveTemplate on surgical patches
+- Complementary: Turbo for navigation, LiveTemplate for dynamic UIs
+
+**vs Alpine.js**
+- LiveTemplate is server-centric, Alpine is client-centric
+- Use together: Alpine for local UI state, LiveTemplate for server state
+- Alpine requires no backend integration, LiveTemplate requires server
+
+## Features
+
+### Event Bindings
+
 ```html
 <!-- Click events -->
 <button lvt-click="submit">Submit</button>
 
-<!-- Form submission -->
+<!-- Form submission with validation -->
 <form lvt-submit="save">
-    <input type="text" name="title">
+    <input type="text" name="title" required>
     <button type="submit">Save</button>
 </form>
 
-<!-- Input changes -->
+<!-- Input events -->
 <input lvt-change="validate" name="email">
-<input lvt-input="search" name="query">
+<input lvt-input="search" lvt-debounce="300" name="query">
 
 <!-- Keyboard events -->
 <input lvt-keydown="handleKey" lvt-key="Enter">
-```
-
-### Extended Events
-```html
-<!-- Focus/blur -->
-<input lvt-focus="onFocus" lvt-blur="onBlur">
 
 <!-- Mouse events -->
-<div lvt-mouseenter="showTooltip" lvt-mouseleave="hideTooltip">Hover me</div>
-
-<!-- Click away (detect clicks outside element) -->
-<div lvt-click-away="close">Modal content</div>
+<div lvt-mouseenter="show" lvt-mouseleave="hide">Hover me</div>
 
 <!-- Window events -->
-<div lvt-window-keydown="globalShortcut" lvt-key="Escape">
-<div lvt-window-scroll="handleScroll">
-<div lvt-window-resize="handleResize">
-```
-
-### Rate Limiting
-```html
-<!-- Debounce: wait for user to stop typing -->
-<input lvt-change="search" lvt-debounce="300">
-
-<!-- Throttle: limit event frequency -->
-<div lvt-window-scroll="updatePosition" lvt-throttle="100">
-```
-
-### Form Features
-```html
-<!-- Auto-validate on change -->
-<form lvt-change="validate" lvt-submit="save">
-    <input type="text" name="email" required>
-    <button type="submit" lvt-disable-with="Saving...">Save</button>
-</form>
-
-<!-- Preserve form data on errors (default: form resets on success) -->
-<form lvt-submit="save" lvt-preserve>
-    <input type="text" name="title">
-</form>
+<div lvt-window-keydown="closeModal" lvt-key="Escape">
+<div lvt-window-scroll="loadMore" lvt-throttle="100">
 ```
 
 ### Passing Data
+
 ```html
-<!-- Simple data attributes -->
+<!-- Simple data -->
 <button lvt-click="delete" lvt-data-id="{{.ID}}">Delete</button>
 
 <!-- Multiple data attributes -->
 <button lvt-click="update"
     lvt-data-id="{{.ID}}"
-    lvt-data-status="{{.Status}}">Update</button>
+    lvt-data-status="{{.Status}}"
+    lvt-data-priority="{{.Priority}}">
+    Update
+</button>
 ```
 
-## Lifecycle Events
+Access in Go:
 
-### Form Lifecycle
-Forms emit lifecycle events you can listen to:
-
-```javascript
-const form = document.querySelector('form');
-
-form.addEventListener('lvt:pending', (e) => {
-    console.log('Action started');
-});
-
-form.addEventListener('lvt:success', (e) => {
-    console.log('Action succeeded', e.detail);
-});
-
-form.addEventListener('lvt:error', (e) => {
-    console.log('Validation errors', e.detail.errors);
-});
-
-form.addEventListener('lvt:done', (e) => {
-    console.log('Action completed', e.detail);
-});
+```go
+func (s *State) Change(ctx *livetemplate.ActionContext) error {
+    switch ctx.Action {
+    case "delete":
+        id := ctx.GetString("id")
+        // Delete item with id
+    case "update":
+        id := ctx.GetString("id")
+        status := ctx.GetString("status")
+        priority := ctx.GetInt("priority")
+        // Update item
+    }
+    return nil
+}
 ```
 
-### Element Lifecycle Hooks
-```html
-<!-- Inline JavaScript hooks -->
-<div lvt-mounted="console.log('Element mounted', element)">
-<div lvt-updated="console.log('Element updated', element)">
-<div lvt-destroyed="console.log('Element removed', element)">
-```
+### Validation
 
-### Connection State Hooks
-```javascript
-const wrapper = document.querySelector('[data-lvt-id]');
-
-wrapper.addEventListener('lvt:connected', () => {
-    console.log('WebSocket connected');
-});
-
-wrapper.addEventListener('lvt:disconnected', () => {
-    console.log('WebSocket disconnected');
-});
-```
-
-## Validation
-
-Server-side validation using go-playground/validator:
+Server-side validation with automatic error display:
 
 ```go
 import "github.com/go-playground/validator/v10"
@@ -191,7 +240,8 @@ import "github.com/go-playground/validator/v10"
 var validate = validator.New()
 
 type TodoInput struct {
-    Text string `json:"text" validate:"required,min=3"`
+    Title string `json:"title" validate:"required,min=3,max=100"`
+    Tags  string `json:"tags" validate:"required"`
 }
 
 func (s *TodoState) Change(ctx *livetemplate.ActionContext) error {
@@ -199,77 +249,151 @@ func (s *TodoState) Change(ctx *livetemplate.ActionContext) error {
     case "add":
         var input TodoInput
         if err := ctx.BindAndValidate(&input, validate); err != nil {
-            return err // Automatically shown in template
+            return err // Errors automatically available in template
         }
-        // ... add todo
+        // Add todo
     }
     return nil
 }
 ```
 
 Show errors in template:
-```html
-<form lvt-change="validate" lvt-submit="add">
-    <input type="text" name="text"
-        {{if .lvt.HasError "text"}}aria-invalid="true"{{end}}>
 
-    {{if .lvt.HasError "text"}}
-        <small>{{.lvt.Error "text"}}</small>
-    {{end}}
+```html
+<form lvt-submit="add">
+    <div>
+        <input type="text" name="title"
+            {{if .lvt.HasError "title"}}aria-invalid="true"{{end}}>
+        {{if .lvt.HasError "title"}}
+            <small>{{.lvt.Error "title"}}</small>
+        {{end}}
+    </div>
+    <button type="submit">Add Todo</button>
 </form>
 ```
 
-## Tree-Based Optimization
+### Form Lifecycle
 
-LiveTemplate uses tree diffing to minimize data transfer:
+```javascript
+const form = document.querySelector('form');
 
-**First Render (includes static structure):**
+// Action started
+form.addEventListener('lvt:pending', (e) => {
+    console.log('Submitting...');
+});
+
+// Validation errors
+form.addEventListener('lvt:error', (e) => {
+    console.log('Errors:', e.detail.errors);
+});
+
+// Success
+form.addEventListener('lvt:success', (e) => {
+    console.log('Saved!');
+});
+
+// Always fired
+form.addEventListener('lvt:done', (e) => {
+    console.log('Completed');
+});
+```
+
+### Multi-Store Pattern
+
+For complex apps, use multiple stores:
+
+```go
+stores := livetemplate.Stores{
+    "counter": &CounterState{},
+    "todos":   &TodosState{},
+    "user":    &UserState{},
+}
+
+handler := livetemplate.HandleStores(tmpl, stores)
+http.Handle("/", handler)
+```
+
+```html
+<!-- Namespaced actions -->
+<button lvt-click="counter.increment">+</button>
+<button lvt-click="todos.add">Add Todo</button>
+<button lvt-click="user.logout">Logout</button>
+```
+
+### Broadcasting
+
+Share state updates across all connected clients:
+
+```go
+type ChatState struct {
+    Messages []Message
+}
+
+func (s *ChatState) Change(ctx *livetemplate.ActionContext) error {
+    switch ctx.Action {
+    case "send":
+        msg := Message{
+            Text: ctx.GetString("text"),
+            Time: time.Now(),
+        }
+        s.Messages = append(s.Messages, msg)
+
+        // Broadcast to all connected clients
+        if b, ok := ctx.Broadcaster(); ok {
+            b.Broadcast(s)
+        }
+    }
+    return nil
+}
+```
+
+### Tree-Based Optimization
+
+LiveTemplate achieves 50-90% bandwidth savings through tree diffing:
+
+**First render (full tree with statics):**
 ```json
 {
-    "s": ["<div>Count: ", "</div>"],
+    "s": ["<div>Counter: ", "</div>"],
     "0": "5"
 }
 ```
 
-**Subsequent Updates (only dynamic values):**
+**Subsequent updates (only changed dynamics):**
 ```json
 {
     "0": "6"
 }
 ```
 
-Static parts (`s`) are cached client-side. For complex templates with multiple dynamic values, this achieves 90%+ bandwidth savings.
+Static parts (`s`) are cached client-side and referenced by ID. For templates with lots of static HTML and few dynamic values, this is extremely efficient.
 
 ## Examples
 
-See the `examples/` directory:
-- **counter/** - Simple counter with increment/decrement
-- **todos/** - Todo app with validation and form lifecycle
-
-## Client Library
-
-The TypeScript client is built automatically:
+### Counter
+Simple increment/decrement counter demonstrating basic state management.
 
 ```bash
-cd client
-npm install
-npm run build
+cd examples/counter
+go run main.go
+# Open http://localhost:8080
 ```
 
-Include in your HTML:
-```html
-<script src="/livetemplate-client.js"></script>
+### Todos
+Full CRUD application with validation, forms, and lifecycle events.
+
+```bash
+cd examples/todos
+go run main.go
+# Open http://localhost:8080
 ```
 
-The client automatically:
-- Connects via WebSocket (with HTTP fallback)
-- Handles event delegation for `lvt-*` attributes
-- Applies DOM updates using morphdom
-- Manages form lifecycle and validation errors
+### Source Code
+Both examples are ~100 lines of Go + template. See `examples/` directory for complete code.
 
-## LiveTemplate CLI (`lvt`)
+## CLI Tool
 
-The `lvt` CLI provides rapid application scaffolding with a complete components and kits system.
+The `lvt` CLI provides rapid application scaffolding with components and CSS framework kits.
 
 ### Installation
 
@@ -280,126 +404,149 @@ go install github.com/livefir/livetemplate/cmd/lvt@latest
 ### Quick Start
 
 ```bash
-# Create a new app
+# Create new app with Tailwind CSS
 lvt new myapp --css tailwind
 cd myapp
 
-# Generate a CRUD resource
+# Generate CRUD resource
 lvt gen products name price:float stock:int
 
-# Start development server with hot reload
+# Start dev server with hot reload
 lvt serve
 ```
 
-### Components & Kits System
+### Features
 
-LiveTemplate includes a powerful components and kits system for rapid UI development:
+- **App Scaffolding**: Generate complete apps with routing and database
+- **CRUD Generation**: Instant CRUD with forms, validation, tables
+- **CSS Kits**: Tailwind, Bulma, Pico, or plain HTML
+- **Components**: Reusable UI blocks (forms, tables, layouts, pagination)
+- **Hot Reload**: Auto-rebuild and restart on file changes
+- **Database Migrations**: Built-in migration management
 
-**Components** - Reusable UI template blocks (forms, tables, layouts, pagination)
-**Kits** - CSS framework integrations (Tailwind, Bulma, Pico, or plain HTML)
-
-```bash
-# List available components
-lvt components list
-
-# List available kits
-lvt kits list
-
-# Create custom component
-lvt components create alert --category feedback
-
-# Create custom kit
-lvt kits create mykit
-```
-
-### Development Server
-
-The `lvt serve` command provides three development modes with hot reload:
-
-- **Component Mode** - Live preview for component development
-- **Kit Mode** - CSS helper showcase and testing
-- **App Mode** - Full Go app with auto-rebuild and restart
+### Commands
 
 ```bash
-# Auto-detect mode and start server
-lvt serve
-
-# Component development (in component directory)
-cd ~/.lvt/components/mycomponent
-lvt serve  # Opens live preview with JSON test data editor
-
-# Kit development (in kit directory)
-cd ~/.lvt/kits/mykit
-lvt serve  # Shows CSS helper showcase
-
-# App development (in app directory)
-cd myapp
-lvt serve  # Runs app with hot reload on file changes
-```
-
-### Documentation
-
-Full documentation available in the `docs/` directory:
-
-- **[User Guide](docs/user-guide.md)** - Getting started and usage
-- **[Component Development](docs/component-development.md)** - Creating custom components
-- **[Kit Development](docs/kit-development.md)** - Creating custom CSS kits
-- **[Serve Guide](docs/serve-guide.md)** - Development server guide
-- **[API Reference](docs/api-reference.md)** - Complete API reference
-
-### CLI Commands
-
-```bash
-# App scaffolding
-lvt new <name>              # Create new app
-lvt gen <resource> [fields] # Generate CRUD resource
-lvt gen view <name>         # Generate view-only handler
-
-# Components & Kits
-lvt components list         # List components
-lvt components create <name>  # Create component
-lvt components validate <path>  # Validate component
-lvt kits list              # List kits
-lvt kits create <name>     # Create kit
-lvt kits validate <path>   # Validate kit
-
-# Database
-lvt migration up           # Run migrations
-lvt migration down         # Rollback migration
-lvt migration status       # Migration status
+# App commands
+lvt new <name>                 # Create new app
+lvt gen <resource> [fields]    # Generate CRUD resource
+lvt gen view <name>            # Generate view-only handler
 
 # Development
-lvt serve                  # Start dev server with hot reload
-lvt parse <file>          # Validate template syntax
+lvt serve                      # Start dev server with hot reload
+
+# Components & Kits
+lvt kits list                  # List available CSS kits
+lvt kits create <name>         # Create custom kit
+lvt components list            # List available components
+lvt components create <name>   # Create custom component
+
+# Database
+lvt migration up               # Run migrations
+lvt migration down             # Rollback migrations
+lvt migration status           # Show migration status
 ```
 
-### Building from Source
+### CLI Documentation
+
+Full CLI documentation:
+- **[User Guide](docs/user-guide.md)** - Getting started with CLI
+- **[Component Development](docs/component-development.md)** - Creating components
+- **[Kit Development](docs/kit-development.md)** - Creating CSS kits
+- **[Serve Guide](docs/serve-guide.md)** - Development server
+
+## Client Library
+
+The TypeScript client handles WebSocket connections, event delegation, and DOM updates.
+
+### CDN
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/@livefir/livetemplate-client@latest/dist/livetemplate-client.min.js"></script>
+```
+
+### Build from Source
 
 ```bash
-make build       # Build with timestamp
-./lvt version    # Check version and build info
+cd client
+npm install
+npm run build
 ```
 
-Build commands:
-```bash
-make build                    # Build with timestamp
-make dev                      # Build with dev version tag
-make install                  # Install to $GOPATH/bin
-make build VERSION=v1.0.0     # Build with specific version
-```
+The client (~15KB minified):
+- Connects via WebSocket with automatic reconnection
+- Falls back to HTTP for browsers without WebSocket support
+- Handles event delegation for `lvt-*` attributes
+- Applies DOM updates efficiently using morphdom
+- Manages form lifecycle and validation errors
+- Preserves input focus and scroll position
 
-Without Make:
-```bash
-go build -ldflags "-X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  -o lvt cmd/lvt/*.go
-```
+## Documentation
+
+### Core Documentation
+- **[Contributing Guide](CONTRIBUTING.md)** - How to contribute
+- **[Architecture](docs/ARCHITECTURE.md)** - System architecture and design
+- **[Code Tour](docs/CODE_TOUR.md)** - Guided walkthrough for newcomers
+
+### API Documentation
+- **[API Reference](docs/api-reference.md)** - Complete API reference
+- **[Template Support Matrix](docs/template-support-matrix.md)** - Supported Go template features
+
+### CLI Documentation
+- **[User Guide](docs/user-guide.md)** - CLI getting started
+- **[Component Development](docs/component-development.md)** - Creating components
+- **[Kit Development](docs/kit-development.md)** - Creating CSS kits
+- **[Serve Guide](docs/serve-guide.md)** - Development server
 
 ## Testing
 
 ```bash
+# Run all tests
 go test -v ./...
+
+# Run specific test suite
+go test -run TestTemplate_E2E -v
+
+# Run client tests
+cd client && npm test
+
+# Run with coverage
+go test -v -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
 ```
+
+## Contributing
+
+We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for:
+- Development setup
+- Testing guidelines
+- Code style conventions
+- PR process
+
+## Roadmap
+
+- [ ] Stable v1.0 release
+- [ ] Performance benchmarks vs alternatives
+- [ ] Deployment guides (Docker, Kubernetes, serverless)
+- [ ] Advanced examples (real-time chat, collaborative editing)
+- [ ] Streaming updates for large datasets
+- [ ] Client-side caching improvements
+- [ ] Developer tools (browser extension)
 
 ## License
 
-MIT
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+Inspired by [Phoenix LiveView](https://hexdocs.pm/phoenix_live_view) - bringing that developer experience to Go.
+
+## Community
+
+- **GitHub Issues**: Bug reports and feature requests
+- **GitHub Discussions**: Questions and community discussion
+- **Examples**: Check `examples/` directory for working code
+
+---
+
+**Built with LiveTemplate?** We'd love to hear about it! Share your project in GitHub Discussions.
