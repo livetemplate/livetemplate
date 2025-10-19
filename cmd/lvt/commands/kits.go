@@ -39,8 +39,6 @@ func listKits(args []string) error {
 	filter := "all"   // default: show all
 	format := "table" // default: table format
 	search := ""      // default: no search
-	var filteredArgs []string
-
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--filter" && i+1 < len(args) {
 			filter = args[i+1]
@@ -51,9 +49,8 @@ func listKits(args []string) error {
 		} else if args[i] == "--search" && i+1 < len(args) {
 			search = args[i+1]
 			i++ // skip next arg
-		} else {
-			filteredArgs = append(filteredArgs, args[i])
 		}
+		// Positional arguments are not used by this command
 	}
 
 	// Validate filter
@@ -199,11 +196,7 @@ func createKit(args []string) error {
 
 	kitName := args[0]
 
-	// Parse flags (none for now, but structure for future)
-	var filteredArgs []string
-	for i := 1; i < len(args); i++ {
-		filteredArgs = append(filteredArgs, args[i])
-	}
+	// No additional arguments needed for kit creation
 
 	// Get current directory or use .lvt/kits
 	currentDir, err := os.Getwd()

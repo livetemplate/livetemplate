@@ -733,8 +733,8 @@ func TestGetSearchPaths_ReturnsCopy(t *testing.T) {
 	paths := loader.GetSearchPaths()
 	originalLen := len(paths)
 
-	// Modify the returned slice
-	paths = append(paths, "/modified")
+	// Modify the returned slice (result intentionally unused)
+	_ = append(paths, "/modified")
 
 	// Original should be unchanged
 	newPaths := loader.GetSearchPaths()

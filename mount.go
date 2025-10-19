@@ -129,9 +129,7 @@ type MountOption func(*MountConfig)
 
 // liveHandler handles both WebSocket and HTTP requests
 type liveHandler struct {
-	config      MountConfig
-	connections map[*websocket.Conn]*connState
-	connMu      sync.RWMutex
+	config MountConfig
 }
 
 type connState struct {

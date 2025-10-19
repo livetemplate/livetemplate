@@ -271,7 +271,9 @@ func (km *KitMode) handleIndex(w http.ResponseWriter, r *http.Request) {
 </html>`
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(html))
+	if _, err := w.Write([]byte(html)); err != nil {
+		log.Printf("Failed to write response: %v", err)
+	}
 }
 
 func (km *KitMode) generateTestCards() string {
@@ -307,7 +309,9 @@ func (km *KitMode) testCard(title, class string) string {
 
 func (km *KitMode) handleTest(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte("<p>Test placeholder</p>"))
+	if _, err := w.Write([]byte("<p>Test placeholder</p>")); err != nil {
+		log.Printf("Failed to write response: %v", err)
+	}
 }
 
 func (km *KitMode) handleHelpers(w http.ResponseWriter, r *http.Request) {

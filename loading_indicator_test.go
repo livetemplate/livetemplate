@@ -80,7 +80,9 @@ func TestLoadingIndicator(t *testing.T) {
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		server.Shutdown(ctx)
+		if err := server.Shutdown(ctx); err != nil {
+			t.Logf("Server shutdown warning: %v", err)
+		}
 	}()
 
 	// Create chromedp context with console log capture
@@ -243,7 +245,9 @@ func TestLoadingIndicatorDisabled(t *testing.T) {
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		server.Shutdown(ctx)
+		if err := server.Shutdown(ctx); err != nil {
+			t.Logf("Server shutdown warning: %v", err)
+		}
 	}()
 
 	// Create chromedp context

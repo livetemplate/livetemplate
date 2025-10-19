@@ -74,17 +74,16 @@ func hasExecutableContent(node *parse.ListNode) bool {
 
 	// Look for any node that represents actual execution, not just {{define}} declarations
 	for _, n := range node.Nodes {
-		switch n.(type) {
+		switch typed := n.(type) {
 		case *parse.TextNode:
 			// Non-whitespace text is executable content
-			if txt := n.(*parse.TextNode); len(strings.TrimSpace(string(txt.Text))) > 0 {
+			if len(strings.TrimSpace(string(typed.Text))) > 0 {
 				return true
 			}
 		case *parse.ActionNode:
 			// Check if this is a {{define}} or {{block}} - these are declarations, not execution
-			action := n.(*parse.ActionNode)
-			if len(action.Pipe.Cmds) > 0 && len(action.Pipe.Cmds[0].Args) > 0 {
-				if ident, ok := action.Pipe.Cmds[0].Args[0].(*parse.IdentifierNode); ok {
+			if len(typed.Pipe.Cmds) > 0 && len(typed.Pipe.Cmds[0].Args) > 0 {
+				if ident, ok := typed.Pipe.Cmds[0].Args[0].(*parse.IdentifierNode); ok {
 					if ident.Ident == "define" || ident.Ident == "block" {
 						// This is a declaration, keep looking
 						continue

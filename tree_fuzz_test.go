@@ -250,11 +250,7 @@ func validateTreeStructure(tree TreeNode) bool {
 
 	// Must have statics
 	_, hasStatics := tree["s"]
-	if !hasStatics {
-		return false
-	}
-
-	return true
+	return hasStatics
 }
 
 // validateTreeRenders attempts to render a tree to HTML
@@ -422,8 +418,8 @@ func rangeComprehensionsEqual(d1, d2 interface{}, tree1, tree2 TreeNode) bool {
 	}
 
 	// Check statics match
-	s1, _ := tree1["s"]
-	s2, _ := tree2["s"]
+	s1 := tree1["s"]
+	s2 := tree2["s"]
 	if fmt.Sprintf("%v", s1) != fmt.Sprintf("%v", s2) {
 		return false
 	}

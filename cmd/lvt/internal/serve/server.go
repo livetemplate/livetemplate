@@ -206,7 +206,9 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 </html>`, s.config.Mode, s.config.Mode, s.config.Dir, s.config.LiveReload, s.getWebSocketScript())
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(html))
+	if _, err := w.Write([]byte(html)); err != nil {
+		log.Printf("Failed to write response: %v", err)
+	}
 }
 
 func (s *Server) getWebSocketScript() string {

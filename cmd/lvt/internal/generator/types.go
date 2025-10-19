@@ -5,6 +5,8 @@ import (
 	"text/template"
 
 	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 type ResourceData struct {
@@ -43,7 +45,7 @@ type AppData struct {
 }
 
 var funcMap = template.FuncMap{
-	"title":        strings.Title,
+	"title":        cases.Title(language.English).String,
 	"lower":        strings.ToLower,
 	"upper":        strings.ToUpper,
 	"camelCase":    toCamelCase,

@@ -108,8 +108,8 @@ func TestPageModeURLRouting(t *testing.T) {
 	}
 	defer func() {
 		if serverCmd.Process != nil {
-			serverCmd.Process.Kill()
-			serverCmd.Wait()
+			_ = serverCmd.Process.Kill()
+			_ = serverCmd.Wait()
 		}
 	}()
 
@@ -199,7 +199,7 @@ func TestPageModeURLRouting(t *testing.T) {
 
 		// Verify modal is open
 		var modalVisible bool
-		chromedp.Evaluate(`!document.getElementById('add-modal').hasAttribute('hidden')`, &modalVisible).Do(ctx)
+		_ = chromedp.Evaluate(`!document.getElementById('add-modal').hasAttribute('hidden')`, &modalVisible).Do(ctx)
 		t.Logf("Modal visible: %v", modalVisible)
 
 		// Fill form and submit
@@ -212,7 +212,7 @@ func TestPageModeURLRouting(t *testing.T) {
 
 		// Log form data before submit
 		var formValue string
-		chromedp.Evaluate(`document.querySelector('input[name="name"]').value`, &formValue).Do(ctx)
+		_ = chromedp.Evaluate(`document.querySelector('input[name="name"]').value`, &formValue).Do(ctx)
 		t.Logf("Form value before submit: '%s'", formValue)
 
 		// Click the submit button (using Click instead of Submit to trigger LiveTemplate's WebSocket handler)
@@ -238,6 +238,9 @@ func TestPageModeURLRouting(t *testing.T) {
 		err = chromedp.Run(ctx,
 			chromedp.Evaluate(`typeof window.liveTemplateClient !== 'undefined' && window.liveTemplateClient.ws && window.liveTemplateClient.ws.readyState === 1`, &wsConnected),
 		)
+		if err != nil {
+			t.Logf("Warning: failed to check WebSocket connection status: %v", err)
+		}
 		t.Logf("WebSocket connected: %v", wsConnected)
 
 		// Wait for WebSocket reconnection if needed

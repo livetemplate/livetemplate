@@ -202,7 +202,9 @@ func TestTutorialE2E(t *testing.T) {
 	}
 	defer func() {
 		if serverCmd != nil && serverCmd.Process != nil {
-			serverCmd.Process.Kill()
+			if err := serverCmd.Process.Kill(); err != nil {
+				t.Logf("Warning: failed to kill server process: %v", err)
+			}
 		}
 	}()
 
@@ -427,7 +429,7 @@ func TestTutorialE2E(t *testing.T) {
 
 		if !postInTable {
 			var tableSummary string
-			chromedp.Run(ctx,
+			_ = chromedp.Run(ctx,
 				chromedp.Evaluate(`
 					(() => {
 						const table = document.querySelector('table');

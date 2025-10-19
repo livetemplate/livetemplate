@@ -185,11 +185,8 @@ func RenderHelpOverlay(background string, helpSections []HelpSection, termWidth,
 		topPadding = 0
 	}
 
-	// Horizontal centering
-	leftPadding := (termWidth - helpWidth) / 2
-	if leftPadding < 0 {
-		leftPadding = 0
-	}
+	// Horizontal centering (not yet implemented)
+	// leftPadding := (termWidth - helpWidth) / 2
 
 	// Build overlay
 	var result strings.Builder

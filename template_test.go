@@ -609,29 +609,39 @@ func TestTemplate_HtmlTemplateCompatibility(t *testing.T) {
 // Benchmark tests for performance characteristics
 func BenchmarkTemplate_Execute(b *testing.B) {
 	tmpl := New("benchmark")
-	tmpl.Parse("<p>Hello {{.Name}}!</p>")
+	if _, err := tmpl.Parse("<p>Hello {{.Name}}!</p>"); err != nil {
+		b.Fatalf("Parse failed: %v", err)
+	}
 	data := map[string]interface{}{"Name": "World"}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var buf bytes.Buffer
-		tmpl.Execute(&buf, data)
+		if err := tmpl.Execute(&buf, data); err != nil {
+			b.Fatalf("Execute failed: %v", err)
+		}
 	}
 }
 
 func BenchmarkTemplate_ExecuteUpdates(b *testing.B) {
 	tmpl := New("benchmark")
-	tmpl.Parse("<p>Hello {{.Name}}!</p>")
+	if _, err := tmpl.Parse("<p>Hello {{.Name}}!</p>"); err != nil {
+		b.Fatalf("Parse failed: %v", err)
+	}
 
 	// Prime the template
 	var initBuf bytes.Buffer
-	tmpl.ExecuteUpdates(&initBuf, map[string]interface{}{"Name": "World"})
+	if err := tmpl.ExecuteUpdates(&initBuf, map[string]interface{}{"Name": "World"}); err != nil {
+		b.Fatalf("Initial ExecuteUpdates failed: %v", err)
+	}
 
 	data := map[string]interface{}{"Name": "Alice"}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var buf bytes.Buffer
-		tmpl.ExecuteUpdates(&buf, data)
+		if err := tmpl.ExecuteUpdates(&buf, data); err != nil {
+			b.Fatalf("ExecuteUpdates failed: %v", err)
+		}
 	}
 }

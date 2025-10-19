@@ -57,10 +57,10 @@ func TestWatcher_DetectsChanges(t *testing.T) {
 
 	testFile := filepath.Join(tmpDir, "test.txt")
 
-	os.WriteFile(testFile, []byte("initial"), 0644)
+	_ = os.WriteFile(testFile, []byte("initial"), 0644)
 	time.Sleep(800 * time.Millisecond)
 
-	os.WriteFile(testFile, []byte("modified"), 0644)
+	_ = os.WriteFile(testFile, []byte("modified"), 0644)
 	time.Sleep(800 * time.Millisecond)
 
 	mu.Lock()
@@ -97,10 +97,10 @@ func TestWatcher_IgnoresPatterns(t *testing.T) {
 	gitDir := filepath.Join(tmpDir, ".git")
 	_ = os.MkdirAll(gitDir, 0755)
 	gitFile := filepath.Join(gitDir, "config")
-	os.WriteFile(gitFile, []byte("test"), 0644)
+	_ = os.WriteFile(gitFile, []byte("test"), 0644)
 
 	swpFile := filepath.Join(tmpDir, "test.swp")
-	os.WriteFile(swpFile, []byte("test"), 0644)
+	_ = os.WriteFile(swpFile, []byte("test"), 0644)
 
 	time.Sleep(800 * time.Millisecond)
 
@@ -144,7 +144,7 @@ func TestWatcher_Debounce(t *testing.T) {
 	testFile := filepath.Join(tmpDir, "test.txt")
 
 	for i := 0; i < 5; i++ {
-		os.WriteFile(testFile, []byte("change"), 0644)
+		_ = os.WriteFile(testFile, []byte("change"), 0644)
 		time.Sleep(50 * time.Millisecond)
 	}
 
@@ -180,7 +180,7 @@ func TestWatcher_AddIgnorePattern(t *testing.T) {
 	defer watcher.Stop()
 
 	testFile := filepath.Join(tmpDir, "file.test")
-	os.WriteFile(testFile, []byte("test"), 0644)
+	_ = os.WriteFile(testFile, []byte("test"), 0644)
 
 	time.Sleep(800 * time.Millisecond)
 

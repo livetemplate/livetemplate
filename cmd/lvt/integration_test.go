@@ -68,7 +68,9 @@ func TestGeneratedFilesExist(t *testing.T) {
 	}
 	// Restore working directory after test
 	t.Cleanup(func() {
-		os.Chdir(origDir)
+		if err := os.Chdir(origDir); err != nil {
+			t.Logf("Warning: failed to restore directory: %v", err)
+		}
 	})
 
 	// Generate app

@@ -24,7 +24,17 @@ else
     exit 1
 fi
 
-# Step 2: Run npm tests (client library)
+# Step 2: Run golangci-lint
+echo "🔍 Running golangci-lint..."
+if golangci-lint run --disable-all --enable=errcheck,unused,staticcheck,gosimple,ineffassign; then
+    echo "✅ Linting passed"
+else
+    echo "❌ Linting failed - commit blocked"
+    echo "💡 Fix linting errors before committing"
+    exit 1
+fi
+
+# Step 3: Run npm tests (client library)
 echo "🧪 Running npm tests..."
 cd client
 if npm test; then
@@ -36,7 +46,7 @@ else
     exit 1
 fi
 
-# Step 3: Run all Go tests with increased timeout for slow e2e tests
+# Step 4: Run all Go tests with increased timeout for slow e2e tests
 echo "🧪 Running Go tests..."
 if go test -v ./... -timeout=300s; then
     echo "✅ All Go tests passed"

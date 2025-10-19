@@ -114,7 +114,7 @@ func TestModeDetector_ValidateMode(t *testing.T) {
 		{
 			name: "validates component mode",
 			setupFunc: func(dir string) {
-				os.WriteFile(filepath.Join(dir, "component.yaml"), []byte("name: test"), 0644)
+				_ = os.WriteFile(filepath.Join(dir, "component.yaml"), []byte("name: test"), 0644)
 			},
 			mode:    ModeComponent,
 			wantErr: false,
@@ -122,7 +122,7 @@ func TestModeDetector_ValidateMode(t *testing.T) {
 		{
 			name: "validates kit mode",
 			setupFunc: func(dir string) {
-				os.WriteFile(filepath.Join(dir, "kit.yaml"), []byte("name: test"), 0644)
+				_ = os.WriteFile(filepath.Join(dir, "kit.yaml"), []byte("name: test"), 0644)
 			},
 			mode:    ModeKit,
 			wantErr: false,
@@ -130,7 +130,7 @@ func TestModeDetector_ValidateMode(t *testing.T) {
 		{
 			name: "validates app mode",
 			setupFunc: func(dir string) {
-				os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0644)
+				_ = os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0644)
 			},
 			mode:    ModeApp,
 			wantErr: false,

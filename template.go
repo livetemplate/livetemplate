@@ -134,10 +134,14 @@ func New(name string, opts ...Option) *Template {
 	if len(config.TemplateFiles) == 0 {
 		files, err := discoverTemplateFiles()
 		if err == nil && len(files) > 0 {
-			tmpl.ParseFiles(files...)
+			if _, err := tmpl.ParseFiles(files...); err != nil {
+				log.Printf("Warning: failed to parse template files: %v", err)
+			}
 		}
 	} else {
-		tmpl.ParseFiles(config.TemplateFiles...)
+		if _, err := tmpl.ParseFiles(config.TemplateFiles...); err != nil {
+			log.Printf("Warning: failed to parse template files: %v", err)
+		}
 	}
 
 	return tmpl
@@ -166,15 +170,6 @@ func (t *Template) Clone() (*Template, error) {
 	}
 
 	return clone, nil
-}
-
-// resetKeyGeneration resets the key generator for a fresh render
-func (t *Template) resetKeyGeneration() {
-	if t.keyGen == nil {
-		t.keyGen = NewKeyGenerator()
-	} else {
-		t.keyGen.Reset()
-	}
 }
 
 // Parse parses text as a template body for the template t.
@@ -449,11 +444,6 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, errors ...map[
 	return err
 }
 
-// generateTreeInternal is the internal implementation that returns TreeNode
-func (t *Template) generateTreeInternal(data interface{}) (TreeNode, error) {
-	return t.generateTreeInternalWithErrors(data, nil)
-}
-
 // generateTreeInternalWithErrors is the internal implementation that returns TreeNode with error context
 func (t *Template) generateTreeInternalWithErrors(data interface{}, errors map[string]string) (TreeNode, error) {
 	// Initialize key generator if needed (but don't reset - keys should increment globally)
@@ -541,11 +531,6 @@ func (t *Template) addLvtToData(data interface{}, errors map[string]string) inte
 	}
 
 	return templateData
-}
-
-// executeTemplate executes the template with given data
-func (t *Template) executeTemplate(data interface{}) (string, error) {
-	return t.executeTemplateWithErrors(data, nil)
 }
 
 // executeTemplateWithErrors executes the template with given data and errors for lvt context
