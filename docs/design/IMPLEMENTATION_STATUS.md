@@ -69,7 +69,7 @@
 
 ### Phase 4: Template Configuration ✅ COMPLETE
 **Files:** `template.go` (modified), `template_test.go` (modified)
-**Commit:** TBD
+**Commit:** `15be3a9`
 
 **Tasks:**
 - ✅ Add `Authenticator` field to `Config`
@@ -90,18 +90,33 @@
 
 ---
 
-### Phase 5: Mount Handler Integration
-**Status**: Not started
-**Estimated**: 2 sessions
+### Phase 5: Mount Handler Integration ✅ COMPLETE
+**Files:** `mount.go` (modified), `template.go` (modified)
+**Commit:** TBD
 
 **Tasks:**
-- [ ] Add `ConnectionRegistry` to `liveHandler`
-- [ ] Update `handleWebSocket()` to use Authenticator
-- [ ] Set `livetemplate-id` cookie for anonymous users
-- [ ] Use SessionStore to get/set session group stores
-- [ ] Register/unregister connections in registry
-- [ ] Update `handleHTTP()` similarly
-- [ ] Integration tests
+- ✅ Add `ConnectionRegistry` to `liveHandler`
+- ✅ Update `handleWebSocket()` to use Authenticator
+- ✅ Set `livetemplate-id` cookie for anonymous users
+- ✅ Use SessionStore to get/set session group stores
+- ✅ Register/unregister connections in registry
+- ✅ Update `handleHTTP()` similarly
+- ✅ WebSocket origin validation using AllowedOrigins
+- ✅ All tests passing (62+ tests)
+
+**Implementation Notes:**
+- Added ConnectionRegistry field to liveHandler struct
+- Updated MountConfig to include Authenticator and AllowedOrigins
+- WebSocket handler now authenticates before upgrading
+- Session cookie management with "livetemplate-id" (1 year TTL)
+- Connections registered/unregistered automatically
+- Stores shared across connections in same session group
+- HTTP handler uses same authentication flow
+- Backward compatible: Mount() and MountStores() updated
+- Detailed logging for debugging (user, group, connection counts)
+- Origin validation with custom CheckOrigin function
+
+**Actual Effort:** 1.5 sessions
 
 ---
 
@@ -209,22 +224,17 @@
 
 ## Next Steps
 
-To complete the core implementation (Phases 5-6):
+To complete the core implementation (Phase 6):
 
-1. **Mount Handler Integration** ⬅️ NEXT (2 hours)
-   - Integrate Authenticator with WebSocket and HTTP handlers
-   - Cookie management for session IDs
-   - ConnectionRegistry integration
-   - Session group state sharing
-   - Integration tests
-
-2. **Broadcasting System** (1.5 hours)
+1. **Broadcasting System** ⬅️ NEXT (1.5 hours)
    - Define LiveHandler interface
    - Implement Broadcast(), BroadcastToUsers(), BroadcastToGroup()
-   - Error handling
-   - Concurrency tests
+   - Error handling and concurrency tests
+   - Broadcasting from background goroutines
 
-**Estimated time to core completion**: 3.5 hours
+**Estimated time to core completion**: 1.5 hours
+
+After Phase 6, the core multi-session isolation feature will be fully functional!
 
 ---
 

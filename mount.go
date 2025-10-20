@@ -76,11 +76,14 @@ type MountConfig struct {
 	IsSingleStore     bool
 	Upgrader          *websocket.Upgrader
 	SessionStore      SessionStore
+	Authenticator     Authenticator
+	AllowedOrigins    []string
 	WebSocketDisabled bool
 }
 
 // Mount creates an http.Handler that auto-generates updates when state changes
 // For single store: actions like "increment", "decrement"
+// Deprecated: Use Template.Handle() instead
 func Mount(tmpl *Template, store Store, opts ...MountOption) http.Handler {
 	config := MountConfig{
 		Template:      tmpl,
@@ -89,18 +92,23 @@ func Mount(tmpl *Template, store Store, opts ...MountOption) http.Handler {
 		Upgrader: &websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
-		SessionStore: NewMemorySessionStore(),
+		SessionStore:  NewMemorySessionStore(),
+		Authenticator: &AnonymousAuthenticator{}, // Default: browser-based session grouping
 	}
 
 	for _, opt := range opts {
 		opt(&config)
 	}
 
-	return &liveHandler{config: config}
+	return &liveHandler{
+		config:   config,
+		registry: NewConnectionRegistry(),
+	}
 }
 
 // MountStores creates an http.Handler for multiple named stores
 // For multiple stores: actions like "counter.increment", "user.setName"
+// Deprecated: Use Template.Handle() instead
 func MountStores(tmpl *Template, stores Stores, opts ...MountOption) http.Handler {
 	if len(stores) == 0 {
 		panic("MountStores requires at least one store")
@@ -113,14 +121,18 @@ func MountStores(tmpl *Template, stores Stores, opts ...MountOption) http.Handle
 		Upgrader: &websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
-		SessionStore: NewMemorySessionStore(),
+		SessionStore:  NewMemorySessionStore(),
+		Authenticator: &AnonymousAuthenticator{}, // Default: browser-based session grouping
 	}
 
 	for _, opt := range opts {
 		opt(&config)
 	}
 
-	return &liveHandler{config: config}
+	return &liveHandler{
+		config:   config,
+		registry: NewConnectionRegistry(),
+	}
 }
 
 // MountOption is a functional option for configuring Mount/MountStores
@@ -129,7 +141,8 @@ type MountOption func(*MountConfig)
 
 // liveHandler handles both WebSocket and HTTP requests
 type liveHandler struct {
-	config MountConfig
+	config   MountConfig
+	registry *ConnectionRegistry
 }
 
 type connState struct {
@@ -182,6 +195,25 @@ func (h *liveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Authenticate user and get session group
+	userID, err := h.config.Authenticator.Identify(r)
+	if err != nil {
+		log.Printf("Authentication failed: %v", err)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	groupID, err := h.config.Authenticator.GetSessionGroup(r, userID)
+	if err != nil {
+		log.Printf("Failed to get session group: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Set session cookie if this is a new session (cookie doesn't exist)
+	setCookieIfNew(w, r, groupID)
+
+	// Upgrade to WebSocket after authentication succeeds
 	conn, err := h.config.Upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade failed: %v", err)
@@ -189,7 +221,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	log.Printf("Client connected from %s", conn.RemoteAddr())
+	log.Printf("Client connected: user=%q, group=%q, addr=%s", userID, groupID, conn.RemoteAddr())
 
 	// Clone template for this connection to avoid state conflicts
 	// Each WebSocket connection needs its own template instance because
@@ -200,9 +232,30 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create connection state
+	// Get or create stores for this session group
+	stores := h.config.SessionStore.Get(groupID)
+	if stores == nil {
+		stores = h.cloneStores()
+		h.config.SessionStore.Set(groupID, stores)
+		log.Printf("Created new session group: %s", groupID)
+	}
+
+	// Create Connection and register in registry
+	connection := &Connection{
+		Conn:     conn,
+		GroupID:  groupID,
+		UserID:   userID,
+		Template: connTmpl,
+		Stores:   stores,
+	}
+
+	h.registry.Register(connection)
+	defer h.registry.Unregister(connection)
+	log.Printf("Registered connection (total: %d, groups: %d)", h.registry.Count(), h.registry.GroupCount())
+
+	// Create connection state (errors are per-connection, not shared)
 	state := &connState{
-		stores: h.cloneStores(),
+		stores: stores,
 		errors: make(map[string]string),
 	}
 
@@ -329,7 +382,26 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	log.Printf("Client disconnected")
+	log.Printf("Client disconnected: user=%q, group=%q (remaining: %d)", userID, groupID, h.registry.Count())
+}
+
+// setCookieIfNew sets the livetemplate-id cookie if it doesn't already exist
+func setCookieIfNew(w http.ResponseWriter, r *http.Request, groupID string) {
+	// Check if cookie already exists
+	if cookie, err := r.Cookie("livetemplate-id"); err == nil && cookie.Value == groupID {
+		// Cookie exists and matches - no need to set again
+		return
+	}
+
+	// Set session cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "livetemplate-id",
+		Value:    groupID,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   365 * 24 * 60 * 60, // 1 year
+	})
 }
 
 func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
@@ -339,32 +411,36 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get or create session state
-	sessionID := getSessionID(r)
-	isNewSession := false
-	stores := h.config.SessionStore.Get(sessionID)
+	// Authenticate user and get session group
+	userID, err := h.config.Authenticator.Identify(r)
+	if err != nil {
+		log.Printf("HTTP authentication failed: %v", err)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
+	groupID, err := h.config.Authenticator.GetSessionGroup(r, userID)
+	if err != nil {
+		log.Printf("Failed to get session group for HTTP: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Set session cookie if this is a new session (cookie doesn't exist)
+	setCookieIfNew(w, r, groupID)
+
+	// Get or create stores for this session group
+	stores := h.config.SessionStore.Get(groupID)
 	if stores == nil {
 		stores = h.cloneStores()
-		h.config.SessionStore.Set(sessionID, stores)
-		isNewSession = true
+		h.config.SessionStore.Set(groupID, stores)
+		log.Printf("HTTP: Created new session group: %s", groupID)
 	}
 
 	// Create connection state (errors are per-request, not persisted)
 	state := &connState{
 		stores: stores,
 		errors: make(map[string]string),
-	}
-
-	// Set session cookie if this is a new session
-	if isNewSession {
-		http.SetCookie(w, &http.Cookie{
-			Name:     "livetemplate-session",
-			Value:    sessionID,
-			Path:     "/",
-			HttpOnly: true,
-			SameSite: http.SameSiteLaxMode,
-		})
 	}
 
 	// Handle GET request for initial HTML page
@@ -599,20 +675,4 @@ func (h *liveHandler) getStoreNames() []string {
 		}
 	}
 	return names
-}
-
-// getSessionID extracts session ID from cookie or header
-func getSessionID(r *http.Request) string {
-	// Try cookie first
-	if cookie, err := r.Cookie("livetemplate-session"); err == nil {
-		return cookie.Value
-	}
-
-	// Try header
-	if sessionID := r.Header.Get("X-LiveTemplate-Session"); sessionID != "" {
-		return sessionID
-	}
-
-	// Generate new session ID
-	return generateRandomID()
 }

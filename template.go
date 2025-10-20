@@ -1802,16 +1802,46 @@ func (t *Template) Handle(stores ...Store) http.Handler {
 		}
 	}
 
+	// Create WebSocket upgrader with origin validation
+	upgrader := t.config.Upgrader
+	if len(t.config.AllowedOrigins) > 0 {
+		// Custom origin validation when AllowedOrigins is set
+		upgrader = &websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool {
+				origin := r.Header.Get("Origin")
+				if origin == "" {
+					// Same-origin requests (no Origin header) are allowed
+					return true
+				}
+
+				// Check if origin is in allowed list
+				for _, allowed := range t.config.AllowedOrigins {
+					if origin == allowed {
+						return true
+					}
+				}
+
+				log.Printf("WebSocket origin rejected: %s (not in allowed origins)", origin)
+				return false
+			},
+		}
+	}
+
 	config := MountConfig{
 		Template:          t,
 		Stores:            storesMap,
 		IsSingleStore:     isSingleStore,
-		Upgrader:          t.config.Upgrader,
+		Upgrader:          upgrader,
 		SessionStore:      t.config.SessionStore,
+		Authenticator:     t.config.Authenticator,
+		AllowedOrigins:    t.config.AllowedOrigins,
 		WebSocketDisabled: t.config.WebSocketDisabled,
 	}
 
-	return &liveHandler{config: config}
+	return &liveHandler{
+		config:   config,
+		registry: NewConnectionRegistry(),
+	}
 }
 
 // validateTreeGeneration validates that tree generation works with this template
