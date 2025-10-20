@@ -407,22 +407,6 @@ handler := tmpl.Handle(&state)
 handler.Broadcast(data)  // That's it!
 ```
 
-### From Mount() to Handle()
-
-**Before:**
-```go
-http.Handle("/", livetemplate.Mount(tmpl, &state))
-```
-
-**After:**
-```go
-handler := tmpl.Handle(&state)
-http.Handle("/", handler)
-
-// Now you can broadcast!
-handler.Broadcast(data)
-```
-
 ## See Also
 
 - [Multi-Session Isolation Design](./design/multi-session-isolation.md)

@@ -115,62 +115,8 @@ type MountConfig struct {
 	WebSocketDisabled bool
 }
 
-// Mount creates an http.Handler that auto-generates updates when state changes
-// For single store: actions like "increment", "decrement"
-// Deprecated: Use Template.Handle() instead
-func Mount(tmpl *Template, store Store, opts ...MountOption) http.Handler {
-	config := MountConfig{
-		Template:      tmpl,
-		Stores:        Stores{"": store}, // Empty key for single store
-		IsSingleStore: true,
-		Upgrader: &websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool { return true },
-		},
-		SessionStore:  NewMemorySessionStore(),
-		Authenticator: &AnonymousAuthenticator{}, // Default: browser-based session grouping
-	}
-
-	for _, opt := range opts {
-		opt(&config)
-	}
-
-	return &liveHandler{
-		config:   config,
-		registry: NewConnectionRegistry(),
-	}
-}
-
-// MountStores creates an http.Handler for multiple named stores
-// For multiple stores: actions like "counter.increment", "user.setName"
-// Deprecated: Use Template.Handle() instead
-func MountStores(tmpl *Template, stores Stores, opts ...MountOption) http.Handler {
-	if len(stores) == 0 {
-		panic("MountStores requires at least one store")
-	}
-
-	config := MountConfig{
-		Template:      tmpl,
-		Stores:        stores,
-		IsSingleStore: false,
-		Upgrader: &websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool { return true },
-		},
-		SessionStore:  NewMemorySessionStore(),
-		Authenticator: &AnonymousAuthenticator{}, // Default: browser-based session grouping
-	}
-
-	for _, opt := range opts {
-		opt(&config)
-	}
-
-	return &liveHandler{
-		config:   config,
-		registry: NewConnectionRegistry(),
-	}
-}
-
-// MountOption is a functional option for configuring Mount/MountStores
-// Deprecated: Use Option with Template.Handle() instead
+// MountConfig and related types are used internally by Template.Handle()
+// MountOption is a functional option for configuring handlers
 type MountOption func(*MountConfig)
 
 // liveHandler handles both WebSocket and HTTP requests
