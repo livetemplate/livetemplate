@@ -69,6 +69,40 @@ func (b *broadcaster) Send() error {
 	return writeUpdateWebSocket(b.conn, responseBytes)
 }
 
+// LiveHandler is the interface returned by Template.Handle()
+// It extends http.Handler with broadcasting capabilities for server-initiated updates.
+//
+// Broadcasting allows the server to push updates to connected clients without user interaction.
+// This is useful for:
+//   - Real-time notifications across multiple tabs/devices
+//   - Live data updates (stock prices, sports scores, etc.)
+//   - Collaborative editing
+//   - Background job status updates
+type LiveHandler interface {
+	http.Handler
+
+	// Broadcast sends updates to all connected clients across all session groups.
+	// The data parameter will be passed to the template for rendering.
+	//
+	// Example: Broadcast a global announcement to all users
+	//   handler.Broadcast(GlobalState{Message: "System maintenance in 10 minutes"})
+	Broadcast(data interface{}) error
+
+	// BroadcastToUsers sends updates to all connections for specific users.
+	// Useful for user-specific notifications across multiple devices/tabs.
+	//
+	// Example: Notify a specific user about a new message
+	//   handler.BroadcastToUsers([]string{"user-123"}, UserNotification{...})
+	BroadcastToUsers(userIDs []string, data interface{}) error
+
+	// BroadcastToGroup sends updates to all connections in a specific session group.
+	// Useful for updating all tabs of an anonymous user or a specific session.
+	//
+	// Example: Update all tabs for a specific session group
+	//   handler.BroadcastToGroup("session-abc", SessionState{...})
+	BroadcastToGroup(groupID string, data interface{}) error
+}
+
 // MountConfig configures the mount handler
 type MountConfig struct {
 	Template          *Template
@@ -675,4 +709,180 @@ func (h *liveHandler) getStoreNames() []string {
 		}
 	}
 	return names
+}
+
+// Broadcast sends updates to all connected clients across all session groups.
+//
+// This method generates a template update using the provided data and sends it
+// to every active WebSocket connection. Each connection uses its own cloned template
+// for tree diffing, ensuring independent update generation.
+//
+// The data parameter will be passed to the template's ExecuteUpdates method.
+// Errors from individual connection sends are logged but don't stop the broadcast.
+//
+// Example usage:
+//
+//	handler := tmpl.Handle(&store)
+//	// ... later, from a background goroutine:
+//	handler.Broadcast(GlobalState{Message: "System maintenance in 10 minutes"})
+//
+// Concurrency: This method is safe to call from multiple goroutines concurrently.
+func (h *liveHandler) Broadcast(data interface{}) error {
+	connections := h.registry.GetAll()
+	if len(connections) == 0 {
+		log.Printf("Broadcast: No connections to broadcast to")
+		return nil
+	}
+
+	log.Printf("Broadcasting to %d connection(s)", len(connections))
+
+	// Track errors but continue broadcasting to other connections
+	var errCount int
+	for _, conn := range connections {
+		if err := h.sendUpdate(conn, data); err != nil {
+			log.Printf("Broadcast: Failed to send to connection %s: %v", conn.UserID, err)
+			errCount++
+		}
+	}
+
+	if errCount > 0 {
+		return fmt.Errorf("broadcast failed for %d/%d connections", errCount, len(connections))
+	}
+
+	return nil
+}
+
+// BroadcastToUsers sends updates to all connections for specific users.
+//
+// This is useful for sending user-specific notifications across multiple devices/tabs.
+// For each userID, all active connections for that user will receive the update.
+//
+// The data parameter will be passed to the template's ExecuteUpdates method.
+// Errors from individual connection sends are logged but don't stop the broadcast.
+//
+// Example usage:
+//
+//	handler := tmpl.Handle(&store)
+//	// ... notify specific users about new messages:
+//	handler.BroadcastToUsers(
+//	    []string{"user-123", "user-456"},
+//	    UserNotification{Message: "New message from admin"},
+//	)
+//
+// Concurrency: This method is safe to call from multiple goroutines concurrently.
+func (h *liveHandler) BroadcastToUsers(userIDs []string, data interface{}) error {
+	if len(userIDs) == 0 {
+		return fmt.Errorf("no user IDs provided")
+	}
+
+	var totalConnections int
+	var errCount int
+
+	for _, userID := range userIDs {
+		connections := h.registry.GetByUser(userID)
+		totalConnections += len(connections)
+
+		for _, conn := range connections {
+			if err := h.sendUpdate(conn, data); err != nil {
+				log.Printf("BroadcastToUsers: Failed to send to user %s: %v", userID, err)
+				errCount++
+			}
+		}
+	}
+
+	log.Printf("Broadcast to users: sent to %d connection(s) for %d user(s)", totalConnections, len(userIDs))
+
+	if errCount > 0 {
+		return fmt.Errorf("broadcast failed for %d/%d connections", errCount, totalConnections)
+	}
+
+	if totalConnections == 0 {
+		log.Printf("BroadcastToUsers: No connections found for users %v", userIDs)
+	}
+
+	return nil
+}
+
+// BroadcastToGroup sends updates to all connections in a specific session group.
+//
+// This is useful for updating all tabs of an anonymous user or all connections
+// sharing the same session group. All connections in the group will receive the update.
+//
+// The data parameter will be passed to the template's ExecuteUpdates method.
+// Errors from individual connection sends are logged but don't stop the broadcast.
+//
+// Example usage:
+//
+//	handler := tmpl.Handle(&store)
+//	// ... update all tabs for a specific session:
+//	handler.BroadcastToGroup("session-abc", SessionState{Count: 42})
+//
+// Concurrency: This method is safe to call from multiple goroutines concurrently.
+func (h *liveHandler) BroadcastToGroup(groupID string, data interface{}) error {
+	if groupID == "" {
+		return fmt.Errorf("group ID cannot be empty")
+	}
+
+	connections := h.registry.GetByGroup(groupID)
+	if len(connections) == 0 {
+		log.Printf("BroadcastToGroup: No connections found for group %s", groupID)
+		return nil
+	}
+
+	log.Printf("Broadcasting to group %s: %d connection(s)", groupID, len(connections))
+
+	var errCount int
+	for _, conn := range connections {
+		if err := h.sendUpdate(conn, data); err != nil {
+			log.Printf("BroadcastToGroup: Failed to send to group %s: %v", groupID, err)
+			errCount++
+		}
+	}
+
+	if errCount > 0 {
+		return fmt.Errorf("broadcast failed for %d/%d connections", errCount, len(connections))
+	}
+
+	return nil
+}
+
+// sendUpdate generates and sends a template update to a single connection
+func (h *liveHandler) sendUpdate(conn *Connection, data interface{}) error {
+	// Use the connection's cloned template for independent tree diffing
+	var buf bytes.Buffer
+
+	// Generate update using the connection's template
+	// We pass the data directly - no errors to report for broadcasts
+	err := conn.Template.ExecuteUpdates(&buf, data, nil)
+	if err != nil {
+		return fmt.Errorf("template update failed: %w", err)
+	}
+
+	// Parse tree from buffer
+	var tree treeNode
+	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
+		return fmt.Errorf("failed to parse tree: %w", err)
+	}
+
+	// Wrap with metadata
+	response := UpdateResponse{
+		Tree: tree,
+		Meta: &ResponseMetadata{
+			Success: true,
+			Errors:  nil,
+		},
+	}
+
+	// Encode response
+	responseBytes, err := json.Marshal(response)
+	if err != nil {
+		return fmt.Errorf("failed to marshal response: %w", err)
+	}
+
+	// Send using the connection's Send method (thread-safe)
+	// Skip actual WebSocket send if Conn is nil (for testing)
+	if conn.Conn == nil {
+		return nil // Test mode - no actual send
+	}
+	return conn.Send(websocket.TextMessage, responseBytes)
 }

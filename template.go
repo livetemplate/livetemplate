@@ -1782,7 +1782,7 @@ func (t *Template) loadExistingKeyMappings(lastTree treeNode) {
 // For single store: actions like "increment", "decrement"
 // For multiple stores: actions like "counterstate.increment", "userstate.logout"
 // Store names are automatically derived from struct type names (case-insensitive matching).
-func (t *Template) Handle(stores ...Store) http.Handler {
+func (t *Template) Handle(stores ...Store) LiveHandler {
 	if len(stores) == 0 {
 		panic("Handle requires at least one store")
 	}
