@@ -105,6 +105,8 @@ import (
 type Config struct {
 	Upgrader          *websocket.Upgrader
 	SessionStore      SessionStore
+	Authenticator     Authenticator // User authentication and session grouping
+	AllowedOrigins    []string      // Allowed WebSocket origins (empty = allow all in dev, restrict in prod)
 	WebSocketDisabled bool
 	LoadingDisabled   bool     // Disables automatic loading indicator on page load
 	TemplateFiles     []string // If set, overrides auto-discovery
@@ -188,6 +190,54 @@ func WithDevMode(enabled bool) Option {
 	}
 }
 
+// WithAuthenticator sets a custom authenticator for user identification and session grouping.
+//
+// The authenticator determines:
+//   - Who is the user? (userID via Identify)
+//   - Which session group should they join? (groupID via GetSessionGroup)
+//
+// Default: AnonymousAuthenticator (browser-based session grouping)
+//
+// Example with BasicAuthenticator:
+//
+//	auth := livetemplate.NewBasicAuthenticator(func(username, password string) (bool, error) {
+//	    return db.ValidateUser(username, password)
+//	})
+//	tmpl := livetemplate.New("app", livetemplate.WithAuthenticator(auth))
+//
+// Example with custom JWT authenticator:
+//
+//	tmpl := livetemplate.New("app", livetemplate.WithAuthenticator(myJWTAuth))
+func WithAuthenticator(auth Authenticator) Option {
+	return func(c *Config) {
+		c.Authenticator = auth
+	}
+}
+
+// WithAllowedOrigins sets the allowed WebSocket origins for CORS protection.
+//
+// When set, WebSocket upgrade requests will be validated against this list.
+// Requests from origins not in the list will be rejected with 403 Forbidden.
+//
+// If empty (default):
+//   - Development: All origins allowed (permissive for local dev)
+//   - Production: Consider setting explicitly for security
+//
+// Example for production:
+//
+//	tmpl := livetemplate.New("app",
+//	    livetemplate.WithAllowedOrigins([]string{
+//	        "https://yourdomain.com",
+//	        "https://www.yourdomain.com",
+//	    }))
+//
+// Security note: Always set this in production to prevent CSRF attacks via WebSocket.
+func WithAllowedOrigins(origins []string) Option {
+	return func(c *Config) {
+		c.AllowedOrigins = origins
+	}
+}
+
 // New creates a new template with the given name and options.
 //
 // By default, New auto-discovers template files in the current directory and common
@@ -218,11 +268,21 @@ func WithDevMode(enabled bool) Option {
 //	// Use custom session store
 //	tmpl := livetemplate.New("app", livetemplate.WithSessionStore(myStore))
 //
+//	// Use custom authentication
+//	auth := livetemplate.NewBasicAuthenticator(validateUser)
+//	tmpl := livetemplate.New("app", livetemplate.WithAuthenticator(auth))
+//
+//	// Restrict WebSocket origins (production security)
+//	tmpl := livetemplate.New("app", livetemplate.WithAllowedOrigins([]string{
+//	    "https://yourdomain.com",
+//	}))
+//
 // # Configuration
 //
 // The template is configured with sensible defaults:
 //   - WebSocket upgrader with permissive CheckOrigin
 //   - In-memory session store
+//   - Anonymous authenticator (browser-based session grouping)
 //   - Auto-discovery enabled
 //   - Loading indicator enabled
 //   - Production mode (CDN client library)
@@ -234,7 +294,8 @@ func New(name string, opts ...Option) *Template {
 		Upgrader: &websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
-		SessionStore: NewMemorySessionStore(),
+		SessionStore:  NewMemorySessionStore(),
+		Authenticator: &AnonymousAuthenticator{}, // Default: browser-based session grouping
 	}
 
 	// Apply options

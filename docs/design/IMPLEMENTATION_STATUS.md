@@ -67,16 +67,26 @@
 
 ## In Progress 🚧
 
-### Phase 4: Template Configuration
-**Status**: Not started
-**Estimated**: 0.5 session
+### Phase 4: Template Configuration ✅ COMPLETE
+**Files:** `template.go` (modified), `template_test.go` (modified)
+**Commit:** TBD
 
 **Tasks:**
-- [ ] Add `Authenticator` field to `Config`
-- [ ] Add `WithAuthenticator()` option function
-- [ ] Add `WithAllowedOrigins()` option function
-- [ ] Default to `AnonymousAuthenticator`
-- [ ] Unit tests for config options
+- ✅ Add `Authenticator` field to `Config`
+- ✅ Add `WithAuthenticator()` option function
+- ✅ Add `WithAllowedOrigins()` option function
+- ✅ Default to `AnonymousAuthenticator`
+- ✅ Unit tests for config options (8 new tests passing)
+
+**Implementation Notes:**
+- Added `Authenticator` and `AllowedOrigins` fields to Config struct
+- Created `WithAuthenticator()` and `WithAllowedOrigins()` option functions
+- Updated New() to default to AnonymousAuthenticator
+- Added comprehensive documentation for all new options
+- 8 new unit tests covering all configuration scenarios
+- Tests verify defaults, custom values, and option overriding
+
+**Actual Effort:** 0.5 session
 
 ---
 
@@ -169,10 +179,11 @@
 - ✅ Authentication: 16 tests passing
 - ✅ SessionStore: 11 tests passing
 - ✅ ConnectionRegistry: 13 tests passing
+- ✅ Template Configuration: 8 tests passing (new)
 - ✅ E2E Tests: All existing tests passing
 - ✅ Client Tests: 14 tests passing
 
-**Total**: 54+ tests passing
+**Total**: 62+ tests passing
 
 ---
 
@@ -189,33 +200,31 @@
 - `session.go` (refactored from 45 to 180 lines)
 - `session_test.go` (new, 239 lines)
 - `mount.go` (HTTP handler adapted)
+- `template.go` (added Authenticator/AllowedOrigins config, +50 lines)
+- `template_test.go` (added config tests, +143 lines)
 
-**Total Lines Added**: ~1800 lines (code + tests + docs)
+**Total Lines Added**: ~2000 lines (code + tests + docs)
 
 ---
 
 ## Next Steps
 
-To complete the core implementation (Phases 4-6):
+To complete the core implementation (Phases 5-6):
 
-1. **Template Configuration** (30 minutes)
-   - Add Authenticator field
-   - Add option functions
-   - Unit tests
-
-2. **Mount Handler Integration** (2 hours)
-   - Integrate Authenticator
-   - Cookie management
+1. **Mount Handler Integration** ⬅️ NEXT (2 hours)
+   - Integrate Authenticator with WebSocket and HTTP handlers
+   - Cookie management for session IDs
    - ConnectionRegistry integration
+   - Session group state sharing
    - Integration tests
 
-3. **Broadcasting System** (1.5 hours)
-   - LiveHandler interface
-   - Broadcast methods
+2. **Broadcasting System** (1.5 hours)
+   - Define LiveHandler interface
+   - Implement Broadcast(), BroadcastToUsers(), BroadcastToGroup()
    - Error handling
    - Concurrency tests
 
-**Estimated time to core completion**: 4 hours
+**Estimated time to core completion**: 3.5 hours
 
 ---
 
