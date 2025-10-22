@@ -17,12 +17,9 @@ func TestAppCreation_DefaultsMultiTailwind(t *testing.T) {
 	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
 
 	// Verify .lvtrc has correct values
-	kit, css := readLvtrc(t, appDir)
+	kit := readLvtrc(t, appDir)
 	if kit != "multi" {
 		t.Errorf("Expected kit=multi, got kit=%s", kit)
-	}
-	if css != "tailwind" {
-		t.Errorf("Expected css=tailwind, got css=%s", css)
 	}
 
 	// Verify expected files created
@@ -53,24 +50,20 @@ func TestAppCreation_CustomKitCSS(t *testing.T) {
 	// Build lvt binary
 	lvtBinary := buildLvtBinary(t, tmpDir)
 
-	// Create app with single kit and bulma CSS
+	// Create app with single kit
 	opts := &AppOptions{
 		Kit:     "single",
-		CSS:     "bulma",
 		DevMode: true,
 	}
 	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", opts)
 
 	// Verify .lvtrc has correct values
-	kit, css := readLvtrc(t, appDir)
+	kit := readLvtrc(t, appDir)
 	if kit != "single" {
 		t.Errorf("Expected kit=single, got kit=%s", kit)
 	}
-	if css != "bulma" {
-		t.Errorf("Expected css=bulma, got css=%s", css)
-	}
 
-	t.Log("✅ App creation with custom kit/CSS test passed")
+	t.Log("✅ App creation with custom kit test passed")
 }
 
 // TestAppCreation_SimpleKit tests creating an app with the simple kit
@@ -83,18 +76,14 @@ func TestAppCreation_SimpleKit(t *testing.T) {
 	// Create app with simple kit
 	opts := &AppOptions{
 		Kit:     "simple",
-		CSS:     "pico",
 		DevMode: true,
 	}
 	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", opts)
 
 	// Verify .lvtrc has correct values
-	kit, css := readLvtrc(t, appDir)
+	kit := readLvtrc(t, appDir)
 	if kit != "simple" {
 		t.Errorf("Expected kit=simple, got kit=%s", kit)
-	}
-	if css != "pico" {
-		t.Errorf("Expected css=pico, got css=%s", css)
 	}
 
 	t.Log("✅ App creation with simple kit test passed")

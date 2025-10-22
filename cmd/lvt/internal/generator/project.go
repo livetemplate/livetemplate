@@ -10,7 +10,7 @@ import (
 	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
 )
 
-func GenerateApp(appName, moduleName, kit, cssFramework string, devMode bool) error {
+func GenerateApp(appName, moduleName, kit string, devMode bool) error {
 	// Sanitize app name
 	appName = strings.ToLower(strings.TrimSpace(appName))
 	if appName == "" {
@@ -29,13 +29,21 @@ func GenerateApp(appName, moduleName, kit, cssFramework string, devMode bool) er
 		return fmt.Errorf("failed to load kit %q: %w", kit, err)
 	}
 
+	// Get CSS framework from kit manifest
+	cssFramework := kitInfo.Manifest.CSSFramework
+
 	// Module name is provided by caller (defaults to app name)
 	data := AppData{
 		AppName:      appName,
 		ModuleName:   moduleName,
 		DevMode:      devMode,
 		Kit:          kitInfo,
-		CSSFramework: cssFramework, // Keep for backward compatibility
+		CSSFramework: cssFramework,
+	}
+
+	// Simple kit generates just 2 files
+	if kit == "simple" {
+		return generateSimpleApp(appName, moduleName, data, kitLoader, kitInfo)
 	}
 
 	// Create directory structure
@@ -211,9 +219,8 @@ go test ./...
 
 	// Create project config file
 	projectConfig := &config.ProjectConfig{
-		Kit:          kit,
-		CSSFramework: cssFramework,
-		DevMode:      devMode,
+		Kit:     kit,
+		DevMode: devMode,
 	}
 	if err := config.SaveProjectConfig(appName, projectConfig); err != nil {
 		return fmt.Errorf("failed to save project config: %w", err)
@@ -222,6 +229,93 @@ go test ./...
 	// Create empty .lvtresources file for tracking resources
 	if err := os.WriteFile(filepath.Join(appName, ".lvtresources"), []byte("[]"), 0644); err != nil {
 		return fmt.Errorf("failed to create .lvtresources: %w", err)
+	}
+
+	return nil
+}
+
+// generateSimpleApp generates a minimal 2-file app structure
+func generateSimpleApp(appName, moduleName string, data AppData, kitLoader *kits.KitLoader, kitInfo *kits.KitInfo) error {
+	// Create app directory
+	if err := os.MkdirAll(appName, 0755); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", appName, err)
+	}
+
+	// Read templates
+	mainGoTmpl, err := kitLoader.LoadKitTemplate("simple", "app/main.go.tmpl")
+	if err != nil {
+		return fmt.Errorf("failed to read main.go template: %w", err)
+	}
+
+	indexTmplTmpl, err := kitLoader.LoadKitTemplate("simple", "app/index.tmpl.tmpl")
+	if err != nil {
+		return fmt.Errorf("failed to read index.tmpl template: %w", err)
+	}
+
+	goModTmpl, err := kitLoader.LoadKitTemplate("simple", "app/go.mod.tmpl")
+	if err != nil {
+		return fmt.Errorf("failed to read go.mod template: %w", err)
+	}
+
+	// Generate main.go
+	if err := generateFile(string(mainGoTmpl), data, filepath.Join(appName, "main.go"), kitInfo); err != nil {
+		return fmt.Errorf("failed to generate main.go: %w", err)
+	}
+
+	// Generate {appname}.tmpl
+	if err := generateFile(string(indexTmplTmpl), data, filepath.Join(appName, appName+".tmpl"), kitInfo); err != nil {
+		return fmt.Errorf("failed to generate %s.tmpl: %w", appName, err)
+	}
+
+	// Generate go.mod
+	if err := generateFile(string(goModTmpl), data, filepath.Join(appName, "go.mod"), kitInfo); err != nil {
+		return fmt.Errorf("failed to generate go.mod: %w", err)
+	}
+
+	// Create README
+	readme := fmt.Sprintf(`# %s
+
+A simple LiveTemplate application.
+
+## Getting Started
+
+1. Run the server:
+   `+"`"+`bash
+   go run main.go
+   `+"`"+`
+
+2. Open http://localhost:8080
+
+## Structure
+
+- `+"`main.go`"+` - Application server and state management
+- `+"`%s.tmpl`"+` - HTML template
+- `+"`go.mod`"+` - Go module configuration
+
+## Customization
+
+Edit `+"`main.go`"+` to modify your state and actions.
+Edit `+"`%s.tmpl`"+` to change the UI.
+
+## Next Steps
+
+For more complex apps with database and resources:
+`+"`"+`bash
+lvt new myapp --kit multi
+`+"`"+`
+`, appName, appName, appName)
+
+	if err := os.WriteFile(filepath.Join(appName, "README.md"), []byte(readme), 0644); err != nil {
+		return fmt.Errorf("failed to create README.md: %w", err)
+	}
+
+	// Create project config file
+	projectConfig := &config.ProjectConfig{
+		Kit:     "simple",
+		DevMode: data.DevMode,
+	}
+	if err := config.SaveProjectConfig(appName, projectConfig); err != nil {
+		return fmt.Errorf("failed to save project config: %w", err)
 	}
 
 	return nil

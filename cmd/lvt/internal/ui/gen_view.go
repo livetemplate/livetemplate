@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/livefir/livetemplate/cmd/lvt/internal/config"
 	"github.com/livefir/livetemplate/cmd/lvt/internal/generator"
+	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
 )
 
 type genViewModel struct {
@@ -202,7 +203,16 @@ func (m genViewModel) generateView() tea.Msg {
 	}
 
 	kit := projectConfig.GetKit()
-	cssFramework := projectConfig.GetCSSFramework()
+
+	// Load kit manifest to get CSS framework
+	loader := kits.DefaultLoader()
+	kitInfo, err := loader.Load(kit)
+	if err != nil {
+		m.err = fmt.Errorf("failed to load kit: %w", err)
+		m.stage = 0
+		return m
+	}
+	cssFramework := kitInfo.Manifest.CSSFramework
 
 	if err := generator.GenerateView(m.basePath, m.moduleName, viewNameLower, kit, cssFramework); err != nil {
 		m.err = err

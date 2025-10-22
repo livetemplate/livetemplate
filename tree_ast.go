@@ -294,48 +294,12 @@ func handleIfNode(node *parse.IfNode, data interface{}, keyGen *keyGenerator) (t
 		return nil, err
 	}
 
-	// Check if branch contains ranges (comprehensions)
-	// If it does, preserve the tree structure for efficient updates
-	// If not, wrap as single dynamic value
-	if hasRangeInTree(branchTree) {
-		// Preserve tree structure - just mark it as dynamic by wrapping
-		return treeNode{
-			"s": []string{"", ""},
-			"0": branchTree,
-		}, nil
-	}
-
-	// No ranges - render to HTML for simpler diff tracking
-	branchHTML, err := renderTreeToHTML(branchTree)
-	if err != nil {
-		return nil, err
-	}
-
+	// Wrap the branch tree to preserve conditional structure
+	// The wrapper allows the diff logic to track when the conditional switches branches
 	return treeNode{
 		"s": []string{"", ""},
-		"0": branchHTML,
+		"0": branchTree,
 	}, nil
-}
-
-// hasRangeInTree checks if a tree contains range comprehensions
-func hasRangeInTree(tree treeNode) bool {
-	for k, v := range tree {
-		if k == "s" || k == "f" {
-			continue
-		}
-		// Check if this is a range comprehension (has "d" key)
-		if vMap, ok := v.(map[string]interface{}); ok {
-			if _, hasD := vMap["d"]; hasD {
-				return true
-			}
-		}
-		if vMap, ok := v.(treeNode); ok {
-			if _, hasD := vMap["d"]; hasD {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // handleRangeNode processes {{range}}...{{end}} constructs
@@ -423,7 +387,13 @@ func handleRangeNode(node *parse.RangeNode, data interface{}, keyGen *keyGenerat
 				}
 			} else {
 				// Simple range without variables - execute with item as context
-				itemTree, err = buildTreeFromAST(node.List, item, keyGen)
+				// BUT we still need to preserve the root context for $ variable access
+				varCtx := &varContext{
+					parent: data,        // Root context for $ access
+					vars:   newOrderedVars(), // No variables
+					dot:    item,        // Current item for . access
+				}
+				itemTree, err = buildTreeFromASTWithVars(node.List, varCtx, keyGen)
 				if err != nil {
 					return nil, fmt.Errorf("range item error: %w", err)
 				}
@@ -465,7 +435,13 @@ func handleRangeNode(node *parse.RangeNode, data interface{}, keyGen *keyGenerat
 				}
 			} else {
 				// Simple range without variables - execute with item as context
-				itemTree, err = buildTreeFromAST(node.List, item, keyGen)
+				// BUT we still need to preserve the root context for $ variable access
+				varCtx := &varContext{
+					parent: data,        // Root context for $ access
+					vars:   newOrderedVars(), // No variables
+					dot:    item,        // Current item for . access
+				}
+				itemTree, err = buildTreeFromASTWithVars(node.List, varCtx, keyGen)
 				if err != nil {
 					return nil, fmt.Errorf("range item %d error: %w", i, err)
 				}
@@ -694,6 +670,100 @@ func handleActionNodeWithVars(node *parse.ActionNode, varCtx *varContext, keyGen
 	}, nil
 }
 
+// detectsRootVariable checks if an action string uses the $ root variable
+// It distinguishes between $. (root access) and $varName (named variable)
+func detectsRootVariable(actionStr string, vars orderedVars) bool {
+	// Check for $. pattern (e.g., $.Field)
+	if strings.Contains(actionStr, "$.") {
+		return true
+	}
+
+	// Check for $ followed by non-letter character (e.g., $ | printf, $ }}, etc.)
+	// This indicates standalone $ usage
+	for i := 0; i < len(actionStr); i++ {
+		if actionStr[i] == '$' {
+			// Check what follows the $
+			if i+1 >= len(actionStr) {
+				// $ at end of string
+				return true
+			}
+			nextChar := actionStr[i+1]
+			// If next char is not a letter, it's standalone $ or $.
+			// If next char is '.', it's $.Field
+			if nextChar == '.' {
+				return true
+			}
+			if !isLetter(nextChar) {
+				// Could be $ | or $ }} or other delimiter
+				return true
+			}
+			// If next char is a letter, it could be $varName (known variable)
+			// or $Field (which should be treated as $.Field in standard Go templates)
+			// For now, be conservative and only detect explicit $. patterns
+		}
+	}
+
+	return false
+}
+
+// isLetter checks if a byte is a letter (a-z, A-Z)
+func isLetter(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
+// mergeFieldsIntoMap copies all accessible fields from value into the target map
+// This is used to merge the current dot context with RootData and variables
+// for template execution. It handles structs, maps, and pointers generically.
+func mergeFieldsIntoMap(value interface{}, target map[string]interface{}) error {
+	if value == nil {
+		return nil
+	}
+
+	v := reflect.ValueOf(value)
+
+	// Dereference pointers
+	for v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return nil
+		}
+		v = v.Elem()
+	}
+
+	switch v.Kind() {
+	case reflect.Map:
+		// Copy all map entries
+		for _, key := range v.MapKeys() {
+			keyStr := fmt.Sprintf("%v", key.Interface())
+			// Don't overwrite existing keys (like RootData or variables)
+			if _, exists := target[keyStr]; !exists {
+				target[keyStr] = v.MapIndex(key).Interface()
+			}
+		}
+
+	case reflect.Struct:
+		// Copy all exported struct fields
+		t := v.Type()
+		for i := 0; i < v.NumField(); i++ {
+			field := t.Field(i)
+			// Only copy exported fields
+			if field.PkgPath == "" {
+				fieldValue := v.Field(i)
+				// Don't overwrite existing keys
+				if _, exists := target[field.Name]; !exists {
+					target[field.Name] = fieldValue.Interface()
+				}
+			}
+		}
+
+	default:
+		// For primitive types, just set the value directly
+		// This shouldn't normally happen in our use case
+		return nil
+	}
+
+	return nil
+}
+
 // evaluateActionWithVars evaluates an action string that contains variable references
 // It does this by building a wrapper template that defines the variables using a range
 func evaluateActionWithVars(actionStr string, varCtx *varContext) string {
@@ -712,12 +782,12 @@ func evaluateActionWithVars(actionStr string, varCtx *varContext) string {
 		}
 	})
 
-	// If we have 2 variables (index and value), build a range over a single-item slice
-	// If we have 1 variable (just value), do the same
-	// This is a bit hacky but it works: We create a slice with one element,
-	// then range over it assigning the variables as needed
+	// Check if the action uses the root $ variable (e.g., $.Field or $ by itself)
+	// We need to detect $. or $ followed by a space/delimiter, but NOT $varName
+	usesRootVar := detectsRootVariable(actionStr, varCtx.vars)
 
-	if usedVars.Len() == 0 {
+	// If we have no variables and don't use root, shouldn't happen but handle gracefully
+	if usedVars.Len() == 0 && !usesRootVar {
 		// No variables used - shouldn't happen but handle gracefully
 		return ""
 	}
@@ -728,60 +798,37 @@ func evaluateActionWithVars(actionStr string, varCtx *varContext) string {
 	// {{range $index, $todo := .Data}}{{$index | printf "#%d"}}{{end}}
 	// where .Data is a slice [item]
 
-	var tmplStr string
-	var execData interface{}
+	// Transform the action string to replace variable references with field accesses
+	transformedAction := actionStr
 
-	if usedVars.Len() == 2 {
-		// Two variables - we need to know which is index and which is value
-		// We can't rely on range index because we need the actual index value from varCtx
-		// Better approach: Create a struct with both values as fields
-		// For {{$index | printf "#%d"}}, transform to {{.Index | printf "#%d"}}
+	// Build exec data map
+	execData := make(map[string]interface{})
 
-		// Collect variable names and values
-		varData := make(map[string]interface{})
-		usedVars.Range(func(varName string, varValue interface{}) {
-			varData[varName] = varValue
-		})
-
-		// Transform $var references to .Var references (capitalize first letter)
-		transformedAction := actionStr
-		usedVars.Range(func(varName string, varValue interface{}) {
-			// Capitalize first letter for field access
-			fieldName := strings.ToUpper(varName[:1]) + varName[1:]
-			transformedAction = strings.Replace(transformedAction, "$"+varName, "."+fieldName, -1)
-		})
-
-		// Build exec data with capitalized field names
-		execData = make(map[string]interface{})
-		usedVars.Range(func(varName string, varValue interface{}) {
-			fieldName := strings.ToUpper(varName[:1]) + varName[1:]
-			execData.(map[string]interface{})[fieldName] = varValue
-		})
-
-		tmplStr = transformedAction
-	} else {
-		// One variable - same approach as two variables
-		var varName string
-		var varValue interface{}
-		usedVars.Range(func(vn string, vv interface{}) {
-			varName = vn
-			varValue = vv
-		})
-
-		// Transform $var to .Var
+	// Handle named variables ($index, $todo, etc.)
+	usedVars.Range(func(varName string, varValue interface{}) {
+		// Capitalize first letter for field access
 		fieldName := strings.ToUpper(varName[:1]) + varName[1:]
-		transformedAction := strings.Replace(actionStr, "$"+varName, "."+fieldName, -1)
+		transformedAction = strings.Replace(transformedAction, "$"+varName, "."+fieldName, -1)
+		execData[fieldName] = varValue
+	})
 
-		// Build data
-		execData = map[string]interface{}{
-			fieldName: varValue,
-		}
+	// Handle root variable ($. or standalone $)
+	if usesRootVar {
+		// Replace $. with .RootData.
+		// This transforms $.Field to .RootData.Field
+		transformedAction = strings.Replace(transformedAction, "$.", ".RootData.", -1)
 
-		tmplStr = transformedAction
+		// Also handle standalone $ (rare but valid in Go templates)
+		// Replace $ followed by space or delimiter with .RootData
+		// This is tricky - we need to preserve $varName but replace standalone $
+		// For now, just handle the $.Field case which is the common one
+
+		// Add root context to exec data
+		execData["RootData"] = varCtx.parent
 	}
 
 	// Execute the wrapper template
-	tmpl, err := template.New("varAction").Parse(tmplStr)
+	tmpl, err := template.New("varAction").Parse(transformedAction)
 	if err != nil {
 		return fmt.Sprintf("ERROR: %v", err)
 	}
@@ -796,16 +843,90 @@ func evaluateActionWithVars(actionStr string, varCtx *varContext) string {
 
 // handleIfNodeWithVars handles if/else with variable context
 func handleIfNodeWithVars(node *parse.IfNode, varCtx *varContext, keyGen *keyGenerator) (treeNode, error) {
-	// Evaluate condition - this is tricky with variables
-	// For now, execute the condition with dot context
-	condTmpl := fmt.Sprintf("{{if %s}}true{{else}}false{{end}}", formatPipe(node.Pipe))
-	tmpl, err := template.New("cond").Parse(condTmpl)
+	// Evaluate condition - needs to handle both variables and root context
+	pipeStr := formatPipe(node.Pipe)
+	condStr := fmt.Sprintf("{{if %s}}true{{else}}false{{end}}", pipeStr)
+
+	// Check if condition uses variables or root
+	usesVars := false
+	varCtx.vars.Range(func(varName string, _ interface{}) {
+		if strings.Contains(pipeStr, "$"+varName) {
+			usesVars = true
+		}
+	})
+	usesRoot := detectsRootVariable(pipeStr, varCtx.vars)
+
+	// If no variables or root, execute with dot context
+	if !usesVars && !usesRoot {
+		tmpl, err := template.New("cond").Parse(condStr)
+		if err != nil {
+			return nil, fmt.Errorf("condition parse error: %w", err)
+		}
+
+		var condBuf bytes.Buffer
+		if err := tmpl.Execute(&condBuf, varCtx.dot); err != nil {
+			return nil, fmt.Errorf("condition execute error: %w", err)
+		}
+
+		var branch *parse.ListNode
+		if condBuf.String() == "true" {
+			branch = node.List
+		} else if node.ElseList != nil {
+			branch = node.ElseList
+		} else {
+			return treeNode{"s": []string{"", ""}, "0": ""}, nil
+		}
+
+		branchTree, err := buildTreeFromASTWithVars(branch, varCtx, keyGen)
+		if err != nil {
+			return nil, err
+		}
+
+		// Wrap the branch tree to preserve conditional structure
+		return treeNode{"s": []string{"", ""}, "0": branchTree}, nil
+	}
+
+	// Condition uses variables or root - transform it
+	transformedCond := pipeStr
+
+	// Build exec data - we need to provide access to:
+	// 1. Current dot context fields (for .Field access)
+	// 2. Root context (for $.Field -> .RootData.Field access)
+	// 3. Named variables (for $var -> .Var access)
+	execData := make(map[string]interface{})
+
+	// Handle named variables
+	varCtx.vars.Range(func(varName string, varValue interface{}) {
+		if strings.Contains(pipeStr, "$"+varName) {
+			fieldName := strings.ToUpper(varName[:1]) + varName[1:]
+			transformedCond = strings.Replace(transformedCond, "$"+varName, "."+fieldName, -1)
+			execData[fieldName] = varValue
+		}
+	})
+
+	// Handle root variable
+	if usesRoot {
+		transformedCond = strings.Replace(transformedCond, "$.", ".RootData.", -1)
+		execData["RootData"] = varCtx.parent
+	}
+
+	// Merge current dot context into execData so .Field access works
+	// This is the key fix: copy all accessible fields from varCtx.dot into execData
+	if err := mergeFieldsIntoMap(varCtx.dot, execData); err != nil {
+		// If we can't merge, fall back to using dot directly (and hope RootData isn't needed)
+		// This shouldn't happen in practice
+		return nil, fmt.Errorf("failed to merge dot fields: %w", err)
+	}
+
+	// Execute condition with transformed template
+	condTmplStr := fmt.Sprintf("{{if %s}}true{{else}}false{{end}}", transformedCond)
+	tmpl, err := template.New("cond").Parse(condTmplStr)
 	if err != nil {
 		return nil, fmt.Errorf("condition parse error: %w", err)
 	}
 
 	var condBuf bytes.Buffer
-	if err := tmpl.Execute(&condBuf, varCtx.dot); err != nil {
+	if err := tmpl.Execute(&condBuf, execData); err != nil {
 		return nil, fmt.Errorf("condition execute error: %w", err)
 	}
 
@@ -828,26 +949,10 @@ func handleIfNodeWithVars(node *parse.IfNode, varCtx *varContext, keyGen *keyGen
 		return nil, err
 	}
 
-	// Check if branch contains ranges (comprehensions)
-	// If it does, preserve the tree structure for efficient updates
-	// If not, wrap as single dynamic value
-	if hasRangeInTree(branchTree) {
-		// Preserve tree structure - just mark it as dynamic by wrapping
-		return treeNode{
-			"s": []string{"", ""},
-			"0": branchTree,
-		}, nil
-	}
-
-	// No ranges - render to HTML for simpler diff tracking
-	branchHTML, err := renderTreeToHTML(branchTree)
-	if err != nil {
-		return nil, err
-	}
-
+	// Wrap the branch tree to preserve conditional structure
 	return treeNode{
 		"s": []string{"", ""},
-		"0": branchHTML,
+		"0": branchTree,
 	}, nil
 }
 

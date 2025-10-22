@@ -295,8 +295,8 @@ func (m newAppModel) renderContent() string {
 }
 
 func (m newAppModel) generateApp() tea.Msg {
-	// Use default kit (multi) and CSS framework (tailwind)
-	if err := generator.GenerateApp(m.appName, m.appName, "multi", "tailwind", false); err != nil { // false = production mode (use CDN)
+	// Use default kit (multi) - CSS framework is determined by kit
+	if err := generator.GenerateApp(m.appName, m.appName, "multi", false); err != nil { // false = production mode (use CDN)
 		m.err = err
 		m.stage = 0
 		m.focusIndex = 0

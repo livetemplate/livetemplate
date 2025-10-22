@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{.Title}}</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    [[csscdn .CSSFramework]]
+</head>
+<body>
+    <h1>{{.Title}}</h1>
+    <div>
+        <p>Counter: {{.Counter}}</p>
+        <div>
+            <button lvt-click="increment">+1</button>
+            <button lvt-click="decrement">-1</button>
+            <button lvt-click="reset">Reset</button>
+        </div>
+    </div>
+    <footer>
+        <p>Last updated: {{.LastUpdated}}</p>
+    </footer>
+
+    {{if .lvt.DevMode}}
+    <script src="/livetemplate-client.js"></script>
+    {{else}}
+    <script src="https://unpkg.com/@livefir/livetemplate-client@latest/dist/livetemplate-client.browser.js"></script>
+    {{end}}
+</body>
+</html>

@@ -583,10 +583,6 @@ func TestDefaultProjectConfig(t *testing.T) {
 		t.Errorf("Expected kit 'multi', got '%s'", cfg.Kit)
 	}
 
-	if cfg.CSSFramework != "tailwind" {
-		t.Errorf("Expected CSS framework 'tailwind', got '%s'", cfg.CSSFramework)
-	}
-
 	if cfg.DevMode != false {
 		t.Error("Expected DevMode false")
 	}
@@ -618,7 +614,6 @@ func TestLoadProjectConfig_WithFile(t *testing.T) {
 	// Create .lvtrc file with correct key names
 	content := `# Project configuration
 kit=simple
-css_framework=bulma
 dev_mode=true
 `
 	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
@@ -635,10 +630,6 @@ dev_mode=true
 		t.Errorf("Expected kit 'simple', got '%s'", cfg.Kit)
 	}
 
-	if cfg.CSSFramework != "bulma" {
-		t.Errorf("Expected CSS 'bulma', got '%s'", cfg.CSSFramework)
-	}
-
 	if !cfg.DevMode {
 		t.Error("Expected DevMode true")
 	}
@@ -648,9 +639,8 @@ func TestSaveProjectConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	cfg := &ProjectConfig{
-		Kit:          "bulma",
-		CSSFramework: "bulma",
-		DevMode:      true,
+		Kit:     "multi",
+		DevMode: true,
 	}
 
 	// Save config
@@ -674,10 +664,6 @@ func TestSaveProjectConfig(t *testing.T) {
 		t.Errorf("Kit mismatch: expected %s, got %s", cfg.Kit, loadedCfg.Kit)
 	}
 
-	if loadedCfg.CSSFramework != cfg.CSSFramework {
-		t.Errorf("CSS mismatch: expected %s, got %s", cfg.CSSFramework, loadedCfg.CSSFramework)
-	}
-
 	if loadedCfg.DevMode != cfg.DevMode {
 		t.Errorf("DevMode mismatch: expected %v, got %v", cfg.DevMode, loadedCfg.DevMode)
 	}
@@ -693,52 +679,22 @@ func TestProjectConfig_GetKit(t *testing.T) {
 	}
 }
 
-func TestProjectConfig_GetCSSFramework(t *testing.T) {
-	cfg := &ProjectConfig{
-		CSSFramework: "bulma",
-	}
-
-	if cfg.GetCSSFramework() != "bulma" {
-		t.Errorf("Expected 'bulma', got '%s'", cfg.GetCSSFramework())
-	}
-
-	// Test fallback for simple kit (returns pico)
-	cfg2 := &ProjectConfig{
-		Kit:          "simple",
-		CSSFramework: "",
-	}
-
-	if cfg2.GetCSSFramework() != "pico" {
-		t.Errorf("Expected 'pico' for simple kit, got '%s'", cfg2.GetCSSFramework())
-	}
-
-	// Test default fallback (returns tailwind)
-	cfg3 := &ProjectConfig{
-		Kit:          "multi",
-		CSSFramework: "",
-	}
-
-	if cfg3.GetCSSFramework() != "tailwind" {
-		t.Errorf("Expected default 'tailwind', got '%s'", cfg3.GetCSSFramework())
-	}
-}
+// Removed TestProjectConfig_GetCSSFramework as CSS framework is now part of kit manifest
 
 func TestProjectConfig_Validate(t *testing.T) {
 	// Valid config with multi kit
 	cfg := &ProjectConfig{
-		Kit:          "multi",
-		CSSFramework: "tailwind",
-		DevMode:      false,
+		Kit:     "multi",
+		DevMode: false,
 	}
 
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("Expected valid config, got error: %v", err)
 	}
 
-	// Valid config with simple kit and pico
+	// Valid config with simple kit
 	cfg2 := &ProjectConfig{
-		Kit:          "simple",
-		CSSFramework: "pico",
+		Kit: "simple",
 	}
 
 	if err := cfg2.Validate(); err != nil {
@@ -747,21 +703,10 @@ func TestProjectConfig_Validate(t *testing.T) {
 
 	// Invalid: invalid kit name
 	cfg3 := &ProjectConfig{
-		Kit:          "invalid-kit",
-		CSSFramework: "tailwind",
+		Kit: "invalid-kit",
 	}
 
 	if err := cfg3.Validate(); err == nil {
 		t.Error("Expected error for invalid kit")
-	}
-
-	// Invalid: invalid CSS framework
-	cfg4 := &ProjectConfig{
-		Kit:          "multi",
-		CSSFramework: "invalid-css",
-	}
-
-	if err := cfg4.Validate(); err == nil {
-		t.Error("Expected error for invalid CSS framework")
 	}
 }

@@ -18,17 +18,18 @@ type KitTemplates struct {
 
 // KitManifest represents the kit.yaml file structure
 type KitManifest struct {
-	Name        string       `yaml:"name"`
-	Version     string       `yaml:"version"`
-	Description string       `yaml:"description"`
-	Framework   string       `yaml:"framework,omitempty"` // Optional: for legacy CSS-specific kits
-	Author      string       `yaml:"author,omitempty"`
-	License     string       `yaml:"license,omitempty"`
-	CDN         string       `yaml:"cdn,omitempty"`        // CDN link for CSS framework
-	CustomCSS   string       `yaml:"custom_css,omitempty"` // Path to custom CSS file
-	Tags        []string     `yaml:"tags,omitempty"`
-	Components  []string     `yaml:"components,omitempty"` // List of component template names
-	Templates   KitTemplates `yaml:"templates,omitempty"`  // Generator templates included
+	Name         string       `yaml:"name"`
+	Version      string       `yaml:"version"`
+	CSSFramework string       `yaml:"css_framework"`       // CSS framework used by this kit (tailwind, bulma, pico, none)
+	Description  string       `yaml:"description"`
+	Framework    string       `yaml:"framework,omitempty"` // Optional: for legacy CSS-specific kits
+	Author       string       `yaml:"author,omitempty"`
+	License      string       `yaml:"license,omitempty"`
+	CDN          string       `yaml:"cdn,omitempty"`        // CDN link for CSS framework
+	CustomCSS    string       `yaml:"custom_css,omitempty"` // Path to custom CSS file
+	Tags         []string     `yaml:"tags,omitempty"`
+	Components   []string     `yaml:"components,omitempty"` // List of component template names
+	Templates    KitTemplates `yaml:"templates,omitempty"`  // Generator templates included
 }
 
 // KitInfo represents a loaded kit with its metadata and helpers
@@ -62,7 +63,15 @@ func (m *KitManifest) Validate() error {
 		return ErrInvalidManifest{Field: "description", Reason: "description is required"}
 	}
 
-	// Framework is now optional (for modern kits that are CSS-agnostic)
+	if m.CSSFramework == "" {
+		return ErrInvalidManifest{Field: "css_framework", Reason: "css_framework is required"}
+	}
+
+	// Validate CSS framework value
+	validFrameworks := map[string]bool{"tailwind": true, "bulma": true, "pico": true, "none": true}
+	if !validFrameworks[m.CSSFramework] {
+		return ErrInvalidManifest{Field: "css_framework", Reason: "css_framework must be one of: tailwind, bulma, pico, none"}
+	}
 
 	return nil
 }

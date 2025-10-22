@@ -104,12 +104,11 @@ func TestEditModeCombinations(t *testing.T) {
 	combinations := []struct {
 		name       string
 		editMode   string
-		css        string
 		pagination string
 	}{
-		{"PageMode_Pico_LoadMore", "page", "pico", "load-more"},
-		{"PageMode_Bulma_PrevNext", "page", "bulma", "prev-next"},
-		{"ModalMode_None_Numbers", "modal", "none", "numbers"},
+		{"PageMode_LoadMore", "page", "load-more"},
+		{"PageMode_PrevNext", "page", "prev-next"},
+		{"ModalMode_Numbers", "modal", "numbers"},
 	}
 
 	for _, combo := range combinations {
@@ -134,7 +133,6 @@ func TestEditModeCombinations(t *testing.T) {
 			// Generate resource with all flags
 			genCmd := exec.Command(lvtBinary, "gen", "items", "name", "description",
 				"--edit-mode", combo.editMode,
-				"--css", combo.css,
 				"--pagination", combo.pagination)
 			genCmd.Dir = appDir
 			genCmd.Stdout = os.Stdout
@@ -181,8 +179,8 @@ func TestEditModeCombinations(t *testing.T) {
 				t.Logf("✅ Template generated successfully (%d bytes)", len(tmplContent))
 			}
 
-			t.Logf("✅ Combination verified: edit-mode=%s, css=%s, pagination=%s",
-				combo.editMode, combo.css, combo.pagination)
+			t.Logf("✅ Combination verified: edit-mode=%s, pagination=%s",
+				combo.editMode, combo.pagination)
 		})
 	}
 }

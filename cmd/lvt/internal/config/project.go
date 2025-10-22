@@ -18,9 +18,6 @@ type ProjectConfig struct {
 	// Kit is the kit used for this project
 	Kit string
 
-	// CSSFramework is the CSS framework used for this project
-	CSSFramework string
-
 	// DevMode indicates whether to use local client library
 	DevMode bool
 }
@@ -28,9 +25,8 @@ type ProjectConfig struct {
 // DefaultProjectConfig returns a new ProjectConfig with default values
 func DefaultProjectConfig() *ProjectConfig {
 	return &ProjectConfig{
-		Kit:          "multi",
-		CSSFramework: "tailwind",
-		DevMode:      false,
+		Kit:     "multi",
+		DevMode: false,
 	}
 }
 
@@ -71,8 +67,6 @@ func LoadProjectConfig(basePath string) (*ProjectConfig, error) {
 		switch key {
 		case "kit":
 			config.Kit = value
-		case "css_framework":
-			config.CSSFramework = value
 		case "dev_mode":
 			config.DevMode = value == "true"
 		}
@@ -89,8 +83,8 @@ func LoadProjectConfig(basePath string) (*ProjectConfig, error) {
 func SaveProjectConfig(basePath string, config *ProjectConfig) error {
 	configPath := filepath.Join(basePath, ProjectConfigFileName)
 
-	content := fmt.Sprintf("kit=%s\ncss_framework=%s\ndev_mode=%v\n",
-		config.Kit, config.CSSFramework, config.DevMode)
+	content := fmt.Sprintf("kit=%s\ndev_mode=%v\n",
+		config.Kit, config.DevMode)
 
 	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
 		return fmt.Errorf("failed to write project config: %w", err)
@@ -107,30 +101,11 @@ func (c *ProjectConfig) GetKit() string {
 	return c.Kit
 }
 
-// GetCSSFramework returns the CSS framework for the project
-func (c *ProjectConfig) GetCSSFramework() string {
-	if c.CSSFramework == "" {
-		// Determine default CSS based on kit
-		switch c.GetKit() {
-		case "simple":
-			return "pico"
-		default:
-			return "tailwind"
-		}
-	}
-	return c.CSSFramework
-}
-
 // Validate validates the project configuration
 func (c *ProjectConfig) Validate() error {
 	validKits := map[string]bool{"multi": true, "single": true, "simple": true}
 	if !validKits[c.Kit] {
 		return fmt.Errorf("invalid kit: %s (valid: multi, single, simple)", c.Kit)
-	}
-
-	validFrameworks := map[string]bool{"tailwind": true, "bulma": true, "pico": true, "none": true}
-	if !validFrameworks[c.CSSFramework] {
-		return fmt.Errorf("invalid CSS framework: %s (valid: tailwind, bulma, pico, none)", c.CSSFramework)
 	}
 
 	return nil

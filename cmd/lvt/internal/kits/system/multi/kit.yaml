@@ -1,5 +1,6 @@
 name: multi
 version: 1.0.0
+css_framework: tailwind
 description: Multi-page application kit with full HTML layout and page-based CRUD
 author: LiveTemplate Team
 license: MIT

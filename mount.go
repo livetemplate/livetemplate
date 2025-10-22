@@ -323,6 +323,19 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
+		// Auto-broadcast to other connections in same session group
+		// This ensures all tabs in the same browser session stay in sync
+		go func() {
+			otherConns := h.registry.GetByGroupExcept(groupID, connection)
+			if len(otherConns) > 0 {
+				for _, otherConn := range otherConns {
+					if err := h.sendUpdate(otherConn, h.getTemplateData(state.stores)); err != nil {
+						log.Printf("Auto-broadcast failed for connection in group %s: %v", groupID, err)
+					}
+				}
+			}
+		}()
+
 		// Generate tree update
 		buf.Reset()
 		err = connTmpl.ExecuteUpdates(&buf, h.getTemplateData(state.stores), state.getErrors())
@@ -460,6 +473,20 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// Auto-broadcast to all WebSocket connections in same session group
+	// This ensures all tabs in the same browser session stay in sync
+	// (HTTP request doesn't have a WebSocket connection to exclude)
+	go func() {
+		wsConns := h.registry.GetByGroup(groupID)
+		if len(wsConns) > 0 {
+			for _, wsConn := range wsConns {
+				if err := h.sendUpdate(wsConn, h.getTemplateData(state.stores)); err != nil {
+					log.Printf("Auto-broadcast failed for WebSocket connection in group %s: %v", groupID, err)
+				}
+			}
+		}
+	}()
 
 	// Note: No need to save session - stores are modified in-place and already in SessionStore
 

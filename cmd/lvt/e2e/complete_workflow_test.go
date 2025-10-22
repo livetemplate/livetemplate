@@ -26,7 +26,6 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 	t.Log("Step 2: Creating blog app...")
 	appDir := createTestApp(t, lvtBinary, tmpDir, "blog", &AppOptions{
 		Kit:     "multi",
-		CSS:     "tailwind",
 		DevMode: true,
 	})
 	t.Log("✅ Blog app created")

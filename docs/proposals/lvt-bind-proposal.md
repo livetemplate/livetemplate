@@ -452,7 +452,7 @@ func main() {
     tmpl := livetemplate.New("form")
     tmpl.ParseFiles("form.html")
 
-    http.Handle("/", livetemplate.Mount(tmpl, state))
+    http.Handle("/", tmpl.Handle(state))
     // In production: serve from CDN
     // For development: use internal/testing.ServeClientLibrary
     http.HandleFunc("/livetemplate-client.js", e2etest.ServeClientLibrary)

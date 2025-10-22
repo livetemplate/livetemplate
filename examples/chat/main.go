@@ -1,42 +1,37 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/livefir/livetemplate"
 )
 
-// ChatState holds the chat application state
 type ChatState struct {
 	Messages      []Message
-	Users         map[string]*User // userID -> User
-	CurrentUser   string           // Current logged-in user
+	Users         map[string]*User
+	CurrentUser   string
 	OnlineCount   int
 	TotalMessages int
 	mu            sync.RWMutex
 }
 
-// Message represents a chat message
 type Message struct {
 	ID        int
 	Username  string
 	Text      string
 	Timestamp string
-	IsMine    bool // For rendering purposes
 }
 
-// User represents a connected user
 type User struct {
 	Username string
 	JoinedAt time.Time
 	IsOnline bool
 }
 
-// Change handles user actions
 func (s *ChatState) Change(ctx *livetemplate.ActionContext) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -56,7 +51,6 @@ func (s *ChatState) Change(ctx *livetemplate.ActionContext) error {
 			return nil
 		}
 
-		// Create new message
 		s.TotalMessages++
 		msg := Message{
 			ID:        s.TotalMessages,
@@ -67,8 +61,7 @@ func (s *ChatState) Change(ctx *livetemplate.ActionContext) error {
 
 		s.Messages = append(s.Messages, msg)
 
-		// Broadcast to all users - this will send the update to everyone
-		// The broadcasting happens automatically via the handler
+		// Auto-broadcast handles syncing to other tabs automatically
 		return nil
 
 	case "join":
@@ -85,10 +78,8 @@ func (s *ChatState) Change(ctx *livetemplate.ActionContext) error {
 			return nil
 		}
 
-		// Set current user
 		s.CurrentUser = data.Username
 
-		// Add user if not exists
 		if _, exists := s.Users[data.Username]; !exists {
 			s.Users[data.Username] = &User{
 				Username: data.Username,
@@ -123,7 +114,6 @@ func (s *ChatState) updateOnlineCount() {
 	s.OnlineCount = count
 }
 
-// Init initializes the chat state
 func (s *ChatState) Init() error {
 	if s.Users == nil {
 		s.Users = make(map[string]*User)
@@ -135,37 +125,56 @@ func (s *ChatState) Init() error {
 }
 
 func main() {
-	// Create template
-	tmpl := livetemplate.New("chat",
-		livetemplate.WithDevMode(true),
-	)
+	log.Println("chat starting...")
 
-	// Parse template
-	_, err := tmpl.ParseFiles("examples/chat/chat.html")
-	if err != nil {
-		log.Fatalf("Failed to parse template: %v", err)
-	}
-
-	// Initialize state
-	initialState := &ChatState{
+	// Create initial state
+	state := &ChatState{
 		Users:    make(map[string]*User),
 		Messages: []Message{},
 	}
 
-	// Create handler - uses anonymous auth by default
-	handler := tmpl.Handle(initialState)
+	// Create template - uses default AnonymousAuthenticator
+	// Each browser gets its own session (via cookie), tabs in same browser share state
+	tmpl := livetemplate.New("chat", livetemplate.WithDevMode(true))
 
-	// Serve static files
-	http.Handle("/", handler)
+	// Mount handler
+	http.Handle("/", tmpl.Handle(state))
 
-	// Start server
-	port := 8090
-	fmt.Printf("🚀 Chat server starting on http://localhost:%d\n", port)
-	fmt.Println("📝 Open multiple browser tabs to test multi-user chat")
-	fmt.Println("💬 Messages are broadcast to all connected users")
-	fmt.Println()
+	// Serve client library
+	http.HandleFunc("/livetemplate-client.js", serveClientLibrary)
 
-	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), nil); err != nil {
-		log.Fatal(err)
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8090"
 	}
+
+	log.Printf("🚀 Chat server starting on http://localhost:%s", port)
+	log.Println("📝 Open multiple browser tabs to see automatic syncing")
+	log.Println("💬 Messages appear instantly in all tabs of the same browser")
+	log.Println("🌐 Each browser has its own isolated chat session")
+	log.Println()
+
+	err := http.ListenAndServe(":"+port, nil)
+	if err != nil {
+		log.Fatalf("Server failed to start: %v", err)
+	}
+}
+
+func serveClientLibrary(w http.ResponseWriter, r *http.Request) {
+	paths := []string{
+		"livetemplate-client.js",
+		"../client/dist/livetemplate-client.browser.js",
+		"../../client/dist/livetemplate-client.browser.js",
+	}
+
+	for _, path := range paths {
+		content, err := os.ReadFile(path)
+		if err == nil {
+			w.Header().Set("Content-Type", "application/javascript")
+			w.Write(content)
+			return
+		}
+	}
+
+	http.Error(w, "Client library not found. For production, use CDN: https://cdn.jsdelivr.net/npm/@livefir/livetemplate-client/dist/livetemplate-client.browser.js", http.StatusNotFound)
 }

@@ -17,7 +17,6 @@ func New(args []string) error {
 	moduleName := appName // Default to app name
 	devMode := false      // Default to production (use CDN)
 	kit := "multi"        // Default kit
-	cssFramework := ""    // Will be determined by kit if not specified
 
 	// Check for flags
 	for i := 1; i < len(args); i++ {
@@ -29,9 +28,6 @@ func New(args []string) error {
 		} else if args[i] == "--kit" && i+1 < len(args) {
 			kit = args[i+1]
 			i++ // Skip next arg
-		} else if args[i] == "--css" && i+1 < len(args) {
-			cssFramework = args[i+1]
-			i++ // Skip next arg
 		}
 	}
 
@@ -41,24 +37,8 @@ func New(args []string) error {
 		return fmt.Errorf("invalid kit: %s (valid: multi, single, simple)", kit)
 	}
 
-	// Set CSS framework default based on kit if not specified
-	if cssFramework == "" {
-		if kit == "simple" {
-			cssFramework = "pico"
-		} else {
-			cssFramework = "tailwind"
-		}
-	}
-
-	// Validate CSS framework
-	validFrameworks := map[string]bool{"tailwind": true, "bulma": true, "pico": true, "none": true}
-	if !validFrameworks[cssFramework] {
-		return fmt.Errorf("invalid CSS framework: %s (valid: tailwind, bulma, pico, none)", cssFramework)
-	}
-
 	fmt.Printf("Creating new LiveTemplate app: %s\n", appName)
 	fmt.Printf("Kit: %s\n", kit)
-	fmt.Printf("CSS Framework: %s\n", cssFramework)
 	if devMode {
 		fmt.Println("Mode: Development (using local client library)")
 	}
@@ -69,7 +49,7 @@ func New(args []string) error {
 		isNested = true
 	}
 
-	if err := generator.GenerateApp(appName, moduleName, kit, cssFramework, devMode); err != nil {
+	if err := generator.GenerateApp(appName, moduleName, kit, devMode); err != nil {
 		return err
 	}
 
@@ -79,7 +59,11 @@ func New(args []string) error {
 	if isNested {
 		fmt.Println()
 		fmt.Println("⚠️  Warning: Creating app inside another Go module")
-		fmt.Printf("   You'll need to use: GOWORK=off go run cmd/%s/main.go\n", appName)
+		if kit == "simple" {
+			fmt.Printf("   You'll need to use: GOWORK=off go run main.go\n")
+		} else {
+			fmt.Printf("   You'll need to use: GOWORK=off go run cmd/%s/main.go\n", appName)
+		}
 		fmt.Println("   For production, create apps outside Go module directories")
 	}
 
@@ -102,9 +86,20 @@ func New(args []string) error {
 	fmt.Println()
 	fmt.Println("Next steps:")
 	fmt.Printf("  cd %s\n", appName)
-	fmt.Println("  lvt gen users name:string email:string")
-	fmt.Println("  lvt migration up")
-	fmt.Printf("  go run cmd/%s/main.go\n", appName)
+
+	// Different instructions based on kit type
+	if kit == "simple" {
+		fmt.Println("  go run main.go")
+		fmt.Println()
+		fmt.Println("Then open http://localhost:8080 in your browser")
+		fmt.Println()
+		fmt.Println("Edit main.go to customize your app logic")
+		fmt.Printf("Edit %s.tmpl to modify the UI\n", appName)
+	} else {
+		fmt.Println("  lvt gen users name:string email:string")
+		fmt.Println("  lvt migration up")
+		fmt.Printf("  go run cmd/%s/main.go\n", appName)
+	}
 	fmt.Println()
 
 	return nil

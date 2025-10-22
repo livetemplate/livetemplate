@@ -18,7 +18,6 @@ import (
 // AppOptions contains options for creating a test app
 type AppOptions struct {
 	Kit     string // Kit name (multi, single, simple)
-	CSS     string // CSS framework (tailwind, bulma, pico, none)
 	Module  string // Go module name
 	DevMode bool   // Use local client library
 }
@@ -69,7 +68,6 @@ func createTestApp(t *testing.T, lvtBinary, tmpDir, appName string, opts *AppOpt
 	if opts == nil {
 		opts = &AppOptions{
 			Kit:     "multi",
-			CSS:     "tailwind",
 			DevMode: true,
 		}
 	}
@@ -79,10 +77,6 @@ func createTestApp(t *testing.T, lvtBinary, tmpDir, appName string, opts *AppOpt
 
 	if opts.Kit != "" && opts.Kit != "multi" {
 		args = append(args, "--kit", opts.Kit)
-	}
-
-	if opts.CSS != "" && opts.CSS != "tailwind" {
-		args = append(args, "--css", opts.CSS)
 	}
 
 	if opts.Module != "" {
@@ -283,7 +277,7 @@ func verifyWebSocketConnected(t *testing.T, ctx context.Context, url string) {
 }
 
 // readLvtrc reads and parses the .lvtrc file
-func readLvtrc(t *testing.T, appDir string) (kit, css string) {
+func readLvtrc(t *testing.T, appDir string) (kit string) {
 	t.Helper()
 
 	lvtrcPath := filepath.Join(appDir, ".lvtrc")
@@ -297,10 +291,8 @@ func readLvtrc(t *testing.T, appDir string) (kit, css string) {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "kit=") {
 			kit = strings.TrimPrefix(line, "kit=")
-		} else if strings.HasPrefix(line, "css_framework=") {
-			css = strings.TrimPrefix(line, "css_framework=")
 		}
 	}
 
-	return kit, css
+	return kit
 }

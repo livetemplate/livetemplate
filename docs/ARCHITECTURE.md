@@ -87,28 +87,41 @@ User interactions trigger actions:
 │  │  - Event listeners (lvt-click, lvt-submit, etc.)      │ │
 │  │  - WebSocket/HTTP communication                       │ │
 │  │  - Tree cache (statics)                               │ │
-│  │  - DOM updates (tree application)                     │ │
+│  │  - morphdom for efficient DOM updates                │ │
+│  │  - Focus preservation & loading indicators           │ │
+│  │  - Form lifecycle events (pending, success, error)   │ │
 │  └────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
                               ▲ │
                               │ │ WebSocket/HTTP
-                              │ │ Tree Updates
+                              │ │ Tree Updates + Broadcasts
                               │ ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                         Server (Go)                          │
 │  ┌────────────────────────────────────────────────────────┐ │
-│  │  mount.go - HTTP/WebSocket Handlers                   │ │
-│  │  - Session management                                 │ │
-│  │  - Action routing (parseAction)                       │ │
-│  │  - Store lifecycle                                    │ │
+│  │  mount.go - LiveHandler & HTTP/WebSocket              │ │
+│  │  - HTTP/WebSocket connection management               │ │
+│  │  - Action routing and error handling                  │ │
+│  │  - Store lifecycle (Init, Change, OnConnect, etc.)   │ │
+│  │  - Broadcasting (Broadcast, BroadcastToUsers, etc.)  │ │
 │  └────────────────────────────────────────────────────────┘ │
+│         │                          │                         │
+│         ▼                          ▼                         │
+│  ┌─────────────────┐      ┌──────────────────────────────┐ │
+│  │  registry.go    │      │  auth.go & session.go        │ │
+│  │  Connection     │      │  - Authenticator interface   │ │
+│  │  Registry       │      │  - AnonymousAuthenticator    │ │
+│  │  - byGroup map  │      │  - BasicAuthenticator        │ │
+│  │  - byUser map   │      │  - SessionStore (memory)     │ │
+│  └─────────────────┘      └──────────────────────────────┘ │
 │                              │                               │
 │                              ▼                               │
 │  ┌────────────────────────────────────────────────────────┐ │
 │  │  template.go - Template Management                    │ │
 │  │  - Template parsing and caching                       │ │
-│  │  - Update generation (ExecuteToUpdate)               │ │
+│  │  - Update generation (ExecuteUpdates)                │ │
 │  │  - Tree diffing and fingerprinting                   │ │
+│  │  - Multi-store template data merging                 │ │
 │  └────────────────────────────────────────────────────────┘ │
 │                              │                               │
 │                              ▼                               │
@@ -117,21 +130,25 @@ User interactions trigger actions:
 │  │  - Parse Go templates to tree structure              │ │
 │  │  - Construct compilation (fields, ranges, etc.)      │ │
 │  │  - Hydration (fill constructs with data)             │ │
+│  │  - Ordered iteration for deterministic trees         │ │
 │  └────────────────────────────────────────────────────────┘ │
 │                              │                               │
 │                              ▼                               │
 │  ┌────────────────────────────────────────────────────────┐ │
 │  │  tree.go - Tree Operations                            │ │
-│  │  - Key generation (sequential wrapper keys)          │ │
-│  │  - Fingerprint calculation (change detection)        │ │
+│  │  - Key generation (sequential keys)                  │ │
+│  │  - Fingerprint calculation (MD5 hash)                │ │
 │  │  - Tree normalization                                 │ │
+│  │  - Wrapper div injection                              │ │
 │  └────────────────────────────────────────────────────────┘ │
 │                              │                               │
 │                              ▼                               │
 │  ┌────────────────────────────────────────────────────────┐ │
-│  │  User Store (implements Store interface)              │ │
-│  │  - Application state                                  │ │
-│  │  - Business logic in Change() method                 │ │
+│  │  User Stores (per session group)                      │ │
+│  │  - Store interface: Change(ctx)                       │ │
+│  │  - Optional: StoreInitializer, BroadcastAware        │ │
+│  │  - Shared within session group                        │ │
+│  │  - Isolated across session groups                     │ │
 │  └────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -177,6 +194,97 @@ User interactions trigger actions:
    └─> Apply to specific wrapper div
 ```
 
+## Authentication & Session Management
+
+LiveTemplate implements a flexible authentication and session management system based on **session groups**.
+
+### Session Groups
+
+A **session group** is the fundamental isolation boundary for state sharing:
+- All connections with the same `groupID` share the same `Stores` instance
+- Different `groupID`s have completely isolated state
+- Enables multi-tab sync, multi-device sync, and collaborative features
+
+### Authenticator Interface
+
+The `Authenticator` interface determines user identity and session group mapping:
+
+```go
+type Authenticator interface {
+    // Identify returns the user ID (empty string for anonymous)
+    Identify(r *http.Request) (userID string, err error)
+
+    // GetSessionGroup returns the session group ID for this user
+    GetSessionGroup(r *http.Request, userID string) (groupID string, err error)
+}
+```
+
+**Built-in Authenticators:**
+
+1. **AnonymousAuthenticator** (default)
+   - Browser-based session grouping via persistent cookie (`livetemplate-id`)
+   - All tabs in same browser → same `groupID` → shared state
+   - Different browsers → different `groupID` → isolated state
+   - Cookie persists for 1 year
+
+2. **BasicAuthenticator**
+   - Username/password authentication via HTTP Basic Auth
+   - Simple 1:1 mapping: `groupID = userID`
+   - Each user gets isolated state across all their devices/tabs
+   - Validation via user-provided function
+
+**Custom Authenticators:**
+
+For production use, implement custom authenticators with:
+- JWT tokens
+- OAuth flows
+- Session cookies from existing auth middleware
+- Custom session group mapping (e.g., collaborative workspaces)
+
+### SessionStore Interface
+
+The `SessionStore` manages session groups and their associated stores:
+
+```go
+type SessionStore interface {
+    Get(groupID string) Stores              // Retrieve stores for a group
+    Set(groupID string, stores Stores)      // Store stores for a group
+    Delete(groupID string)                  // Remove a session group
+    List() []string                         // List all active group IDs
+}
+```
+
+**Built-in Implementation:**
+
+- **MemorySessionStore**: In-memory storage with automatic cleanup
+  - TTL-based expiration (default: 24 hours)
+  - Background cleanup goroutine
+  - Suitable for single-instance deployments
+  - Thread-safe for concurrent access
+
+**Future:** Redis-based SessionStore for multi-instance deployments
+
+### Session Lifecycle
+
+```
+1. HTTP Request arrives
+   ├─> Authenticator.Identify(r) → userID
+   └─> Authenticator.GetSessionGroup(r, userID) → groupID
+
+2. SessionStore.Get(groupID) → existing Stores or nil
+
+3. If Stores == nil:
+   ├─> Clone user's initial stores
+   ├─> Call Init() if store implements StoreInitializer
+   ├─> Call OnConnect() if store implements BroadcastAware
+   └─> SessionStore.Set(groupID, stores)
+
+4. Handle request with group's stores
+
+5. On WebSocket disconnect:
+   └─> Call OnDisconnect() if store implements BroadcastAware
+```
+
 ## Key Components
 
 ### 1. Template (`template.go`)
@@ -184,12 +292,18 @@ User interactions trigger actions:
 **Purpose:** Main API entry point for template management
 
 **Key Methods:**
-- `New(name string) *Template` - Create template from file
-- `ExecuteToHTML(data) (string, error)` - First render (full HTML)
-- `ExecuteToUpdate(data) (*UpdateResponse, error)` - Subsequent renders (tree update)
-- `Handle(store Store) http.Handler` - WebSocket/HTTP handler
+- `New(name string, opts ...TemplateOption) *Template` - Create template with options
+- `ExecuteToHTML(data) (string, error)` - First render (full HTML) [Deprecated]
+- `ExecuteUpdates(w, data, errors) error` - Generate tree updates (JSON output)
+- `Handle(stores ...Store) LiveHandler` - Create handler (returns LiveHandler, not http.Handler)
 
-**State:**
+**Template Options:**
+- `WithAuthenticator(auth Authenticator)` - Custom authentication
+- `WithSessionStore(store SessionStore)` - Custom session storage
+- `WithOriginValidator(validator func(string) bool)` - WebSocket origin validation
+- `WithLoadingDisabled()` - Disable loading indicator
+
+**State (per connection):**
 - `lastTree` - Previous render's tree (for diffing)
 - `lastData` - Previous render's data (for caching)
 - `keyGen` - Key generator for current template instance
@@ -231,23 +345,103 @@ type treeNode map[string]interface{}
 // "0", "1", "2", ... -> interface{} (dynamics)
 ```
 
-### 4. Mount & Session (`mount.go`)
+### 4. LiveHandler & Broadcasting (`mount.go`)
 
-**Purpose:** HTTP/WebSocket handling and session management
+**Purpose:** HTTP/WebSocket handling, session management, and broadcasting
 
-**Key Functions:**
-- `Handle(store Store) http.Handler` - Create handler for store
-- Session management via gorilla/sessions
-- Store cloning (each session gets its own store instance)
-- Action routing and error handling
+**LiveHandler Interface:**
+```go
+type LiveHandler interface {
+    http.Handler
+    Broadcast(data interface{}) error
+    BroadcastToUsers(userIDs []string, data interface{}) error
+    BroadcastToGroup(groupID string, data interface{}) error
+}
+```
+
+**Key Features:**
+- HTTP initial render + WebSocket upgrade for updates
+- Session group management (multiple connections per group)
+- Action routing with store namespace support (`store.action`)
+- Broadcasting to all connections, specific users, or specific groups
+- Automatic multi-tab syncing within session groups
 
 **Store Lifecycle:**
-1. Clone user's store for new session
-2. Call `Init()` if store implements `StoreInitializer`
-3. Handle actions via `Change(ctx)`
-4. Re-render and send updates
+1. Authenticate user and determine session group
+2. Get or create stores for the group (from SessionStore)
+3. Call `Init()` if store implements `StoreInitializer`
+4. Call `OnConnect(ctx, broadcaster)` if store implements `BroadcastAware`
+5. Handle actions via `Change(ctx)` with automatic updates to all group connections
+6. Call `OnDisconnect()` on connection close
 
-### 5. Action System (`action.go`)
+### 5. Connection Registry (`registry.go`)
+
+**Purpose:** Track and manage active WebSocket connections with dual indexing
+
+**Key Types:**
+- `Connection`: WebSocket connection with metadata (groupID, userID, template, stores)
+- `ConnectionRegistry`: Dual-indexed registry for efficient lookups
+
+**Dual Indexing:**
+- `byGroup map[string][]*Connection` - Efficient group broadcasts
+- `byUser map[string][]*Connection` - Efficient user broadcasts
+
+**Operations:**
+- `Register(conn)` - Add connection to both indexes
+- `Unregister(conn)` - Remove from both indexes, cleanup empty maps
+- `GetByGroup(groupID)` - Get all connections in a session group
+- `GetByUser(userID)` - Get all connections for a user (across groups)
+
+**Use Cases:**
+- Multi-tab automatic syncing (same groupID)
+- User-specific notifications (by userID)
+- Pub/sub topics (custom groupID mapping)
+
+### 6. Broadcaster Interface (`mount.go`)
+
+**Purpose:** Enable server-initiated updates without user actions
+
+**BroadcastAware Interface:**
+```go
+type BroadcastAware interface {
+    OnConnect(ctx context.Context, b Broadcaster) error
+    OnDisconnect()
+}
+
+type Broadcaster interface {
+    Send() error  // Re-render and send update to this connection
+}
+```
+
+**Use Cases:**
+- Live data feeds (stock prices, sports scores)
+- Background job status updates
+- Real-time notifications
+- Collaborative features
+
+**Example:**
+```go
+type LiveDataStore struct {
+    Data string
+    broadcaster Broadcaster
+}
+
+func (s *LiveDataStore) OnConnect(ctx context.Context, b Broadcaster) error {
+    s.broadcaster = b
+    go s.pollDataUpdates()  // Start background updates
+    return nil
+}
+
+func (s *LiveDataStore) pollDataUpdates() {
+    ticker := time.NewTicker(5 * time.Second)
+    for range ticker.C {
+        s.Data = fetchLatestData()
+        s.broadcaster.Send()  // Push update to client
+    }
+}
+```
+
+### 7. Action System (`action.go`)
 
 **Purpose:** Action protocol and data binding
 
@@ -257,24 +451,60 @@ type treeNode map[string]interface{}
   - `Data` - ActionData wrapper
 - `ActionData` - Data extraction and validation
   - `Bind(v interface{})` - Unmarshal to struct
-  - `BindAndValidate(v, validator)` - Bind + validate
+  - `BindAndValidate(v, validator)` - Bind + validate with go-playground/validator
   - `GetString/GetInt/GetFloat/GetBool(key)` - Type-safe accessors
+  - `Has(key)` - Check if key exists
+  - `Raw()` - Access underlying map
 
 **Multi-store Actions:**
 - Single store: `"increment"` → `Change(ctx)` where `ctx.Action == "increment"`
 - Multi-store: `"counter.increment"` → Routes to `stores["counter"]`
 
-### 6. Client Library (`client/livetemplate-client.ts`)
+**Error Handling:**
+- Validation errors returned from `Change()` are automatically displayed to client
+- Uses `ValidationError` and `MultiError` types for structured errors
+- Client receives errors in `meta.errors` map (field → error message)
+
+### 8. Client Library (`client/livetemplate-client.ts`)
 
 **Purpose:** Browser-side event handling and DOM updates
 
 **Key Features:**
-- Event binding (`lvt-click`, `lvt-submit`, etc.)
-- WebSocket/HTTP communication
-- Tree cache (statics cached in memory)
-- Efficient DOM updates (only changed elements)
-- Focus preservation
-- Loading indicators
+- **Event binding**: `lvt-click`, `lvt-submit`, `lvt-change`, `lvt-keyup`, etc.
+- **WebSocket/HTTP**: Automatic fallback to HTTP if WebSocket unavailable
+- **Tree cache**: Statics cached in memory (sent once, reused forever)
+- **morphdom**: Efficient DOM patching (minimal reflows)
+- **Focus preservation**: Maintains cursor position and selection during updates
+- **Loading indicators**: Top progress bar during WebSocket initialization
+- **Form lifecycle**: Hooks for `pending`, `success`, `error`, `done` events
+- **Rate limiting**: Built-in debounce/throttle for event handlers
+- **Infinite scroll**: IntersectionObserver-based infinite scrolling
+
+**Event Attributes:**
+- `lvt-click="action"` - Click handler
+- `lvt-submit="action"` - Form submission
+- `lvt-change="action"` - Input change
+- `lvt-keyup="action"` - Keyup handler
+- `lvt-debounce="300"` - Debounce delay (ms)
+- `lvt-throttle="500"` - Throttle delay (ms)
+
+**Form Lifecycle Events:**
+```javascript
+form.addEventListener('lvt:pending', () => { /* Show loading */ });
+form.addEventListener('lvt:success', () => { /* Clear form */ });
+form.addEventListener('lvt:error', (e) => { /* Show errors */ });
+form.addEventListener('lvt:done', () => { /* Hide loading */ });
+```
+
+**Focus Preservation:**
+- Automatically preserves focus on input elements during updates
+- Maintains cursor position and text selection
+- Only applies to focusable input types (text, textarea, email, etc.)
+
+**Loading Indicator:**
+- Animated progress bar at top of page during WebSocket connection
+- Automatically removed after first update
+- Can be disabled via `WithLoadingDisabled()` option
 
 ## Template Processing Pipeline
 
@@ -467,6 +697,192 @@ For browsers without WebSocket support:
 
 Same protocol format, different transport.
 
+## Broadcasting Architecture
+
+LiveTemplate provides two types of broadcasting for real-time updates:
+
+### 1. Automatic Session Syncing (Default)
+
+**How it works:**
+- Each browser gets a unique session group ID (via `livetemplate-id` cookie)
+- All tabs in the same browser share this session group ID
+- When any tab modifies state via an action, **all tabs in the same session group automatically receive updates**
+- This happens with zero configuration or code changes
+
+**Example:**
+```go
+type ChatState struct {
+    Messages []Message
+}
+
+func (s *ChatState) Change(ctx *livetemplate.ActionContext) error {
+    s.Messages = append(s.Messages, newMessage)
+    return nil  // All tabs in same browser update automatically!
+}
+```
+
+**Session Grouping for Anonymous Users:**
+- Browser A, Tab 1: `groupID = session-abc` (from cookie)
+- Browser A, Tab 2: `groupID = session-abc` (same cookie → same state, auto-sync)
+- Browser B, Tab 1: `groupID = session-xyz` (different cookie → isolated state)
+
+**Session Grouping for Authenticated Users:**
+- User "alice", Desktop: `groupID = alice`
+- User "alice", Mobile: `groupID = alice` (same user → auto-sync across devices!)
+- User "bob", Desktop: `groupID = bob` (different user → isolated)
+
+### 2. Manual Broadcasting
+
+For cross-session scenarios, use the `LiveHandler` interface:
+
+```go
+tmpl := livetemplate.New("app")
+handler := tmpl.Handle(&AppState{})  // Returns LiveHandler
+
+// Broadcast to all connections (all browsers, all sessions)
+handler.Broadcast(data)
+
+// Broadcast to specific users across all their sessions
+handler.BroadcastToUsers([]string{"user-123", "user-456"}, data)
+
+// Broadcast to specific session group or topic
+handler.BroadcastToGroup("topic:crypto-prices", data)
+```
+
+### Broadcasting Methods
+
+#### Broadcast()
+Sends updates to **all connected clients** across all session groups.
+
+**Use Cases:**
+- System-wide announcements
+- Global data updates (stock prices, weather)
+- Admin broadcasts
+
+**Example:**
+```go
+// Background goroutine pushes live data
+go func() {
+    ticker := time.NewTicker(5 * time.Second)
+    for range ticker.C {
+        data := fetchLatestData()
+        handler.Broadcast(data)
+    }
+}()
+```
+
+#### BroadcastToUsers()
+Sends updates to **specific users** across all their active connections.
+
+**Use Cases:**
+- User-specific notifications
+- Multi-device updates
+- Targeted messaging
+
+**Example:**
+```go
+notification := &Notification{Message: "You have a new message"}
+handler.BroadcastToUsers([]string{"alice", "bob"}, notification)
+```
+
+#### BroadcastToGroup()
+Sends updates to **all connections in a session group**.
+
+**Use Cases:**
+- Pub/sub topics (e.g., `"topic:crypto-prices"`)
+- Chat rooms (e.g., `"room:lobby"`)
+- Collaborative workspaces (e.g., `"workspace:123"`)
+
+**Example:**
+```go
+// Custom authenticator for topic subscriptions
+type TopicAuthenticator struct{}
+
+func (a *TopicAuthenticator) GetSessionGroup(r *http.Request, userID string) (string, error) {
+    topic := r.URL.Query().Get("topic")
+    return "topic:" + topic, nil
+}
+
+// Publish to all subscribers
+handler.BroadcastToGroup("topic:crypto-prices", priceUpdate)
+```
+
+### Server-Initiated Updates (BroadcastAware)
+
+For stores that need background updates, implement the `BroadcastAware` interface:
+
+```go
+type LiveDataStore struct {
+    Data       string
+    broadcaster Broadcaster
+    stopCh     chan struct{}
+}
+
+func (s *LiveDataStore) OnConnect(ctx context.Context, b Broadcaster) error {
+    s.broadcaster = b
+    s.stopCh = make(chan struct{})
+
+    // Start background updates for this connection
+    go func() {
+        ticker := time.NewTicker(5 * time.Second)
+        defer ticker.Stop()
+
+        for {
+            select {
+            case <-ticker.C:
+                s.Data = fetchLatestData()
+                s.broadcaster.Send()  // Push to this specific connection
+            case <-s.stopCh:
+                return
+            }
+        }
+    }()
+
+    return nil
+}
+
+func (s *LiveDataStore) OnDisconnect() {
+    close(s.stopCh)  // Stop background updates
+}
+```
+
+**Key Differences:**
+- `Broadcaster.Send()`: Updates **one specific connection** (per-connection state)
+- `LiveHandler.Broadcast()`: Updates **all connections** (shared state)
+
+**Use Cases for BroadcastAware:**
+- Per-user live feeds (different data per connection)
+- Background job status (connection-specific)
+- Real-time notifications (per-connection)
+
+### Broadcasting Performance
+
+**Tree Diffing Per Connection:**
+Each connection maintains independent template state:
+- Connection A: `lastData = {Count: 5}`
+- Connection B: `lastData = {Count: 10}`
+- Broadcast `{Count: 15}` → Different tree diffs for each connection
+
+**Frequency Guidelines:**
+- **High frequency** (<100ms): Use only for critical real-time data
+- **Medium frequency** (1-5s): Suitable for most live updates
+- **Low frequency** (>5s): Recommended for background sync
+
+**Thread Safety:**
+All broadcasting methods are thread-safe and can be called concurrently from multiple goroutines.
+
+**Error Handling:**
+Broadcasting continues even if individual sends fail. Check logs for details.
+
+### Broadcasting Examples
+
+See the complete chat application in `examples/chat/` demonstrating:
+- Message broadcasting to all users
+- User presence tracking
+- Multi-tab session sharing
+
+For detailed documentation, see [BROADCASTING.md](BROADCASTING.md).
+
 ## Performance Optimizations
 
 ### 1. Static Content Caching
@@ -551,19 +967,107 @@ Client only handles UI events and DOM updates.
 - **Efficiency:** Persistent connection, no handshake overhead
 - **Compatibility:** HTTP fallback for older browsers
 - **Broadcasting:** WebSocket enables multi-user features
+- **Multi-tab sync:** WebSocket required for automatic session syncing
+
+### Why Session Groups Instead of Per-Connection State?
+
+- **Multi-tab sync:** Tabs in same browser automatically share state
+- **Multi-device sync:** Authenticated users can sync across devices
+- **Flexibility:** Custom groupID mapping enables pub/sub, rooms, workspaces
+- **Efficiency:** One Stores instance per group, not per connection
+- **Broadcasting:** Group-based targeting is natural and efficient
+
+**Trade-offs:**
+- Requires connection tracking (ConnectionRegistry)
+- Session group management overhead (SessionStore)
+- Memory usage scales with active groups, not connections
+
+### Why Dual-Indexed Connection Registry?
+
+- **Efficient broadcasting:** O(1) lookup by groupID or userID
+- **Multi-tab support:** Quick access to all tabs in a session
+- **User targeting:** Broadcast to all devices for a user
+- **Memory overhead:** Minimal (two maps with pointers, no data duplication)
+
+Alternative approaches considered:
+- Single map by groupID only: Can't efficiently target specific users
+- Single map by userID only: Can't efficiently target session groups
+- No indexing: O(n) scan for every broadcast operation
+
+### Why Authenticator Interface?
+
+- **Flexibility:** Support anonymous, authenticated, and custom auth flows
+- **Separation of concerns:** Auth logic separate from framework
+- **Session group mapping:** Decouples user identity from state grouping
+- **Testability:** Easy to mock for testing
+- **Extensibility:** Users can implement JWT, OAuth, custom logic
+
+**Default (AnonymousAuthenticator):**
+- Zero configuration required
+- Persistent browser-based sessions via cookie
+- Multi-tab support out of the box
+
+### Why morphdom for DOM Updates?
+
+- **Efficiency:** Only patches changed DOM nodes (minimal reflows)
+- **Focus preservation:** Automatically maintains form state
+- **Proven:** Battle-tested in Turbo/LiveView ecosystems
+- **Small:** Minimal bundle size (~2KB gzipped)
+
+Alternative considered: Direct DOM manipulation (more complex, harder to maintain focus)
+
+### Why Loading Indicators by Default?
+
+- **User feedback:** Visual indication that page is interactive
+- **Perceived performance:** Users tolerate delays better with feedback
+- **Professional UX:** Matches expectations from modern web apps
+- **Optional:** Can be disabled with `WithLoadingDisabled()`
 
 ## Future Considerations
 
 Potential improvements for future versions:
 
-1. **Streaming Updates:** For large lists, stream tree updates incrementally
-2. **Partial Hydration:** Only hydrate changed subtrees
-3. **Advanced Diffing:** More sophisticated algorithms for complex trees
-4. **Client-side Optimizations:** Virtual DOM, request coalescing
-5. **Server-side Caching:** Cache compiled constructs across requests
+1. **Redis SessionStore:** For multi-instance deployments with shared state
+2. **Streaming Updates:** For large lists, stream tree updates incrementally
+3. **Partial Hydration:** Only hydrate changed subtrees
+4. **Advanced Diffing:** More sophisticated algorithms for complex trees
+5. **Client-side Optimizations:** Request coalescing, virtual scrolling
+6. **Server-side Caching:** Cache compiled constructs across requests
+7. **Presence Tracking:** Built-in user presence system (online/offline status)
+8. **Binary Protocol:** More efficient serialization than JSON for high-frequency updates
 
 ---
 
-For implementation details, see:
-- [CODE_TOUR.md](CODE_TOUR.md) - Guided code walkthrough
-- [CONTRIBUTING.md](../CONTRIBUTING.md) - Development guidelines
+## Related Documentation
+
+For more details on specific topics, see:
+
+- **Core Architecture:**
+  - [CLAUDE.md](../CLAUDE.md) - Development guidelines and project overview
+  - [README.md](../README.md) - Quick start and examples
+
+- **Formal Specifications:**
+  - [specifications/tree-update-specification.md](specifications/tree-update-specification.md) - **Formal tree update specification**
+  - [specifications/test-scenarios.md](specifications/test-scenarios.md) - **Comprehensive test scenarios**
+  - [references/template-support-matrix.md](references/template-support-matrix.md) - Template pattern support
+
+- **Broadcasting & Real-time:**
+  - [BROADCASTING.md](BROADCASTING.md) - Comprehensive broadcasting guide
+  - [examples/chat/](../examples/chat/) - Multi-user chat example
+
+- **Testing:**
+  - `tree_update_fuzz_test.go` - User activity fuzz testing framework
+  - `tree_analyzer_enhanced.go` - Specification compliance analyzer
+  - `e2e_update_spec_test.go` - Integration test suite
+
+- **CLI Tool:**
+  - [cmd/lvt/README.md](../cmd/lvt/README.md) - CLI tool documentation
+  - [guides/kit-development.md](guides/kit-development.md) - Creating custom kits
+  - [guides/user-guide.md](guides/user-guide.md) - User guide for lvt
+
+- **API Reference:**
+  - [references/api-reference.md](references/api-reference.md) - Complete API documentation
+
+- **Design Documents:**
+  - [design/IMPLEMENTATION_STATUS.md](design/IMPLEMENTATION_STATUS.md) - Implementation status
+  - [proposals/lvt-bind-proposal.md](proposals/lvt-bind-proposal.md) - Data binding proposal

@@ -8,15 +8,14 @@ This directory contains all documentation for LiveTemplate, organized by type.
 Complete API references and specifications:
 - **[client-attributes.md](references/client-attributes.md)** - `lvt-*` HTML attributes reference
 - **[error-handling.md](references/error-handling.md)** - Comprehensive error handling guide
-- **[api-reference.md](references/api-reference.md)** - Component and kit manifest schemas
+- **[api-reference.md](references/api-reference.md)** - Kit manifest schemas and API reference
 - **[template-support-matrix.md](references/template-support-matrix.md)** - Supported Go template features
 
 ### `/guides/`
 Step-by-step guides and tutorials:
 - **[user-guide.md](guides/user-guide.md)** - Getting started with `lvt` CLI
 - **[CODE_TOUR.md](guides/CODE_TOUR.md)** - Guided codebase walkthrough
-- **[component-development.md](guides/component-development.md)** - Creating reusable components
-- **[kit-development.md](guides/kit-development.md)** - Creating CSS framework kits
+- **[kit-development.md](guides/kit-development.md)** - Creating CSS framework kits (includes components)
 - **[serve-guide.md](guides/serve-guide.md)** - Development server usage
 
 ### `/design/`

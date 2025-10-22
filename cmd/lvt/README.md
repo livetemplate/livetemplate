@@ -224,16 +224,18 @@ go test ./internal/app/posts -v
 
 ### Customization Ideas
 
-**1. Switch CSS Framework:**
+**1. Generate resources (CSS framework determined by kit):**
 ```bash
-# Generate with Bulma
-lvt gen tags name --css bulma
+# Resources use the CSS framework from your chosen kit
+# Multi and single kits use Tailwind CSS
+# Simple kit uses Pico CSS
 
-# Generate with Pico (semantic/classless)
-lvt gen authors name bio --css pico
+lvt gen tags name
 
-# Generate without CSS
-lvt gen drafts title --css none
+# To use a different CSS framework, create your app with a different kit
+lvt new myapp --kit simple  # Uses Pico CSS
+cd myapp
+lvt gen authors name bio    # Will use Pico CSS
 ```
 
 **2. Use Type Inference:**
@@ -763,7 +765,7 @@ go test ./cmd/lvt -v
   - [x] Bulma 1.0.4
   - [x] Pico CSS v2
   - [x] None (pure HTML)
-  - [x] `--css` flag for CLI: `lvt gen users name email --css bulma`
+  - [x] CSS framework determined by kit (multi/single use Tailwind, simple uses Pico)
   - [x] 57 CSS helper functions for framework abstraction
   - [x] Conditional template rendering (single source of truth)
   - [x] Semantic HTML support for Pico CSS (<main>, <article>)

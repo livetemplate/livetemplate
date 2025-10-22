@@ -1,22 +1,55 @@
 # Broadcasting API
 
-LiveTemplate supports server-initiated updates via the `LiveHandler` interface, enabling real-time broadcasting to connected WebSocket clients.
+LiveTemplate provides two types of broadcasting:
+1. **Automatic Session Syncing** - Tabs in the same browser automatically stay in sync (no code needed)
+2. **Manual Broadcasting** - Explicit control for cross-session scenarios
 
-## Quick Start
+## Automatic Session Syncing (Default Behavior)
+
+When a user performs an action that modifies state, **all tabs in the same browser session automatically receive updates**. This happens with zero configuration:
+
+```go
+type ChatState struct {
+    Messages []Message
+}
+
+func (s *ChatState) Change(ctx *livetemplate.ActionContext) error {
+    s.Messages = append(s.Messages, newMessage)
+    return nil  // All tabs in same browser update automatically! ✨
+}
+```
+
+**How it works:**
+- Each browser gets a unique session ID (via cookie: `livetemplate-id`)
+- All tabs in the same browser share this session ID
+- State changes automatically broadcast to all tabs in the same session
+- No manual broadcasting code required
+
+**Example:** Chat app where multiple tabs stay in sync:
+```go
+// Tab 1: User sends message
+// Tab 2, Tab 3: Automatically see the new message
+```
+
+See `examples/chat/` for a complete demonstration.
+
+## Manual Broadcasting
+
+For cross-session scenarios (system announcements, user notifications, pub/sub topics), use the `LiveHandler` interface:
 
 ```go
 // Create template and handler
 tmpl := livetemplate.New("app")
 handler := tmpl.Handle(&AppState{})  // Returns LiveHandler
 
-// Broadcast to all connections
+// Broadcast to all connections (all browsers, all sessions)
 handler.Broadcast(data)
 
-// Broadcast to specific users
+// Broadcast to specific users across all their sessions
 handler.BroadcastToUsers([]string{"user-123", "user-456"}, data)
 
-// Broadcast to session group
-handler.BroadcastToGroup("session-abc", data)
+// Broadcast to specific session group or topic
+handler.BroadcastToGroup("topic:crypto-prices", data)
 ```
 
 ## LiveHandler Interface
@@ -94,18 +127,26 @@ func notifyNewMessage(handler livetemplate.LiveHandler, recipients []string) {
 
 ### BroadcastToGroup()
 
-Sends updates to **all connections in a session group**.
+Sends updates to **all connections in a session group**. Typically used for pub/sub topics or channels, not multi-tab syncing (which is automatic).
 
 **Use Cases:**
-- Multi-tab updates for anonymous users
-- Shared session updates
-- Room/channel broadcasts
+- Pub/sub topics (e.g., "topic:crypto-prices", "topic:sports")
+- Chat rooms (e.g., "room:lobby", "room:support")
+- Collaborative workspaces (e.g., "workspace:123")
 
 **Example:**
 ```go
-// Update all tabs for a session
-func updateSession(handler livetemplate.LiveHandler, groupID string, data interface{}) {
-    handler.BroadcastToGroup(groupID, data)
+// Publish price update to crypto topic subscribers
+func publishCryptoPrice(handler livetemplate.LiveHandler, price CryptoPrice) {
+    handler.BroadcastToGroup("topic:crypto-prices", price)
+}
+
+// Custom authenticator for topic subscriptions
+type TopicAuthenticator struct{}
+
+func (a *TopicAuthenticator) GetSessionGroup(r *http.Request, userID string) (string, error) {
+    topic := r.URL.Query().Get("topic")
+    return "topic:" + topic, nil  // Users subscribe by connecting with ?topic=crypto-prices
 }
 ```
 
@@ -116,7 +157,7 @@ func updateSession(handler livetemplate.LiveHandler, groupID string, data interf
 
 ## Authentication & Session Groups
 
-Broadcasting works with LiveTemplate's authentication system:
+Session groups determine which tabs automatically stay in sync:
 
 ### Anonymous Users (Default)
 
@@ -130,14 +171,18 @@ handler := tmpl.Handle(&state)
 ```
 
 **Session Grouping:**
-- Browser A, Tab 1: `group-abc` (from cookie)
-- Browser A, Tab 2: `group-abc` (same cookie)
-- Browser B, Tab 1: `group-xyz` (different cookie)
+- Browser A, Tab 1: `groupID = session-abc` (from cookie)
+- Browser A, Tab 2: `groupID = session-abc` (same cookie → same state, auto-sync)
+- Browser B, Tab 1: `groupID = session-xyz` (different cookie → isolated state)
 
-**Broadcast Behavior:**
+**Automatic Syncing:**
+- Tabs 1 & 2 in Browser A automatically sync (same groupID)
+- Browser B is isolated (different groupID)
+
+**Manual Broadcast Behavior:**
 - `Broadcast()` → All tabs in all browsers
 - `BroadcastToUsers()` → N/A (users are anonymous)
-- `BroadcastToGroup("group-abc")` → Both tabs in Browser A
+- `BroadcastToGroup("session-abc")` → Both tabs in Browser A (rarely needed, already auto-synced)
 
 ### Authenticated Users
 
@@ -147,15 +192,19 @@ tmpl := livetemplate.New("app", livetemplate.WithAuthenticator(auth))
 handler := tmpl.Handle(&state)
 ```
 
-**Session Grouping:**
-- User "alice", Desktop: `group-alice-1`
-- User "alice", Mobile: `group-alice-2`
-- User "bob", Desktop: `group-bob-1`
+**Session Grouping (BasicAuthenticator uses userID as groupID):**
+- User "alice", Desktop: `groupID = alice`
+- User "alice", Mobile: `groupID = alice` (same groupID → auto-sync across devices!)
+- User "bob", Desktop: `groupID = bob` (different user → isolated)
 
-**Broadcast Behavior:**
+**Automatic Syncing:**
+- Alice's desktop and mobile automatically sync (same groupID)
+- Bob is isolated (different groupID)
+
+**Manual Broadcast Behavior:**
 - `Broadcast()` → All devices for all users
-- `BroadcastToUsers(["alice"])` → Desktop + Mobile for alice
-- `BroadcastToGroup("group-alice-1")` → Desktop only for alice
+- `BroadcastToUsers(["alice"])` → Desktop + Mobile for alice (rarely needed, already auto-synced)
+- `BroadcastToGroup("alice")` → Same as BroadcastToUsers for BasicAuthenticator
 
 ## Thread Safety
 

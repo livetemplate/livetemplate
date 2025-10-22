@@ -1280,6 +1280,41 @@ export class LiveTemplateClient {
   }
 
   /**
+   * Deep merge tree nodes, taking statics from update if present, else preserving existing
+   * @param existing - The existing tree node (may have 's' key with statics)
+   * @param update - The update tree node (if it has 's', use those; else preserve existing 's')
+   * @returns Merged tree node
+   */
+  private deepMergeTreeNodes(existing: any, update: any): any {
+    // If update is not an object, just return it
+    if (typeof update !== 'object' || update === null || Array.isArray(update)) {
+      return update;
+    }
+
+    // If existing is not an object, just return update
+    if (typeof existing !== 'object' || existing === null || Array.isArray(existing)) {
+      return update;
+    }
+
+    // Start with a copy of existing (to preserve 's' and 'f' if update doesn't have them)
+    const merged: any = { ...existing };
+
+    // Merge each key from update (this will overwrite existing keys including 's' if present)
+    for (const [key, value] of Object.entries(update)) {
+      if (typeof value === 'object' && value !== null && !Array.isArray(value) &&
+          typeof merged[key] === 'object' && merged[key] !== null && !Array.isArray(merged[key])) {
+        // Both are objects, recursively merge
+        merged[key] = this.deepMergeTreeNodes(merged[key], value);
+      } else {
+        // Simple value or array, just replace
+        merged[key] = value;
+      }
+    }
+
+    return merged;
+  }
+
+  /**
    * Apply an update to the current state and reconstruct HTML
    * @param update - Tree update object from LiveTemplate server
    * @returns Reconstructed HTML and whether anything changed
@@ -1300,8 +1335,13 @@ export class LiveTemplateClient {
         changed = true;
       } else {
         // Regular value update (including initial range structures with d and s)
-        if (JSON.stringify(this.treeState[key]) !== JSON.stringify(value)) {
-          this.treeState[key] = value;
+        const oldValue = this.treeState[key];
+        const newValue = typeof value === 'object' && value !== null && !Array.isArray(value)
+          ? this.deepMergeTreeNodes(oldValue, value)
+          : value;
+
+        if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
+          this.treeState[key] = newValue;
           changed = true;
         }
       }
@@ -1705,7 +1745,14 @@ export class LiveTemplateClient {
     // Apply update to internal state and get reconstructed HTML
     const result = this.applyUpdate(update);
 
-    if (!result.changed && !update.s) {
+    // Helper to recursively check if there are any statics in the tree
+    const hasStaticsInTree = (node: any): boolean => {
+      if (!node || typeof node !== 'object') return false;
+      if (node.s && Array.isArray(node.s)) return true;
+      return Object.values(node).some(v => hasStaticsInTree(v));
+    };
+
+    if (!result.changed && !hasStaticsInTree(update)) {
       // No changes detected and no statics in update, skip morphdom
       return;
     }

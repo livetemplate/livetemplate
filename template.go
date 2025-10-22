@@ -129,6 +129,7 @@ type Template struct {
 	lastFingerprint string        // Fingerprint of the last generated tree for change detection
 	keyGen          *keyGenerator // Per-template key generation for wrapper approach
 	config          Config        // Template configuration
+	analyzer        *TreeUpdateAnalyzer // Tree efficiency analyzer (enabled in DevMode)
 }
 
 // UpdateResponse wraps a tree update with metadata for form lifecycle.
@@ -306,10 +307,15 @@ func New(name string, opts ...Option) *Template {
 	// Log DevMode configuration for debugging
 	log.Printf("livetemplate.New(%q): DevMode=%v", name, config.DevMode)
 
+	// Initialize tree analyzer (only enabled in DevMode)
+	analyzer := NewTreeUpdateAnalyzer()
+	analyzer.Enabled = config.DevMode
+
 	tmpl := &Template{
-		name:   name,
-		keyGen: newKeyGenerator(),
-		config: config,
+		name:     name,
+		keyGen:   newKeyGenerator(),
+		config:   config,
+		analyzer: analyzer,
 	}
 
 	// Auto-discover and parse templates if not explicitly provided
@@ -334,12 +340,16 @@ func New(name string, opts ...Option) *Template {
 func (t *Template) Clone() (*Template, error) {
 	// Cannot clone an executed html/template, must re-parse from source
 	// Create a fresh template instance with the same configuration
+	analyzer := NewTreeUpdateAnalyzer()
+	analyzer.Enabled = t.config.DevMode
+
 	clone := &Template{
 		name:        t.name,
 		templateStr: t.templateStr,
 		wrapperID:   t.wrapperID, // Share wrapper ID
 		keyGen:      newKeyGenerator(),
 		config:      t.config, // Preserve configuration
+		analyzer:    analyzer,
 		// Don't copy lastData, lastHTML, lastTree, etc. - start fresh
 	}
 
@@ -616,6 +626,11 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, errors ...map[
 		return fmt.Errorf("tree generation failed: %w", err)
 	}
 
+	// Analyze tree for efficiency issues (only in DevMode)
+	if t.analyzer != nil && t.analyzer.Enabled {
+		t.analyzer.AnalyzeUpdate(tree, t.name, t.templateStr)
+	}
+
 	// Convert tree to ordered JSON with readable HTML (no escape sequences)
 	jsonBytes, err := marshalOrderedJSON(tree)
 	if err != nil {
@@ -837,12 +852,83 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 	return addFingerprintToTree(tree), nil
 }
 
+// stripStaticsRecursively removes all "s" and "f" keys from a tree node recursively
+// Also removes fields that become empty after stripping (empty strings or empty maps)
+func stripStaticsRecursively(node interface{}) interface{} {
+	switch v := node.(type) {
+	case treeNode:
+		result := make(map[string]interface{})
+		for k, val := range v {
+			if k == "s" || k == "f" {
+				continue // Skip statics and fingerprint
+			}
+			stripped := stripStaticsRecursively(val)
+			// Only include non-empty values
+			if !isEmpty(stripped) {
+				result[k] = stripped
+			}
+		}
+		return result
+	case map[string]interface{}:
+		result := make(map[string]interface{})
+		for k, val := range v {
+			if k == "s" || k == "f" {
+				continue // Skip statics and fingerprint
+			}
+			stripped := stripStaticsRecursively(val)
+			// Only include non-empty values
+			if !isEmpty(stripped) {
+				result[k] = stripped
+			}
+		}
+		return result
+	case []interface{}:
+		result := make([]interface{}, 0, len(v))
+		for _, item := range v {
+			stripped := stripStaticsRecursively(item)
+			// Only include non-empty values
+			if !isEmpty(stripped) {
+				result = append(result, stripped)
+			}
+		}
+		return result
+	default:
+		return v
+	}
+}
+
+// isEmpty checks if a value is considered empty (empty string, empty map, empty slice)
+func isEmpty(v interface{}) bool {
+	switch val := v.(type) {
+	case string:
+		return val == ""
+	case treeNode:
+		return len(val) == 0
+	case map[string]interface{}:
+		return len(val) == 0
+	case []interface{}:
+		return len(val) == 0
+	default:
+		return false
+	}
+}
+
 // compareTreesAndGetChanges compares two trees and returns only changed dynamics
 func (t *Template) compareTreesAndGetChanges(oldTree, newTree treeNode) treeNode {
-	changes := make(treeNode)
+	return t.compareTreesAndGetChangesWithContext(oldTree, newTree, false)
+}
 
-	// First, find range constructs in both trees and match them by content signature
+// compareTreesAndGetChangesWithContext compares trees with context about whether we're in a new structure
+// insideNewStructure: true if we're inside a structure the client has never seen
+func (t *Template) compareTreesAndGetChangesWithContext(oldTree, newTree treeNode, insideNewStructure bool) treeNode {
+	// Calculate range matches once at the top level for the entire tree
 	rangeMatches := findRangeConstructMatches(oldTree, newTree)
+	return t.compareTreesAndGetChangesWithPath(oldTree, newTree, insideNewStructure, "", rangeMatches)
+}
+
+// compareTreesAndGetChangesWithPath compares trees with path tracking for nested range matching
+func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree treeNode, insideNewStructure bool, currentPath string, rangeMatches map[string]string) treeNode {
+	changes := make(treeNode)
 
 	// Compare dynamic segments (skip statics "s" and fingerprint "f")
 	for k, newValue := range newTree {
@@ -850,29 +936,360 @@ func (t *Template) compareTreesAndGetChanges(oldTree, newTree treeNode) treeNode
 			continue // Skip static segments and fingerprint
 		}
 
+		// Build full path for this field
+		fieldPath := k
+		if currentPath != "" {
+			fieldPath = currentPath + "." + k
+		}
+
 		oldValue, exists := oldTree[k]
 		if !exists {
-			changes[k] = newValue
-		} else if !deepEqual(oldValue, newValue) {
-			// Check if this field has a range construct match
-			if matchedOldField, isRangeMatch := rangeMatches[k]; isRangeMatch {
-				// Get the corresponding old range construct
-				oldRangeValue := oldTree[matchedOldField]
-				// Generate differential operations for matched range constructs
-				diffOps := generateRangeDifferentialOperations(oldRangeValue, newValue)
-				if len(diffOps) > 0 {
-					changes[k] = diffOps
+			// Field is NEW compared to last update
+			// If we're inside a new structure, client has never seen this, so include statics
+			if insideNewStructure {
+				changes[k] = newValue
+				continue
+			}
+
+			// Check if client has this EXACT structure from initial render
+			// For range constructs, only strip statics if initial tree also had a range at this location
+			clientHasStructure := false
+			if t.hasInitialTree && t.fieldExistsInTree(k, t.initialTree) {
+				if isRangeConstruct(newValue) {
+					// For range constructs, check if initial tree ALSO has a range at this field
+					// If initial tree had something else (like empty-state), client doesn't have range statics
+					initialValue := t.getFieldValueFromTree(k, t.initialTree)
+					clientHasStructure = isRangeConstruct(initialValue)
 				} else {
-					// Fall back to full update if no differential operations
+					// For non-range structures, field existence is enough
+					clientHasStructure = true
+				}
+			}
+
+			if clientHasStructure {
+				// Client already has this structure's statics from initial render
+				// Strip statics when sending
+				// Need to handle both treeNode type and map[string]interface{}
+				var newTreeNode treeNode
+				var newIsTree bool
+
+				if tn, ok := newValue.(treeNode); ok {
+					newTreeNode = tn
+					newIsTree = true
+				} else if m, ok := newValue.(map[string]interface{}); ok {
+					newTreeNode = m
+					newIsTree = true
+				}
+
+				if newIsTree {
+					stripped := stripStaticsRecursively(newTreeNode)
+					if strippedMap, ok := stripped.(map[string]interface{}); ok && len(strippedMap) == 0 {
+						changes[k] = ""
+					} else {
+						changes[k] = stripped
+					}
+				} else {
 					changes[k] = newValue
 				}
 			} else {
-				// Regular change detection for non-range values
-				changes[k] = newValue
+				// Client doesn't have this structure - send WITH statics
+				// However, normalize empty tree nodes to empty strings for cleaner output
+				if tn, ok := newValue.(treeNode); ok {
+					stripped := stripStaticsRecursively(tn)
+					if strippedMap, ok := stripped.(map[string]interface{}); ok && len(strippedMap) == 0 {
+						changes[k] = ""
+					} else {
+						changes[k] = newValue
+					}
+				} else if m, ok := newValue.(map[string]interface{}); ok {
+					stripped := stripStaticsRecursively(m)
+					if strippedMap, ok := stripped.(map[string]interface{}); ok && len(strippedMap) == 0 {
+						changes[k] = ""
+					} else {
+						changes[k] = newValue
+					}
+				} else {
+					changes[k] = newValue
+				}
+			}
+		} else if !deepEqual(oldValue, newValue) {
+			// Field exists but changed - need to determine what to send
+
+			// Check if this field has a range construct match using full path
+			if _, isRangeMatch := rangeMatches[fieldPath]; isRangeMatch {
+				// The oldValue is already the old range construct we need!
+				// No need to traverse the tree - we're already at the right position
+
+				// Check if old value is ALSO a range construct
+				// If oldValue is NOT a range (e.g., was empty-state div), this is first appearance
+				// Only strip statics if BOTH old and new are range constructs (client has seen it)
+				shouldStripStatics := isRangeConstruct(oldValue)
+
+				// Generate differential operations for matched range constructs
+				diffOps := generateRangeDifferentialOperations(oldValue, newValue, shouldStripStatics)
+				if len(diffOps) > 0 {
+					changes[k] = diffOps
+				} else {
+					// Fall back to full update - strip statics only if client has them
+					if shouldStripStatics {
+						changes[k] = stripStaticsRecursively(newValue)
+					} else {
+						changes[k] = newValue
+					}
+				}
+			} else {
+				// Check if both old and new values are tree nodes (nested structures)
+				// Need to handle both treeNode type and map[string]interface{}
+				var oldTreeNode, newTreeNode treeNode
+				var oldIsTree, newIsTree bool
+
+				// Try treeNode type first
+				if tn, ok := oldValue.(treeNode); ok {
+					oldTreeNode = tn
+					oldIsTree = true
+				} else if m, ok := oldValue.(map[string]interface{}); ok {
+					oldTreeNode = m
+					oldIsTree = true
+				}
+
+				if tn, ok := newValue.(treeNode); ok {
+					newTreeNode = tn
+					newIsTree = true
+				} else if m, ok := newValue.(map[string]interface{}); ok {
+					newTreeNode = m
+					newIsTree = true
+				}
+
+				if oldIsTree && newIsTree {
+					// Both are tree nodes - recursively compare them
+					// Check if this is a fundamental structure change (not part of a range match)
+					// If the structures are completely different, treat nested content as new
+					_, isRangeMatch := rangeMatches[fieldPath]
+					structureChanged := !isRangeMatch && !areStructuresSimilar(oldTreeNode, newTreeNode)
+
+					// If structure fundamentally changed, send the full new tree with statics
+					// This ensures client gets all the HTML needed for the new structure
+					// EXCEPT when both old and new contain ranges - in that case use incremental operations
+					oldHasRange := containsRangeConstruct(oldValue)
+					newHasRange := containsRangeConstruct(newValue)
+
+					if structureChanged && !(oldHasRange && newHasRange) {
+						// Structure changed and this isn't just range item updates
+						// This includes: non-range → non-range, non-range → range, range → non-range
+						changes[k] = newValue
+					} else {
+						// Structure similar, do normal diff
+						nestedChanges := t.compareTreesAndGetChangesWithPath(oldTreeNode, newTreeNode, insideNewStructure || structureChanged, fieldPath, rangeMatches)
+						if len(nestedChanges) > 0 {
+							// Use nested changes as-is - the recursive call already handled statics correctly
+							// Don't strip again or we'll lose statics for NEW structures like ranges
+							changes[k] = nestedChanges
+						} else {
+							// No dynamic changes detected, but check if both are static-only and not equal
+							// This handles the case where static content changed (e.g., conditional rendering)
+							oldStripped := stripStaticsRecursively(oldTreeNode)
+							newStripped := stripStaticsRecursively(newTreeNode)
+							oldIsEmpty := false
+							newIsEmpty := false
+							if m, ok := oldStripped.(map[string]interface{}); ok && len(m) == 0 {
+								oldIsEmpty = true
+							}
+							if m, ok := newStripped.(map[string]interface{}); ok && len(m) == 0 {
+								newIsEmpty = true
+							}
+
+							// If both strip to empty (both static-only) but the originals aren't equal,
+							// the statics changed - send empty string to indicate change
+							if oldIsEmpty && newIsEmpty && !deepEqual(oldTreeNode, newTreeNode) {
+								changes[k] = ""
+							}
+						}
+					}
+				} else if newIsTree {
+					// New value is a tree node but old wasn't
+					// Check if client has this structure from initial render
+					clientHasStructure := t.hasInitialTree && t.fieldExistsInTree(k, t.initialTree)
+					if clientHasStructure {
+						// Strip statics since client has them cached
+						stripped := stripStaticsRecursively(newTreeNode)
+						// If stripping statics results in an empty map, send empty string to match old behavior
+						if strippedMap, ok := stripped.(map[string]interface{}); ok && len(strippedMap) == 0 {
+							changes[k] = ""
+						} else {
+							changes[k] = stripped
+						}
+					} else {
+						// Client doesn't have structure - send WITH statics
+						changes[k] = newValue
+					}
+				} else {
+					// At least one is a primitive value or type changed - send new value as-is
+					changes[k] = newValue
+				}
 			}
 		}
 	}
+
+	// Strip only the top-level "s" and "f" from the changes object
+	delete(changes, "s")
+	delete(changes, "f")
+
 	return changes
+}
+
+// fieldExistsInTree checks if a field key exists at any level in the tree
+func (t *Template) fieldExistsInTree(key string, tree treeNode) bool {
+	if tree == nil {
+		return false
+	}
+
+	// Direct check
+	if _, exists := tree[key]; exists {
+		return true
+	}
+
+	// Recursive check in nested structures
+	for k, v := range tree {
+		if k == "s" || k == "f" {
+			continue
+		}
+		if nestedTree, ok := v.(map[string]interface{}); ok {
+			if t.fieldExistsInTree(key, nestedTree) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// areStructuresSimilar checks if two tree structures are fundamentally similar
+// Returns true if they have similar structure (same static keys), false if completely different
+func areStructuresSimilar(oldTree, newTree treeNode) bool {
+	// Check if both have statics - if statics differ, structures are different
+	oldStatics, oldHasS := oldTree["s"]
+	newStatics, newHasS := newTree["s"]
+
+	if oldHasS != newHasS {
+		return false // One has statics, other doesn't
+	}
+
+	if oldHasS && newHasS {
+		// Try to get statics as either []string or []interface{}
+		var oldS, newS []string
+		var oldOK, newOK bool
+
+		// Try []string first (most common case from tree_ast.go)
+		if s, ok := oldStatics.([]string); ok {
+			oldS = s
+			oldOK = true
+		} else if s, ok := oldStatics.([]interface{}); ok {
+			// Convert []interface{} to []string
+			oldS = make([]string, len(s))
+			for i, v := range s {
+				if str, ok := v.(string); ok {
+					oldS[i] = str
+				}
+			}
+			oldOK = true
+		}
+
+		if s, ok := newStatics.([]string); ok {
+			newS = s
+			newOK = true
+		} else if s, ok := newStatics.([]interface{}); ok {
+			// Convert []interface{} to []string
+			newS = make([]string, len(s))
+			for i, v := range s {
+				if str, ok := v.(string); ok {
+					newS[i] = str
+				}
+			}
+			newOK = true
+		}
+
+		if !oldOK || !newOK || len(oldS) != len(newS) {
+			return false
+		}
+
+		// If statics are different, it's a different structure
+		for i := range oldS {
+			if oldS[i] != newS[i] {
+				return false
+			}
+		}
+
+		// Special case: Check if this is a conditional wrapper with empty statics
+		// Conditionals are wrapped as {"s": ["", ""], "0": branchTree}
+		// If both have empty statics and a single "0" child, compare the child structures
+		if len(oldS) == 2 && oldS[0] == "" && oldS[1] == "" &&
+			len(newS) == 2 && newS[0] == "" && newS[1] == "" {
+			// Check if both have exactly one dynamic child "0"
+			oldChild, oldHasChild := oldTree["0"]
+			newChild, newHasChild := newTree["0"]
+
+			if oldHasChild && newHasChild {
+				// This looks like conditional wrappers - recursively compare children
+				oldChildTree, oldIsTree := oldChild.(treeNode)
+				newChildTree, newIsTree := newChild.(treeNode)
+
+				if !oldIsTree {
+					if m, ok := oldChild.(map[string]interface{}); ok {
+						oldChildTree = treeNode(m)
+						oldIsTree = true
+					}
+				}
+
+				if !newIsTree {
+					if m, ok := newChild.(map[string]interface{}); ok {
+						newChildTree = treeNode(m)
+						newIsTree = true
+					}
+				}
+
+				if oldIsTree && newIsTree {
+					// Recursively check if the child structures are similar
+					return areStructuresSimilar(oldChildTree, newChildTree)
+				}
+			}
+		}
+	}
+
+	// Check if both are range constructs
+	oldIsRange := isRangeConstruct(oldTree)
+	newIsRange := isRangeConstruct(newTree)
+
+	if oldIsRange != newIsRange {
+		return false // One is range, other isn't
+	}
+
+	return true
+}
+
+// getFieldValueFromTree gets the value for a field key at any level in the tree
+func (t *Template) getFieldValueFromTree(key string, tree treeNode) interface{} {
+	if tree == nil {
+		return nil
+	}
+
+	// Direct check
+	if value, exists := tree[key]; exists {
+		return value
+	}
+
+	// Recursive check in nested structures
+	for k, v := range tree {
+		if k == "s" || k == "f" {
+			continue
+		}
+		if nestedTree, ok := v.(map[string]interface{}); ok {
+			if value := t.getFieldValueFromTree(key, nestedTree); value != nil {
+				return value
+			}
+		}
+	}
+
+	return nil
 }
 
 // findRangeConstructMatches finds range constructs in both trees and matches them by content signature
@@ -902,8 +1319,49 @@ func findRangeConstructMatches(oldTree, newTree treeNode) map[string]string {
 	return matches
 }
 
-// findRangeConstructs finds all range constructs in a tree
+// getTreeKeys returns all keys in a tree (for debugging)
+func getTreeKeys(tree treeNode) []string {
+	keys := make([]string, 0, len(tree))
+	for k := range tree {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// getValueByPath retrieves a value from a tree using a dot-separated path
+func getValueByPath(tree treeNode, path string) interface{} {
+	if path == "" {
+		return tree
+	}
+
+	parts := strings.Split(path, ".")
+	current := interface{}(tree)
+
+	for _, part := range parts {
+		// Try to access as map
+		if m, ok := current.(map[string]interface{}); ok {
+			current = m[part]
+		} else if tn, ok := current.(treeNode); ok {
+			current = tn[part]
+		} else {
+			return nil
+		}
+
+		if current == nil {
+			return nil
+		}
+	}
+
+	return current
+}
+
+// findRangeConstructs finds all range constructs in a tree, recursively searching nested structures
 func findRangeConstructs(tree treeNode) map[string]interface{} {
+	return findRangeConstructsRecursive(tree, "")
+}
+
+// findRangeConstructsRecursive finds range constructs with path tracking
+func findRangeConstructsRecursive(tree treeNode, path string) map[string]interface{} {
 	ranges := make(map[string]interface{})
 
 	for field, value := range tree {
@@ -911,8 +1369,30 @@ func findRangeConstructs(tree treeNode) map[string]interface{} {
 			continue // Skip static segments and fingerprint
 		}
 
+		// Build the full path to this field
+		fieldPath := field
+		if path != "" {
+			fieldPath = path + "." + field
+		}
+
 		if isRangeConstruct(value) {
-			ranges[field] = value
+			ranges[fieldPath] = value
+		} else {
+			// Recursively search nested tree nodes
+			var nestedTree treeNode
+			if tn, ok := value.(treeNode); ok {
+				nestedTree = tn
+			} else if m, ok := value.(map[string]interface{}); ok {
+				nestedTree = m
+			}
+
+			if nestedTree != nil {
+				// Merge nested ranges into our map
+				nestedRanges := findRangeConstructsRecursive(nestedTree, fieldPath)
+				for k, v := range nestedRanges {
+					ranges[k] = v
+				}
+			}
 		}
 	}
 
@@ -944,11 +1424,54 @@ func deepEqual(a, b interface{}) bool {
 
 // isRangeConstruct checks if a value is a range construct (has "d" and "s" keys)
 func isRangeConstruct(value interface{}) bool {
-	if valueMap, ok := value.(map[string]interface{}); ok {
+	// Try both treeNode and map[string]interface{} type assertions
+	var valueMap map[string]interface{}
+	var ok bool
+
+	if tn, isTN := value.(treeNode); isTN {
+		valueMap = tn
+		ok = true
+	} else if vm, isVM := value.(map[string]interface{}); isVM {
+		valueMap = vm
+		ok = true
+	}
+
+	if ok {
 		_, hasD := valueMap["d"]
 		_, hasS := valueMap["s"]
 		return hasD && hasS
 	}
+	return false
+}
+
+// containsRangeConstruct recursively checks if a tree node or any of its children contains a range construct
+// This is used to detect when conditional wrappers contain ranges, to avoid sending full range arrays
+func containsRangeConstruct(value interface{}) bool {
+	// Check if this value itself is a range
+	if isRangeConstruct(value) {
+		return true
+	}
+
+	// Try to get as a map to check children
+	var valueMap map[string]interface{}
+	if tn, ok := value.(treeNode); ok {
+		valueMap = tn
+	} else if m, ok := value.(map[string]interface{}); ok {
+		valueMap = m
+	} else {
+		return false
+	}
+
+	// Recursively check all children (skip "s" and "f" keys)
+	for k, v := range valueMap {
+		if k == "s" || k == "f" {
+			continue
+		}
+		if containsRangeConstruct(v) {
+			return true
+		}
+	}
+
 	return false
 }
 
@@ -1151,11 +1674,32 @@ func isPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []strin
 }
 
 // generateRangeDifferentialOperations generates differential operations for range constructs
-func generateRangeDifferentialOperations(oldValue, newValue interface{}) []interface{} {
+// stripStatics: if true, removes "s" keys from operations (client has cached them)
+// if false, keeps "s" keys (client hasn't seen this structure yet)
+func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripStatics bool) []interface{} {
 	var operations []interface{}
 
-	oldRange, ok1 := oldValue.(map[string]interface{})
-	newRange, ok2 := newValue.(map[string]interface{})
+	// Try to extract map[string]interface{} from both treeNode and map[string]interface{} types
+	var oldRange, newRange map[string]interface{}
+	var ok1, ok2 bool
+
+	// Handle oldValue - try treeNode first, then map[string]interface{}
+	if tn, isTN := oldValue.(treeNode); isTN {
+		oldRange = tn
+		ok1 = true
+	} else if m, isM := oldValue.(map[string]interface{}); isM {
+		oldRange = m
+		ok1 = true
+	}
+
+	// Handle newValue - try treeNode first, then map[string]interface{}
+	if tn, isTN := newValue.(treeNode); isTN {
+		newRange = tn
+		ok2 = true
+	} else if m, isM := newValue.(map[string]interface{}); isM {
+		newRange = m
+		ok2 = true
+	}
 
 	if !ok1 || !ok2 {
 		// Type conversion failed
@@ -1331,6 +1875,14 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}) []inter
 		}
 	}
 
+	// Strip statics from all operations if requested
+	// Only strip if client already has the structure cached from initial tree
+	if stripStatics {
+		for i, op := range operations {
+			operations[i] = stripStaticsRecursively(op)
+		}
+	}
+
 	return operations
 }
 
@@ -1357,7 +1909,52 @@ func compareRangeItemsForChanges(oldItem, newItem interface{}, statics interface
 
 		oldValue, exists := oldItemMap[fieldKey]
 		if !exists || !deepEqual(oldValue, newValue) {
-			changes[fieldKey] = newValue
+			// Strip statics from nested tree nodes since client already has them cached
+			// Need to handle both treeNode type and map[string]interface{}
+			var newTreeNode treeNode
+			var isTree bool
+
+			if tn, ok := newValue.(treeNode); ok {
+				newTreeNode = tn
+				isTree = true
+			} else if m, ok := newValue.(map[string]interface{}); ok {
+				newTreeNode = m
+				isTree = true
+			}
+
+			if isTree {
+				stripped := stripStaticsRecursively(newTreeNode)
+				// If stripping results in empty map, check if this is a meaningful change
+				if strippedMap, ok := stripped.(map[string]interface{}); ok && len(strippedMap) == 0 {
+					// Check if old value would also strip to empty
+					// If both old and new are static-only (strip to empty), don't send the change
+					if exists {
+						var oldTreeNode treeNode
+						var oldIsTree bool
+						if tn, ok := oldValue.(treeNode); ok {
+							oldTreeNode = tn
+							oldIsTree = true
+						} else if m, ok := oldValue.(map[string]interface{}); ok {
+							oldTreeNode = m
+							oldIsTree = true
+						}
+
+						if oldIsTree {
+							oldStripped := stripStaticsRecursively(oldTreeNode)
+							if oldStrippedMap, ok := oldStripped.(map[string]interface{}); ok && len(oldStrippedMap) == 0 {
+								// Both old and new strip to empty - no meaningful change, skip it
+								continue
+							}
+						}
+					}
+					// Old doesn't exist or had dynamics, send empty string to indicate removal of dynamics
+					changes[fieldKey] = ""
+				} else {
+					changes[fieldKey] = stripped
+				}
+			} else {
+				changes[fieldKey] = newValue
+			}
 		}
 	}
 

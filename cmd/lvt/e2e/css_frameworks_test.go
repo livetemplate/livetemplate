@@ -2,76 +2,78 @@ package e2e
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// TestCSSFrameworks tests different CSS frameworks
-func TestCSSFrameworks(t *testing.T) {
-	frameworks := []string{"bulma", "pico", "none"}
+// TestKitCSSFrameworks tests that kits generate valid templates with CSS framework integration
+func TestKitCSSFrameworks(t *testing.T) {
+	testCases := []struct {
+		kit              string
+		expectedCSS      string
+		checkForPattern  string // A pattern we expect to find in generated templates
+	}{
+		{
+			kit:             "multi",
+			expectedCSS:     "tailwind",
+			checkForPattern: "button", // All kits should have button elements
+		},
+		{
+			kit:             "single",
+			expectedCSS:     "tailwind",
+			checkForPattern: "button",
+		},
+		// Note: simple kit doesn't support resource generation (it's for simple counter examples)
+	}
 
-	for _, framework := range frameworks {
-		t.Run("CSS_"+framework, func(t *testing.T) {
+	for _, tc := range testCases {
+		t.Run("Kit_"+tc.kit, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			appDir := filepath.Join(tmpDir, "testapp")
 
-			// Build lvt
-			lvtBinary := filepath.Join(tmpDir, "lvt")
-			buildCmd := exec.Command("go", "build", "-o", lvtBinary, "github.com/livefir/livetemplate/cmd/lvt")
-			if err := buildCmd.Run(); err != nil {
-				t.Fatalf("Failed to build lvt: %v", err)
+			// Build lvt binary
+			lvtBinary := buildLvtBinary(t, tmpDir)
+
+			// Create app with specific kit
+			opts := &AppOptions{
+				Kit:     tc.kit,
+				DevMode: true,
 			}
+			appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", opts)
 
-			// Create app
-			newCmd := exec.Command(lvtBinary, "new", "testapp")
-			newCmd.Dir = tmpDir
-			newCmd.Stdout = os.Stdout
-			newCmd.Stderr = os.Stderr
-			if err := newCmd.Run(); err != nil {
-				t.Fatalf("Failed to create app: %v", err)
-			}
-
-			// Generate resource with specific CSS framework
-			genCmd := exec.Command(lvtBinary, "gen", "items", "name", "--css", framework)
-			genCmd.Dir = appDir
-			genCmd.Stdout = os.Stdout
-			genCmd.Stderr = os.Stderr
-			if err := genCmd.Run(); err != nil {
-				t.Fatalf("Failed to generate resource with --css %s: %v", framework, err)
+			// Generate a resource
+			if err := runLvtCommand(t, lvtBinary, appDir, "gen", "items", "name"); err != nil {
+				t.Fatalf("Failed to generate resource: %v", err)
 			}
 
 			// Verify template file exists
 			tmplFile := filepath.Join(appDir, "internal", "app", "items", "items.tmpl")
-			if _, err := os.Stat(tmplFile); err != nil {
-				t.Fatalf("Template file not created: %v", err)
-			}
-
-			// Check for CSS framework-specific content
-			content, err := os.ReadFile(tmplFile)
+			content, err := readFile(t, tmplFile)
 			if err != nil {
 				t.Fatalf("Failed to read template: %v", err)
 			}
 
-			contentStr := string(content)
-			switch framework {
-			case "bulma":
-				if !strings.Contains(contentStr, "button") {
-					t.Error("❌ Bulma CSS classes not found in template")
-				}
-			case "pico":
-				if !strings.Contains(contentStr, "button") {
-					t.Error("❌ Pico CSS classes not found in template")
-				}
-			case "none":
-				// Template should still be valid
-				if len(contentStr) < 100 {
-					t.Error("❌ Template seems empty or invalid")
-				}
+			// Check for expected pattern
+			if tc.checkForPattern != "" && !strings.Contains(content, tc.checkForPattern) {
+				t.Errorf("❌ Expected pattern %q not found in template for %s CSS", tc.checkForPattern, tc.expectedCSS)
+			} else {
+				t.Logf("✅ Resource generated successfully with kit %s (%s CSS)", tc.kit, tc.expectedCSS)
 			}
 
-			t.Logf("✅ Resource generated successfully with --css %s", framework)
+			// Verify template is valid (not empty)
+			if len(content) < 100 {
+				t.Error("❌ Template seems empty or invalid")
+			}
 		})
 	}
+}
+
+// readFile is a helper to read file content as string
+func readFile(t *testing.T, path string) (string, error) {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
 }

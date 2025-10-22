@@ -224,17 +224,19 @@ LiveTemplate provides rich client-side features through `lvt-*` HTML attributes.
 ```go
 func (s *State) Change(ctx *livetemplate.ActionContext) error {
     id := ctx.GetString("id")  // From lvt-data-id
-    // Handle action
-}
-```
+**1. Generate resources (CSS framework determined by kit):**
+```bash
+# Resources use the CSS framework from your chosen kit
+# Multi and single kits use Tailwind CSS
+# Simple kit uses Pico CSS
 
-**Server-side validation:**
-```go
-func (s *State) Change(ctx *livetemplate.ActionContext) error {
-    var input TodoInput
-    if err := ctx.BindAndValidate(&input, validate); err != nil {
-        return err // Errors shown automatically in template
-    }
+lvt gen tags name
+
+# To use a different CSS framework, create your app with a different kit
+lvt new myapp --kit simple  # Uses Pico CSS
+cd myapp
+lvt gen authors name bio    # Will use Pico CSS
+```
 }
 ```
 
@@ -383,7 +385,7 @@ go install github.com/livefir/livetemplate/cmd/lvt@latest
 
 ```bash
 # Create new app with Tailwind CSS
-lvt new myapp --css tailwind
+lvt new myapp
 cd myapp
 
 # Generate CRUD resource
@@ -397,8 +399,7 @@ lvt serve
 
 - **App Scaffolding**: Generate complete apps with routing and database
 - **CRUD Generation**: Instant CRUD with forms, validation, tables
-- **CSS Kits**: Tailwind, Bulma, Pico, or plain HTML
-- **Components**: Reusable UI blocks (forms, tables, layouts, pagination)
+- **CSS Kits**: Tailwind, Bulma, Pico, or plain HTML (includes reusable components)
 - **Hot Reload**: Auto-rebuild and restart on file changes
 - **Database Migrations**: Built-in migration management
 
@@ -413,11 +414,9 @@ lvt gen view <name>            # Generate view-only handler
 # Development
 lvt serve                      # Start dev server with hot reload
 
-# Components & Kits
+# Kits
 lvt kits list                  # List available CSS kits
 lvt kits create <name>         # Create custom kit
-lvt components list            # List available components
-lvt components create <name>   # Create custom component
 
 # Database
 lvt migration up               # Run migrations
@@ -428,10 +427,9 @@ lvt migration status           # Show migration status
 ### CLI Documentation
 
 Full CLI documentation:
-- **[User Guide](docs/user-guide.md)** - Getting started with CLI
-- **[Component Development](docs/component-development.md)** - Creating components
-- **[Kit Development](docs/kit-development.md)** - Creating CSS kits
-- **[Serve Guide](docs/serve-guide.md)** - Development server
+- **[User Guide](docs/guides/user-guide.md)** - Getting started with CLI
+- **[Kit Development](docs/guides/kit-development.md)** - Creating CSS kits (includes components)
+- **[Serve Guide](docs/guides/serve-guide.md)** - Development server
 
 ## Client Library
 
@@ -467,13 +465,12 @@ The client (~15KB minified):
 - **[Client Attributes Reference](docs/references/client-attributes.md)** - `lvt-*` attributes, event bindings, validation
 - **[Error Handling Reference](docs/references/error-handling.md)** - Validation, error display, client-side handling
 - **[Template Support Matrix](docs/references/template-support-matrix.md)** - Supported Go template features
-- **[Manifest Schemas](docs/references/api-reference.md)** - Component and kit YAML schemas
+- **[Manifest Schemas](docs/references/api-reference.md)** - Kit YAML schemas
 
 ### Guides
 - **[User Guide](docs/guides/user-guide.md)** - Getting started with `lvt` CLI
 - **[Code Tour](docs/guides/CODE_TOUR.md)** - Guided walkthrough of the codebase
-- **[Component Development](docs/guides/component-development.md)** - Creating reusable components
-- **[Kit Development](docs/guides/kit-development.md)** - Creating CSS framework kits
+- **[Kit Development](docs/guides/kit-development.md)** - Creating CSS framework kits (includes components)
 - **[Serve Guide](docs/guides/serve-guide.md)** - Development server usage
 
 ### Design

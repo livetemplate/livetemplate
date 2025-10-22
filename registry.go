@@ -126,6 +126,39 @@ func (r *ConnectionRegistry) GetByGroup(groupID string) []*Connection {
 	return result
 }
 
+// GetByGroupExcept returns all connections for a session group except the specified one.
+//
+// Used for automatic broadcasting to avoid sending duplicate updates to the connection
+// that triggered the action (it receives update through normal response flow).
+//
+// Returns a copy of the slice to prevent external modification.
+// Returns empty slice if the group has no other connections.
+//
+// Example: Broadcast to other tabs after state change:
+//
+//	otherConns := registry.GetByGroupExcept("anon-abc123", currentConn)
+//	for _, conn := range otherConns {
+//	    conn.Send(websocket.TextMessage, update)
+//	}
+func (r *ConnectionRegistry) GetByGroupExcept(groupID string, excludeConn *Connection) []*Connection {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	conns := r.byGroup[groupID]
+	if conns == nil {
+		return []*Connection{}
+	}
+
+	// Filter out the excluded connection
+	result := make([]*Connection, 0, len(conns)-1)
+	for _, conn := range conns {
+		if conn != excludeConn {
+			result = append(result, conn)
+		}
+	}
+	return result
+}
+
 // GetByUser returns all connections for a user.
 //
 // Returns a copy of the slice to prevent external modification.

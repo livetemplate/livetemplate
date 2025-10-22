@@ -58,7 +58,7 @@ lvt --help
 ### 1. Create a new app
 
 ```bash
-lvt new myapp --css tailwind
+lvt new myapp --kit multi  # Uses Tailwind CSS
 cd myapp
 ```
 
@@ -67,7 +67,7 @@ This creates a new Go web application using the Tailwind CSS kit.
 ### 2. Generate a resource with CRUD interface
 
 ```bash
-lvt gen articles title content:text published:bool --css tailwind
+lvt gen articles title content:text published:bool  # Uses kit's CSS
 ```
 
 This generates:
@@ -181,7 +181,7 @@ This allows you to:
 
 ```bash
 # Start with Tailwind
-lvt new myapp --css tailwind
+lvt new myapp --kit multi  # Uses Tailwind CSS
 
 # Customize the form component
 lvt kits customize tailwind --only components
@@ -189,7 +189,7 @@ cd .lvt/kits/tailwind/components
 # Edit form.tmpl to add custom fields or styling
 
 # Regenerate with customized component
-lvt gen products name price --css tailwind
+lvt gen products name price  # Uses kit's CSS
 # Uses your customized form.tmpl from .lvt/kits/tailwind/
 ```
 
@@ -199,188 +199,18 @@ lvt gen products name price --css tailwind
 
 ### Choosing a Kit
 
-When creating a new project or generating resources, use the `--css` flag:
+CSS framework is determined by your chosen kit:
+
+- **Multi kit**: Uses Tailwind CSS
+- **Single kit**: Uses Tailwind CSS
+- **Simple kit**: Uses Pico CSS
 
 ```bash
-# Tailwind CSS (utility-first, highly customizable)
-lvt new myapp --css tailwind
-lvt gen users name email --css tailwind
+# Create app with Tailwind CSS
+lvt new myapp --kit multi
+lvt gen users name email  # Will use Tailwind
 
-# Bulma (component-based, easy to learn)
-lvt new myapp --css bulma
-lvt gen users name email --css bulma
-
-# Pico CSS (minimal, semantic HTML)
-lvt new myapp --css pico
-lvt gen users name email --css pico
-
-# No framework (plain HTML)
-lvt new myapp --css none
-lvt gen users name email --css none
+# Create app with Pico CSS
+lvt new myapp --kit simple
+lvt gen users name email  # Will use Pico
 ```
-
-### Switching Kits
-
-To switch kits in an existing project:
-
-1. Update your layout template to use the new kit's CDN:
-```html
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
-```
-
-2. Regenerate your resource templates:
-```bash
-lvt gen articles title content --css bulma
-```
-
-Note: This will overwrite existing templates, so back up any customizations first.
-
----
-
-## Configuration
-
-LiveTemplate stores its configuration in `~/.config/lvt/config.yaml`.
-
-### View Configuration
-
-```bash
-# List all configuration
-lvt config list
-
-# Get specific value
-lvt config get components_paths
-lvt config get kits_paths
-```
-
-### Add Custom Paths
-
-You can add paths where LiveTemplate will search for custom components and kits:
-
-```bash
-# Add component search path
-lvt config set components_paths ~/.lvt/components
-
-# Add kit search path
-lvt config set kits_paths ~/.lvt/kits
-```
-
-Components and kits in these paths will be auto-discovered and available alongside system components/kits.
-
-### Path Priority
-
-When loading components/kits, LiveTemplate searches in this order:
-1. System (embedded in lvt binary)
-2. Local paths (from config)
-3. Community paths (from config)
-
-If multiple components/kits have the same name, the first one found is used.
-
----
-
-## CLI Commands Reference
-
-### App Commands
-
-```bash
-# Create new app
-lvt new <name> [--css framework]
-
-# Generate resource
-lvt gen <resource> [fields...] [--css framework]
-
-# Run development server
-lvt serve [--port 3000] [--mode app|component|kit]
-```
-
-### Kit Commands
-
-```bash
-# List kits
-lvt kits list [--filter system|local|all] [--format table|json]
-
-# Get kit info
-lvt kits info <name>
-
-# Create new kit
-lvt kits create <name>
-
-# Customize existing kit
-lvt kits customize <name> [--global] [--only components|templates]
-
-# Validate kit
-lvt kits validate <path>
-```
-
-### Config Commands
-
-```bash
-# List all config
-lvt config list
-
-# Get config value
-lvt config get <key>
-
-# Set config value
-lvt config set <key> <value>
-```
-
----
-
-## Next Steps
-
-- **Component Development**: Learn to create your own components in [Component Development Guide](component-development.md)
-- **Kit Development**: Learn to create your own kits in [Kit Development Guide](kit-development.md)
-- **Development Server**: Deep dive into `lvt serve` in [Serve Guide](serve-guide.md)
-- **API Reference**: Complete reference of all APIs in [API Reference](api-reference.md)
-
----
-
-## Troubleshooting
-
-### Component not found
-
-```bash
-# Check if component is available
-lvt components list --search=mycomponent
-
-# Check search paths
-lvt config get components_paths
-
-# Validate component
-lvt components validate /path/to/component
-```
-
-### Kit not found
-
-```bash
-# Check if kit is available
-lvt kits list --search=mykit
-
-# Check search paths
-lvt config get kits_paths
-
-# Validate kit
-lvt kits validate /path/to/kit
-```
-
-### Template errors
-
-```bash
-# Validate component templates
-lvt components validate /path/to/component
-
-# Check template syntax in your editor
-# Templates use [[ ]] delimiters instead of {{ }}
-```
-
----
-
-## Support
-
-- **Documentation**: Check the docs/ directory for detailed guides
-- **Issues**: Report bugs at https://github.com/livefir/livetemplate/issues
-- **Examples**: See examples/ directory for working code samples
-
----
-
-Last updated: 2025-10-17

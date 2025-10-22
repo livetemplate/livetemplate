@@ -7,6 +7,7 @@ import (
 
 	"github.com/livefir/livetemplate/cmd/lvt/internal/config"
 	"github.com/livefir/livetemplate/cmd/lvt/internal/generator"
+	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
 	"github.com/livefir/livetemplate/cmd/lvt/internal/parser"
 )
 
@@ -33,7 +34,14 @@ func Gen(args []string) error {
 	}
 
 	kit := projectConfig.GetKit()
-	cssFramework := projectConfig.GetCSSFramework()
+
+	// Load kit manifest to get CSS framework
+	loader := kits.DefaultLoader()
+	kitInfo, err := loader.Load(kit)
+	if err != nil {
+		return fmt.Errorf("failed to load kit: %w", err)
+	}
+	cssFramework := kitInfo.Manifest.CSSFramework
 
 	// Parse flags (removed --css and --mode, they're now locked in config)
 	paginationMode := "infinite" // default
@@ -153,7 +161,14 @@ func GenView(args []string) error {
 	}
 
 	kit := projectConfig.GetKit()
-	cssFramework := projectConfig.GetCSSFramework()
+
+	// Load kit manifest to get CSS framework
+	loader := kits.DefaultLoader()
+	kitInfo, err := loader.Load(kit)
+	if err != nil {
+		return fmt.Errorf("failed to load kit: %w", err)
+	}
+	cssFramework := kitInfo.Manifest.CSSFramework
 
 	viewName := args[0]
 

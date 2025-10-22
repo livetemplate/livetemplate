@@ -1,8 +1,8 @@
 # Multi-Session Isolation - Implementation Status
 
-**Date**: 2025-10-19
+**Date**: 2025-10-20
 **Branch**: `feat/multi-session-isolation`
-**Status**: Phases 1-3 Complete (Core Infrastructure)
+**Status**: Phases 1-7 Complete (Core + Broadcasting + API Consolidation)
 
 ---
 
@@ -112,7 +112,7 @@
 - Connections registered/unregistered automatically
 - Stores shared across connections in same session group
 - HTTP handler uses same authentication flow
-- Backward compatible: Mount() and MountStores() updated
+- Initially kept Mount() and MountStores() for backward compatibility (later removed in Phase 7)
 - Detailed logging for debugging (user, group, connection counts)
 - Origin validation with custom CheckOrigin function
 
@@ -150,9 +150,38 @@
 
 ---
 
+### Phase 7: API Consolidation ✅ COMPLETE
+**Files:** `mount.go` (modified), kit templates (12 files), docs (2 files), examples (2 files)
+**Commit:** 3135dd5
+
+**Tasks:**
+- ✅ Remove `Mount()` and `MountStores()` functions
+- ✅ Consolidate to single `Handle()` API
+- ✅ Update all kit templates (multi, single, simple)
+- ✅ Update test golden files
+- ✅ Update integration tests
+- ✅ Update documentation
+- ✅ Update examples (chat, counter)
+- ✅ Verify CLI generation works with new API
+
+**Implementation Notes:**
+- Removed Mount() and MountStores() functions (~70 lines)
+- Template.Handle() is now the only API for creating handlers
+- MountConfig and MountOption types retained for internal use
+- All 12 kit template files updated to use tmpl.Handle(state)
+- Updated 4 test files (focus_preservation, loading_indicator, golden files)
+- Updated BROADCASTING.md to remove Mount() migration section
+- Updated examples/chat and examples/counter README
+- Verified with `lvt new` that generated apps compile and run correctly
+- Breaking change acceptable as library is unreleased
+
+**Actual Effort:** 1 session
+
+---
+
 ## Pending Phases 📋
 
-### Phase 7: End-to-End Testing
+### Phase 8: End-to-End Testing
 **Estimated**: 1.5 sessions
 
 **Tasks:**

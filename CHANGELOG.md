@@ -9,23 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-#### Components & Kits System
-- **Component System**: Reusable UI template blocks with YAML manifests
-  - System components: layout, form, table, pagination, toolbar, detail
-  - Component loader with auto-discovery from configured paths
-  - Component validation with template syntax checking
-  - Component scaffolding with `lvt components create`
-  - Component search and filtering by category, source, tags
-
-- **Kit System**: CSS framework integrations with unified helper interface
+#### Kits System
+- **Kit System**: Complete starter packages combining CSS frameworks with components and templates
   - System kits: Tailwind CSS, Bulma, Pico CSS, and plain HTML (none)
-  - CSSHelpers interface with ~70 helper methods
-  - Kit loader with auto-discovery
+  - Each kit includes CSS helpers (~70 methods), reusable UI components, and generator templates
+  - Components are part of kits (located in `kits/<name>/components/` directory)
+  - System components included: layout, form, table, pagination, toolbar, detail, search, sort, stats
+  - CSSHelpers interface for unified CSS class generation
+  - Kit loader with auto-discovery from configured paths
   - Kit validation with Go AST parsing and interface compliance checking
-  - Kit scaffolding with `lvt kits create`
+  - Kit scaffolding and customization with `lvt kits create` and `lvt kits customize`
 
 - **Configuration System**: User config at `~/.config/lvt/config.yaml`
-  - Configurable component and kit search paths
+  - Configurable kit search paths
   - `lvt config` commands: list, get, set
 
 - **Development Server**: Unified `lvt serve` command with three modes
@@ -38,32 +34,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - File watching with debouncing
 
 - **CLI Commands**:
-  - `lvt components list/create/info/validate` - Component management
-  - `lvt kits list/create/info/validate` - Kit management
+  - `lvt kits list/create/info/validate/customize` - Kit management (includes components)
   - `lvt config list/get/set` - Configuration management
   - `lvt serve` - Development server with hot reload
 
 - **Validation System**:
-  - Component validation: structure, manifest, templates, documentation
-  - Kit validation: structure, manifest, Go code compilation, interface compliance
+  - Kit validation: structure, manifest, templates, Go code compilation, interface compliance
+  - Component validation within kits: structure, manifest, templates
   - Three-tier validation: errors, warnings, info
   - Pretty-printed output with emoji indicators (✅/❌/⚠️/ℹ️)
 
 - **Documentation**:
-  - `docs/user-guide.md` - Getting started and usage
-  - `docs/component-development.md` - Creating custom components
-  - `docs/kit-development.md` - Creating custom CSS kits
-  - `docs/serve-guide.md` - Development server guide
-  - `docs/api-reference.md` - Complete API reference
+  - `docs/guides/user-guide.md` - Getting started and usage
+  - `docs/guides/kit-development.md` - Creating custom CSS kits (includes components)
+  - `docs/guides/serve-guide.md` - Development server guide
+  - `docs/references/api-reference.md` - Complete API reference
 
 - **Testing**:
-  - Component loader tests (20 tests)
-  - Kit loader tests (18 tests)
-  - Config management tests (22 tests)
-  - Validator tests (26 tests)
-  - E2E workflow tests (16 tests)
-  - Serve package tests (21 tests)
-  - Total: 123+ new tests
+  - Kit loader tests (including component loading within kits)
+  - Config management tests
+  - Validator tests
+  - E2E workflow tests
+  - Serve package tests
+  - Total: 123+ tests
 
 ### Changed
 
@@ -71,7 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `lvt new` uses kits for app generation
   - `lvt gen` uses kits for resource generation
   - Template generation uses components and kit helpers
-  - Backward compatibility maintained with `--css` flag
+  - CSS framework now part of kit manifest (multi/single: Tailwind, simple: Pico)
 
 - **Help Text**: Enhanced with complete command reference and documentation links
 
