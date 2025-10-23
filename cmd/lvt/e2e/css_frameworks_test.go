@@ -10,9 +10,9 @@ import (
 // TestKitCSSFrameworks tests that kits generate valid templates with CSS framework integration
 func TestKitCSSFrameworks(t *testing.T) {
 	testCases := []struct {
-		kit              string
-		expectedCSS      string
-		checkForPattern  string // A pattern we expect to find in generated templates
+		kit             string
+		expectedCSS     string
+		checkForPattern string // A pattern we expect to find in generated templates
 	}{
 		{
 			kit:             "multi",

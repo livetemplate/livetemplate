@@ -39,7 +39,7 @@ func TestChatJoinFlow(t *testing.T) {
 	}
 	defer func() {
 		if cmd.Process != nil {
-			cmd.Process.Kill()
+			_ = cmd.Process.Kill()
 		}
 	}()
 

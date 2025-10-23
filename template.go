@@ -126,9 +126,9 @@ type Template struct {
 	lastTree        treeNode // Store previous tree segments for comparison
 	initialTree     treeNode
 	hasInitialTree  bool
-	lastFingerprint string        // Fingerprint of the last generated tree for change detection
-	keyGen          *keyGenerator // Per-template key generation for wrapper approach
-	config          Config        // Template configuration
+	lastFingerprint string              // Fingerprint of the last generated tree for change detection
+	keyGen          *keyGenerator       // Per-template key generation for wrapper approach
+	config          Config              // Template configuration
 	analyzer        *TreeUpdateAnalyzer // Tree efficiency analyzer (enabled in DevMode)
 }
 
@@ -1317,42 +1317,6 @@ func findRangeConstructMatches(oldTree, newTree treeNode) map[string]string {
 	}
 
 	return matches
-}
-
-// getTreeKeys returns all keys in a tree (for debugging)
-func getTreeKeys(tree treeNode) []string {
-	keys := make([]string, 0, len(tree))
-	for k := range tree {
-		keys = append(keys, k)
-	}
-	return keys
-}
-
-// getValueByPath retrieves a value from a tree using a dot-separated path
-func getValueByPath(tree treeNode, path string) interface{} {
-	if path == "" {
-		return tree
-	}
-
-	parts := strings.Split(path, ".")
-	current := interface{}(tree)
-
-	for _, part := range parts {
-		// Try to access as map
-		if m, ok := current.(map[string]interface{}); ok {
-			current = m[part]
-		} else if tn, ok := current.(treeNode); ok {
-			current = tn[part]
-		} else {
-			return nil
-		}
-
-		if current == nil {
-			return nil
-		}
-	}
-
-	return current
 }
 
 // findRangeConstructs finds all range constructs in a tree, recursively searching nested structures

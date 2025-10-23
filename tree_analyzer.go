@@ -112,9 +112,9 @@ func (a *TreeUpdateAnalyzer) findDetailedIssues(tree treeNode, path string, temp
 
 						issue := fmt.Sprintf(
 							"Field '%s': %d chars, %d HTML tags\n"+
-							"  Generated tree: {\"%s\": \"%s\"}\n"+
-							"  Problem: This HTML structure should be static (cached), not dynamic\n"+
-							"  Impact: Client must parse %d chars of HTML on every update",
+								"  Generated tree: {\"%s\": \"%s\"}\n"+
+								"  Problem: This HTML structure should be static (cached), not dynamic\n"+
+								"  Impact: Client must parse %d chars of HTML on every update",
 							valuePath, size, tagCount, key, preview, size,
 						)
 						issues = append(issues, issue)
@@ -169,17 +169,17 @@ func (a *TreeUpdateAnalyzer) findDetailedIssues(tree treeNode, path string, temp
 				}
 				issue := fmt.Sprintf(
 					"Range at '%s': Sending full array (%d items) instead of incremental operations\n"+
-					"  Generated tree: {\"d\": [%d full tree nodes]}\n"+
-					"  Problem: Client must process all %d items, even if most are unchanged\n"+
-					"  Impact: Defeats LiveTemplate's incremental update optimization\n"+
-					"  Expected: Use insert/update/delete operations for changed items only:\n"+
-					"    [\"i\", afterKey, newItem]  - Insert new item\n"+
-					"    [\"u\", itemKey, updates]   - Update existing item\n"+
-					"    [\"r\", itemKey]             - Remove item\n"+
-					"  This typically happens when:\n"+
-					"    1. Range is inside a conditional that switches branches\n"+
-					"    2. Structure change detection doesn't recognize the range\n"+
-					"  Fix: Ensure containsRangeConstruct() is used in structure comparison",
+						"  Generated tree: {\"d\": [%d full tree nodes]}\n"+
+						"  Problem: Client must process all %d items, even if most are unchanged\n"+
+						"  Impact: Defeats LiveTemplate's incremental update optimization\n"+
+						"  Expected: Use insert/update/delete operations for changed items only:\n"+
+						"    [\"i\", afterKey, newItem]  - Insert new item\n"+
+						"    [\"u\", itemKey, updates]   - Update existing item\n"+
+						"    [\"r\", itemKey]             - Remove item\n"+
+						"  This typically happens when:\n"+
+						"    1. Range is inside a conditional that switches branches\n"+
+						"    2. Structure change detection doesn't recognize the range\n"+
+						"  Fix: Ensure containsRangeConstruct() is used in structure comparison",
 					rangePath, fullNodeCount, fullNodeCount, fullNodeCount,
 				)
 				issues = append(issues, issue)

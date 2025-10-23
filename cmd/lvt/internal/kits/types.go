@@ -20,7 +20,7 @@ type KitTemplates struct {
 type KitManifest struct {
 	Name         string       `yaml:"name"`
 	Version      string       `yaml:"version"`
-	CSSFramework string       `yaml:"css_framework"`       // CSS framework used by this kit (tailwind, bulma, pico, none)
+	CSSFramework string       `yaml:"css_framework"` // CSS framework used by this kit (tailwind, bulma, pico, none)
 	Description  string       `yaml:"description"`
 	Framework    string       `yaml:"framework,omitempty"` // Optional: for legacy CSS-specific kits
 	Author       string       `yaml:"author,omitempty"`

@@ -33,12 +33,12 @@ type AppState struct {
 
 // Item represents a list item in the application
 type Item struct {
-	ID          string                 `json:"id"`
-	Text        string                 `json:"text"`
-	Complete    bool                   `json:"complete"`
-	Priority    string                 `json:"priority"`
-	Tags        []string               `json:"tags"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID       string                 `json:"id"`
+	Text     string                 `json:"text"`
+	Complete bool                   `json:"complete"`
+	Priority string                 `json:"priority"`
+	Tags     []string               `json:"tags"`
+	Metadata map[string]interface{} `json:"metadata"`
 }
 
 // User represents user information
@@ -564,7 +564,7 @@ func TestSpecificationCompliance(t *testing.T) {
 		wantErr  bool
 	}{
 		{
-			name: "first_render_has_statics",
+			name:     "first_render_has_statics",
 			template: `<div>{{.title}}</div>`,
 			journey: UserJourney{
 				{Type: "visit"},
@@ -572,7 +572,7 @@ func TestSpecificationCompliance(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "update_no_statics",
+			name:     "update_no_statics",
 			template: `<div>{{.count}}</div>`,
 			journey: UserJourney{
 				{Type: "visit"},
@@ -581,7 +581,7 @@ func TestSpecificationCompliance(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "range_insert_granular",
+			name:     "range_insert_granular",
 			template: `{{range .items}}<li>{{.text}}</li>{{end}}`,
 			journey: UserJourney{
 				{Type: "visit"},
@@ -712,14 +712,14 @@ func BenchmarkUserJourney(b *testing.B) {
 			templateStr: template,
 			keyGen:      newKeyGenerator(),
 		}
-		tmpl.Parse(tmpl.templateStr)
+		_, _ = tmpl.Parse(tmpl.templateStr)
 
 		for j, activity := range journey {
 			simulator.ApplyActivity(activity)
 			state := simulator.GetState()
 
 			if j == 0 {
-				tmpl.generateInitialTree(template, state)
+				_, _ = tmpl.generateInitialTree(template, state)
 			} else {
 				newTree, _ := parseTemplateToTree(template, state, tmpl.keyGen)
 				tmpl.compareTreesAndGetChanges(tmpl.lastTree, newTree)
@@ -732,8 +732,8 @@ func BenchmarkUserJourney(b *testing.B) {
 // TestEdgeCases tests various edge cases
 func TestEdgeCases(t *testing.T) {
 	tests := []struct {
-		name   string
-		test   func(t *testing.T)
+		name string
+		test func(t *testing.T)
 	}{
 		{
 			name: "empty_to_content_transition",
@@ -765,7 +765,7 @@ func testEmptyToContent(t *testing.T) {
 		templateStr: template,
 		keyGen:      newKeyGenerator(),
 	}
-	tmpl.Parse(tmpl.templateStr)
+	_, _ = tmpl.Parse(tmpl.templateStr)
 
 	// Start with empty
 	emptyState := AppState{Items: []Item{}}
@@ -797,7 +797,7 @@ func testLargeList(t *testing.T) {
 		templateStr: template,
 		keyGen:      newKeyGenerator(),
 	}
-	tmpl.Parse(tmpl.templateStr)
+	_, _ = tmpl.Parse(tmpl.templateStr)
 
 	// Create large list
 	items := make([]Item, 1000)
@@ -834,7 +834,7 @@ func testDeepNesting(t *testing.T) {
 		templateStr: template,
 		keyGen:      newKeyGenerator(),
 	}
-	tmpl.Parse(tmpl.templateStr)
+	_, _ = tmpl.Parse(tmpl.templateStr)
 
 	state := map[string]interface{}{
 		"l1": true, "l2": true, "l3": true, "l4": true, "l5": true,
@@ -884,7 +884,7 @@ func testRapidUpdates(t *testing.T) {
 		templateStr: template,
 		keyGen:      newKeyGenerator(),
 	}
-	tmpl.Parse(tmpl.templateStr)
+	_, _ = tmpl.Parse(tmpl.templateStr)
 
 	validator := NewUpdateValidator()
 
@@ -894,7 +894,7 @@ func testRapidUpdates(t *testing.T) {
 
 		if i == 0 {
 			tree, _ := tmpl.generateInitialTree(template, state)
-			validator.ValidateUpdate(tree, state, true)
+			_ = validator.ValidateUpdate(tree, state, true)
 		} else {
 			newTree, _ := parseTemplateToTree(template, state, tmpl.keyGen)
 			changes := tmpl.compareTreesAndGetChanges(tmpl.lastTree, newTree)
@@ -904,7 +904,7 @@ func testRapidUpdates(t *testing.T) {
 				t.Errorf("Update %d: Expected 1 change, got %d", i, len(changes))
 			}
 
-			validator.ValidateUpdate(changes, state, false)
+			_ = validator.ValidateUpdate(changes, state, false)
 			tmpl.lastTree = newTree
 		}
 	}
@@ -980,7 +980,7 @@ func TestComplexScenarios(t *testing.T) {
 		templateStr: template,
 		keyGen:      newKeyGenerator(),
 	}
-	tmpl.Parse(tmpl.templateStr)
+	_, _ = tmpl.Parse(tmpl.templateStr)
 
 	simulator := NewStateSimulator()
 	validator := NewUpdateValidator()
@@ -1020,7 +1020,7 @@ func TestRegressionCases(t *testing.T) {
 			templateStr: template,
 			keyGen:      newKeyGenerator(),
 		}
-		tmpl.Parse(tmpl.templateStr)
+		_, _ = tmpl.Parse(tmpl.templateStr)
 
 		state := map[string]interface{}{
 			"title":  "Test",

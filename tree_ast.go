@@ -389,9 +389,9 @@ func handleRangeNode(node *parse.RangeNode, data interface{}, keyGen *keyGenerat
 				// Simple range without variables - execute with item as context
 				// BUT we still need to preserve the root context for $ variable access
 				varCtx := &varContext{
-					parent: data,        // Root context for $ access
+					parent: data,             // Root context for $ access
 					vars:   newOrderedVars(), // No variables
-					dot:    item,        // Current item for . access
+					dot:    item,             // Current item for . access
 				}
 				itemTree, err = buildTreeFromASTWithVars(node.List, varCtx, keyGen)
 				if err != nil {
@@ -437,9 +437,9 @@ func handleRangeNode(node *parse.RangeNode, data interface{}, keyGen *keyGenerat
 				// Simple range without variables - execute with item as context
 				// BUT we still need to preserve the root context for $ variable access
 				varCtx := &varContext{
-					parent: data,        // Root context for $ access
+					parent: data,             // Root context for $ access
 					vars:   newOrderedVars(), // No variables
-					dot:    item,        // Current item for . access
+					dot:    item,             // Current item for . access
 				}
 				itemTree, err = buildTreeFromASTWithVars(node.List, varCtx, keyGen)
 				if err != nil {

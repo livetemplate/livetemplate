@@ -62,14 +62,14 @@ type SpecificationCompliance struct {
 
 // UpdateMetrics represents metrics for a single update
 type UpdateMetrics struct {
-	UpdateNumber      int
-	OriginalSize      int
-	OptimizedSize     int
-	CompressionRatio  float64
-	StaticsReused     int
-	DynamicsChanged   int
-	RangeOperations   int
-	ProcessingTime    time.Duration
+	UpdateNumber     int
+	OriginalSize     int
+	OptimizedSize    int
+	CompressionRatio float64
+	StaticsReused    int
+	DynamicsChanged  int
+	RangeOperations  int
+	ProcessingTime   time.Duration
 }
 
 // AnalyzeWithCompliance performs full analysis including specification compliance

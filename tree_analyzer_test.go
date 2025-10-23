@@ -112,7 +112,7 @@ func TestTreeAnalyzer_Disabled(t *testing.T) {
 	// Execute updates - no warnings should appear
 	data1 := map[string]interface{}{"Show": false}
 	var buf1 bytes.Buffer
-	tmpl.Execute(&buf1, data1)
+	_ = tmpl.Execute(&buf1, data1)
 
 	data2 := map[string]interface{}{"Show": true}
 	var buf2 bytes.Buffer
