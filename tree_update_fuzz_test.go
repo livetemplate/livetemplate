@@ -106,13 +106,24 @@ func (v *UpdateValidator) ValidateUpdate(tree treeNode, state interface{}, isFir
 
 // validateFirstRender ensures first render has complete statics
 func (v *UpdateValidator) validateFirstRender(tree treeNode) error {
-	// Must have statics array
-	statics, hasStatics := tree["s"].([]string)
+	// Must have statics array - JSON unmarshalling creates []interface{}, not []string
+	staticsValue, hasStatics := tree["s"]
 	if !hasStatics {
 		return fmt.Errorf("first render missing 's' (statics) key")
 	}
 
-	if len(statics) == 0 {
+	// Handle both []string (from code) and []interface{} (from JSON)
+	var staticsLen int
+	switch statics := staticsValue.(type) {
+	case []string:
+		staticsLen = len(statics)
+	case []interface{}:
+		staticsLen = len(statics)
+	default:
+		return fmt.Errorf("'s' key must be string array, got %T", staticsValue)
+	}
+
+	if staticsLen == 0 {
 		return fmt.Errorf("first render has empty statics array")
 	}
 
@@ -128,8 +139,8 @@ func (v *UpdateValidator) validateFirstRender(tree treeNode) error {
 
 	// Validate statics array length (should be dynamics + 1 typically)
 	// This is a soft check as templates may vary
-	if len(statics) < dynamicCount {
-		return fmt.Errorf("statics array length %d < dynamic count %d", len(statics), dynamicCount)
+	if staticsLen < dynamicCount {
+		return fmt.Errorf("statics array length %d < dynamic count %d", staticsLen, dynamicCount)
 	}
 
 	return nil
@@ -177,7 +188,7 @@ func (v *UpdateValidator) validateRangeOperations(value interface{}) error {
 			if opArray, ok := op.([]interface{}); ok && len(opArray) > 0 {
 				opType, _ := opArray[0].(string)
 				switch opType {
-				case "i", "r", "u", "o":
+				case "i", "r", "u", "o", "a":
 					// Valid granular operations
 					continue
 				default:

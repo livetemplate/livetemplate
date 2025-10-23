@@ -139,7 +139,7 @@ func (a *TreeUpdateAnalyzer) findDetailedIssues(tree treeNode, path string, temp
 				// Check if this is an operation array like ["i", key, data] or ["u", key, data]
 				if opSlice, ok := item.([]interface{}); ok && len(opSlice) > 0 {
 					if opType, ok := opSlice[0].(string); ok {
-						if opType == "i" || opType == "u" || opType == "r" || opType == "o" {
+						if opType == "i" || opType == "u" || opType == "r" || opType == "o" || opType == "a" {
 							operationCount++
 							continue
 						}

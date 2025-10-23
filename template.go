@@ -84,6 +84,8 @@ package livetemplate
 
 import (
 	"bytes"
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -1479,6 +1481,13 @@ func findKeyPositionFromStatics(statics interface{}) int {
 
 // getItemKey extracts the key from a range item using the statics structure
 func getItemKey(itemMap map[string]interface{}, statics interface{}) (string, bool) {
+	// First, check for reserved auto-generated key field
+	if autoKey, exists := itemMap["_k"]; exists {
+		if keyStr, ok := autoKey.(string); ok {
+			return keyStr, true
+		}
+	}
+
 	keyPos := findKeyPositionFromStatics(statics)
 	keyPosStr := fmt.Sprintf("%d", keyPos)
 
@@ -1487,21 +1496,54 @@ func getItemKey(itemMap map[string]interface{}, statics interface{}) (string, bo
 			return keyStr, true
 		}
 	}
-	return "", false
+
+	// If no explicit key found, generate a content-based hash
+	// This ensures items have stable keys even without template key attributes
+	return generateItemHash(itemMap), true
+}
+
+// generateItemHash creates a stable hash for a range item based on its content
+// This is used when no explicit key attribute is provided in the template
+func generateItemHash(itemMap map[string]interface{}) string {
+	// Create a canonical JSON representation for hashing
+	// Sort keys to ensure deterministic ordering
+	keys := make([]string, 0, len(itemMap))
+	for k := range itemMap {
+		// Skip internal/reserved fields
+		if k != "_k" && k != "s" && k != "f" {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+
+	// Build canonical representation
+	var parts []string
+	for _, k := range keys {
+		val := itemMap[k]
+		valJSON, _ := json.Marshal(val)
+		parts = append(parts, fmt.Sprintf("%s:%s", k, string(valJSON)))
+	}
+
+	// Hash the canonical representation
+	content := strings.Join(parts, "|")
+	hasher := md5.New()
+	hasher.Write([]byte(content))
+	hash := hex.EncodeToString(hasher.Sum(nil))
+
+	// Return first 12 characters for compactness
+	if len(hash) >= 12 {
+		return hash[:12]
+	}
+	return hash
 }
 
 // extractItemKeys extracts the keys from a slice of range items using the statics structure
 func extractItemKeys(items []interface{}, statics interface{}) []string {
-	keyPos := findKeyPositionFromStatics(statics)
-	keyPosStr := fmt.Sprintf("%d", keyPos)
-
 	var keys []string
 	for _, item := range items {
 		if itemMap, ok := item.(map[string]interface{}); ok {
-			if key, exists := itemMap[keyPosStr]; exists {
-				if keyStr, ok := key.(string); ok {
-					keys = append(keys, keyStr)
-				}
+			if key, ok := getItemKey(itemMap, statics); ok {
+				keys = append(keys, key)
 			}
 		}
 	}

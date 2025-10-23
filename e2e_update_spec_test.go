@@ -633,13 +633,14 @@ func TestUserJourney_TodoApp(t *testing.T) {
 				},
 			},
 			validate: func(t *testing.T, tree treeNode, isFirst bool) {
-				// Should have range operations for adding items
+				// Should have range operations for adding items (insert "i" or append "a")
 				foundRangeOps := false
 				for _, v := range tree {
 					if ops, ok := v.([]interface{}); ok {
 						for _, op := range ops {
 							if opArr, ok := op.([]interface{}); ok && len(opArr) > 0 {
-								if opArr[0] == "i" {
+								// Accept both "i" (insert) and "a" (append) as valid granular operations
+								if opArr[0] == "i" || opArr[0] == "a" {
 									foundRangeOps = true
 								}
 							}
@@ -647,7 +648,7 @@ func TestUserJourney_TodoApp(t *testing.T) {
 					}
 				}
 				if !foundRangeOps {
-					t.Error("Expected insert operations for new todos")
+					t.Error("Expected insert or append operations for new todos")
 				}
 			},
 		},

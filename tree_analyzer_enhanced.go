@@ -92,6 +92,10 @@ func (a *EnhancedTreeAnalyzer) AnalyzeWithCompliance(tree treeNode, templateName
 	if a.ComplianceEnabled {
 		if isFirstRender {
 			compliance.FirstRenderValid = a.validateFirstRender(tree, compliance)
+			// For first render, update-specific validations don't apply, so set them to true
+			compliance.UpdatesMinimal = true
+			compliance.RangesGranular = true
+			compliance.StaticsNotRepeated = true
 			a.FirstRenderSeen = true
 			a.markStaticsSent(tree, "")
 		} else {
@@ -99,6 +103,8 @@ func (a *EnhancedTreeAnalyzer) AnalyzeWithCompliance(tree treeNode, templateName
 				compliance.Compliant = false
 				compliance.Violations = append(compliance.Violations, "Update received before first render")
 			} else {
+				// First render already passed, so FirstRenderValid doesn't apply to updates
+				compliance.FirstRenderValid = true
 				compliance.UpdatesMinimal = a.validateMinimalUpdate(tree, a.LastTree, compliance)
 				compliance.RangesGranular = a.validateRangeGranularity(tree, compliance)
 				compliance.StaticsNotRepeated = a.validateNoRedundantStatics(tree, compliance)
@@ -144,15 +150,28 @@ func (a *EnhancedTreeAnalyzer) AnalyzeWithCompliance(tree treeNode, templateName
 
 // validateFirstRender checks if first render follows specification
 func (a *EnhancedTreeAnalyzer) validateFirstRender(tree treeNode, compliance *SpecificationCompliance) bool {
-	// Must have statics
-	statics, hasStatics := tree["s"].([]string)
+	// Must have statics - JSON unmarshalling creates []interface{}, not []string
+	staticsValue, hasStatics := tree["s"]
 	if !hasStatics {
 		compliance.Violations = append(compliance.Violations,
 			"SPEC VIOLATION: First render missing 's' (statics) key")
 		return false
 	}
 
-	if len(statics) == 0 {
+	// Check if it's an array (either []string or []interface{} from JSON)
+	var staticsLen int
+	switch statics := staticsValue.(type) {
+	case []string:
+		staticsLen = len(statics)
+	case []interface{}:
+		staticsLen = len(statics)
+	default:
+		compliance.Violations = append(compliance.Violations,
+			fmt.Sprintf("SPEC VIOLATION: First render 's' key must be array, got %T", staticsValue))
+		return false
+	}
+
+	if staticsLen == 0 {
 		compliance.Violations = append(compliance.Violations,
 			"SPEC VIOLATION: First render has empty statics array")
 		return false
@@ -225,7 +244,7 @@ func (a *EnhancedTreeAnalyzer) validateRangeGranularity(tree treeNode, complianc
 						for _, item := range rangeSlice {
 							if op, ok := item.([]interface{}); ok && len(op) > 0 {
 								if opType, ok := op[0].(string); ok {
-									if opType == "i" || opType == "u" || opType == "r" || opType == "o" {
+									if opType == "i" || opType == "u" || opType == "r" || opType == "o" || opType == "a" {
 										operations++
 										continue
 									}
@@ -411,7 +430,7 @@ func (a *EnhancedTreeAnalyzer) countRangeOperations(tree interface{}) int {
 			for _, item := range v {
 				if op, ok := item.([]interface{}); ok && len(op) > 0 {
 					if opType, ok := op[0].(string); ok {
-						if opType == "i" || opType == "u" || opType == "r" || opType == "o" {
+						if opType == "i" || opType == "u" || opType == "r" || opType == "o" || opType == "a" {
 							count++
 						}
 					}
@@ -559,41 +578,56 @@ func ValidateTreeStructure(tree treeNode) error {
 		return fmt.Errorf("tree has neither statics nor dynamics")
 	}
 
-	// Validate numeric key sequence
-	dynamicKeys := make([]int, 0)
-	for k := range tree {
-		if k != "s" && k != "f" && k != "d" {
-			var keyNum int
-			if _, err := fmt.Sscanf(k, "%d", &keyNum); err == nil {
-				dynamicKeys = append(dynamicKeys, keyNum)
+	// Validate numeric key sequence - only enforce sequential keys for first renders
+	// For updates, any subset of keys is valid since only changed fields are sent
+	if hasStatics {
+		dynamicKeys := make([]int, 0)
+		for k := range tree {
+			if k != "s" && k != "f" && k != "d" {
+				var keyNum int
+				if _, err := fmt.Sscanf(k, "%d", &keyNum); err == nil {
+					dynamicKeys = append(dynamicKeys, keyNum)
+				}
 			}
 		}
-	}
 
-	// Check for sequential keys
-	for i := 0; i < len(dynamicKeys); i++ {
-		found := false
-		for _, key := range dynamicKeys {
-			if key == i {
-				found = true
-				break
+		// Check for sequential keys (only for first renders)
+		for i := 0; i < len(dynamicKeys); i++ {
+			found := false
+			for _, key := range dynamicKeys {
+				if key == i {
+					found = true
+					break
+				}
 			}
-		}
-		if !found && len(dynamicKeys) > 0 {
-			return fmt.Errorf("non-sequential dynamic keys: missing key %d", i)
+			if !found && len(dynamicKeys) > 0 {
+				return fmt.Errorf("non-sequential dynamic keys: missing key %d", i)
+			}
 		}
 	}
 
 	// Recursively validate nested structures
 	for k, v := range tree {
 		if k == "s" {
-			// Validate statics array
-			if statics, ok := v.([]string); ok {
-				if len(statics) == 0 {
-					return fmt.Errorf("empty statics array at key 's'")
+			// Validate statics array - JSON unmarshalling creates []interface{}, not []string
+			var staticsLen int
+			switch statics := v.(type) {
+			case []string:
+				staticsLen = len(statics)
+			case []interface{}:
+				staticsLen = len(statics)
+				// Verify each element is a string
+				for i, elem := range statics {
+					if _, ok := elem.(string); !ok {
+						return fmt.Errorf("'s' array element %d must be string, got %T", i, elem)
+					}
 				}
-			} else {
+			default:
 				return fmt.Errorf("'s' key must be string array, got %T", v)
+			}
+
+			if staticsLen == 0 {
+				return fmt.Errorf("empty statics array at key 's'")
 			}
 		} else if k == "d" {
 			// Validate range data
