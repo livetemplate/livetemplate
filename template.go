@@ -628,6 +628,7 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, errors ...map[
 		return fmt.Errorf("tree generation failed: %w", err)
 	}
 
+
 	// Analyze tree for efficiency issues (only in DevMode)
 	if t.analyzer != nil && t.analyzer.Enabled {
 		t.analyzer.AnalyzeUpdate(tree, t.name, t.templateStr)
@@ -657,6 +658,7 @@ func (t *Template) generateTreeInternalWithErrors(data interface{}, errors map[s
 	if t.lastTree != nil {
 		t.loadExistingKeyMappings(t.lastTree)
 	}
+
 
 	// Execute template with current data and errors
 	currentHTML, err := t.executeTemplateWithErrors(data, errors)
@@ -1110,7 +1112,18 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree treeNode, 
 				} else if newIsTree {
 					// New value is a tree node but old wasn't
 					// Check if client has this structure from initial render
-					clientHasStructure := t.hasInitialTree && t.fieldExistsInTree(k, t.initialTree)
+					// IMPORTANT: Must check if initial value was ALSO a tree node, not just any value
+					// (e.g., conditionals can go from "" to tree node - client doesn't have the tree statics)
+					clientHasStructure := false
+					if t.hasInitialTree && t.fieldExistsInTree(k, t.initialTree) {
+						initialValue := t.getFieldValueFromTree(k, t.initialTree)
+						// Check if initial value is also a tree node (not empty string or other primitive)
+						if tn, ok := initialValue.(treeNode); ok && len(tn) > 0 {
+							clientHasStructure = true
+						} else if m, ok := initialValue.(map[string]interface{}); ok && len(m) > 0 {
+							clientHasStructure = true
+						}
+					}
 					if clientHasStructure {
 						// Strip statics since client has them cached
 						stripped := stripStaticsRecursively(newTreeNode)
@@ -1405,6 +1418,7 @@ func isRangeConstruct(value interface{}) bool {
 	if ok {
 		_, hasD := valueMap["d"]
 		_, hasS := valueMap["s"]
+		// Both "d" (data array) and "s" (statics array) must be present
 		return hasD && hasS
 	}
 	return false

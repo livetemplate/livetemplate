@@ -341,6 +341,7 @@ func handleRangeNode(node *parse.RangeNode, data interface{}, keyGen *keyGenerat
 
 	// Handle nil or empty collection
 	collectionValue := reflect.ValueOf(collection)
+
 	if !collectionValue.IsValid() ||
 		(collectionValue.Kind() == reflect.Slice && collectionValue.Len() == 0) ||
 		(collectionValue.Kind() == reflect.Array && collectionValue.Len() == 0) ||

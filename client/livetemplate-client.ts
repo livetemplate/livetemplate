@@ -1426,8 +1426,9 @@ export class LiveTemplateClient {
         }
         return this.renderRangeStructure(value, fieldKey, statePath);
       }
-      // Regular nested tree structure
-      if (value.s) {
+      // Regular nested tree structure (conditionals, nested templates)
+      // Check explicitly for 's' property with proper type checking
+      if ('s' in value && Array.isArray(value.s)) {
         return this.reconstructFromTree(value, statePath || '');
       }
     }
@@ -1452,6 +1453,14 @@ export class LiveTemplateClient {
     }
 
     // Simple string/number value
+    // DEBUG: Log values that reach here as objects (this causes [object Object])
+    if (typeof value === 'object' && value !== null) {
+      console.error('[LiveTemplate ERROR] Object reached String(value) - this will cause [object Object]');
+      console.error('[LiveTemplate ERROR] Value type:', typeof value, 'isArray:', Array.isArray(value));
+      console.error('[LiveTemplate ERROR] Value keys:', Object.keys(value));
+      console.error('[LiveTemplate ERROR] value.s exists:', !!value.s, 'value.d exists:', !!value.d);
+      console.error('[LiveTemplate ERROR] Value:', JSON.stringify(value));
+    }
     return String(value);
   }
 
@@ -1843,6 +1852,15 @@ export class LiveTemplateClient {
     // Restore focus to previously focused element
     this.restoreFocusedElement();
 
+    // Handle scroll directives
+    this.handleScrollDirectives(element);
+
+    // Handle highlight directives
+    this.handleHighlightDirectives(element);
+
+    // Handle animate directives
+    this.handleAnimateDirectives(element);
+
     // Handle form lifecycle if metadata is present
     if (meta) {
       this.handleFormLifecycle(meta);
@@ -1946,6 +1964,158 @@ export class LiveTemplateClient {
    */
   getStaticStructure(): string[] | null {
     return this.treeState.s || null;
+  }
+
+  /**
+   * Handle scroll directives on elements with lvt-scroll attribute
+   * Supports modes: bottom, bottom-sticky, top, preserve
+   */
+  private handleScrollDirectives(rootElement: Element): void {
+    const scrollElements = rootElement.querySelectorAll('[lvt-scroll]');
+
+    scrollElements.forEach((element) => {
+      const mode = element.getAttribute('lvt-scroll');
+      const behavior = element.getAttribute('lvt-scroll-behavior') as ScrollBehavior || 'auto';
+      const threshold = parseInt(element.getAttribute('lvt-scroll-threshold') || '100', 10);
+
+      if (!mode) return;
+
+      switch (mode) {
+        case 'bottom':
+          element.scrollTo({
+            top: element.scrollHeight,
+            behavior
+          });
+          break;
+
+        case 'bottom-sticky':
+          const isNearBottom = element.scrollHeight - element.scrollTop - element.clientHeight <= threshold;
+          if (isNearBottom) {
+            element.scrollTo({
+              top: element.scrollHeight,
+              behavior
+            });
+          }
+          break;
+
+        case 'top':
+          element.scrollTo({
+            top: 0,
+            behavior
+          });
+          break;
+
+        case 'preserve':
+          break;
+
+        default:
+          console.warn(`Unknown lvt-scroll mode: ${mode}`);
+      }
+    });
+  }
+
+  /**
+   * Handle highlight directives on elements with lvt-highlight attribute
+   * Highlights new or updated elements with a brief visual flash
+   */
+  private handleHighlightDirectives(rootElement: Element): void {
+    const highlightElements = rootElement.querySelectorAll('[lvt-highlight]');
+
+    highlightElements.forEach((element) => {
+      const mode = element.getAttribute('lvt-highlight');
+      const duration = parseInt(element.getAttribute('lvt-highlight-duration') || '500', 10);
+      const color = element.getAttribute('lvt-highlight-color') || '#ffc107';
+
+      if (!mode) return;
+
+      const htmlElement = element as HTMLElement;
+
+      const originalBackground = htmlElement.style.backgroundColor;
+      const originalTransition = htmlElement.style.transition;
+
+      htmlElement.style.transition = `background-color ${duration}ms ease-out`;
+      htmlElement.style.backgroundColor = color;
+
+      setTimeout(() => {
+        htmlElement.style.backgroundColor = originalBackground;
+
+        setTimeout(() => {
+          htmlElement.style.transition = originalTransition;
+        }, duration);
+      }, 50);
+    });
+  }
+
+  /**
+   * Handle animate directives on elements with lvt-animate attribute
+   * Applies entry/exit animations when elements are inserted or updated
+   */
+  private handleAnimateDirectives(rootElement: Element): void {
+    const animateElements = rootElement.querySelectorAll('[lvt-animate]');
+
+    animateElements.forEach((element) => {
+      const animation = element.getAttribute('lvt-animate');
+      const duration = parseInt(element.getAttribute('lvt-animate-duration') || '300', 10);
+
+      if (!animation) return;
+
+      const htmlElement = element as HTMLElement;
+
+      htmlElement.style.setProperty('--lvt-animate-duration', `${duration}ms`);
+
+      switch (animation) {
+        case 'fade':
+          htmlElement.style.animation = `lvt-fade-in var(--lvt-animate-duration) ease-out`;
+          break;
+
+        case 'slide':
+          htmlElement.style.animation = `lvt-slide-in var(--lvt-animate-duration) ease-out`;
+          break;
+
+        case 'scale':
+          htmlElement.style.animation = `lvt-scale-in var(--lvt-animate-duration) ease-out`;
+          break;
+
+        default:
+          console.warn(`Unknown lvt-animate mode: ${animation}`);
+      }
+
+      htmlElement.addEventListener('animationend', () => {
+        htmlElement.style.animation = '';
+      }, { once: true });
+    });
+
+    if (!document.getElementById('lvt-animate-styles')) {
+      const style = document.createElement('style');
+      style.id = 'lvt-animate-styles';
+      style.textContent = `
+        @keyframes lvt-fade-in {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes lvt-slide-in {
+          from {
+            opacity: 0;
+            transform: translateY(-10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        @keyframes lvt-scale-in {
+          from {
+            opacity: 0;
+            transform: scale(0.95);
+          }
+          to {
+            opacity: 1;
+            transform: scale(1);
+          }
+        }
+      `;
+      document.head.appendChild(style);
+    }
   }
 }
 

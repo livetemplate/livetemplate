@@ -4,150 +4,109 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LiveTemplate Chat</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <style>
+        /* Minimal chat-specific styles */
         body {
-            font-family: system-ui, sans-serif;
-            max-width: 800px;
-            margin: 2rem auto;
-            padding: 0 1rem;
+            padding: 1rem;
         }
-        h1 { margin-bottom: 0.5rem; }
-        .stats { color: #666; font-size: 0.9rem; margin-bottom: 1rem; }
-
-        /* Login form styles */
-        form { max-width: 400px; }
-        input {
-            width: 100%;
-            padding: 0.5rem;
-            margin: 0.5rem 0;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+        .stats {
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+            opacity: 0.8;
         }
-        button {
-            padding: 0.5rem 1rem;
-            background: #0066cc;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        button:hover { background: #0052a3; }
-
-        /* Chat UI styles */
         .messages {
-            border: 1px solid #ddd;
-            border-radius: 4px;
+            border: 1px solid var(--pico-muted-border-color);
+            border-radius: var(--pico-border-radius);
             padding: 1rem;
             height: 400px;
             overflow-y: auto;
-            background: #f9f9f9;
+            background: var(--pico-card-background-color);
             margin-bottom: 1rem;
         }
         .message {
-            background: white;
-            padding: 0.5rem;
+            padding: 0.75rem;
             margin-bottom: 0.5rem;
-            border-radius: 4px;
-            border-left: 3px solid #ddd;
+            border-radius: var(--pico-border-radius);
+            border-left: 3px solid var(--pico-muted-border-color);
+            background: var(--pico-background-color);
         }
         .message.mine {
-            background: #e3f2fd;
-            border-left-color: #0066cc;
+            background: var(--pico-primary-background);
+            border-left-color: var(--pico-primary);
         }
         .message-header {
             font-size: 0.85rem;
-            color: #666;
             margin-bottom: 0.25rem;
+            opacity: 0.8;
         }
-        .message-username { font-weight: bold; }
-        .message-time { float: right; }
+        .message-username {
+            font-weight: bold;
+        }
+        .message-time {
+            float: right;
+        }
         .input-form {
-            display: flex;
+            display: grid;
+            grid-template-columns: 1fr auto;
             gap: 0.5rem;
         }
         .input-form input {
-            flex: 1;
-            padding: 0.5rem;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+            margin-bottom: 0;
         }
-        .input-form button {
-            padding: 0.5rem 1rem;
-            background: #0066cc;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        .input-form button:hover { background: #0052a3; }
         .empty-state {
             text-align: center;
-            color: #999;
+            opacity: 0.6;
             padding: 3rem;
         }
     </style>
 </head>
 <body>
-    <h1>💬 LiveTemplate Chat</h1>
-    <div class="stats">
-        {{if .CurrentUser}}
-            Logged in as <strong>{{.CurrentUser}}</strong> •
-            {{.OnlineCount}} user{{if ne .OnlineCount 1}}s{{end}} online •
-            {{.TotalMessages}} message{{if ne .TotalMessages 1}}s{{end}}
-        {{else}}
-            Welcome! Please login to join the chat
-        {{end}}
-    </div>
-
-    {{if not .CurrentUser}}
-    <form lvt-submit="join">
-        <label>
-            Choose your username:
-            <input type="text" name="username" required autofocus>
-        </label>
-        <button type="submit">Join Chat</button>
-    </form>
-    {{else}}
-    <div class="messages" id="messages">
-        {{if eq (len .Messages) 0}}
-        <div class="empty-state">
-            No messages yet. Be the first to send one!
+    <main class="container">
+        <h1>💬 LiveTemplate Chat</h1>
+        <div class="stats">
+            {{if .CurrentUser}}
+                Logged in as <strong>{{.CurrentUser}}</strong> •
+                {{.OnlineCount}} user{{if ne .OnlineCount 1}}s{{end}} online •
+                {{.TotalMessages}} message{{if ne .TotalMessages 1}}s{{end}}
+            {{else}}
+                Welcome! Please login to join the chat
+            {{end}}
         </div>
+
+        {{if not .CurrentUser}}
+        <form lvt-submit="join">
+            <label>
+                Choose your username:
+                <input type="text" name="username" required autofocus>
+            </label>
+            <button type="submit">Join Chat</button>
+        </form>
         {{else}}
-        {{range .Messages}}
-        <div class="message {{if eq .Username $.CurrentUser}}mine{{end}}">
-            <div class="message-header">
-                <span class="message-username">{{.Username}}</span>
-                <span class="message-time">{{.Timestamp}}</span>
+        <div class="messages" id="messages" lvt-scroll="bottom-sticky">
+            {{if eq (len .Messages) 0}}
+            <div class="empty-state">
+                No messages yet. Be the first to send one!
             </div>
-            <div class="message-text">{{.Text}}</div>
+            {{else}}
+            {{range .Messages}}
+            <div class="message {{if eq .Username $.CurrentUser}}mine{{end}}">
+                <div class="message-header">
+                    <span class="message-username">{{.Username}}</span>
+                    <span class="message-time">{{.Timestamp}}</span>
+                </div>
+                <div class="message-text">{{.Text}}</div>
+            </div>
+            {{end}}
+            {{end}}
         </div>
-        {{end}}
-        {{end}}
-    </div>
 
-    <form class="input-form" lvt-submit="send">
-        <input type="text" name="message" placeholder="Type your message..." autocomplete="off" autofocus>
-        <button type="submit">Send</button>
-    </form>
-    {{end}}
-
-    <script>
-        {{if .CurrentUser}}
-        function scrollToBottom() {
-            const messages = document.getElementById('messages');
-            if (messages) messages.scrollTop = messages.scrollHeight;
-        }
-        scrollToBottom();
-        if (window.LiveTemplate) {
-            const orig = window.LiveTemplate.prototype.updateDOM;
-            window.LiveTemplate.prototype.updateDOM = function(...args) {
-                orig.apply(this, args);
-                setTimeout(scrollToBottom, 50);
-            };
-        }
+        <form class="input-form" lvt-submit="send">
+            <input type="text" name="message" placeholder="Type your message..." autocomplete="off" autofocus>
+            <button type="submit">Send</button>
+        </form>
         {{end}}
-    </script>
+    </main>
 
     {{if .lvt.DevMode}}
     <script src="/livetemplate-client.js"></script>

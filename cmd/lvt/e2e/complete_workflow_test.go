@@ -140,7 +140,7 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 						consoleLogsMutex.Lock()
 						consoleLogs = append(consoleLogs, logMsg)
 						consoleLogsMutex.Unlock()
-						if strings.Contains(logMsg, "WebSocket") || strings.Contains(logMsg, "Failed") || strings.Contains(logMsg, "Error") {
+						if strings.Contains(logMsg, "WebSocket") || strings.Contains(logMsg, "Failed") || strings.Contains(logMsg, "Error") || strings.Contains(logMsg, "[DEBUG]") {
 							t.Logf("Browser console: %s", logMsg)
 						}
 					}
@@ -447,7 +447,9 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 	})
 
 	// Test 11.6: Validation Errors
+	// Testing conditional rendering fix
 	t.Run("Validation Errors", func(t *testing.T) {
+		// t.Skip("Skipping until conditional rendering bug is fixed")
 		ctx, cancel := createBrowserContext()
 		defer cancel()
 		ctx, timeoutCancel := context.WithTimeout(ctx, 30*time.Second)
@@ -470,17 +472,52 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 			chromedp.Evaluate(`
 				const form = document.querySelector('form[lvt-submit]');
 				if (form) {
+					// Bypass HTML5 validation to test server-side validation
+					form.noValidate = true;
+					// Reset debug flags
+					window.__lvtSubmitListenerTriggered = false;
+					window.__lvtActionFound = null;
 					form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 				}
 			`, nil),
-			chromedp.Sleep(modalAnimationDelay),
+			chromedp.Sleep(modalAnimationDelay * 2), // Wait longer for validation errors to appear
+
+			// Check debug flags to see if submit was captured
+			chromedp.Evaluate(`
+				(() => {
+					console.log('[DEBUG] Submit listener triggered: ' + window.__lvtSubmitListenerTriggered);
+					console.log('[DEBUG] Action found: ' + window.__lvtActionFound);
+					console.log('[DEBUG] In wrapper: ' + window.__lvtInWrapper);
+					console.log('[DEBUG] Wrapper element: ' + window.__lvtWrapperElement);
+					console.log('[DEBUG] Before handleAction: ' + window.__lvtBeforeHandleAction);
+					console.log('[DEBUG] After handleAction: ' + window.__lvtAfterHandleAction);
+					return {
+						listenerTriggered: window.__lvtSubmitListenerTriggered,
+						actionFound: window.__lvtActionFound,
+						inWrapper: window.__lvtInWrapper,
+						beforeHandle: window.__lvtBeforeHandleAction,
+						afterHandle: window.__lvtAfterHandleAction
+					};
+				})()
+			`, nil),
 
 			// Check for error messages
 			chromedp.Evaluate(`
 				(() => {
 					const form = document.querySelector('form[lvt-submit]');
-					if (!form) return false;
+					if (!form) {
+						console.log('[DEBUG] Form not found!');
+						return false;
+					}
+					console.log('[DEBUG] Form HTML (first 1000 chars): ' + form.outerHTML.substring(0, 1000));
 					const smallTags = Array.from(form.querySelectorAll('small'));
+					console.log('[DEBUG] Found ' + smallTags.length + ' small tags');
+					smallTags.forEach(el => console.log('[DEBUG] Small text: ' + el.textContent));
+
+					// Also check for any elements with aria-invalid
+					const invalidFields = Array.from(form.querySelectorAll('[aria-invalid="true"]'));
+					console.log('[DEBUG] Found ' + invalidFields.length + ' invalid fields');
+
 					return smallTags.some(el => el.textContent.includes('required') || el.textContent.includes('is required'));
 				})()
 			`, &errorsVisible),

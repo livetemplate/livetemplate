@@ -63,14 +63,23 @@ func (m *KitManifest) Validate() error {
 		return ErrInvalidManifest{Field: "description", Reason: "description is required"}
 	}
 
-	if m.CSSFramework == "" {
-		return ErrInvalidManifest{Field: "css_framework", Reason: "css_framework is required"}
+	// Support both css_framework (new) and framework (legacy) for backwards compatibility
+	framework := m.CSSFramework
+	if framework == "" {
+		framework = m.Framework
 	}
 
-	// Validate CSS framework value
-	validFrameworks := map[string]bool{"tailwind": true, "bulma": true, "pico": true, "none": true}
-	if !validFrameworks[m.CSSFramework] {
-		return ErrInvalidManifest{Field: "css_framework", Reason: "css_framework must be one of: tailwind, bulma, pico, none"}
+	if framework == "" {
+		return ErrInvalidManifest{Field: "css_framework/framework", Reason: "either css_framework or framework is required"}
+	}
+
+	// Note: We don't validate the framework value here to allow custom frameworks for testing/development
+	// The loader will use system helpers for standard frameworks (tailwind, bulma, pico, none)
+	// and return nil helpers for custom frameworks
+
+	// Sync the fields for consistency (prefer CSSFramework)
+	if m.CSSFramework == "" && m.Framework != "" {
+		m.CSSFramework = m.Framework
 	}
 
 	return nil
