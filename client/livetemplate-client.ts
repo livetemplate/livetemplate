@@ -1595,8 +1595,15 @@ export class LiveTemplateClient {
           }
           break;
 
-        case 'a': // Append: ["a", items] (items can be single item or array)
+        case 'a': // Append: ["a", items] or ["a", items, statics]
           const itemsToAppend = operation[1];
+          const appendStatics = operation[2]; // Optional: statics for first-time append
+
+          // If statics are provided (first-time append to empty range), update cached statics
+          if (appendStatics) {
+            rangeData.statics = appendStatics;
+          }
+
           if (itemsToAppend) {
             if (Array.isArray(itemsToAppend)) {
               currentItems.push(...itemsToAppend);
@@ -1660,17 +1667,18 @@ export class LiveTemplateClient {
       }
     }
 
-    // Update our range state with new items (keep statics unchanged)
+    // Update our range state with new items and potentially updated statics
+    // (statics may have been updated by append operation if client didn't have them)
     this.rangeState[statePath] = {
       items: currentItems,
-      statics: statics
+      statics: rangeData.statics  // Use updated statics, not the const
     };
 
     // IMPORTANT: Replace the differential operations in treeState with the updated range structure
     // This prevents the operations from being applied again on the next render
     this.treeState[statePath] = {
       d: currentItems,
-      s: statics
+      s: rangeData.statics  // Use updated statics
     };
 
     // Render using the current range structure template

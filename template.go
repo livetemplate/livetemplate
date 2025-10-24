@@ -1026,18 +1026,33 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree treeNode, 
 
 				// Check if old value is ALSO a range construct
 				// If oldValue is NOT a range (e.g., was empty-state div), this is first appearance
-				// Only strip statics if BOTH old and new are range constructs (client has seen it)
-				shouldStripStatics := isRangeConstruct(oldValue)
+				// Only strip statics if BOTH old and new are range constructs AND old range has items
+				// Empty ranges {"d": [], "s": [""]} have never shown item templates to client
+				shouldStripStatics := isRangeConstruct(oldValue) && hasRangeItems(oldValue)
 
 				// Generate differential operations for matched range constructs
 				diffOps := generateRangeDifferentialOperations(oldValue, newValue, shouldStripStatics)
 				if len(diffOps) > 0 {
 					changes[k] = diffOps
 				} else {
-					// Fall back to full update - strip statics only if client has them
-					if shouldStripStatics {
+					// No diff operations generated - use fallback
+					// Check if both are empty ranges (no change needed)
+					if isRangeConstruct(newValue) && !hasRangeItems(newValue) &&
+						isRangeConstruct(oldValue) && !hasRangeItems(oldValue) {
+						// Both empty ranges, no update needed
+						continue
+					}
+
+					// Check if new value is an empty range (items→empty transition)
+					// Send the empty range structure so client knows to clear items
+					if isRangeConstruct(newValue) && !hasRangeItems(newValue) {
+						// Send empty range with statics (client will clear items and keep structure)
+						changes[k] = newValue
+					} else if shouldStripStatics {
+						// Regular fallback with statics stripped
 						changes[k] = stripStaticsRecursively(newValue)
 					} else {
+						// Regular fallback with statics included
 						changes[k] = newValue
 					}
 				}
@@ -1114,16 +1129,60 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree treeNode, 
 					// Check if client has this structure from initial render
 					// IMPORTANT: Must check if initial value was ALSO a tree node, not just any value
 					// (e.g., conditionals can go from "" to tree node - client doesn't have the tree statics)
+					//
+					// BUG FIX: For nested trees, we must check at the CURRENT field path,
+					// not globally. A key "0" in a nested conditional is different from
+					// key "0" at the top level. Use fieldPath to get the right initial value.
 					clientHasStructure := false
-					if t.hasInitialTree && t.fieldExistsInTree(k, t.initialTree) {
-						initialValue := t.getFieldValueFromTree(k, t.initialTree)
+					if t.hasInitialTree {
+						// Get initial value at the CURRENT path, not just by key
+						var initialValue interface{}
+						if fieldPath == "" {
+							// Top level - use key directly
+							if t.fieldExistsInTree(k, t.initialTree) {
+								initialValue = t.getFieldValueFromTree(k, t.initialTree)
+							}
+						} else {
+							// Nested - check at the specific path
+							// fieldPath is like "1" for nested, so check if initial tree has that path
+							// and then check if that path's value has key k
+							pathParts := strings.Split(fieldPath, ".")
+							current := interface{}(t.initialTree)
+							found := true
+							for _, part := range pathParts {
+								if tn, ok := current.(treeNode); ok {
+									current = tn[part]
+								} else if m, ok := current.(map[string]interface{}); ok {
+									current = m[part]
+								} else {
+									found = false
+									break
+								}
+							}
+							if found {
+								// Now check if current (which is the tree at fieldPath) has key k
+								if tn, ok := current.(treeNode); ok {
+									if val, exists := tn[k]; exists {
+										initialValue = val
+									}
+								} else if m, ok := current.(map[string]interface{}); ok {
+									if val, exists := m[k]; exists {
+										initialValue = val
+									}
+								}
+							}
+						}
+
 						// Check if initial value is also a tree node (not empty string or other primitive)
-						if tn, ok := initialValue.(treeNode); ok && len(tn) > 0 {
-							clientHasStructure = true
-						} else if m, ok := initialValue.(map[string]interface{}); ok && len(m) > 0 {
-							clientHasStructure = true
+						if initialValue != nil {
+							if tn, ok := initialValue.(treeNode); ok && len(tn) > 0 {
+								clientHasStructure = true
+							} else if m, ok := initialValue.(map[string]interface{}); ok && len(m) > 0 {
+								clientHasStructure = true
+							}
 						}
 					}
+
 					if clientHasStructure {
 						// Strip statics since client has them cached
 						stripped := stripStaticsRecursively(newTreeNode)
@@ -1420,6 +1479,28 @@ func isRangeConstruct(value interface{}) bool {
 		_, hasS := valueMap["s"]
 		// Both "d" (data array) and "s" (statics array) must be present
 		return hasD && hasS
+	}
+	return false
+}
+
+// hasRangeItems checks if a range construct has any items in its data array
+// Returns true only if value is a range AND has at least one item
+// This is used to determine if the client has seen item rendering templates
+func hasRangeItems(value interface{}) bool {
+	var valueMap map[string]interface{}
+
+	if tn, ok := value.(treeNode); ok {
+		valueMap = tn
+	} else if m, ok := value.(map[string]interface{}); ok {
+		valueMap = m
+	} else {
+		return false
+	}
+
+	if d, hasD := valueMap["d"]; hasD {
+		if dArray, ok := d.([]interface{}); ok {
+			return len(dArray) > 0
+		}
 	}
 	return false
 }
@@ -1849,7 +1930,14 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 					newItemsToAdd = append(newItemsToAdd, item)
 				}
 			}
-			operations = append(operations, []interface{}{"a", newItemsToAdd})
+
+			// If not stripping statics (client doesn't have them), include range statics
+			// so client knows how to render items
+			if !stripStatics {
+				operations = append(operations, []interface{}{"a", newItemsToAdd, statics})
+			} else {
+				operations = append(operations, []interface{}{"a", newItemsToAdd})
+			}
 		} else {
 			// Check if all items are at the same position (single-point insertion)
 			if isSamePosition, targetKey, position := areAllItemsAtSamePosition(addedKeys, oldItems, newItems, statics); isSamePosition {

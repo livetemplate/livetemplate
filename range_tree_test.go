@@ -37,24 +37,25 @@ func TestRangeTreeGeneration(t *testing.T) {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
 
-	// Step 1: Render with empty list (initial state)
+	// Step 1: Render with empty list (initial WebSocket tree)
+	// This matches the WebSocket flow where initial state is sent via ExecuteUpdates
 	state1 := &State{
 		PaginatedTodos: []Todo{},
 	}
 
 	var buf1 bytes.Buffer
-	err = tmpl.Execute(&buf1, state1)
+	err = tmpl.ExecuteUpdates(&buf1, state1)
 	if err != nil {
-		t.Fatalf("Failed initial execute: %v", err)
+		t.Fatalf("Failed initial ExecuteUpdates: %v", err)
 	}
 
-	html1 := buf1.String()
-	t.Logf("Initial render HTML:\n%s", html1)
-
-	// Check that table is empty
-	if !contains(html1, "<tbody>") {
-		t.Error("Initial render missing tbody")
+	var initialTree map[string]interface{}
+	if err := json.Unmarshal(buf1.Bytes(), &initialTree); err != nil {
+		t.Fatalf("Failed to parse initial tree JSON: %v", err)
 	}
+
+	prettyInitial, _ := json.MarshalIndent(initialTree, "", "  ")
+	t.Logf("Initial tree (empty state):\n%s", string(prettyInitial))
 
 	// Step 2: Update with one item
 	state2 := &State{
@@ -84,37 +85,39 @@ func TestRangeTreeGeneration(t *testing.T) {
 		t.Fatal("Update tree is nil")
 	}
 
-	// The tree should contain range updates
-	// Look for numeric keys or range operation structures
-	foundRangeData := false
+	// The tree should contain range updates with operations
+	// Look for append operation with statics included (first item case)
+	// Statics should be at the operation level: ["a", items, statics]
+	foundAppendWithStatics := false
 	for key, value := range tree {
 		t.Logf("Tree key: %s, value type: %T", key, value)
 
-		// Check for range comprehension structure (has "s" and "d" keys)
-		if valueMap, ok := value.(map[string]interface{}); ok {
-			if _, hasS := valueMap["s"]; hasS {
-				if d, hasD := valueMap["d"]; hasD {
-					foundRangeData = true
-					t.Logf("Found range data structure: s=%v, d=%v", valueMap["s"], d)
-
-					// Check if "d" is an array
-					if dArray, ok := d.([]interface{}); ok {
-						t.Logf("Range data array length: %d", len(dArray))
-						if len(dArray) > 0 {
-							t.Logf("First item in range: %v", dArray[0])
+		// Check for range operations (array of operations)
+		if opsList, ok := value.([]interface{}); ok {
+			for _, op := range opsList {
+				if opArray, ok := op.([]interface{}); ok && len(opArray) >= 2 {
+					if opType, ok := opArray[0].(string); ok && opType == "a" {
+						t.Log("Found append operation")
+						// Check if operation includes statics (3rd element)
+						if len(opArray) >= 3 {
+							if statics, ok := opArray[2].([]interface{}); ok {
+								foundAppendWithStatics = true
+								t.Logf("✅ Append operation includes statics: %v", statics)
+								t.Logf("First item data: %+v", opArray[1])
+							} else {
+								t.Error("❌ Append operation statics has wrong type")
+							}
 						} else {
-							t.Error("Range data array is empty - this is the bug!")
+							t.Error("❌ Append operation missing statics (only has 2 elements)")
 						}
-					} else {
-						t.Errorf("Range data 'd' is not an array: %T", d)
 					}
 				}
 			}
 		}
 	}
 
-	if !foundRangeData {
-		t.Error("No range data structure found in update tree")
+	if !foundAppendWithStatics {
+		t.Error("No append operation with statics found - expected for empty→first transition")
 	}
 
 	// Step 3: Add a second item
@@ -138,6 +141,34 @@ func TestRangeTreeGeneration(t *testing.T) {
 
 	prettyJSON2, _ := json.MarshalIndent(tree2, "", "  ")
 	t.Logf("Update tree after adding second item:\n%s", string(prettyJSON2))
+
+	// Verify second item has statics STRIPPED (optimization working)
+	// Should be ["a", items] with NO third element
+	foundAppendWithoutStatics := false
+	for _, value := range tree2 {
+		if opsList, ok := value.([]interface{}); ok {
+			for _, op := range opsList {
+				if opArray, ok := op.([]interface{}); ok && len(opArray) >= 2 {
+					if opType, ok := opArray[0].(string); ok && opType == "a" {
+						t.Log("Found append operation for second item")
+						// This time statics should be stripped (optimization)
+						// Operation should only have 2 elements: ["a", items]
+						if len(opArray) == 2 {
+							foundAppendWithoutStatics = true
+							t.Log("✅ Second item statics stripped (optimization working)")
+							t.Logf("Second item data: %+v", opArray[1])
+						} else if len(opArray) == 3 {
+							t.Error("❌ Second item includes statics - optimization not working!")
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if !foundAppendWithoutStatics {
+		t.Log("Note: No append operation found for second item (might be update instead)")
+	}
 }
 
 func contains(s, substr string) bool {

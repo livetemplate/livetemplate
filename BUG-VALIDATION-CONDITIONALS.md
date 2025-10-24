@@ -241,5 +241,258 @@ The `<tbody>` always exists, and the range starts empty. When first item is adde
 3. Add first todo: Generates append without statics (BUG!)
 4. Client can't render - tbody stays empty
 
+## Status - Range Construct Bug
+✅ **FIXED** - 2025-10-23
+
+## Range Construct Fix Implementation
+
+### Changes Made
+
+**1. Added `hasRangeItems()` helper function** (`template.go:1427-1447`)
+```go
+func hasRangeItems(value interface{}) bool {
+    // Returns true only if value is a range AND has at least one item
+    // Used to determine if client has seen item rendering templates
+}
+```
+
+**2. Modified statics stripping logic** (`template.go:1031`)
+```go
+// Only strip statics if old range has items
+shouldStripStatics := isRangeConstruct(oldValue) && hasRangeItems(oldValue)
+```
+
+**3. Include range statics in append operations when needed** (`template.go:1885-1901`)
+```go
+// If not stripping statics, include range statics in operation
+if !stripStatics {
+    operations = append(operations, []interface{}{"a", newItemsToAdd, statics})
+} else {
+    operations = append(operations, []interface{}{"a", newItemsToAdd})
+}
+```
+
+**4. Improved fallback handling** (`template.go:1038-1051`)
+- Prevents sending empty range objects that render as `[object Object]`
+- Skips update when both old and new ranges are empty
+
+**5. Enhanced test validation** (`range_tree_test.go`)
+- Validates statics included on first item: `["a", items, statics]`
+- Validates statics stripped on subsequent items: `["a", items]`
+
+### Key Insight
+
+Range item statics are stored at the RANGE level, not per-item:
+- Items are data only: `{"0": "value1", "1": "value2"}`
+- Range statics define the item template: `["<tr>", "</tr>"]`
+- Client uses range statics to render all items
+
+When client has empty range `{"d": [], "s": [""]}`:
+- Has container statics (empty separator)
+- Has NEVER seen item rendering template
+- First append MUST include item template statics
+
+### Operation Formats
+
+**Empty → First Item** (client needs template):
+```json
+["a", [{"0": "id1", "1": "text1"}], ["<tr>", "</tr>"]]
+```
+
+**Items → More Items** (client has template):
+```json
+["a", [{"0": "id2", "1": "text2"}]]
+```
+
+### Tests Pass
+- ✅ `TestRangeTreeGeneration` - Validates fix
+- ✅ All core library tests - No regressions
+- ✅ Fuzz tests - Edge cases covered
+- ✅ 10/11 TodosE2E tests - Range functionality working
+  - Add_First_Todo ✅
+  - Add_Second_Todo ✅
+  - Add_Third_Todo ✅
+  - Add_Fourth_and_Fifth_Todos ✅
+  - Pagination_Functionality ✅
+  - Sort_Functionality ✅
+  - And 4 more ✅
+
+---
+
+# Conditional Rendering Bug - STILL PRESENT
+
 ## Status
-Root cause definitively identified. Ready for fix implementation.
+❌ **NOT FIXED** - 2025-10-24
+
+## Summary
+The FIRST bug described at the top of this document (conditional blocks rendering as `[object Object]`) is still present. The range bug was successfully fixed, but conditionals have a separate issue.
+
+## Affected Tests
+- `TestTodosE2E/Search_Functionality` - FAILING with `[object Object]` where "No todos found" message should appear
+
+## Investigation
+
+### Server-Side: WORKING CORRECTLY
+The server correctly generates conditional tree nodes. When a conditional switches from false→true:
+
+**Update sent:**
+```json
+{"0": {"s": ["\n<p>Message is shown</p>\n"]}}
+```
+
+Debug logging confirms:
+- `clientHasStructure: false` (correct - client doesn't have statics)
+- Full tree node with statics is sent (correct)
+
+### Client-Side: ISSUE UNCLEAR
+The client code appears correct:
+- Line 1431-1432: Checks for conditional nodes `('s' in value && Array.isArray(value.s))`
+- Should call `reconstructFromTree()` to render the HTML
+- Error logging at 1457-1463 should trigger if object reaches `String(value)`
+
+However, `[object Object]` still appears in the DOM, indicating somewhere the object is being coerced to string instead of being reconstructed.
+
+## Client Test Results - 2025-10-24
+
+Created comprehensive client tests (`client/tests/test-conditional-debug.test.ts`):
+
+✅ **All Client Tests Pass:**
+1. Simple conditional (false→true): PASS
+2. Search results conditional (nested structure): PASS
+3. Deep dive renderValue behavior: PASS
+4. Tree node detection logic: PASS
+
+**Key Findings:**
+- Client correctly handles conditional nodes: `{"s": ["<p>...</p>"]}`
+- Client correctly handles nested conditionals: `{"0": {...}, "1": "", "s": [...]}`
+- Server generates correct nested structure for todos search
+- Client can process the exact structure the server sends
+
+**Test Structure Verified:**
+```json
+{
+  "0": [["r", "key1"], ["r", "key2"]],  // Range remove operations
+  "1": {  // Nested conditional
+    "0": {"0": "value", "s": ["<small>", "</small>"]},  // Inner conditional
+    "1": "",
+    "s": ["<p>", "", "</p>"]  // Outer conditional statics
+  }
+}
+```
+
+Client renders this correctly as: `<p><small>value</small></p>`
+
+## Analysis
+
+**Discrepancy:** Client unit tests pass but E2E test fails with `[object Object]`.
+
+**Possible Causes:**
+1. **App sends different structure** - The running todos app may send a different tree structure than the test simulates
+2. **Timing issue** - DOM update may not have completed when E2E test checks HTML
+3. **State corruption** - Multiple rapid updates could corrupt client state
+4. **Different code path** - The actual app may use a different template rendering path
+
+## Recommended Next Steps
+
+1. **Add WebSocket message logging to E2E test** - Capture actual messages sent by running app
+2. **Add browser console logging** - Per CLAUDE.md requirements, capture browser console during test
+3. **Compare actual vs expected** - Compare real app messages with test messages
+4. **Check app state transitions** - Verify state changes in main.go during search
+
+The client library code is proven correct by unit tests. The issue is environmental or in the actual app's message generation.
+
+---
+
+# Conditional Rendering Bug - FIXED
+
+## Status
+✅ **FIXED** - 2025-10-24
+
+## Root Cause Identified
+
+Through browser console logging added to the E2E test, discovered the exact error:
+```json
+{
+  "type": "error",
+  "message": "[LiveTemplate ERROR] Value: {\"0\":{\"0\":\"NonExistent\"}}"
+}
+```
+
+The server was sending nested conditional nodes WITHOUT statics (no `"s"` key), causing `[object Object]` to appear in the DOM.
+
+## The Bug
+
+In `template.go:1127-1159`, the `clientHasStructure` check was using global key matching:
+```go
+if t.fieldExistsInTree(k, t.initialTree) {
+    initialValue = t.getFieldValueFromTree(k, t.initialTree)
+}
+```
+
+When checking if client has structure for key "0" in a nested conditional at path "1":
+- It found key "0" at the TOP level (for the range construct)
+- Incorrectly assumed client had the nested conditional structure
+- Stripped statics from the nested conditional
+- Client received `{"0": {"0": "NonExistent"}}` - an object without rendering instructions
+
+## The Fix
+
+Modified `template.go:1127-1184` to use path-based lookup:
+1. **Top level** (fieldPath=""): Check key directly in initialTree
+2. **Nested** (fieldPath="1"): Traverse the path first, then check for key
+
+```go
+if fieldPath == "" {
+    // Top level - use key directly
+    if t.fieldExistsInTree(k, t.initialTree) {
+        initialValue = t.getFieldValueFromTree(k, t.initialTree)
+    }
+} else {
+    // Nested - traverse path, then check key
+    pathParts := strings.Split(fieldPath, ".")
+    current := interface{}(t.initialTree)
+    found := true
+    for _, part := range pathParts {
+        // Traverse path...
+    }
+    if found {
+        // Now check if current (at fieldPath) has key k
+        if tn, ok := current.(treeNode); ok {
+            if val, exists := tn[k]; exists {
+                initialValue = val
+            }
+        }
+    }
+}
+```
+
+This ensures we check for structures at the CORRECT location in the tree, not globally.
+
+## Verification
+
+### Browser Console Capture
+Added console logging to `todos_e2e_test.go:421-454` to capture exact errors from client.
+
+### Test Results
+✅ **All 11/11 TodosE2E tests pass:**
+- Initial_Load ✅
+- WebSocket_Connection ✅
+- Add_First_Todo ✅
+- Add_Second_Todo ✅
+- Add_Third_Todo ✅
+- Add_Fourth_and_Fifth_Todos ✅
+- LiveTemplate_Updates ✅
+- Pico_CSS_Loaded ✅
+- **Search_Functionality ✅** (was failing, now passes)
+- Sort_Functionality ✅
+- Pagination_Functionality ✅
+
+### Client Tests
+Created `client/tests/test-conditional-debug.test.ts` - all 4 tests pass, confirming client code handles conditionals correctly.
+
+## Key Insight
+
+The bug was server-side, not client-side. The server's optimization logic for stripping statics needs to be path-aware:
+- Key "0" at root level ≠ Key "0" in nested conditional at path "1"
+- Must traverse the tree to the specific location before checking if client has structure
+- Only strip statics if client has seen that EXACT structure at that EXACT path
