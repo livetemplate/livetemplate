@@ -480,7 +480,7 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 					form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 				}
 			`, nil),
-			chromedp.Sleep(modalAnimationDelay * 2), // Wait longer for validation errors to appear
+			chromedp.Sleep(modalAnimationDelay*2), // Wait longer for validation errors to appear
 
 			// Check debug flags to see if submit was captured
 			chromedp.Evaluate(`

@@ -496,3 +496,44 @@ The bug was server-side, not client-side. The server's optimization logic for st
 - Key "0" at root level ≠ Key "0" in nested conditional at path "1"
 - Must traverse the tree to the specific location before checking if client has structure
 - Only strip statics if client has seen that EXACT structure at that EXACT path
+
+---
+
+# All Tests Passing - 2025-10-24
+
+## Summary
+✅ **All bugs fixed, all tests passing**
+
+### Core Library Tests
+- All template tests pass ✅
+- All tree generation tests pass ✅
+- All invariant tests pass ✅
+
+### E2E Tests
+- TodosE2E: 11/11 tests pass ✅ (including Search_Functionality)
+- ChatE2E: 4/4 tests pass ✅ (redesigned and moved to examples/chat/)
+
+## Chat E2E Test Redesign
+
+The old `chat_e2e_test.go` in the root directory had I/O timeout issues:
+- Spawned subprocess with `cmd.Stdout = os.Stdout` causing I/O pipes to stay open
+- Test passed but `cmd.Wait()` blocked for 60 seconds waiting for I/O to close
+- Error: "Test I/O incomplete 1m0s after exiting"
+
+### Solution
+1. **Moved test** from root to `examples/chat/chat_e2e_test.go` (proper location)
+2. **Simplified design** - doesn't capture subprocess stdout/stderr (defaults to nil)
+3. **Removed dependency** on internal/testing helpers (chat has its own go.mod)
+4. **Fixed cleanup** - just kills process, doesn't call Wait() that blocks on I/O
+5. **Uses GOWORK=off** to avoid workspace conflicts
+
+### Test Results
+```
+PASS: TestChatE2E (5.53s)
+  PASS: TestChatE2E/Initial_Load (3.13s)
+  PASS: TestChatE2E/Join_Flow (1.02s)
+  PASS: TestChatE2E/Send_Message (0.51s)
+  PASS: TestChatE2E/WebSocket_Updates (0.00s)
+```
+
+No I/O timeouts, completes cleanly in under 6 seconds!

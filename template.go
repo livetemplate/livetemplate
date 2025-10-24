@@ -628,7 +628,6 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, errors ...map[
 		return fmt.Errorf("tree generation failed: %w", err)
 	}
 
-
 	// Analyze tree for efficiency issues (only in DevMode)
 	if t.analyzer != nil && t.analyzer.Enabled {
 		t.analyzer.AnalyzeUpdate(tree, t.name, t.templateStr)
@@ -658,7 +657,6 @@ func (t *Template) generateTreeInternalWithErrors(data interface{}, errors map[s
 	if t.lastTree != nil {
 		t.loadExistingKeyMappings(t.lastTree)
 	}
-
 
 	// Execute template with current data and errors
 	currentHTML, err := t.executeTemplateWithErrors(data, errors)

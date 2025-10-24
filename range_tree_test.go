@@ -170,17 +170,3 @@ func TestRangeTreeGeneration(t *testing.T) {
 		t.Log("Note: No append operation found for second item (might be update instead)")
 	}
 }
-
-func contains(s, substr string) bool {
-	return len(s) > 0 && len(substr) > 0 &&
-		(s == substr || (len(s) >= len(substr) && containsHelper(s, substr)))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
