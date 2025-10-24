@@ -1,10 +1,8 @@
 package e2e
 
 import (
-	"bytes"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,25 +12,16 @@ import (
 func TestKits_List(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
-
 	// Create app first (kits commands need app context)
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// List kits
 	t.Log("Listing all kits...")
-	cmd := exec.Command(lvtBinary, "kits", "list")
-	cmd.Dir = appDir
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stdout
-
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to list kits: %v\nOutput: %s", err, stdout.String())
+	output, err := runLvtCommandWithOutput(t, appDir, "kits", "list")
+	if err != nil {
+		t.Fatalf("Failed to list kits: %v\nOutput: %s", err, output)
 	}
 
-	output := stdout.String()
 	t.Logf("Kits list output:\n%s", output)
 
 	// Verify system kits appear in output
@@ -51,24 +40,17 @@ func TestKits_ListFiltered(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app first
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// List local kits (should be empty or contain user kits)
 	t.Log("Listing local kits...")
-	cmd := exec.Command(lvtBinary, "kits", "list", "--filter", "local")
-	cmd.Dir = appDir
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stdout
-
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to list filtered kits: %v\nOutput: %s", err, stdout.String())
+	output, err := runLvtCommandWithOutput(t, appDir, "kits", "list", "--filter", "local")
+	if err != nil {
+		t.Fatalf("Failed to list filtered kits: %v\nOutput: %s", err, output)
 	}
 
-	output := stdout.String()
 	t.Logf("Filtered kits output:\n%s", output)
 
 	t.Log("✅ Filtered kits list test passed")
@@ -79,24 +61,17 @@ func TestKits_ListJSON(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app first
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// List kits as JSON
 	t.Log("Listing kits as JSON...")
-	cmd := exec.Command(lvtBinary, "kits", "list", "--format", "json")
-	cmd.Dir = appDir
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stdout
-
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to list kits as JSON: %v\nOutput: %s", err, stdout.String())
+	output, err := runLvtCommandWithOutput(t, appDir, "kits", "list", "--format", "json")
+	if err != nil {
+		t.Fatalf("Failed to list kits as JSON: %v\nOutput: %s", err, output)
 	}
 
-	output := stdout.String()
 	t.Logf("JSON output:\n%s", output)
 
 	// Verify it's valid JSON
@@ -118,24 +93,17 @@ func TestKits_Info(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app first
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Get info for multi kit
 	t.Log("Getting multi kit info...")
-	cmd := exec.Command(lvtBinary, "kits", "info", "multi")
-	cmd.Dir = appDir
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stdout
-
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to get kit info: %v\nOutput: %s", err, stdout.String())
+	output, err := runLvtCommandWithOutput(t, appDir, "kits", "info", "multi")
+	if err != nil {
+		t.Fatalf("Failed to get kit info: %v\nOutput: %s", err, output)
 	}
 
-	output := stdout.String()
 	t.Logf("Kit info output:\n%s", output)
 
 	// Verify expected information appears
@@ -154,25 +122,19 @@ func TestKits_Create(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app first
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Create a new kit
 	kitName := "testkit"
 	t.Logf("Creating new kit: %s...", kitName)
-	cmd := exec.Command(lvtBinary, "kits", "create", kitName)
-	cmd.Dir = appDir
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stdout
-
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to create kit: %v\nOutput: %s", err, stdout.String())
+	output, err := runLvtCommandWithOutput(t, appDir, "kits", "create", kitName)
+	if err != nil {
+		t.Fatalf("Failed to create kit: %v\nOutput: %s", err, output)
 	}
 
-	t.Logf("Create kit output:\n%s", stdout.String())
+	t.Logf("Create kit output:\n%s", output)
 
 	// Verify kit was created in .lvt/kits/ directory
 	kitPath := filepath.Join(appDir, ".lvt/kits", kitName)
@@ -200,38 +162,30 @@ func TestKits_Validate(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app first
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Create a kit first
 	kitName := "validatekit"
 	t.Log("Creating kit for validation...")
-	createCmd := exec.Command(lvtBinary, "kits", "create", kitName)
-	createCmd.Dir = appDir
-	if err := createCmd.Run(); err != nil {
+	_, err := runLvtCommandWithOutput(t, appDir, "kits", "create", kitName)
+	if err != nil {
 		t.Fatalf("Failed to create kit: %v", err)
 	}
 
 	// Validate the kit
 	kitPath := filepath.Join(appDir, ".lvt/kits", kitName)
 	t.Log("Validating kit...")
-	cmd := exec.Command(lvtBinary, "kits", "validate", kitPath)
-	cmd.Dir = appDir
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stdout
-
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Kit validation failed: %v\nOutput: %s", err, stdout.String())
+	validateOutput, err := runLvtCommandWithOutput(t, appDir, "kits", "validate", kitPath)
+	if err != nil {
+		t.Fatalf("Kit validation failed: %v\nOutput: %s", err, validateOutput)
 	}
 
-	output := stdout.String()
-	t.Logf("Validation output:\n%s", output)
+	t.Logf("Validation output:\n%s", validateOutput)
 
 	// Check for success indicators
-	if !strings.Contains(strings.ToLower(output), "valid") && !strings.Contains(output, "✓") {
+	if !strings.Contains(strings.ToLower(validateOutput), "valid") && !strings.Contains(validateOutput, "✓") {
 		t.Error("Validation output doesn't indicate success")
 	}
 
@@ -243,24 +197,18 @@ func TestKits_CustomizeProject(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Customize kit at project level
 	t.Log("Customizing kit at project level...")
-	cmd := exec.Command(lvtBinary, "kits", "customize", "multi", "--scope", "project")
-	cmd.Dir = appDir
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stdout
-
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to customize kit: %v\nOutput: %s", err, stdout.String())
+	output, err := runLvtCommandWithOutput(t, appDir, "kits", "customize", "multi", "--scope", "project")
+	if err != nil {
+		t.Fatalf("Failed to customize kit: %v\nOutput: %s", err, output)
 	}
 
-	t.Logf("Customize output:\n%s", stdout.String())
+	t.Logf("Customize output:\n%s", output)
 
 	// Verify .lvt/kits/multi directory was created
 	customKitPath := filepath.Join(appDir, ".lvt/kits/multi")
@@ -282,7 +230,6 @@ func TestKits_CustomizeGlobal(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Set XDG_CONFIG_HOME to temp directory for test isolation
 	configDir := filepath.Join(tmpDir, ".config")
@@ -290,22 +237,16 @@ func TestKits_CustomizeGlobal(t *testing.T) {
 	defer os.Unsetenv("XDG_CONFIG_HOME")
 
 	// Create app (needed for context)
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Customize kit at global level
 	t.Log("Customizing kit at global level...")
-	cmd := exec.Command(lvtBinary, "kits", "customize", "simple", "--scope", "global")
-	cmd.Dir = appDir
-	cmd.Env = append(os.Environ(), "XDG_CONFIG_HOME="+configDir)
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stdout
-
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to customize kit globally: %v\nOutput: %s", err, stdout.String())
+	output, err := runLvtCommandWithOutput(t, appDir, "kits", "customize", "simple", "--scope", "global")
+	if err != nil {
+		t.Fatalf("Failed to customize kit globally: %v\nOutput: %s", err, output)
 	}
 
-	t.Logf("Global customize output:\n%s", stdout.String())
+	t.Logf("Global customize output:\n%s", output)
 
 	// Verify global kit directory was created
 	globalKitPath := filepath.Join(configDir, "lvt/kits/simple")
@@ -321,24 +262,18 @@ func TestKits_CustomizeComponentsOnly(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Customize only components
 	t.Log("Customizing components only...")
-	cmd := exec.Command(lvtBinary, "kits", "customize", "multi", "--components-only")
-	cmd.Dir = appDir
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stdout
-
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to customize components: %v\nOutput: %s", err, stdout.String())
+	output, err := runLvtCommandWithOutput(t, appDir, "kits", "customize", "multi", "--components-only")
+	if err != nil {
+		t.Fatalf("Failed to customize components: %v\nOutput: %s", err, output)
 	}
 
-	t.Logf("Components customize output:\n%s", stdout.String())
+	t.Logf("Components customize output:\n%s", output)
 
 	// Verify components directory exists
 	componentsPath := filepath.Join(appDir, ".lvt/kits/multi/components")

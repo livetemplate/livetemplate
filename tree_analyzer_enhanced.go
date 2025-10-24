@@ -375,7 +375,12 @@ func (a *EnhancedTreeAnalyzer) calculateMetrics(tree, lastTree treeNode, isFirst
 	}
 
 	// Count reused statics and changed dynamics
-	metrics.StaticsReused = len(a.SentStatics)
+	// On first render, no statics are "reused" (they're sent for the first time)
+	if isFirstRender {
+		metrics.StaticsReused = 0
+	} else {
+		metrics.StaticsReused = len(a.SentStatics)
+	}
 	metrics.DynamicsChanged = a.countDynamics(tree)
 
 	// Count range operations

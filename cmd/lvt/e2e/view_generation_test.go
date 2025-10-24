@@ -12,14 +12,13 @@ func TestViewGen_Basic(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Generate view
 	t.Log("Generating dashboard view...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "view", "dashboard"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "view", "dashboard"); err != nil {
 		t.Fatalf("Failed to generate dashboard view: %v", err)
 	}
 
@@ -84,14 +83,13 @@ func TestViewGen_Interactive(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Generate interactive view (like counter)
 	t.Log("Generating counter view...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "view", "counter"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "view", "counter"); err != nil {
 		t.Fatalf("Failed to generate counter view: %v", err)
 	}
 
@@ -131,16 +129,15 @@ func TestViewGen_MultipleViews(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Generate multiple views
 	views := []string{"home", "about", "contact"}
 	for _, view := range views {
 		t.Logf("Generating %s view...", view)
-		if err := runLvtCommand(t, lvtBinary, appDir, "gen", "view", view); err != nil {
+		if err := runLvtCommand(t, appDir, "gen", "view", view); err != nil {
 			t.Fatalf("Failed to generate %s view: %v", view, err)
 		}
 	}

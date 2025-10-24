@@ -23,22 +23,25 @@
         "i",
         "todo-1",
         "after",
-        [
-          {
-            "1": "todo-6",
-            "3": "Deploy to production",
-            "5": {
-              "0": "Critical"
-            }
-          },
-          {
-            "1": "todo-7",
-            "3": "Monitor performance",
-            "5": {
-              "0": "Medium"
-            }
+        {
+          "1": "todo-6",
+          "3": "Deploy to production",
+          "5": {
+            "0": "Critical"
           }
-        ]
+        }
+      ],
+      [
+        "i",
+        "todo-1",
+        "after",
+        {
+          "1": "todo-7",
+          "3": "Monitor performance",
+          "5": {
+            "0": "Medium"
+          }
+        }
       ]
     ]
   },

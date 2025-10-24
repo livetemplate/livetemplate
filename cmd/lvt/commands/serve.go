@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 
@@ -67,7 +68,7 @@ func Serve(args []string) error {
 		return fmt.Errorf("failed to create server: %w", err)
 	}
 
-	if err := server.Start(); err != nil {
+	if err := server.Start(context.Background()); err != nil {
 		return fmt.Errorf("server error: %w", err)
 	}
 

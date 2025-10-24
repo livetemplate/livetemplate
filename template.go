@@ -932,6 +932,32 @@ func (t *Template) compareTreesAndGetChangesWithContext(oldTree, newTree treeNod
 func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree treeNode, insideNewStructure bool, currentPath string, rangeMatches map[string]string) treeNode {
 	changes := make(treeNode)
 
+	// CRITICAL FIX: Check if both trees ARE range constructs (top-level range template)
+	// Example: {{range .Items}}<div>...</div>{{end}} produces {"d": [...], "s": [...]}
+	// In this case, the ENTIRE tree is the range, not a field within it
+	if isRangeConstruct(oldTree) && isRangeConstruct(newTree) {
+		// Check if this range is matched in rangeMatches at the current path
+		if _, isMatched := rangeMatches[currentPath]; isMatched {
+			// Generate differential operations for the entire range
+			shouldStripStatics := hasRangeItems(oldTree)
+			diffOps := generateRangeDifferentialOperations(oldTree, newTree, shouldStripStatics)
+
+			if len(diffOps) > 0 {
+				// Return the operations directly - the entire tree is the range
+				// Wrap in a treeNode with "d" key to maintain expected format
+				return treeNode{"d": diffOps}
+			} else {
+				// No operations generated - check for empty range cases
+				if !hasRangeItems(newTree) && !hasRangeItems(oldTree) {
+					// Both empty, no change
+					return treeNode{}
+				}
+				// Fallback: return the new tree
+				return newTree
+			}
+		}
+	}
+
 	// Compare dynamic segments (skip statics "s" and fingerprint "f")
 	for k, newValue := range newTree {
 		if k == "s" || k == "f" {
@@ -1079,6 +1105,7 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree treeNode, 
 
 				if oldIsTree && newIsTree {
 					// Both are tree nodes - recursively compare them
+
 					// Check if this is a fundamental structure change (not part of a range match)
 					// If the structures are completely different, treat nested content as new
 					_, isRangeMatch := rangeMatches[fieldPath]
@@ -1400,6 +1427,16 @@ func findRangeConstructs(tree treeNode) map[string]interface{} {
 func findRangeConstructsRecursive(tree treeNode, path string) map[string]interface{} {
 	ranges := make(map[string]interface{})
 
+	// CRITICAL FIX: Check if the tree ITSELF is a range construct
+	// This handles top-level ranges like: {{range .Items}}...{{end}}
+	// where the entire tree is {"d": [...], "s": [...]}
+	if isRangeConstruct(tree) {
+		ranges[path] = tree
+		// Don't recurse into range internals - treat the range as an atomic unit
+		return ranges
+	}
+
+	// Tree is not a range, search for ranges as field values
 	for field, value := range tree {
 		if field == "s" || field == "f" {
 			continue // Skip static segments and fingerprint
@@ -1480,6 +1517,89 @@ func isRangeConstruct(value interface{}) bool {
 	}
 	return false
 }
+
+// isConditionalWrapper checks if a value is a conditional branch wrapper
+// Conditional wrappers have format: {"s": ["value"]} or {"s": ["value"], "f": "fingerprint"}
+// They represent the content of an if/else branch
+// func isConditionalWrapper(value interface{}) bool {
+// 	var valueMap map[string]interface{}
+// 	var ok bool
+//
+// 	if tn, isTN := value.(treeNode); isTN {
+// 		valueMap = tn
+// 		ok = true
+// 	} else if vm, isVM := value.(map[string]interface{}); isVM {
+// 		valueMap = vm
+// 		ok = true
+// 	}
+//
+// 	if !ok {
+// 		return false
+// 	}
+//
+// 	// Must have "s" key
+// 	sValue, hasS := valueMap["s"]
+// 	if !hasS {
+// 		return false
+// 	}
+//
+// 	// Must NOT have "d" key (that would be a range, not a conditional)
+// 	if _, hasD := valueMap["d"]; hasD {
+// 		return false
+// 	}
+//
+// 	// Check if "s" is an array with exactly 1 element
+// 	if sArray, ok := sValue.([]interface{}); ok {
+// 		if len(sArray) != 1 {
+// 			return false
+// 		}
+// 		// The single element should be a string (the branch content)
+// 		if _, isString := sArray[0].(string); !isString {
+// 			return false
+// 		}
+// 	} else if sStringArray, ok := sValue.([]string); ok {
+// 		if len(sStringArray) != 1 {
+// 			return false
+// 		}
+// 	} else {
+// 		return false
+// 	}
+//
+// 	// Only "s" and optionally "f" (fingerprint) should be present
+// 	for key := range valueMap {
+// 		if key != "s" && key != "f" {
+// 			return false
+// 		}
+// 	}
+//
+// 	return true
+// }
+
+// unwrapConditionalValue extracts the value from a conditional wrapper
+// Returns the unwrapped value and true if successful, or original value and false if not a wrapper
+// func unwrapConditionalValue(value interface{}) (interface{}, bool) {
+// 	if !isConditionalWrapper(value) {
+// 		return value, false
+// 	}
+//
+// 	var valueMap map[string]interface{}
+// 	if tn, ok := value.(treeNode); ok {
+// 		valueMap = tn
+// 	} else if vm, ok := value.(map[string]interface{}); ok {
+// 		valueMap = vm
+// 	} else {
+// 		return value, false
+// 	}
+//
+// 	sValue := valueMap["s"]
+// 	if sArray, ok := sValue.([]interface{}); ok {
+// 		return sArray[0], true
+// 	} else if sStringArray, ok := sValue.([]string); ok {
+// 		return sStringArray[0], true
+// 	}
+//
+// 	return value, false
+// }
 
 // hasRangeItems checks if a range construct has any items in its data array
 // Returns true only if value is a range AND has at least one item
@@ -1919,36 +2039,30 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 			return operations
 		}
 
-		// Check if all items are appended at the end (bulk append)
-		if areAllItemsAtEnd(addedKeys, oldItems, newItems, statics) {
-			// Create array of new items in order
-			var newItemsToAdd []interface{}
-			for _, key := range addedKeys {
-				if item, exists := newItemsByKey[key]; exists {
-					newItemsToAdd = append(newItemsToAdd, item)
-				}
-			}
-
-			// If not stripping statics (client doesn't have them), include range statics
-			// so client knows how to render items
+		// SPECIAL CASE: If old range was empty, use 'a' (append) with statics
+		// This is needed because client can't apply differential operations without range state
+		if len(oldItems) == 0 {
+			// Build array of items to append
+			itemsToAppend := append([]interface{}{}, newItems...)
+			// Use 'a' operation with statics so client can initialize range state
 			if !stripStatics {
-				operations = append(operations, []interface{}{"a", newItemsToAdd, statics})
+				operations = append(operations, []interface{}{"a", itemsToAppend, statics})
 			} else {
-				operations = append(operations, []interface{}{"a", newItemsToAdd})
+				operations = append(operations, []interface{}{"a", itemsToAppend})
 			}
 		} else {
+			// Range has existing items, use 'i' (insert) operations
 			// Check if all items are at the same position (single-point insertion)
 			if isSamePosition, targetKey, position := areAllItemsAtSamePosition(addedKeys, oldItems, newItems, statics); isSamePosition {
-				var newItemsToInsert []interface{}
+				// Generate individual insert operations for each item
 				for _, key := range addedKeys {
 					if item, exists := newItemsByKey[key]; exists {
-						newItemsToInsert = append(newItemsToInsert, item)
+						if targetKey == "" {
+							operations = append(operations, []interface{}{"i", nil, position, item})
+						} else {
+							operations = append(operations, []interface{}{"i", targetKey, position, item})
+						}
 					}
-				}
-				if targetKey == "" {
-					operations = append(operations, []interface{}{"i", nil, position, newItemsToInsert})
-				} else {
-					operations = append(operations, []interface{}{"i", targetKey, position, newItemsToInsert})
 				}
 			} else {
 				// Multiple individual insertions at different positions
@@ -1958,11 +2072,9 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 						for i, item := range newItems {
 							if itemMap, ok := item.(map[string]interface{}); ok {
 								if itemKey, ok := getItemKey(itemMap, statics); ok && itemKey == key {
-									// Determine insertion position
+									// Determine insertion position using 'i' operation (spec-compliant)
 									if i == 0 {
 										operations = append(operations, []interface{}{"i", nil, "start", newItem})
-									} else if i == len(newItems)-1 {
-										operations = append(operations, []interface{}{"a", newItem})
 									} else {
 										// Find the item before this one
 										if prevItem, ok := newItems[i-1].(map[string]interface{}); ok {
@@ -2095,37 +2207,37 @@ func findNewItems(oldItems, newItems []interface{}, statics interface{}) []strin
 }
 
 // areAllItemsAtEnd checks if all new items are appended at the end
-func areAllItemsAtEnd(newKeys []string, oldItems, newItems []interface{}, statics interface{}) bool {
-	if len(newKeys) == 0 {
-		return false
-	}
-
-	oldCount := len(oldItems)
-	newCount := len(newItems)
-
-	// Check if new items are exactly at the end positions
-	for i, key := range newKeys {
-		expectedIndex := oldCount + i
-		if expectedIndex >= newCount {
-			return false
-		}
-
-		// Get the item at this position in newItems
-		if itemMap, ok := newItems[expectedIndex].(map[string]interface{}); ok {
-			if keyStr, ok := getItemKey(itemMap, statics); ok {
-				if keyStr != key {
-					return false
-				}
-			} else {
-				return false
-			}
-		} else {
-			return false
-		}
-	}
-
-	return true
-}
+// func areAllItemsAtEnd(newKeys []string, oldItems, newItems []interface{}, statics interface{}) bool {
+// 	if len(newKeys) == 0 {
+// 		return false
+// 	}
+//
+// 	oldCount := len(oldItems)
+// 	newCount := len(newItems)
+//
+// 	// Check if new items are exactly at the end positions
+// 	for i, key := range newKeys {
+// 		expectedIndex := oldCount + i
+// 		if expectedIndex >= newCount {
+// 			return false
+// 		}
+//
+// 		// Get the item at this position in newItems
+// 		if itemMap, ok := newItems[expectedIndex].(map[string]interface{}); ok {
+// 			if keyStr, ok := getItemKey(itemMap, statics); ok {
+// 				if keyStr != key {
+// 					return false
+// 				}
+// 			} else {
+// 				return false
+// 			}
+// 		} else {
+// 			return false
+// 		}
+// 	}
+//
+// 	return true
+// }
 
 // areAllItemsAtSamePosition checks if all new items are inserted at the same position
 func areAllItemsAtSamePosition(newKeys []string, oldItems, newItems []interface{}, statics interface{}) (bool, string, string) {

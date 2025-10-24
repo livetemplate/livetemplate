@@ -1,8 +1,6 @@
 package e2e
 
 import (
-	"bytes"
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -12,34 +10,26 @@ func TestResource_List(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Generate multiple resources
 	resources := []string{"users", "posts", "comments"}
 	for _, resource := range resources {
 		t.Logf("Generating %s resource...", resource)
-		if err := runLvtCommand(t, lvtBinary, appDir, "gen", resource, "name"); err != nil {
+		if err := runLvtCommand(t, appDir, "gen", resource, "name"); err != nil {
 			t.Fatalf("Failed to generate %s: %v", resource, err)
 		}
 	}
 
 	// List resources
 	t.Log("Listing resources...")
-	cmd := exec.Command(lvtBinary, "resource", "list")
-	cmd.Dir = appDir
-
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stdout
-
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to list resources: %v\nOutput: %s", err, stdout.String())
+	output, err := runLvtCommandWithOutput(t, appDir, "resource", "list")
+	if err != nil {
+		t.Fatalf("Failed to list resources: %v\nOutput: %s", err, output)
 	}
 
-	output := stdout.String()
 	t.Logf("Resource list output:\n%s", output)
 
 	// Verify all resources appear in output
@@ -57,32 +47,24 @@ func TestResource_Describe(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Generate a resource with multiple field types
 	t.Log("Generating products resource...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "products",
+	if err := runLvtCommand(t, appDir, "gen", "products",
 		"name:string", "price:float", "quantity:int", "active:bool", "released_at:time"); err != nil {
 		t.Fatalf("Failed to generate products: %v", err)
 	}
 
 	// Describe the resource
 	t.Log("Describing products resource...")
-	cmd := exec.Command(lvtBinary, "resource", "describe", "products")
-	cmd.Dir = appDir
-
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stdout
-
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to describe resource: %v\nOutput: %s", err, stdout.String())
+	output, err := runLvtCommandWithOutput(t, appDir, "resource", "describe", "products")
+	if err != nil {
+		t.Fatalf("Failed to describe resource: %v\nOutput: %s", err, output)
 	}
 
-	output := stdout.String()
 	t.Logf("Resource description output:\n%s", output)
 
 	// Verify field information appears

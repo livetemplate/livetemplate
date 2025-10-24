@@ -32,17 +32,16 @@ func TestKitCSSFrameworks(t *testing.T) {
 			tmpDir := t.TempDir()
 
 			// Build lvt binary
-			lvtBinary := buildLvtBinary(t, tmpDir)
 
 			// Create app with specific kit
 			opts := &AppOptions{
 				Kit:     tc.kit,
 				DevMode: true,
 			}
-			appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", opts)
+			appDir := createTestApp(t, tmpDir, "testapp", opts)
 
 			// Generate a resource
-			if err := runLvtCommand(t, lvtBinary, appDir, "gen", "items", "name"); err != nil {
+			if err := runLvtCommand(t, appDir, "gen", "items", "name"); err != nil {
 				t.Fatalf("Failed to generate resource: %v", err)
 			}
 

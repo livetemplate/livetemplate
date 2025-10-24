@@ -86,38 +86,29 @@ func TestRangeTreeGeneration(t *testing.T) {
 	}
 
 	// The tree should contain range updates with operations
-	// Look for append operation with statics included (first item case)
-	// Statics should be at the operation level: ["a", items, statics]
-	foundAppendWithStatics := false
+	// Look for append operation with statics (used when adding to empty range)
+	// Append format: ["a", items, statics]
+	foundAppendOperation := false
 	for key, value := range tree {
 		t.Logf("Tree key: %s, value type: %T", key, value)
 
 		// Check for range operations (array of operations)
 		if opsList, ok := value.([]interface{}); ok {
 			for _, op := range opsList {
-				if opArray, ok := op.([]interface{}); ok && len(opArray) >= 2 {
+				if opArray, ok := op.([]interface{}); ok && len(opArray) >= 3 {
 					if opType, ok := opArray[0].(string); ok && opType == "a" {
 						t.Log("Found append operation")
-						// Check if operation includes statics (3rd element)
-						if len(opArray) >= 3 {
-							if statics, ok := opArray[2].([]interface{}); ok {
-								foundAppendWithStatics = true
-								t.Logf("✅ Append operation includes statics: %v", statics)
-								t.Logf("First item data: %+v", opArray[1])
-							} else {
-								t.Error("❌ Append operation statics has wrong type")
-							}
-						} else {
-							t.Error("❌ Append operation missing statics (only has 2 elements)")
-						}
+						foundAppendOperation = true
+						t.Logf("✅ Append operation includes statics: %v", opArray[2])
+						t.Logf("Items data: %+v", opArray[1])
 					}
 				}
 			}
 		}
 	}
 
-	if !foundAppendWithStatics {
-		t.Error("No append operation with statics found - expected for empty→first transition")
+	if !foundAppendOperation {
+		t.Error("No append operation found - expected for empty→first transition")
 	}
 
 	// Step 3: Add a second item
@@ -142,31 +133,26 @@ func TestRangeTreeGeneration(t *testing.T) {
 	prettyJSON2, _ := json.MarshalIndent(tree2, "", "  ")
 	t.Logf("Update tree after adding second item:\n%s", string(prettyJSON2))
 
-	// Verify second item has statics STRIPPED (optimization working)
-	// Should be ["a", items] with NO third element
-	foundAppendWithoutStatics := false
+	// Verify second update tree structure
+	// This time we expect an insert operation (per spec)
+	foundInsertOperation2 := false
 	for _, value := range tree2 {
 		if opsList, ok := value.([]interface{}); ok {
 			for _, op := range opsList {
-				if opArray, ok := op.([]interface{}); ok && len(opArray) >= 2 {
-					if opType, ok := opArray[0].(string); ok && opType == "a" {
-						t.Log("Found append operation for second item")
-						// This time statics should be stripped (optimization)
-						// Operation should only have 2 elements: ["a", items]
-						if len(opArray) == 2 {
-							foundAppendWithoutStatics = true
-							t.Log("✅ Second item statics stripped (optimization working)")
-							t.Logf("Second item data: %+v", opArray[1])
-						} else if len(opArray) == 3 {
-							t.Error("❌ Second item includes statics - optimization not working!")
-						}
+				if opArray, ok := op.([]interface{}); ok && len(opArray) >= 4 {
+					if opType, ok := opArray[0].(string); ok && opType == "i" {
+						t.Log("Found insert operation for second item")
+						foundInsertOperation2 = true
+						t.Log("✅ Second item inserted correctly")
+						t.Logf("Insert operation: afterKey=%v, position=%v", opArray[1], opArray[2])
+						t.Logf("Second item data: %+v", opArray[3])
 					}
 				}
 			}
 		}
 	}
 
-	if !foundAppendWithoutStatics {
-		t.Log("Note: No append operation found for second item (might be update instead)")
+	if !foundInsertOperation2 {
+		t.Log("Note: No insert operation found for second item (might be another operation type)")
 	}
 }

@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -17,39 +16,29 @@ import (
 
 // TestPageModeURLRouting tests URL routing functionality in page mode
 func TestPageModeURLRouting(t *testing.T) {
+	t.Parallel() // Enable parallel execution
+
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, "testapp")
 
-	// Build lvt
-	lvtBinary := filepath.Join(tmpDir, "lvt")
-	buildCmd := exec.Command("go", "build", "-a", "-o", lvtBinary, "github.com/livefir/livetemplate/cmd/lvt")
-	if err := buildCmd.Run(); err != nil {
-		t.Fatalf("Failed to build lvt: %v", err)
-	}
-
 	// Create app with --dev flag
-	newCmd := exec.Command(lvtBinary, "new", "testapp", "--dev")
-	newCmd.Dir = tmpDir
-	if err := newCmd.Run(); err != nil {
+	if err := runLvtCommand(t, tmpDir, "new", "testapp", "--dev"); err != nil {
 		t.Fatalf("Failed to create app: %v", err)
 	}
 
 	// Generate resource with page mode
-	genCmd := exec.Command(lvtBinary, "gen", "products", "name", "--edit-mode", "page")
-	genCmd.Dir = appDir
-	genCmd.Stdout = os.Stdout
-	genCmd.Stderr = os.Stderr
-	if err := genCmd.Run(); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "products", "name", "--edit-mode", "page"); err != nil {
 		t.Fatalf("Failed to generate resource: %v", err)
 	}
 
 	// Setup go.mod for local livetemplate
+	// Protected by mutex to prevent race with parallel tests changing directory
+	chdirMutex.Lock()
 	cwd, _ := os.Getwd()
 	livetemplatePath := filepath.Join(cwd, "..", "..", "..")
+	chdirMutex.Unlock()
 
-	goModTidyCmd := exec.Command("go", "mod", "tidy")
-	goModTidyCmd.Dir = appDir
-	if err := goModTidyCmd.Run(); err != nil {
+	if err := runGoModTidy(t, appDir); err != nil {
 		t.Fatalf("Failed to run go mod tidy: %v", err)
 	}
 
@@ -60,24 +49,23 @@ func TestPageModeURLRouting(t *testing.T) {
 		t.Fatalf("Failed to add replace directive: %v", err)
 	}
 
-	goModTidyCmd2 := exec.Command("go", "mod", "tidy")
-	goModTidyCmd2.Dir = appDir
-	if err := goModTidyCmd2.Run(); err != nil {
+	if err := runGoModTidy(t, appDir); err != nil {
 		t.Fatalf("Failed to run go mod tidy after replace: %v", err)
 	}
 
-	// Copy client library
-	clientSrc := "../../../client/dist/livetemplate-client.browser.js"
+	// Copy client library using absolute path
+	clientSrc := filepath.Join(livetemplatePath, "client", "dist", "livetemplate-client.browser.js")
 	clientDst := filepath.Join(appDir, "livetemplate-client.js")
-	cpCmd := exec.Command("cp", clientSrc, clientDst)
-	if err := cpCmd.Run(); err != nil {
-		t.Fatalf("Failed to copy client library: %v", err)
+	clientContent, err := os.ReadFile(clientSrc)
+	if err != nil {
+		t.Fatalf("Failed to read client library: %v", err)
+	}
+	if err := os.WriteFile(clientDst, clientContent, 0644); err != nil {
+		t.Fatalf("Failed to write client library: %v", err)
 	}
 
 	// Run migration
-	migrationUpCmd := exec.Command(lvtBinary, "migration", "up")
-	migrationUpCmd.Dir = appDir
-	if err := migrationUpCmd.Run(); err != nil {
+	if err := runLvtCommand(t, appDir, "migration", "up"); err != nil {
 		t.Fatalf("Failed to run migration: %v", err)
 	}
 
@@ -103,11 +91,8 @@ func TestPageModeURLRouting(t *testing.T) {
 		t.Log("✅ Test data seeded successfully")
 	}
 
-	// Start the app server
-	port, err := e2etest.GetFreePort()
-	if err != nil {
-		t.Fatalf("Failed to get free port: %v", err)
-	}
+	// Start the app server - use unique port for parallel testing
+	port := allocateTestPort()
 
 	// Build the server binary
 	serverBinary := filepath.Join(tmpDir, "testapp-server")
@@ -152,16 +137,8 @@ func TestPageModeURLRouting(t *testing.T) {
 		t.Fatal("Server did not start within 6 seconds")
 	}
 
-	// Start Chrome for testing
-	debugPort := 9223
-	chromeCmd := e2etest.StartDockerChrome(t, debugPort)
-	defer e2etest.StopDockerChrome(t, chromeCmd, debugPort)
-
-	allocCtx, allocCancel := chromedp.NewRemoteAllocator(context.Background(),
-		fmt.Sprintf("http://localhost:%d", debugPort))
-	defer allocCancel()
-
-	ctx, cancel := chromedp.NewContext(allocCtx)
+	// Use shared Chrome container
+	ctx, cancel := getSharedChromeContext(t)
 	defer cancel()
 
 	testURL := fmt.Sprintf("%s/products", e2etest.GetChromeTestURL(port))

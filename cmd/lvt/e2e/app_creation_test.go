@@ -11,10 +11,9 @@ func TestAppCreation_DefaultsMultiTailwind(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app with defaults
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Verify .lvtrc has correct values
 	kit := readLvtrc(t, appDir)
@@ -48,14 +47,13 @@ func TestAppCreation_CustomKitCSS(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app with single kit
 	opts := &AppOptions{
 		Kit:     "single",
 		DevMode: true,
 	}
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", opts)
+	appDir := createTestApp(t, tmpDir, "testapp", opts)
 
 	// Verify .lvtrc has correct values
 	kit := readLvtrc(t, appDir)
@@ -71,14 +69,13 @@ func TestAppCreation_SimpleKit(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app with simple kit
 	opts := &AppOptions{
 		Kit:     "simple",
 		DevMode: true,
 	}
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", opts)
+	appDir := createTestApp(t, tmpDir, "testapp", opts)
 
 	// Verify .lvtrc has correct values
 	kit := readLvtrc(t, appDir)
@@ -94,14 +91,13 @@ func TestAppCreation_CustomModule(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app with custom module
 	opts := &AppOptions{
 		Module:  "github.com/testuser/customapp",
 		DevMode: true,
 	}
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", opts)
+	appDir := createTestApp(t, tmpDir, "testapp", opts)
 
 	// Verify go.mod has correct module name
 	goModPath := filepath.Join(appDir, "go.mod")

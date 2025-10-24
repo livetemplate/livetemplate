@@ -3,7 +3,6 @@ package e2e
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,26 +13,13 @@ func TestEditModePage(t *testing.T) {
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, "testapp")
 
-	// Build lvt
-	lvtBinary := filepath.Join(tmpDir, "lvt")
-	buildCmd := exec.Command("go", "build", "-o", lvtBinary, "github.com/livefir/livetemplate/cmd/lvt")
-	if err := buildCmd.Run(); err != nil {
-		t.Fatalf("Failed to build lvt: %v", err)
-	}
-
 	// Create app
-	newCmd := exec.Command(lvtBinary, "new", "testapp")
-	newCmd.Dir = tmpDir
-	if err := newCmd.Run(); err != nil {
+	if err := runLvtCommand(t, tmpDir, "new", "testapp"); err != nil {
 		t.Fatalf("Failed to create app: %v", err)
 	}
 
 	// Generate resource with page mode
-	genCmd := exec.Command(lvtBinary, "gen", "articles", "title", "content", "--edit-mode", "page")
-	genCmd.Dir = appDir
-	genCmd.Stdout = os.Stdout
-	genCmd.Stderr = os.Stderr
-	if err := genCmd.Run(); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "articles", "title", "content", "--edit-mode", "page"); err != nil {
 		t.Fatalf("Failed to generate resource with --edit-mode page: %v", err)
 	}
 
@@ -116,28 +102,15 @@ func TestEditModeCombinations(t *testing.T) {
 			tmpDir := t.TempDir()
 			appDir := filepath.Join(tmpDir, "testapp")
 
-			// Build lvt
-			lvtBinary := filepath.Join(tmpDir, "lvt")
-			buildCmd := exec.Command("go", "build", "-o", lvtBinary, "github.com/livefir/livetemplate/cmd/lvt")
-			if err := buildCmd.Run(); err != nil {
-				t.Fatalf("Failed to build lvt: %v", err)
-			}
-
 			// Create app
-			newCmd := exec.Command(lvtBinary, "new", "testapp")
-			newCmd.Dir = tmpDir
-			if err := newCmd.Run(); err != nil {
+			if err := runLvtCommand(t, tmpDir, "new", "testapp"); err != nil {
 				t.Fatalf("Failed to create app: %v", err)
 			}
 
 			// Generate resource with all flags
-			genCmd := exec.Command(lvtBinary, "gen", "items", "name", "description",
+			if err := runLvtCommand(t, appDir, "gen", "items", "name", "description",
 				"--edit-mode", combo.editMode,
-				"--pagination", combo.pagination)
-			genCmd.Dir = appDir
-			genCmd.Stdout = os.Stdout
-			genCmd.Stderr = os.Stderr
-			if err := genCmd.Run(); err != nil {
+				"--pagination", combo.pagination); err != nil {
 				t.Fatalf("Failed to generate resource with combination: %v", err)
 			}
 
@@ -190,31 +163,20 @@ func TestEditModeValidation(t *testing.T) {
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, "testapp")
 
-	// Build lvt
-	lvtBinary := filepath.Join(tmpDir, "lvt")
-	buildCmd := exec.Command("go", "build", "-o", lvtBinary, "github.com/livefir/livetemplate/cmd/lvt")
-	if err := buildCmd.Run(); err != nil {
-		t.Fatalf("Failed to build lvt: %v", err)
-	}
-
 	// Create app
-	newCmd := exec.Command(lvtBinary, "new", "testapp")
-	newCmd.Dir = tmpDir
-	if err := newCmd.Run(); err != nil {
+	if err := runLvtCommand(t, tmpDir, "new", "testapp"); err != nil {
 		t.Fatalf("Failed to create app: %v", err)
 	}
 
 	// Try to generate with invalid edit mode
-	genCmd := exec.Command(lvtBinary, "gen", "items", "name", "--edit-mode", "invalid")
-	genCmd.Dir = appDir
-	output, err := genCmd.CombinedOutput()
+	err := runLvtCommand(t, appDir, "gen", "items", "name", "--edit-mode", "invalid")
 
 	if err == nil {
 		t.Fatal("❌ Expected error for invalid edit mode, but command succeeded")
 	}
 
-	if !strings.Contains(string(output), "invalid edit mode") {
-		t.Errorf("❌ Error message doesn't mention invalid edit mode. Got: %s", string(output))
+	if !strings.Contains(err.Error(), "invalid edit mode") {
+		t.Errorf("❌ Error message doesn't mention invalid edit mode. Got: %s", err.Error())
 	} else {
 		t.Log("✅ Invalid edit mode rejected with appropriate error message")
 	}

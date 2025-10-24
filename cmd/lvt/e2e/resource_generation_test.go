@@ -12,14 +12,13 @@ func TestResourceGen_ExplicitTypes(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Generate resource with explicit types
 	t.Log("Generating products resource with explicit types...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "products",
+	if err := runLvtCommand(t, appDir, "gen", "products",
 		"name:string", "price:float", "quantity:int", "active:bool", "released_at:time"); err != nil {
 		t.Fatalf("Failed to generate products: %v", err)
 	}
@@ -67,14 +66,13 @@ func TestResourceGen_TypeInference(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Generate resource with inferred types (no explicit :type)
 	t.Log("Generating users resource with type inference...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "users",
+	if err := runLvtCommand(t, appDir, "gen", "users",
 		"name", "email", "age", "active", "created_at"); err != nil {
 		t.Fatalf("Failed to generate users: %v", err)
 	}
@@ -110,19 +108,18 @@ func TestResourceGen_ForeignKey(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Generate parent resource first
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "authors", "name"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "authors", "name"); err != nil {
 		t.Fatalf("Failed to generate authors: %v", err)
 	}
 
 	// Generate child resource with foreign key
 	t.Log("Generating books resource with foreign key...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "books",
+	if err := runLvtCommand(t, appDir, "gen", "books",
 		"title", "author_id:references:authors"); err != nil {
 		t.Fatalf("Failed to generate books: %v", err)
 	}
@@ -147,14 +144,13 @@ func TestResourceGen_PaginationInfinite(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Generate resource (infinite is default)
 	t.Log("Generating items resource with infinite pagination...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "items", "name"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "items", "name"); err != nil {
 		t.Fatalf("Failed to generate items: %v", err)
 	}
 
@@ -188,14 +184,13 @@ func TestResourceGen_PaginationLoadMore(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Generate resource with load-more pagination
 	t.Log("Generating posts resource with load-more pagination...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "posts",
+	if err := runLvtCommand(t, appDir, "gen", "posts",
 		"title", "--pagination", "load-more"); err != nil {
 		t.Fatalf("Failed to generate posts: %v", err)
 	}
@@ -219,14 +214,13 @@ func TestResourceGen_PaginationPrevNext(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Generate resource with prev-next pagination
 	t.Log("Generating articles resource with prev-next pagination...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "articles",
+	if err := runLvtCommand(t, appDir, "gen", "articles",
 		"title", "--pagination", "prev-next", "--page-size", "10"); err != nil {
 		t.Fatalf("Failed to generate articles: %v", err)
 	}
@@ -256,14 +250,13 @@ func TestResourceGen_PaginationNumbers(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Generate resource with numbers pagination
 	t.Log("Generating entries resource with numbered pagination...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "entries",
+	if err := runLvtCommand(t, appDir, "gen", "entries",
 		"title", "--pagination", "numbers"); err != nil {
 		t.Fatalf("Failed to generate entries: %v", err)
 	}
@@ -287,14 +280,13 @@ func TestResourceGen_EditModeModal(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Generate resource (modal is default)
 	t.Log("Generating todos resource with modal edit mode...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "todos", "title"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "todos", "title"); err != nil {
 		t.Fatalf("Failed to generate todos: %v", err)
 	}
 
@@ -322,14 +314,13 @@ func TestResourceGen_EditModePage(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Generate resource with page edit mode
 	t.Log("Generating notes resource with page edit mode...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "notes",
+	if err := runLvtCommand(t, appDir, "gen", "notes",
 		"title", "--edit-mode", "page"); err != nil {
 		t.Fatalf("Failed to generate notes: %v", err)
 	}
@@ -361,14 +352,13 @@ func TestResourceGen_TextareaFields(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Generate resource with textarea fields (text type)
 	t.Log("Generating docs resource with textarea fields...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "docs",
+	if err := runLvtCommand(t, appDir, "gen", "docs",
 		"title", "content:text", "description:text"); err != nil {
 		t.Fatalf("Failed to generate docs: %v", err)
 	}
@@ -394,14 +384,13 @@ func TestResourceGen_AllFieldTypes(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Generate resource with all field types
 	t.Log("Generating records resource with all field types...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "records",
+	if err := runLvtCommand(t, appDir, "gen", "records",
 		"name:string",
 		"description:text",
 		"count:int",
