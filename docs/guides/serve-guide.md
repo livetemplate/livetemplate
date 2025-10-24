@@ -86,12 +86,14 @@ lvt serve --dir /path/to/project
 
 ## Component Development Mode
 
-Component mode provides a live preview environment for developing component templates.
+Component mode provides a live preview environment for developing component templates within kits.
+
+**Note:** Components are part of kits in LiveTemplate. To develop a component, you customize a kit and work on its components.
 
 ### When It's Used
 
 Component mode activates when the current directory contains:
-- `component.yaml` file, OR
+- `component.yaml` file (inside a kit's `components/` directory), OR
 - `*.tmpl` template files
 
 ### Features
@@ -106,9 +108,9 @@ Component mode activates when the current directory contains:
 ### Workflow Example
 
 ```bash
-# Create a new component
-lvt components create card --category data
-cd ~/.lvt/components/card
+# Customize a kit to work on its components
+lvt kits customize tailwind --only components
+cd .lvt/kits/tailwind/components/form
 
 # Start development server
 lvt serve
@@ -273,7 +275,7 @@ App mode activates when the current directory contains:
 
 ```bash
 # Create a new app
-lvt new myapp --css tailwind
+lvt new myapp --kit multi  # Uses Tailwind CSS
 cd myapp
 
 # Generate a resource

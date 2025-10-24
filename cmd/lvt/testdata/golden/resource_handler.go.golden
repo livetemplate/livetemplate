@@ -412,5 +412,5 @@ func Handler(queries *models.Queries) http.Handler {
 	if _, err := tmpl.ParseFiles("internal/app/user/user.tmpl"); err != nil {
 		log.Fatalf("Failed to parse template: %v", err)
 	}
-	return livetemplate.Mount(tmpl, state)
+	return tmpl.Handle(state)
 }

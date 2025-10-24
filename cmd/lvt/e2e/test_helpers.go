@@ -3,65 +3,261 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/chromedp/chromedp"
+	"github.com/livefir/livetemplate/cmd/lvt/commands"
+	"github.com/livefir/livetemplate/cmd/lvt/internal/serve"
 	e2etest "github.com/livefir/livetemplate/internal/testing"
 )
+
+// chdirMutex protects os.Chdir calls in parallel tests
+// os.Chdir affects the entire process, so we need to serialize these operations
+var chdirMutex sync.Mutex
+
+// goModMutex protects go mod tidy operations in parallel tests
+// go mod tidy operations can interfere with each other through the shared Go module cache
+var goModMutex sync.Mutex
+
+// runGoModTidy runs go mod tidy with mutex protection to avoid race conditions
+func runGoModTidy(t *testing.T, dir string) error {
+	t.Helper()
+
+	goModMutex.Lock()
+	defer goModMutex.Unlock()
+
+	t.Log("Running go mod tidy...")
+	tidyCmd := exec.Command("go", "mod", "tidy")
+	tidyCmd.Dir = dir
+	tidyCmd.Env = append(os.Environ(), "GOWORK=off") // Disable workspace mode to avoid conflicts
+
+	output, err := tidyCmd.CombinedOutput()
+	if err != nil {
+		t.Logf("go mod tidy failed: %v\nOutput: %s", err, string(output))
+		return fmt.Errorf("go mod tidy failed: %w\nOutput: %s", err, string(output))
+	}
+	return nil
+}
 
 // AppOptions contains options for creating a test app
 type AppOptions struct {
 	Kit     string // Kit name (multi, single, simple)
-	CSS     string // CSS framework (tailwind, bulma, pico, none)
 	Module  string // Go module name
 	DevMode bool   // Use local client library
 }
 
-// buildLvtBinary builds the lvt binary in the temp directory
-func buildLvtBinary(t *testing.T, tmpDir string) string {
+// runLvtCommand executes an lvt command directly by calling the command functions
+// This is much faster than shelling out and avoids working directory issues
+func runLvtCommand(t *testing.T, workDir string, args ...string) error {
 	t.Helper()
-	t.Log("Building lvt binary...")
-
-	lvtBinary := filepath.Join(tmpDir, "lvt")
-	buildCmd := exec.Command("go", "build", "-o", lvtBinary, "github.com/livefir/livetemplate/cmd/lvt")
-	buildCmd.Stdout = os.Stdout
-	buildCmd.Stderr = os.Stderr
-
-	if err := buildCmd.Run(); err != nil {
-		t.Fatalf("Failed to build lvt: %v", err)
-	}
-
-	t.Log("✅ lvt binary built")
-	return lvtBinary
+	_, err := runLvtCommandWithOutput(t, workDir, args...)
+	return err
 }
 
-// runLvtCommand executes an lvt command with args and returns error if it fails
-func runLvtCommand(t *testing.T, lvtBinary, workDir string, args ...string) error {
+// runLvtCommandWithOutput executes an lvt command and returns its output
+func runLvtCommandWithOutput(t *testing.T, workDir string, args ...string) (string, error) {
 	t.Helper()
 	t.Logf("Running: lvt %s", strings.Join(args, " "))
 
-	cmd := exec.Command(lvtBinary, args...)
+	if len(args) == 0 {
+		return "", fmt.Errorf("no command specified")
+	}
+
+	// Lock to serialize directory changes across parallel tests
+	// os.Chdir affects the entire process, not just the current goroutine
+	chdirMutex.Lock()
+	defer chdirMutex.Unlock()
+
+	// Save and restore working directory
+	origDir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get working directory: %w", err)
+	}
+	defer func() { _ = os.Chdir(origDir) }()
+
 	if workDir != "" {
-		cmd.Dir = workDir
-	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("command failed: lvt %s: %w", strings.Join(args, " "), err)
+		if err := os.Chdir(workDir); err != nil {
+			return "", fmt.Errorf("failed to change directory to %s: %w", workDir, err)
+		}
 	}
 
+	// Save and restore stdout/stderr
+	oldStdout := os.Stdout
+	oldStderr := os.Stderr
+	defer func() {
+		os.Stdout = oldStdout
+		os.Stderr = oldStderr
+	}()
+
+	// Capture output to buffer
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	os.Stderr = w
+
+	var outputBuf strings.Builder
+	outputDone := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(&outputBuf, r)
+		close(outputDone)
+	}()
+
+	// Execute the command directly
+	command := args[0]
+	cmdArgs := args[1:]
+
+	var cmdErr error
+	switch command {
+	case "new":
+		cmdErr = commands.New(cmdArgs)
+	case "gen":
+		cmdErr = commands.Gen(cmdArgs)
+	case "migration":
+		cmdErr = commands.Migration(cmdArgs)
+	case "kits", "kit":
+		cmdErr = commands.Kits(cmdArgs)
+	case "serve":
+		cmdErr = commands.Serve(cmdArgs)
+	case "resource", "res":
+		cmdErr = commands.Resource(cmdArgs)
+	case "seed":
+		cmdErr = commands.Seed(cmdArgs)
+	case "parse":
+		cmdErr = commands.Parse(cmdArgs)
+	default:
+		cmdErr = fmt.Errorf("unknown command: %s", command)
+	}
+
+	// Restore stdout/stderr and wait for output
+	w.Close()
+	<-outputDone
+
+	output := outputBuf.String()
+
+	if cmdErr != nil {
+		return output, fmt.Errorf("command failed: lvt %s: %w", strings.Join(args, " "), cmdErr)
+	}
+
+	return output, nil
+}
+
+// ServerHandle provides control over a running test server
+type ServerHandle struct {
+	server  interface{ Shutdown() error }
+	cancel  context.CancelFunc
+	errChan chan error
+}
+
+// Shutdown stops the server gracefully
+func (h *ServerHandle) Shutdown() error {
+	if h.cancel != nil {
+		h.cancel()
+	}
+	if h.server != nil {
+		return h.server.Shutdown()
+	}
 	return nil
 }
 
+// Wait waits for the server to finish and returns any error
+func (h *ServerHandle) Wait() error {
+	return <-h.errChan
+}
+
+// startServeInBackground starts a development server in the background using a context
+// Returns a handle that can be used to shut down the server via context cancellation
+func startServeInBackground(t *testing.T, workDir string, args ...string) (*ServerHandle, error) {
+	t.Helper()
+
+	// Save current directory
+	origDir, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	// Change to work directory if specified
+	if workDir != "" {
+		if err := os.Chdir(workDir); err != nil {
+			return nil, fmt.Errorf("failed to change directory to %s: %w", workDir, err)
+		}
+		defer func() { _ = os.Chdir(origDir) }()
+	}
+
+	// Parse serve arguments to create config
+	config := serve.DefaultConfig()
+	config.OpenBrowser = false // Never open browser in tests
+	config.LiveReload = false  // Disable live reload by default in tests
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--port", "-p":
+			if i+1 >= len(args) {
+				return nil, fmt.Errorf("--port requires a value")
+			}
+			var port int
+			if _, err := fmt.Sscanf(args[i+1], "%d", &port); err != nil {
+				return nil, fmt.Errorf("invalid port: %s", args[i+1])
+			}
+			config.Port = port
+			i++
+		case "--mode", "-m":
+			if i+1 >= len(args) {
+				return nil, fmt.Errorf("--mode requires a value")
+			}
+			config.Mode = serve.ServeMode(args[i+1])
+			config.AutoDetect = false
+			i++
+		case "--no-browser":
+			config.OpenBrowser = false
+		case "--no-reload":
+			config.LiveReload = false
+		}
+	}
+
+	// Create server
+	server, err := serve.NewServer(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create server: %w", err)
+	}
+
+	// Create context with cancellation for server control
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Start server in background
+	errChan := make(chan error, 1)
+	go func() {
+		// Change directory for the goroutine
+		if workDir != "" {
+			_ = os.Chdir(workDir)
+		}
+
+		// Start returns when server shuts down or errors
+		if err := server.Start(ctx); err != nil {
+			errChan <- err
+		} else {
+			errChan <- nil
+		}
+	}()
+
+	// Give server a moment to start
+	time.Sleep(100 * time.Millisecond)
+
+	return &ServerHandle{
+		server:  server,
+		cancel:  cancel,
+		errChan: errChan,
+	}, nil
+}
+
 // createTestApp creates a new test application and sets it up for testing
-func createTestApp(t *testing.T, lvtBinary, tmpDir, appName string, opts *AppOptions) string {
+func createTestApp(t *testing.T, tmpDir, appName string, opts *AppOptions) string {
 	t.Helper()
 	t.Logf("Creating test app: %s", appName)
 
@@ -69,7 +265,6 @@ func createTestApp(t *testing.T, lvtBinary, tmpDir, appName string, opts *AppOpt
 	if opts == nil {
 		opts = &AppOptions{
 			Kit:     "multi",
-			CSS:     "tailwind",
 			DevMode: true,
 		}
 	}
@@ -81,10 +276,6 @@ func createTestApp(t *testing.T, lvtBinary, tmpDir, appName string, opts *AppOpt
 		args = append(args, "--kit", opts.Kit)
 	}
 
-	if opts.CSS != "" && opts.CSS != "tailwind" {
-		args = append(args, "--css", opts.CSS)
-	}
-
 	if opts.Module != "" {
 		args = append(args, "--module", opts.Module)
 	}
@@ -94,15 +285,18 @@ func createTestApp(t *testing.T, lvtBinary, tmpDir, appName string, opts *AppOpt
 	}
 
 	// Create app
-	if err := runLvtCommand(t, lvtBinary, tmpDir, args...); err != nil {
+	if err := runLvtCommand(t, tmpDir, args...); err != nil {
 		t.Fatalf("Failed to create app: %v", err)
 	}
 
 	appDir := filepath.Join(tmpDir, appName)
 
 	// Add replace directive to use local livetemplate (for testing with latest changes)
+	// Protected by mutex to prevent race with parallel tests changing directory
+	chdirMutex.Lock()
 	cwd, _ := os.Getwd()
 	livetemplatePath := filepath.Join(cwd, "..", "..", "..")
+	chdirMutex.Unlock()
 
 	replaceCmd := exec.Command("go", "mod", "edit", fmt.Sprintf("-replace=github.com/livefir/livetemplate=%s", livetemplatePath))
 	replaceCmd.Dir = appDir
@@ -110,20 +304,17 @@ func createTestApp(t *testing.T, lvtBinary, tmpDir, appName string, opts *AppOpt
 		t.Fatalf("Failed to add replace directive: %v", err)
 	}
 
-	// Run go mod tidy
+	// Run go mod tidy with mutex protection
 	t.Log("Running go mod tidy...")
-	tidyCmd := exec.Command("go", "mod", "tidy")
-	tidyCmd.Dir = appDir
-	tidyCmd.Stdout = os.Stdout
-	tidyCmd.Stderr = os.Stderr
-	if err := tidyCmd.Run(); err != nil {
+	if err := runGoModTidy(t, appDir); err != nil {
 		t.Fatalf("Failed to run go mod tidy: %v", err)
 	}
 
 	// Copy client library for dev mode
 	if opts.DevMode {
 		t.Log("Copying client library...")
-		clientSrc := "../../../client/dist/livetemplate-client.browser.js"
+		// Use absolute path to avoid issues with parallel test execution
+		clientSrc := filepath.Join(livetemplatePath, "client", "dist", "livetemplate-client.browser.js")
 		clientDst := filepath.Join(appDir, "livetemplate-client.js")
 		clientContent, err := os.ReadFile(clientSrc)
 		if err != nil {
@@ -283,7 +474,7 @@ func verifyWebSocketConnected(t *testing.T, ctx context.Context, url string) {
 }
 
 // readLvtrc reads and parses the .lvtrc file
-func readLvtrc(t *testing.T, appDir string) (kit, css string) {
+func readLvtrc(t *testing.T, appDir string) (kit string) {
 	t.Helper()
 
 	lvtrcPath := filepath.Join(appDir, ".lvtrc")
@@ -297,10 +488,8 @@ func readLvtrc(t *testing.T, appDir string) (kit, css string) {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "kit=") {
 			kit = strings.TrimPrefix(line, "kit=")
-		} else if strings.HasPrefix(line, "css_framework=") {
-			css = strings.TrimPrefix(line, "css_framework=")
 		}
 	}
 
-	return kit, css
+	return kit
 }

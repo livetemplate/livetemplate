@@ -12,26 +12,25 @@ func TestMigration_Workflow(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Generate a resource to create migrations
 	t.Log("Generating users resource...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "users", "name", "email"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "users", "name", "email"); err != nil {
 		t.Fatalf("Failed to generate users: %v", err)
 	}
 
 	// Check migration status (should show pending migration)
 	t.Log("Checking migration status...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "migration", "status"); err != nil {
+	if err := runLvtCommand(t, appDir, "migration", "status"); err != nil {
 		t.Fatalf("Failed to check migration status: %v", err)
 	}
 
 	// Run migrations
 	t.Log("Running migrations up...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "migration", "up"); err != nil {
+	if err := runLvtCommand(t, appDir, "migration", "up"); err != nil {
 		t.Fatalf("Failed to run migrations: %v", err)
 	}
 
@@ -43,19 +42,19 @@ func TestMigration_Workflow(t *testing.T) {
 
 	// Check migration status again (should show no pending)
 	t.Log("Checking migration status after up...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "migration", "status"); err != nil {
+	if err := runLvtCommand(t, appDir, "migration", "status"); err != nil {
 		t.Fatalf("Failed to check migration status: %v", err)
 	}
 
 	// Generate another resource
 	t.Log("Generating posts resource...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "posts", "title", "content:text"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "posts", "title", "content:text"); err != nil {
 		t.Fatalf("Failed to generate posts: %v", err)
 	}
 
 	// Run new migrations
 	t.Log("Running new migrations...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "migration", "up"); err != nil {
+	if err := runLvtCommand(t, appDir, "migration", "up"); err != nil {
 		t.Fatalf("Failed to run new migrations: %v", err)
 	}
 
@@ -67,23 +66,22 @@ func TestMigration_Rollback(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Generate resources to create multiple migrations
 	t.Log("Generating resources...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "users", "name"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "users", "name"); err != nil {
 		t.Fatalf("Failed to generate users: %v", err)
 	}
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "posts", "title"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "posts", "title"); err != nil {
 		t.Fatalf("Failed to generate posts: %v", err)
 	}
 
 	// Run all migrations
 	t.Log("Running migrations...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "migration", "up"); err != nil {
+	if err := runLvtCommand(t, appDir, "migration", "up"); err != nil {
 		t.Fatalf("Failed to run migrations: %v", err)
 	}
 
@@ -95,13 +93,13 @@ func TestMigration_Rollback(t *testing.T) {
 
 	// Rollback one migration
 	t.Log("Rolling back one migration...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "migration", "down"); err != nil {
+	if err := runLvtCommand(t, appDir, "migration", "down"); err != nil {
 		t.Fatalf("Failed to rollback migration: %v", err)
 	}
 
 	// Check status
 	t.Log("Checking status after rollback...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "migration", "status"); err != nil {
+	if err := runLvtCommand(t, appDir, "migration", "status"); err != nil {
 		t.Fatalf("Failed to check status: %v", err)
 	}
 
@@ -113,15 +111,14 @@ func TestMigration_CreateCustom(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Create a custom migration
 	migrationName := "add_indexes"
 	t.Logf("Creating custom migration: %s...", migrationName)
-	if err := runLvtCommand(t, lvtBinary, appDir, "migration", "create", migrationName); err != nil {
+	if err := runLvtCommand(t, appDir, "migration", "create", migrationName); err != nil {
 		t.Fatalf("Failed to create custom migration: %v", err)
 	}
 

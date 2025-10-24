@@ -1,5 +1,6 @@
 name: simple
 version: 1.0.0
+css_framework: pico
 description: Simple prototype kit with minimal counter and clock example
 author: LiveTemplate Team
 license: MIT

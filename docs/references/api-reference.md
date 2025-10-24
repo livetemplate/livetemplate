@@ -14,7 +14,9 @@ Complete reference for LiveTemplate manifests, interfaces, and CLI commands.
 
 ## Component Manifest Schema
 
-Component manifests are defined in `component.yaml` files.
+**Note:** Components are part of kits in LiveTemplate. Component manifests are located in the `components/` directory within a kit.
+
+Component manifests are defined in `component.yaml` files inside a kit's `components/<name>/` directory.
 
 ### Schema
 
@@ -654,11 +656,6 @@ Configuration is stored in `~/.config/lvt/config.yaml`.
 ### Schema
 
 ```yaml
-# Component search paths
-components_paths:
-  - /path/to/components/dir1
-  - /path/to/components/dir2
-
 # Kit search paths
 kits_paths:
   - /path/to/kits/dir1
@@ -667,32 +664,24 @@ kits_paths:
 # Default preferences
 defaults:
   kit: tailwind              # Default kit for new projects
-  component_category: forms  # Default category for new components
 ```
 
 ### Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `components_paths` | []string | Directories to search for custom components |
 | `kits_paths` | []string | Directories to search for custom kits |
 | `defaults.kit` | string | Default CSS kit for new projects (not yet implemented) |
-| `defaults.component_category` | string | Default category for new components (not yet implemented) |
 
 ### Example
 
 ```yaml
-components_paths:
-  - /Users/you/.lvt/components
-  - /Users/you/projects/shared-components
-
 kits_paths:
   - /Users/you/.lvt/kits
   - /Users/you/projects/custom-kits
 
 defaults:
   kit: tailwind
-  component_category: forms
 ```
 
 ---
@@ -715,14 +704,14 @@ lvt new <name> [options]
 - `<name>` - Application name (required)
 
 **Options:**
-- `--css <framework>` - CSS framework to use (tailwind, bulma, pico, none)
+- CSS framework is determined by the chosen kit
 - `--dir <path>` - Directory to create app in (default: ./<name>)
 
 **Examples:**
 ```bash
 lvt new myapp
-lvt new myapp --css bulma
-lvt new blogapp --css pico --dir ~/projects/blogapp
+lvt new myapp --kit multi  # Uses Tailwind CSS
+lvt new blogapp --kit simple --dir ~/projects/blogapp  # Uses Pico CSS
 ```
 
 ---
@@ -750,105 +739,20 @@ lvt gen <resource> [fields...] [options]
 - `name:datetime` - Datetime field
 
 **Options:**
-- `--css <framework>` - CSS framework to use
+- CSS framework is determined by the kit
 
 **Examples:**
 ```bash
 lvt gen products name price:float stock:int
-lvt gen articles title content:text published:bool --css bulma
+lvt gen articles title content:text published:bool  # Uses kit's CSS
 lvt gen users name email password:string created_at:datetime
 ```
 
 ---
 
-### Component Commands
-
-#### lvt components list
-
-List available components.
-
-```bash
-lvt components list [options]
-```
-
-**Options:**
-- `--filter <source>` - Filter by source (system, local, community, all)
-- `--format <format>` - Output format (table, json, simple)
-- `--category <category>` - Filter by category
-- `--search <query>` - Search by name or description
-
-**Examples:**
-```bash
-lvt components list
-lvt components list --filter=system
-lvt components list --format=json
-lvt components list --category=forms
-lvt components list --search=form
-```
-
----
-
-#### lvt components info
-
-Show component information.
-
-```bash
-lvt components info <name>
-```
-
-**Arguments:**
-- `<name>` - Component name
-
-**Examples:**
-```bash
-lvt components info form
-lvt components info table
-```
-
----
-
-#### lvt components create
-
-Create a new component.
-
-```bash
-lvt components create <name> [options]
-```
-
-**Arguments:**
-- `<name>` - Component name
-
-**Options:**
-- `--category <category>` - Component category (forms, layout, data, etc.)
-
-**Examples:**
-```bash
-lvt components create alert
-lvt components create card --category=data
-```
-
----
-
-#### lvt components validate
-
-Validate a component.
-
-```bash
-lvt components validate <path>
-```
-
-**Arguments:**
-- `<path>` - Path to component directory
-
-**Examples:**
-```bash
-lvt components validate ~/.lvt/components/mycomponent
-lvt components validate .
-```
-
----
-
 ### Kit Commands
+
+**Note:** Components are developed as part of kits. To work on components, customize a kit using `lvt kits customize <name> --only components`.
 
 #### lvt kits list
 
@@ -992,11 +896,10 @@ lvt config get <key>
 ```
 
 **Arguments:**
-- `<key>` - Configuration key (components_paths, kits_paths)
+- `<key>` - Configuration key (kits_paths)
 
 **Examples:**
 ```bash
-lvt config get components_paths
 lvt config get kits_paths
 ```
 
@@ -1016,7 +919,6 @@ lvt config set <key> <value>
 
 **Examples:**
 ```bash
-lvt config set components_paths ~/.lvt/components
 lvt config set kits_paths ~/.lvt/kits
 ```
 

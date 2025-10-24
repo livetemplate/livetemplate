@@ -13,27 +13,26 @@ func TestSeed_GenerateData(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Generate a resource
 	t.Log("Generating products resource...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "products", "name", "price:float"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "products", "name", "price:float"); err != nil {
 		t.Fatalf("Failed to generate products: %v", err)
 	}
 
 	// Run migrations
 	t.Log("Running migrations...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "migration", "up"); err != nil {
+	if err := runLvtCommand(t, appDir, "migration", "up"); err != nil {
 		t.Fatalf("Failed to run migrations: %v", err)
 	}
 
 	// Seed data
 	seedCount := 25
 	t.Logf("Seeding %d products...", seedCount)
-	if err := runLvtCommand(t, lvtBinary, appDir, "seed", "products", "--count", "25"); err != nil {
+	if err := runLvtCommand(t, appDir, "seed", "products", "--count", "25"); err != nil {
 		t.Fatalf("Failed to seed data: %v", err)
 	}
 
@@ -65,26 +64,25 @@ func TestSeed_Cleanup(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Generate a resource
 	t.Log("Generating users resource...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "users", "name", "email"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "users", "name", "email"); err != nil {
 		t.Fatalf("Failed to generate users: %v", err)
 	}
 
 	// Run migrations
 	t.Log("Running migrations...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "migration", "up"); err != nil {
+	if err := runLvtCommand(t, appDir, "migration", "up"); err != nil {
 		t.Fatalf("Failed to run migrations: %v", err)
 	}
 
 	// Seed data
 	t.Log("Seeding 20 users...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "seed", "users", "--count", "20"); err != nil {
+	if err := runLvtCommand(t, appDir, "seed", "users", "--count", "20"); err != nil {
 		t.Fatalf("Failed to seed data: %v", err)
 	}
 
@@ -109,7 +107,7 @@ func TestSeed_Cleanup(t *testing.T) {
 
 	// Cleanup
 	t.Log("Cleaning up seeded data...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "seed", "users", "--cleanup"); err != nil {
+	if err := runLvtCommand(t, appDir, "seed", "users", "--cleanup"); err != nil {
 		t.Fatalf("Failed to cleanup data: %v", err)
 	}
 
@@ -133,33 +131,32 @@ func TestSeed_CleanupAndReseed(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create app
-	appDir := createTestApp(t, lvtBinary, tmpDir, "testapp", nil)
+	appDir := createTestApp(t, tmpDir, "testapp", nil)
 
 	// Generate a resource
 	t.Log("Generating tasks resource...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "tasks", "title", "completed:bool"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "tasks", "title", "completed:bool"); err != nil {
 		t.Fatalf("Failed to generate tasks: %v", err)
 	}
 
 	// Run migrations
 	t.Log("Running migrations...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "migration", "up"); err != nil {
+	if err := runLvtCommand(t, appDir, "migration", "up"); err != nil {
 		t.Fatalf("Failed to run migrations: %v", err)
 	}
 
 	// Initial seed
 	t.Log("Initial seed: 15 tasks...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "seed", "tasks", "--count", "15"); err != nil {
+	if err := runLvtCommand(t, appDir, "seed", "tasks", "--count", "15"); err != nil {
 		t.Fatalf("Failed to seed initial data: %v", err)
 	}
 
 	// Cleanup and reseed with different count
 	newCount := 30
 	t.Logf("Cleanup and reseed with %d tasks...", newCount)
-	if err := runLvtCommand(t, lvtBinary, appDir, "seed", "tasks", "--count", "30", "--cleanup"); err != nil {
+	if err := runLvtCommand(t, appDir, "seed", "tasks", "--count", "30", "--cleanup"); err != nil {
 		t.Fatalf("Failed to cleanup and reseed: %v", err)
 	}
 

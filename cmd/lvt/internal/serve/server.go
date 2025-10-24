@@ -259,7 +259,7 @@ func (s *Server) handleFileChange(path string) {
 	})
 }
 
-func (s *Server) Start() error {
+func (s *Server) Start(ctx context.Context) error {
 	s.mu.Lock()
 	if s.running {
 		s.mu.Unlock()
@@ -302,12 +302,16 @@ func (s *Server) Start() error {
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
 
 	select {
 	case err := <-errChan:
 		return err
 	case <-sigChan:
 		log.Println("\nShutting down server...")
+		return s.Shutdown()
+	case <-ctx.Done():
+		log.Println("\nContext cancelled, shutting down server...")
 		return s.Shutdown()
 	}
 }

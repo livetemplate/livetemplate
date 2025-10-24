@@ -2,56 +2,47 @@
   "1": "11",
   "5": "2",
   "6": "2",
-  "7": "50%",
+  "7": {
+    "0": "50"
+  },
   "8": {
-    "0": {
-      "d": [
+    "0": [
+      [
+        "r",
+        "todo-3"
+      ],
+      [
+        "r",
+        "todo-5"
+      ],
+      [
+        "u",
+        "todo-4"
+      ],
+      [
+        "i",
+        "todo-1",
+        "after",
         {
-          "0": "completed",
-          "1": "todo-4",
-          "2": "",
-          "3": "Setup development environment",
-          "4": "✓",
-          "5": " (Priority: High)"
-        },
-        {
-          "0": "completed",
-          "1": "todo-1",
-          "2": "",
-          "3": "Learn Go templates",
-          "4": "✓",
-          "5": " (Priority: High)"
-        },
-        {
-          "0": "",
           "1": "todo-6",
-          "2": "",
           "3": "Deploy to production",
-          "4": "○",
-          "5": " (Priority: Critical)"
-        },
-        {
-          "0": "",
-          "1": "todo-7",
-          "2": "",
-          "3": "Monitor performance",
-          "4": "○",
-          "5": " (Priority: Medium)"
+          "5": {
+            "0": "Critical"
+          }
         }
       ],
-      "s": [
-        "\n                    \u003cdiv class=\"todo-item ",
-        "\" data-key=\"",
-        "\"\u003e\n                        \u003cstrong\u003e",
-        ":\u003c/strong\u003e\n                        ",
-        "\n                        ",
-        "\n                        ",
-        "\n                    \u003c/div\u003e\n                    "
+      [
+        "i",
+        "todo-1",
+        "after",
+        {
+          "1": "todo-7",
+          "3": "Monitor performance",
+          "5": {
+            "0": "Medium"
+          }
+        }
       ]
-    },
-    "s": [
-      "\n                \u003cdiv class=\"todo-list\"\u003e\n                    ",
-      "\n                \u003c/div\u003e\n                "
     ]
   },
   "9": "2023-01-01 11:30:00"

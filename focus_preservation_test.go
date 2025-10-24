@@ -61,7 +61,7 @@ func TestFocusPreservation(t *testing.T) {
 
 	// Create HTTP handler
 	mux := http.NewServeMux()
-	mux.Handle("/", Mount(tmpl, state))
+	mux.Handle("/", tmpl.Handle(state))
 
 	// Serve client JavaScript
 	mux.HandleFunc("/client.js", func(w http.ResponseWriter, r *http.Request) {
@@ -230,7 +230,7 @@ func TestFocusPreservationMultipleInputs(t *testing.T) {
 
 	// Create HTTP handler
 	mux := http.NewServeMux()
-	mux.Handle("/", Mount(tmpl, state))
+	mux.Handle("/", tmpl.Handle(state))
 
 	// Serve client JavaScript
 	mux.HandleFunc("/client.js", func(w http.ResponseWriter, r *http.Request) {

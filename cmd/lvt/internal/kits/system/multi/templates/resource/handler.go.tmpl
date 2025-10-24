@@ -455,7 +455,7 @@ func Handler(queries *models.Queries) http.Handler {
 			resourceID := strings.Split(urlPath, "/")[0]
 			if resourceID == "" {
 				// Invalid URL, fall back to list view
-				livetemplate.Mount(tmpl, state).ServeHTTP(w, r)
+				tmpl.Handle(state).ServeHTTP(w, r)
 				return
 			}
 
@@ -487,15 +487,15 @@ func Handler(queries *models.Queries) http.Handler {
 				}
 			}
 
-			// Mount with custom state
-			livetemplate.Mount(tmpl, resourceState).ServeHTTP(w, r)
+			// Handle with custom state
+			tmpl.Handle(resourceState).ServeHTTP(w, r)
 			return
 		}
 
 		// Default: list view
-		livetemplate.Mount(tmpl, state).ServeHTTP(w, r)
+		tmpl.Handle(state).ServeHTTP(w, r)
 	})
 [[- else]]
-	return livetemplate.Mount(tmpl, state)
+	return tmpl.Handle(state)
 [[- end]]
 }

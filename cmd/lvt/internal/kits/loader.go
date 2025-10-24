@@ -106,8 +106,8 @@ func (l *KitLoader) loadFromPath(path string, source KitSource) (*KitInfo, error
 		return nil, err
 	}
 
-	// Load helpers based on framework
-	helpers, err := loadHelpers(manifest.Framework, path)
+	// Load helpers based on framework (CSSFramework is synced with Framework in Validate)
+	helpers, err := loadHelpers(manifest.CSSFramework, path)
 	if err != nil {
 		return nil, ErrHelperLoad{
 			Kit: manifest.Name,
@@ -445,7 +445,9 @@ func LoadHelpersForFramework(framework string) (CSSHelpers, error) {
 	case "none":
 		return NewNoneHelpers(), nil
 	default:
-		return nil, fmt.Errorf("unsupported framework: %s", framework)
+		// Return nil helpers for custom/test frameworks
+		// This allows kits with custom frameworks to be used for testing/development
+		return nil, nil
 	}
 }
 

@@ -451,7 +451,7 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 		updateStr := string(updateJSON)
 		expectedValues := []string{
 			"\"1\"",                   // Completed count: 1 todo completed (key may vary)
-			"\"50%\"",                 // Completion rate: 50% (with % sign now part of dynamic value due to conditional wrapping)
+			"\"50\"",                  // Completion rate: 50 (% sign is now in static separators due to tree structure)
 			"\"2023-01-01 10:45:00\"", // Last updated timestamp
 		}
 

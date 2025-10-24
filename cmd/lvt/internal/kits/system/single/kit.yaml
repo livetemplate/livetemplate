@@ -1,5 +1,6 @@
 name: single
 version: 1.0.0
+css_framework: tailwind
 description: Single-page application kit with component-only architecture (no layout)
 author: LiveTemplate Team
 license: MIT

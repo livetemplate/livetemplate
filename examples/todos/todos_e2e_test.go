@@ -415,7 +415,31 @@ func TestTodosE2E(t *testing.T) {
 
 		t.Log("✅ Search cleared successfully")
 
-		// Test search with no results
+		// Test search with no results - CAPTURE DEBUG INFO AND CONSOLE LOGS
+		var debugInfo, consoleLogs string
+
+		// Clear console and set up log capture
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`
+				(() => {
+					window.capturedConsoleLogs = [];
+					const originalError = console.error;
+					const originalLog = console.log;
+					console.error = function(...args) {
+						window.capturedConsoleLogs.push({type: 'error', message: args.join(' ')});
+						originalError.apply(console, args);
+					};
+					console.log = function(...args) {
+						window.capturedConsoleLogs.push({type: 'log', message: args.join(' ')});
+						originalLog.apply(console, args);
+					};
+				})();
+			`, nil),
+		)
+		if err != nil {
+			t.Fatalf("Failed to set up console capture: %v", err)
+		}
+
 		err = chromedp.Run(ctx,
 			chromedp.Evaluate(`
 				(() => {
@@ -424,13 +448,49 @@ func TestTodosE2E(t *testing.T) {
 					input.dispatchEvent(new Event('input', { bubbles: true }));
 				})();
 			`, nil),
-			chromedp.Sleep(1*time.Second), // Wait for debounce (300ms) and update
+			chromedp.Sleep(1500*time.Millisecond), // Wait for debounce and update
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
+			// Get console logs
+			chromedp.Evaluate(`JSON.stringify(window.capturedConsoleLogs || [], null, 2)`, &consoleLogs),
+			// Capture comprehensive debug info
+			chromedp.Evaluate(`
+				(() => {
+					const debug = {
+						hasLiveTemplateClient: !!window.LiveTemplateClient,
+						clientsMap: window.LiveTemplateClient ? (window.LiveTemplateClient.clients ? 'exists' : 'missing') : 'no LiveTemplateClient'
+					};
+
+					// Try to get the actual client
+					if (window.LiveTemplateClient && window.LiveTemplateClient.clients) {
+						const lvtEl = document.querySelector('[id^="lvt-"]');
+						if (lvtEl) {
+							debug.lvtElementId = lvtEl.id;
+							const clientsArray = Array.from(window.LiveTemplateClient.clients.entries());
+							debug.clientIds = clientsArray.map(([id, c]) => id);
+							const client = window.LiveTemplateClient.clients.get(lvtEl.id);
+							if (client) {
+								debug.treeState = client.getTreeState();
+							} else {
+								debug.clientNotFound = true;
+							}
+						} else {
+							debug.noLvtElement = true;
+						}
+					}
+
+					return JSON.stringify(debug, null, 2);
+				})();
+			`, &debugInfo),
 		)
 
 		if err != nil {
 			t.Fatalf("Failed to search for non-existent todo: %v", err)
 		}
+
+		// Log debug info
+		t.Logf("Console logs during empty search:\n%s", consoleLogs)
+		t.Logf("Debug info after empty search:\n%s", debugInfo)
+		t.Logf("HTML after empty search:\n%s", html)
 
 		// Verify no results message is shown
 		if !strings.Contains(html, "No todos found matching") {

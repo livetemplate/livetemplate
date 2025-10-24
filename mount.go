@@ -69,6 +69,40 @@ func (b *broadcaster) Send() error {
 	return writeUpdateWebSocket(b.conn, responseBytes)
 }
 
+// LiveHandler is the interface returned by Template.Handle()
+// It extends http.Handler with broadcasting capabilities for server-initiated updates.
+//
+// Broadcasting allows the server to push updates to connected clients without user interaction.
+// This is useful for:
+//   - Real-time notifications across multiple tabs/devices
+//   - Live data updates (stock prices, sports scores, etc.)
+//   - Collaborative editing
+//   - Background job status updates
+type LiveHandler interface {
+	http.Handler
+
+	// Broadcast sends updates to all connected clients across all session groups.
+	// The data parameter will be passed to the template for rendering.
+	//
+	// Example: Broadcast a global announcement to all users
+	//   handler.Broadcast(GlobalState{Message: "System maintenance in 10 minutes"})
+	Broadcast(data interface{}) error
+
+	// BroadcastToUsers sends updates to all connections for specific users.
+	// Useful for user-specific notifications across multiple devices/tabs.
+	//
+	// Example: Notify a specific user about a new message
+	//   handler.BroadcastToUsers([]string{"user-123"}, UserNotification{...})
+	BroadcastToUsers(userIDs []string, data interface{}) error
+
+	// BroadcastToGroup sends updates to all connections in a specific session group.
+	// Useful for updating all tabs of an anonymous user or a specific session.
+	//
+	// Example: Update all tabs for a specific session group
+	//   handler.BroadcastToGroup("session-abc", SessionState{...})
+	BroadcastToGroup(groupID string, data interface{}) error
+}
+
 // MountConfig configures the mount handler
 type MountConfig struct {
 	Template          *Template
@@ -76,60 +110,19 @@ type MountConfig struct {
 	IsSingleStore     bool
 	Upgrader          *websocket.Upgrader
 	SessionStore      SessionStore
+	Authenticator     Authenticator
+	AllowedOrigins    []string
 	WebSocketDisabled bool
 }
 
-// Mount creates an http.Handler that auto-generates updates when state changes
-// For single store: actions like "increment", "decrement"
-func Mount(tmpl *Template, store Store, opts ...MountOption) http.Handler {
-	config := MountConfig{
-		Template:      tmpl,
-		Stores:        Stores{"": store}, // Empty key for single store
-		IsSingleStore: true,
-		Upgrader: &websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool { return true },
-		},
-		SessionStore: NewMemorySessionStore(),
-	}
-
-	for _, opt := range opts {
-		opt(&config)
-	}
-
-	return &liveHandler{config: config}
-}
-
-// MountStores creates an http.Handler for multiple named stores
-// For multiple stores: actions like "counter.increment", "user.setName"
-func MountStores(tmpl *Template, stores Stores, opts ...MountOption) http.Handler {
-	if len(stores) == 0 {
-		panic("MountStores requires at least one store")
-	}
-
-	config := MountConfig{
-		Template:      tmpl,
-		Stores:        stores,
-		IsSingleStore: false,
-		Upgrader: &websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool { return true },
-		},
-		SessionStore: NewMemorySessionStore(),
-	}
-
-	for _, opt := range opts {
-		opt(&config)
-	}
-
-	return &liveHandler{config: config}
-}
-
-// MountOption is a functional option for configuring Mount/MountStores
-// Deprecated: Use Option with Template.Handle() instead
+// MountConfig and related types are used internally by Template.Handle()
+// MountOption is a functional option for configuring handlers
 type MountOption func(*MountConfig)
 
 // liveHandler handles both WebSocket and HTTP requests
 type liveHandler struct {
-	config MountConfig
+	config   MountConfig
+	registry *ConnectionRegistry
 }
 
 type connState struct {
@@ -182,6 +175,25 @@ func (h *liveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Authenticate user and get session group
+	userID, err := h.config.Authenticator.Identify(r)
+	if err != nil {
+		log.Printf("Authentication failed: %v", err)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	groupID, err := h.config.Authenticator.GetSessionGroup(r, userID)
+	if err != nil {
+		log.Printf("Failed to get session group: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Set session cookie if this is a new session (cookie doesn't exist)
+	setCookieIfNew(w, r, groupID)
+
+	// Upgrade to WebSocket after authentication succeeds
 	conn, err := h.config.Upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade failed: %v", err)
@@ -189,7 +201,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	log.Printf("Client connected from %s", conn.RemoteAddr())
+	log.Printf("Client connected: user=%q, group=%q, addr=%s", userID, groupID, conn.RemoteAddr())
 
 	// Clone template for this connection to avoid state conflicts
 	// Each WebSocket connection needs its own template instance because
@@ -200,9 +212,30 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create connection state
+	// Get or create stores for this session group
+	stores := h.config.SessionStore.Get(groupID)
+	if stores == nil {
+		stores = h.cloneStores()
+		h.config.SessionStore.Set(groupID, stores)
+		log.Printf("Created new session group: %s", groupID)
+	}
+
+	// Create Connection and register in registry
+	connection := &Connection{
+		Conn:     conn,
+		GroupID:  groupID,
+		UserID:   userID,
+		Template: connTmpl,
+		Stores:   stores,
+	}
+
+	h.registry.Register(connection)
+	defer h.registry.Unregister(connection)
+	log.Printf("Registered connection (total: %d, groups: %d)", h.registry.Count(), h.registry.GroupCount())
+
+	// Create connection state (errors are per-connection, not shared)
 	state := &connState{
-		stores: h.cloneStores(),
+		stores: stores,
 		errors: make(map[string]string),
 	}
 
@@ -290,6 +323,19 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
+		// Auto-broadcast to other connections in same session group
+		// This ensures all tabs in the same browser session stay in sync
+		go func() {
+			otherConns := h.registry.GetByGroupExcept(groupID, connection)
+			if len(otherConns) > 0 {
+				for _, otherConn := range otherConns {
+					if err := h.sendUpdate(otherConn, h.getTemplateData(state.stores)); err != nil {
+						log.Printf("Auto-broadcast failed for connection in group %s: %v", groupID, err)
+					}
+				}
+			}
+		}()
+
 		// Generate tree update
 		buf.Reset()
 		err = connTmpl.ExecuteUpdates(&buf, h.getTemplateData(state.stores), state.getErrors())
@@ -329,7 +375,26 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	log.Printf("Client disconnected")
+	log.Printf("Client disconnected: user=%q, group=%q (remaining: %d)", userID, groupID, h.registry.Count())
+}
+
+// setCookieIfNew sets the livetemplate-id cookie if it doesn't already exist
+func setCookieIfNew(w http.ResponseWriter, r *http.Request, groupID string) {
+	// Check if cookie already exists
+	if cookie, err := r.Cookie("livetemplate-id"); err == nil && cookie.Value == groupID {
+		// Cookie exists and matches - no need to set again
+		return
+	}
+
+	// Set session cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "livetemplate-id",
+		Value:    groupID,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   365 * 24 * 60 * 60, // 1 year
+	})
 }
 
 func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
@@ -339,32 +404,36 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get or create session state
-	sessionID := getSessionID(r)
-	isNewSession := false
-	sessionData := h.config.SessionStore.Get(sessionID)
-
-	var state *connState
-	if sessionData == nil {
-		state = &connState{
-			stores: h.cloneStores(),
-			errors: make(map[string]string),
-		}
-		h.config.SessionStore.Set(sessionID, state)
-		isNewSession = true
-	} else {
-		state = sessionData.(*connState)
+	// Authenticate user and get session group
+	userID, err := h.config.Authenticator.Identify(r)
+	if err != nil {
+		log.Printf("HTTP authentication failed: %v", err)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
 	}
 
-	// Set session cookie if this is a new session
-	if isNewSession {
-		http.SetCookie(w, &http.Cookie{
-			Name:     "livetemplate-session",
-			Value:    sessionID,
-			Path:     "/",
-			HttpOnly: true,
-			SameSite: http.SameSiteLaxMode,
-		})
+	groupID, err := h.config.Authenticator.GetSessionGroup(r, userID)
+	if err != nil {
+		log.Printf("Failed to get session group for HTTP: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Set session cookie if this is a new session (cookie doesn't exist)
+	setCookieIfNew(w, r, groupID)
+
+	// Get or create stores for this session group
+	stores := h.config.SessionStore.Get(groupID)
+	if stores == nil {
+		stores = h.cloneStores()
+		h.config.SessionStore.Set(groupID, stores)
+		log.Printf("HTTP: Created new session group: %s", groupID)
+	}
+
+	// Create connection state (errors are per-request, not persisted)
+	state := &connState{
+		stores: stores,
+		errors: make(map[string]string),
 	}
 
 	// Handle GET request for initial HTML page
@@ -405,8 +474,21 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save session
-	h.config.SessionStore.Set(sessionID, state)
+	// Auto-broadcast to all WebSocket connections in same session group
+	// This ensures all tabs in the same browser session stay in sync
+	// (HTTP request doesn't have a WebSocket connection to exclude)
+	go func() {
+		wsConns := h.registry.GetByGroup(groupID)
+		if len(wsConns) > 0 {
+			for _, wsConn := range wsConns {
+				if err := h.sendUpdate(wsConn, h.getTemplateData(state.stores)); err != nil {
+					log.Printf("Auto-broadcast failed for WebSocket connection in group %s: %v", groupID, err)
+				}
+			}
+		}
+	}()
+
+	// Note: No need to save session - stores are modified in-place and already in SessionStore
 
 	// Generate tree update
 	var buf bytes.Buffer
@@ -602,18 +684,178 @@ func (h *liveHandler) getStoreNames() []string {
 	return names
 }
 
-// getSessionID extracts session ID from cookie or header
-func getSessionID(r *http.Request) string {
-	// Try cookie first
-	if cookie, err := r.Cookie("livetemplate-session"); err == nil {
-		return cookie.Value
+// Broadcast sends updates to all connected clients across all session groups.
+//
+// This method generates a template update using the provided data and sends it
+// to every active WebSocket connection. Each connection uses its own cloned template
+// for tree diffing, ensuring independent update generation.
+//
+// The data parameter will be passed to the template's ExecuteUpdates method.
+// Errors from individual connection sends are logged but don't stop the broadcast.
+//
+// Example usage:
+//
+//	handler := tmpl.Handle(&store)
+//	// ... later, from a background goroutine:
+//	handler.Broadcast(GlobalState{Message: "System maintenance in 10 minutes"})
+//
+// Concurrency: This method is safe to call from multiple goroutines concurrently.
+func (h *liveHandler) Broadcast(data interface{}) error {
+	connections := h.registry.GetAll()
+	if len(connections) == 0 {
+		log.Printf("Broadcast: No connections to broadcast to")
+		return nil
 	}
 
-	// Try header
-	if sessionID := r.Header.Get("X-LiveTemplate-Session"); sessionID != "" {
-		return sessionID
+	log.Printf("Broadcasting to %d connection(s)", len(connections))
+
+	// Track errors but continue broadcasting to other connections
+	var errCount int
+	for _, conn := range connections {
+		if err := h.sendUpdate(conn, data); err != nil {
+			log.Printf("Broadcast: Failed to send to connection %s: %v", conn.UserID, err)
+			errCount++
+		}
 	}
 
-	// Generate new session ID
-	return generateRandomID()
+	if errCount > 0 {
+		return fmt.Errorf("broadcast failed for %d/%d connections", errCount, len(connections))
+	}
+
+	return nil
+}
+
+// BroadcastToUsers sends updates to all connections for specific users.
+//
+// This is useful for sending user-specific notifications across multiple devices/tabs.
+// For each userID, all active connections for that user will receive the update.
+//
+// The data parameter will be passed to the template's ExecuteUpdates method.
+// Errors from individual connection sends are logged but don't stop the broadcast.
+//
+// Example usage:
+//
+//	handler := tmpl.Handle(&store)
+//	// ... notify specific users about new messages:
+//	handler.BroadcastToUsers(
+//	    []string{"user-123", "user-456"},
+//	    UserNotification{Message: "New message from admin"},
+//	)
+//
+// Concurrency: This method is safe to call from multiple goroutines concurrently.
+func (h *liveHandler) BroadcastToUsers(userIDs []string, data interface{}) error {
+	if len(userIDs) == 0 {
+		return fmt.Errorf("no user IDs provided")
+	}
+
+	var totalConnections int
+	var errCount int
+
+	for _, userID := range userIDs {
+		connections := h.registry.GetByUser(userID)
+		totalConnections += len(connections)
+
+		for _, conn := range connections {
+			if err := h.sendUpdate(conn, data); err != nil {
+				log.Printf("BroadcastToUsers: Failed to send to user %s: %v", userID, err)
+				errCount++
+			}
+		}
+	}
+
+	log.Printf("Broadcast to users: sent to %d connection(s) for %d user(s)", totalConnections, len(userIDs))
+
+	if errCount > 0 {
+		return fmt.Errorf("broadcast failed for %d/%d connections", errCount, totalConnections)
+	}
+
+	if totalConnections == 0 {
+		log.Printf("BroadcastToUsers: No connections found for users %v", userIDs)
+	}
+
+	return nil
+}
+
+// BroadcastToGroup sends updates to all connections in a specific session group.
+//
+// This is useful for updating all tabs of an anonymous user or all connections
+// sharing the same session group. All connections in the group will receive the update.
+//
+// The data parameter will be passed to the template's ExecuteUpdates method.
+// Errors from individual connection sends are logged but don't stop the broadcast.
+//
+// Example usage:
+//
+//	handler := tmpl.Handle(&store)
+//	// ... update all tabs for a specific session:
+//	handler.BroadcastToGroup("session-abc", SessionState{Count: 42})
+//
+// Concurrency: This method is safe to call from multiple goroutines concurrently.
+func (h *liveHandler) BroadcastToGroup(groupID string, data interface{}) error {
+	if groupID == "" {
+		return fmt.Errorf("group ID cannot be empty")
+	}
+
+	connections := h.registry.GetByGroup(groupID)
+	if len(connections) == 0 {
+		log.Printf("BroadcastToGroup: No connections found for group %s", groupID)
+		return nil
+	}
+
+	log.Printf("Broadcasting to group %s: %d connection(s)", groupID, len(connections))
+
+	var errCount int
+	for _, conn := range connections {
+		if err := h.sendUpdate(conn, data); err != nil {
+			log.Printf("BroadcastToGroup: Failed to send to group %s: %v", groupID, err)
+			errCount++
+		}
+	}
+
+	if errCount > 0 {
+		return fmt.Errorf("broadcast failed for %d/%d connections", errCount, len(connections))
+	}
+
+	return nil
+}
+
+// sendUpdate generates and sends a template update to a single connection
+func (h *liveHandler) sendUpdate(conn *Connection, data interface{}) error {
+	// Use the connection's cloned template for independent tree diffing
+	var buf bytes.Buffer
+
+	// Generate update using the connection's template
+	// We pass the data directly - no errors to report for broadcasts
+	err := conn.Template.ExecuteUpdates(&buf, data, nil)
+	if err != nil {
+		return fmt.Errorf("template update failed: %w", err)
+	}
+
+	// Parse tree from buffer
+	var tree treeNode
+	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
+		return fmt.Errorf("failed to parse tree: %w", err)
+	}
+
+	// Wrap with metadata
+	response := UpdateResponse{
+		Tree: tree,
+		Meta: &ResponseMetadata{
+			Success: true,
+			Errors:  nil,
+		},
+	}
+
+	// Encode response
+	responseBytes, err := json.Marshal(response)
+	if err != nil {
+		return fmt.Errorf("failed to marshal response: %w", err)
+	}
+
+	// Send using the connection's Send method (thread-safe)
+	// Skip actual WebSocket send if Conn is nil (for testing)
+	if conn.Conn == nil {
+		return nil // Test mode - no actual send
+	}
+	return conn.Send(websocket.TextMessage, responseBytes)
 }

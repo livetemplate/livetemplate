@@ -17,6 +17,8 @@ import (
 // TestModalFunctionality tests all modal interactions end-to-end
 // This test verifies the critical modal bug fix where modals wouldn't reopen after being closed
 func TestModalFunctionality(t *testing.T) {
+	t.Parallel() // Enable parallel execution
+
 	// Find the client file
 	clientPath, err := filepath.Abs(filepath.Join("..", "..", "..", "client", "dist", "livetemplate-client.browser.js"))
 	if err != nil {
@@ -31,7 +33,9 @@ func TestModalFunctionality(t *testing.T) {
 	defer listener.Close()
 
 	port := listener.Addr().(*net.TCPAddr).Port
-	serverURL := fmt.Sprintf("http://localhost:%d", port)
+
+	// For Chrome access (Docker networking)
+	chromeURL := getTestURL(port)
 
 	mux := http.NewServeMux()
 
@@ -95,17 +99,8 @@ func TestModalFunctionality(t *testing.T) {
 	var consoleLogs []string
 	var consoleLogsMutex sync.Mutex
 
-	// Set up chromedp with console log capture
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("headless", true),
-		chromedp.Flag("disable-gpu", true),
-		chromedp.Flag("no-sandbox", true),
-	)
-
-	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
-	defer cancel()
-
-	ctx, cancel := chromedp.NewContext(allocCtx)
+	// Use shared Chrome container
+	ctx, cancel := getSharedChromeContext(t)
 	defer cancel()
 
 	// Enable Runtime domain and listen for console messages
@@ -131,7 +126,7 @@ func TestModalFunctionality(t *testing.T) {
 		}),
 
 		// Navigate to test page
-		chromedp.Navigate(serverURL),
+		chromedp.Navigate(chromeURL),
 		chromedp.WaitReady("body"),
 		chromedp.Sleep(1000*time.Millisecond), // Wait longer for client to fully initialize
 

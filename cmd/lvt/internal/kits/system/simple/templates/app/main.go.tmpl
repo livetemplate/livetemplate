@@ -4,32 +4,56 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
-	"[[.ModuleName]]/internal/app/home"
-	"[[.ModuleName]]/internal/database"
+	"github.com/livefir/livetemplate"
 )
+
+type AppState struct {
+	Title       string `json:"title"`
+	Counter     int    `json:"counter"`
+	LastUpdated string `json:"last_updated"`
+}
+
+func (s *AppState) Change(ctx *livetemplate.ActionContext) error {
+	switch ctx.Action {
+	case "increment":
+		s.Counter++
+	case "decrement":
+		s.Counter--
+	case "reset":
+		s.Counter = 0
+	default:
+		log.Printf("Unknown action: %s", ctx.Action)
+		return nil
+	}
+
+	s.LastUpdated = formatTime()
+	return nil
+}
+
+func formatTime() string {
+	return time.Now().Format("2006-01-02 15:04:05")
+}
 
 func main() {
 	log.Println("[[.AppName]] starting...")
 
-	// Initialize database
-	dbPath := getDBPath()
-	queries, err := database.InitDB(dbPath)
-	if err != nil {
-		log.Fatalf("Failed to initialize database: %v", err)
+	// Create initial state
+	state := &AppState{
+		Title:       "[[.AppName]]",
+		Counter:     0,
+		LastUpdated: formatTime(),
 	}
-	defer database.CloseDB()
 
-	// Home page
-	http.Handle("/", home.Handler())
+	// Create template - auto-discovers [[.AppName]].tmpl
+	tmpl := livetemplate.New("[[.AppName]]", livetemplate.WithDevMode([[.DevMode]]))
 
-	// Serve LiveTemplate client library
-	// For development: loads from node_modules or local copy
-	// For production: serve from CDN or embed in binary
+	// Mount handler
+	http.Handle("/", tmpl.Handle(state))
+
+	// Serve client library
 	http.HandleFunc("/livetemplate-client.js", serveClientLibrary)
-
-	// TODO: Add routes here
-	// Example: http.Handle("/users", users.Handler(queries))
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -37,26 +61,17 @@ func main() {
 	}
 	log.Printf("Server starting on http://localhost:%s", port)
 
-	err = http.ListenAndServe(":"+port, nil)
+	err := http.ListenAndServe(":"+port, nil)
 	if err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}
 }
 
-func getDBPath() string {
-	if os.Getenv("TEST_MODE") == "1" {
-		return ":memory:"
-	}
-	return "app.db"
-}
-
 func serveClientLibrary(w http.ResponseWriter, r *http.Request) {
-	// Try multiple paths for the client library (development/testing)
 	paths := []string{
-		"livetemplate-client.js",                                  // Local copy (for testing)
-		"../../client/dist/livetemplate-client.browser.js",        // When running from cmd/app
-		"../../../client/dist/livetemplate-client.browser.js",     // When running from deeper
-		"../../../../client/dist/livetemplate-client.browser.js",  // When running even deeper
+		"livetemplate-client.js",
+		"../client/dist/livetemplate-client.browser.js",
+		"../../client/dist/livetemplate-client.browser.js",
 	}
 
 	for _, path := range paths {
@@ -68,6 +83,5 @@ func serveClientLibrary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// If not found locally, return error with CDN suggestion
 	http.Error(w, "Client library not found. For production, use CDN: https://cdn.jsdelivr.net/npm/@livefir/livetemplate-client/dist/livetemplate-client.browser.js", http.StatusNotFound)
 }

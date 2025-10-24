@@ -41,7 +41,7 @@ func Handler() http.Handler {
 	}
 
 	tmpl := livetemplate.New("home", livetemplate.WithDevMode([[.DevMode]]))
-	return livetemplate.Mount(tmpl, state)
+	return tmpl.Handle(state)
 }
 
 func formatTime() string {

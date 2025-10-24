@@ -254,10 +254,10 @@ lvt config set kits_paths ~/.lvt/kits
 
 \`\`\`bash
 # Create app with Bootstrap
-lvt new myapp --css bootstrap
+lvt new myapp --kit mykit  # Where mykit defines bootstrap as css_framework
 
 # Generate resource with Bootstrap
-lvt gen products name price --css bootstrap
+lvt gen products name price  # Uses kit's CSS framework
 \`\`\`
 
 ## CDN
@@ -647,11 +647,11 @@ lvt serve
 
 ```bash
 # Create test app with your kit
-lvt new testapp --css mykit
+lvt new testapp --kit mykit  # CSS framework defined in mykit/kit.yaml
 cd testapp
 
 # Generate resource
-lvt gen products name price --css mykit
+lvt gen products name price  # Uses mykit's CSS framework
 
 # Run app
 lvt serve

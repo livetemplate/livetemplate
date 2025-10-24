@@ -462,15 +462,29 @@ license: MIT
 	loader := NewLoader(nil)
 	loader.AddSearchPath(tmpDir)
 
-	_, err := loader.Load("unsupported-kit")
+	kit, err := loader.Load("unsupported-kit")
 
-	if err == nil {
-		t.Error("Expected error for unsupported framework")
+	// Unsupported frameworks are allowed for custom/test frameworks
+	if err != nil {
+		t.Errorf("Expected kit to load with unsupported framework, got error: %v", err)
 	}
 
-	// Load() returns ErrKitNotFound when it fails to load from any source
-	if _, ok := err.(ErrKitNotFound); !ok {
-		t.Errorf("Expected ErrKitNotFound (failed to load), got %T: %v", err, err)
+	if kit == nil {
+		t.Fatal("Expected kit to be loaded, got nil")
+	}
+
+	// Verify helpers are nil for unsupported frameworks
+	if kit.Helpers != nil {
+		t.Error("Expected nil helpers for unsupported framework")
+	}
+
+	// Verify kit information is still valid
+	if kit.Manifest.Name != "unsupported-kit" {
+		t.Errorf("Expected kit name 'unsupported-kit', got '%s'", kit.Manifest.Name)
+	}
+
+	if kit.Manifest.Framework != "unsupported-framework" {
+		t.Errorf("Expected framework 'unsupported-framework', got '%s'", kit.Manifest.Framework)
 	}
 }
 

@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,26 +12,13 @@ func TestTypeInference(t *testing.T) {
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, "testapp")
 
-	// Build lvt
-	lvtBinary := filepath.Join(tmpDir, "lvt")
-	buildCmd := exec.Command("go", "build", "-o", lvtBinary, "github.com/livefir/livetemplate/cmd/lvt")
-	if err := buildCmd.Run(); err != nil {
-		t.Fatalf("Failed to build lvt: %v", err)
-	}
-
 	// Create app
-	newCmd := exec.Command(lvtBinary, "new", "testapp")
-	newCmd.Dir = tmpDir
-	if err := newCmd.Run(); err != nil {
+	if err := runLvtCommand(t, tmpDir, "new", "testapp"); err != nil {
 		t.Fatalf("Failed to create app: %v", err)
 	}
 
 	// Generate resource with inferred types (no :type specified)
-	genCmd := exec.Command(lvtBinary, "gen", "users", "name", "email", "age", "price", "published", "created_at")
-	genCmd.Dir = appDir
-	genCmd.Stdout = os.Stdout
-	genCmd.Stderr = os.Stderr
-	if err := genCmd.Run(); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "users", "name", "email", "age", "price", "published", "created_at"); err != nil {
 		t.Fatalf("Failed to generate resource with type inference: %v", err)
 	}
 

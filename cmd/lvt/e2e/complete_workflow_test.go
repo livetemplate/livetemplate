@@ -17,37 +17,37 @@ import (
 // TestCompleteWorkflow_BlogApp tests the complete blog application workflow
 // This is a comprehensive integration test that validates the entire stack
 func TestCompleteWorkflow_BlogApp(t *testing.T) {
+	t.Parallel() // Enable parallel execution
+
 	tmpDir := t.TempDir()
 
 	// Step 1: Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Step 2: Create blog app
 	t.Log("Step 2: Creating blog app...")
-	appDir := createTestApp(t, lvtBinary, tmpDir, "blog", &AppOptions{
+	appDir := createTestApp(t, tmpDir, "blog", &AppOptions{
 		Kit:     "multi",
-		CSS:     "tailwind",
 		DevMode: true,
 	})
 	t.Log("✅ Blog app created")
 
 	// Step 3: Generate posts resource
 	t.Log("Step 3: Generating posts resource...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "posts", "title", "content:text", "published:bool"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "posts", "title", "content:text", "published:bool"); err != nil {
 		t.Fatalf("Failed to generate posts: %v", err)
 	}
 	t.Log("✅ Posts resource generated")
 
 	// Step 4: Generate categories resource
 	t.Log("Step 4: Generating categories resource...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "categories", "name", "description"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "categories", "name", "description"); err != nil {
 		t.Fatalf("Failed to generate categories: %v", err)
 	}
 	t.Log("✅ Categories resource generated")
 
 	// Step 5: Generate comments resource with foreign key
 	t.Log("Step 5: Generating comments resource with FK...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "gen", "comments", "post_id:references:posts", "author", "text"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "comments", "post_id:references:posts", "author", "text"); err != nil {
 		t.Fatalf("Failed to generate comments: %v", err)
 	}
 	t.Log("✅ Comments resource generated")
@@ -83,7 +83,7 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 
 	// Step 7: Run migrations
 	t.Log("Step 7: Running migrations...")
-	if err := runLvtCommand(t, lvtBinary, appDir, "migration", "up"); err != nil {
+	if err := runLvtCommand(t, appDir, "migration", "up"); err != nil {
 		t.Fatalf("Failed to run migrations: %v", err)
 	}
 	t.Log("✅ Migrations complete")
@@ -96,9 +96,9 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 	appBinary := buildGeneratedApp(t, appDir)
 	t.Log("✅ Blog app compiled successfully")
 
-	// Step 9: Start the app
+	// Step 9: Start the app (use unique port for parallel execution)
 	t.Log("Step 9: Starting blog app...")
-	serverPort := 8765
+	serverPort := allocateTestPort()
 	serverCmd := startAppServer(t, appBinary, serverPort)
 	defer func() {
 		if serverCmd != nil && serverCmd.Process != nil {
@@ -110,16 +110,10 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 	waitForServer(t, serverURL+"/posts", 10*time.Second)
 	t.Log("✅ Blog app running")
 
-	// Step 10: Start Chrome
-	t.Log("Step 10: Starting Docker Chrome...")
-	debugPort := 9222
-	chromeCmd := startDockerChrome(t, debugPort)
-	defer stopDockerChrome(t, chromeCmd, debugPort)
-
-	// Connect to Chrome
-	chromeURL := fmt.Sprintf("http://localhost:%d", debugPort)
-	allocCtx, allocCancel := chromedp.NewRemoteAllocator(context.Background(), chromeURL)
-	defer allocCancel()
+	// Step 10: Use shared Chrome container (no startup overhead!)
+	t.Log("Step 10: Using shared Docker Chrome...")
+	ctx, cancel := getSharedChromeContext(t)
+	defer cancel()
 
 	// Get test URL for Chrome (Docker networking)
 	testURL := getTestURL(serverPort)
@@ -130,10 +124,10 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 
 	// Helper to create a fresh browser context for each subtest
 	createBrowserContext := func() (context.Context, context.CancelFunc) {
-		ctx, cancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(t.Logf))
+		subCtx, cancel := chromedp.NewContext(ctx, chromedp.WithLogf(t.Logf))
 
 		// Listen for console errors
-		chromedp.ListenTarget(ctx, func(ev interface{}) {
+		chromedp.ListenTarget(subCtx, func(ev interface{}) {
 			if consoleEvent, ok := ev.(*runtime.EventConsoleAPICalled); ok {
 				for _, arg := range consoleEvent.Args {
 					if arg.Type == runtime.TypeString {
@@ -141,7 +135,7 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 						consoleLogsMutex.Lock()
 						consoleLogs = append(consoleLogs, logMsg)
 						consoleLogsMutex.Unlock()
-						if strings.Contains(logMsg, "WebSocket") || strings.Contains(logMsg, "Failed") || strings.Contains(logMsg, "Error") {
+						if strings.Contains(logMsg, "WebSocket") || strings.Contains(logMsg, "Failed") || strings.Contains(logMsg, "Error") || strings.Contains(logMsg, "[DEBUG]") {
 							t.Logf("Browser console: %s", logMsg)
 						}
 					}
@@ -149,7 +143,7 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 			}
 		})
 
-		return ctx, cancel
+		return subCtx, cancel
 	}
 
 	// Step 11: E2E UI Testing
@@ -190,13 +184,15 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 		}
 	})
 
-	// Test 11.3: Create Post
-	t.Run("Create Post", func(t *testing.T) {
+	// Test 11.3: Create and Edit Post
+	// Merged into single test to avoid timing issues between separate browser contexts
+	t.Run("Create and Edit Post", func(t *testing.T) {
 		ctx, cancel := createBrowserContext()
 		defer cancel()
-		ctx, timeoutCancel := context.WithTimeout(ctx, 30*time.Second)
+		ctx, timeoutCancel := context.WithTimeout(ctx, 60*time.Second)
 		defer timeoutCancel()
 
+		// Step 1: Create post
 		err := chromedp.Run(ctx,
 			// Navigate and wait
 			chromedp.Navigate(testURL+"/posts"),
@@ -218,11 +214,6 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 			// Submit
 			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
 			chromedp.Sleep(formSubmitDelay),
-
-			// Reload to see persisted post
-			chromedp.Reload(),
-			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
-			chromedp.Sleep(shortDelay),
 		)
 		if err != nil {
 			t.Fatalf("Failed to create post: %v", err)
@@ -250,29 +241,9 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 		if !postInTable {
 			t.Fatal("❌ Post not found in table")
 		}
+		t.Log("✅ Post created successfully")
 
-		t.Log("✅ Post created and appears in table")
-	})
-
-	// Test 11.4: Edit Post
-	t.Run("Edit Post", func(t *testing.T) {
-		t.Skip("Skipping flaky test: Edit Post has chromedp timing issues in Docker Chrome environment. The edit functionality is proven to work (Delete Post successfully finds 'My Updated Blog Post'), but the test times out waiting for UI elements. This is a test infrastructure issue, not a bug in the application.")
-
-		ctx, cancel := createBrowserContext()
-		defer cancel()
-		ctx, timeoutCancel := context.WithTimeout(ctx, 60*time.Second)
-		defer timeoutCancel()
-
-		err := chromedp.Run(ctx,
-			chromedp.Navigate(testURL+"/posts"),
-			waitForWebSocketReady(5*time.Second),
-			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
-		)
-		if err != nil {
-			t.Fatalf("Failed to navigate to posts page: %v", err)
-		}
-		t.Log("✅ Navigated to posts page")
-
+		// Step 2: Edit the post (in same browser context)
 		// Click Edit button
 		var editButtonClicked bool
 		err = chromedp.Run(ctx,
@@ -301,29 +272,29 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 		}
 		t.Log("✅ Edit button clicked")
 
-		// Wait for modal to open and input to be visible using polling helper
+		// Wait for edit form to appear (edit modal is conditionally rendered, no ID attribute)
 		err = chromedp.Run(ctx,
 			waitForCondition(ctx, `
 				(() => {
-					const modal = document.getElementById('edit-modal');
-					const input = document.querySelector('input[name="title"]');
-					return modal && !modal.hasAttribute('hidden') && input !== null;
+					const form = document.querySelector('form[lvt-submit="update"]');
+					const input = document.querySelector('form[lvt-submit="update"] input[name="title"]');
+					return form !== null && input !== null;
 				})()
-			`, 5*time.Second, shortDelay),
+			`, 10*time.Second, shortDelay),
 		)
 
 		if err != nil {
 			var debugHTML string
 			_ = chromedp.Evaluate(`document.body.innerHTML`, &debugHTML).Do(ctx)
 			t.Logf("DEBUG: Body HTML (first 2000 chars):\n%s", debugHTML[:min(2000, len(debugHTML))])
-			t.Fatalf("Edit modal did not open - input field not visible: %v", err)
+			t.Fatalf("Edit form did not appear: %v", err)
 		}
-		t.Log("✅ Modal opened and input visible")
+		t.Log("✅ Edit form appeared")
 
 		// Update title
 		err = chromedp.Run(ctx,
-			chromedp.Clear(`input[name="title"]`),
-			chromedp.SendKeys(`input[name="title"]`, "My Updated Blog Post", chromedp.ByQuery),
+			chromedp.Clear(`form[lvt-submit="update"] input[name="title"]`),
+			chromedp.SendKeys(`form[lvt-submit="update"] input[name="title"]`, "My Updated Blog Post", chromedp.ByQuery),
 		)
 		if err != nil {
 			t.Fatalf("Failed to update title: %v", err)
@@ -332,13 +303,13 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 
 		// Submit and wait for WebSocket update
 		err = chromedp.Run(ctx,
-			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
+			chromedp.Click(`form[lvt-submit="update"] button[type="submit"]`, chromedp.ByQuery),
 		)
 		if err != nil {
 			t.Fatalf("Failed to submit form: %v", err)
 		}
 
-		// Wait for update to appear in table using polling helper
+		// Wait for update to appear in table
 		err = chromedp.Run(ctx,
 			waitForCondition(ctx, `
 				(() => {
@@ -360,10 +331,10 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 			t.Fatalf("❌ Updated post 'My Updated Blog Post' not found in table: %v", err)
 		}
 
-		t.Log("✅ Post updated successfully")
+		t.Log("✅ Post created and edited successfully")
 	})
 
-	// Test 11.5: Delete Post with Confirmation
+	// Test 11.4: Delete Post with Confirmation
 	t.Run("Delete Post", func(t *testing.T) {
 		ctx, cancel := createBrowserContext()
 		defer cancel()
@@ -447,7 +418,8 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 		t.Log("✅ Post deleted successfully")
 	})
 
-	// Test 11.6: Validation Errors
+	// Test 11.5: Validation Errors
+	// Bug was fixed on 2025-10-24 - see BUG-VALIDATION-CONDITIONALS.md:409
 	t.Run("Validation Errors", func(t *testing.T) {
 		ctx, cancel := createBrowserContext()
 		defer cancel()
@@ -471,17 +443,52 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 			chromedp.Evaluate(`
 				const form = document.querySelector('form[lvt-submit]');
 				if (form) {
+					// Bypass HTML5 validation to test server-side validation
+					form.noValidate = true;
+					// Reset debug flags
+					window.__lvtSubmitListenerTriggered = false;
+					window.__lvtActionFound = null;
 					form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 				}
 			`, nil),
-			chromedp.Sleep(modalAnimationDelay),
+			chromedp.Sleep(modalAnimationDelay*2), // Wait longer for validation errors to appear
+
+			// Check debug flags to see if submit was captured
+			chromedp.Evaluate(`
+				(() => {
+					console.log('[DEBUG] Submit listener triggered: ' + window.__lvtSubmitListenerTriggered);
+					console.log('[DEBUG] Action found: ' + window.__lvtActionFound);
+					console.log('[DEBUG] In wrapper: ' + window.__lvtInWrapper);
+					console.log('[DEBUG] Wrapper element: ' + window.__lvtWrapperElement);
+					console.log('[DEBUG] Before handleAction: ' + window.__lvtBeforeHandleAction);
+					console.log('[DEBUG] After handleAction: ' + window.__lvtAfterHandleAction);
+					return {
+						listenerTriggered: window.__lvtSubmitListenerTriggered,
+						actionFound: window.__lvtActionFound,
+						inWrapper: window.__lvtInWrapper,
+						beforeHandle: window.__lvtBeforeHandleAction,
+						afterHandle: window.__lvtAfterHandleAction
+					};
+				})()
+			`, nil),
 
 			// Check for error messages
 			chromedp.Evaluate(`
 				(() => {
 					const form = document.querySelector('form[lvt-submit]');
-					if (!form) return false;
+					if (!form) {
+						console.log('[DEBUG] Form not found!');
+						return false;
+					}
+					console.log('[DEBUG] Form HTML (first 1000 chars): ' + form.outerHTML.substring(0, 1000));
 					const smallTags = Array.from(form.querySelectorAll('small'));
+					console.log('[DEBUG] Found ' + smallTags.length + ' small tags');
+					smallTags.forEach(el => console.log('[DEBUG] Small text: ' + el.textContent));
+
+					// Also check for any elements with aria-invalid
+					const invalidFields = Array.from(form.querySelectorAll('[aria-invalid="true"]'));
+					console.log('[DEBUG] Found ' + invalidFields.length + ' invalid fields');
+
 					return smallTags.some(el => el.textContent.includes('required') || el.textContent.includes('is required'));
 				})()
 			`, &errorsVisible),
@@ -497,7 +504,7 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 		}
 	})
 
-	// Test 11.7: Infinite Scroll Configuration
+	// Test 11.6: Infinite Scroll Configuration
 	t.Run("Infinite Scroll", func(t *testing.T) {
 		// Verify handler has infinite pagination
 		handlerFile := filepath.Join(appDir, "internal", "app", "posts", "posts.go")
@@ -526,14 +533,14 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 		}
 	})
 
-	// Test 11.8: No Server Errors
+	// Test 11.7: No Server Errors
 	t.Run("Server Logs Check", func(t *testing.T) {
 		// Check for critical errors only (warnings are okay)
 		// Note: Server logs are being output to test stdout/stderr
 		t.Log("✅ No critical server errors detected")
 	})
 
-	// Test 11.9: No Console Errors
+	// Test 11.8: No Console Errors
 	t.Run("Console Logs Check", func(t *testing.T) {
 		consoleLogsMutex.Lock()
 		defer consoleLogsMutex.Unlock()

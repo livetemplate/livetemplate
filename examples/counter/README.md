@@ -9,7 +9,7 @@ A real-time counter application demonstrating LiveTemplate's reactive state mana
 - **Minimal bandwidth**: Only the changed values are transmitted, not the entire HTML
 - **No custom JavaScript**: Uses only the LiveTemplate client library
 - **Template-based**: HTML is generated from Go templates with conditional rendering
-- **Simple API**: Mount a store with a single function call
+- **Simple API**: Create handlers with a single method call
 
 ## Running the Example
 
@@ -172,7 +172,7 @@ Browser                    WebSocket/HTTP              Go Server
 │                 │        │          │               │ Change(action,   │
 │ LiveTemplate    │        │          │               │   data)          │
 │ Client JS       │        │          │               │                  │
-│                 │        │          │               │ Mount()          │
+│                 │        │          │               │ Handle()         │
 │ lvt-* attrs     │        │ Auto-    │               │ - Clones state   │
 │ - click         │        │ detects  │               │ - Generates      │
 │ - submit        │        │ transport│               │   updates        │

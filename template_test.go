@@ -645,3 +645,146 @@ func BenchmarkTemplate_ExecuteUpdates(b *testing.B) {
 		}
 	}
 }
+
+// Test configuration options
+func TestTemplate_WithAuthenticator(t *testing.T) {
+	// Test default authenticator
+	t.Run("default anonymous authenticator", func(t *testing.T) {
+		tmpl := New("test")
+		if tmpl.config.Authenticator == nil {
+			t.Error("Expected default Authenticator to be set, got nil")
+		}
+		if _, ok := tmpl.config.Authenticator.(*AnonymousAuthenticator); !ok {
+			t.Errorf("Expected default Authenticator to be *AnonymousAuthenticator, got %T", tmpl.config.Authenticator)
+		}
+	})
+
+	// Test custom authenticator
+	t.Run("custom authenticator", func(t *testing.T) {
+		customAuth := NewBasicAuthenticator(func(username, password string) (bool, error) {
+			return username == "test" && password == "pass", nil
+		})
+
+		tmpl := New("test", WithAuthenticator(customAuth))
+		if tmpl.config.Authenticator != customAuth {
+			t.Error("Expected custom Authenticator to be set")
+		}
+	})
+
+	// Test authenticator override
+	t.Run("authenticator override", func(t *testing.T) {
+		auth1 := NewBasicAuthenticator(func(username, password string) (bool, error) {
+			return true, nil
+		})
+		auth2 := NewBasicAuthenticator(func(username, password string) (bool, error) {
+			return false, nil
+		})
+
+		tmpl := New("test", WithAuthenticator(auth1), WithAuthenticator(auth2))
+		if tmpl.config.Authenticator != auth2 {
+			t.Error("Expected second Authenticator to override the first")
+		}
+	})
+}
+
+func TestTemplate_WithAllowedOrigins(t *testing.T) {
+	// Test default (no origins set)
+	t.Run("default no allowed origins", func(t *testing.T) {
+		tmpl := New("test")
+		if len(tmpl.config.AllowedOrigins) != 0 {
+			t.Errorf("Expected no AllowedOrigins by default, got %d", len(tmpl.config.AllowedOrigins))
+		}
+	})
+
+	// Test setting allowed origins
+	t.Run("set allowed origins", func(t *testing.T) {
+		origins := []string{"https://example.com", "https://www.example.com"}
+		tmpl := New("test", WithAllowedOrigins(origins))
+
+		if len(tmpl.config.AllowedOrigins) != 2 {
+			t.Errorf("Expected 2 AllowedOrigins, got %d", len(tmpl.config.AllowedOrigins))
+		}
+
+		for i, origin := range origins {
+			if tmpl.config.AllowedOrigins[i] != origin {
+				t.Errorf("Expected AllowedOrigins[%d] = %q, got %q", i, origin, tmpl.config.AllowedOrigins[i])
+			}
+		}
+	})
+
+	// Test empty origins list
+	t.Run("empty allowed origins", func(t *testing.T) {
+		tmpl := New("test", WithAllowedOrigins([]string{}))
+		if len(tmpl.config.AllowedOrigins) != 0 {
+			t.Errorf("Expected empty AllowedOrigins, got %d", len(tmpl.config.AllowedOrigins))
+		}
+	})
+
+	// Test single origin
+	t.Run("single allowed origin", func(t *testing.T) {
+		tmpl := New("test", WithAllowedOrigins([]string{"https://example.com"}))
+		if len(tmpl.config.AllowedOrigins) != 1 {
+			t.Errorf("Expected 1 AllowedOrigin, got %d", len(tmpl.config.AllowedOrigins))
+		}
+		if tmpl.config.AllowedOrigins[0] != "https://example.com" {
+			t.Errorf("Expected origin 'https://example.com', got %q", tmpl.config.AllowedOrigins[0])
+		}
+	})
+}
+
+func TestTemplate_WithSessionStore(t *testing.T) {
+	// Test default session store
+	t.Run("default session store", func(t *testing.T) {
+		tmpl := New("test")
+		if tmpl.config.SessionStore == nil {
+			t.Error("Expected default SessionStore to be set, got nil")
+		}
+		if _, ok := tmpl.config.SessionStore.(*MemorySessionStore); !ok {
+			t.Errorf("Expected default SessionStore to be *MemorySessionStore, got %T", tmpl.config.SessionStore)
+		}
+	})
+
+	// Test custom session store
+	t.Run("custom session store", func(t *testing.T) {
+		customStore := NewMemorySessionStore()
+		tmpl := New("test", WithSessionStore(customStore))
+		if tmpl.config.SessionStore != customStore {
+			t.Error("Expected custom SessionStore to be set")
+		}
+	})
+}
+
+func TestTemplate_CombinedOptions(t *testing.T) {
+	// Test combining multiple options
+	t.Run("multiple options", func(t *testing.T) {
+		auth := NewBasicAuthenticator(func(username, password string) (bool, error) {
+			return true, nil
+		})
+		origins := []string{"https://example.com"}
+		store := NewMemorySessionStore()
+
+		tmpl := New("test",
+			WithAuthenticator(auth),
+			WithAllowedOrigins(origins),
+			WithSessionStore(store),
+			WithDevMode(true),
+			WithWebSocketDisabled(),
+		)
+
+		if tmpl.config.Authenticator != auth {
+			t.Error("Expected custom Authenticator")
+		}
+		if len(tmpl.config.AllowedOrigins) != 1 {
+			t.Error("Expected AllowedOrigins to be set")
+		}
+		if tmpl.config.SessionStore != store {
+			t.Error("Expected custom SessionStore")
+		}
+		if !tmpl.config.DevMode {
+			t.Error("Expected DevMode to be true")
+		}
+		if !tmpl.config.WebSocketDisabled {
+			t.Error("Expected WebSocketDisabled to be true")
+		}
+	})
+}

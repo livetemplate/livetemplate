@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,27 +12,14 @@ func TestTextareaFields(t *testing.T) {
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, "testapp")
 
-	// Build lvt
-	lvtBinary := filepath.Join(tmpDir, "lvt")
-	buildCmd := exec.Command("go", "build", "-o", lvtBinary, "github.com/livefir/livetemplate/cmd/lvt")
-	if err := buildCmd.Run(); err != nil {
-		t.Fatalf("Failed to build lvt: %v", err)
-	}
-
 	// Create app
-	newCmd := exec.Command(lvtBinary, "new", "testapp")
-	newCmd.Dir = tmpDir
-	if err := newCmd.Run(); err != nil {
+	if err := runLvtCommand(t, tmpDir, "new", "testapp"); err != nil {
 		t.Fatalf("Failed to create app: %v", err)
 	}
 
 	// Test 1: Generate resource with explicit textarea type
 	t.Run("Explicit_Textarea_Type", func(t *testing.T) {
-		genCmd := exec.Command(lvtBinary, "gen", "articles", "title", "content:text")
-		genCmd.Dir = appDir
-		genCmd.Stdout = os.Stdout
-		genCmd.Stderr = os.Stderr
-		if err := genCmd.Run(); err != nil {
+		if err := runLvtCommand(t, appDir, "gen", "articles", "title", "content:text"); err != nil {
 			t.Fatalf("Failed to generate resource with :text type: %v", err)
 		}
 
@@ -86,11 +72,7 @@ func TestTextareaFields(t *testing.T) {
 
 	// Test 2: Generate resource with inferred textarea type
 	t.Run("Inferred_Textarea_Type", func(t *testing.T) {
-		genCmd := exec.Command(lvtBinary, "gen", "posts", "title", "content", "description", "body")
-		genCmd.Dir = appDir
-		genCmd.Stdout = os.Stdout
-		genCmd.Stderr = os.Stderr
-		if err := genCmd.Run(); err != nil {
+		if err := runLvtCommand(t, appDir, "gen", "posts", "title", "content", "description", "body"); err != nil {
 			t.Fatalf("Failed to generate resource with inferred textarea types: %v", err)
 		}
 
@@ -137,11 +119,7 @@ func TestTextareaFields(t *testing.T) {
 
 	// Test 3: Verify textarea aliases work (textarea, longtext)
 	t.Run("Textarea_Aliases", func(t *testing.T) {
-		genCmd := exec.Command(lvtBinary, "gen", "documents", "title", "summary:textarea", "details:longtext")
-		genCmd.Dir = appDir
-		genCmd.Stdout = os.Stdout
-		genCmd.Stderr = os.Stderr
-		if err := genCmd.Run(); err != nil {
+		if err := runLvtCommand(t, appDir, "gen", "documents", "title", "summary:textarea", "details:longtext"); err != nil {
 			t.Fatalf("Failed to generate resource with textarea aliases: %v", err)
 		}
 

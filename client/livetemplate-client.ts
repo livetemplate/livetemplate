@@ -1280,6 +1280,41 @@ export class LiveTemplateClient {
   }
 
   /**
+   * Deep merge tree nodes, taking statics from update if present, else preserving existing
+   * @param existing - The existing tree node (may have 's' key with statics)
+   * @param update - The update tree node (if it has 's', use those; else preserve existing 's')
+   * @returns Merged tree node
+   */
+  private deepMergeTreeNodes(existing: any, update: any): any {
+    // If update is not an object, just return it
+    if (typeof update !== 'object' || update === null || Array.isArray(update)) {
+      return update;
+    }
+
+    // If existing is not an object, just return update
+    if (typeof existing !== 'object' || existing === null || Array.isArray(existing)) {
+      return update;
+    }
+
+    // Start with a copy of existing (to preserve 's' and 'f' if update doesn't have them)
+    const merged: any = { ...existing };
+
+    // Merge each key from update (this will overwrite existing keys including 's' if present)
+    for (const [key, value] of Object.entries(update)) {
+      if (typeof value === 'object' && value !== null && !Array.isArray(value) &&
+          typeof merged[key] === 'object' && merged[key] !== null && !Array.isArray(merged[key])) {
+        // Both are objects, recursively merge
+        merged[key] = this.deepMergeTreeNodes(merged[key], value);
+      } else {
+        // Simple value or array, just replace
+        merged[key] = value;
+      }
+    }
+
+    return merged;
+  }
+
+  /**
    * Apply an update to the current state and reconstruct HTML
    * @param update - Tree update object from LiveTemplate server
    * @returns Reconstructed HTML and whether anything changed
@@ -1300,15 +1335,20 @@ export class LiveTemplateClient {
         changed = true;
       } else {
         // Regular value update (including initial range structures with d and s)
-        if (JSON.stringify(this.treeState[key]) !== JSON.stringify(value)) {
-          this.treeState[key] = value;
+        const oldValue = this.treeState[key];
+        const newValue = typeof value === 'object' && value !== null && !Array.isArray(value)
+          ? this.deepMergeTreeNodes(oldValue, value)
+          : value;
+
+        if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
+          this.treeState[key] = newValue;
           changed = true;
         }
       }
     }
 
     // Reconstruct HTML from the complete tree state
-    const html = this.reconstructFromTree(this.treeState);
+    const html = this.reconstructFromTree(this.treeState, '');
 
     return { html, changed };
   }
@@ -1319,43 +1359,49 @@ export class LiveTemplateClient {
    * Dynamic values are interleaved between static segments: static[0] + dynamic[0] + static[1] + ...
    * Invariant: len(statics) == len(dynamics) + 1
    */
-  private reconstructFromTree(node: TreeNode): string {
+  private reconstructFromTree(node: TreeNode, statePath: string): string {
     // If node has static segments, use them as the template
     if (node.s && Array.isArray(node.s)) {
       let html = '';
-      
+
       // Interleave static segments with dynamic values
       // Pattern: static[0] + dynamic[0] + static[1] + dynamic[1] + ... + static[n]
       for (let i = 0; i < node.s.length; i++) {
         const staticSegment = node.s[i];
-        
+
         // Add static segment
         html += staticSegment;
-        
+
         // After adding the static segment, add the corresponding dynamic value if it exists
         // But only if we're not at the last static segment
         if (i < node.s.length - 1) {
-          const dynamicKey = i.toString();
+          const dynamicKey = i.toString(); // Simple key for tree node lookup
           if (node[dynamicKey] !== undefined) {
-            html += this.renderValue(node[dynamicKey], dynamicKey);
+            // Build path for state tracking (collision prevention in nested structures)
+            const newStatePath = statePath ? `${statePath}.${dynamicKey}` : dynamicKey;
+            // Pass: value from node[dynamicKey], simple key for lookups, path for state
+            html += this.renderValue(node[dynamicKey], dynamicKey, newStatePath);
           }
         }
       }
-      
+
       // Remove the <root> wrapper that was added for parsing
       html = html.replace(/<root>/g, '').replace(/<\/root>/g, '');
-      
+
       return html;
     }
-    
+
     // If no static segments, just render the values
-    return this.renderValue(node);
+    return this.renderValue(node, '', statePath);
   }
 
   /**
    * Render a dynamic value (could be string, nested tree, or array)
+   * @param value - The value to render
+   * @param fieldKey - Simple key for tree node lookups (e.g., "0", "1", "2")
+   * @param statePath - Path-based key for rangeState tracking (e.g., "0.1.2")
    */
-  private renderValue(value: any, fieldKey?: string): string {
+  private renderValue(value: any, fieldKey?: string, statePath?: string): string {
     if (value === null || value === undefined) {
       return '';
     }
@@ -1370,17 +1416,20 @@ export class LiveTemplateClient {
       // Check if this is a range structure with 'd' and 's'
       if (value.d && Array.isArray(value.d) && value.s && Array.isArray(value.s)) {
         // Store the range items AND statics for differential operations
-        if (fieldKey) {
-          this.rangeState[fieldKey] = {
+        // Use statePath for tracking to prevent collisions in nested structures
+        const stateKey = statePath || fieldKey || '';
+        if (stateKey) {
+          this.rangeState[stateKey] = {
             items: value.d,
             statics: value.s
           };
         }
-        return this.renderRangeStructure(value);
+        return this.renderRangeStructure(value, fieldKey, statePath);
       }
-      // Regular nested tree structure
-      if (value.s) {
-        return this.reconstructFromTree(value);
+      // Regular nested tree structure (conditionals, nested templates)
+      // Check explicitly for 's' property with proper type checking
+      if ('s' in value && Array.isArray(value.s)) {
+        return this.reconstructFromTree(value, statePath || '');
       }
     }
 
@@ -1388,27 +1437,40 @@ export class LiveTemplateClient {
     if (Array.isArray(value)) {
       // Check if this is a differential operations array
       if (value.length > 0 && Array.isArray(value[0]) && typeof value[0][0] === 'string') {
-        return this.applyDifferentialOperations(value, fieldKey);
+        return this.applyDifferentialOperations(value, statePath);
       }
 
       // Regular array (from range iteration)
-      return value.map(item => {
+      return value.map((item, idx) => {
         // Each item should be a tree node with its own static/dynamic structure
+        const itemKey = idx.toString();
+        const itemStatePath = statePath ? `${statePath}.${itemKey}` : itemKey;
         if (typeof item === 'object' && item.s) {
-          return this.reconstructFromTree(item);
+          return this.reconstructFromTree(item, itemStatePath);
         }
-        return this.renderValue(item);
+        return this.renderValue(item, itemKey, itemStatePath);
       }).join('');
     }
 
     // Simple string/number value
+    // DEBUG: Log values that reach here as objects (this causes [object Object])
+    if (typeof value === 'object' && value !== null) {
+      console.error('[LiveTemplate ERROR] Object reached String(value) - this will cause [object Object]');
+      console.error('[LiveTemplate ERROR] Value type:', typeof value, 'isArray:', Array.isArray(value));
+      console.error('[LiveTemplate ERROR] Value keys:', Object.keys(value));
+      console.error('[LiveTemplate ERROR] value.s exists:', !!value.s, 'value.d exists:', !!value.d);
+      console.error('[LiveTemplate ERROR] Value:', JSON.stringify(value));
+    }
     return String(value);
   }
 
   /**
    * Render a range structure with 'd' (dynamics) and 's' (statics) arrays
+   * @param rangeNode - The range node with d and s arrays
+   * @param fieldKey - Simple key for lookups
+   * @param statePath - Path-based key for rangeState tracking
    */
-  private renderRangeStructure(rangeNode: any): string {
+  private renderRangeStructure(rangeNode: any, fieldKey?: string, statePath?: string): string {
     const { d: dynamics, s: statics } = rangeNode;
 
     if (!dynamics || !Array.isArray(dynamics)) {
@@ -1419,14 +1481,16 @@ export class LiveTemplateClient {
     if (dynamics.length === 0) {
       // Check if there's alternative content for empty ranges
       if (rangeNode['else']) {
-        return this.renderValue(rangeNode['else']);
+        const elseKey = 'else';
+        const elseStatePath = statePath ? `${statePath}.else` : 'else';
+        return this.renderValue(rangeNode['else'], elseKey, elseStatePath);
       }
       return '';
     }
 
     // If we have statics, use them as the template for each item
     if (statics && Array.isArray(statics)) {
-      return dynamics.map((item: any) => {
+      return dynamics.map((item: any, itemIdx: number) => {
         let html = '';
 
         for (let i = 0; i < statics.length; i++) {
@@ -1434,9 +1498,11 @@ export class LiveTemplateClient {
 
           // Add dynamic value if not at the last static segment
           if (i < statics.length - 1) {
-            const fieldKey = i.toString();
-            if (item[fieldKey] !== undefined) {
-              html += this.renderValue(item[fieldKey]);
+            const localKey = i.toString(); // Simple key for item[localKey] lookup
+            if (item[localKey] !== undefined) {
+              // Build path for state tracking
+              const itemStatePath = statePath ? `${statePath}.${itemIdx}.${localKey}` : `${itemIdx}.${localKey}`;
+              html += this.renderValue(item[localKey], localKey, itemStatePath);
             }
           }
         }
@@ -1446,7 +1512,11 @@ export class LiveTemplateClient {
     }
 
     // Fallback: render items as-is if no statics template
-    return dynamics.map(item => this.renderValue(item)).join('');
+    return dynamics.map((item, idx) => {
+      const itemKey = idx.toString();
+      const itemStatePath = statePath ? `${statePath}.${itemKey}` : itemKey;
+      return this.renderValue(item, itemKey, itemStatePath);
+    }).join('');
   }
 
   /**
@@ -1480,15 +1550,17 @@ export class LiveTemplateClient {
   /**
    * Apply differential operations to existing range items
    * Operations: ["r", key] for remove, ["u", key, changes] for update, ["a", items] for append
+   * @param operations - Array of differential operations
+   * @param statePath - Path-based key for rangeState lookup
    */
-  private applyDifferentialOperations(operations: any[], fieldKey?: string): string {
-    if (!fieldKey || !this.rangeState[fieldKey]) {
+  private applyDifferentialOperations(operations: any[], statePath?: string): string {
+    if (!statePath || !this.rangeState[statePath]) {
       // If we don't have previous range state, we can't apply differential operations
       // This happens on the first load - just return empty for now
       return '';
     }
 
-    const rangeData = this.rangeState[fieldKey];
+    const rangeData = this.rangeState[statePath];
     const currentItems = [...rangeData.items]; // Clone current items
     const statics = rangeData.statics;
 
@@ -1523,8 +1595,15 @@ export class LiveTemplateClient {
           }
           break;
 
-        case 'a': // Append: ["a", items] (items can be single item or array)
+        case 'a': // Append: ["a", items] or ["a", items, statics]
           const itemsToAppend = operation[1];
+          const appendStatics = operation[2]; // Optional: statics for first-time append
+
+          // If statics are provided (first-time append to empty range), update cached statics
+          if (appendStatics) {
+            rangeData.statics = appendStatics;
+          }
+
           if (itemsToAppend) {
             if (Array.isArray(itemsToAppend)) {
               currentItems.push(...itemsToAppend);
@@ -1588,21 +1667,22 @@ export class LiveTemplateClient {
       }
     }
 
-    // Update our range state with new items (keep statics unchanged)
-    this.rangeState[fieldKey] = {
+    // Update our range state with new items and potentially updated statics
+    // (statics may have been updated by append operation if client didn't have them)
+    this.rangeState[statePath] = {
       items: currentItems,
-      statics: statics
+      statics: rangeData.statics  // Use updated statics, not the const
     };
 
     // IMPORTANT: Replace the differential operations in treeState with the updated range structure
     // This prevents the operations from being applied again on the next render
-    this.treeState[fieldKey] = {
+    this.treeState[statePath] = {
       d: currentItems,
-      s: statics
+      s: rangeData.statics  // Use updated statics
     };
 
     // Render using the current range structure template
-    const rangeStructure = this.getCurrentRangeStructure(fieldKey);
+    const rangeStructure = this.getCurrentRangeStructure(statePath);
     if (rangeStructure && rangeStructure.s) {
       return this.renderItemsWithStatics(currentItems, rangeStructure.s);
     }
@@ -1612,18 +1692,19 @@ export class LiveTemplateClient {
 
   /**
    * Get the current range structure for a field
+   * @param stateKey - State key for rangeState/treeState lookup
    */
-  private getCurrentRangeStructure(fieldKey: string): any {
+  private getCurrentRangeStructure(stateKey: string): any {
     // First check if we have it in rangeState (from differential operations)
-    if (this.rangeState[fieldKey]) {
+    if (this.rangeState[stateKey]) {
       return {
-        d: this.rangeState[fieldKey].items,
-        s: this.rangeState[fieldKey].statics
+        d: this.rangeState[stateKey].items,
+        s: this.rangeState[stateKey].statics
       };
     }
 
     // Fallback to treeState
-    const fieldValue = this.treeState[fieldKey];
+    const fieldValue = this.treeState[stateKey];
     if (fieldValue && typeof fieldValue === 'object' && fieldValue.s) {
       return fieldValue;
     }
@@ -1705,7 +1786,14 @@ export class LiveTemplateClient {
     // Apply update to internal state and get reconstructed HTML
     const result = this.applyUpdate(update);
 
-    if (!result.changed && !update.s) {
+    // Helper to recursively check if there are any statics in the tree
+    const hasStaticsInTree = (node: any): boolean => {
+      if (!node || typeof node !== 'object') return false;
+      if (node.s && Array.isArray(node.s)) return true;
+      return Object.values(node).some(v => hasStaticsInTree(v));
+    };
+
+    if (!result.changed && !hasStaticsInTree(update)) {
       // No changes detected and no statics in update, skip morphdom
       return;
     }
@@ -1771,6 +1859,15 @@ export class LiveTemplateClient {
 
     // Restore focus to previously focused element
     this.restoreFocusedElement();
+
+    // Handle scroll directives
+    this.handleScrollDirectives(element);
+
+    // Handle highlight directives
+    this.handleHighlightDirectives(element);
+
+    // Handle animate directives
+    this.handleAnimateDirectives(element);
 
     // Handle form lifecycle if metadata is present
     if (meta) {
@@ -1875,6 +1972,158 @@ export class LiveTemplateClient {
    */
   getStaticStructure(): string[] | null {
     return this.treeState.s || null;
+  }
+
+  /**
+   * Handle scroll directives on elements with lvt-scroll attribute
+   * Supports modes: bottom, bottom-sticky, top, preserve
+   */
+  private handleScrollDirectives(rootElement: Element): void {
+    const scrollElements = rootElement.querySelectorAll('[lvt-scroll]');
+
+    scrollElements.forEach((element) => {
+      const mode = element.getAttribute('lvt-scroll');
+      const behavior = element.getAttribute('lvt-scroll-behavior') as ScrollBehavior || 'auto';
+      const threshold = parseInt(element.getAttribute('lvt-scroll-threshold') || '100', 10);
+
+      if (!mode) return;
+
+      switch (mode) {
+        case 'bottom':
+          element.scrollTo({
+            top: element.scrollHeight,
+            behavior
+          });
+          break;
+
+        case 'bottom-sticky':
+          const isNearBottom = element.scrollHeight - element.scrollTop - element.clientHeight <= threshold;
+          if (isNearBottom) {
+            element.scrollTo({
+              top: element.scrollHeight,
+              behavior
+            });
+          }
+          break;
+
+        case 'top':
+          element.scrollTo({
+            top: 0,
+            behavior
+          });
+          break;
+
+        case 'preserve':
+          break;
+
+        default:
+          console.warn(`Unknown lvt-scroll mode: ${mode}`);
+      }
+    });
+  }
+
+  /**
+   * Handle highlight directives on elements with lvt-highlight attribute
+   * Highlights new or updated elements with a brief visual flash
+   */
+  private handleHighlightDirectives(rootElement: Element): void {
+    const highlightElements = rootElement.querySelectorAll('[lvt-highlight]');
+
+    highlightElements.forEach((element) => {
+      const mode = element.getAttribute('lvt-highlight');
+      const duration = parseInt(element.getAttribute('lvt-highlight-duration') || '500', 10);
+      const color = element.getAttribute('lvt-highlight-color') || '#ffc107';
+
+      if (!mode) return;
+
+      const htmlElement = element as HTMLElement;
+
+      const originalBackground = htmlElement.style.backgroundColor;
+      const originalTransition = htmlElement.style.transition;
+
+      htmlElement.style.transition = `background-color ${duration}ms ease-out`;
+      htmlElement.style.backgroundColor = color;
+
+      setTimeout(() => {
+        htmlElement.style.backgroundColor = originalBackground;
+
+        setTimeout(() => {
+          htmlElement.style.transition = originalTransition;
+        }, duration);
+      }, 50);
+    });
+  }
+
+  /**
+   * Handle animate directives on elements with lvt-animate attribute
+   * Applies entry/exit animations when elements are inserted or updated
+   */
+  private handleAnimateDirectives(rootElement: Element): void {
+    const animateElements = rootElement.querySelectorAll('[lvt-animate]');
+
+    animateElements.forEach((element) => {
+      const animation = element.getAttribute('lvt-animate');
+      const duration = parseInt(element.getAttribute('lvt-animate-duration') || '300', 10);
+
+      if (!animation) return;
+
+      const htmlElement = element as HTMLElement;
+
+      htmlElement.style.setProperty('--lvt-animate-duration', `${duration}ms`);
+
+      switch (animation) {
+        case 'fade':
+          htmlElement.style.animation = `lvt-fade-in var(--lvt-animate-duration) ease-out`;
+          break;
+
+        case 'slide':
+          htmlElement.style.animation = `lvt-slide-in var(--lvt-animate-duration) ease-out`;
+          break;
+
+        case 'scale':
+          htmlElement.style.animation = `lvt-scale-in var(--lvt-animate-duration) ease-out`;
+          break;
+
+        default:
+          console.warn(`Unknown lvt-animate mode: ${animation}`);
+      }
+
+      htmlElement.addEventListener('animationend', () => {
+        htmlElement.style.animation = '';
+      }, { once: true });
+    });
+
+    if (!document.getElementById('lvt-animate-styles')) {
+      const style = document.createElement('style');
+      style.id = 'lvt-animate-styles';
+      style.textContent = `
+        @keyframes lvt-fade-in {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes lvt-slide-in {
+          from {
+            opacity: 0;
+            transform: translateY(-10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        @keyframes lvt-scale-in {
+          from {
+            opacity: 0;
+            transform: scale(0.95);
+          }
+          to {
+            opacity: 1;
+            transform: scale(1);
+          }
+        }
+      `;
+      document.head.appendChild(style);
+    }
   }
 }
 

@@ -266,8 +266,8 @@ Kits are loaded with cascade priority:
 ### CLI Commands
 
 #### Application Commands
-- `lvt new <name> --css <framework>` - Create new app
-- `lvt gen <resource> [fields...] --css <framework>` - Generate CRUD resource
+- `lvt new <name> --kit <kit-name>` - Create new app (CSS from kit)
+- `lvt gen <resource> [fields...]` - Generate CRUD (CSS from kit)
 
 #### Kit Commands
 - `lvt kits list` - List available kits

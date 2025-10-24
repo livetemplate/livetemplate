@@ -18,17 +18,18 @@ type KitTemplates struct {
 
 // KitManifest represents the kit.yaml file structure
 type KitManifest struct {
-	Name        string       `yaml:"name"`
-	Version     string       `yaml:"version"`
-	Description string       `yaml:"description"`
-	Framework   string       `yaml:"framework,omitempty"` // Optional: for legacy CSS-specific kits
-	Author      string       `yaml:"author,omitempty"`
-	License     string       `yaml:"license,omitempty"`
-	CDN         string       `yaml:"cdn,omitempty"`        // CDN link for CSS framework
-	CustomCSS   string       `yaml:"custom_css,omitempty"` // Path to custom CSS file
-	Tags        []string     `yaml:"tags,omitempty"`
-	Components  []string     `yaml:"components,omitempty"` // List of component template names
-	Templates   KitTemplates `yaml:"templates,omitempty"`  // Generator templates included
+	Name         string       `yaml:"name"`
+	Version      string       `yaml:"version"`
+	CSSFramework string       `yaml:"css_framework"` // CSS framework used by this kit (tailwind, bulma, pico, none)
+	Description  string       `yaml:"description"`
+	Framework    string       `yaml:"framework,omitempty"` // Optional: for legacy CSS-specific kits
+	Author       string       `yaml:"author,omitempty"`
+	License      string       `yaml:"license,omitempty"`
+	CDN          string       `yaml:"cdn,omitempty"`        // CDN link for CSS framework
+	CustomCSS    string       `yaml:"custom_css,omitempty"` // Path to custom CSS file
+	Tags         []string     `yaml:"tags,omitempty"`
+	Components   []string     `yaml:"components,omitempty"` // List of component template names
+	Templates    KitTemplates `yaml:"templates,omitempty"`  // Generator templates included
 }
 
 // KitInfo represents a loaded kit with its metadata and helpers
@@ -62,7 +63,24 @@ func (m *KitManifest) Validate() error {
 		return ErrInvalidManifest{Field: "description", Reason: "description is required"}
 	}
 
-	// Framework is now optional (for modern kits that are CSS-agnostic)
+	// Support both css_framework (new) and framework (legacy) for backwards compatibility
+	framework := m.CSSFramework
+	if framework == "" {
+		framework = m.Framework
+	}
+
+	if framework == "" {
+		return ErrInvalidManifest{Field: "css_framework/framework", Reason: "either css_framework or framework is required"}
+	}
+
+	// Note: We don't validate the framework value here to allow custom frameworks for testing/development
+	// The loader will use system helpers for standard frameworks (tailwind, bulma, pico, none)
+	// and return nil helpers for custom frameworks
+
+	// Sync the fields for consistency (prefer CSSFramework)
+	if m.CSSFramework == "" && m.Framework != "" {
+		m.CSSFramework = m.Framework
+	}
 
 	return nil
 }

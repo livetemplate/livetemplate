@@ -11,7 +11,6 @@ func TestParse_ValidTemplate(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create a valid template file
 	templateContent := `<!DOCTYPE html>
@@ -41,7 +40,7 @@ func TestParse_ValidTemplate(t *testing.T) {
 
 	// Parse the template
 	t.Log("Parsing valid template...")
-	if err := runLvtCommand(t, lvtBinary, tmpDir, "parse", templateFile); err != nil {
+	if err := runLvtCommand(t, tmpDir, "parse", templateFile); err != nil {
 		t.Fatalf("Failed to parse valid template: %v", err)
 	}
 
@@ -53,7 +52,6 @@ func TestParse_InvalidTemplate(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Build lvt binary
-	lvtBinary := buildLvtBinary(t, tmpDir)
 
 	// Create an invalid template file (unclosed tag)
 	templateContent := `<!DOCTYPE html>
@@ -78,7 +76,7 @@ func TestParse_InvalidTemplate(t *testing.T) {
 
 	// Try to parse the invalid template (should fail)
 	t.Log("Parsing invalid template (expecting failure)...")
-	err := runLvtCommand(t, lvtBinary, tmpDir, "parse", templateFile)
+	err := runLvtCommand(t, tmpDir, "parse", templateFile)
 
 	// We expect this to fail
 	if err == nil {

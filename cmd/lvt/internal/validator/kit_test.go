@@ -17,7 +17,7 @@ func TestValidateKit_ValidKit(t *testing.T) {
 	kitYAML := `name: test-kit
 version: 1.0.0
 description: A test CSS kit
-framework: test
+framework: none
 author: Test Author
 license: MIT
 cdn: https://example.com/test.css
@@ -93,7 +93,7 @@ func TestValidateKit_InvalidGoSyntax(t *testing.T) {
 	kitYAML := `name: test-kit
 version: 1.0.0
 description: A test CSS kit
-framework: test
+framework: none
 `
 	if err := os.WriteFile(filepath.Join(kitDir, "kit.yaml"), []byte(kitYAML), 0644); err != nil {
 		t.Fatal(err)
@@ -130,7 +130,7 @@ func TestValidateKit_MissingHelpersStruct(t *testing.T) {
 	kitYAML := `name: test-kit
 version: 1.0.0
 description: A test CSS kit
-framework: test
+framework: none
 `
 	if err := os.WriteFile(filepath.Join(kitDir, "kit.yaml"), []byte(kitYAML), 0644); err != nil {
 		t.Fatal(err)
@@ -171,7 +171,7 @@ func TestValidateKit_MissingRequiredMethods(t *testing.T) {
 	kitYAML := `name: test-kit
 version: 1.0.0
 description: A test CSS kit
-framework: test
+framework: none
 `
 	if err := os.WriteFile(filepath.Join(kitDir, "kit.yaml"), []byte(kitYAML), 0644); err != nil {
 		t.Fatal(err)
@@ -217,7 +217,7 @@ func TestValidateKit_MissingREADME(t *testing.T) {
 	kitYAML := `name: test-kit
 version: 1.0.0
 description: A test CSS kit
-framework: test
+framework: none
 `
 	if err := os.WriteFile(filepath.Join(kitDir, "kit.yaml"), []byte(kitYAML), 0644); err != nil {
 		t.Fatal(err)
@@ -242,7 +242,7 @@ func TestValidateKit_CDNOnly(t *testing.T) {
 	kitYAML := `name: test-kit
 version: 1.0.0
 description: A CDN-only CSS kit
-framework: test
+framework: none
 cdn: https://example.com/test.css
 `
 	if err := os.WriteFile(filepath.Join(kitDir, "kit.yaml"), []byte(kitYAML), 0644); err != nil {
