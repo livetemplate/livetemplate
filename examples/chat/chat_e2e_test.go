@@ -71,7 +71,7 @@ func TestChatE2E(t *testing.T) {
 	defer cancelBrowser()
 
 	// Set timeout for the entire test
-	browserCtx, cancelTimeout := context.WithTimeout(browserCtx, 60*time.Second)
+	browserCtx, cancelTimeout := context.WithTimeout(browserCtx, 120*time.Second)
 	defer cancelTimeout()
 
 	t.Run("Initial_Load", func(t *testing.T) {
@@ -165,27 +165,146 @@ func TestChatE2E(t *testing.T) {
 	})
 
 	t.Run("Send_Message", func(t *testing.T) {
-		var messageCount int
+		var beforeHTML string
+		var after1HTML string
+		var after2HTML string
+		var after3HTML string
+		var msg1Count, msg2Count, msg3Count int
+		var msg1Text, msg2Text, msg3Text string
+
+		// Note: This test depends on Join_Flow having run first in the same browser context
+		// When run standalone, we need to ensure we're in the joined state
+		var isJoined bool
+		chromedp.Run(browserCtx,
+			chromedp.Evaluate(`document.querySelector('.messages') !== null`, &isJoined),
+		)
+
+		if !isJoined {
+			t.Log("Not yet joined, performing join...")
+			chromedp.Run(browserCtx,
+				chromedp.WaitVisible(`input[name="username"]`, chromedp.ByQuery),
+				chromedp.SetValue(`input[name="username"]`, "testuser", chromedp.ByQuery),
+				chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
+				chromedp.Sleep(2*time.Second), // Wait longer for join update
+				chromedp.WaitVisible(`.messages`, chromedp.ByQuery), // Explicitly wait for messages container
+			)
+			t.Log("Join completed, .messages container is visible")
+		}
 
 		err := chromedp.Run(browserCtx,
-			// Send a message
-			chromedp.SetValue(`input[name="message"]`, "Hello, world!", chromedp.ByQuery),
-			chromedp.Click(`form[lvt-submit="send"] button[type="submit"]`, chromedp.ByQuery),
-			chromedp.Sleep(500*time.Millisecond), // Wait for WebSocket update
 
-			// Count messages in DOM
-			chromedp.Evaluate(`document.querySelectorAll('.messages .message').length`, &messageCount),
+			chromedp.ActionFunc(func(ctx context.Context) error {
+				t.Log("Step 1: Capturing initial state")
+				return nil
+			}),
+			chromedp.OuterHTML(`.messages`, &beforeHTML, chromedp.ByQuery),
+
+			chromedp.ActionFunc(func(ctx context.Context) error {
+				t.Log("Step 2: Sending FIRST message")
+				return nil
+			}),
+			chromedp.SetValue(`input[name="message"]`, "First message", chromedp.ByQuery),
+			chromedp.Click(`form[lvt-submit="send"] button[type="submit"]`, chromedp.ByQuery),
+			chromedp.Sleep(1*time.Second),
+
+			chromedp.ActionFunc(func(ctx context.Context) error {
+				t.Log("Step 3: Checking first message")
+				return nil
+			}),
+			chromedp.Evaluate(`document.querySelectorAll('.messages .message').length`, &msg1Count),
+			chromedp.OuterHTML(`.messages`, &after1HTML, chromedp.ByQuery),
+			chromedp.Evaluate(`Array.from(document.querySelectorAll('.message-text')).map(el => el.textContent).join('|')`, &msg1Text),
+
+			chromedp.ActionFunc(func(ctx context.Context) error {
+				t.Logf("After 1st: count=%d, text=%q", msg1Count, msg1Text)
+				return nil
+			}),
+
+			chromedp.ActionFunc(func(ctx context.Context) error {
+				t.Log("Step 4: Sending SECOND message")
+				return nil
+			}),
+			chromedp.SetValue(`input[name="message"]`, "Second message", chromedp.ByQuery),
+			chromedp.Click(`form[lvt-submit="send"] button[type="submit"]`, chromedp.ByQuery),
+			chromedp.Sleep(1*time.Second),
+
+			chromedp.ActionFunc(func(ctx context.Context) error {
+				t.Log("Step 5: Checking second message")
+				return nil
+			}),
+			chromedp.Evaluate(`document.querySelectorAll('.messages .message').length`, &msg2Count),
+			chromedp.OuterHTML(`.messages`, &after2HTML, chromedp.ByQuery),
+			chromedp.Evaluate(`Array.from(document.querySelectorAll('.message-text')).map(el => el.textContent).join('|')`, &msg2Text),
+
+			chromedp.ActionFunc(func(ctx context.Context) error {
+				t.Logf("After 2nd: count=%d, text=%q", msg2Count, msg2Text)
+				return nil
+			}),
+
+			chromedp.ActionFunc(func(ctx context.Context) error {
+				t.Log("Step 6: Sending THIRD message")
+				return nil
+			}),
+			chromedp.SetValue(`input[name="message"]`, "Third message", chromedp.ByQuery),
+			chromedp.Click(`form[lvt-submit="send"] button[type="submit"]`, chromedp.ByQuery),
+			chromedp.Sleep(1*time.Second),
+
+			chromedp.ActionFunc(func(ctx context.Context) error {
+				t.Log("Step 7: Checking third message")
+				return nil
+			}),
+			chromedp.Evaluate(`document.querySelectorAll('.messages .message').length`, &msg3Count),
+			chromedp.OuterHTML(`.messages`, &after3HTML, chromedp.ByQuery),
+			chromedp.Evaluate(`Array.from(document.querySelectorAll('.message-text')).map(el => el.textContent).join('|')`, &msg3Text),
 		)
 
 		if err != nil {
 			t.Fatalf("Send message failed: %v", err)
 		}
 
-		if messageCount != 1 {
-			t.Errorf("Expected 1 message in chat, got %d", messageCount)
+		// Log state at each step
+		t.Logf("Before: empty=%v", strings.Contains(beforeHTML, "No messages yet"))
+		t.Logf("After 1st: count=%d, texts=%q", msg1Count, msg1Text)
+		t.Logf("After 2nd: count=%d, texts=%q", msg2Count, msg2Text)
+		t.Logf("After 3rd: count=%d, texts=%q", msg3Count, msg3Text)
+
+		// Verify first message
+		if msg1Count != 1 {
+			t.Errorf("After 1st message: expected 1 message, got %d", msg1Count)
+			t.Logf("HTML after 1st:\n%s", after1HTML)
+		}
+		if !strings.Contains(msg1Text, "First message") {
+			t.Errorf("After 1st message: expected 'First message', got %q", msg1Text)
 		}
 
-		t.Logf("✅ Message send test passed")
+		// Verify second message
+		if msg2Count != 2 {
+			t.Errorf("After 2nd message: expected 2 messages, got %d", msg2Count)
+			t.Logf("HTML after 2nd:\n%s", after2HTML)
+		}
+		if !strings.Contains(msg2Text, "First message") {
+			t.Errorf("After 2nd message: 'First message' missing from %q", msg2Text)
+		}
+		if !strings.Contains(msg2Text, "Second message") {
+			t.Errorf("After 2nd message: 'Second message' missing from %q", msg2Text)
+		}
+
+		// Verify third message
+		if msg3Count != 3 {
+			t.Errorf("After 3rd message: expected 3 messages, got %d", msg3Count)
+			t.Logf("HTML after 3rd:\n%s", after3HTML)
+		}
+		if !strings.Contains(msg3Text, "First message") {
+			t.Errorf("After 3rd message: 'First message' missing from %q", msg3Text)
+		}
+		if !strings.Contains(msg3Text, "Second message") {
+			t.Errorf("After 3rd message: 'Second message' missing from %q", msg3Text)
+		}
+		if !strings.Contains(msg3Text, "Third message") {
+			t.Errorf("After 3rd message: 'Third message' missing from %q", msg3Text)
+		}
+
+		t.Logf("✅ Multiple message send test passed")
 	})
 
 	t.Run("WebSocket_Updates", func(t *testing.T) {
