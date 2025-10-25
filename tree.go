@@ -22,9 +22,11 @@ type treeNode map[string]interface{}
 // calculateFingerprint calculates a 64-bit fingerprint (MD5 hash) for a tree's statics and dynamics
 // This allows detecting when a subtree has changed, similar to LiveView's optimization #2
 // Optimized in Phase 5 to use incremental hashing instead of full JSON marshaling
-func calculateFingerprint(tree treeNode) string {
+func calculateFingerprint(tree *TreeNode) string {
 	hasher := md5.New()
-	hashTreeIncremental(tree, hasher)
+	// Convert TreeNode to map for hashing (temporary during migration)
+	mapTree := tree.ToMap()
+	hashTreeIncremental(mapTree, hasher)
 
 	// Return first 16 characters of hex (64 bits)
 	fullHash := hex.EncodeToString(hasher.Sum(nil))
@@ -130,14 +132,14 @@ func hashValueIncremental(value interface{}, hasher hash.Hash) {
 
 // addFingerprintToTree adds the fingerprint to the tree for client-side tracking
 // NOTE: This should be internal-only for conditional branch detection
-func addFingerprintToTree(tree treeNode) treeNode {
-	if len(tree) == 0 {
+func addFingerprintToTree(tree *TreeNode) *TreeNode {
+	if !tree.HasStatics() && !tree.HasDynamics() {
 		return tree // Don't add fingerprint to empty trees
 	}
 
 	// For now, don't expose fingerprint to clients - keep it internal
 	// fingerprint := calculateFingerprint(tree)
-	// tree["f"] = fingerprint
+	// tree.Fingerprint = fingerprint
 	return tree
 }
 
@@ -326,7 +328,7 @@ func normalizeTemplateSpacing(templateStr string) string {
 }
 
 // parseTemplateToTree parses a template using the AST-based parser
-func parseTemplateToTree(templateStr string, data interface{}, keyGen *keyGenerator) (tree treeNode, err error) {
+func parseTemplateToTree(templateStr string, data interface{}, keyGen *keyGenerator) (tree *TreeNode, err error) {
 	// Recover from panics in template execution (can happen with fuzz-generated templates)
 	defer func() {
 		if r := recover(); r != nil {

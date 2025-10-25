@@ -87,16 +87,28 @@ func TestIDKeyDetection(t *testing.T) {
 			t.Logf("Tree structure:\n%s", treeJSON)
 
 			// The range node IS the root tree itself (not nested)
-			// Check for _idKey field
-			idKey, exists := tree["_idKey"]
-			if !exists {
-				t.Errorf("Expected _idKey field in range node, but it was missing")
+			// Check for metadata with idKey field (new format)
+			metadata, metaExists := tree["m"]
+			if !metaExists {
+				t.Errorf("Expected metadata 'm' field in range node, but it was missing")
+				return
+			}
+
+			metaMap, ok := metadata.(map[string]interface{})
+			if !ok {
+				t.Errorf("Expected metadata to be a map, got %T", metadata)
+				return
+			}
+
+			idKey, keyExists := metaMap["idKey"]
+			if !keyExists {
+				t.Errorf("Expected 'idKey' field in metadata, but it was missing")
 				return
 			}
 
 			// Verify the ID key matches expected
 			if idKey != tt.expectedIDKey {
-				t.Errorf("%s\nExpected _idKey: %q, got: %q", tt.description, tt.expectedIDKey, idKey)
+				t.Errorf("%s\nExpected idKey: %q, got: %q", tt.description, tt.expectedIDKey, idKey)
 			}
 		})
 	}

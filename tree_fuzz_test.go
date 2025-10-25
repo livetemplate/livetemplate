@@ -205,7 +205,7 @@ func FuzzParseTemplateToTree(f *testing.F) {
 		// strategy (AST walking + flat execution for mixed patterns) can produce
 		// trees that violate len(statics) = len(dynamics) + 1 for complex templates.
 		// This is expected and documented behavior. The E2E tests verify correctness.
-		if !validateTreeStructure(tree) {
+		if !validateTreeStructure(tree.ToMap()) {
 			t.Errorf("Invalid tree structure\nTemplate: %q\nTree: %+v",
 				templateStr, tree)
 		}
@@ -213,7 +213,7 @@ func FuzzParseTemplateToTree(f *testing.F) {
 		// Level 2: Verify tree can be rendered
 		// This ensures the tree structure is not just syntactically valid
 		// but also semantically correct and can be reconstructed into HTML
-		if !validateTreeRenders(tree) {
+		if !validateTreeRenders(tree.ToMap()) {
 			t.Errorf("Tree cannot be rendered\nTemplate: %q\nTree: %+v",
 				templateStr, tree)
 		}
@@ -477,7 +477,7 @@ func validateTreeRoundTrip(templateStr string, data map[string]interface{}, keyG
 	}
 
 	// Render tree1 to HTML
-	html, err := renderTreeToHTML(tree1)
+	html, err := renderTreeToHTML(tree1.ToMap())
 	if err != nil {
 		return false, fmt.Sprintf("render failed: %v", err)
 	}
@@ -491,7 +491,7 @@ func validateTreeRoundTrip(templateStr string, data map[string]interface{}, keyG
 	}
 
 	// Compare trees
-	if !treesEqual(tree1, tree2) {
+	if !treesEqual(tree1.ToMap(), tree2.ToMap()) {
 		return false, fmt.Sprintf("trees not equal\nHTML: %q\nTree1: %+v\nTree2: %+v", html, tree1, tree2)
 	}
 
@@ -587,7 +587,7 @@ func validateEmptyToNonEmptyTransition(templateStr string, data map[string]inter
 	}
 
 	// Validate transition between the two trees
-	ok, msg := validateTreeTransition(tree1, tree2)
+	ok, msg := validateTreeTransition(tree1.ToMap(), tree2.ToMap())
 	if !ok {
 		return false, fmt.Sprintf("empty→non-empty transition failed: %s", msg)
 	}
@@ -605,7 +605,7 @@ func validateEmptyToNonEmptyTransition(templateStr string, data map[string]inter
 		return false, fmt.Sprintf("second parse with empty data failed: %v", err)
 	}
 
-	ok, msg = validateTreeTransition(tree3, tree4)
+	ok, msg = validateTreeTransition(tree3.ToMap(), tree4.ToMap())
 	if !ok {
 		return false, fmt.Sprintf("non-empty→empty transition failed: %s", msg)
 	}

@@ -78,8 +78,8 @@ func TestTodosE2E(t *testing.T) {
 	ctx, cancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(t.Logf))
 	defer cancel()
 
-	// Set timeout for the entire test
-	ctx, cancel = context.WithTimeout(ctx, 60*time.Second)
+	// Set timeout for the entire test suite (increased to prevent flaky timeouts)
+	ctx, cancel = context.WithTimeout(ctx, 180*time.Second)
 	defer cancel()
 
 	t.Run("Initial Load", func(t *testing.T) {

@@ -290,7 +290,7 @@ func TestFlattenTemplate_IntegrationWithTreeGeneration(t *testing.T) {
 	}
 
 	// Tree should have statics
-	if _, ok := tree["s"]; !ok {
+	if _, ok := tree.ToMap()["s"]; !ok {
 		t.Error("Tree missing statics ('s' key)")
 	}
 }

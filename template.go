@@ -125,8 +125,8 @@ type Template struct {
 	wrapperID       string
 	lastData        interface{}
 	lastHTML        string
-	lastTree        treeNode // Store previous tree segments for comparison
-	initialTree     treeNode
+	lastTree        *TreeNode // Store previous tree segments for comparison
+	initialTree     *TreeNode
 	hasInitialTree  bool
 	lastFingerprint string              // Fingerprint of the last generated tree for change detection
 	keyGen          *keyGenerator       // Per-template key generation for wrapper approach
@@ -793,8 +793,8 @@ func (t *Template) generateInitialTree(html string, data interface{}) (treeNode,
 	// Calculate and store initial fingerprint for change detection
 	t.lastFingerprint = calculateFingerprint(tree)
 
-	// Add fingerprint to tree for client-side tracking
-	return addFingerprintToTree(tree), nil
+	// Add fingerprint to tree for client-side tracking and convert to map for return
+	return addFingerprintToTree(tree).ToMap(), nil
 }
 
 // generateDiffBasedTree creates tree based on diff analysis
@@ -844,16 +844,22 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 		return nil, err
 	}
 
+	// Convert map to TreeNode for fingerprint calculation
+	treeNodePtr, err := FromMap(tree)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert tree: %w", err)
+	}
+
 	// Calculate and store fingerprint for the new tree
-	newFingerprint := calculateFingerprint(tree)
+	newFingerprint := calculateFingerprint(treeNodePtr)
 	t.lastFingerprint = newFingerprint
 
 	// Update cached state AFTER successful tree generation (use extracted content)
 	t.lastData = newData
 	t.lastHTML = newContent
 
-	// Add fingerprint to tree for client-side tracking
-	return addFingerprintToTree(tree), nil
+	// Add fingerprint to tree for client-side tracking and convert back to map
+	return addFingerprintToTree(treeNodePtr).ToMap(), nil
 }
 
 // stripStaticsRecursively removes all "s" and "f" keys from a tree node recursively
@@ -918,31 +924,57 @@ func isEmpty(v interface{}) bool {
 }
 
 // compareTreesAndGetChanges compares two trees and returns only changed dynamics
-func (t *Template) compareTreesAndGetChanges(oldTree, newTree treeNode) treeNode {
+func (t *Template) compareTreesAndGetChanges(oldTree, newTree *TreeNode) treeNode {
 	return t.compareTreesAndGetChangesWithContext(oldTree, newTree, false)
 }
 
 // compareTreesAndGetChangesWithContext compares trees with context about whether we're in a new structure
 // insideNewStructure: true if we're inside a structure the client has never seen
-func (t *Template) compareTreesAndGetChangesWithContext(oldTree, newTree treeNode, insideNewStructure bool) treeNode {
+func (t *Template) compareTreesAndGetChangesWithContext(oldTree, newTree *TreeNode, insideNewStructure bool) treeNode {
+	// Convert TreeNode to maps for processing
+	var oldTreeMap, newTreeMap treeNode
+	if oldTree != nil {
+		oldTreeMap = oldTree.ToMap()
+	} else {
+		oldTreeMap = make(treeNode)
+	}
+	if newTree != nil {
+		newTreeMap = newTree.ToMap()
+	} else {
+		newTreeMap = make(treeNode)
+	}
+
 	// Calculate range matches once at the top level for the entire tree
-	rangeMatches := findRangeConstructMatches(oldTree, newTree)
+	rangeMatches := findRangeConstructMatches(oldTreeMap, newTreeMap)
 	return t.compareTreesAndGetChangesWithPath(oldTree, newTree, insideNewStructure, "", rangeMatches)
 }
 
 // compareTreesAndGetChangesWithPath compares trees with path tracking for nested range matching
-func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree treeNode, insideNewStructure bool, currentPath string, rangeMatches map[string]string) treeNode {
+func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode, insideNewStructure bool, currentPath string, rangeMatches map[string]string) treeNode {
+	// Convert TreeNode to maps for processing
+	var oldTreeMap, newTreeMap treeNode
+	if oldTree != nil {
+		oldTreeMap = oldTree.ToMap()
+	} else {
+		oldTreeMap = make(treeNode)
+	}
+	if newTree != nil {
+		newTreeMap = newTree.ToMap()
+	} else {
+		newTreeMap = make(treeNode)
+	}
+
 	changes := make(treeNode)
 
 	// CRITICAL FIX: Check if both trees ARE range constructs (top-level range template)
 	// Example: {{range .Items}}<div>...</div>{{end}} produces {"d": [...], "s": [...]}
 	// In this case, the ENTIRE tree is the range, not a field within it
-	if isRangeConstruct(oldTree) && isRangeConstruct(newTree) {
+	if isRangeConstruct(oldTreeMap) && isRangeConstruct(newTreeMap) {
 		// Check if this range is matched in rangeMatches at the current path
 		if _, isMatched := rangeMatches[currentPath]; isMatched {
 			// Generate differential operations for the entire range
-			shouldStripStatics := hasRangeItems(oldTree)
-			diffOps := generateRangeDifferentialOperations(oldTree, newTree, shouldStripStatics)
+			shouldStripStatics := hasRangeItems(oldTreeMap)
+			diffOps := generateRangeDifferentialOperations(oldTreeMap, newTreeMap, shouldStripStatics)
 
 			if len(diffOps) > 0 {
 				// Return the operations directly - the entire tree is the range
@@ -950,18 +982,18 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree treeNode, 
 				return treeNode{"d": diffOps}
 			} else {
 				// No operations generated - check for empty range cases
-				if !hasRangeItems(newTree) && !hasRangeItems(oldTree) {
+				if !hasRangeItems(newTreeMap) && !hasRangeItems(oldTreeMap) {
 					// Both empty, no change
 					return treeNode{}
 				}
 				// Fallback: return the new tree
-				return newTree
+				return newTreeMap
 			}
 		}
 	}
 
 	// Compare dynamic segments (skip statics "s" and fingerprint "f")
-	for k, newValue := range newTree {
+	for k, newValue := range newTreeMap {
 		if k == "s" || k == "f" {
 			continue // Skip static segments and fingerprint
 		}
@@ -972,7 +1004,7 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree treeNode, 
 			fieldPath = currentPath + "." + k
 		}
 
-		oldValue, exists := oldTree[k]
+		oldValue, exists := oldTreeMap[k]
 		if !exists {
 			// Field is NEW compared to last update
 			// If we're inside a new structure, client has never seen this, so include statics
@@ -1142,7 +1174,15 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree treeNode, 
 						changes[k] = newValue
 					} else {
 						// Structure similar, do normal diff
-						nestedChanges := t.compareTreesAndGetChangesWithPath(oldTreeNode, newTreeNode, insideNewStructure || structureChanged, fieldPath, rangeMatches)
+						// Convert maps back to TreeNode for recursion
+						oldTreeNodePtr, err1 := FromMap(oldTreeNode)
+						newTreeNodePtr, err2 := FromMap(newTreeNode)
+						if err1 != nil || err2 != nil {
+							// Fallback: if conversion fails, send new value
+							changes[k] = newValue
+							continue
+						}
+						nestedChanges := t.compareTreesAndGetChangesWithPath(oldTreeNodePtr, newTreeNodePtr, insideNewStructure || structureChanged, fieldPath, rangeMatches)
 						if len(nestedChanges) > 0 {
 							// Use nested changes as-is - the recursive call already handled statics correctly
 							// Don't strip again or we'll lose statics for NEW structures like ranges
@@ -1268,24 +1308,30 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree treeNode, 
 }
 
 // fieldExistsInTree checks if a field key exists at any level in the tree
-func (t *Template) fieldExistsInTree(key string, tree treeNode) bool {
+func (t *Template) fieldExistsInTree(key string, tree *TreeNode) bool {
 	if tree == nil {
 		return false
 	}
 
+	// Convert to map for easier traversal
+	mapTree := tree.ToMap()
+
 	// Direct check
-	if _, exists := tree[key]; exists {
+	if _, exists := mapTree[key]; exists {
 		return true
 	}
 
 	// Recursive check in nested structures
-	for k, v := range tree {
+	for k, v := range mapTree {
 		if k == "s" || k == "f" {
 			continue
 		}
-		if nestedTree, ok := v.(map[string]interface{}); ok {
-			if t.fieldExistsInTree(key, nestedTree) {
-				return true
+		if nestedMap, ok := v.(map[string]interface{}); ok {
+			// Convert nested map back to TreeNode for recursive call
+			if nestedTree, err := FromMap(nestedMap); err == nil {
+				if t.fieldExistsInTree(key, nestedTree) {
+					return true
+				}
 			}
 		}
 	}
@@ -1397,24 +1443,30 @@ func areStructuresSimilar(oldTree, newTree treeNode) bool {
 }
 
 // getFieldValueFromTree gets the value for a field key at any level in the tree
-func (t *Template) getFieldValueFromTree(key string, tree treeNode) interface{} {
+func (t *Template) getFieldValueFromTree(key string, tree *TreeNode) interface{} {
 	if tree == nil {
 		return nil
 	}
 
+	// Convert to map for easier traversal
+	mapTree := tree.ToMap()
+
 	// Direct check
-	if value, exists := tree[key]; exists {
+	if value, exists := mapTree[key]; exists {
 		return value
 	}
 
 	// Recursive check in nested structures
-	for k, v := range tree {
+	for k, v := range mapTree {
 		if k == "s" || k == "f" {
 			continue
 		}
-		if nestedTree, ok := v.(map[string]interface{}); ok {
-			if value := t.getFieldValueFromTree(key, nestedTree); value != nil {
-				return value
+		if nestedMap, ok := v.(map[string]interface{}); ok {
+			// Convert nested map back to TreeNode for recursive call
+			if nestedTree, err := FromMap(nestedMap); err == nil {
+				if value := t.getFieldValueFromTree(key, nestedTree); value != nil {
+					return value
+				}
 			}
 		}
 	}
@@ -2442,7 +2494,7 @@ func (t *Template) analyzeChangeAndCreateTree(oldHTML, newHTML string, _, _ inte
 }
 
 // createHTMLStructureBasedTree implements deterministic segmentation strategies for HTML content
-func (t *Template) createHTMLStructureBasedTree(html string) treeNode {
+func (t *Template) createHTMLStructureBasedTree(html string) *TreeNode {
 	// Define block-level elements that create natural segment boundaries
 	blockTags := []string{"<div", "<article", "<section", "<main", "<aside", "<nav", "<ul", "<ol", "<table"}
 
@@ -2503,13 +2555,13 @@ func (t *Template) createHTMLStructureBasedTree(html string) treeNode {
 		}
 
 		// Build the tree
-		tree := treeNode{"s": statics}
+		tree := NewTreeNodeWithStatics(statics)
 		for i, dyn := range dynamics {
 			// Minify HTML content if it's a string containing HTML
 			if strDyn, ok := dyn.(string); ok && strings.Contains(strDyn, "<") {
 				dyn = minifyHTML(strDyn)
 			}
-			tree[fmt.Sprintf("%d", i)] = dyn
+			tree.SetDynamic(fmt.Sprintf("%d", i), dyn)
 		}
 
 		// If we got reasonable segmentation, use it
@@ -2519,10 +2571,9 @@ func (t *Template) createHTMLStructureBasedTree(html string) treeNode {
 	}
 
 	// Fallback to single segment strategy
-	return treeNode{
-		"s": []string{"", ""},
-		"0": minifyHTML(html),
-	}
+	fallback := NewTreeNodeWithStatics([]string{"", ""})
+	fallback.SetDynamic("0", minifyHTML(html))
+	return fallback
 }
 
 // Helper functions for string analysis
@@ -2640,9 +2691,16 @@ func marshalValue(value interface{}) ([]byte, error) {
 }
 
 // loadExistingKeyMappings loads existing key mappings from the last tree node
-func (t *Template) loadExistingKeyMappings(lastTree treeNode) {
+func (t *Template) loadExistingKeyMappings(lastTree *TreeNode) {
+	if lastTree == nil {
+		return
+	}
+
+	// Convert to map for easier traversal
+	mapTree := lastTree.ToMap()
+
 	// Look for range data in the tree and load existing key mappings
-	for _, value := range lastTree {
+	for _, value := range mapTree {
 		if rangeData, ok := value.(map[string]interface{}); ok {
 			// Check if this looks like range data with "d" field
 			if dynData, exists := rangeData["d"]; exists {

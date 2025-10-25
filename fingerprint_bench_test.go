@@ -123,7 +123,7 @@ func BenchmarkFingerprint_Small_New(b *testing.B) {
 	tree := createFlatTree(10)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = calculateFingerprint(tree)
+		_ = calculateFingerprint(mustFromMap(tree))
 	}
 }
 
@@ -140,7 +140,7 @@ func BenchmarkFingerprint_Medium_New(b *testing.B) {
 	tree := createFlatTree(100)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = calculateFingerprint(tree)
+		_ = calculateFingerprint(mustFromMap(tree))
 	}
 }
 
@@ -157,7 +157,7 @@ func BenchmarkFingerprint_Large_New(b *testing.B) {
 	tree := createFlatTree(1000)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = calculateFingerprint(tree)
+		_ = calculateFingerprint(mustFromMap(tree))
 	}
 }
 
@@ -174,7 +174,7 @@ func BenchmarkFingerprint_DeepNested_New(b *testing.B) {
 	tree := createNestedTree(4, 3)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = calculateFingerprint(tree)
+		_ = calculateFingerprint(mustFromMap(tree))
 	}
 }
 
@@ -191,7 +191,7 @@ func BenchmarkFingerprint_Range100_New(b *testing.B) {
 	tree := createRangeTree(100)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = calculateFingerprint(tree)
+		_ = calculateFingerprint(mustFromMap(tree))
 	}
 }
 
@@ -208,7 +208,7 @@ func BenchmarkFingerprint_Range1000_New(b *testing.B) {
 	tree := createRangeTree(1000)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = calculateFingerprint(tree)
+		_ = calculateFingerprint(mustFromMap(tree))
 	}
 }
 
@@ -240,9 +240,9 @@ func TestFingerprint_Determinism(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Calculate fingerprint multiple times
-			fp1 := calculateFingerprint(tt.tree)
-			fp2 := calculateFingerprint(tt.tree)
-			fp3 := calculateFingerprint(tt.tree)
+			fp1 := calculateFingerprint(mustFromMap(tt.tree))
+			fp2 := calculateFingerprint(mustFromMap(tt.tree))
+			fp3 := calculateFingerprint(mustFromMap(tt.tree))
 
 			// All should be identical (deterministic)
 			if fp1 != fp2 || fp2 != fp3 {
@@ -272,6 +272,6 @@ func BenchmarkFingerprint_Allocations_New(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = calculateFingerprint(tree)
+		_ = calculateFingerprint(mustFromMap(tree))
 	}
 }

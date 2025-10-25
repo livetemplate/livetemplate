@@ -242,7 +242,12 @@ func (tn *TreeNode) ToMap() map[string]interface{} {
 
 	// Add range data
 	if tn.Range != nil {
-		result["d"] = tn.Range.Items
+		// Recursively convert any nested TreeNodes in range items
+		convertedItems := make([]interface{}, len(tn.Range.Items))
+		for i, item := range tn.Range.Items {
+			convertedItems[i] = convertValueToMap(item)
+		}
+		result["d"] = convertedItems
 	}
 
 	// Add metadata
@@ -316,4 +321,31 @@ func (tn *TreeNode) Clone() *TreeNode {
 	}
 
 	return clone
+}
+
+// convertValueToMap recursively converts any *TreeNode pointers in a value to maps.
+// This is used to ensure complete conversion in ToMap() for nested structures.
+func convertValueToMap(value interface{}) interface{} {
+	switch v := value.(type) {
+	case *TreeNode:
+		// Convert TreeNode to map
+		return v.ToMap()
+	case map[string]interface{}:
+		// Recursively convert any TreeNodes in the map
+		result := make(map[string]interface{}, len(v))
+		for key, val := range v {
+			result[key] = convertValueToMap(val)
+		}
+		return result
+	case []interface{}:
+		// Recursively convert any TreeNodes in slices
+		result := make([]interface{}, len(v))
+		for i, val := range v {
+			result[i] = convertValueToMap(val)
+		}
+		return result
+	default:
+		// Return other types as-is
+		return value
+	}
 }

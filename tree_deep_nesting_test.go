@@ -75,12 +75,12 @@ func TestDeepNesting(t *testing.T) {
 			}
 
 			// Verify tree invariant
-			if err := checkTreeInvariant(tree, tt.name); err != nil {
+			if err := checkTreeInvariant(tree.ToMap(), tt.name); err != nil {
 				t.Fatalf("❌ Invariant violation at level %d: %v\nTree: %+v", tt.nesting, err, tree)
 			}
 
 			// Verify tree produces expected output
-			output := reconstructHTML(tree)
+			output := reconstructHTML(tree.ToMap())
 			if output != tt.expected {
 				t.Errorf("❌ Output mismatch at level %d\nExpected: %q\nGot: %q\nTree: %+v",
 					tt.nesting, tt.expected, output, tree)
@@ -154,12 +154,12 @@ func TestTemplateComposition(t *testing.T) {
 			}
 
 			// Verify tree invariant
-			if err := checkTreeInvariant(tree, tt.name); err != nil {
+			if err := checkTreeInvariant(tree.ToMap(), tt.name); err != nil {
 				t.Fatalf("❌ Invariant violation: %v\nTree: %+v", err, tree)
 			}
 
 			// Verify output
-			output := reconstructHTML(tree)
+			output := reconstructHTML(tree.ToMap())
 			if output != tt.expected {
 				t.Errorf("❌ Output mismatch\nExpected: %q\nGot: %q\nTree: %+v",
 					tt.expected, output, tree)

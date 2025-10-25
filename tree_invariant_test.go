@@ -96,7 +96,7 @@ func TestTreeInvariantGuarantee(t *testing.T) {
 			}
 
 			// Check invariant for initial tree generation
-			err = checkTreeInvariant(tree, "parseTemplateToTree")
+			err = checkTreeInvariant(tree.ToMap(), "parseTemplateToTree")
 			if err != nil {
 				t.Error(err)
 
@@ -143,7 +143,7 @@ func TestTreeInvariantInTemplate(t *testing.T) {
 		t.Fatalf("parseTemplateToTree error: %v", err)
 	}
 
-	err = checkTreeInvariant(tree, "Template parseTemplateToTree")
+	err = checkTreeInvariant(tree.ToMap(), "Template parseTemplateToTree")
 	if err != nil {
 		t.Error(err)
 		jsonBytes, _ := json.MarshalIndent(tree, "", "  ")
@@ -202,7 +202,7 @@ func TestE2EInvariantGuarantee(t *testing.T) {
 		t.Fatalf("parseTemplateToTree error: %v", err)
 	}
 
-	err = checkTreeInvariant(tree, "E2E parseTemplateToTree")
+	err = checkTreeInvariant(tree.ToMap(), "E2E parseTemplateToTree")
 	if err != nil {
 		t.Error(err)
 		jsonBytes, _ := json.MarshalIndent(tree, "", "  ")

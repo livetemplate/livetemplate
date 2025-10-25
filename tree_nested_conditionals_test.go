@@ -36,7 +36,7 @@ func TestParseTemplateToTree_NestedConditionals(t *testing.T) {
 	}
 
 	// The tree should have statics array
-	statics, ok := tree["s"]
+	statics, ok := tree.ToMap()["s"]
 	if !ok {
 		t.Fatal("Expected 's' key in tree")
 	}
@@ -86,7 +86,7 @@ func TestParseTemplateToTree_NestedConditionals_FalseFlags(t *testing.T) {
 	}
 
 	// Check statics don't contain raw template expressions
-	statics, ok := tree["s"]
+	statics, ok := tree.ToMap()["s"]
 	if !ok {
 		t.Fatal("Expected 's' key in tree")
 	}

@@ -19,9 +19,9 @@
           }
         ],
         [
-          "\n                    <div class=\"todo-item ",
+          "\n                    \u003cdiv class=\"todo-item ",
           "\" data-key=\"",
-          "\"\u003e\n                        <strong>",
+          "\"\u003e\n                        \u003cstrong\u003e",
           ":\u003c/strong\u003e\n                        ",
           "\n                        ",
           "\n                        ",

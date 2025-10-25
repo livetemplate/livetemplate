@@ -8,6 +8,15 @@ import (
 	"testing"
 )
 
+// mustFromMap is a test helper that converts a map to *TreeNode, panicking on error
+func mustFromMap(m treeNode) *TreeNode {
+	tree, err := FromMap(m)
+	if err != nil {
+		panic(fmt.Sprintf("mustFromMap failed: %v", err))
+	}
+	return tree
+}
+
 // Specification Compliance Tests - Current Status:
 //
 // TestUpdateSpecification_FirstRender: ✅ PASSING (5/5 tests)
@@ -175,16 +184,16 @@ func TestUpdateSpecification_FirstRender(t *testing.T) {
 			}
 
 			// Validate tree structure
-			if err := ValidateTreeStructure(tree); err != nil {
+			if err := ValidateTreeStructure(tree.ToMap()); err != nil {
 				t.Errorf("Tree structure validation failed: %v", err)
 			}
 
 			// Run custom validation
-			tt.validateFn(t, tree)
+			tt.validateFn(t, tree.ToMap())
 
 			// Use enhanced analyzer to validate compliance
 			analyzer := NewEnhancedTreeAnalyzer()
-			compliance, metrics := analyzer.AnalyzeWithCompliance(tree, tt.name, tt.template, true)
+			compliance, metrics := analyzer.AnalyzeWithCompliance(tree.ToMap(), tt.name, tt.template, true)
 
 			if !compliance.Compliant {
 				t.Errorf("First render not compliant: %v", compliance.Violations)
@@ -348,9 +357,9 @@ func TestUpdateSpecification_SubsequentUpdates(t *testing.T) {
 			// Use analyzer to validate compliance (unless skipped)
 			if !tt.skipComplianceChecks {
 				analyzer := NewEnhancedTreeAnalyzer()
-				analyzer.LastTree = initialTree
+				analyzer.LastTree = initialTree.ToMap()
 				analyzer.FirstRenderSeen = true
-				analyzer.markStaticsSent(initialTree, "")
+				analyzer.markStaticsSent(initialTree.ToMap(), "")
 
 				compliance, _ := analyzer.AnalyzeWithCompliance(changes, tt.name, tt.template, false)
 
@@ -556,7 +565,7 @@ func TestUpdateSpecification_RangeOperations(t *testing.T) {
 
 			// Use analyzer to validate granularity
 			analyzer := NewEnhancedTreeAnalyzer()
-			analyzer.LastTree = initialTree
+			analyzer.LastTree = initialTree.ToMap()
 			analyzer.FirstRenderSeen = true
 
 			compliance, metrics := analyzer.AnalyzeWithCompliance(changes, tt.name, template, false)
@@ -749,14 +758,14 @@ func TestUserJourney_TodoApp(t *testing.T) {
 	for i, step := range journey {
 		t.Run(step.name, func(t *testing.T) {
 			var tree treeNode
-			var err error
 
 			if i == 0 {
 				// First render
-				tree, err = parseTemplateToTree(template, step.state, tmpl.keyGen)
+				treePtr, err := parseTemplateToTree(template, step.state, tmpl.keyGen)
 				if err != nil {
 					t.Fatalf("Failed to generate initial tree: %v", err)
 				}
+				tree = treePtr.ToMap()
 
 				// Validate specification compliance
 				if err := validator.ValidateUpdate(tree, step.state, true); err != nil {
@@ -764,7 +773,7 @@ func TestUserJourney_TodoApp(t *testing.T) {
 				}
 
 				step.validate(t, tree, true)
-				tmpl.lastTree = tree
+				tmpl.lastTree, _ = FromMap(tree)
 			} else {
 				// Update
 				newTree, err := parseTemplateToTree(template, step.state, tmpl.keyGen)
@@ -966,9 +975,9 @@ func TestComplexTemplate(t *testing.T) {
 	}
 
 	// Generate updated tree
-	tmpl.lastTree = initialTree
+	tmpl.lastTree, _ = FromMap(initialTree)
 	updatedTree, _ := parseTemplateToTree(template, updatedData, tmpl.keyGen)
-	changes := tmpl.compareTreesAndGetChanges(initialTree, updatedTree)
+	changes := tmpl.compareTreesAndGetChanges(mustFromMap(initialTree), updatedTree)
 
 	// Validate update
 	analyzer := NewEnhancedTreeAnalyzer()
@@ -1039,10 +1048,10 @@ func BenchmarkSpecificationCompliance(b *testing.B) {
 		state := struct{ Count int }{Count: i}
 		tree, _ := parseTemplateToTree(template, state, tmpl.keyGen)
 
-		analyzer.AnalyzeWithCompliance(tree, "benchmark", template, i == 0)
+		analyzer.AnalyzeWithCompliance(tree.ToMap(), "benchmark", template, i == 0)
 
 		tmpl.lastTree = tree
-		analyzer.LastTree = tree
+		analyzer.LastTree = tree.ToMap()
 	}
 
 	b.StopTimer()
