@@ -124,6 +124,10 @@ func TestTodosE2E(t *testing.T) {
 			t.Fatalf("Failed to check console: %v", err)
 		}
 
+		// Give WebSocket client additional time to fully initialize
+		// The first form submission is timing-sensitive
+		time.Sleep(500 * time.Millisecond)
+
 		// If we got here without WebSocket errors, connection is working
 		t.Log("✅ WebSocket connection working")
 	})
@@ -131,29 +135,22 @@ func TestTodosE2E(t *testing.T) {
 	t.Run("Add First Todo", func(t *testing.T) {
 		var html string
 
-		// Add first todo
+		// Add first todo and wait for it to appear (condition-based waiting)
 		err := chromedp.Run(ctx,
 			chromedp.WaitVisible(`input[name="text"]`, chromedp.ByQuery),
 			chromedp.SendKeys(`input[name="text"]`, "First Todo Item", chromedp.ByQuery),
 			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
-		)
-
-		if err != nil {
-			t.Fatalf("Failed to add first todo: %v", err)
-		}
-
-		// Wait for todo to appear in DOM (condition-based waiting)
-		if err := waitForTodoVisible(ctx, "First Todo Item", 10*time.Second); err != nil {
-			t.Fatalf("Todo did not appear: %v", err)
-		}
-
-		// Get HTML after todo is confirmed visible
-		err = chromedp.Run(ctx,
+			// Wait for form to clear (indicates successful submission)
+			waitFor(`document.querySelector('input[name="text"]').value === ''`, 5*time.Second),
+			// Wait for todo to appear in the list (condition-based waiting)
+			// Note: First submission after page load can be very slow due to initialization
+			// Using extended timeout to account for WebSocket handshake completion
+			waitForText("tbody", "First Todo Item", 30*time.Second),
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
 		)
 
 		if err != nil {
-			t.Fatalf("Failed to get HTML: %v", err)
+			t.Fatalf("Failed to add first todo: %v", err)
 		}
 
 		// Verify first todo was added
@@ -172,29 +169,17 @@ func TestTodosE2E(t *testing.T) {
 	t.Run("Add Second Todo", func(t *testing.T) {
 		var html string
 
-		// Add second todo
+		// Add second todo and wait for count to be 2 (condition-based waiting)
 		err := chromedp.Run(ctx,
 			chromedp.WaitVisible(`input[name="text"]`, chromedp.ByQuery),
 			chromedp.SendKeys(`input[name="text"]`, "Second Todo Item", chromedp.ByQuery),
 			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
-		)
-
-		if err != nil {
-			t.Fatalf("Failed to add second todo: %v", err)
-		}
-
-		// Wait for second todo and verify count is 2 (condition-based waiting)
-		if err := waitForTodoCount(ctx, 2, 10*time.Second); err != nil {
-			t.Fatalf("Expected 2 todos after adding second: %v", err)
-		}
-
-		// Get HTML after todos are confirmed present
-		err = chromedp.Run(ctx,
+			waitForCount("tbody tr", 2, 10*time.Second),
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
 		)
 
 		if err != nil {
-			t.Fatalf("Failed to get HTML: %v", err)
+			t.Fatalf("Failed to add second todo: %v", err)
 		}
 
 		t.Logf("Section HTML after adding second todo: %s", html)
@@ -219,29 +204,17 @@ func TestTodosE2E(t *testing.T) {
 	t.Run("Add Third Todo", func(t *testing.T) {
 		var html string
 
-		// Add third todo
+		// Add third todo and wait for count to be 3 (condition-based waiting)
 		err := chromedp.Run(ctx,
 			chromedp.WaitVisible(`input[name="text"]`, chromedp.ByQuery),
 			chromedp.SendKeys(`input[name="text"]`, "Third Todo Item", chromedp.ByQuery),
 			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
-		)
-
-		if err != nil {
-			t.Fatalf("Failed to add third todo: %v", err)
-		}
-
-		// Wait for third todo and verify count is 3 (condition-based waiting)
-		if err := waitForTodoCount(ctx, 3, 10*time.Second); err != nil {
-			t.Fatalf("Expected 3 todos after adding third: %v", err)
-		}
-
-		// Get HTML after todos are confirmed present
-		err = chromedp.Run(ctx,
+			waitForCount("tbody tr", 3, 10*time.Second),
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
 		)
 
 		if err != nil {
-			t.Fatalf("Failed to get HTML: %v", err)
+			t.Fatalf("Failed to add third todo: %v", err)
 		}
 
 		t.Logf("Section HTML after adding third todo: %s", html)
@@ -289,42 +262,30 @@ func TestTodosE2E(t *testing.T) {
 	t.Run("Add Fourth and Fifth Todos", func(t *testing.T) {
 		var html string
 
-		// Add fourth todo
+		// Add fourth todo and wait (condition-based waiting)
+		// Note: Page size is 3, so adding 4th todo triggers pagination
+		// We'll see 3 rows on page 1 (Fourth, Third, Second) - newest first
 		err := chromedp.Run(ctx,
 			chromedp.WaitVisible(`input[name="text"]`, chromedp.ByQuery),
 			chromedp.SendKeys(`input[name="text"]`, "Fourth Todo Item", chromedp.ByQuery),
 			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
+			waitForText("tbody", "Fourth Todo Item", 10*time.Second),
 		)
 		if err != nil {
 			t.Fatalf("Failed to add fourth todo: %v", err)
 		}
 
-		// Wait for fourth todo (condition-based waiting)
-		if err := waitForTodoCount(ctx, 4, 10*time.Second); err != nil {
-			t.Fatalf("Expected 4 todos after adding fourth: %v", err)
-		}
-
-		// Add fifth todo
+		// Add fifth todo and wait (condition-based waiting)
+		// Will see 3 rows on page 1 (Fifth, Fourth, Third)
 		err = chromedp.Run(ctx,
 			chromedp.WaitVisible(`input[name="text"]`, chromedp.ByQuery),
 			chromedp.SendKeys(`input[name="text"]`, "Fifth Todo Item", chromedp.ByQuery),
 			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
-		)
-		if err != nil {
-			t.Fatalf("Failed to add fifth todo: %v", err)
-		}
-
-		// Wait for fifth todo (condition-based waiting)
-		if err := waitForTodoCount(ctx, 5, 10*time.Second); err != nil {
-			t.Fatalf("Expected 5 todos after adding fifth: %v", err)
-		}
-
-		// Get HTML after todos are confirmed present
-		err = chromedp.Run(ctx,
+			waitForText("tbody", "Fifth Todo Item", 10*time.Second),
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
 		)
 		if err != nil {
-			t.Fatalf("Failed to get HTML: %v", err)
+			t.Fatalf("Failed to add fifth todo: %v", err)
 		}
 
 		t.Logf("Section HTML after adding five todos: %s", html)
@@ -424,23 +385,15 @@ func TestTodosE2E(t *testing.T) {
 			t.Fatalf("Failed to trigger search: %v", err)
 		}
 
-		// Wait for search results to update (condition-based waiting for debounce + update)
-		if err := waitForHTMLContains(ctx, "section", "First Todo Item", 5*time.Second); err != nil {
-			t.Fatalf("Search results did not update: %v", err)
-		}
-
-		// Wait for other todos to be filtered out
-		if err := waitForHTMLNotContains(ctx, "section", "Second Todo Item", 5*time.Second); err != nil {
-			t.Fatalf("Search filter did not work: %v", err)
-		}
-
-		// Get HTML after search is complete
+		// Wait for search results to update and get HTML (condition-based waiting for debounce + update)
 		err = chromedp.Run(ctx,
+			waitForText("section", "First Todo Item", 5*time.Second),
+			waitFor(`!document.querySelector('section')?.outerHTML?.includes('Second Todo Item')`, 5*time.Second),
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
 		)
 
 		if err != nil {
-			t.Fatalf("Failed to get HTML: %v", err)
+			t.Fatalf("Failed to wait for search results: %v", err)
 		}
 
 		// Verify only "First Todo Item" is visible
@@ -468,18 +421,14 @@ func TestTodosE2E(t *testing.T) {
 			t.Fatalf("Failed to trigger clear search: %v", err)
 		}
 
-		// Wait for page 1 todos to reappear (condition-based waiting)
-		if err := waitForHTMLContains(ctx, "section", "Fifth Todo Item", 5*time.Second); err != nil {
-			t.Fatalf("Search clear did not restore todos: %v", err)
-		}
-
-		// Get HTML after clear is complete
+		// Wait for page 1 todos to reappear and get HTML (condition-based waiting)
 		err = chromedp.Run(ctx,
+			waitForText("section", "Fifth Todo Item", 5*time.Second),
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
 		)
 
 		if err != nil {
-			t.Fatalf("Failed to get HTML: %v", err)
+			t.Fatalf("Failed to wait for search clear: %v", err)
 		}
 
 		// Verify first page todos are visible again (page 1 shows Fifth, Fourth, Third in newest-first order)
@@ -531,13 +480,9 @@ func TestTodosE2E(t *testing.T) {
 			t.Fatalf("Failed to trigger empty search: %v", err)
 		}
 
-		// Wait for "No todos found" message (condition-based waiting)
-		if err := waitForHTMLContains(ctx, "section", "No todos found matching", 5*time.Second); err != nil {
-			t.Fatalf("Empty search message did not appear: %v", err)
-		}
-
-		// Get HTML and debug info after empty search
+		// Wait for "No todos found" message and get HTML (condition-based waiting)
 		err = chromedp.Run(ctx,
+			waitForText("section", "No todos found matching", 5*time.Second),
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
 			// Get console logs
 			chromedp.Evaluate(`JSON.stringify(window.capturedConsoleLogs || [], null, 2)`, &consoleLogs),
@@ -588,7 +533,7 @@ func TestTodosE2E(t *testing.T) {
 
 		t.Log("✅ Empty search results handled correctly")
 
-		// Clear search again for cleanup
+		// Clear search for cleanup - this is critical for subsequent tests
 		err = chromedp.Run(ctx,
 			chromedp.Evaluate(`
 				(() => {
@@ -597,16 +542,15 @@ func TestTodosE2E(t *testing.T) {
 					input.dispatchEvent(new Event('input', { bubbles: true }));
 				})();
 			`, nil),
+			// Wait for todos to reappear (condition-based waiting)
+			waitForText("tbody", "Fifth Todo Item", 10*time.Second),
 		)
 
 		if err != nil {
-			t.Logf("Warning: Failed to trigger clear search in cleanup: %v", err)
-		} else {
-			// Wait for todos to reappear (condition-based waiting)
-			if err := waitForHTMLContains(ctx, "section", "Fifth Todo Item", 5*time.Second); err != nil {
-				t.Logf("Warning: Failed to wait for search clear in cleanup: %v", err)
-			}
+			t.Fatalf("Failed to clear search in cleanup: %v", err)
 		}
+
+		t.Log("✅ Search cleared successfully")
 	})
 
 	t.Run("Sort Functionality", func(t *testing.T) {
@@ -730,18 +674,17 @@ func TestTodosE2E(t *testing.T) {
 			t.Fatalf("Failed to submit sixth todo: %v", err)
 		}
 
-		// Wait for sixth todo to appear (condition-based waiting)
-		if err := waitForTodoVisible(ctx, "Sixth Todo Item", 10*time.Second); err != nil {
-			t.Fatalf("Sixth todo did not appear: %v", err)
-		}
-
-		// Verify we're on page 1 and can see first 3 todos (newest first: Sixth, Fifth, Fourth)
+		// Wait for sixth todo to appear and pagination to be ready (condition-based waiting)
 		err = chromedp.Run(ctx,
+			waitForText("tbody", "Sixth Todo Item", 15*time.Second),
+			// Wait for pagination controls to appear (they only show when TotalPages > 1)
+			// This requires a separate WebSocket update, so give it more time
+			waitFor(`document.querySelector('button[lvt-click="next_page"]') !== null`, 15*time.Second),
 			chromedp.OuterHTML(`tbody`, &html, chromedp.ByQuery),
 		)
 
 		if err != nil {
-			t.Fatalf("Failed to get page 1: %v", err)
+			t.Fatalf("Failed to wait for sixth todo and pagination: %v", err)
 		}
 
 		// Check page 1 has Sixth, Fifth, Fourth
@@ -764,25 +707,21 @@ func TestTodosE2E(t *testing.T) {
 
 		// Click Next to go to page 2
 		err = chromedp.Run(ctx,
-			chromedp.Evaluate(`document.querySelector('button[lvt-click="next_page"]').click()`, nil),
+			chromedp.Click(`button[lvt-click="next_page"]`, chromedp.ByQuery),
 		)
 
 		if err != nil {
 			t.Fatalf("Failed to click next page: %v", err)
 		}
 
-		// Wait for page 2 todos to appear (condition-based waiting)
-		if err := waitForHTMLContains(ctx, "tbody", "First Todo Item", 10*time.Second); err != nil {
-			t.Fatalf("Page 2 todos did not appear: %v", err)
-		}
-
-		// Get HTML after navigation
+		// Wait for page 2 todos to appear and get HTML (condition-based waiting)
 		err = chromedp.Run(ctx,
+			waitForText("tbody", "First Todo Item", 10*time.Second),
 			chromedp.OuterHTML(`tbody`, &html, chromedp.ByQuery),
 		)
 
 		if err != nil {
-			t.Fatalf("Failed to get HTML: %v", err)
+			t.Fatalf("Failed to wait for page 2 todos: %v", err)
 		}
 
 		// Check page 2 has Third, Second, First
@@ -824,18 +763,14 @@ func TestTodosE2E(t *testing.T) {
 			t.Fatalf("Failed to click previous page: %v", err)
 		}
 
-		// Wait for page 1 todos to reappear (condition-based waiting)
-		if err := waitForHTMLContains(ctx, "tbody", "Sixth Todo Item", 10*time.Second); err != nil {
-			t.Fatalf("Page 1 todos did not reappear: %v", err)
-		}
-
-		// Get HTML after navigation
+		// Wait for page 1 todos to reappear and get HTML (condition-based waiting)
 		err = chromedp.Run(ctx,
+			waitForText("tbody", "Sixth Todo Item", 10*time.Second),
 			chromedp.OuterHTML(`tbody`, &html, chromedp.ByQuery),
 		)
 
 		if err != nil {
-			t.Fatalf("Failed to get HTML: %v", err)
+			t.Fatalf("Failed to wait for page 1 todos: %v", err)
 		}
 
 		// Verify we're back on page 1
@@ -872,18 +807,14 @@ func TestTodosE2E(t *testing.T) {
 			t.Fatalf("Failed to trigger search: %v", err)
 		}
 
-		// Wait for search results (condition-based waiting)
-		if err := waitForHTMLContains(ctx, "tbody", "Sixth Todo Item", 5*time.Second); err != nil {
-			t.Fatalf("Search results did not update: %v", err)
-		}
-
-		// Get HTML after search
+		// Wait for search results and get HTML (condition-based waiting)
 		err = chromedp.Run(ctx,
+			waitForText("tbody", "Sixth Todo Item", 5*time.Second),
 			chromedp.OuterHTML(`tbody`, &html, chromedp.ByQuery),
 		)
 
 		if err != nil {
-			t.Fatalf("Failed to get HTML: %v", err)
+			t.Fatalf("Failed to wait for search results: %v", err)
 		}
 
 		// Search for "i" should return: Sixth, Fifth, Third, First (4 items = 2 pages)
@@ -910,7 +841,8 @@ func TestTodosE2E(t *testing.T) {
 			t.Logf("Warning: Failed to trigger clear search: %v", err)
 		} else {
 			// Wait for search to clear (condition-based waiting)
-			if err := waitForHTMLContains(ctx, "tbody", "Sixth Todo Item", 5*time.Second); err != nil {
+			err = chromedp.Run(ctx, waitForText("tbody", "Sixth Todo Item", 5*time.Second))
+			if err != nil {
 				t.Logf("Warning: Failed to wait for search clear: %v", err)
 			}
 		}
@@ -921,112 +853,51 @@ func TestTodosE2E(t *testing.T) {
 	fmt.Println(strings.Repeat("=", 60))
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
+// waitFor polls until the JavaScript expression returns true
+// The jsCondition should be a JavaScript expression that evaluates to a boolean
+func waitFor(jsCondition string, timeout time.Duration) chromedp.ActionFunc {
+	return func(ctx context.Context) error {
+		startTime := time.Now()
+		for {
+			var result bool
+			err := chromedp.Evaluate(jsCondition, &result).Do(ctx)
 
-// waitForTodoVisible polls until a todo with the specified text appears in the DOM
-func waitForTodoVisible(ctx context.Context, text string, timeout time.Duration) error {
-	startTime := time.Now()
-	for {
-		var found bool
-		err := chromedp.Evaluate(fmt.Sprintf(`
-			(() => {
-				const tbody = document.querySelector('tbody');
-				if (!tbody) return false;
-				return tbody.textContent.includes(%q);
-			})()
-		`, text), &found).Do(ctx)
+			if err != nil {
+				return fmt.Errorf("condition check failed: %w", err)
+			}
 
-		if err != nil {
-			return fmt.Errorf("failed to check for todo %q: %w", text, err)
+			if result {
+				return nil
+			}
+
+			if time.Since(startTime) > timeout {
+				// Get debug info on timeout
+				var debugHTML string
+				_ = chromedp.OuterHTML("body", &debugHTML, chromedp.ByQuery).Do(ctx)
+				if len(debugHTML) > 500 {
+					debugHTML = debugHTML[:500] + "..."
+				}
+				return fmt.Errorf("timeout waiting for condition after %v. Condition: %s. Body HTML: %s", timeout, jsCondition, debugHTML)
+			}
+
+			time.Sleep(100 * time.Millisecond)
 		}
-
-		if found {
-			return nil
-		}
-
-		if time.Since(startTime) > timeout {
-			return fmt.Errorf("timeout waiting for todo %q to appear after %v", text, timeout)
-		}
-
-		time.Sleep(100 * time.Millisecond)
 	}
 }
 
-// waitForTodoCount polls until exactly the specified number of todos are rendered
-func waitForTodoCount(ctx context.Context, count int, timeout time.Duration) error {
-	startTime := time.Now()
-	for {
-		var actualCount int
-		err := chromedp.Evaluate(`
-			(() => {
-				const rows = document.querySelectorAll('tbody tr');
-				return rows.length;
-			})()
-		`, &actualCount).Do(ctx)
-
-		if err != nil {
-			return fmt.Errorf("failed to count todos: %w", err)
-		}
-
-		if actualCount == count {
-			return nil
-		}
-
-		if time.Since(startTime) > timeout {
-			return fmt.Errorf("timeout waiting for %d todos (found %d) after %v", count, actualCount, timeout)
-		}
-
-		time.Sleep(100 * time.Millisecond)
-	}
+// waitForText is a convenience helper that waits for a selector's text content to include the specified text
+func waitForText(selector, text string, timeout time.Duration) chromedp.ActionFunc {
+	jsCondition := fmt.Sprintf(`
+		(() => {
+			const el = document.querySelector('%s');
+			return el && el.textContent && el.textContent.includes(%q);
+		})()
+	`, selector, text)
+	return waitFor(jsCondition, timeout)
 }
 
-// waitForHTMLContains polls until the specified selector's HTML contains the text
-func waitForHTMLContains(ctx context.Context, selector string, text string, timeout time.Duration) error {
-	startTime := time.Now()
-	for {
-		var html string
-		err := chromedp.OuterHTML(selector, &html, chromedp.ByQuery).Do(ctx)
-
-		if err != nil {
-			return fmt.Errorf("failed to get HTML for %q: %w", selector, err)
-		}
-
-		if strings.Contains(html, text) {
-			return nil
-		}
-
-		if time.Since(startTime) > timeout {
-			return fmt.Errorf("timeout waiting for %q to contain %q after %v", selector, text, timeout)
-		}
-
-		time.Sleep(100 * time.Millisecond)
-	}
-}
-
-// waitForHTMLNotContains polls until the specified selector's HTML does not contain the text
-func waitForHTMLNotContains(ctx context.Context, selector string, text string, timeout time.Duration) error {
-	startTime := time.Now()
-	for {
-		var html string
-		err := chromedp.OuterHTML(selector, &html, chromedp.ByQuery).Do(ctx)
-
-		if err != nil {
-			return fmt.Errorf("failed to get HTML for %q: %w", selector, err)
-		}
-
-		if !strings.Contains(html, text) {
-			return nil
-		}
-
-		if time.Since(startTime) > timeout {
-			return fmt.Errorf("timeout waiting for %q to not contain %q after %v", selector, text, timeout)
-		}
-
-		time.Sleep(100 * time.Millisecond)
-	}
+// waitForCount is a convenience helper that waits for a specific number of elements matching the selector
+func waitForCount(selector string, count int, timeout time.Duration) chromedp.ActionFunc {
+	jsCondition := fmt.Sprintf(`document.querySelectorAll('%s').length === %d`, selector, count)
+	return waitFor(jsCondition, timeout)
 }

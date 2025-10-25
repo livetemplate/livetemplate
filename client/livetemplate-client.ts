@@ -59,6 +59,7 @@ export interface LiveTemplateClientOptions {
 export class LiveTemplateClient {
   private treeState: TreeNode = {};
   private rangeState: { [fieldKey: string]: { items: any[], statics: any[] } } = {}; // Track range items and statics by field key
+  private rangeIdKeys: { [fieldKey: string]: string } = {}; // Track ID key position from server metadata
   private lvtId: string | null = null;
 
   // Transport properties
@@ -1423,6 +1424,10 @@ export class LiveTemplateClient {
             items: value.d,
             statics: value.s
           };
+          // Store ID key position from metadata if present
+          if (value.m && typeof value.m === 'object' && typeof value.m.idKey === 'string') {
+            this.rangeIdKeys[stateKey] = value.m.idKey;
+          }
         }
         return this.renderRangeStructure(value, fieldKey, statePath);
       }
@@ -1520,30 +1525,13 @@ export class LiveTemplateClient {
   }
 
   /**
-   * Find the position where the key attribute appears in statics array
-   * Priority order: data-lvt-key, data-key, key, id (same as server-side)
+   * Get item key from item data using stored idKey metadata
    */
-  private findKeyPositionFromStatics(statics: any[]): number {
-    const keyAttrs = ['data-lvt-key="', 'data-key="', 'key="', 'id="'];
-
-    for (let i = 0; i < statics.length; i++) {
-      const staticStr = String(statics[i]);
-      for (const keyAttr of keyAttrs) {
-        if (staticStr.includes(keyAttr)) {
-          return i; // The next position after this static contains the key value
-        }
-      }
+  private getItemKey(item: any, statics: any[], statePath?: string): string | null {
+    if (!statePath || !this.rangeIdKeys[statePath]) {
+      return null;
     }
-
-    return 0; // Default to position 0 for backward compatibility
-  }
-
-  /**
-   * Get item key from item data using statics to find correct position
-   */
-  private getItemKey(item: any, statics: any[]): string | null {
-    const keyPos = this.findKeyPositionFromStatics(statics);
-    const keyPosStr = keyPos.toString();
+    const keyPosStr = this.rangeIdKeys[statePath];
     return item[keyPosStr] || null;
   }
 
@@ -1576,7 +1564,7 @@ export class LiveTemplateClient {
         case 'r': // Remove: ["r", key]
           const removeKey = operation[1];
           const removeIndex = currentItems.findIndex((item: any) =>
-            this.getItemKey(item, statics) === removeKey
+            this.getItemKey(item, statics, statePath) === removeKey
           );
           if (removeIndex >= 0) {
             currentItems.splice(removeIndex, 1);
@@ -1587,7 +1575,7 @@ export class LiveTemplateClient {
           const updateKey = operation[1];
           const changes = operation[2];
           const updateIndex = currentItems.findIndex((item: any) =>
-            this.getItemKey(item, statics) === updateKey
+            this.getItemKey(item, statics, statePath) === updateKey
           );
           if (updateIndex >= 0 && changes) {
             // Merge the changes into the existing item
@@ -1652,7 +1640,7 @@ export class LiveTemplateClient {
             } else {
               // Insert after targetKey (new simplified format)
               const targetIndex = currentItems.findIndex((item: any) =>
-                this.getItemKey(item, statics) === targetKey
+                this.getItemKey(item, statics, statePath) === targetKey
               );
               if (targetIndex >= 0) {
                 // Phase 3: always insert AFTER (position param removed)
@@ -1670,7 +1658,7 @@ export class LiveTemplateClient {
           // Build a map of current items by key for efficient lookup
           const itemsByKey = new Map();
           for (const item of currentItems) {
-            const itemKey = this.getItemKey(item, statics);
+            const itemKey = this.getItemKey(item, statics, statePath);
             if (itemKey) {
               itemsByKey.set(itemKey, item);
             }

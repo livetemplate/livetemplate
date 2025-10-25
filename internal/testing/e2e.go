@@ -231,6 +231,43 @@ func ServeClientLibrary(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Client library not found", http.StatusNotFound)
 }
 
+// WaitFor polls a JavaScript condition until it returns true or timeout is reached.
+// This is a generic condition-based wait utility that eliminates arbitrary sleeps.
+//
+// The condition must be a JavaScript expression that evaluates to a boolean.
+//
+// Examples:
+//   - WaitFor("document.getElementById('modal').style.display === 'flex'", 5*time.Second)
+//   - WaitFor("document.querySelector('.item').textContent === 'Hello'", 3*time.Second)
+//   - WaitFor("document.querySelectorAll('.item').length === 5", 5*time.Second)
+//   - WaitFor("!document.getElementById('modal').hasAttribute('hidden')", 2*time.Second)
+func WaitFor(condition string, timeout time.Duration) chromedp.Action {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		startTime := time.Now()
+
+		for {
+			var result bool
+			err := chromedp.Evaluate(condition, &result).Do(ctx)
+
+			if err != nil {
+				return fmt.Errorf("failed to evaluate condition '%s': %w", condition, err)
+			}
+
+			if result {
+				// Condition met
+				return nil
+			}
+
+			if time.Since(startTime) > timeout {
+				return fmt.Errorf("timeout waiting for condition '%s' after %v", condition, timeout)
+			}
+
+			// Poll every 10ms (condition-based, not arbitrary)
+			time.Sleep(10 * time.Millisecond)
+		}
+	})
+}
+
 // WaitForWebSocketReady waits for the first WebSocket update to be applied
 // by polling for the removal of data-lvt-loading attribute (condition-based waiting).
 // This ensures E2E tests run after the WebSocket connection is established and
@@ -245,33 +282,13 @@ func WaitForWebSocketReady(timeout time.Duration) chromedp.Action {
 			return fmt.Errorf("wrapper element not found: %w", err)
 		}
 
-		// Poll for data-lvt-loading attribute removal (condition-based waiting)
-		startTime := time.Now()
-		for {
-			var loadingRemoved bool
-			err := chromedp.Evaluate(`
-				(() => {
-					const wrapper = document.querySelector('[data-lvt-id]');
-					return wrapper && !wrapper.hasAttribute('data-lvt-loading');
-				})()
-			`, &loadingRemoved).Do(ctx)
-
-			if err != nil {
-				return fmt.Errorf("failed to check loading state: %w", err)
-			}
-
-			if loadingRemoved {
-				// Loading indicator removed - WebSocket update applied
-				return nil
-			}
-
-			if time.Since(startTime) > timeout {
-				return fmt.Errorf("timeout waiting for WebSocket ready (data-lvt-loading not removed after %v)", timeout)
-			}
-
-			// Poll every 10ms (condition-based, not arbitrary)
-			time.Sleep(10 * time.Millisecond)
-		}
+		// Use WaitFor for the loading check
+		return WaitFor(`
+			(() => {
+				const wrapper = document.querySelector('[data-lvt-id]');
+				return wrapper && !wrapper.hasAttribute('data-lvt-loading');
+			})()
+		`, timeout).Do(ctx)
 	})
 }
 

@@ -110,9 +110,9 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 	waitForServer(t, serverURL+"/posts", 10*time.Second)
 	t.Log("✅ Blog app running")
 
-	// Step 10: Use shared Chrome container (no startup overhead!)
-	t.Log("Step 10: Using shared Docker Chrome...")
-	ctx, cancel := getSharedChromeContext(t)
+	// Step 10: Use isolated Chrome container for parallel execution
+	t.Log("Step 10: Starting isolated Docker Chrome...")
+	ctx, cancel := getIsolatedChromeContext(t)
 	defer cancel()
 
 	// Get test URL for Chrome (Docker networking)
@@ -203,7 +203,8 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 			// Click Add button to open modal
 			chromedp.WaitVisible(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
 			chromedp.Click(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
-			chromedp.Sleep(shortDelay),
+			// Wait for modal to open
+			waitFor(`document.querySelector('[role="dialog"]') && !document.querySelector('[role="dialog"]').hasAttribute('hidden')`, 3*time.Second),
 
 			// Fill form
 			chromedp.WaitVisible(`input[name="title"]`, chromedp.ByQuery),
@@ -213,16 +214,8 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 
 			// Submit
 			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
-			chromedp.Sleep(formSubmitDelay),
-		)
-		if err != nil {
-			t.Fatalf("Failed to create post: %v", err)
-		}
-
-		// Verify post appears in table
-		var postInTable bool
-		err = chromedp.Run(ctx,
-			chromedp.Evaluate(`
+			// Wait for form submission and specific post to appear in table
+			waitFor(`
 				(() => {
 					const table = document.querySelector('table');
 					if (!table) return false;
@@ -232,14 +225,10 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 						return cells.length > 0 && cells[0].textContent.trim() === 'My First Blog Post';
 					});
 				})()
-			`, &postInTable),
+			`, 10*time.Second),
 		)
 		if err != nil {
-			t.Fatalf("Failed to check table: %v", err)
-		}
-
-		if !postInTable {
-			t.Fatal("❌ Post not found in table")
+			t.Fatalf("Failed to create post: %v", err)
 		}
 		t.Log("✅ Post created successfully")
 
@@ -346,14 +335,34 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 			waitForWebSocketReady(5*time.Second),
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
 
-			// Click Edit to open modal
+			// First create a post to delete
+			chromedp.WaitVisible(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
+			chromedp.Click(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
+			// Wait for form inputs to be visible (modal is open)
+			chromedp.WaitVisible(`input[name="title"]`, chromedp.ByQuery),
+			chromedp.SendKeys(`input[name="title"]`, "Post To Delete", chromedp.ByQuery),
+			chromedp.SendKeys(`textarea[name="content"]`, "This post will be deleted", chromedp.ByQuery),
+			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
+			waitFor(`
+				(() => {
+					const table = document.querySelector('table');
+					if (!table) return false;
+					const rows = Array.from(table.querySelectorAll('tbody tr'));
+					return rows.some(row => {
+						const cells = row.querySelectorAll('td');
+						return cells.length > 0 && cells[0].textContent.trim() === 'Post To Delete';
+					});
+				})()
+			`, 10*time.Second),
+
+			// Click Edit to open modal for deletion
 			chromedp.Evaluate(`
 				(() => {
 					const table = document.querySelector('table');
 					const rows = Array.from(table.querySelectorAll('tbody tr'));
 					const targetRow = rows.find(row => {
 						const cells = row.querySelectorAll('td');
-						return cells.length > 0 && cells[0].textContent.trim() === 'My Updated Blog Post';
+						return cells.length > 0 && cells[0].textContent.trim() === 'Post To Delete';
 					});
 					if (targetRow) {
 						const editButton = targetRow.querySelector('button[lvt-click="edit"]');
@@ -365,7 +374,8 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 					return false;
 				})()
 			`, nil),
-			chromedp.Sleep(standardDelay),
+			// Wait for edit modal to open
+			waitFor(`document.querySelector('button[lvt-click="delete"]') !== null`, 3*time.Second),
 
 			// Override window.confirm to accept
 			chromedp.Evaluate(`window.confirm = () => true;`, nil),
@@ -381,12 +391,24 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 					return false;
 				})()
 			`, nil),
-			chromedp.Sleep(formSubmitDelay),
+			// Wait for deletion and table update
+			waitFor(`
+				(() => {
+					const table = document.querySelector('table tbody');
+					if (!table) return true;
+					const rows = Array.from(table.querySelectorAll('tr'));
+					return !rows.some(row => {
+						const cells = row.querySelectorAll('td');
+						return cells.length > 0 && cells[0].textContent.includes('Post To Delete');
+					});
+				})()
+			`, 10*time.Second),
 
 			// Reload
 			chromedp.Reload(),
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
-			chromedp.Sleep(shortDelay),
+			// Wait for page to fully load
+			waitFor(`document.readyState === 'complete'`, 3*time.Second),
 		)
 		if err != nil {
 			t.Fatalf("Failed to delete post: %v", err)
@@ -436,7 +458,8 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 			// Click Add button
 			chromedp.WaitVisible(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
 			chromedp.Click(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
-			chromedp.Sleep(shortDelay),
+			// Wait for form to be visible (modal is open)
+			chromedp.WaitVisible(`form[lvt-submit]`, chromedp.ByQuery),
 
 			// Submit without filling fields
 			chromedp.WaitVisible(`form[lvt-submit]`, chromedp.ByQuery),
@@ -451,7 +474,14 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 					form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 				}
 			`, nil),
-			chromedp.Sleep(modalAnimationDelay*2), // Wait longer for validation errors to appear
+			// Wait a moment for validation to occur (form should stay visible due to validation failure)
+			waitFor(`
+				(() => {
+					const form = document.querySelector('form[lvt-submit]');
+					// Form should still be visible if validation failed
+					return form && form.offsetParent !== null;
+				})()
+			`, 3*time.Second),
 
 			// Check debug flags to see if submit was captured
 			chromedp.Evaluate(`

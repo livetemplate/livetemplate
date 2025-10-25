@@ -234,8 +234,8 @@ func TestTutorialE2E(t *testing.T) {
 	// Step 9: E2E UI Testing with Chrome
 	t.Log("Step 9: Testing UI with Chrome...")
 
-	// Use shared Chrome container
-	ctx, cancel := getSharedChromeContext(t)
+	// Use isolated Chrome container for parallel execution
+	ctx, cancel := getIsolatedChromeContext(t)
 	defer cancel()
 
 	ctx, cancel = context.WithTimeout(ctx, 60*time.Second)
@@ -344,7 +344,8 @@ func TestTutorialE2E(t *testing.T) {
 			// Click the "+ Add Posts" button in toolbar to open modal
 			chromedp.WaitVisible(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
 			chromedp.Click(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
-			chromedp.Sleep(500*time.Millisecond), // Wait for modal to appear
+			// Wait for modal to appear
+			waitFor(`document.querySelector('[role="dialog"]') && !document.querySelector('[role="dialog"]').hasAttribute('hidden')`, 3*time.Second),
 
 			// Fill in the form in the modal
 			chromedp.WaitVisible(`input[name="title"]`, chromedp.ByQuery),
@@ -356,12 +357,18 @@ func TestTutorialE2E(t *testing.T) {
 			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
 
 			// Wait for the post to appear in the table
-			chromedp.Sleep(2*time.Second),
+			waitFor(`
+				(() => {
+					const table = document.querySelector('table tbody');
+					return table && table.querySelectorAll('tr').length > 0;
+				})()
+			`, 5*time.Second),
 
 			// Reload page to see the persisted post (workaround for tree update issue)
 			chromedp.Reload(),
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
-			chromedp.Sleep(500*time.Millisecond),
+			// Wait for page to load
+			waitFor(`document.readyState === 'complete'`, 3*time.Second),
 		)
 		if err != nil {
 			t.Fatalf("Failed to add post: %v", err)
@@ -493,7 +500,8 @@ func TestTutorialE2E(t *testing.T) {
 					return false;
 				})()
 			`, &editButtonFound),
-			chromedp.Sleep(1*time.Second), // Wait for modal to open
+			// Wait for modal to open
+			waitFor(`document.querySelector('input[name="title"]') !== null`, 3*time.Second),
 		)
 		if err != nil {
 			t.Fatalf("Failed to click edit button: %v", err)
@@ -596,7 +604,8 @@ func TestTutorialE2E(t *testing.T) {
 					return false;
 				})()
 			`, &postExists),
-			chromedp.Sleep(1*time.Second),
+			// Wait for update to complete
+			waitFor(`document.readyState === 'complete'`, 3*time.Second),
 		)
 		if err != nil {
 			t.Fatalf("Failed to open edit modal: %v", err)
@@ -615,12 +624,24 @@ func TestTutorialE2E(t *testing.T) {
 					return false;
 				})()
 			`, &postExists),
-			chromedp.Sleep(2*time.Second), // Wait for deletion to process
+			// Wait for deletion to process
+			waitFor(`
+				(() => {
+					const table = document.querySelector('table tbody');
+					if (!table) return true;
+					const rows = Array.from(table.querySelectorAll('tr'));
+					return !rows.some(row => {
+						const cells = row.querySelectorAll('td');
+						return cells.length > 0 && cells[0].textContent.includes('My Updated Blog Post');
+					});
+				})()
+			`, 5*time.Second),
 
 			// Reload page to see the deletion result
 			chromedp.Reload(),
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
-			chromedp.Sleep(500*time.Millisecond),
+			// Wait for page to load
+			waitFor(`document.readyState === 'complete'`, 3*time.Second),
 		)
 		if err != nil {
 			t.Fatalf("Failed to delete post: %v", err)
@@ -673,7 +694,8 @@ func TestTutorialE2E(t *testing.T) {
 			// Click the "+ Add Posts" button in toolbar to open modal
 			chromedp.WaitVisible(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
 			chromedp.Click(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
-			chromedp.Sleep(500*time.Millisecond), // Wait for modal to appear
+			// Wait for modal to appear
+			chromedp.WaitVisible(`input[name="title"]`, chromedp.ByQuery),
 
 			// Submit form WITHOUT filling required fields
 			chromedp.WaitVisible(`form[lvt-submit]`, chromedp.ByQuery),
@@ -686,7 +708,8 @@ func TestTutorialE2E(t *testing.T) {
 				}
 			`, nil),
 
-			chromedp.Sleep(3*time.Second), // Wait for validation response and UI update
+			// Wait for validation response - form should still be visible
+			waitFor(`document.querySelector('form[lvt-submit]') !== null`, 3*time.Second),
 
 			// Debug: Capture the form HTML
 			chromedp.Evaluate(`document.querySelector('form[lvt-submit]')?.outerHTML || 'Form not found'`, &formHTML),

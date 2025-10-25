@@ -209,8 +209,8 @@ func TestPageModeRendering(t *testing.T) {
 		t.Fatal("Server did not start within 6 seconds")
 	}
 
-	// Use shared Chrome container
-	ctx, cancel := getSharedChromeContext(t)
+	// Use isolated Chrome container for parallel execution
+	ctx, cancel := getIsolatedChromeContext(t)
 	defer cancel()
 
 	// Navigate to products page
@@ -298,7 +298,8 @@ func TestPageModeRendering(t *testing.T) {
 	var scriptSrc string
 	err = chromedp.Run(ctx,
 		chromedp.Navigate(testURL),
-		chromedp.Sleep(1*time.Second), // Give page time to load
+		// Wait for page to fully load
+		waitFor(`document.readyState === 'complete'`, 3*time.Second),
 		chromedp.Evaluate(`document.querySelector('script[src*="livetemplate-client"]') !== null`, &scriptTagExists),
 		chromedp.Evaluate(`(document.querySelector('script[src*="livetemplate-client"]') || {}).src || "not found"`, &scriptSrc),
 	)

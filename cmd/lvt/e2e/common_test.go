@@ -23,6 +23,10 @@ func getTestURL(port int) string {
 	return e2etest.GetChromeTestURL(port)
 }
 
+func waitFor(condition string, timeout time.Duration) chromedp.Action {
+	return e2etest.WaitFor(condition, timeout)
+}
+
 func waitForWebSocketReady(timeout time.Duration) chromedp.Action {
 	return e2etest.WaitForWebSocketReady(timeout)
 }
