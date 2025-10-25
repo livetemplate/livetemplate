@@ -620,7 +620,7 @@ func TestTodosE2E(t *testing.T) {
 	})
 
 	t.Run("Pagination Functionality", func(t *testing.T) {
-		t.Skip("Skipping pagination test - known pre-existing issue from Phase 2")
+		t.Skip("Skipping - E2E test hangs at line 628 during chromedp.SendKeys operation. Pre-existing chromedp timing/browser issue, not related to architecture changes.")
 		var html string
 
 		// Currently have 5 todos (page size is 3, so 2 pages)
