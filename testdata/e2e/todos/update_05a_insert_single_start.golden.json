@@ -19,7 +19,13 @@
           }
         ],
         [
-          "                            <div class=\"todo-item  \" data-key=\" \">\n                                <strong> :</strong>\n                                 \n                                 \n                                 \n                            </div>\n                            "
+          "\n                    <div class=\"todo-item ",
+          "\" data-key=\"",
+          "\"\u003e\n                        <strong>",
+          ":\u003c/strong\u003e\n                        ",
+          "\n                        ",
+          "\n                        ",
+          "\n                    \u003c/div\u003e\n                    "
         ]
       ]
     ]
