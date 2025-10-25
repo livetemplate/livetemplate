@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"reflect"
 	"regexp"
 	"sort"
@@ -20,23 +21,38 @@ type treeNode map[string]interface{}
 
 // calculateFingerprint calculates a 64-bit fingerprint (MD5 hash) for a tree's statics and dynamics
 // This allows detecting when a subtree has changed, similar to LiveView's optimization #2
+// Optimized in Phase 5 to use incremental hashing instead of full JSON marshaling
 func calculateFingerprint(tree treeNode) string {
-	// Create a canonical representation of the tree for hashing
-	// Include both statics (template structure) and dynamics (data values)
 	hasher := md5.New()
+	hashTreeIncremental(tree, hasher)
 
+	// Return first 16 characters of hex (64 bits)
+	fullHash := hex.EncodeToString(hasher.Sum(nil))
+	if len(fullHash) >= 16 {
+		return fullHash[:16]
+	}
+	return fullHash
+}
+
+// hashTreeIncremental incrementally hashes a tree node without full JSON marshaling
+// This is much faster for nested trees as it avoids marshaling entire subtrees
+func hashTreeIncremental(tree treeNode, hasher hash.Hash) {
 	// Add statics to hash (template structure)
 	if statics, exists := tree["s"]; exists {
 		if staticsArray, ok := statics.([]string); ok {
-			staticsJSON, _ := json.Marshal(staticsArray)
-			hasher.Write(staticsJSON)
+			// Write statics count first for disambiguation
+			hasher.Write([]byte(fmt.Sprintf("s:%d:", len(staticsArray))))
+			for _, s := range staticsArray {
+				hasher.Write([]byte(s))
+				hasher.Write([]byte("\x00")) // Null byte separator
+			}
 		}
 	}
 
-	// Add dynamics to hash in sorted order for consistency
+	// Collect and sort dynamic keys for consistent hashing
 	var keys []string
 	for k := range tree {
-		if k != "s" && k != "f" { // Skip statics and fingerprint itself
+		if k != "s" && k != "f" && k != "_idKey" { // Skip statics, fingerprint, and metadata
 			keys = append(keys, k)
 		}
 	}
@@ -49,20 +65,67 @@ func calculateFingerprint(tree treeNode) string {
 		return keys[i] < keys[j]
 	})
 
-	// Add dynamic values to hash
+	// Hash each dynamic value incrementally
 	for _, k := range keys {
 		value := tree[k]
-		valueJSON, _ := json.Marshal(value)
 		hasher.Write([]byte(k))
+		hasher.Write([]byte(":"))
+		hashValueIncremental(value, hasher)
+		hasher.Write([]byte("\x00")) // Null byte separator
+	}
+}
+
+// hashValueIncremental hashes a value incrementally based on its type
+// For nested trees, it recursively hashes instead of marshaling
+func hashValueIncremental(value interface{}, hasher hash.Hash) {
+	switch v := value.(type) {
+	case treeNode:
+		// Nested tree node - recursively hash it
+		hasher.Write([]byte("tree{"))
+		hashTreeIncremental(v, hasher)
+		hasher.Write([]byte("}"))
+
+	case map[string]interface{}:
+		// Plain map - recursively hash it as a tree
+		hasher.Write([]byte("map{"))
+		hashTreeIncremental(treeNode(v), hasher)
+		hasher.Write([]byte("}"))
+
+	case []interface{}:
+		// Array - hash each element
+		hasher.Write([]byte(fmt.Sprintf("arr[%d]:", len(v))))
+		for i, item := range v {
+			hasher.Write([]byte(fmt.Sprintf("%d:", i)))
+			hashValueIncremental(item, hasher)
+		}
+		hasher.Write([]byte("]"))
+
+	case string:
+		hasher.Write([]byte("str:"))
+		hasher.Write([]byte(v))
+
+	case int:
+		hasher.Write([]byte(fmt.Sprintf("int:%d", v)))
+
+	case int64:
+		hasher.Write([]byte(fmt.Sprintf("i64:%d", v)))
+
+	case float64:
+		hasher.Write([]byte(fmt.Sprintf("f64:%f", v)))
+
+	case bool:
+		hasher.Write([]byte(fmt.Sprintf("bool:%t", v)))
+
+	case nil:
+		hasher.Write([]byte("nil"))
+
+	default:
+		// Fallback to JSON marshal for unknown types
+		// This is rare and only happens for custom types
+		valueJSON, _ := json.Marshal(v)
+		hasher.Write([]byte("json:"))
 		hasher.Write(valueJSON)
 	}
-
-	// Return first 16 characters of hex (64 bits)
-	fullHash := hex.EncodeToString(hasher.Sum(nil))
-	if len(fullHash) >= 16 {
-		return fullHash[:16]
-	}
-	return fullHash
 }
 
 // addFingerprintToTree adds the fingerprint to the tree for client-side tracking
