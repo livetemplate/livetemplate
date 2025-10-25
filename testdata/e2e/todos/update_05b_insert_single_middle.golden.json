@@ -10,7 +10,6 @@
       [
         "i",
         "todo-4",
-        "after",
         {
           "1": "todo-5",
           "3": "Configure CI/CD pipeline",

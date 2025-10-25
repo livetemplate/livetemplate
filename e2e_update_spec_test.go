@@ -392,8 +392,10 @@ func TestUpdateSpecification_RangeOperations(t *testing.T) {
 					t.Fatalf("Expected 1 operation, got %d", len(ops))
 				}
 				op := ops[0].([]interface{})
-				if op[0] != "i" {
-					t.Errorf("Expected insert 'i', got %v", op[0])
+				// Phase 3: Adding at end now generates 'a' (append) instead of 'i' (insert)
+				// This is more efficient: O(1) vs O(n)
+				if op[0] != "a" {
+					t.Errorf("Expected append 'a' (adding at end), got %v", op[0])
 				}
 			},
 		},

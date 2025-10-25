@@ -2082,35 +2082,48 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 				operations = append(operations, []interface{}{"a", itemsToAppend})
 			}
 		} else {
-			// Range has existing items, use 'i' (insert) operations
-			// Check if all items are at the same position (single-point insertion)
-			if isSamePosition, targetKey, position := areAllItemsAtSamePosition(addedKeys, oldItems, newItems, statics); isSamePosition {
-				// Generate individual insert operations for each item
+			// Range has existing items - detect append/prepend/insert patterns
+
+			// Check if all new items are at the start (prepend)
+			if areAllItemsAtStart(addedKeys, newItems, statics) {
+				itemsToPrepend := make([]interface{}, 0, len(addedKeys))
 				for _, key := range addedKeys {
 					if item, exists := newItemsByKey[key]; exists {
-						if targetKey == "" {
-							operations = append(operations, []interface{}{"i", nil, position, item})
-						} else {
-							operations = append(operations, []interface{}{"i", targetKey, position, item})
-						}
+						itemsToPrepend = append(itemsToPrepend, item)
 					}
 				}
+				// Use 'p' operation for prepending (O(1) on client)
+				// Format: ['p', items, statics]
+				operations = append(operations, []interface{}{"p", itemsToPrepend, statics})
+			} else if areAllItemsAtEnd(addedKeys, oldItems, newItems, statics) {
+				// Check if all new items are at the end (append)
+				itemsToAppend := make([]interface{}, 0, len(addedKeys))
+				for _, key := range addedKeys {
+					if item, exists := newItemsByKey[key]; exists {
+						itemsToAppend = append(itemsToAppend, item)
+					}
+				}
+				// Use 'a' operation for appending (O(1) on client)
+				// Format: ['a', items, statics]
+				operations = append(operations, []interface{}{"a", itemsToAppend, statics})
 			} else {
-				// Multiple individual insertions at different positions
+				// Individual insertions at specific positions
 				for _, key := range addedKeys {
 					if newItem, exists := newItemsByKey[key]; exists {
 						// Find position for this specific item
 						for i, item := range newItems {
 							if itemMap, ok := item.(map[string]interface{}); ok {
 								if itemKey, ok := getItemKey(itemMap, statics); ok && itemKey == key {
-									// Determine insertion position using 'i' operation (spec-compliant)
+									// Determine insertion position
 									if i == 0 {
-										operations = append(operations, []interface{}{"i", nil, "start", newItem})
+										// Item at start - use prepend for single item
+										operations = append(operations, []interface{}{"p", []interface{}{newItem}, statics})
 									} else {
-										// Find the item before this one
+										// Find the item before this one and use simplified insert
 										if prevItem, ok := newItems[i-1].(map[string]interface{}); ok {
 											if prevKey, ok := getItemKey(prevItem, statics); ok {
-												operations = append(operations, []interface{}{"i", prevKey, "after", newItem})
+												// Simplified insert: ['i', afterId, data] (no position param)
+												operations = append(operations, []interface{}{"i", prevKey, newItem})
 											}
 										}
 									}
@@ -2271,71 +2284,88 @@ func findNewItems(oldItems, newItems []interface{}, statics interface{}) []strin
 // }
 
 // areAllItemsAtSamePosition checks if all new items are inserted at the same position
-func areAllItemsAtSamePosition(newKeys []string, oldItems, newItems []interface{}, statics interface{}) (bool, string, string) {
-	if len(newKeys) <= 1 {
-		return false, "", "" // Single items don't need this optimization
+// areAllItemsAtStart checks if all new items are at the beginning of the list (prepend)
+func areAllItemsAtStart(newKeys []string, newItems []interface{}, statics interface{}) bool {
+	if len(newKeys) == 0 {
+		return false
 	}
 
-	// Find the first new item's position
-	var firstNewIndex = -1
-	var targetKey = ""
-	var position = ""
+	// Check if all new keys are at the beginning of newItems
+	for i, key := range newKeys {
+		if i >= len(newItems) {
+			return false
+		}
+		if itemMap, ok := newItems[i].(map[string]interface{}); ok {
+			if itemKey, ok := getItemKey(itemMap, statics); ok {
+				if itemKey != key {
+					return false
+				}
+			} else {
+				return false
+			}
+		} else {
+			return false
+		}
+	}
+	return true
+}
 
-	for i, item := range newItems {
-		if itemMap, ok := item.(map[string]interface{}); ok {
-			if keyStr, ok := getItemKey(itemMap, statics); ok {
-				// Check if this is a new key
-				for _, newKey := range newKeys {
-					if newKey == keyStr {
-						if firstNewIndex == -1 {
-							firstNewIndex = i
-							// Determine the target and position
-							if i > 0 {
-								// Check the item before
-								if prevItem, ok := newItems[i-1].(map[string]interface{}); ok {
-									if prevKeyStr, ok := getItemKey(prevItem, statics); ok {
-										targetKey = prevKeyStr
-										position = "after"
-									}
-								}
-							} else {
-								// At the beginning
-								targetKey = ""
-								position = "start"
-							}
-						}
+// areAllItemsAtEnd checks if all new items are at the end of the list (append)
+func areAllItemsAtEnd(newKeys []string, oldItems, newItems []interface{}, statics interface{}) bool {
+	if len(newKeys) == 0 || len(oldItems) == 0 {
+		return false
+	}
+
+	// New items should be after all old items
+	// Start index for new items should be len(oldItems)
+	startIndex := len(newItems) - len(newKeys)
+
+	// Verify that items before startIndex are all old items
+	oldKeys := extractItemKeys(oldItems, statics)
+	for i := 0; i < startIndex; i++ {
+		if i >= len(newItems) {
+			return false
+		}
+		if itemMap, ok := newItems[i].(map[string]interface{}); ok {
+			if itemKey, ok := getItemKey(itemMap, statics); ok {
+				// Check if this key exists in oldKeys
+				found := false
+				for _, oldKey := range oldKeys {
+					if oldKey == itemKey {
+						found = true
 						break
 					}
 				}
-			}
-		}
-	}
-
-	if firstNewIndex == -1 {
-		return false, "", ""
-	}
-
-	// Verify all new items are contiguous starting from firstNewIndex
-	for i, newKey := range newKeys {
-		expectedIndex := firstNewIndex + i
-		if expectedIndex >= len(newItems) {
-			return false, "", ""
-		}
-
-		if itemMap, ok := newItems[expectedIndex].(map[string]interface{}); ok {
-			if keyStr, ok := getItemKey(itemMap, statics); ok {
-				if keyStr != newKey {
-					return false, "", ""
+				if !found {
+					return false
 				}
 			} else {
-				return false, "", ""
+				return false
 			}
 		} else {
-			return false, "", ""
+			return false
 		}
 	}
 
-	return true, targetKey, position
+	// Check if all new keys are contiguous at the end
+	for i, key := range newKeys {
+		index := startIndex + i
+		if index >= len(newItems) {
+			return false
+		}
+		if itemMap, ok := newItems[index].(map[string]interface{}); ok {
+			if itemKey, ok := getItemKey(itemMap, statics); ok {
+				if itemKey != key {
+					return false
+				}
+			} else {
+				return false
+			}
+		} else {
+			return false
+		}
+	}
+	return true
 }
 
 // isComplexInsertionPattern checks if the insertion pattern is too complex for simple operations

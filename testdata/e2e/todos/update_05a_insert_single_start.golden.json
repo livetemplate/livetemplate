@@ -8,16 +8,19 @@
   "8": {
     "0": [
       [
-        "i",
-        null,
-        "start",
-        {
-          "1": "todo-4",
-          "3": "Setup development environment",
-          "5": {
-            "0": "High"
+        "p",
+        [
+          {
+            "1": "todo-4",
+            "3": "Setup development environment",
+            "5": {
+              "0": "High"
+            }
           }
-        }
+        ],
+        [
+          "                            <div class=\"todo-item  \" data-key=\" \">\n                                <strong> :</strong>\n                                 \n                                 \n                                 \n                            </div>\n                            "
+        ]
       ]
     ]
   },

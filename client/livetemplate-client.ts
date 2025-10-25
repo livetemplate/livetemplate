@@ -1613,25 +1613,49 @@ export class LiveTemplateClient {
           }
           break;
 
-        case 'i': // Insert: ["i", targetKey, position, items]
-          const targetKey = operation[1];
-          const position = operation[2];
-          const insertData = operation[3];
+        case 'p': // Prepend: ["p", items, statics] (Phase 3)
+          const itemsToPrepend = operation[1];
+          const prependStatics = operation[2]; // Optional: statics for first-time prepend
 
-          if (insertData) {
-            const itemsToInsert = Array.isArray(insertData) ? insertData : [insertData];
+          // If statics are provided (first-time prepend to empty range), update cached statics
+          if (prependStatics) {
+            rangeData.statics = prependStatics;
+          }
+
+          if (itemsToPrepend) {
+            if (Array.isArray(itemsToPrepend)) {
+              currentItems.unshift(...itemsToPrepend);
+            } else {
+              currentItems.unshift(itemsToPrepend);
+            }
+          }
+          break;
+
+        case 'i': // Insert: ["i", afterId, data] (Phase 3: simplified, no position param)
+          const targetKey = operation[1];
+          const insertData = operation[2]; // Note: Phase 3 removed position param
+
+          // Handle both old format (4 elements) and new format (3 elements) for backward compatibility
+          const position = operation.length === 4 ? operation[2] : null;
+          const actualInsertData = operation.length === 4 ? operation[3] : insertData;
+
+          if (actualInsertData) {
+            const itemsToInsert = Array.isArray(actualInsertData) ? actualInsertData : [actualInsertData];
 
             if (targetKey === null) {
+              // Old format: position determines where to insert
               if (position === "start") {
                 currentItems.unshift(...itemsToInsert);
-              } else { // "end"
+              } else { // "end" or null
                 currentItems.push(...itemsToInsert);
               }
             } else {
+              // Insert after targetKey (new simplified format)
               const targetIndex = currentItems.findIndex((item: any) =>
                 this.getItemKey(item, statics) === targetKey
               );
               if (targetIndex >= 0) {
+                // Phase 3: always insert AFTER (position param removed)
                 const insertIndex = position === "before" ? targetIndex : targetIndex + 1;
                 currentItems.splice(insertIndex, 0, ...itemsToInsert);
               }
