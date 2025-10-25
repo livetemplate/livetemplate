@@ -11,6 +11,7 @@ import (
 
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
+	e2etest "github.com/livefir/livetemplate/internal/testing"
 )
 
 // TestState for loading indicator tests
@@ -140,7 +141,13 @@ func TestLoadingIndicator(t *testing.T) {
 
 	err = chromedp.Run(ctx,
 		chromedp.Navigate(url),
-		chromedp.Sleep(1*time.Second), // Give JavaScript time to initialize
+		// Wait for JavaScript client to initialize and remove loading attribute
+		e2etest.WaitFor(`
+			(() => {
+				const wrapper = document.querySelector('[data-lvt-id]');
+				return wrapper && !wrapper.hasAttribute('data-lvt-loading');
+			})()
+		`, 5*time.Second),
 
 		// Check if loading attribute still exists after JavaScript runs
 		chromedp.Evaluate(`

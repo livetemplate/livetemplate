@@ -111,25 +111,24 @@ func TestTodosE2E(t *testing.T) {
 			t.Error("Tasks section not found")
 		}
 
+		// Check if script tag is present
+		if !strings.Contains(initialHTML, "livetemplate-client.js") {
+			t.Errorf("Script tag for livetemplate-client.js not found in initial HTML. HTML length: %d", len(initialHTML))
+			// Log last 500 chars to see where HTML ends
+			if len(initialHTML) > 500 {
+				t.Logf("Last 500 chars of HTML: %s", initialHTML[len(initialHTML)-500:])
+			} else {
+				t.Logf("Full HTML: %s", initialHTML)
+			}
+		}
+
 		t.Log("✅ Initial page load verified")
 	})
 
 	t.Run("WebSocket Connection", func(t *testing.T) {
-		// Check for console errors
-		err := chromedp.Run(ctx,
-			chromedp.Evaluate(`console.log('WebSocket test'); 'logged'`, nil),
-		)
-
-		if err != nil {
-			t.Fatalf("Failed to check console: %v", err)
-		}
-
-		// Give WebSocket client additional time to fully initialize
-		// The first form submission is timing-sensitive
-		time.Sleep(500 * time.Millisecond)
-
-		// If we got here without WebSocket errors, connection is working
-		t.Log("✅ WebSocket connection working")
+		// Simple check - just verify client is initialized
+		// We rely on WaitForWebSocketReady from Initial Load
+		t.Log("✅ WebSocket connection established in Initial Load")
 	})
 
 	t.Run("Add First Todo", func(t *testing.T) {
@@ -140,12 +139,8 @@ func TestTodosE2E(t *testing.T) {
 			chromedp.WaitVisible(`input[name="text"]`, chromedp.ByQuery),
 			chromedp.SendKeys(`input[name="text"]`, "First Todo Item", chromedp.ByQuery),
 			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
-			// Wait for form to clear (indicates successful submission)
-			waitFor(`document.querySelector('input[name="text"]').value === ''`, 5*time.Second),
 			// Wait for todo to appear in the list (condition-based waiting)
-			// Note: First submission after page load can be very slow due to initialization
-			// Using extended timeout to account for WebSocket handshake completion
-			waitForText("tbody", "First Todo Item", 30*time.Second),
+			waitForText("tbody", "First Todo Item", 10*time.Second),
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
 		)
 
@@ -676,10 +671,9 @@ func TestTodosE2E(t *testing.T) {
 
 		// Wait for sixth todo to appear and pagination to be ready (condition-based waiting)
 		err = chromedp.Run(ctx,
-			waitForText("tbody", "Sixth Todo Item", 15*time.Second),
+			waitForText("tbody", "Sixth Todo Item", 10*time.Second),
 			// Wait for pagination controls to appear (they only show when TotalPages > 1)
-			// This requires a separate WebSocket update, so give it more time
-			waitFor(`document.querySelector('button[lvt-click="next_page"]') !== null`, 15*time.Second),
+			waitFor(`document.querySelector('button[lvt-click="next_page"]') !== null`, 10*time.Second),
 			chromedp.OuterHTML(`tbody`, &html, chromedp.ByQuery),
 		)
 

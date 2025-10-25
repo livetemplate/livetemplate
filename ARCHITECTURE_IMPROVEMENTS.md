@@ -166,18 +166,18 @@ Reduce client from 2,276 → ~1,500 lines (30-45% reduction) by removing unneces
 
 #### Sub-Phases
 
-**2.1 Phase 6A: Quick Wins** ⏸️ (1-2 days, ~150-200 lines saved)
+**2.1 Phase 6A: Quick Wins** 🔄 IN PROGRESS (1-2 days, ~150-200 lines saved)
 
 Tasks:
-- [ ] Implement `_idKey` metadata usage (~50 lines changed)
+- [x] Implement `_idKey` metadata usage (~50 lines changed) ✅ COMPLETED (commit 231307e)
   - Server already sends _idKey (Phase 2 completed)
   - Client just needs to read it from metadata
   - Store in `rangeIdKeys: { [path: string]: string }`
-- [ ] Remove `findKeyPositionFromStatics` (~50 lines saved)
+- [x] Remove `findKeyPositionFromStatics` (~50 lines saved) ✅ COMPLETED (commit 231307e)
   - 50+ lines of HTML parsing logic
   - Replace all calls with `this.rangeIdKeys[path]`
   - Delete entire function
-- [ ] Simplify operation handlers (~100 lines saved)
+- [ ] Simplify operation handlers (~100 lines saved) 🔄 IN PROGRESS
   - Use Phase 3's simplified operations (prepend, insert)
   - Remove redundant position calculations
   - Consolidate duplicate code

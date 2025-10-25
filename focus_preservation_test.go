@@ -10,6 +10,7 @@ import (
 
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
+	e2etest "github.com/livefir/livetemplate/internal/testing"
 )
 
 // FocusTestState for focus preservation tests
@@ -135,8 +136,8 @@ func TestFocusPreservation(t *testing.T) {
 		chromedp.WaitVisible(`#username`, chromedp.ByID),
 		chromedp.WaitVisible(`#increment-btn`, chromedp.ByID),
 
-		// Wait for WebSocket connection
-		chromedp.Sleep(2*time.Second),
+		// Wait for WebSocket connection and client initialization
+		e2etest.WaitFor(`typeof window.liveTemplateClient !== 'undefined'`, 5*time.Second),
 
 		// Type text into username input
 		chromedp.SendKeys(`#username`, "HelloWorld", chromedp.ByID),
@@ -152,8 +153,8 @@ func TestFocusPreservation(t *testing.T) {
 		// Click increment button to trigger update
 		chromedp.Click(`#increment-btn`, chromedp.ByID),
 
-		// Wait for update to complete
-		chromedp.Sleep(500*time.Millisecond),
+		// Wait for counter update to complete
+		e2etest.WaitFor(`document.getElementById('counter').textContent === '1'`, 3*time.Second),
 
 		// Get input value (should still be "HelloWorld")
 		chromedp.Evaluate(`document.getElementById('username').value`, &inputValue),
@@ -294,7 +295,8 @@ func TestFocusPreservationMultipleInputs(t *testing.T) {
 	err := chromedp.Run(ctx,
 		chromedp.Navigate(url),
 		chromedp.WaitVisible(`#notes`, chromedp.ByID),
-		chromedp.Sleep(2*time.Second),
+		// Wait for WebSocket connection
+		e2etest.WaitFor(`typeof window.liveTemplateClient !== 'undefined'`, 5*time.Second),
 
 		// Type into textarea
 		chromedp.SendKeys(`#notes`, "First line\nSecond line", chromedp.ByID),
@@ -309,7 +311,8 @@ func TestFocusPreservationMultipleInputs(t *testing.T) {
 
 		// Trigger update
 		chromedp.Click(`#trigger-btn`, chromedp.ByID),
-		chromedp.Sleep(500*time.Millisecond),
+		// Wait for update to complete
+		e2etest.WaitFor(`document.getElementById('counter').textContent !== '0'`, 3*time.Second),
 
 		// Verify preservation
 		chromedp.Evaluate(`document.getElementById('notes').value`, &textareaValue),

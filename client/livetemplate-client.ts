@@ -1536,6 +1536,30 @@ export class LiveTemplateClient {
   }
 
   /**
+   * Find item index by key in items array
+   */
+  private findItemIndexByKey(items: any[], key: string, statics: any[], statePath?: string): number {
+    return items.findIndex((item: any) => this.getItemKey(item, statics, statePath) === key);
+  }
+
+  /**
+   * Add items to array (append or prepend) and update statics if provided
+   */
+  private addItemsToRange(currentItems: any[], items: any, statics: any[] | undefined, rangeData: any, prepend: boolean): void {
+    if (statics) {
+      rangeData.statics = statics;
+    }
+    if (items) {
+      const itemsArray = Array.isArray(items) ? items : [items];
+      if (prepend) {
+        currentItems.unshift(...itemsArray);
+      } else {
+        currentItems.push(...itemsArray);
+      }
+    }
+  }
+
+  /**
    * Apply differential operations to existing range items
    * Operations: ["r", key] for remove, ["u", key, changes] for update, ["a", items] for append
    * @param operations - Array of differential operations
@@ -1562,92 +1586,33 @@ export class LiveTemplateClient {
 
       switch (opType) {
         case 'r': // Remove: ["r", key]
-          const removeKey = operation[1];
-          const removeIndex = currentItems.findIndex((item: any) =>
-            this.getItemKey(item, statics, statePath) === removeKey
-          );
+          const removeIndex = this.findItemIndexByKey(currentItems, operation[1], statics, statePath);
           if (removeIndex >= 0) {
             currentItems.splice(removeIndex, 1);
           }
           break;
 
         case 'u': // Update: ["u", key, changes]
-          const updateKey = operation[1];
+          const updateIndex = this.findItemIndexByKey(currentItems, operation[1], statics, statePath);
           const changes = operation[2];
-          const updateIndex = currentItems.findIndex((item: any) =>
-            this.getItemKey(item, statics, statePath) === updateKey
-          );
           if (updateIndex >= 0 && changes) {
-            // Merge the changes into the existing item
             currentItems[updateIndex] = { ...currentItems[updateIndex], ...changes };
           }
           break;
 
         case 'a': // Append: ["a", items] or ["a", items, statics]
-          const itemsToAppend = operation[1];
-          const appendStatics = operation[2]; // Optional: statics for first-time append
-
-          // If statics are provided (first-time append to empty range), update cached statics
-          if (appendStatics) {
-            rangeData.statics = appendStatics;
-          }
-
-          if (itemsToAppend) {
-            if (Array.isArray(itemsToAppend)) {
-              currentItems.push(...itemsToAppend);
-            } else {
-              currentItems.push(itemsToAppend);
-            }
-          }
+          this.addItemsToRange(currentItems, operation[1], operation[2], rangeData, false);
           break;
 
-        case 'p': // Prepend: ["p", items, statics] (Phase 3)
-          const itemsToPrepend = operation[1];
-          const prependStatics = operation[2]; // Optional: statics for first-time prepend
-
-          // If statics are provided (first-time prepend to empty range), update cached statics
-          if (prependStatics) {
-            rangeData.statics = prependStatics;
-          }
-
-          if (itemsToPrepend) {
-            if (Array.isArray(itemsToPrepend)) {
-              currentItems.unshift(...itemsToPrepend);
-            } else {
-              currentItems.unshift(itemsToPrepend);
-            }
-          }
+        case 'p': // Prepend: ["p", items, statics]
+          this.addItemsToRange(currentItems, operation[1], operation[2], rangeData, true);
           break;
 
-        case 'i': // Insert: ["i", afterId, data] (Phase 3: simplified, no position param)
-          const targetKey = operation[1];
-          const insertData = operation[2]; // Note: Phase 3 removed position param
-
-          // Handle both old format (4 elements) and new format (3 elements) for backward compatibility
-          const position = operation.length === 4 ? operation[2] : null;
-          const actualInsertData = operation.length === 4 ? operation[3] : insertData;
-
-          if (actualInsertData) {
-            const itemsToInsert = Array.isArray(actualInsertData) ? actualInsertData : [actualInsertData];
-
-            if (targetKey === null) {
-              // Old format: position determines where to insert
-              if (position === "start") {
-                currentItems.unshift(...itemsToInsert);
-              } else { // "end" or null
-                currentItems.push(...itemsToInsert);
-              }
-            } else {
-              // Insert after targetKey (new simplified format)
-              const targetIndex = currentItems.findIndex((item: any) =>
-                this.getItemKey(item, statics, statePath) === targetKey
-              );
-              if (targetIndex >= 0) {
-                // Phase 3: always insert AFTER (position param removed)
-                const insertIndex = position === "before" ? targetIndex : targetIndex + 1;
-                currentItems.splice(insertIndex, 0, ...itemsToInsert);
-              }
-            }
+        case 'i': // Insert: ["i", afterId, data] - Phase 3 simplified format
+          const targetIndex = this.findItemIndexByKey(currentItems, operation[1], statics, statePath);
+          if (targetIndex >= 0) {
+            const itemsToInsert = Array.isArray(operation[2]) ? operation[2] : [operation[2]];
+            currentItems.splice(targetIndex + 1, 0, ...itemsToInsert);
           }
           break;
 

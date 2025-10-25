@@ -86,7 +86,8 @@ func TestCounterE2E(t *testing.T) {
 		var logs []string
 		err := chromedp.Run(ctx,
 			chromedp.Evaluate(`console.log('WebSocket test'); 'logged'`, nil),
-			chromedp.Sleep(500*time.Millisecond),
+			// Wait for WebSocket client to be initialized
+			e2etest.WaitFor(`typeof window.liveTemplateClient !== 'undefined'`, 3*time.Second),
 		)
 
 		if err != nil {
