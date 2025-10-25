@@ -132,6 +132,7 @@ type Template struct {
 	keyGen          *keyGenerator       // Per-template key generation for wrapper approach
 	config          Config              // Template configuration
 	analyzer        *TreeUpdateAnalyzer // Tree efficiency analyzer (enabled in DevMode)
+	seenStructures  map[string]bool     // Track ALL structures sent to client (fixes dynamic structure bug)
 }
 
 // UpdateResponse wraps a tree update with metadata for form lifecycle.
@@ -314,10 +315,11 @@ func New(name string, opts ...Option) *Template {
 	analyzer.Enabled = config.DevMode
 
 	tmpl := &Template{
-		name:     name,
-		keyGen:   newKeyGenerator(),
-		config:   config,
-		analyzer: analyzer,
+		name:           name,
+		keyGen:         newKeyGenerator(),
+		config:         config,
+		analyzer:       analyzer,
+		seenStructures: make(map[string]bool),
 	}
 
 	// Auto-discover and parse templates if not explicitly provided
@@ -979,7 +981,7 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree treeNode, 
 				continue
 			}
 
-			// Check if client has this EXACT structure from initial render
+			// Check if client has this EXACT structure from initial render OR from previous updates
 			// For range constructs, only strip statics if initial tree also had a range at this location
 			clientHasStructure := false
 			if t.hasInitialTree && t.fieldExistsInTree(k, t.initialTree) {
@@ -990,6 +992,13 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree treeNode, 
 					clientHasStructure = isRangeConstruct(initialValue)
 				} else {
 					// For non-range structures, field existence is enough
+					clientHasStructure = true
+				}
+			}
+
+			// Also check if we've sent this structure in previous updates (fixes dynamic structure bug)
+			if !clientHasStructure && t.seenStructures != nil {
+				if t.seenStructures[fieldPath] {
 					clientHasStructure = true
 				}
 			}
@@ -1028,6 +1037,11 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree treeNode, 
 						changes[k] = ""
 					} else {
 						changes[k] = newValue
+						// Track that we've now sent this structure
+						if t.seenStructures == nil {
+							t.seenStructures = make(map[string]bool)
+						}
+						t.seenStructures[fieldPath] = true
 					}
 				} else if m, ok := newValue.(map[string]interface{}); ok {
 					stripped := stripStaticsRecursively(m)
@@ -1035,6 +1049,11 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree treeNode, 
 						changes[k] = ""
 					} else {
 						changes[k] = newValue
+						// Track that we've now sent this structure
+						if t.seenStructures == nil {
+							t.seenStructures = make(map[string]bool)
+						}
+						t.seenStructures[fieldPath] = true
 					}
 				} else {
 					changes[k] = newValue
@@ -1208,6 +1227,13 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree treeNode, 
 						}
 					}
 
+					// Also check if we've sent this structure in previous updates (fixes dynamic structure bug)
+					if !clientHasStructure && t.seenStructures != nil {
+						if t.seenStructures[fieldPath] {
+							clientHasStructure = true
+						}
+					}
+
 					if clientHasStructure {
 						// Strip statics since client has them cached
 						stripped := stripStaticsRecursively(newTreeNode)
@@ -1220,6 +1246,11 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree treeNode, 
 					} else {
 						// Client doesn't have structure - send WITH statics
 						changes[k] = newValue
+						// Track that we've now sent this structure
+						if t.seenStructures == nil {
+							t.seenStructures = make(map[string]bool)
+						}
+						t.seenStructures[fieldPath] = true
 					}
 				} else {
 					// At least one is a primitive value or type changed - send new value as-is
