@@ -467,10 +467,14 @@ func handleRangeNode(node *parse.RangeNode, data interface{}, keyGen *keyGenerat
 		}
 	}
 
-	// Return range comprehension format
+	// Detect ID key position in statics
+	idKey := detectIDKey(itemStatics)
+
+	// Return range comprehension format with ID metadata
 	return treeNode{
-		"s": itemStatics,
-		"d": itemTrees,
+		"s":      itemStatics,
+		"d":      itemTrees,
+		"_idKey": idKey,
 	}, nil
 }
 

@@ -395,3 +395,42 @@ func resetKeyGenerator() {
 func generateWrapperKey(keyGen *keyGenerator) string {
 	return keyGen.nextKey()
 }
+
+// detectIDKey detects which position in the dynamics contains the item ID
+// by scanning the statics array for key attribute patterns
+// Returns the position as a string (e.g., "1" for the second dynamic position)
+// Returns "0" as default if no key attribute is found
+func detectIDKey(statics []string) string {
+	if len(statics) == 0 {
+		return "0"
+	}
+
+	// Key attributes to search for (in priority order)
+	keyAttrs := []string{
+		"id=\"",
+		"data-key=\"",
+		"key=\"",
+		"data-lvt-key=\"",
+		"lvt-key=\"",
+		"data-id=\"",
+		"x-key=\"",
+		"v-key=\"",
+	}
+
+	// Scan through statics array
+	for i, static := range statics {
+		// Check if this static contains a key attribute
+		for _, attr := range keyAttrs {
+			if strings.Contains(static, attr) {
+				// The dynamic value after this static is the ID
+				// Position i in statics means dynamic at position i+1
+				// But we need to return the dynamic index, which starts at 0
+				// So dynamic position is i (0-indexed in the dynamics)
+				return fmt.Sprintf("%d", i)
+			}
+		}
+	}
+
+	// Default to position 0 if no key attribute found
+	return "0"
+}
