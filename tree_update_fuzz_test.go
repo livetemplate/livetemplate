@@ -59,7 +59,7 @@ type Settings struct {
 type UpdateValidator struct {
 	FirstRenderSeen bool
 	SentStatics     map[string]bool // Track which fields have sent statics
-	LastTree        treeNode
+	LastTree        map[string]interface{}
 	LastState       interface{}
 	UpdateCount     int
 	Violations      []string
@@ -74,17 +74,29 @@ func NewUpdateValidator() *UpdateValidator {
 }
 
 // ValidateUpdate checks if an update follows the specification rules
-func (v *UpdateValidator) ValidateUpdate(tree treeNode, state interface{}, isFirst bool) error {
+func (v *UpdateValidator) ValidateUpdate(tree interface{}, state interface{}, isFirst bool) error {
+	// Convert to map for validation
+	var treeMap map[string]interface{}
+	if tn, ok := tree.(*TreeNode); ok {
+		treeMap = tn.ToMap()
+	} else if tm, ok := tree.(map[string]interface{}); ok {
+		treeMap = tm
+	} else if tm, ok := tree.(map[string]interface{}); ok {
+		treeMap = map[string]interface{}(tm)
+	} else {
+		return fmt.Errorf("invalid tree type: %T", tree)
+	}
+
 	v.UpdateCount++
 
 	if isFirst {
 		// First render validation
-		if err := v.validateFirstRender(tree); err != nil {
+		if err := v.validateFirstRender(treeMap); err != nil {
 			v.Violations = append(v.Violations, fmt.Sprintf("Update %d (first): %v", v.UpdateCount, err))
 			return err
 		}
 		v.FirstRenderSeen = true
-		v.markStaticsSent(tree, "")
+		v.markStaticsSent(treeMap, "")
 	} else {
 		// Subsequent update validation
 		if !v.FirstRenderSeen {
@@ -93,19 +105,19 @@ func (v *UpdateValidator) ValidateUpdate(tree treeNode, state interface{}, isFir
 			return err
 		}
 
-		if err := v.validateSubsequentUpdate(tree, v.LastTree); err != nil {
+		if err := v.validateSubsequentUpdate(treeMap, v.LastTree); err != nil {
 			v.Violations = append(v.Violations, fmt.Sprintf("Update %d: %v", v.UpdateCount, err))
 			return err
 		}
 	}
 
-	v.LastTree = tree
+	v.LastTree = treeMap
 	v.LastState = state
 	return nil
 }
 
 // validateFirstRender ensures first render has complete statics
-func (v *UpdateValidator) validateFirstRender(tree treeNode) error {
+func (v *UpdateValidator) validateFirstRender(tree map[string]interface{}) error {
 	// Must have statics array - JSON unmarshalling creates []interface{}, not []string
 	staticsValue, hasStatics := tree["s"]
 	if !hasStatics {
@@ -147,7 +159,7 @@ func (v *UpdateValidator) validateFirstRender(tree treeNode) error {
 }
 
 // validateSubsequentUpdate ensures updates only contain changes
-func (v *UpdateValidator) validateSubsequentUpdate(tree, lastTree treeNode) error {
+func (v *UpdateValidator) validateSubsequentUpdate(tree, lastTree map[string]interface{}) error {
 	// Check for unnecessary statics
 	for k, value := range tree {
 		if k == "s" {
@@ -158,7 +170,7 @@ func (v *UpdateValidator) validateSubsequentUpdate(tree, lastTree treeNode) erro
 		}
 
 		// For nested structures, check recursively
-		if nestedTree, ok := value.(treeNode); ok {
+		if nestedTree, ok := value.(map[string]interface{}); ok {
 			if _, hasStatics := nestedTree["s"]; hasStatics {
 				fieldPath := k
 				if v.SentStatics[fieldPath] {
@@ -205,7 +217,7 @@ func (v *UpdateValidator) validateRangeOperations(value interface{}) error {
 }
 
 // markStaticsSent tracks which fields have sent their statics
-func (v *UpdateValidator) markStaticsSent(tree treeNode, prefix string) {
+func (v *UpdateValidator) markStaticsSent(tree map[string]interface{}, prefix string) {
 	for k, value := range tree {
 		fieldPath := prefix + k
 		if k == "s" {
@@ -213,7 +225,7 @@ func (v *UpdateValidator) markStaticsSent(tree treeNode, prefix string) {
 		}
 
 		// Recursively mark nested structures
-		if nestedTree, ok := value.(treeNode); ok {
+		if nestedTree, ok := value.(map[string]interface{}); ok {
 			v.markStaticsSent(nestedTree, fieldPath+".")
 		}
 		if nestedMap, ok := value.(map[string]interface{}); ok {
@@ -520,7 +532,7 @@ func FuzzUserJourneys(f *testing.F) {
 			state := simulator.GetState()
 
 			// Generate tree update
-			var tree treeNode
+			var tree *TreeNode
 			var err error
 
 			if i == 0 && activity.Type == "visit" {
@@ -620,7 +632,7 @@ func TestSpecificationCompliance(t *testing.T) {
 				simulator.ApplyActivity(activity)
 				state := simulator.GetState()
 
-				var tree treeNode
+				var tree *TreeNode
 				var err error
 
 				if i == 0 {
@@ -684,21 +696,23 @@ func TestRangeOperationGranularity(t *testing.T) {
 	changes := tmpl.compareTreesAndGetChanges(tree1, tree2)
 
 	// Verify the update contains only an insert operation
-	if rangeOps, ok := changes["0"].([]interface{}); ok {
-		if len(rangeOps) != 1 {
-			t.Errorf("Expected 1 range operation, got %d", len(rangeOps))
-		}
-
-		if op, ok := rangeOps[0].([]interface{}); ok {
-			if op[0] != "i" {
-				t.Errorf("Expected insert operation 'i', got %v", op[0])
+	if val, ok := changes.GetDynamic("0"); ok {
+		if rangeOps, ok := val.([]interface{}); ok {
+			if len(rangeOps) != 1 {
+				t.Errorf("Expected 1 range operation, got %d", len(rangeOps))
 			}
-		}
-	} else {
-		// Check if it's sending the full list (violation)
-		if fullList, ok := changes["0"].(map[string]interface{}); ok {
-			if d, hasD := fullList["d"]; hasD {
-				t.Errorf("Update sent full list 'd' instead of granular operation: %v", d)
+
+			if op, ok := rangeOps[0].([]interface{}); ok {
+				if op[0] != "i" {
+					t.Errorf("Expected insert operation 'i', got %v", op[0])
+				}
+			}
+		} else {
+			// Check if it's sending the full list (violation)
+			if fullList, ok := val.(map[string]interface{}); ok {
+				if d, hasD := fullList["d"]; hasD {
+					t.Errorf("Update sent full list 'd' instead of granular operation: %v", d)
+				}
 			}
 		}
 	}

@@ -391,18 +391,29 @@ func waitForServer(t *testing.T, url string, timeout time.Duration) {
 
 	deadline := time.Now().Add(timeout)
 	var lastErr error
+	consecutiveSuccesses := 0
+	const requiredSuccesses = 2 // Require 2 consecutive successful responses for stability
 
 	for time.Now().Before(deadline) {
 		resp, err := http.Get(url)
 		if err == nil {
-			resp.Body.Close()
 			if resp.StatusCode == 200 {
-				t.Log("✅ Server ready")
-				return
+				resp.Body.Close()
+				consecutiveSuccesses++
+				if consecutiveSuccesses >= requiredSuccesses {
+					// Give server a bit more time to fully initialize WebSocket handlers
+					time.Sleep(100 * time.Millisecond)
+					t.Logf("✅ Server ready (verified with %d consecutive successful requests)", requiredSuccesses)
+					return
+				}
+			} else {
+				resp.Body.Close()
+				lastErr = fmt.Errorf("server returned status %d", resp.StatusCode)
+				consecutiveSuccesses = 0
 			}
-			lastErr = fmt.Errorf("server returned status %d", resp.StatusCode)
 		} else {
 			lastErr = err
+			consecutiveSuccesses = 0
 		}
 		time.Sleep(200 * time.Millisecond)
 	}

@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -151,20 +152,32 @@ func TestPageModeURLRouting(t *testing.T) {
 	// Wait for server to start and verify it's actually running
 	serverReady := false
 	var lastErr error
+	consecutiveSuccesses := 0
+	const requiredSuccesses = 2
+
 	for i := 0; i < 30; i++ {
 		time.Sleep(quickPollDelay)
 
 		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/", port))
 		if err == nil {
-			resp.Body.Close()
 			if resp.StatusCode == 200 {
-				serverReady = true
-				t.Logf("✅ Server ready on port %d", port)
-				break
+				resp.Body.Close()
+				consecutiveSuccesses++
+				if consecutiveSuccesses >= requiredSuccesses {
+					// Extra time for WebSocket handler initialization
+					time.Sleep(100 * time.Millisecond)
+					serverReady = true
+					t.Logf("✅ Server ready on port %d", port)
+					break
+				}
+			} else {
+				resp.Body.Close()
+				lastErr = fmt.Errorf("server returned status %d", resp.StatusCode)
+				consecutiveSuccesses = 0
 			}
-			lastErr = fmt.Errorf("server returned status %d", resp.StatusCode)
 		} else {
 			lastErr = err
+			consecutiveSuccesses = 0
 		}
 	}
 	if !serverReady {
@@ -180,8 +193,14 @@ func TestPageModeURLRouting(t *testing.T) {
 
 	// Setup: Verify seeded products are visible
 	t.Run("Setup: Verify seeded products", func(t *testing.T) {
+		// Create fresh browser context for this subtest
+		testCtx, cancel := chromedp.NewContext(ctx)
+		defer cancel()
+		testCtx, timeoutCancel := context.WithTimeout(testCtx, 30*time.Second)
+		defer timeoutCancel()
+
 		// Navigate to products page and wait for it to load
-		err := chromedp.Run(ctx,
+		err := chromedp.Run(testCtx,
 			chromedp.Navigate(testURL),
 			e2etest.WaitForWebSocketReady(5*time.Second),
 			waitFor(`document.readyState === 'complete'`, 3*time.Second),
@@ -196,7 +215,7 @@ func TestPageModeURLRouting(t *testing.T) {
 		var hasTable bool
 		var rowCount int
 		var linkHrefs string
-		err = chromedp.Run(ctx,
+		err = chromedp.Run(testCtx,
 			// Check for table
 			chromedp.Evaluate(`document.querySelector('table tbody') !== null`, &hasTable),
 			chromedp.Evaluate(`document.querySelectorAll('table tbody tr').length`, &rowCount),
@@ -212,7 +231,7 @@ func TestPageModeURLRouting(t *testing.T) {
 		if !hasTable || rowCount < 2 {
 			// Seeded data not showing - dump page for debugging
 			var bodyHTML string
-			_ = chromedp.Run(ctx, chromedp.Evaluate(`document.body.innerHTML`, &bodyHTML))
+			_ = chromedp.Run(testCtx, chromedp.Evaluate(`document.body.innerHTML`, &bodyHTML))
 			t.Logf("DEBUG: Seeded data not visible. Body HTML (first 2000 chars):\n%s", bodyHTML[:min(2000, len(bodyHTML))])
 			t.Fatalf("Expected at least 2 seeded products in table, got %d", rowCount)
 		}
@@ -222,10 +241,16 @@ func TestPageModeURLRouting(t *testing.T) {
 
 	// Test 1: URL updates when clicking resource
 	t.Run("URL updates on resource click", func(t *testing.T) {
+		// Create fresh browser context for this subtest
+		testCtx, cancel := chromedp.NewContext(ctx)
+		defer cancel()
+		testCtx, timeoutCancel := context.WithTimeout(testCtx, 30*time.Second)
+		defer timeoutCancel()
+
 		var currentURL string
 		var linkExists bool
 
-		err := chromedp.Run(ctx,
+		err := chromedp.Run(testCtx,
 			chromedp.Navigate(testURL),
 			e2etest.WaitForWebSocketReady(5*time.Second),
 			waitFor(`document.readyState === 'complete'`, 3*time.Second),
@@ -239,11 +264,11 @@ func TestPageModeURLRouting(t *testing.T) {
 		if !linkExists {
 			// Debug: Dump HTML to see what's actually rendered
 			var bodyHTML string
-			_ = chromedp.Evaluate(`document.body.innerHTML`, &bodyHTML).Do(ctx)
+			_ = chromedp.Evaluate(`document.body.innerHTML`, &bodyHTML).Do(testCtx)
 			t.Logf("DEBUG: Body HTML (first 1000 chars):\n%s", bodyHTML[:min(1000, len(bodyHTML))])
 
 			var tableHTML string
-			_ = chromedp.Evaluate(`document.querySelector('table')?.outerHTML || 'NO TABLE'`, &tableHTML).Do(ctx)
+			_ = chromedp.Evaluate(`document.querySelector('table')?.outerHTML || 'NO TABLE'`, &tableHTML).Do(testCtx)
 			t.Logf("DEBUG: Table HTML:\n%s", tableHTML)
 
 			t.Fatalf("No products available - seeded data not found (anchor links missing)")
@@ -251,7 +276,7 @@ func TestPageModeURLRouting(t *testing.T) {
 
 		// In page mode, clicking anchor link causes full page navigation
 		// Don't wait for WebSocket after click since it's a new page load
-		err = chromedp.Run(ctx,
+		err = chromedp.Run(testCtx,
 			chromedp.Click(`table tbody tr a`, chromedp.ByQuery),
 			waitFor(`document.readyState === 'complete'`, 3*time.Second),
 			chromedp.Location(&currentURL),
@@ -270,10 +295,16 @@ func TestPageModeURLRouting(t *testing.T) {
 
 	// Test 2: Direct navigation to resource URL works
 	t.Run("Direct navigation to resource URL", func(t *testing.T) {
+		// Create fresh browser context for this subtest
+		testCtx, cancel := chromedp.NewContext(ctx)
+		defer cancel()
+		testCtx, timeoutCancel := context.WithTimeout(testCtx, 30*time.Second)
+		defer timeoutCancel()
+
 		var detailVisible bool
 		// First, get a resource ID from the anchor link href
 		var firstResourceHref string
-		err := chromedp.Run(ctx,
+		err := chromedp.Run(testCtx,
 			chromedp.Navigate(testURL),
 			e2etest.WaitForWebSocketReady(5*time.Second),
 			waitFor(`document.readyState === 'complete'`, 3*time.Second),
@@ -292,7 +323,7 @@ func TestPageModeURLRouting(t *testing.T) {
 
 		// Now navigate directly to that resource
 		directURL := fmt.Sprintf("%s/%s", testURL, firstResourceID)
-		err = chromedp.Run(ctx,
+		err = chromedp.Run(testCtx,
 			chromedp.Navigate(directURL),
 			waitFor(`document.readyState === 'complete'`, 5*time.Second),
 			chromedp.Evaluate(`document.body.innerText.includes('Details') || document.body.innerText.includes('Back')`, &detailVisible),
@@ -310,11 +341,17 @@ func TestPageModeURLRouting(t *testing.T) {
 
 	// Test 3: Browser back button returns to list
 	t.Run("Browser back button works", func(t *testing.T) {
+		// Create fresh browser context for this subtest
+		testCtx, cancel := chromedp.NewContext(ctx)
+		defer cancel()
+		testCtx, timeoutCancel := context.WithTimeout(testCtx, 30*time.Second)
+		defer timeoutCancel()
+
 		var linkExists bool
 		var backToList bool
 
 		// First check if anchor links exist
-		err := chromedp.Run(ctx,
+		err := chromedp.Run(testCtx,
 			chromedp.Navigate(testURL),
 			e2etest.WaitForWebSocketReady(5*time.Second),
 			waitFor(`document.readyState === 'complete'`, 3*time.Second),
@@ -328,7 +365,7 @@ func TestPageModeURLRouting(t *testing.T) {
 			t.Fatalf("No products available for back button test - seeded data not found")
 		}
 
-		err = chromedp.Run(ctx,
+		err = chromedp.Run(testCtx,
 			chromedp.Click(`table tbody tr a`, chromedp.ByQuery),
 			waitFor(`document.readyState === 'complete'`, 3*time.Second),
 			chromedp.Evaluate(`history.back()`, nil),
@@ -348,11 +385,17 @@ func TestPageModeURLRouting(t *testing.T) {
 
 	// Test 4: URL is at list path after back button
 	t.Run("URL returns to list path after back", func(t *testing.T) {
+		// Create fresh browser context for this subtest
+		testCtx, cancel := chromedp.NewContext(ctx)
+		defer cancel()
+		testCtx, timeoutCancel := context.WithTimeout(testCtx, 30*time.Second)
+		defer timeoutCancel()
+
 		var linkExists bool
 		var finalURL string
 
 		// First check if anchor links exist
-		err := chromedp.Run(ctx,
+		err := chromedp.Run(testCtx,
 			chromedp.Navigate(testURL),
 			e2etest.WaitForWebSocketReady(5*time.Second),
 			waitFor(`document.readyState === 'complete'`, 3*time.Second),
@@ -366,7 +409,7 @@ func TestPageModeURLRouting(t *testing.T) {
 			t.Fatalf("No products available for URL path test - seeded data not found")
 		}
 
-		err = chromedp.Run(ctx,
+		err = chromedp.Run(testCtx,
 			chromedp.Click(`table tbody tr a`, chromedp.ByQuery),
 			waitFor(`document.readyState === 'complete'`, 3*time.Second),
 			chromedp.Evaluate(`history.back()`, nil),

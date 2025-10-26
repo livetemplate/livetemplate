@@ -215,7 +215,7 @@ func TestE2EInvariantGuarantee(t *testing.T) {
 }
 
 // checkTreeInvariant verifies the statics/dynamics invariant
-func checkTreeInvariant(tree treeNode, context string) error {
+func checkTreeInvariant(tree map[string]interface{}, context string) error {
 	// Check if this is a dynamics-only update (no statics)
 	statics, hasStatics := tree["s"]
 	if !hasStatics {

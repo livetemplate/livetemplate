@@ -1129,7 +1129,7 @@ func getMapKeys(m map[string]interface{}) []string {
 }
 
 // compareWithGoldenFile compares generated update with expected golden file
-func compareWithGoldenFile(t *testing.T, appType, updateName string, generatedUpdate treeNode) {
+func compareWithGoldenFile(t *testing.T, appType, updateName string, generatedUpdate map[string]interface{}) {
 	goldenFile := "testdata/e2e/" + appType + "/" + updateName + ".golden.json"
 
 	// Convert generated update to map for comparison

@@ -10,7 +10,7 @@ import (
 )
 
 // Old implementation using full JSON marshaling for comparison
-func calculateFingerprintOld(tree treeNode) string {
+func calculateFingerprintOld(tree map[string]interface{}) string {
 	hasher := md5.New()
 
 	// Add statics to hash (template structure)
@@ -53,15 +53,15 @@ func calculateFingerprintOld(tree treeNode) string {
 }
 
 // Helper to create a tree with nested structure
-func createNestedTree(depth, breadth int) treeNode {
+func createNestedTree(depth, breadth int) map[string]interface{} {
 	if depth == 0 {
-		return treeNode{
+		return map[string]interface{}{
 			"s": []string{"<span>", "</span>"},
 			"0": "leaf value",
 		}
 	}
 
-	tree := treeNode{
+	tree := map[string]interface{}{
 		"s": []string{"<div>", "</div>"},
 	}
 
@@ -73,8 +73,8 @@ func createNestedTree(depth, breadth int) treeNode {
 }
 
 // Helper to create a flat tree with many siblings
-func createFlatTree(nodes int) treeNode {
-	tree := treeNode{
+func createFlatTree(nodes int) map[string]interface{} {
+	tree := map[string]interface{}{
 		"s": []string{"<div>", "</div>"},
 	}
 
@@ -89,7 +89,7 @@ func createFlatTree(nodes int) treeNode {
 }
 
 // Helper to create range-like structure
-func createRangeTree(items int) treeNode {
+func createRangeTree(items int) map[string]interface{} {
 	var rangeItems []interface{}
 	for i := 0; i < items; i++ {
 		rangeItems = append(rangeItems, map[string]interface{}{
@@ -101,7 +101,7 @@ func createRangeTree(items int) treeNode {
 		})
 	}
 
-	return treeNode{
+	return map[string]interface{}{
 		"s": []string{"<div>", "</div>"},
 		"0": map[string]interface{}{
 			"s": []string{"<ul>", "</ul>"},
@@ -216,7 +216,7 @@ func BenchmarkFingerprint_Range1000_New(b *testing.B) {
 func TestFingerprint_Determinism(t *testing.T) {
 	tests := []struct {
 		name string
-		tree treeNode
+		tree map[string]interface{}
 	}{
 		{"small flat", createFlatTree(10)},
 		{"medium flat", createFlatTree(100)},
@@ -224,7 +224,7 @@ func TestFingerprint_Determinism(t *testing.T) {
 		{"range 50", createRangeTree(50)},
 		{
 			"complex mixed",
-			treeNode{
+			map[string]interface{}{
 				"s": []string{"<div>", "</div>"},
 				"0": "simple string",
 				"1": 42,

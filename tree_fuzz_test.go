@@ -243,7 +243,7 @@ func FuzzParseTemplateToTree(f *testing.F) {
 }
 
 // validateTreeStructure performs basic validation of tree structure
-func validateTreeStructure(tree treeNode) bool {
+func validateTreeStructure(tree map[string]interface{}) bool {
 	if tree == nil {
 		return false
 	}
@@ -256,7 +256,7 @@ func validateTreeStructure(tree treeNode) bool {
 // validateTreeRenders attempts to render a tree to HTML
 // Returns true if the tree can be successfully rendered, false otherwise
 // This is Level 2 validation from the enhanced validation strategy
-func validateTreeRenders(tree treeNode) bool {
+func validateTreeRenders(tree map[string]interface{}) bool {
 	if tree == nil {
 		return false
 	}
@@ -284,7 +284,7 @@ func validateTreeRenders(tree treeNode) bool {
 		dynamicKey := strconv.Itoa(i)
 		if dynamicVal, exists := tree[dynamicKey]; exists {
 			// Handle nested trees recursively
-			if nestedTree, isTree := dynamicVal.(treeNode); isTree {
+			if nestedTree, isTree := dynamicVal.(map[string]interface{}); isTree {
 				if !validateTreeRenders(nestedTree) {
 					return false
 				}
@@ -300,7 +300,7 @@ func validateTreeRenders(tree treeNode) bool {
 // treesEqual performs deep equality comparison of two tree structures
 // Used for round-trip validation (Level 3)
 // Handles non-deterministic map iteration by sorting range comprehension items
-func treesEqual(tree1, tree2 treeNode) bool {
+func treesEqual(tree1, tree2 map[string]interface{}) bool {
 	if tree1 == nil && tree2 == nil {
 		return true
 	}
@@ -379,8 +379,8 @@ func treesEqual(tree1, tree2 treeNode) bool {
 		}
 
 		// Both values exist, compare them
-		nested1, isTree1 := val1.(treeNode)
-		nested2, isTree2 := val2.(treeNode)
+		nested1, isTree1 := val1.(map[string]interface{})
+		nested2, isTree2 := val2.(map[string]interface{})
 
 		if isTree1 != isTree2 {
 			return false
@@ -404,7 +404,7 @@ func treesEqual(tree1, tree2 treeNode) bool {
 
 // rangeComprehensionsEqual compares two range comprehensions with sorted items
 // This handles non-deterministic map iteration order
-func rangeComprehensionsEqual(d1, d2 interface{}, tree1, tree2 treeNode) bool {
+func rangeComprehensionsEqual(d1, d2 interface{}, tree1, tree2 map[string]interface{}) bool {
 	// Extract items arrays
 	items1, ok1 := d1.([]interface{})
 	items2, ok2 := d2.([]interface{})
@@ -536,7 +536,7 @@ func makeEmptyData(data map[string]interface{}) map[string]interface{} {
 
 // validateTreeTransition checks that two trees (from different data states) are consistent
 // Used for Level 4 validation to ensure empty→non-empty transitions work correctly
-func validateTreeTransition(tree1, tree2 treeNode) (bool, string) {
+func validateTreeTransition(tree1, tree2 map[string]interface{}) (bool, string) {
 	if tree1 == nil || tree2 == nil {
 		return false, "one or both trees are nil"
 	}

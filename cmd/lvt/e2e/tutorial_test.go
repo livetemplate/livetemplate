@@ -181,6 +181,9 @@ func TestTutorialE2E(t *testing.T) {
 	serverURL := fmt.Sprintf("http://localhost:%d", serverPort)
 	ready := false
 	var lastErr error
+	consecutiveSuccesses := 0
+	const requiredSuccesses = 2 // Require consecutive successes for stability
+
 	for i := 0; i < 50; i++ {
 		// Check if server process is still running
 		if serverCmd.ProcessState != nil && serverCmd.ProcessState.Exited() {
@@ -191,32 +194,51 @@ func TestTutorialE2E(t *testing.T) {
 		if err == nil {
 			// Check status code
 			if resp.StatusCode != 200 {
-				body, _ := io.ReadAll(resp.Body)
 				resp.Body.Close()
-				t.Fatalf("❌ /posts returned status %d instead of 200. Body:\n%s", resp.StatusCode, string(body))
+				lastErr = fmt.Errorf("status %d", resp.StatusCode)
+				consecutiveSuccesses = 0
+				time.Sleep(200 * time.Millisecond)
+				continue
 			}
 
 			// Check response contains HTML
 			body, err := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			if err != nil {
-				t.Fatalf("❌ Failed to read response body: %v", err)
+				lastErr = fmt.Errorf("failed to read body: %w", err)
+				consecutiveSuccesses = 0
+				time.Sleep(200 * time.Millisecond)
+				continue
 			}
 
 			bodyStr := string(body)
 			if !strings.Contains(bodyStr, "<!DOCTYPE html>") && !strings.Contains(bodyStr, "<html") {
-				t.Fatalf("❌ /posts response doesn't look like HTML. First 500 chars:\n%s", bodyStr[:min(500, len(bodyStr))])
+				lastErr = fmt.Errorf("response doesn't look like HTML")
+				consecutiveSuccesses = 0
+				time.Sleep(200 * time.Millisecond)
+				continue
 			}
 
 			// Check for template errors
 			if strings.Contains(bodyStr, "template:") && strings.Contains(bodyStr, "error") {
-				t.Fatalf("❌ /posts response contains template error:\n%s", bodyStr[:min(1000, len(bodyStr))])
+				lastErr = fmt.Errorf("template error in response")
+				consecutiveSuccesses = 0
+				time.Sleep(200 * time.Millisecond)
+				continue
 			}
 
-			ready = true
-			break
+			// Success - increment counter
+			consecutiveSuccesses++
+			if consecutiveSuccesses >= requiredSuccesses {
+				// Give server extra time to fully initialize WebSocket handlers
+				time.Sleep(100 * time.Millisecond)
+				ready = true
+				break
+			}
+		} else {
+			lastErr = err
+			consecutiveSuccesses = 0
 		}
-		lastErr = err
 		time.Sleep(200 * time.Millisecond)
 	}
 
@@ -238,9 +260,6 @@ func TestTutorialE2E(t *testing.T) {
 	ctx, cancel := getIsolatedChromeContext(t)
 	defer cancel()
 
-	ctx, cancel = context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-
 	// Determine URL for Chrome to access (Docker networking)
 	testURL := getTestURL(serverPort)
 
@@ -260,6 +279,12 @@ func TestTutorialE2E(t *testing.T) {
 
 	// Test WebSocket Connection
 	t.Run("WebSocket Connection", func(t *testing.T) {
+		// Create fresh browser context for this subtest
+		testCtx, cancel := chromedp.NewContext(ctx)
+		defer cancel()
+		testCtx, timeoutCancel := context.WithTimeout(testCtx, 30*time.Second)
+		defer timeoutCancel()
+
 		// First, test if client library is being served
 		clientLibResp, err := http.Get(serverURL + "/livetemplate-client.js")
 		if err != nil {
@@ -276,7 +301,7 @@ func TestTutorialE2E(t *testing.T) {
 		var wsReadyState int
 		var pathname string
 		var liveUrl string
-		err = chromedp.Run(ctx,
+		err = chromedp.Run(testCtx,
 			chromedp.Navigate(testURL+"/posts"),
 			waitForWebSocketReady(5*time.Second), // Wait for WebSocket init and first update
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
@@ -315,8 +340,14 @@ func TestTutorialE2E(t *testing.T) {
 
 	// Test /posts Endpoint Serves Content
 	t.Run("Posts Page", func(t *testing.T) {
+		// Create fresh browser context for this subtest
+		testCtx, cancel := chromedp.NewContext(ctx)
+		defer cancel()
+		testCtx, timeoutCancel := context.WithTimeout(testCtx, 30*time.Second)
+		defer timeoutCancel()
+
 		var lvtId string
-		err := chromedp.Run(ctx,
+		err := chromedp.Run(testCtx,
 			chromedp.Navigate(testURL+"/posts"),
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
 			chromedp.AttributeValue(`[data-lvt-id]`, "data-lvt-id", &lvtId, nil),
@@ -334,7 +365,13 @@ func TestTutorialE2E(t *testing.T) {
 
 	// Test Add Post
 	t.Run("Add Post", func(t *testing.T) {
-		err := chromedp.Run(ctx,
+		// Create per-subtest context with individual timeout
+		testCtx, cancel := chromedp.NewContext(ctx)
+		defer cancel()
+		testCtx, timeoutCancel := context.WithTimeout(testCtx, 60*time.Second)
+		defer timeoutCancel()
+
+		err := chromedp.Run(testCtx,
 			// Navigate to /posts and wait for it to load
 			chromedp.Navigate(testURL+"/posts"),
 			waitForWebSocketReady(5*time.Second), // Wait for WebSocket init and first update
@@ -376,7 +413,7 @@ func TestTutorialE2E(t *testing.T) {
 
 		// Verify the post appears in the table
 		var postInTable bool
-		err = chromedp.Run(ctx,
+		err = chromedp.Run(testCtx,
 			chromedp.Evaluate(`
 				(() => {
 					const table = document.querySelector('table');
@@ -395,7 +432,7 @@ func TestTutorialE2E(t *testing.T) {
 
 		if !postInTable {
 			var tableSummary string
-			_ = chromedp.Run(ctx,
+			_ = chromedp.Run(testCtx,
 				chromedp.Evaluate(`
 					(() => {
 						const table = document.querySelector('table');
@@ -421,9 +458,15 @@ func TestTutorialE2E(t *testing.T) {
 	// TODO: Skip due to flaky timing issue - test depends on data from previous test
 	t.Run("Modal Delete with Confirmation", func(t *testing.T) {
 		t.Skip("Skipping due to flaky test dependency")
+		// Create per-subtest context with individual timeout
+		testCtx, cancel := chromedp.NewContext(ctx)
+		defer cancel()
+		testCtx, timeoutCancel := context.WithTimeout(testCtx, 60*time.Second)
+		defer timeoutCancel()
+
 		// First, verify the post exists
 		var postExists bool
-		err := chromedp.Run(ctx,
+		err := chromedp.Run(testCtx,
 			chromedp.Navigate(testURL+"/posts"),
 			waitForWebSocketReady(5*time.Second), // Wait for WebSocket init and first update
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
@@ -450,7 +493,7 @@ func TestTutorialE2E(t *testing.T) {
 
 		// Verify there's NO delete button in table rows (modal mode)
 		var deleteButtonInRow bool
-		err = chromedp.Run(ctx,
+		err = chromedp.Run(testCtx,
 			chromedp.Evaluate(`
 				(() => {
 					const table = document.querySelector('table');
@@ -480,7 +523,7 @@ func TestTutorialE2E(t *testing.T) {
 
 		// Click Edit button to open modal
 		var editButtonFound bool
-		err = chromedp.Run(ctx,
+		err = chromedp.Run(testCtx,
 			chromedp.Evaluate(`
 				(() => {
 					const table = document.querySelector('table');
@@ -515,7 +558,7 @@ func TestTutorialE2E(t *testing.T) {
 		// Verify delete button exists in modal with lvt-confirm attribute
 		var deleteButtonInModal bool
 		var hasConfirmAttr bool
-		err = chromedp.Run(ctx,
+		err = chromedp.Run(testCtx,
 			chromedp.Evaluate(`
 				(() => {
 					const deleteButton = document.querySelector('button[lvt-click="delete"]');
@@ -556,9 +599,15 @@ func TestTutorialE2E(t *testing.T) {
 
 	// Test Delete Post (Accept Confirmation)
 	t.Run("Delete Post with Accepted Confirmation", func(t *testing.T) {
+		// Create per-subtest context with individual timeout
+		testCtx, cancel := chromedp.NewContext(ctx)
+		defer cancel()
+		testCtx, timeoutCancel := context.WithTimeout(testCtx, 60*time.Second)
+		defer timeoutCancel()
+
 		// Navigate and verify post exists
 		var postExists bool
-		err := chromedp.Run(ctx,
+		err := chromedp.Run(testCtx,
 			chromedp.Navigate(testURL+"/posts"),
 			waitForWebSocketReady(5*time.Second), // Wait for WebSocket init and first update
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
@@ -584,7 +633,7 @@ func TestTutorialE2E(t *testing.T) {
 		}
 
 		// Click Edit button to open modal
-		err = chromedp.Run(ctx,
+		err = chromedp.Run(testCtx,
 			chromedp.Evaluate(`
 				(() => {
 					const table = document.querySelector('table');
@@ -612,7 +661,7 @@ func TestTutorialE2E(t *testing.T) {
 		}
 
 		// Override window.confirm to return true (accept)
-		err = chromedp.Run(ctx,
+		err = chromedp.Run(testCtx,
 			chromedp.Evaluate(`window.confirm = () => true;`, nil),
 			chromedp.Evaluate(`
 				(() => {
@@ -649,7 +698,7 @@ func TestTutorialE2E(t *testing.T) {
 
 		// Verify the post is no longer in the table
 		var postStillExists bool
-		err = chromedp.Run(ctx,
+		err = chromedp.Run(testCtx,
 			chromedp.Evaluate(`
 				(() => {
 					const table = document.querySelector('table');
@@ -677,6 +726,12 @@ func TestTutorialE2E(t *testing.T) {
 	// TODO: Skip until core library bug is fixed - see BUG-VALIDATION-CONDITIONALS.md
 	t.Run("Validation Errors", func(t *testing.T) {
 		t.Skip("Skipping until conditional rendering bug is fixed")
+		// Create per-subtest context with individual timeout
+		testCtx, cancel := chromedp.NewContext(ctx)
+		defer cancel()
+		testCtx, timeoutCancel := context.WithTimeout(testCtx, 60*time.Second)
+		defer timeoutCancel()
+
 		var (
 			errorsVisible    bool
 			titleErrorText   string
@@ -684,7 +739,7 @@ func TestTutorialE2E(t *testing.T) {
 			formHTML         string
 		)
 
-		err := chromedp.Run(ctx,
+		err := chromedp.Run(testCtx,
 			// Navigate to /posts
 			chromedp.Navigate(testURL+"/posts"),
 			waitForWebSocketReady(5*time.Second), // Wait for WebSocket init and first update

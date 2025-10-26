@@ -97,7 +97,6 @@ import (
 	"reflect"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/gorilla/websocket"
@@ -128,11 +127,10 @@ type Template struct {
 	lastTree        *TreeNode // Store previous tree segments for comparison
 	initialTree     *TreeNode
 	hasInitialTree  bool
-	lastFingerprint string              // Fingerprint of the last generated tree for change detection
-	keyGen          *keyGenerator       // Per-template key generation for wrapper approach
-	config          Config              // Template configuration
-	analyzer        *TreeUpdateAnalyzer // Tree efficiency analyzer (enabled in DevMode)
-	seenStructures  map[string]bool     // Track ALL structures sent to client (fixes dynamic structure bug)
+	lastFingerprint string          // Fingerprint of the last generated tree for change detection
+	keyGen          *keyGenerator   // Per-template key generation for wrapper approach
+	config          Config          // Template configuration
+	seenStructures  map[string]bool // Track ALL structures sent to client (fixes dynamic structure bug)
 }
 
 // UpdateResponse wraps a tree update with metadata for form lifecycle.
@@ -310,15 +308,10 @@ func New(name string, opts ...Option) *Template {
 	// Log DevMode configuration for debugging
 	log.Printf("livetemplate.New(%q): DevMode=%v", name, config.DevMode)
 
-	// Initialize tree analyzer (only enabled in DevMode)
-	analyzer := NewTreeUpdateAnalyzer()
-	analyzer.Enabled = config.DevMode
-
 	tmpl := &Template{
 		name:           name,
 		keyGen:         newKeyGenerator(),
 		config:         config,
-		analyzer:       analyzer,
 		seenStructures: make(map[string]bool),
 	}
 
@@ -344,16 +337,12 @@ func New(name string, opts ...Option) *Template {
 func (t *Template) Clone() (*Template, error) {
 	// Cannot clone an executed html/template, must re-parse from source
 	// Create a fresh template instance with the same configuration
-	analyzer := NewTreeUpdateAnalyzer()
-	analyzer.Enabled = t.config.DevMode
-
 	clone := &Template{
 		name:        t.name,
 		templateStr: t.templateStr,
 		wrapperID:   t.wrapperID, // Share wrapper ID
 		keyGen:      newKeyGenerator(),
 		config:      t.config, // Preserve configuration
-		analyzer:    analyzer,
 		// Don't copy lastData, lastHTML, lastTree, etc. - start fresh
 	}
 
@@ -630,11 +619,6 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, errors ...map[
 		return fmt.Errorf("tree generation failed: %w", err)
 	}
 
-	// Analyze tree for efficiency issues (only in DevMode)
-	if t.analyzer != nil && t.analyzer.Enabled {
-		t.analyzer.AnalyzeUpdate(tree, t.name, t.templateStr)
-	}
-
 	// Convert tree to ordered JSON with readable HTML (no escape sequences)
 	jsonBytes, err := marshalOrderedJSON(tree)
 	if err != nil {
@@ -645,8 +629,8 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, errors ...map[
 	return err
 }
 
-// generateTreeInternalWithErrors is the internal implementation that returns treeNode with error context
-func (t *Template) generateTreeInternalWithErrors(data interface{}, errors map[string]string) (treeNode, error) {
+// generateTreeInternalWithErrors is the internal implementation that returns TreeNode with error context
+func (t *Template) generateTreeInternalWithErrors(data interface{}, errors map[string]string) (*TreeNode, error) {
 	// Initialize key generator if needed (but don't reset - keys should increment globally)
 	if t.keyGen == nil {
 		t.keyGen = newKeyGenerator()
@@ -750,7 +734,7 @@ func (t *Template) executeTemplateWithErrors(data interface{}, errors map[string
 }
 
 // generateInitialTree creates tree with statics and dynamics for first render
-func (t *Template) generateInitialTree(html string, data interface{}) (treeNode, error) {
+func (t *Template) generateInitialTree(html string, data interface{}) (*TreeNode, error) {
 	// Extract content from wrapper if we have one
 	var contentToAnalyze string
 	if t.wrapperID != "" {
@@ -793,12 +777,12 @@ func (t *Template) generateInitialTree(html string, data interface{}) (treeNode,
 	// Calculate and store initial fingerprint for change detection
 	t.lastFingerprint = calculateFingerprint(tree)
 
-	// Add fingerprint to tree for client-side tracking and convert to map for return
-	return addFingerprintToTree(tree).ToMap(), nil
+	// Add fingerprint to tree for client-side tracking
+	return addFingerprintToTree(tree), nil
 }
 
 // generateDiffBasedTree creates tree based on diff analysis
-func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newData interface{}) (treeNode, error) {
+func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newData interface{}) (*TreeNode, error) {
 	// Extract content from wrapper if we have one for proper comparison
 	var oldContent, newContent string
 	if t.wrapperID != "" {
@@ -819,15 +803,15 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 
 		newTree, err := parseTemplateToTree(templateContent, newData, t.keyGen)
 		if err != nil {
-			return treeNode{}, fmt.Errorf("tree generation failed: %w", err)
+			return nil, fmt.Errorf("tree generation failed: %w", err)
 		}
 
 		// Compare trees and get only changed dynamics
 		changedTree := t.compareTreesAndGetChanges(t.lastTree, newTree)
 
-		// If no changes, return empty
-		if len(changedTree) == 0 {
-			return treeNode{}, nil
+		// If no changes, return empty TreeNode
+		if !changedTree.HasStatics() && !changedTree.HasDynamics() && !changedTree.HasRange() {
+			return NewTreeNode(), nil
 		}
 
 		// Update cached state for next comparison
@@ -844,39 +828,38 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 		return nil, err
 	}
 
-	// Convert map to TreeNode for fingerprint calculation
-	treeNodePtr, err := FromMap(tree)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert tree: %w", err)
-	}
-
 	// Calculate and store fingerprint for the new tree
-	newFingerprint := calculateFingerprint(treeNodePtr)
+	newFingerprint := calculateFingerprint(tree)
 	t.lastFingerprint = newFingerprint
 
 	// Update cached state AFTER successful tree generation (use extracted content)
 	t.lastData = newData
 	t.lastHTML = newContent
 
-	// Add fingerprint to tree for client-side tracking and convert back to map
-	return addFingerprintToTree(treeNodePtr).ToMap(), nil
+	// Add fingerprint to tree for client-side tracking
+	return addFingerprintToTree(tree), nil
 }
 
 // stripStaticsRecursively removes all "s" and "f" keys from a tree node recursively
 // Also removes fields that become empty after stripping (empty strings or empty maps)
 func stripStaticsRecursively(node interface{}) interface{} {
 	switch v := node.(type) {
-	case treeNode:
-		result := make(map[string]interface{})
-		for k, val := range v {
-			if k == "s" || k == "f" {
-				continue // Skip statics and fingerprint
-			}
+	case *TreeNode:
+		// Create new TreeNode without statics or fingerprint
+		result := &TreeNode{
+			Dynamics: make(map[string]interface{}),
+		}
+		// Recursively strip dynamics
+		for k, val := range v.Dynamics {
 			stripped := stripStaticsRecursively(val)
 			// Only include non-empty values
 			if !isEmpty(stripped) {
-				result[k] = stripped
+				result.Dynamics[k] = stripped
 			}
+		}
+		// Handle Range but without statics
+		if v.HasRange() {
+			result.Range = &RangeData{Items: v.Range.Items}
 		}
 		return result
 	case map[string]interface{}:
@@ -910,10 +893,10 @@ func stripStaticsRecursively(node interface{}) interface{} {
 // isEmpty checks if a value is considered empty (empty string, empty map, empty slice)
 func isEmpty(v interface{}) bool {
 	switch val := v.(type) {
+	case *TreeNode:
+		return !val.HasStatics() && !val.HasDynamics() && !val.HasRange()
 	case string:
 		return val == ""
-	case treeNode:
-		return len(val) == 0
 	case map[string]interface{}:
 		return len(val) == 0
 	case []interface{}:
@@ -924,92 +907,88 @@ func isEmpty(v interface{}) bool {
 }
 
 // compareTreesAndGetChanges compares two trees and returns only changed dynamics
-func (t *Template) compareTreesAndGetChanges(oldTree, newTree *TreeNode) treeNode {
+func (t *Template) compareTreesAndGetChanges(oldTree, newTree *TreeNode) *TreeNode {
 	return t.compareTreesAndGetChangesWithContext(oldTree, newTree, false)
 }
 
 // compareTreesAndGetChangesWithContext compares trees with context about whether we're in a new structure
 // insideNewStructure: true if we're inside a structure the client has never seen
-func (t *Template) compareTreesAndGetChangesWithContext(oldTree, newTree *TreeNode, insideNewStructure bool) treeNode {
-	// Convert TreeNode to maps for processing
-	var oldTreeMap, newTreeMap treeNode
-	if oldTree != nil {
-		oldTreeMap = oldTree.ToMap()
-	} else {
-		oldTreeMap = make(treeNode)
-	}
-	if newTree != nil {
-		newTreeMap = newTree.ToMap()
-	} else {
-		newTreeMap = make(treeNode)
-	}
-
+func (t *Template) compareTreesAndGetChangesWithContext(oldTree, newTree *TreeNode, insideNewStructure bool) *TreeNode {
 	// Calculate range matches once at the top level for the entire tree
-	rangeMatches := findRangeConstructMatches(oldTreeMap, newTreeMap)
+	rangeMatches := findRangeConstructMatches(oldTree, newTree)
 	return t.compareTreesAndGetChangesWithPath(oldTree, newTree, insideNewStructure, "", rangeMatches)
 }
 
 // compareTreesAndGetChangesWithPath compares trees with path tracking for nested range matching
-func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode, insideNewStructure bool, currentPath string, rangeMatches map[string]string) treeNode {
-	// Convert TreeNode to maps for processing
-	var oldTreeMap, newTreeMap treeNode
-	if oldTree != nil {
-		oldTreeMap = oldTree.ToMap()
-	} else {
-		oldTreeMap = make(treeNode)
-	}
-	if newTree != nil {
-		newTreeMap = newTree.ToMap()
-	} else {
-		newTreeMap = make(treeNode)
+func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode, insideNewStructure bool, currentPath string, rangeMatches map[string]string) *TreeNode {
+	changes := &TreeNode{
+		Dynamics: make(map[string]interface{}),
 	}
 
-	changes := make(treeNode)
+	// DEBUG: Log range matches at entry
+	if len(rangeMatches) > 0 {
+		fmt.Printf("[DEBUG compareTreesAndGetChangesWithPath] rangeMatches: %v, currentPath: %q\n", rangeMatches, currentPath)
+	}
 
 	// CRITICAL FIX: Check if both trees ARE range constructs (top-level range template)
-	// Example: {{range .Items}}<div>...</div>{{end}} produces {"d": [...], "s": [...]}
-	// In this case, the ENTIRE tree is the range, not a field within it
-	if isRangeConstruct(oldTreeMap) && isRangeConstruct(newTreeMap) {
-		// Check if this range is matched in rangeMatches at the current path
-		if _, isMatched := rangeMatches[currentPath]; isMatched {
-			// Generate differential operations for the entire range
-			shouldStripStatics := hasRangeItems(oldTreeMap)
-			diffOps := generateRangeDifferentialOperations(oldTreeMap, newTreeMap, shouldStripStatics)
+	// Example: {{range .Items}}<div>...</div>{{end}} where the entire tree is a range
+	// OR if newTree is a range but oldTree isn't (range appearing for first time, e.g., from {{else}} clause)
+	if oldTree != nil && newTree != nil && newTree.HasRange() && newTree.HasStatics() {
+		// Case 1: Both are ranges and matched
+		if oldTree.HasRange() && oldTree.HasStatics() {
+			if _, isMatched := rangeMatches[currentPath]; isMatched {
+				// Generate differential operations for the entire range
+				// Never strip statics - they're needed for rendering new items
+				diffOps := generateRangeDifferentialOperations(oldTree, newTree, false)
 
 			if len(diffOps) > 0 {
 				// Return the operations directly - the entire tree is the range
-				// Wrap in a treeNode with "d" key to maintain expected format
-				return treeNode{"d": diffOps}
+				// Always include statics - they're needed for prepend/append rendering
+				result := &TreeNode{Dynamics: make(map[string]interface{})}
+				result.Dynamics["d"] = diffOps
+				result.Statics = newTree.Statics
+				return result
 			} else {
 				// No operations generated - check for empty range cases
-				if !hasRangeItems(newTreeMap) && !hasRangeItems(oldTreeMap) {
+				if (newTree.Range == nil || len(newTree.Range.Items) == 0) && (oldTree.Range == nil || len(oldTree.Range.Items) == 0) {
 					// Both empty, no change
-					return treeNode{}
+					return &TreeNode{}
 				}
 				// Fallback: return the new tree
-				return newTreeMap
+				return newTree
 			}
+			}
+		} else {
+			// Case 2: newTree is a range but oldTree isn't (range appearing for first time)
+			// This happens when going from {{else}} clause to range content
+			// Return the full new tree so client can replace the else content with range items
+			return newTree
 		}
 	}
 
-	// Compare dynamic segments (skip statics "s" and fingerprint "f")
-	for k, newValue := range newTreeMap {
-		if k == "s" || k == "f" {
-			continue // Skip static segments and fingerprint
-		}
+	// Handle nil trees
+	if newTree == nil {
+		return &TreeNode{}
+	}
 
+	// Compare dynamic segments
+	for k, newValue := range newTree.Dynamics {
 		// Build full path for this field
 		fieldPath := k
 		if currentPath != "" {
 			fieldPath = currentPath + "." + k
 		}
 
-		oldValue, exists := oldTreeMap[k]
+		var oldValue interface{}
+		var exists bool
+		if oldTree != nil {
+			oldValue, exists = oldTree.GetDynamic(k)
+		}
 		if !exists {
 			// Field is NEW compared to last update
 			// If we're inside a new structure, client has never seen this, so include statics
 			if insideNewStructure {
-				changes[k] = newValue
+				changes.SetDynamic(k, newValue)
 				continue
 			}
 
@@ -1038,11 +1017,11 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 			if clientHasStructure {
 				// Client already has this structure's statics from initial render
 				// Strip statics when sending
-				// Need to handle both treeNode type and map[string]interface{}
-				var newTreeNode treeNode
+				// Need to handle both map[string]interface{} type and map[string]interface{}
+				var newTreeNode map[string]interface{}
 				var newIsTree bool
 
-				if tn, ok := newValue.(treeNode); ok {
+				if tn, ok := newValue.(map[string]interface{}); ok {
 					newTreeNode = tn
 					newIsTree = true
 				} else if m, ok := newValue.(map[string]interface{}); ok {
@@ -1053,22 +1032,22 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 				if newIsTree {
 					stripped := stripStaticsRecursively(newTreeNode)
 					if strippedMap, ok := stripped.(map[string]interface{}); ok && len(strippedMap) == 0 {
-						changes[k] = ""
+						changes.SetDynamic(k, "")
 					} else {
-						changes[k] = stripped
+						changes.SetDynamic(k, stripped)
 					}
 				} else {
-					changes[k] = newValue
+					changes.SetDynamic(k, newValue)
 				}
 			} else {
 				// Client doesn't have this structure - send WITH statics
 				// However, normalize empty tree nodes to empty strings for cleaner output
-				if tn, ok := newValue.(treeNode); ok {
+				if tn, ok := newValue.(map[string]interface{}); ok {
 					stripped := stripStaticsRecursively(tn)
 					if strippedMap, ok := stripped.(map[string]interface{}); ok && len(strippedMap) == 0 {
-						changes[k] = ""
+						changes.SetDynamic(k, "")
 					} else {
-						changes[k] = newValue
+						changes.SetDynamic(k, newValue)
 						// Track that we've now sent this structure
 						if t.seenStructures == nil {
 							t.seenStructures = make(map[string]bool)
@@ -1078,9 +1057,9 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 				} else if m, ok := newValue.(map[string]interface{}); ok {
 					stripped := stripStaticsRecursively(m)
 					if strippedMap, ok := stripped.(map[string]interface{}); ok && len(strippedMap) == 0 {
-						changes[k] = ""
+						changes.SetDynamic(k, "")
 					} else {
-						changes[k] = newValue
+						changes.SetDynamic(k, newValue)
 						// Track that we've now sent this structure
 						if t.seenStructures == nil {
 							t.seenStructures = make(map[string]bool)
@@ -1088,7 +1067,7 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 						t.seenStructures[fieldPath] = true
 					}
 				} else {
-					changes[k] = newValue
+					changes.SetDynamic(k, newValue)
 				}
 			}
 		} else if !deepEqual(oldValue, newValue) {
@@ -1096,20 +1075,27 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 
 			// Check if this field has a range construct match using full path
 			if _, isRangeMatch := rangeMatches[fieldPath]; isRangeMatch {
+				// DEBUG: Log when we enter range match handling
+				fmt.Printf("[DEBUG] Range match found at fieldPath=%q, key=%q\n", fieldPath, k)
+				fmt.Printf("[DEBUG] oldValue isRange: %v, newValue isRange: %v\n",
+					isRangeConstruct(oldValue), isRangeConstruct(newValue))
+
 				// The oldValue is already the old range construct we need!
 				// No need to traverse the tree - we're already at the right position
 
 				// Check if old value is ALSO a range construct
 				// If oldValue is NOT a range (e.g., was empty-state div), this is first appearance
-				// Only strip statics if BOTH old and new are range constructs AND old range has items
-				// Empty ranges {"d": [], "s": [""]} have never shown item templates to client
-				shouldStripStatics := isRangeConstruct(oldValue) && hasRangeItems(oldValue)
-
+				// Never strip statics - they're needed for rendering new items in prepend/append operations
 				// Generate differential operations for matched range constructs
-				diffOps := generateRangeDifferentialOperations(oldValue, newValue, shouldStripStatics)
+				diffOps := generateRangeDifferentialOperations(oldValue, newValue, false)
+				fmt.Printf("[DEBUG] Generated %d diffOps for fieldPath=%q\n", len(diffOps), fieldPath)
 				if len(diffOps) > 0 {
-					changes[k] = diffOps
+					fmt.Printf("[DEBUG] Setting dynamic k=%q with diffOps\n", k)
+					// For nested ranges, set operations directly (not wrapped in TreeNode)
+					// This matches the golden file expectations
+					changes.SetDynamic(k, diffOps)
 				} else {
+					fmt.Printf("[DEBUG] No diffOps generated, entering fallback\n")
 					// No diff operations generated - use fallback
 					// Check if both are empty ranges (no change needed)
 					if isRangeConstruct(newValue) && !hasRangeItems(newValue) &&
@@ -1122,35 +1108,25 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 					// Send the empty range structure so client knows to clear items
 					if isRangeConstruct(newValue) && !hasRangeItems(newValue) {
 						// Send empty range with statics (client will clear items and keep structure)
-						changes[k] = newValue
-					} else if shouldStripStatics {
-						// Regular fallback with statics stripped
-						changes[k] = stripStaticsRecursively(newValue)
+						changes.SetDynamic(k, newValue)
 					} else {
 						// Regular fallback with statics included
-						changes[k] = newValue
+						changes.SetDynamic(k, newValue)
 					}
 				}
 			} else {
-				// Check if both old and new values are tree nodes (nested structures)
-				// Need to handle both treeNode type and map[string]interface{}
-				var oldTreeNode, newTreeNode treeNode
+				// Check if both old and new values are TreeNodes (nested structures)
+				var oldTreeNodePtr, newTreeNodePtr *TreeNode
 				var oldIsTree, newIsTree bool
 
-				// Try treeNode type first
-				if tn, ok := oldValue.(treeNode); ok {
-					oldTreeNode = tn
-					oldIsTree = true
-				} else if m, ok := oldValue.(map[string]interface{}); ok {
-					oldTreeNode = m
+				// Check for TreeNode first
+				if tn, ok := oldValue.(*TreeNode); ok {
+					oldTreeNodePtr = tn
 					oldIsTree = true
 				}
 
-				if tn, ok := newValue.(treeNode); ok {
-					newTreeNode = tn
-					newIsTree = true
-				} else if m, ok := newValue.(map[string]interface{}); ok {
-					newTreeNode = m
+				if tn, ok := newValue.(*TreeNode); ok {
+					newTreeNodePtr = tn
 					newIsTree = true
 				}
 
@@ -1160,7 +1136,7 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 					// Check if this is a fundamental structure change (not part of a range match)
 					// If the structures are completely different, treat nested content as new
 					_, isRangeMatch := rangeMatches[fieldPath]
-					structureChanged := !isRangeMatch && !areStructuresSimilar(oldTreeNode, newTreeNode)
+					structureChanged := !isRangeMatch && !areStructuresSimilar(oldTreeNodePtr, newTreeNodePtr)
 
 					// If structure fundamentally changed, send the full new tree with statics
 					// This ensures client gets all the HTML needed for the new structure
@@ -1171,40 +1147,26 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 					if structureChanged && !(oldHasRange && newHasRange) {
 						// Structure changed and this isn't just range item updates
 						// This includes: non-range → non-range, non-range → range, range → non-range
-						changes[k] = newValue
+						changes.SetDynamic(k, newValue)
 					} else {
 						// Structure similar, do normal diff
-						// Convert maps back to TreeNode for recursion
-						oldTreeNodePtr, err1 := FromMap(oldTreeNode)
-						newTreeNodePtr, err2 := FromMap(newTreeNode)
-						if err1 != nil || err2 != nil {
-							// Fallback: if conversion fails, send new value
-							changes[k] = newValue
-							continue
-						}
 						nestedChanges := t.compareTreesAndGetChangesWithPath(oldTreeNodePtr, newTreeNodePtr, insideNewStructure || structureChanged, fieldPath, rangeMatches)
-						if len(nestedChanges) > 0 {
+						if nestedChanges.HasDynamics() {
 							// Use nested changes as-is - the recursive call already handled statics correctly
 							// Don't strip again or we'll lose statics for NEW structures like ranges
-							changes[k] = nestedChanges
+							changes.SetDynamic(k, nestedChanges)
 						} else {
 							// No dynamic changes detected, but check if both are static-only and not equal
 							// This handles the case where static content changed (e.g., conditional rendering)
-							oldStripped := stripStaticsRecursively(oldTreeNode)
-							newStripped := stripStaticsRecursively(newTreeNode)
-							oldIsEmpty := false
-							newIsEmpty := false
-							if m, ok := oldStripped.(map[string]interface{}); ok && len(m) == 0 {
-								oldIsEmpty = true
-							}
-							if m, ok := newStripped.(map[string]interface{}); ok && len(m) == 0 {
-								newIsEmpty = true
-							}
+							oldStripped := stripStaticsRecursively(oldTreeNodePtr)
+							newStripped := stripStaticsRecursively(newTreeNodePtr)
+							oldIsEmpty := isEmpty(oldStripped)
+							newIsEmpty := isEmpty(newStripped)
 
 							// If both strip to empty (both static-only) but the originals aren't equal,
 							// the statics changed - send empty string to indicate change
-							if oldIsEmpty && newIsEmpty && !deepEqual(oldTreeNode, newTreeNode) {
-								changes[k] = ""
+							if oldIsEmpty && newIsEmpty && !deepEqual(oldTreeNodePtr, newTreeNodePtr) {
+								changes.SetDynamic(k, "")
 							}
 						}
 					}
@@ -1234,7 +1196,7 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 							current := interface{}(t.initialTree)
 							found := true
 							for _, part := range pathParts {
-								if tn, ok := current.(treeNode); ok {
+								if tn, ok := current.(map[string]interface{}); ok {
 									current = tn[part]
 								} else if m, ok := current.(map[string]interface{}); ok {
 									current = m[part]
@@ -1245,7 +1207,7 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 							}
 							if found {
 								// Now check if current (which is the tree at fieldPath) has key k
-								if tn, ok := current.(treeNode); ok {
+								if tn, ok := current.(map[string]interface{}); ok {
 									if val, exists := tn[k]; exists {
 										initialValue = val
 									}
@@ -1259,7 +1221,7 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 
 						// Check if initial value is also a tree node (not empty string or other primitive)
 						if initialValue != nil {
-							if tn, ok := initialValue.(treeNode); ok && len(tn) > 0 {
+							if tn, ok := initialValue.(map[string]interface{}); ok && len(tn) > 0 {
 								clientHasStructure = true
 							} else if m, ok := initialValue.(map[string]interface{}); ok && len(m) > 0 {
 								clientHasStructure = true
@@ -1276,16 +1238,16 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 
 					if clientHasStructure {
 						// Strip statics since client has them cached
-						stripped := stripStaticsRecursively(newTreeNode)
-						// If stripping statics results in an empty map, send empty string to match old behavior
-						if strippedMap, ok := stripped.(map[string]interface{}); ok && len(strippedMap) == 0 {
-							changes[k] = ""
+						stripped := stripStaticsRecursively(newTreeNodePtr)
+						// If stripping results in empty, send empty string
+						if isEmpty(stripped) {
+							changes.SetDynamic(k, "")
 						} else {
-							changes[k] = stripped
+							changes.SetDynamic(k, stripped)
 						}
 					} else {
 						// Client doesn't have structure - send WITH statics
-						changes[k] = newValue
+						changes.SetDynamic(k, newValue)
 						// Track that we've now sent this structure
 						if t.seenStructures == nil {
 							t.seenStructures = make(map[string]bool)
@@ -1294,15 +1256,11 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 					}
 				} else {
 					// At least one is a primitive value or type changed - send new value as-is
-					changes[k] = newValue
+					changes.SetDynamic(k, newValue)
 				}
 			}
 		}
 	}
-
-	// Strip only the top-level "s" and "f" from the changes object
-	delete(changes, "s")
-	delete(changes, "f")
 
 	return changes
 }
@@ -1313,25 +1271,16 @@ func (t *Template) fieldExistsInTree(key string, tree *TreeNode) bool {
 		return false
 	}
 
-	// Convert to map for easier traversal
-	mapTree := tree.ToMap()
-
-	// Direct check
-	if _, exists := mapTree[key]; exists {
+	// Direct check in dynamics
+	if _, exists := tree.GetDynamic(key); exists {
 		return true
 	}
 
-	// Recursive check in nested structures
-	for k, v := range mapTree {
-		if k == "s" || k == "f" {
-			continue
-		}
-		if nestedMap, ok := v.(map[string]interface{}); ok {
-			// Convert nested map back to TreeNode for recursive call
-			if nestedTree, err := FromMap(nestedMap); err == nil {
-				if t.fieldExistsInTree(key, nestedTree) {
-					return true
-				}
+	// Recursive check in nested TreeNodes
+	for _, v := range tree.Dynamics {
+		if nestedTree, ok := v.(*TreeNode); ok {
+			if t.fieldExistsInTree(key, nestedTree) {
+				return true
 			}
 		}
 	}
@@ -1341,50 +1290,27 @@ func (t *Template) fieldExistsInTree(key string, tree *TreeNode) bool {
 
 // areStructuresSimilar checks if two tree structures are fundamentally similar
 // Returns true if they have similar structure (same static keys), false if completely different
-func areStructuresSimilar(oldTree, newTree treeNode) bool {
+func areStructuresSimilar(oldTree, newTree *TreeNode) bool {
+	if oldTree == nil || newTree == nil {
+		return false
+	}
+	return areStructuresSimilarTreeNode(oldTree, newTree)
+}
+
+func areStructuresSimilarTreeNode(oldTree, newTree *TreeNode) bool {
 	// Check if both have statics - if statics differ, structures are different
-	oldStatics, oldHasS := oldTree["s"]
-	newStatics, newHasS := newTree["s"]
+	oldHasS := oldTree.HasStatics()
+	newHasS := newTree.HasStatics()
 
 	if oldHasS != newHasS {
 		return false // One has statics, other doesn't
 	}
 
 	if oldHasS && newHasS {
-		// Try to get statics as either []string or []interface{}
-		var oldS, newS []string
-		var oldOK, newOK bool
+		oldS := oldTree.Statics
+		newS := newTree.Statics
 
-		// Try []string first (most common case from tree_ast.go)
-		if s, ok := oldStatics.([]string); ok {
-			oldS = s
-			oldOK = true
-		} else if s, ok := oldStatics.([]interface{}); ok {
-			// Convert []interface{} to []string
-			oldS = make([]string, len(s))
-			for i, v := range s {
-				if str, ok := v.(string); ok {
-					oldS[i] = str
-				}
-			}
-			oldOK = true
-		}
-
-		if s, ok := newStatics.([]string); ok {
-			newS = s
-			newOK = true
-		} else if s, ok := newStatics.([]interface{}); ok {
-			// Convert []interface{} to []string
-			newS = make([]string, len(s))
-			for i, v := range s {
-				if str, ok := v.(string); ok {
-					newS[i] = str
-				}
-			}
-			newOK = true
-		}
-
-		if !oldOK || !newOK || len(oldS) != len(newS) {
+		if len(oldS) != len(newS) {
 			return false
 		}
 
@@ -1401,39 +1327,24 @@ func areStructuresSimilar(oldTree, newTree treeNode) bool {
 		if len(oldS) == 2 && oldS[0] == "" && oldS[1] == "" &&
 			len(newS) == 2 && newS[0] == "" && newS[1] == "" {
 			// Check if both have exactly one dynamic child "0"
-			oldChild, oldHasChild := oldTree["0"]
-			newChild, newHasChild := newTree["0"]
+			oldChild, oldHasChild := oldTree.GetDynamic("0")
+			newChild, newHasChild := newTree.GetDynamic("0")
 
 			if oldHasChild && newHasChild {
 				// This looks like conditional wrappers - recursively compare children
-				oldChildTree, oldIsTree := oldChild.(treeNode)
-				newChildTree, newIsTree := newChild.(treeNode)
-
-				if !oldIsTree {
-					if m, ok := oldChild.(map[string]interface{}); ok {
-						oldChildTree = treeNode(m)
-						oldIsTree = true
+				if oldChildNode, ok := oldChild.(*TreeNode); ok {
+					if newChildNode, ok := newChild.(*TreeNode); ok {
+						// Recursively check if the child structures are similar
+						return areStructuresSimilarTreeNode(oldChildNode, newChildNode)
 					}
-				}
-
-				if !newIsTree {
-					if m, ok := newChild.(map[string]interface{}); ok {
-						newChildTree = treeNode(m)
-						newIsTree = true
-					}
-				}
-
-				if oldIsTree && newIsTree {
-					// Recursively check if the child structures are similar
-					return areStructuresSimilar(oldChildTree, newChildTree)
 				}
 			}
 		}
 	}
 
 	// Check if both are range constructs
-	oldIsRange := isRangeConstruct(oldTree)
-	newIsRange := isRangeConstruct(newTree)
+	oldIsRange := oldTree.HasRange()
+	newIsRange := newTree.HasRange()
 
 	if oldIsRange != newIsRange {
 		return false // One is range, other isn't
@@ -1448,25 +1359,16 @@ func (t *Template) getFieldValueFromTree(key string, tree *TreeNode) interface{}
 		return nil
 	}
 
-	// Convert to map for easier traversal
-	mapTree := tree.ToMap()
-
-	// Direct check
-	if value, exists := mapTree[key]; exists {
+	// Direct check in dynamics
+	if value, exists := tree.GetDynamic(key); exists {
 		return value
 	}
 
-	// Recursive check in nested structures
-	for k, v := range mapTree {
-		if k == "s" || k == "f" {
-			continue
-		}
-		if nestedMap, ok := v.(map[string]interface{}); ok {
-			// Convert nested map back to TreeNode for recursive call
-			if nestedTree, err := FromMap(nestedMap); err == nil {
-				if value := t.getFieldValueFromTree(key, nestedTree); value != nil {
-					return value
-				}
+	// Recursive check in nested TreeNodes
+	for _, v := range tree.Dynamics {
+		if nestedTree, ok := v.(*TreeNode); ok {
+			if value := t.getFieldValueFromTree(key, nestedTree); value != nil {
+				return value
 			}
 		}
 	}
@@ -1476,55 +1378,96 @@ func (t *Template) getFieldValueFromTree(key string, tree *TreeNode) interface{}
 
 // findRangeConstructMatches finds range constructs in both trees and matches them by content signature
 // Returns a map of newField -> oldField for range constructs that represent the same template construct
-func findRangeConstructMatches(oldTree, newTree treeNode) map[string]string {
+func findRangeConstructMatches(oldTree, newTree *TreeNode) map[string]string {
 	matches := make(map[string]string)
+
+	// Handle nil trees
+	if oldTree == nil || newTree == nil {
+		return matches
+	}
 
 	// Find all range constructs in both trees
 	oldRanges := findRangeConstructs(oldTree)
 	newRanges := findRangeConstructs(newTree)
 
+	// DEBUG: Log what ranges were found
+	fmt.Printf("[DEBUG findRangeConstructMatches] Found %d old ranges, %d new ranges\n", len(oldRanges), len(newRanges))
+	for k, v := range oldRanges {
+		if tn, ok := v.(*TreeNode); ok {
+			fmt.Printf("[DEBUG] Old range at: %q, statics: %v, items: %d\n", k, tn.Statics, len(tn.Range.Items))
+		}
+	}
+	for k, v := range newRanges {
+		if tn, ok := v.(*TreeNode); ok {
+			fmt.Printf("[DEBUG] New range at: %q, statics: %v, items: %d\n", k, tn.Statics, len(tn.Range.Items))
+		}
+	}
+
 	// Match range constructs by their static template signature
 	for newField, newRange := range newRanges {
 		newSignature := getRangeSignature(newRange)
+		fmt.Printf("[DEBUG] Matching new range at %q with signature: %q\n", newField, newSignature)
 
+		matched := false
 		for oldField, oldRange := range oldRanges {
 			oldSignature := getRangeSignature(oldRange)
+			fmt.Printf("[DEBUG]   Comparing with old range at %q, signature: %q, match: %v\n", oldField, oldSignature, newSignature == oldSignature)
 
 			// If signatures match, this is the same template construct
-			if newSignature == oldSignature {
+			if newSignature == oldSignature && newSignature != "" {
 				matches[newField] = oldField
+				fmt.Printf("[DEBUG]   MATCHED: %q -> %q\n", newField, oldField)
+				matched = true
 				break // Each new range should match at most one old range
 			}
 		}
+
+		// FALLBACK: If no match found and one side has empty signature (empty range),
+		// AND there's only one range in each tree at the same position, match by position
+		if !matched && len(newRanges) == 1 && len(oldRanges) == 1 {
+			// Single range in both trees at same position - must be the same construct
+			for oldField := range oldRanges {
+				if newField == oldField {
+					matches[newField] = oldField
+					fmt.Printf("[DEBUG]   MATCHED by position (empty→content fallback): %q -> %q\n", newField, oldField)
+					break
+				}
+			}
+		}
 	}
+
+	fmt.Printf("[DEBUG findRangeConstructMatches] Returning %d matches: %v\n", len(matches), matches)
 
 	return matches
 }
 
 // findRangeConstructs finds all range constructs in a tree, recursively searching nested structures
-func findRangeConstructs(tree treeNode) map[string]interface{} {
+func findRangeConstructs(tree *TreeNode) map[string]interface{} {
+	if tree == nil {
+		return make(map[string]interface{})
+	}
 	return findRangeConstructsRecursive(tree, "")
 }
 
 // findRangeConstructsRecursive finds range constructs with path tracking
-func findRangeConstructsRecursive(tree treeNode, path string) map[string]interface{} {
+func findRangeConstructsRecursive(tree *TreeNode, path string) map[string]interface{} {
 	ranges := make(map[string]interface{})
+
+	if tree == nil {
+		return ranges
+	}
 
 	// CRITICAL FIX: Check if the tree ITSELF is a range construct
 	// This handles top-level ranges like: {{range .Items}}...{{end}}
-	// where the entire tree is {"d": [...], "s": [...]}
-	if isRangeConstruct(tree) {
+	// where the entire tree has Range field set
+	if tree.HasRange() && tree.HasStatics() {
 		ranges[path] = tree
 		// Don't recurse into range internals - treat the range as an atomic unit
 		return ranges
 	}
 
-	// Tree is not a range, search for ranges as field values
-	for field, value := range tree {
-		if field == "s" || field == "f" {
-			continue // Skip static segments and fingerprint
-		}
-
+	// Tree is not a range, search for ranges as field values in dynamics
+	for field, value := range tree.Dynamics {
 		// Build the full path to this field
 		fieldPath := field
 		if path != "" {
@@ -1535,14 +1478,7 @@ func findRangeConstructsRecursive(tree treeNode, path string) map[string]interfa
 			ranges[fieldPath] = value
 		} else {
 			// Recursively search nested tree nodes
-			var nestedTree treeNode
-			if tn, ok := value.(treeNode); ok {
-				nestedTree = tn
-			} else if m, ok := value.(map[string]interface{}); ok {
-				nestedTree = m
-			}
-
-			if nestedTree != nil {
+			if nestedTree, ok := value.(*TreeNode); ok {
 				// Merge nested ranges into our map
 				nestedRanges := findRangeConstructsRecursive(nestedTree, fieldPath)
 				for k, v := range nestedRanges {
@@ -1558,6 +1494,15 @@ func findRangeConstructsRecursive(tree treeNode, path string) map[string]interfa
 // getRangeSignature creates a signature for a range construct based on its static template structure
 // This signature should be the same for the same template construct regardless of data
 func getRangeSignature(rangeValue interface{}) string {
+	// Check if value is a TreeNode with statics
+	if node, ok := rangeValue.(*TreeNode); ok {
+		if node.HasStatics() {
+			return fmt.Sprintf("%v", node.Statics)
+		}
+		return ""
+	}
+
+	// Fallback: check for map representation (for compatibility during migration)
 	rangeMap, ok := rangeValue.(map[string]interface{})
 	if !ok {
 		return ""
@@ -1580,24 +1525,19 @@ func deepEqual(a, b interface{}) bool {
 
 // isRangeConstruct checks if a value is a range construct (has "d" and "s" keys)
 func isRangeConstruct(value interface{}) bool {
-	// Try both treeNode and map[string]interface{} type assertions
-	var valueMap map[string]interface{}
-	var ok bool
-
-	if tn, isTN := value.(treeNode); isTN {
-		valueMap = tn
-		ok = true
-	} else if vm, isVM := value.(map[string]interface{}); isVM {
-		valueMap = vm
-		ok = true
+	// Check if value is a TreeNode with Range field
+	if node, ok := value.(*TreeNode); ok {
+		return node.HasRange() && node.HasStatics()
 	}
 
-	if ok {
+	// Fallback: check for map representation (for compatibility during migration)
+	if valueMap, ok := value.(map[string]interface{}); ok {
 		_, hasD := valueMap["d"]
 		_, hasS := valueMap["s"]
 		// Both "d" (data array) and "s" (statics array) must be present
 		return hasD && hasS
 	}
+
 	return false
 }
 
@@ -1608,7 +1548,7 @@ func isRangeConstruct(value interface{}) bool {
 // 	var valueMap map[string]interface{}
 // 	var ok bool
 //
-// 	if tn, isTN := value.(treeNode); isTN {
+// 	if tn, isTN := value.(map[string]interface{}); isTN {
 // 		valueMap = tn
 // 		ok = true
 // 	} else if vm, isVM := value.(map[string]interface{}); isVM {
@@ -1666,7 +1606,7 @@ func isRangeConstruct(value interface{}) bool {
 // 	}
 //
 // 	var valueMap map[string]interface{}
-// 	if tn, ok := value.(treeNode); ok {
+// 	if tn, ok := value.(map[string]interface{}); ok {
 // 		valueMap = tn
 // 	} else if vm, ok := value.(map[string]interface{}); ok {
 // 		valueMap = vm
@@ -1688,21 +1628,20 @@ func isRangeConstruct(value interface{}) bool {
 // Returns true only if value is a range AND has at least one item
 // This is used to determine if the client has seen item rendering templates
 func hasRangeItems(value interface{}) bool {
-	var valueMap map[string]interface{}
-
-	if tn, ok := value.(treeNode); ok {
-		valueMap = tn
-	} else if m, ok := value.(map[string]interface{}); ok {
-		valueMap = m
-	} else {
-		return false
+	// Check if value is a TreeNode with Range and items
+	if node, ok := value.(*TreeNode); ok {
+		return node.HasRange() && len(node.Range.Items) > 0
 	}
 
-	if d, hasD := valueMap["d"]; hasD {
-		if dArray, ok := d.([]interface{}); ok {
-			return len(dArray) > 0
+	// Fallback: check for map representation
+	if valueMap, ok := value.(map[string]interface{}); ok {
+		if d, hasD := valueMap["d"]; hasD {
+			if dArray, ok := d.([]interface{}); ok {
+				return len(dArray) > 0
+			}
 		}
 	}
+
 	return false
 }
 
@@ -1714,23 +1653,26 @@ func containsRangeConstruct(value interface{}) bool {
 		return true
 	}
 
-	// Try to get as a map to check children
-	var valueMap map[string]interface{}
-	if tn, ok := value.(treeNode); ok {
-		valueMap = tn
-	} else if m, ok := value.(map[string]interface{}); ok {
-		valueMap = m
-	} else {
+	// Check TreeNode dynamics recursively
+	if node, ok := value.(*TreeNode); ok {
+		for _, v := range node.Dynamics {
+			if containsRangeConstruct(v) {
+				return true
+			}
+		}
 		return false
 	}
 
-	// Recursively check all children (skip "s" and "f" keys)
-	for k, v := range valueMap {
-		if k == "s" || k == "f" {
-			continue
-		}
-		if containsRangeConstruct(v) {
-			return true
+	// Fallback: check for map representation
+	if valueMap, ok := value.(map[string]interface{}); ok {
+		// Recursively check all children (skip "s" and "f" keys)
+		for k, v := range valueMap {
+			if k == "s" || k == "f" {
+				continue
+			}
+			if containsRangeConstruct(v) {
+				return true
+			}
 		}
 	}
 
@@ -1776,69 +1718,80 @@ func findKeyPositionFromStatics(statics interface{}) int {
 }
 
 // getItemKey extracts the key from a range item using the statics structure
-func getItemKey(itemMap map[string]interface{}, statics interface{}) (string, bool) {
-	// First, check for reserved auto-generated key field
-	if autoKey, exists := itemMap["_k"]; exists {
-		if keyStr, ok := autoKey.(string); ok {
-			return keyStr, true
+func getItemKey(item interface{}, statics interface{}) (string, bool) {
+	// Handle TreeNode items
+	if itemNode, ok := item.(*TreeNode); ok {
+		// First, check for reserved auto-generated key field
+		if autoKey, exists := itemNode.GetDynamic("_k"); exists {
+			if keyStr, ok := autoKey.(string); ok {
+				return keyStr, true
+			}
 		}
+
+		keyPos := findKeyPositionFromStatics(statics)
+		keyPosStr := fmt.Sprintf("%d", keyPos)
+
+		if key, exists := itemNode.GetDynamic(keyPosStr); exists {
+			if keyStr, ok := key.(string); ok {
+				return keyStr, true
+			}
+		}
+
+		// If no explicit key found, generate a content-based hash
+		// This ensures items have stable keys even without template key attributes
+		return generateItemHash(itemNode), true
 	}
 
-	keyPos := findKeyPositionFromStatics(statics)
-	keyPosStr := fmt.Sprintf("%d", keyPos)
-
-	if key, exists := itemMap[keyPosStr]; exists {
-		if keyStr, ok := key.(string); ok {
-			return keyStr, true
-		}
-	}
-
-	// If no explicit key found, generate a content-based hash
-	// This ensures items have stable keys even without template key attributes
-	return generateItemHash(itemMap), true
+	return "", false
 }
 
 // generateItemHash creates a stable hash for a range item based on its content
 // This is used when no explicit key attribute is provided in the template
-func generateItemHash(itemMap map[string]interface{}) string {
-	// Create a canonical JSON representation for hashing
-	// Sort keys to ensure deterministic ordering
-	keys := make([]string, 0, len(itemMap))
-	for k := range itemMap {
-		// Skip internal/reserved fields
-		if k != "_k" && k != "s" && k != "f" {
-			keys = append(keys, k)
+func generateItemHash(item interface{}) string {
+	// Handle TreeNode
+	if itemNode, ok := item.(*TreeNode); ok {
+		// Create a canonical JSON representation for hashing
+		// Sort keys to ensure deterministic ordering
+		keys := make([]string, 0, len(itemNode.Dynamics))
+		for k := range itemNode.Dynamics {
+			// Skip internal/reserved fields
+			if k != "_k" {
+				keys = append(keys, k)
+			}
 		}
-	}
-	sort.Strings(keys)
+		sort.Strings(keys)
 
-	// Build canonical representation
-	var parts []string
-	for _, k := range keys {
-		val := itemMap[k]
-		valJSON, _ := json.Marshal(val)
-		parts = append(parts, fmt.Sprintf("%s:%s", k, string(valJSON)))
+		// Build canonical representation
+		var parts []string
+		for _, k := range keys {
+			val, _ := itemNode.GetDynamic(k)
+			valJSON, _ := json.Marshal(val)
+			parts = append(parts, fmt.Sprintf("%s:%s", k, string(valJSON)))
+		}
+
+		// Hash the canonical representation
+		content := strings.Join(parts, "|")
+		hasher := md5.New()
+		hasher.Write([]byte(content))
+		hash := hex.EncodeToString(hasher.Sum(nil))
+
+		// Return first 12 characters for compactness
+		if len(hash) >= 12 {
+			return hash[:12]
+		}
+		return hash
 	}
 
-	// Hash the canonical representation
-	content := strings.Join(parts, "|")
-	hasher := md5.New()
-	hasher.Write([]byte(content))
-	hash := hex.EncodeToString(hasher.Sum(nil))
-
-	// Return first 12 characters for compactness
-	if len(hash) >= 12 {
-		return hash[:12]
-	}
-	return hash
+	return ""
 }
 
 // extractItemKeys extracts the keys from a slice of range items using the statics structure
 func extractItemKeys(items []interface{}, statics interface{}) []string {
 	var keys []string
 	for _, item := range items {
-		if itemMap, ok := item.(map[string]interface{}); ok {
-			if key, ok := getItemKey(itemMap, statics); ok {
+		// Items are now *TreeNode
+		if itemNode, ok := item.(*TreeNode); ok {
+			if key, ok := getItemKey(itemNode, statics); ok {
 				keys = append(keys, key)
 			}
 		}
@@ -1851,8 +1804,8 @@ func detectPositionField(itemsByKey map[string]interface{}) string {
 	positionPattern := regexp.MustCompile(`^#\d+`)
 
 	for _, item := range itemsByKey {
-		if itemMap, ok := item.(map[string]interface{}); ok {
-			for field, value := range itemMap {
+		if itemNode, ok := item.(*TreeNode); ok {
+			for field, value := range itemNode.Dynamics {
 				if strValue, ok := value.(string); ok {
 					if positionPattern.MatchString(strValue) {
 						return field
@@ -1898,18 +1851,14 @@ func isPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []strin
 	newItemsByKey := make(map[string]interface{})
 
 	for _, item := range oldItems {
-		if itemMap, ok := item.(map[string]interface{}); ok {
-			if key, ok := getItemKey(itemMap, statics); ok {
-				oldItemsByKey[key] = item
-			}
+		if key, ok := getItemKey(item, statics); ok {
+			oldItemsByKey[key] = item
 		}
 	}
 
 	for _, item := range newItems {
-		if itemMap, ok := item.(map[string]interface{}); ok {
-			if key, ok := getItemKey(itemMap, statics); ok {
-				newItemsByKey[key] = item
-			}
+		if key, ok := getItemKey(item, statics); ok {
+			newItemsByKey[key] = item
 		}
 	}
 
@@ -1924,11 +1873,11 @@ func isPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []strin
 		}
 
 		// Compare items excluding position field (field contains "#0:", "#1:", etc.)
-		oldItemMap, ok1 := oldItem.(map[string]interface{})
-		newItemMap, ok2 := newItem.(map[string]interface{})
+		oldItemNode, ok1 := oldItem.(*TreeNode)
+		newItemNode, ok2 := newItem.(*TreeNode)
 
 		if !ok1 || !ok2 {
-			// If we can't compare as maps, fall back to full comparison
+			// If we can't compare as TreeNodes, fall back to full comparison
 			if !deepEqual(oldItem, newItem) {
 				return false
 			}
@@ -1940,25 +1889,25 @@ func isPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []strin
 		keyPosStr := fmt.Sprintf("%d", keyPos)
 
 		// Compare all fields except position field and key field
-		for field, oldValue := range oldItemMap {
+		for field, oldValue := range oldItemNode.Dynamics {
 			// Skip position field (contains positional display like "#0:")
 			// Skip key field (determined from statics)
 			if field == positionField || field == keyPosStr {
 				continue
 			}
 
-			newValue, exists := newItemMap[field]
+			newValue, exists := newItemNode.GetDynamic(field)
 			if !exists || !deepEqual(oldValue, newValue) {
 				return false
 			}
 		}
 
 		// Also check that new item doesn't have extra fields (except position and key)
-		for field := range newItemMap {
+		for field := range newItemNode.Dynamics {
 			if field == positionField || field == keyPosStr {
 				continue
 			}
-			if _, exists := oldItemMap[field]; !exists {
+			if _, exists := oldItemNode.GetDynamic(field); !exists {
 				return false
 			}
 		}
@@ -1980,69 +1929,33 @@ func isPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []strin
 // if false, keeps "s" keys (client hasn't seen this structure yet)
 func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripStatics bool) []interface{} {
 	var operations []interface{}
+	var oldItems, newItems []interface{}
+	var statics interface{}
 
-	// Try to extract map[string]interface{} from both treeNode and map[string]interface{} types
-	var oldRange, newRange map[string]interface{}
-	var ok1, ok2 bool
-
-	// Handle oldValue - try treeNode first, then map[string]interface{}
-	if tn, isTN := oldValue.(treeNode); isTN {
-		oldRange = tn
-		ok1 = true
-	} else if m, isM := oldValue.(map[string]interface{}); isM {
-		oldRange = m
-		ok1 = true
-	}
-
-	// Handle newValue - try treeNode first, then map[string]interface{}
-	if tn, isTN := newValue.(treeNode); isTN {
-		newRange = tn
-		ok2 = true
-	} else if m, isM := newValue.(map[string]interface{}); isM {
-		newRange = m
-		ok2 = true
-	}
-
-	if !ok1 || !ok2 {
-		// Type conversion failed
+	// Try to extract TreeNode first
+	if oldNode, ok := oldValue.(*TreeNode); ok {
+		if oldNode.HasRange() && oldNode.Range != nil {
+			oldItems = oldNode.Range.Items
+			statics = oldNode.Statics
+		} else {
+			return operations
+		}
+	} else {
 		return operations
 	}
 
-	// Extract old and new item arrays
-	oldItems, ok1 := oldRange["d"].([]interface{})
-	newItems, ok2 := newRange["d"].([]interface{})
-
-	// Try alternative type assertion if the first one fails
-	if !ok1 {
-		if oldMaps, ok := oldRange["d"].([]map[string]interface{}); ok {
-			oldItems = make([]interface{}, len(oldMaps))
-			for i, m := range oldMaps {
-				oldItems[i] = m
+	if newNode, ok := newValue.(*TreeNode); ok {
+		if newNode.HasRange() && newNode.Range != nil {
+			newItems = newNode.Range.Items
+			if statics == nil {
+				statics = newNode.Statics
 			}
-			ok1 = true
+		} else {
+			return operations
 		}
-	}
-
-	if !ok2 {
-		if newMaps, ok := newRange["d"].([]map[string]interface{}); ok {
-			newItems = make([]interface{}, len(newMaps))
-			for i, m := range newMaps {
-				newItems[i] = m
-			}
-			ok2 = true
-		}
-	}
-
-	if !ok1 || !ok2 {
-		// Item extraction failed
-		// Debug: could examine keys and types here if needed
+	} else {
 		return operations
 	}
-
-	// Comparing old items vs new items
-
-	// Extract statics for key position lookup (both ranges have the same structure)
-	statics := newRange["s"]
 
 	// First, check if this is a pure reordering (same items, different order)
 	oldKeys := extractItemKeys(oldItems, statics)
@@ -2059,19 +1972,15 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 
 	// Map old items by their auto-generated keys
 	for _, item := range oldItems {
-		if itemMap, ok := item.(map[string]interface{}); ok {
-			if key, ok := getItemKey(itemMap, statics); ok {
-				oldItemsByKey[key] = item
-			}
+		if key, ok := getItemKey(item, statics); ok {
+			oldItemsByKey[key] = item
 		}
 	}
 
 	// Map new items by their auto-generated keys
 	for _, item := range newItems {
-		if itemMap, ok := item.(map[string]interface{}); ok {
-			if key, ok := getItemKey(itemMap, statics); ok {
-				newItemsByKey[key] = item
-			}
+		if key, ok := getItemKey(item, statics); ok {
+			newItemsByKey[key] = item
 		}
 	}
 
@@ -2108,7 +2017,20 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 					// Empty key suggests an issue - log the item
 					_ = newItem // Placeholder to inspect in debugger
 				}
-				operations = append(operations, []interface{}{"u", key, changes})
+				// Check if changes only contains empty values - if so, don't include changes
+				hasNonEmptyChanges := false
+				for _, v := range changes {
+					if s, ok := v.(string); !ok || s != "" {
+						hasNonEmptyChanges = true
+						break
+					}
+				}
+				if hasNonEmptyChanges {
+					operations = append(operations, []interface{}{"u", key, changes})
+				} else {
+					// All changes are empty strings - use simple format without changes
+					operations = append(operations, []interface{}{"u", key})
+				}
 			}
 		}
 	}
@@ -2125,14 +2047,13 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 		// SPECIAL CASE: If old range was empty, use 'a' (append) with statics
 		// This is needed because client can't apply differential operations without range state
 		if len(oldItems) == 0 {
-			// Build array of items to append
-			itemsToAppend := append([]interface{}{}, newItems...)
-			// Use 'a' operation with statics so client can initialize range state
-			if !stripStatics {
-				operations = append(operations, []interface{}{"a", itemsToAppend, statics})
-			} else {
-				operations = append(operations, []interface{}{"a", itemsToAppend})
+			// Build array of items to append, stripping nested statics
+			itemsToAppend := make([]interface{}, 0, len(newItems))
+			for _, item := range newItems {
+				itemsToAppend = append(itemsToAppend, stripStaticsRecursively(item))
 			}
+			// Use 'a' operation with statics so client can initialize range state
+			operations = append(operations, []interface{}{"a", itemsToAppend, statics})
 		} else {
 			// Range has existing items - detect append/prepend/insert patterns
 
@@ -2141,22 +2062,24 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 				itemsToPrepend := make([]interface{}, 0, len(addedKeys))
 				for _, key := range addedKeys {
 					if item, exists := newItemsByKey[key]; exists {
-						itemsToPrepend = append(itemsToPrepend, item)
+						// Strip nested statics from items (client has cached them)
+						itemsToPrepend = append(itemsToPrepend, stripStaticsRecursively(item))
 					}
 				}
 				// Use 'p' operation for prepending (O(1) on client)
-				// Format: ['p', items, statics]
+				// Format: ['p', items, statics] - statics describe how to render items
 				operations = append(operations, []interface{}{"p", itemsToPrepend, statics})
 			} else if areAllItemsAtEnd(addedKeys, oldItems, newItems, statics) {
 				// Check if all new items are at the end (append)
 				itemsToAppend := make([]interface{}, 0, len(addedKeys))
 				for _, key := range addedKeys {
 					if item, exists := newItemsByKey[key]; exists {
-						itemsToAppend = append(itemsToAppend, item)
+						// Strip nested statics from items (client has cached them)
+						itemsToAppend = append(itemsToAppend, stripStaticsRecursively(item))
 					}
 				}
 				// Use 'a' operation for appending (O(1) on client)
-				// Format: ['a', items, statics]
+				// Format: ['a', items, statics] - statics describe how to render items
 				operations = append(operations, []interface{}{"a", itemsToAppend, statics})
 			} else {
 				// Individual insertions at specific positions
@@ -2164,23 +2087,23 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 					if newItem, exists := newItemsByKey[key]; exists {
 						// Find position for this specific item
 						for i, item := range newItems {
-							if itemMap, ok := item.(map[string]interface{}); ok {
-								if itemKey, ok := getItemKey(itemMap, statics); ok && itemKey == key {
-									// Determine insertion position
-									if i == 0 {
-										// Item at start - use prepend for single item
-										operations = append(operations, []interface{}{"p", []interface{}{newItem}, statics})
-									} else {
-										// Find the item before this one and use simplified insert
-										if prevItem, ok := newItems[i-1].(map[string]interface{}); ok {
-											if prevKey, ok := getItemKey(prevItem, statics); ok {
-												// Simplified insert: ['i', afterId, data] (no position param)
-												operations = append(operations, []interface{}{"i", prevKey, newItem})
-											}
-										}
+							if itemKey, ok := getItemKey(item, statics); ok && itemKey == key {
+								// Determine insertion position
+								if i == 0 {
+									// Item at start - use prepend for single item
+									// Strip nested statics and include top-level statics
+									strippedItem := stripStaticsRecursively(newItem)
+									operations = append(operations, []interface{}{"p", []interface{}{strippedItem}, statics})
+								} else {
+									// Find the item before this one and use simplified insert
+									if prevKey, ok := getItemKey(newItems[i-1], statics); ok {
+										// Simplified insert: ['i', afterId, data] (no position param)
+										// Strip nested statics from item
+										strippedItem := stripStaticsRecursively(newItem)
+										operations = append(operations, []interface{}{"i", prevKey, strippedItem})
 									}
-									break
 								}
+								break
 							}
 						}
 					}
@@ -2204,8 +2127,8 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 func compareRangeItemsForChanges(oldItem, newItem interface{}, statics interface{}) map[string]interface{} {
 	changes := make(map[string]interface{})
 
-	oldItemMap, ok1 := oldItem.(map[string]interface{})
-	newItemMap, ok2 := newItem.(map[string]interface{})
+	oldItemNode, ok1 := oldItem.(*TreeNode)
+	newItemNode, ok2 := newItem.(*TreeNode)
 
 	if !ok1 || !ok2 {
 		return changes
@@ -2216,46 +2139,24 @@ func compareRangeItemsForChanges(oldItem, newItem interface{}, statics interface
 	keyPosStr := fmt.Sprintf("%d", keyPos)
 
 	// Compare each field (except the key field)
-	for fieldKey, newValue := range newItemMap {
+	for fieldKey, newValue := range newItemNode.Dynamics {
 		if fieldKey == keyPosStr {
 			continue // Skip the key field
 		}
 
-		oldValue, exists := oldItemMap[fieldKey]
+		oldValue, exists := oldItemNode.GetDynamic(fieldKey)
 		if !exists || !deepEqual(oldValue, newValue) {
 			// Strip statics from nested tree nodes since client already has them cached
-			// Need to handle both treeNode type and map[string]interface{}
-			var newTreeNode treeNode
-			var isTree bool
-
-			if tn, ok := newValue.(treeNode); ok {
-				newTreeNode = tn
-				isTree = true
-			} else if m, ok := newValue.(map[string]interface{}); ok {
-				newTreeNode = m
-				isTree = true
-			}
-
-			if isTree {
+			if newTreeNode, ok := newValue.(*TreeNode); ok {
 				stripped := stripStaticsRecursively(newTreeNode)
-				// If stripping results in empty map, check if this is a meaningful change
-				if strippedMap, ok := stripped.(map[string]interface{}); ok && len(strippedMap) == 0 {
+				// If stripping results in empty, check if this is a meaningful change
+				if isEmpty(stripped) {
 					// Check if old value would also strip to empty
 					// If both old and new are static-only (strip to empty), don't send the change
 					if exists {
-						var oldTreeNode treeNode
-						var oldIsTree bool
-						if tn, ok := oldValue.(treeNode); ok {
-							oldTreeNode = tn
-							oldIsTree = true
-						} else if m, ok := oldValue.(map[string]interface{}); ok {
-							oldTreeNode = m
-							oldIsTree = true
-						}
-
-						if oldIsTree {
+						if oldTreeNode, ok := oldValue.(*TreeNode); ok {
 							oldStripped := stripStaticsRecursively(oldTreeNode)
-							if oldStrippedMap, ok := oldStripped.(map[string]interface{}); ok && len(oldStrippedMap) == 0 {
+							if isEmpty(oldStripped) {
 								// Both old and new strip to empty - no meaningful change, skip it
 								continue
 							}
@@ -2281,20 +2182,16 @@ func compareRangeItemsForChanges(oldItem, newItem interface{}, statics interface
 func findNewItems(oldItems, newItems []interface{}, statics interface{}) []string {
 	oldKeys := make(map[string]bool)
 	for _, item := range oldItems {
-		if itemMap, ok := item.(map[string]interface{}); ok {
-			if key, ok := getItemKey(itemMap, statics); ok {
-				oldKeys[key] = true
-			}
+		if key, ok := getItemKey(item, statics); ok {
+			oldKeys[key] = true
 		}
 	}
 
 	var newKeys []string
 	for _, item := range newItems {
-		if itemMap, ok := item.(map[string]interface{}); ok {
-			if key, ok := getItemKey(itemMap, statics); ok {
-				if !oldKeys[key] {
-					newKeys = append(newKeys, key)
-				}
+		if key, ok := getItemKey(item, statics); ok {
+			if !oldKeys[key] {
+				newKeys = append(newKeys, key)
 			}
 		}
 	}
@@ -2378,20 +2275,16 @@ func areAllItemsAtEnd(newKeys []string, oldItems, newItems []interface{}, static
 		if i >= len(newItems) {
 			return false
 		}
-		if itemMap, ok := newItems[i].(map[string]interface{}); ok {
-			if itemKey, ok := getItemKey(itemMap, statics); ok {
-				// Check if this key exists in oldKeys
-				found := false
-				for _, oldKey := range oldKeys {
-					if oldKey == itemKey {
-						found = true
-						break
-					}
+		if itemKey, ok := getItemKey(newItems[i], statics); ok {
+			// Check if this key exists in oldKeys
+			found := false
+			for _, oldKey := range oldKeys {
+				if oldKey == itemKey {
+					found = true
+					break
 				}
-				if !found {
-					return false
-				}
-			} else {
+			}
+			if !found {
 				return false
 			}
 		} else {
@@ -2405,12 +2298,8 @@ func areAllItemsAtEnd(newKeys []string, oldItems, newItems []interface{}, static
 		if index >= len(newItems) {
 			return false
 		}
-		if itemMap, ok := newItems[index].(map[string]interface{}); ok {
-			if itemKey, ok := getItemKey(itemMap, statics); ok {
-				if itemKey != key {
-					return false
-				}
-			} else {
+		if itemKey, ok := getItemKey(newItems[index], statics); ok {
+			if itemKey != key {
 				return false
 			}
 		} else {
@@ -2432,25 +2321,21 @@ func isComplexInsertionPattern(newKeys []string, oldItems, newItems []interface{
 	insertionPoints := make(map[string]bool)
 
 	for i, item := range newItems {
-		if itemMap, ok := item.(map[string]interface{}); ok {
-			if keyStr, ok := getItemKey(itemMap, statics); ok {
-				// Check if this is a new key
-				for _, newKey := range newKeys {
-					if newKey == keyStr {
-						// Determine insertion point
-						var insertionPoint string
-						if i > 0 {
-							if prevItem, ok := newItems[i-1].(map[string]interface{}); ok {
-								if prevKeyStr, ok := getItemKey(prevItem, statics); ok {
-									insertionPoint = prevKeyStr + ":after"
-								}
-							}
-						} else {
-							insertionPoint = "start"
+		if keyStr, ok := getItemKey(item, statics); ok {
+			// Check if this is a new key
+			for _, newKey := range newKeys {
+				if newKey == keyStr {
+					// Determine insertion point
+					var insertionPoint string
+					if i > 0 {
+						if prevKeyStr, ok := getItemKey(newItems[i-1], statics); ok {
+							insertionPoint = prevKeyStr + ":after"
 						}
-						insertionPoints[insertionPoint] = true
-						break
+					} else {
+						insertionPoint = "start"
 					}
+					insertionPoints[insertionPoint] = true
+					break
 				}
 			}
 		}
@@ -2460,7 +2345,7 @@ func isComplexInsertionPattern(newKeys []string, oldItems, newItems []interface{
 }
 
 // analyzeChangeAndCreateTree determines the best tree structure based on the type of change
-func (t *Template) analyzeChangeAndCreateTree(oldHTML, newHTML string, _, _ interface{}) (treeNode, error) {
+func (t *Template) analyzeChangeAndCreateTree(oldHTML, newHTML string, _, _ interface{}) (*TreeNode, error) {
 	// Find common prefix and suffix to understand change patterns
 	commonPrefix := findCommonPrefix(oldHTML, newHTML)
 	commonSuffix := findCommonSuffix(oldHTML, newHTML)
@@ -2471,26 +2356,23 @@ func (t *Template) analyzeChangeAndCreateTree(oldHTML, newHTML string, _, _ inte
 
 	// If entire content changed, return full dynamic content
 	if changeStart >= changeEnd || (changeStart == 0 && changeEnd == len(newHTML)) {
-		return treeNode{
-			"s": []string{"", ""},
-			"0": minifyHTML(newHTML),
-		}, nil
+		tree := NewTreeNodeWithStatics([]string{"", ""})
+		tree.SetDynamic("0", minifyHTML(newHTML))
+		return tree, nil
 	}
 
 	// If we have stable prefix/suffix, create tree with static parts
 	if commonPrefix != "" || commonSuffix != "" {
 		dynamicPart := newHTML[changeStart:changeEnd]
-		return treeNode{
-			"s": []string{commonPrefix, commonSuffix},
-			"0": minifyHTML(dynamicPart),
-		}, nil
+		tree := NewTreeNodeWithStatics([]string{commonPrefix, commonSuffix})
+		tree.SetDynamic("0", minifyHTML(dynamicPart))
+		return tree, nil
 	}
 
 	// Default to full dynamic content
-	return treeNode{
-		"s": []string{"", ""},
-		"0": minifyHTML(newHTML),
-	}, nil
+	tree := NewTreeNodeWithStatics([]string{"", ""})
+	tree.SetDynamic("0", minifyHTML(newHTML))
+	return tree, nil
 }
 
 // createHTMLStructureBasedTree implements deterministic segmentation strategies for HTML content
@@ -2609,69 +2491,20 @@ func findCommonSuffix(s1, s2 string) string {
 	return s1[len1-minLen:]
 }
 
-// marshalOrderedJSON marshals a treeNode to JSON with keys in sorted order
-func marshalOrderedJSON(tree treeNode) ([]byte, error) {
-	if len(tree) == 0 {
-		return []byte("{}"), nil
-	}
-
+// marshalOrderedJSON marshals a tree to JSON with no HTML escaping
+func marshalOrderedJSON(tree interface{}) ([]byte, error) {
 	var buf bytes.Buffer
-	buf.WriteByte('{')
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
 
-	// Sort keys numerically for proper ordering
-	keys := make([]string, 0, len(tree))
-	for k := range tree {
-		keys = append(keys, k)
+	err := encoder.Encode(tree)
+	if err != nil {
+		return nil, err
 	}
 
-	// Custom sort to handle numeric keys properly
-	sort.Slice(keys, func(i, j int) bool {
-		// Try to parse as numbers first
-		num1, err1 := strconv.Atoi(keys[i])
-		num2, err2 := strconv.Atoi(keys[j])
-
-		if err1 == nil && err2 == nil {
-			// Both are numbers, sort numerically
-			return num1 < num2
-		}
-
-		// If one or both are not numbers, sort lexicographically
-		// But put "s" (static) first
-		if keys[i] == "s" {
-			return true
-		}
-		if keys[j] == "s" {
-			return false
-		}
-
-		return keys[i] < keys[j]
-	})
-
-	first := true
-	for _, key := range keys {
-		if !first {
-			buf.WriteByte(',')
-		}
-		first = false
-
-		// Write key
-		keyBytes, err := json.Marshal(key)
-		if err != nil {
-			return nil, err
-		}
-		buf.Write(keyBytes)
-		buf.WriteByte(':')
-
-		// Write value with no HTML escaping
-		valueBytes, err := marshalValue(tree[key])
-		if err != nil {
-			return nil, err
-		}
-		buf.Write(valueBytes)
-	}
-
-	buf.WriteByte('}')
-	return buf.Bytes(), nil
+	// Remove trailing newline that Encode adds
+	result := bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
+	return result, nil
 }
 
 // marshalValue marshals a value to JSON with no HTML escaping
@@ -2696,17 +2529,12 @@ func (t *Template) loadExistingKeyMappings(lastTree *TreeNode) {
 		return
 	}
 
-	// Convert to map for easier traversal
-	mapTree := lastTree.ToMap()
-
-	// Look for range data in the tree and load existing key mappings
-	for _, value := range mapTree {
-		if rangeData, ok := value.(map[string]interface{}); ok {
-			// Check if this looks like range data with "d" field
-			if dynData, exists := rangeData["d"]; exists {
-				if dynSlice, ok := dynData.([]interface{}); ok {
-					t.keyGen.loadExistingKeys(dynSlice)
-				}
+	// Look for range data in the tree dynamics and load existing key mappings
+	for _, value := range lastTree.Dynamics {
+		// Check if this is a TreeNode with Range data
+		if node, ok := value.(*TreeNode); ok {
+			if node.HasRange() && node.Range != nil {
+				t.keyGen.loadExistingKeys(node.Range.Items)
 			}
 		}
 	}

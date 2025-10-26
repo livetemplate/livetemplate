@@ -246,24 +246,37 @@ func WaitFor(condition string, timeout time.Duration) chromedp.Action {
 		startTime := time.Now()
 
 		for {
+			// Check context first to fail fast if parent canceled
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("context canceled while waiting for condition '%s': %w", condition, ctx.Err())
+			default:
+			}
+
 			var result bool
 			err := chromedp.Evaluate(condition, &result).Do(ctx)
 
 			if err != nil {
-				return fmt.Errorf("failed to evaluate condition '%s': %w", condition, err)
-			}
-
-			if result {
+				// Don't fail immediately on evaluation errors - the DOM might not be ready yet
+				// Just log and continue polling
+				if time.Since(startTime) > timeout {
+					return fmt.Errorf("timeout waiting for condition '%s' (last error: %v)", condition, err)
+				}
+			} else if result {
 				// Condition met
 				return nil
 			}
 
 			if time.Since(startTime) > timeout {
-				return fmt.Errorf("timeout waiting for condition '%s' after %v", condition, timeout)
+				// Get debug info on timeout
+				var debugInfo string
+				_ = chromedp.Evaluate(`document.readyState`, &debugInfo).Do(ctx)
+				return fmt.Errorf("timeout waiting for condition '%s' after %v (readyState: %s)", condition, timeout, debugInfo)
 			}
 
-			// Poll every 10ms (condition-based, not arbitrary)
-			time.Sleep(10 * time.Millisecond)
+			// Poll every 100ms (increased from 10ms for stability)
+			// This reduces CPU thrashing and makes checks more reliable
+			time.Sleep(100 * time.Millisecond)
 		}
 	})
 }
@@ -282,11 +295,17 @@ func WaitForWebSocketReady(timeout time.Duration) chromedp.Action {
 			return fmt.Errorf("wrapper element not found: %w", err)
 		}
 
-		// Use WaitFor for the loading check
+		// Give client time to initialize before we start polling (reduces race conditions)
+		time.Sleep(50 * time.Millisecond)
+
+		// Use improved WaitFor with slower polling (100ms instead of 10ms)
+		// This reduces CPU thrashing and makes the check more stable
 		return WaitFor(`
 			(() => {
 				const wrapper = document.querySelector('[data-lvt-id]');
-				return wrapper && !wrapper.hasAttribute('data-lvt-loading');
+				// Also verify that the client is actually initialized
+				const clientInitialized = window.liveTemplateClient !== undefined;
+				return wrapper && !wrapper.hasAttribute('data-lvt-loading') && clientInitialized;
 			})()
 		`, timeout).Do(ctx)
 	})

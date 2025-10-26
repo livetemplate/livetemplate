@@ -89,29 +89,30 @@ func TestRangeTreeGeneration(t *testing.T) {
 	// This is correct because empty range never rendered item templates to client
 	// So client needs full structure with statics for first items
 
-	// The tree should contain the full range structure (not operations)
-	// because the client has never seen item templates before
-	foundRangeStructure := false
+	// The tree should contain append operations for empty→content transition
+	foundAppendOperation := false
 	for key, value := range tree {
 		t.Logf("Tree key: %s, value type: %T", key, value)
 
-		// Check if it's a range structure (has "d" and optionally "m")
-		if rangeMap, ok := value.(map[string]interface{}); ok {
-			if d, hasD := rangeMap["d"]; hasD {
-				if items, ok := d.([]interface{}); ok && len(items) > 0 {
-					t.Log("✅ Found full range structure with items (correct for first update)")
-					t.Logf("  Items count: %d", len(items))
-					if m, hasM := rangeMap["m"]; hasM {
-						t.Logf("  Metadata: %+v", m)
+		// Check if value is operations array directly
+		if opsList, ok := value.([]interface{}); ok {
+			for _, op := range opsList {
+				if opArray, ok := op.([]interface{}); ok && len(opArray) >= 3 {
+					if opType, ok := opArray[0].(string); ok && opType == "a" {
+						t.Log("✅ Found append operation for first item (correct)")
+						foundAppendOperation = true
+						t.Logf("  Append operation includes statics: %v", len(opArray) >= 3)
+						if items, ok := opArray[1].([]interface{}); ok {
+							t.Logf("  Items to append: %d", len(items))
+						}
 					}
-					foundRangeStructure = true
 				}
 			}
 		}
 	}
 
-	if !foundRangeStructure {
-		t.Error("No range structure found - expected full structure for empty→first transition")
+	if !foundAppendOperation {
+		t.Error("No append operation found - expected for empty→first transition")
 	}
 
 	// Step 3: Add a second item
@@ -139,14 +140,34 @@ func TestRangeTreeGeneration(t *testing.T) {
 	// Verify second update tree structure
 	// This time we expect an APPEND operation since the new item is at the end
 	// Format: ["a", items, statics]
-	foundAppendOperation := false
+	foundSecondAppend := false
 	for _, value := range tree2 {
-		if opsList, ok := value.([]interface{}); ok {
+		// Check if value is a TreeNode structure (map with "d" and "s")
+		if treeMap, ok := value.(map[string]interface{}); ok {
+			// Look for operations in the "d" key
+			if dValue, hasDKey := treeMap["d"]; hasDKey {
+				if opsList, ok := dValue.([]interface{}); ok {
+					for _, op := range opsList {
+						if opArray, ok := op.([]interface{}); ok && len(opArray) >= 3 {
+							if opType, ok := opArray[0].(string); ok && opType == "a" {
+								t.Log("✅ Found append operation for second item (correct)")
+								foundSecondAppend = true
+								t.Logf("  Append operation includes statics: %v", len(opArray) >= 3)
+								if items, ok := opArray[1].([]interface{}); ok {
+									t.Logf("  Items to append: %d", len(items))
+								}
+							}
+						}
+					}
+				}
+			}
+		} else if opsList, ok := value.([]interface{}); ok {
+			// Fallback: direct operations array (old format)
 			for _, op := range opsList {
 				if opArray, ok := op.([]interface{}); ok && len(opArray) >= 3 {
 					if opType, ok := opArray[0].(string); ok && opType == "a" {
 						t.Log("✅ Found append operation for second item (correct)")
-						foundAppendOperation = true
+						foundSecondAppend = true
 						t.Logf("  Append operation includes statics: %v", len(opArray) >= 3)
 						if items, ok := opArray[1].([]interface{}); ok {
 							t.Logf("  Items to append: %d", len(items))
@@ -157,7 +178,7 @@ func TestRangeTreeGeneration(t *testing.T) {
 		}
 	}
 
-	if !foundAppendOperation {
+	if !foundSecondAppend {
 		t.Error("No append operation found - expected for adding item at end")
 	}
 }

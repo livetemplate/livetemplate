@@ -393,12 +393,15 @@ func handleRangeNode(node *parse.RangeNode, data interface{}, keyGen *keyGenerat
 			}
 
 			// Store the item tree's dynamics only (not statics or fingerprint)
-			itemDynamics := make(map[string]interface{})
+			// Create a new TreeNode with just the dynamics
+			itemNode := &TreeNode{
+				Dynamics: make(map[string]interface{}),
+			}
 			for k, v := range itemTree.Dynamics {
-				itemDynamics[k] = v
+				itemNode.Dynamics[k] = v
 			}
 
-			itemTrees = append(itemTrees, itemDynamics)
+			itemTrees = append(itemTrees, itemNode)
 			iter++
 		}
 	} else {
@@ -437,12 +440,15 @@ func handleRangeNode(node *parse.RangeNode, data interface{}, keyGen *keyGenerat
 			}
 
 			// Store the item tree's dynamics only (not statics or fingerprint)
-			itemDynamics := make(map[string]interface{})
+			// Create a new TreeNode with just the dynamics
+			itemNode := &TreeNode{
+				Dynamics: make(map[string]interface{}),
+			}
 			for k, v := range itemTree.Dynamics {
-				itemDynamics[k] = v
+				itemNode.Dynamics[k] = v
 			}
 
-			itemTrees = append(itemTrees, itemDynamics)
+			itemTrees = append(itemTrees, itemNode)
 		}
 	}
 
@@ -1043,7 +1049,7 @@ func isZeroValue(v reflect.Value) bool {
 }
 
 // renderTreeToHTML renders a tree structure back to HTML by merging statics and dynamics
-func renderTreeToHTML(tree treeNode) (string, error) {
+func renderTreeToHTML(tree map[string]interface{}) (string, error) {
 	// Check if this is a range comprehension (has "d" key with items)
 	if itemsRaw, hasD := tree["d"]; hasD {
 		return renderRangeComprehensionToHTML(tree, itemsRaw)
@@ -1066,15 +1072,15 @@ func renderTreeToHTML(tree treeNode) (string, error) {
 			dynKey := fmt.Sprintf("%d", dynamicIndex)
 			if dynValue, exists := tree[dynKey]; exists {
 				// Handle nested trees (like ranges)
-				if nestedTree, ok := dynValue.(treeNode); ok {
+				if nestedTree, ok := dynValue.(map[string]interface{}); ok {
 					nestedHTML, err := renderTreeToHTML(nestedTree)
 					if err != nil {
 						return "", err
 					}
 					result.WriteString(nestedHTML)
 				} else if nestedMap, ok := dynValue.(map[string]interface{}); ok {
-					// Also handle as treeNode
-					nestedHTML, err := renderTreeToHTML(treeNode(nestedMap))
+					// Also handle as map[string]interface{}
+					nestedHTML, err := renderTreeToHTML(map[string]interface{}(nestedMap))
 					if err != nil {
 						return "", err
 					}
@@ -1092,7 +1098,7 @@ func renderTreeToHTML(tree treeNode) (string, error) {
 }
 
 // renderRangeComprehensionToHTML renders a range comprehension (with "d" and "s" keys) to HTML
-func renderRangeComprehensionToHTML(tree treeNode, itemsRaw interface{}) (string, error) {
+func renderRangeComprehensionToHTML(tree map[string]interface{}, itemsRaw interface{}) (string, error) {
 	// Get statics for the range items
 	statics, ok := tree["s"].([]string)
 	if !ok {
@@ -1131,14 +1137,14 @@ func renderRangeComprehensionToHTML(tree treeNode, itemsRaw interface{}) (string
 				dynKey := fmt.Sprintf("%d", i)
 				if dynValue, exists := itemMap[dynKey]; exists {
 					// Recursively render nested trees
-					if nestedTree, ok := dynValue.(treeNode); ok {
+					if nestedTree, ok := dynValue.(map[string]interface{}); ok {
 						nestedHTML, err := renderTreeToHTML(nestedTree)
 						if err != nil {
 							return "", err
 						}
 						result.WriteString(nestedHTML)
 					} else if nestedMap, ok := dynValue.(map[string]interface{}); ok {
-						nestedHTML, err := renderTreeToHTML(treeNode(nestedMap))
+						nestedHTML, err := renderTreeToHTML(map[string]interface{}(nestedMap))
 						if err != nil {
 							return "", err
 						}

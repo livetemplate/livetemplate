@@ -80,7 +80,7 @@ func TestDeepNesting(t *testing.T) {
 			}
 
 			// Verify tree produces expected output
-			output := reconstructHTML(tree.ToMap())
+			output := reconstructHTML(tree)
 			if output != tt.expected {
 				t.Errorf("❌ Output mismatch at level %d\nExpected: %q\nGot: %q\nTree: %+v",
 					tt.nesting, tt.expected, output, tree)
@@ -159,7 +159,7 @@ func TestTemplateComposition(t *testing.T) {
 			}
 
 			// Verify output
-			output := reconstructHTML(tree.ToMap())
+			output := reconstructHTML(tree)
 			if output != tt.expected {
 				t.Errorf("❌ Output mismatch\nExpected: %q\nGot: %q\nTree: %+v",
 					tt.expected, output, tree)

@@ -46,7 +46,7 @@ func (b *broadcaster) Send() error {
 	}
 
 	// Parse tree from buffer
-	var tree treeNode
+	var tree map[string]interface{}
 	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
 		return fmt.Errorf("failed to parse tree: %w", err)
 	}
@@ -272,7 +272,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse tree from buffer
-	var tree treeNode
+	var tree map[string]interface{}
 	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
 		log.Printf("Failed to parse initial tree: %v", err)
 		return
@@ -345,7 +345,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Parse tree from buffer
-		var tree treeNode
+		var tree map[string]interface{}
 		if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
 			log.Printf("Failed to parse tree: %v", err)
 			continue
@@ -499,7 +499,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse tree from buffer
-	var tree treeNode
+	var tree map[string]interface{}
 	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -832,7 +832,7 @@ func (h *liveHandler) sendUpdate(conn *Connection, data interface{}) error {
 	}
 
 	// Parse tree from buffer
-	var tree treeNode
+	var tree map[string]interface{}
 	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
 		return fmt.Errorf("failed to parse tree: %w", err)
 	}

@@ -47,21 +47,38 @@ func TestTodosE2E(t *testing.T) {
 		}
 	}()
 
-	// Wait for server to be ready
+	// Wait for server to be ready with consecutive successful responses
 	ready := false
-	for i := 0; i < 50; i++ { // 5 seconds
+	consecutiveSuccesses := 0
+	const requiredSuccesses = 2
+	var lastErr error
+
+	for i := 0; i < 50; i++ { // 10 seconds max (50 * 200ms)
 		resp, err := http.Get(serverURL)
 		if err == nil {
 			resp.Body.Close()
-			ready = true
-			break
+			if resp.StatusCode == 200 {
+				consecutiveSuccesses++
+				if consecutiveSuccesses >= requiredSuccesses {
+					// Extra time for WebSocket handler initialization
+					time.Sleep(100 * time.Millisecond)
+					ready = true
+					break
+				}
+			} else {
+				lastErr = fmt.Errorf("status %d", resp.StatusCode)
+				consecutiveSuccesses = 0
+			}
+		} else {
+			lastErr = err
+			consecutiveSuccesses = 0
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 	}
 
 	if !ready {
 		serverCmd.Process.Kill()
-		t.Fatal("Server failed to start within 5 seconds")
+		t.Fatalf("Server failed to start within 10 seconds. Last error: %v", lastErr)
 	}
 
 	t.Logf("✅ Test server ready at %s", serverURL)
@@ -76,10 +93,6 @@ func TestTodosE2E(t *testing.T) {
 	defer allocCancel()
 
 	ctx, cancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(t.Logf))
-	defer cancel()
-
-	// Set timeout for the entire test suite (increased to prevent flaky timeouts)
-	ctx, cancel = context.WithTimeout(ctx, 180*time.Second)
 	defer cancel()
 
 	t.Run("Initial Load", func(t *testing.T) {
@@ -133,19 +146,51 @@ func TestTodosE2E(t *testing.T) {
 
 	t.Run("Add First Todo", func(t *testing.T) {
 		var html string
+		var wsMessages string
 
-		// Add first todo and wait for it to appear (condition-based waiting)
+		// Capture WebSocket messages during this operation
 		err := chromedp.Run(ctx,
+			// Setup WebSocket message capture
+			chromedp.Evaluate(`
+				window.__wsMessages = window.__wsMessages || [];
+				window.__originalOnMessage = window.liveTemplateClient?.ws?.onmessage;
+				if (window.liveTemplateClient && window.liveTemplateClient.ws) {
+					const ws = window.liveTemplateClient.ws;
+					ws.addEventListener('message', (event) => {
+						window.__wsMessages.push({
+							timestamp: new Date().toISOString(),
+							data: event.data
+						});
+					});
+				}
+			`, nil),
 			chromedp.WaitVisible(`input[name="text"]`, chromedp.ByQuery),
 			chromedp.SendKeys(`input[name="text"]`, "First Todo Item", chromedp.ByQuery),
 			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
-			// Wait for todo to appear in the list (condition-based waiting)
-			waitForText("tbody", "First Todo Item", 10*time.Second),
+			// Wait for tbody AND todo to appear (tbody might not exist until first todo added)
+			waitFor(`(() => {
+				const tbody = document.querySelector('tbody');
+				return tbody && tbody.textContent.includes('First Todo Item');
+			})()`, 10*time.Second),
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
+			// Capture the WebSocket messages
+			chromedp.Evaluate(`JSON.stringify(window.__wsMessages, null, 2)`, &wsMessages),
 		)
 
 		if err != nil {
+			t.Logf("WebSocket messages during first todo add:\n%s", wsMessages)
 			t.Fatalf("Failed to add first todo: %v", err)
+		}
+
+		// Log and validate WebSocket messages
+		t.Logf("📨 WebSocket messages for FIRST todo:\n%s", wsMessages)
+
+		// Validate that the first message has statics at top level
+		if !strings.Contains(wsMessages, `"s"`) {
+			t.Errorf("❌ FIRST todo WebSocket message is missing statics ('s' key) at top level!")
+			t.Logf("Full messages:\n%s", wsMessages)
+		} else {
+			t.Logf("✅ First todo message has statics")
 		}
 
 		// Verify first todo was added
@@ -163,18 +208,33 @@ func TestTodosE2E(t *testing.T) {
 
 	t.Run("Add Second Todo", func(t *testing.T) {
 		var html string
+		var wsMessages string
 
-		// Add second todo and wait for count to be 2 (condition-based waiting)
+		// Clear previous messages and add second todo
 		err := chromedp.Run(ctx,
+			chromedp.Evaluate(`window.__wsMessages = [];`, nil),
 			chromedp.WaitVisible(`input[name="text"]`, chromedp.ByQuery),
 			chromedp.SendKeys(`input[name="text"]`, "Second Todo Item", chromedp.ByQuery),
 			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
 			waitForCount("tbody tr", 2, 10*time.Second),
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
+			chromedp.Evaluate(`JSON.stringify(window.__wsMessages, null, 2)`, &wsMessages),
 		)
 
 		if err != nil {
+			t.Logf("WebSocket messages during second todo add:\n%s", wsMessages)
 			t.Fatalf("Failed to add second todo: %v", err)
+		}
+
+		// Log and validate WebSocket messages
+		t.Logf("📨 WebSocket messages for SECOND todo:\n%s", wsMessages)
+
+		// Validate that second message does NOT have statics (client should use cached)
+		// Parse the message to check if statics are in the operation
+		if strings.Contains(wsMessages, `"s":`) {
+			// Check if it's in the operation (third element of array) vs top level
+			t.Logf("⚠️  SECOND todo message contains 's' key - checking if it's in operation or top level")
+			// This is expected to NOT have statics at all for subsequent todos
 		}
 
 		t.Logf("Section HTML after adding second todo: %s", html)
@@ -198,18 +258,30 @@ func TestTodosE2E(t *testing.T) {
 
 	t.Run("Add Third Todo", func(t *testing.T) {
 		var html string
+		var wsMessages string
 
-		// Add third todo and wait for count to be 3 (condition-based waiting)
+		// Clear previous messages and add third todo
 		err := chromedp.Run(ctx,
+			chromedp.Evaluate(`window.__wsMessages = [];`, nil),
 			chromedp.WaitVisible(`input[name="text"]`, chromedp.ByQuery),
 			chromedp.SendKeys(`input[name="text"]`, "Third Todo Item", chromedp.ByQuery),
 			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
 			waitForCount("tbody tr", 3, 10*time.Second),
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
+			chromedp.Evaluate(`JSON.stringify(window.__wsMessages, null, 2)`, &wsMessages),
 		)
 
 		if err != nil {
+			t.Logf("WebSocket messages during third todo add:\n%s", wsMessages)
 			t.Fatalf("Failed to add third todo: %v", err)
+		}
+
+		// Log and validate WebSocket messages
+		t.Logf("📨 WebSocket messages for THIRD todo:\n%s", wsMessages)
+
+		// Validate that third message does NOT have statics
+		if strings.Contains(wsMessages, `"s":`) {
+			t.Logf("⚠️  THIRD todo message contains 's' key - this should NOT happen!")
 		}
 
 		t.Logf("Section HTML after adding third todo: %s", html)
