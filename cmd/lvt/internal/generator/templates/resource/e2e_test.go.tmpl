@@ -1,15 +1,13 @@
 package [[.PackageName]]
 
 import (
-	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/chromedp/chromedp"
-	e2etest "github.com/livefir/livetemplate/internal/testing"
+	lvttest "github.com/livefir/livetemplate/cmd/lvt/testing"
 )
 
 func Test[[.ResourceName]]E2E(t *testing.T) {
@@ -17,109 +15,71 @@ func Test[[.ResourceName]]E2E(t *testing.T) {
 		t.Skip("Skipping E2E test in short mode")
 	}
 
-	// Get free ports for server and Chrome debugging
-	serverPort, err := e2etest.GetFreePort()
+	// Setup test environment with automatic Chrome and server management
+	test := lvttest.Setup(t, &lvttest.SetupOptions{
+		AppPath: "../../cmd/[[.ModuleName]]/main.go",
+	})
+	defer test.Cleanup()
+
+	// Navigate to resource page
+	err := test.Navigate("/[[.ResourceNameLower]]")
 	if err != nil {
-		t.Fatalf("Failed to get free port for server: %v", err)
+		t.Fatalf("Failed to navigate: %v", err)
 	}
 
-	debugPort, err := e2etest.GetFreePort()
-	if err != nil {
-		t.Fatalf("Failed to get free port for Chrome: %v", err)
-	}
-
-	// Start server
-	portStr := fmt.Sprintf("%d", serverPort)
-	serverURL := fmt.Sprintf("http://localhost:%d/[[.ResourceNameLower]]", serverPort)
-
-	t.Logf("Starting test server on port %s", portStr)
-	serverCmd := exec.Command("go", "run", "../../cmd/[[.ModuleName]]/main.go", "../../internal/database/db.go")
-	serverCmd.Env = append([]string{"PORT=" + portStr, "TEST_MODE=1"}, serverCmd.Environ()...)
-
-	if err := serverCmd.Start(); err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
-	defer func() {
-		if serverCmd != nil && serverCmd.Process != nil {
-			serverCmd.Process.Kill()
-		}
-	}()
-
-	// Wait for server to be ready
-	time.Sleep(2 * time.Second)
-
-	t.Logf("✅ Test server ready at %s", serverURL)
-
-	// Start Docker Chrome container
-	chromeCmd := e2etest.StartDockerChrome(t, debugPort)
-	defer e2etest.StopDockerChrome(t, chromeCmd, debugPort)
-
-	// Connect to Docker Chrome via remote debugging
-	chromeURL := fmt.Sprintf("http://localhost:%d", debugPort)
-	allocCtx, allocCancel := chromedp.NewRemoteAllocator(context.Background(), chromeURL)
-	defer allocCancel()
-
-	ctx, cancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(t.Logf))
-	defer cancel()
-
-	// Set timeout for the entire test
-	ctx, cancel = context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
+	// Create assertion and CRUD helpers
+	assert := lvttest.NewAssert(test)
+	crud := lvttest.NewCRUDTester(test, "/[[.ResourceNameLower]]")
 
 	t.Run("Initial Load", func(t *testing.T) {
-		var initialHTML string
-
-		err := chromedp.Run(ctx,
-			chromedp.Navigate(e2etest.GetChromeTestURL(serverPort)+"/[[.ResourceNameLower]]"),
-			e2etest.WaitForWebSocketReady(5*time.Second), // Wait for WebSocket init and first update
-			chromedp.WaitVisible(`h1`, chromedp.ByQuery),
-			e2etest.ValidateNoTemplateExpressions("[data-lvt-id]"), // Validate no raw template expressions
-			chromedp.OuterHTML(`body`, &initialHTML, chromedp.ByQuery),
-		)
-
-		if err != nil {
-			t.Fatalf("Failed to load page: %v", err)
+		// Verify page loaded correctly
+		if err := assert.PageContains("[[.ResourceName]] Management"); err != nil {
+			t.Error(err)
 		}
 
-		// Verify initial state
-		if !strings.Contains(initialHTML, "[[.ResourceName]] Management") {
-			t.Error("Page title not found")
+		// Verify WebSocket connection
+		if err := assert.WebSocketConnected(); err != nil {
+			t.Error(err)
+		}
+
+		// Verify no template errors
+		if err := assert.NoTemplateErrors(); err != nil {
+			t.Error(err)
+		}
+
+		// Verify no console errors
+		if err := assert.NoConsoleErrors(); err != nil {
+			t.Error(err)
+			test.Console.PrintErrors()
 		}
 
 		t.Log("✅ Initial page load verified")
 	})
 
 	t.Run("Add [[.ResourceName]]", func(t *testing.T) {
-		var html string
-
-		// Fill and submit form
-		err := chromedp.Run(ctx,
+		// Create new [[.ResourceNameLower]] using CRUD helper
+		err := crud.Create(
 [[- range .Fields]]
 [[- if eq .GoType "string"]]
-			chromedp.WaitVisible(`input[name="[[.Name]]"]`, chromedp.ByQuery),
-			chromedp.SendKeys(`input[name="[[.Name]]"]`, "Test [[.Name | title]]", chromedp.ByQuery),
+			lvttest.TextField("[[.Name]]", "Test [[.Name | title]]"),
 [[- else if eq .GoType "int64"]]
-			chromedp.SendKeys(`input[name="[[.Name]]"]`, "42", chromedp.ByQuery),
+			lvttest.IntField("[[.Name]]", 42),
 [[- else if eq .GoType "bool"]]
-			chromedp.Click(`input[name="[[.Name]]"]`, chromedp.ByQuery),
+			lvttest.BoolField("[[.Name]]", true),
 [[- else if eq .GoType "float64"]]
-			chromedp.SendKeys(`input[name="[[.Name]]"]`, "3.14", chromedp.ByQuery),
+			lvttest.FloatField("[[.Name]]", 3.14),
 [[- end]]
 [[- end]]
-			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
-			chromedp.Sleep(1*time.Second), // Wait for WebSocket update
-			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
 		)
-
 		if err != nil {
-			t.Fatalf("Failed to add [[.ResourceNameLower]]: %v", err)
+			t.Fatalf("Failed to create [[.ResourceNameLower]]: %v", err)
 		}
 
 		// Verify [[.ResourceNameLower]] was added
 [[- range .Fields]]
 [[- if eq .GoType "string"]]
-		if !strings.Contains(html, "Test [[.Name | title]]") {
-			t.Errorf("[[$.ResourceName]] [[.Name]] not found in HTML. HTML: %s", html)
+		if err := crud.VerifyExists("Test [[.Name | title]]"); err != nil {
+			t.Error(err)
 		}
 [[- end]]
 [[- end]]
@@ -128,14 +88,13 @@ func Test[[.ResourceName]]E2E(t *testing.T) {
 	})
 
 	t.Run("Search [[.ResourceName]]s", func(t *testing.T) {
-		var html string
-
 [[- $firstStringField := "" -]]
 [[- range .Fields -]]
 [[- if and (eq .GoType "string") (eq $firstStringField "") -]]
 [[- $firstStringField = .Name -]]
-		// Search for [[.Name]]
-		err := chromedp.Run(ctx,
+		// Test search functionality
+		var html string
+		err := chromedp.Run(test.Context,
 			chromedp.WaitVisible(`input[name="query"]`, chromedp.ByQuery),
 			chromedp.Evaluate(`
 				(() => {
@@ -153,12 +112,25 @@ func Test[[.ResourceName]]E2E(t *testing.T) {
 		}
 
 		if !strings.Contains(html, "Test") {
-			t.Errorf("Search results not found. HTML: %s", html)
+			t.Errorf("Search results not found")
 		}
 
 		t.Log("✅ Search functionality works")
 [[- end -]]
 [[- end]]
+	})
+
+	t.Run("Console and Debugging", func(t *testing.T) {
+		// Verify no console errors during operations
+		if err := assert.NoConsoleErrors(); err != nil {
+			t.Error(err)
+			test.Console.PrintErrors()
+		}
+
+		// Log WebSocket activity for debugging
+		t.Logf("WebSocket messages: sent=%d, received=%d",
+			test.WebSocket.CountByDirection("sent"),
+			test.WebSocket.CountByDirection("received"))
 	})
 
 	fmt.Println("\n" + strings.Repeat("=", 60))
