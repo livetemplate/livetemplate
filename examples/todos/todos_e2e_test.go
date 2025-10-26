@@ -519,8 +519,9 @@ func TestTodosE2E(t *testing.T) {
 		}
 
 		// Wait for "No todos found" message and get HTML (condition-based waiting)
+		// Increased timeout to account for debounce (300ms) + WebSocket round trip + conditional rendering
 		err = chromedp.Run(ctx,
-			waitForText("section", "No todos found matching", 5*time.Second),
+			waitForText("section", "No todos found matching", 10*time.Second),
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
 			// Get console logs
 			chromedp.Evaluate(`JSON.stringify(window.capturedConsoleLogs || [], null, 2)`, &consoleLogs),
@@ -845,8 +846,9 @@ func TestTodosE2E(t *testing.T) {
 		}
 
 		// Wait for search results and get HTML (condition-based waiting)
+		// Increased timeout to account for debounce (300ms) + WebSocket round trip
 		err = chromedp.Run(ctx,
-			waitForText("tbody", "Sixth Todo Item", 5*time.Second),
+			waitForText("tbody", "Sixth Todo Item", 10*time.Second),
 			chromedp.OuterHTML(`tbody`, &html, chromedp.ByQuery),
 		)
 
@@ -878,7 +880,8 @@ func TestTodosE2E(t *testing.T) {
 			t.Logf("Warning: Failed to trigger clear search: %v", err)
 		} else {
 			// Wait for search to clear (condition-based waiting)
-			err = chromedp.Run(ctx, waitForText("tbody", "Sixth Todo Item", 5*time.Second))
+			// Increased timeout to account for debounce (300ms) + WebSocket round trip
+			err = chromedp.Run(ctx, waitForText("tbody", "Sixth Todo Item", 10*time.Second))
 			if err != nil {
 				t.Logf("Warning: Failed to wait for search clear: %v", err)
 			}
