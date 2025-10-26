@@ -746,8 +746,10 @@ func handleActionNodeWithVars(node *parse.ActionNode, varCtx *varContext, keyGen
 			return nil, fmt.Errorf("action execute error: %w", err)
 		}
 
+		result := buf.String()
+
 		tree := NewTreeNodeWithStatics([]string{"", ""})
-		tree.SetDynamic("0", buf.String())
+		tree.SetDynamic("0", result)
 		return tree, nil
 	}
 

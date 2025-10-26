@@ -127,10 +127,10 @@ type Template struct {
 	lastTree        *TreeNode // Store previous tree segments for comparison
 	initialTree     *TreeNode
 	hasInitialTree  bool
-	lastFingerprint string          // Fingerprint of the last generated tree for change detection
-	keyGen          *keyGenerator   // Per-template key generation for wrapper approach
-	config          Config          // Template configuration
-	seenStructures  map[string]bool // Track ALL structures sent to client (fixes dynamic structure bug)
+	lastFingerprint string                   // Fingerprint of the last generated tree for change detection
+	keyGen          *keyGenerator            // Per-template key generation for wrapper approach
+	config          Config                   // Template configuration
+	registry        *ClientStructureRegistry // Track structure signatures sent to client (Phase 2)
 }
 
 // UpdateResponse wraps a tree update with metadata for form lifecycle.
@@ -309,10 +309,10 @@ func New(name string, opts ...Option) *Template {
 	log.Printf("livetemplate.New(%q): DevMode=%v", name, config.DevMode)
 
 	tmpl := &Template{
-		name:           name,
-		keyGen:         newKeyGenerator(),
-		config:         config,
-		seenStructures: make(map[string]bool),
+		name:     name,
+		keyGen:   newKeyGenerator(),
+		config:   config,
+		registry: NewClientStructureRegistry(),
 	}
 
 	// Auto-discover and parse templates if not explicitly provided
@@ -342,7 +342,8 @@ func (t *Template) Clone() (*Template, error) {
 		templateStr: t.templateStr,
 		wrapperID:   t.wrapperID, // Share wrapper ID
 		keyGen:      newKeyGenerator(),
-		config:      t.config, // Preserve configuration
+		config:      t.config,                     // Preserve configuration
+		registry:    NewClientStructureRegistry(), // Fresh registry for new session
 		// Don't copy lastData, lastHTML, lastTree, etc. - start fresh
 	}
 
@@ -733,6 +734,40 @@ func (t *Template) executeTemplateWithErrors(data interface{}, errors map[string
 	return string(htmlBytes), nil
 }
 
+// markAllStructuresAsSeen recursively traverses a tree and marks all structures in the registry.
+// This should be called after generating the initial tree to record what the client has received.
+func (t *Template) markAllStructuresAsSeen(node *TreeNode, basePath string) {
+	if node == nil || t.registry == nil {
+		return
+	}
+
+	// Mark the current node's structure
+	// This is critical: we mark the NODE itself (which includes range info if present)
+	// The signature system will detect if it's a range and hash the statics
+	t.registry.MarkSeen(basePath, node)
+
+	// Recursively mark all dynamics
+	for key, value := range node.Dynamics {
+		fieldPath := basePath
+		if fieldPath != "" {
+			fieldPath += "."
+		}
+		fieldPath += key
+
+		// If dynamic value is a TreeNode, recursively mark it
+		if childNode, ok := value.(*TreeNode); ok {
+			t.markAllStructuresAsSeen(childNode, fieldPath)
+		} else {
+			// Mark scalar values
+			t.registry.MarkSeen(fieldPath, value)
+		}
+	}
+
+	// NOTE: We do NOT iterate over range items here.
+	// The range construct itself is marked above (node has Range info).
+	// Individual items are dynamic data, not structure.
+}
+
 // generateInitialTree creates tree with statics and dynamics for first render
 func (t *Template) generateInitialTree(html string, data interface{}) (*TreeNode, error) {
 	// Extract content from wrapper if we have one
@@ -778,6 +813,10 @@ func (t *Template) generateInitialTree(html string, data interface{}) (*TreeNode
 
 	// Calculate and store initial fingerprint for change detection
 	t.lastFingerprint = calculateFingerprint(tree)
+
+	// Mark all structures in the registry (Phase 2: Client Structure Registry)
+	// This records what structures the client has seen from the initial render
+	t.markAllStructuresAsSeen(tree, "")
 
 	// Add fingerprint to tree for client-side tracking
 	return addFingerprintToTree(tree), nil
@@ -939,11 +978,6 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 		Dynamics: make(map[string]interface{}),
 	}
 
-	// DEBUG: Log range matches at entry
-	if len(rangeMatches) > 0 {
-		fmt.Printf("[DEBUG compareTreesAndGetChangesWithPath] rangeMatches: %v, currentPath: %q\n", rangeMatches, currentPath)
-	}
-
 	// CRITICAL FIX: Check if both trees ARE range constructs (top-level range template)
 	// Example: {{range .Items}}<div>...</div>{{end}} where the entire tree is a range
 	// OR if newTree is a range but oldTree isn't (range appearing for first time, e.g., from {{else}} clause)
@@ -1006,26 +1040,14 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 				continue
 			}
 
-			// Check if client has this EXACT structure from initial render OR from previous updates
-			// For range constructs, only strip statics if initial tree also had a range at this location
+			// Check if client has seen THIS EXACT structure at this path (Phase 2: Registry)
+			// The registry tracks structure signatures, so it knows if the client has seen:
+			// - This specific scalar type
+			// - This specific conditional structure
+			// - This specific range structure (with same statics hash)
 			clientHasStructure := false
-			if t.hasInitialTree && t.fieldExistsInTree(k, t.initialTree) {
-				if isRangeConstruct(newValue) {
-					// For range constructs, check if initial tree ALSO has a range at this field
-					// If initial tree had something else (like empty-state), client doesn't have range statics
-					initialValue := t.getFieldValueFromTree(k, t.initialTree)
-					clientHasStructure = isRangeConstruct(initialValue)
-				} else {
-					// For non-range structures, field existence is enough
-					clientHasStructure = true
-				}
-			}
-
-			// Also check if we've sent this structure in previous updates (fixes dynamic structure bug)
-			if !clientHasStructure && t.seenStructures != nil {
-				if t.seenStructures[fieldPath] {
-					clientHasStructure = true
-				}
+			if t.registry != nil {
+				clientHasStructure = t.registry.HasSeen(fieldPath, newValue)
 			}
 
 			if clientHasStructure {
@@ -1062,11 +1084,10 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 						changes.SetDynamic(k, "")
 					} else {
 						changes.SetDynamic(k, newValue)
-						// Track that we've now sent this structure
-						if t.seenStructures == nil {
-							t.seenStructures = make(map[string]bool)
+						// Track that we've now sent this structure (Phase 2: Registry)
+						if t.registry != nil {
+							t.registry.MarkSeen(fieldPath, newValue)
 						}
-						t.seenStructures[fieldPath] = true
 					}
 				} else if m, ok := newValue.(map[string]interface{}); ok {
 					stripped := prepareTreeForClient(m, true)
@@ -1074,11 +1095,10 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 						changes.SetDynamic(k, "")
 					} else {
 						changes.SetDynamic(k, newValue)
-						// Track that we've now sent this structure
-						if t.seenStructures == nil {
-							t.seenStructures = make(map[string]bool)
+						// Track that we've now sent this structure (Phase 2: Registry)
+						if t.registry != nil {
+							t.registry.MarkSeen(fieldPath, newValue)
 						}
-						t.seenStructures[fieldPath] = true
 					}
 				} else {
 					changes.SetDynamic(k, newValue)
@@ -1089,11 +1109,6 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 
 			// Check if this field has a range construct match using full path
 			if _, isRangeMatch := rangeMatches[fieldPath]; isRangeMatch {
-				// DEBUG: Log when we enter range match handling
-				fmt.Printf("[DEBUG] Range match found at fieldPath=%q, key=%q\n", fieldPath, k)
-				fmt.Printf("[DEBUG] oldValue isRange: %v, newValue isRange: %v\n",
-					isRangeConstruct(oldValue), isRangeConstruct(newValue))
-
 				// The oldValue is already the old range construct we need!
 				// No need to traverse the tree - we're already at the right position
 
@@ -1102,14 +1117,11 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 				// Never strip statics - they're needed for rendering new items in prepend/append operations
 				// Generate differential operations for matched range constructs
 				diffOps := generateRangeDifferentialOperations(oldValue, newValue, false)
-				fmt.Printf("[DEBUG] Generated %d diffOps for fieldPath=%q\n", len(diffOps), fieldPath)
 				if len(diffOps) > 0 {
-					fmt.Printf("[DEBUG] Setting dynamic k=%q with diffOps\n", k)
 					// For nested ranges, set operations directly (not wrapped in TreeNode)
 					// This matches the golden file expectations
 					changes.SetDynamic(k, diffOps)
 				} else {
-					fmt.Printf("[DEBUG] No diffOps generated, entering fallback\n")
 					// No diff operations generated - use fallback
 					// Check if both are empty ranges (no change needed)
 					if isRangeConstruct(newValue) && !hasRangeItems(newValue) &&
@@ -1185,69 +1197,11 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 						}
 					}
 				} else if newIsTree {
-					// New value is a tree node but old wasn't
-					// Check if client has this structure from initial render
-					// IMPORTANT: Must check if initial value was ALSO a tree node, not just any value
-					// (e.g., conditionals can go from "" to tree node - client doesn't have the tree statics)
-					//
-					// BUG FIX: For nested trees, we must check at the CURRENT field path,
-					// not globally. A key "0" in a nested conditional is different from
-					// key "0" at the top level. Use fieldPath to get the right initial value.
+					// New value is a tree node but old wasn't (Phase 2: Registry)
+					// Use registry to check if client has seen THIS EXACT structure at this path
 					clientHasStructure := false
-					if t.hasInitialTree {
-						// Get initial value at the CURRENT path, not just by key
-						var initialValue interface{}
-						if fieldPath == "" {
-							// Top level - use key directly
-							if t.fieldExistsInTree(k, t.initialTree) {
-								initialValue = t.getFieldValueFromTree(k, t.initialTree)
-							}
-						} else {
-							// Nested - check at the specific path
-							// fieldPath is like "1" for nested, so check if initial tree has that path
-							// and then check if that path's value has key k
-							pathParts := strings.Split(fieldPath, ".")
-							current := interface{}(t.initialTree)
-							found := true
-							for _, part := range pathParts {
-								if tn, ok := current.(map[string]interface{}); ok {
-									current = tn[part]
-								} else if m, ok := current.(map[string]interface{}); ok {
-									current = m[part]
-								} else {
-									found = false
-									break
-								}
-							}
-							if found {
-								// Now check if current (which is the tree at fieldPath) has key k
-								if tn, ok := current.(map[string]interface{}); ok {
-									if val, exists := tn[k]; exists {
-										initialValue = val
-									}
-								} else if m, ok := current.(map[string]interface{}); ok {
-									if val, exists := m[k]; exists {
-										initialValue = val
-									}
-								}
-							}
-						}
-
-						// Check if initial value is also a tree node (not empty string or other primitive)
-						if initialValue != nil {
-							if tn, ok := initialValue.(map[string]interface{}); ok && len(tn) > 0 {
-								clientHasStructure = true
-							} else if m, ok := initialValue.(map[string]interface{}); ok && len(m) > 0 {
-								clientHasStructure = true
-							}
-						}
-					}
-
-					// Also check if we've sent this structure in previous updates (fixes dynamic structure bug)
-					if !clientHasStructure && t.seenStructures != nil {
-						if t.seenStructures[fieldPath] {
-							clientHasStructure = true
-						}
+					if t.registry != nil {
+						clientHasStructure = t.registry.HasSeen(fieldPath, newValue)
 					}
 
 					if clientHasStructure {
@@ -1262,11 +1216,10 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 					} else {
 						// Client doesn't have structure - send WITH statics
 						changes.SetDynamic(k, newValue)
-						// Track that we've now sent this structure
-						if t.seenStructures == nil {
-							t.seenStructures = make(map[string]bool)
+						// Track that we've now sent this structure (Phase 2: Registry)
+						if t.registry != nil {
+							t.registry.MarkSeen(fieldPath, newValue)
 						}
-						t.seenStructures[fieldPath] = true
 					}
 				} else {
 					// At least one is a primitive value or type changed - send new value as-is
@@ -1277,29 +1230,6 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 	}
 
 	return changes
-}
-
-// fieldExistsInTree checks if a field key exists at any level in the tree
-func (t *Template) fieldExistsInTree(key string, tree *TreeNode) bool {
-	if tree == nil {
-		return false
-	}
-
-	// Direct check in dynamics
-	if _, exists := tree.GetDynamic(key); exists {
-		return true
-	}
-
-	// Recursive check in nested TreeNodes
-	for _, v := range tree.Dynamics {
-		if nestedTree, ok := v.(*TreeNode); ok {
-			if t.fieldExistsInTree(key, nestedTree) {
-				return true
-			}
-		}
-	}
-
-	return false
 }
 
 // areStructuresSimilar checks if two tree structures are fundamentally similar
@@ -1367,29 +1297,6 @@ func areStructuresSimilarTreeNode(oldTree, newTree *TreeNode) bool {
 	return true
 }
 
-// getFieldValueFromTree gets the value for a field key at any level in the tree
-func (t *Template) getFieldValueFromTree(key string, tree *TreeNode) interface{} {
-	if tree == nil {
-		return nil
-	}
-
-	// Direct check in dynamics
-	if value, exists := tree.GetDynamic(key); exists {
-		return value
-	}
-
-	// Recursive check in nested TreeNodes
-	for _, v := range tree.Dynamics {
-		if nestedTree, ok := v.(*TreeNode); ok {
-			if value := t.getFieldValueFromTree(key, nestedTree); value != nil {
-				return value
-			}
-		}
-	}
-
-	return nil
-}
-
 // findRangeConstructMatches finds range constructs in both trees and matches them by content signature
 // Returns a map of newField -> oldField for range constructs that represent the same template construct
 func findRangeConstructMatches(oldTree, newTree *TreeNode) map[string]string {
@@ -1404,33 +1311,17 @@ func findRangeConstructMatches(oldTree, newTree *TreeNode) map[string]string {
 	oldRanges := findRangeConstructs(oldTree)
 	newRanges := findRangeConstructs(newTree)
 
-	// DEBUG: Log what ranges were found
-	fmt.Printf("[DEBUG findRangeConstructMatches] Found %d old ranges, %d new ranges\n", len(oldRanges), len(newRanges))
-	for k, v := range oldRanges {
-		if tn, ok := v.(*TreeNode); ok {
-			fmt.Printf("[DEBUG] Old range at: %q, statics: %v, items: %d\n", k, tn.Statics, len(tn.Range.Items))
-		}
-	}
-	for k, v := range newRanges {
-		if tn, ok := v.(*TreeNode); ok {
-			fmt.Printf("[DEBUG] New range at: %q, statics: %v, items: %d\n", k, tn.Statics, len(tn.Range.Items))
-		}
-	}
-
 	// Match range constructs by their static template signature
 	for newField, newRange := range newRanges {
 		newSignature := getRangeSignature(newRange)
-		fmt.Printf("[DEBUG] Matching new range at %q with signature: %q\n", newField, newSignature)
 
 		matched := false
 		for oldField, oldRange := range oldRanges {
 			oldSignature := getRangeSignature(oldRange)
-			fmt.Printf("[DEBUG]   Comparing with old range at %q, signature: %q, match: %v\n", oldField, oldSignature, newSignature == oldSignature)
 
 			// If signatures match, this is the same template construct
 			if newSignature == oldSignature && newSignature != "" {
 				matches[newField] = oldField
-				fmt.Printf("[DEBUG]   MATCHED: %q -> %q\n", newField, oldField)
 				matched = true
 				break // Each new range should match at most one old range
 			}
@@ -1443,14 +1334,11 @@ func findRangeConstructMatches(oldTree, newTree *TreeNode) map[string]string {
 			for oldField := range oldRanges {
 				if newField == oldField {
 					matches[newField] = oldField
-					fmt.Printf("[DEBUG]   MATCHED by position (empty→content fallback): %q -> %q\n", newField, oldField)
 					break
 				}
 			}
 		}
 	}
-
-	fmt.Printf("[DEBUG findRangeConstructMatches] Returning %d matches: %v\n", len(matches), matches)
 
 	return matches
 }
@@ -1961,9 +1849,12 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 	if newNode, ok := newValue.(*TreeNode); ok {
 		if newNode.HasRange() && newNode.Range != nil {
 			newItems = newNode.Range.Items
-			// Use newNode statics if oldNode didn't have any (empty slice)
-			if staticsSlice, ok := statics.([]string); ok && len(staticsSlice) == 0 {
-				statics = newNode.Statics
+			// IMPORTANT: For empty→items transition, use newNode.Statics (the item template)
+			// oldNode.Statics will be empty/nil for empty ranges
+			if len(oldItems) == 0 && len(newItems) > 0 {
+				statics = newNode.Statics // Use new statics for first items
+			} else if staticsSlice, ok := statics.([]string); ok && len(staticsSlice) == 0 {
+				statics = newNode.Statics // Fallback if old statics empty
 			}
 		} else {
 			return operations
@@ -2068,6 +1959,7 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 				itemsToAppend = append(itemsToAppend, prepareTreeForClient(item, true))
 			}
 			// Use 'a' operation with statics so client can initialize range state
+			// statics now correctly contains newNode.Statics (the item template) from above
 			operations = append(operations, []interface{}{"a", itemsToAppend, statics})
 		} else {
 			// Range has existing items - detect append/prepend/insert patterns
