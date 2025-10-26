@@ -761,7 +761,9 @@ func (t *Template) generateInitialTree(html string, data interface{}) (*TreeNode
 	}
 
 	// Use the original parser - it maintains the correct invariant and handles dynamics properly
-	tree, err := parseTemplateToTree(templateContent, data, t.keyGen)
+	// First render: create context that includes all statics
+	ctx := NewTreeGenerationContext()
+	tree, err := parseTemplateToTree(templateContent, data, t.keyGen, ctx)
 	if err != nil {
 		// parseTemplateToTree failed, falling back to HTML structure
 		tree = t.createHTMLStructureBasedTree(contentToAnalyze)
@@ -801,12 +803,16 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 		bodyContent := extractTemplateBodyContent(t.templateStr)
 		templateContent := bodyContent
 
+		// IMPORTANT: Always generate trees WITH statics for comparison purposes
+		// The stripping happens in compareTreesAndGetChanges, not here
+		// Using nil context defaults to including statics
 		newTree, err := parseTemplateToTree(templateContent, newData, t.keyGen)
 		if err != nil {
 			return nil, fmt.Errorf("tree generation failed: %w", err)
 		}
 
 		// Compare trees and get only changed dynamics
+		// This function will strip statics appropriately based on client state
 		changedTree := t.compareTreesAndGetChanges(t.lastTree, newTree)
 
 		// If no changes, return empty TreeNode
@@ -840,24 +846,32 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 	return addFingerprintToTree(tree), nil
 }
 
-// stripStaticsRecursively removes all "s" and "f" keys from a tree node recursively
+// prepareTreeForClient prepares a tree node for transmission to client
+// If clientHasStatics is true, removes statics/fingerprints to reduce wire size
 // Also removes fields that become empty after stripping (empty strings or empty maps)
-func stripStaticsRecursively(node interface{}) interface{} {
+// This implements the specification requirement: "Updates MUST include ONLY changed dynamics, NO statics unless structure is new"
+func prepareTreeForClient(node interface{}, clientHasStatics bool) interface{} {
+	if !clientHasStatics {
+		// Client doesn't have statics - send everything as-is
+		return node
+	}
+
+	// Client has statics - remove them to reduce wire size
 	switch v := node.(type) {
 	case *TreeNode:
 		// Create new TreeNode without statics or fingerprint
 		result := &TreeNode{
 			Dynamics: make(map[string]interface{}),
 		}
-		// Recursively strip dynamics
+		// Recursively prepare dynamics
 		for k, val := range v.Dynamics {
-			stripped := stripStaticsRecursively(val)
+			prepared := prepareTreeForClient(val, clientHasStatics)
 			// Only include non-empty values
-			if !isEmpty(stripped) {
-				result.Dynamics[k] = stripped
+			if !isEmpty(prepared) {
+				result.Dynamics[k] = prepared
 			}
 		}
-		// Handle Range but without statics
+		// Handle Range but without statics (client has them cached)
 		if v.HasRange() {
 			result.Range = &RangeData{Items: v.Range.Items}
 		}
@@ -866,22 +880,22 @@ func stripStaticsRecursively(node interface{}) interface{} {
 		result := make(map[string]interface{})
 		for k, val := range v {
 			if k == "s" || k == "f" {
-				continue // Skip statics and fingerprint
+				continue // Skip statics and fingerprint (client has them cached)
 			}
-			stripped := stripStaticsRecursively(val)
+			prepared := prepareTreeForClient(val, clientHasStatics)
 			// Only include non-empty values
-			if !isEmpty(stripped) {
-				result[k] = stripped
+			if !isEmpty(prepared) {
+				result[k] = prepared
 			}
 		}
 		return result
 	case []interface{}:
 		result := make([]interface{}, 0, len(v))
 		for _, item := range v {
-			stripped := stripStaticsRecursively(item)
+			prepared := prepareTreeForClient(item, clientHasStatics)
 			// Only include non-empty values
-			if !isEmpty(stripped) {
-				result = append(result, stripped)
+			if !isEmpty(prepared) {
+				result = append(result, prepared)
 			}
 		}
 		return result
@@ -941,22 +955,22 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 				// Never strip statics - they're needed for rendering new items
 				diffOps := generateRangeDifferentialOperations(oldTree, newTree, false)
 
-			if len(diffOps) > 0 {
-				// Return the operations directly - the entire tree is the range
-				// Always include statics - they're needed for prepend/append rendering
-				result := &TreeNode{Dynamics: make(map[string]interface{})}
-				result.Dynamics["d"] = diffOps
-				result.Statics = newTree.Statics
-				return result
-			} else {
-				// No operations generated - check for empty range cases
-				if (newTree.Range == nil || len(newTree.Range.Items) == 0) && (oldTree.Range == nil || len(oldTree.Range.Items) == 0) {
-					// Both empty, no change
-					return &TreeNode{}
+				if len(diffOps) > 0 {
+					// Return the operations directly - the entire tree is the range
+					// Always include statics - they're needed for prepend/append rendering
+					result := &TreeNode{Dynamics: make(map[string]interface{})}
+					result.Dynamics["d"] = diffOps
+					result.Statics = newTree.Statics
+					return result
+				} else {
+					// No operations generated - check for empty range cases
+					if (newTree.Range == nil || len(newTree.Range.Items) == 0) && (oldTree.Range == nil || len(oldTree.Range.Items) == 0) {
+						// Both empty, no change
+						return &TreeNode{}
+					}
+					// Fallback: return the new tree
+					return newTree
 				}
-				// Fallback: return the new tree
-				return newTree
-			}
 			}
 		} else {
 			// Case 2: newTree is a range but oldTree isn't (range appearing for first time)
@@ -1030,7 +1044,7 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 				}
 
 				if newIsTree {
-					stripped := stripStaticsRecursively(newTreeNode)
+					stripped := prepareTreeForClient(newTreeNode, true)
 					if strippedMap, ok := stripped.(map[string]interface{}); ok && len(strippedMap) == 0 {
 						changes.SetDynamic(k, "")
 					} else {
@@ -1043,7 +1057,7 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 				// Client doesn't have this structure - send WITH statics
 				// However, normalize empty tree nodes to empty strings for cleaner output
 				if tn, ok := newValue.(map[string]interface{}); ok {
-					stripped := stripStaticsRecursively(tn)
+					stripped := prepareTreeForClient(tn, true)
 					if strippedMap, ok := stripped.(map[string]interface{}); ok && len(strippedMap) == 0 {
 						changes.SetDynamic(k, "")
 					} else {
@@ -1055,7 +1069,7 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 						t.seenStructures[fieldPath] = true
 					}
 				} else if m, ok := newValue.(map[string]interface{}); ok {
-					stripped := stripStaticsRecursively(m)
+					stripped := prepareTreeForClient(m, true)
 					if strippedMap, ok := stripped.(map[string]interface{}); ok && len(strippedMap) == 0 {
 						changes.SetDynamic(k, "")
 					} else {
@@ -1158,8 +1172,8 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 						} else {
 							// No dynamic changes detected, but check if both are static-only and not equal
 							// This handles the case where static content changed (e.g., conditional rendering)
-							oldStripped := stripStaticsRecursively(oldTreeNodePtr)
-							newStripped := stripStaticsRecursively(newTreeNodePtr)
+							oldStripped := prepareTreeForClient(oldTreeNodePtr, true)
+							newStripped := prepareTreeForClient(newTreeNodePtr, true)
 							oldIsEmpty := isEmpty(oldStripped)
 							newIsEmpty := isEmpty(newStripped)
 
@@ -1238,7 +1252,7 @@ func (t *Template) compareTreesAndGetChangesWithPath(oldTree, newTree *TreeNode,
 
 					if clientHasStructure {
 						// Strip statics since client has them cached
-						stripped := stripStaticsRecursively(newTreeNodePtr)
+						stripped := prepareTreeForClient(newTreeNodePtr, true)
 						// If stripping results in empty, send empty string
 						if isEmpty(stripped) {
 							changes.SetDynamic(k, "")
@@ -1947,7 +1961,8 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 	if newNode, ok := newValue.(*TreeNode); ok {
 		if newNode.HasRange() && newNode.Range != nil {
 			newItems = newNode.Range.Items
-			if statics == nil {
+			// Use newNode statics if oldNode didn't have any (empty slice)
+			if staticsSlice, ok := statics.([]string); ok && len(staticsSlice) == 0 {
 				statics = newNode.Statics
 			}
 		} else {
@@ -2050,7 +2065,7 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 			// Build array of items to append, stripping nested statics
 			itemsToAppend := make([]interface{}, 0, len(newItems))
 			for _, item := range newItems {
-				itemsToAppend = append(itemsToAppend, stripStaticsRecursively(item))
+				itemsToAppend = append(itemsToAppend, prepareTreeForClient(item, true))
 			}
 			// Use 'a' operation with statics so client can initialize range state
 			operations = append(operations, []interface{}{"a", itemsToAppend, statics})
@@ -2063,7 +2078,7 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 				for _, key := range addedKeys {
 					if item, exists := newItemsByKey[key]; exists {
 						// Strip nested statics from items (client has cached them)
-						itemsToPrepend = append(itemsToPrepend, stripStaticsRecursively(item))
+						itemsToPrepend = append(itemsToPrepend, prepareTreeForClient(item, true))
 					}
 				}
 				// Use 'p' operation for prepending (O(1) on client)
@@ -2075,7 +2090,7 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 				for _, key := range addedKeys {
 					if item, exists := newItemsByKey[key]; exists {
 						// Strip nested statics from items (client has cached them)
-						itemsToAppend = append(itemsToAppend, stripStaticsRecursively(item))
+						itemsToAppend = append(itemsToAppend, prepareTreeForClient(item, true))
 					}
 				}
 				// Use 'a' operation for appending (O(1) on client)
@@ -2092,14 +2107,14 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 								if i == 0 {
 									// Item at start - use prepend for single item
 									// Strip nested statics and include top-level statics
-									strippedItem := stripStaticsRecursively(newItem)
+									strippedItem := prepareTreeForClient(newItem, true)
 									operations = append(operations, []interface{}{"p", []interface{}{strippedItem}, statics})
 								} else {
 									// Find the item before this one and use simplified insert
 									if prevKey, ok := getItemKey(newItems[i-1], statics); ok {
 										// Simplified insert: ['i', afterId, data] (no position param)
 										// Strip nested statics from item
-										strippedItem := stripStaticsRecursively(newItem)
+										strippedItem := prepareTreeForClient(newItem, true)
 										operations = append(operations, []interface{}{"i", prevKey, strippedItem})
 									}
 								}
@@ -2116,7 +2131,7 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 	// Only strip if client already has the structure cached from initial tree
 	if stripStatics {
 		for i, op := range operations {
-			operations[i] = stripStaticsRecursively(op)
+			operations[i] = prepareTreeForClient(op, true)
 		}
 	}
 
@@ -2148,14 +2163,14 @@ func compareRangeItemsForChanges(oldItem, newItem interface{}, statics interface
 		if !exists || !deepEqual(oldValue, newValue) {
 			// Strip statics from nested tree nodes since client already has them cached
 			if newTreeNode, ok := newValue.(*TreeNode); ok {
-				stripped := stripStaticsRecursively(newTreeNode)
+				stripped := prepareTreeForClient(newTreeNode, true)
 				// If stripping results in empty, check if this is a meaningful change
 				if isEmpty(stripped) {
 					// Check if old value would also strip to empty
 					// If both old and new are static-only (strip to empty), don't send the change
 					if exists {
 						if oldTreeNode, ok := oldValue.(*TreeNode); ok {
-							oldStripped := stripStaticsRecursively(oldTreeNode)
+							oldStripped := prepareTreeForClient(oldTreeNode, true)
 							if isEmpty(oldStripped) {
 								// Both old and new strip to empty - no meaningful change, skip it
 								continue

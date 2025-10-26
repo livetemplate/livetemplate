@@ -121,6 +121,23 @@ go test -v ./... -timeout=30s
 
 ## Important Implementation Details
 
+### Wire Format Optimization
+The library implements a critical optimization per the tree-update-specification.md:
+- **First Render**: Tree includes complete static structure (`"s"` arrays) + all dynamics
+- **Updates**: Tree includes ONLY changed dynamics, NO statics (client has them cached)
+
+This is implemented by `prepareTreeForClient(node, clientHasStatics)` which:
+1. Takes a fully-built tree (WITH statics, needed for comparison consistency)
+2. Returns a wire-format tree (WITHOUT statics if client has cached them)
+3. Implements spec requirement: "Updates MUST include ONLY changed dynamics"
+
+**Key Architectural Points**:
+- Trees are ALWAYS generated WITH statics (ensures consistent comparison)
+- Comparison logic (`compareTreesAndGetChanges`) determines what changed
+- `prepareTreeForClient` removes statics before wire transmission
+- This is NOT a "reactive fix" - it's the correct implementation of specification
+- Result: Updates are ~10% the size of full renders (statics are largest part)
+
 ### Wrapper ID Injection
 - All templates get a wrapper div with unique ID (`lvt-[random]`)
 - Full HTML documents: Wrapper injected around body content
@@ -136,6 +153,13 @@ go test -v ./... -timeout=30s
     "s": ["<span>", "</span>"],
     "0": "Nested dynamic"
   }
+}
+```
+
+After first render, client caches the `"s"` arrays. Subsequent updates omit them:
+```json
+{
+  "0": "Updated content"         // Only changed dynamic, no statics
 }
 ```
 

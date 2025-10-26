@@ -43,6 +43,90 @@ type TreeMetadata struct {
 	IDKey string
 }
 
+// TreeGenerationContext provides context for tree generation to determine
+// whether static content should be included in the generated tree.
+// This enables context-aware generation instead of reactive stripping.
+type TreeGenerationContext struct {
+	// IsFirstRender indicates this is the initial render where all statics must be included
+	IsFirstRender bool
+
+	// IncludeStatics controls whether static HTML parts are built into the tree.
+	// First render: always true
+	// Updates: false for structures client already has, true for new structures
+	IncludeStatics bool
+
+	// ClientStructures maps field paths to whether the client has seen them.
+	// Used to determine if statics should be included for a specific path.
+	ClientStructures map[string]bool
+
+	// CurrentPath tracks the current field path during recursive tree building.
+	// Format: "0" or "1.2" for nested structures
+	CurrentPath string
+}
+
+// NewTreeGenerationContext creates a context for first render (includes all statics).
+func NewTreeGenerationContext() *TreeGenerationContext {
+	return &TreeGenerationContext{
+		IsFirstRender:    true,
+		IncludeStatics:   true,
+		ClientStructures: make(map[string]bool),
+		CurrentPath:      "",
+	}
+}
+
+// NewUpdateContext creates a context for updates (excludes statics by default).
+func NewUpdateContext(clientStructures map[string]bool) *TreeGenerationContext {
+	if clientStructures == nil {
+		clientStructures = make(map[string]bool)
+	}
+	return &TreeGenerationContext{
+		IsFirstRender:    false,
+		IncludeStatics:   false,
+		ClientStructures: clientStructures,
+		CurrentPath:      "",
+	}
+}
+
+// ShouldIncludeStatics determines if statics should be included for current path.
+func (ctx *TreeGenerationContext) ShouldIncludeStatics() bool {
+	if ctx == nil {
+		// Backward compatibility: default to including statics
+		return true
+	}
+
+	// First render always includes statics
+	if ctx.IsFirstRender {
+		return true
+	}
+
+	// For updates, include statics only if client doesn't have this structure
+	if ctx.CurrentPath != "" {
+		return !ctx.ClientStructures[ctx.CurrentPath]
+	}
+
+	return ctx.IncludeStatics
+}
+
+// WithPath returns a new context with updated CurrentPath.
+// Used for tracking path during recursive tree building.
+func (ctx *TreeGenerationContext) WithPath(path string) *TreeGenerationContext {
+	if ctx == nil {
+		return &TreeGenerationContext{
+			IsFirstRender:  true,
+			IncludeStatics: true,
+			CurrentPath:    path,
+		}
+	}
+
+	newCtx := *ctx
+	if ctx.CurrentPath == "" {
+		newCtx.CurrentPath = path
+	} else {
+		newCtx.CurrentPath = ctx.CurrentPath + "." + path
+	}
+	return &newCtx
+}
+
 // NewTreeNode creates a new TreeNode with initialized maps.
 func NewTreeNode() *TreeNode {
 	return &TreeNode{

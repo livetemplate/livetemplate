@@ -17,18 +17,6 @@ func mustFromMap(m map[string]interface{}) *TreeNode {
 	return tree
 }
 
-// asMap converts tree interface{} to map for test validation
-func asMap(tree interface{}) map[string]interface{} {
-	if tn, ok := tree.(*TreeNode); ok {
-		return tn.ToMap()
-	} else if tm, ok := tree.(map[string]interface{}); ok {
-		return tm
-	} else if tm, ok := tree.(map[string]interface{}); ok {
-		return map[string]interface{}(tm)
-	}
-	panic(fmt.Sprintf("unexpected tree type: %T", tree))
-}
-
 // Specification Compliance Tests - Current Status:
 //
 // TestUpdateSpecification_FirstRender: ✅ PASSING (5/5 tests)
@@ -221,13 +209,13 @@ func TestUpdateSpecification_SubsequentUpdates(t *testing.T) {
 				if len(changes.Dynamics) != 1 {
 					t.Errorf("Expected 1 change, got %d", len(changes.Dynamics))
 				}
-			if val, ok := changes.GetDynamic("0"); !ok || val != "10" {
-				t.Errorf("Expected count to be '10', got %v", val)
-			}
-			// Should NOT have statics
-			if changes.HasStatics() {
-				t.Error("Update should not contain statics")
-			}
+				if val, ok := changes.GetDynamic("0"); !ok || val != "10" {
+					t.Errorf("Expected count to be '10', got %v", val)
+				}
+				// Should NOT have statics
+				if changes.HasStatics() {
+					t.Error("Update should not contain statics")
+				}
 			},
 		},
 		{
@@ -259,7 +247,7 @@ func TestUpdateSpecification_SubsequentUpdates(t *testing.T) {
 				// This works correctly but includes redundant statics wrapper
 				// Unwrapping this breaks E2E tests where client expects tree node format
 				// TODO: Optimize by detecting pure static-value nodes and unwrapping them
-			val, _ := changes.GetDynamic("0")
+				val, _ := changes.GetDynamic("0")
 				if strVal, ok := val.(string); ok && strVal == "OFF" {
 					// Optimal case: just the value
 					return
@@ -284,16 +272,16 @@ func TestUpdateSpecification_SubsequentUpdates(t *testing.T) {
 			},
 			validateFn: func(t *testing.T, changes *TreeNode) {
 				// Should have changes for A and C, not B
-			if val, ok := changes.GetDynamic("0"); !ok || val != "X" {
-				t.Errorf("Expected A to be 'X', got %v", val)
+				if val, ok := changes.GetDynamic("0"); !ok || val != "X" {
+					t.Errorf("Expected A to be 'X', got %v", val)
 				}
-			if val, ok := changes.GetDynamic("2"); !ok || val != "Z" {
-				t.Errorf("Expected C to be 'Z', got %v", val)
+				if val, ok := changes.GetDynamic("2"); !ok || val != "Z" {
+					t.Errorf("Expected C to be 'Z', got %v", val)
 				}
 				// B should not be in changes (unchanged)
 				// Note: In practice, position "1" might be included if tree structure changed
 				// But value should be different if included
-			if val, hasB := changes.GetDynamic("1"); hasB && val == "2" {
+				if val, hasB := changes.GetDynamic("1"); hasB && val == "2" {
 					t.Log("Position '1' included in changes as expected")
 				}
 			},
@@ -684,7 +672,7 @@ func TestUserJourney_TodoApp(t *testing.T) {
 			validate: func(t *testing.T, tree *TreeNode, isFirst bool) {
 				// Should update the conditional
 				// Form should disappear (empty string or specific update)
-			if len(tree.Dynamics) == 0 {
+				if len(tree.Dynamics) == 0 {
 					t.Error("Expected update for form toggle")
 				}
 			},
@@ -877,23 +865,6 @@ func TestComplexTemplate(t *testing.T) {
 	if changes == nil {
 		t.Fatal("Expected changes but got nil")
 	}
-}
-
-// hasStatics checks if a node contains static strings
-func hasStatics(node interface{}) bool {
-	switch v := node.(type) {
-	case map[string]interface{}:
-		if _, has := v["s"]; has {
-			return true
-		}
-		for _, nested := range v {
-			if hasStatics(nested) {
-				return true
-			}
-		}
-		return false
-	}
-	return false
 }
 
 // BenchmarkSpecificationCompliance benchmarks tree generation overhead

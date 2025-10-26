@@ -320,7 +320,8 @@ func normalizeTemplateSpacing(templateStr string) string {
 }
 
 // parseTemplateToTree parses a template using the AST-based parser
-func parseTemplateToTree(templateStr string, data interface{}, keyGen *keyGenerator) (tree *TreeNode, err error) {
+// ctx is optional - if nil, defaults to first-render context (includes statics)
+func parseTemplateToTree(templateStr string, data interface{}, keyGen *keyGenerator, ctx ...*TreeGenerationContext) (tree *TreeNode, err error) {
 	// Recover from panics in template execution (can happen with fuzz-generated templates)
 	defer func() {
 		if r := recover(); r != nil {
@@ -328,7 +329,11 @@ func parseTemplateToTree(templateStr string, data interface{}, keyGen *keyGenera
 		}
 	}()
 
-	return parseTemplateToTreeAST(templateStr, data, keyGen)
+	var genCtx *TreeGenerationContext
+	if len(ctx) > 0 {
+		genCtx = ctx[0]
+	}
+	return parseTemplateToTreeAST(templateStr, data, keyGen, genCtx)
 }
 
 // Helper functions for extracting template variables
