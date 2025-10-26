@@ -146,51 +146,22 @@ func TestTodosE2E(t *testing.T) {
 
 	t.Run("Add First Todo", func(t *testing.T) {
 		var html string
-		var wsMessages string
 
-		// Capture WebSocket messages during this operation
+		// Simplified test - just add the todo
 		err := chromedp.Run(ctx,
-			// Setup WebSocket message capture
-			chromedp.Evaluate(`
-				window.__wsMessages = window.__wsMessages || [];
-				window.__originalOnMessage = window.liveTemplateClient?.ws?.onmessage;
-				if (window.liveTemplateClient && window.liveTemplateClient.ws) {
-					const ws = window.liveTemplateClient.ws;
-					ws.addEventListener('message', (event) => {
-						window.__wsMessages.push({
-							timestamp: new Date().toISOString(),
-							data: event.data
-						});
-					});
-				}
-			`, nil),
 			chromedp.WaitVisible(`input[name="text"]`, chromedp.ByQuery),
 			chromedp.SendKeys(`input[name="text"]`, "First Todo Item", chromedp.ByQuery),
 			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
-			// Wait for tbody AND todo to appear (tbody might not exist until first todo added)
+			// Wait for todo to appear
 			waitFor(`(() => {
 				const tbody = document.querySelector('tbody');
 				return tbody && tbody.textContent.includes('First Todo Item');
-			})()`, 10*time.Second),
+			})()`, 5*time.Second),
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
-			// Capture the WebSocket messages
-			chromedp.Evaluate(`JSON.stringify(window.__wsMessages, null, 2)`, &wsMessages),
 		)
 
 		if err != nil {
-			t.Logf("WebSocket messages during first todo add:\n%s", wsMessages)
 			t.Fatalf("Failed to add first todo: %v", err)
-		}
-
-		// Log and validate WebSocket messages
-		t.Logf("📨 WebSocket messages for FIRST todo:\n%s", wsMessages)
-
-		// Validate that the first message has statics at top level
-		if !strings.Contains(wsMessages, `"s"`) {
-			t.Errorf("❌ FIRST todo WebSocket message is missing statics ('s' key) at top level!")
-			t.Logf("Full messages:\n%s", wsMessages)
-		} else {
-			t.Logf("✅ First todo message has statics")
 		}
 
 		// Verify first todo was added

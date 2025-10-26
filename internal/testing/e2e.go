@@ -305,7 +305,8 @@ func WaitForWebSocketReady(timeout time.Duration) chromedp.Action {
 				const wrapper = document.querySelector('[data-lvt-id]');
 				// Also verify that the client is actually initialized
 				const clientInitialized = window.liveTemplateClient !== undefined;
-				return wrapper && !wrapper.hasAttribute('data-lvt-loading') && clientInitialized;
+				const wsConnected = window.liveTemplateClient?.ws?.readyState === 1;
+				return wrapper && !wrapper.hasAttribute('data-lvt-loading') && clientInitialized && wsConnected;
 			})()
 		`, timeout).Do(ctx)
 	})
