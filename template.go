@@ -98,6 +98,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/gorilla/websocket"
 )
@@ -122,6 +123,7 @@ type Template struct {
 	templateStr     string
 	tmpl            *template.Template
 	wrapperID       string
+	mu              sync.RWMutex             // Protects mutable state fields below
 	lastData        interface{}
 	lastHTML        string
 	lastTree        *TreeNode // Store previous tree segments for comparison
@@ -335,21 +337,29 @@ func New(name string, opts ...Option) *Template {
 // Clone creates a deep copy of the template with fresh state.
 // This is useful for creating per-connection template instances that don't interfere with each other.
 func (t *Template) Clone() (*Template, error) {
+	// Acquire read lock to safely read template fields
+	t.mu.RLock()
+	name := t.name
+	templateStr := t.templateStr
+	wrapperID := t.wrapperID
+	config := t.config
+	t.mu.RUnlock()
+
 	// Cannot clone an executed html/template, must re-parse from source
 	// Create a fresh template instance with the same configuration
 	clone := &Template{
-		name:        t.name,
-		templateStr: t.templateStr,
-		wrapperID:   t.wrapperID, // Share wrapper ID
+		name:        name,
+		templateStr: templateStr,
+		wrapperID:   wrapperID, // Share wrapper ID
 		keyGen:      newKeyGenerator(),
-		config:      t.config,                     // Preserve configuration
+		config:      config,                       // Preserve configuration
 		registry:    NewClientStructureRegistry(), // Fresh registry for new session
 		// Don't copy lastData, lastHTML, lastTree, etc. - start fresh
 	}
 
 	// Re-parse the template from source
-	if t.templateStr != "" {
-		_, err := clone.Parse(t.templateStr)
+	if templateStr != "" {
+		_, err := clone.Parse(templateStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to re-parse template: %w", err)
 		}
@@ -579,12 +589,15 @@ func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]
 		contentToCache = currentHTML
 	}
 
-	// Set up caching state
+	// Set up caching state and generate initial tree (protected by mutex)
+	t.mu.Lock()
 	t.lastData = data
 	t.lastHTML = contentToCache
 
 	// Generate and cache initial tree structure
 	_, treeErr := t.generateInitialTree(currentHTML, data)
+	t.mu.Unlock()
+
 	if treeErr != nil {
 		// Don't fail if tree generation fails, just skip caching
 		return nil
@@ -632,6 +645,10 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, errors ...map[
 
 // generateTreeInternalWithErrors is the internal implementation that returns TreeNode with error context
 func (t *Template) generateTreeInternalWithErrors(data interface{}, errors map[string]string) (*TreeNode, error) {
+	// Acquire write lock to protect mutable state
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	// Initialize key generator if needed (but don't reset - keys should increment globally)
 	if t.keyGen == nil {
 		t.keyGen = newKeyGenerator()
@@ -769,6 +786,7 @@ func (t *Template) markAllStructuresAsSeen(node *TreeNode, basePath string) {
 }
 
 // generateInitialTree creates tree with statics and dynamics for first render
+// NOTE: This method modifies template state. Caller must hold t.mu write lock.
 func (t *Template) generateInitialTree(html string, data interface{}) (*TreeNode, error) {
 	// Extract content from wrapper if we have one
 	var contentToAnalyze string
@@ -823,6 +841,7 @@ func (t *Template) generateInitialTree(html string, data interface{}) (*TreeNode
 }
 
 // generateDiffBasedTree creates tree based on diff analysis
+// NOTE: This method modifies template state. Caller must hold t.mu write lock.
 func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newData interface{}) (*TreeNode, error) {
 	// Extract content from wrapper if we have one for proper comparison
 	var oldContent, newContent string

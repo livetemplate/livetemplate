@@ -408,9 +408,18 @@ func Handler(queries *models.Queries) http.Handler {
 		log.Printf("Failed to initialize user state: %v", err)
 	}
 
-	tmpl := livetemplate.New("user", livetemplate.WithDevMode(false))
-	if _, err := tmpl.ParseFiles("internal/app/user/user.tmpl"); err != nil {
+	baseTmpl := livetemplate.New("user", livetemplate.WithDevMode(false))
+	if _, err := baseTmpl.ParseFiles("internal/app/user/user.tmpl"); err != nil {
 		log.Fatalf("Failed to parse template: %v", err)
 	}
-	return tmpl.Handle(state)
+	// Modal mode: clone template per request
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tmpl, err := baseTmpl.Clone()
+		if err != nil {
+			log.Printf("Failed to clone template: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		tmpl.Handle(state).ServeHTTP(w, r)
+	})
 }

@@ -92,6 +92,9 @@ export class LiveTemplateClient {
   private infiniteScrollObserver: IntersectionObserver | null = null;
   private mutationObserver: MutationObserver | null = null;
 
+  // Message tracking for deterministic E2E testing
+  private messageCount: number = 0;
+
   constructor(options: LiveTemplateClientOptions = {}) {
     this.options = {
       autoReconnect: false, // Disable autoReconnect by default to avoid connection loops
@@ -534,6 +537,12 @@ export class LiveTemplateClient {
         // DEBUG: Capture last WS message for testing
         (window as any).__lastWSMessage = event.data;
 
+        // Track messages for deterministic E2E testing
+        if (!(window as any).__wsMessages) {
+          (window as any).__wsMessages = [];
+        }
+        (window as any).__wsMessages.push(response);
+
         // On first message, remove loading indicator and enable forms
         if (!this.isInitialized) {
           this.removeLoadingBar();
@@ -547,6 +556,20 @@ export class LiveTemplateClient {
 
         if (this.wrapperElement) {
           this.updateDOM(this.wrapperElement, response.tree, response.meta);
+
+          // Increment message counter AFTER DOM update completes
+          this.messageCount++;
+          (window as any).__wsMessageCount = this.messageCount;
+
+          // Dispatch custom event for deterministic E2E testing
+          // This fires AFTER morphdom has finished updating the DOM
+          this.wrapperElement.dispatchEvent(new CustomEvent('lvt:updated', {
+            detail: {
+              messageCount: this.messageCount,
+              action: response.meta?.action,
+              success: response.meta?.success
+            }
+          }));
         }
       } catch (error) {
         console.error('LiveTemplate error:', error);
