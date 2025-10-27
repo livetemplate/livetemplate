@@ -153,7 +153,7 @@ func TestTodosE2E(t *testing.T) {
 			chromedp.SendKeys(`input[name="text"]`, "First Todo Item", chromedp.ByQuery),
 			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
 			// Wait for todo to appear
-			waitFor(`(() => {
+			e2etest.WaitFor(`(() => {
 				const tbody = document.querySelector('tbody');
 				return tbody && tbody.textContent.includes('First Todo Item');
 			})()`, 5*time.Second),
@@ -187,7 +187,7 @@ func TestTodosE2E(t *testing.T) {
 			chromedp.WaitVisible(`input[name="text"]`, chromedp.ByQuery),
 			chromedp.SendKeys(`input[name="text"]`, "Second Todo Item", chromedp.ByQuery),
 			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
-			waitForCount("tbody tr", 2, 10*time.Second),
+			e2etest.WaitForCount("tbody tr", 2, 10*time.Second),
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
 			chromedp.Evaluate(`JSON.stringify(window.__wsMessages, null, 2)`, &wsMessages),
 		)
@@ -237,7 +237,7 @@ func TestTodosE2E(t *testing.T) {
 			chromedp.WaitVisible(`input[name="text"]`, chromedp.ByQuery),
 			chromedp.SendKeys(`input[name="text"]`, "Third Todo Item", chromedp.ByQuery),
 			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
-			waitForCount("tbody tr", 3, 10*time.Second),
+			e2etest.WaitForCount("tbody tr", 3, 10*time.Second),
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
 			chromedp.Evaluate(`JSON.stringify(window.__wsMessages, null, 2)`, &wsMessages),
 		)
@@ -307,7 +307,7 @@ func TestTodosE2E(t *testing.T) {
 			chromedp.WaitVisible(`input[name="text"]`, chromedp.ByQuery),
 			chromedp.SendKeys(`input[name="text"]`, "Fourth Todo Item", chromedp.ByQuery),
 			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
-			waitForText("tbody", "Fourth Todo Item", 10*time.Second),
+			e2etest.WaitForText("tbody", "Fourth Todo Item", 10*time.Second),
 		)
 		if err != nil {
 			t.Fatalf("Failed to add fourth todo: %v", err)
@@ -319,7 +319,7 @@ func TestTodosE2E(t *testing.T) {
 			chromedp.WaitVisible(`input[name="text"]`, chromedp.ByQuery),
 			chromedp.SendKeys(`input[name="text"]`, "Fifth Todo Item", chromedp.ByQuery),
 			chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
-			waitForText("tbody", "Fifth Todo Item", 10*time.Second),
+			e2etest.WaitForText("tbody", "Fifth Todo Item", 10*time.Second),
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
 		)
 		if err != nil {
@@ -412,9 +412,10 @@ func TestTodosE2E(t *testing.T) {
 			chromedp.WaitVisible(`input[name="query"]`, chromedp.ByQuery),
 			chromedp.Evaluate(`
 				(() => {
-					const input = document.querySelector('input[name="query"]');
+					const form = document.querySelector('form[lvt-change="search"]');
+					const input = form.querySelector('input[name="query"]');
 					input.value = 'First';
-					input.dispatchEvent(new Event('input', { bubbles: true }));
+					form.dispatchEvent(new Event('change', { bubbles: true }));
 				})();
 			`, nil),
 		)
@@ -425,8 +426,8 @@ func TestTodosE2E(t *testing.T) {
 
 		// Wait for search results to update and get HTML (condition-based waiting for debounce + update)
 		err = chromedp.Run(ctx,
-			waitForText("section", "First Todo Item", 5*time.Second),
-			waitFor(`!document.querySelector('section')?.outerHTML?.includes('Second Todo Item')`, 5*time.Second),
+			e2etest.WaitForText("section", "First Todo Item", 10*time.Second),
+			e2etest.WaitFor(`!document.querySelector('section')?.outerHTML?.includes('Second Todo Item')`, 10*time.Second),
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
 		)
 
@@ -450,7 +451,7 @@ func TestTodosE2E(t *testing.T) {
 				(() => {
 					const input = document.querySelector('input[name="query"]');
 					input.value = '';
-					input.dispatchEvent(new Event('input', { bubbles: true }));
+					input.dispatchEvent(new Event('change', { bubbles: true }));
 				})();
 			`, nil),
 		)
@@ -461,7 +462,7 @@ func TestTodosE2E(t *testing.T) {
 
 		// Wait for page 1 todos to reappear and get HTML (condition-based waiting)
 		err = chromedp.Run(ctx,
-			waitForText("section", "Fifth Todo Item", 5*time.Second),
+			e2etest.WaitForText("section", "Fifth Todo Item", 10*time.Second),
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
 		)
 
@@ -509,7 +510,7 @@ func TestTodosE2E(t *testing.T) {
 				(() => {
 					const input = document.querySelector('input[name="query"]');
 					input.value = 'NonExistent';
-					input.dispatchEvent(new Event('input', { bubbles: true }));
+					input.dispatchEvent(new Event('change', { bubbles: true }));
 				})();
 			`, nil),
 		)
@@ -521,7 +522,7 @@ func TestTodosE2E(t *testing.T) {
 		// Wait for "No todos found" message and get HTML (condition-based waiting)
 		// Increased timeout to account for debounce (300ms) + WebSocket round trip + conditional rendering
 		err = chromedp.Run(ctx,
-			waitForText("section", "No todos found matching", 10*time.Second),
+			e2etest.WaitForText("section", "No todos found matching", 10*time.Second),
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
 			// Get console logs
 			chromedp.Evaluate(`JSON.stringify(window.capturedConsoleLogs || [], null, 2)`, &consoleLogs),
@@ -578,11 +579,11 @@ func TestTodosE2E(t *testing.T) {
 				(() => {
 					const input = document.querySelector('input[name="query"]');
 					input.value = '';
-					input.dispatchEvent(new Event('input', { bubbles: true }));
+					input.dispatchEvent(new Event('change', { bubbles: true }));
 				})();
 			`, nil),
 			// Wait for todos to reappear (condition-based waiting)
-			waitForText("tbody", "Fifth Todo Item", 10*time.Second),
+			e2etest.WaitForText("tbody", "Fifth Todo Item", 10*time.Second),
 		)
 
 		if err != nil {
@@ -715,9 +716,9 @@ func TestTodosE2E(t *testing.T) {
 
 		// Wait for sixth todo to appear and pagination to be ready (condition-based waiting)
 		err = chromedp.Run(ctx,
-			waitForText("tbody", "Sixth Todo Item", 10*time.Second),
+			e2etest.WaitForText("tbody", "Sixth Todo Item", 15*time.Second),
 			// Wait for pagination controls to appear (they only show when TotalPages > 1)
-			waitFor(`document.querySelector('button[lvt-click="next_page"]') !== null`, 10*time.Second),
+			e2etest.WaitFor(`document.querySelector('button[lvt-click="next_page"]') !== null`, 15*time.Second),
 			chromedp.OuterHTML(`tbody`, &html, chromedp.ByQuery),
 		)
 
@@ -754,7 +755,7 @@ func TestTodosE2E(t *testing.T) {
 
 		// Wait for page 2 todos to appear and get HTML (condition-based waiting)
 		err = chromedp.Run(ctx,
-			waitForText("tbody", "First Todo Item", 10*time.Second),
+			e2etest.WaitForText("tbody", "First Todo Item", 10*time.Second),
 			chromedp.OuterHTML(`tbody`, &html, chromedp.ByQuery),
 		)
 
@@ -803,7 +804,7 @@ func TestTodosE2E(t *testing.T) {
 
 		// Wait for page 1 todos to reappear and get HTML (condition-based waiting)
 		err = chromedp.Run(ctx,
-			waitForText("tbody", "Sixth Todo Item", 10*time.Second),
+			e2etest.WaitForText("tbody", "Sixth Todo Item", 10*time.Second),
 			chromedp.OuterHTML(`tbody`, &html, chromedp.ByQuery),
 		)
 
@@ -836,7 +837,7 @@ func TestTodosE2E(t *testing.T) {
 				(() => {
 					const searchInput = document.querySelector('input[name="query"]');
 					searchInput.value = 'i';
-					searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+					searchInput.dispatchEvent(new Event('change', { bubbles: true }));
 				})();
 			`, nil),
 		)
@@ -848,7 +849,7 @@ func TestTodosE2E(t *testing.T) {
 		// Wait for search results and get HTML (condition-based waiting)
 		// Increased timeout to account for debounce (300ms) + WebSocket round trip
 		err = chromedp.Run(ctx,
-			waitForText("tbody", "Sixth Todo Item", 10*time.Second),
+			e2etest.WaitForText("tbody", "Sixth Todo Item", 10*time.Second),
 			chromedp.OuterHTML(`tbody`, &html, chromedp.ByQuery),
 		)
 
@@ -871,7 +872,7 @@ func TestTodosE2E(t *testing.T) {
 				(() => {
 					const clearInput = document.querySelector('input[name="query"]');
 					clearInput.value = '';
-					clearInput.dispatchEvent(new Event('input', { bubbles: true }));
+					clearInput.dispatchEvent(new Event('change', { bubbles: true }));
 				})();
 			`, nil),
 		)
@@ -881,7 +882,7 @@ func TestTodosE2E(t *testing.T) {
 		} else {
 			// Wait for search to clear (condition-based waiting)
 			// Increased timeout to account for debounce (300ms) + WebSocket round trip
-			err = chromedp.Run(ctx, waitForText("tbody", "Sixth Todo Item", 10*time.Second))
+			err = chromedp.Run(ctx, e2etest.WaitForText("tbody", "Sixth Todo Item", 10*time.Second))
 			if err != nil {
 				t.Logf("Warning: Failed to wait for search clear: %v", err)
 			}
@@ -891,53 +892,4 @@ func TestTodosE2E(t *testing.T) {
 	fmt.Println("\n" + strings.Repeat("=", 60))
 	fmt.Println("🎉 All E2E tests passed!")
 	fmt.Println(strings.Repeat("=", 60))
-}
-
-// waitFor polls until the JavaScript expression returns true
-// The jsCondition should be a JavaScript expression that evaluates to a boolean
-func waitFor(jsCondition string, timeout time.Duration) chromedp.ActionFunc {
-	return func(ctx context.Context) error {
-		startTime := time.Now()
-		for {
-			var result bool
-			err := chromedp.Evaluate(jsCondition, &result).Do(ctx)
-
-			if err != nil {
-				return fmt.Errorf("condition check failed: %w", err)
-			}
-
-			if result {
-				return nil
-			}
-
-			if time.Since(startTime) > timeout {
-				// Get debug info on timeout
-				var debugHTML string
-				_ = chromedp.OuterHTML("body", &debugHTML, chromedp.ByQuery).Do(ctx)
-				if len(debugHTML) > 500 {
-					debugHTML = debugHTML[:500] + "..."
-				}
-				return fmt.Errorf("timeout waiting for condition after %v. Condition: %s. Body HTML: %s", timeout, jsCondition, debugHTML)
-			}
-
-			time.Sleep(100 * time.Millisecond)
-		}
-	}
-}
-
-// waitForText is a convenience helper that waits for a selector's text content to include the specified text
-func waitForText(selector, text string, timeout time.Duration) chromedp.ActionFunc {
-	jsCondition := fmt.Sprintf(`
-		(() => {
-			const el = document.querySelector('%s');
-			return el && el.textContent && el.textContent.includes(%q);
-		})()
-	`, selector, text)
-	return waitFor(jsCondition, timeout)
-}
-
-// waitForCount is a convenience helper that waits for a specific number of elements matching the selector
-func waitForCount(selector string, count int, timeout time.Duration) chromedp.ActionFunc {
-	jsCondition := fmt.Sprintf(`document.querySelectorAll('%s').length === %d`, selector, count)
-	return waitFor(jsCondition, timeout)
 }

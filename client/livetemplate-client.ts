@@ -531,6 +531,9 @@ export class LiveTemplateClient {
       try {
         const response: UpdateResponse = JSON.parse(event.data);
 
+        // DEBUG: Capture last WS message for testing
+        (window as any).__lastWSMessage = event.data;
+
         // On first message, remove loading indicator and enable forms
         if (!this.isInitialized) {
           this.removeLoadingBar();
@@ -1600,8 +1603,12 @@ export class LiveTemplateClient {
           }
           break;
 
-        case 'a': // Append: ["a", items] or ["a", items, statics]
+        case 'a': // Append: ["a", items] or ["a", items, statics] or ["a", items, statics, metadata]
           this.addItemsToRange(currentItems, operation[1], operation[2], rangeData, false);
+          // Check for metadata (4th element) for empty→first items transition
+          if (operation[3] && typeof operation[3] === 'object' && operation[3].idKey) {
+            this.rangeIdKeys[statePath || ''] = operation[3].idKey;
+          }
           break;
 
         case 'p': // Prepend: ["p", items, statics]

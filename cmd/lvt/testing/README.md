@@ -360,6 +360,12 @@ docker logs <chrome-container>
 - `WaitForOpen(timeout)` - Wait for modal
 - `WaitForClose(timeout)` - Wait for close
 
+**Wait Utilities**
+- `WaitFor(condition, timeout)` - Wait for JavaScript condition to be true
+- `WaitForText(selector, text, timeout)` - Wait for element text to contain substring
+- `WaitForCount(selector, count, timeout)` - Wait for specific element count
+- `WaitForWebSocketReady(timeout)` - Wait for WebSocket connection and initial sync
+
 ## License
 
 Same as LiveTemplate project.

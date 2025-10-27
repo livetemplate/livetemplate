@@ -411,6 +411,16 @@ func TestTutorialE2E(t *testing.T) {
 			t.Fatalf("Failed to add post: %v", err)
 		}
 
+		// Debug: Capture the tree state from the client
+		var treeState string
+		var lastWSMessage string
+		_ = chromedp.Run(testCtx,
+			chromedp.Evaluate(`JSON.stringify(window.liveTemplateClient?.treeState || {}, null, 2)`, &treeState),
+			chromedp.Evaluate(`window.__lastWSMessage || 'No WS message captured'`, &lastWSMessage),
+		)
+		t.Logf("=== CLIENT TREE STATE ===\n%s\n", treeState)
+		t.Logf("=== LAST WS MESSAGE ===\n%s\n", lastWSMessage)
+
 		// Verify the post appears in the table
 		var postInTable bool
 		err = chromedp.Run(testCtx,
@@ -432,6 +442,7 @@ func TestTutorialE2E(t *testing.T) {
 
 		if !postInTable {
 			var tableSummary string
+			var firstCellHTML string
 			_ = chromedp.Run(testCtx,
 				chromedp.Evaluate(`
 					(() => {
@@ -447,8 +458,19 @@ func TestTutorialE2E(t *testing.T) {
 						}).join(', ');
 					})()
 				`, &tableSummary),
+				chromedp.Evaluate(`
+					(() => {
+						const table = document.querySelector('table');
+						if (!table) return 'No table';
+						const firstRow = table.querySelector('tbody tr');
+						if (!firstRow) return 'No rows';
+						const firstCell = firstRow.querySelector('td');
+						if (!firstCell) return 'No cell';
+						return firstCell.innerHTML;
+					})()
+				`, &firstCellHTML),
 			)
-			t.Fatalf("❌ Post not found in table.\nTable summary: %s", tableSummary)
+			t.Fatalf("❌ Post not found in table.\nTable summary: %s\nFirst cell HTML: %s", tableSummary, firstCellHTML)
 		}
 
 		t.Log("✅ Post 'My First Blog Post' added successfully and appears in table")

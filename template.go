@@ -914,6 +914,10 @@ func prepareTreeForClient(node interface{}, clientHasStatics bool) interface{} {
 		if v.HasRange() {
 			result.Range = &RangeData{Items: v.Range.Items}
 		}
+		// Preserve Metadata (needed for client to extract item keys)
+		if v.Metadata != nil {
+			result.Metadata = v.Metadata
+		}
 		return result
 	case map[string]interface{}:
 		result := make(map[string]interface{})
@@ -1833,6 +1837,7 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 	var operations []interface{}
 	var oldItems, newItems []interface{}
 	var statics interface{}
+	var metadata map[string]interface{}
 
 	// Try to extract TreeNode first
 	if oldNode, ok := oldValue.(*TreeNode); ok {
@@ -1855,6 +1860,12 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 				statics = newNode.Statics // Use new statics for first items
 			} else if staticsSlice, ok := statics.([]string); ok && len(staticsSlice) == 0 {
 				statics = newNode.Statics // Fallback if old statics empty
+			}
+			// Extract metadata for empty→items transitions
+			if newNode.Metadata != nil {
+				metadata = map[string]interface{}{
+					"idKey": newNode.Metadata.IDKey,
+				}
 			}
 		} else {
 			return operations
@@ -1950,7 +1961,7 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 			return operations
 		}
 
-		// SPECIAL CASE: If old range was empty, use 'a' (append) with statics
+		// SPECIAL CASE: If old range was empty, use 'a' (append) with statics and metadata
 		// This is needed because client can't apply differential operations without range state
 		if len(oldItems) == 0 {
 			// Build array of items to append, stripping nested statics
@@ -1958,9 +1969,15 @@ func generateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 			for _, item := range newItems {
 				itemsToAppend = append(itemsToAppend, prepareTreeForClient(item, true))
 			}
-			// Use 'a' operation with statics so client can initialize range state
+			// Use 'a' operation with statics and metadata so client can initialize range state
+			// Format: ['a', items, statics, metadata]
 			// statics now correctly contains newNode.Statics (the item template) from above
-			operations = append(operations, []interface{}{"a", itemsToAppend, statics})
+			// metadata is extracted from newNode above
+			if metadata != nil {
+				operations = append(operations, []interface{}{"a", itemsToAppend, statics, metadata})
+			} else {
+				operations = append(operations, []interface{}{"a", itemsToAppend, statics})
+			}
 		} else {
 			// Range has existing items - detect append/prepend/insert patterns
 

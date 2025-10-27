@@ -312,6 +312,43 @@ func WaitForWebSocketReady(timeout time.Duration) chromedp.Action {
 	})
 }
 
+// WaitForText waits for an element's text content to include the specified text.
+// This is a convenience wrapper around WaitFor for common text-matching scenarios.
+//
+// The selector is a CSS selector, and text is the substring to match.
+// Returns an error if the condition is not met within the timeout.
+//
+// Examples:
+//
+//	WaitForText("section", "No results found", 5*time.Second)
+//	WaitForText("tbody", "First Todo Item", 10*time.Second)
+//	WaitForText(".status", "Connected", 3*time.Second)
+func WaitForText(selector, text string, timeout time.Duration) chromedp.Action {
+	condition := fmt.Sprintf(`
+		(() => {
+			const el = document.querySelector('%s');
+			return el && el.textContent && el.textContent.includes(%q);
+		})()
+	`, selector, text)
+	return WaitFor(condition, timeout)
+}
+
+// WaitForCount waits for a specific number of elements to match the selector.
+// This is a convenience wrapper around WaitFor for counting elements.
+//
+// The selector is a CSS selector, and expectedCount is the exact number of elements expected.
+// Returns an error if the condition is not met within the timeout.
+//
+// Examples:
+//
+//	WaitForCount("tbody tr", 3, 5*time.Second)
+//	WaitForCount(".todo-item", 10, 10*time.Second)
+//	WaitForCount("button[disabled]", 0, 3*time.Second)
+func WaitForCount(selector string, expectedCount int, timeout time.Duration) chromedp.Action {
+	condition := fmt.Sprintf(`document.querySelectorAll('%s').length === %d`, selector, expectedCount)
+	return WaitFor(condition, timeout)
+}
+
 // ValidateNoTemplateExpressions checks that the specified element does not contain
 // raw Go template expressions like {{if}}, {{range}}, {{define}}, etc.
 // This catches the bug where unflattened templates are used in WebSocket tree generation.
