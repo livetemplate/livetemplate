@@ -639,6 +639,18 @@ func TestTutorialE2E(t *testing.T) {
 		testCtx, timeoutCancel := context.WithTimeout(testCtx, 60*time.Second)
 		defer timeoutCancel()
 
+		const checkPostExistsJS = `
+		(() => {
+			const table = document.querySelector('table');
+			if (!table) return false;
+			const rows = Array.from(table.querySelectorAll('tbody tr'));
+			return rows.some(row => {
+				const cells = row.querySelectorAll('td');
+				return cells.length > 0 && cells[0].textContent.trim() === 'My First Blog Post';
+			});
+		})()
+		`
+
 		// Navigate and verify post exists
 		var postExists bool
 		err := chromedp.Run(testCtx,
@@ -646,24 +658,25 @@ func TestTutorialE2E(t *testing.T) {
 			waitForWebSocketReady(5*time.Second), // Wait for WebSocket init and first update
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
 			validateNoTemplateExpressions("[data-lvt-id]"), // Validate no raw template expressions
-			chromedp.Evaluate(`
-				(() => {
-					const table = document.querySelector('table');
-					if (!table) return false;
-					const rows = Array.from(table.querySelectorAll('tbody tr'));
-					return rows.some(row => {
-						const cells = row.querySelectorAll('td');
-						return cells.length > 0 && cells[0].textContent.trim() === 'My First Blog Post';
-					});
-				})()
-			`, &postExists),
+			chromedp.Evaluate(checkPostExistsJS, &postExists),
 		)
 		if err != nil {
 			t.Fatalf("Failed to check for post: %v", err)
 		}
 
 		if !postExists {
-			t.Fatal("❌ Post 'My First Blog Post' not found - cannot test deletion")
+			t.Log("ℹ️ Post not found, creating fixture for deletion test")
+			if err := ensureTutorialPostExists(testCtx, testURL); err != nil {
+				t.Fatalf("Failed to create post fixture: %v", err)
+			}
+			if err := chromedp.Run(testCtx,
+				chromedp.Evaluate(checkPostExistsJS, &postExists),
+			); err != nil {
+				t.Fatalf("Failed to verify post fixture: %v", err)
+			}
+			if !postExists {
+				t.Fatal("❌ Unable to create post fixture for deletion test")
+			}
 		}
 
 		// Click Edit button to open modal
@@ -733,17 +746,7 @@ func TestTutorialE2E(t *testing.T) {
 		// Verify the post is no longer in the table
 		var postStillExists bool
 		err = chromedp.Run(testCtx,
-			chromedp.Evaluate(`
-				(() => {
-					const table = document.querySelector('table');
-					if (!table) return false;
-					const rows = Array.from(table.querySelectorAll('tbody tr'));
-					return rows.some(row => {
-						const cells = row.querySelectorAll('td');
-						return cells.length > 0 && cells[0].textContent.trim() === 'My First Blog Post';
-					});
-				})()
-			`, &postStillExists),
+			chromedp.Evaluate(checkPostExistsJS, &postStillExists),
 		)
 		if err != nil {
 			t.Fatalf("Failed to check if post was deleted: %v", err)
@@ -932,4 +935,43 @@ func TestTutorialE2E(t *testing.T) {
 	})
 
 	t.Log("✅ All E2E tests passed!")
+}
+
+func ensureTutorialPostExists(ctx context.Context, baseURL string) error {
+	const (
+		title   = "My First Blog Post"
+		content = "This is the content of my first blog post"
+	)
+
+	existenceCheck := fmt.Sprintf(`
+		(() => {
+			const table = document.querySelector('table');
+			if (!table) return false;
+			const rows = Array.from(table.querySelectorAll('tbody tr'));
+			return rows.some(row => {
+				const cells = row.querySelectorAll('td');
+				return cells.length > 0 && cells[0].textContent.trim() === %q;
+			});
+		})()
+		`, title)
+
+	return chromedp.Run(ctx,
+		chromedp.Navigate(baseURL+"/posts"),
+		waitForWebSocketReady(5*time.Second),
+		chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
+		chromedp.WaitVisible(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
+		chromedp.Click(`[lvt-modal-open="add-modal"]`, chromedp.ByQuery),
+		waitFor(`document.querySelector('[role="dialog"]') && !document.querySelector('[role="dialog"]').hasAttribute('hidden')`, 3*time.Second),
+		chromedp.WaitVisible(`input[name="title"]`, chromedp.ByQuery),
+		chromedp.Evaluate(`document.querySelector('input[name="title"]').value = ''`, nil),
+		chromedp.Evaluate(`document.querySelector('textarea[name="content"]').value = ''`, nil),
+		chromedp.SendKeys(`input[name="title"]`, title, chromedp.ByQuery),
+		chromedp.SendKeys(`textarea[name="content"]`, content, chromedp.ByQuery),
+		chromedp.Click(`input[name="published"]`, chromedp.ByQuery),
+		chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
+		waitFor(existenceCheck, 5*time.Second),
+		chromedp.Reload(),
+		chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
+		waitFor(`document.readyState === 'complete'`, 3*time.Second),
+	)
 }
