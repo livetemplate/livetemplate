@@ -407,9 +407,6 @@ func TestTutorialE2E(t *testing.T) {
 					return table && table.querySelectorAll('tr').length > 0;
 				})()
 			`, 5*time.Second),
-
-			// Reload page to see the persisted post (workaround for tree update issue)
-			chromedp.Reload(),
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
 			// Wait for page to load
 			waitFor(`document.readyState === 'complete'`, 3*time.Second),
@@ -639,56 +636,104 @@ func TestTutorialE2E(t *testing.T) {
 		testCtx, timeoutCancel := context.WithTimeout(testCtx, 60*time.Second)
 		defer timeoutCancel()
 
-		const checkPostExistsJS = `
+		const (
+			defaultPostTitle   = "My First Blog Post"
+			findExistingPostJS = `
+		(() => {
+			const titles = ['My Updated Blog Post', 'My First Blog Post'];
+			const table = document.querySelector('table');
+			if (!table) return '';
+			const rows = Array.from(table.querySelectorAll('tbody tr'));
+			for (const title of titles) {
+				if (rows.some(row => {
+					const cells = row.querySelectorAll('td');
+					return cells.length > 0 && cells[0].textContent.trim() === title;
+				})) {
+					return title;
+				}
+			}
+			return '';
+		})()
+		`
+		)
+
+		var targetTitle string
+		err := chromedp.Run(testCtx,
+			chromedp.Navigate(testURL+"/posts"),
+			waitForWebSocketReady(5*time.Second), // Wait for WebSocket init and first update
+			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
+			validateNoTemplateExpressions("[data-lvt-id]"), // Validate no raw template expressions
+			chromedp.Evaluate(findExistingPostJS, &targetTitle),
+		)
+		if err != nil {
+			t.Fatalf("Failed to check for existing post: %v", err)
+		}
+
+		if targetTitle == "" {
+			t.Log("ℹ️ Post not found, creating fixture for deletion test")
+			if err := ensureTutorialPostExists(testCtx, testURL); err != nil {
+				t.Fatalf("Failed to create post fixture: %v", err)
+			}
+			targetTitle = defaultPostTitle
+			postVisibleJS := fmt.Sprintf(`
 		(() => {
 			const table = document.querySelector('table');
 			if (!table) return false;
 			const rows = Array.from(table.querySelectorAll('tbody tr'));
 			return rows.some(row => {
 				const cells = row.querySelectorAll('td');
-				return cells.length > 0 && cells[0].textContent.trim() === 'My First Blog Post';
+				return cells.length > 0 && cells[0].textContent.trim() === %q;
 			});
 		})()
-		`
-
-		// Navigate and verify post exists
-		var postExists bool
-		err := chromedp.Run(testCtx,
-			chromedp.Navigate(testURL+"/posts"),
-			waitForWebSocketReady(5*time.Second), // Wait for WebSocket init and first update
-			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
-			validateNoTemplateExpressions("[data-lvt-id]"), // Validate no raw template expressions
-			chromedp.Evaluate(checkPostExistsJS, &postExists),
-		)
-		if err != nil {
-			t.Fatalf("Failed to check for post: %v", err)
-		}
-
-		if !postExists {
-			t.Log("ℹ️ Post not found, creating fixture for deletion test")
-			if err := ensureTutorialPostExists(testCtx, testURL); err != nil {
-				t.Fatalf("Failed to create post fixture: %v", err)
-			}
+		`, targetTitle)
+			var postVisible bool
 			if err := chromedp.Run(testCtx,
-				chromedp.Evaluate(checkPostExistsJS, &postExists),
+				waitFor(postVisibleJS, 5*time.Second),
+				chromedp.Evaluate(postVisibleJS, &postVisible),
 			); err != nil {
 				t.Fatalf("Failed to verify post fixture: %v", err)
 			}
-			if !postExists {
+			if !postVisible {
 				t.Fatal("❌ Unable to create post fixture for deletion test")
 			}
 		}
 
+		if targetTitle == "" {
+			t.Fatal("❌ No post available for deletion test")
+		}
+
+		checkPostExistsJS := fmt.Sprintf(`
+		(() => {
+			const table = document.querySelector('table');
+			if (!table) return false;
+			const rows = Array.from(table.querySelectorAll('tbody tr'));
+			return rows.some(row => {
+				const cells = row.querySelectorAll('td');
+				return cells.length > 0 && cells[0].textContent.trim() === %q;
+			});
+		})()
+		`, targetTitle)
+
+		var postExists bool
+		if err := chromedp.Run(testCtx,
+			chromedp.Evaluate(checkPostExistsJS, &postExists),
+		); err != nil {
+			t.Fatalf("Failed to verify post before deletion: %v", err)
+		}
+		if !postExists {
+			t.Fatalf("❌ Target post %q not found before deletion", targetTitle)
+		}
+
 		// Click Edit button to open modal
 		err = chromedp.Run(testCtx,
-			chromedp.Evaluate(`
+			chromedp.Evaluate(fmt.Sprintf(`
 				(() => {
 					const table = document.querySelector('table');
 					if (!table) return false;
 					const rows = Array.from(table.querySelectorAll('tbody tr'));
 					const targetRow = rows.find(row => {
 						const cells = row.querySelectorAll('td');
-						return cells.length > 0 && cells[0].textContent.trim() === 'My First Blog Post';
+					return cells.length > 0 && cells[0].textContent.trim() === %q;
 					});
 					if (targetRow) {
 						const editButton = targetRow.querySelector('button[lvt-click="edit"]');
@@ -698,10 +743,10 @@ func TestTutorialE2E(t *testing.T) {
 						}
 					}
 					return false;
-				})()
-			`, &postExists),
-			// Wait for update to complete
-			waitFor(`document.readyState === 'complete'`, 3*time.Second),
+			})()
+			`, targetTitle), &postExists),
+			// Wait for modal controls to be ready before continuing
+			waitFor(`document.querySelector('button[lvt-click="delete"]') !== null`, 3*time.Second),
 		)
 		if err != nil {
 			t.Fatalf("Failed to open edit modal: %v", err)
@@ -721,20 +766,19 @@ func TestTutorialE2E(t *testing.T) {
 				})()
 			`, &postExists),
 			// Wait for deletion to process
-			waitFor(`
-				(() => {
-					const table = document.querySelector('table tbody');
-					if (!table) return true;
-					const rows = Array.from(table.querySelectorAll('tr'));
-					return !rows.some(row => {
-						const cells = row.querySelectorAll('td');
-						return cells.length > 0 && cells[0].textContent.includes('My Updated Blog Post');
-					});
-				})()
-			`, 5*time.Second),
+			waitFor(fmt.Sprintf(`
+			(() => {
+				const table = document.querySelector('table tbody');
+				if (!table) return true;
+				const rows = Array.from(table.querySelectorAll('tr'));
+				return !rows.some(row => {
+					const cells = row.querySelectorAll('td');
+					return cells.length > 0 && cells[0].textContent.trim() === %q;
+				});
+			})()
+			`, targetTitle), 5*time.Second),
 
-			// Reload page to see the deletion result
-			chromedp.Reload(),
+			waitForWebSocketReady(5*time.Second),
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
 			// Wait for page to load
 			waitFor(`document.readyState === 'complete'`, 3*time.Second),
@@ -753,10 +797,10 @@ func TestTutorialE2E(t *testing.T) {
 		}
 
 		if postStillExists {
-			t.Fatal("❌ Post 'My First Blog Post' still exists after deletion")
+			t.Fatalf("❌ Post %q still exists after deletion", targetTitle)
 		}
 
-		t.Log("✅ Post 'My First Blog Post' deleted successfully after confirming")
+		t.Logf("✅ Post %q deleted successfully after confirming", targetTitle)
 	})
 
 	// Test Validation Errors
@@ -933,8 +977,6 @@ func TestTutorialE2E(t *testing.T) {
 			t.Log("✅ No server errors detected in logs")
 		}
 	})
-
-	t.Log("✅ All E2E tests passed!")
 }
 
 func ensureTutorialPostExists(ctx context.Context, baseURL string) error {
@@ -970,7 +1012,6 @@ func ensureTutorialPostExists(ctx context.Context, baseURL string) error {
 		chromedp.Click(`input[name="published"]`, chromedp.ByQuery),
 		chromedp.Click(`button[type="submit"]`, chromedp.ByQuery),
 		waitFor(existenceCheck, 5*time.Second),
-		chromedp.Reload(),
 		chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
 		waitFor(`document.readyState === 'complete'`, 3*time.Second),
 	)

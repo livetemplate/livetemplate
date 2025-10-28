@@ -405,8 +405,6 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 				})()
 			`, 10*time.Second),
 
-			// Reload
-			chromedp.Reload(),
 			chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
 			// Wait for page to fully load
 			waitFor(`document.readyState === 'complete'`, 3*time.Second),
