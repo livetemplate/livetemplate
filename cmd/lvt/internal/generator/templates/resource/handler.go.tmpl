@@ -92,6 +92,8 @@ func (s *[[.ResourceName]]State) Change(ctx *livetemplate.ActionContext) error {
 			return err
 		}
 
+		log.Printf("[lvt debug] add input: %+v", input)
+
 		now := time.Now()
 		id := fmt.Sprintf("[[.ResourceNameLower]]-%d", now.UnixNano())
 

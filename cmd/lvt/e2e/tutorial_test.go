@@ -371,6 +371,10 @@ func TestTutorialE2E(t *testing.T) {
 		testCtx, timeoutCancel := context.WithTimeout(testCtx, 60*time.Second)
 		defer timeoutCancel()
 
+		var titleValueBeforeSubmit string
+		var contentValueBeforeSubmit string
+		var activeElementAfterTyping string
+		var lastFocusedName string
 		err := chromedp.Run(testCtx,
 			// Navigate to /posts and wait for it to load
 			chromedp.Navigate(testURL+"/posts"),
@@ -388,6 +392,9 @@ func TestTutorialE2E(t *testing.T) {
 			chromedp.WaitVisible(`input[name="title"]`, chromedp.ByQuery),
 			chromedp.SendKeys(`input[name="title"]`, "My First Blog Post", chromedp.ByQuery),
 			chromedp.SendKeys(`textarea[name="content"]`, "This is the content of my first blog post", chromedp.ByQuery),
+			chromedp.Evaluate(`document.querySelector('input[name="title"]').value`, &titleValueBeforeSubmit),
+			chromedp.Evaluate(`document.querySelector('textarea[name="content"]').value`, &contentValueBeforeSubmit),
+			chromedp.Evaluate(`document.activeElement ? document.activeElement.getAttribute('name') || document.activeElement.tagName : 'none'`, &activeElementAfterTyping),
 			chromedp.Click(`input[name="published"]`, chromedp.ByQuery),
 
 			// Click the submit button in the modal
@@ -414,12 +421,17 @@ func TestTutorialE2E(t *testing.T) {
 		// Debug: Capture the tree state from the client
 		var treeState string
 		var lastWSMessage string
+		var lastFormData string
 		_ = chromedp.Run(testCtx,
 			chromedp.Evaluate(`JSON.stringify(window.liveTemplateClient?.treeState || {}, null, 2)`, &treeState),
 			chromedp.Evaluate(`window.__lastWSMessage || 'No WS message captured'`, &lastWSMessage),
+			chromedp.Evaluate(`JSON.stringify(window.__lvtLastFormData || JSON.parse(window.sessionStorage.getItem("__lvtLastFormData") || "null"))`, &lastFormData),
+			chromedp.Evaluate(`window.__lvtLastFocusedName || 'unknown'`, &lastFocusedName),
 		)
 		t.Logf("=== CLIENT TREE STATE ===\n%s\n", treeState)
 		t.Logf("=== LAST WS MESSAGE ===\n%s\n", lastWSMessage)
+		t.Logf("=== LAST FORM DATA ===\n%s\n", lastFormData)
+		t.Logf("=== VALUES BEFORE SUBMIT === title=%q content=%q activeElement=%q lastFocused=%q\n", titleValueBeforeSubmit, contentValueBeforeSubmit, activeElementAfterTyping, lastFocusedName)
 
 		// Verify the post appears in the table
 		var postInTable bool
