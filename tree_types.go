@@ -3,6 +3,7 @@ package livetemplate
 import (
 	"encoding/json"
 	"fmt"
+	"html/template"
 )
 
 // TreeNode represents a node in the template tree structure with type safety.
@@ -62,6 +63,9 @@ type TreeGenerationContext struct {
 	// CurrentPath tracks the current field path during recursive tree building.
 	// Format: "0" or "1.2" for nested structures
 	CurrentPath string
+
+	// FuncMap provides the template functions available during tree generation.
+	FuncMap template.FuncMap
 }
 
 // NewTreeGenerationContext creates a context for first render (includes all statics).

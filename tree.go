@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash"
-	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -334,42 +333,6 @@ func parseTemplateToTree(templateStr string, data interface{}, keyGen *keyGenera
 		genCtx = ctx[0]
 	}
 	return parseTemplateToTreeAST(templateStr, data, keyGen, genCtx)
-}
-
-// Helper functions for extracting template variables
-
-func getFieldValue(data interface{}, fieldName string) (interface{}, error) {
-	dataValue := reflect.ValueOf(data)
-
-	// Handle maps
-	if dataValue.Kind() == reflect.Map {
-		mapData, ok := data.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf("map must be map[string]interface{}")
-		}
-		value, exists := mapData[fieldName]
-		if !exists {
-			return nil, fmt.Errorf("field %s not found", fieldName)
-		}
-		return value, nil
-	}
-
-	// Dereference pointers
-	if dataValue.Kind() == reflect.Ptr {
-		dataValue = dataValue.Elem()
-	}
-
-	// Handle structs
-	if dataValue.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("data must be struct or map")
-	}
-
-	field := dataValue.FieldByName(fieldName)
-	if !field.IsValid() {
-		return nil, fmt.Errorf("field %s not found", fieldName)
-	}
-
-	return field.Interface(), nil
 }
 
 // keyAttributeConfig defines which attributes to check for explicit keys (internal use only)

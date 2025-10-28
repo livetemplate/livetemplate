@@ -123,6 +123,7 @@ type Template struct {
 	templateStr     string
 	tmpl            *template.Template
 	wrapperID       string
+	funcs           template.FuncMap
 	mu              sync.RWMutex // Protects mutable state fields below
 	lastData        interface{}
 	lastHTML        string
@@ -133,6 +134,43 @@ type Template struct {
 	keyGen          *keyGenerator            // Per-template key generation for wrapper approach
 	config          Config                   // Template configuration
 	registry        *ClientStructureRegistry // Track structure signatures sent to client (Phase 2)
+}
+
+// Funcs registers a template.FuncMap that will be applied to all template parsing and execution.
+func (t *Template) Funcs(funcMap template.FuncMap) *Template {
+	if len(funcMap) == 0 {
+		return t
+	}
+
+	if t.funcs == nil {
+		t.funcs = make(template.FuncMap, len(funcMap))
+	}
+
+	for name, fn := range funcMap {
+		t.funcs[name] = fn
+	}
+
+	// Update the existing parsed template if one is available.
+	t.mu.Lock()
+	if t.tmpl != nil {
+		t.tmpl = t.tmpl.Funcs(t.funcs)
+	}
+	t.mu.Unlock()
+
+	return t
+}
+
+// copyFuncMap creates a shallow copy of a FuncMap to prevent caller mutation.
+func copyFuncMap(src template.FuncMap) template.FuncMap {
+	if len(src) == 0 {
+		return nil
+	}
+
+	clone := make(template.FuncMap, len(src))
+	for name, fn := range src {
+		clone[name] = fn
+	}
+	return clone
 }
 
 // UpdateResponse wraps a tree update with metadata for form lifecycle.
@@ -351,6 +389,7 @@ func (t *Template) Clone() (*Template, error) {
 		name:        name,
 		templateStr: templateStr,
 		wrapperID:   wrapperID, // Share wrapper ID
+		funcs:       copyFuncMap(t.funcs),
 		keyGen:      newKeyGenerator(),
 		config:      config,                       // Preserve configuration
 		registry:    NewClientStructureRegistry(), // Fresh registry for new session
@@ -382,7 +421,11 @@ func (t *Template) Parse(text string) (*Template, error) {
 	t.wrapperID = generateRandomID()
 
 	// First, parse WITHOUT wrapper to check if flattening is needed
-	tmpl, err := template.New(t.name).Parse(text)
+	baseTemplate := template.New(t.name)
+	if len(t.funcs) > 0 {
+		baseTemplate = baseTemplate.Funcs(t.funcs)
+	}
+	tmpl, err := baseTemplate.Parse(text)
 	if err != nil {
 		return nil, fmt.Errorf("template parse error: %w", err)
 	}
@@ -415,7 +458,11 @@ func (t *Template) Parse(text string) (*Template, error) {
 	}
 
 	// Parse the template with wrapper for execution
-	tmpl, err = template.New(t.name).Parse(templateContent)
+	wrappedTemplate := template.New(t.name)
+	if len(t.funcs) > 0 {
+		wrappedTemplate = wrappedTemplate.Funcs(t.funcs)
+	}
+	tmpl, err = wrappedTemplate.Parse(templateContent)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse template with wrapper: %w", err)
 	}
@@ -461,7 +508,11 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 	t.wrapperID = generateRandomID()
 
 	// First, parse WITHOUT wrapper to check if flattening is needed
-	tmpl, err := template.New(t.name).Parse(text)
+	baseTemplate := template.New(t.name)
+	if len(t.funcs) > 0 {
+		baseTemplate = baseTemplate.Funcs(t.funcs)
+	}
+	tmpl, err := baseTemplate.Parse(text)
 	if err != nil {
 		return nil, fmt.Errorf("template parse error: %w", err)
 	}
@@ -509,7 +560,11 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 	}
 
 	// Parse the template with wrapper for execution
-	tmpl, err = template.New(t.name).Parse(templateContent)
+	wrappedTemplate := template.New(t.name)
+	if len(t.funcs) > 0 {
+		wrappedTemplate = wrappedTemplate.Funcs(t.funcs)
+	}
+	tmpl, err = wrappedTemplate.Parse(templateContent)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse template with wrapper: %w", err)
 	}
@@ -816,6 +871,7 @@ func (t *Template) generateInitialTree(html string, data interface{}) (*TreeNode
 	// Use the original parser - it maintains the correct invariant and handles dynamics properly
 	// First render: create context that includes all statics
 	ctx := NewTreeGenerationContext()
+	ctx.FuncMap = t.funcs
 	tree, err := parseTemplateToTree(templateContent, data, t.keyGen, ctx)
 	if err != nil {
 		// parseTemplateToTree failed, falling back to HTML structure
@@ -864,7 +920,9 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 		// IMPORTANT: Always generate trees WITH statics for comparison purposes
 		// The stripping happens in compareTreesAndGetChanges, not here
 		// Using nil context defaults to including statics
-		newTree, err := parseTemplateToTree(templateContent, newData, t.keyGen)
+		ctx := NewTreeGenerationContext()
+		ctx.FuncMap = t.funcs
+		newTree, err := parseTemplateToTree(templateContent, newData, t.keyGen, ctx)
 		if err != nil {
 			return nil, fmt.Errorf("tree generation failed: %w", err)
 		}

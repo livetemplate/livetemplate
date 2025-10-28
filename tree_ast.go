@@ -79,7 +79,7 @@ func parseTemplateToTreeAST(templateStr string, data interface{}, keyGen *keyGen
 	templateStr = normalizeTemplateSpacing(templateStr)
 
 	// Parse template to get AST
-	tmpl, err := template.New("temp").Parse(templateStr)
+	tmpl, err := newTemplateWithFuncs("temp", ctx).Parse(templateStr)
 	if err != nil {
 		return nil, fmt.Errorf("template parse error: %w", err)
 	}
@@ -91,7 +91,7 @@ func parseTemplateToTreeAST(templateStr string, data interface{}, keyGen *keyGen
 			return nil, fmt.Errorf("template flatten error: %w", err)
 		}
 		// Re-parse flattened template
-		tmpl, err = template.New("temp-flattened").Parse(flattenedStr)
+		tmpl, err = newTemplateWithFuncs("temp-flattened", ctx).Parse(flattenedStr)
 		if err != nil {
 			return nil, fmt.Errorf("flattened template parse error: %w", err)
 		}
@@ -109,6 +109,15 @@ func parseTemplateToTreeAST(templateStr string, data interface{}, keyGen *keyGen
 	}
 
 	return tree, nil
+}
+
+// newTemplateWithFuncs creates a template preloaded with the context's function map.
+func newTemplateWithFuncs(name string, ctx *TreeGenerationContext) *template.Template {
+	tmpl := template.New(name)
+	if ctx != nil && ctx.FuncMap != nil && len(ctx.FuncMap) > 0 {
+		tmpl = tmpl.Funcs(ctx.FuncMap)
+	}
+	return tmpl
 }
 
 // buildTreeFromAST recursively walks the AST and constructs the tree structure
@@ -143,6 +152,10 @@ func buildTreeFromAST(node parse.Node, data interface{}, keyGen *keyGenerator, c
 
 	case *parse.IfNode:
 		return handleIfNode(n, data, keyGen, ctx)
+
+	case *parse.CommentNode:
+		// Comments render nothing; treat as empty segment
+		return NewTreeNode(), nil
 
 	case *parse.RangeNode:
 		return handleRangeNode(n, data, keyGen, ctx)
@@ -266,7 +279,7 @@ func handleActionNode(node *parse.ActionNode, data interface{}, keyGen *keyGener
 
 	// Execute the action to get its value
 	nodeStr := node.String()
-	tmpl, err := template.New("action").Parse(nodeStr)
+	tmpl, err := newTemplateWithFuncs("action", ctx).Parse(nodeStr)
 	if err != nil {
 		return nil, fmt.Errorf("action parse error: %w", err)
 	}
@@ -294,7 +307,7 @@ func handleIfNode(node *parse.IfNode, data interface{}, keyGen *keyGenerator, ct
 
 	// Evaluate condition by executing just the if part
 	condTmpl := fmt.Sprintf("{{if %s}}true{{else}}false{{end}}", formatPipe(node.Pipe))
-	tmpl, err := template.New("cond").Parse(condTmpl)
+	tmpl, err := newTemplateWithFuncs("cond", ctx).Parse(condTmpl)
 	if err != nil {
 		return nil, fmt.Errorf("condition parse error: %w", err)
 	}
@@ -360,7 +373,7 @@ func handleRangeNode(node *parse.RangeNode, data interface{}, keyGen *keyGenerat
 			if len(lastCmd.Args) > 0 {
 				// Get the field/expression being ranged over
 				collectionExpr := lastCmd.Args[0].String()
-				collection, err = evaluatePipe(collectionExpr, data)
+				collection, err = evaluatePipe(collectionExpr, data, ctx)
 				if err != nil {
 					return nil, fmt.Errorf("range evaluation error: %w", err)
 				}
@@ -373,7 +386,7 @@ func handleRangeNode(node *parse.RangeNode, data interface{}, keyGen *keyGenerat
 	} else {
 		// No variable declarations - simple {{range .Items}}
 		pipeStr := formatPipe(node.Pipe)
-		collection, err = evaluatePipe(pipeStr, data)
+		collection, err = evaluatePipe(pipeStr, data, ctx)
 		if err != nil {
 			return nil, fmt.Errorf("range evaluation error: %w", err)
 		}
@@ -736,7 +749,7 @@ func handleActionNodeWithVars(node *parse.ActionNode, varCtx *varContext, keyGen
 
 	if !hasVars {
 		// No variables - execute normally with dot context
-		tmpl, err := template.New("action").Parse(nodeStr)
+		tmpl, err := newTemplateWithFuncs("action", ctx).Parse(nodeStr)
 		if err != nil {
 			return nil, fmt.Errorf("action parse error: %w", err)
 		}
@@ -760,7 +773,7 @@ func handleActionNodeWithVars(node *parse.ActionNode, varCtx *varContext, keyGen
 
 	// Better approach: Build a mini data structure that wraps the variables
 	// and execute the action after transforming variable references to field references
-	result := evaluateActionWithVars(nodeStr, varCtx)
+	result := evaluateActionWithVars(nodeStr, varCtx, ctx)
 
 	tree := NewTreeNode()
 	if ctx.ShouldIncludeStatics() {
@@ -866,7 +879,7 @@ func mergeFieldsIntoMap(value interface{}, target map[string]interface{}) error 
 
 // evaluateActionWithVars evaluates an action string that contains variable references
 // It does this by building a wrapper template that defines the variables using a range
-func evaluateActionWithVars(actionStr string, varCtx *varContext) string {
+func evaluateActionWithVars(actionStr string, varCtx *varContext, ctx *TreeGenerationContext) string {
 	// Build a wrapper template that defines the variables
 	// For {{$index | printf "#%d"}}, if $index=0, we build:
 	// {{range $i := slice 0}}{{$i | printf "#%d"}}{{end}}
@@ -928,7 +941,7 @@ func evaluateActionWithVars(actionStr string, varCtx *varContext) string {
 	}
 
 	// Execute the wrapper template
-	tmpl, err := template.New("varAction").Parse(transformedAction)
+	tmpl, err := newTemplateWithFuncs("varAction", ctx).Parse(transformedAction)
 	if err != nil {
 		return fmt.Sprintf("ERROR: %v", err)
 	}
@@ -963,7 +976,7 @@ func handleIfNodeWithVars(node *parse.IfNode, varCtx *varContext, keyGen *keyGen
 
 	// If no variables or root, execute with dot context
 	if !usesVars && !usesRoot {
-		tmpl, err := template.New("cond").Parse(condStr)
+		tmpl, err := newTemplateWithFuncs("cond", ctx).Parse(condStr)
 		if err != nil {
 			return nil, fmt.Errorf("condition parse error: %w", err)
 		}
@@ -1035,7 +1048,7 @@ func handleIfNodeWithVars(node *parse.IfNode, varCtx *varContext, keyGen *keyGen
 
 	// Execute condition with transformed template
 	condTmplStr := fmt.Sprintf("{{if %s}}true{{else}}false{{end}}", transformedCond)
-	tmpl, err := template.New("cond").Parse(condTmplStr)
+	tmpl, err := newTemplateWithFuncs("cond", ctx).Parse(condTmplStr)
 	if err != nil {
 		return nil, fmt.Errorf("condition parse error: %w", err)
 	}
@@ -1085,7 +1098,7 @@ func handleWithNode(node *parse.WithNode, data interface{}, keyGen *keyGenerator
 	// Evaluate the with pipe to get the new context
 	pipeStr := formatPipe(node.Pipe)
 
-	newContext, err := evaluatePipe(pipeStr, data)
+	newContext, err := evaluatePipe(pipeStr, data, ctx)
 	if err != nil {
 		return nil, fmt.Errorf("with evaluation error: %w", err)
 	}
@@ -1109,36 +1122,54 @@ func handleWithNode(node *parse.WithNode, data interface{}, keyGen *keyGenerator
 }
 
 // evaluatePipe evaluates a pipe expression against data
-func evaluatePipe(pipeStr string, data interface{}) (interface{}, error) {
-	// Create a template with the pipe expression
-	tmplStr := fmt.Sprintf("{{%s}}", pipeStr)
-	tmpl, err := template.New("pipe").Parse(tmplStr)
-	if err != nil {
-		return nil, err
-	}
-
-	// Execute to get the value
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return nil, err
-	}
-
-	// For simple field access, we need the actual value, not string
-	// Try to get it via reflection
+func evaluatePipe(pipeStr string, data interface{}, ctx *TreeGenerationContext) (interface{}, error) {
 	if pipeStr == "." {
 		return data, nil
 	}
 
-	// For field access like .Items, .User, etc.
-	if len(pipeStr) > 1 && pipeStr[0] == '.' {
-		fieldName := pipeStr[1:]
-		val, err := getFieldValue(data, fieldName)
-		if err == nil {
-			return val, nil
+	const captureName = "__lvt_capture_result__"
+	var (
+		captured   interface{}
+		didCapture bool
+	)
+
+	// Build function map with capture helper and user-provided functions.
+	funcs := make(template.FuncMap)
+	if ctx != nil && ctx.FuncMap != nil {
+		for name, fn := range ctx.FuncMap {
+			funcs[name] = fn
 		}
 	}
+	funcs[captureName] = func(v interface{}) string {
+		captured = v
+		didCapture = true
+		return ""
+	}
 
-	// Fall back to string representation
+	// Execute the pipeline through a capture helper to retain the concrete value.
+	tmpl, err := template.New("pipe").Funcs(funcs).Parse(fmt.Sprintf("{{%s (%s)}}", captureName, pipeStr))
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tmpl.Execute(&bytes.Buffer{}, data); err != nil {
+		return nil, err
+	}
+
+	if didCapture {
+		return captured, nil
+	}
+
+	// Fallback to string representation if the capture did not run.
+	fallbackTmpl, err := template.New("pipe-fallback").Funcs(funcs).Parse(fmt.Sprintf("{{%s}}", pipeStr))
+	if err != nil {
+		return nil, err
+	}
+
+	var buf bytes.Buffer
+	if err := fallbackTmpl.Execute(&buf, data); err != nil {
+		return nil, err
+	}
 	return buf.String(), nil
 }
 
