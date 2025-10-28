@@ -102,21 +102,20 @@ func Setup(t *testing.T, opts *SetupOptions) *E2ETest {
 	serverCmd := StartTestServer(t, opts.AppPath, serverPort)
 
 	// Start Chrome based on mode
-	var chromeCmd *exec.Cmd
-	var ctx context.Context
-	var cancel context.CancelFunc
+	var (
+		chromeCmd       *exec.Cmd
+		ctx             context.Context
+		cancel          context.CancelFunc
+		allocatorCancel context.CancelFunc
+	)
 
 	switch opts.ChromeMode {
 	case ChromeDocker:
 		chromeCmd = StartDockerChrome(t, chromePort)
 		chromeURL := fmt.Sprintf("http://localhost:%d", chromePort)
-		allocCtx, allocCancel := chromedp.NewRemoteAllocator(context.Background(), chromeURL)
+		var allocCtx context.Context
+		allocCtx, allocatorCancel = chromedp.NewRemoteAllocator(context.Background(), chromeURL)
 		ctx, _ = chromedp.NewContext(allocCtx, chromedp.WithLogf(t.Logf))
-		// Ensure allocator is canceled when context is canceled
-		go func() {
-			<-ctx.Done()
-			allocCancel()
-		}()
 
 	case ChromeLocal:
 		// Use local Chrome installation
@@ -128,12 +127,9 @@ func Setup(t *testing.T, opts *SetupOptions) *E2ETest {
 		if opts.ChromePath != "" {
 			allocOpts = append(allocOpts, chromedp.ExecPath(opts.ChromePath))
 		}
-		allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), allocOpts...)
+		var allocCtx context.Context
+		allocCtx, allocatorCancel = chromedp.NewExecAllocator(context.Background(), allocOpts...)
 		ctx, _ = chromedp.NewContext(allocCtx, chromedp.WithLogf(t.Logf))
-		go func() {
-			<-ctx.Done()
-			allocCancel()
-		}()
 
 	case ChromeShared:
 		// TODO: Implement shared Chrome instance support in Session 12
@@ -145,6 +141,12 @@ func Setup(t *testing.T, opts *SetupOptions) *E2ETest {
 
 	// Apply timeout - this is where we get the final cancel function
 	ctx, cancel = context.WithTimeout(ctx, opts.Timeout)
+	if allocatorCancel != nil {
+		go func(doneCtx context.Context, cancelFunc context.CancelFunc) {
+			<-doneCtx.Done()
+			cancelFunc()
+		}(ctx, allocatorCancel)
+	}
 
 	// Create loggers
 	consoleLogger := NewConsoleLogger()

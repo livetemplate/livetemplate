@@ -14,6 +14,7 @@ import (
 
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
+	e2etest "github.com/livefir/livetemplate/internal/testing"
 )
 
 // TestTutorialE2E tests the complete blog tutorial workflow
@@ -159,12 +160,12 @@ func TestTutorialE2E(t *testing.T) {
 	portStr := fmt.Sprintf("%d", serverPort)
 
 	// Capture server logs to detect errors
-	var serverLogs strings.Builder
+	serverLogs := e2etest.NewSafeBuffer()
 	serverCmd := exec.Command(serverBinary)
 	serverCmd.Dir = blogDir
 	serverCmd.Env = append(os.Environ(), "PORT="+portStr)
-	serverCmd.Stdout = io.MultiWriter(os.Stdout, &serverLogs)
-	serverCmd.Stderr = io.MultiWriter(os.Stderr, &serverLogs)
+	serverCmd.Stdout = io.MultiWriter(os.Stdout, serverLogs)
+	serverCmd.Stderr = io.MultiWriter(os.Stderr, serverLogs)
 
 	if err := serverCmd.Start(); err != nil {
 		t.Fatalf("Failed to start server process: %v", err)
