@@ -16,8 +16,90 @@ import (
 )
 
 const (
-	dockerImage = "chromedp/headless-shell:latest"
+	dockerImage           = "chromedp/headless-shell:latest"
+	chromeContainerPrefix = "chrome-e2e-test-"
+	staleContainerGrace   = 10 * time.Minute
 )
+
+func removeContainersByFilter(filter string, shouldRemove func(string) (bool, error)) ([]string, error) {
+	listCmd := exec.Command("docker", "ps", "-aq", "-f", fmt.Sprintf("name=%s", filter))
+	output, err := listCmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	ids := strings.Fields(strings.TrimSpace(string(output)))
+	if shouldRemove != nil {
+		filtered := make([]string, 0, len(ids))
+		for _, id := range ids {
+			ok, err := shouldRemove(id)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				filtered = append(filtered, id)
+			}
+		}
+		ids = filtered
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	args := append([]string{"rm", "-f"}, ids...)
+	rmCmd := exec.Command("docker", args...)
+	if rmOutput, err := rmCmd.CombinedOutput(); err != nil {
+		return ids, fmt.Errorf("docker rm failed: %w (%s)", err, strings.TrimSpace(string(rmOutput)))
+	}
+	return ids, nil
+}
+
+func cleanupContainerByName(tb testing.TB, name string) {
+	if removed, err := removeContainersByFilter(name, nil); err != nil {
+		if tb != nil {
+			tb.Logf("warning: failed to clean Chrome container %s: %v", name, err)
+		} else {
+			fmt.Fprintf(os.Stderr, "warning: failed to clean Chrome container %s: %v\n", name, err)
+		}
+	} else if len(removed) > 0 {
+		msg := fmt.Sprintf("Cleaned up leftover Chrome container(s): %s", strings.Join(removed, ", "))
+		if tb != nil {
+			tb.Log(msg)
+		} else {
+			fmt.Fprintln(os.Stderr, msg)
+		}
+	}
+}
+
+// CleanupChromeContainers removes any lingering Chrome containers created by the E2E helpers.
+func CleanupChromeContainers() {
+	shouldRemove := func(id string) (bool, error) {
+		inspectCmd := exec.Command("docker", "inspect", "--format", "{{.State.Running}} {{.State.StartedAt}}", id)
+		inspectOutput, err := inspectCmd.Output()
+		if err != nil {
+			return true, err
+		}
+		fields := strings.Fields(strings.TrimSpace(string(inspectOutput)))
+		if len(fields) < 2 {
+			return true, nil
+		}
+		running := fields[0] == "true"
+		startedAt, err := time.Parse(time.RFC3339Nano, fields[1])
+		if err != nil {
+			startedAt, err = time.Parse(time.RFC3339, fields[1])
+			if err != nil {
+				return true, nil
+			}
+		}
+		if !running {
+			return true, nil
+		}
+		return time.Since(startedAt) > staleContainerGrace, nil
+	}
+	if removed, err := removeContainersByFilter(chromeContainerPrefix, shouldRemove); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to clean Chrome containers: %v\n", err)
+	} else if len(removed) > 0 {
+		fmt.Fprintf(os.Stderr, "Cleaned up %d lingering Chrome container(s): %s\n", len(removed), strings.Join(removed, ", "))
+	}
+}
 
 // GetFreePort asks the kernel for a free open port that is ready to use
 func GetFreePort() (port int, err error) {
@@ -51,6 +133,9 @@ func StartDockerChrome(t *testing.T, debugPort int) *exec.Cmd {
 	if err := exec.Command("docker", "version").Run(); err != nil {
 		t.Skip("Docker not available, skipping E2E test")
 	}
+
+	containerName := fmt.Sprintf("%s%d", chromeContainerPrefix, debugPort)
+	cleanupContainerByName(t, containerName)
 
 	// Check if image exists, if not try to pull it (with timeout)
 	checkCmd := exec.Command("docker", "image", "inspect", dockerImage)
@@ -86,7 +171,6 @@ func StartDockerChrome(t *testing.T, debugPort int) *exec.Cmd {
 	t.Log("Starting Chrome headless Docker container...")
 	var cmd *exec.Cmd
 	portMapping := fmt.Sprintf("%d:9222", debugPort)
-	containerName := fmt.Sprintf("chrome-e2e-test-%d", debugPort) // Unique name per test
 
 	if runtime.GOOS == "linux" {
 		// On Linux, use host networking so container can access localhost

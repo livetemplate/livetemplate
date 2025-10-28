@@ -405,7 +405,25 @@ func TestTodosE2E(t *testing.T) {
 	})
 
 	t.Run("Search Functionality", func(t *testing.T) {
-		var html string
+		var (
+			html       string
+			emptyState struct {
+				Visible bool   `json:"visible"`
+				Text    string `json:"text"`
+			}
+			paginationState struct {
+				HiddenAttr  bool   `json:"hiddenAttr"`
+				Display     string `json:"display"`
+				DataVisible string `json:"dataVisible"`
+			}
+			paginationVisibleState struct {
+				HiddenAttr  bool   `json:"hiddenAttr"`
+				Display     string `json:"display"`
+				DataVisible string `json:"dataVisible"`
+			}
+			debugInfo   string
+			consoleLogs string
+		)
 
 		// Test search with "First" - should match "First Todo Item"
 		// Use event-driven waiting for deterministic results
@@ -466,10 +484,7 @@ func TestTodosE2E(t *testing.T) {
 
 		t.Log("✅ Search cleared successfully")
 
-		// Test search with no results - CAPTURE DEBUG INFO AND CONSOLE LOGS
-		var debugInfo, consoleLogs string
-
-		// Clear console and set up log capture
+		// Test search with no results - capture console logs and debug info
 		err = chromedp.Run(ctx,
 			chromedp.Evaluate(`
 				(() => {
@@ -501,10 +516,34 @@ func TestTodosE2E(t *testing.T) {
 				})();
 			`, nil),
 			e2etest.WaitForUpdateEvent("search", 5*time.Second),
+			chromedp.Evaluate(`
+				(() => {
+					const el = document.querySelector('[data-empty-state]');
+					if (!el) {
+						return { visible: false, text: '' };
+					}
+					return {
+						visible: !el.hasAttribute('hidden'),
+						text: (el.textContent || '').trim()
+					};
+				})();
+			`, &emptyState),
+			chromedp.Evaluate(`
+				(() => {
+					const nav = document.querySelector('[data-pagination]');
+					if (!nav) {
+						return { hiddenAttr: true, display: 'none', dataVisible: 'false' };
+					}
+					const style = window.getComputedStyle(nav);
+					return {
+						hiddenAttr: nav.hasAttribute('hidden'),
+						display: style.display,
+						dataVisible: nav.dataset.visible || ''
+					};
+				})();
+			`, &paginationState),
 			chromedp.OuterHTML(`section`, &html, chromedp.ByQuery),
-			// Get console logs
 			chromedp.Evaluate(`JSON.stringify(window.capturedConsoleLogs || [], null, 2)`, &consoleLogs),
-			// Capture comprehensive debug info
 			chromedp.Evaluate(`
 				(() => {
 					const debug = {
@@ -512,13 +551,12 @@ func TestTodosE2E(t *testing.T) {
 						clientsMap: window.LiveTemplateClient ? (window.LiveTemplateClient.clients ? 'exists' : 'missing') : 'no LiveTemplateClient'
 					};
 
-					// Try to get the actual client
 					if (window.LiveTemplateClient && window.LiveTemplateClient.clients) {
 						const lvtEl = document.querySelector('[id^="lvt-"]');
 						if (lvtEl) {
 							debug.lvtElementId = lvtEl.id;
 							const clientsArray = Array.from(window.LiveTemplateClient.clients.entries());
-							debug.clientIds = clientsArray.map(([id, c]) => id);
+							debug.clientIds = clientsArray.map(([id]) => id);
 							const client = window.LiveTemplateClient.clients.get(lvtEl.id);
 							if (client) {
 								debug.treeState = client.getTreeState();
@@ -544,9 +582,18 @@ func TestTodosE2E(t *testing.T) {
 		t.Logf("Debug info after empty search:\n%s", debugInfo)
 		t.Logf("HTML after empty search:\n%s", html)
 
-		// Verify no results message is shown
-		if !strings.Contains(html, "No todos found matching") {
-			t.Errorf("No results message not found. HTML: %s", html)
+		// Verify empty state is visible with expected text and pagination controls hidden
+		if !emptyState.Visible {
+			t.Error("Empty state should be visible when no todos match search")
+		}
+		if !strings.Contains(emptyState.Text, "No todos found matching \"NonExistent\"") {
+			t.Errorf("Empty state text unexpected: %q", emptyState.Text)
+		}
+		if paginationState.Display != "none" {
+			t.Errorf("Pagination controls should be hidden (display none) when no todos match search. State: %+v", paginationState)
+		}
+		if paginationState.DataVisible != "false" {
+			t.Errorf("Pagination data-visible should be 'false' when hidden. State: %+v", paginationState)
 		}
 
 		t.Log("✅ Empty search results handled correctly")
@@ -566,6 +613,33 @@ func TestTodosE2E(t *testing.T) {
 
 		if err != nil {
 			t.Fatalf("Failed to clear search in cleanup: %v", err)
+		}
+
+		// Confirm pagination controls are visible again after clearing search
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`
+				(() => {
+					const nav = document.querySelector('[data-pagination]');
+					if (!nav) {
+						return { hiddenAttr: true, display: 'none', dataVisible: 'false' };
+					}
+					const style = window.getComputedStyle(nav);
+					return {
+						hiddenAttr: nav.hasAttribute('hidden'),
+						display: style.display,
+						dataVisible: nav.dataset.visible || ''
+					};
+				})();
+			`, &paginationVisibleState),
+		)
+		if err != nil {
+			t.Fatalf("Failed to verify pagination visibility after clearing search: %v", err)
+		}
+		if paginationVisibleState.Display != "block" {
+			t.Errorf("Pagination controls should be visible (display block) after clearing search. State: %+v", paginationVisibleState)
+		}
+		if paginationVisibleState.DataVisible != "true" {
+			t.Errorf("Pagination data-visible should be 'true' after clearing search. State: %+v", paginationVisibleState)
 		}
 
 		t.Log("✅ Search cleared successfully")
@@ -677,7 +751,11 @@ func TestTodosE2E(t *testing.T) {
 	})
 
 	t.Run("Pagination Functionality", func(t *testing.T) {
-		var html string
+		var (
+			html           string
+			nextButtonHTML string
+			prevButtonHTML string
+		)
 
 		// Currently have 5 todos (page size is 3, so 2 pages)
 		// Add one more to make 6 todos (exactly 2 pages)
@@ -720,7 +798,22 @@ func TestTodosE2E(t *testing.T) {
 			e2etest.SetupUpdateEventListener(),
 			chromedp.Click(`button[lvt-click="next_page"]`, chromedp.ByQuery),
 			e2etest.WaitForUpdateEvent("next_page", 5*time.Second),
+			e2etest.WaitFor(`(() => {
+				const btn = document.querySelector('button[lvt-click="next_page"]');
+				if (!btn) {
+					return false;
+				}
+				if (btn.disabled) {
+					return true;
+				}
+				if (btn.dataset && btn.dataset.disabled === 'true') {
+					return true;
+				}
+				const style = window.getComputedStyle(btn);
+				return style.pointerEvents === 'none';
+			})()`, 5*time.Second),
 			chromedp.OuterHTML(`tbody`, &html, chromedp.ByQuery),
+			chromedp.OuterHTML(`button[lvt-click="next_page"]`, &nextButtonHTML, chromedp.ByQuery),
 		)
 
 		if err != nil {
@@ -748,11 +841,23 @@ func TestTodosE2E(t *testing.T) {
 		// Verify Next button is disabled on last page
 		var nextDisabled bool
 		err = chromedp.Run(ctx,
-			chromedp.Evaluate(`document.querySelector('button[lvt-click="next_page"]').disabled`, &nextDisabled),
+			chromedp.Evaluate(`(() => {
+				const btn = document.querySelector('button[lvt-click="next_page"]');
+				if (!btn) {
+					return false;
+				}
+				if (btn.disabled) {
+					return true;
+				}
+				if (btn.dataset && btn.dataset.disabled === 'true') {
+					return true;
+				}
+				return window.getComputedStyle(btn).pointerEvents === 'none';
+			})()`, &nextDisabled),
 		)
 
 		if err == nil && !nextDisabled {
-			t.Error("Next button should be disabled on last page")
+			t.Errorf("Next button should be disabled on last page (HTML: %s)", nextButtonHTML)
 		}
 
 		t.Log("✅ Next button disabled on last page")
@@ -762,7 +867,22 @@ func TestTodosE2E(t *testing.T) {
 			e2etest.SetupUpdateEventListener(),
 			chromedp.Evaluate(`document.querySelector('button[lvt-click="prev_page"]').click()`, nil),
 			e2etest.WaitForUpdateEvent("prev_page", 5*time.Second),
+			e2etest.WaitFor(`(() => {
+				const btn = document.querySelector('button[lvt-click="prev_page"]');
+				if (!btn) {
+					return false;
+				}
+				if (btn.disabled) {
+					return true;
+				}
+				if (btn.dataset && btn.dataset.disabled === 'true') {
+					return true;
+				}
+				const style = window.getComputedStyle(btn);
+				return style.pointerEvents === 'none';
+			})()`, 5*time.Second),
 			chromedp.OuterHTML(`tbody`, &html, chromedp.ByQuery),
+			chromedp.OuterHTML(`button[lvt-click="prev_page"]`, &prevButtonHTML, chromedp.ByQuery),
 		)
 
 		if err != nil {
@@ -779,11 +899,23 @@ func TestTodosE2E(t *testing.T) {
 		// Verify Previous button is disabled on page 1
 		var prevDisabled bool
 		err = chromedp.Run(ctx,
-			chromedp.Evaluate(`document.querySelector('button[lvt-click="prev_page"]').disabled`, &prevDisabled),
+			chromedp.Evaluate(`(() => {
+				const btn = document.querySelector('button[lvt-click="prev_page"]');
+				if (!btn) {
+					return false;
+				}
+				if (btn.disabled) {
+					return true;
+				}
+				if (btn.dataset && btn.dataset.disabled === 'true') {
+					return true;
+				}
+				return window.getComputedStyle(btn).pointerEvents === 'none';
+			})()`, &prevDisabled),
 		)
 
 		if err == nil && !prevDisabled {
-			t.Error("Previous button should be disabled on first page")
+			t.Errorf("Previous button should be disabled on first page (HTML: %s)", prevButtonHTML)
 		}
 
 		t.Log("✅ Previous button disabled on first page")

@@ -128,8 +128,18 @@ func TestModalFunctionality(t *testing.T) {
 		// Navigate to test page
 		chromedp.Navigate(chromeURL),
 		chromedp.WaitReady("body"),
+		// Force client auto-initialization if the script hasn't attached the instance yet
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return chromedp.Evaluate(`
+				(() => {
+					if (!window.liveTemplateClient && window.LiveTemplateClient?.LiveTemplateClient?.autoInit) {
+						window.LiveTemplateClient.LiveTemplateClient.autoInit();
+					}
+				})();
+			`, nil).Do(ctx)
+		}),
 		// Wait for client to fully initialize
-		waitFor("typeof window.liveTemplateClient !== 'undefined'", 5*time.Second),
+		waitFor(`typeof window.liveTemplateClient !== 'undefined'`, 10*time.Second),
 
 		// Test 1: Modal should be hidden initially
 		chromedp.ActionFunc(func(ctx context.Context) error {

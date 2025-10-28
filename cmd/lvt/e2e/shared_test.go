@@ -32,6 +32,8 @@ var (
 
 // TestMain sets up shared resources before running tests and cleans up after
 func TestMain(m *testing.M) {
+	cleanupChromeContainers()
+
 	// Setup shared resources
 	if err := setupSharedResources(); err != nil {
 		log.Printf("Failed to setup shared resources: %v", err)
@@ -43,6 +45,7 @@ func TestMain(m *testing.M) {
 
 	// Cleanup shared resources
 	cleanupSharedResources()
+	cleanupChromeContainers()
 
 	os.Exit(code)
 }

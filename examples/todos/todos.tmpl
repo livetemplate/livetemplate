@@ -118,48 +118,104 @@
               {{ end }}
             </tbody>
           </table>
-          {{ if eq (len .PaginatedTodos) 0 }}
-            <p>
-              {{ if ne .SearchQuery "" }}
-                <small>No todos found matching "{{ .SearchQuery }}"</small>
-              {{ end }}
-              {{ if eq .SearchQuery "" }}
-                <small>No todos yet. Add one above!</small>
-              {{ end }}
-            </p>
-          {{ end }}
-
+          <p data-empty-state{{ if gt (len .PaginatedTodos) 0 }}hidden{{ end }}>
+            {{ if ne .SearchQuery "" }}
+              <small>No todos found matching "{{ .SearchQuery }}"</small>
+            {{ else }}
+              <small>No todos yet. Add one above!</small>
+            {{ end }}
+          </p>
 
           <!-- Pagination Controls -->
-          {{ if gt .TotalPages 1 }}
-            <nav aria-label="Pagination">
-              <ul
-                style="display: flex; justify-content: center; align-items: center; gap: 1rem; list-style: none; padding: 0;"
-              >
-                <li>
-                  <button
-                    lvt-click="prev_page"
-                    {{ if eq .CurrentPage 1 }}disabled{{ end }}
-                    class="secondary"
-                  >
-                    Previous
-                  </button>
-                </li>
-                <li>
-                  <small>Page {{ .CurrentPage }} of {{ .TotalPages }}</small>
-                </li>
-                <li>
-                  <button
-                    lvt-click="next_page"
-                    {{ if eq .CurrentPage .TotalPages }}disabled{{ end }}
-                    class="secondary"
-                  >
-                    Next
-                  </button>
-                </li>
-              </ul>
-            </nav>
-          {{ end }}
+          <nav
+            data-pagination
+            aria-label="Pagination"
+            data-visible="{{- if .ShowPagination -}}
+              true
+            {{- else -}}
+              false
+            {{- end -}}"
+            style="display: {{ if .ShowPagination }}
+              block
+            {{ else }}
+              none
+            {{ end }};"
+            {{ if not .ShowPagination }}hidden{{ end }}
+          >
+            <ul
+              style="display: flex; justify-content: center; align-items: center; gap: 1rem; list-style: none; padding: 0;"
+            >
+              <li>
+                <button
+                  lvt-click="prev_page"
+                  data-disabled="{{- if .PrevDisabled -}}
+                    true
+                  {{- else -}}
+                    false
+                  {{- end -}}"
+                  aria-disabled="{{- if .PrevDisabled -}}
+                    true
+                  {{- else -}}
+                    false
+                  {{- end -}}"
+                  {{ if .PrevDisabled }}disabled{{ end }}
+                  tabindex="{{ if .PrevDisabled }}
+                    -1
+                  {{ else }}
+                    0
+                  {{ end }}"
+                  style="pointer-events: {{ if .PrevDisabled }}
+                    none
+                  {{ else }}
+                    auto
+                  {{ end }}; opacity: {{ if .PrevDisabled }}
+                    0.6
+                  {{ else }}
+                    1
+                  {{ end }};"
+                  class="secondary"
+                >
+                  Previous
+                </button>
+              </li>
+              <li>
+                <small>Page {{ .CurrentPage }} of {{ .TotalPages }}</small>
+              </li>
+              <li>
+                <button
+                  lvt-click="next_page"
+                  data-disabled="{{- if .NextDisabled -}}
+                    true
+                  {{- else -}}
+                    false
+                  {{- end -}}"
+                  aria-disabled="{{- if .NextDisabled -}}
+                    true
+                  {{- else -}}
+                    false
+                  {{- end -}}"
+                  {{ if .NextDisabled }}disabled{{ end }}
+                  tabindex="{{ if .NextDisabled }}
+                    -1
+                  {{ else }}
+                    0
+                  {{ end }}"
+                  style="pointer-events: {{ if .NextDisabled }}
+                    none
+                  {{ else }}
+                    auto
+                  {{ end }}; opacity: {{ if .NextDisabled }}
+                    0.6
+                  {{ else }}
+                    1
+                  {{ end }};"
+                  class="secondary"
+                >
+                  Next
+                </button>
+              </li>
+            </ul>
+          </nav>
 
           {{ if gt .CompletedCount 0 }}
             <button lvt-click="clear_completed" class="secondary">

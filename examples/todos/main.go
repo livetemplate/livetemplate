@@ -60,6 +60,9 @@ type TodoState struct {
 	CompletedCount int         `json:"completed_count"`
 	RemainingCount int         `json:"remaining_count"`
 	LastUpdated    string      `json:"last_updated"`
+	ShowPagination bool        `json:"show_pagination"`
+	PrevDisabled   bool        `json:"prev_disabled"`
+	NextDisabled   bool        `json:"next_disabled"`
 }
 
 func (s *TodoState) Change(ctx *livetemplate.ActionContext) error {
@@ -297,6 +300,9 @@ func (s *TodoState) applyPagination() {
 		s.TotalPages = 1
 		s.CurrentPage = 1
 		s.PaginatedTodos = []TodoItem{}
+		s.ShowPagination = false
+		s.PrevDisabled = true
+		s.NextDisabled = true
 		return
 	}
 
@@ -319,6 +325,11 @@ func (s *TodoState) applyPagination() {
 
 	// Slice to get current page items
 	s.PaginatedTodos = s.FilteredTodos[start:end]
+
+	hasPaginated := len(s.PaginatedTodos) > 0
+	s.ShowPagination = hasPaginated && s.TotalPages > 1
+	s.PrevDisabled = !hasPaginated || s.CurrentPage <= 1
+	s.NextDisabled = !hasPaginated || s.CurrentPage >= s.TotalPages
 }
 
 func formatTime() string {

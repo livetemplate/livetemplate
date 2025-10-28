@@ -123,7 +123,7 @@ type Template struct {
 	templateStr     string
 	tmpl            *template.Template
 	wrapperID       string
-	mu              sync.RWMutex             // Protects mutable state fields below
+	mu              sync.RWMutex // Protects mutable state fields below
 	lastData        interface{}
 	lastHTML        string
 	lastTree        *TreeNode // Store previous tree segments for comparison
