@@ -2,12 +2,20 @@ package livetemplate
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
+	"log"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chromedp/cdproto/runtime"
+	"github.com/chromedp/chromedp"
+	e2etest "github.com/livefir/livetemplate/internal/testing"
 )
 
 var updateGolden = flag.Bool("update-golden", false, "update golden files")
@@ -1117,6 +1125,522 @@ func TestTemplate_E2E_CompleteRenderingSequence(t *testing.T) {
 
 		t.Logf("✅ Performance check passed - average update time: %v", avgDuration)
 	})
+}
+
+// LoadingTestState implements the Store interface for loading indicator E2E coverage.
+type LoadingTestState struct {
+	Message string
+}
+
+// Change satisfies the Store interface; loading tests do not mutate state.
+func (s *LoadingTestState) Change(ctx *ActionContext) error {
+	return nil
+}
+
+// TestLoadingIndicator verifies the loading indicator appears serverside and disappears once the client boots.
+func TestLoadingIndicator(t *testing.T) {
+	state := &LoadingTestState{Message: "Hello, Loading Test!"}
+
+	tmpl := New("loading-test")
+	templateStr := `<!DOCTYPE html>
+<html>
+<head>
+	<title>Loading Test</title>
+</head>
+<body>
+	<h1>{{.Message}}</h1>
+	<form>
+		<input type="text" name="test" id="test-input" placeholder="Type here...">
+		<button type="submit" id="test-button">Submit</button>
+	</form>
+	<script src="/client.js"></script>
+</body>
+</html>`
+
+	if _, err := tmpl.Parse(templateStr); err != nil {
+		t.Fatalf("Failed to parse template: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/", tmpl.Handle(state))
+	mux.HandleFunc("/client.js", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "/Users/adnaan/code/livefir/livetemplate/client/dist/livetemplate-client.browser.js")
+	})
+
+	port := 9001
+	server := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: mux}
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("Server error: %v", err)
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			t.Logf("Server shutdown warning: %v", err)
+		}
+	}()
+
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("headless", true),
+		chromedp.Flag("disable-gpu", true),
+		chromedp.Flag("no-sandbox", true),
+	)
+
+	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	defer cancel()
+
+	ctx, cancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
+	defer cancel()
+
+	ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	chromedp.ListenTarget(ctx, func(ev interface{}) {
+		if ev, ok := ev.(*runtime.EventConsoleAPICalled); ok {
+			for _, arg := range ev.Args {
+				log.Printf("Console: %s", string(arg.Value))
+			}
+		}
+	})
+
+	url := fmt.Sprintf("http://localhost:%d", port)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatalf("Failed to fetch page: %v", err)
+	}
+	defer resp.Body.Close()
+
+	rawHTML := make([]byte, 5000)
+	n, _ := resp.Body.Read(rawHTML)
+	rawHTMLStr := string(rawHTML[:n])
+
+	if !strings.Contains(rawHTMLStr, `data-lvt-loading="true"`) {
+		t.Error("data-lvt-loading attribute should be present in server-rendered HTML")
+		if n > 0 {
+			t.Logf("Raw HTML (first 1000 chars): %s", rawHTMLStr[:min(1000, len(rawHTMLStr))])
+		}
+	}
+
+	var loadingAttrAfterJS bool
+	err = chromedp.Run(ctx,
+		chromedp.Navigate(url),
+		e2etest.WaitFor(`
+			(() => {
+				const wrapper = document.querySelector('[data-lvt-id]');
+				return wrapper && !wrapper.hasAttribute('data-lvt-loading');
+			})()
+		`, 5*time.Second),
+		chromedp.Evaluate(`
+			(function() {
+				const wrapper = document.querySelector('[data-lvt-id]');
+				return wrapper && wrapper.getAttribute('data-lvt-loading') === 'true';
+			})()
+		`, &loadingAttrAfterJS),
+	)
+	if err != nil {
+		t.Fatalf("Chromedp error: %v", err)
+	}
+
+	if loadingAttrAfterJS {
+		t.Error("data-lvt-loading attribute should be removed by JavaScript after WebSocket initialization")
+	}
+
+	var inputEnabledAfterInit bool
+	var buttonEnabledAfterInit bool
+	err = chromedp.Run(ctx,
+		chromedp.Evaluate(`!document.getElementById('test-input').disabled`, &inputEnabledAfterInit),
+		chromedp.Evaluate(`!document.getElementById('test-button').disabled`, &buttonEnabledAfterInit),
+	)
+	if err != nil {
+		t.Fatalf("Chromedp error (form enabled checks): %v", err)
+	}
+
+	if !inputEnabledAfterInit {
+		t.Error("Input should be enabled after initialization")
+	}
+	if !buttonEnabledAfterInit {
+		t.Error("Button should be enabled after initialization")
+	}
+}
+
+// TestLoadingIndicatorDisabled verifies the loading indicator can be disabled entirely.
+func TestLoadingIndicatorDisabled(t *testing.T) {
+	state := &LoadingTestState{Message: "No Loading Test"}
+
+	tmpl := New("no-loading-test", WithLoadingDisabled())
+	templateStr := `<!DOCTYPE html>
+<html>
+<head>
+	<title>No Loading Test</title>
+</head>
+<body>
+	<h1>{{.Message}}</h1>
+	<form>
+		<input type="text" name="test" id="test-input" placeholder="Type here...">
+		<button type="submit" id="test-button">Submit</button>
+	</form>
+	<script src="/client.js"></script>
+</body>
+</html>`
+
+	if _, err := tmpl.Parse(templateStr); err != nil {
+		t.Fatalf("Failed to parse template: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/", tmpl.Handle(state))
+	mux.HandleFunc("/client.js", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "/Users/adnaan/code/livefir/livetemplate/client/dist/livetemplate-client.browser.js")
+	})
+
+	port := 9002
+	server := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: mux}
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("Server error: %v", err)
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			t.Logf("Server shutdown warning: %v", err)
+		}
+	}()
+
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("headless", true),
+		chromedp.Flag("disable-gpu", true),
+		chromedp.Flag("no-sandbox", true),
+	)
+
+	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	defer cancel()
+
+	ctx, cancel := chromedp.NewContext(allocCtx)
+	defer cancel()
+
+	ctx, cancel = context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	url := fmt.Sprintf("http://localhost:%d", port)
+
+	var hasLoadingAttr bool
+	var loadingBarExists bool
+	var inputDisabled bool
+
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(url),
+		chromedp.WaitVisible(`[data-lvt-id]`, chromedp.ByQuery),
+		chromedp.WaitVisible(`#test-input`, chromedp.ByID),
+		chromedp.Evaluate(`
+			(function() {
+				const wrapper = document.querySelector('[data-lvt-id]');
+				return wrapper && wrapper.getAttribute('data-lvt-loading') === 'true';
+			})()
+		`, &hasLoadingAttr),
+		chromedp.Evaluate(`
+			(function() {
+				const loadingBar = document.querySelector('[style*="position: fixed"][style*="top: 0"]');
+				return loadingBar !== null;
+			})()
+		`, &loadingBarExists),
+		chromedp.Evaluate(`document.getElementById('test-input').disabled`, &inputDisabled),
+	)
+	if err != nil {
+		t.Fatalf("Chromedp error: %v", err)
+	}
+
+	if hasLoadingAttr {
+		t.Error("data-lvt-loading attribute should not be present when loading is disabled")
+	}
+	if loadingBarExists {
+		t.Error("Loading bar should not exist when loading indicator is disabled")
+	}
+	if inputDisabled {
+		t.Error("Input should not be disabled when loading indicator is disabled")
+	}
+}
+
+// FocusTestState implements state for focus preservation E2E coverage.
+type FocusTestState struct {
+	Message string
+	Counter int
+}
+
+// Change applies focus test actions.
+func (s *FocusTestState) Change(ctx *ActionContext) error {
+	switch ctx.Action {
+	case "increment":
+		s.Counter++
+	}
+	return nil
+}
+
+// TestFocusPreservation verifies that input focus and cursor position are preserved during updates.
+func TestFocusPreservation(t *testing.T) {
+	state := &FocusTestState{
+		Message: "Focus Preservation Test",
+		Counter: 0,
+	}
+
+	tmpl := New("focus-test")
+
+	templateStr := `<!DOCTYPE html>
+<html>
+<head>
+	<title>Focus Test</title>
+</head>
+<body>
+	<h1>{{.Message}}</h1>
+	<p>Counter: <strong id="counter">{{.Counter}}</strong></p>
+	<form>
+		<input type="text" name="username" id="username" placeholder="Type your name...">
+		<input type="email" name="email" id="email" placeholder="Type your email...">
+		<textarea name="bio" id="bio" placeholder="Type your bio..."></textarea>
+		<input type="number" name="age" id="age" placeholder="Enter age">
+		<button type="button" id="increment-btn" lvt-click="increment">Increment Counter</button>
+	</form>
+	<script src="/client.js"></script>
+</body>
+</html>`
+
+	if _, err := tmpl.Parse(templateStr); err != nil {
+		t.Fatalf("Failed to parse template: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/", tmpl.Handle(state))
+	mux.HandleFunc("/client.js", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "/Users/adnaan/code/livefir/livetemplate/client/dist/livetemplate-client.browser.js")
+	})
+
+	port := 9003
+	server := &http.Server{
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: mux,
+	}
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("Server error: %v", err)
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.Shutdown(ctx); err != nil {
+			t.Logf("Server shutdown warning: %v", err)
+		}
+	}()
+
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("headless", true),
+		chromedp.Flag("disable-gpu", true),
+		chromedp.Flag("no-sandbox", true),
+	)
+
+	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	defer cancel()
+
+	ctx, cancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
+	defer cancel()
+
+	ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	chromedp.ListenTarget(ctx, func(ev interface{}) {
+		if ev, ok := ev.(*runtime.EventConsoleAPICalled); ok {
+			for _, arg := range ev.Args {
+				log.Printf("Console: %s", string(arg.Value))
+			}
+		}
+	})
+
+	url := fmt.Sprintf("http://localhost:%d", port)
+
+	var inputValue string
+	var cursorPosition int
+	var counterValue string
+	var hasFocus bool
+
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(url),
+		chromedp.WaitVisible(`#username`, chromedp.ByID),
+		chromedp.WaitVisible(`#increment-btn`, chromedp.ByID),
+		e2etest.WaitFor(`typeof window.liveTemplateClient !== 'undefined'`, 5*time.Second),
+		chromedp.SendKeys(`#username`, "HelloWorld", chromedp.ByID),
+		chromedp.Evaluate(`
+			(function() {
+				const input = document.getElementById('username');
+				input.setSelectionRange(5, 5);
+			})()
+		`, nil),
+		chromedp.Click(`#increment-btn`, chromedp.ByID),
+		e2etest.WaitFor(`document.getElementById('counter').textContent === '1'`, 3*time.Second),
+		chromedp.Evaluate(`document.getElementById('username').value`, &inputValue),
+		chromedp.Evaluate(`document.getElementById('username').selectionStart`, &cursorPosition),
+		chromedp.Evaluate(`document.getElementById('username') === document.activeElement`, &hasFocus),
+		chromedp.Text(`#counter`, &counterValue, chromedp.ByID),
+	)
+
+	if err != nil {
+		t.Fatalf("Chromedp error: %v", err)
+	}
+
+	if inputValue != "HelloWorld" {
+		t.Errorf("Input value should be preserved. Expected 'HelloWorld', got '%s'", inputValue)
+	}
+
+	if cursorPosition != 5 {
+		t.Errorf("Cursor position should be preserved. Expected 5, got %d", cursorPosition)
+	}
+
+	if !hasFocus {
+		t.Errorf("Input should still have focus after update")
+	}
+
+	if counterValue != "1" {
+		t.Errorf("Counter should be updated. Expected '1', got '%s'", counterValue)
+	}
+
+	t.Log("✅ Input value preserved:", inputValue)
+	t.Log("✅ Cursor position preserved:", cursorPosition)
+	t.Log("✅ Focus preserved:", hasFocus)
+	t.Log("✅ Counter updated:", counterValue)
+}
+
+// TestFocusPreservationMultipleInputs tests focus preservation across different input types.
+func TestFocusPreservationMultipleInputs(t *testing.T) {
+	state := &FocusTestState{
+		Message: "Multiple Inputs Focus Test",
+		Counter: 0,
+	}
+
+	tmpl := New("focus-multi-test")
+
+	templateStr := `<!DOCTYPE html>
+<html>
+<head>
+	<title>Multi Focus Test</title>
+</head>
+<body>
+	<h1>{{.Message}}</h1>
+	<p>Counter: <strong id="counter">{{.Counter}}</strong></p>
+	<form>
+		<textarea name="notes" id="notes" placeholder="Type notes..."></textarea>
+		<input type="email" name="contact" id="contact" placeholder="your@email.com">
+		<button type="button" id="trigger-btn" lvt-click="increment">Trigger Update</button>
+	</form>
+	<script src="/client.js"></script>
+</body>
+</html>`
+
+	if _, err := tmpl.Parse(templateStr); err != nil {
+		t.Fatalf("Failed to parse template: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/", tmpl.Handle(state))
+	mux.HandleFunc("/client.js", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "/Users/adnaan/code/livefir/livetemplate/client/dist/livetemplate-client.browser.js")
+	})
+
+	port := 9004
+	server := &http.Server{
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: mux,
+	}
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("Server error: %v", err)
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.Shutdown(ctx); err != nil {
+			t.Logf("Server shutdown warning: %v", err)
+		}
+	}()
+
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("headless", true),
+		chromedp.Flag("disable-gpu", true),
+		chromedp.Flag("no-sandbox", true),
+	)
+
+	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	defer cancel()
+
+	ctx, cancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
+	defer cancel()
+
+	ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	chromedp.ListenTarget(ctx, func(ev interface{}) {
+		if ev, ok := ev.(*runtime.EventConsoleAPICalled); ok {
+			for _, arg := range ev.Args {
+				log.Printf("Console: %s", string(arg.Value))
+			}
+		}
+	})
+
+	url := fmt.Sprintf("http://localhost:%d", port)
+
+	var textareaValue string
+	var textareaCursor int
+
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(url),
+		chromedp.WaitVisible(`#notes`, chromedp.ByID),
+		e2etest.WaitFor(`typeof window.liveTemplateClient !== 'undefined'`, 5*time.Second),
+		chromedp.SendKeys(`#notes`, "First line\nSecond line", chromedp.ByID),
+		chromedp.Evaluate(`
+			(function() {
+				const textarea = document.getElementById('notes');
+				textarea.setSelectionRange(10, 10);
+			})()
+		`, nil),
+		chromedp.Click(`#trigger-btn`, chromedp.ByID),
+		e2etest.WaitFor(`document.getElementById('counter').textContent !== '0'`, 3*time.Second),
+		chromedp.Evaluate(`document.getElementById('notes').value`, &textareaValue),
+		chromedp.Evaluate(`document.getElementById('notes').selectionStart`, &textareaCursor),
+	)
+
+	if err != nil {
+		t.Fatalf("Chromedp error: %v", err)
+	}
+
+	if textareaValue != "First line\nSecond line" {
+		t.Errorf("Textarea value not preserved. Expected 'First line\\nSecond line', got '%s'", textareaValue)
+	}
+
+	if textareaCursor != 10 {
+		t.Errorf("Textarea cursor not preserved. Expected 10, got %d", textareaCursor)
+	}
+
+	t.Log("✅ Textarea value preserved:", textareaValue)
+	t.Log("✅ Textarea cursor preserved:", textareaCursor)
 }
 
 // Helper function to get map keys for logging

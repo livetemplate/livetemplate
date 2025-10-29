@@ -3,10 +3,17 @@ package livetemplate
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"html/template"
+	"iter"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
 
+// ----- template_test.go -----
 // Test data structures
 type Counter struct {
 	Value int    `json:"value"`
@@ -787,4 +794,2520 @@ func TestTemplate_CombinedOptions(t *testing.T) {
 			t.Error("Expected WebSocketDisabled to be true")
 		}
 	})
+}
+
+// ----- template_flatten_test.go -----
+func TestFlattenTemplate_Simple(t *testing.T) {
+	// Test basic {{define}} and {{template}}
+	templateStr := `
+{{define "header"}}
+<h1>{{.Title}}</h1>
+{{end}}
+
+{{template "header" .}}
+`
+
+	tmpl, err := template.New(t.Name()).Parse(templateStr)
+	if err != nil {
+		t.Fatalf("Failed to parse template: %v", err)
+	}
+
+	flattened, err := flattenTemplate(tmpl)
+	if err != nil {
+		t.Fatalf("Failed to flatten template: %v", err)
+	}
+
+	// Should contain the h1 with title
+	if !strings.Contains(flattened, "<h1>{{.Title}}</h1>") {
+		t.Errorf("Flattened template missing expected content. Got: %s", flattened)
+	}
+
+	// Should NOT contain {{define}} or {{template}}
+	if strings.Contains(flattened, "{{define") {
+		t.Errorf("Flattened template still contains {{define}}")
+	}
+	if strings.Contains(flattened, "{{template") {
+		t.Errorf("Flattened template still contains {{template}}")
+	}
+}
+
+func TestFlattenTemplate_WithLayout(t *testing.T) {
+	// Test layout pattern with block
+	templateStr := `
+{{define "layout"}}
+<!DOCTYPE html>
+<html>
+<head><title>{{.Title}}</title></head>
+<body>
+{{template "content" .}}
+</body>
+</html>
+{{end}}
+
+{{define "content"}}
+<div>{{.Body}}</div>
+{{end}}
+
+{{template "layout" .}}
+`
+
+	tmpl, err := template.New(t.Name()).Parse(templateStr)
+	if err != nil {
+		t.Fatalf("Failed to parse template: %v", err)
+	}
+
+	flattened, err := flattenTemplate(tmpl)
+	if err != nil {
+		t.Fatalf("Failed to flatten template: %v", err)
+	}
+
+	// Should contain both title and body fields
+	if !strings.Contains(flattened, "{{.Title}}") {
+		t.Errorf("Flattened template missing {{.Title}}")
+	}
+	if !strings.Contains(flattened, "{{.Body}}") {
+		t.Errorf("Flattened template missing {{.Body}}")
+	}
+
+	// Should contain HTML structure
+	if !strings.Contains(flattened, "<!DOCTYPE html>") {
+		t.Errorf("Flattened template missing DOCTYPE")
+	}
+}
+
+func TestFlattenTemplate_NestedTemplates(t *testing.T) {
+	// Test nested template invocations
+	templateStr := `
+{{define "nested_outer"}}
+<div>{{template "nested_inner" .}}</div>
+{{end}}
+
+{{define "nested_inner"}}
+<span>{{.Value}}</span>
+{{end}}
+
+{{template "nested_outer" .}}
+`
+
+	tmpl, err := template.New(t.Name()).Parse(templateStr)
+	if err != nil {
+		t.Fatalf("Failed to parse template: %v", err)
+	}
+
+	flattened, err := flattenTemplate(tmpl)
+	if err != nil {
+		t.Fatalf("Failed to flatten template: %v", err)
+	}
+
+	// Should have nested structure flattened
+	if !strings.Contains(flattened, "<div>") {
+		t.Errorf("Flattened template missing <div>")
+	}
+	if !strings.Contains(flattened, "<span>{{.Value}}</span>") {
+		t.Errorf("Flattened template missing span content")
+	}
+}
+
+func TestFlattenTemplate_WithConditionals(t *testing.T) {
+	// Test that conditionals are preserved during flattening
+	templateStr := `
+{{define "item"}}
+{{if .Active}}
+<span class="active">{{.Name}}</span>
+{{else}}
+<span class="inactive">{{.Name}}</span>
+{{end}}
+{{end}}
+
+{{template "item" .}}
+`
+
+	tmpl, err := template.New(t.Name()).Parse(templateStr)
+	if err != nil {
+		t.Fatalf("Failed to parse template: %v", err)
+	}
+
+	flattened, err := flattenTemplate(tmpl)
+	if err != nil {
+		t.Fatalf("Failed to flatten template: %v", err)
+	}
+
+	// Should preserve if/else structure
+	if !strings.Contains(flattened, "{{if .Active}}") {
+		t.Errorf("Flattened template missing {{if}}")
+	}
+	if !strings.Contains(flattened, "{{else}}") {
+		t.Errorf("Flattened template missing {{else}}")
+	}
+	if !strings.Contains(flattened, "{{end}}") {
+		t.Errorf("Flattened template missing {{end}}")
+	}
+}
+
+func TestFlattenTemplate_WithRange(t *testing.T) {
+	// Test that range loops are preserved
+	templateStr := `
+{{define "list"}}
+<ul>
+{{range .Items}}
+<li>{{.Name}}</li>
+{{end}}
+</ul>
+{{end}}
+
+{{template "list" .}}
+`
+
+	tmpl, err := template.New(t.Name()).Parse(templateStr)
+	if err != nil {
+		t.Fatalf("Failed to parse template: %v", err)
+	}
+
+	flattened, err := flattenTemplate(tmpl)
+	if err != nil {
+		t.Fatalf("Failed to flatten template: %v", err)
+	}
+
+	// Should preserve range structure
+	if !strings.Contains(flattened, "{{range .Items}}") {
+		t.Errorf("Flattened template missing {{range}}")
+	}
+	if !strings.Contains(flattened, "<li>{{.Name}}</li>") {
+		t.Errorf("Flattened template missing list item")
+	}
+}
+
+func TestHasTemplateComposition(t *testing.T) {
+	tests := []struct {
+		name     string
+		template string
+		expected bool
+	}{
+		{
+			name:     "simple template",
+			template: `<div>{{.Title}}</div>`,
+			expected: false,
+		},
+		{
+			name: "with define",
+			template: `{{define "foo"}}<div>{{.Title}}</div>{{end}}
+{{template "foo" .}}`,
+			expected: true,
+		},
+		{
+			name:     "with template invocation",
+			template: `<div>{{template "header" .}}</div>`,
+			expected: true,
+		},
+		{
+			name:     "with if",
+			template: `{{if .Show}}<div>{{.Title}}</div>{{end}}`,
+			expected: false,
+		},
+		{
+			name:     "with range",
+			template: `{{range .Items}}<li>{{.Name}}</li>{{end}}`,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpl, err := template.New(t.Name()).Parse(tt.template)
+			if err != nil {
+				t.Fatalf("Failed to parse template: %v", err)
+			}
+
+			result := hasTemplateComposition(tmpl)
+			if result != tt.expected {
+				t.Errorf("hasTemplateComposition() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestFlattenTemplate_IntegrationWithTreeGeneration(t *testing.T) {
+	// Test that flattened templates work with tree generation
+	templateStr := `
+{{define "layout"}}
+<!DOCTYPE html>
+<html>
+<body>
+<h1>{{.Title}}</h1>
+{{template "content" .}}
+</body>
+</html>
+{{end}}
+
+{{define "content"}}
+<div>
+{{range .Items}}
+<p>{{.Name}}</p>
+{{end}}
+</div>
+{{end}}
+
+{{template "layout" .}}
+`
+
+	// Parse and flatten
+	tmpl, err := template.New(t.Name()).Parse(templateStr)
+	if err != nil {
+		t.Fatalf("Failed to parse template: %v", err)
+	}
+
+	flattened, err := flattenTemplate(tmpl)
+	if err != nil {
+		t.Fatalf("Failed to flatten template: %v", err)
+	}
+
+	// Test with tree generation
+	data := map[string]interface{}{
+		"Title": "Test Page",
+		"Items": []map[string]string{
+			{"Name": "Item 1"},
+			{"Name": "Item 2"},
+		},
+	}
+
+	tree, err := parseTemplateToTree(flattened, data, newKeyGenerator())
+	if err != nil {
+		t.Fatalf("Failed to generate tree from flattened template: %v", err)
+	}
+
+	// Verify tree was generated
+	if tree == nil {
+		t.Fatal("Tree is nil")
+	}
+
+	// Tree should have statics
+	if _, ok := tree.ToMap()["s"]; !ok {
+		t.Error("Tree missing statics ('s' key)")
+	}
+}
+
+func TestFlattenTemplate_ComponentPattern(t *testing.T) {
+	// Test the component pattern used in testdata/e2e/components/input.tmpl
+	// This is the pattern that was causing the bug: {{define}} blocks followed by {{template}} invocation
+	templateStr := `{{define "layout"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>{{.Title}}</title>
+</head>
+<body>
+    {{template "content" .}}
+</body>
+</html>
+{{end}}
+
+{{define "stats"}}
+<div class="stats">
+    <p>Total: {{.TodoCount}}</p>
+    <p>Completed: {{.CompletedCount}}</p>
+</div>
+{{end}}
+
+{{template "layout" .}}
+
+{{define "content"}}
+<h1>{{.Title}}</h1>
+{{template "stats" .}}
+<div class="todos">
+    {{range .Todos}}
+    <div class="todo" data-key="{{.ID}}">
+        {{.Text}} {{if .Completed}}✓{{end}}
+    </div>
+    {{end}}
+</div>
+<footer>Updated: {{.LastUpdated}}</footer>
+{{end}}
+`
+
+	tmpl, err := template.New(t.Name()).Parse(templateStr)
+	if err != nil {
+		t.Fatalf("Failed to parse template: %v", err)
+	}
+
+	flattened, err := flattenTemplate(tmpl)
+	if err != nil {
+		t.Fatalf("Failed to flatten template: %v", err)
+	}
+
+	// Should contain all the dynamic fields
+	if !strings.Contains(flattened, "{{.Title}}") {
+		t.Errorf("Flattened template missing {{.Title}}")
+	}
+	if !strings.Contains(flattened, "{{.TodoCount}}") {
+		t.Errorf("Flattened template missing {{.TodoCount}}")
+	}
+	if !strings.Contains(flattened, "{{.CompletedCount}}") {
+		t.Errorf("Flattened template missing {{.CompletedCount}}")
+	}
+	if !strings.Contains(flattened, "{{range .Todos}}") {
+		t.Errorf("Flattened template missing {{range .Todos}}")
+	}
+	if !strings.Contains(flattened, "{{.Text}}") {
+		t.Errorf("Flattened template missing {{.Text}}")
+	}
+	if !strings.Contains(flattened, "{{if .Completed}}") {
+		t.Errorf("Flattened template missing {{if .Completed}}")
+	}
+	if !strings.Contains(flattened, "{{.LastUpdated}}") {
+		t.Errorf("Flattened template missing {{.LastUpdated}}")
+	}
+
+	// Should NOT contain {{define}} or {{template}}
+	if strings.Contains(flattened, "{{define") {
+		t.Errorf("Flattened template still contains {{define}}")
+	}
+	if strings.Contains(flattened, "{{template") {
+		t.Errorf("Flattened template still contains {{template}}")
+	}
+
+	// Should contain HTML structure
+	if !strings.Contains(flattened, "<!DOCTYPE html>") {
+		t.Errorf("Flattened template missing DOCTYPE")
+	}
+}
+
+func TestFlattenTemplate_ErrorCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		template string
+		wantErr  bool
+	}{
+		{
+			name: "undefined template reference",
+			template: `{{define "error_test_defined"}}<div>{{.Title}}</div>{{end}}
+{{template "error_test_undefined" .}}`,
+			wantErr: true,
+		},
+		{
+			name:     "template with no main execution",
+			template: `{{define "error_test_noexec"}}<div>{{.Title}}</div>{{end}}`,
+			wantErr:  false, // Should handle gracefully
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpl, err := template.New(t.Name()).Parse(tt.template)
+			if err != nil {
+				t.Fatalf("Failed to parse template: %v", err)
+			}
+
+			_, err = flattenTemplate(tmpl)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("flattenTemplate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// ----- template_dynamic_structure_test.go -----
+// Helper function to execute template to HTML
+func executeToHTML(t *Template, data interface{}) (string, error) {
+	var buf bytes.Buffer
+	err := t.Execute(&buf, data)
+	if err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+// Helper function to execute template to update (returns tree map)
+func executeToUpdate(t *Template, data interface{}) (map[string]interface{}, error) {
+	var buf bytes.Buffer
+	err := t.ExecuteUpdates(&buf, data)
+	if err != nil {
+		return nil, err
+	}
+
+	var tree map[string]interface{}
+	err = json.Unmarshal(buf.Bytes(), &tree)
+	if err != nil {
+		return nil, err
+	}
+	return tree, nil
+}
+
+// TestDynamicModalStructure verifies that modals/dialogs appearing after initial render
+// don't keep resending statics when toggled (hide → show → hide → show).
+// This tests the fix for the stateful structure caching bug.
+func TestDynamicModalStructure(t *testing.T) {
+	tmpl := `<div>
+	<button>Toggle Modal</button>
+	{{if .ShowModal}}
+		<dialog id="modal" class="modal-dialog">
+			<h2>{{.ModalTitle}}</h2>
+			<p>{{.ModalMessage}}</p>
+			<button>Close</button>
+		</dialog>
+	{{end}}
+</div>`
+
+	type Data struct {
+		ShowModal    bool
+		ModalTitle   string
+		ModalMessage string
+	}
+
+	// Render 1: Initial render with NO modal
+	t.Run("1_Initial_NoModal", func(t *testing.T) {
+		tpl, err := New("dynamic-modal-test").Parse(tmpl)
+		if err != nil {
+			t.Fatalf("Failed to parse template: %v", err)
+		}
+
+		data := Data{ShowModal: false}
+		html, err := executeToHTML(tpl, data)
+		if err != nil {
+			t.Fatalf("Failed to execute template: %v", err)
+		}
+
+		if len(html) == 0 {
+			t.Fatal("Initial HTML is empty")
+		}
+
+		// Verify modal is not in HTML
+		if contains(html, "modal-dialog") {
+			t.Error("Modal should not be in initial render")
+		}
+		t.Logf("✅ Initial render (no modal): %d bytes", len(html))
+	})
+
+	// Render 2: Show modal (first appearance - should include statics)
+	t.Run("2_FirstShow_WithStatics", func(t *testing.T) {
+		tpl, err := New("dynamic-modal-show1").Parse(tmpl)
+		if err != nil {
+			t.Fatalf("Failed to parse template: %v", err)
+		}
+
+		// Initial render
+		data1 := Data{ShowModal: false}
+		_, err = executeToHTML(tpl, data1)
+		if err != nil {
+			t.Fatalf("Failed to execute initial HTML: %v", err)
+		}
+
+		// Show modal
+		data2 := Data{
+			ShowModal:    true,
+			ModalTitle:   "Welcome",
+			ModalMessage: "Hello World",
+		}
+		tree, err := executeToUpdate(tpl, data2)
+		if err != nil {
+			t.Fatalf("Failed to execute update: %v", err)
+		}
+		updateJSON, _ := json.MarshalIndent(tree, "", "  ")
+		t.Logf("First modal appearance update:\n%s", updateJSON)
+
+		// The modal structure should be in the update
+		// It should include statics because client has never seen this structure
+		hasModalStructure := false
+		hasStatics := false
+
+		// Check if update contains modal structure
+		for k, v := range tree {
+			if k == "s" {
+				continue // Skip top-level statics
+			}
+
+			// Modal might be in various positions depending on template structure
+			// Look for nested structures that might contain the modal
+			if node, ok := v.(map[string]interface{}); ok {
+				if statics, hasS := node["s"]; hasS {
+					hasStatics = true
+					if staticsArr, ok := statics.([]string); ok {
+						for _, s := range staticsArr {
+							if contains(s, "modal-dialog") || contains(s, "dialog") {
+								hasModalStructure = true
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if !hasModalStructure {
+			t.Log("Warning: Modal structure not found in expected location")
+			t.Log("This may be due to template structure changes - update test if needed")
+		}
+
+		if hasModalStructure && !hasStatics {
+			t.Error("Modal structure found but statics missing - should include statics on first appearance")
+		}
+
+		t.Logf("✅ First modal show: %d bytes, hasStatics=%v", len(updateJSON), hasStatics)
+	})
+
+	// Render 3: Hide modal
+	t.Run("3_Hide", func(t *testing.T) {
+		tpl, err := New("dynamic-modal-hide").Parse(tmpl)
+		if err != nil {
+			t.Fatalf("Failed to parse template: %v", err)
+		}
+
+		// Show then hide
+		data1 := Data{ShowModal: true, ModalTitle: "Test", ModalMessage: "Test"}
+		_, err = executeToHTML(tpl, data1)
+		if err != nil {
+			t.Fatalf("Failed to execute initial HTML: %v", err)
+		}
+
+		data2 := Data{ShowModal: false}
+		tree, err := executeToUpdate(tpl, data2)
+		if err != nil {
+			t.Fatalf("Failed to execute update: %v", err)
+		}
+
+		updateJSON, _ := json.Marshal(tree)
+		t.Logf("✅ Hide modal: %d bytes", len(updateJSON))
+	})
+
+	// Render 4: Show modal AGAIN (CRITICAL TEST - should NOT include statics)
+	t.Run("4_SecondShow_WithoutStatics", func(t *testing.T) {
+		tpl, err := New("dynamic-modal-show2").Parse(tmpl)
+		if err != nil {
+			t.Fatalf("Failed to parse template: %v", err)
+		}
+
+		// Initial: hidden
+		data1 := Data{ShowModal: false}
+		_, err = executeToHTML(tpl, data1)
+		if err != nil {
+			t.Fatalf("Failed to execute initial HTML: %v", err)
+		}
+
+		// First show
+		data2 := Data{ShowModal: true, ModalTitle: "First", ModalMessage: "First Show"}
+		_, err = executeToUpdate(tpl, data2)
+		if err != nil {
+			t.Fatalf("Failed to execute first show update: %v", err)
+		}
+
+		// Hide
+		data3 := Data{ShowModal: false}
+		_, err = executeToUpdate(tpl, data3)
+		if err != nil {
+			t.Fatalf("Failed to execute hide update: %v", err)
+		}
+
+		// Show AGAIN (this is the critical test)
+		data4 := Data{ShowModal: true, ModalTitle: "Second", ModalMessage: "Second Show"}
+		tree, err := executeToUpdate(tpl, data4)
+		if err != nil {
+			t.Fatalf("Failed to execute update: %v", err)
+		}
+		updateJSON, _ := json.MarshalIndent(tree, "", "  ")
+		t.Logf("Second modal appearance update:\n%s", updateJSON)
+
+		// Check if statics are incorrectly included
+		hasRedundantStatics := false
+		for k, v := range tree {
+			if k == "s" {
+				continue
+			}
+
+			if node, ok := v.(map[string]interface{}); ok {
+				if statics, hasS := node["s"]; hasS {
+					if staticsArr, ok := statics.([]string); ok {
+						for _, s := range staticsArr {
+							if contains(s, "modal-dialog") || contains(s, "dialog") {
+								hasRedundantStatics = true
+								t.Errorf("❌ BUG: Modal statics sent again on second appearance!")
+								t.Errorf("   Statics should have been cached from first appearance")
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if !hasRedundantStatics {
+			t.Log("✅ SUCCESS: Modal statics NOT resent (cached from first appearance)")
+		}
+
+		t.Logf("✅ Second modal show: %d bytes", len(updateJSON))
+	})
+}
+
+// TestConditionalBranchSwitch verifies that switching between conditional branches
+// doesn't keep resending statics for previously-seen branches.
+func TestConditionalBranchSwitch(t *testing.T) {
+	tmpl := `<div>
+	{{if .ShowA}}
+		<div class="panel-a">
+			<h2>Panel A</h2>
+			<p>{{.ValueA}}</p>
+		</div>
+	{{else}}
+		<div class="panel-b">
+			<h2>Panel B</h2>
+			<p>{{.ValueB}}</p>
+		</div>
+	{{end}}
+</div>`
+
+	type Data struct {
+		ShowA  bool
+		ValueA string
+		ValueB string
+	}
+
+	// Initial: Show A
+	t.Run("1_Initial_ShowA", func(t *testing.T) {
+		tpl, err := New("conditional-branch-test").Parse(tmpl)
+		if err != nil {
+			t.Fatalf("Failed to parse template: %v", err)
+		}
+
+		data := Data{ShowA: true, ValueA: "A1", ValueB: "B1"}
+		html, err := executeToHTML(tpl, data)
+		if err != nil {
+			t.Fatalf("Failed to execute template: %v", err)
+		}
+
+		if !contains(html, "panel-a") {
+			t.Error("Panel A should be in initial render")
+		}
+		if contains(html, "panel-b") {
+			t.Error("Panel B should not be in initial render")
+		}
+
+		t.Log("✅ Initial render shows Panel A")
+	})
+
+	// Switch to B
+	t.Run("2_Switch_ToB", func(t *testing.T) {
+		tpl, err := New("conditional-switch-b").Parse(tmpl)
+		if err != nil {
+			t.Fatalf("Failed to parse template: %v", err)
+		}
+
+		data1 := Data{ShowA: true, ValueA: "A1", ValueB: "B1"}
+		_, err = executeToHTML(tpl, data1)
+		if err != nil {
+			t.Fatalf("Failed to execute initial HTML: %v", err)
+		}
+
+		data2 := Data{ShowA: false, ValueA: "A2", ValueB: "B2"}
+		tree, err := executeToUpdate(tpl, data2)
+		if err != nil {
+			t.Fatalf("Failed to execute update: %v", err)
+		}
+
+		updateJSON, _ := json.Marshal(tree)
+		t.Logf("✅ Switch to Panel B: %d bytes", len(updateJSON))
+	})
+
+	// Switch back to A (should NOT resend A's statics)
+	t.Run("3_Switch_BackToA", func(t *testing.T) {
+		tpl, err := New("conditional-switch-a").Parse(tmpl)
+		if err != nil {
+			t.Fatalf("Failed to parse template: %v", err)
+		}
+
+		// Initial: A
+		data1 := Data{ShowA: true, ValueA: "A1", ValueB: "B1"}
+		_, err = executeToHTML(tpl, data1)
+		if err != nil {
+			t.Fatalf("Failed to execute initial HTML: %v", err)
+		}
+
+		// Switch to B
+		data2 := Data{ShowA: false, ValueA: "A2", ValueB: "B2"}
+		_, err = executeToUpdate(tpl, data2)
+		if err != nil {
+			t.Fatalf("Failed to execute switch to B update: %v", err)
+		}
+
+		// Switch back to A
+		data3 := Data{ShowA: true, ValueA: "A3", ValueB: "B3"}
+		tree, err := executeToUpdate(tpl, data3)
+		if err != nil {
+			t.Fatalf("Failed to execute update: %v", err)
+		}
+		updateJSON, _ := json.MarshalIndent(tree, "", "  ")
+		t.Logf("Switch back to Panel A update:\n%s", updateJSON)
+
+		// Check if Panel A's statics are incorrectly resent
+		hasRedundantStatics := false
+		for k, v := range tree {
+			if k == "s" {
+				continue
+			}
+
+			if node, ok := v.(map[string]interface{}); ok {
+				if statics, hasS := node["s"]; hasS {
+					if staticsArr, ok := statics.([]string); ok {
+						for _, s := range staticsArr {
+							if contains(s, "panel-a") {
+								hasRedundantStatics = true
+								t.Errorf("❌ BUG: Panel A statics sent again when returning to branch A!")
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if !hasRedundantStatics {
+			t.Log("✅ SUCCESS: Panel A statics NOT resent (cached from initial render)")
+		}
+
+		t.Logf("✅ Switch back to A: %d bytes", len(updateJSON))
+	})
+}
+
+// TestNestedDynamicStructures verifies nested conditionals work correctly.
+func TestNestedDynamicStructures(t *testing.T) {
+	tmpl := `<div>
+	{{if .ShowOuter}}
+		<div class="outer">
+			<h2>Outer Container</h2>
+			{{if .ShowInner}}
+				<div class="inner">
+					<p>{{.Message}}</p>
+				</div>
+			{{end}}
+		</div>
+	{{end}}
+</div>`
+
+	type Data struct {
+		ShowOuter bool
+		ShowInner bool
+		Message   string
+	}
+
+	// Show outer only
+	t.Run("1_Outer_Only", func(t *testing.T) {
+		tpl, err := New("nested-outer").Parse(tmpl)
+		if err != nil {
+			t.Fatalf("Failed to parse template: %v", err)
+		}
+
+		data := Data{ShowOuter: true, ShowInner: false, Message: ""}
+		html, err := executeToHTML(tpl, data)
+		if err != nil {
+			t.Fatalf("Failed to execute template: %v", err)
+		}
+
+		if !contains(html, "outer") {
+			t.Error("Outer should be visible")
+		}
+		if contains(html, "inner") {
+			t.Error("Inner should not be visible")
+		}
+
+		t.Log("✅ Initial: Outer visible, Inner hidden")
+	})
+
+	// Show both (inner appears for first time)
+	t.Run("2_Show_Inner_First_Time", func(t *testing.T) {
+		tpl, err := New("nested-both-1").Parse(tmpl)
+		if err != nil {
+			t.Fatalf("Failed to parse template: %v", err)
+		}
+
+		data1 := Data{ShowOuter: true, ShowInner: false, Message: ""}
+		_, err = executeToHTML(tpl, data1)
+		if err != nil {
+			t.Fatalf("Failed to execute initial HTML: %v", err)
+		}
+
+		data2 := Data{ShowOuter: true, ShowInner: true, Message: "Hello"}
+		tree, err := executeToUpdate(tpl, data2)
+		if err != nil {
+			t.Fatalf("Failed to execute update: %v", err)
+		}
+
+		updateJSON, _ := json.Marshal(tree)
+		t.Logf("✅ Show inner (first time): %d bytes", len(updateJSON))
+	})
+
+	// Toggle inner (hide, show, hide, show)
+	t.Run("3_Toggle_Inner_Multiple", func(t *testing.T) {
+		tpl, err := New("nested-toggle").Parse(tmpl)
+		if err != nil {
+			t.Fatalf("Failed to parse template: %v", err)
+		}
+
+		data1 := Data{ShowOuter: true, ShowInner: false, Message: ""}
+		_, err = executeToHTML(tpl, data1)
+		if err != nil {
+			t.Fatalf("Failed to execute initial HTML: %v", err)
+		}
+
+		// Show inner first time
+		data2 := Data{ShowOuter: true, ShowInner: true, Message: "First"}
+		_, err = executeToUpdate(tpl, data2)
+		if err != nil {
+			t.Fatalf("Failed to execute first show update: %v", err)
+		}
+
+		// Hide inner
+		data3 := Data{ShowOuter: true, ShowInner: false, Message: ""}
+		_, err = executeToUpdate(tpl, data3)
+		if err != nil {
+			t.Fatalf("Failed to execute hide update: %v", err)
+		}
+
+		// Show inner AGAIN
+		data4 := Data{ShowOuter: true, ShowInner: true, Message: "Second"}
+		tree, err := executeToUpdate(tpl, data4)
+		if err != nil {
+			t.Fatalf("Failed to execute update: %v", err)
+		}
+		updateJSON, _ := json.MarshalIndent(tree, "", "  ")
+		t.Logf("Show inner (second time) update:\n%s", updateJSON)
+
+		// Verify inner statics not resent
+		hasRedundantStatics := checkForRedundantStatics(tree, "inner")
+		if hasRedundantStatics {
+			t.Error("❌ BUG: Inner statics resent on second appearance")
+		} else {
+			t.Log("✅ SUCCESS: Inner statics NOT resent")
+		}
+
+		t.Logf("✅ Show inner again: %d bytes", len(updateJSON))
+	})
+}
+
+// Helper function to check if a string contains a substring
+func contains(s, substr string) bool {
+	return len(s) > 0 && len(substr) > 0 &&
+		(s == substr || (len(s) >= len(substr) && findSubstring(s, substr)))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+// Helper to check for redundant statics in tree
+func checkForRedundantStatics(tree map[string]interface{}, keyword string) bool {
+	for k, v := range tree {
+		if k == "s" {
+			continue
+		}
+
+		if node, ok := v.(map[string]interface{}); ok {
+			if statics, hasS := node["s"]; hasS {
+				if staticsArr, ok := statics.([]string); ok {
+					for _, s := range staticsArr {
+						if contains(s, keyword) {
+							return true
+						}
+					}
+				}
+			}
+
+			// Recursively check nested structures
+			if checkForRedundantStatics(node, keyword) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ----- template_funcmap_test.go -----
+func TestTemplateGenerateTreeWithFuncMap(t *testing.T) {
+	tmpl := New("funcMap").Funcs(template.FuncMap{
+		"split": func(s, sep string) []string {
+			return strings.Split(s, sep)
+		},
+	})
+
+	if _, err := tmpl.Parse(`<ul>{{range split .CSV ","}}<li>{{.}}</li>{{end}}</ul>`); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	// Render once to exercise the helper paths used in production.
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, map[string]string{"CSV": "one,two"}); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	tree, err := tmpl.generateTreeInternalWithErrors(map[string]string{"CSV": "one,two"}, nil)
+	if err != nil {
+		t.Fatalf("generateTreeInternalWithErrors failed: %v", err)
+	}
+
+	dynamic, ok := tree.Dynamics["0"]
+	if !ok {
+		t.Fatalf("expected dynamic range at position 0")
+	}
+
+	rangeNode, ok := dynamic.(*TreeNode)
+	if !ok {
+		t.Fatalf("expected *TreeNode for dynamic, got %T", dynamic)
+	}
+
+	if !rangeNode.HasRange() {
+		t.Fatalf("expected range node to have range data")
+	}
+
+	if rangeNode.Range == nil || len(rangeNode.Range.Items) != 2 {
+		t.Fatalf("expected 2 items in range, got %v", rangeNode.Range)
+	}
+
+	if tmpl.initialTree == nil {
+		t.Fatalf("expected initial tree to be cached")
+	}
+}
+
+// ----- template_range_concat_test.go -----
+type testPost struct {
+	ID        string
+	Title     string
+	Content   string
+	Published bool
+}
+
+type testPostsState struct {
+	Title          string
+	SearchQuery    string
+	SortBy         string
+	PaginationMode string
+	PaginatedPosts []testPost
+	HasMore        bool
+	IsLoading      bool
+	LoadedCount    int
+	TotalCount     int
+	CurrentPage    int
+	TotalPages     int
+	CSSFramework   string
+	EditingID      string
+	EditingPosts   *testPost
+}
+
+// TestRangeDynamicDoesNotAppendContent ensures that range item dynamics keep field boundaries
+func TestRangeDynamicDoesNotAppendContent(t *testing.T) {
+	tmpl := New("posts", WithDevMode(true))
+
+	templatePath := filepath.Join("cmd", "lvt", "testdata", "golden", "resource_template.tmpl.golden")
+	content, err := os.ReadFile(templatePath)
+	if err != nil {
+		t.Fatalf("read template: %v", err)
+	}
+
+	if _, err := tmpl.Parse(string(content)); err != nil {
+		t.Fatalf("parse template: %v", err)
+	}
+
+	state := &testPostsState{
+		Title:          "Posts Management",
+		PaginationMode: "infinite",
+		CSSFramework:   "tailwind",
+		TotalCount:     0,
+		LoadedCount:    0,
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteUpdates(&buf, state); err != nil {
+		t.Fatalf("initial execute: %v", err)
+	}
+
+	state.PaginatedPosts = []testPost{{
+		ID:        "posts-1",
+		Title:     "My First Blog Post",
+		Content:   "This is the content of my first blog post",
+		Published: true,
+	}}
+	state.TotalCount = 1
+	state.LoadedCount = 1
+	buf.Reset()
+	if err := tmpl.ExecuteUpdates(&buf, state); err != nil {
+		t.Fatalf("second execute: %v", err)
+	}
+	if testing.Verbose() {
+		t.Logf("update payload: %s", buf.String())
+	}
+
+	var tree map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
+		t.Fatalf("unmarshal tree: %v", err)
+	}
+
+	found := false
+	for _, v := range tree {
+		node, ok := v.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		rangeNode, ok := node["0"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		dItems, ok := rangeNode["d"].([]interface{})
+		if !ok || len(dItems) == 0 {
+			continue
+		}
+		firstItem, ok := dItems[0].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		titleVal, ok := firstItem["1"].(string)
+		if !ok {
+			continue
+		}
+		found = true
+		if titleVal != "My First Blog Post" {
+			t.Fatalf("unexpected title dynamic: %q", titleVal)
+		}
+		break
+	}
+
+	if !found {
+		t.Fatalf("range node with title dynamic not found: %v", tree)
+	}
+}
+
+// ----- template_fallback_block_test.go -----
+func TestTemplateGenerateInitialTreeFallsBackForBlockWithDynamicTemplate(t *testing.T) {
+	tmpl := New("block-dynamic-template")
+
+	staticTemplateStr := `{{define "layout"}}<main>{{block "region" .}}{{template "content" .}}{{end}}</main>{{end}}{{define "content"}}<p>{{.Message}}</p>{{end}}{{template "layout" .}}`
+	if _, err := tmpl.Parse(staticTemplateStr); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	dynamicTemplateStr := `{{define "layout"}}<main>{{block "region" .}}{{template (printf "%s" .PartialName) .}}{{end}}</main>{{end}}{{define "content"}}<p>{{.Message}}</p>{{end}}{{template "layout" .}}`
+	tmpl.templateStr = dynamicTemplateStr
+
+	data := map[string]interface{}{
+		"PartialName": "content",
+		"Message":     "hello",
+	}
+
+	ctx := NewTreeGenerationContext()
+	ctx.FuncMap = tmpl.funcs
+	if _, err := parseTemplateToTree(dynamicTemplateStr, data, newKeyGenerator(), ctx); err == nil {
+		t.Fatalf("expected AST parser to error for block with dynamic template invocation")
+	}
+
+	tree, err := tmpl.generateTreeInternalWithErrors(data, nil)
+	if err != nil {
+		t.Fatalf("generateTreeInternalWithErrors failed: %v", err)
+	}
+
+	if tree == nil {
+		t.Fatalf("expected tree result")
+	}
+
+	if tree.HasRange() {
+		t.Fatalf("fallback tree should not contain range metadata")
+	}
+
+	if tmpl.lastHTML == "" {
+		t.Fatalf("expected lastHTML to be recorded")
+	}
+
+	expected := tmpl.createHTMLStructureBasedTree(tmpl.lastHTML)
+	if !reflect.DeepEqual(tmpl.initialTree, expected) {
+		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.initialTree)
+	}
+}
+
+// ----- template_fallback_channel_test.go -----
+func TestTemplateGenerateInitialTreeFallsBackForChannelRange(t *testing.T) {
+	tmpl := New("channel-range")
+	if _, err := tmpl.Parse(`<ul>{{range .Events}}<li>{{.}}</li>{{end}}</ul>`); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	events := make(chan string, 2)
+	events <- "alpha"
+	events <- "beta"
+	close(events)
+	var data map[string]interface{} = map[string]interface{}{"Events": (<-chan string)(events)}
+
+	ctx := NewTreeGenerationContext()
+	ctx.FuncMap = tmpl.funcs
+	if _, err := parseTemplateToTree(`<ul>{{range .Events}}<li>{{.}}</li>{{end}}</ul>`, data, newKeyGenerator(), ctx); err == nil {
+		t.Fatalf("expected AST parser to error for channel range")
+	}
+
+	tree, err := tmpl.generateTreeInternalWithErrors(data, nil)
+	if err != nil {
+		t.Fatalf("generateTreeInternalWithErrors failed: %v", err)
+	}
+
+	if tree == nil {
+		t.Fatalf("expected tree result")
+	}
+
+	if tree.HasRange() {
+		t.Fatalf("fallback tree should not contain range metadata")
+	}
+
+	if tmpl.lastHTML == "" {
+		t.Fatalf("expected lastHTML to be recorded")
+	}
+
+	expected := tmpl.createHTMLStructureBasedTree(tmpl.lastHTML)
+	if !reflect.DeepEqual(tmpl.initialTree, expected) {
+		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.initialTree)
+	}
+}
+
+func TestTemplateGenerateInitialTreeFallsBackForChannelRangeWithDecls(t *testing.T) {
+	tmpl := New("channel-range-with-vars")
+	templateStr := `<ul>{{range $i, $event := .Events}}<li>{{$i}}-{{$event}}</li>{{end}}</ul>`
+	if _, err := tmpl.Parse(templateStr); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	events := make(chan string, 2)
+	events <- "alpha"
+	events <- "beta"
+	close(events)
+	data := map[string]interface{}{"Events": (<-chan string)(events)}
+
+	ctx := NewTreeGenerationContext()
+	ctx.FuncMap = tmpl.funcs
+	if _, err := parseTemplateToTree(templateStr, data, newKeyGenerator(), ctx); err == nil {
+		t.Fatalf("expected AST parser to error for channel range with declarations")
+	}
+
+	tree, err := tmpl.generateTreeInternalWithErrors(data, nil)
+	if err != nil {
+		t.Fatalf("generateTreeInternalWithErrors failed: %v", err)
+	}
+
+	if tree == nil {
+		t.Fatalf("expected tree result")
+	}
+
+	if tree.HasRange() {
+		t.Fatalf("fallback tree should not contain range metadata")
+	}
+
+	if tmpl.lastHTML == "" {
+		t.Fatalf("expected lastHTML to be recorded")
+	}
+
+	expected := tmpl.createHTMLStructureBasedTree(tmpl.lastHTML)
+	if !reflect.DeepEqual(tmpl.initialTree, expected) {
+		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.initialTree)
+	}
+}
+
+func TestTemplateGenerateInitialTreeFallsBackForIntegerRange(t *testing.T) {
+	tmpl := New("range-integer")
+	templateStr := `<ol>{{range 3}}<li>#{{.}}</li>{{end}}</ol>`
+	if _, err := tmpl.Parse(templateStr); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctx := NewTreeGenerationContext()
+	ctx.FuncMap = tmpl.funcs
+	if _, err := parseTemplateToTree(templateStr, nil, newKeyGenerator(), ctx); err == nil {
+		t.Fatalf("expected AST parser to error for integer range")
+	}
+
+	tree, err := tmpl.generateTreeInternalWithErrors(nil, nil)
+	if err != nil {
+		t.Fatalf("generateTreeInternalWithErrors failed: %v", err)
+	}
+
+	if tree == nil {
+		t.Fatalf("expected tree result")
+	}
+
+	if tree.HasRange() {
+		t.Fatalf("fallback tree should not contain range metadata")
+	}
+
+	if tmpl.lastHTML == "" {
+		t.Fatalf("expected lastHTML to be recorded")
+	}
+
+	expected := tmpl.createHTMLStructureBasedTree(tmpl.lastHTML)
+	if !reflect.DeepEqual(tmpl.initialTree, expected) {
+		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.initialTree)
+	}
+}
+
+func TestCreateHTMLStructureBasedTreeSegmentsBlockBoundaries(t *testing.T) {
+	tmpl := New("fallback-html")
+	html := `<div>header</div><main><p>body</p></main><div>footer</div>`
+
+	tree := tmpl.createHTMLStructureBasedTree(html)
+	if tree == nil {
+		t.Fatalf("expected fallback tree")
+	}
+
+	expectedStatics := []string{"<div>header</div>", "", ""}
+	if !reflect.DeepEqual(tree.Statics, expectedStatics) {
+		t.Fatalf("unexpected statics: %#v", tree.Statics)
+	}
+
+	if len(tree.Dynamics) != 2 {
+		t.Fatalf("expected 2 dynamic segments, got %d", len(tree.Dynamics))
+	}
+
+	segmentZero, ok := tree.Dynamics["0"].(string)
+	if !ok {
+		t.Fatalf("expected dynamic segment 0 to be string, got %T", tree.Dynamics["0"])
+	}
+	if !strings.Contains(segmentZero, "<main") || !strings.Contains(segmentZero, "body") {
+		t.Fatalf("dynamic segment 0 missing expected content: %q", segmentZero)
+	}
+
+	segmentOne, ok := tree.Dynamics["1"].(string)
+	if !ok {
+		t.Fatalf("expected dynamic segment 1 to be string, got %T", tree.Dynamics["1"])
+	}
+	if !strings.Contains(segmentOne, "<div") || !strings.Contains(segmentOne, "footer") {
+		t.Fatalf("dynamic segment 1 missing expected content: %q", segmentOne)
+	}
+
+	if tree.HasRange() {
+		t.Fatalf("fallback segmentation should not introduce range metadata")
+	}
+}
+
+// ----- template_fallback_controlflow_test.go -----
+func TestTemplateGenerateInitialTreeFallsBackForRangeBreak(t *testing.T) {
+	tmpl := New("range-break-fallback")
+	templateStr := `<ul>{{range .Items}}{{if eq . "stop"}}{{break}}{{end}}<li>{{.}}</li>{{end}}</ul>`
+	if _, err := tmpl.Parse(templateStr); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	data := map[string]interface{}{"Items": []string{"alpha", "stop", "gamma"}}
+
+	ctx := NewTreeGenerationContext()
+	ctx.FuncMap = tmpl.funcs
+	if _, err := parseTemplateToTree(templateStr, data, newKeyGenerator(), ctx); err == nil {
+		t.Fatalf("expected AST parser to error for range with break")
+	}
+
+	tree, err := tmpl.generateTreeInternalWithErrors(data, nil)
+	if err != nil {
+		t.Fatalf("generateTreeInternalWithErrors failed: %v", err)
+	}
+
+	if tree == nil {
+		t.Fatalf("expected tree result")
+	}
+
+	if tree.HasRange() {
+		t.Fatalf("fallback tree should not contain range metadata")
+	}
+
+	if tmpl.lastHTML == "" {
+		t.Fatalf("expected lastHTML to be recorded")
+	}
+
+	expected := tmpl.createHTMLStructureBasedTree(tmpl.lastHTML)
+	if !reflect.DeepEqual(tmpl.initialTree, expected) {
+		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.initialTree)
+	}
+}
+
+func TestTemplateGenerateInitialTreeFallsBackForRangeContinue(t *testing.T) {
+	tmpl := New("range-continue-fallback")
+	templateStr := `<ul>{{range $i, $item := .Items}}{{if eq $item "skip"}}{{continue}}{{end}}<li>{{$i}}-{{$item}}</li>{{end}}</ul>`
+	if _, err := tmpl.Parse(templateStr); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	data := map[string]interface{}{"Items": []string{"alpha", "skip", "gamma"}}
+
+	ctx := NewTreeGenerationContext()
+	ctx.FuncMap = tmpl.funcs
+	if _, err := parseTemplateToTree(templateStr, data, newKeyGenerator(), ctx); err == nil {
+		t.Fatalf("expected AST parser to error for range with continue")
+	}
+
+	tree, err := tmpl.generateTreeInternalWithErrors(data, nil)
+	if err != nil {
+		t.Fatalf("generateTreeInternalWithErrors failed: %v", err)
+	}
+
+	if tree == nil {
+		t.Fatalf("expected tree result")
+	}
+
+	if tree.HasRange() {
+		t.Fatalf("fallback tree should not contain range metadata")
+	}
+
+	if tmpl.lastHTML == "" {
+		t.Fatalf("expected lastHTML to be recorded")
+	}
+
+	expected := tmpl.createHTMLStructureBasedTree(tmpl.lastHTML)
+	if !reflect.DeepEqual(tmpl.initialTree, expected) {
+		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.initialTree)
+	}
+}
+
+// ----- template_fallback_dynamic_template_test.go -----
+func TestTemplateGenerateInitialTreeFallsBackForDynamicTemplateInvocation(t *testing.T) {
+	tmpl := New("dynamic-template")
+
+	staticTemplateStr := `{{define "content"}}<p>{{.Message}}</p>{{end}}<section>{{template "content" .}}</section>`
+	if _, err := tmpl.Parse(staticTemplateStr); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	dynamicTemplateStr := `{{define "content"}}<p>{{.Message}}</p>{{end}}<section>{{template (printf "%s" .PartialName) .}}</section>`
+	// Override the template source to mimic a runtime-selected partial name.
+	// html/template rejects this construct during parsing, which is exactly
+	// what triggers the fallback path we want to guard.
+	tmpl.templateStr = dynamicTemplateStr
+
+	data := map[string]interface{}{
+		"PartialName": "content",
+		"Message":     "hello",
+	}
+
+	ctx := NewTreeGenerationContext()
+	ctx.FuncMap = tmpl.funcs
+	if _, err := parseTemplateToTree(dynamicTemplateStr, data, newKeyGenerator(), ctx); err == nil {
+		t.Fatalf("expected AST parser to error for dynamic template invocation")
+	}
+
+	tree, err := tmpl.generateTreeInternalWithErrors(data, nil)
+	if err != nil {
+		t.Fatalf("generateTreeInternalWithErrors failed: %v", err)
+	}
+
+	if tree == nil {
+		t.Fatalf("expected tree result")
+	}
+
+	if tree.HasRange() {
+		t.Fatalf("fallback tree should not contain range metadata")
+	}
+
+	if tmpl.lastHTML == "" {
+		t.Fatalf("expected lastHTML to be recorded")
+	}
+
+	// The initial tree must match HTML segmentation fallback.
+	expected := tmpl.createHTMLStructureBasedTree(tmpl.lastHTML)
+	if !reflect.DeepEqual(tmpl.initialTree, expected) {
+		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.initialTree)
+	}
+}
+
+// ----- template_fallback_with_test.go -----
+func TestTemplateGenerateInitialTreeFallsBackForWithIterSeq(t *testing.T) {
+	tmpl := New("with-iter-seq")
+	tmpl.Funcs(template.FuncMap{
+		"seq": func() iter.Seq[string] {
+			return func(yield func(string) bool) {
+				if !yield("alpha") {
+					return
+				}
+				yield("beta")
+			}
+		},
+	})
+
+	templateStr := `{{with seq}}<ul>{{range .}}<li>{{.}}</li>{{end}}</ul>{{else}}<p>empty</p>{{end}}`
+	if _, err := tmpl.Parse(templateStr); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctx := NewTreeGenerationContext()
+	ctx.FuncMap = tmpl.funcs
+	if _, err := parseTemplateToTree(templateStr, nil, newKeyGenerator(), ctx); err == nil {
+		t.Fatalf("expected AST parser to error for with pipeline returning iter.Seq")
+	}
+
+	tree, err := tmpl.generateTreeInternalWithErrors(nil, nil)
+	if err != nil {
+		t.Fatalf("generateTreeInternalWithErrors failed: %v", err)
+	}
+
+	if tree == nil {
+		t.Fatalf("expected tree result")
+	}
+
+	if tree.HasRange() {
+		t.Fatalf("fallback tree should not contain range metadata")
+	}
+
+	if tmpl.lastHTML == "" {
+		t.Fatalf("expected lastHTML to be recorded")
+	}
+
+	expected := tmpl.createHTMLStructureBasedTree(tmpl.lastHTML)
+	if !reflect.DeepEqual(tmpl.initialTree, expected) {
+		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.initialTree)
+	}
+}
+
+// ----- template_parity_test.go -----
+// TestTemplateParity_DollarInRange tests that $ refers to root context in range loops
+// This is a critical parity check with Go's standard template package
+func TestTemplateParity_DollarInRange(t *testing.T) {
+	tests := []struct {
+		name     string
+		tmpl     string
+		data     interface{}
+		expected string
+	}{
+		{
+			name: "$.Field in range",
+			tmpl: `{{range .Items}}{{.Name}}-{{$.Title}}{{end}}`,
+			data: map[string]interface{}{
+				"Title": "ROOT",
+				"Items": []map[string]string{
+					{"Name": "A"},
+					{"Name": "B"},
+				},
+			},
+			expected: "A-ROOTB-ROOT",
+		},
+		{
+			name: "$.Field in if inside range",
+			tmpl: `{{range .Messages}}{{if eq .Username $.CurrentUser}}mine{{else}}other{{end}}{{end}}`,
+			data: map[string]interface{}{
+				"CurrentUser": "alice",
+				"Messages": []map[string]string{
+					{"Username": "alice"},
+					{"Username": "bob"},
+					{"Username": "alice"},
+				},
+			},
+			expected: "mineothermine",
+		},
+		{
+			name: "nested range with $",
+			tmpl: `{{range .Outer}}{{range .Inner}}{{.}}-{{$.Root}}{{end}}{{end}}`,
+			data: map[string]interface{}{
+				"Root": "TOP",
+				"Outer": []map[string]interface{}{
+					{
+						"Inner": []string{"a", "b"},
+					},
+				},
+			},
+			expected: "a-TOPb-TOP",
+		},
+		{
+			name: "$ with variable in range",
+			tmpl: `{{range $i, $v := .Items}}{{$i}}: {{$v.Name}}-{{$.Title}}{{end}}`,
+			data: map[string]interface{}{
+				"Title": "ROOT",
+				"Items": []map[string]string{
+					{"Name": "A"},
+					{"Name": "B"},
+				},
+			},
+			expected: "0: A-ROOT1: B-ROOT",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Test with standard Go template
+			stdTmpl, err := template.New("std").Parse(tt.tmpl)
+			if err != nil {
+				t.Fatalf("Standard template parse error: %v", err)
+			}
+
+			var stdBuf bytes.Buffer
+			if err := stdTmpl.Execute(&stdBuf, tt.data); err != nil {
+				t.Fatalf("Standard template execute error: %v", err)
+			}
+
+			stdResult := stdBuf.String()
+			if stdResult != tt.expected {
+				t.Errorf("Standard template result mismatch:\nGot:  %q\nWant: %q", stdResult, tt.expected)
+			}
+
+			// Test with LiveTemplate
+			lvtTmpl := New("test")
+			if _, err := lvtTmpl.Parse(tt.tmpl); err != nil {
+				t.Fatalf("LiveTemplate parse error: %v", err)
+			}
+
+			var lvtBuf bytes.Buffer
+			if err := lvtTmpl.Execute(&lvtBuf, tt.data); err != nil {
+				t.Fatalf("LiveTemplate execute error: %v", err)
+			}
+
+			lvtResult := lvtBuf.String()
+
+			// LiveTemplate adds wrapper div, so extract content between div tags
+			// This is a simple extraction - for more complex cases we'd need proper parsing
+			lvtResultStripped := extractContent(lvtResult)
+
+			if lvtResultStripped != tt.expected {
+				t.Errorf("LiveTemplate result mismatch:\nGot:  %q\nWant: %q\nFull: %q", lvtResultStripped, tt.expected, lvtResult)
+			}
+
+			// Ensure both match
+			if lvtResultStripped != stdResult {
+				t.Errorf("Parity mismatch between standard and LiveTemplate:\nStandard:     %q\nLiveTemplate: %q", stdResult, lvtResultStripped)
+			}
+		})
+	}
+}
+
+// TestTemplateParity_DotInRange tests that . refers to current item in range loops
+func TestTemplateParity_DotInRange(t *testing.T) {
+	tests := []struct {
+		name     string
+		tmpl     string
+		data     interface{}
+		expected string
+	}{
+		{
+			name: "simple . in range",
+			tmpl: `{{range .Items}}{{.}}{{end}}`,
+			data: map[string]interface{}{
+				"Items": []string{"a", "b", "c"},
+			},
+			expected: "abc",
+		},
+		{
+			name: ". field access in range",
+			tmpl: `{{range .Items}}{{.Name}}{{end}}`,
+			data: map[string]interface{}{
+				"Items": []map[string]string{
+					{"Name": "Alice"},
+					{"Name": "Bob"},
+				},
+			},
+			expected: "AliceBob",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Test with standard Go template
+			stdTmpl, err := template.New("std").Parse(tt.tmpl)
+			if err != nil {
+				t.Fatalf("Standard template parse error: %v", err)
+			}
+
+			var stdBuf bytes.Buffer
+			if err := stdTmpl.Execute(&stdBuf, tt.data); err != nil {
+				t.Fatalf("Standard template execute error: %v", err)
+			}
+
+			stdResult := stdBuf.String()
+
+			// Test with LiveTemplate
+			lvtTmpl := New("test")
+			if _, err := lvtTmpl.Parse(tt.tmpl); err != nil {
+				t.Fatalf("LiveTemplate parse error: %v", err)
+			}
+
+			var lvtBuf bytes.Buffer
+			if err := lvtTmpl.Execute(&lvtBuf, tt.data); err != nil {
+				t.Fatalf("LiveTemplate execute error: %v", err)
+			}
+
+			lvtResult := extractContent(lvtBuf.String())
+
+			// Ensure both match
+			if lvtResult != stdResult {
+				t.Errorf("Parity mismatch:\nStandard:     %q\nLiveTemplate: %q", stdResult, lvtResult)
+			}
+		})
+	}
+}
+
+// extractContent extracts content between the wrapper div tags that LiveTemplate adds
+func extractContent(html string) string {
+	// Simple extraction: find content between first > and last <
+	// This works for simple cases but may need refinement for complex HTML
+	start := -1
+	end := -1
+
+	// Find first >
+	for i := 0; i < len(html); i++ {
+		if html[i] == '>' {
+			start = i + 1
+			break
+		}
+	}
+
+	// Find last <
+	for i := len(html) - 1; i >= 0; i-- {
+		if html[i] == '<' {
+			end = i
+			break
+		}
+	}
+
+	if start >= 0 && end >= start {
+		return html[start:end]
+	}
+
+	return html
+}
+
+// TestTemplateParity_VariablesInRange tests variable declarations in range
+func TestTemplateParity_VariablesInRange(t *testing.T) {
+	tests := []struct {
+		name     string
+		tmpl     string
+		data     interface{}
+		expected string
+	}{
+		{
+			name: "single variable in range",
+			tmpl: `{{range $v := .Items}}{{$v}}{{end}}`,
+			data: map[string]interface{}{
+				"Items": []string{"x", "y", "z"},
+			},
+			expected: "xyz",
+		},
+		{
+			name: "index and value variables in range",
+			tmpl: `{{range $i, $v := .Items}}{{$i}}:{{$v}} {{end}}`,
+			data: map[string]interface{}{
+				"Items": []string{"a", "b"},
+			},
+			expected: "0:a 1:b ",
+		},
+		{
+			name: "variables with $ in if condition",
+			tmpl: `{{range $i, $v := .Items}}{{if eq $v $.Target}}{{$i}}{{end}}{{end}}`,
+			data: map[string]interface{}{
+				"Target": "b",
+				"Items":  []string{"a", "b", "c"},
+			},
+			expected: "1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Test with standard Go template
+			stdTmpl, err := template.New("std").Parse(tt.tmpl)
+			if err != nil {
+				t.Fatalf("Standard template parse error: %v", err)
+			}
+
+			var stdBuf bytes.Buffer
+			if err := stdTmpl.Execute(&stdBuf, tt.data); err != nil {
+				t.Fatalf("Standard template execute error: %v", err)
+			}
+
+			stdResult := stdBuf.String()
+
+			// Test with LiveTemplate
+			lvtTmpl := New("test")
+			if _, err := lvtTmpl.Parse(tt.tmpl); err != nil {
+				t.Fatalf("LiveTemplate parse error: %v", err)
+			}
+
+			var lvtBuf bytes.Buffer
+			if err := lvtTmpl.Execute(&lvtBuf, tt.data); err != nil {
+				t.Fatalf("LiveTemplate execute error: %v", err)
+			}
+
+			lvtResult := extractContent(lvtBuf.String())
+
+			// Ensure both match
+			if lvtResult != stdResult {
+				t.Errorf("Parity mismatch:\nStandard:     %q\nLiveTemplate: %q", stdResult, lvtResult)
+			}
+		})
+	}
+}
+
+// ----- template_parity_complete_test.go -----
+// parityTest runs a parity check between standard Go template and LiveTemplate
+func parityTest(t *testing.T, tmpl string, data interface{}) {
+	t.Helper()
+
+	// Test with standard Go template
+	stdTmpl, err := template.New("std").Parse(tmpl)
+	if err != nil {
+		t.Fatalf("Standard template parse error: %v", err)
+	}
+
+	var stdBuf bytes.Buffer
+	if err := stdTmpl.Execute(&stdBuf, data); err != nil {
+		t.Fatalf("Standard template execute error: %v", err)
+	}
+
+	stdResult := stdBuf.String()
+
+	// Test with LiveTemplate
+	lvtTmpl := New("test")
+	if _, err := lvtTmpl.Parse(tmpl); err != nil {
+		t.Fatalf("LiveTemplate parse error: %v", err)
+	}
+
+	var lvtBuf bytes.Buffer
+	if err := lvtTmpl.Execute(&lvtBuf, data); err != nil {
+		t.Fatalf("LiveTemplate execute error: %v", err)
+	}
+
+	lvtResult := extractContent(lvtBuf.String())
+
+	// Ensure both match
+	if lvtResult != stdResult {
+		t.Errorf("Parity mismatch:\nStandard:     %q\nLiveTemplate: %q\nFull LVT:     %q", stdResult, lvtResult, lvtBuf.String())
+	}
+}
+
+// =============================================================================
+// CONTROL STRUCTURES TESTS
+// =============================================================================
+
+func TestParity_ControlStructures_If(t *testing.T) {
+	tests := []struct {
+		name string
+		tmpl string
+		data interface{}
+	}{
+		{
+			name: "if basic true",
+			tmpl: `{{if .Show}}visible{{end}}`,
+			data: map[string]interface{}{"Show": true},
+		},
+		{
+			name: "if basic false",
+			tmpl: `{{if .Show}}visible{{end}}`,
+			data: map[string]interface{}{"Show": false},
+		},
+		{
+			name: "if-else true branch",
+			tmpl: `{{if .Show}}yes{{else}}no{{end}}`,
+			data: map[string]interface{}{"Show": true},
+		},
+		{
+			name: "if-else false branch",
+			tmpl: `{{if .Show}}yes{{else}}no{{end}}`,
+			data: map[string]interface{}{"Show": false},
+		},
+		{
+			name: "if-else-if chain",
+			tmpl: `{{if eq .Status "active"}}active{{else if eq .Status "pending"}}pending{{else}}other{{end}}`,
+			data: map[string]interface{}{"Status": "pending"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parityTest(t, tt.tmpl, tt.data)
+		})
+	}
+}
+
+func TestParity_ControlStructures_Range(t *testing.T) {
+	tests := []struct {
+		name string
+		tmpl string
+		data interface{}
+	}{
+		{
+			name: "range over slice",
+			tmpl: `{{range .Items}}{{.}}{{end}}`,
+			data: map[string]interface{}{"Items": []string{"a", "b", "c"}},
+		},
+		{
+			name: "range with else - non-empty",
+			tmpl: `{{range .Items}}{{.}}{{else}}empty{{end}}`,
+			data: map[string]interface{}{"Items": []string{"a"}},
+		},
+		{
+			name: "range with else - empty",
+			tmpl: `{{range .Items}}{{.}}{{else}}empty{{end}}`,
+			data: map[string]interface{}{"Items": []string{}},
+		},
+		{
+			name: "range over map",
+			tmpl: `{{range $k, $v := .Map}}{{$k}}={{$v}} {{end}}`,
+			data: map[string]interface{}{"Map": map[string]string{"a": "1", "b": "2"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parityTest(t, tt.tmpl, tt.data)
+		})
+	}
+}
+
+func TestParity_ControlStructures_With(t *testing.T) {
+	tests := []struct {
+		name string
+		tmpl string
+		data interface{}
+	}{
+		{
+			name: "with basic",
+			tmpl: `{{with .User}}{{.Name}}{{end}}`,
+			data: map[string]interface{}{"User": map[string]string{"Name": "Alice"}},
+		},
+		{
+			name: "with else - has value",
+			tmpl: `{{with .User}}{{.Name}}{{else}}no user{{end}}`,
+			data: map[string]interface{}{"User": map[string]string{"Name": "Bob"}},
+		},
+		{
+			name: "with else - nil value",
+			tmpl: `{{with .User}}{{.Name}}{{else}}no user{{end}}`,
+			data: map[string]interface{}{"User": nil},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parityTest(t, tt.tmpl, tt.data)
+		})
+	}
+}
+
+func TestParity_ControlStructures_Template(t *testing.T) {
+	tests := []struct {
+		name string
+		tmpl string
+		data interface{}
+	}{
+		{
+			name: "template with define",
+			tmpl: `{{define "greeting"}}Hello{{end}}{{template "greeting"}}`,
+			data: nil,
+		},
+		{
+			name: "template with data",
+			tmpl: `{{define "user"}}User: {{.}}{{end}}{{template "user" .Name}}`,
+			data: map[string]string{"Name": "Alice"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parityTest(t, tt.tmpl, tt.data)
+		})
+	}
+}
+
+// =============================================================================
+// $ ROOT VARIABLE TESTS
+// =============================================================================
+
+func TestParity_RootVariable_InRange(t *testing.T) {
+	tests := []struct {
+		name string
+		tmpl string
+		data interface{}
+	}{
+		{
+			name: "$ simple field in range",
+			tmpl: `{{range .Items}}{{.}}-{{$.Title}}{{end}}`,
+			data: map[string]interface{}{"Title": "ROOT", "Items": []string{"a", "b"}},
+		},
+		{
+			name: "$ in if inside range",
+			tmpl: `{{range .Users}}{{if eq .Name $.Admin}}admin{{else}}user{{end}}{{end}}`,
+			data: map[string]interface{}{
+				"Admin": "alice",
+				"Users": []map[string]string{{"Name": "alice"}, {"Name": "bob"}},
+			},
+		},
+		{
+			name: "$ nested ranges",
+			tmpl: `{{range .L1}}{{range .L2}}{{.}}-{{$.Root}}{{end}}{{end}}`,
+			data: map[string]interface{}{
+				"Root": "TOP",
+				"L1": []map[string]interface{}{
+					{"L2": []string{"a", "b"}},
+				},
+			},
+		},
+		{
+			name: "$ with range variables",
+			tmpl: `{{range $i, $v := .Items}}{{$i}}:{{$v}}-{{$.Title}}{{end}}`,
+			data: map[string]interface{}{"Title": "ROOT", "Items": []string{"x", "y"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parityTest(t, tt.tmpl, tt.data)
+		})
+	}
+}
+
+func TestParity_RootVariable_InWith(t *testing.T) {
+	tests := []struct {
+		name string
+		tmpl string
+		data interface{}
+	}{
+		{
+			name: "$ in with",
+			tmpl: `{{with .User}}{{.Name}}-{{$.Title}}{{end}}`,
+			data: map[string]interface{}{
+				"Title": "ROOT",
+				"User":  map[string]string{"Name": "Alice"},
+			},
+		},
+		{
+			name: "$ in with else branch",
+			tmpl: `{{with .User}}{{.Name}}{{else}}{{$.Default}}{{end}}`,
+			data: map[string]interface{}{"Default": "NONE", "User": nil},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parityTest(t, tt.tmpl, tt.data)
+		})
+	}
+}
+
+func TestParity_RootVariable_NestedAccess(t *testing.T) {
+	tests := []struct {
+		name string
+		tmpl string
+		data interface{}
+	}{
+		{
+			name: "$ nested field access",
+			tmpl: `{{range .Items}}{{$.Config.Name}}{{end}}`,
+			data: map[string]interface{}{
+				"Config": map[string]string{"Name": "App"},
+				"Items":  []string{"a"},
+			},
+		},
+		{
+			name: "$ deep nested access",
+			tmpl: `{{range .Items}}{{$.A.B.C}}{{end}}`,
+			data: map[string]interface{}{
+				"A":     map[string]interface{}{"B": map[string]string{"C": "deep"}},
+				"Items": []string{"x"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parityTest(t, tt.tmpl, tt.data)
+		})
+	}
+}
+
+// =============================================================================
+// VARIABLES TESTS
+// =============================================================================
+
+func TestParity_Variables_Declaration(t *testing.T) {
+	tests := []struct {
+		name string
+		tmpl string
+		data interface{}
+	}{
+		{
+			name: "variable declaration",
+			tmpl: `{{$x := .Value}}{{$x}}`,
+			data: map[string]interface{}{"Value": "test"},
+		},
+		{
+			name: "variable in pipeline",
+			tmpl: `{{$x := .Value}}{{$x | printf "Value: %s"}}`,
+			data: map[string]interface{}{"Value": "data"},
+		},
+		{
+			name: "range single variable",
+			tmpl: `{{range $v := .Items}}{{$v}}{{end}}`,
+			data: map[string]interface{}{"Items": []string{"a", "b"}},
+		},
+		{
+			name: "range index and value",
+			tmpl: `{{range $i, $v := .Items}}{{$i}}:{{$v}} {{end}}`,
+			data: map[string]interface{}{"Items": []string{"x", "y"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parityTest(t, tt.tmpl, tt.data)
+		})
+	}
+}
+
+func TestParity_Variables_WithDollar(t *testing.T) {
+	tests := []struct {
+		name string
+		tmpl string
+		data interface{}
+	}{
+		{
+			name: "variable with $ in condition",
+			tmpl: `{{range $i, $v := .Items}}{{if eq $v $.Target}}{{$i}}{{end}}{{end}}`,
+			data: map[string]interface{}{
+				"Target": "b",
+				"Items":  []string{"a", "b", "c"},
+			},
+		},
+		{
+			name: "multiple variables with $",
+			tmpl: `{{range $i, $v := .Items}}{{$i}}-{{$v}}-{{$.Root}}{{end}}`,
+			data: map[string]interface{}{
+				"Root":  "BASE",
+				"Items": []string{"x", "y"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parityTest(t, tt.tmpl, tt.data)
+		})
+	}
+}
+
+// =============================================================================
+// BUILT-IN FUNCTIONS TESTS
+// =============================================================================
+
+func TestParity_Functions_Comparison(t *testing.T) {
+	tests := []struct {
+		name string
+		tmpl string
+		data interface{}
+	}{
+		{
+			name: "eq with $",
+			tmpl: `{{range .Items}}{{if eq . $.Target}}match{{end}}{{end}}`,
+			data: map[string]interface{}{"Target": "b", "Items": []string{"a", "b"}},
+		},
+		{
+			name: "ne with $",
+			tmpl: `{{if ne .Status $.Expected}}different{{end}}`,
+			data: map[string]interface{}{"Status": "active", "Expected": "pending"},
+		},
+		{
+			name: "lt with $",
+			tmpl: `{{if lt .Count $.Limit}}under{{end}}`,
+			data: map[string]interface{}{"Count": 5, "Limit": 10},
+		},
+		{
+			name: "gt with $",
+			tmpl: `{{if gt .Count $.Min}}over{{end}}`,
+			data: map[string]interface{}{"Count": 15, "Min": 10},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parityTest(t, tt.tmpl, tt.data)
+		})
+	}
+}
+
+func TestParity_Functions_Logical(t *testing.T) {
+	tests := []struct {
+		name string
+		tmpl string
+		data interface{}
+	}{
+		{
+			name: "and with $",
+			tmpl: `{{if and .Active $.Enabled}}yes{{end}}`,
+			data: map[string]interface{}{"Active": true, "Enabled": true},
+		},
+		{
+			name: "or with $",
+			tmpl: `{{if or .A $.B}}yes{{end}}`,
+			data: map[string]interface{}{"A": false, "B": true},
+		},
+		{
+			name: "not with $",
+			tmpl: `{{if not $.Disabled}}enabled{{end}}`,
+			data: map[string]interface{}{"Disabled": false},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parityTest(t, tt.tmpl, tt.data)
+		})
+	}
+}
+
+func TestParity_Functions_BuiltIn(t *testing.T) {
+	tests := []struct {
+		name string
+		tmpl string
+		data interface{}
+	}{
+		{
+			name: "len with $",
+			tmpl: `{{len $.Items}}`,
+			data: map[string]interface{}{"Items": []string{"a", "b", "c"}},
+		},
+		{
+			name: "index with $",
+			tmpl: `{{index $.Items 1}}`,
+			data: map[string]interface{}{"Items": []string{"a", "b", "c"}},
+		},
+		{
+			name: "printf with $",
+			tmpl: `{{printf "Count: %d" $.Count}}`,
+			data: map[string]interface{}{"Count": 42},
+		},
+		{
+			name: "print with $",
+			tmpl: `{{print $.Value}}`,
+			data: map[string]interface{}{"Value": "test"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parityTest(t, tt.tmpl, tt.data)
+		})
+	}
+}
+
+// =============================================================================
+// FIELD/METHOD/KEY ACCESS TESTS
+// =============================================================================
+
+func TestParity_FieldAccess_Chained(t *testing.T) {
+	tests := []struct {
+		name string
+		tmpl string
+		data interface{}
+	}{
+		{
+			name: "chained field access",
+			tmpl: `{{.User.Profile.Name}}`,
+			data: map[string]interface{}{
+				"User": map[string]interface{}{
+					"Profile": map[string]string{"Name": "Alice"},
+				},
+			},
+		},
+		{
+			name: "chained with $ in range",
+			tmpl: `{{range .Items}}{{$.Config.App.Name}}{{end}}`,
+			data: map[string]interface{}{
+				"Config": map[string]interface{}{
+					"App": map[string]string{"Name": "MyApp"},
+				},
+				"Items": []string{"x"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parityTest(t, tt.tmpl, tt.data)
+		})
+	}
+}
+
+func TestParity_FieldAccess_OnVariable(t *testing.T) {
+	tests := []struct {
+		name string
+		tmpl string
+		data interface{}
+	}{
+		{
+			name: "field access on variable",
+			tmpl: `{{range $item := .Items}}{{$item.Name}}{{end}}`,
+			data: map[string]interface{}{
+				"Items": []map[string]string{{"Name": "A"}, {"Name": "B"}},
+			},
+		},
+		{
+			name: "chained on variable",
+			tmpl: `{{range $u := .Users}}{{$u.Profile.Name}}{{end}}`,
+			data: map[string]interface{}{
+				"Users": []map[string]interface{}{
+					{"Profile": map[string]string{"Name": "Alice"}},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parityTest(t, tt.tmpl, tt.data)
+		})
+	}
+}
+
+// =============================================================================
+// PIPELINES TESTS
+// =============================================================================
+
+func TestParity_Pipelines_Basic(t *testing.T) {
+	tests := []struct {
+		name string
+		tmpl string
+		data interface{}
+	}{
+		{
+			name: "simple pipeline",
+			tmpl: `{{.Value | printf "Result: %s"}}`,
+			data: map[string]interface{}{"Value": "test"},
+		},
+		{
+			name: "chained pipeline",
+			tmpl: `{{.Value | printf "%s" | printf "Final: %s"}}`,
+			data: map[string]interface{}{"Value": "data"},
+		},
+		// SKIP: Known limitation - LiveTemplate adds internal `lvt` field to data
+		// When printing entire $ structure, it includes this field
+		// This is acceptable as it's an edge case and doesn't affect normal template usage
+		// {
+		// 	name: "$ in pipeline",
+		// 	tmpl: `{{range .Items}}{{$ | printf "%v"}}{{end}}`,
+		// 	data: map[string]interface{}{"Items": []string{"x"}},
+		// },
+		{
+			name: "$.Field in pipeline",
+			tmpl: `{{range .Items}}{{$.Title | printf "Title: %s"}}{{end}}`,
+			data: map[string]interface{}{"Title": "ROOT", "Items": []string{"a"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parityTest(t, tt.tmpl, tt.data)
+		})
+	}
+}
+
+func TestParity_Pipelines_WithVariables(t *testing.T) {
+	tests := []struct {
+		name string
+		tmpl string
+		data interface{}
+	}{
+		{
+			name: "variable in pipeline",
+			tmpl: `{{range $v := .Items}}{{$v | printf "%s"}}{{end}}`,
+			data: map[string]interface{}{"Items": []string{"a", "b"}},
+		},
+		{
+			name: "variable and $ in pipeline",
+			tmpl: `{{range $v := .Items}}{{$v | printf "%s"}} {{$.Title | printf "%s"}}{{end}}`,
+			data: map[string]interface{}{"Title": "T", "Items": []string{"x"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parityTest(t, tt.tmpl, tt.data)
+		})
+	}
+}
+
+// =============================================================================
+// EDGE CASES TESTS
+// =============================================================================
+
+func TestParity_EdgeCases_Empty(t *testing.T) {
+	tests := []struct {
+		name string
+		tmpl string
+		data interface{}
+	}{
+		{
+			name: "empty range",
+			tmpl: `{{range .Items}}{{.}}{{end}}`,
+			data: map[string]interface{}{"Items": []string{}},
+		},
+		{
+			name: "nil with",
+			tmpl: `{{with .User}}{{.}}{{else}}none{{end}}`,
+			data: map[string]interface{}{"User": nil},
+		},
+		{
+			name: "zero value",
+			tmpl: `{{if .Count}}yes{{else}}no{{end}}`,
+			data: map[string]interface{}{"Count": 0},
+		},
+		{
+			name: "empty string",
+			tmpl: `{{if .Value}}yes{{else}}no{{end}}`,
+			data: map[string]interface{}{"Value": ""},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parityTest(t, tt.tmpl, tt.data)
+		})
+	}
+}
+
+func TestParity_EdgeCases_RangeWithDollar(t *testing.T) {
+	tests := []struct {
+		name string
+		tmpl string
+		data interface{}
+	}{
+		{
+			name: "empty range with $ in body",
+			tmpl: `{{range .Items}}{{$.Field}}{{end}}`,
+			data: map[string]interface{}{"Field": "value", "Items": []string{}},
+		},
+		{
+			name: "range else with $",
+			tmpl: `{{range .Items}}item{{else}}{{$.Default}}{{end}}`,
+			data: map[string]interface{}{"Default": "EMPTY", "Items": []string{}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parityTest(t, tt.tmpl, tt.data)
+		})
+	}
+}
+
+// ----- template_diff_analysis_test.go -----
+func TestAnalyzeChangeAndCreateTree_EntireContentFallbackParity(t *testing.T) {
+	tmpl := &Template{}
+
+	oldHTML := `<div><p>legacy</p></div>`
+	newHTML := `<main>
+  <section>
+    <h1>Dynamic Title</h1>
+    <article><p>Body content</p></article>
+  </section>
+</main>`
+
+	tree, err := tmpl.analyzeChangeAndCreateTree(oldHTML, newHTML, nil, nil)
+	if err != nil {
+		t.Fatalf("analyzeChangeAndCreateTree returned error: %v", err)
+	}
+
+	fallbackTree := tmpl.createHTMLStructureBasedTree(newHTML)
+	if !reflect.DeepEqual(tree, fallbackTree) {
+		t.Fatalf("expected structural fallback parity\nwant: %#v\ngot:  %#v", fallbackTree, tree)
+	}
+}
+
+func TestAnalyzeChangeAndCreateTree_PartialChangeKeepsStatics(t *testing.T) {
+	tmpl := &Template{}
+
+	oldHTML := `<div><p>Hello</p></div>`
+	newHTML := `<div><p>Hello World</p></div>`
+
+	tree, err := tmpl.analyzeChangeAndCreateTree(oldHTML, newHTML, nil, nil)
+	if err != nil {
+		t.Fatalf("analyzeChangeAndCreateTree returned error: %v", err)
+	}
+
+	if !reflect.DeepEqual(tree.Statics, []string{"<div><p>Hello", "</p></div>"}) {
+		t.Fatalf("unexpected statics: %#v", tree.Statics)
+	}
+
+	dynamic, ok := tree.Dynamics["0"].(string)
+	if !ok {
+		t.Fatalf("expected string dynamic, got %#v", tree.Dynamics["0"])
+	}
+
+	if strings.TrimSpace(dynamic) != "World" {
+		t.Fatalf("expected normalized dynamic \"World\", got %q", dynamic)
+	}
+}
+
+// ----- key_injection_test.go -----
+func TestKeyInjectionScenarios(t *testing.T) {
+	// Reset key generator for clean test
+	resetKeyGenerator()
+
+	// Test the new simple wrapper approach
+	tests := []struct {
+		name     string
+		expected string
+	}{
+		{name: "First key", expected: "1"},
+		{name: "Second key", expected: "2"},
+		{name: "Third key", expected: "3"},
+		{name: "Fourth key", expected: "4"},
+		{name: "Fifth key", expected: "5"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := generateWrapperKey(globalKeyGenerator)
+			if result != test.expected {
+				t.Errorf("Expected key %q, got %q", test.expected, result)
+			}
+		})
+	}
+}
+
+func TestKeyInjectionStabilityAcrossChanges(t *testing.T) {
+	// Reset key generator for clean test
+	resetKeyGenerator()
+
+	t.Logf("🎯 NEW WRAPPER APPROACH: Keys are assigned once per page load")
+	t.Logf("✅ No complex identity tracking needed")
+	t.Logf("✅ Works with ANY data type")
+	t.Logf("✅ Keys are stable within a single page render")
+
+	// Generate a few keys to show the pattern
+	keys := make([]string, 3)
+	for i := 0; i < 3; i++ {
+		keys[i] = generateWrapperKey(globalKeyGenerator)
+	}
+
+	t.Logf("Generated keys: %v", keys)
+	t.Logf("✅ Simple sequential generation: 1, 2, 3")
+}
+
+func TestKeyInjectionUniversalCompatibility(t *testing.T) {
+	// Reset key generator for clean test
+	resetKeyGenerator()
+
+	t.Logf("🎯 UNIVERSAL COMPATIBILITY: Works with any data type")
+
+	// Test that wrapper approach works with ANY data type
+	testCases := []interface{}{
+		42,                                     // primitive int
+		"hello",                                // primitive string
+		true,                                   // primitive bool
+		[]int{1, 2, 3},                         // slice
+		map[string]interface{}{"key": "value"}, // map
+		struct {
+			Count  int
+			Active bool
+		}{Count: 5, Active: true}, // struct without stable fields
+		struct {
+			ID   string
+			Name string
+		}{ID: "123", Name: "John"}, // struct with potential stable fields
+	}
+
+	for i, item := range testCases {
+		key := generateWrapperKey(globalKeyGenerator)
+		expectedKey := fmt.Sprintf("%d", i+1)
+
+		if key != expectedKey {
+			t.Errorf("Expected key %q for item %v, got %q", expectedKey, item, key)
+		}
+
+		t.Logf("  ✅ %T → %s", item, key)
+	}
+
+	t.Logf("✅ All data types handled uniformly - no special cases needed!")
 }
