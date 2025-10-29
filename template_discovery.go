@@ -7,6 +7,13 @@ import (
 	"strings"
 )
 
+// ignoredTemplateDirs lists directories we skip during auto-discovery to avoid vendor assets.
+var ignoredTemplateDirs = map[string]struct{}{
+	"node_modules": {},
+	"vendor":       {},
+	".git":         {},
+}
+
 // discoverTemplateFiles searches for template files in the calling directory and subdirectories
 func discoverTemplateFiles() ([]string, error) {
 	// Get the caller's directory (2 frames up: discoverTemplateFiles -> New -> user code)
@@ -23,11 +30,16 @@ func discoverTemplateFiles() ([]string, error) {
 			return err
 		}
 
-		if !d.IsDir() {
-			ext := filepath.Ext(path)
-			if ext == ".tmpl" || ext == ".html" || ext == ".gotmpl" {
-				files = append(files, path)
+		if d.IsDir() {
+			if _, skip := ignoredTemplateDirs[d.Name()]; skip {
+				return fs.SkipDir
 			}
+			return nil
+		}
+
+		ext := filepath.Ext(path)
+		if ext == ".tmpl" || ext == ".html" || ext == ".gotmpl" {
+			files = append(files, path)
 		}
 		return nil
 	})
