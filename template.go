@@ -2357,9 +2357,19 @@ func (t *Template) analyzeChangeAndCreateTree(oldHTML, newHTML string, _, _ inte
 
 	// If entire content changed, return full dynamic content
 	if changeStart >= changeEnd || (changeStart == 0 && changeEnd == len(newHTML)) {
-		tree := NewTreeNodeWithStatics([]string{"", ""})
-		tree.SetDynamic("0", minifyHTML(newHTML))
-		return tree, nil
+		// Use the same segmentation strategy as the HTML fallback to ensure
+		// updates remain structurally consistent with initial renders.
+		return t.createHTMLStructureBasedTree(newHTML), nil
+	}
+
+	staticOverlap := len(commonPrefix) + len(commonSuffix)
+	if staticOverlap <= 2 {
+		hasMarkupFragment := strings.Contains(commonPrefix, "<") || strings.Contains(commonPrefix, ">") ||
+			strings.Contains(commonSuffix, "<") || strings.Contains(commonSuffix, ">")
+
+		if hasMarkupFragment {
+			return t.createHTMLStructureBasedTree(newHTML), nil
+		}
 	}
 
 	// If we have stable prefix/suffix, create tree with static parts
@@ -2371,9 +2381,7 @@ func (t *Template) analyzeChangeAndCreateTree(oldHTML, newHTML string, _, _ inte
 	}
 
 	// Default to full dynamic content
-	tree := NewTreeNodeWithStatics([]string{"", ""})
-	tree.SetDynamic("0", minifyHTML(newHTML))
-	return tree, nil
+	return t.createHTMLStructureBasedTree(newHTML), nil
 }
 
 // createHTMLStructureBasedTree implements deterministic segmentation strategies for HTML content

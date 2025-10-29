@@ -79,7 +79,23 @@ func TestModalFunctionality(t *testing.T) {
         </div>
     </div>
 
-    <script src="/livetemplate-client.js"></script>
+	<script>
+		window.__lvtClientLoaded = false;
+		window.__lvtClientLoadError = "";
+		window.__markLvtClientLoaded = function () {
+			window.__lvtClientLoaded = true;
+		};
+		window.__markLvtClientError = function (event) {
+			if (event && event.message) {
+				window.__lvtClientLoadError = event.message;
+			} else if (event && event.type) {
+				window.__lvtClientLoadError = event.type;
+			} else {
+				window.__lvtClientLoadError = "unknown error";
+			}
+		};
+	</script>
+	<script src="/livetemplate-client.js" defer onload="window.__markLvtClientLoaded()" onerror="window.__markLvtClientError(event)"></script>
 </body>
 </html>`
 
@@ -128,6 +144,18 @@ func TestModalFunctionality(t *testing.T) {
 		// Navigate to test page
 		chromedp.Navigate(chromeURL),
 		chromedp.WaitReady("body"),
+		// Wait for the client bundle to load or fail deterministically
+		waitFor(`window.__lvtClientLoaded === true || window.__lvtClientLoadError !== ''`, 15*time.Second),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			var loadErr string
+			if err := chromedp.Evaluate(`window.__lvtClientLoadError || ''`, &loadErr).Do(ctx); err != nil {
+				return fmt.Errorf("failed to inspect client load state: %v", err)
+			}
+			if loadErr != "" {
+				return fmt.Errorf("failed to load client bundle: %s", loadErr)
+			}
+			return nil
+		}),
 		// Force client auto-initialization if the script hasn't attached the instance yet
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			return chromedp.Evaluate(`
@@ -139,7 +167,7 @@ func TestModalFunctionality(t *testing.T) {
 			`, nil).Do(ctx)
 		}),
 		// Wait for client to fully initialize
-		waitFor(`typeof window.liveTemplateClient !== 'undefined'`, 10*time.Second),
+		waitFor(`typeof window.liveTemplateClient !== 'undefined'`, 15*time.Second),
 
 		// Test 1: Modal should be hidden initially
 		chromedp.ActionFunc(func(ctx context.Context) error {
