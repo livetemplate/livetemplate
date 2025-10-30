@@ -105,14 +105,15 @@ import (
 
 // Config holds template configuration options
 type Config struct {
-	Upgrader          *websocket.Upgrader
-	SessionStore      SessionStore
-	Authenticator     Authenticator // User authentication and session grouping
-	AllowedOrigins    []string      // Allowed WebSocket origins (empty = allow all in dev, restrict in prod)
-	WebSocketDisabled bool
-	LoadingDisabled   bool     // Disables automatic loading indicator on page load
-	TemplateFiles     []string // If set, overrides auto-discovery
-	DevMode           bool     // Development mode - use local client library instead of CDN
+	Upgrader           *websocket.Upgrader
+	SessionStore       SessionStore
+	Authenticator      Authenticator // User authentication and session grouping
+	AllowedOrigins     []string      // Allowed WebSocket origins (empty = allow all in dev, restrict in prod)
+	WebSocketDisabled  bool
+	LoadingDisabled    bool     // Disables automatic loading indicator on page load
+	TemplateFiles      []string // If set, overrides auto-discovery
+	IgnoreTemplateDirs []string // Additional directories to ignore during auto-discovery
+	DevMode            bool     // Development mode - use local client library instead of CDN
 }
 
 // Template represents a live template with caching and tree-based optimization capabilities.
@@ -280,6 +281,18 @@ func WithAllowedOrigins(origins []string) Option {
 	}
 }
 
+// WithIgnoreTemplateDirs adds directories to ignore during template auto-discovery.
+// This is useful to skip directories containing generator templates or other non-runtime templates.
+//
+// Example:
+//
+//	tmpl := livetemplate.New("app", livetemplate.WithIgnoreTemplateDirs("generators", "scaffolds"))
+func WithIgnoreTemplateDirs(dirs ...string) Option {
+	return func(c *Config) {
+		c.IgnoreTemplateDirs = append(c.IgnoreTemplateDirs, dirs...)
+	}
+}
+
 // New creates a new template with the given name and options.
 //
 // By default, New auto-discovers template files in the current directory and common
@@ -357,7 +370,7 @@ func New(name string, opts ...Option) *Template {
 
 	// Auto-discover and parse templates if not explicitly provided
 	if len(config.TemplateFiles) == 0 {
-		files, err := discoverTemplateFiles()
+		files, err := discoverTemplateFiles(config.IgnoreTemplateDirs)
 		if err == nil && len(files) > 0 {
 			if _, err := tmpl.ParseFiles(files...); err != nil {
 				log.Printf("Warning: failed to parse template files: %v", err)
