@@ -18,7 +18,7 @@ func TestResource_List(t *testing.T) {
 	resources := []string{"users", "posts", "comments"}
 	for _, resource := range resources {
 		t.Logf("Generating %s resource...", resource)
-		if err := runLvtCommand(t, appDir, "gen", resource, "name"); err != nil {
+		if err := runLvtCommand(t, appDir, "gen", "resource", resource, "name"); err != nil {
 			t.Fatalf("Failed to generate %s: %v", resource, err)
 		}
 	}
