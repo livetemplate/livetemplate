@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"strings"
@@ -13,12 +14,65 @@ import (
 
 func Gen(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("resource name required")
+		// Show interactive prompt
+		return interactiveGen()
 	}
 
-	// Check if "view" subcommand
-	if args[0] == "view" {
+	// Route to subcommands
+	subcommand := args[0]
+	switch subcommand {
+	case "resource":
+		return GenResource(args[1:])
+	case "view":
 		return GenView(args[1:])
+	case "schema":
+		return GenSchema(args[1:])
+	default:
+		return fmt.Errorf("unknown subcommand: %s\n\nAvailable subcommands:\n  resource  Generate full CRUD resource with database\n  view      Generate view-only handler (no database)\n  schema    Generate database schema only\n\nRun 'lvt gen' for interactive mode", subcommand)
+	}
+}
+
+func interactiveGen() error {
+	fmt.Println("What would you like to generate?")
+	fmt.Println()
+	fmt.Println("  1. Resource - Full CRUD with database (handler + template + migration + queries)")
+	fmt.Println("  2. View     - UI only, no database (handler + template)")
+	fmt.Println("  3. Schema   - Database tables only (migration + schema + queries)")
+	fmt.Println()
+	fmt.Print("Enter your choice (1-3): ")
+
+	reader := bufio.NewReader(os.Stdin)
+	choice, err := reader.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("failed to read input: %w", err)
+	}
+
+	choice = strings.TrimSpace(choice)
+
+	switch choice {
+	case "1":
+		fmt.Println("\nGenerating resource...")
+		fmt.Println("You can also use: lvt gen resource <name> <field:type>...")
+		fmt.Println()
+		return fmt.Errorf("interactive resource generation not yet implemented - use: lvt gen resource <name> <field:type>...")
+	case "2":
+		fmt.Println("\nGenerating view...")
+		fmt.Println("You can also use: lvt gen view <name>")
+		fmt.Println()
+		return fmt.Errorf("interactive view generation not yet implemented - use: lvt gen view <name>")
+	case "3":
+		fmt.Println("\nGenerating schema...")
+		fmt.Println("You can also use: lvt gen schema <table> <field:type>...")
+		fmt.Println()
+		return fmt.Errorf("interactive schema generation not yet implemented - use: lvt gen schema <table> <field:type>...")
+	default:
+		return fmt.Errorf("invalid choice: %s", choice)
+	}
+}
+
+func GenResource(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("resource name required")
 	}
 
 	// Get current directory for project config
@@ -203,6 +257,86 @@ func GenView(args []string) error {
 	fmt.Printf("  1. Customize handler: internal/app/%s/%s.go\n", viewNameLower, viewNameLower)
 	fmt.Printf("  2. Edit template: internal/app/%s/%s.tmpl\n", viewNameLower, viewNameLower)
 	fmt.Println("  3. Run your app")
+	fmt.Println()
+
+	return nil
+}
+
+func GenSchema(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("table name required")
+	}
+
+	// Get current directory for project config
+	basePath, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	// Load project config
+	projectConfig, err := config.LoadProjectConfig(basePath)
+	if err != nil {
+		return fmt.Errorf("failed to load project config: %w", err)
+	}
+
+	kit := projectConfig.GetKit()
+
+	// Load kit manifest to get CSS framework
+	loader := kits.DefaultLoader()
+	kitInfo, err := loader.Load(kit)
+	if err != nil {
+		return fmt.Errorf("failed to load kit: %w", err)
+	}
+	cssFramework := kitInfo.Manifest.CSSFramework
+
+	tableName := args[0]
+	fieldArgs := args[1:]
+
+	if len(fieldArgs) == 0 {
+		return fmt.Errorf("at least one field required (format: name:type)")
+	}
+
+	// Parse fields with type inference support
+	fields, err := parseFieldsWithInference(fieldArgs)
+	if err != nil {
+		return err
+	}
+
+	// Get module name from go.mod
+	moduleName, err := getModuleName()
+	if err != nil {
+		return fmt.Errorf("failed to get module name: %w (are you in a Go project?)", err)
+	}
+
+	fmt.Printf("Generating database schema: %s\n", tableName)
+	fmt.Printf("Kit: %s\n", kit)
+	fmt.Printf("Fields: ")
+	for i, f := range fields {
+		if i > 0 {
+			fmt.Printf(", ")
+		}
+		fmt.Printf("%s:%s", f.Name, f.Type)
+	}
+	fmt.Println()
+
+	if err := generator.GenerateSchema(basePath, moduleName, tableName, fields, kit, cssFramework); err != nil {
+		return err
+	}
+
+	tableNameLower := strings.ToLower(tableName)
+
+	fmt.Println()
+	fmt.Println("✅ Schema generated successfully!")
+	fmt.Println()
+	fmt.Println("Files created/updated:")
+	fmt.Println("  internal/database/migrations/<timestamp>_create_" + tableNameLower + ".sql")
+	fmt.Println("  internal/database/schema.sql (updated)")
+	fmt.Println("  internal/database/queries.sql (updated)")
+	fmt.Println()
+	fmt.Println("Next steps:")
+	fmt.Println("  1. Run migration:")
+	fmt.Println("     lvt migration up")
+	fmt.Println("  2. Use generated types in your handlers")
 	fmt.Println()
 
 	return nil
