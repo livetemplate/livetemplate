@@ -34,21 +34,21 @@ func TestTutorialE2E(t *testing.T) {
 
 	// Step 2: Generate posts resource
 	t.Log("Step 2: Generating posts resource...")
-	if err := runLvtCommand(t, blogDir, "gen", "posts", "title", "content", "published:bool"); err != nil {
+	if err := runLvtCommand(t, blogDir, "gen", "resource", "posts", "title", "content", "published:bool"); err != nil {
 		t.Fatalf("Failed to generate posts: %v", err)
 	}
 	t.Log("✅ Posts resource generated")
 
 	// Step 3: Generate categories resource
 	t.Log("Step 3: Generating categories resource...")
-	if err := runLvtCommand(t, blogDir, "gen", "categories", "name", "description"); err != nil {
+	if err := runLvtCommand(t, blogDir, "gen", "resource", "categories", "name", "description"); err != nil {
 		t.Fatalf("Failed to generate categories: %v", err)
 	}
 	t.Log("✅ Categories resource generated")
 
 	// Step 4: Generate comments resource with foreign key
 	t.Log("Step 4: Generating comments resource with FK...")
-	if err := runLvtCommand(t, blogDir, "gen", "comments", "post_id:references:posts", "author", "text"); err != nil {
+	if err := runLvtCommand(t, blogDir, "gen", "resource", "comments", "post_id:references:posts", "author", "text"); err != nil {
 		t.Fatalf("Failed to generate comments: %v", err)
 	}
 	t.Log("✅ Comments resource generated with foreign key")

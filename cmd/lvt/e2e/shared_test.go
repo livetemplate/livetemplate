@@ -87,7 +87,7 @@ func setupSharedResources() error {
 		}
 
 		// Generate a posts resource
-		if err := runLvtCommand(&testing.T{}, appDir, "gen", "posts", "title", "content:text", "published:bool"); err != nil {
+		if err := runLvtCommand(&testing.T{}, appDir, "gen", "resource", "posts", "title", "content:text", "published:bool"); err != nil {
 			setupErr = fmt.Errorf("failed to generate posts resource: %w", err)
 			return
 		}

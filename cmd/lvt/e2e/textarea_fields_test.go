@@ -19,7 +19,7 @@ func TestTextareaFields(t *testing.T) {
 
 	// Test 1: Generate resource with explicit textarea type
 	t.Run("Explicit_Textarea_Type", func(t *testing.T) {
-		if err := runLvtCommand(t, appDir, "gen", "articles", "title", "content:text"); err != nil {
+		if err := runLvtCommand(t, appDir, "gen", "resource", "articles", "title", "content:text"); err != nil {
 			t.Fatalf("Failed to generate resource with :text type: %v", err)
 		}
 
@@ -72,7 +72,7 @@ func TestTextareaFields(t *testing.T) {
 
 	// Test 2: Generate resource with inferred textarea type
 	t.Run("Inferred_Textarea_Type", func(t *testing.T) {
-		if err := runLvtCommand(t, appDir, "gen", "posts", "title", "content", "description", "body"); err != nil {
+		if err := runLvtCommand(t, appDir, "gen", "resource", "posts", "title", "content", "description", "body"); err != nil {
 			t.Fatalf("Failed to generate resource with inferred textarea types: %v", err)
 		}
 
@@ -119,7 +119,7 @@ func TestTextareaFields(t *testing.T) {
 
 	// Test 3: Verify textarea aliases work (textarea, longtext)
 	t.Run("Textarea_Aliases", func(t *testing.T) {
-		if err := runLvtCommand(t, appDir, "gen", "documents", "title", "summary:textarea", "details:longtext"); err != nil {
+		if err := runLvtCommand(t, appDir, "gen", "resource", "documents", "title", "summary:textarea", "details:longtext"); err != nil {
 			t.Fatalf("Failed to generate resource with textarea aliases: %v", err)
 		}
 

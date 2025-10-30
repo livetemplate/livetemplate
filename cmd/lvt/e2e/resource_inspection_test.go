@@ -53,7 +53,7 @@ func TestResource_Describe(t *testing.T) {
 
 	// Generate a resource with multiple field types
 	t.Log("Generating products resource...")
-	if err := runLvtCommand(t, appDir, "gen", "products",
+	if err := runLvtCommand(t, appDir, "gen", "resource", "products",
 		"name:string", "price:float", "quantity:int", "active:bool", "released_at:time"); err != nil {
 		t.Fatalf("Failed to generate products: %v", err)
 	}

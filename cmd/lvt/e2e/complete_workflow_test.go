@@ -34,21 +34,21 @@ func TestCompleteWorkflow_BlogApp(t *testing.T) {
 
 	// Step 3: Generate posts resource
 	t.Log("Step 3: Generating posts resource...")
-	if err := runLvtCommand(t, appDir, "gen", "posts", "title", "content:text", "published:bool"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "resource", "posts", "title", "content:text", "published:bool"); err != nil {
 		t.Fatalf("Failed to generate posts: %v", err)
 	}
 	t.Log("✅ Posts resource generated")
 
 	// Step 4: Generate categories resource
 	t.Log("Step 4: Generating categories resource...")
-	if err := runLvtCommand(t, appDir, "gen", "categories", "name", "description"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "resource", "categories", "name", "description"); err != nil {
 		t.Fatalf("Failed to generate categories: %v", err)
 	}
 	t.Log("✅ Categories resource generated")
 
 	// Step 5: Generate comments resource with foreign key
 	t.Log("Step 5: Generating comments resource with FK...")
-	if err := runLvtCommand(t, appDir, "gen", "comments", "post_id:references:posts", "author", "text"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "resource", "comments", "post_id:references:posts", "author", "text"); err != nil {
 		t.Fatalf("Failed to generate comments: %v", err)
 	}
 	t.Log("✅ Comments resource generated")

@@ -18,7 +18,7 @@ func TestMigration_Workflow(t *testing.T) {
 
 	// Generate a resource to create migrations
 	t.Log("Generating users resource...")
-	if err := runLvtCommand(t, appDir, "gen", "users", "name", "email"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "resource", "users", "name", "email"); err != nil {
 		t.Fatalf("Failed to generate users: %v", err)
 	}
 
@@ -48,7 +48,7 @@ func TestMigration_Workflow(t *testing.T) {
 
 	// Generate another resource
 	t.Log("Generating posts resource...")
-	if err := runLvtCommand(t, appDir, "gen", "posts", "title", "content:text"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "resource", "posts", "title", "content:text"); err != nil {
 		t.Fatalf("Failed to generate posts: %v", err)
 	}
 
@@ -72,10 +72,10 @@ func TestMigration_Rollback(t *testing.T) {
 
 	// Generate resources to create multiple migrations
 	t.Log("Generating resources...")
-	if err := runLvtCommand(t, appDir, "gen", "users", "name"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "resource", "users", "name"); err != nil {
 		t.Fatalf("Failed to generate users: %v", err)
 	}
-	if err := runLvtCommand(t, appDir, "gen", "posts", "title"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "resource", "posts", "title"); err != nil {
 		t.Fatalf("Failed to generate posts: %v", err)
 	}
 

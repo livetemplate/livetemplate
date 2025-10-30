@@ -28,7 +28,7 @@ func TestPageModeURLRouting(t *testing.T) {
 	}
 
 	// Generate resource with page mode
-	if err := runLvtCommand(t, appDir, "gen", "products", "name", "--edit-mode", "page"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "resource", "products", "name", "--edit-mode", "page"); err != nil {
 		t.Fatalf("Failed to generate resource: %v", err)
 	}
 
