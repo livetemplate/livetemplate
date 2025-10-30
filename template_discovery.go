@@ -12,10 +12,11 @@ var ignoredTemplateDirs = map[string]struct{}{
 	"node_modules": {},
 	"vendor":       {},
 	".git":         {},
+	"internal":     {}, // Skip internal directories (e.g., code generator templates with mixed delimiters)
 }
 
 // discoverTemplateFiles searches for template files in the calling directory and subdirectories
-func discoverTemplateFiles() ([]string, error) {
+func discoverTemplateFiles(customIgnoreDirs []string) ([]string, error) {
 	// Get the caller's directory (2 frames up: discoverTemplateFiles -> New -> user code)
 	_, filename, _, ok := runtime.Caller(2)
 	if !ok {
@@ -25,13 +26,22 @@ func discoverTemplateFiles() ([]string, error) {
 	baseDir := filepath.Dir(filename)
 	var files []string
 
+	// Build combined ignore map (default + custom)
+	ignoreMap := make(map[string]struct{}, len(ignoredTemplateDirs)+len(customIgnoreDirs))
+	for k, v := range ignoredTemplateDirs {
+		ignoreMap[k] = v
+	}
+	for _, dir := range customIgnoreDirs {
+		ignoreMap[dir] = struct{}{}
+	}
+
 	err := filepath.WalkDir(baseDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
 		if d.IsDir() {
-			if _, skip := ignoredTemplateDirs[d.Name()]; skip {
+			if _, skip := ignoreMap[d.Name()]; skip {
 				return fs.SkipDir
 			}
 			return nil
