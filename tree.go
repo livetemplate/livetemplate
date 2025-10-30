@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"reflect"
+	"hash"
 	"regexp"
 	"sort"
 	"strconv"
@@ -15,30 +15,38 @@ import (
 	"golang.org/x/net/html"
 )
 
-// treeNode represents the tree-based static/dynamic structure (internal use only)
-type treeNode map[string]interface{}
-
 // calculateFingerprint calculates a 64-bit fingerprint (MD5 hash) for a tree's statics and dynamics
 // This allows detecting when a subtree has changed, similar to LiveView's optimization #2
-func calculateFingerprint(tree treeNode) string {
-	// Create a canonical representation of the tree for hashing
-	// Include both statics (template structure) and dynamics (data values)
+// Optimized in Phase 5 to use incremental hashing instead of full JSON marshaling
+func calculateFingerprint(tree *TreeNode) string {
 	hasher := md5.New()
+	hashTreeIncremental(tree, hasher)
 
+	// Return first 16 characters of hex (64 bits)
+	fullHash := hex.EncodeToString(hasher.Sum(nil))
+	if len(fullHash) >= 16 {
+		return fullHash[:16]
+	}
+	return fullHash
+}
+
+// hashTreeIncremental incrementally hashes a tree node without full JSON marshaling
+// This is much faster for nested trees as it avoids marshaling entire subtrees
+func hashTreeIncremental(tree *TreeNode, hasher hash.Hash) {
 	// Add statics to hash (template structure)
-	if statics, exists := tree["s"]; exists {
-		if staticsArray, ok := statics.([]string); ok {
-			staticsJSON, _ := json.Marshal(staticsArray)
-			hasher.Write(staticsJSON)
+	if tree.HasStatics() {
+		// Write statics count first for disambiguation
+		hasher.Write([]byte(fmt.Sprintf("s:%d:", len(tree.Statics))))
+		for _, s := range tree.Statics {
+			hasher.Write([]byte(s))
+			hasher.Write([]byte("\x00")) // Null byte separator
 		}
 	}
 
-	// Add dynamics to hash in sorted order for consistency
+	// Collect and sort dynamic keys for consistent hashing
 	var keys []string
-	for k := range tree {
-		if k != "s" && k != "f" { // Skip statics and fingerprint itself
-			keys = append(keys, k)
-		}
+	for k := range tree.Dynamics {
+		keys = append(keys, k)
 	}
 	sort.Slice(keys, func(i, j int) bool {
 		num1, err1 := strconv.Atoi(keys[i])
@@ -49,32 +57,80 @@ func calculateFingerprint(tree treeNode) string {
 		return keys[i] < keys[j]
 	})
 
-	// Add dynamic values to hash
+	// Hash each dynamic value incrementally
 	for _, k := range keys {
-		value := tree[k]
-		valueJSON, _ := json.Marshal(value)
+		value := tree.Dynamics[k]
 		hasher.Write([]byte(k))
+		hasher.Write([]byte(":"))
+		hashValueIncremental(value, hasher)
+		hasher.Write([]byte("\x00")) // Null byte separator
+	}
+}
+
+// hashValueIncremental hashes a value incrementally based on its type
+// For nested trees, it recursively hashes instead of marshaling
+func hashValueIncremental(value interface{}, hasher hash.Hash) {
+	switch v := value.(type) {
+	case *TreeNode:
+		// Nested tree node - recursively hash it
+		hasher.Write([]byte("tree{"))
+		hashTreeIncremental(v, hasher)
+		hasher.Write([]byte("}"))
+
+	case map[string]interface{}:
+		// Plain map - hash as JSON (rare case for raw data)
+		hasher.Write([]byte("map{"))
+		mapJSON, _ := json.Marshal(v)
+		hasher.Write(mapJSON)
+		hasher.Write([]byte("}"))
+
+	case []interface{}:
+		// Array - hash each element
+		hasher.Write([]byte(fmt.Sprintf("arr[%d]:", len(v))))
+		for i, item := range v {
+			hasher.Write([]byte(fmt.Sprintf("%d:", i)))
+			hashValueIncremental(item, hasher)
+		}
+		hasher.Write([]byte("]"))
+
+	case string:
+		hasher.Write([]byte("str:"))
+		hasher.Write([]byte(v))
+
+	case int:
+		hasher.Write([]byte(fmt.Sprintf("int:%d", v)))
+
+	case int64:
+		hasher.Write([]byte(fmt.Sprintf("i64:%d", v)))
+
+	case float64:
+		hasher.Write([]byte(fmt.Sprintf("f64:%f", v)))
+
+	case bool:
+		hasher.Write([]byte(fmt.Sprintf("bool:%t", v)))
+
+	case nil:
+		hasher.Write([]byte("nil"))
+
+	default:
+		// Fallback to JSON marshal for unknown types
+		// This is rare and only happens for custom types
+		valueJSON, _ := json.Marshal(v)
+		hasher.Write([]byte("json:"))
 		hasher.Write(valueJSON)
 	}
-
-	// Return first 16 characters of hex (64 bits)
-	fullHash := hex.EncodeToString(hasher.Sum(nil))
-	if len(fullHash) >= 16 {
-		return fullHash[:16]
-	}
-	return fullHash
 }
 
 // addFingerprintToTree adds the fingerprint to the tree for client-side tracking
 // NOTE: This should be internal-only for conditional branch detection
-func addFingerprintToTree(tree treeNode) treeNode {
-	if len(tree) == 0 {
+func addFingerprintToTree(tree *TreeNode) *TreeNode {
+	if !tree.HasStatics() && !tree.HasDynamics() {
 		return tree // Don't add fingerprint to empty trees
 	}
 
 	// For now, don't expose fingerprint to clients - keep it internal
 	// fingerprint := calculateFingerprint(tree)
-	// tree["f"] = fingerprint
+	// tree.Fingerprint = fingerprint
 	return tree
 }
 
@@ -263,7 +319,8 @@ func normalizeTemplateSpacing(templateStr string) string {
 }
 
 // parseTemplateToTree parses a template using the AST-based parser
-func parseTemplateToTree(templateStr string, data interface{}, keyGen *keyGenerator) (tree treeNode, err error) {
+// ctx is optional - if nil, defaults to first-render context (includes statics)
+func parseTemplateToTree(templateStr string, data interface{}, keyGen *keyGenerator, ctx ...*TreeGenerationContext) (tree *TreeNode, err error) {
 	// Recover from panics in template execution (can happen with fuzz-generated templates)
 	defer func() {
 		if r := recover(); r != nil {
@@ -271,43 +328,11 @@ func parseTemplateToTree(templateStr string, data interface{}, keyGen *keyGenera
 		}
 	}()
 
-	return parseTemplateToTreeAST(templateStr, data, keyGen)
-}
-
-// Helper functions for extracting template variables
-
-func getFieldValue(data interface{}, fieldName string) (interface{}, error) {
-	dataValue := reflect.ValueOf(data)
-
-	// Handle maps
-	if dataValue.Kind() == reflect.Map {
-		mapData, ok := data.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf("map must be map[string]interface{}")
-		}
-		value, exists := mapData[fieldName]
-		if !exists {
-			return nil, fmt.Errorf("field %s not found", fieldName)
-		}
-		return value, nil
+	var genCtx *TreeGenerationContext
+	if len(ctx) > 0 {
+		genCtx = ctx[0]
 	}
-
-	// Dereference pointers
-	if dataValue.Kind() == reflect.Ptr {
-		dataValue = dataValue.Elem()
-	}
-
-	// Handle structs
-	if dataValue.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("data must be struct or map")
-	}
-
-	field := dataValue.FieldByName(fieldName)
-	if !field.IsValid() {
-		return nil, fmt.Errorf("field %s not found", fieldName)
-	}
-
-	return field.Interface(), nil
+	return parseTemplateToTreeAST(templateStr, data, keyGen, genCtx)
 }
 
 // keyAttributeConfig defines which attributes to check for explicit keys (internal use only)
@@ -394,4 +419,43 @@ func resetKeyGenerator() {
 // generateWrapperKey generates a simple wrapper key using provided generator
 func generateWrapperKey(keyGen *keyGenerator) string {
 	return keyGen.nextKey()
+}
+
+// detectIDKey detects which position in the dynamics contains the item ID
+// by scanning the statics array for key attribute patterns
+// Returns the position as a string (e.g., "1" for the second dynamic position)
+// Returns "0" as default if no key attribute is found
+func detectIDKey(statics []string) string {
+	if len(statics) == 0 {
+		return "0"
+	}
+
+	// Key attributes to search for (in priority order)
+	keyAttrs := []string{
+		"id=\"",
+		"data-key=\"",
+		"key=\"",
+		"data-lvt-key=\"",
+		"lvt-key=\"",
+		"data-id=\"",
+		"x-key=\"",
+		"v-key=\"",
+	}
+
+	// Scan through statics array
+	for i, static := range statics {
+		// Check if this static contains a key attribute
+		for _, attr := range keyAttrs {
+			if strings.Contains(static, attr) {
+				// The dynamic value after this static is the ID
+				// Position i in statics means dynamic at position i+1
+				// But we need to return the dynamic index, which starts at 0
+				// So dynamic position is i (0-indexed in the dynamics)
+				return fmt.Sprintf("%d", i)
+			}
+		}
+	}
+
+	// Default to position 0 if no key attribute found
+	return "0"
 }

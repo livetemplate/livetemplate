@@ -39,16 +39,9 @@ func main() {
 			err = commands.New(args)
 		}
 	case "gen":
-		if len(args) == 0 {
-			// Interactive resource mode
-			err = ui.GenResourceInteractive()
-		} else if args[0] == "view" && len(args) == 1 {
-			// Interactive view mode
-			err = ui.GenViewInteractive()
-		} else {
-			// Direct mode
-			err = commands.Gen(args)
-		}
+		// All gen commands now use subcommands (resource, view, schema)
+		// Interactive mode is handled within commands.Gen() when no args provided
+		err = commands.Gen(args)
 	case "migration":
 		err = commands.Migration(args)
 	case "parse":
@@ -140,28 +133,32 @@ func printUsage() {
 	fmt.Println("  lvt [--config <path>] <command> [args...] Run command with optional config file")
 	fmt.Println()
 	fmt.Println("Commands:")
-	fmt.Println("  lvt new [<app-name>] [--module <name>]   Create a new LiveTemplate app")
-	fmt.Println("  lvt gen [<resource> <field:type>...]      Generate CRUD resource with database")
-	fmt.Println("  lvt gen view [<name>]                     Generate view-only handler")
-	fmt.Println("  lvt migration <command>                   Manage database migrations")
-	fmt.Println("  lvt resource <command>                    Inspect resources and schemas")
-	fmt.Println("  lvt seed <resource> [--count N] [--cleanup]  Generate test data")
-	fmt.Println("  lvt kits <command>                        Manage CSS framework kits")
-	fmt.Println("  lvt serve [options]                       Start development server with hot reload")
-	fmt.Println("  lvt parse <template-file>                 Validate and analyze template file")
-	fmt.Println("  lvt version                               Show version information")
+	fmt.Println("  lvt new [<app-name>] [--module <name>]       Create a new LiveTemplate app")
+	fmt.Println("  lvt gen <subcommand> [args...]                Generate code (resource, view, or schema)")
+	fmt.Println("  lvt migration <command>                       Manage database migrations")
+	fmt.Println("  lvt resource <command>                        Inspect resources and schemas")
+	fmt.Println("  lvt seed <resource> [--count N] [--cleanup]   Generate test data")
+	fmt.Println("  lvt kits <command>                            Manage CSS framework kits")
+	fmt.Println("  lvt serve [options]                           Start development server with hot reload")
+	fmt.Println("  lvt parse <template-file>                     Validate and analyze template file")
+	fmt.Println("  lvt version                                   Show version information")
+	fmt.Println()
+	fmt.Println("Generate Subcommands:")
+	fmt.Println("  lvt gen resource <name> <field:type>...       Generate full CRUD with database")
+	fmt.Println("  lvt gen view <name>                           Generate view-only handler (no database)")
+	fmt.Println("  lvt gen schema <table> <field:type>...        Generate database schema only")
 	fmt.Println()
 	fmt.Println("Interactive Mode (no arguments):")
 	fmt.Println("  lvt new              Launch interactive app creator")
-	fmt.Println("  lvt gen              Launch interactive resource builder")
-	fmt.Println("  lvt gen view         Launch interactive view creator")
+	fmt.Println("  lvt gen              Choose what to generate (resource/view/schema)")
 	fmt.Println()
 	fmt.Println("Direct Mode Examples:")
 	fmt.Println("  lvt new myapp")
 	fmt.Println("  lvt new myapp --module github.com/user/myapp")
-	fmt.Println("  lvt gen users name:string email:string age:int")
-	fmt.Println("  lvt gen users name email age              (types inferred)")
-	fmt.Println("  lvt gen view counter                      (view-only handler)")
+	fmt.Println("  lvt gen resource users name:string email:string age:int")
+	fmt.Println("  lvt gen resource users name email age         (types inferred)")
+	fmt.Println("  lvt gen view counter                          (view-only handler)")
+	fmt.Println("  lvt gen schema products name price:float      (database only)")
 	fmt.Println()
 	fmt.Println("Migration Commands:")
 	fmt.Println("  lvt migration up                          Run pending migrations")

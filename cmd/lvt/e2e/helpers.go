@@ -17,15 +17,6 @@ const (
 	// shortDelay is used for brief pauses between operations (e.g., after clicking buttons)
 	shortDelay = 500 * time.Millisecond
 
-	// standardDelay is used for typical operations (e.g., waiting for navigation)
-	standardDelay = 1 * time.Second
-
-	// formSubmitDelay is used after form submissions to wait for processing and WebSocket updates
-	formSubmitDelay = 2 * time.Second
-
-	// modalAnimationDelay is used to wait for modal open/close animations to complete
-	modalAnimationDelay = 3 * time.Second
-
 	// quickPollDelay is used for rapid polling checks (e.g., waiting for server readiness)
 	quickPollDelay = 200 * time.Millisecond
 )
@@ -34,7 +25,24 @@ const (
 // This is more reliable than manual retry loops with fixed delays
 func waitForCondition(ctx context.Context, jsCondition string, timeout time.Duration, pollInterval time.Duration) chromedp.ActionFunc {
 	return func(ctx context.Context) error {
-		ctx, cancel := context.WithTimeout(ctx, timeout)
+		// Check if parent context already has a deadline
+		deadline, hasDeadline := ctx.Deadline()
+
+		// Calculate effective timeout (minimum of requested and remaining parent timeout)
+		effectiveTimeout := timeout
+		if hasDeadline {
+			remaining := time.Until(deadline)
+			if remaining < timeout {
+				effectiveTimeout = remaining
+			}
+		}
+
+		// Only create new timeout context if we have time remaining
+		if effectiveTimeout <= 0 {
+			return fmt.Errorf("parent context already expired while waiting for condition: %s", jsCondition)
+		}
+
+		ctx, cancel := context.WithTimeout(ctx, effectiveTimeout)
 		defer cancel()
 
 		ticker := time.NewTicker(pollInterval)
@@ -43,10 +51,12 @@ func waitForCondition(ctx context.Context, jsCondition string, timeout time.Dura
 		for {
 			select {
 			case <-ctx.Done():
-				return fmt.Errorf("timeout waiting for condition: %s", jsCondition)
+				// Provide better error message with actual timeout used
+				return fmt.Errorf("timeout (%.1fs) waiting for condition: %s (error: %v)", effectiveTimeout.Seconds(), jsCondition, ctx.Err())
 			case <-ticker.C:
 				var result bool
 				if err := chromedp.Evaluate(jsCondition, &result).Do(ctx); err != nil {
+					// Continue polling even on evaluation errors (DOM might not be ready)
 					continue
 				}
 				if result {

@@ -37,6 +37,14 @@ func Handler() http.Handler {
 		LastUpdated: formatTime(),
 	}
 
-	tmpl := livetemplate.New("[[.ViewNameLower]]", livetemplate.WithDevMode([[.DevMode]]))
-	return tmpl.Handle(state)
+	baseTmpl := livetemplate.New("[[.ViewNameLower]]", livetemplate.WithDevMode([[.DevMode]]))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tmpl, err := baseTmpl.Clone()
+		if err != nil {
+			log.Printf("Failed to clone template: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		tmpl.Handle(state).ServeHTTP(w, r)
+	})
 }

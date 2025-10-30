@@ -41,7 +41,7 @@ func TestKitCSSFrameworks(t *testing.T) {
 			appDir := createTestApp(t, tmpDir, "testapp", opts)
 
 			// Generate a resource
-			if err := runLvtCommand(t, appDir, "gen", "items", "name"); err != nil {
+			if err := runLvtCommand(t, appDir, "gen", "resource", "items", "name"); err != nil {
 				t.Fatalf("Failed to generate resource: %v", err)
 			}
 

@@ -23,7 +23,7 @@ func TestPaginationModes(t *testing.T) {
 			}
 
 			// Generate resource with specific pagination mode
-			if err := runLvtCommand(t, appDir, "gen", "items", "name", "--pagination", mode); err != nil {
+			if err := runLvtCommand(t, appDir, "gen", "resource", "items", "name", "--pagination", mode); err != nil {
 				t.Fatalf("Failed to generate resource with --pagination %s: %v", mode, err)
 			}
 

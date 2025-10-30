@@ -92,6 +92,8 @@ func (s *[[.ResourceName]]State) Change(ctx *livetemplate.ActionContext) error {
 			return err
 		}
 
+		log.Printf("[lvt debug] add input: %+v", input)
+
 		now := time.Now()
 		id := fmt.Sprintf("[[.ResourceNameLower]]-%d", now.UnixNano())
 
@@ -432,8 +434,8 @@ func Handler(queries *models.Queries) http.Handler {
 		log.Printf("Failed to initialize [[.ResourceNameLower]] state: %v", err)
 	}
 
-	tmpl := livetemplate.New("[[.ResourceNameLower]]", livetemplate.WithDevMode([[.DevMode]]))
-	if _, err := tmpl.ParseFiles("internal/app/[[.ResourceNameLower]]/[[.ResourceNameLower]].tmpl"); err != nil {
+	baseTmpl := livetemplate.New("[[.ResourceNameLower]]", livetemplate.WithDevMode([[.DevMode]]))
+	if _, err := baseTmpl.ParseFiles("internal/app/[[.ResourceNameLower]]/[[.ResourceNameLower]].tmpl"); err != nil {
 		log.Fatalf("Failed to parse template: %v", err)
 	}
 
@@ -455,6 +457,12 @@ func Handler(queries *models.Queries) http.Handler {
 			resourceID := strings.Split(urlPath, "/")[0]
 			if resourceID == "" {
 				// Invalid URL, fall back to list view
+				tmpl, err := baseTmpl.Clone()
+				if err != nil {
+					log.Printf("Failed to clone template: %v", err)
+					http.Error(w, "Internal server error", http.StatusInternalServerError)
+					return
+				}
 				tmpl.Handle(state).ServeHTTP(w, r)
 				return
 			}
@@ -488,14 +496,35 @@ func Handler(queries *models.Queries) http.Handler {
 			}
 
 			// Mount with custom state
+			tmpl, err := baseTmpl.Clone()
+			if err != nil {
+				log.Printf("Failed to clone template: %v", err)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
 			tmpl.Handle(resourceState).ServeHTTP(w, r)
 			return
 		}
 
 		// Default: list view
+		tmpl, err := baseTmpl.Clone()
+		if err != nil {
+			log.Printf("Failed to clone template: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 		tmpl.Handle(state).ServeHTTP(w, r)
 	})
 [[- else]]
-	return tmpl.Handle(state)
+	// Modal mode: clone template per request
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tmpl, err := baseTmpl.Clone()
+		if err != nil {
+			log.Printf("Failed to clone template: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		tmpl.Handle(state).ServeHTTP(w, r)
+	})
 [[- end]]
 }

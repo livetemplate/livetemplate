@@ -4,10 +4,10 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
-	e2etest "github.com/livefir/livetemplate/internal/testing"
+	e2etest "github.com/livefir/livetemplate/cmd/lvt/testing"
 )
 
-// Wrapper functions to use internal/testing utilities with shorter names in tests
+// Wrapper functions to use cmd/lvt/testing utilities with shorter names in tests
 
 // Unused: Kept for potential future use
 // func startDockerChrome(t *testing.T, debugPort int) *exec.Cmd {
@@ -21,6 +21,10 @@ import (
 
 func getTestURL(port int) string {
 	return e2etest.GetChromeTestURL(port)
+}
+
+func waitFor(condition string, timeout time.Duration) chromedp.Action {
+	return e2etest.WaitFor(condition, timeout)
 }
 
 func waitForWebSocketReady(timeout time.Duration) chromedp.Action {

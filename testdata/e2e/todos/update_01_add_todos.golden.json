@@ -84,6 +84,9 @@
           }
         }
       ],
+      "m": {
+        "idKey": "1"
+      },
       "s": [
         "\n                    \u003cdiv class=\"todo-item ",
         "\" data-key=\"",

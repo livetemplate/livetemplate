@@ -20,28 +20,32 @@
         "todo-4"
       ],
       [
-        "i",
-        "todo-1",
-        "after",
-        {
-          "1": "todo-6",
-          "3": "Deploy to production",
-          "5": {
-            "0": "Critical"
+        "a",
+        [
+          {
+            "1": "todo-6",
+            "3": "Deploy to production",
+            "5": {
+              "0": "Critical"
+            }
+          },
+          {
+            "1": "todo-7",
+            "3": "Monitor performance",
+            "5": {
+              "0": "Medium"
+            }
           }
-        }
-      ],
-      [
-        "i",
-        "todo-1",
-        "after",
-        {
-          "1": "todo-7",
-          "3": "Monitor performance",
-          "5": {
-            "0": "Medium"
-          }
-        }
+        ],
+        [
+          "\n                    \u003cdiv class=\"todo-item ",
+          "\" data-key=\"",
+          "\"\u003e\n                        \u003cstrong\u003e",
+          ":\u003c/strong\u003e\n                        ",
+          "\n                        ",
+          "\n                        ",
+          "\n                    \u003c/div\u003e\n                    "
+        ]
       ]
     ]
   },

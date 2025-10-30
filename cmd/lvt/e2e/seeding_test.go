@@ -19,7 +19,7 @@ func TestSeed_GenerateData(t *testing.T) {
 
 	// Generate a resource
 	t.Log("Generating products resource...")
-	if err := runLvtCommand(t, appDir, "gen", "products", "name", "price:float"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "resource", "products", "name", "price:float"); err != nil {
 		t.Fatalf("Failed to generate products: %v", err)
 	}
 
@@ -70,7 +70,7 @@ func TestSeed_Cleanup(t *testing.T) {
 
 	// Generate a resource
 	t.Log("Generating users resource...")
-	if err := runLvtCommand(t, appDir, "gen", "users", "name", "email"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "resource", "users", "name", "email"); err != nil {
 		t.Fatalf("Failed to generate users: %v", err)
 	}
 
@@ -137,7 +137,7 @@ func TestSeed_CleanupAndReseed(t *testing.T) {
 
 	// Generate a resource
 	t.Log("Generating tasks resource...")
-	if err := runLvtCommand(t, appDir, "gen", "tasks", "title", "completed:bool"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "resource", "tasks", "title", "completed:bool"); err != nil {
 		t.Fatalf("Failed to generate tasks: %v", err)
 	}
 

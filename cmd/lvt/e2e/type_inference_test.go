@@ -18,7 +18,7 @@ func TestTypeInference(t *testing.T) {
 	}
 
 	// Generate resource with inferred types (no :type specified)
-	if err := runLvtCommand(t, appDir, "gen", "users", "name", "email", "age", "price", "published", "created_at"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "resource", "users", "name", "email", "age", "price", "published", "created_at"); err != nil {
 		t.Fatalf("Failed to generate resource with type inference: %v", err)
 	}
 

@@ -20,7 +20,7 @@ import (
 	"os"
 
 	"testapp/internal/database"
-	e2etest "github.com/livefir/livetemplate/internal/testing"
+	e2etest "github.com/livefir/livetemplate/cmd/lvt/testing"
 )
 
 func main() {
@@ -136,7 +136,7 @@ import (
 
 	"testapp/internal/database"
 	"testapp/internal/app/users"
-	e2etest "github.com/livefir/livetemplate/internal/testing"
+	e2etest "github.com/livefir/livetemplate/cmd/lvt/testing"
 )
 
 func main() {
@@ -230,7 +230,7 @@ import (
 	"os"
 
 	"testapp/internal/database"
-	e2etest "github.com/livefir/livetemplate/internal/testing"
+	e2etest "github.com/livefir/livetemplate/cmd/lvt/testing"
 )
 
 func main() {

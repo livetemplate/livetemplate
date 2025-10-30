@@ -79,7 +79,23 @@ func TestModalFunctionality(t *testing.T) {
         </div>
     </div>
 
-    <script src="/livetemplate-client.js"></script>
+	<script>
+		window.__lvtClientLoaded = false;
+		window.__lvtClientLoadError = "";
+		window.__markLvtClientLoaded = function () {
+			window.__lvtClientLoaded = true;
+		};
+		window.__markLvtClientError = function (event) {
+			if (event && event.message) {
+				window.__lvtClientLoadError = event.message;
+			} else if (event && event.type) {
+				window.__lvtClientLoadError = event.type;
+			} else {
+				window.__lvtClientLoadError = "unknown error";
+			}
+		};
+	</script>
+	<script src="/livetemplate-client.js" defer onload="window.__markLvtClientLoaded()" onerror="window.__markLvtClientError(event)"></script>
 </body>
 </html>`
 
@@ -99,8 +115,8 @@ func TestModalFunctionality(t *testing.T) {
 	var consoleLogs []string
 	var consoleLogsMutex sync.Mutex
 
-	// Use shared Chrome container
-	ctx, cancel := getSharedChromeContext(t)
+	// Use isolated Chrome container for parallel execution
+	ctx, cancel := getIsolatedChromeContext(t)
 	defer cancel()
 
 	// Enable Runtime domain and listen for console messages
@@ -128,7 +144,30 @@ func TestModalFunctionality(t *testing.T) {
 		// Navigate to test page
 		chromedp.Navigate(chromeURL),
 		chromedp.WaitReady("body"),
-		chromedp.Sleep(1000*time.Millisecond), // Wait longer for client to fully initialize
+		// Wait for the client bundle to load or fail deterministically
+		waitFor(`window.__lvtClientLoaded === true || window.__lvtClientLoadError !== ''`, 15*time.Second),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			var loadErr string
+			if err := chromedp.Evaluate(`window.__lvtClientLoadError || ''`, &loadErr).Do(ctx); err != nil {
+				return fmt.Errorf("failed to inspect client load state: %v", err)
+			}
+			if loadErr != "" {
+				return fmt.Errorf("failed to load client bundle: %s", loadErr)
+			}
+			return nil
+		}),
+		// Force client auto-initialization if the script hasn't attached the instance yet
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return chromedp.Evaluate(`
+				(() => {
+					if (!window.liveTemplateClient && window.LiveTemplateClient?.LiveTemplateClient?.autoInit) {
+						window.LiveTemplateClient.LiveTemplateClient.autoInit();
+					}
+				})();
+			`, nil).Do(ctx)
+		}),
+		// Wait for client to fully initialize
+		waitFor(`typeof window.liveTemplateClient !== 'undefined'`, 15*time.Second),
 
 		// Test 1: Modal should be hidden initially
 		chromedp.ActionFunc(func(ctx context.Context) error {
@@ -165,7 +204,8 @@ func TestModalFunctionality(t *testing.T) {
 			t.Log("✓ Clicked open button")
 			return nil
 		}),
-		chromedp.Sleep(500*time.Millisecond), // Give time for modal to open
+		// Wait for modal to open
+		waitFor("document.getElementById('add-modal').style.display === 'flex'", 3*time.Second),
 
 		// Test 3: Verify modal is visible and centered (display: flex)
 		chromedp.ActionFunc(func(ctx context.Context) error {
@@ -215,7 +255,8 @@ func TestModalFunctionality(t *testing.T) {
 			t.Log("✓ Clicked close button successfully")
 			return nil
 		}),
-		chromedp.Sleep(500*time.Millisecond), // Give time for event propagation
+		// Wait for modal to close
+		waitFor("document.getElementById('add-modal').style.display === 'none'", 3*time.Second),
 
 		// Test 5: Verify modal is hidden after close
 		chromedp.ActionFunc(func(ctx context.Context) error {
@@ -246,7 +287,8 @@ func TestModalFunctionality(t *testing.T) {
 			}
 			return nil
 		}),
-		chromedp.Sleep(300*time.Millisecond),
+		// Wait for modal to reopen
+		waitFor("document.getElementById('add-modal').style.display === 'flex'", 3*time.Second),
 
 		// Test 7: Verify modal reopened successfully
 		chromedp.ActionFunc(func(ctx context.Context) error {
@@ -272,7 +314,8 @@ func TestModalFunctionality(t *testing.T) {
 
 		// Test 8: Close modal by clicking Cancel button using real browser click
 		chromedp.Click("#cancel-btn", chromedp.ByQuery),
-		chromedp.Sleep(500*time.Millisecond), // Give time for event propagation
+		// Wait for modal to close
+		waitFor("document.getElementById('add-modal').style.display === 'none'", 3*time.Second),
 
 		// Test 9: Verify modal closed with cancel
 		chromedp.ActionFunc(func(ctx context.Context) error {
@@ -294,7 +337,8 @@ func TestModalFunctionality(t *testing.T) {
 			}
 			return nil
 		}),
-		chromedp.Sleep(300*time.Millisecond),
+		// Wait for modal to open
+		waitFor("document.getElementById('add-modal').style.display === 'flex'", 3*time.Second),
 
 		// Test 11: Close with Escape key
 		chromedp.ActionFunc(func(ctx context.Context) error {
@@ -304,7 +348,8 @@ func TestModalFunctionality(t *testing.T) {
 			}
 			return nil
 		}),
-		chromedp.Sleep(200*time.Millisecond),
+		// Wait for modal to close
+		waitFor("document.getElementById('add-modal').style.display === 'none'", 3*time.Second),
 
 		// Test 12: Verify modal closed with Escape key
 		chromedp.ActionFunc(func(ctx context.Context) error {
@@ -327,7 +372,10 @@ func TestModalFunctionality(t *testing.T) {
 				if err := chromedp.Click("#open-btn", chromedp.ByQuery).Do(ctx); err != nil {
 					return fmt.Errorf("cycle %d: failed to open modal: %v", i, err)
 				}
-				_ = chromedp.Sleep(300 * time.Millisecond).Do(ctx)
+				// Wait for modal to open
+				if err := waitFor("document.getElementById('add-modal').style.display === 'flex'", 3*time.Second).Do(ctx); err != nil {
+					return fmt.Errorf("cycle %d: modal failed to open: %v", i, err)
+				}
 
 				// Verify opened
 				var display string
@@ -342,7 +390,10 @@ func TestModalFunctionality(t *testing.T) {
 				if err := chromedp.Click("#close-x", chromedp.ByQuery).Do(ctx); err != nil {
 					return fmt.Errorf("cycle %d: failed to click close button: %v", i, err)
 				}
-				_ = chromedp.Sleep(300 * time.Millisecond).Do(ctx)
+				// Wait for modal to close
+				if err := waitFor("document.getElementById('add-modal').style.display === 'none'", 3*time.Second).Do(ctx); err != nil {
+					return fmt.Errorf("cycle %d: modal failed to close: %v", i, err)
+				}
 
 				// Verify closed
 				if err := chromedp.Evaluate(`document.getElementById('add-modal').style.display`, &display).Do(ctx); err != nil {

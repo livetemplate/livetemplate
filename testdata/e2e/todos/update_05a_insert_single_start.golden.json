@@ -8,16 +8,25 @@
   "8": {
     "0": [
       [
-        "i",
-        null,
-        "start",
-        {
-          "1": "todo-4",
-          "3": "Setup development environment",
-          "5": {
-            "0": "High"
+        "p",
+        [
+          {
+            "1": "todo-4",
+            "3": "Setup development environment",
+            "5": {
+              "0": "High"
+            }
           }
-        }
+        ],
+        [
+          "\n                    \u003cdiv class=\"todo-item ",
+          "\" data-key=\"",
+          "\"\u003e\n                        \u003cstrong\u003e",
+          ":\u003c/strong\u003e\n                        ",
+          "\n                        ",
+          "\n                        ",
+          "\n                    \u003c/div\u003e\n                    "
+        ]
       ]
     ]
   },

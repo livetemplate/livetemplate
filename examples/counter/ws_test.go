@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"net/http"
 	"os/exec"
@@ -9,7 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	e2etest "github.com/livefir/livetemplate/internal/testing"
+	e2etest "github.com/livefir/livetemplate/cmd/lvt/testing"
 )
 
 func TestWebSocketBasic(t *testing.T) {
@@ -27,7 +26,7 @@ func TestWebSocketBasic(t *testing.T) {
 	cmd := exec.Command("go", "run", "main.go")
 	cmd.Env = append([]string{"PORT=" + portStr}, cmd.Environ()...)
 
-	serverLogs := &bytes.Buffer{}
+	serverLogs := e2etest.NewSafeBuffer()
 	cmd.Stdout = serverLogs
 	cmd.Stderr = serverLogs
 

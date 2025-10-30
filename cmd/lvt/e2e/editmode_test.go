@@ -19,7 +19,7 @@ func TestEditModePage(t *testing.T) {
 	}
 
 	// Generate resource with page mode
-	if err := runLvtCommand(t, appDir, "gen", "articles", "title", "content", "--edit-mode", "page"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "resource", "articles", "title", "content", "--edit-mode", "page"); err != nil {
 		t.Fatalf("Failed to generate resource with --edit-mode page: %v", err)
 	}
 
@@ -108,7 +108,7 @@ func TestEditModeCombinations(t *testing.T) {
 			}
 
 			// Generate resource with all flags
-			if err := runLvtCommand(t, appDir, "gen", "items", "name", "description",
+			if err := runLvtCommand(t, appDir, "gen", "resource", "items", "name", "description",
 				"--edit-mode", combo.editMode,
 				"--pagination", combo.pagination); err != nil {
 				t.Fatalf("Failed to generate resource with combination: %v", err)
@@ -169,7 +169,7 @@ func TestEditModeValidation(t *testing.T) {
 	}
 
 	// Try to generate with invalid edit mode
-	err := runLvtCommand(t, appDir, "gen", "items", "name", "--edit-mode", "invalid")
+	err := runLvtCommand(t, appDir, "gen", "resource", "items", "name", "--edit-mode", "invalid")
 
 	if err == nil {
 		t.Fatal("❌ Expected error for invalid edit mode, but command succeeded")

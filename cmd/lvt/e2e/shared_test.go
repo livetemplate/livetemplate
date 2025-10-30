@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
-	e2etest "github.com/livefir/livetemplate/internal/testing"
+	e2etest "github.com/livefir/livetemplate/cmd/lvt/testing"
 )
 
 // Shared test resources that persist across all tests
@@ -32,6 +32,8 @@ var (
 
 // TestMain sets up shared resources before running tests and cleans up after
 func TestMain(m *testing.M) {
+	cleanupChromeContainers()
+
 	// Setup shared resources
 	if err := setupSharedResources(); err != nil {
 		log.Printf("Failed to setup shared resources: %v", err)
@@ -43,6 +45,7 @@ func TestMain(m *testing.M) {
 
 	// Cleanup shared resources
 	cleanupSharedResources()
+	cleanupChromeContainers()
 
 	os.Exit(code)
 }
@@ -84,7 +87,7 @@ func setupSharedResources() error {
 		}
 
 		// Generate a posts resource
-		if err := runLvtCommand(&testing.T{}, appDir, "gen", "posts", "title", "content:text", "published:bool"); err != nil {
+		if err := runLvtCommand(&testing.T{}, appDir, "gen", "resource", "posts", "title", "content:text", "published:bool"); err != nil {
 			setupErr = fmt.Errorf("failed to generate posts resource: %w", err)
 			return
 		}
@@ -168,30 +171,32 @@ func cleanupSharedResources() {
 	})
 }
 
-// getSharedChromeContext creates a Chrome context using the shared Chrome container
-func getSharedChromeContext(t *testing.T) (context.Context, context.CancelFunc) {
+// getIsolatedChromeContext creates a dedicated Chrome container per test
+// This enables true parallel execution without contention on shared Chrome instance
+func getIsolatedChromeContext(t *testing.T) (context.Context, context.CancelFunc) {
 	t.Helper()
 
-	// Ensure shared resources are setup
-	if err := setupSharedResources(); err != nil {
-		t.Fatalf("Failed to setup shared resources: %v", err)
+	// Allocate unique port for this test
+	port, err := e2etest.GetFreePort()
+	if err != nil {
+		t.Fatalf("Failed to allocate port: %v", err)
 	}
 
-	if sharedSetupError != nil {
-		t.Fatalf("Shared setup failed: %v", sharedSetupError)
-	}
+	// Start dedicated Chrome container for this test
+	chromeCmd := e2etest.StartDockerChrome(t, port)
 
-	// Create allocator context for shared Chrome
+	// Create allocator context for isolated Chrome
 	allocCtx, allocCancel := chromedp.NewRemoteAllocator(context.Background(),
-		fmt.Sprintf("http://localhost:%d", sharedChromePort))
+		fmt.Sprintf("http://localhost:%d", port))
 
 	// Create browser context
 	ctx, cancel := chromedp.NewContext(allocCtx)
 
-	// Return a combined cancel function
+	// Return combined cancel function that cleans up Chrome container
 	combinedCancel := func() {
 		cancel()
 		allocCancel()
+		e2etest.StopDockerChrome(t, chromeCmd, port)
 	}
 
 	return ctx, combinedCancel

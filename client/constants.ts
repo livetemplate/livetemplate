@@ -1,0 +1,15 @@
+export const FOCUSABLE_INPUTS = [
+  "text",
+  "textarea",
+  "number",
+  "email",
+  "password",
+  "search",
+  "tel",
+  "url",
+  "date",
+  "time",
+  "datetime-local",
+  "color",
+  "range",
+];

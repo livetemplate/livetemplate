@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/livefir/livetemplate"
-	e2etest "github.com/livefir/livetemplate/internal/testing"
+	e2etest "github.com/livefir/livetemplate/cmd/lvt/testing"
 )
 
 type CounterState struct {

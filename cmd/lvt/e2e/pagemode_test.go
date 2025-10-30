@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
-	e2etest "github.com/livefir/livetemplate/internal/testing"
+	e2etest "github.com/livefir/livetemplate/cmd/lvt/testing"
 )
 
 // TestPageModeRendering tests that page mode actually renders content, not empty divs
@@ -28,7 +28,7 @@ func TestPageModeRendering(t *testing.T) {
 	}
 
 	// Generate resource with page mode
-	if err := runLvtCommand(t, appDir, "gen", "products", "name", "price:float", "--edit-mode", "page"); err != nil {
+	if err := runLvtCommand(t, appDir, "gen", "resource", "products", "name", "price:float", "--edit-mode", "page"); err != nil {
 		t.Fatalf("Failed to generate resource: %v", err)
 	}
 
@@ -209,8 +209,8 @@ func TestPageModeRendering(t *testing.T) {
 		t.Fatal("Server did not start within 6 seconds")
 	}
 
-	// Use shared Chrome container
-	ctx, cancel := getSharedChromeContext(t)
+	// Use isolated Chrome container for parallel execution
+	ctx, cancel := getIsolatedChromeContext(t)
 	defer cancel()
 
 	// Navigate to products page
@@ -298,7 +298,8 @@ func TestPageModeRendering(t *testing.T) {
 	var scriptSrc string
 	err = chromedp.Run(ctx,
 		chromedp.Navigate(testURL),
-		chromedp.Sleep(1*time.Second), // Give page time to load
+		// Wait for page to fully load
+		waitFor(`document.readyState === 'complete'`, 3*time.Second),
 		chromedp.Evaluate(`document.querySelector('script[src*="livetemplate-client"]') !== null`, &scriptTagExists),
 		chromedp.Evaluate(`(document.querySelector('script[src*="livetemplate-client"]') || {}).src || "not found"`, &scriptSrc),
 	)
