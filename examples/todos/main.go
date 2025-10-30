@@ -13,8 +13,8 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/livefir/livetemplate"
+	e2etest "github.com/livefir/livetemplate/cmd/lvt/testing"
 	"github.com/livefir/livetemplate/examples/todos/db"
-	e2etest "github.com/livefir/livetemplate/internal/testing"
 )
 
 var validate = validator.New()

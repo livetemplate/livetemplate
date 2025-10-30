@@ -16,7 +16,7 @@ import (
 	"github.com/chromedp/chromedp"
 	"github.com/livefir/livetemplate/cmd/lvt/commands"
 	"github.com/livefir/livetemplate/cmd/lvt/internal/serve"
-	e2etest "github.com/livefir/livetemplate/internal/testing"
+	e2etest "github.com/livefir/livetemplate/cmd/lvt/testing"
 )
 
 // chdirMutex protects os.Chdir calls in parallel tests

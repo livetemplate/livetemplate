@@ -479,3 +479,104 @@ func ValidateNoTemplateExpressions(selector string) chromedp.Action {
 		return nil
 	})
 }
+
+// WaitForMessageCount waits for the WebSocket message counter to reach the expected value.
+// This is a deterministic way to wait for updates without relying on arbitrary timeouts.
+// The client increments window.__wsMessageCount after each DOM update completes.
+//
+// Example:
+//
+//	var initialCount int
+//	chromedp.Evaluate(`window.__wsMessageCount || 0`, &initialCount)
+//	// ... trigger action ...
+//	WaitForMessageCount(initialCount+1, 5*time.Second)  // Wait for exactly 1 new message
+func WaitForMessageCount(expectedCount int, timeout time.Duration) chromedp.Action {
+	condition := fmt.Sprintf(`(window.__wsMessageCount || 0) >= %d`, expectedCount)
+	return WaitFor(condition, timeout)
+}
+
+// WaitForActionResponse waits for a WebSocket message with the specified action name in metadata.
+// This is deterministic - it waits for the exact action to complete, not arbitrary time.
+//
+// The test should clear window.__wsMessages before triggering the action:
+//
+//	chromedp.Evaluate(`window.__wsMessages = [];`, nil)
+//	// ... trigger action ...
+//	WaitForActionResponse("search", 5*time.Second)
+//
+// Example:
+//
+//	chromedp.Evaluate(`window.__wsMessages = [];`, nil),
+//	chromedp.SendKeys(`input[name="query"]`, "test", chromedp.ByQuery),
+//	WaitForActionResponse("search", 5*time.Second),
+func WaitForActionResponse(actionName string, timeout time.Duration) chromedp.Action {
+	condition := fmt.Sprintf(`
+		(() => {
+			const msgs = window.__wsMessages || [];
+			return msgs.some(m => m.meta && m.meta.action === %q);
+		})()
+	`, actionName)
+	return WaitFor(condition, timeout)
+}
+
+// SetupUpdateEventListener sets up a non-blocking event listener that captures
+// 'lvt:updated' events in window.__capturedEvents array.
+// This must be called BEFORE the action that triggers the event.
+// Then use WaitForUpdateEvent to poll for the captured event.
+//
+// Example:
+//
+//	chromedp.Run(ctx,
+//	    SetupUpdateEventListener(),           // Setup listener (non-blocking)
+//	    chromedp.SendKeys(...),                // Trigger action
+//	    WaitForUpdateEvent("search", 5*time.Second),  // Poll for captured event
+//	)
+func SetupUpdateEventListener() chromedp.Action {
+	return chromedp.Evaluate(`
+		(() => {
+			window.__capturedEvents = [];
+			const wrapper = document.querySelector('[data-lvt-id]');
+			if (wrapper) {
+				// Remove existing listener if any
+				if (window.__capturedEventsHandler) {
+					wrapper.removeEventListener('lvt:updated', window.__capturedEventsHandler);
+				}
+				// Create and store new handler
+				window.__capturedEventsHandler = (e) => {
+					window.__capturedEvents.push({
+						action: e.detail.action,
+						messageCount: e.detail.messageCount,
+						success: e.detail.success,
+						timestamp: Date.now()
+					});
+				};
+				wrapper.addEventListener('lvt:updated', window.__capturedEventsHandler);
+			}
+		})();
+	`, nil)
+}
+
+// WaitForUpdateEvent polls for a captured 'lvt:updated' event.
+// Must be used after SetupUpdateEventListener().
+// Optionally filters by action name if provided.
+//
+// This is deterministic - it waits for the actual event to fire, not arbitrary timeouts.
+func WaitForUpdateEvent(actionName string, timeout time.Duration) chromedp.Action {
+	condition := `
+		(() => {
+			const events = window.__capturedEvents || [];
+			return events.length > 0;
+		})()
+	`
+
+	if actionName != "" {
+		condition = fmt.Sprintf(`
+			(() => {
+				const events = window.__capturedEvents || [];
+				return events.some(e => e.action === %q);
+			})()
+		`, actionName)
+	}
+
+	return WaitFor(condition, timeout)
+}

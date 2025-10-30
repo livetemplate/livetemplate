@@ -25,7 +25,7 @@ The client includes comprehensive tests to validate the optimization effectivene
 # Run optimization validation tests
 npm run test:optimization
 
-# Run HTML reconstruction tests  
+# Run HTML reconstruction tests
 npm run test:reconstruction
 
 # Run all tests
@@ -37,7 +37,7 @@ npm run test:all
 Current optimization performance:
 
 - **Update 1**: 168 bytes (first update after initial render)
-- **Update 2**: 128 bytes (subsequent optimized update)  
+- **Update 2**: 128 bytes (subsequent optimized update)
 - **Bandwidth Savings**: ~75.3% vs full HTML updates
 - **Static Structure**: Successfully excluded from updates ✅
 
@@ -46,22 +46,22 @@ Current optimization performance:
 ### Basic Client Usage
 
 ```typescript
-import { LiveTemplateClient } from './livetemplate-client';
+import { LiveTemplateClient } from "./livetemplate-client";
 
 const client = new LiveTemplateClient();
 
 // Apply initial update (includes static structure)
 const initialResult = client.applyUpdate({
-  "s": ["<h1>", "</h1><p>Count: ", "</p>"], // Static HTML segments
-  "0": "Hello World",                       // Dynamic content
-  "1": "42"                                // Dynamic content
+  s: ["<h1>", "</h1><p>Count: ", "</p>"], // Static HTML segments
+  "0": "Hello World", // Dynamic content
+  "1": "42", // Dynamic content
 });
 
 console.log(initialResult.html); // "<h1>Hello World</h1><p>Count: 42</p>"
 
-// Apply subsequent update (only changed dynamic values)  
+// Apply subsequent update (only changed dynamic values)
 const updateResult = client.applyUpdate({
-  "1": "43"  // Only the changed value
+  "1": "43", // Only the changed value
 });
 
 console.log(updateResult.html); // "<h1>Hello World</h1><p>Count: 43</p>"
@@ -71,25 +71,25 @@ console.log(updateResult.changed); // true
 ### Loading Updates from Files
 
 ```typescript
-import { loadAndApplyUpdate } from './livetemplate-client';
+import { loadAndApplyUpdate } from "./livetemplate-client";
 
 const client = new LiveTemplateClient();
 
 // Load update from JSON file
-const result = await loadAndApplyUpdate(client, 'update_01.json');
+const result = await loadAndApplyUpdate(client, "update_01.json");
 console.log(result.html);
 ```
 
 ### HTML Comparison
 
 ```typescript
-import { compareHTML } from './livetemplate-client';
+import { compareHTML } from "./livetemplate-client";
 
 const comparison = compareHTML(expectedHTML, actualHTML);
 if (comparison.match) {
-  console.log('✅ HTML matches!');
+  console.log("✅ HTML matches!");
 } else {
-  console.log('❌ Differences found:', comparison.differences);
+  console.log("❌ Differences found:", comparison.differences);
 }
 ```
 
@@ -107,9 +107,9 @@ Example update structure:
 
 ```json
 {
-  "s": ["<h1>", "</h1><div>Count: ", "</div>"],  // Static HTML (sent once)
-  "0": "Task Manager",                           // Dynamic: page title  
-  "1": "42"                                      // Dynamic: counter value
+  "s": ["<h1>", "</h1><div>Count: ", "</div>"], // Static HTML (sent once)
+  "0": "Task Manager", // Dynamic: page title
+  "1": "42" // Dynamic: counter value
 }
 ```
 
@@ -163,17 +163,17 @@ Compare two HTML strings, ignoring whitespace differences.
 
 Optimization results with real E2E test data:
 
-| Update Type | Size (bytes) | Bandwidth Savings |
-|-------------|--------------|-------------------|
-| Full HTML   | ~600         | 0% (baseline)     |
-| Optimized #1| 168          | 72%               |
-| Optimized #2| 128          | 79%               |
-| **Average** | **148**      | **~75.3%**        |
+| Update Type  | Size (bytes) | Bandwidth Savings |
+| ------------ | ------------ | ----------------- |
+| Full HTML    | ~600         | 0% (baseline)     |
+| Optimized #1 | 168          | 72%               |
+| Optimized #2 | 128          | 79%               |
+| **Average**  | **148**      | **~75.3%**        |
 
 ## 📈 Future Enhancements
 
 - Browser-based DOM morphing integration
-- WebSocket client for real-time updates  
+- WebSocket client for real-time updates
 - React/Vue.js integration hooks
 - Advanced diff algorithms for complex nested structures
 - Performance monitoring and metrics
