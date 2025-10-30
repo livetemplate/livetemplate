@@ -1,4 +1,5 @@
 import { debounce, throttle } from "../utils/rate-limit";
+import type { Logger } from "../utils/logger";
 
 export interface EventDelegationContext {
   getWrapperElement(): Element | null;
@@ -19,7 +20,10 @@ export interface EventDelegationContext {
  * Handles all DOM event delegation concerns for LiveTemplateClient.
  */
 export class EventDelegator {
-  constructor(private readonly context: EventDelegationContext) {}
+  constructor(
+    private readonly context: EventDelegationContext,
+    private readonly logger: Logger
+  ) {}
 
   setupEventDelegation(): void {
     const wrapperElement = this.context.getWrapperElement();
@@ -58,11 +62,7 @@ export class EventDelegator {
           )?.tagName;
         }
 
-        console.log(
-          "[LiveTemplate DEBUG] Event listener triggered:",
-          eventType,
-          e.target
-        );
+        this.logger.debug("Event listener triggered:", eventType, e.target);
 
         const target = e.target as Element;
         if (!target) return;
@@ -126,7 +126,7 @@ export class EventDelegator {
             const targetElement = actionElement;
 
             const handleAction = () => {
-              console.log("[LiveTemplate DEBUG] handleAction called", {
+              this.logger.debug("handleAction called", {
                 action,
                 eventType,
                 targetElement,
@@ -140,9 +140,7 @@ export class EventDelegator {
                   targetElement.getAttribute("lvt-confirm") ||
                   "Are you sure you want to delete this item?";
                 if (!confirm(confirmMessage)) {
-                  console.log(
-                    "[LiveTemplate DEBUG] Delete action cancelled by user"
-                  );
+                  this.logger.debug("Delete action cancelled by user");
                   return;
                 }
               }
@@ -150,7 +148,7 @@ export class EventDelegator {
               const message: any = { action, data: {} };
 
               if (targetElement instanceof HTMLFormElement) {
-                console.log("[LiveTemplate DEBUG] Processing form element");
+                this.logger.debug("Processing form element");
                 const formData = new FormData(targetElement);
 
                 const checkboxes = Array.from(
@@ -165,21 +163,14 @@ export class EventDelegator {
                 formData.forEach((value, key) => {
                   if (checkboxNames.has(key)) {
                     message.data[key] = true;
-                    console.log(
-                      "[LiveTemplate DEBUG] Converted checkbox",
-                      key,
-                      "to true"
-                    );
+                    this.logger.debug("Converted checkbox", key, "to true");
                   } else {
                     message.data[key] = this.context.parseValue(
                       value as string
                     );
                   }
                 });
-                console.log(
-                  "[LiveTemplate DEBUG] Form data collected:",
-                  message.data
-                );
+                this.logger.debug("Form data collected:", message.data);
               } else if (eventType === "change" || eventType === "input") {
                 if (targetElement instanceof HTMLInputElement) {
                   const key = targetElement.name || "value";
@@ -230,7 +221,7 @@ export class EventDelegator {
                   submitButton.disabled = true;
                   submitButton.textContent =
                     submitButton.getAttribute("lvt-disable-with");
-                  console.log("[LiveTemplate DEBUG] Disabled submit button");
+                  this.logger.debug("Disabled submit button");
                 }
 
                 this.context.setActiveSubmission(
@@ -242,20 +233,17 @@ export class EventDelegator {
                 targetElement.dispatchEvent(
                   new CustomEvent("lvt:pending", { detail: message })
                 );
-                console.log("[LiveTemplate DEBUG] Emitted lvt:pending event");
+                this.logger.debug("Emitted lvt:pending event");
               }
 
-              console.log(
-                "[LiveTemplate DEBUG] About to send message:",
-                message
-              );
-              console.log(
-                "[LiveTemplate DEBUG] WebSocket state:",
+              this.logger.debug("About to send message:", message);
+              this.logger.debug(
+                "WebSocket state:",
                 this.context.getWebSocketReadyState()
               );
 
               this.context.send(message);
-              console.log("[LiveTemplate DEBUG] send() called");
+              this.logger.debug("send() called");
             };
 
             const throttleValue = actionElement.getAttribute("lvt-throttle");
@@ -303,8 +291,8 @@ export class EventDelegator {
 
       (document as any)[listenerKey] = listener;
       document.addEventListener(eventType, listener, false);
-      console.log(
-        "[LiveTemplate DEBUG] Registered event listener for:",
+      this.logger.debug(
+        "Registered event listener:",
         eventType,
         "with key:",
         listenerKey

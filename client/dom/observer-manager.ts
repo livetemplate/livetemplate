@@ -1,3 +1,5 @@
+import type { Logger } from "../utils/logger";
+
 export interface ObserverContext {
   getWrapperElement(): Element | null;
   send(message: any): void;
@@ -10,7 +12,10 @@ export class ObserverManager {
   private infiniteScrollObserver: IntersectionObserver | null = null;
   private mutationObserver: MutationObserver | null = null;
 
-  constructor(private readonly context: ObserverContext) {}
+  constructor(
+    private readonly context: ObserverContext,
+    private readonly logger: Logger
+  ) {}
 
   setupInfiniteScrollObserver(): void {
     const wrapperElement = this.context.getWrapperElement();
@@ -28,9 +33,7 @@ export class ObserverManager {
     this.infiniteScrollObserver = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting) {
-          console.log(
-            "[InfiniteScroll] Sentinel visible, sending load_more action"
-          );
+          this.logger.debug("Sentinel visible, sending load_more action");
           this.context.send({ action: "load_more" });
         }
       },
@@ -40,7 +43,7 @@ export class ObserverManager {
     );
 
     this.infiniteScrollObserver.observe(sentinel);
-    console.log("[InfiniteScroll] Observer set up successfully");
+    this.logger.debug("Observer set up successfully");
   }
 
   setupInfiniteScrollMutationObserver(): void {
@@ -60,7 +63,7 @@ export class ObserverManager {
       subtree: true,
     });
 
-    console.log("[InfiniteScroll] MutationObserver set up successfully");
+    this.logger.debug("MutationObserver set up successfully");
   }
 
   teardown(): void {

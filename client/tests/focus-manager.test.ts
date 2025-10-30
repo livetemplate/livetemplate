@@ -1,4 +1,5 @@
 import { FocusManager } from "../dom/focus-manager";
+import { createLogger } from "../utils/logger";
 
 describe("FocusManager", () => {
   beforeEach(() => {
@@ -19,7 +20,9 @@ describe("FocusManager", () => {
 
     document.body.appendChild(wrapper);
 
-    const manager = new FocusManager();
+    const manager = new FocusManager(
+      createLogger({ scope: "FocusManagerTest", level: "silent" })
+    );
     manager.attach(wrapper);
     manager.updateFocusableElements();
 
@@ -41,7 +44,9 @@ describe("FocusManager", () => {
     wrapper.appendChild(input);
     document.body.appendChild(wrapper);
 
-    const manager = new FocusManager();
+    const manager = new FocusManager(
+      createLogger({ scope: "FocusManagerTest", level: "silent" })
+    );
     manager.attach(wrapper);
     manager.updateFocusableElements();
 

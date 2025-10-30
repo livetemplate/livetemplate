@@ -1,4 +1,5 @@
 import { FOCUSABLE_INPUTS } from "../constants";
+import type { Logger } from "../utils/logger";
 
 export class FocusManager {
   private wrapperElement: Element | null = null;
@@ -6,6 +7,8 @@ export class FocusManager {
   private lastFocusedElement: HTMLElement | null = null;
   private lastFocusedSelectionStart: number | null = null;
   private lastFocusedSelectionEnd: number | null = null;
+
+  constructor(private readonly logger: Logger) {}
 
   attach(wrapper: Element | null): void {
     this.wrapperElement = wrapper;
@@ -57,8 +60,8 @@ export class FocusManager {
 
       if (this.isTextualInput(target) || target instanceof HTMLSelectElement) {
         this.lastFocusedElement = target;
-        console.log(
-          "[Focus Debug] Tracked focus on:",
+        this.logger.debug(
+          "[Focus] Tracked focus on:",
           target.tagName,
           target.id || target.getAttribute("name")
         );
@@ -77,8 +80,8 @@ export class FocusManager {
       if (this.isTextualInput(target) && target === this.lastFocusedElement) {
         this.lastFocusedSelectionStart = target.selectionStart;
         this.lastFocusedSelectionEnd = target.selectionEnd;
-        console.log(
-          "[Focus Debug] Saved cursor on blur:",
+        this.logger.debug(
+          "[Focus] Saved cursor on blur:",
           this.lastFocusedSelectionStart,
           "-",
           this.lastFocusedSelectionEnd
@@ -99,27 +102,27 @@ export class FocusManager {
     document.addEventListener("focus", focusListener, true);
     document.addEventListener("blur", blurListener, true);
 
-    console.log("[Focus Debug] Focus tracking set up");
+    this.logger.debug("[Focus] Focus tracking set up");
   }
 
   restoreFocusedElement(): void {
-    console.log(
-      "[Focus Debug] restoreFocusedElement - lastFocusedElement:",
+    this.logger.debug(
+      "[Focus] restoreFocusedElement - lastFocusedElement:",
       this.lastFocusedElement?.tagName,
       this.lastFocusedElement?.id ||
         this.lastFocusedElement?.getAttribute("name")
     );
 
     if (!this.lastFocusedElement || !this.wrapperElement) {
-      console.log("[Focus Debug] No element to restore");
+      this.logger.debug("[Focus] No element to restore");
       return;
     }
 
     const selector = this.getElementSelector(this.lastFocusedElement);
-    console.log("[Focus Debug] Selector for last focused:", selector);
+    this.logger.debug("[Focus] Selector for last focused:", selector);
 
     if (!selector) {
-      console.log("[Focus Debug] Could not generate selector");
+      this.logger.debug("[Focus] Could not generate selector");
       return;
     }
 
@@ -129,27 +132,27 @@ export class FocusManager {
       this.updateFocusableElements();
       const index = parseInt(selector.replace("data-focus-index-", ""), 10);
       element = this.focusableElements[index] || null;
-      console.log("[Focus Debug] Found by index:", index, element?.tagName);
+      this.logger.debug("[Focus] Found by index:", index, element?.tagName);
     } else {
       element = this.wrapperElement.querySelector(selector);
-      console.log(
-        "[Focus Debug] Found by selector:",
+      this.logger.debug(
+        "[Focus] Found by selector:",
         selector,
         element?.tagName
       );
     }
 
     if (!element) {
-      console.log("[Focus Debug] Element not found in updated DOM");
+      this.logger.debug("[Focus] Element not found in updated DOM");
       return;
     }
 
     const wasFocused = element.matches(":focus");
-    console.log("[Focus Debug] Already focused:", wasFocused);
+    this.logger.debug("[Focus] Already focused:", wasFocused);
 
     if (!wasFocused) {
       element.focus();
-      console.log("[Focus Debug] Restored focus");
+      this.logger.debug("[Focus] Restored focus");
     }
 
     if (
@@ -161,8 +164,8 @@ export class FocusManager {
         this.lastFocusedSelectionStart,
         this.lastFocusedSelectionEnd
       );
-      console.log(
-        "[Focus Debug] Restored cursor:",
+      this.logger.debug(
+        "[Focus] Restored cursor:",
         this.lastFocusedSelectionStart,
         "-",
         this.lastFocusedSelectionEnd

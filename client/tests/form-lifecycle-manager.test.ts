@@ -1,5 +1,6 @@
 import { FormLifecycleManager } from "../state/form-lifecycle-manager";
 import { ModalManager } from "../dom/modal-manager";
+import { createLogger } from "../utils/logger";
 import type { ResponseMetadata } from "../types";
 
 describe("FormLifecycleManager", () => {
@@ -7,7 +8,9 @@ describe("FormLifecycleManager", () => {
   let modalManager: ModalManager;
 
   beforeEach(() => {
-    modalManager = new ModalManager();
+    modalManager = new ModalManager(
+      createLogger({ scope: "ModalManagerTest", level: "silent" })
+    );
     modalCloseSpy = jest
       .spyOn(modalManager, "close")
       .mockImplementation(() => {});

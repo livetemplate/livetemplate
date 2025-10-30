@@ -1,11 +1,15 @@
+import type { Logger } from "../utils/logger";
+
 /**
  * Manages client-side modal interactions for LiveTemplate.
  */
 export class ModalManager {
+  constructor(private readonly logger: Logger) {}
+
   open(modalId: string): void {
     const modal = document.getElementById(modalId);
     if (!modal) {
-      console.warn(`Modal with id="${modalId}" not found`);
+      this.logger.warn(`Modal with id="${modalId}" not found`);
       return;
     }
 
@@ -14,7 +18,7 @@ export class ModalManager {
     modal.setAttribute("aria-hidden", "false");
     modal.dispatchEvent(new CustomEvent("lvt:modal-opened", { bubbles: true }));
 
-    console.log(`[Modal] Opened modal: ${modalId}`);
+    this.logger.info(`Opened modal: ${modalId}`);
 
     const firstInput = modal.querySelector(
       "input, textarea, select"
@@ -54,7 +58,7 @@ export class ModalManager {
   close(modalId: string): void {
     const modal = document.getElementById(modalId);
     if (!modal) {
-      console.warn(`Modal with id="${modalId}" not found`);
+      this.logger.warn(`Modal with id="${modalId}" not found`);
       return;
     }
 
@@ -63,6 +67,6 @@ export class ModalManager {
     modal.setAttribute("aria-hidden", "true");
     modal.dispatchEvent(new CustomEvent("lvt:modal-closed", { bubbles: true }));
 
-    console.log(`[Modal] Closed modal: ${modalId}`);
+    this.logger.info(`Closed modal: ${modalId}`);
   }
 }

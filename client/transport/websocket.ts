@@ -1,4 +1,5 @@
 import type { LiveTemplateClientOptions, UpdateResponse } from "../types";
+import type { Logger } from "../utils/logger";
 
 export interface WebSocketTransportOptions {
   url: string;
@@ -91,6 +92,7 @@ export interface WebSocketManagerConfig {
   onMessage: (response: UpdateResponse, event: MessageEvent<string>) => void;
   onReconnectAttempt?: () => void;
   onError?: (event: Event) => void;
+  logger: Logger;
 }
 
 export interface WebSocketConnectResult {
@@ -106,9 +108,12 @@ export class WebSocketManager {
   async connect(): Promise<WebSocketConnectResult> {
     const liveUrl = this.getLiveUrl();
 
-    const wsAvailable = await checkWebSocketAvailability(liveUrl);
+    const wsAvailable = await checkWebSocketAvailability(
+      liveUrl,
+      this.config.logger
+    );
     if (!wsAvailable) {
-      const initialState = await fetchInitialState(liveUrl);
+      const initialState = await fetchInitialState(liveUrl, this.config.logger);
       return { usingWebSocket: false, initialState };
     }
 
@@ -124,7 +129,7 @@ export class WebSocketManager {
           const payload: UpdateResponse = JSON.parse(event.data);
           this.config.onMessage(payload, event);
         } catch (error) {
-          console.error("LiveTemplate error:", error);
+          this.config.logger.error("Failed to parse WebSocket message:", error);
         }
       },
       onClose: () => {
@@ -174,7 +179,8 @@ export class WebSocketManager {
 }
 
 export async function checkWebSocketAvailability(
-  liveUrl: string
+  liveUrl: string,
+  logger?: Logger
 ): Promise<boolean> {
   try {
     const response = await fetch(liveUrl, {
@@ -188,13 +194,14 @@ export async function checkWebSocketAvailability(
 
     return true;
   } catch (error) {
-    console.error("Failed to check WebSocket availability:", error);
+    logger?.warn("Failed to check WebSocket availability:", error);
     return true;
   }
 }
 
 export async function fetchInitialState(
-  liveUrl: string
+  liveUrl: string,
+  logger?: Logger
 ): Promise<UpdateResponse | null> {
   try {
     const response = await fetch(liveUrl, {
@@ -211,7 +218,7 @@ export async function fetchInitialState(
 
     return (await response.json()) as UpdateResponse;
   } catch (error) {
-    console.error("Failed to fetch initial state:", error);
+    logger?.warn("Failed to fetch initial state:", error);
     return null;
   }
 }

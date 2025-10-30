@@ -27,11 +27,13 @@ import type {
   UpdateResponse,
   UpdateResult,
 } from "./types";
+import { createLogger, Logger } from "./utils/logger";
 export { loadAndApplyUpdate, compareHTML } from "./utils/testing";
 
 export class LiveTemplateClient {
-  private readonly treeRenderer = new TreeRenderer();
-  private readonly focusManager = new FocusManager();
+  private readonly treeRenderer: TreeRenderer;
+  private readonly focusManager: FocusManager;
+  private readonly logger: Logger;
   private lvtId: string | null = null;
 
   // Transport properties
@@ -60,54 +62,80 @@ export class LiveTemplateClient {
   private messageCount: number = 0;
 
   constructor(options: LiveTemplateClientOptions = {}) {
+    const { logger: providedLogger, logLevel, debug, ...restOptions } = options;
+    const resolvedLevel = logLevel ?? (debug ? "debug" : "info");
+    const baseLogger = providedLogger ?? createLogger({ level: resolvedLevel });
+
+    if (providedLogger) {
+      if (logLevel) {
+        providedLogger.setLevel(logLevel);
+      } else if (debug) {
+        providedLogger.setLevel("debug");
+      }
+    } else {
+      baseLogger.setLevel(resolvedLevel);
+    }
+
+    this.logger = baseLogger.child("Client");
+
     this.options = {
       autoReconnect: false, // Disable autoReconnect by default to avoid connection loops
       reconnectDelay: 1000,
       liveUrl: window.location.pathname, // Connect to current page
-      ...options,
+      ...restOptions,
     };
 
-    this.modalManager = new ModalManager();
+    this.treeRenderer = new TreeRenderer(this.logger.child("TreeRenderer"));
+    this.focusManager = new FocusManager(this.logger.child("FocusManager"));
+
+    this.modalManager = new ModalManager(this.logger.child("ModalManager"));
     this.formLifecycleManager = new FormLifecycleManager(this.modalManager);
     this.loadingIndicator = new LoadingIndicator();
     this.formDisabler = new FormDisabler();
 
-    this.eventDelegator = new EventDelegator({
-      getWrapperElement: () => this.wrapperElement,
-      getRateLimitedHandlers: () => this.rateLimitedHandlers,
-      parseValue: (value: string) => this.parseValue(value),
-      send: (message: any) => this.send(message),
-      setActiveSubmission: (
-        form: HTMLFormElement | null,
-        button: HTMLButtonElement | null,
-        originalButtonText: string | null
-      ) =>
-        this.formLifecycleManager.setActiveSubmission(
-          form,
-          button,
-          originalButtonText
-        ),
-      openModal: (modalId: string) => this.modalManager.open(modalId),
-      closeModal: (modalId: string) => this.modalManager.close(modalId),
-      getWebSocketReadyState: () => this.webSocketManager.getReadyState(),
-    });
+    this.eventDelegator = new EventDelegator(
+      {
+        getWrapperElement: () => this.wrapperElement,
+        getRateLimitedHandlers: () => this.rateLimitedHandlers,
+        parseValue: (value: string) => this.parseValue(value),
+        send: (message: any) => this.send(message),
+        setActiveSubmission: (
+          form: HTMLFormElement | null,
+          button: HTMLButtonElement | null,
+          originalButtonText: string | null
+        ) =>
+          this.formLifecycleManager.setActiveSubmission(
+            form,
+            button,
+            originalButtonText
+          ),
+        openModal: (modalId: string) => this.modalManager.open(modalId),
+        closeModal: (modalId: string) => this.modalManager.close(modalId),
+        getWebSocketReadyState: () => this.webSocketManager.getReadyState(),
+      },
+      this.logger.child("EventDelegator")
+    );
 
-    this.observerManager = new ObserverManager({
-      getWrapperElement: () => this.wrapperElement,
-      send: (message: any) => this.send(message),
-    });
+    this.observerManager = new ObserverManager(
+      {
+        getWrapperElement: () => this.wrapperElement,
+        send: (message: any) => this.send(message),
+      },
+      this.logger.child("ObserverManager")
+    );
 
     this.webSocketManager = new WebSocketManager({
       options: this.options,
+      logger: this.logger.child("Transport"),
       onConnected: () => {
         this.ws = this.webSocketManager.getSocket();
-        console.log("LiveTemplate: WebSocket connected");
+        this.logger.info("WebSocket connected");
         this.options.onConnect?.();
         this.wrapperElement?.dispatchEvent(new Event("lvt:connected"));
       },
       onDisconnected: () => {
         this.ws = null;
-        console.log("LiveTemplate: WebSocket disconnected");
+        this.logger.info("WebSocket disconnected");
         this.options.onDisconnect?.();
         this.wrapperElement?.dispatchEvent(new Event("lvt:disconnected"));
       },
@@ -115,10 +143,10 @@ export class LiveTemplateClient {
         this.handleWebSocketPayload(response, event);
       },
       onReconnectAttempt: () => {
-        console.log("LiveTemplate: Attempting to reconnect...");
+        this.logger.info("Attempting to reconnect...");
       },
       onError: (error) => {
-        console.error("LiveTemplate WebSocket error:", error);
+        this.logger.error("WebSocket error:", error);
         this.options.onError?.(error);
       },
     });
@@ -129,6 +157,7 @@ export class LiveTemplateClient {
    * Called automatically when script loads
    */
   static autoInit(): void {
+    const autoInitLogger = createLogger({ scope: "Client:autoInit" });
     const init = () => {
       const wrapper = document.querySelector("[data-lvt-id]");
       if (wrapper) {
@@ -143,11 +172,9 @@ export class LiveTemplateClient {
           client.formDisabler.disable(client.wrapperElement);
         }
 
-        client
-          .connect()
-          .catch((error) =>
-            console.error("LiveTemplate autoInit connect failed:", error)
-          );
+        client.connect().catch((error) => {
+          autoInitLogger.error("Auto-initialization connect failed:", error);
+        });
 
         // Expose as global for programmatic access
         (window as any).liveTemplateClient = client;
@@ -227,7 +254,7 @@ export class LiveTemplateClient {
 
     if (this.useHTTP) {
       this.ws = null;
-      console.log("LiveTemplate: WebSocket not available, using HTTP mode");
+      this.logger.info("WebSocket not available, using HTTP mode");
       this.options.onConnect?.();
       if (connectionResult.initialState && this.wrapperElement) {
         this.handleWebSocketPayload(connectionResult.initialState);
@@ -293,45 +320,39 @@ export class LiveTemplateClient {
     (window as any).__lvtSendCalled = true;
     (window as any).__lvtMessageAction = message?.action;
 
-    console.log(
-      "[LiveTemplate DEBUG] send() method called with message:",
-      message
-    );
-    console.log(
-      "[LiveTemplate DEBUG] useHTTP:",
-      this.useHTTP,
-      "ws:",
-      this.webSocketManager.getReadyState() !== undefined,
-      "ws.readyState:",
-      this.webSocketManager.getReadyState()
-    );
-
     const readyState = this.webSocketManager.getReadyState();
+
+    if (this.logger.isDebugEnabled()) {
+      this.logger.debug("send() invoked", {
+        message,
+        useHTTP: this.useHTTP,
+        hasWebSocket: readyState !== undefined,
+        readyState,
+      });
+    }
 
     if (this.useHTTP) {
       // HTTP mode: send via POST and handle response
-      console.log("[LiveTemplate DEBUG] Using HTTP mode");
+      this.logger.debug("Using HTTP mode for send");
       (window as any).__lvtSendPath = "http";
       this.sendHTTP(message);
     } else if (readyState === WebSocket.OPEN) {
       // WebSocket mode
-      console.log("[LiveTemplate DEBUG] Sending via WebSocket");
+      this.logger.debug("Sending via WebSocket");
       (window as any).__lvtSendPath = "websocket";
       (window as any).__lvtWSMessage = JSON.stringify(message);
       this.webSocketManager.send(JSON.stringify(message));
-      console.log("[LiveTemplate DEBUG] WebSocket send complete");
+      this.logger.debug("WebSocket send complete");
       (window as any).__lvtWSSendComplete = true;
     } else if (readyState !== undefined) {
       // WebSocket is connecting or closing, fall back to HTTP temporarily
-      console.log(
-        "LiveTemplate: WebSocket not ready (state: " +
-          readyState +
-          "), using HTTP fallback"
+      this.logger.warn(
+        `WebSocket not ready (state: ${readyState}), using HTTP fallback`
       );
       (window as any).__lvtSendPath = "http-fallback";
       this.sendHTTP(message);
     } else {
-      console.error("LiveTemplate: No transport available");
+      this.logger.error("No transport available");
       (window as any).__lvtSendPath = "no-transport";
     }
   }
@@ -366,7 +387,7 @@ export class LiveTemplateClient {
         );
       }
     } catch (error) {
-      console.error("Failed to send HTTP request:", error);
+      this.logger.error("Failed to send HTTP request:", error);
     }
   }
 
@@ -465,39 +486,46 @@ export class LiveTemplateClient {
     // For example, if we put <tr> elements in a <div>, the browser strips them out
     const tempWrapper = document.createElement(element.tagName);
 
-    console.log("[updateDOM] element.tagName:", element.tagName);
-    console.log(
-      "[updateDOM] result.html (first 500 chars):",
-      result.html.substring(0, 500)
-    );
-    console.log(
-      "[updateDOM] Has <table> tag:",
-      result.html.includes("<table>")
-    );
-    console.log(
-      "[updateDOM] Has <tbody> tag:",
-      result.html.includes("<tbody>")
-    );
-    console.log("[updateDOM] Has <tr> tag:", result.html.includes("<tr"));
+    if (this.logger.isDebugEnabled()) {
+      this.logger.debug("[updateDOM] element.tagName:", element.tagName);
+      this.logger.debug(
+        "[updateDOM] result.html (first 500 chars):",
+        result.html.substring(0, 500)
+      );
+      this.logger.debug(
+        "[updateDOM] Has <table> tag:",
+        result.html.includes("<table>")
+      );
+      this.logger.debug(
+        "[updateDOM] Has <tbody> tag:",
+        result.html.includes("<tbody>")
+      );
+      this.logger.debug(
+        "[updateDOM] Has <tr> tag:",
+        result.html.includes("<tr")
+      );
+    }
 
     tempWrapper.innerHTML = result.html;
 
-    console.log(
-      "[updateDOM] tempWrapper.innerHTML after setting (first 500 chars):",
-      tempWrapper.innerHTML.substring(0, 500)
-    );
-    console.log(
-      "[updateDOM] tempWrapper has <table>:",
-      tempWrapper.innerHTML.includes("<table>")
-    );
-    console.log(
-      "[updateDOM] tempWrapper has <tbody>:",
-      tempWrapper.innerHTML.includes("<tbody>")
-    );
-    console.log(
-      "[updateDOM] tempWrapper has <tr>:",
-      tempWrapper.innerHTML.includes("<tr")
-    );
+    if (this.logger.isDebugEnabled()) {
+      this.logger.debug(
+        "[updateDOM] tempWrapper.innerHTML (first 500 chars):",
+        tempWrapper.innerHTML.substring(0, 500)
+      );
+      this.logger.debug(
+        "[updateDOM] tempWrapper has <table>:",
+        tempWrapper.innerHTML.includes("<table>")
+      );
+      this.logger.debug(
+        "[updateDOM] tempWrapper has <tbody>:",
+        tempWrapper.innerHTML.includes("<tbody>")
+      );
+      this.logger.debug(
+        "[updateDOM] tempWrapper has <tr>:",
+        tempWrapper.innerHTML.includes("<tr")
+      );
+    }
 
     // Use morphdom to efficiently update the element
     morphdom(element, tempWrapper, {
@@ -580,7 +608,7 @@ export class LiveTemplateClient {
       const hookFunction = new Function("element", hookValue);
       hookFunction.call(element, element);
     } catch (error) {
-      console.error(`Error executing ${hookName} hook:`, error);
+      this.logger.error(`Error executing ${hookName} hook:`, error);
     }
   }
 

@@ -1,4 +1,5 @@
 import { ModalManager } from "../dom/modal-manager";
+import { createLogger } from "../utils/logger";
 
 describe("ModalManager", () => {
   let consoleLogSpy: jest.SpyInstance;
@@ -32,7 +33,9 @@ describe("ModalManager", () => {
 
     document.body.appendChild(modal);
 
-    const manager = new ModalManager();
+    const manager = new ModalManager(
+      createLogger({ scope: "ModalManagerTest", level: "silent" })
+    );
     const openedListener = jest.fn();
     modal.addEventListener("lvt:modal-opened", openedListener);
 
@@ -72,7 +75,9 @@ describe("ModalManager", () => {
     modal.appendChild(secondInput);
     document.body.appendChild(modal);
 
-    const manager = new ModalManager();
+    const manager = new ModalManager(
+      createLogger({ scope: "ModalManagerTest", level: "silent" })
+    );
     manager.open("test-modal-visible");
 
     secondInput.focus();
@@ -87,7 +92,9 @@ describe("ModalManager", () => {
     modal.id = "test-modal-close";
     document.body.appendChild(modal);
 
-    const manager = new ModalManager();
+    const manager = new ModalManager(
+      createLogger({ scope: "ModalManagerTest", level: "silent" })
+    );
     const closedListener = jest.fn();
     modal.addEventListener("lvt:modal-closed", closedListener);
 

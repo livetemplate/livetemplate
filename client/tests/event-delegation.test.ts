@@ -2,6 +2,7 @@ import {
   EventDelegator,
   EventDelegationContext,
 } from "../dom/event-delegation";
+import { createLogger } from "../utils/logger";
 
 describe("EventDelegator", () => {
   let consoleLogSpy: jest.SpyInstance;
@@ -49,7 +50,10 @@ describe("EventDelegator", () => {
     document.body.appendChild(wrapper);
 
     const context = createContext(wrapper);
-    const delegator = new EventDelegator(context);
+    const delegator = new EventDelegator(
+      context,
+      createLogger({ scope: "EventDelegatorTest", level: "silent" })
+    );
     delegator.setupEventDelegation();
 
     const button = document.getElementById("save")!;
@@ -73,7 +77,10 @@ describe("EventDelegator", () => {
     document.body.appendChild(wrapper);
 
     const context = createContext(wrapper);
-    const delegator = new EventDelegator(context);
+    const delegator = new EventDelegator(
+      context,
+      createLogger({ scope: "EventDelegatorTest", level: "silent" })
+    );
     delegator.setupEventDelegation();
 
     const button = document.getElementById("ping")!;
@@ -104,7 +111,10 @@ describe("EventDelegator", () => {
     const submitButton = document.getElementById("submit") as HTMLButtonElement;
 
     const context = createContext(wrapper);
-    const delegator = new EventDelegator(context);
+    const delegator = new EventDelegator(
+      context,
+      createLogger({ scope: "EventDelegatorTest", level: "silent" })
+    );
     delegator.setupEventDelegation();
 
     const submitEvent = new Event("submit", {

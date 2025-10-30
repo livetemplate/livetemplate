@@ -1,4 +1,5 @@
 import type { TreeNode, UpdateResult } from "../types";
+import type { Logger } from "../utils/logger";
 
 interface RangeStateEntry {
   items: any[];
@@ -12,6 +13,8 @@ export class TreeRenderer {
   private treeState: TreeNode = {};
   private rangeState: Record<string, RangeStateEntry> = {};
   private rangeIdKeys: Record<string, string> = {};
+
+  constructor(private readonly logger: Logger) {}
 
   applyUpdate(update: TreeNode): UpdateResult {
     let changed = false;
@@ -193,26 +196,20 @@ export class TreeRenderer {
     }
 
     if (typeof value === "object") {
-      console.error(
-        "[LiveTemplate ERROR] Object reached String(value) - this will cause [object Object]"
+      this.logger.error(
+        "Object value reached string conversion; this will render as [object Object]."
       );
-      console.error(
-        "[LiveTemplate ERROR] Value type:",
-        typeof value,
-        "isArray:",
-        Array.isArray(value)
-      );
-      console.error(
-        "[LiveTemplate ERROR] Value keys:",
-        Object.keys(value as Record<string, unknown>)
-      );
-      console.error(
-        "[LiveTemplate ERROR] value.s exists:",
-        !!(value as any).s,
-        "value.d exists:",
-        !!(value as any).d
-      );
-      console.error("[LiveTemplate ERROR] Value:", JSON.stringify(value));
+
+      if (this.logger.isDebugEnabled()) {
+        this.logger.debug("Value diagnostics:", {
+          valueType: typeof value,
+          isArray: Array.isArray(value),
+          keys: Object.keys(value as Record<string, unknown>),
+          hasStatics: Boolean((value as any).s),
+          hasDynamics: Boolean((value as any).d),
+          value,
+        });
+      }
     }
 
     return String(value);
@@ -451,9 +448,14 @@ export class TreeRenderer {
       })
       .join("");
 
-    console.log("[renderItemsWithStatics] statics:", statics);
-    console.log("[renderItemsWithStatics] items count:", items.length);
-    console.log("[renderItemsWithStatics] result:", result.substring(0, 200));
+    if (this.logger.isDebugEnabled()) {
+      this.logger.debug("[renderItemsWithStatics] statics:", statics);
+      this.logger.debug("[renderItemsWithStatics] items count:", items.length);
+      this.logger.debug(
+        "[renderItemsWithStatics] result snippet:",
+        result.substring(0, 200)
+      );
+    }
 
     return result;
   }

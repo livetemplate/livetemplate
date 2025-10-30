@@ -20,6 +20,8 @@ export interface UpdateResponse {
   meta?: ResponseMetadata;
 }
 
+import type { Logger, LogLevel } from "./utils/logger";
+
 export interface LiveTemplateClientOptions {
   wsUrl?: string;
   liveUrl?: string;
@@ -28,4 +30,7 @@ export interface LiveTemplateClientOptions {
   onConnect?: () => void;
   onDisconnect?: () => void;
   onError?: (error: Event) => void;
+  logLevel?: LogLevel;
+  debug?: boolean;
+  logger?: Logger;
 }
