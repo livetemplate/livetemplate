@@ -274,14 +274,14 @@ function applyUpdate(update: UpdateResponse) {
 
 **Key insight:** Client only receives changed data, not full HTML. Statics are cached from first render.
 
-## Tour 3: Template Parsing
+## Tour 3: Template Parsing (v1.0)
 
-**Goal:** Understand how templates become tree structures
+**Goal:** Understand how templates become tree structures using the internal/parse/ package
 
-### Step 1: AST Parsing (`tree_ast.go:50-150`)
+### Step 1: AST Parsing (`internal/parse/parser.go`)
 
 ```go
-tree, _ := parseTemplateToTreeAST(templateStr, data, keyGen)
+tree, _ := parse.ParseTemplateToTreeAST(templateStr, data, keyGen)
 ```
 
 **What happens:**
@@ -289,26 +289,33 @@ tree, _ := parseTemplateToTreeAST(templateStr, data, keyGen)
 2. Walk AST to find template constructs
 3. Compile constructs (define structure)
 4. Hydrate constructs (fill with data)
-5. Build tree
+5. Build tree using internal/build/
 
-**File:** `tree_ast.go`
+**Package:** `internal/parse/`
 ```go
-func parseTemplateToTreeAST(templateStr string, data interface{}, keyGen *keyGenerator) (treeNode, error) {
+func ParseTemplateToTreeAST(templateStr string, data interface{}, keyGen *build.KeyGenerator) (build.TreeNode, error) {
     // Parse template
     tmpl := template.New("").Funcs(customFuncs)
     tmpl, _ = tmpl.Parse(templateStr)
 
-    // Compile: Find all constructs
-    constructs := compileConstruct(tmpl.Tree.Root, ...)
+    // Compile: Find all constructs (internal/parse/compile.go)
+    constructs := compileTemplateNode(tmpl.Tree.Root, ...)
 
-    // Hydrate: Fill with actual data
-    tree := hydrateConstruct(constructs, data, keyGen, ...)
+    // Hydrate: Fill with actual data (internal/parse/hydrate.go)
+    tree := hydrateConstructs(constructs, data, keyGen, ...)
 
     return tree, nil
 }
 ```
 
-### Step 2: Compile Constructs (`tree_ast.go:200-500`)
+**Architecture:** v1.0 refactored monolithic parsing into 5 files with single-responsibility functions:
+- `parser.go` (280 lines) - Main parser entry point
+- `constructs.go` (290 lines) - Construct type definitions
+- `compile.go` (320 lines) - Compilation logic
+- `hydrate.go` (260 lines) - Hydration logic
+- `helpers.go` (170 lines) - Utility functions
+
+### Step 2: Compile Constructs (`internal/parse/compile.go`)
 
 **Goal:** Identify template structure (fields, conditionals, ranges)
 
@@ -325,46 +332,46 @@ func parseTemplateToTreeAST(templateStr string, data interface{}, keyGen *keyGen
 **Compiled constructs:**
 ```go
 []Construct{
-    TextConstruct{Value: "<div>\n    Hello "},
-    FieldConstruct{FieldName: "Name"},
-    TextConstruct{Value: "\n    "},
-    ConditionalConstruct{
+    &FieldConstruct{FieldName: "Name"},
+    &ConditionalConstruct{
         Condition:  ".ShowMessage",
         TrueBranch: []Construct{
-            TextConstruct{Value: "\n        <p>"},
-            FieldConstruct{FieldName: "Message"},
-            TextConstruct{Value: "</p>\n    "},
+            &FieldConstruct{FieldName: "Message"},
         },
         FalseBranch: nil,
     },
-    TextConstruct{Value: "\n</div>"},
 }
 ```
 
-**File:** `tree_ast.go`
+**Package:** `internal/parse/compile.go`
 ```go
-func compileConstruct(node parse.Node, ...) []Construct {
+func compileTemplateNode(node parse.Node, ...) ([]Construct, []string) {
     switch n := node.(type) {
     case *parse.ActionNode:
         // {{.Field}} or {{if}} or {{range}}
-        return compileAction(n, ...)
+        return compileActionNode(n, ...)
 
     case *parse.TextNode:
-        // Static text
-        return []Construct{TextConstruct{Value: n.Text}}
+        // Static text - added to statics
+        return nil, []string{n.Text}
 
     case *parse.ListNode:
-        // List of nodes - recurse
+        // List of nodes - recurse and combine
         var constructs []Construct
+        var statics []string
         for _, node := range n.Nodes {
-            constructs = append(constructs, compileConstruct(node, ...)...)
+            c, s := compileTemplateNode(node, ...)
+            constructs = append(constructs, c...)
+            statics = append(statics, s...)
         }
-        return constructs
+        return constructs, statics
     }
 }
 ```
 
-### Step 3: Hydrate Constructs (`tree_ast.go:600-1000`)
+**Key insight:** Compilation separates statics from dynamics at parse time, enabling efficient updates.
+
+### Step 3: Hydrate Constructs (`internal/parse/hydrate.go`)
 
 **Goal:** Fill constructs with actual data to generate tree
 
@@ -397,52 +404,45 @@ data := struct {
 }
 ```
 
-**File:** `tree_ast.go`
+**Package:** `internal/parse/hydrate.go`
 ```go
-func hydrateConstruct(constructs []Construct, data interface{}, keyGen *keyGenerator, ...) treeNode {
-    tree := treeNode{}
-    statics := []string{}
+func hydrateConstructs(constructs []Construct, data interface{}, keyGen *build.KeyGenerator, ...) build.TreeNode {
+    tree := build.TreeNode{}
     dynamicIdx := 0
 
     for _, construct := range constructs {
         switch c := construct.(type) {
-        case TextConstruct:
-            // Add to statics
-            statics = append(statics, c.Value)
-
-        case FieldConstruct:
+        case *FieldConstruct:
             // Extract field value from data
-            value, _ := getFieldValue(data, c.FieldName)
+            value, _ := c.Hydrate(data, keyGen, ...)
             tree[fmt.Sprintf("%d", dynamicIdx)] = value
             dynamicIdx++
 
-        case ConditionalConstruct:
+        case *ConditionalConstruct:
             // Evaluate condition
-            if evaluateCondition(c.Condition, data) {
-                // Hydrate true branch recursively
-                subtree := hydrateConstruct(c.TrueBranch, data, keyGen, ...)
-                tree[fmt.Sprintf("%d", dynamicIdx)] = subtree
+            value, _ := c.Hydrate(data, keyGen, ...)
+            if value != nil {
+                tree[fmt.Sprintf("%d", dynamicIdx)] = value
                 dynamicIdx++
             }
         }
     }
 
-    tree["s"] = statics
     return tree
 }
 ```
 
-**Key insight:** Compilation happens once (or is cached), hydration happens on every render with new data.
+**Key insight:** Each construct type implements its own Hydrate() method, following single-responsibility principle. Compilation happens once, hydration happens on every render with new data.
 
-## Tour 4: Tree Generation
+## Tour 4: Tree Generation and Comparison (v1.0)
 
-**Goal:** Understand tree structure and keys
+**Goal:** Understand tree structure, building, and comparison
 
-### Tree Structure (`tree.go`)
+### Tree Structure (`internal/build/types.go`)
 
 **Simple tree:**
 ```go
-tree := treeNode{
+tree := build.TreeNode{
     "s": []string{"<div>", "</div>"},
     "0": "Dynamic content",
 }
@@ -450,27 +450,71 @@ tree := treeNode{
 
 **Nested tree:**
 ```go
-tree := treeNode{
+tree := build.TreeNode{
     "s": []string{"<div>", "</div>"},
-    "0": treeNode{
+    "0": build.TreeNode{
         "s": []string{"<span>", "</span>"},
         "0": "Nested content",
     },
 }
 ```
 
-**Range tree:**
+**Range tree with metadata:**
 ```go
-tree := treeNode{
+tree := build.TreeNode{
     "s": []string{"<ul>", "</ul>"},
     "0": []interface{}{
-        treeNode{"s": []string{"<li>", "</li>"}, "0": "Item 1"},
-        treeNode{"s": []string{"<li>", "</li>"}, "0": "Item 2"},
+        build.TreeNode{"s": []string{"<li>", "</li>"}, "0": "Item 1"},
+        build.TreeNode{"s": []string{"<li>", "</li>"}, "0": "Item 2"},
+    },
+    "__range_data": build.RangeData{
+        ItemKeys:    []string{"item-1", "item-2"},
+        ConstructID: "range-123",
     },
 }
 ```
 
-### Key Generation (`tree.go:340-397`)
+### Tree Building (`internal/build/builder.go`)
+
+**Purpose:** Construct trees from statics and dynamics
+
+```go
+tree := build.BuildTree(statics, dynamics)
+```
+
+**Fingerprinting (`internal/build/fingerprint.go`):**
+```go
+fingerprint := build.CalculateFingerprint(tree) // MD5 hash for change detection
+```
+
+### Tree Comparison (`internal/diff/tree_compare.go`)
+
+**Purpose:** Generate minimal updates by comparing old and new trees
+
+```go
+changes := diff.CompareTreesAndGetChangesWithPath(
+    oldTree,
+    newTree,
+    insideNewStructure,
+    path,
+    rangeMatches,
+    registry,
+)
+```
+
+**Architecture Pattern:** Orchestrator → Coordinator → Helper
+- `CompareTreesAndGetChangesWithPath()` (30 lines) - Orchestrator
+- `compareDynamicSegments()` - Coordinator for field changes
+- `handleMatchedRanges()` - Coordinator for range updates
+- `handleNewField()`, `handleChangedField()` - Helpers (<20 lines each)
+
+**Wire Format Optimization (`internal/diff/prepare.go`):**
+```go
+// Strip statics for wire transmission (client already has them cached)
+wireTree := diff.PrepareTreeForClient(tree, clientHasStatics)
+```
+
+### Key Generation (`tree.go`)
 
 **Sequential keys:**
 ```go
@@ -495,7 +539,11 @@ func (kg *keyGenerator) nextKey() string {
 }
 ```
 
-**Key insight:** Keys are simple sequential integers, reset on each render. Stable within a single render, deterministic across renders with same data.
+**Key insight:**
+- Trees are built by internal/build/
+- Trees are compared by internal/diff/ using orchestrator → coordinator → helper pattern
+- Keys are simple sequential integers, reset on each render
+- Statics are stripped before wire transmission (90% size reduction)
 
 ### Fingerprinting (`tree.go:21-66`)
 

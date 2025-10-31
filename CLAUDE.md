@@ -17,22 +17,39 @@ The core library provides an API similar to `html/template` but with the additio
    - Main entry point providing `html/template` compatible API
    - Manages template parsing, execution, and update generation
    - Handles wrapper ID injection for update targeting
+   - Orchestrates internal packages for parsing, building, and diffing
 
 2. **Tree Structure (`tree.go`)**:
    - Implements tree-based static/dynamic separation
    - Manages fingerprinting for change detection
    - Provides tree diffing and update generation
 
-3. **Full Tree Parser (`full_tree_parser.go`)**:
+3. **Template Parsing (`internal/parse/`)**:
    - Parses Go templates into tree structures
    - Handles template constructs (fields, conditionals, ranges, with, template invokes)
-   - Manages construct compilation and hydration
+   - Components: parser.go, constructs.go, compile.go, hydrate.go, helpers.go
+   - Manages construct compilation and hydration with single-responsibility functions
 
-4. **HTML Tree (`html_tree.go`)**:
+4. **Tree Building (`internal/build/`)**:
+   - Tree construction and operations
+   - Components: builder.go, tree_ops.go, fingerprint.go, types.go
+   - Handles tree creation, manipulation, and change detection
+
+5. **Tree Diffing (`internal/diff/`)**:
+   - Tree comparison and update generation
+   - Components: tree_compare.go, range_ops.go, prepare.go, helpers.go, types.go
+   - Generates minimal updates using orchestrator → coordinator → helper pattern
+
+6. **Observability (`internal/observe/`)**:
+   - Production-ready logging and metrics
+   - Components: logger.go, metrics.go, context.go
+   - Structured logging with slog, operational metrics
+
+7. **HTML Tree (`html_tree.go`)**:
    - Manages HTML node tree structures
    - Used for HTML-aware operations
 
-5. **Client Library (`client/livetemplate-client.ts`)**:
+8. **Client Library (`client/livetemplate-client.ts`)**:
    - TypeScript client for browser integration
    - Handles tree-based updates efficiently
    - Manages static content caching
@@ -180,12 +197,14 @@ The repository has a pre-commit hook that:
 ## Common Tasks
 
 ### Adding New Template Construct
-1. Define construct type in `tree.go`
-2. Implement `Construct` interface
-3. Add parser in `full_tree_parser.go`
-4. Add compilation logic
-5. Add hydration logic
-6. Write tests
+1. Define construct type in `internal/parse/constructs.go`
+2. Implement `Construct` interface with Parse, Compile, Hydrate methods
+3. Add parser logic in `internal/parse/parser.go`
+4. Add compilation logic in `internal/parse/compile.go`
+5. Add hydration logic in `internal/parse/hydrate.go`
+6. Add helper functions in `internal/parse/helpers.go` if needed
+7. Write tests in appropriate test files
+8. Ensure backward compatibility if modifying existing constructs
 
 ### Debugging Tree Generation
 1. Use `calculateFingerprint()` to track tree changes

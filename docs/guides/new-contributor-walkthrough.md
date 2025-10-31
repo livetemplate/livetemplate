@@ -12,12 +12,14 @@ Welcome aboard! This guide orients new contributors to the LiveTemplate codebase
   - `go test ./cmd/lvt/e2e -run TestTutorialE2E -count=1 -v` – CLI tutorial smoke test.
   - `cd client && npm install && npm test` – client unit tests.
 
-## 2. Repository Map (Quick Reference)
+## 2. Repository Map (Quick Reference - v1.0)
 
 | Area                | Path                                                                                                               | Notes                                                                          |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
 | Public Go API       | [`template.go`](../../template.go), [`action.go`](../../action.go), [`mount.go`](../../mount.go)                   | Entry point for application developers.                                        |
-| Template Processing | [`tree_ast.go`](../../tree_ast.go), [`tree.go`](../../tree.go), [`template_flatten.go`](../../template_flatten.go) | AST parsing, tree construction, diffing helpers.                               |
+| Template Processing | [`internal/parse/`](../../internal/parse/), [`internal/build/`](../../internal/build/), [`internal/diff/`](../../internal/diff/) | AST parsing, tree construction, tree comparison (v1.0 refactored).             |
+| Observability       | [`internal/observe/`](../../internal/observe/)                                                                     | Structured logging (slog), operational metrics (v1.0 addition).                |
+| Tree Operations     | [`tree.go`](../../tree.go), [`template_flatten.go`](../../template_flatten.go)                                    | Tree utilities, template composition.                                          |
 | Session & Auth      | [`session.go`](../../session.go), [`auth.go`](../../auth.go)                                                       | Session grouping and authentication helpers.                                   |
 | Web Client          | [`client/livetemplate-client.ts`](../../client/livetemplate-client.ts)                                             | TypeScript runtime (event delegation, WebSocket/HTTP transport, DOM patching). |
 | CLI Tool            | [`cmd/lvt/`](../../cmd/lvt/)                                                                                       | App scaffolding, generators, hot-reload server.                                |
@@ -37,8 +39,8 @@ flowchart TD
    Browser["Browser Event"] --> ClientRuntime["client/livetemplate-client.ts"]
    ClientRuntime -->|HTTP POST / WebSocket| Server["Server Handler\n(mount.go)"]
    Server -->|Invoke Change| Store["Store Logic\n(action.go)"]
-   Store --> TemplateRender["Template Render\n(template.go → tree_ast.go/tree.go)"]
-   TemplateRender --> Diff["Minimal Tree Diff"]
+   Store --> TemplateRender["Template Render\n(template.go → internal/parse/ → internal/build/)"]
+   TemplateRender --> Diff["Minimal Tree Diff\n(internal/diff/)"]
    Diff --> Response["Response Envelope\n(mount.go)"]
    Response --> ClientRuntime
    ClientRuntime --> DOM["DOM Patch"]

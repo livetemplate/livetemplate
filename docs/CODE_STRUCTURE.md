@@ -37,8 +37,8 @@ livetemplate/
 
 ### Public API Layer
 
-#### template.go (~2,500 lines)
-**Purpose:** Main API entry point for the library
+#### template.go (~1,400 lines)
+**Purpose:** Main API entry point and orchestrator for the library
 
 **Key Types:**
 - `Template` - Core template management type
@@ -55,11 +55,16 @@ livetemplate/
 
 **Dependencies:**
 - tree.go (tree operations)
-- tree_ast.go (AST parsing)
+- internal/parse/ (template parsing)
+- internal/build/ (tree building)
+- internal/diff/ (tree comparison)
+- internal/observe/ (observability)
 - mount.go (HTTP handlers)
 - session.go (session management)
 
 **Used By:** All user applications
+
+**Architecture Note:** v1.0 refactored template.go from 2,500 to 1,400 lines by extracting parsing, building, and diffing logic into internal packages while maintaining 100% backward compatibility.
 
 ---
 
@@ -136,37 +141,6 @@ livetemplate/
 
 ### Template Processing Layer
 
-#### tree_ast.go (~1,200 lines)
-**Purpose:** AST-based template parser (main parser implementation)
-
-**Key Types:**
-- `orderedVars` - Deterministic map for variable iteration
-- Various construct types (not exported)
-
-**Key Functions:**
-- `parseTemplateToTreeAST(templateStr, data, keyGen) (treeNode, error)` - Main parser
-- `buildTreeFromAST(node, data, keyGen) (treeNode, error)` - Recursive AST walk
-- `buildTreeFromList(node, data, keyGen) (treeNode, error)` - List processing
-- `handleActionNode(node, data, keyGen) (treeNode, error)` - {{.Field}} handler
-- `handleIfNode(node, data, keyGen) (treeNode, error)` - {{if}} handler
-- `handleRangeNode(node, data, keyGen) (treeNode, error)` - {{range}} handler
-- `handleWithNode(node, data, keyGen) (treeNode, error)` - {{with}} handler
-
-**How It Works:**
-1. Parse template using stdlib html/template
-2. Walk AST to identify template constructs
-3. Compile constructs (define structure)
-4. Hydrate constructs (fill with data)
-5. Build tree with statics and dynamics separated
-
-**Dependencies:**
-- tree.go (treeNode, keyGenerator)
-- template_flatten.go (template composition)
-
-**Used By:** template.go (via parseTemplateToTree)
-
----
-
 #### tree.go (~400 lines)
 **Purpose:** Tree operations and key generation
 
@@ -194,9 +168,156 @@ treeNode{
 ```
 
 **Dependencies:**
-- tree_ast.go (AST parser)
+- internal/parse/ (AST parser)
+- internal/build/ (tree building)
 
-**Used By:** template.go, tree_ast.go
+**Used By:** template.go
+
+---
+
+### Internal Packages (v1.0 Architecture)
+
+#### internal/parse/ (~1,320 lines)
+**Purpose:** AST-based template parser - parses Go templates into tree structures
+
+**Files:**
+- `parser.go` (280 lines) - Main parser entry point
+- `constructs.go` (290 lines) - Construct type definitions
+- `compile.go` (320 lines) - Compilation logic (structure definition)
+- `hydrate.go` (260 lines) - Hydration logic (data filling)
+- `helpers.go` (170 lines) - Utility functions
+
+**Key Types:**
+- `Construct` interface - Common interface for all template constructs
+- `FieldConstruct` - Simple field replacement `{{.Field}}`
+- `ConditionalConstruct` - If/else branches `{{if .Cond}}...{{else}}...{{end}}`
+- `RangeConstruct` - Iteration `{{range .Items}}...{{end}}`
+- `WithConstruct` - Context switching `{{with .Item}}...{{end}}`
+- `TemplateInvokeConstruct` - Template invocation `{{template "name" .}}`
+
+**Key Functions:**
+- `ParseTemplateToTreeAST(templateStr, data, keyGen) (TreeNode, error)` - Main parser
+- `buildTreeFromAST(node, data, keyGen) (TreeNode, error)` - Recursive AST walk
+- `compileConstruct(construct) error` - Compile phase
+- `hydrateConstruct(construct, data) error` - Hydration phase
+
+**How It Works:**
+1. Parse template using stdlib html/template
+2. Walk AST to identify template constructs
+3. Compile constructs (define structure)
+4. Hydrate constructs (fill with data)
+5. Build tree with statics and dynamics separated
+
+**Dependencies:**
+- internal/build/ (tree types)
+- template_flatten.go (template composition)
+
+**Used By:** tree.go, template.go
+
+---
+
+#### internal/build/ (~570 lines)
+**Purpose:** Tree construction and operations
+
+**Files:**
+- `builder.go` (210 lines) - Tree building orchestration
+- `tree_ops.go` (180 lines) - Tree manipulation operations
+- `fingerprint.go` (90 lines) - Change detection
+- `types.go` (40 lines) - Core tree types
+- `registry.go` (50 lines) - Structure registry
+
+**Key Types:**
+- `TreeNode` - map[string]interface{} representing tree structure
+- `RangeData` - Range metadata (item keys, construct ID)
+- `TreeMetadata` - Metadata annotations for trees
+- `StructureRegistry` - Tracks which structures client has seen
+
+**Key Functions:**
+- `BuildTree(statics []string, dynamics []interface{}) TreeNode` - Construct tree
+- `CalculateFingerprint(tree TreeNode) string` - MD5 hash for change detection
+- `MergeTree(target, source TreeNode)` - Merge operations
+- `CloneTree(tree TreeNode) TreeNode` - Deep copy
+
+**Dependencies:** None (foundational)
+
+**Used By:** internal/parse/, internal/diff/, tree.go, template.go
+
+---
+
+#### internal/diff/ (~1,570 lines)
+**Purpose:** Tree comparison and minimal update generation
+
+**Files:**
+- `tree_compare.go` (420 lines) - Main tree comparison logic
+- `range_ops.go` (400 lines) - Range differential operations
+- `prepare.go` (62 lines) - Client preparation (static stripping)
+- `helpers.go` (661 lines) - Comparison helper functions
+- `types.go` (27 lines) - Type aliases for compatibility
+
+**Key Functions:**
+- `CompareTreesAndGetChangesWithPath(old, new, insideNewStructure, path, rangeMatches, registry) TreeNode` - Main comparison orchestrator
+- `GenerateRangeDifferentialOperations(oldTree, newTree, constructID, registry) []interface{}` - Range diff orchestrator
+- `PrepareTreeForClient(node, clientHasStatics) interface{}` - Strip statics for wire transmission
+
+**Architecture Pattern:** Orchestrator → Coordinator → Helper
+- **Orchestrators** (~30 lines): High-level flow control
+- **Coordinators** (20-50 lines): Coordinate one aspect (e.g., removals, insertions)
+- **Helpers** (<20 lines): Pure functions with single responsibility
+
+**Range Operations Generated:**
+- `["u", "item-id", updates]` - Update existing item
+- `["i", "after-id", "position", data]` - Insert new item
+- `["r", "item-id"]` - Remove item
+- `["o", ["id1", "id2", ...]]` - Reorder items
+
+**Wire Format Optimization:**
+- First render: Full tree WITH statics
+- Updates: ONLY changed dynamics, NO statics (client has cached them)
+- Result: ~90% size reduction for updates
+
+**Dependencies:**
+- internal/build/ (tree types)
+
+**Used By:** template.go
+
+---
+
+#### internal/observe/ (~449 lines)
+**Purpose:** Production-ready observability with structured logging and metrics
+
+**Files:**
+- `logger.go` (180 lines) - Structured logging with slog
+- `metrics.go` (210 lines) - Operational metrics
+- `context.go` (59 lines) - Context enrichment
+
+**Key Types:**
+- `Logger` - Wrapper around slog.Logger with domain-specific methods
+- `Metrics` - Operational metrics collector
+
+**Key Functions:**
+- `NewLogger(level, handler) *Logger` - Create structured logger
+- `NewMetrics(logger) *Metrics` - Create metrics collector
+- `EmitPeriodically(interval)` - Background metrics emission
+- `RecordTemplateExecution(duration)` - Record timing
+- `RecordWebSocketConnection()` - Record connection
+- `RecordAction(action, duration)` - Record action metrics
+
+**Metrics Tracked:**
+- Template executions (count, duration)
+- WebSocket connections (active, total)
+- Actions processed (by type)
+- Errors (by type)
+- Update sizes (bytes)
+
+**Log Levels:**
+- Debug: Template operations, tree generation
+- Info: Connections, configuration
+- Warn: Validation failures, retries
+- Error: Fatal errors, panics
+
+**Dependencies:** None (uses stdlib slog)
+
+**Used By:** template.go, mount.go, examples/
 
 ---
 
@@ -469,48 +590,61 @@ client/
 
 ## File Dependencies
 
-### Dependency Graph
+### Dependency Graph (v1.0)
 
 ```
 User Application
     ↓
-template.go (Public API)
+template.go (Public API & Orchestrator)
     ↓
     ├→ tree.go (Tree operations)
     │    ↓
-    │    └→ tree_ast.go (AST parser)
-    │         ↓
-    │         └→ template_flatten.go (Composition)
+    │    ├→ internal/parse/ (AST parser)
+    │    │    ↓
+    │    │    ├→ internal/build/ (Tree building)
+    │    │    └→ template_flatten.go (Composition)
+    │    │
+    │    └→ internal/build/ (Tree building)
+    │
+    ├→ internal/diff/ (Tree comparison)
+    │    ↓
+    │    └→ internal/build/ (Tree types)
+    │
+    ├→ internal/observe/ (Observability)
     │
     ├→ action.go (Actions & data binding)
     │
     ├→ mount.go (HTTP/WebSocket handlers)
     │    ↓
     │    ├→ session.go (Session management)
-    │    └→ action.go (Store interface)
+    │    ├→ action.go (Store interface)
+    │    └→ internal/observe/ (Logging)
     │
     └→ template_discovery.go (File discovery)
 ```
 
 ### Import Relationships
 
-**Level 0 (No dependencies):**
+**Level 0 (No dependencies - Foundational):**
 - action.go
 - errors.go
 - html_minify.go
 - session.go
 - template_discovery.go
 - template_flatten.go
+- internal/build/ (tree types and operations)
+- internal/observe/ (observability)
 
-**Level 1 (Depends on Level 0):**
-- tree.go (uses template_flatten.go)
+**Level 1 (Depends on Level 0 - Internal Packages):**
+- internal/parse/ (uses internal/build/, template_flatten.go)
+- internal/diff/ (uses internal/build/)
 
-**Level 2 (Depends on Level 1):**
-- tree_ast.go (uses tree.go)
+**Level 2 (Depends on Level 1 - Core Logic):**
+- tree.go (uses internal/parse/, internal/build/)
 
-**Level 3 (Depends on Level 2):**
-- template.go (uses tree.go, tree_ast.go, action.go, session.go)
-- mount.go (uses action.go, session.go)
+**Level 3 (Depends on Level 2 - Public API):**
+- template.go (uses tree.go, internal/parse/, internal/build/, internal/diff/, internal/observe/, action.go, session.go)
+- mount.go (uses action.go, session.go, internal/observe/)
 
 **Top Level:**
 - User applications (use template.go, action.go, mount.go)
@@ -539,36 +673,59 @@ func (s *State) Change(ctx *livetemplate.ActionContext) error {
 }
 ```
 
-### For Contributors
+### For Contributors (v1.0)
 
 **Adding New Template Features:**
-1. Start in tree_ast.go (AST parsing)
-2. Update construct handling
-3. Add tests in template_test.go
-4. Update tree.go if needed
+1. Start in internal/parse/constructs.go (define construct type)
+2. Implement Parse, Compile, Hydrate methods
+3. Add parser logic in internal/parse/parser.go
+4. Add compilation in internal/parse/compile.go
+5. Add hydration in internal/parse/hydrate.go
+6. Add tests in template_test.go
+7. Update internal/build/ if tree structure changes
 
 **Modifying Tree Structure:**
-1. Start in tree.go (treeNode definition)
-2. Update tree_ast.go (tree building)
-3. Update client/livetemplate-client.ts (tree consumption)
-4. Add tests in tree_invariant_test.go
+1. Start in internal/build/types.go (TreeNode definition)
+2. Update internal/build/tree_ops.go (operations)
+3. Update internal/parse/ (tree building)
+4. Update internal/diff/ (comparison logic)
+5. Update client/livetemplate-client.ts (tree consumption)
+6. Add tests in tree_invariant_test.go
+
+**Improving Diff Algorithm:**
+1. Start in internal/diff/tree_compare.go (orchestrator)
+2. Add coordinator functions for specific scenarios
+3. Add helper functions in internal/diff/helpers.go
+4. Follow orchestrator → coordinator → helper pattern
+5. Ensure functions are <50 lines
+6. Add tests in e2e_test.go
 
 **Adding HTTP/WebSocket Features:**
 1. Start in mount.go
 2. Update action.go if protocol changes
-3. Add tests in e2e_test.go
+3. Add observability in internal/observe/
+4. Add tests in e2e_test.go
+
+**Adding Observability:**
+1. Add metrics in internal/observe/metrics.go
+2. Add logging in internal/observe/logger.go
+3. Integrate in template.go or mount.go
+4. Test in examples/observability/
 
 ---
 
 ## Quick Reference
 
-### Where to Find Things
+### Where to Find Things (v1.0)
 
 | What | Where |
 |------|-------|
 | Public API | template.go |
 | Store interface | action.go |
-| Template parsing | tree_ast.go |
+| Template parsing | internal/parse/ |
+| Tree building | internal/build/ |
+| Tree comparison | internal/diff/ |
+| Observability | internal/observe/ |
 | Tree operations | tree.go |
 | HTTP handlers | mount.go |
 | Session management | session.go |
@@ -578,32 +735,46 @@ func (s *State) Change(ctx *livetemplate.ActionContext) error {
 | Client library | client/livetemplate-client.ts |
 | CLI tool | cmd/lvt/ |
 
-### File Size Summary
+### Component Size Summary (v1.0)
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| template.go | ~2,500 | Main API |
+| Component | Lines | Purpose |
+|-----------|-------|---------|
+| internal/diff/ | ~1,570 | Tree comparison & updates |
+| template.go | ~1,400 | Main API (orchestrator) |
 | e2e_test.go | ~1,800 | E2E tests |
-| tree_ast.go | ~1,200 | AST parser |
+| internal/parse/ | ~1,320 | Template parsing (AST) |
 | template_test.go | ~800 | Unit tests |
+| internal/build/ | ~570 | Tree building |
 | mount.go | ~500 | HTTP/WS handlers |
+| internal/observe/ | ~449 | Observability |
 | tree.go | ~400 | Tree operations |
 | template_flatten.go | ~400 | Composition |
 | action.go | ~270 | Actions |
 | session.go | ~150 | Sessions |
 | template_discovery.go | ~100 | Discovery |
 
-**Total:** ~8,000 lines of core library code + ~3,000 lines of tests
+**Total:** ~8,000 lines of core library code + ~3,000 lines of tests + ~3,900 lines in internal packages
+
+**Architecture Note:** v1.0 refactored monolithic template.go (2,500 lines) into orchestrator (1,400 lines) + internal packages (3,900 lines) with zero breaking changes.
 
 ---
 
-## Navigation Tips
+## Navigation Tips (v1.0)
 
+**For New Users:**
 1. **Start with template.go** - Understand the public API
 2. **Then action.go** - Learn the Store pattern
-3. **Then tree_ast.go** - See how templates become trees
+3. **Then examples/** - See real usage (counter, todos, observability)
 4. **Then mount.go** - Understand request handling
-5. **Check tests** - See real usage examples
+5. **Check e2e_test.go** - See comprehensive test scenarios
+
+**For Contributors:**
+1. **Read ARCHITECTURE.md** - Understand v1.0 design principles
+2. **Read internal/parse/parser.go** - See how templates are parsed
+3. **Read internal/build/builder.go** - See how trees are built
+4. **Read internal/diff/tree_compare.go** - See orchestrator → coordinator → helper pattern
+5. **Check CLAUDE.md** - Development guidelines and conventions
+6. **Run tests** - `go test -v ./...`
 
 For guided walkthrough, see [CODE_TOUR.md](CODE_TOUR.md)
 

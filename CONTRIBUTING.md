@@ -100,26 +100,48 @@ Before you begin, ensure you have the following installed:
    # Pre-commit hook will automatically run validation
    ```
 
-### Directory Structure
+### Directory Structure (v1.0)
 
 ```
 livetemplate/
-├── template.go          # Main API - Template type and public interface
+├── template.go          # Main API - Template type and orchestrator
 ├── tree.go              # Tree operations (private implementation)
-├── tree_ast.go          # AST-based template parser
 ├── action.go            # Action protocol and data binding
 ├── mount.go             # Store pattern and HTTP/WebSocket handlers
 ├── session.go           # Session management
 ├── broadcast.go         # Broadcasting for multi-user apps
+├── internal/            # Internal packages (v1.0 architecture)
+│   ├── parse/           # AST-based template parser (1,320 lines)
+│   │   ├── parser.go    # Main parser entry point
+│   │   ├── constructs.go# Construct type definitions
+│   │   ├── compile.go   # Compilation logic
+│   │   ├── hydrate.go   # Hydration logic
+│   │   └── helpers.go   # Utility functions
+│   ├── build/           # Tree building and operations (570 lines)
+│   │   ├── builder.go   # Tree construction
+│   │   ├── tree_ops.go  # Tree manipulation
+│   │   ├── fingerprint.go# Change detection
+│   │   └── types.go     # Core tree types
+│   ├── diff/            # Tree comparison (1,570 lines)
+│   │   ├── tree_compare.go # Main comparison logic
+│   │   ├── range_ops.go    # Range differential operations
+│   │   ├── prepare.go      # Wire format preparation
+│   │   └── helpers.go      # Comparison helpers
+│   └── observe/         # Observability (449 lines)
+│       ├── logger.go    # Structured logging (slog)
+│       ├── metrics.go   # Operational metrics
+│       └── context.go   # Context enrichment
 ├── client/              # TypeScript client library
 │   ├── livetemplate-client.ts
 │   └── livetemplate-client.test.ts
 ├── cmd/lvt/             # CLI tool for code generation
 ├── examples/            # Example applications
 │   ├── counter/
-│   └── todos/
+│   ├── todos/
+│   └── observability/   # v1.0 observability example
 ├── testdata/            # Test fixtures and golden files
-│   └── e2e/
+│   ├── e2e/
+│   └── fixtures/        # Shared test templates
 ├── docs/                # Documentation
 └── scripts/             # Development scripts
 ```
