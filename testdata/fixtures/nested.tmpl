@@ -1,0 +1,14 @@
+<div>
+  <h1>{{.Title}}</h1>
+  {{if .User}}
+  <div class="user">
+    <span>{{.User.Name}}</span>
+    {{if .User.Email}}
+    <a href="mailto:{{.User.Email}}">{{.User.Email}}</a>
+    {{end}}
+    {{range .User.Roles}}
+    <span class="role">{{.}}</span>
+    {{end}}
+  </div>
+  {{end}}
+</div>
