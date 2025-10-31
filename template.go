@@ -2556,7 +2556,7 @@ func (t *Template) loadExistingKeyMappings(lastTree *TreeNode) {
 		// Check if this is a TreeNode with Range data
 		if node, ok := value.(*TreeNode); ok {
 			if node.HasRange() && node.Range != nil {
-				t.keyGen.loadExistingKeys(node.Range.Items)
+				t.keyGen.LoadExistingKeys(node.Range.Items)
 			}
 		}
 	}
