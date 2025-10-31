@@ -46,27 +46,29 @@ func main() {
 
 	// Setup structured logging (JSON for production, Text for development)
 	var handler slog.Handler
+	var level slog.Level
 	if os.Getenv("ENV") == "production" {
 		// JSON format for production (easy to parse by log aggregators)
+		level = slog.LevelInfo
 		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
+			Level: level,
 		})
 	} else {
 		// Text format for development (human-readable)
+		level = slog.LevelDebug
 		handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-			Level: slog.LevelDebug,
+			Level: level,
 		})
 	}
 
-	logger := observe.NewLogger(handler)
+	logger := observe.NewLogger(level, handler)
 	logger.Info("LiveTemplate Counter Server starting with observability enabled")
 
 	// Setup operational metrics
-	metrics := observe.NewMetrics()
+	metrics := observe.NewMetrics(logger.Logger)
 
-	// Start periodic metrics emission (every 30 seconds)
-	metrics.StartEmission(logger, 30)
-	defer metrics.StopEmission()
+	// Start periodic metrics emission in background (every 30 seconds)
+	go metrics.EmitPeriodically(30 * time.Second)
 
 	// ============================================================
 	// APPLICATION SETUP - Same as before
