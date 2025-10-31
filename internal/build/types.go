@@ -1,4 +1,6 @@
-package livetemplate
+// Package build handles tree building from parsed templates and data.
+// It contains the core tree data structures and tree construction logic.
+package build
 
 import (
 	"encoding/json"
@@ -44,10 +46,10 @@ type TreeMetadata struct {
 	IDKey string
 }
 
-// TreeGenerationContext provides context for tree generation to determine
+// Context provides context for tree generation to determine
 // whether static content should be included in the generated tree.
 // This enables context-aware generation instead of reactive stripping.
-type TreeGenerationContext struct {
+type Context struct {
 	// IsFirstRender indicates this is the initial render where all statics must be included
 	IsFirstRender bool
 
@@ -68,9 +70,9 @@ type TreeGenerationContext struct {
 	FuncMap template.FuncMap
 }
 
-// NewTreeGenerationContext creates a context for first render (includes all statics).
-func NewTreeGenerationContext() *TreeGenerationContext {
-	return &TreeGenerationContext{
+// NewContext creates a context for first render (includes all statics).
+func NewContext() *Context {
+	return &Context{
 		IsFirstRender:    true,
 		IncludeStatics:   true,
 		ClientStructures: make(map[string]bool),
@@ -79,11 +81,11 @@ func NewTreeGenerationContext() *TreeGenerationContext {
 }
 
 // NewUpdateContext creates a context for updates (excludes statics by default).
-func NewUpdateContext(clientStructures map[string]bool) *TreeGenerationContext {
+func NewUpdateContext(clientStructures map[string]bool) *Context {
 	if clientStructures == nil {
 		clientStructures = make(map[string]bool)
 	}
-	return &TreeGenerationContext{
+	return &Context{
 		IsFirstRender:    false,
 		IncludeStatics:   false,
 		ClientStructures: clientStructures,
@@ -92,7 +94,7 @@ func NewUpdateContext(clientStructures map[string]bool) *TreeGenerationContext {
 }
 
 // ShouldIncludeStatics determines if statics should be included for current path.
-func (ctx *TreeGenerationContext) ShouldIncludeStatics() bool {
+func (ctx *Context) ShouldIncludeStatics() bool {
 	if ctx == nil {
 		// Backward compatibility: default to including statics
 		return true
@@ -113,9 +115,9 @@ func (ctx *TreeGenerationContext) ShouldIncludeStatics() bool {
 
 // WithPath returns a new context with updated CurrentPath.
 // Used for tracking path during recursive tree building.
-func (ctx *TreeGenerationContext) WithPath(path string) *TreeGenerationContext {
+func (ctx *Context) WithPath(path string) *Context {
 	if ctx == nil {
-		return &TreeGenerationContext{
+		return &Context{
 			IsFirstRender:  true,
 			IncludeStatics: true,
 			CurrentPath:    path,

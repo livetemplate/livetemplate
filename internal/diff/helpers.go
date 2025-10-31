@@ -1,0 +1,661 @@
+package diff
+
+import (
+	"crypto/md5"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"regexp"
+	"sort"
+	"strings"
+)
+
+// IsEmpty checks if a value is considered empty (empty string, empty map, empty slice).
+func IsEmpty(v interface{}) bool {
+	switch val := v.(type) {
+	case *TreeNode:
+		return !val.HasStatics() && !val.HasDynamics() && !val.HasRange()
+	case string:
+		return val == ""
+	case map[string]interface{}:
+		return len(val) == 0
+	case []interface{}:
+		return len(val) == 0
+	default:
+		return false
+	}
+}
+
+// IsRangeConstruct checks if a value is a range construct (has Range and Statics).
+func IsRangeConstruct(value interface{}) bool {
+	// Check if value is a TreeNode with Range field
+	if node, ok := value.(*TreeNode); ok {
+		return node.HasRange() && node.HasStatics()
+	}
+
+	// Fallback: check for map representation (for compatibility during migration)
+	if valueMap, ok := value.(map[string]interface{}); ok {
+		_, hasD := valueMap["d"]
+		_, hasS := valueMap["s"]
+		// Both "d" (data array) and "s" (statics array) must be present
+		return hasD && hasS
+	}
+
+	return false
+}
+
+// HasRangeItems checks if a range construct has any items in its data array.
+// Returns true only if value is a range AND has at least one item.
+func HasRangeItems(value interface{}) bool {
+	// Check if value is a TreeNode with Range and items
+	if node, ok := value.(*TreeNode); ok {
+		return node.HasRange() && len(node.Range.Items) > 0
+	}
+
+	// Fallback: check for map representation
+	if valueMap, ok := value.(map[string]interface{}); ok {
+		if d, hasD := valueMap["d"]; hasD {
+			if dArray, ok := d.([]interface{}); ok {
+				return len(dArray) > 0
+			}
+		}
+	}
+
+	return false
+}
+
+// ContainsRangeConstruct recursively checks if a tree node or any of its children contains a range construct.
+func ContainsRangeConstruct(value interface{}) bool {
+	// Check if this value itself is a range
+	if IsRangeConstruct(value) {
+		return true
+	}
+
+	// Check TreeNode dynamics recursively
+	if node, ok := value.(*TreeNode); ok {
+		for _, v := range node.Dynamics {
+			if ContainsRangeConstruct(v) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Fallback: check for map representation
+	if valueMap, ok := value.(map[string]interface{}); ok {
+		// Recursively check all children (skip "s" and "f" keys)
+		for k, v := range valueMap {
+			if k == "s" || k == "f" {
+				continue
+			}
+			if ContainsRangeConstruct(v) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// AreStructuresSimilar checks if two tree structures are fundamentally similar.
+// Returns true if they have similar structure (same static keys), false if completely different.
+func AreStructuresSimilar(oldTree, newTree *TreeNode) bool {
+	if oldTree == nil || newTree == nil {
+		return false
+	}
+	return areStructuresSimilarTreeNode(oldTree, newTree)
+}
+
+// areStructuresSimilarTreeNode is the internal implementation of AreStructuresSimilar.
+func areStructuresSimilarTreeNode(oldTree, newTree *TreeNode) bool {
+	// Check if both have statics - if statics differ, structures are different
+	oldHasS := oldTree.HasStatics()
+	newHasS := newTree.HasStatics()
+
+	if oldHasS != newHasS {
+		return false // One has statics, other doesn't
+	}
+
+	if oldHasS && newHasS {
+		oldS := oldTree.Statics
+		newS := newTree.Statics
+
+		if len(oldS) != len(newS) {
+			return false
+		}
+
+		// If statics are different, it's a different structure
+		for i := range oldS {
+			if oldS[i] != newS[i] {
+				return false
+			}
+		}
+
+		// Special case: Check if this is a conditional wrapper with empty statics
+		// Conditionals are wrapped as {"s": ["", ""], "0": branchTree}
+		// If both have empty statics and a single "0" child, compare the child structures
+		if len(oldS) == 2 && oldS[0] == "" && oldS[1] == "" &&
+			len(newS) == 2 && newS[0] == "" && newS[1] == "" {
+			// Check if both have exactly one dynamic child "0"
+			oldChild, oldHasChild := oldTree.GetDynamic("0")
+			newChild, newHasChild := newTree.GetDynamic("0")
+
+			if oldHasChild && newHasChild {
+				// Both have a "0" child - check if the children are similar structures
+				oldChildNode, oldIsNode := oldChild.(*TreeNode)
+				newChildNode, newIsNode := newChild.(*TreeNode)
+
+				if oldIsNode && newIsNode {
+					// Recursively check child similarity
+					return areStructuresSimilarTreeNode(oldChildNode, newChildNode)
+				}
+			}
+		}
+	}
+
+	return true
+}
+
+// DeepEqual compares two values deeply.
+func DeepEqual(a, b interface{}) bool {
+	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
+}
+
+// FindKeyPositionFromStatics parses the statics array to find which position contains the key.
+func FindKeyPositionFromStatics(statics interface{}) int {
+	// Priority order for key attributes (same as server-side)
+	keyAttrs := []string{`data-lvt-key="`, `data-key="`, `key="`, `id="`}
+
+	// Try []interface{} first
+	if staticsArr, ok := statics.([]interface{}); ok {
+		for i, static := range staticsArr {
+			if staticStr, ok := static.(string); ok {
+				// Check for any of the key attributes in priority order
+				for _, keyAttr := range keyAttrs {
+					if strings.Contains(staticStr, keyAttr) {
+						// The next position after this static contains the key value
+						return i
+					}
+				}
+			}
+		}
+		return 0 // Not found, default to 0
+	}
+
+	// Try []string
+	if staticsArr, ok := statics.([]string); ok {
+		for i, staticStr := range staticsArr {
+			// Check for any of the key attributes in priority order
+			for _, keyAttr := range keyAttrs {
+				if strings.Contains(staticStr, keyAttr) {
+					// The next position after this static contains the key value
+					return i
+				}
+			}
+		}
+		return 0 // Not found, default to 0
+	}
+
+	return 0 // Unknown type, default to position 0 for backwards compatibility
+}
+
+// GetItemKey extracts the key from a range item using the statics structure.
+func GetItemKey(item interface{}, statics interface{}) (string, bool) {
+	// Handle TreeNode items
+	if itemNode, ok := item.(*TreeNode); ok {
+		// First, check for reserved auto-generated key field
+		if autoKey, exists := itemNode.GetDynamic("_k"); exists {
+			if keyStr, ok := autoKey.(string); ok {
+				return keyStr, true
+			}
+		}
+
+		keyPos := FindKeyPositionFromStatics(statics)
+		keyPosStr := fmt.Sprintf("%d", keyPos)
+
+		if key, exists := itemNode.GetDynamic(keyPosStr); exists {
+			if keyStr, ok := key.(string); ok {
+				return keyStr, true
+			}
+		}
+
+		// If no explicit key found, generate a content-based hash
+		// This ensures items have stable keys even without template key attributes
+		return GenerateItemHash(itemNode), true
+	}
+
+	return "", false
+}
+
+// GenerateItemHash creates a stable hash for a range item based on its content.
+// This is used when no explicit key attribute is provided in the template.
+func GenerateItemHash(item interface{}) string {
+	// Handle TreeNode
+	if itemNode, ok := item.(*TreeNode); ok {
+		// Create a canonical JSON representation for hashing
+		// Sort keys to ensure deterministic ordering
+		keys := make([]string, 0, len(itemNode.Dynamics))
+		for k := range itemNode.Dynamics {
+			// Skip internal/reserved fields
+			if k != "_k" {
+				keys = append(keys, k)
+			}
+		}
+		sort.Strings(keys)
+
+		// Build canonical representation
+		var parts []string
+		for _, k := range keys {
+			val, _ := itemNode.GetDynamic(k)
+			valJSON, _ := json.Marshal(val)
+			parts = append(parts, fmt.Sprintf("%s:%s", k, string(valJSON)))
+		}
+
+		// Hash the canonical representation
+		content := strings.Join(parts, "|")
+		hasher := md5.New()
+		hasher.Write([]byte(content))
+		hash := hex.EncodeToString(hasher.Sum(nil))
+
+		// Return first 12 characters for compactness
+		if len(hash) >= 12 {
+			return hash[:12]
+		}
+		return hash
+	}
+
+	return ""
+}
+
+// ExtractItemKeys extracts the keys from a slice of range items using the statics structure.
+func ExtractItemKeys(items []interface{}, statics interface{}) []string {
+	var keys []string
+	for _, item := range items {
+		// Items are now *TreeNode
+		if itemNode, ok := item.(*TreeNode); ok {
+			if key, ok := GetItemKey(itemNode, statics); ok {
+				keys = append(keys, key)
+			}
+		}
+	}
+	return keys
+}
+
+// DetectPositionField finds the field containing positional display like "#0", "#1", etc.
+func DetectPositionField(itemsByKey map[string]interface{}) string {
+	positionPattern := regexp.MustCompile(`^#\d+`)
+
+	for _, item := range itemsByKey {
+		if itemNode, ok := item.(*TreeNode); ok {
+			for field, value := range itemNode.Dynamics {
+				if strValue, ok := value.(string); ok {
+					if positionPattern.MatchString(strValue) {
+						return field
+					}
+				}
+			}
+		}
+		break
+	}
+	return ""
+}
+
+// IsPureReordering checks if the items are the same but just in different order.
+func IsPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []string, statics interface{}) bool {
+	// Must have same number of items
+	if len(oldKeys) != len(newKeys) {
+		return false
+	}
+
+	// Check if keys are the same (just different order)
+	oldKeySet := make(map[string]bool)
+	newKeySet := make(map[string]bool)
+
+	for _, k := range oldKeys {
+		oldKeySet[k] = true
+	}
+	for _, k := range newKeys {
+		newKeySet[k] = true
+	}
+
+	// If key sets don't match, it's not pure reordering
+	if len(oldKeySet) != len(newKeySet) {
+		return false
+	}
+	for k := range oldKeySet {
+		if !newKeySet[k] {
+			return false
+		}
+	}
+
+	// Now check if the items with same keys have identical content
+	oldItemsByKey := make(map[string]interface{})
+	newItemsByKey := make(map[string]interface{})
+
+	for _, item := range oldItems {
+		if key, ok := GetItemKey(item, statics); ok {
+			oldItemsByKey[key] = item
+		}
+	}
+
+	for _, item := range newItems {
+		if key, ok := GetItemKey(item, statics); ok {
+			newItemsByKey[key] = item
+		}
+	}
+
+	// Detect position field by finding field with pattern like "#0", "#1", etc.
+	positionField := DetectPositionField(oldItemsByKey)
+
+	// Compare each item's content (excluding position-dependent fields)
+	for key, oldItem := range oldItemsByKey {
+		newItem, exists := newItemsByKey[key]
+		if !exists {
+			return false
+		}
+
+		// Compare items excluding position field (field contains "#0:", "#1:", etc.)
+		oldItemNode, ok1 := oldItem.(*TreeNode)
+		newItemNode, ok2 := newItem.(*TreeNode)
+
+		if !ok1 || !ok2 {
+			// If we can't compare as TreeNodes, fall back to full comparison
+			if !DeepEqual(oldItem, newItem) {
+				return false
+			}
+			continue
+		}
+
+		// Find key position to skip it in comparison
+		keyPos := FindKeyPositionFromStatics(statics)
+		keyPosStr := fmt.Sprintf("%d", keyPos)
+
+		// Compare all fields except position field and key field
+		for field, oldValue := range oldItemNode.Dynamics {
+			// Skip position field (contains positional display like "#0:")
+			// Skip key field (determined from statics)
+			if field == positionField || field == keyPosStr {
+				continue
+			}
+
+			newValue, exists := newItemNode.GetDynamic(field)
+			if !exists || !DeepEqual(oldValue, newValue) {
+				return false
+			}
+		}
+
+		// Also check that new item doesn't have extra fields (except position and key)
+		for field := range newItemNode.Dynamics {
+			if field == positionField || field == keyPosStr {
+				continue
+			}
+			if _, exists := oldItemNode.GetDynamic(field); !exists {
+				return false
+			}
+		}
+	}
+
+	// Check if order actually changed
+	for i := range oldKeys {
+		if oldKeys[i] != newKeys[i] {
+			return true // Same items, different order = pure reordering
+		}
+	}
+
+	// Same items, same order = no change
+	return false
+}
+
+// FindNewItems returns keys of items that exist in new but not in old.
+func FindNewItems(oldItems, newItems []interface{}, statics interface{}) []string {
+	oldKeys := make(map[string]bool)
+	for _, item := range oldItems {
+		if key, ok := GetItemKey(item, statics); ok {
+			oldKeys[key] = true
+		}
+	}
+
+	var newKeys []string
+	for _, item := range newItems {
+		if key, ok := GetItemKey(item, statics); ok {
+			if !oldKeys[key] {
+				newKeys = append(newKeys, key)
+			}
+		}
+	}
+
+	return newKeys
+}
+
+// AreAllItemsAtStart checks if all new items are at the beginning of the list (prepend).
+func AreAllItemsAtStart(newKeys []string, newItems []interface{}, statics interface{}) bool {
+	if len(newKeys) == 0 {
+		return false
+	}
+
+	// Check if all new keys are at the beginning of newItems
+	for i, key := range newKeys {
+		if i >= len(newItems) {
+			return false
+		}
+		if itemMap, ok := newItems[i].(map[string]interface{}); ok {
+			if itemKey, ok := GetItemKey(itemMap, statics); ok {
+				if itemKey != key {
+					return false
+				}
+			} else {
+				return false
+			}
+		} else {
+			return false
+		}
+	}
+	return true
+}
+
+// AreAllItemsAtEnd checks if all new items are at the end of the list (append).
+func AreAllItemsAtEnd(newKeys []string, oldItems, newItems []interface{}, statics interface{}) bool {
+	if len(newKeys) == 0 || len(oldItems) == 0 {
+		return false
+	}
+
+	// New items should be after all old items
+	// Start index for new items should be len(oldItems)
+	startIndex := len(newItems) - len(newKeys)
+
+	// Verify that items before startIndex are all old items
+	oldKeys := ExtractItemKeys(oldItems, statics)
+	for i := 0; i < startIndex; i++ {
+		if i >= len(newItems) {
+			return false
+		}
+		if itemKey, ok := GetItemKey(newItems[i], statics); ok {
+			// Check if this key exists in oldKeys
+			found := false
+			for _, oldKey := range oldKeys {
+				if oldKey == itemKey {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return false
+			}
+		} else {
+			return false
+		}
+	}
+
+	// Check if all new keys are contiguous at the end
+	for i, key := range newKeys {
+		index := startIndex + i
+		if index >= len(newItems) {
+			return false
+		}
+		if itemKey, ok := GetItemKey(newItems[index], statics); ok {
+			if itemKey != key {
+				return false
+			}
+		} else {
+			return false
+		}
+	}
+	return true
+}
+
+// IsComplexInsertionPattern checks if the insertion pattern is too complex for simple operations.
+func IsComplexInsertionPattern(newKeys []string, oldItems, newItems []interface{}, statics interface{}) bool {
+	// Consider it complex if there are more than 3 separate insertion points
+	const maxInsertionPoints = 3
+
+	if len(newKeys) == 0 {
+		return false
+	}
+
+	insertionPoints := make(map[string]bool)
+
+	for i, item := range newItems {
+		if keyStr, ok := GetItemKey(item, statics); ok {
+			// Check if this is a new key
+			for _, newKey := range newKeys {
+				if newKey == keyStr {
+					// Determine insertion point
+					var insertionPoint string
+					if i > 0 {
+						if prevKeyStr, ok := GetItemKey(newItems[i-1], statics); ok {
+							insertionPoint = prevKeyStr + ":after"
+						}
+					} else {
+						insertionPoint = "start"
+					}
+					insertionPoints[insertionPoint] = true
+					break
+				}
+			}
+		}
+	}
+
+	return len(insertionPoints) > maxInsertionPoints
+}
+
+// GetRangeSignature creates a signature for a range construct based on its static template structure.
+// This signature should be the same for the same template construct regardless of data.
+func GetRangeSignature(rangeValue interface{}) string {
+	// Check if value is a TreeNode with statics
+	if node, ok := rangeValue.(*TreeNode); ok {
+		if node.HasStatics() {
+			return fmt.Sprintf("%v", node.Statics)
+		}
+		return ""
+	}
+
+	// Fallback: check for map representation (for compatibility during migration)
+	rangeMap, ok := rangeValue.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+
+	// Use the static parts ("s") as the signature since they represent the template structure
+	staticParts, exists := rangeMap["s"]
+	if !exists {
+		return ""
+	}
+
+	// Convert static parts to a string signature
+	return fmt.Sprintf("%v", staticParts)
+}
+
+// FindRangeConstructs finds all range constructs in a tree, recursively searching nested structures.
+func FindRangeConstructs(tree *TreeNode) map[string]interface{} {
+	if tree == nil {
+		return make(map[string]interface{})
+	}
+	return findRangeConstructsRecursive(tree, "")
+}
+
+// findRangeConstructsRecursive finds range constructs with path tracking.
+func findRangeConstructsRecursive(tree *TreeNode, path string) map[string]interface{} {
+	ranges := make(map[string]interface{})
+
+	if tree == nil {
+		return ranges
+	}
+
+	// CRITICAL FIX: Check if the tree ITSELF is a range construct
+	// This handles top-level ranges like: {{range .Items}}...{{end}}
+	// where the entire tree has Range field set
+	if tree.HasRange() && tree.HasStatics() {
+		ranges[path] = tree
+		// Don't recurse into range internals - treat the range as an atomic unit
+		return ranges
+	}
+
+	// Tree is not a range, search for ranges as field values in dynamics
+	for field, value := range tree.Dynamics {
+		// Build the full path to this field
+		fieldPath := field
+		if path != "" {
+			fieldPath = path + "." + field
+		}
+
+		if IsRangeConstruct(value) {
+			ranges[fieldPath] = value
+		} else {
+			// Recursively search nested tree nodes
+			if nestedTree, ok := value.(*TreeNode); ok {
+				// Merge nested ranges into our map
+				nestedRanges := findRangeConstructsRecursive(nestedTree, fieldPath)
+				for k, v := range nestedRanges {
+					ranges[k] = v
+				}
+			}
+		}
+	}
+
+	return ranges
+}
+
+// FindRangeConstructMatches finds matching range constructs between old and new trees.
+func FindRangeConstructMatches(oldTree, newTree *TreeNode) map[string]string {
+	matches := make(map[string]string)
+
+	// Handle nil trees
+	if oldTree == nil || newTree == nil {
+		return matches
+	}
+
+	// Find all range constructs in both trees
+	oldRanges := FindRangeConstructs(oldTree)
+	newRanges := FindRangeConstructs(newTree)
+
+	// Match range constructs by their static template signature
+	for newField, newRange := range newRanges {
+		newSignature := GetRangeSignature(newRange)
+
+		matched := false
+		for oldField, oldRange := range oldRanges {
+			oldSignature := GetRangeSignature(oldRange)
+
+			// If signatures match, this is the same template construct
+			if newSignature == oldSignature && newSignature != "" {
+				matches[newField] = oldField
+				matched = true
+				break // Each new range should match at most one old range
+			}
+		}
+
+		// FALLBACK: If no match found and one side has empty signature (empty range),
+		// AND there's only one range in each tree at the same position, match by position
+		if !matched && len(newRanges) == 1 && len(oldRanges) == 1 {
+			// Single range in both trees at same position - must be the same construct
+			for oldField := range oldRanges {
+				if newField == oldField {
+					matches[newField] = oldField
+					break
+				}
+			}
+		}
+	}
+
+	return matches
+}
