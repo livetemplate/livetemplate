@@ -264,9 +264,11 @@ var NewTreeGenerationContext = build.NewContext
 
 ### Commits
 
-**6 commits on branch `refactor/production-ready-v1`:**
+**8 commits on branch `refactor/production-ready-v1`:**
 
 ```
+03aa443 - refactor: move remaining build functions to internal/build (Phase 3.2)
+51055da - docs: update REFACTORING_PROGRESS.md for Phase 3.1 completion
 a8de822 - refactor: move fingerprinting functions to internal/build (Phase 3.1)
 c15e842 - refactor: integrate internal/parse package and remove tree_ast.go (Phase 2.2-2.4)
 c2c9a65 - refactor: move tree types to internal/build package (Phase 2.1)
@@ -291,19 +293,20 @@ b1af918 - feat: observability and architecture documentation (Phase 1.1-1.2)
 - **Net change:** -1125 lines
 
 **Phase 3:**
-- **Files created:** 1 file (internal/build/fingerprint.go - 130 lines)
-- **Files modified:** 1 file (tree.go)
-- **Lines added:** +130 lines (fingerprint.go)
-- **Lines removed:** -112 lines (from tree.go)
-- **Net change:** +18 lines
+- **Files created:** 4 files (fingerprint.go, wrapper.go, key.go, render.go - 570 lines total)
+- **Files modified:** 2 files (tree.go, template.go)
+- **Lines added:** +570 lines (internal/build/)
+- **Lines removed:** -476 lines (from tree.go)
+- **Net change:** +94 lines
 
 **Overall (Phases 1 + 2 + 3):**
-- **Net change:** +460 lines (includes comprehensive documentation)
-- **Effective code reduction:** -658 lines (excluding documentation)
+- **Net change:** +536 lines (includes comprehensive documentation)
+- **Effective code reduction:** -582 lines (excluding documentation)
+- **tree.go reduction:** 599 → 123 lines (-476 lines, 79% reduction!)
 
 ### Test Coverage
 
-**After Phase 3.1 Completion:**
+**After Phase 3 Completion:**
 - ✅ **187 Go tests passing** (100% of implemented features)
 - ⏭️ **1 test skipped:** TestTemplateComposition (6 subtests) - template flattening not yet implemented (was also TODO in tree_ast.go)
 - ✅ **All TypeScript/Jest tests passing** (33 test suites, 33 tests)
@@ -315,7 +318,7 @@ b1af918 - feat: observability and architecture documentation (Phase 1.1-1.2)
 
 ## Phase 3: Build Package Completion
 
-**Status:** In Progress - Fingerprinting Complete ✅
+**Status:** Complete ✅
 
 ### 3.1 Move Fingerprinting Functions to internal/build/ ✅
 
@@ -364,24 +367,92 @@ b1af918 - feat: observability and architecture documentation (Phase 1.1-1.2)
 - ✅ Zero regressions
 - ✅ Pre-commit hooks pass
 
-### 3.2 Move Remaining Build Functions (TODO)
+### 3.2 Move Remaining Build Functions ✅
 
-**Current state:** tree.go still contains ~487 lines
+**Commit:** `03aa443 - refactor: move remaining build functions to internal/build (Phase 3.2)`
 
-**Remaining functions to move:**
-- Tree manipulation utilities (generateRandomID, injectWrapperDiv, extractTemplateContent, etc.)
-- HTML rendering utilities (renderNode, isVoidHTMLElement)
-- Key generation logic (keyGenerator)
+**Status:** Complete
 
-**New files to create:**
-- `internal/build/wrapper.go` - Wrapper div injection/extraction
-- `internal/build/key.go` - Key generation logic
-- `internal/build/render.go` - Tree rendering utilities
+**What was done:**
 
-**Expected changes:**
-- -~300 lines from tree.go
-- +~300 lines in internal/build/ (3-4 focused files)
-- Net: 0 lines, better organization
+1. **Created internal/build/wrapper.go** (156 lines)
+   - Wrapper div injection and extraction functions
+   - All functions exported with capital letters:
+     - `GenerateRandomID()` - Random wrapper ID generation
+     - `InjectWrapperDiv()` - Inject wrapper around body content
+     - `ExtractTemplateBodyContent()` - Extract body content
+     - `ExtractTemplateContent()` - Extract content by wrapper ID
+     - `FindElementByDataLvtID()` - Find element by data-lvt-id
+     - `NormalizeTemplateSpacing()` - Normalize template spacing
+
+2. **Created internal/build/key.go** (124 lines)
+   - Key generation logic
+   - All types and functions exported:
+     - `KeyGenerator` type - Counter-based key generation
+     - `KeyAttributeConfig` type - Configuration for key attributes
+     - `NewKeyGenerator()` - Create new key generator
+     - `NextKey()`, `Reset()`, `LoadExistingKeys()` - Key generator methods
+     - `GenerateWrapperKey()` - Generate wrapper key
+     - `DetectIDKey()` - Detect ID key position in statics
+
+3. **Created internal/build/render.go** (160 lines)
+   - HTML rendering utilities
+   - All functions exported:
+     - `RenderNode()` - Recursively render HTML nodes
+     - `IsVoidHTMLElement()` - Check for void elements
+     - `RenderTreeToHTML()` - Render tree to HTML (test utility)
+     - `RenderRangeComprehensionToHTML()` - Render range to HTML
+
+4. **Updated tree.go** (reduced from 487 to 123 lines, -364 lines, 75% reduction!)
+   - Removed all wrapper function implementations
+   - Removed all key generation implementations
+   - Removed all rendering implementations
+   - Replaced with thin wrapper functions calling internal/build
+   - Created type alias: `type keyGenerator = build.KeyGenerator`
+   - Maintained full backward compatibility
+
+5. **Fixed template.go**
+   - Updated `loadExistingKeys` → `LoadExistingKeys` (exported method name)
+
+**Actual Changes:**
+- tree.go: 487 lines → 123 lines (-364 lines, 75% reduction!)
+- internal/build/wrapper.go: 156 lines (new file)
+- internal/build/key.go: 124 lines (new file)
+- internal/build/render.go: 160 lines (new file)
+- Net: +76 lines total, massively improved organization
+
+**tree.go is now a thin public API layer:**
+- Only 123 lines (down from 487!)
+- Fingerprinting wrappers (2 functions)
+- Wrapper function wrappers (4 functions)
+- Rendering wrappers (1 function)
+- Key generation wrappers (4 functions + type alias)
+- parseTemplateToTree orchestrator (1 function)
+
+**Test Results:**
+- ✅ All 187 tests passing
+- ✅ Zero regressions
+- ✅ Pre-commit hooks pass
+
+### 3.3 Summary
+
+**Phase 3 Complete:** Build Package Completion ✅
+
+**Total Changes:**
+- tree.go: 599 lines (before Phase 3) → 123 lines (after Phase 3.2) = -476 lines (79% reduction!)
+- internal/build/ package now contains 5 focused files (1011 lines total):
+  - types.go: 441 lines (from Phase 2)
+  - fingerprint.go: 130 lines (Phase 3.1)
+  - wrapper.go: 156 lines (Phase 3.2)
+  - key.go: 124 lines (Phase 3.2)
+  - render.go: 160 lines (Phase 3.2)
+
+**Benefits:**
+- Clear separation of concerns (each file has one responsibility)
+- Internal implementation hidden from public API
+- tree.go is now a minimal public API layer
+- All build logic properly organized
+- Backward compatibility maintained via wrappers
 
 ## Phase 4: Large Function Refactoring
 
@@ -497,17 +568,21 @@ Update examples to demonstrate:
 ## Current State
 
 **Branch:** `refactor/production-ready-v1`
-**Last Commit:** `a8de822 - refactor: move fingerprinting functions to internal/build`
-**Status:** Phase 3 In Progress - Fingerprinting Complete ✅
-**Next Steps:** Continue Phase 3.2 or proceed with Phase 4
+**Last Commit:** `03aa443 - refactor: move remaining build functions to internal/build (Phase 3.2)`
+**Status:** Phase 3 Complete ✅
+**Next Steps:** Optional Phase 4 (large function refactoring) or merge to main
 
-### Phase 3.1 Achievement
+### Phase 3 Achievement
 
-**Fingerprinting functions successfully migrated to internal/build**:
+**All build functions successfully migrated to internal/build**:
 
-- ✅ **Created internal/build/fingerprint.go** (130 lines)
-- ✅ **tree.go reduced** from 599 to 487 lines (-112 lines)
-- ✅ **Backward compatibility maintained** via wrapper functions
+- ✅ **Created 4 new internal/build files** (570 lines total)
+  - fingerprint.go: 130 lines
+  - wrapper.go: 156 lines
+  - key.go: 124 lines
+  - render.go: 160 lines
+- ✅ **tree.go reduced** from 599 to 123 lines (-476 lines, 79% reduction!)
+- ✅ **Backward compatibility maintained** via thin wrapper functions
 - ✅ **187 tests passing** (100% of implemented features)
 - ✅ **Zero regressions** in core functionality
 - ✅ **Zero breaking changes**
@@ -519,11 +594,12 @@ Update examples to demonstrate:
 - ✅ Comprehensive documentation (ARCHITECTURE.md, OBSERVABILITY.md, REFACTORING_PROGRESS.md)
 - ✅ Type safety improvements (build.TreeNode with proper types)
 - ✅ Clean internal/parse implementation (replaces tree_ast.go)
-- ✅ Fingerprinting logic in internal/build (Phase 3.1)
+- ✅ Complete internal/build package (5 focused files)
+- ✅ Ultra-minimal tree.go (123 lines, thin public API layer)
 - ✅ Backward compatibility (type aliases, zero breaking changes)
 - ✅ All pre-commit hooks passing
 
-The foundation is **solid and production-ready** for v1.0 release or continued development with Phase 3.2+.
+The foundation is **solid and production-ready** for v1.0 release or continued development with optional Phase 4.
 
 ## Notes
 
