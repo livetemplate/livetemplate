@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/livefir/livetemplate/internal/parse"
 	"golang.org/x/net/html"
 )
 
@@ -318,7 +319,7 @@ func normalizeTemplateSpacing(templateStr string) string {
 	})
 }
 
-// parseTemplateToTree parses a template using the AST-based parser
+// parseTemplateToTree parses a template using the internal/parse package
 // ctx is optional - if nil, defaults to first-render context (includes statics)
 func parseTemplateToTree(templateStr string, data interface{}, keyGen *keyGenerator, ctx ...*TreeGenerationContext) (tree *TreeNode, err error) {
 	// Recover from panics in template execution (can happen with fuzz-generated templates)
@@ -328,11 +329,25 @@ func parseTemplateToTree(templateStr string, data interface{}, keyGen *keyGenera
 		}
 	}()
 
+	// Get or create context
 	var genCtx *TreeGenerationContext
 	if len(ctx) > 0 {
 		genCtx = ctx[0]
 	}
-	return parseTemplateToTreeAST(templateStr, data, keyGen, genCtx)
+	if genCtx == nil {
+		genCtx = NewTreeGenerationContext()
+	}
+
+	// Parse template
+	tmpl, err := parse.Parse(templateStr, genCtx.FuncMap)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build tree using internal/parse package
+	// Create adapter for keyGenerator to match parse.KeyGenerator interface
+	keyGenAdapter := &keyGeneratorAdapter{kg: keyGen}
+	return parse.BuildTree(tmpl, data, keyGenAdapter, genCtx)
 }
 
 // keyAttributeConfig defines which attributes to check for explicit keys (internal use only)
@@ -383,6 +398,16 @@ func (kg *keyGenerator) reset() {
 	kg.counter = 0
 	kg.usedKeys = make(map[string]bool)
 	kg.fallbackKeys = []string{}
+}
+
+// keyGeneratorAdapter adapts keyGenerator to parse.KeyGenerator interface
+type keyGeneratorAdapter struct {
+	kg *keyGenerator
+}
+
+// Next implements parse.KeyGenerator interface
+func (kga *keyGeneratorAdapter) Next() string {
+	return kga.kg.nextKey()
 }
 
 // loadExistingKeys stores previous data and updates counter
@@ -458,4 +483,117 @@ func detectIDKey(statics []string) string {
 
 	// Default to position 0 if no key attribute found
 	return "0"
+}
+
+// renderTreeToHTML renders a tree structure to HTML (used in tests)
+func renderTreeToHTML(tree map[string]interface{}) (string, error) {
+	// Check if this is a range comprehension (has "d" key with items)
+	if itemsRaw, hasD := tree["d"]; hasD {
+		return renderRangeComprehensionToHTML(tree, itemsRaw)
+	}
+
+	statics, ok := tree["s"].([]string)
+	if !ok || len(statics) == 0 {
+		return "", fmt.Errorf("invalid tree: no statics")
+	}
+
+	var result strings.Builder
+
+	// Interleave statics and dynamics
+	dynamicIndex := 0
+	for i, static := range statics {
+		result.WriteString(static)
+
+		// After each static (except the last), add the corresponding dynamic
+		if i < len(statics)-1 {
+			dynKey := fmt.Sprintf("%d", dynamicIndex)
+			if dynValue, exists := tree[dynKey]; exists {
+				// Handle nested trees (like ranges)
+				if nestedTree, ok := dynValue.(map[string]interface{}); ok {
+					nestedHTML, err := renderTreeToHTML(nestedTree)
+					if err != nil {
+						return "", err
+					}
+					result.WriteString(nestedHTML)
+				} else if nestedMap, ok := dynValue.(map[string]interface{}); ok {
+					// Also handle as map[string]interface{}
+					nestedHTML, err := renderTreeToHTML(map[string]interface{}(nestedMap))
+					if err != nil {
+						return "", err
+					}
+					result.WriteString(nestedHTML)
+				} else {
+					// Simple value - convert to string
+					result.WriteString(fmt.Sprintf("%v", dynValue))
+				}
+			}
+			dynamicIndex++
+		}
+	}
+
+	return result.String(), nil
+}
+
+// renderRangeComprehensionToHTML renders a range comprehension (with "d" and "s" keys) to HTML
+func renderRangeComprehensionToHTML(tree map[string]interface{}, itemsRaw interface{}) (string, error) {
+	// Get statics for the range items
+	statics, ok := tree["s"].([]string)
+	if !ok {
+		return "", fmt.Errorf("range comprehension missing statics")
+	}
+
+	// Convert items to []interface{}
+	var items []interface{}
+	switch v := itemsRaw.(type) {
+	case []interface{}:
+		items = v
+	case []map[string]interface{}:
+		items = make([]interface{}, len(v))
+		for i, item := range v {
+			items[i] = item
+		}
+	default:
+		return "", fmt.Errorf("unexpected items type: %T", itemsRaw)
+	}
+
+	var result strings.Builder
+
+	// Render each item using the statics as template
+	for _, itemRaw := range items {
+		itemMap, ok := itemRaw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		// Interleave statics and item dynamics
+		for i, static := range statics {
+			result.WriteString(static)
+
+			// After each static (except the last), add the corresponding dynamic
+			if i < len(statics)-1 {
+				dynKey := fmt.Sprintf("%d", i)
+				if dynValue, exists := itemMap[dynKey]; exists {
+					// Recursively render nested trees
+					if nestedTree, ok := dynValue.(map[string]interface{}); ok {
+						nestedHTML, err := renderTreeToHTML(nestedTree)
+						if err != nil {
+							return "", err
+						}
+						result.WriteString(nestedHTML)
+					} else if nestedMap, ok := dynValue.(map[string]interface{}); ok {
+						nestedHTML, err := renderTreeToHTML(map[string]interface{}(nestedMap))
+						if err != nil {
+							return "", err
+						}
+						result.WriteString(nestedHTML)
+					} else {
+						// Simple value
+						result.WriteString(fmt.Sprintf("%v", dynValue))
+					}
+				}
+			}
+		}
+	}
+
+	return result.String(), nil
 }

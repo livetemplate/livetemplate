@@ -240,14 +240,39 @@ func executeRangeBodyWithVarsMap(node *parse.RangeNode, key interface{}, item in
 	return buildTreeFromASTWithVars(node.List, varCtx, keyGen, ctx)
 }
 
-// detectIDKey detects the ID key position in statics.
-// TODO: Implement ID key detection logic.
+// detectIDKey detects which position in the dynamics contains the item ID
+// by scanning the statics array for key attribute patterns.
+// Returns the position as a string (e.g., "1" for the second dynamic position).
+// Returns "0" as default if no key attribute is found.
 func detectIDKey(statics []string) string {
-	// Look for patterns like data-id=" or id=" in statics
+	if len(statics) == 0 {
+		return "0"
+	}
+
+	// Key attributes to search for (in priority order)
+	keyAttrs := []string{
+		"id=\"",
+		"data-key=\"",
+		"key=\"",
+		"data-lvt-key=\"",
+		"lvt-key=\"",
+		"data-id=\"",
+		"x-key=\"", // Alpine.js compatibility
+		"v-key=\"", // Vue.js compatibility
+	}
+
+	// Scan through statics array
 	for i, static := range statics {
-		if strings.Contains(static, "data-id=\"") || strings.Contains(static, "id=\"") {
-			return fmt.Sprintf("%d", i)
+		// Check if this static contains a key attribute
+		for _, attr := range keyAttrs {
+			if strings.Contains(static, attr) {
+				// The dynamic value after this static is the ID
+				// Position i in statics means dynamic at position i
+				return fmt.Sprintf("%d", i)
+			}
 		}
 	}
-	return ""
+
+	// Default to position 0 if no key attribute found
+	return "0"
 }
