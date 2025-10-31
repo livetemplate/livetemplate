@@ -264,9 +264,10 @@ var NewTreeGenerationContext = build.NewContext
 
 ### Commits
 
-**5 commits on branch `refactor/production-ready-v1`:**
+**6 commits on branch `refactor/production-ready-v1`:**
 
 ```
+a8de822 - refactor: move fingerprinting functions to internal/build (Phase 3.1)
 c15e842 - refactor: integrate internal/parse package and remove tree_ast.go (Phase 2.2-2.4)
 c2c9a65 - refactor: move tree types to internal/build package (Phase 2.1)
 5896755 - docs: add comprehensive observability guide
@@ -289,13 +290,20 @@ b1af918 - feat: observability and architecture documentation (Phase 1.1-1.2)
 - **Lines removed:** -1314 lines (tree_ast.go removed)
 - **Net change:** -1125 lines
 
-**Overall (Phases 1 + 2):**
-- **Net change:** +442 lines (includes comprehensive documentation)
-- **Effective code reduction:** -676 lines (excluding documentation)
+**Phase 3:**
+- **Files created:** 1 file (internal/build/fingerprint.go - 130 lines)
+- **Files modified:** 1 file (tree.go)
+- **Lines added:** +130 lines (fingerprint.go)
+- **Lines removed:** -112 lines (from tree.go)
+- **Net change:** +18 lines
+
+**Overall (Phases 1 + 2 + 3):**
+- **Net change:** +460 lines (includes comprehensive documentation)
+- **Effective code reduction:** -658 lines (excluding documentation)
 
 ### Test Coverage
 
-**After Phase 2 Completion:**
+**After Phase 3.1 Completion:**
 - ✅ **187 Go tests passing** (100% of implemented features)
 - ⏭️ **1 test skipped:** TestTemplateComposition (6 subtests) - template flattening not yet implemented (was also TODO in tree_ast.go)
 - ✅ **All TypeScript/Jest tests passing** (33 test suites, 33 tests)
@@ -307,35 +315,73 @@ b1af918 - feat: observability and architecture documentation (Phase 1.1-1.2)
 
 ## Phase 3: Build Package Completion
 
-**Status:** Not started - depends on Phase 2
+**Status:** In Progress - Fingerprinting Complete ✅
 
-### 3.1 Move Tree Building Functions to internal/build/
+### 3.1 Move Fingerprinting Functions to internal/build/ ✅
 
-**Current state:** Tree building functions scattered across tree.go (13KB)
+**Commit:** `a8de822 - refactor: move fingerprinting functions to internal/build`
 
-**Plan:** Move functions from `tree.go` to `internal/build/`:
+**Status:** Complete
 
-**Functions to move:**
-- `calculateFingerprint()` - Tree fingerprinting (MD5 hashing)
-- `hashTreeIncremental()` - Incremental hash calculation
-- `validateTreeStructure()` - Tree validation
-- Tree manipulation utilities
-- Build orchestration logic
+**What was done:**
+
+1. **Created internal/build/fingerprint.go** (130 lines)
+   - Moved fingerprinting logic from tree.go
+   - All functions exported with capital letters:
+     - `CalculateFingerprint(tree *TreeNode)` - Calculates 64-bit MD5 hash
+     - `HashTreeIncremental(tree *TreeNode, hasher hash.Hash)` - Incremental hashing without full JSON marshaling
+     - `HashValueIncremental(value interface{}, hasher hash.Hash)` - Type-based value hashing
+     - `AddFingerprintToTree(tree *TreeNode)` - Adds fingerprint metadata
+   - Optimized for performance: avoids marshaling entire subtrees
+   - Uses incremental hashing for nested trees
+
+2. **Updated tree.go** (removed 112 lines)
+   - Removed imports: crypto/md5, encoding/json, hash, sort
+   - Added import: `"github.com/livefir/livetemplate/internal/build"`
+   - Replaced 119 lines of fingerprinting code with 8 lines of wrappers:
+     ```go
+     func calculateFingerprint(tree *TreeNode) string {
+         return build.CalculateFingerprint(tree)
+     }
+
+     func addFingerprintToTree(tree *TreeNode) *TreeNode {
+         return build.AddFingerprintToTree(tree)
+     }
+     ```
+
+3. **Backward compatibility maintained**
+   - All existing code continues to work unchanged
+   - Wrapper functions maintain same signatures
+   - Zero breaking changes
+
+**Actual Changes:**
+- tree.go: 599 lines → 487 lines (-112 lines)
+- internal/build/fingerprint.go: 130 lines (new file)
+- Net: +18 lines total, but cleaner organization
+
+**Test Results:**
+- ✅ All 187 tests passing
+- ✅ Zero regressions
+- ✅ Pre-commit hooks pass
+
+### 3.2 Move Remaining Build Functions (TODO)
+
+**Current state:** tree.go still contains ~487 lines
+
+**Remaining functions to move:**
+- Tree manipulation utilities (generateRandomID, injectWrapperDiv, extractTemplateContent, etc.)
+- HTML rendering utilities (renderNode, isVoidHTMLElement)
+- Key generation logic (keyGenerator)
 
 **New files to create:**
-- `internal/build/fingerprint.go` - Fingerprinting logic
-- `internal/build/validate.go` - Tree validation
-- `internal/build/build.go` - Main build orchestration
-
-**tree.go after refactoring:**
-- Thin wrapper that re-exports from internal packages
-- Public API only (~100-200 lines vs current ~13KB)
-- Backward compatibility maintained via aliases
+- `internal/build/wrapper.go` - Wrapper div injection/extraction
+- `internal/build/key.go` - Key generation logic
+- `internal/build/render.go` - Tree rendering utilities
 
 **Expected changes:**
-- -~10KB from tree.go
-- +~10KB in internal/build/ (split into 3-4 focused files)
-- Net: 0 lines, but much better organization
+- -~300 lines from tree.go
+- +~300 lines in internal/build/ (3-4 focused files)
+- Net: 0 lines, better organization
 
 ## Phase 4: Large Function Refactoring
 
@@ -451,17 +497,17 @@ Update examples to demonstrate:
 ## Current State
 
 **Branch:** `refactor/production-ready-v1`
-**Last Commit:** `c15e842 - refactor: integrate internal/parse package and remove tree_ast.go`
-**Status:** Phase 2 Complete ✅ - Production-ready with aggressive refactoring achieved
-**Next Steps:** Optional Phase 3-5 or merge to main
+**Last Commit:** `a8de822 - refactor: move fingerprinting functions to internal/build`
+**Status:** Phase 3 In Progress - Fingerprinting Complete ✅
+**Next Steps:** Continue Phase 3.2 or proceed with Phase 4
 
-### Phase 2 Achievement
+### Phase 3.1 Achievement
 
-The **aggressive refactoring goal is COMPLETE**:
+**Fingerprinting functions successfully migrated to internal/build**:
 
-- ✅ **internal/parse is now the ONLY implementation**
-- ✅ **tree_ast.go completely REMOVED** (1314 lines, 40KB) - not kept as duplicate
-- ✅ **Net reduction: -676 lines** (excluding documentation)
+- ✅ **Created internal/build/fingerprint.go** (130 lines)
+- ✅ **tree.go reduced** from 599 to 487 lines (-112 lines)
+- ✅ **Backward compatibility maintained** via wrapper functions
 - ✅ **187 tests passing** (100% of implemented features)
 - ✅ **Zero regressions** in core functionality
 - ✅ **Zero breaking changes**
@@ -473,10 +519,11 @@ The **aggressive refactoring goal is COMPLETE**:
 - ✅ Comprehensive documentation (ARCHITECTURE.md, OBSERVABILITY.md, REFACTORING_PROGRESS.md)
 - ✅ Type safety improvements (build.TreeNode with proper types)
 - ✅ Clean internal/parse implementation (replaces tree_ast.go)
+- ✅ Fingerprinting logic in internal/build (Phase 3.1)
 - ✅ Backward compatibility (type aliases, zero breaking changes)
 - ✅ All pre-commit hooks passing
 
-The foundation is **solid and production-ready** for v1.0 release or continued development with optional Phase 3-5.
+The foundation is **solid and production-ready** for v1.0 release or continued development with Phase 3.2+.
 
 ## Notes
 
