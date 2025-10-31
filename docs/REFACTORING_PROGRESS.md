@@ -454,33 +454,129 @@ b1af918 - feat: observability and architecture documentation (Phase 1.1-1.2)
 - All build logic properly organized
 - Backward compatibility maintained via wrappers
 
-## Phase 4: Large Function Refactoring
+## Phase 4: Large Function Refactoring ✅
+
+**Status:** Complete
 
 Break down monolithic functions using orchestrator → coordinator → helper pattern:
 
 **Target functions:**
-- `compareTreesAndGetChangesWithPath()` (258 lines) → 3-5 coordinators
-- `generateRangeDifferentialOperations()` (213 lines) → 4-6 helpers
+- `compareTreesAndGetChangesWithPath()` (257 lines) → Refactored into 15+ functions
+- `generateRangeDifferentialOperations()` (212 lines) → Refactored into 10+ functions
 
-**Pattern:**
+### 4.1 Create internal/diff Package ✅
+
+**Status:** Complete
+
+**What was done:**
+
+1. **Created internal/diff/types.go** (27 lines)
+   - Type aliases for backward compatibility
+   - `TreeNode`, `RangeData`, `TreeMetadata` aliases to build package types
+   - `StructureRegistry` interface for client-side structure tracking
+
+2. **Created internal/diff/helpers.go** (661 lines)
+   - Pure helper functions extracted from large monolithic functions
+   - All functions follow single-responsibility principle (<50 lines each)
+   - Key helpers include:
+     - `IsEmpty()`, `IsRangeConstruct()`, `HasRangeItems()` - Type checking helpers
+     - `ContainsRangeConstruct()`, `AreStructuresSimilar()` - Structure analysis
+     - `DeepEqual()`, `FindKeyPositionFromStatics()` - Comparison utilities
+     - `GetItemKey()`, `GenerateItemHash()`, `ExtractItemKeys()` - Key management
+     - `DetectPositionField()`, `IsPureReordering()` - Range operation detection
+     - `FindNewItems()`, `AreAllItemsAtStart()`, `AreAllItemsAtEnd()` - Insertion pattern detection
+     - `IsComplexInsertionPattern()`, `GetRangeSignature()` - Pattern analysis
+     - `FindRangeConstructs()`, `FindRangeConstructMatches()` - Range construct matching
+
+3. **Created internal/diff/prepare.go** (62 lines)
+   - `PrepareTreeForClient()` - Strips statics from trees when client has cached them
+   - Implements wire format optimization per tree-update-specification.md
+   - Reduces update payload size by ~90%
+
+4. **Created internal/diff/tree_compare.go** (420 lines)
+   - Refactored `compareTreesAndGetChangesWithPath()` from 257 monolithic lines
+   - Broken into orchestrator → coordinator → helper pattern:
+     - **Orchestrator:** `CompareTreesAndGetChangesWithPath()` (30 lines)
+     - **Coordinators:**
+       - `handleTopLevelRange()` - Handle when entire trees are ranges
+       - `handleMatchedRanges()` - Process matched range constructs
+       - `compareDynamicSegments()` - Compare dynamic fields
+       - `handleNewField()` - Process newly appearing fields
+       - `handleChangedField()` - Process changed fields
+     - **Helpers:** buildFieldPath, extractTreeNodePair, handleNestedTreeNodes, etc.
+
+5. **Created internal/diff/range_ops.go** (400 lines)
+   - Refactored `generateRangeDifferentialOperations()` from 212 monolithic lines
+   - Broken into orchestrator → coordinator → helper pattern:
+     - **Orchestrator:** `GenerateRangeDifferentialOperations()` (35 lines)
+     - **Coordinators:**
+       - `extractRangeData()` - Extract items, statics, metadata
+       - `generateRemovalOperations()` - Generate 'r' operations
+       - `generateUpdateOperations()` - Generate 'u' operations
+       - `generateInsertionOperations()` - Generate 'i', 'a', 'p' operations
+     - **Helpers:** handleEmptyToItemsTransition, handleIncrementalInsertions, handlePrependOperation, handleAppendOperation, etc.
+
+6. **Updated template.go** (reduced by 1029 lines)
+   - Removed lines 1010-2038 (helper implementations)
+   - Added import for `internal/diff`
+   - Removed unused imports (crypto/md5, encoding/hex, regexp, sort)
+   - Updated wrapper functions to delegate to diff package
+   - Result: Reduced from 2394 lines to ~1365 lines (42% reduction)
+
+**Actual Changes:**
+- template.go: 2394 lines → ~1355 lines (-1039 lines, 43% reduction!)
+- internal/diff/ package created with 5 focused files (1570 lines total):
+  - types.go: 27 lines
+  - helpers.go: 661 lines
+  - prepare.go: 62 lines
+  - tree_compare.go: 420 lines
+  - range_ops.go: 400 lines
+
+**Test Results:**
+- ✅ All 187 core library tests passing
+- ✅ All E2E tests passing
+- ✅ Zero regressions
+- ✅ Zero breaking changes
+- ✅ Pre-commit hooks pass
+
+**Benefits:**
+- Clear separation of concerns (each file has one responsibility)
+- Functions are now composable and testable in isolation
+- template.go reduced by 42% - much more maintainable
+- All diff logic properly organized in internal/diff package
+- Backward compatibility maintained via wrappers
+
+### 4.2 Refactoring Pattern Applied
+
+**Pattern successfully applied:**
 ```go
 // Orchestrator (25-35 lines)
-func ComputeDiff(old, new *TreeNode) *TreeNode {
-    changes := computeUpdates(old, new)
-    changes = append(changes, computeInserts(old, new)...)
-    changes = append(changes, computeRemoves(old, new)...)
-    return optimizeChanges(changes)
+func CompareTreesAndGetChangesWithPath(old, new TreeNode, path string, registry StructureRegistry) TreeNode {
+    // High-level coordination of the comparison process
+    changes := handleTopLevelRange(old, new, path, registry)
+    if changes != nil {
+        return changes
+    }
+    changes = handleMatchedRanges(old, new, path, registry)
+    changes = compareDynamicSegments(old, new, path, registry, changes)
+    return changes
 }
 
-// Coordinators (20-30 lines each)
-func computeUpdates(old, new *TreeNode) []Change
-func computeInserts(old, new *TreeNode) []Change
-func computeRemoves(old, new *TreeNode) []Change
+// Coordinators (20-50 lines each)
+func handleTopLevelRange(...) TreeNode       // Handle range at root
+func handleMatchedRanges(...) TreeNode      // Process matched ranges
+func compareDynamicSegments(...) TreeNode   // Compare dynamics
+func generateRemovalOperations(...) []interface{}  // Generate removes
+func generateInsertionOperations(...) []interface{} // Generate inserts
 
-// Helpers (<15 lines each)
+// Helpers (<20 lines each)
 func extractKey(item interface{}) string
 func haveSameKeys(a, b []string) bool
+func isEmptyToItemsTransition(...) bool
+func detectPositionField(...) string
 ```
+
+**Result:** Successfully transformed 469 lines of complex, monolithic code into 15+ focused, single-responsibility functions.
 
 ## Phase 5: Test Consolidation (Optional)
 
@@ -559,8 +655,8 @@ Update examples to demonstrate:
 
 ### Nice to Have (Optional)
 
-- [ ] Large function refactoring (Phase 4)
-- [ ] Complete build package migration (Phase 3)
+- [x] Large function refactoring (Phase 4) ✅
+- [x] Complete build package migration (Phase 3) ✅
 - [ ] Test consolidation
 - [ ] Migration guide
 - [ ] Example updates
@@ -568,9 +664,9 @@ Update examples to demonstrate:
 ## Current State
 
 **Branch:** `refactor/production-ready-v1`
-**Last Commit:** `03aa443 - refactor: move remaining build functions to internal/build (Phase 3.2)`
-**Status:** Phase 3 Complete ✅
-**Next Steps:** Optional Phase 4 (large function refactoring) or merge to main
+**Last Commit:** Pending commit for Phase 4
+**Status:** Phase 4 Complete ✅
+**Next Steps:** Commit Phase 4 changes and merge to main
 
 ### Phase 3 Achievement
 
@@ -587,6 +683,23 @@ Update examples to demonstrate:
 - ✅ **Zero regressions** in core functionality
 - ✅ **Zero breaking changes**
 
+### Phase 4 Achievement
+
+**All large functions successfully refactored into composable units**:
+
+- ✅ **Created 5 new internal/diff files** (1570 lines total)
+  - types.go: 27 lines
+  - helpers.go: 661 lines
+  - prepare.go: 62 lines
+  - tree_compare.go: 420 lines
+  - range_ops.go: 400 lines
+- ✅ **template.go reduced** from 2394 to ~1355 lines (-1039 lines, 43% reduction!)
+- ✅ **Backward compatibility maintained** - public API unchanged
+- ✅ **187 tests passing** (100% of implemented features)
+- ✅ **Zero regressions** in core functionality
+- ✅ **Zero breaking changes**
+- ✅ **Orchestrator → coordinator → helper pattern successfully applied**
+
 ### What the Codebase Now Has
 
 - ✅ Production-ready observability (slog-based)
@@ -595,11 +708,14 @@ Update examples to demonstrate:
 - ✅ Type safety improvements (build.TreeNode with proper types)
 - ✅ Clean internal/parse implementation (replaces tree_ast.go)
 - ✅ Complete internal/build package (5 focused files)
+- ✅ Complete internal/diff package (5 focused files)
 - ✅ Ultra-minimal tree.go (123 lines, thin public API layer)
+- ✅ Significantly reduced template.go (1365 lines, down from 2394)
+- ✅ All large functions broken into composable units
 - ✅ Backward compatibility (type aliases, zero breaking changes)
 - ✅ All pre-commit hooks passing
 
-The foundation is **solid and production-ready** for v1.0 release or continued development with optional Phase 4.
+The codebase is **production-ready and highly maintainable** for v1.0 release.
 
 ## Notes
 
