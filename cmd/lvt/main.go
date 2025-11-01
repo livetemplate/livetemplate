@@ -54,6 +54,8 @@ func main() {
 		err = commands.Kits(args)
 	case "serve", "server":
 		err = commands.Serve(args)
+	case "auth":
+		err = commands.Auth(args)
 	case "version", "--version", "-v":
 		printVersion()
 		return
@@ -135,6 +137,7 @@ func printUsage() {
 	fmt.Println("Commands:")
 	fmt.Println("  lvt new [<app-name>] [--module <name>]       Create a new LiveTemplate app")
 	fmt.Println("  lvt gen <subcommand> [args...]                Generate code (resource, view, or schema)")
+	fmt.Println("  lvt auth [options]                            Generate authentication system")
 	fmt.Println("  lvt migration <command>                       Manage database migrations")
 	fmt.Println("  lvt resource <command>                        Inspect resources and schemas")
 	fmt.Println("  lvt seed <resource> [--count N] [--cleanup]   Generate test data")
@@ -159,6 +162,15 @@ func printUsage() {
 	fmt.Println("  lvt gen resource users name email age         (types inferred)")
 	fmt.Println("  lvt gen view counter                          (view-only handler)")
 	fmt.Println("  lvt gen schema products name price:float      (database only)")
+	fmt.Println()
+	fmt.Println("Auth Options:")
+	fmt.Println("  lvt auth                                  Generate full auth system (all features)")
+	fmt.Println("  lvt auth --no-password                    Disable password authentication")
+	fmt.Println("  lvt auth --no-magic-link                  Disable magic-link authentication")
+	fmt.Println("  lvt auth --no-email-confirm               Skip email confirmation")
+	fmt.Println("  lvt auth --no-password-reset              Skip password reset flow")
+	fmt.Println("  lvt auth --no-sessions-ui                 Skip session management UI")
+	fmt.Println("  lvt auth --no-csrf                        Skip CSRF protection")
 	fmt.Println()
 	fmt.Println("Migration Commands:")
 	fmt.Println("  lvt migration up                          Run pending migrations")

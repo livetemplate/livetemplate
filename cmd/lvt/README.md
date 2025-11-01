@@ -414,6 +414,72 @@ lvt gen view dashboard
 - ✅ No database dependencies
 - ✅ **Auto-injected routes** - Automatically adds route and import to `main.go`
 
+### `lvt gen auth`
+
+Generates a complete authentication system similar to Phoenix's `mix phx.gen.auth`.
+
+**Example:**
+```bash
+# Generate with default settings (password + magic-link auth)
+lvt gen auth
+
+# Generate with only password authentication
+lvt gen auth --no-magic-link
+
+# Generate with only magic-link authentication
+lvt gen auth --no-password
+
+# Disable email confirmation
+lvt gen auth --no-email-confirm
+
+# Disable CSRF protection
+lvt gen auth --no-csrf
+```
+
+**Flags:**
+- `--no-password` - Disable password authentication
+- `--no-magic-link` - Disable magic-link authentication
+- `--no-email-confirm` - Disable email confirmation flow
+- `--no-password-reset` - Disable password reset functionality
+- `--no-sessions-ui` - Disable session management UI
+- `--no-csrf` - Disable CSRF protection middleware
+
+**Note:** At least one authentication method (password or magic-link) must be enabled.
+
+**Generates:**
+- `internal/shared/password/password.go` - Password hashing utilities (bcrypt)
+- `internal/shared/email/email.go` - Email sender interface with console logger
+- `internal/database/migrations/YYYYMMDDHHMMSS_create_auth_tables.sql` - Auth tables migration
+- Auth queries appended to `internal/database/queries.sql`
+
+**Features:**
+- ✅ Password authentication with bcrypt hashing
+- ✅ Magic-link email authentication
+- ✅ Email confirmation flow
+- ✅ Password reset functionality
+- ✅ Session management
+- ✅ CSRF protection with gorilla/csrf
+- ✅ Auto-updates `go.mod` dependencies
+- ✅ EmailSender interface (console logger + SMTP/Mailgun examples)
+- ✅ Case-insensitive email matching
+- ✅ Configurable features via flags
+
+**Database Tables:**
+- `users` - User accounts with email and optional hashed password
+- `user_tokens` - Tokens for magic links, email confirmation, password reset
+
+**Next Steps After Generation:**
+```bash
+# 1. Run migrations
+lvt migration up
+
+# 2. Generate sqlc code
+sqlc generate
+
+# 3. Update main.go to register auth handler
+# (Implementation in Phase 2)
+```
+
 ## Router Auto-Update
 
 When you generate a resource or view, `lvt` automatically:
@@ -770,6 +836,19 @@ go test ./cmd/lvt -v
   - [x] Conditional template rendering (single source of truth)
   - [x] Semantic HTML support for Pico CSS (<main>, <article>)
   - [x] Zero breaking changes (~550 lines total)
+- [x] ~~`lvt gen auth` - Authentication system~~ ✅ Phase 1 Complete
+  - [x] Password authentication (bcrypt)
+  - [x] Magic-link email authentication
+  - [x] Email confirmation flow
+  - [x] Password reset functionality
+  - [x] Session management tables
+  - [x] CSRF protection (gorilla/csrf)
+  - [x] Auto-dependency updates (go.mod)
+  - [x] EmailSender interface with examples
+  - [x] Configurable via flags
+  - [ ] Auth handlers (Phase 2)
+  - [ ] Custom authenticator (Phase 3)
+  - [ ] Middleware templates (Phase 4)
 - [ ] GraphQL support
 
 ## Contributing
