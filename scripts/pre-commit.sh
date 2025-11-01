@@ -9,7 +9,7 @@ echo "🔄 Running pre-commit validation..."
 
 # Step 1: Auto-format Go code before validation
 echo "📝 Auto-formatting Go code..."
-if go fmt ./...; then
+if GOWORK=off go fmt ./...; then
     echo "✅ Code formatting completed"
 
     # Add any formatted files to the commit
@@ -26,7 +26,7 @@ fi
 
 # Step 2: Run golangci-lint
 echo "🔍 Running golangci-lint..."
-if golangci-lint run --disable-all --enable=errcheck,unused,staticcheck,gosimple,ineffassign; then
+if GOWORK=off golangci-lint run --disable-all --enable=errcheck,unused,staticcheck,gosimple,ineffassign; then
     echo "✅ Linting passed"
 else
     echo "❌ Linting failed - commit blocked"
@@ -48,7 +48,7 @@ fi
 
 # Step 4: Run all Go tests with increased timeout for slow e2e tests
 echo "🧪 Running Go tests..."
-if go test -v ./... -timeout=300s; then
+if GOWORK=off go test -v ./... -timeout=300s; then
     echo "✅ All Go tests passed"
 else
     echo "❌ Go tests failed - commit blocked"

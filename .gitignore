@@ -47,5 +47,6 @@ client/dist
 
 # Git worktrees
 .worktrees/
+
 # Test artifacts
 cmd/lvt/commands/internal/
