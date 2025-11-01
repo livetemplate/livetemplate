@@ -140,18 +140,27 @@ func GenerateAuth(projectRoot string, config *AuthConfig) error {
 	if err != nil {
 		return fmt.Errorf("failed to open queries.sql: %w", err)
 	}
-	defer file.Close()
 
 	// Add separator if file already has content
-	stat, _ := file.Stat()
+	stat, err := file.Stat()
+	if err != nil {
+		file.Close()
+		return fmt.Errorf("failed to stat queries.sql: %w", err)
+	}
 	if stat.Size() > 0 {
 		if _, err := file.WriteString("\n\n"); err != nil {
+			file.Close()
 			return fmt.Errorf("failed to write separator: %w", err)
 		}
 	}
 
 	if err := tmpl.Execute(file, config); err != nil {
+		file.Close()
 		return fmt.Errorf("failed to execute queries template: %w", err)
+	}
+
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("failed to close queries.sql: %w", err)
 	}
 
 	// Update go.mod dependencies if go.mod exists

@@ -66,8 +66,8 @@ func LoadProjectConfig(basePath string) (*ProjectConfig, error) {
 
 		key := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
-		// Remove quotes if present
-		value = strings.Trim(value, `"`)
+		// Remove quotes (single or double) if present
+		value = strings.Trim(value, `'"`)
 
 		switch key {
 		case "module":
