@@ -11,7 +11,6 @@ import (
 )
 
 type AuthFlags struct {
-	NoRegistration  bool
 	NoPassword      bool
 	NoMagicLink     bool
 	NoEmailConfirm  bool
@@ -28,8 +27,6 @@ func Auth(args []string) error {
 	// Separate flags from positional arguments
 	for _, arg := range args {
 		switch arg {
-		case "--no-registration":
-			flags.NoRegistration = true
 		case "--no-password":
 			flags.NoPassword = true
 		case "--no-magic-link":
