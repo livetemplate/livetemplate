@@ -27,8 +27,10 @@ func Gen(args []string) error {
 		return GenView(args[1:])
 	case "schema":
 		return GenSchema(args[1:])
+	case "auth":
+		return Auth(args[1:])
 	default:
-		return fmt.Errorf("unknown subcommand: %s\n\nAvailable subcommands:\n  resource  Generate full CRUD resource with database\n  view      Generate view-only handler (no database)\n  schema    Generate database schema only\n\nRun 'lvt gen' for interactive mode", subcommand)
+		return fmt.Errorf("unknown subcommand: %s\n\nAvailable subcommands:\n  resource  Generate full CRUD resource with database\n  view      Generate view-only handler (no database)\n  schema    Generate database schema only\n  auth      Generate authentication system\n\nRun 'lvt gen' for interactive mode", subcommand)
 	}
 }
 
@@ -38,8 +40,9 @@ func interactiveGen() error {
 	fmt.Println("  1. Resource - Full CRUD with database (handler + template + migration + queries)")
 	fmt.Println("  2. View     - UI only, no database (handler + template)")
 	fmt.Println("  3. Schema   - Database tables only (migration + schema + queries)")
+	fmt.Println("  4. Auth     - Authentication system (handler + middleware + migrations + E2E tests)")
 	fmt.Println()
-	fmt.Print("Enter your choice (1-3): ")
+	fmt.Print("Enter your choice (1-4): ")
 
 	reader := bufio.NewReader(os.Stdin)
 	choice, err := reader.ReadString('\n')
@@ -65,6 +68,11 @@ func interactiveGen() error {
 		fmt.Println("You can also use: lvt gen schema <table> <field:type>...")
 		fmt.Println()
 		return fmt.Errorf("interactive schema generation not yet implemented - use: lvt gen schema <table> <field:type>...")
+	case "4":
+		fmt.Println("\nGenerating auth system...")
+		fmt.Println("You can also use: lvt gen auth [StructName] [table_name] [flags...]")
+		fmt.Println()
+		return fmt.Errorf("interactive auth generation not yet implemented - use: lvt gen auth")
 	default:
 		return fmt.Errorf("invalid choice: %s", choice)
 	}
