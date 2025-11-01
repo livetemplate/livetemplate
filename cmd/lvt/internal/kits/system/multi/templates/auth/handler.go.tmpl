@@ -1,0 +1,592 @@
+package auth
+
+// Usage: Wire this handler to your main.go
+//
+// Example setup in main.go:
+//
+//	import (
+//		"{{.ModuleName}}/internal/app/auth"
+//		"{{.ModuleName}}/internal/shared/email"
+//	)
+//
+//	// Create auth handler
+//	emailSender := email.NewConsoleEmailSender() // or your production email sender
+//	authHandler := auth.New{{.StructName}}Handler(db, emailSender, "http://localhost:8080")
+//
+//	// Register LiveTemplate routes
+//	http.Handle("/auth", livetemplate.NewHandler(authHandler, "internal/app/auth/auth.tmpl"))
+//
+//	// Register HTTP-only routes (no LiveTemplate)
+//	http.HandleFunc("/auth/logout", authHandler.HandleLogout)
+{{- if .EnableMagicLink }}
+//	http.HandleFunc("/auth/magic", authHandler.HandleMagicLinkVerify)
+{{- end }}
+{{- if .EnablePasswordReset }}
+//	http.HandleFunc("/auth/reset", authHandler.HandleResetPassword)
+{{- end }}
+{{- if .EnableEmailConfirm }}
+//	http.HandleFunc("/auth/confirm", authHandler.HandleConfirmEmail)
+{{- end }}
+//
+// For protected routes, use GetCurrentUser:
+//
+//	func protectedHandler(w http.ResponseWriter, r *http.Request) {
+//		user, err := authHandler.GetCurrentUser(r)
+//		if err != nil {
+//			http.Redirect(w, r, "/auth", http.StatusSeeOther)
+//			return
+//		}
+//		// ... user is authenticated
+//	}
+
+import (
+	"context"
+	"crypto/rand"
+	"database/sql"
+	"encoding/base64"
+	"fmt"
+	"log"
+	"net/http"
+	"time"
+
+	"{{.ModuleName}}/internal/database/models"
+	"{{.ModuleName}}/internal/shared/email"
+	{{- if .EnablePassword }}
+	"{{.ModuleName}}/internal/shared/password"
+	{{- end }}
+	"github.com/google/uuid"
+	"github.com/livefir/livetemplate"
+)
+
+type {{.StructName}}Handler struct {
+	db          *sql.DB
+	queries     *models.Queries
+	emailSender email.EmailSender
+	baseURL     string
+}
+
+func New{{.StructName}}Handler(db *sql.DB, emailSender email.EmailSender, baseURL string) *{{.StructName}}Handler {
+	return &{{.StructName}}Handler{
+		db:          db,
+		queries:     models.New(db),
+		emailSender: emailSender,
+		baseURL:     baseURL,
+	}
+}
+
+// State represents the auth page state
+type State struct {
+	View        string // "login", "register", "forgot", "reset", "confirm"
+	Email       string
+	Password    string
+	Error       string
+	Success     string
+	Token       string
+	ShowMagicLink bool
+	ShowPassword  bool
+}
+
+func (h *{{.StructName}}Handler) Mount(session *livetemplate.Session) error {
+	state := &State{
+		View:          "login",
+		ShowMagicLink: {{.EnableMagicLink}},
+		ShowPassword:  {{.EnablePassword}},
+	}
+	session.Set("state", state)
+	return nil
+}
+
+{{- if .EnablePassword }}
+
+// HandleRegister handles user registration
+func (h *{{.StructName}}Handler) HandleRegister(session *livetemplate.Session) error {
+	state := session.Get("state").(*State)
+
+	// Validate input
+	if state.Email == "" || state.Password == "" {
+		state.Error = "Email and password are required"
+		return nil
+	}
+
+	// Check if user already exists
+	existing, err := h.queries.Get{{.StructName}}ByEmail(context.Background(), state.Email)
+	if err == nil && existing.ID != "" {
+		state.Error = "Email already registered"
+		return nil
+	}
+
+	// Hash password
+	hashedPassword, err := password.Hash(state.Password)
+	if err != nil {
+		state.Error = "Failed to process password"
+		log.Printf("Password hash error: %v", err)
+		return nil
+	}
+
+	// Create user
+	userID := uuid.New().String()
+	now := time.Now()
+
+	_, err = h.queries.Create{{.StructName}}(context.Background(), models.Create{{.StructName}}Params{
+		ID:             userID,
+		Email:          state.Email,
+		HashedPassword: hashedPassword,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	})
+	if err != nil {
+		state.Error = "Failed to create account"
+		log.Printf("Create user error: %v", err)
+		return nil
+	}
+
+	{{- if .EnableEmailConfirm }}
+	// Send confirmation email
+	token, err := h.generateToken(userID, "confirm", 24*time.Hour)
+	if err != nil {
+		state.Error = "Account created but failed to send confirmation email"
+		log.Printf("Generate token error: %v", err)
+		return nil
+	}
+
+	confirmURL := fmt.Sprintf("%s/auth/confirm?token=%s", h.baseURL, token)
+	err = h.emailSender.Send(
+		state.Email,
+		"Confirm your email",
+		fmt.Sprintf("Click here to confirm your email: %s", confirmURL),
+	)
+	if err != nil {
+		log.Printf("Send email error: %v", err)
+	}
+
+	state.Success = "Account created! Please check your email to confirm your account."
+	{{- else }}
+	state.Success = "Account created! You can now log in."
+	{{- end }}
+
+	state.View = "login"
+	state.Email = ""
+	state.Password = ""
+	state.Error = ""
+
+	return nil
+}
+
+// HandleLogin handles password-based login
+func (h *{{.StructName}}Handler) HandleLogin(session *livetemplate.Session) error {
+	state := session.Get("state").(*State)
+
+	// Validate input
+	if state.Email == "" || state.Password == "" {
+		state.Error = "Email and password are required"
+		return nil
+	}
+
+	// Get user
+	user, err := h.queries.Get{{.StructName}}ByEmail(context.Background(), state.Email)
+	if err != nil {
+		state.Error = "Invalid email or password"
+		return nil
+	}
+
+	{{- if .EnableEmailConfirm }}
+	// Check if email is confirmed
+	if !user.ConfirmedAt.Valid {
+		state.Error = "Please confirm your email before logging in"
+		return nil
+	}
+	{{- end }}
+
+	// Verify password
+	if !password.Verify(state.Password, user.HashedPassword) {
+		state.Error = "Invalid email or password"
+		return nil
+	}
+
+	// Create session token
+	token, err := h.generateToken(user.ID, "session", 30*24*time.Hour) // 30 days
+	if err != nil {
+		state.Error = "Login failed"
+		log.Printf("Generate session token error: %v", err)
+		return nil
+	}
+
+	// Set session cookie
+	http.SetCookie(session.ResponseWriter(), &http.Cookie{
+		Name:     "{{.TableName}}_token",
+		Value:    token,
+		Path:     "/",
+		MaxAge:   30 * 24 * 60 * 60, // 30 days
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+	})
+
+	// Redirect to home
+	http.Redirect(session.ResponseWriter(), session.Request(), "/", http.StatusSeeOther)
+	return nil
+}
+
+{{- end }}
+
+{{- if .EnableMagicLink }}
+
+// HandleMagicLink sends a magic link email
+func (h *{{.StructName}}Handler) HandleMagicLink(session *livetemplate.Session) error {
+	state := session.Get("state").(*State)
+
+	if state.Email == "" {
+		state.Error = "Email is required"
+		return nil
+	}
+
+	// Get or create user
+	user, err := h.queries.Get{{.StructName}}ByEmail(context.Background(), state.Email)
+	if err != nil {
+		// Create new user
+		userID := uuid.New().String()
+		now := time.Now()
+		user, err = h.queries.Create{{.StructName}}(context.Background(), models.Create{{.StructName}}Params{
+			ID:        userID,
+			Email:     state.Email,
+			{{- if .EnablePassword }}
+			HashedPassword: "", // No password for magic-link only users
+			{{- end }}
+			CreatedAt: now,
+			UpdatedAt: now,
+		})
+		if err != nil {
+			state.Error = "Failed to process request"
+			log.Printf("Create user error: %v", err)
+			return nil
+		}
+	}
+
+	// Generate magic link token
+	token, err := h.generateToken(user.ID, "magic", 15*time.Minute)
+	if err != nil {
+		state.Error = "Failed to send magic link"
+		log.Printf("Generate token error: %v", err)
+		return nil
+	}
+
+	// Send magic link email
+	magicURL := fmt.Sprintf("%s/auth/magic?token=%s", h.baseURL, token)
+	err = h.emailSender.Send(
+		state.Email,
+		"Your login link",
+		fmt.Sprintf("Click here to log in: %s\n\nThis link expires in 15 minutes.", magicURL),
+	)
+	if err != nil {
+		state.Error = "Failed to send magic link"
+		log.Printf("Send email error: %v", err)
+		return nil
+	}
+
+	state.Success = "Check your email for a login link!"
+	state.Email = ""
+	return nil
+}
+
+// HandleMagicLinkVerify verifies magic link token
+func (h *{{.StructName}}Handler) HandleMagicLinkVerify(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		http.Redirect(w, r, "/auth?error=invalid_token", http.StatusSeeOther)
+		return
+	}
+
+	// Verify token
+	userToken, err := h.queries.Get{{.StructName}}Token(context.Background(), models.Get{{.StructName}}TokenParams{
+		Token:     token,
+		ExpiresAt: sql.NullTime{Time: time.Now(), Valid: true},
+	})
+	if err != nil {
+		http.Redirect(w, r, "/auth?error=invalid_token", http.StatusSeeOther)
+		return
+	}
+
+	// Delete the magic link token (one-time use)
+	h.queries.Delete{{.StructName}}Token(context.Background(), token)
+
+	// Create session token
+	sessionToken, err := h.generateToken(userToken.{{.StructName}}ID, "session", 30*24*time.Hour)
+	if err != nil {
+		log.Printf("Generate session token error: %v", err)
+		http.Redirect(w, r, "/auth?error=login_failed", http.StatusSeeOther)
+		return
+	}
+
+	// Set session cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "{{.TableName}}_token",
+		Value:    sessionToken,
+		Path:     "/",
+		MaxAge:   30 * 24 * 60 * 60,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+	})
+
+	// Redirect to home
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+{{- end }}
+
+{{- if .EnablePasswordReset }}
+
+// HandleForgotPassword sends a password reset email
+func (h *{{.StructName}}Handler) HandleForgotPassword(session *livetemplate.Session) error {
+	state := session.Get("state").(*State)
+
+	if state.Email == "" {
+		state.Error = "Email is required"
+		return nil
+	}
+
+	// Get user
+	user, err := h.queries.Get{{.StructName}}ByEmail(context.Background(), state.Email)
+	if err != nil {
+		// Don't reveal if email exists or not for security
+		state.Success = "If that email is registered, you'll receive a password reset link shortly."
+		state.Email = ""
+		return nil
+	}
+
+	// Generate reset token
+	token, err := h.generateToken(user.ID, "reset", 1*time.Hour)
+	if err != nil {
+		state.Error = "Failed to send reset link"
+		log.Printf("Generate token error: %v", err)
+		return nil
+	}
+
+	// Send reset email
+	resetURL := fmt.Sprintf("%s/auth/reset?token=%s", h.baseURL, token)
+	err = h.emailSender.Send(
+		state.Email,
+		"Reset your password",
+		fmt.Sprintf("Click here to reset your password: %s\n\nThis link expires in 1 hour.", resetURL),
+	)
+	if err != nil {
+		log.Printf("Send email error: %v", err)
+	}
+
+	state.Success = "If that email is registered, you'll receive a password reset link shortly."
+	state.Email = ""
+	return nil
+}
+
+// HandleResetPassword resets user password with token
+func (h *{{.StructName}}Handler) HandleResetPassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		// Show reset form
+		token := r.URL.Query().Get("token")
+		if token == "" {
+			http.Redirect(w, r, "/auth?error=invalid_token", http.StatusSeeOther)
+			return
+		}
+
+		// Verify token exists and not expired
+		_, err := h.queries.Get{{.StructName}}Token(context.Background(), models.Get{{.StructName}}TokenParams{
+			Token:     token,
+			ExpiresAt: sql.NullTime{Time: time.Now(), Valid: true},
+		})
+		if err != nil {
+			http.Redirect(w, r, "/auth?error=expired_token", http.StatusSeeOther)
+			return
+		}
+
+		// Render reset password form (simplified - in production use proper template)
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, `
+<!DOCTYPE html>
+<html>
+<head><title>Reset Password</title></head>
+<body>
+<h2>Reset Password</h2>
+<form method="POST">
+	<input type="hidden" name="token" value="%s">
+	<label>New Password: <input type="password" name="password" required minlength="8"></label><br>
+	<button type="submit">Reset Password</button>
+</form>
+</body>
+</html>
+		`, token)
+		return
+	}
+
+	// Handle POST - update password
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/auth?error=invalid_request", http.StatusSeeOther)
+		return
+	}
+
+	token := r.FormValue("token")
+	newPassword := r.FormValue("password")
+
+	if token == "" || newPassword == "" {
+		http.Redirect(w, r, "/auth?error=missing_fields", http.StatusSeeOther)
+		return
+	}
+
+	// Verify token
+	userToken, err := h.queries.Get{{.StructName}}Token(context.Background(), models.Get{{.StructName}}TokenParams{
+		Token:     token,
+		ExpiresAt: sql.NullTime{Time: time.Now(), Valid: true},
+	})
+	if err != nil {
+		http.Redirect(w, r, "/auth?error=invalid_token", http.StatusSeeOther)
+		return
+	}
+
+	// Hash new password
+	hashedPassword, err := password.Hash(newPassword)
+	if err != nil {
+		log.Printf("Password hash error: %v", err)
+		http.Redirect(w, r, "/auth?error=password_failed", http.StatusSeeOther)
+		return
+	}
+
+	// Update password
+	err = h.queries.Update{{.StructName}}Password(context.Background(), models.Update{{.StructName}}PasswordParams{
+		HashedPassword: hashedPassword,
+		UpdatedAt:      time.Now(),
+		ID:             userToken.{{.StructName}}ID,
+	})
+	if err != nil {
+		log.Printf("Update password error: %v", err)
+		http.Redirect(w, r, "/auth?error=update_failed", http.StatusSeeOther)
+		return
+	}
+
+	// Delete all reset tokens for this user
+	h.queries.Delete{{.StructName}}TokensByContext(context.Background(), models.Delete{{.StructName}}TokensByContextParams{
+		{{.StructName}}ID: userToken.{{.StructName}}ID,
+		Context:          "reset",
+	})
+
+	// Redirect to login with success
+	http.Redirect(w, r, "/auth?success=password_reset", http.StatusSeeOther)
+}
+
+{{- end }}
+
+{{- if .EnableEmailConfirm }}
+
+// HandleConfirmEmail confirms user email with token
+func (h *{{.StructName}}Handler) HandleConfirmEmail(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		http.Redirect(w, r, "/auth?error=invalid_token", http.StatusSeeOther)
+		return
+	}
+
+	// Verify token
+	userToken, err := h.queries.Get{{.StructName}}Token(context.Background(), models.Get{{.StructName}}TokenParams{
+		Token:     token,
+		ExpiresAt: sql.NullTime{Time: time.Now(), Valid: true},
+	})
+	if err != nil {
+		http.Redirect(w, r, "/auth?error=invalid_token", http.StatusSeeOther)
+		return
+	}
+
+	// Confirm user
+	now := time.Now()
+	err = h.queries.Confirm{{.StructName}}(context.Background(), models.Confirm{{.StructName}}Params{
+		ConfirmedAt: sql.NullTime{Time: now, Valid: true},
+		UpdatedAt:   now,
+		ID:          userToken.{{.StructName}}ID,
+	})
+	if err != nil {
+		log.Printf("Confirm user error: %v", err)
+		http.Redirect(w, r, "/auth?error=confirm_failed", http.StatusSeeOther)
+		return
+	}
+
+	// Delete the confirmation token
+	h.queries.Delete{{.StructName}}Token(context.Background(), token)
+
+	// Redirect to login with success
+	http.Redirect(w, r, "/auth?success=email_confirmed", http.StatusSeeOther)
+}
+
+{{- end }}
+
+// HandleLogout handles user logout
+func (h *{{.StructName}}Handler) HandleLogout(w http.ResponseWriter, r *http.Request) {
+	// Get session token from cookie
+	cookie, err := r.Cookie("{{.TableName}}_token")
+	if err == nil {
+		// Delete the token from database
+		h.queries.Delete{{.StructName}}Token(context.Background(), cookie.Value)
+	}
+
+	// Clear cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "{{.TableName}}_token",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+	})
+
+	// Redirect to login
+	http.Redirect(w, r, "/auth", http.StatusSeeOther)
+}
+
+// generateToken creates a random token and stores it
+func (h *{{.StructName}}Handler) generateToken(userID, context string, duration time.Duration) (string, error) {
+	// Generate random token
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	token := base64.URLEncoding.EncodeToString(b)
+
+	// Store token
+	tokenID := uuid.New().String()
+	now := time.Now()
+	expiresAt := sql.NullTime{Time: now.Add(duration), Valid: true}
+
+	_, err := h.queries.Create{{.StructName}}Token(context.Background(), models.Create{{.StructName}}TokenParams{
+		ID:        tokenID,
+		{{.StructName}}ID:   userID,
+		Token:     token,
+		Context:   context,
+		CreatedAt: now,
+		ExpiresAt: expiresAt,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return token, nil
+}
+
+// GetCurrentUser returns the authenticated user or nil
+func (h *{{.StructName}}Handler) GetCurrentUser(r *http.Request) (*models.{{.StructName}}, error) {
+	cookie, err := r.Cookie("{{.TableName}}_token")
+	if err != nil {
+		return nil, err
+	}
+
+	userToken, err := h.queries.Get{{.StructName}}Token(context.Background(), models.Get{{.StructName}}TokenParams{
+		Token:     cookie.Value,
+		ExpiresAt: sql.NullTime{Time: time.Now(), Valid: true},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	user, err := h.queries.Get{{.StructName}}ByID(context.Background(), userToken.{{.StructName}}ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}

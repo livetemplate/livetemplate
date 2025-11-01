@@ -1,0 +1,68 @@
+package email
+
+import (
+	"fmt"
+	"log"
+)
+
+// EmailSender defines the interface for sending emails.
+// Implementations can use any email service (SMTP, Mailgun, SendGrid, etc.)
+type EmailSender interface {
+	Send(to, subject, body string) error
+}
+
+// ConsoleEmailSender logs emails to stdout for development.
+// Replace with a real email sender for production.
+type ConsoleEmailSender struct{}
+
+// NewConsoleEmailSender creates a new console email sender.
+func NewConsoleEmailSender() *ConsoleEmailSender {
+	return &ConsoleEmailSender{}
+}
+
+// Send logs the email to stdout instead of actually sending it.
+func (s *ConsoleEmailSender) Send(to, subject, body string) error {
+	log.Printf("📧 EMAIL (Console Mode)\n")
+	log.Printf("To: %s\n", to)
+	log.Printf("Subject: %s\n", subject)
+	log.Printf("Body:\n%s\n", body)
+	log.Printf("---\n")
+	return nil
+}
+
+// Example SMTP sender implementation (commented out):
+//
+// import "net/smtp"
+//
+// type SMTPEmailSender struct {
+//     Host     string
+//     Port     int
+//     Username string
+//     Password string
+//     From     string
+// }
+//
+// func (s *SMTPEmailSender) Send(to, subject, body string) error {
+//     auth := smtp.PlainAuth("", s.Username, s.Password, s.Host)
+//     msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s",
+//         s.From, to, subject, body)
+//     addr := fmt.Sprintf("%s:%d", s.Host, s.Port)
+//     return smtp.SendMail(addr, auth, s.From, []string{to}, []byte(msg))
+// }
+
+// Example Mailgun sender (commented out):
+//
+// import "github.com/mailgun/mailgun-go/v4"
+//
+// type MailgunEmailSender struct {
+//     Domain string
+//     APIKey string
+//     From   string
+// }
+//
+// func (s *MailgunEmailSender) Send(to, subject, body string) error {
+//     mg := mailgun.NewMailgun(s.Domain, s.APIKey)
+//     message := mg.NewMessage(s.From, subject, body, to)
+//     _, _, err := mg.Send(context.Background(), message)
+//     return err
+// }

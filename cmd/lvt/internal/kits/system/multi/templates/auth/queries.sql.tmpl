@@ -1,0 +1,90 @@
+-- Auth Queries
+
+-- name: Create{{.StructName}} :one
+INSERT INTO {{.TableName}} (
+    id,
+    email,
+    {{- if .EnablePassword }}
+    hashed_password,
+    {{- end }}
+    created_at,
+    updated_at
+) VALUES (
+    ?,
+    ?,
+    {{- if .EnablePassword }}
+    ?,
+    {{- end }}
+    ?,
+    ?
+)
+RETURNING *;
+
+-- name: Get{{.StructName}}ByEmail :one
+SELECT * FROM {{.TableName}}
+WHERE email = ? COLLATE NOCASE
+LIMIT 1;
+
+-- name: Get{{.StructName}}ByID :one
+SELECT * FROM {{.TableName}}
+WHERE id = ?
+LIMIT 1;
+
+{{- if .EnableEmailConfirm }}
+
+-- name: Confirm{{.StructName}} :exec
+UPDATE {{.TableName}}
+SET confirmed_at = ?, updated_at = ?
+WHERE id = ?;
+
+{{- end }}
+
+{{- if .EnablePassword }}
+
+-- name: Update{{.StructName}}Password :exec
+UPDATE {{.TableName}}
+SET hashed_password = ?, updated_at = ?
+WHERE id = ?;
+
+{{- end }}
+
+-- name: Create{{.StructName}}Token :one
+INSERT INTO {{.TableName}}_tokens (
+    id,
+    {{.TableName | singular}}_id,
+    token,
+    context,
+    created_at,
+    expires_at
+) VALUES (?, ?, ?, ?, ?, ?)
+RETURNING *;
+
+-- name: Get{{.StructName}}Token :one
+SELECT * FROM {{.TableName}}_tokens
+WHERE token = ? AND (expires_at IS NULL OR expires_at > ?)
+LIMIT 1;
+
+-- name: Delete{{.StructName}}Token :exec
+DELETE FROM {{.TableName}}_tokens
+WHERE token = ?;
+
+-- name: Delete{{.StructName}}TokensByContext :exec
+DELETE FROM {{.TableName}}_tokens
+WHERE {{.TableName | singular}}_id = ? AND context = ?;
+
+-- name: DeleteExpiredTokens :exec
+DELETE FROM {{.TableName}}_tokens
+WHERE expires_at < ?;
+
+{{- if .EnableSessionsUI }}
+
+-- name: List{{.StructName}}Sessions :many
+SELECT * FROM {{.TableName}}_tokens
+WHERE {{.TableName | singular}}_id = ? AND context = 'session'
+ORDER BY created_at DESC;
+
+-- name: Delete{{.StructName}}Session :exec
+DELETE FROM {{.TableName}}_tokens
+WHERE id = ? AND {{.TableName | singular}}_id = ? AND context = 'session';
+
+{{- end }}

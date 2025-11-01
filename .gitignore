@@ -44,3 +44,8 @@ client/dist
 # Client build artifacts
 /livetemplate-client.browser.js
 .reviews
+
+# Git worktrees
+.worktrees/
+# Test artifacts
+cmd/lvt/commands/internal/

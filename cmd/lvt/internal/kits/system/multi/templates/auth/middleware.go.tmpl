@@ -1,0 +1,122 @@
+package auth
+
+import (
+	"context"
+	"net/http"
+)
+
+// Context keys for storing user data
+type contextKey string
+
+const (
+	userContextKey contextKey = "user"
+)
+
+// RequireAuth is a middleware that ensures the user is authenticated
+// Usage:
+//
+//	protectedHandler := authHandler.RequireAuth(http.HandlerFunc(myHandler))
+//	http.Handle("/protected", protectedHandler)
+func (h *{{.StructName}}Handler) RequireAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, err := h.GetCurrentUser(r)
+		if err != nil {
+			http.Redirect(w, r, "/auth", http.StatusSeeOther)
+			return
+		}
+
+		// Store user in context for downstream handlers
+		ctx := context.WithValue(r.Context(), userContextKey, user)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+{{- if .EnableEmailConfirm }}
+
+// RequireConfirmed is a middleware that ensures the user's email is confirmed
+// Usage:
+//
+//	protectedHandler := authHandler.RequireConfirmed(http.HandlerFunc(myHandler))
+//	http.Handle("/protected", protectedHandler)
+func (h *{{.StructName}}Handler) RequireConfirmed(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, err := h.GetCurrentUser(r)
+		if err != nil {
+			http.Redirect(w, r, "/auth", http.StatusSeeOther)
+			return
+		}
+
+		if !user.ConfirmedAt.Valid {
+			http.Redirect(w, r, "/auth?error=email_not_confirmed", http.StatusSeeOther)
+			return
+		}
+
+		// Store user in context for downstream handlers
+		ctx := context.WithValue(r.Context(), userContextKey, user)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+{{- end }}
+
+// OptionalAuth is a middleware that loads the current user if authenticated,
+// but doesn't require authentication
+// Usage:
+//
+//	handler := authHandler.OptionalAuth(http.HandlerFunc(myHandler))
+//	http.Handle("/", handler)
+func (h *{{.StructName}}Handler) OptionalAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, err := h.GetCurrentUser(r)
+		if err == nil {
+			// Store user in context for downstream handlers
+			ctx := context.WithValue(r.Context(), userContextKey, user)
+			r = r.WithContext(ctx)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// CurrentUser retrieves the authenticated user from the request context
+// Usage in handlers:
+//
+//	func myHandler(w http.ResponseWriter, r *http.Request) {
+//		user := auth.CurrentUser(r)
+//		if user != nil {
+//			fmt.Fprintf(w, "Hello, %s", user.Email)
+//		}
+//	}
+func CurrentUser(r *http.Request) *models.{{.StructName}} {
+	user, ok := r.Context().Value(userContextKey).(*models.{{.StructName}})
+	if !ok {
+		return nil
+	}
+	return user
+}
+
+// CSRF Protection Setup:
+//
+// To enable CSRF protection in your main.go:
+//
+//	import "github.com/gorilla/csrf"
+//	import "crypto/rand"
+//	import "encoding/base64"
+//
+//	// Generate a secret key (do this once, store in env vars)
+//	secret := make([]byte, 32)
+//	rand.Read(secret)
+//	secretKey := base64.StdEncoding.EncodeToString(secret)
+//
+//	// Apply CSRF middleware
+//	csrfMiddleware := csrf.Protect(
+//		[]byte(secretKey),
+//		csrf.Secure(true), // Set to true in production with HTTPS
+//		csrf.Path("/"),
+//		csrf.SameSite(csrf.SameSiteStrictMode),
+//	)
+//
+//	http.ListenAndServe(":8080", csrfMiddleware(mux))
+//
+// In templates, add the CSRF token:
+//
+//	<input type="hidden" name="gorilla.csrf.Token" value="{{"{{"}} .CSRFToken {{"}}"}}">

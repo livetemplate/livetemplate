@@ -1,0 +1,34 @@
+-- +goose Up
+-- +goose StatementBegin
+CREATE TABLE {{.TableName}} (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    {{- if .EnablePassword }}
+    hashed_password TEXT NOT NULL,
+    {{- end }}
+    confirmed_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_{{.TableName}}_email ON {{.TableName}}(email);
+
+CREATE TABLE {{.TableName}}_tokens (
+    id TEXT PRIMARY KEY,
+    {{.TableName | singular}}_id TEXT NOT NULL REFERENCES {{.TableName}}(id) ON DELETE CASCADE,
+    token TEXT NOT NULL UNIQUE,
+    context TEXT NOT NULL, -- "session", "confirm", "reset", "magic"
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP
+);
+
+CREATE INDEX idx_{{.TableName}}_tokens_{{.TableName | singular}}_id ON {{.TableName}}_tokens({{.TableName | singular}}_id);
+CREATE INDEX idx_{{.TableName}}_tokens_token ON {{.TableName}}_tokens(token);
+CREATE INDEX idx_{{.TableName}}_tokens_context ON {{.TableName}}_tokens(context, expires_at);
+-- +goose StatementEnd
+
+-- +goose Down
+-- +goose StatementBegin
+DROP TABLE {{.TableName}}_tokens;
+DROP TABLE {{.TableName}};
+-- +goose StatementEnd
