@@ -261,6 +261,9 @@ lvt gen auth Admin admin_users --no-password    # Custom names + magic-link only
 
 **What it generates:**
 
+- `internal/app/auth/auth.go` - Complete auth handler with all flows
+- `internal/app/auth/auth.tmpl` - LiveTemplate UI with Tailwind CSS
+- `internal/app/auth/middleware.go` - Route protection middleware
 - `internal/shared/password/password.go` - Password hashing (bcrypt)
 - `internal/shared/email/email.go` - Email sender interface
 - `internal/database/migrations/YYYYMMDDHHMMSS_create_auth_tables.sql` - Migration
@@ -276,15 +279,19 @@ Default names (can be customized):
 
 - ✅ **Customizable struct/table names** - Like Phoenix's `mix phx.gen.auth`
 - ✅ **Smart pluralization** - User → users, Account → accounts, etc.
-- ✅ Password authentication (bcrypt)
-- ✅ Magic-link email authentication
-- ✅ Email confirmation flow
-- ✅ Password reset functionality
-- ✅ Session management
-- ✅ CSRF protection (gorilla/csrf)
-- ✅ Auto-updates `go.mod` dependencies
-- ✅ EmailSender interface (console logger + SMTP/Mailgun examples)
-- ✅ Case-insensitive email matching
+- ✅ **Complete auth handlers** - Registration, login, logout, password reset, email confirmation
+- ✅ **LiveTemplate UI** - Tailwind CSS styled forms with error/success messages
+- ✅ **Route protection middleware** - RequireAuth, RequireConfirmed, OptionalAuth
+- ✅ **Password authentication** (bcrypt)
+- ✅ **Magic-link email authentication**
+- ✅ **Email confirmation flow**
+- ✅ **Password reset functionality**
+- ✅ **Session management** with secure cookies
+- ✅ **CSRF protection** ready (gorilla/csrf)
+- ✅ **Auto-updates `go.mod` dependencies**
+- ✅ **EmailSender interface** (console logger + SMTP/Mailgun examples)
+- ✅ **Case-insensitive email matching**
+- ✅ **Production-ready security** (HTTP-only, secure, SameSite cookies)
 
 **Next Steps:**
 
@@ -295,7 +302,34 @@ lvt migration up
 # 2. Generate sqlc code
 sqlc generate
 
-# 3. Implement auth handlers (Phase 2 - coming soon)
+# 3. Wire routes in main.go (see internal/app/auth/auth.go for examples)
+
+# 4. Configure email sender (see internal/shared/email/email.go)
+```
+
+**Example main.go setup:**
+
+```go
+import (
+	"yourapp/internal/app/auth"
+	"yourapp/internal/shared/email"
+	"github.com/livefir/livetemplate"
+)
+
+// Create auth handler
+emailSender := email.NewConsoleEmailSender()
+authHandler := auth.NewUserHandler(db, emailSender, "http://localhost:8080")
+
+// Register routes
+http.Handle("/auth", livetemplate.NewHandler(authHandler, "internal/app/auth/auth.tmpl"))
+http.HandleFunc("/auth/logout", authHandler.HandleLogout)
+http.HandleFunc("/auth/magic", authHandler.HandleMagicLinkVerify)      // if magic-link enabled
+http.HandleFunc("/auth/reset", authHandler.HandleResetPassword)        // if password-reset enabled
+http.HandleFunc("/auth/confirm", authHandler.HandleConfirmEmail)       // if email-confirm enabled
+
+// Protected route example
+protectedHandler := authHandler.RequireAuth(http.HandlerFunc(myHandler))
+http.Handle("/dashboard", protectedHandler)
 ```
 
 ---

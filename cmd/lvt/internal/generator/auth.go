@@ -163,10 +163,94 @@ func GenerateAuth(projectRoot string, config *AuthConfig) error {
 		return fmt.Errorf("failed to close queries.sql: %w", err)
 	}
 
+	// Generate auth handler
+	authHandlerDir := filepath.Join(projectRoot, "internal", "app", "auth")
+	if err := os.MkdirAll(authHandlerDir, 0755); err != nil {
+		return fmt.Errorf("failed to create auth handler directory: %w", err)
+	}
+
+	// Generate handler.go
+	templateContent, err = kitLoader.LoadKitTemplate("multi", "auth/handler.go.tmpl")
+	if err != nil {
+		return fmt.Errorf("failed to load handler template: %w", err)
+	}
+
+	outputPath := filepath.Join(authHandlerDir, "auth.go")
+	tmpl, err = template.New("handler").Parse(string(templateContent))
+	if err != nil {
+		return fmt.Errorf("failed to parse handler template: %w", err)
+	}
+
+	file, err = os.Create(outputPath)
+	if err != nil {
+		return fmt.Errorf("failed to create auth.go: %w", err)
+	}
+
+	if err := tmpl.Execute(file, config); err != nil {
+		file.Close()
+		return fmt.Errorf("failed to execute handler template: %w", err)
+	}
+
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("failed to close auth.go: %w", err)
+	}
+
+	// Generate template file
+	templateContent, err = kitLoader.LoadKitTemplate("multi", "auth/template.tmpl.tmpl")
+	if err != nil {
+		return fmt.Errorf("failed to load template template: %w", err)
+	}
+
+	outputPath = filepath.Join(authHandlerDir, "auth.tmpl")
+	tmpl, err = template.New("template").Parse(string(templateContent))
+	if err != nil {
+		return fmt.Errorf("failed to parse template template: %w", err)
+	}
+
+	file, err = os.Create(outputPath)
+	if err != nil {
+		return fmt.Errorf("failed to create auth.tmpl: %w", err)
+	}
+
+	if err := tmpl.Execute(file, config); err != nil {
+		file.Close()
+		return fmt.Errorf("failed to execute template template: %w", err)
+	}
+
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("failed to close auth.tmpl: %w", err)
+	}
+
+	// Generate middleware file
+	templateContent, err = kitLoader.LoadKitTemplate("multi", "auth/middleware.go.tmpl")
+	if err != nil {
+		return fmt.Errorf("failed to load middleware template: %w", err)
+	}
+
+	outputPath = filepath.Join(authHandlerDir, "middleware.go")
+	tmpl, err = template.New("middleware").Parse(string(templateContent))
+	if err != nil {
+		return fmt.Errorf("failed to parse middleware template: %w", err)
+	}
+
+	file, err = os.Create(outputPath)
+	if err != nil {
+		return fmt.Errorf("failed to create middleware.go: %w", err)
+	}
+
+	if err := tmpl.Execute(file, config); err != nil {
+		file.Close()
+		return fmt.Errorf("failed to execute middleware template: %w", err)
+	}
+
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("failed to close middleware.go: %w", err)
+	}
+
 	// Update go.mod dependencies if go.mod exists
 	goModPath := filepath.Join(projectRoot, "go.mod")
 	if _, err := os.Stat(goModPath); err == nil {
-		dependencies := []string{}
+		dependencies := []string{"github.com/google/uuid@latest"}
 		if config.EnablePassword {
 			dependencies = append(dependencies, "golang.org/x/crypto@latest")
 		}

@@ -101,11 +101,23 @@ func Auth(args []string) error {
 		return fmt.Errorf("failed to generate auth: %w", err)
 	}
 
-	fmt.Println("Authentication system generated successfully!")
-	fmt.Println("\nNext steps:")
-	fmt.Println("  1. Run migrations: lvt migration up")
-	fmt.Println("  2. Generate sqlc code: sqlc generate")
-	fmt.Println("  3. Update main.go to register auth handler")
+	fmt.Println("✅ Authentication system generated successfully!")
+	fmt.Println("\n📁 Generated files:")
+	fmt.Println("  - internal/app/auth/auth.go         (handler with all auth flows)")
+	fmt.Println("  - internal/app/auth/auth.tmpl       (LiveTemplate UI)")
+	fmt.Println("  - internal/app/auth/middleware.go   (route protection middleware)")
+	fmt.Println("  - internal/shared/password/         (bcrypt utilities)")
+	fmt.Println("  - internal/shared/email/            (email sender interface)")
+	fmt.Println("  - internal/database/migrations/     (auth tables migration)")
+	fmt.Println("  - internal/database/queries.sql     (auth SQL queries)")
+	fmt.Println("\n📝 Next steps:")
+	fmt.Println("  1. Run migrations:")
+	fmt.Println("     lvt migration up")
+	fmt.Println("\n  2. Generate sqlc code:")
+	fmt.Println("     sqlc generate")
+	fmt.Println("\n  3. Wire auth routes in main.go (see internal/app/auth/auth.go for examples)")
+	fmt.Println("\n  4. Configure email sender (see internal/shared/email/email.go)")
+	fmt.Println("\n💡 Tip: Check internal/app/auth/auth.go for complete usage examples!")
 
 	return nil
 }
