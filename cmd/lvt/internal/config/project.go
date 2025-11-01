@@ -15,6 +15,9 @@ const (
 
 // ProjectConfig represents the project-level configuration
 type ProjectConfig struct {
+	// Module is the Go module name for the project
+	Module string
+
 	// Kit is the kit used for this project
 	Kit string
 
@@ -63,8 +66,12 @@ func LoadProjectConfig(basePath string) (*ProjectConfig, error) {
 
 		key := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
+		// Remove quotes if present
+		value = strings.Trim(value, `"`)
 
 		switch key {
+		case "module":
+			config.Module = value
 		case "kit":
 			config.Kit = value
 		case "dev_mode":
@@ -83,8 +90,16 @@ func LoadProjectConfig(basePath string) (*ProjectConfig, error) {
 func SaveProjectConfig(basePath string, config *ProjectConfig) error {
 	configPath := filepath.Join(basePath, ProjectConfigFileName)
 
-	content := fmt.Sprintf("kit=%s\ndev_mode=%v\n",
-		config.Kit, config.DevMode)
+	var lines []string
+	if config.Module != "" {
+		lines = append(lines, fmt.Sprintf("module=%q", config.Module))
+	}
+	if config.Kit != "" {
+		lines = append(lines, fmt.Sprintf("kit=%s", config.Kit))
+	}
+	lines = append(lines, fmt.Sprintf("dev_mode=%v", config.DevMode))
+
+	content := strings.Join(lines, "\n") + "\n"
 
 	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
 		return fmt.Errorf("failed to write project config: %w", err)
