@@ -45,3 +45,43 @@ func TestGenerateAuth_PasswordUtilities(t *testing.T) {
 		t.Error("password.go missing bcrypt import")
 	}
 }
+
+func TestGenerateAuth_EmailSender(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	err := GenerateAuth(tmpDir, &AuthConfig{
+		EnablePassword:      true,
+		EnableEmailConfirm:  true,
+		EnablePasswordReset: true,
+	})
+	if err != nil {
+		t.Fatalf("GenerateAuth failed: %v", err)
+	}
+
+	emailPath := filepath.Join(tmpDir, "internal", "shared", "email", "email.go")
+	if _, err := os.Stat(emailPath); os.IsNotExist(err) {
+		t.Errorf("email.go not generated at %s", emailPath)
+	}
+
+	content, err := os.ReadFile(emailPath)
+	if err != nil {
+		t.Fatalf("failed to read email.go: %v", err)
+	}
+
+	contentStr := string(content)
+
+	// Check for EmailSender interface
+	if !strings.Contains(contentStr, "type EmailSender interface") {
+		t.Error("email.go missing EmailSender interface")
+	}
+
+	// Check for console logger implementation
+	if !strings.Contains(contentStr, "type ConsoleEmailSender struct") {
+		t.Error("email.go missing ConsoleEmailSender")
+	}
+
+	// Check for Send method
+	if !strings.Contains(contentStr, "func (s *ConsoleEmailSender) Send") {
+		t.Error("email.go missing Send method")
+	}
+}

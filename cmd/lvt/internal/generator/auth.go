@@ -54,5 +54,35 @@ func GenerateAuth(projectRoot string, config *AuthConfig) error {
 		}
 	}
 
+	// Generate email.go if email features enabled
+	if config.EnableEmailConfirm || config.EnablePasswordReset {
+		emailDir := filepath.Join(projectRoot, "internal", "shared", "email")
+		if err := os.MkdirAll(emailDir, 0755); err != nil {
+			return fmt.Errorf("failed to create email directory: %w", err)
+		}
+
+		templateContent, err := kitLoader.LoadKitTemplate("multi", "auth/email.go.tmpl")
+		if err != nil {
+			return fmt.Errorf("failed to load email template: %w", err)
+		}
+
+		outputPath := filepath.Join(emailDir, "email.go")
+
+		tmpl, err := template.New("email").Parse(string(templateContent))
+		if err != nil {
+			return fmt.Errorf("failed to parse email template: %w", err)
+		}
+
+		file, err := os.Create(outputPath)
+		if err != nil {
+			return fmt.Errorf("failed to create email.go: %w", err)
+		}
+		defer file.Close()
+
+		if err := tmpl.Execute(file, config); err != nil {
+			return fmt.Errorf("failed to execute email template: %w", err)
+		}
+	}
+
 	return nil
 }
