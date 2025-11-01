@@ -332,6 +332,10 @@ protectedHandler := authHandler.RequireAuth(http.HandlerFunc(myHandler))
 http.Handle("/dashboard", protectedHandler)
 ```
 
+**Customizing CSS Framework:**
+
+The generated auth templates use Tailwind CSS by default. To use a different CSS framework (Bulma, Pico, or plain HTML), see the [Auth Customization Guide](./auth-customization.md) for complete examples and instructions.
+
 ---
 
 ### Managing Migrations

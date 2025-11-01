@@ -1,0 +1,275 @@
+# Customizing Auth Templates
+
+The `lvt auth` command generates authentication templates with Tailwind CSS by default. This guide shows you how to customize the templates for your preferred CSS framework.
+
+## Generated Auth Template
+
+When you run `lvt auth`, it generates:
+- `internal/app/auth/auth.tmpl` - The LiveTemplate UI file
+
+This file uses Tailwind CSS classes by default.
+
+## Customizing for Different CSS Frameworks
+
+### Option 1: Edit the Generated Template
+
+After running `lvt auth`, simply edit `internal/app/auth/auth.tmpl` to use your preferred CSS framework.
+
+### Option 2: Use a Kit
+
+LiveTemplate's kit system allows you to customize templates project-wide.
+
+1. **Copy the auth template to your project kit:**
+   ```bash
+   mkdir -p .lvt/kits/multi/templates/auth
+   cp internal/app/auth/auth.tmpl .lvt/kits/multi/templates/auth/template.tmpl.tmpl
+   ```
+
+2. **Modify the template** in `.lvt/kits/multi/templates/auth/template.tmpl.tmpl`
+
+3. **Regenerate** (if needed):
+   ```bash
+   rm -rf internal/app/auth
+   lvt auth
+   ```
+
+## Example Templates
+
+### Bulma CSS
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authentication</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+</head>
+<body>
+    <section class="hero is-fullheight">
+        <div class="hero-body">
+            <div class="container">
+                <div class="columns is-centered">
+                    <div class="column is-5-tablet is-4-desktop is-3-widescreen">
+                        <div class="box">
+                            <h1 class="title has-text-centered">
+                                {{ if eq .View "register" }}Create Account{{ else if eq .View "forgot" }}Reset Password{{ else }}Sign In{{ end }}
+                            </h1>
+
+                            {{ if .Error }}
+                            <div class="notification is-danger">
+                                {{ .Error }}
+                            </div>
+                            {{ end }}
+
+                            {{ if .Success }}
+                            <div class="notification is-success">
+                                {{ .Success }}
+                            </div>
+                            {{ end }}
+
+                            {{ if eq .View "login" }}
+                            <form lvt-change="Change">
+                                <input type="hidden" name="View" value="login">
+
+                                <div class="field">
+                                    <label class="label">Email</label>
+                                    <div class="control">
+                                        <input class="input" type="email" name="Email" value="{{ .Email }}" required>
+                                    </div>
+                                </div>
+
+                                {{ if .ShowPassword }}
+                                <div class="field">
+                                    <label class="label">Password</label>
+                                    <div class="control">
+                                        <input class="input" type="password" name="Password" value="{{ .Password }}" required>
+                                    </div>
+                                </div>
+
+                                <div class="field">
+                                    <div class="control">
+                                        <button class="button is-primary is-fullwidth" type="submit" lvt-click="HandleLogin">
+                                            Sign In
+                                        </button>
+                                    </div>
+                                </div>
+                                {{ end }}
+
+                                {{ if .ShowMagicLink }}
+                                <div class="field">
+                                    <div class="control">
+                                        <button class="button is-link is-fullwidth" type="button" lvt-click="HandleMagicLink">
+                                            Send Magic Link
+                                        </button>
+                                    </div>
+                                </div>
+                                {{ end }}
+
+                                {{ if .ShowPassword }}
+                                <div class="field is-grouped is-grouped-multiline">
+                                    <div class="control">
+                                        <button class="button is-text" type="button" lvt-click="Change" onclick="document.querySelector('[name=View]').value='register'">
+                                            Create account
+                                        </button>
+                                    </div>
+                                    <div class="control">
+                                        <button class="button is-text" type="button" lvt-click="Change" onclick="document.querySelector('[name=View]').value='forgot'">
+                                            Forgot password?
+                                        </button>
+                                    </div>
+                                </div>
+                                {{ end }}
+                            </form>
+                            {{ end }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+</body>
+</html>
+```
+
+### Pico CSS
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authentication</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+</head>
+<body>
+    <main class="container">
+        <article>
+            <hgroup>
+                <h1>{{ if eq .View "register" }}Create Account{{ else if eq .View "forgot" }}Reset Password{{ else }}Sign In{{ end }}</h1>
+            </hgroup>
+
+            {{ if .Error }}
+            <mark>{{ .Error }}</mark>
+            {{ end }}
+
+            {{ if .Success }}
+            <ins>{{ .Success }}</ins>
+            {{ end }}
+
+            {{ if eq .View "login" }}
+            <form lvt-change="Change">
+                <input type="hidden" name="View" value="login">
+
+                <label for="Email">
+                    Email
+                    <input type="email" id="Email" name="Email" value="{{ .Email }}" required>
+                </label>
+
+                {{ if .ShowPassword }}
+                <label for="Password">
+                    Password
+                    <input type="password" id="Password" name="Password" value="{{ .Password }}" required>
+                </label>
+
+                <button type="submit" lvt-click="HandleLogin">Sign In</button>
+                {{ end }}
+
+                {{ if .ShowMagicLink }}
+                <button type="button" class="secondary" lvt-click="HandleMagicLink">Send Magic Link</button>
+                {{ end }}
+
+                {{ if .ShowPassword }}
+                <footer>
+                    <a href="#" lvt-click="Change" onclick="document.querySelector('[name=View]').value='register'">Create account</a> •
+                    <a href="#" lvt-click="Change" onclick="document.querySelector('[name=View]').value='forgot'">Forgot password?</a>
+                </footer>
+                {{ end }}
+            </form>
+            {{ end }}
+        </article>
+    </main>
+</body>
+</html>
+```
+
+### Plain HTML (No Framework)
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authentication</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 400px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .error { color: #dc3545; background: #f8d7da; padding: 10px; border-radius: 4px; margin-bottom: 15px; }
+        .success { color: #155724; background: #d4edda; padding: 10px; border-radius: 4px; margin-bottom: 15px; }
+        input { width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 4px; }
+        button { width: 100%; padding: 10px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .secondary { background: #6c757d; }
+        .secondary:hover { background: #545b62; }
+        .links { text-align: center; margin-top: 15px; }
+        .links a { margin: 0 10px; }
+    </style>
+</head>
+<body>
+    <h1>{{ if eq .View "register" }}Create Account{{ else if eq .View "forgot" }}Reset Password{{ else }}Sign In{{ end }}</h1>
+
+    {{ if .Error }}
+    <div class="error">{{ .Error }}</div>
+    {{ end }}
+
+    {{ if .Success }}
+    <div class="success">{{ .Success }}</div>
+    {{ end }}
+
+    {{ if eq .View "login" }}
+    <form lvt-change="Change">
+        <input type="hidden" name="View" value="login">
+
+        <label for="Email">Email</label>
+        <input type="email" id="Email" name="Email" value="{{ .Email }}" required>
+
+        {{ if .ShowPassword }}
+        <label for="Password">Password</label>
+        <input type="password" id="Password" name="Password" value="{{ .Password }}" required>
+
+        <button type="submit" lvt-click="HandleLogin">Sign In</button>
+        {{ end }}
+
+        {{ if .ShowMagicLink }}
+        <button type="button" class="secondary" lvt-click="HandleMagicLink">Send Magic Link</button>
+        {{ end }}
+
+        {{ if .ShowPassword }}
+        <div class="links">
+            <a href="#" lvt-click="Change" onclick="document.querySelector('[name=View]').value='register'">Create account</a>
+            <a href="#" lvt-click="Change" onclick="document.querySelector('[name=View]').value='forgot'">Forgot password?</a>
+        </div>
+        {{ end }}
+    </form>
+    {{ end }}
+</body>
+</html>
+```
+
+## Tips
+
+1. **Keep LiveTemplate attributes**: Make sure to keep `lvt-change`, `lvt-click`, and form field names unchanged
+2. **Preserve view logic**: Don't change the `{{ if eq .View "..." }}` conditions
+3. **Test all views**: Test login, register, and forgot password views
+4. **Mobile responsive**: Ensure your CSS works on mobile devices
+
+## Need Help?
+
+Check out the [LiveTemplate documentation](https://github.com/livefir/livetemplate) for more information on customizing templates.
