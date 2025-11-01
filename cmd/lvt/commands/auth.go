@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/livefir/livetemplate/cmd/lvt/internal/config"
 	"github.com/livefir/livetemplate/cmd/lvt/internal/generator"
@@ -21,8 +22,10 @@ type AuthFlags struct {
 
 func Auth(args []string) error {
 	flags := &AuthFlags{}
+	var structName, tableName string
+	var positionalArgs []string
 
-	// Parse flags
+	// Separate flags from positional arguments
 	for _, arg := range args {
 		switch arg {
 		case "--no-registration":
@@ -39,7 +42,27 @@ func Auth(args []string) error {
 			flags.NoSessionsUI = true
 		case "--no-csrf":
 			flags.NoCSRF = true
+		default:
+			if !startsWithDash(arg) {
+				positionalArgs = append(positionalArgs, arg)
+			}
 		}
+	}
+
+	// Parse positional arguments: [struct_name] [table_name]
+	if len(positionalArgs) > 0 {
+		structName = positionalArgs[0]
+	}
+	if len(positionalArgs) > 1 {
+		tableName = positionalArgs[1]
+	}
+
+	// Default to User/users if not specified
+	if structName == "" {
+		structName = "User"
+	}
+	if tableName == "" {
+		tableName = pluralizeNoun(structName)
 	}
 
 	// Validate flags
@@ -62,6 +85,8 @@ func Auth(args []string) error {
 	// Create generator config
 	genConfig := &generator.AuthConfig{
 		ModuleName:          cfg.Module,
+		StructName:          structName,
+		TableName:           tableName,
 		EnablePassword:      !flags.NoPassword,
 		EnableMagicLink:     !flags.NoMagicLink,
 		EnableEmailConfirm:  !flags.NoEmailConfirm,
@@ -83,4 +108,53 @@ func Auth(args []string) error {
 	fmt.Println("  3. Update main.go to register auth handler")
 
 	return nil
+}
+
+// startsWithDash checks if a string starts with a dash (flag indicator)
+func startsWithDash(s string) bool {
+	return strings.HasPrefix(s, "-")
+}
+
+// pluralizeNoun converts a singular noun to plural (simple English rules)
+func pluralizeNoun(word string) string {
+	if word == "" {
+		return ""
+	}
+
+	lower := strings.ToLower(word)
+
+	// Handle special cases
+	if lower == "user" {
+		return "users"
+	}
+	if lower == "account" {
+		return "accounts"
+	}
+	if lower == "admin" {
+		return "admins"
+	}
+	if lower == "member" {
+		return "members"
+	}
+
+	// General rules
+	if strings.HasSuffix(lower, "s") || strings.HasSuffix(lower, "x") || strings.HasSuffix(lower, "z") ||
+		strings.HasSuffix(lower, "ch") || strings.HasSuffix(lower, "sh") {
+		return lower + "es"
+	}
+
+	if strings.HasSuffix(lower, "y") && len(lower) > 1 {
+		// Check if preceded by consonant
+		secondLast := lower[len(lower)-2]
+		if !isVowel(secondLast) {
+			return lower[:len(lower)-1] + "ies"
+		}
+	}
+
+	return lower + "s"
+}
+
+// isVowel checks if a character is a vowel
+func isVowel(c byte) bool {
+	return c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u'
 }

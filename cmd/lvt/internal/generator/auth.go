@@ -13,6 +13,8 @@ import (
 
 type AuthConfig struct {
 	ModuleName          string
+	StructName          string // e.g., "User", "Account", "Admin"
+	TableName           string // e.g., "users", "accounts", "admin_users"
 	EnablePassword      bool
 	EnableMagicLink     bool
 	EnableEmailConfirm  bool
@@ -101,7 +103,11 @@ func GenerateAuth(projectRoot string, config *AuthConfig) error {
 		return fmt.Errorf("failed to load migration template: %w", err)
 	}
 
-	tmpl, err := template.New("migration").Parse(string(templateContent))
+	funcMap := template.FuncMap{
+		"singular": singularize,
+	}
+
+	tmpl, err := template.New("migration").Funcs(funcMap).Parse(string(templateContent))
 	if err != nil {
 		return fmt.Errorf("failed to parse migration template: %w", err)
 	}
@@ -124,7 +130,7 @@ func GenerateAuth(projectRoot string, config *AuthConfig) error {
 		return fmt.Errorf("failed to load queries template: %w", err)
 	}
 
-	tmpl, err = template.New("queries").Parse(string(templateContent))
+	tmpl, err = template.New("queries").Funcs(funcMap).Parse(string(templateContent))
 	if err != nil {
 		return fmt.Errorf("failed to parse queries template: %w", err)
 	}

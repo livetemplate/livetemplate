@@ -1,7 +1,7 @@
 -- Auth Queries
 
--- name: CreateUser :one
-INSERT INTO users (
+-- name: Create{{.StructName}} :one
+INSERT INTO {{.TableName}} (
     id,
     email,
     {{- if .EnablePassword }}
@@ -20,20 +20,20 @@ INSERT INTO users (
 )
 RETURNING *;
 
--- name: GetUserByEmail :one
-SELECT * FROM users
+-- name: Get{{.StructName}}ByEmail :one
+SELECT * FROM {{.TableName}}
 WHERE email = ? COLLATE NOCASE
 LIMIT 1;
 
--- name: GetUserByID :one
-SELECT * FROM users
+-- name: Get{{.StructName}}ByID :one
+SELECT * FROM {{.TableName}}
 WHERE id = ?
 LIMIT 1;
 
 {{- if .EnableEmailConfirm }}
 
--- name: ConfirmUser :exec
-UPDATE users
+-- name: Confirm{{.StructName}} :exec
+UPDATE {{.TableName}}
 SET confirmed_at = ?, updated_at = ?
 WHERE id = ?;
 
@@ -41,17 +41,17 @@ WHERE id = ?;
 
 {{- if .EnablePassword }}
 
--- name: UpdateUserPassword :exec
-UPDATE users
+-- name: Update{{.StructName}}Password :exec
+UPDATE {{.TableName}}
 SET hashed_password = ?, updated_at = ?
 WHERE id = ?;
 
 {{- end }}
 
--- name: CreateUserToken :one
-INSERT INTO user_tokens (
+-- name: Create{{.StructName}}Token :one
+INSERT INTO {{.TableName}}_tokens (
     id,
-    user_id,
+    {{.TableName | singular}}_id,
     token,
     context,
     created_at,
@@ -59,32 +59,32 @@ INSERT INTO user_tokens (
 ) VALUES (?, ?, ?, ?, ?, ?)
 RETURNING *;
 
--- name: GetUserToken :one
-SELECT * FROM user_tokens
+-- name: Get{{.StructName}}Token :one
+SELECT * FROM {{.TableName}}_tokens
 WHERE token = ? AND (expires_at IS NULL OR expires_at > ?)
 LIMIT 1;
 
--- name: DeleteUserToken :exec
-DELETE FROM user_tokens
+-- name: Delete{{.StructName}}Token :exec
+DELETE FROM {{.TableName}}_tokens
 WHERE token = ?;
 
--- name: DeleteUserTokensByContext :exec
-DELETE FROM user_tokens
-WHERE user_id = ? AND context = ?;
+-- name: Delete{{.StructName}}TokensByContext :exec
+DELETE FROM {{.TableName}}_tokens
+WHERE {{.TableName | singular}}_id = ? AND context = ?;
 
 -- name: DeleteExpiredTokens :exec
-DELETE FROM user_tokens
+DELETE FROM {{.TableName}}_tokens
 WHERE expires_at < ?;
 
 {{- if .EnableSessionsUI }}
 
--- name: ListUserSessions :many
-SELECT * FROM user_tokens
-WHERE user_id = ? AND context = 'session'
+-- name: List{{.StructName}}Sessions :many
+SELECT * FROM {{.TableName}}_tokens
+WHERE {{.TableName | singular}}_id = ? AND context = 'session'
 ORDER BY created_at DESC;
 
--- name: DeleteUserSession :exec
-DELETE FROM user_tokens
-WHERE id = ? AND user_id = ? AND context = 'session';
+-- name: Delete{{.StructName}}Session :exec
+DELETE FROM {{.TableName}}_tokens
+WHERE id = ? AND {{.TableName | singular}}_id = ? AND context = 'session';
 
 {{- end }}
