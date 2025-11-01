@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"text/template"
+	"time"
 
 	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
 )
@@ -82,6 +83,36 @@ func GenerateAuth(projectRoot string, config *AuthConfig) error {
 		if err := tmpl.Execute(file, config); err != nil {
 			return fmt.Errorf("failed to execute email template: %w", err)
 		}
+	}
+
+	// Generate migration
+	migrationsDir := filepath.Join(projectRoot, "internal", "database", "migrations")
+	if err := os.MkdirAll(migrationsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create migrations directory: %w", err)
+	}
+
+	timestamp := time.Now().Format("20060102150405")
+	migrationFile := fmt.Sprintf("%s_create_auth_tables.sql", timestamp)
+	migrationPath := filepath.Join(migrationsDir, migrationFile)
+
+	templateContent, err := kitLoader.LoadKitTemplate("multi", "auth/migration.sql.tmpl")
+	if err != nil {
+		return fmt.Errorf("failed to load migration template: %w", err)
+	}
+
+	tmpl, err := template.New("migration").Parse(string(templateContent))
+	if err != nil {
+		return fmt.Errorf("failed to parse migration template: %w", err)
+	}
+
+	file, err := os.Create(migrationPath)
+	if err != nil {
+		return fmt.Errorf("failed to create migration file: %w", err)
+	}
+	defer file.Close()
+
+	if err := tmpl.Execute(file, config); err != nil {
+		return fmt.Errorf("failed to execute migration template: %w", err)
 	}
 
 	return nil

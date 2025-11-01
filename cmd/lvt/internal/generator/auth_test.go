@@ -85,3 +85,69 @@ func TestGenerateAuth_EmailSender(t *testing.T) {
 		t.Error("email.go missing Send method")
 	}
 }
+
+func TestGenerateAuth_Migration(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create migrations directory
+	migrationsDir := filepath.Join(tmpDir, "internal", "database", "migrations")
+	if err := os.MkdirAll(migrationsDir, 0755); err != nil {
+		t.Fatalf("failed to create migrations directory: %v", err)
+	}
+
+	err := GenerateAuth(tmpDir, &AuthConfig{
+		EnablePassword: true,
+	})
+	if err != nil {
+		t.Fatalf("GenerateAuth failed: %v", err)
+	}
+
+	// Find migration file (should be timestamped)
+	files, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		t.Fatalf("failed to read migrations directory: %v", err)
+	}
+
+	var migrationFile string
+	for _, f := range files {
+		if strings.Contains(f.Name(), "create_auth_tables") {
+			migrationFile = filepath.Join(migrationsDir, f.Name())
+			break
+		}
+	}
+
+	if migrationFile == "" {
+		t.Fatal("auth migration file not found")
+	}
+
+	content, err := os.ReadFile(migrationFile)
+	if err != nil {
+		t.Fatalf("failed to read migration file: %v", err)
+	}
+
+	contentStr := string(content)
+
+	// Check for users table
+	if !strings.Contains(contentStr, "CREATE TABLE users") {
+		t.Error("migration missing users table")
+	}
+
+	// Check for user_tokens table
+	if !strings.Contains(contentStr, "CREATE TABLE user_tokens") {
+		t.Error("migration missing user_tokens table")
+	}
+
+	// Check for goose directives
+	if !strings.Contains(contentStr, "-- +goose Up") {
+		t.Error("migration missing goose Up directive")
+	}
+
+	if !strings.Contains(contentStr, "-- +goose Down") {
+		t.Error("migration missing goose Down directive")
+	}
+
+	// Check for case-insensitive email (COLLATE NOCASE for SQLite)
+	if !strings.Contains(contentStr, "COLLATE NOCASE") {
+		t.Error("migration missing case-insensitive email")
+	}
+}
