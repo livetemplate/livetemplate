@@ -243,3 +243,47 @@ func TestGenerateAuth_Queries_Append(t *testing.T) {
 		t.Error("queries.sql missing separator between existing and new content")
 	}
 }
+
+func TestGenerateAuth_UpdateDependencies(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create minimal go.mod without dependencies
+	goModContent := `module testapp
+
+go 1.21
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goModContent), 0644); err != nil {
+		t.Fatalf("failed to create go.mod: %v", err)
+	}
+
+	// Create go.sum to avoid issues
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.sum"), []byte(""), 0644); err != nil {
+		t.Fatalf("failed to create go.sum: %v", err)
+	}
+
+	err := GenerateAuth(tmpDir, &AuthConfig{
+		EnablePassword: true,
+		EnableCSRF:     true,
+	})
+	if err != nil {
+		t.Fatalf("GenerateAuth failed: %v", err)
+	}
+
+	// Read updated go.mod
+	content, err := os.ReadFile(filepath.Join(tmpDir, "go.mod"))
+	if err != nil {
+		t.Fatalf("failed to read go.mod: %v", err)
+	}
+
+	contentStr := string(content)
+
+	// Check for bcrypt
+	if !strings.Contains(contentStr, "golang.org/x/crypto") {
+		t.Error("go.mod missing golang.org/x/crypto dependency")
+	}
+
+	// Check for gorilla/csrf
+	if !strings.Contains(contentStr, "github.com/gorilla/csrf") {
+		t.Error("go.mod missing github.com/gorilla/csrf dependency")
+	}
+}

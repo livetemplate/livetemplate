@@ -3,6 +3,7 @@ package generator
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"text/template"
 	"time"
@@ -145,6 +146,27 @@ func GenerateAuth(projectRoot string, config *AuthConfig) error {
 
 	if err := tmpl.Execute(file, config); err != nil {
 		return fmt.Errorf("failed to execute queries template: %w", err)
+	}
+
+	// Update go.mod dependencies if go.mod exists
+	goModPath := filepath.Join(projectRoot, "go.mod")
+	if _, err := os.Stat(goModPath); err == nil {
+		dependencies := []string{}
+		if config.EnablePassword {
+			dependencies = append(dependencies, "golang.org/x/crypto@latest")
+		}
+		if config.EnableCSRF {
+			dependencies = append(dependencies, "github.com/gorilla/csrf@latest")
+		}
+
+		if len(dependencies) > 0 {
+			args := append([]string{"get"}, dependencies...)
+			cmd := exec.Command("go", args...)
+			cmd.Dir = projectRoot
+			if output, err := cmd.CombinedOutput(); err != nil {
+				return fmt.Errorf("failed to update dependencies: %w\n%s", err, output)
+			}
+		}
 	}
 
 	return nil
