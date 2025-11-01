@@ -151,3 +151,95 @@ func TestGenerateAuth_Migration(t *testing.T) {
 		t.Error("migration missing case-insensitive email")
 	}
 }
+
+func TestGenerateAuth_Queries(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create database directory
+	dbDir := filepath.Join(tmpDir, "internal", "database")
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		t.Fatalf("failed to create directory: %v", err)
+	}
+
+	err := GenerateAuth(tmpDir, &AuthConfig{
+		EnablePassword:      true,
+		EnableEmailConfirm:  true,
+		EnablePasswordReset: true,
+	})
+	if err != nil {
+		t.Fatalf("GenerateAuth failed: %v", err)
+	}
+
+	queriesPath := filepath.Join(dbDir, "queries.sql")
+	if _, err := os.Stat(queriesPath); os.IsNotExist(err) {
+		t.Errorf("queries.sql not generated/updated at %s", queriesPath)
+	}
+
+	content, err := os.ReadFile(queriesPath)
+	if err != nil {
+		t.Fatalf("failed to read queries.sql: %v", err)
+	}
+
+	contentStr := string(content)
+
+	requiredQueries := []string{
+		"-- name: CreateUser :one",
+		"-- name: GetUserByEmail :one",
+		"-- name: GetUserByID :one",
+		"-- name: CreateUserToken :one",
+		"-- name: GetUserToken :one",
+		"-- name: DeleteUserToken :exec",
+	}
+
+	for _, query := range requiredQueries {
+		if !strings.Contains(contentStr, query) {
+			t.Errorf("queries.sql missing: %s", query)
+		}
+	}
+}
+
+func TestGenerateAuth_Queries_Append(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create database directory with existing queries.sql
+	dbDir := filepath.Join(tmpDir, "internal", "database")
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		t.Fatalf("failed to create directory: %v", err)
+	}
+
+	existingContent := "-- Existing queries\n-- name: GetSomething :one\nSELECT * FROM something WHERE id = ?;"
+	queriesPath := filepath.Join(dbDir, "queries.sql")
+	if err := os.WriteFile(queriesPath, []byte(existingContent), 0644); err != nil {
+		t.Fatalf("failed to write queries.sql: %v", err)
+	}
+
+	err := GenerateAuth(tmpDir, &AuthConfig{
+		EnablePassword:   true,
+		EnableSessionsUI: true,
+	})
+	if err != nil {
+		t.Fatalf("GenerateAuth failed: %v", err)
+	}
+
+	content, err := os.ReadFile(queriesPath)
+	if err != nil {
+		t.Fatalf("failed to read queries.sql: %v", err)
+	}
+
+	contentStr := string(content)
+
+	// Verify existing content is preserved
+	if !strings.Contains(contentStr, existingContent) {
+		t.Error("queries.sql did not preserve existing content")
+	}
+
+	// Verify new content was appended
+	if !strings.Contains(contentStr, "-- name: CreateUser :one") {
+		t.Error("queries.sql missing new auth queries")
+	}
+
+	// Verify separator was added
+	if !strings.Contains(contentStr, "\n\n-- Auth Queries") {
+		t.Error("queries.sql missing separator between existing and new content")
+	}
+}

@@ -115,5 +115,37 @@ func GenerateAuth(projectRoot string, config *AuthConfig) error {
 		return fmt.Errorf("failed to execute migration template: %w", err)
 	}
 
+	// Append to queries.sql (or create if doesn't exist)
+	queriesPath := filepath.Join(projectRoot, "internal", "database", "queries.sql")
+
+	templateContent, err = kitLoader.LoadKitTemplate("multi", "auth/queries.sql.tmpl")
+	if err != nil {
+		return fmt.Errorf("failed to load queries template: %w", err)
+	}
+
+	tmpl, err = template.New("queries").Parse(string(templateContent))
+	if err != nil {
+		return fmt.Errorf("failed to parse queries template: %w", err)
+	}
+
+	// Open in append mode (create if doesn't exist)
+	file, err = os.OpenFile(queriesPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open queries.sql: %w", err)
+	}
+	defer file.Close()
+
+	// Add separator if file already has content
+	stat, _ := file.Stat()
+	if stat.Size() > 0 {
+		if _, err := file.WriteString("\n\n"); err != nil {
+			return fmt.Errorf("failed to write separator: %w", err)
+		}
+	}
+
+	if err := tmpl.Execute(file, config); err != nil {
+		return fmt.Errorf("failed to execute queries template: %w", err)
+	}
+
 	return nil
 }

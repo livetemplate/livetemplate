@@ -1,0 +1,90 @@
+-- Auth Queries
+
+-- name: CreateUser :one
+INSERT INTO users (
+    id,
+    email,
+    {{- if .EnablePassword }}
+    hashed_password,
+    {{- end }}
+    created_at,
+    updated_at
+) VALUES (
+    ?,
+    ?,
+    {{- if .EnablePassword }}
+    ?,
+    {{- end }}
+    ?,
+    ?
+)
+RETURNING *;
+
+-- name: GetUserByEmail :one
+SELECT * FROM users
+WHERE email = ? COLLATE NOCASE
+LIMIT 1;
+
+-- name: GetUserByID :one
+SELECT * FROM users
+WHERE id = ?
+LIMIT 1;
+
+{{- if .EnableEmailConfirm }}
+
+-- name: ConfirmUser :exec
+UPDATE users
+SET confirmed_at = ?, updated_at = ?
+WHERE id = ?;
+
+{{- end }}
+
+{{- if .EnablePassword }}
+
+-- name: UpdateUserPassword :exec
+UPDATE users
+SET hashed_password = ?, updated_at = ?
+WHERE id = ?;
+
+{{- end }}
+
+-- name: CreateUserToken :one
+INSERT INTO user_tokens (
+    id,
+    user_id,
+    token,
+    context,
+    created_at,
+    expires_at
+) VALUES (?, ?, ?, ?, ?, ?)
+RETURNING *;
+
+-- name: GetUserToken :one
+SELECT * FROM user_tokens
+WHERE token = ? AND (expires_at IS NULL OR expires_at > ?)
+LIMIT 1;
+
+-- name: DeleteUserToken :exec
+DELETE FROM user_tokens
+WHERE token = ?;
+
+-- name: DeleteUserTokensByContext :exec
+DELETE FROM user_tokens
+WHERE user_id = ? AND context = ?;
+
+-- name: DeleteExpiredTokens :exec
+DELETE FROM user_tokens
+WHERE expires_at < ?;
+
+{{- if .EnableSessionsUI }}
+
+-- name: ListUserSessions :many
+SELECT * FROM user_tokens
+WHERE user_id = ? AND context = 'session'
+ORDER BY created_at DESC;
+
+-- name: DeleteUserSession :exec
+DELETE FROM user_tokens
+WHERE id = ? AND user_id = ? AND context = 'session';
+
+{{- end }}
