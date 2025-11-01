@@ -24,6 +24,14 @@ type AuthConfig struct {
 }
 
 func GenerateAuth(projectRoot string, config *AuthConfig) error {
+	// Apply defaults if not set
+	if config.TableName == "" {
+		config.TableName = "users"
+	}
+	if config.StructName == "" {
+		config.StructName = "User"
+	}
+
 	// Load kit loader
 	kitLoader := kits.DefaultLoader()
 
@@ -247,10 +255,39 @@ func GenerateAuth(projectRoot string, config *AuthConfig) error {
 		return fmt.Errorf("failed to close middleware.go: %w", err)
 	}
 
+	// Generate E2E test file
+	templateContent, err = kitLoader.LoadKitTemplate("multi", "auth/e2e_test.go.tmpl")
+	if err != nil {
+		return fmt.Errorf("failed to load e2e test template: %w", err)
+	}
+
+	outputPath = filepath.Join(authHandlerDir, "auth_e2e_test.go")
+	tmpl, err = template.New("e2e_test").Parse(string(templateContent))
+	if err != nil {
+		return fmt.Errorf("failed to parse e2e test template: %w", err)
+	}
+
+	file, err = os.Create(outputPath)
+	if err != nil {
+		return fmt.Errorf("failed to create auth_e2e_test.go: %w", err)
+	}
+
+	if err := tmpl.Execute(file, config); err != nil {
+		file.Close()
+		return fmt.Errorf("failed to execute e2e test template: %w", err)
+	}
+
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("failed to close auth_e2e_test.go: %w", err)
+	}
+
 	// Update go.mod dependencies if go.mod exists
 	goModPath := filepath.Join(projectRoot, "go.mod")
 	if _, err := os.Stat(goModPath); err == nil {
-		dependencies := []string{"github.com/google/uuid@latest"}
+		dependencies := []string{
+			"github.com/google/uuid@latest",
+			"github.com/chromedp/chromedp@latest", // For E2E tests
+		}
 		if config.EnablePassword {
 			dependencies = append(dependencies, "golang.org/x/crypto@latest")
 		}

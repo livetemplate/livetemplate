@@ -336,6 +336,32 @@ http.Handle("/dashboard", protectedHandler)
 
 The generated auth templates use Tailwind CSS by default. To use a different CSS framework (Bulma, Pico, or plain HTML), see the [Auth Customization Guide](./auth-customization.md) for complete examples and instructions.
 
+**E2E Testing:**
+
+The auth command generates comprehensive E2E tests using chromedp that test all auth flows:
+- Registration flow (with email confirmation if enabled)
+- Login flow (password and magic-link)
+- Password reset flow (if enabled)
+- Logout flow
+- Protected route access
+
+To run E2E tests:
+```bash
+# Requires Docker to run Chrome in a container
+go test ./internal/app/auth -run TestAuthE2E -v
+
+# Skip E2E tests in short mode
+go test ./internal/app/auth -short
+```
+
+The E2E tests include:
+- Real browser automation with chromedp
+- WebSocket connection verification
+- Template expression validation
+- Full user journey testing
+- Console log capture
+- Server log capture
+
 ---
 
 ### Managing Migrations

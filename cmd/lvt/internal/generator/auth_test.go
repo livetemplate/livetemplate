@@ -132,9 +132,9 @@ func TestGenerateAuth_Migration(t *testing.T) {
 		t.Error("migration missing users table")
 	}
 
-	// Check for user_tokens table
-	if !strings.Contains(contentStr, "CREATE TABLE user_tokens") {
-		t.Error("migration missing user_tokens table")
+	// Check for users_tokens table
+	if !strings.Contains(contentStr, "CREATE TABLE users_tokens") {
+		t.Error("migration missing users_tokens table")
 	}
 
 	// Check for goose directives

@@ -1,0 +1,328 @@
+package auth
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/chromedp/chromedp"
+	e2etest "github.com/livefir/livetemplate/cmd/lvt/testing"
+)
+
+// TestAuthE2E tests the authentication system end-to-end with a real browser
+func TestAuthE2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping E2E test in short mode")
+	}
+
+	// Get free ports for server and Chrome debugging
+	serverPort, err := e2etest.GetFreePort()
+	if err != nil {
+		t.Fatalf("Failed to get free port for server: %v", err)
+	}
+
+	debugPort, err := e2etest.GetFreePort()
+	if err != nil {
+		t.Fatalf("Failed to get free port for Chrome: %v", err)
+	}
+
+	// Start auth server (you'll need to create a main.go that wires up the auth handler)
+	serverCmd := e2etest.StartTestServer(t, "../../cmd/testauth/main.go", serverPort)
+	defer func() {
+		if serverCmd != nil && serverCmd.Process != nil {
+			serverCmd.Process.Kill()
+		}
+	}()
+
+	// Start Docker Chrome container
+	chromeCmd := e2etest.StartDockerChrome(t, debugPort)
+	defer e2etest.StopDockerChrome(t, chromeCmd, debugPort)
+
+	// Connect to Docker Chrome via remote debugging
+	chromeURL := fmt.Sprintf("http://localhost:%d", debugPort)
+	allocCtx, allocCancel := chromedp.NewRemoteAllocator(context.Background(), chromeURL)
+	defer allocCancel()
+
+	ctx, cancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(t.Logf))
+	defer cancel()
+
+	// Set timeout for the entire test
+	ctx, cancel = context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+
+	{{- if .EnablePassword }}
+	t.Run("Registration Flow", func(t *testing.T) {
+		var pageHTML string
+
+		err := chromedp.Run(ctx,
+			chromedp.Navigate(e2etest.GetChromeTestURL(serverPort)+"/auth"),
+			e2etest.WaitForWebSocketReady(5*time.Second),
+			chromedp.WaitVisible(`h2`, chromedp.ByQuery),
+			e2etest.ValidateNoTemplateExpressions("[data-lvt-id]"),
+			chromedp.OuterHTML(`body`, &pageHTML, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to load auth page: %v", err)
+		}
+
+		// Verify we're on login page
+		if !strings.Contains(pageHTML, "Sign in") {
+			t.Error("Login page not displayed")
+		}
+
+		// Click "Create account" link
+		err = chromedp.Run(ctx,
+			chromedp.Click(`button:contains("Create account")`, chromedp.ByQuery),
+			chromedp.Sleep(500*time.Millisecond), // Wait for view change
+			chromedp.OuterHTML(`body`, &pageHTML, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to click create account: %v", err)
+		}
+
+		// Verify we're on registration page
+		if !strings.Contains(pageHTML, "Create") {
+			t.Error("Registration page not displayed")
+		}
+
+		// Fill in registration form
+		testEmail := fmt.Sprintf("test-%d@example.com", time.Now().Unix())
+		err = chromedp.Run(ctx,
+			chromedp.SendKeys(`input[name="Email"]`, testEmail, chromedp.ByQuery),
+			chromedp.SendKeys(`input[name="Password"]`, "testpassword123", chromedp.ByQuery),
+			chromedp.Click(`button[lvt-click="HandleRegister"]`, chromedp.ByQuery),
+			chromedp.Sleep(1*time.Second), // Wait for registration
+			chromedp.OuterHTML(`body`, &pageHTML, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to register: %v", err)
+		}
+
+		{{- if .EnableEmailConfirm }}
+		// Verify confirmation message
+		if !strings.Contains(pageHTML, "check your email") || !strings.Contains(pageHTML, "confirm") {
+			t.Error("Email confirmation message not displayed")
+		}
+		{{- else }}
+		// Verify success message
+		if !strings.Contains(pageHTML, "Account created") {
+			t.Error("Success message not displayed")
+		}
+		{{- end }}
+
+		t.Log("✅ Registration flow verified")
+	})
+
+	t.Run("Login Flow", func(t *testing.T) {
+		var pageHTML string
+
+		// Navigate to auth page
+		err := chromedp.Run(ctx,
+			chromedp.Navigate(e2etest.GetChromeTestURL(serverPort)+"/auth"),
+			e2etest.WaitForWebSocketReady(5*time.Second),
+			chromedp.WaitVisible(`input[name="Email"]`, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to load auth page: %v", err)
+		}
+
+		// Fill in login form (use test credentials that exist in your test database)
+		err = chromedp.Run(ctx,
+			chromedp.SendKeys(`input[name="Email"]`, "test@example.com", chromedp.ByQuery),
+			chromedp.SendKeys(`input[name="Password"]`, "testpassword", chromedp.ByQuery),
+			chromedp.Click(`button[lvt-click="HandleLogin"]`, chromedp.ByQuery),
+			chromedp.Sleep(1*time.Second), // Wait for login
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to login: %v", err)
+		}
+
+		// Verify we're redirected (check URL or page content)
+		var currentURL string
+		err = chromedp.Run(ctx,
+			chromedp.Location(&currentURL),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to get current URL: %v", err)
+		}
+
+		// Should be redirected away from /auth
+		if strings.Contains(currentURL, "/auth") {
+			t.Error("Not redirected after login")
+		}
+
+		t.Log("✅ Login flow verified")
+	})
+
+	{{- if .EnablePasswordReset }}
+	t.Run("Password Reset Flow", func(t *testing.T) {
+		var pageHTML string
+
+		// Navigate to auth page
+		err := chromedp.Run(ctx,
+			chromedp.Navigate(e2etest.GetChromeTestURL(serverPort)+"/auth"),
+			e2etest.WaitForWebSocketReady(5*time.Second),
+			chromedp.WaitVisible(`button:contains("Forgot password")`, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to load auth page: %v", err)
+		}
+
+		// Click "Forgot password" link
+		err = chromedp.Run(ctx,
+			chromedp.Click(`button:contains("Forgot password")`, chromedp.ByQuery),
+			chromedp.Sleep(500*time.Millisecond), // Wait for view change
+			chromedp.OuterHTML(`body`, &pageHTML, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to click forgot password: %v", err)
+		}
+
+		// Verify we're on password reset page
+		if !strings.Contains(pageHTML, "Reset") {
+			t.Error("Password reset page not displayed")
+		}
+
+		// Fill in email
+		err = chromedp.Run(ctx,
+			chromedp.SendKeys(`input[name="Email"]`, "test@example.com", chromedp.ByQuery),
+			chromedp.Click(`button[lvt-click="HandleForgotPassword"]`, chromedp.ByQuery),
+			chromedp.Sleep(1*time.Second), // Wait for email sent
+			chromedp.OuterHTML(`body`, &pageHTML, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to request password reset: %v", err)
+		}
+
+		// Verify success message
+		if !strings.Contains(pageHTML, "reset link") {
+			t.Error("Password reset success message not displayed")
+		}
+
+		t.Log("✅ Password reset flow verified")
+	})
+	{{- end }}
+	{{- end }}
+
+	{{- if .EnableMagicLink }}
+	t.Run("Magic Link Flow", func(t *testing.T) {
+		var pageHTML string
+
+		// Navigate to auth page
+		err := chromedp.Run(ctx,
+			chromedp.Navigate(e2etest.GetChromeTestURL(serverPort)+"/auth"),
+			e2etest.WaitForWebSocketReady(5*time.Second),
+			chromedp.WaitVisible(`button[lvt-click="HandleMagicLink"]`, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to load auth page: %v", err)
+		}
+
+		// Fill in email
+		err = chromedp.Run(ctx,
+			chromedp.SendKeys(`input[name="Email"]`, "test@example.com", chromedp.ByQuery),
+			chromedp.Click(`button[lvt-click="HandleMagicLink"]`, chromedp.ByQuery),
+			chromedp.Sleep(1*time.Second), // Wait for magic link sent
+			chromedp.OuterHTML(`body`, &pageHTML, chromedp.ByQuery),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to request magic link: %v", err)
+		}
+
+		// Verify success message
+		if !strings.Contains(pageHTML, "Check your email") || !strings.Contains(pageHTML, "login link") {
+			t.Error("Magic link success message not displayed")
+		}
+
+		t.Log("✅ Magic link flow verified")
+	})
+	{{- end }}
+
+	t.Run("Logout Flow", func(t *testing.T) {
+		// First login (reuse login flow)
+		err := chromedp.Run(ctx,
+			chromedp.Navigate(e2etest.GetChromeTestURL(serverPort)+"/auth"),
+			e2etest.WaitForWebSocketReady(5*time.Second),
+			chromedp.WaitVisible(`input[name="Email"]`, chromedp.ByQuery),
+			chromedp.SendKeys(`input[name="Email"]`, "test@example.com", chromedp.ByQuery),
+			chromedp.SendKeys(`input[name="Password"]`, "testpassword", chromedp.ByQuery),
+			chromedp.Click(`button[lvt-click="HandleLogin"]`, chromedp.ByQuery),
+			chromedp.Sleep(1*time.Second),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to login for logout test: %v", err)
+		}
+
+		// Navigate to logout
+		err = chromedp.Run(ctx,
+			chromedp.Navigate(e2etest.GetChromeTestURL(serverPort)+"/auth/logout"),
+			chromedp.Sleep(1*time.Second),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to logout: %v", err)
+		}
+
+		// Verify we're redirected to auth page
+		var currentURL string
+		err = chromedp.Run(ctx,
+			chromedp.Location(&currentURL),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to get current URL: %v", err)
+		}
+
+		if !strings.Contains(currentURL, "/auth") {
+			t.Error("Not redirected to auth page after logout")
+		}
+
+		t.Log("✅ Logout flow verified")
+	})
+
+	t.Run("Protected Route Access", func(t *testing.T) {
+		// Try to access a protected route without authentication
+		err := chromedp.Run(ctx,
+			// First logout
+			chromedp.Navigate(e2etest.GetChromeTestURL(serverPort)+"/auth/logout"),
+			chromedp.Sleep(500*time.Millisecond),
+			// Try to access protected route
+			chromedp.Navigate(e2etest.GetChromeTestURL(serverPort)+"/dashboard"),
+			chromedp.Sleep(1*time.Second),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to test protected route: %v", err)
+		}
+
+		// Verify we're redirected to auth
+		var currentURL string
+		err = chromedp.Run(ctx,
+			chromedp.Location(&currentURL),
+		)
+
+		if err != nil {
+			t.Fatalf("Failed to get current URL: %v", err)
+		}
+
+		if !strings.Contains(currentURL, "/auth") {
+			t.Error("Not redirected to auth for protected route")
+		}
+
+		t.Log("✅ Protected route access verified")
+	})
+}
