@@ -233,17 +233,19 @@ Generates a complete authentication system similar to Phoenix's `mix phx.gen.aut
 **Usage:**
 
 ```bash
-# Default: password + magic-link authentication
+# Default: User struct, users table
 lvt gen auth
 
-# Only password authentication
-lvt gen auth --no-magic-link
+# Custom struct name (table name auto-pluralized)
+lvt gen auth Account              # Creates Account struct, accounts table
 
-# Only magic-link authentication
-lvt gen auth --no-password
+# Custom struct and table names
+lvt gen auth Admin admin_users    # Creates Admin struct, admin_users table
 
-# Disable optional features
-lvt gen auth --no-email-confirm --no-password-reset
+# With feature flags
+lvt gen auth --no-magic-link                    # Password only
+lvt gen auth Account --no-email-confirm         # Custom names + no confirmation
+lvt gen auth Admin admin_users --no-password    # Custom names + magic-link only
 ```
 
 **Flags:**
@@ -266,11 +268,14 @@ lvt gen auth --no-email-confirm --no-password-reset
 
 **Database Tables:**
 
-- `users` - User accounts (email, optional password)
-- `user_tokens` - Tokens for magic links, email confirmation, password reset
+Default names (can be customized):
+- `users` (or custom table name) - User accounts (email, optional password)
+- `users_tokens` (or `{table}_tokens`) - Tokens for magic links, email confirmation, password reset
 
 **Features:**
 
+- ✅ **Customizable struct/table names** - Like Phoenix's `mix phx.gen.auth`
+- ✅ **Smart pluralization** - User → users, Account → accounts, etc.
 - ✅ Password authentication (bcrypt)
 - ✅ Magic-link email authentication
 - ✅ Email confirmation flow
