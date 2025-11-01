@@ -7,6 +7,12 @@ set -e
 
 echo "🔄 Running pre-commit validation..."
 
+# Step 0: Clean up generated test artifacts
+if [ -d "cmd/lvt/commands/internal" ]; then
+    echo "🧹 Cleaning up generated test artifacts..."
+    rm -rf cmd/lvt/commands/internal/
+fi
+
 # Step 1: Auto-format Go code before validation
 echo "📝 Auto-formatting Go code..."
 if GOWORK=off go fmt ./...; then
