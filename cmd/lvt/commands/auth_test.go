@@ -15,35 +15,17 @@ func TestAuth_Flags(t *testing.T) {
 		errMsg  string
 	}{
 		{
-			name:    "default - all features enabled",
-			args:    []string{},
-			wantErr: false,
-		},
-		{
-			name:    "disable magic link",
-			args:    []string{"--no-magic-link"},
-			wantErr: false,
-		},
-		{
-			name:    "disable password",
-			args:    []string{"--no-password"},
-			wantErr: false,
-		},
-		{
 			name:    "both password and magic-link disabled",
 			args:    []string{"--no-password", "--no-magic-link"},
 			wantErr: true,
 			errMsg:  "at least one authentication method (password or magic-link) must be enabled",
 		},
-		{
-			name:    "disable email confirmation",
-			args:    []string{"--no-email-confirm"},
-			wantErr: false,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Note: We only test flag validation here, not actual file generation
+			// File generation is tested in TestAuthCommand_Integration
 			err := Auth(tt.args)
 
 			if tt.wantErr {
