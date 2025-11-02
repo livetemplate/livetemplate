@@ -53,7 +53,7 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 | **M2: Horizontal Scaling** | Redis integration, multi-instance | 4-5 weeks | 🔴 TODO | Week 11 |
 | **M3: Enterprise Scale** | Advanced resilience, optimization | 8-12 weeks | 🔴 TODO | Week 26 |
 
-**Overall Progress:** `[████████░░░░░░░░░░░░] 40% (17/42 tasks)`
+**Overall Progress:** `[███████░░░░░░░░░░░░░] 37% (22/59 tasks)`
 
 ---
 
@@ -69,7 +69,7 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 - ✅ Prometheus metrics enable capacity planning
 
 **Duration:** 4-6 weeks
-**Progress:** `[█████████░] 17/18 tasks (94%)`
+**Progress:** `[████████████░░░░░░░░] 22/35 tasks (63%)`
 
 ---
 
@@ -197,16 +197,16 @@ livetemplate_broadcasts_sent_total{instance="host1"} 9876
 
 ---
 
-### 1.5 Configuration Management
+### 1.5 Configuration Management ✅
 
-**Files:** `config.go` (new), examples
+**Files:** `config.go` (new), `config_test.go` (new), `docs/CONFIGURATION.md` (new)
 
 | Task | Priority | Status | Est. Effort | Assignee |
 |------|----------|--------|-------------|----------|
-| Design environment variable schema (LVT_* prefix) | 🟡 HIGH | 🔴 TODO | 1 day | - |
-| Implement config loading from env vars | 🟡 HIGH | 🔴 TODO | 2 days | - |
-| Add validation for config values | 🟡 HIGH | 🔴 TODO | 1 day | - |
-| Document all configuration options | 🟡 MEDIUM | 🔴 TODO | 2 days | - |
+| Design environment variable schema (LVT_* prefix) | 🟡 HIGH | ✅ DONE | 1 day | - |
+| Implement config loading from env vars | 🟡 HIGH | ✅ DONE | 2 days | - |
+| Add validation for config values | 🟡 HIGH | ✅ DONE | 1 day | - |
+| Document all configuration options | 🟡 MEDIUM | ✅ DONE | 2 days | - |
 | Update examples to use env-based config | 🟡 MEDIUM | 🔴 TODO | 1 day | - |
 
 **Acceptance Criteria:**
@@ -246,10 +246,10 @@ export LVT_REDIS_URL=redis://localhost:6379/0  # Optional for M2
 
 ### Milestone 1 Summary
 
-**Total Tasks:** 18
-**Completed:** 17
+**Total Tasks:** 35
+**Completed:** 22
 **In Progress:** 0
-**TODO:** 1
+**TODO:** 13
 
 **Estimated Effort:** 4-6 weeks with 1 engineer
 
@@ -555,10 +555,10 @@ const delay = Math.min(
 
 | Milestone | Tasks | Completed | Progress | Status |
 |-----------|-------|-----------|----------|--------|
-| **M1: Production Foundation** | 18 | 17 | `[█████████░] 94%` | 🟡 IN PROGRESS |
+| **M1: Production Foundation** | 35 | 22 | `[████████████░░░░░░░░] 63%` | 🟡 IN PROGRESS |
 | **M2: Horizontal Scaling** | 10 | 0 | `[░░░░░░░░░░] 0%` | 🔴 TODO |
 | **M3: Enterprise Scale** | 14 | 0 | `[░░░░░░░░░░] 0%` | 🔴 TODO |
-| **TOTAL** | **42** | **17** | `[████████░░░░░░░░░░] 40%` | 🟡 IN PROGRESS |
+| **TOTAL** | **59** | **22** | `[███████░░░░░░░░░░░░░] 37%` | 🟡 IN PROGRESS |
 
 ### Key Metrics
 
