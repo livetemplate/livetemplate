@@ -118,6 +118,7 @@ type TemplateData struct {
 	Backup      string
 	Redis       string
 	Storage     string
+	CI          string
 	Namespace   string
 	MultiRegion bool
 	Ingress     string
@@ -133,6 +134,7 @@ func (c *StackConfig) ToTemplateData(projectName string) *TemplateData {
 		Backup:      string(c.Backup),
 		Redis:       string(c.Redis),
 		Storage:     string(c.Storage),
+		CI:          string(c.CI),
 		Namespace:   c.Namespace,
 		MultiRegion: c.MultiRegion,
 		Ingress:     string(c.Ingress),
