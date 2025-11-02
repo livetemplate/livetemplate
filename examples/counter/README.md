@@ -31,6 +31,15 @@ A real-time counter application demonstrating LiveTemplate's reactive state mana
    PORT=8081 go run main.go
    ```
 
+   With environment-based configuration:
+   ```bash
+   # Development mode with connection limits
+   LVT_DEV_MODE=true LVT_MAX_CONNECTIONS=100 go run main.go
+
+   # Production mode with allowed origins
+   LVT_ALLOWED_ORIGINS="https://example.com" LVT_LOG_LEVEL=info go run main.go
+   ```
+
 2. **Open your browser:**
    Navigate to `http://localhost:8080`
 
@@ -39,6 +48,35 @@ A real-time counter application demonstrating LiveTemplate's reactive state mana
    - Click **-1** to decrement the counter
    - Click **Reset** to reset to zero
    - Watch the conditional text change based on the counter value
+
+## Configuration
+
+This example uses LiveTemplate's environment-based configuration system. All configuration is loaded from environment variables with the `LVT_` prefix:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LVT_DEV_MODE` | `false` | Enable development mode (uses local client library) |
+| `LVT_MAX_CONNECTIONS` | `0` (unlimited) | Maximum concurrent WebSocket connections |
+| `LVT_MAX_CONNECTIONS_PER_GROUP` | `0` (unlimited) | Maximum connections per session group |
+| `LVT_ALLOWED_ORIGINS` | empty | Comma-separated list of allowed WebSocket origins |
+| `LVT_LOG_LEVEL` | `info` | Logging level (`debug`, `info`, `warn`, `error`) |
+| `LVT_METRICS_ENABLED` | `true` | Enable Prometheus metrics export |
+| `LVT_SHUTDOWN_TIMEOUT` | `30s` | Graceful shutdown timeout |
+
+**Example configurations:**
+
+```bash
+# Development
+LVT_DEV_MODE=true LVT_LOG_LEVEL=debug go run main.go
+
+# Production with limits
+LVT_MAX_CONNECTIONS=10000 LVT_ALLOWED_ORIGINS="https://example.com" go run main.go
+
+# Disable metrics for testing
+LVT_METRICS_ENABLED=false go run main.go
+```
+
+For more details, see [CONFIGURATION.md](../../docs/CONFIGURATION.md).
 
 ## How It Works
 
@@ -70,10 +108,17 @@ func (s *CounterState) Change(action string, data map[string]interface{}) {
 }
 
 func main() {
+    // Load configuration from environment variables
+    envConfig, err := livetemplate.LoadEnvConfig()
+    if err != nil {
+        log.Fatalf("Failed to load configuration: %v", err)
+    }
+
     state := &CounterState{Counter: 0, Status: "zero"}
 
-    // Auto-discovers counter.tmpl in current directory
-    tmpl := livetemplate.New("counter")
+    // Create template with environment-based configuration
+    // Configuration is loaded from LVT_* environment variables
+    tmpl := livetemplate.New("counter", envConfig.ToOptions()...)
 
     // Handle() auto-configures: WebSocket, HTTP, state cloning, updates
     http.Handle("/", tmpl.Handle(state))

@@ -41,37 +41,72 @@ func formatTime() string {
 
 func main() {
 	// ============================================================
+	// CONFIGURATION - Load from environment variables
+	// ============================================================
+
+	// Load configuration from environment variables (LVT_* prefix)
+	envConfig, err := livetemplate.LoadEnvConfig()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
+	// Validate configuration
+	if err := envConfig.Validate(); err != nil {
+		log.Fatalf("Invalid configuration: %v", err)
+	}
+
+	// ============================================================
 	// OBSERVABILITY SETUP - Production-ready logging and metrics
 	// ============================================================
 
 	// Setup structured logging (JSON for production, Text for development)
+	// Log level is controlled by LVT_LOG_LEVEL environment variable
 	var handler slog.Handler
 	var level slog.Level
+
+	// Parse log level from config
+	switch envConfig.LogLevel {
+	case "debug":
+		level = slog.LevelDebug
+	case "info":
+		level = slog.LevelInfo
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	default:
+		level = slog.LevelInfo
+	}
+
 	if os.Getenv("ENV") == "production" {
 		// JSON format for production (easy to parse by log aggregators)
-		level = slog.LevelInfo
 		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 			Level: level,
 		})
 	} else {
 		// Text format for development (human-readable)
-		level = slog.LevelDebug
 		handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 			Level: level,
 		})
 	}
 
 	logger := observe.NewLogger(level, handler)
-	logger.Info("LiveTemplate Counter Server starting with observability enabled")
+	logger.Info("LiveTemplate Counter Server starting with observability enabled",
+		"log_level", envConfig.LogLevel,
+		"metrics_enabled", envConfig.MetricsEnabled,
+		"dev_mode", envConfig.DevMode)
 
 	// Setup operational metrics
 	metrics := observe.NewMetrics(logger.Logger)
 
 	// Start periodic metrics emission in background (every 30 seconds)
-	go metrics.EmitPeriodically(30 * time.Second)
+	// Metrics can be disabled with LVT_METRICS_ENABLED=false
+	if envConfig.MetricsEnabled {
+		go metrics.EmitPeriodically(30 * time.Second)
+	}
 
 	// ============================================================
-	// APPLICATION SETUP - Same as before
+	// APPLICATION SETUP - With environment-based configuration
 	// ============================================================
 
 	// Create initial state
@@ -81,9 +116,10 @@ func main() {
 		LastUpdated: formatTime(),
 	}
 
-	// Create template - auto-discovers counter.tmpl
+	// Create template with environment-based configuration
 	// Template operations are now automatically logged!
-	tmpl := livetemplate.New("counter")
+	// Configuration is loaded from LVT_* environment variables
+	tmpl := livetemplate.New("counter", envConfig.ToOptions()...)
 
 	// Mount handler - auto-handles initial page, WebSocket, and HTTP actions
 	// All actions and WebSocket events are now logged and metered!
@@ -108,8 +144,7 @@ func main() {
 		"health", "http://localhost:"+port+"/health",
 	)
 
-	err := http.ListenAndServe(":"+port, nil)
-	if err != nil {
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		logger.Error("Server failed to start", "error", err)
 		os.Exit(1)
 	}

@@ -53,7 +53,7 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 | **M2: Horizontal Scaling** | Redis integration, multi-instance | 4-5 weeks | 🔴 TODO | Week 11 |
 | **M3: Enterprise Scale** | Advanced resilience, optimization | 8-12 weeks | 🔴 TODO | Week 26 |
 
-**Overall Progress:** `[███████░░░░░░░░░░░░░] 37% (22/59 tasks)`
+**Overall Progress:** `[███████░░░░░░░░░░░░░] 39% (23/59 tasks)`
 
 ---
 
@@ -69,7 +69,7 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 - ✅ Prometheus metrics enable capacity planning
 
 **Duration:** 4-6 weeks
-**Progress:** `[████████████░░░░░░░░] 22/35 tasks (63%)`
+**Progress:** `[████████████░░░░░░░░] 23/35 tasks (66%)`
 
 ---
 
@@ -207,7 +207,7 @@ livetemplate_broadcasts_sent_total{instance="host1"} 9876
 | Implement config loading from env vars | 🟡 HIGH | ✅ DONE | 2 days | - |
 | Add validation for config values | 🟡 HIGH | ✅ DONE | 1 day | - |
 | Document all configuration options | 🟡 MEDIUM | ✅ DONE | 2 days | - |
-| Update examples to use env-based config | 🟡 MEDIUM | 🔴 TODO | 1 day | - |
+| Update examples to use env-based config | 🟡 MEDIUM | ✅ DONE | 1 day | - |
 
 **Acceptance Criteria:**
 - All config options available via environment variables
