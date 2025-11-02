@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .ProjectName }}-litestream-config
+  namespace: {{ .Namespace }}
+  labels:
+    app: {{ .ProjectName }}
+    managed-by: lvt
+data:
+  litestream.yml: |
+    dbs:
+      - path: /data/app.db
+        replicas:
+          {{- if eq .Storage "s3" }}
+          - type: s3
+            bucket: ${LITESTREAM_BUCKET:-your-bucket-name}
+            path: {{ .ProjectName }}/db
+            region: ${AWS_REGION:-us-east-1}
+            endpoint: ${S3_ENDPOINT:-}
+            force-path-style: ${S3_FORCE_PATH_STYLE:-false}
+          {{- else if eq .Storage "b2" }}
+          - type: s3
+            bucket: ${LITESTREAM_BUCKET:-your-bucket-name}
+            path: {{ .ProjectName }}/db
+            region: us-east-1
+            endpoint: s3.us-east-1.backblazeb2.com
+            force-path-style: true
+          {{- else if eq .Storage "do-spaces" }}
+          - type: s3
+            bucket: ${LITESTREAM_BUCKET:-your-bucket-name}
+            path: {{ .ProjectName }}/db
+            region: ${DO_REGION:-nyc3}
+            endpoint: ${DO_REGION:-nyc3}.digitaloceanspaces.com
+            force-path-style: false
+          {{- end }}

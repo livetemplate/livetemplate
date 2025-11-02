@@ -1,0 +1,162 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .ProjectName }}
+  namespace: {{ .Namespace }}
+  labels:
+    app: {{ .ProjectName }}
+    managed-by: lvt
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .ProjectName }}
+  template:
+    metadata:
+      labels:
+        app: {{ .ProjectName }}
+    spec:
+      containers:
+      - name: app
+        {{- if eq .Registry "ghcr" }}
+        image: ghcr.io/YOUR_GITHUB_ORG/{{ .ProjectName }}:latest
+        {{- else if eq .Registry "docker" }}
+        image: docker.io/YOUR_DOCKER_USERNAME/{{ .ProjectName }}:latest
+        {{- else if eq .Registry "gcr" }}
+        image: gcr.io/YOUR_GCP_PROJECT/{{ .ProjectName }}:latest
+        {{- else if eq .Registry "ecr" }}
+        image: YOUR_AWS_ACCOUNT.dkr.ecr.YOUR_REGION.amazonaws.com/{{ .ProjectName }}:latest
+        {{- else }}
+        image: {{ .ProjectName }}:latest
+        {{- end }}
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        env:
+        - name: PORT
+          value: "8080"
+        {{- if eq .Database "sqlite" }}
+        - name: DATABASE_URL
+          value: "file:/data/app.db"
+        {{- end }}
+        {{- if eq .Database "postgres" }}
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: {{ .ProjectName }}-secret
+              key: database-url
+        {{- end }}
+        {{- if ne .Redis "none" }}
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: {{ .ProjectName }}-secret
+              key: redis-url
+        {{- end }}
+        {{- if ne .Storage "none" }}
+        - name: STORAGE_BUCKET
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .ProjectName }}-config
+              key: storage-bucket
+        - name: STORAGE_REGION
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .ProjectName }}-config
+              key: storage-region
+        - name: STORAGE_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ .ProjectName }}-secret
+              key: storage-access-key
+        - name: STORAGE_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ .ProjectName }}-secret
+              key: storage-secret-key
+        {{- end }}
+        {{- if eq .Database "sqlite" }}
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        {{- end }}
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+      {{- if eq .Database "sqlite" }}
+      {{- if eq .Backup "litestream" }}
+      - name: litestream
+        image: litestream/litestream:0.3
+        args:
+        - replicate
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: litestream-config
+          mountPath: /etc/litestream.yml
+          subPath: litestream.yml
+        env:
+        {{- if eq .Storage "s3" }}
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ .ProjectName }}-secret
+              key: aws-access-key-id
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ .ProjectName }}-secret
+              key: aws-secret-access-key
+        {{- end }}
+        {{- if eq .Storage "b2" }}
+        - name: B2_APPLICATION_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ .ProjectName }}-secret
+              key: b2-application-key-id
+        - name: B2_APPLICATION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ .ProjectName }}-secret
+              key: b2-application-key
+        {{- end }}
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+      {{- end }}
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: {{ .ProjectName }}-pvc
+      {{- if eq .Backup "litestream" }}
+      - name: litestream-config
+        configMap:
+          name: {{ .ProjectName }}-litestream-config
+      {{- end }}
+      {{- end }}
