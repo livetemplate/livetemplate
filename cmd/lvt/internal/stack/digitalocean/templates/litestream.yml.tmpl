@@ -1,0 +1,29 @@
+dbs:
+  - path: /data/app.db
+    replicas:
+      {{- if eq .Storage "s3" }}
+      - type: s3
+        bucket: ${STORAGE_BUCKET}
+        path: {{ .ProjectName }}
+        region: ${STORAGE_REGION}
+        access-key-id: ${AWS_ACCESS_KEY_ID}
+        secret-access-key: ${AWS_SECRET_ACCESS_KEY}
+      {{- end }}
+      {{- if eq .Storage "b2" }}
+      - type: s3
+        bucket: ${STORAGE_BUCKET}
+        path: {{ .ProjectName }}
+        endpoint: s3.${STORAGE_REGION}.backblazeb2.com
+        access-key-id: ${B2_APPLICATION_KEY_ID}
+        secret-access-key: ${B2_APPLICATION_KEY}
+        force-path-style: true
+      {{- end }}
+      {{- if eq .Storage "do-spaces" }}
+      - type: s3
+        bucket: ${STORAGE_BUCKET}
+        path: {{ .ProjectName }}
+        endpoint: ${STORAGE_REGION}.digitaloceanspaces.com
+        access-key-id: ${STORAGE_ACCESS_KEY}
+        secret-access-key: ${STORAGE_SECRET_KEY}
+        force-path-style: true
+      {{- end }}

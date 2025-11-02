@@ -1,0 +1,368 @@
+# {{ .ProjectName }} - DigitalOcean App Platform Deployment
+
+This directory contains DigitalOcean App Platform deployment configuration for {{ .ProjectName }}.
+
+## Configuration
+
+- **Provider:** DigitalOcean App Platform
+- **Database:** {{ .Database }}
+{{- if eq .Backup "litestream" }}
+- **Backup:** Litestream ({{ .Storage }})
+{{- end }}
+{{- if ne .Redis "none" }}
+- **Redis:** {{ .Redis }}
+{{- end }}
+
+## Prerequisites
+
+1. DigitalOcean account with billing enabled
+2. `doctl` CLI installed (optional but recommended):
+   ```bash
+   # macOS
+   brew install doctl
+
+   # Linux
+   cd ~
+   wget https://github.com/digitalocean/doctl/releases/download/v1.104.0/doctl-1.104.0-linux-amd64.tar.gz
+   tar xf ~/doctl-1.104.0-linux-amd64.tar.gz
+   sudo mv ~/doctl /usr/local/bin
+   ```
+
+3. Authenticate doctl (optional):
+   ```bash
+   doctl auth init
+   ```
+
+## Initial Setup
+
+### Option 1: Using DigitalOcean Web Console (Recommended)
+
+1. Go to [DigitalOcean App Platform](https://cloud.digitalocean.com/apps)
+2. Click "Create App"
+3. Connect your GitHub repository or upload your code
+4. Use the `app-spec.yaml` file from this directory as the configuration
+5. Follow the setup wizard
+
+{{- if eq .Database "postgres" }}
+
+### 2. Configure Managed PostgreSQL Database
+
+The app spec includes a managed PostgreSQL database configuration:
+- Database name: `{{ .ProjectName }}-db`
+- Engine: PostgreSQL 16
+- The `DATABASE_URL` environment variable will be automatically set
+
+You can customize the database configuration in the DigitalOcean console:
+- Plan: Basic (1 GB RAM, 1 vCPU, 10 GB disk) or higher
+- Region: Should match your app region (nyc by default)
+{{- end }}
+
+{{- if eq .Database "sqlite" }}
+
+### 2. SQLite Configuration
+
+**Important:** DigitalOcean App Platform does not support persistent volumes for containers.
+SQLite databases will be reset on each deployment unless you:
+
+1. Use an external storage service (S3, DO Spaces) with Litestream for replication
+2. Consider switching to managed PostgreSQL for production use
+
+To use SQLite in production on DO App Platform, you need Litestream with external storage.
+{{- end }}
+
+{{- if eq .Backup "litestream" }}
+
+### 3. Configure Litestream Backup
+
+Set the storage credentials as environment variables in the App Platform console:
+
+{{- if eq .Storage "s3" }}
+Required environment variables (as secrets):
+- `STORAGE_BUCKET`: Your S3 bucket name
+- `STORAGE_REGION`: AWS region (e.g., us-east-1)
+- `AWS_ACCESS_KEY_ID`: Your AWS access key ID
+- `AWS_SECRET_ACCESS_KEY`: Your AWS secret access key
+{{- end }}
+
+{{- if eq .Storage "do-spaces" }}
+Required environment variables (as secrets):
+- `STORAGE_BUCKET`: Your DO Spaces bucket name
+- `STORAGE_REGION`: DO Spaces region (e.g., nyc3)
+- `STORAGE_ENDPOINT`: https://nyc3.digitaloceanspaces.com
+- `STORAGE_ACCESS_KEY`: Your Spaces access key
+- `STORAGE_SECRET_KEY`: Your Spaces secret key
+
+To create a Spaces bucket:
+```bash
+doctl compute space create {{ .ProjectName }}-backups --region nyc3
+```
+{{- end }}
+
+{{- if eq .Storage "b2" }}
+Required environment variables (as secrets):
+- `STORAGE_BUCKET`: Your B2 bucket name
+- `STORAGE_REGION`: B2 region (e.g., us-west-004)
+- `B2_APPLICATION_KEY_ID`: Your B2 application key ID
+- `B2_APPLICATION_KEY`: Your B2 application key
+{{- end }}
+
+Litestream will continuously replicate your SQLite database to {{ .Storage }}.
+{{- end }}
+
+{{- if eq .Redis "upstash" }}
+
+### 4. Configure Upstash Redis
+
+1. Create a Redis database at [Upstash Console](https://console.upstash.com/)
+2. Get the Redis URL (starts with `redis://`)
+3. Add `REDIS_URL` as a secret environment variable in App Platform console
+{{- end }}
+
+### Option 2: Using doctl CLI
+
+```bash
+# Create app from spec
+doctl apps create --spec app-spec.yaml
+
+# Get app ID from output, then monitor deployment
+doctl apps list
+doctl apps get <app-id>
+```
+
+## Deployment
+
+### From Web Console
+
+1. Push code to your connected GitHub repository
+2. App Platform will automatically build and deploy
+3. Monitor deployment progress in the console
+
+### From doctl CLI
+
+```bash
+# Update app configuration
+doctl apps update <app-id> --spec app-spec.yaml
+
+# Trigger manual deployment
+doctl apps create-deployment <app-id>
+
+# View deployment logs
+doctl apps logs <app-id>
+```
+
+## Environment Variables
+
+Set environment variables in the App Platform console:
+
+1. Go to your app in the console
+2. Click on "Settings" tab
+3. Scroll to "App-Level Environment Variables"
+4. Add your variables (mark sensitive ones as "secret")
+
+{{- if eq .Database "postgres" }}
+**Note:** `DATABASE_URL` is automatically set when you attach a managed database.
+{{- end }}
+
+## Health Checks
+
+The app is configured with health checks at `/health`:
+- **Initial Delay:** 10 seconds
+- **Period:** 30 seconds
+- **Timeout:** 5 seconds
+- **Success Threshold:** 1
+- **Failure Threshold:** 3
+
+Ensure your application responds to `GET /health` requests.
+
+## Monitoring
+
+### View Logs
+
+**Web Console:**
+1. Go to your app
+2. Click "Runtime Logs" tab
+
+**CLI:**
+```bash
+doctl apps logs <app-id> --follow
+```
+
+### Metrics
+
+View metrics in the App Platform console:
+- Request rate
+- Response time
+- Error rate
+- Resource usage
+
+## Scaling
+
+### Vertical Scaling (Instance Size)
+
+Edit `app-spec.yaml` and change the `instance_size_slug`:
+
+```yaml
+instance_size_slug: basic-xs  # Options: basic-xxs, basic-xs, basic-s, basic-m, professional-xs, etc.
+```
+
+Then update the app:
+```bash
+doctl apps update <app-id> --spec app-spec.yaml
+```
+
+### Horizontal Scaling (Multiple Instances)
+
+Edit `app-spec.yaml` and change the `instance_count`:
+
+```yaml
+instance_count: 3  # Number of instances
+```
+
+{{- if eq .Database "sqlite" }}
+**Note:** SQLite only supports single-writer mode. For multiple instances, use PostgreSQL.
+{{- end }}
+
+## Database Management
+
+{{- if eq .Database "postgres" }}
+
+### Access PostgreSQL Database
+
+**Web Console:**
+1. Go to Databases in the DigitalOcean console
+2. Select your database
+3. Use the connection details shown
+
+**CLI:**
+```bash
+# Get database credentials
+doctl databases connection <database-id>
+
+# Connect using psql
+doctl databases connection <database-id> --format DSN | psql
+```
+
+### Backup and Restore
+
+Managed PostgreSQL includes automatic backups:
+- Daily backups retained for 7 days
+- Point-in-time recovery available
+- Configure in the database settings
+
+{{- end }}
+
+{{- if eq .Database "sqlite" }}
+
+### Access SQLite Database
+
+SSH access is not available on App Platform. To inspect the database:
+
+1. Add an admin endpoint to your app for database queries
+2. Use Litestream to restore to a local environment
+{{- if eq .Backup "litestream" }}
+3. Download backup from {{ .Storage }}
+{{- end }}
+
+{{- if eq .Backup "litestream" }}
+### Restore from Litestream Backup
+
+```bash
+# Install Litestream locally
+brew install litestream  # macOS
+
+# Restore from backup
+{{- if eq .Storage "s3" }}
+litestream restore -config litestream.yml /path/to/restore/app.db
+{{- else if eq .Storage "do-spaces" }}
+litestream restore -config litestream.yml /path/to/restore/app.db
+{{- else if eq .Storage "b2" }}
+litestream restore -config litestream.yml /path/to/restore/app.db
+{{- end }}
+```
+{{- end }}
+{{- end }}
+
+## Troubleshooting
+
+### App won't start
+
+1. Check deployment logs: `doctl apps logs <app-id>`
+2. Verify all required environment variables are set
+3. Verify health check endpoint `/health` exists
+{{- if eq .Database "postgres" }}
+4. Verify database is attached and `DATABASE_URL` is set
+{{- end }}
+
+### Database connection errors
+
+{{- if eq .Database "postgres" }}
+- Ensure managed database is created and attached
+- Check `DATABASE_URL` environment variable
+- Verify database is in the same region as your app
+{{- end }}
+
+{{- if eq .Database "sqlite" }}
+- Ensure `/data` directory is writable
+- Check `DATABASE_PATH` environment variable
+{{- if eq .Backup "litestream" }}
+- Verify Litestream configuration and storage credentials
+{{- end }}
+{{- end }}
+
+### Deployment failures
+
+1. Check build logs in the console
+2. Verify Dockerfile builds locally:
+   ```bash
+   docker build -t {{ .ProjectName }} .
+   docker run -p 8080:8080 {{ .ProjectName }}
+   ```
+3. Check app spec syntax:
+   ```bash
+   doctl apps spec validate --spec app-spec.yaml
+   ```
+
+## Cost Optimization
+
+- **Basic plan**: Starting at $5/month for basic-xxs instances
+- **Database**: Managed PostgreSQL starts at $15/month
+- **Bandwidth**: 1 TB outbound included, $0.01/GB after
+- Set appropriate instance size for your workload
+- Use auto-scaling to handle traffic spikes
+
+View pricing: https://www.digitalocean.com/pricing/app-platform
+
+## Additional Resources
+
+- [App Platform Documentation](https://docs.digitalocean.com/products/app-platform/)
+- [App Spec Reference](https://docs.digitalocean.com/products/app-platform/reference/app-spec/)
+- [Pricing Calculator](https://www.digitalocean.com/pricing/calculator)
+{{- if eq .Database "postgres" }}
+- [Managed Databases](https://docs.digitalocean.com/products/databases/)
+{{- end }}
+{{- if eq .Backup "litestream" }}
+- [Litestream Documentation](https://litestream.io/)
+{{- end }}
+- [DigitalOcean Community](https://www.digitalocean.com/community)
+
+## CI/CD
+
+{{- if eq .CI "github" }}
+GitHub Actions workflow is configured in `.github/workflows/deploy-do.yml`.
+
+Set these secrets in your GitHub repository:
+- `DIGITALOCEAN_ACCESS_TOKEN`: Get from DigitalOcean console (API → Tokens)
+- `DO_APP_ID`: Your App Platform app ID
+
+The workflow will automatically deploy when you push to the main branch.
+{{- end }}
+
+{{- if eq .CI "none" }}
+To set up CI/CD:
+
+1. Use GitHub Actions (recommended)
+2. Use DigitalOcean's built-in GitHub integration
+3. Use GitLab CI with doctl
+
+See App Platform documentation for CI/CD examples.
+{{- end }}

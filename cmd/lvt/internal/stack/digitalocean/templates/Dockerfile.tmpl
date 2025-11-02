@@ -1,0 +1,58 @@
+# Build stage
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apk add --no-cache git{{if eq .Database "sqlite"}} gcc musl-dev{{end}}
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build binary
+RUN CGO_ENABLED={{if eq .Database "sqlite"}}1{{else}}0{{end}} GOOS=linux go build -o main .
+
+# Runtime stage
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates {{if eq .Database "sqlite"}}sqlite-libs{{end}}{{if eq .Backup "litestream"}} wget{{end}}
+
+{{- if eq .Backup "litestream" }}
+# Install Litestream with checksum verification
+RUN wget https://github.com/benbjohnson/litestream/releases/download/v0.3.13/litestream-v0.3.13-linux-amd64.tar.gz && \
+    echo "eb75a3de5cab03875cdae9f5f539e6aedadd66607003d9b1e7a9077948818ba0  litestream-v0.3.13-linux-amd64.tar.gz" | sha256sum -c - && \
+    tar -C /usr/local/bin -xzf litestream-v0.3.13-linux-amd64.tar.gz && \
+    rm litestream-v0.3.13-linux-amd64.tar.gz
+{{- end }}
+
+WORKDIR /app
+
+# Copy binary from builder
+COPY --from=builder /app/main .
+
+# Copy templates and static files
+COPY --from=builder /app/templates ./templates
+COPY --from=builder /app/static ./static
+
+{{- if eq .Backup "litestream" }}
+# Copy Litestream config
+COPY litestream.yml /etc/litestream.yml
+{{- end }}
+
+# Create data directory for SQLite
+{{- if eq .Database "sqlite" }}
+RUN mkdir -p /data
+{{- end }}
+
+EXPOSE 8080
+
+{{- if eq .Backup "litestream" }}
+# Start with Litestream replication
+CMD litestream replicate -config /etc/litestream.yml -exec "./main"
+{{- else }}
+CMD ["./main"]
+{{- end }}
