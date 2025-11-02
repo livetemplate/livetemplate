@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
-	e2etest "github.com/livefir/livetemplate/cmd/lvt/testing"
+	e2etest "github.com/livetemplate/livetemplate/cmd/lvt/testing"
 )
 
 // TestCounterE2E tests the counter app end-to-end with a real browser

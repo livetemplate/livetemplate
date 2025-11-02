@@ -1,7 +1,7 @@
 package parse
 
 import (
-	"github.com/livefir/livetemplate/internal/build"
+	"github.com/livetemplate/livetemplate/internal/build"
 )
 
 // Re-export build types for convenience within parse package

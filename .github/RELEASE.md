@@ -2,8 +2,8 @@
 
 This document describes the automated release process for LiveTemplate, which manages three synchronized components:
 
-1. **Go Library** (`github.com/livefir/livetemplate`)
-2. **TypeScript Client** (`@livefir/livetemplate-client`)
+1. **Go Library** (`github.com/livetemplate/livetemplate`)
+2. **TypeScript Client** (`@livetemplate/client`)
 3. **CLI Tool** (`lvt`)
 
 ## Prerequisites
@@ -96,7 +96,7 @@ The script performs these steps automatically:
    - Creates git tag (`v0.2.0`)
 
 6. **Publish**
-   - Publishes to npm (`@livefir/livetemplate-client`)
+   - Publishes to npm (`@livetemplate/client`)
    - Pushes to GitHub (commits + tags)
    - Runs GoReleaser (creates GitHub release with binaries)
 
@@ -104,9 +104,9 @@ The script performs these steps automatically:
 
 After successful release:
 
-- **npm Package**: https://www.npmjs.com/package/@livefir/livetemplate-client
-- **GitHub Release**: https://github.com/livefir/livetemplate/releases
-- **Go Module**: Available via `go get github.com/livefir/livetemplate@vX.Y.Z`
+- **npm Package**: https://www.npmjs.com/package/@livetemplate/client
+- **GitHub Release**: https://github.com/livetemplate/livetemplate/releases
+- **Go Module**: Available via `go get github.com/livetemplate/livetemplate@vX.Y.Z`
 - **CLI Binaries**: Attached to GitHub release (macOS, Linux, Windows)
 
 ## File Structure
@@ -288,7 +288,7 @@ If you need to rollback a release:
 ### Unpublish from npm (within 72 hours)
 
 ```bash
-npm unpublish @livefir/livetemplate-client@0.2.0
+npm unpublish @livetemplate/client@0.2.0
 ```
 
 ### Delete GitHub Release

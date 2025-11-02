@@ -144,8 +144,8 @@ commit_and_tag() {
 Release v$new_version
 
 This release includes:
-- Go library (github.com/livefir/livetemplate)
-- TypeScript client (@livefir/livetemplate-client)
+- Go library (github.com/livetemplate/livetemplate)
+- TypeScript client (@livetemplate/client)
 - lvt CLI
 
 All components versioned at v$new_version
@@ -188,7 +188,7 @@ build_and_test() {
 publish_npm() {
     local new_version=$1
 
-    log_step "Publishing @livefir/livetemplate-client@$new_version to npm"
+    log_step "Publishing @livetemplate/client@$new_version to npm"
     cd client
 
     # Check if logged in
@@ -206,7 +206,7 @@ publish_npm() {
     }
     cd ..
 
-    log_info "Published to npm: https://www.npmjs.com/package/@livefir/livetemplate-client/v/$new_version"
+    log_info "Published to npm: https://www.npmjs.com/package/@livetemplate/client/v/$new_version"
 }
 
 # Push and create GitHub release
@@ -227,7 +227,7 @@ publish_github() {
         exit 1
     }
 
-    log_info "GitHub release created: https://github.com/livefir/livetemplate/releases/tag/v$new_version"
+    log_info "GitHub release created: https://github.com/livetemplate/livetemplate/releases/tag/v$new_version"
 }
 
 # Dry run mode
@@ -323,7 +323,7 @@ main() {
     echo "  • Generate/update CHANGELOG.md"
     echo "  • Run all tests and builds"
     echo "  • Commit and tag v$new_version"
-    echo "  • Publish to npm (@livefir/livetemplate-client)"
+    echo "  • Publish to npm (@livetemplate/client)"
     echo "  • Create GitHub release (Go library + lvt CLI binaries)"
     echo ""
 
@@ -356,9 +356,9 @@ main() {
     echo "================================================"
     echo ""
     echo "📦 Published artifacts:"
-    echo "  • npm:    https://www.npmjs.com/package/@livefir/livetemplate-client/v/$new_version"
-    echo "  • GitHub: https://github.com/livefir/livetemplate/releases/tag/v$new_version"
-    echo "  • Go:     go get github.com/livefir/livetemplate@v$new_version"
+    echo "  • npm:    https://www.npmjs.com/package/@livetemplate/client/v/$new_version"
+    echo "  • GitHub: https://github.com/livetemplate/livetemplate/releases/tag/v$new_version"
+    echo "  • Go:     go get github.com/livetemplate/livetemplate@v$new_version"
     echo ""
     echo "📝 Next steps:"
     echo "  • Verify the npm package"

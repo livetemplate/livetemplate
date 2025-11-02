@@ -42,7 +42,7 @@ Kits are complete starter packages that include everything you need to build app
 LiveTemplate CLI is installed as a Go binary:
 
 ```bash
-go install github.com/livefir/livetemplate/cmd/lvt@latest
+go install github.com/livetemplate/livetemplate/cmd/lvt@latest
 ```
 
 Verify installation:

@@ -1,6 +1,6 @@
 {
-  "name": "@livefir/livetemplate-client",
-  "version": "0.1.1",
+  "name": "@livetemplate/client",
+  "version": "0.1.0",
   "description": "TypeScript client for LiveTemplate tree-based updates",
   "main": "dist/livetemplate-client.js",
   "browser": "dist/livetemplate-client.browser.js",
@@ -26,12 +26,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/livefir/livetemplate.git",
+    "url": "https://github.com/livetemplate/livetemplate.git",
     "directory": "client"
   },
-  "homepage": "https://github.com/livefir/livetemplate#readme",
+  "homepage": "https://github.com/livetemplate/livetemplate#readme",
   "bugs": {
-    "url": "https://github.com/livefir/livetemplate/issues"
+    "url": "https://github.com/livetemplate/livetemplate/issues"
   },
   "publishConfig": {
     "access": "public"

@@ -3,7 +3,7 @@ package commands
 import (
 	"fmt"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/seeder"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/seeder"
 )
 
 func Seed(args []string) error {

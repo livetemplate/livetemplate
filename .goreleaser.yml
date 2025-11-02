@@ -74,7 +74,7 @@ changelog:
 
 release:
   github:
-    owner: livefir
+    owner: livetemplate
     name: livetemplate
   draft: false
   prerelease: auto
@@ -83,20 +83,20 @@ release:
     ## LiveTemplate {{ .Tag }}
 
     Release of LiveTemplate framework with synchronized versions across all components:
-    - **Go Library**: `github.com/livefir/livetemplate@{{ .Tag }}`
-    - **TypeScript Client**: `@livefir/livetemplate-client@{{ trimprefix .Tag "v" }}`
+    - **Go Library**: `github.com/livetemplate/livetemplate@{{ .Tag }}`
+    - **TypeScript Client**: `@livetemplate/client@{{ trimprefix .Tag "v" }}`
     - **CLI Tool**: `lvt` (binaries below)
 
     ### Installation
 
     **Go Library:**
     ```bash
-    go get github.com/livefir/livetemplate@{{ .Tag }}
+    go get github.com/livetemplate/livetemplate@{{ .Tag }}
     ```
 
     **TypeScript Client:**
     ```bash
-    npm install @livefir/livetemplate-client@{{ trimprefix .Tag "v" }}
+    npm install @livetemplate/client@{{ trimprefix .Tag "v" }}
     ```
 
     **CLI Tool:**
@@ -104,15 +104,15 @@ release:
   footer: |
     ---
 
-    **Full Changelog**: https://github.com/livefir/livetemplate/blob/main/CHANGELOG.md
+    **Full Changelog**: https://github.com/livetemplate/livetemplate/blob/main/CHANGELOG.md
 
 # Homebrew tap (optional - uncomment if you have a tap)
 # brews:
 #   - name: lvt
 #     repository:
-#       owner: livefir
+#       owner: livetemplate
 #       name: homebrew-tap
-#     homepage: https://github.com/livefir/livetemplate
+#     homepage: https://github.com/livetemplate/livetemplate
 #     description: LiveTemplate CLI - Code generator and development server
 #     license: MIT
 #     install: |

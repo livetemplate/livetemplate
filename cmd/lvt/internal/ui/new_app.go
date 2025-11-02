@@ -9,7 +9,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/livefir/livetemplate/cmd/lvt/internal/generator"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/generator"
 )
 
 type newAppModel struct {

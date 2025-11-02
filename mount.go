@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 
 	"github.com/gorilla/websocket"
-	"github.com/livefir/livetemplate/internal/observe"
-	"github.com/livefir/livetemplate/pubsub"
+	"github.com/livetemplate/livetemplate/internal/observe"
+	"github.com/livetemplate/livetemplate/pubsub"
 )
 
 // Broadcaster allows stores to push updates to connected clients without user interaction

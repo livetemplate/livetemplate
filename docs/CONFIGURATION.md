@@ -28,7 +28,7 @@ package main
 
 import (
     "log"
-    "github.com/livefir/livetemplate"
+    "github.com/livetemplate/livetemplate"
 )
 
 func main() {

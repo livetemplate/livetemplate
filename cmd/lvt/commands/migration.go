@@ -3,7 +3,7 @@ package commands
 import (
 	"fmt"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/migration"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/migration"
 )
 
 func Migration(args []string) error {

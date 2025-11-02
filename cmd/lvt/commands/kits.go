@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
-	"github.com/livefir/livetemplate/cmd/lvt/internal/validator"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/kits"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/validator"
 )
 
 func Kits(args []string) error {
@@ -226,7 +226,7 @@ cdn: ""
 	// Create helpers.go stub
 	helpersContent := `package ` + kitName + `
 
-import "github.com/livefir/livetemplate/cmd/lvt/internal/kits"
+import "github.com/livetemplate/livetemplate/cmd/lvt/internal/kits"
 
 // Helpers implements the kits.CSSHelpers interface
 type Helpers struct{}

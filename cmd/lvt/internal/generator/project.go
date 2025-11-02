@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/config"
-	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/config"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/kits"
 )
 
 func GenerateApp(appName, moduleName, kit string, devMode bool) error {

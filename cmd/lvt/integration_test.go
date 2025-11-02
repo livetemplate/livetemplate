@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/generator"
-	"github.com/livefir/livetemplate/cmd/lvt/internal/parser"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/generator"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/parser"
 )
 
 // TestGeneratedCodeSyntax validates that generated code has valid Go syntax

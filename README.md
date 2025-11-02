@@ -2,7 +2,7 @@
 
 Build real-time, reactive web applications in Go with minimal code. LiveTemplate uses tree-based DOM diffing to send only what changed over HTTP (with optional WebSocket for broadcasts), inspired by Phoenix LiveView.
 
-**[Quick Start](#quick-start)** • **[API Docs](https://pkg.go.dev/github.com/livefir/livetemplate)** • **[Client Reference](docs/references/client-attributes.md)** • **[CLI Tool](#cli-tool-lvt)** • **[Contributing](CONTRIBUTING.md)**
+**[Quick Start](#quick-start)** • **[API Docs](https://pkg.go.dev/github.com/livetemplate/livetemplate)** • **[Client Reference](docs/references/client-attributes.md)** • **[CLI Tool](#cli-tool-lvt)** • **[Contributing](CONTRIBUTING.md)**
 
 ---
 
@@ -13,7 +13,7 @@ Build real-time, reactive web applications in Go with minimal code. LiveTemplate
 > - ✅ Core features work and are tested
 > - ⚠️ API may change before v1.0
 > - 🚧 Some planned features not yet implemented (see design docs)
-> - 🐛 Report issues at [github.com/livefir/livetemplate/issues](https://github.com/livefir/livetemplate/issues)
+> - 🐛 Report issues at [github.com/livetemplate/livetemplate/issues](https://github.com/livetemplate/livetemplate/issues)
 
 ---
 
@@ -49,7 +49,7 @@ LiveTemplate brings Phoenix LiveView's developer experience to Go:
 ### Installation
 
 ```bash
-go get github.com/livefir/livetemplate
+go get github.com/livetemplate/livetemplate
 ```
 
 ### Your First App (5 minutes)
@@ -62,7 +62,7 @@ package main
 
 import (
     "net/http"
-    "github.com/livefir/livetemplate"
+    "github.com/livetemplate/livetemplate"
 )
 
 type CounterState struct {
@@ -105,7 +105,7 @@ func main() {
     <button lvt-click="decrement">-</button>
     <button lvt-click="reset">Reset</button>
 
-    <script src="https://cdn.jsdelivr.net/npm/@livefir/livetemplate-client@latest/dist/livetemplate-client.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@livetemplate/client@latest/dist/livetemplate-client.browser.js"></script>
 </body>
 </html>
 ```
@@ -120,7 +120,7 @@ go run main.go
 That's it! Click buttons and watch the counter update in real-time.
 
 **Learn More:**
-- [Go API Reference](https://pkg.go.dev/github.com/livefir/livetemplate) - Complete server-side API documentation
+- [Go API Reference](https://pkg.go.dev/github.com/livetemplate/livetemplate) - Complete server-side API documentation
 - [Client Attributes](docs/references/client-attributes.md) - Event bindings and client-side features
 
 ## How It Works
@@ -131,7 +131,7 @@ Server renders template → Tree diff → Minimal update → Client applies patc
 ```
 
 1. **Define state**: Your Go struct holds application state
-2. **Handle actions**: Implement [`Store`](https://pkg.go.dev/github.com/livefir/livetemplate#Store) interface with `Change(ctx)` method
+2. **Handle actions**: Implement [`Store`](https://pkg.go.dev/github.com/livetemplate/livetemplate#Store) interface with `Change(ctx)` method
 3. **Render template**: Use standard Go templates with [`lvt-*` attributes](#event-bindings)
 4. **Automatic updates**: LiveTemplate handles the rest
 
@@ -378,7 +378,7 @@ Unlike most Go web frameworks, LiveTemplate includes a full-stack code generator
 ### Installation
 
 ```bash
-go install github.com/livefir/livetemplate/cmd/lvt@latest
+go install github.com/livetemplate/livetemplate/cmd/lvt@latest
 ```
 
 ### Quick Start
@@ -438,7 +438,7 @@ The TypeScript client handles HTTP/WebSocket communication, event delegation, an
 ### CDN
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/@livefir/livetemplate-client@latest/dist/livetemplate-client.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@livetemplate/client@latest/dist/livetemplate-client.browser.js"></script>
 ```
 
 ### Build from Source
@@ -461,7 +461,7 @@ The client (~15KB minified):
 ## Documentation
 
 ### References
-- **[Go API Reference](https://pkg.go.dev/github.com/livefir/livetemplate)** - Server-side Go API (types, functions, interfaces)
+- **[Go API Reference](https://pkg.go.dev/github.com/livetemplate/livetemplate)** - Server-side Go API (types, functions, interfaces)
 - **[Client Attributes Reference](docs/references/client-attributes.md)** - `lvt-*` attributes, event bindings, validation
 - **[Error Handling Reference](docs/references/error-handling.md)** - Validation, error display, client-side handling
 - **[Template Support Matrix](docs/references/template-support-matrix.md)** - Supported Go template features

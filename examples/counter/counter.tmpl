@@ -19,6 +19,10 @@
         <p>Last updated: {{.LastUpdated}}</p>
     </footer>
 
-    <script src="livetemplate-client.js"></script>
+    {{if .lvt.DevMode}}
+    <script src="/livetemplate-client.js"></script>
+    {{else}}
+    <script src="https://cdn.jsdelivr.net/npm/@livetemplate/client@latest/dist/livetemplate-client.browser.js"></script>
+    {{end}}
 </body>
 </html>

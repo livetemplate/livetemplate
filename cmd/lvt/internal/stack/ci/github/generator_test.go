@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/stack"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/stack"
 )
 
 func TestGenerateWorkflow_Docker(t *testing.T) {

@@ -6,9 +6,9 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/livefir/livetemplate/cmd/lvt/commands"
-	"github.com/livefir/livetemplate/cmd/lvt/internal/config"
-	"github.com/livefir/livetemplate/cmd/lvt/internal/ui"
+	"github.com/livetemplate/livetemplate/cmd/lvt/commands"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/config"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/ui"
 )
 
 // Version information (can be overridden at build time with -ldflags)

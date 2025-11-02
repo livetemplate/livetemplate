@@ -2,7 +2,7 @@
 
 Complete reference for LiveTemplate client-side `lvt-*` HTML attributes.
 
-**For server-side Go API:** See [pkg.go.dev/github.com/livefir/livetemplate](https://pkg.go.dev/github.com/livefir/livetemplate)
+**For server-side Go API:** See [pkg.go.dev/github.com/livetemplate/livetemplate](https://pkg.go.dev/github.com/livetemplate/livetemplate)
 
 ## Table of Contents
 
@@ -431,7 +431,7 @@ form.addEventListener('lvt:pending', (e) => {
 
 ## Related Documentation
 
-- **[Go API Reference](https://pkg.go.dev/github.com/livefir/livetemplate)** - Server-side API
+- **[Go API Reference](https://pkg.go.dev/github.com/livetemplate/livetemplate)** - Server-side API
 - **[Error Handling Reference](error-handling.md)** - Validation, error display, client-side handling
 - **[Template Support Matrix](template-support-matrix.md)** - Supported Go template features
 - **[Architecture](../ARCHITECTURE.md)** - System architecture

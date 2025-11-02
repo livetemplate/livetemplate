@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
-	e2etest "github.com/livefir/livetemplate/cmd/lvt/testing"
+	e2etest "github.com/livetemplate/livetemplate/cmd/lvt/testing"
 )
 
 // Shared test resources that persist across all tests
@@ -104,7 +104,7 @@ func setupSharedResources() error {
 		cwd, _ := os.Getwd()
 		livetemplatePath := filepath.Join(cwd, "..", "..", "..")
 		chdirMutex.Unlock()
-		replaceCmd := exec.Command("go", "mod", "edit", fmt.Sprintf("-replace=github.com/livefir/livetemplate=%s", livetemplatePath))
+		replaceCmd := exec.Command("go", "mod", "edit", fmt.Sprintf("-replace=github.com/livetemplate/livetemplate=%s", livetemplatePath))
 		replaceCmd.Dir = appDir
 		if err := replaceCmd.Run(); err != nil {
 			log.Printf("Warning: Failed to add replace directive: %v", err)

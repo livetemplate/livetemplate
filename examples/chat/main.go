@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/livefir/livetemplate"
+	"github.com/livetemplate/livetemplate"
 )
 
 type ChatState struct {

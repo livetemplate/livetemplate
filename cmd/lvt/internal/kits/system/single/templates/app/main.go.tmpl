@@ -69,5 +69,5 @@ func serveClientLibrary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// If not found locally, return error with CDN suggestion
-	http.Error(w, "Client library not found. For production, use CDN: https://cdn.jsdelivr.net/npm/@livefir/livetemplate-client/dist/livetemplate-client.browser.js", http.StatusNotFound)
+	http.Error(w, "Client library not found. For production, use CDN: https://cdn.jsdelivr.net/npm/@livetemplate/client/dist/livetemplate-client.browser.js", http.StatusNotFound)
 }

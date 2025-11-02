@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2025-11-02
+
+### Changed
+
+**BREAKING CHANGES - Repository and Package Migration**
+
+- **Repository URL**: Migrated from `github.com/livefir/livetemplate` to `github.com/livetemplate/livetemplate`
+- **NPM Package**: Renamed from `@livefir/livetemplate-client` to `@livetemplate/client`
+- **CDN URLs**: Updated to use new package name
+  - Old: `https://cdn.jsdelivr.net/npm/@livefir/livetemplate-client@latest/...`
+  - New: `https://cdn.jsdelivr.net/npm/@livetemplate/client@latest/...`
+
+**Migration Guide**:
+
+1. Update your Go imports:
+   ```go
+   // Old
+   import "github.com/livefir/livetemplate"
+
+   // New
+   import "github.com/livetemplate/livetemplate"
+   ```
+
+2. Update your go.mod:
+   ```bash
+   go get github.com/livetemplate/livetemplate@v0.1.0
+   ```
+
+3. Update your HTML templates:
+   ```html
+   <!-- Old -->
+   <script src="https://cdn.jsdelivr.net/npm/@livefir/livetemplate-client@latest/..."></script>
+
+   <!-- New -->
+   <script src="https://cdn.jsdelivr.net/npm/@livetemplate/client@latest/dist/livetemplate-client.browser.js"></script>
+   ```
+
+4. For npm users:
+   ```bash
+   # Old
+   npm uninstall @livefir/livetemplate-client
+
+   # New
+   npm install @livetemplate/client
+   ```
+
+### Added
+
+- **DevMode Support**: All examples now use DevMode-aware client loading
+  - Loads local client in development (`DevMode=true`)
+  - Uses CDN in production (`DevMode=false`)
+  - Example pattern: `{{if .lvt.DevMode}}<script src="/livetemplate-client.js"></script>{{else}}<script src="CDN_URL"></script>{{end}}`
+
 ### Added
 
 #### Kits System

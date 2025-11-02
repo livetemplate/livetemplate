@@ -1044,8 +1044,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/config"
-	"github.com/livefir/livetemplate/cmd/lvt/internal/generator"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/config"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/generator"
 )
 
 // Update RunE:
@@ -1151,7 +1151,7 @@ func TestGenerateAuth_UpdateDependencies(t *testing.T) {
 go 1.21
 
 require (
-	github.com/livefir/livetemplate v0.1.0
+	github.com/livetemplate/livetemplate v0.1.0
 )
 `
 	os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goModContent), 0644)

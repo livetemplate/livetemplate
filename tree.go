@@ -3,8 +3,8 @@ package livetemplate
 import (
 	"fmt"
 
-	"github.com/livefir/livetemplate/internal/build"
-	"github.com/livefir/livetemplate/internal/parse"
+	"github.com/livetemplate/livetemplate/internal/build"
+	"github.com/livetemplate/livetemplate/internal/parse"
 )
 
 // Fingerprinting wrappers for backward compatibility

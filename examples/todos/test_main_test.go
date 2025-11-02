@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	e2etest "github.com/livefir/livetemplate/cmd/lvt/testing"
+	e2etest "github.com/livetemplate/livetemplate/cmd/lvt/testing"
 )
 
 func TestMain(m *testing.M) {

@@ -272,4 +272,4 @@ LiveTemplate's kit system allows you to customize templates project-wide.
 
 ## Need Help?
 
-Check out the [LiveTemplate documentation](https://github.com/livefir/livetemplate) for more information on customizing templates.
+Check out the [LiveTemplate documentation](https://github.com/livetemplate/livetemplate) for more information on customizing templates.

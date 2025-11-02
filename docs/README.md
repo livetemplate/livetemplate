@@ -34,7 +34,7 @@ Feature proposals and RFCs:
 
 ### For Users
 - Start here: **[User Guide](guides/user-guide.md)**
-- API Reference: **[Go API](https://pkg.go.dev/github.com/livefir/livetemplate)** | **[Client Attributes](references/client-attributes.md)**
+- API Reference: **[Go API](https://pkg.go.dev/github.com/livetemplate/livetemplate)** | **[Client Attributes](references/client-attributes.md)**
 
 ### For Contributors
 - **[CODE_TOUR.md](guides/CODE_TOUR.md)** - Understand the codebase

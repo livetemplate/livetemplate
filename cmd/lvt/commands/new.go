@@ -5,7 +5,7 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/generator"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/generator"
 )
 
 func New(args []string) error {

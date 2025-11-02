@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
-	e2etest "github.com/livefir/livetemplate/cmd/lvt/testing"
+	e2etest "github.com/livetemplate/livetemplate/cmd/lvt/testing"
 )
 
 // TestPageModeRendering tests that page mode actually renders content, not empty divs
@@ -44,7 +44,7 @@ func TestPageModeRendering(t *testing.T) {
 	}
 
 	replaceCmd := exec.Command("go", "mod", "edit",
-		"-replace", fmt.Sprintf("github.com/livefir/livetemplate=%s", livetemplatePath))
+		"-replace", fmt.Sprintf("github.com/livetemplate/livetemplate=%s", livetemplatePath))
 	replaceCmd.Dir = appDir
 	if err := replaceCmd.Run(); err != nil {
 		t.Fatalf("Failed to add replace directive: %v", err)
@@ -60,12 +60,12 @@ func TestPageModeRendering(t *testing.T) {
 	if modErr != nil {
 		t.Logf("Warning: Could not read go.mod: %v", modErr)
 	} else {
-		if strings.Contains(string(goModContent), "replace github.com/livefir/livetemplate") {
+		if strings.Contains(string(goModContent), "replace github.com/livetemplate/livetemplate") {
 			t.Log("✅ go.mod has replace directive")
 			// Show the replace line
 			lines := strings.Split(string(goModContent), "\n")
 			for _, line := range lines {
-				if strings.Contains(line, "replace github.com/livefir/livetemplate") {
+				if strings.Contains(line, "replace github.com/livetemplate/livetemplate") {
 					t.Logf("  %s", strings.TrimSpace(line))
 				}
 			}

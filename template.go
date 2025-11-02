@@ -79,7 +79,7 @@
 //   - Form lifecycle events: Client-side hooks for pending, success, error, done
 //   - Focus preservation: Maintains input focus and scroll position during updates
 //
-// For complete documentation, see https://github.com/livefir/livetemplate
+// For complete documentation, see https://github.com/livetemplate/livetemplate
 package livetemplate
 
 import (
@@ -98,9 +98,9 @@ import (
 	"sync"
 
 	"github.com/gorilla/websocket"
-	"github.com/livefir/livetemplate/internal/diff"
-	"github.com/livefir/livetemplate/internal/observe"
-	"github.com/livefir/livetemplate/pubsub"
+	"github.com/livetemplate/livetemplate/internal/diff"
+	"github.com/livetemplate/livetemplate/internal/observe"
+	"github.com/livetemplate/livetemplate/pubsub"
 )
 
 // Config holds template configuration options
@@ -324,8 +324,8 @@ func WithMaxConnectionsPerGroup(max int64) Option {
 // Example:
 //
 //	import (
-//	    "github.com/livefir/livetemplate"
-//	    "github.com/livefir/livetemplate/pubsub"
+//	    "github.com/livetemplate/livetemplate"
+//	    "github.com/livetemplate/livetemplate/pubsub"
 //	    "github.com/redis/go-redis/v9"
 //	)
 //

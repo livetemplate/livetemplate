@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
-	e2etest "github.com/livefir/livetemplate/cmd/lvt/testing"
+	e2etest "github.com/livetemplate/livetemplate/cmd/lvt/testing"
 )
 
 // TestPageModeURLRouting tests URL routing functionality in page mode
@@ -44,7 +44,7 @@ func TestPageModeURLRouting(t *testing.T) {
 	}
 
 	replaceCmd := exec.Command("go", "mod", "edit",
-		"-replace", fmt.Sprintf("github.com/livefir/livetemplate=%s", livetemplatePath))
+		"-replace", fmt.Sprintf("github.com/livetemplate/livetemplate=%s", livetemplatePath))
 	replaceCmd.Dir = appDir
 	if err := replaceCmd.Run(); err != nil {
 		t.Fatalf("Failed to add replace directive: %v", err)

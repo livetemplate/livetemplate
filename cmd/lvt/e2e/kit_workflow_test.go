@@ -161,7 +161,7 @@ framework: nostruct
 		// Create helpers.go without Helpers struct
 		helpers := `package nostructkit
 
-import "github.com/livefir/livetemplate/cmd/lvt/internal/kits"
+import "github.com/livetemplate/livetemplate/cmd/lvt/internal/kits"
 
 func NewHelpers() kits.CSSHelpers {
 	return nil
@@ -200,7 +200,7 @@ framework: incomplete
 		// Create helpers.go with only few methods
 		helpers := `package incompletekit
 
-import "github.com/livefir/livetemplate/cmd/lvt/internal/kits"
+import "github.com/livetemplate/livetemplate/cmd/lvt/internal/kits"
 
 type Helpers struct{}
 

@@ -244,11 +244,11 @@ LiveTemplate is a reactive web framework for Go that uses tree-based DOM diffing
 **Example:**
 ```go
 import (
-    "github.com/livefir/livetemplate/internal/parse"   // Phase 1
-    "github.com/livefir/livetemplate/internal/build"   // Phase 2
-    "github.com/livefir/livetemplate/internal/diff"    // Phase 3
-    "github.com/livefir/livetemplate/internal/render"  // Phase 4
-    "github.com/livefir/livetemplate/internal/send"    // Phase 5
+    "github.com/livetemplate/livetemplate/internal/parse"   // Phase 1
+    "github.com/livetemplate/livetemplate/internal/build"   // Phase 2
+    "github.com/livetemplate/livetemplate/internal/diff"    // Phase 3
+    "github.com/livetemplate/livetemplate/internal/render"  // Phase 4
+    "github.com/livetemplate/livetemplate/internal/send"    // Phase 5
 )
 ```
 
@@ -420,4 +420,4 @@ See [OBSERVABILITY.md](OBSERVABILITY.md) for complete guide.
 - [OBSERVABILITY.md](OBSERVABILITY.md) - Logging and metrics guide
 - [MIGRATION.md](MIGRATION.md) - Alpha → v1.0 migration guide
 - [CODE_STRUCTURE.md](CODE_STRUCTURE.md) - Codebase organization
-- [API Reference](https://pkg.go.dev/github.com/livefir/livetemplate) - Go package docs
+- [API Reference](https://pkg.go.dev/github.com/livetemplate/livetemplate) - Go package docs

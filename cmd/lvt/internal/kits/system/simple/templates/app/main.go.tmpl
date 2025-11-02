@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/livefir/livetemplate"
+	"github.com/livetemplate/livetemplate"
 )
 
 type AppState struct {
@@ -83,5 +83,5 @@ func serveClientLibrary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	http.Error(w, "Client library not found. For production, use CDN: https://cdn.jsdelivr.net/npm/@livefir/livetemplate-client/dist/livetemplate-client.browser.js", http.StatusNotFound)
+	http.Error(w, "Client library not found. For production, use CDN: https://cdn.jsdelivr.net/npm/@livetemplate/client/dist/livetemplate-client.browser.js", http.StatusNotFound)
 }

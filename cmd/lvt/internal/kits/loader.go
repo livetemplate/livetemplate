@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/config"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/config"
 	"gopkg.in/yaml.v3"
 )
 

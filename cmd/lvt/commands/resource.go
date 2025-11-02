@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/seeder"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/seeder"
 )
 
 func Resource(args []string) error {

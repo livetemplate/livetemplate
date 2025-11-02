@@ -143,7 +143,7 @@ package bootstrap
 
 import (
     "fmt"
-    "github.com/livefir/livetemplate/cmd/lvt/internal/kits"
+    "github.com/livetemplate/livetemplate/cmd/lvt/internal/kits"
 )
 
 type Helpers struct{}

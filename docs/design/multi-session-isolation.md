@@ -564,7 +564,7 @@ import (
     "fmt"
     "net/http"
     "time"
-    "github.com/livefir/livetemplate"
+    "github.com/livetemplate/livetemplate"
 )
 
 // Store with state
@@ -766,7 +766,7 @@ package main
 
 import (
     "net/http"
-    "github.com/livefir/livetemplate"
+    "github.com/livetemplate/livetemplate"
 )
 
 type CounterState struct {
@@ -803,7 +803,7 @@ package main
 
 import (
     "net/http"
-    "github.com/livefir/livetemplate"
+    "github.com/livetemplate/livetemplate"
 )
 
 type ChatState struct {
@@ -849,7 +849,7 @@ package main
 import (
     "net/http"
     "time"
-    "github.com/livefir/livetemplate"
+    "github.com/livetemplate/livetemplate"
 )
 
 type DashboardState struct {

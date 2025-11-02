@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
-	"github.com/livefir/livetemplate/cmd/lvt/commands"
-	"github.com/livefir/livetemplate/cmd/lvt/internal/serve"
-	e2etest "github.com/livefir/livetemplate/cmd/lvt/testing"
+	"github.com/livetemplate/livetemplate/cmd/lvt/commands"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/serve"
+	e2etest "github.com/livetemplate/livetemplate/cmd/lvt/testing"
 )
 
 // chdirMutex protects os.Chdir calls in parallel tests
@@ -298,7 +298,7 @@ func createTestApp(t *testing.T, tmpDir, appName string, opts *AppOptions) strin
 	livetemplatePath := filepath.Join(cwd, "..", "..", "..")
 	chdirMutex.Unlock()
 
-	replaceCmd := exec.Command("go", "mod", "edit", fmt.Sprintf("-replace=github.com/livefir/livetemplate=%s", livetemplatePath))
+	replaceCmd := exec.Command("go", "mod", "edit", fmt.Sprintf("-replace=github.com/livetemplate/livetemplate=%s", livetemplatePath))
 	replaceCmd.Dir = appDir
 	if err := replaceCmd.Run(); err != nil {
 		t.Fatalf("Failed to add replace directive: %v", err)

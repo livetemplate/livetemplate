@@ -4,7 +4,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/kits"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )

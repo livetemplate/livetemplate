@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/livefir/livetemplate"
-	lvttest "github.com/livefir/livetemplate/cmd/lvt/testing"
+	"github.com/livetemplate/livetemplate"
+	lvttest "github.com/livetemplate/livetemplate/cmd/lvt/testing"
 )
 
 type PageState struct {

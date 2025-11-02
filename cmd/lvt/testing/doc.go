@@ -4,7 +4,7 @@ of LiveTemplate applications.
 
 # Quick Start
 
-	import lvttest "github.com/livefir/livetemplate/cmd/lvt/testing"
+	import lvttest "github.com/livetemplate/livetemplate/cmd/lvt/testing"
 
 	func TestHomePage(t *testing.T) {
 		test := lvttest.Setup(t, &lvttest.SetupOptions{

@@ -57,7 +57,7 @@ import (
     "sync"
     "time"
 
-    "github.com/livefir/livetemplate"
+    "github.com/livetemplate/livetemplate"
 )
 
 type ChatState struct {
@@ -424,7 +424,7 @@ type Room struct {
 In `chat.tmpl`:
 
 ```html
-<script src="https://unpkg.com/@livefir/livetemplate-client@latest/dist/livetemplate-client.browser.js"></script>
+<script src="https://unpkg.com/@livetemplate/client@latest/dist/livetemplate-client.browser.js"></script>
 ```
 
 ### 2. Add Rate Limiting
@@ -518,4 +518,4 @@ Same pattern, different data!
 - [LiveTemplate Core Docs](../../README.md)
 - [Broadcasting Guide](../../docs/design/IMPLEMENTATION_STATUS.md)
 - [Template Syntax](https://pkg.go.dev/html/template)
-- [LiveTemplate API](https://pkg.go.dev/github.com/livefir/livetemplate)
+- [LiveTemplate API](https://pkg.go.dev/github.com/livetemplate/livetemplate)

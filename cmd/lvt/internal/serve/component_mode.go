@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/kits"
 	"gopkg.in/yaml.v3"
 )
 

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/serve"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/serve"
 )
 
 func Serve(args []string) error {

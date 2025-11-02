@@ -276,7 +276,7 @@ func init() {
 ```go
 package main
 
-import "github.com/livefir/livetemplate"
+import "github.com/livetemplate/livetemplate"
 
 func main() {
     // In-memory session store (default)
@@ -297,7 +297,7 @@ func main() {
 package main
 
 import (
-    "github.com/livefir/livetemplate"
+    "github.com/livetemplate/livetemplate"
     "github.com/redis/go-redis/v9"
     "log"
     "os"
@@ -379,7 +379,7 @@ spec:
 Add Redis health check to ensure instance is ready before accepting traffic.
 
 ```go
-import "github.com/livefir/livetemplate"
+import "github.com/livetemplate/livetemplate"
 
 func main() {
     // ... Redis setup ...

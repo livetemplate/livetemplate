@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"text/template"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/stack"
-	"github.com/livefir/livetemplate/cmd/lvt/internal/stack/ci/github"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/stack"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/stack/ci/github"
 )
 
 //go:embed templates/app-spec.yaml.tmpl

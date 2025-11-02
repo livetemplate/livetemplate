@@ -45,7 +45,7 @@ The `Logger` wraps `slog.Logger` with LiveTemplate-specific methods for common o
 **Creation:**
 
 ```go
-import "github.com/livefir/livetemplate/internal/observe"
+import "github.com/livetemplate/livetemplate/internal/observe"
 
 // Development: human-readable text logs
 logger := observe.NewLogger(
@@ -218,8 +218,8 @@ import (
     "os"
     "time"
 
-    "github.com/livefir/livetemplate"
-    "github.com/livefir/livetemplate/internal/observe"
+    "github.com/livetemplate/livetemplate"
+    "github.com/livetemplate/livetemplate/internal/observe"
 )
 
 func main() {

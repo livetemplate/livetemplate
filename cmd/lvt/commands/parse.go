@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/livefir/livetemplate"
+	"github.com/livetemplate/livetemplate"
 )
 
 // Parse validates a template file and shows detailed information

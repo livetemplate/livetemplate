@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/stack"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/stack"
 )
 
 func TestGenStack_FlagParsing(t *testing.T) {

@@ -140,7 +140,7 @@ package main
 
 import (
     "testing"
-    lvttest "github.com/livefir/livetemplate/cmd/lvt/testing"
+    lvttest "github.com/livetemplate/livetemplate/cmd/lvt/testing"
 )
 
 func TestMyApp(t *testing.T) {

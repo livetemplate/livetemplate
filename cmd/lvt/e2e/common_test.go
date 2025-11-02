@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
-	e2etest "github.com/livefir/livetemplate/cmd/lvt/testing"
+	e2etest "github.com/livetemplate/livetemplate/cmd/lvt/testing"
 )
 
 // Wrapper functions to use cmd/lvt/testing utilities with shorter names in tests

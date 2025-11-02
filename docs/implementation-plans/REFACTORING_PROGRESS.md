@@ -193,7 +193,7 @@ var NewTreeGenerationContext = build.NewContext
 **What was done:**
 
 1. **Updated tree.go imports**
-   - Added `"github.com/livefir/livetemplate/internal/parse"`
+   - Added `"github.com/livetemplate/livetemplate/internal/parse"`
 
 2. **Replaced parseTemplateToTree() implementation**
    ```go
@@ -340,7 +340,7 @@ b1af918 - feat: observability and architecture documentation (Phase 1.1-1.2)
 
 2. **Updated tree.go** (removed 112 lines)
    - Removed imports: crypto/md5, encoding/json, hash, sort
-   - Added import: `"github.com/livefir/livetemplate/internal/build"`
+   - Added import: `"github.com/livetemplate/livetemplate/internal/build"`
    - Replaced 119 lines of fingerprinting code with 8 lines of wrappers:
      ```go
      func calculateFingerprint(tree *TreeNode) string {

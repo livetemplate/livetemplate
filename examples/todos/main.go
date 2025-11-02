@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/go-playground/validator/v10"
-	"github.com/livefir/livetemplate"
-	e2etest "github.com/livefir/livetemplate/cmd/lvt/testing"
-	"github.com/livefir/livetemplate/examples/todos/db"
+	"github.com/livetemplate/livetemplate"
+	e2etest "github.com/livetemplate/livetemplate/cmd/lvt/testing"
+	"github.com/livetemplate/livetemplate/examples/todos/db"
 )
 
 var validate = validator.New()

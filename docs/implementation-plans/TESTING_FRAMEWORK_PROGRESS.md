@@ -1,7 +1,7 @@
 # LiveTemplate Testing Framework - Progress Tracker
 
 Package Location: `cmd/lvt/testing`
-Import Path: `github.com/livefir/livetemplate/cmd/lvt/testing`
+Import Path: `github.com/livetemplate/livetemplate/cmd/lvt/testing`
 Branch: `feat/testing-framework`
 Worktree: `../livetemplate-testing-framework`
 
@@ -404,7 +404,7 @@ Sessions 6-9 (Search/Sort/Pagination, Database Helpers, Resource Tester, Paralle
 - Automatic Setup() replaces manual port allocation, server start, Chrome start
 - CRUDTester replaces manual form filling
 - Automatic console error checking and WebSocket tracking
-- Import path: github.com/livefir/livetemplate/cmd/lvt/testing
+- Import path: github.com/livetemplate/livetemplate/cmd/lvt/testing
 - Generated tests now inherit all framework capabilities (loggers, assertions, helpers)
 - Achieves framework goal of 85-90% boilerplate reduction
 

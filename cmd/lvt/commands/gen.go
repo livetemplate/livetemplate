@@ -6,10 +6,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/config"
-	"github.com/livefir/livetemplate/cmd/lvt/internal/generator"
-	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
-	"github.com/livefir/livetemplate/cmd/lvt/internal/parser"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/config"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/generator"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/kits"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/parser"
 )
 
 func Gen(args []string) error {

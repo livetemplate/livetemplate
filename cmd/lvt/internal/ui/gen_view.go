@@ -7,9 +7,9 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/livefir/livetemplate/cmd/lvt/internal/config"
-	"github.com/livefir/livetemplate/cmd/lvt/internal/generator"
-	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/config"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/generator"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/kits"
 )
 
 type genViewModel struct {

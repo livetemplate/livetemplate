@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"text/template"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/stack"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/stack"
 )
 
 //go:embed templates/test.yml.tmpl

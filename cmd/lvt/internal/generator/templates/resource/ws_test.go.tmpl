@@ -1,6 +1,6 @@
 package [[.PackageName]] import ( "encoding/json" "fmt" "net/http" "os/exec"
 "strings" "testing" "time" "github.com/gorilla/websocket" e2etest
-"github.com/livefir/livetemplate/cmd/lvt/testing" ) func TestWebSocketBasic(t
+"github.com/livetemplate/livetemplate/cmd/lvt/testing" ) func TestWebSocketBasic(t
 *testing.T) { // Get a free port port, err := e2etest.GetFreePort() if err !=
 nil { t.Fatalf("Failed to get free port: %v", err) } portStr :=
 fmt.Sprintf("%d", port) serverURL := fmt.Sprintf("http://localhost:%s", portStr)

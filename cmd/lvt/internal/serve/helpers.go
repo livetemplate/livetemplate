@@ -3,7 +3,7 @@ package serve
 import (
 	"html/template"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/kits"
 )
 
 // createTemplateFuncs converts CSSHelpers interface into template.FuncMap

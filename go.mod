@@ -1,4 +1,4 @@
-module github.com/livefir/livetemplate
+module github.com/livetemplate/livetemplate
 
 go 1.25
 

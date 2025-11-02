@@ -31,7 +31,7 @@ tags:
 	// Create valid helpers.go
 	helpers := `package testkit
 
-import "github.com/livefir/livetemplate/cmd/lvt/internal/kits"
+import "github.com/livetemplate/livetemplate/cmd/lvt/internal/kits"
 
 type Helpers struct{}
 
@@ -139,7 +139,7 @@ framework: none
 	// Create helpers.go without Helpers struct
 	helpers := `package testkit
 
-import "github.com/livefir/livetemplate/cmd/lvt/internal/kits"
+import "github.com/livetemplate/livetemplate/cmd/lvt/internal/kits"
 
 func NewHelpers() kits.CSSHelpers {
 	return nil
@@ -180,7 +180,7 @@ framework: none
 	// Create helpers.go with only partial methods
 	helpers := `package testkit
 
-import "github.com/livefir/livetemplate/cmd/lvt/internal/kits"
+import "github.com/livetemplate/livetemplate/cmd/lvt/internal/kits"
 
 type Helpers struct{}
 

@@ -23,13 +23,13 @@ The `lvt` CLI is a Phoenix-inspired code generator for building LiveTemplate app
 ## Installation
 
 ```bash
-go install github.com/livefir/livetemplate/cmd/lvt@latest
+go install github.com/livetemplate/livetemplate/cmd/lvt@latest
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/livefir/livetemplate
+git clone https://github.com/livetemplate/livetemplate
 cd livetemplate
 go build -o lvt ./cmd/lvt
 ```
@@ -313,7 +313,7 @@ sqlc generate
 import (
 	"yourapp/internal/app/auth"
 	"yourapp/internal/shared/email"
-	"github.com/livefir/livetemplate"
+	"github.com/livetemplate/livetemplate"
 )
 
 // Create auth handler

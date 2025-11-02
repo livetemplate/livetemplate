@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/stack"
-	"github.com/livefir/livetemplate/cmd/lvt/internal/stack/digitalocean"
-	"github.com/livefir/livetemplate/cmd/lvt/internal/stack/docker"
-	"github.com/livefir/livetemplate/cmd/lvt/internal/stack/fly"
-	"github.com/livefir/livetemplate/cmd/lvt/internal/stack/k8s"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/stack"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/stack/digitalocean"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/stack/docker"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/stack/fly"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/stack/k8s"
 )
 
 func Stack(args []string) error {

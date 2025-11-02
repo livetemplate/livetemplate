@@ -28,8 +28,8 @@ v1.0 adds production-ready observability using Go's standard `log/slog` package.
 import (
     "log/slog"
     "os"
-    "github.com/livefir/livetemplate"
-    "github.com/livefir/livetemplate/internal/observe"
+    "github.com/livetemplate/livetemplate"
+    "github.com/livetemplate/livetemplate/internal/observe"
 )
 
 // Create a logger (JSON for production, Text for development)
@@ -64,7 +64,7 @@ tmpl := livetemplate.Must(livetemplate.New("mytemplate").Parse(templateString))
 #### Operational Metrics
 
 ```go
-import "github.com/livefir/livetemplate/internal/observe"
+import "github.com/livetemplate/livetemplate/internal/observe"
 
 // Create metrics collector
 metrics := observe.NewMetrics()
@@ -110,14 +110,14 @@ The codebase now uses operational phase naming for better clarity:
 - `internal/diff/` - Tree comparison and differential operations
 - `internal/observe/` - Logging and metrics
 
-**You don't need to import these packages** - they're internal implementation details. The public API (`github.com/livefir/livetemplate`) remains unchanged.
+**You don't need to import these packages** - they're internal implementation details. The public API (`github.com/livetemplate/livetemplate`) remains unchanged.
 
 ## Migration Steps
 
 ### Step 1: Update Dependency
 
 ```bash
-go get -u github.com/livefir/livetemplate@v1.0.0
+go get -u github.com/livetemplate/livetemplate@v1.0.0
 go mod tidy
 ```
 
@@ -131,8 +131,8 @@ package main
 import (
     "log/slog"
     "os"
-    "github.com/livefir/livetemplate"
-    "github.com/livefir/livetemplate/internal/observe"
+    "github.com/livetemplate/livetemplate"
+    "github.com/livetemplate/livetemplate/internal/observe"
 )
 
 func main() {
@@ -261,14 +261,14 @@ logger := observe.NewLogger(handler)
 
 - **Documentation**: See [OBSERVABILITY.md](./OBSERVABILITY.md) for detailed observability guide
 - **Architecture**: See [ARCHITECTURE.md](./ARCHITECTURE.md) for internal architecture
-- **Issues**: Report issues at https://github.com/livefir/livetemplate/issues
-- **Discussions**: Ask questions at https://github.com/livefir/livetemplate/discussions
+- **Issues**: Report issues at https://github.com/livetemplate/livetemplate/issues
+- **Discussions**: Ask questions at https://github.com/livetemplate/livetemplate/discussions
 
 ## Summary
 
 **v1.0 Migration Checklist:**
 
-- [ ] Update dependency: `go get -u github.com/livefir/livetemplate@v1.0.0`
+- [ ] Update dependency: `go get -u github.com/livetemplate/livetemplate@v1.0.0`
 - [ ] Run tests: `go test ./...`
 - [ ] (Optional) Add observability with `internal/observe` package
 - [ ] (Optional) Review new documentation (OBSERVABILITY.md, ARCHITECTURE.md)

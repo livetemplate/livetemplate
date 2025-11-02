@@ -4,7 +4,7 @@
 package diff
 
 import (
-	"github.com/livefir/livetemplate/internal/build"
+	"github.com/livetemplate/livetemplate/internal/build"
 )
 
 // TreeNode is an alias for build.TreeNode for convenience.

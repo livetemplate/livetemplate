@@ -8,7 +8,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/kits"
 )
 
 type AuthConfig struct {

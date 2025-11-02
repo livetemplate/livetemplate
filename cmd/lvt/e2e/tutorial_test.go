@@ -14,7 +14,7 @@ import (
 
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
-	e2etest "github.com/livefir/livetemplate/cmd/lvt/testing"
+	e2etest "github.com/livetemplate/livetemplate/cmd/lvt/testing"
 )
 
 // TestTutorialE2E tests the complete blog tutorial workflow
@@ -100,7 +100,7 @@ func TestTutorialE2E(t *testing.T) {
 	livetemplatePath := filepath.Join(cwd, "..", "..", "..")
 	chdirMutex.Unlock()
 
-	replaceCmd := exec.Command("go", "mod", "edit", fmt.Sprintf("-replace=github.com/livefir/livetemplate=%s", livetemplatePath))
+	replaceCmd := exec.Command("go", "mod", "edit", fmt.Sprintf("-replace=github.com/livetemplate/livetemplate=%s", livetemplatePath))
 	replaceCmd.Dir = blogDir
 	if err := replaceCmd.Run(); err != nil {
 		t.Fatalf("Failed to add replace directive: %v", err)

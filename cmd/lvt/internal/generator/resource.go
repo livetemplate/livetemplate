@@ -9,8 +9,8 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/kits"
-	"github.com/livefir/livetemplate/cmd/lvt/internal/parser"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/kits"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/parser"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )

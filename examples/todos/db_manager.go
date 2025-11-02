@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/livefir/livetemplate/examples/todos/db"
+	"github.com/livetemplate/livetemplate/examples/todos/db"
 	_ "modernc.org/sqlite"
 )
 

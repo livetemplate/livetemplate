@@ -5,13 +5,13 @@ A Phoenix-inspired code generator for LiveTemplate applications with CRUD functi
 ## Installation
 
 ```bash
-go install github.com/livefir/livetemplate/cmd/lvt@latest
+go install github.com/livetemplate/livetemplate/cmd/lvt@latest
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/livefir/livetemplate
+git clone https://github.com/livetemplate/livetemplate
 cd livetemplate
 go build -o lvt ./cmd/lvt
 ```
@@ -561,7 +561,7 @@ When using the type inference system, you can omit explicit types and let the sy
 The inference system is available via the `ui` package:
 
 ```go
-import "github.com/livefir/livetemplate/cmd/lvt/internal/ui"
+import "github.com/livetemplate/livetemplate/cmd/lvt/internal/ui"
 
 // Infer type from field name
 fieldType := ui.InferType("email")  // → "string"

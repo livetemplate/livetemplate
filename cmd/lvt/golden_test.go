@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/livefir/livetemplate/cmd/lvt/internal/generator"
-	"github.com/livefir/livetemplate/cmd/lvt/internal/parser"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/generator"
+	"github.com/livetemplate/livetemplate/cmd/lvt/internal/parser"
 )
 
 // TestResourceHandlerGolden validates handler generation against golden file

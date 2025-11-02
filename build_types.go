@@ -1,6 +1,6 @@
 package livetemplate
 
-import "github.com/livefir/livetemplate/internal/build"
+import "github.com/livetemplate/livetemplate/internal/build"
 
 // Re-export build types for backward compatibility
 // These types are now in internal/build but remain accessible via the main package
