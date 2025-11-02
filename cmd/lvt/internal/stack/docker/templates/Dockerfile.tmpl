@@ -1,0 +1,40 @@
+# Build stage
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apk add --no-cache git
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build binary
+RUN CGO_ENABLED={{if eq .Database "sqlite"}}1{{else}}0{{end}} GOOS=linux go build -o main .
+
+# Runtime stage
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates {{if eq .Database "sqlite"}}sqlite-libs{{end}} wget
+
+WORKDIR /app
+
+# Copy binary from builder
+COPY --from=builder /app/main .
+
+# Copy templates and static files
+COPY --from=builder /app/templates ./templates
+COPY --from=builder /app/static ./static
+
+# Create data directory for SQLite
+{{- if eq .Database "sqlite" }}
+RUN mkdir -p /app/data
+{{- end }}
+
+EXPOSE 8080
+
+CMD ["./main"]
