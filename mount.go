@@ -13,6 +13,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/livefir/livetemplate/internal/observe"
+	"github.com/livefir/livetemplate/pubsub"
 )
 
 // Broadcaster allows stores to push updates to connected clients without user interaction
@@ -149,6 +150,7 @@ type MountConfig struct {
 	Upgrader               *websocket.Upgrader
 	SessionStore           SessionStore
 	Authenticator          Authenticator
+	PubSubBroadcaster      pubsub.Broadcaster // Optional: for distributed broadcasting across instances
 	AllowedOrigins         []string
 	WebSocketDisabled      bool
 	MaxConnections         int64 // Maximum total connections (0 = unlimited)
@@ -778,13 +780,26 @@ func (h *liveHandler) getStoreNames() []string {
 //
 // Concurrency: This method is safe to call from multiple goroutines concurrently.
 func (h *liveHandler) Broadcast(data interface{}) error {
+	// Publish to Redis for distributed instances (if configured)
+	if h.config.PubSubBroadcaster != nil {
+		payload, err := json.Marshal(data)
+		if err != nil {
+			log.Printf("Broadcast: Failed to marshal payload: %v", err)
+		} else {
+			if err := h.config.PubSubBroadcaster.PublishGlobal(payload); err != nil {
+				log.Printf("Broadcast: Failed to publish to Redis: %v", err)
+			}
+		}
+	}
+
+	// Broadcast to local connections
 	connections := h.registry.GetAll()
 	if len(connections) == 0 {
-		log.Printf("Broadcast: No connections to broadcast to")
+		log.Printf("Broadcast: No local connections to broadcast to")
 		return nil
 	}
 
-	log.Printf("Broadcasting to %d connection(s)", len(connections))
+	log.Printf("Broadcasting to %d local connection(s)", len(connections))
 
 	// Track errors but continue broadcasting to other connections
 	var errCount int
@@ -825,6 +840,21 @@ func (h *liveHandler) BroadcastToUsers(userIDs []string, data interface{}) error
 		return fmt.Errorf("no user IDs provided")
 	}
 
+	// Publish to Redis for distributed instances (if configured)
+	if h.config.PubSubBroadcaster != nil {
+		payload, err := json.Marshal(data)
+		if err != nil {
+			log.Printf("BroadcastToUsers: Failed to marshal payload: %v", err)
+		} else {
+			for _, userID := range userIDs {
+				if err := h.config.PubSubBroadcaster.PublishToUser(userID, payload); err != nil {
+					log.Printf("BroadcastToUsers: Failed to publish to Redis for user %s: %v", userID, err)
+				}
+			}
+		}
+	}
+
+	// Broadcast to local connections
 	var totalConnections int
 	var errCount int
 
@@ -840,14 +870,14 @@ func (h *liveHandler) BroadcastToUsers(userIDs []string, data interface{}) error
 		}
 	}
 
-	log.Printf("Broadcast to users: sent to %d connection(s) for %d user(s)", totalConnections, len(userIDs))
+	log.Printf("Broadcast to users: sent to %d local connection(s) for %d user(s)", totalConnections, len(userIDs))
 
 	if errCount > 0 {
 		return fmt.Errorf("broadcast failed for %d/%d connections", errCount, totalConnections)
 	}
 
 	if totalConnections == 0 {
-		log.Printf("BroadcastToUsers: No connections found for users %v", userIDs)
+		log.Printf("BroadcastToUsers: No local connections found for users %v", userIDs)
 	}
 
 	return nil
@@ -873,13 +903,26 @@ func (h *liveHandler) BroadcastToGroup(groupID string, data interface{}) error {
 		return fmt.Errorf("group ID cannot be empty")
 	}
 
+	// Publish to Redis for distributed instances (if configured)
+	if h.config.PubSubBroadcaster != nil {
+		payload, err := json.Marshal(data)
+		if err != nil {
+			log.Printf("BroadcastToGroup: Failed to marshal payload: %v", err)
+		} else {
+			if err := h.config.PubSubBroadcaster.PublishToGroup(groupID, payload); err != nil {
+				log.Printf("BroadcastToGroup: Failed to publish to Redis: %v", err)
+			}
+		}
+	}
+
+	// Broadcast to local connections
 	connections := h.registry.GetByGroup(groupID)
 	if len(connections) == 0 {
-		log.Printf("BroadcastToGroup: No connections found for group %s", groupID)
+		log.Printf("BroadcastToGroup: No local connections found for group %s", groupID)
 		return nil
 	}
 
-	log.Printf("Broadcasting to group %s: %d connection(s)", groupID, len(connections))
+	log.Printf("Broadcasting to group %s: %d local connection(s)", groupID, len(connections))
 
 	var errCount int
 	for _, conn := range connections {
@@ -935,6 +978,56 @@ func (h *liveHandler) sendUpdate(conn *Connection, data interface{}) error {
 		return nil // Test mode - no actual send
 	}
 	return conn.Send(websocket.TextMessage, responseBytes)
+}
+
+// handlePubSubMessage handles incoming pub/sub broadcast messages from other instances.
+//
+// This is called by the RedisBroadcaster subscriber when a message is received.
+// It deserializes the payload and fans it out to relevant local connections.
+func (h *liveHandler) handlePubSubMessage(msg *pubsub.BroadcastMessage) error {
+	// Deserialize the payload
+	var data interface{}
+	if err := json.Unmarshal(msg.Payload, &data); err != nil {
+		return fmt.Errorf("failed to unmarshal payload: %w", err)
+	}
+
+	// Fan out based on message scope
+	switch msg.Scope {
+	case pubsub.ScopeGlobal:
+		// Broadcast to all local connections
+		connections := h.registry.GetAll()
+		for _, conn := range connections {
+			if err := h.sendUpdate(conn, data); err != nil {
+				log.Printf("PubSub: Failed to send global broadcast to connection: %v", err)
+			}
+		}
+		log.Printf("PubSub: Fanned out global broadcast to %d local connection(s)", len(connections))
+
+	case pubsub.ScopeGroup:
+		// Broadcast to all connections in the group
+		connections := h.registry.GetByGroup(msg.GroupID)
+		for _, conn := range connections {
+			if err := h.sendUpdate(conn, data); err != nil {
+				log.Printf("PubSub: Failed to send group broadcast to connection: %v", err)
+			}
+		}
+		log.Printf("PubSub: Fanned out group broadcast to %d local connection(s) for group %s", len(connections), msg.GroupID)
+
+	case pubsub.ScopeUser:
+		// Broadcast to all connections for the user
+		connections := h.registry.GetByUser(msg.UserID)
+		for _, conn := range connections {
+			if err := h.sendUpdate(conn, data); err != nil {
+				log.Printf("PubSub: Failed to send user broadcast to connection: %v", err)
+			}
+		}
+		log.Printf("PubSub: Fanned out user broadcast to %d local connection(s) for user %s", len(connections), msg.UserID)
+
+	default:
+		return fmt.Errorf("unknown broadcast scope: %s", msg.Scope)
+	}
+
+	return nil
 }
 
 // Shutdown gracefully shuts down the LiveHandler.

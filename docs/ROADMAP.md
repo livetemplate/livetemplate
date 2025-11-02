@@ -49,11 +49,11 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 
 | Milestone | Focus | Duration | Status | Target Completion |
 |-----------|-------|----------|--------|-------------------|
-| **M1: Production Foundation** | Critical fixes, health checks, limits | 4-6 weeks | 🔴 TODO | Week 6 |
-| **M2: Horizontal Scaling** | Redis integration, multi-instance | 4-5 weeks | 🔴 TODO | Week 11 |
-| **M3: Enterprise Scale** | Advanced resilience, optimization | 8-12 weeks | 🔴 TODO | Week 26 |
+| **M1: Production Foundation** | Critical fixes, health checks, limits | 4-6 weeks | 🟡 80% | Week 6 |
+| **M2: Horizontal Scaling** | Redis integration, multi-instance | 4-5 weeks | 🟢 89% | Week 11 |
+| **M3: Enterprise Scale** | Advanced resilience, optimization | 8-12 weeks | 🔴 0% | Week 26 |
 
-**Overall Progress:** `[█████████░░░░░░░░░░░] 48% (28/59 tasks)`
+**Overall Progress:** `[█████████████░░░░░░░] 66% (45/68 tasks)`
 
 ---
 
@@ -279,7 +279,7 @@ export LVT_REDIS_URL=redis://localhost:6379/0  # Optional for M2
 - ✅ Auto-scaling based on connection count
 
 **Duration:** 6-8 weeks
-**Progress:** `[░░░░░░░░░░] 0/19 tasks (0%)`
+**Progress:** `[████████░░] 17/19 tasks (89%)`
 
 ---
 
@@ -289,13 +289,13 @@ export LVT_REDIS_URL=redis://localhost:6379/0  # Optional for M2
 
 | Task | Priority | Status | Est. Effort | Assignee |
 |------|----------|--------|-------------|----------|
-| Design Redis key schema (sessions, groups, TTLs) | 🔴 CRITICAL | 🔴 TODO | 2 days | - |
-| Implement `RedisSessionStore` struct with connection pool | 🔴 CRITICAL | 🔴 TODO | 3 days | - |
-| Implement `Get/Set/Delete/List` methods | 🔴 CRITICAL | 🔴 TODO | 3 days | - |
-| Add automatic TTL refresh on session access | 🔴 CRITICAL | 🔴 TODO | 2 days | - |
-| Add Redis health check integration | 🟡 HIGH | 🔴 TODO | 1 day | - |
-| Implement connection retry with exponential backoff | 🟡 HIGH | 🔴 TODO | 2 days | - |
-| Add serialization tests (ensure Store types are serializable) | 🟡 HIGH | 🔴 TODO | 2 days | - |
+| Design Redis key schema (sessions, groups, TTLs) | 🔴 CRITICAL | ✅ DONE | 2 days | - |
+| Implement `RedisSessionStore` struct with connection pool | 🔴 CRITICAL | ✅ DONE | 3 days | - |
+| Implement `Get/Set/Delete/List` methods | 🔴 CRITICAL | ✅ DONE | 3 days | - |
+| Add automatic TTL refresh on session access | 🔴 CRITICAL | ✅ DONE | 2 days | - |
+| Add Redis health check integration | 🟡 HIGH | ✅ DONE | 1 day | - |
+| Implement connection retry with exponential backoff | 🟡 HIGH | ✅ DONE | 2 days | - |
+| Add serialization tests (ensure Store types are serializable) | 🟡 HIGH | ✅ DONE | 2 days | - |
 | Document migration from MemorySessionStore | 🟡 MEDIUM | 🔴 TODO | 1 day | - |
 
 **Acceptance Criteria:**
@@ -306,7 +306,7 @@ export LVT_REDIS_URL=redis://localhost:6379/0  # Optional for M2
 
 **Redis Key Schema:**
 ```
-livetemplate:session:{groupID}        -> JSON serialized Stores
+livetemplate:session:{groupID}        -> Gob-encoded Stores
 livetemplate:session:{groupID}:access -> Last access timestamp
 TTL: 24 hours (configurable)
 ```
@@ -336,12 +336,12 @@ handler := livetemplate.Mount(rootStore,
 
 | Task | Priority | Status | Est. Effort | Assignee |
 |------|----------|--------|-------------|----------|
-| Design pub/sub message format (action, groupID, userID, payload) | 🔴 CRITICAL | 🔴 TODO | 2 days | - |
-| Implement `PubSubBroadcaster` using Redis Pub/Sub | 🔴 CRITICAL | 🔴 TODO | 4 days | - |
-| Modify `Broadcast*` methods to publish messages | 🔴 CRITICAL | 🔴 TODO | 3 days | - |
-| Implement subscriber goroutine to receive and fan-out | 🔴 CRITICAL | 🔴 TODO | 3 days | - |
-| Add local-first optimization (skip Redis for same-instance) | 🟡 HIGH | 🔴 TODO | 2 days | - |
-| Handle Redis disconnection/reconnection gracefully | 🟡 HIGH | 🔴 TODO | 3 days | - |
+| Design pub/sub message format (action, groupID, userID, payload) | 🔴 CRITICAL | ✅ DONE | 2 days | - |
+| Implement `PubSubBroadcaster` using Redis Pub/Sub | 🔴 CRITICAL | ✅ DONE | 4 days | - |
+| Modify `Broadcast*` methods to publish messages | 🔴 CRITICAL | ✅ DONE | 3 days | - |
+| Implement subscriber goroutine to receive and fan-out | 🔴 CRITICAL | ✅ DONE | 3 days | - |
+| Add local-first optimization (skip Redis for same-instance) | 🟡 HIGH | ✅ DONE | 2 days | - |
+| Handle Redis disconnection/reconnection gracefully | 🟡 HIGH | ✅ DONE | 3 days | - |
 | Add broadcast latency metrics (p50, p95, p99) | 🟡 HIGH | 🔴 TODO | 2 days | - |
 | Document broadcast guarantees (at-most-once delivery) | 🟡 MEDIUM | 🔴 TODO | 1 day | - |
 
@@ -382,10 +382,10 @@ livetemplate:broadcast:global           -> Global broadcasts
 
 | Task | Priority | Status | Est. Effort | Assignee |
 |------|----------|--------|-------------|----------|
-| Implement exponential backoff (1s → 2s → 4s → 8s → 16s max) | 🔴 CRITICAL | 🔴 TODO | 1 day | - |
-| Add jitter to prevent thundering herd | 🔴 CRITICAL | 🔴 TODO | 1 day | - |
-| Add max retry limit (e.g., 10 attempts) | 🟡 HIGH | 🔴 TODO | 1 day | - |
-| Emit reconnection events for UI feedback | 🟡 HIGH | 🔴 TODO | 1 day | - |
+| Implement exponential backoff (1s → 2s → 4s → 8s → 16s max) | 🔴 CRITICAL | ✅ DONE | 1 day | - |
+| Add jitter to prevent thundering herd | 🔴 CRITICAL | ✅ DONE | 1 day | - |
+| Add max retry limit (e.g., 10 attempts) | 🟡 HIGH | ✅ DONE | 1 day | - |
+| Emit reconnection events for UI feedback | 🟡 HIGH | ✅ DONE | 1 day | - |
 | Add session resume protocol (send last known state) | 🟡 MEDIUM | 🔴 TODO | 3 days | - |
 
 **Acceptance Criteria:**
