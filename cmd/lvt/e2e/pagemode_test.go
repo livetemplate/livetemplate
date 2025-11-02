@@ -17,7 +17,7 @@ import (
 
 // TestPageModeRendering tests that page mode actually renders content, not empty divs
 func TestPageModeRendering(t *testing.T) {
-	t.Parallel() // Enable parallel execution
+	// Note: Not parallel because tests use chdirMutex and need sequential execution
 
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, "testapp")

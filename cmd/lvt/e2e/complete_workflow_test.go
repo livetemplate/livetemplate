@@ -18,7 +18,7 @@ import (
 // This is a comprehensive integration test that validates the entire stack
 func TestCompleteWorkflow_BlogApp(t *testing.T) {
 	t.Skip("Temporarily skipped: Known bug with range appearing for first time (fixing in Phase 2)")
-	t.Parallel() // Enable parallel execution
+	// Note: Not parallel because tests use chdirMutex and need sequential execution
 
 	tmpDir := t.TempDir()
 

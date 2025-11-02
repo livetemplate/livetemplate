@@ -19,7 +19,7 @@ import (
 
 // TestTutorialE2E tests the complete blog tutorial workflow
 func TestTutorialE2E(t *testing.T) {
-	t.Parallel() // Enable parallel execution
+	// Note: Not parallel because tests use chdirMutex and need sequential execution
 
 	// Create temp directory for test blog
 	tmpDir := t.TempDir()

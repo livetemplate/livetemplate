@@ -17,7 +17,7 @@ import (
 
 // TestPageModeURLRouting tests URL routing functionality in page mode
 func TestPageModeURLRouting(t *testing.T) {
-	t.Parallel() // Enable parallel execution
+	// Note: Not parallel because tests use chdirMutex and need sequential execution
 
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, "testapp")

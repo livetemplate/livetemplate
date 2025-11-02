@@ -17,7 +17,7 @@ import (
 // TestModalFunctionality tests all modal interactions end-to-end
 // This test verifies the critical modal bug fix where modals wouldn't reopen after being closed
 func TestModalFunctionality(t *testing.T) {
-	t.Parallel() // Enable parallel execution
+	// Note: Not parallel because it uses isolated Chrome container which needs sequential execution
 
 	// Find the client file
 	clientPath, err := filepath.Abs(filepath.Join("..", "..", "..", "client", "dist", "livetemplate-client.browser.js"))
