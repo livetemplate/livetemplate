@@ -53,7 +53,7 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 | **M2: Horizontal Scaling** | Redis integration, multi-instance | 4-5 weeks | 🔴 TODO | Week 11 |
 | **M3: Enterprise Scale** | Advanced resilience, optimization | 8-12 weeks | 🔴 TODO | Week 26 |
 
-**Overall Progress:** `[███████░░░░░░░░░░░░░] 39% (23/59 tasks)`
+**Overall Progress:** `[████████░░░░░░░░░░░░] 42% (25/59 tasks)`
 
 ---
 
@@ -69,7 +69,7 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 - ✅ Prometheus metrics enable capacity planning
 
 **Duration:** 4-6 weeks
-**Progress:** `[████████████░░░░░░░░] 23/35 tasks (66%)`
+**Progress:** `[█████████████░░░░░░░] 25/35 tasks (71%)`
 
 ---
 
@@ -148,8 +148,8 @@ handler := livetemplate.Mount(rootStore,
 | Stop accepting new connections during shutdown | 🔴 CRITICAL | ✅ DONE | 1 day | - |
 | Send close frames to all active WebSocket connections | 🔴 CRITICAL | ✅ DONE | 2 days | - |
 | Wait for in-flight actions to complete (with timeout) | 🟡 HIGH | ✅ DONE | 2 days | - |
-| Add example with `http.Server.Shutdown()` integration | 🟡 HIGH | 🔴 TODO | 1 day | - |
-| Document shutdown timeout recommendations | 🟡 MEDIUM | 🔴 TODO | 1 day | - |
+| Add example with `http.Server.Shutdown()` integration | 🟡 HIGH | ✅ DONE | 1 day | - |
+| Document shutdown timeout recommendations | 🟡 MEDIUM | ✅ DONE | 1 day | - |
 
 **Acceptance Criteria:**
 - Clients receive WebSocket close frame (code 1001 Going Away)
