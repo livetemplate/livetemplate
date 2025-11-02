@@ -1,0 +1,120 @@
+name: Deploy Kubernetes
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Run tests
+        run: go test -v ./...
+
+      - name: Run linting
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: latest
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+{{if eq .Registry "ghcr"}}
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{`{{ github.actor }}`}}
+          password: ${{`{{ secrets.GITHUB_TOKEN }}`}}
+{{else if eq .Registry "docker"}}
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{`{{ secrets.DOCKER_USERNAME }}`}}
+          password: ${{`{{ secrets.DOCKER_PASSWORD }}`}}
+{{else if eq .Registry "gcr"}}
+      - name: Log in to Google Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: gcr.io
+          username: _json_key
+          password: ${{`{{ secrets.GCR_JSON_KEY }}`}}
+{{else if eq .Registry "ecr"}}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{`{{ secrets.AWS_ACCESS_KEY_ID }}`}}
+          aws-secret-access-key: ${{`{{ secrets.AWS_SECRET_ACCESS_KEY }}`}}
+          aws-region: ${{`{{ secrets.AWS_REGION }}`}}
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+{{end}}
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./deployment/Dockerfile
+          push: true
+          tags: |
+{{if eq .Registry "ghcr"}}            ghcr.io/${{`{{ github.repository }}`}}:latest
+            ghcr.io/${{`{{ github.repository }}`}}:${{`{{ github.sha }}`}}
+{{else if eq .Registry "docker"}}            ${{`{{ secrets.DOCKER_USERNAME }}`}}/{{.ProjectName}}:latest
+            ${{`{{ secrets.DOCKER_USERNAME }}`}}/{{.ProjectName}}:${{`{{ github.sha }}`}}
+{{else if eq .Registry "gcr"}}            gcr.io/${{`{{ secrets.GCP_PROJECT_ID }}`}}/{{.ProjectName}}:latest
+            gcr.io/${{`{{ secrets.GCP_PROJECT_ID }}`}}/{{.ProjectName}}:${{`{{ github.sha }}`}}
+{{else if eq .Registry "ecr"}}            ${{`{{ secrets.AWS_ACCOUNT_ID }}`}}.dkr.ecr.${{`{{ secrets.AWS_REGION }}`}}.amazonaws.com/{{.ProjectName}}:latest
+            ${{`{{ secrets.AWS_ACCOUNT_ID }}`}}.dkr.ecr.${{`{{ secrets.AWS_REGION }}`}}.amazonaws.com/{{.ProjectName}}:${{`{{ github.sha }}`}}
+{{end}}          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{`{{ secrets.KUBE_CONFIG }}`}}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Update image tag in deployment
+        run: |
+          cd deployment
+{{if eq .Registry "ghcr"}}          IMAGE_TAG="ghcr.io/${{`{{ github.repository }}`}}:${{`{{ github.sha }}`}}"
+{{else if eq .Registry "docker"}}          IMAGE_TAG="${{`{{ secrets.DOCKER_USERNAME }}`}}/{{.ProjectName}}:${{`{{ github.sha }}`}}"
+{{else if eq .Registry "gcr"}}          IMAGE_TAG="gcr.io/${{`{{ secrets.GCP_PROJECT_ID }}`}}/{{.ProjectName}}:${{`{{ github.sha }}`}}"
+{{else if eq .Registry "ecr"}}          IMAGE_TAG="${{`{{ secrets.AWS_ACCOUNT_ID }}`}}.dkr.ecr.${{`{{ secrets.AWS_REGION }}`}}.amazonaws.com/{{.ProjectName}}:${{`{{ github.sha }}`}}"
+{{end}}          sed -i "s|image:.*|image: $IMAGE_TAG|g" deployment.yaml
+
+      - name: Apply Kubernetes manifests
+        run: |
+          kubectl apply -f deployment/namespace.yaml
+          kubectl apply -f deployment/configmap.yaml
+{{if eq .Database "sqlite"}}          kubectl apply -f deployment/pvc.yaml
+{{end}}{{if eq .Backup "litestream"}}          kubectl apply -f deployment/litestream-configmap.yaml
+{{end}}          kubectl apply -f deployment/deployment.yaml
+          kubectl apply -f deployment/service.yaml
+{{if ne .Ingress "none"}}          kubectl apply -f deployment/ingress.yaml
+{{end}}
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/{{.ProjectName}} -n {{.Namespace}}
+
+      - name: Get deployment status
+        run: |
+          kubectl get pods -n {{.Namespace}}
+          kubectl get services -n {{.Namespace}}
+{{if ne .Ingress "none"}}          kubectl get ingress -n {{.Namespace}}
+{{end}}
+      - name: Check logs
+        run: |
+          kubectl logs -n {{.Namespace}} -l app={{.ProjectName}} --tail=100
+        if: failure()

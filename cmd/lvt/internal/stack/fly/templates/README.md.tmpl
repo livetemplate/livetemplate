@@ -1,0 +1,343 @@
+# {{ .ProjectName }} - Fly.io Deployment
+
+This directory contains Fly.io deployment configuration for {{ .ProjectName }}.
+
+## Configuration
+
+- **Provider:** Fly.io
+- **Database:** {{ .Database }}
+{{- if eq .Backup "litestream" }}
+- **Backup:** Litestream ({{ .Storage }})
+{{- end }}
+{{- if ne .Redis "none" }}
+- **Redis:** {{ .Redis }}
+{{- end }}
+{{- if .MultiRegion }}
+- **Multi-Region:** Enabled
+{{- end }}
+
+## Prerequisites
+
+1. Install the Fly CLI:
+   ```bash
+   curl -L https://fly.io/install.sh | sh
+   ```
+
+2. Sign up or login to Fly.io:
+   ```bash
+   fly auth signup  # or fly auth login
+   ```
+
+## Initial Setup
+
+### 1. Create Fly.io App
+
+```bash
+fly launch --no-deploy --name {{ .ProjectName }}
+```
+
+This will:
+- Create a new Fly.io app
+- Use the fly.toml configuration in this directory
+
+{{- if eq .Database "sqlite" }}
+
+### 2. Create Volume for SQLite
+
+```bash
+fly volumes create {{ .ProjectName }}_data --region iad --size 1
+```
+
+Note: SQLite requires persistent storage. The volume will be mounted at `/data`.
+{{- end }}
+
+{{- if eq .Database "postgres" }}
+
+### 3. Attach PostgreSQL Database
+
+```bash
+# Create a new Postgres cluster
+fly postgres create --name {{ .ProjectName }}-db
+
+# Attach it to your app
+fly postgres attach {{ .ProjectName }}-db
+```
+
+This automatically sets the `DATABASE_URL` secret.
+{{- end }}
+
+{{- if eq .Backup "litestream" }}
+
+### 4. Configure Litestream Backup
+
+Set the storage credentials as secrets:
+
+{{- if eq .Storage "s3" }}
+```bash
+fly secrets set \
+  STORAGE_BUCKET=your-bucket-name \
+  STORAGE_REGION=us-east-1 \
+  AWS_ACCESS_KEY_ID=your-access-key-id \
+  AWS_SECRET_ACCESS_KEY=your-secret-access-key
+```
+{{- end }}
+
+{{- if eq .Storage "b2" }}
+```bash
+fly secrets set \
+  STORAGE_BUCKET=your-bucket-name \
+  STORAGE_REGION=us-west-004 \
+  B2_APPLICATION_KEY_ID=your-key-id \
+  B2_APPLICATION_KEY=your-application-key
+```
+{{- end }}
+
+{{- if eq .Storage "do-spaces" }}
+```bash
+fly secrets set \
+  STORAGE_BUCKET=your-bucket-name \
+  STORAGE_REGION=nyc3 \
+  STORAGE_ACCESS_KEY=your-access-key \
+  STORAGE_SECRET_KEY=your-secret-key
+```
+{{- end }}
+
+Litestream will continuously replicate your SQLite database to {{ .Storage }}.
+{{- end }}
+
+{{- if eq .Redis "upstash" }}
+
+### 5. Configure Upstash Redis
+
+```bash
+fly secrets set REDIS_URL=redis://default:your-password@your-endpoint.upstash.io:6379
+```
+{{- end }}
+
+{{- if eq .Redis "fly" }}
+
+### 5. Create Fly Redis
+
+```bash
+fly redis create
+```
+
+Follow the prompts and the `REDIS_URL` will be automatically set.
+{{- end }}
+
+## Deployment
+
+### Deploy to Fly.io
+
+```bash
+fly deploy
+```
+
+This will:
+1. Build your Docker image
+2. Push it to Fly.io's registry
+3. Deploy to your app
+{{- if eq .Backup "litestream" }}
+4. Start Litestream replication
+{{- end }}
+
+### View Logs
+
+```bash
+fly logs
+```
+
+### Check Status
+
+```bash
+fly status
+```
+
+### Open App
+
+```bash
+fly open
+```
+
+{{- if .MultiRegion }}
+
+## Multi-Region Deployment
+
+To deploy to multiple regions:
+
+```bash
+# Scale to multiple regions
+fly scale count 2 --region iad,lhr
+
+# Check deployment status
+fly status
+```
+
+Note: With SQLite, use Litestream for database replication between regions.
+With PostgreSQL, consider Fly's multi-region PostgreSQL or read replicas.
+{{- end }}
+
+## Health Checks
+
+The app is configured with health checks at `/health`:
+- **Grace Period:** 10s
+- **Interval:** 30s
+- **Timeout:** 5s
+
+Ensure your application responds to `GET /health` requests.
+
+## Secrets Management
+
+View current secrets:
+```bash
+fly secrets list
+```
+
+Set a secret:
+```bash
+fly secrets set KEY=VALUE
+```
+
+Remove a secret:
+```bash
+fly secrets unset KEY
+```
+
+## Scaling
+
+### Vertical Scaling (VM Size)
+
+Edit `fly.toml` and change the `[[vm]]` section:
+```toml
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 2
+  memory_mb = 512
+```
+
+Then deploy:
+```bash
+fly deploy
+```
+
+### Horizontal Scaling (Multiple Instances)
+
+```bash
+fly scale count 3
+```
+
+{{- if eq .Database "sqlite" }}
+Note: SQLite only supports single-writer mode. For multiple instances, use PostgreSQL.
+{{- end }}
+
+## Database Management
+
+{{- if eq .Database "sqlite" }}
+
+### Access SQLite Database
+
+```bash
+# SSH into the app
+fly ssh console
+
+# Access database
+sqlite3 /data/app.db
+```
+
+### Backup Database
+
+Litestream handles continuous backups. To restore:
+
+```bash
+# SSH into the app
+fly ssh console
+
+# Restore from latest backup
+litestream restore -config /etc/litestream.yml /data/app.db
+```
+{{- end }}
+
+{{- if eq .Database "postgres" }}
+
+### Access PostgreSQL Database
+
+```bash
+# Connect to Postgres
+fly postgres connect -a {{ .ProjectName }}-db
+
+# Or get connection string
+fly secrets list | grep DATABASE_URL
+```
+{{- end }}
+
+## Monitoring
+
+View metrics:
+```bash
+fly dashboard
+```
+
+Or visit: https://fly.io/apps/{{ .ProjectName }}/metrics
+
+## Troubleshooting
+
+### App won't start
+
+1. Check logs: `fly logs`
+2. Verify secrets are set: `fly secrets list`
+3. Verify health check endpoint exists
+{{- if eq .Database "sqlite" }}
+4. Verify volume is mounted: `fly volumes list`
+{{- end }}
+
+### Database connection errors
+
+{{- if eq .Database "sqlite" }}
+- Ensure volume is created and mounted
+- Check DATABASE_PATH is set to `/data/app.db`
+{{- end }}
+
+{{- if eq .Database "postgres" }}
+- Ensure Postgres is attached: `fly postgres list`
+- Check DATABASE_URL secret is set
+{{- end }}
+
+### Litestream replication issues
+
+{{- if eq .Backup "litestream" }}
+- Verify storage credentials are correct
+- Check logs for Litestream errors
+- Test bucket access manually
+{{- end }}
+
+## Cost Optimization
+
+- Use `auto_stop_machines = true` to pause idle machines
+- Set `min_machines_running = 0` to scale to zero when idle
+- Monitor usage at https://fly.io/dashboard/personal/billing
+
+## Additional Resources
+
+- [Fly.io Documentation](https://fly.io/docs/)
+- [Fly.io Pricing](https://fly.io/docs/about/pricing/)
+{{- if eq .Database "postgres" }}
+- [Fly Postgres](https://fly.io/docs/postgres/)
+{{- end }}
+{{- if eq .Backup "litestream" }}
+- [Litestream Documentation](https://litestream.io/getting-started/)
+{{- end }}
+- [Fly.io Community](https://community.fly.io/)
+
+## CI/CD
+
+{{- if eq .CI "github" }}
+GitHub Actions workflow is configured in `.github/workflows/deploy-fly.yml`.
+
+Set these secrets in your GitHub repository:
+- `FLY_API_TOKEN`: Get from `fly auth token`
+{{- end }}
+
+{{- if eq .CI "none" }}
+To set up CI/CD, consider using GitHub Actions or GitLab CI.
+See Fly.io documentation for examples.
+{{- end }}

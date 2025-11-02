@@ -1,0 +1,379 @@
+# Kubernetes Deployment for {{ .ProjectName }}
+
+This directory contains Kubernetes manifests for deploying {{ .ProjectName }} to any Kubernetes cluster.
+
+## Prerequisites
+
+- kubectl configured with access to your cluster
+- Container registry access ({{ .Registry }})
+{{- if eq .Database "postgres" }}
+- PostgreSQL database (managed or self-hosted)
+{{- end }}
+{{- if ne .Redis "none" }}
+- Redis instance ({{ .Redis }})
+{{- end }}
+{{- if ne .Storage "none" }}
+- Object storage ({{ .Storage }})
+{{- end }}
+
+## Configuration
+
+### 1. Build and Push Container Image
+
+Build your application container:
+
+```bash
+# Build the image
+{{- if eq .Registry "ghcr" }}
+docker build -t ghcr.io/YOUR_GITHUB_ORG/{{ .ProjectName }}:latest .
+docker push ghcr.io/YOUR_GITHUB_ORG/{{ .ProjectName }}:latest
+{{- else if eq .Registry "docker" }}
+docker build -t docker.io/YOUR_DOCKER_USERNAME/{{ .ProjectName }}:latest .
+docker push docker.io/YOUR_DOCKER_USERNAME/{{ .ProjectName }}:latest
+{{- else if eq .Registry "gcr" }}
+docker build -t gcr.io/YOUR_GCP_PROJECT/{{ .ProjectName }}:latest .
+docker push gcr.io/YOUR_GCP_PROJECT/{{ .ProjectName }}:latest
+{{- else if eq .Registry "ecr" }}
+# First, authenticate to ECR
+aws ecr get-login-password --region YOUR_REGION | docker login --username AWS --password-stdin YOUR_AWS_ACCOUNT.dkr.ecr.YOUR_REGION.amazonaws.com
+docker build -t YOUR_AWS_ACCOUNT.dkr.ecr.YOUR_REGION.amazonaws.com/{{ .ProjectName }}:latest .
+docker push YOUR_AWS_ACCOUNT.dkr.ecr.YOUR_REGION.amazonaws.com/{{ .ProjectName }}:latest
+{{- end }}
+```
+
+Update `deployment.yaml` with your actual image path.
+
+### 2. Create Namespace
+
+```bash
+kubectl apply -f namespace.yaml
+```
+
+### 3. Configure Secrets
+
+**IMPORTANT**: Do not commit secrets to git!
+
+Create secrets using kubectl:
+
+```bash
+kubectl create secret generic {{ .ProjectName }}-secret \
+  --namespace={{ .Namespace }} \
+{{- if eq .Database "postgres" }}
+  --from-literal=database-url='postgres://user:password@host:5432/dbname?sslmode=require' \
+{{- end }}
+{{- if ne .Redis "none" }}
+  --from-literal=redis-url='redis://user:password@host:6379' \
+{{- end }}
+{{- if ne .Storage "none" }}
+  --from-literal=storage-access-key='YOUR_ACCESS_KEY' \
+  --from-literal=storage-secret-key='YOUR_SECRET_KEY'
+{{- end }}
+```
+
+Or use a secrets management solution:
+- [Sealed Secrets](https://github.com/bitnami-labs/sealed-secrets)
+- [External Secrets Operator](https://external-secrets.io)
+- [HashiCorp Vault](https://www.vaultproject.io/)
+- Cloud provider secret managers (AWS Secrets Manager, GCP Secret Manager, Azure Key Vault)
+
+### 4. Update ConfigMap (if needed)
+
+Edit `configmap.yaml` to set non-sensitive configuration:
+{{- if ne .Storage "none" }}
+- Storage bucket name
+- Storage region
+{{- end }}
+
+### 5. Deploy Application
+
+Apply all manifests:
+
+```bash
+# Apply in order
+kubectl apply -f namespace.yaml
+kubectl apply -f configmap.yaml
+kubectl apply -f secret.yaml  # Or create secret via kubectl as shown above
+{{- if eq .Database "sqlite" }}
+kubectl apply -f pvc.yaml
+{{- end }}
+{{- if eq .Backup "litestream" }}
+kubectl apply -f litestream-configmap.yaml
+{{- end }}
+kubectl apply -f deployment.yaml
+kubectl apply -f service.yaml
+{{- if ne .Ingress "none" }}
+kubectl apply -f ingress.yaml
+{{- end }}
+```
+
+Or apply all at once:
+
+```bash
+kubectl apply -f .
+```
+
+## Verification
+
+Check deployment status:
+
+```bash
+# Check pods
+kubectl get pods -n {{ .Namespace }}
+
+# Check pod logs
+kubectl logs -n {{ .Namespace }} -l app={{ .ProjectName }} -f
+
+# Check services
+kubectl get svc -n {{ .Namespace }}
+
+{{- if ne .Ingress "none" }}
+# Check ingress
+kubectl get ingress -n {{ .Namespace }}
+{{- end }}
+```
+
+## Database Configuration
+
+{{- if eq .Database "sqlite" }}
+### SQLite with Persistent Storage
+
+The application uses SQLite with a PersistentVolumeClaim (PVC) for data persistence.
+
+- Database file: `/data/app.db`
+- Storage: {{ .Storage }}
+- Volume size: 10Gi (adjustable in `pvc.yaml`)
+
+{{- if eq .Backup "litestream" }}
+### Litestream Backup
+
+Litestream continuously backs up your SQLite database to {{ .Storage }}.
+
+Configuration:
+1. Update `litestream-configmap.yaml` with your bucket name
+2. Ensure secrets contain storage credentials
+3. Litestream runs as a sidecar container
+
+Restore from backup:
+
+```bash
+# Exec into the litestream container
+kubectl exec -n {{ .Namespace }} -it deployment/{{ .ProjectName }} -c litestream -- sh
+
+# List available backups
+litestream generations -config /etc/litestream.yml /data/app.db
+
+# Restore from latest backup
+litestream restore -config /etc/litestream.yml /data/app.db
+```
+{{- end }}
+{{- else if eq .Database "postgres" }}
+### PostgreSQL
+
+The application connects to an external PostgreSQL database.
+
+Set the `database-url` secret with your connection string:
+
+```
+postgres://user:password@host:5432/dbname?sslmode=require
+```
+
+For production, consider:
+- Managed PostgreSQL (AWS RDS, GCP Cloud SQL, Azure Database, DigitalOcean Managed Databases)
+- PostgreSQL cluster (e.g., using CloudNativePG operator)
+- Connection pooling (PgBouncer)
+{{- end }}
+
+## Scaling
+
+Scale your deployment:
+
+```bash
+# Scale to 3 replicas
+kubectl scale deployment {{ .ProjectName }} -n {{ .Namespace }} --replicas=3
+
+# Or edit deployment.yaml and apply
+```
+
+{{- if eq .Database "sqlite" }}
+**Note**: SQLite with PVC supports only 1 replica (ReadWriteOnce). For multiple replicas, use PostgreSQL.
+{{- end }}
+
+## Resource Management
+
+Current resource limits (adjust in `deployment.yaml`):
+
+- **Requests**: 256Mi memory, 250m CPU
+- **Limits**: 512Mi memory, 500m CPU
+
+{{- if eq .Backup "litestream" }}
+Litestream sidecar:
+- **Requests**: 64Mi memory, 50m CPU
+- **Limits**: 128Mi memory, 100m CPU
+{{- end }}
+
+## Ingress Configuration
+
+{{- if eq .Ingress "nginx" }}
+### NGINX Ingress
+
+The ingress is configured for NGINX Ingress Controller with Let's Encrypt TLS.
+
+Prerequisites:
+1. Install NGINX Ingress Controller: https://kubernetes.github.io/ingress-nginx/deploy/
+2. Install cert-manager for TLS: https://cert-manager.io/docs/installation/
+
+Update `ingress.yaml`:
+- Replace `{{ .ProjectName }}.example.com` with your actual domain
+- Ensure DNS points to your ingress controller's external IP
+
+{{- else if eq .Ingress "traefik" }}
+### Traefik Ingress
+
+The ingress is configured for Traefik Ingress Controller with Let's Encrypt TLS.
+
+Prerequisites:
+1. Install Traefik: https://doc.traefik.io/traefik/getting-started/install-traefik/
+2. Install cert-manager for TLS: https://cert-manager.io/docs/installation/
+
+Update `ingress.yaml`:
+- Replace `{{ .ProjectName }}.example.com` with your actual domain
+- Ensure DNS points to your ingress controller's external IP
+
+{{- else }}
+### No Ingress
+
+No ingress is configured. To expose your service:
+
+1. Use LoadBalancer service type:
+```bash
+kubectl patch svc {{ .ProjectName }} -n {{ .Namespace }} -p '{"spec": {"type": "LoadBalancer"}}'
+```
+
+2. Or use port-forward for testing:
+```bash
+kubectl port-forward -n {{ .Namespace }} svc/{{ .ProjectName }} 8080:80
+```
+{{- end }}
+
+## Health Checks
+
+The deployment includes:
+
+- **Liveness Probe**: HTTP GET `/health` every 30s (restarts on failure)
+- **Readiness Probe**: HTTP GET `/health` every 10s (removes from service on failure)
+
+Ensure your application implements a `/health` endpoint.
+
+## Monitoring
+
+Monitor your application:
+
+```bash
+# Watch pod status
+kubectl get pods -n {{ .Namespace }} -w
+
+# Stream logs
+kubectl logs -n {{ .Namespace }} -l app={{ .ProjectName }} -f
+
+# Check events
+kubectl get events -n {{ .Namespace }} --sort-by='.lastTimestamp'
+
+# Describe deployment
+kubectl describe deployment {{ .ProjectName }} -n {{ .Namespace }}
+```
+
+## Troubleshooting
+
+### Pod not starting
+
+```bash
+# Check pod status and events
+kubectl describe pod -n {{ .Namespace }} -l app={{ .ProjectName }}
+
+# Check logs
+kubectl logs -n {{ .Namespace }} -l app={{ .ProjectName }}
+```
+
+### Image pull errors
+
+{{- if eq .Registry "ghcr" }}
+Create an image pull secret for GitHub Container Registry:
+
+```bash
+kubectl create secret docker-registry ghcr-secret \
+  --namespace={{ .Namespace }} \
+  --docker-server=ghcr.io \
+  --docker-username=YOUR_GITHUB_USERNAME \
+  --docker-password=YOUR_GITHUB_PAT \
+  --docker-email=YOUR_EMAIL
+
+# Add to deployment.yaml under spec.template.spec:
+# imagePullSecrets:
+# - name: ghcr-secret
+```
+{{- else if eq .Registry "ecr" }}
+For ECR, set up IRSA (IAM Roles for Service Accounts) or use an image pull secret with ECR credentials.
+{{- end }}
+
+### Database connection issues
+
+{{- if eq .Database "postgres" }}
+Verify the database-url secret:
+
+```bash
+kubectl get secret {{ .ProjectName }}-secret -n {{ .Namespace }} -o jsonpath='{.data.database-url}' | base64 -d
+```
+{{- else if eq .Database "sqlite" }}
+Check PVC is bound:
+
+```bash
+kubectl get pvc -n {{ .Namespace }}
+```
+{{- end }}
+
+## Cleanup
+
+Remove all resources:
+
+```bash
+kubectl delete namespace {{ .Namespace }}
+```
+
+Or delete individually:
+
+```bash
+kubectl delete -f .
+```
+
+## Production Checklist
+
+Before going to production:
+
+- [ ] Update all placeholder values (image URLs, domains, bucket names)
+- [ ] Create proper secrets (do not use example values)
+- [ ] Configure appropriate resource limits
+- [ ] Set up monitoring and alerting
+- [ ] Configure backup strategy
+- [ ] Set up CI/CD pipeline
+- [ ] Configure TLS/HTTPS
+- [ ] Review security policies (NetworkPolicies, PodSecurityPolicies)
+- [ ] Set up log aggregation
+- [ ] Configure autoscaling (HPA) if needed
+- [ ] Test disaster recovery procedures
+{{- if eq .Database "sqlite" }}
+- [ ] Consider switching to PostgreSQL for high availability
+{{- end }}
+
+## Support
+
+For issues and questions:
+- Kubernetes docs: https://kubernetes.io/docs/
+- kubectl cheatsheet: https://kubernetes.io/docs/reference/kubectl/cheatsheet/
+{{- if eq .Ingress "nginx" }}
+- NGINX Ingress: https://kubernetes.github.io/ingress-nginx/
+{{- else if eq .Ingress "traefik" }}
+- Traefik: https://doc.traefik.io/traefik/
+{{- end }}
+{{- if eq .Backup "litestream" }}
+- Litestream: https://litestream.io/
+{{- end }}

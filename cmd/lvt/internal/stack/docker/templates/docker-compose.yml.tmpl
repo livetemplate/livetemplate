@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      - PORT=8080
+      {{- if eq .Database "sqlite" }}
+      - DATABASE_URL=file:./data/app.db
+      {{- end }}
+      {{- if eq .Database "postgres" }}
+      - DATABASE_URL=${DATABASE_URL}
+      {{- end }}
+      {{- if ne .Redis "none" }}
+      - REDIS_URL=${REDIS_URL}
+      {{- end }}
+      {{- if ne .Storage "none" }}
+      - STORAGE_BUCKET=${STORAGE_BUCKET}
+      - STORAGE_REGION=${STORAGE_REGION}
+      - STORAGE_ACCESS_KEY=${STORAGE_ACCESS_KEY}
+      - STORAGE_SECRET_KEY=${STORAGE_SECRET_KEY}
+      {{- end }}
+    {{- if eq .Database "sqlite" }}
+    volumes:
+      - app-data:/app/data
+    {{- end }}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+{{- if eq .Database "postgres" }}
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-app}
+      - POSTGRES_USER=${POSTGRES_USER:-app}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+{{- end }}
+
+{{- if and (eq .Database "sqlite") (eq .Backup "litestream") }}
+
+  litestream:
+    image: litestream/litestream:0.3
+    volumes:
+      - app-data:/data
+      - ./litestream.yml:/etc/litestream.yml
+    environment:
+      {{- if eq .Storage "s3" }}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      {{- end }}
+      {{- if eq .Storage "b2" }}
+      - B2_APPLICATION_KEY_ID=${B2_APPLICATION_KEY_ID}
+      - B2_APPLICATION_KEY=${B2_APPLICATION_KEY}
+      {{- end }}
+    command: replicate
+    restart: unless-stopped
+{{- end }}
+
+{{- if or (eq .Database "sqlite") (eq .Database "postgres") }}
+volumes:
+  {{- if eq .Database "sqlite" }}
+  app-data:
+  {{- end }}
+  {{- if eq .Database "postgres" }}
+  postgres-data:
+  {{- end }}
+{{- end }}

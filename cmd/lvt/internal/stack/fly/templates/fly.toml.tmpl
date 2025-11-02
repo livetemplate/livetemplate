@@ -1,0 +1,62 @@
+# fly.toml app configuration file generated for {{ .ProjectName }}
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+
+app = "{{ .ProjectName }}"
+primary_region = "iad"
+
+{{- if eq .Database "sqlite" }}
+# SQLite3 database configuration
+[mounts]
+  source = "{{ .ProjectName }}_data"
+  destination = "/data"
+  initial_size = "1GB"
+{{- end }}
+
+{{- if .MultiRegion }}
+# Multi-region configuration
+# Add additional regions with: fly scale count 2 --region syd,lhr
+{{- end }}
+
+[build]
+
+[env]
+  PORT = "8080"
+{{- if eq .Database "sqlite" }}
+  DATABASE_PATH = "/data/app.db"
+{{- end }}
+{{- if eq .Database "postgres" }}
+  # PostgreSQL will be attached via `fly postgres attach`
+  # DATABASE_URL will be automatically set
+{{- end }}
+{{- if eq .Backup "litestream" }}
+  LITESTREAM_ENABLED = "true"
+{{- end }}
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health"
+
+{{- if eq .Database "sqlite" }}
+# Concurrency settings for SQLite (single writer)
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256
+{{- else }}
+# Concurrency settings for PostgreSQL (multiple writers)
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512
+{{- end }}

@@ -1,0 +1,122 @@
+# DigitalOcean App Platform spec for {{ .ProjectName }}
+# See https://docs.digitalocean.com/products/app-platform/reference/app-spec/
+
+name: {{ .ProjectName }}
+region: nyc
+
+{{- if eq .Database "postgres" }}
+databases:
+  - name: {{ .ProjectName }}-db
+    engine: PG
+    production: true
+    version: "16"
+{{- end }}
+
+services:
+  - name: web
+    {{- if eq .Database "sqlite" }}
+    # Building from Dockerfile for SQLite support
+    dockerfile_path: Dockerfile
+    {{- else }}
+    # Building from source with buildpack
+    github:
+      repo: your-org/{{ .ProjectName }}
+      branch: main
+      deploy_on_push: true
+    {{- end }}
+
+    build_command: go build -o bin/{{ .ProjectName }} .
+    run_command: ./bin/{{ .ProjectName }}
+
+    http_port: 8080
+
+    instance_count: 1
+    instance_size_slug: basic-xxs
+
+    {{- if eq .Database "sqlite" }}
+    # SQLite requires persistent storage
+    # Note: DO App Platform doesn't support persistent volumes
+    # Consider using Postgres or external storage
+    {{- end }}
+
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 10
+      period_seconds: 30
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
+
+    envs:
+      - key: PORT
+        value: "8080"
+
+      {{- if eq .Database "sqlite" }}
+      - key: DATABASE_PATH
+        value: /data/app.db
+      {{- end }}
+
+      {{- if eq .Database "postgres" }}
+      # DATABASE_URL is automatically injected by DO when database is attached
+      {{- end }}
+
+      {{- if eq .Backup "litestream" }}
+      - key: LITESTREAM_ENABLED
+        value: "true"
+
+      {{- if eq .Storage "s3" }}
+      - key: STORAGE_BUCKET
+        scope: RUN_TIME
+        type: SECRET
+      - key: STORAGE_REGION
+        value: us-east-1
+      - key: AWS_ACCESS_KEY_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: AWS_SECRET_ACCESS_KEY
+        scope: RUN_TIME
+        type: SECRET
+      {{- end }}
+
+      {{- if eq .Storage "do-spaces" }}
+      - key: STORAGE_BUCKET
+        scope: RUN_TIME
+        type: SECRET
+      - key: STORAGE_REGION
+        value: nyc3
+      - key: STORAGE_ENDPOINT
+        value: https://nyc3.digitaloceanspaces.com
+      - key: STORAGE_ACCESS_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: STORAGE_SECRET_KEY
+        scope: RUN_TIME
+        type: SECRET
+      {{- end }}
+
+      {{- if eq .Storage "b2" }}
+      - key: STORAGE_BUCKET
+        scope: RUN_TIME
+        type: SECRET
+      - key: STORAGE_REGION
+        value: us-west-004
+      - key: B2_APPLICATION_KEY_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: B2_APPLICATION_KEY
+        scope: RUN_TIME
+        type: SECRET
+      {{- end }}
+      {{- end }}
+
+      {{- if eq .Redis "upstash" }}
+      - key: REDIS_URL
+        scope: RUN_TIME
+        type: SECRET
+      {{- end }}
+
+{{- if eq .Database "postgres" }}
+
+# The database will be automatically attached
+# DATABASE_URL environment variable will be injected
+{{- end }}

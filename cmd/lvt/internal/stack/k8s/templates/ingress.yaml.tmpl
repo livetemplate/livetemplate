@@ -1,0 +1,39 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .ProjectName }}
+  namespace: {{ .Namespace }}
+  labels:
+    app: {{ .ProjectName }}
+    managed-by: lvt
+  annotations:
+    {{- if eq .Ingress "nginx" }}
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    {{- else if eq .Ingress "traefik" }}
+    kubernetes.io/ingress.class: "traefik"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    traefik.ingress.kubernetes.io/redirect-entry-point: "https"
+    {{- end }}
+spec:
+  {{- if eq .Ingress "nginx" }}
+  ingressClassName: nginx
+  {{- else if eq .Ingress "traefik" }}
+  ingressClassName: traefik
+  {{- end }}
+  tls:
+  - hosts:
+    - {{ .ProjectName }}.example.com
+    secretName: {{ .ProjectName }}-tls
+  rules:
+  - host: {{ .ProjectName }}.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .ProjectName }}
+            port:
+              number: 80

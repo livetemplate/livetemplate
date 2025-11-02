@@ -52,6 +52,8 @@ func main() {
 		err = commands.Seed(args)
 	case "kits", "kit":
 		err = commands.Kits(args)
+	case "stack":
+		err = commands.Stack(args)
 	case "serve", "server":
 		err = commands.Serve(args)
 	case "version", "--version", "-v":
