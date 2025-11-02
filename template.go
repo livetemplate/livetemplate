@@ -1259,9 +1259,10 @@ func (t *Template) Handle(stores ...Store) LiveHandler {
 	}
 
 	return &liveHandler{
-		config:   config,
-		registry: NewConnectionRegistry(),
-		limits:   NewConnectionLimits(config.MaxConnections, config.MaxConnectionsPerGroup),
+		config:       config,
+		registry:     NewConnectionRegistry(),
+		limits:       NewConnectionLimits(config.MaxConnections, config.MaxConnectionsPerGroup),
+		shutdownChan: make(chan struct{}),
 	}
 }
 

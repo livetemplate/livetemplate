@@ -53,7 +53,7 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 | **M2: Horizontal Scaling** | Redis integration, multi-instance | 4-5 weeks | 🔴 TODO | Week 11 |
 | **M3: Enterprise Scale** | Advanced resilience, optimization | 8-12 weeks | 🔴 TODO | Week 26 |
 
-**Overall Progress:** `[████░░░░░░░░░░░░░░░░] 21% (9/42 tasks)`
+**Overall Progress:** `[██████░░░░░░░░░░░░░░] 31% (13/42 tasks)`
 
 ---
 
@@ -69,7 +69,7 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 - ✅ Prometheus metrics enable capacity planning
 
 **Duration:** 4-6 weeks
-**Progress:** `[████░░░░░░] 9/18 tasks (50%)`
+**Progress:** `[███████░░░] 13/18 tasks (72%)`
 
 ---
 
@@ -138,16 +138,16 @@ handler := livetemplate.Mount(rootStore,
 
 ---
 
-### 1.3 Graceful Shutdown
+### 1.3 Graceful Shutdown ✅
 
-**Files:** `mount.go`, `registry.go`
+**Files:** `mount.go`, `shutdown_test.go` (new)
 
 | Task | Priority | Status | Est. Effort | Assignee |
 |------|----------|--------|-------------|----------|
-| Add `Shutdown(ctx context.Context)` method to `LiveHandler` | 🔴 CRITICAL | 🔴 TODO | 2 days | - |
-| Stop accepting new connections during shutdown | 🔴 CRITICAL | 🔴 TODO | 1 day | - |
-| Send close frames to all active WebSocket connections | 🔴 CRITICAL | 🔴 TODO | 2 days | - |
-| Wait for in-flight actions to complete (with timeout) | 🟡 HIGH | 🔴 TODO | 2 days | - |
+| Add `Shutdown(ctx context.Context)` method to `LiveHandler` | 🔴 CRITICAL | ✅ DONE | 2 days | - |
+| Stop accepting new connections during shutdown | 🔴 CRITICAL | ✅ DONE | 1 day | - |
+| Send close frames to all active WebSocket connections | 🔴 CRITICAL | ✅ DONE | 2 days | - |
+| Wait for in-flight actions to complete (with timeout) | 🟡 HIGH | ✅ DONE | 2 days | - |
 | Add example with `http.Server.Shutdown()` integration | 🟡 HIGH | 🔴 TODO | 1 day | - |
 | Document shutdown timeout recommendations | 🟡 MEDIUM | 🔴 TODO | 1 day | - |
 
@@ -247,9 +247,9 @@ export LVT_REDIS_URL=redis://localhost:6379/0  # Optional for M2
 ### Milestone 1 Summary
 
 **Total Tasks:** 18
-**Completed:** 9
+**Completed:** 13
 **In Progress:** 0
-**TODO:** 9
+**TODO:** 5
 
 **Estimated Effort:** 4-6 weeks with 1 engineer
 
@@ -555,10 +555,10 @@ const delay = Math.min(
 
 | Milestone | Tasks | Completed | Progress | Status |
 |-----------|-------|-----------|----------|--------|
-| **M1: Production Foundation** | 18 | 0 | `[░░░░░░░░░░] 0%` | 🔴 TODO |
+| **M1: Production Foundation** | 18 | 13 | `[███████░░░] 72%` | 🟡 IN PROGRESS |
 | **M2: Horizontal Scaling** | 10 | 0 | `[░░░░░░░░░░] 0%` | 🔴 TODO |
 | **M3: Enterprise Scale** | 14 | 0 | `[░░░░░░░░░░] 0%` | 🔴 TODO |
-| **TOTAL** | **42** | **0** | `[░░░░░░░░░░] 0%` | 🔴 IN PROGRESS |
+| **TOTAL** | **42** | **13** | `[██████░░░░░░░░░░░░] 31%` | 🟡 IN PROGRESS |
 
 ### Key Metrics
 

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"reflect"
 	"sync"
+	"sync/atomic"
 
 	"github.com/gorilla/websocket"
 )
@@ -101,6 +102,23 @@ type LiveHandler interface {
 	// Example: Update all tabs for a specific session group
 	//   handler.BroadcastToGroup("session-abc", SessionState{...})
 	BroadcastToGroup(groupID string, data interface{}) error
+
+	// Shutdown gracefully shuts down the handler, draining connections.
+	//
+	// It performs the following steps:
+	//  1. Stops accepting new WebSocket connections
+	//  2. Sends close frames to all active WebSocket connections
+	//  3. Waits for in-flight requests to complete (respecting context timeout)
+	//
+	// The context timeout controls how long to wait for connections to close.
+	// After the timeout, remaining connections are forcefully closed.
+	//
+	// Example usage with http.Server:
+	//   ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	//   defer cancel()
+	//   handler.Shutdown(ctx)
+	//   server.Shutdown(ctx)
+	Shutdown(ctx context.Context) error
 }
 
 // MountConfig configures the mount handler
@@ -126,6 +144,12 @@ type liveHandler struct {
 	config   MountConfig
 	registry *ConnectionRegistry
 	limits   *ConnectionLimits
+
+	// Graceful shutdown state
+	shutdownOnce sync.Once
+	shutdownChan chan struct{}
+	shutdownWg   sync.WaitGroup
+	isShutdown   atomic.Bool
 }
 
 type connState struct {
@@ -178,6 +202,16 @@ func (h *liveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Check if shutting down - reject new connections
+	if h.isShutdown.Load() {
+		http.Error(w, "Service is shutting down", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Track this connection goroutine for graceful shutdown
+	h.shutdownWg.Add(1)
+	defer h.shutdownWg.Done()
+
 	// Authenticate user and get session group
 	userID, err := h.config.Authenticator.Identify(r)
 	if err != nil {
@@ -880,4 +914,64 @@ func (h *liveHandler) sendUpdate(conn *Connection, data interface{}) error {
 		return nil // Test mode - no actual send
 	}
 	return conn.Send(websocket.TextMessage, responseBytes)
+}
+
+// Shutdown gracefully shuts down the LiveHandler.
+//
+// It stops accepting new WebSocket connections, sends close frames to all
+// active connections, and waits for connections to finish (respecting ctx timeout).
+//
+// This method can be called multiple times safely (only first call has effect).
+func (h *liveHandler) Shutdown(ctx context.Context) error {
+	var shutdownErr error
+
+	h.shutdownOnce.Do(func() {
+		log.Printf("LiveHandler: Starting graceful shutdown...")
+
+		// Mark as shutting down (stops accepting new connections)
+		h.isShutdown.Store(true)
+		close(h.shutdownChan)
+
+		// Get all active connections
+		connections := h.registry.GetAll()
+		log.Printf("LiveHandler: Closing %d active connections...", len(connections))
+
+		// Send close frames to all connections
+		closeMessage := websocket.FormatCloseMessage(websocket.CloseGoingAway, "Server shutting down")
+		for _, conn := range connections {
+			// Send close frame (best effort, ignore errors)
+			if conn.Conn != nil {
+				conn.mu.Lock()
+				_ = conn.Conn.WriteMessage(websocket.CloseMessage, closeMessage)
+				conn.mu.Unlock()
+			}
+		}
+
+		// Wait for all connection goroutines to finish
+		done := make(chan struct{})
+		go func() {
+			h.shutdownWg.Wait()
+			close(done)
+		}()
+
+		// Wait for shutdown or timeout
+		select {
+		case <-done:
+			log.Printf("LiveHandler: All connections closed gracefully")
+		case <-ctx.Done():
+			log.Printf("LiveHandler: Shutdown timeout reached, forcing close of remaining connections")
+			shutdownErr = ctx.Err()
+
+			// Force close remaining connections
+			for _, conn := range h.registry.GetAll() {
+				if conn.Conn != nil {
+					conn.Conn.Close()
+				}
+			}
+		}
+
+		log.Printf("LiveHandler: Shutdown complete")
+	})
+
+	return shutdownErr
 }
