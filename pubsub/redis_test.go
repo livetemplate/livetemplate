@@ -1,31 +1,17 @@
 package pubsub
 
 import (
-	"context"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/livetemplate/livetemplate/internal/testutil"
 	"github.com/redis/go-redis/v9"
 )
 
-// getTestRedisClient returns a Redis client for testing.
+// getTestRedisClient returns a Redis client for testing using testcontainers.
 func getTestRedisClient(t *testing.T) redis.UniversalClient {
-	client := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
-		DB:   15, // Use DB 15 for tests
-	})
-
-	// Check if Redis is available
-	ctx := context.Background()
-	if err := client.Ping(ctx).Err(); err != nil {
-		t.Skip("Redis not available, skipping test:", err)
-	}
-
-	// Flush the test database
-	client.FlushDB(ctx)
-
-	return client
+	return testutil.GetTestRedisClient(t)
 }
 
 func TestRedisBroadcaster_PublishGlobal(t *testing.T) {

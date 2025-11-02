@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/livetemplate/livetemplate/internal/testutil"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -25,27 +26,9 @@ func init() {
 	gob.Register(&TestStore{})
 }
 
-// getTestRedisClient returns a Redis client for testing.
-// Uses miniredis for in-memory Redis simulation if available,
-// otherwise skips tests that require Redis.
+// getTestRedisClient returns a Redis client for testing using testcontainers.
 func getTestRedisClient(t *testing.T) redis.UniversalClient {
-	// For now, we'll use a real Redis connection for testing
-	// In a CI environment, this should use miniredis or similar
-	client := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
-		DB:   15, // Use DB 15 for tests to avoid conflicts
-	})
-
-	// Check if Redis is available
-	ctx := context.Background()
-	if err := client.Ping(ctx).Err(); err != nil {
-		t.Skip("Redis not available, skipping test:", err)
-	}
-
-	// Flush the test database before each test
-	client.FlushDB(ctx)
-
-	return client
+	return testutil.GetTestRedisClient(t)
 }
 
 func TestRedisSessionStore_SetAndGet(t *testing.T) {

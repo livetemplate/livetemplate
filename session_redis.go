@@ -190,7 +190,7 @@ func (s *RedisSessionStore) List() []string {
 	pattern := sessionKeyPrefix + "*"
 
 	// Scan for all session keys
-	var keys []string
+	keys := make([]string, 0)
 	iter := s.client.Scan(ctx, 0, pattern, 0).Iterator()
 	for iter.Next(ctx) {
 		key := iter.Val()
