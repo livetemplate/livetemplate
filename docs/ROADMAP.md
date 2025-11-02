@@ -53,7 +53,7 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 | **M2: Horizontal Scaling** | Redis integration, multi-instance | 4-5 weeks | 🔴 TODO | Week 11 |
 | **M3: Enterprise Scale** | Advanced resilience, optimization | 8-12 weeks | 🔴 TODO | Week 26 |
 
-**Overall Progress:** `[██░░░░░░░░░░░░░░░░░░] 12% (5/42 tasks)`
+**Overall Progress:** `[████░░░░░░░░░░░░░░░░] 21% (9/42 tasks)`
 
 ---
 
@@ -69,20 +69,20 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 - ✅ Prometheus metrics enable capacity planning
 
 **Duration:** 4-6 weeks
-**Progress:** `[██░░░░░░░░] 5/18 tasks (28%)`
+**Progress:** `[████░░░░░░] 9/18 tasks (50%)`
 
 ---
 
-### 1.1 Health Checks & Readiness
+### 1.1 Health Checks & Readiness ✅
 
-**Files:** `health.go` (new), `mount.go`
+**Files:** `health.go` (new), `health_test.go` (new)
 
 | Task | Priority | Status | Est. Effort | Assignee |
 |------|----------|--------|-------------|----------|
-| Design `HealthChecker` interface for dependency checks | 🔴 CRITICAL | 🔴 TODO | 2 days | - |
-| Implement `/health/live` endpoint (basic liveness) | 🔴 CRITICAL | 🔴 TODO | 1 day | - |
-| Implement `/health/ready` endpoint (checks dependencies) | 🔴 CRITICAL | 🔴 TODO | 2 days | - |
-| Add health check for SessionStore (ping test) | 🔴 CRITICAL | 🔴 TODO | 1 day | - |
+| Design `HealthChecker` interface for dependency checks | 🔴 CRITICAL | ✅ DONE | 2 days | - |
+| Implement `/health/live` endpoint (basic liveness) | 🔴 CRITICAL | ✅ DONE | 1 day | - |
+| Implement `/health/ready` endpoint (checks dependencies) | 🔴 CRITICAL | ✅ DONE | 2 days | - |
+| Add health check for SessionStore (ping test) | 🔴 CRITICAL | ✅ DONE | 1 day | - |
 | Add health check for database connections | 🟡 HIGH | 🔴 TODO | 1 day | - |
 | Document Kubernetes probe configuration | 🟡 HIGH | 🔴 TODO | 1 day | - |
 
@@ -247,9 +247,9 @@ export LVT_REDIS_URL=redis://localhost:6379/0  # Optional for M2
 ### Milestone 1 Summary
 
 **Total Tasks:** 18
-**Completed:** 5
+**Completed:** 9
 **In Progress:** 0
-**TODO:** 13
+**TODO:** 9
 
 **Estimated Effort:** 4-6 weeks with 1 engineer
 
