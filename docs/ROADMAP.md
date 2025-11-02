@@ -53,7 +53,7 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 | **M2: Horizontal Scaling** | Redis integration, multi-instance | 4-5 weeks | 🔴 TODO | Week 11 |
 | **M3: Enterprise Scale** | Advanced resilience, optimization | 8-12 weeks | 🔴 TODO | Week 26 |
 
-**Overall Progress:** `[████████░░░░░░░░░░░░] 42% (25/59 tasks)`
+**Overall Progress:** `[████████░░░░░░░░░░░░] 44% (26/59 tasks)`
 
 ---
 
@@ -69,7 +69,7 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 - ✅ Prometheus metrics enable capacity planning
 
 **Duration:** 4-6 weeks
-**Progress:** `[█████████████░░░░░░░] 25/35 tasks (71%)`
+**Progress:** `[█████████████░░░░░░░] 26/35 tasks (74%)`
 
 ---
 
@@ -177,8 +177,8 @@ handler.Shutdown(ctx)
 | Implement `PrometheusExporter` (exposes `/metrics` endpoint) | 🔴 CRITICAL | ✅ DONE | 3 days | - |
 | Export connection metrics (active, total, rejected) | 🔴 CRITICAL | ✅ DONE | 1 day | - |
 | Export performance metrics (action duration histograms) | 🟡 HIGH | ✅ DONE | 2 days | - |
-| Add request tracing with trace IDs (log correlation) | 🟡 HIGH | 🔴 TODO | 3 days | - |
-| Create Grafana dashboard JSON for monitoring | 🟡 MEDIUM | 🔴 TODO | 2 days | - |
+| Add request tracing with trace IDs (log correlation) | 🟡 HIGH | ✅ DONE | 3 days | - |
+| Create Grafana dashboard JSON for monitoring | 🟡 MEDIUM | 🔵 LATER | 2 days | - |
 
 **Acceptance Criteria:**
 - `/metrics` endpoint returns Prometheus format
