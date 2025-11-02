@@ -40,6 +40,17 @@ func formatTime() string {
 func main() {
 	log.Println("LiveTemplate Counter Server starting...")
 
+	// Load configuration from environment variables
+	envConfig, err := livetemplate.LoadEnvConfig()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
+	// Validate configuration
+	if err := envConfig.Validate(); err != nil {
+		log.Fatalf("Invalid configuration: %v", err)
+	}
+
 	// Create initial state
 	state := &CounterState{
 		Title:       "Live Counter",
@@ -47,8 +58,9 @@ func main() {
 		LastUpdated: formatTime(),
 	}
 
-	// Create template - auto-discovers counter.tmpl
-	tmpl := livetemplate.New("counter")
+	// Create template with environment-based configuration
+	// Configuration is loaded from LVT_* environment variables
+	tmpl := livetemplate.New("counter", envConfig.ToOptions()...)
 
 	// Mount handler - auto-handles initial page, WebSocket, and HTTP actions
 	http.Handle("/", tmpl.Handle(state))
@@ -62,8 +74,7 @@ func main() {
 	}
 	log.Printf("Server starting on http://localhost:%s", port)
 
-	err := http.ListenAndServe(":"+port, nil)
-	if err != nil {
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}
 }

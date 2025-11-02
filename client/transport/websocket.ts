@@ -5,20 +5,25 @@ export interface WebSocketTransportOptions {
   url: string;
   autoReconnect?: boolean;
   reconnectDelay?: number;
+  maxReconnectDelay?: number; // Maximum delay between reconnect attempts (default: 16000ms)
+  maxReconnectAttempts?: number; // Maximum number of reconnect attempts (default: 10, 0 = unlimited)
   onOpen?: (socket: WebSocket) => void;
   onMessage?: (event: MessageEvent<string>) => void;
   onClose?: (event: CloseEvent) => void;
-  onReconnectAttempt?: () => void;
+  onReconnectAttempt?: (attempt: number, delay: number) => void;
+  onReconnectFailed?: () => void; // Called when max reconnect attempts reached
   onError?: (event: Event) => void;
 }
 
 /**
  * Lightweight wrapper around browser WebSocket with optional auto-reconnect support.
+ * Implements exponential backoff with jitter to prevent thundering herd.
  */
 export class WebSocketTransport {
   private socket: WebSocket | null = null;
   private reconnectTimer: number | null = null;
   private manuallyClosed = false;
+  private reconnectAttempts = 0;
 
   constructor(private readonly options: WebSocketTransportOptions) {}
 
@@ -30,6 +35,8 @@ export class WebSocketTransport {
     const socket = this.socket;
 
     socket.onopen = () => {
+      // Reset reconnect attempts on successful connection
+      this.reconnectAttempts = 0;
       this.options.onOpen?.(socket);
     };
 
@@ -70,9 +77,29 @@ export class WebSocketTransport {
 
   private scheduleReconnect(): void {
     this.clearReconnectTimer();
-    const delay = this.options.reconnectDelay ?? 1000;
+
+    // Check if max reconnect attempts reached
+    const maxAttempts = this.options.maxReconnectAttempts ?? 10;
+    if (maxAttempts > 0 && this.reconnectAttempts >= maxAttempts) {
+      this.options.onReconnectFailed?.();
+      return;
+    }
+
+    this.reconnectAttempts++;
+
+    // Calculate exponential backoff: baseDelay * 2^attempt
+    const baseDelay = this.options.reconnectDelay ?? 1000;
+    const maxDelay = this.options.maxReconnectDelay ?? 16000;
+    const exponentialDelay = baseDelay * Math.pow(2, this.reconnectAttempts - 1);
+
+    // Add jitter: random value between 0 and 1000ms to prevent thundering herd
+    const jitter = Math.random() * 1000;
+
+    // Calculate final delay with maximum cap
+    const delay = Math.min(exponentialDelay + jitter, maxDelay);
+
     this.reconnectTimer = window.setTimeout(() => {
-      this.options.onReconnectAttempt?.();
+      this.options.onReconnectAttempt?.(this.reconnectAttempts, delay);
       this.connect();
     }, delay);
   }
@@ -90,7 +117,8 @@ export interface WebSocketManagerConfig {
   onConnected: () => void;
   onDisconnected: () => void;
   onMessage: (response: UpdateResponse, event: MessageEvent<string>) => void;
-  onReconnectAttempt?: () => void;
+  onReconnectAttempt?: (attempt: number, delay: number) => void;
+  onReconnectFailed?: () => void;
   onError?: (event: Event) => void;
   logger: Logger;
 }
@@ -121,6 +149,8 @@ export class WebSocketManager {
       url: this.getWebSocketUrl(),
       autoReconnect: this.config.options.autoReconnect,
       reconnectDelay: this.config.options.reconnectDelay,
+      maxReconnectDelay: 16000, // 16 seconds maximum
+      maxReconnectAttempts: 10, // 10 attempts before giving up
       onOpen: () => {
         this.config.onConnected();
       },
@@ -135,8 +165,11 @@ export class WebSocketManager {
       onClose: () => {
         this.config.onDisconnected();
       },
-      onReconnectAttempt: () => {
-        this.config.onReconnectAttempt?.();
+      onReconnectAttempt: (attempt, delay) => {
+        this.config.onReconnectAttempt?.(attempt, delay);
+      },
+      onReconnectFailed: () => {
+        this.config.onReconnectFailed?.();
       },
       onError: (event) => {
         this.config.onError?.(event);

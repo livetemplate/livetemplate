@@ -127,15 +127,28 @@ func (s *ChatState) Init() error {
 func main() {
 	log.Println("chat starting...")
 
+	// Load configuration from environment variables
+	envConfig, err := livetemplate.LoadEnvConfig()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
+	// Validate configuration
+	if err := envConfig.Validate(); err != nil {
+		log.Fatalf("Invalid configuration: %v", err)
+	}
+
 	// Create initial state
 	state := &ChatState{
 		Users:    make(map[string]*User),
 		Messages: []Message{},
 	}
 
-	// Create template - uses default AnonymousAuthenticator
-	// Each browser gets its own session (via cookie), tabs in same browser share state
-	tmpl := livetemplate.New("chat", livetemplate.WithDevMode(true))
+	// Create template with environment-based configuration
+	// Uses default AnonymousAuthenticator - each browser gets its own session (via cookie)
+	// Tabs in same browser share state
+	// Configure via LVT_* environment variables (e.g., LVT_DEV_MODE=true)
+	tmpl := livetemplate.New("chat", envConfig.ToOptions()...)
 
 	// Mount handler
 	http.Handle("/", tmpl.Handle(state))
@@ -154,8 +167,7 @@ func main() {
 	log.Println("🌐 Each browser has its own isolated chat session")
 	log.Println()
 
-	err := http.ListenAndServe(":"+port, nil)
-	if err != nil {
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}
 }

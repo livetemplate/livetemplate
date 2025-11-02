@@ -9,8 +9,11 @@ import (
 	"net/http"
 	"reflect"
 	"sync"
+	"sync/atomic"
 
 	"github.com/gorilla/websocket"
+	"github.com/livefir/livetemplate/internal/observe"
+	"github.com/livefir/livetemplate/pubsub"
 )
 
 // Broadcaster allows stores to push updates to connected clients without user interaction
@@ -101,18 +104,57 @@ type LiveHandler interface {
 	// Example: Update all tabs for a specific session group
 	//   handler.BroadcastToGroup("session-abc", SessionState{...})
 	BroadcastToGroup(groupID string, data interface{}) error
+
+	// Shutdown gracefully shuts down the handler, draining connections.
+	//
+	// It performs the following steps:
+	//  1. Stops accepting new WebSocket connections
+	//  2. Sends close frames to all active WebSocket connections
+	//  3. Waits for in-flight requests to complete (respecting context timeout)
+	//
+	// The context timeout controls how long to wait for connections to close.
+	// After the timeout, remaining connections are forcefully closed.
+	//
+	// Example usage with http.Server:
+	//   ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	//   defer cancel()
+	//   handler.Shutdown(ctx)
+	//   server.Shutdown(ctx)
+	Shutdown(ctx context.Context) error
+
+	// MetricsHandler returns an http.Handler that exports Prometheus metrics.
+	//
+	// The handler responds to GET requests with metrics in Prometheus text format.
+	// Typically mounted at /metrics for scraping by Prometheus.
+	//
+	// Example with standard library http mux:
+	//   mux := http.NewServeMux()
+	//   handler := template.Handle(store)
+	//   mux.Handle("/live", handler)
+	//   mux.Handle("/metrics", handler.MetricsHandler())
+	//   http.ListenAndServe(":8080", mux)
+	//
+	// Example with gorilla/mux:
+	//   r := mux.NewRouter()
+	//   handler := template.Handle(store)
+	//   r.Handle("/live", handler)
+	//   r.Handle("/metrics", handler.MetricsHandler())
+	MetricsHandler() http.Handler
 }
 
 // MountConfig configures the mount handler
 type MountConfig struct {
-	Template          *Template
-	Stores            Stores
-	IsSingleStore     bool
-	Upgrader          *websocket.Upgrader
-	SessionStore      SessionStore
-	Authenticator     Authenticator
-	AllowedOrigins    []string
-	WebSocketDisabled bool
+	Template               *Template
+	Stores                 Stores
+	IsSingleStore          bool
+	Upgrader               *websocket.Upgrader
+	SessionStore           SessionStore
+	Authenticator          Authenticator
+	PubSubBroadcaster      pubsub.Broadcaster // Optional: for distributed broadcasting across instances
+	AllowedOrigins         []string
+	WebSocketDisabled      bool
+	MaxConnections         int64 // Maximum total connections (0 = unlimited)
+	MaxConnectionsPerGroup int64 // Maximum connections per group (0 = unlimited)
 }
 
 // MountConfig and related types are used internally by Template.Handle()
@@ -121,8 +163,16 @@ type MountOption func(*MountConfig)
 
 // liveHandler handles both WebSocket and HTTP requests
 type liveHandler struct {
-	config   MountConfig
-	registry *ConnectionRegistry
+	config          MountConfig
+	registry        *ConnectionRegistry
+	limits          *ConnectionLimits
+	metricsExporter *observe.PrometheusExporter
+
+	// Graceful shutdown state
+	shutdownOnce sync.Once
+	shutdownChan chan struct{}
+	shutdownWg   sync.WaitGroup
+	isShutdown   atomic.Bool
 }
 
 type connState struct {
@@ -175,6 +225,16 @@ func (h *liveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Check if shutting down - reject new connections
+	if h.isShutdown.Load() {
+		http.Error(w, "Service is shutting down", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Track this connection goroutine for graceful shutdown
+	h.shutdownWg.Add(1)
+	defer h.shutdownWg.Done()
+
 	// Authenticate user and get session group
 	userID, err := h.config.Authenticator.Identify(r)
 	if err != nil {
@@ -190,10 +250,19 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check connection limits before upgrading
+	if !h.limits.CanAccept(groupID) {
+		stats := h.limits.Stats()
+		log.Printf("Connection rejected (at capacity): active=%d, max=%d, group=%s, groupCount=%d, maxPerGroup=%d",
+			stats.ActiveConnections, stats.MaxConnections, groupID, h.limits.GroupConnectionCount(groupID), stats.MaxPerGroup)
+		http.Error(w, "Service at capacity, please try again later", http.StatusServiceUnavailable)
+		return
+	}
+
 	// Set session cookie if this is a new session (cookie doesn't exist)
 	setCookieIfNew(w, r, groupID)
 
-	// Upgrade to WebSocket after authentication succeeds
+	// Upgrade to WebSocket after authentication and limit check succeeds
 	conn, err := h.config.Upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade failed: %v", err)
@@ -201,7 +270,17 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	log.Printf("Client connected: user=%q, group=%q, addr=%s", userID, groupID, conn.RemoteAddr())
+	// Acquire connection slot (increment counters)
+	if err := h.limits.Acquire(groupID); err != nil {
+		log.Printf("Failed to acquire connection slot: %v", err)
+		if writeErr := conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseServiceRestart, "Service at capacity")); writeErr != nil {
+			log.Printf("Failed to send close message: %v", writeErr)
+		}
+		return
+	}
+	defer h.limits.Release(groupID)
+
+	log.Printf("Client connected: user=%q, group=%q, addr=%s, active=%d", userID, groupID, conn.RemoteAddr(), h.limits.ActiveConnections())
 
 	// Clone template for this connection to avoid state conflicts
 	// Each WebSocket connection needs its own template instance because
@@ -701,13 +780,26 @@ func (h *liveHandler) getStoreNames() []string {
 //
 // Concurrency: This method is safe to call from multiple goroutines concurrently.
 func (h *liveHandler) Broadcast(data interface{}) error {
+	// Publish to Redis for distributed instances (if configured)
+	if h.config.PubSubBroadcaster != nil {
+		payload, err := json.Marshal(data)
+		if err != nil {
+			log.Printf("Broadcast: Failed to marshal payload: %v", err)
+		} else {
+			if err := h.config.PubSubBroadcaster.PublishGlobal(payload); err != nil {
+				log.Printf("Broadcast: Failed to publish to Redis: %v", err)
+			}
+		}
+	}
+
+	// Broadcast to local connections
 	connections := h.registry.GetAll()
 	if len(connections) == 0 {
-		log.Printf("Broadcast: No connections to broadcast to")
+		log.Printf("Broadcast: No local connections to broadcast to")
 		return nil
 	}
 
-	log.Printf("Broadcasting to %d connection(s)", len(connections))
+	log.Printf("Broadcasting to %d local connection(s)", len(connections))
 
 	// Track errors but continue broadcasting to other connections
 	var errCount int
@@ -748,6 +840,21 @@ func (h *liveHandler) BroadcastToUsers(userIDs []string, data interface{}) error
 		return fmt.Errorf("no user IDs provided")
 	}
 
+	// Publish to Redis for distributed instances (if configured)
+	if h.config.PubSubBroadcaster != nil {
+		payload, err := json.Marshal(data)
+		if err != nil {
+			log.Printf("BroadcastToUsers: Failed to marshal payload: %v", err)
+		} else {
+			for _, userID := range userIDs {
+				if err := h.config.PubSubBroadcaster.PublishToUser(userID, payload); err != nil {
+					log.Printf("BroadcastToUsers: Failed to publish to Redis for user %s: %v", userID, err)
+				}
+			}
+		}
+	}
+
+	// Broadcast to local connections
 	var totalConnections int
 	var errCount int
 
@@ -763,14 +870,14 @@ func (h *liveHandler) BroadcastToUsers(userIDs []string, data interface{}) error
 		}
 	}
 
-	log.Printf("Broadcast to users: sent to %d connection(s) for %d user(s)", totalConnections, len(userIDs))
+	log.Printf("Broadcast to users: sent to %d local connection(s) for %d user(s)", totalConnections, len(userIDs))
 
 	if errCount > 0 {
 		return fmt.Errorf("broadcast failed for %d/%d connections", errCount, totalConnections)
 	}
 
 	if totalConnections == 0 {
-		log.Printf("BroadcastToUsers: No connections found for users %v", userIDs)
+		log.Printf("BroadcastToUsers: No local connections found for users %v", userIDs)
 	}
 
 	return nil
@@ -796,13 +903,26 @@ func (h *liveHandler) BroadcastToGroup(groupID string, data interface{}) error {
 		return fmt.Errorf("group ID cannot be empty")
 	}
 
+	// Publish to Redis for distributed instances (if configured)
+	if h.config.PubSubBroadcaster != nil {
+		payload, err := json.Marshal(data)
+		if err != nil {
+			log.Printf("BroadcastToGroup: Failed to marshal payload: %v", err)
+		} else {
+			if err := h.config.PubSubBroadcaster.PublishToGroup(groupID, payload); err != nil {
+				log.Printf("BroadcastToGroup: Failed to publish to Redis: %v", err)
+			}
+		}
+	}
+
+	// Broadcast to local connections
 	connections := h.registry.GetByGroup(groupID)
 	if len(connections) == 0 {
-		log.Printf("BroadcastToGroup: No connections found for group %s", groupID)
+		log.Printf("BroadcastToGroup: No local connections found for group %s", groupID)
 		return nil
 	}
 
-	log.Printf("Broadcasting to group %s: %d connection(s)", groupID, len(connections))
+	log.Printf("Broadcasting to group %s: %d local connection(s)", groupID, len(connections))
 
 	var errCount int
 	for _, conn := range connections {
@@ -858,4 +978,135 @@ func (h *liveHandler) sendUpdate(conn *Connection, data interface{}) error {
 		return nil // Test mode - no actual send
 	}
 	return conn.Send(websocket.TextMessage, responseBytes)
+}
+
+// handlePubSubMessage handles incoming pub/sub broadcast messages from other instances.
+//
+// This is called by the RedisBroadcaster subscriber when a message is received.
+// It deserializes the payload and fans it out to relevant local connections.
+func (h *liveHandler) handlePubSubMessage(msg *pubsub.BroadcastMessage) error {
+	// Deserialize the payload
+	var data interface{}
+	if err := json.Unmarshal(msg.Payload, &data); err != nil {
+		return fmt.Errorf("failed to unmarshal payload: %w", err)
+	}
+
+	// Fan out based on message scope
+	switch msg.Scope {
+	case pubsub.ScopeGlobal:
+		// Broadcast to all local connections
+		connections := h.registry.GetAll()
+		for _, conn := range connections {
+			if err := h.sendUpdate(conn, data); err != nil {
+				log.Printf("PubSub: Failed to send global broadcast to connection: %v", err)
+			}
+		}
+		log.Printf("PubSub: Fanned out global broadcast to %d local connection(s)", len(connections))
+
+	case pubsub.ScopeGroup:
+		// Broadcast to all connections in the group
+		connections := h.registry.GetByGroup(msg.GroupID)
+		for _, conn := range connections {
+			if err := h.sendUpdate(conn, data); err != nil {
+				log.Printf("PubSub: Failed to send group broadcast to connection: %v", err)
+			}
+		}
+		log.Printf("PubSub: Fanned out group broadcast to %d local connection(s) for group %s", len(connections), msg.GroupID)
+
+	case pubsub.ScopeUser:
+		// Broadcast to all connections for the user
+		connections := h.registry.GetByUser(msg.UserID)
+		for _, conn := range connections {
+			if err := h.sendUpdate(conn, data); err != nil {
+				log.Printf("PubSub: Failed to send user broadcast to connection: %v", err)
+			}
+		}
+		log.Printf("PubSub: Fanned out user broadcast to %d local connection(s) for user %s", len(connections), msg.UserID)
+
+	default:
+		return fmt.Errorf("unknown broadcast scope: %s", msg.Scope)
+	}
+
+	return nil
+}
+
+// Shutdown gracefully shuts down the LiveHandler.
+//
+// It stops accepting new WebSocket connections, sends close frames to all
+// active connections, and waits for connections to finish (respecting ctx timeout).
+//
+// This method can be called multiple times safely (only first call has effect).
+func (h *liveHandler) Shutdown(ctx context.Context) error {
+	var shutdownErr error
+
+	h.shutdownOnce.Do(func() {
+		log.Printf("LiveHandler: Starting graceful shutdown...")
+
+		// Mark as shutting down (stops accepting new connections)
+		h.isShutdown.Store(true)
+		close(h.shutdownChan)
+
+		// Get all active connections
+		connections := h.registry.GetAll()
+		log.Printf("LiveHandler: Closing %d active connections...", len(connections))
+
+		// Send close frames to all connections
+		closeMessage := websocket.FormatCloseMessage(websocket.CloseGoingAway, "Server shutting down")
+		for _, conn := range connections {
+			// Send close frame (best effort, ignore errors)
+			if conn.Conn != nil {
+				conn.mu.Lock()
+				_ = conn.Conn.WriteMessage(websocket.CloseMessage, closeMessage)
+				conn.mu.Unlock()
+			}
+		}
+
+		// Wait for all connection goroutines to finish
+		done := make(chan struct{})
+		go func() {
+			h.shutdownWg.Wait()
+			close(done)
+		}()
+
+		// Wait for shutdown or timeout
+		select {
+		case <-done:
+			log.Printf("LiveHandler: All connections closed gracefully")
+		case <-ctx.Done():
+			log.Printf("LiveHandler: Shutdown timeout reached, forcing close of remaining connections")
+			shutdownErr = ctx.Err()
+
+			// Force close remaining connections
+			for _, conn := range h.registry.GetAll() {
+				if conn.Conn != nil {
+					conn.Conn.Close()
+				}
+			}
+		}
+
+		log.Printf("LiveHandler: Shutdown complete")
+	})
+
+	return shutdownErr
+}
+
+// MetricsHandler returns an HTTP handler that exports Prometheus metrics.
+func (h *liveHandler) MetricsHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Only allow GET requests
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Set content type for Prometheus text format
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+
+		// Write metrics
+		if err := h.metricsExporter.WriteMetrics(w); err != nil {
+			log.Printf("Error writing metrics: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+	})
 }

@@ -456,6 +456,133 @@ handler := tmpl.Handle(&state)
 handler.Broadcast(data)  // That's it!
 ```
 
+## Broadcast Guarantees & Semantics
+
+### Single-Instance Deployments
+
+In single-instance deployments (without Redis Pub/Sub), broadcasts have **at-least-once** delivery semantics:
+
+- **Guaranteed Delivery**: All active local connections receive the broadcast
+- **Synchronous**: Broadcast completes before returning (blocking)
+- **Failure Handling**: Individual connection failures are logged but don't stop other sends
+- **Ordering**: Messages are delivered in the order they were broadcast
+
+### Multi-Instance Deployments (Redis Pub/Sub)
+
+When using distributed broadcasting with Redis Pub/Sub, the system provides **at-most-once** delivery semantics:
+
+#### Delivery Guarantees
+
+**What is Guaranteed:**
+- ✅ Messages published to Redis will be delivered to all subscribed instances
+- ✅ Local connections on each instance will receive the broadcast
+- ✅ Local-first optimization: same-instance connections receive immediate delivery
+- ✅ Message ordering within a single publisher is preserved
+
+**What is NOT Guaranteed:**
+- ❌ **No Delivery Confirmation**: Redis Pub/Sub doesn't confirm message delivery
+- ❌ **No Message Persistence**: Messages are lost if no instances are subscribed
+- ❌ **No Retry on Failure**: If an instance is disconnected, it misses messages
+- ❌ **No Global Ordering**: Messages from different instances may arrive in different orders
+
+#### Why At-Most-Once?
+
+Redis Pub/Sub is designed for real-time, fire-and-forget messaging:
+
+1. **No Message Queue**: Messages are not persisted - they're delivered to active subscribers only
+2. **No ACKs**: Subscribers don't acknowledge receipt
+3. **No Replay**: Missed messages cannot be replayed
+4. **Performance Trade-off**: This design enables low-latency, high-throughput broadcasting
+
+#### Best Practices for Multi-Instance Broadcasting
+
+**✅ DO:**
+- Use broadcasts for **ephemeral updates** (UI refreshes, live data)
+- Implement **client-side state reconciliation** when reconnecting
+- Design for **eventual consistency** across instances
+- Use broadcasts for **real-time notifications** that can be missed
+- Rely on the database as the **source of truth**
+
+**❌ DON'T:**
+- Don't rely on broadcasts for **critical state changes**
+- Don't assume **all instances receive all messages**
+- Don't use broadcasts for **transactions** or **workflows**
+- Don't expect **message ordering** across instances
+
+#### Example: Handling Missed Broadcasts
+
+```go
+// GOOD: Client reconciles state on reconnect
+type ChatStore struct {
+    Messages []Message
+    LastSync time.Time
+}
+
+func (s *ChatStore) OnReconnect(ctx *ActionContext) error {
+    // Fetch any messages missed during disconnect
+    newMessages := fetchMessagesAfter(s.LastSync)
+    s.Messages = append(s.Messages, newMessages...)
+    s.LastSync = time.Now()
+    return nil
+}
+
+// Broadcasts are used for real-time updates only
+// Database is the source of truth for missed messages
+```
+
+#### Monitoring & Observability
+
+**Recommended Metrics:**
+- Broadcast success rate (local connections)
+- Redis publish latency
+- Redis connection health
+- Message fan-out time (instance receive → local delivery)
+
+**Logging:**
+- Individual connection failures are logged (non-fatal)
+- Redis publish failures are logged (degrades to local-only)
+- Reconnection events are logged
+
+### Comparison Table
+
+| Aspect | Single-Instance | Multi-Instance (Redis) |
+|--------|----------------|----------------------|
+| Delivery Guarantee | At-least-once | At-most-once |
+| Message Persistence | N/A | None |
+| Network Partition | N/A | Messages lost |
+| Latency | <1ms | 5-50ms (p95) |
+| Ordering | Guaranteed | Per-publisher only |
+| Failure Mode | Log errors | Degrade to local |
+
+### Design Recommendations
+
+**For Critical Operations:**
+```go
+// Use database + broadcasts for critical data
+func (s *Store) UpdateCriticalData(ctx *ActionContext) error {
+    // 1. Update database (source of truth)
+    if err := db.Update(s.Data); err != nil {
+        return err
+    }
+
+    // 2. Broadcast for real-time UI updates (best-effort)
+    ctx.Broadcast(s)
+
+    // 3. Clients reconcile with database on reconnect
+    return nil
+}
+```
+
+**For Real-Time Updates:**
+```go
+// Broadcasts are perfect for real-time, non-critical updates
+func (s *LiveDashboard) RefreshMetrics(ctx *ActionContext) error {
+    s.Metrics = fetchLatestMetrics()
+    ctx.Broadcast(s) // Fire-and-forget, eventual consistency is fine
+    return nil
+}
+```
+
 ## See Also
 
 - [Multi-Session Isolation Design](./design/multi-session-isolation.md)

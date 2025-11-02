@@ -89,6 +89,7 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -98,19 +99,24 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/livefir/livetemplate/internal/diff"
+	"github.com/livefir/livetemplate/internal/observe"
+	"github.com/livefir/livetemplate/pubsub"
 )
 
 // Config holds template configuration options
 type Config struct {
-	Upgrader           *websocket.Upgrader
-	SessionStore       SessionStore
-	Authenticator      Authenticator // User authentication and session grouping
-	AllowedOrigins     []string      // Allowed WebSocket origins (empty = allow all in dev, restrict in prod)
-	WebSocketDisabled  bool
-	LoadingDisabled    bool     // Disables automatic loading indicator on page load
-	TemplateFiles      []string // If set, overrides auto-discovery
-	IgnoreTemplateDirs []string // Additional directories to ignore during auto-discovery
-	DevMode            bool     // Development mode - use local client library instead of CDN
+	Upgrader               *websocket.Upgrader
+	SessionStore           SessionStore
+	Authenticator          Authenticator      // User authentication and session grouping
+	PubSubBroadcaster      pubsub.Broadcaster // Optional: for distributed broadcasting across instances
+	AllowedOrigins         []string           // Allowed WebSocket origins (empty = allow all in dev, restrict in prod)
+	WebSocketDisabled      bool
+	LoadingDisabled        bool     // Disables automatic loading indicator on page load
+	TemplateFiles          []string // If set, overrides auto-discovery
+	IgnoreTemplateDirs     []string // Additional directories to ignore during auto-discovery
+	DevMode                bool     // Development mode - use local client library instead of CDN
+	MaxConnections         int64    // Maximum total connections (0 = unlimited)
+	MaxConnectionsPerGroup int64    // Maximum connections per group (0 = unlimited)
 }
 
 // Template represents a live template with caching and tree-based optimization capabilities.
@@ -287,6 +293,54 @@ func WithAllowedOrigins(origins []string) Option {
 func WithIgnoreTemplateDirs(dirs ...string) Option {
 	return func(c *Config) {
 		c.IgnoreTemplateDirs = append(c.IgnoreTemplateDirs, dirs...)
+	}
+}
+
+// WithMaxConnections sets the maximum number of concurrent connections.
+// 0 (default) means unlimited.
+func WithMaxConnections(max int64) Option {
+	return func(c *Config) {
+		c.MaxConnections = max
+	}
+}
+
+// WithMaxConnectionsPerGroup sets the maximum number of connections per session group.
+// 0 (default) means unlimited. Prevents single users from exhausting connection limits.
+func WithMaxConnectionsPerGroup(max int64) Option {
+	return func(c *Config) {
+		c.MaxConnectionsPerGroup = max
+	}
+}
+
+// WithPubSubBroadcaster enables distributed broadcasting across multiple application instances.
+//
+// When set, Broadcast*, BroadcastToUsers, and BroadcastToGroup methods will publish messages
+// to Redis Pub/Sub for distribution to all instances. Each instance subscribes to these messages
+// and fans them out to its local connections.
+//
+// This is essential for horizontal scaling - without it, broadcasts only reach connections
+// on the same instance.
+//
+// Example:
+//
+//	import (
+//	    "github.com/livefir/livetemplate"
+//	    "github.com/livefir/livetemplate/pubsub"
+//	    "github.com/redis/go-redis/v9"
+//	)
+//
+//	redisClient := redis.NewClient(&redis.Options{
+//	    Addr: "localhost:6379",
+//	})
+//
+//	broadcaster := pubsub.NewRedisBroadcaster(redisClient)
+//
+//	tmpl := livetemplate.New("app",
+//	    livetemplate.WithPubSubBroadcaster(broadcaster),
+//	)
+func WithPubSubBroadcaster(broadcaster pubsub.Broadcaster) Option {
+	return func(c *Config) {
+		c.PubSubBroadcaster = broadcaster
 	}
 }
 
@@ -1244,20 +1298,42 @@ func (t *Template) Handle(stores ...Store) LiveHandler {
 	}
 
 	config := MountConfig{
-		Template:          t,
-		Stores:            storesMap,
-		IsSingleStore:     isSingleStore,
-		Upgrader:          upgrader,
-		SessionStore:      t.config.SessionStore,
-		Authenticator:     t.config.Authenticator,
-		AllowedOrigins:    t.config.AllowedOrigins,
-		WebSocketDisabled: t.config.WebSocketDisabled,
+		Template:               t,
+		Stores:                 storesMap,
+		IsSingleStore:          isSingleStore,
+		Upgrader:               upgrader,
+		SessionStore:           t.config.SessionStore,
+		Authenticator:          t.config.Authenticator,
+		PubSubBroadcaster:      t.config.PubSubBroadcaster,
+		AllowedOrigins:         t.config.AllowedOrigins,
+		WebSocketDisabled:      t.config.WebSocketDisabled,
+		MaxConnections:         t.config.MaxConnections,
+		MaxConnectionsPerGroup: t.config.MaxConnectionsPerGroup,
 	}
 
-	return &liveHandler{
-		config:   config,
-		registry: NewConnectionRegistry(),
+	limits := NewConnectionLimits(config.MaxConnections, config.MaxConnectionsPerGroup)
+	metrics := observe.NewMetrics(slog.Default())
+	metricsExporter := observe.NewPrometheusExporter(metrics, limits)
+
+	handler := &liveHandler{
+		config:          config,
+		registry:        NewConnectionRegistry(),
+		limits:          limits,
+		metricsExporter: metricsExporter,
+		shutdownChan:    make(chan struct{}),
 	}
+
+	// Start pub/sub subscriber if broadcaster is configured
+	if config.PubSubBroadcaster != nil {
+		go func() {
+			log.Printf("LiveHandler: Starting pub/sub subscriber...")
+			if err := config.PubSubBroadcaster.Subscribe(handler.handlePubSubMessage); err != nil {
+				log.Printf("LiveHandler: Pub/sub subscriber error: %v", err)
+			}
+		}()
+	}
+
+	return handler
 }
 
 // validateTreeGeneration validates that tree generation works with this template

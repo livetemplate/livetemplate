@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: livetemplate-config
+  labels:
+    app: livetemplate
+data:
+  # Application configuration
+  log_level: "info"
+  redis_url: "redis://livetemplate-redis:6379/0"
+
+  # Feature flags
+  dev_mode: "false"
+  metrics_enabled: "true"
+  shutdown_timeout: "30s"

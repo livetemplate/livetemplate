@@ -49,11 +49,11 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 
 | Milestone | Focus | Duration | Status | Target Completion |
 |-----------|-------|----------|--------|-------------------|
-| **M1: Production Foundation** | Critical fixes, health checks, limits | 4-6 weeks | 🔴 TODO | Week 6 |
-| **M2: Horizontal Scaling** | Redis integration, multi-instance | 4-5 weeks | 🔴 TODO | Week 11 |
-| **M3: Enterprise Scale** | Advanced resilience, optimization | 8-12 weeks | 🔴 TODO | Week 26 |
+| **M1: Production Foundation** | Critical fixes, health checks, limits | 4-6 weeks | 🟡 80% | Week 6 |
+| **M2: Horizontal Scaling** | Redis integration, multi-instance | 4-5 weeks | 🟢 89% | Week 11 |
+| **M3: Enterprise Scale** | Advanced resilience, optimization | 8-12 weeks | 🔴 0% | Week 26 |
 
-**Overall Progress:** `[░░░░░░░░░░░░░░░░░░░░] 0% (0/42 tasks)`
+**Overall Progress:** `[█████████████░░░░░░░] 66% (45/68 tasks)`
 
 ---
 
@@ -69,20 +69,20 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 - ✅ Prometheus metrics enable capacity planning
 
 **Duration:** 4-6 weeks
-**Progress:** `[░░░░░░░░░░] 0/18 tasks (0%)`
+**Progress:** `[████████████████░░░░] 28/35 tasks (80%)`
 
 ---
 
-### 1.1 Health Checks & Readiness
+### 1.1 Health Checks & Readiness ✅
 
-**Files:** `health.go` (new), `mount.go`
+**Files:** `health.go` (new), `health_test.go` (new)
 
 | Task | Priority | Status | Est. Effort | Assignee |
 |------|----------|--------|-------------|----------|
-| Design `HealthChecker` interface for dependency checks | 🔴 CRITICAL | 🔴 TODO | 2 days | - |
-| Implement `/health/live` endpoint (basic liveness) | 🔴 CRITICAL | 🔴 TODO | 1 day | - |
-| Implement `/health/ready` endpoint (checks dependencies) | 🔴 CRITICAL | 🔴 TODO | 2 days | - |
-| Add health check for SessionStore (ping test) | 🔴 CRITICAL | 🔴 TODO | 1 day | - |
+| Design `HealthChecker` interface for dependency checks | 🔴 CRITICAL | ✅ DONE | 2 days | - |
+| Implement `/health/live` endpoint (basic liveness) | 🔴 CRITICAL | ✅ DONE | 1 day | - |
+| Implement `/health/ready` endpoint (checks dependencies) | 🔴 CRITICAL | ✅ DONE | 2 days | - |
+| Add health check for SessionStore (ping test) | 🔴 CRITICAL | ✅ DONE | 1 day | - |
 | Add health check for database connections | 🟡 HIGH | 🔴 TODO | 1 day | - |
 | Document Kubernetes probe configuration | 🟡 HIGH | 🔴 TODO | 1 day | - |
 
@@ -109,17 +109,17 @@ func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request)
 
 ---
 
-### 1.2 Connection Limits & Load Shedding
+### 1.2 Connection Limits & Load Shedding ✅
 
-**Files:** `limits.go` (new), `mount.go`, `registry.go`
+**Files:** `limits.go` (new), `mount.go`, `template.go`
 
 | Task | Priority | Status | Est. Effort | Assignee |
 |------|----------|--------|-------------|----------|
-| Add `MaxConnections` config option | 🔴 CRITICAL | 🔴 TODO | 1 day | - |
-| Implement connection counting in `ConnectionRegistry` | 🔴 CRITICAL | 🔴 TODO | 1 day | - |
-| Reject new connections when at capacity (503 response) | 🔴 CRITICAL | 🔴 TODO | 2 days | - |
-| Add per-group connection limits (prevent single user exhaustion) | 🟡 HIGH | 🔴 TODO | 2 days | - |
-| Add backpressure metrics (rejections counter) | 🟡 HIGH | 🔴 TODO | 1 day | - |
+| Add `MaxConnections` config option | 🔴 CRITICAL | ✅ DONE | 1 day | - |
+| Implement connection counting in `ConnectionLimits` | 🔴 CRITICAL | ✅ DONE | 1 day | - |
+| Reject new connections when at capacity (503 response) | 🔴 CRITICAL | ✅ DONE | 2 days | - |
+| Add per-group connection limits (prevent single user exhaustion) | 🟡 HIGH | ✅ DONE | 2 days | - |
+| Add backpressure metrics (rejections counter) | 🟡 HIGH | ✅ DONE | 1 day | - |
 | Document capacity planning (connections vs memory) | 🟡 MEDIUM | 🔴 TODO | 1 day | - |
 
 **Acceptance Criteria:**
@@ -138,18 +138,18 @@ handler := livetemplate.Mount(rootStore,
 
 ---
 
-### 1.3 Graceful Shutdown
+### 1.3 Graceful Shutdown ✅
 
-**Files:** `mount.go`, `registry.go`
+**Files:** `mount.go`, `shutdown_test.go` (new)
 
 | Task | Priority | Status | Est. Effort | Assignee |
 |------|----------|--------|-------------|----------|
-| Add `Shutdown(ctx context.Context)` method to `LiveHandler` | 🔴 CRITICAL | 🔴 TODO | 2 days | - |
-| Stop accepting new connections during shutdown | 🔴 CRITICAL | 🔴 TODO | 1 day | - |
-| Send close frames to all active WebSocket connections | 🔴 CRITICAL | 🔴 TODO | 2 days | - |
-| Wait for in-flight actions to complete (with timeout) | 🟡 HIGH | 🔴 TODO | 2 days | - |
-| Add example with `http.Server.Shutdown()` integration | 🟡 HIGH | 🔴 TODO | 1 day | - |
-| Document shutdown timeout recommendations | 🟡 MEDIUM | 🔴 TODO | 1 day | - |
+| Add `Shutdown(ctx context.Context)` method to `LiveHandler` | 🔴 CRITICAL | ✅ DONE | 2 days | - |
+| Stop accepting new connections during shutdown | 🔴 CRITICAL | ✅ DONE | 1 day | - |
+| Send close frames to all active WebSocket connections | 🔴 CRITICAL | ✅ DONE | 2 days | - |
+| Wait for in-flight actions to complete (with timeout) | 🟡 HIGH | ✅ DONE | 2 days | - |
+| Add example with `http.Server.Shutdown()` integration | 🟡 HIGH | ✅ DONE | 1 day | - |
+| Document shutdown timeout recommendations | 🟡 MEDIUM | ✅ DONE | 1 day | - |
 
 **Acceptance Criteria:**
 - Clients receive WebSocket close frame (code 1001 Going Away)
@@ -169,16 +169,16 @@ handler.Shutdown(ctx)
 
 ### 1.4 Observability & Metrics Export
 
-**Files:** `internal/observe/metrics.go`, `internal/observe/prometheus.go` (new)
+**Files:** `internal/observe/metrics.go`, `internal/observe/prometheus.go` (new), `mount.go`, `template.go`
 
 | Task | Priority | Status | Est. Effort | Assignee |
 |------|----------|--------|-------------|----------|
-| Design Prometheus metric names (follow naming conventions) | 🔴 CRITICAL | 🔴 TODO | 1 day | - |
-| Implement `PrometheusExporter` (exposes `/metrics` endpoint) | 🔴 CRITICAL | 🔴 TODO | 3 days | - |
-| Export connection metrics (active, total, rejected) | 🔴 CRITICAL | 🔴 TODO | 1 day | - |
-| Export performance metrics (action duration histograms) | 🟡 HIGH | 🔴 TODO | 2 days | - |
-| Add request tracing with trace IDs (log correlation) | 🟡 HIGH | 🔴 TODO | 3 days | - |
-| Create Grafana dashboard JSON for monitoring | 🟡 MEDIUM | 🔴 TODO | 2 days | - |
+| Design Prometheus metric names (follow naming conventions) | 🔴 CRITICAL | ✅ DONE | 1 day | - |
+| Implement `PrometheusExporter` (exposes `/metrics` endpoint) | 🔴 CRITICAL | ✅ DONE | 3 days | - |
+| Export connection metrics (active, total, rejected) | 🔴 CRITICAL | ✅ DONE | 1 day | - |
+| Export performance metrics (action duration histograms) | 🟡 HIGH | ✅ DONE | 2 days | - |
+| Add request tracing with trace IDs (log correlation) | 🟡 HIGH | ✅ DONE | 3 days | - |
+| Create Grafana dashboard JSON for monitoring | 🟡 MEDIUM | 🔵 LATER | 2 days | - |
 
 **Acceptance Criteria:**
 - `/metrics` endpoint returns Prometheus format
@@ -197,17 +197,17 @@ livetemplate_broadcasts_sent_total{instance="host1"} 9876
 
 ---
 
-### 1.5 Configuration Management
+### 1.5 Configuration Management ✅
 
-**Files:** `config.go` (new), examples
+**Files:** `config.go` (new), `config_test.go` (new), `docs/CONFIGURATION.md` (new)
 
 | Task | Priority | Status | Est. Effort | Assignee |
 |------|----------|--------|-------------|----------|
-| Design environment variable schema (LVT_* prefix) | 🟡 HIGH | 🔴 TODO | 1 day | - |
-| Implement config loading from env vars | 🟡 HIGH | 🔴 TODO | 2 days | - |
-| Add validation for config values | 🟡 HIGH | 🔴 TODO | 1 day | - |
-| Document all configuration options | 🟡 MEDIUM | 🔴 TODO | 2 days | - |
-| Update examples to use env-based config | 🟡 MEDIUM | 🔴 TODO | 1 day | - |
+| Design environment variable schema (LVT_* prefix) | 🟡 HIGH | ✅ DONE | 1 day | - |
+| Implement config loading from env vars | 🟡 HIGH | ✅ DONE | 2 days | - |
+| Add validation for config values | 🟡 HIGH | ✅ DONE | 1 day | - |
+| Document all configuration options | 🟡 MEDIUM | ✅ DONE | 2 days | - |
+| Update examples to use env-based config | 🟡 MEDIUM | ✅ DONE | 1 day | - |
 
 **Acceptance Criteria:**
 - All config options available via environment variables
@@ -230,12 +230,12 @@ export LVT_REDIS_URL=redis://localhost:6379/0  # Optional for M2
 
 | Task | Priority | Status | Est. Effort | Assignee |
 |------|----------|--------|-------------|----------|
-| Create `examples/production/single-host/` with full setup | 🟡 HIGH | 🔴 TODO | 3 days | - |
-| Add Dockerfile with multi-stage build | 🟡 HIGH | 🔴 TODO | 2 days | - |
-| Add docker-compose.yml with Postgres + Redis | 🟡 HIGH | 🔴 TODO | 2 days | - |
-| Add systemd service file for bare-metal deploys | 🟡 MEDIUM | 🔴 TODO | 1 day | - |
-| Add Kubernetes manifests (Deployment, Service, Ingress) | 🟡 MEDIUM | 🔴 TODO | 3 days | - |
-| Document deployment procedures | 🟡 MEDIUM | 🔴 TODO | 2 days | - |
+| Create `examples/production/single-host/` with full setup | 🟡 HIGH | ✅ DONE | 3 days | - |
+| Add Dockerfile with multi-stage build | 🟡 HIGH | ✅ DONE | 2 days | - |
+| Add docker-compose.yml with Postgres + Redis | 🟡 HIGH | ✅ DONE | 2 days | - |
+| Add systemd service file for bare-metal deploys | 🟡 MEDIUM | ✅ DONE | 1 day | - |
+| Add Kubernetes manifests (Deployment, Service, Ingress) | 🟡 MEDIUM | ✅ DONE | 3 days | - |
+| Document deployment procedures | 🟡 MEDIUM | ✅ DONE | 2 days | - |
 
 **Acceptance Criteria:**
 - Production example runs with `docker-compose up`
@@ -246,10 +246,10 @@ export LVT_REDIS_URL=redis://localhost:6379/0  # Optional for M2
 
 ### Milestone 1 Summary
 
-**Total Tasks:** 18
-**Completed:** 0
+**Total Tasks:** 35
+**Completed:** 28
 **In Progress:** 0
-**TODO:** 18
+**TODO:** 7
 
 **Estimated Effort:** 4-6 weeks with 1 engineer
 
@@ -279,7 +279,7 @@ export LVT_REDIS_URL=redis://localhost:6379/0  # Optional for M2
 - ✅ Auto-scaling based on connection count
 
 **Duration:** 6-8 weeks
-**Progress:** `[░░░░░░░░░░] 0/19 tasks (0%)`
+**Progress:** `[████████░░] 17/19 tasks (89%)`
 
 ---
 
@@ -289,13 +289,13 @@ export LVT_REDIS_URL=redis://localhost:6379/0  # Optional for M2
 
 | Task | Priority | Status | Est. Effort | Assignee |
 |------|----------|--------|-------------|----------|
-| Design Redis key schema (sessions, groups, TTLs) | 🔴 CRITICAL | 🔴 TODO | 2 days | - |
-| Implement `RedisSessionStore` struct with connection pool | 🔴 CRITICAL | 🔴 TODO | 3 days | - |
-| Implement `Get/Set/Delete/List` methods | 🔴 CRITICAL | 🔴 TODO | 3 days | - |
-| Add automatic TTL refresh on session access | 🔴 CRITICAL | 🔴 TODO | 2 days | - |
-| Add Redis health check integration | 🟡 HIGH | 🔴 TODO | 1 day | - |
-| Implement connection retry with exponential backoff | 🟡 HIGH | 🔴 TODO | 2 days | - |
-| Add serialization tests (ensure Store types are serializable) | 🟡 HIGH | 🔴 TODO | 2 days | - |
+| Design Redis key schema (sessions, groups, TTLs) | 🔴 CRITICAL | ✅ DONE | 2 days | - |
+| Implement `RedisSessionStore` struct with connection pool | 🔴 CRITICAL | ✅ DONE | 3 days | - |
+| Implement `Get/Set/Delete/List` methods | 🔴 CRITICAL | ✅ DONE | 3 days | - |
+| Add automatic TTL refresh on session access | 🔴 CRITICAL | ✅ DONE | 2 days | - |
+| Add Redis health check integration | 🟡 HIGH | ✅ DONE | 1 day | - |
+| Implement connection retry with exponential backoff | 🟡 HIGH | ✅ DONE | 2 days | - |
+| Add serialization tests (ensure Store types are serializable) | 🟡 HIGH | ✅ DONE | 2 days | - |
 | Document migration from MemorySessionStore | 🟡 MEDIUM | 🔴 TODO | 1 day | - |
 
 **Acceptance Criteria:**
@@ -306,7 +306,7 @@ export LVT_REDIS_URL=redis://localhost:6379/0  # Optional for M2
 
 **Redis Key Schema:**
 ```
-livetemplate:session:{groupID}        -> JSON serialized Stores
+livetemplate:session:{groupID}        -> Gob-encoded Stores
 livetemplate:session:{groupID}:access -> Last access timestamp
 TTL: 24 hours (configurable)
 ```
@@ -336,12 +336,12 @@ handler := livetemplate.Mount(rootStore,
 
 | Task | Priority | Status | Est. Effort | Assignee |
 |------|----------|--------|-------------|----------|
-| Design pub/sub message format (action, groupID, userID, payload) | 🔴 CRITICAL | 🔴 TODO | 2 days | - |
-| Implement `PubSubBroadcaster` using Redis Pub/Sub | 🔴 CRITICAL | 🔴 TODO | 4 days | - |
-| Modify `Broadcast*` methods to publish messages | 🔴 CRITICAL | 🔴 TODO | 3 days | - |
-| Implement subscriber goroutine to receive and fan-out | 🔴 CRITICAL | 🔴 TODO | 3 days | - |
-| Add local-first optimization (skip Redis for same-instance) | 🟡 HIGH | 🔴 TODO | 2 days | - |
-| Handle Redis disconnection/reconnection gracefully | 🟡 HIGH | 🔴 TODO | 3 days | - |
+| Design pub/sub message format (action, groupID, userID, payload) | 🔴 CRITICAL | ✅ DONE | 2 days | - |
+| Implement `PubSubBroadcaster` using Redis Pub/Sub | 🔴 CRITICAL | ✅ DONE | 4 days | - |
+| Modify `Broadcast*` methods to publish messages | 🔴 CRITICAL | ✅ DONE | 3 days | - |
+| Implement subscriber goroutine to receive and fan-out | 🔴 CRITICAL | ✅ DONE | 3 days | - |
+| Add local-first optimization (skip Redis for same-instance) | 🟡 HIGH | ✅ DONE | 2 days | - |
+| Handle Redis disconnection/reconnection gracefully | 🟡 HIGH | ✅ DONE | 3 days | - |
 | Add broadcast latency metrics (p50, p95, p99) | 🟡 HIGH | 🔴 TODO | 2 days | - |
 | Document broadcast guarantees (at-most-once delivery) | 🟡 MEDIUM | 🔴 TODO | 1 day | - |
 
@@ -382,10 +382,10 @@ livetemplate:broadcast:global           -> Global broadcasts
 
 | Task | Priority | Status | Est. Effort | Assignee |
 |------|----------|--------|-------------|----------|
-| Implement exponential backoff (1s → 2s → 4s → 8s → 16s max) | 🔴 CRITICAL | 🔴 TODO | 1 day | - |
-| Add jitter to prevent thundering herd | 🔴 CRITICAL | 🔴 TODO | 1 day | - |
-| Add max retry limit (e.g., 10 attempts) | 🟡 HIGH | 🔴 TODO | 1 day | - |
-| Emit reconnection events for UI feedback | 🟡 HIGH | 🔴 TODO | 1 day | - |
+| Implement exponential backoff (1s → 2s → 4s → 8s → 16s max) | 🔴 CRITICAL | ✅ DONE | 1 day | - |
+| Add jitter to prevent thundering herd | 🔴 CRITICAL | ✅ DONE | 1 day | - |
+| Add max retry limit (e.g., 10 attempts) | 🟡 HIGH | ✅ DONE | 1 day | - |
+| Emit reconnection events for UI feedback | 🟡 HIGH | ✅ DONE | 1 day | - |
 | Add session resume protocol (send last known state) | 🟡 MEDIUM | 🔴 TODO | 3 days | - |
 
 **Acceptance Criteria:**
@@ -555,10 +555,10 @@ const delay = Math.min(
 
 | Milestone | Tasks | Completed | Progress | Status |
 |-----------|-------|-----------|----------|--------|
-| **M1: Production Foundation** | 18 | 0 | `[░░░░░░░░░░] 0%` | 🔴 TODO |
+| **M1: Production Foundation** | 35 | 22 | `[████████████░░░░░░░░] 63%` | 🟡 IN PROGRESS |
 | **M2: Horizontal Scaling** | 10 | 0 | `[░░░░░░░░░░] 0%` | 🔴 TODO |
 | **M3: Enterprise Scale** | 14 | 0 | `[░░░░░░░░░░] 0%` | 🔴 TODO |
-| **TOTAL** | **42** | **0** | `[░░░░░░░░░░] 0%` | 🔴 IN PROGRESS |
+| **TOTAL** | **59** | **22** | `[███████░░░░░░░░░░░░░] 37%` | 🟡 IN PROGRESS |
 
 ### Key Metrics
 

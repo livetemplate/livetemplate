@@ -1,0 +1,272 @@
+package livetemplate
+
+import (
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// EnvConfig holds environment-based configuration for LiveTemplate.
+//
+// All configuration can be set via environment variables with the LVT_ prefix.
+// This follows the 12-factor app methodology for configuration management.
+type EnvConfig struct {
+	// MaxConnections is the maximum number of concurrent WebSocket connections.
+	// 0 means unlimited (default).
+	// Environment: LVT_MAX_CONNECTIONS
+	MaxConnections int64
+
+	// MaxConnectionsPerGroup is the maximum connections per session group.
+	// 0 means unlimited (default). Prevents single users from exhausting limits.
+	// Environment: LVT_MAX_CONNECTIONS_PER_GROUP
+	MaxConnectionsPerGroup int64
+
+	// AllowedOrigins is a comma-separated list of allowed WebSocket origins.
+	// Empty means allow all in dev mode, restrict in production.
+	// Environment: LVT_ALLOWED_ORIGINS
+	// Example: "https://example.com,https://app.example.com"
+	AllowedOrigins []string
+
+	// DevMode enables development mode features.
+	// - Uses local client library instead of CDN
+	// - More verbose logging
+	// Environment: LVT_DEV_MODE (true/false, 1/0)
+	DevMode bool
+
+	// WebSocketDisabled disables WebSocket connections (HTTP-only mode).
+	// Environment: LVT_WEBSOCKET_DISABLED (true/false, 1/0)
+	WebSocketDisabled bool
+
+	// LoadingDisabled disables the automatic loading indicator.
+	// Environment: LVT_LOADING_DISABLED (true/false, 1/0)
+	LoadingDisabled bool
+
+	// ShutdownTimeout is the maximum duration to wait for graceful shutdown.
+	// Default: 30 seconds
+	// Environment: LVT_SHUTDOWN_TIMEOUT
+	// Example: "30s", "1m", "500ms"
+	ShutdownTimeout time.Duration
+
+	// LogLevel sets the logging level (debug, info, warn, error).
+	// Default: "info"
+	// Environment: LVT_LOG_LEVEL
+	LogLevel string
+
+	// MetricsEnabled enables Prometheus metrics export.
+	// Default: true
+	// Environment: LVT_METRICS_ENABLED (true/false, 1/0)
+	MetricsEnabled bool
+}
+
+// LoadEnvConfig loads configuration from environment variables.
+//
+// All environment variables are prefixed with LVT_ (LiveTemplate).
+// Boolean values can be "true"/"false" or "1"/"0".
+// Duration values use Go duration format (e.g., "30s", "1m").
+//
+// Example:
+//
+//	export LVT_MAX_CONNECTIONS=10000
+//	export LVT_ALLOWED_ORIGINS="https://example.com,https://app.example.com"
+//	export LVT_DEV_MODE=false
+//	export LVT_SHUTDOWN_TIMEOUT=30s
+//	config := livetemplate.LoadEnvConfig()
+func LoadEnvConfig() (*EnvConfig, error) {
+	config := &EnvConfig{
+		// Defaults
+		MaxConnections:         0, // unlimited
+		MaxConnectionsPerGroup: 0, // unlimited
+		DevMode:                false,
+		WebSocketDisabled:      false,
+		LoadingDisabled:        false,
+		ShutdownTimeout:        30 * time.Second,
+		LogLevel:               "info",
+		MetricsEnabled:         true,
+	}
+
+	// Load MaxConnections
+	if val := os.Getenv("LVT_MAX_CONNECTIONS"); val != "" {
+		n, err := strconv.ParseInt(val, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid LVT_MAX_CONNECTIONS: %w", err)
+		}
+		if n < 0 {
+			return nil, fmt.Errorf("LVT_MAX_CONNECTIONS must be >= 0, got %d", n)
+		}
+		config.MaxConnections = n
+	}
+
+	// Load MaxConnectionsPerGroup
+	if val := os.Getenv("LVT_MAX_CONNECTIONS_PER_GROUP"); val != "" {
+		n, err := strconv.ParseInt(val, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid LVT_MAX_CONNECTIONS_PER_GROUP: %w", err)
+		}
+		if n < 0 {
+			return nil, fmt.Errorf("LVT_MAX_CONNECTIONS_PER_GROUP must be >= 0, got %d", n)
+		}
+		config.MaxConnectionsPerGroup = n
+	}
+
+	// Load AllowedOrigins
+	if val := os.Getenv("LVT_ALLOWED_ORIGINS"); val != "" {
+		// Split by comma and trim whitespace
+		origins := strings.Split(val, ",")
+		for i, origin := range origins {
+			origins[i] = strings.TrimSpace(origin)
+		}
+		config.AllowedOrigins = origins
+	}
+
+	// Load DevMode
+	if val := os.Getenv("LVT_DEV_MODE"); val != "" {
+		b, err := parseBool(val)
+		if err != nil {
+			return nil, fmt.Errorf("invalid LVT_DEV_MODE: %w", err)
+		}
+		config.DevMode = b
+	}
+
+	// Load WebSocketDisabled
+	if val := os.Getenv("LVT_WEBSOCKET_DISABLED"); val != "" {
+		b, err := parseBool(val)
+		if err != nil {
+			return nil, fmt.Errorf("invalid LVT_WEBSOCKET_DISABLED: %w", err)
+		}
+		config.WebSocketDisabled = b
+	}
+
+	// Load LoadingDisabled
+	if val := os.Getenv("LVT_LOADING_DISABLED"); val != "" {
+		b, err := parseBool(val)
+		if err != nil {
+			return nil, fmt.Errorf("invalid LVT_LOADING_DISABLED: %w", err)
+		}
+		config.LoadingDisabled = b
+	}
+
+	// Load ShutdownTimeout
+	if val := os.Getenv("LVT_SHUTDOWN_TIMEOUT"); val != "" {
+		d, err := time.ParseDuration(val)
+		if err != nil {
+			return nil, fmt.Errorf("invalid LVT_SHUTDOWN_TIMEOUT: %w", err)
+		}
+		if d < 0 {
+			return nil, fmt.Errorf("LVT_SHUTDOWN_TIMEOUT must be positive, got %s", d)
+		}
+		config.ShutdownTimeout = d
+	}
+
+	// Load LogLevel
+	if val := os.Getenv("LVT_LOG_LEVEL"); val != "" {
+		val = strings.ToLower(val)
+		validLevels := map[string]bool{
+			"debug": true,
+			"info":  true,
+			"warn":  true,
+			"error": true,
+		}
+		if !validLevels[val] {
+			return nil, fmt.Errorf("invalid LVT_LOG_LEVEL: must be debug, info, warn, or error, got %s", val)
+		}
+		config.LogLevel = val
+	}
+
+	// Load MetricsEnabled
+	if val := os.Getenv("LVT_METRICS_ENABLED"); val != "" {
+		b, err := parseBool(val)
+		if err != nil {
+			return nil, fmt.Errorf("invalid LVT_METRICS_ENABLED: %w", err)
+		}
+		config.MetricsEnabled = b
+	}
+
+	return config, nil
+}
+
+// ToOptions converts EnvConfig to a slice of Option functions.
+//
+// This allows using environment-based configuration with the existing
+// Option-based API.
+//
+// Example:
+//
+//	envConfig, err := livetemplate.LoadEnvConfig()
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	tmpl := livetemplate.New("app", envConfig.ToOptions()...)
+func (c *EnvConfig) ToOptions() []Option {
+	var opts []Option
+
+	if c.MaxConnections > 0 {
+		opts = append(opts, WithMaxConnections(c.MaxConnections))
+	}
+
+	if c.MaxConnectionsPerGroup > 0 {
+		opts = append(opts, WithMaxConnectionsPerGroup(c.MaxConnectionsPerGroup))
+	}
+
+	if len(c.AllowedOrigins) > 0 {
+		opts = append(opts, WithAllowedOrigins(c.AllowedOrigins))
+	}
+
+	if c.DevMode {
+		opts = append(opts, WithDevMode(true))
+	}
+
+	if c.WebSocketDisabled {
+		opts = append(opts, WithWebSocketDisabled())
+	}
+
+	if c.LoadingDisabled {
+		opts = append(opts, WithLoadingDisabled())
+	}
+
+	return opts
+}
+
+// Validate checks that the configuration is valid.
+//
+// Returns an error if any configuration value is invalid.
+func (c *EnvConfig) Validate() error {
+	if c.MaxConnections < 0 {
+		return fmt.Errorf("MaxConnections must be >= 0, got %d", c.MaxConnections)
+	}
+
+	if c.MaxConnectionsPerGroup < 0 {
+		return fmt.Errorf("MaxConnectionsPerGroup must be >= 0, got %d", c.MaxConnectionsPerGroup)
+	}
+
+	if c.ShutdownTimeout < 0 {
+		return fmt.Errorf("ShutdownTimeout must be positive, got %s", c.ShutdownTimeout)
+	}
+
+	validLevels := map[string]bool{
+		"debug": true,
+		"info":  true,
+		"warn":  true,
+		"error": true,
+	}
+	if !validLevels[c.LogLevel] {
+		return fmt.Errorf("LogLevel must be debug, info, warn, or error, got %s", c.LogLevel)
+	}
+
+	return nil
+}
+
+// parseBool parses a boolean value from a string.
+// Accepts: "true", "false", "1", "0" (case-insensitive).
+func parseBool(s string) (bool, error) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	switch s {
+	case "true", "1", "yes", "on":
+		return true, nil
+	case "false", "0", "no", "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf("invalid boolean value: %s (use true/false or 1/0)", s)
+	}
+}
