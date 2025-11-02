@@ -19,15 +19,20 @@ check_prerequisites() {
     local missing=()
 
     command -v gh >/dev/null 2>&1 || missing+=("gh (GitHub CLI)")
-    command -v goreleaser >/dev/null 2>&1 || missing+=("goreleaser")
     command -v npm >/dev/null 2>&1 || missing+=("npm")
 
     if [ ${#missing[@]} -ne 0 ]; then
         log_error "Missing required tools: ${missing[*]}"
         echo ""
         echo "Install with:"
-        echo "  macOS:   brew install gh goreleaser npm"
-        echo "  Linux:   see https://goreleaser.com/install and https://cli.github.com/manual/installation"
+        echo "  macOS:   brew install gh npm"
+        echo "  Linux:   see https://cli.github.com/manual/installation"
+        exit 1
+    fi
+
+    # Check GitHub CLI auth
+    if ! gh auth status >/dev/null 2>&1; then
+        log_error "GitHub CLI not authenticated. Run 'gh auth login' first"
         exit 1
     fi
 
@@ -209,6 +214,115 @@ publish_npm() {
     log_info "Published to npm: https://www.npmjs.com/package/@livetemplate/client/v/$new_version"
 }
 
+# Extract release notes from CHANGELOG
+extract_release_notes() {
+    local new_version=$1
+    local notes_file="/tmp/release-notes-$new_version.md"
+
+    if [ ! -f CHANGELOG.md ]; then
+        log_warn "CHANGELOG.md not found, using default release notes"
+        echo "Release v$new_version" > "$notes_file"
+        echo "" >> "$notes_file"
+        echo "This release includes:" >> "$notes_file"
+        echo "- Go library (github.com/livetemplate/livetemplate)" >> "$notes_file"
+        echo "- TypeScript client (@livetemplate/client)" >> "$notes_file"
+        echo "- lvt CLI" >> "$notes_file"
+        echo "$notes_file"
+        return
+    fi
+
+    # Extract notes for this version from CHANGELOG
+    # Look for the version header and extract until next version or end
+    awk -v ver="$new_version" '
+        /^## \[v/ {
+            if (found) exit
+            if ($0 ~ "\\[v"ver"\\]") {
+                found=1
+                next
+            }
+        }
+        found && /^## \[v/ { exit }
+        found { print }
+    ' CHANGELOG.md > "$notes_file"
+
+    # If empty, add default content
+    if [ ! -s "$notes_file" ]; then
+        log_warn "No changelog entries found for v$new_version, using default notes"
+        echo "Release v$new_version" > "$notes_file"
+        echo "" >> "$notes_file"
+        echo "This release includes:" >> "$notes_file"
+        echo "- Go library (github.com/livetemplate/livetemplate)" >> "$notes_file"
+        echo "- TypeScript client (@livetemplate/client)" >> "$notes_file"
+        echo "- lvt CLI" >> "$notes_file"
+    fi
+
+    # Add installation instructions
+    {
+        echo ""
+        echo "## Installation"
+        echo ""
+        echo "### Go Library"
+        echo "\`\`\`bash"
+        echo "go get github.com/livetemplate/livetemplate@v$new_version"
+        echo "\`\`\`"
+        echo ""
+        echo "### TypeScript Client"
+        echo "\`\`\`bash"
+        echo "npm install @livetemplate/client@$new_version"
+        echo "\`\`\`"
+        echo ""
+        echo "### CLI Tool"
+        echo "Download the appropriate binary for your platform from the assets below."
+    } >> "$notes_file"
+
+    echo "$notes_file"
+}
+
+# Build binaries for release
+build_binaries() {
+    local new_version=$1
+
+    log_step "Building CLI binaries for release"
+
+    # Create dist directory
+    mkdir -p dist
+
+    # Build for multiple platforms
+    local platforms=(
+        "darwin/amd64"
+        "darwin/arm64"
+        "linux/amd64"
+        "linux/arm64"
+        "windows/amd64"
+    )
+
+    for platform in "${platforms[@]}"; do
+        IFS='/' read -r os arch <<< "$platform"
+        output_name="dist/lvt-${new_version}-${os}-${arch}"
+
+        if [ "$os" = "windows" ]; then
+            output_name="${output_name}.exe"
+        fi
+
+        log_step "Building for ${os}/${arch}..."
+        GOOS=$os GOARCH=$arch go build -ldflags="-s -w -X main.version=v$new_version" -o "$output_name" ./cmd/lvt || {
+            log_error "Build failed for ${os}/${arch}"
+            exit 1
+        }
+
+        # Create archive
+        if [ "$os" = "windows" ]; then
+            (cd dist && zip "lvt-${new_version}-${os}-${arch}.zip" "$(basename "$output_name")")
+            rm "$output_name"
+        else
+            (cd dist && tar -czf "lvt-${new_version}-${os}-${arch}.tar.gz" "$(basename "$output_name")")
+            rm "$output_name"
+        fi
+    done
+
+    log_info "Binaries built successfully in dist/"
+}
+
 # Push and create GitHub release
 publish_github() {
     local new_version=$1
@@ -221,11 +335,27 @@ publish_github() {
     git push origin "v$new_version"
     log_info "Pushed to GitHub"
 
-    log_step "Creating GitHub release with GoReleaser"
-    goreleaser release --clean || {
-        log_error "GoReleaser failed"
+    # Extract release notes
+    log_step "Extracting release notes from CHANGELOG"
+    local notes_file=$(extract_release_notes "$new_version")
+    log_info "Release notes prepared"
+
+    # Build binaries
+    build_binaries "$new_version"
+
+    # Create GitHub release with gh CLI
+    log_step "Creating GitHub release v$new_version"
+    gh release create "v$new_version" \
+        --title "v$new_version" \
+        --notes-file "$notes_file" \
+        dist/*.tar.gz dist/*.zip || {
+        log_error "Failed to create GitHub release"
         exit 1
     }
+
+    # Cleanup
+    rm -f "$notes_file"
+    rm -rf dist
 
     log_info "GitHub release created: https://github.com/livetemplate/livetemplate/releases/tag/v$new_version"
 }
@@ -245,8 +375,10 @@ dry_run() {
     log_info "Would run tests and builds"
     log_info "Would commit with message: chore(release): v$new_version"
     log_info "Would create tag: v$new_version"
-    log_info "Would publish to npm"
-    log_info "Would push to GitHub and create release with GoReleaser"
+    log_info "Would publish @livetemplate/client@$new_version to npm"
+    log_info "Would build CLI binaries for darwin/amd64, darwin/arm64, linux/amd64, linux/arm64, windows/amd64"
+    log_info "Would push to GitHub and create release with GitHub CLI"
+    log_info "Would attach binary archives to GitHub release"
 
     echo ""
     log_info "Dry run completed successfully"
@@ -319,12 +451,13 @@ main() {
     log_info "New version will be: $new_version"
     echo ""
     echo "This will:"
-    echo "  • Update VERSION, client/package.json, go.mod"
+    echo "  • Update VERSION and client/package.json"
     echo "  • Generate/update CHANGELOG.md"
     echo "  • Run all tests and builds"
     echo "  • Commit and tag v$new_version"
-    echo "  • Publish to npm (@livetemplate/client)"
-    echo "  • Create GitHub release (Go library + lvt CLI binaries)"
+    echo "  • Publish @livetemplate/client@$new_version to npm"
+    echo "  • Build CLI binaries for multiple platforms"
+    echo "  • Create GitHub release with release notes and binary assets"
     echo ""
 
     if [ "$dry_run_mode" = true ]; then
