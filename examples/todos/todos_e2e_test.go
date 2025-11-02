@@ -36,7 +36,11 @@ func TestTodosE2E(t *testing.T) {
 
 	t.Logf("Starting test server on port %s", portStr)
 	serverCmd := exec.Command("go", "run", "main.go", "db_manager.go")
-	serverCmd.Env = append([]string{"PORT=" + portStr, "TEST_MODE=1"}, serverCmd.Environ()...)
+	serverCmd.Env = append([]string{
+		"PORT=" + portStr,
+		"TEST_MODE=1",
+		"LVT_DEV_MODE=true", // Use local client library in tests
+	}, serverCmd.Environ()...)
 
 	if err := serverCmd.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)

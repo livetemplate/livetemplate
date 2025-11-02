@@ -1164,7 +1164,7 @@ func TestLoadingIndicator(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.Handle("/", tmpl.Handle(state))
 	mux.HandleFunc("/client.js", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "/Users/adnaan/code/livefir/livetemplate/client/dist/livetemplate-client.browser.js")
+		http.ServeFile(w, r, "client/dist/livetemplate-client.browser.js")
 	})
 
 	port := 9001
@@ -1297,7 +1297,7 @@ func TestLoadingIndicatorDisabled(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.Handle("/", tmpl.Handle(state))
 	mux.HandleFunc("/client.js", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "/Users/adnaan/code/livefir/livetemplate/client/dist/livetemplate-client.browser.js")
+		http.ServeFile(w, r, "client/dist/livetemplate-client.browser.js")
 	})
 
 	port := 9002
@@ -1423,7 +1423,7 @@ func TestFocusPreservation(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.Handle("/", tmpl.Handle(state))
 	mux.HandleFunc("/client.js", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "/Users/adnaan/code/livefir/livetemplate/client/dist/livetemplate-client.browser.js")
+		http.ServeFile(w, r, "client/dist/livetemplate-client.browser.js")
 	})
 
 	port := 9003
@@ -1557,7 +1557,7 @@ func TestFocusPreservationMultipleInputs(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.Handle("/", tmpl.Handle(state))
 	mux.HandleFunc("/client.js", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "/Users/adnaan/code/livefir/livetemplate/client/dist/livetemplate-client.browser.js")
+		http.ServeFile(w, r, "client/dist/livetemplate-client.browser.js")
 	})
 
 	port := 9004
