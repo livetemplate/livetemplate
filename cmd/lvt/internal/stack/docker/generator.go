@@ -9,6 +9,7 @@ import (
 	"text/template"
 
 	"github.com/livefir/livetemplate/cmd/lvt/internal/stack"
+	"github.com/livefir/livetemplate/cmd/lvt/internal/stack/ci/github"
 )
 
 //go:embed templates/docker-compose.yml.tmpl
@@ -73,6 +74,15 @@ func (g *Generator) Generate(ctx context.Context, config stack.StackConfig, outp
 	if config.Backup == stack.BackupLitestream {
 		if err := g.generateLitestream(outputDir, config, data); err != nil {
 			return fmt.Errorf("failed to generate litestream config: %w", err)
+		}
+	}
+
+	// Generate CI/CD workflows if configured
+	if config.CI == stack.CIGitHub {
+		ciGen := github.New()
+		projectDir := filepath.Dir(outputDir)
+		if err := ciGen.GenerateWorkflow(config, projectDir, data); err != nil {
+			return fmt.Errorf("failed to generate CI workflows: %w", err)
 		}
 	}
 

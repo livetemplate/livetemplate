@@ -29,8 +29,10 @@ func Gen(args []string) error {
 		return GenSchema(args[1:])
 	case "auth":
 		return Auth(args[1:])
+	case "stack":
+		return GenStack(args[1:])
 	default:
-		return fmt.Errorf("unknown subcommand: %s\n\nAvailable subcommands:\n  resource  Generate full CRUD resource with database\n  view      Generate view-only handler (no database)\n  schema    Generate database schema only\n  auth      Generate authentication system\n\nRun 'lvt gen' for interactive mode", subcommand)
+		return fmt.Errorf("unknown subcommand: %s\n\nAvailable subcommands:\n  resource  Generate full CRUD resource with database\n  view      Generate view-only handler (no database)\n  schema    Generate database schema only\n  auth      Generate authentication system\n  stack     Generate deployment stack configuration\n\nRun 'lvt gen' for interactive mode", subcommand)
 	}
 }
 
