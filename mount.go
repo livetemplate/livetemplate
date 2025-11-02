@@ -105,14 +105,16 @@ type LiveHandler interface {
 
 // MountConfig configures the mount handler
 type MountConfig struct {
-	Template          *Template
-	Stores            Stores
-	IsSingleStore     bool
-	Upgrader          *websocket.Upgrader
-	SessionStore      SessionStore
-	Authenticator     Authenticator
-	AllowedOrigins    []string
-	WebSocketDisabled bool
+	Template               *Template
+	Stores                 Stores
+	IsSingleStore          bool
+	Upgrader               *websocket.Upgrader
+	SessionStore           SessionStore
+	Authenticator          Authenticator
+	AllowedOrigins         []string
+	WebSocketDisabled      bool
+	MaxConnections         int64 // Maximum total connections (0 = unlimited)
+	MaxConnectionsPerGroup int64 // Maximum connections per group (0 = unlimited)
 }
 
 // MountConfig and related types are used internally by Template.Handle()
@@ -123,6 +125,7 @@ type MountOption func(*MountConfig)
 type liveHandler struct {
 	config   MountConfig
 	registry *ConnectionRegistry
+	limits   *ConnectionLimits
 }
 
 type connState struct {
@@ -190,10 +193,19 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check connection limits before upgrading
+	if !h.limits.CanAccept(groupID) {
+		stats := h.limits.Stats()
+		log.Printf("Connection rejected (at capacity): active=%d, max=%d, group=%s, groupCount=%d, maxPerGroup=%d",
+			stats.ActiveConnections, stats.MaxConnections, groupID, h.limits.GroupConnectionCount(groupID), stats.MaxPerGroup)
+		http.Error(w, "Service at capacity, please try again later", http.StatusServiceUnavailable)
+		return
+	}
+
 	// Set session cookie if this is a new session (cookie doesn't exist)
 	setCookieIfNew(w, r, groupID)
 
-	// Upgrade to WebSocket after authentication succeeds
+	// Upgrade to WebSocket after authentication and limit check succeeds
 	conn, err := h.config.Upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade failed: %v", err)
@@ -201,7 +213,17 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	log.Printf("Client connected: user=%q, group=%q, addr=%s", userID, groupID, conn.RemoteAddr())
+	// Acquire connection slot (increment counters)
+	if err := h.limits.Acquire(groupID); err != nil {
+		log.Printf("Failed to acquire connection slot: %v", err)
+		if writeErr := conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseServiceRestart, "Service at capacity")); writeErr != nil {
+			log.Printf("Failed to send close message: %v", writeErr)
+		}
+		return
+	}
+	defer h.limits.Release(groupID)
+
+	log.Printf("Client connected: user=%q, group=%q, addr=%s, active=%d", userID, groupID, conn.RemoteAddr(), h.limits.ActiveConnections())
 
 	// Clone template for this connection to avoid state conflicts
 	// Each WebSocket connection needs its own template instance because

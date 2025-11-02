@@ -53,7 +53,7 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 | **M2: Horizontal Scaling** | Redis integration, multi-instance | 4-5 weeks | 🔴 TODO | Week 11 |
 | **M3: Enterprise Scale** | Advanced resilience, optimization | 8-12 weeks | 🔴 TODO | Week 26 |
 
-**Overall Progress:** `[░░░░░░░░░░░░░░░░░░░░] 0% (0/42 tasks)`
+**Overall Progress:** `[██░░░░░░░░░░░░░░░░░░] 12% (5/42 tasks)`
 
 ---
 
@@ -69,7 +69,7 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 - ✅ Prometheus metrics enable capacity planning
 
 **Duration:** 4-6 weeks
-**Progress:** `[░░░░░░░░░░] 0/18 tasks (0%)`
+**Progress:** `[██░░░░░░░░] 5/18 tasks (28%)`
 
 ---
 
@@ -109,17 +109,17 @@ func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request)
 
 ---
 
-### 1.2 Connection Limits & Load Shedding
+### 1.2 Connection Limits & Load Shedding ✅
 
-**Files:** `limits.go` (new), `mount.go`, `registry.go`
+**Files:** `limits.go` (new), `mount.go`, `template.go`
 
 | Task | Priority | Status | Est. Effort | Assignee |
 |------|----------|--------|-------------|----------|
-| Add `MaxConnections` config option | 🔴 CRITICAL | 🔴 TODO | 1 day | - |
-| Implement connection counting in `ConnectionRegistry` | 🔴 CRITICAL | 🔴 TODO | 1 day | - |
-| Reject new connections when at capacity (503 response) | 🔴 CRITICAL | 🔴 TODO | 2 days | - |
-| Add per-group connection limits (prevent single user exhaustion) | 🟡 HIGH | 🔴 TODO | 2 days | - |
-| Add backpressure metrics (rejections counter) | 🟡 HIGH | 🔴 TODO | 1 day | - |
+| Add `MaxConnections` config option | 🔴 CRITICAL | ✅ DONE | 1 day | - |
+| Implement connection counting in `ConnectionLimits` | 🔴 CRITICAL | ✅ DONE | 1 day | - |
+| Reject new connections when at capacity (503 response) | 🔴 CRITICAL | ✅ DONE | 2 days | - |
+| Add per-group connection limits (prevent single user exhaustion) | 🟡 HIGH | ✅ DONE | 2 days | - |
+| Add backpressure metrics (rejections counter) | 🟡 HIGH | ✅ DONE | 1 day | - |
 | Document capacity planning (connections vs memory) | 🟡 MEDIUM | 🔴 TODO | 1 day | - |
 
 **Acceptance Criteria:**
@@ -247,9 +247,9 @@ export LVT_REDIS_URL=redis://localhost:6379/0  # Optional for M2
 ### Milestone 1 Summary
 
 **Total Tasks:** 18
-**Completed:** 0
+**Completed:** 5
 **In Progress:** 0
-**TODO:** 18
+**TODO:** 13
 
 **Estimated Effort:** 4-6 weeks with 1 engineer
 

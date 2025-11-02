@@ -102,15 +102,17 @@ import (
 
 // Config holds template configuration options
 type Config struct {
-	Upgrader           *websocket.Upgrader
-	SessionStore       SessionStore
-	Authenticator      Authenticator // User authentication and session grouping
-	AllowedOrigins     []string      // Allowed WebSocket origins (empty = allow all in dev, restrict in prod)
-	WebSocketDisabled  bool
-	LoadingDisabled    bool     // Disables automatic loading indicator on page load
-	TemplateFiles      []string // If set, overrides auto-discovery
-	IgnoreTemplateDirs []string // Additional directories to ignore during auto-discovery
-	DevMode            bool     // Development mode - use local client library instead of CDN
+	Upgrader               *websocket.Upgrader
+	SessionStore           SessionStore
+	Authenticator          Authenticator // User authentication and session grouping
+	AllowedOrigins         []string      // Allowed WebSocket origins (empty = allow all in dev, restrict in prod)
+	WebSocketDisabled      bool
+	LoadingDisabled        bool     // Disables automatic loading indicator on page load
+	TemplateFiles          []string // If set, overrides auto-discovery
+	IgnoreTemplateDirs     []string // Additional directories to ignore during auto-discovery
+	DevMode                bool     // Development mode - use local client library instead of CDN
+	MaxConnections         int64    // Maximum total connections (0 = unlimited)
+	MaxConnectionsPerGroup int64    // Maximum connections per group (0 = unlimited)
 }
 
 // Template represents a live template with caching and tree-based optimization capabilities.
@@ -1244,19 +1246,22 @@ func (t *Template) Handle(stores ...Store) LiveHandler {
 	}
 
 	config := MountConfig{
-		Template:          t,
-		Stores:            storesMap,
-		IsSingleStore:     isSingleStore,
-		Upgrader:          upgrader,
-		SessionStore:      t.config.SessionStore,
-		Authenticator:     t.config.Authenticator,
-		AllowedOrigins:    t.config.AllowedOrigins,
-		WebSocketDisabled: t.config.WebSocketDisabled,
+		Template:               t,
+		Stores:                 storesMap,
+		IsSingleStore:          isSingleStore,
+		Upgrader:               upgrader,
+		SessionStore:           t.config.SessionStore,
+		Authenticator:          t.config.Authenticator,
+		AllowedOrigins:         t.config.AllowedOrigins,
+		WebSocketDisabled:      t.config.WebSocketDisabled,
+		MaxConnections:         t.config.MaxConnections,
+		MaxConnectionsPerGroup: t.config.MaxConnectionsPerGroup,
 	}
 
 	return &liveHandler{
 		config:   config,
 		registry: NewConnectionRegistry(),
+		limits:   NewConnectionLimits(config.MaxConnections, config.MaxConnectionsPerGroup),
 	}
 }
 
