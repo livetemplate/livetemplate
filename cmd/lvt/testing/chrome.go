@@ -267,7 +267,10 @@ func StartTestServer(t *testing.T, mainPath string, port int) *exec.Cmd {
 
 	t.Logf("Starting test server on port %s", portStr)
 	cmd := exec.Command("go", "run", mainPath)
-	cmd.Env = append([]string{"PORT=" + portStr}, cmd.Environ()...)
+	cmd.Env = append([]string{
+		"PORT=" + portStr,
+		"LVT_DEV_MODE=true", // Use local client library in tests
+	}, cmd.Environ()...)
 
 	// Start the server
 	if err := cmd.Start(); err != nil {
