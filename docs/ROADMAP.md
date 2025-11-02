@@ -53,7 +53,7 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 | **M2: Horizontal Scaling** | Redis integration, multi-instance | 4-5 weeks | 🔴 TODO | Week 11 |
 | **M3: Enterprise Scale** | Advanced resilience, optimization | 8-12 weeks | 🔴 TODO | Week 26 |
 
-**Overall Progress:** `[██████░░░░░░░░░░░░░░] 31% (13/42 tasks)`
+**Overall Progress:** `[████████░░░░░░░░░░░░] 40% (17/42 tasks)`
 
 ---
 
@@ -69,7 +69,7 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 - ✅ Prometheus metrics enable capacity planning
 
 **Duration:** 4-6 weeks
-**Progress:** `[███████░░░] 13/18 tasks (72%)`
+**Progress:** `[█████████░] 17/18 tasks (94%)`
 
 ---
 
@@ -169,14 +169,14 @@ handler.Shutdown(ctx)
 
 ### 1.4 Observability & Metrics Export
 
-**Files:** `internal/observe/metrics.go`, `internal/observe/prometheus.go` (new)
+**Files:** `internal/observe/metrics.go`, `internal/observe/prometheus.go` (new), `mount.go`, `template.go`
 
 | Task | Priority | Status | Est. Effort | Assignee |
 |------|----------|--------|-------------|----------|
-| Design Prometheus metric names (follow naming conventions) | 🔴 CRITICAL | 🔴 TODO | 1 day | - |
-| Implement `PrometheusExporter` (exposes `/metrics` endpoint) | 🔴 CRITICAL | 🔴 TODO | 3 days | - |
-| Export connection metrics (active, total, rejected) | 🔴 CRITICAL | 🔴 TODO | 1 day | - |
-| Export performance metrics (action duration histograms) | 🟡 HIGH | 🔴 TODO | 2 days | - |
+| Design Prometheus metric names (follow naming conventions) | 🔴 CRITICAL | ✅ DONE | 1 day | - |
+| Implement `PrometheusExporter` (exposes `/metrics` endpoint) | 🔴 CRITICAL | ✅ DONE | 3 days | - |
+| Export connection metrics (active, total, rejected) | 🔴 CRITICAL | ✅ DONE | 1 day | - |
+| Export performance metrics (action duration histograms) | 🟡 HIGH | ✅ DONE | 2 days | - |
 | Add request tracing with trace IDs (log correlation) | 🟡 HIGH | 🔴 TODO | 3 days | - |
 | Create Grafana dashboard JSON for monitoring | 🟡 MEDIUM | 🔴 TODO | 2 days | - |
 
@@ -247,9 +247,9 @@ export LVT_REDIS_URL=redis://localhost:6379/0  # Optional for M2
 ### Milestone 1 Summary
 
 **Total Tasks:** 18
-**Completed:** 13
+**Completed:** 17
 **In Progress:** 0
-**TODO:** 5
+**TODO:** 1
 
 **Estimated Effort:** 4-6 weeks with 1 engineer
 
@@ -555,10 +555,10 @@ const delay = Math.min(
 
 | Milestone | Tasks | Completed | Progress | Status |
 |-----------|-------|-----------|----------|--------|
-| **M1: Production Foundation** | 18 | 13 | `[███████░░░] 72%` | 🟡 IN PROGRESS |
+| **M1: Production Foundation** | 18 | 17 | `[█████████░] 94%` | 🟡 IN PROGRESS |
 | **M2: Horizontal Scaling** | 10 | 0 | `[░░░░░░░░░░] 0%` | 🔴 TODO |
 | **M3: Enterprise Scale** | 14 | 0 | `[░░░░░░░░░░] 0%` | 🔴 TODO |
-| **TOTAL** | **42** | **13** | `[██████░░░░░░░░░░░░] 31%` | 🟡 IN PROGRESS |
+| **TOTAL** | **42** | **17** | `[████████░░░░░░░░░░] 40%` | 🟡 IN PROGRESS |
 
 ### Key Metrics
 

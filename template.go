@@ -89,6 +89,7 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -98,6 +99,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/livefir/livetemplate/internal/diff"
+	"github.com/livefir/livetemplate/internal/observe"
 )
 
 // Config holds template configuration options
@@ -289,6 +291,22 @@ func WithAllowedOrigins(origins []string) Option {
 func WithIgnoreTemplateDirs(dirs ...string) Option {
 	return func(c *Config) {
 		c.IgnoreTemplateDirs = append(c.IgnoreTemplateDirs, dirs...)
+	}
+}
+
+// WithMaxConnections sets the maximum number of concurrent connections.
+// 0 (default) means unlimited.
+func WithMaxConnections(max int64) Option {
+	return func(c *Config) {
+		c.MaxConnections = max
+	}
+}
+
+// WithMaxConnectionsPerGroup sets the maximum number of connections per session group.
+// 0 (default) means unlimited. Prevents single users from exhausting connection limits.
+func WithMaxConnectionsPerGroup(max int64) Option {
+	return func(c *Config) {
+		c.MaxConnectionsPerGroup = max
 	}
 }
 
@@ -1258,11 +1276,16 @@ func (t *Template) Handle(stores ...Store) LiveHandler {
 		MaxConnectionsPerGroup: t.config.MaxConnectionsPerGroup,
 	}
 
+	limits := NewConnectionLimits(config.MaxConnections, config.MaxConnectionsPerGroup)
+	metrics := observe.NewMetrics(slog.Default())
+	metricsExporter := observe.NewPrometheusExporter(metrics, limits)
+
 	return &liveHandler{
-		config:       config,
-		registry:     NewConnectionRegistry(),
-		limits:       NewConnectionLimits(config.MaxConnections, config.MaxConnectionsPerGroup),
-		shutdownChan: make(chan struct{}),
+		config:          config,
+		registry:        NewConnectionRegistry(),
+		limits:          limits,
+		metricsExporter: metricsExporter,
+		shutdownChan:    make(chan struct{}),
 	}
 }
 

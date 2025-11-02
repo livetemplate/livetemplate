@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 
 	"github.com/gorilla/websocket"
+	"github.com/livefir/livetemplate/internal/observe"
 )
 
 // Broadcaster allows stores to push updates to connected clients without user interaction
@@ -119,6 +120,25 @@ type LiveHandler interface {
 	//   handler.Shutdown(ctx)
 	//   server.Shutdown(ctx)
 	Shutdown(ctx context.Context) error
+
+	// MetricsHandler returns an http.Handler that exports Prometheus metrics.
+	//
+	// The handler responds to GET requests with metrics in Prometheus text format.
+	// Typically mounted at /metrics for scraping by Prometheus.
+	//
+	// Example with standard library http mux:
+	//   mux := http.NewServeMux()
+	//   handler := template.Handle(store)
+	//   mux.Handle("/live", handler)
+	//   mux.Handle("/metrics", handler.MetricsHandler())
+	//   http.ListenAndServe(":8080", mux)
+	//
+	// Example with gorilla/mux:
+	//   r := mux.NewRouter()
+	//   handler := template.Handle(store)
+	//   r.Handle("/live", handler)
+	//   r.Handle("/metrics", handler.MetricsHandler())
+	MetricsHandler() http.Handler
 }
 
 // MountConfig configures the mount handler
@@ -141,9 +161,10 @@ type MountOption func(*MountConfig)
 
 // liveHandler handles both WebSocket and HTTP requests
 type liveHandler struct {
-	config   MountConfig
-	registry *ConnectionRegistry
-	limits   *ConnectionLimits
+	config          MountConfig
+	registry        *ConnectionRegistry
+	limits          *ConnectionLimits
+	metricsExporter *observe.PrometheusExporter
 
 	// Graceful shutdown state
 	shutdownOnce sync.Once
@@ -974,4 +995,25 @@ func (h *liveHandler) Shutdown(ctx context.Context) error {
 	})
 
 	return shutdownErr
+}
+
+// MetricsHandler returns an HTTP handler that exports Prometheus metrics.
+func (h *liveHandler) MetricsHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Only allow GET requests
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Set content type for Prometheus text format
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+
+		// Write metrics
+		if err := h.metricsExporter.WriteMetrics(w); err != nil {
+			log.Printf("Error writing metrics: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+	})
 }
