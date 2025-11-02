@@ -2,6 +2,7 @@ package livetemplate
 
 import (
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -144,9 +145,9 @@ func TestConnectionLimits_ConcurrentAccess(t *testing.T) {
 	limits := NewConnectionLimits(100, 10)
 
 	var wg sync.WaitGroup
-	errors := make(chan error, 200)
+	successCount := int32(0)
 
-	// Try to acquire 200 connections concurrently (should only succeed 100)
+	// Try to acquire 200 connections concurrently (should only succeed 100 or fewer due to limits)
 	for i := 0; i < 200; i++ {
 		wg.Add(1)
 		groupID := "group-1"
@@ -156,23 +157,15 @@ func TestConnectionLimits_ConcurrentAccess(t *testing.T) {
 
 		go func(gid string) {
 			defer wg.Done()
-			if limits.CanAccept(gid) {
-				if err := limits.Acquire(gid); err != nil {
-					errors <- err
-				}
+			// CanAccept is advisory only - there can be a race between check and acquire
+			// Just try to acquire and count successes
+			if err := limits.Acquire(gid); err == nil {
+				atomic.AddInt32(&successCount, 1)
 			}
 		}(groupID)
 	}
 
 	wg.Wait()
-	close(errors)
-
-	// Check for race condition errors
-	for err := range errors {
-		if err != nil {
-			t.Errorf("Concurrent Acquire failed: %v", err)
-		}
-	}
 
 	// Should have at most 100 connections (global limit)
 	active := limits.ActiveConnections()
@@ -184,6 +177,11 @@ func TestConnectionLimits_ConcurrentAccess(t *testing.T) {
 	group1Count := limits.GroupConnectionCount("group-1")
 	if group1Count > 10 {
 		t.Errorf("Expected at most 10 connections for group-1, got %d", group1Count)
+	}
+
+	// Verify that limits actually prevented some connections
+	if successCount == 200 {
+		t.Errorf("Expected limits to prevent some connections, but all 200 succeeded")
 	}
 }
 
