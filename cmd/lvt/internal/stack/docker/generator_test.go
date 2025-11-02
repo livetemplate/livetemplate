@@ -47,6 +47,33 @@ func TestGenerator_Generate(t *testing.T) {
 	}
 }
 
+func TestGenerator_Generate_WithLitestream(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	config := stack.StackConfig{
+		Provider: stack.ProviderDocker,
+		Database: stack.DatabaseSQLite,
+		Backup:   stack.BackupLitestream,
+		Storage:  stack.StorageS3,
+		Redis:    stack.RedisNone,
+		CI:       stack.CINone,
+	}
+
+	gen := New()
+	ctx := context.Background()
+
+	err := gen.Generate(ctx, config, tmpDir)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Check litestream.yml exists
+	litestreamPath := filepath.Join(tmpDir, "litestream.yml")
+	if _, err := os.Stat(litestreamPath); os.IsNotExist(err) {
+		t.Errorf("Expected litestream.yml does not exist")
+	}
+}
+
 func TestDockerComposeYAML_NoDuplicateVolumes(t *testing.T) {
 	tests := []struct {
 		name     string

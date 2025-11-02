@@ -26,6 +26,9 @@ var envExampleTemplate string
 //go:embed templates/README.md.tmpl
 var readmeTemplate string
 
+//go:embed templates/litestream.yml.tmpl
+var litestreamTemplate string
+
 // Generator implements stack.Generator for Docker
 type Generator struct{}
 
@@ -98,8 +101,8 @@ func (g *Generator) generateFile(outputPath, tmplContent string, data *stack.Tem
 
 // generateLitestream generates litestream.yml
 func (g *Generator) generateLitestream(outputDir string, config stack.StackConfig, data *stack.TemplateData) error {
-	// Litestream template will be in next task
-	return nil
+	outputPath := filepath.Join(outputDir, "litestream.yml")
+	return g.generateFile(outputPath, litestreamTemplate, data)
 }
 
 // Validate validates Docker deployment configuration
