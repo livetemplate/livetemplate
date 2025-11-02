@@ -1,0 +1,167 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: livetemplate-app
+  labels:
+    app: livetemplate
+    tier: application
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: livetemplate
+      tier: application
+  template:
+    metadata:
+      labels:
+        app: livetemplate
+        tier: application
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Use node affinity for better distribution
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - livetemplate
+              topologyKey: kubernetes.io/hostname
+
+      # Service account for RBAC
+      serviceAccountName: livetemplate
+
+      # Security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+
+      containers:
+      - name: app
+        image: your-registry.com/livetemplate:latest
+        imagePullPolicy: IfNotPresent
+
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+
+        env:
+        - name: PORT
+          value: "8080"
+        - name: ENV
+          value: "production"
+        - name: LVT_LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: livetemplate-config
+              key: log_level
+        - name: LVT_DEV_MODE
+          value: "false"
+        - name: LVT_METRICS_ENABLED
+          value: "true"
+        - name: LVT_SHUTDOWN_TIMEOUT
+          value: "30s"
+        # Database credentials from secret
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: livetemplate-secrets
+              key: database_url
+        # Redis connection from config
+        - name: REDIS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: livetemplate-config
+              key: redis_url
+
+        # Resource limits
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+        # Liveness probe (is the app running?)
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+
+        # Readiness probe (is the app ready to serve traffic?)
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+
+        # Startup probe (for slow-starting applications)
+        startupProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 0
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 12  # 60 seconds to start
+
+        # Security context for container
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+
+        # Volume mounts (if needed)
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: cache
+          mountPath: /app/cache
+
+      # Graceful shutdown
+      terminationGracePeriodSeconds: 35
+
+      # Volumes
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: cache
+        emptyDir: {}
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: livetemplate
+  labels:
+    app: livetemplate

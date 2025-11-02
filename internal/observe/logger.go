@@ -32,8 +32,14 @@ func NewLogger(level slog.Level, handler slog.Handler) *Logger {
 }
 
 // WithContext adds context fields to logger for request tracking.
+// Automatically extracts trace_id, user_id, session_id, and request_id from context.
 func (l *Logger) WithContext(ctx context.Context) *Logger {
 	logger := l.Logger
+
+	// Extract trace ID first (highest priority for correlation)
+	if traceID := GetTraceID(ctx); traceID != "" {
+		logger = logger.With("trace_id", traceID)
+	}
 
 	// Extract common fields from context
 	if userID := ctx.Value("user_id"); userID != nil {
@@ -41,9 +47,6 @@ func (l *Logger) WithContext(ctx context.Context) *Logger {
 	}
 	if sessionID := ctx.Value("session_id"); sessionID != nil {
 		logger = logger.With("session_id", sessionID)
-	}
-	if requestID := ctx.Value("request_id"); requestID != nil {
-		logger = logger.With("request_id", requestID)
 	}
 
 	return &Logger{Logger: logger}

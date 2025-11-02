@@ -37,12 +37,16 @@ Automatically tracked metrics:
 ### Development Mode (Text Logs)
 
 ```bash
+# Uses defaults: LVT_LOG_LEVEL=info, LVT_METRICS_ENABLED=true
 go run main.go
+
+# Or explicitly set log level to debug
+LVT_LOG_LEVEL=debug go run main.go
 ```
 
 Expected output:
 ```
-time=2025-10-31T12:00:00.000Z level=INFO msg="LiveTemplate Counter Server starting with observability enabled"
+time=2025-10-31T12:00:00.000Z level=INFO msg="LiveTemplate Counter Server starting with observability enabled" log_level=info metrics_enabled=true dev_mode=false
 time=2025-10-31T12:00:00.100Z level=INFO msg="Server starting" port=8080 url=http://localhost:8080
 time=2025-10-31T12:00:00.100Z level=INFO msg="Metrics will be emitted every 30 seconds"
 ```
@@ -50,12 +54,16 @@ time=2025-10-31T12:00:00.100Z level=INFO msg="Metrics will be emitted every 30 s
 ### Production Mode (JSON Logs)
 
 ```bash
-ENV=production go run main.go
+# Production environment with structured JSON logging
+ENV=production LVT_LOG_LEVEL=info go run main.go
+
+# Production with warnings only
+ENV=production LVT_LOG_LEVEL=warn go run main.go
 ```
 
 Expected output:
 ```json
-{"time":"2025-10-31T12:00:00Z","level":"INFO","msg":"LiveTemplate Counter Server starting with observability enabled"}
+{"time":"2025-10-31T12:00:00Z","level":"INFO","msg":"LiveTemplate Counter Server starting with observability enabled","log_level":"info","metrics_enabled":true,"dev_mode":false}
 {"time":"2025-10-31T12:00:00Z","level":"INFO","msg":"Server starting","port":"8080","url":"http://localhost:8080"}
 {"time":"2025-10-31T12:00:00Z","level":"INFO","msg":"Metrics will be emitted every 30 seconds"}
 ```

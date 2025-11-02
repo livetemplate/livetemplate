@@ -339,11 +339,22 @@ func formatTime() string {
 func main() {
 	log.Println("LiveTemplate Todo App starting...")
 
+	// Load configuration from environment variables
+	envConfig, err := livetemplate.LoadEnvConfig()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
+	// Validate configuration
+	if err := envConfig.Validate(); err != nil {
+		log.Fatalf("Invalid configuration: %v", err)
+	}
+
 	// Initialize database
 	dbPath := GetDBPath()
-	queries, err := InitDB(dbPath)
-	if err != nil {
-		log.Fatalf("Failed to initialize database: %v", err)
+	queries, dbErr := InitDB(dbPath)
+	if dbErr != nil {
+		log.Fatalf("Failed to initialize database: %v", dbErr)
 	}
 	defer CloseDB()
 
@@ -361,8 +372,9 @@ func main() {
 		log.Fatalf("Failed to load initial todos: %v", err)
 	}
 
-	// Create template - auto-discovers todos.tmpl
-	tmpl := livetemplate.New("todos")
+	// Create template with environment-based configuration
+	// Configuration is loaded from LVT_* environment variables
+	tmpl := livetemplate.New("todos", envConfig.ToOptions()...)
 
 	// Mount handler - auto-handles initial page, WebSocket, and HTTP actions
 	http.Handle("/", tmpl.Handle(state))
