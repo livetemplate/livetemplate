@@ -298,11 +298,12 @@ build_binaries() {
 
     for platform in "${platforms[@]}"; do
         IFS='/' read -r os arch <<< "$platform"
-        output_name="dist/lvt-${new_version}-${os}-${arch}"
-
+        local binary_name="lvt"
         if [ "$os" = "windows" ]; then
-            output_name="${output_name}.exe"
+            binary_name="lvt.exe"
         fi
+
+        local output_name="dist/${binary_name}"
 
         log_step "Building for ${os}/${arch}..."
         GOOS=$os GOARCH=$arch go build -ldflags="-s -w -X main.version=v$new_version" -o "$output_name" ./cmd/lvt || {
@@ -311,13 +312,13 @@ build_binaries() {
         }
 
         # Create archive
+        local archive_name="lvt-${new_version}-${os}-${arch}"
         if [ "$os" = "windows" ]; then
-            (cd dist && zip "lvt-${new_version}-${os}-${arch}.zip" "$(basename "$output_name")")
-            rm "$output_name"
+            (cd dist && zip "${archive_name}.zip" "${binary_name}")
         else
-            (cd dist && tar -czf "lvt-${new_version}-${os}-${arch}.tar.gz" "$(basename "$output_name")")
-            rm "$output_name"
+            (cd dist && tar -czf "${archive_name}.tar.gz" "${binary_name}")
         fi
+        rm "$output_name"
     done
 
     log_info "Binaries built successfully in dist/"
