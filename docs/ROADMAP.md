@@ -50,10 +50,10 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 | Milestone | Focus | Duration | Status | Target Completion |
 |-----------|-------|----------|--------|-------------------|
 | **M1: Production Foundation** | Critical fixes, health checks, limits | 4-6 weeks | 🔴 TODO | Week 6 |
-| **M2: Horizontal Scaling** | Redis integration, multi-instance | 6-8 weeks | 🔴 TODO | Week 14 |
+| **M2: Horizontal Scaling** | Redis integration, multi-instance | 4-5 weeks | 🔴 TODO | Week 11 |
 | **M3: Enterprise Scale** | Advanced resilience, optimization | 8-12 weeks | 🔴 TODO | Week 26 |
 
-**Overall Progress:** `[░░░░░░░░░░░░░░░░░░░░] 0% (0/51 tasks)`
+**Overall Progress:** `[░░░░░░░░░░░░░░░░░░░░] 0% (0/42 tasks)`
 
 ---
 
@@ -405,58 +405,19 @@ const delay = Math.min(
 
 ---
 
-### 2.4 Load Balancer Integration
-
-**Files:** `docs/DEPLOYMENT.md` (new)
-
-| Task | Priority | Status | Est. Effort | Assignee |
-|------|----------|--------|-------------|----------|
-| Document sticky session configuration (Nginx, HAProxy, ALB) | 🟡 HIGH | 🔴 TODO | 2 days | - |
-| Test connection affinity with cookie-based routing | 🟡 HIGH | 🔴 TODO | 2 days | - |
-| Document WebSocket-specific load balancer settings | 🟡 HIGH | 🔴 TODO | 1 day | - |
-| Create Terraform examples for AWS ALB + ECS | 🟡 MEDIUM | 🔴 TODO | 3 days | - |
-
-**Acceptance Criteria:**
-- Documentation covers major load balancers
-- Terraform examples deploy working infrastructure
-- Sticky session configuration tested
-
----
-
-### 2.5 Deployment Automation
-
-**Files:** `examples/production/multi-host/` (new)
-
-| Task | Priority | Status | Est. Effort | Assignee |
-|------|----------|--------|-------------|----------|
-| Create Kubernetes Deployment with 3 replicas | 🟡 HIGH | 🔴 TODO | 2 days | - |
-| Add HorizontalPodAutoscaler (scale on connection count) | 🟡 HIGH | 🔴 TODO | 2 days | - |
-| Add Redis StatefulSet or external Redis configuration | 🟡 HIGH | 🔴 TODO | 2 days | - |
-| Document rolling update strategy (maxSurge, maxUnavailable) | 🟡 MEDIUM | 🔴 TODO | 1 day | - |
-| Add smoke tests for multi-instance setup | 🟡 MEDIUM | 🔴 TODO | 3 days | - |
-
-**Acceptance Criteria:**
-- `kubectl apply -f` deploys working multi-instance setup
-- HPA scales based on `livetemplate_connections_active`
-- Rolling updates don't disrupt users
-- Smoke tests verify cross-instance broadcasts
-
----
-
 ### Milestone 2 Summary
 
-**Total Tasks:** 19
+**Total Tasks:** 10
 **Completed:** 0
 **In Progress:** 0
-**TODO:** 19
+**TODO:** 10
 
-**Estimated Effort:** 6-8 weeks with 1 engineer
+**Estimated Effort:** 4-5 weeks with 1 engineer
 
 **Critical Path:**
 1. Redis Session Store (Week 1-2)
 2. Distributed Pub/Sub (Week 3-4)
-3. Client reconnection (Week 5)
-4. Load balancer + K8s (Week 6-8)
+3. Client reconnection (Week 4-5)
 
 **Dependencies:**
 - Requires Milestone 1 (health checks, graceful shutdown)
@@ -595,9 +556,9 @@ const delay = Math.min(
 | Milestone | Tasks | Completed | Progress | Status |
 |-----------|-------|-----------|----------|--------|
 | **M1: Production Foundation** | 18 | 0 | `[░░░░░░░░░░] 0%` | 🔴 TODO |
-| **M2: Horizontal Scaling** | 19 | 0 | `[░░░░░░░░░░] 0%` | 🔴 TODO |
+| **M2: Horizontal Scaling** | 10 | 0 | `[░░░░░░░░░░] 0%` | 🔴 TODO |
 | **M3: Enterprise Scale** | 14 | 0 | `[░░░░░░░░░░] 0%` | 🔴 TODO |
-| **TOTAL** | **51** | **0** | `[░░░░░░░░░░] 0%` | 🔴 IN PROGRESS |
+| **TOTAL** | **42** | **0** | `[░░░░░░░░░░] 0%` | 🔴 IN PROGRESS |
 
 ### Key Metrics
 
@@ -775,7 +736,6 @@ handler := livetemplate.Mount(rootStore,
 - [OBSERVABILITY.md](docs/OBSERVABILITY.md) - Logging and metrics
 - [BROADCASTING.md](docs/BROADCASTING.md) - Broadcasting patterns
 - [SCALING.md](docs/SCALING.md) - To be created in M1
-- [DEPLOYMENT.md](docs/DEPLOYMENT.md) - To be created in M1
 - [REDIS_INTEGRATION.md](docs/REDIS_INTEGRATION.md) - To be created in M2
 
 ---

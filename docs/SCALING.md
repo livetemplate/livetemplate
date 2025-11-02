@@ -392,9 +392,8 @@ redis_connected_clients{instance="redis1"} > 9000  # 90% of Redis max clients
 
 ## Next Steps
 
-- **Getting Started:** See [DEPLOYMENT.md](DEPLOYMENT.md) for deployment examples
 - **Redis Setup:** See [REDIS_INTEGRATION.md](REDIS_INTEGRATION.md) for Redis configuration
-- **Roadmap:** See [ROADMAP.md](../ROADMAP.md) for upcoming scaling features
+- **Roadmap:** See [ROADMAP.md](ROADMAP.md) for upcoming scaling features
 - **Architecture:** See [ARCHITECTURE.md](ARCHITECTURE.md) for system design
 
 ---
