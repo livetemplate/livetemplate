@@ -13,7 +13,7 @@ dbs:
       - type: s3
         bucket: ${STORAGE_BUCKET}
         path: {{ .ProjectName }}
-        endpoint: s3.us-west-004.backblazeb2.com
+        endpoint: s3.${STORAGE_REGION}.backblazeb2.com
         access-key-id: ${B2_APPLICATION_KEY_ID}
         secret-access-key: ${B2_APPLICATION_KEY}
         force-path-style: true
