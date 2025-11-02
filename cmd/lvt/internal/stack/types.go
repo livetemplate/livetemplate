@@ -2,6 +2,10 @@ package stack
 
 import "fmt"
 
+// Package stack provides types and configuration for deployment stack generation.
+// It supports multiple cloud providers (Docker, Fly.io, DigitalOcean, Kubernetes)
+// with configurable database, backup, caching, and storage options.
+
 type Provider string
 
 const (
