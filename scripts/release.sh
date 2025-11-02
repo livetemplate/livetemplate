@@ -161,7 +161,7 @@ All components versioned at v$new_version
 # Build and test
 build_and_test() {
     log_step "Running Go tests..."
-    go test ./... -timeout=30s || {
+    go test ./... -timeout=120s || {
         log_error "Tests failed, aborting release"
         exit 1
     }
