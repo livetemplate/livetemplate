@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/livefir/livetemplate"
+	"github.com/livetemplate/livetemplate"
 )
 
 type CounterState struct {
