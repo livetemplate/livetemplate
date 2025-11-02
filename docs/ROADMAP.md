@@ -53,7 +53,7 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 | **M2: Horizontal Scaling** | Redis integration, multi-instance | 4-5 weeks | 🔴 TODO | Week 11 |
 | **M3: Enterprise Scale** | Advanced resilience, optimization | 8-12 weeks | 🔴 TODO | Week 26 |
 
-**Overall Progress:** `[████████░░░░░░░░░░░░] 44% (26/59 tasks)`
+**Overall Progress:** `[█████████░░░░░░░░░░░] 48% (28/59 tasks)`
 
 ---
 
@@ -69,7 +69,7 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 - ✅ Prometheus metrics enable capacity planning
 
 **Duration:** 4-6 weeks
-**Progress:** `[█████████████░░░░░░░] 26/35 tasks (74%)`
+**Progress:** `[████████████████░░░░] 28/35 tasks (80%)`
 
 ---
 
@@ -230,12 +230,12 @@ export LVT_REDIS_URL=redis://localhost:6379/0  # Optional for M2
 
 | Task | Priority | Status | Est. Effort | Assignee |
 |------|----------|--------|-------------|----------|
-| Create `examples/production/single-host/` with full setup | 🟡 HIGH | 🔴 TODO | 3 days | - |
-| Add Dockerfile with multi-stage build | 🟡 HIGH | 🔴 TODO | 2 days | - |
-| Add docker-compose.yml with Postgres + Redis | 🟡 HIGH | 🔴 TODO | 2 days | - |
-| Add systemd service file for bare-metal deploys | 🟡 MEDIUM | 🔴 TODO | 1 day | - |
-| Add Kubernetes manifests (Deployment, Service, Ingress) | 🟡 MEDIUM | 🔴 TODO | 3 days | - |
-| Document deployment procedures | 🟡 MEDIUM | 🔴 TODO | 2 days | - |
+| Create `examples/production/single-host/` with full setup | 🟡 HIGH | ✅ DONE | 3 days | - |
+| Add Dockerfile with multi-stage build | 🟡 HIGH | ✅ DONE | 2 days | - |
+| Add docker-compose.yml with Postgres + Redis | 🟡 HIGH | ✅ DONE | 2 days | - |
+| Add systemd service file for bare-metal deploys | 🟡 MEDIUM | ✅ DONE | 1 day | - |
+| Add Kubernetes manifests (Deployment, Service, Ingress) | 🟡 MEDIUM | ✅ DONE | 3 days | - |
+| Document deployment procedures | 🟡 MEDIUM | ✅ DONE | 2 days | - |
 
 **Acceptance Criteria:**
 - Production example runs with `docker-compose up`
@@ -247,9 +247,9 @@ export LVT_REDIS_URL=redis://localhost:6379/0  # Optional for M2
 ### Milestone 1 Summary
 
 **Total Tasks:** 35
-**Completed:** 22
+**Completed:** 28
 **In Progress:** 0
-**TODO:** 13
+**TODO:** 7
 
 **Estimated Effort:** 4-6 weeks with 1 engineer
 
