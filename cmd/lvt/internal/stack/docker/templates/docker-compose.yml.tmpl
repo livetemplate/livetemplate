@@ -73,11 +73,12 @@ services:
     restart: unless-stopped
 {{- end }}
 
-{{- if eq .Database "sqlite" }}
+{{- if or (eq .Database "sqlite") (eq .Database "postgres") }}
 volumes:
+  {{- if eq .Database "sqlite" }}
   app-data:
-{{- end }}
-{{- if eq .Database "postgres" }}
-volumes:
+  {{- end }}
+  {{- if eq .Database "postgres" }}
   postgres-data:
+  {{- end }}
 {{- end }}
