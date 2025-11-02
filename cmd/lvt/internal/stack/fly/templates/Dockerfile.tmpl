@@ -22,8 +22,9 @@ FROM alpine:latest
 RUN apk --no-cache add ca-certificates {{if eq .Database "sqlite"}}sqlite-libs{{end}}{{if eq .Backup "litestream"}} wget{{end}}
 
 {{- if eq .Backup "litestream" }}
-# Install Litestream
+# Install Litestream with checksum verification
 RUN wget https://github.com/benbjohnson/litestream/releases/download/v0.3.13/litestream-v0.3.13-linux-amd64.tar.gz && \
+    echo "eb75a3de5cab03875cdae9f5f539e6aedadd66607003d9b1e7a9077948818ba0  litestream-v0.3.13-linux-amd64.tar.gz" | sha256sum -c - && \
     tar -C /usr/local/bin -xzf litestream-v0.3.13-linux-amd64.tar.gz && \
     rm litestream-v0.3.13-linux-amd64.tar.gz
 {{- end }}

@@ -1,6 +1,7 @@
 package fly
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -69,6 +70,22 @@ func TestGenerator_Generate_WithLitestream(t *testing.T) {
 	litestreamPath := filepath.Join(tmpDir, "litestream.yml")
 	if _, err := os.Stat(litestreamPath); os.IsNotExist(err) {
 		t.Errorf("Expected litestream.yml does not exist")
+	}
+
+	// Check Dockerfile contains SHA256 checksum verification
+	dockerfilePath := filepath.Join(tmpDir, "Dockerfile")
+	dockerfileContent, err := os.ReadFile(dockerfilePath)
+	if err != nil {
+		t.Fatalf("Failed to read Dockerfile: %v", err)
+	}
+
+	expectedChecksum := "eb75a3de5cab03875cdae9f5f539e6aedadd66607003d9b1e7a9077948818ba0"
+	if !bytes.Contains(dockerfileContent, []byte(expectedChecksum)) {
+		t.Errorf("Dockerfile does not contain expected SHA256 checksum for Litestream v0.3.13")
+	}
+
+	if !bytes.Contains(dockerfileContent, []byte("sha256sum -c -")) {
+		t.Errorf("Dockerfile does not contain SHA256 verification command")
 	}
 }
 
