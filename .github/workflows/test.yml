@@ -24,9 +24,13 @@ jobs:
       run: go mod download
 
     - name: Run tests
-      run: go test -v -race -timeout=30s ./...
+      run: |
+        # Test only core library, excluding extracted components
+        go test -v -race -timeout=30s $(go list ./... | grep -v '/cmd/lvt' | grep -v '/examples' | grep -v '/client')
       env:
         CGO_ENABLED: 1
 
     - name: Build
-      run: go build -v ./...
+      run: |
+        # Build only core library, excluding extracted components
+        go build -v $(go list ./... | grep -v '/cmd/lvt' | grep -v '/examples' | grep -v '/client')
