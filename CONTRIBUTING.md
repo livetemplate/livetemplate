@@ -106,6 +106,81 @@ Before you begin, ensure you have the following installed:
    # Pre-commit hook will automatically run validation
    ```
 
+### Testing Core Changes with LVT/Examples
+
+When making changes to the core library, you may want to test how they affect LVT or examples before releasing.
+
+#### Recommended: Go Workspace (Automatic)
+
+The **easiest way** is to use Go workspaces (Go 1.18+). This automatically uses local checkouts without modifying any `go.mod` files.
+
+**Directory structure:**
+```
+parent/
+├── livetemplate/  (core library - this repo)
+├── lvt/           (CLI tool)
+├── examples/      (example apps)
+├── client/        (TypeScript client - optional)
+└── setup-workspace.sh  (run this once)
+```
+
+**One-time setup:**
+```bash
+# Clone sibling repositories
+cd ..  # Go to parent directory
+git clone https://github.com/livetemplate/lvt.git
+git clone https://github.com/livetemplate/examples.git
+
+# Create workspace (run once)
+./setup-workspace.sh
+```
+
+That's it! Now all `go` commands automatically use your local versions:
+
+```bash
+# Test LVT with your core changes
+cd lvt
+go test ./...  # Automatically uses ../livetemplate
+
+# Test examples
+cd ../examples
+./test-all.sh  # Automatically uses ../livetemplate and ../lvt
+
+# Build an example
+cd counter
+go build  # Uses local livetemplate
+```
+
+**To remove workspace:**
+```bash
+cd /path/to/parent
+./setup-workspace.sh --clean
+```
+
+**How it works:**
+- Creates a `go.work` file in the parent directory
+- Go automatically finds it and uses listed modules
+- No `go.mod` changes needed
+- `go.work` is gitignored (never committed)
+
+#### Alternative: Manual Replace Directives
+
+If you prefer manual control or can't use workspaces, use the helper scripts in each repo:
+
+```bash
+cd ../lvt
+./scripts/setup-local-dev.sh
+
+cd ../examples
+./scripts/setup-local-dev.sh
+```
+
+Revert with `--undo` flag when done.
+
+#### Automated CI Checks
+
+The core library has automated CI checks that test LVT and examples against your PR. These checks will catch breaking changes before merge.
+
 ### Directory Structure (Core Library)
 
 ```

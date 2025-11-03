@@ -1,0 +1,90 @@
+name: Cross-Repository Tests
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  test-lvt:
+    name: Test LVT against Core Changes
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout core library (this PR/branch)
+      uses: actions/checkout@v4
+      with:
+        path: livetemplate
+
+    - name: Checkout LVT
+      uses: actions/checkout@v4
+      with:
+        repository: livetemplate/lvt
+        path: lvt
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.25'
+
+    - name: Add replace directive to LVT
+      working-directory: lvt
+      run: |
+        echo "Adding replace directive to use local core library..."
+        go mod edit -replace=github.com/livetemplate/livetemplate=../livetemplate
+        go mod tidy
+        echo "✓ Replace directive added"
+
+    - name: Run LVT tests
+      working-directory: lvt
+      run: go test -v -race -timeout=10m ./...
+      env:
+        CGO_ENABLED: 1
+
+  test-examples:
+    name: Test Examples against Core Changes
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout core library (this PR/branch)
+      uses: actions/checkout@v4
+      with:
+        path: livetemplate
+
+    - name: Checkout LVT (for testing package)
+      uses: actions/checkout@v4
+      with:
+        repository: livetemplate/lvt
+        path: lvt
+
+    - name: Checkout examples
+      uses: actions/checkout@v4
+      with:
+        repository: livetemplate/examples
+        path: examples
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.25'
+
+    - name: Add replace directives to all examples
+      working-directory: examples
+      run: |
+        echo "Adding replace directives to all working examples..."
+        for example in counter chat todos graceful-shutdown testing/01_basic; do
+          echo "  → Setting up $example..."
+          cd "$example"
+          go mod edit -replace=github.com/livetemplate/livetemplate=../../livetemplate
+          go mod edit -replace=github.com/livetemplate/lvt=../../lvt
+          go mod tidy
+          cd ..
+        done
+        echo "✓ All replace directives added"
+
+    - name: Run examples test suite
+      working-directory: examples
+      run: ./test-all.sh --skip-disabled
+      env:
+        CGO_ENABLED: 1

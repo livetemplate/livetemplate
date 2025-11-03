@@ -50,3 +50,7 @@ client/dist
 
 # Test artifacts
 cmd/lvt/commands/internal/
+
+# Go workspace files (for local development)
+go.work
+go.work.sum
