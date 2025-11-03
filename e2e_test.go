@@ -15,7 +15,7 @@ import (
 
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
-	e2etest "github.com/livetemplate/livetemplate/cmd/lvt/testing"
+	e2etest "github.com/livetemplate/lvt/testing"
 )
 
 var updateGolden = flag.Bool("update-golden", false, "update golden files")
@@ -1163,9 +1163,7 @@ func TestLoadingIndicator(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.Handle("/", tmpl.Handle(state))
-	mux.HandleFunc("/client.js", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "client/dist/livetemplate-client.browser.js")
-	})
+	mux.HandleFunc("/client.js", e2etest.ServeClientLibrary)
 
 	port := 9001
 	server := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: mux}
@@ -1296,9 +1294,7 @@ func TestLoadingIndicatorDisabled(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.Handle("/", tmpl.Handle(state))
-	mux.HandleFunc("/client.js", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "client/dist/livetemplate-client.browser.js")
-	})
+	mux.HandleFunc("/client.js", e2etest.ServeClientLibrary)
 
 	port := 9002
 	server := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: mux}
@@ -1422,9 +1418,7 @@ func TestFocusPreservation(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.Handle("/", tmpl.Handle(state))
-	mux.HandleFunc("/client.js", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "client/dist/livetemplate-client.browser.js")
-	})
+	mux.HandleFunc("/client.js", e2etest.ServeClientLibrary)
 
 	port := 9003
 	server := &http.Server{
@@ -1556,9 +1550,7 @@ func TestFocusPreservationMultipleInputs(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.Handle("/", tmpl.Handle(state))
-	mux.HandleFunc("/client.js", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "client/dist/livetemplate-client.browser.js")
-	})
+	mux.HandleFunc("/client.js", e2etest.ServeClientLibrary)
 
 	port := 9004
 	server := &http.Server{

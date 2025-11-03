@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2025-11-03
+
+**Cleanup** - Removed extracted components from core library and added cross-repository testing.
+
+### Removed
+
+- **Extracted Directories**: Cleaned up repository after extraction
+  - Removed `cmd/lvt/` directory (moved to [livetemplate/lvt](https://github.com/livetemplate/lvt))
+  - Removed `client/` directory (moved to [livetemplate/client](https://github.com/livetemplate/client))
+  - Removed `examples/` directory (moved to [livetemplate/examples](https://github.com/livetemplate/examples))
+
+- **Build Configuration**: Removed files specific to extracted components
+  - Removed `Makefile` (lvt-specific, now in lvt repo)
+  - Removed `.goreleaser.yml` (lvt binary builds, now in lvt repo)
+
+### Added
+
+- **Cross-Repository Testing**: Automated CI workflows to test dependent repositories
+  - `.github/workflows/test.yml` - Core library tests
+  - `.github/workflows/cross-repo-test.yml` - Tests lvt and examples against PRs
+  - Catches breaking changes before merge
+  - Runs in parallel for faster feedback
+
+- **Local Development Workflows**: Tools for multi-repository development
+  - Go workspace support (recommended approach)
+  - Local development scripts in lvt and examples repositories
+  - Documentation in CONTRIBUTING.md
+  - See [workspace repository](https://github.com/livetemplate/workspace) for setup
+
+### Fixed
+
+- **Test Workflow**: Updated to exclude extracted directories
+  - Filter out `/cmd/lvt`, `/examples`, `/client` from test runs
+  - Only test core library packages
+
+### Notes
+
+- This is a cleanup release following the repository extraction in v0.1.1
+- Core library is now purely a Go library with no build artifacts
+- For CLI tool, examples, or client library, see respective repositories
+
 ## [0.1.1] - 2025-11-03
 
 **Repository Restructuring** - LiveTemplate components extracted into separate repositories for independent development and versioning.

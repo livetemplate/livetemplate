@@ -1797,7 +1797,7 @@ type testPostsState struct {
 func TestRangeDynamicDoesNotAppendContent(t *testing.T) {
 	tmpl := New("posts", WithDevMode(true))
 
-	templatePath := filepath.Join("cmd", "lvt", "testdata", "golden", "resource_template.tmpl.golden")
+	templatePath := filepath.Join("testdata", "golden", "resource_template.tmpl.golden")
 	content, err := os.ReadFile(templatePath)
 	if err != nil {
 		t.Fatalf("read template: %v", err)
