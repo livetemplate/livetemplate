@@ -1,6 +1,19 @@
-# Contributing to LiveTemplate
+# Contributing to LiveTemplate Core Library
 
-Thank you for your interest in contributing to LiveTemplate! This guide will help you get started.
+Thank you for your interest in contributing to the LiveTemplate core library! This guide covers contributions to the **Go server-side library only**.
+
+## Contributing to Other Components
+
+LiveTemplate is distributed across multiple repositories. Please use the appropriate contribution guide:
+
+- **[Core Library](https://github.com/livetemplate/livetemplate)** (this repo) - Go server-side library
+- **[Client Library](https://github.com/livetemplate/client)** - TypeScript client for browsers → [Client CONTRIBUTING.md](https://github.com/livetemplate/client/blob/main/CONTRIBUTING.md)
+- **[CLI Tool (lvt)](https://github.com/livetemplate/lvt)** - Code generator and dev server → [LVT CONTRIBUTING.md](https://github.com/livetemplate/lvt/blob/main/CONTRIBUTING.md)
+- **[Examples](https://github.com/livetemplate/examples)** - Example applications → [Examples CONTRIBUTING.md](https://github.com/livetemplate/examples/blob/main/CONTRIBUTING.md)
+
+---
+
+This guide will help you get started with **core library contributions**.
 
 ## Table of Contents
 
@@ -19,8 +32,7 @@ Thank you for your interest in contributing to LiveTemplate! This guide will hel
 
 Before you begin, ensure you have the following installed:
 
-- **Go 1.21+** - Required for building and testing
-- **Node.js 18+** - Required for client library development and testing
+- **Go 1.21+** - Required for building and testing the core library
 - **golangci-lint** - Required for linting (pre-commit hook)
   ```bash
   # macOS
@@ -30,6 +42,8 @@ Before you begin, ensure you have the following installed:
   curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
   ```
 - **Chrome/Chromium** - Required for E2E browser tests (chromedp)
+
+**Note:** For client library development (TypeScript), see the [client repository](https://github.com/livetemplate/client).
 
 ## Setup
 
@@ -43,11 +57,6 @@ Before you begin, ensure you have the following installed:
    ```bash
    # Go dependencies (automatically handled by Go modules)
    go mod download
-
-   # Client library dependencies
-   cd client
-   npm install
-   cd ..
    ```
 
 3. **Install pre-commit hook** (automatically validates before each commit)
@@ -60,9 +69,6 @@ Before you begin, ensure you have the following installed:
    ```bash
    # Run all tests
    go test -v ./... -timeout=30s
-
-   # Run client tests
-   cd client && npm test && cd ..
 
    # Run linter
    golangci-lint run
@@ -100,7 +106,7 @@ Before you begin, ensure you have the following installed:
    # Pre-commit hook will automatically run validation
    ```
 
-### Directory Structure (v1.0)
+### Directory Structure (Core Library)
 
 ```
 livetemplate/
@@ -110,35 +116,27 @@ livetemplate/
 ├── mount.go             # Store pattern and HTTP/WebSocket handlers
 ├── session.go           # Session management
 ├── broadcast.go         # Broadcasting for multi-user apps
-├── internal/            # Internal packages (v1.0 architecture)
-│   ├── parse/           # AST-based template parser (1,320 lines)
+├── internal/            # Internal packages
+│   ├── parse/           # AST-based template parser
 │   │   ├── parser.go    # Main parser entry point
 │   │   ├── constructs.go# Construct type definitions
 │   │   ├── compile.go   # Compilation logic
 │   │   ├── hydrate.go   # Hydration logic
 │   │   └── helpers.go   # Utility functions
-│   ├── build/           # Tree building and operations (570 lines)
+│   ├── build/           # Tree building and operations
 │   │   ├── builder.go   # Tree construction
 │   │   ├── tree_ops.go  # Tree manipulation
 │   │   ├── fingerprint.go# Change detection
 │   │   └── types.go     # Core tree types
-│   ├── diff/            # Tree comparison (1,570 lines)
+│   ├── diff/            # Tree comparison
 │   │   ├── tree_compare.go # Main comparison logic
 │   │   ├── range_ops.go    # Range differential operations
 │   │   ├── prepare.go      # Wire format preparation
 │   │   └── helpers.go      # Comparison helpers
-│   └── observe/         # Observability (449 lines)
+│   └── observe/         # Observability
 │       ├── logger.go    # Structured logging (slog)
 │       ├── metrics.go   # Operational metrics
 │       └── context.go   # Context enrichment
-├── client/              # TypeScript client library
-│   ├── livetemplate-client.ts
-│   └── livetemplate-client.test.ts
-├── cmd/lvt/             # CLI tool for code generation
-├── examples/            # Example applications
-│   ├── counter/
-│   ├── todos/
-│   └── observability/   # v1.0 observability example
 ├── testdata/            # Test fixtures and golden files
 │   ├── e2e/
 │   └── fixtures/        # Shared test templates
@@ -146,14 +144,18 @@ livetemplate/
 └── scripts/             # Development scripts
 ```
 
+**Note:** The client library, CLI tool, and examples are now in separate repositories:
+- Client: https://github.com/livetemplate/client
+- CLI (lvt): https://github.com/livetemplate/lvt
+- Examples: https://github.com/livetemplate/examples
+
 ## Pre-commit Hook
 
 The pre-commit hook is **CRITICAL** for maintaining code quality. It automatically:
 
 1. **Auto-formats Go code** using `go fmt`
 2. **Runs golangci-lint** to catch common issues
-3. **Runs client tests** (npm test)
-4. **Runs all Go tests** with 300-second timeout
+3. **Runs all Go tests** with timeout
 
 ### Important Rules
 
@@ -178,8 +180,6 @@ The pre-commit hook is **CRITICAL** for maintaining code quality. It automatical
 ✅ Code formatting completed
 🔍 Running golangci-lint...
 ✅ Linting passed
-🧪 Running npm tests...
-✅ Client tests passed
 🧪 Running Go tests...
 ✅ All Go tests passed
 ✅ Pre-commit validation completed successfully
@@ -202,18 +202,14 @@ The pre-commit hook is **CRITICAL** for maintaining code quality. It automatical
 3. **Browser Tests** - Chromedp tests for real browser interactions
    ```bash
    go test -run TestE2E -v
-   cd cmd/lvt/e2e && go test -v
    ```
 
-4. **Client Tests** - TypeScript/Jest tests for client library
-   ```bash
-   cd client && npm test
-   ```
-
-5. **Fuzz Tests** - Randomized input testing
+4. **Fuzz Tests** - Randomized input testing
    ```bash
    go test -fuzz=FuzzTree -fuzztime=30s
    ```
+
+**Note:** For client library tests, see the [client repository](https://github.com/livetemplate/client).
 
 ### Golden Files
 
@@ -420,10 +416,10 @@ Look for issues labeled `good first issue` - these are:
 
 ### Areas to Explore
 
-1. **Client library features** (`client/livetemplate-client.ts`)
-   - Add new event bindings
-   - Improve error handling
-   - Performance optimizations
+1. **Core template engine** (`template.go`, `tree.go`, `internal/`)
+   - Template parsing improvements
+   - Tree diffing optimizations
+   - New Go template constructs
 
 2. **Documentation** (`docs/`)
    - Improve existing docs
@@ -435,10 +431,15 @@ Look for issues labeled `good first issue` - these are:
    - Improve E2E tests
    - Add edge case tests
 
-4. **CLI tool** (`cmd/lvt/`)
-   - New generators
-   - Kit improvements
-   - Development server features
+4. **HTTP/WebSocket handling** (`mount.go`, `session.go`, `broadcast.go`)
+   - Session management improvements
+   - Broadcasting features
+   - Performance optimizations
+
+**For other components:**
+- Client library: [livetemplate/client](https://github.com/livetemplate/client)
+- CLI tool: [livetemplate/lvt](https://github.com/livetemplate/lvt)
+- Examples: [livetemplate/examples](https://github.com/livetemplate/examples)
 
 ### Learning the Codebase
 
@@ -449,6 +450,8 @@ Look for issues labeled `good first issue` - these are:
 
 2. **Run the examples**
    ```bash
+   # Clone the examples repository
+   git clone https://github.com/livetemplate/examples.git
    cd examples/counter
    go run main.go
    # Open http://localhost:8080

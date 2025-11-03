@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2025-11-03
+
+**Repository Restructuring** - LiveTemplate components extracted into separate repositories for independent development and versioning.
+
+### Changed
+
+- **Repository Structure**: Extracted components into separate repositories
+  - **Client Library**: Moved to [livetemplate/client](https://github.com/livetemplate/client)
+    - Published as npm package: `@livetemplate/client`
+    - Independent TypeScript development and testing
+    - Dedicated CI/CD for client releases
+
+  - **CLI Tool (lvt)**: Moved to [livetemplate/lvt](https://github.com/livetemplate/lvt)
+    - Go module: `github.com/livetemplate/lvt`
+    - Exportable `testing` package for E2E tests
+    - Independent CLI tool development
+
+  - **Examples**: Moved to [livetemplate/examples](https://github.com/livetemplate/examples)
+    - 8 complete example applications
+    - Each example self-contained with own `go.mod`
+    - Separate E2E testing and CI
+
+- **Version Synchronization**: All repositories follow major.minor version alignment
+  - Core v0.1.x → Client v0.1.x, LVT v0.1.x, Examples v0.1.x
+  - Patch versions independent across repositories
+  - Release scripts validate version compatibility
+
+- **Documentation**: Updated all documentation to reference new repository structure
+  - README.md includes "Related Repositories" section
+  - CONTRIBUTING.md clarified for core library only
+  - Links updated to point to separate repositories
+
+### Migration Guide
+
+**For Users:**
+- No breaking changes to core library API
+- Client library now available via npm: `npm install @livetemplate/client`
+- CLI tool installation: `go install github.com/livetemplate/lvt@latest`
+- Examples available at: https://github.com/livetemplate/examples
+
+**For Contributors:**
+- Core library contributions: https://github.com/livetemplate/livetemplate
+- Client contributions: https://github.com/livetemplate/client
+- CLI tool contributions: https://github.com/livetemplate/lvt
+- Example contributions: https://github.com/livetemplate/examples
+
+### Technical Details
+
+- Core library remains at `github.com/livetemplate/livetemplate` (note: module path is `github.com/livefir/livetemplate`)
+- All extracted repositories maintain full git history
+- CI/CD configured independently for each repository
+- Cross-repository version synchronization via release scripts
+
 ## [0.1.0] - 2025-11-02
 
 **First official release of LiveTemplate** - A Go library for building reactive web applications with tree-based DOM diffing.

@@ -2,7 +2,20 @@
 
 Build real-time, reactive web applications in Go with minimal code. LiveTemplate uses tree-based DOM diffing to send only what changed over HTTP (with optional WebSocket for broadcasts), inspired by Phoenix LiveView.
 
-**[Quick Start](#quick-start)** • **[API Docs](https://pkg.go.dev/github.com/livetemplate/livetemplate)** • **[Client Reference](docs/references/client-attributes.md)** • **[CLI Tool](#cli-tool-lvt)** • **[Contributing](CONTRIBUTING.md)**
+**[Quick Start](#quick-start)** • **[API Docs](https://pkg.go.dev/github.com/livetemplate/livetemplate)** • **[Client Reference](docs/references/client-attributes.md)** • **[CLI Tool](https://github.com/livetemplate/lvt)** • **[Examples](https://github.com/livetemplate/examples)** • **[Contributing](CONTRIBUTING.md)**
+
+---
+
+## Related Repositories
+
+LiveTemplate is distributed across multiple repositories for independent versioning and development:
+
+- **[livetemplate/livetemplate](https://github.com/livetemplate/livetemplate)** (this repo) - Core Go library for server-side rendering
+- **[livetemplate/client](https://github.com/livetemplate/client)** - TypeScript client library for browsers (npm: `@livetemplate/client`)
+- **[livetemplate/lvt](https://github.com/livetemplate/lvt)** - CLI tool for code generation and development server
+- **[livetemplate/examples](https://github.com/livetemplate/examples)** - Example applications demonstrating LiveTemplate usage
+
+All repositories follow [semantic versioning](https://semver.org/) with synchronized major.minor versions.
 
 ---
 
@@ -348,37 +361,47 @@ Static parts (`s`) are cached client-side and referenced by ID. For templates wi
 
 ## Examples
 
-### Counter
-Simple increment/decrement counter demonstrating basic state management.
+LiveTemplate provides 8 complete example applications in a separate repository: **[livetemplate/examples](https://github.com/livetemplate/examples)**
 
+### Featured Examples
+
+**Counter** - Simple state management with reactive updates
 ```bash
+git clone https://github.com/livetemplate/examples.git
 cd examples/counter
 go run main.go
 # Open http://localhost:8080
 ```
 
-### Todos
-Full CRUD application with validation, forms, and lifecycle events.
-
+**Todos** - Full CRUD application with SQLite, validation, and E2E tests
 ```bash
 cd examples/todos
 go run main.go
 # Open http://localhost:8080
 ```
 
-### Source Code
-Both examples are ~100 lines of Go + template. See `examples/` directory for complete code.
+### All Available Examples
+- **counter** - Basic state management
+- **chat** - Multi-user real-time chat
+- **todos** - Complete CRUD with database
+- **graceful-shutdown** - Server shutdown handling
+- **observability** - Logging, metrics, and tracing
+- **testing** - E2E testing patterns
+- **production** - Production deployment setup
+- **trace-correlation** - Request tracing and correlation IDs
+
+See the **[examples repository](https://github.com/livetemplate/examples)** for complete code and documentation.
 
 ## CLI Tool (`lvt`)
 
-**Key Differentiator:** The `lvt` CLI generates complete, production-ready CRUD applications with routing, database integration, migrations, and your choice of CSS framework - all from a single command.
+The **[lvt CLI](https://github.com/livetemplate/lvt)** is a full-stack code generator that creates complete, production-ready CRUD applications with routing, database integration, migrations, and your choice of CSS framework - all from a single command.
 
-Unlike most Go web frameworks, LiveTemplate includes a full-stack code generator that scaffolds entire applications, not just boilerplate.
+Unlike most Go web frameworks, LiveTemplate includes a code generator that scaffolds entire applications, not just boilerplate.
 
 ### Installation
 
 ```bash
-go install github.com/livetemplate/livetemplate/cmd/lvt@latest
+go install github.com/livetemplate/lvt@latest
 ```
 
 ### Quick Start
@@ -403,51 +426,27 @@ lvt serve
 - **Hot Reload**: Auto-rebuild and restart on file changes
 - **Database Migrations**: Built-in migration management
 
-### Commands
+### Full Documentation
 
-```bash
-# App commands
-lvt new <name>                 # Create new app
-lvt gen <resource> [fields]    # Generate CRUD resource
-lvt gen view <name>            # Generate view-only handler
-
-# Development
-lvt serve                      # Start dev server with hot reload
-
-# Kits
-lvt kits list                  # List available CSS kits
-lvt kits create <name>         # Create custom kit
-
-# Database
-lvt migration up               # Run migrations
-lvt migration down             # Rollback migrations
-lvt migration status           # Show migration status
-```
-
-### CLI Documentation
-
-Full CLI documentation:
-- **[User Guide](docs/guides/user-guide.md)** - Getting started with CLI
-- **[Kit Development](docs/guides/kit-development.md)** - Creating CSS kits (includes components)
-- **[Serve Guide](docs/guides/serve-guide.md)** - Development server
+For complete CLI documentation, commands, and guides, see the **[lvt repository](https://github.com/livetemplate/lvt)**.
 
 ## Client Library
 
-The TypeScript client handles HTTP/WebSocket communication, event delegation, and DOM updates.
+The **[TypeScript client](https://github.com/livetemplate/client)** (npm: `@livetemplate/client`) handles HTTP/WebSocket communication, event delegation, and DOM updates.
 
-### CDN
+### CDN (Recommended)
 
 ```html
 <script src="https://cdn.jsdelivr.net/npm/@livetemplate/client@latest/dist/livetemplate-client.browser.js"></script>
 ```
 
-### Build from Source
+### npm Installation
 
 ```bash
-cd client
-npm install
-npm run build
+npm install @livetemplate/client
 ```
+
+### Features
 
 The client (~15KB minified):
 - Uses HTTP by default for actions and updates
@@ -457,6 +456,8 @@ The client (~15KB minified):
 - Applies DOM updates efficiently using morphdom
 - Manages form lifecycle and validation errors
 - Preserves input focus and scroll position
+
+For complete documentation and API reference, see the **[client repository](https://github.com/livetemplate/client)**.
 
 ## Documentation
 
@@ -523,10 +524,13 @@ Inspired by [Phoenix LiveView](https://hexdocs.pm/phoenix_live_view) - bringing 
 
 ## Community
 
-- **GitHub Issues**: Bug reports and feature requests
-- **GitHub Discussions**: Questions and community discussion
-- **Examples**: Check `examples/` directory for working code
+- **Issues & Discussions**: Use repository-specific issue trackers:
+  - [Core library issues](https://github.com/livetemplate/livetemplate/issues)
+  - [Client library issues](https://github.com/livetemplate/client/issues)
+  - [CLI tool issues](https://github.com/livetemplate/lvt/issues)
+  - [Examples issues](https://github.com/livetemplate/examples/issues)
+- **Examples**: Check the [examples repository](https://github.com/livetemplate/examples) for working code
 
 ---
 
-**Built with LiveTemplate?** We'd love to hear about it! Share your project in GitHub Discussions.
+**Built with LiveTemplate?** We'd love to hear about it! Share your project in [GitHub Discussions](https://github.com/livetemplate/livetemplate/discussions).
