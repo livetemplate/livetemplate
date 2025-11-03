@@ -173,11 +173,11 @@ func (b *RedisBroadcaster) Subscribe(handler MessageHandler) error {
 		return fmt.Errorf("already subscribed")
 	}
 	b.handler = handler
-	b.mu.Unlock()
 
 	// Subscribe to global channel (all broadcasts)
 	// Individual group/user channels will be subscribed dynamically as needed
 	b.pubsub = b.client.Subscribe(b.ctx, channelGlobal)
+	b.mu.Unlock()
 
 	// Wait for subscription confirmation
 	if _, err := b.pubsub.Receive(b.ctx); err != nil {
@@ -201,21 +201,19 @@ func (b *RedisBroadcaster) SubscribeToGroup(groupID string) error {
 		return fmt.Errorf("groupID cannot be empty")
 	}
 
-	b.mu.RLock()
-	pubsub := b.pubsub
-	closed := b.closed
-	b.mu.RUnlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-	if closed {
+	if b.closed {
 		return fmt.Errorf("broadcaster is closed")
 	}
 
-	if pubsub == nil {
+	if b.pubsub == nil {
 		return fmt.Errorf("not subscribed")
 	}
 
 	channel := channelGroup + groupID
-	if err := pubsub.Subscribe(b.ctx, channel); err != nil {
+	if err := b.pubsub.Subscribe(b.ctx, channel); err != nil {
 		return fmt.Errorf("failed to subscribe to group channel: %w", err)
 	}
 
@@ -231,21 +229,19 @@ func (b *RedisBroadcaster) SubscribeToUser(userID string) error {
 		return fmt.Errorf("userID cannot be empty")
 	}
 
-	b.mu.RLock()
-	pubsub := b.pubsub
-	closed := b.closed
-	b.mu.RUnlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-	if closed {
+	if b.closed {
 		return fmt.Errorf("broadcaster is closed")
 	}
 
-	if pubsub == nil {
+	if b.pubsub == nil {
 		return fmt.Errorf("not subscribed")
 	}
 
 	channel := channelUser + userID
-	if err := pubsub.Subscribe(b.ctx, channel); err != nil {
+	if err := b.pubsub.Subscribe(b.ctx, channel); err != nil {
 		return fmt.Errorf("failed to subscribe to user channel: %w", err)
 	}
 
@@ -257,7 +253,16 @@ func (b *RedisBroadcaster) SubscribeToUser(userID string) error {
 func (b *RedisBroadcaster) processMessages() {
 	defer b.wg.Done()
 
+	// Get channel reference safely with read lock
+	b.mu.RLock()
+	if b.pubsub == nil {
+		b.mu.RUnlock()
+		log.Printf("RedisBroadcaster: pubsub is nil, cannot process messages (instance: %s)", b.instanceID)
+		return
+	}
 	ch := b.pubsub.Channel()
+	b.mu.RUnlock()
+
 	for {
 		select {
 		case <-b.ctx.Done():
@@ -271,6 +276,12 @@ func (b *RedisBroadcaster) processMessages() {
 					log.Printf("RedisBroadcaster: Reconnect failed: %v", err)
 					return
 				}
+				// Update channel reference after reconnect
+				b.mu.RLock()
+				if b.pubsub != nil {
+					ch = b.pubsub.Channel()
+				}
+				b.mu.RUnlock()
 				continue
 			}
 
@@ -354,11 +365,15 @@ func (b *RedisBroadcaster) Close() error {
 	// Wait for goroutines to finish
 	b.wg.Wait()
 
-	// Close pubsub
+	// Close pubsub with write lock
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	if b.pubsub != nil {
 		if err := b.pubsub.Close(); err != nil {
 			return fmt.Errorf("failed to close pubsub: %w", err)
 		}
+		b.pubsub = nil
 	}
 
 	log.Printf("RedisBroadcaster: Closed (instance: %s)", b.instanceID)
