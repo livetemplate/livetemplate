@@ -1,6 +1,6 @@
 # Internal Package Unit Testing Plan
 
-**Status**: ✅ Phase 1 & 2 Complete, Phase 3 Partial (171/212 tests, 80.7%)
+**Status**: ✅ Phase 1, 2 & 3 Complete (210/212 tests, 99.1%)
 **Branch**: `feature/internal-unit-tests`
 **Created**: 2025-11-04
 **Last Updated**: 2025-11-04
@@ -11,10 +11,10 @@
 
 This document tracks the implementation of comprehensive unit tests for LiveTemplate's internal packages.
 
-**Progress: 171 tests completed across 10 test files**
+**Progress: 210 tests completed across 13 test files**
 - ✅ internal/diff: 79 tests (100% complete - all critical orchestration and operations)
 - ✅ internal/parse: 62 tests (100% complete - all parsing and tree building)
-- ✅ internal/build: 30 tests (core types & fingerprinting)
+- ✅ internal/build: 67 tests (100% complete - types, fingerprinting, keys, rendering, wrapper)
 - ✅ internal/observe: 20 tests (already existed)
 
 ## Current State Analysis
@@ -296,12 +296,14 @@ This document tracks the implementation of comprehensive unit tests for LiveTemp
 
 ---
 
-### ✅ Phase 3: internal/build/ Tests (30 tests) - COMPLETE
+### ✅ Phase 3: internal/build/ Tests (67 tests) - COMPLETE
 
-**Status**: ✅ All core types and fingerprinting tests implemented and passing
-**Commit**: `89163aa` - feat: add comprehensive unit tests for internal/build package
+**Status**: ✅ All internal/build tests implemented and passing - 100% coverage
+**Commits**:
+- `89163aa` - feat: add comprehensive unit tests for internal/build package (types, fingerprint)
+- `72abba6` - test: complete Phase 3 (internal/build) unit tests - 39 tests (key, render, wrapper)
 
-#### ✅ types_test.go (20 tests) - COMPLETE
+#### ✅ types_test.go (19 tests) - COMPLETE
 **Priority**: HIGH - Core data structures
 
 - [x] `TestNewTreeNode` - TreeNode constructor
@@ -328,7 +330,7 @@ This document tracks the implementation of comprehensive unit tests for LiveTemp
 
 **Rationale**: TreeNode is defined in `internal/build/types.go`, so tests should be colocated there. Moving improves organization and makes internal package tests self-contained.
 
-#### ✅ fingerprint_test.go (10 tests) - COMPLETE
+#### ✅ fingerprint_test.go (9 tests) - COMPLETE
 **Priority**: HIGH - Fingerprinting affects caching
 
 - [x] `TestCalculateFingerprint_Simple` - Simple tree fingerprint
@@ -345,56 +347,70 @@ This document tracks the implementation of comprehensive unit tests for LiveTemp
 
 **Rationale**: Fingerprinting determines if updates are needed. Bugs cause unnecessary updates or missed changes.
 
-#### ⏳ key_test.go (9 tests) - DEFERRED
+#### ✅ key_test.go (10 tests) - COMPLETE
 **Priority**: HIGH - Key generation must be stable
 
-- [ ] `TestNewKeyGenerator` - KeyGenerator constructor
-- [ ] `TestKeyGenerator_NextKey` - Sequential key generation
-- [ ] `TestKeyGenerator_Reset` - Reset behavior
-- [ ] `TestKeyGenerator_LoadExistingKeys` - Load keys from tree
-- [ ] `TestKeyGenerator_Uniqueness` - No duplicate keys
-- [ ] `TestGenerateWrapperKey` - Wrapper key generation
-- [ ] `TestDetectIDKey_AllPatterns` - All ID patterns
-- [ ] `TestDetectIDKey_Priority` - Priority ordering
-- [ ] `TestDetectIDKey_NoKey` - Default behavior when no key
+- [x] `TestNewKeyGenerator` - KeyGenerator constructor
+- [x] `TestKeyGenerator_NextKey` - Sequential key generation
+- [x] `TestKeyGenerator_Reset` - Reset behavior
+- [x] `TestKeyGenerator_LoadExistingKeys` - Load keys from tree
+- [x] `TestKeyGenerator_LoadExistingKeys_NonNumeric` - Non-numeric keys handling
+- [x] `TestKeyGenerator_Uniqueness` - No duplicate keys (1000 keys tested)
+- [x] `TestGenerateWrapperKey` - Wrapper key generation
+- [x] `TestDetectIDKey_AllPatterns` - All ID patterns (11 test cases)
+- [x] `TestDetectIDKey_Priority` - Priority ordering
+- [x] `TestDetectIDKey_NoKey` - Default behavior when no key
+
+**Result**: All key generation tests passing. Complete coverage of sequential generation, reset, loading, and ID key detection.
 
 **Rationale**: Keys must be stable across renders for updates to target correct elements. Bugs cause updates to wrong elements or full re-renders.
 
-#### ⏳ render_test.go (12 tests) - DEFERRED
+#### ✅ render_test.go (14 tests) - COMPLETE
 **Priority**: MEDIUM - HTML rendering for initial state
 
-- [ ] `TestRenderNode_TextNode` - Text node rendering
-- [ ] `TestRenderNode_ElementNode` - Element node rendering
-- [ ] `TestRenderNode_VoidElement` - Void elements (`<br>`, `<img>`, etc.)
-- [ ] `TestRenderNode_WithAttributes` - Element with attributes
-- [ ] `TestRenderNode_NestedElements` - Nested element structures
-- [ ] `TestIsVoidHTMLElement_AllVoid` - All void elements recognized
-- [ ] `TestIsVoidHTMLElement_NonVoid` - Non-void elements
-- [ ] `TestRenderTreeToHTML_Simple` - Simple tree to HTML
-- [ ] `TestRenderTreeToHTML_WithDynamics` - Tree with dynamic values
-- [ ] `TestRenderTreeToHTML_Nested` - Nested tree to HTML
-- [ ] `TestRenderTreeToHTML_Error` - Error handling
-- [ ] `TestRenderRangeComprehensionToHTML` - Range rendering
+- [x] `TestRenderNode_TextNode` - Text node rendering
+- [x] `TestRenderNode_ElementNode` - Element node rendering
+- [x] `TestRenderNode_VoidElement` - Void elements (br, img, hr, input)
+- [x] `TestRenderNode_WithAttributes` - Element with attributes
+- [x] `TestRenderNode_NestedElements` - Nested element structures
+- [x] `TestIsVoidHTMLElement_AllVoid` - All 14 void elements recognized
+- [x] `TestIsVoidHTMLElement_NonVoid` - Non-void elements
+- [x] `TestRenderTreeToHTML_Simple` - Simple tree to HTML
+- [x] `TestRenderTreeToHTML_WithDynamics` - Tree with dynamic values
+- [x] `TestRenderTreeToHTML_Nested` - Nested tree to HTML
+- [x] `TestRenderTreeToHTML_Error` - Error handling (3 test cases)
+- [x] `TestRenderRangeComprehensionToHTML` - Range rendering
+- [x] `TestRenderRangeComprehensionToHTML_Empty` - Empty range
+- [x] `TestRenderRangeComprehensionToHTML_NestedTrees` - Range with nested trees
+
+**Result**: All HTML rendering tests passing. Complete coverage of node rendering, void elements, and tree-to-HTML conversion.
 
 **Rationale**: HTML rendering creates initial page content. Bugs cause malformed HTML or incorrect initial state.
 
-#### ⏳ wrapper_test.go (10 tests) - DEFERRED
+#### ✅ wrapper_test.go (15 tests) - COMPLETE
 **Priority**: MEDIUM - Wrapper injection for update targeting
 
-- [ ] `TestGenerateRandomID_Uniqueness` - IDs are unique
-- [ ] `TestGenerateRandomID_Format` - ID format `lvt-[random]`
-- [ ] `TestInjectWrapperDiv_FullDocument` - Full HTML document wrapping
-- [ ] `TestInjectWrapperDiv_Fragment` - Fragment wrapping
-- [ ] `TestInjectWrapperDiv_WithLoading` - Loading indicator injection
-- [ ] `TestInjectWrapperDiv_LoadingDisabled` - No loading indicator
-- [ ] `TestExtractTemplateBodyContent` - Body content extraction
-- [ ] `TestExtractTemplateContent` - Content extraction
-- [ ] `TestFindElementByDataLvtID` - Element finding by lvt ID
-- [ ] `TestNormalizeTemplateSpacing` - Whitespace normalization
+- [x] `TestGenerateRandomID_Uniqueness` - IDs are unique (1000 IDs tested)
+- [x] `TestGenerateRandomID_Format` - ID format `lvt-[hex]`
+- [x] `TestInjectWrapperDiv_FullDocument` - Full HTML document wrapping
+- [x] `TestInjectWrapperDiv_Fragment` - Fragment wrapping (returns as-is)
+- [x] `TestInjectWrapperDiv_WithLoading` - Loading indicator injection
+- [x] `TestInjectWrapperDiv_LoadingDisabled` - No loading indicator
+- [x] `TestInjectWrapperDiv_WithScripts` - Script exclusion from wrapper
+- [x] `TestExtractTemplateBodyContent` - Body content extraction (4 test cases)
+- [x] `TestExtractTemplateContent` - Content extraction via wrapper ID
+- [x] `TestExtractTemplateContent_NoWrapper` - No wrapper ID handling
+- [x] `TestExtractTemplateContent_WrapperNotFound` - Missing wrapper handling
+- [x] `TestFindElementByDataLvtID` - Element finding by lvt ID
+- [x] `TestFindElementByDataLvtID_NotFound` - Element not found
+- [x] `TestFindElementByDataLvtID_Nested` - Nested element finding
+- [x] `TestNormalizeTemplateSpacing` - Whitespace normalization (6 test cases)
+
+**Result**: All wrapper tests passing. Complete coverage of wrapper injection, content extraction, element finding, and spacing normalization.
 
 **Rationale**: Wrapper div provides target for client-side updates. Bugs cause updates to fail to target correctly.
 
-**Phase 3 Summary**: 30 tests completed (types_test.go + fingerprint_test.go), 31 tests deferred (key, render, wrapper)
+**Phase 3 Summary**: 67 tests completed - 100% coverage of internal/build package
 
 ---
 
