@@ -73,13 +73,14 @@ jobs:
       working-directory: examples
       run: |
         echo "Adding replace directives to all working examples..."
+        ROOT_DIR="$(pwd)/.."
         for example in counter chat todos graceful-shutdown testing/01_basic; do
           echo "  → Setting up $example..."
           cd "$example"
-          go mod edit -replace=github.com/livetemplate/livetemplate=../../livetemplate
-          go mod edit -replace=github.com/livetemplate/lvt=../../lvt
+          go mod edit -replace=github.com/livetemplate/livetemplate=$ROOT_DIR/livetemplate
+          go mod edit -replace=github.com/livetemplate/lvt=$ROOT_DIR/lvt
           go mod tidy
-          cd ..
+          cd - > /dev/null
         done
         echo "✓ All replace directives added"
 
