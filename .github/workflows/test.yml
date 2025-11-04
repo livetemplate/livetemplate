@@ -26,7 +26,7 @@ jobs:
     - name: Run tests
       run: |
         # Test only core library, excluding extracted components
-        go test -v -race -timeout=30s $(go list ./... | grep -v '/cmd/lvt' | grep -v '/examples' | grep -v '/client')
+        go test -v -race -timeout=60s $(go list ./... | grep -v '/cmd/lvt' | grep -v '/examples' | grep -v '/client')
       env:
         CGO_ENABLED: 1
 

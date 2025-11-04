@@ -1,0 +1,331 @@
+package parse
+
+import (
+	"html/template"
+	"testing"
+	"text/template/parse"
+)
+
+// TestHandleIfNode_TrueBranch tests if node when condition is true.
+func TestHandleIfNode_TrueBranch(t *testing.T) {
+	tmpl, err := template.New("test").Parse("{{if .Show}}visible{{end}}")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ifNode := tmpl.Tree.Root.Nodes[0].(*parse.IfNode)
+	data := map[string]interface{}{"Show": true}
+	ctx := &Context{IncludeStatics: true}
+
+	tree, err := handleIfNode(ifNode, data, newMockKeyGen(), ctx)
+	if err != nil {
+		t.Fatalf("handleIfNode failed: %v", err)
+	}
+
+	if tree == nil {
+		t.Fatal("Expected non-nil tree")
+	}
+
+	// Should have wrapper with branch content
+	if !tree.HasDynamics() {
+		t.Error("Expected dynamics for if branch")
+	}
+}
+
+// TestHandleIfNode_FalseBranch tests if node when condition is false with no else.
+func TestHandleIfNode_FalseBranch(t *testing.T) {
+	tmpl, err := template.New("test").Parse("{{if .Show}}visible{{end}}")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ifNode := tmpl.Tree.Root.Nodes[0].(*parse.IfNode)
+	data := map[string]interface{}{"Show": false}
+	ctx := &Context{IncludeStatics: true}
+
+	tree, err := handleIfNode(ifNode, data, newMockKeyGen(), ctx)
+	if err != nil {
+		t.Fatalf("handleIfNode failed: %v", err)
+	}
+
+	// Should have wrapper with empty dynamic value
+	if tree.Dynamics["0"] != "" {
+		t.Errorf("Expected empty string for false condition, got: %v", tree.Dynamics["0"])
+	}
+}
+
+// TestHandleIfNode_WithElse tests if/else branches.
+func TestHandleIfNode_WithElse(t *testing.T) {
+	tmpl, err := template.New("test").Parse("{{if .Show}}visible{{else}}hidden{{end}}")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ifNode := tmpl.Tree.Root.Nodes[0].(*parse.IfNode)
+
+	// Test true branch
+	data := map[string]interface{}{"Show": true}
+	ctx := &Context{IncludeStatics: true}
+
+	tree, err := handleIfNode(ifNode, data, newMockKeyGen(), ctx)
+	if err != nil {
+		t.Fatalf("handleIfNode failed: %v", err)
+	}
+
+	if tree == nil {
+		t.Fatal("Expected non-nil tree for true branch")
+	}
+
+	// Test false branch (else)
+	data = map[string]interface{}{"Show": false}
+	tree, err = handleIfNode(ifNode, data, newMockKeyGen(), ctx)
+	if err != nil {
+		t.Fatalf("handleIfNode failed on else: %v", err)
+	}
+
+	if tree == nil {
+		t.Fatal("Expected non-nil tree for else branch")
+	}
+}
+
+// TestHandleIfNode_NoElse tests if without else clause when condition is false.
+func TestHandleIfNode_NoElse(t *testing.T) {
+	tmpl, err := template.New("test").Parse("{{if .Show}}content{{end}}")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ifNode := tmpl.Tree.Root.Nodes[0].(*parse.IfNode)
+	data := map[string]interface{}{"Show": false}
+	ctx := &Context{IncludeStatics: true}
+
+	tree, err := handleIfNode(ifNode, data, newMockKeyGen(), ctx)
+	if err != nil {
+		t.Fatalf("handleIfNode failed: %v", err)
+	}
+
+	// Should return wrapper with empty dynamic
+	if tree.Dynamics["0"] != "" {
+		t.Errorf("Expected empty dynamic for false with no else, got: %v", tree.Dynamics["0"])
+	}
+}
+
+// TestHandleIfNode_NestedIf tests nested if statements.
+func TestHandleIfNode_NestedIf(t *testing.T) {
+	tmpl, err := template.New("test").Parse("{{if .Outer}}{{if .Inner}}nested{{end}}{{end}}")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ifNode := tmpl.Tree.Root.Nodes[0].(*parse.IfNode)
+	data := map[string]interface{}{"Outer": true, "Inner": true}
+	ctx := &Context{IncludeStatics: true}
+
+	tree, err := handleIfNode(ifNode, data, newMockKeyGen(), ctx)
+	if err != nil {
+		t.Fatalf("handleIfNode failed: %v", err)
+	}
+
+	if tree == nil {
+		t.Fatal("Expected non-nil tree for nested if")
+	}
+
+	// Should have nested structure
+	if !tree.HasDynamics() {
+		t.Error("Expected dynamics for nested if")
+	}
+}
+
+// TestHandleIfNode_ComplexCondition tests complex conditions.
+func TestHandleIfNode_ComplexCondition(t *testing.T) {
+	tmpl, err := template.New("test").Parse("{{if and .A .B}}both{{end}}")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ifNode := tmpl.Tree.Root.Nodes[0].(*parse.IfNode)
+	data := map[string]interface{}{"A": true, "B": true}
+	ctx := &Context{IncludeStatics: true}
+
+	tree, err := handleIfNode(ifNode, data, newMockKeyGen(), ctx)
+	if err != nil {
+		t.Fatalf("handleIfNode failed: %v", err)
+	}
+
+	if tree == nil {
+		t.Fatal("Expected non-nil tree")
+	}
+
+	if !tree.HasDynamics() {
+		t.Error("Expected dynamics for complex condition")
+	}
+}
+
+// TestHandleIfNodeWithVars_NoVars tests if node with vars but condition doesn't use them.
+func TestHandleIfNodeWithVars_NoVars(t *testing.T) {
+	tmpl, err := template.New("test").Parse("{{if .Show}}visible{{end}}")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ifNode := tmpl.Tree.Root.Nodes[0].(*parse.IfNode)
+	varCtx := &varContext{
+		parent: map[string]interface{}{},
+		vars:   newOrderedVars(),
+		dot:    map[string]interface{}{"Show": true},
+	}
+	ctx := &Context{IncludeStatics: true}
+
+	tree, err := handleIfNodeWithVars(ifNode, varCtx, newMockKeyGen(), ctx)
+	if err != nil {
+		t.Fatalf("handleIfNodeWithVars failed: %v", err)
+	}
+
+	if tree == nil {
+		t.Fatal("Expected non-nil tree")
+	}
+
+	if !tree.HasDynamics() {
+		t.Error("Expected dynamics for true condition")
+	}
+}
+
+// TestHandleIfNodeWithVars_WithVars tests if node using variables.
+func TestHandleIfNodeWithVars_WithVars(t *testing.T) {
+	// Parse a template with range that defines a variable, containing an if
+	tmpl, err := template.New("test").Parse("{{range $show := .Items}}{{if $show}}visible{{end}}{{end}}")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	// Extract the range node, then the if node inside it
+	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
+	ifNode := rangeNode.List.Nodes[0].(*parse.IfNode)
+
+	varCtx := &varContext{
+		parent: map[string]interface{}{},
+		vars:   newOrderedVars(),
+		dot:    map[string]interface{}{},
+	}
+	varCtx.vars.Set("show", true)
+	ctx := &Context{IncludeStatics: true}
+
+	tree, err := handleIfNodeWithVars(ifNode, varCtx, newMockKeyGen(), ctx)
+	if err != nil {
+		t.Fatalf("handleIfNodeWithVars failed: %v", err)
+	}
+
+	if tree == nil {
+		t.Fatal("Expected non-nil tree")
+	}
+
+	if !tree.HasDynamics() {
+		t.Error("Expected dynamics for variable condition")
+	}
+}
+
+// TestHandleIfNodeWithVars_RootVar tests if node using root variable.
+func TestHandleIfNodeWithVars_RootVar(t *testing.T) {
+	tmpl, err := template.New("test").Parse("{{if $.Show}}visible{{end}}")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ifNode := tmpl.Tree.Root.Nodes[0].(*parse.IfNode)
+	varCtx := &varContext{
+		parent: map[string]interface{}{"Show": true},
+		vars:   newOrderedVars(),
+		dot:    map[string]interface{}{},
+	}
+	ctx := &Context{IncludeStatics: true}
+
+	tree, err := handleIfNodeWithVars(ifNode, varCtx, newMockKeyGen(), ctx)
+	if err != nil {
+		t.Fatalf("handleIfNodeWithVars failed: %v", err)
+	}
+
+	if tree == nil {
+		t.Fatal("Expected non-nil tree")
+	}
+
+	if !tree.HasDynamics() {
+		t.Error("Expected dynamics for root variable condition")
+	}
+}
+
+// TestMergeFieldsIntoMap_Struct tests merging struct fields into map.
+func TestMergeFieldsIntoMap_Struct(t *testing.T) {
+	type TestStruct struct {
+		Name  string
+		Value int
+	}
+
+	data := TestStruct{Name: "test", Value: 42}
+	target := make(map[string]interface{})
+
+	err := mergeFieldsIntoMap(data, target)
+	if err != nil {
+		t.Fatalf("mergeFieldsIntoMap failed: %v", err)
+	}
+
+	if target["Name"] != "test" {
+		t.Errorf("Expected Name='test', got: %v", target["Name"])
+	}
+
+	if target["Value"] != 42 {
+		t.Errorf("Expected Value=42, got: %v", target["Value"])
+	}
+}
+
+// TestMergeFieldsIntoMap_Map tests merging map into map.
+func TestMergeFieldsIntoMap_Map(t *testing.T) {
+	data := map[string]interface{}{
+		"name":  "test",
+		"value": 42,
+	}
+	target := make(map[string]interface{})
+
+	err := mergeFieldsIntoMap(data, target)
+	if err != nil {
+		t.Fatalf("mergeFieldsIntoMap failed: %v", err)
+	}
+
+	if target["name"] != "test" {
+		t.Errorf("Expected name='test', got: %v", target["name"])
+	}
+
+	if target["value"] != 42 {
+		t.Errorf("Expected value=42, got: %v", target["value"])
+	}
+}
+
+// TestMergeFieldsIntoMap_Primitive tests merging primitive value (should be no-op).
+func TestMergeFieldsIntoMap_Primitive(t *testing.T) {
+	data := "string value"
+	target := make(map[string]interface{})
+
+	err := mergeFieldsIntoMap(data, target)
+	if err != nil {
+		t.Fatalf("mergeFieldsIntoMap failed: %v", err)
+	}
+
+	// Should not add anything for primitive
+	if len(target) != 0 {
+		t.Errorf("Expected empty map for primitive, got: %v", target)
+	}
+}
+
+// TestMergeFieldsIntoMap_Nil tests merging nil value.
+func TestMergeFieldsIntoMap_Nil(t *testing.T) {
+	target := make(map[string]interface{})
+
+	err := mergeFieldsIntoMap(nil, target)
+	if err != nil {
+		t.Fatalf("mergeFieldsIntoMap failed: %v", err)
+	}
+
+	// Should not add anything for nil
+	if len(target) != 0 {
+		t.Errorf("Expected empty map for nil, got: %v", target)
+	}
+}
