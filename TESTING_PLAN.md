@@ -1,6 +1,6 @@
 # Internal Package Unit Testing Plan
 
-**Status**: ✅ Phase 1 Complete, Phase 3 Partial (109/212 tests, 51.4%)
+**Status**: ✅ Phase 1 & 2 Complete, Phase 3 Partial (171/212 tests, 80.7%)
 **Branch**: `feature/internal-unit-tests`
 **Created**: 2025-11-04
 **Last Updated**: 2025-11-04
@@ -11,10 +11,10 @@
 
 This document tracks the implementation of comprehensive unit tests for LiveTemplate's internal packages.
 
-**Progress: 109 tests completed across 6 test files**
+**Progress: 171 tests completed across 10 test files**
 - ✅ internal/diff: 79 tests (100% complete - all critical orchestration and operations)
+- ✅ internal/parse: 62 tests (100% complete - all parsing and tree building)
 - ✅ internal/build: 30 tests (core types & fingerprinting)
-- ⏳ internal/parse: 0 tests (deferred)
 - ✅ internal/observe: 20 tests (already existed)
 
 ## Current State Analysis
@@ -193,95 +193,106 @@ This document tracks the implementation of comprehensive unit tests for LiveTemp
 
 ---
 
-### ⏳ Phase 2: internal/parse/ Tests (62 tests) - DEFERRED
+### ✅ Phase 2: internal/parse/ Tests (62 tests) - COMPLETE
 
-#### range_test.go (~20 tests)
+**Status**: ✅ All tests implemented and passing - 100% coverage of parse package
+**Commit**: `65dd550` - test: add Phase 2 (internal/parse) unit tests - 62 tests
+
+#### ✅ range_test.go (20 tests) - COMPLETE
 **Priority**: CRITICAL - Most complex parsing logic
 
-- [ ] `TestHandleRangeNode_SimpleSlice` - Basic slice iteration
-- [ ] `TestHandleRangeNode_EmptySlice` - Empty collection
-- [ ] `TestHandleRangeNode_Map` - Map iteration
-- [ ] `TestHandleRangeNode_WithElse` - Range with else branch
-- [ ] `TestHandleRangeNode_WithVarDecls` - With `$i`, `$v` declarations
-- [ ] `TestExtractRangeCollection_Simple` - Simple `{{range .Items}}`
-- [ ] `TestExtractRangeCollection_WithDecls` - With variable declarations
-- [ ] `TestExtractRangeCollection_Error` - Error cases
-- [ ] `TestIsEmpty_AllTypes` - Empty detection for all types
-- [ ] `TestHandleEmptyRange_NoElse` - Empty range, no else
-- [ ] `TestHandleEmptyRange_WithElse` - Empty range with else
-- [ ] `TestHandleSliceRange` - Slice processing
-- [ ] `TestHandleMapRange` - Map processing
-- [ ] `TestBuildRangeTree` - Range tree construction
-- [ ] `TestExecuteRangeBodyWithVars_SingleVar` - Single variable ($v)
-- [ ] `TestExecuteRangeBodyWithVars_TwoVars` - Index + value ($i, $v)
-- [ ] `TestExecuteRangeBodyWithVarsMap` - Map key/value vars
-- [ ] `TestDetectIDKey_AllPatterns` - All key patterns (id, ID, Id, uuid, etc.)
-- [ ] `TestDetectIDKey_Priority` - Priority order when multiple keys
-- [ ] `TestDetectIDKey_NoKey` - No key found, return ""
+- [x] `TestHandleRangeNode_SimpleSlice` - Basic slice iteration
+- [x] `TestHandleRangeNode_EmptySlice` - Empty collection
+- [x] `TestHandleRangeNode_Map` - Map iteration
+- [x] `TestHandleRangeNode_WithElse` - Range with else branch
+- [x] `TestHandleRangeNode_WithVarDecls` - With `$i`, `$v` declarations
+- [x] `TestExtractRangeCollection_Simple` - Simple `{{range .Items}}`
+- [x] `TestExtractRangeCollection_WithDecls` - With variable declarations
+- [x] `TestExtractRangeCollection_Error` - Error cases
+- [x] `TestIsEmpty_AllTypes` - Empty detection for all types
+- [x] `TestHandleEmptyRange_NoElse` - Empty range, no else
+- [x] `TestHandleEmptyRange_WithElse` - Empty range with else
+- [x] `TestHandleSliceRange` - Slice processing
+- [x] `TestHandleMapRange` - Map processing
+- [x] `TestBuildRangeTree` - Range tree construction
+- [x] `TestExecuteRangeBodyWithVars_SingleVar` - Single variable ($v)
+- [x] `TestExecuteRangeBodyWithVars_TwoVars` - Index + value ($i, $v)
+- [x] `TestExecuteRangeBodyWithVarsMap` - Map key/value vars
+- [x] `TestDetectIDKey_AllPatterns` - All key patterns (id, data-key, key, etc.)
+- [x] `TestDetectIDKey_Priority` - Priority order when multiple keys
+- [x] `TestDetectIDKey_NoKey` - No key found, default to "0"
+
+**Result**: All range parsing tests passing. Comprehensive coverage of range iteration with variable context and ID key detection.
 
 **Rationale**: Range parsing with variable context (`$i`, `$v`) is the most complex parsing logic. ID key detection is critical for range differential operations.
 
-#### conditional_test.go (~13 tests)
+#### ✅ conditional_test.go (13 tests) - COMPLETE
 **Priority**: HIGH - Conditional logic has many branches
 
-- [ ] `TestHandleIfNode_TrueBranch` - If condition true
-- [ ] `TestHandleIfNode_FalseBranch` - If condition false
-- [ ] `TestHandleIfNode_WithElse` - If/else branches
-- [ ] `TestHandleIfNode_NoElse` - If without else
-- [ ] `TestHandleIfNode_NestedIf` - Nested conditionals
-- [ ] `TestHandleIfNode_ComplexCondition` - Complex expressions
-- [ ] `TestHandleIfNodeWithVars_NoVars` - No variable context
-- [ ] `TestHandleIfNodeWithVars_WithVars` - With variables
-- [ ] `TestHandleIfNodeWithVars_RootVar` - Root variable `$`
-- [ ] `TestMergeFieldsIntoMap_Struct` - Struct field merging
-- [ ] `TestMergeFieldsIntoMap_Map` - Map merging
-- [ ] `TestMergeFieldsIntoMap_Primitive` - Primitive value handling
-- [ ] `TestMergeFieldsIntoMap_Nil` - Nil handling
+- [x] `TestHandleIfNode_TrueBranch` - If condition true
+- [x] `TestHandleIfNode_FalseBranch` - If condition false
+- [x] `TestHandleIfNode_WithElse` - If/else branches
+- [x] `TestHandleIfNode_NoElse` - If without else
+- [x] `TestHandleIfNode_NestedIf` - Nested conditionals
+- [x] `TestHandleIfNode_ComplexCondition` - Complex expressions
+- [x] `TestHandleIfNodeWithVars_NoVars` - No variable context
+- [x] `TestHandleIfNodeWithVars_WithVars` - With variables
+- [x] `TestHandleIfNodeWithVars_RootVar` - Root variable `$`
+- [x] `TestMergeFieldsIntoMap_Struct` - Struct field merging
+- [x] `TestMergeFieldsIntoMap_Map` - Map merging
+- [x] `TestMergeFieldsIntoMap_Primitive` - Primitive value handling
+- [x] `TestMergeFieldsIntoMap_Nil` - Nil handling
+
+**Result**: All conditional handling tests passing. Complete coverage of if/else branch selection and context merging.
 
 **Rationale**: Conditional handling must correctly select branches and merge context. Bugs cause wrong content to render.
 
-#### parse_test.go (~17 tests)
+#### ✅ parse_test.go (17 tests) - COMPLETE
 **Priority**: HIGH - Core parsing infrastructure
 
-- [ ] `TestParse_SimpleTemplate` - Basic template parsing
-- [ ] `TestParse_WithFuncMap` - FuncMap integration
-- [ ] `TestParse_InvalidSyntax` - Syntax error handling
-- [ ] `TestParse_EmptyTemplate` - Empty template edge case
-- [ ] `TestBuildTree_SimpleField` - Simple field extraction
-- [ ] `TestBuildTree_NestedFields` - Nested data structures
-- [ ] `TestBuildTreeFromAST_TextNode` - Static text nodes
-- [ ] `TestBuildTreeFromAST_ActionNode` - Dynamic action nodes
-- [ ] `TestBuildTreeFromAST_CommentNode` - Comment handling
-- [ ] `TestBuildTreeFromList_SingleNode` - Single node in list
-- [ ] `TestBuildTreeFromList_MultipleNodes` - Node merging
-- [ ] `TestBuildTreeFromList_EmptyList` - Empty list edge case
-- [ ] `TestEvaluatePipe_Simple` - Simple dot access `.Field`
-- [ ] `TestEvaluatePipe_Complex` - Pipeline evaluation `.Field | func`
-- [ ] `TestEvaluatePipe_WithFuncs` - Function calls in pipeline
-- [ ] `TestFormatPipe` - Pipe formatting
-- [ ] `TestIsZeroValue_AllTypes` - Zero value detection for all types
+- [x] `TestParse_SimpleTemplate` - Basic template parsing
+- [x] `TestParse_WithFuncMap` - FuncMap integration
+- [x] `TestParse_InvalidSyntax` - Syntax error handling
+- [x] `TestParse_EmptyTemplate` - Empty template edge case
+- [x] `TestBuildTree_SimpleField` - Simple field extraction
+- [x] `TestBuildTree_NestedFields` - Nested data structures
+- [x] `TestBuildTreeFromAST_TextNode` - Static text nodes
+- [x] `TestBuildTreeFromAST_ActionNode` - Dynamic action nodes
+- [x] `TestBuildTreeFromAST_CommentNode` - Comment handling
+- [x] `TestBuildTreeFromList_SingleNode` - Single node in list
+- [x] `TestBuildTreeFromList_MultipleNodes` - Node merging
+- [x] `TestBuildTreeFromList_EmptyList` - Empty list edge case
+- [x] `TestEvaluatePipe_Simple` - Simple dot access `.Field`
+- [x] `TestEvaluatePipe_Complex` - Pipeline evaluation `.Field | func`
+- [x] `TestEvaluatePipe_WithFuncs` - Function calls in pipeline
+- [x] `TestFormatPipe` - Pipe formatting
+- [x] `TestIsZeroValue_AllTypes` - Zero value detection for all types
+
+**Result**: All core parsing tests passing. Complete coverage of AST walking and tree building.
 
 **Rationale**: Core parsing infrastructure. Must correctly walk AST and build tree structures.
 
-#### field_test.go (~12 tests)
+#### ✅ field_test.go (12 tests) - COMPLETE
 **Priority**: MEDIUM - Field handling is straightforward but critical
 
-- [ ] `TestHandleActionNode_SimpleField` - `{{.Field}}`
-- [ ] `TestHandleActionNode_Method` - `{{.Method}}`
-- [ ] `TestHandleActionNode_Pipeline` - `{{.Field | func}}`
-- [ ] `TestHandleActionNode_Error` - Error cases
-- [ ] `TestHandleActionNodeWithVars_NoVars` - No variable context
-- [ ] `TestHandleActionNodeWithVars_WithVars` - With `$var`
-- [ ] `TestHandleActionNodeWithVars_RootVar` - With `$` root
-- [ ] `TestEvaluateActionWithVars_SingleVar` - Single variable
-- [ ] `TestEvaluateActionWithVars_MultipleVars` - Multiple variables
-- [ ] `TestEvaluateActionWithVars_RootVar` - Root variable
-- [ ] `TestDetectsRootVariable` - Root variable detection
-- [ ] `TestIsLetter` - Letter character check
+- [x] `TestHandleActionNode_SimpleField` - `{{.Field}}`
+- [x] `TestHandleActionNode_Method` - `{{.Method}}`
+- [x] `TestHandleActionNode_Pipeline` - `{{.Field | func}}`
+- [x] `TestHandleActionNode_Error` - Error cases
+- [x] `TestHandleActionNodeWithVars_NoVars` - No variable context
+- [x] `TestHandleActionNodeWithVars_WithVars` - With `$var`
+- [x] `TestHandleActionNodeWithVars_RootVar` - With `$` root
+- [x] `TestEvaluateActionWithVars_SingleVar` - Single variable
+- [x] `TestEvaluateActionWithVars_MultipleVars` - Multiple variables
+- [x] `TestEvaluateActionWithVars_RootVar` - Root variable
+- [x] `TestDetectsRootVariable` - Root variable detection
+- [x] `TestIsLetter` - Letter character check
+
+**Result**: All field extraction tests passing. Complete coverage of field handling with variable contexts.
 
 **Rationale**: Field extraction is the most common operation. Must handle all field types and variable contexts.
 
-**Phase 2 Total**: 62 tests across 4 files
+**Phase 2 Summary**: 62 tests completed - 100% coverage of internal/parse package
 
 ---
 
