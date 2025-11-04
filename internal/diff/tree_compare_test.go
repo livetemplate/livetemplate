@@ -85,10 +85,10 @@ func TestCompareTreesAndGetChangesWithPath_NewField(t *testing.T) {
 // TestCompareTreesAndGetChangesWithPath_NilTrees tests nil tree handling.
 func TestCompareTreesAndGetChangesWithPath_NilTrees(t *testing.T) {
 	tests := []struct {
-		name     string
-		oldTree  *TreeNode
-		newTree  *TreeNode
-		wantNil  bool
+		name      string
+		oldTree   *TreeNode
+		newTree   *TreeNode
+		wantNil   bool
 		wantEmpty bool
 	}{
 		{
