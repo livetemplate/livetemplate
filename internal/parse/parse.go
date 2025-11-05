@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"text/template/parse"
 )
 
@@ -18,6 +19,11 @@ import (
 // pipeline evaluation results. Generated once at init with random suffix to
 // prevent collision with user-defined functions.
 var captureResultFuncName string
+
+// pipeTemplateCache caches parsed pipe templates to avoid repeated parsing.
+// Key is the template string, value is the parsed *template.Template.
+// Uses sync.Map for efficient concurrent access.
+var pipeTemplateCache sync.Map
 
 func init() {
 	// Generate unique function name with random suffix
@@ -260,7 +266,9 @@ func evaluatePipe(pipeStr string, data interface{}, ctx *Context) (interface{}, 
 	}
 
 	// Execute the pipeline through a capture helper
-	tmpl, err := template.New("pipe").Funcs(funcs).Parse(fmt.Sprintf("{{%s (%s)}}", captureResultFuncName, pipeStr))
+	// Use cached template if available, otherwise parse and cache it
+	captureTemplateStr := fmt.Sprintf("{{%s (%s)}}", captureResultFuncName, pipeStr)
+	tmpl, err := getOrParsePipeTemplate("pipe:"+pipeStr, captureTemplateStr, funcs)
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +282,9 @@ func evaluatePipe(pipeStr string, data interface{}, ctx *Context) (interface{}, 
 	}
 
 	// Fallback to string representation
-	fallbackTmpl, err := template.New("pipe-fallback").Funcs(funcs).Parse(fmt.Sprintf("{{%s}}", pipeStr))
+	// Use cached template if available, otherwise parse and cache it
+	fallbackTemplateStr := fmt.Sprintf("{{%s}}", pipeStr)
+	fallbackTmpl, err := getOrParsePipeTemplate("fallback:"+pipeStr, fallbackTemplateStr, funcs)
 	if err != nil {
 		return nil, err
 	}
@@ -284,6 +294,42 @@ func evaluatePipe(pipeStr string, data interface{}, ctx *Context) (interface{}, 
 		return nil, err
 	}
 	return buf.String(), nil
+}
+
+// getOrParsePipeTemplate retrieves a cached template or parses a new one.
+// The cache key includes a prefix to distinguish between different template types.
+// Templates are cloned before applying FuncMap to allow concurrent execution with different functions.
+func getOrParsePipeTemplate(cacheKey, templateStr string, funcs template.FuncMap) (*template.Template, error) {
+	// Try to get from cache
+	if cached, ok := pipeTemplateCache.Load(cacheKey); ok {
+		if cachedTmpl, ok := cached.(*template.Template); ok {
+			// Clone the cached template and apply the FuncMap
+			// This allows reusing the parsed structure while supporting dynamic functions
+			clone, err := cachedTmpl.Clone()
+			if err != nil {
+				// If clone fails, fall back to parsing
+				goto parse
+			}
+			clone.Funcs(funcs)
+			return clone, nil
+		}
+	}
+
+parse:
+	// Parse new template
+	tmpl, err := template.New(cacheKey).Funcs(funcs).Parse(templateStr)
+	if err != nil {
+		return nil, err
+	}
+
+	// Store in cache for future use
+	// Store the template without FuncMap applied (will be applied on clone)
+	baseTmpl, err := template.New(cacheKey).Parse(templateStr)
+	if err == nil {
+		pipeTemplateCache.Store(cacheKey, baseTmpl)
+	}
+
+	return tmpl, nil
 }
 
 // formatPipe converts a pipe node to a string representation.
