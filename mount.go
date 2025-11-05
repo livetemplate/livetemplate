@@ -1062,9 +1062,7 @@ func (h *liveHandler) Shutdown(ctx context.Context) error {
 		for _, conn := range connections {
 			// Send close frame (best effort, ignore errors)
 			if conn.Conn != nil {
-				conn.Mu.Lock()
-				_ = conn.Conn.WriteMessage(websocket.CloseMessage, closeMessage)
-				conn.Mu.Unlock()
+				_ = conn.Send(websocket.CloseMessage, closeMessage)
 			}
 		}
 
