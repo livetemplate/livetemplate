@@ -296,10 +296,11 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get or create stores for this session group
-	stores := h.config.SessionStore.Get(groupID)
+	ctx := r.Context()
+	stores := h.config.SessionStore.Get(ctx, groupID)
 	if stores == nil {
 		stores = h.cloneStores()
-		h.config.SessionStore.Set(groupID, stores)
+		h.config.SessionStore.Set(ctx, groupID, stores)
 		log.Printf("Created new session group: %s", groupID)
 	}
 
@@ -521,10 +522,11 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	setCookieIfNew(w, r, groupID, h.config.CookieMaxAge)
 
 	// Get or create stores for this session group
-	stores := h.config.SessionStore.Get(groupID)
+	ctx := r.Context()
+	stores := h.config.SessionStore.Get(ctx, groupID)
 	if stores == nil {
 		stores = h.cloneStores()
-		h.config.SessionStore.Set(groupID, stores)
+		h.config.SessionStore.Set(ctx, groupID, stores)
 		log.Printf("HTTP: Created new session group: %s", groupID)
 	}
 

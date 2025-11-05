@@ -1,6 +1,7 @@
 package livetemplate
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -17,10 +18,10 @@ func TestMemorySessionStore_SetAndGet(t *testing.T) {
 	}
 
 	// Set
-	store.Set("group-1", stores)
+	store.Set(context.Background(), "group-1", stores)
 
 	// Get
-	retrieved := store.Get("group-1")
+	retrieved := store.Get(context.Background(), "group-1")
 
 	if retrieved == nil {
 		t.Fatal("Get() returned nil, expected stores")
@@ -45,7 +46,7 @@ func TestMemorySessionStore_GetNonExistent(t *testing.T) {
 	store := NewMemorySessionStore()
 	defer store.Close()
 
-	retrieved := store.Get("non-existent")
+	retrieved := store.Get(context.Background(), "non-existent")
 
 	if retrieved != nil {
 		t.Errorf("Get(non-existent) = %v, want nil", retrieved)
@@ -62,16 +63,16 @@ func TestMemorySessionStore_Delete(t *testing.T) {
 	}
 
 	// Set and verify
-	store.Set("group-1", stores)
-	if store.Get("group-1") == nil {
+	store.Set(context.Background(), "group-1", stores)
+	if store.Get(context.Background(), "group-1") == nil {
 		t.Fatal("Failed to set group")
 	}
 
 	// Delete
-	store.Delete("group-1")
+	store.Delete(context.Background(), "group-1")
 
 	// Verify deleted
-	if store.Get("group-1") != nil {
+	if store.Get(context.Background(), "group-1") != nil {
 		t.Error("Get() after Delete() returned non-nil, expected nil")
 	}
 }
@@ -82,18 +83,18 @@ func TestMemorySessionStore_List(t *testing.T) {
 	defer store.Close()
 
 	// Initially empty
-	list := store.List()
+	list := store.List(context.Background())
 	if len(list) != 0 {
 		t.Errorf("List() returned %d groups, want 0", len(list))
 	}
 
 	// Add groups
-	store.Set("group-1", Stores{"a": &testStore{value: 1}})
-	store.Set("group-2", Stores{"b": &testStore{value: 2}})
-	store.Set("group-3", Stores{"c": &testStore{value: 3}})
+	store.Set(context.Background(), "group-1", Stores{"a": &testStore{value: 1}})
+	store.Set(context.Background(), "group-2", Stores{"b": &testStore{value: 2}})
+	store.Set(context.Background(), "group-3", Stores{"c": &testStore{value: 3}})
 
 	// List should have all 3
-	list = store.List()
+	list = store.List(context.Background())
 	if len(list) != 3 {
 		t.Errorf("List() returned %d groups, want 3", len(list))
 	}
@@ -121,16 +122,16 @@ func TestMemorySessionStore_Update(t *testing.T) {
 	stores1 := Stores{
 		"counter": &testStore{value: 1},
 	}
-	store.Set("group-1", stores1)
+	store.Set(context.Background(), "group-1", stores1)
 
 	// Update with new stores
 	stores2 := Stores{
 		"counter": &testStore{value: 2},
 	}
-	store.Set("group-1", stores2)
+	store.Set(context.Background(), "group-1", stores2)
 
 	// Verify updated value
-	retrieved := store.Get("group-1")
+	retrieved := store.Get(context.Background(), "group-1")
 	counterStore := retrieved["counter"].(*testStore)
 
 	if counterStore.value != 2 {
@@ -157,7 +158,7 @@ func TestMemorySessionStore_ConcurrentAccess(t *testing.T) {
 				stores := Stores{
 					"counter": &testStore{value: j},
 				}
-				store.Set(groupID, stores)
+				store.Set(context.Background(), groupID, stores)
 			}
 		}(i)
 	}
@@ -169,7 +170,7 @@ func TestMemorySessionStore_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
 				groupID := "group-" + string(rune('0'+id))
-				_ = store.Get(groupID)
+				_ = store.Get(context.Background(), groupID)
 			}
 		}(i)
 	}
@@ -180,7 +181,7 @@ func TestMemorySessionStore_ConcurrentAccess(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
-				_ = store.List()
+				_ = store.List(context.Background())
 			}
 		}()
 	}
@@ -190,9 +191,9 @@ func TestMemorySessionStore_ConcurrentAccess(t *testing.T) {
 
 	// Verify store is still functional
 	testStores := Stores{"test": &testStore{value: 999}}
-	store.Set("test-group", testStores)
+	store.Set(context.Background(), "test-group", testStores)
 
-	retrieved := store.Get("test-group")
+	retrieved := store.Get(context.Background(), "test-group")
 	if retrieved == nil {
 		t.Error("Store corrupted after concurrent access")
 	}
@@ -204,7 +205,7 @@ func TestMemorySessionStore_LastAccessTracking(t *testing.T) {
 	defer store.Close()
 
 	stores := Stores{"counter": &testStore{value: 1}}
-	store.Set("group-1", stores)
+	store.Set(context.Background(), "group-1", stores)
 
 	// Get initial last access time
 	store.mu.RLock()
@@ -215,7 +216,7 @@ func TestMemorySessionStore_LastAccessTracking(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// Get should update last access
-	store.Get("group-1")
+	store.Get(context.Background(), "group-1")
 
 	store.mu.RLock()
 	lastAccess2 := store.lastAccess["group-1"]
@@ -229,7 +230,7 @@ func TestMemorySessionStore_LastAccessTracking(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// Set should also update last access
-	store.Set("group-1", stores)
+	store.Set(context.Background(), "group-1", stores)
 
 	store.mu.RLock()
 	lastAccess3 := store.lastAccess["group-1"]
@@ -247,11 +248,11 @@ func TestMemorySessionStore_Cleanup(t *testing.T) {
 	defer store.Close()
 
 	// Add groups
-	store.Set("group-1", Stores{"a": &testStore{value: 1}})
-	store.Set("group-2", Stores{"b": &testStore{value: 2}})
+	store.Set(context.Background(), "group-1", Stores{"a": &testStore{value: 1}})
+	store.Set(context.Background(), "group-2", Stores{"b": &testStore{value: 2}})
 
 	// Verify both exist
-	if store.Get("group-1") == nil || store.Get("group-2") == nil {
+	if store.Get(context.Background(), "group-1") == nil || store.Get(context.Background(), "group-2") == nil {
 		t.Fatal("Failed to set groups")
 	}
 
@@ -264,7 +265,7 @@ func TestMemorySessionStore_Cleanup(t *testing.T) {
 		for {
 			select {
 			case <-ticker.C:
-				store.Get("group-1") // Keep group-1 alive
+				store.Get(context.Background(), "group-1") // Keep group-1 alive
 			case <-done:
 				return
 			}
@@ -279,12 +280,12 @@ func TestMemorySessionStore_Cleanup(t *testing.T) {
 	store.cleanup()
 
 	// Verify group-1 still exists (kept alive by periodic access)
-	if store.Get("group-1") == nil {
+	if store.Get(context.Background(), "group-1") == nil {
 		t.Error("group-1 was cleaned up even though it was being accessed")
 	}
 
 	// Verify group-2 was cleaned up (not accessed)
-	if store.Get("group-2") != nil {
+	if store.Get(context.Background(), "group-2") != nil {
 		t.Error("group-2 was not cleaned up despite being inactive")
 	}
 }
@@ -294,7 +295,7 @@ func TestMemorySessionStore_Close(t *testing.T) {
 	store := NewMemorySessionStore()
 
 	// Add some data
-	store.Set("group-1", Stores{"a": &testStore{value: 1}})
+	store.Set(context.Background(), "group-1", Stores{"a": &testStore{value: 1}})
 
 	// Close should not panic
 	store.Close()

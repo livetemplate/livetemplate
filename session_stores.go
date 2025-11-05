@@ -25,18 +25,22 @@ import (
 type SessionStore interface {
 	// Get retrieves the Stores for a session group.
 	// Returns nil if the group doesn't exist.
-	Get(groupID string) Stores
+	// The context can be used for cancellation, timeouts, and tracing.
+	Get(ctx context.Context, groupID string) Stores
 
 	// Set stores Stores for a session group.
 	// Creates a new group if it doesn't exist, updates if it does.
-	Set(groupID string, stores Stores)
+	// The context can be used for cancellation, timeouts, and tracing.
+	Set(ctx context.Context, groupID string, stores Stores)
 
 	// Delete removes a session group and all its state.
-	Delete(groupID string)
+	// The context can be used for cancellation, timeouts, and tracing.
+	Delete(ctx context.Context, groupID string)
 
 	// List returns all active session group IDs.
 	// Used for broadcasting and cleanup operations.
-	List() []string
+	// The context can be used for cancellation, timeouts, and tracing.
+	List(ctx context.Context) []string
 }
 
 // ========================================
@@ -122,7 +126,8 @@ func NewMemorySessionStore(opts ...SessionStoreOption) *MemorySessionStore {
 
 // Get retrieves the Stores for a session group.
 // Updates the last access time for the group.
-func (s *MemorySessionStore) Get(groupID string) Stores {
+// The context parameter is accepted for interface compliance but not used for in-memory operations.
+func (s *MemorySessionStore) Get(ctx context.Context, groupID string) Stores {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -135,7 +140,8 @@ func (s *MemorySessionStore) Get(groupID string) Stores {
 
 // Set stores Stores for a session group.
 // Updates the last access time for the group.
-func (s *MemorySessionStore) Set(groupID string, stores Stores) {
+// The context parameter is accepted for interface compliance but not used for in-memory operations.
+func (s *MemorySessionStore) Set(ctx context.Context, groupID string, stores Stores) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -144,7 +150,8 @@ func (s *MemorySessionStore) Set(groupID string, stores Stores) {
 }
 
 // Delete removes a session group and all its state.
-func (s *MemorySessionStore) Delete(groupID string) {
+// The context parameter is accepted for interface compliance but not used for in-memory operations.
+func (s *MemorySessionStore) Delete(ctx context.Context, groupID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -153,7 +160,8 @@ func (s *MemorySessionStore) Delete(groupID string) {
 }
 
 // List returns all active session group IDs.
-func (s *MemorySessionStore) List() []string {
+// The context parameter is accepted for interface compliance but not used for in-memory operations.
+func (s *MemorySessionStore) List(ctx context.Context) []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -317,11 +325,12 @@ func NewRedisSessionStore(client redis.UniversalClient, opts ...RedisSessionStor
 // Get retrieves the Stores for a session group.
 // Returns nil if the group doesn't exist or if deserialization fails.
 // Automatically refreshes the TTL on successful access.
-func (s *RedisSessionStore) Get(groupID string) Stores {
+// The context is used for Redis operations and can timeout/cancel requests.
+func (s *RedisSessionStore) Get(ctx context.Context, groupID string) Stores {
 	key := sessionKeyPrefix + groupID
 
 	// Get the serialized stores with retry
-	data, err := s.getWithRetry(key)
+	data, err := s.getWithRetry(ctx, key)
 	if err != nil {
 		// Session doesn't exist or Redis error
 		return nil
@@ -336,7 +345,7 @@ func (s *RedisSessionStore) Get(groupID string) Stores {
 	if err != nil {
 		// Deserialization failed - session is corrupted
 		// Delete it to prevent further issues
-		s.Delete(groupID)
+		s.Delete(ctx, groupID)
 		return nil
 	}
 
@@ -354,7 +363,8 @@ func (s *RedisSessionStore) Get(groupID string) Stores {
 // Set stores Stores for a session group.
 // Creates a new group if it doesn't exist, updates if it does.
 // Sets the TTL and updates the last access timestamp.
-func (s *RedisSessionStore) Set(groupID string, stores Stores) {
+// The context is used for Redis operations and can timeout/cancel requests.
+func (s *RedisSessionStore) Set(ctx context.Context, groupID string, stores Stores) {
 	key := sessionKeyPrefix + groupID
 	accessKey := key + sessionAccessKeySuffix
 
@@ -370,7 +380,6 @@ func (s *RedisSessionStore) Set(groupID string, stores Stores) {
 
 	// Use pipeline for atomic operations
 	pipe := s.client.Pipeline()
-	ctx := context.Background()
 
 	// Set the serialized stores
 	pipe.Set(ctx, key, data, s.ttl)
@@ -379,7 +388,7 @@ func (s *RedisSessionStore) Set(groupID string, stores Stores) {
 	pipe.Set(ctx, accessKey, time.Now().Unix(), s.ttl)
 
 	// Execute pipeline with retry
-	if err := s.execPipelineWithRetry(pipe); err != nil {
+	if err := s.execPipelineWithRetry(ctx, pipe); err != nil {
 		// CRITICAL: Redis persistence failed - data will not be persisted!
 		// This should be monitored in production as it indicates data loss.
 		log.Printf("ERROR: RedisSessionStore.Set(%s): redis persistence failed: %v", groupID, err)
@@ -388,12 +397,12 @@ func (s *RedisSessionStore) Set(groupID string, stores Stores) {
 }
 
 // Delete removes a session group and all its state.
-func (s *RedisSessionStore) Delete(groupID string) {
+// The context is used for Redis operations and can timeout/cancel requests.
+func (s *RedisSessionStore) Delete(ctx context.Context, groupID string) {
 	key := sessionKeyPrefix + groupID
 	accessKey := key + sessionAccessKeySuffix
 
 	// Delete both keys
-	ctx := context.Background()
 	pipe := s.client.Pipeline()
 	pipe.Del(ctx, key)
 	pipe.Del(ctx, accessKey)
@@ -404,8 +413,8 @@ func (s *RedisSessionStore) Delete(groupID string) {
 
 // List returns all active session group IDs.
 // Used for broadcasting and cleanup operations.
-func (s *RedisSessionStore) List() []string {
-	ctx := context.Background()
+// The context is used for Redis operations and can timeout/cancel requests.
+func (s *RedisSessionStore) List(ctx context.Context) []string {
 	pattern := sessionKeyPrefix + "*"
 
 	// Scan for all session keys
@@ -499,11 +508,18 @@ func (s *RedisSessionStore) refreshTTL(groupID string) {
 }
 
 // getWithRetry performs a GET operation with exponential backoff retry.
-func (s *RedisSessionStore) getWithRetry(key string) ([]byte, error) {
+// The context is used for Redis operations and respects cancellation/timeout.
+func (s *RedisSessionStore) getWithRetry(ctx context.Context, key string) ([]byte, error) {
 	var lastErr error
 
 	for attempt := 0; attempt <= s.maxRetries; attempt++ {
-		ctx := context.Background()
+		// Check context before each attempt
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
 		data, err := s.client.Get(ctx, key).Bytes()
 
 		if err == nil {
@@ -521,7 +537,15 @@ func (s *RedisSessionStore) getWithRetry(key string) ([]byte, error) {
 		if attempt < s.maxRetries {
 			// Exponential backoff: delay * 2^attempt
 			backoff := time.Duration(float64(s.retryDelay) * math.Pow(2, float64(attempt)))
-			time.Sleep(backoff)
+
+			// Use context-aware sleep
+			timer := time.NewTimer(backoff)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			case <-timer.C:
+			}
 		}
 	}
 
@@ -529,11 +553,18 @@ func (s *RedisSessionStore) getWithRetry(key string) ([]byte, error) {
 }
 
 // execPipelineWithRetry executes a pipeline with exponential backoff retry.
-func (s *RedisSessionStore) execPipelineWithRetry(pipe redis.Pipeliner) error {
+// The context is used for Redis operations and respects cancellation/timeout.
+func (s *RedisSessionStore) execPipelineWithRetry(ctx context.Context, pipe redis.Pipeliner) error {
 	var lastErr error
 
 	for attempt := 0; attempt <= s.maxRetries; attempt++ {
-		ctx := context.Background()
+		// Check context before each attempt
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		_, err := pipe.Exec(ctx)
 
 		if err == nil {
@@ -546,7 +577,15 @@ func (s *RedisSessionStore) execPipelineWithRetry(pipe redis.Pipeliner) error {
 		if attempt < s.maxRetries {
 			// Exponential backoff: delay * 2^attempt
 			backoff := time.Duration(float64(s.retryDelay) * math.Pow(2, float64(attempt)))
-			time.Sleep(backoff)
+
+			// Use context-aware sleep
+			timer := time.NewTimer(backoff)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+			}
 		}
 	}
 

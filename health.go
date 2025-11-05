@@ -246,10 +246,10 @@ func (c *SessionStoreHealthChecker) Check(ctx context.Context) error {
 	testStores["_health"] = &healthCheckStore{value: "ok"}
 
 	// Test write operation
-	c.store.Set(healthCheckKey, testStores)
+	c.store.Set(ctx, healthCheckKey, testStores)
 
 	// Test read operation - verify we can retrieve what we just set
-	retrieved := c.store.Get(healthCheckKey)
+	retrieved := c.store.Get(ctx, healthCheckKey)
 	if retrieved == nil {
 		return fmt.Errorf("health check failed: unable to retrieve test data from session store")
 	}
@@ -268,10 +268,10 @@ func (c *SessionStoreHealthChecker) Check(ctx context.Context) error {
 	}
 
 	// Test delete operation - clean up after ourselves
-	c.store.Delete(healthCheckKey)
+	c.store.Delete(ctx, healthCheckKey)
 
 	// Verify deletion worked
-	if afterDelete := c.store.Get(healthCheckKey); afterDelete != nil {
+	if afterDelete := c.store.Get(ctx, healthCheckKey); afterDelete != nil {
 		return fmt.Errorf("health check failed: unable to delete test data from session store")
 	}
 
