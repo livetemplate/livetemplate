@@ -624,10 +624,16 @@ func (t *Template) Parse(text string) (*Template, error) {
 		return nil, fmt.Errorf("template parse error: %w", err)
 	}
 
+	return t.parseInternal(text, tmpl, isFullHTML)
+}
+
+// parseInternal handles the common logic for parsing templates:
+// flattening, wrapper injection, final parsing, and validation.
+func (t *Template) parseInternal(text string, baseTemplate *template.Template, isFullHTML bool) (*Template, error) {
 	// Check if template uses composition features and flatten if needed
-	if hasTemplateComposition(tmpl) {
+	if hasTemplateComposition(baseTemplate) {
 		// Flatten the template to resolve all {{define}}/{{template}}/{{block}}
-		flattenedStr, err := flattenTemplate(tmpl)
+		flattenedStr, err := flattenTemplate(baseTemplate)
 		if err != nil {
 			return nil, fmt.Errorf("template flattening failed: %w", err)
 		}
@@ -656,7 +662,7 @@ func (t *Template) Parse(text string) (*Template, error) {
 	if len(t.funcs) > 0 {
 		wrappedTemplate = wrappedTemplate.Funcs(t.funcs)
 	}
-	tmpl, err = wrappedTemplate.Parse(templateContent)
+	tmpl, err := wrappedTemplate.Parse(templateContent)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse template with wrapper: %w", err)
 	}
@@ -727,52 +733,7 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 		}
 	}
 
-	// Now that all files are parsed, check if we need to flatten
-	if hasTemplateComposition(tmpl) {
-		// Flatten the complete template set to resolve all {{define}}/{{template}}/{{block}}
-		flattenedStr, err := flattenTemplate(tmpl)
-		if err != nil {
-			return nil, fmt.Errorf("template flattening failed: %w", err)
-		}
-
-		// Store flattened version for tree generation (WITHOUT wrapper)
-		text = flattenedStr
-	}
-
-	// Now add wrapper to the (possibly flattened) template for execution
-	var templateContent string
-	if isFullHTML {
-		// Inject wrapper div around body content
-		templateContent = injectWrapperDiv(text, t.wrapperID, t.config.LoadingDisabled)
-	} else {
-		// For standalone templates, wrap the entire content
-		loadingAttr := ""
-		if !t.config.LoadingDisabled {
-			loadingAttr = ` data-lvt-loading="true"`
-		}
-		templateContent = fmt.Sprintf(`<div data-lvt-id="%s"%s>%s</div>`, t.wrapperID, loadingAttr, text)
-	}
-
-	// Parse the template with wrapper for execution
-	wrappedTemplate := template.New(t.name)
-	if len(t.funcs) > 0 {
-		wrappedTemplate = wrappedTemplate.Funcs(t.funcs)
-	}
-	tmpl, err = wrappedTemplate.Parse(templateContent)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse template with wrapper: %w", err)
-	}
-
-	// Store the template text for tree generation (flattened if it had composition)
-	t.templateStr = text
-	t.tmpl = tmpl
-
-	// Validate that tree generation works with this template
-	if err := t.validateTreeGeneration(); err != nil {
-		return nil, fmt.Errorf("template validation failed: %w", err)
-	}
-
-	return t, nil
+	return t.parseInternal(text, tmpl, isFullHTML)
 }
 
 // ParseGlob parses the template definitions from the files identified by the pattern.
