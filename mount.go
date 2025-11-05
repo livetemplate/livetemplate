@@ -723,7 +723,13 @@ func cloneStore(store Store) Store {
 	}
 
 	// Create new instance
-	newStore := reflect.New(storeType).Interface().(Store)
+	newStoreInterface := reflect.New(storeType).Interface()
+	newStore, ok := newStoreInterface.(Store)
+	if !ok {
+		// This should never happen if the store was valid, but handle gracefully
+		log.Printf("Error: Failed to cast cloned store to Store interface, type: %T", newStoreInterface)
+		return store // Return original store as fallback
+	}
 
 	// Copy field values
 	copyStruct(newStore, store)

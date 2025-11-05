@@ -4,6 +4,8 @@ package parse
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"html/template"
 	"reflect"
@@ -11,6 +13,22 @@ import (
 	"strings"
 	"text/template/parse"
 )
+
+// captureResultFuncName is a unique function name used internally to capture
+// pipeline evaluation results. Generated once at init with random suffix to
+// prevent collision with user-defined functions.
+var captureResultFuncName string
+
+func init() {
+	// Generate unique function name with random suffix
+	randBytes := make([]byte, 8)
+	if _, err := rand.Read(randBytes); err != nil {
+		// Fallback to deterministic name if random fails (shouldn't happen)
+		captureResultFuncName = "__lvt_internal_capture_result_fallback__"
+		return
+	}
+	captureResultFuncName = fmt.Sprintf("__lvt_internal_capture_%s__", hex.EncodeToString(randBytes))
+}
 
 // Template represents a parsed template with its AST and associated data.
 type Template struct {
@@ -223,7 +241,6 @@ func evaluatePipe(pipeStr string, data interface{}, ctx *Context) (interface{}, 
 		return data, nil
 	}
 
-	const captureName = "__lvt_capture_result__"
 	var (
 		captured   interface{}
 		didCapture bool
@@ -236,14 +253,14 @@ func evaluatePipe(pipeStr string, data interface{}, ctx *Context) (interface{}, 
 			funcs[name] = fn
 		}
 	}
-	funcs[captureName] = func(v interface{}) string {
+	funcs[captureResultFuncName] = func(v interface{}) string {
 		captured = v
 		didCapture = true
 		return ""
 	}
 
 	// Execute the pipeline through a capture helper
-	tmpl, err := template.New("pipe").Funcs(funcs).Parse(fmt.Sprintf("{{%s (%s)}}", captureName, pipeStr))
+	tmpl, err := template.New("pipe").Funcs(funcs).Parse(fmt.Sprintf("{{%s (%s)}}", captureResultFuncName, pipeStr))
 	if err != nil {
 		return nil, err
 	}

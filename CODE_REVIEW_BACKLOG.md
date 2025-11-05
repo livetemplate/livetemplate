@@ -8,9 +8,9 @@
 
 ---
 
-## Critical Issues (Must Fix Before Release)
+## Critical Issues (Must Fix Before Release) ✅ COMPLETED
 
-### #1 - Insecure Default WebSocket Origin Check
+### #1 - Insecure Default WebSocket Origin Check ✅ COMPLETED
 - **File**: `template.go:404`
 - **Issue**: Default `CheckOrigin` returns true for all origins
 - **Impact**: CSRF vulnerability in production deployments - allows any website to connect to WebSocket endpoint
@@ -32,7 +32,7 @@
 - **Breaking**: Potentially breaking for dev setups, but critical for security
 - **Priority**: P0 - Must fix before any production use
 
-### #2 - Silent Serialization Failures in Redis
+### #2 - Silent Serialization Failures in Redis ✅ COMPLETED
 - **File**: `session_stores.go:336`
 - **Issue**: Gob encoding errors silently ignored (function just returns without error)
 - **Impact**: Data loss in distributed deployments - session data silently not persisted
@@ -48,9 +48,9 @@
 
 ---
 
-## High Priority (Performance & Reliability)
+## High Priority (Performance & Reliability) ✅ COMPLETED
 
-### #3 - Inconsistent Logging Throughout Codebase
+### #3 - Inconsistent Logging Throughout Codebase ✅ COMPLETED
 - **Files**: `template.go`, `mount.go` (50+ instances), `pubsub/redis.go` (10+ instances)
 - **Issue**: Using `log.Printf` instead of structured logging from `internal/observe`
 - **Impact**:
@@ -63,7 +63,7 @@
 - **Effort**: Medium (1 day)
 - **Priority**: P1
 
-### #4 - Double Template Execution
+### #4 - Double Template Execution ✅ COMPLETED
 - **File**: `template.go:689-704`
 - **Issue**: Template executed twice in Execute() - once for output buffer, once for lastHTML caching
 - **Impact**: 2x performance cost on initial renders (every first page load)
@@ -81,7 +81,7 @@
 - **Effort**: Small (2-3 hours)
 - **Priority**: P1
 
-### #5 - No Rate Limiting on WebSocket Messages
+### #5 - No Rate Limiting on WebSocket Messages ✅ COMPLETED
 - **File**: `mount.go:384-456`
 - **Issue**: Message loop has no rate limiting or throttling
 - **Impact**: Vulnerable to DoS attacks from malicious clients sending flood of messages
@@ -90,7 +90,7 @@
 - **Effort**: Medium (4-6 hours)
 - **Priority**: P1
 
-### #6 - No Request Timeouts
+### #6 - No Request Timeouts ✅ COMPLETED
 - **File**: `mount.go` (handleWebSocket, handleAction)
 - **Issue**: Store.Change() can block indefinitely - no timeout enforcement
 - **Impact**:
@@ -102,7 +102,7 @@
 - **Breaking**: Yes (Store.Change signature would need context.Context parameter)
 - **Priority**: P1
 
-### #7 - Goroutine Leaks on TTL Refresh
+### #7 - Goroutine Leaks on TTL Refresh ✅ COMPLETED
 - **File**: `session_stores.go:319`
 - **Issue**: Fire-and-forget goroutine created for each Get() call
 - **Code Location**:
@@ -116,7 +116,7 @@
 - **Effort**: Medium (4-6 hours)
 - **Priority**: P1
 
-### #8 - Shallow Copy in Store Cloning
+### #8 - Shallow Copy in Store Cloning ✅ COMPLETED
 - **File**: `mount.go:734-753`
 - **Issue**: `copyStruct()` does shallow copy - pointers/slices/maps are shared between instances
 - **Code Location**:
@@ -132,7 +132,7 @@
 - **Breaking**: Potentially (behavior change that might break existing code)
 - **Priority**: P1
 
-### #9 - Data Race in Metrics Histogram
+### #9 - Data Race in Metrics Histogram ✅ COMPLETED
 - **File**: `internal/observe/metrics.go:181`
 - **Issue**: Copying samples array without lock protection in Percentile()
 - **Code Location**:
@@ -145,7 +145,7 @@
 - **Effort**: Small (1-2 hours)
 - **Priority**: P1
 
-### #10 - Inefficient Bubble Sort
+### #10 - Inefficient Bubble Sort ✅ COMPLETED
 - **File**: `internal/parse/parse.go:194-211`
 - **Issue**: Manual O(n²) bubble sort implementation
 - **Code Location**: `getSortedKeys()` function
@@ -156,9 +156,9 @@
 
 ---
 
-## Medium Priority (Code Quality & Maintainability)
+## Medium Priority (Code Quality & Maintainability) - 5/17 COMPLETED
 
-### #11 - Code Duplication: Auto-Broadcast Logic
+### #11 - Code Duplication: Auto-Broadcast Logic ✅ COMPLETED
 - **Files**: `mount.go:408-417` (WebSocket), `mount.go:560-569` (HTTP)
 - **Issue**: Same auto-broadcast logic duplicated in two places
 - **Lines**: ~20 lines duplicated
@@ -166,14 +166,14 @@
 - **Effort**: Small (1 hour)
 - **Priority**: P2
 
-### #12 - Code Duplication: Parse/ParseFiles/ParseGlob
+### #12 - Code Duplication: Parse/ParseFiles/ParseGlob ✅ COMPLETED
 - **File**: `template.go:479-664`
 - **Issue**: Similar parsing logic duplicated across three methods (~180 lines total)
 - **Recommended Fix**: Extract common logic to private `parseInternal()` method
 - **Effort**: Small (2-3 hours)
 - **Priority**: P2
 
-### #13 - Hard-coded Values Should Be Configurable
+### #13 - Hard-coded Values Should Be Configurable ✅ COMPLETED
 - **Instances**:
   1. `session_stores.go:165` - Cleanup interval hard-coded to 1 hour
   2. `mount.go:476` - Cookie MaxAge hard-coded to 1 year
@@ -196,7 +196,7 @@
 - **Breaking**: Yes (method signatures change)
 - **Priority**: P2
 
-### #15 - Test Code in Production
+### #15 - Test Code in Production ✅ COMPLETED
 - **File**: `mount.go:984-986`
 - **Issue**: `if conn.Conn == nil` check for testing embedded in production code
 - **Code Location**:
@@ -210,7 +210,7 @@
 - **Effort**: Small (2-3 hours)
 - **Priority**: P2
 
-### #16 - Global State in Tests
+### #16 - Global State in Tests ✅ COMPLETED
 - **File**: `tree.go:77`
 - **Issue**: Global `defaultKeyGen` variable shared across tests
 - **Impact**:
