@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/livetemplate/livetemplate/internal/observe"
@@ -155,8 +156,9 @@ type MountConfig struct {
 	PubSubBroadcaster      pubsub.Broadcaster // Optional: for distributed broadcasting across instances
 	AllowedOrigins         []string
 	WebSocketDisabled      bool
-	MaxConnections         int64 // Maximum total connections (0 = unlimited)
-	MaxConnectionsPerGroup int64 // Maximum connections per group (0 = unlimited)
+	MaxConnections         int64         // Maximum total connections (0 = unlimited)
+	MaxConnectionsPerGroup int64         // Maximum connections per group (0 = unlimited)
+	CookieMaxAge           time.Duration // Session cookie max age (default: 1 year)
 }
 
 // MountConfig and related types are used internally by Template.Handle()
@@ -262,7 +264,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set session cookie if this is a new session (cookie doesn't exist)
-	setCookieIfNew(w, r, groupID)
+	setCookieIfNew(w, r, groupID, h.config.CookieMaxAge)
 
 	// Upgrade to WebSocket after authentication and limit check succeeds
 	conn, err := h.config.Upgrader.Upgrade(w, r, nil)
@@ -475,7 +477,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 }
 
 // setCookieIfNew sets the livetemplate-id cookie if it doesn't already exist
-func setCookieIfNew(w http.ResponseWriter, r *http.Request, groupID string) {
+func setCookieIfNew(w http.ResponseWriter, r *http.Request, groupID string, cookieMaxAge time.Duration) {
 	// Check if cookie already exists
 	if cookie, err := r.Cookie("livetemplate-id"); err == nil && cookie.Value == groupID {
 		// Cookie exists and matches - no need to set again
@@ -489,7 +491,7 @@ func setCookieIfNew(w http.ResponseWriter, r *http.Request, groupID string) {
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		MaxAge:   365 * 24 * 60 * 60, // 1 year
+		MaxAge:   int(cookieMaxAge.Seconds()),
 	})
 }
 
@@ -516,7 +518,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set session cookie if this is a new session (cookie doesn't exist)
-	setCookieIfNew(w, r, groupID)
+	setCookieIfNew(w, r, groupID, h.config.CookieMaxAge)
 
 	// Get or create stores for this session group
 	stores := h.config.SessionStore.Get(groupID)

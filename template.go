@@ -96,6 +96,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/livetemplate/livetemplate/internal/context"
@@ -114,14 +115,15 @@ type Config struct {
 	PubSubBroadcaster      pubsub.Broadcaster // Optional: for distributed broadcasting across instances
 	AllowedOrigins         []string           // Allowed WebSocket origins (empty = allow all in dev, restrict in prod)
 	WebSocketDisabled      bool
-	LoadingDisabled        bool     // Disables automatic loading indicator on page load
-	TemplateFiles          []string // If set, overrides auto-discovery
-	IgnoreTemplateDirs     []string // Additional directories to ignore during auto-discovery
-	DevMode                bool     // Development mode - use local client library instead of CDN
-	MaxConnections         int64    // Maximum total connections (0 = unlimited)
-	MaxConnectionsPerGroup int64    // Maximum connections per group (0 = unlimited)
-	MessageRateLimit       float64  // Messages per second per connection (0 = unlimited, default 10)
-	MessageRateBurst       int      // Burst capacity for rate limiting (default 20)
+	LoadingDisabled        bool          // Disables automatic loading indicator on page load
+	TemplateFiles          []string      // If set, overrides auto-discovery
+	IgnoreTemplateDirs     []string      // Additional directories to ignore during auto-discovery
+	DevMode                bool          // Development mode - use local client library instead of CDN
+	MaxConnections         int64         // Maximum total connections (0 = unlimited)
+	MaxConnectionsPerGroup int64         // Maximum connections per group (0 = unlimited)
+	MessageRateLimit       float64       // Messages per second per connection (0 = unlimited, default 10)
+	MessageRateBurst       int           // Burst capacity for rate limiting (default 20)
+	CookieMaxAge           time.Duration // Session cookie max age (default: 1 year)
 }
 
 // Template represents a live template with caching and tree-based optimization capabilities.
@@ -361,6 +363,22 @@ func WithMessageRateLimit(messagesPerSecond float64, burstCapacity int) Option {
 	}
 }
 
+// WithCookieMaxAge sets the maximum age for session cookies.
+//
+// The cookie is used to maintain anonymous user sessions across page reloads.
+// Default: 365 days (1 year)
+//
+// Example:
+//
+//	tmpl := livetemplate.New("app",
+//	    livetemplate.WithCookieMaxAge(30*24*time.Hour), // 30 days
+//	)
+func WithCookieMaxAge(maxAge time.Duration) Option {
+	return func(c *Config) {
+		c.CookieMaxAge = maxAge
+	}
+}
+
 // WithPubSubBroadcaster enables distributed broadcasting across multiple application instances.
 //
 // When set, Broadcast*, BroadcastToUsers, and BroadcastToGroup methods will publish messages
@@ -508,6 +526,7 @@ func New(name string, opts ...Option) *Template {
 		Authenticator:    &AnonymousAuthenticator{}, // Default: browser-based session grouping
 		MessageRateLimit: 10.0,                      // Default: 10 messages/sec
 		MessageRateBurst: 20,                        // Default: burst of 20
+		CookieMaxAge:     365 * 24 * time.Hour,      // Default: 1 year
 	}
 
 	// Apply options
@@ -1414,6 +1433,7 @@ func (t *Template) Handle(stores ...Store) LiveHandler {
 		WebSocketDisabled:      t.config.WebSocketDisabled,
 		MaxConnections:         t.config.MaxConnections,
 		MaxConnectionsPerGroup: t.config.MaxConnectionsPerGroup,
+		CookieMaxAge:           t.config.CookieMaxAge,
 	}
 
 	limits := session.NewConnectionLimits(config.MaxConnections, config.MaxConnectionsPerGroup)

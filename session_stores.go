@@ -53,13 +53,14 @@ type SessionStore interface {
 //
 // For multi-instance deployments, use a persistent SessionStore (e.g., Redis).
 type MemorySessionStore struct {
-	groups     map[string]Stores    // groupID → Stores
-	lastAccess map[string]time.Time // groupID → last access timestamp
-	mu         sync.RWMutex         // Protects groups and lastAccess
-	cleanupTTL time.Duration        // Time to live for inactive groups
-	stopCh     chan struct{}        // Signal to stop cleanup goroutine
-	ctx        context.Context      // Context for cleanup goroutine
-	cancel     context.CancelFunc   // Cancel function for cleanup
+	groups          map[string]Stores    // groupID → Stores
+	lastAccess      map[string]time.Time // groupID → last access timestamp
+	mu              sync.RWMutex         // Protects groups and lastAccess
+	cleanupTTL      time.Duration        // Time to live for inactive groups
+	cleanupInterval time.Duration        // How often to run cleanup (default: 1 hour)
+	stopCh          chan struct{}        // Signal to stop cleanup goroutine
+	ctx             context.Context      // Context for cleanup goroutine
+	cancel          context.CancelFunc   // Cancel function for cleanup
 }
 
 // SessionStoreOption configures MemorySessionStore
@@ -71,6 +72,16 @@ type SessionStoreOption func(*MemorySessionStore)
 func WithCleanupTTL(ttl time.Duration) SessionStoreOption {
 	return func(s *MemorySessionStore) {
 		s.cleanupTTL = ttl
+	}
+}
+
+// WithCleanupInterval sets how often the cleanup process runs.
+// Lower intervals = more frequent cleanup but more CPU usage.
+// Higher intervals = less frequent cleanup but potentially more memory usage.
+// Default: 1 hour
+func WithCleanupInterval(interval time.Duration) SessionStoreOption {
+	return func(s *MemorySessionStore) {
+		s.cleanupInterval = interval
 	}
 }
 
@@ -89,12 +100,13 @@ func NewMemorySessionStore(opts ...SessionStoreOption) *MemorySessionStore {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	s := &MemorySessionStore{
-		groups:     make(map[string]Stores),
-		lastAccess: make(map[string]time.Time),
-		cleanupTTL: 24 * time.Hour, // Default: 24 hours
-		stopCh:     make(chan struct{}),
-		ctx:        ctx,
-		cancel:     cancel,
+		groups:          make(map[string]Stores),
+		lastAccess:      make(map[string]time.Time),
+		cleanupTTL:      24 * time.Hour, // Default: 24 hours
+		cleanupInterval: 1 * time.Hour,  // Default: 1 hour
+		stopCh:          make(chan struct{}),
+		ctx:             ctx,
+		cancel:          cancel,
 	}
 
 	// Apply options
@@ -163,7 +175,7 @@ func (s *MemorySessionStore) Close() {
 func (s *MemorySessionStore) cleanupLoop() {
 	defer close(s.stopCh)
 
-	ticker := time.NewTicker(1 * time.Hour) // Cleanup interval
+	ticker := time.NewTicker(s.cleanupInterval)
 	defer ticker.Stop()
 
 	for {
