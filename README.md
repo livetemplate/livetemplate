@@ -30,6 +30,29 @@ All repositories follow [semantic versioning](https://semver.org/) with synchron
 
 ---
 
+## What's New in v0.2.0
+
+**API Reduction & Cleanup** (December 2024)
+
+Version 0.2.0 focuses on cleaning up the public API and improving code organization:
+
+- **Reduced Public API**: Main package files reduced from 18 to 12 (33% reduction)
+- **Implementation Details Hidden**: Connection management, structure tracking, and internal utilities moved to `internal/` packages
+- **File Consolidation**: Session stores merged into single file, health checks consolidated, cleaner type exports
+- **New Internal Packages**:
+  - `internal/session/` - Connection registry and limits
+  - `internal/signature/` - Structure tracking and optimization
+  - `internal/context/` - Template execution context
+- **Cleaner Public API**: Focus on essential user-facing types and interfaces
+- **100% Test Coverage**: All tests passing with improved organization
+
+**Migration from v0.1.x:**
+- Most user code is unaffected - the public API for templates, stores, and actions remains stable
+- If you were directly importing internal types (e.g., `ConnectionRegistry`), update imports to use the new `internal/` packages
+- See [CHANGELOG.md](CHANGELOG.md) for detailed migration guide
+
+---
+
 ## Why LiveTemplate?
 
 LiveTemplate brings Phoenix LiveView's developer experience to Go:

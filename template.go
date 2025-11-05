@@ -98,8 +98,11 @@ import (
 	"sync"
 
 	"github.com/gorilla/websocket"
+	"github.com/livetemplate/livetemplate/internal/context"
 	"github.com/livetemplate/livetemplate/internal/diff"
 	"github.com/livetemplate/livetemplate/internal/observe"
+	"github.com/livetemplate/livetemplate/internal/session"
+	"github.com/livetemplate/livetemplate/internal/signature"
 	"github.com/livetemplate/livetemplate/pubsub"
 )
 
@@ -135,9 +138,9 @@ type Template struct {
 	initialTree     *TreeNode
 	hasInitialTree  bool
 	lastFingerprint string                   // Fingerprint of the last generated tree for change detection
-	keyGen          *keyGenerator            // Per-template key generation for wrapper approach
-	config          Config                   // Template configuration
-	registry        *ClientStructureRegistry // Track structure signatures sent to client (Phase 2)
+	keyGen          *keyGenerator                     // Per-template key generation for wrapper approach
+	config          Config                            // Template configuration
+	registry        *signature.ClientStructureRegistry // Track structure signatures sent to client (Phase 2)
 }
 
 // Funcs registers a template.FuncMap that will be applied to all template parsing and execution.
@@ -416,7 +419,7 @@ func New(name string, opts ...Option) *Template {
 		name:     name,
 		keyGen:   newKeyGenerator(),
 		config:   config,
-		registry: NewClientStructureRegistry(),
+		registry: signature.NewClientStructureRegistry(),
 	}
 
 	// Auto-discover and parse templates if not explicitly provided
@@ -456,7 +459,7 @@ func (t *Template) Clone() (*Template, error) {
 		funcs:       copyFuncMap(t.funcs),
 		keyGen:      newKeyGenerator(),
 		config:      config,                       // Preserve configuration
-		registry:    NewClientStructureRegistry(), // Fresh registry for new session
+		registry:    signature.NewClientStructureRegistry(), // Fresh registry for new session
 		// Don't copy lastData, lastHTML, lastTree, etc. - start fresh
 	}
 
@@ -683,7 +686,7 @@ func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]
 	}
 
 	// Execute the template with wrapper injection and lvt context
-	htmlBytes, err := executeTemplateWithContext(t.tmpl, data, errMap, t.config.DevMode)
+	htmlBytes, err := context.ExecuteTemplateWithContext(t.tmpl, data, errMap, t.config.DevMode)
 	if err != nil {
 		return err
 	}
@@ -813,10 +816,7 @@ func (t *Template) addLvtToData(data interface{}, errors map[string]string) inte
 	}
 
 	// Use the same logic as executeTemplateWithContext to convert data
-	lvtContext := &TemplateContext{
-		errors:  errors,
-		DevMode: t.config.DevMode,
-	}
+	lvtContext := context.NewTemplateContext(errors, t.config.DevMode)
 
 	templateData := make(map[string]interface{})
 	templateData["lvt"] = lvtContext
@@ -863,7 +863,7 @@ func (t *Template) executeTemplateWithErrors(data interface{}, errors map[string
 	}
 
 	// Execute with lvt context
-	htmlBytes, err := executeTemplateWithContext(t.tmpl, data, errors, t.config.DevMode)
+	htmlBytes, err := context.ExecuteTemplateWithContext(t.tmpl, data, errors, t.config.DevMode)
 	if err != nil {
 		return "", err
 	}
@@ -1311,13 +1311,13 @@ func (t *Template) Handle(stores ...Store) LiveHandler {
 		MaxConnectionsPerGroup: t.config.MaxConnectionsPerGroup,
 	}
 
-	limits := NewConnectionLimits(config.MaxConnections, config.MaxConnectionsPerGroup)
+	limits := session.NewConnectionLimits(config.MaxConnections, config.MaxConnectionsPerGroup)
 	metrics := observe.NewMetrics(slog.Default())
 	metricsExporter := observe.NewPrometheusExporter(metrics, limits)
 
 	handler := &liveHandler{
 		config:          config,
-		registry:        NewConnectionRegistry(),
+		registry:        session.NewConnectionRegistry(),
 		limits:          limits,
 		metricsExporter: metricsExporter,
 		shutdownChan:    make(chan struct{}),

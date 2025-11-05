@@ -1,4 +1,7 @@
-package livetemplate
+// Package context provides template execution context utilities for the LiveTemplate library.
+// It handles the "lvt" namespace in templates, providing access to validation errors
+// and development mode flags.
+package context
 
 import (
 	"bytes"
@@ -11,6 +14,14 @@ import (
 type TemplateContext struct {
 	errors  map[string]string
 	DevMode bool // Development mode - use local client library instead of CDN
+}
+
+// NewTemplateContext creates a new TemplateContext with the given errors and devMode flag
+func NewTemplateContext(errors map[string]string, devMode bool) *TemplateContext {
+	return &TemplateContext{
+		errors:  errors,
+		DevMode: devMode,
+	}
 }
 
 // Error returns the error message for a field
@@ -43,13 +54,10 @@ func (t *TemplateContext) AllErrors() map[string]string {
 	return t.errors
 }
 
-// executeTemplateWithContext adds lvt context to template execution by augmenting the data
-func executeTemplateWithContext(tmpl *template.Template, data interface{}, errors map[string]string, devMode bool) ([]byte, error) {
+// ExecuteTemplateWithContext adds lvt context to template execution by augmenting the data
+func ExecuteTemplateWithContext(tmpl *template.Template, data interface{}, errors map[string]string, devMode bool) ([]byte, error) {
 	// Create context object
-	lvtContext := &TemplateContext{
-		errors:  errors,
-		DevMode: devMode,
-	}
+	lvtContext := NewTemplateContext(errors, devMode)
 
 	// Create a map that includes both the original data fields and lvt
 	templateData := make(map[string]interface{})

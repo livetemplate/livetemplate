@@ -1,4 +1,6 @@
-package livetemplate
+// Package session provides connection and session management for LiveTemplate.
+// It handles WebSocket connection tracking, registration, and lookup operations.
+package session
 
 import (
 	"sync"
@@ -13,12 +15,24 @@ import (
 //
 // The Template field is per-connection because ExecuteUpdates() maintains state (lastTree, lastData)
 // for tree diffing, which must be independent for each connection.
+//
+// Type Safety Note: Template and Stores are interface{} to avoid circular imports with the parent
+// livetemplate package. Consumers should use type assertions with the safe pattern:
+//
+//	tmpl, ok := conn.Template.(*livetemplate.Template)
+//	if !ok {
+//	    return fmt.Errorf("invalid template type")
+//	}
+//
+// Expected types:
+//   - Template: *livetemplate.Template
+//   - Stores: livetemplate.Stores (map[string]Store)
 type Connection struct {
 	Conn     *websocket.Conn // WebSocket connection
 	GroupID  string          // Session group ID (shared state boundary)
 	UserID   string          // User identity ("" for anonymous)
-	Template *Template       // Per-connection template for tree diffing
-	Stores   Stores          // Reference to shared stores from session group
+	Template interface{}     // Per-connection template for tree diffing (*livetemplate.Template)
+	Stores   interface{}     // Reference to shared stores from session group (livetemplate.Stores)
 	mu       sync.Mutex      // Protects writes to Conn
 }
 
@@ -28,6 +42,14 @@ func (c *Connection) Send(messageType int, data []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.Conn.WriteMessage(messageType, data)
+}
+
+// Close closes the WebSocket connection.
+// Thread-safe: safe to call concurrently with Send.
+func (c *Connection) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.Conn.Close()
 }
 
 // ConnectionRegistry tracks all active WebSocket connections with dual indexing.

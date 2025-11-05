@@ -1,12 +1,15 @@
-package livetemplate
+package signature_test
 
 import (
 	"sync"
 	"testing"
+
+	"github.com/livetemplate/livetemplate"
+	"github.com/livetemplate/livetemplate/internal/signature"
 )
 
 func TestClientStructureRegistry_SinglePath(t *testing.T) {
-	registry := NewClientStructureRegistry()
+	registry := signature.NewClientStructureRegistry()
 
 	// Test HasSeen on empty registry
 	if registry.HasSeen("0", "test") {
@@ -29,7 +32,7 @@ func TestClientStructureRegistry_SinglePath(t *testing.T) {
 }
 
 func TestClientStructureRegistry_NestedPaths(t *testing.T) {
-	registry := NewClientStructureRegistry()
+	registry := signature.NewClientStructureRegistry()
 
 	// Mark nested paths
 	registry.MarkSeen("0", "root value")
@@ -54,7 +57,7 @@ func TestClientStructureRegistry_NestedPaths(t *testing.T) {
 }
 
 func TestClientStructureRegistry_StructureChange(t *testing.T) {
-	registry := NewClientStructureRegistry()
+	registry := signature.NewClientStructureRegistry()
 
 	// Create a scalar value
 	scalar := "test"
@@ -65,7 +68,7 @@ func TestClientStructureRegistry_StructureChange(t *testing.T) {
 	}
 
 	// Create a TreeNode (different structure)
-	node := &TreeNode{
+	node := &livetemplate.TreeNode{
 		Statics:  []string{"<div>", "</div>"},
 		Dynamics: make(map[string]interface{}),
 	}
@@ -90,13 +93,13 @@ func TestClientStructureRegistry_StructureChange(t *testing.T) {
 }
 
 func TestClientStructureRegistry_RangeTransitions(t *testing.T) {
-	registry := NewClientStructureRegistry()
+	registry := signature.NewClientStructureRegistry()
 
 	// Start with empty range
-	emptyRange := &TreeNode{
+	emptyRange := &livetemplate.TreeNode{
 		Statics:  []string{"<tr>", "</tr>"},
 		Dynamics: make(map[string]interface{}),
-		Range: &RangeData{
+		Range: &livetemplate.RangeData{
 			Items:   []interface{}{},
 			Statics: []string{"<td>", "</td>"},
 		},
@@ -109,10 +112,10 @@ func TestClientStructureRegistry_RangeTransitions(t *testing.T) {
 	}
 
 	// Add items to range (structure signature changes)
-	rangeWithItems := &TreeNode{
+	rangeWithItems := &livetemplate.TreeNode{
 		Statics:  []string{"<tr>", "</tr>"},
 		Dynamics: make(map[string]interface{}),
-		Range: &RangeData{
+		Range: &livetemplate.RangeData{
 			Items: []interface{}{
 				map[string]interface{}{"0": "item1"},
 			},
@@ -140,7 +143,7 @@ func TestClientStructureRegistry_RangeTransitions(t *testing.T) {
 }
 
 func TestClientStructureRegistry_GetSignature(t *testing.T) {
-	registry := NewClientStructureRegistry()
+	registry := signature.NewClientStructureRegistry()
 
 	// Test non-existent path
 	_, exists := registry.GetSignature("0")
@@ -156,12 +159,12 @@ func TestClientStructureRegistry_GetSignature(t *testing.T) {
 	if !exists {
 		t.Error("Existing path should return true")
 	}
-	if sig != SigScalar {
+	if sig != signature.SigScalar {
 		t.Errorf("Expected SigScalar, got %s", sig)
 	}
 
 	// Mark a conditional
-	node := &TreeNode{
+	node := &livetemplate.TreeNode{
 		Statics:  []string{"<div>", "</div>"},
 		Dynamics: make(map[string]interface{}),
 	}
@@ -171,13 +174,13 @@ func TestClientStructureRegistry_GetSignature(t *testing.T) {
 	if !exists {
 		t.Error("Conditional path should exist")
 	}
-	if sig != SigConditional {
+	if sig != signature.SigConditional {
 		t.Errorf("Expected SigConditional, got %s", sig)
 	}
 }
 
 func TestClientStructureRegistry_HasPath(t *testing.T) {
-	registry := NewClientStructureRegistry()
+	registry := signature.NewClientStructureRegistry()
 
 	if registry.HasPath("0") {
 		t.Error("Empty registry should not have path")
@@ -195,7 +198,7 @@ func TestClientStructureRegistry_HasPath(t *testing.T) {
 }
 
 func TestClientStructureRegistry_Clear(t *testing.T) {
-	registry := NewClientStructureRegistry()
+	registry := signature.NewClientStructureRegistry()
 
 	// Add multiple paths
 	registry.MarkSeen("0", "test1")
@@ -220,7 +223,7 @@ func TestClientStructureRegistry_Clear(t *testing.T) {
 }
 
 func TestClientStructureRegistry_ThreadSafety(t *testing.T) {
-	registry := NewClientStructureRegistry()
+	registry := signature.NewClientStructureRegistry()
 
 	// Number of concurrent goroutines
 	numGoroutines := 100
@@ -271,13 +274,13 @@ func TestClientStructureRegistry_ThreadSafety(t *testing.T) {
 }
 
 func TestClientStructureRegistry_RangeStaticsChange(t *testing.T) {
-	registry := NewClientStructureRegistry()
+	registry := signature.NewClientStructureRegistry()
 
 	// Range with one set of statics
-	range1 := &TreeNode{
+	range1 := &livetemplate.TreeNode{
 		Statics:  []string{"<tr>", "</tr>"},
 		Dynamics: make(map[string]interface{}),
-		Range: &RangeData{
+		Range: &livetemplate.RangeData{
 			Items: []interface{}{
 				map[string]interface{}{"0": "item1"},
 			},
@@ -288,10 +291,10 @@ func TestClientStructureRegistry_RangeStaticsChange(t *testing.T) {
 	registry.MarkSeen("0", range1)
 
 	// Range with different statics (different template)
-	range2 := &TreeNode{
+	range2 := &livetemplate.TreeNode{
 		Statics:  []string{"<tr>", "</tr>"},
 		Dynamics: make(map[string]interface{}),
-		Range: &RangeData{
+		Range: &livetemplate.RangeData{
 			Items: []interface{}{
 				map[string]interface{}{"0": "item1"},
 			},
@@ -305,10 +308,10 @@ func TestClientStructureRegistry_RangeStaticsChange(t *testing.T) {
 	}
 
 	// But range with same statics should match
-	range1Copy := &TreeNode{
+	range1Copy := &livetemplate.TreeNode{
 		Statics:  []string{"<tr>", "</tr>"},
 		Dynamics: make(map[string]interface{}),
-		Range: &RangeData{
+		Range: &livetemplate.RangeData{
 			Items: []interface{}{
 				map[string]interface{}{"0": "different item"},
 			},
@@ -322,7 +325,7 @@ func TestClientStructureRegistry_RangeStaticsChange(t *testing.T) {
 }
 
 func TestClientStructureRegistry_ComplexScenario(t *testing.T) {
-	registry := NewClientStructureRegistry()
+	registry := signature.NewClientStructureRegistry()
 
 	// Simulate a realistic scenario: conditional with nested range
 
@@ -331,10 +334,10 @@ func TestClientStructureRegistry_ComplexScenario(t *testing.T) {
 	registry.MarkSeen("11", emptyMessage)
 
 	// Step 2: First item appears (conditional switches to range)
-	firstItem := &TreeNode{
+	firstItem := &livetemplate.TreeNode{
 		Statics:  []string{"<div>", "</div>"},
 		Dynamics: make(map[string]interface{}),
-		Range: &RangeData{
+		Range: &livetemplate.RangeData{
 			Items: []interface{}{
 				map[string]interface{}{"0": "item1"},
 			},
@@ -350,10 +353,10 @@ func TestClientStructureRegistry_ComplexScenario(t *testing.T) {
 	registry.MarkSeen("11", firstItem)
 
 	// Step 3: More items added (same structure, different data)
-	moreItems := &TreeNode{
+	moreItems := &livetemplate.TreeNode{
 		Statics:  []string{"<div>", "</div>"},
 		Dynamics: make(map[string]interface{}),
-		Range: &RangeData{
+		Range: &livetemplate.RangeData{
 			Items: []interface{}{
 				map[string]interface{}{"0": "item1"},
 				map[string]interface{}{"0": "item2"},

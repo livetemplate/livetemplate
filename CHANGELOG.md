@@ -7,6 +7,98 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2025-11-05
+
+**API Reduction & Cleanup** - Significant reduction in public API surface area and improved code organization.
+
+### Changed
+
+- **File Consolidation**: Reduced main package files from 18 to 12 (33% reduction)
+  - Merged `session.go` + `session_redis.go` → `session_stores.go` (533 lines)
+  - Merged `health_redis.go` into `health.go`
+  - Created `types.go` from `build_types.go` with clean re-exports
+
+- **Internal Package Restructure**: Moved implementation details to internal packages
+  - **`internal/session/`**: Connection, ConnectionRegistry, ConnectionLimits
+    - WebSocket connection tracking and indexing
+    - Connection limit enforcement
+    - Thread-safe concurrent access
+
+  - **`internal/signature/`**: StructureSignature, ClientStructureRegistry
+    - Structure tracking for optimization
+    - Client-side structure registry
+    - Reduces update payload by detecting structure changes
+
+  - **`internal/context/`**: TemplateContext
+    - Template execution context
+    - Error handling and dev mode support
+
+- **API Surface Reduction**: Implementation types no longer exported in main package
+  - Cleaner public API focused on essential user-facing types
+  - Internal implementation details properly hidden
+  - Improved package organization
+
+### Removed
+
+- **Deleted Files**: Obsolete files after consolidation
+  - `errors.go` (moved to internal/context)
+  - `structure_signature.go` (moved to internal/signature)
+  - `client_structure_registry.go` (moved to internal/signature)
+  - `session.go` (merged into session_stores.go)
+  - `session_redis.go` (merged into session_stores.go)
+  - `health_redis.go` (merged into health.go)
+  - `build_types.go` (replaced by types.go)
+  - `registry.go` (moved to internal/session)
+  - `limits.go` (moved to internal/session)
+
+### Fixed
+
+- **Test Organization**: Moved test files to internal packages
+  - `internal/signature/*_test.go` - Structure tracking tests
+  - `internal/session/*_test.go` - Connection management tests
+  - Fixed import cycles by using separate test packages
+  - 100% test coverage maintained
+
+### Migration Guide
+
+**For Most Users:**
+- ✅ No changes required - public API for templates, stores, and actions remains stable
+- ✅ All existing examples and applications continue to work
+
+**If Directly Using Internal Types:**
+- Update imports for moved types:
+  ```go
+  // Before
+  import "github.com/livetemplate/livetemplate"
+  registry := livetemplate.NewConnectionRegistry()
+
+  // After
+  import "github.com/livetemplate/livetemplate/internal/session"
+  registry := session.NewConnectionRegistry()
+  ```
+
+- Affected types (now in internal packages):
+  - `Connection`, `ConnectionRegistry`, `ConnectionLimits` → `internal/session/`
+  - `StructureSignature`, `ClientStructureRegistry` → `internal/signature/`
+  - `TemplateContext` → `internal/context/`
+
+**Note**: If you were using these internal types, consider whether your use case requires direct access. The public API provides all functionality needed for typical applications.
+
+### Technical Details
+
+**Package Organization:**
+- Main package now contains 12 files (down from 18)
+- 3 new internal packages for implementation details
+- Cleaner separation between public API and implementation
+- Improved test organization with internal package tests
+
+**Benefits:**
+- Smaller public API surface (easier to understand and maintain)
+- Better encapsulation of implementation details
+- Clear distinction between user-facing and internal APIs
+- Reduced chance of accidental breaking changes
+- Improved code organization and maintainability
+
 ## [0.1.2] - 2025-11-03
 
 **Cleanup** - Removed extracted components from core library and added cross-repository testing.

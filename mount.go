@@ -13,6 +13,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/livetemplate/livetemplate/internal/observe"
+	"github.com/livetemplate/livetemplate/internal/session"
 	"github.com/livetemplate/livetemplate/pubsub"
 )
 
@@ -164,8 +165,8 @@ type MountOption func(*MountConfig)
 // liveHandler handles both WebSocket and HTTP requests
 type liveHandler struct {
 	config          MountConfig
-	registry        *ConnectionRegistry
-	limits          *ConnectionLimits
+	registry        *session.ConnectionRegistry
+	limits          *session.ConnectionLimits
 	metricsExporter *observe.PrometheusExporter
 
 	// Graceful shutdown state
@@ -300,7 +301,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create Connection and register in registry
-	connection := &Connection{
+	connection := &session.Connection{
 		Conn:     conn,
 		GroupID:  groupID,
 		UserID:   userID,
@@ -940,13 +941,19 @@ func (h *liveHandler) BroadcastToGroup(groupID string, data interface{}) error {
 }
 
 // sendUpdate generates and sends a template update to a single connection
-func (h *liveHandler) sendUpdate(conn *Connection, data interface{}) error {
+func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}) error {
 	// Use the connection's cloned template for independent tree diffing
 	var buf bytes.Buffer
 
+	// Type assert Template from interface{} to *Template
+	tmpl, ok := conn.Template.(*Template)
+	if !ok {
+		return fmt.Errorf("invalid template type in connection")
+	}
+
 	// Generate update using the connection's template
 	// We pass the data directly - no errors to report for broadcasts
-	err := conn.Template.ExecuteUpdates(&buf, data, nil)
+	err := tmpl.ExecuteUpdates(&buf, data, nil)
 	if err != nil {
 		return fmt.Errorf("template update failed: %w", err)
 	}
@@ -1055,9 +1062,7 @@ func (h *liveHandler) Shutdown(ctx context.Context) error {
 		for _, conn := range connections {
 			// Send close frame (best effort, ignore errors)
 			if conn.Conn != nil {
-				conn.mu.Lock()
-				_ = conn.Conn.WriteMessage(websocket.CloseMessage, closeMessage)
-				conn.mu.Unlock()
+				_ = conn.Send(websocket.CloseMessage, closeMessage)
 			}
 		}
 

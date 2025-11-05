@@ -1,10 +1,14 @@
-package livetemplate
+// Package signature provides structure signature calculation for template optimization.
+// It tracks what structures the client has seen to determine if statics need to be sent.
+package signature
 
 import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
 	"strings"
+
+	"github.com/livetemplate/livetemplate/internal/build"
 )
 
 // StructureSignature uniquely identifies a template structure type.
@@ -58,7 +62,7 @@ func CalculateSignature(value interface{}) StructureSignature {
 	}
 
 	// Check if value is a TreeNode
-	node, ok := value.(*TreeNode)
+	node, ok := value.(*build.TreeNode)
 	if !ok {
 		// Not a TreeNode - treat as scalar value
 		return SigScalar
@@ -73,7 +77,7 @@ func CalculateSignature(value interface{}) StructureSignature {
 
 		// Range with items - include hash of Range.Statics for uniqueness
 		// This ensures we detect when the range item template structure changes
-		staticsHash := hashStatics(node.Range.Statics)
+		staticsHash := HashStatics(node.Range.Statics)
 		return StructureSignature(fmt.Sprintf("range:items:%s", staticsHash))
 	}
 
@@ -86,9 +90,10 @@ func CalculateSignature(value interface{}) StructureSignature {
 	return SigScalar
 }
 
-// hashStatics creates a short hash of statics array for signature uniqueness.
+// HashStatics creates a short hash of statics array for signature uniqueness.
 // Uses first 8 bytes of MD5 hash for compact representation.
-func hashStatics(statics []string) string {
+// Exported for testing purposes.
+func HashStatics(statics []string) string {
 	if len(statics) == 0 {
 		return "none"
 	}

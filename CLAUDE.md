@@ -9,9 +9,24 @@ LiveTemplate is a high-performance Go library and CLI tool for building reactive
 
 The core library provides an API similar to `html/template` but with the additional capability of generating minimal, tree-based updates that can be efficiently transmitted to clients.
 
+## Version 0.2.0 - API Reduction
+
+**Breaking Change Notice:** v0.2.0 significantly reduces the public API surface area by moving implementation details to internal packages.
+
+**Key Changes:**
+- Main package files reduced from 18 to 12 (33% reduction)
+- Implementation types moved to internal packages (Connection, ConnectionRegistry, StructureSignature, etc.)
+- File consolidation: session files merged, health files merged, types cleaned up
+- New internal packages: `internal/session/`, `internal/signature/`, `internal/context/`
+- Cleaner public API focused on essential user-facing types and interfaces
+
+**Migration:** If you were importing internal types directly (e.g., `ConnectionRegistry`), update your imports to use the `internal/session` package. Most user code should be unaffected as the public API remains stable.
+
 ## Core Architecture
 
-### Key Components
+### Main Package Files (Public API)
+
+The main `livetemplate` package provides a clean, minimal public API:
 
 1. **Template Engine (`template.go`)**:
    - Main entry point providing `html/template` compatible API
@@ -19,40 +34,89 @@ The core library provides an API similar to `html/template` but with the additio
    - Handles wrapper ID injection for update targeting
    - Orchestrates internal packages for parsing, building, and diffing
 
-2. **Tree Structure (`tree.go`)**:
-   - Implements tree-based static/dynamic separation
-   - Manages fingerprinting for change detection
-   - Provides tree diffing and update generation
+2. **Mount Handler (`mount.go`)**:
+   - LiveHandler interface for HTTP/WebSocket handling
+   - Broadcaster and BroadcastAware interfaces for server-initiated updates
+   - WebSocket connection lifecycle management
+   - Auto-broadcasting to session groups
 
-3. **Template Parsing (`internal/parse/`)**:
+3. **Session Stores (`session_stores.go`)**:
+   - SessionStore interface for session group management
+   - MemorySessionStore for single-instance deployments
+   - RedisSessionStore for distributed deployments
+   - Automatic cleanup and TTL management
+
+4. **Health Checks (`health.go`)**:
+   - HealthHandler for liveness and readiness probes
+   - HealthChecker interface for custom health checks
+   - Built-in session store and Redis health checkers
+   - Kubernetes-ready health endpoints
+
+5. **Types (`types.go`)**:
+   - TreeNode, RangeData, TreeMetadata type re-exports
+   - Clean public API for tree-based operations
+   - Backward-compatible type aliases
+
+6. **Actions (`action.go`)**:
+   - ActionContext for store mutations
+   - ActionData for form/JSON data handling
+   - FieldError and MultiError for validation
+
+7. **Authentication (`auth.go`)**:
+   - Authenticator interface for user identification
+   - DefaultAuthenticator with cookie-based sessions
+
+8. **Configuration (`config.go`)**:
+   - TemplateConfig for template customization
+   - DevMode, CompressHTML, and other options
+
+### Internal Packages (Implementation Details)
+
+9. **Template Parsing (`internal/parse/`)**:
    - Parses Go templates into tree structures
    - Handles template constructs (fields, conditionals, ranges, with, template invokes)
    - Components: parser.go, constructs.go, compile.go, hydrate.go, helpers.go
    - Manages construct compilation and hydration with single-responsibility functions
 
-4. **Tree Building (`internal/build/`)**:
-   - Tree construction and operations
-   - Components: builder.go, tree_ops.go, fingerprint.go, types.go
-   - Handles tree creation, manipulation, and change detection
+10. **Tree Building (`internal/build/`)**:
+    - Tree construction and operations
+    - Components: builder.go, tree_ops.go, fingerprint.go, types.go
+    - Handles tree creation, manipulation, and change detection
 
-5. **Tree Diffing (`internal/diff/`)**:
-   - Tree comparison and update generation
-   - Components: tree_compare.go, range_ops.go, prepare.go, helpers.go, types.go
-   - Generates minimal updates using orchestrator → coordinator → helper pattern
+11. **Tree Diffing (`internal/diff/`)**:
+    - Tree comparison and update generation
+    - Components: tree_compare.go, range_ops.go, prepare.go, helpers.go, types.go
+    - Generates minimal updates using orchestrator → coordinator → helper pattern
 
-6. **Observability (`internal/observe/`)**:
-   - Production-ready logging and metrics
-   - Components: logger.go, metrics.go, context.go
-   - Structured logging with slog, operational metrics
+12. **Observability (`internal/observe/`)**:
+    - Production-ready logging and metrics
+    - Components: logger.go, metrics.go, context.go
+    - Structured logging with slog, operational metrics
 
-7. **HTML Tree (`html_tree.go`)**:
-   - Manages HTML node tree structures
-   - Used for HTML-aware operations
+13. **Session Management (`internal/session/`)**:
+    - Connection, ConnectionRegistry, ConnectionLimits types
+    - WebSocket connection tracking and indexing
+    - Connection limit enforcement
+    - Thread-safe concurrent access
 
-8. **Client Library (`client/livetemplate-client.ts`)**:
-   - TypeScript client for browser integration
-   - Handles tree-based updates efficiently
-   - Manages static content caching
+14. **Structure Tracking (`internal/signature/`)**:
+    - StructureSignature for optimizing tree updates
+    - ClientStructureRegistry for tracking client-side structures
+    - Reduces update payload by detecting structure changes
+
+15. **Execution Context (`internal/context/`)**:
+    - TemplateContext for error handling and dev mode
+    - Template execution utilities
+    - Error propagation to client
+
+16. **HTML Utilities (`html_tree.go`)**:
+    - HTML node tree structures
+    - HTML-aware operations
+
+17. **Client Library (`client/livetemplate-client.ts`)**:
+    - TypeScript client for browser integration
+    - Handles tree-based updates efficiently
+    - Manages static content caching
 
 ## Key Data Structures
 
