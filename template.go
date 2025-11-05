@@ -1025,6 +1025,7 @@ func (t *Template) generateInitialTree(html string, data interface{}) (*TreeNode
 	// First render: create context that includes all statics
 	ctx := NewTreeGenerationContext()
 	ctx.FuncMap = t.funcs
+	ctx.DevMode = t.config.DevMode
 	tree, err := parseTemplateToTree(templateContent, data, t.keyGen, ctx)
 	if err != nil {
 		// parseTemplateToTree failed, falling back to HTML structure
@@ -1075,6 +1076,7 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 		// Using nil context defaults to including statics
 		ctx := NewTreeGenerationContext()
 		ctx.FuncMap = t.funcs
+		ctx.DevMode = t.config.DevMode
 		newTree, err := parseTemplateToTree(templateContent, newData, t.keyGen, ctx)
 		if err != nil {
 			return nil, fmt.Errorf("tree generation failed: %w", err)
