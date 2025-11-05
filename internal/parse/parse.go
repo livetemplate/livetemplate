@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"reflect"
+	"sort"
 	"strings"
 	"text/template/parse"
 )
@@ -197,17 +198,13 @@ func getSortedKeys(m map[string]interface{}) []string {
 		keys = append(keys, k)
 	}
 
-	// Sort them numerically
-	for i := 0; i < len(keys); i++ {
-		for j := i + 1; j < len(keys); j++ {
-			var iVal, jVal int
-			_, _ = fmt.Sscanf(keys[i], "%d", &iVal)
-			_, _ = fmt.Sscanf(keys[j], "%d", &jVal)
-			if iVal > jVal {
-				keys[i], keys[j] = keys[j], keys[i]
-			}
-		}
-	}
+	// Sort numerically using efficient stdlib sort (O(n log n) vs O(n²) bubble sort)
+	sort.Slice(keys, func(i, j int) bool {
+		var iVal, jVal int
+		_, _ = fmt.Sscanf(keys[i], "%d", &iVal)
+		_, _ = fmt.Sscanf(keys[j], "%d", &jVal)
+		return iVal < jVal
+	})
 	return keys
 }
 

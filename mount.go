@@ -15,6 +15,7 @@ import (
 	"github.com/livetemplate/livetemplate/internal/observe"
 	"github.com/livetemplate/livetemplate/internal/session"
 	"github.com/livetemplate/livetemplate/pubsub"
+	"golang.org/x/time/rate"
 )
 
 // Broadcaster allows stores to push updates to connected clients without user interaction
@@ -380,6 +381,12 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Create rate limiter for this connection (prevents DoS attacks)
+	var limiter *rate.Limiter
+	if h.config.Template.config.MessageRateLimit > 0 {
+		limiter = rate.NewLimiter(rate.Limit(h.config.Template.config.MessageRateLimit), h.config.Template.config.MessageRateBurst)
+	}
+
 	// message loop
 	for {
 		_, data, err := conn.ReadMessage()
@@ -388,6 +395,24 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				log.Printf("WebSocket error: %v", err)
 			}
 			break
+		}
+
+		// Rate limiting check (per connection)
+		if limiter != nil && !limiter.Allow() {
+			// Rate limit exceeded - send error to client
+			errorResp := UpdateResponse{
+				Tree: nil,
+				Meta: &ResponseMetadata{
+					Success: false,
+					Errors: map[string]string{
+						"_rate_limit": "Too many requests. Please slow down.",
+					},
+				},
+			}
+			if respBytes, err := json.Marshal(errorResp); err == nil {
+				_ = writeUpdateWebSocket(conn, respBytes) // Best effort
+			}
+			continue // Skip processing this message
 		}
 
 		// Parse message

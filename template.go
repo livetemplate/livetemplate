@@ -120,6 +120,8 @@ type Config struct {
 	DevMode                bool     // Development mode - use local client library instead of CDN
 	MaxConnections         int64    // Maximum total connections (0 = unlimited)
 	MaxConnectionsPerGroup int64    // Maximum connections per group (0 = unlimited)
+	MessageRateLimit       float64  // Messages per second per connection (0 = unlimited, default 10)
+	MessageRateBurst       int      // Burst capacity for rate limiting (default 20)
 }
 
 // Template represents a live template with caching and tree-based optimization capabilities.
@@ -339,6 +341,26 @@ func WithMaxConnectionsPerGroup(max int64) Option {
 	}
 }
 
+// WithMessageRateLimit sets the rate limit for WebSocket messages per connection.
+//
+// Uses token bucket algorithm: messagesPerSecond determines the rate,
+// burstCapacity allows short bursts above the rate.
+//
+// Default: 10 messages/sec with burst of 20.
+// Set messagesPerSecond = 0 to disable rate limiting (not recommended for production).
+//
+// Example:
+//
+//	tmpl := livetemplate.New("app",
+//	    livetemplate.WithMessageRateLimit(20, 50), // 20 msg/sec, burst of 50
+//	)
+func WithMessageRateLimit(messagesPerSecond float64, burstCapacity int) Option {
+	return func(c *Config) {
+		c.MessageRateLimit = messagesPerSecond
+		c.MessageRateBurst = burstCapacity
+	}
+}
+
 // WithPubSubBroadcaster enables distributed broadcasting across multiple application instances.
 //
 // When set, Broadcast*, BroadcastToUsers, and BroadcastToGroup methods will publish messages
@@ -482,8 +504,10 @@ func New(name string, opts ...Option) *Template {
 			// This will be replaced with origin-aware check after options are applied
 			CheckOrigin: nil, // Will be set after applying options
 		},
-		SessionStore:  NewMemorySessionStore(),
-		Authenticator: &AnonymousAuthenticator{}, // Default: browser-based session grouping
+		SessionStore:     NewMemorySessionStore(),
+		Authenticator:    &AnonymousAuthenticator{}, // Default: browser-based session grouping
+		MessageRateLimit: 10.0,                      // Default: 10 messages/sec
+		MessageRateBurst: 20,                        // Default: burst of 20
 	}
 
 	// Apply options
@@ -769,7 +793,8 @@ func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]
 		errMap = make(map[string]string)
 	}
 
-	// Execute the template with wrapper injection and lvt context
+	// Execute the template once and reuse the result for both output and caching
+	// This eliminates 2x performance cost from double execution
 	htmlBytes, err := context.ExecuteTemplateWithContext(t.tmpl, data, errMap, t.config.DevMode)
 	if err != nil {
 		return err
@@ -780,12 +805,8 @@ func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]
 	}
 
 	// Initialize caching state for future ExecuteUpdates calls
-	// Execute template again to get HTML for caching
-	currentHTML, execErr := t.executeTemplateWithErrors(data, errMap)
-	if execErr != nil {
-		// Don't fail the main Execute call if caching setup fails
-		return nil
-	}
+	// Reuse htmlBytes from first execution (no need to execute again)
+	currentHTML := string(htmlBytes)
 
 	// Extract content from wrapper for consistent caching
 	var contentToCache string

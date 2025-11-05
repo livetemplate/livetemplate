@@ -221,11 +221,15 @@ const (
 //   - livetemplate:session:{groupID}:access -> Last access timestamp
 //   - TTL: 24 hours (configurable)
 type RedisSessionStore struct {
-	client     redis.UniversalClient
-	ttl        time.Duration
-	maxRetries int
-	retryDelay time.Duration
-	ctx        context.Context
+	client       redis.UniversalClient
+	ttl          time.Duration
+	maxRetries   int
+	retryDelay   time.Duration
+	ctx          context.Context
+	cancel       context.CancelFunc
+	refreshChan  chan string    // Channel for TTL refresh requests
+	refreshCache sync.Map       // Debounce map to avoid duplicate refreshes
+	wg           sync.WaitGroup // Wait group for worker goroutine
 }
 
 // RedisSessionStoreOption configures RedisSessionStore
@@ -274,18 +278,26 @@ func WithRetryDelay(delay time.Duration) RedisSessionStoreOption {
 //	    livetemplate.WithSessionTTL(24*time.Hour),
 //	)
 func NewRedisSessionStore(client redis.UniversalClient, opts ...RedisSessionStoreOption) *RedisSessionStore {
+	ctx, cancel := context.WithCancel(context.Background())
+
 	s := &RedisSessionStore{
-		client:     client,
-		ttl:        defaultSessionTTL,
-		maxRetries: defaultMaxRetries,
-		retryDelay: defaultRetryDelay,
-		ctx:        context.Background(),
+		client:      client,
+		ttl:         defaultSessionTTL,
+		maxRetries:  defaultMaxRetries,
+		retryDelay:  defaultRetryDelay,
+		ctx:         ctx,
+		cancel:      cancel,
+		refreshChan: make(chan string, 1000), // Buffered channel for async refresh
 	}
 
 	// Apply options
 	for _, opt := range opts {
 		opt(s)
 	}
+
+	// Start background worker for TTL refresh operations
+	s.wg.Add(1)
+	go s.refreshWorker()
 
 	return s
 }
@@ -316,8 +328,13 @@ func (s *RedisSessionStore) Get(groupID string) Stores {
 		return nil
 	}
 
-	// Refresh TTL on successful access (fire and forget)
-	go s.refreshTTL(groupID)
+	// Queue TTL refresh asynchronously via worker (non-blocking)
+	select {
+	case s.refreshChan <- groupID:
+		// Queued successfully
+	default:
+		// Channel full - skip refresh (better than spawning goroutine)
+	}
 
 	return stores
 }
@@ -533,8 +550,64 @@ func (s *RedisSessionStore) Ping() error {
 	return s.client.Ping(ctx).Err()
 }
 
-// Close closes the Redis client connection.
+// Close closes the Redis client connection and stops the refresh worker.
 // Should be called when shutting down the application.
 func (s *RedisSessionStore) Close() error {
+	// Signal worker to stop
+	s.cancel()
+
+	// Wait for worker to finish
+	s.wg.Wait()
+
+	// Close Redis client
 	return s.client.Close()
+}
+
+// refreshWorker processes TTL refresh requests from the channel.
+// Uses debouncing to avoid refreshing the same key multiple times in quick succession.
+// Runs in a single goroutine to prevent goroutine leaks.
+func (s *RedisSessionStore) refreshWorker() {
+	defer s.wg.Done()
+
+	// Use a ticker for periodic batch processing
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	pending := make(map[string]struct{}) // Deduplicate refresh requests
+
+	for {
+		select {
+		case <-s.ctx.Done():
+			// Context cancelled - shutdown
+			return
+
+		case groupID := <-s.refreshChan:
+			// Queue for batch processing
+			pending[groupID] = struct{}{}
+
+		case <-ticker.C:
+			// Process pending refreshes in batch
+			if len(pending) == 0 {
+				continue
+			}
+
+			// Process all pending refreshes
+			for groupID := range pending {
+				// Check if recently refreshed (debounce)
+				if _, exists := s.refreshCache.LoadOrStore(groupID, time.Now()); !exists {
+					// Not in cache - perform refresh
+					s.refreshTTL(groupID)
+
+					// Schedule cache cleanup after 1 second (debounce window)
+					go func(id string) {
+						time.Sleep(1 * time.Second)
+						s.refreshCache.Delete(id)
+					}(groupID)
+				}
+			}
+
+			// Clear pending map
+			pending = make(map[string]struct{})
+		}
+	}
 }
