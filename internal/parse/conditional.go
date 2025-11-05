@@ -12,7 +12,8 @@ import (
 func handleIfNode(node *parse.IfNode, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	// Evaluate condition by executing just the if part
 	condTmpl := fmt.Sprintf("{{if %s}}true{{else}}false{{end}}", formatPipe(node.Pipe))
-	tmpl, err := newTemplateWithFuncs("cond", ctx).Parse(condTmpl)
+	// Use cached template parsing to avoid repeated Parse() calls
+	tmpl, err := getOrParseASTTemplate("cond:"+condTmpl, condTmpl, ctx)
 	if err != nil {
 		return nil, fmt.Errorf("condition parse error: %w", err)
 	}
@@ -70,7 +71,8 @@ func handleIfNodeWithVars(node *parse.IfNode, varCtx *varContext, keyGen KeyGene
 
 	// If no variables or root, execute with dot context
 	if !usesVars && !usesRoot {
-		tmpl, err := newTemplateWithFuncs("cond", ctx).Parse(condStr)
+		// Use cached template parsing to avoid repeated Parse() calls
+		tmpl, err := getOrParseASTTemplate("cond-novars:"+condStr, condStr, ctx)
 		if err != nil {
 			return nil, fmt.Errorf("condition parse error: %w", err)
 		}
@@ -135,7 +137,8 @@ func handleIfNodeWithVars(node *parse.IfNode, varCtx *varContext, keyGen KeyGene
 
 	// Execute condition with transformed template
 	condTmplStr := fmt.Sprintf("{{if %s}}true{{else}}false{{end}}", transformedCond)
-	tmpl, err := newTemplateWithFuncs("cond", ctx).Parse(condTmplStr)
+	// Use cached template parsing to avoid repeated Parse() calls
+	tmpl, err := getOrParseASTTemplate("cond-vars:"+condTmplStr, condTmplStr, ctx)
 	if err != nil {
 		return nil, fmt.Errorf("condition parse error: %w", err)
 	}

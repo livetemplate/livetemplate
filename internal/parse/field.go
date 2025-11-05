@@ -11,7 +11,8 @@ import (
 func handleActionNode(node *parse.ActionNode, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	// Execute the action to get its value
 	nodeStr := node.String()
-	tmpl, err := newTemplateWithFuncs("action", ctx).Parse(nodeStr)
+	// Use cached template parsing to avoid repeated Parse() calls
+	tmpl, err := getOrParseASTTemplate("action:"+nodeStr, nodeStr, ctx)
 	if err != nil {
 		return nil, fmt.Errorf("action parse error: %w", err)
 	}
@@ -50,7 +51,8 @@ func handleActionNodeWithVars(node *parse.ActionNode, varCtx *varContext, keyGen
 
 	if !hasVars {
 		// No variables - execute normally with dot context
-		tmpl, err := newTemplateWithFuncs("action", ctx).Parse(nodeStr)
+		// Use cached template parsing to avoid repeated Parse() calls
+		tmpl, err := getOrParseASTTemplate("action-novars:"+nodeStr, nodeStr, ctx)
 		if err != nil {
 			return nil, fmt.Errorf("action parse error: %w", err)
 		}
@@ -117,7 +119,8 @@ func evaluateActionWithVars(actionStr string, varCtx *varContext, ctx *Context) 
 	}
 
 	// Execute the wrapper template
-	tmpl, err := newTemplateWithFuncs("varAction", ctx).Parse(transformedAction)
+	// Use cached template parsing to avoid repeated Parse() calls
+	tmpl, err := getOrParseASTTemplate("varaction:"+transformedAction, transformedAction, ctx)
 	if err != nil {
 		return fmt.Sprintf("ERROR: %v", err)
 	}

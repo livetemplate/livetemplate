@@ -25,6 +25,11 @@ var captureResultFuncName string
 // Uses sync.Map for efficient concurrent access.
 var pipeTemplateCache sync.Map
 
+// astTemplateCache caches parsed templates for AST node handlers (actions, conditionals).
+// Key is the template string, value is the parsed *template.Template.
+// Uses sync.Map for efficient concurrent access.
+var astTemplateCache sync.Map
+
 func init() {
 	// Generate unique function name with random suffix
 	randBytes := make([]byte, 8)
@@ -239,6 +244,44 @@ func newTemplateWithFuncs(name string, ctx *Context) *template.Template {
 		tmpl = tmpl.Funcs(ctx.FuncMap)
 	}
 	return tmpl
+}
+
+// getOrParseASTTemplate retrieves a cached AST node template or parses a new one.
+// This is used by action and conditional handlers to avoid repeated parsing.
+// Templates are cloned before applying FuncMap to allow concurrent execution with different functions.
+func getOrParseASTTemplate(cacheKey, templateStr string, ctx *Context) (*template.Template, error) {
+	// Try to get from cache
+	if cached, ok := astTemplateCache.Load(cacheKey); ok {
+		if cachedTmpl, ok := cached.(*template.Template); ok {
+			// Clone the cached template and apply the FuncMap
+			clone, err := cachedTmpl.Clone()
+			if err != nil {
+				// If clone fails, fall back to parsing
+				goto parse
+			}
+			// Apply FuncMap from context
+			if ctx != nil && ctx.FuncMap != nil && len(ctx.FuncMap) > 0 {
+				clone.Funcs(ctx.FuncMap)
+			}
+			return clone, nil
+		}
+	}
+
+parse:
+	// Parse new template with FuncMap
+	tmpl := newTemplateWithFuncs(cacheKey, ctx)
+	parsedTmpl, err := tmpl.Parse(templateStr)
+	if err != nil {
+		return nil, err
+	}
+
+	// Store in cache for future use (without FuncMap, will be applied on clone)
+	baseTmpl, err := template.New(cacheKey).Parse(templateStr)
+	if err == nil {
+		astTemplateCache.Store(cacheKey, baseTmpl)
+	}
+
+	return parsedTmpl, nil
 }
 
 // evaluatePipe evaluates a pipe expression against data.
