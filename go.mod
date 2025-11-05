@@ -1,3 +1,4 @@
+// v0.2.0 - API Reduction Release
 module github.com/livetemplate/livetemplate
 
 go 1.25

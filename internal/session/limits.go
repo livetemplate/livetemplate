@@ -1,4 +1,4 @@
-package livetemplate
+package session
 
 import (
 	"fmt"

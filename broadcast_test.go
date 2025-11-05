@@ -4,6 +4,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/livetemplate/livetemplate/internal/session"
 )
 
 // BroadcastState is a test store for broadcasting tests
@@ -246,7 +248,7 @@ func TestLiveHandler_BroadcastToUsersConcurrent(t *testing.T) {
 }
 
 // createMockConnection creates a mock connection for testing
-func createMockConnection(t *testing.T, userID, groupID string, tmpl *Template) *Connection {
+func createMockConnection(t *testing.T, userID, groupID string, tmpl *Template) *session.Connection {
 	t.Helper()
 
 	// Clone template for this connection
@@ -255,7 +257,7 @@ func createMockConnection(t *testing.T, userID, groupID string, tmpl *Template) 
 		t.Fatalf("Failed to clone template: %v", err)
 	}
 
-	return &Connection{
+	return &session.Connection{
 		Conn:     nil, // Nil Conn triggers test mode in sendUpdate
 		UserID:   userID,
 		GroupID:  groupID,

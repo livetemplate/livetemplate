@@ -1,4 +1,6 @@
-package livetemplate
+// Package session provides connection and session management for LiveTemplate.
+// It handles WebSocket connection tracking, registration, and lookup operations.
+package session
 
 import (
 	"sync"
@@ -13,20 +15,23 @@ import (
 //
 // The Template field is per-connection because ExecuteUpdates() maintains state (lastTree, lastData)
 // for tree diffing, which must be independent for each connection.
+//
+// Note: Template and Stores types are from the parent livetemplate package and will be
+// set as interface{} to avoid circular imports. The mount handler casts them appropriately.
 type Connection struct {
 	Conn     *websocket.Conn // WebSocket connection
 	GroupID  string          // Session group ID (shared state boundary)
 	UserID   string          // User identity ("" for anonymous)
-	Template *Template       // Per-connection template for tree diffing
-	Stores   Stores          // Reference to shared stores from session group
-	mu       sync.Mutex      // Protects writes to Conn
+	Template interface{}     // Per-connection template for tree diffing (*livetemplate.Template)
+	Stores   interface{}     // Reference to shared stores from session group (livetemplate.Stores)
+	Mu       sync.Mutex      // Protects writes to Conn (exported for shutdown handling)
 }
 
 // Send sends a message to this connection.
 // Thread-safe: multiple goroutines can call Send concurrently.
 func (c *Connection) Send(messageType int, data []byte) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.Mu.Lock()
+	defer c.Mu.Unlock()
 	return c.Conn.WriteMessage(messageType, data)
 }
 
