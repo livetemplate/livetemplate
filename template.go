@@ -121,6 +121,7 @@ type Config struct {
 	WebSocketDisabled      bool
 	LoadingDisabled        bool          // Disables automatic loading indicator on page load
 	TemplateFiles          []string      // If set, overrides auto-discovery
+	TemplateBaseDir        string        // Base directory for template auto-discovery (default: directory of calling code via runtime.Caller)
 	IgnoreTemplateDirs     []string      // Additional directories to ignore during auto-discovery
 	DevMode                bool          // Development mode - use local client library instead of CDN
 	MaxConnections         int64         // Maximum total connections (0 = unlimited)
@@ -555,7 +556,8 @@ func New(name string, opts ...Option) *Template {
 
 	// Auto-discover and parse templates if not explicitly provided
 	if len(config.TemplateFiles) == 0 {
-		files, err := discoverTemplateFiles(config.IgnoreTemplateDirs)
+		// Use TemplateBaseDir from config if provided, otherwise fall back to runtime.Caller
+		files, err := discoverTemplateFiles(config.TemplateBaseDir, config.IgnoreTemplateDirs)
 		if err == nil && len(files) > 0 {
 			if _, err := tmpl.ParseFiles(files...); err != nil {
 				log.Printf("Warning: failed to parse template files: %v", err)

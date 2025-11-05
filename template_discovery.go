@@ -15,15 +15,20 @@ var ignoredTemplateDirs = map[string]struct{}{
 	"internal":     {}, // Skip internal directories (e.g., code generator templates with mixed delimiters)
 }
 
-// discoverTemplateFiles searches for template files in the calling directory and subdirectories
-func discoverTemplateFiles(customIgnoreDirs []string) ([]string, error) {
-	// Get the caller's directory (2 frames up: discoverTemplateFiles -> New -> user code)
-	_, filename, _, ok := runtime.Caller(2)
-	if !ok {
-		return nil, nil // Can't determine caller, skip auto-discovery
+// discoverTemplateFiles searches for template files in the specified directory and subdirectories.
+// If baseDir is empty, attempts to determine the caller's directory using runtime.Caller (for backward compatibility).
+// Returns nil if baseDir is empty and caller directory cannot be determined.
+func discoverTemplateFiles(baseDir string, customIgnoreDirs []string) ([]string, error) {
+	// If no base directory provided, try to determine caller's directory for backward compatibility
+	if baseDir == "" {
+		// Try to get the caller's directory (3 frames up: discoverTemplateFiles -> New -> user code)
+		// This is brittle and maintained only for backward compatibility
+		_, filename, _, ok := runtime.Caller(3)
+		if !ok {
+			return nil, nil // Can't determine caller, skip auto-discovery
+		}
+		baseDir = filepath.Dir(filename)
 	}
-
-	baseDir := filepath.Dir(filename)
 	var files []string
 
 	// Build combined ignore map (default + custom)
