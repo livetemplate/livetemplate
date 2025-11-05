@@ -38,9 +38,16 @@ type Connection struct {
 
 // Send sends a message to this connection.
 // Thread-safe: multiple goroutines can call Send concurrently.
+// Returns nil if Conn is nil (for testing with mock connections).
 func (c *Connection) Send(messageType int, data []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Allow nil Conn for testing (mock connections)
+	if c.Conn == nil {
+		return nil
+	}
+
 	return c.Conn.WriteMessage(messageType, data)
 }
 

@@ -430,16 +430,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 		// Auto-broadcast to other connections in same session group
 		// This ensures all tabs in the same browser session stay in sync
-		go func() {
-			otherConns := h.registry.GetByGroupExcept(groupID, connection)
-			if len(otherConns) > 0 {
-				for _, otherConn := range otherConns {
-					if err := h.sendUpdate(otherConn, h.getTemplateData(state.stores)); err != nil {
-						log.Printf("Auto-broadcast failed for connection in group %s: %v", groupID, err)
-					}
-				}
-			}
-		}()
+		h.autoBroadcastToGroup(groupID, h.getTemplateData(state.stores), connection)
 
 		// Generate tree update
 		buf.Reset()
@@ -582,16 +573,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Auto-broadcast to all WebSocket connections in same session group
 	// This ensures all tabs in the same browser session stay in sync
 	// (HTTP request doesn't have a WebSocket connection to exclude)
-	go func() {
-		wsConns := h.registry.GetByGroup(groupID)
-		if len(wsConns) > 0 {
-			for _, wsConn := range wsConns {
-				if err := h.sendUpdate(wsConn, h.getTemplateData(state.stores)); err != nil {
-					log.Printf("Auto-broadcast failed for WebSocket connection in group %s: %v", groupID, err)
-				}
-			}
-		}
-	}()
+	h.autoBroadcastToGroup(groupID, h.getTemplateData(state.stores), nil)
 
 	// Note: No need to save session - stores are modified in-place and already in SessionStore
 
@@ -965,6 +947,32 @@ func (h *liveHandler) BroadcastToGroup(groupID string, data interface{}) error {
 	return nil
 }
 
+// autoBroadcastToGroup broadcasts template updates to all connections in a group.
+// Optionally excludes a specific connection (for WebSocket sender).
+// Runs asynchronously to avoid blocking the caller.
+func (h *liveHandler) autoBroadcastToGroup(groupID string, data interface{}, excludeConn *session.Connection) {
+	go func() {
+		var conns []*session.Connection
+		if excludeConn != nil {
+			// WebSocket: exclude the sender
+			conns = h.registry.GetByGroupExcept(groupID, excludeConn)
+		} else {
+			// HTTP: broadcast to all connections (no sender to exclude)
+			conns = h.registry.GetByGroup(groupID)
+		}
+
+		if len(conns) == 0 {
+			return
+		}
+
+		for _, conn := range conns {
+			if err := h.sendUpdate(conn, data); err != nil {
+				log.Printf("Auto-broadcast failed for connection in group %s: %v", groupID, err)
+			}
+		}
+	}()
+}
+
 // sendUpdate generates and sends a template update to a single connection
 func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}) error {
 	// Use the connection's cloned template for independent tree diffing
@@ -1005,10 +1013,6 @@ func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}) err
 	}
 
 	// Send using the connection's Send method (thread-safe)
-	// Skip actual WebSocket send if Conn is nil (for testing)
-	if conn.Conn == nil {
-		return nil // Test mode - no actual send
-	}
 	return conn.Send(websocket.TextMessage, responseBytes)
 }
 

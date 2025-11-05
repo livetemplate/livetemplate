@@ -73,14 +73,6 @@ func (kga *keyGeneratorAdapter) Next() string {
 	return kga.kg.NextKey()
 }
 
-// globalKeyGenerator is the global key generator for template instances
-var globalKeyGenerator = newKeyGenerator()
-
-// resetKeyGenerator resets the global key generator for testing
-func resetKeyGenerator() {
-	globalKeyGenerator.Reset()
-}
-
 // detectIDKey wraps internal/build.DetectIDKey for backward compatibility
 func detectIDKey(statics []string) string {
 	return build.DetectIDKey(statics)
