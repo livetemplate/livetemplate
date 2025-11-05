@@ -107,6 +107,10 @@ import (
 	"github.com/livetemplate/livetemplate/pubsub"
 )
 
+// htmlBlockTags defines block-level HTML elements that create natural segment boundaries
+// for tree-based HTML structure analysis and segmentation.
+var htmlBlockTags = []string{"<div", "<article", "<section", "<main", "<aside", "<nav", "<ul", "<ol", "<table"}
+
 // Config holds template configuration options
 type Config struct {
 	Upgrader               *websocket.Upgrader
@@ -1170,12 +1174,9 @@ func (t *Template) analyzeChangeAndCreateTree(oldHTML, newHTML string, _, _ inte
 
 // createHTMLStructureBasedTree implements deterministic segmentation strategies for HTML content
 func (t *Template) createHTMLStructureBasedTree(html string) *TreeNode {
-	// Define block-level elements that create natural segment boundaries
-	blockTags := []string{"<div", "<article", "<section", "<main", "<aside", "<nav", "<ul", "<ol", "<table"}
-
 	// Find the positions of block elements
 	var boundaries []int
-	for _, tag := range blockTags {
+	for _, tag := range htmlBlockTags {
 		idx := 0
 		for {
 			pos := strings.Index(html[idx:], tag)
