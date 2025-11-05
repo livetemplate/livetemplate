@@ -315,7 +315,24 @@ func isZeroValue(v reflect.Value) bool {
 		return v.Uint() == 0
 	case reflect.Float32, reflect.Float64:
 		return v.Float() == 0
+	case reflect.Complex64, reflect.Complex128:
+		c := v.Complex()
+		return real(c) == 0 && imag(c) == 0
+	case reflect.Chan, reflect.Func:
+		return v.IsNil()
+	case reflect.Array:
+		// For arrays, check if all elements are zero
+		for i := 0; i < v.Len(); i++ {
+			if !isZeroValue(v.Index(i)) {
+				return false
+			}
+		}
+		return true
+	case reflect.Struct:
+		// Use IsZero() method (available since Go 1.13) for efficient struct comparison
+		return v.IsZero()
 	default:
+		// Fallback for uncommon types (e.g., UnsafePointer)
 		return reflect.DeepEqual(v.Interface(), reflect.Zero(v.Type()).Interface())
 	}
 }
