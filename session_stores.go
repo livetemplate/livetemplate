@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
+	"log"
 	"math"
 	"sync"
 	"time"
@@ -331,8 +332,10 @@ func (s *RedisSessionStore) Set(groupID string, stores Stores) {
 	// Serialize stores
 	data, err := s.serializeStores(stores)
 	if err != nil {
-		// Serialization failed - log error but don't crash
-		// This is a critical error that should be monitored
+		// CRITICAL: Serialization failed - data will not be persisted!
+		// This should be monitored in production as it indicates data loss.
+		log.Printf("ERROR: RedisSessionStore.Set(%s): serialization failed: %v", groupID, err)
+		// TODO: Consider changing Set() signature to return error in next major version
 		return
 	}
 
@@ -347,7 +350,12 @@ func (s *RedisSessionStore) Set(groupID string, stores Stores) {
 	pipe.Set(ctx, accessKey, time.Now().Unix(), s.ttl)
 
 	// Execute pipeline with retry
-	_ = s.execPipelineWithRetry(pipe)
+	if err := s.execPipelineWithRetry(pipe); err != nil {
+		// CRITICAL: Redis persistence failed - data will not be persisted!
+		// This should be monitored in production as it indicates data loss.
+		log.Printf("ERROR: RedisSessionStore.Set(%s): redis persistence failed: %v", groupID, err)
+		// TODO: Consider changing Set() signature to return error in next major version
+	}
 }
 
 // Delete removes a session group and all its state.

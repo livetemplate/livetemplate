@@ -287,6 +287,30 @@ func WithAllowedOrigins(origins []string) Option {
 	}
 }
 
+// WithPermissiveOriginCheck disables origin checking for WebSocket connections.
+//
+// WARNING: This allows connections from any origin and should ONLY be used in:
+//   - Local development environments
+//   - Testing scenarios
+//   - Specific use cases where CSRF protection is handled externally
+//
+// In production, use WithAllowedOrigins() instead to specify trusted origins.
+//
+// Example:
+//
+//	// Development only - DO NOT use in production
+//	tmpl := livetemplate.New("app",
+//	    livetemplate.WithDevMode(true),
+//	    livetemplate.WithPermissiveOriginCheck(),
+//	)
+func WithPermissiveOriginCheck() Option {
+	return func(c *Config) {
+		c.Upgrader.CheckOrigin = func(r *http.Request) bool {
+			return true
+		}
+	}
+}
+
 // WithIgnoreTemplateDirs adds directories to ignore during template auto-discovery.
 // This is useful to skip directories containing generator templates or other non-runtime templates.
 //
@@ -389,7 +413,7 @@ func WithPubSubBroadcaster(broadcaster pubsub.Broadcaster) Option {
 // # Configuration
 //
 // The template is configured with sensible defaults:
-//   - WebSocket upgrader with permissive CheckOrigin
+//   - Secure WebSocket origin checking (same-origin only, configurable via WithAllowedOrigins)
 //   - In-memory session store
 //   - Anonymous authenticator (browser-based session grouping)
 //   - Auto-discovery enabled
@@ -397,11 +421,66 @@ func WithPubSubBroadcaster(broadcaster pubsub.Broadcaster) Option {
 //   - Production mode (CDN client library)
 //
 // See the With* functions for available options.
+
+// createSecureOriginChecker creates a CheckOrigin function that enforces origin restrictions.
+//
+// Security behavior:
+//   - DevMode=true: Allows all origins (for local development)
+//   - DevMode=false with AllowedOrigins empty: Same-origin only (secure default)
+//   - DevMode=false with AllowedOrigins set: Only allows listed origins
+//
+// This prevents CSRF attacks by rejecting WebSocket upgrade requests from unauthorized origins.
+func createSecureOriginChecker(allowedOrigins []string, devMode bool) func(*http.Request) bool {
+	return func(r *http.Request) bool {
+		// Development mode: allow all origins for convenience
+		if devMode {
+			return true
+		}
+
+		origin := r.Header.Get("Origin")
+
+		// No origin header: allow (same-origin requests may not include Origin)
+		if origin == "" {
+			return true
+		}
+
+		// If AllowedOrigins is specified, check against the list
+		if len(allowedOrigins) > 0 {
+			for _, allowed := range allowedOrigins {
+				if origin == allowed {
+					return true
+				}
+			}
+			// Origin not in allowed list
+			return false
+		}
+
+		// Default: same-origin only
+		// Compare origin against the request's Host header
+		host := r.Host
+		if host == "" {
+			return false
+		}
+
+		// Extract scheme from request
+		scheme := "https"
+		if r.TLS == nil {
+			scheme = "http"
+		}
+
+		// Check if origin matches scheme://host
+		expectedOrigin := scheme + "://" + host
+		return origin == expectedOrigin
+	}
+}
+
 func New(name string, opts ...Option) *Template {
 	// Default configuration
 	config := Config{
 		Upgrader: &websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool { return true },
+			// Secure default: same-origin only
+			// This will be replaced with origin-aware check after options are applied
+			CheckOrigin: nil, // Will be set after applying options
 		},
 		SessionStore:  NewMemorySessionStore(),
 		Authenticator: &AnonymousAuthenticator{}, // Default: browser-based session grouping
@@ -410,6 +489,11 @@ func New(name string, opts ...Option) *Template {
 	// Apply options
 	for _, opt := range opts {
 		opt(&config)
+	}
+
+	// Set secure CheckOrigin after options are applied
+	if config.Upgrader.CheckOrigin == nil {
+		config.Upgrader.CheckOrigin = createSecureOriginChecker(config.AllowedOrigins, config.DevMode)
 	}
 
 	// Log DevMode configuration for debugging
