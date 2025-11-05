@@ -556,10 +556,16 @@ func (s *RedisSessionStore) execPipelineWithRetry(pipe redis.Pipeliner) error {
 // Ping checks if the Redis connection is healthy.
 // Used for health check integration.
 func (s *RedisSessionStore) Ping() error {
-	ctx, cancel := context.WithTimeout(s.ctx, 1*time.Second)
+	return s.PingContext(s.ctx)
+}
+
+// PingContext pings the Redis server with the given context.
+// The context can be used to set timeouts or cancel the operation early.
+func (s *RedisSessionStore) PingContext(ctx context.Context) error {
+	pingCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
 
-	return s.client.Ping(ctx).Err()
+	return s.client.Ping(pingCtx).Err()
 }
 
 // Close closes the Redis client connection and stops the refresh worker.
