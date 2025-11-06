@@ -62,7 +62,10 @@ func (a *ActionData) Raw() map[string]interface{} {
 
 // GetString extracts a string value.
 // Returns empty string if key doesn't exist or value is not a string.
-// Use GetStringOk for explicit error handling.
+//
+// DEPRECATED: Use GetStringOk for explicit error handling to distinguish
+// between missing keys, type errors, and actual empty strings.
+// This method will be removed in v0.3.0.
 func (a *ActionData) GetString(key string) string {
 	v, _ := a.GetStringOk(key)
 	return v
@@ -80,7 +83,10 @@ func (a *ActionData) GetStringOk(key string) (string, bool) {
 
 // GetInt extracts an int value (JSON numbers are float64).
 // Returns 0 if key doesn't exist or value is not a number.
-// Use GetIntOk for explicit error handling.
+//
+// DEPRECATED: Use GetIntOk for explicit error handling to distinguish
+// between missing keys, type errors, and actual zero values.
+// This method will be removed in v0.3.0.
 func (a *ActionData) GetInt(key string) int {
 	v, _ := a.GetIntOk(key)
 	return v
@@ -98,7 +104,10 @@ func (a *ActionData) GetIntOk(key string) (int, bool) {
 
 // GetFloat extracts a float64 value.
 // Returns 0 if key doesn't exist or value is not a number.
-// Use GetFloatOk for explicit error handling.
+//
+// DEPRECATED: Use GetFloatOk for explicit error handling to distinguish
+// between missing keys, type errors, and actual zero values.
+// This method will be removed in v0.3.0.
 func (a *ActionData) GetFloat(key string) float64 {
 	v, _ := a.GetFloatOk(key)
 	return v
@@ -116,7 +125,10 @@ func (a *ActionData) GetFloatOk(key string) (float64, bool) {
 
 // GetBool extracts a bool value.
 // Returns false if key doesn't exist or value is not a bool.
-// Use GetBoolOk for explicit error handling.
+//
+// DEPRECATED: Use GetBoolOk for explicit error handling to distinguish
+// between missing keys, type errors, and actual false values.
+// This method will be removed in v0.3.0.
 func (a *ActionData) GetBool(key string) bool {
 	v, _ := a.GetBoolOk(key)
 	return v

@@ -620,9 +620,17 @@ func (s *RedisSessionStore) Close() error {
 	return s.client.Close()
 }
 
-// refreshWorker processes TTL refresh requests from the channel.
+// refreshWorker processes TTL refresh requests in batches.
 // Uses debouncing to avoid refreshing the same key multiple times in quick succession.
 // Runs in a single goroutine to prevent goroutine leaks.
+//
+// Cleanup Behavior:
+// On shutdown (ctx.Done()), pending refresh operations in the queue are dropped.
+// This is acceptable because:
+//   - Redis keys have their TTL set during Get/Set operations
+//   - Refresh is a best-effort optimization to extend TTL for active sessions
+//   - Dropped refreshes only affect edge cases during shutdown
+//   - Sessions will naturally expire after TTL if not accessed again
 func (s *RedisSessionStore) refreshWorker() {
 	defer s.wg.Done()
 
@@ -636,6 +644,8 @@ func (s *RedisSessionStore) refreshWorker() {
 		select {
 		case <-s.ctx.Done():
 			// Context cancelled - shutdown
+			// Note: Pending refresh operations in the queue are dropped.
+			// This is acceptable as explained in the function documentation.
 			return
 
 		case groupID := <-s.refreshChan:

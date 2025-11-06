@@ -388,7 +388,11 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Create rate limiter for this connection (prevents DoS attacks)
 	var limiter *rate.Limiter
 	if h.config.Template.config.MessageRateLimit > 0 {
-		limiter = rate.NewLimiter(rate.Limit(h.config.Template.config.MessageRateLimit), h.config.Template.config.MessageRateBurst)
+		burst := h.config.Template.config.MessageRateBurst
+		if burst < 1 {
+			burst = 1 // Minimum burst size for rate limiter to function
+		}
+		limiter = rate.NewLimiter(rate.Limit(h.config.Template.config.MessageRateLimit), burst)
 	}
 
 	// message loop
