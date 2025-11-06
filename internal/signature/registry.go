@@ -1,8 +1,13 @@
 package signature
 
 import (
+	"container/list"
 	"sync"
 )
+
+// DefaultMaxRegistrySize is the default maximum number of structure signatures to track.
+// Prevents unbounded memory growth in long-lived templates with many structure variations.
+const DefaultMaxRegistrySize = 1000
 
 // ClientStructureRegistry tracks exactly what template structures the client has seen.
 // It provides the single source of truth for determining whether statics should be
@@ -11,6 +16,10 @@ import (
 // The registry maps field paths to structure signatures, enabling definitive answers to:
 // "Has the client seen THIS EXACT structure at THIS EXACT path?"
 //
+// Implements LRU eviction to prevent unbounded memory growth:
+//   - When maxSize is reached, least recently used entries are evicted
+//   - maxSize of 0 means unlimited (not recommended for production)
+//
 // Thread-safe for concurrent WebSocket sessions.
 type ClientStructureRegistry struct {
 	// structures maps field path → structure signature
@@ -18,16 +27,36 @@ type ClientStructureRegistry struct {
 	//   "0" → "scalar"
 	//   "11" → "conditional"
 	//   "11.0" → "range:items:abc123de"
-	structures map[string]StructureSignature
+	structures map[string]*list.Element
 
-	// mu protects structures map for concurrent access
+	// lruList tracks access order (most recent at front)
+	lruList *list.List
+
+	// maxSize limits the number of tracked structures (0 = unlimited)
+	maxSize int
+
+	// mu protects structures map and LRU list for concurrent access
 	mu sync.RWMutex
 }
 
-// NewClientStructureRegistry creates a new empty registry.
+// lruEntry represents an entry in the LRU cache.
+type lruEntry struct {
+	path      string
+	signature StructureSignature
+}
+
+// NewClientStructureRegistry creates a new empty registry with default max size.
 func NewClientStructureRegistry() *ClientStructureRegistry {
+	return NewClientStructureRegistryWithSize(DefaultMaxRegistrySize)
+}
+
+// NewClientStructureRegistryWithSize creates a new registry with custom max size.
+// Use maxSize=0 for unlimited size (not recommended for long-lived templates).
+func NewClientStructureRegistryWithSize(maxSize int) *ClientStructureRegistry {
 	return &ClientStructureRegistry{
-		structures: make(map[string]StructureSignature),
+		structures: make(map[string]*list.Element),
+		lruList:    list.New(),
+		maxSize:    maxSize,
 	}
 }
 
@@ -38,36 +67,76 @@ func NewClientStructureRegistry() *ClientStructureRegistry {
 //   - The path has never been seen
 //   - The structure at this path has changed (different signature)
 //
-// Thread-safe for concurrent reads.
+// Thread-safe for concurrent reads. Promotes accessed entries to front of LRU list.
 func (r *ClientStructureRegistry) HasSeen(fieldPath string, value interface{}) bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	// Calculate signature of current value
 	currentSig := CalculateSignature(value)
 
 	// Look up what client has seen at this path
-	seenSig, exists := r.structures[fieldPath]
+	elem, exists := r.structures[fieldPath]
+	if !exists {
+		return false
+	}
 
-	// Client has seen it if:
-	// 1. Path exists in registry
-	// 2. Signatures match exactly
-	return exists && seenSig == currentSig
+	entry := elem.Value.(*lruEntry)
+
+	// Check if signatures match
+	matches := entry.signature == currentSig
+
+	// Promote to front of LRU list on access
+	if matches {
+		r.lruList.MoveToFront(elem)
+	}
+
+	return matches
 }
 
 // MarkSeen records that the client has seen this structure at this path.
 // This should be called whenever a structure is sent to the client.
 //
 // The signature is calculated from the value and stored at the field path.
+// If maxSize is reached, evicts the least recently used entry.
 //
 // Thread-safe for concurrent writes.
 func (r *ClientStructureRegistry) MarkSeen(fieldPath string, value interface{}) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Calculate and store signature
+	// Calculate signature
 	sig := CalculateSignature(value)
-	r.structures[fieldPath] = sig
+
+	// Check if entry already exists
+	if elem, exists := r.structures[fieldPath]; exists {
+		// Update existing entry and move to front
+		entry := elem.Value.(*lruEntry)
+		entry.signature = sig
+		r.lruList.MoveToFront(elem)
+		return
+	}
+
+	// Create new entry
+	entry := &lruEntry{
+		path:      fieldPath,
+		signature: sig,
+	}
+
+	// Add to front of LRU list
+	elem := r.lruList.PushFront(entry)
+	r.structures[fieldPath] = elem
+
+	// Evict LRU entry if size limit exceeded
+	if r.maxSize > 0 && r.lruList.Len() > r.maxSize {
+		// Remove least recently used (back of list)
+		oldest := r.lruList.Back()
+		if oldest != nil {
+			r.lruList.Remove(oldest)
+			oldEntry := oldest.Value.(*lruEntry)
+			delete(r.structures, oldEntry.path)
+		}
+	}
 }
 
 // Clear resets the registry, removing all tracked structures.
@@ -78,20 +147,29 @@ func (r *ClientStructureRegistry) Clear() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Create new empty map
-	r.structures = make(map[string]StructureSignature)
+	// Create new empty map and list
+	r.structures = make(map[string]*list.Element)
+	r.lruList = list.New()
 }
 
 // GetSignature returns the signature the client has seen at this path.
 // Returns (signature, true) if path exists, ("", false) otherwise.
 //
-// Thread-safe for concurrent reads.
+// Thread-safe for concurrent reads. Promotes accessed entries to front of LRU list.
 func (r *ClientStructureRegistry) GetSignature(fieldPath string) (StructureSignature, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-	sig, exists := r.structures[fieldPath]
-	return sig, exists
+	elem, exists := r.structures[fieldPath]
+	if !exists {
+		return "", false
+	}
+
+	entry := elem.Value.(*lruEntry)
+	// Promote to front on access
+	r.lruList.MoveToFront(elem)
+
+	return entry.signature, true
 }
 
 // Size returns the number of structures tracked in the registry.
