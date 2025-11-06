@@ -86,6 +86,21 @@ func (a *AnonymousAuthenticator) GetSessionGroup(r *http.Request, userID string)
 // It calls a user-provided validation function and maps authenticated users
 // to session groups using a simple 1:1 mapping (groupID = userID).
 //
+// # Security Warnings
+//
+// HTTPS REQUIRED: BasicAuthenticator uses HTTP Basic Authentication, which sends
+// credentials as base64-encoded strings. This is NOT encrypted and MUST only be
+// used over HTTPS connections. Using HTTP Basic Auth over plain HTTP exposes
+// credentials to network eavesdropping.
+//
+// BRUTE FORCE PROTECTION: This implementation has no built-in rate limiting or
+// account lockout. For production use, you MUST implement protection against
+// brute force attacks through one or more of:
+//   - Rate limiting middleware (e.g., golang.org/x/time/rate)
+//   - Account lockout after N failed attempts
+//   - External protection (e.g., fail2ban, CloudFlare)
+//   - Web Application Firewall (WAF) rules
+//
 // Example usage:
 //
 //	auth := livetemplate.NewBasicAuthenticator(func(username, password string) (bool, error) {
@@ -100,6 +115,7 @@ func (a *AnonymousAuthenticator) GetSessionGroup(r *http.Request, userID string)
 // - OAuth
 // - Session cookies from existing auth middleware
 // - Custom session group mapping logic
+// - Built-in rate limiting and brute force protection
 type BasicAuthenticator struct {
 	// ValidateFunc is called to verify username/password credentials.
 	// Returns true if credentials are valid, false otherwise.
