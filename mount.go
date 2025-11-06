@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"reflect"
 	"sync"
@@ -808,28 +809,35 @@ func (h *liveHandler) Broadcast(data interface{}) error {
 	if h.config.PubSubBroadcaster != nil {
 		payload, err := json.Marshal(data)
 		if err != nil {
-			log.Printf("Broadcast: Failed to marshal payload: %v", err)
-		} else {
-			if err := h.config.PubSubBroadcaster.PublishGlobal(payload); err != nil {
-				log.Printf("Broadcast: Failed to publish to Redis: %v", err)
-			}
+			slog.Error("Failed to marshal broadcast payload",
+				slog.String("error", err.Error()))
+			return fmt.Errorf("broadcast marshal error: %w", err)
+		}
+		if err := h.config.PubSubBroadcaster.PublishGlobal(payload); err != nil {
+			slog.Error("Failed to publish broadcast to pubsub",
+				slog.String("error", err.Error()))
+			// Don't return early - still try local broadcast
 		}
 	}
 
 	// Broadcast to local connections
 	connections := h.registry.GetAll()
 	if len(connections) == 0 {
-		log.Printf("Broadcast: No local connections to broadcast to")
+		slog.Debug("No local connections for broadcast")
 		return nil
 	}
 
-	log.Printf("Broadcasting to %d local connection(s)", len(connections))
+	slog.Debug("Broadcasting to local connections",
+		slog.Int("connection_count", len(connections)))
 
 	// Track errors but continue broadcasting to other connections
 	var errCount int
 	for _, conn := range connections {
 		if err := h.sendUpdate(conn, data); err != nil {
-			log.Printf("Broadcast: Failed to send to connection %s: %v", conn.UserID, err)
+			slog.Warn("Broadcast send failed",
+				slog.String("user_id", conn.UserID),
+				slog.String("group_id", conn.GroupID),
+				slog.String("error", err.Error()))
 			errCount++
 		}
 	}
@@ -868,12 +876,16 @@ func (h *liveHandler) BroadcastToUsers(userIDs []string, data interface{}) error
 	if h.config.PubSubBroadcaster != nil {
 		payload, err := json.Marshal(data)
 		if err != nil {
-			log.Printf("BroadcastToUsers: Failed to marshal payload: %v", err)
-		} else {
-			for _, userID := range userIDs {
-				if err := h.config.PubSubBroadcaster.PublishToUser(userID, payload); err != nil {
-					log.Printf("BroadcastToUsers: Failed to publish to Redis for user %s: %v", userID, err)
-				}
+			slog.Error("Failed to marshal broadcast to users payload",
+				slog.String("error", err.Error()))
+			return fmt.Errorf("broadcast to users marshal error: %w", err)
+		}
+		for _, userID := range userIDs {
+			if err := h.config.PubSubBroadcaster.PublishToUser(userID, payload); err != nil {
+				slog.Error("Failed to publish user broadcast to pubsub",
+					slog.String("user_id", userID),
+					slog.String("error", err.Error()))
+				// Continue with other users
 			}
 		}
 	}
@@ -888,20 +900,26 @@ func (h *liveHandler) BroadcastToUsers(userIDs []string, data interface{}) error
 
 		for _, conn := range connections {
 			if err := h.sendUpdate(conn, data); err != nil {
-				log.Printf("BroadcastToUsers: Failed to send to user %s: %v", userID, err)
+				slog.Warn("Broadcast to user send failed",
+					slog.String("user_id", userID),
+					slog.String("group_id", conn.GroupID),
+					slog.String("error", err.Error()))
 				errCount++
 			}
 		}
 	}
 
-	log.Printf("Broadcast to users: sent to %d local connection(s) for %d user(s)", totalConnections, len(userIDs))
+	slog.Debug("Broadcast to users complete",
+		slog.Int("user_count", len(userIDs)),
+		slog.Int("connection_count", totalConnections))
 
 	if errCount > 0 {
 		return fmt.Errorf("broadcast failed for %d/%d connections", errCount, totalConnections)
 	}
 
 	if totalConnections == 0 {
-		log.Printf("BroadcastToUsers: No local connections found for users %v", userIDs)
+		slog.Debug("No local connections for user broadcast",
+			slog.Int("user_count", len(userIDs)))
 	}
 
 	return nil
@@ -931,27 +949,38 @@ func (h *liveHandler) BroadcastToGroup(groupID string, data interface{}) error {
 	if h.config.PubSubBroadcaster != nil {
 		payload, err := json.Marshal(data)
 		if err != nil {
-			log.Printf("BroadcastToGroup: Failed to marshal payload: %v", err)
-		} else {
-			if err := h.config.PubSubBroadcaster.PublishToGroup(groupID, payload); err != nil {
-				log.Printf("BroadcastToGroup: Failed to publish to Redis: %v", err)
-			}
+			slog.Error("Failed to marshal broadcast to group payload",
+				slog.String("group_id", groupID),
+				slog.String("error", err.Error()))
+			return fmt.Errorf("broadcast to group marshal error: %w", err)
+		}
+		if err := h.config.PubSubBroadcaster.PublishToGroup(groupID, payload); err != nil {
+			slog.Error("Failed to publish group broadcast to pubsub",
+				slog.String("group_id", groupID),
+				slog.String("error", err.Error()))
+			// Continue with local broadcast
 		}
 	}
 
 	// Broadcast to local connections
 	connections := h.registry.GetByGroup(groupID)
 	if len(connections) == 0 {
-		log.Printf("BroadcastToGroup: No local connections found for group %s", groupID)
+		slog.Debug("No local connections for group broadcast",
+			slog.String("group_id", groupID))
 		return nil
 	}
 
-	log.Printf("Broadcasting to group %s: %d local connection(s)", groupID, len(connections))
+	slog.Debug("Broadcasting to group connections",
+		slog.String("group_id", groupID),
+		slog.Int("connection_count", len(connections)))
 
 	var errCount int
 	for _, conn := range connections {
 		if err := h.sendUpdate(conn, data); err != nil {
-			log.Printf("BroadcastToGroup: Failed to send to group %s: %v", groupID, err)
+			slog.Warn("Broadcast to group send failed",
+				slog.String("group_id", groupID),
+				slog.String("user_id", conn.UserID),
+				slog.String("error", err.Error()))
 			errCount++
 		}
 	}
