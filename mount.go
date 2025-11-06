@@ -995,6 +995,10 @@ func (h *liveHandler) BroadcastToGroup(groupID string, data interface{}) error {
 // autoBroadcastToGroup broadcasts template updates to all connections in a group.
 // Optionally excludes a specific connection (for WebSocket sender).
 // Runs asynchronously to avoid blocking the caller.
+//
+// Note: Under high load, this may launch many concurrent goroutines.
+// Each goroutine is relatively short-lived and uses per-connection template clones,
+// so this is safe but could cause temporary resource spikes.
 func (h *liveHandler) autoBroadcastToGroup(groupID string, data interface{}, excludeConn *session.Connection) {
 	go func() {
 		var conns []*session.Connection
@@ -1007,13 +1011,31 @@ func (h *liveHandler) autoBroadcastToGroup(groupID string, data interface{}, exc
 		}
 
 		if len(conns) == 0 {
+			slog.Debug("No connections for auto-broadcast",
+				slog.String("group_id", groupID))
 			return
 		}
 
+		slog.Debug("Auto-broadcasting to group",
+			slog.String("group_id", groupID),
+			slog.Int("connection_count", len(conns)))
+
+		var errCount int
 		for _, conn := range conns {
 			if err := h.sendUpdate(conn, data); err != nil {
-				log.Printf("Auto-broadcast failed for connection in group %s: %v", groupID, err)
+				slog.Warn("Auto-broadcast send failed",
+					slog.String("group_id", groupID),
+					slog.String("user_id", conn.UserID),
+					slog.String("error", err.Error()))
+				errCount++
 			}
+		}
+
+		if errCount > 0 {
+			slog.Warn("Auto-broadcast completed with errors",
+				slog.String("group_id", groupID),
+				slog.Int("error_count", errCount),
+				slog.Int("total_connections", len(conns)))
 		}
 	}()
 }
