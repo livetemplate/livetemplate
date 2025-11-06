@@ -226,20 +226,21 @@ func ValidationToMultiError(err error) MultiError {
 	}
 
 	for _, e := range validationErrs {
-		fieldName := strings.ToLower(e.Field())
+		// Use original field name to match form field names (camelCase/PascalCase)
+		fieldName := e.Field()
 
 		var message string
 		switch e.Tag() {
 		case "required":
-			message = fmt.Sprintf("%s is required", e.Field())
+			message = fmt.Sprintf("%s is required", fieldName)
 		case "min":
-			message = fmt.Sprintf("%s must be at least %s characters", e.Field(), e.Param())
+			message = fmt.Sprintf("%s must be at least %s characters", fieldName, e.Param())
 		case "max":
-			message = fmt.Sprintf("%s must be at most %s characters", e.Field(), e.Param())
+			message = fmt.Sprintf("%s must be at most %s characters", fieldName, e.Param())
 		case "email":
-			message = fmt.Sprintf("%s must be a valid email", e.Field())
+			message = fmt.Sprintf("%s must be a valid email", fieldName)
 		default:
-			message = fmt.Sprintf("%s is invalid", e.Field())
+			message = fmt.Sprintf("%s is invalid", fieldName)
 		}
 
 		fieldErrors = append(fieldErrors, FieldError{
