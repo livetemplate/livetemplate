@@ -440,27 +440,26 @@
 - **Effort**: Trivial (documentation only)
 - **Priority**: P3
 
-### #37 - Lock Granularity in Template
+### #37 - Lock Granularity in Template ✅ COMPLETED
 - **File**: `template.go:134`
 - **Issue**: Single mutex protects all mutable state (tree, data, HTML, registry)
 - **Impact**: Could cause contention with many concurrent requests
-- **Recommended Fix**: Consider separate locks for different state domains
+- **Fix**: Refactored to use fine-grained locking - registry calls outside Template lock
 - **Effort**: Medium (4-6 hours, needs careful analysis for deadlock prevention)
 - **Priority**: P3
 
-### #38 - Context Not Passed to Store.Change()
-- **File**: `mount.go:323`
+### #38 - Context Not Passed to Store.Change() ✅ COMPLETED
+- **File**: `mount.go:323`, `action.go`
 - **Issue**: Context created but never passed to Store.Change()
-- **Code Location**:
-  ```go
-  ctx := context.WithValue(r.Context(), "user_id", userID)
-  // But Store.Change() has no ctx parameter to receive it
-  ```
-- **Impact**: Stores can't use context for cancellation/deadlines/trace IDs
-- **Recommended Fix**: Add context.Context parameter to Store interface methods
+- **Fix**: Added Ctx field to ActionContext, handleAction now propagates request context
+- **Impact**: Stores can now use context for cancellation/deadlines/trace IDs
+- **Implementation**:
+  - Added ActionContext.Ctx (context.Context) field
+  - handleAction accepts context parameter
+  - Both WebSocket and HTTP handlers pass r.Context()
 - **Effort**: Medium (3-4 hours)
-- **Breaking**: Yes (Store interface changes)
-- **Priority**: P3 (overlaps with #6, implement together)
+- **Breaking**: No - added field to struct, backward compatible
+- **Priority**: P3
 
 ### #39 - Gob Registration Not Enforced
 - **File**: `session_stores.go:397-422`
