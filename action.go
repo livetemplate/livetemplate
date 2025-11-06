@@ -63,36 +63,76 @@ func (a *ActionData) Raw() map[string]interface{} {
 	return a.raw
 }
 
-// GetString extracts a string value
+// GetString extracts a string value.
+// Returns empty string if key doesn't exist or value is not a string.
+// Use GetStringOk for explicit error handling.
 func (a *ActionData) GetString(key string) string {
+	v, _ := a.GetStringOk(key)
+	return v
+}
+
+// GetStringOk extracts a string value with explicit success indicator.
+// Returns (value, true) if key exists and value is a string.
+// Returns ("", false) if key doesn't exist or value is not a string.
+func (a *ActionData) GetStringOk(key string) (string, bool) {
 	if v, ok := a.raw[key].(string); ok {
-		return v
+		return v, true
 	}
-	return ""
+	return "", false
 }
 
-// GetInt extracts an int value (JSON numbers are float64)
+// GetInt extracts an int value (JSON numbers are float64).
+// Returns 0 if key doesn't exist or value is not a number.
+// Use GetIntOk for explicit error handling.
 func (a *ActionData) GetInt(key string) int {
-	if v, ok := a.raw[key].(float64); ok {
-		return int(v)
-	}
-	return 0
+	v, _ := a.GetIntOk(key)
+	return v
 }
 
-// GetFloat extracts a float64 value
+// GetIntOk extracts an int value with explicit success indicator.
+// Returns (value, true) if key exists and value is a number.
+// Returns (0, false) if key doesn't exist or value is not a number.
+func (a *ActionData) GetIntOk(key string) (int, bool) {
+	if v, ok := a.raw[key].(float64); ok {
+		return int(v), true
+	}
+	return 0, false
+}
+
+// GetFloat extracts a float64 value.
+// Returns 0 if key doesn't exist or value is not a number.
+// Use GetFloatOk for explicit error handling.
 func (a *ActionData) GetFloat(key string) float64 {
-	if v, ok := a.raw[key].(float64); ok {
-		return v
-	}
-	return 0
+	v, _ := a.GetFloatOk(key)
+	return v
 }
 
-// GetBool extracts a bool value
-func (a *ActionData) GetBool(key string) bool {
-	if v, ok := a.raw[key].(bool); ok {
-		return v
+// GetFloatOk extracts a float64 value with explicit success indicator.
+// Returns (value, true) if key exists and value is a number.
+// Returns (0, false) if key doesn't exist or value is not a number.
+func (a *ActionData) GetFloatOk(key string) (float64, bool) {
+	if v, ok := a.raw[key].(float64); ok {
+		return v, true
 	}
-	return false
+	return 0, false
+}
+
+// GetBool extracts a bool value.
+// Returns false if key doesn't exist or value is not a bool.
+// Use GetBoolOk for explicit error handling.
+func (a *ActionData) GetBool(key string) bool {
+	v, _ := a.GetBoolOk(key)
+	return v
+}
+
+// GetBoolOk extracts a bool value with explicit success indicator.
+// Returns (value, true) if key exists and value is a bool.
+// Returns (false, false) if key doesn't exist or value is not a bool.
+func (a *ActionData) GetBoolOk(key string) (bool, bool) {
+	if v, ok := a.raw[key].(bool); ok {
+		return v, true
+	}
+	return false, false
 }
 
 // Has checks if a key exists
