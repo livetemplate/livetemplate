@@ -47,16 +47,19 @@ type EnvConfig struct {
 	// Default: 30 seconds
 	// Environment: LVT_SHUTDOWN_TIMEOUT
 	// Example: "30s", "1m", "500ms"
+	// Note: Reserved for future use. Currently loaded and validated but not applied.
 	ShutdownTimeout time.Duration
 
 	// LogLevel sets the logging level (debug, info, warn, error).
 	// Default: "info"
 	// Environment: LVT_LOG_LEVEL
+	// Note: Reserved for future use. Currently loaded and validated but not applied.
 	LogLevel string
 
 	// MetricsEnabled enables Prometheus metrics export.
 	// Default: true
 	// Environment: LVT_METRICS_ENABLED (true/false, 1/0)
+	// Note: Reserved for future use. Currently loaded and validated but not applied.
 	MetricsEnabled bool
 }
 
@@ -258,7 +261,7 @@ func (c *EnvConfig) Validate() error {
 }
 
 // parseBool parses a boolean value from a string.
-// Accepts: "true", "false", "1", "0" (case-insensitive).
+// Accepts: "true", "false", "1", "0", "yes", "no", "on", "off" (case-insensitive).
 func parseBool(s string) (bool, error) {
 	s = strings.ToLower(strings.TrimSpace(s))
 	switch s {
