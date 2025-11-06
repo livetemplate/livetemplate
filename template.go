@@ -862,7 +862,8 @@ func (t *Template) generateTreeInternalWithErrors(data interface{}, errors map[s
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	// Initialize key generator if needed (but don't reset - keys should increment globally)
+	// Initialize key generator if needed (defensive check for edge cases)
+	// keyGen should always be initialized in New() and Clone(), but check anyway
 	if t.keyGen == nil {
 		t.keyGen = newKeyGenerator()
 	}
