@@ -794,21 +794,16 @@ func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]
 	// Reuse htmlBytes from first execution (no need to execute again)
 	currentHTML := string(htmlBytes)
 
-	// Extract content from wrapper for consistent caching
-	var contentToCache string
-	if t.wrapperID != "" {
-		contentToCache = extractTemplateContent(currentHTML, t.wrapperID)
-	} else {
-		contentToCache = currentHTML
-	}
-
-	// Set up caching state and generate initial tree (protected by mutex)
+	// Generate and cache initial tree structure for performance
+	// This enables ExecuteUpdates to generate diffs on subsequent calls
 	t.mu.Lock()
-	t.lastData = data
-	t.lastHTML = contentToCache
-
-	// Generate and cache initial tree structure
 	tree, treeErr := t.generateInitialTreeWithoutRegistry(currentHTML, data)
+	if treeErr == nil {
+		// Successfully generated tree - cache it along with data and HTML
+		// This must be done AFTER tree generation so isFirstRender detection works correctly
+		t.lastData = data
+		t.lastHTML = currentHTML
+	}
 	t.mu.Unlock()
 
 	if treeErr != nil {

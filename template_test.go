@@ -1740,11 +1740,13 @@ func TestTemplateGenerateTreeWithFuncMap(t *testing.T) {
 		t.Fatalf("Execute failed: %v", err)
 	}
 
-	tree, err := tmpl.generateTreeInternalWithErrors(map[string]string{"CSV": "one,two"}, nil)
-	if err != nil {
-		t.Fatalf("generateTreeInternalWithErrors failed: %v", err)
+	// After Execute(), check the cached initialTree instead of calling generateTreeInternalWithErrors
+	// (calling it again with same data would generate an empty diff)
+	if tmpl.initialTree == nil {
+		t.Fatalf("expected initial tree to be cached")
 	}
 
+	tree := tmpl.initialTree
 	dynamic, ok := tree.Dynamics["0"]
 	if !ok {
 		t.Fatalf("expected dynamic range at position 0")
@@ -1761,10 +1763,6 @@ func TestTemplateGenerateTreeWithFuncMap(t *testing.T) {
 
 	if rangeNode.Range == nil || len(rangeNode.Range.Items) != 2 {
 		t.Fatalf("expected 2 items in range, got %v", rangeNode.Range)
-	}
-
-	if tmpl.initialTree == nil {
-		t.Fatalf("expected initial tree to be cached")
 	}
 }
 

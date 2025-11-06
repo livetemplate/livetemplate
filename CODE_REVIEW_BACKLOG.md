@@ -447,6 +447,7 @@
 - **Fix**: Refactored to use fine-grained locking - registry calls outside Template lock
 - **Effort**: Medium (4-6 hours, needs careful analysis for deadlock prevention)
 - **Priority**: P3
+- **Additional Fix**: Fixed Execute() to set lastData/lastHTML AFTER tree generation (not before) to preserve first-render detection. Updated TestTemplateGenerateTreeWithFuncMap to check cached initialTree instead of regenerating tree.
 
 ### #38 - Context Not Passed to Store.Change() ✅ COMPLETED
 - **File**: `mount.go:323`, `action.go`
