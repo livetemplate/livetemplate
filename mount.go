@@ -541,10 +541,16 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		// Always reload data from database for GET requests to ensure fresh data
 		// This prevents stale session state when WebSocket actions modify data
-		for _, store := range state.stores {
+		for name, store := range state.stores {
 			if initializer, ok := store.(StoreInitializer); ok {
 				if err := initializer.Init(); err != nil {
-					log.Printf("Warning: Store initialization failed for GET request: %v", err)
+					slog.Error("Store initialization failed for GET request",
+						slog.String("store", name),
+						slog.String("group_id", groupID),
+						slog.String("user_id", userID),
+						slog.String("error", err.Error()))
+					http.Error(w, "Failed to initialize application state", http.StatusInternalServerError)
+					return
 				}
 			}
 		}
@@ -741,8 +747,10 @@ func cloneStore(store Store) Store {
 	if initializer, ok := newStore.(StoreInitializer); ok {
 		if err := initializer.Init(); err != nil {
 			// Log the error but don't fail - store is in a partially initialized state
-			// The error will be handled when the store is actually used
-			log.Printf("Warning: Store initialization failed: %v", err)
+			// This will surface as an error when the store is first used (e.g., in GET handler)
+			slog.Error("Store initialization failed during cloning",
+				slog.String("store_type", fmt.Sprintf("%T", store)),
+				slog.String("error", err.Error()))
 		}
 	}
 

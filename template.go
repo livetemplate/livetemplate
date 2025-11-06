@@ -627,7 +627,7 @@ func (t *Template) Parse(text string) (*Template, error) {
 	}
 	tmpl, err := baseTemplate.Parse(text)
 	if err != nil {
-		return nil, fmt.Errorf("template parse error: %w", err)
+		return nil, fmt.Errorf("template '%s' parse error: %w", t.name, err)
 	}
 
 	return t.parseInternal(text, tmpl, isFullHTML)
@@ -720,7 +720,7 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 	}
 	tmpl, err := baseTemplate.Parse(text)
 	if err != nil {
-		return nil, fmt.Errorf("template parse error: %w", err)
+		return nil, fmt.Errorf("template '%s' parse error: %w", t.name, err)
 	}
 
 	// Parse additional files if provided (for template composition)
@@ -1032,6 +1032,9 @@ func (t *Template) generateInitialTree(html string, data interface{}) (*TreeNode
 	tree, err := parseTemplateToTree(templateContent, data, t.keyGen, ctx)
 	if err != nil {
 		// parseTemplateToTree failed, falling back to HTML structure
+		slog.Warn("Template parsing failed, falling back to HTML structure-based tree",
+			slog.String("template", t.name),
+			slog.String("error", err.Error()))
 		tree = t.createHTMLStructureBasedTree(contentToAnalyze)
 	}
 
