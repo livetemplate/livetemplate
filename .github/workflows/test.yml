@@ -20,13 +20,18 @@ jobs:
       with:
         go-version: '1.25'
 
+    - name: Set up Chrome
+      uses: browser-actions/setup-chrome@v1
+      with:
+        chrome-version: stable
+
     - name: Download dependencies
       run: go mod download
 
     - name: Run tests
       run: |
         # Test only core library, excluding extracted components
-        go test -v -race -timeout=60s $(go list ./... | grep -v '/cmd/lvt' | grep -v '/examples' | grep -v '/client')
+        go test -v -race -timeout=120s $(go list ./... | grep -v '/cmd/lvt' | grep -v '/examples' | grep -v '/client')
       env:
         CGO_ENABLED: 1
 
