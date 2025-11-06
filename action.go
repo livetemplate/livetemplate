@@ -3,7 +3,6 @@ package livetemplate
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 
@@ -47,9 +46,6 @@ func (a *ActionData) BindAndValidate(v interface{}, validate *validator.Validate
 	if err := a.Bind(v); err != nil {
 		return err
 	}
-
-	log.Printf("[lvt debug] bind raw: %#v", a.raw)
-	log.Printf("[lvt debug] bound struct: %#v", v)
 
 	if err := validate.Struct(v); err != nil {
 		return ValidationToMultiError(err)

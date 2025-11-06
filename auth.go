@@ -73,7 +73,11 @@ func (a *AnonymousAuthenticator) GetSessionGroup(r *http.Request, userID string)
 	}
 
 	// Generate new session group ID for this browser
-	return generateSessionID(), nil
+	sessionID, err := generateSessionID()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate session ID: %w", err)
+	}
+	return sessionID, nil
 }
 
 // BasicAuthenticator provides username/password authentication.
@@ -167,13 +171,13 @@ func (a *BasicAuthenticator) GetSessionGroup(r *http.Request, userID string) (st
 // - Session group IDs (anonymous users)
 // - Session cookies
 // - Any security-sensitive identifier
-func generateSessionID() string {
+func generateSessionID() (string, error) {
 	b := make([]byte, 32)
 	_, err := rand.Read(b)
 	if err != nil {
 		// crypto/rand.Read only fails on systems without entropy source
-		// This should never happen on modern systems
-		panic(fmt.Sprintf("failed to generate session ID: %v", err))
+		// Return error gracefully instead of panicking
+		return "", fmt.Errorf("crypto/rand.Read failed: %w", err)
 	}
-	return base64.URLEncoding.EncodeToString(b)
+	return base64.URLEncoding.EncodeToString(b), nil
 }
