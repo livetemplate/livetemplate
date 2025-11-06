@@ -35,7 +35,7 @@ func BenchmarkUserJourney(b *testing.B) {
 			state := simulator.GetState()
 
 			if j == 0 {
-				_, _ = tmpl.generateInitialTree(templateStr, state)
+				_, _ = tmpl.generateInitialTreeWithoutRegistry(templateStr, state)
 			} else {
 				newTree, _ := parseTemplateToTree(templateStr, state, tmpl.keyGen)
 				tmpl.compareTreesAndGetChanges(tmpl.lastTree, newTree)

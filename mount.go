@@ -426,8 +426,8 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// Handle action
-		if err := h.handleAction(msg, state); err != nil {
+		// Handle action with request context for timeout/cancellation/values
+		if err := h.handleAction(r.Context(), msg, state); err != nil {
 			log.Printf("Action error: %v", err)
 			continue
 		}
@@ -575,8 +575,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Handle action
-	if err := h.handleAction(msg, state); err != nil {
+	// Handle action with request context for timeout/cancellation/values
+	if err := h.handleAction(r.Context(), msg, state); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -621,7 +621,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleAction routes the action to the correct store and captures errors
-func (h *liveHandler) handleAction(msg message, state *connState) error {
+func (h *liveHandler) handleAction(ctx context.Context, msg message, state *connState) error {
 	// Clear previous errors
 	state.clearErrors()
 
@@ -661,14 +661,15 @@ func (h *liveHandler) handleAction(msg message, state *connState) error {
 		}
 	}
 
-	// Create action context
-	ctx := &ActionContext{
+	// Create action context with request context for timeout/cancellation/values
+	actionCtx := &ActionContext{
 		Action: action,
 		Data:   newActionData(msg.Data),
+		Ctx:    ctx,
 	}
 
 	// Call Change and capture error
-	err := store.Change(ctx)
+	err := store.Change(actionCtx)
 
 	if err != nil {
 		// Process the error

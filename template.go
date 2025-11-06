@@ -808,12 +808,17 @@ func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]
 	t.lastHTML = contentToCache
 
 	// Generate and cache initial tree structure
-	_, treeErr := t.generateInitialTree(currentHTML, data)
+	tree, treeErr := t.generateInitialTreeWithoutRegistry(currentHTML, data)
 	t.mu.Unlock()
 
 	if treeErr != nil {
 		// Don't fail if tree generation fails, just skip caching
 		return nil
+	}
+
+	// Mark structures in registry outside the lock
+	if tree != nil {
+		t.markAllStructuresAsSeen(tree, "")
 	}
 
 	return nil
@@ -858,32 +863,39 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, errors ...map[
 
 // generateTreeInternalWithErrors is the internal implementation that returns TreeNode with error context
 func (t *Template) generateTreeInternalWithErrors(data interface{}, errors map[string]string) (*TreeNode, error) {
-	// Acquire write lock to protect mutable state
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	// Initialize key generator if needed (defensive check for edge cases)
-	// keyGen should always be initialized in New() and Clone(), but check anyway
+	// Do this check before locking to reduce critical section
+	t.mu.Lock()
 	if t.keyGen == nil {
 		t.keyGen = newKeyGenerator()
 	}
+	isFirstRender := t.lastData == nil
+	t.mu.Unlock()
 
 	// Convert data to include lvt context for consistent template execution
 	dataWithLvt := t.addLvtToData(data, errors)
 
 	// Load existing key mappings from previous render if available
+	// This needs to be done with lock held to safely read lastTree
+	t.mu.Lock()
 	if t.lastTree != nil {
 		t.loadExistingKeyMappings(t.lastTree)
 	}
+	t.mu.Unlock()
 
-	// Execute template with current data and errors
+	// Execute template with current data and errors (CPU-intensive, no lock needed)
 	currentHTML, err := t.executeTemplateWithErrors(data, errors)
 	if err != nil {
 		return nil, fmt.Errorf("template execution error: %w", err)
 	}
 
+	// Generate tree and update state atomically
+	t.mu.Lock()
+	var tree *TreeNode
+	var treeErr error
+
 	// First render - no previous state
-	if t.lastData == nil {
+	if isFirstRender {
 		// Extract content from wrapper for consistent caching
 		var contentToCache string
 		if t.wrapperID != "" {
@@ -894,11 +906,24 @@ func (t *Template) generateTreeInternalWithErrors(data interface{}, errors map[s
 
 		t.lastData = dataWithLvt
 		t.lastHTML = contentToCache
-		return t.generateInitialTree(currentHTML, dataWithLvt)
+		tree, treeErr = t.generateInitialTreeWithoutRegistry(currentHTML, dataWithLvt)
+	} else {
+		// Subsequent renders - use diffing approach
+		tree, treeErr = t.generateDiffBasedTree(t.lastHTML, currentHTML, t.lastData, dataWithLvt)
+	}
+	t.mu.Unlock()
+
+	if treeErr != nil {
+		return nil, treeErr
 	}
 
-	// Subsequent renders - use diffing approach
-	return t.generateDiffBasedTree(t.lastHTML, currentHTML, t.lastData, dataWithLvt)
+	// Mark structures in registry outside the lock (registry has its own lock)
+	// This is safe because registry operations are independent of template state
+	if isFirstRender && tree != nil {
+		t.markAllStructuresAsSeen(tree, "")
+	}
+
+	return tree, nil
 }
 
 // addLvtToData converts data to include lvt context
@@ -996,9 +1021,10 @@ func (t *Template) markAllStructuresAsSeen(node *TreeNode, basePath string) {
 	// Individual items are dynamic data, not structure.
 }
 
-// generateInitialTree creates tree with statics and dynamics for first render
+// generateInitialTreeWithoutRegistry creates tree with statics and dynamics for first render.
 // NOTE: This method modifies template state. Caller must hold t.mu write lock.
-func (t *Template) generateInitialTree(html string, data interface{}) (*TreeNode, error) {
+// NOTE: Does NOT call registry methods - caller should do that outside the lock.
+func (t *Template) generateInitialTreeWithoutRegistry(html string, data interface{}) (*TreeNode, error) {
 	// Extract content from wrapper if we have one
 	var contentToAnalyze string
 	if t.wrapperID != "" {
@@ -1048,11 +1074,8 @@ func (t *Template) generateInitialTree(html string, data interface{}) (*TreeNode
 	// Calculate and store initial fingerprint for change detection
 	t.lastFingerprint = calculateFingerprint(tree)
 
-	// Mark all structures in the registry (Phase 2: Client Structure Registry)
-	// This records what structures the client has seen from the initial render
-	t.markAllStructuresAsSeen(tree, "")
-
 	// Add fingerprint to tree for client-side tracking
+	// NOTE: Caller is responsible for calling markAllStructuresAsSeen outside the lock
 	return addFingerprintToTree(tree), nil
 }
 

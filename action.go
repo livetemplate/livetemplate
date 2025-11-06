@@ -1,6 +1,7 @@
 package livetemplate
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -142,10 +143,16 @@ func (a *ActionData) Get(key string) interface{} {
 	return a.raw[key]
 }
 
-// ActionContext provides context for a Change action
+// ActionContext provides context for a Change action.
+//
+// The Ctx field contains the request context.Context which can be used for:
+// - Timeouts and cancellation
+// - Trace ID propagation
+// - Request-scoped values (e.g., user_id, group_id)
 type ActionContext struct {
 	Action string
 	Data   *ActionData
+	Ctx    context.Context // Request context for timeout/cancellation/values
 }
 
 // Bind is a convenience method that delegates to Data.Bind
