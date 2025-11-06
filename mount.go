@@ -748,7 +748,13 @@ func cloneStore(store Store) Store {
 	return newStore
 }
 
-// copyStruct copies field values from src to dst
+// copyStruct copies field values from src to dst.
+//
+// IMPORTANT: Only exported (public) fields are copied. Unexported fields
+// are silently skipped because they cannot be accessed via reflection.
+//
+// Stores should not rely on unexported fields for critical state, or should
+// implement custom cloning logic by implementing a Clone() method.
 func copyStruct(dst, src interface{}) {
 	srcVal := reflect.ValueOf(src)
 	dstVal := reflect.ValueOf(dst)

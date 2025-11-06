@@ -461,7 +461,7 @@ func (s *RedisSessionStore) serializeStores(stores Stores) ([]byte, error) {
 
 	// Encode the stores map
 	if err := enc.Encode(stores); err != nil {
-		return nil, fmt.Errorf("failed to gob-encode stores: %w", err)
+		return nil, fmt.Errorf("failed to gob-encode stores: %w (hint: custom Store types must be registered with gob.Register() in init())", err)
 	}
 
 	return buf.Bytes(), nil
@@ -481,7 +481,7 @@ func (s *RedisSessionStore) deserializeStores(data []byte) (Stores, error) {
 
 	var stores Stores
 	if err := dec.Decode(&stores); err != nil {
-		return nil, fmt.Errorf("failed to gob-decode stores: %w", err)
+		return nil, fmt.Errorf("failed to gob-decode stores: %w (hint: custom Store types must be registered with gob.Register() in init())", err)
 	}
 
 	return stores, nil
