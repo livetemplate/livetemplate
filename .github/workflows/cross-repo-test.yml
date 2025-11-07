@@ -28,20 +28,6 @@ jobs:
       with:
         go-version: '1.25'
 
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-
-    - name: Build TypeScript client library
-      working-directory: livetemplate/client
-      run: |
-        echo "Installing client dependencies..."
-        npm ci
-        echo "Building client library..."
-        npm run build
-        echo "✓ Client library built"
-
     - name: Add replace directive to LVT
       working-directory: lvt
       run: |
@@ -82,20 +68,6 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.25'
-
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-
-    - name: Build TypeScript client library
-      working-directory: livetemplate/client
-      run: |
-        echo "Installing client dependencies..."
-        npm ci
-        echo "Building client library..."
-        npm run build
-        echo "✓ Client library built"
 
     - name: Add replace directives to all examples
       working-directory: examples
