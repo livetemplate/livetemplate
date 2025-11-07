@@ -68,6 +68,10 @@ type Context struct {
 
 	// FuncMap provides the template functions available during tree generation.
 	FuncMap template.FuncMap
+
+	// DevMode indicates whether development mode is enabled.
+	// In DevMode, panics are not caught to aid debugging.
+	DevMode bool
 }
 
 // NewContext creates a context for first render (includes all statics).

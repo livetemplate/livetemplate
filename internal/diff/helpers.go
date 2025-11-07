@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -156,9 +157,10 @@ func areStructuresSimilarTreeNode(oldTree, newTree *TreeNode) bool {
 	return true
 }
 
-// DeepEqual compares two values deeply.
+// DeepEqual compares two values deeply using reflect.DeepEqual.
+// This is more accurate and efficient than string comparison.
 func DeepEqual(a, b interface{}) bool {
-	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
+	return reflect.DeepEqual(a, b)
 }
 
 // FindKeyPositionFromStatics parses the statics array to find which position contains the key.

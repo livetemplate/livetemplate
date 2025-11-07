@@ -73,14 +73,6 @@ func (kga *keyGeneratorAdapter) Next() string {
 	return kga.kg.NextKey()
 }
 
-// globalKeyGenerator is the global key generator for template instances
-var globalKeyGenerator = newKeyGenerator()
-
-// resetKeyGenerator resets the global key generator for testing
-func resetKeyGenerator() {
-	globalKeyGenerator.Reset()
-}
-
 // detectIDKey wraps internal/build.DetectIDKey for backward compatibility
 func detectIDKey(statics []string) string {
 	return build.DetectIDKey(statics)
@@ -94,13 +86,6 @@ func generateWrapperKey(keyGen *keyGenerator) string {
 // parseTemplateToTree parses a template using the internal/parse package
 // ctx is optional - if nil, defaults to first-render context (includes statics)
 func parseTemplateToTree(templateStr string, data interface{}, keyGen *keyGenerator, ctx ...*TreeGenerationContext) (tree *TreeNode, err error) {
-	// Recover from panics in template execution (can happen with fuzz-generated templates)
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("template execution panic: %v", r)
-		}
-	}()
-
 	// Get or create context
 	var genCtx *TreeGenerationContext
 	if len(ctx) > 0 {
@@ -108,6 +93,16 @@ func parseTemplateToTree(templateStr string, data interface{}, keyGen *keyGenera
 	}
 	if genCtx == nil {
 		genCtx = NewTreeGenerationContext()
+	}
+
+	// Recover from panics in template execution (can happen with fuzz-generated templates)
+	// In DevMode, panics are not caught to aid debugging
+	if !genCtx.DevMode {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("template execution panic: %v", r)
+			}
+		}()
 	}
 
 	// Parse template

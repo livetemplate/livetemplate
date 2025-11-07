@@ -6,15 +6,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"reflect"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/livetemplate/livetemplate/internal/observe"
 	"github.com/livetemplate/livetemplate/internal/session"
 	"github.com/livetemplate/livetemplate/pubsub"
+	"golang.org/x/time/rate"
 )
 
 // Broadcaster allows stores to push updates to connected clients without user interaction
@@ -154,8 +157,9 @@ type MountConfig struct {
 	PubSubBroadcaster      pubsub.Broadcaster // Optional: for distributed broadcasting across instances
 	AllowedOrigins         []string
 	WebSocketDisabled      bool
-	MaxConnections         int64 // Maximum total connections (0 = unlimited)
-	MaxConnectionsPerGroup int64 // Maximum connections per group (0 = unlimited)
+	MaxConnections         int64         // Maximum total connections (0 = unlimited)
+	MaxConnectionsPerGroup int64         // Maximum connections per group (0 = unlimited)
+	CookieMaxAge           time.Duration // Session cookie max age (default: 1 year)
 }
 
 // MountConfig and related types are used internally by Template.Handle()
@@ -261,7 +265,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set session cookie if this is a new session (cookie doesn't exist)
-	setCookieIfNew(w, r, groupID)
+	setCookieIfNew(w, r, groupID, h.config.CookieMaxAge)
 
 	// Upgrade to WebSocket after authentication and limit check succeeds
 	conn, err := h.config.Upgrader.Upgrade(w, r, nil)
@@ -293,10 +297,11 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get or create stores for this session group
-	stores := h.config.SessionStore.Get(groupID)
+	ctx := r.Context()
+	stores := h.config.SessionStore.Get(ctx, groupID)
 	if stores == nil {
 		stores = h.cloneStores()
-		h.config.SessionStore.Set(groupID, stores)
+		h.config.SessionStore.Set(ctx, groupID, stores)
 		log.Printf("Created new session group: %s", groupID)
 	}
 
@@ -380,6 +385,16 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Create rate limiter for this connection (prevents DoS attacks)
+	var limiter *rate.Limiter
+	if h.config.Template.config.MessageRateLimit > 0 {
+		burst := h.config.Template.config.MessageRateBurst
+		if burst < 1 {
+			burst = 1 // Minimum burst size for rate limiter to function
+		}
+		limiter = rate.NewLimiter(rate.Limit(h.config.Template.config.MessageRateLimit), burst)
+	}
+
 	// message loop
 	for {
 		_, data, err := conn.ReadMessage()
@@ -390,6 +405,24 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
+		// Rate limiting check (per connection)
+		if limiter != nil && !limiter.Allow() {
+			// Rate limit exceeded - send error to client
+			errorResp := UpdateResponse{
+				Tree: nil,
+				Meta: &ResponseMetadata{
+					Success: false,
+					Errors: map[string]string{
+						"_rate_limit": "Too many requests. Please slow down.",
+					},
+				},
+			}
+			if respBytes, err := json.Marshal(errorResp); err == nil {
+				_ = writeUpdateWebSocket(conn, respBytes) // Best effort
+			}
+			continue // Skip processing this message
+		}
+
 		// Parse message
 		msg, err := parseActionFromWebSocket(data)
 		if err != nil {
@@ -397,24 +430,15 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// Handle action
-		if err := h.handleAction(msg, state); err != nil {
+		// Handle action with request context for timeout/cancellation/values
+		if err := h.handleAction(r.Context(), msg, state); err != nil {
 			log.Printf("Action error: %v", err)
 			continue
 		}
 
 		// Auto-broadcast to other connections in same session group
 		// This ensures all tabs in the same browser session stay in sync
-		go func() {
-			otherConns := h.registry.GetByGroupExcept(groupID, connection)
-			if len(otherConns) > 0 {
-				for _, otherConn := range otherConns {
-					if err := h.sendUpdate(otherConn, h.getTemplateData(state.stores)); err != nil {
-						log.Printf("Auto-broadcast failed for connection in group %s: %v", groupID, err)
-					}
-				}
-			}
-		}()
+		h.autoBroadcastToGroup(groupID, h.getTemplateData(state.stores), connection)
 
 		// Generate tree update
 		buf.Reset()
@@ -459,7 +483,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 }
 
 // setCookieIfNew sets the livetemplate-id cookie if it doesn't already exist
-func setCookieIfNew(w http.ResponseWriter, r *http.Request, groupID string) {
+func setCookieIfNew(w http.ResponseWriter, r *http.Request, groupID string, cookieMaxAge time.Duration) {
 	// Check if cookie already exists
 	if cookie, err := r.Cookie("livetemplate-id"); err == nil && cookie.Value == groupID {
 		// Cookie exists and matches - no need to set again
@@ -473,7 +497,7 @@ func setCookieIfNew(w http.ResponseWriter, r *http.Request, groupID string) {
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		MaxAge:   365 * 24 * 60 * 60, // 1 year
+		MaxAge:   int(cookieMaxAge.Seconds()),
 	})
 }
 
@@ -500,13 +524,14 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set session cookie if this is a new session (cookie doesn't exist)
-	setCookieIfNew(w, r, groupID)
+	setCookieIfNew(w, r, groupID, h.config.CookieMaxAge)
 
 	// Get or create stores for this session group
-	stores := h.config.SessionStore.Get(groupID)
+	ctx := r.Context()
+	stores := h.config.SessionStore.Get(ctx, groupID)
 	if stores == nil {
 		stores = h.cloneStores()
-		h.config.SessionStore.Set(groupID, stores)
+		h.config.SessionStore.Set(ctx, groupID, stores)
 		log.Printf("HTTP: Created new session group: %s", groupID)
 	}
 
@@ -520,10 +545,16 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		// Always reload data from database for GET requests to ensure fresh data
 		// This prevents stale session state when WebSocket actions modify data
-		for _, store := range state.stores {
+		for name, store := range state.stores {
 			if initializer, ok := store.(StoreInitializer); ok {
 				if err := initializer.Init(); err != nil {
-					log.Printf("Warning: Store initialization failed for GET request: %v", err)
+					slog.Error("Store initialization failed for GET request",
+						slog.String("store", name),
+						slog.String("group_id", groupID),
+						slog.String("user_id", userID),
+						slog.String("error", err.Error()))
+					http.Error(w, "Failed to initialize application state", http.StatusInternalServerError)
+					return
 				}
 			}
 		}
@@ -548,8 +579,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Handle action
-	if err := h.handleAction(msg, state); err != nil {
+	// Handle action with request context for timeout/cancellation/values
+	if err := h.handleAction(r.Context(), msg, state); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -557,16 +588,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Auto-broadcast to all WebSocket connections in same session group
 	// This ensures all tabs in the same browser session stay in sync
 	// (HTTP request doesn't have a WebSocket connection to exclude)
-	go func() {
-		wsConns := h.registry.GetByGroup(groupID)
-		if len(wsConns) > 0 {
-			for _, wsConn := range wsConns {
-				if err := h.sendUpdate(wsConn, h.getTemplateData(state.stores)); err != nil {
-					log.Printf("Auto-broadcast failed for WebSocket connection in group %s: %v", groupID, err)
-				}
-			}
-		}
-	}()
+	h.autoBroadcastToGroup(groupID, h.getTemplateData(state.stores), nil)
 
 	// Note: No need to save session - stores are modified in-place and already in SessionStore
 
@@ -603,7 +625,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleAction routes the action to the correct store and captures errors
-func (h *liveHandler) handleAction(msg message, state *connState) error {
+func (h *liveHandler) handleAction(ctx context.Context, msg message, state *connState) error {
 	// Clear previous errors
 	state.clearErrors()
 
@@ -643,14 +665,15 @@ func (h *liveHandler) handleAction(msg message, state *connState) error {
 		}
 	}
 
-	// Create action context
-	ctx := &ActionContext{
+	// Create action context with request context for timeout/cancellation/values
+	actionCtx := &ActionContext{
 		Action: action,
 		Data:   newActionData(msg.Data),
+		Ctx:    ctx,
 	}
 
 	// Call Change and capture error
-	err := store.Change(ctx)
+	err := store.Change(actionCtx)
 
 	if err != nil {
 		// Process the error
@@ -714,7 +737,13 @@ func cloneStore(store Store) Store {
 	}
 
 	// Create new instance
-	newStore := reflect.New(storeType).Interface().(Store)
+	newStoreInterface := reflect.New(storeType).Interface()
+	newStore, ok := newStoreInterface.(Store)
+	if !ok {
+		// This should never happen if the store was valid, but handle gracefully
+		log.Printf("Error: Failed to cast cloned store to Store interface, type: %T", newStoreInterface)
+		return store // Return original store as fallback
+	}
 
 	// Copy field values
 	copyStruct(newStore, store)
@@ -723,15 +752,23 @@ func cloneStore(store Store) Store {
 	if initializer, ok := newStore.(StoreInitializer); ok {
 		if err := initializer.Init(); err != nil {
 			// Log the error but don't fail - store is in a partially initialized state
-			// The error will be handled when the store is actually used
-			log.Printf("Warning: Store initialization failed: %v", err)
+			// This will surface as an error when the store is first used (e.g., in GET handler)
+			slog.Error("Store initialization failed during cloning",
+				slog.String("store_type", fmt.Sprintf("%T", store)),
+				slog.String("error", err.Error()))
 		}
 	}
 
 	return newStore
 }
 
-// copyStruct copies field values from src to dst
+// copyStruct copies field values from src to dst.
+//
+// IMPORTANT: Only exported (public) fields are copied. Unexported fields
+// are silently skipped because they cannot be accessed via reflection.
+//
+// Stores should not rely on unexported fields for critical state, or should
+// implement custom cloning logic by implementing a Clone() method.
 func copyStruct(dst, src interface{}) {
 	srcVal := reflect.ValueOf(src)
 	dstVal := reflect.ValueOf(dst)
@@ -785,28 +822,35 @@ func (h *liveHandler) Broadcast(data interface{}) error {
 	if h.config.PubSubBroadcaster != nil {
 		payload, err := json.Marshal(data)
 		if err != nil {
-			log.Printf("Broadcast: Failed to marshal payload: %v", err)
-		} else {
-			if err := h.config.PubSubBroadcaster.PublishGlobal(payload); err != nil {
-				log.Printf("Broadcast: Failed to publish to Redis: %v", err)
-			}
+			slog.Error("Failed to marshal broadcast payload",
+				slog.String("error", err.Error()))
+			return fmt.Errorf("broadcast marshal error: %w", err)
+		}
+		if err := h.config.PubSubBroadcaster.PublishGlobal(payload); err != nil {
+			slog.Error("Failed to publish broadcast to pubsub",
+				slog.String("error", err.Error()))
+			// Don't return early - still try local broadcast
 		}
 	}
 
 	// Broadcast to local connections
 	connections := h.registry.GetAll()
 	if len(connections) == 0 {
-		log.Printf("Broadcast: No local connections to broadcast to")
+		slog.Debug("No local connections for broadcast")
 		return nil
 	}
 
-	log.Printf("Broadcasting to %d local connection(s)", len(connections))
+	slog.Debug("Broadcasting to local connections",
+		slog.Int("connection_count", len(connections)))
 
 	// Track errors but continue broadcasting to other connections
 	var errCount int
 	for _, conn := range connections {
 		if err := h.sendUpdate(conn, data); err != nil {
-			log.Printf("Broadcast: Failed to send to connection %s: %v", conn.UserID, err)
+			slog.Warn("Broadcast send failed",
+				slog.String("user_id", conn.UserID),
+				slog.String("group_id", conn.GroupID),
+				slog.String("error", err.Error()))
 			errCount++
 		}
 	}
@@ -845,12 +889,16 @@ func (h *liveHandler) BroadcastToUsers(userIDs []string, data interface{}) error
 	if h.config.PubSubBroadcaster != nil {
 		payload, err := json.Marshal(data)
 		if err != nil {
-			log.Printf("BroadcastToUsers: Failed to marshal payload: %v", err)
-		} else {
-			for _, userID := range userIDs {
-				if err := h.config.PubSubBroadcaster.PublishToUser(userID, payload); err != nil {
-					log.Printf("BroadcastToUsers: Failed to publish to Redis for user %s: %v", userID, err)
-				}
+			slog.Error("Failed to marshal broadcast to users payload",
+				slog.String("error", err.Error()))
+			return fmt.Errorf("broadcast to users marshal error: %w", err)
+		}
+		for _, userID := range userIDs {
+			if err := h.config.PubSubBroadcaster.PublishToUser(userID, payload); err != nil {
+				slog.Error("Failed to publish user broadcast to pubsub",
+					slog.String("user_id", userID),
+					slog.String("error", err.Error()))
+				// Continue with other users
 			}
 		}
 	}
@@ -865,20 +913,26 @@ func (h *liveHandler) BroadcastToUsers(userIDs []string, data interface{}) error
 
 		for _, conn := range connections {
 			if err := h.sendUpdate(conn, data); err != nil {
-				log.Printf("BroadcastToUsers: Failed to send to user %s: %v", userID, err)
+				slog.Warn("Broadcast to user send failed",
+					slog.String("user_id", userID),
+					slog.String("group_id", conn.GroupID),
+					slog.String("error", err.Error()))
 				errCount++
 			}
 		}
 	}
 
-	log.Printf("Broadcast to users: sent to %d local connection(s) for %d user(s)", totalConnections, len(userIDs))
+	slog.Debug("Broadcast to users complete",
+		slog.Int("user_count", len(userIDs)),
+		slog.Int("connection_count", totalConnections))
 
 	if errCount > 0 {
 		return fmt.Errorf("broadcast failed for %d/%d connections", errCount, totalConnections)
 	}
 
 	if totalConnections == 0 {
-		log.Printf("BroadcastToUsers: No local connections found for users %v", userIDs)
+		slog.Debug("No local connections for user broadcast",
+			slog.Int("user_count", len(userIDs)))
 	}
 
 	return nil
@@ -908,27 +962,38 @@ func (h *liveHandler) BroadcastToGroup(groupID string, data interface{}) error {
 	if h.config.PubSubBroadcaster != nil {
 		payload, err := json.Marshal(data)
 		if err != nil {
-			log.Printf("BroadcastToGroup: Failed to marshal payload: %v", err)
-		} else {
-			if err := h.config.PubSubBroadcaster.PublishToGroup(groupID, payload); err != nil {
-				log.Printf("BroadcastToGroup: Failed to publish to Redis: %v", err)
-			}
+			slog.Error("Failed to marshal broadcast to group payload",
+				slog.String("group_id", groupID),
+				slog.String("error", err.Error()))
+			return fmt.Errorf("broadcast to group marshal error: %w", err)
+		}
+		if err := h.config.PubSubBroadcaster.PublishToGroup(groupID, payload); err != nil {
+			slog.Error("Failed to publish group broadcast to pubsub",
+				slog.String("group_id", groupID),
+				slog.String("error", err.Error()))
+			// Continue with local broadcast
 		}
 	}
 
 	// Broadcast to local connections
 	connections := h.registry.GetByGroup(groupID)
 	if len(connections) == 0 {
-		log.Printf("BroadcastToGroup: No local connections found for group %s", groupID)
+		slog.Debug("No local connections for group broadcast",
+			slog.String("group_id", groupID))
 		return nil
 	}
 
-	log.Printf("Broadcasting to group %s: %d local connection(s)", groupID, len(connections))
+	slog.Debug("Broadcasting to group connections",
+		slog.String("group_id", groupID),
+		slog.Int("connection_count", len(connections)))
 
 	var errCount int
 	for _, conn := range connections {
 		if err := h.sendUpdate(conn, data); err != nil {
-			log.Printf("BroadcastToGroup: Failed to send to group %s: %v", groupID, err)
+			slog.Warn("Broadcast to group send failed",
+				slog.String("group_id", groupID),
+				slog.String("user_id", conn.UserID),
+				slog.String("error", err.Error()))
 			errCount++
 		}
 	}
@@ -938,6 +1003,54 @@ func (h *liveHandler) BroadcastToGroup(groupID string, data interface{}) error {
 	}
 
 	return nil
+}
+
+// autoBroadcastToGroup broadcasts template updates to all connections in a group.
+// Optionally excludes a specific connection (for WebSocket sender).
+// Runs asynchronously to avoid blocking the caller.
+//
+// Note: Under high load, this may launch many concurrent goroutines.
+// Each goroutine is relatively short-lived and uses per-connection template clones,
+// so this is safe but could cause temporary resource spikes.
+func (h *liveHandler) autoBroadcastToGroup(groupID string, data interface{}, excludeConn *session.Connection) {
+	go func() {
+		var conns []*session.Connection
+		if excludeConn != nil {
+			// WebSocket: exclude the sender
+			conns = h.registry.GetByGroupExcept(groupID, excludeConn)
+		} else {
+			// HTTP: broadcast to all connections (no sender to exclude)
+			conns = h.registry.GetByGroup(groupID)
+		}
+
+		if len(conns) == 0 {
+			slog.Debug("No connections for auto-broadcast",
+				slog.String("group_id", groupID))
+			return
+		}
+
+		slog.Debug("Auto-broadcasting to group",
+			slog.String("group_id", groupID),
+			slog.Int("connection_count", len(conns)))
+
+		var errCount int
+		for _, conn := range conns {
+			if err := h.sendUpdate(conn, data); err != nil {
+				slog.Warn("Auto-broadcast send failed",
+					slog.String("group_id", groupID),
+					slog.String("user_id", conn.UserID),
+					slog.String("error", err.Error()))
+				errCount++
+			}
+		}
+
+		if errCount > 0 {
+			slog.Warn("Auto-broadcast completed with errors",
+				slog.String("group_id", groupID),
+				slog.Int("error_count", errCount),
+				slog.Int("total_connections", len(conns)))
+		}
+	}()
 }
 
 // sendUpdate generates and sends a template update to a single connection
@@ -980,10 +1093,6 @@ func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}) err
 	}
 
 	// Send using the connection's Send method (thread-safe)
-	// Skip actual WebSocket send if Conn is nil (for testing)
-	if conn.Conn == nil {
-		return nil // Test mode - no actual send
-	}
 	return conn.Send(websocket.TextMessage, responseBytes)
 }
 

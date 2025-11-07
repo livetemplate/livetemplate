@@ -2,6 +2,7 @@ package observe
 
 import (
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -145,7 +146,9 @@ func (m *Metrics) emit() {
 
 // DurationHistogram tracks duration distribution using a simple ring buffer.
 // This is a simplified histogram suitable for percentile calculations.
+// Thread-safe: uses mutex to protect samples array from concurrent access.
 type DurationHistogram struct {
+	mu      sync.RWMutex // Protects samples array
 	samples []int64
 	pos     atomic.Int64
 	size    int
@@ -163,7 +166,9 @@ func NewDurationHistogram() *DurationHistogram {
 // Record adds a duration sample to the histogram.
 func (h *DurationHistogram) Record(d time.Duration) {
 	pos := int(h.pos.Add(1) % int64(h.size))
+	h.mu.Lock()
 	h.samples[pos] = d.Milliseconds()
+	h.mu.Unlock()
 }
 
 // Percentile returns the approximate percentile value.
@@ -176,9 +181,11 @@ func (h *DurationHistogram) Percentile(p int) int64 {
 		return 0
 	}
 
-	// Copy samples to avoid concurrent modification issues
+	// Copy samples with read lock to prevent data races
+	h.mu.RLock()
 	samplesCopy := make([]int64, h.size)
 	copy(samplesCopy, h.samples)
+	h.mu.RUnlock()
 
 	// Count non-zero samples
 	var count int

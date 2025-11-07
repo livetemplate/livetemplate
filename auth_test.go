@@ -282,7 +282,10 @@ func TestBasicAuthenticator_GetSessionGroup_Consistency(t *testing.T) {
 
 // TestGenerateSessionID_Length tests that generated IDs have expected length
 func TestGenerateSessionID_Length(t *testing.T) {
-	id := generateSessionID()
+	id, err := generateSessionID()
+	if err != nil {
+		t.Fatalf("generateSessionID() error = %v", err)
+	}
 
 	// 32 bytes base64-encoded should produce ~43 characters
 	// (32 * 8 / 6 = 42.67, rounded up with padding)
@@ -295,7 +298,10 @@ func TestGenerateSessionID_Length(t *testing.T) {
 
 // TestGenerateSessionID_Base64 tests that generated IDs are valid base64
 func TestGenerateSessionID_Base64(t *testing.T) {
-	id := generateSessionID()
+	id, err := generateSessionID()
+	if err != nil {
+		t.Fatalf("generateSessionID() error = %v", err)
+	}
 
 	decoded, err := base64.URLEncoding.DecodeString(id)
 	if err != nil {
@@ -314,7 +320,10 @@ func TestGenerateSessionID_Uniqueness(t *testing.T) {
 	iterations := 1000
 
 	for i := 0; i < iterations; i++ {
-		id := generateSessionID()
+		id, err := generateSessionID()
+		if err != nil {
+			t.Fatalf("generateSessionID() error = %v on iteration %d", err, i)
+		}
 
 		if seen[id] {
 			t.Errorf("generateSessionID() generated duplicate ID on iteration %d", i)

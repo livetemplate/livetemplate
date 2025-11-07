@@ -73,7 +73,11 @@ func (a *AnonymousAuthenticator) GetSessionGroup(r *http.Request, userID string)
 	}
 
 	// Generate new session group ID for this browser
-	return generateSessionID(), nil
+	sessionID, err := generateSessionID()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate session ID: %w", err)
+	}
+	return sessionID, nil
 }
 
 // BasicAuthenticator provides username/password authentication.
@@ -81,6 +85,21 @@ func (a *AnonymousAuthenticator) GetSessionGroup(r *http.Request, userID string)
 // This is a helper for integrating with existing authentication systems.
 // It calls a user-provided validation function and maps authenticated users
 // to session groups using a simple 1:1 mapping (groupID = userID).
+//
+// # Security Warnings
+//
+// HTTPS REQUIRED: BasicAuthenticator uses HTTP Basic Authentication, which sends
+// credentials as base64-encoded strings. This is NOT encrypted and MUST only be
+// used over HTTPS connections. Using HTTP Basic Auth over plain HTTP exposes
+// credentials to network eavesdropping.
+//
+// BRUTE FORCE PROTECTION: This implementation has no built-in rate limiting or
+// account lockout. For production use, you MUST implement protection against
+// brute force attacks through one or more of:
+//   - Rate limiting middleware (e.g., golang.org/x/time/rate)
+//   - Account lockout after N failed attempts
+//   - External protection (e.g., fail2ban, CloudFlare)
+//   - Web Application Firewall (WAF) rules
 //
 // Example usage:
 //
@@ -96,6 +115,7 @@ func (a *AnonymousAuthenticator) GetSessionGroup(r *http.Request, userID string)
 // - OAuth
 // - Session cookies from existing auth middleware
 // - Custom session group mapping logic
+// - Built-in rate limiting and brute force protection
 type BasicAuthenticator struct {
 	// ValidateFunc is called to verify username/password credentials.
 	// Returns true if credentials are valid, false otherwise.
@@ -167,13 +187,13 @@ func (a *BasicAuthenticator) GetSessionGroup(r *http.Request, userID string) (st
 // - Session group IDs (anonymous users)
 // - Session cookies
 // - Any security-sensitive identifier
-func generateSessionID() string {
+func generateSessionID() (string, error) {
 	b := make([]byte, 32)
 	_, err := rand.Read(b)
 	if err != nil {
 		// crypto/rand.Read only fails on systems without entropy source
-		// This should never happen on modern systems
-		panic(fmt.Sprintf("failed to generate session ID: %v", err))
+		// Return error gracefully instead of panicking
+		return "", fmt.Errorf("crypto/rand.Read failed: %w", err)
 	}
-	return base64.URLEncoding.EncodeToString(b)
+	return base64.URLEncoding.EncodeToString(b), nil
 }

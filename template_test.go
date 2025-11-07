@@ -1740,11 +1740,13 @@ func TestTemplateGenerateTreeWithFuncMap(t *testing.T) {
 		t.Fatalf("Execute failed: %v", err)
 	}
 
-	tree, err := tmpl.generateTreeInternalWithErrors(map[string]string{"CSV": "one,two"}, nil)
-	if err != nil {
-		t.Fatalf("generateTreeInternalWithErrors failed: %v", err)
+	// After Execute(), check the cached initialTree instead of calling generateTreeInternalWithErrors
+	// (calling it again with same data would generate an empty diff)
+	if tmpl.initialTree == nil {
+		t.Fatalf("expected initial tree to be cached")
 	}
 
+	tree := tmpl.initialTree
 	dynamic, ok := tree.Dynamics["0"]
 	if !ok {
 		t.Fatalf("expected dynamic range at position 0")
@@ -1761,10 +1763,6 @@ func TestTemplateGenerateTreeWithFuncMap(t *testing.T) {
 
 	if rangeNode.Range == nil || len(rangeNode.Range.Items) != 2 {
 		t.Fatalf("expected 2 items in range, got %v", rangeNode.Range)
-	}
-
-	if tmpl.initialTree == nil {
-		t.Fatalf("expected initial tree to be cached")
 	}
 }
 
@@ -3231,10 +3229,10 @@ func TestAnalyzeChangeAndCreateTree_PartialChangeKeepsStatics(t *testing.T) {
 
 // ----- key_injection_test.go -----
 func TestKeyInjectionScenarios(t *testing.T) {
-	// Reset key generator for clean test
-	resetKeyGenerator()
-
 	// Test the new simple wrapper approach
+	// Create test-local key generator (no global state)
+	kg := newKeyGenerator()
+
 	tests := []struct {
 		name     string
 		expected string
@@ -3248,7 +3246,7 @@ func TestKeyInjectionScenarios(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result := generateWrapperKey(globalKeyGenerator)
+			result := generateWrapperKey(kg)
 			if result != test.expected {
 				t.Errorf("Expected key %q, got %q", test.expected, result)
 			}
@@ -3257,18 +3255,18 @@ func TestKeyInjectionScenarios(t *testing.T) {
 }
 
 func TestKeyInjectionStabilityAcrossChanges(t *testing.T) {
-	// Reset key generator for clean test
-	resetKeyGenerator()
-
 	t.Logf("🎯 NEW WRAPPER APPROACH: Keys are assigned once per page load")
 	t.Logf("✅ No complex identity tracking needed")
 	t.Logf("✅ Works with ANY data type")
 	t.Logf("✅ Keys are stable within a single page render")
 
+	// Create test-local key generator (no global state)
+	kg := newKeyGenerator()
+
 	// Generate a few keys to show the pattern
 	keys := make([]string, 3)
 	for i := 0; i < 3; i++ {
-		keys[i] = generateWrapperKey(globalKeyGenerator)
+		keys[i] = generateWrapperKey(kg)
 	}
 
 	t.Logf("Generated keys: %v", keys)
@@ -3276,10 +3274,10 @@ func TestKeyInjectionStabilityAcrossChanges(t *testing.T) {
 }
 
 func TestKeyInjectionUniversalCompatibility(t *testing.T) {
-	// Reset key generator for clean test
-	resetKeyGenerator()
-
 	t.Logf("🎯 UNIVERSAL COMPATIBILITY: Works with any data type")
+
+	// Create test-local key generator (no global state)
+	kg := newKeyGenerator()
 
 	// Test that wrapper approach works with ANY data type
 	testCases := []interface{}{
@@ -3299,7 +3297,7 @@ func TestKeyInjectionUniversalCompatibility(t *testing.T) {
 	}
 
 	for i, item := range testCases {
-		key := generateWrapperKey(globalKeyGenerator)
+		key := generateWrapperKey(kg)
 		expectedKey := fmt.Sprintf("%d", i+1)
 
 		if key != expectedKey {

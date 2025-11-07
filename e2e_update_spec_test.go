@@ -818,7 +818,7 @@ func TestComplexTemplate(t *testing.T) {
 	}
 
 	// Generate initial tree
-	initialTree, err := tmpl.generateInitialTree(template, initialData)
+	initialTree, err := tmpl.generateInitialTreeWithoutRegistry(template, initialData)
 	if err != nil {
 		t.Fatalf("Failed to generate initial tree: %v", err)
 	}

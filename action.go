@@ -1,9 +1,9 @@
 package livetemplate
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 
@@ -48,9 +48,6 @@ func (a *ActionData) BindAndValidate(v interface{}, validate *validator.Validate
 		return err
 	}
 
-	log.Printf("[lvt debug] bind raw: %#v", a.raw)
-	log.Printf("[lvt debug] bound struct: %#v", v)
-
 	if err := validate.Struct(v); err != nil {
 		return ValidationToMultiError(err)
 	}
@@ -63,36 +60,88 @@ func (a *ActionData) Raw() map[string]interface{} {
 	return a.raw
 }
 
-// GetString extracts a string value
+// GetString extracts a string value.
+// Returns empty string if key doesn't exist or value is not a string.
+//
+// DEPRECATED: Use GetStringOk for explicit error handling to distinguish
+// between missing keys, type errors, and actual empty strings.
+// This method will be removed in v0.3.0.
 func (a *ActionData) GetString(key string) string {
+	v, _ := a.GetStringOk(key)
+	return v
+}
+
+// GetStringOk extracts a string value with explicit success indicator.
+// Returns (value, true) if key exists and value is a string.
+// Returns ("", false) if key doesn't exist or value is not a string.
+func (a *ActionData) GetStringOk(key string) (string, bool) {
 	if v, ok := a.raw[key].(string); ok {
-		return v
+		return v, true
 	}
-	return ""
+	return "", false
 }
 
-// GetInt extracts an int value (JSON numbers are float64)
+// GetInt extracts an int value (JSON numbers are float64).
+// Returns 0 if key doesn't exist or value is not a number.
+//
+// DEPRECATED: Use GetIntOk for explicit error handling to distinguish
+// between missing keys, type errors, and actual zero values.
+// This method will be removed in v0.3.0.
 func (a *ActionData) GetInt(key string) int {
-	if v, ok := a.raw[key].(float64); ok {
-		return int(v)
-	}
-	return 0
+	v, _ := a.GetIntOk(key)
+	return v
 }
 
-// GetFloat extracts a float64 value
+// GetIntOk extracts an int value with explicit success indicator.
+// Returns (value, true) if key exists and value is a number.
+// Returns (0, false) if key doesn't exist or value is not a number.
+func (a *ActionData) GetIntOk(key string) (int, bool) {
+	if v, ok := a.raw[key].(float64); ok {
+		return int(v), true
+	}
+	return 0, false
+}
+
+// GetFloat extracts a float64 value.
+// Returns 0 if key doesn't exist or value is not a number.
+//
+// DEPRECATED: Use GetFloatOk for explicit error handling to distinguish
+// between missing keys, type errors, and actual zero values.
+// This method will be removed in v0.3.0.
 func (a *ActionData) GetFloat(key string) float64 {
-	if v, ok := a.raw[key].(float64); ok {
-		return v
-	}
-	return 0
+	v, _ := a.GetFloatOk(key)
+	return v
 }
 
-// GetBool extracts a bool value
-func (a *ActionData) GetBool(key string) bool {
-	if v, ok := a.raw[key].(bool); ok {
-		return v
+// GetFloatOk extracts a float64 value with explicit success indicator.
+// Returns (value, true) if key exists and value is a number.
+// Returns (0, false) if key doesn't exist or value is not a number.
+func (a *ActionData) GetFloatOk(key string) (float64, bool) {
+	if v, ok := a.raw[key].(float64); ok {
+		return v, true
 	}
-	return false
+	return 0, false
+}
+
+// GetBool extracts a bool value.
+// Returns false if key doesn't exist or value is not a bool.
+//
+// DEPRECATED: Use GetBoolOk for explicit error handling to distinguish
+// between missing keys, type errors, and actual false values.
+// This method will be removed in v0.3.0.
+func (a *ActionData) GetBool(key string) bool {
+	v, _ := a.GetBoolOk(key)
+	return v
+}
+
+// GetBoolOk extracts a bool value with explicit success indicator.
+// Returns (value, true) if key exists and value is a bool.
+// Returns (false, false) if key doesn't exist or value is not a bool.
+func (a *ActionData) GetBoolOk(key string) (bool, bool) {
+	if v, ok := a.raw[key].(bool); ok {
+		return v, true
+	}
+	return false, false
 }
 
 // Has checks if a key exists
@@ -106,10 +155,16 @@ func (a *ActionData) Get(key string) interface{} {
 	return a.raw[key]
 }
 
-// ActionContext provides context for a Change action
+// ActionContext provides context for a Change action.
+//
+// The Ctx field contains the request context.Context which can be used for:
+// - Timeouts and cancellation
+// - Trace ID propagation
+// - Request-scoped values (e.g., user_id, group_id)
 type ActionContext struct {
 	Action string
 	Data   *ActionData
+	Ctx    context.Context // Request context for timeout/cancellation/values
 }
 
 // Bind is a convenience method that delegates to Data.Bind
@@ -186,20 +241,21 @@ func ValidationToMultiError(err error) MultiError {
 	}
 
 	for _, e := range validationErrs {
-		fieldName := strings.ToLower(e.Field())
+		// Use original field name to match form field names (camelCase/PascalCase)
+		fieldName := e.Field()
 
 		var message string
 		switch e.Tag() {
 		case "required":
-			message = fmt.Sprintf("%s is required", e.Field())
+			message = fmt.Sprintf("%s is required", fieldName)
 		case "min":
-			message = fmt.Sprintf("%s must be at least %s characters", e.Field(), e.Param())
+			message = fmt.Sprintf("%s must be at least %s characters", fieldName, e.Param())
 		case "max":
-			message = fmt.Sprintf("%s must be at most %s characters", e.Field(), e.Param())
+			message = fmt.Sprintf("%s must be at most %s characters", fieldName, e.Param())
 		case "email":
-			message = fmt.Sprintf("%s must be a valid email", e.Field())
+			message = fmt.Sprintf("%s must be a valid email", fieldName)
 		default:
-			message = fmt.Sprintf("%s is invalid", e.Field())
+			message = fmt.Sprintf("%s is invalid", fieldName)
 		}
 
 		fieldErrors = append(fieldErrors, FieldError{

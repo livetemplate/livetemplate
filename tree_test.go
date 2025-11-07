@@ -2527,7 +2527,7 @@ func FuzzUserJourneys(f *testing.F) {
 
 			if i == 0 && activity.Type == "visit" {
 				// First render
-				tree, err = tmpl.generateInitialTree(todoTemplate, state)
+				tree, err = tmpl.generateInitialTreeWithoutRegistry(todoTemplate, state)
 				if err != nil {
 					t.Fatalf("Failed to generate initial tree: %v", err)
 				}
@@ -2626,7 +2626,7 @@ func TestSpecificationCompliance(t *testing.T) {
 				var err error
 
 				if i == 0 {
-					tree, err = tmpl.generateInitialTree(tt.template, state)
+					tree, err = tmpl.generateInitialTreeWithoutRegistry(tt.template, state)
 				} else {
 					if tmpl.lastTree == nil {
 						continue
@@ -3017,7 +3017,7 @@ func TestComplexScenarios(t *testing.T) {
 		state := simulator.GetState()
 
 		if i == 0 {
-			tree, _ := tmpl.generateInitialTree(template, state)
+			tree, _ := tmpl.generateInitialTreeWithoutRegistry(template, state)
 			if err := validator.ValidateUpdate(tree, state, true); err != nil {
 				t.Errorf("Step %d failed: %v", i, err)
 			}

@@ -32,19 +32,30 @@ const (
 // - Automatic reconnection on Redis failures
 // - Metrics for broadcast latency tracking
 type RedisBroadcaster struct {
-	client     redis.UniversalClient
-	pubsub     *redis.PubSub
-	instanceID string
-	handler    MessageHandler
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
-	mu         sync.RWMutex
-	closed     bool
+	client         redis.UniversalClient
+	pubsub         *redis.PubSub
+	instanceID     string
+	handler        MessageHandler
+	ctx            context.Context
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
+	mu             sync.RWMutex
+	closed         bool
+	reconnectDelay time.Duration // Delay before reconnecting after subscription failure (default: 1s)
 }
 
 // RedisBroadcasterOption configures RedisBroadcaster.
 type RedisBroadcasterOption func(*RedisBroadcaster)
+
+// WithReconnectDelay sets the delay before reconnecting after a subscription failure.
+// Lower values = faster reconnection but more aggressive retries.
+// Higher values = less load on Redis but slower recovery.
+// Default: 1 second
+func WithReconnectDelay(delay time.Duration) RedisBroadcasterOption {
+	return func(b *RedisBroadcaster) {
+		b.reconnectDelay = delay
+	}
+}
 
 // NewRedisBroadcaster creates a new Redis-backed broadcaster.
 //
@@ -60,10 +71,11 @@ func NewRedisBroadcaster(client redis.UniversalClient, opts ...RedisBroadcasterO
 	ctx, cancel := context.WithCancel(context.Background())
 
 	b := &RedisBroadcaster{
-		client:     client,
-		instanceID: uuid.New().String(),
-		ctx:        ctx,
-		cancel:     cancel,
+		client:         client,
+		instanceID:     uuid.New().String(),
+		ctx:            ctx,
+		cancel:         cancel,
+		reconnectDelay: 1 * time.Second, // Default: 1 second
 	}
 
 	// Apply options
@@ -335,7 +347,7 @@ func (b *RedisBroadcaster) reconnect() error {
 	}
 
 	// Wait before reconnecting
-	time.Sleep(1 * time.Second)
+	time.Sleep(b.reconnectDelay)
 
 	// Create new subscription
 	b.pubsub = b.client.Subscribe(b.ctx, channelGlobal)

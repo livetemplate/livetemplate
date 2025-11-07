@@ -1,6 +1,7 @@
 package livetemplate
 
 import (
+	"log/slog"
 	"strings"
 	"sync"
 
@@ -29,6 +30,9 @@ func minifyHTML(htmlContent string) string {
 		minified, err := getMinifier().String("text/html", htmlContent)
 		if err != nil {
 			// If minification fails, fall back to original content
+			slog.Warn("HTML minification failed, using original content",
+				slog.String("error", err.Error()),
+				slog.Int("content_length", len(htmlContent)))
 			return htmlContent
 		}
 		return minified
@@ -42,6 +46,11 @@ func minifyHTML(htmlContent string) string {
 func normalizeWhitespace(text string) string {
 	// Trim leading and trailing whitespace
 	text = strings.TrimSpace(text)
+
+	// Early return for empty text to avoid unnecessary processing
+	if text == "" {
+		return ""
+	}
 
 	// Replace multiple whitespace characters with single spaces
 	// This handles \n, \t, multiple spaces, etc.

@@ -43,10 +43,10 @@ func TestRedisSessionStore_SetAndGet(t *testing.T) {
 	}
 
 	// Set stores
-	store.Set("test-group-1", stores)
+	store.Set(context.Background(), "test-group-1", stores)
 
 	// Get stores back
-	retrieved := store.Get("test-group-1")
+	retrieved := store.Get(context.Background(), "test-group-1")
 	if retrieved == nil {
 		t.Fatal("Expected stores to be retrieved, got nil")
 	}
@@ -73,7 +73,7 @@ func TestRedisSessionStore_GetNonExistent(t *testing.T) {
 	store := NewRedisSessionStore(client)
 
 	// Get non-existent group
-	retrieved := store.Get("non-existent")
+	retrieved := store.Get(context.Background(), "non-existent")
 	if retrieved != nil {
 		t.Errorf("Expected nil for non-existent group, got %v", retrieved)
 	}
@@ -89,18 +89,18 @@ func TestRedisSessionStore_Delete(t *testing.T) {
 	stores := Stores{
 		"test": &TestStore{Value: 100},
 	}
-	store.Set("test-group", stores)
+	store.Set(context.Background(), "test-group", stores)
 
 	// Verify it exists
-	if store.Get("test-group") == nil {
+	if store.Get(context.Background(), "test-group") == nil {
 		t.Fatal("Store should exist after Set")
 	}
 
 	// Delete it
-	store.Delete("test-group")
+	store.Delete(context.Background(), "test-group")
 
 	// Verify it's gone
-	if store.Get("test-group") != nil {
+	if store.Get(context.Background(), "test-group") != nil {
 		t.Error("Store should be nil after Delete")
 	}
 }
@@ -116,12 +116,12 @@ func TestRedisSessionStore_List(t *testing.T) {
 	stores2 := Stores{"test": &TestStore{Value: 2}}
 	stores3 := Stores{"test": &TestStore{Value: 3}}
 
-	store.Set("group-1", stores1)
-	store.Set("group-2", stores2)
-	store.Set("group-3", stores3)
+	store.Set(context.Background(), "group-1", stores1)
+	store.Set(context.Background(), "group-2", stores2)
+	store.Set(context.Background(), "group-3", stores3)
 
 	// List all groups
-	groups := store.List()
+	groups := store.List(context.Background())
 
 	if len(groups) != 3 {
 		t.Errorf("Expected 3 groups, got %d", len(groups))
@@ -146,7 +146,7 @@ func TestRedisSessionStore_TTLRefresh(t *testing.T) {
 	store := NewRedisSessionStore(client, WithSessionTTL(2*time.Second))
 
 	stores := Stores{"test": &TestStore{Value: 1}}
-	store.Set("test-group", stores)
+	store.Set(context.Background(), "test-group", stores)
 
 	// Get the initial TTL
 	ctx := context.Background()
@@ -161,7 +161,7 @@ func TestRedisSessionStore_TTLRefresh(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	// Access the store (should refresh TTL)
-	store.Get("test-group")
+	store.Get(context.Background(), "test-group")
 
 	// Wait for async refresh
 	time.Sleep(100 * time.Millisecond)
@@ -189,10 +189,10 @@ func TestRedisSessionStore_MultipleStores(t *testing.T) {
 		"config":  &TestStore{Value: 3, Message: "third"},
 	}
 
-	store.Set("multi-group", stores)
+	store.Set(context.Background(), "multi-group", stores)
 
 	// Retrieve and verify
-	retrieved := store.Get("multi-group")
+	retrieved := store.Get(context.Background(), "multi-group")
 	if retrieved == nil {
 		t.Fatal("Expected stores to be retrieved")
 	}
@@ -228,10 +228,10 @@ func TestRedisSessionStore_EmptyStores(t *testing.T) {
 
 	// Set empty stores
 	emptyStores := Stores{}
-	store.Set("empty-group", emptyStores)
+	store.Set(context.Background(), "empty-group", emptyStores)
 
 	// Retrieve
-	retrieved := store.Get("empty-group")
+	retrieved := store.Get(context.Background(), "empty-group")
 	if retrieved == nil {
 		t.Error("Expected empty stores map, got nil")
 	}
@@ -248,10 +248,10 @@ func TestRedisSessionStore_NilStores(t *testing.T) {
 	store := NewRedisSessionStore(client)
 
 	// Set nil stores (should handle gracefully)
-	store.Set("nil-group", nil)
+	store.Set(context.Background(), "nil-group", nil)
 
 	// Retrieve should return nil
-	retrieved := store.Get("nil-group")
+	retrieved := store.Get(context.Background(), "nil-group")
 	if retrieved != nil {
 		t.Errorf("Expected nil for nil stores, got %v", retrieved)
 	}
@@ -277,7 +277,7 @@ func TestRedisSessionStore_ConcurrentAccess(t *testing.T) {
 
 	// Create initial stores
 	stores := Stores{"test": &TestStore{Value: 0}}
-	store.Set("concurrent-group", stores)
+	store.Set(context.Background(), "concurrent-group", stores)
 
 	// Concurrent reads and writes
 	done := make(chan bool)
@@ -285,10 +285,10 @@ func TestRedisSessionStore_ConcurrentAccess(t *testing.T) {
 		go func(val int) {
 			// Set
 			s := Stores{"test": &TestStore{Value: val}}
-			store.Set("concurrent-group", s)
+			store.Set(context.Background(), "concurrent-group", s)
 
 			// Get
-			retrieved := store.Get("concurrent-group")
+			retrieved := store.Get(context.Background(), "concurrent-group")
 			if retrieved == nil {
 				t.Error("Expected stores, got nil")
 			}
@@ -303,7 +303,7 @@ func TestRedisSessionStore_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Final verification
-	final := store.Get("concurrent-group")
+	final := store.Get(context.Background(), "concurrent-group")
 	if final == nil {
 		t.Fatal("Expected final stores to exist")
 	}
@@ -340,7 +340,7 @@ func TestRedisSessionStore_ListEmpty(t *testing.T) {
 	store := NewRedisSessionStore(client)
 
 	// List should return empty slice when no groups exist
-	groups := store.List()
+	groups := store.List(context.Background())
 	if groups == nil {
 		t.Error("Expected empty slice, got nil")
 	}
@@ -358,14 +358,14 @@ func TestRedisSessionStore_UpdateExisting(t *testing.T) {
 
 	// Set initial stores
 	initial := Stores{"test": &TestStore{Value: 1, Message: "initial"}}
-	store.Set("update-group", initial)
+	store.Set(context.Background(), "update-group", initial)
 
 	// Update with new values
 	updated := Stores{"test": &TestStore{Value: 2, Message: "updated"}}
-	store.Set("update-group", updated)
+	store.Set(context.Background(), "update-group", updated)
 
 	// Retrieve and verify updated values
-	retrieved := store.Get("update-group")
+	retrieved := store.Get(context.Background(), "update-group")
 	if retrieved == nil {
 		t.Fatal("Expected stores after update")
 	}

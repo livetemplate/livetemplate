@@ -4,12 +4,42 @@ package parse
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"html/template"
 	"reflect"
+	"sort"
 	"strings"
+	"sync"
 	"text/template/parse"
 )
+
+// captureResultFuncName is a unique function name used internally to capture
+// pipeline evaluation results. Generated once at init with random suffix to
+// prevent collision with user-defined functions.
+var captureResultFuncName string
+
+// pipeTemplateCache caches parsed pipe templates to avoid repeated parsing.
+// Key is the template string, value is the parsed *template.Template.
+// Uses sync.Map for efficient concurrent access.
+var pipeTemplateCache sync.Map
+
+// astTemplateCache caches parsed templates for AST node handlers (actions, conditionals).
+// Key is the template string, value is the parsed *template.Template.
+// Uses sync.Map for efficient concurrent access.
+var astTemplateCache sync.Map
+
+func init() {
+	// Generate unique function name with random suffix
+	randBytes := make([]byte, 8)
+	if _, err := rand.Read(randBytes); err != nil {
+		// Fallback to deterministic name if random fails (shouldn't happen)
+		captureResultFuncName = "__lvt_internal_capture_result_fallback__"
+		return
+	}
+	captureResultFuncName = fmt.Sprintf("__lvt_internal_capture_%s__", hex.EncodeToString(randBytes))
+}
 
 // Template represents a parsed template with its AST and associated data.
 type Template struct {
@@ -197,17 +227,13 @@ func getSortedKeys(m map[string]interface{}) []string {
 		keys = append(keys, k)
 	}
 
-	// Sort them numerically
-	for i := 0; i < len(keys); i++ {
-		for j := i + 1; j < len(keys); j++ {
-			var iVal, jVal int
-			_, _ = fmt.Sscanf(keys[i], "%d", &iVal)
-			_, _ = fmt.Sscanf(keys[j], "%d", &jVal)
-			if iVal > jVal {
-				keys[i], keys[j] = keys[j], keys[i]
-			}
-		}
-	}
+	// Sort numerically using efficient stdlib sort (O(n log n) vs O(n²) bubble sort)
+	sort.Slice(keys, func(i, j int) bool {
+		var iVal, jVal int
+		_, _ = fmt.Sscanf(keys[i], "%d", &iVal)
+		_, _ = fmt.Sscanf(keys[j], "%d", &jVal)
+		return iVal < jVal
+	})
 	return keys
 }
 
@@ -220,13 +246,50 @@ func newTemplateWithFuncs(name string, ctx *Context) *template.Template {
 	return tmpl
 }
 
+// getOrParseASTTemplate retrieves a cached AST node template or parses a new one.
+// This is used by action and conditional handlers to avoid repeated parsing.
+// Templates are cloned before applying FuncMap to allow concurrent execution with different functions.
+func getOrParseASTTemplate(cacheKey, templateStr string, ctx *Context) (*template.Template, error) {
+	// Try to get from cache
+	if cached, ok := astTemplateCache.Load(cacheKey); ok {
+		if cachedTmpl, ok := cached.(*template.Template); ok {
+			// Clone the cached template and apply the FuncMap
+			clone, err := cachedTmpl.Clone()
+			if err != nil {
+				// If clone fails, fall back to parsing
+				goto parse
+			}
+			// Apply FuncMap from context
+			if ctx != nil && ctx.FuncMap != nil && len(ctx.FuncMap) > 0 {
+				clone.Funcs(ctx.FuncMap)
+			}
+			return clone, nil
+		}
+	}
+
+parse:
+	// Parse new template with FuncMap
+	tmpl := newTemplateWithFuncs(cacheKey, ctx)
+	parsedTmpl, err := tmpl.Parse(templateStr)
+	if err != nil {
+		return nil, err
+	}
+
+	// Store in cache for future use (without FuncMap, will be applied on clone)
+	baseTmpl, err := template.New(cacheKey).Parse(templateStr)
+	if err == nil {
+		astTemplateCache.Store(cacheKey, baseTmpl)
+	}
+
+	return parsedTmpl, nil
+}
+
 // evaluatePipe evaluates a pipe expression against data.
 func evaluatePipe(pipeStr string, data interface{}, ctx *Context) (interface{}, error) {
 	if pipeStr == "." {
 		return data, nil
 	}
 
-	const captureName = "__lvt_capture_result__"
 	var (
 		captured   interface{}
 		didCapture bool
@@ -239,14 +302,16 @@ func evaluatePipe(pipeStr string, data interface{}, ctx *Context) (interface{}, 
 			funcs[name] = fn
 		}
 	}
-	funcs[captureName] = func(v interface{}) string {
+	funcs[captureResultFuncName] = func(v interface{}) string {
 		captured = v
 		didCapture = true
 		return ""
 	}
 
 	// Execute the pipeline through a capture helper
-	tmpl, err := template.New("pipe").Funcs(funcs).Parse(fmt.Sprintf("{{%s (%s)}}", captureName, pipeStr))
+	// Use cached template if available, otherwise parse and cache it
+	captureTemplateStr := fmt.Sprintf("{{%s (%s)}}", captureResultFuncName, pipeStr)
+	tmpl, err := getOrParsePipeTemplate("pipe:"+pipeStr, captureTemplateStr, funcs)
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +325,9 @@ func evaluatePipe(pipeStr string, data interface{}, ctx *Context) (interface{}, 
 	}
 
 	// Fallback to string representation
-	fallbackTmpl, err := template.New("pipe-fallback").Funcs(funcs).Parse(fmt.Sprintf("{{%s}}", pipeStr))
+	// Use cached template if available, otherwise parse and cache it
+	fallbackTemplateStr := fmt.Sprintf("{{%s}}", pipeStr)
+	fallbackTmpl, err := getOrParsePipeTemplate("fallback:"+pipeStr, fallbackTemplateStr, funcs)
 	if err != nil {
 		return nil, err
 	}
@@ -270,6 +337,42 @@ func evaluatePipe(pipeStr string, data interface{}, ctx *Context) (interface{}, 
 		return nil, err
 	}
 	return buf.String(), nil
+}
+
+// getOrParsePipeTemplate retrieves a cached template or parses a new one.
+// The cache key includes a prefix to distinguish between different template types.
+// Templates are cloned before applying FuncMap to allow concurrent execution with different functions.
+func getOrParsePipeTemplate(cacheKey, templateStr string, funcs template.FuncMap) (*template.Template, error) {
+	// Try to get from cache
+	if cached, ok := pipeTemplateCache.Load(cacheKey); ok {
+		if cachedTmpl, ok := cached.(*template.Template); ok {
+			// Clone the cached template and apply the FuncMap
+			// This allows reusing the parsed structure while supporting dynamic functions
+			clone, err := cachedTmpl.Clone()
+			if err != nil {
+				// If clone fails, fall back to parsing
+				goto parse
+			}
+			clone.Funcs(funcs)
+			return clone, nil
+		}
+	}
+
+parse:
+	// Parse new template
+	tmpl, err := template.New(cacheKey).Funcs(funcs).Parse(templateStr)
+	if err != nil {
+		return nil, err
+	}
+
+	// Store in cache for future use
+	// Store the template without FuncMap applied (will be applied on clone)
+	baseTmpl, err := template.New(cacheKey).Parse(templateStr)
+	if err == nil {
+		pipeTemplateCache.Store(cacheKey, baseTmpl)
+	}
+
+	return tmpl, nil
 }
 
 // formatPipe converts a pipe node to a string representation.
@@ -301,7 +404,24 @@ func isZeroValue(v reflect.Value) bool {
 		return v.Uint() == 0
 	case reflect.Float32, reflect.Float64:
 		return v.Float() == 0
+	case reflect.Complex64, reflect.Complex128:
+		c := v.Complex()
+		return real(c) == 0 && imag(c) == 0
+	case reflect.Chan, reflect.Func:
+		return v.IsNil()
+	case reflect.Array:
+		// For arrays, check if all elements are zero
+		for i := 0; i < v.Len(); i++ {
+			if !isZeroValue(v.Index(i)) {
+				return false
+			}
+		}
+		return true
+	case reflect.Struct:
+		// Use IsZero() method (available since Go 1.13) for efficient struct comparison
+		return v.IsZero()
 	default:
+		// Fallback for uncommon types (e.g., UnsafePointer)
 		return reflect.DeepEqual(v.Interface(), reflect.Zero(v.Type()).Interface())
 	}
 }

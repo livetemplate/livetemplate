@@ -3,6 +3,8 @@ package livetemplate
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -100,6 +102,8 @@ func (h *HealthHandler) Live(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		// Log error but can't change status code (already written)
+		slog.Error("Failed to encode liveness response",
+			slog.String("error", err.Error()))
 		return
 	}
 }
@@ -137,6 +141,8 @@ func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		if err := json.NewEncoder(w).Encode(response); err != nil {
 			// Log error but can't change status code (already written)
+			slog.Error("Failed to encode readiness response (no checkers)",
+				slog.String("error", err.Error()))
 			return
 		}
 		return
@@ -201,6 +207,9 @@ func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(statusCode)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		// Log error but can't change status code (already written)
+		slog.Error("Failed to encode readiness response",
+			slog.String("error", err.Error()),
+			slog.Int("status_code", statusCode))
 		return
 	}
 }
@@ -218,11 +227,54 @@ func NewSessionStoreHealthChecker(store SessionStore) *SessionStoreHealthChecker
 	return &SessionStoreHealthChecker{store: store}
 }
 
-// Check verifies the session store is accessible.
+// healthCheckStore is a minimal Store implementation for health checking.
+type healthCheckStore struct {
+	value string
+}
+
+func (h *healthCheckStore) Change(ctx *ActionContext) error {
+	return nil
+}
+
+// Check verifies the session store is accessible by performing a Get/Set/Delete cycle.
+// This properly validates that the store can read, write, and delete data.
 func (c *SessionStoreHealthChecker) Check(ctx context.Context) error {
-	// Attempt to get a session (should return nil for non-existent session)
-	// This verifies the store is accessible without side effects
-	_ = c.store.Get("__health_check__")
+	const healthCheckKey = "__livetemplate_health_check__"
+
+	// Create a simple test store
+	testStores := make(Stores)
+	testStores["_health"] = &healthCheckStore{value: "ok"}
+
+	// Test write operation
+	c.store.Set(ctx, healthCheckKey, testStores)
+
+	// Test read operation - verify we can retrieve what we just set
+	retrieved := c.store.Get(ctx, healthCheckKey)
+	if retrieved == nil {
+		return fmt.Errorf("health check failed: unable to retrieve test data from session store")
+	}
+
+	// Verify the data matches
+	if healthStore, ok := retrieved["_health"]; ok {
+		if hs, ok := healthStore.(*healthCheckStore); ok {
+			if hs.value != "ok" {
+				return fmt.Errorf("health check failed: retrieved data does not match expected value")
+			}
+		} else {
+			return fmt.Errorf("health check failed: retrieved data has unexpected type")
+		}
+	} else {
+		return fmt.Errorf("health check failed: retrieved data is missing expected key")
+	}
+
+	// Test delete operation - clean up after ourselves
+	c.store.Delete(ctx, healthCheckKey)
+
+	// Verify deletion worked
+	if afterDelete := c.store.Get(ctx, healthCheckKey); afterDelete != nil {
+		return fmt.Errorf("health check failed: unable to delete test data from session store")
+	}
+
 	return nil
 }
 
@@ -241,22 +293,13 @@ func NewRedisHealthChecker(store *RedisSessionStore) *RedisHealthChecker {
 }
 
 // Check implements the HealthChecker interface.
+// Uses PingContext to ensure the operation respects context cancellation and timeouts.
 func (r *RedisHealthChecker) Check(ctx context.Context) error {
 	// Create a timeout context
 	timeoutCtx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	// Use a channel to handle the ping result
-	done := make(chan error, 1)
-	go func() {
-		done <- r.store.Ping()
-	}()
-
-	// Wait for either the ping to complete or timeout
-	select {
-	case err := <-done:
-		return err
-	case <-timeoutCtx.Done():
-		return timeoutCtx.Err()
-	}
+	// Use PingContext which properly respects context cancellation
+	// No goroutine needed - PingContext handles timeout internally
+	return r.store.PingContext(timeoutCtx)
 }

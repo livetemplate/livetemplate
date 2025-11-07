@@ -96,6 +96,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/livetemplate/livetemplate/internal/context"
@@ -106,6 +107,10 @@ import (
 	"github.com/livetemplate/livetemplate/pubsub"
 )
 
+// htmlBlockTags defines block-level HTML elements that create natural segment boundaries
+// for tree-based HTML structure analysis and segmentation.
+var htmlBlockTags = []string{"<div", "<article", "<section", "<main", "<aside", "<nav", "<ul", "<ol", "<table"}
+
 // Config holds template configuration options
 type Config struct {
 	Upgrader               *websocket.Upgrader
@@ -114,12 +119,16 @@ type Config struct {
 	PubSubBroadcaster      pubsub.Broadcaster // Optional: for distributed broadcasting across instances
 	AllowedOrigins         []string           // Allowed WebSocket origins (empty = allow all in dev, restrict in prod)
 	WebSocketDisabled      bool
-	LoadingDisabled        bool     // Disables automatic loading indicator on page load
-	TemplateFiles          []string // If set, overrides auto-discovery
-	IgnoreTemplateDirs     []string // Additional directories to ignore during auto-discovery
-	DevMode                bool     // Development mode - use local client library instead of CDN
-	MaxConnections         int64    // Maximum total connections (0 = unlimited)
-	MaxConnectionsPerGroup int64    // Maximum connections per group (0 = unlimited)
+	LoadingDisabled        bool          // Disables automatic loading indicator on page load
+	TemplateFiles          []string      // If set, overrides auto-discovery
+	TemplateBaseDir        string        // Base directory for template auto-discovery (default: directory of calling code via runtime.Caller)
+	IgnoreTemplateDirs     []string      // Additional directories to ignore during auto-discovery
+	DevMode                bool          // Development mode - use local client library instead of CDN
+	MaxConnections         int64         // Maximum total connections (0 = unlimited)
+	MaxConnectionsPerGroup int64         // Maximum connections per group (0 = unlimited)
+	MessageRateLimit       float64       // Messages per second per connection (0 = unlimited, default 10)
+	MessageRateBurst       int           // Burst capacity for rate limiting (default 20)
+	CookieMaxAge           time.Duration // Session cookie max age (default: 1 year)
 }
 
 // Template represents a live template with caching and tree-based optimization capabilities.
@@ -287,6 +296,30 @@ func WithAllowedOrigins(origins []string) Option {
 	}
 }
 
+// WithPermissiveOriginCheck disables origin checking for WebSocket connections.
+//
+// WARNING: This allows connections from any origin and should ONLY be used in:
+//   - Local development environments
+//   - Testing scenarios
+//   - Specific use cases where CSRF protection is handled externally
+//
+// In production, use WithAllowedOrigins() instead to specify trusted origins.
+//
+// Example:
+//
+//	// Development only - DO NOT use in production
+//	tmpl := livetemplate.New("app",
+//	    livetemplate.WithDevMode(true),
+//	    livetemplate.WithPermissiveOriginCheck(),
+//	)
+func WithPermissiveOriginCheck() Option {
+	return func(c *Config) {
+		c.Upgrader.CheckOrigin = func(r *http.Request) bool {
+			return true
+		}
+	}
+}
+
 // WithIgnoreTemplateDirs adds directories to ignore during template auto-discovery.
 // This is useful to skip directories containing generator templates or other non-runtime templates.
 //
@@ -312,6 +345,42 @@ func WithMaxConnections(max int64) Option {
 func WithMaxConnectionsPerGroup(max int64) Option {
 	return func(c *Config) {
 		c.MaxConnectionsPerGroup = max
+	}
+}
+
+// WithMessageRateLimit sets the rate limit for WebSocket messages per connection.
+//
+// Uses token bucket algorithm: messagesPerSecond determines the rate,
+// burstCapacity allows short bursts above the rate.
+//
+// Default: 10 messages/sec with burst of 20.
+// Set messagesPerSecond = 0 to disable rate limiting (not recommended for production).
+//
+// Example:
+//
+//	tmpl := livetemplate.New("app",
+//	    livetemplate.WithMessageRateLimit(20, 50), // 20 msg/sec, burst of 50
+//	)
+func WithMessageRateLimit(messagesPerSecond float64, burstCapacity int) Option {
+	return func(c *Config) {
+		c.MessageRateLimit = messagesPerSecond
+		c.MessageRateBurst = burstCapacity
+	}
+}
+
+// WithCookieMaxAge sets the maximum age for session cookies.
+//
+// The cookie is used to maintain anonymous user sessions across page reloads.
+// Default: 365 days (1 year)
+//
+// Example:
+//
+//	tmpl := livetemplate.New("app",
+//	    livetemplate.WithCookieMaxAge(30*24*time.Hour), // 30 days
+//	)
+func WithCookieMaxAge(maxAge time.Duration) Option {
+	return func(c *Config) {
+		c.CookieMaxAge = maxAge
 	}
 }
 
@@ -389,7 +458,7 @@ func WithPubSubBroadcaster(broadcaster pubsub.Broadcaster) Option {
 // # Configuration
 //
 // The template is configured with sensible defaults:
-//   - WebSocket upgrader with permissive CheckOrigin
+//   - Secure WebSocket origin checking (same-origin only, configurable via WithAllowedOrigins)
 //   - In-memory session store
 //   - Anonymous authenticator (browser-based session grouping)
 //   - Auto-discovery enabled
@@ -397,19 +466,82 @@ func WithPubSubBroadcaster(broadcaster pubsub.Broadcaster) Option {
 //   - Production mode (CDN client library)
 //
 // See the With* functions for available options.
+
+// createSecureOriginChecker creates a CheckOrigin function that enforces origin restrictions.
+//
+// Security behavior:
+//   - DevMode=true: Allows all origins (for local development)
+//   - DevMode=false with AllowedOrigins empty: Same-origin only (secure default)
+//   - DevMode=false with AllowedOrigins set: Only allows listed origins
+//
+// This prevents CSRF attacks by rejecting WebSocket upgrade requests from unauthorized origins.
+func createSecureOriginChecker(allowedOrigins []string, devMode bool) func(*http.Request) bool {
+	return func(r *http.Request) bool {
+		// Development mode: allow all origins for convenience
+		if devMode {
+			return true
+		}
+
+		origin := r.Header.Get("Origin")
+
+		// No origin header: allow (same-origin requests may not include Origin)
+		if origin == "" {
+			return true
+		}
+
+		// If AllowedOrigins is specified, check against the list
+		if len(allowedOrigins) > 0 {
+			for _, allowed := range allowedOrigins {
+				if origin == allowed {
+					return true
+				}
+			}
+			// Origin not in allowed list
+			return false
+		}
+
+		// Default: same-origin only
+		// Compare origin against the request's Host header
+		host := r.Host
+		if host == "" {
+			return false
+		}
+
+		// Extract scheme from request
+		scheme := "https"
+		if r.TLS == nil {
+			scheme = "http"
+		}
+
+		// Check if origin matches scheme://host
+		expectedOrigin := scheme + "://" + host
+		return origin == expectedOrigin
+	}
+}
+
 func New(name string, opts ...Option) *Template {
 	// Default configuration
 	config := Config{
 		Upgrader: &websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool { return true },
+			// Secure default: same-origin only
+			// This will be replaced with origin-aware check after options are applied
+			CheckOrigin: nil, // Will be set after applying options
 		},
-		SessionStore:  NewMemorySessionStore(),
-		Authenticator: &AnonymousAuthenticator{}, // Default: browser-based session grouping
+		SessionStore:     NewMemorySessionStore(),
+		Authenticator:    &AnonymousAuthenticator{}, // Default: browser-based session grouping
+		MessageRateLimit: 10.0,                      // Default: 10 messages/sec
+		MessageRateBurst: 20,                        // Default: burst of 20
+		CookieMaxAge:     365 * 24 * time.Hour,      // Default: 1 year
 	}
 
 	// Apply options
 	for _, opt := range opts {
 		opt(&config)
+	}
+
+	// Set secure CheckOrigin after options are applied
+	if config.Upgrader.CheckOrigin == nil {
+		config.Upgrader.CheckOrigin = createSecureOriginChecker(config.AllowedOrigins, config.DevMode)
 	}
 
 	// Log DevMode configuration for debugging
@@ -424,7 +556,8 @@ func New(name string, opts ...Option) *Template {
 
 	// Auto-discover and parse templates if not explicitly provided
 	if len(config.TemplateFiles) == 0 {
-		files, err := discoverTemplateFiles(config.IgnoreTemplateDirs)
+		// Use TemplateBaseDir from config if provided, otherwise fall back to runtime.Caller
+		files, err := discoverTemplateFiles(config.TemplateBaseDir, config.IgnoreTemplateDirs)
 		if err == nil && len(files) > 0 {
 			if _, err := tmpl.ParseFiles(files...); err != nil {
 				log.Printf("Warning: failed to parse template files: %v", err)
@@ -494,13 +627,19 @@ func (t *Template) Parse(text string) (*Template, error) {
 	}
 	tmpl, err := baseTemplate.Parse(text)
 	if err != nil {
-		return nil, fmt.Errorf("template parse error: %w", err)
+		return nil, fmt.Errorf("template '%s' parse error: %w", t.name, err)
 	}
 
+	return t.parseInternal(text, tmpl, isFullHTML)
+}
+
+// parseInternal handles the common logic for parsing templates:
+// flattening, wrapper injection, final parsing, and validation.
+func (t *Template) parseInternal(text string, baseTemplate *template.Template, isFullHTML bool) (*Template, error) {
 	// Check if template uses composition features and flatten if needed
-	if hasTemplateComposition(tmpl) {
+	if hasTemplateComposition(baseTemplate) {
 		// Flatten the template to resolve all {{define}}/{{template}}/{{block}}
-		flattenedStr, err := flattenTemplate(tmpl)
+		flattenedStr, err := flattenTemplate(baseTemplate)
 		if err != nil {
 			return nil, fmt.Errorf("template flattening failed: %w", err)
 		}
@@ -529,7 +668,7 @@ func (t *Template) Parse(text string) (*Template, error) {
 	if len(t.funcs) > 0 {
 		wrappedTemplate = wrappedTemplate.Funcs(t.funcs)
 	}
-	tmpl, err = wrappedTemplate.Parse(templateContent)
+	tmpl, err := wrappedTemplate.Parse(templateContent)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse template with wrapper: %w", err)
 	}
@@ -581,7 +720,7 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 	}
 	tmpl, err := baseTemplate.Parse(text)
 	if err != nil {
-		return nil, fmt.Errorf("template parse error: %w", err)
+		return nil, fmt.Errorf("template '%s' parse error: %w", t.name, err)
 	}
 
 	// Parse additional files if provided (for template composition)
@@ -600,52 +739,7 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 		}
 	}
 
-	// Now that all files are parsed, check if we need to flatten
-	if hasTemplateComposition(tmpl) {
-		// Flatten the complete template set to resolve all {{define}}/{{template}}/{{block}}
-		flattenedStr, err := flattenTemplate(tmpl)
-		if err != nil {
-			return nil, fmt.Errorf("template flattening failed: %w", err)
-		}
-
-		// Store flattened version for tree generation (WITHOUT wrapper)
-		text = flattenedStr
-	}
-
-	// Now add wrapper to the (possibly flattened) template for execution
-	var templateContent string
-	if isFullHTML {
-		// Inject wrapper div around body content
-		templateContent = injectWrapperDiv(text, t.wrapperID, t.config.LoadingDisabled)
-	} else {
-		// For standalone templates, wrap the entire content
-		loadingAttr := ""
-		if !t.config.LoadingDisabled {
-			loadingAttr = ` data-lvt-loading="true"`
-		}
-		templateContent = fmt.Sprintf(`<div data-lvt-id="%s"%s>%s</div>`, t.wrapperID, loadingAttr, text)
-	}
-
-	// Parse the template with wrapper for execution
-	wrappedTemplate := template.New(t.name)
-	if len(t.funcs) > 0 {
-		wrappedTemplate = wrappedTemplate.Funcs(t.funcs)
-	}
-	tmpl, err = wrappedTemplate.Parse(templateContent)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse template with wrapper: %w", err)
-	}
-
-	// Store the template text for tree generation (flattened if it had composition)
-	t.templateStr = text
-	t.tmpl = tmpl
-
-	// Validate that tree generation works with this template
-	if err := t.validateTreeGeneration(); err != nil {
-		return nil, fmt.Errorf("template validation failed: %w", err)
-	}
-
-	return t, nil
+	return t.parseInternal(text, tmpl, isFullHTML)
 }
 
 // ParseGlob parses the template definitions from the files identified by the pattern.
@@ -685,7 +779,8 @@ func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]
 		errMap = make(map[string]string)
 	}
 
-	// Execute the template with wrapper injection and lvt context
+	// Execute the template once and reuse the result for both output and caching
+	// This eliminates 2x performance cost from double execution
 	htmlBytes, err := context.ExecuteTemplateWithContext(t.tmpl, data, errMap, t.config.DevMode)
 	if err != nil {
 		return err
@@ -696,33 +791,29 @@ func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]
 	}
 
 	// Initialize caching state for future ExecuteUpdates calls
-	// Execute template again to get HTML for caching
-	currentHTML, execErr := t.executeTemplateWithErrors(data, errMap)
-	if execErr != nil {
-		// Don't fail the main Execute call if caching setup fails
-		return nil
-	}
+	// Reuse htmlBytes from first execution (no need to execute again)
+	currentHTML := string(htmlBytes)
 
-	// Extract content from wrapper for consistent caching
-	var contentToCache string
-	if t.wrapperID != "" {
-		contentToCache = extractTemplateContent(currentHTML, t.wrapperID)
-	} else {
-		contentToCache = currentHTML
-	}
-
-	// Set up caching state and generate initial tree (protected by mutex)
+	// Generate and cache initial tree structure for performance
+	// This enables ExecuteUpdates to generate diffs on subsequent calls
 	t.mu.Lock()
-	t.lastData = data
-	t.lastHTML = contentToCache
-
-	// Generate and cache initial tree structure
-	_, treeErr := t.generateInitialTree(currentHTML, data)
+	tree, treeErr := t.generateInitialTreeWithoutRegistry(currentHTML, data)
+	if treeErr == nil {
+		// Successfully generated tree - cache it along with data and HTML
+		// This must be done AFTER tree generation so isFirstRender detection works correctly
+		t.lastData = data
+		t.lastHTML = currentHTML
+	}
 	t.mu.Unlock()
 
 	if treeErr != nil {
 		// Don't fail if tree generation fails, just skip caching
 		return nil
+	}
+
+	// Mark structures in registry outside the lock
+	if tree != nil {
+		t.markAllStructuresAsSeen(tree, "")
 	}
 
 	return nil
@@ -767,31 +858,39 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, errors ...map[
 
 // generateTreeInternalWithErrors is the internal implementation that returns TreeNode with error context
 func (t *Template) generateTreeInternalWithErrors(data interface{}, errors map[string]string) (*TreeNode, error) {
-	// Acquire write lock to protect mutable state
+	// Initialize key generator if needed (defensive check for edge cases)
+	// Do this check before locking to reduce critical section
 	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	// Initialize key generator if needed (but don't reset - keys should increment globally)
 	if t.keyGen == nil {
 		t.keyGen = newKeyGenerator()
 	}
+	isFirstRender := t.lastData == nil
+	t.mu.Unlock()
 
 	// Convert data to include lvt context for consistent template execution
 	dataWithLvt := t.addLvtToData(data, errors)
 
 	// Load existing key mappings from previous render if available
+	// This needs to be done with lock held to safely read lastTree
+	t.mu.Lock()
 	if t.lastTree != nil {
 		t.loadExistingKeyMappings(t.lastTree)
 	}
+	t.mu.Unlock()
 
-	// Execute template with current data and errors
+	// Execute template with current data and errors (CPU-intensive, no lock needed)
 	currentHTML, err := t.executeTemplateWithErrors(data, errors)
 	if err != nil {
 		return nil, fmt.Errorf("template execution error: %w", err)
 	}
 
+	// Generate tree and update state atomically
+	t.mu.Lock()
+	var tree *TreeNode
+	var treeErr error
+
 	// First render - no previous state
-	if t.lastData == nil {
+	if isFirstRender {
 		// Extract content from wrapper for consistent caching
 		var contentToCache string
 		if t.wrapperID != "" {
@@ -802,11 +901,24 @@ func (t *Template) generateTreeInternalWithErrors(data interface{}, errors map[s
 
 		t.lastData = dataWithLvt
 		t.lastHTML = contentToCache
-		return t.generateInitialTree(currentHTML, dataWithLvt)
+		tree, treeErr = t.generateInitialTreeWithoutRegistry(currentHTML, dataWithLvt)
+	} else {
+		// Subsequent renders - use diffing approach
+		tree, treeErr = t.generateDiffBasedTree(t.lastHTML, currentHTML, t.lastData, dataWithLvt)
+	}
+	t.mu.Unlock()
+
+	if treeErr != nil {
+		return nil, treeErr
 	}
 
-	// Subsequent renders - use diffing approach
-	return t.generateDiffBasedTree(t.lastHTML, currentHTML, t.lastData, dataWithLvt)
+	// Mark structures in registry outside the lock (registry has its own lock)
+	// This is safe because registry operations are independent of template state
+	if isFirstRender && tree != nil {
+		t.markAllStructuresAsSeen(tree, "")
+	}
+
+	return tree, nil
 }
 
 // addLvtToData converts data to include lvt context
@@ -904,9 +1016,10 @@ func (t *Template) markAllStructuresAsSeen(node *TreeNode, basePath string) {
 	// Individual items are dynamic data, not structure.
 }
 
-// generateInitialTree creates tree with statics and dynamics for first render
+// generateInitialTreeWithoutRegistry creates tree with statics and dynamics for first render.
 // NOTE: This method modifies template state. Caller must hold t.mu write lock.
-func (t *Template) generateInitialTree(html string, data interface{}) (*TreeNode, error) {
+// NOTE: Does NOT call registry methods - caller should do that outside the lock.
+func (t *Template) generateInitialTreeWithoutRegistry(html string, data interface{}) (*TreeNode, error) {
 	// Extract content from wrapper if we have one
 	var contentToAnalyze string
 	if t.wrapperID != "" {
@@ -936,9 +1049,13 @@ func (t *Template) generateInitialTree(html string, data interface{}) (*TreeNode
 	// First render: create context that includes all statics
 	ctx := NewTreeGenerationContext()
 	ctx.FuncMap = t.funcs
+	ctx.DevMode = t.config.DevMode
 	tree, err := parseTemplateToTree(templateContent, data, t.keyGen, ctx)
 	if err != nil {
 		// parseTemplateToTree failed, falling back to HTML structure
+		slog.Warn("Template parsing failed, falling back to HTML structure-based tree",
+			slog.String("template", t.name),
+			slog.String("error", err.Error()))
 		tree = t.createHTMLStructureBasedTree(contentToAnalyze)
 	}
 
@@ -952,11 +1069,8 @@ func (t *Template) generateInitialTree(html string, data interface{}) (*TreeNode
 	// Calculate and store initial fingerprint for change detection
 	t.lastFingerprint = calculateFingerprint(tree)
 
-	// Mark all structures in the registry (Phase 2: Client Structure Registry)
-	// This records what structures the client has seen from the initial render
-	t.markAllStructuresAsSeen(tree, "")
-
 	// Add fingerprint to tree for client-side tracking
+	// NOTE: Caller is responsible for calling markAllStructuresAsSeen outside the lock
 	return addFingerprintToTree(tree), nil
 }
 
@@ -986,6 +1100,7 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 		// Using nil context defaults to including statics
 		ctx := NewTreeGenerationContext()
 		ctx.FuncMap = t.funcs
+		ctx.DevMode = t.config.DevMode
 		newTree, err := parseTemplateToTree(templateContent, newData, t.keyGen, ctx)
 		if err != nil {
 			return nil, fmt.Errorf("tree generation failed: %w", err)
@@ -1085,12 +1200,9 @@ func (t *Template) analyzeChangeAndCreateTree(oldHTML, newHTML string, _, _ inte
 
 // createHTMLStructureBasedTree implements deterministic segmentation strategies for HTML content
 func (t *Template) createHTMLStructureBasedTree(html string) *TreeNode {
-	// Define block-level elements that create natural segment boundaries
-	blockTags := []string{"<div", "<article", "<section", "<main", "<aside", "<nav", "<ul", "<ol", "<table"}
-
 	// Find the positions of block elements
 	var boundaries []int
-	for _, tag := range blockTags {
+	for _, tag := range htmlBlockTags {
 		idx := 0
 		for {
 			pos := strings.Index(html[idx:], tag)
@@ -1309,6 +1421,7 @@ func (t *Template) Handle(stores ...Store) LiveHandler {
 		WebSocketDisabled:      t.config.WebSocketDisabled,
 		MaxConnections:         t.config.MaxConnections,
 		MaxConnectionsPerGroup: t.config.MaxConnectionsPerGroup,
+		CookieMaxAge:           t.config.CookieMaxAge,
 	}
 
 	limits := session.NewConnectionLimits(config.MaxConnections, config.MaxConnectionsPerGroup)
