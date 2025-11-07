@@ -307,3 +307,58 @@ func TestCalculateFingerprint_EmptyCollections(t *testing.T) {
 		t.Error("Empty collections should produce consistent fingerprints")
 	}
 }
+
+// TestCalculateFingerprint_ArrayPositionSensitivity tests that arrays with same elements
+// in different positions produce different fingerprints.
+// This verifies that the sequential iteration properly distinguishes element positions.
+func TestCalculateFingerprint_ArrayPositionSensitivity(t *testing.T) {
+	// Array with elements in one order
+	tree1 := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": []interface{}{"a", "b", "c"},
+		},
+	}
+
+	// Array with same elements in different order
+	tree2 := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": []interface{}{"c", "b", "a"},
+		},
+	}
+
+	// Array with same elements, different middle element
+	tree3 := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": []interface{}{"a", "c", "b"},
+		},
+	}
+
+	fp1 := CalculateFingerprint(tree1)
+	fp2 := CalculateFingerprint(tree2)
+	fp3 := CalculateFingerprint(tree3)
+
+	// Different orderings should produce different fingerprints
+	if fp1 == fp2 {
+		t.Error("Arrays with different element positions should produce different fingerprints (reversed)")
+	}
+
+	if fp1 == fp3 {
+		t.Error("Arrays with different element positions should produce different fingerprints (swapped)")
+	}
+
+	if fp2 == fp3 {
+		t.Error("Different array orderings should all produce unique fingerprints")
+	}
+
+	// Same order should produce same fingerprint
+	tree4 := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": []interface{}{"a", "b", "c"},
+		},
+	}
+
+	fp4 := CalculateFingerprint(tree4)
+	if fp1 != fp4 {
+		t.Error("Same array order should produce same fingerprint")
+	}
+}

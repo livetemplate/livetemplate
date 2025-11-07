@@ -51,7 +51,12 @@ func hashTreeWithCircularDetection(tree *TreeNode, hasher hash.Hash, visited map
 		}
 	}
 
-	// Collect and sort dynamic keys for consistent hashing (always lexicographic)
+	// Collect and sort dynamic keys for consistent hashing
+	// Uses lexicographic sorting (sort.Strings) which is sufficient because:
+	// 1. Dynamic keys are string-formatted indices ("0", "1", "2", etc.) from template positions
+	// 2. Lexicographic order provides consistent ordering across runs (deterministic hashing)
+	// 3. The actual numeric values don't matter for change detection - only consistency matters
+	// 4. Simpler and faster than numeric-aware sorting
 	keys := make([]string, 0, len(tree.Dynamics))
 	for k := range tree.Dynamics {
 		keys = append(keys, k)
