@@ -1,6 +1,7 @@
 package build
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -18,10 +19,6 @@ func TestNewKeyGenerator(t *testing.T) {
 
 	if kg.usedKeys == nil {
 		t.Error("Expected non-nil usedKeys map")
-	}
-
-	if kg.fallbackKeys == nil {
-		t.Error("Expected non-nil fallbackKeys slice")
 	}
 }
 
@@ -68,10 +65,6 @@ func TestKeyGenerator_Reset(t *testing.T) {
 		t.Errorf("After reset: expected empty usedKeys, got: %v", kg.usedKeys)
 	}
 
-	if len(kg.fallbackKeys) != 0 {
-		t.Errorf("After reset: expected empty fallbackKeys, got: %v", kg.fallbackKeys)
-	}
-
 	// Next key should start from 1 again
 	if got := kg.NextKey(); got != "1" {
 		t.Errorf("After reset, NextKey() expected '1', got: %q", got)
@@ -89,7 +82,10 @@ func TestKeyGenerator_LoadExistingKeys(t *testing.T) {
 		map[string]interface{}{"0": "5", "1": "item3"},
 	}
 
-	kg.LoadExistingKeys(oldData)
+	err := kg.LoadExistingKeys(oldData)
+	if err != nil {
+		t.Fatalf("LoadExistingKeys failed: %v", err)
+	}
 
 	// Counter should be set to max key value (5)
 	if kg.counter != 5 {
@@ -121,7 +117,10 @@ func TestKeyGenerator_LoadExistingKeys_NonNumeric(t *testing.T) {
 		map[string]interface{}{"0": "abc", "1": "item3"},
 	}
 
-	kg.LoadExistingKeys(oldData)
+	err := kg.LoadExistingKeys(oldData)
+	if err != nil {
+		t.Fatalf("LoadExistingKeys failed: %v", err)
+	}
 
 	// Counter should be 2 (only numeric key)
 	if kg.counter != 2 {
@@ -162,17 +161,18 @@ func TestKeyGenerator_Uniqueness(t *testing.T) {
 }
 
 // TestGenerateWrapperKey tests wrapper key generation.
+// Note: GenerateWrapperKey was removed, now using NextKey directly.
 func TestGenerateWrapperKey(t *testing.T) {
 	kg := NewKeyGenerator()
 
 	// First wrapper key should be "1"
-	key1 := GenerateWrapperKey(kg)
+	key1 := kg.NextKey()
 	if key1 != "1" {
 		t.Errorf("Expected first wrapper key '1', got: %q", key1)
 	}
 
 	// Second wrapper key should be "2"
-	key2 := GenerateWrapperKey(kg)
+	key2 := kg.NextKey()
 	if key2 != "2" {
 		t.Errorf("Expected second wrapper key '2', got: %q", key2)
 	}
@@ -243,4 +243,131 @@ func TestDetectIDKey_NoKey(t *testing.T) {
 	if got2 != "0" {
 		t.Errorf("Expected '0' (default for empty), got: %v", got2)
 	}
+}
+
+// TestKeyGenerator_Concurrent tests concurrent access to KeyGenerator.
+func TestKeyGenerator_Concurrent(t *testing.T) {
+	kg := NewKeyGenerator()
+	numGoroutines := 100
+	keysPerGoroutine := 100
+
+	// Channel to collect all generated keys
+	keysChan := make(chan string, numGoroutines*keysPerGoroutine)
+
+	// Launch goroutines to generate keys concurrently
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			for j := 0; j < keysPerGoroutine; j++ {
+				keysChan <- kg.NextKey()
+			}
+		}()
+	}
+
+	// Collect all keys
+	keys := make(map[string]bool)
+	for i := 0; i < numGoroutines*keysPerGoroutine; i++ {
+		key := <-keysChan
+		if keys[key] {
+			t.Errorf("Duplicate key generated: %s", key)
+		}
+		keys[key] = true
+	}
+
+	// Verify we got the expected number of unique keys
+	if len(keys) != numGoroutines*keysPerGoroutine {
+		t.Errorf("Expected %d unique keys, got %d", numGoroutines*keysPerGoroutine, len(keys))
+	}
+}
+
+// TestLoadExistingKeys_InvalidData tests error handling for invalid data.
+func TestLoadExistingKeys_InvalidData(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     []interface{}
+		wantErr  bool
+		errMatch string
+	}{
+		{
+			name:     "not a map",
+			data:     []interface{}{"not a map"},
+			wantErr:  true,
+			errMatch: "is not a map",
+		},
+		{
+			name:     "missing key position",
+			data:     []interface{}{map[string]interface{}{"1": "value"}},
+			wantErr:  true,
+			errMatch: "missing key at position",
+		},
+		{
+			name:     "key not a string",
+			data:     []interface{}{map[string]interface{}{"0": 123}},
+			wantErr:  true,
+			errMatch: "is not a string",
+		},
+		{
+			name:    "valid data",
+			data:    []interface{}{map[string]interface{}{"0": "1", "1": "item"}},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kg := NewKeyGenerator()
+			err := kg.LoadExistingKeys(tt.data)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("Expected error containing %q, got nil", tt.errMatch)
+				} else if !contains(err.Error(), tt.errMatch) {
+					t.Errorf("Expected error containing %q, got: %v", tt.errMatch, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error, got: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestKeyGenerator_OverflowProtection tests overflow protection.
+func TestKeyGenerator_OverflowProtection(t *testing.T) {
+	kg := NewKeyGenerator()
+	kg.counter = 9223372036854775806 // MaxInt - 1 on 64-bit
+
+	// This should work
+	key1 := kg.NextKey()
+	if key1 == "" {
+		t.Error("Expected valid key before overflow")
+	}
+
+	// This should panic
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Expected panic on counter overflow")
+		} else {
+			if !contains(fmt.Sprint(r), "overflow") {
+				t.Errorf("Expected panic message containing 'overflow', got: %v", r)
+			}
+		}
+	}()
+
+	kg.NextKey() // This should panic
+}
+
+// Helper function for string contains check
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > 0 && len(substr) > 0 && findSubstring(s, substr)))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

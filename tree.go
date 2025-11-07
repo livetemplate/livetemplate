@@ -78,9 +78,9 @@ func detectIDKey(statics []string) string {
 	return build.DetectIDKey(statics)
 }
 
-// generateWrapperKey wraps internal/build.GenerateWrapperKey for backward compatibility
+// generateWrapperKey generates a wrapper key using the key generator
 func generateWrapperKey(keyGen *keyGenerator) string {
-	return build.GenerateWrapperKey(keyGen)
+	return keyGen.NextKey()
 }
 
 // parseTemplateToTree parses a template using the internal/parse package

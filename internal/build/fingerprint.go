@@ -6,16 +6,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash"
+	"math"
 	"sort"
-	"strconv"
 )
 
 // CalculateFingerprint calculates a 64-bit fingerprint (MD5 hash) for a tree's statics and dynamics.
 // This allows detecting when a subtree has changed, similar to LiveView's optimization #2.
 // Optimized to use incremental hashing instead of full JSON marshaling.
+//
+// MD5 Usage Note:
+// MD5 is used here for change detection only, not for security purposes.
+// It is sufficient for detecting accidental changes in template trees and provides
+// good performance characteristics. For this use case, the collision probability
+// is acceptable and cryptographic strength is not required.
 func CalculateFingerprint(tree *TreeNode) string {
 	hasher := md5.New()
-	HashTreeIncremental(tree, hasher)
+	visited := make(map[*TreeNode]struct{})
+	hashTreeWithCircularDetection(tree, hasher, visited)
 
 	// Return first 16 characters of hex (64 bits)
 	fullHash := hex.EncodeToString(hasher.Sum(nil))
@@ -25,9 +32,15 @@ func CalculateFingerprint(tree *TreeNode) string {
 	return fullHash
 }
 
-// HashTreeIncremental incrementally hashes a tree node without full JSON marshaling.
-// This is much faster for nested trees as it avoids marshaling entire subtrees.
-func HashTreeIncremental(tree *TreeNode, hasher hash.Hash) {
+// hashTreeWithCircularDetection hashes a tree with circular reference detection.
+func hashTreeWithCircularDetection(tree *TreeNode, hasher hash.Hash, visited map[*TreeNode]struct{}) {
+	// Check for circular reference
+	if _, found := visited[tree]; found {
+		hasher.Write([]byte("<circular>"))
+		return
+	}
+	visited[tree] = struct{}{}
+
 	// Add statics to hash (template structure)
 	if tree.HasStatics() {
 		// Write statics count first for disambiguation
@@ -38,58 +51,66 @@ func HashTreeIncremental(tree *TreeNode, hasher hash.Hash) {
 		}
 	}
 
-	// Collect and sort dynamic keys for consistent hashing
-	var keys []string
+	// Collect and sort dynamic keys for consistent hashing (always lexicographic)
+	keys := make([]string, 0, len(tree.Dynamics))
 	for k := range tree.Dynamics {
 		keys = append(keys, k)
 	}
-	sort.Slice(keys, func(i, j int) bool {
-		num1, err1 := strconv.Atoi(keys[i])
-		num2, err2 := strconv.Atoi(keys[j])
-		if err1 == nil && err2 == nil {
-			return num1 < num2
-		}
-		return keys[i] < keys[j]
-	})
+	sort.Strings(keys)
 
 	// Hash each dynamic value incrementally
 	for _, k := range keys {
 		value := tree.Dynamics[k]
+		// Write key with length prefix to prevent collisions
+		hasher.Write([]byte(fmt.Sprintf("k%d:", len(k))))
 		hasher.Write([]byte(k))
 		hasher.Write([]byte(":"))
-		HashValueIncremental(value, hasher)
+		hashValueWithCircularDetection(value, hasher, visited)
 		hasher.Write([]byte("\x00")) // Null byte separator
 	}
 }
 
-// HashValueIncremental hashes a value incrementally based on its type.
-// For nested trees, it recursively hashes instead of marshaling.
-func HashValueIncremental(value interface{}, hasher hash.Hash) {
+// HashTreeIncremental incrementally hashes a tree node without full JSON marshaling.
+// This is much faster for nested trees as it avoids marshaling entire subtrees.
+// Deprecated: Use CalculateFingerprint which includes circular reference detection.
+func HashTreeIncremental(tree *TreeNode, hasher hash.Hash) {
+	visited := make(map[*TreeNode]struct{})
+	hashTreeWithCircularDetection(tree, hasher, visited)
+}
+
+// hashValueWithCircularDetection hashes a value with circular reference detection.
+func hashValueWithCircularDetection(value interface{}, hasher hash.Hash, visited map[*TreeNode]struct{}) {
 	switch v := value.(type) {
 	case *TreeNode:
-		// Nested tree node - recursively hash it
+		// Nested tree node - recursively hash it with circular detection
 		hasher.Write([]byte("tree{"))
-		HashTreeIncremental(v, hasher)
+		hashTreeWithCircularDetection(v, hasher, visited)
 		hasher.Write([]byte("}"))
 
 	case map[string]interface{}:
 		// Plain map - hash as JSON (rare case for raw data)
 		hasher.Write([]byte("map{"))
-		mapJSON, _ := json.Marshal(v)
-		hasher.Write(mapJSON)
+		mapJSON, err := json.Marshal(v)
+		if err != nil {
+			// Write error marker instead of silently failing
+			hasher.Write([]byte(fmt.Sprintf("<marshal-error:%v>", err)))
+		} else {
+			hasher.Write(mapJSON)
+		}
 		hasher.Write([]byte("}"))
 
 	case []interface{}:
-		// Array - hash each element
+		// Array - hash each element (no need to hash index, they're sequential)
 		hasher.Write([]byte(fmt.Sprintf("arr[%d]:", len(v))))
-		for i, item := range v {
-			hasher.Write([]byte(fmt.Sprintf("%d:", i)))
-			HashValueIncremental(item, hasher)
+		for _, item := range v {
+			hashValueWithCircularDetection(item, hasher, visited)
+			hasher.Write([]byte("\x00")) // Separator between items
 		}
 		hasher.Write([]byte("]"))
 
 	case string:
-		hasher.Write([]byte("str:"))
+		// Write string with length prefix to prevent collisions
+		hasher.Write([]byte(fmt.Sprintf("str%d:", len(v))))
 		hasher.Write([]byte(v))
 
 	case int:
@@ -99,7 +120,9 @@ func HashValueIncremental(value interface{}, hasher hash.Hash) {
 		hasher.Write([]byte(fmt.Sprintf("i64:%d", v)))
 
 	case float64:
-		hasher.Write([]byte(fmt.Sprintf("f64:%f", v)))
+		// Use binary representation for exact equality
+		bits := math.Float64bits(v)
+		hasher.Write([]byte(fmt.Sprintf("f64:%016x", bits)))
 
 	case bool:
 		hasher.Write([]byte(fmt.Sprintf("bool:%t", v)))
@@ -110,21 +133,30 @@ func HashValueIncremental(value interface{}, hasher hash.Hash) {
 	default:
 		// Fallback to JSON marshal for unknown types
 		// This is rare and only happens for custom types
-		valueJSON, _ := json.Marshal(v)
 		hasher.Write([]byte("json:"))
-		hasher.Write(valueJSON)
+		valueJSON, err := json.Marshal(v)
+		if err != nil {
+			// Write error marker instead of silently failing
+			hasher.Write([]byte(fmt.Sprintf("<marshal-error:%v>", err)))
+		} else {
+			hasher.Write(valueJSON)
+		}
 	}
 }
 
-// AddFingerprintToTree adds the fingerprint to the tree for client-side tracking.
-// NOTE: This should be internal-only for conditional branch detection.
-func AddFingerprintToTree(tree *TreeNode) *TreeNode {
-	if !tree.HasStatics() && !tree.HasDynamics() {
-		return tree // Don't add fingerprint to empty trees
-	}
+// HashValueIncremental hashes a value incrementally based on its type.
+// For nested trees, it recursively hashes instead of marshaling.
+// Deprecated: Use CalculateFingerprint which includes circular reference detection.
+func HashValueIncremental(value interface{}, hasher hash.Hash) {
+	visited := make(map[*TreeNode]struct{})
+	hashValueWithCircularDetection(value, hasher, visited)
+}
 
-	// For now, don't expose fingerprint to clients - keep it internal
-	// fingerprint := CalculateFingerprint(tree)
-	// tree.Fingerprint = fingerprint
+// AddFingerprintToTree is deprecated and does nothing.
+// Fingerprinting is handled internally by CalculateFingerprint.
+// This function is kept for backward compatibility and will be removed in a future version.
+//
+// Deprecated: Use CalculateFingerprint directly instead.
+func AddFingerprintToTree(tree *TreeNode) *TreeNode {
 	return tree
 }

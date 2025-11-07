@@ -154,3 +154,156 @@ func TestAddFingerprintToTree_EmptyTree(t *testing.T) {
 		t.Error("Should return same tree for empty tree")
 	}
 }
+
+// TestCalculateFingerprint_CircularReference tests circular reference detection.
+func TestCalculateFingerprint_CircularReference(t *testing.T) {
+	tree := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: make(map[string]interface{}),
+	}
+
+	// Create circular reference
+	tree.Dynamics["0"] = tree
+
+	// Should not panic or infinite loop
+	fp := CalculateFingerprint(tree)
+	if fp == "" {
+		t.Error("Should produce fingerprint even with circular reference")
+	}
+}
+
+// TestCalculateFingerprint_FloatPrecision tests float hashing with exact precision.
+func TestCalculateFingerprint_FloatPrecision(t *testing.T) {
+	// Test with values that definitely have different binary representations
+	tree1 := &TreeNode{
+		Dynamics: map[string]interface{}{"0": 1.23456789},
+	}
+
+	tree2 := &TreeNode{
+		Dynamics: map[string]interface{}{"0": 1.23456790},
+	}
+
+	fp1 := CalculateFingerprint(tree1)
+	fp2 := CalculateFingerprint(tree2)
+
+	// These should be different due to binary representation differences
+	if fp1 == fp2 {
+		t.Error("Different float values should produce different fingerprints")
+	}
+
+	// Same value should produce same hash
+	tree3 := &TreeNode{
+		Dynamics: map[string]interface{}{"0": 1.23456789},
+	}
+	fp3 := CalculateFingerprint(tree3)
+
+	if fp1 != fp3 {
+		t.Error("Same float value should produce same fingerprint")
+	}
+}
+
+// TestCalculateFingerprint_KeyOrdering tests consistent hashing regardless of insertion order.
+func TestCalculateFingerprint_KeyOrdering(t *testing.T) {
+	// Create two trees with same content but different insertion order
+	tree1 := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": "a",
+			"1": "b",
+			"2": "c",
+		},
+	}
+
+	tree2 := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"2": "c",
+			"0": "a",
+			"1": "b",
+		},
+	}
+
+	fp1 := CalculateFingerprint(tree1)
+	fp2 := CalculateFingerprint(tree2)
+
+	if fp1 != fp2 {
+		t.Error("Key order should not affect fingerprint")
+	}
+}
+
+// TestCalculateFingerprint_MarshalErrors tests handling of unmarshalable types.
+func TestCalculateFingerprint_MarshalErrors(t *testing.T) {
+	// Channels and functions cannot be marshaled to JSON
+	tree := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": make(chan int), // Channels cannot be marshaled
+		},
+	}
+
+	// Should not panic, should handle error gracefully
+	fp := CalculateFingerprint(tree)
+	if fp == "" {
+		t.Error("Should produce fingerprint even with unmarshalable types")
+	}
+}
+
+// TestCalculateFingerprint_DeepNesting tests deeply nested structures.
+func TestCalculateFingerprint_DeepNesting(t *testing.T) {
+	// Create deeply nested tree
+	innermost := &TreeNode{
+		Statics:  []string{"<span>", "</span>"},
+		Dynamics: map[string]interface{}{"0": "deep"},
+	}
+
+	middle := &TreeNode{
+		Statics:  []string{"<p>", "</p>"},
+		Dynamics: map[string]interface{}{"0": innermost},
+	}
+
+	outer := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{"0": middle},
+	}
+
+	fp := CalculateFingerprint(outer)
+	if fp == "" {
+		t.Error("Should handle deeply nested structures")
+	}
+}
+
+// TestCalculateFingerprint_NilValues tests nil value handling.
+func TestCalculateFingerprint_NilValues(t *testing.T) {
+	tree := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": nil,
+			"1": "value",
+		},
+	}
+
+	fp := CalculateFingerprint(tree)
+	if fp == "" {
+		t.Error("Should handle nil values")
+	}
+}
+
+// TestCalculateFingerprint_EmptyCollections tests empty arrays and maps.
+func TestCalculateFingerprint_EmptyCollections(t *testing.T) {
+	tree1 := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": []interface{}{},
+			"1": map[string]interface{}{},
+		},
+	}
+
+	tree2 := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": []interface{}{},
+			"1": map[string]interface{}{},
+		},
+	}
+
+	fp1 := CalculateFingerprint(tree1)
+	fp2 := CalculateFingerprint(tree2)
+
+	if fp1 != fp2 {
+		t.Error("Empty collections should produce consistent fingerprints")
+	}
+}
