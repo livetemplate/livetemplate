@@ -1,10 +1,14 @@
 # Release Process
 
-This document describes the automated release process for LiveTemplate, which manages three synchronized components:
+This document describes the automated release process for the LiveTemplate Go library.
 
-1. **Go Library** (`github.com/livetemplate/livetemplate`)
-2. **TypeScript Client** (`@livetemplate/client`)
-3. **CLI Tool** (`lvt`)
+**Note:** As of v0.1.2, LiveTemplate is distributed across multiple repositories:
+- **This repo** (`github.com/livetemplate/livetemplate`) - Go library only
+- **Client** (`github.com/livetemplate/client`) - TypeScript client (has its own releases)
+- **CLI** (`github.com/livetemplate/lvt`) - CLI tool (has its own releases)
+- **Examples** (`github.com/livetemplate/examples`) - Example applications
+
+This release script handles **only the Go library**.
 
 ## Prerequisites
 
@@ -14,12 +18,10 @@ Install the following tools on your machine:
 
 ```bash
 # macOS
-brew install gh goreleaser npm
+brew install gh
 
 # Or manually:
 # - GitHub CLI: https://cli.github.com/manual/installation
-# - GoReleaser: https://goreleaser.com/install/
-# - npm: https://nodejs.org/
 ```
 
 ### Optional Tools
@@ -33,9 +35,6 @@ brew install git-chglog
 ### Authentication
 
 ```bash
-# Login to npm
-npm login
-
 # Login to GitHub CLI
 gh auth login
 ```
@@ -78,8 +77,6 @@ The script performs these steps automatically:
 
 2. **Version Update**
    - Updates `VERSION` file
-   - Updates `client/package.json`
-   - Ensures all components have matching version
 
 3. **Changelog Generation**
    - Parses git commits since last release
@@ -88,26 +85,26 @@ The script performs these steps automatically:
 
 4. **Build & Test**
    - Runs all Go tests (`go test ./...`)
-   - Builds TypeScript client (`npm run build`)
-   - Validates CLI builds (`go build ./cmd/lvt`)
+   - Verifies Go module builds (`go build ./...`)
 
 5. **Commit & Tag**
    - Creates commit with version bump
    - Creates git tag (`v0.2.0`)
 
 6. **Publish**
-   - Publishes to npm (`@livetemplate/client`)
    - Pushes to GitHub (commits + tags)
-   - Runs GoReleaser (creates GitHub release with binaries)
+   - Creates GitHub release with release notes
 
 ### Release Artifacts
 
 After successful release:
 
-- **npm Package**: https://www.npmjs.com/package/@livetemplate/client
 - **GitHub Release**: https://github.com/livetemplate/livetemplate/releases
 - **Go Module**: Available via `go get github.com/livetemplate/livetemplate@vX.Y.Z`
-- **CLI Binaries**: Attached to GitHub release (macOS, Linux, Windows)
+
+For client and CLI releases, see:
+- **Client npm Package**: https://github.com/livetemplate/client
+- **CLI Binaries**: https://github.com/livetemplate/lvt
 
 ## File Structure
 
@@ -116,7 +113,6 @@ The release system consists of:
 ```
 .
 ├── VERSION                          # Single source of truth
-├── .goreleaser.yml                  # GoReleaser configuration
 ├── scripts/
 │   └── release.sh                   # Main release script
 ├── .chglog/
@@ -193,15 +189,6 @@ git add .
 git commit -m "feat: your changes"
 ```
 
-### "Not logged in to npm"
-
-Login to npm:
-
-```bash
-npm login
-# Follow prompts to authenticate
-```
-
 ### "Tests failed"
 
 Fix failing tests before releasing:
@@ -210,30 +197,16 @@ Fix failing tests before releasing:
 go test ./... -v
 ```
 
-### "GoReleaser failed"
+### Release Failed After Tag Creation
 
-Check GoReleaser configuration:
+If the release fails after creating the git tag, you can:
 
-```bash
-goreleaser check
-goreleaser release --snapshot --clean
-```
-
-### Release Created But npm Publish Failed
-
-The git tag was created but npm publish failed. You can:
-
-1. Fix the npm issue
-2. Manually publish:
-   ```bash
-   cd client
-   npm publish
-   ```
-3. Or delete the tag and retry:
+1. Fix the issue
+2. Delete the tag and retry:
    ```bash
    git tag -d v0.2.0
    git push origin :refs/tags/v0.2.0
-   gh release delete v0.2.0
+   gh release delete v0.2.0  # if release was created
    ```
 
 ## Best Practices
@@ -248,11 +221,11 @@ The git tag was created but npm publish failed. You can:
 
 ### After Releasing
 
-1. **Verify npm Package**: Visit npm package page
-2. **Test Installation**: Try installing in a test project
-3. **Check GitHub Release**: Verify binaries are attached
+1. **Verify GitHub Release**: Check release notes are correct
+2. **Test Installation**: Try `go get github.com/livetemplate/livetemplate@vX.Y.Z` in a test project
+3. **Consider Client/CLI Releases**: If API changed, may need to release client/CLI
 4. **Announce**: Post to relevant channels (Discord, Twitter, etc.)
-5. **Update Docs Site**: If you have one
+5. **Update Docs**: If you have a docs site
 
 ### Release Cadence
 
@@ -263,14 +236,6 @@ Suggested release schedule:
 - **Major**: When breaking changes are necessary (rare)
 
 ## Security
-
-### npm 2FA
-
-If you have 2FA enabled on npm (recommended):
-
-```bash
-npm login --auth-type=web
-```
 
 ### GitHub Token
 
@@ -284,12 +249,6 @@ gh auth refresh -s write:packages,write:discussion
 ## Rollback
 
 If you need to rollback a release:
-
-### Unpublish from npm (within 72 hours)
-
-```bash
-npm unpublish @livetemplate/client@0.2.0
-```
 
 ### Delete GitHub Release
 
@@ -305,6 +264,8 @@ git push origin :refs/tags/v0.2.0
 git revert <commit-hash>
 git push origin main
 ```
+
+**Note:** Go modules are immutable once published. Users can still access old versions via `@vX.Y.Z` tags.
 
 ## CI/CD Integration (Future)
 
@@ -323,38 +284,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-      - uses: actions/setup-node@v4
-      - run: npm ci
-        working-directory: client
-      - run: npm test
-        working-directory: client
-      - run: npm publish
-        working-directory: client
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - uses: goreleaser/goreleaser-action@v5
-        with:
-          args: release --clean
+      - name: Run tests
+        run: go test ./... -timeout=120s
+      - name: Create release
+        uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: ${{ github.ref }}
+          draft: false
+          prerelease: false
 ```
 
 ## Questions?
 
 - **Commit Messages**: See [COMMIT_CONVENTION.md](./COMMIT_CONVENTION.md)
-- **GoReleaser**: Check [.goreleaser.yml](../.goreleaser.yml)
 - **Issues**: Open an issue on GitHub
+- **Client/CLI Releases**: See respective repositories
 
 ## Checklist
 
 Before your first release, ensure:
 
-- [ ] All prerequisites installed
-- [ ] npm login completed
-- [ ] GitHub CLI authenticated
+- [ ] GitHub CLI installed and authenticated
 - [ ] Git working directory clean
 - [ ] On correct branch (main)
-- [ ] All tests passing
+- [ ] All tests passing (`go test ./...`)
 - [ ] Documentation updated
 
 Ready? Run:
