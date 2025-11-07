@@ -69,15 +69,6 @@ jobs:
     name: Test Examples against Core Changes
     runs-on: ubuntu-latest
 
-    # Use headless Chrome via Docker for E2E tests
-    services:
-      chrome:
-        image: browserless/chrome:latest
-        ports:
-          - 3000:3000
-        options: >-
-          --shm-size=2gb
-
     steps:
     - name: Checkout core library (this PR/branch)
       uses: actions/checkout@v4
@@ -101,11 +92,15 @@ jobs:
       with:
         go-version: '1.25'
 
-    - name: Wait for Chrome to be ready
+    - name: Install Chrome for E2E tests
       run: |
-        echo "Waiting for Chrome service..."
-        timeout 30 bash -c 'until curl -s http://localhost:3000/json/version > /dev/null; do sleep 1; done'
-        echo "✓ Chrome is ready"
+        echo "Installing Chrome..."
+        wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+        sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
+        google-chrome --version
+        echo "✓ Chrome installed"
 
     - name: Add replace directives to all examples
       working-directory: examples
@@ -127,6 +122,3 @@ jobs:
       run: ./test-all.sh --skip-disabled
       env:
         CGO_ENABLED: 1
-        CHROMEDP_DISABLE_GPU: "true"
-        CHROMEDP_NO_SANDBOX: "true"
-        CHROME_REMOTE_DEBUGGING_PORT: "http://localhost:3000"
