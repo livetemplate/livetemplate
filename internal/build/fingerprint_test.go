@@ -362,3 +362,182 @@ func TestCalculateFingerprint_ArrayPositionSensitivity(t *testing.T) {
 		t.Error("Same array order should produce same fingerprint")
 	}
 }
+
+// TestCalculateFingerprint_NilTree tests that nil tree returns empty string.
+func TestCalculateFingerprint_NilTree(t *testing.T) {
+	fp := CalculateFingerprint(nil)
+	if fp != "" {
+		t.Errorf("Expected empty string for nil tree, got %q", fp)
+	}
+}
+
+// TestCalculateFingerprint_StructuralSharing tests that the same node can appear
+// in different branches (legitimate structural sharing) without being treated as circular.
+func TestCalculateFingerprint_StructuralSharing(t *testing.T) {
+	// Create a shared subtree
+	sharedNode := &TreeNode{
+		Statics:  []string{"<span>", "</span>"},
+		Dynamics: map[string]interface{}{"0": "shared"},
+	}
+
+	// Use the same node in two different positions
+	tree := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"0": sharedNode, // First occurrence
+			"1": sharedNode, // Second occurrence - should NOT be treated as circular
+		},
+	}
+
+	// Should not panic and should produce a valid fingerprint
+	fp := CalculateFingerprint(tree)
+	if fp == "" {
+		t.Error("Structural sharing should produce non-empty fingerprint")
+	}
+
+	// The fingerprint should be deterministic
+	fp2 := CalculateFingerprint(tree)
+	if fp != fp2 {
+		t.Error("Structural sharing should produce consistent fingerprint")
+	}
+}
+
+// TestCalculateFingerprint_ActualCircular tests actual circular references are detected.
+func TestCalculateFingerprint_ActualCircular(t *testing.T) {
+	tree := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: make(map[string]interface{}),
+	}
+
+	// Create actual circular reference (tree points to itself)
+	tree.Dynamics["0"] = tree
+
+	// Should handle circular reference without infinite loop
+	fp := CalculateFingerprint(tree)
+	if fp == "" {
+		t.Error("Circular reference should produce non-empty fingerprint")
+	}
+
+	// Should be deterministic
+	fp2 := CalculateFingerprint(tree)
+	if fp != fp2 {
+		t.Error("Circular reference should produce consistent fingerprint")
+	}
+}
+
+// TestCalculateFingerprint_DelimiterConsistency tests that delimiter usage is consistent.
+func TestCalculateFingerprint_DelimiterConsistency(t *testing.T) {
+	// Test various edge cases that could cause collisions with inconsistent delimiters
+	testCases := []struct {
+		name  string
+		tree1 *TreeNode
+		tree2 *TreeNode
+	}{
+		{
+			name: "string boundary collision",
+			tree1: &TreeNode{
+				Dynamics: map[string]interface{}{
+					"0": "abc",
+					"1": "def",
+				},
+			},
+			tree2: &TreeNode{
+				Dynamics: map[string]interface{}{
+					"0": "abcdef",
+				},
+			},
+		},
+		{
+			name: "int boundary collision",
+			tree1: &TreeNode{
+				Dynamics: map[string]interface{}{
+					"0": 12,
+					"1": 34,
+				},
+			},
+			tree2: &TreeNode{
+				Dynamics: map[string]interface{}{
+					"0": 1234,
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			fp1 := CalculateFingerprint(tc.tree1)
+			fp2 := CalculateFingerprint(tc.tree2)
+
+			// Different structures should produce different fingerprints
+			if fp1 == fp2 {
+				t.Errorf("Different structures should not collide: %q == %q", fp1, fp2)
+			}
+		})
+	}
+}
+
+// TestCalculateFingerprint_ErrorHandling tests unmarshalable types use type info.
+func TestCalculateFingerprint_ErrorHandling(t *testing.T) {
+	// Create tree with unmarshalable type (channel)
+	tree1 := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": make(chan int),
+		},
+	}
+
+	fp1 := CalculateFingerprint(tree1)
+	if fp1 == "" {
+		t.Error("Unmarshalable type should produce non-empty fingerprint")
+	}
+
+	// Same type should produce same fingerprint
+	tree2 := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": make(chan int),
+		},
+	}
+
+	fp2 := CalculateFingerprint(tree2)
+	if fp1 != fp2 {
+		t.Error("Same unmarshalable type should produce same fingerprint")
+	}
+}
+
+// TestCalculateFingerprint_ComplexStructuralSharing tests multiple levels of sharing.
+func TestCalculateFingerprint_ComplexStructuralSharing(t *testing.T) {
+	// Create shared nodes
+	leaf := &TreeNode{
+		Statics:  []string{"<span>", "</span>"},
+		Dynamics: map[string]interface{}{"0": "leaf"},
+	}
+
+	branch1 := &TreeNode{
+		Statics:  []string{"<p>", "</p>"},
+		Dynamics: map[string]interface{}{"0": leaf},
+	}
+
+	branch2 := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{"0": leaf}, // Same leaf as branch1
+	}
+
+	// Root uses both branches, which share the same leaf
+	root := &TreeNode{
+		Statics: []string{"<body>", "</body>"},
+		Dynamics: map[string]interface{}{
+			"0": branch1,
+			"1": branch2,
+		},
+	}
+
+	fp := CalculateFingerprint(root)
+	if fp == "" {
+		t.Error("Complex structural sharing should produce non-empty fingerprint")
+	}
+
+	// Should be deterministic
+	fp2 := CalculateFingerprint(root)
+	if fp != fp2 {
+		t.Error("Complex structural sharing should produce consistent fingerprint")
+	}
+}
