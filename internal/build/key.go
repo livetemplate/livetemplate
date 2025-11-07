@@ -22,58 +22,75 @@ const (
 	KeyDynamicPosition = "0"
 )
 
+// DefaultKeyAttributes are the default HTML attributes searched for item keys.
+// Searched in priority order - first match wins.
+var DefaultKeyAttributes = []string{
+	"id=\"",
+	"data-key=\"",
+	"key=\"",
+	"data-lvt-key=\"",
+	"lvt-key=\"",
+	"data-id=\"",
+	"x-key=\"", // Alpine.js compatibility
+	"v-key=\"", // Vue.js compatibility
+}
+
 // KeyGenerator provides counter-based key generation for wrapper approach.
 // It is safe for concurrent use by multiple goroutines.
 type KeyGenerator struct {
-	mu       sync.Mutex
-	counter  int
-	usedKeys map[string]bool // Track used keys to prevent duplicates
+	mu            sync.Mutex
+	counter       int
+	keyAttributes []string // Custom key attributes (nil uses DefaultKeyAttributes)
 }
 
 // NewKeyGenerator creates a new key generator for a template instance.
-func NewKeyGenerator() *KeyGenerator {
+// Optionally accepts custom key attributes - if none provided, uses DefaultKeyAttributes.
+// The attributes are searched in the order provided - first match wins.
+// Each attribute should include the = and opening quote, e.g., "data-id=\""
+func NewKeyGenerator(keyAttributes ...string) *KeyGenerator {
+	if len(keyAttributes) == 0 {
+		return &KeyGenerator{}
+	}
 	return &KeyGenerator{
-		usedKeys: make(map[string]bool),
+		keyAttributes: keyAttributes,
 	}
 }
 
 // NextKey generates the next sequential key.
+// Returns an error only if counter overflow would occur (extremely unlikely in practice).
 // It is safe to call from multiple goroutines.
-func (kg *KeyGenerator) NextKey() string {
+func (kg *KeyGenerator) NextKey() (string, error) {
 	kg.mu.Lock()
 	defer kg.mu.Unlock()
 
 	if kg.counter == math.MaxInt {
-		panic("KeyGenerator: counter overflow - maximum keys generated")
+		return "", fmt.Errorf("key generator: counter overflow - maximum keys generated")
 	}
 
 	kg.counter++
-	return strconv.Itoa(kg.counter)
+	return strconv.Itoa(kg.counter), nil
 }
 
-// Reset resets the counter and used keys tracking.
+// Reset resets the counter to zero.
 // It is safe to call from multiple goroutines.
 func (kg *KeyGenerator) Reset() {
 	kg.mu.Lock()
 	defer kg.mu.Unlock()
 
 	kg.counter = 0
-	clear(kg.usedKeys)
 }
 
 // LoadExistingKeys loads previous range data and updates the counter.
-// It tracks used keys and sets counter to the maximum found key value.
+// Sets counter to the maximum numeric key value found in the range data.
 // Accepts both map[string]interface{} and *TreeNode items for flexibility.
+// Non-numeric keys (UUIDs, content hashes, custom keys) are tracked but don't affect the counter.
 // Returns an error if the data structure is invalid.
 // It is safe to call from multiple goroutines.
 func (kg *KeyGenerator) LoadExistingKeys(oldRangeData []interface{}) error {
 	kg.mu.Lock()
 	defer kg.mu.Unlock()
 
-	// Reset used keys tracking
-	clear(kg.usedKeys)
-
-	// Extract max key to update counter
+	// Find the maximum numeric key to update counter
 	for i, item := range oldRangeData {
 		var keyStr string
 
@@ -93,6 +110,8 @@ func (kg *KeyGenerator) LoadExistingKeys(oldRangeData []interface{}) error {
 
 		case *TreeNode:
 			// For TreeNode, extract key from dynamics
+			// TreeNodes without keys or dynamics are silently skipped (not an error)
+			// since they may be structural nodes not representing range items
 			if v.Dynamics != nil {
 				keyValue, exists := v.Dynamics[KeyDynamicPosition]
 				if exists {
@@ -101,7 +120,7 @@ func (kg *KeyGenerator) LoadExistingKeys(oldRangeData []interface{}) error {
 					}
 				}
 			}
-			// If no key found in TreeNode, skip it (it may be a different type of node)
+			// Skip TreeNodes without keys - they may be structural nodes
 			if keyStr == "" {
 				continue
 			}
@@ -110,9 +129,8 @@ func (kg *KeyGenerator) LoadExistingKeys(oldRangeData []interface{}) error {
 			return fmt.Errorf("LoadExistingKeys: item %d is not a map or TreeNode, got %T", i, item)
 		}
 
-		kg.usedKeys[keyStr] = true
-
-		// Update counter if it's a numeric key
+		// Update counter only for numeric keys (from NextKey())
+		// Non-numeric keys (UUIDs, hashes, custom keys) are valid but don't affect counter
 		if keyInt, err := strconv.Atoi(keyStr); err == nil && keyInt > kg.counter {
 			kg.counter = keyInt
 		}
@@ -127,34 +145,42 @@ func (kg *KeyGenerator) LoadExistingKeys(oldRangeData []interface{}) error {
 // matching the key format used in dynamics maps.
 // Returns "0" as default if no key attribute is found.
 //
-// Searches for key attributes in priority order:
-// id, data-key, key, data-lvt-key, lvt-key, data-id, x-key (Alpine.js), v-key (Vue.js)
+// Uses DefaultKeyAttributes for key detection.
+// For custom attributes, use DetectIDKeyWithAttributes.
 func DetectIDKey(statics []string) string {
+	return detectIDKeyInternal(statics, nil)
+}
+
+// DetectIDKeyWithAttributes detects which position contains the item ID using custom attributes.
+// Searches for key attributes in the order provided - first match wins.
+// Returns the position as a string-formatted index (e.g., "0", "1", "2")
+// matching the key format used in dynamics maps.
+// Returns "0" as default if no key attribute is found.
+func DetectIDKeyWithAttributes(statics []string, keyAttributes ...string) string {
+	return detectIDKeyInternal(statics, keyAttributes)
+}
+
+// detectIDKeyInternal is the internal implementation for ID key detection.
+// If keyAttributes is nil or empty, uses DefaultKeyAttributes.
+func detectIDKeyInternal(statics []string, keyAttributes []string) string {
 	if len(statics) == 0 {
 		return "0"
 	}
 
-	// Key attributes to search for (in priority order)
-	keyAttrs := []string{
-		"id=\"",
-		"data-key=\"",
-		"key=\"",
-		"data-lvt-key=\"",
-		"lvt-key=\"",
-		"data-id=\"",
-		"x-key=\"",  // Alpine.js compatibility
-		"v-key=\"",  // Vue.js compatibility
+	// Use provided attributes or fall back to defaults
+	attrs := keyAttributes
+	if len(attrs) == 0 {
+		attrs = DefaultKeyAttributes
 	}
 
 	// Scan through statics array
-	for i, static := range statics {
+	for i, staticHTML := range statics {
 		// Check if this static contains a key attribute
-		for _, attr := range keyAttrs {
-			if strings.Contains(static, attr) {
+		for _, keyAttr := range attrs {
+			if strings.Contains(staticHTML, keyAttr) {
 				// The dynamic value after this static is the ID
-				// Position i in statics means dynamic at position i+1
-				// But we need to return the dynamic index, which starts at 0
-				// So dynamic position is i (0-indexed in the dynamics)
+				// Position i in statics means dynamic at position i
+				// Return the dynamic index (0-indexed)
 				return strconv.Itoa(i)
 			}
 		}

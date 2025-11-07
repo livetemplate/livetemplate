@@ -70,7 +70,13 @@ type keyGeneratorAdapter struct {
 
 // Next implements parse.KeyGenerator interface
 func (kga *keyGeneratorAdapter) Next() string {
-	return kga.kg.NextKey()
+	key, err := kga.kg.NextKey()
+	if err != nil {
+		// Should never happen in practice with reasonable template sizes
+		// Panic here since parse.KeyGenerator interface doesn't support errors
+		panic(fmt.Sprintf("key generation failed: %v", err))
+	}
+	return key
 }
 
 // detectIDKey wraps internal/build.DetectIDKey for backward compatibility
@@ -80,7 +86,13 @@ func detectIDKey(statics []string) string {
 
 // generateWrapperKey generates a wrapper key using the key generator
 func generateWrapperKey(keyGen *keyGenerator) string {
-	return keyGen.NextKey()
+	key, err := keyGen.NextKey()
+	if err != nil {
+		// Should never happen in practice with reasonable template sizes
+		// Panic here for backward compatibility with existing code
+		panic(fmt.Sprintf("key generation failed: %v", err))
+	}
+	return key
 }
 
 // parseTemplateToTree parses a template using the internal/parse package
