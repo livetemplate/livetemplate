@@ -874,7 +874,10 @@ func (t *Template) generateTreeInternalWithErrors(data interface{}, errors map[s
 	// This needs to be done with lock held to safely read lastTree
 	t.mu.Lock()
 	if t.lastTree != nil {
-		t.loadExistingKeyMappings(t.lastTree)
+		if err := t.loadExistingKeyMappings(t.lastTree); err != nil {
+			t.mu.Unlock()
+			return nil, fmt.Errorf("failed to load existing key mappings: %w", err)
+		}
 	}
 	t.mu.Unlock()
 
@@ -1344,9 +1347,9 @@ func marshalValue(value interface{}) ([]byte, error) {
 }
 
 // loadExistingKeyMappings loads existing key mappings from the last tree node
-func (t *Template) loadExistingKeyMappings(lastTree *TreeNode) {
+func (t *Template) loadExistingKeyMappings(lastTree *TreeNode) error {
 	if lastTree == nil {
-		return
+		return nil
 	}
 
 	// Look for range data in the tree dynamics and load existing key mappings
@@ -1354,10 +1357,13 @@ func (t *Template) loadExistingKeyMappings(lastTree *TreeNode) {
 		// Check if this is a TreeNode with Range data
 		if node, ok := value.(*TreeNode); ok {
 			if node.HasRange() && node.Range != nil {
-				t.keyGen.LoadExistingKeys(node.Range.Items)
+				if err := t.keyGen.LoadExistingKeys(node.Range.Items); err != nil {
+					return fmt.Errorf("loadExistingKeyMappings: %w", err)
+				}
 			}
 		}
 	}
+	return nil
 }
 
 // Handle creates an http.Handler for the template with the given stores.

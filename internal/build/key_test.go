@@ -1,6 +1,8 @@
 package build
 
 import (
+	"math"
+	"strings"
 	"testing"
 )
 
@@ -15,14 +17,6 @@ func TestNewKeyGenerator(t *testing.T) {
 	if kg.counter != 0 {
 		t.Errorf("Expected counter=0, got: %d", kg.counter)
 	}
-
-	if kg.usedKeys == nil {
-		t.Error("Expected non-nil usedKeys map")
-	}
-
-	if kg.fallbackKeys == nil {
-		t.Error("Expected non-nil fallbackKeys slice")
-	}
 }
 
 // TestKeyGenerator_NextKey tests sequential key generation.
@@ -32,7 +26,10 @@ func TestKeyGenerator_NextKey(t *testing.T) {
 	// Test sequential generation
 	tests := []string{"1", "2", "3", "4", "5"}
 	for i, expected := range tests {
-		got := kg.NextKey()
+		got, err := kg.NextKey()
+		if err != nil {
+			t.Fatalf("NextKey() call %d: unexpected error: %v", i+1, err)
+		}
 		if got != expected {
 			t.Errorf("NextKey() call %d: expected %q, got %q", i+1, expected, got)
 		}
@@ -64,16 +61,12 @@ func TestKeyGenerator_Reset(t *testing.T) {
 		t.Errorf("After reset: expected counter=0, got: %d", kg.counter)
 	}
 
-	if len(kg.usedKeys) != 0 {
-		t.Errorf("After reset: expected empty usedKeys, got: %v", kg.usedKeys)
-	}
-
-	if len(kg.fallbackKeys) != 0 {
-		t.Errorf("After reset: expected empty fallbackKeys, got: %v", kg.fallbackKeys)
-	}
-
 	// Next key should start from 1 again
-	if got := kg.NextKey(); got != "1" {
+	got, err := kg.NextKey()
+	if err != nil {
+		t.Fatalf("After reset, NextKey() error: %v", err)
+	}
+	if got != "1" {
 		t.Errorf("After reset, NextKey() expected '1', got: %q", got)
 	}
 }
@@ -89,23 +82,22 @@ func TestKeyGenerator_LoadExistingKeys(t *testing.T) {
 		map[string]interface{}{"0": "5", "1": "item3"},
 	}
 
-	kg.LoadExistingKeys(oldData)
+	err := kg.LoadExistingKeys(oldData)
+	if err != nil {
+		t.Fatalf("LoadExistingKeys failed: %v", err)
+	}
 
 	// Counter should be set to max key value (5)
 	if kg.counter != 5 {
 		t.Errorf("Expected counter=5 (max key), got: %d", kg.counter)
 	}
 
-	// UsedKeys should track all keys
-	expectedUsedKeys := []string{"1", "3", "5"}
-	for _, key := range expectedUsedKeys {
-		if !kg.usedKeys[key] {
-			t.Errorf("Expected key %q to be tracked in usedKeys", key)
-		}
-	}
-
 	// Next key should be 6
-	if got := kg.NextKey(); got != "6" {
+	got, err := kg.NextKey()
+	if err != nil {
+		t.Fatalf("After loading keys, NextKey() error: %v", err)
+	}
+	if got != "6" {
 		t.Errorf("After loading keys, NextKey() expected '6', got: %q", got)
 	}
 }
@@ -115,28 +107,32 @@ func TestKeyGenerator_LoadExistingKeys_NonNumeric(t *testing.T) {
 	kg := NewKeyGenerator()
 
 	// Mix of numeric and non-numeric keys
+	// Non-numeric keys (UUIDs, content hashes) are common in practice
 	oldData := []interface{}{
 		map[string]interface{}{"0": "uuid-123", "1": "item1"},
 		map[string]interface{}{"0": "2", "1": "item2"},
 		map[string]interface{}{"0": "abc", "1": "item3"},
 	}
 
-	kg.LoadExistingKeys(oldData)
+	err := kg.LoadExistingKeys(oldData)
+	if err != nil {
+		t.Fatalf("LoadExistingKeys failed: %v", err)
+	}
 
 	// Counter should be 2 (only numeric key)
+	// Non-numeric keys don't affect the counter since they're from other sources
+	// (content hashes, user-provided IDs, etc.)
 	if kg.counter != 2 {
 		t.Errorf("Expected counter=2 (max numeric key), got: %d", kg.counter)
 	}
 
-	// All keys should be tracked
-	if !kg.usedKeys["uuid-123"] {
-		t.Error("Expected non-numeric key 'uuid-123' to be tracked")
+	// Next numeric key should be 3
+	got, err := kg.NextKey()
+	if err != nil {
+		t.Fatalf("NextKey() error: %v", err)
 	}
-	if !kg.usedKeys["2"] {
-		t.Error("Expected numeric key '2' to be tracked")
-	}
-	if !kg.usedKeys["abc"] {
-		t.Error("Expected non-numeric key 'abc' to be tracked")
+	if got != "3" {
+		t.Errorf("Expected next key to be '3', got: %q", got)
 	}
 }
 
@@ -149,7 +145,10 @@ func TestKeyGenerator_Uniqueness(t *testing.T) {
 	count := 1000
 
 	for i := 0; i < count; i++ {
-		key := kg.NextKey()
+		key, err := kg.NextKey()
+		if err != nil {
+			t.Fatalf("NextKey() at iteration %d: %v", i, err)
+		}
 		if generated[key] {
 			t.Fatalf("Duplicate key generated: %q at iteration %d", key, i)
 		}
@@ -162,17 +161,24 @@ func TestKeyGenerator_Uniqueness(t *testing.T) {
 }
 
 // TestGenerateWrapperKey tests wrapper key generation.
+// Note: GenerateWrapperKey was removed, now using NextKey directly.
 func TestGenerateWrapperKey(t *testing.T) {
 	kg := NewKeyGenerator()
 
 	// First wrapper key should be "1"
-	key1 := GenerateWrapperKey(kg)
+	key1, err := kg.NextKey()
+	if err != nil {
+		t.Fatalf("NextKey() error: %v", err)
+	}
 	if key1 != "1" {
 		t.Errorf("Expected first wrapper key '1', got: %q", key1)
 	}
 
 	// Second wrapper key should be "2"
-	key2 := GenerateWrapperKey(kg)
+	key2, err := kg.NextKey()
+	if err != nil {
+		t.Fatalf("NextKey() error: %v", err)
+	}
 	if key2 != "2" {
 		t.Errorf("Expected second wrapper key '2', got: %q", key2)
 	}
@@ -242,5 +248,213 @@ func TestDetectIDKey_NoKey(t *testing.T) {
 	got2 := DetectIDKey([]string{})
 	if got2 != "0" {
 		t.Errorf("Expected '0' (default for empty), got: %v", got2)
+	}
+}
+
+// TestNewKeyGeneratorWithAttributes tests custom key attributes.
+func TestNewKeyGeneratorWithAttributes(t *testing.T) {
+	customAttrs := []string{"custom-id=\"", "my-key=\""}
+	kg := NewKeyGenerator(customAttrs...)
+
+	if kg == nil {
+		t.Fatal("Expected non-nil KeyGenerator")
+	}
+
+	if len(kg.keyAttributes) != 2 {
+		t.Errorf("Expected 2 custom attributes, got: %d", len(kg.keyAttributes))
+	}
+}
+
+// TestDetectIDKeyWithAttributes_CustomAttributes tests custom attribute detection.
+func TestDetectIDKeyWithAttributes_CustomAttributes(t *testing.T) {
+	tests := []struct {
+		name       string
+		statics    []string
+		attributes []string
+		expected   string
+	}{
+		{
+			name:       "custom attribute at position 0",
+			statics:    []string{"<div custom-id=\"", "\">test</div>"},
+			attributes: []string{"custom-id=\""},
+			expected:   "0",
+		},
+		{
+			name:       "custom attribute at position 1",
+			statics:    []string{"<div class=\"", "\" my-key=\"", "\">test</div>"},
+			attributes: []string{"my-key=\""},
+			expected:   "1",
+		},
+		{
+			name:       "fallback to default when custom not found",
+			statics:    []string{"<div id=\"", "\">test</div>"},
+			attributes: []string{"custom-id=\""},
+			expected:   "0", // Falls back to position 0 since custom attr not found
+		},
+		{
+			name:       "priority order matters",
+			statics:    []string{"<div second=\"x\" first=\"", "\">test</div>"},
+			attributes: []string{"first=\"", "second=\""},
+			expected:   "0", // First attr wins even though second appears earlier in HTML
+		},
+		{
+			name:       "empty attributes uses defaults",
+			statics:    []string{"<div id=\"", "\">test</div>"},
+			attributes: []string{},
+			expected:   "0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DetectIDKeyWithAttributes(tt.statics, tt.attributes...)
+			if got != tt.expected {
+				t.Errorf("DetectIDKeyWithAttributes() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+// TestDefaultKeyAttributes tests that defaults are sensible.
+func TestDefaultKeyAttributes(t *testing.T) {
+	if len(DefaultKeyAttributes) == 0 {
+		t.Error("DefaultKeyAttributes should not be empty")
+	}
+
+	// Check some expected defaults exist
+	expectedDefaults := []string{"id=\"", "data-key=\"", "key=\""}
+	for _, expected := range expectedDefaults {
+		found := false
+		for _, attr := range DefaultKeyAttributes {
+			if attr == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected default attribute %q not found in DefaultKeyAttributes", expected)
+		}
+	}
+}
+
+// TestKeyGenerator_Concurrent tests concurrent access to KeyGenerator.
+func TestKeyGenerator_Concurrent(t *testing.T) {
+	kg := NewKeyGenerator()
+	numGoroutines := 100
+	keysPerGoroutine := 100
+
+	// Channel to collect all generated keys
+	keysChan := make(chan string, numGoroutines*keysPerGoroutine)
+	errChan := make(chan error, numGoroutines*keysPerGoroutine)
+
+	// Launch goroutines to generate keys concurrently
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			for j := 0; j < keysPerGoroutine; j++ {
+				key, err := kg.NextKey()
+				if err != nil {
+					errChan <- err
+					return
+				}
+				keysChan <- key
+			}
+		}()
+	}
+
+	// Collect all keys
+	keys := make(map[string]bool)
+	for i := 0; i < numGoroutines*keysPerGoroutine; i++ {
+		select {
+		case key := <-keysChan:
+			if keys[key] {
+				t.Errorf("Duplicate key generated: %s", key)
+			}
+			keys[key] = true
+		case err := <-errChan:
+			t.Fatalf("NextKey() error in concurrent test: %v", err)
+		}
+	}
+
+	// Verify we got the expected number of unique keys
+	if len(keys) != numGoroutines*keysPerGoroutine {
+		t.Errorf("Expected %d unique keys, got %d", numGoroutines*keysPerGoroutine, len(keys))
+	}
+}
+
+// TestLoadExistingKeys_InvalidData tests error handling for invalid data.
+func TestLoadExistingKeys_InvalidData(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     []interface{}
+		wantErr  bool
+		errMatch string
+	}{
+		{
+			name:     "not a map",
+			data:     []interface{}{"not a map"},
+			wantErr:  true,
+			errMatch: "is not a map",
+		},
+		{
+			name:     "missing key position",
+			data:     []interface{}{map[string]interface{}{"1": "value"}},
+			wantErr:  true,
+			errMatch: "missing key at position",
+		},
+		{
+			name:     "key not a string",
+			data:     []interface{}{map[string]interface{}{"0": 123}},
+			wantErr:  true,
+			errMatch: "is not a string",
+		},
+		{
+			name:    "valid data",
+			data:    []interface{}{map[string]interface{}{"0": "1", "1": "item"}},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kg := NewKeyGenerator()
+			err := kg.LoadExistingKeys(tt.data)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("Expected error containing %q, got nil", tt.errMatch)
+				} else if !strings.Contains(err.Error(), tt.errMatch) {
+					t.Errorf("Expected error containing %q, got: %v", tt.errMatch, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error, got: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestKeyGenerator_OverflowProtection tests overflow protection.
+func TestKeyGenerator_OverflowProtection(t *testing.T) {
+	kg := NewKeyGenerator()
+	kg.counter = math.MaxInt - 1
+
+	// This should work
+	key1, err := kg.NextKey()
+	if err != nil {
+		t.Errorf("Expected no error before overflow, got: %v", err)
+	}
+	if key1 == "" {
+		t.Error("Expected valid key before overflow")
+	}
+
+	// This should return an error
+	_, err = kg.NextKey()
+	if err == nil {
+		t.Error("Expected error on counter overflow")
+	} else {
+		if !strings.Contains(err.Error(), "overflow") {
+			t.Errorf("Expected error message containing 'overflow', got: %v", err)
+		}
 	}
 }

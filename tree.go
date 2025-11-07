@@ -63,14 +63,31 @@ func newKeyGenerator() *keyGenerator {
 	return build.NewKeyGenerator()
 }
 
-// keyGeneratorAdapter adapts keyGenerator to parse.KeyGenerator interface
+// keyGeneratorAdapter adapts keyGenerator to parse.KeyGenerator interface.
+//
+// Trade-off: This adapter panics on error instead of propagating errors because
+// the parse.KeyGenerator interface doesn't support error returns. This is acceptable
+// because:
+// 1. Key generation errors only occur on counter overflow (after 2^63-1 keys on 64-bit systems)
+// 2. This is effectively impossible in practice - would require generating billions of keys per second for decades
+// 3. Updating the interface would break backward compatibility in v0.2.0
+//
+// Future consideration: If error handling is critical for your use case, the parse.KeyGenerator
+// interface could be updated in a future major version to return (string, error).
 type keyGeneratorAdapter struct {
 	kg *keyGenerator
 }
 
-// Next implements parse.KeyGenerator interface
+// Next implements parse.KeyGenerator interface.
+// Panics on key generation failure (counter overflow), which should never occur in practice.
 func (kga *keyGeneratorAdapter) Next() string {
-	return kga.kg.NextKey()
+	key, err := kga.kg.NextKey()
+	if err != nil {
+		// Counter overflow - extremely unlikely (requires 2^63-1 keys)
+		// Panic since interface doesn't support error returns
+		panic(fmt.Sprintf("key generation failed: %v", err))
+	}
+	return key
 }
 
 // detectIDKey wraps internal/build.DetectIDKey for backward compatibility
@@ -78,9 +95,19 @@ func detectIDKey(statics []string) string {
 	return build.DetectIDKey(statics)
 }
 
-// generateWrapperKey wraps internal/build.GenerateWrapperKey for backward compatibility
+// generateWrapperKey generates a wrapper key using the key generator.
+//
+// Trade-off: Panics on error for backward compatibility with callers expecting
+// a simple string return. Key generation errors only occur on counter overflow
+// (after 2^63-1 keys), which is effectively impossible in real-world usage.
 func generateWrapperKey(keyGen *keyGenerator) string {
-	return build.GenerateWrapperKey(keyGen)
+	key, err := keyGen.NextKey()
+	if err != nil {
+		// Counter overflow - extremely unlikely (requires 2^63-1 keys)
+		// Panic for backward compatibility with existing callers
+		panic(fmt.Sprintf("key generation failed: %v", err))
+	}
+	return key
 }
 
 // parseTemplateToTree parses a template using the internal/parse package
