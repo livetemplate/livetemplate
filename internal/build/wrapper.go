@@ -26,6 +26,12 @@ func GenerateRandomID() string {
 // Excludes <script> tags from the wrapper to prevent them from being part of the dynamic content.
 // Uses proper HTML parsing to handle all script tag variants and malformed HTML gracefully.
 func InjectWrapperDiv(htmlDoc string, wrapperID string, loadingDisabled bool) string {
+	// If input contains Go template directives, use string-based approach to avoid mangling them
+	// html.Render() would escape {{ }} and break template syntax
+	if strings.Contains(htmlDoc, "{{") || strings.Contains(htmlDoc, "}}") {
+		return injectWrapperDivStringBased(htmlDoc, wrapperID, loadingDisabled)
+	}
+
 	// Parse HTML document
 	doc, err := html.Parse(strings.NewReader(htmlDoc))
 	if err != nil {
