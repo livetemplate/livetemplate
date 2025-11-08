@@ -10,13 +10,22 @@ import (
 	"strings"
 )
 
-// TemplateContext provides utility functions for templates via the lvt namespace
+// TemplateContext provides utility functions for templates via the lvt namespace.
+//
+// Thread-safety: TemplateContext is safe for concurrent reads but not for concurrent writes.
+// If you need to share a TemplateContext across goroutines that modify it, external
+// synchronization is required. In typical usage, each template execution creates a new
+// TemplateContext, so concurrent access is not an issue.
 type TemplateContext struct {
 	errors  map[string]string
 	DevMode bool // Development mode - use local client library instead of CDN
 }
 
-// NewTemplateContext creates a new TemplateContext with the given errors and devMode flag
+// NewTemplateContext creates a new TemplateContext with the given errors and devMode flag.
+//
+// The errors map is stored by reference, not copied. Callers should not modify the errors map
+// after passing it to NewTemplateContext. If you need to modify errors after construction,
+// pass a copy of the map or use AllErrors() to get a defensive copy.
 func NewTemplateContext(errors map[string]string, devMode bool) *TemplateContext {
 	return &TemplateContext{
 		errors:  errors,
@@ -24,80 +33,142 @@ func NewTemplateContext(errors map[string]string, devMode bool) *TemplateContext
 	}
 }
 
-// Error returns the error message for a field
+// Error returns the error message for a field.
+// Returns empty string if the field has no error or if errors map is nil.
 func (t *TemplateContext) Error(field string) string {
-	if t.errors == nil {
-		return ""
-	}
 	return t.errors[field]
 }
 
-// HasError checks if a field has an error
+// HasError checks if a field has an error.
+// Returns false if errors map is nil.
 func (t *TemplateContext) HasError(field string) bool {
-	if t.errors == nil {
-		return false
-	}
 	_, exists := t.errors[field]
 	return exists
 }
 
-// HasAnyError checks if any errors exist
+// HasAnyError checks if any errors exist.
+// Returns false if errors map is nil or empty.
 func (t *TemplateContext) HasAnyError() bool {
 	return len(t.errors) > 0
 }
 
-// AllErrors returns all errors (useful for debugging or displaying all)
+// AllErrors returns a copy of all errors (useful for debugging or displaying all).
+// The returned map is a defensive copy and mutations will not affect internal state.
 func (t *TemplateContext) AllErrors() map[string]string {
+	result := make(map[string]string)
 	if t.errors == nil {
-		return make(map[string]string)
+		return result
 	}
-	return t.errors
+	for k, v := range t.errors {
+		result[k] = v
+	}
+	return result
 }
 
-// ExecuteTemplateWithContext adds lvt context to template execution by augmenting the data
+const (
+	// TemplateContextKey is the key used to access lvt context in templates
+	TemplateContextKey = "lvt"
+)
+
+// ExecuteTemplateWithContext adds lvt context to template execution by augmenting the data.
+//
+// This function handles different types of input data:
+//   - Structs: Fields are copied to a map, using json tags if present
+//   - Maps: Keys are copied to template data
+//   - Nil pointers: Only lvt context is provided
+//   - Primitives: Passed directly to the template as-is (lvt not available)
+//
+// The lvt context is available in templates via {{.lvt}} for structs, maps, and nil pointers.
+// For primitive types (string, int, bool, etc.), lvt context is not available to maintain
+// compatibility with standard Go templates.
+//
+// Note: If struct fields or map keys conflict with the reserved "lvt" key, they will be
+// skipped to ensure the lvt context remains accessible in templates.
 func ExecuteTemplateWithContext(tmpl *template.Template, data interface{}, errors map[string]string, devMode bool) ([]byte, error) {
-	// Create context object
 	lvtContext := NewTemplateContext(errors, devMode)
 
-	// Create a map that includes both the original data fields and lvt
-	templateData := make(map[string]interface{})
-	templateData["lvt"] = lvtContext
+	var templateData interface{}
 
-	// Use reflection to copy fields from data to the map
 	val := reflect.ValueOf(data)
+
+	// Handle nil pointer case explicitly
 	if val.Kind() == reflect.Ptr {
+		if val.IsNil() {
+			// Provide only lvt context for nil pointers
+			dataMap := make(map[string]interface{})
+			dataMap[TemplateContextKey] = lvtContext
+			templateData = dataMap
+			var buf bytes.Buffer
+			err := tmpl.Execute(&buf, templateData)
+			return buf.Bytes(), err
+		}
 		val = val.Elem()
 	}
 
-	if val.Kind() == reflect.Struct {
+	switch val.Kind() {
+	case reflect.Struct:
+		dataMap := make(map[string]interface{})
+
 		typ := val.Type()
 		for i := 0; i < val.NumField(); i++ {
 			field := typ.Field(i)
-
-			// Skip unexported fields
 			if !field.IsExported() {
 				continue
 			}
 
-			// Use the json tag name if available, otherwise use field name
-			fieldName := field.Name
-			if jsonTag := field.Tag.Get("json"); jsonTag != "" {
-				// Extract just the field name from json tag (ignore options like omitempty)
-				if commaIdx := strings.Index(jsonTag, ","); commaIdx > 0 {
-					fieldName = jsonTag[:commaIdx]
-				} else if jsonTag != "-" {
-					fieldName = jsonTag
+			fieldValue := val.Field(i).Interface()
+			jsonTag := field.Tag.Get("json")
+
+			if jsonTag == "-" {
+				continue
+			}
+
+			// Handle JSON tags properly
+			if jsonTag != "" {
+				// Handle ",omitempty" and similar cases
+				if commaIdx := strings.Index(jsonTag, ","); commaIdx >= 0 {
+					if commaIdx == 0 {
+						// Tag is just ",omitempty" - use field name
+						jsonTag = ""
+					} else {
+						jsonTag = jsonTag[:commaIdx]
+					}
+				}
+				// Skip if tag results in reserved key
+				if jsonTag != "" && jsonTag != TemplateContextKey {
+					dataMap[jsonTag] = fieldValue
 				}
 			}
-			templateData[fieldName] = val.Field(i).Interface()
-			// Also add with original field name for templates that use {{.FieldName}}
-			templateData[field.Name] = val.Field(i).Interface()
+
+			// Skip field name if it conflicts with reserved key
+			if field.Name != TemplateContextKey {
+				dataMap[field.Name] = fieldValue
+			}
 		}
-	} else if val.Kind() == reflect.Map {
-		// If data is already a map, just add lvt to it
+
+		// Add lvt context last to prevent field collision
+		dataMap[TemplateContextKey] = lvtContext
+		templateData = dataMap
+
+	case reflect.Map:
+		dataMap := make(map[string]interface{})
+
 		for _, key := range val.MapKeys() {
-			templateData[key.String()] = val.MapIndex(key).Interface()
+			keyStr := key.String()
+			// Skip map keys that conflict with reserved key
+			if keyStr != TemplateContextKey {
+				dataMap[keyStr] = val.MapIndex(key).Interface()
+			}
 		}
+
+		// Add lvt context last to ensure it's always available
+		dataMap[TemplateContextKey] = lvtContext
+		templateData = dataMap
+
+	default:
+		// For primitive types (string, int, bool, etc.), we can't inject lvt
+		// Pass the data as-is to maintain compatibility with standard templates
+		templateData = data
 	}
 
 	var buf bytes.Buffer
