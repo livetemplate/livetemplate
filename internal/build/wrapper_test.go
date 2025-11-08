@@ -91,9 +91,15 @@ func TestInjectWrapperDiv_Fragment(t *testing.T) {
 	wrapperID := "test-id"
 	result := InjectWrapperDiv(fragment, wrapperID, false)
 
-	// Fragment without body tag should return as-is
-	if result != fragment {
-		t.Errorf("Expected fragment unchanged, got: %q", result)
+	// With HTML parsing, fragments get auto-wrapped in html/head/body by parser
+	// The new implementation will add the wrapper div around the fragment content
+	if !strings.Contains(result, `data-lvt-id="test-id"`) {
+		t.Error("Expected wrapper div with data-lvt-id attribute")
+	}
+
+	// Original fragment content should be preserved
+	if !strings.Contains(result, `<div>Just a fragment</div>`) {
+		t.Error("Expected original fragment content preserved")
 	}
 }
 
@@ -346,6 +352,185 @@ func TestNormalizeTemplateSpacing(t *testing.T) {
 			result := NormalizeTemplateSpacing(tt.input)
 			if result != tt.expected {
 				t.Errorf("Expected %q, got: %q", tt.expected, result)
+			}
+		})
+	}
+}
+
+// TestExtractTemplateBodyContent_WithAttributes tests body tags with attributes.
+func TestExtractTemplateBodyContent_WithAttributes(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			"body with class attribute",
+			`<html><body class="dark"><div>Content</div></body></html>`,
+			`<div>Content</div>`,
+		},
+		{
+			"body with multiple attributes",
+			`<html><body class="dark" id="main"><div>Content</div></body></html>`,
+			`<div>Content</div>`,
+		},
+		{
+			"body with data attribute",
+			`<html><body data-theme="light"><div>Content</div></body></html>`,
+			`<div>Content</div>`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ExtractTemplateBodyContent(tt.input)
+			if result != tt.expected {
+				t.Errorf("Expected %q, got: %q", tt.expected, result)
+			}
+		})
+	}
+}
+
+// TestInjectWrapperDiv_MultipleScripts tests handling of multiple script tags.
+func TestInjectWrapperDiv_MultipleScripts(t *testing.T) {
+	htmlDoc := `<html><body><div>Content</div><script>console.log('1');</script><script src="app.js"></script></body></html>`
+
+	wrapperID := "test-id"
+	result := InjectWrapperDiv(htmlDoc, wrapperID, false)
+
+	// Check wrapper exists
+	if !strings.Contains(result, `data-lvt-id="test-id"`) {
+		t.Error("Expected wrapper div")
+	}
+
+	// Check both scripts are preserved
+	if !strings.Contains(result, `console.log('1')`) {
+		t.Error("Expected first script preserved")
+	}
+	if !strings.Contains(result, `src="app.js"`) {
+		t.Error("Expected second script preserved")
+	}
+
+	// Parse result to verify structure
+	doc, err := html.Parse(strings.NewReader(result))
+	if err != nil {
+		t.Fatalf("Failed to parse result: %v", err)
+	}
+
+	// Find wrapper and count scripts
+	wrapper := FindElementByDataLvtID(doc, "test-id")
+	if wrapper == nil {
+		t.Fatal("Could not find wrapper div in result")
+	}
+
+	// Scripts should be outside wrapper (siblings, not children)
+	scriptCount := 0
+	for child := wrapper.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type == html.ElementNode && child.Data == "script" {
+			t.Error("Script tag found inside wrapper - should be outside")
+		}
+	}
+
+	// Count scripts in body (should be siblings of wrapper)
+	body := findBodyNode(doc)
+	if body != nil {
+		for child := body.FirstChild; child != nil; child = child.NextSibling {
+			if child.Type == html.ElementNode && child.Data == "script" {
+				scriptCount++
+			}
+		}
+	}
+
+	if scriptCount != 2 {
+		t.Errorf("Expected 2 script tags as siblings of wrapper, got: %d", scriptCount)
+	}
+}
+
+// TestInjectWrapperDiv_ScriptWithAttributes tests script tag with attributes.
+func TestInjectWrapperDiv_ScriptWithAttributes(t *testing.T) {
+	htmlDoc := `<html><body><div>Content</div><script type="module" defer src="app.js"></script></body></html>`
+
+	wrapperID := "test-id"
+	result := InjectWrapperDiv(htmlDoc, wrapperID, false)
+
+	// Check script with attributes is preserved
+	if !strings.Contains(result, `type="module"`) {
+		t.Error("Expected type attribute preserved")
+	}
+	if !strings.Contains(result, `defer`) {
+		t.Error("Expected defer attribute preserved")
+	}
+	if !strings.Contains(result, `src="app.js"`) {
+		t.Error("Expected src attribute preserved")
+	}
+}
+
+// TestNormalizeTemplateSpacing_EdgeCase tests edge case with short match.
+func TestNormalizeTemplateSpacing_EdgeCase(t *testing.T) {
+	// This shouldn't happen with the regex, but test the guard
+	input := `{{}}` // Empty template tag
+	result := NormalizeTemplateSpacing(input)
+
+	// Should handle gracefully, not panic
+	if result != `{{}}` {
+		t.Errorf("Expected %q, got: %q", `{{}}`, result)
+	}
+}
+
+// TestGenerateRandomID_NoPanic tests that GenerateRandomID doesn't panic under normal conditions.
+func TestGenerateRandomID_NoPanic(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("GenerateRandomID panicked: %v", r)
+		}
+	}()
+
+	// Should not panic under normal conditions
+	for i := 0; i < 100; i++ {
+		id := GenerateRandomID()
+		if len(id) != 20 { // lvt- (4) + 16 hex chars
+			t.Errorf("Unexpected ID length: %d", len(id))
+		}
+	}
+}
+
+// TestInjectWrapperDiv_MalformedHTML tests graceful handling of malformed HTML.
+func TestInjectWrapperDiv_MalformedHTML(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		shouldFallback bool
+	}{
+		{
+			"unclosed div",
+			`<html><body><div>Content</body></html>`,
+			false, // html.Parse can handle this
+		},
+		{
+			"missing closing body",
+			`<html><body><div>Content</div>`,
+			false, // html.Parse can handle this
+		},
+		{
+			"nested body tags",
+			`<html><body><body>Content</body></body></html>`,
+			false, // html.Parse can handle this
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wrapperID := "test-id"
+			result := InjectWrapperDiv(tt.input, wrapperID, false)
+
+			// Should not panic and should produce some result
+			if result == "" {
+				t.Error("Expected non-empty result for malformed HTML")
+			}
+
+			// Should contain wrapper ID in some form
+			if !strings.Contains(result, wrapperID) {
+				t.Error("Expected wrapper ID in result")
 			}
 		})
 	}
