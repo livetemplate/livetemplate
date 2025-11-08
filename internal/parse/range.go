@@ -8,6 +8,9 @@ import (
 )
 
 // handleRangeNode processes {{range}}...{{end}} constructs.
+// It supports slices, arrays, and maps with optional variable declarations.
+// Returns a TreeNode with Range field containing all items and metadata with ID key position.
+// For empty collections, returns the else branch or an empty range tree.
 func handleRangeNode(node *parse.RangeNode, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	// Extract collection to iterate over
 	collection, err := extractRangeCollection(node, data, ctx)
@@ -38,6 +41,8 @@ func handleRangeNode(node *parse.RangeNode, data interface{}, keyGen KeyGenerato
 }
 
 // extractRangeCollection extracts the collection expression from a range node.
+// Handles both simple ranges ({{range .Items}}) and ranges with variable declarations
+// ({{range $i, $v := .Items}}). Returns the collection to iterate over or an error.
 func extractRangeCollection(node *parse.RangeNode, data interface{}, ctx *Context) (interface{}, error) {
 	if len(node.Pipe.Decl) > 0 {
 		// Has variable declarations - extract just the collection expression
@@ -58,6 +63,7 @@ func extractRangeCollection(node *parse.RangeNode, data interface{}, ctx *Contex
 }
 
 // isEmpty checks if a collection value is nil or empty.
+// Returns true for nil, zero-length slices, arrays, or maps.
 func isEmpty(v reflect.Value) bool {
 	return !v.IsValid() ||
 		(v.Kind() == reflect.Slice && v.Len() == 0) ||
@@ -66,6 +72,7 @@ func isEmpty(v reflect.Value) bool {
 }
 
 // handleEmptyRange handles empty collections or else branches.
+// If an else branch exists, builds and returns its tree. Otherwise returns an empty range tree.
 func handleEmptyRange(node *parse.RangeNode, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	// Empty range - use else branch if available
 	if node.ElseList != nil {
@@ -82,6 +89,8 @@ func handleEmptyRange(node *parse.RangeNode, data interface{}, keyGen KeyGenerat
 }
 
 // handleSliceRange processes slice/array range iterations.
+// Builds a tree for each item, extracting statics from the first item.
+// The hasVarDecls flag determines whether to use variable context or direct dot context.
 func handleSliceRange(node *parse.RangeNode, collection reflect.Value, data interface{}, hasVarDecls bool, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	var itemTrees []interface{}
 	var itemStatics []string
@@ -107,39 +116,31 @@ func handleSliceRange(node *parse.RangeNode, collection reflect.Value, data inte
 			return nil, fmt.Errorf("range item %d error: %w", i, err)
 		}
 
-		// Extract statics from first item
+		// Extract statics from first item and add item dynamics
 		if i == 0 {
 			itemStatics = itemTree.Statics
 		}
-
-		// Store the item tree's dynamics only
-		itemNode := &TreeNode{
-			Dynamics: make(map[string]interface{}),
-		}
-		for k, v := range itemTree.Dynamics {
-			itemNode.Dynamics[k] = v
-		}
-
-		itemTrees = append(itemTrees, itemNode)
+		itemTrees = append(itemTrees, extractItemDynamics(itemTree))
 	}
 
 	return buildRangeTree(itemTrees, itemStatics, ctx)
 }
 
 // handleMapRange processes map range iterations.
+// Similar to handleSliceRange but iterates over map keys.
+// Note: Map iteration order is non-deterministic in Go.
 func handleMapRange(node *parse.RangeNode, collection reflect.Value, data interface{}, hasVarDecls bool, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	var itemTrees []interface{}
 	var itemStatics []string
 
-	iter := 0
-	for _, key := range collection.MapKeys() {
+	for i, key := range collection.MapKeys() {
 		item := collection.MapIndex(key).Interface()
 
 		var itemTree *TreeNode
 		var err error
 
 		if hasVarDecls {
-			itemTree, err = executeRangeBodyWithVarsMap(node, key.Interface(), item, data, keyGen, ctx)
+			itemTree, err = executeRangeBodyWithVars(node, key.Interface(), item, data, keyGen, ctx)
 		} else {
 			varCtx := &varContext{
 				parent: data,
@@ -150,30 +151,21 @@ func handleMapRange(node *parse.RangeNode, collection reflect.Value, data interf
 		}
 
 		if err != nil {
-			return nil, fmt.Errorf("range item error: %w", err)
+			return nil, fmt.Errorf("range item %d error: %w", i, err)
 		}
 
-		// Extract statics from first item
-		if iter == 0 {
+		// Extract statics from first item and add item dynamics
+		if i == 0 {
 			itemStatics = itemTree.Statics
 		}
-
-		// Store the item tree's dynamics only
-		itemNode := &TreeNode{
-			Dynamics: make(map[string]interface{}),
-		}
-		for k, v := range itemTree.Dynamics {
-			itemNode.Dynamics[k] = v
-		}
-
-		itemTrees = append(itemTrees, itemNode)
-		iter++
+		itemTrees = append(itemTrees, extractItemDynamics(itemTree))
 	}
 
 	return buildRangeTree(itemTrees, itemStatics, ctx)
 }
 
 // buildRangeTree constructs the final range tree with metadata.
+// Detects the ID key position from statics and creates a range tree with all items.
 func buildRangeTree(itemTrees []interface{}, itemStatics []string, ctx *Context) (*TreeNode, error) {
 	// Detect ID key position in statics
 	idKey := detectIDKey(itemStatics)
@@ -189,7 +181,8 @@ func buildRangeTree(itemTrees []interface{}, itemStatics []string, ctx *Context)
 }
 
 // executeRangeBodyWithVars executes a range body with variable declarations.
-func executeRangeBodyWithVars(node *parse.RangeNode, index int, item interface{}, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+// The indexOrKey parameter is either an int (for slices/arrays) or the key (for maps).
+func executeRangeBodyWithVars(node *parse.RangeNode, indexOrKey interface{}, item interface{}, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	// Create a variable context
 	varCtx := &varContext{
 		parent: data,
@@ -203,10 +196,10 @@ func executeRangeBodyWithVars(node *parse.RangeNode, index int, item interface{}
 		varName := node.Pipe.Decl[0].Ident[0]
 		varCtx.vars.Set(varName, item)
 	} else if len(node.Pipe.Decl) >= 2 {
-		// {{range $i, $v := ...}} - index and value
-		indexVar := node.Pipe.Decl[0].Ident[0]
+		// {{range $i, $v := ...}} or {{range $k, $v := ...}}
+		indexKeyVar := node.Pipe.Decl[0].Ident[0]
 		valueVar := node.Pipe.Decl[1].Ident[0]
-		varCtx.vars.Set(indexVar, index)
+		varCtx.vars.Set(indexKeyVar, indexOrKey)
 		varCtx.vars.Set(valueVar, item)
 	}
 
@@ -214,42 +207,30 @@ func executeRangeBodyWithVars(node *parse.RangeNode, index int, item interface{}
 	return buildTreeFromASTWithVars(node.List, varCtx, keyGen, ctx)
 }
 
-// executeRangeBodyWithVarsMap executes a range body with variable declarations for maps.
-func executeRangeBodyWithVarsMap(node *parse.RangeNode, key interface{}, item interface{}, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
-	// Create a variable context
-	varCtx := &varContext{
-		parent: data,
-		vars:   newOrderedVars(),
-		dot:    item,
+// extractItemDynamics extracts only the dynamics from an item tree,
+// avoiding unnecessary map allocations by reusing the existing dynamics map.
+func extractItemDynamics(itemTree *TreeNode) *TreeNode {
+	// Return a tree node with only dynamics (no statics, no range, no metadata)
+	// This is more efficient than creating a new map and copying
+	return &TreeNode{
+		Dynamics: itemTree.Dynamics,
 	}
-
-	// Populate variables from declarations
-	if len(node.Pipe.Decl) == 1 {
-		// {{range $v := ...}} - single variable (value)
-		varName := node.Pipe.Decl[0].Ident[0]
-		varCtx.vars.Set(varName, item)
-	} else if len(node.Pipe.Decl) >= 2 {
-		// {{range $k, $v := ...}} - key and value
-		keyVar := node.Pipe.Decl[0].Ident[0]
-		valueVar := node.Pipe.Decl[1].Ident[0]
-		varCtx.vars.Set(keyVar, key)
-		varCtx.vars.Set(valueVar, item)
-	}
-
-	// Walk the range body AST with the variable context
-	return buildTreeFromASTWithVars(node.List, varCtx, keyGen, ctx)
 }
 
 // detectIDKey detects which position in the dynamics contains the item ID
 // by scanning the statics array for key attribute patterns.
 // Returns the position as a string (e.g., "1" for the second dynamic position).
 // Returns "0" as default if no key attribute is found.
+//
+// Searches for key attributes in priority order: id, data-key, key, data-lvt-key,
+// lvt-key, data-id, x-key (Alpine.js), v-key (Vue.js).
 func detectIDKey(statics []string) string {
 	if len(statics) == 0 {
 		return "0"
 	}
 
 	// Key attributes to search for (in priority order)
+	// Using a single slice for both prefix and full attribute reduces allocations
 	keyAttrs := []string{
 		"id=\"",
 		"data-key=\"",
@@ -261,15 +242,30 @@ func detectIDKey(statics []string) string {
 		"v-key=\"", // Vue.js compatibility
 	}
 
-	// Scan through statics array
+	// Scan through statics array - single pass with early exit
 	for i, static := range statics {
-		// Check if this static contains a key attribute
-		for _, attr := range keyAttrs {
-			if strings.Contains(static, attr) {
-				// The dynamic value after this static is the ID
-				// Position i in statics means dynamic at position i
-				return fmt.Sprintf("%d", i)
+		// Find earliest matching attribute in this static string
+		minPos := -1
+		matchedIdx := -1
+
+		for attrIdx, attr := range keyAttrs {
+			if pos := strings.Index(static, attr); pos != -1 {
+				// Found a match - check if it's earlier than previous matches
+				if minPos == -1 || pos < minPos {
+					minPos = pos
+					matchedIdx = attrIdx
+					// If we found id= (highest priority), no need to check others
+					if attrIdx == 0 {
+						break
+					}
+				}
 			}
+		}
+
+		if matchedIdx != -1 {
+			// The dynamic value after this static is the ID
+			// Position i in statics means dynamic at position i
+			return fmt.Sprintf("%d", i)
 		}
 	}
 

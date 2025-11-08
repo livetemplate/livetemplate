@@ -3,6 +3,7 @@ package parse
 import (
 	"html/template"
 	"reflect"
+	"strings"
 	"testing"
 	"text/template/parse"
 )
@@ -482,9 +483,9 @@ func TestExecuteRangeBodyWithVarsMap(t *testing.T) {
 	data := map[string]interface{}{}
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := executeRangeBodyWithVarsMap(rangeNode, "key", "value", data, newMockKeyGen(), ctx)
+	tree, err := executeRangeBodyWithVars(rangeNode, "key", "value", data, newMockKeyGen(), ctx)
 	if err != nil {
-		t.Fatalf("executeRangeBodyWithVarsMap failed: %v", err)
+		t.Fatalf("executeRangeBodyWithVars failed: %v", err)
 	}
 
 	if tree == nil {
@@ -540,5 +541,119 @@ func TestDetectIDKey_NoKey(t *testing.T) {
 	got := detectIDKey(statics)
 	if got != "0" {
 		t.Errorf("Expected '0' (default), got: %v", got)
+	}
+}
+
+// TestHandleRangeNode_NonIterableType tests error handling for non-iterable types.
+func TestHandleRangeNode_NonIterableType(t *testing.T) {
+	tmpl, err := template.New("test").Parse("{{range .Value}}{{.}}{{end}}")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	tests := []struct {
+		name  string
+		value interface{}
+	}{
+		{"string", "hello"},
+		{"int", 42},
+		{"struct", struct{ Name string }{"test"}},
+		{"bool", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
+			data := map[string]interface{}{
+				"Value": tt.value,
+			}
+			ctx := &Context{IncludeStatics: true}
+
+			_, err := handleRangeNode(rangeNode, data, newMockKeyGen(), ctx)
+			if err == nil {
+				t.Error("Expected error for non-iterable type, got nil")
+			}
+			if !strings.Contains(err.Error(), "range over non-iterable type") {
+				t.Errorf("Expected 'range over non-iterable type' error, got: %v", err)
+			}
+		})
+	}
+}
+
+// TestDetectIDKey_MultiplePositions tests detection when attributes appear at different positions.
+func TestDetectIDKey_MultiplePositions(t *testing.T) {
+	tests := []struct {
+		name     string
+		statics  []string
+		expected string
+	}{
+		{
+			"key at position 0",
+			[]string{"<div id=\"", "\">", "</div>"},
+			"0",
+		},
+		{
+			"key at position 1",
+			[]string{"<div>", "<span id=\"", "\">", "</span></div>"},
+			"1",
+		},
+		{
+			"key at position 2",
+			[]string{"<div>", "<span>", "<a id=\"", "\">link</a></span></div>"},
+			"2",
+		},
+		{
+			"multiple keys - first one wins",
+			[]string{"<div id=\"", "\"><span data-key=\"", "\"></span></div>"},
+			"0",
+		},
+		{
+			"multiple keys in same static - earliest wins",
+			[]string{"<div><span data-key=\"x\"></span><div id=\"", "\"></div>"},
+			"0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := detectIDKey(tt.statics)
+			if got != tt.expected {
+				t.Errorf("detectIDKey() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+// TestExtractItemDynamics tests that dynamics are extracted efficiently.
+func TestExtractItemDynamics(t *testing.T) {
+	itemTree := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{"0": "value"},
+		Metadata: NewTreeMetadata("0"),
+	}
+
+	result := extractItemDynamics(itemTree)
+
+	if result.Statics != nil {
+		t.Error("Expected nil statics")
+	}
+	if result.Metadata != nil {
+		t.Error("Expected nil metadata")
+	}
+	if result.Range != nil {
+		t.Error("Expected nil range")
+	}
+	if len(result.Dynamics) != 1 {
+		t.Errorf("Expected 1 dynamic, got: %d", len(result.Dynamics))
+	}
+	if result.Dynamics["0"] != "value" {
+		t.Errorf("Expected dynamic value 'value', got: %v", result.Dynamics["0"])
+	}
+
+	// Verify the dynamics map is shared (same underlying map)
+	// Modify the result and verify it affects the original
+	result.Dynamics["1"] = "test"
+	if itemTree.Dynamics["1"] != "test" {
+		t.Error("Expected to share dynamics map (not a copy)")
 	}
 }
