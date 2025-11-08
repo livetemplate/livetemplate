@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/livetemplate/livetemplate/internal/render"
 	"golang.org/x/net/html"
 )
 
@@ -216,7 +217,7 @@ func ExtractTemplateContent(input string, wrapperID string) string {
 	// Extract content from the wrapper div
 	var result strings.Builder
 	for child := wrapperDiv.FirstChild; child != nil; child = child.NextSibling {
-		RenderNode(&result, child)
+		render.Node(&result, child)
 	}
 
 	return result.String()

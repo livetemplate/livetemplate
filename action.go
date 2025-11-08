@@ -9,13 +9,11 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gorilla/websocket"
+	"github.com/livetemplate/livetemplate/internal/send"
 )
 
-// message represents an action message from the client (internal protocol)
-type message struct {
-	Action string                 `json:"action"` // Action name, may include store prefix (e.g., "counter.increment")
-	Data   map[string]interface{} `json:"data"`   // All values from forms, inputs, data attributes, etc.
-}
+// message is an alias for internal/send.ActionMessage for backward compatibility
+type message = send.ActionMessage
 
 // ActionData wraps action data with utilities for binding and validation
 type ActionData struct {
@@ -294,39 +292,19 @@ func parseAction(action string) (store string, actualAction string) {
 	return "", parts[0] // "", "increment" (single store)
 }
 
-// parseActionFromHTTP parses an action message from HTTP POST request body (internal protocol)
+// parseActionFromHTTP wraps internal/send.ParseActionFromHTTP for backward compatibility
 func parseActionFromHTTP(r *http.Request) (message, error) {
-	var msg message
-	if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
-		return message{}, fmt.Errorf("failed to parse action: %w", err)
-	}
-
-	// Ensure data map is initialized
-	if msg.Data == nil {
-		msg.Data = make(map[string]interface{})
-	}
-
-	return msg, nil
+	return send.ParseActionFromHTTP(r)
 }
 
-// parseActionFromWebSocket parses an action message from WebSocket message bytes (internal protocol)
+// parseActionFromWebSocket wraps internal/send.ParseActionFromWebSocket for backward compatibility
 func parseActionFromWebSocket(data []byte) (message, error) {
-	var msg message
-	if err := json.Unmarshal(data, &msg); err != nil {
-		return message{}, fmt.Errorf("failed to parse action: %w", err)
-	}
-
-	// Ensure data map is initialized
-	if msg.Data == nil {
-		msg.Data = make(map[string]interface{})
-	}
-
-	return msg, nil
+	return send.ParseActionFromWebSocket(data)
 }
 
-// writeUpdateWebSocket writes a tree update to WebSocket connection (internal protocol)
+// writeUpdateWebSocket wraps internal/send.WriteUpdateToWebSocket for backward compatibility
 func writeUpdateWebSocket(conn *websocket.Conn, update []byte) error {
-	return conn.WriteMessage(websocket.TextMessage, update)
+	return send.WriteUpdateToWebSocket(conn, update)
 }
 
 // Removed: Generic helper functions (getString, getInt, etc.)

@@ -1,26 +1,43 @@
-# API Reduction Progress Tracker - v0.2.0
+# 5-Phase Architecture Refactoring - v0.3.0
 
-**Branch:** `api-reduction-v0.2.0`
-**Goal:** Reduce public API from ~80 exports to ~40-50 (essential only)
-**Files:** Consolidate from 18 to 12 main package files (target: 8)
-**Empty Packages:** Reuse context, keys, render, send, session
+**Branch:** `refactor-5-phase`
+**Goal:** Refactor into proper 5-phase architecture (Parse → Build → Diff → Render → Send)
+**Previous:** v0.2.0 API Reduction (18 → 12 files)
+**Current:** v0.3.0 5-Phase Separation
 
-**Status:** ✅ IMPLEMENTATION COMPLETE - Tests Passing
+**Status:** ✅ IMPLEMENTATION COMPLETE - All Tests Passing
 
 ---
 
-## Completion Summary
+## v0.3.0 Completion Summary
 
 ### ✅ Completed Work
 
-**Phase 1: Internal Package Creation**
+**Phase 1: internal/keys/ - Key Generation**
+- ✅ Created internal/keys/generator.go (201 lines)
+- ✅ Created internal/keys/generator_test.go (17 test functions)
+- ✅ Renamed KeyGenerator → Generator for cleaner API
+- ✅ Added DynamicsGetter interface to avoid circular dependencies
+- ✅ Updated imports in tree.go, internal/parse/
+
+**Phase 2: internal/render/ - HTML Rendering**
+- ✅ Created internal/render/html.go (148 lines)
+- ✅ Created internal/render/html_test.go (21 test functions)
+- ✅ Renamed functions: RenderNode → Node, RenderTreeToHTML → TreeToHTML, IsVoidHTMLElement → IsVoidElement
+- ✅ Updated imports in tree.go, internal/build/wrapper.go
+
+**Phase 3: internal/send/ - Message Formatting & Serialization**
+- ✅ Created internal/send/message.go (50 lines)
+- ✅ Created internal/send/response.go (55 lines)
+- ✅ Moved ActionMessage, UpdateResponse, ResponseMetadata types
+- ✅ Functions: ParseActionFromHTTP(), ParseActionFromWebSocket(), PrepareUpdate(), SerializeUpdate()
+- ✅ Updated imports in action.go, template.go
+- ✅ Maintained backward compatibility with type aliases
+
+**Previous Work (v0.2.0):**
 - ✅ internal/context/ - Template execution context
-- ✅ internal/signature/ - Structure tracking and registry (moved from main package)
-- ✅ internal/session/ - Connection registry and limits (moved from main package)
-- ⚠️  internal/keys/ - Skipped (already in internal/build)
-- ⚠️  internal/send/ - Skipped (broadcaster logic kept in mount.go for simplicity)
-- ⚠️  internal/render/ - Skipped (already in internal/build)
-- ⚠️  internal/mount/ - Skipped (mount.go kept for public API)
+- ✅ internal/signature/ - Structure tracking and registry
+- ✅ internal/session/ - Connection registry and limits
 
 **Phase 2: File Consolidation**
 - ✅ Merged `session.go` + `session_redis.go` → `session_stores.go` (533 lines)

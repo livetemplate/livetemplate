@@ -1,4 +1,4 @@
-package build
+package render
 
 import (
 	"strings"
@@ -7,15 +7,15 @@ import (
 	"golang.org/x/net/html"
 )
 
-// TestRenderNode_TextNode tests text node rendering.
-func TestRenderNode_TextNode(t *testing.T) {
+// TestNode_TextNode tests text node rendering.
+func TestNode_TextNode(t *testing.T) {
 	node := &html.Node{
 		Type: html.TextNode,
 		Data: "Hello World",
 	}
 
 	var w strings.Builder
-	RenderNode(&w, node)
+	Node(&w, node)
 
 	expected := "Hello World"
 	if w.String() != expected {
@@ -23,8 +23,8 @@ func TestRenderNode_TextNode(t *testing.T) {
 	}
 }
 
-// TestRenderNode_ElementNode tests element node rendering.
-func TestRenderNode_ElementNode(t *testing.T) {
+// TestNode_ElementNode tests element node rendering.
+func TestNode_ElementNode(t *testing.T) {
 	node := &html.Node{
 		Type: html.ElementNode,
 		Data: "div",
@@ -38,7 +38,7 @@ func TestRenderNode_ElementNode(t *testing.T) {
 	node.AppendChild(textChild)
 
 	var w strings.Builder
-	RenderNode(&w, node)
+	Node(&w, node)
 
 	expected := "<div>content</div>"
 	if w.String() != expected {
@@ -46,8 +46,8 @@ func TestRenderNode_ElementNode(t *testing.T) {
 	}
 }
 
-// TestRenderNode_VoidElement tests void element rendering.
-func TestRenderNode_VoidElement(t *testing.T) {
+// TestNode_VoidElement tests void element rendering.
+func TestNode_VoidElement(t *testing.T) {
 	tests := []struct {
 		tag      string
 		expected string
@@ -66,7 +66,7 @@ func TestRenderNode_VoidElement(t *testing.T) {
 			}
 
 			var w strings.Builder
-			RenderNode(&w, node)
+			Node(&w, node)
 
 			if w.String() != tt.expected {
 				t.Errorf("Expected %q, got: %q", tt.expected, w.String())
@@ -75,8 +75,8 @@ func TestRenderNode_VoidElement(t *testing.T) {
 	}
 }
 
-// TestRenderNode_WithAttributes tests element with attributes.
-func TestRenderNode_WithAttributes(t *testing.T) {
+// TestNode_WithAttributes tests element with attributes.
+func TestNode_WithAttributes(t *testing.T) {
 	node := &html.Node{
 		Type: html.ElementNode,
 		Data: "div",
@@ -87,7 +87,7 @@ func TestRenderNode_WithAttributes(t *testing.T) {
 	}
 
 	var w strings.Builder
-	RenderNode(&w, node)
+	Node(&w, node)
 
 	result := w.String()
 	if !strings.Contains(result, `class="container"`) {
@@ -104,8 +104,8 @@ func TestRenderNode_WithAttributes(t *testing.T) {
 	}
 }
 
-// TestRenderNode_AttributeEscaping tests HTML escaping in attribute values.
-func TestRenderNode_AttributeEscaping(t *testing.T) {
+// TestNode_AttributeEscaping tests HTML escaping in attribute values.
+func TestNode_AttributeEscaping(t *testing.T) {
 	tests := []struct {
 		name     string
 		attrVal  string
@@ -154,7 +154,7 @@ func TestRenderNode_AttributeEscaping(t *testing.T) {
 			}
 
 			var w strings.Builder
-			RenderNode(&w, node)
+			Node(&w, node)
 
 			if w.String() != tt.expected {
 				t.Errorf("Expected %q, got: %q", tt.expected, w.String())
@@ -163,8 +163,8 @@ func TestRenderNode_AttributeEscaping(t *testing.T) {
 	}
 }
 
-// TestRenderNode_NestedElements tests nested element structures.
-func TestRenderNode_NestedElements(t *testing.T) {
+// TestNode_NestedElements tests nested element structures.
+func TestNode_NestedElements(t *testing.T) {
 	// Create: <div><span>text</span></div>
 	root := &html.Node{
 		Type: html.ElementNode,
@@ -185,7 +185,7 @@ func TestRenderNode_NestedElements(t *testing.T) {
 	root.AppendChild(span)
 
 	var w strings.Builder
-	RenderNode(&w, root)
+	Node(&w, root)
 
 	expected := "<div><span>text</span></div>"
 	if w.String() != expected {
@@ -193,8 +193,8 @@ func TestRenderNode_NestedElements(t *testing.T) {
 	}
 }
 
-// TestIsVoidHTMLElement_AllVoid tests all void elements are recognized.
-func TestIsVoidHTMLElement_AllVoid(t *testing.T) {
+// TestIsVoidElement_AllVoid tests all void elements are recognized.
+func TestIsVoidElement_AllVoid(t *testing.T) {
 	voidElements := []string{
 		"area", "base", "br", "col", "embed", "hr", "img",
 		"input", "link", "meta", "param", "source", "track", "wbr",
@@ -202,15 +202,15 @@ func TestIsVoidHTMLElement_AllVoid(t *testing.T) {
 
 	for _, elem := range voidElements {
 		t.Run(elem, func(t *testing.T) {
-			if !IsVoidHTMLElement(elem) {
+			if !IsVoidElement(elem) {
 				t.Errorf("Expected %q to be recognized as void element", elem)
 			}
 		})
 	}
 }
 
-// TestIsVoidHTMLElement_NonVoid tests non-void elements.
-func TestIsVoidHTMLElement_NonVoid(t *testing.T) {
+// TestIsVoidElement_NonVoid tests non-void elements.
+func TestIsVoidElement_NonVoid(t *testing.T) {
 	nonVoidElements := []string{
 		"div", "span", "p", "a", "button", "section", "article",
 		"header", "footer", "nav", "main", "h1", "ul", "li",
@@ -218,23 +218,23 @@ func TestIsVoidHTMLElement_NonVoid(t *testing.T) {
 
 	for _, elem := range nonVoidElements {
 		t.Run(elem, func(t *testing.T) {
-			if IsVoidHTMLElement(elem) {
+			if IsVoidElement(elem) {
 				t.Errorf("Expected %q to NOT be recognized as void element", elem)
 			}
 		})
 	}
 }
 
-// TestRenderTreeToHTML_Simple tests simple tree to HTML rendering.
-func TestRenderTreeToHTML_Simple(t *testing.T) {
+// TestTreeToHTML_Simple tests simple tree to HTML rendering.
+func TestTreeToHTML_Simple(t *testing.T) {
 	tree := map[string]interface{}{
 		"s": []string{"<div>", "</div>"},
 		"0": "content",
 	}
 
-	html, err := RenderTreeToHTML(tree)
+	html, err := TreeToHTML(tree)
 	if err != nil {
-		t.Fatalf("RenderTreeToHTML failed: %v", err)
+		t.Fatalf("TreeToHTML failed: %v", err)
 	}
 
 	expected := "<div>content</div>"
@@ -243,17 +243,17 @@ func TestRenderTreeToHTML_Simple(t *testing.T) {
 	}
 }
 
-// TestRenderTreeToHTML_WithDynamics tests tree with multiple dynamic values.
-func TestRenderTreeToHTML_WithDynamics(t *testing.T) {
+// TestTreeToHTML_WithDynamics tests tree with multiple dynamic values.
+func TestTreeToHTML_WithDynamics(t *testing.T) {
 	tree := map[string]interface{}{
 		"s": []string{"<div>", " - ", "</div>"},
 		"0": "Hello",
 		"1": "World",
 	}
 
-	html, err := RenderTreeToHTML(tree)
+	html, err := TreeToHTML(tree)
 	if err != nil {
-		t.Fatalf("RenderTreeToHTML failed: %v", err)
+		t.Fatalf("TreeToHTML failed: %v", err)
 	}
 
 	expected := "<div>Hello - World</div>"
@@ -262,8 +262,8 @@ func TestRenderTreeToHTML_WithDynamics(t *testing.T) {
 	}
 }
 
-// TestRenderTreeToHTML_Nested tests nested tree structures.
-func TestRenderTreeToHTML_Nested(t *testing.T) {
+// TestTreeToHTML_Nested tests nested tree structures.
+func TestTreeToHTML_Nested(t *testing.T) {
 	nestedTree := map[string]interface{}{
 		"s": []string{"<span>", "</span>"},
 		"0": "nested",
@@ -274,9 +274,9 @@ func TestRenderTreeToHTML_Nested(t *testing.T) {
 		"0": nestedTree,
 	}
 
-	html, err := RenderTreeToHTML(tree)
+	html, err := TreeToHTML(tree)
 	if err != nil {
-		t.Fatalf("RenderTreeToHTML failed: %v", err)
+		t.Fatalf("TreeToHTML failed: %v", err)
 	}
 
 	expected := "<div><span>nested</span></div>"
@@ -285,8 +285,8 @@ func TestRenderTreeToHTML_Nested(t *testing.T) {
 	}
 }
 
-// TestRenderTreeToHTML_Error tests error handling.
-func TestRenderTreeToHTML_Error(t *testing.T) {
+// TestTreeToHTML_Error tests error handling.
+func TestTreeToHTML_Error(t *testing.T) {
 	tests := []struct {
 		name string
 		tree map[string]interface{}
@@ -315,7 +315,7 @@ func TestRenderTreeToHTML_Error(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := RenderTreeToHTML(tt.tree)
+			_, err := TreeToHTML(tt.tree)
 			if err == nil {
 				t.Error("Expected error, got nil")
 			}
@@ -323,8 +323,8 @@ func TestRenderTreeToHTML_Error(t *testing.T) {
 	}
 }
 
-// TestRenderRangeComprehensionToHTML tests range rendering.
-func TestRenderRangeComprehensionToHTML(t *testing.T) {
+// TestRangeComprehensionToHTML tests range rendering.
+func TestRangeComprehensionToHTML(t *testing.T) {
 	// Range tree structure
 	tree := map[string]interface{}{
 		"s": []string{"<div id=\"", "\">", "</div>"},
@@ -340,9 +340,9 @@ func TestRenderRangeComprehensionToHTML(t *testing.T) {
 		},
 	}
 
-	html, err := RenderTreeToHTML(tree)
+	html, err := TreeToHTML(tree)
 	if err != nil {
-		t.Fatalf("RenderTreeToHTML failed: %v", err)
+		t.Fatalf("TreeToHTML failed: %v", err)
 	}
 
 	expected := `<div id="id1">Item 1</div><div id="id2">Item 2</div>`
@@ -351,16 +351,16 @@ func TestRenderRangeComprehensionToHTML(t *testing.T) {
 	}
 }
 
-// TestRenderRangeComprehensionToHTML_Empty tests empty range rendering.
-func TestRenderRangeComprehensionToHTML_Empty(t *testing.T) {
+// TestRangeComprehensionToHTML_Empty tests empty range rendering.
+func TestRangeComprehensionToHTML_Empty(t *testing.T) {
 	tree := map[string]interface{}{
 		"s": []string{"<div>", "</div>"},
 		"d": []interface{}{},
 	}
 
-	html, err := RenderTreeToHTML(tree)
+	html, err := TreeToHTML(tree)
 	if err != nil {
-		t.Fatalf("RenderTreeToHTML failed: %v", err)
+		t.Fatalf("TreeToHTML failed: %v", err)
 	}
 
 	// Empty range should produce empty output
@@ -369,8 +369,8 @@ func TestRenderRangeComprehensionToHTML_Empty(t *testing.T) {
 	}
 }
 
-// TestRenderRangeComprehensionToHTML_NestedTrees tests range with nested trees.
-func TestRenderRangeComprehensionToHTML_NestedTrees(t *testing.T) {
+// TestRangeComprehensionToHTML_NestedTrees tests range with nested trees.
+func TestRangeComprehensionToHTML_NestedTrees(t *testing.T) {
 	nestedTree := map[string]interface{}{
 		"s": []string{"<span>", "</span>"},
 		"0": "nested",
@@ -385,9 +385,9 @@ func TestRenderRangeComprehensionToHTML_NestedTrees(t *testing.T) {
 		},
 	}
 
-	html, err := RenderTreeToHTML(tree)
+	html, err := TreeToHTML(tree)
 	if err != nil {
-		t.Fatalf("RenderTreeToHTML failed: %v", err)
+		t.Fatalf("TreeToHTML failed: %v", err)
 	}
 
 	expected := "<div><span>nested</span></div>"
@@ -396,8 +396,8 @@ func TestRenderRangeComprehensionToHTML_NestedTrees(t *testing.T) {
 	}
 }
 
-// TestIsVoidHTMLElement_CaseInsensitive tests case-insensitive void element recognition.
-func TestIsVoidHTMLElement_CaseInsensitive(t *testing.T) {
+// TestIsVoidElement_CaseInsensitive tests case-insensitive void element recognition.
+func TestIsVoidElement_CaseInsensitive(t *testing.T) {
 	tests := []struct {
 		tag      string
 		expected bool
@@ -419,16 +419,16 @@ func TestIsVoidHTMLElement_CaseInsensitive(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.tag, func(t *testing.T) {
-			result := IsVoidHTMLElement(tt.tag)
+			result := IsVoidElement(tt.tag)
 			if result != tt.expected {
-				t.Errorf("IsVoidHTMLElement(%q) = %v, expected %v", tt.tag, result, tt.expected)
+				t.Errorf("IsVoidElement(%q) = %v, expected %v", tt.tag, result, tt.expected)
 			}
 		})
 	}
 }
 
-// TestRenderTreeToHTML_HTMLEscaping tests HTML escaping in dynamic values.
-func TestRenderTreeToHTML_HTMLEscaping(t *testing.T) {
+// TestTreeToHTML_HTMLEscaping tests HTML escaping in dynamic values.
+func TestTreeToHTML_HTMLEscaping(t *testing.T) {
 	tests := []struct {
 		name     string
 		tree     map[string]interface{}
@@ -470,9 +470,9 @@ func TestRenderTreeToHTML_HTMLEscaping(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			html, err := RenderTreeToHTML(tt.tree)
+			html, err := TreeToHTML(tt.tree)
 			if err != nil {
-				t.Fatalf("RenderTreeToHTML failed: %v", err)
+				t.Fatalf("TreeToHTML failed: %v", err)
 			}
 
 			if html != tt.expected {
@@ -482,8 +482,8 @@ func TestRenderTreeToHTML_HTMLEscaping(t *testing.T) {
 	}
 }
 
-// TestRenderRangeComprehensionToHTML_HTMLEscaping tests HTML escaping in range items.
-func TestRenderRangeComprehensionToHTML_HTMLEscaping(t *testing.T) {
+// TestRangeComprehensionToHTML_HTMLEscaping tests HTML escaping in range items.
+func TestRangeComprehensionToHTML_HTMLEscaping(t *testing.T) {
 	tree := map[string]interface{}{
 		"s": []string{"<div>", "</div>"},
 		"d": []interface{}{
@@ -496,9 +496,9 @@ func TestRenderRangeComprehensionToHTML_HTMLEscaping(t *testing.T) {
 		},
 	}
 
-	html, err := RenderTreeToHTML(tree)
+	html, err := TreeToHTML(tree)
 	if err != nil {
-		t.Fatalf("RenderTreeToHTML failed: %v", err)
+		t.Fatalf("TreeToHTML failed: %v", err)
 	}
 
 	expected := "<div>&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;</div><div>Tom &amp; Jerry</div>"

@@ -4,7 +4,9 @@ import (
 	"fmt"
 
 	"github.com/livetemplate/livetemplate/internal/build"
+	"github.com/livetemplate/livetemplate/internal/keys"
 	"github.com/livetemplate/livetemplate/internal/parse"
+	"github.com/livetemplate/livetemplate/internal/render"
 )
 
 // Fingerprinting wrappers for backward compatibility
@@ -48,19 +50,19 @@ func normalizeTemplateSpacing(templateStr string) string {
 
 // Rendering wrappers for backward compatibility
 
-// renderTreeToHTML wraps internal/build.RenderTreeToHTML for backward compatibility (used in tests)
+// renderTreeToHTML wraps internal/render.TreeToHTML for backward compatibility (used in tests)
 func renderTreeToHTML(tree map[string]interface{}) (string, error) {
-	return build.RenderTreeToHTML(tree)
+	return render.TreeToHTML(tree)
 }
 
 // Key generation wrappers for backward compatibility
 
 // keyGenerator is a type alias for backward compatibility
-type keyGenerator = build.KeyGenerator
+type keyGenerator = keys.Generator
 
-// newKeyGenerator wraps internal/build.NewKeyGenerator for backward compatibility
+// newKeyGenerator wraps internal/keys.NewGenerator for backward compatibility
 func newKeyGenerator() *keyGenerator {
-	return build.NewKeyGenerator()
+	return keys.NewGenerator()
 }
 
 // keyGeneratorAdapter adapts keyGenerator to parse.KeyGenerator interface.
@@ -90,9 +92,9 @@ func (kga *keyGeneratorAdapter) Next() string {
 	return key
 }
 
-// detectIDKey wraps internal/build.DetectIDKey for backward compatibility
+// detectIDKey wraps internal/keys.DetectIDKey for backward compatibility
 func detectIDKey(statics []string) string {
-	return build.DetectIDKey(statics)
+	return keys.DetectIDKey(statics)
 }
 
 // generateWrapperKey generates a wrapper key using the key generator.

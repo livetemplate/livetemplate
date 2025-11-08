@@ -102,6 +102,7 @@ import (
 	"github.com/livetemplate/livetemplate/internal/context"
 	"github.com/livetemplate/livetemplate/internal/diff"
 	"github.com/livetemplate/livetemplate/internal/observe"
+	"github.com/livetemplate/livetemplate/internal/send"
 	"github.com/livetemplate/livetemplate/internal/session"
 	"github.com/livetemplate/livetemplate/internal/signature"
 	"github.com/livetemplate/livetemplate/pubsub"
@@ -191,17 +192,12 @@ func copyFuncMap(src template.FuncMap) template.FuncMap {
 
 // UpdateResponse wraps a tree update with metadata for form lifecycle.
 // Tree is an opaque type representing the update payload - the client library handles this automatically.
-type UpdateResponse struct {
-	Tree interface{}       `json:"tree"` // Opaque tree update (internal format)
-	Meta *ResponseMetadata `json:"meta,omitempty"`
-}
+// This is an alias for internal/send.UpdateResponse for backward compatibility.
+type UpdateResponse = send.UpdateResponse
 
-// ResponseMetadata contains information about the action that generated the update
-type ResponseMetadata struct {
-	Success bool              `json:"success"` // true if no validation errors
-	Errors  map[string]string `json:"errors"`  // field errors
-	Action  string            `json:"action,omitempty"`
-}
+// ResponseMetadata contains information about the action that generated the update.
+// This is an alias for internal/send.ResponseMetadata for backward compatibility.
+type ResponseMetadata = send.ResponseMetadata
 
 // Option is a functional option for configuring a Template
 type Option func(*Config)

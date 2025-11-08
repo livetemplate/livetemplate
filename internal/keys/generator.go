@@ -1,12 +1,12 @@
-// Package build provides tree building and key generation for LiveTemplate.
+// Package keys provides key generation for LiveTemplate.
 //
 // Key Generation Strategy:
-// KeyGenerator uses sequential integers as keys, starting from 1.
+// Generator uses sequential integers as keys, starting from 1.
 // Keys are stable within a single render and can be reset between renders.
 // LoadExistingKeys allows continuing from previous state for range updates.
 //
-// KeyGenerator is safe for concurrent use by multiple goroutines.
-package build
+// Generator is safe for concurrent use by multiple goroutines.
+package keys
 
 import (
 	"fmt"
@@ -35,23 +35,23 @@ var DefaultKeyAttributes = []string{
 	"v-key=\"", // Vue.js compatibility
 }
 
-// KeyGenerator provides counter-based key generation for wrapper approach.
+// Generator provides counter-based key generation for wrapper approach.
 // It is safe for concurrent use by multiple goroutines.
-type KeyGenerator struct {
+type Generator struct {
 	mu            sync.Mutex
 	counter       int
 	keyAttributes []string // Custom key attributes (nil uses DefaultKeyAttributes)
 }
 
-// NewKeyGenerator creates a new key generator for a template instance.
+// NewGenerator creates a new key generator for a template instance.
 // Optionally accepts custom key attributes - if none provided, uses DefaultKeyAttributes.
 // The attributes are searched in the order provided - first match wins.
 // Each attribute should include the = and opening quote, e.g., "data-id=\""
-func NewKeyGenerator(keyAttributes ...string) *KeyGenerator {
+func NewGenerator(keyAttributes ...string) *Generator {
 	if len(keyAttributes) == 0 {
-		return &KeyGenerator{}
+		return &Generator{}
 	}
-	return &KeyGenerator{
+	return &Generator{
 		keyAttributes: keyAttributes,
 	}
 }
@@ -59,7 +59,7 @@ func NewKeyGenerator(keyAttributes ...string) *KeyGenerator {
 // NextKey generates the next sequential key.
 // Returns an error only if counter overflow would occur (extremely unlikely in practice).
 // It is safe to call from multiple goroutines.
-func (kg *KeyGenerator) NextKey() (string, error) {
+func (kg *Generator) NextKey() (string, error) {
 	kg.mu.Lock()
 	defer kg.mu.Unlock()
 
@@ -73,20 +73,29 @@ func (kg *KeyGenerator) NextKey() (string, error) {
 
 // Reset resets the counter to zero.
 // It is safe to call from multiple goroutines.
-func (kg *KeyGenerator) Reset() {
+func (kg *Generator) Reset() {
 	kg.mu.Lock()
 	defer kg.mu.Unlock()
 
 	kg.counter = 0
 }
 
+// DynamicsGetter is an interface for types that have a Dynamics field.
+// This allows LoadExistingKeys to work with TreeNode without importing it.
+type DynamicsGetter interface {
+	GetDynamics() map[string]interface{}
+}
+
 // LoadExistingKeys loads previous range data and updates the counter.
 // Sets counter to the maximum numeric key value found in the range data.
-// Accepts both map[string]interface{} and *TreeNode items for flexibility.
+// Accepts items that are either:
+//   - map[string]interface{} (JSON serializable format)
+//   - Any type implementing DynamicsGetter (e.g., TreeNode)
+//
 // Non-numeric keys (UUIDs, content hashes, custom keys) are tracked but don't affect the counter.
 // Returns an error if the data structure is invalid.
 // It is safe to call from multiple goroutines.
-func (kg *KeyGenerator) LoadExistingKeys(oldRangeData []interface{}) error {
+func (kg *Generator) LoadExistingKeys(oldRangeData []interface{}) error {
 	kg.mu.Lock()
 	defer kg.mu.Unlock()
 
@@ -94,7 +103,7 @@ func (kg *KeyGenerator) LoadExistingKeys(oldRangeData []interface{}) error {
 	for i, item := range oldRangeData {
 		var keyStr string
 
-		// Handle both map and TreeNode formats
+		// Handle both map and DynamicsGetter formats
 		switch v := item.(type) {
 		case map[string]interface{}:
 			keyValue, exists := v[KeyDynamicPosition]
@@ -108,25 +117,26 @@ func (kg *KeyGenerator) LoadExistingKeys(oldRangeData []interface{}) error {
 				return fmt.Errorf("LoadExistingKeys: item %d key at position %q is not a string, got %T", i, KeyDynamicPosition, keyValue)
 			}
 
-		case *TreeNode:
-			// For TreeNode, extract key from dynamics
-			// TreeNodes without keys or dynamics are silently skipped (not an error)
+		case DynamicsGetter:
+			// For types with GetDynamics() method (e.g., TreeNode)
+			// Items without keys or dynamics are silently skipped (not an error)
 			// since they may be structural nodes not representing range items
-			if v.Dynamics != nil {
-				keyValue, exists := v.Dynamics[KeyDynamicPosition]
+			dynamics := v.GetDynamics()
+			if dynamics != nil {
+				keyValue, exists := dynamics[KeyDynamicPosition]
 				if exists {
 					if str, ok := keyValue.(string); ok {
 						keyStr = str
 					}
 				}
 			}
-			// Skip TreeNodes without keys - they may be structural nodes
+			// Skip items without keys - they may be structural nodes
 			if keyStr == "" {
 				continue
 			}
 
 		default:
-			return fmt.Errorf("LoadExistingKeys: item %d is not a map or TreeNode, got %T", i, item)
+			return fmt.Errorf("LoadExistingKeys: item %d is not a map or DynamicsGetter, got %T", i, item)
 		}
 
 		// Update counter only for numeric keys (from NextKey())
