@@ -185,13 +185,24 @@ func handleNewField(
 }
 
 // isStrippedValueEmpty checks if a stripped value is considered empty.
-// Returns true if the value is an empty map or empty string.
+// Returns true if the value is an empty map, empty string, or empty TreeNode.
+//
+// This function handles all possible return types from PrepareTreeForClient:
+//   - map[string]interface{} (serialized form)
+//   - *TreeNode (when passed a TreeNode directly)
+//   - string (empty indicator)
 func isStrippedValueEmpty(stripped interface{}) bool {
+	// Check for empty map (most common case for serialized form)
 	if strippedMap, ok := stripped.(map[string]interface{}); ok && len(strippedMap) == 0 {
 		return true
 	}
+	// Check for empty string (explicit empty indicator)
 	if strippedStr, ok := stripped.(string); ok && strippedStr == "" {
 		return true
+	}
+	// Check for empty TreeNode (when PrepareTreeForClient returns TreeNode directly)
+	if treeNode, ok := stripped.(*TreeNode); ok {
+		return !treeNode.HasDynamics() && !treeNode.HasStatics()
 	}
 	return false
 }
@@ -201,7 +212,7 @@ func isStrippedValueEmpty(stripped interface{}) bool {
 // already has them cached.
 //
 // Parameters:
-//   - newValue: The structure value (TreeNode or map) to process
+//   - newValue: The structure value (TreeNode or map) to process (must not be nil)
 //   - clientHasStructure: True if client has already seen this structure
 //
 // Returns:
@@ -212,10 +223,18 @@ func isStrippedValueEmpty(stripped interface{}) bool {
 //   - If client has structure: returns stripped value (dynamics only), shouldTrack=false
 //   - If client doesn't have structure: returns full value (with statics), shouldTrack=true
 //   - If stripped value is empty: returns empty string to signal static-only change
+//
+// Preconditions:
+//   - newValue must not be nil (caller's responsibility to ensure)
 func handleStructureValue(
 	newValue interface{},
 	clientHasStructure bool,
 ) (valueToSet interface{}, shouldTrack bool) {
+	// Defensive check: newValue should never be nil, but handle gracefully
+	if newValue == nil {
+		return "", false
+	}
+
 	// Prepare the value for client (strip statics if appropriate)
 	stripped := PrepareTreeForClient(newValue, true)
 

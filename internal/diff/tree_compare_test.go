@@ -739,6 +739,26 @@ func TestIsStrippedValueEmpty(t *testing.T) {
 		{"nil", nil, false},
 		{"number", 42, false},
 		{"map with nil value", map[string]interface{}{"key": nil}, false},
+		{
+			"empty TreeNode (no statics, no dynamics)",
+			&TreeNode{Statics: nil, Dynamics: map[string]interface{}{}},
+			true,
+		},
+		{
+			"TreeNode with statics only",
+			&TreeNode{Statics: []string{"<div>", "</div>"}, Dynamics: map[string]interface{}{}},
+			false,
+		},
+		{
+			"TreeNode with dynamics only",
+			&TreeNode{Statics: nil, Dynamics: map[string]interface{}{"0": "value"}},
+			false,
+		},
+		{
+			"TreeNode with both statics and dynamics",
+			&TreeNode{Statics: []string{"<div>", "</div>"}, Dynamics: map[string]interface{}{"0": "value"}},
+			false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -793,7 +813,7 @@ func TestHandleStructureValue(t *testing.T) {
 			},
 		},
 		{
-			name: "static-only structure (no dynamics) - prepareTreeForClient returns empty TreeNode",
+			name: "static-only structure (no dynamics) - returns empty string",
 			newValue: &TreeNode{
 				Statics:  []string{"<div>", "</div>"},
 				Dynamics: map[string]interface{}{},
@@ -801,17 +821,21 @@ func TestHandleStructureValue(t *testing.T) {
 			clientHasStructure: true, // Client has structure, so we strip
 			wantShouldTrack:     false,
 			checkValue: func(t *testing.T, value interface{}) {
-				// PrepareTreeForClient returns an empty TreeNode (no statics, no dynamics)
-				// which isStrippedValueEmpty doesn't recognize as empty because it's a TreeNode type
-				// So we get the empty TreeNode, not an empty string
-				// This is actually correct behavior - we send back a minimal tree structure
-				if valueNode, ok := value.(*TreeNode); ok {
-					// Should have no dynamics and no statics
-					if valueNode.HasDynamics() || valueNode.HasStatics() {
-						t.Errorf("Expected empty TreeNode (no statics/dynamics), got: %+v", valueNode)
-					}
-				} else {
-					t.Errorf("Expected *TreeNode for static-only structure, got %T: %v", value, value)
+				// With the fix to isStrippedValueEmpty, empty TreeNodes are now recognized
+				// So we should get an empty string
+				if value != "" {
+					t.Errorf("Expected empty string for static-only structure, got %T: %v", value, value)
+				}
+			},
+		},
+		{
+			name:                "nil value returns empty string",
+			newValue:            nil,
+			clientHasStructure:  false,
+			wantShouldTrack:     false,
+			checkValue: func(t *testing.T, value interface{}) {
+				if value != "" {
+					t.Errorf("Expected empty string for nil value, got %v", value)
 				}
 			},
 		},
