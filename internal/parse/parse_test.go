@@ -450,3 +450,67 @@ func TestGetOrParseTemplate_Caching(t *testing.T) {
 		t.Errorf("Template outputs differ: %q vs %q", buf1.String(), buf2.String())
 	}
 }
+
+// TestGetOrParseTemplate_ConcurrentAccess tests that concurrent access to template cache is safe.
+func TestGetOrParseTemplate_ConcurrentAccess(t *testing.T) {
+	cache := &sync.Map{}
+	cacheKey := "concurrent-test"
+	templateStr := "{{.Value}}"
+	funcs := template.FuncMap{}
+
+	// Run many goroutines accessing the cache concurrently
+	const numGoroutines = 100
+	const numIterations = 10
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, numGoroutines*numIterations)
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < numIterations; j++ {
+				tmpl, err := getOrParseTemplate(cache, cacheKey, templateStr, funcs)
+				if err != nil {
+					errChan <- fmt.Errorf("goroutine %d iteration %d: parse failed: %w", id, j, err)
+					return
+				}
+
+				// Execute template to ensure it's valid
+				data := map[string]interface{}{"Value": fmt.Sprintf("g%d-i%d", id, j)}
+				var buf strings.Builder
+				if err := tmpl.Execute(&buf, data); err != nil {
+					errChan <- fmt.Errorf("goroutine %d iteration %d: execute failed: %w", id, j, err)
+					return
+				}
+
+				expected := fmt.Sprintf("g%d-i%d", id, j)
+				if buf.String() != expected {
+					errChan <- fmt.Errorf("goroutine %d iteration %d: got %q, want %q", id, j, buf.String(), expected)
+					return
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	// Check for errors
+	var errs []error
+	for err := range errChan {
+		errs = append(errs, err)
+	}
+
+	if len(errs) > 0 {
+		t.Errorf("Concurrent access had %d errors:", len(errs))
+		for _, err := range errs {
+			t.Errorf("  - %v", err)
+		}
+	}
+
+	// Verify cache was populated
+	if _, ok := cache.Load(cacheKey); !ok {
+		t.Error("Expected template to be cached after concurrent access")
+	}
+}
