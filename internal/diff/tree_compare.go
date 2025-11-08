@@ -2,8 +2,25 @@ package diff
 
 import "reflect"
 
-// CompareTreesAndGetChangesWithPath compares trees with path tracking for nested range matching.
-// This is the main orchestrator function (30 lines).
+// CompareTreesAndGetChangesWithPath compares two tree structures and returns minimal changes.
+// This is the main orchestrator function that coordinates the comparison process.
+//
+// Parameters:
+//   - oldTree: The previous tree state (may be nil)
+//   - newTree: The current tree state (may be nil)
+//   - insideNewStructure: True if we're inside a structure the client hasn't seen
+//   - currentPath: Dot-separated path to current location in tree (e.g., "field.nested")
+//   - rangeMatches: Map of paths to matched range constructs (for differential operations)
+//   - registry: Optional registry tracking which structures client has seen (may be nil)
+//
+// Returns:
+//   - TreeNode containing only the changed fields (empty if no changes)
+//
+// The function handles:
+//   - Top-level range constructs with differential operations
+//   - Nil tree cases (tree removal)
+//   - Deep comparison of dynamic fields
+//   - Registry-based optimization (strips statics when client has them cached)
 func CompareTreesAndGetChangesWithPath(
 	oldTree, newTree *TreeNode,
 	insideNewStructure bool,
@@ -144,24 +161,96 @@ func handleNewField(
 		return
 	}
 
+	// Check if registry is usable (cache the check to avoid repeated reflection)
+	registryUsable := registry != nil && !isNilRegistry(registry)
+
 	// Check if client has seen THIS EXACT structure at this path (Phase 2: Registry)
 	clientHasStructure := false
-	if registry != nil && !isNilRegistry(registry) {
+	if registryUsable {
 		clientHasStructure = registry.HasSeen(fieldPath, newValue)
 	}
 
 	// Handle tree node values
-	if handleNewTreeNodeField(k, newValue, clientHasStructure, fieldPath, registry, changes) {
+	if handleNewTreeNodeField(k, newValue, clientHasStructure, fieldPath, registry, registryUsable, changes) {
 		return
 	}
 
 	// Handle map values
-	if handleNewMapField(k, newValue, clientHasStructure, fieldPath, registry, changes) {
+	if handleNewMapField(k, newValue, clientHasStructure, fieldPath, registry, registryUsable, changes) {
 		return
 	}
 
 	// Primitive value
 	changes.SetDynamic(k, newValue)
+}
+
+// isStrippedValueEmpty checks if a stripped value is considered empty.
+// Returns true if the value is an empty map, empty string, or empty TreeNode.
+//
+// This function handles all possible return types from PrepareTreeForClient:
+//   - map[string]interface{} (serialized form)
+//   - *TreeNode (when passed a TreeNode directly)
+//   - string (empty indicator)
+func isStrippedValueEmpty(stripped interface{}) bool {
+	// Check for empty map (most common case for serialized form)
+	if strippedMap, ok := stripped.(map[string]interface{}); ok && len(strippedMap) == 0 {
+		return true
+	}
+	// Check for empty string (explicit empty indicator)
+	if strippedStr, ok := stripped.(string); ok && strippedStr == "" {
+		return true
+	}
+	// Check for empty TreeNode (when PrepareTreeForClient returns TreeNode directly)
+	if treeNode, ok := stripped.(*TreeNode); ok {
+		return !treeNode.HasDynamics() && !treeNode.HasStatics()
+	}
+	return false
+}
+
+// handleStructureValue handles TreeNode or map values with registry tracking.
+// This function implements the core optimization: stripping statics when the client
+// already has them cached.
+//
+// Parameters:
+//   - newValue: The structure value (TreeNode or map) to process (must not be nil)
+//   - clientHasStructure: True if client has already seen this structure
+//
+// Returns:
+//   - valueToSet: The value to send to client (stripped or full, or empty string)
+//   - shouldTrack: True if this structure should be tracked in registry
+//
+// Behavior:
+//   - If client has structure: returns stripped value (dynamics only), shouldTrack=false
+//   - If client doesn't have structure: returns full value (with statics), shouldTrack=true
+//   - If stripped value is empty: returns empty string to signal static-only change
+//
+// Preconditions:
+//   - newValue must not be nil (caller's responsibility to ensure)
+func handleStructureValue(
+	newValue interface{},
+	clientHasStructure bool,
+) (valueToSet interface{}, shouldTrack bool) {
+	// Defensive check: newValue should never be nil, but handle gracefully
+	if newValue == nil {
+		return "", false
+	}
+
+	// Prepare the value for client (strip statics if appropriate)
+	stripped := PrepareTreeForClient(newValue, true)
+
+	if clientHasStructure {
+		// Client already has structure - use stripped version
+		if isStrippedValueEmpty(stripped) {
+			return "", false
+		}
+		return stripped, false
+	}
+
+	// Client doesn't have structure - send full value WITH statics
+	if isStrippedValueEmpty(stripped) {
+		return "", false
+	}
+	return newValue, true
 }
 
 // handleNewTreeNodeField handles new TreeNode field values.
@@ -171,6 +260,7 @@ func handleNewTreeNodeField(
 	clientHasStructure bool,
 	fieldPath string,
 	registry StructureRegistry,
+	registryUsable bool,
 	changes *TreeNode,
 ) bool {
 	newTreeNode, ok := newValue.(*TreeNode)
@@ -178,26 +268,11 @@ func handleNewTreeNodeField(
 		return false
 	}
 
-	if clientHasStructure {
-		// Client already has this structure's statics from initial render - strip statics
-		stripped := PrepareTreeForClient(newTreeNode, true)
-		if strippedMap, ok := stripped.(map[string]interface{}); ok && len(strippedMap) == 0 {
-			changes.SetDynamic(k, "")
-		} else {
-			changes.SetDynamic(k, stripped)
-		}
-	} else {
-		// Client doesn't have this structure - send WITH statics
-		stripped := PrepareTreeForClient(newTreeNode, true)
-		if strippedMap, ok := stripped.(map[string]interface{}); ok && len(strippedMap) == 0 {
-			changes.SetDynamic(k, "")
-		} else {
-			changes.SetDynamic(k, newValue)
-			// Track that we've now sent this structure (Phase 2: Registry)
-			if registry != nil && !isNilRegistry(registry) {
-				registry.MarkSeen(fieldPath, newValue)
-			}
-		}
+	valueToSet, shouldTrack := handleStructureValue(newTreeNode, clientHasStructure)
+	changes.SetDynamic(k, valueToSet)
+
+	if shouldTrack && registryUsable {
+		registry.MarkSeen(fieldPath, newValue)
 	}
 	return true
 }
@@ -209,6 +284,7 @@ func handleNewMapField(
 	clientHasStructure bool,
 	fieldPath string,
 	registry StructureRegistry,
+	registryUsable bool,
 	changes *TreeNode,
 ) bool {
 	m, ok := newValue.(map[string]interface{})
@@ -216,26 +292,11 @@ func handleNewMapField(
 		return false
 	}
 
-	if clientHasStructure {
-		// Client has structure - strip statics
-		stripped := PrepareTreeForClient(m, true)
-		if strippedMap, ok := stripped.(map[string]interface{}); ok && len(strippedMap) == 0 {
-			changes.SetDynamic(k, "")
-		} else {
-			changes.SetDynamic(k, stripped)
-		}
-	} else {
-		// Client doesn't have structure - send WITH statics
-		stripped := PrepareTreeForClient(m, true)
-		if strippedMap, ok := stripped.(map[string]interface{}); ok && len(strippedMap) == 0 {
-			changes.SetDynamic(k, "")
-		} else {
-			changes.SetDynamic(k, newValue)
-			// Track that we've now sent this structure (Phase 2: Registry)
-			if registry != nil && !isNilRegistry(registry) {
-				registry.MarkSeen(fieldPath, newValue)
-			}
-		}
+	valueToSet, shouldTrack := handleStructureValue(m, clientHasStructure)
+	changes.SetDynamic(k, valueToSet)
+
+	if shouldTrack && registryUsable {
+		registry.MarkSeen(fieldPath, newValue)
 	}
 	return true
 }
@@ -271,7 +332,9 @@ func handleChangedField(
 
 	// New value is a tree node but old wasn't
 	if newTreeNodePtr != nil {
-		handleNewTreeNodeFromPrimitive(k, newTreeNodePtr, fieldPath, registry, changes)
+		// Cache registry usability check
+		registryUsable := registry != nil && !isNilRegistry(registry)
+		handleNewTreeNodeFromPrimitive(k, newTreeNodePtr, fieldPath, registry, registryUsable, changes)
 		return
 	}
 
@@ -382,34 +445,39 @@ func handleNewTreeNodeFromPrimitive(
 	newTreeNodePtr *TreeNode,
 	fieldPath string,
 	registry StructureRegistry,
+	registryUsable bool,
 	changes *TreeNode,
 ) {
 	// Use registry to check if client has seen THIS EXACT structure at this path
 	clientHasStructure := false
-	if registry != nil && !isNilRegistry(registry) {
+	if registryUsable {
 		clientHasStructure = registry.HasSeen(fieldPath, newTreeNodePtr)
 	}
 
-	if clientHasStructure {
-		// Strip statics since client has them cached
-		stripped := PrepareTreeForClient(newTreeNodePtr, true)
-		if IsEmpty(stripped) {
-			changes.SetDynamic(k, "")
-		} else {
-			changes.SetDynamic(k, stripped)
-		}
-	} else {
-		// Client doesn't have structure - send WITH statics
-		changes.SetDynamic(k, newTreeNodePtr)
-		// Track that we've now sent this structure
-		if registry != nil && !isNilRegistry(registry) {
-			registry.MarkSeen(fieldPath, newTreeNodePtr)
-		}
+	valueToSet, shouldTrack := handleStructureValue(newTreeNodePtr, clientHasStructure)
+	changes.SetDynamic(k, valueToSet)
+
+	if shouldTrack && registryUsable {
+		registry.MarkSeen(fieldPath, newTreeNodePtr)
 	}
 }
 
 // isNilRegistry checks if the registry interface contains a nil pointer.
 // This handles the Go interface gotcha where an interface can be non-nil but contain a nil pointer.
+//
+// Background:
+// In Go, an interface value is nil only if both its type and value are nil.
+// A common bug is:
+//
+//	var ptr *ConcreteRegistry // ptr is nil
+//	var iface StructureRegistry = ptr // iface is non-nil (has type), but contains nil value
+//	if iface != nil { /* this is true! */ }
+//
+// This function uses reflection to detect this case and return true when the
+// underlying pointer is nil, even if the interface wrapper is non-nil.
+//
+// Performance note: Uses reflection, so should be cached by callers to avoid
+// repeated checks in hot paths.
 func isNilRegistry(registry StructureRegistry) bool {
 	if registry == nil {
 		return true

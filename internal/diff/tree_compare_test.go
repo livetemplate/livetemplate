@@ -462,7 +462,7 @@ func TestHandleNewTreeNodeField(t *testing.T) {
 	registry := newMockRegistry()
 
 	// Test when client doesn't have structure
-	handled := handleNewTreeNodeField("0", newNode, false, "0", registry, changes)
+	handled := handleNewTreeNodeField("0", newNode, false, "0", registry, true, changes)
 
 	if !handled {
 		t.Error("Expected handleNewTreeNodeField to return true for TreeNode")
@@ -475,7 +475,7 @@ func TestHandleNewTreeNodeField(t *testing.T) {
 	// Test when client already has structure
 	registry.MarkSeen("1", newNode)
 	changes = &TreeNode{Dynamics: make(map[string]interface{})}
-	handleNewTreeNodeField("1", newNode, true, "1", registry, changes)
+	handleNewTreeNodeField("1", newNode, true, "1", registry, true, changes)
 
 	// Should strip statics when client has structure
 	result := changes.Dynamics["1"]
@@ -493,7 +493,7 @@ func TestHandleNewMapField(t *testing.T) {
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
 	registry := newMockRegistry()
 
-	handled := handleNewMapField("0", newMap, false, "0", registry, changes)
+	handled := handleNewMapField("0", newMap, false, "0", registry, true, changes)
 
 	if !handled {
 		t.Error("Expected handleNewMapField to return true for map")
@@ -617,7 +617,7 @@ func TestHandleNewTreeNodeFromPrimitive(t *testing.T) {
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
 	registry := newMockRegistry()
 
-	handleNewTreeNodeFromPrimitive("0", newNode, "0", registry, changes)
+	handleNewTreeNodeFromPrimitive("0", newNode, "0", registry, true, changes)
 
 	// Should set full TreeNode
 	if changes.Dynamics["0"] == nil {
@@ -722,5 +722,266 @@ func TestHandleChangedField_TreeNodes(t *testing.T) {
 
 	if nestedChanges.Dynamics["0"] != "new" {
 		t.Errorf("Expected nested change, got: %v", nestedChanges.Dynamics["0"])
+	}
+}
+
+// TestIsStrippedValueEmpty tests the empty value detection helper.
+func TestIsStrippedValueEmpty(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    interface{}
+		wantEmpty bool
+	}{
+		{"empty map", map[string]interface{}{}, true},
+		{"empty string", "", true},
+		{"non-empty map", map[string]interface{}{"key": "value"}, false},
+		{"non-empty string", "content", false},
+		{"nil", nil, false},
+		{"number", 42, false},
+		{"map with nil value", map[string]interface{}{"key": nil}, false},
+		{
+			"empty TreeNode (no statics, no dynamics)",
+			&TreeNode{Statics: nil, Dynamics: map[string]interface{}{}},
+			true,
+		},
+		{
+			"TreeNode with statics only",
+			&TreeNode{Statics: []string{"<div>", "</div>"}, Dynamics: map[string]interface{}{}},
+			false,
+		},
+		{
+			"TreeNode with dynamics only",
+			&TreeNode{Statics: nil, Dynamics: map[string]interface{}{"0": "value"}},
+			false,
+		},
+		{
+			"TreeNode with both statics and dynamics",
+			&TreeNode{Statics: []string{"<div>", "</div>"}, Dynamics: map[string]interface{}{"0": "value"}},
+			false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isStrippedValueEmpty(tt.value)
+			if got != tt.wantEmpty {
+				t.Errorf("isStrippedValueEmpty(%v) = %v, want %v", tt.value, got, tt.wantEmpty)
+			}
+		})
+	}
+}
+
+// TestHandleStructureValue tests the core structure value handling logic.
+func TestHandleStructureValue(t *testing.T) {
+	tests := []struct {
+		name                string
+		newValue            interface{}
+		clientHasStructure bool
+		wantShouldTrack     bool
+		checkValue          func(t *testing.T, value interface{})
+	}{
+		{
+			name: "client has structure - returns stripped",
+			newValue: &TreeNode{
+				Statics:  []string{"<div>", "</div>"},
+				Dynamics: map[string]interface{}{"0": "content"},
+			},
+			clientHasStructure: true,
+			wantShouldTrack:     false,
+			checkValue: func(t *testing.T, value interface{}) {
+				// Stripped value should not include statics
+				if valueMap, ok := value.(map[string]interface{}); ok {
+					if _, hasStatics := valueMap["s"]; hasStatics {
+						t.Error("Expected statics to be stripped")
+					}
+				}
+			},
+		},
+		{
+			name: "client doesn't have structure - returns full",
+			newValue: &TreeNode{
+				Statics:  []string{"<div>", "</div>"},
+				Dynamics: map[string]interface{}{"0": "content"},
+			},
+			clientHasStructure: false,
+			wantShouldTrack:     true,
+			checkValue: func(t *testing.T, value interface{}) {
+				// Should return original TreeNode
+				if _, ok := value.(*TreeNode); !ok {
+					t.Errorf("Expected *TreeNode, got %T", value)
+				}
+			},
+		},
+		{
+			name: "static-only structure (no dynamics) - returns empty string",
+			newValue: &TreeNode{
+				Statics:  []string{"<div>", "</div>"},
+				Dynamics: map[string]interface{}{},
+			},
+			clientHasStructure: true, // Client has structure, so we strip
+			wantShouldTrack:     false,
+			checkValue: func(t *testing.T, value interface{}) {
+				// With the fix to isStrippedValueEmpty, empty TreeNodes are now recognized
+				// So we should get an empty string
+				if value != "" {
+					t.Errorf("Expected empty string for static-only structure, got %T: %v", value, value)
+				}
+			},
+		},
+		{
+			name:                "nil value returns empty string",
+			newValue:            nil,
+			clientHasStructure:  false,
+			wantShouldTrack:     false,
+			checkValue: func(t *testing.T, value interface{}) {
+				if value != "" {
+					t.Errorf("Expected empty string for nil value, got %v", value)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			value, shouldTrack := handleStructureValue(tt.newValue, tt.clientHasStructure)
+			if shouldTrack != tt.wantShouldTrack {
+				t.Errorf("shouldTrack = %v, want %v", shouldTrack, tt.wantShouldTrack)
+			}
+			if tt.checkValue != nil {
+				tt.checkValue(t, value)
+			}
+		})
+	}
+}
+
+// TestHandleNewField_WithRegistry tests registry interaction.
+func TestHandleNewField_WithRegistry(t *testing.T) {
+	registry := newMockRegistry()
+	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+
+	newNode := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{"0": "content"},
+	}
+
+	// First time: registry doesn't have structure
+	handleNewField("0", newNode, "0", false, registry, changes)
+
+	if !registry.HasSeen("0", newNode) {
+		t.Error("Expected registry to track new structure")
+	}
+
+	// Second time: registry already has structure
+	changes = &TreeNode{Dynamics: make(map[string]interface{})}
+	handleNewField("1", newNode, "1", false, registry, changes)
+
+	// Should use stripped value since not first time
+	if changes.Dynamics["1"] == nil {
+		t.Error("Expected field to be set")
+	}
+}
+
+// TestHandleNewField_NilRegistryInInterface tests the nil-in-interface edge case.
+func TestHandleNewField_NilRegistryInInterface(t *testing.T) {
+	// Create nil pointer wrapped in interface
+	var nilPtr *mockStructureRegistry
+	var registry StructureRegistry = nilPtr
+
+	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	newNode := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{"0": "content"},
+	}
+
+	// Should handle gracefully without panic
+	handleNewField("0", newNode, "0", false, registry, changes)
+
+	if changes.Dynamics["0"] == nil {
+		t.Error("Expected field to be set even with nil registry")
+	}
+}
+
+// TestCompareTreesAndGetChangesWithPath_DeepNesting tests deeply nested structures.
+func TestCompareTreesAndGetChangesWithPath_DeepNesting(t *testing.T) {
+	// Create a deeply nested structure (5 levels)
+	var createNested func(depth int, value string) *TreeNode
+	createNested = func(depth int, value string) *TreeNode {
+		if depth == 0 {
+			return &TreeNode{
+				Statics:  []string{"<span>", "</span>"},
+				Dynamics: map[string]interface{}{"0": value},
+			}
+		}
+		return &TreeNode{
+			Statics:  []string{"<div>", "</div>"},
+			Dynamics: map[string]interface{}{"0": createNested(depth-1, value)},
+		}
+	}
+
+	oldTree := createNested(5, "old")
+	newTree := createNested(5, "new")
+
+	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", nil, nil)
+
+	if !changes.HasDynamics() {
+		t.Fatal("Expected changes for deeply nested structure")
+	}
+
+	// Verify change propagated to deepest level
+	current := changes
+	for i := 0; i < 5; i++ {
+		if !current.HasDynamics() {
+			t.Fatalf("Expected dynamics at level %d", i)
+		}
+		if i < 4 {
+			next, ok := current.Dynamics["0"].(*TreeNode)
+			if !ok {
+				t.Fatalf("Expected TreeNode at level %d, got %T", i, current.Dynamics["0"])
+			}
+			current = next
+		}
+	}
+}
+
+// TestHandleEmptyRangeDiff tests empty range handling.
+func TestHandleEmptyRangeDiff(t *testing.T) {
+	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+
+	// Both empty ranges - this needs Statics to qualify as range constructs
+	oldRange := &TreeNode{
+		Range:   &RangeData{Items: []interface{}{}, Statics: []string{"<li>", "</li>"}},
+		Statics: []string{"<li>", "</li>"},
+	}
+	newRange := &TreeNode{
+		Range:   &RangeData{Items: []interface{}{}, Statics: []string{"<li>", "</li>"}},
+		Statics: []string{"<li>", "</li>"},
+	}
+
+	handleEmptyRangeDiff("0", oldRange, newRange, changes)
+
+	// Should not set anything (both empty)
+	if changes.HasDynamics() {
+		t.Error("Expected no changes for both empty ranges")
+	}
+
+	// Transition from items to empty
+	changes = &TreeNode{Dynamics: make(map[string]interface{})}
+	oldRange = &TreeNode{
+		Range: &RangeData{
+			Items:   []interface{}{map[string]interface{}{"id": "1"}},
+			Statics: []string{"<li>", "</li>"},
+		},
+		Statics: []string{"<li>", "</li>"},
+	}
+	newRange = &TreeNode{
+		Range:   &RangeData{Items: []interface{}{}, Statics: []string{"<li>", "</li>"}},
+		Statics: []string{"<li>", "</li>"},
+	}
+
+	handleEmptyRangeDiff("0", oldRange, newRange, changes)
+
+	// Should send the empty range structure
+	if changes.Dynamics["0"] == nil {
+		t.Error("Expected empty range structure to be sent")
 	}
 }
