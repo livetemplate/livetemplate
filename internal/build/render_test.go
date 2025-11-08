@@ -104,6 +104,65 @@ func TestRenderNode_WithAttributes(t *testing.T) {
 	}
 }
 
+// TestRenderNode_AttributeEscaping tests HTML escaping in attribute values.
+func TestRenderNode_AttributeEscaping(t *testing.T) {
+	tests := []struct {
+		name     string
+		attrVal  string
+		expected string
+	}{
+		{
+			name:     "quote injection",
+			attrVal:  `foo" onclick="alert('xss')`,
+			expected: `<div class="foo&#34; onclick=&#34;alert(&#39;xss&#39;)"></div>`,
+		},
+		{
+			name:     "ampersand",
+			attrVal:  "Tom & Jerry",
+			expected: `<div class="Tom &amp; Jerry"></div>`,
+		},
+		{
+			name:     "less than",
+			attrVal:  "a < b",
+			expected: `<div class="a &lt; b"></div>`,
+		},
+		{
+			name:     "greater than",
+			attrVal:  "a > b",
+			expected: `<div class="a &gt; b"></div>`,
+		},
+		{
+			name:     "single quote",
+			attrVal:  "it's working",
+			expected: `<div class="it&#39;s working"></div>`,
+		},
+		{
+			name:     "multiple special chars",
+			attrVal:  `"Tom & Jerry" <script>`,
+			expected: `<div class="&#34;Tom &amp; Jerry&#34; &lt;script&gt;"></div>`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			node := &html.Node{
+				Type: html.ElementNode,
+				Data: "div",
+				Attr: []html.Attribute{
+					{Key: "class", Val: tt.attrVal},
+				},
+			}
+
+			var w strings.Builder
+			RenderNode(&w, node)
+
+			if w.String() != tt.expected {
+				t.Errorf("Expected %q, got: %q", tt.expected, w.String())
+			}
+		})
+	}
+}
+
 // TestRenderNode_NestedElements tests nested element structures.
 func TestRenderNode_NestedElements(t *testing.T) {
 	// Create: <div><span>text</span></div>

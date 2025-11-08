@@ -27,7 +27,7 @@ func RenderNode(w *strings.Builder, n *html.Node) {
 			w.WriteString(" ")
 			w.WriteString(attr.Key)
 			w.WriteString(`="`)
-			w.WriteString(attr.Val)
+			w.WriteString(htmlescape.EscapeString(attr.Val))
 			w.WriteString(`"`)
 		}
 		w.WriteString(">")
