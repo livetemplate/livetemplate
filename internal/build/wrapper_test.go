@@ -432,7 +432,7 @@ func TestInjectWrapperDiv_MultipleScripts(t *testing.T) {
 	}
 
 	// Count scripts in body (should be siblings of wrapper)
-	body := findBodyNode(doc)
+	body := FindBodyNode(doc)
 	if body != nil {
 		for child := body.FirstChild; child != nil; child = child.NextSibling {
 			if child.Type == html.ElementNode && child.Data == "script" {
@@ -497,24 +497,20 @@ func TestGenerateRandomID_NoPanic(t *testing.T) {
 // TestInjectWrapperDiv_MalformedHTML tests graceful handling of malformed HTML.
 func TestInjectWrapperDiv_MalformedHTML(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		shouldFallback bool
+		name  string
+		input string
 	}{
 		{
 			"unclosed div",
 			`<html><body><div>Content</body></html>`,
-			false, // html.Parse can handle this
 		},
 		{
 			"missing closing body",
 			`<html><body><div>Content</div>`,
-			false, // html.Parse can handle this
 		},
 		{
 			"nested body tags",
 			`<html><body><body>Content</body></body></html>`,
-			false, // html.Parse can handle this
 		},
 	}
 

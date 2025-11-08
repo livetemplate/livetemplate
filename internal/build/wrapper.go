@@ -34,7 +34,7 @@ func InjectWrapperDiv(htmlDoc string, wrapperID string, loadingDisabled bool) st
 	}
 
 	// Find the body element
-	bodyNode := findBodyNode(doc)
+	bodyNode := FindBodyNode(doc)
 	if bodyNode == nil {
 		// No body tag found, return as-is
 		return htmlDoc
@@ -92,13 +92,13 @@ func InjectWrapperDiv(htmlDoc string, wrapperID string, loadingDisabled bool) st
 	return buf.String()
 }
 
-// findBodyNode recursively finds the body element in an HTML document tree.
-func findBodyNode(n *html.Node) *html.Node {
+// FindBodyNode recursively finds the body element in an HTML document tree.
+func FindBodyNode(n *html.Node) *html.Node {
 	if n.Type == html.ElementNode && n.Data == "body" {
 		return n
 	}
 	for child := n.FirstChild; child != nil; child = child.NextSibling {
-		if found := findBodyNode(child); found != nil {
+		if found := FindBodyNode(child); found != nil {
 			return found
 		}
 	}
