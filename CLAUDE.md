@@ -155,16 +155,22 @@ type Template struct {
 ## Testing Strategy
 
 ### Test Files Structure
-- `e2e_test.go`: End-to-end tests with complete rendering sequences
 - `template_test.go`: Core template functionality tests
+- `e2e_update_spec_test.go`: Tree update specification compliance tests
 - `tree_invariant_test.go`: Tree structure invariant validation
 - `key_injection_test.go`: Key generation and stability tests
+- Internal package tests: `internal/*/`
+
+**Browser-based E2E Tests:**
+Browser-based chromedp E2E tests are maintained in the lvt repository:
+- Location: `github.com/livetemplate/lvt/e2e/livetemplate_core_test.go`
+- These tests validate the library from a black-box perspective using real browser automation
+- Tests include: complete rendering sequences, loading indicators, focus preservation, etc.
 
 ### Test Data
-- `testdata/e2e/`: Contains golden files for E2E tests
-  - `*.html`: Expected rendered HTML output
-  - `*.json`: Expected tree updates
-  - `*.golden.json`: Golden files for update validation
+- `testdata/fixtures/`: Template fixtures for unit tests
+- `testdata/golden/`: Golden files for snapshot testing
+- `testdata/fuzz/`: Fuzz test corpus
 
 ### Running Tests
 ```bash
@@ -172,9 +178,10 @@ type Template struct {
 go test -v ./...
 
 # Run specific test categories
-go test -run TestTemplate_E2E -v      # E2E tests
+go test -run TestTemplate -v          # Template engine tests
 go test -run TestTreeInvariant -v     # Tree invariant tests
 go test -run TestKeyInjection -v      # Key injection tests
+go test -run TestE2EUpdateSpec -v     # Update spec compliance tests
 
 # Run with timeout
 go test -v ./... -timeout=30s
@@ -298,10 +305,11 @@ The repository has a pre-commit hook that:
 ## Troubleshooting
 
 ### Test Failures
-- Check golden files in `testdata/e2e/`
+- Check golden files in `testdata/golden/` and `testdata/fixtures/`
 - Verify tree structure matches expected format
 - Ensure key generation is consistent
 - Check for HTML escaping issues
+- For browser E2E test failures, see lvt repository
 
 ### Tree Generation Issues
 - Validate template syntax
