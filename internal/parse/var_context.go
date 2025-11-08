@@ -45,12 +45,11 @@ func newOrderedVars() orderedVars {
 }
 
 // Set adds or updates a key-value pair.
-// The key must be a valid Go template variable name (matching $[a-zA-Z_][a-zA-Z0-9_]*).
-// For performance, validation is only performed in development mode.
+// The key should be a valid Go template variable name (matching $[a-zA-Z_][a-zA-Z0-9_]*).
+// Empty keys are silently ignored to prevent errors during template parsing.
 func (ov *orderedVars) Set(key string, value interface{}) {
-	// Validate variable name format (development mode only for performance)
+	// Reject empty keys to prevent invalid variable bindings
 	if key == "" {
-		// Empty keys are silently ignored for backward compatibility
 		return
 	}
 
