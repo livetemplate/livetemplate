@@ -332,7 +332,7 @@ func TestEvaluateActionWithVars_NoVariablesUsed(t *testing.T) {
 	result := evaluateActionWithVars("{{`static`}}", varCtx, ctx)
 	// Should return empty string since no variables are used
 	if result != "" {
-		t.Logf("Got result: %v", result)
+		t.Errorf("Expected empty string, got: %v", result)
 	}
 }
 
