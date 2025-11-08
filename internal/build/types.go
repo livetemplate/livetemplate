@@ -184,6 +184,13 @@ func (tn *TreeNode) GetDynamic(position string) (interface{}, bool) {
 	return val, ok
 }
 
+// GetDynamics returns the entire Dynamics map.
+// This implements the DynamicsGetter interface from internal/keys package,
+// allowing TreeNode to be used with key generation utilities.
+func (tn *TreeNode) GetDynamics() map[string]interface{} {
+	return tn.Dynamics
+}
+
 // HasStatics returns true if the node has static parts.
 func (tn *TreeNode) HasStatics() bool {
 	return len(tn.Statics) > 0

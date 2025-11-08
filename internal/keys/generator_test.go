@@ -1,4 +1,4 @@
-package build
+package keys
 
 import (
 	"math"
@@ -6,12 +6,12 @@ import (
 	"testing"
 )
 
-// TestNewKeyGenerator tests KeyGenerator constructor.
-func TestNewKeyGenerator(t *testing.T) {
-	kg := NewKeyGenerator()
+// TestNewGenerator tests Generator constructor.
+func TestNewGenerator(t *testing.T) {
+	kg := NewGenerator()
 
 	if kg == nil {
-		t.Fatal("Expected non-nil KeyGenerator")
+		t.Fatal("Expected non-nil Generator")
 	}
 
 	if kg.counter != 0 {
@@ -19,9 +19,9 @@ func TestNewKeyGenerator(t *testing.T) {
 	}
 }
 
-// TestKeyGenerator_NextKey tests sequential key generation.
-func TestKeyGenerator_NextKey(t *testing.T) {
-	kg := NewKeyGenerator()
+// TestGenerator_NextKey tests sequential key generation.
+func TestGenerator_NextKey(t *testing.T) {
+	kg := NewGenerator()
 
 	// Test sequential generation
 	tests := []string{"1", "2", "3", "4", "5"}
@@ -41,9 +41,9 @@ func TestKeyGenerator_NextKey(t *testing.T) {
 	}
 }
 
-// TestKeyGenerator_Reset tests reset behavior.
-func TestKeyGenerator_Reset(t *testing.T) {
-	kg := NewKeyGenerator()
+// TestGenerator_Reset tests reset behavior.
+func TestGenerator_Reset(t *testing.T) {
+	kg := NewGenerator()
 
 	// Generate some keys
 	kg.NextKey()
@@ -71,9 +71,9 @@ func TestKeyGenerator_Reset(t *testing.T) {
 	}
 }
 
-// TestKeyGenerator_LoadExistingKeys tests loading keys from existing range data.
-func TestKeyGenerator_LoadExistingKeys(t *testing.T) {
-	kg := NewKeyGenerator()
+// TestGenerator_LoadExistingKeys tests loading keys from existing range data.
+func TestGenerator_LoadExistingKeys(t *testing.T) {
+	kg := NewGenerator()
 
 	// Simulate old range data with keys
 	oldData := []interface{}{
@@ -102,9 +102,9 @@ func TestKeyGenerator_LoadExistingKeys(t *testing.T) {
 	}
 }
 
-// TestKeyGenerator_LoadExistingKeys_NonNumeric tests loading non-numeric keys.
-func TestKeyGenerator_LoadExistingKeys_NonNumeric(t *testing.T) {
-	kg := NewKeyGenerator()
+// TestGenerator_LoadExistingKeys_NonNumeric tests loading non-numeric keys.
+func TestGenerator_LoadExistingKeys_NonNumeric(t *testing.T) {
+	kg := NewGenerator()
 
 	// Mix of numeric and non-numeric keys
 	// Non-numeric keys (UUIDs, content hashes) are common in practice
@@ -136,9 +136,9 @@ func TestKeyGenerator_LoadExistingKeys_NonNumeric(t *testing.T) {
 	}
 }
 
-// TestKeyGenerator_Uniqueness tests that generated keys are unique.
-func TestKeyGenerator_Uniqueness(t *testing.T) {
-	kg := NewKeyGenerator()
+// TestGenerator_Uniqueness tests that generated keys are unique.
+func TestGenerator_Uniqueness(t *testing.T) {
+	kg := NewGenerator()
 
 	// Generate many keys and check for duplicates
 	generated := make(map[string]bool)
@@ -163,7 +163,7 @@ func TestKeyGenerator_Uniqueness(t *testing.T) {
 // TestGenerateWrapperKey tests wrapper key generation.
 // Note: GenerateWrapperKey was removed, now using NextKey directly.
 func TestGenerateWrapperKey(t *testing.T) {
-	kg := NewKeyGenerator()
+	kg := NewGenerator()
 
 	// First wrapper key should be "1"
 	key1, err := kg.NextKey()
@@ -251,13 +251,13 @@ func TestDetectIDKey_NoKey(t *testing.T) {
 	}
 }
 
-// TestNewKeyGeneratorWithAttributes tests custom key attributes.
-func TestNewKeyGeneratorWithAttributes(t *testing.T) {
+// TestNewGeneratorWithAttributes tests custom key attributes.
+func TestNewGeneratorWithAttributes(t *testing.T) {
 	customAttrs := []string{"custom-id=\"", "my-key=\""}
-	kg := NewKeyGenerator(customAttrs...)
+	kg := NewGenerator(customAttrs...)
 
 	if kg == nil {
-		t.Fatal("Expected non-nil KeyGenerator")
+		t.Fatal("Expected non-nil Generator")
 	}
 
 	if len(kg.keyAttributes) != 2 {
@@ -337,9 +337,9 @@ func TestDefaultKeyAttributes(t *testing.T) {
 	}
 }
 
-// TestKeyGenerator_Concurrent tests concurrent access to KeyGenerator.
-func TestKeyGenerator_Concurrent(t *testing.T) {
-	kg := NewKeyGenerator()
+// TestGenerator_Concurrent tests concurrent access to Generator.
+func TestGenerator_Concurrent(t *testing.T) {
+	kg := NewGenerator()
 	numGoroutines := 100
 	keysPerGoroutine := 100
 
@@ -416,7 +416,7 @@ func TestLoadExistingKeys_InvalidData(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			kg := NewKeyGenerator()
+			kg := NewGenerator()
 			err := kg.LoadExistingKeys(tt.data)
 
 			if tt.wantErr {
@@ -434,9 +434,9 @@ func TestLoadExistingKeys_InvalidData(t *testing.T) {
 	}
 }
 
-// TestKeyGenerator_OverflowProtection tests overflow protection.
-func TestKeyGenerator_OverflowProtection(t *testing.T) {
-	kg := NewKeyGenerator()
+// TestGenerator_OverflowProtection tests overflow protection.
+func TestGenerator_OverflowProtection(t *testing.T) {
+	kg := NewGenerator()
 	kg.counter = math.MaxInt - 1
 
 	// This should work

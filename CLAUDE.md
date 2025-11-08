@@ -9,18 +9,19 @@ LiveTemplate is a high-performance Go library and CLI tool for building reactive
 
 The core library provides an API similar to `html/template` but with the additional capability of generating minimal, tree-based updates that can be efficiently transmitted to clients.
 
-## Version 0.2.0 - API Reduction
+## Version 0.3.0 - 5-Phase Architecture
 
-**Breaking Change Notice:** v0.2.0 significantly reduces the public API surface area by moving implementation details to internal packages.
+**Breaking Change Notice:** v0.3.0 refactors the codebase into a proper 5-phase architecture for clearer separation of concerns.
 
 **Key Changes:**
-- Main package files reduced from 18 to 12 (33% reduction)
-- Implementation types moved to internal packages (Connection, ConnectionRegistry, StructureSignature, etc.)
-- File consolidation: session files merged, health files merged, types cleaned up
-- New internal packages: `internal/session/`, `internal/signature/`, `internal/context/`
-- Cleaner public API focused on essential user-facing types and interfaces
+- Refactored into 5 operational phases: Parse → Build → Diff → Render → Send
+- New internal packages: `internal/keys/`, `internal/render/`, `internal/send/`
+- Cleaner API naming: `KeyGenerator` → `Generator`, `RenderNode` → `Node`, etc.
+- Message formatting and serialization moved to `internal/send/`
+- HTML rendering isolated in `internal/render/`
+- Key generation isolated in `internal/keys/`
 
-**Migration:** If you were importing internal types directly (e.g., `ConnectionRegistry`), update your imports to use the `internal/session` package. Most user code should be unaffected as the public API remains stable.
+**Migration:** The public API remains backward compatible through type aliases. Direct imports of `internal/build` types (KeyGenerator, RenderNode) should be updated to new package locations.
 
 ## Core Architecture
 
@@ -70,50 +71,68 @@ The main `livetemplate` package provides a clean, minimal public API:
    - TemplateConfig for template customization
    - DevMode, CompressHTML, and other options
 
-### Internal Packages (Implementation Details)
+### Internal Packages (5-Phase Architecture)
 
-9. **Template Parsing (`internal/parse/`)**:
-   - Parses Go templates into tree structures
-   - Handles template constructs (fields, conditionals, ranges, with, template invokes)
-   - Components: parser.go, constructs.go, compile.go, hydrate.go, helpers.go
-   - Manages construct compilation and hydration with single-responsibility functions
+**Phase 1: Parse** (`internal/parse/`)
+- Parses Go templates into tree structures
+- Handles template constructs (fields, conditionals, ranges, with, template invokes)
+- Components: parser.go, constructs.go, compile.go, hydrate.go, helpers.go
+- Manages construct compilation and hydration with single-responsibility functions
 
-10. **Tree Building (`internal/build/`)**:
-    - Tree construction and operations
-    - Components: builder.go, tree_ops.go, fingerprint.go, types.go
-    - Handles tree creation, manipulation, and change detection
+**Phase 2: Build** (`internal/build/`)
+- Tree construction and operations
+- Components: builder.go, tree_ops.go, fingerprint.go, types.go, wrapper.go
+- Handles tree creation, manipulation, and change detection
+- Wrapper div injection and HTML content extraction
 
-11. **Tree Diffing (`internal/diff/`)**:
-    - Tree comparison and update generation
-    - Components: tree_compare.go, range_ops.go, prepare.go, helpers.go, types.go
-    - Generates minimal updates using orchestrator → coordinator → helper pattern
+**Phase 3: Diff** (`internal/diff/`)
+- Tree comparison and update generation
+- Components: tree_compare.go, range_ops.go, prepare.go, helpers.go, types.go
+- Generates minimal updates using orchestrator → coordinator → helper pattern
 
-12. **Observability (`internal/observe/`)**:
+**Phase 4: Render** (`internal/render/`)
+- HTML rendering utilities
+- Components: html.go, html_test.go
+- Functions: `Node()`, `TreeToHTML()`, `IsVoidElement()`
+- Converts tree structures to HTML strings for testing and validation
+
+**Phase 5: Send** (`internal/send/`)
+- Message formatting and serialization
+- Components: message.go, response.go
+- Action message parsing (HTTP/WebSocket)
+- Update response wrapping and JSON serialization
+- Functions: `ParseActionFromHTTP()`, `PrepareUpdate()`, `SerializeUpdate()`
+
+**Supporting Packages:**
+
+9. **Key Generation (`internal/keys/`)**:
+   - Sequential key generation for range items
+   - Components: generator.go, generator_test.go
+   - Type: `Generator` (renamed from KeyGenerator)
+   - Thread-safe counter with overflow protection
+
+10. **Observability (`internal/observe/`)**:
     - Production-ready logging and metrics
     - Components: logger.go, metrics.go, context.go
     - Structured logging with slog, operational metrics
 
-13. **Session Management (`internal/session/`)**:
+11. **Session Management (`internal/session/`)**:
     - Connection, ConnectionRegistry, ConnectionLimits types
     - WebSocket connection tracking and indexing
     - Connection limit enforcement
     - Thread-safe concurrent access
 
-14. **Structure Tracking (`internal/signature/`)**:
+12. **Structure Tracking (`internal/signature/`)**:
     - StructureSignature for optimizing tree updates
     - ClientStructureRegistry for tracking client-side structures
     - Reduces update payload by detecting structure changes
 
-15. **Execution Context (`internal/context/`)**:
+13. **Execution Context (`internal/context/`)**:
     - TemplateContext for error handling and dev mode
     - Template execution utilities
     - Error propagation to client
 
-16. **HTML Utilities (`html_tree.go`)**:
-    - HTML node tree structures
-    - HTML-aware operations
-
-17. **Client Library (`client/livetemplate-client.ts`)**:
+14. **Client Library (`client/livetemplate-client.ts`)**:
     - TypeScript client for browser integration
     - Handles tree-based updates efficiently
     - Manages static content caching

@@ -1,4 +1,5 @@
-package build
+// Package render provides HTML rendering utilities for LiveTemplate.
+package render
 
 import (
 	"fmt"
@@ -15,8 +16,8 @@ var voidElements = map[string]bool{
 	"param": true, "source": true, "track": true, "wbr": true,
 }
 
-// RenderNode recursively renders an HTML node and its children to a string builder.
-func RenderNode(w *strings.Builder, n *html.Node) {
+// Node recursively renders an HTML node and its children to a string builder.
+func Node(w *strings.Builder, n *html.Node) {
 	switch n.Type {
 	case html.TextNode:
 		w.WriteString(n.Data)
@@ -31,9 +32,9 @@ func RenderNode(w *strings.Builder, n *html.Node) {
 			w.WriteString(`"`)
 		}
 		w.WriteString(">")
-		if !IsVoidHTMLElement(n.Data) {
+		if !IsVoidElement(n.Data) {
 			for child := n.FirstChild; child != nil; child = child.NextSibling {
-				RenderNode(w, child)
+				Node(w, child)
 			}
 			w.WriteString("</")
 			w.WriteString(n.Data)
@@ -42,16 +43,16 @@ func RenderNode(w *strings.Builder, n *html.Node) {
 	}
 }
 
-// IsVoidHTMLElement checks if an HTML element is void (self-closing).
-func IsVoidHTMLElement(tagName string) bool {
+// IsVoidElement checks if an HTML element is void (self-closing).
+func IsVoidElement(tagName string) bool {
 	return voidElements[strings.ToLower(tagName)]
 }
 
-// RenderTreeToHTML renders a tree structure to HTML (used in tests).
-func RenderTreeToHTML(tree map[string]interface{}) (string, error) {
+// TreeToHTML renders a tree structure to HTML (used in tests).
+func TreeToHTML(tree map[string]interface{}) (string, error) {
 	// Check if this is a range comprehension (has "d" key with items)
 	if itemsRaw, hasD := tree["d"]; hasD {
-		return RenderRangeComprehensionToHTML(tree, itemsRaw)
+		return rangeComprehensionToHTML(tree, itemsRaw)
 	}
 
 	statics, ok := tree["s"].([]string)
@@ -72,7 +73,7 @@ func RenderTreeToHTML(tree map[string]interface{}) (string, error) {
 			if dynValue, exists := tree[dynKey]; exists {
 				// Handle nested trees (like ranges)
 				if nestedTree, ok := dynValue.(map[string]interface{}); ok {
-					nestedHTML, err := RenderTreeToHTML(nestedTree)
+					nestedHTML, err := TreeToHTML(nestedTree)
 					if err != nil {
 						return "", err
 					}
@@ -89,8 +90,8 @@ func RenderTreeToHTML(tree map[string]interface{}) (string, error) {
 	return result.String(), nil
 }
 
-// RenderRangeComprehensionToHTML renders a range comprehension (with "d" and "s" keys) to HTML.
-func RenderRangeComprehensionToHTML(tree map[string]interface{}, itemsRaw interface{}) (string, error) {
+// rangeComprehensionToHTML renders a range comprehension (with "d" and "s" keys) to HTML.
+func rangeComprehensionToHTML(tree map[string]interface{}, itemsRaw interface{}) (string, error) {
 	// Get statics for the range items
 	statics, ok := tree["s"].([]string)
 	if !ok {
@@ -130,7 +131,7 @@ func RenderRangeComprehensionToHTML(tree map[string]interface{}, itemsRaw interf
 				if dynValue, exists := itemMap[dynKey]; exists {
 					// Recursively render nested trees
 					if nestedTree, ok := dynValue.(map[string]interface{}); ok {
-						nestedHTML, err := RenderTreeToHTML(nestedTree)
+						nestedHTML, err := TreeToHTML(nestedTree)
 						if err != nil {
 							return "", err
 						}
