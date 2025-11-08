@@ -430,4 +430,23 @@ func TestGetOrParseTemplate_Caching(t *testing.T) {
 	if _, ok := cache.Load(cacheKey); !ok {
 		t.Error("Expected template to be cached")
 	}
+
+	// Verify that returned templates are different instances (cloned)
+	// This is important for concurrent execution safety
+	if tmpl1 == tmpl2 {
+		t.Error("Expected different template instances from cloning, got same instance")
+	}
+
+	// Verify both templates can execute independently
+	data := map[string]interface{}{"Name": "Test"}
+	var buf1, buf2 strings.Builder
+	if err := tmpl1.Execute(&buf1, data); err != nil {
+		t.Errorf("Template 1 execute failed: %v", err)
+	}
+	if err := tmpl2.Execute(&buf2, data); err != nil {
+		t.Errorf("Template 2 execute failed: %v", err)
+	}
+	if buf1.String() != buf2.String() {
+		t.Errorf("Template outputs differ: %q vs %q", buf1.String(), buf2.String())
+	}
 }

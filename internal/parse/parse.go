@@ -207,11 +207,13 @@ func buildTreeFromList(node *parse.ListNode, data interface{}, keyGen KeyGenerat
 
 // keyValuePair holds a key and its numeric value for sorting.
 type keyValuePair struct {
-	key string
-	num int
+	key   string
+	num   int
+	valid bool // true if key was successfully parsed as numeric
 }
 
 // getSortedKeys returns keys from a map sorted numerically.
+// Non-numeric keys are pushed to the end and sorted lexicographically.
 func getSortedKeys(m map[string]interface{}) []string {
 	if len(m) == 0 {
 		return nil
@@ -221,16 +223,30 @@ func getSortedKeys(m map[string]interface{}) []string {
 	pairs := make([]keyValuePair, 0, len(m))
 	for k := range m {
 		var num int
-		if _, err := fmt.Sscanf(k, "%d", &num); err != nil {
-			// If parsing fails, treat as 0 (shouldn't happen with generated keys)
-			num = 0
-		}
-		pairs = append(pairs, keyValuePair{key: k, num: num})
+		_, err := fmt.Sscanf(k, "%d", &num)
+		pairs = append(pairs, keyValuePair{
+			key:   k,
+			num:   num,
+			valid: err == nil,
+		})
 	}
 
-	// Sort pairs by numeric value
+	// Sort pairs: valid numeric keys first (by value), then invalid keys (lexicographically)
 	sort.Slice(pairs, func(i, j int) bool {
-		return pairs[i].num < pairs[j].num
+		// Both valid - compare numerically
+		if pairs[i].valid && pairs[j].valid {
+			return pairs[i].num < pairs[j].num
+		}
+		// Only i valid - i comes first
+		if pairs[i].valid {
+			return true
+		}
+		// Only j valid - j comes first
+		if pairs[j].valid {
+			return false
+		}
+		// Both invalid - compare lexicographically
+		return pairs[i].key < pairs[j].key
 	})
 
 	// Extract sorted keys
