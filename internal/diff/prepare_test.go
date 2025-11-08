@@ -2,6 +2,7 @@ package diff
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"testing"
 )
@@ -519,5 +520,215 @@ func TestPrepareTreeForClient_WireFormat(t *testing.T) {
 	}
 	if nested1["0"] != "World" {
 		t.Errorf("Nested content = %v, want 'World'", nested1["0"])
+	}
+}
+
+// TestPrepareTreeForClient_EdgeCases tests edge cases and boundary conditions.
+func TestPrepareTreeForClient_EdgeCases(t *testing.T) {
+	t.Run("nil Range.Items", func(t *testing.T) {
+		input := &TreeNode{
+			Statics:  []string{"<ul>", "</ul>"},
+			Dynamics: map[string]interface{}{},
+			Range: &RangeData{
+				Items:   nil, // Explicitly nil
+				Statics: []string{"<li>", "</li>"},
+			},
+		}
+
+		result := PrepareTreeForClient(input, true)
+		resultNode, ok := result.(*TreeNode)
+		if !ok {
+			t.Fatalf("Expected *TreeNode, got %T", result)
+		}
+
+		// Should handle nil Items gracefully
+		if resultNode.Range == nil {
+			t.Error("Range should be preserved even with nil Items")
+		} else if resultNode.Range.Items != nil {
+			t.Errorf("Nil Items should remain nil, got: %v", resultNode.Range.Items)
+		}
+	})
+
+	t.Run("deeply nested structure", func(t *testing.T) {
+		// Create a deeply nested structure (10 levels)
+		var createNestedTree func(depth int) *TreeNode
+		createNestedTree = func(depth int) *TreeNode {
+			if depth == 0 {
+				return &TreeNode{
+					Statics:  []string{"<span>", "</span>"},
+					Dynamics: map[string]interface{}{"0": "Deep content"},
+				}
+			}
+			return &TreeNode{
+				Statics: []string{"<div>", "</div>"},
+				Dynamics: map[string]interface{}{
+					"0": createNestedTree(depth - 1),
+				},
+			}
+		}
+
+		input := createNestedTree(10)
+		result := PrepareTreeForClient(input, true)
+
+		// Verify it doesn't panic and produces valid output
+		resultNode, ok := result.(*TreeNode)
+		if !ok {
+			t.Fatalf("Expected *TreeNode, got %T", result)
+		}
+
+		// Verify statics are stripped at all levels
+		var verifyNoStatics func(node *TreeNode, level int) error
+		verifyNoStatics = func(node *TreeNode, level int) error {
+			if len(node.Statics) > 0 {
+				return fmt.Errorf("level %d has statics: %v", level, node.Statics)
+			}
+			for _, v := range node.Dynamics {
+				if childNode, ok := v.(*TreeNode); ok {
+					if err := verifyNoStatics(childNode, level+1); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		}
+
+		if err := verifyNoStatics(resultNode, 0); err != nil {
+			t.Error(err)
+		}
+	})
+
+	t.Run("large map with many keys", func(t *testing.T) {
+		// Create a TreeNode with 100 dynamic fields
+		dynamics := make(map[string]interface{})
+		for i := 0; i < 100; i++ {
+			dynamics[fmt.Sprintf("%d", i)] = fmt.Sprintf("value-%d", i)
+		}
+
+		input := &TreeNode{
+			Statics:  []string{"<div>", "</div>"},
+			Dynamics: dynamics,
+		}
+
+		result := PrepareTreeForClient(input, true)
+		resultNode, ok := result.(*TreeNode)
+		if !ok {
+			t.Fatalf("Expected *TreeNode, got %T", result)
+		}
+
+		// All dynamics should be preserved
+		if len(resultNode.Dynamics) != 100 {
+			t.Errorf("Expected 100 dynamics, got %d", len(resultNode.Dynamics))
+		}
+
+		// Statics should be stripped
+		if len(resultNode.Statics) > 0 {
+			t.Error("Statics should be stripped")
+		}
+	})
+
+	t.Run("mixed empty and non-empty nested values", func(t *testing.T) {
+		input := &TreeNode{
+			Statics: []string{"<div>", "</div>"},
+			Dynamics: map[string]interface{}{
+				"0": "non-empty",
+				"1": "",
+				"2": map[string]interface{}{
+					"s": []string{"<span>", "</span>"},
+					"0": "nested-non-empty",
+					"1": "",
+				},
+				"3": map[string]interface{}{
+					"s": []string{"<p>", "</p>"},
+					"0": "",
+				},
+			},
+		}
+
+		result := PrepareTreeForClient(input, true)
+		resultNode, ok := result.(*TreeNode)
+		if !ok {
+			t.Fatalf("Expected *TreeNode, got %T", result)
+		}
+
+		// Should only have non-empty values
+		if _, has1 := resultNode.Dynamics["1"]; has1 {
+			t.Error("Empty dynamic '1' should be filtered out")
+		}
+
+		// Nested map at "2" should only have non-empty value
+		nested2, ok := resultNode.Dynamics["2"].(map[string]interface{})
+		if !ok {
+			t.Error("Dynamic '2' should be a map")
+		} else {
+			if _, has1 := nested2["1"]; has1 {
+				t.Error("Nested empty value should be filtered out")
+			}
+			if nested2["0"] != "nested-non-empty" {
+				t.Errorf("Nested value = %v, want 'nested-non-empty'", nested2["0"])
+			}
+		}
+
+		// "3" should be filtered out entirely (only has empty content)
+		if _, has3 := resultNode.Dynamics["3"]; has3 {
+			t.Error("Dynamic '3' should be filtered out (contains only empty values)")
+		}
+	})
+
+	t.Run("nil Range pointer", func(t *testing.T) {
+		input := &TreeNode{
+			Statics:  []string{"<div>", "</div>"},
+			Dynamics: map[string]interface{}{"0": "content"},
+			Range:    nil, // Explicitly nil
+		}
+
+		result := PrepareTreeForClient(input, true)
+		resultNode, ok := result.(*TreeNode)
+		if !ok {
+			t.Fatalf("Expected *TreeNode, got %T", result)
+		}
+
+		// Should handle nil Range gracefully
+		if resultNode.Range != nil {
+			t.Error("Range should remain nil when input Range is nil")
+		}
+	})
+}
+
+// TestPrepareTreeForClient_Performance is a basic performance sanity check.
+func TestPrepareTreeForClient_Performance(t *testing.T) {
+	// This is not a benchmark, just a sanity check that we don't have obvious performance issues
+
+	// Create a moderately complex tree
+	items := make([]interface{}, 50)
+	for i := 0; i < 50; i++ {
+		items[i] = &TreeNode{
+			Statics: []string{"<li>", "</li>"},
+			Dynamics: map[string]interface{}{
+				"0": fmt.Sprintf("Item %d", i),
+				"1": fmt.Sprintf("Description %d", i),
+			},
+		}
+	}
+
+	input := &TreeNode{
+		Statics: []string{"<div>", "<ul>", "</ul>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"0": "Header",
+			"1": &TreeNode{
+				Statics: []string{"", ""},
+				Range: &RangeData{
+					Items:   items,
+					Statics: []string{"<li>", "</li>"},
+				},
+			},
+		},
+	}
+
+	// Run it 100 times - should complete quickly
+	for i := 0; i < 100; i++ {
+		result := PrepareTreeForClient(input, true)
+		if result == nil {
+			t.Fatal("PrepareTreeForClient returned nil")
+		}
 	}
 }
