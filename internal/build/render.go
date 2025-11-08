@@ -2,10 +2,18 @@ package build
 
 import (
 	"fmt"
+	htmlescape "html"
 	"strings"
 
 	"golang.org/x/net/html"
 )
+
+// voidElements is the set of HTML void (self-closing) elements.
+var voidElements = map[string]bool{
+	"area": true, "base": true, "br": true, "col": true, "embed": true,
+	"hr": true, "img": true, "input": true, "link": true, "meta": true,
+	"param": true, "source": true, "track": true, "wbr": true,
+}
 
 // RenderNode recursively renders an HTML node and its children to a string builder.
 func RenderNode(w *strings.Builder, n *html.Node) {
@@ -19,13 +27,11 @@ func RenderNode(w *strings.Builder, n *html.Node) {
 			w.WriteString(" ")
 			w.WriteString(attr.Key)
 			w.WriteString(`="`)
-			w.WriteString(attr.Val)
+			w.WriteString(htmlescape.EscapeString(attr.Val))
 			w.WriteString(`"`)
 		}
-		if IsVoidHTMLElement(n.Data) {
-			w.WriteString(">")
-		} else {
-			w.WriteString(">")
+		w.WriteString(">")
+		if !IsVoidHTMLElement(n.Data) {
 			for child := n.FirstChild; child != nil; child = child.NextSibling {
 				RenderNode(w, child)
 			}
@@ -38,11 +44,6 @@ func RenderNode(w *strings.Builder, n *html.Node) {
 
 // IsVoidHTMLElement checks if an HTML element is void (self-closing).
 func IsVoidHTMLElement(tagName string) bool {
-	voidElements := map[string]bool{
-		"area": true, "base": true, "br": true, "col": true, "embed": true,
-		"hr": true, "img": true, "input": true, "link": true, "meta": true,
-		"param": true, "source": true, "track": true, "wbr": true,
-	}
 	return voidElements[strings.ToLower(tagName)]
 }
 
@@ -76,16 +77,9 @@ func RenderTreeToHTML(tree map[string]interface{}) (string, error) {
 						return "", err
 					}
 					result.WriteString(nestedHTML)
-				} else if nestedMap, ok := dynValue.(map[string]interface{}); ok {
-					// Also handle as map[string]interface{}
-					nestedHTML, err := RenderTreeToHTML(map[string]interface{}(nestedMap))
-					if err != nil {
-						return "", err
-					}
-					result.WriteString(nestedHTML)
 				} else {
-					// Simple value - convert to string
-					result.WriteString(fmt.Sprintf("%v", dynValue))
+					// Simple value - convert to string and escape HTML
+					result.WriteString(htmlescape.EscapeString(fmt.Sprintf("%v", dynValue)))
 				}
 			}
 			dynamicIndex++
@@ -141,15 +135,9 @@ func RenderRangeComprehensionToHTML(tree map[string]interface{}, itemsRaw interf
 							return "", err
 						}
 						result.WriteString(nestedHTML)
-					} else if nestedMap, ok := dynValue.(map[string]interface{}); ok {
-						nestedHTML, err := RenderTreeToHTML(map[string]interface{}(nestedMap))
-						if err != nil {
-							return "", err
-						}
-						result.WriteString(nestedHTML)
 					} else {
-						// Simple value
-						result.WriteString(fmt.Sprintf("%v", dynValue))
+						// Simple value - convert to string and escape HTML
+						result.WriteString(htmlescape.EscapeString(fmt.Sprintf("%v", dynValue)))
 					}
 				}
 			}
