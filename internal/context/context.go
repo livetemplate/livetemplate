@@ -72,26 +72,42 @@ const (
 
 // ExecuteTemplateWithContext adds lvt context to template execution by augmenting the data.
 //
-// This function handles three types of input data:
+// This function handles different types of input data:
 //   - Structs: Fields are copied to a map, using json tags if present
 //   - Maps: Keys are copied to template data
-//   - Primitives: Passed directly to the template as-is
+//   - Nil pointers: Only lvt context is provided
+//   - Primitives: Passed directly to the template as-is (lvt not available)
 //
-// The lvt context is always available in templates via {{.lvt}}.
+// The lvt context is available in templates via {{.lvt}} for structs, maps, and nil pointers.
+// For primitive types (string, int, bool, etc.), lvt context is not available to maintain
+// compatibility with standard Go templates.
+//
+// Note: If struct fields or map keys conflict with the reserved "lvt" key, they will be
+// skipped to ensure the lvt context remains accessible in templates.
 func ExecuteTemplateWithContext(tmpl *template.Template, data interface{}, errors map[string]string, devMode bool) ([]byte, error) {
 	lvtContext := NewTemplateContext(errors, devMode)
 
 	var templateData interface{}
 
 	val := reflect.ValueOf(data)
-	if val.Kind() == reflect.Ptr && !val.IsNil() {
+
+	// Handle nil pointer case explicitly
+	if val.Kind() == reflect.Ptr {
+		if val.IsNil() {
+			// Provide only lvt context for nil pointers
+			dataMap := make(map[string]interface{})
+			dataMap[TemplateContextKey] = lvtContext
+			templateData = dataMap
+			var buf bytes.Buffer
+			err := tmpl.Execute(&buf, templateData)
+			return buf.Bytes(), err
+		}
 		val = val.Elem()
 	}
 
 	switch val.Kind() {
 	case reflect.Struct:
 		dataMap := make(map[string]interface{})
-		dataMap[TemplateContextKey] = lvtContext
 
 		typ := val.Type()
 		for i := 0; i < val.NumField(); i++ {
@@ -107,24 +123,46 @@ func ExecuteTemplateWithContext(tmpl *template.Template, data interface{}, error
 				continue
 			}
 
+			// Handle JSON tags properly
 			if jsonTag != "" {
-				if commaIdx := strings.Index(jsonTag, ","); commaIdx > 0 {
-					jsonTag = jsonTag[:commaIdx]
+				// Handle ",omitempty" and similar cases
+				if commaIdx := strings.Index(jsonTag, ","); commaIdx >= 0 {
+					if commaIdx == 0 {
+						// Tag is just ",omitempty" - use field name
+						jsonTag = ""
+					} else {
+						jsonTag = jsonTag[:commaIdx]
+					}
 				}
-				dataMap[jsonTag] = fieldValue
+				// Skip if tag results in reserved key
+				if jsonTag != "" && jsonTag != TemplateContextKey {
+					dataMap[jsonTag] = fieldValue
+				}
 			}
 
-			dataMap[field.Name] = fieldValue
+			// Skip field name if it conflicts with reserved key
+			if field.Name != TemplateContextKey {
+				dataMap[field.Name] = fieldValue
+			}
 		}
+
+		// Add lvt context last to prevent field collision
+		dataMap[TemplateContextKey] = lvtContext
 		templateData = dataMap
 
 	case reflect.Map:
 		dataMap := make(map[string]interface{})
-		dataMap[TemplateContextKey] = lvtContext
 
 		for _, key := range val.MapKeys() {
-			dataMap[key.String()] = val.MapIndex(key).Interface()
+			keyStr := key.String()
+			// Skip map keys that conflict with reserved key
+			if keyStr != TemplateContextKey {
+				dataMap[keyStr] = val.MapIndex(key).Interface()
+			}
 		}
+
+		// Add lvt context last to ensure it's always available
+		dataMap[TemplateContextKey] = lvtContext
 		templateData = dataMap
 
 	default:

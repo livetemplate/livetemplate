@@ -613,3 +613,124 @@ func TestExecuteTemplateWithContext_EmptyJSONTag(t *testing.T) {
 		t.Errorf("Result should contain 'Test', got %q", string(result))
 	}
 }
+
+// Test lvt field collision in struct
+func TestExecuteTemplateWithContext_LvtFieldCollision(t *testing.T) {
+	type Data struct {
+		Name string
+		Lvt  string // This field name conflicts with reserved key
+	}
+
+	tmpl, err := template.New("test").Parse(`Name: {{.Name}}, Context: {{.lvt.DevMode}}`)
+	if err != nil {
+		t.Fatalf("Failed to parse template: %v", err)
+	}
+
+	data := Data{Name: "Test", Lvt: "ShouldBeSkipped"}
+	result, err := ExecuteTemplateWithContext(tmpl, data, nil, true)
+	if err != nil {
+		t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
+	}
+
+	// The lvt context should be accessible, field "Lvt" should be skipped
+	expected := "Name: Test, Context: true"
+	if string(result) != expected {
+		t.Errorf("Result = %q, want %q", string(result), expected)
+	}
+}
+
+// Test lvt JSON tag collision in struct
+func TestExecuteTemplateWithContext_LvtJSONTagCollision(t *testing.T) {
+	type Data struct {
+		Name    string
+		Special string `json:"lvt"` // JSON tag conflicts with reserved key
+	}
+
+	tmpl, err := template.New("test").Parse(`Name: {{.Name}}, Context: {{.lvt.DevMode}}`)
+	if err != nil {
+		t.Fatalf("Failed to parse template: %v", err)
+	}
+
+	data := Data{Name: "Test", Special: "ShouldBeSkipped"}
+	result, err := ExecuteTemplateWithContext(tmpl, data, nil, false)
+	if err != nil {
+		t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
+	}
+
+	// The lvt context should be accessible, json:"lvt" should be skipped
+	expected := "Name: Test, Context: false"
+	if string(result) != expected {
+		t.Errorf("Result = %q, want %q", string(result), expected)
+	}
+}
+
+// Test lvt key collision in map
+func TestExecuteTemplateWithContext_MapLvtCollision(t *testing.T) {
+	tmpl, err := template.New("test").Parse(`Name: {{.name}}, Context: {{.lvt.DevMode}}`)
+	if err != nil {
+		t.Fatalf("Failed to parse template: %v", err)
+	}
+
+	data := map[string]interface{}{
+		"name": "Test",
+		"lvt":  "ShouldBeSkipped", // This key conflicts with reserved key
+	}
+
+	result, err := ExecuteTemplateWithContext(tmpl, data, nil, true)
+	if err != nil {
+		t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
+	}
+
+	// The lvt context should be accessible, map's "lvt" key should be skipped
+	expected := "Name: Test, Context: true"
+	if string(result) != expected {
+		t.Errorf("Result = %q, want %q", string(result), expected)
+	}
+}
+
+// Test nil pointer handling
+func TestExecuteTemplateWithContext_NilPointer(t *testing.T) {
+	type User struct {
+		Name string
+	}
+
+	tmpl, err := template.New("test").Parse(`{{if .lvt}}Context exists: {{.lvt.DevMode}}{{else}}No context{{end}}`)
+	if err != nil {
+		t.Fatalf("Failed to parse template: %v", err)
+	}
+
+	var data *User = nil
+	result, err := ExecuteTemplateWithContext(tmpl, data, nil, true)
+	if err != nil {
+		t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
+	}
+
+	expected := "Context exists: true"
+	if string(result) != expected {
+		t.Errorf("Result = %q, want %q", string(result), expected)
+	}
+}
+
+// Test comma-only JSON tag
+func TestExecuteTemplateWithContext_CommaOnlyJSONTag(t *testing.T) {
+	type User struct {
+		Name  string `json:",omitempty"`
+		Email string `json:",omitempty"`
+	}
+
+	tmpl, err := template.New("test").Parse(`Name: {{.Name}}, Email: {{.Email}}`)
+	if err != nil {
+		t.Fatalf("Failed to parse template: %v", err)
+	}
+
+	data := User{Name: "John", Email: "john@example.com"}
+	result, err := ExecuteTemplateWithContext(tmpl, data, nil, false)
+	if err != nil {
+		t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
+	}
+
+	expected := "Name: John, Email: john@example.com"
+	if string(result) != expected {
+		t.Errorf("Result = %q, want %q", string(result), expected)
+	}
+}
