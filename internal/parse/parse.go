@@ -34,9 +34,9 @@ func init() {
 	// Generate unique function name with random suffix
 	randBytes := make([]byte, 8)
 	if _, err := rand.Read(randBytes); err != nil {
-		// Fallback to deterministic name if random fails (shouldn't happen)
-		captureResultFuncName = "__lvt_internal_capture_result_fallback__"
-		return
+		// This should never happen, but if it does, it's a critical error
+		// because template evaluation depends on this unique function name
+		panic(fmt.Sprintf("failed to generate random capture function name: %v", err))
 	}
 	captureResultFuncName = fmt.Sprintf("__lvt_internal_capture_%s__", hex.EncodeToString(randBytes))
 }
@@ -48,32 +48,17 @@ type Template struct {
 }
 
 // Parse parses a template string into an executable template structure.
-// It normalizes spacing, handles template composition via flattening,
-// and returns the AST for tree building.
+// It returns the AST for tree building.
+// Note: Template composition ({{template}} calls) is not currently supported
+// and will cause buildTreeFromAST to return an error.
 func Parse(templateStr string, funcMap template.FuncMap) (*Template, error) {
 	// Create context for parsing
 	ctx := &Context{FuncMap: funcMap}
-
-	// Normalize template spacing
-	templateStr = normalizeTemplateSpacing(templateStr)
 
 	// Parse template to get AST
 	tmpl, err := newTemplateWithFuncs("temp", ctx).Parse(templateStr)
 	if err != nil {
 		return nil, fmt.Errorf("template parse error: %w", err)
-	}
-
-	// Check if template uses composition and flatten if needed
-	if hasTemplateComposition(tmpl) {
-		flattenedStr, err := flattenTemplate(tmpl)
-		if err != nil {
-			return nil, fmt.Errorf("template flatten error: %w", err)
-		}
-		// Re-parse flattened template
-		tmpl, err = newTemplateWithFuncs("temp-flattened", ctx).Parse(flattenedStr)
-		if err != nil {
-			return nil, fmt.Errorf("flattened template parse error: %w", err)
-		}
 	}
 
 	// Verify we have a parse tree
@@ -162,10 +147,10 @@ func buildTreeFromList(node *parse.ListNode, data interface{}, keyGen KeyGenerat
 	// Start with empty static
 	statics = append(statics, "")
 
-	for _, child := range node.Nodes {
+	for i, child := range node.Nodes {
 		childTree, err := buildTreeFromAST(child, data, keyGen, ctx)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("child node %d (%T): %w", i, child, err)
 		}
 
 		// Check if child is a range comprehension (has Range field)
@@ -220,20 +205,39 @@ func buildTreeFromList(node *parse.ListNode, data interface{}, keyGen KeyGenerat
 	return tree, nil
 }
 
+// keyValuePair holds a key and its numeric value for sorting.
+type keyValuePair struct {
+	key string
+	num int
+}
+
 // getSortedKeys returns keys from a map sorted numerically.
 func getSortedKeys(m map[string]interface{}) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
+	if len(m) == 0 {
+		return nil
 	}
 
-	// Sort numerically using efficient stdlib sort (O(n log n) vs O(n²) bubble sort)
-	sort.Slice(keys, func(i, j int) bool {
-		var iVal, jVal int
-		_, _ = fmt.Sscanf(keys[i], "%d", &iVal)
-		_, _ = fmt.Sscanf(keys[j], "%d", &jVal)
-		return iVal < jVal
+	// Create pairs of key and numeric value
+	pairs := make([]keyValuePair, 0, len(m))
+	for k := range m {
+		var num int
+		if _, err := fmt.Sscanf(k, "%d", &num); err != nil {
+			// If parsing fails, treat as 0 (shouldn't happen with generated keys)
+			num = 0
+		}
+		pairs = append(pairs, keyValuePair{key: k, num: num})
+	}
+
+	// Sort pairs by numeric value
+	sort.Slice(pairs, func(i, j int) bool {
+		return pairs[i].num < pairs[j].num
 	})
+
+	// Extract sorted keys
+	keys := make([]string, len(pairs))
+	for i, pair := range pairs {
+		keys[i] = pair.key
+	}
 	return keys
 }
 
@@ -246,12 +250,12 @@ func newTemplateWithFuncs(name string, ctx *Context) *template.Template {
 	return tmpl
 }
 
-// getOrParseASTTemplate retrieves a cached AST node template or parses a new one.
-// This is used by action and conditional handlers to avoid repeated parsing.
+// getOrParseTemplate retrieves a cached template or parses a new one.
 // Templates are cloned before applying FuncMap to allow concurrent execution with different functions.
-func getOrParseASTTemplate(cacheKey, templateStr string, ctx *Context) (*template.Template, error) {
+// The cache parameter specifies which cache to use (astTemplateCache or pipeTemplateCache).
+func getOrParseTemplate(cache *sync.Map, cacheKey, templateStr string, funcs template.FuncMap) (*template.Template, error) {
 	// Try to get from cache
-	if cached, ok := astTemplateCache.Load(cacheKey); ok {
+	if cached, ok := cache.Load(cacheKey); ok {
 		if cachedTmpl, ok := cached.(*template.Template); ok {
 			// Clone the cached template and apply the FuncMap
 			clone, err := cachedTmpl.Clone()
@@ -259,9 +263,9 @@ func getOrParseASTTemplate(cacheKey, templateStr string, ctx *Context) (*templat
 				// If clone fails, fall back to parsing
 				goto parse
 			}
-			// Apply FuncMap from context
-			if ctx != nil && ctx.FuncMap != nil && len(ctx.FuncMap) > 0 {
-				clone.Funcs(ctx.FuncMap)
+			// Apply FuncMap
+			if funcs != nil && len(funcs) > 0 {
+				clone.Funcs(funcs)
 			}
 			return clone, nil
 		}
@@ -269,7 +273,10 @@ func getOrParseASTTemplate(cacheKey, templateStr string, ctx *Context) (*templat
 
 parse:
 	// Parse new template with FuncMap
-	tmpl := newTemplateWithFuncs(cacheKey, ctx)
+	tmpl := template.New(cacheKey)
+	if funcs != nil && len(funcs) > 0 {
+		tmpl = tmpl.Funcs(funcs)
+	}
 	parsedTmpl, err := tmpl.Parse(templateStr)
 	if err != nil {
 		return nil, err
@@ -278,10 +285,21 @@ parse:
 	// Store in cache for future use (without FuncMap, will be applied on clone)
 	baseTmpl, err := template.New(cacheKey).Parse(templateStr)
 	if err == nil {
-		astTemplateCache.Store(cacheKey, baseTmpl)
+		cache.Store(cacheKey, baseTmpl)
 	}
 
 	return parsedTmpl, nil
+}
+
+// getOrParseASTTemplate retrieves a cached AST node template or parses a new one.
+// This is used by action and conditional handlers to avoid repeated parsing.
+// Templates are cloned before applying FuncMap to allow concurrent execution with different functions.
+func getOrParseASTTemplate(cacheKey, templateStr string, ctx *Context) (*template.Template, error) {
+	var funcs template.FuncMap
+	if ctx != nil && ctx.FuncMap != nil && len(ctx.FuncMap) > 0 {
+		funcs = ctx.FuncMap
+	}
+	return getOrParseTemplate(&astTemplateCache, cacheKey, templateStr, funcs)
 }
 
 // evaluatePipe evaluates a pipe expression against data.
@@ -343,36 +361,7 @@ func evaluatePipe(pipeStr string, data interface{}, ctx *Context) (interface{}, 
 // The cache key includes a prefix to distinguish between different template types.
 // Templates are cloned before applying FuncMap to allow concurrent execution with different functions.
 func getOrParsePipeTemplate(cacheKey, templateStr string, funcs template.FuncMap) (*template.Template, error) {
-	// Try to get from cache
-	if cached, ok := pipeTemplateCache.Load(cacheKey); ok {
-		if cachedTmpl, ok := cached.(*template.Template); ok {
-			// Clone the cached template and apply the FuncMap
-			// This allows reusing the parsed structure while supporting dynamic functions
-			clone, err := cachedTmpl.Clone()
-			if err != nil {
-				// If clone fails, fall back to parsing
-				goto parse
-			}
-			clone.Funcs(funcs)
-			return clone, nil
-		}
-	}
-
-parse:
-	// Parse new template
-	tmpl, err := template.New(cacheKey).Funcs(funcs).Parse(templateStr)
-	if err != nil {
-		return nil, err
-	}
-
-	// Store in cache for future use
-	// Store the template without FuncMap applied (will be applied on clone)
-	baseTmpl, err := template.New(cacheKey).Parse(templateStr)
-	if err == nil {
-		pipeTemplateCache.Store(cacheKey, baseTmpl)
-	}
-
-	return tmpl, nil
+	return getOrParseTemplate(&pipeTemplateCache, cacheKey, templateStr, funcs)
 }
 
 // formatPipe converts a pipe node to a string representation.
@@ -426,20 +415,3 @@ func isZeroValue(v reflect.Value) bool {
 	}
 }
 
-// normalizeTemplateSpacing normalizes whitespace in templates.
-// TODO: Implement template normalization logic.
-func normalizeTemplateSpacing(templateStr string) string {
-	return templateStr
-}
-
-// hasTemplateComposition checks if a template uses composition.
-// TODO: Implement composition detection.
-func hasTemplateComposition(tmpl *template.Template) bool {
-	return false
-}
-
-// flattenTemplate flattens template composition into a single template.
-// TODO: Implement template flattening.
-func flattenTemplate(tmpl *template.Template) (string, error) {
-	return "", fmt.Errorf("template flattening not yet implemented")
-}

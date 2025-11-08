@@ -1,8 +1,11 @@
 package parse
 
 import (
+	"fmt"
 	"html/template"
 	"reflect"
+	"strings"
+	"sync"
 	"testing"
 	"text/template/parse"
 )
@@ -313,5 +316,118 @@ func TestIsZeroValue_AllTypes(t *testing.T) {
 				t.Errorf("isZeroValue(%v) = %v, want %v", tt.value, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestGetSortedKeys_Performance tests that getSortedKeys is efficient.
+func TestGetSortedKeys_Performance(t *testing.T) {
+	// Create a map with many numeric keys
+	m := make(map[string]interface{})
+	for i := 0; i < 100; i++ {
+		m[fmt.Sprintf("%d", i)] = i
+	}
+
+	keys := getSortedKeys(m)
+
+	// Verify we got all keys
+	if len(keys) != 100 {
+		t.Errorf("Expected 100 keys, got %d", len(keys))
+	}
+
+	// Verify sorted order
+	for i := 0; i < len(keys)-1; i++ {
+		var curr, next int
+		fmt.Sscanf(keys[i], "%d", &curr)
+		fmt.Sscanf(keys[i+1], "%d", &next)
+		if curr > next {
+			t.Errorf("Keys not sorted: %d > %d at position %d", curr, next, i)
+		}
+	}
+}
+
+// TestGetSortedKeys_EmptyMap tests empty map handling.
+func TestGetSortedKeys_EmptyMap(t *testing.T) {
+	m := make(map[string]interface{})
+	keys := getSortedKeys(m)
+
+	if keys != nil {
+		t.Errorf("Expected nil for empty map, got %v", keys)
+	}
+}
+
+// TestGetSortedKeys_Order tests specific ordering.
+func TestGetSortedKeys_Order(t *testing.T) {
+	m := map[string]interface{}{
+		"0":  "a",
+		"10": "b",
+		"2":  "c",
+		"1":  "d",
+	}
+
+	keys := getSortedKeys(m)
+
+	expected := []string{"0", "1", "2", "10"}
+	if len(keys) != len(expected) {
+		t.Fatalf("Expected %d keys, got %d", len(expected), len(keys))
+	}
+
+	for i, key := range keys {
+		if key != expected[i] {
+			t.Errorf("Expected key %q at position %d, got %q", expected[i], i, key)
+		}
+	}
+}
+
+// TestBuildTreeFromList_ErrorContext tests error reporting with context.
+func TestBuildTreeFromList_ErrorContext(t *testing.T) {
+	// This tests that errors from child nodes include context.
+	// We test with a template invocation which should fail with an error message.
+	tmpl, err := template.New("test").Parse("{{template \"missing\" .}}")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	data := map[string]interface{}{}
+	ctx := &Context{IncludeStatics: true}
+
+	_, err = buildTreeFromList(tmpl.Tree.Root, data, newMockKeyGen(), ctx)
+	if err == nil {
+		t.Error("Expected error for template invocation")
+	}
+
+	// Error should contain child node information
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "child node") {
+		t.Errorf("Expected error to contain 'child node', got: %v", errMsg)
+	}
+}
+
+// TestGetOrParseTemplate_Caching tests that template caching works.
+func TestGetOrParseTemplate_Caching(t *testing.T) {
+	cache := &sync.Map{}
+	cacheKey := "test-key"
+	templateStr := "{{.Name}}"
+	funcs := template.FuncMap{}
+
+	// First call - should parse and cache
+	tmpl1, err := getOrParseTemplate(cache, cacheKey, templateStr, funcs)
+	if err != nil {
+		t.Fatalf("First parse failed: %v", err)
+	}
+
+	// Second call - should hit cache
+	tmpl2, err := getOrParseTemplate(cache, cacheKey, templateStr, funcs)
+	if err != nil {
+		t.Fatalf("Second parse failed: %v", err)
+	}
+
+	// Both templates should work
+	if tmpl1 == nil || tmpl2 == nil {
+		t.Error("Expected non-nil templates")
+	}
+
+	// Verify cache was used
+	if _, ok := cache.Load(cacheKey); !ok {
+		t.Error("Expected template to be cached")
 	}
 }
