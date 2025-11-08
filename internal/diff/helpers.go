@@ -15,6 +15,10 @@ const (
 	// hashPrefixLength is the number of characters to use from the generated hash
 	// for compact item identifiers. 12 characters provide sufficient uniqueness
 	// (48 bits of entropy) while keeping identifiers short.
+	//
+	// Collision probability: Using birthday paradox, ~16 million items would be
+	// needed for a 1% collision probability. This is well beyond typical range
+	// sizes in templates, making 12 characters sufficient for practical use.
 	hashPrefixLength = 12
 
 	// maxInsertionPoints is the threshold for determining if an insertion pattern
@@ -274,7 +278,9 @@ func GenerateItemHash(item interface{}) string {
 			val, _ := itemNode.GetDynamic(k)
 			valJSON, err := json.Marshal(val)
 			if err != nil {
-				// Fallback to string representation if marshaling fails
+				// Fallback to string representation if marshaling fails.
+				// This can occur for non-JSON-serializable types like channels,
+				// functions, or complex structures with circular references.
 				parts = append(parts, fmt.Sprintf("%s:%v", k, val))
 			} else {
 				parts = append(parts, fmt.Sprintf("%s:%s", k, string(valJSON)))

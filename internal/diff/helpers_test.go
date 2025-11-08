@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 )
@@ -729,6 +730,130 @@ func TestGenerateItemHash_Consistency(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestGenerateItemHash_Collisions tests hash distribution and collision avoidance.
+func TestGenerateItemHash_Collisions(t *testing.T) {
+	// Test that different content produces different hashes
+	t.Run("different content produces different hashes", func(t *testing.T) {
+		item1 := &TreeNode{
+			Dynamics: map[string]interface{}{
+				"0": "value1",
+				"1": "value2",
+			},
+		}
+
+		item2 := &TreeNode{
+			Dynamics: map[string]interface{}{
+				"0": "different",
+				"1": "values",
+			},
+		}
+
+		hash1 := GenerateItemHash(item1)
+		hash2 := GenerateItemHash(item2)
+
+		if hash1 == hash2 {
+			t.Error("Different items should produce different hashes")
+		}
+	})
+
+	// Test hash distribution with many items
+	t.Run("hash distribution across many items", func(t *testing.T) {
+		const numItems = 1000
+		hashes := make(map[string]bool, numItems)
+		collisions := 0
+
+		for i := 0; i < numItems; i++ {
+			item := &TreeNode{
+				Dynamics: map[string]interface{}{
+					"0": fmt.Sprintf("id-%d", i),
+					"1": fmt.Sprintf("name-%d", i),
+					"2": i,
+				},
+			}
+
+			hash := GenerateItemHash(item)
+
+			if hashes[hash] {
+				collisions++
+			}
+			hashes[hash] = true
+		}
+
+		// We expect zero collisions for 1000 items with 48 bits of entropy
+		if collisions > 0 {
+			t.Errorf("Unexpected collisions: %d out of %d items", collisions, numItems)
+		}
+
+		// Verify we got unique hashes
+		if len(hashes) != numItems {
+			t.Errorf("Expected %d unique hashes, got %d", numItems, len(hashes))
+		}
+	})
+
+	// Test with large TreeNode structures
+	t.Run("large structures produce stable hashes", func(t *testing.T) {
+		largeItem := &TreeNode{
+			Dynamics: map[string]interface{}{
+				"0":  "id",
+				"1":  "name",
+				"2":  "description",
+				"3":  123,
+				"4":  456.789,
+				"5":  true,
+				"6":  []interface{}{"a", "b", "c"},
+				"7":  map[string]interface{}{"key": "value"},
+				"8":  "long text content that extends beyond normal field sizes",
+				"9":  []interface{}{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
+				"10": map[string]interface{}{"nested": map[string]interface{}{"deep": "value"}},
+			},
+		}
+
+		// Hash should be stable even with large content
+		hash1 := GenerateItemHash(largeItem)
+		hash2 := GenerateItemHash(largeItem)
+
+		if hash1 != hash2 {
+			t.Error("Hash not consistent for large structure")
+		}
+
+		if hash1 == "" {
+			t.Error("Hash should not be empty for large structure")
+		}
+
+		// Verify it's still within length limit
+		if len(hash1) > 12 {
+			t.Errorf("Hash too long for large structure: %d characters", len(hash1))
+		}
+	})
+
+	// Test field order independence (should be deterministic due to sorting)
+	t.Run("field order independence", func(t *testing.T) {
+		item1 := &TreeNode{
+			Dynamics: map[string]interface{}{
+				"0": "a",
+				"1": "b",
+				"2": "c",
+			},
+		}
+
+		item2 := &TreeNode{
+			Dynamics: map[string]interface{}{
+				"2": "c",
+				"0": "a",
+				"1": "b",
+			},
+		}
+
+		hash1 := GenerateItemHash(item1)
+		hash2 := GenerateItemHash(item2)
+
+		// Should produce same hash since content is same (order irrelevant due to sorting)
+		if hash1 != hash2 {
+			t.Error("Same content in different field order should produce same hash")
+		}
+	})
 }
 
 // TestFindKeyPositionFromStatics_AllKeyTypes tests all key attribute types.
