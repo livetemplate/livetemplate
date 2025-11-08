@@ -770,6 +770,95 @@ func TestCompareRangeItemsForChanges_NoDiff(t *testing.T) {
 	}
 }
 
+// TestGenerateRangeDifferentialOperations_NilInputs tests handling of nil inputs.
+func TestGenerateRangeDifferentialOperations_NilInputs(t *testing.T) {
+	tests := []struct {
+		name     string
+		oldValue interface{}
+		newValue interface{}
+	}{
+		{"both nil", nil, nil},
+		{"old nil", nil, &TreeNode{Range: &RangeData{Items: []interface{}{}}}},
+		{"new nil", &TreeNode{Range: &RangeData{Items: []interface{}{}}}, nil},
+		{"non-TreeNode old", "not a tree", &TreeNode{Range: &RangeData{Items: []interface{}{}}}},
+		{"non-TreeNode new", &TreeNode{Range: &RangeData{Items: []interface{}{}}}, "not a tree"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ops := GenerateRangeDifferentialOperations(tt.oldValue, tt.newValue, false)
+			if len(ops) != 0 {
+				t.Errorf("Expected empty operations for invalid inputs, got %d: %v", len(ops), ops)
+			}
+		})
+	}
+}
+
+// TestGenerateRangeDifferentialOperations_NoRangeField tests TreeNode without Range field.
+func TestGenerateRangeDifferentialOperations_NoRangeField(t *testing.T) {
+	oldValue := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		// No Range field
+	}
+
+	newValue := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		// No Range field
+	}
+
+	ops := GenerateRangeDifferentialOperations(oldValue, newValue, false)
+
+	if len(ops) != 0 {
+		t.Errorf("Expected no operations for TreeNodes without Range, got %d: %v", len(ops), ops)
+	}
+}
+
+// TestGenerateRangeDifferentialOperations_NilRangeData tests TreeNode with nil Range.
+func TestGenerateRangeDifferentialOperations_NilRangeData(t *testing.T) {
+	oldValue := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Range:   nil,
+	}
+
+	newValue := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Range:   nil,
+	}
+
+	ops := GenerateRangeDifferentialOperations(oldValue, newValue, false)
+
+	if len(ops) != 0 {
+		t.Errorf("Expected no operations for nil Range, got %d: %v", len(ops), ops)
+	}
+}
+
+// TestCompareRangeItemsForChanges_NilInputs tests nil input handling.
+func TestCompareRangeItemsForChanges_NilInputs(t *testing.T) {
+	statics := []string{"<li>", "</li>"}
+
+	tests := []struct {
+		name     string
+		oldItem  interface{}
+		newItem  interface{}
+		expected int
+	}{
+		{"both nil", nil, nil, 0},
+		{"old nil", nil, &TreeNode{Dynamics: map[string]interface{}{"0": "id1"}}, 0},
+		{"new nil", &TreeNode{Dynamics: map[string]interface{}{"0": "id1"}}, nil, 0},
+		{"non-TreeNode old", "not a tree", &TreeNode{Dynamics: map[string]interface{}{"0": "id1"}}, 0},
+		{"non-TreeNode new", &TreeNode{Dynamics: map[string]interface{}{"0": "id1"}}, "not a tree", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			changes := CompareRangeItemsForChanges(tt.oldItem, tt.newItem, statics)
+			if len(changes) != tt.expected {
+				t.Errorf("Expected %d changes, got %d: %v", tt.expected, len(changes), changes)
+			}
+		})
+	}
+}
+
 // TestCompareRangeItemsForChanges_Changed tests detecting changes between items.
 func TestCompareRangeItemsForChanges_Changed(t *testing.T) {
 	oldItem := &TreeNode{

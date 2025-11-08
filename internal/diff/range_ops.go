@@ -1,3 +1,5 @@
+// Package diff provides tree comparison and differential update generation for LiveTemplate.
+// It generates minimal operations (insert, update, remove, reorder) to transform one tree into another.
 package diff
 
 import (
@@ -98,8 +100,8 @@ func generateRemovalOperations(
 	newItemsByKey := createItemKeyMap(newItems, statics)
 
 	// Find removed items (in old but not in new)
-	// Sort keys to ensure deterministic order
-	sortedOldKeys := make([]string, 0)
+	// Extract and sort keys to ensure deterministic order
+	sortedOldKeys := make([]string, 0, len(oldItems))
 	for _, item := range oldItems {
 		if key, ok := GetItemKey(item, statics); ok {
 			sortedOldKeys = append(sortedOldKeys, key)
@@ -127,8 +129,8 @@ func generateUpdateOperations(
 	newItemsByKey := createItemKeyMap(newItems, statics)
 
 	// Find updated items (in both, but changed)
-	// Sort keys to ensure deterministic order
-	sortedNewKeys := make([]string, 0)
+	// Extract and sort keys to ensure deterministic order
+	sortedNewKeys := make([]string, 0, len(newItems))
 	for _, item := range newItems {
 		if key, ok := GetItemKey(item, statics); ok {
 			sortedNewKeys = append(sortedNewKeys, key)
@@ -143,7 +145,7 @@ func generateUpdateOperations(
 			changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
 			if len(changes) > 0 {
 				// Check if changes only contains empty values
-				if hasNonEmptyChanges := checkNonEmptyChanges(changes); hasNonEmptyChanges {
+				if checkNonEmptyChanges(changes) {
 					operations = append(operations, []interface{}{"u", key, changes})
 				} else {
 					// All changes are empty strings - use simple format without changes
