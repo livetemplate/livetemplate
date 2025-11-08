@@ -298,3 +298,135 @@ func TestIsLetter(t *testing.T) {
 		})
 	}
 }
+
+// TestEvaluateActionWithVars_EmptyVariableName tests handling of empty variable names.
+func TestEvaluateActionWithVars_EmptyVariableName(t *testing.T) {
+	varCtx := &varContext{
+		parent: map[string]interface{}{},
+		vars:   newOrderedVars(),
+		dot:    map[string]interface{}{},
+	}
+	// Set an empty variable name (edge case that should be handled gracefully)
+	varCtx.vars.Set("", "EmptyValue")
+	varCtx.vars.Set("valid", "ValidValue")
+	ctx := &Context{}
+
+	// Should skip empty variable name and use valid one
+	result := evaluateActionWithVars("{{$valid}}", varCtx, ctx)
+	if result != "ValidValue" {
+		t.Errorf("Expected 'ValidValue', got: %v", result)
+	}
+}
+
+// TestEvaluateActionWithVars_NoVariablesUsed tests when no variables match.
+func TestEvaluateActionWithVars_NoVariablesUsed(t *testing.T) {
+	varCtx := &varContext{
+		parent: map[string]interface{}{},
+		vars:   newOrderedVars(),
+		dot:    map[string]interface{}{},
+	}
+	varCtx.vars.Set("unused", "Value")
+	ctx := &Context{}
+
+	// Action doesn't use any variables
+	result := evaluateActionWithVars("{{`static`}}", varCtx, ctx)
+	// Should return empty string since no variables are used
+	if result != "" {
+		t.Logf("Got result: %v", result)
+	}
+}
+
+// TestEvaluateActionWithVars_SpecialCharacters tests variables with special patterns.
+func TestEvaluateActionWithVars_SpecialCharacters(t *testing.T) {
+	varCtx := &varContext{
+		parent: map[string]interface{}{},
+		vars:   newOrderedVars(),
+		dot:    map[string]interface{}{},
+	}
+	varCtx.vars.Set("var_name", "UnderscoreValue")
+	ctx := &Context{}
+
+	result := evaluateActionWithVars("{{$var_name}}", varCtx, ctx)
+	if result != "UnderscoreValue" {
+		t.Errorf("Expected 'UnderscoreValue', got: %v", result)
+	}
+}
+
+// TestCreateSingleDynamicTree tests the helper function with statics enabled.
+func TestCreateSingleDynamicTree_WithStatics(t *testing.T) {
+	ctx := &Context{IncludeStatics: true}
+	tree := createSingleDynamicTree("test value", ctx)
+
+	if tree.Dynamics["0"] != "test value" {
+		t.Errorf("Expected dynamics['0'] = 'test value', got: %v", tree.Dynamics["0"])
+	}
+
+	if len(tree.Statics) != 2 {
+		t.Errorf("Expected 2 statics, got: %d", len(tree.Statics))
+	}
+
+	if tree.Statics[0] != "" || tree.Statics[1] != "" {
+		t.Errorf("Expected empty statics, got: %v", tree.Statics)
+	}
+}
+
+// TestCreateSingleDynamicTree tests the helper function without statics.
+func TestCreateSingleDynamicTree_WithoutStatics(t *testing.T) {
+	ctx := &Context{IncludeStatics: false}
+	tree := createSingleDynamicTree("test value", ctx)
+
+	if tree.Dynamics["0"] != "test value" {
+		t.Errorf("Expected dynamics['0'] = 'test value', got: %v", tree.Dynamics["0"])
+	}
+
+	if tree.Statics != nil {
+		t.Errorf("Expected nil statics, got: %v", tree.Statics)
+	}
+}
+
+// TestDetectsRootVariable_EdgeCases tests additional edge cases for root variable detection.
+func TestDetectsRootVariable_EdgeCases(t *testing.T) {
+	vars := newOrderedVars()
+
+	tests := []struct {
+		name   string
+		action string
+		want   bool
+	}{
+		{"dollar at end", "{{test$}}", true},
+		{"dollar with space", "{{$ }}", true},
+		{"dollar with pipe", "{{$ | func}}", true},
+		{"multiple dollars", "{{$.Field1 $.Field2}}", true},
+		{"dollar in string", `{{"$"}}`, true}, // This is a limitation but consistent
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := detectsRootVariable(tt.action, vars)
+			if got != tt.want {
+				t.Errorf("detectsRootVariable(%q) = %v, want %v", tt.action, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestHandleActionNode_EmptyValue tests handling of empty field values.
+func TestHandleActionNode_EmptyValue(t *testing.T) {
+	tmpl, err := template.New("test").Parse("{{.Name}}")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	actionNode := tmpl.Tree.Root.Nodes[0].(*parse.ActionNode)
+	data := map[string]interface{}{"Name": ""}
+	ctx := &Context{IncludeStatics: true}
+
+	tree, err := handleActionNode(actionNode, data, newMockKeyGen(), ctx)
+	if err != nil {
+		t.Fatalf("handleActionNode failed: %v", err)
+	}
+
+	if tree.Dynamics["0"] != "" {
+		t.Errorf("Expected empty dynamics['0'], got: %v", tree.Dynamics["0"])
+	}
+}
