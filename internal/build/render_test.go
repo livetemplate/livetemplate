@@ -336,3 +336,114 @@ func TestRenderRangeComprehensionToHTML_NestedTrees(t *testing.T) {
 		t.Errorf("Expected %q, got: %q", expected, html)
 	}
 }
+
+// TestIsVoidHTMLElement_CaseInsensitive tests case-insensitive void element recognition.
+func TestIsVoidHTMLElement_CaseInsensitive(t *testing.T) {
+	tests := []struct {
+		tag      string
+		expected bool
+	}{
+		{"br", true},
+		{"BR", true},
+		{"Br", true},
+		{"bR", true},
+		{"img", true},
+		{"IMG", true},
+		{"Img", true},
+		{"input", true},
+		{"INPUT", true},
+		{"Input", true},
+		{"div", false},
+		{"DIV", false},
+		{"Div", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.tag, func(t *testing.T) {
+			result := IsVoidHTMLElement(tt.tag)
+			if result != tt.expected {
+				t.Errorf("IsVoidHTMLElement(%q) = %v, expected %v", tt.tag, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestRenderTreeToHTML_HTMLEscaping tests HTML escaping in dynamic values.
+func TestRenderTreeToHTML_HTMLEscaping(t *testing.T) {
+	tests := []struct {
+		name     string
+		tree     map[string]interface{}
+		expected string
+	}{
+		{
+			name: "script tag",
+			tree: map[string]interface{}{
+				"s": []string{"<div>", "</div>"},
+				"0": "<script>alert('xss')</script>",
+			},
+			expected: "<div>&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;</div>",
+		},
+		{
+			name: "ampersand",
+			tree: map[string]interface{}{
+				"s": []string{"<div>", "</div>"},
+				"0": "Tom & Jerry",
+			},
+			expected: "<div>Tom &amp; Jerry</div>",
+		},
+		{
+			name: "angle brackets",
+			tree: map[string]interface{}{
+				"s": []string{"<div>", "</div>"},
+				"0": "5 < 10 > 3",
+			},
+			expected: "<div>5 &lt; 10 &gt; 3</div>",
+		},
+		{
+			name: "quotes",
+			tree: map[string]interface{}{
+				"s": []string{"<div>", "</div>"},
+				"0": `He said "hello"`,
+			},
+			expected: `<div>He said &#34;hello&#34;</div>`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			html, err := RenderTreeToHTML(tt.tree)
+			if err != nil {
+				t.Fatalf("RenderTreeToHTML failed: %v", err)
+			}
+
+			if html != tt.expected {
+				t.Errorf("Expected %q, got: %q", tt.expected, html)
+			}
+		})
+	}
+}
+
+// TestRenderRangeComprehensionToHTML_HTMLEscaping tests HTML escaping in range items.
+func TestRenderRangeComprehensionToHTML_HTMLEscaping(t *testing.T) {
+	tree := map[string]interface{}{
+		"s": []string{"<div>", "</div>"},
+		"d": []interface{}{
+			map[string]interface{}{
+				"0": "<script>alert('xss')</script>",
+			},
+			map[string]interface{}{
+				"0": "Tom & Jerry",
+			},
+		},
+	}
+
+	html, err := RenderTreeToHTML(tree)
+	if err != nil {
+		t.Fatalf("RenderTreeToHTML failed: %v", err)
+	}
+
+	expected := "<div>&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;</div><div>Tom &amp; Jerry</div>"
+	if html != expected {
+		t.Errorf("Expected %q, got: %q", expected, html)
+	}
+}
