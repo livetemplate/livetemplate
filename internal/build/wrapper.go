@@ -11,15 +11,108 @@ import (
 )
 
 // GenerateRandomID generates a random ID for the wrapper div.
+// Panics if crypto/rand fails (extremely rare, indicates serious system issue).
 func GenerateRandomID() string {
-	b := make([]byte, 8)
-	_, _ = cryptorand.Read(b)
+	const randomIDBytes = 8
+	b := make([]byte, randomIDBytes)
+	if _, err := cryptorand.Read(b); err != nil {
+		// crypto/rand failure is catastrophic - system entropy source is broken
+		panic(fmt.Sprintf("crypto/rand.Read failed: %v", err))
+	}
 	return "lvt-" + hex.EncodeToString(b)
 }
 
 // InjectWrapperDiv injects a wrapper div around body content with the specified ID.
 // Excludes <script> tags from the wrapper to prevent them from being part of the dynamic content.
+// Uses proper HTML parsing to handle all script tag variants and malformed HTML gracefully.
 func InjectWrapperDiv(htmlDoc string, wrapperID string, loadingDisabled bool) string {
+	// If input contains Go template directives, use string-based approach to avoid mangling them
+	// html.Render() would escape {{ }} and break template syntax
+	if strings.Contains(htmlDoc, "{{") || strings.Contains(htmlDoc, "}}") {
+		return injectWrapperDivStringBased(htmlDoc, wrapperID, loadingDisabled)
+	}
+
+	// Parse HTML document
+	doc, err := html.Parse(strings.NewReader(htmlDoc))
+	if err != nil {
+		// Parsing failed, fallback to original string-based approach for backward compatibility
+		return injectWrapperDivStringBased(htmlDoc, wrapperID, loadingDisabled)
+	}
+
+	// Find the body element
+	bodyNode := FindBodyNode(doc)
+	if bodyNode == nil {
+		// No body tag found, return as-is
+		return htmlDoc
+	}
+
+	// Separate script tags from other content
+	var contentNodes, scriptNodes []*html.Node
+	for child := bodyNode.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type == html.ElementNode && child.Data == "script" {
+			scriptNodes = append(scriptNodes, child)
+		} else {
+			contentNodes = append(contentNodes, child)
+		}
+	}
+
+	// Remove all children from body
+	for bodyNode.FirstChild != nil {
+		bodyNode.RemoveChild(bodyNode.FirstChild)
+	}
+
+	// Create wrapper div
+	wrapperDiv := &html.Node{
+		Type: html.ElementNode,
+		Data: "div",
+		Attr: []html.Attribute{
+			{Key: "data-lvt-id", Val: wrapperID},
+		},
+	}
+
+	// Add loading attribute if not disabled
+	if !loadingDisabled {
+		wrapperDiv.Attr = append(wrapperDiv.Attr, html.Attribute{Key: "data-lvt-loading", Val: "true"})
+	}
+
+	// Add content nodes to wrapper
+	for _, node := range contentNodes {
+		wrapperDiv.AppendChild(node)
+	}
+
+	// Add wrapper to body
+	bodyNode.AppendChild(wrapperDiv)
+
+	// Add script nodes after wrapper
+	for _, node := range scriptNodes {
+		bodyNode.AppendChild(node)
+	}
+
+	// Render the modified document
+	var buf strings.Builder
+	if err := html.Render(&buf, doc); err != nil {
+		// Rendering failed, return original
+		return htmlDoc
+	}
+
+	return buf.String()
+}
+
+// FindBodyNode recursively finds the body element in an HTML document tree.
+func FindBodyNode(n *html.Node) *html.Node {
+	if n.Type == html.ElementNode && n.Data == "body" {
+		return n
+	}
+	for child := n.FirstChild; child != nil; child = child.NextSibling {
+		if found := FindBodyNode(child); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+// injectWrapperDivStringBased is the original string-based implementation used as fallback.
+func injectWrapperDivStringBased(htmlDoc string, wrapperID string, loadingDisabled bool) string {
 	// Find the body opening tag and extract the content between <body> and </body>
 	bodyStart := strings.Index(htmlDoc, "<body")
 	if bodyStart == -1 {
@@ -72,22 +165,31 @@ func InjectWrapperDiv(htmlDoc string, wrapperID string, loadingDisabled bool) st
 }
 
 // ExtractTemplateBodyContent extracts only the body content from a full HTML template.
+// Handles body tags with or without attributes (e.g., <body>, <body class="dark">).
 func ExtractTemplateBodyContent(templateStr string) string {
-	// Find the body content between <body> and </body> tags
-	bodyStart := strings.Index(templateStr, "<body>")
+	// Find the body opening tag (with or without attributes)
+	bodyStart := strings.Index(templateStr, "<body")
 	if bodyStart == -1 {
 		// No body tag found, return the template as-is
 		return templateStr
 	}
 
-	bodyStart += len("<body>")
+	// Find the end of the body opening tag
+	bodyTagEnd := strings.Index(templateStr[bodyStart:], ">")
+	if bodyTagEnd == -1 {
+		// Malformed body tag, return as-is
+		return templateStr
+	}
+	bodyTagEnd += bodyStart + 1 // Position after >
+
+	// Find the closing body tag
 	bodyEnd := strings.LastIndex(templateStr, "</body>")
 	if bodyEnd == -1 {
 		// No closing body tag found, return from body start to end
-		return strings.TrimSpace(templateStr[bodyStart:])
+		return strings.TrimSpace(templateStr[bodyTagEnd:])
 	}
 
-	return strings.TrimSpace(templateStr[bodyStart:bodyEnd])
+	return strings.TrimSpace(templateStr[bodyTagEnd:bodyEnd])
 }
 
 // ExtractTemplateContent extracts template content using wrapper ID with proper HTML parsing.
@@ -147,6 +249,10 @@ func NormalizeTemplateSpacing(templateStr string) string {
 	re := regexp.MustCompile(`\{\{\s*(.+?)\s*\}\}`)
 
 	return re.ReplaceAllStringFunc(templateStr, func(match string) string {
+		// Defensive check: regex guarantees at least {{ }}, but guard against edge cases
+		if len(match) < 4 {
+			return match
+		}
 		// Extract content between {{ and }}
 		content := strings.TrimSpace(match[2 : len(match)-2])
 
