@@ -35,13 +35,8 @@ func PrepareTreeForClient(node interface{}, clientHasStatics bool) interface{} {
 			}
 		}
 		// Handle Range: preserve Items array without statics (client has them cached)
-		if v.HasRange() && v.Range != nil {
-			// Create a copy of Items to avoid sharing the underlying slice
-			var items []interface{}
-			if v.Range.Items != nil {
-				items = v.Range.Items
-			}
-			result.Range = &RangeData{Items: items}
+		if v.HasRange() {
+			result.Range = &RangeData{Items: v.Range.Items}
 		}
 		// Preserve Metadata (needed for client to extract item keys)
 		if v.Metadata != nil {
