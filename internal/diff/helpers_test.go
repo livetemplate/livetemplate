@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 )
@@ -680,5 +681,335 @@ func TestFindRangeConstructMatches(t *testing.T) {
 
 	if len(matches) == 0 {
 		t.Error("FindRangeConstructMatches() should find matching ranges")
+	}
+}
+
+// TestGenerateItemHash_Consistency tests hash stability and consistency.
+func TestGenerateItemHash_Consistency(t *testing.T) {
+	tests := []struct {
+		name string
+		item *TreeNode
+	}{
+		{
+			name: "empty dynamics",
+			item: &TreeNode{Dynamics: map[string]interface{}{}},
+		},
+		{
+			name: "nil dynamics",
+			item: &TreeNode{},
+		},
+		{
+			name: "with reserved key",
+			item: &TreeNode{
+				Dynamics: map[string]interface{}{
+					"_k": "reserved-key",
+					"0":  "value1",
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Hash should be consistent across multiple calls
+			hash1 := GenerateItemHash(tt.item)
+			hash2 := GenerateItemHash(tt.item)
+
+			if hash1 != hash2 {
+				t.Errorf("Hash not consistent: %s != %s", hash1, hash2)
+			}
+
+			// Hash should not be empty
+			if hash1 == "" {
+				t.Error("Hash should not be empty")
+			}
+
+			// Hash should respect hashPrefixLength
+			if len(hash1) > 12 {
+				t.Errorf("Hash too long: %d characters (expected <= 12)", len(hash1))
+			}
+		})
+	}
+}
+
+// TestGenerateItemHash_Collisions tests hash distribution and collision avoidance.
+func TestGenerateItemHash_Collisions(t *testing.T) {
+	// Test that different content produces different hashes
+	t.Run("different content produces different hashes", func(t *testing.T) {
+		item1 := &TreeNode{
+			Dynamics: map[string]interface{}{
+				"0": "value1",
+				"1": "value2",
+			},
+		}
+
+		item2 := &TreeNode{
+			Dynamics: map[string]interface{}{
+				"0": "different",
+				"1": "values",
+			},
+		}
+
+		hash1 := GenerateItemHash(item1)
+		hash2 := GenerateItemHash(item2)
+
+		if hash1 == hash2 {
+			t.Error("Different items should produce different hashes")
+		}
+	})
+
+	// Test hash distribution with many items
+	t.Run("hash distribution across many items", func(t *testing.T) {
+		const numItems = 1000
+		hashes := make(map[string]bool, numItems)
+		collisions := 0
+
+		for i := 0; i < numItems; i++ {
+			item := &TreeNode{
+				Dynamics: map[string]interface{}{
+					"0": fmt.Sprintf("id-%d", i),
+					"1": fmt.Sprintf("name-%d", i),
+					"2": i,
+				},
+			}
+
+			hash := GenerateItemHash(item)
+
+			if hashes[hash] {
+				collisions++
+			}
+			hashes[hash] = true
+		}
+
+		// We expect zero collisions for 1000 items with 48 bits of entropy
+		if collisions > 0 {
+			t.Errorf("Unexpected collisions: %d out of %d items", collisions, numItems)
+		}
+
+		// Verify we got unique hashes
+		if len(hashes) != numItems {
+			t.Errorf("Expected %d unique hashes, got %d", numItems, len(hashes))
+		}
+	})
+
+	// Test with large TreeNode structures
+	t.Run("large structures produce stable hashes", func(t *testing.T) {
+		largeItem := &TreeNode{
+			Dynamics: map[string]interface{}{
+				"0":  "id",
+				"1":  "name",
+				"2":  "description",
+				"3":  123,
+				"4":  456.789,
+				"5":  true,
+				"6":  []interface{}{"a", "b", "c"},
+				"7":  map[string]interface{}{"key": "value"},
+				"8":  "long text content that extends beyond normal field sizes",
+				"9":  []interface{}{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
+				"10": map[string]interface{}{"nested": map[string]interface{}{"deep": "value"}},
+			},
+		}
+
+		// Hash should be stable even with large content
+		hash1 := GenerateItemHash(largeItem)
+		hash2 := GenerateItemHash(largeItem)
+
+		if hash1 != hash2 {
+			t.Error("Hash not consistent for large structure")
+		}
+
+		if hash1 == "" {
+			t.Error("Hash should not be empty for large structure")
+		}
+
+		// Verify it's still within length limit
+		if len(hash1) > 12 {
+			t.Errorf("Hash too long for large structure: %d characters", len(hash1))
+		}
+	})
+
+	// Test field order independence (should be deterministic due to sorting)
+	t.Run("field order independence", func(t *testing.T) {
+		item1 := &TreeNode{
+			Dynamics: map[string]interface{}{
+				"0": "a",
+				"1": "b",
+				"2": "c",
+			},
+		}
+
+		item2 := &TreeNode{
+			Dynamics: map[string]interface{}{
+				"2": "c",
+				"0": "a",
+				"1": "b",
+			},
+		}
+
+		hash1 := GenerateItemHash(item1)
+		hash2 := GenerateItemHash(item2)
+
+		// Should produce same hash since content is same (order irrelevant due to sorting)
+		if hash1 != hash2 {
+			t.Error("Same content in different field order should produce same hash")
+		}
+	})
+}
+
+// TestFindKeyPositionFromStatics_AllKeyTypes tests all key attribute types.
+func TestFindKeyPositionFromStatics_AllKeyTypes(t *testing.T) {
+	tests := []struct {
+		name     string
+		statics  interface{}
+		expected int
+	}{
+		{
+			name:     "data-lvt-key attribute (highest priority)",
+			statics:  []string{`<li data-lvt-key="`, `">`, `</li>`},
+			expected: 0,
+		},
+		{
+			name:     "data-key attribute",
+			statics:  []string{`<li data-key="`, `">`, `</li>`},
+			expected: 0,
+		},
+		{
+			name:     "key attribute",
+			statics:  []string{`<li key="`, `">`, `</li>`},
+			expected: 0,
+		},
+		{
+			name:     "id attribute",
+			statics:  []string{`<li id="`, `">`, `</li>`},
+			expected: 0,
+		},
+		{
+			name:     "no key attribute",
+			statics:  []string{`<li>`, `</li>`},
+			expected: 0,
+		},
+		{
+			name:     "key in middle position",
+			statics:  []string{`<ul><li class="`, `" key="`, `">`, `</li></ul>`},
+			expected: 1,
+		},
+		{
+			name:     "[]interface{} format",
+			statics:  []interface{}{`<li data-key="`, `">`, `</li>`},
+			expected: 0,
+		},
+		{
+			name:     "[]interface{} with non-string",
+			statics:  []interface{}{`<li>`, 123, `</li>`},
+			expected: 0,
+		},
+		{
+			name:     "empty statics",
+			statics:  []string{},
+			expected: 0,
+		},
+		{
+			name:     "nil statics",
+			statics:  nil,
+			expected: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FindKeyPositionFromStatics(tt.statics)
+			if got != tt.expected {
+				t.Errorf("FindKeyPositionFromStatics() = %d, want %d", got, tt.expected)
+			}
+		})
+	}
+}
+
+// TestAreAllItemsAtStart_TreeNode tests with TreeNode items (not just maps).
+func TestAreAllItemsAtStart_TreeNode(t *testing.T) {
+	statics := []string{"<li>", "</li>"}
+
+	tests := []struct {
+		name     string
+		newKeys  []string
+		newItems []interface{}
+		want     bool
+	}{
+		{
+			name:    "TreeNode items at start",
+			newKeys: []string{"new1", "new2"},
+			newItems: []interface{}{
+				&TreeNode{Dynamics: map[string]interface{}{"0": "new1"}},
+				&TreeNode{Dynamics: map[string]interface{}{"0": "new2"}},
+				&TreeNode{Dynamics: map[string]interface{}{"0": "old1"}},
+			},
+			want: true,
+		},
+		{
+			name:    "TreeNode items not at start",
+			newKeys: []string{"new1"},
+			newItems: []interface{}{
+				&TreeNode{Dynamics: map[string]interface{}{"0": "old1"}},
+				&TreeNode{Dynamics: map[string]interface{}{"0": "new1"}},
+			},
+			want: false,
+		},
+		{
+			name:     "empty newKeys",
+			newKeys:  []string{},
+			newItems: []interface{}{},
+			want:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := AreAllItemsAtStart(tt.newKeys, tt.newItems, statics)
+			if got != tt.want {
+				t.Errorf("AreAllItemsAtStart() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestIsComplexInsertionPattern_EdgeCases tests edge cases.
+func TestIsComplexInsertionPattern_EdgeCases(t *testing.T) {
+	statics := []string{"<li>", "</li>"}
+
+	tests := []struct {
+		name     string
+		newKeys  []string
+		oldItems []interface{}
+		newItems []interface{}
+		want     bool
+	}{
+		{
+			name:     "empty newKeys",
+			newKeys:  []string{},
+			oldItems: []interface{}{},
+			newItems: []interface{}{},
+			want:     false,
+		},
+		{
+			name:    "single insertion point",
+			newKeys: []string{"new1"},
+			oldItems: []interface{}{
+				&TreeNode{Dynamics: map[string]interface{}{"0": "old1"}},
+			},
+			newItems: []interface{}{
+				&TreeNode{Dynamics: map[string]interface{}{"0": "new1"}},
+				&TreeNode{Dynamics: map[string]interface{}{"0": "old1"}},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsComplexInsertionPattern(tt.newKeys, tt.oldItems, tt.newItems, statics)
+			if got != tt.want {
+				t.Errorf("IsComplexInsertionPattern() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

@@ -1,14 +1,30 @@
 package diff
 
 import (
-	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"reflect"
 	"regexp"
 	"sort"
 	"strings"
+)
+
+const (
+	// hashPrefixLength is the number of characters to use from the generated hash
+	// for compact item identifiers. 12 characters provide sufficient uniqueness
+	// (48 bits of entropy) while keeping identifiers short.
+	//
+	// Collision probability: Using birthday paradox, ~16 million items would be
+	// needed for a 1% collision probability. This is well beyond typical range
+	// sizes in templates, making 12 characters sufficient for practical use.
+	hashPrefixLength = 12
+
+	// maxInsertionPoints is the threshold for determining if an insertion pattern
+	// is too complex for individual insert operations. Patterns with more than
+	// this many separate insertion points use full replace strategy instead.
+	maxInsertionPoints = 3
 )
 
 // IsEmpty checks if a value is considered empty (empty string, empty map, empty slice).
@@ -108,33 +124,37 @@ func AreStructuresSimilar(oldTree, newTree *TreeNode) bool {
 }
 
 // areStructuresSimilarTreeNode is the internal implementation of AreStructuresSimilar.
+// It compares the structural skeleton of two trees, focusing on static parts which
+// represent the template structure rather than dynamic data.
 func areStructuresSimilarTreeNode(oldTree, newTree *TreeNode) bool {
 	// Check if both have statics - if statics differ, structures are different
 	oldHasS := oldTree.HasStatics()
 	newHasS := newTree.HasStatics()
 
 	if oldHasS != newHasS {
-		return false // One has statics, other doesn't
+		return false // One has statics, other doesn't - different structure
 	}
 
 	if oldHasS && newHasS {
 		oldS := oldTree.Statics
 		newS := newTree.Statics
 
+		// Different statics array lengths = different structure
 		if len(oldS) != len(newS) {
 			return false
 		}
 
-		// If statics are different, it's a different structure
+		// Compare each static element - these represent HTML template structure
 		for i := range oldS {
 			if oldS[i] != newS[i] {
 				return false
 			}
 		}
 
-		// Special case: Check if this is a conditional wrapper with empty statics
-		// Conditionals are wrapped as {"s": ["", ""], "0": branchTree}
-		// If both have empty statics and a single "0" child, compare the child structures
+		// Special case: Conditional wrapper detection
+		// Templates like {{if .Cond}}...{{end}} are wrapped as {"s": ["", ""], "0": branchTree}
+		// where empty statics are placeholders and the actual structure is in child "0".
+		// We need to recursively compare the child structures to determine true similarity.
 		if len(oldS) == 2 && oldS[0] == "" && oldS[1] == "" &&
 			len(newS) == 2 && newS[0] == "" && newS[1] == "" {
 			// Check if both have exactly one dynamic child "0"
@@ -142,12 +162,12 @@ func areStructuresSimilarTreeNode(oldTree, newTree *TreeNode) bool {
 			newChild, newHasChild := newTree.GetDynamic("0")
 
 			if oldHasChild && newHasChild {
-				// Both have a "0" child - check if the children are similar structures
+				// Both have a "0" child - need to compare the actual branch structures
 				oldChildNode, oldIsNode := oldChild.(*TreeNode)
 				newChildNode, newIsNode := newChild.(*TreeNode)
 
 				if oldIsNode && newIsNode {
-					// Recursively check child similarity
+					// Recursively check child similarity to see if branches have same structure
 					return areStructuresSimilarTreeNode(oldChildNode, newChildNode)
 				}
 			}
@@ -163,39 +183,45 @@ func DeepEqual(a, b interface{}) bool {
 	return reflect.DeepEqual(a, b)
 }
 
+// findKeyAttrPosition searches for key attributes in a string slice.
+// Returns the position where a key attribute is found, or 0 if not found.
+func findKeyAttrPosition(statics []string, keyAttrs []string) int {
+	for i, staticStr := range statics {
+		// Check for any of the key attributes in priority order
+		for _, keyAttr := range keyAttrs {
+			if strings.Contains(staticStr, keyAttr) {
+				// The next position after this static contains the key value
+				return i
+			}
+		}
+	}
+	return 0 // Not found, default to 0
+}
+
 // FindKeyPositionFromStatics parses the statics array to find which position contains the key.
+// Supports both []string and []interface{} formats for backward compatibility.
 func FindKeyPositionFromStatics(statics interface{}) int {
 	// Priority order for key attributes (same as server-side)
 	keyAttrs := []string{`data-lvt-key="`, `data-key="`, `key="`, `id="`}
 
-	// Try []interface{} first
-	if staticsArr, ok := statics.([]interface{}); ok {
-		for i, static := range staticsArr {
-			if staticStr, ok := static.(string); ok {
-				// Check for any of the key attributes in priority order
-				for _, keyAttr := range keyAttrs {
-					if strings.Contains(staticStr, keyAttr) {
-						// The next position after this static contains the key value
-						return i
-					}
-				}
-			}
-		}
-		return 0 // Not found, default to 0
+	// Try []string first (most common case)
+	if staticsArr, ok := statics.([]string); ok {
+		return findKeyAttrPosition(staticsArr, keyAttrs)
 	}
 
-	// Try []string
-	if staticsArr, ok := statics.([]string); ok {
-		for i, staticStr := range staticsArr {
-			// Check for any of the key attributes in priority order
-			for _, keyAttr := range keyAttrs {
-				if strings.Contains(staticStr, keyAttr) {
-					// The next position after this static contains the key value
-					return i
-				}
+	// Try []interface{} with string conversion
+	if staticsArr, ok := statics.([]interface{}); ok {
+		// Convert []interface{} to []string
+		stringSlice := make([]string, 0, len(staticsArr))
+		for _, static := range staticsArr {
+			if staticStr, ok := static.(string); ok {
+				stringSlice = append(stringSlice, staticStr)
+			} else {
+				// Non-string element, append empty to maintain positions
+				stringSlice = append(stringSlice, "")
 			}
 		}
-		return 0 // Not found, default to 0
+		return findKeyAttrPosition(stringSlice, keyAttrs)
 	}
 
 	return 0 // Unknown type, default to position 0 for backwards compatibility
@@ -231,6 +257,7 @@ func GetItemKey(item interface{}, statics interface{}) (string, bool) {
 
 // GenerateItemHash creates a stable hash for a range item based on its content.
 // This is used when no explicit key attribute is provided in the template.
+// Uses FNV-1a hash for fast, non-cryptographic content fingerprinting.
 func GenerateItemHash(item interface{}) string {
 	// Handle TreeNode
 	if itemNode, ok := item.(*TreeNode); ok {
@@ -249,19 +276,26 @@ func GenerateItemHash(item interface{}) string {
 		var parts []string
 		for _, k := range keys {
 			val, _ := itemNode.GetDynamic(k)
-			valJSON, _ := json.Marshal(val)
-			parts = append(parts, fmt.Sprintf("%s:%s", k, string(valJSON)))
+			valJSON, err := json.Marshal(val)
+			if err != nil {
+				// Fallback to string representation if marshaling fails.
+				// This can occur for non-JSON-serializable types like channels,
+				// functions, or complex structures with circular references.
+				parts = append(parts, fmt.Sprintf("%s:%v", k, val))
+			} else {
+				parts = append(parts, fmt.Sprintf("%s:%s", k, string(valJSON)))
+			}
 		}
 
-		// Hash the canonical representation
+		// Hash the canonical representation using FNV-1a
 		content := strings.Join(parts, "|")
-		hasher := md5.New()
+		hasher := fnv.New64a()
 		hasher.Write([]byte(content))
 		hash := hex.EncodeToString(hasher.Sum(nil))
 
-		// Return first 12 characters for compactness
-		if len(hash) >= 12 {
-			return hash[:12]
+		// Return first hashPrefixLength characters for compactness
+		if len(hash) >= hashPrefixLength {
+			return hash[:hashPrefixLength]
 		}
 		return hash
 	}
@@ -284,9 +318,14 @@ func ExtractItemKeys(items []interface{}, statics interface{}) []string {
 }
 
 // DetectPositionField finds the field containing positional display like "#0", "#1", etc.
+// This is used to identify which field should be excluded from content comparison during
+// reordering detection, as position fields change when items are reordered even if
+// their actual content hasn't changed.
+// Note: Only checks the first item as position fields are consistent across all items.
 func DetectPositionField(itemsByKey map[string]interface{}) string {
 	positionPattern := regexp.MustCompile(`^#\d+`)
 
+	// Check first item only - position field pattern is consistent across all items
 	for _, item := range itemsByKey {
 		if itemNode, ok := item.(*TreeNode); ok {
 			for field, value := range itemNode.Dynamics {
@@ -297,7 +336,7 @@ func DetectPositionField(itemsByKey map[string]interface{}) string {
 				}
 			}
 		}
-		break
+		break // Intentional - only check first item
 	}
 	return ""
 }
@@ -331,8 +370,8 @@ func IsPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []strin
 	}
 
 	// Now check if the items with same keys have identical content
-	oldItemsByKey := make(map[string]interface{})
-	newItemsByKey := make(map[string]interface{})
+	oldItemsByKey := make(map[string]interface{}, len(oldItems))
+	newItemsByKey := make(map[string]interface{}, len(newItems))
 
 	for _, item := range oldItems {
 		if key, ok := GetItemKey(item, statics); ok {
@@ -410,7 +449,7 @@ func IsPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []strin
 
 // FindNewItems returns keys of items that exist in new but not in old.
 func FindNewItems(oldItems, newItems []interface{}, statics interface{}) []string {
-	oldKeys := make(map[string]bool)
+	oldKeys := make(map[string]bool, len(oldItems))
 	for _, item := range oldItems {
 		if key, ok := GetItemKey(item, statics); ok {
 			oldKeys[key] = true
@@ -440,12 +479,10 @@ func AreAllItemsAtStart(newKeys []string, newItems []interface{}, statics interf
 		if i >= len(newItems) {
 			return false
 		}
-		if itemMap, ok := newItems[i].(map[string]interface{}); ok {
-			if itemKey, ok := GetItemKey(itemMap, statics); ok {
-				if itemKey != key {
-					return false
-				}
-			} else {
+
+		// Get key from item (supports both TreeNode and legacy map format)
+		if itemKey, ok := GetItemKey(newItems[i], statics); ok {
+			if itemKey != key {
 				return false
 			}
 		} else {
@@ -507,14 +544,11 @@ func AreAllItemsAtEnd(newKeys []string, oldItems, newItems []interface{}, static
 
 // IsComplexInsertionPattern checks if the insertion pattern is too complex for simple operations.
 func IsComplexInsertionPattern(newKeys []string, oldItems, newItems []interface{}, statics interface{}) bool {
-	// Consider it complex if there are more than 3 separate insertion points
-	const maxInsertionPoints = 3
-
 	if len(newKeys) == 0 {
 		return false
 	}
 
-	insertionPoints := make(map[string]bool)
+	insertionPoints := make(map[string]bool, len(newKeys))
 
 	for i, item := range newItems {
 		if keyStr, ok := GetItemKey(item, statics); ok {
