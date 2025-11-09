@@ -97,21 +97,17 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/livetemplate/livetemplate/internal/build"
 	"github.com/livetemplate/livetemplate/internal/context"
 	"github.com/livetemplate/livetemplate/internal/diff"
+	"github.com/livetemplate/livetemplate/internal/keys"
 	"github.com/livetemplate/livetemplate/internal/observe"
 	"github.com/livetemplate/livetemplate/internal/parse"
-	"github.com/livetemplate/livetemplate/internal/render"
 	"github.com/livetemplate/livetemplate/internal/send"
 	"github.com/livetemplate/livetemplate/internal/session"
 	"github.com/livetemplate/livetemplate/internal/signature"
-	"github.com/livetemplate/livetemplate/internal/util"
 	"github.com/livetemplate/livetemplate/pubsub"
 )
-
-// htmlBlockTags defines block-level HTML elements that create natural segment boundaries
-// for tree-based HTML structure analysis and segmentation.
-var htmlBlockTags = []string{"<div", "<article", "<section", "<main", "<aside", "<nav", "<ul", "<ol", "<table"}
 
 // Config holds template configuration options
 type Config struct {
@@ -865,13 +861,13 @@ func (t *Template) generateTreeInternalWithErrors(data interface{}, errors map[s
 	t.mu.Unlock()
 
 	// Convert data to include lvt context for consistent template execution
-	dataWithLvt := t.addLvtToData(data, errors)
+	dataWithLvt := context.AddLvtToData(data, errors, t.config.DevMode)
 
 	// Load existing key mappings from previous render if available
 	// This needs to be done with lock held to safely read lastTree
 	t.mu.Lock()
 	if t.lastTree != nil {
-		if err := t.loadExistingKeyMappings(t.lastTree); err != nil {
+		if err := keys.LoadExistingKeyMappings(t.keyGen, t.lastTree); err != nil {
 			t.mu.Unlock()
 			return nil, fmt.Errorf("failed to load existing key mappings: %w", err)
 		}
@@ -919,52 +915,6 @@ func (t *Template) generateTreeInternalWithErrors(data interface{}, errors map[s
 	}
 
 	return tree, nil
-}
-
-// addLvtToData converts data to include lvt context
-func (t *Template) addLvtToData(data interface{}, errors map[string]string) interface{} {
-	if errors == nil {
-		errors = make(map[string]string)
-	}
-
-	// Use the same logic as executeTemplateWithContext to convert data
-	lvtContext := context.NewTemplateContext(errors, t.config.DevMode)
-
-	templateData := make(map[string]interface{})
-	templateData["lvt"] = lvtContext
-
-	val := reflect.ValueOf(data)
-	if val.Kind() == reflect.Ptr {
-		val = val.Elem()
-	}
-
-	if val.Kind() == reflect.Struct {
-		typ := val.Type()
-		for i := 0; i < val.NumField(); i++ {
-			field := typ.Field(i)
-
-			if !field.IsExported() {
-				continue
-			}
-
-			fieldName := field.Name
-			if jsonTag := field.Tag.Get("json"); jsonTag != "" {
-				if commaIdx := strings.Index(jsonTag, ","); commaIdx > 0 {
-					fieldName = jsonTag[:commaIdx]
-				} else if jsonTag != "-" {
-					fieldName = jsonTag
-				}
-			}
-			templateData[fieldName] = val.Field(i).Interface()
-			templateData[field.Name] = val.Field(i).Interface()
-		}
-	} else if val.Kind() == reflect.Map {
-		for _, key := range val.MapKeys() {
-			templateData[key.String()] = val.MapIndex(key).Interface()
-		}
-	}
-
-	return templateData
 }
 
 // executeTemplateWithErrors executes the template with given data and errors for lvt context
@@ -1056,7 +1006,7 @@ func (t *Template) generateInitialTreeWithoutRegistry(html string, data interfac
 		slog.Warn("Template parsing failed, falling back to HTML structure-based tree",
 			slog.String("template", t.name),
 			slog.String("error", err.Error()))
-		tree = t.createHTMLStructureBasedTree(contentToAnalyze)
+		tree = build.CreateHTMLStructureBasedTree(contentToAnalyze)
 	}
 
 	// Cache the initial structure for future dynamics-only updates
@@ -1124,7 +1074,7 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 	}
 
 	// Fallback to analyzing the change (shouldn't happen after first render)
-	tree, err := t.analyzeChangeAndCreateTree(oldContent, newContent, oldData, newData)
+	tree, err := build.AnalyzeChangeAndCreateTree(oldContent, newContent)
 	if err != nil {
 		return nil, err
 	}
@@ -1153,145 +1103,6 @@ func (t *Template) compareTreesAndGetChangesWithContext(oldTree, newTree *TreeNo
 	// Calculate range matches once at the top level for the entire tree
 	rangeMatches := diff.FindRangeConstructMatches(oldTree, newTree)
 	return diff.CompareTreesAndGetChangesWithPath(oldTree, newTree, insideNewStructure, "", rangeMatches, t.registry)
-}
-
-// analyzeChangeAndCreateTree determines the best tree structure based on the type of change
-func (t *Template) analyzeChangeAndCreateTree(oldHTML, newHTML string, _, _ interface{}) (*TreeNode, error) {
-	// Find common prefix and suffix to understand change patterns
-	commonPrefix := util.FindCommonPrefix(oldHTML, newHTML)
-	commonSuffix := util.FindCommonSuffix(oldHTML, newHTML)
-
-	// Calculate change boundaries
-	changeStart := len(commonPrefix)
-	changeEnd := len(newHTML) - len(commonSuffix)
-
-	// If entire content changed, return full dynamic content
-	if changeStart >= changeEnd || (changeStart == 0 && changeEnd == len(newHTML)) {
-		// Use the same segmentation strategy as the HTML fallback to ensure
-		// updates remain structurally consistent with initial renders.
-		return t.createHTMLStructureBasedTree(newHTML), nil
-	}
-
-	staticOverlap := len(commonPrefix) + len(commonSuffix)
-	if staticOverlap <= 2 {
-		hasMarkupFragment := strings.Contains(commonPrefix, "<") || strings.Contains(commonPrefix, ">") ||
-			strings.Contains(commonSuffix, "<") || strings.Contains(commonSuffix, ">")
-
-		if hasMarkupFragment {
-			return t.createHTMLStructureBasedTree(newHTML), nil
-		}
-	}
-
-	// If we have stable prefix/suffix, create tree with static parts
-	if commonPrefix != "" || commonSuffix != "" {
-		dynamicPart := newHTML[changeStart:changeEnd]
-		tree := NewTreeNodeWithStatics([]string{commonPrefix, commonSuffix})
-		tree.SetDynamic("0", render.MinifyHTML(dynamicPart))
-		return tree, nil
-	}
-
-	// Default to full dynamic content
-	return t.createHTMLStructureBasedTree(newHTML), nil
-}
-
-// createHTMLStructureBasedTree implements deterministic segmentation strategies for HTML content
-func (t *Template) createHTMLStructureBasedTree(html string) *TreeNode {
-	// Find the positions of block elements
-	var boundaries []int
-	for _, tag := range htmlBlockTags {
-		idx := 0
-		for {
-			pos := strings.Index(html[idx:], tag)
-			if pos == -1 {
-				break
-			}
-			boundaries = append(boundaries, idx+pos)
-			idx = idx + pos + len(tag)
-		}
-	}
-
-	// Sort boundaries
-	if len(boundaries) > 0 {
-		// Simple sort
-		for i := 0; i < len(boundaries)-1; i++ {
-			for j := i + 1; j < len(boundaries); j++ {
-				if boundaries[i] > boundaries[j] {
-					boundaries[i], boundaries[j] = boundaries[j], boundaries[i]
-				}
-			}
-		}
-
-		// Create segments based on boundaries
-		const maxSegments = 8
-		segmentSize := len(html) / maxSegments
-
-		var statics []string
-		var dynamics []interface{}
-		lastPos := 0
-		dynamicIndex := 0
-
-		for i, boundary := range boundaries {
-			// Only create a segment if it's large enough
-			if boundary-lastPos > segmentSize || i == len(boundaries)-1 {
-				if lastPos == 0 {
-					// First segment is typically more static (head, nav, etc)
-					statics = append(statics, html[lastPos:boundary])
-				} else {
-					// Create a dynamic segment
-					statics = append(statics, "")
-					dynamics = append(dynamics, html[lastPos:boundary])
-					dynamicIndex++
-				}
-				lastPos = boundary
-			}
-		}
-
-		// Add the final segment
-		if lastPos < len(html) {
-			statics = append(statics, "")
-			dynamics = append(dynamics, html[lastPos:])
-		}
-
-		// Build the tree
-		tree := NewTreeNodeWithStatics(statics)
-		for i, dyn := range dynamics {
-			// Minify HTML content if it's a string containing HTML
-			if strDyn, ok := dyn.(string); ok && strings.Contains(strDyn, "<") {
-				dyn = render.MinifyHTML(strDyn)
-			}
-			tree.SetDynamic(fmt.Sprintf("%d", i), dyn)
-		}
-
-		// If we got reasonable segmentation, use it
-		if len(statics) > 2 && len(dynamics) > 0 {
-			return tree
-		}
-	}
-
-	// Fallback to single segment strategy
-	fallback := NewTreeNodeWithStatics([]string{"", ""})
-	fallback.SetDynamic("0", render.MinifyHTML(html))
-	return fallback
-}
-
-// loadExistingKeyMappings loads existing key mappings from the last tree node
-func (t *Template) loadExistingKeyMappings(lastTree *TreeNode) error {
-	if lastTree == nil {
-		return nil
-	}
-
-	// Look for range data in the tree dynamics and load existing key mappings
-	for _, value := range lastTree.Dynamics {
-		// Check if this is a TreeNode with Range data
-		if node, ok := value.(*TreeNode); ok {
-			if node.HasRange() && node.Range != nil {
-				if err := t.keyGen.LoadExistingKeys(node.Range.Items); err != nil {
-					return fmt.Errorf("loadExistingKeyMappings: %w", err)
-				}
-			}
-		}
-	}
-	return nil
 }
 
 // Handle creates an http.Handler for the template with the given stores.
