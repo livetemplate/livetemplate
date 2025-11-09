@@ -171,7 +171,7 @@ func TestUpdateSpecification_FirstRender(t *testing.T) {
 				t.Fatalf("Failed to parse template: %v", err)
 			}
 
-			tree, err := parseTemplateToTree(tt.template, tt.data, tmpl.keyGen)
+			tree, err := parseTemplateToTree("test", tt.template, tt.data, tmpl.keyGen)
 			if err != nil {
 				t.Fatalf("Failed to generate tree: %v", err)
 			}
@@ -300,13 +300,13 @@ func TestUpdateSpecification_SubsequentUpdates(t *testing.T) {
 			}
 
 			// Generate initial tree
-			initialTree, err := parseTemplateToTree(tt.template, tt.initial, tmpl.keyGen)
+			initialTree, err := parseTemplateToTree("test", tt.template, tt.initial, tmpl.keyGen)
 			if err != nil {
 				t.Fatalf("Failed to generate initial tree: %v", err)
 			}
 
 			// Generate updated tree
-			updatedTree, err := parseTemplateToTree(tt.template, tt.update, tmpl.keyGen)
+			updatedTree, err := parseTemplateToTree("test", tt.template, tt.update, tmpl.keyGen)
 			if err != nil {
 				t.Fatalf("Failed to generate updated tree: %v", err)
 			}
@@ -488,11 +488,11 @@ func TestUpdateSpecification_RangeOperations(t *testing.T) {
 
 			// Generate initial tree
 			initialData := struct{ Items []Item }{Items: tt.initial}
-			initialTree, _ := parseTemplateToTree(template, initialData, tmpl.keyGen)
+			initialTree, _ := parseTemplateToTree("test", template, initialData, tmpl.keyGen)
 
 			// Generate updated tree
 			updateData := struct{ Items []Item }{Items: tt.update}
-			updatedTree, _ := parseTemplateToTree(template, updateData, tmpl.keyGen)
+			updatedTree, _ := parseTemplateToTree("test", template, updateData, tmpl.keyGen)
 
 			// Get changes
 			tmpl.lastTree = initialTree
@@ -858,7 +858,7 @@ func TestComplexTemplate(t *testing.T) {
 
 	// Generate updated tree
 	tmpl.lastTree = initialTree
-	updatedTree, _ := parseTemplateToTree(template, updatedData, tmpl.keyGen)
+	updatedTree, _ := parseTemplateToTree("test", template, updatedData, tmpl.keyGen)
 	changes := tmpl.compareTreesAndGetChanges(initialTree, updatedTree)
 
 	// Basic validation: check that we got changes

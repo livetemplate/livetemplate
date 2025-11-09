@@ -600,6 +600,10 @@ func (t *Template) Clone() (*Template, error) {
 	return clone, nil
 }
 
+// =============================================================================
+// Phase 1: Parse - Template Parsing
+// =============================================================================
+
 // Parse parses text as a template body for the template t.
 // This matches the signature of html/template.Template.Parse().
 func (t *Template) Parse(text string) (*Template, error) {
@@ -750,13 +754,20 @@ func (t *Template) ParseGlob(pattern string) (*Template, error) {
 	return t.ParseFiles(filenames...)
 }
 
+// =============================================================================
+// Public API - Execution (Orchestrates All 5 Phases)
+// =============================================================================
+
 // Execute applies a parsed template to the specified data object,
-// writing the output to wr. The template is rendered as a complete HTML page
-// with wrapper injection for full HTML documents.
+// writing the output to wr. It orchestrates all 5 phases:
+//   Phase 1: Parse (already done via Parse/ParseFiles/ParseGlob)
+//   Phase 2: Build - Generate tree structure
+//   Phase 3: Diff - Compare with cached state (no-op for first render)
+//   Phase 4: Render - Execute template to HTML
+//   Phase 5: Send - Write HTML response
 //
-// Phase 1: For full HTML documents (containing <!DOCTYPE html> or <html>),
-// the body content is automatically wrapped in a div with a randomly generated data-lvt-id.
-// Phase 2: The complete HTML (with wrapper) is rendered and written to wr.
+// Note: Phases execute in order 1→4→5→2 (Render before Build) to minimize
+// response latency. Tree building for caching happens after sending the response.
 //
 // Optional errors parameter provides error context for template via lvt namespace.
 func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]string) error {
@@ -772,41 +783,30 @@ func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]
 		errMap = make(map[string]string)
 	}
 
-	// Execute the template once and reuse the result for both output and caching
-	// This eliminates 2x performance cost from double execution
-	htmlBytes, err := context.ExecuteTemplateWithContext(t.tmpl, data, errMap, t.config.DevMode)
+	// Phase 1: Parse (already completed during New/Parse/ParseFiles/ParseGlob)
+
+	// Phase 4: Render HTML (done first to get the HTML for output)
+	html, err := t.renderHTML(data, errMap)
 	if err != nil {
 		return err
 	}
-	_, err = wr.Write(htmlBytes)
+
+	// Phase 5: Send HTML response
+	err = t.sendResponse(wr, html)
 	if err != nil {
 		return err
 	}
 
-	// Initialize caching state for future ExecuteUpdates calls
-	// Reuse htmlBytes from first execution (no need to execute again)
-	currentHTML := string(htmlBytes)
-
-	// Generate and cache initial tree structure for performance
-	// This enables ExecuteUpdates to generate diffs on subsequent calls
-	t.mu.Lock()
-	tree, treeErr := t.generateInitialTreeWithoutRegistry(currentHTML, data)
-	if treeErr == nil {
-		// Successfully generated tree - cache it along with data and HTML
-		// This must be done AFTER tree generation so isFirstRender detection works correctly
-		t.lastData = data
-		t.lastHTML = currentHTML
-	}
-	t.mu.Unlock()
-
+	// Phase 2: Build tree structure for caching (includes Phase 3: Diff internally)
+	// This is done after sending the response for performance
+	_, treeErr := t.buildTree(data, errMap)
 	if treeErr != nil {
 		// Don't fail if tree generation fails, just skip caching
+		// Log for observability so operators can detect degraded performance
+		slog.Warn("Tree building failed, skipping cache update",
+			slog.String("template", t.name),
+			slog.String("error", treeErr.Error()))
 		return nil
-	}
-
-	// Mark structures in registry outside the lock
-	if tree != nil {
-		t.markAllStructuresAsSeen(tree, "")
 	}
 
 	return nil
@@ -814,14 +814,16 @@ func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]
 
 // ExecuteUpdates generates a tree structure of static and dynamic content
 // that can be used by JavaScript clients to update changed parts efficiently.
+// It orchestrates all 5 phases:
+//   Phase 1: Parse (already done via Parse/ParseFiles/ParseGlob)
+//   Phase 2: Build - Generate tree structure (includes Phase 3: Diff internally)
+//   Phase 3: Diff - Compare with cached tree, return only changes (integrated in Build)
+//   Phase 4: Render - Execute template (integrated in Build)
+//   Phase 5: Send - Write JSON tree response
 //
 // Caching behavior:
 // - First call: Returns complete tree with static structure ("s" key) and dynamic values
 // - Subsequent calls: Returns only dynamic values that have changed (cache-aware)
-//
-// Tree generation phases:
-// 1. Compile time: Template is analyzed to separate static/dynamic parts
-// 2. Runtime: Dynamic parts are hydrated with data and compared with previous state
 //
 // Optional errors parameter provides error context for template via lvt namespace.
 func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, errors ...map[string]string) error {
@@ -833,103 +835,31 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, errors ...map[
 	if len(errors) > 0 {
 		errMap = errors[0]
 	}
+	if errMap == nil {
+		errMap = make(map[string]string)
+	}
 
-	tree, err := t.generateTreeInternalWithErrors(data, errMap)
+	// Phase 1: Parse (already completed during New/Parse/ParseFiles/ParseGlob)
+
+	// Phase 2: Build tree structure (includes Phase 3: Diff and Phase 4: Render internally)
+	tree, err := t.buildTree(data, errMap)
 	if err != nil {
 		return fmt.Errorf("tree generation failed: %w", err)
 	}
 
-	// Convert tree to ordered JSON with readable HTML (no escape sequences)
-	jsonBytes, err := send.MarshalOrderedJSON(tree)
-	if err != nil {
-		return fmt.Errorf("JSON encoding failed: %w", err)
-	}
-
-	_, err = wr.Write(jsonBytes)
-	return err
+	// Phase 5: Send JSON tree response
+	return t.sendResponse(wr, tree)
 }
 
-// generateTreeInternalWithErrors is the internal implementation that returns TreeNode with error context
+// =============================================================================
+// Internal Helper Methods (Phase 2: Build)
+// =============================================================================
+
+// generateTreeInternalWithErrors delegates to buildTree() for backward compatibility.
+// DEPRECATED: Tests should use buildTree() directly. This wrapper exists only for
+// existing test code and will be removed in a future version.
 func (t *Template) generateTreeInternalWithErrors(data interface{}, errors map[string]string) (*TreeNode, error) {
-	// Initialize key generator if needed (defensive check for edge cases)
-	// Do this check before locking to reduce critical section
-	t.mu.Lock()
-	if t.keyGen == nil {
-		t.keyGen = newKeyGenerator()
-	}
-	isFirstRender := t.lastData == nil
-	t.mu.Unlock()
-
-	// Convert data to include lvt context for consistent template execution
-	dataWithLvt := context.AddLvtToData(data, errors, t.config.DevMode)
-
-	// Load existing key mappings from previous render if available
-	// This needs to be done with lock held to safely read lastTree
-	t.mu.Lock()
-	if t.lastTree != nil {
-		if err := keys.LoadExistingKeyMappings(t.keyGen, t.lastTree); err != nil {
-			t.mu.Unlock()
-			return nil, fmt.Errorf("failed to load existing key mappings: %w", err)
-		}
-	}
-	t.mu.Unlock()
-
-	// Execute template with current data and errors (CPU-intensive, no lock needed)
-	currentHTML, err := t.executeTemplateWithErrors(data, errors)
-	if err != nil {
-		return nil, fmt.Errorf("template execution error: %w", err)
-	}
-
-	// Generate tree and update state atomically
-	t.mu.Lock()
-	var tree *TreeNode
-	var treeErr error
-
-	// First render - no previous state
-	if isFirstRender {
-		// Extract content from wrapper for consistent caching
-		var contentToCache string
-		if t.wrapperID != "" {
-			contentToCache = extractTemplateContent(currentHTML, t.wrapperID)
-		} else {
-			contentToCache = currentHTML
-		}
-
-		t.lastData = dataWithLvt
-		t.lastHTML = contentToCache
-		tree, treeErr = t.generateInitialTreeWithoutRegistry(currentHTML, dataWithLvt)
-	} else {
-		// Subsequent renders - use diffing approach
-		tree, treeErr = t.generateDiffBasedTree(t.lastHTML, currentHTML, t.lastData, dataWithLvt)
-	}
-	t.mu.Unlock()
-
-	if treeErr != nil {
-		return nil, treeErr
-	}
-
-	// Mark structures in registry outside the lock (registry has its own lock)
-	// This is safe because registry operations are independent of template state
-	if isFirstRender && tree != nil {
-		t.markAllStructuresAsSeen(tree, "")
-	}
-
-	return tree, nil
-}
-
-// executeTemplateWithErrors executes the template with given data and errors for lvt context
-func (t *Template) executeTemplateWithErrors(data interface{}, errors map[string]string) (string, error) {
-	// Always use executeTemplateWithContext to ensure lvt namespace is available
-	if errors == nil {
-		errors = make(map[string]string)
-	}
-
-	// Execute with lvt context
-	htmlBytes, err := context.ExecuteTemplateWithContext(t.tmpl, data, errors, t.config.DevMode)
-	if err != nil {
-		return "", err
-	}
-	return string(htmlBytes), nil
+	return t.buildTree(data, errors)
 }
 
 // markAllStructuresAsSeen recursively traverses a tree and marks all structures in the registry.
@@ -1000,7 +930,7 @@ func (t *Template) generateInitialTreeWithoutRegistry(html string, data interfac
 	ctx := NewTreeGenerationContext()
 	ctx.FuncMap = t.funcs
 	ctx.DevMode = t.config.DevMode
-	tree, err := parseTemplateToTree(templateContent, data, t.keyGen, ctx)
+	tree, err := parseTemplateToTree(t.name, templateContent, data, t.keyGen, ctx)
 	if err != nil {
 		// parseTemplateToTree failed, falling back to HTML structure
 		slog.Warn("Template parsing failed, falling back to HTML structure-based tree",
@@ -1051,7 +981,7 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 		ctx := NewTreeGenerationContext()
 		ctx.FuncMap = t.funcs
 		ctx.DevMode = t.config.DevMode
-		newTree, err := parseTemplateToTree(templateContent, newData, t.keyGen, ctx)
+		newTree, err := parseTemplateToTree(t.name, templateContent, newData, t.keyGen, ctx)
 		if err != nil {
 			return nil, fmt.Errorf("tree generation failed: %w", err)
 		}
@@ -1091,6 +1021,9 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 	return addFingerprintToTree(tree), nil
 }
 
+// =============================================================================
+// Internal Helper Methods (Phase 3: Diff)
+// =============================================================================
 
 // compareTreesAndGetChanges compares two trees and returns only changed dynamics
 func (t *Template) compareTreesAndGetChanges(oldTree, newTree *TreeNode) *TreeNode {
@@ -1210,4 +1143,141 @@ func getStoreName(store Store) string {
 		t = t.Elem()
 	}
 	return t.Name() // e.g., "CounterState", "UserState"
+}
+
+// =============================================================================
+// Phase 2: Build - Tree Construction
+// =============================================================================
+
+// buildTree orchestrates tree building for the current render.
+// This is the main entry point for Phase 2 (Build).
+// It handles both initial renders and subsequent updates internally.
+// Thread-safe: uses single lock acquisition to prevent race conditions.
+func (t *Template) buildTree(data interface{}, errors map[string]string) (*TreeNode, error) {
+	// Phase 4: Render HTML (needed for tree building)
+	// Do this outside the lock as it's CPU-intensive and doesn't modify shared state
+	currentHTML, err := t.renderHTML(data, errors)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert data to include lvt context
+	dataWithLvt := context.AddLvtToData(data, errors, t.config.DevMode)
+
+	// Note: We don't invalidate the expression cache here because:
+	// 1. Cache keys include dataHash, so changed data naturally misses the cache
+	// 2. Cache is intra-render optimization (expressions within a single template execution)
+	// 3. Invalidating on every render would defeat the purpose of caching
+	// The cache will naturally expire as data changes across renders.
+
+	// Acquire lock once for all state reads/writes
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	// Initialize key generator if needed (defensive check)
+	if t.keyGen == nil {
+		t.keyGen = newKeyGenerator()
+	}
+
+	// Load existing key mappings if available
+	if t.lastTree != nil {
+		if err := keys.LoadExistingKeyMappings(t.keyGen, t.lastTree); err != nil {
+			return nil, fmt.Errorf("failed to load existing key mappings: %w", err)
+		}
+	}
+
+	// Determine if this is first render
+	isFirstRender := t.lastData == nil
+
+	// Build tree based on render type
+	var tree *TreeNode
+	var treeErr error
+
+	if isFirstRender {
+		// Extract content from wrapper for consistent caching
+		var contentToCache string
+		if t.wrapperID != "" {
+			contentToCache = extractTemplateContent(currentHTML, t.wrapperID)
+		} else {
+			contentToCache = currentHTML
+		}
+
+		t.lastData = dataWithLvt
+		t.lastHTML = contentToCache
+		tree, treeErr = t.generateInitialTreeWithoutRegistry(currentHTML, dataWithLvt)
+	} else {
+		// Subsequent renders - use diffing approach
+		tree, treeErr = t.generateDiffBasedTree(t.lastHTML, currentHTML, t.lastData, dataWithLvt)
+	}
+
+	if treeErr != nil {
+		return nil, treeErr
+	}
+
+	// Mark structures in registry (registry has its own locking, so this is safe)
+	// Note: We keep the main lock held here for correctness, though markAllStructuresAsSeen
+	// has its own internal locking. The performance impact is minimal since this only runs
+	// on first render.
+	if isFirstRender && tree != nil {
+		t.markAllStructuresAsSeen(tree, "")
+	}
+
+	return tree, nil
+}
+
+// =============================================================================
+// Phase 4: Render - HTML Rendering
+// =============================================================================
+
+// renderHTML executes the template and returns the rendered HTML.
+// This is the main entry point for Phase 4 (Render).
+// It handles both full renders and update renders internally.
+func (t *Template) renderHTML(data interface{}, errors map[string]string) (string, error) {
+	if t.tmpl == nil {
+		return "", fmt.Errorf("template not parsed")
+	}
+
+	if errors == nil {
+		errors = make(map[string]string)
+	}
+
+	// Execute template with lvt context
+	htmlBytes, err := context.ExecuteTemplateWithContext(t.tmpl, data, errors, t.config.DevMode)
+	if err != nil {
+		return "", err
+	}
+
+	return string(htmlBytes), nil
+}
+
+// =============================================================================
+// Phase 5: Send - Response Writing
+// =============================================================================
+
+// sendResponse writes the response to the output writer.
+// This is the main entry point for Phase 5 (Send).
+// For Execute(): sends HTML
+// For ExecuteUpdates(): sends JSON tree
+func (t *Template) sendResponse(wr io.Writer, data interface{}) error {
+	// Check if data is a TreeNode (JSON response) or HTML string
+	switch v := data.(type) {
+	case *TreeNode:
+		// Send JSON tree updates
+		jsonBytes, err := send.MarshalOrderedJSON(v)
+		if err != nil {
+			return fmt.Errorf("JSON encoding failed: %w", err)
+		}
+		_, err = wr.Write(jsonBytes)
+		return err
+	case string:
+		// Send HTML
+		_, err := wr.Write([]byte(v))
+		return err
+	case []byte:
+		// Send HTML bytes
+		_, err := wr.Write(v)
+		return err
+	default:
+		return fmt.Errorf("unsupported response type: %T", data)
+	}
 }

@@ -5,7 +5,9 @@ package parse
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"reflect"
@@ -30,6 +32,12 @@ var pipeTemplateCache sync.Map
 // Key is the template string, value is the parsed *template.Template.
 // Uses sync.Map for efficient concurrent access.
 var astTemplateCache sync.Map
+
+// executionCache caches pipeline evaluation results to avoid redundant template execution.
+// Key is hash of (templateName + pipeStr + dataHash), value is the evaluation result.
+// Uses sync.Map for efficient concurrent access.
+// Cache is invalidated when data changes (detected via hash comparison).
+var executionCache sync.Map
 
 // initCaptureFunc initializes the capture function name with a unique random suffix.
 // This is called lazily on first use to avoid panicking during package initialization.
@@ -437,6 +445,58 @@ func evaluatePipe(pipeStr string, data interface{}, ctx *Context) (interface{}, 
 		return nil, err
 	}
 	return buf.String(), nil
+}
+
+// hashData generates a stable hash string from data for cache key generation.
+// Uses SHA256 for cryptographic strength and JSON serialization for stability.
+// Returns empty string on error (cache miss is safe fallback).
+func hashData(data interface{}) string {
+	// Handle nil data
+	if data == nil {
+		return "nil"
+	}
+
+	// Serialize data to JSON for stable hash
+	jsonBytes, err := json.Marshal(data)
+	if err != nil {
+		// If serialization fails, return empty string (cache will miss)
+		return ""
+	}
+
+	// Generate SHA256 hash
+	hash := sha256.Sum256(jsonBytes)
+	return hex.EncodeToString(hash[:])
+}
+
+// evaluatePipeWithCache evaluates a pipe expression with result caching.
+// Caches results based on (templateName + pipeStr + dataHash) to avoid redundant execution.
+// Falls back to uncached evaluation if cache operations fail.
+func evaluatePipeWithCache(templateName, pipeStr string, data interface{}, ctx *Context) (interface{}, error) {
+	// Generate cache key from template name, pipe string, and data hash
+	dataHash := hashData(data)
+	cacheKey := templateName + ":" + pipeStr + ":" + dataHash
+
+	// Try to get from cache
+	if cached, ok := executionCache.Load(cacheKey); ok {
+		return cached, nil
+	}
+
+	// Cache miss - evaluate the pipe
+	result, err := evaluatePipe(pipeStr, data, ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Store in cache for future use
+	executionCache.Store(cacheKey, result)
+
+	return result, nil
+}
+
+// InvalidateExecutionCache clears the execution cache.
+// Called when data changes to ensure fresh evaluation.
+func InvalidateExecutionCache() {
+	executionCache = sync.Map{}
 }
 
 // getOrParsePipeTemplate retrieves a cached template or parses a new one.

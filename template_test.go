@@ -1073,7 +1073,7 @@ func TestFlattenTemplate_IntegrationWithTreeGeneration(t *testing.T) {
 		},
 	}
 
-	tree, err := parseTemplateToTree(flattened, data, newKeyGenerator())
+	tree, err := parseTemplateToTree("test", flattened, data, newKeyGenerator())
 	if err != nil {
 		t.Fatalf("Failed to generate tree from flattened template: %v", err)
 	}
@@ -1895,7 +1895,7 @@ func TestTemplateGenerateInitialTreeFallsBackForBlockWithDynamicTemplate(t *test
 
 	ctx := NewTreeGenerationContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := parseTemplateToTree(dynamicTemplateStr, data, newKeyGenerator(), ctx); err == nil {
+	if _, err := parseTemplateToTree("test", dynamicTemplateStr, data, newKeyGenerator(), ctx); err == nil {
 		t.Fatalf("expected AST parser to error for block with dynamic template invocation")
 	}
 
@@ -1937,7 +1937,7 @@ func TestTemplateGenerateInitialTreeFallsBackForChannelRange(t *testing.T) {
 
 	ctx := NewTreeGenerationContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := parseTemplateToTree(`<ul>{{range .Events}}<li>{{.}}</li>{{end}}</ul>`, data, newKeyGenerator(), ctx); err == nil {
+	if _, err := parseTemplateToTree("test", `<ul>{{range .Events}}<li>{{.}}</li>{{end}}</ul>`, data, newKeyGenerator(), ctx); err == nil {
 		t.Fatalf("expected AST parser to error for channel range")
 	}
 
@@ -1979,7 +1979,7 @@ func TestTemplateGenerateInitialTreeFallsBackForChannelRangeWithDecls(t *testing
 
 	ctx := NewTreeGenerationContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := parseTemplateToTree(templateStr, data, newKeyGenerator(), ctx); err == nil {
+	if _, err := parseTemplateToTree("test", templateStr, data, newKeyGenerator(), ctx); err == nil {
 		t.Fatalf("expected AST parser to error for channel range with declarations")
 	}
 
@@ -2015,7 +2015,7 @@ func TestTemplateGenerateInitialTreeFallsBackForIntegerRange(t *testing.T) {
 
 	ctx := NewTreeGenerationContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := parseTemplateToTree(templateStr, nil, newKeyGenerator(), ctx); err == nil {
+	if _, err := parseTemplateToTree("test", templateStr, nil, newKeyGenerator(), ctx); err == nil {
 		t.Fatalf("expected AST parser to error for integer range")
 	}
 
@@ -2092,7 +2092,7 @@ func TestTemplateGenerateInitialTreeFallsBackForRangeBreak(t *testing.T) {
 
 	ctx := NewTreeGenerationContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := parseTemplateToTree(templateStr, data, newKeyGenerator(), ctx); err == nil {
+	if _, err := parseTemplateToTree("test", templateStr, data, newKeyGenerator(), ctx); err == nil {
 		t.Fatalf("expected AST parser to error for range with break")
 	}
 
@@ -2130,7 +2130,7 @@ func TestTemplateGenerateInitialTreeFallsBackForRangeContinue(t *testing.T) {
 
 	ctx := NewTreeGenerationContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := parseTemplateToTree(templateStr, data, newKeyGenerator(), ctx); err == nil {
+	if _, err := parseTemplateToTree("test", templateStr, data, newKeyGenerator(), ctx); err == nil {
 		t.Fatalf("expected AST parser to error for range with continue")
 	}
 
@@ -2179,7 +2179,7 @@ func TestTemplateGenerateInitialTreeFallsBackForDynamicTemplateInvocation(t *tes
 
 	ctx := NewTreeGenerationContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := parseTemplateToTree(dynamicTemplateStr, data, newKeyGenerator(), ctx); err == nil {
+	if _, err := parseTemplateToTree("test", dynamicTemplateStr, data, newKeyGenerator(), ctx); err == nil {
 		t.Fatalf("expected AST parser to error for dynamic template invocation")
 	}
 
@@ -2228,7 +2228,7 @@ func TestTemplateGenerateInitialTreeFallsBackForWithIterSeq(t *testing.T) {
 
 	ctx := NewTreeGenerationContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := parseTemplateToTree(templateStr, nil, newKeyGenerator(), ctx); err == nil {
+	if _, err := parseTemplateToTree("test", templateStr, nil, newKeyGenerator(), ctx); err == nil {
 		t.Fatalf("expected AST parser to error for with pipeline returning iter.Seq")
 	}
 
