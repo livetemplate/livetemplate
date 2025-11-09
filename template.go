@@ -115,9 +115,14 @@ import (
 // Internal Type Aliases (Not Part of Public API)
 // =============================================================================
 //
-// IMPORTANT: These type aliases are internal implementation details used by Template.
-// External users should NOT depend on these types or use them directly.
-// They are not part of the stable public API and may change without notice.
+// IMPORTANT: These type aliases exist in the main package (not internal/) to support
+// Template's implementation and same-package test files, but are NOT part of the stable
+// public API. External users should NOT depend on these types - they may change without notice.
+//
+// Why lowercase (unexported)?
+// - These are true internal implementation details
+// - Only Template methods and same-package tests need access
+// - External packages cannot and should not use them
 //
 // These aliases exist to:
 // - Provide convenient access to internal types within this package

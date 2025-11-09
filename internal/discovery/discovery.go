@@ -21,7 +21,7 @@ var ignoredTemplateDirs = map[string]struct{}{
 func DiscoverTemplateFiles(baseDir string, customIgnoreDirs []string) ([]string, error) {
 	// If no base directory provided, try to determine caller's directory for backward compatibility
 	if baseDir == "" {
-		// Try to get the caller's directory (3 frames up: discoverTemplateFiles -> New -> user code)
+		// Try to get the caller's directory (3 frames up: DiscoverTemplateFiles -> New -> user code)
 		// This is brittle and maintained only for backward compatibility
 		_, filename, _, ok := runtime.Caller(3)
 		if !ok {
