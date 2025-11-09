@@ -16,9 +16,10 @@ import (
 )
 
 // captureResultFuncName is a unique function name used internally to capture
-// pipeline evaluation results. Generated once at init with random suffix to
+// pipeline evaluation results. Generated lazily on first use with random suffix to
 // prevent collision with user-defined functions.
 var captureResultFuncName string
+var captureResultFuncNameOnce sync.Once
 
 // pipeTemplateCache caches parsed pipe templates to avoid repeated parsing.
 // Key is the template string, value is the parsed *template.Template.
@@ -30,15 +31,22 @@ var pipeTemplateCache sync.Map
 // Uses sync.Map for efficient concurrent access.
 var astTemplateCache sync.Map
 
-func init() {
-	// Generate unique function name with random suffix
-	randBytes := make([]byte, 8)
-	if _, err := rand.Read(randBytes); err != nil {
-		// This should never happen, but if it does, it's a critical error
-		// because template evaluation depends on this unique function name
-		panic(fmt.Sprintf("failed to generate random capture function name: %v", err))
-	}
-	captureResultFuncName = fmt.Sprintf("__lvt_internal_capture_%s__", hex.EncodeToString(randBytes))
+// initCaptureFunc initializes the capture function name with a unique random suffix.
+// This is called lazily on first use to avoid panicking during package initialization.
+// If random generation fails, falls back to a pseudo-random approach.
+func initCaptureFunc() {
+	captureResultFuncNameOnce.Do(func() {
+		// Try to generate a unique function name with random suffix
+		randBytes := make([]byte, 8)
+		if _, err := rand.Read(randBytes); err != nil {
+			// Fallback to address-based unique identifier if crypto/rand fails
+			// This is extremely unlikely but ensures library never panics
+			// Use pointer address which is unique per process
+			captureResultFuncName = fmt.Sprintf("__lvt_internal_capture_%p__", &captureResultFuncName)
+		} else {
+			captureResultFuncName = fmt.Sprintf("__lvt_internal_capture_%s__", hex.EncodeToString(randBytes))
+		}
+	})
 }
 
 // Template represents a parsed template with its AST and associated data.
@@ -48,9 +56,28 @@ type Template struct {
 }
 
 // Parse parses a template string into an executable template structure.
-// It returns the AST for tree building.
-// Note: Template composition ({{template}} calls) is not currently supported
-// and will cause buildTreeFromAST to return an error.
+//
+// This function parses Go template syntax into an Abstract Syntax Tree (AST) that can
+// be used with BuildTree to generate tree structures for efficient client-side updates.
+//
+// Parameters:
+//   - templateStr: The template string using Go template syntax ({{.Field}}, {{range}}, etc.)
+//   - funcMap: Optional map of custom functions available in the template
+//
+// Returns:
+//   - *Template: Parsed template containing the AST, ready for BuildTree
+//   - error: Parse errors if template syntax is invalid
+//
+// Note: Template composition ({{template "name" .}} calls) must be flattened before
+// calling Parse. Use the template flattening utilities in the parent package.
+//
+// Example:
+//
+//	tmpl, err := Parse("<div>{{.Name}}</div>", nil)
+//	if err != nil {
+//	    return err
+//	}
+//	tree, err := BuildTree(tmpl, data, keyGen, ctx)
 func Parse(templateStr string, funcMap template.FuncMap) (*Template, error) {
 	// Create context for parsing
 	ctx := &Context{FuncMap: funcMap}
@@ -73,7 +100,33 @@ func Parse(templateStr string, funcMap template.FuncMap) (*Template, error) {
 }
 
 // BuildTree constructs a tree structure from the parsed AST and data.
-// This is the core function that replaces regex-based expression extraction.
+//
+// This is the core function that replaces regex-based expression extraction by directly
+// walking the Go template parse tree (AST) and evaluating expressions against the provided data.
+//
+// Parameters:
+//   - tmpl: The parsed template from Parse() containing the AST
+//   - data: The data context for template evaluation (typically a struct or map)
+//   - keyGen: Generator for unique keys in range constructs (e.g., for list items)
+//   - ctx: Evaluation context containing:
+//     - FuncMap: Custom template functions available during evaluation
+//     - IncludeStatics: Whether to include static HTML in the tree (true for first render,
+//       false for updates to reduce payload size)
+//
+// Returns:
+//   - *TreeNode: A tree structure containing:
+//     - Statics: Array of static HTML strings (if ctx.IncludeStatics is true)
+//     - Dynamics: Map of dynamic values keyed by position ("0", "1", etc.)
+//     - Range: Range metadata for list/map iterations (if template contains {{range}})
+//   - error: Any error encountered during AST walking or expression evaluation
+//
+// The tree structure represents the template as alternating static and dynamic parts:
+//
+//	Tree{ Statics: ["<div>", "</div>"], Dynamics: {"0": "value"} }
+//	represents: <div>value</div>
+//
+// For first renders, include statics for complete HTML. For updates, omit statics
+// (client caches them) to send only changed dynamics.
 func BuildTree(tmpl *Template, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	// Default context if not provided
 	if ctx == nil {
@@ -272,19 +325,24 @@ func newTemplateWithFuncs(name string, ctx *Context) *template.Template {
 func getOrParseTemplate(cache *sync.Map, cacheKey, templateStr string, funcs template.FuncMap) (*template.Template, error) {
 	// Try to get from cache
 	if cached, ok := cache.Load(cacheKey); ok {
-		if cachedTmpl, ok := cached.(*template.Template); ok {
-			// Clone the cached template and apply the FuncMap
-			clone, err := cachedTmpl.Clone()
-			if err != nil {
-				// If clone fails, fall back to parsing
-				goto parse
-			}
-			// Apply FuncMap
-			if funcs != nil && len(funcs) > 0 {
-				clone.Funcs(funcs)
-			}
-			return clone, nil
+		cachedTmpl, ok := cached.(*template.Template)
+		if !ok {
+			// Cache corruption - entry exists but is not a template
+			// Fall through to parse to recover
+			goto parse
 		}
+
+		// Clone the cached template and apply the FuncMap
+		clone, err := cachedTmpl.Clone()
+		if err != nil {
+			// If clone fails, fall back to parsing
+			goto parse
+		}
+		// Apply FuncMap
+		if funcs != nil && len(funcs) > 0 {
+			clone.Funcs(funcs)
+		}
+		return clone, nil
 	}
 
 parse:
@@ -307,19 +365,27 @@ parse:
 	return parsedTmpl, nil
 }
 
+// getFuncMapFromContext extracts the function map from a context, returning nil if empty.
+// This centralizes the nil-checking logic used throughout template parsing.
+func getFuncMapFromContext(ctx *Context) template.FuncMap {
+	if ctx != nil && ctx.FuncMap != nil && len(ctx.FuncMap) > 0 {
+		return ctx.FuncMap
+	}
+	return nil
+}
+
 // getOrParseASTTemplate retrieves a cached AST node template or parses a new one.
 // This is used by action and conditional handlers to avoid repeated parsing.
 // Templates are cloned before applying FuncMap to allow concurrent execution with different functions.
 func getOrParseASTTemplate(cacheKey, templateStr string, ctx *Context) (*template.Template, error) {
-	var funcs template.FuncMap
-	if ctx != nil && ctx.FuncMap != nil && len(ctx.FuncMap) > 0 {
-		funcs = ctx.FuncMap
-	}
-	return getOrParseTemplate(&astTemplateCache, cacheKey, templateStr, funcs)
+	return getOrParseTemplate(&astTemplateCache, cacheKey, templateStr, getFuncMapFromContext(ctx))
 }
 
 // evaluatePipe evaluates a pipe expression against data.
 func evaluatePipe(pipeStr string, data interface{}, ctx *Context) (interface{}, error) {
+	// Initialize capture function name lazily
+	initCaptureFunc()
+
 	if pipeStr == "." {
 		return data, nil
 	}
@@ -331,8 +397,8 @@ func evaluatePipe(pipeStr string, data interface{}, ctx *Context) (interface{}, 
 
 	// Build function map with capture helper and user-provided functions
 	funcs := make(template.FuncMap)
-	if ctx != nil && ctx.FuncMap != nil {
-		for name, fn := range ctx.FuncMap {
+	if userFuncs := getFuncMapFromContext(ctx); userFuncs != nil {
+		for name, fn := range userFuncs {
 			funcs[name] = fn
 		}
 	}
