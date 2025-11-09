@@ -23,15 +23,11 @@ sequenceDiagram
     participant Browser
     participant Server
 
-    Note over Browser: User clicks<br/>&lt;button lvt-click="increment"&gt;
-    Browser->>Server: {action: "increment"}
-
+    Browser->>Server: User clicks button<br/>{action: "increment"}
     Note over Server: s.Counter++<br/>(Counter: 5 → 6)
-
-    Note over Server: Tree diff calculated:<br/>{"0": "6"}<br/>(50-90% smaller)
+    Note over Server: Tree diff calculated<br/>{"0": "6"} (50-90% smaller)
     Server->>Browser: {"0": "6"}
-
-    Note over Browser: DOM updated:<br/>&lt;h1&gt;Counter: 6&lt;/h1&gt;
+    Note over Browser: DOM updated<br/>Counter: 6
 ```
 
 This works because LiveTemplate uses **tree-based diffing** - a data model that makes updates predictable and efficient. When your state changes, LiveTemplate calculates exactly what changed and sends only that data (50-90% less than full HTML). The same predictable model that enables efficient updates also powers the `lvt` code generator, which can create complete CRUD applications that are reactive by default.
