@@ -1,4 +1,4 @@
-package livetemplate
+package parse
 
 import (
 	"bytes"
@@ -8,9 +8,14 @@ import (
 	"text/template/parse"
 )
 
-// flattenTemplate resolves all {{define}}/{{template}}/{{block}} constructs into a single template
-// This allows tree generation to work with templates that use Go's template composition features
-func flattenTemplate(tmpl *template.Template) (string, error) {
+// FlattenTemplate resolves all {{define}}/{{template}}/{{block}} constructs into a single template.
+// This allows tree generation to work with templates that use Go's template composition features.
+//
+// The function:
+// 1. Identifies the main executable template (entry point)
+// 2. Walks the AST and inlines all {{template}} invocations
+// 3. Returns a single flattened template string
+func FlattenTemplate(tmpl *template.Template) (string, error) {
 	// The main template is the one that was explicitly named when calling New()
 	// This is the entry point for execution
 	mainTemplate := tmpl
@@ -65,8 +70,24 @@ func flattenTemplate(tmpl *template.Template) (string, error) {
 	return buf.String(), nil
 }
 
-// hasExecutableContent checks if a template node tree has executable content
-// Returns false if it only contains {{define}} declarations
+// HasTemplateComposition checks if template uses {{define}}/{{template}}/{{block}}.
+// Returns true if the template uses composition features that require flattening.
+func HasTemplateComposition(tmpl *template.Template) bool {
+	// Check if template has associated templates (from {{define}})
+	if len(tmpl.Templates()) > 1 {
+		return true
+	}
+
+	// Check if template tree contains {{template}} nodes
+	if tmpl.Tree != nil && tmpl.Tree.Root != nil {
+		return hasTemplateNode(tmpl.Tree.Root)
+	}
+
+	return false
+}
+
+// hasExecutableContent checks if a template node tree has executable content.
+// Returns false if it only contains {{define}} declarations.
 func hasExecutableContent(node *parse.ListNode) bool {
 	if node == nil || len(node.Nodes) == 0 {
 		return false
@@ -105,226 +126,8 @@ func hasExecutableContent(node *parse.ListNode) bool {
 	return false
 }
 
-// walkAndFlatten recursively walks the AST and builds flattened template string
-func walkAndFlatten(node parse.Node, templates map[string]*template.Template, buf *bytes.Buffer) error {
-	if node == nil {
-		return nil
-	}
-
-	switch n := node.(type) {
-	case *parse.ListNode:
-		// Process all child nodes
-		for _, child := range n.Nodes {
-			if err := walkAndFlatten(child, templates, buf); err != nil {
-				return err
-			}
-		}
-
-	case *parse.TextNode:
-		// Plain text - copy as-is
-		buf.Write(n.Text)
-
-	case *parse.ActionNode:
-		// {{.Field}}, {{.Method}}, etc. - copy as-is
-		buf.WriteString("{{")
-		buf.WriteString(n.String()[2 : len(n.String())-2]) // Remove outer {{ }}
-		buf.WriteString("}}")
-
-	case *parse.IfNode:
-		// {{if}}...{{else}}...{{end}}
-		buf.WriteString("{{if ")
-		buf.WriteString(formatPipe(n.Pipe))
-		buf.WriteString("}}")
-
-		if err := walkAndFlatten(n.List, templates, buf); err != nil {
-			return err
-		}
-
-		if n.ElseList != nil {
-			buf.WriteString("{{else}}")
-			if err := walkAndFlatten(n.ElseList, templates, buf); err != nil {
-				return err
-			}
-		}
-
-		buf.WriteString("{{end}}")
-
-	case *parse.RangeNode:
-		// {{range}}...{{else}}...{{end}}
-		buf.WriteString("{{range ")
-		buf.WriteString(formatPipe(n.Pipe))
-		buf.WriteString("}}")
-
-		if err := walkAndFlatten(n.List, templates, buf); err != nil {
-			return err
-		}
-
-		if n.ElseList != nil {
-			buf.WriteString("{{else}}")
-			if err := walkAndFlatten(n.ElseList, templates, buf); err != nil {
-				return err
-			}
-		}
-
-		buf.WriteString("{{end}}")
-
-	case *parse.WithNode:
-		// {{with}}...{{else}}...{{end}}
-		buf.WriteString("{{with ")
-		buf.WriteString(formatPipe(n.Pipe))
-		buf.WriteString("}}")
-
-		if err := walkAndFlatten(n.List, templates, buf); err != nil {
-			return err
-		}
-
-		if n.ElseList != nil {
-			buf.WriteString("{{else}}")
-			if err := walkAndFlatten(n.ElseList, templates, buf); err != nil {
-				return err
-			}
-		}
-
-		buf.WriteString("{{end}}")
-
-	case *parse.TemplateNode:
-		// {{template "name" .}} - inline the template
-		refTemplate, exists := templates[n.Name]
-		if !exists {
-			return fmt.Errorf("template %q not defined", n.Name)
-		}
-
-		if refTemplate.Tree == nil || refTemplate.Tree.Root == nil {
-			return fmt.Errorf("template %q has no parse tree", n.Name)
-		}
-
-		// Handle data context changes
-		// If template invocation passes a different context (e.g., {{template "name" .Field}}),
-		// we need to wrap the inlined template in {{with}} to change the context
-		needsContextWrapper := false
-		if n.Pipe != nil {
-			pipeStr := formatPipe(n.Pipe)
-			// Only wrap if the pipe is not "." (which means same context)
-			if pipeStr != "." {
-				needsContextWrapper = true
-			}
-		}
-
-		if needsContextWrapper {
-			// Wrap template body in {{with}} to change context
-			buf.WriteString("{{with ")
-			buf.WriteString(formatPipe(n.Pipe))
-			buf.WriteString("}}")
-
-			if err := walkAndFlatten(refTemplate.Tree.Root, templates, buf); err != nil {
-				return err
-			}
-
-			buf.WriteString("{{end}}")
-		} else {
-			// No context change needed - inline as-is
-			if err := walkAndFlatten(refTemplate.Tree.Root, templates, buf); err != nil {
-				return err
-			}
-		}
-
-	default:
-		// For any node type we don't explicitly handle, try to preserve as-is
-		// This includes BranchNode and other internal nodes
-		buf.WriteString(n.String())
-	}
-
-	return nil
-}
-
-// formatPipe converts a pipe to its string representation
-func formatPipe(pipe *parse.PipeNode) string {
-	if pipe == nil {
-		return ""
-	}
-
-	var buf bytes.Buffer
-
-	// Handle declarations like $var := expr
-	if len(pipe.Decl) > 0 {
-		for i, decl := range pipe.Decl {
-			if i > 0 {
-				buf.WriteString(", ")
-			}
-			buf.WriteString(decl.String())
-		}
-		buf.WriteString(" := ")
-	}
-
-	// Handle commands
-	for i, cmd := range pipe.Cmds {
-		if i > 0 {
-			buf.WriteString(" | ")
-		}
-		buf.WriteString(formatCommand(cmd))
-	}
-
-	return buf.String()
-}
-
-// formatCommand converts a command to its string representation
-func formatCommand(cmd *parse.CommandNode) string {
-	if cmd == nil {
-		return ""
-	}
-
-	var buf bytes.Buffer
-	for i, arg := range cmd.Args {
-		if i > 0 {
-			buf.WriteString(" ")
-		}
-
-		switch a := arg.(type) {
-		case *parse.FieldNode:
-			buf.WriteString(a.String())
-		case *parse.IdentifierNode:
-			buf.WriteString(a.Ident)
-		case *parse.StringNode:
-			buf.WriteString(fmt.Sprintf("%q", a.Text))
-		case *parse.NumberNode:
-			buf.WriteString(a.String())
-		case *parse.BoolNode:
-			buf.WriteString(fmt.Sprintf("%v", a.True))
-		case *parse.DotNode:
-			buf.WriteString(".")
-		case *parse.NilNode:
-			buf.WriteString("nil")
-		case *parse.PipeNode:
-			// Nested function call - needs parentheses
-			// e.g., (len .Items) in {{if gt (len .Items) 0}}
-			buf.WriteString("(")
-			buf.WriteString(formatPipe(a))
-			buf.WriteString(")")
-		default:
-			buf.WriteString(arg.String())
-		}
-	}
-
-	return buf.String()
-}
-
-// hasTemplateComposition checks if template uses {{define}}/{{template}}/{{block}}
-func hasTemplateComposition(tmpl *template.Template) bool {
-	// Check if template has associated templates (from {{define}})
-	if len(tmpl.Templates()) > 1 {
-		return true
-	}
-
-	// Check if template tree contains {{template}} nodes
-	if tmpl.Tree != nil && tmpl.Tree.Root != nil {
-		return hasTemplateNode(tmpl.Tree.Root)
-	}
-
-	return false
-}
-
 // findTopLevelTemplateInvocation finds the first {{template}} invocation at the top level
-// (not inside {{define}} blocks) and returns the template name being invoked
+// (not inside {{define}} blocks) and returns the template name being invoked.
 func findTopLevelTemplateInvocation(node *parse.ListNode) string {
 	if node == nil || len(node.Nodes) == 0 {
 		return ""
@@ -345,7 +148,7 @@ func findTopLevelTemplateInvocation(node *parse.ListNode) string {
 	return ""
 }
 
-// hasTemplateNode recursively checks for {{template}} or {{block}} nodes
+// hasTemplateNode recursively checks for {{template}} or {{block}} nodes.
 func hasTemplateNode(node parse.Node) bool {
 	if node == nil {
 		return false
@@ -396,4 +199,207 @@ func hasTemplateNode(node parse.Node) bool {
 	}
 
 	return false
+}
+
+// walkAndFlatten recursively walks the AST and builds flattened template string.
+func walkAndFlatten(node parse.Node, templates map[string]*template.Template, buf *bytes.Buffer) error {
+	if node == nil {
+		return nil
+	}
+
+	switch n := node.(type) {
+	case *parse.ListNode:
+		// Process all child nodes
+		for _, child := range n.Nodes {
+			if err := walkAndFlatten(child, templates, buf); err != nil {
+				return err
+			}
+		}
+
+	case *parse.TextNode:
+		// Plain text - copy as-is
+		buf.Write(n.Text)
+
+	case *parse.ActionNode:
+		// {{.Field}}, {{.Method}}, etc. - copy as-is
+		buf.WriteString("{{")
+		buf.WriteString(n.String()[2 : len(n.String())-2]) // Remove outer {{ }}
+		buf.WriteString("}}")
+
+	case *parse.IfNode:
+		// {{if}}...{{else}}...{{end}}
+		buf.WriteString("{{if ")
+		buf.WriteString(formatPipeForFlatten(n.Pipe))
+		buf.WriteString("}}")
+
+		if err := walkAndFlatten(n.List, templates, buf); err != nil {
+			return err
+		}
+
+		if n.ElseList != nil {
+			buf.WriteString("{{else}}")
+			if err := walkAndFlatten(n.ElseList, templates, buf); err != nil {
+				return err
+			}
+		}
+
+		buf.WriteString("{{end}}")
+
+	case *parse.RangeNode:
+		// {{range}}...{{else}}...{{end}}
+		buf.WriteString("{{range ")
+		buf.WriteString(formatPipeForFlatten(n.Pipe))
+		buf.WriteString("}}")
+
+		if err := walkAndFlatten(n.List, templates, buf); err != nil {
+			return err
+		}
+
+		if n.ElseList != nil {
+			buf.WriteString("{{else}}")
+			if err := walkAndFlatten(n.ElseList, templates, buf); err != nil {
+				return err
+			}
+		}
+
+		buf.WriteString("{{end}}")
+
+	case *parse.WithNode:
+		// {{with}}...{{else}}...{{end}}
+		buf.WriteString("{{with ")
+		buf.WriteString(formatPipeForFlatten(n.Pipe))
+		buf.WriteString("}}")
+
+		if err := walkAndFlatten(n.List, templates, buf); err != nil {
+			return err
+		}
+
+		if n.ElseList != nil {
+			buf.WriteString("{{else}}")
+			if err := walkAndFlatten(n.ElseList, templates, buf); err != nil {
+				return err
+			}
+		}
+
+		buf.WriteString("{{end}}")
+
+	case *parse.TemplateNode:
+		// {{template "name" .}} - inline the template
+		refTemplate, exists := templates[n.Name]
+		if !exists {
+			return fmt.Errorf("template %q not defined", n.Name)
+		}
+
+		if refTemplate.Tree == nil || refTemplate.Tree.Root == nil {
+			return fmt.Errorf("template %q has no parse tree", n.Name)
+		}
+
+		// Handle data context changes
+		// If template invocation passes a different context (e.g., {{template "name" .Field}}),
+		// we need to wrap the inlined template in {{with}} to change the context
+		needsContextWrapper := false
+		if n.Pipe != nil {
+			pipeStr := formatPipeForFlatten(n.Pipe)
+			// Only wrap if the pipe is not "." (which means same context)
+			if pipeStr != "." {
+				needsContextWrapper = true
+			}
+		}
+
+		if needsContextWrapper {
+			// Wrap template body in {{with}} to change context
+			buf.WriteString("{{with ")
+			buf.WriteString(formatPipeForFlatten(n.Pipe))
+			buf.WriteString("}}")
+
+			if err := walkAndFlatten(refTemplate.Tree.Root, templates, buf); err != nil {
+				return err
+			}
+
+			buf.WriteString("{{end}}")
+		} else {
+			// No context change needed - inline as-is
+			if err := walkAndFlatten(refTemplate.Tree.Root, templates, buf); err != nil {
+				return err
+			}
+		}
+
+	default:
+		// For any node type we don't explicitly handle, try to preserve as-is
+		// This includes BranchNode and other internal nodes
+		buf.WriteString(n.String())
+	}
+
+	return nil
+}
+
+// formatPipe converts a pipe to its string representation.
+func formatPipeForFlatten(pipe *parse.PipeNode) string {
+	if pipe == nil {
+		return ""
+	}
+
+	var buf bytes.Buffer
+
+	// Handle declarations like $var := expr
+	if len(pipe.Decl) > 0 {
+		for i, decl := range pipe.Decl {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			buf.WriteString(decl.String())
+		}
+		buf.WriteString(" := ")
+	}
+
+	// Handle commands
+	for i, cmd := range pipe.Cmds {
+		if i > 0 {
+			buf.WriteString(" | ")
+		}
+		buf.WriteString(formatCommandForFlatten(cmd))
+	}
+
+	return buf.String()
+}
+
+// formatCommand converts a command to its string representation.
+func formatCommandForFlatten(cmd *parse.CommandNode) string {
+	if cmd == nil {
+		return ""
+	}
+
+	var buf bytes.Buffer
+	for i, arg := range cmd.Args {
+		if i > 0 {
+			buf.WriteString(" ")
+		}
+
+		switch a := arg.(type) {
+		case *parse.FieldNode:
+			buf.WriteString(a.String())
+		case *parse.IdentifierNode:
+			buf.WriteString(a.Ident)
+		case *parse.StringNode:
+			buf.WriteString(fmt.Sprintf("%q", a.Text))
+		case *parse.NumberNode:
+			buf.WriteString(a.String())
+		case *parse.BoolNode:
+			buf.WriteString(fmt.Sprintf("%v", a.True))
+		case *parse.DotNode:
+			buf.WriteString(".")
+		case *parse.NilNode:
+			buf.WriteString("nil")
+		case *parse.PipeNode:
+			// Nested function call - needs parentheses
+			// e.g., (len .Items) in {{if gt (len .Items) 0}}
+			buf.WriteString("(")
+			buf.WriteString(formatPipeForFlatten(a))
+			buf.WriteString(")")
+		default:
+			buf.WriteString(arg.String())
+		}
+	}
+
+	return buf.String()
 }

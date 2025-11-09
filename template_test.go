@@ -1,6 +1,7 @@
 package livetemplate
 
 import (
+	"github.com/livetemplate/livetemplate/internal/parse"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -812,7 +813,7 @@ func TestFlattenTemplate_Simple(t *testing.T) {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
 
-	flattened, err := flattenTemplate(tmpl)
+	flattened, err := parse.FlattenTemplate(tmpl)
 	if err != nil {
 		t.Fatalf("Failed to flatten template: %v", err)
 	}
@@ -856,7 +857,7 @@ func TestFlattenTemplate_WithLayout(t *testing.T) {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
 
-	flattened, err := flattenTemplate(tmpl)
+	flattened, err := parse.FlattenTemplate(tmpl)
 	if err != nil {
 		t.Fatalf("Failed to flatten template: %v", err)
 	}
@@ -894,7 +895,7 @@ func TestFlattenTemplate_NestedTemplates(t *testing.T) {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
 
-	flattened, err := flattenTemplate(tmpl)
+	flattened, err := parse.FlattenTemplate(tmpl)
 	if err != nil {
 		t.Fatalf("Failed to flatten template: %v", err)
 	}
@@ -927,7 +928,7 @@ func TestFlattenTemplate_WithConditionals(t *testing.T) {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
 
-	flattened, err := flattenTemplate(tmpl)
+	flattened, err := parse.FlattenTemplate(tmpl)
 	if err != nil {
 		t.Fatalf("Failed to flatten template: %v", err)
 	}
@@ -963,7 +964,7 @@ func TestFlattenTemplate_WithRange(t *testing.T) {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
 
-	flattened, err := flattenTemplate(tmpl)
+	flattened, err := parse.FlattenTemplate(tmpl)
 	if err != nil {
 		t.Fatalf("Failed to flatten template: %v", err)
 	}
@@ -1018,9 +1019,9 @@ func TestHasTemplateComposition(t *testing.T) {
 				t.Fatalf("Failed to parse template: %v", err)
 			}
 
-			result := hasTemplateComposition(tmpl)
+			result := parse.HasTemplateComposition(tmpl)
 			if result != tt.expected {
-				t.Errorf("hasTemplateComposition() = %v, want %v", result, tt.expected)
+				t.Errorf("parse.HasTemplateComposition() = %v, want %v", result, tt.expected)
 			}
 		})
 	}
@@ -1056,7 +1057,7 @@ func TestFlattenTemplate_IntegrationWithTreeGeneration(t *testing.T) {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
 
-	flattened, err := flattenTemplate(tmpl)
+	flattened, err := parse.FlattenTemplate(tmpl)
 	if err != nil {
 		t.Fatalf("Failed to flatten template: %v", err)
 	}
@@ -1129,7 +1130,7 @@ func TestFlattenTemplate_ComponentPattern(t *testing.T) {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
 
-	flattened, err := flattenTemplate(tmpl)
+	flattened, err := parse.FlattenTemplate(tmpl)
 	if err != nil {
 		t.Fatalf("Failed to flatten template: %v", err)
 	}
@@ -1197,9 +1198,9 @@ func TestFlattenTemplate_ErrorCases(t *testing.T) {
 				t.Fatalf("Failed to parse template: %v", err)
 			}
 
-			_, err = flattenTemplate(tmpl)
+			_, err = parse.FlattenTemplate(tmpl)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("flattenTemplate() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("parse.FlattenTemplate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
