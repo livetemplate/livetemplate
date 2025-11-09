@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<a name="v0.2.0"></a>
+## [v0.2.0] - 2025-11-09
+
+### Code Refactoring
+
+- improve key generation and fingerprinting robustness
+- complete Phase 2 - move 4 functions to internal packages ([#44](https://github.com/livefir/livetemplate/issues/44))
+- align template.go with 5-phase architecture ([#43](https://github.com/livefir/livetemplate/issues/43))
+- reduce public API surface area from 11 to 7 files ([#46](https://github.com/livefir/livetemplate/issues/46))
+- **conditional:** eliminate duplication and improve error handling ([#40](https://github.com/livefir/livetemplate/issues/40))
+- **context:** achieve Grade A code quality ([#31](https://github.com/livefir/livetemplate/issues/31))
+- **field:** achieve Grade A code quality ([#36](https://github.com/livefir/livetemplate/issues/36))
+- **fingerprint:** fix circular detection and improve robustness
+- **helpers:** achieve Grade A code quality ([#35](https://github.com/livefir/livetemplate/issues/35))
+- **parse:** achieve Grade A code quality ([#38](https://github.com/livefir/livetemplate/issues/38))
+- **parse:** achieve Grade A code quality ([#41](https://github.com/livefir/livetemplate/issues/41))
+- **prepare:** achieve Grade A code quality ([#34](https://github.com/livefir/livetemplate/issues/34))
+- **range:** achieve Grade A code quality ([#37](https://github.com/livefir/livetemplate/issues/37))
+- **range_ops:** achieve Grade A code quality ([#33](https://github.com/livefir/livetemplate/issues/33))
+- **render:** achieve Grade A code quality ([#42](https://github.com/livefir/livetemplate/issues/42))
+- **render:** performance, security, and quality improvements ([#27](https://github.com/livefir/livetemplate/issues/27))
+- **template:** achieve Grade A- code quality with 5-phase architecture ([#45](https://github.com/livefir/livetemplate/issues/45))
+- **tree_compare:** achieve Grade A code quality ([#32](https://github.com/livefir/livetemplate/issues/32))
+- **types:** achieve Grade A quality with comprehensive tests and documentation
+- **var_context:** achieve Grade A code quality ([#39](https://github.com/livefir/livetemplate/issues/39))
+- **wrapper:** improve security, correctness, and robustness - Grade A ([#29](https://github.com/livefir/livetemplate/issues/29))
+
+
 <a name="v0.1.3"></a>
 ## [v0.1.3] - 2025-11-07
 
@@ -151,7 +179,8 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.2.0...HEAD
+[v0.2.0]: https://github.com/livefir/livetemplate/compare/v0.1.3...v0.2.0
 [v0.1.3]: https://github.com/livefir/livetemplate/compare/ls...v0.1.3
 [ls]: https://github.com/livefir/livetemplate/compare/v0.1.2...ls
 [v0.1.2]: https://github.com/livefir/livetemplate/compare/v0.1.1...v0.1.2
