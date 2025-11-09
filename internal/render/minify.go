@@ -1,4 +1,4 @@
-package livetemplate
+package render
 
 import (
 	"log/slog"
@@ -23,8 +23,11 @@ func getMinifier() *minify.M {
 	return minifier
 }
 
-// minifyHTML removes unnecessary whitespace from HTML while preserving content
-func minifyHTML(htmlContent string) string {
+// MinifyHTML removes unnecessary whitespace from HTML while preserving content.
+// If content contains HTML tags, uses full HTML minification.
+// For text-only content, normalizes whitespace.
+// Returns the original content if minification fails.
+func MinifyHTML(htmlContent string) string {
 	// If content contains HTML tags, use full HTML minification
 	if strings.Contains(htmlContent, "<") {
 		minified, err := getMinifier().String("text/html", htmlContent)
@@ -42,7 +45,8 @@ func minifyHTML(htmlContent string) string {
 	return normalizeWhitespace(htmlContent)
 }
 
-// normalizeWhitespace removes leading/trailing whitespace and normalizes internal whitespace
+// normalizeWhitespace removes leading/trailing whitespace and normalizes internal whitespace.
+// Handles \n, \t, multiple spaces, etc., replacing them with single spaces.
 func normalizeWhitespace(text string) string {
 	// Trim leading and trailing whitespace
 	text = strings.TrimSpace(text)

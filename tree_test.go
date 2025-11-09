@@ -1,6 +1,7 @@
 package livetemplate
 
 import (
+	"github.com/livetemplate/livetemplate/internal/send"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -165,7 +166,7 @@ func TestParseTemplateToTree_NestedConditionals_FalseFlags(t *testing.T) {
 
 // Helper to marshal value to string for inspection
 func marshalToString(v interface{}) string {
-	bytes, _ := marshalValue(v)
+	bytes, _ := send.MarshalValue(v)
 	return string(bytes)
 }
 

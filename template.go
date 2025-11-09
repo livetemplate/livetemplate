@@ -83,8 +83,6 @@
 package livetemplate
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
@@ -102,9 +100,12 @@ import (
 	"github.com/livetemplate/livetemplate/internal/context"
 	"github.com/livetemplate/livetemplate/internal/diff"
 	"github.com/livetemplate/livetemplate/internal/observe"
+	"github.com/livetemplate/livetemplate/internal/parse"
+	"github.com/livetemplate/livetemplate/internal/render"
 	"github.com/livetemplate/livetemplate/internal/send"
 	"github.com/livetemplate/livetemplate/internal/session"
 	"github.com/livetemplate/livetemplate/internal/signature"
+	"github.com/livetemplate/livetemplate/internal/util"
 	"github.com/livetemplate/livetemplate/pubsub"
 )
 
@@ -633,9 +634,9 @@ func (t *Template) Parse(text string) (*Template, error) {
 // flattening, wrapper injection, final parsing, and validation.
 func (t *Template) parseInternal(text string, baseTemplate *template.Template, isFullHTML bool) (*Template, error) {
 	// Check if template uses composition features and flatten if needed
-	if hasTemplateComposition(baseTemplate) {
+	if parse.HasTemplateComposition(baseTemplate) {
 		// Flatten the template to resolve all {{define}}/{{template}}/{{block}}
-		flattenedStr, err := flattenTemplate(baseTemplate)
+		flattenedStr, err := parse.FlattenTemplate(baseTemplate)
 		if err != nil {
 			return nil, fmt.Errorf("template flattening failed: %w", err)
 		}
@@ -843,7 +844,7 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, errors ...map[
 	}
 
 	// Convert tree to ordered JSON with readable HTML (no escape sequences)
-	jsonBytes, err := marshalOrderedJSON(tree)
+	jsonBytes, err := send.MarshalOrderedJSON(tree)
 	if err != nil {
 		return fmt.Errorf("JSON encoding failed: %w", err)
 	}
@@ -1140,10 +1141,6 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 	return addFingerprintToTree(tree), nil
 }
 
-// deepEqual delegates to diff.DeepEqual for test backward compatibility.
-func deepEqual(a, b interface{}) bool {
-	return diff.DeepEqual(a, b)
-}
 
 // compareTreesAndGetChanges compares two trees and returns only changed dynamics
 func (t *Template) compareTreesAndGetChanges(oldTree, newTree *TreeNode) *TreeNode {
@@ -1161,8 +1158,8 @@ func (t *Template) compareTreesAndGetChangesWithContext(oldTree, newTree *TreeNo
 // analyzeChangeAndCreateTree determines the best tree structure based on the type of change
 func (t *Template) analyzeChangeAndCreateTree(oldHTML, newHTML string, _, _ interface{}) (*TreeNode, error) {
 	// Find common prefix and suffix to understand change patterns
-	commonPrefix := findCommonPrefix(oldHTML, newHTML)
-	commonSuffix := findCommonSuffix(oldHTML, newHTML)
+	commonPrefix := util.FindCommonPrefix(oldHTML, newHTML)
+	commonSuffix := util.FindCommonSuffix(oldHTML, newHTML)
 
 	// Calculate change boundaries
 	changeStart := len(commonPrefix)
@@ -1189,7 +1186,7 @@ func (t *Template) analyzeChangeAndCreateTree(oldHTML, newHTML string, _, _ inte
 	if commonPrefix != "" || commonSuffix != "" {
 		dynamicPart := newHTML[changeStart:changeEnd]
 		tree := NewTreeNodeWithStatics([]string{commonPrefix, commonSuffix})
-		tree.SetDynamic("0", minifyHTML(dynamicPart))
+		tree.SetDynamic("0", render.MinifyHTML(dynamicPart))
 		return tree, nil
 	}
 
@@ -1260,7 +1257,7 @@ func (t *Template) createHTMLStructureBasedTree(html string) *TreeNode {
 		for i, dyn := range dynamics {
 			// Minify HTML content if it's a string containing HTML
 			if strDyn, ok := dyn.(string); ok && strings.Contains(strDyn, "<") {
-				dyn = minifyHTML(strDyn)
+				dyn = render.MinifyHTML(strDyn)
 			}
 			tree.SetDynamic(fmt.Sprintf("%d", i), dyn)
 		}
@@ -1273,73 +1270,8 @@ func (t *Template) createHTMLStructureBasedTree(html string) *TreeNode {
 
 	// Fallback to single segment strategy
 	fallback := NewTreeNodeWithStatics([]string{"", ""})
-	fallback.SetDynamic("0", minifyHTML(html))
+	fallback.SetDynamic("0", render.MinifyHTML(html))
 	return fallback
-}
-
-// Helper functions for string analysis
-
-// findCommonPrefix finds the longest common prefix between two strings
-func findCommonPrefix(s1, s2 string) string {
-	minLen := len(s1)
-	if len(s2) < minLen {
-		minLen = len(s2)
-	}
-
-	for i := 0; i < minLen; i++ {
-		if s1[i] != s2[i] {
-			return s1[:i]
-		}
-	}
-	return s1[:minLen]
-}
-
-// findCommonSuffix finds the longest common suffix between two strings
-func findCommonSuffix(s1, s2 string) string {
-	len1, len2 := len(s1), len(s2)
-	minLen := len1
-	if len2 < minLen {
-		minLen = len2
-	}
-
-	for i := 0; i < minLen; i++ {
-		if s1[len1-1-i] != s2[len2-1-i] {
-			return s1[len1-i:]
-		}
-	}
-	return s1[len1-minLen:]
-}
-
-// marshalOrderedJSON marshals a tree to JSON with no HTML escaping
-func marshalOrderedJSON(tree interface{}) ([]byte, error) {
-	var buf bytes.Buffer
-	encoder := json.NewEncoder(&buf)
-	encoder.SetEscapeHTML(false)
-
-	err := encoder.Encode(tree)
-	if err != nil {
-		return nil, err
-	}
-
-	// Remove trailing newline that Encode adds
-	result := bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
-	return result, nil
-}
-
-// marshalValue marshals a value to JSON with no HTML escaping
-func marshalValue(value interface{}) ([]byte, error) {
-	var buf bytes.Buffer
-	encoder := json.NewEncoder(&buf)
-	encoder.SetEscapeHTML(false)
-
-	err := encoder.Encode(value)
-	if err != nil {
-		return nil, err
-	}
-
-	// Remove trailing newline that Encode adds
-	result := bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
-	return result, nil
 }
 
 // loadExistingKeyMappings loads existing key mappings from the last tree node
