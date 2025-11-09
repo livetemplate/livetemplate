@@ -4,6 +4,8 @@
 
 LiveTemplate is a reactive web framework for Go that uses tree-based DOM diffing to send minimal updates to clients. This document explains the system architecture, design decisions, and operational flow.
 
+**New contributor?** Start with the [Contributor Walkthrough](guides/new-contributor-walkthrough.md) for a hands-on introduction to the 5-phase architecture with code examples and test links.
+
 ## System Flow
 
 ```

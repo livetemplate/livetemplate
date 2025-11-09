@@ -518,12 +518,14 @@ Look for issues labeled `good first issue` - these are:
 
 ### Learning the Codebase
 
-1. **Read the docs**
-   - `CLAUDE.md` - Development guidelines
-   - `docs/ARCHITECTURE.md` - System architecture
-   - `docs/CODE_TOUR.md` - Guided code walkthrough
+1. **Start with the Contributor Walkthrough**
+   - [`docs/guides/new-contributor-walkthrough.md`](docs/guides/new-contributor-walkthrough.md) - **START HERE!** Comprehensive guide to the 5-phase architecture with links to all code and tests
 
-2. **Run the examples**
+2. **Read the architecture docs**
+   - `CLAUDE.md` - Development guidelines
+   - `docs/ARCHITECTURE.md` - System architecture and design decisions
+
+3. **Run the examples**
    ```bash
    # Clone the examples repository
    git clone https://github.com/livetemplate/examples.git

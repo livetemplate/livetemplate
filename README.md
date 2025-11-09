@@ -196,6 +196,8 @@ All interactive features work over HTTP. WebSocket is optional, required only fo
 
 ## Contributing
 
+**New to the codebase?** Start with the [Contributor Walkthrough](docs/guides/new-contributor-walkthrough.md) - a comprehensive guide to the 5-phase architecture with links to code and tests.
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 ## License
