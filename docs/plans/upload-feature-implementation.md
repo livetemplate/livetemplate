@@ -14,7 +14,7 @@ Implement a Phoenix LiveView-inspired upload system for LiveTemplate with suppor
 - Progress tracking and validation
 - Drag-and-drop support
 
-**Current Status**: Phase 2 Complete - 45% done (2 of 9 phases complete)
+**Current Status**: Phase 3 In Progress - 52% done (2.5 of 9 phases complete)
 
 ## Architecture Summary
 
@@ -153,9 +153,9 @@ Implement a Phoenix LiveView-inspired upload system for LiveTemplate with suppor
 
 ---
 
-### 📋 Phase 3: Template Helpers for Upload Display
+### 🔄 Phase 3: Template Helpers & Mount Handler Integration
 
-**Status**: 0% complete
+**Status**: 50% complete (template helpers done, mount integration pending)
 
 #### Goals
 - Expose upload state to templates
@@ -164,23 +164,31 @@ Implement a Phoenix LiveView-inspired upload system for LiveTemplate with suppor
 
 #### Tasks
 
-##### 3.1: Template Context Extension (`template.go`)
-- [ ] Add `.lvt.Uploads(name string) []*UploadEntry` function
-- [ ] Add `.lvt.HasUploadError(name string) bool` function
-- [ ] Add `.lvt.UploadError(name string) string` function
-- [ ] Extract upload registry from connection context
-- [ ] Return empty slice for non-existent uploads
+##### 3.1: Template Context Extension (`internal/context/context.go`) - ✅ COMPLETE
+- ✅ Add `uploadEntries` field to TemplateContext
+- ✅ Add `SetUploadRegistry(registry)` method
+- ✅ Add `.lvt.Uploads(name string)` function (returns upload entries)
+- ✅ Add `.lvt.HasUploadError(name string)` function
+- ✅ Add `.lvt.UploadError(name string)` function
+- ✅ Use reflection to avoid circular imports
+- ✅ Handle nil upload registry gracefully
+- ✅ Thread-safe access to upload entries
+- ✅ 6 tests passing
 
-##### 3.2: Template Functions
-- [ ] Register functions in `TemplateFuncs()`
-- [ ] Handle nil upload registry gracefully
-- [ ] Thread-safe access to upload entries
+##### 3.2: Mount Handler Integration (`mount.go`) - IN PROGRESS
+- [ ] Initialize upload registry on WebSocket connection
+- [ ] Detect UploadAware stores and configure uploads
+- [ ] Create TempFileManager for session
+- [ ] Set upload registry on template context
+- [ ] Handle HTTP multipart upload actions
+- [ ] Call store's ConsumeUpload() after successful upload
+- [ ] Clean up temp files on connection close
 
-##### 3.3: Tests
-- [ ] Test upload entry iteration in templates
-- [ ] Test error helpers
-- [ ] Test with no uploads configured
-- [ ] Test with empty upload registry
+##### 3.3: Integration Tests
+- [ ] Test complete HTTP upload flow
+- [ ] Test upload entry display in templates
+- [ ] Test error handling and display
+- [ ] Test temp file cleanup
 
 #### Files to Modify
 - `template.go` - Add template helper functions
