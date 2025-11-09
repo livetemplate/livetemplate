@@ -14,6 +14,7 @@ const (
 	// keyStatics is the tree key for static HTML fragments.
 	keyStatics = "s"
 	// keyDynamics is the tree key for dynamic range items.
+	// Defined for consistency and to prevent typos when checking for range comprehensions.
 	keyDynamics = "d"
 )
 
