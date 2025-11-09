@@ -506,3 +506,96 @@ func TestRangeComprehensionToHTML_HTMLEscaping(t *testing.T) {
 		t.Errorf("Expected %q, got: %q", expected, html)
 	}
 }
+
+// TestRangeComprehensionToHTML_InvalidItem tests error handling for invalid range items.
+func TestRangeComprehensionToHTML_InvalidItem(t *testing.T) {
+	tests := []struct {
+		name string
+		tree map[string]interface{}
+	}{
+		{
+			name: "item is not a map",
+			tree: map[string]interface{}{
+				"s": []string{"<div>", "</div>"},
+				"d": []interface{}{
+					"not a map",
+				},
+			},
+		},
+		{
+			name: "item is number",
+			tree: map[string]interface{}{
+				"s": []string{"<div>", "</div>"},
+				"d": []interface{}{
+					42,
+				},
+			},
+		},
+		{
+			name: "item is nil",
+			tree: map[string]interface{}{
+				"s": []string{"<div>", "</div>"},
+				"d": []interface{}{
+					nil,
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := TreeToHTML(tt.tree)
+			if err == nil {
+				t.Error("Expected error for invalid range item, got nil")
+			}
+			if err != nil && !contains(err.Error(), "item") {
+				t.Errorf("Expected error message to mention 'item', got: %v", err)
+			}
+		})
+	}
+}
+
+// TestTreeToHTML_NestedTreeError tests error handling in nested tree rendering.
+func TestTreeToHTML_NestedTreeError(t *testing.T) {
+	// Nested tree with invalid structure (no statics)
+	invalidNestedTree := map[string]interface{}{
+		"0": "value",
+	}
+
+	tree := map[string]interface{}{
+		"s": []string{"<div>", "</div>"},
+		"0": invalidNestedTree,
+	}
+
+	_, err := TreeToHTML(tree)
+	if err == nil {
+		t.Error("Expected error for invalid nested tree, got nil")
+	}
+	if err != nil && !contains(err.Error(), "position 0") {
+		t.Errorf("Expected error message to mention position, got: %v", err)
+	}
+}
+
+// TestRangeComprehensionToHTML_MissingStatics tests error when statics are missing.
+func TestRangeComprehensionToHTML_MissingStatics(t *testing.T) {
+	tree := map[string]interface{}{
+		"d": []interface{}{
+			map[string]interface{}{
+				"0": "value",
+			},
+		},
+	}
+
+	_, err := TreeToHTML(tree)
+	if err == nil {
+		t.Error("Expected error for missing statics, got nil")
+	}
+	if err != nil && !contains(err.Error(), "missing statics") {
+		t.Errorf("Expected error message to mention 'missing statics', got: %v", err)
+	}
+}
+
+// contains checks if a string contains a substring.
+func contains(s, substr string) bool {
+	return strings.Contains(s, substr)
+}
