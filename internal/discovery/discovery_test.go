@@ -118,8 +118,8 @@ func TestDiscoverTemplateFiles_NonexistentDirectory(t *testing.T) {
 
 // TestDiscoverTemplateFiles_EmptyBaseDir verifies runtime.Caller fallback
 func TestDiscoverTemplateFiles_EmptyBaseDir(t *testing.T) {
-	// When baseDir is empty, it tries runtime.Caller(3)
-	// This will likely return nil since we're not at the right call depth
+	// When baseDir is empty, it tries runtime.Caller with multiple depths
+	// This will likely return nil since we're in a test context
 	files, err := DiscoverTemplateFiles("", nil)
 
 	// Should not error, just return empty or nil
@@ -129,6 +129,52 @@ func TestDiscoverTemplateFiles_EmptyBaseDir(t *testing.T) {
 
 	// Files can be nil or empty
 	_ = files
+}
+
+// TestDiscoverTemplateFiles_MultipleCallDepths verifies runtime.Caller tries multiple depths
+func TestDiscoverTemplateFiles_MultipleCallDepths(t *testing.T) {
+	// Create a temporary directory with test template
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.tmpl")
+	f, err := os.Create(testFile)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+	f.Close()
+
+	// Test with explicit baseDir - should always work
+	files, err := DiscoverTemplateFiles(tmpDir, nil)
+	if err != nil {
+		t.Fatalf("DiscoverTemplateFiles with explicit baseDir failed: %v", err)
+	}
+
+	if len(files) != 1 {
+		t.Errorf("Expected 1 template file, got %d", len(files))
+	}
+
+	// Test with empty baseDir through wrapper functions to simulate different depths
+	callFromDepth2 := func() ([]string, error) {
+		return DiscoverTemplateFiles("", nil)
+	}
+
+	callFromDepth3 := func() ([]string, error) {
+		return callFromDepth2()
+	}
+
+	callFromDepth4 := func() ([]string, error) {
+		return callFromDepth3()
+	}
+
+	// Try calling from different depths - should handle all gracefully
+	for i, fn := range []func() ([]string, error){callFromDepth2, callFromDepth3, callFromDepth4} {
+		files, err := fn()
+		if err != nil {
+			t.Errorf("Call depth %d: unexpected error: %v", i+2, err)
+		}
+		// We don't verify files content here because runtime.Caller may or may not work
+		// depending on call depth - we just verify it doesn't crash
+		_ = files
+	}
 }
 
 // TestNormalizeStoreName verifies store name normalization

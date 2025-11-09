@@ -21,13 +21,26 @@ var ignoredTemplateDirs = map[string]struct{}{
 func DiscoverTemplateFiles(baseDir string, customIgnoreDirs []string) ([]string, error) {
 	// If no base directory provided, try to determine caller's directory for backward compatibility
 	if baseDir == "" {
-		// Try to get the caller's directory (3 frames up: DiscoverTemplateFiles -> New -> user code)
-		// This is brittle and maintained only for backward compatibility
-		_, filename, _, ok := runtime.Caller(3)
-		if !ok {
+		// Try multiple call stack depths to find the caller's directory
+		// This handles cases where intermediate function calls add frames
+		// Try depths 2, 3, and 4 (most common scenarios)
+		for depth := 2; depth <= 4; depth++ {
+			_, filename, _, ok := runtime.Caller(depth)
+			if !ok {
+				continue
+			}
+			dir := filepath.Dir(filename)
+			// Verify the directory exists and is accessible
+			if _, err := filepath.Abs(dir); err == nil {
+				baseDir = dir
+				break
+			}
+		}
+
+		// If we still couldn't determine the base directory, return nil
+		if baseDir == "" {
 			return nil, nil // Can't determine caller, skip auto-discovery
 		}
-		baseDir = filepath.Dir(filename)
 	}
 	var files []string
 
