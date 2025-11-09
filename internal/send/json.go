@@ -24,19 +24,7 @@ func MarshalOrderedJSON(tree interface{}) ([]byte, error) {
 }
 
 // MarshalValue marshals a single value to JSON with no HTML escaping.
-// This is a specialized version of MarshalOrderedJSON for individual values.
-// The encoder removes the trailing newline that json.Encoder.Encode() adds.
+// This is an alias for MarshalOrderedJSON for backward compatibility.
 func MarshalValue(value interface{}) ([]byte, error) {
-	var buf bytes.Buffer
-	encoder := json.NewEncoder(&buf)
-	encoder.SetEscapeHTML(false)
-
-	err := encoder.Encode(value)
-	if err != nil {
-		return nil, err
-	}
-
-	// Remove trailing newline that Encode adds
-	result := bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
-	return result, nil
+	return MarshalOrderedJSON(value)
 }
