@@ -72,6 +72,10 @@ type Context struct {
 	// DevMode indicates whether development mode is enabled.
 	// In DevMode, panics are not caught to aid debugging.
 	DevMode bool
+
+	// TemplateName is the name of the template being built.
+	// Used for expression caching to avoid redundant template executions.
+	TemplateName string
 }
 
 // NewContext creates a context for first render (includes all statics).

@@ -11,7 +11,7 @@ func handleWithNode(node *parse.WithNode, data interface{}, keyGen KeyGenerator,
 	// Evaluate the with pipe to get the new context
 	pipeStr := formatPipe(node.Pipe)
 
-	newContext, err := evaluatePipe(pipeStr, data, ctx)
+	newContext, err := evaluatePipeWithCache(ctx.TemplateName, pipeStr, data, ctx)
 	if err != nil {
 		return nil, fmt.Errorf("with evaluation error: %w", err)
 	}

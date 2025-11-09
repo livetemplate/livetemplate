@@ -113,8 +113,9 @@ func generateWrapperKey(keyGen *keyGenerator) string {
 }
 
 // parseTemplateToTree parses a template using the internal/parse package
+// templateName is used for expression caching
 // ctx is optional - if nil, defaults to first-render context (includes statics)
-func parseTemplateToTree(templateStr string, data interface{}, keyGen *keyGenerator, ctx ...*TreeGenerationContext) (tree *TreeNode, err error) {
+func parseTemplateToTree(templateName, templateStr string, data interface{}, keyGen *keyGenerator, ctx ...*TreeGenerationContext) (tree *TreeNode, err error) {
 	// Get or create context
 	var genCtx *TreeGenerationContext
 	if len(ctx) > 0 {
@@ -123,6 +124,9 @@ func parseTemplateToTree(templateStr string, data interface{}, keyGen *keyGenera
 	if genCtx == nil {
 		genCtx = NewTreeGenerationContext()
 	}
+
+	// Set template name for expression caching
+	genCtx.TemplateName = templateName
 
 	// Recover from panics in template execution (can happen with fuzz-generated templates)
 	// In DevMode, panics are not caught to aid debugging

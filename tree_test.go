@@ -15,7 +15,7 @@ import (
 )
 
 func TestParseTemplateToTree_HandlesCommentOnly(t *testing.T) {
-	tree, err := parseTemplateToTree("{{/* nothing */}}", nil, newKeyGenerator())
+	tree, err := parseTemplateToTree("test", "{{/* nothing */}}", nil, newKeyGenerator())
 	if err != nil {
 		t.Fatalf("parseTemplateToTree returned error: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestParseTemplateToTree_WithFuncMapRange(t *testing.T) {
 		},
 	}
 
-	tree, err := parseTemplateToTree(tmplStr, data, newKeyGenerator(), ctx)
+	tree, err := parseTemplateToTree("test", tmplStr, data, newKeyGenerator(), ctx)
 	if err != nil {
 		t.Fatalf("parseTemplateToTree returned error: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestParseTemplateToTree_NestedConditionals(t *testing.T) {
 	}
 
 	keyGen := newKeyGenerator()
-	tree, err := parseTemplateToTree(templateStr, data, keyGen)
+	tree, err := parseTemplateToTree("test", templateStr, data, keyGen)
 	if err != nil {
 		t.Fatalf("parseTemplateToTree failed: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestParseTemplateToTree_NestedConditionals_FalseFlags(t *testing.T) {
 	}
 
 	keyGen := newKeyGenerator()
-	tree, err := parseTemplateToTree(templateStr, data, keyGen)
+	tree, err := parseTemplateToTree("test", templateStr, data, keyGen)
 	if err != nil {
 		t.Fatalf("parseTemplateToTree failed: %v", err)
 	}
@@ -828,7 +828,7 @@ func TestDeepNesting(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			keyGen := newKeyGenerator()
-			tree, err := parseTemplateToTree(tt.template, data, keyGen)
+			tree, err := parseTemplateToTree("test", tt.template, data, keyGen)
 
 			if err != nil {
 				t.Fatalf("❌ Failed at nesting level %d: %v\nTemplate: %s", tt.nesting, err, tt.template)
@@ -908,7 +908,7 @@ func TestTemplateComposition(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			keyGen := newKeyGenerator()
-			tree, err := parseTemplateToTree(tt.template, data, keyGen)
+			tree, err := parseTemplateToTree("test", tt.template, data, keyGen)
 
 			if err != nil {
 				t.Fatalf("❌ Failed: %v\nTemplate: %s", err, tt.template)
@@ -1119,7 +1119,7 @@ func FuzzParseTemplateToTree(f *testing.F) {
 
 		// Test current AST-based parser
 		keyGen := newKeyGenerator()
-		tree, err := parseTemplateToTree(templateStr, data, keyGen)
+		tree, err := parseTemplateToTree("test", templateStr, data, keyGen)
 
 		if err != nil {
 			// Parser failed - this is fine, we're documenting failures
@@ -1397,7 +1397,7 @@ func rangeComprehensionsEqual(d1, d2 interface{}, tree1, tree2 map[string]interf
 // This is Level 3 validation from the enhanced validation strategy
 func validateTreeRoundTrip(templateStr string, data map[string]interface{}, keyGen *keyGenerator) (bool, string) {
 	// Parse template to tree1
-	tree1, err := parseTemplateToTree(templateStr, data, keyGen)
+	tree1, err := parseTemplateToTree("test", templateStr, data, keyGen)
 	if err != nil {
 		return false, fmt.Sprintf("first parse failed: %v", err)
 	}
@@ -1411,7 +1411,7 @@ func validateTreeRoundTrip(templateStr string, data map[string]interface{}, keyG
 	// Parse template again with same data to tree2
 	// NOTE: We use a new key generator to ensure consistent keys
 	keyGen2 := newKeyGenerator()
-	tree2, err := parseTemplateToTree(templateStr, data, keyGen2)
+	tree2, err := parseTemplateToTree("test", templateStr, data, keyGen2)
 	if err != nil {
 		return false, fmt.Sprintf("second parse failed: %v", err)
 	}
@@ -1500,14 +1500,14 @@ func validateEmptyToNonEmptyTransition(templateStr string, data map[string]inter
 
 	// Parse with empty data
 	keyGen1 := newKeyGenerator()
-	tree1, err := parseTemplateToTree(templateStr, emptyData, keyGen1)
+	tree1, err := parseTemplateToTree("test", templateStr, emptyData, keyGen1)
 	if err != nil {
 		return false, fmt.Sprintf("parse with empty data failed: %v", err)
 	}
 
 	// Parse with non-empty data
 	keyGen2 := newKeyGenerator()
-	tree2, err := parseTemplateToTree(templateStr, data, keyGen2)
+	tree2, err := parseTemplateToTree("test", templateStr, data, keyGen2)
 	if err != nil {
 		return false, fmt.Sprintf("parse with non-empty data failed: %v", err)
 	}
@@ -1520,13 +1520,13 @@ func validateEmptyToNonEmptyTransition(templateStr string, data map[string]inter
 
 	// Also test the reverse: non-empty→empty
 	keyGen3 := newKeyGenerator()
-	tree3, err := parseTemplateToTree(templateStr, data, keyGen3)
+	tree3, err := parseTemplateToTree("test", templateStr, data, keyGen3)
 	if err != nil {
 		return false, fmt.Sprintf("second parse with non-empty data failed: %v", err)
 	}
 
 	keyGen4 := newKeyGenerator()
-	tree4, err := parseTemplateToTree(templateStr, emptyData, keyGen4)
+	tree4, err := parseTemplateToTree("test", templateStr, emptyData, keyGen4)
 	if err != nil {
 		return false, fmt.Sprintf("second parse with empty data failed: %v", err)
 	}
@@ -1621,7 +1621,7 @@ func TestTreeInvariantGuarantee(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tree, err := parseTemplateToTree(tt.template, tt.data, newKeyGenerator())
+			tree, err := parseTemplateToTree("test", tt.template, tt.data, newKeyGenerator())
 			if err != nil {
 				t.Errorf("parseTemplateToTree() error = %v", err)
 				return
@@ -1670,7 +1670,7 @@ func TestTreeInvariantInTemplate(t *testing.T) {
 	}
 
 	// Test the parseTemplateToTree function directly (this is what Template uses internally)
-	tree, err := parseTemplateToTree(templateContent, data, newKeyGenerator())
+	tree, err := parseTemplateToTree("test", templateContent, data, newKeyGenerator())
 	if err != nil {
 		t.Fatalf("parseTemplateToTree error: %v", err)
 	}
@@ -1729,7 +1729,7 @@ func TestE2EInvariantGuarantee(t *testing.T) {
 	}
 
 	// Test initial tree generation using the same function as the Template
-	tree, err := parseTemplateToTree(templateContent, data, newKeyGenerator())
+	tree, err := parseTemplateToTree("test", templateContent, data, newKeyGenerator())
 	if err != nil {
 		t.Fatalf("parseTemplateToTree error: %v", err)
 	}
@@ -2544,7 +2544,7 @@ func FuzzUserJourneys(f *testing.F) {
 				}
 
 				// Generate new tree and compare
-				newTree, err := parseTemplateToTree(todoTemplate, state, tmpl.keyGen)
+				newTree, err := parseTemplateToTree("test", todoTemplate, state, tmpl.keyGen)
 				if err != nil {
 					t.Fatalf("Failed to generate tree: %v", err)
 				}
@@ -2632,7 +2632,7 @@ func TestSpecificationCompliance(t *testing.T) {
 					if tmpl.lastTree == nil {
 						continue
 					}
-					newTree, _ := parseTemplateToTree(tt.template, state, tmpl.keyGen)
+					newTree, _ := parseTemplateToTree("test", tt.template, state, tmpl.keyGen)
 					tree = tmpl.compareTreesAndGetChanges(tmpl.lastTree, newTree)
 					tmpl.lastTree = newTree
 				}
@@ -2671,7 +2671,7 @@ func TestRangeOperationGranularity(t *testing.T) {
 	}
 
 	// Generate initial tree
-	tree1, _ := parseTemplateToTree(template, state1, tmpl.keyGen)
+	tree1, _ := parseTemplateToTree("test", template, state1, tmpl.keyGen)
 	tmpl.lastTree = tree1
 
 	// Add one item
@@ -2683,7 +2683,7 @@ func TestRangeOperationGranularity(t *testing.T) {
 		},
 	}
 
-	tree2, _ := parseTemplateToTree(template, state2, tmpl.keyGen)
+	tree2, _ := parseTemplateToTree("test", template, state2, tmpl.keyGen)
 	changes := tmpl.compareTreesAndGetChanges(tree1, tree2)
 
 	// Verify the update contains only an insert operation
@@ -3023,7 +3023,7 @@ func TestComplexScenarios(t *testing.T) {
 				t.Errorf("Step %d failed: %v", i, err)
 			}
 		} else {
-			newTree, _ := parseTemplateToTree(template, state, tmpl.keyGen)
+			newTree, _ := parseTemplateToTree("test", template, state, tmpl.keyGen)
 			changes := tmpl.compareTreesAndGetChanges(tmpl.lastTree, newTree)
 
 			if err := validator.ValidateUpdate(changes, state, false); err != nil {

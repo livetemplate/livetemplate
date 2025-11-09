@@ -50,7 +50,7 @@ func extractRangeCollection(node *parse.RangeNode, data interface{}, ctx *Contex
 			lastCmd := node.Pipe.Cmds[len(node.Pipe.Cmds)-1]
 			if len(lastCmd.Args) > 0 {
 				collectionExpr := lastCmd.Args[0].String()
-				return evaluatePipe(collectionExpr, data, ctx)
+				return evaluatePipeWithCache(ctx.TemplateName, collectionExpr, data, ctx)
 			}
 			return nil, fmt.Errorf("range with declarations has no collection expression")
 		}
@@ -59,7 +59,7 @@ func extractRangeCollection(node *parse.RangeNode, data interface{}, ctx *Contex
 
 	// No variable declarations - simple {{range .Items}}
 	pipeStr := formatPipe(node.Pipe)
-	return evaluatePipe(pipeStr, data, ctx)
+	return evaluatePipeWithCache(ctx.TemplateName, pipeStr, data, ctx)
 }
 
 // isEmpty checks if a collection value is nil or empty.

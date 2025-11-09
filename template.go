@@ -930,7 +930,7 @@ func (t *Template) generateInitialTreeWithoutRegistry(html string, data interfac
 	ctx := NewTreeGenerationContext()
 	ctx.FuncMap = t.funcs
 	ctx.DevMode = t.config.DevMode
-	tree, err := parseTemplateToTree(templateContent, data, t.keyGen, ctx)
+	tree, err := parseTemplateToTree(t.name, templateContent, data, t.keyGen, ctx)
 	if err != nil {
 		// parseTemplateToTree failed, falling back to HTML structure
 		slog.Warn("Template parsing failed, falling back to HTML structure-based tree",
@@ -981,7 +981,7 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 		ctx := NewTreeGenerationContext()
 		ctx.FuncMap = t.funcs
 		ctx.DevMode = t.config.DevMode
-		newTree, err := parseTemplateToTree(templateContent, newData, t.keyGen, ctx)
+		newTree, err := parseTemplateToTree(t.name, templateContent, newData, t.keyGen, ctx)
 		if err != nil {
 			return nil, fmt.Errorf("tree generation failed: %w", err)
 		}
@@ -1163,6 +1163,10 @@ func (t *Template) buildTree(data interface{}, errors map[string]string) (*TreeN
 
 	// Convert data to include lvt context
 	dataWithLvt := context.AddLvtToData(data, errors, t.config.DevMode)
+
+	// Invalidate execution cache on each render to ensure fresh evaluation
+	// Cache is per-template-name + per-data-hash, so this clears stale entries
+	parse.InvalidateExecutionCache()
 
 	// Acquire lock once for all state reads/writes
 	t.mu.Lock()
