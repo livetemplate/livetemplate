@@ -365,7 +365,7 @@ parse:
 	return parsedTmpl, nil
 }
 
-// getFuncMapFrom Context extracts the function map from a context, returning nil if empty.
+// getFuncMapFromContext extracts the function map from a context, returning nil if empty.
 // This centralizes the nil-checking logic used throughout template parsing.
 func getFuncMapFromContext(ctx *Context) template.FuncMap {
 	if ctx != nil && ctx.FuncMap != nil && len(ctx.FuncMap) > 0 {
