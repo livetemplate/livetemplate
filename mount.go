@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/livetemplate/livetemplate/internal/discovery"
 	"github.com/livetemplate/livetemplate/internal/observe"
 	"github.com/livetemplate/livetemplate/internal/session"
 	"github.com/livetemplate/livetemplate/pubsub"
@@ -146,8 +147,8 @@ type LiveHandler interface {
 	MetricsHandler() http.Handler
 }
 
-// MountConfig configures the mount handler
-type MountConfig struct {
+// mountConfig configures the mount handler (internal only)
+type mountConfig struct {
 	Template               *Template
 	Stores                 Stores
 	IsSingleStore          bool
@@ -162,13 +163,12 @@ type MountConfig struct {
 	CookieMaxAge           time.Duration // Session cookie max age (default: 1 year)
 }
 
-// MountConfig and related types are used internally by Template.Handle()
-// MountOption is a functional option for configuring handlers
-type MountOption func(*MountConfig)
+// mountOption is a functional option for configuring handlers (internal only)
+type mountOption func(*mountConfig)
 
 // liveHandler handles both WebSocket and HTTP requests
 type liveHandler struct {
-	config          MountConfig
+	config          mountConfig
 	registry        *session.ConnectionRegistry
 	limits          *session.ConnectionLimits
 	metricsExporter *observe.PrometheusExporter
@@ -694,10 +694,10 @@ func (h *liveHandler) handleAction(ctx context.Context, msg message, state *conn
 
 // findStore finds a store by name using case-insensitive matching
 func (h *liveHandler) findStore(stores Stores, name string) Store {
-	normalized := normalizeStoreName(name)
+	normalized := discovery.NormalizeStoreName(name)
 
 	for storeName, store := range stores {
-		if normalizeStoreName(storeName) == normalized {
+		if discovery.NormalizeStoreName(storeName) == normalized {
 			return store
 		}
 	}

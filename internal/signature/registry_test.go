@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/livetemplate/livetemplate"
+	"github.com/livetemplate/livetemplate/internal/build"
 	"github.com/livetemplate/livetemplate/internal/signature"
 )
 
@@ -99,7 +100,7 @@ func TestClientStructureRegistry_RangeTransitions(t *testing.T) {
 	emptyRange := &livetemplate.TreeNode{
 		Statics:  []string{"<tr>", "</tr>"},
 		Dynamics: make(map[string]interface{}),
-		Range: &livetemplate.RangeData{
+		Range: &build.RangeData{
 			Items:   []interface{}{},
 			Statics: []string{"<td>", "</td>"},
 		},
@@ -115,7 +116,7 @@ func TestClientStructureRegistry_RangeTransitions(t *testing.T) {
 	rangeWithItems := &livetemplate.TreeNode{
 		Statics:  []string{"<tr>", "</tr>"},
 		Dynamics: make(map[string]interface{}),
-		Range: &livetemplate.RangeData{
+		Range: &build.RangeData{
 			Items: []interface{}{
 				map[string]interface{}{"0": "item1"},
 			},
@@ -280,7 +281,7 @@ func TestClientStructureRegistry_RangeStaticsChange(t *testing.T) {
 	range1 := &livetemplate.TreeNode{
 		Statics:  []string{"<tr>", "</tr>"},
 		Dynamics: make(map[string]interface{}),
-		Range: &livetemplate.RangeData{
+		Range: &build.RangeData{
 			Items: []interface{}{
 				map[string]interface{}{"0": "item1"},
 			},
@@ -294,7 +295,7 @@ func TestClientStructureRegistry_RangeStaticsChange(t *testing.T) {
 	range2 := &livetemplate.TreeNode{
 		Statics:  []string{"<tr>", "</tr>"},
 		Dynamics: make(map[string]interface{}),
-		Range: &livetemplate.RangeData{
+		Range: &build.RangeData{
 			Items: []interface{}{
 				map[string]interface{}{"0": "item1"},
 			},
@@ -311,7 +312,7 @@ func TestClientStructureRegistry_RangeStaticsChange(t *testing.T) {
 	range1Copy := &livetemplate.TreeNode{
 		Statics:  []string{"<tr>", "</tr>"},
 		Dynamics: make(map[string]interface{}),
-		Range: &livetemplate.RangeData{
+		Range: &build.RangeData{
 			Items: []interface{}{
 				map[string]interface{}{"0": "different item"},
 			},
@@ -337,7 +338,7 @@ func TestClientStructureRegistry_ComplexScenario(t *testing.T) {
 	firstItem := &livetemplate.TreeNode{
 		Statics:  []string{"<div>", "</div>"},
 		Dynamics: make(map[string]interface{}),
-		Range: &livetemplate.RangeData{
+		Range: &build.RangeData{
 			Items: []interface{}{
 				map[string]interface{}{"0": "item1"},
 			},
@@ -356,7 +357,7 @@ func TestClientStructureRegistry_ComplexScenario(t *testing.T) {
 	moreItems := &livetemplate.TreeNode{
 		Statics:  []string{"<div>", "</div>"},
 		Dynamics: make(map[string]interface{}),
-		Range: &livetemplate.RangeData{
+		Range: &build.RangeData{
 			Items: []interface{}{
 				map[string]interface{}{"0": "item1"},
 				map[string]interface{}{"0": "item2"},

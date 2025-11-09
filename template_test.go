@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/livetemplate/livetemplate/internal/build"
+	"github.com/livetemplate/livetemplate/internal/compat"
 	"github.com/livetemplate/livetemplate/internal/parse"
 )
 
@@ -1073,7 +1074,7 @@ func TestFlattenTemplate_IntegrationWithTreeGeneration(t *testing.T) {
 		},
 	}
 
-	tree, err := parseTemplateToTree("test", flattened, data, newKeyGenerator())
+	tree, err := compat.ParseTemplateToTree("test", flattened, data, compat.NewKeyGenerator())
 	if err != nil {
 		t.Fatalf("Failed to generate tree from flattened template: %v", err)
 	}
@@ -1893,9 +1894,9 @@ func TestTemplateGenerateInitialTreeFallsBackForBlockWithDynamicTemplate(t *test
 		"Message":     "hello",
 	}
 
-	ctx := NewTreeGenerationContext()
+	ctx := build.NewContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := parseTemplateToTree("test", dynamicTemplateStr, data, newKeyGenerator(), ctx); err == nil {
+	if _, err := compat.ParseTemplateToTree("test", dynamicTemplateStr, data, compat.NewKeyGenerator(), ctx); err == nil {
 		t.Fatalf("expected AST parser to error for block with dynamic template invocation")
 	}
 
@@ -1935,9 +1936,9 @@ func TestTemplateGenerateInitialTreeFallsBackForChannelRange(t *testing.T) {
 	close(events)
 	var data map[string]interface{} = map[string]interface{}{"Events": (<-chan string)(events)}
 
-	ctx := NewTreeGenerationContext()
+	ctx := build.NewContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := parseTemplateToTree("test", `<ul>{{range .Events}}<li>{{.}}</li>{{end}}</ul>`, data, newKeyGenerator(), ctx); err == nil {
+	if _, err := compat.ParseTemplateToTree("test", `<ul>{{range .Events}}<li>{{.}}</li>{{end}}</ul>`, data, compat.NewKeyGenerator(), ctx); err == nil {
 		t.Fatalf("expected AST parser to error for channel range")
 	}
 
@@ -1977,9 +1978,9 @@ func TestTemplateGenerateInitialTreeFallsBackForChannelRangeWithDecls(t *testing
 	close(events)
 	data := map[string]interface{}{"Events": (<-chan string)(events)}
 
-	ctx := NewTreeGenerationContext()
+	ctx := build.NewContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := parseTemplateToTree("test", templateStr, data, newKeyGenerator(), ctx); err == nil {
+	if _, err := compat.ParseTemplateToTree("test", templateStr, data, compat.NewKeyGenerator(), ctx); err == nil {
 		t.Fatalf("expected AST parser to error for channel range with declarations")
 	}
 
@@ -2013,9 +2014,9 @@ func TestTemplateGenerateInitialTreeFallsBackForIntegerRange(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	ctx := NewTreeGenerationContext()
+	ctx := build.NewContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := parseTemplateToTree("test", templateStr, nil, newKeyGenerator(), ctx); err == nil {
+	if _, err := compat.ParseTemplateToTree("test", templateStr, nil, compat.NewKeyGenerator(), ctx); err == nil {
 		t.Fatalf("expected AST parser to error for integer range")
 	}
 
@@ -2090,9 +2091,9 @@ func TestTemplateGenerateInitialTreeFallsBackForRangeBreak(t *testing.T) {
 
 	data := map[string]interface{}{"Items": []string{"alpha", "stop", "gamma"}}
 
-	ctx := NewTreeGenerationContext()
+	ctx := build.NewContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := parseTemplateToTree("test", templateStr, data, newKeyGenerator(), ctx); err == nil {
+	if _, err := compat.ParseTemplateToTree("test", templateStr, data, compat.NewKeyGenerator(), ctx); err == nil {
 		t.Fatalf("expected AST parser to error for range with break")
 	}
 
@@ -2128,9 +2129,9 @@ func TestTemplateGenerateInitialTreeFallsBackForRangeContinue(t *testing.T) {
 
 	data := map[string]interface{}{"Items": []string{"alpha", "skip", "gamma"}}
 
-	ctx := NewTreeGenerationContext()
+	ctx := build.NewContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := parseTemplateToTree("test", templateStr, data, newKeyGenerator(), ctx); err == nil {
+	if _, err := compat.ParseTemplateToTree("test", templateStr, data, compat.NewKeyGenerator(), ctx); err == nil {
 		t.Fatalf("expected AST parser to error for range with continue")
 	}
 
@@ -2177,9 +2178,9 @@ func TestTemplateGenerateInitialTreeFallsBackForDynamicTemplateInvocation(t *tes
 		"Message":     "hello",
 	}
 
-	ctx := NewTreeGenerationContext()
+	ctx := build.NewContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := parseTemplateToTree("test", dynamicTemplateStr, data, newKeyGenerator(), ctx); err == nil {
+	if _, err := compat.ParseTemplateToTree("test", dynamicTemplateStr, data, compat.NewKeyGenerator(), ctx); err == nil {
 		t.Fatalf("expected AST parser to error for dynamic template invocation")
 	}
 
@@ -2226,9 +2227,9 @@ func TestTemplateGenerateInitialTreeFallsBackForWithIterSeq(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	ctx := NewTreeGenerationContext()
+	ctx := build.NewContext()
 	ctx.FuncMap = tmpl.funcs
-	if _, err := parseTemplateToTree("test", templateStr, nil, newKeyGenerator(), ctx); err == nil {
+	if _, err := compat.ParseTemplateToTree("test", templateStr, nil, compat.NewKeyGenerator(), ctx); err == nil {
 		t.Fatalf("expected AST parser to error for with pipeline returning iter.Seq")
 	}
 
@@ -3229,7 +3230,7 @@ func TestAnalyzeChangeAndCreateTree_PartialChangeKeepsStatics(t *testing.T) {
 func TestKeyInjectionScenarios(t *testing.T) {
 	// Test the new simple wrapper approach
 	// Create test-local key generator (no global state)
-	kg := newKeyGenerator()
+	kg := compat.NewKeyGenerator()
 
 	tests := []struct {
 		name     string
@@ -3244,7 +3245,7 @@ func TestKeyInjectionScenarios(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result := generateWrapperKey(kg)
+			result := compat.GenerateWrapperKey(kg)
 			if result != test.expected {
 				t.Errorf("Expected key %q, got %q", test.expected, result)
 			}
@@ -3259,12 +3260,12 @@ func TestKeyInjectionStabilityAcrossChanges(t *testing.T) {
 	t.Logf("✅ Keys are stable within a single page render")
 
 	// Create test-local key generator (no global state)
-	kg := newKeyGenerator()
+	kg := compat.NewKeyGenerator()
 
 	// Generate a few keys to show the pattern
 	keys := make([]string, 3)
 	for i := 0; i < 3; i++ {
-		keys[i] = generateWrapperKey(kg)
+		keys[i] = compat.GenerateWrapperKey(kg)
 	}
 
 	t.Logf("Generated keys: %v", keys)
@@ -3275,7 +3276,7 @@ func TestKeyInjectionUniversalCompatibility(t *testing.T) {
 	t.Logf("🎯 UNIVERSAL COMPATIBILITY: Works with any data type")
 
 	// Create test-local key generator (no global state)
-	kg := newKeyGenerator()
+	kg := compat.NewKeyGenerator()
 
 	// Test that wrapper approach works with ANY data type
 	testCases := []interface{}{
@@ -3295,7 +3296,7 @@ func TestKeyInjectionUniversalCompatibility(t *testing.T) {
 	}
 
 	for i, item := range testCases {
-		key := generateWrapperKey(kg)
+		key := compat.GenerateWrapperKey(kg)
 		expectedKey := fmt.Sprintf("%d", i+1)
 
 		if key != expectedKey {
@@ -3306,4 +3307,76 @@ func TestKeyInjectionUniversalCompatibility(t *testing.T) {
 	}
 
 	t.Logf("✅ All data types handled uniformly - no special cases needed!")
+}
+
+// =============================================================================
+// Test Helpers
+// =============================================================================
+
+// reconstructHTML rebuilds HTML string from tree structure
+// Used by tree testing to verify tree structure produces correct output
+func reconstructHTML(tree *TreeNode) string {
+	if tree == nil {
+		return ""
+	}
+
+	if !tree.HasStatics() {
+		return ""
+	}
+
+	// Check if this is a range comprehension
+	if tree.HasRange() {
+		if tree.Range == nil || len(tree.Range.Items) == 0 {
+			// Debug: Empty range
+			return ""
+		}
+
+		var result strings.Builder
+		for _, itemDynamics := range tree.Range.Items {
+			// Items are *TreeNode
+			itemNode, ok := itemDynamics.(*TreeNode)
+			if !ok {
+				// Skip non-TreeNode items
+				continue
+			}
+
+			// Reconstruct each item using statics and item dynamics
+			for i, static := range tree.Statics {
+				result.WriteString(static)
+				if i < len(tree.Statics)-1 {
+					key := fmt.Sprintf("%d", i)
+					if val, exists := itemNode.GetDynamic(key); exists {
+						if nestedTree, ok := val.(*TreeNode); ok {
+							result.WriteString(reconstructHTML(nestedTree))
+						} else {
+							result.WriteString(fmt.Sprintf("%v", val))
+						}
+					}
+				}
+			}
+		}
+		return result.String()
+	}
+
+	var result strings.Builder
+
+	// Interleave statics and dynamics
+	for i, static := range tree.Statics {
+		result.WriteString(static)
+
+		// Add dynamic value if exists
+		if i < len(tree.Statics)-1 {
+			key := fmt.Sprintf("%d", i)
+			if val, exists := tree.GetDynamic(key); exists {
+				// Check if value is nested tree with its own range
+				if nestedTree, ok := val.(*TreeNode); ok {
+					result.WriteString(reconstructHTML(nestedTree))
+				} else {
+					result.WriteString(fmt.Sprintf("%v", val))
+				}
+			}
+		}
+	}
+
+	return result.String()
 }

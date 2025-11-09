@@ -98,8 +98,10 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/livetemplate/livetemplate/internal/build"
+	"github.com/livetemplate/livetemplate/internal/compat"
 	"github.com/livetemplate/livetemplate/internal/context"
 	"github.com/livetemplate/livetemplate/internal/diff"
+	"github.com/livetemplate/livetemplate/internal/discovery"
 	"github.com/livetemplate/livetemplate/internal/keys"
 	"github.com/livetemplate/livetemplate/internal/observe"
 	"github.com/livetemplate/livetemplate/internal/parse"
@@ -108,6 +110,26 @@ import (
 	"github.com/livetemplate/livetemplate/internal/signature"
 	"github.com/livetemplate/livetemplate/pubsub"
 )
+
+// =============================================================================
+// Internal Type Aliases
+// =============================================================================
+
+// TreeNode is an internal alias for build.TreeNode.
+// Used internally by Template for tree caching and comparison.
+type TreeNode = build.TreeNode
+
+// keyGenerator is an internal alias for keys.Generator.
+// Used internally by Template for sequential key generation.
+type keyGenerator = keys.Generator
+
+// TreeGenerationContext is an internal alias for build.Context.
+// Used internally for tree generation.
+type TreeGenerationContext = build.Context
+
+// =============================================================================
+// Configuration
+// =============================================================================
 
 // Config holds template configuration options
 type Config struct {
@@ -542,7 +564,7 @@ func New(name string, opts ...Option) *Template {
 
 	tmpl := &Template{
 		name:     name,
-		keyGen:   newKeyGenerator(),
+		keyGen:   compat.NewKeyGenerator(),
 		config:   config,
 		registry: signature.NewClientStructureRegistry(),
 	}
@@ -550,7 +572,7 @@ func New(name string, opts ...Option) *Template {
 	// Auto-discover and parse templates if not explicitly provided
 	if len(config.TemplateFiles) == 0 {
 		// Use TemplateBaseDir from config if provided, otherwise fall back to runtime.Caller
-		files, err := discoverTemplateFiles(config.TemplateBaseDir, config.IgnoreTemplateDirs)
+		files, err := discovery.DiscoverTemplateFiles(config.TemplateBaseDir, config.IgnoreTemplateDirs)
 		if err == nil && len(files) > 0 {
 			if _, err := tmpl.ParseFiles(files...); err != nil {
 				log.Printf("Warning: failed to parse template files: %v", err)
@@ -583,7 +605,7 @@ func (t *Template) Clone() (*Template, error) {
 		templateStr: templateStr,
 		wrapperID:   wrapperID, // Share wrapper ID
 		funcs:       copyFuncMap(t.funcs),
-		keyGen:      newKeyGenerator(),
+		keyGen:      compat.NewKeyGenerator(),
 		config:      config,                       // Preserve configuration
 		registry:    signature.NewClientStructureRegistry(), // Fresh registry for new session
 		// Don't copy lastData, lastHTML, lastTree, etc. - start fresh
@@ -609,13 +631,13 @@ func (t *Template) Clone() (*Template, error) {
 func (t *Template) Parse(text string) (*Template, error) {
 	// Normalize template spacing to handle formatter-added spaces
 	// This prevents issues when formatters add spaces like "{{ range" instead of "{{range"
-	text = normalizeTemplateSpacing(text)
+	text = compat.NormalizeTemplateSpacing(text)
 
 	// Determine if this is a full HTML document
 	isFullHTML := strings.Contains(text, "<!DOCTYPE") || strings.Contains(text, "<html")
 
 	// Always generate wrapper ID for consistent update targeting
-	t.wrapperID = generateRandomID()
+	t.wrapperID = compat.GenerateRandomID()
 
 	// First, parse WITHOUT wrapper to check if flattening is needed
 	baseTemplate := template.New(t.name)
@@ -650,7 +672,7 @@ func (t *Template) parseInternal(text string, baseTemplate *template.Template, i
 	var templateContent string
 	if isFullHTML {
 		// Inject wrapper div around body content
-		templateContent = injectWrapperDiv(text, t.wrapperID, t.config.LoadingDisabled)
+		templateContent = compat.InjectWrapperDiv(text, t.wrapperID, t.config.LoadingDisabled)
 	} else {
 		// For standalone templates, wrap the entire content
 		loadingAttr := ""
@@ -702,13 +724,13 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 	}
 
 	// Normalize template spacing
-	text := normalizeTemplateSpacing(string(content))
+	text := compat.NormalizeTemplateSpacing(string(content))
 
 	// Determine if this is a full HTML document
 	isFullHTML := strings.Contains(text, "<!DOCTYPE") || strings.Contains(text, "<html")
 
 	// Always generate wrapper ID for consistent update targeting
-	t.wrapperID = generateRandomID()
+	t.wrapperID = compat.GenerateRandomID()
 
 	// First, parse WITHOUT wrapper to check if flattening is needed
 	baseTemplate := template.New(t.name)
@@ -903,7 +925,7 @@ func (t *Template) generateInitialTreeWithoutRegistry(html string, data interfac
 	// Extract content from wrapper if we have one
 	var contentToAnalyze string
 	if t.wrapperID != "" {
-		contentToAnalyze = extractTemplateContent(html, t.wrapperID)
+		contentToAnalyze = compat.ExtractTemplateContent(html, t.wrapperID)
 	} else {
 		contentToAnalyze = html
 	}
@@ -914,7 +936,7 @@ func (t *Template) generateInitialTreeWithoutRegistry(html string, data interfac
 	if t.wrapperID != "" {
 		// For templates with <body> tags, extract body content
 		// For templates without <body> tags (including flattened templates), use template as-is
-		bodyContent := extractTemplateBodyContent(t.templateStr)
+		bodyContent := compat.ExtractTemplateBodyContent(t.templateStr)
 		// extractTemplateBodyContent returns the full template if no <body> tag found
 		// So we can use it directly - it will be the flattened template content without wrapper
 
@@ -927,10 +949,10 @@ func (t *Template) generateInitialTreeWithoutRegistry(html string, data interfac
 
 	// Use the original parser - it maintains the correct invariant and handles dynamics properly
 	// First render: create context that includes all statics
-	ctx := NewTreeGenerationContext()
+	ctx := build.NewContext()
 	ctx.FuncMap = t.funcs
 	ctx.DevMode = t.config.DevMode
-	tree, err := parseTemplateToTree(t.name, templateContent, data, t.keyGen, ctx)
+	tree, err := compat.ParseTemplateToTree(t.name, templateContent, data, t.keyGen, ctx)
 	if err != nil {
 		// parseTemplateToTree failed, falling back to HTML structure
 		slog.Warn("Template parsing failed, falling back to HTML structure-based tree",
@@ -947,11 +969,11 @@ func (t *Template) generateInitialTreeWithoutRegistry(html string, data interfac
 	t.lastTree = tree
 
 	// Calculate and store initial fingerprint for change detection
-	t.lastFingerprint = calculateFingerprint(tree)
+	t.lastFingerprint = compat.CalculateFingerprint(tree)
 
 	// Add fingerprint to tree for client-side tracking
 	// NOTE: Caller is responsible for calling markAllStructuresAsSeen outside the lock
-	return addFingerprintToTree(tree), nil
+	return compat.AddFingerprintToTree(tree), nil
 }
 
 // generateDiffBasedTree creates tree based on diff analysis
@@ -960,8 +982,8 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 	// Extract content from wrapper if we have one for proper comparison
 	var oldContent, newContent string
 	if t.wrapperID != "" {
-		oldContent = extractTemplateContent(oldHTML, t.wrapperID)
-		newContent = extractTemplateContent(newHTML, t.wrapperID)
+		oldContent = compat.ExtractTemplateContent(oldHTML, t.wrapperID)
+		newContent = compat.ExtractTemplateContent(newHTML, t.wrapperID)
 	} else {
 		oldContent = oldHTML
 		newContent = newHTML
@@ -972,16 +994,16 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 		// Generate complete tree with current data using the template instance's keyGen
 		// to ensure consistent key mapping across renders
 		// Don't strip scripts - they may contain template logic
-		bodyContent := extractTemplateBodyContent(t.templateStr)
+		bodyContent := compat.ExtractTemplateBodyContent(t.templateStr)
 		templateContent := bodyContent
 
 		// IMPORTANT: Always generate trees WITH statics for comparison purposes
 		// The stripping happens in compareTreesAndGetChanges, not here
 		// Using nil context defaults to including statics
-		ctx := NewTreeGenerationContext()
+		ctx := build.NewContext()
 		ctx.FuncMap = t.funcs
 		ctx.DevMode = t.config.DevMode
-		newTree, err := parseTemplateToTree(t.name, templateContent, newData, t.keyGen, ctx)
+		newTree, err := compat.ParseTemplateToTree(t.name, templateContent, newData, t.keyGen, ctx)
 		if err != nil {
 			return nil, fmt.Errorf("tree generation failed: %w", err)
 		}
@@ -992,7 +1014,7 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 
 		// If no changes, return empty TreeNode
 		if !changedTree.HasStatics() && !changedTree.HasDynamics() && !changedTree.HasRange() {
-			return NewTreeNode(), nil
+			return build.NewTreeNode(), nil
 		}
 
 		// Update cached state for next comparison
@@ -1010,7 +1032,7 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 	}
 
 	// Calculate and store fingerprint for the new tree
-	newFingerprint := calculateFingerprint(tree)
+	newFingerprint := compat.CalculateFingerprint(tree)
 	t.lastFingerprint = newFingerprint
 
 	// Update cached state AFTER successful tree generation (use extracted content)
@@ -1018,7 +1040,7 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 	t.lastHTML = newContent
 
 	// Add fingerprint to tree for client-side tracking
-	return addFingerprintToTree(tree), nil
+	return compat.AddFingerprintToTree(tree), nil
 }
 
 // =============================================================================
@@ -1087,7 +1109,7 @@ func (t *Template) Handle(stores ...Store) LiveHandler {
 		}
 	}
 
-	config := MountConfig{
+	config := mountConfig{
 		Template:               t,
 		Stores:                 storesMap,
 		IsSingleStore:          isSingleStore,
@@ -1176,7 +1198,7 @@ func (t *Template) buildTree(data interface{}, errors map[string]string) (*TreeN
 
 	// Initialize key generator if needed (defensive check)
 	if t.keyGen == nil {
-		t.keyGen = newKeyGenerator()
+		t.keyGen = compat.NewKeyGenerator()
 	}
 
 	// Load existing key mappings if available
@@ -1197,7 +1219,7 @@ func (t *Template) buildTree(data interface{}, errors map[string]string) (*TreeN
 		// Extract content from wrapper for consistent caching
 		var contentToCache string
 		if t.wrapperID != "" {
-			contentToCache = extractTemplateContent(currentHTML, t.wrapperID)
+			contentToCache = compat.ExtractTemplateContent(currentHTML, t.wrapperID)
 		} else {
 			contentToCache = currentHTML
 		}

@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"testing"
+
+	"github.com/livetemplate/livetemplate/internal/compat"
 )
 
 // BenchmarkUserJourney measures performance of user journey processing.
@@ -26,7 +28,7 @@ func BenchmarkUserJourney(b *testing.B) {
 		simulator := NewStateSimulator()
 		tmpl := &Template{
 			templateStr: templateStr,
-			keyGen:      newKeyGenerator(),
+			keyGen:      compat.NewKeyGenerator(),
 		}
 		_, _ = tmpl.Parse(tmpl.templateStr)
 
@@ -37,7 +39,7 @@ func BenchmarkUserJourney(b *testing.B) {
 			if j == 0 {
 				_, _ = tmpl.generateInitialTreeWithoutRegistry(templateStr, state)
 			} else {
-				newTree, _ := parseTemplateToTree("test", templateStr, state, tmpl.keyGen)
+				newTree, _ := compat.ParseTemplateToTree("test", templateStr, state, tmpl.keyGen)
 				tmpl.compareTreesAndGetChanges(tmpl.lastTree, newTree)
 				tmpl.lastTree = newTree
 			}
@@ -59,7 +61,7 @@ func BenchmarkFingerprint_Small_New(b *testing.B) {
 	tree := createFlatTree(10)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = calculateFingerprint(mustFromMap(tree))
+		_ = compat.CalculateFingerprint(mustFromMap(tree))
 	}
 }
 
@@ -77,7 +79,7 @@ func BenchmarkFingerprint_Medium_New(b *testing.B) {
 	tree := createFlatTree(100)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = calculateFingerprint(mustFromMap(tree))
+		_ = compat.CalculateFingerprint(mustFromMap(tree))
 	}
 }
 
@@ -95,7 +97,7 @@ func BenchmarkFingerprint_Large_New(b *testing.B) {
 	tree := createFlatTree(1000)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = calculateFingerprint(mustFromMap(tree))
+		_ = compat.CalculateFingerprint(mustFromMap(tree))
 	}
 }
 
@@ -113,7 +115,7 @@ func BenchmarkFingerprint_DeepNested_New(b *testing.B) {
 	tree := createNestedTree(4, 3)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = calculateFingerprint(mustFromMap(tree))
+		_ = compat.CalculateFingerprint(mustFromMap(tree))
 	}
 }
 
@@ -131,7 +133,7 @@ func BenchmarkFingerprint_Range100_New(b *testing.B) {
 	tree := createRangeTree(100)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = calculateFingerprint(mustFromMap(tree))
+		_ = compat.CalculateFingerprint(mustFromMap(tree))
 	}
 }
 
@@ -149,7 +151,7 @@ func BenchmarkFingerprint_Range1000_New(b *testing.B) {
 	tree := createRangeTree(1000)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = calculateFingerprint(mustFromMap(tree))
+		_ = compat.CalculateFingerprint(mustFromMap(tree))
 	}
 }
 
@@ -169,7 +171,7 @@ func BenchmarkFingerprint_Allocations_New(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = calculateFingerprint(mustFromMap(tree))
+		_ = compat.CalculateFingerprint(mustFromMap(tree))
 	}
 }
 

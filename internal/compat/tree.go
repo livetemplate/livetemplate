@@ -1,4 +1,4 @@
-package livetemplate
+package compat
 
 import (
 	"fmt"
@@ -12,56 +12,56 @@ import (
 // Fingerprinting wrappers for backward compatibility
 
 // calculateFingerprint wraps internal/build.CalculateFingerprint for backward compatibility
-func calculateFingerprint(tree *TreeNode) string {
+func CalculateFingerprint(tree *build.TreeNode) string {
 	return build.CalculateFingerprint(tree)
 }
 
 // addFingerprintToTree wraps internal/build.AddFingerprintToTree for backward compatibility
-func addFingerprintToTree(tree *TreeNode) *TreeNode {
+func AddFingerprintToTree(tree *build.TreeNode) *build.TreeNode {
 	return build.AddFingerprintToTree(tree)
 }
 
 // Wrapper functions for backward compatibility
 
 // generateRandomID wraps internal/build.GenerateRandomID for backward compatibility
-func generateRandomID() string {
+func GenerateRandomID() string {
 	return build.GenerateRandomID()
 }
 
 // injectWrapperDiv wraps internal/build.InjectWrapperDiv for backward compatibility
-func injectWrapperDiv(htmlDoc string, wrapperID string, loadingDisabled bool) string {
+func InjectWrapperDiv(htmlDoc string, wrapperID string, loadingDisabled bool) string {
 	return build.InjectWrapperDiv(htmlDoc, wrapperID, loadingDisabled)
 }
 
 // extractTemplateBodyContent wraps internal/build.ExtractTemplateBodyContent for backward compatibility
-func extractTemplateBodyContent(templateStr string) string {
+func ExtractTemplateBodyContent(templateStr string) string {
 	return build.ExtractTemplateBodyContent(templateStr)
 }
 
 // extractTemplateContent wraps internal/build.ExtractTemplateContent for backward compatibility
-func extractTemplateContent(input string, wrapperID string) string {
+func ExtractTemplateContent(input string, wrapperID string) string {
 	return build.ExtractTemplateContent(input, wrapperID)
 }
 
 // normalizeTemplateSpacing wraps internal/build.NormalizeTemplateSpacing for backward compatibility
-func normalizeTemplateSpacing(templateStr string) string {
+func NormalizeTemplateSpacing(templateStr string) string {
 	return build.NormalizeTemplateSpacing(templateStr)
 }
 
 // Rendering wrappers for backward compatibility
 
 // renderTreeToHTML wraps internal/render.TreeToHTML for backward compatibility (used in tests)
-func renderTreeToHTML(tree map[string]interface{}) (string, error) {
+func RenderTreeToHTML(tree map[string]interface{}) (string, error) {
 	return render.TreeToHTML(tree)
 }
 
 // Key generation wrappers for backward compatibility
 
 // keyGenerator is a type alias for backward compatibility
-type keyGenerator = keys.Generator
+type KeyGenerator = keys.Generator
 
 // newKeyGenerator wraps internal/keys.NewGenerator for backward compatibility
-func newKeyGenerator() *keyGenerator {
+func NewKeyGenerator() *KeyGenerator {
 	return keys.NewGenerator()
 }
 
@@ -77,7 +77,7 @@ func newKeyGenerator() *keyGenerator {
 // Future consideration: If error handling is critical for your use case, the parse.KeyGenerator
 // interface could be updated in a future major version to return (string, error).
 type keyGeneratorAdapter struct {
-	kg *keyGenerator
+	kg *KeyGenerator
 }
 
 // Next implements parse.KeyGenerator interface.
@@ -93,7 +93,7 @@ func (kga *keyGeneratorAdapter) Next() string {
 }
 
 // detectIDKey wraps internal/keys.DetectIDKey for backward compatibility
-func detectIDKey(statics []string) string {
+func DetectIDKey(statics []string) string {
 	return keys.DetectIDKey(statics)
 }
 
@@ -102,7 +102,7 @@ func detectIDKey(statics []string) string {
 // Trade-off: Panics on error for backward compatibility with callers expecting
 // a simple string return. Key generation errors only occur on counter overflow
 // (after 2^63-1 keys), which is effectively impossible in real-world usage.
-func generateWrapperKey(keyGen *keyGenerator) string {
+func GenerateWrapperKey(keyGen *KeyGenerator) string {
 	key, err := keyGen.NextKey()
 	if err != nil {
 		// Counter overflow - extremely unlikely (requires 2^63-1 keys)
@@ -115,14 +115,14 @@ func generateWrapperKey(keyGen *keyGenerator) string {
 // parseTemplateToTree parses a template using the internal/parse package
 // templateName is used for expression caching
 // ctx is optional - if nil, defaults to first-render context (includes statics)
-func parseTemplateToTree(templateName, templateStr string, data interface{}, keyGen *keyGenerator, ctx ...*TreeGenerationContext) (tree *TreeNode, err error) {
+func ParseTemplateToTree(templateName, templateStr string, data interface{}, keyGen *KeyGenerator, ctx ...*build.Context) (tree *build.TreeNode, err error) {
 	// Get or create context
-	var genCtx *TreeGenerationContext
+	var genCtx *build.Context
 	if len(ctx) > 0 {
 		genCtx = ctx[0]
 	}
 	if genCtx == nil {
-		genCtx = NewTreeGenerationContext()
+		genCtx = build.NewContext()
 	}
 
 	// Set template name for expression caching
