@@ -11,8 +11,8 @@ import (
 	"github.com/livetemplate/livetemplate/internal/compat"
 )
 
-// mustFromMap is a test helper that converts a map to *TreeNode, panicking on error
-func mustFromMap(m map[string]interface{}) *TreeNode {
+// mustFromMap is a test helper that converts a map to *build.TreeNode, panicking on error
+func mustFromMap(m map[string]interface{}) *build.TreeNode {
 	tree, err := build.FromMap(m)
 	if err != nil {
 		panic(fmt.Sprintf("mustFromMap failed: %v", err))
@@ -43,13 +43,13 @@ func TestUpdateSpecification_FirstRender(t *testing.T) {
 		name       string
 		template   string
 		data       interface{}
-		validateFn func(t *testing.T, tree *TreeNode)
+		validateFn func(t *testing.T, tree *build.TreeNode)
 	}{
 		{
 			name:     "simple_field",
 			template: `<div>{{.Name}}</div>`,
 			data:     struct{ Name string }{Name: "Test"},
-			validateFn: func(t *testing.T, tree *TreeNode) {
+			validateFn: func(t *testing.T, tree *build.TreeNode) {
 				// Must have statics
 				if !tree.HasStatics() {
 					t.Error("First render missing statics")
@@ -67,7 +67,7 @@ func TestUpdateSpecification_FirstRender(t *testing.T) {
 			name:     "conditional",
 			template: `{{if .Show}}<div>Visible</div>{{end}}`,
 			data:     struct{ Show bool }{Show: true},
-			validateFn: func(t *testing.T, tree *TreeNode) {
+			validateFn: func(t *testing.T, tree *build.TreeNode) {
 				// Conditionals should be wrapped
 				if !tree.HasStatics() {
 					t.Error("Conditional missing wrapper statics")
@@ -85,14 +85,14 @@ func TestUpdateSpecification_FirstRender(t *testing.T) {
 			name:     "range_empty",
 			template: `{{range .Items}}<li>{{.}}</li>{{end}}`,
 			data:     struct{ Items []string }{Items: []string{}},
-			validateFn: func(t *testing.T, tree *TreeNode) {
+			validateFn: func(t *testing.T, tree *build.TreeNode) {
 				// Empty range should have structure
 				if !tree.HasStatics() {
 					t.Error("Empty range missing statics")
 				}
 				// Should have empty 'd' array - check nested TreeNode
 				if val, ok := tree.GetDynamic("0"); ok {
-					if rangeNode, ok := val.(*TreeNode); ok && rangeNode.HasRange() {
+					if rangeNode, ok := val.(*build.TreeNode); ok && rangeNode.HasRange() {
 						if len(rangeNode.Range.Items) != 0 {
 							t.Errorf("Empty range should have empty 'd', got %d items", len(rangeNode.Range.Items))
 						}
@@ -104,14 +104,14 @@ func TestUpdateSpecification_FirstRender(t *testing.T) {
 			name:     "range_with_items",
 			template: `{{range .Items}}<li>{{.}}</li>{{end}}`,
 			data:     struct{ Items []string }{Items: []string{"A", "B", "C"}},
-			validateFn: func(t *testing.T, tree *TreeNode) {
+			validateFn: func(t *testing.T, tree *build.TreeNode) {
 				// Range should have statics at top level
 				if !tree.HasStatics() {
 					t.Error("Range missing top-level statics")
 				}
 				// Check range structure
 				if val, ok := tree.GetDynamic("0"); ok {
-					if rangeNode, ok := val.(*TreeNode); ok {
+					if rangeNode, ok := val.(*build.TreeNode); ok {
 						// Range should have its own statics
 						if !rangeNode.HasStatics() {
 							t.Error("Range missing internal statics")
@@ -136,7 +136,7 @@ func TestUpdateSpecification_FirstRender(t *testing.T) {
 				Items:  []string{"A", "B"},
 				Footer: "Bottom",
 			},
-			validateFn: func(t *testing.T, tree *TreeNode) {
+			validateFn: func(t *testing.T, tree *build.TreeNode) {
 				// Should have multiple dynamics
 				if val, _ := tree.GetDynamic("0"); val != "Header" {
 					t.Error("Title dynamic missing or incorrect")
@@ -146,7 +146,7 @@ func TestUpdateSpecification_FirstRender(t *testing.T) {
 				foundFooter := false
 				for _, v := range tree.Dynamics {
 					// Check if value is TreeNode with Range
-					if tn, ok := v.(*TreeNode); ok && tn.HasRange() {
+					if tn, ok := v.(*build.TreeNode); ok && tn.HasRange() {
 						foundRange = true
 					}
 					if v == "Bottom" {
@@ -199,7 +199,7 @@ func TestUpdateSpecification_SubsequentUpdates(t *testing.T) {
 		template             string
 		initial              interface{}
 		update               interface{}
-		validateFn           func(t *testing.T, changes *TreeNode)
+		validateFn           func(t *testing.T, changes *build.TreeNode)
 		skipComplianceChecks bool // Skip analyzer compliance checks for this test
 	}{
 		{
@@ -207,7 +207,7 @@ func TestUpdateSpecification_SubsequentUpdates(t *testing.T) {
 			template: `<div>Count: {{.Count}}</div>`,
 			initial:  struct{ Count int }{Count: 5},
 			update:   struct{ Count int }{Count: 10},
-			validateFn: func(t *testing.T, changes *TreeNode) {
+			validateFn: func(t *testing.T, changes *build.TreeNode) {
 				// Should only have the changed dynamic
 				if len(changes.Dynamics) != 1 {
 					t.Errorf("Expected 1 change, got %d", len(changes.Dynamics))
@@ -226,7 +226,7 @@ func TestUpdateSpecification_SubsequentUpdates(t *testing.T) {
 			template: `<div>{{.Value}}</div>`,
 			initial:  struct{ Value string }{Value: "Same"},
 			update:   struct{ Value string }{Value: "Same"},
-			validateFn: func(t *testing.T, changes *TreeNode) {
+			validateFn: func(t *testing.T, changes *build.TreeNode) {
 				// Should be empty
 				if len(changes.Dynamics) != 0 {
 					t.Errorf("No-change update should be empty, got %d fields", len(changes.Dynamics))
@@ -239,7 +239,7 @@ func TestUpdateSpecification_SubsequentUpdates(t *testing.T) {
 			initial:              struct{ Active bool }{Active: true},
 			update:               struct{ Active bool }{Active: false},
 			skipComplianceChecks: true, // Skip compliance - we accept wrapped format for compatibility
-			validateFn: func(t *testing.T, changes *TreeNode) {
+			validateFn: func(t *testing.T, changes *build.TreeNode) {
 				// Should only have the branch content change
 				if len(changes.Dynamics) != 1 {
 					t.Errorf("Expected 1 change, got %d", len(changes.Dynamics))
@@ -256,7 +256,7 @@ func TestUpdateSpecification_SubsequentUpdates(t *testing.T) {
 					return
 				}
 				// Check if value is TreeNode with "OFF" in statics
-				if tn, ok := val.(*TreeNode); ok {
+				if tn, ok := val.(*build.TreeNode); ok {
 					if len(tn.Statics) == 1 && tn.Statics[0] == "OFF" {
 						return
 					}
@@ -273,7 +273,7 @@ func TestUpdateSpecification_SubsequentUpdates(t *testing.T) {
 			update: struct{ A, B, C string }{
 				A: "X", B: "2", C: "Z", // B unchanged
 			},
-			validateFn: func(t *testing.T, changes *TreeNode) {
+			validateFn: func(t *testing.T, changes *build.TreeNode) {
 				// Should have changes for A and C, not B
 				if val, ok := changes.GetDynamic("0"); !ok || val != "X" {
 					t.Errorf("Expected A to be 'X', got %v", val)
@@ -560,7 +560,7 @@ func TestUserJourney_TodoApp(t *testing.T) {
 	steps := []struct {
 		name     string
 		state    AppState
-		validate func(t *testing.T, tree *TreeNode, isFirst bool)
+		validate func(t *testing.T, tree *build.TreeNode, isFirst bool)
 	}{
 		{
 			name: "initial_load",
@@ -571,7 +571,7 @@ func TestUserJourney_TodoApp(t *testing.T) {
 				ShowForm: true,
 				Todos:    []Todo{},
 			},
-			validate: func(t *testing.T, tree *TreeNode, isFirst bool) {
+			validate: func(t *testing.T, tree *build.TreeNode, isFirst bool) {
 				if !isFirst {
 					t.Error("Initial load should be first render")
 				}
@@ -592,7 +592,7 @@ func TestUserJourney_TodoApp(t *testing.T) {
 					{ID: "1", Text: "Learn Go", Done: false},
 				},
 			},
-			validate: func(t *testing.T, tree *TreeNode, isFirst bool) {
+			validate: func(t *testing.T, tree *build.TreeNode, isFirst bool) {
 				if isFirst {
 					t.Error("Should be an update, not first render")
 				}
@@ -613,7 +613,7 @@ func TestUserJourney_TodoApp(t *testing.T) {
 					{ID: "1", Text: "Learn Go", Done: true},
 				},
 			},
-			validate: func(t *testing.T, tree *TreeNode, isFirst bool) {
+			validate: func(t *testing.T, tree *build.TreeNode, isFirst bool) {
 				// Should update complete count and todo item
 				foundCompleteUpdate := false
 				for _, v := range tree.Dynamics {
@@ -639,7 +639,7 @@ func TestUserJourney_TodoApp(t *testing.T) {
 					{ID: "3", Text: "Deploy", Done: false},
 				},
 			},
-			validate: func(t *testing.T, tree *TreeNode, isFirst bool) {
+			validate: func(t *testing.T, tree *build.TreeNode, isFirst bool) {
 				// Should have range operations for adding items (insert "i" or append "a")
 				foundRangeOps := false
 				for _, v := range tree.Dynamics {
@@ -672,7 +672,7 @@ func TestUserJourney_TodoApp(t *testing.T) {
 					{ID: "3", Text: "Deploy", Done: false},
 				},
 			},
-			validate: func(t *testing.T, tree *TreeNode, isFirst bool) {
+			validate: func(t *testing.T, tree *build.TreeNode, isFirst bool) {
 				// Should update the conditional
 				// Form should disappear (empty string or specific update)
 				if len(tree.Dynamics) == 0 {

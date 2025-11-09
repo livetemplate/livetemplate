@@ -124,17 +124,17 @@ import (
 // - Maintain clean imports without exposing internal packages publicly
 // - Support backward compatibility for internal test code
 
-// TreeNode is an internal alias for build.TreeNode.
+// treeNode is an internal alias for build.TreeNode.
 // Used internally by Template for tree caching and comparison.
-type TreeNode = build.TreeNode
+type treeNode = build.TreeNode
 
 // keyGenerator is an internal alias for keys.Generator.
 // Used internally by Template for sequential key generation.
 type keyGenerator = keys.Generator
 
-// TreeGenerationContext is an internal alias for build.Context.
+// treeGenerationContext is an internal alias for build.Context.
 // Used internally for tree generation.
-type TreeGenerationContext = build.Context
+type treeGenerationContext = build.Context
 
 // =============================================================================
 // Configuration
@@ -172,8 +172,8 @@ type Template struct {
 	mu              sync.RWMutex // Protects mutable state fields below
 	lastData        interface{}
 	lastHTML        string
-	lastTree        *TreeNode // Store previous tree segments for comparison
-	initialTree     *TreeNode
+	lastTree        *treeNode // Store previous tree segments for comparison
+	initialTree     *treeNode
 	hasInitialTree  bool
 	lastFingerprint string                   // Fingerprint of the last generated tree for change detection
 	keyGen          *keyGenerator                     // Per-template key generation for wrapper approach
@@ -889,13 +889,13 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, errors ...map[
 // generateTreeInternalWithErrors delegates to buildTree() for backward compatibility.
 // DEPRECATED: Tests should use buildTree() directly. This wrapper exists only for
 // existing test code and will be removed in a future version.
-func (t *Template) generateTreeInternalWithErrors(data interface{}, errors map[string]string) (*TreeNode, error) {
+func (t *Template) generateTreeInternalWithErrors(data interface{}, errors map[string]string) (*treeNode, error) {
 	return t.buildTree(data, errors)
 }
 
 // markAllStructuresAsSeen recursively traverses a tree and marks all structures in the registry.
 // This should be called after generating the initial tree to record what the client has received.
-func (t *Template) markAllStructuresAsSeen(node *TreeNode, basePath string) {
+func (t *Template) markAllStructuresAsSeen(node *treeNode, basePath string) {
 	if node == nil || t.registry == nil {
 		return
 	}
@@ -914,7 +914,7 @@ func (t *Template) markAllStructuresAsSeen(node *TreeNode, basePath string) {
 		fieldPath += key
 
 		// If dynamic value is a TreeNode, recursively mark it
-		if childNode, ok := value.(*TreeNode); ok {
+		if childNode, ok := value.(*treeNode); ok {
 			t.markAllStructuresAsSeen(childNode, fieldPath)
 		} else {
 			// Mark scalar values
@@ -930,7 +930,7 @@ func (t *Template) markAllStructuresAsSeen(node *TreeNode, basePath string) {
 // generateInitialTreeWithoutRegistry creates tree with statics and dynamics for first render.
 // NOTE: This method modifies template state. Caller must hold t.mu write lock.
 // NOTE: Does NOT call registry methods - caller should do that outside the lock.
-func (t *Template) generateInitialTreeWithoutRegistry(html string, data interface{}) (*TreeNode, error) {
+func (t *Template) generateInitialTreeWithoutRegistry(html string, data interface{}) (*treeNode, error) {
 	// Extract content from wrapper if we have one
 	var contentToAnalyze string
 	if t.wrapperID != "" {
@@ -987,7 +987,7 @@ func (t *Template) generateInitialTreeWithoutRegistry(html string, data interfac
 
 // generateDiffBasedTree creates tree based on diff analysis
 // NOTE: This method modifies template state. Caller must hold t.mu write lock.
-func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newData interface{}) (*TreeNode, error) {
+func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newData interface{}) (*treeNode, error) {
 	// Extract content from wrapper if we have one for proper comparison
 	var oldContent, newContent string
 	if t.wrapperID != "" {
@@ -1057,13 +1057,13 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 // =============================================================================
 
 // compareTreesAndGetChanges compares two trees and returns only changed dynamics
-func (t *Template) compareTreesAndGetChanges(oldTree, newTree *TreeNode) *TreeNode {
+func (t *Template) compareTreesAndGetChanges(oldTree, newTree *treeNode) *treeNode {
 	return t.compareTreesAndGetChangesWithContext(oldTree, newTree, false)
 }
 
 // compareTreesAndGetChangesWithContext compares trees with context about whether we're in a new structure
 // insideNewStructure: true if we're inside a structure the client has never seen
-func (t *Template) compareTreesAndGetChangesWithContext(oldTree, newTree *TreeNode, insideNewStructure bool) *TreeNode {
+func (t *Template) compareTreesAndGetChangesWithContext(oldTree, newTree *treeNode, insideNewStructure bool) *treeNode {
 	// Calculate range matches once at the top level for the entire tree
 	rangeMatches := diff.FindRangeConstructMatches(oldTree, newTree)
 	return diff.CompareTreesAndGetChangesWithPath(oldTree, newTree, insideNewStructure, "", rangeMatches, t.registry)
@@ -1184,7 +1184,7 @@ func getStoreName(store Store) string {
 // This is the main entry point for Phase 2 (Build).
 // It handles both initial renders and subsequent updates internally.
 // Thread-safe: uses single lock acquisition to prevent race conditions.
-func (t *Template) buildTree(data interface{}, errors map[string]string) (*TreeNode, error) {
+func (t *Template) buildTree(data interface{}, errors map[string]string) (*treeNode, error) {
 	// Phase 4: Render HTML (needed for tree building)
 	// Do this outside the lock as it's CPU-intensive and doesn't modify shared state
 	currentHTML, err := t.renderHTML(data, errors)
@@ -1221,7 +1221,7 @@ func (t *Template) buildTree(data interface{}, errors map[string]string) (*TreeN
 	isFirstRender := t.lastData == nil
 
 	// Build tree based on render type
-	var tree *TreeNode
+	var tree *treeNode
 	var treeErr error
 
 	if isFirstRender {
@@ -1292,7 +1292,7 @@ func (t *Template) renderHTML(data interface{}, errors map[string]string) (strin
 func (t *Template) sendResponse(wr io.Writer, data interface{}) error {
 	// Check if data is a TreeNode (JSON response) or HTML string
 	switch v := data.(type) {
-	case *TreeNode:
+	case *treeNode:
 		// Send JSON tree updates
 		jsonBytes, err := send.MarshalOrderedJSON(v)
 		if err != nil {

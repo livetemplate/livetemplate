@@ -1756,9 +1756,9 @@ func TestTemplateGenerateTreeWithFuncMap(t *testing.T) {
 		t.Fatalf("expected dynamic range at position 0")
 	}
 
-	rangeNode, ok := dynamic.(*TreeNode)
+	rangeNode, ok := dynamic.(*build.TreeNode)
 	if !ok {
-		t.Fatalf("expected *TreeNode for dynamic, got %T", dynamic)
+		t.Fatalf("expected *build.TreeNode for dynamic, got %T", dynamic)
 	}
 
 	if !rangeNode.HasRange() {
@@ -3315,7 +3315,7 @@ func TestKeyInjectionUniversalCompatibility(t *testing.T) {
 
 // reconstructHTML rebuilds HTML string from tree structure
 // Used by tree testing to verify tree structure produces correct output
-func reconstructHTML(tree *TreeNode) string {
+func reconstructHTML(tree *build.TreeNode) string {
 	if tree == nil {
 		return ""
 	}
@@ -3333,8 +3333,8 @@ func reconstructHTML(tree *TreeNode) string {
 
 		var result strings.Builder
 		for _, itemDynamics := range tree.Range.Items {
-			// Items are *TreeNode
-			itemNode, ok := itemDynamics.(*TreeNode)
+			// Items are *build.TreeNode
+			itemNode, ok := itemDynamics.(*build.TreeNode)
 			if !ok {
 				// Skip non-TreeNode items
 				continue
@@ -3346,7 +3346,7 @@ func reconstructHTML(tree *TreeNode) string {
 				if i < len(tree.Statics)-1 {
 					key := fmt.Sprintf("%d", i)
 					if val, exists := itemNode.GetDynamic(key); exists {
-						if nestedTree, ok := val.(*TreeNode); ok {
+						if nestedTree, ok := val.(*build.TreeNode); ok {
 							result.WriteString(reconstructHTML(nestedTree))
 						} else {
 							result.WriteString(fmt.Sprintf("%v", val))
@@ -3369,7 +3369,7 @@ func reconstructHTML(tree *TreeNode) string {
 			key := fmt.Sprintf("%d", i)
 			if val, exists := tree.GetDynamic(key); exists {
 				// Check if value is nested tree with its own range
-				if nestedTree, ok := val.(*TreeNode); ok {
+				if nestedTree, ok := val.(*build.TreeNode); ok {
 					result.WriteString(reconstructHTML(nestedTree))
 				} else {
 					result.WriteString(fmt.Sprintf("%v", val))

@@ -60,9 +60,9 @@ func TestParseTemplateToTree_WithFuncMapRange(t *testing.T) {
 		t.Fatalf("expected dynamic range at position 0")
 	}
 
-	rangeNode, ok := dynamic.(*TreeNode)
+	rangeNode, ok := dynamic.(*build.TreeNode)
 	if !ok {
-		t.Fatalf("expected *TreeNode for range dynamic, got %T", dynamic)
+		t.Fatalf("expected *build.TreeNode for range dynamic, got %T", dynamic)
 	}
 	if !rangeNode.HasRange() {
 		t.Fatalf("expected range node to have range data")
@@ -326,7 +326,7 @@ func TestTreeNode_HasRange(t *testing.T) {
 func TestTreeNode_MarshalJSON(t *testing.T) {
 	tests := []struct {
 		name     string
-		node     *TreeNode
+		node     *build.TreeNode
 		expected string
 	}{
 		{
@@ -341,7 +341,7 @@ func TestTreeNode_MarshalJSON(t *testing.T) {
 		},
 		{
 			name: "node with dynamics only",
-			node: func() *TreeNode {
+			node: func() *build.TreeNode {
 				tn := build.NewTreeNode()
 				tn.SetDynamic("0", "Hello")
 				tn.SetDynamic("1", "World")
@@ -351,7 +351,7 @@ func TestTreeNode_MarshalJSON(t *testing.T) {
 		},
 		{
 			name: "node with statics and dynamics",
-			node: func() *TreeNode {
+			node: func() *build.TreeNode {
 				tn := build.NewTreeNodeWithStatics([]string{"<h1>", "</h1>"})
 				tn.SetDynamic("0", "Title")
 				return tn
@@ -360,7 +360,7 @@ func TestTreeNode_MarshalJSON(t *testing.T) {
 		},
 		{
 			name: "node with fingerprint",
-			node: func() *TreeNode {
+			node: func() *build.TreeNode {
 				tn := build.NewTreeNode()
 				tn.Fingerprint = "abc123"
 				return tn
@@ -369,7 +369,7 @@ func TestTreeNode_MarshalJSON(t *testing.T) {
 		},
 		{
 			name: "node with range data",
-			node: func() *TreeNode {
+			node: func() *build.TreeNode {
 				tn := build.NewTreeNode()
 				tn.Range = build.NewRangeData(
 					[]interface{}{
@@ -383,7 +383,7 @@ func TestTreeNode_MarshalJSON(t *testing.T) {
 		},
 		{
 			name: "node with metadata",
-			node: func() *TreeNode {
+			node: func() *build.TreeNode {
 				tn := build.NewTreeNode()
 				tn.Metadata = build.NewTreeMetadata("id")
 				return tn
@@ -392,7 +392,7 @@ func TestTreeNode_MarshalJSON(t *testing.T) {
 		},
 		{
 			name: "complete node",
-			node: func() *TreeNode {
+			node: func() *build.TreeNode {
 				tn := build.NewTreeNodeWithStatics([]string{"<div>", "</div>"})
 				tn.SetDynamic("0", "Content")
 				tn.Fingerprint = "xyz789"
@@ -433,12 +433,12 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
-		check func(*testing.T, *TreeNode)
+		check func(*testing.T, *build.TreeNode)
 	}{
 		{
 			name:  "empty object",
 			input: `{}`,
-			check: func(t *testing.T, tn *TreeNode) {
+			check: func(t *testing.T, tn *build.TreeNode) {
 				if tn.HasStatics() || tn.HasDynamics() || tn.Fingerprint != "" {
 					t.Error("Empty JSON should create empty TreeNode")
 				}
@@ -447,7 +447,7 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 		{
 			name:  "statics only",
 			input: `{"s":["<div>","</div>"]}`,
-			check: func(t *testing.T, tn *TreeNode) {
+			check: func(t *testing.T, tn *build.TreeNode) {
 				if len(tn.Statics) != 2 {
 					t.Errorf("Expected 2 statics, got %d", len(tn.Statics))
 				}
@@ -459,7 +459,7 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 		{
 			name:  "dynamics only",
 			input: `{"0":"Hello","1":"World"}`,
-			check: func(t *testing.T, tn *TreeNode) {
+			check: func(t *testing.T, tn *build.TreeNode) {
 				if val, ok := tn.GetDynamic("0"); !ok || val != "Hello" {
 					t.Error("Dynamic 0 not properly unmarshaled")
 				}
@@ -471,7 +471,7 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 		{
 			name:  "fingerprint",
 			input: `{"f":"abc123"}`,
-			check: func(t *testing.T, tn *TreeNode) {
+			check: func(t *testing.T, tn *build.TreeNode) {
 				if tn.Fingerprint != "abc123" {
 					t.Errorf("Expected fingerprint 'abc123', got '%s'", tn.Fingerprint)
 				}
@@ -480,7 +480,7 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 		{
 			name:  "range data",
 			input: `{"d":[["u","item-1"]]}`,
-			check: func(t *testing.T, tn *TreeNode) {
+			check: func(t *testing.T, tn *build.TreeNode) {
 				if !tn.HasRange() {
 					t.Error("Range data not unmarshaled")
 				}
@@ -492,7 +492,7 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 		{
 			name:  "metadata",
 			input: `{"m":{"idKey":"id"}}`,
-			check: func(t *testing.T, tn *TreeNode) {
+			check: func(t *testing.T, tn *build.TreeNode) {
 				if tn.Metadata == nil {
 					t.Error("Metadata not unmarshaled")
 				}
@@ -504,7 +504,7 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 		{
 			name:  "nested dynamics",
 			input: `{"0":"text","1":{"s":["<span>","</span>"],"0":"nested"}}`,
-			check: func(t *testing.T, tn *TreeNode) {
+			check: func(t *testing.T, tn *build.TreeNode) {
 				val, ok := tn.GetDynamic("1")
 				if !ok {
 					t.Error("Nested dynamic not found")
@@ -522,7 +522,7 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var tn TreeNode
+			var tn build.TreeNode
 			if err := json.Unmarshal([]byte(tt.input), &tn); err != nil {
 				t.Fatalf("UnmarshalJSON failed: %v", err)
 			}
@@ -637,7 +637,7 @@ func TestTreeNode_NestedClone(t *testing.T) {
 	if !ok {
 		t.Fatal("Nested node not found in clone")
 	}
-	clonedNestedNode, ok := clonedNested.(*TreeNode)
+	clonedNestedNode, ok := clonedNested.(*build.TreeNode)
 	if !ok {
 		t.Fatal("Cloned nested should be TreeNode")
 	}
@@ -695,7 +695,7 @@ func TestTreeNode_RoundTrip(t *testing.T) {
 	}
 
 	// Unmarshal back
-	var restored TreeNode
+	var restored build.TreeNode
 	if err := json.Unmarshal(data, &restored); err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
@@ -731,7 +731,7 @@ func TestTreeNode_BackwardCompatibility(t *testing.T) {
 	}
 
 	// Unmarshal into new TreeNode type
-	var tn TreeNode
+	var tn build.TreeNode
 	if err := json.Unmarshal(oldJSON, &tn); err != nil {
 		t.Fatalf("Failed to unmarshal old format into TreeNode: %v", err)
 	}
@@ -2071,7 +2071,7 @@ func NewUpdateValidator() *UpdateValidator {
 func (v *UpdateValidator) ValidateUpdate(tree interface{}, state interface{}, isFirst bool) error {
 	// Convert to map for validation
 	var treeMap map[string]interface{}
-	if tn, ok := tree.(*TreeNode); ok {
+	if tn, ok := tree.(*build.TreeNode); ok {
 		treeMap = tn.ToMap()
 	} else if tm, ok := tree.(map[string]interface{}); ok {
 		treeMap = tm
@@ -2526,7 +2526,7 @@ func FuzzUserJourneys(f *testing.F) {
 			state := simulator.GetState()
 
 			// Generate tree update
-			var tree *TreeNode
+			var tree *build.TreeNode
 			var err error
 
 			if i == 0 && activity.Type == "visit" {
@@ -2626,7 +2626,7 @@ func TestSpecificationCompliance(t *testing.T) {
 				simulator.ApplyActivity(activity)
 				state := simulator.GetState()
 
-				var tree *TreeNode
+				var tree *build.TreeNode
 				var err error
 
 				if i == 0 {
