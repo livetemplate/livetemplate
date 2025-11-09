@@ -766,6 +766,9 @@ func (t *Template) ParseGlob(pattern string) (*Template, error) {
 //   Phase 4: Render - Execute template to HTML
 //   Phase 5: Send - Write HTML response
 //
+// Note: Phases execute in order 1→4→5→2 (Render before Build) to minimize
+// response latency. Tree building for caching happens after sending the response.
+//
 // Optional errors parameter provides error context for template via lvt namespace.
 func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]string) error {
 	if t.tmpl == nil {
@@ -799,6 +802,10 @@ func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]
 	_, treeErr := t.buildTree(data, errMap)
 	if treeErr != nil {
 		// Don't fail if tree generation fails, just skip caching
+		// Log for observability so operators can detect degraded performance
+		slog.Warn("Tree building failed, skipping cache update",
+			slog.String("template", t.name),
+			slog.String("error", treeErr.Error()))
 		return nil
 	}
 
