@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/livetemplate/livetemplate"
+	"github.com/livetemplate/livetemplate/internal/build"
 	"github.com/livetemplate/livetemplate/internal/signature"
 )
 
@@ -68,7 +68,7 @@ func TestClientStructureRegistry_StructureChange(t *testing.T) {
 	}
 
 	// Create a TreeNode (different structure)
-	node := &livetemplate.TreeNode{
+	node := &build.TreeNode{
 		Statics:  []string{"<div>", "</div>"},
 		Dynamics: make(map[string]interface{}),
 	}
@@ -96,10 +96,10 @@ func TestClientStructureRegistry_RangeTransitions(t *testing.T) {
 	registry := signature.NewClientStructureRegistry()
 
 	// Start with empty range
-	emptyRange := &livetemplate.TreeNode{
+	emptyRange := &build.TreeNode{
 		Statics:  []string{"<tr>", "</tr>"},
 		Dynamics: make(map[string]interface{}),
-		Range: &livetemplate.RangeData{
+		Range: &build.RangeData{
 			Items:   []interface{}{},
 			Statics: []string{"<td>", "</td>"},
 		},
@@ -112,10 +112,10 @@ func TestClientStructureRegistry_RangeTransitions(t *testing.T) {
 	}
 
 	// Add items to range (structure signature changes)
-	rangeWithItems := &livetemplate.TreeNode{
+	rangeWithItems := &build.TreeNode{
 		Statics:  []string{"<tr>", "</tr>"},
 		Dynamics: make(map[string]interface{}),
-		Range: &livetemplate.RangeData{
+		Range: &build.RangeData{
 			Items: []interface{}{
 				map[string]interface{}{"0": "item1"},
 			},
@@ -164,7 +164,7 @@ func TestClientStructureRegistry_GetSignature(t *testing.T) {
 	}
 
 	// Mark a conditional
-	node := &livetemplate.TreeNode{
+	node := &build.TreeNode{
 		Statics:  []string{"<div>", "</div>"},
 		Dynamics: make(map[string]interface{}),
 	}
@@ -277,10 +277,10 @@ func TestClientStructureRegistry_RangeStaticsChange(t *testing.T) {
 	registry := signature.NewClientStructureRegistry()
 
 	// Range with one set of statics
-	range1 := &livetemplate.TreeNode{
+	range1 := &build.TreeNode{
 		Statics:  []string{"<tr>", "</tr>"},
 		Dynamics: make(map[string]interface{}),
-		Range: &livetemplate.RangeData{
+		Range: &build.RangeData{
 			Items: []interface{}{
 				map[string]interface{}{"0": "item1"},
 			},
@@ -291,10 +291,10 @@ func TestClientStructureRegistry_RangeStaticsChange(t *testing.T) {
 	registry.MarkSeen("0", range1)
 
 	// Range with different statics (different template)
-	range2 := &livetemplate.TreeNode{
+	range2 := &build.TreeNode{
 		Statics:  []string{"<tr>", "</tr>"},
 		Dynamics: make(map[string]interface{}),
-		Range: &livetemplate.RangeData{
+		Range: &build.RangeData{
 			Items: []interface{}{
 				map[string]interface{}{"0": "item1"},
 			},
@@ -308,10 +308,10 @@ func TestClientStructureRegistry_RangeStaticsChange(t *testing.T) {
 	}
 
 	// But range with same statics should match
-	range1Copy := &livetemplate.TreeNode{
+	range1Copy := &build.TreeNode{
 		Statics:  []string{"<tr>", "</tr>"},
 		Dynamics: make(map[string]interface{}),
-		Range: &livetemplate.RangeData{
+		Range: &build.RangeData{
 			Items: []interface{}{
 				map[string]interface{}{"0": "different item"},
 			},
@@ -334,10 +334,10 @@ func TestClientStructureRegistry_ComplexScenario(t *testing.T) {
 	registry.MarkSeen("11", emptyMessage)
 
 	// Step 2: First item appears (conditional switches to range)
-	firstItem := &livetemplate.TreeNode{
+	firstItem := &build.TreeNode{
 		Statics:  []string{"<div>", "</div>"},
 		Dynamics: make(map[string]interface{}),
-		Range: &livetemplate.RangeData{
+		Range: &build.RangeData{
 			Items: []interface{}{
 				map[string]interface{}{"0": "item1"},
 			},
@@ -353,10 +353,10 @@ func TestClientStructureRegistry_ComplexScenario(t *testing.T) {
 	registry.MarkSeen("11", firstItem)
 
 	// Step 3: More items added (same structure, different data)
-	moreItems := &livetemplate.TreeNode{
+	moreItems := &build.TreeNode{
 		Statics:  []string{"<div>", "</div>"},
 		Dynamics: make(map[string]interface{}),
-		Range: &livetemplate.RangeData{
+		Range: &build.RangeData{
 			Items: []interface{}{
 				map[string]interface{}{"0": "item1"},
 				map[string]interface{}{"0": "item2"},

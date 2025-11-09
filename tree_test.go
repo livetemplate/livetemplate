@@ -1,7 +1,6 @@
 package livetemplate
 
 import (
-	"github.com/livetemplate/livetemplate/internal/send"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -12,12 +11,16 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/livetemplate/livetemplate/internal/build"
+	"github.com/livetemplate/livetemplate/internal/compat"
+	"github.com/livetemplate/livetemplate/internal/send"
 )
 
 func TestParseTemplateToTree_HandlesCommentOnly(t *testing.T) {
-	tree, err := parseTemplateToTree("test", "{{/* nothing */}}", nil, newKeyGenerator())
+	tree, err := compat.ParseTemplateToTree("test", "{{/* nothing */}}", nil, compat.NewKeyGenerator())
 	if err != nil {
-		t.Fatalf("parseTemplateToTree returned error: %v", err)
+		t.Fatalf("compat.ParseTemplateToTree returned error: %v", err)
 	}
 	if tree == nil {
 		t.Fatal("expected tree, got nil")
@@ -37,16 +40,16 @@ func TestParseTemplateToTree_WithFuncMapRange(t *testing.T) {
 	tmplStr := `<ul>{{range split .CSV ","}}<li>{{.}}</li>{{end}}</ul>`
 	data := map[string]string{"CSV": "alpha,beta,gamma"}
 
-	ctx := NewTreeGenerationContext()
+	ctx := build.NewContext()
 	ctx.FuncMap = template.FuncMap{
 		"split": func(s, sep string) []string {
 			return strings.Split(s, sep)
 		},
 	}
 
-	tree, err := parseTemplateToTree("test", tmplStr, data, newKeyGenerator(), ctx)
+	tree, err := compat.ParseTemplateToTree("test", tmplStr, data, compat.NewKeyGenerator(), ctx)
 	if err != nil {
-		t.Fatalf("parseTemplateToTree returned error: %v", err)
+		t.Fatalf("compat.ParseTemplateToTree returned error: %v", err)
 	}
 	if !reflect.DeepEqual(tree.Statics, []string{"<ul>", "</ul>"}) {
 		t.Fatalf("unexpected statics: %#v", tree.Statics)
@@ -57,9 +60,9 @@ func TestParseTemplateToTree_WithFuncMapRange(t *testing.T) {
 		t.Fatalf("expected dynamic range at position 0")
 	}
 
-	rangeNode, ok := dynamic.(*TreeNode)
+	rangeNode, ok := dynamic.(*build.TreeNode)
 	if !ok {
-		t.Fatalf("expected *TreeNode for range dynamic, got %T", dynamic)
+		t.Fatalf("expected *build.TreeNode for range dynamic, got %T", dynamic)
 	}
 	if !rangeNode.HasRange() {
 		t.Fatalf("expected range node to have range data")
@@ -88,10 +91,10 @@ func TestParseTemplateToTree_NestedConditionals(t *testing.T) {
 		"IsLoading": true,
 	}
 
-	keyGen := newKeyGenerator()
-	tree, err := parseTemplateToTree("test", templateStr, data, keyGen)
+	keyGen := compat.NewKeyGenerator()
+	tree, err := compat.ParseTemplateToTree("test", templateStr, data, keyGen)
 	if err != nil {
-		t.Fatalf("parseTemplateToTree failed: %v", err)
+		t.Fatalf("compat.ParseTemplateToTree failed: %v", err)
 	}
 
 	// Check that tree was generated successfully
@@ -139,10 +142,10 @@ func TestParseTemplateToTree_NestedConditionals_FalseFlags(t *testing.T) {
 		"IsLoading": false,
 	}
 
-	keyGen := newKeyGenerator()
-	tree, err := parseTemplateToTree("test", templateStr, data, keyGen)
+	keyGen := compat.NewKeyGenerator()
+	tree, err := compat.ParseTemplateToTree("test", templateStr, data, keyGen)
 	if err != nil {
-		t.Fatalf("parseTemplateToTree failed: %v", err)
+		t.Fatalf("compat.ParseTemplateToTree failed: %v", err)
 	}
 
 	if tree == nil {
@@ -220,10 +223,10 @@ func TestExecuteUpdates_NestedConditionals(t *testing.T) {
 }
 
 func TestNewTreeNode(t *testing.T) {
-	tn := NewTreeNode()
+	tn := build.NewTreeNode()
 
 	if tn == nil {
-		t.Fatal("NewTreeNode returned nil")
+		t.Fatal("build.NewTreeNode returned nil")
 	}
 	if tn.Dynamics == nil {
 		t.Error("Dynamics map should be initialized")
@@ -235,10 +238,10 @@ func TestNewTreeNode(t *testing.T) {
 
 func TestNewTreeNodeWithStatics(t *testing.T) {
 	statics := []string{"<div>", "</div>"}
-	tn := NewTreeNodeWithStatics(statics)
+	tn := build.NewTreeNodeWithStatics(statics)
 
 	if tn == nil {
-		t.Fatal("NewTreeNodeWithStatics returned nil")
+		t.Fatal("build.NewTreeNodeWithStatics returned nil")
 	}
 	if len(tn.Statics) != 2 {
 		t.Errorf("Expected 2 statics, got %d", len(tn.Statics))
@@ -249,7 +252,7 @@ func TestNewTreeNodeWithStatics(t *testing.T) {
 }
 
 func TestTreeNode_SetDynamic(t *testing.T) {
-	tn := NewTreeNode()
+	tn := build.NewTreeNode()
 
 	tn.SetDynamic("0", "Hello")
 	tn.SetDynamic("1", 42)
@@ -267,7 +270,7 @@ func TestTreeNode_SetDynamic(t *testing.T) {
 }
 
 func TestTreeNode_GetDynamic(t *testing.T) {
-	tn := NewTreeNode()
+	tn := build.NewTreeNode()
 	tn.SetDynamic("0", "test")
 
 	val, ok := tn.GetDynamic("0")
@@ -285,19 +288,19 @@ func TestTreeNode_GetDynamic(t *testing.T) {
 }
 
 func TestTreeNode_HasStatics(t *testing.T) {
-	tn1 := NewTreeNode()
+	tn1 := build.NewTreeNode()
 	if tn1.HasStatics() {
 		t.Error("Empty TreeNode should not have statics")
 	}
 
-	tn2 := NewTreeNodeWithStatics([]string{"<div>"})
+	tn2 := build.NewTreeNodeWithStatics([]string{"<div>"})
 	if !tn2.HasStatics() {
 		t.Error("TreeNode with statics should return true")
 	}
 }
 
 func TestTreeNode_HasDynamics(t *testing.T) {
-	tn := NewTreeNode()
+	tn := build.NewTreeNode()
 	if tn.HasDynamics() {
 		t.Error("Empty TreeNode should not have dynamics")
 	}
@@ -309,12 +312,12 @@ func TestTreeNode_HasDynamics(t *testing.T) {
 }
 
 func TestTreeNode_HasRange(t *testing.T) {
-	tn := NewTreeNode()
+	tn := build.NewTreeNode()
 	if tn.HasRange() {
 		t.Error("TreeNode without range should return false")
 	}
 
-	tn.Range = NewRangeData([]interface{}{}, []string{})
+	tn.Range = build.NewRangeData([]interface{}{}, []string{})
 	if !tn.HasRange() {
 		t.Error("TreeNode with range should return true")
 	}
@@ -323,23 +326,23 @@ func TestTreeNode_HasRange(t *testing.T) {
 func TestTreeNode_MarshalJSON(t *testing.T) {
 	tests := []struct {
 		name     string
-		node     *TreeNode
+		node     *build.TreeNode
 		expected string
 	}{
 		{
 			name:     "empty node",
-			node:     NewTreeNode(),
+			node:     build.NewTreeNode(),
 			expected: `{}`,
 		},
 		{
 			name:     "node with statics only",
-			node:     NewTreeNodeWithStatics([]string{"<div>", "</div>"}),
+			node:     build.NewTreeNodeWithStatics([]string{"<div>", "</div>"}),
 			expected: `{"s":["<div>","</div>"]}`,
 		},
 		{
 			name: "node with dynamics only",
-			node: func() *TreeNode {
-				tn := NewTreeNode()
+			node: func() *build.TreeNode {
+				tn := build.NewTreeNode()
 				tn.SetDynamic("0", "Hello")
 				tn.SetDynamic("1", "World")
 				return tn
@@ -348,8 +351,8 @@ func TestTreeNode_MarshalJSON(t *testing.T) {
 		},
 		{
 			name: "node with statics and dynamics",
-			node: func() *TreeNode {
-				tn := NewTreeNodeWithStatics([]string{"<h1>", "</h1>"})
+			node: func() *build.TreeNode {
+				tn := build.NewTreeNodeWithStatics([]string{"<h1>", "</h1>"})
 				tn.SetDynamic("0", "Title")
 				return tn
 			}(),
@@ -357,8 +360,8 @@ func TestTreeNode_MarshalJSON(t *testing.T) {
 		},
 		{
 			name: "node with fingerprint",
-			node: func() *TreeNode {
-				tn := NewTreeNode()
+			node: func() *build.TreeNode {
+				tn := build.NewTreeNode()
 				tn.Fingerprint = "abc123"
 				return tn
 			}(),
@@ -366,9 +369,9 @@ func TestTreeNode_MarshalJSON(t *testing.T) {
 		},
 		{
 			name: "node with range data",
-			node: func() *TreeNode {
-				tn := NewTreeNode()
-				tn.Range = NewRangeData(
+			node: func() *build.TreeNode {
+				tn := build.NewTreeNode()
+				tn.Range = build.NewRangeData(
 					[]interface{}{
 						[]interface{}{"u", "item-1"},
 					},
@@ -380,21 +383,21 @@ func TestTreeNode_MarshalJSON(t *testing.T) {
 		},
 		{
 			name: "node with metadata",
-			node: func() *TreeNode {
-				tn := NewTreeNode()
-				tn.Metadata = NewTreeMetadata("id")
+			node: func() *build.TreeNode {
+				tn := build.NewTreeNode()
+				tn.Metadata = build.NewTreeMetadata("id")
 				return tn
 			}(),
 			expected: `{"m":{"idKey":"id"}}`,
 		},
 		{
 			name: "complete node",
-			node: func() *TreeNode {
-				tn := NewTreeNodeWithStatics([]string{"<div>", "</div>"})
+			node: func() *build.TreeNode {
+				tn := build.NewTreeNodeWithStatics([]string{"<div>", "</div>"})
 				tn.SetDynamic("0", "Content")
 				tn.Fingerprint = "xyz789"
-				tn.Range = NewRangeData([]interface{}{}, []string{})
-				tn.Metadata = NewTreeMetadata("key")
+				tn.Range = build.NewRangeData([]interface{}{}, []string{})
+				tn.Metadata = build.NewTreeMetadata("key")
 				return tn
 			}(),
 			expected: `{"0":"Content","d":[],"f":"xyz789","m":{"idKey":"key"},"s":["<div>","</div>"]}`,
@@ -430,12 +433,12 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
-		check func(*testing.T, *TreeNode)
+		check func(*testing.T, *build.TreeNode)
 	}{
 		{
 			name:  "empty object",
 			input: `{}`,
-			check: func(t *testing.T, tn *TreeNode) {
+			check: func(t *testing.T, tn *build.TreeNode) {
 				if tn.HasStatics() || tn.HasDynamics() || tn.Fingerprint != "" {
 					t.Error("Empty JSON should create empty TreeNode")
 				}
@@ -444,7 +447,7 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 		{
 			name:  "statics only",
 			input: `{"s":["<div>","</div>"]}`,
-			check: func(t *testing.T, tn *TreeNode) {
+			check: func(t *testing.T, tn *build.TreeNode) {
 				if len(tn.Statics) != 2 {
 					t.Errorf("Expected 2 statics, got %d", len(tn.Statics))
 				}
@@ -456,7 +459,7 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 		{
 			name:  "dynamics only",
 			input: `{"0":"Hello","1":"World"}`,
-			check: func(t *testing.T, tn *TreeNode) {
+			check: func(t *testing.T, tn *build.TreeNode) {
 				if val, ok := tn.GetDynamic("0"); !ok || val != "Hello" {
 					t.Error("Dynamic 0 not properly unmarshaled")
 				}
@@ -468,7 +471,7 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 		{
 			name:  "fingerprint",
 			input: `{"f":"abc123"}`,
-			check: func(t *testing.T, tn *TreeNode) {
+			check: func(t *testing.T, tn *build.TreeNode) {
 				if tn.Fingerprint != "abc123" {
 					t.Errorf("Expected fingerprint 'abc123', got '%s'", tn.Fingerprint)
 				}
@@ -477,7 +480,7 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 		{
 			name:  "range data",
 			input: `{"d":[["u","item-1"]]}`,
-			check: func(t *testing.T, tn *TreeNode) {
+			check: func(t *testing.T, tn *build.TreeNode) {
 				if !tn.HasRange() {
 					t.Error("Range data not unmarshaled")
 				}
@@ -489,7 +492,7 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 		{
 			name:  "metadata",
 			input: `{"m":{"idKey":"id"}}`,
-			check: func(t *testing.T, tn *TreeNode) {
+			check: func(t *testing.T, tn *build.TreeNode) {
 				if tn.Metadata == nil {
 					t.Error("Metadata not unmarshaled")
 				}
@@ -501,7 +504,7 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 		{
 			name:  "nested dynamics",
 			input: `{"0":"text","1":{"s":["<span>","</span>"],"0":"nested"}}`,
-			check: func(t *testing.T, tn *TreeNode) {
+			check: func(t *testing.T, tn *build.TreeNode) {
 				val, ok := tn.GetDynamic("1")
 				if !ok {
 					t.Error("Nested dynamic not found")
@@ -519,7 +522,7 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var tn TreeNode
+			var tn build.TreeNode
 			if err := json.Unmarshal([]byte(tt.input), &tn); err != nil {
 				t.Fatalf("UnmarshalJSON failed: %v", err)
 			}
@@ -529,11 +532,11 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 }
 
 func TestTreeNode_ToMap(t *testing.T) {
-	tn := NewTreeNodeWithStatics([]string{"<div>", "</div>"})
+	tn := build.NewTreeNodeWithStatics([]string{"<div>", "</div>"})
 	tn.SetDynamic("0", "Content")
 	tn.Fingerprint = "xyz789"
-	tn.Range = NewRangeData([]interface{}{}, []string{"<li>", "</li>"})
-	tn.Metadata = NewTreeMetadata("key")
+	tn.Range = build.NewRangeData([]interface{}{}, []string{"<li>", "</li>"})
+	tn.Metadata = build.NewTreeMetadata("key")
 
 	m := tn.ToMap()
 
@@ -565,7 +568,7 @@ func TestTreeNode_FromMap(t *testing.T) {
 		},
 	}
 
-	tn, err := FromMap(m)
+	tn, err := build.FromMap(m)
 	if err != nil {
 		t.Fatalf("FromMap failed: %v", err)
 	}
@@ -588,11 +591,11 @@ func TestTreeNode_FromMap(t *testing.T) {
 }
 
 func TestTreeNode_Clone(t *testing.T) {
-	original := NewTreeNodeWithStatics([]string{"<div>", "</div>"})
+	original := build.NewTreeNodeWithStatics([]string{"<div>", "</div>"})
 	original.SetDynamic("0", "Content")
 	original.Fingerprint = "abc123"
-	original.Range = NewRangeData([]interface{}{}, []string{"<li>", "</li>"})
-	original.Metadata = NewTreeMetadata("id")
+	original.Range = build.NewRangeData([]interface{}{}, []string{"<li>", "</li>"})
+	original.Metadata = build.NewTreeMetadata("id")
 
 	clone := original.Clone()
 
@@ -621,10 +624,10 @@ func TestTreeNode_Clone(t *testing.T) {
 }
 
 func TestTreeNode_NestedClone(t *testing.T) {
-	nested := NewTreeNodeWithStatics([]string{"<span>", "</span>"})
+	nested := build.NewTreeNodeWithStatics([]string{"<span>", "</span>"})
 	nested.SetDynamic("0", "Nested")
 
-	parent := NewTreeNode()
+	parent := build.NewTreeNode()
 	parent.SetDynamic("0", nested)
 
 	clone := parent.Clone()
@@ -634,7 +637,7 @@ func TestTreeNode_NestedClone(t *testing.T) {
 	if !ok {
 		t.Fatal("Nested node not found in clone")
 	}
-	clonedNestedNode, ok := clonedNested.(*TreeNode)
+	clonedNestedNode, ok := clonedNested.(*build.TreeNode)
 	if !ok {
 		t.Fatal("Cloned nested should be TreeNode")
 	}
@@ -655,7 +658,7 @@ func TestRangeData_Creation(t *testing.T) {
 	}
 	statics := []string{"<li>", "</li>"}
 
-	rd := NewRangeData(items, statics)
+	rd := build.NewRangeData(items, statics)
 
 	if rd == nil {
 		t.Fatal("NewRangeData returned nil")
@@ -669,7 +672,7 @@ func TestRangeData_Creation(t *testing.T) {
 }
 
 func TestTreeMetadata_Creation(t *testing.T) {
-	meta := NewTreeMetadata("id")
+	meta := build.NewTreeMetadata("id")
 
 	if meta == nil {
 		t.Fatal("NewTreeMetadata returned nil")
@@ -681,7 +684,7 @@ func TestTreeMetadata_Creation(t *testing.T) {
 
 func TestTreeNode_RoundTrip(t *testing.T) {
 	// Create a complex tree
-	original := NewTreeNodeWithStatics([]string{"<div>", "</div>"})
+	original := build.NewTreeNodeWithStatics([]string{"<div>", "</div>"})
 	original.SetDynamic("0", "Content")
 	original.Fingerprint = "abc123"
 
@@ -692,7 +695,7 @@ func TestTreeNode_RoundTrip(t *testing.T) {
 	}
 
 	// Unmarshal back
-	var restored TreeNode
+	var restored build.TreeNode
 	if err := json.Unmarshal(data, &restored); err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
@@ -728,7 +731,7 @@ func TestTreeNode_BackwardCompatibility(t *testing.T) {
 	}
 
 	// Unmarshal into new TreeNode type
-	var tn TreeNode
+	var tn build.TreeNode
 	if err := json.Unmarshal(oldJSON, &tn); err != nil {
 		t.Fatalf("Failed to unmarshal old format into TreeNode: %v", err)
 	}
@@ -827,8 +830,8 @@ func TestDeepNesting(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			keyGen := newKeyGenerator()
-			tree, err := parseTemplateToTree("test", tt.template, data, keyGen)
+			keyGen := compat.NewKeyGenerator()
+			tree, err := compat.ParseTemplateToTree("test", tt.template, data, keyGen)
 
 			if err != nil {
 				t.Fatalf("❌ Failed at nesting level %d: %v\nTemplate: %s", tt.nesting, err, tt.template)
@@ -907,8 +910,8 @@ func TestTemplateComposition(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			keyGen := newKeyGenerator()
-			tree, err := parseTemplateToTree("test", tt.template, data, keyGen)
+			keyGen := compat.NewKeyGenerator()
+			tree, err := compat.ParseTemplateToTree("test", tt.template, data, keyGen)
 
 			if err != nil {
 				t.Fatalf("❌ Failed: %v\nTemplate: %s", err, tt.template)
@@ -1118,8 +1121,8 @@ func FuzzParseTemplateToTree(f *testing.F) {
 		}
 
 		// Test current AST-based parser
-		keyGen := newKeyGenerator()
-		tree, err := parseTemplateToTree("test", templateStr, data, keyGen)
+		keyGen := compat.NewKeyGenerator()
+		tree, err := compat.ParseTemplateToTree("test", templateStr, data, keyGen)
 
 		if err != nil {
 			// Parser failed - this is fine, we're documenting failures
@@ -1397,21 +1400,21 @@ func rangeComprehensionsEqual(d1, d2 interface{}, tree1, tree2 map[string]interf
 // This is Level 3 validation from the enhanced validation strategy
 func validateTreeRoundTrip(templateStr string, data map[string]interface{}, keyGen *keyGenerator) (bool, string) {
 	// Parse template to tree1
-	tree1, err := parseTemplateToTree("test", templateStr, data, keyGen)
+	tree1, err := compat.ParseTemplateToTree("test", templateStr, data, keyGen)
 	if err != nil {
 		return false, fmt.Sprintf("first parse failed: %v", err)
 	}
 
 	// Render tree1 to HTML
-	html, err := renderTreeToHTML(tree1.ToMap())
+	html, err := compat.RenderTreeToHTML(tree1.ToMap())
 	if err != nil {
 		return false, fmt.Sprintf("render failed: %v", err)
 	}
 
 	// Parse template again with same data to tree2
 	// NOTE: We use a new key generator to ensure consistent keys
-	keyGen2 := newKeyGenerator()
-	tree2, err := parseTemplateToTree("test", templateStr, data, keyGen2)
+	keyGen2 := compat.NewKeyGenerator()
+	tree2, err := compat.ParseTemplateToTree("test", templateStr, data, keyGen2)
 	if err != nil {
 		return false, fmt.Sprintf("second parse failed: %v", err)
 	}
@@ -1499,15 +1502,15 @@ func validateEmptyToNonEmptyTransition(templateStr string, data map[string]inter
 	emptyData := makeEmptyData(data)
 
 	// Parse with empty data
-	keyGen1 := newKeyGenerator()
-	tree1, err := parseTemplateToTree("test", templateStr, emptyData, keyGen1)
+	keyGen1 := compat.NewKeyGenerator()
+	tree1, err := compat.ParseTemplateToTree("test", templateStr, emptyData, keyGen1)
 	if err != nil {
 		return false, fmt.Sprintf("parse with empty data failed: %v", err)
 	}
 
 	// Parse with non-empty data
-	keyGen2 := newKeyGenerator()
-	tree2, err := parseTemplateToTree("test", templateStr, data, keyGen2)
+	keyGen2 := compat.NewKeyGenerator()
+	tree2, err := compat.ParseTemplateToTree("test", templateStr, data, keyGen2)
 	if err != nil {
 		return false, fmt.Sprintf("parse with non-empty data failed: %v", err)
 	}
@@ -1519,14 +1522,14 @@ func validateEmptyToNonEmptyTransition(templateStr string, data map[string]inter
 	}
 
 	// Also test the reverse: non-empty→empty
-	keyGen3 := newKeyGenerator()
-	tree3, err := parseTemplateToTree("test", templateStr, data, keyGen3)
+	keyGen3 := compat.NewKeyGenerator()
+	tree3, err := compat.ParseTemplateToTree("test", templateStr, data, keyGen3)
 	if err != nil {
 		return false, fmt.Sprintf("second parse with non-empty data failed: %v", err)
 	}
 
-	keyGen4 := newKeyGenerator()
-	tree4, err := parseTemplateToTree("test", templateStr, emptyData, keyGen4)
+	keyGen4 := compat.NewKeyGenerator()
+	tree4, err := compat.ParseTemplateToTree("test", templateStr, emptyData, keyGen4)
 	if err != nil {
 		return false, fmt.Sprintf("second parse with empty data failed: %v", err)
 	}
@@ -1621,14 +1624,14 @@ func TestTreeInvariantGuarantee(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tree, err := parseTemplateToTree("test", tt.template, tt.data, newKeyGenerator())
+			tree, err := compat.ParseTemplateToTree("test", tt.template, tt.data, compat.NewKeyGenerator())
 			if err != nil {
-				t.Errorf("parseTemplateToTree() error = %v", err)
+				t.Errorf("compat.ParseTemplateToTree() error = %v", err)
 				return
 			}
 
 			// Check invariant for initial tree generation
-			err = checkTreeInvariant(tree.ToMap(), "parseTemplateToTree")
+			err = checkTreeInvariant(tree.ToMap(), "compat.ParseTemplateToTree")
 			if err != nil {
 				t.Error(err)
 
@@ -1669,13 +1672,13 @@ func TestTreeInvariantInTemplate(t *testing.T) {
 		Items:  []string{"A", "B", "C"},
 	}
 
-	// Test the parseTemplateToTree function directly (this is what Template uses internally)
-	tree, err := parseTemplateToTree("test", templateContent, data, newKeyGenerator())
+	// Test the compat.ParseTemplateToTree function directly (this is what Template uses internally)
+	tree, err := compat.ParseTemplateToTree("test", templateContent, data, compat.NewKeyGenerator())
 	if err != nil {
-		t.Fatalf("parseTemplateToTree error: %v", err)
+		t.Fatalf("compat.ParseTemplateToTree error: %v", err)
 	}
 
-	err = checkTreeInvariant(tree.ToMap(), "Template parseTemplateToTree")
+	err = checkTreeInvariant(tree.ToMap(), "Template compat.ParseTemplateToTree")
 	if err != nil {
 		t.Error(err)
 		jsonBytes, _ := json.MarshalIndent(tree, "", "  ")
@@ -1729,12 +1732,12 @@ func TestE2EInvariantGuarantee(t *testing.T) {
 	}
 
 	// Test initial tree generation using the same function as the Template
-	tree, err := parseTemplateToTree("test", templateContent, data, newKeyGenerator())
+	tree, err := compat.ParseTemplateToTree("test", templateContent, data, compat.NewKeyGenerator())
 	if err != nil {
-		t.Fatalf("parseTemplateToTree error: %v", err)
+		t.Fatalf("compat.ParseTemplateToTree error: %v", err)
 	}
 
-	err = checkTreeInvariant(tree.ToMap(), "E2E parseTemplateToTree")
+	err = checkTreeInvariant(tree.ToMap(), "E2E compat.ParseTemplateToTree")
 	if err != nil {
 		t.Error(err)
 		jsonBytes, _ := json.MarshalIndent(tree, "", "  ")
@@ -1992,7 +1995,7 @@ func TestDetectIDKeyFunction(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := detectIDKey(tt.statics)
+			result := compat.DetectIDKey(tt.statics)
 			if result != tt.expected {
 				t.Errorf("Expected %q, got %q", tt.expected, result)
 			}
@@ -2068,7 +2071,7 @@ func NewUpdateValidator() *UpdateValidator {
 func (v *UpdateValidator) ValidateUpdate(tree interface{}, state interface{}, isFirst bool) error {
 	// Convert to map for validation
 	var treeMap map[string]interface{}
-	if tn, ok := tree.(*TreeNode); ok {
+	if tn, ok := tree.(*build.TreeNode); ok {
 		treeMap = tn.ToMap()
 	} else if tm, ok := tree.(map[string]interface{}); ok {
 		treeMap = tm
@@ -2508,7 +2511,7 @@ func FuzzUserJourneys(f *testing.F) {
 		// Create template
 		tmpl := &Template{
 			templateStr: todoTemplate,
-			keyGen:      newKeyGenerator(),
+			keyGen:      compat.NewKeyGenerator(),
 		}
 
 		// Parse template
@@ -2523,7 +2526,7 @@ func FuzzUserJourneys(f *testing.F) {
 			state := simulator.GetState()
 
 			// Generate tree update
-			var tree *TreeNode
+			var tree *build.TreeNode
 			var err error
 
 			if i == 0 && activity.Type == "visit" {
@@ -2544,7 +2547,7 @@ func FuzzUserJourneys(f *testing.F) {
 				}
 
 				// Generate new tree and compare
-				newTree, err := parseTemplateToTree("test", todoTemplate, state, tmpl.keyGen)
+				newTree, err := compat.ParseTemplateToTree("test", todoTemplate, state, tmpl.keyGen)
 				if err != nil {
 					t.Fatalf("Failed to generate tree: %v", err)
 				}
@@ -2612,7 +2615,7 @@ func TestSpecificationCompliance(t *testing.T) {
 
 			tmpl := &Template{
 				templateStr: tt.template,
-				keyGen:      newKeyGenerator(),
+				keyGen:      compat.NewKeyGenerator(),
 			}
 
 			if _, err := tmpl.Parse(tmpl.templateStr); err != nil {
@@ -2623,7 +2626,7 @@ func TestSpecificationCompliance(t *testing.T) {
 				simulator.ApplyActivity(activity)
 				state := simulator.GetState()
 
-				var tree *TreeNode
+				var tree *build.TreeNode
 				var err error
 
 				if i == 0 {
@@ -2632,7 +2635,7 @@ func TestSpecificationCompliance(t *testing.T) {
 					if tmpl.lastTree == nil {
 						continue
 					}
-					newTree, _ := parseTemplateToTree("test", tt.template, state, tmpl.keyGen)
+					newTree, _ := compat.ParseTemplateToTree("test", tt.template, state, tmpl.keyGen)
 					tree = tmpl.compareTreesAndGetChanges(tmpl.lastTree, newTree)
 					tmpl.lastTree = newTree
 				}
@@ -2655,7 +2658,7 @@ func TestRangeOperationGranularity(t *testing.T) {
 
 	tmpl := &Template{
 		templateStr: template,
-		keyGen:      newKeyGenerator(),
+		keyGen:      compat.NewKeyGenerator(),
 	}
 
 	if _, err := tmpl.Parse(tmpl.templateStr); err != nil {
@@ -2671,7 +2674,7 @@ func TestRangeOperationGranularity(t *testing.T) {
 	}
 
 	// Generate initial tree
-	tree1, _ := parseTemplateToTree("test", template, state1, tmpl.keyGen)
+	tree1, _ := compat.ParseTemplateToTree("test", template, state1, tmpl.keyGen)
 	tmpl.lastTree = tree1
 
 	// Add one item
@@ -2683,7 +2686,7 @@ func TestRangeOperationGranularity(t *testing.T) {
 		},
 	}
 
-	tree2, _ := parseTemplateToTree("test", template, state2, tmpl.keyGen)
+	tree2, _ := compat.ParseTemplateToTree("test", template, state2, tmpl.keyGen)
 	changes := tmpl.compareTreesAndGetChanges(tree1, tree2)
 
 	// Verify the update contains only an insert operation
@@ -3006,7 +3009,7 @@ func TestComplexScenarios(t *testing.T) {
 
 	tmpl := &Template{
 		templateStr: template,
-		keyGen:      newKeyGenerator(),
+		keyGen:      compat.NewKeyGenerator(),
 	}
 	_, _ = tmpl.Parse(tmpl.templateStr)
 
@@ -3023,7 +3026,7 @@ func TestComplexScenarios(t *testing.T) {
 				t.Errorf("Step %d failed: %v", i, err)
 			}
 		} else {
-			newTree, _ := parseTemplateToTree("test", template, state, tmpl.keyGen)
+			newTree, _ := compat.ParseTemplateToTree("test", template, state, tmpl.keyGen)
 			changes := tmpl.compareTreesAndGetChanges(tmpl.lastTree, newTree)
 
 			if err := validator.ValidateUpdate(changes, state, false); err != nil {
@@ -3659,9 +3662,9 @@ func TestFingerprint_Determinism(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Calculate fingerprint multiple times
-			fp1 := calculateFingerprint(mustFromMap(tt.tree))
-			fp2 := calculateFingerprint(mustFromMap(tt.tree))
-			fp3 := calculateFingerprint(mustFromMap(tt.tree))
+			fp1 := compat.CalculateFingerprint(mustFromMap(tt.tree))
+			fp2 := compat.CalculateFingerprint(mustFromMap(tt.tree))
+			fp3 := compat.CalculateFingerprint(mustFromMap(tt.tree))
 
 			// All should be identical (deterministic)
 			if fp1 != fp2 || fp2 != fp3 {

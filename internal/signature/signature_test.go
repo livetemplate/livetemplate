@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/livetemplate/livetemplate"
+	"github.com/livetemplate/livetemplate/internal/build"
 	"github.com/livetemplate/livetemplate/internal/signature"
 )
 
@@ -41,7 +41,7 @@ func TestCalculateSignature(t *testing.T) {
 		},
 		{
 			name: "conditional TreeNode (has statics, no range)",
-			value: &livetemplate.TreeNode{
+			value: &build.TreeNode{
 				Statics:  []string{"<div>", "</div>"},
 				Dynamics: make(map[string]interface{}),
 			},
@@ -49,10 +49,10 @@ func TestCalculateSignature(t *testing.T) {
 		},
 		{
 			name: "empty range",
-			value: &livetemplate.TreeNode{
+			value: &build.TreeNode{
 				Statics:  []string{"<tr>", "</tr>"},
 				Dynamics: make(map[string]interface{}),
-				Range: &livetemplate.RangeData{
+				Range: &build.RangeData{
 					Items:   []interface{}{},
 					Statics: []string{"<td>", "</td>"},
 				},
@@ -61,10 +61,10 @@ func TestCalculateSignature(t *testing.T) {
 		},
 		{
 			name: "range with items",
-			value: &livetemplate.TreeNode{
+			value: &build.TreeNode{
 				Statics:  []string{"<tr>", "</tr>"},
 				Dynamics: make(map[string]interface{}),
-				Range: &livetemplate.RangeData{
+				Range: &build.RangeData{
 					Items: []interface{}{
 						map[string]interface{}{"0": "item1"},
 					},
@@ -75,7 +75,7 @@ func TestCalculateSignature(t *testing.T) {
 		},
 		{
 			name: "TreeNode without statics or range",
-			value: &livetemplate.TreeNode{
+			value: &build.TreeNode{
 				Dynamics: map[string]interface{}{"0": "value"},
 			},
 			expected: signature.SigScalar,
@@ -102,17 +102,17 @@ func TestCalculateSignature(t *testing.T) {
 
 func TestCalculateSignature_RangeStaticsUniqueness(t *testing.T) {
 	// Two ranges with different statics should have different signatures
-	range1 := &livetemplate.TreeNode{
+	range1 := &build.TreeNode{
 		Statics: []string{"<tr>", "</tr>"},
-		Range: &livetemplate.RangeData{
+		Range: &build.RangeData{
 			Items:   []interface{}{map[string]interface{}{"0": "item1"}},
 			Statics: []string{"<td>", "</td>"},
 		},
 	}
 
-	range2 := &livetemplate.TreeNode{
+	range2 := &build.TreeNode{
 		Statics: []string{"<tr>", "</tr>"},
-		Range: &livetemplate.RangeData{
+		Range: &build.RangeData{
 			Items:   []interface{}{map[string]interface{}{"0": "item1"}},
 			Statics: []string{"<th>", "</th>"}, // Different statics
 		},
@@ -132,17 +132,17 @@ func TestCalculateSignature_RangeStaticsUniqueness(t *testing.T) {
 
 func TestCalculateSignature_RangeStaticsSame(t *testing.T) {
 	// Two ranges with same statics should have same signature
-	range1 := &livetemplate.TreeNode{
+	range1 := &build.TreeNode{
 		Statics: []string{"<tr>", "</tr>"},
-		Range: &livetemplate.RangeData{
+		Range: &build.RangeData{
 			Items:   []interface{}{map[string]interface{}{"0": "item1"}},
 			Statics: []string{"<td>", "</td>"},
 		},
 	}
 
-	range2 := &livetemplate.TreeNode{
+	range2 := &build.TreeNode{
 		Statics: []string{"<tr>", "</tr>"},
-		Range: &livetemplate.RangeData{
+		Range: &build.RangeData{
 			Items:   []interface{}{map[string]interface{}{"0": "item2"}}, // Different data
 			Statics: []string{"<td>", "</td>"},                           // Same statics
 		},
@@ -158,9 +158,9 @@ func TestCalculateSignature_RangeStaticsSame(t *testing.T) {
 
 func TestCalculateSignature_Deterministic(t *testing.T) {
 	// Same value should always produce same signature
-	value := &livetemplate.TreeNode{
+	value := &build.TreeNode{
 		Statics: []string{"<div>", "</div>"},
-		Range: &livetemplate.RangeData{
+		Range: &build.RangeData{
 			Items:   []interface{}{map[string]interface{}{"0": "test"}},
 			Statics: []string{"<span>", "</span>"},
 		},

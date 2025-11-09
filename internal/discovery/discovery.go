@@ -1,4 +1,4 @@
-package livetemplate
+package discovery
 
 import (
 	"io/fs"
@@ -15,13 +15,13 @@ var ignoredTemplateDirs = map[string]struct{}{
 	"internal":     {}, // Skip internal directories (e.g., code generator templates with mixed delimiters)
 }
 
-// discoverTemplateFiles searches for template files in the specified directory and subdirectories.
+// DiscoverTemplateFiles searches for template files in the specified directory and subdirectories.
 // If baseDir is empty, attempts to determine the caller's directory using runtime.Caller (for backward compatibility).
 // Returns nil if baseDir is empty and caller directory cannot be determined.
-func discoverTemplateFiles(baseDir string, customIgnoreDirs []string) ([]string, error) {
+func DiscoverTemplateFiles(baseDir string, customIgnoreDirs []string) ([]string, error) {
 	// If no base directory provided, try to determine caller's directory for backward compatibility
 	if baseDir == "" {
-		// Try to get the caller's directory (3 frames up: discoverTemplateFiles -> New -> user code)
+		// Try to get the caller's directory (3 frames up: DiscoverTemplateFiles -> New -> user code)
 		// This is brittle and maintained only for backward compatibility
 		_, filename, _, ok := runtime.Caller(3)
 		if !ok {
@@ -66,7 +66,7 @@ func discoverTemplateFiles(baseDir string, customIgnoreDirs []string) ([]string,
 	return files, nil
 }
 
-// normalizeStoreName converts a store name to lowercase for case-insensitive matching
-func normalizeStoreName(name string) string {
+// NormalizeStoreName converts a store name to lowercase for case-insensitive matching
+func NormalizeStoreName(name string) string {
 	return strings.ToLower(name)
 }
