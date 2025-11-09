@@ -4,9 +4,17 @@ package render
 import (
 	"fmt"
 	htmlescape "html"
+	"strconv"
 	"strings"
 
 	"golang.org/x/net/html"
+)
+
+const (
+	// keyStatics is the tree key for static HTML fragments.
+	keyStatics = "s"
+	// keyDynamics is the tree key for dynamic range items.
+	keyDynamics = "d"
 )
 
 // voidElements is the set of HTML void (self-closing) elements.
@@ -50,32 +58,38 @@ func IsVoidElement(tagName string) bool {
 
 // TreeToHTML renders a tree structure to HTML (used in tests).
 func TreeToHTML(tree map[string]interface{}) (string, error) {
-	// Check if this is a range comprehension (has "d" key with items)
-	if itemsRaw, hasD := tree["d"]; hasD {
+	// Check if this is a range comprehension (has keyDynamics key with items)
+	if itemsRaw, hasD := tree[keyDynamics]; hasD {
 		return rangeComprehensionToHTML(tree, itemsRaw)
 	}
 
-	statics, ok := tree["s"].([]string)
+	statics, ok := tree[keyStatics].([]string)
 	if !ok || len(statics) == 0 {
-		return "", fmt.Errorf("invalid tree: no statics")
+		return "", fmt.Errorf("invalid tree: missing or empty statics array")
 	}
 
 	var result strings.Builder
+	if err := renderTreeWithStatics(statics, tree, &result); err != nil {
+		return "", err
+	}
+	return result.String(), nil
+}
 
-	// Interleave statics and dynamics
-	dynamicIndex := 0
+// renderTreeWithStatics interleaves static HTML fragments with dynamic values.
+// It handles nested trees and properly escapes HTML in dynamic values.
+func renderTreeWithStatics(statics []string, dynamics map[string]interface{}, result *strings.Builder) error {
 	for i, static := range statics {
 		result.WriteString(static)
 
 		// After each static (except the last), add the corresponding dynamic
 		if i < len(statics)-1 {
-			dynKey := fmt.Sprintf("%d", dynamicIndex)
-			if dynValue, exists := tree[dynKey]; exists {
+			dynKey := strconv.Itoa(i)
+			if dynValue, exists := dynamics[dynKey]; exists {
 				// Handle nested trees (like ranges)
 				if nestedTree, ok := dynValue.(map[string]interface{}); ok {
 					nestedHTML, err := TreeToHTML(nestedTree)
 					if err != nil {
-						return "", err
+						return fmt.Errorf("rendering nested tree at position %d: %w", i, err)
 					}
 					result.WriteString(nestedHTML)
 				} else {
@@ -83,19 +97,28 @@ func TreeToHTML(tree map[string]interface{}) (string, error) {
 					result.WriteString(htmlescape.EscapeString(fmt.Sprintf("%v", dynValue)))
 				}
 			}
-			dynamicIndex++
 		}
 	}
-
-	return result.String(), nil
+	return nil
 }
 
-// rangeComprehensionToHTML renders a range comprehension (with "d" and "s" keys) to HTML.
+// rangeComprehensionToHTML renders a range comprehension tree to HTML.
+// A range comprehension tree has the structure:
+//
+//	{
+//	  "s": ["<div>", "</div>"],  // Static template for each item
+//	  "d": [                      // Dynamic items array
+//	    {"0": "value1", "1": "value2"},
+//	    {"0": "value3", "1": "value4"},
+//	  ]
+//	}
+//
+// This renders each item using the static template, interleaving dynamic values.
 func rangeComprehensionToHTML(tree map[string]interface{}, itemsRaw interface{}) (string, error) {
 	// Get statics for the range items
-	statics, ok := tree["s"].([]string)
+	statics, ok := tree[keyStatics].([]string)
 	if !ok {
-		return "", fmt.Errorf("range comprehension missing statics")
+		return "", fmt.Errorf("range comprehension: missing statics array")
 	}
 
 	// Convert items to []interface{}
@@ -109,39 +132,20 @@ func rangeComprehensionToHTML(tree map[string]interface{}, itemsRaw interface{})
 			items[i] = item
 		}
 	default:
-		return "", fmt.Errorf("unexpected items type: %T", itemsRaw)
+		return "", fmt.Errorf("range comprehension: unexpected items type %T", itemsRaw)
 	}
 
 	var result strings.Builder
 
 	// Render each item using the statics as template
-	for _, itemRaw := range items {
+	for itemIdx, itemRaw := range items {
 		itemMap, ok := itemRaw.(map[string]interface{})
 		if !ok {
-			continue
+			return "", fmt.Errorf("range comprehension: item %d is not a map (got %T)", itemIdx, itemRaw)
 		}
 
-		// Interleave statics and item dynamics
-		for i, static := range statics {
-			result.WriteString(static)
-
-			// After each static (except the last), add the corresponding dynamic
-			if i < len(statics)-1 {
-				dynKey := fmt.Sprintf("%d", i)
-				if dynValue, exists := itemMap[dynKey]; exists {
-					// Recursively render nested trees
-					if nestedTree, ok := dynValue.(map[string]interface{}); ok {
-						nestedHTML, err := TreeToHTML(nestedTree)
-						if err != nil {
-							return "", err
-						}
-						result.WriteString(nestedHTML)
-					} else {
-						// Simple value - convert to string and escape HTML
-						result.WriteString(htmlescape.EscapeString(fmt.Sprintf("%v", dynValue)))
-					}
-				}
-			}
+		if err := renderTreeWithStatics(statics, itemMap, &result); err != nil {
+			return "", fmt.Errorf("range comprehension: rendering item %d: %w", itemIdx, err)
 		}
 	}
 
