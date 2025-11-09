@@ -1,6 +1,7 @@
 package context
 
 import (
+	"log/slog"
 	"reflect"
 	"strings"
 )
@@ -56,12 +57,31 @@ func AddLvtToData(data interface{}, errors map[string]string, devMode bool) inte
 					fieldName = jsonTag
 				}
 			}
+
+			// Warn if field will shadow the "lvt" namespace
+			if fieldName == "lvt" || field.Name == "lvt" {
+				slog.Warn("struct field shadows LiveTemplate 'lvt' namespace and will be overwritten",
+					slog.String("field", field.Name),
+					slog.String("type", typ.Name()))
+			}
+
+			// Store field under both json tag name (if present) and original struct field name.
+			// This dual mapping ensures templates work with both naming conventions:
+			// - {{.fieldName}} using json tag (e.g., "user_id")
+			// - {{.FieldName}} using struct field name (e.g., "UserID")
+			// This maintains backward compatibility with existing templates.
 			templateData[fieldName] = val.Field(i).Interface()
 			templateData[field.Name] = val.Field(i).Interface()
 		}
 	} else if val.Kind() == reflect.Map {
 		for _, key := range val.MapKeys() {
-			templateData[key.String()] = val.MapIndex(key).Interface()
+			keyStr := key.String()
+			// Warn if map key will shadow the "lvt" namespace
+			if keyStr == "lvt" {
+				slog.Warn("map key shadows LiveTemplate 'lvt' namespace and will be overwritten",
+					slog.String("key", keyStr))
+			}
+			templateData[keyStr] = val.MapIndex(key).Interface()
 		}
 	}
 

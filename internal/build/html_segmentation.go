@@ -2,6 +2,7 @@ package build
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/livetemplate/livetemplate/internal/render"
@@ -38,14 +39,8 @@ func CreateHTMLStructureBasedTree(html string) *TreeNode {
 
 	// Sort boundaries
 	if len(boundaries) > 0 {
-		// Simple sort
-		for i := 0; i < len(boundaries)-1; i++ {
-			for j := i + 1; j < len(boundaries); j++ {
-				if boundaries[i] > boundaries[j] {
-					boundaries[i], boundaries[j] = boundaries[j], boundaries[i]
-				}
-			}
-		}
+		// Sort boundaries using efficient stdlib sort
+		sort.Ints(boundaries)
 
 		// Create segments based on boundaries
 		const maxSegments = 8
@@ -54,7 +49,6 @@ func CreateHTMLStructureBasedTree(html string) *TreeNode {
 		var statics []string
 		var dynamics []interface{}
 		lastPos := 0
-		dynamicIndex := 0
 
 		for i, boundary := range boundaries {
 			// Only create a segment if it's large enough
@@ -66,7 +60,6 @@ func CreateHTMLStructureBasedTree(html string) *TreeNode {
 					// Create a dynamic segment
 					statics = append(statics, "")
 					dynamics = append(dynamics, html[lastPos:boundary])
-					dynamicIndex++
 				}
 				lastPos = boundary
 			}
