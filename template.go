@@ -587,7 +587,16 @@ func New(name string, opts ...Option) *Template {
 	if len(config.TemplateFiles) == 0 {
 		// Use TemplateBaseDir from config if provided, otherwise fall back to runtime.Caller
 		files, err := discovery.DiscoverTemplateFiles(config.TemplateBaseDir, config.IgnoreTemplateDirs)
-		if err == nil && len(files) > 0 {
+		if err != nil {
+			log.Printf("Warning: template auto-discovery failed: %v", err)
+		} else if len(files) == 0 {
+			if config.DevMode {
+				log.Printf("Warning: no template files found in auto-discovery (baseDir=%q)", config.TemplateBaseDir)
+			}
+		} else {
+			if config.DevMode {
+				log.Printf("Auto-discovered %d template file(s)", len(files))
+			}
 			if _, err := tmpl.ParseFiles(files...); err != nil {
 				log.Printf("Warning: failed to parse template files: %v", err)
 			}
