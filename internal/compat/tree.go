@@ -57,10 +57,13 @@ func RenderTreeToHTML(tree map[string]interface{}) (string, error) {
 
 // Key generation wrappers for backward compatibility
 
-// keyGenerator is a type alias for backward compatibility
+// KeyGenerator is a type alias for keys.Generator.
+// This is exported for internal compatibility only - external users should not depend on this type.
+// Used by Template and test code that previously accessed the public keyGenerator type.
 type KeyGenerator = keys.Generator
 
-// newKeyGenerator wraps internal/keys.NewGenerator for backward compatibility
+// NewKeyGenerator wraps internal/keys.NewGenerator for backward compatibility.
+// This is exported for internal compatibility only - external users should not depend on this function.
 func NewKeyGenerator() *KeyGenerator {
 	return keys.NewGenerator()
 }

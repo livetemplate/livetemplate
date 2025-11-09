@@ -112,8 +112,17 @@ import (
 )
 
 // =============================================================================
-// Internal Type Aliases
+// Internal Type Aliases (Not Part of Public API)
 // =============================================================================
+//
+// IMPORTANT: These type aliases are internal implementation details used by Template.
+// External users should NOT depend on these types or use them directly.
+// They are not part of the stable public API and may change without notice.
+//
+// These aliases exist to:
+// - Provide convenient access to internal types within this package
+// - Maintain clean imports without exposing internal packages publicly
+// - Support backward compatibility for internal test code
 
 // TreeNode is an internal alias for build.TreeNode.
 // Used internally by Template for tree caching and comparison.
