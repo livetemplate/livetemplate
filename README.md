@@ -8,7 +8,7 @@ Build interactive web applications in Go using a simplified programming model. W
 
 > **⚠️ ALPHA SOFTWARE**
 >
-> LiveTemplate is currently in **alpha stage**. The API is stabilizing but may change before v1.0. Use in production at your own risk.
+> LiveTemplate is currently in **alpha stage**. Core features work and are tested, but the API may change before v1.0. Use in production at your own risk.
 
 ---
 
@@ -28,7 +28,7 @@ sequenceDiagram
 
     Note over Server: s.Counter++<br/>(Counter: 5 → 6)
 
-    Note over Server: Tree diff calculated:<br/>{"0": "6"}
+    Note over Server: Tree diff calculated:<br/>{"0": "6"}<br/>(50-90% smaller)
     Server->>Browser: {"0": "6"}
 
     Note over Browser: DOM updated:<br/>&lt;h1&gt;Counter: 6&lt;/h1&gt;
@@ -118,7 +118,7 @@ func (s *State) Change(ctx *livetemplate.ActionContext) error {
 {{end}}
 ```
 
-No error serialization code. No client-side error state management. Errors returned from Go automatically appear in your templates.
+When you return a `FieldError` from Go, LiveTemplate automatically makes it available in your templates via `.lvt.HasError` and `.lvt.Error` helpers. No error serialization code. No client-side error state management.
 
 ## Quick Start
 
@@ -154,6 +154,7 @@ func main() {
 **2. Create your template** ([counter.tmpl](https://github.com/livetemplate/examples/blob/main/counter/counter.tmpl))
 
 ```html
+<!-- counter.tmpl -->
 <h1>Counter: {{.Counter}}</h1>
 <button lvt-click="increment">+</button>
 <button lvt-click="decrement">-</button>
@@ -181,7 +182,7 @@ Tree diff calculates changes → Client receives minimal update → DOM updates
 3. Use standard Go templates with `lvt-*` attributes
 4. LiveTemplate automatically syncs state to UI
 
-Works over HTTP by default. WebSocket optional for server-initiated broadcasts.
+All interactive features work over HTTP. WebSocket is optional, required only for server-initiated broadcasts (e.g., multi-user chat notifications).
 
 ## Learn More
 
