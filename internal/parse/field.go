@@ -7,6 +7,17 @@ import (
 	"text/template/parse"
 )
 
+// createSingleDynamicTree creates a tree node with a single dynamic value at position 0.
+// This is a common pattern for field/action nodes that produce a single output.
+func createSingleDynamicTree(value string, ctx *Context) *TreeNode {
+	tree := NewTreeNode()
+	if ctx.ShouldIncludeStatics() {
+		tree.Statics = []string{"", ""}
+	}
+	tree.SetDynamic("0", value)
+	return tree
+}
+
 // handleActionNode processes {{.Field}} or {{.Method}} expressions.
 func handleActionNode(node *parse.ActionNode, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	// Execute the action to get its value
@@ -22,13 +33,7 @@ func handleActionNode(node *parse.ActionNode, data interface{}, keyGen KeyGenera
 		return nil, fmt.Errorf("action execute error: %w", err)
 	}
 
-	// Create tree with one dynamic value
-	tree := NewTreeNode()
-	if ctx.ShouldIncludeStatics() {
-		tree.Statics = []string{"", ""}
-	}
-	tree.SetDynamic("0", buf.String())
-	return tree, nil
+	return createSingleDynamicTree(buf.String(), ctx), nil
 }
 
 // handleActionNodeWithVars handles {{.Field}} or {{$var}} with variable context.
@@ -62,36 +67,29 @@ func handleActionNodeWithVars(node *parse.ActionNode, varCtx *varContext, keyGen
 			return nil, fmt.Errorf("action execute error: %w", err)
 		}
 
-		result := buf.String()
-
-		tree := NewTreeNodeWithStatics([]string{"", ""})
-		tree.SetDynamic("0", result)
-		return tree, nil
+		return createSingleDynamicTree(buf.String(), ctx), nil
 	}
 
 	// Has variables - evaluate with variable context
 	result := evaluateActionWithVars(nodeStr, varCtx, ctx)
-
-	tree := NewTreeNode()
-	if ctx.ShouldIncludeStatics() {
-		tree.Statics = []string{"", ""}
-	}
-	tree.SetDynamic("0", result)
-	return tree, nil
+	return createSingleDynamicTree(result, ctx), nil
 }
 
 // evaluateActionWithVars evaluates an action string that contains variable references.
 func evaluateActionWithVars(actionStr string, varCtx *varContext, ctx *Context) string {
+	// Check if the action uses the root $ variable
+	usesRootVar := detectsRootVariable(actionStr, varCtx.vars)
+
 	// Identify which variables are used in the action
+	// Build search patterns once to avoid repeated string concatenation
 	usedVars := newOrderedVars()
 	varCtx.vars.Range(func(varName string, varValue interface{}) {
-		if strings.Contains(actionStr, "$"+varName) {
+		// Search for $varName pattern
+		searchPattern := "$" + varName
+		if strings.Contains(actionStr, searchPattern) {
 			usedVars.Set(varName, varValue)
 		}
 	})
-
-	// Check if the action uses the root $ variable
-	usesRootVar := detectsRootVariable(actionStr, varCtx.vars)
 
 	// If we have no variables and don't use root, shouldn't happen but handle gracefully
 	if usedVars.Len() == 0 && !usesRootVar {
@@ -106,15 +104,19 @@ func evaluateActionWithVars(actionStr string, varCtx *varContext, ctx *Context) 
 
 	// Handle named variables ($index, $todo, etc.)
 	usedVars.Range(func(varName string, varValue interface{}) {
+		// Validate variable name is not empty
+		if len(varName) == 0 {
+			return
+		}
 		// Capitalize first letter for field access
 		fieldName := strings.ToUpper(varName[:1]) + varName[1:]
-		transformedAction = strings.Replace(transformedAction, "$"+varName, "."+fieldName, -1)
+		transformedAction = strings.ReplaceAll(transformedAction, "$"+varName, "."+fieldName)
 		execData[fieldName] = varValue
 	})
 
 	// Handle root variable ($. or standalone $)
 	if usesRootVar {
-		transformedAction = strings.Replace(transformedAction, "$.", ".RootData.", -1)
+		transformedAction = strings.ReplaceAll(transformedAction, "$.", ".RootData.")
 		execData["RootData"] = varCtx.parent
 	}
 
