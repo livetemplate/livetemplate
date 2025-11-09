@@ -1164,9 +1164,11 @@ func (t *Template) buildTree(data interface{}, errors map[string]string) (*TreeN
 	// Convert data to include lvt context
 	dataWithLvt := context.AddLvtToData(data, errors, t.config.DevMode)
 
-	// Invalidate execution cache on each render to ensure fresh evaluation
-	// Cache is per-template-name + per-data-hash, so this clears stale entries
-	parse.InvalidateExecutionCache()
+	// Note: We don't invalidate the expression cache here because:
+	// 1. Cache keys include dataHash, so changed data naturally misses the cache
+	// 2. Cache is intra-render optimization (expressions within a single template execution)
+	// 3. Invalidating on every render would defeat the purpose of caching
+	// The cache will naturally expire as data changes across renders.
 
 	// Acquire lock once for all state reads/writes
 	t.mu.Lock()
@@ -1212,13 +1214,13 @@ func (t *Template) buildTree(data interface{}, errors map[string]string) (*TreeN
 		return nil, treeErr
 	}
 
-	// Mark structures in registry outside the lock (registry has its own locking)
-	// Release main lock before doing this expensive operation
-	t.mu.Unlock()
+	// Mark structures in registry (registry has its own locking, so this is safe)
+	// Note: We keep the main lock held here for correctness, though markAllStructuresAsSeen
+	// has its own internal locking. The performance impact is minimal since this only runs
+	// on first render.
 	if isFirstRender && tree != nil {
 		t.markAllStructuresAsSeen(tree, "")
 	}
-	t.mu.Lock() // Re-acquire for defer unlock
 
 	return tree, nil
 }
