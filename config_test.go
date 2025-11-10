@@ -486,6 +486,28 @@ func TestLoadEnvConfig_AllVariables(t *testing.T) {
 	}
 }
 
+// TestLoadEnvConfig_TemplateBaseDir tests template base directory configuration
+func TestLoadEnvConfig_TemplateBaseDir(t *testing.T) {
+	clearEnv(t)
+	os.Setenv("LVT_TEMPLATE_BASE_DIR", "/custom/templates")
+	defer os.Unsetenv("LVT_TEMPLATE_BASE_DIR")
+
+	config, err := LoadEnvConfig()
+	if err != nil {
+		t.Fatalf("LoadEnvConfig failed: %v", err)
+	}
+
+	if config.TemplateBaseDir != "/custom/templates" {
+		t.Errorf("Expected TemplateBaseDir to be /custom/templates, got %s", config.TemplateBaseDir)
+	}
+
+	// Verify it converts to option
+	opts := config.ToOptions()
+	if len(opts) != 1 {
+		t.Errorf("Expected 1 option, got %d", len(opts))
+	}
+}
+
 // clearEnv removes all LVT_ environment variables
 func clearEnv(t *testing.T) {
 	t.Helper()
@@ -496,6 +518,7 @@ func clearEnv(t *testing.T) {
 		"LVT_DEV_MODE",
 		"LVT_WEBSOCKET_DISABLED",
 		"LVT_LOADING_DISABLED",
+		"LVT_TEMPLATE_BASE_DIR",
 		"LVT_SHUTDOWN_TIMEOUT",
 		"LVT_LOG_LEVEL",
 		"LVT_METRICS_ENABLED",
