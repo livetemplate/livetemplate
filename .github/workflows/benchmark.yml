@@ -1,0 +1,142 @@
+name: Performance Benchmarks
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # Allow manual triggering
+
+permissions:
+  contents: read
+  pull-requests: write  # For posting comments
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Need history for baseline
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Install benchstat
+      run: go install golang.org/x/perf/cmd/benchstat@latest
+
+    - name: Run benchmarks
+      run: |
+        go test -bench=. -benchmem -count=5 ./... > current-bench.txt 2>&1 || true
+        cat current-bench.txt
+      env:
+        GOWORK: off
+
+    - name: Compare against baseline
+      id: compare
+      run: |
+        if [ -f testdata/benchmarks/baseline.txt ]; then
+          benchstat testdata/benchmarks/baseline.txt current-bench.txt > comparison.txt || true
+          echo "comparison<<EOF" >> $GITHUB_OUTPUT
+          cat comparison.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        else
+          echo "No baseline found - this is the first benchmark run"
+          echo "comparison=No baseline found. Save these results as baseline." >> $GITHUB_OUTPUT
+        fi
+      continue-on-error: true
+
+    - name: Check for regressions
+      id: regression-check
+      run: |
+        if [ -f comparison.txt ]; then
+          # Check for critical regressions >20%
+          if grep -E 'Benchmark(E2E|Template).*\+[2-9][0-9]\.[0-9]+%' comparison.txt; then
+            echo "status=fail" >> $GITHUB_OUTPUT
+            echo "message=Critical performance regression detected (>20%)" >> $GITHUB_OUTPUT
+            exit 1
+          # Check for warnings >10%
+          elif grep -E 'Benchmark(E2E|Template).*\+1[0-9]\.[0-9]+%' comparison.txt; then
+            echo "status=warn" >> $GITHUB_OUTPUT
+            echo "message=Performance regression detected (>10%)" >> $GITHUB_OUTPUT
+          else
+            echo "status=pass" >> $GITHUB_OUTPUT
+            echo "message=No significant regressions detected" >> $GITHUB_OUTPUT
+          fi
+        else
+          echo "status=skip" >> $GITHUB_OUTPUT
+          echo "message=No baseline comparison available" >> $GITHUB_OUTPUT
+        fi
+      continue-on-error: true
+
+    - name: Post comparison comment
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const comparison = `${{ steps.compare.outputs.comparison }}`;
+          const status = '${{ steps.regression-check.outputs.status }}';
+          const message = '${{ steps.regression-check.outputs.message }}';
+
+          let statusIcon = '✅';
+          if (status === 'fail') statusIcon = '❌';
+          else if (status === 'warn') statusIcon = '⚠️';
+          else if (status === 'skip') statusIcon = 'ℹ️';
+
+          const body = `## ${statusIcon} Performance Benchmark Results\n\n` +
+            `**Status:** ${message}\n\n` +
+            `<details>\n<summary>Benchmark Comparison</summary>\n\n\`\`\`\n${comparison}\n\`\`\`\n\n</details>\n\n` +
+            `### Thresholds\n\n` +
+            `- ⚠️ Warning: Regressions >10% on critical benchmarks\n` +
+            `- ❌ Failure: Regressions >20% on critical benchmarks\n` +
+            `- Critical benchmarks: \`Benchmark(E2E|Template).*\`\n\n` +
+            `See [benchmarking guide](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${context.payload.pull_request.head.ref}/docs/performance/benchmarking-guide.md) for details.`;
+
+          // Find existing benchmark comment
+          const { data: comments } = await github.rest.issues.listComments({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo
+          });
+
+          const existingComment = comments.find(c =>
+            c.user.login === 'github-actions[bot]' &&
+            c.body.includes('Performance Benchmark Results')
+          );
+
+          if (existingComment) {
+            // Update existing comment
+            await github.rest.issues.updateComment({
+              comment_id: existingComment.id,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+          } else {
+            // Create new comment
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+          }
+
+    - name: Upload benchmark results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-results
+        path: |
+          current-bench.txt
+          comparison.txt
+        retention-days: 30
+
+    - name: Fail if critical regression
+      if: steps.regression-check.outputs.status == 'fail'
+      run: |
+        echo "::error::${{ steps.regression-check.outputs.message }}"
+        exit 1
