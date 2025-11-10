@@ -27,13 +27,13 @@ bench-quick:
 # Profile CPU
 profile-cpu:
 	@mkdir -p profiles
-	GOWORK=off go test -bench=. -benchmem -cpuprofile=profiles/cpu.prof ./...
+	GOWORK=off go test -bench=. -benchmem -cpuprofile=profiles/cpu.prof .
 	@echo "\nAnalyze with: go tool pprof profiles/cpu.prof"
 
 # Profile memory
 profile-mem:
 	@mkdir -p profiles
-	GOWORK=off go test -bench=. -benchmem -memprofile=profiles/mem.prof ./...
+	GOWORK=off go test -bench=. -benchmem -memprofile=profiles/mem.prof .
 	@echo "\nAnalyze with: go tool pprof profiles/mem.prof"
 
 # Profile everything
