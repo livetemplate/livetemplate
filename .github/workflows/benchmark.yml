@@ -30,7 +30,7 @@ jobs:
 
     - name: Run benchmarks
       run: |
-        go test -bench=. -benchmem -count=5 ./... > current-bench.txt 2>&1 || true
+        go test -bench=. -benchmem -count=5 ./... 2>&1 | grep "^Benchmark" | grep -v "livetemplate.New\|WARN\|INFO\|DEBUG\|ERROR" > current-bench.txt || true
         cat current-bench.txt
       env:
         GOWORK: off

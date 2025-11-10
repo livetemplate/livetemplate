@@ -2,6 +2,7 @@ package livetemplate
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 )
 
@@ -160,7 +161,7 @@ func BenchmarkE2EMultipleSessions(b *testing.B) {
 	sessions := []int{1, 10, 100}
 
 	for _, sessionCount := range sessions {
-		b.Run(string(rune('0'+sessionCount)), func(b *testing.B) {
+		b.Run(fmt.Sprintf("%d", sessionCount), func(b *testing.B) {
 			templates := make([]*Template, sessionCount)
 			buffers := make([]bytes.Buffer, sessionCount)
 			for i := 0; i < sessionCount; i++ {
