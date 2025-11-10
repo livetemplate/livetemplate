@@ -13,7 +13,6 @@ var ignoredTemplateDirs = map[string]struct{}{
 	"node_modules": {},
 	"vendor":       {},
 	".git":         {},
-	"internal":     {}, // Skip internal directories (e.g., code generator templates with mixed delimiters)
 }
 
 // DiscoverTemplateFiles searches for template files in the specified directory and subdirectories.
