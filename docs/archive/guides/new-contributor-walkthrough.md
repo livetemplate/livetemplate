@@ -1,6 +1,6 @@
-# LiveTemplate Contributor Walkthrough (v1.0 - ARCHIVED)
+# LiveTemplate Contributor Walkthrough (ARCHIVED)
 
-> **Note:** This is the v1.0 contributor walkthrough, archived for historical reference. For the current guide updated for v0.3.0's 5-phase architecture, see [docs/guides/new-contributor-walkthrough.md](../../guides/new-contributor-walkthrough.md).
+> **Note:** This is an older contributor walkthrough, archived for historical reference. For the current guide covering the 5-phase architecture, see [docs/guides/new-contributor-walkthrough.md](../../guides/new-contributor-walkthrough.md).
 
 Welcome aboard! This guide orients new contributors to the LiveTemplate codebase and walks through the end-to-end pipeline, from handling an HTTP request to delivering a minimal DOM update back to the browser. Keep this doc open while you explore the repo.
 

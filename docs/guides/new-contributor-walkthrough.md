@@ -23,7 +23,7 @@ sequenceDiagram
 
 ## The 5-Phase Architecture
 
-Version 0.3.0 refactored the codebase into 5 clear operational phases:
+The codebase is organized into 5 clear operational phases:
 
 1. **[Parse](#phase-1-parse)** ([`internal/parse/`](../../internal/parse/)) - Convert Go templates to executable AST
 2. **[Build](#phase-2-build)** ([`internal/build/`](../../internal/build/)) - Generate tree structures from AST + data
@@ -718,13 +718,14 @@ Understanding why things are designed this way:
 
 ### Why 5 Separate Phases?
 
-**Before v0.3.0:** Logic was mixed across files. Parsing, building, and diffing intertwined.
+Clear separation of phases makes it easy to:
 
-**After v0.3.0:** Clear separation makes it easy to:
 - Test each phase independently
 - Optimize one phase without affecting others
 - Understand data flow through the system
 - Onboard new contributors (you're here!)
+
+This architecture evolved from earlier versions where logic was more intertwined across files. The current structure emerged from applying first principles to the problem domain.
 
 See: [`docs/design/FIRST_PRINCIPLES.md`](../design/FIRST_PRINCIPLES.md)
 
