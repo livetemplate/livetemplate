@@ -242,6 +242,15 @@ func WithParseFiles(files ...string) Option {
 	}
 }
 
+// WithTemplateBaseDir sets the base directory for template auto-discovery.
+// This overrides the default runtime.Caller detection. Useful when running
+// via 'go run' or when templates are in a non-standard location.
+func WithTemplateBaseDir(dir string) Option {
+	return func(c *Config) {
+		c.TemplateBaseDir = dir
+	}
+}
+
 // WithUpgrader sets a custom WebSocket upgrader
 func WithUpgrader(upgrader *websocket.Upgrader) Option {
 	return func(c *Config) {

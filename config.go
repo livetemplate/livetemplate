@@ -43,6 +43,12 @@ type EnvConfig struct {
 	// Environment: LVT_LOADING_DISABLED (true/false, 1/0)
 	LoadingDisabled bool
 
+	// TemplateBaseDir is the base directory for template auto-discovery.
+	// Empty means use runtime.Caller detection (default).
+	// Environment: LVT_TEMPLATE_BASE_DIR
+	// Example: "/app/templates", "./templates", "."
+	TemplateBaseDir string
+
 	// ShutdownTimeout is the maximum duration to wait for graceful shutdown.
 	// Default: 30 seconds
 	// Environment: LVT_SHUTDOWN_TIMEOUT
@@ -150,6 +156,11 @@ func LoadEnvConfig() (*EnvConfig, error) {
 		config.LoadingDisabled = b
 	}
 
+	// Load TemplateBaseDir
+	if val := os.Getenv("LVT_TEMPLATE_BASE_DIR"); val != "" {
+		config.TemplateBaseDir = val
+	}
+
 	// Load ShutdownTimeout
 	if val := os.Getenv("LVT_SHUTDOWN_TIMEOUT"); val != "" {
 		d, err := time.ParseDuration(val)
@@ -226,6 +237,10 @@ func (c *EnvConfig) ToOptions() []Option {
 
 	if c.LoadingDisabled {
 		opts = append(opts, WithLoadingDisabled())
+	}
+
+	if c.TemplateBaseDir != "" {
+		opts = append(opts, WithTemplateBaseDir(c.TemplateBaseDir))
 	}
 
 	return opts

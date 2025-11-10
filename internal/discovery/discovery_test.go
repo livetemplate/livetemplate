@@ -220,3 +220,120 @@ func TestNormalizeStoreName_CaseInsensitiveMatching(t *testing.T) {
 		t.Errorf("Expected normalized value %q, got %v", expected, normalized)
 	}
 }
+
+// TestDiscoverTemplateFiles_SmartFallback verifies smart fallback behavior
+// When runtime.Caller fails, should try ./templates if it exists, otherwise use .
+func TestDiscoverTemplateFiles_SmartFallback(t *testing.T) {
+	// Save current directory to restore later
+	originalDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get current directory: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(originalDir); err != nil {
+			t.Errorf("Failed to restore directory: %v", err)
+		}
+	}()
+
+	t.Run("fallback to templates directory when it exists", func(t *testing.T) {
+		// Create temporary directory structure
+		tmpDir := t.TempDir()
+		templatesDir := filepath.Join(tmpDir, "templates")
+		if err := os.MkdirAll(templatesDir, 0755); err != nil {
+			t.Fatalf("Failed to create templates directory: %v", err)
+		}
+
+		// Create template file in ./templates
+		templateFile := filepath.Join(templatesDir, "test.tmpl")
+		f, err := os.Create(templateFile)
+		if err != nil {
+			t.Fatalf("Failed to create template file: %v", err)
+		}
+		f.Close()
+
+		// Change to tmpDir so ./templates is accessible
+		if err := os.Chdir(tmpDir); err != nil {
+			t.Fatalf("Failed to change directory: %v", err)
+		}
+
+		// Call with empty baseDir - should fall back to ./templates
+		files, err := DiscoverTemplateFiles("", nil)
+		if err != nil {
+			t.Fatalf("DiscoverTemplateFiles failed: %v", err)
+		}
+
+		// Should find the template file
+		if len(files) != 1 {
+			t.Errorf("Expected 1 template file with ./templates fallback, got %d", len(files))
+		}
+	})
+
+	t.Run("fallback to current directory when templates does not exist", func(t *testing.T) {
+		// Create temporary directory WITHOUT templates subdirectory
+		tmpDir := t.TempDir()
+
+		// Create template file directly in tmpDir
+		templateFile := filepath.Join(tmpDir, "colocated.tmpl")
+		f, err := os.Create(templateFile)
+		if err != nil {
+			t.Fatalf("Failed to create template file: %v", err)
+		}
+		f.Close()
+
+		// Change to tmpDir
+		if err := os.Chdir(tmpDir); err != nil {
+			t.Fatalf("Failed to change directory: %v", err)
+		}
+
+		// Call with empty baseDir - should fall back to . (current directory)
+		files, err := DiscoverTemplateFiles("", nil)
+		if err != nil {
+			t.Fatalf("DiscoverTemplateFiles failed: %v", err)
+		}
+
+		// Should find the colocated template file
+		if len(files) != 1 {
+			t.Errorf("Expected 1 template file with . fallback, got %d", len(files))
+		}
+	})
+
+	t.Run("nested discovery from current directory", func(t *testing.T) {
+		// Create directory structure with nested templates
+		tmpDir := t.TempDir()
+		subDir := filepath.Join(tmpDir, "views", "auth")
+		if err := os.MkdirAll(subDir, 0755); err != nil {
+			t.Fatalf("Failed to create subdirectory: %v", err)
+		}
+
+		// Create templates at different levels
+		files := map[string]string{
+			filepath.Join(tmpDir, "root.tmpl"):            "root",
+			filepath.Join(tmpDir, "views", "index.tmpl"):  "views",
+			filepath.Join(subDir, "login.tmpl"):           "nested",
+		}
+
+		for path := range files {
+			f, err := os.Create(path)
+			if err != nil {
+				t.Fatalf("Failed to create template file %s: %v", path, err)
+			}
+			f.Close()
+		}
+
+		// Change to tmpDir
+		if err := os.Chdir(tmpDir); err != nil {
+			t.Fatalf("Failed to change directory: %v", err)
+		}
+
+		// Call with empty baseDir - should discover all nested templates
+		discoveredFiles, err := DiscoverTemplateFiles("", nil)
+		if err != nil {
+			t.Fatalf("DiscoverTemplateFiles failed: %v", err)
+		}
+
+		// Should find all 3 template files (recursive discovery)
+		if len(discoveredFiles) != 3 {
+			t.Errorf("Expected 3 template files with nested discovery, got %d", len(discoveredFiles))
+		}
+	})
+}
