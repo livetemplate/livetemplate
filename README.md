@@ -124,12 +124,12 @@ LiveTemplate is designed for high-performance reactive updates with minimal band
 
 | Operation | Latency | Bandwidth Savings |
 |-----------|---------|-------------------|
-| Initial Render | ~1.2ms | - |
-| Small Update (1-2 fields) | ~120µs | 85% vs full render |
-| Large Update (100 items) | ~2.5ms | 65% vs full render |
-| Range Operations | ~150µs | 80% vs full render |
+| Initial Render | ~20-65µs | - |
+| Small Update (1-2 fields) | ~18-20µs | 85% vs full render |
+| Large Update (5+ fields) | ~65µs | 65% vs full render |
+| Range Operations | ~30-65µs | 80% vs full render |
 
-*Benchmarked on Go 1.21, Apple M1, typical web application templates*
+*Actual benchmarks from baseline (Go 1.21, Apple M1). See [baseline.txt](testdata/benchmarks/baseline.txt) for complete results.*
 
 ### How It Works
 

@@ -184,7 +184,7 @@ func BenchmarkTemplateConcurrent(b *testing.B) {
 	concurrency := []int{1, 10, 100}
 
 	for _, n := range concurrency {
-		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+		b.Run(fmt.Sprintf("goroutines-%d", n), func(b *testing.B) {
 			b.SetParallelism(n)
 			b.RunParallel(func(pb *testing.PB) {
 				var buf bytes.Buffer

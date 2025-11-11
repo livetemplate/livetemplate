@@ -24,16 +24,16 @@ bench-compare:
 bench-quick:
 	GOWORK=off go test -bench='Benchmark(E2E|Template)' -benchmem -timeout=5m ./...
 
-# Profile CPU
+# Profile CPU (root package only, as -cpuprofile doesn't work with ./...)
 profile-cpu:
 	@mkdir -p profiles
-	GOWORK=off go test -bench=. -benchmem -cpuprofile=profiles/cpu.prof ./...
+	GOWORK=off go test -bench=. -benchmem -cpuprofile=profiles/cpu.prof .
 	@echo "\nAnalyze with: go tool pprof profiles/cpu.prof"
 
-# Profile memory
+# Profile memory (root package only, as -memprofile doesn't work with ./...)
 profile-mem:
 	@mkdir -p profiles
-	GOWORK=off go test -bench=. -benchmem -memprofile=profiles/mem.prof ./...
+	GOWORK=off go test -bench=. -benchmem -memprofile=profiles/mem.prof .
 	@echo "\nAnalyze with: go tool pprof profiles/mem.prof"
 
 # Profile everything
