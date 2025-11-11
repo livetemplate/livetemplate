@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<a name="v0.2.1"></a>
+## [v0.2.1] - 2025-11-10
+
+### Bug Fixes
+
+- allow template discovery in internal directories for multi kit support
+- template auto-discovery for go run and lvt serve ([#49](https://github.com/livefir/livetemplate/issues/49))
+- improve template auto-discovery robustness ([#47](https://github.com/livefir/livetemplate/issues/47))
+
+### Documentation
+
+- remove version-specific references from contributor walkthrough
+- create comprehensive contributor walkthrough for 5-phase architecture
+- simplify README to focus on core value proposition ([#48](https://github.com/livefir/livetemplate/issues/48))
+
+
 <a name="v0.2.0"></a>
 ## [v0.2.0] - 2025-11-09
 
@@ -179,7 +195,8 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.2.1...HEAD
+[v0.2.1]: https://github.com/livefir/livetemplate/compare/v0.2.0...v0.2.1
 [v0.2.0]: https://github.com/livefir/livetemplate/compare/v0.1.3...v0.2.0
 [v0.1.3]: https://github.com/livefir/livetemplate/compare/ls...v0.1.3
 [ls]: https://github.com/livefir/livetemplate/compare/v0.1.2...ls
