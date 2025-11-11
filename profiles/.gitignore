@@ -1,0 +1,3 @@
+# Ignore all profiling output
+*
+!.gitignore

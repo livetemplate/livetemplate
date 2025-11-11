@@ -11,7 +11,8 @@ import (
 	"github.com/livetemplate/livetemplate/internal/compat"
 )
 
-// BenchmarkUserJourney measures performance of user journey processing.
+// BenchmarkUserJourney has been moved to e2e_bench_test.go
+// This benchmark suite now focuses on fingerprint benchmarks only
 func BenchmarkUserJourney(b *testing.B) {
 	generator := NewActivityGenerator(42)
 	journey := generator.GenerateJourney(100) // 100 activities
