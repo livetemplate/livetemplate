@@ -22,7 +22,11 @@ func TestTemplateContext_Uploads(t *testing.T) {
 	}
 
 	// Add some entries
-	avatarUpload := registry.GetUpload("avatar")
+	avatarUploadInterface := registry.GetUpload("avatar")
+	avatarUpload, ok := avatarUploadInterface.(*upload.Upload)
+	if !ok || avatarUpload == nil {
+		t.Fatal("Failed to get avatar upload")
+	}
 	entry1 := &livetemplate.UploadEntry{
 		ID:         "entry-1",
 		ClientName: "photo.jpg",
@@ -88,7 +92,11 @@ func TestTemplateContext_HasUploadError(t *testing.T) {
 	}
 
 	registry.CreateUpload("avatar", config)
-	avatarUpload := registry.GetUpload("avatar")
+	avatarUploadInterface := registry.GetUpload("avatar")
+	avatarUpload, ok := avatarUploadInterface.(*upload.Upload)
+	if !ok || avatarUpload == nil {
+		t.Fatal("Failed to get avatar upload")
+	}
 
 	// Add entry with error
 	entry := &livetemplate.UploadEntry{
@@ -123,7 +131,11 @@ func TestTemplateContext_UploadError(t *testing.T) {
 	}
 
 	registry.CreateUpload("avatar", config)
-	avatarUpload := registry.GetUpload("avatar")
+	avatarUploadInterface := registry.GetUpload("avatar")
+	avatarUpload, ok := avatarUploadInterface.(*upload.Upload)
+	if !ok || avatarUpload == nil {
+		t.Fatal("Failed to get avatar upload")
+	}
 
 	// Add entry with error
 	entry := &livetemplate.UploadEntry{

@@ -3,24 +3,24 @@ package upload
 import (
 	"testing"
 
-	"github.com/livetemplate/livetemplate"
+	"github.com/livetemplate/livetemplate/internal/uploadtypes"
 )
 
 func TestValidateEntry(t *testing.T) {
 	tests := []struct {
 		name      string
-		entry     *livetemplate.UploadEntry
-		config    livetemplate.UploadConfig
+		entry     *uploadtypes.UploadEntry
+		config    uploadtypes.UploadConfig
 		wantError bool
 	}{
 		{
 			name: "valid image upload",
-			entry: &livetemplate.UploadEntry{
+			entry: &uploadtypes.UploadEntry{
 				ClientName: "photo.jpg",
 				ClientType: "image/jpeg",
 				ClientSize: 1024 * 1024, // 1MB
 			},
-			config: livetemplate.UploadConfig{
+			config: uploadtypes.UploadConfig{
 				Accept:      []string{"image/*"},
 				MaxFileSize: 5 * 1024 * 1024, // 5MB
 			},
@@ -28,12 +28,12 @@ func TestValidateEntry(t *testing.T) {
 		},
 		{
 			name: "valid PDF by extension",
-			entry: &livetemplate.UploadEntry{
+			entry: &uploadtypes.UploadEntry{
 				ClientName: "document.pdf",
 				ClientType: "application/pdf",
 				ClientSize: 2 * 1024 * 1024,
 			},
-			config: livetemplate.UploadConfig{
+			config: uploadtypes.UploadConfig{
 				Accept:      []string{".pdf"},
 				MaxFileSize: 10 * 1024 * 1024,
 			},
@@ -41,24 +41,24 @@ func TestValidateEntry(t *testing.T) {
 		},
 		{
 			name: "invalid file type",
-			entry: &livetemplate.UploadEntry{
+			entry: &uploadtypes.UploadEntry{
 				ClientName: "script.js",
 				ClientType: "application/javascript",
 				ClientSize: 1024,
 			},
-			config: livetemplate.UploadConfig{
+			config: uploadtypes.UploadConfig{
 				Accept: []string{"image/*", ".pdf"},
 			},
 			wantError: true,
 		},
 		{
 			name: "file too large",
-			entry: &livetemplate.UploadEntry{
+			entry: &uploadtypes.UploadEntry{
 				ClientName: "large.jpg",
 				ClientType: "image/jpeg",
 				ClientSize: 10 * 1024 * 1024,
 			},
-			config: livetemplate.UploadConfig{
+			config: uploadtypes.UploadConfig{
 				Accept:      []string{"image/*"},
 				MaxFileSize: 5 * 1024 * 1024,
 			},
@@ -66,12 +66,12 @@ func TestValidateEntry(t *testing.T) {
 		},
 		{
 			name: "no restrictions",
-			entry: &livetemplate.UploadEntry{
+			entry: &uploadtypes.UploadEntry{
 				ClientName: "anything.xyz",
 				ClientType: "application/octet-stream",
 				ClientSize: 1024,
 			},
-			config:    livetemplate.UploadConfig{},
+			config:    uploadtypes.UploadConfig{},
 			wantError: false,
 		},
 	}
@@ -194,13 +194,13 @@ func TestValidateCount(t *testing.T) {
 	tests := []struct {
 		name      string
 		count     int
-		config    livetemplate.UploadConfig
+		config    uploadtypes.UploadConfig
 		wantError bool
 	}{
 		{
 			name:  "within limit",
 			count: 3,
-			config: livetemplate.UploadConfig{
+			config: uploadtypes.UploadConfig{
 				MaxEntries: 5,
 			},
 			wantError: false,
@@ -208,7 +208,7 @@ func TestValidateCount(t *testing.T) {
 		{
 			name:  "at limit",
 			count: 5,
-			config: livetemplate.UploadConfig{
+			config: uploadtypes.UploadConfig{
 				MaxEntries: 5,
 			},
 			wantError: false,
@@ -216,7 +216,7 @@ func TestValidateCount(t *testing.T) {
 		{
 			name:  "exceeds limit",
 			count: 6,
-			config: livetemplate.UploadConfig{
+			config: uploadtypes.UploadConfig{
 				MaxEntries: 5,
 			},
 			wantError: true,
@@ -224,7 +224,7 @@ func TestValidateCount(t *testing.T) {
 		{
 			name:  "no limit",
 			count: 100,
-			config: livetemplate.UploadConfig{
+			config: uploadtypes.UploadConfig{
 				MaxEntries: 0,
 			},
 			wantError: false,

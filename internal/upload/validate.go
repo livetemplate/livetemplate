@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/livetemplate/livetemplate"
+	"github.com/livetemplate/livetemplate/internal/uploadtypes"
 )
 
 // ValidationError represents an upload validation failure.
@@ -21,7 +21,7 @@ func (e *ValidationError) Error() string {
 
 // ValidateEntry validates an upload entry against its configuration.
 // Returns an error if validation fails.
-func ValidateEntry(entry *livetemplate.UploadEntry, config livetemplate.UploadConfig) error {
+func ValidateEntry(entry *uploadtypes.UploadEntry, config uploadtypes.UploadConfig) error {
 	// Validate file type
 	if err := validateFileType(entry.ClientName, entry.ClientType, config.Accept); err != nil {
 		return err
@@ -98,7 +98,7 @@ func matchesMIMEType(mimeType, pattern string) bool {
 }
 
 // ValidateCount checks if the number of entries exceeds MaxEntries.
-func ValidateCount(count int, config livetemplate.UploadConfig) error {
+func ValidateCount(count int, config uploadtypes.UploadConfig) error {
 	if config.MaxEntries > 0 && count > config.MaxEntries {
 		return &ValidationError{
 			Field:   "count",

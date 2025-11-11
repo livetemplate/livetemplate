@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/livetemplate/livetemplate"
+	"github.com/livetemplate/livetemplate/internal/uploadtypes"
 )
 
 func TestParseMultipartUpload_Success(t *testing.T) {
@@ -36,7 +36,7 @@ func TestParseMultipartUpload_Success(t *testing.T) {
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	// Parse upload
-	config := livetemplate.UploadConfig{
+	config := uploadtypes.UploadConfig{
 		Accept:      []string{"image/*"},
 		MaxFileSize: 1024 * 1024,
 		MaxEntries:  1,
@@ -100,7 +100,7 @@ func TestParseMultipartUpload_ValidationError(t *testing.T) {
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	// Config only allows images
-	config := livetemplate.UploadConfig{
+	config := uploadtypes.UploadConfig{
 		Accept:     []string{"image/*"},
 		MaxEntries: 1,
 	}
@@ -146,7 +146,7 @@ func TestParseMultipartUpload_FileTooLarge(t *testing.T) {
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	// Config with small size limit
-	config := livetemplate.UploadConfig{
+	config := uploadtypes.UploadConfig{
 		Accept:      []string{"image/*"},
 		MaxFileSize: 1024, // 1KB limit
 		MaxEntries:  1,
@@ -185,7 +185,7 @@ func TestParseMultipartUpload_TooManyFiles(t *testing.T) {
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	// Config allows only 2 files
-	config := livetemplate.UploadConfig{
+	config := uploadtypes.UploadConfig{
 		Accept:     []string{"image/*"},
 		MaxEntries: 2,
 	}
@@ -208,7 +208,7 @@ func TestParseMultipartUpload_NoFiles(t *testing.T) {
 	req := httptest.NewRequest("POST", "/upload", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	config := livetemplate.UploadConfig{
+	config := uploadtypes.UploadConfig{
 		Accept:     []string{"image/*"},
 		MaxEntries: 1,
 	}
@@ -236,7 +236,7 @@ func TestParseMultipartUpload_MultipleFiles(t *testing.T) {
 	req := httptest.NewRequest("POST", "/upload", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	config := livetemplate.UploadConfig{
+	config := uploadtypes.UploadConfig{
 		Accept:      []string{".pdf"},
 		MaxFileSize: 1024 * 1024,
 		MaxEntries:  5,

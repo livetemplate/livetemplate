@@ -3,13 +3,13 @@ package upload
 import (
 	"testing"
 
-	"github.com/livetemplate/livetemplate"
+	"github.com/livetemplate/livetemplate/internal/uploadtypes"
 )
 
 func TestRegistry_CreateUpload(t *testing.T) {
 	reg := NewRegistry()
 
-	config := livetemplate.UploadConfig{
+	config := uploadtypes.UploadConfig{
 		Accept:      []string{"image/*"},
 		MaxEntries:  5,
 		MaxFileSize: 1024 * 1024,
@@ -32,20 +32,24 @@ func TestRegistry_GetUpload(t *testing.T) {
 	reg := NewRegistry()
 
 	// Non-existent upload should return nil
-	upload := reg.GetUpload("nonexistent")
-	if upload != nil {
+	nonexistent := reg.GetUpload("nonexistent")
+	if nonexistent != nil {
 		t.Fatal("Expected nil for non-existent upload")
 	}
 
 	// Create and retrieve upload
-	config := livetemplate.UploadConfig{Accept: []string{"image/*"}}
+	config := uploadtypes.UploadConfig{Accept: []string{"image/*"}}
 	if err := reg.CreateUpload("avatar", config); err != nil {
 		t.Fatalf("CreateUpload failed: %v", err)
 	}
 
-	upload = reg.GetUpload("avatar")
-	if upload == nil {
+	uploadInterface := reg.GetUpload("avatar")
+	if uploadInterface == nil {
 		t.Fatal("Expected upload, got nil")
+	}
+	upload, ok := uploadInterface.(*Upload)
+	if !ok {
+		t.Fatal("Expected *Upload type")
 	}
 	if upload.Name != "avatar" {
 		t.Errorf("Expected name 'avatar', got %q", upload.Name)
@@ -55,16 +59,16 @@ func TestRegistry_GetUpload(t *testing.T) {
 func TestUpload_AddEntry(t *testing.T) {
 	upload := &Upload{
 		Name: "avatar",
-		Config: livetemplate.UploadConfig{
+		Config: uploadtypes.UploadConfig{
 			Accept:      []string{"image/*"},
 			MaxEntries:  2,
 			MaxFileSize: 1024 * 1024,
 		},
-		Entries: make(map[string]*livetemplate.UploadEntry),
+		Entries: make(map[string]*uploadtypes.UploadEntry),
 	}
 
 	// Add valid entry
-	entry1 := &livetemplate.UploadEntry{
+	entry1 := &uploadtypes.UploadEntry{
 		ID:         "entry-1",
 		ClientName: "photo.jpg",
 		ClientType: "image/jpeg",
@@ -82,7 +86,7 @@ func TestUpload_AddEntry(t *testing.T) {
 	}
 
 	// Add second entry (at limit)
-	entry2 := &livetemplate.UploadEntry{
+	entry2 := &uploadtypes.UploadEntry{
 		ID:         "entry-2",
 		ClientName: "photo2.jpg",
 		ClientType: "image/jpeg",
@@ -94,7 +98,7 @@ func TestUpload_AddEntry(t *testing.T) {
 	}
 
 	// Add third entry (exceeds limit)
-	entry3 := &livetemplate.UploadEntry{
+	entry3 := &uploadtypes.UploadEntry{
 		ID:         "entry-3",
 		ClientName: "photo3.jpg",
 		ClientType: "image/jpeg",
@@ -117,15 +121,15 @@ func TestUpload_AddEntry(t *testing.T) {
 func TestUpload_GetEntries(t *testing.T) {
 	upload := &Upload{
 		Name: "avatar",
-		Config: livetemplate.UploadConfig{
+		Config: uploadtypes.UploadConfig{
 			Accept: []string{"image/*"},
 		},
-		Entries: make(map[string]*livetemplate.UploadEntry),
+		Entries: make(map[string]*uploadtypes.UploadEntry),
 	}
 
 	// Add some entries
 	for i := 0; i < 3; i++ {
-		entry := &livetemplate.UploadEntry{
+		entry := &uploadtypes.UploadEntry{
 			ID:         string(rune('a' + i)),
 			ClientName: "photo.jpg",
 			ClientType: "image/jpeg",
@@ -143,15 +147,15 @@ func TestUpload_GetEntries(t *testing.T) {
 func TestUpload_GetValidEntries(t *testing.T) {
 	upload := &Upload{
 		Name: "avatar",
-		Config: livetemplate.UploadConfig{
+		Config: uploadtypes.UploadConfig{
 			Accept:     []string{"image/*"},
 			MaxEntries: 2,
 		},
-		Entries: make(map[string]*livetemplate.UploadEntry),
+		Entries: make(map[string]*uploadtypes.UploadEntry),
 	}
 
 	// Add first valid entry
-	validEntry1 := &livetemplate.UploadEntry{
+	validEntry1 := &uploadtypes.UploadEntry{
 		ID:         "valid1",
 		ClientName: "photo.jpg",
 		ClientType: "image/jpeg",
@@ -160,7 +164,7 @@ func TestUpload_GetValidEntries(t *testing.T) {
 	upload.AddEntry(validEntry1)
 
 	// Add second valid entry
-	validEntry2 := &livetemplate.UploadEntry{
+	validEntry2 := &uploadtypes.UploadEntry{
 		ID:         "valid2",
 		ClientName: "photo2.jpg",
 		ClientType: "image/jpeg",
@@ -169,7 +173,7 @@ func TestUpload_GetValidEntries(t *testing.T) {
 	upload.AddEntry(validEntry2)
 
 	// Add third entry (exceeds max entries)
-	invalidEntry := &livetemplate.UploadEntry{
+	invalidEntry := &uploadtypes.UploadEntry{
 		ID:         "invalid",
 		ClientName: "photo3.jpg",
 		ClientType: "image/jpeg",
@@ -193,12 +197,12 @@ func TestUpload_GetValidEntries(t *testing.T) {
 func TestUpload_GetCompletedEntries(t *testing.T) {
 	upload := &Upload{
 		Name:    "avatar",
-		Config:  livetemplate.UploadConfig{Accept: []string{"image/*"}},
-		Entries: make(map[string]*livetemplate.UploadEntry),
+		Config:  uploadtypes.UploadConfig{Accept: []string{"image/*"}},
+		Entries: make(map[string]*uploadtypes.UploadEntry),
 	}
 
 	// Add completed entry
-	completedEntry := &livetemplate.UploadEntry{
+	completedEntry := &uploadtypes.UploadEntry{
 		ID:         "completed",
 		ClientName: "photo.jpg",
 		ClientType: "image/jpeg",
@@ -208,7 +212,7 @@ func TestUpload_GetCompletedEntries(t *testing.T) {
 	upload.AddEntry(completedEntry)
 
 	// Add incomplete entry
-	incompleteEntry := &livetemplate.UploadEntry{
+	incompleteEntry := &uploadtypes.UploadEntry{
 		ID:         "incomplete",
 		ClientName: "photo2.jpg",
 		ClientType: "image/jpeg",
@@ -230,11 +234,11 @@ func TestUpload_GetCompletedEntries(t *testing.T) {
 func TestUpload_UpdateEntry(t *testing.T) {
 	upload := &Upload{
 		Name:    "avatar",
-		Config:  livetemplate.UploadConfig{Accept: []string{"image/*"}},
-		Entries: make(map[string]*livetemplate.UploadEntry),
+		Config:  uploadtypes.UploadConfig{Accept: []string{"image/*"}},
+		Entries: make(map[string]*uploadtypes.UploadEntry),
 	}
 
-	entry := &livetemplate.UploadEntry{
+	entry := &uploadtypes.UploadEntry{
 		ID:         "entry-1",
 		ClientName: "photo.jpg",
 		ClientType: "image/jpeg",
@@ -243,7 +247,7 @@ func TestUpload_UpdateEntry(t *testing.T) {
 	upload.AddEntry(entry)
 
 	// Update progress
-	err := upload.UpdateEntry("entry-1", func(e *livetemplate.UploadEntry) {
+	err := upload.UpdateEntry("entry-1", func(e *uploadtypes.UploadEntry) {
 		e.Progress = 50
 	})
 	if err != nil {
@@ -256,7 +260,7 @@ func TestUpload_UpdateEntry(t *testing.T) {
 	}
 
 	// Update non-existent entry should fail
-	err = upload.UpdateEntry("nonexistent", func(e *livetemplate.UploadEntry) {})
+	err = upload.UpdateEntry("nonexistent", func(e *uploadtypes.UploadEntry) {})
 	if err == nil {
 		t.Fatal("Expected error for non-existent entry")
 	}
@@ -265,11 +269,11 @@ func TestUpload_UpdateEntry(t *testing.T) {
 func TestUpload_RemoveEntry(t *testing.T) {
 	upload := &Upload{
 		Name:    "avatar",
-		Config:  livetemplate.UploadConfig{Accept: []string{"image/*"}},
-		Entries: make(map[string]*livetemplate.UploadEntry),
+		Config:  uploadtypes.UploadConfig{Accept: []string{"image/*"}},
+		Entries: make(map[string]*uploadtypes.UploadEntry),
 	}
 
-	entry := &livetemplate.UploadEntry{
+	entry := &uploadtypes.UploadEntry{
 		ID:         "entry-1",
 		ClientName: "photo.jpg",
 		ClientType: "image/jpeg",
@@ -288,8 +292,8 @@ func TestUpload_RemoveEntry(t *testing.T) {
 func TestUpload_HasError(t *testing.T) {
 	upload := &Upload{
 		Name:    "avatar",
-		Config:  livetemplate.UploadConfig{Accept: []string{"image/*"}},
-		Entries: make(map[string]*livetemplate.UploadEntry),
+		Config:  uploadtypes.UploadConfig{Accept: []string{"image/*"}},
+		Entries: make(map[string]*uploadtypes.UploadEntry),
 	}
 
 	// No errors initially
@@ -298,7 +302,7 @@ func TestUpload_HasError(t *testing.T) {
 	}
 
 	// Add entry with error
-	entry := &livetemplate.UploadEntry{
+	entry := &uploadtypes.UploadEntry{
 		ID:         "entry-1",
 		ClientName: "photo.jpg",
 		ClientType: "image/jpeg",

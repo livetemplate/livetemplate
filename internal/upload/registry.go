@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/livetemplate/livetemplate"
+	"github.com/livetemplate/livetemplate/internal/uploadtypes"
 )
 
 // Registry tracks active uploads for a single connection.
@@ -18,8 +18,8 @@ type Registry struct {
 // Upload tracks entries for a specific upload field.
 type Upload struct {
 	Name    string                         // Field name (e.g., "avatar")
-	Config  livetemplate.UploadConfig      // Upload configuration
-	Entries map[string]*livetemplate.UploadEntry // entry ID → entry
+	Config  uploadtypes.UploadConfig      // Upload configuration
+	Entries map[string]*uploadtypes.UploadEntry // entry ID → entry
 	mu      sync.RWMutex
 }
 
@@ -32,7 +32,7 @@ func NewRegistry() *Registry {
 
 // CreateUpload creates a new upload field with the given configuration.
 // Returns error if upload with this name already exists.
-func (r *Registry) CreateUpload(name string, config livetemplate.UploadConfig) error {
+func (r *Registry) CreateUpload(name string, config uploadtypes.UploadConfig) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -43,7 +43,7 @@ func (r *Registry) CreateUpload(name string, config livetemplate.UploadConfig) e
 	r.uploads[name] = &Upload{
 		Name:    name,
 		Config:  config,
-		Entries: make(map[string]*livetemplate.UploadEntry),
+		Entries: make(map[string]*uploadtypes.UploadEntry),
 	}
 
 	return nil
@@ -51,10 +51,15 @@ func (r *Registry) CreateUpload(name string, config livetemplate.UploadConfig) e
 
 // GetUpload returns the upload for a given name.
 // Returns nil if upload doesn't exist.
-func (r *Registry) GetUpload(name string) *Upload {
+// Returns interface{} to satisfy the uploadRegistry interface in main package.
+func (r *Registry) GetUpload(name string) interface{} {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.uploads[name]
+	upload := r.uploads[name]
+	if upload == nil {
+		return nil
+	}
+	return upload
 }
 
 // GetAllUploads returns all uploads.
@@ -79,7 +84,7 @@ func (r *Registry) DeleteUpload(name string) {
 // AddEntry adds an upload entry to the specified upload.
 // Returns error if entry validation fails.
 // Invalid entries are marked but still added for error display purposes.
-func (u *Upload) AddEntry(entry *livetemplate.UploadEntry) error {
+func (u *Upload) AddEntry(entry *uploadtypes.UploadEntry) error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
@@ -108,18 +113,18 @@ func (u *Upload) AddEntry(entry *livetemplate.UploadEntry) error {
 
 // GetEntry returns an entry by ID.
 // Returns nil if entry doesn't exist.
-func (u *Upload) GetEntry(entryID string) *livetemplate.UploadEntry {
+func (u *Upload) GetEntry(entryID string) *uploadtypes.UploadEntry {
 	u.mu.RLock()
 	defer u.mu.RUnlock()
 	return u.Entries[entryID]
 }
 
 // GetEntries returns all entries for this upload.
-func (u *Upload) GetEntries() []*livetemplate.UploadEntry {
+func (u *Upload) GetEntries() []*uploadtypes.UploadEntry {
 	u.mu.RLock()
 	defer u.mu.RUnlock()
 
-	entries := make([]*livetemplate.UploadEntry, 0, len(u.Entries))
+	entries := make([]*uploadtypes.UploadEntry, 0, len(u.Entries))
 	for _, entry := range u.Entries {
 		entries = append(entries, entry)
 	}
@@ -127,11 +132,11 @@ func (u *Upload) GetEntries() []*livetemplate.UploadEntry {
 }
 
 // GetValidEntries returns only valid entries.
-func (u *Upload) GetValidEntries() []*livetemplate.UploadEntry {
+func (u *Upload) GetValidEntries() []*uploadtypes.UploadEntry {
 	u.mu.RLock()
 	defer u.mu.RUnlock()
 
-	entries := make([]*livetemplate.UploadEntry, 0, len(u.Entries))
+	entries := make([]*uploadtypes.UploadEntry, 0, len(u.Entries))
 	for _, entry := range u.Entries {
 		if entry.Valid {
 			entries = append(entries, entry)
@@ -141,11 +146,11 @@ func (u *Upload) GetValidEntries() []*livetemplate.UploadEntry {
 }
 
 // GetCompletedEntries returns only completed valid entries.
-func (u *Upload) GetCompletedEntries() []*livetemplate.UploadEntry {
+func (u *Upload) GetCompletedEntries() []*uploadtypes.UploadEntry {
 	u.mu.RLock()
 	defer u.mu.RUnlock()
 
-	entries := make([]*livetemplate.UploadEntry, 0, len(u.Entries))
+	entries := make([]*uploadtypes.UploadEntry, 0, len(u.Entries))
 	for _, entry := range u.Entries {
 		if entry.Valid && entry.Done {
 			entries = append(entries, entry)
@@ -156,7 +161,7 @@ func (u *Upload) GetCompletedEntries() []*livetemplate.UploadEntry {
 
 // UpdateEntry updates an existing entry.
 // Returns error if entry doesn't exist.
-func (u *Upload) UpdateEntry(entryID string, updateFn func(*livetemplate.UploadEntry)) error {
+func (u *Upload) UpdateEntry(entryID string, updateFn func(*uploadtypes.UploadEntry)) error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
@@ -180,7 +185,7 @@ func (u *Upload) RemoveEntry(entryID string) {
 func (u *Upload) ClearEntries() {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	u.Entries = make(map[string]*livetemplate.UploadEntry)
+	u.Entries = make(map[string]*uploadtypes.UploadEntry)
 }
 
 // HasError returns true if any entry has an error.

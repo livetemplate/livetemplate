@@ -6,7 +6,7 @@ import (
 	"mime/multipart"
 	"net/http"
 
-	"github.com/livetemplate/livetemplate"
+	"github.com/livetemplate/livetemplate/internal/uploadtypes"
 )
 
 const (
@@ -21,13 +21,15 @@ const (
 func ParseMultipartUpload(
 	r *http.Request,
 	uploadName string,
-	config livetemplate.UploadConfig,
+	config uploadtypes.UploadConfig,
 	sessionID string,
 	tempFileManager *TempFileManager,
-) ([]*livetemplate.UploadEntry, error) {
-	// Parse multipart form
-	if err := r.ParseMultipartForm(MaxMemory); err != nil {
-		return nil, fmt.Errorf("failed to parse multipart form: %w", err)
+) ([]*uploadtypes.UploadEntry, error) {
+	// Parse multipart form (if not already parsed)
+	if r.MultipartForm == nil {
+		if err := r.ParseMultipartForm(MaxMemory); err != nil {
+			return nil, fmt.Errorf("failed to parse multipart form: %w", err)
+		}
 	}
 
 	// Get files from the upload field
@@ -41,7 +43,7 @@ func ParseMultipartUpload(
 		return nil, err
 	}
 
-	var entries []*livetemplate.UploadEntry
+	var entries []*uploadtypes.UploadEntry
 
 	// Process each file
 	for _, fileHeader := range files {
@@ -66,15 +68,15 @@ func ParseMultipartUpload(
 func processMultipartFile(
 	fileHeader *multipart.FileHeader,
 	uploadName string,
-	config livetemplate.UploadConfig,
+	config uploadtypes.UploadConfig,
 	sessionID string,
 	tempFileManager *TempFileManager,
-) (*livetemplate.UploadEntry, error) {
+) (*uploadtypes.UploadEntry, error) {
 	// Generate entry ID
 	entryID := GenerateEntryID()
 
 	// Create entry
-	entry := &livetemplate.UploadEntry{
+	entry := &uploadtypes.UploadEntry{
 		ID:         entryID,
 		ClientName: fileHeader.Filename,
 		ClientType: fileHeader.Header.Get("Content-Type"),

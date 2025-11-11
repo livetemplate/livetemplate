@@ -143,7 +143,13 @@ func (t *TemplateContext) HasUploadError(name string) bool {
 	}
 
 	upload := results[0].Interface()
+	if upload == nil {
+		return false
+	}
 	uploadVal := reflect.ValueOf(upload)
+	if !uploadVal.IsValid() || uploadVal.IsNil() {
+		return false
+	}
 
 	hasErrorMethod := uploadVal.MethodByName("HasError")
 	if !hasErrorMethod.IsValid() {
@@ -181,7 +187,13 @@ func (t *TemplateContext) UploadError(name string) string {
 	}
 
 	upload := results[0].Interface()
+	if upload == nil {
+		return ""
+	}
 	uploadVal := reflect.ValueOf(upload)
+	if !uploadVal.IsValid() || uploadVal.IsNil() {
+		return ""
+	}
 
 	getErrorMethod := uploadVal.MethodByName("GetError")
 	if !getErrorMethod.IsValid() {
