@@ -166,8 +166,12 @@ func BenchmarkE2EMultipleSessions(b *testing.B) {
 			buffers := make([]bytes.Buffer, sessionCount)
 			for i := 0; i < sessionCount; i++ {
 				tmpl := New("session")
-				tmpl.Parse(template)
-				tmpl.Execute(&buffers[i], map[string]interface{}{"Count": 0})
+				if _, err := tmpl.Parse(template); err != nil {
+					b.Fatal(err)
+				}
+				if err := tmpl.Execute(&buffers[i], map[string]interface{}{"Count": 0}); err != nil {
+					b.Fatal(err)
+				}
 				templates[i] = tmpl
 			}
 

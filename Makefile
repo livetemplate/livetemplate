@@ -6,17 +6,17 @@ bench:
 
 # Run benchmarks 10 times for statistical confidence
 bench-10x:
-	GOWORK=off go test -bench=. -benchmem -count=10 ./... 2>&1 | grep "^Benchmark" | grep -v "livetemplate.New\|WARN\|INFO\|DEBUG\|ERROR" | tee /tmp/bench-results.txt
+	GOWORK=off go test -bench=. -benchmem -count=10 ./... 2>&1 | grep "^Benchmark" | grep -v -E "(livetemplate\.New|WARN|INFO|DEBUG|ERROR)" | tee /tmp/bench-results.txt
 
 # Save current results as baseline
 bench-save:
-	GOWORK=off go test -bench=. -benchmem ./... 2>&1 | grep "^Benchmark" | grep -v "livetemplate.New\|WARN\|INFO\|DEBUG\|ERROR" > testdata/benchmarks/baseline.txt
+	GOWORK=off go test -bench=. -benchmem ./... 2>&1 | grep "^Benchmark" | grep -v -E "(livetemplate\.New|WARN|INFO|DEBUG|ERROR)" > testdata/benchmarks/baseline.txt
 	@echo "Baseline saved to testdata/benchmarks/baseline.txt"
 
 # Compare current vs baseline using benchstat
 bench-compare:
 	@echo "Running current benchmarks..."
-	@GOWORK=off go test -bench=. -benchmem ./... 2>&1 | grep "^Benchmark" | grep -v "livetemplate.New\|WARN\|INFO\|DEBUG\|ERROR" > /tmp/current-bench.txt
+	@GOWORK=off go test -bench=. -benchmem ./... 2>&1 | grep "^Benchmark" | grep -v -E "(livetemplate\.New|WARN|INFO|DEBUG|ERROR)" > /tmp/current-bench.txt
 	@echo "\nComparing against baseline..."
 	@benchstat testdata/benchmarks/baseline.txt /tmp/current-bench.txt
 
@@ -27,13 +27,13 @@ bench-quick:
 # Profile CPU
 profile-cpu:
 	@mkdir -p profiles
-	GOWORK=off go test -bench=. -benchmem -cpuprofile=profiles/cpu.prof .
+	GOWORK=off go test -bench=. -benchmem -cpuprofile=profiles/cpu.prof ./...
 	@echo "\nAnalyze with: go tool pprof profiles/cpu.prof"
 
 # Profile memory
 profile-mem:
 	@mkdir -p profiles
-	GOWORK=off go test -bench=. -benchmem -memprofile=profiles/mem.prof .
+	GOWORK=off go test -bench=. -benchmem -memprofile=profiles/mem.prof ./...
 	@echo "\nAnalyze with: go tool pprof profiles/mem.prof"
 
 # Profile everything
