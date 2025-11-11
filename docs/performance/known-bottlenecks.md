@@ -180,6 +180,129 @@ Based on profiling data, prioritize:
    - Potential improvement: Algorithmic optimizations
    - Impact: <1% of total allocations
 
+## Optimization Task List
+
+### High Priority Tasks
+
+- [ ] **Implement Template Parse Caching**
+  - Location: `template.go`, Phase 1 (Parse)
+  - Goal: Reduce 18.9 GB allocations in `html.NewTokenizerFragment` and 12.7 GB in text/template functions
+  - Approach: Cache parsed `text/template.Template` and `html/template.Template` objects by template string hash
+  - Expected Impact: 50% reduction in allocations, 30-40% reduction in CPU time (less GC)
+  - Verification: Run `make bench-compare` and `make profile-mem` to confirm reduction
+
+- [ ] **Reduce Template Re-parsing Frequency**
+  - Location: `template.go`, Phase 1 (Parse)
+  - Goal: Eliminate redundant template parsing in benchmarks and production
+  - Approach: Add `isParsed` flag to Template struct, skip parsing if already done
+  - Expected Impact: 15-20% reduction in Parse phase allocations
+  - Verification: Check `BenchmarkParse` results show improved performance
+
+- [ ] **Implement TreeNode Object Pooling**
+  - Location: `internal/build/tree_ops.go`, Phase 2 (Build)
+  - Goal: Reduce 2.4 GB allocations from TreeNode creation (SetDynamic, NewTreeNode, NewTreeNodeWithStatics)
+  - Approach: Use `sync.Pool` for TreeNode objects, reset and reuse instead of allocating new
+  - Expected Impact: 4% reduction in total allocations, 5-10% reduction in Build phase time
+  - Verification: Run `BenchmarkTreeNodeCreation` and `BenchmarkBuildTree` to confirm
+
+- [ ] **Optimize TreeNode Map Allocations**
+  - Location: `internal/build/types.go`, Phase 2 (Build)
+  - Goal: Reduce map allocations in TreeNode.Dynamics and TreeNode.Statics
+  - Approach: Pre-allocate maps with estimated capacity based on template complexity
+  - Expected Impact: 1-2% reduction in allocations
+  - Verification: Profile memory and check `SetDynamic` allocations decrease
+
+### Medium Priority Tasks
+
+- [ ] **Replace MD5 Fingerprinting with xxhash**
+  - Location: `internal/build/fingerprint.go`, Phase 2 (Build)
+  - Goal: Reduce 5.93% CPU time in `calculateFingerprintOld`
+  - Approach: Replace `crypto/md5` with `github.com/cespare/xxhash/v2` for non-cryptographic hashing
+  - Expected Impact: 5-6% CPU reduction in fingerprinting operations
+  - Verification: Run `BenchmarkFingerprint` and verify performance improvement
+
+- [ ] **Implement Fingerprint Caching**
+  - Location: `template.go`, Phase 2 (Build)
+  - Goal: Avoid recalculating fingerprints for unchanged data
+  - Approach: Cache fingerprints keyed by data hash, invalidate on data changes
+  - Expected Impact: 3-5% CPU reduction in update operations
+  - Verification: Run `BenchmarkTemplateExecuteUpdates` with no changes
+
+- [ ] **Evaluate Faster JSON Library**
+  - Location: `internal/send/message.go`, Phase 5 (Send)
+  - Goal: Reduce 6.8 GB allocations in JSON marshaling (11.37% of total)
+  - Approach: Benchmark `encoding/json` vs `github.com/json-iterator/go` vs `github.com/goccy/go-json`
+  - Expected Impact: 10-20% reduction in Send phase allocations and time
+  - Verification: Run `BenchmarkSendMessage` and compare marshal performance
+
+- [ ] **Implement Custom Binary Format (Optional)**
+  - Location: `internal/send/`, Phase 5 (Send)
+  - Goal: Alternative to JSON for internal communication (non-wire format)
+  - Approach: Design compact binary format using `encoding/binary` or Protocol Buffers
+  - Expected Impact: 30-50% reduction in Send phase allocations (internal only)
+  - Verification: Add `BenchmarkSendBinary` and compare with JSON
+
+### Low Priority Tasks
+
+- [ ] **Optimize Diff Algorithm for Deep Trees**
+  - Location: `internal/diff/tree_compare.go`, Phase 3 (Diff)
+  - Goal: Reduce allocations in deeply nested tree comparisons
+  - Approach: Use iterative traversal instead of recursive, reuse comparison buffers
+  - Expected Impact: <1% reduction in total allocations
+  - Verification: Run `BenchmarkCompareTrees` with deeply nested structures
+
+- [ ] **Reduce Range Match Allocations**
+  - Location: `internal/diff/range_ops.go`, Phase 3 (Diff)
+  - Goal: Optimize `FindRangeConstructMatches` allocations (149 MB)
+  - Approach: Pre-allocate match slices, use object pooling for match results
+  - Expected Impact: <1% reduction in total allocations
+  - Verification: Run `BenchmarkRangeOperations` and check Diff phase performance
+
+- [ ] **Reduce HTML Parsing Fallback Frequency**
+  - Location: `internal/parse/parser.go`, Phase 1 (Parse)
+  - Goal: Decrease 11.3 GB allocations in `html.NewTokenizerFragment` fallback
+  - Approach: Improve template construct coverage to avoid fallback to HTML parsing
+  - Expected Impact: 10-15% reduction if fallback usage decreases significantly
+  - Verification: Add logging to track fallback frequency, aim for <5% of templates
+
+### Monitoring & Validation Tasks
+
+- [ ] **Establish Performance Regression Tests**
+  - Location: `.github/workflows/benchmark.yml`
+  - Goal: Automatically detect performance regressions in CI
+  - Approach: Already implemented, but add stricter thresholds (>5% warning, >10% failure)
+  - Expected Impact: Prevents performance degradation over time
+  - Verification: PR builds show benchmark comparison results
+
+- [ ] **Add Allocation Budget Tests**
+  - Location: `*_test.go` files
+  - Goal: Set hard limits on allocations per operation
+  - Approach: Use `testing.AllocsPerRun()` to enforce allocation budgets
+  - Expected Impact: Catches allocation regressions at test time
+  - Verification: Tests fail if allocations exceed defined budgets
+
+- [ ] **Profile Production Workloads**
+  - Location: Production environment
+  - Goal: Validate that benchmark bottlenecks match real-world usage
+  - Approach: Enable pprof HTTP endpoints, collect profiles from live traffic
+  - Expected Impact: Discover real-world bottlenecks not visible in benchmarks
+  - Verification: Compare production profiles with benchmark profiles
+
+## Task Tracking
+
+Update this section as tasks are completed:
+
+**Last Updated:** 2025-11-10
+**Completed Tasks:** 0/14
+**In Progress:** 0
+**Blocked:** 0
+
+When completing a task:
+1. Mark checkbox with `[x]`
+2. Add completion date and PR link
+3. Update benchmarks and profiles
+4. Document actual vs expected impact
+
 ## Phase-Specific Analysis
 
 ### Phase 1: Parse
