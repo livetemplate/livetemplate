@@ -597,22 +597,20 @@ func New(name string, opts ...Option) *Template {
 		// Use TemplateBaseDir from config if provided, otherwise fall back to runtime.Caller
 		files, err := discovery.DiscoverTemplateFiles(config.TemplateBaseDir, config.IgnoreTemplateDirs)
 		if err != nil {
-			log.Printf("Warning: template auto-discovery failed: %v", err)
-		} else if len(files) == 0 {
-			if config.DevMode {
-				log.Printf("Warning: no template files found in auto-discovery (baseDir=%q)", config.TemplateBaseDir)
-			}
-		} else {
-			if config.DevMode {
-				log.Printf("Auto-discovered %d template file(s)", len(files))
-			}
-			if _, err := tmpl.ParseFiles(files...); err != nil {
-				log.Printf("Warning: failed to parse template files: %v", err)
-			}
+			panic(fmt.Sprintf("livetemplate.New(%q): template auto-discovery failed: %v\n\nBase directory searched: %q\nEnsure template files (.tmpl, .html, .gotmpl) exist in your project directory.", name, err, config.TemplateBaseDir))
+		}
+		if len(files) == 0 {
+			panic(fmt.Sprintf("livetemplate.New(%q): no template files found\n\nBase directory searched: %q\nIgnored directories: %v\nLooking for extensions: .tmpl, .html, .gotmpl\n\nEnsure template files exist or use WithParseFiles() to specify explicit paths.", name, config.TemplateBaseDir, config.IgnoreTemplateDirs))
+		}
+		if config.DevMode {
+			log.Printf("Auto-discovered %d template file(s)", len(files))
+		}
+		if _, err := tmpl.ParseFiles(files...); err != nil {
+			panic(fmt.Sprintf("livetemplate.New(%q): failed to parse discovered template files: %v\n\nFiles discovered: %v\nEnsure templates contain valid Go template syntax.", name, err, files))
 		}
 	} else {
 		if _, err := tmpl.ParseFiles(config.TemplateFiles...); err != nil {
-			log.Printf("Warning: failed to parse template files: %v", err)
+			panic(fmt.Sprintf("livetemplate.New(%q): failed to parse template files: %v\n\nFiles specified: %v\nEnsure template files exist and contain valid Go template syntax.", name, err, config.TemplateFiles))
 		}
 	}
 
@@ -825,10 +823,6 @@ func (t *Template) ParseGlob(pattern string) (*Template, error) {
 //
 // Optional errors parameter provides error context for template via lvt namespace.
 func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]string) error {
-	if t.tmpl == nil {
-		return fmt.Errorf("template not parsed")
-	}
-
 	var errMap map[string]string
 	if len(errors) > 0 {
 		errMap = errors[0]
@@ -881,10 +875,6 @@ func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]
 //
 // Optional errors parameter provides error context for template via lvt namespace.
 func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, errors ...map[string]string) error {
-	if t.tmpl == nil {
-		return fmt.Errorf("template not parsed")
-	}
-
 	var errMap map[string]string
 	if len(errors) > 0 {
 		errMap = errors[0]
@@ -1287,10 +1277,6 @@ func (t *Template) buildTree(data interface{}, errors map[string]string) (*treeN
 // This is the main entry point for Phase 4 (Render).
 // It handles both full renders and update renders internally.
 func (t *Template) renderHTML(data interface{}, errors map[string]string) (string, error) {
-	if t.tmpl == nil {
-		return "", fmt.Errorf("template not parsed")
-	}
-
 	if errors == nil {
 		errors = make(map[string]string)
 	}
