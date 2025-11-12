@@ -2,7 +2,7 @@
 
 **Branch**: `feature/uploads`
 **Worktree**: `.worktrees/feature-uploads`
-**Target Version**: v0.4.0
+**Target Version**: v0.3.1
 **Started**: 2025-11-09
 **Completed**: 2025-11-11
 **Last Updated**: 2025-11-11 (Session 4 - Phases 1-9 Complete)

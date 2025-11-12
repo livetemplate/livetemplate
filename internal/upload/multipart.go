@@ -112,7 +112,6 @@ func processMultipartFile(
 		tempFileManager.RemoveFile(entryID)
 		return nil, fmt.Errorf("failed to open temp file for writing: %w", err)
 	}
-	defer dst.Close()
 
 	// Stream file to disk with size limit
 	maxSize := config.MaxFileSize
@@ -123,16 +122,24 @@ func processMultipartFile(
 	limitedReader := io.LimitReader(src, maxSize+1) // +1 to detect oversized files
 	written, err := io.Copy(dst, limitedReader)
 	if err != nil {
+		dst.Close() // Best effort close on error
 		tempFileManager.RemoveFile(entryID)
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
 
 	// Check if file exceeded limit
 	if written > maxSize {
+		dst.Close() // Best effort close on error
 		tempFileManager.RemoveFile(entryID)
 		entry.Valid = false
 		entry.Error = fmt.Sprintf("file size %d bytes exceeds maximum %d bytes", written, maxSize)
 		return entry, nil
+	}
+
+	// Close file and check for errors (buffered writes may fail here)
+	if err := dst.Close(); err != nil {
+		tempFileManager.RemoveFile(entryID)
+		return nil, fmt.Errorf("failed to close temp file: %w", err)
 	}
 
 	// Mark as valid and done

@@ -32,9 +32,9 @@ sequenceDiagram
 
 This works because LiveTemplate uses **tree-based diffing** - a data model that makes updates predictable and efficient. When your state changes, LiveTemplate calculates exactly what changed and sends only that data (50-90% less than full HTML). The same predictable model that enables efficient updates also powers the `lvt` code generator, which can create complete CRUD applications that are reactive by default.
 
-## File Uploads (v0.4.0)
+## File Uploads (v0.3.1)
 
-LiveTemplate v0.4.0 introduces a Phoenix LiveView-inspired upload system with multiple upload strategies:
+LiveTemplate v0.3.1 introduces a Phoenix LiveView-inspired upload system with multiple upload strategies:
 
 ### Quick Example
 
