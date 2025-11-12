@@ -710,7 +710,7 @@ func TestTemplate_WithAllowedOrigins(t *testing.T) {
 	// Test setting allowed origins
 	t.Run("set allowed origins", func(t *testing.T) {
 		origins := []string{"https://example.com", "https://www.example.com"}
-		tmpl := Must(New("test", WithAllowedOrigins(origins))
+		tmpl := Must(New("test", WithAllowedOrigins(origins)))
 
 		if len(tmpl.config.AllowedOrigins) != 2 {
 			t.Errorf("Expected 2 AllowedOrigins, got %d", len(tmpl.config.AllowedOrigins))
@@ -725,7 +725,7 @@ func TestTemplate_WithAllowedOrigins(t *testing.T) {
 
 	// Test empty origins list
 	t.Run("empty allowed origins", func(t *testing.T) {
-		tmpl := Must(New("test", WithAllowedOrigins([]string{}))
+		tmpl := Must(New("test", WithAllowedOrigins([]string{})))
 		if len(tmpl.config.AllowedOrigins) != 0 {
 			t.Errorf("Expected empty AllowedOrigins, got %d", len(tmpl.config.AllowedOrigins))
 		}
@@ -733,7 +733,7 @@ func TestTemplate_WithAllowedOrigins(t *testing.T) {
 
 	// Test single origin
 	t.Run("single allowed origin", func(t *testing.T) {
-		tmpl := Must(New("test", WithAllowedOrigins([]string{"https://example.com"}))
+		tmpl := Must(New("test", WithAllowedOrigins([]string{"https://example.com"})))
 		if len(tmpl.config.AllowedOrigins) != 1 {
 			t.Errorf("Expected 1 AllowedOrigin, got %d", len(tmpl.config.AllowedOrigins))
 		}
@@ -758,7 +758,7 @@ func TestTemplate_WithSessionStore(t *testing.T) {
 	// Test custom session store
 	t.Run("custom session store", func(t *testing.T) {
 		customStore := NewMemorySessionStore()
-		tmpl := Must(New("test", WithSessionStore(customStore))
+		tmpl := Must(New("test", WithSessionStore(customStore)))
 		if tmpl.config.SessionStore != customStore {
 			t.Error("Expected custom SessionStore to be set")
 		}
@@ -1259,7 +1259,7 @@ func TestDynamicModalStructure(t *testing.T) {
 
 	// Render 1: Initial render with NO modal
 	t.Run("1_Initial_NoModal", func(t *testing.T) {
-		tpl, err := New("dynamic-modal-test").Parse(tmpl)
+		tpl, err := Must(New("dynamic-modal-test")).Parse(tmpl)
 		if err != nil {
 			t.Fatalf("Failed to parse template: %v", err)
 		}
@@ -1283,7 +1283,7 @@ func TestDynamicModalStructure(t *testing.T) {
 
 	// Render 2: Show modal (first appearance - should include statics)
 	t.Run("2_FirstShow_WithStatics", func(t *testing.T) {
-		tpl, err := New("dynamic-modal-show1").Parse(tmpl)
+		tpl, err := Must(New("dynamic-modal-show1")).Parse(tmpl)
 		if err != nil {
 			t.Fatalf("Failed to parse template: %v", err)
 		}
@@ -1350,7 +1350,7 @@ func TestDynamicModalStructure(t *testing.T) {
 
 	// Render 3: Hide modal
 	t.Run("3_Hide", func(t *testing.T) {
-		tpl, err := New("dynamic-modal-hide").Parse(tmpl)
+		tpl, err := Must(New("dynamic-modal-hide")).Parse(tmpl)
 		if err != nil {
 			t.Fatalf("Failed to parse template: %v", err)
 		}
@@ -1374,7 +1374,7 @@ func TestDynamicModalStructure(t *testing.T) {
 
 	// Render 4: Show modal AGAIN (CRITICAL TEST - should NOT include statics)
 	t.Run("4_SecondShow_WithoutStatics", func(t *testing.T) {
-		tpl, err := New("dynamic-modal-show2").Parse(tmpl)
+		tpl, err := Must(New("dynamic-modal-show2")).Parse(tmpl)
 		if err != nil {
 			t.Fatalf("Failed to parse template: %v", err)
 		}
@@ -1465,7 +1465,7 @@ func TestConditionalBranchSwitch(t *testing.T) {
 
 	// Initial: Show A
 	t.Run("1_Initial_ShowA", func(t *testing.T) {
-		tpl, err := New("conditional-branch-test").Parse(tmpl)
+		tpl, err := Must(New("conditional-branch-test")).Parse(tmpl)
 		if err != nil {
 			t.Fatalf("Failed to parse template: %v", err)
 		}
@@ -1488,7 +1488,7 @@ func TestConditionalBranchSwitch(t *testing.T) {
 
 	// Switch to B
 	t.Run("2_Switch_ToB", func(t *testing.T) {
-		tpl, err := New("conditional-switch-b").Parse(tmpl)
+		tpl, err := Must(New("conditional-switch-b")).Parse(tmpl)
 		if err != nil {
 			t.Fatalf("Failed to parse template: %v", err)
 		}
@@ -1511,7 +1511,7 @@ func TestConditionalBranchSwitch(t *testing.T) {
 
 	// Switch back to A (should NOT resend A's statics)
 	t.Run("3_Switch_BackToA", func(t *testing.T) {
-		tpl, err := New("conditional-switch-a").Parse(tmpl)
+		tpl, err := Must(New("conditional-switch-a")).Parse(tmpl)
 		if err != nil {
 			t.Fatalf("Failed to parse template: %v", err)
 		}
@@ -1592,7 +1592,7 @@ func TestNestedDynamicStructures(t *testing.T) {
 
 	// Show outer only
 	t.Run("1_Outer_Only", func(t *testing.T) {
-		tpl, err := New("nested-outer").Parse(tmpl)
+		tpl, err := Must(New("nested-outer")).Parse(tmpl)
 		if err != nil {
 			t.Fatalf("Failed to parse template: %v", err)
 		}
@@ -1615,7 +1615,7 @@ func TestNestedDynamicStructures(t *testing.T) {
 
 	// Show both (inner appears for first time)
 	t.Run("2_Show_Inner_First_Time", func(t *testing.T) {
-		tpl, err := New("nested-both-1").Parse(tmpl)
+		tpl, err := Must(New("nested-both-1")).Parse(tmpl)
 		if err != nil {
 			t.Fatalf("Failed to parse template: %v", err)
 		}
@@ -1638,7 +1638,7 @@ func TestNestedDynamicStructures(t *testing.T) {
 
 	// Toggle inner (hide, show, hide, show)
 	t.Run("3_Toggle_Inner_Multiple", func(t *testing.T) {
-		tpl, err := New("nested-toggle").Parse(tmpl)
+		tpl, err := Must(New("nested-toggle")).Parse(tmpl)
 		if err != nil {
 			t.Fatalf("Failed to parse template: %v", err)
 		}
@@ -1728,11 +1728,12 @@ func checkForRedundantStatics(tree map[string]interface{}, keyword string) bool 
 
 // ----- template_funcmap_test.go -----
 func TestTemplateGenerateTreeWithFuncMap(t *testing.T) {
-	tmpl := Must(New("funcMap").Funcs(template.FuncMap{
+	tmpl := Must(New("funcMap"))
+	tmpl.Funcs(template.FuncMap{
 		"split": func(s, sep string) []string {
 			return strings.Split(s, sep)
 		},
-	}))
+	})
 
 	if _, err := tmpl.Parse(`<ul>{{range split .CSV ","}}<li>{{.}}</li>{{end}}</ul>`); err != nil {
 		t.Fatalf("Parse failed: %v", err)
@@ -1797,7 +1798,7 @@ type testPostsState struct {
 
 // TestRangeDynamicDoesNotAppendContent ensures that range item dynamics keep field boundaries
 func TestRangeDynamicDoesNotAppendContent(t *testing.T) {
-	tmpl := Must(New("posts", WithDevMode(true))
+	tmpl := Must(New("posts", WithDevMode(true)))
 
 	templatePath := filepath.Join("testdata", "golden", "resource_template.tmpl.golden")
 	content, err := os.ReadFile(templatePath)

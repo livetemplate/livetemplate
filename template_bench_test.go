@@ -81,7 +81,7 @@ func BenchmarkTemplateExecuteUpdates(b *testing.B) {
 		<div>{{.Content}}</div>
 	</div>`
 
-	tmplLarge := New("large")
+	tmplLarge := Must(New("large"))
 	tmplLarge.Parse(largeTemplate)
 	largeData := map[string]interface{}{
 		"Title":       "Title",

@@ -1875,7 +1875,7 @@ func TestIDKeyDetection(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create template
-			tmpl, err := New("test").Parse(tt.template)
+			tmpl, err := Must(New("test")).Parse(tt.template)
 			if err != nil {
 				t.Fatalf("Failed to parse template: %v", err)
 			}
@@ -3298,7 +3298,7 @@ func TestPrependOperation(t *testing.T) {
 	}
 
 	// Initial render with existing items
-	tpl, err := New("prepend-test").Parse(tmpl)
+	tpl, err := Must(New("prepend-test")).Parse(tmpl)
 	if err != nil {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
@@ -3380,7 +3380,7 @@ func TestSimplifiedInsertOperation(t *testing.T) {
 	}
 
 	// Initial render
-	tpl, err := New("insert-test").Parse(tmpl)
+	tpl, err := Must(New("insert-test")).Parse(tmpl)
 	if err != nil {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
@@ -3455,7 +3455,7 @@ func TestAppendVsPrepend(t *testing.T) {
 	}
 
 	t.Run("Append", func(t *testing.T) {
-		tpl, err := New("append-test").Parse(tmpl)
+		tpl, err := Must(New("append-test")).Parse(tmpl)
 		if err != nil {
 			t.Fatalf("Failed to parse template: %v", err)
 		}
@@ -3497,7 +3497,7 @@ func TestAppendVsPrepend(t *testing.T) {
 	})
 
 	t.Run("Prepend", func(t *testing.T) {
-		tpl, err := New("prepend-vs-append-test").Parse(tmpl)
+		tpl, err := Must(New("prepend-vs-append-test")).Parse(tmpl)
 		if err != nil {
 			t.Fatalf("Failed to parse template: %v", err)
 		}
@@ -3552,7 +3552,7 @@ func TestAllOperationTypes(t *testing.T) {
 		Items []Item
 	}
 
-	tpl, err := New("all-ops-test").Parse(tmpl)
+	tpl, err := Must(New("all-ops-test")).Parse(tmpl)
 	if err != nil {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
@@ -3593,7 +3593,7 @@ func TestAllOperationTypes(t *testing.T) {
 
 	// Test Remove operation
 	t.Run("Remove", func(t *testing.T) {
-		tpl2, _ := New("remove-op-test").Parse(tmpl)
+		tpl2, _ := Must(New("remove-op-test")).Parse(tmpl)
 
 		initialData := Data{
 			Items: []Item{
