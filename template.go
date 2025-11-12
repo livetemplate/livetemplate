@@ -505,6 +505,20 @@ func WithPubSubBroadcaster(broadcaster pubsub.Broadcaster) Option {
 //
 // See the With* functions for available options.
 
+// Must is a helper that wraps a call to New and panics if the error is non-nil.
+// It is intended for use in variable initializations and startup code where
+// template initialization failures should be fatal, such as:
+//
+//	var t = livetemplate.Must(livetemplate.New("app"))
+//
+// This follows the same pattern as html/template.Must and text/template.Must.
+func Must(t *Template, err error) *Template {
+	if err != nil {
+		panic(err)
+	}
+	return t
+}
+
 // createSecureOriginChecker creates a CheckOrigin function that enforces origin restrictions.
 //
 // Security behavior:
@@ -557,7 +571,7 @@ func createSecureOriginChecker(allowedOrigins []string, devMode bool) func(*http
 	}
 }
 
-func New(name string, opts ...Option) *Template {
+func New(name string, opts ...Option) (*Template, error) {
 	// Default configuration
 	config := Config{
 		Upgrader: &websocket.Upgrader{
@@ -597,24 +611,24 @@ func New(name string, opts ...Option) *Template {
 		// Use TemplateBaseDir from config if provided, otherwise fall back to runtime.Caller
 		files, err := discovery.DiscoverTemplateFiles(config.TemplateBaseDir, config.IgnoreTemplateDirs)
 		if err != nil {
-			panic(fmt.Sprintf("livetemplate.New(%q): template auto-discovery failed: %v\n\nBase directory searched: %q\nEnsure template files (.tmpl, .html, .gotmpl) exist in your project directory.", name, err, config.TemplateBaseDir))
+			return nil, fmt.Errorf("livetemplate.New(%q): template auto-discovery failed: %w\n\nBase directory searched: %q\nEnsure template files (.tmpl, .html, .gotmpl) exist in your project directory.", name, err, config.TemplateBaseDir)
 		}
 		if len(files) == 0 {
-			panic(fmt.Sprintf("livetemplate.New(%q): no template files found\n\nBase directory searched: %q\nIgnored directories: %v\nLooking for extensions: .tmpl, .html, .gotmpl\n\nEnsure template files exist or use WithParseFiles() to specify explicit paths.", name, config.TemplateBaseDir, config.IgnoreTemplateDirs))
+			return nil, fmt.Errorf("livetemplate.New(%q): no template files found\n\nBase directory searched: %q\nIgnored directories: %v\nLooking for extensions: .tmpl, .html, .gotmpl\n\nEnsure template files exist or use WithParseFiles() to specify explicit paths.", name, config.TemplateBaseDir, config.IgnoreTemplateDirs)
 		}
 		if config.DevMode {
 			log.Printf("Auto-discovered %d template file(s)", len(files))
 		}
 		if _, err := tmpl.ParseFiles(files...); err != nil {
-			panic(fmt.Sprintf("livetemplate.New(%q): failed to parse discovered template files: %v\n\nFiles discovered: %v\nEnsure templates contain valid Go template syntax.", name, err, files))
+			return nil, fmt.Errorf("livetemplate.New(%q): failed to parse discovered template files: %w\n\nFiles discovered: %v\nEnsure templates contain valid Go template syntax.", name, err, files)
 		}
 	} else {
 		if _, err := tmpl.ParseFiles(config.TemplateFiles...); err != nil {
-			panic(fmt.Sprintf("livetemplate.New(%q): failed to parse template files: %v\n\nFiles specified: %v\nEnsure template files exist and contain valid Go template syntax.", name, err, config.TemplateFiles))
+			return nil, fmt.Errorf("livetemplate.New(%q): failed to parse template files: %w\n\nFiles specified: %v\nEnsure template files exist and contain valid Go template syntax.", name, err, config.TemplateFiles)
 		}
 	}
 
-	return tmpl
+	return tmpl, nil
 }
 
 // Clone creates a deep copy of the template with fresh state.
@@ -823,6 +837,10 @@ func (t *Template) ParseGlob(pattern string) (*Template, error) {
 //
 // Optional errors parameter provides error context for template via lvt namespace.
 func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]string) error {
+	if t.tmpl == nil {
+		return fmt.Errorf("template not parsed")
+	}
+
 	var errMap map[string]string
 	if len(errors) > 0 {
 		errMap = errors[0]
@@ -875,6 +893,10 @@ func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]
 //
 // Optional errors parameter provides error context for template via lvt namespace.
 func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, errors ...map[string]string) error {
+	if t.tmpl == nil {
+		return fmt.Errorf("template not parsed")
+	}
+
 	var errMap map[string]string
 	if len(errors) > 0 {
 		errMap = errors[0]
@@ -1277,6 +1299,10 @@ func (t *Template) buildTree(data interface{}, errors map[string]string) (*treeN
 // This is the main entry point for Phase 4 (Render).
 // It handles both full renders and update renders internally.
 func (t *Template) renderHTML(data interface{}, errors map[string]string) (string, error) {
+	if t.tmpl == nil {
+		return "", fmt.Errorf("template not parsed")
+	}
+
 	if errors == nil {
 		errors = make(map[string]string)
 	}

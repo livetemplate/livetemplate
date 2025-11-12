@@ -191,7 +191,7 @@ func TestExecuteUpdates_NestedConditionals(t *testing.T) {
 </body>
 </html>`
 
-	tmpl := New("test")
+	tmpl := Must(New("test"))
 	_, err := tmpl.Parse(templateStr)
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
@@ -2744,7 +2744,7 @@ func TestEdgeCases(t *testing.T) {
 func testEmptyToContent(t *testing.T) {
 	templateStr := `{{range .Items}}<div>{{.Text}}</div>{{else}}No items{{end}}`
 
-	tmpl := New("empty-to-content-test")
+	tmpl := Must(New("empty-to-content-test"))
 	_, err := tmpl.Parse(templateStr)
 	if err != nil {
 		t.Fatalf("Failed to parse template: %v", err)
@@ -2792,7 +2792,7 @@ func testEmptyToContent(t *testing.T) {
 func testLargeList(t *testing.T) {
 	templateStr := `{{range .Items}}<div>{{.ID}}</div>{{end}}`
 
-	tmpl := New("large-list-test")
+	tmpl := Must(New("large-list-test"))
 	_, err := tmpl.Parse(templateStr)
 	if err != nil {
 		t.Fatalf("Failed to parse template: %v", err)
@@ -2861,7 +2861,7 @@ func testDeepNesting(t *testing.T) {
 		{{end}}{{end}}{{end}}{{end}}{{end}}
 	{{end}}{{end}}{{end}}{{end}}{{end}}`
 
-	tmpl := New("deep-nesting-test")
+	tmpl := Must(New("deep-nesting-test"))
 	_, err := tmpl.Parse(templateStr)
 	if err != nil {
 		t.Fatalf("Failed to parse template: %v", err)
@@ -2890,7 +2890,7 @@ func testDeepNesting(t *testing.T) {
 func testRapidUpdates(t *testing.T) {
 	templateStr := `<div>{{.Count}}</div>`
 
-	tmpl := New("rapid-updates-test")
+	tmpl := Must(New("rapid-updates-test"))
 	_, err := tmpl.Parse(templateStr)
 	if err != nil {
 		t.Fatalf("Failed to parse template: %v", err)
@@ -3047,7 +3047,7 @@ func TestRegressionCases(t *testing.T) {
 			{{range .items}}<li>{{.}}</li>{{end}}
 			<footer>{{.footer}}</footer>`
 
-		tmpl := New("mixed-template-test")
+		tmpl := Must(New("mixed-template-test"))
 		_, err := tmpl.Parse(templateStr)
 		if err != nil {
 			t.Fatalf("Failed to parse template: %v", err)
@@ -3132,7 +3132,7 @@ func TestRangeTreeGeneration(t *testing.T) {
 </table>
 `
 
-	tmpl := New("test")
+	tmpl := Must(New("test"))
 	_, err := tmpl.Parse(templateStr)
 	if err != nil {
 		t.Fatalf("Failed to parse template: %v", err)

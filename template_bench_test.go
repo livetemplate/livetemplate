@@ -13,7 +13,7 @@ func BenchmarkTemplateExecute(b *testing.B) {
 		data := map[string]interface{}{"Name": "Test"}
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			tmpl := New("test")
+			tmpl := Must(New("test"))
 			tmpl.Parse(`<div>{{.Name}}</div>`)
 			var buf bytes.Buffer
 			err := tmpl.Execute(&buf, data)
@@ -24,7 +24,7 @@ func BenchmarkTemplateExecute(b *testing.B) {
 	})
 
 	b.Run("subsequent-render", func(b *testing.B) {
-		tmpl := New("test")
+		tmpl := Must(New("test"))
 		tmpl.Parse(`<div>{{.Name}}</div>`)
 		data := map[string]interface{}{"Name": "Test"}
 		var buf bytes.Buffer
@@ -43,7 +43,7 @@ func BenchmarkTemplateExecute(b *testing.B) {
 }
 
 func BenchmarkTemplateExecuteUpdates(b *testing.B) {
-	tmpl := New("test")
+	tmpl := Must(New("test"))
 	tmpl.Parse(`<div>{{.Name}}</div>`)
 
 	initialData := map[string]interface{}{"Name": "Initial"}
@@ -150,7 +150,7 @@ func BenchmarkTemplateComplexity(b *testing.B) {
 
 	for _, tt := range tests {
 		b.Run(tt.name, func(b *testing.B) {
-			tmpl := New("test")
+			tmpl := Must(New("test"))
 			_, err := tmpl.Parse(tt.template)
 			if err != nil {
 				b.Fatal(err)
@@ -173,7 +173,7 @@ func BenchmarkTemplateComplexity(b *testing.B) {
 // Concurrent operations
 
 func BenchmarkTemplateConcurrent(b *testing.B) {
-	tmpl := New("test")
+	tmpl := Must(New("test"))
 	_, err := tmpl.Parse(`<div>{{.Name}}</div>`)
 	if err != nil {
 		b.Fatal(err)

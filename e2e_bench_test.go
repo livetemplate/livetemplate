@@ -24,7 +24,7 @@ func simulateUserJourney(tmpl *Template, activities []Activity) error {
 }
 
 func BenchmarkE2EUserJourney(b *testing.B) {
-	tmpl := New("counter")
+	tmpl := Must(New("counter"))
 	_, err := tmpl.Parse(`<div><button>{{.Count}}</button></div>`)
 	if err != nil {
 		b.Fatal(err)
@@ -52,7 +52,7 @@ func BenchmarkE2EUserJourney(b *testing.B) {
 }
 
 func BenchmarkE2ETodoApp(b *testing.B) {
-	tmpl := New("todos")
+	tmpl := Must(New("todos"))
 	_, err := tmpl.Parse(`<ul>{{range .Items}}<li>{{.Text}}</li>{{end}}</ul>`)
 	if err != nil {
 		b.Fatal(err)
@@ -96,7 +96,7 @@ func BenchmarkE2ETodoApp(b *testing.B) {
 }
 
 func BenchmarkE2ERangeOperations(b *testing.B) {
-	tmpl := New("list")
+	tmpl := Must(New("list"))
 	_, err := tmpl.Parse(`<ul>{{range .Items}}<li>{{.}}</li>{{end}}</ul>`)
 	if err != nil {
 		b.Fatal(err)
@@ -165,7 +165,7 @@ func BenchmarkE2EMultipleSessions(b *testing.B) {
 			templates := make([]*Template, sessionCount)
 			buffers := make([]bytes.Buffer, sessionCount)
 			for i := 0; i < sessionCount; i++ {
-				tmpl := New("session")
+				tmpl := Must(New("session"))
 				if _, err := tmpl.Parse(template); err != nil {
 					b.Fatal(err)
 				}

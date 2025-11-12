@@ -20,7 +20,7 @@ func (s *BroadcastState) Change(ctx *ActionContext) error {
 
 // TestLiveHandler_Broadcast tests broadcasting to all connections
 func TestLiveHandler_Broadcast(t *testing.T) {
-	tmpl := New("broadcast-test")
+	tmpl := Must(New("broadcast-test"))
 	if _, err := tmpl.Parse("<p>Value: {{.Value}}</p>"); err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestLiveHandler_Broadcast(t *testing.T) {
 
 // TestLiveHandler_BroadcastToUsers tests broadcasting to specific users
 func TestLiveHandler_BroadcastToUsers(t *testing.T) {
-	tmpl := New("broadcast-users-test")
+	tmpl := Must(New("broadcast-users-test"))
 	if _, err := tmpl.Parse("<p>Value: {{.Value}}</p>"); err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestLiveHandler_BroadcastToUsers(t *testing.T) {
 
 // TestLiveHandler_BroadcastToGroup tests broadcasting to a specific session group
 func TestLiveHandler_BroadcastToGroup(t *testing.T) {
-	tmpl := New("broadcast-group-test")
+	tmpl := Must(New("broadcast-group-test"))
 	if _, err := tmpl.Parse("<p>Value: {{.Value}}</p>"); err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestLiveHandler_BroadcastToGroup(t *testing.T) {
 
 // TestLiveHandler_BroadcastNoConnections tests broadcasting when no connections exist
 func TestLiveHandler_BroadcastNoConnections(t *testing.T) {
-	tmpl := New("broadcast-empty-test")
+	tmpl := Must(New("broadcast-empty-test"))
 	if _, err := tmpl.Parse("<p>Value: {{.Value}}</p>"); err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestLiveHandler_BroadcastNoConnections(t *testing.T) {
 
 // TestLiveHandler_BroadcastToUsersEmpty tests broadcasting to empty user list
 func TestLiveHandler_BroadcastToUsersEmpty(t *testing.T) {
-	tmpl := New("broadcast-users-empty-test")
+	tmpl := Must(New("broadcast-users-empty-test"))
 	if _, err := tmpl.Parse("<p>Value: {{.Value}}</p>"); err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestLiveHandler_BroadcastToUsersEmpty(t *testing.T) {
 
 // TestLiveHandler_BroadcastToGroupEmpty tests broadcasting to empty group ID
 func TestLiveHandler_BroadcastToGroupEmpty(t *testing.T) {
-	tmpl := New("broadcast-group-empty-test")
+	tmpl := Must(New("broadcast-group-empty-test"))
 	if _, err := tmpl.Parse("<p>Value: {{.Value}}</p>"); err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestLiveHandler_BroadcastToGroupEmpty(t *testing.T) {
 
 // TestLiveHandler_BroadcastConcurrent tests concurrent broadcasting
 func TestLiveHandler_BroadcastConcurrent(t *testing.T) {
-	tmpl := New("broadcast-concurrent-test")
+	tmpl := Must(New("broadcast-concurrent-test"))
 	if _, err := tmpl.Parse("<p>Value: {{.Value}}</p>"); err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestLiveHandler_BroadcastConcurrent(t *testing.T) {
 
 // TestLiveHandler_BroadcastToUsersConcurrent tests concurrent user broadcasts
 func TestLiveHandler_BroadcastToUsersConcurrent(t *testing.T) {
-	tmpl := New("broadcast-users-concurrent-test")
+	tmpl := Must(New("broadcast-users-concurrent-test"))
 	if _, err := tmpl.Parse("<p>Value: {{.Value}}</p>"); err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
@@ -268,7 +268,7 @@ func createMockConnection(t *testing.T, userID, groupID string, tmpl *Template) 
 
 // TestLiveHandler_BroadcastMultipleGroups tests broadcasting to multiple users across groups
 func TestLiveHandler_BroadcastMultipleGroups(t *testing.T) {
-	tmpl := New("broadcast-multi-test")
+	tmpl := Must(New("broadcast-multi-test"))
 	if _, err := tmpl.Parse("<p>Value: {{.Value}}</p>"); err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
@@ -307,7 +307,7 @@ func TestLiveHandler_BroadcastMultipleGroups(t *testing.T) {
 
 // TestLiveHandler_BroadcastAfterDisconnect tests broadcasting after connection disconnect
 func TestLiveHandler_BroadcastAfterDisconnect(t *testing.T) {
-	tmpl := New("broadcast-disconnect-test")
+	tmpl := Must(New("broadcast-disconnect-test"))
 	if _, err := tmpl.Parse("<p>Value: {{.Value}}</p>"); err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}

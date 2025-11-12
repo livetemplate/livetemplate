@@ -56,7 +56,7 @@ func TestTemplate_New(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tmpl := New(tt.template)
+			tmpl := Must(New(tt.template))
 			if (tmpl == nil) != tt.wantErr {
 				t.Errorf("New() returned nil = %v, wantErr %v", tmpl == nil, tt.wantErr)
 			}
@@ -114,7 +114,7 @@ func TestTemplate_Parse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tmpl := New("test")
+			tmpl := Must(New("test"))
 			result, err := tmpl.Parse(tt.templateText)
 
 			if (err != nil) != tt.wantErr {
@@ -159,7 +159,7 @@ func TestTemplate_ParseFiles(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tmpl := New("test")
+			tmpl := Must(New("test"))
 			result, err := tmpl.ParseFiles(tt.filenames...)
 
 			if (err != nil) != tt.wantErr {
@@ -238,7 +238,7 @@ func TestTemplate_Execute(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tmpl := New("test")
+			tmpl := Must(New("test"))
 			_, err := tmpl.Parse(tt.templateText)
 			if err != nil {
 				t.Fatalf("Parse() failed: %v", err)
@@ -334,7 +334,7 @@ func TestTemplate_ExecuteUpdates(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tmpl := New("test")
+			tmpl := Must(New("test"))
 			_, err := tmpl.Parse(tt.templateText)
 			if err != nil {
 				t.Fatalf("Parse() failed: %v", err)
@@ -443,7 +443,7 @@ func TestTemplate_CompileTimeTreeGeneration(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tmpl := New("test")
+			tmpl := Must(New("test"))
 			_, err := tmpl.Parse(tt.templateText)
 			if err != nil {
 				t.Fatalf("Parse() failed: %v", err)
@@ -525,7 +525,7 @@ func TestTemplate_RuntimeHydrationAndDiffing(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tmpl := New("test")
+			tmpl := Must(New("test"))
 			_, err := tmpl.Parse(tt.templateText)
 			if err != nil {
 				t.Fatalf("Parse() failed: %v", err)
@@ -595,7 +595,7 @@ func TestTemplate_HtmlTemplateCompatibility(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Test that our Template behaves similarly to html/template for basic operations
-			tmpl := New("test")
+			tmpl := Must(New("test"))
 			_, err := tmpl.Parse(tt.templateText)
 			if err != nil {
 				t.Fatalf("Parse() failed: %v", err)
@@ -619,7 +619,7 @@ func TestTemplate_HtmlTemplateCompatibility(t *testing.T) {
 
 // Benchmark tests for performance characteristics
 func BenchmarkTemplate_Execute(b *testing.B) {
-	tmpl := New("benchmark")
+	tmpl := Must(New("benchmark"))
 	if _, err := tmpl.Parse("<p>Hello {{.Name}}!</p>"); err != nil {
 		b.Fatalf("Parse failed: %v", err)
 	}
@@ -635,7 +635,7 @@ func BenchmarkTemplate_Execute(b *testing.B) {
 }
 
 func BenchmarkTemplate_ExecuteUpdates(b *testing.B) {
-	tmpl := New("benchmark")
+	tmpl := Must(New("benchmark"))
 	if _, err := tmpl.Parse("<p>Hello {{.Name}}!</p>"); err != nil {
 		b.Fatalf("Parse failed: %v", err)
 	}
@@ -661,7 +661,7 @@ func BenchmarkTemplate_ExecuteUpdates(b *testing.B) {
 func TestTemplate_WithAuthenticator(t *testing.T) {
 	// Test default authenticator
 	t.Run("default anonymous authenticator", func(t *testing.T) {
-		tmpl := New("test")
+		tmpl := Must(New("test"))
 		if tmpl.config.Authenticator == nil {
 			t.Error("Expected default Authenticator to be set, got nil")
 		}
@@ -676,7 +676,7 @@ func TestTemplate_WithAuthenticator(t *testing.T) {
 			return username == "test" && password == "pass", nil
 		})
 
-		tmpl := New("test", WithAuthenticator(customAuth))
+		tmpl := Must(New("test", WithAuthenticator(customAuth)))
 		if tmpl.config.Authenticator != customAuth {
 			t.Error("Expected custom Authenticator to be set")
 		}
@@ -691,7 +691,7 @@ func TestTemplate_WithAuthenticator(t *testing.T) {
 			return false, nil
 		})
 
-		tmpl := New("test", WithAuthenticator(auth1), WithAuthenticator(auth2))
+		tmpl := Must(New("test", WithAuthenticator(auth1), WithAuthenticator(auth2)))
 		if tmpl.config.Authenticator != auth2 {
 			t.Error("Expected second Authenticator to override the first")
 		}
@@ -701,7 +701,7 @@ func TestTemplate_WithAuthenticator(t *testing.T) {
 func TestTemplate_WithAllowedOrigins(t *testing.T) {
 	// Test default (no origins set)
 	t.Run("default no allowed origins", func(t *testing.T) {
-		tmpl := New("test")
+		tmpl := Must(New("test"))
 		if len(tmpl.config.AllowedOrigins) != 0 {
 			t.Errorf("Expected no AllowedOrigins by default, got %d", len(tmpl.config.AllowedOrigins))
 		}
@@ -710,7 +710,7 @@ func TestTemplate_WithAllowedOrigins(t *testing.T) {
 	// Test setting allowed origins
 	t.Run("set allowed origins", func(t *testing.T) {
 		origins := []string{"https://example.com", "https://www.example.com"}
-		tmpl := New("test", WithAllowedOrigins(origins))
+		tmpl := Must(New("test", WithAllowedOrigins(origins))
 
 		if len(tmpl.config.AllowedOrigins) != 2 {
 			t.Errorf("Expected 2 AllowedOrigins, got %d", len(tmpl.config.AllowedOrigins))
@@ -725,7 +725,7 @@ func TestTemplate_WithAllowedOrigins(t *testing.T) {
 
 	// Test empty origins list
 	t.Run("empty allowed origins", func(t *testing.T) {
-		tmpl := New("test", WithAllowedOrigins([]string{}))
+		tmpl := Must(New("test", WithAllowedOrigins([]string{}))
 		if len(tmpl.config.AllowedOrigins) != 0 {
 			t.Errorf("Expected empty AllowedOrigins, got %d", len(tmpl.config.AllowedOrigins))
 		}
@@ -733,7 +733,7 @@ func TestTemplate_WithAllowedOrigins(t *testing.T) {
 
 	// Test single origin
 	t.Run("single allowed origin", func(t *testing.T) {
-		tmpl := New("test", WithAllowedOrigins([]string{"https://example.com"}))
+		tmpl := Must(New("test", WithAllowedOrigins([]string{"https://example.com"}))
 		if len(tmpl.config.AllowedOrigins) != 1 {
 			t.Errorf("Expected 1 AllowedOrigin, got %d", len(tmpl.config.AllowedOrigins))
 		}
@@ -746,7 +746,7 @@ func TestTemplate_WithAllowedOrigins(t *testing.T) {
 func TestTemplate_WithSessionStore(t *testing.T) {
 	// Test default session store
 	t.Run("default session store", func(t *testing.T) {
-		tmpl := New("test")
+		tmpl := Must(New("test"))
 		if tmpl.config.SessionStore == nil {
 			t.Error("Expected default SessionStore to be set, got nil")
 		}
@@ -758,7 +758,7 @@ func TestTemplate_WithSessionStore(t *testing.T) {
 	// Test custom session store
 	t.Run("custom session store", func(t *testing.T) {
 		customStore := NewMemorySessionStore()
-		tmpl := New("test", WithSessionStore(customStore))
+		tmpl := Must(New("test", WithSessionStore(customStore))
 		if tmpl.config.SessionStore != customStore {
 			t.Error("Expected custom SessionStore to be set")
 		}
@@ -774,13 +774,13 @@ func TestTemplate_CombinedOptions(t *testing.T) {
 		origins := []string{"https://example.com"}
 		store := NewMemorySessionStore()
 
-		tmpl := New("test",
+		tmpl := Must(New("test",
 			WithAuthenticator(auth),
 			WithAllowedOrigins(origins),
 			WithSessionStore(store),
 			WithDevMode(true),
 			WithWebSocketDisabled(),
-		)
+		))
 
 		if tmpl.config.Authenticator != auth {
 			t.Error("Expected custom Authenticator")
@@ -1728,11 +1728,11 @@ func checkForRedundantStatics(tree map[string]interface{}, keyword string) bool 
 
 // ----- template_funcmap_test.go -----
 func TestTemplateGenerateTreeWithFuncMap(t *testing.T) {
-	tmpl := New("funcMap").Funcs(template.FuncMap{
+	tmpl := Must(New("funcMap").Funcs(template.FuncMap{
 		"split": func(s, sep string) []string {
 			return strings.Split(s, sep)
 		},
-	})
+	}))
 
 	if _, err := tmpl.Parse(`<ul>{{range split .CSV ","}}<li>{{.}}</li>{{end}}</ul>`); err != nil {
 		t.Fatalf("Parse failed: %v", err)
@@ -1797,7 +1797,7 @@ type testPostsState struct {
 
 // TestRangeDynamicDoesNotAppendContent ensures that range item dynamics keep field boundaries
 func TestRangeDynamicDoesNotAppendContent(t *testing.T) {
-	tmpl := New("posts", WithDevMode(true))
+	tmpl := Must(New("posts", WithDevMode(true))
 
 	templatePath := filepath.Join("testdata", "golden", "resource_template.tmpl.golden")
 	content, err := os.ReadFile(templatePath)
@@ -1879,7 +1879,7 @@ func TestRangeDynamicDoesNotAppendContent(t *testing.T) {
 
 // ----- template_fallback_block_test.go -----
 func TestTemplateGenerateInitialTreeFallsBackForBlockWithDynamicTemplate(t *testing.T) {
-	tmpl := New("block-dynamic-template")
+	tmpl := Must(New("block-dynamic-template"))
 
 	staticTemplateStr := `{{define "layout"}}<main>{{block "region" .}}{{template "content" .}}{{end}}</main>{{end}}{{define "content"}}<p>{{.Message}}</p>{{end}}{{template "layout" .}}`
 	if _, err := tmpl.Parse(staticTemplateStr); err != nil {
@@ -1925,7 +1925,7 @@ func TestTemplateGenerateInitialTreeFallsBackForBlockWithDynamicTemplate(t *test
 
 // ----- template_fallback_channel_test.go -----
 func TestTemplateGenerateInitialTreeFallsBackForChannelRange(t *testing.T) {
-	tmpl := New("channel-range")
+	tmpl := Must(New("channel-range"))
 	if _, err := tmpl.Parse(`<ul>{{range .Events}}<li>{{.}}</li>{{end}}</ul>`); err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
@@ -1966,7 +1966,7 @@ func TestTemplateGenerateInitialTreeFallsBackForChannelRange(t *testing.T) {
 }
 
 func TestTemplateGenerateInitialTreeFallsBackForChannelRangeWithDecls(t *testing.T) {
-	tmpl := New("channel-range-with-vars")
+	tmpl := Must(New("channel-range-with-vars"))
 	templateStr := `<ul>{{range $i, $event := .Events}}<li>{{$i}}-{{$event}}</li>{{end}}</ul>`
 	if _, err := tmpl.Parse(templateStr); err != nil {
 		t.Fatalf("Parse failed: %v", err)
@@ -2008,7 +2008,7 @@ func TestTemplateGenerateInitialTreeFallsBackForChannelRangeWithDecls(t *testing
 }
 
 func TestTemplateGenerateInitialTreeFallsBackForIntegerRange(t *testing.T) {
-	tmpl := New("range-integer")
+	tmpl := Must(New("range-integer"))
 	templateStr := `<ol>{{range 3}}<li>#{{.}}</li>{{end}}</ol>`
 	if _, err := tmpl.Parse(templateStr); err != nil {
 		t.Fatalf("Parse failed: %v", err)
@@ -2083,7 +2083,7 @@ func TestCreateHTMLStructureBasedTreeSegmentsBlockBoundaries(t *testing.T) {
 
 // ----- template_fallback_controlflow_test.go -----
 func TestTemplateGenerateInitialTreeFallsBackForRangeBreak(t *testing.T) {
-	tmpl := New("range-break-fallback")
+	tmpl := Must(New("range-break-fallback"))
 	templateStr := `<ul>{{range .Items}}{{if eq . "stop"}}{{break}}{{end}}<li>{{.}}</li>{{end}}</ul>`
 	if _, err := tmpl.Parse(templateStr); err != nil {
 		t.Fatalf("Parse failed: %v", err)
@@ -2121,7 +2121,7 @@ func TestTemplateGenerateInitialTreeFallsBackForRangeBreak(t *testing.T) {
 }
 
 func TestTemplateGenerateInitialTreeFallsBackForRangeContinue(t *testing.T) {
-	tmpl := New("range-continue-fallback")
+	tmpl := Must(New("range-continue-fallback"))
 	templateStr := `<ul>{{range $i, $item := .Items}}{{if eq $item "skip"}}{{continue}}{{end}}<li>{{$i}}-{{$item}}</li>{{end}}</ul>`
 	if _, err := tmpl.Parse(templateStr); err != nil {
 		t.Fatalf("Parse failed: %v", err)
@@ -2160,7 +2160,7 @@ func TestTemplateGenerateInitialTreeFallsBackForRangeContinue(t *testing.T) {
 
 // ----- template_fallback_dynamic_template_test.go -----
 func TestTemplateGenerateInitialTreeFallsBackForDynamicTemplateInvocation(t *testing.T) {
-	tmpl := New("dynamic-template")
+	tmpl := Must(New("dynamic-template"))
 
 	staticTemplateStr := `{{define "content"}}<p>{{.Message}}</p>{{end}}<section>{{template "content" .}}</section>`
 	if _, err := tmpl.Parse(staticTemplateStr); err != nil {
@@ -2210,7 +2210,7 @@ func TestTemplateGenerateInitialTreeFallsBackForDynamicTemplateInvocation(t *tes
 
 // ----- template_fallback_with_test.go -----
 func TestTemplateGenerateInitialTreeFallsBackForWithIterSeq(t *testing.T) {
-	tmpl := New("with-iter-seq")
+	tmpl := Must(New("with-iter-seq"))
 	tmpl.Funcs(template.FuncMap{
 		"seq": func() iter.Seq[string] {
 			return func(yield func(string) bool) {
@@ -2337,7 +2337,7 @@ func TestTemplateParity_DollarInRange(t *testing.T) {
 			}
 
 			// Test with LiveTemplate
-			lvtTmpl := New("test")
+			lvtTmpl := Must(New("test"))
 			if _, err := lvtTmpl.Parse(tt.tmpl); err != nil {
 				t.Fatalf("LiveTemplate parse error: %v", err)
 			}
@@ -2410,7 +2410,7 @@ func TestTemplateParity_DotInRange(t *testing.T) {
 			stdResult := stdBuf.String()
 
 			// Test with LiveTemplate
-			lvtTmpl := New("test")
+			lvtTmpl := Must(New("test"))
 			if _, err := lvtTmpl.Parse(tt.tmpl); err != nil {
 				t.Fatalf("LiveTemplate parse error: %v", err)
 			}
@@ -2511,7 +2511,7 @@ func TestTemplateParity_VariablesInRange(t *testing.T) {
 			stdResult := stdBuf.String()
 
 			// Test with LiveTemplate
-			lvtTmpl := New("test")
+			lvtTmpl := Must(New("test"))
 			if _, err := lvtTmpl.Parse(tt.tmpl); err != nil {
 				t.Fatalf("LiveTemplate parse error: %v", err)
 			}
@@ -2550,7 +2550,7 @@ func parityTest(t *testing.T, tmpl string, data interface{}) {
 	stdResult := stdBuf.String()
 
 	// Test with LiveTemplate
-	lvtTmpl := New("test")
+	lvtTmpl := Must(New("test"))
 	if _, err := lvtTmpl.Parse(tmpl); err != nil {
 		t.Fatalf("LiveTemplate parse error: %v", err)
 	}
