@@ -1334,7 +1334,7 @@ func (t *Template) renderHTML(data interface{}, errors map[string]string) (strin
 	}
 
 	// Execute template with lvt context
-	htmlBytes, err := context.ExecuteTemplateWithContext(t.tmpl, data, errors, t.config.DevMode)
+	htmlBytes, err := context.ExecuteTemplateWithContext(t.tmpl, data, errors, t.config.DevMode, t.uploadRegistry)
 	if err != nil {
 		return "", err
 	}

@@ -12,13 +12,18 @@ import (
 	"testing"
 )
 
+// TestUploadState holds shared state that survives store cloning
+type TestUploadState struct {
+	uploadsCalled   bool
+	consumedEntries []*UploadEntry
+	consumedUpload  string
+	consumeError    error
+}
+
 // TestStore implements UploadAware for integration testing
 type TestUploadStore struct {
-	uploadsCalled    bool
-	consumedEntries  []*UploadEntry
-	consumedUpload   string
-	consumeError     error
-	allowedUploads   map[string]UploadConfig
+	State          *TestUploadState // Shared state across clones (exported for cloning)
+	allowedUploads map[string]UploadConfig
 }
 
 func (s *TestUploadStore) AllowUploads() map[string]UploadConfig {
@@ -40,10 +45,13 @@ func (s *TestUploadStore) AllowUploads() map[string]UploadConfig {
 }
 
 func (s *TestUploadStore) ConsumeUpload(ctx context.Context, name string, entries []*UploadEntry) error {
-	s.uploadsCalled = true
-	s.consumedUpload = name
-	s.consumedEntries = entries
-	return s.consumeError
+	if s.State != nil {
+		s.State.uploadsCalled = true
+		s.State.consumedUpload = name
+		s.State.consumedEntries = entries
+		return s.State.consumeError
+	}
+	return nil
 }
 
 func (s *TestUploadStore) Change(ctx *ActionContext) error {
@@ -67,8 +75,11 @@ func TestHTTPUploadFlow(t *testing.T) {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
 
+	// Create shared state (survives store cloning)
+	state := &TestUploadState{}
+
 	// Create test store
-	store := &TestUploadStore{}
+	store := &TestUploadStore{State: state}
 
 	// Create handler
 	handler := tmpl.Handle(store)
@@ -111,23 +122,23 @@ func TestHTTPUploadFlow(t *testing.T) {
 	}
 
 	// Verify ConsumeUpload was called
-	if !store.uploadsCalled {
+	if !state.uploadsCalled {
 		t.Error("Expected ConsumeUpload to be called")
 	}
 
 	// Verify correct upload name
-	if store.consumedUpload != "avatar" {
-		t.Errorf("Expected upload name 'avatar', got %q", store.consumedUpload)
+	if state.consumedUpload != "avatar" {
+		t.Errorf("Expected upload name 'avatar', got %q", state.consumedUpload)
 	}
 
 	// Verify entries were consumed
-	if len(store.consumedEntries) != 1 {
-		t.Errorf("Expected 1 consumed entry, got %d", len(store.consumedEntries))
+	if len(state.consumedEntries) != 1 {
+		t.Errorf("Expected 1 consumed entry, got %d", len(state.consumedEntries))
 	}
 
 	// Verify entry details
-	if len(store.consumedEntries) > 0 {
-		entry := store.consumedEntries[0]
+	if len(state.consumedEntries) > 0 {
+		entry := state.consumedEntries[0]
 		if entry.ClientName != "test.jpg" {
 			t.Errorf("Expected filename 'test.jpg', got %q", entry.ClientName)
 		}
@@ -168,8 +179,11 @@ Progress: {{.Progress}}%
 		t.Fatalf("Failed to parse template: %v", err)
 	}
 
+	// Create shared state (survives store cloning)
+	state := &TestUploadState{}
+
 	// Create test store
-	store := &TestUploadStore{}
+	store := &TestUploadStore{State: state}
 
 	// Create handler
 	handler := tmpl.Handle(store)
@@ -319,7 +333,8 @@ func TestUploadTempFileCleanup(t *testing.T) {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
 
-	store := &TestUploadStore{}
+	state := &TestUploadState{}
+	store := &TestUploadStore{State: state}
 	handler := tmpl.Handle(store)
 
 	// Upload a file
@@ -337,8 +352,8 @@ func TestUploadTempFileCleanup(t *testing.T) {
 
 	// Get the temp file path
 	var tempPath string
-	if len(store.consumedEntries) > 0 {
-		tempPath = store.consumedEntries[0].TempPath
+	if len(state.consumedEntries) > 0 {
+		tempPath = state.consumedEntries[0].TempPath
 	}
 
 	if tempPath == "" {

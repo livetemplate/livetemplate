@@ -227,8 +227,11 @@ const (
 //
 // Note: If struct fields or map keys conflict with the reserved "lvt" key, they will be
 // skipped to ensure the lvt context remains accessible in templates.
-func ExecuteTemplateWithContext(tmpl *template.Template, data interface{}, errors map[string]string, devMode bool) ([]byte, error) {
+func ExecuteTemplateWithContext(tmpl *template.Template, data interface{}, errors map[string]string, devMode bool, uploadRegistry interface{}) ([]byte, error) {
 	lvtContext := NewTemplateContext(errors, devMode)
+	if uploadRegistry != nil {
+		lvtContext.SetUploadRegistry(uploadRegistry)
+	}
 
 	var templateData interface{}
 
