@@ -17,7 +17,7 @@ func (s *ShutdownState) Change(ctx *ActionContext) error {
 }
 
 func TestLiveHandler_Shutdown_RejectsNewConnections(t *testing.T) {
-	tmpl := New("shutdown-test")
+	tmpl := Must(New("shutdown-test"))
 	handler := tmpl.Handle(&ShutdownState{})
 
 	// Start shutdown
@@ -44,7 +44,7 @@ func TestLiveHandler_Shutdown_RejectsNewConnections(t *testing.T) {
 }
 
 func TestLiveHandler_Shutdown_Idempotent(t *testing.T) {
-	tmpl := New("shutdown-idempotent-test")
+	tmpl := Must(New("shutdown-idempotent-test"))
 	handler := tmpl.Handle(&ShutdownState{})
 
 	lh, ok := handler.(*liveHandler)
@@ -78,7 +78,7 @@ func TestLiveHandler_Shutdown_Idempotent(t *testing.T) {
 }
 
 func TestLiveHandler_Shutdown_WaitsForConnections(t *testing.T) {
-	tmpl := New("shutdown-wait-test")
+	tmpl := Must(New("shutdown-wait-test"))
 	handler := tmpl.Handle(&ShutdownState{})
 
 	lh, ok := handler.(*liveHandler)
@@ -136,7 +136,7 @@ func TestLiveHandler_Shutdown_WaitsForConnections(t *testing.T) {
 }
 
 func TestLiveHandler_Shutdown_TimeoutForce(t *testing.T) {
-	tmpl := New("shutdown-timeout-test")
+	tmpl := Must(New("shutdown-timeout-test"))
 	handler := tmpl.Handle(&ShutdownState{})
 
 	lh, ok := handler.(*liveHandler)
@@ -174,7 +174,7 @@ func TestLiveHandler_Shutdown_TimeoutForce(t *testing.T) {
 }
 
 func TestLiveHandler_Shutdown_EmptyHandler(t *testing.T) {
-	tmpl := New("shutdown-empty-test")
+	tmpl := Must(New("shutdown-empty-test"))
 	handler := tmpl.Handle(&ShutdownState{})
 
 	// Shutdown with no connections should complete immediately

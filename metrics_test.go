@@ -17,7 +17,7 @@ func (s *MetricsTestState) Change(ctx *ActionContext) error {
 }
 
 func TestLiveHandler_MetricsHandler(t *testing.T) {
-	tmpl := New("metrics-handler-test")
+	tmpl := Must(New("metrics-handler-test"))
 	handler := tmpl.Handle(&MetricsTestState{})
 
 	metricsHandler := handler.MetricsHandler()
@@ -63,7 +63,7 @@ func TestLiveHandler_MetricsHandler(t *testing.T) {
 }
 
 func TestLiveHandler_MetricsHandler_MethodNotAllowed(t *testing.T) {
-	tmpl := New("metrics-method-test")
+	tmpl := Must(New("metrics-method-test"))
 	handler := tmpl.Handle(&MetricsTestState{})
 
 	metricsHandler := handler.MetricsHandler()
@@ -80,7 +80,7 @@ func TestLiveHandler_MetricsHandler_MethodNotAllowed(t *testing.T) {
 }
 
 func TestLiveHandler_MetricsHandler_Format(t *testing.T) {
-	tmpl := New("metrics-format-test")
+	tmpl := Must(New("metrics-format-test"))
 	handler := tmpl.Handle(&MetricsTestState{})
 
 	metricsHandler := handler.MetricsHandler()

@@ -11,7 +11,7 @@ func BenchmarkErrorPaths(b *testing.B) {
 	b.Run("invalid-template-syntax", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			tmpl := New("error")
+			tmpl := Must(New("error"))
 			_, err := tmpl.Parse(`<div>{{.Invalid syntax here`)
 			if err == nil {
 				b.Fatal("expected parse error")
@@ -20,7 +20,7 @@ func BenchmarkErrorPaths(b *testing.B) {
 	})
 
 	b.Run("missing-field", func(b *testing.B) {
-		tmpl := New("test")
+		tmpl := Must(New("test"))
 		_, err := tmpl.Parse(`<div>{{.NonExistent}}</div>`)
 		if err != nil {
 			b.Fatal(err)
@@ -42,7 +42,7 @@ func BenchmarkErrorPaths(b *testing.B) {
 	})
 
 	b.Run("nil-data", func(b *testing.B) {
-		tmpl := New("test")
+		tmpl := Must(New("test"))
 		_, err := tmpl.Parse(`<div>{{.Name}}</div>`)
 		if err != nil {
 			b.Fatal(err)
@@ -64,7 +64,7 @@ func BenchmarkErrorPaths(b *testing.B) {
 	b.Run("empty-template", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			tmpl := New("empty")
+			tmpl := Must(New("empty"))
 			_, err := tmpl.Parse("")
 			if err != nil {
 				b.Fatal(err)
