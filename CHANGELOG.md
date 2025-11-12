@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 
+- use GOWORK=off in release script to avoid workspace issues
 - address minor code review issues
 - address code review feedback
 
