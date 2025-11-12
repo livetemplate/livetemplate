@@ -62,7 +62,7 @@ func TestHTTPUploadFlow(t *testing.T) {
 {{end}}
 `
 
-	tmpl := New("test")
+	tmpl := Must(New("test"))
 	if _, err := tmpl.Parse(tmplStr); err != nil {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
@@ -163,7 +163,7 @@ Progress: {{.Progress}}%
 {{end}}
 `
 
-	tmpl := New("test")
+	tmpl := Must(New("test"))
 	if _, err := tmpl.Parse(tmplStr); err != nil {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
@@ -224,7 +224,7 @@ Error: {{.lvt.UploadError "avatar"}}
 {{end}}
 `
 
-	tmpl := New("test")
+	tmpl := Must(New("test"))
 	if _, err := tmpl.Parse(tmplStr); err != nil {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
@@ -314,7 +314,7 @@ Error: {{.lvt.UploadError "avatar"}}
 
 // TestUploadTempFileCleanup tests temp file cleanup
 func TestUploadTempFileCleanup(t *testing.T) {
-	tmpl := New("test")
+	tmpl := Must(New("test"))
 	if _, err := tmpl.Parse("<div>test</div>"); err != nil {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
@@ -360,7 +360,7 @@ func TestUploadTempFileCleanup(t *testing.T) {
 
 // TestUploadWithoutFiles tests POST request without file uploads
 func TestUploadWithoutFiles(t *testing.T) {
-	tmpl := New("test")
+	tmpl := Must(New("test"))
 	if _, err := tmpl.Parse("<div>{{.Value}}</div>"); err != nil {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
@@ -432,7 +432,7 @@ Error: "{{.lvt.UploadError "avatar"}}"
   Should not appear
 {{end}}
 `
-		tmpl := New("test")
+		tmpl := Must(New("test"))
 		if _, err := tmpl.Parse(tmplStr); err != nil {
 			t.Fatalf("Failed to parse template: %v", err)
 		}
