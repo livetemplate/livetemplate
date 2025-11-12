@@ -6,8 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<a name="v0.3.0"></a>
+## [v0.3.0] - 2025-11-12
+
+### Bug Fixes
+
+- address minor code review issues
+- address code review feedback
+
+### Code Refactoring
+
+- make New() fail-fast on template parsing errors ([#51](https://github.com/livefir/livetemplate/issues/51))
+
+### Documentation
+
+- add optimization task list to performance bottlenecks
+- add performance section to README
+- add performance characteristics analysis
+- add comprehensive benchmarking guide
+- document performance bottlenecks from profiling
+- add design and implementation plan
+
+### Performance Improvements
+
+- address code review recommendations
+- establish performance baseline
+- add end-to-end user journey benchmarks
+- add end-to-end template benchmarks
+- add Phase 4 (Render) and Phase 5 (Send) benchmarks
+- add Phase 3 (Diff) benchmarks
+- add Phase 2 (Build) benchmarks
+- add Phase 1 (Parse) benchmarks
+
+
 <a name="v0.2.1"></a>
-## [v0.2.1] - 2025-11-10
+## [v0.2.1] - 2025-11-11
 
 ### Bug Fixes
 
@@ -195,7 +228,8 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.3.0...HEAD
+[v0.3.0]: https://github.com/livefir/livetemplate/compare/v0.2.1...v0.3.0
 [v0.2.1]: https://github.com/livefir/livetemplate/compare/v0.2.0...v0.2.1
 [v0.2.0]: https://github.com/livefir/livetemplate/compare/v0.1.3...v0.2.0
 [v0.1.3]: https://github.com/livefir/livetemplate/compare/ls...v0.1.3
