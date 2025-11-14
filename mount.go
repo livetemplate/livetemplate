@@ -1454,6 +1454,7 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 					ClientName: fileMeta.Name,
 					Valid:      false,
 					Error:      fmt.Sprintf("failed to presign: %v", err),
+					AutoUpload: uploadInstance.Config.AutoUpload,
 				}
 			} else {
 				// Store external reference in entry
@@ -1466,6 +1467,7 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 						ClientName: fileMeta.Name,
 						Valid:      false,
 						Error:      err.Error(),
+						AutoUpload: uploadInstance.Config.AutoUpload,
 					}
 				} else {
 					// Return presigned metadata to client
@@ -1474,6 +1476,7 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 						ClientName: fileMeta.Name,
 						Valid:      true,
 						Error:      "",
+						AutoUpload: uploadInstance.Config.AutoUpload,
 						External: &upload.ExternalUploadMeta{
 							Uploader: presignMeta.Uploader,
 							URL:      presignMeta.URL,
@@ -1492,6 +1495,7 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 					ClientName: fileMeta.Name,
 					Valid:      false,
 					Error:      fmt.Sprintf("failed to create temp file: %v", err),
+					AutoUpload: uploadInstance.Config.AutoUpload,
 				}
 			} else {
 				entry.TempPath = tempPath
@@ -1503,6 +1507,7 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 						ClientName: fileMeta.Name,
 						Valid:      false,
 						Error:      err.Error(),
+						AutoUpload: uploadInstance.Config.AutoUpload,
 					}
 					// Remove temp file since entry is invalid
 					os.Remove(tempPath)
@@ -1512,6 +1517,7 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 						ClientName: fileMeta.Name,
 						Valid:      true,
 						Error:      "",
+						AutoUpload: uploadInstance.Config.AutoUpload,
 					}
 				}
 			}
@@ -1528,6 +1534,51 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 
 	if err := writeUpdateWebSocket(conn, respBytes); err != nil {
 		return fmt.Errorf("failed to send upload_start response: %w", err)
+	}
+
+	// Generate and send tree update to show upload entries in DOM
+	var buf bytes.Buffer
+	tmpTemplate, err := h.config.Template.Clone()
+	if err != nil {
+		log.Printf("Failed to clone template after upload_start: %v", err)
+		return nil
+	}
+
+	// Type assert uploadRegistry to get Registry for setting on template
+	if registry, ok := uploadRegistry.(*upload.Registry); ok {
+		tmpTemplate.SetUploadRegistry(registry)
+	}
+
+	err = tmpTemplate.ExecuteUpdates(&buf, h.getTemplateData(state.stores), state.getErrors())
+	if err != nil {
+		log.Printf("Failed to generate tree update after upload_start: %v", err)
+		return nil
+	}
+
+	// Parse tree from buffer
+	var tree map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
+		log.Printf("Failed to parse tree after upload_start: %v", err)
+		return nil
+	}
+
+	// Wrap with metadata
+	updateResponse := UpdateResponse{
+		Tree: tree,
+		Meta: &ResponseMetadata{
+			Success: true,
+			Errors:  state.getErrors(),
+		},
+	}
+
+	updateBytes, err := json.Marshal(updateResponse)
+	if err != nil {
+		log.Printf("Failed to marshal update after upload_start: %v", err)
+		return nil
+	}
+
+	if err := writeUpdateWebSocket(conn, updateBytes); err != nil {
+		log.Printf("Failed to send tree update after upload_start: %v", err)
 	}
 
 	return nil
