@@ -1703,13 +1703,10 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 		return fmt.Errorf("failed to send upload_complete response: %w", err)
 	}
 
-	// After successful upload, broadcast tree update to show changes in UI
-	if response.Success {
-		if err := h.broadcastUpdate(ctx, state); err != nil {
-			log.Printf("Failed to broadcast update after upload: %v", err)
-			// Don't return error - upload was successful
-		}
-	}
+	// Note: Tree update will be sent by the normal WebSocket message loop
+	// after this handler returns. The upload_complete action doesn't trigger
+	// an immediate broadcast, but when the user submits the form, the normal
+	// action handler will send the tree update with the uploaded avatar.
 
 	return nil
 }
