@@ -1703,6 +1703,14 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 		return fmt.Errorf("failed to send upload_complete response: %w", err)
 	}
 
+	// After successful upload, broadcast tree update to show changes in UI
+	if response.Success {
+		if err := h.broadcastUpdate(ctx, state); err != nil {
+			log.Printf("Failed to broadcast update after upload: %v", err)
+			// Don't return error - upload was successful
+		}
+	}
+
 	return nil
 }
 
