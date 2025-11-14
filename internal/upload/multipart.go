@@ -122,14 +122,21 @@ func processMultipartFile(
 	limitedReader := io.LimitReader(src, maxSize+1) // +1 to detect oversized files
 	written, err := io.Copy(dst, limitedReader)
 	if err != nil {
-		dst.Close() // Best effort close on error
+		if closeErr := dst.Close(); closeErr != nil {
+			// Log close error but prioritize returning the write error
+			tempFileManager.RemoveFile(entryID)
+			return nil, fmt.Errorf("failed to write file: %w (close error: %v)", err, closeErr)
+		}
 		tempFileManager.RemoveFile(entryID)
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
 
 	// Check if file exceeded limit
 	if written > maxSize {
-		dst.Close() // Best effort close on error
+		if closeErr := dst.Close(); closeErr != nil {
+			tempFileManager.RemoveFile(entryID)
+			return nil, fmt.Errorf("file size exceeded and close failed: %w", closeErr)
+		}
 		tempFileManager.RemoveFile(entryID)
 		entry.Valid = false
 		entry.Error = fmt.Sprintf("file size %d bytes exceeds maximum %d bytes", written, maxSize)

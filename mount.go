@@ -1587,7 +1587,9 @@ func (h *liveHandler) handleUploadChunk(ctx context.Context, conn *websocket.Con
 	// Write chunk
 	written, err := tempFile.Write(chunkData)
 	if err != nil {
-		tempFile.Close() // Best effort close on error
+		if closeErr := tempFile.Close(); closeErr != nil {
+			return fmt.Errorf("failed to write chunk: %w (close error: %v)", err, closeErr)
+		}
 		return fmt.Errorf("failed to write chunk: %w", err)
 	}
 
