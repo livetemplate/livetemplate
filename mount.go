@@ -1705,11 +1705,6 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 		return fmt.Errorf("failed to send upload_complete response: %w", err)
 	}
 
-	// Broadcast to other connections in the same group
-	// This ensures all tabs in the same browser session see the upload completion
-	// Exclude the current connection to avoid race condition with the tree update below
-	h.autoBroadcastToGroup(state.groupID, h.getTemplateData(state.stores), connection)
-
 	// Generate and send tree update to show upload completion immediately
 	var buf bytes.Buffer
 	tmpTemplate, err := h.config.Template.Clone()
@@ -1753,10 +1748,16 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 		return nil // Don't fail the upload, just skip the update
 	}
 
-	if err := writeUpdateWebSocket(conn, updateBytes); err != nil {
+	// Send to current connection using connection.Send() which has mutex protection
+	if err := connection.Send(websocket.TextMessage, updateBytes); err != nil {
 		log.Printf("Failed to send tree update after upload: %v", err)
 		return nil // Don't fail the upload, just skip the update
 	}
+
+	// Broadcast to other connections in the same group AFTER sending to current connection
+	// This ensures all tabs in the same browser session see the upload completion
+	// Exclude the current connection since we just sent the update above
+	h.autoBroadcastToGroup(state.groupID, h.getTemplateData(state.stores), connection)
 
 	return nil
 }
