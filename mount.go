@@ -1705,10 +1705,57 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 		return fmt.Errorf("failed to send upload_complete response: %w", err)
 	}
 
-	// Note: Tree update will be sent by the normal WebSocket message loop
-	// after this handler returns. The upload_complete action doesn't trigger
-	// an immediate broadcast, but when the user submits the form, the normal
-	// action handler will send the tree update with the uploaded avatar.
+	// Broadcast to other connections in the same group
+	// This ensures all tabs in the same browser session see the upload completion
+	h.autoBroadcastToGroup(state.groupID, h.getTemplateData(state.stores), nil)
+
+	// Generate and send tree update to show upload completion immediately
+	var buf bytes.Buffer
+	tmpTemplate, err := h.config.Template.Clone()
+	if err != nil {
+		log.Printf("Failed to clone template for upload update: %v", err)
+		return nil // Don't fail the upload, just skip the update
+	}
+
+	// Type assert uploadRegistry to get Registry for setting on template
+	if registry, ok := uploadRegistry.(*upload.Registry); ok {
+		tmpTemplate.SetUploadRegistry(registry)
+	}
+
+	err = tmpTemplate.ExecuteUpdates(&buf, h.getTemplateData(state.stores), state.getErrors())
+	if err != nil {
+		log.Printf("Failed to generate tree update after upload: %v", err)
+		return nil // Don't fail the upload, just skip the update
+	}
+
+	// Parse tree from buffer
+	var tree map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
+		log.Printf("Failed to parse tree after upload: %v", err)
+		return nil // Don't fail the upload, just skip the update
+	}
+
+	// Wrap with metadata
+	updateResponse := UpdateResponse{
+		Tree: tree,
+		Meta: &ResponseMetadata{
+			Success: response.Success,
+			Errors:  state.getErrors(),
+			Action:  "upload_complete",
+		},
+	}
+
+	// Send tree update
+	updateBytes, err := json.Marshal(updateResponse)
+	if err != nil {
+		log.Printf("Failed to marshal tree update after upload: %v", err)
+		return nil // Don't fail the upload, just skip the update
+	}
+
+	if err := writeUpdateWebSocket(conn, updateBytes); err != nil {
+		log.Printf("Failed to send tree update after upload: %v", err)
+		return nil // Don't fail the upload, just skip the update
+	}
 
 	return nil
 }
