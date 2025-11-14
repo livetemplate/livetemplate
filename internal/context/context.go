@@ -17,8 +17,9 @@ import (
 // synchronization is required. In typical usage, each template execution creates a new
 // TemplateContext, so concurrent access is not an issue.
 type TemplateContext struct {
-	errors  map[string]string
-	DevMode bool // Development mode - use local client library instead of CDN
+	errors        map[string]string
+	DevMode       bool        // Development mode - use local client library instead of CDN
+	uploadEntries interface{} // *upload.Registry for accessing upload state
 }
 
 // NewTemplateContext creates a new TemplateContext with the given errors and devMode flag.
@@ -31,6 +32,12 @@ func NewTemplateContext(errors map[string]string, devMode bool) *TemplateContext
 		errors:  errors,
 		DevMode: devMode,
 	}
+}
+
+// SetUploadRegistry sets the upload registry for this template context.
+// This allows templates to access upload state via .lvt.Uploads(name).
+func (t *TemplateContext) SetUploadRegistry(registry interface{}) {
+	t.uploadEntries = registry
 }
 
 // Error returns the error message for a field.
@@ -65,6 +72,142 @@ func (t *TemplateContext) AllErrors() map[string]string {
 	return result
 }
 
+// Uploads returns upload entries for a given upload name.
+// Returns nil if no upload registry is set or upload doesn't exist.
+// The upload registry is expected to have a method: GetUpload(name string) interface{}
+// which returns an object with GetEntries() []interface{} method.
+func (t *TemplateContext) Uploads(name string) interface{} {
+	if t.uploadEntries == nil {
+		return nil
+	}
+
+	// Use reflection to call GetUpload method
+	registryVal := reflect.ValueOf(t.uploadEntries)
+	if !registryVal.IsValid() || registryVal.IsNil() {
+		return nil
+	}
+
+	getUploadMethod := registryVal.MethodByName("GetUpload")
+	if !getUploadMethod.IsValid() {
+		return nil
+	}
+
+	results := getUploadMethod.Call([]reflect.Value{reflect.ValueOf(name)})
+	if len(results) == 0 {
+		return nil
+	}
+
+	upload := results[0].Interface()
+	if upload == nil {
+		return nil
+	}
+
+	// Call GetEntries on the upload object
+	uploadVal := reflect.ValueOf(upload)
+	if !uploadVal.IsValid() || uploadVal.IsNil() {
+		return nil
+	}
+
+	getEntriesMethod := uploadVal.MethodByName("GetEntries")
+	if !getEntriesMethod.IsValid() {
+		return nil
+	}
+
+	entriesResults := getEntriesMethod.Call(nil)
+	if len(entriesResults) == 0 {
+		return nil
+	}
+
+	return entriesResults[0].Interface()
+}
+
+// HasUploadError checks if any upload entry has an error for the given upload name.
+func (t *TemplateContext) HasUploadError(name string) bool {
+	if t.uploadEntries == nil {
+		return false
+	}
+
+	registryVal := reflect.ValueOf(t.uploadEntries)
+	if !registryVal.IsValid() || registryVal.IsNil() {
+		return false
+	}
+
+	getUploadMethod := registryVal.MethodByName("GetUpload")
+	if !getUploadMethod.IsValid() {
+		return false
+	}
+
+	results := getUploadMethod.Call([]reflect.Value{reflect.ValueOf(name)})
+	if len(results) == 0 || results[0].IsNil() {
+		return false
+	}
+
+	upload := results[0].Interface()
+	if upload == nil {
+		return false
+	}
+	uploadVal := reflect.ValueOf(upload)
+	if !uploadVal.IsValid() || uploadVal.IsNil() {
+		return false
+	}
+
+	hasErrorMethod := uploadVal.MethodByName("HasError")
+	if !hasErrorMethod.IsValid() {
+		return false
+	}
+
+	errorResults := hasErrorMethod.Call(nil)
+	if len(errorResults) == 0 {
+		return false
+	}
+
+	return errorResults[0].Bool()
+}
+
+// UploadError returns the first error message for the given upload name.
+// Returns empty string if no errors exist.
+func (t *TemplateContext) UploadError(name string) string {
+	if t.uploadEntries == nil {
+		return ""
+	}
+
+	registryVal := reflect.ValueOf(t.uploadEntries)
+	if !registryVal.IsValid() || registryVal.IsNil() {
+		return ""
+	}
+
+	getUploadMethod := registryVal.MethodByName("GetUpload")
+	if !getUploadMethod.IsValid() {
+		return ""
+	}
+
+	results := getUploadMethod.Call([]reflect.Value{reflect.ValueOf(name)})
+	if len(results) == 0 || results[0].IsNil() {
+		return ""
+	}
+
+	upload := results[0].Interface()
+	if upload == nil {
+		return ""
+	}
+	uploadVal := reflect.ValueOf(upload)
+	if !uploadVal.IsValid() || uploadVal.IsNil() {
+		return ""
+	}
+
+	getErrorMethod := uploadVal.MethodByName("GetError")
+	if !getErrorMethod.IsValid() {
+		return ""
+	}
+
+	errorResults := getErrorMethod.Call(nil)
+	if len(errorResults) == 0 {
+		return ""
+	}
+
+	return errorResults[0].String()
+}
+
 const (
 	// TemplateContextKey is the key used to access lvt context in templates
 	TemplateContextKey = "lvt"
@@ -84,8 +227,11 @@ const (
 //
 // Note: If struct fields or map keys conflict with the reserved "lvt" key, they will be
 // skipped to ensure the lvt context remains accessible in templates.
-func ExecuteTemplateWithContext(tmpl *template.Template, data interface{}, errors map[string]string, devMode bool) ([]byte, error) {
+func ExecuteTemplateWithContext(tmpl *template.Template, data interface{}, errors map[string]string, devMode bool, uploadRegistry interface{}) ([]byte, error) {
 	lvtContext := NewTemplateContext(errors, devMode)
+	if uploadRegistry != nil {
+		lvtContext.SetUploadRegistry(uploadRegistry)
+	}
 
 	var templateData interface{}
 

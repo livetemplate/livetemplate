@@ -263,7 +263,7 @@ func TestExecuteTemplateWithContext_StructData(t *testing.T) {
 	}
 
 	errors := map[string]string{"Email": "Invalid format"}
-	result, err := ExecuteTemplateWithContext(tmpl, data, errors, true)
+	result, err := ExecuteTemplateWithContext(tmpl, data, errors, true, nil)
 	if err != nil {
 		t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
 	}
@@ -285,7 +285,7 @@ func TestExecuteTemplateWithContext_StructPointer(t *testing.T) {
 	}
 
 	data := &User{Name: "Jane"}
-	result, err := ExecuteTemplateWithContext(tmpl, data, nil, false)
+	result, err := ExecuteTemplateWithContext(tmpl, data, nil, false, nil)
 	if err != nil {
 		t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
 	}
@@ -307,7 +307,7 @@ func TestExecuteTemplateWithContext_MapData(t *testing.T) {
 		"city": "NYC",
 	}
 
-	result, err := ExecuteTemplateWithContext(tmpl, data, nil, false)
+	result, err := ExecuteTemplateWithContext(tmpl, data, nil, false, nil)
 	if err != nil {
 		t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
 	}
@@ -338,7 +338,7 @@ func TestExecuteTemplateWithContext_JSONTags(t *testing.T) {
 		Age:      25,
 	}
 
-	result, err := ExecuteTemplateWithContext(tmpl, data, nil, false)
+	result, err := ExecuteTemplateWithContext(tmpl, data, nil, false, nil)
 	if err != nil {
 		t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestExecuteTemplateWithContext_UnexportedFields(t *testing.T) {
 		password: "secret",
 	}
 
-	result, err := ExecuteTemplateWithContext(tmpl, data, nil, false)
+	result, err := ExecuteTemplateWithContext(tmpl, data, nil, false, nil)
 	if err != nil {
 		t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
 	}
@@ -390,7 +390,7 @@ func TestExecuteTemplateWithContext_WithErrors(t *testing.T) {
 	data := Form{Email: "invalid", Name: "Test"}
 	errors := map[string]string{"Email": "Invalid email format"}
 
-	result, err := ExecuteTemplateWithContext(tmpl, data, errors, false)
+	result, err := ExecuteTemplateWithContext(tmpl, data, errors, false, nil)
 	if err != nil {
 		t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
 	}
@@ -419,7 +419,7 @@ func TestExecuteTemplateWithContext_PrimitiveData(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := ExecuteTemplateWithContext(tmpl, tt.data, nil, false)
+			result, err := ExecuteTemplateWithContext(tmpl, tt.data, nil, false, nil)
 			if err != nil {
 				t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
 			}
@@ -447,7 +447,7 @@ func TestExecuteTemplateWithContext_DevMode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := ExecuteTemplateWithContext(tmpl, struct{}{}, nil, tt.devMode)
+			result, err := ExecuteTemplateWithContext(tmpl, struct{}{}, nil, tt.devMode, nil)
 			if err != nil {
 				t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
 			}
@@ -476,7 +476,7 @@ func TestExecuteTemplateWithContext_HasAnyError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := ExecuteTemplateWithContext(tmpl, struct{}{}, tt.errors, false)
+			result, err := ExecuteTemplateWithContext(tmpl, struct{}{}, tt.errors, false, nil)
 			if err != nil {
 				t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
 			}
@@ -512,7 +512,7 @@ func ExampleExecuteTemplateWithContext() {
 	data := User{Name: "John", Email: "invalid"}
 	errors := map[string]string{"Email": "Invalid format"}
 
-	result, _ := ExecuteTemplateWithContext(tmpl, data, errors, false)
+	result, _ := ExecuteTemplateWithContext(tmpl, data, errors, false, nil)
 	_ = result
 }
 
@@ -528,7 +528,7 @@ func BenchmarkExecuteTemplateWithContext_Struct(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = ExecuteTemplateWithContext(tmpl, data, nil, false)
+		_, _ = ExecuteTemplateWithContext(tmpl, data, nil, false, nil)
 	}
 }
 
@@ -542,7 +542,7 @@ func BenchmarkExecuteTemplateWithContext_Map(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = ExecuteTemplateWithContext(tmpl, data, nil, false)
+		_, _ = ExecuteTemplateWithContext(tmpl, data, nil, false, nil)
 	}
 }
 
@@ -582,7 +582,7 @@ func TestExecuteTemplateWithContext_FieldNameFallback(t *testing.T) {
 	}
 
 	data := User{FullName: "John Doe"}
-	result, err := ExecuteTemplateWithContext(tmpl, data, nil, false)
+	result, err := ExecuteTemplateWithContext(tmpl, data, nil, false, nil)
 	if err != nil {
 		t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
 	}
@@ -604,7 +604,7 @@ func TestExecuteTemplateWithContext_EmptyJSONTag(t *testing.T) {
 	}
 
 	data := User{Name: "Test"}
-	result, err := ExecuteTemplateWithContext(tmpl, data, nil, false)
+	result, err := ExecuteTemplateWithContext(tmpl, data, nil, false, nil)
 	if err != nil {
 		t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
 	}
@@ -627,7 +627,7 @@ func TestExecuteTemplateWithContext_LvtFieldCollision(t *testing.T) {
 	}
 
 	data := Data{Name: "Test", Lvt: "ShouldBeSkipped"}
-	result, err := ExecuteTemplateWithContext(tmpl, data, nil, true)
+	result, err := ExecuteTemplateWithContext(tmpl, data, nil, true, nil)
 	if err != nil {
 		t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
 	}
@@ -652,7 +652,7 @@ func TestExecuteTemplateWithContext_LvtJSONTagCollision(t *testing.T) {
 	}
 
 	data := Data{Name: "Test", Special: "ShouldBeSkipped"}
-	result, err := ExecuteTemplateWithContext(tmpl, data, nil, false)
+	result, err := ExecuteTemplateWithContext(tmpl, data, nil, false, nil)
 	if err != nil {
 		t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
 	}
@@ -676,7 +676,7 @@ func TestExecuteTemplateWithContext_MapLvtCollision(t *testing.T) {
 		"lvt":  "ShouldBeSkipped", // This key conflicts with reserved key
 	}
 
-	result, err := ExecuteTemplateWithContext(tmpl, data, nil, true)
+	result, err := ExecuteTemplateWithContext(tmpl, data, nil, true, nil)
 	if err != nil {
 		t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
 	}
@@ -700,7 +700,7 @@ func TestExecuteTemplateWithContext_NilPointer(t *testing.T) {
 	}
 
 	var data *User = nil
-	result, err := ExecuteTemplateWithContext(tmpl, data, nil, true)
+	result, err := ExecuteTemplateWithContext(tmpl, data, nil, true, nil)
 	if err != nil {
 		t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
 	}
@@ -724,7 +724,7 @@ func TestExecuteTemplateWithContext_CommaOnlyJSONTag(t *testing.T) {
 	}
 
 	data := User{Name: "John", Email: "john@example.com"}
-	result, err := ExecuteTemplateWithContext(tmpl, data, nil, false)
+	result, err := ExecuteTemplateWithContext(tmpl, data, nil, false, nil)
 	if err != nil {
 		t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
 	}

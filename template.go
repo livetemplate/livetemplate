@@ -184,6 +184,7 @@ type Template struct {
 	keyGen          *keyGenerator                     // Per-template key generation for wrapper approach
 	config          Config                            // Template configuration
 	registry        *signature.ClientStructureRegistry // Track structure signatures sent to client (Phase 2)
+	uploadRegistry  interface{}                        // Upload registry for this connection (*upload.Registry)
 }
 
 // Funcs registers a template.FuncMap that will be applied to all template parsing and execution.
@@ -664,6 +665,20 @@ func (t *Template) Clone() (*Template, error) {
 	}
 
 	return clone, nil
+}
+
+// SetUploadRegistry sets the upload registry for this template instance.
+// This should be called after cloning a template for a specific connection.
+func (t *Template) SetUploadRegistry(registry interface{}) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.uploadRegistry = registry
+}
+
+// newUploadRegistry creates a new upload registry instance.
+// This is used internally by the mount handler.
+func (t *Template) newUploadRegistry() uploadRegistry {
+	return newUploadRegistry()
 }
 
 // =============================================================================
@@ -1172,11 +1187,22 @@ func (t *Template) Handle(stores ...Store) LiveHandler {
 	metrics := observe.NewMetrics(slog.Default())
 	metricsExporter := observe.NewPrometheusExporter(metrics, limits)
 
+	// Initialize upload factories (lazy, done once)
+	initUploadFactories()
+
+	// Create temp file manager for uploads
+	tempFileManager, err := newUploadTempFileManager("")
+	if err != nil {
+		slog.Error("Failed to create temp file manager - uploads will not work",
+			slog.String("error", err.Error()))
+	}
+
 	handler := &liveHandler{
 		config:          config,
 		registry:        session.NewConnectionRegistry(),
 		limits:          limits,
 		metricsExporter: metricsExporter,
+		tempFileManager: tempFileManager,
 		shutdownChan:    make(chan struct{}),
 	}
 
@@ -1227,8 +1253,8 @@ func (t *Template) buildTree(data interface{}, errors map[string]string) (*treeN
 		return nil, err
 	}
 
-	// Convert data to include lvt context
-	dataWithLvt := context.AddLvtToData(data, errors, t.config.DevMode)
+	// Convert data to include lvt context (with upload registry if set)
+	dataWithLvt := context.AddLvtToData(data, errors, t.config.DevMode, t.uploadRegistry)
 
 	// Note: We don't invalidate the expression cache here because:
 	// 1. Cache keys include dataHash, so changed data naturally misses the cache
@@ -1308,7 +1334,7 @@ func (t *Template) renderHTML(data interface{}, errors map[string]string) (strin
 	}
 
 	// Execute template with lvt context
-	htmlBytes, err := context.ExecuteTemplateWithContext(t.tmpl, data, errors, t.config.DevMode)
+	htmlBytes, err := context.ExecuteTemplateWithContext(t.tmpl, data, errors, t.config.DevMode, t.uploadRegistry)
 	if err != nil {
 		return "", err
 	}

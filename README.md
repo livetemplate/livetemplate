@@ -32,6 +32,91 @@ sequenceDiagram
 
 This works because LiveTemplate uses **tree-based diffing** - a data model that makes updates predictable and efficient. When your state changes, LiveTemplate calculates exactly what changed and sends only that data (50-90% less than full HTML). The same predictable model that enables efficient updates also powers the `lvt` code generator, which can create complete CRUD applications that are reactive by default.
 
+## File Uploads (v0.3.1)
+
+LiveTemplate v0.3.1 introduces a Phoenix LiveView-inspired upload system with multiple upload strategies:
+
+### Quick Example
+
+```go
+// 1. Make your store upload-aware
+type ProfileStore struct {
+    avatarPath string
+}
+
+func (s *ProfileStore) AllowUploads() map[string]livetemplate.UploadConfig {
+    return map[string]livetemplate.UploadConfig{
+        "avatar": {
+            Accept:      []string{"image/*"},
+            MaxFileSize: 5 * 1024 * 1024, // 5MB
+            MaxEntries:  1,
+            AutoUpload:  true,
+        },
+    }
+}
+
+func (s *ProfileStore) ConsumeUpload(ctx context.Context, name string, entries []*livetemplate.UploadEntry) error {
+    // Process uploaded files
+    for _, entry := range entries {
+        s.avatarPath = entry.TempPath
+    }
+    return nil
+}
+
+// 2. Add upload input to your template
+const tmplStr = `
+<form lvt-submit="save">
+    <input type="file" lvt-upload="avatar" accept="image/*" />
+
+    {{range .lvt.Uploads "avatar"}}
+        <div>{{.ClientName}}: {{.Progress}}%</div>
+    {{end}}
+
+    <button type="submit">Save</button>
+</form>
+`
+```
+
+### Upload Strategies
+
+**HTTP Multipart** - Simple, synchronous uploads
+```html
+<input type="file" lvt-upload="document" />
+```
+
+**WebSocket Chunked** - Large files with real-time progress
+```go
+UploadConfig{
+    ChunkSize: 512 * 1024, // 512KB chunks
+}
+```
+
+**External (S3)** - Direct uploads to cloud storage
+```go
+s3Presigner, _ := livetemplate.NewS3Presigner(livetemplate.S3Config{
+    Bucket: "my-bucket",
+    Region: "us-east-1",
+})
+
+UploadConfig{
+    External: s3Presigner, // Client uploads directly to S3
+}
+```
+
+### Features
+
+✅ Multiple upload strategies (HTTP, WebSocket, S3)
+✅ Real-time progress tracking
+✅ File type & size validation
+✅ Template helpers for upload UI
+✅ Automatic temp file cleanup
+✅ TypeScript client with progress events
+✅ Presigned URLs for scalable uploads
+
+📖 **[Complete Upload Documentation](docs/uploads.md)**
+
+---
+
 ## Why LiveTemplate?
 
 ### 1. Write Server-Side, Get Reactive UIs

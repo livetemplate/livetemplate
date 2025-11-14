@@ -21,16 +21,22 @@ import (
 //   - data: The original template data (struct, map, or other type)
 //   - errors: Map of field names to error messages for validation
 //   - devMode: Whether to enable development mode features
+//   - uploadRegistry: Optional upload registry (pass nil if uploads not needed)
 //
 // Returns:
 //   - A map containing the original data fields plus the "lvt" namespace
-func AddLvtToData(data interface{}, errors map[string]string, devMode bool) interface{} {
+func AddLvtToData(data interface{}, errors map[string]string, devMode bool, uploadRegistry ...interface{}) interface{} {
 	if errors == nil {
 		errors = make(map[string]string)
 	}
 
 	// Create LiveTemplate context
 	lvtContext := NewTemplateContext(errors, devMode)
+
+	// Set upload registry if provided
+	if len(uploadRegistry) > 0 && uploadRegistry[0] != nil {
+		lvtContext.SetUploadRegistry(uploadRegistry[0])
+	}
 
 	templateData := make(map[string]interface{})
 	templateData["lvt"] = lvtContext

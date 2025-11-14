@@ -3,12 +3,15 @@ package livetemplate
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
+	"os"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,6 +20,8 @@ import (
 	"github.com/livetemplate/livetemplate/internal/discovery"
 	"github.com/livetemplate/livetemplate/internal/observe"
 	"github.com/livetemplate/livetemplate/internal/session"
+	"github.com/livetemplate/livetemplate/internal/upload"
+	"github.com/livetemplate/livetemplate/internal/uploadtypes"
 	"github.com/livetemplate/livetemplate/pubsub"
 	"golang.org/x/time/rate"
 )
@@ -172,6 +177,7 @@ type liveHandler struct {
 	registry        *session.ConnectionRegistry
 	limits          *session.ConnectionLimits
 	metricsExporter *observe.PrometheusExporter
+	tempFileManager uploadTempFileManager
 
 	// Graceful shutdown state
 	shutdownOnce sync.Once
@@ -184,6 +190,7 @@ type connState struct {
 	stores   Stores            // Each connection gets cloned stores
 	errors   map[string]string // Field errors from last action
 	errorsMu sync.RWMutex      // Mutex for thread-safe error access
+	groupID  string            // Session/group ID for this connection
 }
 
 func (c *connState) setError(field, message string) {
@@ -305,6 +312,24 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Created new session group: %s", groupID)
 	}
 
+	// Initialize upload registry for this connection (created by template initialization)
+	uploadRegistry := h.newUploadRegistry()
+
+	// Detect UploadAware stores and configure uploads
+	for _, store := range stores {
+		if aware, ok := store.(UploadAware); ok {
+			configs := aware.AllowUploads()
+			for name, config := range configs {
+				if err := uploadRegistry.CreateUpload(name, config); err != nil {
+					log.Printf("Failed to create upload %q: %v", name, err)
+				}
+			}
+		}
+	}
+
+	// Set upload registry on template for .lvt.Uploads() support
+	connTmpl.SetUploadRegistry(uploadRegistry)
+
 	// Create Connection and register in registry
 	connection := &session.Connection{
 		Conn:     conn,
@@ -312,16 +337,24 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		UserID:   userID,
 		Template: connTmpl,
 		Stores:   stores,
+		Uploads:  uploadRegistry,
 	}
 
 	h.registry.Register(connection)
 	defer h.registry.Unregister(connection)
+	defer func() {
+		// Clean up temp files for this session on disconnect
+		if err := h.tempFileManager.RemoveSession(groupID); err != nil {
+			log.Printf("Failed to clean up temp files for session %s: %v", groupID, err)
+		}
+	}()
 	log.Printf("Registered connection (total: %d, groups: %d)", h.registry.Count(), h.registry.GroupCount())
 
 	// Create connection state (errors are per-connection, not shared)
 	state := &connState{
-		stores: stores,
-		errors: make(map[string]string),
+		stores:  stores,
+		errors:  make(map[string]string),
+		groupID: groupID,
 	}
 
 	// Create context for broadcaster lifecycle
@@ -427,6 +460,17 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		msg, err := parseActionFromWebSocket(data)
 		if err != nil {
 			log.Printf("Failed to parse message: %v", err)
+			continue
+		}
+
+		// Check if this is an upload-related action
+		uploadHandled, err := h.handleUploadAction(r.Context(), conn, data, msg, state, uploadRegistry)
+		if err != nil {
+			log.Printf("Upload action error: %v", err)
+			continue
+		}
+		if uploadHandled {
+			// Upload action was handled, skip normal action processing
 			continue
 		}
 
@@ -572,6 +616,21 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Initialize upload registry for HTTP requests (needed for multipart uploads)
+	uploadRegistry := h.newUploadRegistry()
+
+	// Detect UploadAware stores and configure uploads
+	for _, store := range state.stores {
+		if aware, ok := store.(UploadAware); ok {
+			configs := aware.AllowUploads()
+			for name, config := range configs {
+				if err := uploadRegistry.CreateUpload(name, config); err != nil {
+					log.Printf("HTTP: Failed to create upload %q: %v", name, err)
+				}
+			}
+		}
+	}
+
 	// Parse message
 	msg, err := parseActionFromHTTP(r)
 	if err != nil {
@@ -585,6 +644,22 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if request contains multipart form data (file uploads)
+	// Process uploads after action execution to allow ConsumeUpload to work
+	if err := h.handleMultipartUploads(r, groupID, uploadRegistry, state.stores); err != nil {
+		log.Printf("HTTP: Upload processing failed: %v", err)
+		// Don't fail the request - upload errors are shown in template
+	}
+
+	// Set upload registry on template for HTTP response (template helpers need it)
+	// Clone template to avoid race conditions with concurrent requests
+	httpTmpl, err := h.config.Template.Clone()
+	if err != nil {
+		http.Error(w, "Failed to clone template", http.StatusInternalServerError)
+		return
+	}
+	httpTmpl.SetUploadRegistry(uploadRegistry)
+
 	// Auto-broadcast to all WebSocket connections in same session group
 	// This ensures all tabs in the same browser session stay in sync
 	// (HTTP request doesn't have a WebSocket connection to exclude)
@@ -594,7 +669,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Generate tree update
 	var buf bytes.Buffer
-	err = h.config.Template.ExecuteUpdates(&buf, h.getTemplateData(state.stores), state.getErrors())
+	err = httpTmpl.ExecuteUpdates(&buf, h.getTemplateData(state.stores), state.getErrors())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -718,6 +793,12 @@ func (h *liveHandler) getTemplateData(stores Stores) interface{} {
 		data[name] = store
 	}
 	return data
+}
+
+// newUploadRegistry creates a new upload registry instance.
+// This is called for each connection to create isolated upload state.
+func (h *liveHandler) newUploadRegistry() uploadRegistry {
+	return h.config.Template.newUploadRegistry()
 }
 
 // cloneStores creates new instances of all stores
@@ -1223,4 +1304,470 @@ func (h *liveHandler) MetricsHandler() http.Handler {
 			return
 		}
 	})
+}
+
+// handleMultipartUploads processes multipart form file uploads from HTTP requests.
+// It detects configured uploads, parses the files, and calls ConsumeUpload on UploadAware stores.
+func (h *liveHandler) handleMultipartUploads(r *http.Request, sessionID string, uploadRegistry uploadRegistry, stores Stores) error {
+	// Check if this is multipart form data
+	contentType := r.Header.Get("Content-Type")
+	if !strings.HasPrefix(contentType, "multipart/form-data") {
+		return nil // Not a multipart request, nothing to do
+	}
+
+	// Type assert to get the concrete Registry type for accessing uploads
+	registry, ok := uploadRegistry.(*upload.Registry)
+	if !ok {
+		return fmt.Errorf("invalid upload registry type")
+	}
+
+	// Get all configured uploads
+	uploads := registry.GetAllUploads()
+	if len(uploads) == 0 {
+		return nil // No uploads configured
+	}
+
+	// Process each configured upload
+	for uploadName, uploadObj := range uploads {
+		// Parse multipart upload for this field
+		entries, err := upload.ParseMultipartUpload(r, uploadName, uploadObj.Config, sessionID, h.tempFileManager.(*upload.TempFileManager))
+		if err != nil {
+			// Check if it's just "no files found" error (expected for optional uploads)
+			if strings.Contains(err.Error(), "no files found") {
+				continue // Skip this upload field
+			}
+			log.Printf("Failed to parse multipart upload %q: %v", uploadName, err)
+			continue // Continue with other uploads
+		}
+
+		// Add entries to upload registry
+		for _, entry := range entries {
+			if err := uploadObj.AddEntry(entry); err != nil {
+				log.Printf("Failed to add entry to upload %q: %v", uploadName, err)
+			}
+		}
+
+		// Get valid completed entries for ConsumeUpload
+		validEntries := uploadObj.GetValidEntries()
+		if len(validEntries) == 0 {
+			continue // No valid entries to consume
+		}
+
+		// Call ConsumeUpload on UploadAware stores
+		for _, store := range stores {
+			if aware, ok := store.(UploadAware); ok {
+				if err := aware.ConsumeUpload(r.Context(), uploadName, validEntries); err != nil {
+					log.Printf("ConsumeUpload failed for %q: %v", uploadName, err)
+					// Don't fail the entire request - error will be shown in template
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// handleUploadAction routes upload-related WebSocket actions to appropriate handlers.
+// Returns (handled=true, err) if this was an upload action, (handled=false, nil) otherwise.
+func (h *liveHandler) handleUploadAction(ctx context.Context, conn *websocket.Conn, rawData []byte, msg message, state *connState, uploadRegistry uploadRegistry) (bool, error) {
+	switch msg.Action {
+	case "upload_start":
+		return true, h.handleUploadStart(ctx, conn, rawData, state, uploadRegistry)
+	case "upload_chunk":
+		return true, h.handleUploadChunk(ctx, conn, rawData, state, uploadRegistry)
+	case "upload_complete":
+		return true, h.handleUploadComplete(ctx, conn, rawData, state, uploadRegistry)
+	case "cancel_upload":
+		return true, h.handleCancelUpload(ctx, conn, rawData, state, uploadRegistry)
+	default:
+		return false, nil // Not an upload action
+	}
+}
+
+// handleUploadStart processes upload_start action from WebSocket client.
+// Client sends file metadata, server creates upload entries and responds with entry IDs.
+func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Conn, rawData []byte, state *connState, uploadRegistry uploadRegistry) error {
+	// Parse upload_start message from raw WebSocket data
+	startMsg, err := upload.ParseUploadStartMessage(rawData)
+	if err != nil {
+		return fmt.Errorf("invalid upload_start message: %w", err)
+	}
+
+	// Type assert to get concrete Registry type
+	registry, ok := uploadRegistry.(*upload.Registry)
+	if !ok {
+		return fmt.Errorf("invalid upload registry type")
+	}
+
+	// Get upload configuration
+	uploadObj := registry.GetUpload(startMsg.UploadName)
+	if uploadObj == nil {
+		return fmt.Errorf("upload %q not configured", startMsg.UploadName)
+	}
+
+	uploadInstance, ok := uploadObj.(*upload.Upload)
+	if !ok {
+		return fmt.Errorf("invalid upload object type")
+	}
+
+	// Validate file count
+	if err := upload.ValidateCount(len(startMsg.Files), uploadInstance.Config); err != nil {
+		return fmt.Errorf("file count validation failed: %w", err)
+	}
+
+	// Create upload entries for each file
+	response := &upload.UploadStartResponse{
+		UploadName: startMsg.UploadName,
+		Entries:    make([]upload.UploadEntryInfo, 0, len(startMsg.Files)),
+	}
+
+	tempFileManager := h.tempFileManager.(*upload.TempFileManager)
+	sessionID := state.groupID
+
+	// Check if external presigner is configured
+	isExternal := uploadInstance.Config.External != nil
+
+	for _, fileMeta := range startMsg.Files {
+		// Generate entry ID
+		entryID := upload.GenerateEntryID()
+
+		// Create upload entry with metadata
+		entry := &uploadtypes.UploadEntry{
+			ID:         entryID,
+			ClientName: fileMeta.Name,
+			ClientType: fileMeta.Type,
+			ClientSize: fileMeta.Size,
+			Progress:   0,
+			Done:       false,
+			Valid:      false, // Will be validated when entry is added
+			BytesRecv:  0,
+		}
+
+		var entryInfo upload.UploadEntryInfo
+
+		if isExternal {
+			// External upload: generate presigned URL
+			presignMeta, err := uploadInstance.Config.External.Presign(entry)
+			if err != nil {
+				entryInfo = upload.UploadEntryInfo{
+					EntryID:    entryID,
+					ClientName: fileMeta.Name,
+					Valid:      false,
+					Error:      fmt.Sprintf("failed to presign: %v", err),
+				}
+			} else {
+				// Store external reference in entry
+				entry.ExternalRef = presignMeta.URL
+
+				// Validate and add entry to registry
+				if err := uploadInstance.AddEntry(entry); err != nil {
+					entryInfo = upload.UploadEntryInfo{
+						EntryID:    entryID,
+						ClientName: fileMeta.Name,
+						Valid:      false,
+						Error:      err.Error(),
+					}
+				} else {
+					// Return presigned metadata to client
+					entryInfo = upload.UploadEntryInfo{
+						EntryID:    entryID,
+						ClientName: fileMeta.Name,
+						Valid:      true,
+						Error:      "",
+						External: &upload.ExternalUploadMeta{
+							Uploader: presignMeta.Uploader,
+							URL:      presignMeta.URL,
+							Fields:   presignMeta.Fields,
+							Headers:  presignMeta.Headers,
+						},
+					}
+				}
+			}
+		} else {
+			// Server-side upload: create temp file
+			tempPath, err := tempFileManager.CreateTempFile(sessionID, startMsg.UploadName, entryID)
+			if err != nil {
+				entryInfo = upload.UploadEntryInfo{
+					EntryID:    entryID,
+					ClientName: fileMeta.Name,
+					Valid:      false,
+					Error:      fmt.Sprintf("failed to create temp file: %v", err),
+				}
+			} else {
+				entry.TempPath = tempPath
+
+				// Validate and add entry to registry
+				if err := uploadInstance.AddEntry(entry); err != nil {
+					entryInfo = upload.UploadEntryInfo{
+						EntryID:    entryID,
+						ClientName: fileMeta.Name,
+						Valid:      false,
+						Error:      err.Error(),
+					}
+					// Remove temp file since entry is invalid
+					os.Remove(tempPath)
+				} else {
+					entryInfo = upload.UploadEntryInfo{
+						EntryID:    entryID,
+						ClientName: fileMeta.Name,
+						Valid:      true,
+						Error:      "",
+					}
+				}
+			}
+		}
+
+		response.Entries = append(response.Entries, entryInfo)
+	}
+
+	// Serialize and send response
+	respBytes, err := upload.SerializeUploadStartResponse(response)
+	if err != nil {
+		return fmt.Errorf("failed to serialize response: %w", err)
+	}
+
+	if err := writeUpdateWebSocket(conn, respBytes); err != nil {
+		return fmt.Errorf("failed to send upload_start response: %w", err)
+	}
+
+	return nil
+}
+
+// handleUploadChunk processes upload_chunk action from WebSocket client.
+// Client sends base64-encoded chunk data, server decodes and appends to temp file.
+func (h *liveHandler) handleUploadChunk(ctx context.Context, conn *websocket.Conn, rawData []byte, state *connState, uploadRegistry uploadRegistry) error {
+	// Parse upload_chunk message from raw WebSocket data
+	chunkMsg, err := upload.ParseUploadChunkMessage(rawData)
+	if err != nil {
+		return fmt.Errorf("invalid upload_chunk message: %w", err)
+	}
+
+	// Type assert to get concrete Registry type
+	registry, ok := uploadRegistry.(*upload.Registry)
+	if !ok {
+		return fmt.Errorf("invalid upload registry type")
+	}
+
+	// Find which upload this entry belongs to
+	var targetUpload *upload.Upload
+	for _, uploadObj := range registry.GetAllUploads() {
+		if uploadObj.GetEntry(chunkMsg.EntryID) != nil {
+			targetUpload = uploadObj
+			break
+		}
+	}
+
+	if targetUpload == nil {
+		return fmt.Errorf("entry %q not found in any upload", chunkMsg.EntryID)
+	}
+
+	// Get the entry
+	entry := targetUpload.GetEntry(chunkMsg.EntryID)
+	if entry == nil {
+		return fmt.Errorf("entry %q not found", chunkMsg.EntryID)
+	}
+
+	// Check if entry is valid
+	if !entry.Valid {
+		return fmt.Errorf("entry %q is invalid: %s", chunkMsg.EntryID, entry.Error)
+	}
+
+	// Decode base64 chunk
+	chunkData, err := base64.StdEncoding.DecodeString(chunkMsg.ChunkBase64)
+	if err != nil {
+		return fmt.Errorf("failed to decode chunk: %w", err)
+	}
+
+	// Open temp file and append chunk
+	tempFile, err := os.OpenFile(entry.TempPath, os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return fmt.Errorf("failed to open temp file: %w", err)
+	}
+
+	// Write chunk
+	written, err := tempFile.Write(chunkData)
+	if err != nil {
+		if closeErr := tempFile.Close(); closeErr != nil {
+			return fmt.Errorf("failed to write chunk: %w (close error: %v)", err, closeErr)
+		}
+		return fmt.Errorf("failed to write chunk: %w", err)
+	}
+
+	// Close file and check for errors (buffered writes may fail here)
+	if err := tempFile.Close(); err != nil {
+		return fmt.Errorf("failed to close temp file: %w", err)
+	}
+
+	// Update entry progress
+	err = targetUpload.UpdateEntry(chunkMsg.EntryID, func(e *uploadtypes.UploadEntry) {
+		e.BytesRecv += int64(written)
+		if e.ClientSize > 0 {
+			e.Progress = int((e.BytesRecv * 100) / e.ClientSize)
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update entry: %w", err)
+	}
+
+	// Broadcast progress update to this connection only
+	progressMsg := &upload.UploadProgressMessage{
+		Type:       "upload_progress",
+		UploadName: targetUpload.Name,
+		EntryID:    entry.ID,
+		ClientName: entry.ClientName,
+		Progress:   entry.Progress,
+		BytesRecv:  entry.BytesRecv,
+		BytesTotal: entry.ClientSize,
+	}
+
+	progressBytes, err := upload.SerializeUploadProgressMessage(progressMsg)
+	if err != nil {
+		log.Printf("Failed to serialize progress message: %v", err)
+		return nil // Don't fail chunk processing due to progress message error
+	}
+
+	if err := writeUpdateWebSocket(conn, progressBytes); err != nil {
+		log.Printf("Failed to send progress update: %v", err)
+		// Don't fail - progress updates are best-effort
+	}
+
+	return nil
+}
+
+// handleUploadComplete processes upload_complete action from WebSocket client.
+// Client indicates all chunks sent, server marks entries as done and calls ConsumeUpload.
+func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.Conn, rawData []byte, state *connState, uploadRegistry uploadRegistry) error {
+	// Parse upload_complete message from raw WebSocket data
+	completeMsg, err := upload.ParseUploadCompleteMessage(rawData)
+	if err != nil {
+		return fmt.Errorf("invalid upload_complete message: %w", err)
+	}
+
+	// Type assert to get concrete Registry type
+	registry, ok := uploadRegistry.(*upload.Registry)
+	if !ok {
+		return fmt.Errorf("invalid upload registry type")
+	}
+
+	// Get upload object
+	uploadObj := registry.GetUpload(completeMsg.UploadName)
+	if uploadObj == nil {
+		return fmt.Errorf("upload %q not found", completeMsg.UploadName)
+	}
+
+	uploadInstance, ok := uploadObj.(*upload.Upload)
+	if !ok {
+		return fmt.Errorf("invalid upload object type")
+	}
+
+	// Mark all entries as done
+	for _, entryID := range completeMsg.EntryIDs {
+		err := uploadInstance.UpdateEntry(entryID, func(e *uploadtypes.UploadEntry) {
+			e.Done = true
+			e.Progress = 100
+		})
+		if err != nil {
+			log.Printf("Failed to mark entry %q as done: %v", entryID, err)
+		}
+	}
+
+	// Get completed valid entries for ConsumeUpload
+	completedEntries := uploadInstance.GetCompletedEntries()
+
+	// Prepare response
+	response := &upload.UploadCompleteResponse{
+		UploadName: completeMsg.UploadName,
+		Success:    true,
+		Error:      "",
+	}
+
+	// Call ConsumeUpload on UploadAware stores
+	if len(completedEntries) > 0 {
+		for _, store := range state.stores {
+			if aware, ok := store.(UploadAware); ok {
+				if err := aware.ConsumeUpload(ctx, completeMsg.UploadName, completedEntries); err != nil {
+					log.Printf("ConsumeUpload failed for %q: %v", completeMsg.UploadName, err)
+					response.Success = false
+					response.Error = err.Error()
+					break
+				}
+			}
+		}
+	}
+
+	// Serialize and send response
+	respBytes, err := upload.SerializeUploadCompleteResponse(response)
+	if err != nil {
+		return fmt.Errorf("failed to serialize response: %w", err)
+	}
+
+	if err := writeUpdateWebSocket(conn, respBytes); err != nil {
+		return fmt.Errorf("failed to send upload_complete response: %w", err)
+	}
+
+	// Note: Tree update will be sent by the normal WebSocket message loop
+	// after this handler returns. The upload_complete action doesn't trigger
+	// an immediate broadcast, but when the user submits the form, the normal
+	// action handler will send the tree update with the uploaded avatar.
+
+	return nil
+}
+
+// handleCancelUpload processes cancel_upload action from WebSocket client.
+// Client cancels an upload, server cleans up temp file and removes entry.
+func (h *liveHandler) handleCancelUpload(ctx context.Context, conn *websocket.Conn, rawData []byte, state *connState, uploadRegistry uploadRegistry) error {
+	// Parse cancel_upload message from raw WebSocket data
+	cancelMsg, err := upload.ParseCancelUploadMessage(rawData)
+	if err != nil {
+		return fmt.Errorf("invalid cancel_upload message: %w", err)
+	}
+
+	// Type assert to get concrete Registry type
+	registry, ok := uploadRegistry.(*upload.Registry)
+	if !ok {
+		return fmt.Errorf("invalid upload registry type")
+	}
+
+	// Find which upload this entry belongs to
+	var targetUpload *upload.Upload
+	for _, uploadObj := range registry.GetAllUploads() {
+		if uploadObj.GetEntry(cancelMsg.EntryID) != nil {
+			targetUpload = uploadObj
+			break
+		}
+	}
+
+	response := &upload.CancelUploadResponse{
+		EntryID: cancelMsg.EntryID,
+		Success: true,
+	}
+
+	if targetUpload == nil {
+		// Entry not found - might have already been removed
+		log.Printf("Entry %q not found for cancellation", cancelMsg.EntryID)
+	} else {
+		// Get entry to find temp file path
+		entry := targetUpload.GetEntry(cancelMsg.EntryID)
+		if entry != nil && entry.TempPath != "" {
+			// Remove temp file directly
+			if err := os.Remove(entry.TempPath); err != nil {
+				log.Printf("Failed to remove temp file for entry %q: %v", cancelMsg.EntryID, err)
+			}
+		}
+
+		// Remove entry from registry
+		targetUpload.RemoveEntry(cancelMsg.EntryID)
+	}
+
+	// Serialize and send response
+	respBytes, err := upload.SerializeCancelUploadResponse(response)
+	if err != nil {
+		return fmt.Errorf("failed to serialize response: %w", err)
+	}
+
+	if err := writeUpdateWebSocket(conn, respBytes); err != nil {
+		return fmt.Errorf("failed to send cancel_upload response: %w", err)
+	}
+
+	return nil
 }
