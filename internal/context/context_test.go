@@ -627,7 +627,7 @@ func TestExecuteTemplateWithContext_LvtFieldCollision(t *testing.T) {
 	}
 
 	data := Data{Name: "Test", Lvt: "ShouldBeSkipped"}
-	result, err := ExecuteTemplateWithContext(tmpl, data, nil, true)
+	result, err := ExecuteTemplateWithContext(tmpl, data, nil, true, nil)
 	if err != nil {
 		t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
 	}
@@ -676,7 +676,7 @@ func TestExecuteTemplateWithContext_MapLvtCollision(t *testing.T) {
 		"lvt":  "ShouldBeSkipped", // This key conflicts with reserved key
 	}
 
-	result, err := ExecuteTemplateWithContext(tmpl, data, nil, true)
+	result, err := ExecuteTemplateWithContext(tmpl, data, nil, true, nil)
 	if err != nil {
 		t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
 	}
@@ -700,7 +700,7 @@ func TestExecuteTemplateWithContext_NilPointer(t *testing.T) {
 	}
 
 	var data *User = nil
-	result, err := ExecuteTemplateWithContext(tmpl, data, nil, true)
+	result, err := ExecuteTemplateWithContext(tmpl, data, nil, true, nil)
 	if err != nil {
 		t.Fatalf("ExecuteTemplateWithContext failed: %v", err)
 	}
