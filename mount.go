@@ -464,7 +464,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Check if this is an upload-related action
-		uploadHandled, err := h.handleUploadAction(r.Context(), conn, data, msg, state, uploadRegistry)
+		uploadHandled, err := h.handleUploadAction(r.Context(), conn, data, msg, state, uploadRegistry, connection)
 		if err != nil {
 			log.Printf("Upload action error: %v", err)
 			continue
@@ -1369,14 +1369,14 @@ func (h *liveHandler) handleMultipartUploads(r *http.Request, sessionID string, 
 
 // handleUploadAction routes upload-related WebSocket actions to appropriate handlers.
 // Returns (handled=true, err) if this was an upload action, (handled=false, nil) otherwise.
-func (h *liveHandler) handleUploadAction(ctx context.Context, conn *websocket.Conn, rawData []byte, msg message, state *connState, uploadRegistry uploadRegistry) (bool, error) {
+func (h *liveHandler) handleUploadAction(ctx context.Context, conn *websocket.Conn, rawData []byte, msg message, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) (bool, error) {
 	switch msg.Action {
 	case "upload_start":
 		return true, h.handleUploadStart(ctx, conn, rawData, state, uploadRegistry)
 	case "upload_chunk":
 		return true, h.handleUploadChunk(ctx, conn, rawData, state, uploadRegistry)
 	case "upload_complete":
-		return true, h.handleUploadComplete(ctx, conn, rawData, state, uploadRegistry)
+		return true, h.handleUploadComplete(ctx, conn, rawData, state, uploadRegistry, connection)
 	case "cancel_upload":
 		return true, h.handleCancelUpload(ctx, conn, rawData, state, uploadRegistry)
 	default:
@@ -1636,7 +1636,7 @@ func (h *liveHandler) handleUploadChunk(ctx context.Context, conn *websocket.Con
 
 // handleUploadComplete processes upload_complete action from WebSocket client.
 // Client indicates all chunks sent, server marks entries as done and calls ConsumeUpload.
-func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.Conn, rawData []byte, state *connState, uploadRegistry uploadRegistry) error {
+func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.Conn, rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
 	// Parse upload_complete message from raw WebSocket data
 	completeMsg, err := upload.ParseUploadCompleteMessage(rawData)
 	if err != nil {
@@ -1707,7 +1707,8 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 
 	// Broadcast to other connections in the same group
 	// This ensures all tabs in the same browser session see the upload completion
-	h.autoBroadcastToGroup(state.groupID, h.getTemplateData(state.stores), nil)
+	// Exclude the current connection to avoid race condition with the tree update below
+	h.autoBroadcastToGroup(state.groupID, h.getTemplateData(state.stores), connection)
 
 	// Generate and send tree update to show upload completion immediately
 	var buf bytes.Buffer
