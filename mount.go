@@ -464,7 +464,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Check if this is an upload-related action
-		uploadHandled, err := h.handleUploadAction(r.Context(), conn, data, msg, state, uploadRegistry)
+		uploadHandled, err := h.handleUploadAction(r.Context(), conn, data, msg, state, uploadRegistry, connection)
 		if err != nil {
 			log.Printf("Upload action error: %v", err)
 			continue
@@ -1369,14 +1369,14 @@ func (h *liveHandler) handleMultipartUploads(r *http.Request, sessionID string, 
 
 // handleUploadAction routes upload-related WebSocket actions to appropriate handlers.
 // Returns (handled=true, err) if this was an upload action, (handled=false, nil) otherwise.
-func (h *liveHandler) handleUploadAction(ctx context.Context, conn *websocket.Conn, rawData []byte, msg message, state *connState, uploadRegistry uploadRegistry) (bool, error) {
+func (h *liveHandler) handleUploadAction(ctx context.Context, conn *websocket.Conn, rawData []byte, msg message, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) (bool, error) {
 	switch msg.Action {
 	case "upload_start":
-		return true, h.handleUploadStart(ctx, conn, rawData, state, uploadRegistry)
+		return true, h.handleUploadStart(ctx, conn, rawData, state, uploadRegistry, connection)
 	case "upload_chunk":
 		return true, h.handleUploadChunk(ctx, conn, rawData, state, uploadRegistry)
 	case "upload_complete":
-		return true, h.handleUploadComplete(ctx, conn, rawData, state, uploadRegistry)
+		return true, h.handleUploadComplete(ctx, conn, rawData, state, uploadRegistry, connection)
 	case "cancel_upload":
 		return true, h.handleCancelUpload(ctx, conn, rawData, state, uploadRegistry)
 	default:
@@ -1386,7 +1386,7 @@ func (h *liveHandler) handleUploadAction(ctx context.Context, conn *websocket.Co
 
 // handleUploadStart processes upload_start action from WebSocket client.
 // Client sends file metadata, server creates upload entries and responds with entry IDs.
-func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Conn, rawData []byte, state *connState, uploadRegistry uploadRegistry) error {
+func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Conn, rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
 	// Parse upload_start message from raw WebSocket data
 	startMsg, err := upload.ParseUploadStartMessage(rawData)
 	if err != nil {
@@ -1454,6 +1454,7 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 					ClientName: fileMeta.Name,
 					Valid:      false,
 					Error:      fmt.Sprintf("failed to presign: %v", err),
+					AutoUpload: uploadInstance.Config.AutoUpload,
 				}
 			} else {
 				// Store external reference in entry
@@ -1466,6 +1467,7 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 						ClientName: fileMeta.Name,
 						Valid:      false,
 						Error:      err.Error(),
+						AutoUpload: uploadInstance.Config.AutoUpload,
 					}
 				} else {
 					// Return presigned metadata to client
@@ -1474,6 +1476,7 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 						ClientName: fileMeta.Name,
 						Valid:      true,
 						Error:      "",
+						AutoUpload: uploadInstance.Config.AutoUpload,
 						External: &upload.ExternalUploadMeta{
 							Uploader: presignMeta.Uploader,
 							URL:      presignMeta.URL,
@@ -1492,6 +1495,7 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 					ClientName: fileMeta.Name,
 					Valid:      false,
 					Error:      fmt.Sprintf("failed to create temp file: %v", err),
+					AutoUpload: uploadInstance.Config.AutoUpload,
 				}
 			} else {
 				entry.TempPath = tempPath
@@ -1503,6 +1507,7 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 						ClientName: fileMeta.Name,
 						Valid:      false,
 						Error:      err.Error(),
+						AutoUpload: uploadInstance.Config.AutoUpload,
 					}
 					// Remove temp file since entry is invalid
 					os.Remove(tempPath)
@@ -1512,6 +1517,7 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 						ClientName: fileMeta.Name,
 						Valid:      true,
 						Error:      "",
+						AutoUpload: uploadInstance.Config.AutoUpload,
 					}
 				}
 			}
@@ -1521,13 +1527,11 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 	}
 
 	// Serialize and send response
-	respBytes, err := upload.SerializeUploadStartResponse(response)
-	if err != nil {
-		return fmt.Errorf("failed to serialize response: %w", err)
-	}
-
-	if err := writeUpdateWebSocket(conn, respBytes); err != nil {
-		return fmt.Errorf("failed to send upload_start response: %w", err)
+	// Send tree update to show upload entries in DOM
+	// This replaces the old upload_start response to avoid duplicate messages
+	if err := h.sendUpdate(connection, h.getTemplateData(state.stores)); err != nil {
+		log.Printf("Failed to send tree update after upload_start: %v", err)
+		return nil // Don't fail the upload, just skip the update
 	}
 
 	return nil
@@ -1636,7 +1640,7 @@ func (h *liveHandler) handleUploadChunk(ctx context.Context, conn *websocket.Con
 
 // handleUploadComplete processes upload_complete action from WebSocket client.
 // Client indicates all chunks sent, server marks entries as done and calls ConsumeUpload.
-func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.Conn, rawData []byte, state *connState, uploadRegistry uploadRegistry) error {
+func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.Conn, rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
 	// Parse upload_complete message from raw WebSocket data
 	completeMsg, err := upload.ParseUploadCompleteMessage(rawData)
 	if err != nil {
@@ -1695,20 +1699,16 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 		}
 	}
 
-	// Serialize and send response
-	respBytes, err := upload.SerializeUploadCompleteResponse(response)
-	if err != nil {
-		return fmt.Errorf("failed to serialize response: %w", err)
+	// Send tree update to current connection to show upload completion immediately
+	// This replaces the old upload_complete response to avoid duplicate messages
+	if err := h.sendUpdate(connection, h.getTemplateData(state.stores)); err != nil {
+		log.Printf("Failed to send tree update after upload: %v", err)
+		return nil // Don't fail the upload, just skip the update
 	}
 
-	if err := writeUpdateWebSocket(conn, respBytes); err != nil {
-		return fmt.Errorf("failed to send upload_complete response: %w", err)
-	}
-
-	// Note: Tree update will be sent by the normal WebSocket message loop
-	// after this handler returns. The upload_complete action doesn't trigger
-	// an immediate broadcast, but when the user submits the form, the normal
-	// action handler will send the tree update with the uploaded avatar.
+	// Broadcast to other connections in the same group to show upload completion in all tabs
+	// Exclude the current connection since we just sent the update above
+	h.autoBroadcastToGroup(state.groupID, h.getTemplateData(state.stores), connection)
 
 	return nil
 }
