@@ -108,6 +108,7 @@ import (
 	"github.com/livetemplate/livetemplate/internal/send"
 	"github.com/livetemplate/livetemplate/internal/session"
 	"github.com/livetemplate/livetemplate/internal/signature"
+	uploadtypes "github.com/livetemplate/livetemplate/internal/uploadtypes"
 	"github.com/livetemplate/livetemplate/pubsub"
 )
 
@@ -153,16 +154,17 @@ type Config struct {
 	PubSubBroadcaster      pubsub.Broadcaster // Optional: for distributed broadcasting across instances
 	AllowedOrigins         []string           // Allowed WebSocket origins (empty = allow all in dev, restrict in prod)
 	WebSocketDisabled      bool
-	LoadingDisabled        bool          // Disables automatic loading indicator on page load
-	TemplateFiles          []string      // If set, overrides auto-discovery
-	TemplateBaseDir        string        // Base directory for template auto-discovery (default: directory of calling code via runtime.Caller)
-	IgnoreTemplateDirs     []string      // Additional directories to ignore during auto-discovery
-	DevMode                bool          // Development mode - use local client library instead of CDN
-	MaxConnections         int64         // Maximum total connections (0 = unlimited)
-	MaxConnectionsPerGroup int64         // Maximum connections per group (0 = unlimited)
-	MessageRateLimit       float64       // Messages per second per connection (0 = unlimited, default 10)
-	MessageRateBurst       int           // Burst capacity for rate limiting (default 20)
-	CookieMaxAge           time.Duration // Session cookie max age (default: 1 year)
+	LoadingDisabled        bool                            // Disables automatic loading indicator on page load
+	TemplateFiles          []string                        // If set, overrides auto-discovery
+	TemplateBaseDir        string                          // Base directory for template auto-discovery (default: directory of calling code via runtime.Caller)
+	IgnoreTemplateDirs     []string                        // Additional directories to ignore during auto-discovery
+	DevMode                bool                            // Development mode - use local client library instead of CDN
+	MaxConnections         int64                           // Maximum total connections (0 = unlimited)
+	MaxConnectionsPerGroup int64                           // Maximum connections per group (0 = unlimited)
+	MessageRateLimit       float64                         // Messages per second per connection (0 = unlimited, default 10)
+	MessageRateBurst       int                             // Burst capacity for rate limiting (default 20)
+	CookieMaxAge           time.Duration                   // Session cookie max age (default: 1 year)
+	UploadConfigs          map[string]uploadtypes.UploadConfig // Upload field configurations
 }
 
 // Template represents a live template with caching and tree-based optimization capabilities.
@@ -420,6 +422,43 @@ func WithMessageRateLimit(messagesPerSecond float64, burstCapacity int) Option {
 func WithCookieMaxAge(maxAge time.Duration) Option {
 	return func(c *Config) {
 		c.CookieMaxAge = maxAge
+	}
+}
+
+// WithUpload configures file upload support for a specific form field.
+//
+// Upload configuration specifies validation rules, size limits, and storage options.
+// Once configured, uploads are accessible via ActionContext during action handling.
+//
+// Example:
+//
+//	tmpl := livetemplate.New("profile",
+//	    livetemplate.WithUpload("avatar", livetemplate.UploadConfig{
+//	        Accept:      []string{"image/png", "image/jpeg"},
+//	        MaxFileSize: 5 << 20, // 5 MB
+//	        MaxFiles:    1,
+//	    }),
+//	)
+//
+// In your store's Change method, access uploads via ActionContext:
+//
+//	func (s *ProfileStore) Change(ctx *ActionContext) error {
+//	    switch ctx.Action {
+//	    case "save_profile":
+//	        if ctx.HasUploads("avatar") {
+//	            for _, entry := range ctx.GetCompletedUploads("avatar") {
+//	                s.AvatarURL = moveToStorage(entry.TempPath)
+//	            }
+//	        }
+//	    }
+//	    return nil
+//	}
+func WithUpload(name string, config uploadtypes.UploadConfig) Option {
+	return func(c *Config) {
+		if c.UploadConfigs == nil {
+			c.UploadConfigs = make(map[string]uploadtypes.UploadConfig)
+		}
+		c.UploadConfigs[name] = config
 	}
 }
 
@@ -1181,6 +1220,7 @@ func (t *Template) Handle(stores ...Store) LiveHandler {
 		MaxConnections:         t.config.MaxConnections,
 		MaxConnectionsPerGroup: t.config.MaxConnectionsPerGroup,
 		CookieMaxAge:           t.config.CookieMaxAge,
+		UploadConfigs:          t.config.UploadConfigs,
 	}
 
 	limits := session.NewConnectionLimits(config.MaxConnections, config.MaxConnectionsPerGroup)

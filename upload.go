@@ -1,7 +1,6 @@
 package livetemplate
 
 import (
-	"context"
 	"github.com/livetemplate/livetemplate/internal/uploadtypes"
 )
 
@@ -54,19 +53,6 @@ type UploadMeta = uploadtypes.UploadMeta
 //   - CreatedAt: When the upload entry was created
 //   - CompletedAt: When the upload completed (zero if not done)
 type UploadEntry = uploadtypes.UploadEntry
-
-// UploadAware is an optional interface that stores can implement to support uploads.
-// When implemented, the mount handler automatically manages upload lifecycle.
-type UploadAware interface {
-	// AllowUploads returns upload configurations keyed by field name.
-	// Called once during initialization to configure allowed uploads.
-	AllowUploads() map[string]UploadConfig
-
-	// ConsumeUpload processes completed uploads for a specific field.
-	// Called after all entries for a field have successfully uploaded.
-	// The store should move/process files from TempPath or ExternalRef.
-	ConsumeUpload(ctx context.Context, name string, entries []*UploadEntry) error
-}
 
 // Internal upload support (used by mount handler, not part of public API)
 
