@@ -1372,7 +1372,7 @@ func (h *liveHandler) handleMultipartUploads(r *http.Request, sessionID string, 
 func (h *liveHandler) handleUploadAction(ctx context.Context, conn *websocket.Conn, rawData []byte, msg message, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) (bool, error) {
 	switch msg.Action {
 	case "upload_start":
-		return true, h.handleUploadStart(ctx, conn, rawData, state, uploadRegistry)
+		return true, h.handleUploadStart(ctx, conn, rawData, state, uploadRegistry, connection)
 	case "upload_chunk":
 		return true, h.handleUploadChunk(ctx, conn, rawData, state, uploadRegistry)
 	case "upload_complete":
@@ -1386,7 +1386,7 @@ func (h *liveHandler) handleUploadAction(ctx context.Context, conn *websocket.Co
 
 // handleUploadStart processes upload_start action from WebSocket client.
 // Client sends file metadata, server creates upload entries and responds with entry IDs.
-func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Conn, rawData []byte, state *connState, uploadRegistry uploadRegistry) error {
+func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Conn, rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
 	// Parse upload_start message from raw WebSocket data
 	startMsg, err := upload.ParseUploadStartMessage(rawData)
 	if err != nil {
@@ -1527,58 +1527,11 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 	}
 
 	// Serialize and send response
-	respBytes, err := upload.SerializeUploadStartResponse(response)
-	if err != nil {
-		return fmt.Errorf("failed to serialize response: %w", err)
-	}
-
-	if err := writeUpdateWebSocket(conn, respBytes); err != nil {
-		return fmt.Errorf("failed to send upload_start response: %w", err)
-	}
-
-	// Generate and send tree update to show upload entries in DOM
-	var buf bytes.Buffer
-	tmpTemplate, err := h.config.Template.Clone()
-	if err != nil {
-		log.Printf("Failed to clone template after upload_start: %v", err)
-		return nil
-	}
-
-	// Type assert uploadRegistry to get Registry for setting on template
-	if registry, ok := uploadRegistry.(*upload.Registry); ok {
-		tmpTemplate.SetUploadRegistry(registry)
-	}
-
-	err = tmpTemplate.ExecuteUpdates(&buf, h.getTemplateData(state.stores), state.getErrors())
-	if err != nil {
-		log.Printf("Failed to generate tree update after upload_start: %v", err)
-		return nil
-	}
-
-	// Parse tree from buffer
-	var tree map[string]interface{}
-	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
-		log.Printf("Failed to parse tree after upload_start: %v", err)
-		return nil
-	}
-
-	// Wrap with metadata
-	updateResponse := UpdateResponse{
-		Tree: tree,
-		Meta: &ResponseMetadata{
-			Success: true,
-			Errors:  state.getErrors(),
-		},
-	}
-
-	updateBytes, err := json.Marshal(updateResponse)
-	if err != nil {
-		log.Printf("Failed to marshal update after upload_start: %v", err)
-		return nil
-	}
-
-	if err := writeUpdateWebSocket(conn, updateBytes); err != nil {
+	// Send tree update to show upload entries in DOM
+	// This replaces the old upload_start response to avoid duplicate messages
+	if err := h.sendUpdate(connection, h.getTemplateData(state.stores)); err != nil {
 		log.Printf("Failed to send tree update after upload_start: %v", err)
+		return nil // Don't fail the upload, just skip the update
 	}
 
 	return nil
@@ -1746,67 +1699,14 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 		}
 	}
 
-	// Serialize and send response
-	respBytes, err := upload.SerializeUploadCompleteResponse(response)
-	if err != nil {
-		return fmt.Errorf("failed to serialize response: %w", err)
-	}
-
-	if err := writeUpdateWebSocket(conn, respBytes); err != nil {
-		return fmt.Errorf("failed to send upload_complete response: %w", err)
-	}
-
-	// Generate and send tree update to show upload completion immediately
-	var buf bytes.Buffer
-	tmpTemplate, err := h.config.Template.Clone()
-	if err != nil {
-		log.Printf("Failed to clone template for upload update: %v", err)
-		return nil // Don't fail the upload, just skip the update
-	}
-
-	// Type assert uploadRegistry to get Registry for setting on template
-	if registry, ok := uploadRegistry.(*upload.Registry); ok {
-		tmpTemplate.SetUploadRegistry(registry)
-	}
-
-	err = tmpTemplate.ExecuteUpdates(&buf, h.getTemplateData(state.stores), state.getErrors())
-	if err != nil {
-		log.Printf("Failed to generate tree update after upload: %v", err)
-		return nil // Don't fail the upload, just skip the update
-	}
-
-	// Parse tree from buffer
-	var tree map[string]interface{}
-	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
-		log.Printf("Failed to parse tree after upload: %v", err)
-		return nil // Don't fail the upload, just skip the update
-	}
-
-	// Wrap with metadata
-	updateResponse := UpdateResponse{
-		Tree: tree,
-		Meta: &ResponseMetadata{
-			Success: response.Success,
-			Errors:  state.getErrors(),
-			Action:  "upload_complete",
-		},
-	}
-
-	// Send tree update
-	updateBytes, err := json.Marshal(updateResponse)
-	if err != nil {
-		log.Printf("Failed to marshal tree update after upload: %v", err)
-		return nil // Don't fail the upload, just skip the update
-	}
-
-	// Send to current connection using connection.Send() which has mutex protection
-	if err := connection.Send(websocket.TextMessage, updateBytes); err != nil {
+	// Send tree update to current connection to show upload completion immediately
+	// This replaces the old upload_complete response to avoid duplicate messages
+	if err := h.sendUpdate(connection, h.getTemplateData(state.stores)); err != nil {
 		log.Printf("Failed to send tree update after upload: %v", err)
 		return nil // Don't fail the upload, just skip the update
 	}
 
-	// Broadcast to other connections in the same group AFTER sending to current connection
-	// This ensures all tabs in the same browser session see the upload completion
+	// Broadcast to other connections in the same group to show upload completion in all tabs
 	// Exclude the current connection since we just sent the update above
 	h.autoBroadcastToGroup(state.groupID, h.getTemplateData(state.stores), connection)
 
