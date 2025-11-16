@@ -1378,10 +1378,8 @@ func (h *liveHandler) handleMultipartUploads(r *http.Request, sessionID string, 
 // handleUploadAction routes upload-related WebSocket actions to appropriate handlers.
 // Returns (handled=true, err) if this was an upload action, (handled=false, nil) otherwise.
 func (h *liveHandler) handleUploadAction(ctx context.Context, conn *websocket.Conn, rawData []byte, msg message, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) (bool, error) {
-	log.Printf("DEBUG: handleUploadAction called with action: %s", msg.Action)
 	switch msg.Action {
 	case "upload_start":
-		log.Printf("DEBUG: Routing to handleUploadStart")
 		return true, h.handleUploadStart(ctx, conn, rawData, state, uploadRegistry, connection)
 	case "upload_chunk":
 		return true, h.handleUploadChunk(ctx, conn, rawData, state, uploadRegistry)
@@ -1397,16 +1395,11 @@ func (h *liveHandler) handleUploadAction(ctx context.Context, conn *websocket.Co
 // handleUploadStart processes upload_start action from WebSocket client.
 // Client sends file metadata, server creates upload entries and responds with entry IDs.
 func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Conn, rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
-	log.Printf("DEBUG: handleUploadStart called")
-
 	// Parse upload_start message from raw WebSocket data
 	startMsg, err := upload.ParseUploadStartMessage(rawData)
 	if err != nil {
-		log.Printf("DEBUG: Failed to parse upload_start message: %v", err)
 		return fmt.Errorf("invalid upload_start message: %w", err)
 	}
-
-	log.Printf("DEBUG: Parsed upload_start for %q with %d files", startMsg.UploadName, len(startMsg.Files))
 
 	// Type assert to get concrete Registry type
 	registry, ok := uploadRegistry.(*upload.Registry)
@@ -1505,7 +1498,6 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 			// Server-side upload: create temp file
 			tempPath, err := tempFileManager.CreateTempFile(sessionID, startMsg.UploadName, entryID)
 			if err != nil {
-				log.Printf("DEBUG: Failed to create temp file for entry %s: %v", entryID, err)
 				entryInfo = upload.UploadEntryInfo{
 					EntryID:    entryID,
 					ClientName: fileMeta.Name,
@@ -1515,7 +1507,6 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 				}
 			} else {
 				entry.TempPath = tempPath
-				log.Printf("DEBUG: Created temp file for entry %s at: %s, exists: %v", entryID, tempPath, fileExists(tempPath))
 
 				// Validate and add entry to registry
 				if err := uploadInstance.AddEntry(entry); err != nil {
@@ -1549,7 +1540,6 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 		return fmt.Errorf("failed to marshal upload_start response: %w", err)
 	}
 
-	log.Printf("DEBUG: Sending upload_start response with %d entries", len(response.Entries))
 	if err := conn.WriteMessage(websocket.TextMessage, responseData); err != nil {
 		return fmt.Errorf("failed to send upload_start response: %w", err)
 	}
@@ -1665,15 +1655,11 @@ func (h *liveHandler) handleUploadChunk(ctx context.Context, conn *websocket.Con
 // handleUploadComplete processes upload_complete action from WebSocket client.
 // Client indicates all chunks sent, server marks entries as done and calls ConsumeUpload.
 func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.Conn, rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
-	log.Printf("DEBUG: handleUploadComplete called")
-
 	// Parse upload_complete message from raw WebSocket data
 	completeMsg, err := upload.ParseUploadCompleteMessage(rawData)
 	if err != nil {
 		return fmt.Errorf("invalid upload_complete message: %w", err)
 	}
-
-	log.Printf("DEBUG: Upload complete for %q with %d entries", completeMsg.UploadName, len(completeMsg.EntryIDs))
 
 	// Type assert to get concrete Registry type
 	registry, ok := uploadRegistry.(*upload.Registry)
@@ -1718,10 +1704,6 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 	// or wait for explicit form submission where uploads will be accessible via ActionContext
 	if len(completedEntries) > 0 {
 		uploadAction := fmt.Sprintf("upload:%s:complete", completeMsg.UploadName)
-		log.Printf("DEBUG: Triggering upload action: %s with %d completed entries", uploadAction, len(completedEntries))
-		for _, entry := range completedEntries {
-			log.Printf("DEBUG: Completed entry %s: TempPath=%s, exists=%v", entry.ID, entry.TempPath, fileExists(entry.TempPath))
-		}
 		uploadMsg := message{
 			Action: uploadAction,
 			Data:   make(map[string]interface{}), // Empty data, uploads are in ActionContext
