@@ -1505,6 +1505,7 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 			// Server-side upload: create temp file
 			tempPath, err := tempFileManager.CreateTempFile(sessionID, startMsg.UploadName, entryID)
 			if err != nil {
+				log.Printf("DEBUG: Failed to create temp file for entry %s: %v", entryID, err)
 				entryInfo = upload.UploadEntryInfo{
 					EntryID:    entryID,
 					ClientName: fileMeta.Name,
@@ -1514,6 +1515,7 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 				}
 			} else {
 				entry.TempPath = tempPath
+				log.Printf("DEBUG: Created temp file for entry %s at: %s, exists: %v", entryID, tempPath, fileExists(tempPath))
 
 				// Validate and add entry to registry
 				if err := uploadInstance.AddEntry(entry); err != nil {
@@ -1541,13 +1543,20 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 		response.Entries = append(response.Entries, entryInfo)
 	}
 
-	// Serialize and send response
-	// Send tree update to show upload entries in DOM
-	// This replaces the old upload_start response to avoid duplicate messages
-	if err := h.sendUpdate(connection, h.getTemplateData(state.stores)); err != nil {
-		log.Printf("Failed to send tree update after upload_start: %v", err)
-		return nil // Don't fail the upload, just skip the update
+	// Send UploadStartResponse to client so it can create upload entries
+	responseData, err := json.Marshal(response)
+	if err != nil {
+		return fmt.Errorf("failed to marshal upload_start response: %w", err)
 	}
+
+	log.Printf("DEBUG: Sending upload_start response with %d entries", len(response.Entries))
+	if err := conn.WriteMessage(websocket.TextMessage, responseData); err != nil {
+		return fmt.Errorf("failed to send upload_start response: %w", err)
+	}
+
+	// Note: We don't send a tree update here because upload entries are created
+	// client-side based on the UploadStartResponse. Tree updates happen after
+	// upload completion when store data actually changes.
 
 	return nil
 }
@@ -1709,6 +1718,10 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 	// or wait for explicit form submission where uploads will be accessible via ActionContext
 	if len(completedEntries) > 0 {
 		uploadAction := fmt.Sprintf("upload:%s:complete", completeMsg.UploadName)
+		log.Printf("DEBUG: Triggering upload action: %s with %d completed entries", uploadAction, len(completedEntries))
+		for _, entry := range completedEntries {
+			log.Printf("DEBUG: Completed entry %s: TempPath=%s, exists=%v", entry.ID, entry.TempPath, fileExists(entry.TempPath))
+		}
 		uploadMsg := message{
 			Action: uploadAction,
 			Data:   make(map[string]interface{}), // Empty data, uploads are in ActionContext
@@ -1796,4 +1809,10 @@ func (h *liveHandler) handleCancelUpload(ctx context.Context, conn *websocket.Co
 	}
 
 	return nil
+}
+
+// fileExists checks if a file exists
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

@@ -192,10 +192,11 @@ func handleEmptyToItemsTransition(
 	metadata map[string]interface{},
 	operations []interface{},
 ) []interface{} {
-	// Build array of items to append, stripping nested statics
+	// Build array of items to append, KEEPING nested statics
+	// The client hasn't seen these items before, so they need full structure
 	itemsToAppend := make([]interface{}, 0, len(newItems))
 	for _, item := range newItems {
-		itemsToAppend = append(itemsToAppend, PrepareTreeForClient(item, true))
+		itemsToAppend = append(itemsToAppend, PrepareTreeForClient(item, false))
 	}
 
 	// Use 'a' operation with statics and metadata so client can initialize range state

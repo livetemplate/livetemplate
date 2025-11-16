@@ -25,10 +25,11 @@ type tempFileInfo struct {
 }
 
 // NewTempFileManager creates a new temp file manager.
-// baseDir defaults to os.TempDir()/livetemplate-uploads if empty.
+// baseDir defaults to ./.uploads/.tmp if empty (relative to current working directory).
+// This avoids cross-filesystem rename issues when moving uploaded files.
 func NewTempFileManager(baseDir string) (*TempFileManager, error) {
 	if baseDir == "" {
-		baseDir = filepath.Join(os.TempDir(), "livetemplate-uploads")
+		baseDir = filepath.Join(".", ".uploads", ".tmp")
 	}
 
 	// Create base directory if it doesn't exist
