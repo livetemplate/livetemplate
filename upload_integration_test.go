@@ -251,7 +251,13 @@ Error: {{.lvt.UploadError "avatar"}}
 {{end}}
 `
 
-	tmpl := Must(New("test"))
+	tmpl := Must(New("test",
+		WithUpload("avatar", UploadConfig{
+			Accept:      []string{"image/*"},
+			MaxEntries:  1,
+			MaxFileSize: 1024 * 1024, // 1MB
+		}),
+	))
 	if _, err := tmpl.Parse(tmplStr); err != nil {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
@@ -277,6 +283,9 @@ Error: {{.lvt.UploadError "avatar"}}
 		handler.ServeHTTP(w, req)
 
 		responseBody := w.Body.String()
+
+		t.Logf("Response status: %d", w.Code)
+		t.Logf("Response body: %s", responseBody)
 
 		// Should contain error about file type
 		if !strings.Contains(responseBody, "Error:") {
@@ -342,7 +351,13 @@ Error: {{.lvt.UploadError "avatar"}}
 
 // TestUploadTempFileCleanup tests temp file cleanup
 func TestUploadTempFileCleanup(t *testing.T) {
-	tmpl := Must(New("test"))
+	tmpl := Must(New("test",
+		WithUpload("avatar", UploadConfig{
+			Accept:      []string{"image/*"},
+			MaxEntries:  1,
+			MaxFileSize: 1024 * 1024, // 1MB
+		}),
+	))
 	if _, err := tmpl.Parse("<div>test</div>"); err != nil {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
