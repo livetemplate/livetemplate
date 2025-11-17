@@ -10,6 +10,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/gorilla/websocket"
 	"github.com/livetemplate/livetemplate/internal/send"
+	uploadtypes "github.com/livetemplate/livetemplate/internal/uploadtypes"
 )
 
 // message is an alias for internal/send.ActionMessage for backward compatibility
@@ -153,16 +154,29 @@ func (a *ActionData) Get(key string) interface{} {
 	return a.raw[key]
 }
 
+// uploadAccessor provides upload access for ActionContext
+type uploadAccessor interface {
+	HasUploads(name string) bool
+	GetUploads(name string) []*uploadtypes.UploadEntry
+	GetUpload(name string, entryID string) *uploadtypes.UploadEntry
+	GetValidUploads(name string) []*uploadtypes.UploadEntry
+	GetCompletedUploads(name string) []*uploadtypes.UploadEntry
+}
+
 // ActionContext provides context for a Change action.
 //
 // The Ctx field contains the request context.Context which can be used for:
 // - Timeouts and cancellation
 // - Trace ID propagation
 // - Request-scoped values (e.g., user_id, group_id)
+//
+// Upload functionality is available via upload methods when handling
+// upload-related actions.
 type ActionContext struct {
-	Action string
-	Data   *ActionData
-	Ctx    context.Context // Request context for timeout/cancellation/values
+	Action  string
+	Data    *ActionData
+	Ctx     context.Context // Request context for timeout/cancellation/values
+	uploads uploadAccessor  // Internal: provides upload access
 }
 
 // Bind is a convenience method that delegates to Data.Bind
@@ -198,6 +212,46 @@ func (c *ActionContext) GetBool(key string) bool {
 // Has is a convenience method
 func (c *ActionContext) Has(key string) bool {
 	return c.Data.Has(key)
+}
+
+// HasUploads checks if there are any uploads for the given field name
+func (c *ActionContext) HasUploads(name string) bool {
+	if c.uploads == nil {
+		return false
+	}
+	return c.uploads.HasUploads(name)
+}
+
+// GetUploads returns all upload entries for the given field name
+func (c *ActionContext) GetUploads(name string) []*uploadtypes.UploadEntry {
+	if c.uploads == nil {
+		return nil
+	}
+	return c.uploads.GetUploads(name)
+}
+
+// GetUpload returns a specific upload entry by field name and entry ID
+func (c *ActionContext) GetUpload(name string, entryID string) *uploadtypes.UploadEntry {
+	if c.uploads == nil {
+		return nil
+	}
+	return c.uploads.GetUpload(name, entryID)
+}
+
+// GetValidUploads returns all valid (non-error) upload entries for the given field name
+func (c *ActionContext) GetValidUploads(name string) []*uploadtypes.UploadEntry {
+	if c.uploads == nil {
+		return nil
+	}
+	return c.uploads.GetValidUploads(name)
+}
+
+// GetCompletedUploads returns all completed upload entries for the given field name
+func (c *ActionContext) GetCompletedUploads(name string) []*uploadtypes.UploadEntry {
+	if c.uploads == nil {
+		return nil
+	}
+	return c.uploads.GetCompletedUploads(name)
 }
 
 // FieldError represents a validation error for a specific field

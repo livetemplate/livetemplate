@@ -2,7 +2,6 @@ package livetemplate
 
 import (
 	"bytes"
-	"context"
 	"html/template"
 	"mime/multipart"
 	"net/http"
@@ -20,41 +19,30 @@ type TestUploadState struct {
 	consumeError    error
 }
 
-// TestStore implements UploadAware for integration testing
+// TestStore for integration testing - uses new ActionContext pattern
 type TestUploadStore struct {
-	State          *TestUploadState // Shared state across clones (exported for cloning)
-	allowedUploads map[string]UploadConfig
-}
-
-func (s *TestUploadStore) AllowUploads() map[string]UploadConfig {
-	if s.allowedUploads == nil {
-		s.allowedUploads = map[string]UploadConfig{
-			"avatar": {
-				Accept:      []string{"image/*"},
-				MaxEntries:  1,
-				MaxFileSize: 1024 * 1024, // 1MB
-			},
-			"documents": {
-				Accept:      []string{".pdf", ".txt"},
-				MaxEntries:  5,
-				MaxFileSize: 5 * 1024 * 1024, // 5MB
-			},
-		}
-	}
-	return s.allowedUploads
-}
-
-func (s *TestUploadStore) ConsumeUpload(ctx context.Context, name string, entries []*UploadEntry) error {
-	if s.State != nil {
-		s.State.uploadsCalled = true
-		s.State.consumedUpload = name
-		s.State.consumedEntries = entries
-		return s.State.consumeError
-	}
-	return nil
+	State *TestUploadState // Shared state across clones (exported for cloning)
 }
 
 func (s *TestUploadStore) Change(ctx *ActionContext) error {
+	// Handle upload completion via ActionContext
+	if strings.HasPrefix(ctx.Action, "upload:") {
+		// Extract upload name from action (e.g., "upload:avatar:complete" -> "avatar")
+		parts := strings.Split(ctx.Action, ":")
+		if len(parts) >= 2 {
+			uploadName := parts[1]
+
+			if s.State != nil {
+				s.State.uploadsCalled = true
+				s.State.consumedUpload = uploadName
+				s.State.consumedEntries = ctx.GetCompletedUploads(uploadName)
+				// If there's a consume error set, return it
+				if s.State.consumeError != nil {
+					return s.State.consumeError
+				}
+			}
+		}
+	}
 	return nil
 }
 
@@ -70,7 +58,19 @@ func TestHTTPUploadFlow(t *testing.T) {
 {{end}}
 `
 
-	tmpl := Must(New("test"))
+	// Create template with upload configuration
+	tmpl := Must(New("test",
+		WithUpload("avatar", UploadConfig{
+			Accept:      []string{"image/*"},
+			MaxEntries:  1,
+			MaxFileSize: 1024 * 1024, // 1MB
+		}),
+		WithUpload("documents", UploadConfig{
+			Accept:      []string{".pdf", ".txt"},
+			MaxEntries:  5,
+			MaxFileSize: 5 * 1024 * 1024, // 5MB
+		}),
+	))
 	if _, err := tmpl.Parse(tmplStr); err != nil {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
@@ -175,7 +175,19 @@ Progress: {{.Progress}}%
 {{end}}
 `
 
-	tmpl := Must(New("test"))
+	// Create template with upload configuration
+	tmpl := Must(New("test",
+		WithUpload("avatar", UploadConfig{
+			Accept:      []string{"image/*"},
+			MaxEntries:  1,
+			MaxFileSize: 1024 * 1024, // 1MB
+		}),
+		WithUpload("documents", UploadConfig{
+			Accept:      []string{".pdf", ".txt"},
+			MaxEntries:  5,
+			MaxFileSize: 5 * 1024 * 1024, // 5MB
+		}),
+	))
 	if _, err := tmpl.Parse(tmplStr); err != nil {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
@@ -239,7 +251,13 @@ Error: {{.lvt.UploadError "avatar"}}
 {{end}}
 `
 
-	tmpl := Must(New("test"))
+	tmpl := Must(New("test",
+		WithUpload("avatar", UploadConfig{
+			Accept:      []string{"image/*"},
+			MaxEntries:  1,
+			MaxFileSize: 1024 * 1024, // 1MB
+		}),
+	))
 	if _, err := tmpl.Parse(tmplStr); err != nil {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
@@ -265,6 +283,9 @@ Error: {{.lvt.UploadError "avatar"}}
 		handler.ServeHTTP(w, req)
 
 		responseBody := w.Body.String()
+
+		t.Logf("Response status: %d", w.Code)
+		t.Logf("Response body: %s", responseBody)
 
 		// Should contain error about file type
 		if !strings.Contains(responseBody, "Error:") {
@@ -330,7 +351,13 @@ Error: {{.lvt.UploadError "avatar"}}
 
 // TestUploadTempFileCleanup tests temp file cleanup
 func TestUploadTempFileCleanup(t *testing.T) {
-	tmpl := Must(New("test"))
+	tmpl := Must(New("test",
+		WithUpload("avatar", UploadConfig{
+			Accept:      []string{"image/*"},
+			MaxEntries:  1,
+			MaxFileSize: 1024 * 1024, // 1MB
+		}),
+	))
 	if _, err := tmpl.Parse("<div>test</div>"); err != nil {
 		t.Fatalf("Failed to parse template: %v", err)
 	}

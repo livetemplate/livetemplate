@@ -163,9 +163,10 @@ type mountConfig struct {
 	PubSubBroadcaster      pubsub.Broadcaster // Optional: for distributed broadcasting across instances
 	AllowedOrigins         []string
 	WebSocketDisabled      bool
-	MaxConnections         int64         // Maximum total connections (0 = unlimited)
-	MaxConnectionsPerGroup int64         // Maximum connections per group (0 = unlimited)
-	CookieMaxAge           time.Duration // Session cookie max age (default: 1 year)
+	MaxConnections         int64                       // Maximum total connections (0 = unlimited)
+	MaxConnectionsPerGroup int64                       // Maximum connections per group (0 = unlimited)
+	CookieMaxAge           time.Duration               // Session cookie max age (default: 1 year)
+	UploadConfigs          map[string]uploadtypes.UploadConfig // Upload field configurations
 }
 
 // mountOption is a functional option for configuring handlers (internal only)
@@ -315,15 +316,10 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Initialize upload registry for this connection (created by template initialization)
 	uploadRegistry := h.newUploadRegistry()
 
-	// Detect UploadAware stores and configure uploads
-	for _, store := range stores {
-		if aware, ok := store.(UploadAware); ok {
-			configs := aware.AllowUploads()
-			for name, config := range configs {
-				if err := uploadRegistry.CreateUpload(name, config); err != nil {
-					log.Printf("Failed to create upload %q: %v", name, err)
-				}
-			}
+	// Configure uploads from handler config
+	for name, config := range h.config.UploadConfigs {
+		if err := uploadRegistry.CreateUpload(name, config); err != nil {
+			log.Printf("Failed to create upload %q: %v", name, err)
 		}
 	}
 
@@ -475,7 +471,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Handle action with request context for timeout/cancellation/values
-		if err := h.handleAction(r.Context(), msg, state); err != nil {
+		if err := h.handleAction(r.Context(), msg, state, uploadRegistry); err != nil {
 			log.Printf("Action error: %v", err)
 			continue
 		}
@@ -619,15 +615,10 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Initialize upload registry for HTTP requests (needed for multipart uploads)
 	uploadRegistry := h.newUploadRegistry()
 
-	// Detect UploadAware stores and configure uploads
-	for _, store := range state.stores {
-		if aware, ok := store.(UploadAware); ok {
-			configs := aware.AllowUploads()
-			for name, config := range configs {
-				if err := uploadRegistry.CreateUpload(name, config); err != nil {
-					log.Printf("HTTP: Failed to create upload %q: %v", name, err)
-				}
-			}
+	// Configure uploads from handler config
+	for name, config := range h.config.UploadConfigs {
+		if err := uploadRegistry.CreateUpload(name, config); err != nil {
+			log.Printf("HTTP: Failed to create upload %q: %v", name, err)
 		}
 	}
 
@@ -639,7 +630,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Handle action with request context for timeout/cancellation/values
-	if err := h.handleAction(r.Context(), msg, state); err != nil {
+	if err := h.handleAction(r.Context(), msg, state, uploadRegistry); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -700,7 +691,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleAction routes the action to the correct store and captures errors
-func (h *liveHandler) handleAction(ctx context.Context, msg message, state *connState) error {
+func (h *liveHandler) handleAction(ctx context.Context, msg message, state *connState, uploadRegistry uploadRegistry) error {
 	// Clear previous errors
 	state.clearErrors()
 
@@ -740,11 +731,20 @@ func (h *liveHandler) handleAction(ctx context.Context, msg message, state *conn
 		}
 	}
 
+	// Create upload accessor if upload registry is available
+	var uploadAccessor uploadAccessor
+	if uploadRegistry != nil {
+		if reg, ok := uploadRegistry.(*upload.Registry); ok {
+			uploadAccessor = upload.NewAccessor(reg)
+		}
+	}
+
 	// Create action context with request context for timeout/cancellation/values
 	actionCtx := &ActionContext{
-		Action: action,
-		Data:   newActionData(msg.Data),
-		Ctx:    ctx,
+		Action:  action,
+		Data:    newActionData(msg.Data),
+		Ctx:     ctx,
+		uploads: uploadAccessor,
 	}
 
 	// Call Change and capture error
@@ -1347,20 +1347,28 @@ func (h *liveHandler) handleMultipartUploads(r *http.Request, sessionID string, 
 			}
 		}
 
-		// Get valid completed entries for ConsumeUpload
+		// Get valid completed entries
 		validEntries := uploadObj.GetValidEntries()
 		if len(validEntries) == 0 {
 			continue // No valid entries to consume
 		}
 
-		// Call ConsumeUpload on UploadAware stores
-		for _, store := range stores {
-			if aware, ok := store.(UploadAware); ok {
-				if err := aware.ConsumeUpload(r.Context(), uploadName, validEntries); err != nil {
-					log.Printf("ConsumeUpload failed for %q: %v", uploadName, err)
-					// Don't fail the entire request - error will be shown in template
-				}
-			}
+		// Trigger upload completion action for stores to process uploads
+		// Create connState to pass to handleAction
+		state := &connState{
+			stores: stores,
+			errors: make(map[string]string),
+		}
+
+		uploadAction := fmt.Sprintf("upload:%s:complete", uploadName)
+		uploadMsg := message{
+			Action: uploadAction,
+			Data:   make(map[string]interface{}),
+		}
+
+		// Call handleAction to process the upload
+		if err := h.handleAction(r.Context(), uploadMsg, state, registry); err != nil {
+			log.Printf("HTTP upload action %q failed: %v", uploadAction, err)
 		}
 	}
 
@@ -1526,13 +1534,19 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 		response.Entries = append(response.Entries, entryInfo)
 	}
 
-	// Serialize and send response
-	// Send tree update to show upload entries in DOM
-	// This replaces the old upload_start response to avoid duplicate messages
-	if err := h.sendUpdate(connection, h.getTemplateData(state.stores)); err != nil {
-		log.Printf("Failed to send tree update after upload_start: %v", err)
-		return nil // Don't fail the upload, just skip the update
+	// Send UploadStartResponse to client so it can create upload entries
+	responseData, err := json.Marshal(response)
+	if err != nil {
+		return fmt.Errorf("failed to marshal upload_start response: %w", err)
 	}
+
+	if err := conn.WriteMessage(websocket.TextMessage, responseData); err != nil {
+		return fmt.Errorf("failed to send upload_start response: %w", err)
+	}
+
+	// Note: We don't send a tree update here because upload entries are created
+	// client-side based on the UploadStartResponse. Tree updates happen after
+	// upload completion when store data actually changes.
 
 	return nil
 }
@@ -1675,7 +1689,7 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 		}
 	}
 
-	// Get completed valid entries for ConsumeUpload
+	// Get completed valid entries
 	completedEntries := uploadInstance.GetCompletedEntries()
 
 	// Prepare response
@@ -1685,16 +1699,23 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 		Error:      "",
 	}
 
-	// Call ConsumeUpload on UploadAware stores
+	// Hybrid approach: Trigger action with special upload action name
+	// Stores can handle "upload:<field>:complete" for auto-processing
+	// or wait for explicit form submission where uploads will be accessible via ActionContext
 	if len(completedEntries) > 0 {
-		for _, store := range state.stores {
-			if aware, ok := store.(UploadAware); ok {
-				if err := aware.ConsumeUpload(ctx, completeMsg.UploadName, completedEntries); err != nil {
-					log.Printf("ConsumeUpload failed for %q: %v", completeMsg.UploadName, err)
-					response.Success = false
-					response.Error = err.Error()
-					break
-				}
+		uploadAction := fmt.Sprintf("upload:%s:complete", completeMsg.UploadName)
+		uploadMsg := message{
+			Action: uploadAction,
+			Data:   make(map[string]interface{}), // Empty data, uploads are in ActionContext
+		}
+
+		// Call handleAction which will provide upload accessor to ActionContext
+		registry, ok := uploadRegistry.(*upload.Registry)
+		if ok {
+			if err := h.handleAction(ctx, uploadMsg, state, registry); err != nil {
+				log.Printf("Upload action %q failed: %v", uploadAction, err)
+				response.Success = false
+				response.Error = err.Error()
 			}
 		}
 	}
@@ -1770,4 +1791,10 @@ func (h *liveHandler) handleCancelUpload(ctx context.Context, conn *websocket.Co
 	}
 
 	return nil
+}
+
+// fileExists checks if a file exists
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
