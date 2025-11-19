@@ -293,25 +293,27 @@ func ValidationToMultiError(err error) MultiError {
 	}
 
 	for _, e := range validationErrs {
-		// Use original field name to match form field names (camelCase/PascalCase)
-		fieldName := e.Field()
+		// Convert struct field name (e.g., "Title") to lowercase to match HTML form input names (e.g., "title")
+		// HTML input names are typically lowercase, but struct fields are PascalCase
+		structFieldName := e.Field()
+		formFieldName := strings.ToLower(structFieldName)
 
 		var message string
 		switch e.Tag() {
 		case "required":
-			message = fmt.Sprintf("%s is required", fieldName)
+			message = fmt.Sprintf("%s is required", structFieldName)
 		case "min":
-			message = fmt.Sprintf("%s must be at least %s characters", fieldName, e.Param())
+			message = fmt.Sprintf("%s must be at least %s characters", structFieldName, e.Param())
 		case "max":
-			message = fmt.Sprintf("%s must be at most %s characters", fieldName, e.Param())
+			message = fmt.Sprintf("%s must be at most %s characters", structFieldName, e.Param())
 		case "email":
-			message = fmt.Sprintf("%s must be a valid email", fieldName)
+			message = fmt.Sprintf("%s must be a valid email", structFieldName)
 		default:
-			message = fmt.Sprintf("%s is invalid", fieldName)
+			message = fmt.Sprintf("%s is invalid", structFieldName)
 		}
 
 		fieldErrors = append(fieldErrors, FieldError{
-			Field:   fieldName,
+			Field:   formFieldName, // Use lowercase to match HTML input names
 			Message: message,
 		})
 	}
