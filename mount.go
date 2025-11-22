@@ -1541,7 +1541,7 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 		return fmt.Errorf("failed to marshal upload_start response: %w", err)
 	}
 
-	if err := conn.WriteMessage(websocket.TextMessage, responseData); err != nil {
+	if err := connection.Send(websocket.TextMessage, responseData); err != nil {
 		return fmt.Errorf("failed to send upload_start response: %w", err)
 	}
 
