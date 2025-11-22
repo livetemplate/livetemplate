@@ -80,14 +80,20 @@ func (c *Connection) Send(messageType int, data []byte) error {
 	}
 
 	// Try to queue message for async delivery
+	queueSizeBefore := len(c.sendChan)
+	log.Printf("[SEND] Attempting send (queue: %d/%d, msg len: %d bytes)",
+		queueSizeBefore, cap(c.sendChan), len(data))
+
 	select {
 	case c.sendChan <- &wsMessage{messageType, data}:
 		// Record buffer size metric
 		if c.metrics != nil {
 			c.metrics.WSAddBufferSize(1)
 		}
+		log.Printf("[SEND] ✅ Message queued successfully (queue now: %d/%d)", queueSizeBefore+1, cap(c.sendChan))
 		return nil // Message queued successfully
 	case <-c.done:
+		log.Printf("[SEND] ❌ Connection closed (done channel)")
 		return ErrConnectionClosed
 	default:
 		// Buffer full - client is too slow, close connection
@@ -95,6 +101,7 @@ func (c *Connection) Send(messageType int, data []byte) error {
 			c.metrics.WSBufferFull()
 			c.metrics.WSSlowClientClose()
 		}
+		log.Printf("[SEND] ❌ Buffer full (%d/%d), closing connection", cap(c.sendChan), cap(c.sendChan))
 		go c.Close()
 		return ErrClientTooSlow
 	}
@@ -168,27 +175,47 @@ func (c *Connection) Close() error {
 // Dequeues messages from sendChan and writes to WebSocket.
 // Ensures goroutines never leak via defer cleanup.
 func (c *Connection) writePump() {
+	log.Printf("[PUMP] writePump started for connection %p (group=%s, user=%s)", c, c.GroupID, c.UserID)
 	defer func() {
+		log.Printf("[PUMP] writePump exiting for connection %p", c)
 		close(c.pumpExited) // Signal that writePump has exited
 		c.Close()           // Ensure connection is closed
 	}()
 
+	messageCount := 0
+
 	for {
 		select {
 		case msg := <-c.sendChan:
+			messageCount++
+			queueSize := len(c.sendChan)
+			log.Printf("[PUMP] Dequeued message #%d (queue: %d/%d, type: %d, len: %d bytes)",
+				messageCount, queueSize, cap(c.sendChan), msg.messageType, len(msg.data))
+
 			// Skip write if connection is nil (for testing)
 			if c.Conn == nil {
+				log.Printf("[PUMP] Skipping write #%d (conn is nil - test mode)", messageCount)
 				continue
 			}
 
 			c.mu.Lock()
+			writeStart := time.Now()
 			err := c.Conn.WriteMessage(msg.messageType, msg.data)
+			writeDuration := time.Since(writeStart)
 			c.mu.Unlock()
+
+			log.Printf("[PUMP] WriteMessage #%d completed in %v (err: %v)", messageCount, writeDuration, err)
+
+			if writeDuration > 100*time.Millisecond {
+				log.Printf("[PUMP] ⚠️ SLOW WriteMessage: %v for message #%d (len: %d bytes)",
+					writeDuration, messageCount, len(msg.data))
+			}
 
 			if err != nil {
 				if c.metrics != nil {
 					c.metrics.WSWriteError()
 				}
+				log.Printf("[PUMP] ❌ ERROR: WriteMessage #%d failed: %v", messageCount, err)
 				slog.Warn("WebSocket write failed, closing connection",
 					slog.String("error", err.Error()),
 					slog.Int("message_type", msg.messageType),
@@ -202,6 +229,7 @@ func (c *Connection) writePump() {
 				c.metrics.WSAddBufferSize(-1)
 			}
 		case <-c.done:
+			log.Printf("[PUMP] Received done signal, draining %d remaining messages", len(c.sendChan))
 			// Drain remaining messages before closing
 			c.drainSendChannel()
 			return
