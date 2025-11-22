@@ -471,30 +471,50 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
+		// [DEBUG] Track timing for this action
+		actionStart := time.Now()
+		log.Printf("[TIMING] Action '%s' received at %v", msg.Action, actionStart.Format("15:04:05.000"))
+
 		// Handle action with request context for timeout/cancellation/values
+		handleStart := time.Now()
 		if err := h.handleAction(r.Context(), msg, state, uploadRegistry); err != nil {
 			log.Printf("Action error: %v", err)
 			continue
 		}
+		handleDuration := time.Since(handleStart)
+		log.Printf("[TIMING] handleAction('%s') completed in %v", msg.Action, handleDuration)
+		if handleDuration > 100*time.Millisecond {
+			log.Printf("[TIMING] ⚠️ SLOW handleAction: %v for action '%s'", handleDuration, msg.Action)
+		}
 
 		// Auto-broadcast to other connections in same session group
 		// This ensures all tabs in the same browser session stay in sync
+		broadcastStart := time.Now()
 		h.autoBroadcastToGroup(groupID, h.getTemplateData(state.stores), connection)
+		log.Printf("[TIMING] autoBroadcast completed in %v", time.Since(broadcastStart))
 
 		// Generate tree update
+		renderStart := time.Now()
 		buf.Reset()
 		err = connTmpl.ExecuteUpdates(&buf, h.getTemplateData(state.stores), state.getErrors())
 		if err != nil {
 			log.Printf("Template update execution failed: %v", err)
 			continue
 		}
+		renderDuration := time.Since(renderStart)
+		log.Printf("[TIMING] Template render completed in %v", renderDuration)
+		if renderDuration > 100*time.Millisecond {
+			log.Printf("[TIMING] ⚠️ SLOW render: %v for action '%s'", renderDuration, msg.Action)
+		}
 
 		// Parse tree from buffer
+		parseStart := time.Now()
 		var tree map[string]interface{}
 		if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
 			log.Printf("Failed to parse tree: %v", err)
 			continue
 		}
+		log.Printf("[TIMING] JSON parse completed in %v", time.Since(parseStart))
 
 		// Wrap with metadata
 		response := UpdateResponse{
@@ -507,13 +527,28 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Encode and send wrapped response
+		marshalStart := time.Now()
 		responseBytes, err := json.Marshal(response)
 		if err != nil {
 			log.Printf("Failed to marshal response: %v", err)
 			continue
 		}
+		log.Printf("[TIMING] JSON marshal completed in %v", time.Since(marshalStart))
 
+		sendStart := time.Now()
 		err = writeUpdateWebSocket(connection, responseBytes)
+		sendDuration := time.Since(sendStart)
+		log.Printf("[TIMING] WebSocket Send completed in %v (err: %v)", sendDuration, err)
+		if sendDuration > 10*time.Millisecond {
+			log.Printf("[TIMING] ⚠️ SLOW Send: %v for action '%s'", sendDuration, msg.Action)
+		}
+
+		totalDuration := time.Since(actionStart)
+		log.Printf("[TIMING] ✅ Total action '%s' processing: %v\n", msg.Action, totalDuration)
+		if totalDuration > 500*time.Millisecond {
+			log.Printf("[TIMING] 🔴 CRITICAL SLOW: Action '%s' took %v!\n", msg.Action, totalDuration)
+		}
+
 		if err != nil {
 			log.Printf("WebSocket write failed: %v", err)
 			break
@@ -749,7 +784,14 @@ func (h *liveHandler) handleAction(ctx context.Context, msg message, state *conn
 	}
 
 	// Call Change and capture error
+	log.Printf("[TIMING] Calling store.Change() for action='%s'", action)
+	changeStart := time.Now()
 	err := store.Change(actionCtx)
+	changeDuration := time.Since(changeStart)
+	log.Printf("[TIMING] store.Change() completed in %v for action='%s'", changeDuration, action)
+	if changeDuration > 100*time.Millisecond {
+		log.Printf("[TIMING] ⚠️ SLOW store.Change(): %v for action='%s'", changeDuration, action)
+	}
 
 	if err != nil {
 		// Process the error
