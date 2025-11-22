@@ -1,15 +1,41 @@
 # Critical Bug Investigation: Delete Handler Blocking Under Load
 
 **Date:** 2025-01-22
+**Last Updated:** 2025-11-22
 **Severity:** CRITICAL
-**Status:** Root cause identified, fix needed
-**Affected Version:** v0.4.1
+**Status:** ~~Root cause identified~~ **REVISED - New findings from timing instrumentation**
+**Affected Version:** v0.4.1, v0.4.2-debug.1
 
-## Executive Summary
+## 🎯 BREAKTHROUGH FINDINGS (2025-11-22)
 
-Real-time SQLite database queries during e2e test execution prove that delete operations **block for 14+ seconds** before executing the SQL DELETE statement. This is a critical bug that makes the application unusable under moderate concurrent use.
+**THE ORIGINAL HYPOTHESIS WAS WRONG!**
 
-The v0.4.1 async WebSocket fix (PR #56) successfully made `connection.Send()` non-blocking, but revealed another blocking point earlier in the request handling pipeline.
+Timing instrumentation in v0.4.2-debug.1 reveals:
+- ✅ Delete handler completes in **1.5ms** (NOT 14 seconds!)
+- ✅ store.Change() executes SQL DELETE in **778µs**
+- ✅ connection.Send() returns `nil` (no error, message queued)
+- ❌ **But WebSocket message NEVER reaches browser!**
+
+### Actual Timeline (Full Test Suite):
+```
+20:48:41.659 - Delete action received
+20:48:41.660 - store.Change() completed (778µs) - SQL DELETE executed
+20:48:41.661 - Total delete processing: 1.518ms
+20:48:41.661 - WebSocket Send: 4.25µs (err: <nil>) - Message queued
+[... 20 second gap ...]
+20:49:01.620 - Next test's action received
+Test fails with 20s timeout waiting for UI update
+```
+
+**The Real Problem:** This is NOT server-side blocking - it's **WebSocket message delivery failure**. The message is queued but never transmitted to the browser.
+
+## Executive Summary (REVISED)
+
+~~Real-time SQLite database queries during e2e test execution prove that delete operations **block for 14+ seconds** before executing the SQL DELETE statement.~~
+
+**CORRECTION:** Timing instrumentation proves the delete handler executes in ~1.5ms. The issue is that WebSocket messages are queued successfully but never delivered to the browser in the full test suite, while working correctly in isolated tests.
+
+The v0.4.1 async WebSocket fix (PR #56) successfully made `connection.Send()` non-blocking. The current issue is that messages are queued but the writePump goroutine or WebSocket connection itself fails to deliver them under accumulated test load.
 
 ## Evidence
 
@@ -158,9 +184,18 @@ By the time the delete test runs (5th subtest), the WebSocket has processed:
 
 ## Next Steps for Investigation
 
-### Step 1: Add Timing Instrumentation
+### ✅ Step 1: Add Timing Instrumentation (COMPLETED)
 
-Add logging to track handler execution timing. Create a debug build with:
+**Status:** Implemented in v0.4.2-debug.1, results captured in full test suite.
+
+**Findings:**
+- Delete handler: 1.518ms total
+- store.Change() (SQL DELETE): 778µs
+- Template render: 649µs
+- WebSocket Send(): 4.25µs (err: <nil>)
+- **Message queued successfully but never delivered to browser**
+
+Original plan was:
 
 ```go
 // In mount.go, around handleAction()
@@ -189,7 +224,119 @@ func (h *liveHandler) handleAction(...) {
 }
 ```
 
-### Step 2: Check for Mutex/Lock Usage
+---
+
+## 🔍 REVISED INVESTIGATION (Based on Step 1 Results)
+
+Since timing shows the handler completes in 1.5ms but messages don't reach the browser, the focus shifts to **WebSocket message delivery**:
+
+### Step 1a: Instrument writePump Goroutine (NEXT)
+
+The writePump goroutine dequeues messages from `sendChan` and writes to WebSocket. We need to know:
+- Is writePump receiving the message from sendChan?
+- How long does `conn.WriteMessage()` take?
+- Is WriteMessage blocking?
+- Are there errors being swallowed?
+
+Add to `/Users/adnaan/code/livetemplate/livetemplate/internal/session/registry.go`:
+
+```go
+func (c *Connection) writePump() {
+    log.Printf("[PUMP] writePump started for connection %p", c)
+    defer log.Printf("[PUMP] writePump exiting for connection %p", c)
+
+    messageCount := 0
+
+    for {
+        select {
+        case msg := <-c.sendChan:
+            messageCount++
+            queueSize := len(c.sendChan)
+            log.Printf("[PUMP] Dequeued message #%d (queue: %d/%d)", messageCount, queueSize, cap(c.sendChan))
+
+            writeStart := time.Now()
+            err := c.Conn.WriteMessage(msg.messageType, msg.data)
+            writeDuration := time.Since(writeStart)
+
+            log.Printf("[PUMP] WriteMessage #%d completed in %v (len: %d bytes, err: %v)",
+                messageCount, writeDuration, len(msg.data), err)
+
+            if writeDuration > 100*time.Millisecond {
+                log.Printf("[PUMP] ⚠️ SLOW WriteMessage: %v for message #%d", writeDuration, messageCount)
+            }
+
+            if err != nil {
+                log.Printf("[PUMP] ERROR: WriteMessage failed: %v", err)
+                return
+            }
+
+        case <-c.done:
+            log.Printf("[PUMP] Received done signal, exiting")
+            return
+        }
+    }
+}
+```
+
+Expected outcomes:
+- **If logs show message dequeued but WriteMessage hangs:** TCP send buffer is full
+- **If logs show message never dequeued:** sendChan is full (50 messages) or writePump died
+- **If logs show WriteMessage returns error:** Connection is broken
+
+### Step 1b: Check WebSocket Connection Health
+
+Add connection health logging when Send() is called:
+
+```go
+func (c *Connection) Send(messageType int, data []byte) error {
+    // Log connection state
+    log.Printf("[SEND] Attempting send (queue: %d/%d, done: %v)",
+        len(c.sendChan), cap(c.sendChan),
+        select { case <-c.done: true; default: false })
+
+    select {
+    case c.sendChan <- &wsMessage{messageType, data}:
+        log.Printf("[SEND] ✅ Message queued successfully")
+        return nil
+    case <-c.done:
+        log.Printf("[SEND] ❌ Connection closed")
+        return ErrConnectionClosed
+    default:
+        log.Printf("[SEND] ❌ Buffer full, closing connection")
+        go c.Close()
+        return ErrClientTooSlow
+    }
+}
+```
+
+### Step 1c: Add Browser-Side WebSocket Logging
+
+Modify test to log WebSocket events:
+
+```javascript
+// In browser console during test
+window.wsMessageCount = 0;
+window.wsMessages = [];
+const originalOnMessage = client.ws.onmessage;
+client.ws.onmessage = function(event) {
+    window.wsMessageCount++;
+    const msg = JSON.parse(event.data);
+    window.wsMessages.push({
+        time: new Date().toISOString(),
+        count: window.wsMessageCount,
+        action: msg.meta?.action,
+        success: msg.meta?.success
+    });
+    console.log(`[WS-RECV #${window.wsMessageCount}]`, msg.meta?.action, msg.meta?.success);
+    originalOnMessage.call(this, event);
+};
+```
+
+This will show if messages arrive but aren't processed correctly.
+
+---
+
+### Step 2: Check for Mutex/Lock Usage (Lower Priority)
 
 Search for synchronization primitives:
 
