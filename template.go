@@ -165,6 +165,7 @@ type Config struct {
 	MessageRateBurst       int                             // Burst capacity for rate limiting (default 20)
 	CookieMaxAge           time.Duration                   // Session cookie max age (default: 1 year)
 	UploadConfigs          map[string]uploadtypes.UploadConfig // Upload field configurations
+	WebSocketBufferSize    int                                 // WebSocket send buffer size per connection (default: 50)
 }
 
 // Template represents a live template with caching and tree-based optimization capabilities.
@@ -386,6 +387,40 @@ func WithMaxConnections(max int64) Option {
 func WithMaxConnectionsPerGroup(max int64) Option {
 	return func(c *Config) {
 		c.MaxConnectionsPerGroup = max
+	}
+}
+
+// WithWebSocketBufferSize sets the send buffer size per WebSocket connection.
+//
+// The buffer queues messages for async delivery. Larger buffers handle burst traffic better
+// but use more memory. Smaller buffers use less memory but may close slow clients more aggressively.
+//
+// Default: 50 messages per connection
+//  - Memory per connection: ~50KB (assuming 1KB avg message size)
+//  - Memory for 100 connections: ~5MB
+//
+// Recommended values:
+//  - Low traffic / memory constrained: 10-25
+//  - Normal traffic: 50 (default)
+//  - High traffic / burst heavy: 100-200
+//
+// Environment variable override: LVT_WS_BUFFER_SIZE
+//
+// Example:
+//
+//	// High-throughput application
+//	tmpl := livetemplate.New("app", livetemplate.WithWebSocketBufferSize(100))
+//
+//	// Memory-constrained environment
+//	tmpl := livetemplate.New("app", livetemplate.WithWebSocketBufferSize(10))
+func WithWebSocketBufferSize(size int) Option {
+	return func(c *Config) {
+		if size <= 0 {
+			slog.Warn("Invalid WebSocketBufferSize, using default", slog.Int("value", size), slog.Int("default", 50))
+			c.WebSocketBufferSize = 50
+		} else {
+			c.WebSocketBufferSize = size
+		}
 	}
 }
 
@@ -612,6 +647,18 @@ func createSecureOriginChecker(allowedOrigins []string, devMode bool) func(*http
 }
 
 func New(name string, opts ...Option) (*Template, error) {
+	// Get WebSocket buffer size default (50, or from LVT_WS_BUFFER_SIZE env var)
+	wsBufferSize := 50
+	if envSize := os.Getenv("LVT_WS_BUFFER_SIZE"); envSize != "" {
+		var parsed int
+		if n, err := fmt.Sscanf(envSize, "%d", &parsed); err == nil && n == 1 && parsed > 0 {
+			wsBufferSize = parsed
+		} else {
+			slog.Warn("Invalid LVT_WS_BUFFER_SIZE environment variable, using default",
+				slog.String("value", envSize), slog.Int("default", 50))
+		}
+	}
+
 	// Default configuration
 	config := Config{
 		Upgrader: &websocket.Upgrader{
@@ -619,11 +666,12 @@ func New(name string, opts ...Option) (*Template, error) {
 			// This will be replaced with origin-aware check after options are applied
 			CheckOrigin: nil, // Will be set after applying options
 		},
-		SessionStore:     NewMemorySessionStore(),
-		Authenticator:    &AnonymousAuthenticator{}, // Default: browser-based session grouping
-		MessageRateLimit: 10.0,                      // Default: 10 messages/sec
-		MessageRateBurst: 20,                        // Default: burst of 20
-		CookieMaxAge:     365 * 24 * time.Hour,      // Default: 1 year
+		SessionStore:        NewMemorySessionStore(),
+		Authenticator:       &AnonymousAuthenticator{}, // Default: browser-based session grouping
+		MessageRateLimit:    10.0,                      // Default: 10 messages/sec
+		MessageRateBurst:    20,                        // Default: burst of 20
+		CookieMaxAge:        365 * 24 * time.Hour,      // Default: 1 year
+		WebSocketBufferSize: wsBufferSize,              // Default: 50 (or LVT_WS_BUFFER_SIZE env)
 	}
 
 	// Apply options
@@ -1221,6 +1269,7 @@ func (t *Template) Handle(stores ...Store) LiveHandler {
 		MaxConnectionsPerGroup: t.config.MaxConnectionsPerGroup,
 		CookieMaxAge:           t.config.CookieMaxAge,
 		UploadConfigs:          t.config.UploadConfigs,
+		wsBufferSize:           t.config.WebSocketBufferSize,
 	}
 
 	limits := session.NewConnectionLimits(config.MaxConnections, config.MaxConnectionsPerGroup)

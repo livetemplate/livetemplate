@@ -3,7 +3,9 @@
 package session
 
 import (
+	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -36,29 +38,161 @@ type Connection struct {
 	Stores   interface{}     // Reference to shared stores from session group (livetemplate.Stores)
 	Uploads  interface{}     // Per-connection upload registry (*upload.Registry)
 	mu       sync.Mutex      // Protects writes to Conn
+
+	// Async sending infrastructure
+	sendChan   chan *wsMessage // Buffered channel for queued messages
+	done       chan struct{}   // Signal for graceful shutdown
+	pumpExited chan struct{}   // Signals writePump has exited cleanly
+	closeOnce  sync.Once       // Prevents double-close race conditions
 }
 
-// Send sends a message to this connection.
-// Thread-safe: multiple goroutines can call Send concurrently.
-// Returns nil if Conn is nil (for testing with mock connections).
-func (c *Connection) Send(messageType int, data []byte) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+// wsMessage represents a WebSocket message to be sent asynchronously.
+type wsMessage struct {
+	messageType int
+	data        []byte
+}
 
+// Send queues a message for async delivery to this connection.
+// Thread-safe: multiple goroutines can call Send concurrently.
+// Returns nil if message queued successfully.
+// Returns error if connection closed or buffer full (client too slow).
+//
+// Note: Send returns immediately without waiting for actual delivery.
+// Actual message transmission happens in the background writePump goroutine.
+func (c *Connection) Send(messageType int, data []byte) error {
 	// Allow nil Conn for testing (mock connections)
 	if c.Conn == nil {
 		return nil
 	}
 
-	return c.Conn.WriteMessage(messageType, data)
+	// If channels not initialized, fall back to sync send (for tests)
+	if c.sendChan == nil {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		return c.Conn.WriteMessage(messageType, data)
+	}
+
+	// Try to queue message for async delivery
+	select {
+	case c.sendChan <- &wsMessage{messageType, data}:
+		return nil // Message queued successfully
+	case <-c.done:
+		return ErrConnectionClosed
+	default:
+		// Buffer full - client is too slow, close connection
+		go c.Close()
+		return ErrClientTooSlow
+	}
 }
 
-// Close closes the WebSocket connection.
-// Thread-safe: safe to call concurrently with Send.
+var (
+	// ErrConnectionClosed is returned when attempting to send on a closed connection
+	ErrConnectionClosed = &ConnectionError{"connection closed"}
+	// ErrClientTooSlow is returned when send buffer is full (client not consuming fast enough)
+	ErrClientTooSlow = &ConnectionError{"client too slow, closing connection"}
+)
+
+// ConnectionError represents a connection-level error
+type ConnectionError struct {
+	msg string
+}
+
+func (e *ConnectionError) Error() string {
+	return e.msg
+}
+
+// Close closes the WebSocket connection safely.
+// Thread-safe: safe to call concurrently with Send and multiple times.
+// Uses sync.Once to prevent double-close race conditions.
+//
+// Close sequence:
+// 1. Signal writePump to stop (via done channel)
+// 2. Wait for writePump to exit (with 5-second timeout)
+// 3. Close the WebSocket connection
 func (c *Connection) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.Conn.Close()
+	// For nil connections or uninitialized async infrastructure (tests)
+	if c.Conn == nil || c.done == nil {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.Conn != nil {
+			return c.Conn.Close()
+		}
+		return nil
+	}
+
+	c.closeOnce.Do(func() {
+		// 1. Signal writePump to stop (if not already signaled)
+		select {
+		case <-c.done:
+			// Already closed
+		default:
+			close(c.done)
+		}
+
+		// 2. Wait for writePump to exit (with timeout)
+		select {
+		case <-c.pumpExited:
+			// writePump exited cleanly
+		case <-time.After(5 * time.Second):
+			slog.Warn("writePump drain timeout, forcing close",
+				slog.String("group_id", c.GroupID),
+				slog.String("user_id", c.UserID))
+		}
+
+		// 3. Close the WebSocket connection
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.Conn != nil {
+			c.Conn.Close()
+		}
+	})
+	return nil
+}
+
+// writePump runs as a background goroutine per connection.
+// Dequeues messages from sendChan and writes to WebSocket.
+// Ensures goroutines never leak via defer cleanup.
+func (c *Connection) writePump() {
+	defer func() {
+		close(c.pumpExited) // Signal that writePump has exited
+		c.Close()           // Ensure connection is closed
+	}()
+
+	for {
+		select {
+		case msg := <-c.sendChan:
+			c.mu.Lock()
+			err := c.Conn.WriteMessage(msg.messageType, msg.data)
+			c.mu.Unlock()
+
+			if err != nil {
+				slog.Warn("WebSocket write failed, closing connection",
+					slog.String("error", err.Error()),
+					slog.String("group_id", c.GroupID),
+					slog.String("user_id", c.UserID))
+				return
+			}
+		case <-c.done:
+			// Drain remaining messages before closing
+			c.drainSendChannel()
+			return
+		}
+	}
+}
+
+// drainSendChannel attempts to send remaining queued messages.
+// Non-blocking (uses default case) for graceful shutdown.
+func (c *Connection) drainSendChannel() {
+	for {
+		select {
+		case msg := <-c.sendChan:
+			c.mu.Lock()
+			_ = c.Conn.WriteMessage(msg.messageType, msg.data)
+			c.mu.Unlock()
+		default:
+			return
+		}
+	}
 }
 
 // ConnectionRegistry tracks all active WebSocket connections with dual indexing.
@@ -87,13 +221,25 @@ func NewConnectionRegistry() *ConnectionRegistry {
 	}
 }
 
-// Register adds a connection to the registry.
+// Register adds a connection to the registry and starts its write pump.
 //
 // The connection is indexed by both groupID and userID for efficient lookups.
+// Initializes async sending infrastructure and starts background writePump goroutine.
+//
+// bufferSize: Number of messages to buffer per connection (typically 10-200).
+//
 // If the connection is already registered, this is a no-op (idempotent).
-func (r *ConnectionRegistry) Register(conn *Connection) {
+func (r *ConnectionRegistry) Register(conn *Connection, bufferSize int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	// Initialize async sending infrastructure
+	conn.sendChan = make(chan *wsMessage, bufferSize)
+	conn.done = make(chan struct{})
+	conn.pumpExited = make(chan struct{})
+
+	// Start write pump goroutine
+	go conn.writePump()
 
 	// Add to byGroup index
 	r.byGroup[conn.GroupID] = append(r.byGroup[conn.GroupID], conn)
@@ -102,15 +248,20 @@ func (r *ConnectionRegistry) Register(conn *Connection) {
 	r.byUser[conn.UserID] = append(r.byUser[conn.UserID], conn)
 }
 
-// Unregister removes a connection from the registry.
+// Unregister removes a connection from the registry and stops its write pump.
 //
 // Removes the connection from both indexes (byGroup and byUser).
+// Closes the connection (idempotent due to sync.Once).
 // If the connection is not found, this is a no-op (idempotent).
 //
 // Should be called when a WebSocket connection closes to prevent memory leaks.
 func (r *ConnectionRegistry) Unregister(conn *Connection) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	// Close the connection (triggers writePump shutdown)
+	// This is idempotent due to sync.Once, safe to call multiple times
+	conn.Close()
 
 	// Remove from byGroup index
 	groupConns := r.byGroup[conn.GroupID]
