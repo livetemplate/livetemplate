@@ -40,7 +40,7 @@ type BroadcastAware interface {
 
 // broadcaster implements the Broadcaster interface for a single WebSocket connection
 type broadcaster struct {
-	conn     *websocket.Conn
+	conn     *session.Connection
 	template *Template
 	state    *connState
 	handler  *liveHandler
@@ -360,7 +360,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Create broadcaster for server-initiated updates
 	bc := &broadcaster{
-		conn:     conn,
+		conn:     connection,
 		template: connTmpl,
 		state:    state,
 		handler:  h,
@@ -409,7 +409,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = writeUpdateWebSocket(conn, responseBytes)
+	err = writeUpdateWebSocket(connection, responseBytes)
 	if err != nil {
 		log.Printf("Failed to send initial tree: %v", err)
 		return
@@ -448,7 +448,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				},
 			}
 			if respBytes, err := json.Marshal(errorResp); err == nil {
-				_ = writeUpdateWebSocket(conn, respBytes) // Best effort
+				_ = writeUpdateWebSocket(connection, respBytes) // Best effort
 			}
 			continue // Skip processing this message
 		}
@@ -513,7 +513,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		err = writeUpdateWebSocket(conn, responseBytes)
+		err = writeUpdateWebSocket(connection, responseBytes)
 		if err != nil {
 			log.Printf("WebSocket write failed: %v", err)
 			break
@@ -1383,11 +1383,11 @@ func (h *liveHandler) handleUploadAction(ctx context.Context, conn *websocket.Co
 	case "upload_start":
 		return true, h.handleUploadStart(ctx, conn, rawData, state, uploadRegistry, connection)
 	case "upload_chunk":
-		return true, h.handleUploadChunk(ctx, conn, rawData, state, uploadRegistry)
+		return true, h.handleUploadChunk(ctx, conn, rawData, state, uploadRegistry, connection)
 	case "upload_complete":
 		return true, h.handleUploadComplete(ctx, conn, rawData, state, uploadRegistry, connection)
 	case "cancel_upload":
-		return true, h.handleCancelUpload(ctx, conn, rawData, state, uploadRegistry)
+		return true, h.handleCancelUpload(ctx, conn, rawData, state, uploadRegistry, connection)
 	default:
 		return false, nil // Not an upload action
 	}
@@ -1554,7 +1554,7 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 
 // handleUploadChunk processes upload_chunk action from WebSocket client.
 // Client sends base64-encoded chunk data, server decodes and appends to temp file.
-func (h *liveHandler) handleUploadChunk(ctx context.Context, conn *websocket.Conn, rawData []byte, state *connState, uploadRegistry uploadRegistry) error {
+func (h *liveHandler) handleUploadChunk(ctx context.Context, conn *websocket.Conn, rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
 	// Parse upload_chunk message from raw WebSocket data
 	chunkMsg, err := upload.ParseUploadChunkMessage(rawData)
 	if err != nil {
@@ -1645,7 +1645,7 @@ func (h *liveHandler) handleUploadChunk(ctx context.Context, conn *websocket.Con
 		return nil // Don't fail chunk processing due to progress message error
 	}
 
-	if err := writeUpdateWebSocket(conn, progressBytes); err != nil {
+	if err := writeUpdateWebSocket(connection, progressBytes); err != nil {
 		log.Printf("Failed to send progress update: %v", err)
 		// Don't fail - progress updates are best-effort
 	}
@@ -1737,7 +1737,7 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 
 // handleCancelUpload processes cancel_upload action from WebSocket client.
 // Client cancels an upload, server cleans up temp file and removes entry.
-func (h *liveHandler) handleCancelUpload(ctx context.Context, conn *websocket.Conn, rawData []byte, state *connState, uploadRegistry uploadRegistry) error {
+func (h *liveHandler) handleCancelUpload(ctx context.Context, conn *websocket.Conn, rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
 	// Parse cancel_upload message from raw WebSocket data
 	cancelMsg, err := upload.ParseCancelUploadMessage(rawData)
 	if err != nil {
@@ -1787,7 +1787,7 @@ func (h *liveHandler) handleCancelUpload(ctx context.Context, conn *websocket.Co
 		return fmt.Errorf("failed to serialize response: %w", err)
 	}
 
-	if err := writeUpdateWebSocket(conn, respBytes); err != nil {
+	if err := writeUpdateWebSocket(connection, respBytes); err != nil {
 		return fmt.Errorf("failed to send cancel_upload response: %w", err)
 	}
 

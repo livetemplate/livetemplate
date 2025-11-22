@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/go-playground/validator/v10"
-	"github.com/gorilla/websocket"
 	"github.com/livetemplate/livetemplate/internal/send"
 	uploadtypes "github.com/livetemplate/livetemplate/internal/uploadtypes"
 )
@@ -359,7 +358,7 @@ func parseActionFromWebSocket(data []byte) (message, error) {
 }
 
 // writeUpdateWebSocket wraps internal/send.WriteUpdateToWebSocket for backward compatibility
-func writeUpdateWebSocket(conn *websocket.Conn, update []byte) error {
+func writeUpdateWebSocket(conn send.ConnectionSender, update []byte) error {
 	return send.WriteUpdateToWebSocket(conn, update)
 }
 

@@ -82,6 +82,13 @@ func ParseActionFromWebSocket(data []byte) (ActionMessage, error) {
 }
 
 // WriteUpdateToWebSocket writes a tree update to WebSocket connection (internal protocol).
-func WriteUpdateToWebSocket(conn *websocket.Conn, update []byte) error {
-	return conn.WriteMessage(websocket.TextMessage, update)
+// Uses async Send() method to avoid blocking on slow clients.
+func WriteUpdateToWebSocket(conn ConnectionSender, update []byte) error {
+	return conn.Send(websocket.TextMessage, update)
+}
+
+// ConnectionSender is an interface for sending WebSocket messages asynchronously.
+// Implemented by *session.Connection.
+type ConnectionSender interface {
+	Send(messageType int, data []byte) error
 }
