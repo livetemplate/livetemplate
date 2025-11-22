@@ -3,6 +3,7 @@
 package session
 
 import (
+	"log"
 	"log/slog"
 	"sync"
 	"time"
