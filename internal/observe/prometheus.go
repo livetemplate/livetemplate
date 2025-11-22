@@ -102,6 +102,23 @@ func (e *PrometheusExporter) WriteMetrics(w io.Writer) error {
 		"Total number of errors encountered",
 		e.metrics.errorsEncountered.Load())
 
+	// WebSocket async sending metrics
+	e.writeCounter(&sb, "livetemplate_websocket_buffer_full_total",
+		"Total number of times send buffer was full (client too slow)",
+		e.metrics.wsBufferFull.Load())
+
+	e.writeCounter(&sb, "livetemplate_websocket_slow_client_closes_total",
+		"Total number of connections closed due to slow message consumption",
+		e.metrics.wsSlowClientCloses.Load())
+
+	e.writeCounter(&sb, "livetemplate_websocket_write_errors_total",
+		"Total number of WebSocket write errors",
+		e.metrics.wsWriteErrors.Load())
+
+	e.writeGauge(&sb, "livetemplate_websocket_send_buffer_size",
+		"Current total number of queued messages across all connections",
+		e.metrics.wsSendBufferSize.Load())
+
 	// Duration histograms (converted to seconds for Prometheus convention)
 	// Template execution durations
 	e.writeHistogram(&sb, "livetemplate_template_duration_seconds",

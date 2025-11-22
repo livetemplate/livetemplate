@@ -17,7 +17,7 @@ func TestConnectionRegistry_RegisterAndGet(t *testing.T) {
 		UserID:  "alice",
 	}
 
-	registry.Register(conn1)
+	registry.Register(conn1, 50)
 
 	// Get by group
 	groupConns := registry.GetByGroup("group-1")
@@ -47,9 +47,9 @@ func TestConnectionRegistry_MultipleConnectionsSameGroup(t *testing.T) {
 	conn2 := &Connection{GroupID: "group-1", UserID: ""}
 	conn3 := &Connection{GroupID: "group-1", UserID: ""}
 
-	registry.Register(conn1)
-	registry.Register(conn2)
-	registry.Register(conn3)
+	registry.Register(conn1, 50)
+	registry.Register(conn2, 50)
+	registry.Register(conn3, 50)
 
 	groupConns := registry.GetByGroup("group-1")
 	if len(groupConns) != 3 {
@@ -72,9 +72,9 @@ func TestConnectionRegistry_MultipleConnectionsSameUser(t *testing.T) {
 	conn2 := &Connection{GroupID: "alice-device-2", UserID: "alice"}
 	conn3 := &Connection{GroupID: "alice-device-3", UserID: "alice"}
 
-	registry.Register(conn1)
-	registry.Register(conn2)
-	registry.Register(conn3)
+	registry.Register(conn1, 50)
+	registry.Register(conn2, 50)
+	registry.Register(conn3, 50)
 
 	userConns := registry.GetByUser("alice")
 	if len(userConns) != 3 {
@@ -97,8 +97,8 @@ func TestConnectionRegistry_Unregister(t *testing.T) {
 	conn1 := &Connection{GroupID: "group-1", UserID: "alice"}
 	conn2 := &Connection{GroupID: "group-1", UserID: "alice"}
 
-	registry.Register(conn1)
-	registry.Register(conn2)
+	registry.Register(conn1, 50)
+	registry.Register(conn2, 50)
 
 	// Verify both registered
 	if registry.Count() != 2 {
@@ -148,7 +148,7 @@ func TestConnectionRegistry_UnregisterIdempotent(t *testing.T) {
 	registry := NewConnectionRegistry()
 
 	conn := &Connection{GroupID: "group-1", UserID: "alice"}
-	registry.Register(conn)
+	registry.Register(conn, 50)
 
 	// Unregister twice (should not panic)
 	registry.Unregister(conn)
@@ -197,9 +197,9 @@ func TestConnectionRegistry_GetAll(t *testing.T) {
 	conn2 := &Connection{GroupID: "group-2", UserID: "bob"}
 	conn3 := &Connection{GroupID: "group-3", UserID: ""}
 
-	registry.Register(conn1)
-	registry.Register(conn2)
-	registry.Register(conn3)
+	registry.Register(conn1, 50)
+	registry.Register(conn2, 50)
+	registry.Register(conn3, 50)
 
 	all := registry.GetAll()
 
@@ -229,7 +229,7 @@ func TestConnectionRegistry_Count(t *testing.T) {
 	// Add connections
 	for i := 0; i < 5; i++ {
 		conn := &Connection{GroupID: "group-1", UserID: "alice"}
-		registry.Register(conn)
+		registry.Register(conn, 50)
 	}
 
 	if registry.Count() != 5 {
@@ -242,9 +242,9 @@ func TestConnectionRegistry_GroupCount(t *testing.T) {
 	registry := NewConnectionRegistry()
 
 	// Multiple connections in same group should count as 1 group
-	registry.Register(&Connection{GroupID: "group-1", UserID: "alice"})
-	registry.Register(&Connection{GroupID: "group-1", UserID: "alice"})
-	registry.Register(&Connection{GroupID: "group-2", UserID: "bob"})
+	registry.Register(&Connection{GroupID: "group-1", UserID: "alice"}, 50)
+	registry.Register(&Connection{GroupID: "group-1", UserID: "alice"}, 50)
+	registry.Register(&Connection{GroupID: "group-2", UserID: "bob"}, 50)
 
 	if registry.GroupCount() != 2 {
 		t.Errorf("GroupCount() = %d, want 2", registry.GroupCount())
@@ -256,10 +256,10 @@ func TestConnectionRegistry_UserCount(t *testing.T) {
 	registry := NewConnectionRegistry()
 
 	// Multiple connections for same user should count as 1 user
-	registry.Register(&Connection{GroupID: "group-1", UserID: "alice"})
-	registry.Register(&Connection{GroupID: "group-2", UserID: "alice"})
-	registry.Register(&Connection{GroupID: "group-3", UserID: "bob"})
-	registry.Register(&Connection{GroupID: "group-4", UserID: ""}) // Anonymous
+	registry.Register(&Connection{GroupID: "group-1", UserID: "alice"}, 50)
+	registry.Register(&Connection{GroupID: "group-2", UserID: "alice"}, 50)
+	registry.Register(&Connection{GroupID: "group-3", UserID: "bob"}, 50)
+	registry.Register(&Connection{GroupID: "group-4", UserID: ""}, 50) // Anonymous
 
 	if registry.UserCount() != 3 {
 		t.Errorf("UserCount() = %d, want 3 (alice, bob, anonymous)", registry.UserCount())
@@ -284,7 +284,7 @@ func TestConnectionRegistry_ConcurrentAccess(t *testing.T) {
 					GroupID: "group-" + string(rune('0'+id)),
 					UserID:  "user-" + string(rune('0'+id)),
 				}
-				registry.Register(conn)
+				registry.Register(conn, 50)
 			}
 		}(i)
 	}
@@ -322,7 +322,7 @@ func TestConnectionRegistry_ConcurrentAccess(t *testing.T) {
 
 	// Verify registry is still functional
 	testConn := &Connection{GroupID: "test", UserID: "test"}
-	registry.Register(testConn)
+	registry.Register(testConn, 50)
 
 	if registry.Count() == 0 {
 		t.Error("Registry corrupted after concurrent access")
@@ -334,7 +334,7 @@ func TestConnectionRegistry_ReturnsCopy(t *testing.T) {
 	registry := NewConnectionRegistry()
 
 	conn1 := &Connection{GroupID: "group-1", UserID: "alice"}
-	registry.Register(conn1)
+	registry.Register(conn1, 50)
 
 	// Get slice
 	conns := registry.GetByGroup("group-1")

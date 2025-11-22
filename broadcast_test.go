@@ -34,9 +34,9 @@ func TestLiveHandler_Broadcast(t *testing.T) {
 
 	// Register connections
 	h := handler.(*liveHandler)
-	h.registry.Register(conn1)
-	h.registry.Register(conn2)
-	h.registry.Register(conn3)
+	h.registry.Register(conn1, 50)
+	h.registry.Register(conn2, 50)
+	h.registry.Register(conn3, 50)
 
 	// Broadcast
 	err := handler.Broadcast(&BroadcastState{Value: 42})
@@ -66,9 +66,9 @@ func TestLiveHandler_BroadcastToUsers(t *testing.T) {
 
 	// Register connections
 	h := handler.(*liveHandler)
-	h.registry.Register(conn1)
-	h.registry.Register(conn2)
-	h.registry.Register(conn3)
+	h.registry.Register(conn1, 50)
+	h.registry.Register(conn2, 50)
+	h.registry.Register(conn3, 50)
 
 	// Broadcast to user1 only
 	err := handler.BroadcastToUsers([]string{"user1"}, &BroadcastState{Value: 42})
@@ -99,9 +99,9 @@ func TestLiveHandler_BroadcastToGroup(t *testing.T) {
 
 	// Register connections
 	h := handler.(*liveHandler)
-	h.registry.Register(conn1)
-	h.registry.Register(conn2)
-	h.registry.Register(conn3)
+	h.registry.Register(conn1, 50)
+	h.registry.Register(conn2, 50)
+	h.registry.Register(conn3, 50)
 
 	// Broadcast to group1 only
 	err := handler.BroadcastToGroup("group1", &BroadcastState{Value: 42})
@@ -179,8 +179,8 @@ func TestLiveHandler_BroadcastConcurrent(t *testing.T) {
 
 	// Register connections
 	h := handler.(*liveHandler)
-	h.registry.Register(conn1)
-	h.registry.Register(conn2)
+	h.registry.Register(conn1, 50)
+	h.registry.Register(conn2, 50)
 
 	// Concurrent broadcasts
 	var wg sync.WaitGroup
@@ -220,8 +220,8 @@ func TestLiveHandler_BroadcastToUsersConcurrent(t *testing.T) {
 
 	// Register connections
 	h := handler.(*liveHandler)
-	h.registry.Register(conn1)
-	h.registry.Register(conn2)
+	h.registry.Register(conn1, 50)
+	h.registry.Register(conn2, 50)
 
 	// Concurrent user broadcasts
 	var wg sync.WaitGroup
@@ -283,10 +283,10 @@ func TestLiveHandler_BroadcastMultipleGroups(t *testing.T) {
 
 	// Register all connections
 	h := handler.(*liveHandler)
-	h.registry.Register(conn1)
-	h.registry.Register(conn2)
-	h.registry.Register(conn3)
-	h.registry.Register(conn4)
+	h.registry.Register(conn1, 50)
+	h.registry.Register(conn2, 50)
+	h.registry.Register(conn3, 50)
+	h.registry.Register(conn4, 50)
 
 	// Broadcast to multiple users
 	err := handler.BroadcastToUsers([]string{"user1", "user3"}, &BroadcastState{Value: 100})
@@ -320,8 +320,8 @@ func TestLiveHandler_BroadcastAfterDisconnect(t *testing.T) {
 
 	// Register connections
 	h := handler.(*liveHandler)
-	h.registry.Register(conn1)
-	h.registry.Register(conn2)
+	h.registry.Register(conn1, 50)
+	h.registry.Register(conn2, 50)
 
 	// Unregister conn1
 	h.registry.Unregister(conn1)

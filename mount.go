@@ -167,6 +167,7 @@ type mountConfig struct {
 	MaxConnectionsPerGroup int64                       // Maximum connections per group (0 = unlimited)
 	CookieMaxAge           time.Duration               // Session cookie max age (default: 1 year)
 	UploadConfigs          map[string]uploadtypes.UploadConfig // Upload field configurations
+	wsBufferSize           int                                 // WebSocket send buffer size per connection (default: 50)
 }
 
 // mountOption is a functional option for configuring handlers (internal only)
@@ -336,7 +337,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		Uploads:  uploadRegistry,
 	}
 
-	h.registry.Register(connection)
+	h.registry.Register(connection, h.config.wsBufferSize)
 	defer h.registry.Unregister(connection)
 	defer func() {
 		// Clean up temp files for this session on disconnect
