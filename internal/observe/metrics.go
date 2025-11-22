@@ -20,9 +20,17 @@ type Metrics struct {
 	broadcastsSent    atomic.Int64
 	errorsEncountered atomic.Int64
 
+	// WebSocket async sending counters
+	wsBufferFull        atomic.Int64 // Total count of buffer overflow events
+	wsSlowClientCloses  atomic.Int64 // Total count of connections closed due to slow clients
+	wsWriteErrors       atomic.Int64 // Total count of WebSocket write errors
+
 	// Gauges (atomic for thread safety)
 	activeConnections atomic.Int64
 	activeGroups      atomic.Int64
+
+	// WebSocket async sending gauges
+	wsSendBufferSize atomic.Int64 // Current total messages queued across all connections
 
 	// Histograms (track duration distributions)
 	templateDurations *DurationHistogram
@@ -99,6 +107,33 @@ func (m *Metrics) GroupRemoved() {
 	m.activeGroups.Add(-1)
 }
 
+// WebSocket async sending operations
+
+// WSBufferFull increments the buffer overflow counter.
+func (m *Metrics) WSBufferFull() {
+	m.wsBufferFull.Add(1)
+}
+
+// WSSlowClientClose increments the slow client close counter.
+func (m *Metrics) WSSlowClientClose() {
+	m.wsSlowClientCloses.Add(1)
+}
+
+// WSWriteError increments the write error counter.
+func (m *Metrics) WSWriteError() {
+	m.wsWriteErrors.Add(1)
+}
+
+// WSSetBufferSize sets the current total buffer size across all connections.
+func (m *Metrics) WSSetBufferSize(size int64) {
+	m.wsSendBufferSize.Store(size)
+}
+
+// WSAddBufferSize adds to the current buffer size (when message queued).
+func (m *Metrics) WSAddBufferSize(delta int64) {
+	m.wsSendBufferSize.Add(delta)
+}
+
 // EmitPeriodically emits metrics at the specified interval.
 // This should be called in a goroutine: go metrics.EmitPeriodically(60*time.Second)
 func (m *Metrics) EmitPeriodically(interval time.Duration) {
@@ -121,9 +156,15 @@ func (m *Metrics) emit() {
 		"broadcasts_sent", m.broadcastsSent.Load(),
 		"errors_encountered", m.errorsEncountered.Load(),
 
+		// WebSocket async sending counters
+		"ws_buffer_full", m.wsBufferFull.Load(),
+		"ws_slow_client_closes", m.wsSlowClientCloses.Load(),
+		"ws_write_errors", m.wsWriteErrors.Load(),
+
 		// Gauges
 		"active_connections", m.activeConnections.Load(),
 		"active_groups", m.activeGroups.Load(),
+		"ws_send_buffer_size", m.wsSendBufferSize.Load(),
 
 		// Histogram percentiles (template execution)
 		"template_p50_ms", m.templateDurations.Percentile(50),

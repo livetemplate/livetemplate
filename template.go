@@ -1295,6 +1295,9 @@ func (t *Template) Handle(stores ...Store) LiveHandler {
 		shutdownChan:    make(chan struct{}),
 	}
 
+	// Wire up metrics to registry for WebSocket observability
+	handler.registry.SetMetrics(metrics)
+
 	// Start pub/sub subscriber if broadcaster is configured
 	if config.PubSubBroadcaster != nil {
 		go func() {

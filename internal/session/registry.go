@@ -44,6 +44,7 @@ type Connection struct {
 	done       chan struct{}   // Signal for graceful shutdown
 	pumpExited chan struct{}   // Signals writePump has exited cleanly
 	closeOnce  sync.Once       // Prevents double-close race conditions
+	metrics    MetricsRecorder // Optional: metrics recorder for observability
 }
 
 // wsMessage represents a WebSocket message to be sent asynchronously.
@@ -75,11 +76,19 @@ func (c *Connection) Send(messageType int, data []byte) error {
 	// Try to queue message for async delivery
 	select {
 	case c.sendChan <- &wsMessage{messageType, data}:
+		// Record buffer size metric
+		if c.metrics != nil {
+			c.metrics.WSAddBufferSize(1)
+		}
 		return nil // Message queued successfully
 	case <-c.done:
 		return ErrConnectionClosed
 	default:
 		// Buffer full - client is too slow, close connection
+		if c.metrics != nil {
+			c.metrics.WSBufferFull()
+			c.metrics.WSSlowClientClose()
+		}
 		go c.Close()
 		return ErrClientTooSlow
 	}
@@ -166,11 +175,19 @@ func (c *Connection) writePump() {
 			c.mu.Unlock()
 
 			if err != nil {
+				if c.metrics != nil {
+					c.metrics.WSWriteError()
+				}
 				slog.Warn("WebSocket write failed, closing connection",
 					slog.String("error", err.Error()),
 					slog.String("group_id", c.GroupID),
 					slog.String("user_id", c.UserID))
 				return
+			}
+
+			// Message sent successfully, decrement buffer size
+			if c.metrics != nil {
+				c.metrics.WSAddBufferSize(-1)
 			}
 		case <-c.done:
 			// Drain remaining messages before closing
@@ -195,6 +212,15 @@ func (c *Connection) drainSendChannel() {
 	}
 }
 
+// MetricsRecorder is an interface for recording WebSocket metrics.
+// Implemented by *observe.Metrics in the main package.
+type MetricsRecorder interface {
+	WSBufferFull()
+	WSSlowClientClose()
+	WSWriteError()
+	WSAddBufferSize(delta int64)
+}
+
 // ConnectionRegistry tracks all active WebSocket connections with dual indexing.
 //
 // Dual indexing enables efficient broadcasting:
@@ -211,6 +237,7 @@ type ConnectionRegistry struct {
 	byGroup map[string][]*Connection // groupID → connections
 	byUser  map[string][]*Connection // userID → connections  (empty string for anonymous)
 	mu      sync.RWMutex             // Protects both maps
+	metrics MetricsRecorder          // Optional: metrics recorder for observability
 }
 
 // NewConnectionRegistry creates a new empty connection registry.
@@ -219,6 +246,14 @@ func NewConnectionRegistry() *ConnectionRegistry {
 		byGroup: make(map[string][]*Connection),
 		byUser:  make(map[string][]*Connection),
 	}
+}
+
+// SetMetrics sets the metrics recorder for observability.
+// Optional: if not set, metrics are not recorded.
+func (r *ConnectionRegistry) SetMetrics(m MetricsRecorder) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.metrics = m
 }
 
 // Register adds a connection to the registry and starts its write pump.
@@ -237,6 +272,7 @@ func (r *ConnectionRegistry) Register(conn *Connection, bufferSize int) {
 	conn.sendChan = make(chan *wsMessage, bufferSize)
 	conn.done = make(chan struct{})
 	conn.pumpExited = make(chan struct{})
+	conn.metrics = r.metrics // Set metrics from registry
 
 	// Start write pump goroutine
 	go conn.writePump()
