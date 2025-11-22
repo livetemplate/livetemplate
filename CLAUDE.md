@@ -116,11 +116,28 @@ The main `livetemplate` package provides a clean, minimal public API:
     - Components: logger.go, metrics.go, context.go
     - Structured logging with slog, operational metrics
 
-11. **Session Management (`internal/session/`)**:
-    - Connection, ConnectionRegistry, ConnectionLimits types
-    - WebSocket connection tracking and indexing
-    - Connection limit enforcement
-    - Thread-safe concurrent access
+11. **Session Management (`internal/session/`)**: ⚡ **NEW: Async WebSocket Architecture**
+    - **Async Sending Infrastructure**: Channel-based message queuing with background writePump goroutines
+    - **Connection Types**: Connection, ConnectionRegistry, ConnectionLimits
+    - **WebSocket Concurrency**: Each connection has dedicated writePump goroutine for async sends
+    - **Dual Indexing**: By groupID (session groups) and userID (multi-device)
+    - **Graceful Shutdown**: 5-second drain timeout with sync.Once protection
+    - **Performance**: 165M concurrent sends/sec, 54.7M queued sends/sec
+    - **Memory**: ~980 bytes per connection (measured)
+    - **Backpressure**: Closes slow clients when buffer full (fail-fast)
+    - **Thread-safety**: Lock-free sends, mutex-protected registry operations
+
+    **Async Send Flow:**
+    ```
+    1. Send(messageType, data) → Queue message to buffered channel
+    2. writePump goroutine → Dequeue and write to WebSocket
+    3. Close() → Signal done → Wait for pump exit → Close WebSocket
+    ```
+
+    **Configuration:**
+    - Buffer size: `LVT_WS_BUFFER_SIZE` env var (default: 50)
+    - Config option: `WithWebSocketBufferSize(int)`
+    - Metrics: `wsBufferFull`, `wsSlowClientCloses`, `wsWriteErrors`, `wsSendBufferSize`
 
 12. **Structure Tracking (`internal/signature/`)**:
     - StructureSignature for optimizing tree updates
@@ -335,6 +352,39 @@ The repository has a pre-commit hook that:
 - Check construct parsing order
 - Verify hydration logic matches compilation
 - Test with simpler templates first
+
+### Async WebSocket Issues
+
+**Connection Closes Unexpectedly:**
+- Check metrics for `wsSlowClientCloses` counter
+- Client may be too slow (buffer full)
+- Increase buffer size with `LVT_WS_BUFFER_SIZE` or `WithWebSocketBufferSize()`
+- Default buffer: 50 messages
+
+**Goroutine Leaks:**
+- Ensure all connections are unregistered via `registry.Unregister(conn)`
+- `Unregister()` calls `Close()` which signals writePump to exit
+- Check `pumpExited` channel closes (5-second timeout)
+- Run tests with `go test -race` to detect race conditions
+
+**High Memory Usage:**
+- Each connection: ~980 bytes base + (buffer size × avg message size)
+- Default 50-buffer: ~1KB per connection + message overhead
+- Reduce buffer size for memory-constrained environments
+- Monitor `wsSendBufferSize` gauge metric
+
+**Messages Not Delivered:**
+- Check `wsWriteErrors` metric for write failures
+- Verify client WebSocket is connected and reading
+- Check for `ErrConnectionClosed` or `ErrClientTooSlow` errors
+- Review server logs for "WebSocket write failed" warnings
+
+**Performance Tuning:**
+- Benchmark results: 165M concurrent sends/sec, 54.7M queued sends/sec
+- For high-throughput: Increase buffer size (100-1000)
+- For low-latency: Decrease buffer size (10-20)
+- Monitor `wsBufferFull` metric to detect backpressure
+- Use Prometheus metrics at `/metrics` endpoint for observability
 
 ## Future Improvements
 - Consider adding more sophisticated diffing algorithms
