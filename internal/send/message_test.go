@@ -5,8 +5,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/gorilla/websocket"
 )
 
 // TestParseActionFromHTTP_ValidInput tests parsing valid HTTP action messages.
@@ -229,23 +227,37 @@ func TestParseActionFromWebSocket_ComplexData(t *testing.T) {
 	}
 }
 
-// TestWriteUpdateToWebSocket_NilConnection tests error handling with nil connection.
-func TestWriteUpdateToWebSocket_NilConnection(t *testing.T) {
-	// Test that the function exists and has the correct signature
-	// Note: Full WebSocket testing would require spinning up a server/client
+// mockConnectionSender is a mock implementation of ConnectionSender for testing.
+type mockConnectionSender struct {
+	sendCalled bool
+	lastData   []byte
+	sendError  error
+}
+
+func (m *mockConnectionSender) Send(messageType int, data []byte) error {
+	m.sendCalled = true
+	m.lastData = data
+	return m.sendError
+}
+
+// TestWriteUpdateToWebSocket_Success tests successful write to WebSocket.
+func TestWriteUpdateToWebSocket_Success(t *testing.T) {
 	update := []byte(`{"tree":{"s":["<div>","</div>"],"0":"test"}}`)
 
-	// WriteUpdateToWebSocket with nil connection will panic in gorilla/websocket
-	// This is expected behavior - callers must ensure connection is valid
-	// We're just verifying the function signature exists
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("Expected panic with nil connection")
-		}
-	}()
+	mock := &mockConnectionSender{}
+	err := WriteUpdateToWebSocket(mock, update)
 
-	var conn *websocket.Conn
-	_ = WriteUpdateToWebSocket(conn, update)
+	if err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+
+	if !mock.sendCalled {
+		t.Error("Expected Send to be called")
+	}
+
+	if string(mock.lastData) != string(update) {
+		t.Errorf("Expected data %q, got %q", update, mock.lastData)
+	}
 }
 
 // TestActionMessage_DataInitialization tests that data is always initialized.
