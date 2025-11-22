@@ -331,3 +331,46 @@ func TestAsyncInfrastructureInitialization(t *testing.T) {
 
 	registry.Unregister(conn)
 }
+
+// TestConcurrentSendAndClose verifies that concurrent Send() and Close()
+// operations don't cause race conditions or panics.
+func TestConcurrentSendAndClose(t *testing.T) {
+	registry := NewConnectionRegistry()
+
+	conn := &Connection{
+		Conn:    nil,
+		GroupID: "test-group",
+		UserID:  "test-user",
+	}
+
+	registry.Register(conn, 100)
+
+	var wg sync.WaitGroup
+
+	// Start multiple senders
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				_ = conn.Send(websocket.TextMessage, []byte("test"))
+			}
+		}()
+	}
+
+	// Close concurrently while sends are happening
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		time.Sleep(5 * time.Millisecond) // Let some sends happen first
+		conn.Close()
+	}()
+
+	wg.Wait()
+
+	// Verify connection is closed
+	err := conn.Send(websocket.TextMessage, []byte("after close"))
+	if err != ErrConnectionClosed {
+		t.Errorf("Expected ErrConnectionClosed after concurrent close, got: %v", err)
+	}
+}

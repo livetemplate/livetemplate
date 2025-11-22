@@ -191,6 +191,7 @@ func (c *Connection) writePump() {
 				}
 				slog.Warn("WebSocket write failed, closing connection",
 					slog.String("error", err.Error()),
+					slog.Int("message_type", msg.messageType),
 					slog.String("group_id", c.GroupID),
 					slog.String("user_id", c.UserID))
 				return
@@ -219,6 +220,10 @@ func (c *Connection) drainSendChannel() {
 				c.mu.Lock()
 				_ = c.Conn.WriteMessage(msg.messageType, msg.data)
 				c.mu.Unlock()
+			}
+			// Decrement buffer size metric for drained message
+			if c.metrics != nil {
+				c.metrics.WSAddBufferSize(-1)
 			}
 		default:
 			return
@@ -434,7 +439,13 @@ func (r *ConnectionRegistry) GetAll() []*Connection {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var result []*Connection
+	// Pre-calculate total size to avoid multiple allocations
+	total := 0
+	for _, conns := range r.byGroup {
+		total += len(conns)
+	}
+
+	result := make([]*Connection, 0, total)
 	for _, conns := range r.byGroup {
 		result = append(result, conns...)
 	}
