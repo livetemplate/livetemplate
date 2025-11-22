@@ -61,16 +61,22 @@ type wsMessage struct {
 // Note: Send returns immediately without waiting for actual delivery.
 // Actual message transmission happens in the background writePump goroutine.
 func (c *Connection) Send(messageType int, data []byte) error {
-	// Allow nil Conn for testing (mock connections)
-	if c.Conn == nil {
-		return nil
-	}
-
 	// If channels not initialized, fall back to sync send (for tests)
 	if c.sendChan == nil {
+		// Allow nil Conn for testing (mock connections)
+		if c.Conn == nil {
+			return nil
+		}
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		return c.Conn.WriteMessage(messageType, data)
+	}
+
+	// Check if connection is already closed (priority check)
+	select {
+	case <-c.done:
+		return ErrConnectionClosed
+	default:
 	}
 
 	// Try to queue message for async delivery
@@ -119,8 +125,8 @@ func (e *ConnectionError) Error() string {
 // 2. Wait for writePump to exit (with 5-second timeout)
 // 3. Close the WebSocket connection
 func (c *Connection) Close() error {
-	// For nil connections or uninitialized async infrastructure (tests)
-	if c.Conn == nil || c.done == nil {
+	// For uninitialized async infrastructure (no Register() called)
+	if c.done == nil {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		if c.Conn != nil {
@@ -170,6 +176,11 @@ func (c *Connection) writePump() {
 	for {
 		select {
 		case msg := <-c.sendChan:
+			// Skip write if connection is nil (for testing)
+			if c.Conn == nil {
+				continue
+			}
+
 			c.mu.Lock()
 			err := c.Conn.WriteMessage(msg.messageType, msg.data)
 			c.mu.Unlock()
@@ -203,9 +214,12 @@ func (c *Connection) drainSendChannel() {
 	for {
 		select {
 		case msg := <-c.sendChan:
-			c.mu.Lock()
-			_ = c.Conn.WriteMessage(msg.messageType, msg.data)
-			c.mu.Unlock()
+			// Skip write if connection is nil (for testing)
+			if c.Conn != nil {
+				c.mu.Lock()
+				_ = c.Conn.WriteMessage(msg.messageType, msg.data)
+				c.mu.Unlock()
+			}
 		default:
 			return
 		}
