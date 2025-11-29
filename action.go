@@ -3,6 +3,7 @@ package livetemplate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +11,25 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/livetemplate/livetemplate/internal/send"
 	uploadtypes "github.com/livetemplate/livetemplate/internal/uploadtypes"
+)
+
+// HTTP context errors for ActionContext methods
+var (
+	// ErrNoHTTPContext is returned when HTTP methods (SetCookie, Redirect, etc.)
+	// are called from a WebSocket action. These methods require an HTTP response
+	// writer which is not available in WebSocket contexts.
+	//
+	// To set cookies or redirect, use HTTP POST forms instead of WebSocket actions.
+	// This is consistent with security best practices - session cookies should be
+	// HttpOnly and can only be set via HTTP responses, not JavaScript/WebSocket.
+	ErrNoHTTPContext = errors.New("HTTP methods require HTTP context (not available in WebSocket actions)")
+
+	// ErrInvalidRedirectCode is returned when Redirect is called with a non-3xx status code.
+	ErrInvalidRedirectCode = errors.New("invalid redirect status code (must be 3xx)")
+
+	// ErrInvalidRedirectURL is returned when Redirect is called with a potentially
+	// unsafe URL that could lead to open redirect vulnerabilities.
+	ErrInvalidRedirectURL = errors.New("invalid redirect URL (must be relative path starting with /)")
 )
 
 // message is an alias for internal/send.ActionMessage for backward compatibility
@@ -177,11 +197,20 @@ type uploadAccessor interface {
 //
 // Upload functionality is available via upload methods when handling
 // upload-related actions.
+//
+// HTTP methods (SetCookie, Redirect, etc.) are available for HTTP POST actions
+// but will return ErrNoHTTPContext for WebSocket actions. This is by design:
+// session cookies should be HttpOnly and can only be set via HTTP responses.
+// Use HTTP POST forms for authentication flows that need to set cookies.
 type ActionContext struct {
 	Action  string
 	Data    *ActionData
 	Ctx     context.Context // Request context for timeout/cancellation/values
 	uploads uploadAccessor  // Internal: provides upload access
+
+	// HTTP context (nil for WebSocket actions)
+	w http.ResponseWriter
+	r *http.Request
 }
 
 // Bind is a convenience method that delegates to Data.Bind
@@ -257,6 +286,123 @@ func (c *ActionContext) GetCompletedUploads(name string) []*uploadtypes.UploadEn
 		return nil
 	}
 	return c.uploads.GetCompletedUploads(name)
+}
+
+// --- HTTP Methods ---
+// These methods are available for HTTP POST actions but return ErrNoHTTPContext
+// for WebSocket actions. Use HTTP POST forms for authentication flows.
+
+// IsHTTP returns true if this action was triggered via HTTP POST,
+// false if via WebSocket. Use this to check before calling HTTP-only methods.
+func (c *ActionContext) IsHTTP() bool {
+	return c.w != nil && c.r != nil
+}
+
+// SetCookie adds a Set-Cookie header to the HTTP response.
+// Returns ErrNoHTTPContext if called from a WebSocket action.
+//
+// For authentication, use HttpOnly cookies to prevent XSS attacks:
+//
+//	ctx.SetCookie(&http.Cookie{
+//	    Name:     "session_token",
+//	    Value:    token,
+//	    Path:     "/",
+//	    HttpOnly: true,
+//	    Secure:   true,
+//	    SameSite: http.SameSiteStrictMode,
+//	})
+func (c *ActionContext) SetCookie(cookie *http.Cookie) error {
+	if c.w == nil {
+		return ErrNoHTTPContext
+	}
+	http.SetCookie(c.w, cookie)
+	return nil
+}
+
+// GetCookie retrieves a cookie from the HTTP request.
+// Returns ErrNoHTTPContext if called from a WebSocket action,
+// or http.ErrNoCookie if the cookie doesn't exist.
+func (c *ActionContext) GetCookie(name string) (*http.Cookie, error) {
+	if c.r == nil {
+		return nil, ErrNoHTTPContext
+	}
+	return c.r.Cookie(name)
+}
+
+// DeleteCookie removes a cookie by setting MaxAge to -1.
+// Returns ErrNoHTTPContext if called from a WebSocket action.
+func (c *ActionContext) DeleteCookie(name string) error {
+	if c.w == nil {
+		return ErrNoHTTPContext
+	}
+	http.SetCookie(c.w, &http.Cookie{
+		Name:   name,
+		Value:  "",
+		Path:   "/",
+		MaxAge: -1,
+	})
+	return nil
+}
+
+// Redirect sends an HTTP redirect response.
+// Returns ErrNoHTTPContext if called from a WebSocket action.
+// Returns ErrInvalidRedirectCode if code is not a 3xx status.
+// Returns ErrInvalidRedirectURL if URL could cause an open redirect vulnerability.
+//
+// Only relative paths starting with "/" are allowed (e.g., "/dashboard").
+// Protocol-relative URLs like "//evil.com" are rejected.
+//
+// Example:
+//
+//	return ctx.Redirect("/dashboard", http.StatusSeeOther)
+func (c *ActionContext) Redirect(url string, code int) error {
+	if c.w == nil || c.r == nil {
+		return ErrNoHTTPContext
+	}
+
+	if code < 300 || code >= 400 {
+		return ErrInvalidRedirectCode
+	}
+
+	if !isValidRedirectURL(url) {
+		return ErrInvalidRedirectURL
+	}
+
+	http.Redirect(c.w, c.r, url, code)
+	return nil
+}
+
+// SetHeader sets an HTTP response header.
+// Returns ErrNoHTTPContext if called from a WebSocket action.
+func (c *ActionContext) SetHeader(key, value string) error {
+	if c.w == nil {
+		return ErrNoHTTPContext
+	}
+	c.w.Header().Set(key, value)
+	return nil
+}
+
+// GetHeader retrieves an HTTP request header value.
+// Returns empty string if called from a WebSocket action or if header doesn't exist.
+func (c *ActionContext) GetHeader(key string) string {
+	if c.r == nil {
+		return ""
+	}
+	return c.r.Header.Get(key)
+}
+
+// isValidRedirectURL checks if a URL is safe for redirects.
+// Only allows relative paths starting with "/" to prevent open redirects.
+func isValidRedirectURL(url string) bool {
+	// Must start with / (relative path)
+	if !strings.HasPrefix(url, "/") {
+		return false
+	}
+	// Reject protocol-relative URLs like "//evil.com"
+	if strings.HasPrefix(url, "//") {
+		return false
+	}
+	return true
 }
 
 // FieldError represents a validation error for a specific field
