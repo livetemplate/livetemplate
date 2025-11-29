@@ -472,7 +472,8 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Handle action with request context for timeout/cancellation/values
-		if err := h.handleAction(r.Context(), msg, state, uploadRegistry); err != nil {
+		// WebSocket actions pass nil for w/r - HTTP methods will return ErrNoHTTPContext
+		if err := h.handleAction(r.Context(), msg, state, uploadRegistry, nil, nil); err != nil {
 			log.Printf("Action error: %v", err)
 			continue
 		}
@@ -631,7 +632,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Handle action with request context for timeout/cancellation/values
-	if err := h.handleAction(r.Context(), msg, state, uploadRegistry); err != nil {
+	// HTTP POST actions pass w, r so Change() can set cookies and redirect
+	if err := h.handleAction(r.Context(), msg, state, uploadRegistry, w, r); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -691,8 +693,10 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleAction routes the action to the correct store and captures errors
-func (h *liveHandler) handleAction(ctx context.Context, msg message, state *connState, uploadRegistry uploadRegistry) error {
+// handleAction routes the action to the correct store and captures errors.
+// For HTTP POST actions, w and r are provided so that ActionContext can set cookies/redirect.
+// For WebSocket actions, w and r should be nil - HTTP methods will return ErrNoHTTPContext.
+func (h *liveHandler) handleAction(ctx context.Context, msg message, state *connState, uploadRegistry uploadRegistry, w http.ResponseWriter, r *http.Request) error {
 	// Clear previous errors
 	state.clearErrors()
 
@@ -741,11 +745,14 @@ func (h *liveHandler) handleAction(ctx context.Context, msg message, state *conn
 	}
 
 	// Create action context with request context for timeout/cancellation/values
+	// w and r are nil for WebSocket actions, non-nil for HTTP POST actions
 	actionCtx := &ActionContext{
 		Action:  action,
 		Data:    newActionData(msg.Data),
 		Ctx:     ctx,
 		uploads: uploadAccessor,
+		w:       w,
+		r:       r,
 	}
 
 	// Call Change and capture error
@@ -1368,7 +1375,8 @@ func (h *liveHandler) handleMultipartUploads(r *http.Request, sessionID string, 
 		}
 
 		// Call handleAction to process the upload
-		if err := h.handleAction(r.Context(), uploadMsg, state, registry); err != nil {
+		// Upload completion actions don't need HTTP response access
+		if err := h.handleAction(r.Context(), uploadMsg, state, registry, nil, nil); err != nil {
 			log.Printf("HTTP upload action %q failed: %v", uploadAction, err)
 		}
 	}
@@ -1711,9 +1719,10 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 		}
 
 		// Call handleAction which will provide upload accessor to ActionContext
+		// WebSocket upload completion actions don't need HTTP response access
 		registry, ok := uploadRegistry.(*upload.Registry)
 		if ok {
-			if err := h.handleAction(ctx, uploadMsg, state, registry); err != nil {
+			if err := h.handleAction(ctx, uploadMsg, state, registry, nil, nil); err != nil {
 				log.Printf("Upload action %q failed: %v", uploadAction, err)
 				response.Success = false
 				response.Error = err.Error()
