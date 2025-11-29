@@ -26,6 +26,12 @@ func newActionData(data map[string]interface{}) *ActionData {
 	return &ActionData{raw: data}
 }
 
+// NewActionData creates ActionData from a map
+// This is the public version for use by external packages like livepage
+func NewActionData(data map[string]interface{}) *ActionData {
+	return newActionData(data)
+}
+
 // Bind unmarshals the data into a struct
 func (a *ActionData) Bind(v interface{}) error {
 	// Lazy marshal to JSON
