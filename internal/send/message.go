@@ -17,43 +17,26 @@ type ActionMessage struct {
 }
 
 // ParseActionFromHTTP parses an action message from HTTP POST request body (internal protocol).
+// Supports three content types:
+//   - application/json: {"action": "...", "data": {...}}
+//   - application/x-www-form-urlencoded: lvt-action=login&username=...&password=...
+//   - multipart/form-data: File uploads with optional action and data fields
 func ParseActionFromHTTP(r *http.Request) (ActionMessage, error) {
 	var msg ActionMessage
 
-	// Check if this is multipart form data
 	contentType := r.Header.Get("Content-Type")
+
+	// Handle multipart form data (file uploads)
 	if strings.HasPrefix(contentType, "multipart/form-data") {
-		// For multipart requests, try to get action from form field
-		// This allows file uploads to include an action
-		if err := r.ParseMultipartForm(32 << 20); err != nil {
-			// If parse fails, default to empty action (upload-only request)
-			msg.Action = ""
-			msg.Data = make(map[string]interface{})
-			return msg, nil
-		}
-
-		// Try to get action from form value
-		if actionStr := r.FormValue("action"); actionStr != "" {
-			msg.Action = actionStr
-		}
-
-		// Try to get data from JSON-encoded form field
-		if dataStr := r.FormValue("data"); dataStr != "" {
-			var data map[string]interface{}
-			if err := json.Unmarshal([]byte(dataStr), &data); err == nil {
-				msg.Data = data
-			}
-		}
-
-		// Initialize data map if not set
-		if msg.Data == nil {
-			msg.Data = make(map[string]interface{})
-		}
-
-		return msg, nil
+		return parseMultipartForm(r)
 	}
 
-	// For regular JSON requests
+	// Handle URL-encoded form data (standard HTML forms)
+	if strings.HasPrefix(contentType, "application/x-www-form-urlencoded") {
+		return parseURLEncodedForm(r)
+	}
+
+	// Default: JSON request body
 	if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
 		return ActionMessage{}, fmt.Errorf("failed to parse action: %w", err)
 	}
@@ -61,6 +44,76 @@ func ParseActionFromHTTP(r *http.Request) (ActionMessage, error) {
 	// Ensure data map is initialized
 	if msg.Data == nil {
 		msg.Data = make(map[string]interface{})
+	}
+
+	return msg, nil
+}
+
+// parseMultipartForm parses action from multipart/form-data (file uploads).
+func parseMultipartForm(r *http.Request) (ActionMessage, error) {
+	var msg ActionMessage
+
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		// If parse fails, default to empty action (upload-only request)
+		msg.Action = ""
+		msg.Data = make(map[string]interface{})
+		return msg, nil
+	}
+
+	// Try to get action from form value (supports both "action" and "lvt-action")
+	msg.Action = r.FormValue("lvt-action")
+	if msg.Action == "" {
+		msg.Action = r.FormValue("action")
+	}
+
+	// Try to get data from JSON-encoded form field
+	if dataStr := r.FormValue("data"); dataStr != "" {
+		var data map[string]interface{}
+		if err := json.Unmarshal([]byte(dataStr), &data); err == nil {
+			msg.Data = data
+		}
+	}
+
+	// Initialize data map if not set
+	if msg.Data == nil {
+		msg.Data = make(map[string]interface{})
+	}
+
+	return msg, nil
+}
+
+// parseURLEncodedForm parses action from application/x-www-form-urlencoded (standard HTML forms).
+// Action is specified via "lvt-action" field, all other fields become data.
+func parseURLEncodedForm(r *http.Request) (ActionMessage, error) {
+	var msg ActionMessage
+
+	if err := r.ParseForm(); err != nil {
+		return ActionMessage{}, fmt.Errorf("failed to parse form: %w", err)
+	}
+
+	// Get action from lvt-action field (or fallback to action)
+	msg.Action = r.FormValue("lvt-action")
+	if msg.Action == "" {
+		msg.Action = r.FormValue("action")
+	}
+
+	// Convert all form fields to data map (except lvt-action and action)
+	msg.Data = make(map[string]interface{})
+	for key, values := range r.Form {
+		if key == "lvt-action" || key == "action" {
+			continue // Skip action fields
+		}
+		// Use first value (forms typically have single values)
+		if len(values) == 1 {
+			msg.Data[key] = values[0]
+		} else if len(values) > 1 {
+			// Convert to interface slice for multiple values
+			interfaceSlice := make([]interface{}, len(values))
+			for i, v := range values {
+				interfaceSlice[i] = v
+			}
+			msg.Data[key] = interfaceSlice
+		}
 	}
 
 	return msg, nil

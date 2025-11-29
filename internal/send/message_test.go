@@ -227,6 +227,126 @@ func TestParseActionFromWebSocket_ComplexData(t *testing.T) {
 	}
 }
 
+// TestParseActionFromHTTP_URLEncoded tests parsing URL-encoded form data.
+func TestParseActionFromHTTP_URLEncoded(t *testing.T) {
+	tests := []struct {
+		name         string
+		body         string
+		wantAction   string
+		wantData     map[string]interface{}
+		wantErr      bool
+	}{
+		{
+			name:       "basic form with lvt-action",
+			body:       "lvt-action=login&username=testuser&password=secret",
+			wantAction: "login",
+			wantData: map[string]interface{}{
+				"username": "testuser",
+				"password": "secret",
+			},
+		},
+		{
+			name:       "form with action (fallback)",
+			body:       "action=logout",
+			wantAction: "logout",
+			wantData:   map[string]interface{}{},
+		},
+		{
+			name:       "lvt-action takes precedence over action",
+			body:       "lvt-action=real&action=fallback&data=test",
+			wantAction: "real",
+			wantData: map[string]interface{}{
+				"data": "test",
+			},
+		},
+		{
+			name:       "empty form",
+			body:       "",
+			wantAction: "",
+			wantData:   map[string]interface{}{},
+		},
+		{
+			name:       "form with special characters",
+			body:       "lvt-action=update&email=test%40example.com&name=John+Doe",
+			wantAction: "update",
+			wantData: map[string]interface{}{
+				"email": "test@example.com",
+				"name":  "John Doe",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "/", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+			msg, err := ParseActionFromHTTP(req)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Error("Expected error, got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			if msg.Action != tt.wantAction {
+				t.Errorf("Action = %q, want %q", msg.Action, tt.wantAction)
+			}
+
+			for key, want := range tt.wantData {
+				got := msg.Data[key]
+				if got != want {
+					t.Errorf("Data[%q] = %v, want %v", key, got, want)
+				}
+			}
+
+			// Check no extra data fields
+			for key := range msg.Data {
+				if _, ok := tt.wantData[key]; !ok {
+					t.Errorf("Unexpected data field: %q = %v", key, msg.Data[key])
+				}
+			}
+		})
+	}
+}
+
+// TestParseActionFromHTTP_URLEncoded_MultipleValues tests multiple values for same field.
+func TestParseActionFromHTTP_URLEncoded_MultipleValues(t *testing.T) {
+	body := "lvt-action=update&tags=go&tags=web&tags=test"
+	req := httptest.NewRequest("POST", "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	msg, err := ParseActionFromHTTP(req)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if msg.Action != "update" {
+		t.Errorf("Action = %q, want %q", msg.Action, "update")
+	}
+
+	tags, ok := msg.Data["tags"].([]interface{})
+	if !ok {
+		t.Fatalf("Expected tags to be []interface{}, got %T", msg.Data["tags"])
+	}
+
+	if len(tags) != 3 {
+		t.Errorf("Expected 3 tags, got %d", len(tags))
+	}
+
+	expected := []string{"go", "web", "test"}
+	for i, want := range expected {
+		if got, ok := tags[i].(string); !ok || got != want {
+			t.Errorf("tags[%d] = %v, want %q", i, tags[i], want)
+		}
+	}
+}
+
 // mockConnectionSender is a mock implementation of ConnectionSender for testing.
 type mockConnectionSender struct {
 	sendCalled bool
