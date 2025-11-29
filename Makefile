@@ -1,4 +1,4 @@
-.PHONY: bench bench-10x bench-save bench-compare bench-quick profile-cpu profile-mem profile-all
+.PHONY: bench bench-10x bench-save bench-compare bench-quick profile-cpu profile-mem profile-all coverage coverage-html
 
 # Run all benchmarks
 bench:
@@ -39,3 +39,15 @@ profile-mem:
 # Profile everything
 profile-all: profile-cpu profile-mem
 	@echo "\nProfiles saved in profiles/ directory"
+
+# Show test coverage summary
+coverage:
+	@GOWORK=off go test -cover ./... 2>&1 | grep -E "^ok\s" | awk '{print $$2 "\t" $$5}'
+
+# Generate detailed HTML coverage report
+coverage-html:
+	@mkdir -p coverage
+	GOWORK=off go test -coverprofile=coverage/coverage.out ./...
+	go tool cover -html=coverage/coverage.out -o coverage/coverage.html
+	@go tool cover -func=coverage/coverage.out | tail -1
+	@echo "\nHTML report: coverage/coverage.html"
