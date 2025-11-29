@@ -6,7 +6,7 @@ Build interactive web applications in Go using a simplified programming model. W
 
 ---
 
-> **⚠️ ALPHA SOFTWARE**
+> **ALPHA SOFTWARE**
 >
 > LiveTemplate is currently in **alpha stage**. Core features work and are tested, but the API may change before v1.0. Use in production at your own risk.
 
@@ -31,91 +31,6 @@ sequenceDiagram
 ```
 
 This works because LiveTemplate uses **tree-based diffing** - a data model that makes updates predictable and efficient. When your state changes, LiveTemplate calculates exactly what changed and sends only that data (50-90% less than full HTML). The same predictable model that enables efficient updates also powers the `lvt` code generator, which can create complete CRUD applications that are reactive by default.
-
-## File Uploads (v0.3.1)
-
-LiveTemplate v0.3.1 introduces a Phoenix LiveView-inspired upload system with multiple upload strategies:
-
-### Quick Example
-
-```go
-// 1. Make your store upload-aware
-type ProfileStore struct {
-    avatarPath string
-}
-
-func (s *ProfileStore) AllowUploads() map[string]livetemplate.UploadConfig {
-    return map[string]livetemplate.UploadConfig{
-        "avatar": {
-            Accept:      []string{"image/*"},
-            MaxFileSize: 5 * 1024 * 1024, // 5MB
-            MaxEntries:  1,
-            AutoUpload:  true,
-        },
-    }
-}
-
-func (s *ProfileStore) ConsumeUpload(ctx context.Context, name string, entries []*livetemplate.UploadEntry) error {
-    // Process uploaded files
-    for _, entry := range entries {
-        s.avatarPath = entry.TempPath
-    }
-    return nil
-}
-
-// 2. Add upload input to your template
-const tmplStr = `
-<form lvt-submit="save">
-    <input type="file" lvt-upload="avatar" accept="image/*" />
-
-    {{range .lvt.Uploads "avatar"}}
-        <div>{{.ClientName}}: {{.Progress}}%</div>
-    {{end}}
-
-    <button type="submit">Save</button>
-</form>
-`
-```
-
-### Upload Strategies
-
-**HTTP Multipart** - Simple, synchronous uploads
-```html
-<input type="file" lvt-upload="document" />
-```
-
-**WebSocket Chunked** - Large files with real-time progress
-```go
-UploadConfig{
-    ChunkSize: 512 * 1024, // 512KB chunks
-}
-```
-
-**External (S3)** - Direct uploads to cloud storage
-```go
-s3Presigner, _ := livetemplate.NewS3Presigner(livetemplate.S3Config{
-    Bucket: "my-bucket",
-    Region: "us-east-1",
-})
-
-UploadConfig{
-    External: s3Presigner, // Client uploads directly to S3
-}
-```
-
-### Features
-
-✅ Multiple upload strategies (HTTP, WebSocket, S3)
-✅ Real-time progress tracking
-✅ File type & size validation
-✅ Template helpers for upload UI
-✅ Automatic temp file cleanup
-✅ TypeScript client with progress events
-✅ Presigned URLs for scalable uploads
-
-📖 **[Complete Upload Documentation](docs/uploads.md)**
-
----
 
 ## Why LiveTemplate?
 
@@ -201,49 +116,6 @@ func (s *State) Change(ctx *livetemplate.ActionContext) error {
 
 When you return a `FieldError` from Go, LiveTemplate automatically makes it available in your templates via `.lvt.HasError` and `.lvt.Error` helpers. No error serialization code. No client-side error state management.
 
-## Performance
-
-LiveTemplate is designed for high-performance reactive updates with minimal bandwidth usage.
-
-### Key Metrics
-
-| Operation | Latency | Bandwidth Savings |
-|-----------|---------|-------------------|
-| Initial Render | ~20-65µs | - |
-| Small Update (1-2 fields) | ~18-20µs | 85% vs full render |
-| Large Update (5+ fields) | ~65µs | 65% vs full render |
-| Range Operations | ~30-65µs | 80% vs full render |
-
-*Actual benchmarks from baseline (Go 1.21, Apple M1). See [baseline.txt](testdata/benchmarks/baseline.txt) for complete results.*
-
-### How It Works
-
-1. **First Render:** Full HTML + tree structure with static/dynamic separation
-2. **Subsequent Updates:** Only changed values (statics cached client-side)
-3. **Result:** 85%+ bandwidth savings, sub-millisecond latency
-
-### Running Benchmarks
-
-```bash
-# Run all benchmarks
-make bench
-
-# Compare against baseline
-make bench-compare
-
-# Generate performance profiles
-make profile-cpu
-make profile-mem
-```
-
-### Documentation
-
-- [Benchmarking Guide](docs/performance/benchmarking-guide.md) - How to run and interpret benchmarks
-- [Performance Characteristics](docs/performance/performance-characteristics.md) - Detailed phase analysis
-- [Known Bottlenecks](docs/performance/known-bottlenecks.md) - Optimization opportunities
-
-See the full [performance documentation](docs/performance/) for comprehensive analysis.
-
 ## Quick Start
 
 ```bash
@@ -308,13 +180,65 @@ Tree diff calculates changes → Client receives minimal update → DOM updates
 
 All interactive features work over HTTP. WebSocket is optional, required only for server-initiated broadcasts (e.g., multi-user chat notifications).
 
+## Performance
+
+LiveTemplate is designed for high-performance reactive updates with minimal bandwidth usage.
+
+### Key Metrics
+
+| Operation | Latency | Bandwidth Savings |
+|-----------|---------|-------------------|
+| Initial Render | ~20-65µs | - |
+| Small Update (1-2 fields) | ~18-20µs | 85% vs full render |
+| Large Update (5+ fields) | ~65µs | 65% vs full render |
+| Range Operations | ~30-65µs | 80% vs full render |
+
+*Actual benchmarks from baseline (Go 1.21, Apple M1). See [baseline.txt](testdata/benchmarks/baseline.txt) for complete results.*
+
+### How It Works
+
+1. **First Render:** Full HTML + tree structure with static/dynamic separation
+2. **Subsequent Updates:** Only changed values (statics cached client-side)
+3. **Result:** 85%+ bandwidth savings, sub-millisecond latency
+
+### Running Benchmarks
+
+```bash
+# Run all benchmarks
+make bench
+
+# Compare against baseline
+make bench-compare
+
+# Generate performance profiles
+make profile-cpu
+make profile-mem
+```
+
+See the full [performance documentation](docs/performance/) for comprehensive analysis.
+
 ## Learn More
 
-**Documentation:**
+**Core Documentation:**
 
 - [Go API Reference](https://pkg.go.dev/github.com/livetemplate/livetemplate) - Server-side API
 - [Client Attributes](docs/references/client-attributes.md) - `lvt-*` event bindings
 - [Error Handling](docs/references/error-handling.md) - Validation and errors
+- [Configuration](docs/CONFIGURATION.md) - Template and server options
+
+**Feature Guides:**
+
+- [File Uploads](docs/uploads.md) - Phoenix LiveView-inspired upload system
+- [Broadcasting](docs/BROADCASTING.md) - Server-initiated updates to clients
+- [Horizontal Scaling](docs/SCALING.md) - Redis-backed session stores
+- [Authentication](docs/guides/auth-customization.md) - Custom authentication
+- [Observability](docs/OBSERVABILITY.md) - Logging and metrics
+
+**Architecture:**
+
+- [Architecture Overview](docs/ARCHITECTURE.md) - System design
+- [Performance Characteristics](docs/performance/performance-characteristics.md) - Phase analysis
+- [Benchmarking Guide](docs/performance/benchmarking-guide.md) - How to benchmark
 
 **Related Projects:**
 
