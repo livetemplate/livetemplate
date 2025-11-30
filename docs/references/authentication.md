@@ -71,9 +71,9 @@ Browser-based session grouping for anonymous users. This is the default when no 
 
 **Example behavior:**
 ```
-User opens Tab 1 in Chrome → groupID = "abc123xyz..."
-User opens Tab 2 in Chrome → groupID = "abc123xyz..." (same cookie, shares state)
-User opens Tab 3 in Firefox → groupID = "def456uvw..." (different browser, isolated)
+User opens Tab 1 in Chrome → groupID = "K7xR9mN2pQ8wL4vB..." (truncated, ~44 chars)
+User opens Tab 2 in Chrome → groupID = "K7xR9mN2pQ8wL4vB..." (same cookie, shares state)
+User opens Tab 3 in Firefox → groupID = "Yt3hF6jM1nS5xC8d..." (different browser, isolated)
 ```
 
 **When to use:**
@@ -279,19 +279,31 @@ For applications where multiple users share state (e.g., collaborative workspace
 
 ```go
 type TenantAuthenticator struct {
-    // ... your auth backend
+    SessionStore sessions.Store // Your session middleware
 }
 
 func (a *TenantAuthenticator) Identify(r *http.Request) (string, error) {
-    // Extract user from session/JWT/etc.
-    return extractUserID(r), nil
+    // Extract user from session cookie (adapt to your auth system)
+    session, err := a.SessionStore.Get(r, "session-name")
+    if err != nil {
+        return "", nil // Anonymous
+    }
+    userID, _ := session.Values["user_id"].(string)
+    return userID, nil
 }
 
 func (a *TenantAuthenticator) GetSessionGroup(r *http.Request, userID string) (string, error) {
-    // Map user to their workspace/tenant
-    // Multiple users in the same tenant share state
-    tenantID := extractTenantFromRequest(r) // e.g., from subdomain or header
-    return tenantID, nil
+    // Extract tenant from subdomain: "acme.example.com" → "acme"
+    host := r.Host
+    if idx := strings.Index(host, "."); idx > 0 {
+        return host[:idx], nil
+    }
+    // Or from header: X-Tenant-ID
+    if tenantID := r.Header.Get("X-Tenant-ID"); tenantID != "" {
+        return tenantID, nil
+    }
+    // Fallback to user-based grouping
+    return userID, nil
 }
 ```
 

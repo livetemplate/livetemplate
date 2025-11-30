@@ -119,11 +119,18 @@ tmpl := livetemplate.New("app",
 
 **Important: Register Custom Types**
 
-Custom Store types MUST be registered with `gob.Register()` before use:
+Custom Store types MUST be registered with `gob.Register()` before use. Register ALL types that will be serialized, including nested structs and slice element types:
 
 ```go
+type User struct {
+    ID   string
+    Name string
+}
+
 type MyStore struct {
-    Value int
+    Value    int
+    Users    []User          // Nested type - must also register
+    Metadata map[string]any  // Maps with interface values need care
 }
 
 func (m *MyStore) Change(ctx *livetemplate.ActionContext) error {
@@ -131,9 +138,14 @@ func (m *MyStore) Change(ctx *livetemplate.ActionContext) error {
 }
 
 func init() {
+    // Register the store AND all nested types
     gob.Register(&MyStore{})
+    gob.Register(&User{})        // Required for []User slice
+    gob.Register(map[string]any{}) // If using interface{} maps
 }
 ```
+
+> **Common Pitfall:** Forgetting to register nested types causes silent serialization failures. If state doesn't persist across Redis, check gob registration.
 
 **Health Checks:**
 
@@ -251,7 +263,16 @@ export LVT_WS_BUFFER_SIZE=100
 | Normal | 50 (default) | Good balance |
 | High/burst-heavy | 100-200 | Handles traffic spikes |
 
-**Memory estimate:** 50 buffered messages at ~1KB avg = ~50KB per connection
+> **Memory Warning:** Buffer size directly affects memory usage per connection. Each buffered message slot reserves memory even when empty. Plan for: `connections × buffer_size × avg_message_size`.
+
+**Memory calculation:**
+- Base overhead: ~980 bytes per connection
+- Buffer overhead: buffer size × average message size
+- Example: 50-buffer at 1KB average = ~50KB per connection
+- **1,000 connections with default buffer ≈ 50MB**
+- **10,000 connections with 200 buffer ≈ 2GB**
+
+For memory-constrained environments, prefer smaller buffers (10-25) and rely on backpressure to handle slow clients.
 
 ### HTTP-Only Mode
 

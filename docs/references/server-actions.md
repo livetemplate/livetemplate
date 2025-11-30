@@ -207,22 +207,67 @@ func (s *AuthStore) Change(ctx *livetemplate.ActionContext) error {
 
 ### Background Job Completion
 
-Notify users when async jobs finish:
+Notify users when async jobs finish. Use proper cleanup with context cancellation:
 
 ```go
-func (s *Store) Change(ctx *livetemplate.ActionContext) error {
-    if ctx.Action == "startExport" {
-        // Start background job
-        go func() {
-            result, err := performLongRunningExport()
+type ExportStore struct {
+    ExportStatus string
+    session      livetemplate.Session
+    cancelExport context.CancelFunc
+    mu           sync.Mutex
+}
 
-            if s.session != nil {
+func (s *ExportStore) OnConnect(ctx context.Context, session livetemplate.Session) error {
+    s.mu.Lock()
+    s.session = session
+    s.mu.Unlock()
+    return nil
+}
+
+func (s *ExportStore) OnDisconnect() {
+    s.mu.Lock()
+    defer s.mu.Unlock()
+
+    // Cancel any running export when user disconnects
+    if s.cancelExport != nil {
+        s.cancelExport()
+        s.cancelExport = nil
+    }
+    s.session = nil
+}
+
+func (s *ExportStore) Change(ctx *livetemplate.ActionContext) error {
+    if ctx.Action == "startExport" {
+        // Create cancellable context for the background job
+        jobCtx, cancel := context.WithCancel(context.Background())
+
+        s.mu.Lock()
+        s.cancelExport = cancel
+        s.mu.Unlock()
+
+        go func() {
+            defer cancel() // Clean up when done
+
+            result, err := performLongRunningExport(jobCtx)
+
+            // Check if cancelled before notifying
+            select {
+            case <-jobCtx.Done():
+                return // User disconnected, don't notify
+            default:
+            }
+
+            s.mu.Lock()
+            session := s.session
+            s.mu.Unlock()
+
+            if session != nil {
                 if err != nil {
-                    s.session.TriggerAction("exportFailed", map[string]interface{}{
+                    session.TriggerAction("exportFailed", map[string]interface{}{
                         "error": err.Error(),
                     })
                 } else {
-                    s.session.TriggerAction("exportComplete", map[string]interface{}{
+                    session.TriggerAction("exportComplete", map[string]interface{}{
                         "downloadURL": result.URL,
                     })
                 }
@@ -415,11 +460,11 @@ func (s *Store) Change(ctx *livetemplate.ActionContext) error {
 
 ## Examples
 
-See these examples for complete implementations:
+See these examples for complete implementations in the [examples repository](https://github.com/livetemplate/examples):
 
-- `examples/login/` - Authentication with server-initiated welcome message
-- `examples/chat/` - Real-time chat with auto-sync
-- `examples/counter/` - Simple counter demonstrating multi-tab sync
+- **login/** - Authentication with server-initiated welcome message
+- **chat/** - Real-time chat with auto-sync
+- **counter/** - Simple counter demonstrating multi-tab sync
 
 ## See Also
 
