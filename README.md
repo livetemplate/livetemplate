@@ -229,9 +229,10 @@ See the full [performance documentation](docs/performance/) for comprehensive an
 **Feature Guides:**
 
 - [File Uploads](docs/uploads.md) - Phoenix LiveView-inspired upload system
-- [Broadcasting](docs/BROADCASTING.md) - Server-initiated updates to clients
+- [Server Actions](docs/references/server-actions.md) - Push updates from server-side code
+- [Session Management](docs/references/session.md) - Session stores and scaling
 - [Horizontal Scaling](docs/SCALING.md) - Redis-backed session stores
-- [Authentication](docs/guides/auth-customization.md) - Custom authentication
+- [Authentication](docs/references/authentication.md) - User identification and custom authenticators
 - [Observability](docs/OBSERVABILITY.md) - Logging and metrics
 
 **Architecture:**

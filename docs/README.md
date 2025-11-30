@@ -6,6 +6,9 @@ This directory contains all documentation for LiveTemplate, organized by type.
 
 ### `/references/`
 Complete API references and specifications:
+- **[authentication.md](references/authentication.md)** - Authentication system and custom authenticators
+- **[server-actions.md](references/server-actions.md)** - Server-initiated actions (TriggerAction API)
+- **[session.md](references/session.md)** - Session stores and connection management
 - **[client-attributes.md](references/client-attributes.md)** - `lvt-*` HTML attributes reference
 - **[error-handling.md](references/error-handling.md)** - Comprehensive error handling guide
 - **[api-reference.md](references/api-reference.md)** - Kit manifest schemas and API reference
