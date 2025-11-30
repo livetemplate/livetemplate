@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/livetemplate/livetemplate/internal/session"
 	"github.com/livetemplate/livetemplate/internal/testutil"
 	"github.com/redis/go-redis/v9"
 )
@@ -718,5 +719,333 @@ func TestRedisSessionStore_UpdateExisting(t *testing.T) {
 
 	if testStore.Message != "updated" {
 		t.Errorf("Expected Message='updated', got '%s'", testStore.Message)
+	}
+}
+
+// =============================================================================
+// Session (Server-Initiated Actions) Tests
+// =============================================================================
+
+// SessionTestStore is a test store that implements SessionAware
+type SessionTestStore struct {
+	Counter   int
+	session   Session
+	onConnect func(ctx context.Context, session Session) error
+	mu        sync.Mutex
+}
+
+func (s *SessionTestStore) Change(ctx *ActionContext) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch ctx.Action {
+	case "increment":
+		s.Counter++
+	case "decrement":
+		s.Counter--
+	case "tick":
+		s.Counter++
+	case "reset":
+		s.Counter = 0
+	}
+	return nil
+}
+
+func (s *SessionTestStore) OnConnect(ctx context.Context, sess Session) error {
+	s.session = sess
+	if s.onConnect != nil {
+		return s.onConnect(ctx, sess)
+	}
+	return nil
+}
+
+func (s *SessionTestStore) OnDisconnect() {
+	s.session = nil
+}
+
+func (s *SessionTestStore) GetCounter() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Counter
+}
+
+// TestSession_TriggerAction tests basic TriggerAction functionality
+func TestSession_TriggerAction(t *testing.T) {
+	tmpl := Must(New("session-action-test"))
+	if _, err := tmpl.Parse("<p>Counter: {{.Counter}}</p>"); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	store := &SessionTestStore{Counter: 0}
+	handler := tmpl.Handle(store)
+
+	// Create mock connection
+	conn := createSessionTestConnection(t, "user1", "group1", tmpl)
+
+	// Register connection
+	h := handler.(*liveHandler)
+	h.registry.Register(conn, 50)
+
+	// Store the stores in the connection
+	conn.Stores = Stores{"": store}
+
+	// Create a session for this user
+	sess := &liveSession{
+		userID:  "user1",
+		handler: h,
+	}
+
+	// Trigger action
+	err := sess.TriggerAction("increment", nil)
+	if err != nil {
+		t.Errorf("TriggerAction failed: %v", err)
+	}
+
+	// Verify counter was incremented
+	if store.GetCounter() != 1 {
+		t.Errorf("Expected counter to be 1, got %d", store.GetCounter())
+	}
+}
+
+// TestSession_TriggerActionMultipleConnections tests TriggerAction with multiple connections
+func TestSession_TriggerActionMultipleConnections(t *testing.T) {
+	tmpl := Must(New("session-multi-action-test"))
+	if _, err := tmpl.Parse("<p>Counter: {{.Counter}}</p>"); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	handler := tmpl.Handle(&SessionTestStore{Counter: 0})
+	h := handler.(*liveHandler)
+
+	// Create two stores for two connections (simulating cloned stores)
+	store1 := &SessionTestStore{Counter: 0}
+	store2 := &SessionTestStore{Counter: 0}
+
+	// Create mock connections for same user
+	conn1 := createSessionTestConnection(t, "user1", "group1", tmpl)
+	conn1.Stores = Stores{"": store1}
+	h.registry.Register(conn1, 50)
+
+	conn2 := createSessionTestConnection(t, "user1", "group2", tmpl)
+	conn2.Stores = Stores{"": store2}
+	h.registry.Register(conn2, 50)
+
+	// Create a session for this user
+	sess := &liveSession{
+		userID:  "user1",
+		handler: h,
+	}
+
+	// Trigger action - should affect both connections
+	err := sess.TriggerAction("increment", nil)
+	if err != nil {
+		t.Errorf("TriggerAction failed: %v", err)
+	}
+
+	// Both stores should be incremented
+	if store1.GetCounter() != 1 {
+		t.Errorf("Expected store1 counter to be 1, got %d", store1.GetCounter())
+	}
+	if store2.GetCounter() != 1 {
+		t.Errorf("Expected store2 counter to be 1, got %d", store2.GetCounter())
+	}
+}
+
+// TestSession_TriggerActionNoConnections tests TriggerAction with no connections
+func TestSession_TriggerActionNoConnections(t *testing.T) {
+	tmpl := Must(New("session-empty-action-test"))
+	if _, err := tmpl.Parse("<p>Counter: {{.Counter}}</p>"); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	handler := tmpl.Handle(&SessionTestStore{Counter: 0})
+	h := handler.(*liveHandler)
+
+	// Create session for user with no connections
+	sess := &liveSession{
+		userID:  "user-no-connections",
+		handler: h,
+	}
+
+	// Should not error when no connections exist
+	err := sess.TriggerAction("increment", nil)
+	if err != nil {
+		t.Errorf("TriggerAction with no connections should not error, got: %v", err)
+	}
+}
+
+// TestSession_TriggerActionConcurrent tests concurrent TriggerAction calls
+func TestSession_TriggerActionConcurrent(t *testing.T) {
+	tmpl := Must(New("session-concurrent-action-test"))
+	if _, err := tmpl.Parse("<p>Counter: {{.Counter}}</p>"); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	handler := tmpl.Handle(&SessionTestStore{Counter: 0})
+	h := handler.(*liveHandler)
+
+	// Create store
+	store := &SessionTestStore{Counter: 0}
+
+	// Create connection
+	conn := createSessionTestConnection(t, "user1", "group1", tmpl)
+	conn.Stores = Stores{"": store}
+	h.registry.Register(conn, 50)
+
+	// Create session
+	sess := &liveSession{
+		userID:  "user1",
+		handler: h,
+	}
+
+	// Concurrent triggers
+	var wg sync.WaitGroup
+	triggers := 10
+
+	for i := 0; i < triggers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := sess.TriggerAction("increment", nil); err != nil {
+				t.Errorf("Concurrent TriggerAction failed: %v", err)
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// Counter should be incremented `triggers` times
+	if store.GetCounter() != triggers {
+		t.Errorf("Expected counter to be %d, got %d", triggers, store.GetCounter())
+	}
+}
+
+// TestSessionAware_Integration tests the full SessionAware integration
+func TestSessionAware_Integration(t *testing.T) {
+	tmpl := Must(New("session-aware-integration-test"))
+	if _, err := tmpl.Parse("<p>Counter: {{.Counter}}</p>"); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	// Create a store that uses Session in OnConnect
+	sessionReceived := make(chan Session, 1)
+	store := &SessionTestStore{
+		Counter: 0,
+		onConnect: func(ctx context.Context, sess Session) error {
+			sessionReceived <- sess
+			return nil
+		},
+	}
+
+	handler := tmpl.Handle(store)
+	h := handler.(*liveHandler)
+
+	// Create connection (simulating WebSocket connect)
+	conn := createSessionTestConnection(t, "user1", "group1", tmpl)
+	conn.Stores = Stores{"": store}
+	h.registry.Register(conn, 50)
+
+	// Create context for OnConnect
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Create session
+	sess := &liveSession{
+		userID:  "user1",
+		handler: h,
+	}
+
+	// Call OnConnect (simulating what handleWebSocket does)
+	if err := store.OnConnect(ctx, sess); err != nil {
+		t.Fatalf("OnConnect failed: %v", err)
+	}
+
+	// Verify session was received
+	select {
+	case received := <-sessionReceived:
+		if received == nil {
+			t.Error("Expected non-nil session in OnConnect")
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("Timeout waiting for session in OnConnect")
+	}
+
+	// Use the stored session to trigger an action
+	if store.session != nil {
+		err := store.session.TriggerAction("increment", nil)
+		if err != nil {
+			t.Errorf("TriggerAction from stored session failed: %v", err)
+		}
+
+		// Verify counter was incremented
+		if store.GetCounter() != 1 {
+			t.Errorf("Expected counter to be 1 after TriggerAction, got %d", store.GetCounter())
+		}
+	} else {
+		t.Error("Expected session to be stored in OnConnect")
+	}
+}
+
+// TestSession_TriggerActionWithData tests TriggerAction with action data
+func TestSession_TriggerActionWithData(t *testing.T) {
+	tmpl := Must(New("session-data-action-test"))
+	if _, err := tmpl.Parse("<p>Counter: {{.Counter}}</p>"); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	store := &SessionTestStore{Counter: 0}
+	handler := tmpl.Handle(store)
+	h := handler.(*liveHandler)
+
+	// Create connection
+	conn := createSessionTestConnection(t, "user1", "group1", tmpl)
+	conn.Stores = Stores{"": store}
+	h.registry.Register(conn, 50)
+
+	// Create session
+	sess := &liveSession{
+		userID:  "user1",
+		handler: h,
+	}
+
+	// Trigger action with data (data is available in ctx.Data in Change)
+	err := sess.TriggerAction("increment", map[string]interface{}{
+		"amount": 5,
+	})
+	if err != nil {
+		t.Errorf("TriggerAction with data failed: %v", err)
+	}
+
+	// Verify action was triggered (basic store just increments by 1)
+	if store.GetCounter() != 1 {
+		t.Errorf("Expected counter to be 1, got %d", store.GetCounter())
+	}
+}
+
+// TestSession_Interface verifies that liveSession implements Session
+func TestSession_Interface(t *testing.T) {
+	var _ Session = (*liveSession)(nil)
+}
+
+// TestSessionAware_Interface verifies that SessionTestStore implements SessionAware
+func TestSessionAware_Interface(t *testing.T) {
+	var _ SessionAware = (*SessionTestStore)(nil)
+}
+
+// createSessionTestConnection creates a mock connection for session testing
+func createSessionTestConnection(t *testing.T, userID, groupID string, tmpl *Template) *session.Connection {
+	t.Helper()
+
+	// Clone template for this connection
+	connTmpl, err := tmpl.Clone()
+	if err != nil {
+		t.Fatalf("Failed to clone template: %v", err)
+	}
+
+	return &session.Connection{
+		Conn:     nil, // Nil Conn triggers test mode in sendUpdate
+		UserID:   userID,
+		GroupID:  groupID,
+		Template: connTmpl,
+		Stores:   make(Stores),
 	}
 }
