@@ -274,7 +274,7 @@ export LVT_REDIS_URL=redis://localhost:6379/0  # Optional for M2
 **Success Criteria:**
 - ✅ Applications can run 2-10 instances behind load balancer
 - ✅ Sessions persist across instance restarts
-- ✅ Broadcasts reach all users across all instances
+- ✅ Server-initiated actions reach all user's tabs across all instances
 - ✅ Zero-downtime deploys via rolling updates
 - ✅ Auto-scaling based on connection count
 
@@ -330,7 +330,7 @@ handler := livetemplate.Mount(rootStore,
 
 ---
 
-### 2.2 Distributed Pub/Sub for Broadcasting
+### 2.2 Distributed Pub/Sub for Server-Initiated Actions
 
 **Files:** `pubsub/` (new package), `mount.go`, `registry.go`
 
@@ -338,37 +338,31 @@ handler := livetemplate.Mount(rootStore,
 |------|----------|--------|-------------|----------|
 | Design pub/sub message format (action, groupID, userID, payload) | 🔴 CRITICAL | ✅ DONE | 2 days | - |
 | Implement `PubSubBroadcaster` using Redis Pub/Sub | 🔴 CRITICAL | ✅ DONE | 4 days | - |
-| Modify `Broadcast*` methods to publish messages | 🔴 CRITICAL | ✅ DONE | 3 days | - |
+| Implement Session API with `TriggerAction()` method | 🔴 CRITICAL | ✅ DONE | 3 days | - |
 | Implement subscriber goroutine to receive and fan-out | 🔴 CRITICAL | ✅ DONE | 3 days | - |
 | Add local-first optimization (skip Redis for same-instance) | 🟡 HIGH | ✅ DONE | 2 days | - |
 | Handle Redis disconnection/reconnection gracefully | 🟡 HIGH | ✅ DONE | 3 days | - |
-| Add broadcast latency metrics (p50, p95, p99) | 🟡 HIGH | 🔴 TODO | 2 days | - |
-| Document broadcast guarantees (at-most-once delivery) | 🟡 MEDIUM | 🔴 TODO | 1 day | - |
+| Add latency metrics (p50, p95, p99) | 🟡 HIGH | 🔴 TODO | 2 days | - |
+| Document Session API (at-most-once delivery) | 🟡 MEDIUM | ✅ DONE | 1 day | - |
 
 **Acceptance Criteria:**
 - User with tabs on Instance A and B sees consistent state
-- Broadcasts reach all instances within 50ms (p95)
-- Local broadcasts don't hit Redis (performance optimization)
-- Failed broadcasts logged, don't crash application
+- Server-initiated actions reach all instances within 50ms (p95)
+- Local actions don't hit Redis (performance optimization)
+- Failed actions logged, don't crash application
 
 **Redis Channels:**
 ```
-livetemplate:broadcast:group:{groupID}  -> Group-specific broadcasts
-livetemplate:broadcast:user:{userID}    -> User-specific broadcasts
-livetemplate:broadcast:global           -> Global broadcasts
+livetemplate:server-action:{groupID}  -> Server-initiated actions for a session
 ```
 
 **Message Format:**
 ```json
 {
-  "type": "broadcast",
+  "type": "server_action",
   "groupID": "session-abc123",
-  "userID": "user-xyz789",
-  "excludeConnID": "conn-456",
-  "payload": {
-    "action": "updateCounter",
-    "data": {...}
-  },
+  "action": "tick",
+  "data": {"message": "Hello"},
   "timestamp": "2025-11-01T12:00:00Z",
   "instanceID": "host1"
 }
@@ -677,11 +671,11 @@ redisClient := redis.NewClient(&redis.Options{
 })
 
 sessionStore := livetemplate.NewRedisSessionStore(redisClient)
-broadcaster := livetemplate.NewRedisBroadcaster(redisClient)
+pubsubBroadcaster := livetemplate.NewRedisBroadcaster(redisClient)
 
 handler := livetemplate.Mount(rootStore,
     livetemplate.WithSessionStore(sessionStore),
-    livetemplate.WithBroadcaster(broadcaster),
+    livetemplate.WithPubSubBroadcaster(pubsubBroadcaster),
     livetemplate.WithMaxConnections(10000),
 )
 ```
@@ -695,7 +689,7 @@ handler := livetemplate.Mount(rootStore,
 
 **Testing:**
 1. Open browser tabs on different instances (check load balancer logs)
-2. Trigger broadcast → verify both tabs update
+2. Trigger server-initiated action → verify both tabs update
 3. Restart one instance → verify sessions persist
 
 ---
@@ -734,7 +728,7 @@ handler := livetemplate.Mount(rootStore,
 
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) - System architecture
 - [OBSERVABILITY.md](docs/OBSERVABILITY.md) - Logging and metrics
-- [BROADCASTING.md](docs/BROADCASTING.md) - Broadcasting patterns
+- [SESSION.md](docs/SESSION.md) - Session API and server-initiated actions
 - [SCALING.md](docs/SCALING.md) - To be created in M1
 - [REDIS_INTEGRATION.md](docs/REDIS_INTEGRATION.md) - To be created in M2
 

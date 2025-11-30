@@ -107,11 +107,11 @@ redisClient := redis.NewFailoverClient(&redis.FailoverOptions{
 })
 
 sessionStore := livetemplate.NewRedisSessionStore(redisClient)
-broadcaster := livetemplate.NewRedisBroadcaster(redisClient)
+pubsubBroadcaster := livetemplate.NewRedisBroadcaster(redisClient)
 
 handler := livetemplate.Mount(rootStore,
     livetemplate.WithSessionStore(sessionStore),
-    livetemplate.WithBroadcaster(broadcaster),
+    livetemplate.WithPubSubBroadcaster(pubsubBroadcaster),
     livetemplate.WithMaxConnections(10000),
     livetemplate.WithMaxConnectionsPerGroup(500),
 )
@@ -161,11 +161,11 @@ redisClient := redis.NewClusterClient(&redis.ClusterOptions{
 })
 
 sessionStore := livetemplate.NewRedisSessionStore(redisClient)
-broadcaster := livetemplate.NewRedisBroadcaster(redisClient)
+pubsubBroadcaster := livetemplate.NewRedisBroadcaster(redisClient)
 
 handler := livetemplate.Mount(rootStore,
     livetemplate.WithSessionStore(sessionStore),
-    livetemplate.WithBroadcaster(broadcaster),
+    livetemplate.WithPubSubBroadcaster(pubsubBroadcaster),
     livetemplate.WithMaxConnections(50000),
     livetemplate.WithMaxConnectionsPerGroup(1000),
     livetemplate.WithWebSocketCompression(true), // M3 feature
@@ -1360,12 +1360,12 @@ If issues arise after migration:
 
 ### Next Steps After Migration
 
-1. **Add distributed broadcasting** for multi-instance deployments:
+1. **Add distributed pub/sub** for multi-instance server-initiated actions:
    ```go
-   broadcaster := livetemplate.NewRedisBroadcaster(redisClient)
+   pubsubBroadcaster := livetemplate.NewRedisBroadcaster(redisClient)
    handler := livetemplate.Mount(rootStore,
        livetemplate.WithSessionStore(sessionStore),
-       livetemplate.WithBroadcaster(broadcaster), // Enable cross-instance broadcasts
+       livetemplate.WithPubSubBroadcaster(pubsubBroadcaster), // Enable cross-instance updates
    )
    ```
 
@@ -1373,7 +1373,7 @@ If issues arise after migration:
 3. **Set up alerting** for Redis connectivity issues
 4. **Review capacity planning** for expected load
 
-See [BROADCASTING.md](BROADCASTING.md) for distributed broadcasting guide.
+See [SESSION.md](SESSION.md) for the Session API guide on server-initiated actions.
 
 ---
 
