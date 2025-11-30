@@ -1,313 +1,37 @@
 # Session Reference
 
-Session management in LiveTemplate handles state sharing, connection management, and server-initiated actions. This guide covers session stores, the Session API, connection management, and WebSocket configuration.
+Session infrastructure in LiveTemplate handles state storage, connection management, and WebSocket configuration. This guide covers session stores, connection management, and performance tuning for production deployments.
+
+For pushing updates from server-side code, see [Server Actions Reference](server-actions.md).
 
 ## Overview
 
-LiveTemplate provides two types of updates:
-1. **Automatic Session Syncing** - Tabs in the same browser automatically stay in sync (no code needed)
-2. **Server-Initiated Actions** - Push updates from server-side code (timers, webhooks, background jobs)
+### Key Concepts
 
-### Quick Concepts
-
-- **Session groups**: Isolation boundaries for shared state (all connections with same `groupID` share `Stores`)
-- **Stores**: Application state shared within a group
+- **Session groups**: Isolation boundaries for shared state. All connections with the same `groupID` share the same `Stores` instance.
+- **Stores**: Application state (`map[string]Store`) shared within a session group
 - **Connections**: Individual WebSocket connections within a group
-- **Session API**: Interface for server-initiated actions
+- **SessionStore**: Persistence layer for session groups (in-memory or Redis)
 
-## Automatic Session Syncing (Default Behavior)
+### Automatic Session Syncing
 
-When a user performs an action that modifies state, **all tabs in the same browser session automatically receive updates**. This happens with zero configuration:
+When a user performs an action, all tabs in the same browser session automatically receive updates. This happens with zero configuration:
 
 ```go
-type ChatState struct {
-    Messages []Message
-}
-
 func (s *ChatState) Change(ctx *livetemplate.ActionContext) error {
     s.Messages = append(s.Messages, newMessage)
-    return nil  // All tabs in same browser update automatically!
+    return nil  // All tabs in same browser update automatically
 }
 ```
 
 **How it works:**
 - Each browser gets a unique session ID (via cookie: `livetemplate-id`)
-- All tabs in the same browser share this session ID
-- State changes automatically broadcast to all tabs in the same session
-- No manual code required
-
-**Example:** Chat app where multiple tabs stay in sync:
-```go
-// Tab 1: User sends message
-// Tab 2, Tab 3: Automatically see the new message
-```
-
-## Server-Initiated Actions
-
-For pushing updates from the server (timers, webhooks, background jobs), implement `SessionAware`:
-
-```go
-type TimerStore struct {
-    Seconds int
-    session livetemplate.Session
-    mu      sync.Mutex
-}
-
-// OnConnect is called when a WebSocket connection is established
-func (s *TimerStore) OnConnect(ctx context.Context, session livetemplate.Session) error {
-    s.mu.Lock()
-    s.session = session
-    s.mu.Unlock()
-
-    // Start background timer
-    go s.runTimer(ctx)
-    return nil
-}
-
-// OnDisconnect is called when the WebSocket connection closes
-func (s *TimerStore) OnDisconnect() {
-    s.mu.Lock()
-    s.session = nil
-    s.mu.Unlock()
-}
-
-func (s *TimerStore) runTimer(ctx context.Context) {
-    ticker := time.NewTicker(time.Second)
-    defer ticker.Stop()
-
-    for {
-        select {
-        case <-ctx.Done():
-            return
-        case <-ticker.C:
-            s.mu.Lock()
-            session := s.session
-            s.mu.Unlock()
-
-            if session != nil {
-                // Trigger action from server - calls Change() and updates all user's tabs
-                session.TriggerAction("tick", nil)
-            }
-        }
-    }
-}
-
-func (s *TimerStore) Change(ctx *livetemplate.ActionContext) error {
-    switch ctx.Action {
-    case "tick":
-        s.Seconds++
-    case "reset":
-        s.Seconds = 0
-    }
-    return nil
-}
-```
-
-## Session Interface
-
-```go
-type Session interface {
-    // TriggerAction triggers Store.Change() with the given action and data,
-    // then sends the updated template to ALL connections for this user.
-    TriggerAction(action string, data map[string]interface{}) error
-}
-```
-
-**Key Points:**
-- `TriggerAction()` calls `Store.Change()` just like client-initiated actions
-- Updates are sent to ALL of the user's connections (all tabs/devices)
-- Scoped to the current user only - cannot target other users
-- Thread-safe - can be called from any goroutine
-
-## SessionAware Interface
-
-```go
-type SessionAware interface {
-    OnConnect(ctx context.Context, session Session) error
-    OnDisconnect()
-}
-```
-
-**Lifecycle:**
-1. WebSocket connection established -> `OnConnect()` called with `Session`
-2. Store the `Session` for later use (e.g., in background goroutines)
-3. WebSocket connection closed -> `OnDisconnect()` called
-4. Clean up any references to `Session`
-
-**Context (`ctx`):**
-- Contains cancellation signal - cancelled when WebSocket disconnects
-- Use for background goroutines to know when to stop
-- Pass to database calls for timeout/cancellation support
-
-## Common Patterns
-
-### Timer/Tick Updates
-
-```go
-func (s *Store) OnConnect(ctx context.Context, session livetemplate.Session) error {
-    s.session = session
-    go s.runTicker(ctx)
-    return nil
-}
-
-func (s *Store) runTicker(ctx context.Context) {
-    ticker := time.NewTicker(5 * time.Second)
-    defer ticker.Stop()
-
-    for {
-        select {
-        case <-ctx.Done():
-            return
-        case <-ticker.C:
-            if s.session != nil {
-                s.session.TriggerAction("refresh", nil)
-            }
-        }
-    }
-}
-```
-
-### Webhook-Triggered Updates
-
-```go
-// HTTP handler receives webhook
-func handleWebhook(w http.ResponseWriter, r *http.Request) {
-    var payload WebhookPayload
-    json.NewDecoder(r.Body).Decode(&payload)
-
-    // Store session reference from OnConnect
-    // Session scoped to specific user, so webhook needs to know target user
-    if session := getUserSession(payload.UserID); session != nil {
-        session.TriggerAction("notification", map[string]interface{}{
-            "message": payload.Message,
-        })
-    }
-
-    w.WriteHeader(http.StatusOK)
-}
-```
-
-### Welcome Message After Connect
-
-```go
-func (s *AuthStore) OnConnect(ctx context.Context, session livetemplate.Session) error {
-    s.session = session
-
-    // Send welcome after short delay (page needs to fully render)
-    if s.IsLoggedIn {
-        go func() {
-            time.Sleep(500 * time.Millisecond)
-            session.TriggerAction("serverWelcome", map[string]interface{}{
-                "message": fmt.Sprintf("Welcome back, %s!", s.Username),
-            })
-        }()
-    }
-
-    return nil
-}
-
-func (s *AuthStore) Change(ctx *livetemplate.ActionContext) error {
-    switch ctx.Action {
-    case "serverWelcome":
-        s.WelcomeMessage = ctx.GetString("message")
-    // ... other actions
-    }
-    return nil
-}
-```
-
-### Background Job Completion
-
-```go
-func (s *Store) submitJob(ctx *livetemplate.ActionContext) error {
-    // Start background job
-    go func() {
-        result := performLongRunningTask()
-
-        // Notify user when done
-        if s.session != nil {
-            s.session.TriggerAction("jobComplete", map[string]interface{}{
-                "result": result,
-            })
-        }
-    }()
-
-    return nil
-}
-```
-
-## Thread Safety
-
-Session methods are thread-safe and can be called from any goroutine:
-
-```go
-// Safe: Multiple goroutines using session
-go func() { session.TriggerAction("update1", nil) }()
-go func() { session.TriggerAction("update2", nil) }()
-```
-
-However, you should protect access to the session field itself:
-
-```go
-type Store struct {
-    session livetemplate.Session
-    mu      sync.Mutex
-}
-
-func (s *Store) OnConnect(ctx context.Context, session livetemplate.Session) error {
-    s.mu.Lock()
-    s.session = session
-    s.mu.Unlock()
-    return nil
-}
-
-func (s *Store) OnDisconnect() {
-    s.mu.Lock()
-    s.session = nil
-    s.mu.Unlock()
-}
-
-func (s *Store) triggerFromBackground() {
-    s.mu.Lock()
-    session := s.session
-    s.mu.Unlock()
-
-    if session != nil {
-        session.TriggerAction("update", nil)
-    }
-}
-```
-
-## Security Model
-
-**Session is scoped to the current user only:**
-- `TriggerAction()` affects ALL connections for THIS user
-- There is no way to target other users
-- Prevents unauthorized cross-user actions
-- Safe to expose to store logic
-
-**Why this design?**
-- Simpler mental model - "push to myself"
-- No accidental cross-user data leaks
-- No authorization checks needed in store code
-- For admin broadcasts, use database + polling or dedicated admin endpoints
-
-## Multi-Tab Behavior
-
-When a user has multiple tabs open:
-
-1. **Client Action (Tab 1)**: User clicks button in Tab 1
-   - Tab 1's store.Change() is called
-   - Tab 1 receives update
-   - Tab 2, Tab 3 automatically receive update (auto-broadcast)
-
-2. **Server Action (TriggerAction)**: Background job completes
-   - ALL tabs receive the action via Change()
-   - ALL tabs are updated simultaneously
+- All tabs in the same browser share this session ID (`groupID`)
+- State changes automatically broadcast to all tabs in the same session group
 
 ## SessionStore Interface
 
-The `SessionStore` interface manages session groups, where each group contains Stores shared across connections.
+The `SessionStore` interface manages session groups:
 
 ```go
 type SessionStore interface {
@@ -336,28 +60,24 @@ In-memory session store for single-instance deployments.
 - Tracks last access time for each group
 - Automatic cleanup of inactive groups (configurable TTL)
 
-**Configuration Options:**
+**Configuration:**
 
 ```go
 store := livetemplate.NewMemorySessionStore(
-    livetemplate.WithCleanupTTL(12*time.Hour),      // Default: 24 hours
+    livetemplate.WithCleanupTTL(12*time.Hour),       // Default: 24 hours
     livetemplate.WithCleanupInterval(30*time.Minute), // Default: 1 hour
 )
 defer store.Close() // Stop cleanup goroutine on shutdown
+
+tmpl := livetemplate.New("app",
+    livetemplate.WithSessionStore(store),
+)
 ```
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `WithCleanupTTL(ttl)` | 24 hours | Time-to-live for inactive groups |
 | `WithCleanupInterval(interval)` | 1 hour | How often cleanup runs |
-
-**Usage:**
-
-```go
-tmpl := livetemplate.New("app",
-    livetemplate.WithSessionStore(store),
-)
-```
 
 ### RedisSessionStore
 
@@ -373,7 +93,7 @@ Redis-backed session store for distributed/multi-instance deployments.
 - `livetemplate:session:{groupID}` -> Gob-encoded Stores
 - `livetemplate:session:{groupID}:access` -> Last access timestamp
 
-**Configuration Options:**
+**Configuration:**
 
 ```go
 client := redis.NewClient(&redis.Options{
@@ -381,9 +101,13 @@ client := redis.NewClient(&redis.Options{
 })
 
 store := livetemplate.NewRedisSessionStore(client,
-    livetemplate.WithSessionTTL(24*time.Hour),  // Default: 24 hours
-    livetemplate.WithMaxRetries(5),              // Default: 3
+    livetemplate.WithSessionTTL(24*time.Hour),         // Default: 24 hours
+    livetemplate.WithMaxRetries(5),                     // Default: 3
     livetemplate.WithRetryDelay(200*time.Millisecond), // Default: 100ms
+)
+
+tmpl := livetemplate.New("app",
+    livetemplate.WithSessionStore(store),
 )
 ```
 
@@ -445,7 +169,6 @@ type Connection struct {
 ```
 
 **Key Methods:**
-
 - `Send(messageType, data) error` - Thread-safe async send (non-blocking)
 - `Close() error` - Thread-safe graceful shutdown
 
@@ -475,8 +198,6 @@ type ConnectionRegistry struct {
     byUser  map[string][]*Connection  // userID -> connections
 }
 ```
-
-**Key Methods:**
 
 | Method | Description |
 |--------|-------------|
@@ -586,89 +307,8 @@ var (
 - Example: 50-buffer at 1KB = ~50KB per connection
 - 1000 connections = ~50MB total
 
-## Distributed Deployments (Redis)
-
-In multi-instance deployments with Redis PubSub configured, `TriggerAction()` automatically publishes to Redis so all instances can update their local connections for the user:
-
-```go
-// Instance 1: User connects here
-session.TriggerAction("update", nil)
-
-// Instance 2: If user has tabs here, they also receive the update
-```
-
-This happens transparently - no code changes needed.
-
-Configure with:
-```go
-tmpl := livetemplate.New("app",
-    livetemplate.WithPubSubBroadcaster(redisBroadcaster),
-)
-```
-
-## Migration from Broadcaster (Deprecated)
-
-The old `Broadcaster` API is deprecated. Here's how to migrate:
-
-**Before (deprecated):**
-```go
-type Store struct {
-    broadcaster livetemplate.Broadcaster
-}
-
-func (s *Store) OnConnect(ctx context.Context, b livetemplate.Broadcaster) error {
-    s.broadcaster = b
-    return nil
-}
-
-func (s *Store) pushUpdate() {
-    s.broadcaster.Send()  // Re-renders and sends entire template
-}
-```
-
-**After (recommended):**
-```go
-type Store struct {
-    session livetemplate.Session
-}
-
-func (s *Store) OnConnect(ctx context.Context, session livetemplate.Session) error {
-    s.session = session
-    return nil
-}
-
-func (s *Store) pushUpdate() {
-    // Trigger action that modifies state and sends update
-    s.session.TriggerAction("refresh", nil)
-}
-
-func (s *Store) Change(ctx *livetemplate.ActionContext) error {
-    if ctx.Action == "refresh" {
-        // Update state here
-        s.Data = fetchLatestData()
-    }
-    return nil
-}
-```
-
-**Key Differences:**
-
-| Broadcaster (old) | Session (new) |
-|-------------------|---------------|
-| `Send()` re-renders immediately | `TriggerAction()` calls `Change()` first |
-| Single connection only | ALL user's connections |
-| Direct state manipulation | Action-based state changes |
-| No distributed support | Redis PubSub support |
-
-## Examples
-
-See these examples for complete implementations:
-- `examples/login/` - Authentication with server-initiated welcome message
-- `examples/chat/` - Real-time chat with auto-sync
-- `examples/counter/` - Simple counter demonstrating multi-tab sync
-
 ## See Also
 
+- [Server Actions Reference](server-actions.md) - TriggerAction API for server-initiated updates
 - [Authentication Reference](authentication.md) - User identification and custom authenticators
 - [Scaling Guide](../SCALING.md) - Horizontal scaling with Redis
-- [Error Handling](error-handling.md) - Validation and error display
