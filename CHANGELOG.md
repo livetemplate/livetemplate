@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<a name="v0.5.0"></a>
+## [v0.5.0] - 2025-11-30
+
+### Documentation
+
+- update documentation for Session API ([#62](https://github.com/livefir/livetemplate/issues/62))
+- improve README structure and narrative flow ([#59](https://github.com/livefir/livetemplate/issues/59))
+
+### Features
+
+- add Session API for server-initiated actions ([#61](https://github.com/livefir/livetemplate/issues/61))
+- add HTTP methods to ActionContext for authentication (v0.5) ([#60](https://github.com/livefir/livetemplate/issues/60))
+- add coverage targets to Makefile ([#57](https://github.com/livefir/livetemplate/issues/57))
+
+
+<a name="v0.4.2-debug.2"></a>
+## [v0.4.2-debug.2] - 2025-11-22
+
+### Bug Fixes
+
+- add log package import for debug logging
+
+### Documentation
+
+- update investigation with breakthrough findings from timing instrumentation
+
+
+<a name="v0.4.2-debug.1"></a>
+## [v0.4.2-debug.1] - 2025-11-22
+
+
 <a name="v0.4.1"></a>
 ## [v0.4.1] - 2025-11-22
 
@@ -266,7 +297,10 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.5.0...HEAD
+[v0.5.0]: https://github.com/livefir/livetemplate/compare/v0.4.2-debug.2...v0.5.0
+[v0.4.2-debug.2]: https://github.com/livefir/livetemplate/compare/v0.4.2-debug.1...v0.4.2-debug.2
+[v0.4.2-debug.1]: https://github.com/livefir/livetemplate/compare/v0.4.1...v0.4.2-debug.1
 [v0.4.1]: https://github.com/livefir/livetemplate/compare/v0.4.0...v0.4.1
 [v0.4.0]: https://github.com/livefir/livetemplate/compare/v0.3.2...v0.4.0
 [v0.3.2]: https://github.com/livefir/livetemplate/compare/v0.3.1...v0.3.2
