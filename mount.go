@@ -26,13 +26,84 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// Broadcaster allows stores to push updates to connected clients without user interaction
+// Session allows stores to trigger server-initiated actions for connected clients.
+// Actions triggered via Session affect ALL connections for the current user (all tabs/devices).
+//
+// This is the recommended way to implement:
+//   - Timers and ticks
+//   - Background job completion notifications
+//   - Webhook-triggered updates
+//   - Cross-tab synchronization
+//
+// Security: Session is scoped to the current user only. There is no way to
+// target other users, preventing unauthorized cross-user actions.
+type Session interface {
+	// TriggerAction triggers Store.Change() with the given action and data,
+	// then sends the updated template to ALL connections for this user.
+	//
+	// This behaves identically to client-initiated actions - the action is
+	// routed through Change(), errors are captured, and updates are broadcast
+	// to all of the user's connections (tabs/devices).
+	//
+	// Example:
+	//   session.TriggerAction("tick", nil)
+	//   session.TriggerAction("new_notification", map[string]interface{}{"id": 123})
+	TriggerAction(action string, data map[string]interface{}) error
+}
+
+// SessionAware is implemented by stores that need server-initiated actions.
+// When a WebSocket connection is established, OnConnect is called with a Session
+// handle that can be used to trigger actions from background goroutines.
+//
+// Example usage:
+//
+//	type TimerStore struct {
+//	    Seconds int
+//	    session livetemplate.Session
+//	}
+//
+//	func (s *TimerStore) OnConnect(ctx context.Context, session livetemplate.Session) error {
+//	    s.session = session
+//	    go s.runTimer(ctx)
+//	    return nil
+//	}
+//
+//	func (s *TimerStore) runTimer(ctx context.Context) {
+//	    ticker := time.NewTicker(time.Second)
+//	    defer ticker.Stop()
+//	    for {
+//	        select {
+//	        case <-ctx.Done():
+//	            return
+//	        case <-ticker.C:
+//	            s.session.TriggerAction("tick", nil)
+//	        }
+//	    }
+//	}
+//
+//	func (s *TimerStore) OnDisconnect() {
+//	    // Cleanup if needed
+//	}
+//
+//	func (s *TimerStore) Change(ctx *livetemplate.ActionContext) error {
+//	    if ctx.Action == "tick" {
+//	        s.Seconds++
+//	    }
+//	    return nil
+//	}
+type SessionAware interface {
+	OnConnect(ctx context.Context, session Session) error
+	OnDisconnect()
+}
+
+// Deprecated: Broadcaster is deprecated. Use Session instead.
+// Broadcaster allows stores to push updates to connected clients without user interaction.
 type Broadcaster interface {
 	Send() error // Re-renders template and sends update to this connection
 }
 
-// BroadcastAware is implemented by stores that need server-initiated updates
-// Examples: live notifications, stock tickers, background job status, real-time sync
+// Deprecated: BroadcastAware is deprecated. Use SessionAware instead.
+// BroadcastAware is implemented by stores that need server-initiated updates.
 type BroadcastAware interface {
 	OnConnect(ctx context.Context, b Broadcaster) error
 	OnDisconnect()
@@ -82,38 +153,130 @@ func (b *broadcaster) Send() error {
 	return writeUpdateWebSocket(b.conn, responseBytes)
 }
 
-// LiveHandler is the interface returned by Template.Handle()
-// It extends http.Handler with broadcasting capabilities for server-initiated updates.
+// liveSession implements the Session interface for server-initiated actions.
+// It is scoped to a single user and triggers actions on ALL their connections.
+type liveSession struct {
+	userID         string                      // User ID for targeting all user's connections
+	handler        *liveHandler                // Handler for registry access and action handling
+	uploadRegistry uploadRegistry              // Upload registry for action context
+	mu             sync.Mutex                  // Mutex for thread-safe operations
+}
+
+// TriggerAction triggers Store.Change() on all connections for this user,
+// then sends updates to all those connections.
 //
-// Broadcasting allows the server to push updates to connected clients without user interaction.
-// This is useful for:
-//   - Real-time notifications across multiple tabs/devices
-//   - Live data updates (stock prices, sports scores, etc.)
-//   - Collaborative editing
-//   - Background job status updates
+// In distributed deployments with PubSub configured, this also publishes the
+// action to Redis so that other server instances can trigger the action on
+// their local connections for this user.
+func (s *liveSession) TriggerAction(action string, data map[string]interface{}) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Publish to Redis for distributed instances (if configured)
+	if s.handler.config.PubSubBroadcaster != nil {
+		if err := s.handler.config.PubSubBroadcaster.PublishServerAction(s.userID, action, data); err != nil {
+			slog.Error("Failed to publish server action to pubsub",
+				slog.String("user_id", s.userID),
+				slog.String("action", action),
+				slog.String("error", err.Error()))
+			// Don't return early - still try local execution
+		}
+	}
+
+	// Process action locally
+	return s.triggerActionLocal(action, data)
+}
+
+// triggerActionLocal executes the action on local connections only.
+// This is called both from TriggerAction and from the PubSub handler.
+func (s *liveSession) triggerActionLocal(action string, data map[string]interface{}) error {
+	// Get all connections for this user
+	connections := s.handler.registry.GetByUser(s.userID)
+	if len(connections) == 0 {
+		slog.Debug("No connections for user in TriggerAction",
+			slog.String("user_id", s.userID),
+			slog.String("action", action))
+		return nil
+	}
+
+	slog.Debug("TriggerAction for user",
+		slog.String("user_id", s.userID),
+		slog.String("action", action),
+		slog.Int("connection_count", len(connections)))
+
+	// Create message for action routing
+	msg := message{
+		Action: action,
+		Data:   data,
+	}
+
+	// Process action for each connection
+	var errCount int
+	for _, conn := range connections {
+		// Get connection state from stores
+		stores, ok := conn.Stores.(Stores)
+		if !ok {
+			slog.Warn("Invalid stores type in connection",
+				slog.String("user_id", s.userID))
+			errCount++
+			continue
+		}
+
+		// Create connection state for this action
+		state := &connState{
+			stores:  stores,
+			errors:  make(map[string]string),
+			groupID: conn.GroupID,
+		}
+
+		// Get upload registry from connection if available
+		var uploadReg uploadRegistry
+		if conn.Uploads != nil {
+			uploadReg, _ = conn.Uploads.(uploadRegistry)
+		}
+
+		// Create context with timeout for server-initiated actions
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+
+		// Handle action (routes to store's Change method)
+		// nil for w, r since this is a server-initiated action (not HTTP request)
+		if err := s.handler.handleAction(ctx, msg, state, uploadReg, nil, nil); err != nil {
+			slog.Warn("TriggerAction handleAction failed",
+				slog.String("user_id", s.userID),
+				slog.String("action", action),
+				slog.String("error", err.Error()))
+			cancel()
+			errCount++
+			continue
+		}
+		cancel()
+
+		// Send update to this connection
+		if err := s.handler.sendUpdate(conn, s.handler.getTemplateData(state.stores)); err != nil {
+			slog.Warn("TriggerAction sendUpdate failed",
+				slog.String("user_id", s.userID),
+				slog.String("action", action),
+				slog.String("error", err.Error()))
+			errCount++
+			continue
+		}
+	}
+
+	if errCount > 0 {
+		return fmt.Errorf("TriggerAction failed for %d/%d connections", errCount, len(connections))
+	}
+
+	return nil
+}
+
+// LiveHandler is the interface returned by Template.Handle()
+// It provides HTTP handling and lifecycle management for live template connections.
+//
+// For server-initiated actions, use the Session interface provided to stores
+// via SessionAware.OnConnect(). Session.TriggerAction() is the recommended way
+// to push updates from the server.
 type LiveHandler interface {
 	http.Handler
-
-	// Broadcast sends updates to all connected clients across all session groups.
-	// The data parameter will be passed to the template for rendering.
-	//
-	// Example: Broadcast a global announcement to all users
-	//   handler.Broadcast(GlobalState{Message: "System maintenance in 10 minutes"})
-	Broadcast(data interface{}) error
-
-	// BroadcastToUsers sends updates to all connections for specific users.
-	// Useful for user-specific notifications across multiple devices/tabs.
-	//
-	// Example: Notify a specific user about a new message
-	//   handler.BroadcastToUsers([]string{"user-123"}, UserNotification{...})
-	BroadcastToUsers(userIDs []string, data interface{}) error
-
-	// BroadcastToGroup sends updates to all connections in a specific session group.
-	// Useful for updating all tabs of an anonymous user or a specific session.
-	//
-	// Example: Update all tabs for a specific session group
-	//   handler.BroadcastToGroup("session-abc", SessionState{...})
-	BroadcastToGroup(groupID string, data interface{}) error
 
 	// Shutdown gracefully shuts down the handler, draining connections.
 	//
@@ -354,11 +517,18 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		groupID: groupID,
 	}
 
-	// Create context for broadcaster lifecycle
+	// Create context for session/broadcaster lifecycle
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Create broadcaster for server-initiated updates
+	// Create session for server-initiated actions (new API)
+	sess := &liveSession{
+		userID:         userID,
+		handler:        h,
+		uploadRegistry: uploadRegistry,
+	}
+
+	// Create broadcaster for server-initiated updates (deprecated API)
 	bc := &broadcaster{
 		conn:     connection,
 		template: connTmpl,
@@ -366,11 +536,19 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		handler:  h,
 	}
 
-	// Call OnConnect for stores that implement BroadcastAware
+	// Call OnConnect for stores that implement SessionAware (new) or BroadcastAware (deprecated)
 	for _, store := range state.stores {
-		if aware, ok := store.(BroadcastAware); ok {
+		// Try SessionAware first (preferred)
+		if aware, ok := store.(SessionAware); ok {
+			if err := aware.OnConnect(ctx, sess); err != nil {
+				log.Printf("SessionAware.OnConnect failed for store: %v", err)
+			}
+			// Schedule OnDisconnect call when WebSocket closes
+			defer aware.OnDisconnect()
+		} else if aware, ok := store.(BroadcastAware); ok {
+			// Fall back to deprecated BroadcastAware
 			if err := aware.OnConnect(ctx, bc); err != nil {
-				log.Printf("OnConnect failed for store: %v", err)
+				log.Printf("BroadcastAware.OnConnect failed for store: %v", err)
 			}
 			// Schedule OnDisconnect call when WebSocket closes
 			defer aware.OnDisconnect()
@@ -890,210 +1068,6 @@ func (h *liveHandler) getStoreNames() []string {
 	return names
 }
 
-// Broadcast sends updates to all connected clients across all session groups.
-//
-// This method generates a template update using the provided data and sends it
-// to every active WebSocket connection. Each connection uses its own cloned template
-// for tree diffing, ensuring independent update generation.
-//
-// The data parameter will be passed to the template's ExecuteUpdates method.
-// Errors from individual connection sends are logged but don't stop the broadcast.
-//
-// Example usage:
-//
-//	handler := tmpl.Handle(&store)
-//	// ... later, from a background goroutine:
-//	handler.Broadcast(GlobalState{Message: "System maintenance in 10 minutes"})
-//
-// Concurrency: This method is safe to call from multiple goroutines concurrently.
-func (h *liveHandler) Broadcast(data interface{}) error {
-	// Publish to Redis for distributed instances (if configured)
-	if h.config.PubSubBroadcaster != nil {
-		payload, err := json.Marshal(data)
-		if err != nil {
-			slog.Error("Failed to marshal broadcast payload",
-				slog.String("error", err.Error()))
-			return fmt.Errorf("broadcast marshal error: %w", err)
-		}
-		if err := h.config.PubSubBroadcaster.PublishGlobal(payload); err != nil {
-			slog.Error("Failed to publish broadcast to pubsub",
-				slog.String("error", err.Error()))
-			// Don't return early - still try local broadcast
-		}
-	}
-
-	// Broadcast to local connections
-	connections := h.registry.GetAll()
-	if len(connections) == 0 {
-		slog.Debug("No local connections for broadcast")
-		return nil
-	}
-
-	slog.Debug("Broadcasting to local connections",
-		slog.Int("connection_count", len(connections)))
-
-	// Track errors but continue broadcasting to other connections
-	var errCount int
-	for _, conn := range connections {
-		if err := h.sendUpdate(conn, data); err != nil {
-			slog.Warn("Broadcast send failed",
-				slog.String("user_id", conn.UserID),
-				slog.String("group_id", conn.GroupID),
-				slog.String("error", err.Error()))
-			errCount++
-		}
-	}
-
-	if errCount > 0 {
-		return fmt.Errorf("broadcast failed for %d/%d connections", errCount, len(connections))
-	}
-
-	return nil
-}
-
-// BroadcastToUsers sends updates to all connections for specific users.
-//
-// This is useful for sending user-specific notifications across multiple devices/tabs.
-// For each userID, all active connections for that user will receive the update.
-//
-// The data parameter will be passed to the template's ExecuteUpdates method.
-// Errors from individual connection sends are logged but don't stop the broadcast.
-//
-// Example usage:
-//
-//	handler := tmpl.Handle(&store)
-//	// ... notify specific users about new messages:
-//	handler.BroadcastToUsers(
-//	    []string{"user-123", "user-456"},
-//	    UserNotification{Message: "New message from admin"},
-//	)
-//
-// Concurrency: This method is safe to call from multiple goroutines concurrently.
-func (h *liveHandler) BroadcastToUsers(userIDs []string, data interface{}) error {
-	if len(userIDs) == 0 {
-		return fmt.Errorf("no user IDs provided")
-	}
-
-	// Publish to Redis for distributed instances (if configured)
-	if h.config.PubSubBroadcaster != nil {
-		payload, err := json.Marshal(data)
-		if err != nil {
-			slog.Error("Failed to marshal broadcast to users payload",
-				slog.String("error", err.Error()))
-			return fmt.Errorf("broadcast to users marshal error: %w", err)
-		}
-		for _, userID := range userIDs {
-			if err := h.config.PubSubBroadcaster.PublishToUser(userID, payload); err != nil {
-				slog.Error("Failed to publish user broadcast to pubsub",
-					slog.String("user_id", userID),
-					slog.String("error", err.Error()))
-				// Continue with other users
-			}
-		}
-	}
-
-	// Broadcast to local connections
-	var totalConnections int
-	var errCount int
-
-	for _, userID := range userIDs {
-		connections := h.registry.GetByUser(userID)
-		totalConnections += len(connections)
-
-		for _, conn := range connections {
-			if err := h.sendUpdate(conn, data); err != nil {
-				slog.Warn("Broadcast to user send failed",
-					slog.String("user_id", userID),
-					slog.String("group_id", conn.GroupID),
-					slog.String("error", err.Error()))
-				errCount++
-			}
-		}
-	}
-
-	slog.Debug("Broadcast to users complete",
-		slog.Int("user_count", len(userIDs)),
-		slog.Int("connection_count", totalConnections))
-
-	if errCount > 0 {
-		return fmt.Errorf("broadcast failed for %d/%d connections", errCount, totalConnections)
-	}
-
-	if totalConnections == 0 {
-		slog.Debug("No local connections for user broadcast",
-			slog.Int("user_count", len(userIDs)))
-	}
-
-	return nil
-}
-
-// BroadcastToGroup sends updates to all connections in a specific session group.
-//
-// This is useful for updating all tabs of an anonymous user or all connections
-// sharing the same session group. All connections in the group will receive the update.
-//
-// The data parameter will be passed to the template's ExecuteUpdates method.
-// Errors from individual connection sends are logged but don't stop the broadcast.
-//
-// Example usage:
-//
-//	handler := tmpl.Handle(&store)
-//	// ... update all tabs for a specific session:
-//	handler.BroadcastToGroup("session-abc", SessionState{Count: 42})
-//
-// Concurrency: This method is safe to call from multiple goroutines concurrently.
-func (h *liveHandler) BroadcastToGroup(groupID string, data interface{}) error {
-	if groupID == "" {
-		return fmt.Errorf("group ID cannot be empty")
-	}
-
-	// Publish to Redis for distributed instances (if configured)
-	if h.config.PubSubBroadcaster != nil {
-		payload, err := json.Marshal(data)
-		if err != nil {
-			slog.Error("Failed to marshal broadcast to group payload",
-				slog.String("group_id", groupID),
-				slog.String("error", err.Error()))
-			return fmt.Errorf("broadcast to group marshal error: %w", err)
-		}
-		if err := h.config.PubSubBroadcaster.PublishToGroup(groupID, payload); err != nil {
-			slog.Error("Failed to publish group broadcast to pubsub",
-				slog.String("group_id", groupID),
-				slog.String("error", err.Error()))
-			// Continue with local broadcast
-		}
-	}
-
-	// Broadcast to local connections
-	connections := h.registry.GetByGroup(groupID)
-	if len(connections) == 0 {
-		slog.Debug("No local connections for group broadcast",
-			slog.String("group_id", groupID))
-		return nil
-	}
-
-	slog.Debug("Broadcasting to group connections",
-		slog.String("group_id", groupID),
-		slog.Int("connection_count", len(connections)))
-
-	var errCount int
-	for _, conn := range connections {
-		if err := h.sendUpdate(conn, data); err != nil {
-			slog.Warn("Broadcast to group send failed",
-				slog.String("group_id", groupID),
-				slog.String("user_id", conn.UserID),
-				slog.String("error", err.Error()))
-			errCount++
-		}
-	}
-
-	if errCount > 0 {
-		return fmt.Errorf("broadcast failed for %d/%d connections", errCount, len(connections))
-	}
-
-	return nil
-}
-
 // autoBroadcastToGroup broadcasts template updates to all connections in a group.
 // Optionally excludes a specific connection (for WebSocket sender).
 // Runs asynchronously to avoid blocking the caller.
@@ -1230,6 +1204,99 @@ func (h *liveHandler) handlePubSubMessage(msg *pubsub.BroadcastMessage) error {
 
 	default:
 		return fmt.Errorf("unknown broadcast scope: %s", msg.Scope)
+	}
+
+	return nil
+}
+
+// handleServerActionMessage handles incoming server action messages from other instances.
+//
+// This is called by the RedisBroadcaster subscriber when a server action message is received.
+// It triggers Store.Change() and sends updates to local connections for the target user.
+func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage) error {
+	// Get all connections for this user
+	connections := h.registry.GetByUser(msg.UserID)
+	if len(connections) == 0 {
+		slog.Debug("PubSub: No local connections for server action",
+			slog.String("user_id", msg.UserID),
+			slog.String("action", msg.Action))
+		return nil
+	}
+
+	slog.Debug("PubSub: Handling server action",
+		slog.String("user_id", msg.UserID),
+		slog.String("action", msg.Action),
+		slog.Int("connection_count", len(connections)))
+
+	// Create message for action routing
+	actionMsg := message{
+		Action: msg.Action,
+		Data:   msg.Data,
+	}
+
+	// Process action for each connection
+	var errCount int
+	for _, conn := range connections {
+		// Get connection state from stores
+		stores, ok := conn.Stores.(Stores)
+		if !ok {
+			slog.Warn("PubSub: Invalid stores type in connection",
+				slog.String("user_id", msg.UserID))
+			errCount++
+			continue
+		}
+
+		// Create connection state for this action
+		state := &connState{
+			stores:  stores,
+			errors:  make(map[string]string),
+			groupID: conn.GroupID,
+		}
+
+		// Get upload registry from connection if available
+		var uploadReg uploadRegistry
+		if conn.Uploads != nil {
+			uploadReg, _ = conn.Uploads.(uploadRegistry)
+		}
+
+		// Create context with timeout for server-initiated actions
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+
+		// Handle action (routes to store's Change method)
+		// nil for w, r since this is a PubSub-initiated action (not HTTP request)
+		if err := h.handleAction(ctx, actionMsg, state, uploadReg, nil, nil); err != nil {
+			slog.Warn("PubSub: handleAction failed for server action",
+				slog.String("user_id", msg.UserID),
+				slog.String("action", msg.Action),
+				slog.String("error", err.Error()))
+			cancel()
+			errCount++
+			continue
+		}
+		cancel()
+
+		// Send update to this connection
+		if err := h.sendUpdate(conn, h.getTemplateData(state.stores)); err != nil {
+			slog.Warn("PubSub: sendUpdate failed for server action",
+				slog.String("user_id", msg.UserID),
+				slog.String("action", msg.Action),
+				slog.String("error", err.Error()))
+			errCount++
+			continue
+		}
+	}
+
+	if errCount > 0 {
+		slog.Warn("PubSub: Server action failed for some connections",
+			slog.String("user_id", msg.UserID),
+			slog.String("action", msg.Action),
+			slog.Int("errors", errCount),
+			slog.Int("total", len(connections)))
+	} else {
+		slog.Debug("PubSub: Server action completed successfully",
+			slog.String("user_id", msg.UserID),
+			slog.String("action", msg.Action),
+			slog.Int("connection_count", len(connections)))
 	}
 
 	return nil

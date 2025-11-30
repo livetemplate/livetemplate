@@ -65,9 +65,17 @@ type Broadcaster interface {
 	// PublishToUser publishes a message to all instances for a specific user
 	PublishToUser(userID string, payload []byte) error
 
+	// PublishServerAction publishes a server-initiated action to all instances for a user.
+	// This triggers Store.Change() on receiving instances.
+	PublishServerAction(userID string, action string, data map[string]interface{}) error
+
 	// Subscribe starts listening for broadcast messages and calls the handler
 	// The handler is responsible for fan-out to local connections
 	Subscribe(handler MessageHandler) error
+
+	// SubscribeServerActions starts listening for server action messages
+	// The handler is responsible for triggering actions on local connections
+	SubscribeServerActions(handler ServerActionHandler) error
 
 	// Close stops the broadcaster and cleans up resources
 	Close() error
@@ -76,3 +84,31 @@ type Broadcaster interface {
 // MessageHandler is called when a broadcast message is received.
 // It should fan out the message to relevant local connections.
 type MessageHandler func(msg *BroadcastMessage) error
+
+// ServerActionMessage represents a server-initiated action sent over Redis Pub/Sub.
+//
+// This message type triggers Store.Change() on receiving instances, enabling
+// server-initiated actions to work across a distributed deployment.
+type ServerActionMessage struct {
+	// Type identifies the message type (always "server_action")
+	Type string `json:"type"`
+
+	// UserID identifies the target user (all connections for this user)
+	UserID string `json:"userID"`
+
+	// Action is the action name to trigger (e.g., "tick", "refresh")
+	Action string `json:"action"`
+
+	// Data contains the action data (may be nil)
+	Data map[string]interface{} `json:"data,omitempty"`
+
+	// Timestamp indicates when the message was published
+	Timestamp time.Time `json:"timestamp"`
+
+	// InstanceID identifies the instance that published this message
+	InstanceID string `json:"instanceID"`
+}
+
+// ServerActionHandler is called when a server action message is received.
+// It should trigger the action on relevant local connections.
+type ServerActionHandler func(msg *ServerActionMessage) error

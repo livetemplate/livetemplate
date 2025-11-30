@@ -1306,6 +1306,11 @@ func (t *Template) Handle(stores ...Store) LiveHandler {
 				log.Printf("LiveHandler: Pub/sub subscriber error: %v", err)
 			}
 		}()
+
+		// Also subscribe to server action messages
+		if err := config.PubSubBroadcaster.SubscribeServerActions(handler.handleServerActionMessage); err != nil {
+			log.Printf("LiveHandler: Failed to subscribe to server actions: %v", err)
+		}
 	}
 
 	return handler
