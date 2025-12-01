@@ -291,6 +291,8 @@ lvt-{action}-on:{actionName}:{lifecycle}="param"
 **Error Indicators:**
 
 ```html
+<!-- Visual feedback on form-level errors -->
+<!-- Note: For field-specific validation errors, use .lvt.HasError and .lvt.Error helpers -->
 <div
     lvt-addClass-on:error="border-red-500"
     lvt-removeClass-on:success="border-red-500">
@@ -299,6 +301,17 @@ lvt-{action}-on:{actionName}:{lifecycle}="param"
         <button type="submit">Save</button>
     </form>
 </div>
+```
+
+**Input Validation State:**
+
+```html
+<!-- For form inputs with validation errors -->
+<input
+    type="email"
+    name="email"
+    lvt-setAttr-on:error="aria-invalid:true"
+    lvt-setAttr-on:success="aria-invalid:false">
 ```
 
 **Multiple Actions on Same Element:**
@@ -315,6 +328,8 @@ lvt-{action}-on:{actionName}:{lifecycle}="param"
     Save
 </button>
 ```
+
+**Note:** When multiple reactive attributes target the same lifecycle event, all matching actions execute in DOM order. For example, `lvt-addClass-on:pending="loading"` and `lvt-addClass-on:pending="disabled"` will both add their respective classes.
 
 ---
 
