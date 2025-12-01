@@ -9,8 +9,13 @@ Complete reference for LiveTemplate client-side `lvt-*` HTML attributes.
 - [Event Bindings](#event-bindings)
 - [Data Passing](#data-passing)
 - [Form Lifecycle Events](#form-lifecycle-events)
+- [Reactive Attributes](#reactive-attributes)
 - [Validation](#validation)
 - [Rate Limiting](#rate-limiting)
+- [Directives](#directives)
+- [Modals](#modals)
+- [File Uploads](#file-uploads)
+- [Form Behavior](#form-behavior)
 - [Multi-Store Pattern](#multi-store-pattern)
 - [Attribute Reference](#attribute-reference)
 
@@ -160,6 +165,21 @@ form.addEventListener('lvt:done', (e) => {
 });
 ```
 
+### Document-Level Events
+
+Lifecycle events also bubble to the document level:
+
+```javascript
+// Listen for any action lifecycle events
+document.addEventListener('lvt:pending', (e) => {
+    console.log('Action starting:', e.detail.action);
+});
+
+document.addEventListener('lvt:success', (e) => {
+    console.log('Action succeeded:', e.detail.action);
+});
+```
+
 ### Event Detail
 
 ```javascript
@@ -175,6 +195,141 @@ form.addEventListener('lvt:success', (e) => {
     // }
 });
 ```
+
+---
+
+## Reactive Attributes
+
+Reactive attributes allow declarative DOM manipulation in response to action lifecycle events, without writing JavaScript.
+
+### Pattern
+
+```
+lvt-{action}-on:{lifecycle}="param"
+lvt-{action}-on:{actionName}:{lifecycle}="param"
+```
+
+### Lifecycle Events
+
+| Event | Description |
+|-------|-------------|
+| `pending` | Action started, waiting for server response |
+| `success` | Action completed successfully (no validation errors) |
+| `error` | Action completed with validation errors |
+| `done` | Action completed (regardless of success/error) |
+
+### Available Actions
+
+| Action | Description | Param |
+|--------|-------------|-------|
+| `reset` | Calls `form.reset()` | None |
+| `disable` | Sets `element.disabled = true` | None |
+| `enable` | Sets `element.disabled = false` | None |
+| `addClass` | Adds CSS class(es) | Space-separated classes |
+| `removeClass` | Removes CSS class(es) | Space-separated classes |
+| `toggleClass` | Toggles CSS class(es) | Space-separated classes |
+| `setAttr` | Sets an attribute | `name:value` format |
+| `toggleAttr` | Toggles a boolean attribute | Attribute name |
+
+### Event Scope
+
+**Global** - Reacts to any action:
+
+```html
+<!-- Reset form on any successful action -->
+<form lvt-submit="save" lvt-reset-on:success>
+    <input name="title">
+    <button type="submit">Save</button>
+</form>
+```
+
+**Action-Specific** - Reacts only to a specific action:
+
+```html
+<!-- Reset form only when 'create-todo' succeeds -->
+<form lvt-submit="create-todo" lvt-reset-on:create-todo:success>
+    <input name="title">
+    <button type="submit">Add Todo</button>
+</form>
+```
+
+### Examples
+
+**Loading States:**
+
+```html
+<button
+    lvt-click="save"
+    lvt-disable-on:pending
+    lvt-addClass-on:pending="opacity-50 cursor-wait"
+    lvt-enable-on:done
+    lvt-removeClass-on:done="opacity-50 cursor-wait">
+    Save
+</button>
+```
+
+**Form Reset on Success:**
+
+```html
+<form lvt-submit="create-todo" lvt-reset-on:success>
+    <input type="text" name="title" placeholder="New todo">
+    <button type="submit">Add</button>
+</form>
+```
+
+**Accessibility States:**
+
+```html
+<button
+    lvt-click="submit"
+    lvt-setAttr-on:pending="aria-busy:true"
+    lvt-setAttr-on:done="aria-busy:false">
+    Submit
+</button>
+```
+
+**Error Indicators:**
+
+```html
+<!-- Visual feedback on form-level errors -->
+<!-- Note: For field-specific validation errors, use .lvt.HasError and .lvt.Error helpers -->
+<div
+    lvt-addClass-on:error="border-red-500"
+    lvt-removeClass-on:success="border-red-500">
+    <form lvt-submit="save">
+        <input name="email">
+        <button type="submit">Save</button>
+    </form>
+</div>
+```
+
+**Input Validation State:**
+
+```html
+<!-- For form inputs with validation errors -->
+<input
+    type="email"
+    name="email"
+    lvt-setAttr-on:error="aria-invalid:true"
+    lvt-setAttr-on:success="aria-invalid:false">
+```
+
+**Multiple Actions on Same Element:**
+
+```html
+<button
+    lvt-click="save"
+    lvt-disable-on:pending
+    lvt-enable-on:done
+    lvt-addClass-on:pending="loading"
+    lvt-removeClass-on:done="loading"
+    lvt-addClass-on:success="success"
+    lvt-addClass-on:error="error">
+    Save
+</button>
+```
+
+**Note:** When multiple reactive attributes target the same lifecycle event, all matching actions execute in DOM order. For example, `lvt-addClass-on:pending="loading"` and `lvt-addClass-on:pending="disabled"` will both add their respective classes.
 
 ---
 
@@ -270,6 +425,178 @@ Limit event frequency to at most once per interval.
 
 ---
 
+## Directives
+
+Directives provide declarative behavior for common UI patterns.
+
+### Scroll Directives
+
+Control scroll behavior after DOM updates.
+
+```html
+<!-- Scroll to bottom -->
+<div lvt-scroll="bottom" class="chat-messages">
+    {{range .Messages}}
+        <div>{{.Text}}</div>
+    {{end}}
+</div>
+
+<!-- Sticky scroll (only if user is near bottom) -->
+<div lvt-scroll="bottom-sticky" lvt-scroll-threshold="100">
+    {{range .Logs}}
+        <div>{{.}}</div>
+    {{end}}
+</div>
+
+<!-- Scroll to top -->
+<div lvt-scroll="top">...</div>
+
+<!-- Preserve scroll position -->
+<div lvt-scroll="preserve">...</div>
+```
+
+| Attribute | Description |
+|-----------|-------------|
+| `lvt-scroll` | Scroll mode: `bottom`, `bottom-sticky`, `top`, `preserve` |
+| `lvt-scroll-behavior` | Scroll behavior: `auto` (default), `smooth` |
+| `lvt-scroll-threshold` | Pixel threshold for sticky scroll (default: 100) |
+
+### Highlight Directives
+
+Temporarily highlight elements after updates.
+
+```html
+<!-- Highlight updated item -->
+<div lvt-highlight="flash" lvt-highlight-color="#ffc107" lvt-highlight-duration="500">
+    {{.UpdatedContent}}
+</div>
+```
+
+| Attribute | Description |
+|-----------|-------------|
+| `lvt-highlight` | Highlight mode: `flash` |
+| `lvt-highlight-color` | Background color (default: `#ffc107`) |
+| `lvt-highlight-duration` | Duration in ms (default: 500) |
+
+### Animation Directives
+
+Apply entrance animations to elements.
+
+```html
+<!-- Fade in -->
+<div lvt-animate="fade">New content</div>
+
+<!-- Slide in -->
+<div lvt-animate="slide" lvt-animate-duration="300">Slide content</div>
+
+<!-- Scale in -->
+<div lvt-animate="scale">Pop content</div>
+```
+
+| Attribute | Description |
+|-----------|-------------|
+| `lvt-animate` | Animation type: `fade`, `slide`, `scale` |
+| `lvt-animate-duration` | Duration in ms (default: 300) |
+
+---
+
+## Modals
+
+Open and close modals declaratively.
+
+### Opening Modals
+
+```html
+<button lvt-modal-open="edit-modal">Edit</button>
+
+<div id="edit-modal" role="dialog" hidden>
+    <form lvt-submit="save">
+        <input name="title">
+        <button type="submit">Save</button>
+        <button type="button" lvt-modal-close="edit-modal">Cancel</button>
+    </form>
+</div>
+```
+
+### Modal Attributes
+
+| Attribute | Description |
+|-----------|-------------|
+| `lvt-modal-open` | Opens modal with specified ID on click |
+| `lvt-modal-close` | Closes modal with specified ID on click |
+
+### Modal Behavior
+
+- Modals use `role="dialog"` for accessibility
+- Press `Escape` to close the topmost modal
+- Click backdrop to close (when using modal backdrop)
+- Focus is trapped within open modals
+
+---
+
+## File Uploads
+
+Handle file uploads with progress tracking.
+
+### Basic Upload
+
+```html
+<form lvt-submit="save-profile">
+    <input type="file" lvt-upload="avatar" name="avatar">
+    <button type="submit">Save</button>
+</form>
+```
+
+### Multiple Files
+
+```html
+<input type="file" lvt-upload="documents" name="docs" multiple>
+```
+
+### Upload Attributes
+
+| Attribute | Description |
+|-----------|-------------|
+| `lvt-upload` | Upload identifier for tracking |
+
+Files are automatically uploaded when the form is submitted, with progress events emitted.
+
+---
+
+## Form Behavior
+
+### Preserve Form Data
+
+By default, forms reset after successful submission. Use `lvt-preserve` to keep form values:
+
+```html
+<form lvt-submit="search" lvt-preserve>
+    <input name="query">
+    <button type="submit">Search</button>
+</form>
+```
+
+### Disable Button During Submit
+
+Show loading state on submit buttons:
+
+```html
+<form lvt-submit="save">
+    <input name="title">
+    <button type="submit" lvt-disable-with="Saving...">Save</button>
+</form>
+```
+
+### Confirm Delete
+
+Require confirmation for destructive actions:
+
+```html
+<button lvt-click="delete" lvt-confirm="Are you sure?">Delete</button>
+```
+
+---
+
 ## Multi-Store Pattern
 
 Use namespaced actions for applications with multiple state stores.
@@ -320,19 +647,41 @@ Complete reference of all `lvt-*` attributes.
 | `lvt-input` | Input event (every keystroke) | `<input lvt-input="search">` |
 | `lvt-keydown` | Keydown event | `<input lvt-keydown="submit">` |
 | `lvt-keyup` | Keyup event | `<input lvt-keyup="handle">` |
+| `lvt-focus` | Focus event | `<input lvt-focus="highlight">` |
+| `lvt-blur` | Blur event | `<input lvt-blur="validate">` |
 | `lvt-mouseenter` | Mouse enter event | `<div lvt-mouseenter="show">` |
 | `lvt-mouseleave` | Mouse leave event | `<div lvt-mouseleave="hide">` |
+| `lvt-click-away` | Click outside element | `<div lvt-click-away="close">` |
 | `lvt-window-keydown` | Global keydown | `<div lvt-window-keydown="close">` |
+| `lvt-window-keyup` | Global keyup | `<div lvt-window-keyup="handle">` |
 | `lvt-window-scroll` | Window scroll | `<div lvt-window-scroll="load">` |
+| `lvt-window-resize` | Window resize | `<div lvt-window-resize="adjust">` |
+| `lvt-window-focus` | Window focus | `<div lvt-window-focus="refresh">` |
+| `lvt-window-blur` | Window blur | `<div lvt-window-blur="pause">` |
 
 ### Data Attributes
 
 | Attribute | Description | Example |
 |-----------|-------------|---------|
-| `lvt-data-<key>` | Pass string data | `lvt-data-id="{{.ID}}"` |
-| `lvt-data-<key>` | Pass any data type | `lvt-data-count="{{.Count}}"` |
+| `lvt-data-<key>` | Pass data to action | `lvt-data-id="{{.ID}}"` |
+| `lvt-value-<key>` | Pass value to action | `lvt-value-count="{{.Count}}"` |
 
-**Note:** All `lvt-data-*` attributes are passed to `ActionContext.Data` with the key being the part after `lvt-data-`.
+**Note:** Both `lvt-data-*` and `lvt-value-*` attributes are passed to `ActionContext.Data`.
+
+### Reactive Attributes
+
+| Attribute | Description | Example |
+|-----------|-------------|---------|
+| `lvt-reset-on:{event}` | Reset form on lifecycle event | `lvt-reset-on:success` |
+| `lvt-disable-on:{event}` | Disable element on event | `lvt-disable-on:pending` |
+| `lvt-enable-on:{event}` | Enable element on event | `lvt-enable-on:done` |
+| `lvt-addClass-on:{event}` | Add class(es) on event | `lvt-addClass-on:pending="loading"` |
+| `lvt-removeClass-on:{event}` | Remove class(es) on event | `lvt-removeClass-on:done="loading"` |
+| `lvt-toggleClass-on:{event}` | Toggle class(es) on event | `lvt-toggleClass-on:success="active"` |
+| `lvt-setAttr-on:{event}` | Set attribute on event | `lvt-setAttr-on:pending="aria-busy:true"` |
+| `lvt-toggleAttr-on:{event}` | Toggle boolean attr on event | `lvt-toggleAttr-on:pending="disabled"` |
+
+**Note:** `{event}` can be `pending`, `success`, `error`, or `done`. For action-specific: `lvt-reset-on:create-todo:success`.
 
 ### Modifier Attributes
 
@@ -341,6 +690,40 @@ Complete reference of all `lvt-*` attributes.
 | `lvt-key` | Filter keyboard events by key | `lvt-key="Enter"` |
 | `lvt-debounce` | Debounce delay in milliseconds | `lvt-debounce="300"` |
 | `lvt-throttle` | Throttle interval in milliseconds | `lvt-throttle="100"` |
+
+### Form Attributes
+
+| Attribute | Description | Example |
+|-----------|-------------|---------|
+| `lvt-preserve` | Keep form values after submit | `<form lvt-preserve>` |
+| `lvt-disable-with` | Button text during submit | `lvt-disable-with="Saving..."` |
+| `lvt-confirm` | Confirmation dialog | `lvt-confirm="Are you sure?"` |
+
+### Modal Attributes
+
+| Attribute | Description | Example |
+|-----------|-------------|---------|
+| `lvt-modal-open` | Open modal by ID | `lvt-modal-open="edit-modal"` |
+| `lvt-modal-close` | Close modal by ID | `lvt-modal-close="edit-modal"` |
+
+### Directive Attributes
+
+| Attribute | Description | Example |
+|-----------|-------------|---------|
+| `lvt-scroll` | Scroll behavior | `lvt-scroll="bottom"` |
+| `lvt-scroll-behavior` | Scroll animation | `lvt-scroll-behavior="smooth"` |
+| `lvt-scroll-threshold` | Sticky scroll threshold (px) | `lvt-scroll-threshold="100"` |
+| `lvt-highlight` | Highlight effect | `lvt-highlight="flash"` |
+| `lvt-highlight-color` | Highlight background color | `lvt-highlight-color="#ffc107"` |
+| `lvt-highlight-duration` | Highlight duration (ms) | `lvt-highlight-duration="500"` |
+| `lvt-animate` | Entrance animation | `lvt-animate="fade"` |
+| `lvt-animate-duration` | Animation duration (ms) | `lvt-animate-duration="300"` |
+
+### Upload Attributes
+
+| Attribute | Description | Example |
+|-----------|-------------|---------|
+| `lvt-upload` | File upload identifier | `lvt-upload="avatar"` |
 
 ### Valid Key Values
 
@@ -356,7 +739,25 @@ For `lvt-key` attribute:
 
 ## Best Practices
 
-### 1. Use Debounce for Search
+### 1. Use Reactive Attributes for Loading States
+
+Prefer declarative reactive attributes over JavaScript for common UI patterns:
+
+```html
+<!-- Good: Declarative loading state -->
+<button
+    lvt-click="save"
+    lvt-disable-on:pending
+    lvt-addClass-on:pending="opacity-50"
+    lvt-enable-on:done
+    lvt-removeClass-on:done="opacity-50">
+    Save
+</button>
+
+<!-- Avoid: JavaScript for simple loading state -->
+```
+
+### 2. Use Debounce for Search
 
 ```html
 <input
@@ -365,20 +766,20 @@ For `lvt-key` attribute:
     name="query">
 ```
 
-### 2. Use Throttle for Scroll
+### 3. Use Throttle for Scroll
 
 ```html
 <div lvt-window-scroll="loadMore" lvt-throttle="100">
 ```
 
-### 3. Namespace Multi-Store Actions
+### 4. Namespace Multi-Store Actions
 
 ```html
 <button lvt-click="todos.add">Add</button>
 <button lvt-click="user.logout">Logout</button>
 ```
 
-### 4. Show Validation Errors
+### 5. Show Validation Errors
 
 ```html
 <input
@@ -390,16 +791,27 @@ For `lvt-key` attribute:
 {{end}}
 ```
 
-### 5. Handle Form Lifecycle
+### 6. Reset Forms on Success
 
-```javascript
-form.addEventListener('lvt:pending', () => {
-    submitButton.disabled = true;
-});
+Use reactive attributes for automatic form reset:
 
-form.addEventListener('lvt:done', () => {
-    submitButton.disabled = false;
-});
+```html
+<form lvt-submit="create-todo" lvt-reset-on:success>
+    <input name="title" placeholder="New todo">
+    <button type="submit">Add</button>
+</form>
+```
+
+### 7. Accessibility with Reactive Attributes
+
+```html
+<button
+    lvt-click="save"
+    lvt-setAttr-on:pending="aria-busy:true"
+    lvt-setAttr-on:done="aria-busy:false"
+    lvt-setAttr-on:error="aria-invalid:true">
+    Save
+</button>
 ```
 
 ---
