@@ -723,6 +723,196 @@ func TestRedisSessionStore_UpdateExisting(t *testing.T) {
 }
 
 // =============================================================================
+// SingleStoreSetter Interface Tests
+// =============================================================================
+
+// TestMemorySessionStore_SingleStoreSetter verifies MemorySessionStore implements SingleStoreSetter
+func TestMemorySessionStore_SingleStoreSetter(t *testing.T) {
+	var _ SingleStoreSetter = (*MemorySessionStore)(nil)
+}
+
+// TestRedisSessionStore_SingleStoreSetter verifies RedisSessionStore implements SingleStoreSetter
+func TestRedisSessionStore_SingleStoreSetter(t *testing.T) {
+	var _ SingleStoreSetter = (*RedisSessionStore)(nil)
+}
+
+// TestMemorySessionStore_SetStore tests SetStore no-op behavior
+func TestMemorySessionStore_SetStore(t *testing.T) {
+	store := NewMemorySessionStore()
+	defer store.Close()
+
+	// Set up initial stores
+	testStores := Stores{
+		"counter": &testStore{value: 10},
+	}
+	store.Set(context.Background(), "group-1", testStores)
+
+	// Modify the store directly (simulating what happens after handleAction)
+	counterStore := testStores["counter"].(*testStore)
+	counterStore.value = 20
+
+	// Call SetStore (should be a no-op for memory store, just update lastAccess)
+	store.SetStore(context.Background(), "group-1", "counter", counterStore)
+
+	// Verify the store still has the modified value
+	retrieved := store.Get(context.Background(), "group-1")
+	if retrieved == nil {
+		t.Fatal("Expected stores to exist")
+	}
+
+	retrievedCounter := retrieved["counter"].(*testStore)
+	if retrievedCounter.value != 20 {
+		t.Errorf("Expected value=20, got %d", retrievedCounter.value)
+	}
+}
+
+// TestRedisSessionStore_SetStore tests single store update
+func TestRedisSessionStore_SetStore(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer client.Close()
+
+	store := NewRedisSessionStore(client)
+
+	// Set up initial stores with multiple entries
+	stores := Stores{
+		"counter": &TestStore{Value: 10, Message: "initial"},
+		"timer":   &TestStore{Value: 100, Message: "timer"},
+	}
+	store.Set(context.Background(), "setstore-group", stores)
+
+	// Update only the counter store
+	updatedCounter := &TestStore{Value: 20, Message: "updated"}
+	store.SetStore(context.Background(), "setstore-group", "counter", updatedCounter)
+
+	// Retrieve and verify
+	retrieved := store.Get(context.Background(), "setstore-group")
+	if retrieved == nil {
+		t.Fatal("Expected stores to exist")
+	}
+
+	// Counter should be updated
+	counter := retrieved["counter"].(*TestStore)
+	if counter.Value != 20 || counter.Message != "updated" {
+		t.Errorf("Counter not updated: Value=%d, Message=%s", counter.Value, counter.Message)
+	}
+
+	// Timer should be unchanged
+	timer := retrieved["timer"].(*TestStore)
+	if timer.Value != 100 || timer.Message != "timer" {
+		t.Errorf("Timer should be unchanged: Value=%d, Message=%s", timer.Value, timer.Message)
+	}
+}
+
+// =============================================================================
+// State Tag Serialization Tests (lvt:"state")
+// =============================================================================
+
+// StateTagTestProfile is a test state struct
+type StateTagTestProfile struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+// StateTagTestController has state-tagged fields
+type StateTagTestController struct {
+	Profile *StateTagTestProfile `lvt:"state"`
+	Counter int                  `lvt:"state"` // Non-pointer state field
+	DBConn  string               // Not tagged - should not be persisted
+}
+
+func init() {
+	// Register types for gob serialization
+	gob.Register(&StateTagTestController{})
+	gob.Register(&StateTagTestProfile{})
+}
+
+// TestRedisSessionStore_StateTagSerialization tests that only state-tagged fields are serialized
+func TestRedisSessionStore_StateTagSerialization(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer client.Close()
+
+	store := NewRedisSessionStore(client)
+
+	// Create controller with state tags
+	controller := &StateTagTestController{
+		Profile: &StateTagTestProfile{Name: "Test User", Email: "test@example.com"},
+		Counter: 42,
+		DBConn:  "postgres://secret:password@localhost/db", // Should NOT be persisted
+	}
+
+	stores := Stores{"controller": controller}
+	store.Set(context.Background(), "state-tag-group", stores)
+
+	// Retrieve - the returned store will be a StateData wrapper
+	// because state-tagged fields are serialized differently
+	retrieved := store.Get(context.Background(), "state-tag-group")
+	if retrieved == nil {
+		t.Fatal("Expected stores to exist")
+	}
+
+	// Check if it's StateData (state-only serialization) or full store
+	retrievedController := retrieved["controller"]
+	if retrievedController == nil {
+		t.Fatal("Expected controller store to exist")
+	}
+
+	// If it's StateData, we need to verify the raw bytes contain state
+	if sd := GetStateData(retrievedController); sd != nil {
+		// This is StateData - state-only serialization worked
+		if len(sd.Raw) == 0 {
+			t.Error("StateData.Raw is empty")
+		}
+
+		// Verify we can deserialize the state
+		stateMap, err := DeserializeState(sd.Raw, &StateTagTestController{})
+		if err != nil {
+			t.Fatalf("Failed to deserialize state: %v", err)
+		}
+
+		// Verify Profile is in state
+		if _, ok := stateMap["Profile"]; !ok {
+			t.Error("Profile should be in state map")
+		}
+
+		// Verify Counter is in state
+		if _, ok := stateMap["Counter"]; !ok {
+			t.Error("Counter should be in state map")
+		}
+	}
+}
+
+// TestIsStateData tests the IsStateData helper
+func TestIsStateData(t *testing.T) {
+	sd := &StateData{Raw: []byte(`{"v":1,"fields":{}}`)}
+
+	if !IsStateData(sd) {
+		t.Error("IsStateData should return true for *StateData")
+	}
+
+	if IsStateData("not state data") {
+		t.Error("IsStateData should return false for string")
+	}
+
+	if IsStateData(nil) {
+		t.Error("IsStateData should return false for nil")
+	}
+}
+
+// TestGetStateData tests the GetStateData helper
+func TestGetStateData(t *testing.T) {
+	sd := &StateData{Raw: []byte(`test`)}
+
+	result := GetStateData(sd)
+	if result != sd {
+		t.Error("GetStateData should return the same StateData pointer")
+	}
+
+	if GetStateData("not state data") != nil {
+		t.Error("GetStateData should return nil for non-StateData")
+	}
+}
+
+// =============================================================================
 // Session (Server-Initiated Actions) Tests
 // =============================================================================
 

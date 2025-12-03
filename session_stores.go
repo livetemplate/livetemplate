@@ -3,7 +3,9 @@ package livetemplate
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/gob"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math"
@@ -41,6 +43,26 @@ type SessionStore interface {
 	// Used for broadcasting and cleanup operations.
 	// The context can be used for cancellation, timeouts, and tracing.
 	List(ctx context.Context) []string
+}
+
+// SingleStoreSetter is an optional interface that SessionStore implementations
+// can implement to support targeted persistence of individual stores.
+//
+// This is an optimization for multi-store setups: instead of persisting all stores
+// after every action, only the modified store is persisted. This is especially
+// beneficial for Redis-based stores where network roundtrips are expensive.
+//
+// Implementation guidelines:
+//   - MemorySessionStore: no-op (references are already updated in-place)
+//   - RedisSessionStore: serialize and write only the specified store
+//
+// The framework will check if the SessionStore implements this interface
+// and use SetStore when available, falling back to Set otherwise.
+type SingleStoreSetter interface {
+	// SetStore persists a single store within a session group.
+	// This is more efficient than Set() when only one store has changed.
+	// The storeName is the key in the Stores map (empty string for single-store mode).
+	SetStore(ctx context.Context, groupID string, storeName string, store interface{})
 }
 
 // ========================================
@@ -172,6 +194,17 @@ func (s *MemorySessionStore) List(ctx context.Context) []string {
 	return groupIDs
 }
 
+// SetStore is a no-op for MemorySessionStore.
+// Memory stores use references, so modifications to store objects are already
+// persisted in-place. This method is provided for interface compliance.
+func (s *MemorySessionStore) SetStore(ctx context.Context, groupID string, storeName string, store interface{}) {
+	// No-op: MemorySessionStore uses references, so the store is already updated in-place.
+	// We just update the last access time to prevent premature cleanup.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastAccess[groupID] = time.Now()
+}
+
 // Close stops the cleanup goroutine.
 // Should be called when shutting down the application.
 func (s *MemorySessionStore) Close() {
@@ -214,18 +247,36 @@ func (s *MemorySessionStore) cleanup() {
 // Redis Session Store
 // ========================================
 
-// Redis key schema:
-// livetemplate:session:{groupID}        -> Gob-encoded Stores
-// livetemplate:session:{groupID}:access -> Last access timestamp (Unix seconds)
+// Redis key schema (v2 - Hash-based):
+// livetemplate:session:{groupID} -> Redis HASH
+//   - "_meta" field: JSON {"version":"2","updated_at":timestamp}
+//   - "{storeName}" field: base64-encoded Gob data (preserves type information)
 // TTL: Configurable (default: 24 hours)
+//
+// Why Gob instead of JSON for store data?
+// Gob preserves Go type information, allowing stores to be unmarshaled back to their
+// original types. JSON would lose type info and return map[string]interface{}.
+//
+// Migration: Legacy v1 keys (Gob-encoded blob of entire Stores map) are automatically
+// detected and migrated to v2 format on read. The legacy key is deleted after migration.
 
 const (
 	sessionKeyPrefix       = "livetemplate:session:"
-	sessionAccessKeySuffix = ":access"
+	sessionAccessKeySuffix = ":access" // Legacy v1, kept for cleanup
 	defaultSessionTTL      = 24 * time.Hour
 	defaultMaxRetries      = 3
 	defaultRetryDelay      = 100 * time.Millisecond
+
+	// Hash field names for v2 schema
+	metaField      = "_meta"
+	schemaVersion2 = "2"
 )
+
+// sessionMeta holds metadata for a session stored in the Redis hash.
+type sessionMeta struct {
+	Version   string `json:"version"`
+	UpdatedAt int64  `json:"updated_at"`
+}
 
 // RedisSessionStore implements SessionStore using Redis for distributed session management.
 //
@@ -233,13 +284,18 @@ const (
 // - Thread-safe for concurrent access
 // - Automatic TTL refresh on access
 // - Connection retry with exponential backoff
-// - Serialization of Store state using gob encoding
+// - Hash-based storage with JSON serialization (v2 schema)
+// - Automatic migration from legacy Gob-encoded blob format (v1)
 // - Suitable for multi-instance deployments
 //
-// Redis Key Schema:
-//   - livetemplate:session:{groupID}        -> Gob-encoded Stores
-//   - livetemplate:session:{groupID}:access -> Last access timestamp
+// Redis Key Schema (v2):
+//   - livetemplate:session:{groupID} -> Redis HASH
+//   - "_meta" field: JSON metadata (version, updated_at)
+//   - "{storeName}" fields: JSON-encoded individual stores
 //   - TTL: 24 hours (configurable)
+//
+// The v2 schema uses Redis HASH to enable granular updates via HSET,
+// which is more efficient than re-writing the entire session blob.
 type RedisSessionStore struct {
 	client       redis.UniversalClient
 	ttl          time.Duration
@@ -326,73 +382,318 @@ func NewRedisSessionStore(client redis.UniversalClient, opts ...RedisSessionStor
 // Returns nil if the group doesn't exist or if deserialization fails.
 // Automatically refreshes the TTL on successful access.
 // The context is used for Redis operations and can timeout/cancel requests.
+//
+// This method supports both v2 (hash-based) and legacy v1 (blob) formats.
+// Legacy v1 sessions are automatically migrated to v2 format on read.
 func (s *RedisSessionStore) Get(ctx context.Context, groupID string) Stores {
 	key := sessionKeyPrefix + groupID
 
-	// Get the serialized stores with retry
-	data, err := s.getWithRetry(ctx, key)
-	if err != nil {
-		// Session doesn't exist or Redis error
+	// First, try to get as a hash (v2 schema)
+	hashData, err := s.client.HGetAll(ctx, key).Result()
+	if err != nil && err != redis.Nil {
+		// Redis error
 		return nil
 	}
 
-	if len(data) == 0 {
-		return nil
+	// Check if this is a v2 hash (has _meta field)
+	if metaJSON, ok := hashData[metaField]; ok {
+		var meta sessionMeta
+		if err := json.Unmarshal([]byte(metaJSON), &meta); err == nil && meta.Version == schemaVersion2 {
+			// This is v2 format - deserialize from hash
+			stores := s.deserializeFromHash(hashData)
+			if stores != nil {
+				s.queueTTLRefresh(groupID)
+			}
+			return stores
+		}
 	}
 
-	// Deserialize stores
-	stores, err := s.deserializeStores(data)
-	if err != nil {
-		// Deserialization failed - session is corrupted
-		// Delete it to prevent further issues
-		s.Delete(ctx, groupID)
-		return nil
+	// No v2 data found - check for legacy v1 blob
+	// This happens when HGETALL returns empty (key doesn't exist as hash)
+	// or when the key exists but isn't a hash (legacy string format)
+	if len(hashData) == 0 {
+		// Try legacy blob format
+		data, err := s.getWithRetry(ctx, key)
+		if err != nil || len(data) == 0 {
+			return nil
+		}
+
+		// Deserialize legacy stores
+		stores, err := s.deserializeStores(data)
+		if err != nil {
+			// Deserialization failed - session is corrupted
+			s.Delete(ctx, groupID)
+			return nil
+		}
+
+		// Migrate to v2 format
+		s.migrateToV2(ctx, groupID, stores)
+
+		s.queueTTLRefresh(groupID)
+		return stores
 	}
 
-	// Queue TTL refresh asynchronously via worker (non-blocking)
+	// Empty hash or corrupted data
+	return nil
+}
+
+// queueTTLRefresh queues an asynchronous TTL refresh for the given group.
+func (s *RedisSessionStore) queueTTLRefresh(groupID string) {
 	select {
 	case s.refreshChan <- groupID:
 		// Queued successfully
 	default:
 		// Channel full - skip refresh (better than spawning goroutine)
 	}
+}
+
+// deserializeFromHash deserializes Stores from a Redis hash (v2 format).
+func (s *RedisSessionStore) deserializeFromHash(hashData map[string]string) Stores {
+	stores := make(Stores)
+
+	for field, data := range hashData {
+		// Skip metadata field
+		if field == metaField {
+			continue
+		}
+
+		// Deserialize the store from base64-encoded Gob
+		store, err := s.deserializeSingleStore(data)
+		if err != nil {
+			log.Printf("WARN: RedisSessionStore: failed to deserialize store %q: %v", field, err)
+			continue
+		}
+
+		stores[field] = store
+	}
 
 	return stores
 }
 
-// Set stores Stores for a session group.
+// serializeSingleStore encodes a single store for Redis storage.
+//
+// If the store has `lvt:"state"` tagged fields, only those fields are serialized.
+// This allows controllers to have non-serializable dependencies (DB, Logger, etc.)
+// while still persisting their state.
+//
+// If the store has no state tags, the entire store is serialized using Gob
+// (backward compatible behavior).
+func (s *RedisSessionStore) serializeSingleStore(store interface{}) (string, error) {
+	// Check if store has state-tagged fields
+	stateFields := ExtractState(store)
+	if stateFields != nil {
+		// Serialize only state fields
+		data, err := SerializeState(stateFields)
+		if err != nil {
+			return "", fmt.Errorf("state serialization failed: %w", err)
+		}
+		// Prefix with "s:" to indicate state-only format
+		return "s:" + base64.StdEncoding.EncodeToString(data), nil
+	}
+
+	// No state tags - serialize entire store using Gob (backward compatible)
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+
+	if err := enc.Encode(&store); err != nil {
+		return "", fmt.Errorf("gob encode failed: %w (hint: custom types must be registered with gob.Register() in init())", err)
+	}
+
+	// Prefix with "g:" to indicate Gob format
+	return "g:" + base64.StdEncoding.EncodeToString(buf.Bytes()), nil
+}
+
+// deserializeSingleStore decodes a single store from Redis storage.
+//
+// Supported formats (detected by prefix):
+//   - "s:..." - State-only format (JSON envelope containing only `lvt:"state"` fields)
+//   - "g:..." - Gob format (entire store encoded with gob)
+//   - No prefix - Legacy gob format (backward compatibility)
+//
+// For state-only format ("s:"), this returns a *stateData wrapper containing
+// the deserialized state map. The caller (mount.go) is responsible for
+// creating a fresh controller clone and injecting the state into it.
+func (s *RedisSessionStore) deserializeSingleStore(encoded string) (interface{}, error) {
+	// Check format prefix
+	if len(encoded) >= 2 {
+		prefix := encoded[:2]
+		payload := encoded[2:]
+
+		switch prefix {
+		case "s:":
+			// State-only format - return wrapper for mount.go to handle
+			data, err := base64.StdEncoding.DecodeString(payload)
+			if err != nil {
+				return nil, fmt.Errorf("base64 decode failed: %w", err)
+			}
+			return &StateData{Raw: data}, nil
+
+		case "g:":
+			// Gob format with prefix
+			data, err := base64.StdEncoding.DecodeString(payload)
+			if err != nil {
+				return nil, fmt.Errorf("base64 decode failed: %w", err)
+			}
+			return s.decodeGob(data)
+		}
+	}
+
+	// Legacy format (no prefix) - assume gob
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("base64 decode failed: %w", err)
+	}
+	return s.decodeGob(data)
+}
+
+// decodeGob decodes gob-encoded bytes into a store interface.
+func (s *RedisSessionStore) decodeGob(data []byte) (interface{}, error) {
+	buf := bytes.NewBuffer(data)
+	dec := gob.NewDecoder(buf)
+
+	var store interface{}
+	if err := dec.Decode(&store); err != nil {
+		return nil, fmt.Errorf("gob decode failed: %w (hint: custom types must be registered with gob.Register() in init())", err)
+	}
+
+	return store, nil
+}
+
+// StateData wraps raw state bytes from Redis for later injection.
+// When mount.go encounters this type in Stores, it knows to:
+// 1. Clone the template's original store (which has dependencies)
+// 2. Deserialize state into the clone using DeserializeState()
+// 3. Inject state into the clone using InjectState()
+//
+// This type is exported so mount.go can detect and handle it.
+type StateData struct {
+	Raw []byte // Raw state envelope bytes (JSON format from SerializeState)
+}
+
+// IsStateData checks if a value is wrapped state data that needs injection.
+func IsStateData(v interface{}) bool {
+	_, ok := v.(*StateData)
+	return ok
+}
+
+// GetStateData extracts the StateData wrapper from a value, if present.
+// Returns nil if the value is not StateData.
+func GetStateData(v interface{}) *StateData {
+	sd, _ := v.(*StateData)
+	return sd
+}
+
+// migrateToV2 migrates a legacy v1 session to v2 hash format.
+func (s *RedisSessionStore) migrateToV2(ctx context.Context, groupID string, stores Stores) {
+	key := sessionKeyPrefix + groupID
+
+	// Delete the legacy blob key first
+	s.client.Del(ctx, key)
+
+	// Also delete legacy access key if it exists
+	accessKey := key + sessionAccessKeySuffix
+	s.client.Del(ctx, accessKey)
+
+	// Write in v2 format
+	s.Set(ctx, groupID, stores)
+}
+
+// Set stores Stores for a session group using v2 hash format.
 // Creates a new group if it doesn't exist, updates if it does.
-// Sets the TTL and updates the last access timestamp.
+// Sets the TTL and updates the metadata.
 // The context is used for Redis operations and can timeout/cancel requests.
 func (s *RedisSessionStore) Set(ctx context.Context, groupID string, stores Stores) {
 	key := sessionKeyPrefix + groupID
-	accessKey := key + sessionAccessKeySuffix
 
-	// Serialize stores
-	data, err := s.serializeStores(stores)
-	if err != nil {
-		// CRITICAL: Serialization failed - data will not be persisted!
-		// This should be monitored in production as it indicates data loss.
-		log.Printf("ERROR: RedisSessionStore.Set(%s): serialization failed: %v", groupID, err)
-		// TODO: Consider changing Set() signature to return error in next major version
+	// Handle nil stores by deleting the session
+	if stores == nil {
+		s.Delete(ctx, groupID)
 		return
+	}
+
+	// Build hash fields for all stores
+	fields := make(map[string]interface{})
+
+	// Add metadata
+	meta := sessionMeta{
+		Version:   schemaVersion2,
+		UpdatedAt: time.Now().Unix(),
+	}
+	metaJSON, err := json.Marshal(meta)
+	if err != nil {
+		log.Printf("ERROR: RedisSessionStore.Set(%s): failed to marshal metadata: %v", groupID, err)
+		return
+	}
+	fields[metaField] = string(metaJSON)
+
+	// Serialize each store using Gob (preserves type information)
+	for storeName, store := range stores {
+		encoded, err := s.serializeSingleStore(store)
+		if err != nil {
+			log.Printf("ERROR: RedisSessionStore.Set(%s): failed to serialize store %q: %v", groupID, storeName, err)
+			continue
+		}
+		fields[storeName] = encoded
 	}
 
 	// Use pipeline for atomic operations
 	pipe := s.client.Pipeline()
 
-	// Set the serialized stores
-	pipe.Set(ctx, key, data, s.ttl)
+	// Delete the key first to clear any old fields that may no longer exist
+	pipe.Del(ctx, key)
 
-	// Set the last access timestamp
-	pipe.Set(ctx, accessKey, time.Now().Unix(), s.ttl)
+	// Set all hash fields
+	pipe.HSet(ctx, key, fields)
+
+	// Set TTL
+	pipe.Expire(ctx, key, s.ttl)
 
 	// Execute pipeline with retry
 	if err := s.execPipelineWithRetry(ctx, pipe); err != nil {
-		// CRITICAL: Redis persistence failed - data will not be persisted!
-		// This should be monitored in production as it indicates data loss.
 		log.Printf("ERROR: RedisSessionStore.Set(%s): redis persistence failed: %v", groupID, err)
-		// TODO: Consider changing Set() signature to return error in next major version
+	}
+}
+
+// SetStore persists a single store within a session group.
+// Uses Redis HSET to update only the specified store field, which is
+// more efficient than Set() when only one store has changed.
+//
+// This is the primary optimization of v2 schema: instead of serializing
+// and writing all stores, we only serialize and write the modified store.
+func (s *RedisSessionStore) SetStore(ctx context.Context, groupID string, storeName string, store interface{}) {
+	key := sessionKeyPrefix + groupID
+
+	// Serialize the single store using Gob (preserves type information)
+	encoded, err := s.serializeSingleStore(store)
+	if err != nil {
+		log.Printf("ERROR: RedisSessionStore.SetStore(%s, %s): serialization failed: %v", groupID, storeName, err)
+		return
+	}
+
+	// Update metadata
+	meta := sessionMeta{
+		Version:   schemaVersion2,
+		UpdatedAt: time.Now().Unix(),
+	}
+	metaJSON, err := json.Marshal(meta)
+	if err != nil {
+		log.Printf("ERROR: RedisSessionStore.SetStore(%s): failed to marshal metadata: %v", groupID, err)
+		return
+	}
+
+	// Use pipeline to update both the store field and metadata atomically
+	pipe := s.client.Pipeline()
+
+	// Set the store field and metadata
+	pipe.HSet(ctx, key, storeName, encoded)
+	pipe.HSet(ctx, key, metaField, string(metaJSON))
+
+	// Refresh TTL
+	pipe.Expire(ctx, key, s.ttl)
+
+	// Execute pipeline with retry
+	if err := s.execPipelineWithRetry(ctx, pipe); err != nil {
+		log.Printf("ERROR: RedisSessionStore.SetStore(%s, %s): redis persistence failed: %v", groupID, storeName, err)
 	}
 }
 
@@ -440,33 +741,6 @@ func (s *RedisSessionStore) List(ctx context.Context) []string {
 	return keys
 }
 
-// serializeStores converts Stores to gob-encoded bytes for storage in Redis.
-//
-// IMPORTANT: Store types must be registered with gob.Register() before use.
-// For example:
-//
-//	type MyStore struct { Value int }
-//	func (m *MyStore) Change(ctx *ActionContext) error { return nil }
-//
-//	func init() {
-//	    gob.Register(&MyStore{})
-//	}
-func (s *RedisSessionStore) serializeStores(stores Stores) ([]byte, error) {
-	if stores == nil {
-		return []byte{}, nil
-	}
-
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-
-	// Encode the stores map
-	if err := enc.Encode(stores); err != nil {
-		return nil, fmt.Errorf("failed to gob-encode stores: %w (hint: custom Store types must be registered with gob.Register() in init())", err)
-	}
-
-	return buf.Bytes(), nil
-}
-
 // deserializeStores converts gob-encoded bytes from Redis back to Stores.
 //
 // IMPORTANT: Store types must be registered with gob.Register() before use.
@@ -491,20 +765,11 @@ func (s *RedisSessionStore) deserializeStores(data []byte) (Stores, error) {
 // This prevents active sessions from expiring.
 func (s *RedisSessionStore) refreshTTL(groupID string) {
 	key := sessionKeyPrefix + groupID
-	accessKey := key + sessionAccessKeySuffix
 
 	ctx := context.Background()
-	pipe := s.client.Pipeline()
 
-	// Extend TTL for both keys
-	pipe.Expire(ctx, key, s.ttl)
-	pipe.Expire(ctx, accessKey, s.ttl)
-
-	// Update access timestamp
-	pipe.Set(ctx, accessKey, time.Now().Unix(), s.ttl)
-
-	// Execute pipeline (ignore errors - this is best-effort)
-	_, _ = pipe.Exec(ctx)
+	// Just extend the TTL on the hash key (v2 schema doesn't use separate access key)
+	s.client.Expire(ctx, key, s.ttl)
 }
 
 // getWithRetry performs a GET operation with exponential backoff retry.

@@ -240,7 +240,8 @@ func (s *liveSession) triggerActionLocal(action string, data map[string]interfac
 
 		// Handle action (routes to store's Change method)
 		// nil for w, r since this is a server-initiated action (not HTTP request)
-		if err := s.handler.handleAction(ctx, msg, state, uploadReg, nil, nil); err != nil {
+		modifiedStore, err := s.handler.handleAction(ctx, msg, state, uploadReg, nil, nil)
+		if err != nil {
 			slog.Warn("TriggerAction handleAction failed",
 				slog.String("user_id", s.userID),
 				slog.String("action", action),
@@ -249,6 +250,12 @@ func (s *liveSession) triggerActionLocal(action string, data map[string]interfac
 			errCount++
 			continue
 		}
+
+		// Persist state after successful action
+		// This is critical for SessionStores that return copies (e.g., RedisSessionStore)
+		// Uses targeted persistence if SessionStore supports SingleStoreSetter
+		s.handler.persistStore(ctx, conn.GroupID, modifiedStore, state.stores)
+
 		cancel()
 
 		// Send update to this connection
@@ -475,6 +482,9 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		stores = h.cloneStores()
 		h.config.SessionStore.Set(ctx, groupID, stores)
 		log.Printf("Created new session group: %s", groupID)
+	} else {
+		// Hydrate any StateData wrappers into proper controller instances
+		stores = h.hydrateStores(stores)
 	}
 
 	// Initialize upload registry for this connection (created by template initialization)
@@ -651,10 +661,16 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 		// Handle action with request context for timeout/cancellation/values
 		// WebSocket actions pass nil for w/r - HTTP methods will return ErrNoHTTPContext
-		if err := h.handleAction(r.Context(), msg, state, uploadRegistry, nil, nil); err != nil {
+		modifiedStore, err := h.handleAction(r.Context(), msg, state, uploadRegistry, nil, nil)
+		if err != nil {
 			log.Printf("Action error: %v", err)
 			continue
 		}
+
+		// Persist state after successful action
+		// This is critical for SessionStores that return copies (e.g., RedisSessionStore)
+		// Uses targeted persistence if SessionStore supports SingleStoreSetter
+		h.persistStore(r.Context(), groupID, modifiedStore, state.stores)
 
 		// Auto-broadcast to other connections in same session group
 		// This ensures all tabs in the same browser session stay in sync
@@ -753,12 +769,16 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		stores = h.cloneStores()
 		h.config.SessionStore.Set(ctx, groupID, stores)
 		log.Printf("HTTP: Created new session group: %s", groupID)
+	} else {
+		// Hydrate any StateData wrappers into proper controller instances
+		stores = h.hydrateStores(stores)
 	}
 
 	// Create connection state (errors are per-request, not persisted)
 	state := &connState{
-		stores: stores,
-		errors: make(map[string]string),
+		stores:  stores,
+		errors:  make(map[string]string),
+		groupID: groupID,
 	}
 
 	// Handle GET request for initial HTML page
@@ -811,10 +831,16 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Handle action with request context for timeout/cancellation/values
 	// HTTP POST actions pass w, r so Change() can set cookies and redirect
-	if err := h.handleAction(r.Context(), msg, state, uploadRegistry, w, r); err != nil {
+	modifiedStore, err := h.handleAction(r.Context(), msg, state, uploadRegistry, w, r)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// Persist state after successful action
+	// This is critical for SessionStores that return copies (e.g., RedisSessionStore)
+	// Uses targeted persistence if SessionStore supports SingleStoreSetter
+	h.persistStore(r.Context(), groupID, modifiedStore, state.stores)
 
 	// Check if request contains multipart form data (file uploads)
 	// Process uploads after action execution to allow ConsumeUpload to work
@@ -836,8 +862,6 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// This ensures all tabs in the same browser session stay in sync
 	// (HTTP request doesn't have a WebSocket connection to exclude)
 	h.autoBroadcastToGroup(groupID, h.getTemplateData(state.stores), nil)
-
-	// Note: No need to save session - stores are modified in-place and already in SessionStore
 
 	// Generate tree update
 	var buf bytes.Buffer
@@ -874,30 +898,34 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 // handleAction routes the action to the correct store and captures errors.
 // For HTTP POST actions, w and r are provided so that ActionContext can set cookies/redirect.
 // For WebSocket actions, w and r should be nil - HTTP methods will return ErrNoHTTPContext.
-func (h *liveHandler) handleAction(ctx context.Context, msg message, state *connState, uploadRegistry uploadRegistry, w http.ResponseWriter, r *http.Request) error {
+//
+// Returns the name of the store that was modified (for targeted persistence).
+// In single-store mode, returns empty string (the store is at key "").
+func (h *liveHandler) handleAction(ctx context.Context, msg message, state *connState, uploadRegistry uploadRegistry, w http.ResponseWriter, r *http.Request) (modifiedStore string, err error) {
 	// Clear previous errors
 	state.clearErrors()
 
 	// Parse action to extract store name
 	storeName, action := parseAction(msg.Action)
 
-	var store Store
+	var store interface{}
 	if h.config.IsSingleStore {
 		// Single store mode
 		if storeName != "" {
-			return fmt.Errorf(
+			return "", fmt.Errorf(
 				"unexpected store prefix '%s' in single-store mode\n"+
 					"Use action '%s' instead of '%s'",
 				storeName, action, msg.Action)
 		}
 
-		// Get the single store
+		// Get the single store (key is "" in single-store mode)
 		store = state.stores[""]
+		storeName = "" // Explicit for clarity
 
 	} else {
 		// Multi-store mode
 		if storeName == "" {
-			return fmt.Errorf(
+			return "", fmt.Errorf(
 				"action '%s' missing store prefix in multi-store mode\n"+
 					"Available stores: %v\n"+
 					"Use format: 'storeName.action' (e.g., 'counter.increment')",
@@ -907,7 +935,7 @@ func (h *liveHandler) handleAction(ctx context.Context, msg message, state *conn
 		// Find store using case-insensitive matching
 		store = h.findStore(state.stores, storeName)
 		if store == nil {
-			return fmt.Errorf(
+			return "", fmt.Errorf(
 				"unknown store: '%s' in action '%s'\n"+
 					"Available stores: %v",
 				storeName, msg.Action, h.getStoreNames())
@@ -933,12 +961,21 @@ func (h *liveHandler) handleAction(ctx context.Context, msg message, state *conn
 		r:       r,
 	}
 
-	// Call Change and capture error
-	err := store.Change(actionCtx)
+	// Route action to store
+	// If store implements Store interface, call Change() for explicit routing
+	// Otherwise, auto-dispatch to method matching action name
+	var actionErr error
+	if changer, ok := store.(Store); ok {
+		// Store has explicit Change() method - use it
+		actionErr = changer.Change(actionCtx)
+	} else {
+		// No Change() method - auto-dispatch to action method
+		actionErr = Dispatch(store, actionCtx)
+	}
 
-	if err != nil {
+	if actionErr != nil {
 		// Process the error
-		switch e := err.(type) {
+		switch e := actionErr.(type) {
 		case FieldError:
 			state.setError(e.Field, e.Message)
 		case MultiError:
@@ -946,15 +983,16 @@ func (h *liveHandler) handleAction(ctx context.Context, msg message, state *conn
 				state.setError(fieldErr.Field, fieldErr.Message)
 			}
 		default:
-			state.setError("_general", err.Error())
+			state.setError("_general", actionErr.Error())
 		}
 	}
 
-	return nil
+	// Return the store name that was modified (for targeted persistence)
+	return storeName, nil
 }
 
 // findStore finds a store by name using case-insensitive matching
-func (h *liveHandler) findStore(stores Stores, name string) Store {
+func (h *liveHandler) findStore(stores Stores, name string) interface{} {
 	normalized := discovery.NormalizeStoreName(name)
 
 	for storeName, store := range stores {
@@ -996,21 +1034,75 @@ func (h *liveHandler) cloneStores() Stores {
 	return cloned
 }
 
-// cloneStore creates a new instance of a store
-func cloneStore(store Store) Store {
+// hydrateStores processes stores loaded from SessionStore, replacing any StateData
+// wrappers with properly hydrated controller instances.
+//
+// When a store uses `lvt:"state"` tags, RedisSessionStore serializes only those fields
+// and returns a *StateData wrapper on Get(). This function:
+// 1. Detects StateData wrappers in the returned stores
+// 2. Clones the original template store (which has dependencies like DB, Logger)
+// 3. Deserializes the state from StateData.Raw
+// 4. Injects the deserialized state into the cloned store
+//
+// This allows controllers to have non-serializable dependencies while still
+// persisting their state across sessions.
+func (h *liveHandler) hydrateStores(stores Stores) Stores {
+	if stores == nil {
+		return nil
+	}
+
+	for name, store := range stores {
+		// Check if this is a StateData wrapper
+		if sd := GetStateData(store); sd != nil {
+			// Get the original template store (which has dependencies)
+			templateStore := h.config.Stores[name]
+			if templateStore == nil {
+				slog.Warn("Cannot hydrate state: template store not found",
+					slog.String("store", name))
+				continue
+			}
+
+			// Clone the template store to get fresh instance with dependencies
+			clonedStore := cloneStore(templateStore)
+
+			// Deserialize state from the StateData wrapper
+			stateMap, err := DeserializeState(sd.Raw, clonedStore)
+			if err != nil {
+				slog.Warn("Failed to deserialize state",
+					slog.String("store", name),
+					slog.String("error", err.Error()))
+				continue
+			}
+
+			// Inject deserialized state into the cloned store
+			if err := InjectState(clonedStore, stateMap); err != nil {
+				slog.Warn("Failed to inject state",
+					slog.String("store", name),
+					slog.String("error", err.Error()))
+				continue
+			}
+
+			// Replace the StateData wrapper with the hydrated store
+			stores[name] = clonedStore
+
+			slog.Debug("Hydrated store from state",
+				slog.String("store", name))
+		}
+	}
+
+	return stores
+}
+
+// cloneStore creates a new instance of a store.
+// Works with any type - stores no longer need to implement the Store interface.
+func cloneStore(store interface{}) interface{} {
 	storeType := reflect.TypeOf(store)
 	if storeType.Kind() == reflect.Ptr {
 		storeType = storeType.Elem()
 	}
 
 	// Create new instance
-	newStoreInterface := reflect.New(storeType).Interface()
-	newStore, ok := newStoreInterface.(Store)
-	if !ok {
-		// This should never happen if the store was valid, but handle gracefully
-		log.Printf("Error: Failed to cast cloned store to Store interface, type: %T", newStoreInterface)
-		return store // Return original store as fallback
-	}
+	newStore := reflect.New(storeType).Interface()
 
 	// Copy field values
 	copyStruct(newStore, store)
@@ -1066,6 +1158,24 @@ func (h *liveHandler) getStoreNames() []string {
 		}
 	}
 	return names
+}
+
+// persistStore persists stores after a successful action.
+// If the SessionStore implements SingleStoreSetter and a specific store was modified,
+// only that store is persisted. Otherwise, all stores are persisted.
+//
+// This optimization is especially beneficial for Redis where network roundtrips
+// are expensive and serializing only the modified store reduces payload size.
+func (h *liveHandler) persistStore(ctx context.Context, groupID string, storeName string, stores Stores) {
+	// Try targeted persistence if SessionStore supports it
+	if setter, ok := h.config.SessionStore.(SingleStoreSetter); ok {
+		// Use SetStore for targeted persistence
+		setter.SetStore(ctx, groupID, storeName, stores[storeName])
+		return
+	}
+
+	// Fall back to full persistence
+	h.config.SessionStore.Set(ctx, groupID, stores)
 }
 
 // autoBroadcastToGroup broadcasts template updates to all connections in a group.
@@ -1264,7 +1374,7 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 
 		// Handle action (routes to store's Change method)
 		// nil for w, r since this is a PubSub-initiated action (not HTTP request)
-		if err := h.handleAction(ctx, actionMsg, state, uploadReg, nil, nil); err != nil {
+		if _, err := h.handleAction(ctx, actionMsg, state, uploadReg, nil, nil); err != nil {
 			slog.Warn("PubSub: handleAction failed for server action",
 				slog.String("user_id", msg.UserID),
 				slog.String("action", msg.Action),
@@ -1443,7 +1553,7 @@ func (h *liveHandler) handleMultipartUploads(r *http.Request, sessionID string, 
 
 		// Call handleAction to process the upload
 		// Upload completion actions don't need HTTP response access
-		if err := h.handleAction(r.Context(), uploadMsg, state, registry, nil, nil); err != nil {
+		if _, err := h.handleAction(r.Context(), uploadMsg, state, registry, nil, nil); err != nil {
 			log.Printf("HTTP upload action %q failed: %v", uploadAction, err)
 		}
 	}
@@ -1789,7 +1899,7 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 		// WebSocket upload completion actions don't need HTTP response access
 		registry, ok := uploadRegistry.(*upload.Registry)
 		if ok {
-			if err := h.handleAction(ctx, uploadMsg, state, registry, nil, nil); err != nil {
+			if _, err := h.handleAction(ctx, uploadMsg, state, registry, nil, nil); err != nil {
 				log.Printf("Upload action %q failed: %v", uploadAction, err)
 				response.Success = false
 				response.Error = err.Error()
