@@ -723,6 +723,196 @@ func TestRedisSessionStore_UpdateExisting(t *testing.T) {
 }
 
 // =============================================================================
+// SingleStoreSetter Interface Tests
+// =============================================================================
+
+// TestMemorySessionStore_SingleStoreSetter verifies MemorySessionStore implements SingleStoreSetter
+func TestMemorySessionStore_SingleStoreSetter(t *testing.T) {
+	var _ SingleStoreSetter = (*MemorySessionStore)(nil)
+}
+
+// TestRedisSessionStore_SingleStoreSetter verifies RedisSessionStore implements SingleStoreSetter
+func TestRedisSessionStore_SingleStoreSetter(t *testing.T) {
+	var _ SingleStoreSetter = (*RedisSessionStore)(nil)
+}
+
+// TestMemorySessionStore_SetStore tests SetStore no-op behavior
+func TestMemorySessionStore_SetStore(t *testing.T) {
+	store := NewMemorySessionStore()
+	defer store.Close()
+
+	// Set up initial stores
+	testStores := Stores{
+		"counter": &testStore{value: 10},
+	}
+	store.Set(context.Background(), "group-1", testStores)
+
+	// Modify the store directly (simulating what happens after handleAction)
+	counterStore := testStores["counter"].(*testStore)
+	counterStore.value = 20
+
+	// Call SetStore (should be a no-op for memory store, just update lastAccess)
+	store.SetStore(context.Background(), "group-1", "counter", counterStore)
+
+	// Verify the store still has the modified value
+	retrieved := store.Get(context.Background(), "group-1")
+	if retrieved == nil {
+		t.Fatal("Expected stores to exist")
+	}
+
+	retrievedCounter := retrieved["counter"].(*testStore)
+	if retrievedCounter.value != 20 {
+		t.Errorf("Expected value=20, got %d", retrievedCounter.value)
+	}
+}
+
+// TestRedisSessionStore_SetStore tests single store update
+func TestRedisSessionStore_SetStore(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer client.Close()
+
+	store := NewRedisSessionStore(client)
+
+	// Set up initial stores with multiple entries
+	stores := Stores{
+		"counter": &TestStore{Value: 10, Message: "initial"},
+		"timer":   &TestStore{Value: 100, Message: "timer"},
+	}
+	store.Set(context.Background(), "setstore-group", stores)
+
+	// Update only the counter store
+	updatedCounter := &TestStore{Value: 20, Message: "updated"}
+	store.SetStore(context.Background(), "setstore-group", "counter", updatedCounter)
+
+	// Retrieve and verify
+	retrieved := store.Get(context.Background(), "setstore-group")
+	if retrieved == nil {
+		t.Fatal("Expected stores to exist")
+	}
+
+	// Counter should be updated
+	counter := retrieved["counter"].(*TestStore)
+	if counter.Value != 20 || counter.Message != "updated" {
+		t.Errorf("Counter not updated: Value=%d, Message=%s", counter.Value, counter.Message)
+	}
+
+	// Timer should be unchanged
+	timer := retrieved["timer"].(*TestStore)
+	if timer.Value != 100 || timer.Message != "timer" {
+		t.Errorf("Timer should be unchanged: Value=%d, Message=%s", timer.Value, timer.Message)
+	}
+}
+
+// =============================================================================
+// State Tag Serialization Tests (lvt:"state")
+// =============================================================================
+
+// StateTagTestProfile is a test state struct
+type StateTagTestProfile struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+// StateTagTestController has state-tagged fields
+type StateTagTestController struct {
+	Profile *StateTagTestProfile `lvt:"state"`
+	Counter int                  `lvt:"state"` // Non-pointer state field
+	DBConn  string               // Not tagged - should not be persisted
+}
+
+func init() {
+	// Register types for gob serialization
+	gob.Register(&StateTagTestController{})
+	gob.Register(&StateTagTestProfile{})
+}
+
+// TestRedisSessionStore_StateTagSerialization tests that only state-tagged fields are serialized
+func TestRedisSessionStore_StateTagSerialization(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer client.Close()
+
+	store := NewRedisSessionStore(client)
+
+	// Create controller with state tags
+	controller := &StateTagTestController{
+		Profile: &StateTagTestProfile{Name: "Test User", Email: "test@example.com"},
+		Counter: 42,
+		DBConn:  "postgres://secret:password@localhost/db", // Should NOT be persisted
+	}
+
+	stores := Stores{"controller": controller}
+	store.Set(context.Background(), "state-tag-group", stores)
+
+	// Retrieve - the returned store will be a StateData wrapper
+	// because state-tagged fields are serialized differently
+	retrieved := store.Get(context.Background(), "state-tag-group")
+	if retrieved == nil {
+		t.Fatal("Expected stores to exist")
+	}
+
+	// Check if it's StateData (state-only serialization) or full store
+	retrievedController := retrieved["controller"]
+	if retrievedController == nil {
+		t.Fatal("Expected controller store to exist")
+	}
+
+	// If it's StateData, we need to verify the raw bytes contain state
+	if sd := GetStateData(retrievedController); sd != nil {
+		// This is StateData - state-only serialization worked
+		if len(sd.Raw) == 0 {
+			t.Error("StateData.Raw is empty")
+		}
+
+		// Verify we can deserialize the state
+		stateMap, err := DeserializeState(sd.Raw, &StateTagTestController{})
+		if err != nil {
+			t.Fatalf("Failed to deserialize state: %v", err)
+		}
+
+		// Verify Profile is in state
+		if _, ok := stateMap["Profile"]; !ok {
+			t.Error("Profile should be in state map")
+		}
+
+		// Verify Counter is in state
+		if _, ok := stateMap["Counter"]; !ok {
+			t.Error("Counter should be in state map")
+		}
+	}
+}
+
+// TestIsStateData tests the IsStateData helper
+func TestIsStateData(t *testing.T) {
+	sd := &StateData{Raw: []byte(`{"v":1,"fields":{}}`)}
+
+	if !IsStateData(sd) {
+		t.Error("IsStateData should return true for *StateData")
+	}
+
+	if IsStateData("not state data") {
+		t.Error("IsStateData should return false for string")
+	}
+
+	if IsStateData(nil) {
+		t.Error("IsStateData should return false for nil")
+	}
+}
+
+// TestGetStateData tests the GetStateData helper
+func TestGetStateData(t *testing.T) {
+	sd := &StateData{Raw: []byte(`test`)}
+
+	result := GetStateData(sd)
+	if result != sd {
+		t.Error("GetStateData should return the same StateData pointer")
+	}
+
+	if GetStateData("not state data") != nil {
+		t.Error("GetStateData should return nil for non-StateData")
+	}
+}
+
+// =============================================================================
 // Session (Server-Initiated Actions) Tests
 // =============================================================================
 
@@ -1048,4 +1238,244 @@ func createSessionTestConnection(t *testing.T, userID, groupID string, tmpl *Tem
 		Template: connTmpl,
 		Stores:   make(Stores),
 	}
+}
+
+// =============================================================================
+// Redis v2 Integration Tests (P0: Roundtrip verification)
+// =============================================================================
+
+// RedisV2TestController has mixed state/non-state fields for v2 format testing
+type RedisV2TestController struct {
+	// State fields - should be serialized with "s:" prefix
+	Title   string `json:"title" lvt:"state"`
+	Counter int    `json:"counter" lvt:"state"`
+
+	// Non-state fields - should NOT be serialized
+	DBConn  string `json:"-"` // Simulates database connection
+	Logger  string `json:"-"` // Simulates logger dependency
+}
+
+func init() {
+	gob.Register(&RedisV2TestController{})
+}
+
+// TestRedisSessionStore_V2RoundtripStateOnly tests the complete roundtrip for state-only stores
+// This verifies: Set → Redis v2 hash → Get → StateData wrapper → Hydration
+func TestRedisSessionStore_V2RoundtripStateOnly(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer client.Close()
+
+	store := NewRedisSessionStore(client)
+	ctx := context.Background()
+	groupID := "v2-roundtrip-state-test"
+
+	// Create controller with state tags
+	controller := &RedisV2TestController{
+		Title:   "Test Title",
+		Counter: 42,
+		DBConn:  "postgres://secret@localhost/db", // Should NOT be persisted
+		Logger:  "zap:production",                 // Should NOT be persisted
+	}
+
+	stores := Stores{"main": controller}
+	store.Set(ctx, groupID, stores)
+
+	// Verify the data is stored in Redis with v2 hash format
+	key := sessionKeyPrefix + groupID
+	hashData, err := client.HGetAll(ctx, key).Result()
+	if err != nil {
+		t.Fatalf("Failed to get hash data: %v", err)
+	}
+
+	// Check metadata field exists and is v2
+	metaJSON, ok := hashData[metaField]
+	if !ok {
+		t.Fatal("Expected _meta field in hash")
+	}
+	if !containsString(metaJSON, `"version":"2"`) {
+		t.Errorf("Expected v2 metadata, got: %s", metaJSON)
+	}
+
+	// Check main store field exists and has "s:" prefix (state-only format)
+	mainData, ok := hashData["main"]
+	if !ok {
+		t.Fatal("Expected 'main' field in hash")
+	}
+	if !hasPrefix(mainData, "s:") {
+		t.Errorf("Expected 's:' prefix for state-only format, got prefix: %s", mainData[:min(10, len(mainData))])
+	}
+
+	// Retrieve stores
+	retrieved := store.Get(ctx, groupID)
+	if retrieved == nil {
+		t.Fatal("Expected stores to be retrieved")
+	}
+
+	// Should be StateData wrapper (for state-only serialization)
+	mainStore := retrieved["main"]
+	if mainStore == nil {
+		t.Fatal("Expected main store to exist")
+	}
+
+	sd := GetStateData(mainStore)
+	if sd == nil {
+		t.Fatalf("Expected StateData wrapper, got %T", mainStore)
+	}
+
+	// Verify state can be deserialized
+	stateMap, err := DeserializeState(sd.Raw, &RedisV2TestController{})
+	if err != nil {
+		t.Fatalf("Failed to deserialize state: %v", err)
+	}
+
+	// Verify state fields are present
+	if stateMap["Title"] != "Test Title" {
+		t.Errorf("Expected Title='Test Title', got %v", stateMap["Title"])
+	}
+	// Counter could be int or float64 depending on deserialization path
+	counterVal := stateMap["Counter"]
+	var counterInt int
+	switch v := counterVal.(type) {
+	case float64:
+		counterInt = int(v)
+	case int:
+		counterInt = v
+	default:
+		t.Fatalf("Unexpected Counter type: %T", counterVal)
+	}
+	if counterInt != 42 {
+		t.Errorf("Expected Counter=42, got %d", counterInt)
+	}
+
+	// Verify non-state fields are NOT in state map
+	if _, ok := stateMap["DBConn"]; ok {
+		t.Error("DBConn should NOT be in state map (not tagged with lvt:state)")
+	}
+	if _, ok := stateMap["Logger"]; ok {
+		t.Error("Logger should NOT be in state map (not tagged with lvt:state)")
+	}
+}
+
+// TestRedisSessionStore_V2RoundtripGobFormat tests roundtrip for stores without state tags
+func TestRedisSessionStore_V2RoundtripGobFormat(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer client.Close()
+
+	store := NewRedisSessionStore(client)
+	ctx := context.Background()
+	groupID := "v2-roundtrip-gob-test"
+
+	// Create store WITHOUT state tags (should use Gob format)
+	testStore := &TestStore{Value: 100, Message: "gob test"}
+
+	stores := Stores{"counter": testStore}
+	store.Set(ctx, groupID, stores)
+
+	// Verify the data is stored with "g:" prefix (Gob format)
+	key := sessionKeyPrefix + groupID
+	hashData, err := client.HGetAll(ctx, key).Result()
+	if err != nil {
+		t.Fatalf("Failed to get hash data: %v", err)
+	}
+
+	counterData, ok := hashData["counter"]
+	if !ok {
+		t.Fatal("Expected 'counter' field in hash")
+	}
+	if !hasPrefix(counterData, "g:") {
+		t.Errorf("Expected 'g:' prefix for Gob format, got prefix: %s", counterData[:min(10, len(counterData))])
+	}
+
+	// Retrieve stores
+	retrieved := store.Get(ctx, groupID)
+	if retrieved == nil {
+		t.Fatal("Expected stores to be retrieved")
+	}
+
+	// Should be *TestStore (not StateData wrapper, since no state tags)
+	counterStore, ok := retrieved["counter"].(*TestStore)
+	if !ok {
+		t.Fatalf("Expected *TestStore, got %T", retrieved["counter"])
+	}
+
+	if counterStore.Value != 100 {
+		t.Errorf("Expected Value=100, got %d", counterStore.Value)
+	}
+	if counterStore.Message != "gob test" {
+		t.Errorf("Expected Message='gob test', got '%s'", counterStore.Message)
+	}
+}
+
+// TestRedisSessionStore_V2SetStoreUpdatesOnly tests that SetStore updates only one field in the hash
+func TestRedisSessionStore_V2SetStoreUpdatesOnly(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer client.Close()
+
+	store := NewRedisSessionStore(client)
+	ctx := context.Background()
+	groupID := "v2-setstore-test"
+
+	// Create initial stores
+	stores := Stores{
+		"counter": &TestStore{Value: 10, Message: "first"},
+		"timer":   &TestStore{Value: 100, Message: "timer"},
+	}
+	store.Set(ctx, groupID, stores)
+
+	// Update only counter
+	updatedCounter := &TestStore{Value: 20, Message: "updated"}
+	store.SetStore(ctx, groupID, "counter", updatedCounter)
+
+	// Verify Redis hash
+	key := sessionKeyPrefix + groupID
+	hashData, err := client.HGetAll(ctx, key).Result()
+	if err != nil {
+		t.Fatalf("Failed to get hash data: %v", err)
+	}
+
+	// Should have 3 fields: _meta, counter, timer
+	if len(hashData) != 3 {
+		t.Errorf("Expected 3 hash fields, got %d", len(hashData))
+	}
+
+	// Retrieve and verify
+	retrieved := store.Get(ctx, groupID)
+	if retrieved == nil {
+		t.Fatal("Expected stores")
+	}
+
+	counter := retrieved["counter"].(*TestStore)
+	if counter.Value != 20 || counter.Message != "updated" {
+		t.Errorf("Counter not updated correctly: Value=%d, Message=%s", counter.Value, counter.Message)
+	}
+
+	timer := retrieved["timer"].(*TestStore)
+	if timer.Value != 100 || timer.Message != "timer" {
+		t.Errorf("Timer should be unchanged: Value=%d, Message=%s", timer.Value, timer.Message)
+	}
+}
+
+// Helper functions for tests
+func containsString(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
+}
+
+func containsSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+func hasPrefix(s, prefix string) bool {
+	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

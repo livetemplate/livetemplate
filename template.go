@@ -1210,7 +1210,16 @@ func (t *Template) compareTreesAndGetChangesWithContext(oldTree, newTree *treeNo
 // For single store: actions like "increment", "decrement"
 // For multiple stores: actions like "counterstate.increment", "userstate.logout"
 // Store names are automatically derived from struct type names (case-insensitive matching).
-func (t *Template) Handle(stores ...Store) LiveHandler {
+//
+// Stores can be any struct type:
+//   - If the store implements Store interface (has Change() method), that is called for all actions
+//   - Otherwise, actions are automatically dispatched to matching methods (e.g., "increment" → Increment())
+//
+// The automatic dispatch supports multiple action formats:
+//   - snake_case: "add_item" → AddItem()
+//   - camelCase: "addItem" → AddItem()
+//   - lowercase: "additem" → AddItem() (case-insensitive)
+func (t *Template) Handle(stores ...interface{}) LiveHandler {
 	if len(stores) == 0 {
 		panic("Handle requires at least one store")
 	}
@@ -1326,7 +1335,7 @@ func (t *Template) validateTreeGeneration() error {
 }
 
 // getStoreName derives the store name from the struct type
-func getStoreName(store Store) string {
+func getStoreName(store interface{}) string {
 	t := reflect.TypeOf(store)
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()

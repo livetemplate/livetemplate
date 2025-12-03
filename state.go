@@ -1,0 +1,290 @@
+package livetemplate
+
+import (
+	"encoding"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"reflect"
+	"strings"
+	"sync"
+)
+
+// stateTag is the struct tag used to mark fields for persistence.
+// Fields tagged with `lvt:"state"` are serialized/deserialized by the framework.
+// Fields without this tag are NOT persisted (e.g., dependencies like DB, Logger).
+//
+// Example:
+//
+//	type UserController struct {
+//	    Profile  *UserProfile  `lvt:"state"`  // Persisted
+//	    Settings *UserSettings `lvt:"state"`  // Persisted
+//	    DB       *sql.DB                      // NOT persisted
+//	    Logger   *slog.Logger                 // NOT persisted
+//	}
+const stateTag = "lvt"
+const stateTagValue = "state"
+
+// stateFieldCache caches reflection info for state fields by type.
+// Key: reflect.Type, Value: []stateFieldInfo
+var stateFieldCache sync.Map
+
+// stateFieldInfo holds metadata about a state field.
+type stateFieldInfo struct {
+	Name  string       // Field name
+	Index int          // Field index in struct
+	Type  reflect.Type // Field type
+}
+
+// HasStateFields checks if a store has any fields tagged with `lvt:"state"`.
+// This is used to determine if selective serialization should be used.
+func HasStateFields(store interface{}) bool {
+	fields := getStateFieldInfo(store)
+	return len(fields) > 0
+}
+
+// getStateFieldInfo returns metadata about state-tagged fields for a store type.
+// Results are cached by type for performance.
+func getStateFieldInfo(store interface{}) []stateFieldInfo {
+	storeType := reflect.TypeOf(store)
+	if storeType.Kind() == reflect.Ptr {
+		storeType = storeType.Elem()
+	}
+
+	// Check cache
+	if cached, ok := stateFieldCache.Load(storeType); ok {
+		return cached.([]stateFieldInfo)
+	}
+
+	// Build field info
+	var fields []stateFieldInfo
+	for i := 0; i < storeType.NumField(); i++ {
+		field := storeType.Field(i)
+		tag := field.Tag.Get(stateTag)
+
+		if tag == stateTagValue {
+			fields = append(fields, stateFieldInfo{
+				Name:  field.Name,
+				Index: i,
+				Type:  field.Type,
+			})
+		} else if tag != "" {
+			// Warn on potential typos: case variations or common mistakes
+			validateStateTag(tag, field.Name, storeType.Name())
+		}
+	}
+
+	// Cache and return
+	stateFieldCache.Store(storeType, fields)
+	return fields
+}
+
+// validateStateTag warns if a tag value looks like a typo of "state".
+// Common mistakes: "State", "STATE", "states", "stae", etc.
+func validateStateTag(tag, fieldName, typeName string) {
+	lowerTag := strings.ToLower(tag)
+
+	// Case variation of "state"
+	if lowerTag == stateTagValue && tag != stateTagValue {
+		slog.Warn("Possible typo in lvt tag: use lowercase 'state'",
+			slog.String("field", fieldName),
+			slog.String("type", typeName),
+			slog.String("got", tag),
+			slog.String("expected", stateTagValue))
+		return
+	}
+
+	// Common typos
+	typos := []string{"states", "stae", "satte", "stat", "staet"}
+	for _, typo := range typos {
+		if lowerTag == typo {
+			slog.Warn("Possible typo in lvt tag",
+				slog.String("field", fieldName),
+				slog.String("type", typeName),
+				slog.String("got", tag),
+				slog.String("expected", stateTagValue))
+			return
+		}
+	}
+
+	// Unknown tag value - just log at debug level
+	slog.Debug("Unknown lvt tag value",
+		slog.String("field", fieldName),
+		slog.String("type", typeName),
+		slog.String("got", tag))
+}
+
+// ExtractState extracts state-tagged fields from a store into a serializable map.
+// Returns nil if the store has no state-tagged fields.
+//
+// The returned map has field names as keys and field values as values.
+// This map can be serialized with SerializeState.
+func ExtractState(store interface{}) map[string]interface{} {
+	fields := getStateFieldInfo(store)
+	if len(fields) == 0 {
+		return nil
+	}
+
+	storeValue := reflect.ValueOf(store)
+	if storeValue.Kind() == reflect.Ptr {
+		storeValue = storeValue.Elem()
+	}
+
+	result := make(map[string]interface{}, len(fields))
+	for _, field := range fields {
+		fieldValue := storeValue.Field(field.Index)
+		if fieldValue.CanInterface() {
+			result[field.Name] = fieldValue.Interface()
+		}
+	}
+
+	return result
+}
+
+// InjectState injects state from a map back into a store's state-tagged fields.
+// This is used during deserialization to restore state into a cloned controller.
+//
+// The map should have field names as keys (matching the struct field names).
+func InjectState(store interface{}, state map[string]interface{}) error {
+	fields := getStateFieldInfo(store)
+	if len(fields) == 0 {
+		return nil
+	}
+
+	storeValue := reflect.ValueOf(store)
+	if storeValue.Kind() == reflect.Ptr {
+		storeValue = storeValue.Elem()
+	}
+
+	for _, field := range fields {
+		if value, ok := state[field.Name]; ok {
+			fieldValue := storeValue.Field(field.Index)
+			if fieldValue.CanSet() {
+				// Handle type conversion
+				valueReflect := reflect.ValueOf(value)
+				if valueReflect.Type().AssignableTo(field.Type) {
+					fieldValue.Set(valueReflect)
+				} else if valueReflect.Type().ConvertibleTo(field.Type) {
+					fieldValue.Set(valueReflect.Convert(field.Type))
+				} else {
+					return fmt.Errorf("cannot assign %T to field %s of type %s", value, field.Name, field.Type)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// stateEnvelope is the serialization format for state-tagged fields.
+// Each field is serialized independently (either via BinaryMarshaler or JSON).
+type stateEnvelope struct {
+	Version int               `json:"v"`      // Envelope version for future compatibility
+	Fields  map[string][]byte `json:"fields"` // Field name -> serialized bytes
+}
+
+// SerializeState serializes state fields into bytes.
+// Each field is serialized using BinaryMarshaler if available, otherwise JSON.
+//
+// The envelope format allows individual fields to use different serialization methods.
+func SerializeState(state map[string]interface{}) ([]byte, error) {
+	if len(state) == 0 {
+		return nil, nil
+	}
+
+	envelope := stateEnvelope{
+		Version: 1,
+		Fields:  make(map[string][]byte, len(state)),
+	}
+
+	for name, value := range state {
+		var data []byte
+		var err error
+
+		// Check if value implements BinaryMarshaler
+		if marshaler, ok := value.(encoding.BinaryMarshaler); ok {
+			data, err = marshaler.MarshalBinary()
+		} else {
+			// Default to JSON
+			data, err = json.Marshal(value)
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize field %q: %w", name, err)
+		}
+
+		envelope.Fields[name] = data
+	}
+
+	return json.Marshal(envelope)
+}
+
+// DeserializeState deserializes state bytes into a map of field values.
+// The store parameter provides type information for proper deserialization.
+//
+// For BinaryUnmarshaler fields, the method creates new instances and calls UnmarshalBinary.
+// For other fields, JSON is used.
+func DeserializeState(data []byte, store interface{}) (map[string]interface{}, error) {
+	if len(data) == 0 {
+		return nil, nil
+	}
+
+	var envelope stateEnvelope
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal state envelope: %w", err)
+	}
+
+	if envelope.Version != 1 {
+		return nil, fmt.Errorf("unsupported state envelope version: %d", envelope.Version)
+	}
+
+	fields := getStateFieldInfo(store)
+	fieldTypes := make(map[string]reflect.Type, len(fields))
+	for _, f := range fields {
+		fieldTypes[f.Name] = f.Type
+	}
+
+	result := make(map[string]interface{}, len(envelope.Fields))
+
+	for name, fieldData := range envelope.Fields {
+		fieldType, ok := fieldTypes[name]
+		if !ok {
+			// Field no longer exists in struct - skip
+			continue
+		}
+
+		// Create a new instance of the field type
+		var fieldPtr reflect.Value
+		if fieldType.Kind() == reflect.Ptr {
+			fieldPtr = reflect.New(fieldType.Elem())
+		} else {
+			fieldPtr = reflect.New(fieldType)
+		}
+
+		fieldValue := fieldPtr.Interface()
+
+		// Check if field implements BinaryUnmarshaler
+		if unmarshaler, ok := fieldValue.(encoding.BinaryUnmarshaler); ok {
+			if err := unmarshaler.UnmarshalBinary(fieldData); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal field %q: %w", name, err)
+			}
+			if fieldType.Kind() == reflect.Ptr {
+				result[name] = fieldValue
+			} else {
+				result[name] = fieldPtr.Elem().Interface()
+			}
+		} else {
+			// Default to JSON
+			if err := json.Unmarshal(fieldData, fieldValue); err != nil {
+				return nil, fmt.Errorf("failed to JSON unmarshal field %q: %w", name, err)
+			}
+			if fieldType.Kind() == reflect.Ptr {
+				result[name] = fieldValue
+			} else {
+				result[name] = fieldPtr.Elem().Interface()
+			}
+		}
+	}
+
+	return result, nil
+}
