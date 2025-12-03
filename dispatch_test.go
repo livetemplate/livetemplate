@@ -235,8 +235,16 @@ func BenchmarkDispatch_Cached(b *testing.B) {
 	}
 }
 
-func BenchmarkDispatch_CacheMiss(b *testing.B) {
-	// Clear cache by using different types each iteration
+// BenchmarkDispatch_WithAllocation measures dispatch including store allocation.
+// Note: The method cache is type-based, so after the first call the cache is warm.
+// This benchmark measures realistic per-request overhead where a new store instance
+// is created for each request but the type's methods are already cached.
+func BenchmarkDispatch_WithAllocation(b *testing.B) {
+	// First call warms up the cache for this type
+	warmup := &testDispatchStore{}
+	_ = Dispatch(warmup, &ActionContext{Action: "increment"})
+
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		store := &testDispatchStore{}
 		ctx := &ActionContext{Action: "increment"}

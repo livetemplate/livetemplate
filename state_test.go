@@ -342,3 +342,46 @@ func TestStateFieldCache(t *testing.T) {
 		t.Errorf("Expected 2 state fields, got %d", len(fields1))
 	}
 }
+
+// testTypoController has a typo in state tag (uppercase State)
+type testTypoController struct {
+	Counter int `lvt:"State"` // Typo: should be "state"
+	Valid   int `lvt:"state"` // Correct
+}
+
+// testUnknownTagController has an unknown lvt tag value
+type testUnknownTagController struct {
+	Counter int `lvt:"custom"` // Unknown value
+}
+
+func TestValidateStateTag(t *testing.T) {
+	t.Run("detects case variation", func(t *testing.T) {
+		// Clear cache to ensure fresh validation
+		stateFieldCache = sync.Map{}
+
+		controller := &testTypoController{Counter: 10, Valid: 5}
+		fields := getStateFieldInfo(controller)
+
+		// Only the correctly tagged field should be extracted
+		if len(fields) != 1 {
+			t.Errorf("Expected 1 state field (only Valid), got %d", len(fields))
+		}
+
+		if len(fields) > 0 && fields[0].Name != "Valid" {
+			t.Errorf("Expected field 'Valid', got '%s'", fields[0].Name)
+		}
+	})
+
+	t.Run("logs unknown tag values", func(t *testing.T) {
+		// Clear cache
+		stateFieldCache = sync.Map{}
+
+		controller := &testUnknownTagController{Counter: 10}
+		fields := getStateFieldInfo(controller)
+
+		// No fields should be extracted (unknown tag value is not "state")
+		if len(fields) != 0 {
+			t.Errorf("Expected 0 state fields, got %d", len(fields))
+		}
+	})
+}

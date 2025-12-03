@@ -2,6 +2,7 @@ package livetemplate
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -10,6 +11,21 @@ import (
 
 // ErrMethodNotFound is returned when Dispatch cannot find a method matching the action.
 var ErrMethodNotFound = errors.New("method not found for action")
+
+// DispatchError provides context about a failed dispatch.
+type DispatchError struct {
+	Action    string
+	StoreType string
+	Err       error
+}
+
+func (e *DispatchError) Error() string {
+	return fmt.Sprintf("%v: action %q not found on type %s", e.Err, e.Action, e.StoreType)
+}
+
+func (e *DispatchError) Unwrap() error {
+	return e.Err
+}
 
 // methodCache caches method lookups by type to avoid repeated reflection.
 // Key: reflect.Type, Value: map[action]methodIndex
@@ -51,7 +67,11 @@ func Dispatch(store interface{}, ctx *ActionContext) error {
 	// Get or create method index cache for this type
 	methodIndex := getMethodIndex(storeType, ctx.Action)
 	if methodIndex < 0 {
-		return ErrMethodNotFound
+		return &DispatchError{
+			Action:    ctx.Action,
+			StoreType: storeType.String(),
+			Err:       ErrMethodNotFound,
+		}
 	}
 
 	// Call the method

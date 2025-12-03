@@ -4,7 +4,9 @@ import (
 	"encoding"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"reflect"
+	"strings"
 	"sync"
 )
 
@@ -58,18 +60,58 @@ func getStateFieldInfo(store interface{}) []stateFieldInfo {
 	var fields []stateFieldInfo
 	for i := 0; i < storeType.NumField(); i++ {
 		field := storeType.Field(i)
-		if tag := field.Tag.Get(stateTag); tag == stateTagValue {
+		tag := field.Tag.Get(stateTag)
+
+		if tag == stateTagValue {
 			fields = append(fields, stateFieldInfo{
 				Name:  field.Name,
 				Index: i,
 				Type:  field.Type,
 			})
+		} else if tag != "" {
+			// Warn on potential typos: case variations or common mistakes
+			validateStateTag(tag, field.Name, storeType.Name())
 		}
 	}
 
 	// Cache and return
 	stateFieldCache.Store(storeType, fields)
 	return fields
+}
+
+// validateStateTag warns if a tag value looks like a typo of "state".
+// Common mistakes: "State", "STATE", "states", "stae", etc.
+func validateStateTag(tag, fieldName, typeName string) {
+	lowerTag := strings.ToLower(tag)
+
+	// Case variation of "state"
+	if lowerTag == stateTagValue && tag != stateTagValue {
+		slog.Warn("Possible typo in lvt tag: use lowercase 'state'",
+			slog.String("field", fieldName),
+			slog.String("type", typeName),
+			slog.String("got", tag),
+			slog.String("expected", stateTagValue))
+		return
+	}
+
+	// Common typos
+	typos := []string{"states", "stae", "satte", "stat", "staet"}
+	for _, typo := range typos {
+		if lowerTag == typo {
+			slog.Warn("Possible typo in lvt tag",
+				slog.String("field", fieldName),
+				slog.String("type", typeName),
+				slog.String("got", tag),
+				slog.String("expected", stateTagValue))
+			return
+		}
+	}
+
+	// Unknown tag value - just log at debug level
+	slog.Debug("Unknown lvt tag value",
+		slog.String("field", fieldName),
+		slog.String("type", typeName),
+		slog.String("got", tag))
 }
 
 // ExtractState extracts state-tagged fields from a store into a serializable map.

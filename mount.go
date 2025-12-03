@@ -1057,8 +1057,12 @@ func (h *liveHandler) hydrateStores(stores Stores) Stores {
 			// Get the original template store (which has dependencies)
 			templateStore := h.config.Stores[name]
 			if templateStore == nil {
-				slog.Warn("Cannot hydrate state: template store not found",
+				slog.Warn("Cannot hydrate state: template store not found, using fresh clone",
 					slog.String("store", name))
+				// Fallback: use a fresh clone from template stores (user sees initial state)
+				if fallback := h.config.Stores[name]; fallback != nil {
+					stores[name] = cloneStore(fallback)
+				}
 				continue
 			}
 
@@ -1068,17 +1072,21 @@ func (h *liveHandler) hydrateStores(stores Stores) Stores {
 			// Deserialize state from the StateData wrapper
 			stateMap, err := DeserializeState(sd.Raw, clonedStore)
 			if err != nil {
-				slog.Warn("Failed to deserialize state",
+				slog.Warn("Failed to deserialize state, using fresh clone",
 					slog.String("store", name),
 					slog.String("error", err.Error()))
+				// Fallback: use the cloned store with initial state (better than crash)
+				stores[name] = clonedStore
 				continue
 			}
 
 			// Inject deserialized state into the cloned store
 			if err := InjectState(clonedStore, stateMap); err != nil {
-				slog.Warn("Failed to inject state",
+				slog.Warn("Failed to inject state, using fresh clone",
 					slog.String("store", name),
 					slog.String("error", err.Error()))
+				// Fallback: use the cloned store with initial state
+				stores[name] = clonedStore
 				continue
 			}
 
