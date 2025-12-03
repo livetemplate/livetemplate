@@ -472,14 +472,6 @@ func ValidationToMultiError(err error) MultiError {
 	return fieldErrors
 }
 
-// Store is an optional interface for stores that want explicit control over action routing.
-// If a store implements this interface, Change() will be called for all actions.
-// If a store does NOT implement this interface, actions are automatically dispatched
-// to methods matching the action name (e.g., "increment" → Increment(ctx *ActionContext) error).
-type Store interface {
-	Change(ctx *ActionContext) error
-}
-
 // StoreInitializer is an optional interface that stores can implement
 // to perform initialization after being cloned for a new session.
 // This is useful for loading data from external sources like databases.
@@ -488,8 +480,8 @@ type StoreInitializer interface {
 }
 
 // Stores is a map of named stores.
-// Stores can be any type - if they implement the Store interface, Change() is called.
-// Otherwise, actions are automatically dispatched to matching methods.
+// Actions are automatically dispatched to methods matching the action name
+// (e.g., action "increment" → method Increment(ctx *ActionContext) error).
 type Stores map[string]interface{}
 
 // parseAction splits "counter.increment" into ("counter", "increment")

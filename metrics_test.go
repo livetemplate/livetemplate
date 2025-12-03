@@ -7,13 +7,9 @@ import (
 	"testing"
 )
 
-// TestState is a simple test state
+// MetricsTestState is a simple test state
 type MetricsTestState struct {
 	Value int
-}
-
-func (s *MetricsTestState) Change(ctx *ActionContext) error {
-	return nil
 }
 
 func TestLiveHandler_MetricsHandler(t *testing.T) {

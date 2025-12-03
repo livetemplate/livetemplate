@@ -19,28 +19,32 @@ type TestUploadState struct {
 	consumeError    error
 }
 
-// TestStore for integration testing - uses new ActionContext pattern
+// TestUploadStore for integration testing - uses new ActionContext pattern
 type TestUploadStore struct {
 	State *TestUploadState // Shared state across clones (exported for cloning)
 }
 
-func (s *TestUploadStore) Change(ctx *ActionContext) error {
-	// Handle upload completion via ActionContext
-	if strings.HasPrefix(ctx.Action, "upload:") {
-		// Extract upload name from action (e.g., "upload:avatar:complete" -> "avatar")
-		parts := strings.Split(ctx.Action, ":")
-		if len(parts) >= 2 {
-			uploadName := parts[1]
+// UploadAvatarComplete handles the "upload_avatar_complete" action
+func (s *TestUploadStore) UploadAvatarComplete(ctx *ActionContext) error {
+	if s.State != nil {
+		s.State.uploadsCalled = true
+		s.State.consumedUpload = "avatar"
+		s.State.consumedEntries = ctx.GetCompletedUploads("avatar")
+		if s.State.consumeError != nil {
+			return s.State.consumeError
+		}
+	}
+	return nil
+}
 
-			if s.State != nil {
-				s.State.uploadsCalled = true
-				s.State.consumedUpload = uploadName
-				s.State.consumedEntries = ctx.GetCompletedUploads(uploadName)
-				// If there's a consume error set, return it
-				if s.State.consumeError != nil {
-					return s.State.consumeError
-				}
-			}
+// UploadDocumentsComplete handles the "upload_documents_complete" action
+func (s *TestUploadStore) UploadDocumentsComplete(ctx *ActionContext) error {
+	if s.State != nil {
+		s.State.uploadsCalled = true
+		s.State.consumedUpload = "documents"
+		s.State.consumedEntries = ctx.GetCompletedUploads("documents")
+		if s.State.consumeError != nil {
+			return s.State.consumeError
 		}
 	}
 	return nil

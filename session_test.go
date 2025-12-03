@@ -338,12 +338,13 @@ func TestSessionStore_Interface(t *testing.T) {
 	var _ SessionStore = (*MemorySessionStore)(nil)
 }
 
-// testStore is a simple Store implementation for testing (memory store tests)
+// testStore is a simple store for testing (memory store tests)
 type testStore struct {
 	value int
 }
 
-func (s *testStore) Change(ctx *ActionContext) error {
+// Increment handles the "increment" action
+func (s *testStore) Increment(_ *ActionContext) error {
 	s.value++
 	return nil
 }
@@ -352,13 +353,14 @@ func (s *testStore) Change(ctx *ActionContext) error {
 // Redis Session Store Tests
 // =============================================================================
 
-// TestStore is a Store implementation for testing with gob serialization
+// TestStore is a store for testing with gob serialization
 type TestStore struct {
 	Value   int
 	Message string
 }
 
-func (t *TestStore) Change(ctx *ActionContext) error {
+// Increment handles the "increment" action
+func (t *TestStore) Increment(_ *ActionContext) error {
 	t.Value++
 	return nil
 }
@@ -924,19 +926,35 @@ type SessionTestStore struct {
 	mu        sync.Mutex
 }
 
-func (s *SessionTestStore) Change(ctx *ActionContext) error {
+// Increment handles the "increment" action
+func (s *SessionTestStore) Increment(_ *ActionContext) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	switch ctx.Action {
-	case "increment":
-		s.Counter++
-	case "decrement":
-		s.Counter--
-	case "tick":
-		s.Counter++
-	case "reset":
-		s.Counter = 0
-	}
+	s.Counter++
+	return nil
+}
+
+// Decrement handles the "decrement" action
+func (s *SessionTestStore) Decrement(_ *ActionContext) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Counter--
+	return nil
+}
+
+// Tick handles the "tick" action
+func (s *SessionTestStore) Tick(_ *ActionContext) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Counter++
+	return nil
+}
+
+// Reset handles the "reset" action
+func (s *SessionTestStore) Reset(_ *ActionContext) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Counter = 0
 	return nil
 }
 

@@ -66,7 +66,7 @@ type Broadcaster interface {
 	PublishToUser(userID string, payload []byte) error
 
 	// PublishServerAction publishes a server-initiated action to all instances for a user.
-	// This triggers Store.Change() on receiving instances.
+	// This dispatches to the matching store method on receiving instances.
 	PublishServerAction(userID string, action string, data map[string]interface{}) error
 
 	// Subscribe starts listening for broadcast messages and calls the handler
@@ -87,8 +87,8 @@ type MessageHandler func(msg *BroadcastMessage) error
 
 // ServerActionMessage represents a server-initiated action sent over Redis Pub/Sub.
 //
-// This message type triggers Store.Change() on receiving instances, enabling
-// server-initiated actions to work across a distributed deployment.
+// This message type dispatches to the matching store method on receiving instances,
+// enabling server-initiated actions to work across a distributed deployment.
 type ServerActionMessage struct {
 	// Type identifies the message type (always "server_action")
 	Type string `json:"type"`

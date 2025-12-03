@@ -147,8 +147,8 @@ func (b *RedisBroadcaster) PublishToUser(userID string, payload []byte) error {
 
 // PublishServerAction publishes a server-initiated action to all instances for a user.
 //
-// This triggers Store.Change() on receiving instances, enabling server-initiated
-// actions to work across a distributed deployment.
+// This dispatches to the matching store method on receiving instances, enabling
+// server-initiated actions to work across a distributed deployment.
 func (b *RedisBroadcaster) PublishServerAction(userID string, action string, data map[string]interface{}) error {
 	if userID == "" {
 		return fmt.Errorf("userID cannot be empty")

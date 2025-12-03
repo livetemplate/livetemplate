@@ -227,13 +227,9 @@ func NewSessionStoreHealthChecker(store SessionStore) *SessionStoreHealthChecker
 	return &SessionStoreHealthChecker{store: store}
 }
 
-// healthCheckStore is a minimal Store implementation for health checking.
+// healthCheckStore is a minimal store for health checking.
 type healthCheckStore struct {
 	value string
-}
-
-func (h *healthCheckStore) Change(ctx *ActionContext) error {
-	return nil
 }
 
 // Check verifies the session store is accessible by performing a Get/Set/Delete cycle.
