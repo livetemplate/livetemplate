@@ -4,35 +4,38 @@
 //
 // # Quick Start
 //
-// Define your application state as a Go struct that implements the Store interface:
+// Define your application state as a Go struct with methods for each action:
 //
-//	type CounterState struct {
-//	    Counter int `json:"counter"`
+//	type Counter struct {
+//	    Count int
 //	}
 //
-//	func (s *CounterState) Change(ctx *livetemplate.ActionContext) error {
-//	    switch ctx.Action {
-//	    case "increment":
-//	        s.Counter++
-//	    case "decrement":
-//	        s.Counter--
-//	    }
+//	func (c *Counter) Increment(ctx *livetemplate.ActionContext) error {
+//	    c.Count++
 //	    return nil
 //	}
+//
+//	func (c *Counter) Decrement(ctx *livetemplate.ActionContext) error {
+//	    c.Count--
+//	    return nil
+//	}
+//
+// Actions are automatically dispatched to methods matching the action name
+// (e.g., "increment" → Increment, "add_item" → AddItem).
 //
 // Create a template with `lvt-*` attributes for event binding:
 //
 //	<!-- counter.tmpl -->
-//	<h1>Counter: {{.Counter}}</h1>
+//	<h1>Counter: {{.Count}}</h1>
 //	<button lvt-click="increment">+</button>
 //	<button lvt-click="decrement">-</button>
 //
 // Wire it up in your main function:
 //
 //	func main() {
-//	    state := &CounterState{Counter: 0}
+//	    counter := &Counter{Count: 0}
 //	    tmpl := livetemplate.New("counter")
-//	    http.Handle("/", tmpl.Handle(state))
+//	    http.Handle("/", tmpl.Handle(counter))
 //	    http.ListenAndServe(":8080", nil)
 //	}
 //
@@ -1208,17 +1211,16 @@ func (t *Template) compareTreesAndGetChangesWithContext(oldTree, newTree *treeNo
 
 // Handle creates an http.Handler for the template with the given stores.
 // For single store: actions like "increment", "decrement"
-// For multiple stores: actions like "counterstate.increment", "userstate.logout"
+// For multiple stores: actions like "counter.increment", "user.logout"
 // Store names are automatically derived from struct type names (case-insensitive matching).
 //
-// Stores can be any struct type:
-//   - If the store implements Store interface (has Change() method), that is called for all actions
-//   - Otherwise, actions are automatically dispatched to matching methods (e.g., "increment" → Increment())
+// Actions are automatically dispatched to methods matching the action name.
+// Method signature: func (s *Store) ActionName(ctx *ActionContext) error
 //
 // The automatic dispatch supports multiple action formats:
 //   - snake_case: "add_item" → AddItem()
 //   - camelCase: "addItem" → AddItem()
-//   - lowercase: "additem" → AddItem() (case-insensitive)
+//   - PascalCase: "AddItem" → AddItem()
 func (t *Template) Handle(stores ...interface{}) LiveHandler {
 	if len(stores) == 0 {
 		panic("Handle requires at least one store")

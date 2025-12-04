@@ -38,12 +38,12 @@ import (
 // Security: Session is scoped to the current user only. There is no way to
 // target other users, preventing unauthorized cross-user actions.
 type Session interface {
-	// TriggerAction triggers Store.Change() with the given action and data,
+	// TriggerAction dispatches the action to the matching store method,
 	// then sends the updated template to ALL connections for this user.
 	//
 	// This behaves identically to client-initiated actions - the action is
-	// routed through Change(), errors are captured, and updates are broadcast
-	// to all of the user's connections (tabs/devices).
+	// dispatched to the matching method, errors are captured, and updates
+	// are broadcast to all of the user's connections (tabs/devices).
 	//
 	// Example:
 	//   session.TriggerAction("tick", nil)
@@ -162,7 +162,7 @@ type liveSession struct {
 	mu             sync.Mutex                  // Mutex for thread-safe operations
 }
 
-// TriggerAction triggers Store.Change() on all connections for this user,
+// TriggerAction dispatches the action to the matching store method,
 // then sends updates to all those connections.
 //
 // In distributed deployments with PubSub configured, this also publishes the
@@ -961,17 +961,9 @@ func (h *liveHandler) handleAction(ctx context.Context, msg message, state *conn
 		r:       r,
 	}
 
-	// Route action to store
-	// If store implements Store interface, call Change() for explicit routing
-	// Otherwise, auto-dispatch to method matching action name
-	var actionErr error
-	if changer, ok := store.(Store); ok {
-		// Store has explicit Change() method - use it
-		actionErr = changer.Change(actionCtx)
-	} else {
-		// No Change() method - auto-dispatch to action method
-		actionErr = Dispatch(store, actionCtx)
-	}
+	// Route action to store method matching the action name
+	// e.g., action "increment" → method Increment(ctx *ActionContext) error
+	actionErr := Dispatch(store, actionCtx)
 
 	if actionErr != nil {
 		// Process the error
@@ -1330,7 +1322,7 @@ func (h *liveHandler) handlePubSubMessage(msg *pubsub.BroadcastMessage) error {
 // handleServerActionMessage handles incoming server action messages from other instances.
 //
 // This is called by the RedisBroadcaster subscriber when a server action message is received.
-// It triggers Store.Change() and sends updates to local connections for the target user.
+// It dispatches to the matching store method and sends updates to local connections for the target user.
 func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage) error {
 	// Get all connections for this user
 	connections := h.registry.GetByUser(msg.UserID)
@@ -1553,7 +1545,7 @@ func (h *liveHandler) handleMultipartUploads(r *http.Request, sessionID string, 
 			errors: make(map[string]string),
 		}
 
-		uploadAction := fmt.Sprintf("upload:%s:complete", uploadName)
+		uploadAction := fmt.Sprintf("upload_%s_complete", uploadName)
 		uploadMsg := message{
 			Action: uploadAction,
 			Data:   make(map[string]interface{}),
@@ -1894,10 +1886,10 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 	}
 
 	// Hybrid approach: Trigger action with special upload action name
-	// Stores can handle "upload:<field>:complete" for auto-processing
+	// Stores can handle "upload_<field>_complete" via UploadFieldComplete method
 	// or wait for explicit form submission where uploads will be accessible via ActionContext
 	if len(completedEntries) > 0 {
-		uploadAction := fmt.Sprintf("upload:%s:complete", completeMsg.UploadName)
+		uploadAction := fmt.Sprintf("upload_%s_complete", completeMsg.UploadName)
 		uploadMsg := message{
 			Action: uploadAction,
 			Data:   make(map[string]interface{}), // Empty data, uploads are in ActionContext

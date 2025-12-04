@@ -12,10 +12,6 @@ type ShutdownState struct {
 	Value int
 }
 
-func (s *ShutdownState) Change(ctx *ActionContext) error {
-	return nil
-}
-
 func TestLiveHandler_Shutdown_RejectsNewConnections(t *testing.T) {
 	tmpl := Must(New("shutdown-test"))
 	handler := tmpl.Handle(&ShutdownState{})
