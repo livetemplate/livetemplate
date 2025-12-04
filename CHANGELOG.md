@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<a name="v0.6.0"></a>
+## [v0.6.0] - 2025-12-04
+
+
+<a name="v0.5.2"></a>
+## [v0.5.2] - 2025-12-03
+
+### Documentation
+
+- update client-attributes reference with reactive attributes and more ([#65](https://github.com/livefir/livetemplate/issues/65))
+- add reactive attributes proposal ([#64](https://github.com/livefir/livetemplate/issues/64))
+
+### Features
+
+- store pattern redesign with automatic method dispatch ([#66](https://github.com/livefir/livetemplate/issues/66))
+
+
 <a name="v0.5.1"></a>
 ## [v0.5.1] - 2025-11-30
 
@@ -305,7 +322,9 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.6.0...HEAD
+[v0.6.0]: https://github.com/livefir/livetemplate/compare/v0.5.2...v0.6.0
+[v0.5.2]: https://github.com/livefir/livetemplate/compare/v0.5.1...v0.5.2
 [v0.5.1]: https://github.com/livefir/livetemplate/compare/v0.5.0...v0.5.1
 [v0.5.0]: https://github.com/livefir/livetemplate/compare/v0.4.2-debug.2...v0.5.0
 [v0.4.2-debug.2]: https://github.com/livefir/livetemplate/compare/v0.4.2-debug.1...v0.4.2-debug.2
