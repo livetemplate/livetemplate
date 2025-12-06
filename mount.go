@@ -1164,6 +1164,43 @@ func (h *liveHandler) getStoreNames() []string {
 	return names
 }
 
+// =============================================================================
+// Controller+State Pattern Helpers
+// =============================================================================
+
+// cloneStateTyped creates a typed clone using the State interface.
+// Returns the underlying value (not the State wrapper).
+// This ensures state contains only pure data (serialization = purity marker).
+func (h *liveHandler) cloneStateTyped() (interface{}, error) {
+	if h.config.State == nil {
+		return nil, fmt.Errorf("no state configured")
+	}
+
+	// Serialize the initial state
+	data, err := h.config.State.MarshalBinary()
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize initial state: %w", err)
+	}
+
+	// Get the type of the inner value
+	innerVal := h.config.State.Inner()
+	innerType := reflect.TypeOf(innerVal)
+	if innerType.Kind() == reflect.Ptr {
+		innerType = innerType.Elem()
+	}
+
+	// Create new instance
+	newStatePtr := reflect.New(innerType)
+
+	// Deserialize into it (JSON since that's what jsonState uses)
+	if err := json.Unmarshal(data, newStatePtr.Interface()); err != nil {
+		return nil, fmt.Errorf("failed to deserialize state: %w", err)
+	}
+
+	// Return the dereferenced value (to match method signatures)
+	return newStatePtr.Elem().Interface(), nil
+}
+
 // persistStore persists stores after a successful action.
 // If the SessionStore implements SingleStoreSetter and a specific store was modified,
 // only that store is persisted. Otherwise, all stores are persisted.
