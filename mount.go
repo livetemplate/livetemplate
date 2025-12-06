@@ -324,9 +324,13 @@ type LiveHandler interface {
 
 // mountConfig configures the mount handler (internal only)
 type mountConfig struct {
-	Template               *Template
-	Stores                 Stores
-	IsSingleStore          bool
+	Template      *Template
+	Stores        Stores
+	IsSingleStore bool
+	// Controller+State pattern (new API)
+	Controller         interface{} // Singleton controller with dependencies
+	State              State       // Initial state template (cloned per session)
+	UseControllerState bool        // Flag: true = use new pattern, false = use old Stores
 	Upgrader               *websocket.Upgrader
 	SessionStore           SessionStore
 	Authenticator          Authenticator
