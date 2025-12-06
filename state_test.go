@@ -385,3 +385,117 @@ func TestValidateStateTag(t *testing.T) {
 		}
 	})
 }
+
+// ============================================================================
+// New Controller+State Pattern Tests (Task 1)
+// ============================================================================
+
+func TestAsState_MarshalUnmarshal(t *testing.T) {
+	type TodoState struct {
+		Items []string
+		Count int
+	}
+
+	original := &TodoState{Items: []string{"buy milk"}, Count: 1}
+	state := AsState(original)
+
+	// Marshal
+	data, err := state.MarshalBinary()
+	if err != nil {
+		t.Fatalf("MarshalBinary failed: %v", err)
+	}
+
+	// Unmarshal into new instance
+	restored := &TodoState{}
+	restoredState := AsState(restored)
+	if err := restoredState.UnmarshalBinary(data); err != nil {
+		t.Fatalf("UnmarshalBinary failed: %v", err)
+	}
+
+	// Verify
+	if restored.Count != original.Count {
+		t.Errorf("Count mismatch: got %d, want %d", restored.Count, original.Count)
+	}
+	if len(restored.Items) != len(original.Items) {
+		t.Errorf("Items length mismatch: got %d, want %d", len(restored.Items), len(original.Items))
+	}
+	if len(restored.Items) > 0 && restored.Items[0] != original.Items[0] {
+		t.Errorf("Items[0] mismatch: got %q, want %q", restored.Items[0], original.Items[0])
+	}
+}
+
+func TestAsState_Inner(t *testing.T) {
+	type MyState struct{ Value int }
+	original := &MyState{Value: 42}
+	state := AsState(original)
+
+	inner := state.Inner()
+	if inner != original {
+		t.Error("Inner() should return original pointer")
+	}
+}
+
+func TestAsState_EmptyState(t *testing.T) {
+	type EmptyState struct{}
+	empty := &EmptyState{}
+	state := AsState(empty)
+
+	data, err := state.MarshalBinary()
+	if err != nil {
+		t.Fatalf("MarshalBinary on empty state failed: %v", err)
+	}
+
+	restored := &EmptyState{}
+	restoredState := AsState(restored)
+	if err := restoredState.UnmarshalBinary(data); err != nil {
+		t.Fatalf("UnmarshalBinary on empty state failed: %v", err)
+	}
+}
+
+func TestAsState_ComplexNestedState(t *testing.T) {
+	type Item struct {
+		ID    int
+		Name  string
+		Tags  []string
+		Props map[string]interface{}
+	}
+
+	type ComplexState struct {
+		Items    []*Item
+		Metadata map[string]string
+		Flags    []bool
+	}
+
+	original := &ComplexState{
+		Items: []*Item{
+			{ID: 1, Name: "First", Tags: []string{"a", "b"}, Props: map[string]interface{}{"key": "value"}},
+			{ID: 2, Name: "Second", Tags: nil, Props: nil},
+		},
+		Metadata: map[string]string{"version": "1.0"},
+		Flags:    []bool{true, false, true},
+	}
+
+	state := AsState(original)
+
+	data, err := state.MarshalBinary()
+	if err != nil {
+		t.Fatalf("MarshalBinary failed: %v", err)
+	}
+
+	restored := &ComplexState{}
+	restoredState := AsState(restored)
+	if err := restoredState.UnmarshalBinary(data); err != nil {
+		t.Fatalf("UnmarshalBinary failed: %v", err)
+	}
+
+	// Verify nested data
+	if len(restored.Items) != 2 {
+		t.Fatalf("Items count mismatch: got %d, want 2", len(restored.Items))
+	}
+	if restored.Items[0].Name != "First" {
+		t.Errorf("Items[0].Name mismatch: got %q, want %q", restored.Items[0].Name, "First")
+	}
+	if restored.Metadata["version"] != "1.0" {
+		t.Errorf("Metadata[version] mismatch: got %q", restored.Metadata["version"])
+	}
+}
