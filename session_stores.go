@@ -25,15 +25,15 @@ import (
 //
 // Thread-safety: All implementations must be safe for concurrent access from multiple goroutines.
 type SessionStore interface {
-	// Get retrieves the Stores for a session group.
+	// Get retrieves the state for a session group.
 	// Returns nil if the group doesn't exist.
 	// The context can be used for cancellation, timeouts, and tracing.
-	Get(ctx context.Context, groupID string) Stores
+	Get(ctx context.Context, groupID string) interface{}
 
-	// Set stores Stores for a session group.
+	// Set stores state for a session group.
 	// Creates a new group if it doesn't exist, updates if it does.
 	// The context can be used for cancellation, timeouts, and tracing.
-	Set(ctx context.Context, groupID string, stores Stores)
+	Set(ctx context.Context, groupID string, state interface{})
 
 	// Delete removes a session group and all its state.
 	// The context can be used for cancellation, timeouts, and tracing.
@@ -79,7 +79,7 @@ type SingleStoreSetter interface {
 //
 // For multi-instance deployments, use a persistent SessionStore (e.g., Redis).
 type MemorySessionStore struct {
-	groups          map[string]Stores    // groupID → Stores
+	groups          map[string]interface{} // groupID → state
 	lastAccess      map[string]time.Time // groupID → last access timestamp
 	mu              sync.RWMutex         // Protects groups and lastAccess
 	cleanupTTL      time.Duration        // Time to live for inactive groups
@@ -126,7 +126,7 @@ func NewMemorySessionStore(opts ...SessionStoreOption) *MemorySessionStore {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	s := &MemorySessionStore{
-		groups:          make(map[string]Stores),
+		groups:          make(map[string]interface{}),
 		lastAccess:      make(map[string]time.Time),
 		cleanupTTL:      24 * time.Hour, // Default: 24 hours
 		cleanupInterval: 1 * time.Hour,  // Default: 1 hour
@@ -146,28 +146,28 @@ func NewMemorySessionStore(opts ...SessionStoreOption) *MemorySessionStore {
 	return s
 }
 
-// Get retrieves the Stores for a session group.
+// Get retrieves the state for a session group.
 // Updates the last access time for the group.
 // The context parameter is accepted for interface compliance but not used for in-memory operations.
-func (s *MemorySessionStore) Get(ctx context.Context, groupID string) Stores {
+func (s *MemorySessionStore) Get(ctx context.Context, groupID string) interface{} {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	stores := s.groups[groupID]
-	if stores != nil {
+	state := s.groups[groupID]
+	if state != nil {
 		s.lastAccess[groupID] = time.Now()
 	}
-	return stores
+	return state
 }
 
-// Set stores Stores for a session group.
+// Set stores state for a session group.
 // Updates the last access time for the group.
 // The context parameter is accepted for interface compliance but not used for in-memory operations.
-func (s *MemorySessionStore) Set(ctx context.Context, groupID string, stores Stores) {
+func (s *MemorySessionStore) Set(ctx context.Context, groupID string, state interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.groups[groupID] = stores
+	s.groups[groupID] = state
 	s.lastAccess[groupID] = time.Now()
 }
 
@@ -378,14 +378,13 @@ func NewRedisSessionStore(client redis.UniversalClient, opts ...RedisSessionStor
 	return s
 }
 
-// Get retrieves the Stores for a session group.
+// Get retrieves the state for a session group.
 // Returns nil if the group doesn't exist or if deserialization fails.
 // Automatically refreshes the TTL on successful access.
 // The context is used for Redis operations and can timeout/cancel requests.
 //
-// This method supports both v2 (hash-based) and legacy v1 (blob) formats.
-// Legacy v1 sessions are automatically migrated to v2 format on read.
-func (s *RedisSessionStore) Get(ctx context.Context, groupID string) Stores {
+// Note: RedisSessionStore now stores state as JSON-encoded data.
+func (s *RedisSessionStore) Get(ctx context.Context, groupID string) interface{} {
 	key := sessionKeyPrefix + groupID
 
 	// First, try to get as a hash (v2 schema)
@@ -418,19 +417,17 @@ func (s *RedisSessionStore) Get(ctx context.Context, groupID string) Stores {
 			return nil
 		}
 
-		// Deserialize legacy stores
-		stores, err := s.deserializeStores(data)
+		// Legacy v1 format found - this is incompatible with Controller+State pattern.
+		// Delete the old session so it will be recreated with Mount().
+		// Note: In pre-1.0 library, breaking changes are expected.
+		_, err = s.deserializeLegacyStores(data)
 		if err != nil {
-			// Deserialization failed - session is corrupted
-			s.Delete(ctx, groupID)
-			return nil
+			log.Printf("RedisSessionStore: Found legacy v1 session but failed to decode: %v", err)
+		} else {
+			log.Printf("RedisSessionStore: Found legacy v1 session for group %s - deleting (incompatible with Controller+State)", groupID)
 		}
-
-		// Migrate to v2 format
-		s.migrateToV2(ctx, groupID, stores)
-
-		s.queueTTLRefresh(groupID)
-		return stores
+		s.Delete(ctx, groupID)
+		return nil
 	}
 
 	// Empty hash or corrupted data
@@ -447,27 +444,21 @@ func (s *RedisSessionStore) queueTTLRefresh(groupID string) {
 	}
 }
 
-// deserializeFromHash deserializes Stores from a Redis hash (v2 format).
-func (s *RedisSessionStore) deserializeFromHash(hashData map[string]string) Stores {
-	stores := make(Stores)
-
-	for field, data := range hashData {
-		// Skip metadata field
-		if field == metaField {
-			continue
+// deserializeFromHash deserializes state from a Redis hash (v2 format).
+// In Controller+State pattern, state is stored as JSON under the "state" key.
+func (s *RedisSessionStore) deserializeFromHash(hashData map[string]string) interface{} {
+	// New Controller+State pattern: state is stored as plain JSON under "state" key
+	if stateJSON, ok := hashData["state"]; ok {
+		var state interface{}
+		if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
+			log.Printf("WARN: RedisSessionStore: failed to unmarshal state: %v", err)
+			return nil
 		}
-
-		// Deserialize the store from base64-encoded Gob
-		store, err := s.deserializeSingleStore(data)
-		if err != nil {
-			log.Printf("WARN: RedisSessionStore: failed to deserialize store %q: %v", field, err)
-			continue
-		}
-
-		stores[field] = store
+		return state
 	}
 
-	return stores
+	// No state found
+	return nil
 }
 
 // serializeSingleStore encodes a single store for Redis storage.
@@ -584,7 +575,7 @@ func GetStateData(v interface{}) *StateData {
 }
 
 // migrateToV2 migrates a legacy v1 session to v2 hash format.
-func (s *RedisSessionStore) migrateToV2(ctx context.Context, groupID string, stores Stores) {
+func (s *RedisSessionStore) migrateToV2(ctx context.Context, groupID string, state interface{}) {
 	key := sessionKeyPrefix + groupID
 
 	// Delete the legacy blob key first
@@ -595,23 +586,29 @@ func (s *RedisSessionStore) migrateToV2(ctx context.Context, groupID string, sto
 	s.client.Del(ctx, accessKey)
 
 	// Write in v2 format
-	s.Set(ctx, groupID, stores)
+	s.Set(ctx, groupID, state)
 }
 
-// Set stores Stores for a session group using v2 hash format.
-// Creates a new group if it doesn't exist, updates if it does.
-// Sets the TTL and updates the metadata.
+// Set stores state for a session group.
+// For the Controller+State pattern, this stores the state as JSON.
 // The context is used for Redis operations and can timeout/cancel requests.
-func (s *RedisSessionStore) Set(ctx context.Context, groupID string, stores Stores) {
+func (s *RedisSessionStore) Set(ctx context.Context, groupID string, state interface{}) {
 	key := sessionKeyPrefix + groupID
 
-	// Handle nil stores by deleting the session
-	if stores == nil {
+	// Handle nil state by deleting the session
+	if state == nil {
 		s.Delete(ctx, groupID)
 		return
 	}
 
-	// Build hash fields for all stores
+	// Serialize state as JSON
+	stateJSON, err := json.Marshal(state)
+	if err != nil {
+		log.Printf("ERROR: RedisSessionStore.Set(%s): failed to marshal state: %v", groupID, err)
+		return
+	}
+
+	// Build hash fields
 	fields := make(map[string]interface{})
 
 	// Add metadata
@@ -626,15 +623,8 @@ func (s *RedisSessionStore) Set(ctx context.Context, groupID string, stores Stor
 	}
 	fields[metaField] = string(metaJSON)
 
-	// Serialize each store using Gob (preserves type information)
-	for storeName, store := range stores {
-		encoded, err := s.serializeSingleStore(store)
-		if err != nil {
-			log.Printf("ERROR: RedisSessionStore.Set(%s): failed to serialize store %q: %v", groupID, storeName, err)
-			continue
-		}
-		fields[storeName] = encoded
-	}
+	// Store state under "state" key
+	fields["state"] = string(stateJSON)
 
 	// Use pipeline for atomic operations
 	pipe := s.client.Pipeline()
@@ -741,11 +731,12 @@ func (s *RedisSessionStore) List(ctx context.Context) []string {
 	return keys
 }
 
-// deserializeStores converts gob-encoded bytes from Redis back to Stores.
+// deserializeLegacyStores converts gob-encoded bytes from Redis back to a map.
+// This is used for v1 → v2 migration only (legacy format support).
 //
-// IMPORTANT: Store types must be registered with gob.Register() before use.
-// See serializeStores() for details.
-func (s *RedisSessionStore) deserializeStores(data []byte) (Stores, error) {
+// Note: In Controller+State pattern, this legacy format is incompatible with the new
+// state type. Legacy sessions will be deleted and recreated as new sessions.
+func (s *RedisSessionStore) deserializeLegacyStores(data []byte) (map[string]interface{}, error) {
 	if len(data) == 0 {
 		return nil, nil
 	}
@@ -753,9 +744,9 @@ func (s *RedisSessionStore) deserializeStores(data []byte) (Stores, error) {
 	buf := bytes.NewBuffer(data)
 	dec := gob.NewDecoder(buf)
 
-	var stores Stores
+	var stores map[string]interface{}
 	if err := dec.Decode(&stores); err != nil {
-		return nil, fmt.Errorf("failed to gob-decode stores: %w (hint: custom Store types must be registered with gob.Register() in init())", err)
+		return nil, fmt.Errorf("failed to gob-decode legacy stores: %w", err)
 	}
 
 	return stores, nil

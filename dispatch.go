@@ -27,140 +27,6 @@ func (e *DispatchError) Unwrap() error {
 	return e.Err
 }
 
-// methodCache caches method lookups by type to avoid repeated reflection.
-// Key: reflect.Type, Value: map[action]methodIndex
-var methodCache sync.Map
-
-// Dispatch routes an action to a method on the store.
-//
-// It maps action names to methods using naming conventions:
-//   - "increment" → Increment(ctx *ActionContext) error
-//   - "add_item" → AddItem(ctx *ActionContext) error
-//   - "updateProfile" → UpdateProfile(ctx *ActionContext) error
-//
-// Methods must have the signature: func(ctx *ActionContext) error
-//
-// Dispatch caches method lookups per type for zero reflection overhead
-// on the hot path after the first call.
-//
-// Example:
-//
-//	type Counter struct {
-//	    Count int
-//	}
-//
-//	func (c *Counter) Increment(ctx *ActionContext) error {
-//	    c.Count++
-//	    return nil
-//	}
-//
-//	// In template: lvt-click="increment"
-//	// Framework calls: Dispatch(counter, ctx) → counter.Increment(ctx)
-func Dispatch(store interface{}, ctx *ActionContext) error {
-	if ctx == nil || ctx.Action == "" {
-		return ErrMethodNotFound
-	}
-
-	storeValue := reflect.ValueOf(store)
-	storeType := storeValue.Type()
-
-	// Get or create method index cache for this type
-	methodIndex := getMethodIndex(storeType, ctx.Action)
-	if methodIndex < 0 {
-		return &DispatchError{
-			Action:    ctx.Action,
-			StoreType: storeType.String(),
-			Err:       ErrMethodNotFound,
-		}
-	}
-
-	// Call the method
-	method := storeValue.Method(methodIndex)
-	results := method.Call([]reflect.Value{reflect.ValueOf(ctx)})
-
-	// Check error return
-	if len(results) > 0 && !results[0].IsNil() {
-		return results[0].Interface().(error)
-	}
-
-	return nil
-}
-
-// getMethodIndex returns the method index for the given action, using cache.
-// Returns -1 if no matching method is found.
-func getMethodIndex(storeType reflect.Type, action string) int {
-	// Check cache first
-	cacheKey := storeType
-	cached, ok := methodCache.Load(cacheKey)
-	if ok {
-		actionMap := cached.(map[string]int)
-		if idx, found := actionMap[action]; found {
-			return idx
-		}
-		// Action not in cache, method doesn't exist
-		return -1
-	}
-
-	// Build method cache for this type
-	actionMap := buildMethodCache(storeType)
-	methodCache.Store(cacheKey, actionMap)
-
-	if idx, found := actionMap[action]; found {
-		return idx
-	}
-	return -1
-}
-
-// buildMethodCache builds a map of action names to method indices for a type.
-func buildMethodCache(storeType reflect.Type) map[string]int {
-	actionMap := make(map[string]int)
-
-	for i := 0; i < storeType.NumMethod(); i++ {
-		method := storeType.Method(i)
-
-		// Check method signature: func(ctx *ActionContext) error
-		if !isValidActionMethod(method.Type) {
-			continue
-		}
-
-		// Map method name to possible action names
-		methodName := method.Name
-		actions := methodNameToActions(methodName)
-		for _, action := range actions {
-			actionMap[action] = i
-		}
-	}
-
-	return actionMap
-}
-
-// isValidActionMethod checks if a method has the signature: func(ctx *ActionContext) error
-func isValidActionMethod(methodType reflect.Type) bool {
-	// Method must have 2 inputs: receiver and *ActionContext
-	if methodType.NumIn() != 2 {
-		return false
-	}
-
-	// Second input must be *ActionContext
-	ctxType := reflect.TypeOf((*ActionContext)(nil))
-	if methodType.In(1) != ctxType {
-		return false
-	}
-
-	// Must have exactly 1 output: error
-	if methodType.NumOut() != 1 {
-		return false
-	}
-
-	// Output must be error
-	errorType := reflect.TypeOf((*error)(nil)).Elem()
-	if !methodType.Out(0).Implements(errorType) {
-		return false
-	}
-
-	return true
-}
-
 // methodNameToActions converts a method name to possible action names.
 // Returns multiple variations to handle different naming conventions.
 //
@@ -213,4 +79,136 @@ func toSnakeCase(s string) string {
 	}
 
 	return result.String()
+}
+
+// =============================================================================
+// Controller+State Pattern Dispatch (New Signature)
+// =============================================================================
+
+// DispatchWithState routes an action to a controller method with new signature.
+//
+// Method signature: func(state StateType, ctx *Context) (StateType, error)
+//
+// Returns the modified state and any error from the method.
+// The controller is a singleton that holds dependencies.
+// State is passed by value and a new state is returned.
+//
+// Example:
+//
+//	type CounterController struct { DB *sql.DB }
+//	func (c *CounterController) Increment(state CounterState, ctx *Context) (CounterState, error) {
+//	    state.Count++
+//	    return state, nil
+//	}
+func DispatchWithState(controller interface{}, state interface{}, ctx *Context) (interface{}, error) {
+	if ctx == nil || ctx.action == "" {
+		return state, ErrMethodNotFound
+	}
+
+	controllerValue := reflect.ValueOf(controller)
+	controllerType := controllerValue.Type()
+	stateType := reflect.TypeOf(state)
+
+	// Get method index using cached lookup
+	methodIndex := getMethodIndexNewSignature(controllerType, stateType, ctx.action)
+	if methodIndex < 0 {
+		return state, &DispatchError{
+			Action:    ctx.action,
+			StoreType: controllerType.String(),
+			Err:       ErrMethodNotFound,
+		}
+	}
+
+	// Call the method with state and context
+	method := controllerValue.Method(methodIndex)
+	results := method.Call([]reflect.Value{
+		reflect.ValueOf(state),
+		reflect.ValueOf(ctx),
+	})
+
+	// Extract results: (state, error)
+	newState := results[0].Interface()
+	var err error
+	if !results[1].IsNil() {
+		err = results[1].Interface().(error)
+	}
+
+	return newState, err
+}
+
+// methodCacheNewSignature caches method lookups for new signature
+// Key: controllerType + stateType hash, Value: map[action]methodIndex
+var methodCacheNewSignature sync.Map
+
+// cacheKeyNewSig creates a cache key from controller and state types
+type cacheKeyNewSig struct {
+	controllerType reflect.Type
+	stateType      reflect.Type
+}
+
+// getMethodIndexNewSignature returns method index for new signature methods
+func getMethodIndexNewSignature(controllerType reflect.Type, stateType reflect.Type, action string) int {
+	cacheKey := cacheKeyNewSig{controllerType, stateType}
+	cached, ok := methodCacheNewSignature.Load(cacheKey)
+	if ok {
+		actionMap := cached.(map[string]int)
+		if idx, found := actionMap[action]; found {
+			return idx
+		}
+		return -1
+	}
+
+	// Build cache for this type combination
+	actionMap := buildMethodCacheNewSignature(controllerType, stateType)
+	methodCacheNewSignature.Store(cacheKey, actionMap)
+
+	if idx, found := actionMap[action]; found {
+		return idx
+	}
+	return -1
+}
+
+// buildMethodCacheNewSignature builds method cache for new signature
+func buildMethodCacheNewSignature(controllerType reflect.Type, stateType reflect.Type) map[string]int {
+	actionMap := make(map[string]int)
+	contextType := reflect.TypeOf((*Context)(nil))
+	errorType := reflect.TypeOf((*error)(nil)).Elem()
+
+	for i := 0; i < controllerType.NumMethod(); i++ {
+		method := controllerType.Method(i)
+		methodType := method.Type
+
+		// Check: func(receiver, state, *Context) (state, error)
+		// NumIn = 3 (receiver, state, ctx), NumOut = 2 (state, error)
+		if methodType.NumIn() != 3 || methodType.NumOut() != 2 {
+			continue
+		}
+
+		// First param (after receiver) must match state type
+		if methodType.In(1) != stateType {
+			continue
+		}
+
+		// Second param must be *Context
+		if methodType.In(2) != contextType {
+			continue
+		}
+
+		// First output must match state type
+		if methodType.Out(0) != stateType {
+			continue
+		}
+
+		// Second output must implement error
+		if !methodType.Out(1).Implements(errorType) {
+			continue
+		}
+
+		// Map method name to actions
+		for _, actionName := range methodNameToActions(method.Name) {
+			actionMap[actionName] = i
+		}
+	}
+
+	return actionMap
 }

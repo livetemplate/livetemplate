@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"log/slog"
@@ -17,7 +18,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/livetemplate/livetemplate/internal/discovery"
 	"github.com/livetemplate/livetemplate/internal/observe"
 	"github.com/livetemplate/livetemplate/internal/session"
 	"github.com/livetemplate/livetemplate/internal/upload"
@@ -124,7 +124,7 @@ func (b *broadcaster) Send() error {
 
 	// Generate tree update
 	var buf bytes.Buffer
-	err := b.template.ExecuteUpdates(&buf, b.handler.getTemplateData(b.state.stores), b.state.getErrors())
+	err := b.template.ExecuteUpdates(&buf, b.state.state, b.state.getErrors())
 	if err != nil {
 		return fmt.Errorf("template update failed: %w", err)
 	}
@@ -204,62 +204,65 @@ func (s *liveSession) triggerActionLocal(action string, data map[string]interfac
 		slog.String("action", action),
 		slog.Int("connection_count", len(connections)))
 
-	// Create message for action routing
-	msg := message{
-		Action: action,
-		Data:   data,
-	}
-
 	// Process action for each connection
 	var errCount int
 	for _, conn := range connections {
-		// Get connection state from stores
-		stores, ok := conn.Stores.(Stores)
-		if !ok {
-			slog.Warn("Invalid stores type in connection",
+		// Get typed state from connection
+		typedState := conn.Stores // Stores field now holds typed state
+		if typedState == nil {
+			slog.Warn("No state in connection",
 				slog.String("user_id", s.userID))
 			errCount++
 			continue
 		}
 
 		// Create connection state for this action
-		state := &connState{
-			stores:  stores,
+		connSt := &connState{
+			state:   typedState,
 			errors:  make(map[string]string),
 			groupID: conn.GroupID,
-		}
-
-		// Get upload registry from connection if available
-		var uploadReg uploadRegistry
-		if conn.Uploads != nil {
-			uploadReg, _ = conn.Uploads.(uploadRegistry)
 		}
 
 		// Create context with timeout for server-initiated actions
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 
-		// Handle action (routes to store's Change method)
-		// nil for w, r since this is a server-initiated action (not HTTP request)
-		modifiedStore, err := s.handler.handleAction(ctx, msg, state, uploadReg, nil, nil)
-		if err != nil {
-			slog.Warn("TriggerAction handleAction failed",
-				slog.String("user_id", s.userID),
-				slog.String("action", action),
-				slog.String("error", err.Error()))
-			cancel()
-			errCount++
-			continue
+		// Create Context for action dispatch
+		actionCtx := NewContext(ctx, action, data)
+		actionCtx = actionCtx.WithUserID(s.userID)
+
+		// Dispatch action using Controller+State pattern
+		newState, actionErr := DispatchWithState(s.handler.config.Controller, connSt.state, actionCtx)
+		if actionErr != nil {
+			switch e := actionErr.(type) {
+			case FieldError:
+				connSt.setError(e.Field, e.Message)
+			case MultiError:
+				for _, fieldErr := range e {
+					connSt.setError(fieldErr.Field, fieldErr.Message)
+				}
+			default:
+				if !errors.Is(actionErr, ErrMethodNotFound) {
+					connSt.setError("_general", actionErr.Error())
+					slog.Warn("TriggerAction dispatch failed",
+						slog.String("user_id", s.userID),
+						slog.String("action", action),
+						slog.String("error", actionErr.Error()))
+				}
+			}
+		} else {
+			connSt.state = newState
 		}
 
-		// Persist state after successful action
-		// This is critical for SessionStores that return copies (e.g., RedisSessionStore)
-		// Uses targeted persistence if SessionStore supports SingleStoreSetter
-		s.handler.persistStore(ctx, conn.GroupID, modifiedStore, state.stores)
+		// Persist state after action
+		s.handler.config.SessionStore.Set(ctx, conn.GroupID, connSt.state)
+
+		// Update connection's stored state
+		conn.Stores = connSt.state
 
 		cancel()
 
 		// Send update to this connection
-		if err := s.handler.sendUpdate(conn, s.handler.getTemplateData(state.stores)); err != nil {
+		if err := s.handler.sendUpdate(conn, connSt.state); err != nil {
 			slog.Warn("TriggerAction sendUpdate failed",
 				slog.String("user_id", s.userID),
 				slog.String("action", action),
@@ -325,19 +328,19 @@ type LiveHandler interface {
 // mountConfig configures the mount handler (internal only)
 type mountConfig struct {
 	Template               *Template
-	Stores                 Stores
-	IsSingleStore          bool
+	Controller             interface{}          // Singleton controller with dependencies
+	State                  State                // Initial state template (cloned per session)
 	Upgrader               *websocket.Upgrader
 	SessionStore           SessionStore
 	Authenticator          Authenticator
-	PubSubBroadcaster      pubsub.Broadcaster // Optional: for distributed broadcasting across instances
+	PubSubBroadcaster      pubsub.Broadcaster   // Optional: for distributed broadcasting across instances
 	AllowedOrigins         []string
 	WebSocketDisabled      bool
-	MaxConnections         int64                       // Maximum total connections (0 = unlimited)
-	MaxConnectionsPerGroup int64                       // Maximum connections per group (0 = unlimited)
-	CookieMaxAge           time.Duration               // Session cookie max age (default: 1 year)
+	MaxConnections         int64                // Maximum total connections (0 = unlimited)
+	MaxConnectionsPerGroup int64                // Maximum connections per group (0 = unlimited)
+	CookieMaxAge           time.Duration        // Session cookie max age (default: 1 year)
 	UploadConfigs          map[string]uploadtypes.UploadConfig // Upload field configurations
-	wsBufferSize           int                                 // WebSocket send buffer size per connection (default: 50)
+	wsBufferSize           int                  // WebSocket send buffer size per connection (default: 50)
 }
 
 // mountOption is a functional option for configuring handlers (internal only)
@@ -359,7 +362,7 @@ type liveHandler struct {
 }
 
 type connState struct {
-	stores   Stores            // Each connection gets cloned stores
+	state    interface{}       // Typed state (cloned per session)
 	errors   map[string]string // Field errors from last action
 	errorsMu sync.RWMutex      // Mutex for thread-safe error access
 	groupID  string            // Session/group ID for this connection
@@ -475,29 +478,32 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get or create stores for this session group
+	// Get or create state for this session group
 	ctx := r.Context()
-	stores := h.config.SessionStore.Get(ctx, groupID)
-	if stores == nil {
-		stores = h.cloneStores()
-		h.config.SessionStore.Set(ctx, groupID, stores)
+	isNewSession := false
+	storedState := h.config.SessionStore.Get(ctx, groupID)
+	var typedState interface{}
+	if storedState == nil {
+		// New session - clone initial state and call Mount
+		typedState, err = h.cloneStateTyped()
+		if err != nil {
+			log.Printf("Failed to clone state: %v", err)
+			return
+		}
+		isNewSession = true
 		log.Printf("Created new session group: %s", groupID)
 	} else {
-		// Hydrate any StateData wrappers into proper controller instances
-		stores = h.hydrateStores(stores)
+		// Existing session - use stored state
+		typedState = storedState
 	}
 
-	// Initialize upload registry for this connection (created by template initialization)
+	// Initialize upload registry for this connection
 	uploadRegistry := h.newUploadRegistry()
-
-	// Configure uploads from handler config
 	for name, config := range h.config.UploadConfigs {
 		if err := uploadRegistry.CreateUpload(name, config); err != nil {
 			log.Printf("Failed to create upload %q: %v", name, err)
 		}
 	}
-
-	// Set upload registry on template for .lvt.Uploads() support
 	connTmpl.SetUploadRegistry(uploadRegistry)
 
 	// Create Connection and register in registry
@@ -506,14 +512,13 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		GroupID:  groupID,
 		UserID:   userID,
 		Template: connTmpl,
-		Stores:   stores,
+		Stores:   typedState, // Store typed state for broadcasting
 		Uploads:  uploadRegistry,
 	}
 
 	h.registry.Register(connection, h.config.wsBufferSize)
 	defer h.registry.Unregister(connection)
 	defer func() {
-		// Clean up temp files for this session on disconnect
 		if err := h.tempFileManager.RemoveSession(groupID); err != nil {
 			log.Printf("Failed to clean up temp files for session %s: %v", groupID, err)
 		}
@@ -521,84 +526,69 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Registered connection (total: %d, groups: %d)", h.registry.Count(), h.registry.GroupCount())
 
 	// Create connection state (errors are per-connection, not shared)
-	state := &connState{
-		stores:  stores,
+	connSt := &connState{
+		state:   typedState,
 		errors:  make(map[string]string),
 		groupID: groupID,
 	}
 
-	// Create context for session/broadcaster lifecycle
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Create context for lifecycle methods
+	lifecycleCtx := NewContext(context.Background(), "", nil)
+	lifecycleCtx = lifecycleCtx.WithUserID(userID)
 
-	// Create session for server-initiated actions (new API)
-	sess := &liveSession{
-		userID:         userID,
-		handler:        h,
-		uploadRegistry: uploadRegistry,
-	}
-
-	// Create broadcaster for server-initiated updates (deprecated API)
-	bc := &broadcaster{
-		conn:     connection,
-		template: connTmpl,
-		state:    state,
-		handler:  h,
-	}
-
-	// Call OnConnect for stores that implement SessionAware (new) or BroadcastAware (deprecated)
-	for _, store := range state.stores {
-		// Try SessionAware first (preferred)
-		if aware, ok := store.(SessionAware); ok {
-			if err := aware.OnConnect(ctx, sess); err != nil {
-				log.Printf("SessionAware.OnConnect failed for store: %v", err)
-			}
-			// Schedule OnDisconnect call when WebSocket closes
-			defer aware.OnDisconnect()
-		} else if aware, ok := store.(BroadcastAware); ok {
-			// Fall back to deprecated BroadcastAware
-			if err := aware.OnConnect(ctx, bc); err != nil {
-				log.Printf("BroadcastAware.OnConnect failed for store: %v", err)
-			}
-			// Schedule OnDisconnect call when WebSocket closes
-			defer aware.OnDisconnect()
+	// Call Mount for new sessions
+	if isNewSession {
+		newState, err := callMount(h.config.Controller, connSt.state, lifecycleCtx)
+		if err != nil {
+			log.Printf("Mount failed: %v", err)
+			return
 		}
+		connSt.state = newState
+		// Persist after Mount
+		h.config.SessionStore.Set(ctx, groupID, connSt.state)
 	}
+
+	// Call OnConnect lifecycle method
+	newState, err := callOnConnect(h.config.Controller, connSt.state, lifecycleCtx)
+	if err != nil {
+		log.Printf("OnConnect failed: %v", err)
+		// Continue anyway - OnConnect errors are non-fatal
+	} else {
+		connSt.state = newState
+	}
+
+	// Schedule OnDisconnect call when WebSocket closes
+	defer callOnDisconnect(h.config.Controller)
 
 	// Send initial tree
 	var buf bytes.Buffer
-
-	err = connTmpl.ExecuteUpdates(&buf, h.getTemplateData(state.stores), state.getErrors())
+	err = connTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getErrors())
 	if err != nil {
 		log.Printf("Failed to generate initial tree: %v", err)
 		return
 	}
 
-	// Parse tree from buffer
 	var tree map[string]interface{}
 	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
 		log.Printf("Failed to parse initial tree: %v", err)
 		return
 	}
 
-	// Wrap with metadata (initial load has no action)
 	response := UpdateResponse{
 		Tree: tree,
 		Meta: &ResponseMetadata{
-			Success: len(state.getErrors()) == 0,
-			Errors:  state.getErrors(),
+			Success: len(connSt.getErrors()) == 0,
+			Errors:  connSt.getErrors(),
 		},
 	}
 
-	// Encode and send wrapped response
 	responseBytes, err := json.Marshal(response)
 	if err != nil {
 		log.Printf("Failed to marshal initial response: %v", err)
 		return
 	}
 
-	err = writeUpdateWebSocket(connection, responseBytes)
-	if err != nil {
+	if err = writeUpdateWebSocket(connection, responseBytes); err != nil {
 		log.Printf("Failed to send initial tree: %v", err)
 		return
 	}
@@ -608,12 +598,12 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	if h.config.Template.config.MessageRateLimit > 0 {
 		burst := h.config.Template.config.MessageRateBurst
 		if burst < 1 {
-			burst = 1 // Minimum burst size for rate limiter to function
+			burst = 1
 		}
 		limiter = rate.NewLimiter(rate.Limit(h.config.Template.config.MessageRateLimit), burst)
 	}
 
-	// message loop
+	// Message loop
 	for {
 		_, data, err := conn.ReadMessage()
 		if err != nil {
@@ -623,22 +613,19 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		// Rate limiting check (per connection)
+		// Rate limiting check
 		if limiter != nil && !limiter.Allow() {
-			// Rate limit exceeded - send error to client
 			errorResp := UpdateResponse{
 				Tree: nil,
 				Meta: &ResponseMetadata{
 					Success: false,
-					Errors: map[string]string{
-						"_rate_limit": "Too many requests. Please slow down.",
-					},
+					Errors:  map[string]string{"_rate_limit": "Too many requests. Please slow down."},
 				},
 			}
 			if respBytes, err := json.Marshal(errorResp); err == nil {
-				_ = writeUpdateWebSocket(connection, respBytes) // Best effort
+				_ = writeUpdateWebSocket(connection, respBytes)
 			}
-			continue // Skip processing this message
+			continue
 		}
 
 		// Parse message
@@ -649,67 +636,81 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Check if this is an upload-related action
-		uploadHandled, err := h.handleUploadAction(r.Context(), conn, data, msg, state, uploadRegistry, connection)
+		uploadHandled, err := h.handleUploadAction(r.Context(), conn, data, msg, connSt, uploadRegistry, connection)
 		if err != nil {
 			log.Printf("Upload action error: %v", err)
 			continue
 		}
 		if uploadHandled {
-			// Upload action was handled, skip normal action processing
 			continue
 		}
 
-		// Handle action with request context for timeout/cancellation/values
-		// WebSocket actions pass nil for w/r - HTTP methods will return ErrNoHTTPContext
-		modifiedStore, err := h.handleAction(r.Context(), msg, state, uploadRegistry, nil, nil)
-		if err != nil {
-			log.Printf("Action error: %v", err)
-			continue
+		// Clear previous errors
+		connSt.clearErrors()
+
+		// Create Context for action dispatch
+		actionCtx := NewContext(r.Context(), msg.Action, msg.Data)
+		actionCtx = actionCtx.WithUserID(userID)
+		actionCtx = actionCtx.WithUploads(uploadRegistry)
+
+		// Dispatch action using Controller+State pattern
+		newState, actionErr := DispatchWithState(h.config.Controller, connSt.state, actionCtx)
+		if actionErr != nil {
+			// Handle errors
+			switch e := actionErr.(type) {
+			case FieldError:
+				connSt.setError(e.Field, e.Message)
+			case MultiError:
+				for _, fieldErr := range e {
+					connSt.setError(fieldErr.Field, fieldErr.Message)
+				}
+			default:
+				if !errors.Is(actionErr, ErrMethodNotFound) {
+					connSt.setError("_general", actionErr.Error())
+				}
+			}
+		} else {
+			connSt.state = newState
 		}
 
-		// Persist state after successful action
-		// This is critical for SessionStores that return copies (e.g., RedisSessionStore)
-		// Uses targeted persistence if SessionStore supports SingleStoreSetter
-		h.persistStore(r.Context(), groupID, modifiedStore, state.stores)
+		// Persist state after action
+		h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
+
+		// Update the connection's stored state for broadcasts
+		connection.Stores = connSt.state
 
 		// Auto-broadcast to other connections in same session group
-		// This ensures all tabs in the same browser session stay in sync
-		h.autoBroadcastToGroup(groupID, h.getTemplateData(state.stores), connection)
+		h.autoBroadcastToGroup(groupID, connSt.state, connection)
 
 		// Generate tree update
 		buf.Reset()
-		err = connTmpl.ExecuteUpdates(&buf, h.getTemplateData(state.stores), state.getErrors())
-		if err != nil {
+		if err = connTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getErrors()); err != nil {
 			log.Printf("Template update execution failed: %v", err)
 			continue
 		}
 
-		// Parse tree from buffer
 		var tree map[string]interface{}
 		if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
 			log.Printf("Failed to parse tree: %v", err)
 			continue
 		}
 
-		// Wrap with metadata
 		response := UpdateResponse{
 			Tree: tree,
 			Meta: &ResponseMetadata{
-				Success: len(state.getErrors()) == 0,
-				Errors:  state.getErrors(),
+				Success: len(connSt.getErrors()) == 0,
+				Errors:  connSt.getErrors(),
 				Action:  msg.Action,
 			},
 		}
 
-		// Encode and send wrapped response
 		responseBytes, err := json.Marshal(response)
 		if err != nil {
 			log.Printf("Failed to marshal response: %v", err)
 			continue
 		}
 
-		err = writeUpdateWebSocket(connection, responseBytes)
-		if err != nil {
+		if err = writeUpdateWebSocket(connection, responseBytes); err != nil {
 			log.Printf("WebSocket write failed: %v", err)
 			break
 		}
@@ -740,7 +741,6 @@ func setCookieIfNew(w http.ResponseWriter, r *http.Request, groupID string, cook
 func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Handle HEAD request for capability check
 	if r.Method == http.MethodHead {
-		// Just return headers, no body
 		return
 	}
 
@@ -759,47 +759,53 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set session cookie if this is a new session (cookie doesn't exist)
+	// Set session cookie if this is a new session
 	setCookieIfNew(w, r, groupID, h.config.CookieMaxAge)
 
-	// Get or create stores for this session group
+	// Get or create state for this session group
 	ctx := r.Context()
-	stores := h.config.SessionStore.Get(ctx, groupID)
-	if stores == nil {
-		stores = h.cloneStores()
-		h.config.SessionStore.Set(ctx, groupID, stores)
+	isNewSession := false
+	storedState := h.config.SessionStore.Get(ctx, groupID)
+	var typedState interface{}
+	if storedState == nil {
+		typedState, err = h.cloneStateTyped()
+		if err != nil {
+			log.Printf("Failed to clone state: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		isNewSession = true
 		log.Printf("HTTP: Created new session group: %s", groupID)
 	} else {
-		// Hydrate any StateData wrappers into proper controller instances
-		stores = h.hydrateStores(stores)
+		typedState = storedState
 	}
 
-	// Create connection state (errors are per-request, not persisted)
-	state := &connState{
-		stores:  stores,
+	// Create connection state (errors are per-request)
+	connSt := &connState{
+		state:   typedState,
 		errors:  make(map[string]string),
 		groupID: groupID,
 	}
 
+	// Create lifecycle context
+	lifecycleCtx := NewContext(ctx, "", nil)
+	lifecycleCtx = lifecycleCtx.WithUserID(userID)
+
+	// Call Mount for new sessions
+	if isNewSession {
+		newState, err := callMount(h.config.Controller, connSt.state, lifecycleCtx)
+		if err != nil {
+			log.Printf("Mount failed: %v", err)
+			http.Error(w, "Failed to initialize application state", http.StatusInternalServerError)
+			return
+		}
+		connSt.state = newState
+		h.config.SessionStore.Set(ctx, groupID, connSt.state)
+	}
+
 	// Handle GET request for initial HTML page
 	if r.Method == http.MethodGet {
-		// Always reload data from database for GET requests to ensure fresh data
-		// This prevents stale session state when WebSocket actions modify data
-		for name, store := range state.stores {
-			if initializer, ok := store.(StoreInitializer); ok {
-				if err := initializer.Init(); err != nil {
-					slog.Error("Store initialization failed for GET request",
-						slog.String("store", name),
-						slog.String("group_id", groupID),
-						slog.String("user_id", userID),
-						slog.String("error", err.Error()))
-					http.Error(w, "Failed to initialize application state", http.StatusInternalServerError)
-					return
-				}
-			}
-		}
-
-		err := h.config.Template.Execute(w, h.getTemplateData(state.stores), state.getErrors())
+		err := h.config.Template.Execute(w, connSt.state, connSt.getErrors())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
@@ -812,10 +818,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Initialize upload registry for HTTP requests (needed for multipart uploads)
+	// Initialize upload registry for HTTP requests
 	uploadRegistry := h.newUploadRegistry()
-
-	// Configure uploads from handler config
 	for name, config := range h.config.UploadConfigs {
 		if err := uploadRegistry.CreateUpload(name, config); err != nil {
 			log.Printf("HTTP: Failed to create upload %q: %v", name, err)
@@ -829,28 +833,38 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Handle action with request context for timeout/cancellation/values
-	// HTTP POST actions pass w, r so Change() can set cookies and redirect
-	modifiedStore, err := h.handleAction(r.Context(), msg, state, uploadRegistry, w, r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	// Clear previous errors
+	connSt.clearErrors()
+
+	// Create Context for action dispatch (with HTTP context for SetCookie, Redirect)
+	actionCtx := NewContext(r.Context(), msg.Action, msg.Data)
+	actionCtx = actionCtx.WithUserID(userID)
+	actionCtx = actionCtx.WithHTTP(w, r)
+	actionCtx = actionCtx.WithUploads(uploadRegistry)
+
+	// Dispatch action using Controller+State pattern
+	newState, actionErr := DispatchWithState(h.config.Controller, connSt.state, actionCtx)
+	if actionErr != nil {
+		switch e := actionErr.(type) {
+		case FieldError:
+			connSt.setError(e.Field, e.Message)
+		case MultiError:
+			for _, fieldErr := range e {
+				connSt.setError(fieldErr.Field, fieldErr.Message)
+			}
+		default:
+			if !errors.Is(actionErr, ErrMethodNotFound) {
+				connSt.setError("_general", actionErr.Error())
+			}
+		}
+	} else {
+		connSt.state = newState
 	}
 
-	// Persist state after successful action
-	// This is critical for SessionStores that return copies (e.g., RedisSessionStore)
-	// Uses targeted persistence if SessionStore supports SingleStoreSetter
-	h.persistStore(r.Context(), groupID, modifiedStore, state.stores)
+	// Persist state after action
+	h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
 
-	// Check if request contains multipart form data (file uploads)
-	// Process uploads after action execution to allow ConsumeUpload to work
-	if err := h.handleMultipartUploads(r, groupID, uploadRegistry, state.stores); err != nil {
-		log.Printf("HTTP: Upload processing failed: %v", err)
-		// Don't fail the request - upload errors are shown in template
-	}
-
-	// Set upload registry on template for HTTP response (template helpers need it)
-	// Clone template to avoid race conditions with concurrent requests
+	// Clone template for HTTP response
 	httpTmpl, err := h.config.Template.Clone()
 	if err != nil {
 		http.Error(w, "Failed to clone template", http.StatusInternalServerError)
@@ -858,157 +872,35 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	httpTmpl.SetUploadRegistry(uploadRegistry)
 
-	// Auto-broadcast to all WebSocket connections in same session group
-	// This ensures all tabs in the same browser session stay in sync
-	// (HTTP request doesn't have a WebSocket connection to exclude)
-	h.autoBroadcastToGroup(groupID, h.getTemplateData(state.stores), nil)
+	// Auto-broadcast to WebSocket connections
+	h.autoBroadcastToGroup(groupID, connSt.state, nil)
 
 	// Generate tree update
 	var buf bytes.Buffer
-	err = httpTmpl.ExecuteUpdates(&buf, h.getTemplateData(state.stores), state.getErrors())
-	if err != nil {
+	if err = httpTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getErrors()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Parse tree from buffer
 	var tree map[string]interface{}
 	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Wrap with metadata
 	response := UpdateResponse{
 		Tree: tree,
 		Meta: &ResponseMetadata{
-			Success: len(state.getErrors()) == 0,
-			Errors:  state.getErrors(),
+			Success: len(connSt.getErrors()) == 0,
+			Errors:  connSt.getErrors(),
 			Action:  msg.Action,
 		},
 	}
 
-	// Send wrapped response
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
-}
-
-// handleAction routes the action to the correct store and captures errors.
-// For HTTP POST actions, w and r are provided so that ActionContext can set cookies/redirect.
-// For WebSocket actions, w and r should be nil - HTTP methods will return ErrNoHTTPContext.
-//
-// Returns the name of the store that was modified (for targeted persistence).
-// In single-store mode, returns empty string (the store is at key "").
-func (h *liveHandler) handleAction(ctx context.Context, msg message, state *connState, uploadRegistry uploadRegistry, w http.ResponseWriter, r *http.Request) (modifiedStore string, err error) {
-	// Clear previous errors
-	state.clearErrors()
-
-	// Parse action to extract store name
-	storeName, action := parseAction(msg.Action)
-
-	var store interface{}
-	if h.config.IsSingleStore {
-		// Single store mode
-		if storeName != "" {
-			return "", fmt.Errorf(
-				"unexpected store prefix '%s' in single-store mode\n"+
-					"Use action '%s' instead of '%s'",
-				storeName, action, msg.Action)
-		}
-
-		// Get the single store (key is "" in single-store mode)
-		store = state.stores[""]
-		storeName = "" // Explicit for clarity
-
-	} else {
-		// Multi-store mode
-		if storeName == "" {
-			return "", fmt.Errorf(
-				"action '%s' missing store prefix in multi-store mode\n"+
-					"Available stores: %v\n"+
-					"Use format: 'storeName.action' (e.g., 'counter.increment')",
-				msg.Action, h.getStoreNames())
-		}
-
-		// Find store using case-insensitive matching
-		store = h.findStore(state.stores, storeName)
-		if store == nil {
-			return "", fmt.Errorf(
-				"unknown store: '%s' in action '%s'\n"+
-					"Available stores: %v",
-				storeName, msg.Action, h.getStoreNames())
-		}
-	}
-
-	// Create upload accessor if upload registry is available
-	var uploadAccessor uploadAccessor
-	if uploadRegistry != nil {
-		if reg, ok := uploadRegistry.(*upload.Registry); ok {
-			uploadAccessor = upload.NewAccessor(reg)
-		}
-	}
-
-	// Create action context with request context for timeout/cancellation/values
-	// w and r are nil for WebSocket actions, non-nil for HTTP POST actions
-	actionCtx := &ActionContext{
-		Action:  action,
-		Data:    newActionData(msg.Data),
-		Ctx:     ctx,
-		uploads: uploadAccessor,
-		w:       w,
-		r:       r,
-	}
-
-	// Route action to store method matching the action name
-	// e.g., action "increment" → method Increment(ctx *ActionContext) error
-	actionErr := Dispatch(store, actionCtx)
-
-	if actionErr != nil {
-		// Process the error
-		switch e := actionErr.(type) {
-		case FieldError:
-			state.setError(e.Field, e.Message)
-		case MultiError:
-			for _, fieldErr := range e {
-				state.setError(fieldErr.Field, fieldErr.Message)
-			}
-		default:
-			state.setError("_general", actionErr.Error())
-		}
-	}
-
-	// Return the store name that was modified (for targeted persistence)
-	return storeName, nil
-}
-
-// findStore finds a store by name using case-insensitive matching
-func (h *liveHandler) findStore(stores Stores, name string) interface{} {
-	normalized := discovery.NormalizeStoreName(name)
-
-	for storeName, store := range stores {
-		if discovery.NormalizeStoreName(storeName) == normalized {
-			return store
-		}
-	}
-
-	return nil
-}
-
-// getTemplateData returns the data structure for template rendering
-func (h *liveHandler) getTemplateData(stores Stores) interface{} {
-	if h.config.IsSingleStore {
-		// Return store directly for single store
-		return stores[""]
-	}
-
-	// Return map of stores for multi-store
-	data := make(map[string]interface{})
-	for name, store := range stores {
-		data[name] = store
-	}
-	return data
 }
 
 // newUploadRegistry creates a new upload registry instance.
@@ -1017,165 +909,41 @@ func (h *liveHandler) newUploadRegistry() uploadRegistry {
 	return h.config.Template.newUploadRegistry()
 }
 
-// cloneStores creates new instances of all stores
-func (h *liveHandler) cloneStores() Stores {
-	cloned := make(Stores)
-	for name, store := range h.config.Stores {
-		cloned[name] = cloneStore(store)
-	}
-	return cloned
-}
+// =============================================================================
+// Controller+State Pattern Helpers
+// =============================================================================
 
-// hydrateStores processes stores loaded from SessionStore, replacing any StateData
-// wrappers with properly hydrated controller instances.
-//
-// When a store uses `lvt:"state"` tags, RedisSessionStore serializes only those fields
-// and returns a *StateData wrapper on Get(). This function:
-// 1. Detects StateData wrappers in the returned stores
-// 2. Clones the original template store (which has dependencies like DB, Logger)
-// 3. Deserializes the state from StateData.Raw
-// 4. Injects the deserialized state into the cloned store
-//
-// This allows controllers to have non-serializable dependencies while still
-// persisting their state across sessions.
-func (h *liveHandler) hydrateStores(stores Stores) Stores {
-	if stores == nil {
-		return nil
+// cloneStateTyped creates a typed clone using the State interface.
+// Returns the underlying value (not the State wrapper).
+// This ensures state contains only pure data (serialization = purity marker).
+func (h *liveHandler) cloneStateTyped() (interface{}, error) {
+	if h.config.State == nil {
+		return nil, fmt.Errorf("no state configured")
 	}
 
-	for name, store := range stores {
-		// Check if this is a StateData wrapper
-		if sd := GetStateData(store); sd != nil {
-			// Get the original template store (which has dependencies)
-			templateStore := h.config.Stores[name]
-			if templateStore == nil {
-				slog.Warn("Cannot hydrate state: template store not found, using fresh clone",
-					slog.String("store", name))
-				// Fallback: use a fresh clone from template stores (user sees initial state)
-				if fallback := h.config.Stores[name]; fallback != nil {
-					stores[name] = cloneStore(fallback)
-				}
-				continue
-			}
-
-			// Clone the template store to get fresh instance with dependencies
-			clonedStore := cloneStore(templateStore)
-
-			// Deserialize state from the StateData wrapper
-			stateMap, err := DeserializeState(sd.Raw, clonedStore)
-			if err != nil {
-				slog.Warn("Failed to deserialize state, using fresh clone",
-					slog.String("store", name),
-					slog.String("error", err.Error()))
-				// Fallback: use the cloned store with initial state (better than crash)
-				stores[name] = clonedStore
-				continue
-			}
-
-			// Inject deserialized state into the cloned store
-			if err := InjectState(clonedStore, stateMap); err != nil {
-				slog.Warn("Failed to inject state, using fresh clone",
-					slog.String("store", name),
-					slog.String("error", err.Error()))
-				// Fallback: use the cloned store with initial state
-				stores[name] = clonedStore
-				continue
-			}
-
-			// Replace the StateData wrapper with the hydrated store
-			stores[name] = clonedStore
-
-			slog.Debug("Hydrated store from state",
-				slog.String("store", name))
-		}
+	// Serialize the initial state
+	data, err := h.config.State.MarshalBinary()
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize initial state: %w", err)
 	}
 
-	return stores
-}
-
-// cloneStore creates a new instance of a store.
-// Works with any type - stores no longer need to implement the Store interface.
-func cloneStore(store interface{}) interface{} {
-	storeType := reflect.TypeOf(store)
-	if storeType.Kind() == reflect.Ptr {
-		storeType = storeType.Elem()
+	// Get the type of the inner value
+	innerVal := h.config.State.Inner()
+	innerType := reflect.TypeOf(innerVal)
+	if innerType.Kind() == reflect.Ptr {
+		innerType = innerType.Elem()
 	}
 
 	// Create new instance
-	newStore := reflect.New(storeType).Interface()
+	newStatePtr := reflect.New(innerType)
 
-	// Copy field values
-	copyStruct(newStore, store)
-
-	// Call Init() if the store implements StoreInitializer
-	if initializer, ok := newStore.(StoreInitializer); ok {
-		if err := initializer.Init(); err != nil {
-			// Log the error but don't fail - store is in a partially initialized state
-			// This will surface as an error when the store is first used (e.g., in GET handler)
-			slog.Error("Store initialization failed during cloning",
-				slog.String("store_type", fmt.Sprintf("%T", store)),
-				slog.String("error", err.Error()))
-		}
+	// Deserialize into it (JSON since that's what jsonState uses)
+	if err := json.Unmarshal(data, newStatePtr.Interface()); err != nil {
+		return nil, fmt.Errorf("failed to deserialize state: %w", err)
 	}
 
-	return newStore
-}
-
-// copyStruct copies field values from src to dst.
-//
-// IMPORTANT: Only exported (public) fields are copied. Unexported fields
-// are silently skipped because they cannot be accessed via reflection.
-//
-// Stores should not rely on unexported fields for critical state, or should
-// implement custom cloning logic by implementing a Clone() method.
-func copyStruct(dst, src interface{}) {
-	srcVal := reflect.ValueOf(src)
-	dstVal := reflect.ValueOf(dst)
-
-	if srcVal.Kind() == reflect.Ptr {
-		srcVal = srcVal.Elem()
-	}
-	if dstVal.Kind() == reflect.Ptr {
-		dstVal = dstVal.Elem()
-	}
-
-	for i := 0; i < srcVal.NumField(); i++ {
-		srcField := srcVal.Field(i)
-		dstField := dstVal.Field(i)
-
-		if dstField.CanSet() {
-			dstField.Set(srcField)
-		}
-	}
-}
-
-// getStoreNames returns the names of all stores
-func (h *liveHandler) getStoreNames() []string {
-	names := make([]string, 0, len(h.config.Stores))
-	for name := range h.config.Stores {
-		if name != "" {
-			names = append(names, name)
-		}
-	}
-	return names
-}
-
-// persistStore persists stores after a successful action.
-// If the SessionStore implements SingleStoreSetter and a specific store was modified,
-// only that store is persisted. Otherwise, all stores are persisted.
-//
-// This optimization is especially beneficial for Redis where network roundtrips
-// are expensive and serializing only the modified store reduces payload size.
-func (h *liveHandler) persistStore(ctx context.Context, groupID string, storeName string, stores Stores) {
-	// Try targeted persistence if SessionStore supports it
-	if setter, ok := h.config.SessionStore.(SingleStoreSetter); ok {
-		// Use SetStore for targeted persistence
-		setter.SetStore(ctx, groupID, storeName, stores[storeName])
-		return
-	}
-
-	// Fall back to full persistence
-	h.config.SessionStore.Set(ctx, groupID, stores)
+	// Return the dereferenced value (to match method signatures)
+	return newStatePtr.Elem().Interface(), nil
 }
 
 // autoBroadcastToGroup broadcasts template updates to all connections in a group.
@@ -1322,7 +1090,7 @@ func (h *liveHandler) handlePubSubMessage(msg *pubsub.BroadcastMessage) error {
 // handleServerActionMessage handles incoming server action messages from other instances.
 //
 // This is called by the RedisBroadcaster subscriber when a server action message is received.
-// It dispatches to the matching store method and sends updates to local connections for the target user.
+// It dispatches to the matching controller method and sends updates to local connections for the target user.
 func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage) error {
 	// Get all connections for this user
 	connections := h.registry.GetByUser(msg.UserID)
@@ -1338,55 +1106,56 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 		slog.String("action", msg.Action),
 		slog.Int("connection_count", len(connections)))
 
-	// Create message for action routing
-	actionMsg := message{
-		Action: msg.Action,
-		Data:   msg.Data,
-	}
-
 	// Process action for each connection
 	var errCount int
 	for _, conn := range connections {
-		// Get connection state from stores
-		stores, ok := conn.Stores.(Stores)
-		if !ok {
-			slog.Warn("PubSub: Invalid stores type in connection",
-				slog.String("user_id", msg.UserID))
-			errCount++
-			continue
-		}
-
 		// Create connection state for this action
 		state := &connState{
-			stores:  stores,
+			state:   conn.Stores, // conn.Stores holds the typed state
 			errors:  make(map[string]string),
 			groupID: conn.GroupID,
-		}
-
-		// Get upload registry from connection if available
-		var uploadReg uploadRegistry
-		if conn.Uploads != nil {
-			uploadReg, _ = conn.Uploads.(uploadRegistry)
 		}
 
 		// Create context with timeout for server-initiated actions
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 
-		// Handle action (routes to store's Change method)
-		// nil for w, r since this is a PubSub-initiated action (not HTTP request)
-		if _, err := h.handleAction(ctx, actionMsg, state, uploadReg, nil, nil); err != nil {
-			slog.Warn("PubSub: handleAction failed for server action",
-				slog.String("user_id", msg.UserID),
-				slog.String("action", msg.Action),
-				slog.String("error", err.Error()))
-			cancel()
-			errCount++
-			continue
-		}
+		// Create Context for action dispatch
+		actionCtx := NewContext(ctx, msg.Action, msg.Data)
+		actionCtx = actionCtx.WithUserID(msg.UserID)
+
+		// Dispatch action using Controller+State pattern
+		newState, actionErr := DispatchWithState(h.config.Controller, state.state, actionCtx)
 		cancel()
 
+		if actionErr != nil {
+			// Handle errors
+			switch e := actionErr.(type) {
+			case FieldError:
+				state.setError(e.Field, e.Message)
+			case MultiError:
+				for _, fieldErr := range e {
+					state.setError(fieldErr.Field, fieldErr.Message)
+				}
+			default:
+				if !errors.Is(actionErr, ErrMethodNotFound) {
+					slog.Warn("PubSub: Action dispatch failed",
+						slog.String("user_id", msg.UserID),
+						slog.String("action", msg.Action),
+						slog.String("error", actionErr.Error()))
+					errCount++
+					continue
+				}
+			}
+		} else {
+			state.state = newState
+			conn.Stores = newState // Update connection's stored state
+		}
+
+		// Persist state after action
+		h.config.SessionStore.Set(context.Background(), conn.GroupID, state.state)
+
 		// Send update to this connection
-		if err := h.sendUpdate(conn, h.getTemplateData(state.stores)); err != nil {
+		if err := h.sendUpdate(conn, state.state); err != nil {
 			slog.Warn("PubSub: sendUpdate failed for server action",
 				slog.String("user_id", msg.UserID),
 				slog.String("action", msg.Action),
@@ -1492,8 +1261,8 @@ func (h *liveHandler) MetricsHandler() http.Handler {
 }
 
 // handleMultipartUploads processes multipart form file uploads from HTTP requests.
-// It detects configured uploads, parses the files, and calls ConsumeUpload on UploadAware stores.
-func (h *liveHandler) handleMultipartUploads(r *http.Request, sessionID string, uploadRegistry uploadRegistry, stores Stores) error {
+// It detects configured uploads, parses the files, and dispatches upload completion actions.
+func (h *liveHandler) handleMultipartUploads(r *http.Request, sessionID string, uploadRegistry uploadRegistry, state interface{}) error {
 	// Check if this is multipart form data
 	contentType := r.Header.Get("Content-Type")
 	if !strings.HasPrefix(contentType, "multipart/form-data") {
@@ -1538,23 +1307,19 @@ func (h *liveHandler) handleMultipartUploads(r *http.Request, sessionID string, 
 			continue // No valid entries to consume
 		}
 
-		// Trigger upload completion action for stores to process uploads
-		// Create connState to pass to handleAction
-		state := &connState{
-			stores: stores,
-			errors: make(map[string]string),
-		}
-
+		// Trigger upload completion action
 		uploadAction := fmt.Sprintf("upload_%s_complete", uploadName)
-		uploadMsg := message{
-			Action: uploadAction,
-			Data:   make(map[string]interface{}),
-		}
 
-		// Call handleAction to process the upload
-		// Upload completion actions don't need HTTP response access
-		if _, err := h.handleAction(r.Context(), uploadMsg, state, registry, nil, nil); err != nil {
-			log.Printf("HTTP upload action %q failed: %v", uploadAction, err)
+		// Create Context for action dispatch
+		actionCtx := NewContext(r.Context(), uploadAction, make(map[string]interface{}))
+		actionCtx = actionCtx.WithUploads(uploadRegistry)
+
+		// Dispatch action using Controller+State pattern
+		newState, actionErr := DispatchWithState(h.config.Controller, state, actionCtx)
+		if actionErr != nil && !errors.Is(actionErr, ErrMethodNotFound) {
+			log.Printf("HTTP upload action %q failed: %v", uploadAction, actionErr)
+		} else if actionErr == nil {
+			state = newState
 		}
 	}
 
@@ -1886,37 +1651,35 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 	}
 
 	// Hybrid approach: Trigger action with special upload action name
-	// Stores can handle "upload_<field>_complete" via UploadFieldComplete method
-	// or wait for explicit form submission where uploads will be accessible via ActionContext
+	// Controllers can handle "upload_<field>_complete" action
 	if len(completedEntries) > 0 {
 		uploadAction := fmt.Sprintf("upload_%s_complete", completeMsg.UploadName)
-		uploadMsg := message{
-			Action: uploadAction,
-			Data:   make(map[string]interface{}), // Empty data, uploads are in ActionContext
-		}
 
-		// Call handleAction which will provide upload accessor to ActionContext
-		// WebSocket upload completion actions don't need HTTP response access
-		registry, ok := uploadRegistry.(*upload.Registry)
-		if ok {
-			if _, err := h.handleAction(ctx, uploadMsg, state, registry, nil, nil); err != nil {
-				log.Printf("Upload action %q failed: %v", uploadAction, err)
-				response.Success = false
-				response.Error = err.Error()
-			}
+		// Create Context for action dispatch
+		actionCtx := NewContext(ctx, uploadAction, make(map[string]interface{}))
+		actionCtx = actionCtx.WithUploads(uploadRegistry)
+
+		// Dispatch action using Controller+State pattern
+		newState, actionErr := DispatchWithState(h.config.Controller, state.state, actionCtx)
+		if actionErr != nil && !errors.Is(actionErr, ErrMethodNotFound) {
+			log.Printf("Upload action %q failed: %v", uploadAction, actionErr)
+			response.Success = false
+			response.Error = actionErr.Error()
+		} else if actionErr == nil {
+			state.state = newState
 		}
 	}
 
 	// Send tree update to current connection to show upload completion immediately
 	// This replaces the old upload_complete response to avoid duplicate messages
-	if err := h.sendUpdate(connection, h.getTemplateData(state.stores)); err != nil {
+	if err := h.sendUpdate(connection, state.state); err != nil {
 		log.Printf("Failed to send tree update after upload: %v", err)
 		return nil // Don't fail the upload, just skip the update
 	}
 
 	// Broadcast to other connections in the same group to show upload completion in all tabs
 	// Exclude the current connection since we just sent the update above
-	h.autoBroadcastToGroup(state.groupID, h.getTemplateData(state.stores), connection)
+	h.autoBroadcastToGroup(state.groupID, state.state, connection)
 
 	return nil
 }

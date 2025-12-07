@@ -12,9 +12,12 @@ type MetricsTestState struct {
 	Value int
 }
 
+// MetricsTestController is an empty controller for metrics tests
+type MetricsTestController struct{}
+
 func TestLiveHandler_MetricsHandler(t *testing.T) {
 	tmpl := Must(New("metrics-handler-test"))
-	handler := tmpl.Handle(&MetricsTestState{})
+	handler := tmpl.Handle(&MetricsTestController{}, AsState(&MetricsTestState{}))
 
 	metricsHandler := handler.MetricsHandler()
 
@@ -60,7 +63,7 @@ func TestLiveHandler_MetricsHandler(t *testing.T) {
 
 func TestLiveHandler_MetricsHandler_MethodNotAllowed(t *testing.T) {
 	tmpl := Must(New("metrics-method-test"))
-	handler := tmpl.Handle(&MetricsTestState{})
+	handler := tmpl.Handle(&MetricsTestController{}, AsState(&MetricsTestState{}))
 
 	metricsHandler := handler.MetricsHandler()
 
@@ -77,7 +80,7 @@ func TestLiveHandler_MetricsHandler_MethodNotAllowed(t *testing.T) {
 
 func TestLiveHandler_MetricsHandler_Format(t *testing.T) {
 	tmpl := Must(New("metrics-format-test"))
-	handler := tmpl.Handle(&MetricsTestState{})
+	handler := tmpl.Handle(&MetricsTestController{}, AsState(&MetricsTestState{}))
 
 	metricsHandler := handler.MetricsHandler()
 

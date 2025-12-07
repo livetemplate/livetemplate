@@ -7,14 +7,17 @@ import (
 	"time"
 )
 
-// ShutdownState is a test store for shutdown tests
+// ShutdownState is a test state for shutdown tests
 type ShutdownState struct {
 	Value int
 }
 
+// ShutdownController is a test controller for shutdown tests
+type ShutdownController struct{}
+
 func TestLiveHandler_Shutdown_RejectsNewConnections(t *testing.T) {
 	tmpl := Must(New("shutdown-test"))
-	handler := tmpl.Handle(&ShutdownState{})
+	handler := tmpl.Handle(&ShutdownController{}, AsState(&ShutdownState{}))
 
 	// Start shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -41,7 +44,7 @@ func TestLiveHandler_Shutdown_RejectsNewConnections(t *testing.T) {
 
 func TestLiveHandler_Shutdown_Idempotent(t *testing.T) {
 	tmpl := Must(New("shutdown-idempotent-test"))
-	handler := tmpl.Handle(&ShutdownState{})
+	handler := tmpl.Handle(&ShutdownController{}, AsState(&ShutdownState{}))
 
 	lh, ok := handler.(*liveHandler)
 	if !ok {
@@ -75,7 +78,7 @@ func TestLiveHandler_Shutdown_Idempotent(t *testing.T) {
 
 func TestLiveHandler_Shutdown_WaitsForConnections(t *testing.T) {
 	tmpl := Must(New("shutdown-wait-test"))
-	handler := tmpl.Handle(&ShutdownState{})
+	handler := tmpl.Handle(&ShutdownController{}, AsState(&ShutdownState{}))
 
 	lh, ok := handler.(*liveHandler)
 	if !ok {
@@ -133,7 +136,7 @@ func TestLiveHandler_Shutdown_WaitsForConnections(t *testing.T) {
 
 func TestLiveHandler_Shutdown_TimeoutForce(t *testing.T) {
 	tmpl := Must(New("shutdown-timeout-test"))
-	handler := tmpl.Handle(&ShutdownState{})
+	handler := tmpl.Handle(&ShutdownController{}, AsState(&ShutdownState{}))
 
 	lh, ok := handler.(*liveHandler)
 	if !ok {
@@ -171,7 +174,7 @@ func TestLiveHandler_Shutdown_TimeoutForce(t *testing.T) {
 
 func TestLiveHandler_Shutdown_EmptyHandler(t *testing.T) {
 	tmpl := Must(New("shutdown-empty-test"))
-	handler := tmpl.Handle(&ShutdownState{})
+	handler := tmpl.Handle(&ShutdownController{}, AsState(&ShutdownState{}))
 
 	// Shutdown with no connections should complete immediately
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)

@@ -61,6 +61,9 @@ type UploadEntry = uploadtypes.UploadEntry
 type uploadRegistry interface {
 	CreateUpload(name string, config UploadConfig) error
 	GetUpload(name string) interface{}
+	// UploadAccessor methods for Context
+	HasUploads(name string) bool
+	GetCompletedUploads(name string) []*uploadtypes.UploadEntry
 }
 
 // uploadTempFileManager is an internal interface for temp file managers.

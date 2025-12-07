@@ -10,6 +10,55 @@ import (
 	"sync"
 )
 
+// =============================================================================
+// Controller+State Pattern Types
+// =============================================================================
+
+// State is the interface for session state that can be persisted.
+// The serialization requirement ensures state contains only pure data.
+// Use AsState[T]() for zero-boilerplate implementation.
+//
+// Controllers hold dependencies (DB, Logger, etc.) and are never cloned.
+// State holds pure data and is cloned per session via serialization.
+type State interface {
+	encoding.BinaryMarshaler
+	encoding.BinaryUnmarshaler
+	Inner() any // Returns the underlying value for framework use
+}
+
+// AsState wraps a plain struct pointer to satisfy the State interface.
+// Uses JSON serialization by default. For custom serialization,
+// implement the State interface directly on your type.
+//
+// Example:
+//
+//	state := AsState(&TodoState{})
+//	handler := tmpl.Handle(&TodoController{DB: db}, state)
+func AsState[T any](s *T) State {
+	return &jsonState[T]{value: s}
+}
+
+// jsonState is the generic wrapper implementing State with JSON serialization
+type jsonState[T any] struct {
+	value *T
+}
+
+func (s *jsonState[T]) MarshalBinary() ([]byte, error) {
+	return json.Marshal(s.value)
+}
+
+func (s *jsonState[T]) UnmarshalBinary(data []byte) error {
+	return json.Unmarshal(data, s.value)
+}
+
+func (s *jsonState[T]) Inner() any {
+	return s.value
+}
+
+// =============================================================================
+// Legacy State Tag Handling (to be removed in Task 9)
+// =============================================================================
+
 // stateTag is the struct tag used to mark fields for persistence.
 // Fields tagged with `lvt:"state"` are serialized/deserialized by the framework.
 // Fields without this tag are NOT persisted (e.g., dependencies like DB, Logger).

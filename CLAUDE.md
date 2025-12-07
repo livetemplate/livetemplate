@@ -9,9 +9,95 @@ LiveTemplate is a high-performance Go library and CLI tool for building reactive
 
 The core library provides an API similar to `html/template` but with the additional capability of generating minimal, tree-based updates that can be efficiently transmitted to clients.
 
-## Version 0.3.0 - 5-Phase Architecture
+## Version 0.7.0 - Controller+State Pattern
 
-**Breaking Change Notice:** v0.3.0 refactors the codebase into a proper 5-phase architecture for clearer separation of concerns.
+**Breaking Change Notice:** v0.7.0 introduces the Controller+State pattern, separating dependencies from session data.
+
+### Why This Change?
+
+The previous `cloneStore()` approach copied ALL exported fields, causing:
+- **Security issues**: Session-specific data (OAuth tokens, caches) accidentally shared across users
+- **Architectural ambiguity**: No clear contract for what gets cloned vs shared
+- **Developer footguns**: Easy to accidentally put dependencies in cloned state
+
+### New Pattern
+
+```go
+// CONTROLLER: Singleton, holds dependencies, NEVER cloned
+type TodoController struct {
+    DB     *sql.DB
+    Logger *slog.Logger
+}
+
+// STATE: Pure data, cloned per session, serializable
+type TodoState struct {
+    Items  []Todo
+    Filter string
+}
+
+// Action methods receive state and return modified state
+func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    todo := c.DB.InsertTodo(ctx.GetString("title"))
+    state.Items = append(state.Items, todo)
+    return state, nil
+}
+
+// Mount handler with explicit separation
+handler := tmpl.Handle(controller, livetemplate.AsState(&TodoState{}))
+```
+
+### Key Concepts
+
+| Concept | Description |
+|---------|-------------|
+| **Controller** | Singleton holding dependencies (DB, Logger, API clients). Never cloned. |
+| **State** | Pure data struct cloned per session. Must be serializable (no pointers to dependencies). |
+| **AsState[T]()** | Generic wrapper that marks a struct as session state. Handles serialization automatically. |
+| **Context** | Unified context for all lifecycle and action methods. Replaces ActionContext. |
+
+### Lifecycle Methods
+
+```go
+// Called once when session is created
+func (c *Controller) Mount(state State, ctx *Context) (State, error)
+
+// Called on each WebSocket connect (optional)
+func (c *Controller) OnConnect(state State, ctx *Context) (State, error)
+
+// Called on disconnect (optional)
+func (c *Controller) OnDisconnect()
+```
+
+### Migration from Old API
+
+| Old Pattern | New Pattern |
+|-------------|-------------|
+| `type Store struct { DB *sql.DB; Items []Todo }` | Separate into Controller (DB) and State (Items) |
+| `func (s *Store) Action(ctx *ActionContext) error` | `func (c *Controller) Action(state State, ctx *Context) (State, error)` |
+| `tmpl.Handle(&Store{})` | `tmpl.Handle(&Controller{}, AsState(&State{}))` |
+| `ctx.Action` | `ctx.Action()` |
+| `ctx.Data` | `ctx.GetString()`, `ctx.GetInt()`, `ctx.BindAndValidate()` |
+
+### Testing Helper
+
+Use `AssertPureState[T]()` in tests to catch common mistakes:
+
+```go
+func TestState(t *testing.T) {
+    // Fails if State contains dependency types (DB, Logger, etc.)
+    livetemplate.AssertPureState[TodoState](t)
+}
+```
+
+### Performance Considerations
+
+- **State serialization**: Every session clone involves JSON marshal/unmarshal. Keep state small.
+- **Method caching**: Reflection-based dispatch caches method lookups per type.
+- **First invocation**: Slightly slower due to cache population; subsequent calls are fast.
+
+---
+
+## Version 0.3.0 - 5-Phase Architecture
 
 **Key Changes:**
 - Refactored into 5 operational phases: Parse → Build → Diff → Render → Send
@@ -58,10 +144,11 @@ The main `livetemplate` package provides a clean, minimal public API:
    - Clean public API for tree-based operations
    - Backward-compatible type aliases
 
-6. **Actions (`action.go`)**:
-   - ActionContext for store mutations
+6. **Context (`context.go`)**:
+   - Unified Context for all lifecycle and action methods
    - ActionData for form/JSON data handling
    - FieldError and MultiError for validation
+   - Methods: `Action()`, `UserID()`, `GetString()`, `GetInt()`, `BindAndValidate()`
 
 7. **Authentication (`auth.go`)**:
    - Authenticator interface for user identification

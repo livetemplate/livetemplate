@@ -1,7 +1,6 @@
 package livetemplate
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,7 +9,6 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/livetemplate/livetemplate/internal/send"
-	uploadtypes "github.com/livetemplate/livetemplate/internal/uploadtypes"
 )
 
 // HTTP context errors for ActionContext methods
@@ -179,218 +177,6 @@ func (a *ActionData) Get(key string) interface{} {
 	return a.raw[key]
 }
 
-// uploadAccessor provides upload access for ActionContext
-type uploadAccessor interface {
-	HasUploads(name string) bool
-	GetUploads(name string) []*uploadtypes.UploadEntry
-	GetUpload(name string, entryID string) *uploadtypes.UploadEntry
-	GetValidUploads(name string) []*uploadtypes.UploadEntry
-	GetCompletedUploads(name string) []*uploadtypes.UploadEntry
-}
-
-// ActionContext provides context for a Change action.
-//
-// The Ctx field contains the request context.Context which can be used for:
-// - Timeouts and cancellation
-// - Trace ID propagation
-// - Request-scoped values (e.g., user_id, group_id)
-//
-// Upload functionality is available via upload methods when handling
-// upload-related actions.
-//
-// HTTP methods (SetCookie, Redirect, etc.) are available for HTTP POST actions
-// but will return ErrNoHTTPContext for WebSocket actions. This is by design:
-// session cookies should be HttpOnly and can only be set via HTTP responses.
-// Use HTTP POST forms for authentication flows that need to set cookies.
-type ActionContext struct {
-	Action  string
-	Data    *ActionData
-	Ctx     context.Context // Request context for timeout/cancellation/values
-	uploads uploadAccessor  // Internal: provides upload access
-
-	// HTTP context (nil for WebSocket actions)
-	w http.ResponseWriter
-	r *http.Request
-}
-
-// Bind is a convenience method that delegates to Data.Bind
-func (c *ActionContext) Bind(v interface{}) error {
-	return c.Data.Bind(v)
-}
-
-// BindAndValidate is a convenience method
-func (c *ActionContext) BindAndValidate(v interface{}, validate *validator.Validate) error {
-	return c.Data.BindAndValidate(v, validate)
-}
-
-// GetString is a convenience method
-func (c *ActionContext) GetString(key string) string {
-	return c.Data.GetString(key)
-}
-
-// GetInt is a convenience method
-func (c *ActionContext) GetInt(key string) int {
-	return c.Data.GetInt(key)
-}
-
-// GetFloat is a convenience method
-func (c *ActionContext) GetFloat(key string) float64 {
-	return c.Data.GetFloat(key)
-}
-
-// GetBool is a convenience method
-func (c *ActionContext) GetBool(key string) bool {
-	return c.Data.GetBool(key)
-}
-
-// Has is a convenience method
-func (c *ActionContext) Has(key string) bool {
-	return c.Data.Has(key)
-}
-
-// HasUploads checks if there are any uploads for the given field name
-func (c *ActionContext) HasUploads(name string) bool {
-	if c.uploads == nil {
-		return false
-	}
-	return c.uploads.HasUploads(name)
-}
-
-// GetUploads returns all upload entries for the given field name
-func (c *ActionContext) GetUploads(name string) []*uploadtypes.UploadEntry {
-	if c.uploads == nil {
-		return nil
-	}
-	return c.uploads.GetUploads(name)
-}
-
-// GetUpload returns a specific upload entry by field name and entry ID
-func (c *ActionContext) GetUpload(name string, entryID string) *uploadtypes.UploadEntry {
-	if c.uploads == nil {
-		return nil
-	}
-	return c.uploads.GetUpload(name, entryID)
-}
-
-// GetValidUploads returns all valid (non-error) upload entries for the given field name
-func (c *ActionContext) GetValidUploads(name string) []*uploadtypes.UploadEntry {
-	if c.uploads == nil {
-		return nil
-	}
-	return c.uploads.GetValidUploads(name)
-}
-
-// GetCompletedUploads returns all completed upload entries for the given field name
-func (c *ActionContext) GetCompletedUploads(name string) []*uploadtypes.UploadEntry {
-	if c.uploads == nil {
-		return nil
-	}
-	return c.uploads.GetCompletedUploads(name)
-}
-
-// --- HTTP Methods ---
-// These methods are available for HTTP POST actions but return ErrNoHTTPContext
-// for WebSocket actions. Use HTTP POST forms for authentication flows.
-
-// IsHTTP returns true if this action was triggered via HTTP POST,
-// false if via WebSocket. Use this to check before calling HTTP-only methods.
-func (c *ActionContext) IsHTTP() bool {
-	return c.w != nil && c.r != nil
-}
-
-// SetCookie adds a Set-Cookie header to the HTTP response.
-// Returns ErrNoHTTPContext if called from a WebSocket action.
-//
-// For authentication, use HttpOnly cookies to prevent XSS attacks:
-//
-//	ctx.SetCookie(&http.Cookie{
-//	    Name:     "session_token",
-//	    Value:    token,
-//	    Path:     "/",
-//	    HttpOnly: true,
-//	    Secure:   true,
-//	    SameSite: http.SameSiteStrictMode,
-//	})
-func (c *ActionContext) SetCookie(cookie *http.Cookie) error {
-	if c.w == nil {
-		return ErrNoHTTPContext
-	}
-	http.SetCookie(c.w, cookie)
-	return nil
-}
-
-// GetCookie retrieves a cookie from the HTTP request.
-// Returns ErrNoHTTPContext if called from a WebSocket action,
-// or http.ErrNoCookie if the cookie doesn't exist.
-func (c *ActionContext) GetCookie(name string) (*http.Cookie, error) {
-	if c.r == nil {
-		return nil, ErrNoHTTPContext
-	}
-	return c.r.Cookie(name)
-}
-
-// DeleteCookie removes a cookie by setting MaxAge to -1.
-// Returns ErrNoHTTPContext if called from a WebSocket action.
-func (c *ActionContext) DeleteCookie(name string) error {
-	if c.w == nil {
-		return ErrNoHTTPContext
-	}
-	http.SetCookie(c.w, &http.Cookie{
-		Name:   name,
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1,
-	})
-	return nil
-}
-
-// Redirect sends an HTTP redirect response.
-// Returns ErrNoHTTPContext if called from a WebSocket action.
-// Returns ErrInvalidRedirectCode if code is not a 3xx status.
-// Returns ErrInvalidRedirectURL if URL could cause an open redirect vulnerability.
-//
-// Only relative paths starting with "/" are allowed (e.g., "/dashboard").
-// Protocol-relative URLs like "//evil.com" are rejected.
-//
-// Example:
-//
-//	return ctx.Redirect("/dashboard", http.StatusSeeOther)
-func (c *ActionContext) Redirect(url string, code int) error {
-	if c.w == nil || c.r == nil {
-		return ErrNoHTTPContext
-	}
-
-	if code < 300 || code >= 400 {
-		return ErrInvalidRedirectCode
-	}
-
-	if !isValidRedirectURL(url) {
-		return ErrInvalidRedirectURL
-	}
-
-	http.Redirect(c.w, c.r, url, code)
-	return nil
-}
-
-// SetHeader sets an HTTP response header.
-// Returns ErrNoHTTPContext if called from a WebSocket action.
-func (c *ActionContext) SetHeader(key, value string) error {
-	if c.w == nil {
-		return ErrNoHTTPContext
-	}
-	c.w.Header().Set(key, value)
-	return nil
-}
-
-// GetHeader retrieves an HTTP request header value.
-// Returns empty string if called from a WebSocket action or if header doesn't exist.
-func (c *ActionContext) GetHeader(key string) string {
-	if c.r == nil {
-		return ""
-	}
-	return c.r.Header.Get(key)
-}
-
 // isValidRedirectURL checks if a URL is safe for redirects.
 // Only allows relative paths starting with "/" to prevent open redirects.
 func isValidRedirectURL(url string) bool {
@@ -470,30 +256,6 @@ func ValidationToMultiError(err error) MultiError {
 	}
 
 	return fieldErrors
-}
-
-// StoreInitializer is an optional interface that stores can implement
-// to perform initialization after being cloned for a new session.
-// This is useful for loading data from external sources like databases.
-type StoreInitializer interface {
-	Init() error
-}
-
-// Stores is a map of named stores.
-// Actions are automatically dispatched to methods matching the action name
-// (e.g., action "increment" → method Increment(ctx *ActionContext) error).
-type Stores map[string]interface{}
-
-// parseAction splits "counter.increment" into ("counter", "increment")
-// For single store actions like "increment", returns ("", "increment")
-func parseAction(action string) (store string, actualAction string) {
-	parts := strings.SplitN(action, ".", 2)
-
-	if len(parts) == 2 {
-		return parts[0], parts[1] // "counter", "increment"
-	}
-
-	return "", parts[0] // "", "increment" (single store)
 }
 
 // parseActionFromHTTP wraps internal/send.ParseActionFromHTTP for backward compatibility
