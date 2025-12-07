@@ -107,7 +107,7 @@ Before diving into the 5 phases, understand the public API that applications use
 ### [template.go](../../template.go)
 Main entry point for creating and managing templates:
 - [`New(name string, opts ...TemplateOpt) *Template`](../../template.go#L50-L80) - Create a template
-- [`Template.Handle(stores ...Store) LiveHandler`](../../template.go#L150-L180) - Mount template as HTTP handler
+- [`Template.Handle(controller, AsState(state), ...options) http.Handler`](../../template.go#L150-L180) - Mount template as HTTP handler
 - [`Template.ExecuteUpdates(data interface{}) (tree, error)`](../../template.go#L200-L250) - Orchestrates all 5 phases
 
 **Tests:** [`template_test.go`](../../template_test.go)
@@ -116,16 +116,24 @@ Main entry point for creating and managing templates:
 HTTP/WebSocket handling and session lifecycle:
 - [`ServeHTTP(w, r)`](../../mount.go#L80-L120) - HTTP entry point
 - [`handleWebSocket(conn, req)`](../../mount.go#L150-L200) - WebSocket lifecycle
-- [`handleAction(ctx, msg)`](../../mount.go#L220-L280) - Action dispatch to stores
+- [`handleAction(ctx, msg)`](../../mount.go#L220-L280) - Action dispatch to controller methods
 
 **Tests:** [`mount_test.go`](../../mount_test.go)
 
 ### [action.go](../../action.go)
-Store interface and action handling:
-- [`Store` interface](../../action.go#L20-L25) - User-defined state + Change method
-- [`ActionContext`](../../action.go#L30-L50) - Provides action name, data, request metadata
+Action data binding and errors:
 - [`ActionData.Bind(dest)`](../../action.go#L70-L90) - Parse form/JSON into structs
 - [`FieldError` / `MultiError`](../../action.go#L100-L130) - Validation errors
+
+### [context.go](../../context.go)
+Unified context for all lifecycle methods:
+- [`Context`](../../context.go#L20-L40) - Provides action name, data, request metadata
+- `Context.GetString(key)`, `GetInt(key)`, etc. - Type-safe data access
+
+### [state.go](../../state.go)
+State interface and wrapper:
+- [`State` interface](../../state.go#L15-L25) - Marker interface for serializable state
+- [`AsState[T]()`](../../state.go#L35-L50) - Generic wrapper for state types
 
 **Tests:** [`action_test.go`](../../action_test.go)
 
@@ -498,8 +506,8 @@ Now that you understand the 5 phases, let's trace a complete flow:
 
 1. **Client:** Detects `lvt-click="increment"`, sends `{action: "increment"}` via WebSocket
 2. **Parse:** [`ParseActionFromWebSocket()`](../../internal/send/message.go#L90-L130) extracts action
-3. **Execute:** [`handleAction()`](../../mount.go#L220-L280) calls `CounterState.Change(ctx)`
-4. **Update:** `s.Counter++` changes state from 0 to 1
+3. **Execute:** [`handleAction()`](../../mount.go#L220-L280) calls `CounterController.Increment(state, ctx)`
+4. **Update:** `state.Counter++` changes state from 0 to 1, returns new state
 5. **Phase 1:** Template already parsed (cached)
 6. **Phase 2:** Build new tree with `{Counter: 1}`
    ```json

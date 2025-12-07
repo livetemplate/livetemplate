@@ -8,14 +8,14 @@ LiveTemplate's authentication system determines:
 1. **Who is the user?** (`userID`) - Can be empty for anonymous users
 2. **Which session group should they join?** (`groupID`) - Determines state sharing
 
-Session groups are the fundamental isolation boundary: all connections with the same `groupID` share the same `Stores` instance. Different groupIDs have completely isolated state.
+Session groups are the fundamental isolation boundary: all connections with the same `groupID` share the same state instance. Different groupIDs have completely isolated state.
 
 ```
 Browser Tab 1 ──┐
-                ├── groupID: "alice" ──► Shared Stores instance
+                ├── groupID: "alice" ──► Shared state instance
 Browser Tab 2 ──┘
 
-Browser Tab 3 ──── groupID: "bob" ────► Different Stores instance (isolated)
+Browser Tab 3 ──── groupID: "bob" ────► Different state instance (isolated)
 ```
 
 ## Authenticator Interface
@@ -45,7 +45,7 @@ type Authenticator interface {
 - Called after `Identify()` to determine session grouping
 - For most applications: `groupID = userID` (simple 1:1 mapping)
 - Advanced scenarios can implement custom mappings (e.g., collaborative workspaces)
-- The `groupID` determines which `Stores` instance is retrieved from `SessionStore`
+- The `groupID` determines which state instance is retrieved from the session store
 
 ## Built-in Authenticators
 
@@ -138,20 +138,20 @@ tmpl := livetemplate.New("app", livetemplate.WithCookieMaxAge(30*24*time.Hour))
 
 Default: 365 days (1 year)
 
-## ActionContext HTTP Methods (v0.5)
+## Context HTTP Methods
 
-Version 0.5 added HTTP-aware methods to `ActionContext` for authentication flows that need to set cookies or redirect users. These methods are available for HTTP POST actions but return `ErrNoHTTPContext` for WebSocket actions.
+The `*livetemplate.Context` provides HTTP-aware methods for authentication flows that need to set cookies or redirect users. These methods are available for HTTP POST actions but return `ErrNoHTTPContext` for WebSocket actions.
 
 ### Context Checking
 
 ```go
-func (s *AuthStore) Change(ctx *livetemplate.ActionContext) error {
+func (c *AuthController) Login(state AuthState, ctx *livetemplate.Context) (AuthState, error) {
     if ctx.IsHTTP() {
         // Can use SetCookie, Redirect, etc.
     } else {
         // WebSocket action - HTTP methods not available
     }
-    return nil
+    return state, nil
 }
 ```
 
@@ -353,8 +353,8 @@ func (a *SessionAuthenticator) GetSessionGroup(r *http.Request, userID string) (
 1. HTTP Request arrives
 2. Authenticator.Identify(r) → userID (or "" for anonymous)
 3. Authenticator.GetSessionGroup(r, userID) → groupID
-4. SessionStore.Get(groupID) → Stores (or create new)
-5. Handler processes request with shared Stores
+4. Session store retrieves state (or creates new via Mount())
+5. Handler processes request with session state
 6. Response sent (with cookies if set)
 ```
 
@@ -367,9 +367,9 @@ func (a *SessionAuthenticator) GetSessionGroup(r *http.Request, userID string) (
 4. Check connection limits
 5. Set session cookie if new groupID
 6. Upgrade to WebSocket
-7. Get/create Stores for groupID
-8. Register connection in ConnectionRegistry
-9. Call OnConnect() on SessionAware stores
+7. Get/create state for groupID (Mount() called for new sessions)
+8. Register connection
+9. Call OnConnect() on controller
 10. Send initial template tree
 11. Enter message loop
 ```
@@ -408,14 +408,13 @@ import "golang.org/x/time/rate"
 
 var loginLimiter = rate.NewLimiter(rate.Every(time.Second), 5) // 5 requests/second
 
-func (s *AuthStore) Change(ctx *livetemplate.ActionContext) error {
-    if ctx.Action == "login" {
-        if !loginLimiter.Allow() {
-            return errors.New("too many login attempts, please try again later")
-        }
-        // ... handle login
+func (c *AuthController) Login(state AuthState, ctx *livetemplate.Context) (AuthState, error) {
+    if !loginLimiter.Allow() {
+        return state, errors.New("too many login attempts, please try again later")
     }
-    return nil
+
+    // ... validate credentials and set cookie
+    return state, nil
 }
 ```
 

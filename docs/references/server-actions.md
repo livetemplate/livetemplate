@@ -24,26 +24,42 @@ session.TriggerAction("notification", map[string]interface{}{
 
 ```go
 type Session interface {
-    // TriggerAction triggers Store.Change() with the given action and data,
+    // TriggerAction dispatches the action to the controller,
     // then sends the updated template to ALL connections for this user.
     TriggerAction(action string, data map[string]interface{}) error
 }
 ```
 
 **Key Points:**
-- `TriggerAction()` calls `Store.Change()` just like client-initiated actions
+- `TriggerAction()` calls your action method just like client-initiated actions
 - Updates are sent to ALL of the user's connections (all tabs/devices)
 - Scoped to the current user only - cannot target other users
 - Thread-safe - can be called from any goroutine
 
-## SessionAware Interface
+## Getting the Session Reference
 
-To receive the `Session` reference, implement `SessionAware` on your store:
+Access the Session through the `OnConnect` lifecycle method on your controller:
 
 ```go
-type SessionAware interface {
-    OnConnect(ctx context.Context, session Session) error
-    OnDisconnect()
+type TimerController struct {
+    session livetemplate.Session
+    mu      sync.Mutex
+}
+
+func (c *TimerController) OnConnect(state TimerState, ctx *livetemplate.Context) (TimerState, error) {
+    c.mu.Lock()
+    c.session = ctx.Session()
+    c.mu.Unlock()
+
+    // Start background timer
+    go c.runTimer(ctx)
+    return state, nil
+}
+
+func (c *TimerController) OnDisconnect() {
+    c.mu.Lock()
+    c.session = nil
+    c.mu.Unlock()
 }
 ```
 
@@ -51,8 +67,8 @@ type SessionAware interface {
 
 ```
 1. WebSocket connection established
-   └─► OnConnect(ctx, session) called
-       └─► Store the session for later use
+   └─► OnConnect(state, ctx) called
+       └─► Store ctx.Session() for later use
 
 2. Connection active
    └─► Use session.TriggerAction() from background goroutines
@@ -67,32 +83,35 @@ type SessionAware interface {
 - Use for background goroutines to know when to stop
 - Pass to database calls for timeout/cancellation support
 
-### Complete Example
+### Complete Timer Example
 
 ```go
-type TimerStore struct {
+type TimerState struct {
     Seconds int
+}
+
+type TimerController struct {
     session livetemplate.Session
     mu      sync.Mutex
 }
 
-func (s *TimerStore) OnConnect(ctx context.Context, session livetemplate.Session) error {
-    s.mu.Lock()
-    s.session = session
-    s.mu.Unlock()
+func (c *TimerController) OnConnect(state TimerState, ctx *livetemplate.Context) (TimerState, error) {
+    c.mu.Lock()
+    c.session = ctx.Session()
+    c.mu.Unlock()
 
     // Start background timer
-    go s.runTimer(ctx)
-    return nil
+    go c.runTimer(ctx)
+    return state, nil
 }
 
-func (s *TimerStore) OnDisconnect() {
-    s.mu.Lock()
-    s.session = nil
-    s.mu.Unlock()
+func (c *TimerController) OnDisconnect() {
+    c.mu.Lock()
+    c.session = nil
+    c.mu.Unlock()
 }
 
-func (s *TimerStore) runTimer(ctx context.Context) {
+func (c *TimerController) runTimer(ctx context.Context) {
     ticker := time.NewTicker(time.Second)
     defer ticker.Stop()
 
@@ -101,9 +120,9 @@ func (s *TimerStore) runTimer(ctx context.Context) {
         case <-ctx.Done():
             return // Connection closed
         case <-ticker.C:
-            s.mu.Lock()
-            session := s.session
-            s.mu.Unlock()
+            c.mu.Lock()
+            session := c.session
+            c.mu.Unlock()
 
             if session != nil {
                 session.TriggerAction("tick", nil)
@@ -112,14 +131,14 @@ func (s *TimerStore) runTimer(ctx context.Context) {
     }
 }
 
-func (s *TimerStore) Change(ctx *livetemplate.ActionContext) error {
-    switch ctx.Action {
-    case "tick":
-        s.Seconds++
-    case "reset":
-        s.Seconds = 0
-    }
-    return nil
+func (c *TimerController) Tick(state TimerState, ctx *livetemplate.Context) (TimerState, error) {
+    state.Seconds++
+    return state, nil
+}
+
+func (c *TimerController) Reset(state TimerState, ctx *livetemplate.Context) (TimerState, error) {
+    state.Seconds = 0
+    return state, nil
 }
 ```
 
@@ -130,13 +149,13 @@ func (s *TimerStore) Change(ctx *livetemplate.ActionContext) error {
 Periodic updates (dashboards, live data, countdowns):
 
 ```go
-func (s *Store) OnConnect(ctx context.Context, session livetemplate.Session) error {
-    s.session = session
-    go s.runTicker(ctx)
-    return nil
+func (c *Controller) OnConnect(state State, ctx *livetemplate.Context) (State, error) {
+    c.session = ctx.Session()
+    go c.runTicker(ctx)
+    return state, nil
 }
 
-func (s *Store) runTicker(ctx context.Context) {
+func (c *Controller) runTicker(ctx context.Context) {
     ticker := time.NewTicker(5 * time.Second)
     defer ticker.Stop()
 
@@ -145,11 +164,16 @@ func (s *Store) runTicker(ctx context.Context) {
         case <-ctx.Done():
             return
         case <-ticker.C:
-            if s.session != nil {
-                s.session.TriggerAction("refresh", nil)
+            if c.session != nil {
+                c.session.TriggerAction("refresh", nil)
             }
         }
     }
+}
+
+func (c *Controller) Refresh(state State, ctx *livetemplate.Context) (State, error) {
+    state.Data = c.fetchLatestData()
+    return state, nil
 }
 ```
 
@@ -180,28 +204,27 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 Greet users after page loads:
 
 ```go
-func (s *AuthStore) OnConnect(ctx context.Context, session livetemplate.Session) error {
-    s.session = session
+func (c *AuthController) OnConnect(state AuthState, ctx *livetemplate.Context) (AuthState, error) {
+    c.session = ctx.Session()
 
-    if s.IsLoggedIn {
+    if state.IsLoggedIn {
         // Send welcome after short delay (let page render first)
         go func() {
             time.Sleep(500 * time.Millisecond)
-            session.TriggerAction("serverWelcome", map[string]interface{}{
-                "message": fmt.Sprintf("Welcome back, %s!", s.Username),
-            })
+            if c.session != nil {
+                c.session.TriggerAction("serverWelcome", map[string]interface{}{
+                    "message": fmt.Sprintf("Welcome back, %s!", state.Username),
+                })
+            }
         }()
     }
 
-    return nil
+    return state, nil
 }
 
-func (s *AuthStore) Change(ctx *livetemplate.ActionContext) error {
-    switch ctx.Action {
-    case "serverWelcome":
-        s.WelcomeMessage = ctx.GetString("message")
-    }
-    return nil
+func (c *AuthController) ServerWelcome(state AuthState, ctx *livetemplate.Context) (AuthState, error) {
+    state.WelcomeMessage = ctx.GetString("message")
+    return state, nil
 }
 ```
 
@@ -210,73 +233,85 @@ func (s *AuthStore) Change(ctx *livetemplate.ActionContext) error {
 Notify users when async jobs finish. Use proper cleanup with context cancellation:
 
 ```go
-type ExportStore struct {
+type ExportState struct {
     ExportStatus string
+}
+
+type ExportController struct {
     session      livetemplate.Session
     cancelExport context.CancelFunc
     mu           sync.Mutex
 }
 
-func (s *ExportStore) OnConnect(ctx context.Context, session livetemplate.Session) error {
-    s.mu.Lock()
-    s.session = session
-    s.mu.Unlock()
-    return nil
+func (c *ExportController) OnConnect(state ExportState, ctx *livetemplate.Context) (ExportState, error) {
+    c.mu.Lock()
+    c.session = ctx.Session()
+    c.mu.Unlock()
+    return state, nil
 }
 
-func (s *ExportStore) OnDisconnect() {
-    s.mu.Lock()
-    defer s.mu.Unlock()
+func (c *ExportController) OnDisconnect() {
+    c.mu.Lock()
+    defer c.mu.Unlock()
 
     // Cancel any running export when user disconnects
-    if s.cancelExport != nil {
-        s.cancelExport()
-        s.cancelExport = nil
+    if c.cancelExport != nil {
+        c.cancelExport()
+        c.cancelExport = nil
     }
-    s.session = nil
+    c.session = nil
 }
 
-func (s *ExportStore) Change(ctx *livetemplate.ActionContext) error {
-    if ctx.Action == "startExport" {
-        // Create cancellable context for the background job
-        jobCtx, cancel := context.WithCancel(context.Background())
+func (c *ExportController) StartExport(state ExportState, ctx *livetemplate.Context) (ExportState, error) {
+    // Create cancellable context for the background job
+    jobCtx, cancel := context.WithCancel(context.Background())
 
-        s.mu.Lock()
-        s.cancelExport = cancel
-        s.mu.Unlock()
+    c.mu.Lock()
+    c.cancelExport = cancel
+    c.mu.Unlock()
 
-        go func() {
-            defer cancel() // Clean up when done
+    go func() {
+        defer cancel() // Clean up when done
 
-            result, err := performLongRunningExport(jobCtx)
+        result, err := performLongRunningExport(jobCtx)
 
-            // Check if cancelled before notifying
-            select {
-            case <-jobCtx.Done():
-                return // User disconnected, don't notify
-            default:
+        // Check if cancelled before notifying
+        select {
+        case <-jobCtx.Done():
+            return // User disconnected, don't notify
+        default:
+        }
+
+        c.mu.Lock()
+        session := c.session
+        c.mu.Unlock()
+
+        if session != nil {
+            if err != nil {
+                session.TriggerAction("exportFailed", map[string]interface{}{
+                    "error": err.Error(),
+                })
+            } else {
+                session.TriggerAction("exportComplete", map[string]interface{}{
+                    "downloadURL": result.URL,
+                })
             }
+        }
+    }()
 
-            s.mu.Lock()
-            session := s.session
-            s.mu.Unlock()
+    state.ExportStatus = "Processing..."
+    return state, nil
+}
 
-            if session != nil {
-                if err != nil {
-                    session.TriggerAction("exportFailed", map[string]interface{}{
-                        "error": err.Error(),
-                    })
-                } else {
-                    session.TriggerAction("exportComplete", map[string]interface{}{
-                        "downloadURL": result.URL,
-                    })
-                }
-            }
-        }()
+func (c *ExportController) ExportComplete(state ExportState, ctx *livetemplate.Context) (ExportState, error) {
+    state.ExportStatus = "Complete"
+    state.DownloadURL = ctx.GetString("downloadURL")
+    return state, nil
+}
 
-        s.ExportStatus = "Processing..."
-    }
-    return nil
+func (c *ExportController) ExportFailed(state ExportState, ctx *livetemplate.Context) (ExportState, error) {
+    state.ExportStatus = "Failed: " + ctx.GetString("error")
+    return state, nil
 }
 ```
 
@@ -288,15 +323,15 @@ Push notifications from any part of your application:
 // Global session registry (thread-safe)
 var userSessions = sync.Map{}
 
-func (s *Store) OnConnect(ctx context.Context, session livetemplate.Session) error {
-    s.session = session
-    userSessions.Store(s.UserID, session)
-    return nil
+func (c *Controller) OnConnect(state State, ctx *livetemplate.Context) (State, error) {
+    c.session = ctx.Session()
+    userSessions.Store(ctx.UserID(), c.session)
+    return state, nil
 }
 
-func (s *Store) OnDisconnect() {
-    userSessions.Delete(s.UserID)
-    s.session = nil
+func (c *Controller) OnDisconnect() {
+    userSessions.Delete(c.userID)
+    c.session = nil
 }
 
 // Call from anywhere in your application
@@ -322,28 +357,28 @@ go func() { session.TriggerAction("update2", nil) }()
 However, you must protect access to the session field itself:
 
 ```go
-type Store struct {
+type Controller struct {
     session livetemplate.Session
     mu      sync.Mutex
 }
 
-func (s *Store) OnConnect(ctx context.Context, session livetemplate.Session) error {
-    s.mu.Lock()
-    s.session = session
-    s.mu.Unlock()
-    return nil
+func (c *Controller) OnConnect(state State, ctx *livetemplate.Context) (State, error) {
+    c.mu.Lock()
+    c.session = ctx.Session()
+    c.mu.Unlock()
+    return state, nil
 }
 
-func (s *Store) OnDisconnect() {
-    s.mu.Lock()
-    s.session = nil
-    s.mu.Unlock()
+func (c *Controller) OnDisconnect() {
+    c.mu.Lock()
+    c.session = nil
+    c.mu.Unlock()
 }
 
-func (s *Store) triggerFromBackground() {
-    s.mu.Lock()
-    session := s.session
-    s.mu.Unlock()
+func (c *Controller) triggerFromBackground() {
+    c.mu.Lock()
+    session := c.session
+    c.mu.Unlock()
 
     if session != nil {
         session.TriggerAction("update", nil)
@@ -358,13 +393,13 @@ func (s *Store) triggerFromBackground() {
 - `TriggerAction()` affects ALL connections for THIS user
 - There is no way to target other users
 - Prevents unauthorized cross-user actions
-- Safe to expose to store logic
+- Safe to expose to controller logic
 
 **Why this design?**
 
 - Simpler mental model - "push to myself"
 - No accidental cross-user data leaks
-- No authorization checks needed in store code
+- No authorization checks needed in controller code
 - For admin broadcasts, use database + polling or dedicated admin endpoints
 
 ## Multi-Tab/Multi-Device Behavior
@@ -374,7 +409,7 @@ When a user has multiple tabs or devices connected:
 **Client Action (from Tab 1):**
 ```
 User clicks button in Tab 1
-    └─► Tab 1's store.Change() called
+    └─► Tab 1's action method called
         └─► Tab 1 receives update
         └─► Tab 2, Tab 3 automatically receive update (auto-broadcast)
 ```
@@ -383,7 +418,7 @@ User clicks button in Tab 1
 ```
 Background job completes
     └─► session.TriggerAction("jobComplete", data)
-        └─► ALL tabs receive the action via Change()
+        └─► ALL tabs receive the action via action method
         └─► ALL tabs are updated simultaneously
 ```
 
@@ -404,59 +439,7 @@ session.TriggerAction("update", nil)
 // (Happens transparently via Redis PubSub)
 ```
 
-This happens transparently - no code changes needed in your stores.
-
-## Migration from Broadcaster (Deprecated)
-
-The old `Broadcaster` API is deprecated. Here's how to migrate:
-
-**Before (deprecated):**
-```go
-type Store struct {
-    broadcaster livetemplate.Broadcaster
-}
-
-func (s *Store) OnConnect(ctx context.Context, b livetemplate.Broadcaster) error {
-    s.broadcaster = b
-    return nil
-}
-
-func (s *Store) pushUpdate() {
-    s.broadcaster.Send()  // Re-renders and sends entire template
-}
-```
-
-**After (recommended):**
-```go
-type Store struct {
-    session livetemplate.Session
-}
-
-func (s *Store) OnConnect(ctx context.Context, session livetemplate.Session) error {
-    s.session = session
-    return nil
-}
-
-func (s *Store) pushUpdate() {
-    s.session.TriggerAction("refresh", nil)
-}
-
-func (s *Store) Change(ctx *livetemplate.ActionContext) error {
-    if ctx.Action == "refresh" {
-        s.Data = fetchLatestData()
-    }
-    return nil
-}
-```
-
-**Key Differences:**
-
-| Broadcaster (old) | Session (new) |
-|-------------------|---------------|
-| `Send()` re-renders immediately | `TriggerAction()` calls `Change()` first |
-| Single connection only | ALL user's connections |
-| Direct state manipulation | Action-based state changes |
-| No distributed support | Redis PubSub support |
+This happens transparently - no code changes needed in your controllers.
 
 ## Examples
 
@@ -468,6 +451,7 @@ See these examples for complete implementations in the [examples repository](htt
 
 ## See Also
 
+- [Controller+State Pattern](controller-pattern.md) - Core architecture pattern
 - [Session Reference](session.md) - Session stores and connection management
 - [Authentication Reference](authentication.md) - User identification and custom authenticators
 - [Scaling Guide](../SCALING.md) - Horizontal scaling with Redis

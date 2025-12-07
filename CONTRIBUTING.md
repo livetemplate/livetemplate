@@ -188,9 +188,10 @@ livetemplate/
 ├── template.go          # Main API - Template type and orchestrator
 ├── tree.go              # Tree operations (private implementation)
 ├── action.go            # Action protocol and data binding
-├── mount.go             # Store pattern and HTTP/WebSocket handlers
+├── mount.go             # Controller+State pattern and HTTP/WebSocket handlers
+├── context.go           # Unified Context type for action handlers
+├── state.go             # State interface and AsState wrapper
 ├── session.go           # Session management
-├── broadcast.go         # Broadcasting for multi-user apps
 ├── internal/            # Internal packages
 │   ├── parse/           # AST-based template parser
 │   │   ├── parser.go    # Main parser entry point
@@ -351,7 +352,7 @@ func TestFeature(t *testing.T) {
 ### Naming Conventions
 
 - **Public API** (exported): PascalCase
-  - `Template`, `Store`, `ActionContext`, `Broadcaster`
+  - `Template`, `Context`, `State`, `Session`, `AsState`
 - **Internal implementation** (unexported): camelCase
   - `treeNode`, `keyGenerator`, `parseAction`
 - **Test functions**: `TestFeatureName`
@@ -506,9 +507,9 @@ Look for issues labeled `good first issue` - these are:
    - Improve E2E tests
    - Add edge case tests
 
-4. **HTTP/WebSocket handling** (`mount.go`, `session.go`, `broadcast.go`)
+4. **HTTP/WebSocket handling** (`mount.go`, `session.go`, `context.go`)
+   - Controller+State pattern implementation
    - Session management improvements
-   - Broadcasting features
    - Performance optimizations
 
 **For other components:**

@@ -24,11 +24,11 @@ LiveTemplate provides a comprehensive error handling system that automatically p
 ```
 User submits form
     ↓
-Server: Change() method processes action
+Server: Action method processes request
     ↓
 Validation error occurs
     ↓
-Error returned from Change()
+Error returned from action method
     ↓
 LiveTemplate wraps error with metadata
     ↓
@@ -43,32 +43,32 @@ User sees error messages
 
 ## Server-Side Errors
 
-Errors in LiveTemplate are returned from the `Change()` method of your store.
+Errors in LiveTemplate are returned from action methods on your controller.
 
 ### Basic Error Return
 
 ```go
-func (s *TodoState) Change(ctx *livetemplate.ActionContext) error {
-    switch ctx.Action {
-    case "delete":
-        id := ctx.GetString("id")
-        if id == "" {
-            return fmt.Errorf("ID is required")
-        }
-
-        if err := s.deleteTodo(id); err != nil {
-            return fmt.Errorf("failed to delete todo: %w", err)
-        }
+func (c *TodoController) Delete(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    id := ctx.GetString("id")
+    if id == "" {
+        return state, fmt.Errorf("ID is required")
     }
-    return nil
+
+    if err := c.DB.DeleteTodo(id); err != nil {
+        return state, fmt.Errorf("failed to delete todo: %w", err)
+    }
+
+    // Remove from state
+    state.Items = removeItem(state.Items, id)
+    return state, nil
 }
 ```
 
-**When `Change()` returns an error:**
+**When an action method returns an error:**
 - The error is automatically sent to the client
 - Template re-renders with error data available
 - Form lifecycle events fire (`lvt:error`)
-- No state changes are persisted
+- State changes are not persisted
 
 ### Error Types
 
@@ -98,24 +98,21 @@ type TodoInput struct {
     Priority    int    `json:"priority" validate:"min=1,max=5"`
 }
 
-func (s *TodoState) Change(ctx *livetemplate.ActionContext) error {
-    switch ctx.Action {
-    case "add":
-        var input TodoInput
+func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    var input TodoInput
 
-        // BindAndValidate automatically handles validation errors
-        if err := ctx.BindAndValidate(&input, validate); err != nil {
-            return err // Errors sent to client with field names
-        }
-
-        // Input is valid, proceed
-        s.Todos = append(s.Todos, Todo{
-            Title:       input.Title,
-            Description: input.Description,
-            Priority:    input.Priority,
-        })
+    // BindAndValidate automatically handles validation errors
+    if err := ctx.BindAndValidate(&input, validate); err != nil {
+        return state, err // Errors sent to client with field names
     }
-    return nil
+
+    // Input is valid, proceed
+    state.Todos = append(state.Todos, Todo{
+        Title:       input.Title,
+        Description: input.Description,
+        Priority:    input.Priority,
+    })
+    return state, nil
 }
 ```
 
@@ -142,16 +139,17 @@ See [validator documentation](https://pkg.go.dev/github.com/go-playground/valida
 Create field-specific errors manually:
 
 ```go
-func (s *State) Change(ctx *livetemplate.ActionContext) error {
+func (c *Controller) Register(state State, ctx *livetemplate.Context) (State, error) {
     username := ctx.GetString("username")
 
     // Check if username already exists
-    if s.usernameExists(username) {
-        return livetemplate.NewFieldError("username",
+    if c.usernameExists(username) {
+        return state, livetemplate.NewFieldError("username",
             errors.New("username already taken"))
     }
 
-    return nil
+    state.Username = username
+    return state, nil
 }
 ```
 
@@ -160,28 +158,28 @@ func (s *State) Change(ctx *livetemplate.ActionContext) error {
 Return multiple field errors at once:
 
 ```go
-func (s *State) Change(ctx *livetemplate.ActionContext) error {
-    var errors livetemplate.MultiError
+func (c *Controller) Register(state State, ctx *livetemplate.Context) (State, error) {
+    var errs livetemplate.MultiError
 
     email := ctx.GetString("email")
     if !isValidEmail(email) {
-        errors = append(errors,
+        errs = append(errs,
             livetemplate.NewFieldError("email",
                 errors.New("invalid email format")))
     }
 
     password := ctx.GetString("password")
     if len(password) < 8 {
-        errors = append(errors,
+        errs = append(errs,
             livetemplate.NewFieldError("password",
                 errors.New("password must be at least 8 characters")))
     }
 
-    if len(errors) > 0 {
-        return errors
+    if len(errs) > 0 {
+        return state, errs
     }
 
-    return nil
+    return state, c.createUser(email, password)
 }
 ```
 
@@ -410,19 +408,20 @@ return livetemplate.NewFieldError("email",
 ### 2. Validate Early
 
 ```go
-func (s *State) Change(ctx *livetemplate.ActionContext) error {
+func (c *Controller) Add(state State, ctx *livetemplate.Context) (State, error) {
     // Validate input first
     var input TodoInput
     if err := ctx.BindAndValidate(&input, validate); err != nil {
-        return err
+        return state, err
     }
 
     // Then perform business logic
-    if err := s.saveTodo(input); err != nil {
-        return fmt.Errorf("failed to save: %w", err)
+    if err := c.saveTodo(input); err != nil {
+        return state, fmt.Errorf("failed to save: %w", err)
     }
 
-    return nil
+    state.Todos = append(state.Todos, input.ToTodo())
+    return state, nil
 }
 ```
 
@@ -491,34 +490,37 @@ type SignupInput struct {
     Password string `json:"password" validate:"required,min=8"`
 }
 
-func (s *AuthState) Change(ctx *livetemplate.ActionContext) error {
-    switch ctx.Action {
-    case "signup":
-        var input SignupInput
+type AuthController struct {
+    DB *sql.DB
+}
 
-        // Validate input
-        if err := ctx.BindAndValidate(&input, validate); err != nil {
-            return err
-        }
+func (c *AuthController) Signup(state AuthState, ctx *livetemplate.Context) (AuthState, error) {
+    var input SignupInput
 
-        // Check if username exists
-        if s.usernameExists(input.Username) {
-            return livetemplate.NewFieldError("username",
-                errors.New("username already taken"))
-        }
-
-        // Check if email exists
-        if s.emailExists(input.Email) {
-            return livetemplate.NewFieldError("email",
-                errors.New("email already registered"))
-        }
-
-        // Create user
-        if err := s.createUser(input); err != nil {
-            return fmt.Errorf("failed to create account: %w", err)
-        }
+    // Validate input
+    if err := ctx.BindAndValidate(&input, validate); err != nil {
+        return state, err
     }
-    return nil
+
+    // Check if username exists
+    if c.usernameExists(input.Username) {
+        return state, livetemplate.NewFieldError("username",
+            errors.New("username already taken"))
+    }
+
+    // Check if email exists
+    if c.emailExists(input.Email) {
+        return state, livetemplate.NewFieldError("email",
+            errors.New("email already registered"))
+    }
+
+    // Create user
+    if err := c.createUser(input); err != nil {
+        return state, fmt.Errorf("failed to create account: %w", err)
+    }
+
+    state.IsSignedUp = true
+    return state, nil
 }
 ```
 

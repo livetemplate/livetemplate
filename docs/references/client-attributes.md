@@ -106,19 +106,20 @@ Pass data from the DOM to your server-side action handlers using `lvt-data-*` at
 ### Accessing Data in Go
 
 ```go
-func (s *State) Change(ctx *livetemplate.ActionContext) error {
-    switch ctx.Action {
-    case "delete":
-        id := ctx.GetString("id")
-        // Delete item with id
+// Action "delete" with lvt-data-id
+func (c *Controller) Delete(state State, ctx *livetemplate.Context) (State, error) {
+    id := ctx.GetString("id")
+    // Delete item with id
+    return state, nil
+}
 
-    case "update":
-        id := ctx.GetString("id")
-        status := ctx.GetString("status")
-        priority := ctx.GetInt("priority")
-        // Update item
-    }
-    return nil
+// Action "update" with multiple lvt-data-* attributes
+func (c *Controller) Update(state State, ctx *livetemplate.Context) (State, error) {
+    id := ctx.GetString("id")
+    status := ctx.GetString("status")
+    priority := ctx.GetInt("priority")
+    // Update item
+    return state, nil
 }
 ```
 
@@ -349,17 +350,14 @@ type TodoInput struct {
     Tags  string `json:"tags" validate:"required"`
 }
 
-func (s *TodoState) Change(ctx *livetemplate.ActionContext) error {
-    switch ctx.Action {
-    case "add":
-        var input TodoInput
-        if err := ctx.BindAndValidate(&input, validate); err != nil {
-            return err // Errors automatically sent to client
-        }
-        // Input is valid, proceed
-        s.Todos = append(s.Todos, Todo{Title: input.Title})
+func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    var input TodoInput
+    if err := ctx.BindAndValidate(&input, validate); err != nil {
+        return state, err // Errors automatically sent to client
     }
-    return nil
+    // Input is valid, proceed
+    state.Todos = append(state.Todos, Todo{Title: input.Title})
+    return state, nil
 }
 ```
 
@@ -666,7 +664,7 @@ Complete reference of all `lvt-*` attributes.
 | `lvt-data-<key>` | Pass data to action | `lvt-data-id="{{.ID}}"` |
 | `lvt-value-<key>` | Pass value to action | `lvt-value-count="{{.Count}}"` |
 
-**Note:** Both `lvt-data-*` and `lvt-value-*` attributes are passed to `ActionContext.Data`.
+**Note:** Both `lvt-data-*` and `lvt-value-*` attributes are accessible via `ctx.GetString()`, `ctx.GetInt()`, etc.
 
 ### Reactive Attributes
 
