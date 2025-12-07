@@ -1,26 +1,42 @@
-# Controller Pattern Reference
+# Controller+State Pattern Reference
 
-Controllers separate state (data) from logic (behavior), enabling proper dependency injection and cleaner persistence. Use them when stores need database connections, loggers, or other dependencies that shouldn't be serialized to Redis.
+The Controller+State pattern separates concerns in LiveTemplate applications:
+- **Controller**: Singleton that holds dependencies (DB, logger, clients) - never cloned
+- **State**: Pure data that is cloned per session - automatically serialized
+
+This separation ensures dependencies are shared correctly while state is isolated per user session.
 
 ## Overview
+
+```go
+// CONTROLLER: Singleton, holds dependencies, never cloned
+type TodoController struct {
+    DB     *sql.DB
+    Logger *slog.Logger
+}
+
+// STATE: Pure data, cloned per session
+type TodoState struct {
+    Items  []Todo
+    Filter string
+}
+
+// Mount handler (controller, state wrapper)
+handler := tmpl.Handle(controller, livetemplate.AsState(&TodoState{}))
+```
+
+## Action Methods
 
 Actions are automatically dispatched to methods matching the action name:
 
 ```go
-type Counter struct {
-    Count int
-}
+// Template: lvt-click="add"
+// Dispatches to: Add() method
 
-// Action "increment" → method Increment()
-func (c *Counter) Increment(ctx *livetemplate.ActionContext) error {
-    c.Count++
-    return nil
-}
-
-// Action "decrement" → method Decrement()
-func (c *Counter) Decrement(ctx *livetemplate.ActionContext) error {
-    c.Count--
-    return nil
+func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    title := ctx.GetString("title")
+    state.Items = append(state.Items, Todo{Title: title})
+    return state, nil
 }
 ```
 
@@ -30,85 +46,20 @@ func (c *Counter) Decrement(ctx *livetemplate.ActionContext) error {
 - Type-safe action handlers
 - Cached method lookups (O(1) after first call)
 
-## State vs Controller
+### Method Signature
 
-For stores with dependencies, separate concerns into two parts:
-
-```go
-// State: Pure data, no dependencies, serializable
-type CounterState struct {
-    Count int `json:"count"`
-}
-
-// Controller: Logic + dependencies, wraps state
-type CounterController struct {
-    State  *CounterState `lvt:"state"` // Persisted to Redis
-    DB     *sql.DB                     // NOT persisted
-    Logger *slog.Logger                // NOT persisted
-}
-```
-
-**State characteristics:**
-- Contains only data fields
-- JSON-serializable
-- No pointers to external resources
-- Can be safely stored in Redis
-
-**Controller characteristics:**
-- Contains state reference(s) tagged with `lvt:"state"`
-- Holds dependencies (DB connections, loggers, clients)
-- Defines action methods
-- Dependencies are cloned from template, not serialized
-
-## State Tags
-
-The `lvt:"state"` struct tag marks fields for persistence:
+All action methods follow the same signature:
 
 ```go
-type UserController struct {
-    // These fields ARE persisted to Redis
-    Profile  *UserProfile  `lvt:"state"`
-    Settings *UserSettings `lvt:"state"`
-
-    // These fields are NOT persisted
-    DB       *sql.DB       // Database connection
-    Logger   *slog.Logger  // Logger instance
-    Client   *http.Client  // HTTP client
-}
+func (c *ControllerType) ActionName(state StateType, ctx *livetemplate.Context) (StateType, error)
 ```
 
-**How it works:**
+- **Receiver**: Pointer to Controller type
+- **First param**: State value (copied per session)
+- **Second param**: Context with action data and HTTP utilities
+- **Return**: Modified state and optional error
 
-1. When saving to Redis, only `lvt:"state"` tagged fields are serialized
-2. When loading from Redis, state is deserialized and injected
-3. Dependencies come from cloning the template controller (not from Redis)
-
-**Serialization flow:**
-```
-Save: Controller → ExtractState() → Serialize → Redis
-Load: Redis → Deserialize → Clone template → InjectState() → Controller
-```
-
-## Action Dispatch
-
-Define methods matching action names—routing happens automatically:
-
-```go
-// Action "increment" → method Increment()
-func (c *CounterController) Increment(ctx *livetemplate.ActionContext) error {
-    c.State.Count++
-    c.Logger.Info("counter incremented", slog.Int("value", c.State.Count))
-    return nil
-}
-
-// Action "set_value" → method SetValue()
-func (c *CounterController) SetValue(ctx *livetemplate.ActionContext) error {
-    c.State.Count = ctx.GetInt("value")
-    return nil
-}
-```
-
-**Naming conventions:**
+### Naming Conventions
 
 | Action Name | Method Name |
 |-------------|-------------|
@@ -116,34 +67,77 @@ func (c *CounterController) SetValue(ctx *livetemplate.ActionContext) error {
 | `addItem` | `AddItem()` |
 | `add_item` | `AddItem()` |
 | `setUserProfile` | `SetUserProfile()` |
-| `set_user_profile` | `SetUserProfile()` |
 
-**Method signature requirement:**
+Action names are case-insensitive and support both camelCase and snake_case.
 
-```go
-func (receiver *ControllerType) MethodName(ctx *livetemplate.ActionContext) error
-```
+## Lifecycle Methods
 
-- Must be a pointer receiver
-- Must accept `*ActionContext` as the only parameter
-- Must return `error`
-- Methods with wrong signatures are silently ignored
+LiveTemplate provides lifecycle hooks for initialization and connection management.
 
-**Performance:** Method lookups are cached by type. After the first call, routing is O(1) with zero reflection overhead.
+### Mount
 
-## ActionContext API
-
-The `ActionContext` provides access to action data sent from the client:
+Called once when a new session is created:
 
 ```go
-type ActionContext struct {
-    Action string        // The action name (e.g., "increment")
-    Data   *ActionData   // Form/JSON data from client
-    Ctx    context.Context
+func (c *TodoController) Mount(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    // Load initial data
+    items, err := c.DB.GetTodosForUser(ctx.UserID())
+    if err != nil {
+        return state, fmt.Errorf("failed to load todos: %w", err)
+    }
+    state.Items = items
+    return state, nil
 }
 ```
 
-### Data Extraction Methods
+**Use cases:**
+- Load initial data from database
+- Set up computed fields
+- Initialize state based on user context
+
+### OnConnect
+
+Called when a WebSocket connection is established:
+
+```go
+func (c *TodoController) OnConnect(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    c.Logger.Info("WebSocket connected", "user", ctx.UserID())
+
+    // Store session for server-initiated updates
+    session := ctx.Session()
+    if session != nil {
+        go c.sendWelcomeMessage(session)
+    }
+
+    return state, nil
+}
+```
+
+**Use cases:**
+- Store session reference for server-initiated updates
+- Start background jobs
+- Subscribe to real-time data feeds
+
+### OnDisconnect
+
+Called when a WebSocket connection is closed:
+
+```go
+func (c *TodoController) OnDisconnect() {
+    c.Logger.Info("WebSocket disconnected")
+}
+```
+
+**Use cases:**
+- Clean up session references
+- Cancel background jobs
+- Unsubscribe from data feeds
+
+## Context API
+
+The `*livetemplate.Context` provides access to action data and HTTP utilities.
+
+### Data Extraction
 
 | Method | Return Type | Description |
 |--------|-------------|-------------|
@@ -156,19 +150,11 @@ type ActionContext struct {
 Example:
 
 ```go
-func (c *Controller) UpdateSettings(ctx *livetemplate.ActionContext) error {
-    theme := ctx.GetString("theme")
-    fontSize := ctx.GetInt("fontSize")
-    darkMode := ctx.GetBool("darkMode")
-
-    if !ctx.Has("theme") {
-        return livetemplate.FieldError{Field: "theme", Message: "Theme is required"}
-    }
-
-    c.State.Theme = theme
-    c.State.FontSize = fontSize
-    c.State.DarkMode = darkMode
-    return nil
+func (c *Controller) UpdateSettings(state State, ctx *livetemplate.Context) (State, error) {
+    state.Theme = ctx.GetString("theme")
+    state.FontSize = ctx.GetInt("fontSize")
+    state.DarkMode = ctx.GetBool("darkMode")
+    return state, nil
 }
 ```
 
@@ -177,267 +163,180 @@ func (c *Controller) UpdateSettings(ctx *livetemplate.ActionContext) error {
 Bind form data directly to a struct:
 
 ```go
-type CreateUserForm struct {
+type CreateUserInput struct {
     Name  string `json:"name"`
     Email string `json:"email"`
     Age   int    `json:"age"`
 }
 
-func (c *Controller) CreateUser(ctx *livetemplate.ActionContext) error {
-    var form CreateUserForm
-    if err := ctx.Bind(&form); err != nil {
-        return err
+func (c *Controller) CreateUser(state State, ctx *livetemplate.Context) (State, error) {
+    var input CreateUserInput
+    if err := ctx.Bind(&input); err != nil {
+        return state, err
     }
 
-    // Use form.Name, form.Email, form.Age
-    return c.DB.CreateUser(form)
+    // Use input.Name, input.Email, input.Age
+    return state, c.DB.CreateUser(input)
 }
 ```
 
-### Binding with Validation
+### Validation
 
-Use with a validator (e.g., `go-playground/validator`):
+Use with `go-playground/validator`:
 
 ```go
-type RegisterForm struct {
+type RegisterInput struct {
     Email    string `json:"email" validate:"required,email"`
     Password string `json:"password" validate:"required,min=8"`
     Name     string `json:"name" validate:"required"`
 }
 
-func (c *Controller) Register(ctx *livetemplate.ActionContext) error {
-    var form RegisterForm
+func (c *Controller) Register(state State, ctx *livetemplate.Context) (State, error) {
+    var input RegisterInput
     validate := validator.New()
 
-    if err := ctx.BindAndValidate(&form, validate); err != nil {
-        return err // Returns MultiError with field-specific messages
+    if err := ctx.BindAndValidate(&input, validate); err != nil {
+        return state, err // Returns field-specific error messages
     }
 
-    return c.createAccount(form)
+    return state, c.createAccount(input)
 }
 ```
 
-### HTTP Context
+### Session Access
+
+```go
+func (c *Controller) SendNotification(state State, ctx *livetemplate.Context) (State, error) {
+    session := ctx.Session()
+    if session != nil {
+        // Use session for server-initiated updates
+        go session.TriggerAction("notification", map[string]interface{}{
+            "message": "Update complete!",
+        })
+    }
+    return state, nil
+}
+```
+
+### HTTP Methods (HTTP POST only)
 
 For HTTP POST actions (not WebSocket), you can access HTTP primitives:
 
 ```go
-func (c *Controller) Login(ctx *livetemplate.ActionContext) error {
+func (c *Controller) Login(state State, ctx *livetemplate.Context) (State, error) {
     if !ctx.IsHTTP() {
-        return errors.New("login requires HTTP")
+        return state, errors.New("login requires HTTP")
     }
 
     // Set cookie
     ctx.SetCookie(&http.Cookie{
-        Name:  "session",
-        Value: token,
+        Name:     "session_token",
+        Value:    token,
+        HttpOnly: true,
+        Secure:   true,
+        SameSite: http.SameSiteStrictMode,
     })
 
-    // Redirect
-    ctx.Redirect("/dashboard")
-
-    return nil
+    // Redirect after login
+    return state, ctx.Redirect("/dashboard", http.StatusSeeOther)
 }
 ```
 
-## Initialization
-
-The `StoreInitializer` interface allows setup after a controller is cloned:
-
-```go
-type StoreInitializer interface {
-    Init() error
-}
-```
-
-**When Init() is called:**
-1. New session created → Template controller cloned → `Init()` called
-2. Existing session loaded → Template cloned → State injected → `Init()` called
-
-**Use cases:**
-- Load initial data from database
-- Set up computed fields
-- Validate state consistency
-
-Example:
-
-```go
-type TodoController struct {
-    State  *TodoState `lvt:"state"`
-    DB     *sql.DB
-    Logger *slog.Logger
-}
-
-func (c *TodoController) Init() error {
-    // Load todos from database if state is empty
-    if len(c.State.Items) == 0 {
-        items, err := c.DB.LoadTodos(c.State.UserID)
-        if err != nil {
-            return fmt.Errorf("failed to load todos: %w", err)
-        }
-        c.State.Items = items
-    }
-    return nil
-}
-```
+| Method | Description |
+|--------|-------------|
+| `IsHTTP()` | Check if HTTP context available |
+| `SetCookie(cookie)` | Set response cookie |
+| `GetCookie(name)` | Get request cookie |
+| `DeleteCookie(name)` | Delete cookie |
+| `Redirect(url, code)` | Redirect response |
+| `SetHeader(key, value)` | Set response header |
+| `GetHeader(key)` | Get request header |
 
 ## Error Handling
 
-### FieldError
+### Field Errors
 
 Return a single field error:
 
 ```go
-func (c *Controller) UpdateEmail(ctx *livetemplate.ActionContext) error {
+func (c *Controller) UpdateEmail(state State, ctx *livetemplate.Context) (State, error) {
     email := ctx.GetString("email")
 
     if !isValidEmail(email) {
-        return livetemplate.FieldError{
-            Field:   "email",
-            Message: "Please enter a valid email address",
-        }
+        return state, livetemplate.NewFieldError("email",
+            errors.New("please enter a valid email address"))
     }
 
-    c.State.Email = email
-    return nil
+    state.Email = email
+    return state, nil
 }
 ```
 
-### MultiError
+### Multiple Field Errors
 
 Return multiple field errors at once:
 
 ```go
-func (c *Controller) Register(ctx *livetemplate.ActionContext) error {
-    var errors livetemplate.MultiError
+func (c *Controller) Register(state State, ctx *livetemplate.Context) (State, error) {
+    var errs livetemplate.MultiError
 
     email := ctx.GetString("email")
     password := ctx.GetString("password")
 
     if !isValidEmail(email) {
-        errors = append(errors, livetemplate.FieldError{
-            Field:   "email",
-            Message: "Invalid email format",
-        })
+        errs = append(errs, livetemplate.NewFieldError("email",
+            errors.New("invalid email format")))
     }
 
     if len(password) < 8 {
-        errors = append(errors, livetemplate.FieldError{
-            Field:   "password",
-            Message: "Password must be at least 8 characters",
-        })
+        errs = append(errs, livetemplate.NewFieldError("password",
+            errors.New("password must be at least 8 characters")))
     }
 
-    if len(errors) > 0 {
-        return errors
+    if len(errs) > 0 {
+        return state, errs
     }
 
-    return c.createUser(email, password)
+    return state, c.createUser(email, password)
 }
 ```
 
-### General Errors
-
-Non-field errors are sent as `_general`:
-
-```go
-func (c *Controller) SaveData(ctx *livetemplate.ActionContext) error {
-    if err := c.DB.Save(c.State); err != nil {
-        // Appears as general error in template
-        return fmt.Errorf("failed to save: %w", err)
-    }
-    return nil
-}
-```
-
-**Client-side handling:**
+### Template Error Display
 
 ```html
-{{if .Errors.email}}
-  <span class="error">{{.Errors.email}}</span>
+{{if .lvt.HasError "email"}}
+    <span class="error">{{.lvt.Error "email"}}</span>
 {{end}}
 
-{{if .Errors._general}}
-  <div class="alert">{{.Errors._general}}</div>
+{{if .lvt.Errors}}
+    <div class="alert">{{range .lvt.Errors}}{{.}}{{end}}</div>
 {{end}}
 ```
 
 ## Common Patterns
 
-### Counter with Logging
+### Counter with Dependencies
 
 ```go
 type CounterState struct {
-    Count int `json:"count"`
+    Count int
 }
 
 type CounterController struct {
-    State  *CounterState `lvt:"state"`
     Logger *slog.Logger
 }
 
-func (c *CounterController) Increment(ctx *livetemplate.ActionContext) error {
-    c.State.Count++
-    c.Logger.Info("incremented", slog.Int("count", c.State.Count))
-    return nil
+func (c *CounterController) Increment(state CounterState, ctx *livetemplate.Context) (CounterState, error) {
+    state.Count++
+    c.Logger.Info("counter incremented", slog.Int("count", state.Count))
+    return state, nil
 }
 
-func (c *CounterController) Decrement(ctx *livetemplate.ActionContext) error {
-    if c.State.Count > 0 {
-        c.State.Count--
+func (c *CounterController) Decrement(state CounterState, ctx *livetemplate.Context) (CounterState, error) {
+    if state.Count > 0 {
+        state.Count--
     }
-    return nil
-}
-```
-
-### Form with Validation
-
-```go
-type ContactState struct {
-    Name    string
-    Email   string
-    Message string
-    Sent    bool
-}
-
-type ContactController struct {
-    State  *ContactState `lvt:"state"`
-    Mailer *mail.Client
-}
-
-func (c *ContactController) Submit(ctx *livetemplate.ActionContext) error {
-    var errors livetemplate.MultiError
-
-    c.State.Name = strings.TrimSpace(ctx.GetString("name"))
-    c.State.Email = strings.TrimSpace(ctx.GetString("email"))
-    c.State.Message = strings.TrimSpace(ctx.GetString("message"))
-
-    if c.State.Name == "" {
-        errors = append(errors, livetemplate.FieldError{
-            Field: "name", Message: "Name is required",
-        })
-    }
-    if !isValidEmail(c.State.Email) {
-        errors = append(errors, livetemplate.FieldError{
-            Field: "email", Message: "Valid email is required",
-        })
-    }
-    if len(c.State.Message) < 10 {
-        errors = append(errors, livetemplate.FieldError{
-            Field: "message", Message: "Message must be at least 10 characters",
-        })
-    }
-
-    if len(errors) > 0 {
-        return errors
-    }
-
-    if err := c.Mailer.Send(c.State.Email, c.State.Message); err != nil {
-        return fmt.Errorf("failed to send message")
-    }
-
-    c.State.Sent = true
-    return nil
+    return state, nil
 }
 ```
 
@@ -445,24 +344,32 @@ func (c *ContactController) Submit(ctx *livetemplate.ActionContext) error {
 
 ```go
 type TodoState struct {
-    Items []Todo `json:"items"`
+    Items []Todo
 }
 
 type Todo struct {
-    ID        string `json:"id"`
-    Title     string `json:"title"`
-    Completed bool   `json:"completed"`
+    ID        string
+    Title     string
+    Completed bool
 }
 
 type TodoController struct {
-    State *TodoState `lvt:"state"`
-    DB    *sql.DB
+    DB *sql.DB
 }
 
-func (c *TodoController) AddTodo(ctx *livetemplate.ActionContext) error {
+func (c *TodoController) Mount(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    items, err := c.DB.GetTodos()
+    if err != nil {
+        return state, fmt.Errorf("failed to load todos: %w", err)
+    }
+    state.Items = items
+    return state, nil
+}
+
+func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
     title := strings.TrimSpace(ctx.GetString("title"))
     if title == "" {
-        return livetemplate.FieldError{Field: "title", Message: "Title required"}
+        return state, livetemplate.NewFieldError("title", errors.New("title required"))
     }
 
     todo := Todo{
@@ -471,67 +378,108 @@ func (c *TodoController) AddTodo(ctx *livetemplate.ActionContext) error {
     }
 
     if err := c.DB.InsertTodo(todo); err != nil {
-        return fmt.Errorf("database error")
+        return state, fmt.Errorf("database error")
     }
 
-    c.State.Items = append(c.State.Items, todo)
-    return nil
+    state.Items = append(state.Items, todo)
+    return state, nil
 }
 
-func (c *TodoController) ToggleTodo(ctx *livetemplate.ActionContext) error {
+func (c *TodoController) Toggle(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
     id := ctx.GetString("id")
 
-    for i := range c.State.Items {
-        if c.State.Items[i].ID == id {
-            c.State.Items[i].Completed = !c.State.Items[i].Completed
-            return c.DB.UpdateTodo(c.State.Items[i])
+    for i := range state.Items {
+        if state.Items[i].ID == id {
+            state.Items[i].Completed = !state.Items[i].Completed
+            return state, c.DB.UpdateTodo(state.Items[i])
         }
     }
 
-    return fmt.Errorf("todo not found")
+    return state, fmt.Errorf("todo not found")
 }
 
-func (c *TodoController) DeleteTodo(ctx *livetemplate.ActionContext) error {
+func (c *TodoController) Delete(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
     id := ctx.GetString("id")
 
-    for i, todo := range c.State.Items {
+    for i, todo := range state.Items {
         if todo.ID == id {
             if err := c.DB.DeleteTodo(id); err != nil {
-                return fmt.Errorf("database error")
+                return state, fmt.Errorf("database error")
             }
-            c.State.Items = append(c.State.Items[:i], c.State.Items[i+1:]...)
-            return nil
+            state.Items = append(state.Items[:i], state.Items[i+1:]...)
+            return state, nil
         }
     }
 
-    return fmt.Errorf("todo not found")
+    return state, fmt.Errorf("todo not found")
+}
+```
+
+### Server-Initiated Updates
+
+```go
+type NotificationState struct {
+    Messages []string
+}
+
+type NotificationController struct {
+    sessions sync.Map // userID -> Session
+}
+
+func (c *NotificationController) OnConnect(state NotificationState, ctx *livetemplate.Context) (NotificationState, error) {
+    if session := ctx.Session(); session != nil {
+        c.sessions.Store(ctx.UserID(), session)
+    }
+    return state, nil
+}
+
+func (c *NotificationController) OnDisconnect() {
+    // Session cleanup handled by LiveTemplate
+}
+
+// Call from anywhere in your application
+func (c *NotificationController) NotifyUser(userID, message string) {
+    if session, ok := c.sessions.Load(userID); ok {
+        session.(livetemplate.Session).TriggerAction("addMessage", map[string]interface{}{
+            "message": message,
+        })
+    }
+}
+
+func (c *NotificationController) AddMessage(state NotificationState, ctx *livetemplate.Context) (NotificationState, error) {
+    message := ctx.GetString("message")
+    state.Messages = append(state.Messages, message)
+    return state, nil
 }
 ```
 
 ## Registration
 
 ```go
-// Simple store (no dependencies)
-counter := &Counter{Count: 0}
-tmpl.Handle(counter)
-
-// Controller with dependencies
-controller := &MyController{
-    State:  &MyState{},
+// Create controller with dependencies
+controller := &TodoController{
     DB:     db,
     Logger: logger,
 }
-tmpl.Handle(controller)
 
-// Multiple stores
-tmpl.Handle(livetemplate.Stores{
-    "counter": &Counter{},
-    "user":    &UserController{State: &UserState{}, DB: db},
-})
+// Create initial state
+initialState := &TodoState{
+    Items: []Todo{},
+}
+
+// Create template
+tmpl := livetemplate.New("todos")
+
+// Register handler
+handler := tmpl.Handle(controller, livetemplate.AsState(initialState))
+
+// Mount to HTTP server
+http.Handle("/", handler)
 ```
 
 ## See Also
 
+- [Server Actions Reference](server-actions.md) - Server-initiated updates with TriggerAction
 - [Session Reference](session.md) - Session stores and connection management
-- [Server Actions Reference](server-actions.md) - Server-initiated updates with SessionAware
 - [Error Handling Reference](error-handling.md) - Detailed error handling patterns
+- [Authentication Reference](authentication.md) - User identification and session grouping

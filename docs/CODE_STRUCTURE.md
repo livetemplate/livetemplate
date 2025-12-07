@@ -72,9 +72,6 @@ livetemplate/
 **Purpose:** Action protocol and data binding
 
 **Key Types:**
-- `Store` interface - User-defined state management
-- `StoreInitializer` interface - Optional initialization
-- `ActionContext` - Context for Change() method
 - `ActionData` - Type-safe data extraction
 - `FieldError` - Validation error
 - `MultiError` - Collection of field errors
@@ -86,7 +83,7 @@ livetemplate/
 - `ValidationToMultiError(err) MultiError` - Convert validator errors
 
 **Internal Functions:**
-- `parseAction(action string) (store, actualAction)` - Parse "store.action"
+- `parseAction(action string) (controller, actualAction)` - Parse "controller.action"
 - `parseActionFromHTTP(r *http.Request) (message, error)` - HTTP parser
 - `parseActionFromWebSocket(data []byte) (message, error)` - WS parser
 - `writeUpdateWebSocket(conn, update) error` - WS writer
@@ -98,23 +95,24 @@ livetemplate/
 ---
 
 #### mount.go (~500 lines)
-**Purpose:** HTTP/WebSocket handlers and store pattern
+**Purpose:** HTTP/WebSocket handlers and Controller+State pattern
 
 **Key Functions:**
-- `Handle(store Store) http.Handler` - Single store handler
-- `HandleStores(template, stores) http.Handler` - Multi-store handler
+- `Handle(controller, AsState(state), ...options) http.Handler` - Create handler with controller and state
 - HTTP handlers (handleHTTPRequest, handleAction)
 - WebSocket handlers (handleWebSocket, message loops)
 
 **Key Features:**
 - Session management (per-connection state)
-- Store cloning (isolation between sessions)
+- State cloning via `AsState()` (isolation between sessions)
 - Error handling (validation errors, panics)
 - Broadcasting support
+- Controller lifecycle methods (Mount, OnConnect, OnDisconnect)
 
 **Dependencies:**
 - template.go (Template type)
-- action.go (Store, ActionContext)
+- context.go (Context type)
+- state.go (State interface, AsState wrapper)
 - session.go (SessionStore)
 
 **Used By:** User applications (via Template.Handle())
@@ -617,7 +615,8 @@ template.go (Public API & Orchestrator)
     ├→ mount.go (HTTP/WebSocket handlers)
     │    ↓
     │    ├→ session.go (Session management)
-    │    ├→ action.go (Store interface)
+    │    ├→ context.go (Context type)
+    │    ├→ state.go (State interface)
     │    └→ internal/observe/ (Logging)
     │
     └→ template_discovery.go (File discovery)
@@ -660,16 +659,32 @@ template.go (Public API & Orchestrator)
 tmpl := livetemplate.New("counter")  // template.go
 ```
 
-**Handling Requests:**
+**Defining Controller and State:**
 ```go
-http.Handle("/", tmpl.Handle(store))  // mount.go
+// Controller holds dependencies (singleton, never cloned)
+type CounterController struct {
+    DB *sql.DB  // Dependencies go here
+}
+
+// State holds data (cloned per session)
+type CounterState struct {
+    Count int
+}
 ```
 
-**Implementing State:**
+**Handling Requests:**
 ```go
-type State struct { ... }
-func (s *State) Change(ctx *livetemplate.ActionContext) error {
-    // action.go provides ActionContext
+controller := &CounterController{DB: db}
+state := &CounterState{}
+http.Handle("/", tmpl.Handle(controller, livetemplate.AsState(state)))  // mount.go
+```
+
+**Implementing Action Methods:**
+```go
+// Action "increment" maps to method Increment()
+func (c *CounterController) Increment(state CounterState, ctx *livetemplate.Context) (CounterState, error) {
+    state.Count++
+    return state, nil
 }
 ```
 
@@ -721,7 +736,8 @@ func (s *State) Change(ctx *livetemplate.ActionContext) error {
 | What | Where |
 |------|-------|
 | Public API | template.go |
-| Store interface | action.go |
+| Controller+State pattern | mount.go, state.go, context.go |
+| Action data binding | action.go |
 | Template parsing | internal/parse/ |
 | Tree building | internal/build/ |
 | Tree comparison | internal/diff/ |
@@ -763,9 +779,9 @@ func (s *State) Change(ctx *livetemplate.ActionContext) error {
 
 **For New Users:**
 1. **Start with template.go** - Understand the public API
-2. **Then action.go** - Learn the Store pattern
+2. **Then mount.go, state.go, context.go** - Learn the Controller+State pattern
 3. **Then examples/** - See real usage (counter, todos, observability)
-4. **Then mount.go** - Understand request handling
+4. **Then action.go** - Understand action data binding
 5. **Check e2e_test.go** - See comprehensive test scenarios
 
 **For Contributors:**

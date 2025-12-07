@@ -213,7 +213,7 @@ This guide walks through migrating from in-memory session storage to Redis-backe
 
 1. **Redis Server**: Deploy Redis (Standalone, Sentinel, or Cluster)
 2. **Go Redis Client**: Install `github.com/redis/go-redis/v9`
-3. **Store Serialization**: Ensure all Store types are gob-serializable
+3. **State Serialization**: Ensure all State types are gob-serializable
 
 ### Step-by-Step Migration
 
@@ -234,36 +234,49 @@ docker run -d \
 - Azure Cache for Redis
 - Redis Cloud
 
-#### Step 2: Register Store Types for Serialization
+#### Step 2: Register State Types for Serialization
 
 LiveTemplate uses Go's `encoding/gob` for serialization, which requires registering custom types.
 
 **Before (works with MemorySessionStore):**
 ```go
-type TodoStore struct {
+// State holds data (cloned per session)
+type TodoState struct {
     Items []Todo
 }
 
-func (s *TodoStore) Change(ctx *livetemplate.ActionContext) error {
-    // Handle actions
-    return nil
+// Controller holds dependencies (singleton)
+type TodoController struct {
+    DB *sql.DB
+}
+
+// Action method
+func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    todo := Todo{Title: ctx.GetString("title")}
+    state.Items = append(state.Items, todo)
+    return state, nil
 }
 ```
 
 **After (required for RedisSessionStore):**
 ```go
-type TodoStore struct {
+type TodoState struct {
     Items []Todo
 }
 
-func (s *TodoStore) Change(ctx *livetemplate.ActionContext) error {
-    // Handle actions
-    return nil
+type TodoController struct {
+    DB *sql.DB
 }
 
-// Register all Store types in init()
+func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    todo := Todo{Title: ctx.GetString("title")}
+    state.Items = append(state.Items, todo)
+    return state, nil
+}
+
+// Register all State types in init()
 func init() {
-    gob.Register(&TodoStore{})
+    gob.Register(&TodoState{})
     gob.Register(&Todo{})  // Register nested types too
 }
 ```
@@ -282,7 +295,9 @@ func main() {
     // In-memory session store (default)
     sessionStore := livetemplate.NewMemorySessionStore()
 
-    handler := livetemplate.Mount(&RootStore{},
+    controller := &AppController{}
+    state := &AppState{}
+    handler := livetemplate.Mount(controller, livetemplate.AsState(state),
         livetemplate.WithSessionStore(sessionStore),
         livetemplate.WithMaxConnections(1000),
     )
@@ -322,7 +337,9 @@ func main() {
         livetemplate.WithFallbackToMemory(true), // Graceful degradation
     )
 
-    handler := livetemplate.Mount(&RootStore{},
+    controller := &AppController{}
+    state := &AppState{}
+    handler := livetemplate.Mount(controller, livetemplate.AsState(state),
         livetemplate.WithSessionStore(sessionStore),
         livetemplate.WithMaxConnections(10000), // Can handle more now
     )
@@ -1182,7 +1199,10 @@ func TestRedisSessionPersistence(t *testing.T) {
     // Setup Redis and handler
     redisClient := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
     sessionStore := livetemplate.NewRedisSessionStore(redisClient)
-    handler := livetemplate.Mount(&TestStore{Value: 0},
+
+    controller := &TestController{}
+    state := &TestState{Value: 0}
+    handler := livetemplate.Mount(controller, livetemplate.AsState(state),
         livetemplate.WithSessionStore(sessionStore),
     )
 
@@ -1196,7 +1216,7 @@ func TestRedisSessionPersistence(t *testing.T) {
     sessionCookie := cookies[0]
 
     // Simulate restart by creating new handler
-    handler2 := livetemplate.Mount(&TestStore{Value: 0},
+    handler2 := livetemplate.Mount(controller, livetemplate.AsState(&TestState{Value: 0}),
         livetemplate.WithSessionStore(sessionStore),
     )
 
@@ -1248,7 +1268,7 @@ func TestRedisSessionPersistence(t *testing.T) {
 ### Migration Checklist
 
 - [ ] Redis deployed and accessible from application
-- [ ] All Store types registered with `gob.Register()`
+- [ ] All State types registered with `gob.Register()`
 - [ ] Environment variables configured (REDIS_URL, REDIS_PASSWORD)
 - [ ] Health checks updated to verify Redis connectivity
 - [ ] RedisSessionStore configured with appropriate TTL
@@ -1264,12 +1284,12 @@ func TestRedisSessionPersistence(t *testing.T) {
 
 #### Issue: "gob: name not registered for interface type"
 
-**Cause:** Store type not registered with gob.
+**Cause:** State type not registered with gob.
 
 **Solution:**
 ```go
 func init() {
-    gob.Register(&YourStoreType{})
+    gob.Register(&YourStateType{})
 }
 ```
 
@@ -1433,26 +1453,26 @@ Total Memory Required = 5.85 GB ≈ 6-8 GB instance
 **Per Session (Session Group):**
 ```
 Base session metadata: 500 bytes - 1 KB
-Serialized Stores: Varies by application (1-100 KB typical)
+Serialized State: Varies by application (1-100 KB typical)
 Redis overhead: 20% (data structure overhead, fragmentation)
 ```
 
-**Example Store Sizes:**
+**Example State Sizes:**
 ```go
 // Small: ~2 KB
-type TodoStore struct {
+type TodoState struct {
     Items []Todo  // 10 items × 200 bytes
 }
 
 // Medium: ~20 KB
-type DashboardStore struct {
+type DashboardState struct {
     Metrics   map[string]int     // 100 metrics × 50 bytes
     Alerts    []Alert            // 10 alerts × 500 bytes
     UserPrefs UserPreferences    // 1 KB
 }
 
 // Large: ~100 KB
-type ChatStore struct {
+type ChatState struct {
     Messages []Message  // 100 messages × 1 KB
     Users    []User     // 50 users × 100 bytes
 }
@@ -1460,7 +1480,7 @@ type ChatStore struct {
 
 **Redis Memory Formula:**
 ```
-Redis Memory = (Active Sessions × Avg Store Size × 1.2) + Redis Overhead
+Redis Memory = (Active Sessions × Avg State Size × 1.2) + Redis Overhead
 ```
 
 **Redis Overhead:**
@@ -1640,7 +1660,7 @@ Total: ~$480/month (Tier 2-3 scale)
 Target Connections: [input]
 Memory per Connection: 50 KB (default)
 Sessions per Connection: 1 (default)
-Store Size per Session: 20 KB (default)
+State Size per Session: 20 KB (default)
 
 → Application Memory: [calculated]
 → Redis Memory: [calculated]
@@ -1779,7 +1799,7 @@ Store Size per Session: 20 KB (default)
 **Solutions:**
 1. **Check Redis:** Verify Redis persistence (RDB/AOF) enabled
 2. **Check TTL:** Ensure session TTL configured correctly
-3. **Check serialization:** Verify custom Store types are serializable
+3. **Check serialization:** Verify custom State types are serializable
 4. **Fallback:** Ensure `WithFallbackToMemory` not masking issues
 
 ### Issue: Uneven Load Distribution

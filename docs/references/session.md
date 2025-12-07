@@ -8,19 +8,20 @@ For pushing updates from server-side code, see [Server Actions Reference](server
 
 ### Key Concepts
 
-- **Session groups**: Isolation boundaries for shared state. All connections with the same `groupID` share the same `Stores` instance.
-- **Stores**: Application state (`map[string]Store`) shared within a session group
+- **Session groups**: Isolation boundaries for shared state. All connections with the same `groupID` share the same state instance.
+- **State**: Application state cloned per session group via `AsState()`
 - **Connections**: Individual WebSocket connections within a group
-- **SessionStore**: Persistence layer for session groups (in-memory or Redis)
+- **Session store**: Persistence layer for session groups (in-memory or Redis)
 
 ### Automatic Session Syncing
 
 When a user performs an action, all tabs in the same browser session automatically receive updates. This happens with zero configuration:
 
 ```go
-func (s *ChatState) Change(ctx *livetemplate.ActionContext) error {
-    s.Messages = append(s.Messages, newMessage)
-    return nil  // All tabs in same browser update automatically
+func (c *ChatController) SendMessage(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
+    newMessage := ctx.GetString("message")
+    state.Messages = append(state.Messages, newMessage)
+    return state, nil  // All tabs in same browser update automatically
 }
 ```
 
@@ -29,19 +30,19 @@ func (s *ChatState) Change(ctx *livetemplate.ActionContext) error {
 - All tabs in the same browser share this session ID (`groupID`)
 - State changes automatically broadcast to all tabs in the same session group
 
-## SessionStore Interface
+## Session Store Interface
 
-The `SessionStore` interface manages session groups:
+The session store interface manages session groups:
 
 ```go
 type SessionStore interface {
-    // Get retrieves the Stores for a session group.
+    // Get retrieves the state for a session group.
     // Returns nil if the group doesn't exist.
-    Get(ctx context.Context, groupID string) Stores
+    Get(ctx context.Context, groupID string) State
 
-    // Set stores Stores for a session group.
+    // Set stores state for a session group.
     // Creates a new group if it doesn't exist, updates if it does.
-    Set(ctx context.Context, groupID string, stores Stores)
+    Set(ctx context.Context, groupID string, state State)
 
     // Delete removes a session group and all its state.
     Delete(ctx context.Context, groupID string)
@@ -119,7 +120,7 @@ tmpl := livetemplate.New("app",
 
 **Important: Register Custom Types**
 
-Custom Store types MUST be registered with `gob.Register()` before use. Register ALL types that will be serialized, including nested structs and slice element types:
+Custom state types MUST be registered with `gob.Register()` before use. Register ALL types that will be serialized, including nested structs and slice element types:
 
 ```go
 type User struct {
@@ -127,19 +128,15 @@ type User struct {
     Name string
 }
 
-type MyStore struct {
+type MyState struct {
     Value    int
     Users    []User          // Nested type - must also register
     Metadata map[string]any  // Maps with interface values need care
 }
 
-func (m *MyStore) Change(ctx *livetemplate.ActionContext) error {
-    return nil
-}
-
 func init() {
-    // Register the store AND all nested types
-    gob.Register(&MyStore{})
+    // Register the state type AND all nested types
+    gob.Register(&MyState{})
     gob.Register(&User{})        // Required for []User slice
     gob.Register(map[string]any{}) // If using interface{} maps
 }
@@ -175,7 +172,7 @@ type Connection struct {
     GroupID  string          // Session group ID (shared state boundary)
     UserID   string          // User identity ("" for anonymous)
     Template interface{}     // Per-connection template for tree diffing
-    Stores   interface{}     // Reference to shared stores from session group
+    State    interface{}     // Reference to shared state from session group
     Uploads  interface{}     // Per-connection upload registry
 }
 ```

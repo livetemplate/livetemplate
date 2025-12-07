@@ -137,21 +137,20 @@ LiveTemplate is a reactive web framework for Go that uses tree-based DOM diffing
 - `(*Generator).Next() string`
 
 #### `internal/context/`
-**Responsibility:** Action context and data extraction
+**Responsibility:** Template execution context
 
 **Key Types:**
-- `Context` - Action context with data access methods
+- `TemplateContext` - Template execution utilities
 
 **Key Functions:**
-- `(*Context).String(key string) string`
-- `(*Context).Int(key string) int`
-- `(*Context).Bind(v interface{}) error`
+- `NewContext()` - Create new template context
+- Error propagation utilities
 
 #### `internal/session/`
 **Responsibility:** Session management
 
 **Key Types:**
-- `Store` interface
+- `State` interface
 - `Manager` - Session manager
 
 #### `internal/observe/`

@@ -46,11 +46,10 @@ Your templates use familiar Go template syntax with `lvt-*` attributes for inter
 Handle the action in Go:
 
 ```go
-func (s *CounterState) Change(ctx *livetemplate.ActionContext) error {
-    if ctx.Action == "increment" {
-        s.Counter++
-    }
-    return nil
+// Action "increment" maps to method Increment()
+func (c *CounterController) Increment(state CounterState, ctx *livetemplate.Context) (CounterState, error) {
+    state.Counter++
+    return state, nil
 }
 ```
 
@@ -85,23 +84,23 @@ Static HTML is cached client-side. Updates are 50-90% smaller than traditional a
 
 ### 4. Idiomatic Go Error Handling
 
-Errors flow naturally using Go's familiar error handling patterns. Just return an error from `Change()` and LiveTemplate automatically displays it in your template:
+Errors flow naturally using Go's familiar error handling patterns. Just return an error and LiveTemplate automatically displays it in your template:
 
 **Server (familiar Go code):**
 
 ```go
-func (s *State) Change(ctx *livetemplate.ActionContext) error {
+func (c *AuthController) Signup(state AuthState, ctx *livetemplate.Context) (AuthState, error) {
     var input SignupInput
     if err := ctx.BindAndValidate(&input, validate); err != nil {
-        return err  // Validation errors automatically sent to client
+        return state, err  // Validation errors automatically sent to client
     }
 
-    if s.usernameExists(input.Username) {
-        return livetemplate.NewFieldError("username",
+    if c.usernameExists(input.Username) {
+        return state, livetemplate.NewFieldError("username",
             errors.New("username already taken"))
     }
 
-    return nil
+    return state, nil
 }
 ```
 
@@ -122,27 +121,34 @@ When you return a `FieldError` from Go, LiveTemplate automatically makes it avai
 go get github.com/livetemplate/livetemplate
 ```
 
-**1. Create your state** ([main.go](https://github.com/livetemplate/examples/blob/main/counter/main.go))
+**1. Create your controller and state** ([main.go](https://github.com/livetemplate/examples/blob/main/counter/main.go))
 
 ```go
+// State: Pure data, cloned per session
 type CounterState struct {
     Counter int
 }
 
-func (s *CounterState) Change(ctx *livetemplate.ActionContext) error {
-    switch ctx.Action {
-    case "increment":
-        s.Counter++
-    case "decrement":
-        s.Counter--
-    }
-    return nil
+// Controller: Holds dependencies, singleton
+type CounterController struct{}
+
+// Action "increment" maps to method Increment()
+func (c *CounterController) Increment(state CounterState, ctx *livetemplate.Context) (CounterState, error) {
+    state.Counter++
+    return state, nil
+}
+
+// Action "decrement" maps to method Decrement()
+func (c *CounterController) Decrement(state CounterState, ctx *livetemplate.Context) (CounterState, error) {
+    state.Counter--
+    return state, nil
 }
 
 func main() {
+    controller := &CounterController{}
     state := &CounterState{Counter: 0}
     tmpl := livetemplate.New("counter")
-    http.Handle("/", tmpl.Handle(state))
+    http.Handle("/", tmpl.Handle(controller, livetemplate.AsState(state)))
     http.ListenAndServe(":8080", nil)
 }
 ```
@@ -173,10 +179,11 @@ User clicks button → Server updates state → Template renders →
 Tree diff calculates changes → Client receives minimal update → DOM updates
 ```
 
-1. Define your state as a Go struct
-2. Handle actions in the `Change(ctx)` method
-3. Use standard Go templates with `lvt-*` attributes
-4. LiveTemplate automatically syncs state to UI
+1. Define your **State** as a Go struct (pure data, cloned per session)
+2. Define your **Controller** with dependencies (singleton)
+3. Handle actions as methods on the Controller (action name → method name)
+4. Use standard Go templates with `lvt-*` attributes
+5. LiveTemplate automatically syncs state to UI
 
 All interactive features work over HTTP. WebSocket is optional, required only for server-initiated broadcasts (e.g., multi-user chat notifications).
 
@@ -222,6 +229,7 @@ See the full [performance documentation](docs/performance/) for comprehensive an
 **Core Documentation:**
 
 - [Go API Reference](https://pkg.go.dev/github.com/livetemplate/livetemplate) - Server-side API
+- [Controller+State Pattern](docs/references/controller-pattern.md) - Core architecture pattern
 - [Client Attributes](docs/references/client-attributes.md) - `lvt-*` event bindings
 - [Error Handling](docs/references/error-handling.md) - Validation and errors
 - [Configuration](docs/CONFIGURATION.md) - Template and server options
