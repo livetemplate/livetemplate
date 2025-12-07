@@ -213,3 +213,32 @@ func (u *Upload) GetError() string {
 	}
 	return ""
 }
+
+// HasUploads checks if there are any uploads for the given field name.
+// Implements UploadAccessor interface for use with Context.
+func (r *Registry) HasUploads(name string) bool {
+	upload := r.GetUpload(name)
+	if upload == nil {
+		return false
+	}
+	u := upload.(*Upload)
+	return len(u.GetEntries()) > 0
+}
+
+// GetCompletedUploads returns all completed upload entries for the given field name.
+// Implements UploadAccessor interface for use with Context.
+func (r *Registry) GetCompletedUploads(name string) []*uploadtypes.UploadEntry {
+	upload := r.GetUpload(name)
+	if upload == nil {
+		return nil
+	}
+	u := upload.(*Upload)
+
+	var completed []*uploadtypes.UploadEntry
+	for _, entry := range u.GetEntries() {
+		if entry.Done && entry.Valid && entry.Error == "" {
+			completed = append(completed, entry)
+		}
+	}
+	return completed
+}

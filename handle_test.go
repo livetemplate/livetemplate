@@ -30,7 +30,7 @@ func (c *testHandleController) Increment(state testHandleState, ctx *Context) (t
 	return state, nil
 }
 
-func TestHandleNew_ReturnsLiveHandler(t *testing.T) {
+func TestHandle_ReturnsLiveHandler(t *testing.T) {
 	tmpl, err := New("test")
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
@@ -43,17 +43,17 @@ func TestHandleNew_ReturnsLiveHandler(t *testing.T) {
 	ctrl := &testHandleController{}
 	state := AsState(&testHandleState{})
 
-	handler := tmpl.HandleNew(ctrl, state)
+	handler := tmpl.Handle(ctrl, state)
 
 	if handler == nil {
-		t.Fatal("HandleNew returned nil")
+		t.Fatal("Handle returned nil")
 	}
 
 	// Should implement http.Handler
 	var _ http.Handler = handler
 }
 
-func TestHandleNew_PanicsOnNilController(t *testing.T) {
+func TestHandle_PanicsOnNilController(t *testing.T) {
 	tmpl, err := New("test")
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
@@ -69,10 +69,10 @@ func TestHandleNew_PanicsOnNilController(t *testing.T) {
 		}
 	}()
 
-	tmpl.HandleNew(nil, AsState(&testHandleState{}))
+	tmpl.Handle(nil, AsState(&testHandleState{}))
 }
 
-func TestHandleNew_PanicsOnNilState(t *testing.T) {
+func TestHandle_PanicsOnNilState(t *testing.T) {
 	tmpl, err := New("test")
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
@@ -88,10 +88,10 @@ func TestHandleNew_PanicsOnNilState(t *testing.T) {
 		}
 	}()
 
-	tmpl.HandleNew(&testHandleController{}, nil)
+	tmpl.Handle(&testHandleController{}, nil)
 }
 
-func TestHandleNew_ServesHTTP(t *testing.T) {
+func TestHandle_ServesHTTP(t *testing.T) {
 	tmpl, err := New("test")
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
@@ -104,7 +104,7 @@ func TestHandleNew_ServesHTTP(t *testing.T) {
 	ctrl := &testHandleController{}
 	state := AsState(&testHandleState{Count: 42})
 
-	handler := tmpl.HandleNew(ctrl, state)
+	handler := tmpl.Handle(ctrl, state)
 
 	// Make HTTP request
 	req := httptest.NewRequest("GET", "/", nil)
@@ -123,7 +123,7 @@ func TestHandleNew_ServesHTTP(t *testing.T) {
 }
 
 // Test that state is properly cloned per session (via serialization)
-func TestHandleNew_StateCloning(t *testing.T) {
+func TestHandle_StateCloning(t *testing.T) {
 	// This test verifies that the State interface's serialization
 	// is used for cloning, not struct copying
 	tmpl, err := New("test")
@@ -138,7 +138,7 @@ func TestHandleNew_StateCloning(t *testing.T) {
 	originalState := &testHandleState{Count: 100}
 	state := AsState(originalState)
 
-	handler := tmpl.HandleNew(&testHandleController{}, state)
+	handler := tmpl.Handle(&testHandleController{}, state)
 
 	// Handler should exist
 	if handler == nil {

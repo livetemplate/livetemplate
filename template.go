@@ -1209,150 +1209,39 @@ func (t *Template) compareTreesAndGetChangesWithContext(oldTree, newTree *treeNo
 	return diff.CompareTreesAndGetChangesWithPath(oldTree, newTree, insideNewStructure, "", rangeMatches, t.registry)
 }
 
-// Handle creates an http.Handler for the template with the given stores.
-// For single store: actions like "increment", "decrement"
-// For multiple stores: actions like "counter.increment", "user.logout"
-// Store names are automatically derived from struct type names (case-insensitive matching).
-//
-// Actions are automatically dispatched to methods matching the action name.
-// Method signature: func (s *Store) ActionName(ctx *ActionContext) error
-//
-// The automatic dispatch supports multiple action formats:
-//   - snake_case: "add_item" → AddItem()
-//   - camelCase: "addItem" → AddItem()
-//   - PascalCase: "AddItem" → AddItem()
-func (t *Template) Handle(stores ...interface{}) LiveHandler {
-	if len(stores) == 0 {
-		panic("Handle requires at least one store")
-	}
-
-	// Build stores map with auto-derived names
-	storesMap := make(Stores)
-	isSingleStore := len(stores) == 1
-
-	if isSingleStore {
-		// Single store mode - use empty key
-		storesMap[""] = stores[0]
-	} else {
-		// Multi-store mode - derive names from struct types
-		for _, store := range stores {
-			name := getStoreName(store)
-			storesMap[name] = store
-		}
-	}
-
-	// Create WebSocket upgrader with origin validation
-	upgrader := t.config.Upgrader
-	if len(t.config.AllowedOrigins) > 0 {
-		// Custom origin validation when AllowedOrigins is set
-		upgrader = &websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool {
-				origin := r.Header.Get("Origin")
-				if origin == "" {
-					// Same-origin requests (no Origin header) are allowed
-					return true
-				}
-
-				// Check if origin is in allowed list
-				for _, allowed := range t.config.AllowedOrigins {
-					if origin == allowed {
-						return true
-					}
-				}
-
-				log.Printf("WebSocket origin rejected: %s (not in allowed origins)", origin)
-				return false
-			},
-		}
-	}
-
-	config := mountConfig{
-		Template:               t,
-		Stores:                 storesMap,
-		IsSingleStore:          isSingleStore,
-		Upgrader:               upgrader,
-		SessionStore:           t.config.SessionStore,
-		Authenticator:          t.config.Authenticator,
-		PubSubBroadcaster:      t.config.PubSubBroadcaster,
-		AllowedOrigins:         t.config.AllowedOrigins,
-		WebSocketDisabled:      t.config.WebSocketDisabled,
-		MaxConnections:         t.config.MaxConnections,
-		MaxConnectionsPerGroup: t.config.MaxConnectionsPerGroup,
-		CookieMaxAge:           t.config.CookieMaxAge,
-		UploadConfigs:          t.config.UploadConfigs,
-		wsBufferSize:           t.config.WebSocketBufferSize,
-	}
-
-	limits := session.NewConnectionLimits(config.MaxConnections, config.MaxConnectionsPerGroup)
-	metrics := observe.NewMetrics(slog.Default())
-	metricsExporter := observe.NewPrometheusExporter(metrics, limits)
-
-	// Initialize upload factories (lazy, done once)
-	initUploadFactories()
-
-	// Create temp file manager for uploads
-	tempFileManager, err := newUploadTempFileManager("")
-	if err != nil {
-		slog.Error("Failed to create temp file manager - uploads will not work",
-			slog.String("error", err.Error()))
-	}
-
-	handler := &liveHandler{
-		config:          config,
-		registry:        session.NewConnectionRegistry(),
-		limits:          limits,
-		metricsExporter: metricsExporter,
-		tempFileManager: tempFileManager,
-		shutdownChan:    make(chan struct{}),
-	}
-
-	// Wire up metrics to registry for WebSocket observability
-	handler.registry.SetMetrics(metrics)
-
-	// Start pub/sub subscriber if broadcaster is configured
-	if config.PubSubBroadcaster != nil {
-		go func() {
-			log.Printf("LiveHandler: Starting pub/sub subscriber...")
-			if err := config.PubSubBroadcaster.Subscribe(handler.handlePubSubMessage); err != nil {
-				log.Printf("LiveHandler: Pub/sub subscriber error: %v", err)
-			}
-		}()
-
-		// Also subscribe to server action messages
-		if err := config.PubSubBroadcaster.SubscribeServerActions(handler.handleServerActionMessage); err != nil {
-			log.Printf("LiveHandler: Failed to subscribe to server actions: %v", err)
-		}
-	}
-
-	return handler
-}
-
 // =============================================================================
-// Controller+State Pattern Handle (New API)
+// Controller+State Pattern Handle
 // =============================================================================
 
-// HandleNew creates an http.Handler using the Controller+State pattern.
+// Handle creates an http.Handler using the Controller+State pattern.
 //
 // Controller: Singleton that holds dependencies (DB, Logger, etc.). Never cloned.
 // State: Pure data that is cloned per session via serialization. Must be wrapped with AsState().
 //
-// This is the new API that replaces the variadic Handle(stores...) signature.
-// The separation ensures dependencies are never accidentally shared across sessions.
+// The Controller+State separation ensures dependencies are never accidentally
+// shared across sessions while pure state data is cloned via serialization.
 //
 // Example:
 //
-//	handler := tmpl.HandleNew(
+//	handler := tmpl.Handle(
 //	    &TodoController{DB: db, Logger: logger},
 //	    AsState(&TodoState{}),
 //	)
 //	http.Handle("/todos", handler)
-func (t *Template) HandleNew(controller interface{}, state State, opts ...HandleOption) LiveHandler {
+//
+// Lifecycle methods (all optional):
+//   - Mount(state, ctx) - Called once when session is created
+//   - OnConnect(state, ctx) - Called on WebSocket connect/reconnect
+//   - OnDisconnect() - Called on WebSocket disconnect
+//
+// Action methods have signature: func(state StateType, ctx *Context) (StateType, error)
+func (t *Template) Handle(controller interface{}, state State, opts ...HandleOption) LiveHandler {
 	// Validate inputs
 	if controller == nil {
-		panic("HandleNew: controller cannot be nil")
+		panic("Handle: controller cannot be nil")
 	}
 	if state == nil {
-		panic("HandleNew: state cannot be nil - use AsState(&YourState{})")
+		panic("Handle: state cannot be nil - use AsState(&YourState{})")
 	}
 
 	// Apply options
@@ -1394,7 +1283,6 @@ func (t *Template) HandleNew(controller interface{}, state State, opts ...Handle
 		Template:               t,
 		Controller:             controller,
 		State:                  state,
-		UseControllerState:     true, // Flag to indicate new pattern
 		Upgrader:               upgrader,
 		SessionStore:           sessionStore,
 		Authenticator:          t.config.Authenticator,
@@ -1451,14 +1339,14 @@ func (t *Template) HandleNew(controller interface{}, state State, opts ...Handle
 	return handler
 }
 
-// HandleOption configures HandleNew behavior
+// HandleOption configures Handle behavior
 type HandleOption func(*handleConfig)
 
 type handleConfig struct {
 	sessionStore SessionStore
 }
 
-// WithStore sets the session store for state persistence in HandleNew.
+// WithStore sets the session store for state persistence.
 // Use this to configure Redis or other distributed stores.
 func WithStore(store SessionStore) HandleOption {
 	return func(c *handleConfig) {

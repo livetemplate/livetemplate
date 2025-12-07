@@ -3,7 +3,16 @@ package livetemplate
 import (
 	"context"
 	"net/http"
+
+	"github.com/go-playground/validator/v10"
+	"github.com/livetemplate/livetemplate/internal/uploadtypes"
 )
+
+// UploadAccessor provides access to upload entries during action handling.
+type UploadAccessor interface {
+	HasUploads(name string) bool
+	GetCompletedUploads(name string) []*uploadtypes.UploadEntry
+}
 
 // Context provides unified context for all controller lifecycle methods.
 // It embeds context.Context for cancellation, timeout, and request-scoped values.
@@ -18,6 +27,7 @@ type Context struct {
 	data    *ActionData
 	userID  string
 	session Session
+	uploads UploadAccessor
 
 	// HTTP context (nil for WebSocket actions)
 	w http.ResponseWriter
@@ -114,6 +124,15 @@ func (c *Context) Bind(v interface{}) error {
 	return c.data.Bind(v)
 }
 
+// BindAndValidate binds data to struct and validates it in one step.
+// Uses the provided go-playground/validator instance for validation.
+func (c *Context) BindAndValidate(v interface{}, validate *validator.Validate) error {
+	if c.data == nil {
+		return nil
+	}
+	return c.data.BindAndValidate(v, validate)
+}
+
 // HTTP Methods (same as ActionContext)
 
 func (c *Context) IsHTTP() bool {
@@ -127,6 +146,21 @@ func (c *Context) SetCookie(cookie *http.Cookie) error {
 		return ErrNoHTTPContext
 	}
 	http.SetCookie(c.w, cookie)
+	return nil
+}
+
+// DeleteCookie removes an HTTP cookie by setting MaxAge to -1.
+// Returns ErrNoHTTPContext if called from a WebSocket action.
+func (c *Context) DeleteCookie(name string) error {
+	if c.w == nil {
+		return ErrNoHTTPContext
+	}
+	http.SetCookie(c.w, &http.Cookie{
+		Name:   name,
+		Value:  "",
+		Path:   "/",
+		MaxAge: -1,
+	})
 	return nil
 }
 
@@ -177,4 +211,27 @@ func (c *Context) WithData(data map[string]interface{}) *Context {
 	newCtx := *c
 	newCtx.data = newActionData(data)
 	return &newCtx
+}
+
+// WithUploads returns a new Context with the given upload accessor.
+func (c *Context) WithUploads(uploads UploadAccessor) *Context {
+	newCtx := *c
+	newCtx.uploads = uploads
+	return &newCtx
+}
+
+// HasUploads checks if there are any uploads for the given field name.
+func (c *Context) HasUploads(name string) bool {
+	if c.uploads == nil {
+		return false
+	}
+	return c.uploads.HasUploads(name)
+}
+
+// GetCompletedUploads returns all completed upload entries for the given field name.
+func (c *Context) GetCompletedUploads(name string) []*uploadtypes.UploadEntry {
+	if c.uploads == nil {
+		return nil
+	}
+	return c.uploads.GetCompletedUploads(name)
 }

@@ -227,9 +227,9 @@ func NewSessionStoreHealthChecker(store SessionStore) *SessionStoreHealthChecker
 	return &SessionStoreHealthChecker{store: store}
 }
 
-// healthCheckStore is a minimal store for health checking.
-type healthCheckStore struct {
-	value string
+// healthCheckState is a minimal state for health checking.
+type healthCheckState struct {
+	Value string `json:"value"`
 }
 
 // Check verifies the session store is accessible by performing a Get/Set/Delete cycle.
@@ -237,12 +237,11 @@ type healthCheckStore struct {
 func (c *SessionStoreHealthChecker) Check(ctx context.Context) error {
 	const healthCheckKey = "__livetemplate_health_check__"
 
-	// Create a simple test store
-	testStores := make(Stores)
-	testStores["_health"] = &healthCheckStore{value: "ok"}
+	// Create a simple test state
+	testState := &healthCheckState{Value: "ok"}
 
 	// Test write operation
-	c.store.Set(ctx, healthCheckKey, testStores)
+	c.store.Set(ctx, healthCheckKey, testState)
 
 	// Test read operation - verify we can retrieve what we just set
 	retrieved := c.store.Get(ctx, healthCheckKey)
@@ -250,17 +249,20 @@ func (c *SessionStoreHealthChecker) Check(ctx context.Context) error {
 		return fmt.Errorf("health check failed: unable to retrieve test data from session store")
 	}
 
-	// Verify the data matches
-	if healthStore, ok := retrieved["_health"]; ok {
-		if hs, ok := healthStore.(*healthCheckStore); ok {
-			if hs.value != "ok" {
-				return fmt.Errorf("health check failed: retrieved data does not match expected value")
-			}
-		} else {
-			return fmt.Errorf("health check failed: retrieved data has unexpected type")
+	// Verify the data was stored (exact type may differ after serialization round-trip)
+	// For memory store, we get exact type back
+	// For Redis store, we get a map[string]interface{} from JSON
+	switch v := retrieved.(type) {
+	case *healthCheckState:
+		if v.Value != "ok" {
+			return fmt.Errorf("health check failed: retrieved data does not match expected value")
 		}
-	} else {
-		return fmt.Errorf("health check failed: retrieved data is missing expected key")
+	case map[string]interface{}:
+		if v["value"] != "ok" {
+			return fmt.Errorf("health check failed: retrieved data does not match expected value")
+		}
+	default:
+		return fmt.Errorf("health check failed: retrieved data has unexpected type %T", retrieved)
 	}
 
 	// Test delete operation - clean up after ourselves
