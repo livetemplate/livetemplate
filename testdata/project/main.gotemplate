@@ -1,0 +1,7 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <h1>Main Template</h1>
+  {{template "test:greeting:v1"}}
+</body>
+</html>

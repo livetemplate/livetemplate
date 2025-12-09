@@ -1,0 +1,13 @@
+{{define "test:greeting:v1"}}
+<div class="greeting-override">
+  Override Version - Project's greeting
+</div>
+{{end}}
+
+<!DOCTYPE html>
+<html>
+<body>
+  <h1>Override Template</h1>
+  {{template "test:greeting:v1"}}
+</body>
+</html>

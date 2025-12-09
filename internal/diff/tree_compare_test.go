@@ -226,7 +226,7 @@ func TestHandleTopLevelRange_BothRanges(t *testing.T) {
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
 	rangeMatches := map[string]string{"": "matched"}
 
-	handled := handleTopLevelRange(oldTree, newTree, "", rangeMatches, changes)
+	handled := handleTopLevelRange(oldTree, newTree, "", rangeMatches, nil, changes)
 
 	if !handled {
 		t.Error("Expected handleTopLevelRange to return true for matched ranges")
@@ -246,7 +246,7 @@ func TestHandleTopLevelRange_NewRange(t *testing.T) {
 	}
 
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
-	handled := handleTopLevelRange(oldTree, newTree, "", nil, changes)
+	handled := handleTopLevelRange(oldTree, newTree, "", nil, nil, changes)
 
 	if !handled {
 		t.Error("Expected handleTopLevelRange to return true for new range")
@@ -279,7 +279,7 @@ func TestHandleMatchedRanges_WithOps(t *testing.T) {
 	}
 
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
-	handled := handleMatchedRanges(oldTree, newTree, changes)
+	handled := handleMatchedRanges(oldTree, newTree, "", nil, changes)
 
 	if !handled {
 		t.Error("Expected handleMatchedRanges to return true")
@@ -288,9 +288,9 @@ func TestHandleMatchedRanges_WithOps(t *testing.T) {
 	// Function should handle the range - either with operations or fallback
 	// Check if we got operations
 	if _, hasOps := changes.Dynamics["d"]; hasOps {
-		// Got operations - verify statics included
+		// Got operations - verify statics included (since no registry, first time)
 		if !changes.HasStatics() {
-			t.Error("Expected statics to be included when operations present")
+			t.Error("Expected statics to be included when operations present (no registry)")
 		}
 		return
 	}
@@ -319,7 +319,7 @@ func TestHandleMatchedRanges_EmptyRanges(t *testing.T) {
 	}
 
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
-	handled := handleMatchedRanges(oldTree, newTree, changes)
+	handled := handleMatchedRanges(oldTree, newTree, "", nil, changes)
 
 	if !handled {
 		t.Error("Expected handleMatchedRanges to return true for empty ranges")

@@ -1,0 +1,5 @@
+{{define "test:button:v1"}}
+<button class="btn">
+  Click me
+</button>
+{{end}}

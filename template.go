@@ -86,9 +86,11 @@
 package livetemplate
 
 import (
+	"embed"
 	"fmt"
 	"html/template"
 	"io"
+	"io/fs"
 	"log"
 	"log/slog"
 	"net/http"
@@ -169,6 +171,54 @@ type Config struct {
 	CookieMaxAge           time.Duration                   // Session cookie max age (default: 1 year)
 	UploadConfigs          map[string]uploadtypes.UploadConfig // Upload field configurations
 	WebSocketBufferSize    int                                 // WebSocket send buffer size per connection (default: 50)
+	ComponentTemplates     []*TemplateSet                      // Component library templates (parsed before project templates)
+}
+
+// =============================================================================
+// Component Template Registration
+// =============================================================================
+
+// TemplateSet represents a collection of embedded templates from a component library.
+// Components create TemplateSet instances to expose their templates for registration.
+//
+// Example usage in a component library:
+//
+//	package dropdown
+//
+//	import "embed"
+//
+//	//go:embed templates/*.tmpl
+//	var templateFS embed.FS
+//
+//	func Templates() *livetemplate.TemplateSet {
+//	    return &livetemplate.TemplateSet{
+//	        FS:        templateFS,
+//	        Pattern:   "templates/*.tmpl",
+//	        Namespace: "dropdown",
+//	    }
+//	}
+//
+// Example usage in main.go:
+//
+//	tmpl, err := livetemplate.New("app",
+//	    livetemplate.WithComponentTemplates(dropdown.Templates(), tabs.Templates()),
+//	)
+type TemplateSet struct {
+	// FS is the embedded filesystem containing the template files.
+	FS embed.FS
+
+	// Pattern is the glob pattern for matching template files within FS.
+	// Examples: "templates/*.tmpl", "*.tmpl"
+	Pattern string
+
+	// Namespace identifies the component type for this template set.
+	// Used for documentation and debugging purposes.
+	// Example: "dropdown" for templates like "lvt:dropdown:searchable:v1"
+	Namespace string
+
+	// Funcs provides additional template functions for this component.
+	// These are merged with the base template functions when parsing.
+	Funcs template.FuncMap
 }
 
 // Template represents a live template with caching and tree-based optimization capabilities.
@@ -532,6 +582,43 @@ func WithPubSubBroadcaster(broadcaster pubsub.Broadcaster) Option {
 	}
 }
 
+// WithComponentTemplates registers component library templates to be parsed before project templates.
+// This enables using pre-built UI components from the livetemplate/components library or custom
+// component libraries.
+//
+// Component templates are parsed first, then project templates are parsed on top, allowing
+// project templates to override component templates with the same name.
+//
+// Example:
+//
+//	import "github.com/livetemplate/components"
+//
+//	tmpl, err := livetemplate.New("app",
+//	    livetemplate.WithComponentTemplates(components.All()...),
+//	)
+//
+// Or with specific components:
+//
+//	import (
+//	    "github.com/livetemplate/components/dropdown"
+//	    "github.com/livetemplate/components/tabs"
+//	)
+//
+//	tmpl, err := livetemplate.New("app",
+//	    livetemplate.WithComponentTemplates(
+//	        dropdown.Templates(),
+//	        tabs.Templates(),
+//	    ),
+//	)
+//
+// Templates are parsed in the order provided. Component templates use the naming convention
+// "lvt:<category>:<name>:v<version>" (e.g., "lvt:dropdown:searchable:v1").
+func WithComponentTemplates(sets ...*TemplateSet) Option {
+	return func(c *Config) {
+		c.ComponentTemplates = append(c.ComponentTemplates, sets...)
+	}
+}
+
 // New creates a new template with the given name and options.
 //
 // By default, New auto-discovers template files in the current directory and common
@@ -697,6 +784,17 @@ func New(name string, opts ...Option) (*Template, error) {
 		registry: signature.NewClientStructureRegistry(),
 	}
 
+	// Parse component templates first (before project templates)
+	// This establishes a base layer of templates that project templates can override
+	if len(config.ComponentTemplates) > 0 {
+		if err := tmpl.parseComponentTemplates(config.ComponentTemplates); err != nil {
+			return nil, fmt.Errorf("livetemplate.New(%q): failed to parse component templates: %w", name, err)
+		}
+		if config.DevMode {
+			log.Printf("Parsed %d component template set(s)", len(config.ComponentTemplates))
+		}
+	}
+
 	// Auto-discover and parse templates if not explicitly provided
 	if len(config.TemplateFiles) == 0 {
 		// Use TemplateBaseDir from config if provided, otherwise fall back to runtime.Caller
@@ -832,7 +930,13 @@ func (t *Template) parseInternal(text string, baseTemplate *template.Template, i
 	}
 
 	// Parse the template with wrapper for execution
-	wrappedTemplate := template.New(t.name)
+	// Clone from baseTemplate to preserve component template definitions and funcs
+	wrappedTemplate, err := baseTemplate.Clone()
+	if err != nil {
+		return nil, fmt.Errorf("failed to clone template for wrapper: %w", err)
+	}
+	// Create/update the named template within the cloned set
+	wrappedTemplate = wrappedTemplate.New(t.name)
 	if len(t.funcs) > 0 {
 		wrappedTemplate = wrappedTemplate.Funcs(t.funcs)
 	}
@@ -882,7 +986,20 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 	t.wrapperID = compat.GenerateRandomID()
 
 	// First, parse WITHOUT wrapper to check if flattening is needed
-	baseTemplate := template.New(t.name)
+	// If component templates were already parsed, use that as the base
+	// This allows component templates to be available during parsing and flattening
+	var baseTemplate *template.Template
+	if t.tmpl != nil {
+		// Clone the existing template to preserve component definitions
+		baseTemplate, err = t.tmpl.Clone()
+		if err != nil {
+			return nil, fmt.Errorf("failed to clone template with components: %w", err)
+		}
+		// Create a new named template within the cloned set
+		baseTemplate = baseTemplate.New(t.name)
+	} else {
+		baseTemplate = template.New(t.name)
+	}
 	if len(t.funcs) > 0 {
 		baseTemplate = baseTemplate.Funcs(t.funcs)
 	}
@@ -923,6 +1040,58 @@ func (t *Template) ParseGlob(pattern string) (*Template, error) {
 	}
 
 	return t.ParseFiles(filenames...)
+}
+
+// parseComponentTemplates parses templates from embedded component libraries.
+// Component templates are parsed first to establish a base layer that project
+// templates can override.
+func (t *Template) parseComponentTemplates(sets []*TemplateSet) error {
+	for _, set := range sets {
+		if set == nil {
+			continue
+		}
+
+		// Find all files matching the pattern in the embedded filesystem
+		matches, err := fs.Glob(set.FS, set.Pattern)
+		if err != nil {
+			return fmt.Errorf("component %q: invalid glob pattern %q: %w", set.Namespace, set.Pattern, err)
+		}
+
+		if len(matches) == 0 {
+			return fmt.Errorf("component %q: no files match pattern %q", set.Namespace, set.Pattern)
+		}
+
+		// Parse each matching file
+		for _, match := range matches {
+			content, err := fs.ReadFile(set.FS, match)
+			if err != nil {
+				return fmt.Errorf("component %q: failed to read %q: %w", set.Namespace, match, err)
+			}
+
+			// Create or get the base template
+			if t.tmpl == nil {
+				baseTmpl := template.New(t.name)
+				if len(t.funcs) > 0 {
+					baseTmpl = baseTmpl.Funcs(t.funcs)
+				}
+				if set.Funcs != nil {
+					baseTmpl = baseTmpl.Funcs(set.Funcs)
+				}
+				t.tmpl = baseTmpl
+			} else if set.Funcs != nil {
+				// Add component-specific funcs to existing template
+				t.tmpl = t.tmpl.Funcs(set.Funcs)
+			}
+
+			// Parse the template content - this adds any {{define}} blocks to the template set
+			_, err = t.tmpl.Parse(string(content))
+			if err != nil {
+				return fmt.Errorf("component %q: failed to parse %q: %w", set.Namespace, match, err)
+			}
+		}
+	}
+
+	return nil
 }
 
 // =============================================================================
