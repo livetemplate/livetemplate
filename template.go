@@ -611,8 +611,9 @@ func WithPubSubBroadcaster(broadcaster pubsub.Broadcaster) Option {
 //	    ),
 //	)
 //
-// Templates are parsed in the order provided. Component templates use the naming convention
-// "lvt:<category>:<name>:v<version>" (e.g., "lvt:dropdown:searchable:v1").
+// Templates are parsed in the order provided. Official component templates use the naming
+// convention "lvt:<category>:<name>:v<version>" (e.g., "lvt:dropdown:searchable:v1").
+// Third-party components may use their own prefix (e.g., "myorg:widget:default:v1").
 func WithComponentTemplates(sets ...*TemplateSet) Option {
 	return func(c *Config) {
 		c.ComponentTemplates = append(c.ComponentTemplates, sets...)
