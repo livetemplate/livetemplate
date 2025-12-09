@@ -33,7 +33,7 @@ func CompareTreesAndGetChangesWithPath(
 	}
 
 	// Handle top-level range constructs
-	if handleTopLevelRange(oldTree, newTree, currentPath, rangeMatches, changes) {
+	if handleTopLevelRange(oldTree, newTree, currentPath, rangeMatches, registry, changes) {
 		return changes
 	}
 
@@ -54,6 +54,7 @@ func handleTopLevelRange(
 	oldTree, newTree *TreeNode,
 	currentPath string,
 	rangeMatches map[string]string,
+	registry StructureRegistry,
 	changes *TreeNode,
 ) bool {
 	// CRITICAL FIX: Check if both trees ARE range constructs (top-level range template)
@@ -63,7 +64,7 @@ func handleTopLevelRange(
 		// Case 1: Both are ranges and matched
 		if oldTree.HasRange() && oldTree.HasStatics() {
 			if _, isMatched := rangeMatches[currentPath]; isMatched {
-				return handleMatchedRanges(oldTree, newTree, changes)
+				return handleMatchedRanges(oldTree, newTree, currentPath, registry, changes)
 			}
 		} else {
 			// Case 2: newTree is a range but oldTree isn't (range appearing for first time)
@@ -77,16 +78,28 @@ func handleTopLevelRange(
 }
 
 // handleMatchedRanges generates differential operations for matched range constructs.
-func handleMatchedRanges(oldTree, newTree *TreeNode, changes *TreeNode) bool {
-	// Generate differential operations for the entire range
-	// Never strip statics - they're needed for rendering new items
-	diffOps := GenerateRangeDifferentialOperations(oldTree, newTree, false)
+func handleMatchedRanges(oldTree, newTree *TreeNode, currentPath string, registry StructureRegistry, changes *TreeNode) bool {
+	// Check if client has seen range statics at this path
+	// Use a special key for range statics to differentiate from regular tree statics
+	rangeStaticsPath := currentPath + ".__range_statics__"
+	registryUsable := registry != nil && !isNilRegistry(registry)
+	clientHasRangeStatics := registryUsable && registry.HasSeen(rangeStaticsPath, newTree.Statics)
+
+	// Strip statics if client already has them cached
+	diffOps := GenerateRangeDifferentialOperations(oldTree, newTree, clientHasRangeStatics)
 
 	if len(diffOps) > 0 {
 		// Return the operations directly - the entire tree is the range
-		// Always include statics - they're needed for prepend/append rendering
 		changes.Dynamics["d"] = diffOps
-		changes.Statics = newTree.Statics
+
+		// Only include root-level statics if client hasn't seen them
+		if !clientHasRangeStatics {
+			changes.Statics = newTree.Statics
+			// Mark range statics as seen
+			if registryUsable {
+				registry.MarkSeen(rangeStaticsPath, newTree.Statics)
+			}
+		}
 		return true
 	} else {
 		// No operations generated - check for empty range cases
@@ -314,7 +327,7 @@ func handleChangedField(
 ) {
 	// Check if this field has a range construct match
 	if _, isRangeMatch := rangeMatches[fieldPath]; isRangeMatch {
-		handleRangeMatch(k, oldValue, newValue, changes)
+		handleRangeMatch(k, oldValue, newValue, fieldPath, registry, changes)
 		return
 	}
 
@@ -343,14 +356,30 @@ func handleChangedField(
 }
 
 // handleRangeMatch handles changes in matched range constructs.
-func handleRangeMatch(k string, oldValue, newValue interface{}, changes *TreeNode) {
-	// Generate differential operations for matched range constructs
-	// Never strip statics - they're needed for rendering new items in prepend/append operations
-	diffOps := GenerateRangeDifferentialOperations(oldValue, newValue, false)
+func handleRangeMatch(k string, oldValue, newValue interface{}, fieldPath string, registry StructureRegistry, changes *TreeNode) {
+	// Check if client has seen range statics at this path
+	rangeStaticsPath := fieldPath + ".__range_statics__"
+	registryUsable := registry != nil && !isNilRegistry(registry)
+
+	// Get statics from new value to check/track
+	var rangeStatics interface{}
+	if newTreeNode, ok := newValue.(*TreeNode); ok && newTreeNode != nil {
+		rangeStatics = newTreeNode.Statics
+	}
+
+	clientHasRangeStatics := registryUsable && rangeStatics != nil && registry.HasSeen(rangeStaticsPath, rangeStatics)
+
+	// Strip statics if client already has them cached
+	diffOps := GenerateRangeDifferentialOperations(oldValue, newValue, clientHasRangeStatics)
 
 	if len(diffOps) > 0 {
 		// For nested ranges, set operations directly (not wrapped in TreeNode)
 		changes.SetDynamic(k, diffOps)
+
+		// Mark range statics as seen if we included them
+		if !clientHasRangeStatics && registryUsable && rangeStatics != nil {
+			registry.MarkSeen(rangeStaticsPath, rangeStatics)
+		}
 	} else {
 		// No diff operations generated - use fallback
 		handleEmptyRangeDiff(k, oldValue, newValue, changes)

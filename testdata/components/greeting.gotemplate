@@ -1,0 +1,5 @@
+{{define "test:greeting:v1"}}
+<div class="greeting">
+  Hello from component!
+</div>
+{{end}}

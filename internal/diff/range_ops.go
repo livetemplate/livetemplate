@@ -395,9 +395,42 @@ func checkNonEmptyChanges(changes map[string]interface{}) bool {
 }
 
 // stripStaticsFromOperations removes statics from all operations.
+// Range operations have format: ['a'/'p'/'i', items, statics?, metadata?]
+// We strip the statics (index 2) when client has already seen them.
 func stripStaticsFromOperations(operations []interface{}) []interface{} {
+	result := make([]interface{}, len(operations))
 	for i, op := range operations {
-		operations[i] = PrepareTreeForClient(op, true)
+		opArr, ok := op.([]interface{})
+		if !ok || len(opArr) < 2 {
+			result[i] = op
+			continue
+		}
+
+		opType, _ := opArr[0].(string)
+		switch opType {
+		case "a", "p": // append/prepend: ['a'/'p', items, statics?, metadata?]
+			if len(opArr) >= 3 {
+				// Strip statics at index 2, keep metadata at index 3 if present
+				strippedOp := []interface{}{opArr[0], opArr[1]}
+				if len(opArr) >= 4 {
+					// Keep metadata (index 3)
+					strippedOp = append(strippedOp, nil, opArr[3])
+				}
+				result[i] = strippedOp
+			} else {
+				result[i] = opArr
+			}
+		case "i": // insert: ['i', afterId, data, statics?]
+			if len(opArr) >= 4 {
+				// Strip statics at index 3
+				result[i] = []interface{}{opArr[0], opArr[1], opArr[2]}
+			} else {
+				result[i] = opArr
+			}
+		default:
+			// Other operations (r, u, o) don't have statics
+			result[i] = op
+		}
 	}
-	return operations
+	return result
 }

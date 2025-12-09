@@ -1,0 +1,7 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <h1>With Funcs Template</h1>
+  <div>{{testFunc}}</div>
+</body>
+</html>

@@ -3240,7 +3240,7 @@ func TestRangeTreeGeneration(t *testing.T) {
 
 	// Verify second update tree structure
 	// This time we expect an APPEND operation since the new item is at the end
-	// Format: ["a", items, statics]
+	// Format: ["a", items, statics?] - statics may be stripped if client has them cached
 	foundSecondAppend := false
 	for _, value := range tree2 {
 		// Check if value is a TreeNode structure (map with "d" and "s")
@@ -3249,7 +3249,7 @@ func TestRangeTreeGeneration(t *testing.T) {
 			if dValue, hasDKey := treeMap["d"]; hasDKey {
 				if opsList, ok := dValue.([]interface{}); ok {
 					for _, op := range opsList {
-						if opArray, ok := op.([]interface{}); ok && len(opArray) >= 3 {
+						if opArray, ok := op.([]interface{}); ok && len(opArray) >= 2 {
 							if opType, ok := opArray[0].(string); ok && opType == "a" {
 								t.Log("✅ Found append operation for second item (correct)")
 								foundSecondAppend = true
@@ -3265,7 +3265,7 @@ func TestRangeTreeGeneration(t *testing.T) {
 		} else if opsList, ok := value.([]interface{}); ok {
 			// Fallback: direct operations array (old format)
 			for _, op := range opsList {
-				if opArray, ok := op.([]interface{}); ok && len(opArray) >= 3 {
+				if opArray, ok := op.([]interface{}); ok && len(opArray) >= 2 {
 					if opType, ok := opArray[0].(string); ok && opType == "a" {
 						t.Log("✅ Found append operation for second item (correct)")
 						foundSecondAppend = true
