@@ -7,70 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 <a name="v0.7.0"></a>
-## [v0.7.0] - 2025-12-07
-
-### BREAKING CHANGE: Controller+State Pattern
-
-This release introduces the Controller+State pattern, a complete API redesign that separates concerns for better architecture:
-
-**New Pattern:**
-- **Controller**: Singleton that holds dependencies (DB, logger) - never cloned
-- **State**: Pure data cloned per session via `AsState()` wrapper
-- **Action Methods**: Named methods on Controller with signature `func (c *Controller) Action(state State, ctx *Context) (State, error)`
-- **Lifecycle Methods**: `Mount()`, `OnConnect()`, `OnDisconnect()` on Controller
-- **Unified Context**: Single `*livetemplate.Context` type for all methods
-
-**Migration Required:**
-
-```go
-// Before (v0.6)
-type TodoStore struct {
-    Items []Todo `lvt:"state"`
-}
-func (s *TodoStore) Change(ctx *livetemplate.ActionContext) error {
-    switch ctx.Action {
-    case "add":
-        s.Items = append(s.Items, Todo{Title: ctx.GetString("title")})
-    }
-    return nil
-}
-handler := tmpl.Handle(&TodoStore{})
-
-// After (v0.7)
-type TodoState struct {
-    Items []Todo
-}
-type TodoController struct {
-    DB *sql.DB
-}
-func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
-    state.Items = append(state.Items, Todo{Title: ctx.GetString("title")})
-    return state, nil
-}
-handler := tmpl.Handle(&TodoController{DB: db}, livetemplate.AsState(&TodoState{}))
-```
-
-**Removed:**
-- `Handle(store)` - old single-argument signature
-- `lvt:"state"` tag - no longer needed
-- `cloneStore()` - reflection-based cloning eliminated
-- `ActionContext` - replaced by unified `Context`
-- `StoreInitializer.Init()` - replaced by `Mount()`
-- `SessionAware` interface - lifecycle methods now on Controller
-
-**Added:**
-- `Handle(controller, AsState(state), ...options)` - explicit separation
-- `AsState[T]()` - generic wrapper for state serialization
-- `*livetemplate.Context` - unified context for all lifecycle methods
-- `Mount(state, ctx) (state, error)` - called once when session is created
-- `OnConnect(state, ctx) (state, error)` - called on WebSocket connection
-- `OnDisconnect()` - called on WebSocket disconnection
+## [v0.7.0] - 2025-12-10
 
 ### Documentation
 
-- Complete documentation rewrite for Controller+State pattern
-- Updated all code examples in reference docs
-- New controller-pattern.md reference guide
+- update all documentation for Controller+State API (v0.7.0) ([#70](https://github.com/livefir/livetemplate/issues/70))
+
+### Features
+
+- add component template registration support ([#71](https://github.com/livefir/livetemplate/issues/71))
+
 
 <a name="v0.6.0"></a>
 ## [v0.6.0] - 2025-12-04
@@ -388,9 +334,9 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livetemplate/livetemplate/compare/v0.7.0...HEAD
-[v0.7.0]: https://github.com/livetemplate/livetemplate/compare/v0.6.0...v0.7.0
-[v0.6.0]: https://github.com/livetemplate/livetemplate/compare/v0.5.2...v0.6.0
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.7.0...HEAD
+[v0.7.0]: https://github.com/livefir/livetemplate/compare/v0.6.0...v0.7.0
+[v0.6.0]: https://github.com/livefir/livetemplate/compare/v0.5.2...v0.6.0
 [v0.5.2]: https://github.com/livefir/livetemplate/compare/v0.5.1...v0.5.2
 [v0.5.1]: https://github.com/livefir/livetemplate/compare/v0.5.0...v0.5.1
 [v0.5.0]: https://github.com/livefir/livetemplate/compare/v0.4.2-debug.2...v0.5.0
