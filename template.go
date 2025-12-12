@@ -1215,6 +1215,14 @@ func (t *Template) markAllStructuresAsSeen(node *treeNode, basePath string) {
 	// The signature system will detect if it's a range and hash the statics
 	t.registry.MarkSeen(basePath, node)
 
+	// If this node has a range, also mark the range statics path
+	// This is required for handleMatchedRanges in tree_compare.go which checks
+	// registry.HasSeen(rangeStaticsPath) to determine if statics can be stripped
+	if node.HasRange() {
+		rangeStaticsPath := basePath + ".__range_statics__"
+		t.registry.MarkSeen(rangeStaticsPath, node.Statics)
+	}
+
 	// Recursively mark all dynamics
 	for key, value := range node.Dynamics {
 		fieldPath := basePath
