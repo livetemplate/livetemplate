@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-playground/validator/v10"
@@ -115,11 +116,21 @@ func (a *ActionData) GetInt(key string) int {
 }
 
 // GetIntOk extracts an int value with explicit success indicator.
-// Returns (value, true) if key exists and value is a number.
-// Returns (0, false) if key doesn't exist or value is not a number.
+// Returns (value, true) if key exists and value is a number or numeric string.
+// Returns (0, false) if key doesn't exist or value cannot be parsed as int.
+//
+// This method handles both JSON numbers (float64) and string values from
+// lvt-data-* attributes, which are always transmitted as strings.
 func (a *ActionData) GetIntOk(key string) (int, bool) {
+	// Handle float64 (JSON numbers)
 	if v, ok := a.raw[key].(float64); ok {
 		return int(v), true
+	}
+	// Handle string values from lvt-data-* attributes
+	if v, ok := a.raw[key].(string); ok {
+		if i, err := strconv.Atoi(v); err == nil {
+			return i, true
+		}
 	}
 	return 0, false
 }
@@ -136,11 +147,21 @@ func (a *ActionData) GetFloat(key string) float64 {
 }
 
 // GetFloatOk extracts a float64 value with explicit success indicator.
-// Returns (value, true) if key exists and value is a number.
-// Returns (0, false) if key doesn't exist or value is not a number.
+// Returns (value, true) if key exists and value is a number or numeric string.
+// Returns (0, false) if key doesn't exist or value cannot be parsed as float.
+//
+// This method handles both JSON numbers (float64) and string values from
+// lvt-data-* attributes, which are always transmitted as strings.
 func (a *ActionData) GetFloatOk(key string) (float64, bool) {
+	// Handle float64 (JSON numbers)
 	if v, ok := a.raw[key].(float64); ok {
 		return v, true
+	}
+	// Handle string values from lvt-data-* attributes
+	if v, ok := a.raw[key].(string); ok {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f, true
+		}
 	}
 	return 0, false
 }
