@@ -56,6 +56,105 @@ func TestTreeNode_SetDynamic(t *testing.T) {
 	}
 }
 
+// TestTreeNode_SetDynamic_TypeGuard tests that incompatible types are converted to strings.
+func TestTreeNode_SetDynamic_TypeGuard(t *testing.T) {
+	// Define a custom struct (like EditingPosts) that should be converted to string
+	type EditingPosts struct {
+		Title   string
+		Content string
+	}
+
+	node := NewTreeNode()
+
+	// Test: raw struct should be converted to string
+	post := EditingPosts{Title: "Hello", Content: "World"}
+	node.SetDynamic("0", post)
+	if _, ok := node.Dynamics["0"].(string); !ok {
+		t.Errorf("Raw struct should be converted to string, got type %T", node.Dynamics["0"])
+	}
+
+	// Test: pointer to struct should also be converted to string
+	node.SetDynamic("1", &post)
+	if _, ok := node.Dynamics["1"].(string); !ok {
+		t.Errorf("Pointer to struct should be converted to string, got type %T", node.Dynamics["1"])
+	}
+
+	// Test: TreeNode pointer should be preserved (allowed type)
+	childTree := NewTreeNode()
+	childTree.SetDynamic("inner", "value")
+	node.SetDynamic("2", childTree)
+	if _, ok := node.Dynamics["2"].(*TreeNode); !ok {
+		t.Errorf("TreeNode pointer should be preserved, got type %T", node.Dynamics["2"])
+	}
+
+	// Test: primitive types should be preserved
+	node.SetDynamic("3", "string value")
+	node.SetDynamic("4", 42)
+	node.SetDynamic("5", true)
+	node.SetDynamic("6", 3.14)
+
+	if node.Dynamics["3"] != "string value" {
+		t.Errorf("String should be preserved, got %v", node.Dynamics["3"])
+	}
+	if node.Dynamics["4"] != 42 {
+		t.Errorf("Int should be preserved, got %v", node.Dynamics["4"])
+	}
+	if node.Dynamics["5"] != true {
+		t.Errorf("Bool should be preserved, got %v", node.Dynamics["5"])
+	}
+	if node.Dynamics["6"] != 3.14 {
+		t.Errorf("Float should be preserved, got %v", node.Dynamics["6"])
+	}
+}
+
+// TestIsTreeCompatible tests the isTreeCompatible function directly.
+func TestIsTreeCompatible(t *testing.T) {
+	type CustomStruct struct {
+		Field string
+	}
+
+	tests := []struct {
+		name       string
+		value      interface{}
+		compatible bool
+	}{
+		{"nil", nil, true},
+		{"string", "hello", true},
+		{"int", 42, true},
+		{"int64", int64(42), true},
+		{"float64", 3.14, true},
+		{"bool", true, true},
+		{"*TreeNode", NewTreeNode(), true},
+		{"*RangeData", &RangeData{}, true},
+		{"map[string]interface{}", map[string]interface{}{"key": "value"}, true},
+		{"[]interface{}", []interface{}{"a", "b"}, true},
+		// Typed slices should be compatible (valid JSON arrays)
+		{"[]string", []string{"a", "b", "c"}, true},
+		{"[]int", []int{1, 2, 3}, true},
+		{"[]CustomStruct", []CustomStruct{{Field: "a"}, {Field: "b"}}, true},
+		// Arrays should be compatible (valid JSON arrays)
+		{"[3]int", [3]int{1, 2, 3}, true},
+		{"[2]string", [2]string{"a", "b"}, true},
+		// Typed maps should be compatible (valid JSON objects)
+		{"map[string]string", map[string]string{"key": "value"}, true},
+		{"map[string]int", map[string]int{"count": 42}, true},
+		// Raw structs should NOT be compatible
+		{"custom struct", CustomStruct{Field: "test"}, false},
+		{"*custom struct", &CustomStruct{Field: "test"}, false},
+		// Channels and functions should NOT be compatible
+		{"chan int", make(chan int), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isTreeCompatible(tt.value)
+			if result != tt.compatible {
+				t.Errorf("isTreeCompatible(%s) = %v, want %v", tt.name, result, tt.compatible)
+			}
+		})
+	}
+}
+
 // TestTreeNode_GetDynamic tests getting dynamic values.
 func TestTreeNode_GetDynamic(t *testing.T) {
 	node := NewTreeNode()

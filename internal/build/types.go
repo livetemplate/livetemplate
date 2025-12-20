@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"reflect"
 )
 
 // TreeNode represents a node in the template tree structure with type safety.
@@ -172,11 +173,96 @@ func NewTreeMetadata(idKey string) *TreeMetadata {
 }
 
 // SetDynamic sets a dynamic value at the given position.
+// It includes a type guard to ensure only tree-compatible values are stored.
+// Non-compatible values (like raw structs) are converted to their string representation.
 func (tn *TreeNode) SetDynamic(position string, value interface{}) {
 	if tn.Dynamics == nil {
 		tn.Dynamics = make(map[string]interface{})
 	}
+
+	// Type guard: only allow tree-compatible values
+	if !isTreeCompatible(value) {
+		// Convert incompatible types (like raw structs) to string representation
+		tn.Dynamics[position] = fmt.Sprintf("%v", value)
+		return
+	}
 	tn.Dynamics[position] = value
+}
+
+// isTreeCompatible checks if a value is suitable for tree dynamics.
+// Tree dynamics should only contain:
+//   - Primitive values (string, int, float, bool)
+//   - TreeNode pointers (for nested tree structures)
+//   - RangeData pointers (for range operations)
+//   - Maps (for serialized data in diff operations)
+//   - Slices and arrays (valid JSON types)
+//
+// Raw structs and struct pointers (other than TreeNode/RangeData) are NOT tree-compatible
+// because they would serialize to JSON objects instead of strings.
+func isTreeCompatible(v interface{}) bool {
+	if v == nil {
+		return true
+	}
+
+	switch v.(type) {
+	// Primitive types - always compatible
+	case string, int, int64, int32, int16, int8, uint, uint64, uint32, uint16, uint8:
+		return true
+	case float64, float32:
+		return true
+	case bool:
+		return true
+
+	// Tree structure types - intentionally allowed (pointers only)
+	case *TreeNode:
+		return true
+	case *RangeData:
+		return true
+
+	// Maps are allowed (used in diff operations and for serialized tree data)
+	case map[string]interface{}:
+		return true
+
+	// Slices of interface{} are allowed (used in RangeData.Items)
+	case []interface{}:
+		return true
+	}
+
+	// For other types, use reflection to check the kind
+	rv := reflect.ValueOf(v)
+	kind := rv.Kind()
+
+	// Dereference pointers to check underlying type
+	if kind == reflect.Ptr {
+		if rv.IsNil() {
+			return true
+		}
+		kind = rv.Elem().Kind()
+	}
+
+	// Slices and arrays are valid JSON types - always compatible
+	if kind == reflect.Slice || kind == reflect.Array {
+		return true
+	}
+
+	// Maps are valid JSON types - always compatible
+	if kind == reflect.Map {
+		return true
+	}
+
+	// Structs (other than TreeNode/RangeData which are handled above) are not tree-compatible
+	// because they would serialize to JSON objects instead of strings
+	if kind == reflect.Struct {
+		return false
+	}
+
+	// Channels, functions, and other special types are not tree-compatible
+	if kind == reflect.Chan || kind == reflect.Func || kind == reflect.UnsafePointer {
+		return false
+	}
+
+	// All other types (including remaining primitives) are compatible
+	return true
 }
 
 // GetDynamic retrieves a dynamic value at the given position.
