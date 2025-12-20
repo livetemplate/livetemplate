@@ -128,8 +128,21 @@ func TestIsTreeCompatible(t *testing.T) {
 		{"*RangeData", &RangeData{}, true},
 		{"map[string]interface{}", map[string]interface{}{"key": "value"}, true},
 		{"[]interface{}", []interface{}{"a", "b"}, true},
+		// Typed slices should be compatible (valid JSON arrays)
+		{"[]string", []string{"a", "b", "c"}, true},
+		{"[]int", []int{1, 2, 3}, true},
+		{"[]CustomStruct", []CustomStruct{{Field: "a"}, {Field: "b"}}, true},
+		// Arrays should be compatible (valid JSON arrays)
+		{"[3]int", [3]int{1, 2, 3}, true},
+		{"[2]string", [2]string{"a", "b"}, true},
+		// Typed maps should be compatible (valid JSON objects)
+		{"map[string]string", map[string]string{"key": "value"}, true},
+		{"map[string]int", map[string]int{"count": 42}, true},
+		// Raw structs should NOT be compatible
 		{"custom struct", CustomStruct{Field: "test"}, false},
 		{"*custom struct", &CustomStruct{Field: "test"}, false},
+		// Channels and functions should NOT be compatible
+		{"chan int", make(chan int), false},
 	}
 
 	for _, tt := range tests {
