@@ -212,10 +212,10 @@ func isTreeCompatible(v interface{}) bool {
 	case bool:
 		return true
 
-	// Tree structure types - intentionally allowed
-	case *TreeNode, TreeNode:
+	// Tree structure types - intentionally allowed (pointers only)
+	case *TreeNode:
 		return true
-	case *RangeData, RangeData:
+	case *RangeData:
 		return true
 
 	// Maps are allowed (used in diff operations and for serialized tree data)
