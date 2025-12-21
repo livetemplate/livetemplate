@@ -1,11 +1,31 @@
 package parse
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"reflect"
 	"strings"
 	"text/template/parse"
 )
+
+// hashStatics creates a short hash key for a statics array.
+// Used for deduplicating statics in heterogeneous ranges.
+func hashStatics(statics []string) string {
+	h := sha256.New()
+	for _, s := range statics {
+		h.Write([]byte(s))
+		h.Write([]byte{0}) // separator
+	}
+	return hex.EncodeToString(h.Sum(nil))[:8] // 8 chars is enough for dedup
+}
+
+// rangeItemWithStatics holds an item tree and its statics together.
+type rangeItemWithStatics struct {
+	tree    *TreeNode
+	statics []string
+	hash    string
+}
 
 // handleRangeNode processes {{range}}...{{end}} constructs.
 // It supports slices, arrays, and maps with optional variable declarations.
@@ -89,11 +109,11 @@ func handleEmptyRange(node *parse.RangeNode, data interface{}, keyGen KeyGenerat
 }
 
 // handleSliceRange processes slice/array range iterations.
-// Builds a tree for each item, extracting statics from the first item.
+// Builds a tree for each item, collecting statics from all items for heterogeneous support.
 // The hasVarDecls flag determines whether to use variable context or direct dot context.
 func handleSliceRange(node *parse.RangeNode, collection reflect.Value, data interface{}, hasVarDecls bool, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
-	var itemTrees []interface{}
-	var itemStatics []string
+	// Collect all items with their statics
+	itemsWithStatics := make([]rangeItemWithStatics, 0, collection.Len())
 
 	for i := 0; i < collection.Len(); i++ {
 		item := collection.Index(i).Interface()
@@ -116,24 +136,26 @@ func handleSliceRange(node *parse.RangeNode, collection reflect.Value, data inte
 			return nil, fmt.Errorf("range item %d error: %w", i, err)
 		}
 
-		// Extract statics from first item and add item dynamics
-		if i == 0 {
-			itemStatics = itemTree.Statics
-		}
-		itemTrees = append(itemTrees, extractItemDynamics(itemTree))
+		// Collect item with its statics
+		itemsWithStatics = append(itemsWithStatics, rangeItemWithStatics{
+			tree:    itemTree,
+			statics: itemTree.Statics,
+			hash:    hashStatics(itemTree.Statics),
+		})
 	}
 
-	return buildRangeTree(itemTrees, itemStatics, ctx)
+	return buildRangeTreeWithStatics(itemsWithStatics, ctx)
 }
 
 // handleMapRange processes map range iterations.
 // Similar to handleSliceRange but iterates over map keys.
 // Note: Map iteration order is non-deterministic in Go.
 func handleMapRange(node *parse.RangeNode, collection reflect.Value, data interface{}, hasVarDecls bool, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
-	var itemTrees []interface{}
-	var itemStatics []string
+	// Collect all items with their statics
+	keys := collection.MapKeys()
+	itemsWithStatics := make([]rangeItemWithStatics, 0, len(keys))
 
-	for i, key := range collection.MapKeys() {
+	for i, key := range keys {
 		item := collection.MapIndex(key).Interface()
 
 		var itemTree *TreeNode
@@ -154,18 +176,96 @@ func handleMapRange(node *parse.RangeNode, collection reflect.Value, data interf
 			return nil, fmt.Errorf("range item %d error: %w", i, err)
 		}
 
-		// Extract statics from first item and add item dynamics
-		if i == 0 {
-			itemStatics = itemTree.Statics
-		}
-		itemTrees = append(itemTrees, extractItemDynamics(itemTree))
+		// Collect item with its statics
+		itemsWithStatics = append(itemsWithStatics, rangeItemWithStatics{
+			tree:    itemTree,
+			statics: itemTree.Statics,
+			hash:    hashStatics(itemTree.Statics),
+		})
 	}
 
-	return buildRangeTree(itemTrees, itemStatics, ctx)
+	return buildRangeTreeWithStatics(itemsWithStatics, ctx)
+}
+
+// buildRangeTreeWithStatics constructs the final range tree with per-item statics support.
+// For homogeneous ranges (all items same statics), uses single Statics array.
+// For heterogeneous ranges (items have different statics), uses StaticsMap with _sk keys.
+func buildRangeTreeWithStatics(items []rangeItemWithStatics, ctx *Context) (*TreeNode, error) {
+	if len(items) == 0 {
+		// Empty range
+		rangeTree := NewTreeNode()
+		if ctx.ShouldIncludeStatics() {
+			rangeTree.Statics = []string{""}
+		}
+		rangeTree.Range = NewRangeData([]interface{}{}, nil)
+		return rangeTree, nil
+	}
+
+	// Check if all items have the same statics (homogeneous)
+	firstHash := items[0].hash
+	isHomogeneous := true
+	for i := 1; i < len(items); i++ {
+		if items[i].hash != firstHash {
+			isHomogeneous = false
+			break
+		}
+	}
+
+	// Build item trees
+	itemTrees := make([]interface{}, len(items))
+
+	if isHomogeneous {
+		// All items share the same statics - use original format
+		for i, item := range items {
+			itemTrees[i] = extractItemDynamics(item.tree)
+		}
+
+		// Detect ID key from first item's statics
+		idKey := detectIDKey(items[0].statics)
+
+		rangeTree := NewTreeNode()
+		if ctx.ShouldIncludeStatics() {
+			rangeTree.Statics = items[0].statics
+		}
+		rangeTree.Range = NewRangeData(itemTrees, nil)
+		rangeTree.Metadata = NewTreeMetadata(idKey)
+		return rangeTree, nil
+	}
+
+	// Heterogeneous - items have different statics
+	// Build StaticsMap with hash-based deduplication
+	staticsMap := make(map[string][]string)
+	for _, item := range items {
+		if _, exists := staticsMap[item.hash]; !exists {
+			staticsMap[item.hash] = item.statics
+		}
+	}
+
+	// Build item trees with _sk (statics key) reference
+	for i, item := range items {
+		itemTree := extractItemDynamicsWithStaticsKey(item.tree, item.hash)
+		itemTrees[i] = itemTree
+	}
+
+	// Detect ID key from first item's statics (for metadata)
+	idKey := detectIDKey(items[0].statics)
+
+	rangeTree := NewTreeNode()
+	if ctx.ShouldIncludeStatics() {
+		// Use first item's statics as default (for backward compat)
+		rangeTree.Statics = items[0].statics
+	}
+	rangeTree.Range = &RangeData{
+		Items:      itemTrees,
+		Statics:    nil, // Not used when StaticsMap is present
+		StaticsMap: staticsMap,
+	}
+	rangeTree.Metadata = NewTreeMetadata(idKey)
+	return rangeTree, nil
 }
 
 // buildRangeTree constructs the final range tree with metadata.
-// Detects the ID key position from statics and creates a range tree with all items.
+// Deprecated: Use buildRangeTreeWithStatics instead for heterogeneous support.
 func buildRangeTree(itemTrees []interface{}, itemStatics []string, ctx *Context) (*TreeNode, error) {
 	// Detect ID key position in statics
 	idKey := detectIDKey(itemStatics)
@@ -214,6 +314,21 @@ func extractItemDynamics(itemTree *TreeNode) *TreeNode {
 	// This is more efficient than creating a new map and copying
 	return &TreeNode{
 		Dynamics: itemTree.Dynamics,
+	}
+}
+
+// extractItemDynamicsWithStaticsKey extracts dynamics and adds a _sk (statics key) field.
+// Used for heterogeneous ranges where each item may have different statics.
+func extractItemDynamicsWithStaticsKey(itemTree *TreeNode, staticsKey string) *TreeNode {
+	// Create a new dynamics map with the _sk key
+	dynamics := make(map[string]interface{}, len(itemTree.Dynamics)+1)
+	for k, v := range itemTree.Dynamics {
+		dynamics[k] = v
+	}
+	dynamics["_sk"] = staticsKey
+
+	return &TreeNode{
+		Dynamics: dynamics,
 	}
 }
 
