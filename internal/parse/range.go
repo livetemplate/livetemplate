@@ -9,6 +9,10 @@ import (
 	"text/template/parse"
 )
 
+// staticsHashPrefixLen is the number of hex characters to use for statics hash keys.
+// 16 hex chars (64 bits) provides low collision risk even with many unique statics variants.
+const staticsHashPrefixLen = 16
+
 // hashStatics creates a short hash key for a statics array.
 // Used for deduplicating statics in heterogeneous ranges.
 func hashStatics(statics []string) string {
@@ -17,7 +21,7 @@ func hashStatics(statics []string) string {
 		h.Write([]byte(s))
 		h.Write([]byte{0}) // separator
 	}
-	return hex.EncodeToString(h.Sum(nil))[:8] // 8 chars is enough for dedup
+	return hex.EncodeToString(h.Sum(nil))[:staticsHashPrefixLen]
 }
 
 // rangeItemWithStatics holds an item tree and its statics together.
@@ -251,10 +255,8 @@ func buildRangeTreeWithStatics(items []rangeItemWithStatics, ctx *Context) (*Tre
 	idKey := detectIDKey(items[0].statics)
 
 	rangeTree := NewTreeNode()
-	if ctx.ShouldIncludeStatics() {
-		// Use first item's statics as default (for backward compat)
-		rangeTree.Statics = items[0].statics
-	}
+	// In heterogeneous case, StaticsMap is the source of truth.
+	// Leave TreeNode.Statics nil to avoid ambiguity.
 	rangeTree.Range = &RangeData{
 		Items:      itemTrees,
 		Statics:    nil, // Not used when StaticsMap is present

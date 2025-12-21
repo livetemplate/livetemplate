@@ -39,8 +39,13 @@ type RangeData struct {
 	Items []interface{}
 
 	// Statics are the static HTML parts for rendering range items.
-	// Used when all items share the same statics (homogeneous ranges).
-	// When items have different statics, StaticsMap is used instead.
+	// When StaticsMap is not present, this slice is the authoritative source
+	// of statics and is used when all items share the same statics
+	// (homogeneous ranges).
+	//
+	// When StaticsMap is present (heterogeneous ranges), consumers should
+	// use StaticsMap to determine the statics for each item via the item's
+	// "_sk" (statics key) field. In this case, Statics should be nil.
 	Statics []string
 
 	// StaticsMap stores unique statics by hash key for heterogeneous ranges.
@@ -337,8 +342,9 @@ func (tn *TreeNode) MarshalJSON() ([]byte, error) {
 	// Add range data if present
 	if tn.Range != nil {
 		result["d"] = tn.Range.Items
-		// Include statics for range items (homogeneous case)
-		if len(tn.Range.Statics) > 0 {
+		// Include statics for range items (homogeneous case).
+		// When StaticsMap is present (heterogeneous case), Statics is not used.
+		if len(tn.Range.Statics) > 0 && len(tn.Range.StaticsMap) == 0 {
 			result["s"] = tn.Range.Statics
 		}
 		// Include statics map for heterogeneous ranges (different statics per item)
