@@ -72,12 +72,26 @@ func extractRangeData(oldValue, newValue interface{}) (
 
 	newItems = newNode.Range.Items
 
-	// IMPORTANT: For empty→items transition, use newNode.Statics (the item template)
-	// oldNode.Statics will be empty/nil for empty ranges
+	// IMPORTANT: For empty→items transition, we need proper item statics.
+	// oldNode.Statics will be minimal (e.g., [""]) for empty ranges.
+	// newNode.Statics may be nil if ShouldIncludeStatics() returned false.
+	// In that case, check newNode.Range.Statics which should have the item template.
 	if len(oldItems) == 0 && len(newItems) > 0 {
-		statics = newNode.Statics // Use new statics for first items
+		// Try newNode.Statics first (set if ShouldIncludeStatics was true)
+		if newNode.Statics != nil && len(newNode.Statics) > 0 {
+			statics = newNode.Statics
+		} else if newNode.Range != nil && len(newNode.Range.Statics) > 0 {
+			// Fall back to Range.Statics which should always have item template
+			statics = newNode.Range.Statics
+		}
+		// If both are empty/nil, statics remains as oldNode.Statics (minimal)
 	} else if staticsSlice, ok := statics.([]string); ok && len(staticsSlice) == 0 {
-		statics = newNode.Statics // Fallback if old statics empty
+		// Fallback if old statics empty
+		if newNode.Statics != nil && len(newNode.Statics) > 0 {
+			statics = newNode.Statics
+		} else if newNode.Range != nil && len(newNode.Range.Statics) > 0 {
+			statics = newNode.Range.Statics
+		}
 	}
 
 	// Extract metadata for empty→items transitions

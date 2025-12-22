@@ -35,10 +35,25 @@ type TreeNode struct {
 type RangeData struct {
 	// Items is the list of range operations
 	// Can contain: update, remove, append, prepend, insert, reorder operations
+	// Each item may have a "_sk" (statics key) field referencing StaticsMap
 	Items []interface{}
 
-	// Statics are the static HTML parts for rendering range items
+	// Statics are the static HTML parts for rendering range items.
+	// When StaticsMap is not present, this slice is the authoritative source
+	// of statics and is used when all items share the same statics
+	// (homogeneous ranges).
+	//
+	// When StaticsMap is present (heterogeneous ranges), consumers should
+	// use StaticsMap to determine the statics for each item via the item's
+	// "_sk" (statics key) field. In this case, Statics should be nil.
 	Statics []string
+
+	// StaticsMap stores unique statics by hash key for heterogeneous ranges.
+	// When items have different conditional branches, they produce different
+	// statics. This map deduplicates them: items reference their statics via
+	// a "_sk" (statics key) field pointing to this map.
+	// Wire format key: "sm"
+	StaticsMap map[string][]string
 }
 
 // TreeMetadata contains metadata about the tree node.
@@ -327,6 +342,15 @@ func (tn *TreeNode) MarshalJSON() ([]byte, error) {
 	// Add range data if present
 	if tn.Range != nil {
 		result["d"] = tn.Range.Items
+		// Include statics for range items (homogeneous case).
+		// When StaticsMap is present (heterogeneous case), Statics is not used.
+		if len(tn.Range.Statics) > 0 && len(tn.Range.StaticsMap) == 0 {
+			result["s"] = tn.Range.Statics
+		}
+		// Include statics map for heterogeneous ranges (different statics per item)
+		if len(tn.Range.StaticsMap) > 0 {
+			result["sm"] = tn.Range.StaticsMap
+		}
 	}
 
 	// Add metadata if present
@@ -378,11 +402,38 @@ func (tn *TreeNode) UnmarshalJSON(data []byte) error {
 		case "d":
 			// Parse range data
 			if items, ok := value.([]interface{}); ok {
-				tn.Range = &RangeData{
-					Items: items,
+				if tn.Range == nil {
+					tn.Range = &RangeData{}
 				}
+				tn.Range.Items = items
 			} else {
 				return fmt.Errorf("invalid range data: expected array, got %T", value)
+			}
+
+		case "sm":
+			// Parse statics map for heterogeneous ranges
+			if smRaw, ok := value.(map[string]interface{}); ok {
+				if tn.Range == nil {
+					tn.Range = &RangeData{}
+				}
+				tn.Range.StaticsMap = make(map[string][]string)
+				for hash, staticsRaw := range smRaw {
+					if statics, ok := staticsRaw.([]interface{}); ok {
+						staticsStrs := make([]string, len(statics))
+						for i, s := range statics {
+							if str, ok := s.(string); ok {
+								staticsStrs[i] = str
+							} else {
+								return fmt.Errorf("invalid statics map entry at %s[%d]: expected string, got %T", hash, i, s)
+							}
+						}
+						tn.Range.StaticsMap[hash] = staticsStrs
+					} else {
+						return fmt.Errorf("invalid statics map entry at %s: expected array, got %T", hash, staticsRaw)
+					}
+				}
+			} else {
+				return fmt.Errorf("invalid statics map: expected object, got %T", value)
 			}
 
 		case "m":
@@ -501,6 +552,15 @@ func (tn *TreeNode) Clone() *TreeNode {
 		if len(tn.Range.Statics) > 0 {
 			clone.Range.Statics = make([]string, len(tn.Range.Statics))
 			copy(clone.Range.Statics, tn.Range.Statics)
+		}
+		// Clone statics map for heterogeneous ranges
+		if len(tn.Range.StaticsMap) > 0 {
+			clone.Range.StaticsMap = make(map[string][]string, len(tn.Range.StaticsMap))
+			for hash, statics := range tn.Range.StaticsMap {
+				staticsCopy := make([]string, len(statics))
+				copy(staticsCopy, statics)
+				clone.Range.StaticsMap[hash] = staticsCopy
+			}
 		}
 	}
 

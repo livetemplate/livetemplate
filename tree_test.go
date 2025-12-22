@@ -379,7 +379,7 @@ func TestTreeNode_MarshalJSON(t *testing.T) {
 				)
 				return tn
 			}(),
-			expected: `{"d":[["u","item-1"]]}`,
+			expected: `{"d":[["u","item-1"]],"s":["<li>","</li>"]}`,
 		},
 		{
 			name: "node with metadata",
