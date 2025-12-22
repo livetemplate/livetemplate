@@ -228,6 +228,7 @@ func FindKeyPositionFromStatics(statics interface{}) int {
 }
 
 // GetItemKey extracts the key from a range item using the statics structure.
+// For heterogeneous ranges (StaticsMap), looks up the item's statics via its _sk field.
 func GetItemKey(item interface{}, statics interface{}) (string, bool) {
 	// Handle TreeNode items
 	if itemNode, ok := item.(*TreeNode); ok {
@@ -238,7 +239,10 @@ func GetItemKey(item interface{}, statics interface{}) (string, bool) {
 			}
 		}
 
-		keyPos := FindKeyPositionFromStatics(statics)
+		// Get the effective statics for this item
+		effectiveStatics := getItemStatics(itemNode, statics)
+
+		keyPos := FindKeyPositionFromStatics(effectiveStatics)
 		keyPosStr := fmt.Sprintf("%d", keyPos)
 
 		if key, exists := itemNode.GetDynamic(keyPosStr); exists {
@@ -253,6 +257,30 @@ func GetItemKey(item interface{}, statics interface{}) (string, bool) {
 	}
 
 	return "", false
+}
+
+// getItemStatics returns the effective statics for an item.
+// For homogeneous ranges, returns the shared statics.
+// For heterogeneous ranges (StaticsMap), looks up via the item's _sk field.
+func getItemStatics(itemNode *TreeNode, statics interface{}) interface{} {
+	// Check if statics is a StaticsMap (heterogeneous range)
+	if staticsMap, ok := statics.(map[string][]string); ok {
+		// Get the item's statics key
+		if sk, exists := itemNode.GetDynamic("_sk"); exists {
+			if skStr, ok := sk.(string); ok {
+				if itemStatics, found := staticsMap[skStr]; found {
+					return itemStatics
+				}
+			}
+		}
+		// Fallback: use first statics in map if no _sk found
+		for _, s := range staticsMap {
+			return s
+		}
+	}
+
+	// Homogeneous range or other format - return as-is
+	return statics
 }
 
 // GenerateItemHash creates a stable hash for a range item based on its content.
