@@ -61,6 +61,16 @@ func CalculateSignature(value interface{}) StructureSignature {
 		return SigEmpty
 	}
 
+	// Handle []string statics - hash the content for accurate comparison
+	// This is used when comparing range statics between renders
+	if statics, ok := value.([]string); ok {
+		if len(statics) == 0 {
+			return SigEmpty
+		}
+		staticsHash := HashStatics(statics)
+		return StructureSignature(fmt.Sprintf("statics:%s", staticsHash))
+	}
+
 	// Check if value is a TreeNode
 	node, ok := value.(*build.TreeNode)
 	if !ok {

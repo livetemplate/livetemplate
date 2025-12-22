@@ -13,6 +13,31 @@ import (
 // 16 hex chars (64 bits) provides low collision risk even with many unique statics variants.
 const staticsHashPrefixLen = 16
 
+// contextWithStatics returns a context that always includes statics.
+// Used for range item tree building where statics are required for:
+// - detectIDKey() to find key attribute position
+// - Range.Statics for diff operations
+// - handleEmptyToItemsTransition to send statics to client
+func contextWithStatics(ctx *Context) *Context {
+	if ctx == nil {
+		return &Context{
+			IsFirstRender:  true,
+			IncludeStatics: true,
+		}
+	}
+
+	// If already including statics, return as-is
+	if ctx.ShouldIncludeStatics() {
+		return ctx
+	}
+
+	// Create a copy with statics enabled
+	newCtx := *ctx
+	newCtx.IncludeStatics = true
+	newCtx.IsFirstRender = true // Ensure ShouldIncludeStatics() returns true
+	return &newCtx
+}
+
 // hashStatics creates a short hash key for a statics array.
 // Used for deduplicating statics in heterogeneous ranges.
 func hashStatics(statics []string) string {
@@ -119,6 +144,13 @@ func handleSliceRange(node *parse.RangeNode, collection reflect.Value, data inte
 	// Collect all items with their statics
 	itemsWithStatics := make([]rangeItemWithStatics, 0, collection.Len())
 
+	// IMPORTANT: Range items ALWAYS need statics for internal use:
+	// 1. detectIDKey() needs statics to find key attribute position
+	// 2. Range.Statics is used for diff operations (insert/append/prepend)
+	// 3. handleEmptyToItemsTransition needs statics to send to client
+	// Create a context that includes statics for item tree building.
+	itemCtx := contextWithStatics(ctx)
+
 	for i := 0; i < collection.Len(); i++ {
 		item := collection.Index(i).Interface()
 
@@ -126,14 +158,14 @@ func handleSliceRange(node *parse.RangeNode, collection reflect.Value, data inte
 		var err error
 
 		if hasVarDecls {
-			itemTree, err = executeRangeBodyWithVars(node, i, item, data, keyGen, ctx)
+			itemTree, err = executeRangeBodyWithVars(node, i, item, data, keyGen, itemCtx)
 		} else {
 			varCtx := &varContext{
 				parent: data,
 				vars:   newOrderedVars(),
 				dot:    item,
 			}
-			itemTree, err = buildTreeFromASTWithVars(node.List, varCtx, keyGen, ctx)
+			itemTree, err = buildTreeFromASTWithVars(node.List, varCtx, keyGen, itemCtx)
 		}
 
 		if err != nil {
@@ -159,6 +191,9 @@ func handleMapRange(node *parse.RangeNode, collection reflect.Value, data interf
 	keys := collection.MapKeys()
 	itemsWithStatics := make([]rangeItemWithStatics, 0, len(keys))
 
+	// IMPORTANT: Range items ALWAYS need statics for internal use (same as handleSliceRange)
+	itemCtx := contextWithStatics(ctx)
+
 	for i, key := range keys {
 		item := collection.MapIndex(key).Interface()
 
@@ -166,14 +201,14 @@ func handleMapRange(node *parse.RangeNode, collection reflect.Value, data interf
 		var err error
 
 		if hasVarDecls {
-			itemTree, err = executeRangeBodyWithVars(node, key.Interface(), item, data, keyGen, ctx)
+			itemTree, err = executeRangeBodyWithVars(node, key.Interface(), item, data, keyGen, itemCtx)
 		} else {
 			varCtx := &varContext{
 				parent: data,
 				vars:   newOrderedVars(),
 				dot:    item,
 			}
-			itemTree, err = buildTreeFromASTWithVars(node.List, varCtx, keyGen, ctx)
+			itemTree, err = buildTreeFromASTWithVars(node.List, varCtx, keyGen, itemCtx)
 		}
 
 		if err != nil {
