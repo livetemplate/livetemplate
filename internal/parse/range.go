@@ -231,7 +231,9 @@ func buildRangeTreeWithStatics(items []rangeItemWithStatics, ctx *Context) (*Tre
 		if ctx.ShouldIncludeStatics() {
 			rangeTree.Statics = items[0].statics
 		}
-		rangeTree.Range = NewRangeData(itemTrees, nil)
+		// Always set Range.Statics for internal use (diff operations),
+		// even when TreeNode.Statics is nil (not included in wire format).
+		rangeTree.Range = NewRangeData(itemTrees, items[0].statics)
 		rangeTree.Metadata = NewTreeMetadata(idKey)
 		return rangeTree, nil
 	}
