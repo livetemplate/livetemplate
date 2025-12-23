@@ -13,11 +13,18 @@ import (
 // 16 hex chars (64 bits) provides low collision risk even with many unique statics variants.
 const staticsHashPrefixLen = 16
 
-// contextWithStatics returns a context that always includes statics.
-// Used for range item tree building where statics are required for:
-// - detectIDKey() to find key attribute position
-// - Range.Statics for diff operations
+// contextWithStatics returns a context that always includes statics for internal use.
+//
+// Range items ALWAYS need statics collected internally for:
+// - detectIDKey() to find key attribute position in statics
+// - Range.Statics for diff operations (insert/append/prepend)
 // - handleEmptyToItemsTransition to send statics to client
+//
+// Note: This affects internal tree building only. The wire format optimization
+// (stripping statics for updates) happens later in prepareTreeForClient().
+// Setting IsFirstRender=true here ensures ShouldIncludeStatics() returns true
+// regardless of CurrentPath checks - it's not semantically a "first render" but
+// rather a way to force statics inclusion for internal processing.
 func contextWithStatics(ctx *Context) *Context {
 	if ctx == nil {
 		return &Context{
@@ -31,10 +38,12 @@ func contextWithStatics(ctx *Context) *Context {
 		return ctx
 	}
 
-	// Create a copy with statics enabled
+	// Create a copy that forces statics inclusion.
+	// We set IsFirstRender=true because ShouldIncludeStatics() checks it first,
+	// bypassing CurrentPath/ClientStructures checks that might return false.
 	newCtx := *ctx
 	newCtx.IncludeStatics = true
-	newCtx.IsFirstRender = true // Ensure ShouldIncludeStatics() returns true
+	newCtx.IsFirstRender = true
 	return &newCtx
 }
 

@@ -263,8 +263,17 @@ func GetItemKey(item interface{}, statics interface{}) (string, bool) {
 // For homogeneous ranges, returns the shared statics.
 // For heterogeneous ranges (StaticsMap), looks up via the item's _sk field.
 func getItemStatics(itemNode *TreeNode, statics interface{}) interface{} {
+	// Handle nil statics
+	if statics == nil {
+		return nil
+	}
+
 	// Check if statics is a StaticsMap (heterogeneous range)
 	if staticsMap, ok := statics.(map[string][]string); ok {
+		if len(staticsMap) == 0 {
+			return nil
+		}
+
 		// Get the item's statics key
 		if sk, exists := itemNode.GetDynamic("_sk"); exists {
 			if skStr, ok := sk.(string); ok {
@@ -273,10 +282,15 @@ func getItemStatics(itemNode *TreeNode, statics interface{}) interface{} {
 				}
 			}
 		}
-		// Fallback: use first statics in map if no _sk found
-		for _, s := range staticsMap {
-			return s
+
+		// Fallback: use first statics by sorted key for deterministic behavior
+		// This handles edge cases where _sk is missing (indicates a bug, but fail gracefully)
+		keys := make([]string, 0, len(staticsMap))
+		for k := range staticsMap {
+			keys = append(keys, k)
 		}
+		sort.Strings(keys)
+		return staticsMap[keys[0]]
 	}
 
 	// Homogeneous range or other format - return as-is
