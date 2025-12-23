@@ -578,6 +578,76 @@ func TestExtractRangeData_EmptyToItems(t *testing.T) {
 	}
 }
 
+// TestExtractRangeData_EmptyToItems_StaticsMap tests statics handling for
+// heterogeneous ranges (items with different statics due to conditionals).
+func TestExtractRangeData_EmptyToItems_StaticsMap(t *testing.T) {
+	// StaticsMap represents heterogeneous range where items have different statics
+	// This happens when items have conditionals like {{ if .Completed }}
+	staticsMap := map[string][]string{
+		"hash1": {"<li class=\"completed\">", "</li>"},
+		"hash2": {"<li>", "</li>"},
+	}
+
+	oldValue := &TreeNode{
+		Statics: []string{""}, // Minimal statics for empty range
+		Range: &RangeData{
+			Items: []interface{}{},
+		},
+	}
+
+	newValue := &TreeNode{
+		// Statics is nil for heterogeneous ranges
+		Statics: nil,
+		Range: &RangeData{
+			Items: []interface{}{
+				// Items with _sk field referencing their statics in StaticsMap
+				&TreeNode{Dynamics: map[string]interface{}{"0": "id1", "_sk": "hash1"}},
+				&TreeNode{Dynamics: map[string]interface{}{"0": "id2", "_sk": "hash2"}},
+			},
+			Statics:    nil, // Not used when StaticsMap is present
+			StaticsMap: staticsMap,
+		},
+	}
+
+	_, _, extractedStatics, _ := extractRangeData(oldValue, newValue)
+
+	// Should use StaticsMap for heterogeneous ranges in empty-to-items transition
+	extractedMap, ok := extractedStatics.(map[string][]string)
+	if !ok {
+		t.Fatalf("Expected map[string][]string, got %T", extractedStatics)
+	}
+
+	if !reflect.DeepEqual(extractedMap, staticsMap) {
+		t.Errorf("Extracted statics = %v, want %v", extractedMap, staticsMap)
+	}
+}
+
+// TestGetItemKey_WithStaticsMap tests key extraction for heterogeneous ranges.
+func TestGetItemKey_WithStaticsMap(t *testing.T) {
+	staticsMap := map[string][]string{
+		"hash1": {"<li id=\"", "\">", "</li>"},
+		"hash2": {"<li class=\"done\" id=\"", "\">", "</li>"},
+	}
+
+	// Item with _sk pointing to hash1
+	item := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0":   "todo-123",
+			"1":   "Test item",
+			"_sk": "hash1",
+		},
+	}
+
+	key, ok := GetItemKey(item, staticsMap)
+	if !ok {
+		t.Fatal("Expected to get key from item")
+	}
+
+	if key != "todo-123" {
+		t.Errorf("Expected key 'todo-123', got '%s'", key)
+	}
+}
+
 // TestGenerateRemovalOperations tests removal operation generation.
 func TestGenerateRemovalOperations(t *testing.T) {
 	oldItems := []interface{}{

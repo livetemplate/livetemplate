@@ -1,6 +1,8 @@
 package diff
 
-import "reflect"
+import (
+	"reflect"
+)
 
 // CompareTreesAndGetChangesWithPath compares two tree structures and returns minimal changes.
 // This is the main orchestrator function that coordinates the comparison process.

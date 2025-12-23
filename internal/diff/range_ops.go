@@ -76,6 +76,8 @@ func extractRangeData(oldValue, newValue interface{}) (
 	// oldNode.Statics will be minimal (e.g., [""]) for empty ranges.
 	// newNode.Statics may be nil if ShouldIncludeStatics() returned false.
 	// In that case, check newNode.Range.Statics which should have the item template.
+	// For heterogeneous ranges (items with different statics due to conditionals),
+	// Range.Statics is nil and Range.StaticsMap contains per-item statics.
 	if len(oldItems) == 0 && len(newItems) > 0 {
 		// Try newNode.Statics first (set if ShouldIncludeStatics was true)
 		if newNode.Statics != nil && len(newNode.Statics) > 0 {
@@ -83,14 +85,20 @@ func extractRangeData(oldValue, newValue interface{}) (
 		} else if newNode.Range != nil && len(newNode.Range.Statics) > 0 {
 			// Fall back to Range.Statics which should always have item template
 			statics = newNode.Range.Statics
+		} else if newNode.Range != nil && len(newNode.Range.StaticsMap) > 0 {
+			// Heterogeneous range: use StaticsMap (items have _sk field referencing it)
+			statics = newNode.Range.StaticsMap
 		}
-		// If both are empty/nil, statics remains as oldNode.Statics (minimal)
+		// If all are empty/nil, statics remains as oldNode.Statics (minimal)
 	} else if staticsSlice, ok := statics.([]string); ok && len(staticsSlice) == 0 {
 		// Fallback if old statics empty
 		if newNode.Statics != nil && len(newNode.Statics) > 0 {
 			statics = newNode.Statics
 		} else if newNode.Range != nil && len(newNode.Range.Statics) > 0 {
 			statics = newNode.Range.Statics
+		} else if newNode.Range != nil && len(newNode.Range.StaticsMap) > 0 {
+			// Heterogeneous range fallback
+			statics = newNode.Range.StaticsMap
 		}
 	}
 
@@ -321,6 +329,7 @@ func handleIndividualInsertions(
 }
 
 // CompareRangeItemsForChanges compares two range items and returns a map of field changes.
+// For heterogeneous ranges, uses the item's _sk field to look up its specific statics.
 func CompareRangeItemsForChanges(oldItem, newItem interface{}, statics interface{}) map[string]interface{} {
 	changes := make(map[string]interface{})
 
@@ -331,8 +340,11 @@ func CompareRangeItemsForChanges(oldItem, newItem interface{}, statics interface
 		return changes
 	}
 
+	// Get effective statics for the new item (handles both homogeneous and heterogeneous)
+	effectiveStatics := getItemStatics(newItemNode, statics)
+
 	// Find key position to skip it
-	keyPos := FindKeyPositionFromStatics(statics)
+	keyPos := FindKeyPositionFromStatics(effectiveStatics)
 	keyPosStr := fmt.Sprintf("%d", keyPos)
 
 	// Compare each field (except the key field)
