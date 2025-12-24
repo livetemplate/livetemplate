@@ -416,3 +416,167 @@ func TestActionMessage_DataInitialization(t *testing.T) {
 		})
 	}
 }
+
+// TestQueryParamsToData tests conversion of URL query parameters to data map.
+func TestQueryParamsToData(t *testing.T) {
+	tests := []struct {
+		name     string
+		url      string
+		expected map[string]interface{}
+	}{
+		{
+			name:     "empty query string",
+			url:      "http://example.com/",
+			expected: map[string]interface{}{},
+		},
+		{
+			name: "single param",
+			url:  "http://example.com/?error=invalid",
+			expected: map[string]interface{}{
+				"error": "invalid",
+			},
+		},
+		{
+			name: "multiple params",
+			url:  "http://example.com/?error=invalid&success=created",
+			expected: map[string]interface{}{
+				"error":   "invalid",
+				"success": "created",
+			},
+		},
+		{
+			name: "repeated param becomes slice",
+			url:  "http://example.com/?tags=a&tags=b&tags=c",
+			expected: map[string]interface{}{
+				"tags": []interface{}{"a", "b", "c"},
+			},
+		},
+		{
+			name: "mixed single and repeated",
+			url:  "http://example.com/?error=bad&items=1&items=2",
+			expected: map[string]interface{}{
+				"error": "bad",
+				"items": []interface{}{"1", "2"},
+			},
+		},
+		{
+			name: "url encoded values",
+			url:  "http://example.com/?email=test%40example.com&name=John+Doe",
+			expected: map[string]interface{}{
+				"email": "test@example.com",
+				"name":  "John Doe",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", tt.url, nil)
+			got := QueryParamsToData(req)
+
+			if len(got) != len(tt.expected) {
+				t.Errorf("length mismatch: got %d, want %d", len(got), len(tt.expected))
+			}
+
+			for key, want := range tt.expected {
+				gotVal := got[key]
+
+				// Handle slice comparison
+				if wantSlice, ok := want.([]interface{}); ok {
+					gotSlice, ok := gotVal.([]interface{})
+					if !ok {
+						t.Errorf("key %q: expected slice, got %T", key, gotVal)
+						continue
+					}
+					if len(gotSlice) != len(wantSlice) {
+						t.Errorf("key %q: slice length mismatch: got %d, want %d", key, len(gotSlice), len(wantSlice))
+						continue
+					}
+					for i, v := range wantSlice {
+						if gotSlice[i] != v {
+							t.Errorf("key %q[%d]: got %v, want %v", key, i, gotSlice[i], v)
+						}
+					}
+				} else if gotVal != want {
+					t.Errorf("key %q: got %v, want %v", key, gotVal, want)
+				}
+			}
+		})
+	}
+}
+
+// TestMergeData tests merging of data maps with precedence.
+func TestMergeData(t *testing.T) {
+	tests := []struct {
+		name     string
+		base     map[string]interface{}
+		override map[string]interface{}
+		expected map[string]interface{}
+	}{
+		{
+			name:     "both nil",
+			base:     nil,
+			override: nil,
+			expected: nil,
+		},
+		{
+			name:     "base nil",
+			base:     nil,
+			override: map[string]interface{}{"a": "1"},
+			expected: map[string]interface{}{"a": "1"},
+		},
+		{
+			name:     "override nil",
+			base:     map[string]interface{}{"a": "1"},
+			override: nil,
+			expected: map[string]interface{}{"a": "1"},
+		},
+		{
+			name:     "both empty",
+			base:     map[string]interface{}{},
+			override: map[string]interface{}{},
+			expected: map[string]interface{}{},
+		},
+		{
+			name:     "override wins on conflict",
+			base:     map[string]interface{}{"a": "base", "b": "base"},
+			override: map[string]interface{}{"a": "override"},
+			expected: map[string]interface{}{"a": "override", "b": "base"},
+		},
+		{
+			name:     "no conflict - both preserved",
+			base:     map[string]interface{}{"a": "1"},
+			override: map[string]interface{}{"b": "2"},
+			expected: map[string]interface{}{"a": "1", "b": "2"},
+		},
+		{
+			name:     "form data over query params",
+			base:     map[string]interface{}{"error": "query_error", "page": "1"},
+			override: map[string]interface{}{"error": "form_error", "username": "test"},
+			expected: map[string]interface{}{"error": "form_error", "page": "1", "username": "test"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := MergeData(tt.base, tt.override)
+
+			if tt.expected == nil {
+				if got != nil {
+					t.Errorf("expected nil, got %v", got)
+				}
+				return
+			}
+
+			if len(got) != len(tt.expected) {
+				t.Errorf("length mismatch: got %d, want %d", len(got), len(tt.expected))
+			}
+
+			for key, want := range tt.expected {
+				if got[key] != want {
+					t.Errorf("key %q: got %v, want %v", key, got[key], want)
+				}
+			}
+		})
+	}
+}

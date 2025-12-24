@@ -145,3 +145,41 @@ func WriteUpdateToWebSocket(conn ConnectionSender, update []byte) error {
 type ConnectionSender interface {
 	Send(messageType int, data []byte) error
 }
+
+// QueryParamsToData converts URL query parameters to action data map.
+// Single values are stored as strings, multiple values as []interface{}.
+func QueryParamsToData(r *http.Request) map[string]interface{} {
+	data := make(map[string]interface{})
+	for key, values := range r.URL.Query() {
+		if len(values) == 1 {
+			data[key] = values[0]
+		} else if len(values) > 1 {
+			interfaceSlice := make([]interface{}, len(values))
+			for i, v := range values {
+				interfaceSlice[i] = v
+			}
+			data[key] = interfaceSlice
+		}
+	}
+	return data
+}
+
+// MergeData merges base data with override data.
+// Override values take precedence over base values.
+func MergeData(base, override map[string]interface{}) map[string]interface{} {
+	if len(base) == 0 {
+		return override
+	}
+	if len(override) == 0 {
+		return base
+	}
+
+	merged := make(map[string]interface{}, len(base)+len(override))
+	for k, v := range base {
+		merged[k] = v
+	}
+	for k, v := range override {
+		merged[k] = v
+	}
+	return merged
+}
