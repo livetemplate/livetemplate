@@ -650,7 +650,10 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		// Clear previous errors
 		connSt.clearErrors()
 
-		// Create Context for action dispatch
+		// Create Context for action dispatch.
+		// Note: Query params from initial WS connection are NOT included here.
+		// They're already available in Mount/OnConnect via wsQueryData.
+		// WebSocket actions use only msg.Data from the client message.
 		actionCtx := NewContext(r.Context(), msg.Action, msg.Data)
 		actionCtx = actionCtx.WithUserID(userID)
 		actionCtx = actionCtx.WithUploads(uploadRegistry)

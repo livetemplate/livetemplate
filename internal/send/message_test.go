@@ -437,6 +437,13 @@ func TestQueryParamsToData(t *testing.T) {
 			},
 		},
 		{
+			name: "empty value",
+			url:  "http://example.com/?error=",
+			expected: map[string]interface{}{
+				"error": "",
+			},
+		},
+		{
 			name: "multiple params",
 			url:  "http://example.com/?error=invalid&success=created",
 			expected: map[string]interface{}{
