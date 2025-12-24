@@ -375,19 +375,32 @@ func handleNestedTreeNodeChange(
 	exists bool,
 	changes map[string]interface{},
 ) {
+	// Check if old value is also a TreeNode
+	oldTreeNode, oldIsTree := oldValue.(*TreeNode)
+
+	// If old value is NOT a TreeNode (e.g., empty string "", nil, or non-existent),
+	// but new value IS a TreeNode, we need to send the full new TreeNode WITH statics,
+	// because the client doesn't have these statics cached for this field.
+	// This handles transitions like:
+	// - "" -> {"s":["checked"]} (empty string to TreeNode)
+	// - nil -> {"s":["checked"]} (non-existent field to TreeNode)
+	if !oldIsTree {
+		// Transition from non-TreeNode (or non-existent) to TreeNode - send full new value with statics
+		changes[fieldKey] = PrepareTreeForClient(newTreeNode, false)
+		return
+	}
+
 	stripped := PrepareTreeForClient(newTreeNode, true)
 
 	// If stripping results in empty, check if this is a meaningful change
 	if IsEmpty(stripped) {
 		// Check if old value would also strip to empty
 		// If both old and new are static-only (strip to empty), don't send the change
-		if exists {
-			if oldTreeNode, ok := oldValue.(*TreeNode); ok {
-				oldStripped := PrepareTreeForClient(oldTreeNode, true)
-				if IsEmpty(oldStripped) {
-					// Both old and new strip to empty - no meaningful change, skip it
-					return
-				}
+		if exists && oldIsTree {
+			oldStripped := PrepareTreeForClient(oldTreeNode, true)
+			if IsEmpty(oldStripped) {
+				// Both old and new strip to empty - no meaningful change, skip it
+				return
 			}
 		}
 		// Old doesn't exist or had dynamics, send empty string to indicate removal of dynamics

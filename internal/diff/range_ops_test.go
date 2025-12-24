@@ -970,3 +970,98 @@ func TestCompareRangeItemsForChanges_Changed(t *testing.T) {
 		t.Error("Unchanged field should not be in changes")
 	}
 }
+
+// TestCompareRangeItemsForChanges_NonTreeNodeToTreeNode tests transition from
+// non-TreeNode value (e.g., empty string) to TreeNode with statics.
+// This is the case for checkbox toggles: "" -> {"s":["checked"]}
+func TestCompareRangeItemsForChanges_NonTreeNodeToTreeNode(t *testing.T) {
+	// Old item has an empty string for the checkbox field
+	oldItem := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": "task1",
+			"1": "",         // Empty string (unchecked checkbox)
+			"2": "Task text",
+		},
+	}
+
+	// New item has a TreeNode with statics for the checkbox field
+	newItem := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": "task1",
+			"1": &TreeNode{Statics: []string{"checked"}}, // TreeNode with statics (checked)
+			"2": "Task text",
+		},
+	}
+
+	statics := []string{"<li>", "<input ", ">", "</li>"}
+
+	changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
+
+	// Should have 1 change for field "1"
+	if len(changes) != 1 {
+		t.Fatalf("Expected 1 change, got %d: %v", len(changes), changes)
+	}
+
+	// The change should include the full TreeNode with statics (not stripped)
+	change1, ok := changes["1"]
+	if !ok {
+		t.Fatal("Expected change for field '1'")
+	}
+
+	// PrepareTreeForClient returns *TreeNode when clientHasStatics=false
+	changeTree, ok := change1.(*TreeNode)
+	if !ok {
+		t.Fatalf("Expected *TreeNode for change, got %T: %v", change1, change1)
+	}
+
+	// Statics should be preserved (["checked"])
+	if len(changeTree.Statics) != 1 || changeTree.Statics[0] != "checked" {
+		t.Errorf("Expected statics ['checked'], got %v", changeTree.Statics)
+	}
+}
+
+// TestCompareRangeItemsForChanges_NonExistentToTreeNode tests transition from
+// non-existent field to TreeNode with statics.
+func TestCompareRangeItemsForChanges_NonExistentToTreeNode(t *testing.T) {
+	// Old item doesn't have the field at all
+	oldItem := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": "task1",
+			// Field "1" doesn't exist
+		},
+	}
+
+	// New item has a TreeNode with statics for the field
+	newItem := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": "task1",
+			"1": &TreeNode{Statics: []string{"checked"}}, // TreeNode with statics
+		},
+	}
+
+	statics := []string{"<li>", "<input ", ">", "</li>"}
+
+	changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
+
+	// Should have 1 change for field "1"
+	if len(changes) != 1 {
+		t.Fatalf("Expected 1 change, got %d: %v", len(changes), changes)
+	}
+
+	// The change should include the full TreeNode with statics
+	change1, ok := changes["1"]
+	if !ok {
+		t.Fatal("Expected change for field '1'")
+	}
+
+	// PrepareTreeForClient returns *TreeNode when clientHasStatics=false
+	changeTree, ok := change1.(*TreeNode)
+	if !ok {
+		t.Fatalf("Expected *TreeNode for change, got %T: %v", change1, change1)
+	}
+
+	// Statics should be preserved (["checked"])
+	if len(changeTree.Statics) != 1 || changeTree.Statics[0] != "checked" {
+		t.Errorf("Expected statics ['checked'], got %v", changeTree.Statics)
+	}
+}
