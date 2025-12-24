@@ -378,11 +378,14 @@ func handleNestedTreeNodeChange(
 	// Check if old value is also a TreeNode
 	oldTreeNode, oldIsTree := oldValue.(*TreeNode)
 
-	// If old value is NOT a TreeNode (e.g., empty string "") but new value IS a TreeNode,
-	// we need to send the full new TreeNode WITH statics, because the client doesn't have
-	// these statics cached for this field. This handles transitions like "" -> {"s":["checked"]}
-	if !oldIsTree && exists {
-		// Transition from non-TreeNode to TreeNode - send full new value with statics
+	// If old value is NOT a TreeNode (e.g., empty string "", nil, or non-existent),
+	// but new value IS a TreeNode, we need to send the full new TreeNode WITH statics,
+	// because the client doesn't have these statics cached for this field.
+	// This handles transitions like:
+	// - "" -> {"s":["checked"]} (empty string to TreeNode)
+	// - nil -> {"s":["checked"]} (non-existent field to TreeNode)
+	if !oldIsTree {
+		// Transition from non-TreeNode (or non-existent) to TreeNode - send full new value with statics
 		changes[fieldKey] = PrepareTreeForClient(newTreeNode, false)
 		return
 	}
