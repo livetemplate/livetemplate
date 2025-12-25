@@ -19,6 +19,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/livetemplate/livetemplate/internal/observe"
+	"github.com/livetemplate/livetemplate/internal/send"
 	"github.com/livetemplate/livetemplate/internal/session"
 	"github.com/livetemplate/livetemplate/internal/upload"
 	"github.com/livetemplate/livetemplate/internal/uploadtypes"
@@ -532,8 +533,9 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		groupID: groupID,
 	}
 
-	// Create context for lifecycle methods
-	lifecycleCtx := NewContext(context.Background(), "", nil)
+	// Create context for lifecycle methods with query params from initial connection
+	wsQueryData := send.QueryParamsToData(r)
+	lifecycleCtx := NewContext(context.Background(), "", wsQueryData)
 	lifecycleCtx = lifecycleCtx.WithUserID(userID)
 
 	// Call Mount for new sessions
@@ -648,7 +650,10 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		// Clear previous errors
 		connSt.clearErrors()
 
-		// Create Context for action dispatch
+		// Create Context for action dispatch.
+		// Note: Query params from initial WS connection are NOT included here.
+		// They're already available in Mount/OnConnect via wsQueryData.
+		// WebSocket actions use only msg.Data from the client message.
 		actionCtx := NewContext(r.Context(), msg.Action, msg.Data)
 		actionCtx = actionCtx.WithUserID(userID)
 		actionCtx = actionCtx.WithUploads(uploadRegistry)
@@ -787,8 +792,9 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		groupID: groupID,
 	}
 
-	// Create lifecycle context
-	lifecycleCtx := NewContext(ctx, "", nil)
+	// Create lifecycle context with query params
+	queryData := send.QueryParamsToData(r)
+	lifecycleCtx := NewContext(ctx, "", queryData)
 	lifecycleCtx = lifecycleCtx.WithUserID(userID)
 
 	// Call Mount for new sessions
@@ -836,8 +842,11 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Clear previous errors
 	connSt.clearErrors()
 
+	// Merge query params with form data (form data takes precedence)
+	mergedData := send.MergeData(queryData, msg.Data)
+
 	// Create Context for action dispatch (with HTTP context for SetCookie, Redirect)
-	actionCtx := NewContext(r.Context(), msg.Action, msg.Data)
+	actionCtx := NewContext(r.Context(), msg.Action, mergedData)
 	actionCtx = actionCtx.WithUserID(userID)
 	actionCtx = actionCtx.WithHTTP(w, r)
 	actionCtx = actionCtx.WithUploads(uploadRegistry)
