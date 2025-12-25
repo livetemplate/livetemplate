@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<a name="v0.7.6"></a>
+## [v0.7.6] - 2025-12-25
+
+### Features
+
+- add query parameter support for Mount and action handlers ([#78](https://github.com/livefir/livetemplate/issues/78))
+
+
 <a name="v0.7.5"></a>
 ## [v0.7.5] - 2025-12-24
 
@@ -379,7 +387,8 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.7.5...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.7.6...HEAD
+[v0.7.6]: https://github.com/livefir/livetemplate/compare/v0.7.5...v0.7.6
 [v0.7.5]: https://github.com/livefir/livetemplate/compare/v0.7.4...v0.7.5
 [v0.7.4]: https://github.com/livefir/livetemplate/compare/v0.7.3...v0.7.4
 [v0.7.3]: https://github.com/livefir/livetemplate/compare/v0.7.2...v0.7.3
