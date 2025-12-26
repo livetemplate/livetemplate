@@ -10,6 +10,7 @@ Complete guide to error handling in LiveTemplate applications.
 - [Template Error Display](#template-error-display)
 - [Client-Side Error Handling](#client-side-error-handling)
 - [Error Types](#error-types)
+- [Flash Messages](#flash-messages)
 - [Best Practices](#best-practices)
 - [Examples](#examples)
 
@@ -387,6 +388,156 @@ if err := ctx.BindAndValidate(&input, validate); err != nil {
     return err // Returns MultiError with field names
 }
 ```
+
+---
+
+## Flash Messages
+
+Flash messages are page-level notifications that don't affect form success/failure. Unlike field errors, flash messages are used for success confirmations, warnings, and informational messages.
+
+### Errors vs Flash Messages
+
+| Aspect | Field Errors | Flash Messages |
+|--------|--------------|----------------|
+| **Purpose** | Validation failures | User notifications |
+| **Source** | Action method errors | Manual `ctx.SetFlash()` |
+| **Affects Success** | Yes | No |
+| **Example** | "Email is invalid" | "Profile updated!" |
+
+### Setting Flash Messages
+
+Use `ctx.SetFlash(key, message)` in your action methods:
+
+```go
+func (c *ProfileController) Update(state ProfileState, ctx *livetemplate.Context) (ProfileState, error) {
+    var input ProfileInput
+    if err := ctx.BindAndValidate(&input, validate); err != nil {
+        return state, err
+    }
+
+    if err := c.DB.UpdateProfile(input); err != nil {
+        return state, fmt.Errorf("failed to update profile: %w", err)
+    }
+
+    // Set success flash message
+    ctx.SetFlash("success", "Profile updated successfully!")
+
+    state.Profile = input.ToProfile()
+    return state, nil
+}
+```
+
+### Flash with Errors
+
+You can set flash messages alongside validation errors:
+
+```go
+func (c *TodoController) BulkDelete(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    var input struct {
+        IDs []string `json:"ids"`
+    }
+    if err := ctx.Bind(&input); err != nil {
+        return state, err
+    }
+
+    var errs livetemplate.MultiError
+    deleted := 0
+
+    for _, id := range input.IDs {
+        if err := c.DB.DeleteTodo(id); err != nil {
+            errs = append(errs, livetemplate.NewFieldError(id, err.Error()))
+        } else {
+            deleted++
+        }
+    }
+
+    // Report partial success via flash
+    if deleted > 0 {
+        ctx.SetFlash("info", fmt.Sprintf("Deleted %d items", deleted))
+    }
+
+    if len(errs) > 0 {
+        return state, errs
+    }
+
+    return state, nil
+}
+```
+
+### Flash Helpers
+
+| Helper | Description | Returns |
+|--------|-------------|---------|
+| `.lvt.HasFlash "key"` | Check if flash exists | `bool` |
+| `.lvt.Flash "key"` | Get flash message | `string` |
+| `.lvt.HasAnyFlash` | Check if any flash exists | `bool` |
+| `.lvt.AllFlash` | Get all flash messages | `map[string]string` |
+
+### Template Examples
+
+**Success notification:**
+```html
+{{if .lvt.HasFlash "success"}}
+    <div class="alert alert-success">
+        {{.lvt.Flash "success"}}
+    </div>
+{{end}}
+```
+
+**Multiple flash types:**
+```html
+{{if .lvt.HasFlash "success"}}
+    <div class="alert alert-success">{{.lvt.Flash "success"}}</div>
+{{end}}
+
+{{if .lvt.HasFlash "error"}}
+    <div class="alert alert-danger">{{.lvt.Flash "error"}}</div>
+{{end}}
+
+{{if .lvt.HasFlash "warning"}}
+    <div class="alert alert-warning">{{.lvt.Flash "warning"}}</div>
+{{end}}
+
+{{if .lvt.HasFlash "info"}}
+    <div class="alert alert-info">{{.lvt.Flash "info"}}</div>
+{{end}}
+```
+
+**Display all flash messages:**
+```html
+{{range $key, $msg := .lvt.AllFlash}}
+    <div class="alert alert-{{$key}}">{{$msg}}</div>
+{{end}}
+```
+
+### Common Flash Keys
+
+| Key | Purpose | Example |
+|-----|---------|---------|
+| `success` | Operation completed | "Profile saved!" |
+| `error` | Non-field error | "Connection failed" |
+| `warning` | Caution message | "Session expiring soon" |
+| `info` | Informational | "New features available" |
+
+### Flash Message Lifecycle
+
+Flash messages follow a "show once" pattern:
+
+1. **Set**: Action handler calls `ctx.SetFlash("success", "Saved!")`
+2. **Render**: Template displays flash via `{{.lvt.Flash "success"}}`
+3. **Clear**: Flash is automatically cleared after the response is sent
+
+**Key behaviors:**
+- Flash messages are **per-connection**, not shared across browser tabs
+- Flash is cleared after each action response (show once pattern)
+- Flash does **NOT** survive page refresh or WebSocket reconnects (not persisted to session)
+- Flash messages don't affect `ResponseMetadata.Success` (only field errors do)
+
+**Multi-tab behavior:**
+If a user has multiple tabs open (same session group):
+- Tab 1 triggers action → sets flash → Tab 1 sees flash
+- Tab 2 does NOT see Tab 1's flash (flash is per-connection)
+- State changes ARE broadcast to Tab 2 (state is shared)
 
 ---
 

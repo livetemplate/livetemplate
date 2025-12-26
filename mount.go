@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	lvtcontext "github.com/livetemplate/livetemplate/internal/context"
 	"github.com/livetemplate/livetemplate/internal/observe"
 	"github.com/livetemplate/livetemplate/internal/send"
 	"github.com/livetemplate/livetemplate/internal/session"
@@ -125,7 +126,7 @@ func (b *broadcaster) Send() error {
 
 	// Generate tree update
 	var buf bytes.Buffer
-	err := b.template.ExecuteUpdates(&buf, b.state.state, b.state.getErrors())
+	err := b.template.ExecuteUpdates(&buf, b.state.state, b.state.getMessages())
 	if err != nil {
 		return fmt.Errorf("template update failed: %w", err)
 	}
@@ -140,8 +141,8 @@ func (b *broadcaster) Send() error {
 	response := UpdateResponse{
 		Tree: tree,
 		Meta: &ResponseMetadata{
-			Success: len(b.state.getErrors()) == 0,
-			Errors:  b.state.getErrors(),
+			Success: !b.state.hasErrors(),
+			Errors:  b.state.getErrorsOnly(),
 		},
 	}
 
@@ -219,9 +220,9 @@ func (s *liveSession) triggerActionLocal(action string, data map[string]interfac
 
 		// Create connection state for this action
 		connSt := &connState{
-			state:   typedState,
-			errors:  make(map[string]string),
-			groupID: conn.GroupID,
+			state:    typedState,
+			messages: make(map[string]string),
+			groupID:  conn.GroupID,
 		}
 
 		// Create context with timeout for server-initiated actions
@@ -230,6 +231,7 @@ func (s *liveSession) triggerActionLocal(action string, data map[string]interfac
 		// Create Context for action dispatch
 		actionCtx := NewContext(ctx, action, data)
 		actionCtx = actionCtx.WithUserID(s.userID)
+		actionCtx = actionCtx.WithFlashSetter(connSt)
 
 		// Dispatch action using Controller+State pattern
 		newState, actionErr := DispatchWithState(s.handler.config.Controller, connSt.state, actionCtx)
@@ -262,8 +264,8 @@ func (s *liveSession) triggerActionLocal(action string, data map[string]interfac
 
 		cancel()
 
-		// Send update to this connection
-		if err := s.handler.sendUpdate(conn, connSt.state); err != nil {
+		// Send update to this connection (with flash messages)
+		if err := s.handler.sendUpdate(conn, connSt.state, connSt.getMessages()); err != nil {
 			slog.Warn("TriggerAction sendUpdate failed",
 				slog.String("user_id", s.userID),
 				slog.String("action", action),
@@ -271,6 +273,9 @@ func (s *liveSession) triggerActionLocal(action string, data map[string]interfac
 			errCount++
 			continue
 		}
+
+		// Clear flash messages after successful send
+		connSt.clearFlash()
 	}
 
 	if errCount > 0 {
@@ -363,32 +368,93 @@ type liveHandler struct {
 }
 
 type connState struct {
-	state    interface{}       // Typed state (cloned per session)
-	errors   map[string]string // Field errors from last action
-	errorsMu sync.RWMutex      // Mutex for thread-safe error access
-	groupID  string            // Session/group ID for this connection
+	state      interface{}       // Typed state (cloned per session)
+	messages   map[string]string // Unified map: field errors + flash (prefixed with "_flash:")
+	messagesMu sync.RWMutex      // Mutex for thread-safe message access
+	groupID    string            // Session/group ID for this connection
 }
 
 func (c *connState) setError(field, message string) {
-	c.errorsMu.Lock()
-	defer c.errorsMu.Unlock()
-	c.errors[field] = message
+	c.messagesMu.Lock()
+	defer c.messagesMu.Unlock()
+	c.messages[field] = message
 }
 
 func (c *connState) clearErrors() {
-	c.errorsMu.Lock()
-	defer c.errorsMu.Unlock()
-	c.errors = make(map[string]string)
+	c.messagesMu.Lock()
+	defer c.messagesMu.Unlock()
+	// Clear field errors but preserve flash messages for the upcoming render.
+	// Flash messages are cleared separately after the response is sent.
+	newMessages := make(map[string]string)
+	for k, v := range c.messages {
+		if strings.HasPrefix(k, lvtcontext.FlashPrefix) {
+			newMessages[k] = v
+		}
+	}
+	c.messages = newMessages
 }
 
-func (c *connState) getErrors() map[string]string {
-	c.errorsMu.RLock()
-	defer c.errorsMu.RUnlock()
+func (c *connState) getMessages() map[string]string {
+	c.messagesMu.RLock()
+	defer c.messagesMu.RUnlock()
 
 	// Return copy to avoid race conditions
-	result := make(map[string]string, len(c.errors))
-	for k, v := range c.errors {
+	result := make(map[string]string, len(c.messages))
+	for k, v := range c.messages {
 		result[k] = v
+	}
+	return result
+}
+
+func (c *connState) setFlash(key, message string) {
+	// Validate key: reject keys with ":" or starting with "_"
+	if strings.Contains(key, ":") || strings.HasPrefix(key, "_") {
+		slog.Warn("Invalid flash key ignored",
+			slog.String("key", key),
+			slog.String("reason", "keys must not contain ':' or start with '_'"))
+		return
+	}
+
+	c.messagesMu.Lock()
+	defer c.messagesMu.Unlock()
+	c.messages[lvtcontext.FlashPrefix+key] = message
+}
+
+func (c *connState) clearFlash() {
+	c.messagesMu.Lock()
+	defer c.messagesMu.Unlock()
+	// Only clear flash messages (preserve errors)
+	newMessages := make(map[string]string)
+	for k, v := range c.messages {
+		if !strings.HasPrefix(k, lvtcontext.FlashPrefix) {
+			newMessages[k] = v
+		}
+	}
+	c.messages = newMessages
+}
+
+// hasErrors returns true if there are any field errors (non-flash messages)
+func (c *connState) hasErrors() bool {
+	c.messagesMu.RLock()
+	defer c.messagesMu.RUnlock()
+	for k := range c.messages {
+		if !strings.HasPrefix(k, lvtcontext.FlashPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// getErrorsOnly returns only field errors (excludes flash messages)
+func (c *connState) getErrorsOnly() map[string]string {
+	c.messagesMu.RLock()
+	defer c.messagesMu.RUnlock()
+
+	result := make(map[string]string)
+	for k, v := range c.messages {
+		if !strings.HasPrefix(k, lvtcontext.FlashPrefix) {
+			result[k] = v
+		}
 	}
 	return result
 }
@@ -526,11 +592,11 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}()
 	log.Printf("Registered connection (total: %d, groups: %d)", h.registry.Count(), h.registry.GroupCount())
 
-	// Create connection state (errors are per-connection, not shared)
+	// Create connection state (messages are per-connection, not shared)
 	connSt := &connState{
-		state:   typedState,
-		errors:  make(map[string]string),
-		groupID: groupID,
+		state:    typedState,
+		messages: make(map[string]string),
+		groupID:  groupID,
 	}
 
 	// Create context for lifecycle methods with query params from initial connection
@@ -564,7 +630,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Send initial tree
 	var buf bytes.Buffer
-	err = connTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getErrors())
+	err = connTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getMessages())
 	if err != nil {
 		log.Printf("Failed to generate initial tree: %v", err)
 		return
@@ -579,8 +645,8 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	response := UpdateResponse{
 		Tree: tree,
 		Meta: &ResponseMetadata{
-			Success: len(connSt.getErrors()) == 0,
-			Errors:  connSt.getErrors(),
+			Success: !connSt.hasErrors(),
+			Errors:  connSt.getErrorsOnly(),
 		},
 	}
 
@@ -657,6 +723,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		actionCtx := NewContext(r.Context(), msg.Action, msg.Data)
 		actionCtx = actionCtx.WithUserID(userID)
 		actionCtx = actionCtx.WithUploads(uploadRegistry)
+		actionCtx = actionCtx.WithFlashSetter(connSt)
 
 		// Dispatch action using Controller+State pattern
 		newState, actionErr := DispatchWithState(h.config.Controller, connSt.state, actionCtx)
@@ -689,7 +756,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 		// Generate tree update
 		buf.Reset()
-		if err = connTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getErrors()); err != nil {
+		if err = connTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getMessages()); err != nil {
 			log.Printf("Template update execution failed: %v", err)
 			continue
 		}
@@ -703,8 +770,8 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		response := UpdateResponse{
 			Tree: tree,
 			Meta: &ResponseMetadata{
-				Success: len(connSt.getErrors()) == 0,
-				Errors:  connSt.getErrors(),
+				Success: !connSt.hasErrors(),
+				Errors:  connSt.getErrorsOnly(),
 				Action:  msg.Action,
 			},
 		}
@@ -719,6 +786,9 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			log.Printf("WebSocket write failed: %v", err)
 			break
 		}
+
+		// Clear flash messages after successful render (flash shows once per action)
+		connSt.clearFlash()
 	}
 
 	log.Printf("Client disconnected: user=%q, group=%q (remaining: %d)", userID, groupID, h.registry.Count())
@@ -785,11 +855,11 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		typedState = storedState
 	}
 
-	// Create connection state (errors are per-request)
+	// Create connection state (messages are per-request)
 	connSt := &connState{
-		state:   typedState,
-		errors:  make(map[string]string),
-		groupID: groupID,
+		state:    typedState,
+		messages: make(map[string]string),
+		groupID:  groupID,
 	}
 
 	// Create lifecycle context with query params
@@ -811,7 +881,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Handle GET request for initial HTML page
 	if r.Method == http.MethodGet {
-		err := h.config.Template.Execute(w, connSt.state, connSt.getErrors())
+		err := h.config.Template.Execute(w, connSt.state, connSt.getMessages())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
@@ -850,6 +920,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	actionCtx = actionCtx.WithUserID(userID)
 	actionCtx = actionCtx.WithHTTP(w, r)
 	actionCtx = actionCtx.WithUploads(uploadRegistry)
+	actionCtx = actionCtx.WithFlashSetter(connSt)
 
 	// Dispatch action using Controller+State pattern
 	newState, actionErr := DispatchWithState(h.config.Controller, connSt.state, actionCtx)
@@ -886,7 +957,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Generate tree update
 	var buf bytes.Buffer
-	if err = httpTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getErrors()); err != nil {
+	if err = httpTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getMessages()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -900,8 +971,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	response := UpdateResponse{
 		Tree: tree,
 		Meta: &ResponseMetadata{
-			Success: len(connSt.getErrors()) == 0,
-			Errors:  connSt.getErrors(),
+			Success: !connSt.hasErrors(),
+			Errors:  connSt.getErrorsOnly(),
 			Action:  msg.Action,
 		},
 	}
@@ -909,7 +980,11 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
+
+	// Clear flash messages after successful render (flash shows once per action)
+	connSt.clearFlash()
 }
 
 // newUploadRegistry creates a new upload registry instance.
@@ -985,7 +1060,7 @@ func (h *liveHandler) autoBroadcastToGroup(groupID string, data interface{}, exc
 
 		var errCount int
 		for _, conn := range conns {
-			if err := h.sendUpdate(conn, data); err != nil {
+			if err := h.sendUpdate(conn, data, nil); err != nil {
 				slog.Warn("Auto-broadcast send failed",
 					slog.String("group_id", groupID),
 					slog.String("user_id", conn.UserID),
@@ -1003,8 +1078,9 @@ func (h *liveHandler) autoBroadcastToGroup(groupID string, data interface{}, exc
 	}()
 }
 
-// sendUpdate generates and sends a template update to a single connection
-func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}) error {
+// sendUpdate generates and sends a template update to a single connection.
+// If messages is nil, no errors/flash will be included in the template.
+func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}, messages map[string]string) error {
 	// Use the connection's cloned template for independent tree diffing
 	var buf bytes.Buffer
 
@@ -1015,8 +1091,7 @@ func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}) err
 	}
 
 	// Generate update using the connection's template
-	// We pass the data directly - no errors to report for broadcasts
-	err := tmpl.ExecuteUpdates(&buf, data, nil)
+	err := tmpl.ExecuteUpdates(&buf, data, messages)
 	if err != nil {
 		return fmt.Errorf("template update failed: %w", err)
 	}
@@ -1063,7 +1138,7 @@ func (h *liveHandler) handlePubSubMessage(msg *pubsub.BroadcastMessage) error {
 		// Broadcast to all local connections
 		connections := h.registry.GetAll()
 		for _, conn := range connections {
-			if err := h.sendUpdate(conn, data); err != nil {
+			if err := h.sendUpdate(conn, data, nil); err != nil {
 				log.Printf("PubSub: Failed to send global broadcast to connection: %v", err)
 			}
 		}
@@ -1073,7 +1148,7 @@ func (h *liveHandler) handlePubSubMessage(msg *pubsub.BroadcastMessage) error {
 		// Broadcast to all connections in the group
 		connections := h.registry.GetByGroup(msg.GroupID)
 		for _, conn := range connections {
-			if err := h.sendUpdate(conn, data); err != nil {
+			if err := h.sendUpdate(conn, data, nil); err != nil {
 				log.Printf("PubSub: Failed to send group broadcast to connection: %v", err)
 			}
 		}
@@ -1083,7 +1158,7 @@ func (h *liveHandler) handlePubSubMessage(msg *pubsub.BroadcastMessage) error {
 		// Broadcast to all connections for the user
 		connections := h.registry.GetByUser(msg.UserID)
 		for _, conn := range connections {
-			if err := h.sendUpdate(conn, data); err != nil {
+			if err := h.sendUpdate(conn, data, nil); err != nil {
 				log.Printf("PubSub: Failed to send user broadcast to connection: %v", err)
 			}
 		}
@@ -1120,9 +1195,9 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 	for _, conn := range connections {
 		// Create connection state for this action
 		state := &connState{
-			state:   conn.Stores, // conn.Stores holds the typed state
-			errors:  make(map[string]string),
-			groupID: conn.GroupID,
+			state:    conn.Stores, // conn.Stores holds the typed state
+			messages: make(map[string]string),
+			groupID:  conn.GroupID,
 		}
 
 		// Create context with timeout for server-initiated actions
@@ -1131,6 +1206,7 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 		// Create Context for action dispatch
 		actionCtx := NewContext(ctx, msg.Action, msg.Data)
 		actionCtx = actionCtx.WithUserID(msg.UserID)
+		actionCtx = actionCtx.WithFlashSetter(state)
 
 		// Dispatch action using Controller+State pattern
 		newState, actionErr := DispatchWithState(h.config.Controller, state.state, actionCtx)
@@ -1163,8 +1239,8 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 		// Persist state after action
 		h.config.SessionStore.Set(context.Background(), conn.GroupID, state.state)
 
-		// Send update to this connection
-		if err := h.sendUpdate(conn, state.state); err != nil {
+		// Send update to this connection (with flash messages)
+		if err := h.sendUpdate(conn, state.state, state.getMessages()); err != nil {
 			slog.Warn("PubSub: sendUpdate failed for server action",
 				slog.String("user_id", msg.UserID),
 				slog.String("action", msg.Action),
@@ -1172,6 +1248,9 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 			errCount++
 			continue
 		}
+
+		// Clear flash messages after successful send
+		state.clearFlash()
 	}
 
 	if errCount > 0 {
@@ -1681,10 +1760,13 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 
 	// Send tree update to current connection to show upload completion immediately
 	// This replaces the old upload_complete response to avoid duplicate messages
-	if err := h.sendUpdate(connection, state.state); err != nil {
+	if err := h.sendUpdate(connection, state.state, state.getMessages()); err != nil {
 		log.Printf("Failed to send tree update after upload: %v", err)
 		return nil // Don't fail the upload, just skip the update
 	}
+
+	// Clear flash messages after successful send
+	state.clearFlash()
 
 	// Broadcast to other connections in the same group to show upload completion in all tabs
 	// Exclude the current connection since we just sent the update above

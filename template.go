@@ -1110,24 +1110,26 @@ func (t *Template) parseComponentTemplates(sets []*TemplateSet) error {
 // Note: Phases execute in order 1→4→5→2 (Render before Build) to minimize
 // response latency. Tree building for caching happens after sending the response.
 //
-// Optional errors parameter provides error context for template via lvt namespace.
-func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]string) error {
+// The optional messages parameter provides context for templates via the lvt namespace.
+// It contains both field validation errors and flash messages (prefixed with "_flash:").
+// Field errors affect ResponseMetadata.Success; flash messages don't.
+func (t *Template) Execute(wr io.Writer, data interface{}, messages ...map[string]string) error {
 	if t.tmpl == nil {
 		return fmt.Errorf("template not parsed")
 	}
 
-	var errMap map[string]string
-	if len(errors) > 0 {
-		errMap = errors[0]
+	var msgMap map[string]string
+	if len(messages) > 0 {
+		msgMap = messages[0]
 	}
-	if errMap == nil {
-		errMap = make(map[string]string)
+	if msgMap == nil {
+		msgMap = make(map[string]string)
 	}
 
 	// Phase 1: Parse (already completed during New/Parse/ParseFiles/ParseGlob)
 
 	// Phase 4: Render HTML (done first to get the HTML for output)
-	html, err := t.renderHTML(data, errMap)
+	html, err := t.renderHTML(data, msgMap)
 	if err != nil {
 		return err
 	}
@@ -1140,7 +1142,7 @@ func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]
 
 	// Phase 2: Build tree structure for caching (includes Phase 3: Diff internally)
 	// This is done after sending the response for performance
-	_, treeErr := t.buildTree(data, errMap)
+	_, treeErr := t.buildTree(data, msgMap)
 	if treeErr != nil {
 		// Don't fail if tree generation fails, just skip caching
 		// Log for observability so operators can detect degraded performance
@@ -1166,24 +1168,26 @@ func (t *Template) Execute(wr io.Writer, data interface{}, errors ...map[string]
 // - First call: Returns complete tree with static structure ("s" key) and dynamic values
 // - Subsequent calls: Returns only dynamic values that have changed (cache-aware)
 //
-// Optional errors parameter provides error context for template via lvt namespace.
-func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, errors ...map[string]string) error {
+// The optional messages parameter provides context for templates via the lvt namespace.
+// It contains both field validation errors and flash messages (prefixed with "_flash:").
+// Field errors affect ResponseMetadata.Success; flash messages don't.
+func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, messages ...map[string]string) error {
 	if t.tmpl == nil {
 		return fmt.Errorf("template not parsed")
 	}
 
-	var errMap map[string]string
-	if len(errors) > 0 {
-		errMap = errors[0]
+	var msgMap map[string]string
+	if len(messages) > 0 {
+		msgMap = messages[0]
 	}
-	if errMap == nil {
-		errMap = make(map[string]string)
+	if msgMap == nil {
+		msgMap = make(map[string]string)
 	}
 
 	// Phase 1: Parse (already completed during New/Parse/ParseFiles/ParseGlob)
 
 	// Phase 2: Build tree structure (includes Phase 3: Diff and Phase 4: Render internally)
-	tree, err := t.buildTree(data, errMap)
+	tree, err := t.buildTree(data, msgMap)
 	if err != nil {
 		return fmt.Errorf("tree generation failed: %w", err)
 	}
@@ -1199,8 +1203,8 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, errors ...map[
 // generateTreeInternalWithErrors delegates to buildTree() for backward compatibility.
 // DEPRECATED: Tests should use buildTree() directly. This wrapper exists only for
 // existing test code and will be removed in a future version.
-func (t *Template) generateTreeInternalWithErrors(data interface{}, errors map[string]string) (*treeNode, error) {
-	return t.buildTree(data, errors)
+func (t *Template) generateTreeInternalWithErrors(data interface{}, messages map[string]string) (*treeNode, error) {
+	return t.buildTree(data, messages)
 }
 
 // markAllStructuresAsSeen recursively traverses a tree and marks all structures in the registry.
@@ -1558,16 +1562,16 @@ func getStoreName(store interface{}) string {
 // This is the main entry point for Phase 2 (Build).
 // It handles both initial renders and subsequent updates internally.
 // Thread-safe: uses single lock acquisition to prevent race conditions.
-func (t *Template) buildTree(data interface{}, errors map[string]string) (*treeNode, error) {
+func (t *Template) buildTree(data interface{}, messages map[string]string) (*treeNode, error) {
 	// Phase 4: Render HTML (needed for tree building)
 	// Do this outside the lock as it's CPU-intensive and doesn't modify shared state
-	currentHTML, err := t.renderHTML(data, errors)
+	currentHTML, err := t.renderHTML(data, messages)
 	if err != nil {
 		return nil, err
 	}
 
 	// Convert data to include lvt context (with upload registry if set)
-	dataWithLvt := context.AddLvtToData(data, errors, t.config.DevMode, t.uploadRegistry)
+	dataWithLvt := context.AddLvtToData(data, messages, t.config.DevMode, t.uploadRegistry)
 
 	// Note: We don't invalidate the expression cache here because:
 	// 1. Cache keys include dataHash, so changed data naturally misses the cache
@@ -1637,17 +1641,17 @@ func (t *Template) buildTree(data interface{}, errors map[string]string) (*treeN
 // renderHTML executes the template and returns the rendered HTML.
 // This is the main entry point for Phase 4 (Render).
 // It handles both full renders and update renders internally.
-func (t *Template) renderHTML(data interface{}, errors map[string]string) (string, error) {
+func (t *Template) renderHTML(data interface{}, messages map[string]string) (string, error) {
 	if t.tmpl == nil {
 		return "", fmt.Errorf("template not parsed")
 	}
 
-	if errors == nil {
-		errors = make(map[string]string)
+	if messages == nil {
+		messages = make(map[string]string)
 	}
 
 	// Execute template with lvt context
-	htmlBytes, err := context.ExecuteTemplateWithContext(t.tmpl, data, errors, t.config.DevMode, t.uploadRegistry)
+	htmlBytes, err := context.ExecuteTemplateWithContext(t.tmpl, data, messages, t.config.DevMode, t.uploadRegistry)
 	if err != nil {
 		return "", err
 	}

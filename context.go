@@ -14,6 +14,17 @@ type UploadAccessor interface {
 	GetCompletedUploads(name string) []*uploadtypes.UploadEntry
 }
 
+// FlashSetter allows setting flash messages from action handlers.
+// Flash messages are page-level notifications (success, info, warning, error)
+// that don't affect ResponseMetadata.Success (unlike field validation errors).
+//
+// The setFlash method is intentionally unexported to ensure flash messages
+// are only set through the Context.SetFlash() public API, maintaining
+// consistent behavior and preventing direct message map manipulation.
+type FlashSetter interface {
+	setFlash(key, message string)
+}
+
 // Context provides unified context for all controller lifecycle methods.
 // It embeds context.Context for cancellation, timeout, and request-scoped values.
 //
@@ -23,11 +34,12 @@ type UploadAccessor interface {
 // - Action methods(state, ctx) - user interactions
 type Context struct {
 	context.Context
-	action  string
-	data    *ActionData
-	userID  string
-	session Session
-	uploads UploadAccessor
+	action      string
+	data        *ActionData
+	userID      string
+	session     Session
+	uploads     UploadAccessor
+	flashSetter FlashSetter
 
 	// HTTP context (nil for WebSocket actions)
 	w http.ResponseWriter
@@ -234,4 +246,33 @@ func (c *Context) GetCompletedUploads(name string) []*uploadtypes.UploadEntry {
 		return nil
 	}
 	return c.uploads.GetCompletedUploads(name)
+}
+
+// WithFlashSetter returns a new Context with the given flash setter.
+func (c *Context) WithFlashSetter(setter FlashSetter) *Context {
+	newCtx := *c
+	newCtx.flashSetter = setter
+	return &newCtx
+}
+
+// SetFlash sets a flash message that will be available in templates via .lvt.Flash(key).
+// Flash messages are page-level notifications (success, info, warning, error).
+// Unlike field errors, flash messages don't affect ResponseMetadata.Success.
+// Flash messages are cleared after each render, so they appear only once.
+//
+// Common keys: "success", "error", "info", "warning"
+//
+// Key conventions:
+//   - Use simple, lowercase keys (e.g., "success", "error")
+//   - Avoid keys containing colons or special characters
+//   - Do not use keys starting with "_flash:" (reserved for internal use)
+//
+// Example:
+//
+//	ctx.SetFlash("success", "Changes saved successfully!")
+//	ctx.SetFlash("error", "Failed to process your request.")
+func (c *Context) SetFlash(key, message string) {
+	if c.flashSetter != nil {
+		c.flashSetter.setFlash(key, message)
+	}
 }
