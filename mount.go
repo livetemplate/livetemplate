@@ -264,8 +264,8 @@ func (s *liveSession) triggerActionLocal(action string, data map[string]interfac
 
 		cancel()
 
-		// Send update to this connection
-		if err := s.handler.sendUpdate(conn, connSt.state); err != nil {
+		// Send update to this connection (with flash messages)
+		if err := s.handler.sendUpdate(conn, connSt.state, connSt.getMessages()); err != nil {
 			slog.Warn("TriggerAction sendUpdate failed",
 				slog.String("user_id", s.userID),
 				slog.String("action", action),
@@ -273,6 +273,9 @@ func (s *liveSession) triggerActionLocal(action string, data map[string]interfac
 			errCount++
 			continue
 		}
+
+		// Clear flash messages after successful send
+		connSt.clearFlash()
 	}
 
 	if errCount > 0 {
@@ -404,6 +407,14 @@ func (c *connState) getMessages() map[string]string {
 }
 
 func (c *connState) setFlash(key, message string) {
+	// Validate key: reject keys with ":" or starting with "_"
+	if strings.Contains(key, ":") || strings.HasPrefix(key, "_") {
+		slog.Warn("Invalid flash key ignored",
+			slog.String("key", key),
+			slog.String("reason", "keys must not contain ':' or start with '_'"))
+		return
+	}
+
 	c.messagesMu.Lock()
 	defer c.messagesMu.Unlock()
 	c.messages[lvtcontext.FlashPrefix+key] = message
@@ -1049,7 +1060,7 @@ func (h *liveHandler) autoBroadcastToGroup(groupID string, data interface{}, exc
 
 		var errCount int
 		for _, conn := range conns {
-			if err := h.sendUpdate(conn, data); err != nil {
+			if err := h.sendUpdate(conn, data, nil); err != nil {
 				slog.Warn("Auto-broadcast send failed",
 					slog.String("group_id", groupID),
 					slog.String("user_id", conn.UserID),
@@ -1067,8 +1078,9 @@ func (h *liveHandler) autoBroadcastToGroup(groupID string, data interface{}, exc
 	}()
 }
 
-// sendUpdate generates and sends a template update to a single connection
-func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}) error {
+// sendUpdate generates and sends a template update to a single connection.
+// If messages is nil, no errors/flash will be included in the template.
+func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}, messages map[string]string) error {
 	// Use the connection's cloned template for independent tree diffing
 	var buf bytes.Buffer
 
@@ -1079,8 +1091,7 @@ func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}) err
 	}
 
 	// Generate update using the connection's template
-	// We pass the data directly - no messages (errors/flash) for broadcasts
-	err := tmpl.ExecuteUpdates(&buf, data, nil)
+	err := tmpl.ExecuteUpdates(&buf, data, messages)
 	if err != nil {
 		return fmt.Errorf("template update failed: %w", err)
 	}
@@ -1127,7 +1138,7 @@ func (h *liveHandler) handlePubSubMessage(msg *pubsub.BroadcastMessage) error {
 		// Broadcast to all local connections
 		connections := h.registry.GetAll()
 		for _, conn := range connections {
-			if err := h.sendUpdate(conn, data); err != nil {
+			if err := h.sendUpdate(conn, data, nil); err != nil {
 				log.Printf("PubSub: Failed to send global broadcast to connection: %v", err)
 			}
 		}
@@ -1137,7 +1148,7 @@ func (h *liveHandler) handlePubSubMessage(msg *pubsub.BroadcastMessage) error {
 		// Broadcast to all connections in the group
 		connections := h.registry.GetByGroup(msg.GroupID)
 		for _, conn := range connections {
-			if err := h.sendUpdate(conn, data); err != nil {
+			if err := h.sendUpdate(conn, data, nil); err != nil {
 				log.Printf("PubSub: Failed to send group broadcast to connection: %v", err)
 			}
 		}
@@ -1147,7 +1158,7 @@ func (h *liveHandler) handlePubSubMessage(msg *pubsub.BroadcastMessage) error {
 		// Broadcast to all connections for the user
 		connections := h.registry.GetByUser(msg.UserID)
 		for _, conn := range connections {
-			if err := h.sendUpdate(conn, data); err != nil {
+			if err := h.sendUpdate(conn, data, nil); err != nil {
 				log.Printf("PubSub: Failed to send user broadcast to connection: %v", err)
 			}
 		}
@@ -1228,8 +1239,8 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 		// Persist state after action
 		h.config.SessionStore.Set(context.Background(), conn.GroupID, state.state)
 
-		// Send update to this connection
-		if err := h.sendUpdate(conn, state.state); err != nil {
+		// Send update to this connection (with flash messages)
+		if err := h.sendUpdate(conn, state.state, state.getMessages()); err != nil {
 			slog.Warn("PubSub: sendUpdate failed for server action",
 				slog.String("user_id", msg.UserID),
 				slog.String("action", msg.Action),
@@ -1237,6 +1248,9 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 			errCount++
 			continue
 		}
+
+		// Clear flash messages after successful send
+		state.clearFlash()
 	}
 
 	if errCount > 0 {
@@ -1746,10 +1760,13 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 
 	// Send tree update to current connection to show upload completion immediately
 	// This replaces the old upload_complete response to avoid duplicate messages
-	if err := h.sendUpdate(connection, state.state); err != nil {
+	if err := h.sendUpdate(connection, state.state, state.getMessages()); err != nil {
 		log.Printf("Failed to send tree update after upload: %v", err)
 		return nil // Don't fail the upload, just skip the update
 	}
+
+	// Clear flash messages after successful send
+	state.clearFlash()
 
 	// Broadcast to other connections in the same group to show upload completion in all tabs
 	// Exclude the current connection since we just sent the update above

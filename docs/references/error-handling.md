@@ -529,8 +529,8 @@ Flash messages follow a "show once" pattern:
 
 **Key behaviors:**
 - Flash messages are **per-connection**, not shared across browser tabs
-- Flash persists until the next action completes (survives page refresh via session)
-- Each action clears any previous flash messages after rendering
+- Flash is cleared after each action response (show once pattern)
+- Flash does **NOT** survive page refresh or WebSocket reconnects (not persisted to session)
 - Flash messages don't affect `ResponseMetadata.Success` (only field errors do)
 
 **Multi-tab behavior:**
