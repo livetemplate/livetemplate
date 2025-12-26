@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	lvtcontext "github.com/livetemplate/livetemplate/internal/context"
 	"github.com/livetemplate/livetemplate/internal/observe"
 	"github.com/livetemplate/livetemplate/internal/send"
 	"github.com/livetemplate/livetemplate/internal/session"
@@ -363,10 +364,6 @@ type liveHandler struct {
 	isShutdown   atomic.Bool
 }
 
-// flashPrefix is used to identify flash messages in the unified messages map.
-// Flash messages are stored as "_flash:key" -> "message".
-const flashPrefix = "_flash:"
-
 type connState struct {
 	state      interface{}       // Typed state (cloned per session)
 	messages   map[string]string // Unified map: field errors + flash (prefixed with "_flash:")
@@ -383,10 +380,11 @@ func (c *connState) setError(field, message string) {
 func (c *connState) clearErrors() {
 	c.messagesMu.Lock()
 	defer c.messagesMu.Unlock()
-	// Only clear non-flash messages (preserve flash for this render)
+	// Clear field errors but preserve flash messages for the upcoming render.
+	// Flash messages are cleared separately after the response is sent.
 	newMessages := make(map[string]string)
 	for k, v := range c.messages {
-		if strings.HasPrefix(k, flashPrefix) {
+		if strings.HasPrefix(k, lvtcontext.FlashPrefix) {
 			newMessages[k] = v
 		}
 	}
@@ -408,7 +406,7 @@ func (c *connState) getMessages() map[string]string {
 func (c *connState) setFlash(key, message string) {
 	c.messagesMu.Lock()
 	defer c.messagesMu.Unlock()
-	c.messages[flashPrefix+key] = message
+	c.messages[lvtcontext.FlashPrefix+key] = message
 }
 
 func (c *connState) clearFlash() {
@@ -417,7 +415,7 @@ func (c *connState) clearFlash() {
 	// Only clear flash messages (preserve errors)
 	newMessages := make(map[string]string)
 	for k, v := range c.messages {
-		if !strings.HasPrefix(k, flashPrefix) {
+		if !strings.HasPrefix(k, lvtcontext.FlashPrefix) {
 			newMessages[k] = v
 		}
 	}
@@ -429,7 +427,7 @@ func (c *connState) hasErrors() bool {
 	c.messagesMu.RLock()
 	defer c.messagesMu.RUnlock()
 	for k := range c.messages {
-		if !strings.HasPrefix(k, flashPrefix) {
+		if !strings.HasPrefix(k, lvtcontext.FlashPrefix) {
 			return true
 		}
 	}
@@ -443,7 +441,7 @@ func (c *connState) getErrorsOnly() map[string]string {
 
 	result := make(map[string]string)
 	for k, v := range c.messages {
-		if !strings.HasPrefix(k, flashPrefix) {
+		if !strings.HasPrefix(k, lvtcontext.FlashPrefix) {
 			result[k] = v
 		}
 	}
@@ -777,6 +775,9 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			log.Printf("WebSocket write failed: %v", err)
 			break
 		}
+
+		// Clear flash messages after successful render (flash shows once per action)
+		connSt.clearFlash()
 	}
 
 	log.Printf("Client disconnected: user=%q, group=%q (remaining: %d)", userID, groupID, h.registry.Count())
@@ -908,6 +909,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	actionCtx = actionCtx.WithUserID(userID)
 	actionCtx = actionCtx.WithHTTP(w, r)
 	actionCtx = actionCtx.WithUploads(uploadRegistry)
+	actionCtx = actionCtx.WithFlashSetter(connSt)
 
 	// Dispatch action using Controller+State pattern
 	newState, actionErr := DispatchWithState(h.config.Controller, connSt.state, actionCtx)
@@ -967,7 +969,11 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
+
+	// Clear flash messages after successful render (flash shows once per action)
+	connSt.clearFlash()
 }
 
 // newUploadRegistry creates a new upload registry instance.

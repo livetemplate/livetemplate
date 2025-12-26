@@ -254,8 +254,14 @@ func (c *Context) WithFlashSetter(setter FlashSetter) *Context {
 // SetFlash sets a flash message that will be available in templates via .lvt.Flash(key).
 // Flash messages are page-level notifications (success, info, warning, error).
 // Unlike field errors, flash messages don't affect ResponseMetadata.Success.
+// Flash messages are cleared after each render, so they appear only once.
 //
 // Common keys: "success", "error", "info", "warning"
+//
+// Key conventions:
+//   - Use simple, lowercase keys (e.g., "success", "error")
+//   - Avoid keys containing colons or special characters
+//   - Do not use keys starting with "_flash:" (reserved for internal use)
 //
 // Example:
 //

@@ -52,18 +52,27 @@ func (t *TemplateContext) SetUploadRegistry(registry interface{}) {
 }
 
 // Error returns the error message for a field.
-// Returns empty string if the field has no error or if messages map is nil.
+// Returns empty string if the field has no error, if messages map is nil,
+// or if the field is a flash message key (use Flash() for those).
 func (t *TemplateContext) Error(field string) string {
 	if t.messages == nil {
+		return ""
+	}
+	// Don't return flash messages via Error()
+	if strings.HasPrefix(field, FlashPrefix) {
 		return ""
 	}
 	return t.messages[field]
 }
 
 // HasError checks if a field has an error.
-// Returns false if messages map is nil.
+// Returns false if messages map is nil or if the field is a flash message key.
 func (t *TemplateContext) HasError(field string) bool {
 	if t.messages == nil {
+		return false
+	}
+	// Flash messages are not errors
+	if strings.HasPrefix(field, FlashPrefix) {
 		return false
 	}
 	_, exists := t.messages[field]
