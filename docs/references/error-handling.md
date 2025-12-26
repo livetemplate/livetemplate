@@ -10,6 +10,7 @@ Complete guide to error handling in LiveTemplate applications.
 - [Template Error Display](#template-error-display)
 - [Client-Side Error Handling](#client-side-error-handling)
 - [Error Types](#error-types)
+- [Flash Messages](#flash-messages)
 - [Best Practices](#best-practices)
 - [Examples](#examples)
 
@@ -387,6 +388,129 @@ if err := ctx.BindAndValidate(&input, validate); err != nil {
     return err // Returns MultiError with field names
 }
 ```
+
+---
+
+## Flash Messages
+
+Flash messages are page-level notifications that don't affect form success/failure. Unlike field errors, flash messages are used for success confirmations, warnings, and informational messages.
+
+### Errors vs Flash Messages
+
+| Aspect | Field Errors | Flash Messages |
+|--------|--------------|----------------|
+| **Purpose** | Validation failures | User notifications |
+| **Source** | Action method errors | Manual `ctx.SetFlash()` |
+| **Affects Success** | Yes | No |
+| **Example** | "Email is invalid" | "Profile updated!" |
+
+### Setting Flash Messages
+
+Use `ctx.SetFlash(key, message)` in your action methods:
+
+```go
+func (c *ProfileController) Update(state ProfileState, ctx *livetemplate.Context) (ProfileState, error) {
+    var input ProfileInput
+    if err := ctx.BindAndValidate(&input, validate); err != nil {
+        return state, err
+    }
+
+    if err := c.DB.UpdateProfile(input); err != nil {
+        return state, fmt.Errorf("failed to update profile: %w", err)
+    }
+
+    // Set success flash message
+    ctx.SetFlash("success", "Profile updated successfully!")
+
+    state.Profile = input.ToProfile()
+    return state, nil
+}
+```
+
+### Flash with Errors
+
+You can set flash messages alongside validation errors:
+
+```go
+func (c *TodoController) BulkDelete(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    var errs livetemplate.MultiError
+    deleted := 0
+
+    for _, id := range ctx.GetStrings("ids") {
+        if err := c.DB.DeleteTodo(id); err != nil {
+            errs = append(errs, livetemplate.NewFieldError(id, err))
+        } else {
+            deleted++
+        }
+    }
+
+    // Report partial success via flash
+    if deleted > 0 {
+        ctx.SetFlash("info", fmt.Sprintf("Deleted %d items", deleted))
+    }
+
+    if len(errs) > 0 {
+        return state, errs
+    }
+
+    return state, nil
+}
+```
+
+### Flash Helpers
+
+| Helper | Description | Returns |
+|--------|-------------|---------|
+| `.lvt.HasFlash "key"` | Check if flash exists | `bool` |
+| `.lvt.Flash "key"` | Get flash message | `string` |
+| `.lvt.HasAnyFlash` | Check if any flash exists | `bool` |
+| `.lvt.AllFlash` | Get all flash messages | `map[string]string` |
+
+### Template Examples
+
+**Success notification:**
+```html
+{{if .lvt.HasFlash "success"}}
+    <div class="alert alert-success">
+        {{.lvt.Flash "success"}}
+    </div>
+{{end}}
+```
+
+**Multiple flash types:**
+```html
+{{if .lvt.HasFlash "success"}}
+    <div class="alert alert-success">{{.lvt.Flash "success"}}</div>
+{{end}}
+
+{{if .lvt.HasFlash "error"}}
+    <div class="alert alert-danger">{{.lvt.Flash "error"}}</div>
+{{end}}
+
+{{if .lvt.HasFlash "warning"}}
+    <div class="alert alert-warning">{{.lvt.Flash "warning"}}</div>
+{{end}}
+
+{{if .lvt.HasFlash "info"}}
+    <div class="alert alert-info">{{.lvt.Flash "info"}}</div>
+{{end}}
+```
+
+**Display all flash messages:**
+```html
+{{range $key, $msg := .lvt.AllFlash}}
+    <div class="alert alert-{{$key}}">{{$msg}}</div>
+{{end}}
+```
+
+### Common Flash Keys
+
+| Key | Purpose | Example |
+|-----|---------|---------|
+| `success` | Operation completed | "Profile saved!" |
+| `error` | Non-field error | "Connection failed" |
+| `warning` | Caution message | "Session expiring soon" |
+| `info` | Informational | "New features available" |
 
 ---
 
