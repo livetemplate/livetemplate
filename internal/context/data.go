@@ -9,7 +9,7 @@ import (
 // AddLvtToData converts data to include lvt context for template execution.
 //
 // This function:
-// 1. Creates a LiveTemplate context with errors and dev mode settings
+// 1. Creates a LiveTemplate context with messages (errors + flash) and dev mode settings
 // 2. Wraps the original data in a map with "lvt" namespace
 // 3. Handles both struct and map data types
 // 4. For structs, respects json tags for field naming
@@ -19,19 +19,19 @@ import (
 //
 // Parameters:
 //   - data: The original template data (struct, map, or other type)
-//   - errors: Map of field names to error messages for validation
+//   - messages: Unified map containing field errors and flash messages (prefixed with "_flash:")
 //   - devMode: Whether to enable development mode features
 //   - uploadRegistry: Optional upload registry (pass nil if uploads not needed)
 //
 // Returns:
 //   - A map containing the original data fields plus the "lvt" namespace
-func AddLvtToData(data interface{}, errors map[string]string, devMode bool, uploadRegistry ...interface{}) interface{} {
-	if errors == nil {
-		errors = make(map[string]string)
+func AddLvtToData(data interface{}, messages map[string]string, devMode bool, uploadRegistry ...interface{}) interface{} {
+	if messages == nil {
+		messages = make(map[string]string)
 	}
 
 	// Create LiveTemplate context
-	lvtContext := NewTemplateContext(errors, devMode)
+	lvtContext := NewTemplateContext(messages, devMode)
 
 	// Set upload registry if provided
 	if len(uploadRegistry) > 0 && uploadRegistry[0] != nil {

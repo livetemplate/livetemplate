@@ -1,6 +1,6 @@
 // Package context provides template execution context utilities for the LiveTemplate library.
-// It handles the "lvt" namespace in templates, providing access to validation errors
-// and development mode flags.
+// It handles the "lvt" namespace in templates, providing access to validation errors,
+// flash messages, and development mode flags.
 package context
 
 import (
@@ -10,27 +10,38 @@ import (
 	"strings"
 )
 
+// FlashPrefix is the prefix used to identify flash messages in the unified messages map.
+// Flash messages are stored as "_flash:key" -> "message" in the map.
+// This allows a single map to contain both field errors and flash messages.
+const FlashPrefix = "_flash:"
+
 // TemplateContext provides utility functions for templates via the lvt namespace.
+//
+// It provides two separate message systems via a unified messages map:
+//   - Errors: Field validation errors from action dispatch (affects ResponseMetadata.Success)
+//   - Flash: Page-level messages (prefixed with "_flash:") that don't affect Success
 //
 // Thread-safety: TemplateContext is safe for concurrent reads but not for concurrent writes.
 // If you need to share a TemplateContext across goroutines that modify it, external
 // synchronization is required. In typical usage, each template execution creates a new
 // TemplateContext, so concurrent access is not an issue.
 type TemplateContext struct {
-	errors        map[string]string
-	DevMode       bool        // Development mode - use local client library instead of CDN
-	uploadEntries interface{} // *upload.Registry for accessing upload state
+	messages      map[string]string // Unified map: field errors + flash (prefixed with "_flash:")
+	DevMode       bool              // Development mode - use local client library instead of CDN
+	uploadEntries interface{}       // *upload.Registry for accessing upload state
 }
 
-// NewTemplateContext creates a new TemplateContext with the given errors and devMode flag.
+// NewTemplateContext creates a new TemplateContext with the given messages map and devMode flag.
 //
-// The errors map is stored by reference, not copied. Callers should not modify the errors map
-// after passing it to NewTemplateContext. If you need to modify errors after construction,
-// pass a copy of the map or use AllErrors() to get a defensive copy.
-func NewTemplateContext(errors map[string]string, devMode bool) *TemplateContext {
+// The messages map contains both field errors and flash messages. Flash messages are
+// identified by the "_flash:" prefix (e.g., "_flash:success" -> "Changes saved!").
+//
+// The messages map is stored by reference, not copied. Callers should not modify
+// the map after passing it to NewTemplateContext.
+func NewTemplateContext(messages map[string]string, devMode bool) *TemplateContext {
 	return &TemplateContext{
-		errors:  errors,
-		DevMode: devMode,
+		messages: messages,
+		DevMode:  devMode,
 	}
 }
 
@@ -41,33 +52,98 @@ func (t *TemplateContext) SetUploadRegistry(registry interface{}) {
 }
 
 // Error returns the error message for a field.
-// Returns empty string if the field has no error or if errors map is nil.
+// Returns empty string if the field has no error or if messages map is nil.
 func (t *TemplateContext) Error(field string) string {
-	return t.errors[field]
+	if t.messages == nil {
+		return ""
+	}
+	return t.messages[field]
 }
 
 // HasError checks if a field has an error.
-// Returns false if errors map is nil.
+// Returns false if messages map is nil.
 func (t *TemplateContext) HasError(field string) bool {
-	_, exists := t.errors[field]
+	if t.messages == nil {
+		return false
+	}
+	_, exists := t.messages[field]
 	return exists
 }
 
-// HasAnyError checks if any errors exist.
-// Returns false if errors map is nil or empty.
+// HasAnyError checks if any field errors exist (excludes flash messages).
+// Returns false if messages map is nil or contains only flash messages.
 func (t *TemplateContext) HasAnyError() bool {
-	return len(t.errors) > 0
+	if t.messages == nil {
+		return false
+	}
+	for k := range t.messages {
+		if !strings.HasPrefix(k, FlashPrefix) {
+			return true
+		}
+	}
+	return false
 }
 
-// AllErrors returns a copy of all errors (useful for debugging or displaying all).
+// AllErrors returns a copy of all field errors (excludes flash messages).
 // The returned map is a defensive copy and mutations will not affect internal state.
 func (t *TemplateContext) AllErrors() map[string]string {
 	result := make(map[string]string)
-	if t.errors == nil {
+	if t.messages == nil {
 		return result
 	}
-	for k, v := range t.errors {
-		result[k] = v
+	for k, v := range t.messages {
+		if !strings.HasPrefix(k, FlashPrefix) {
+			result[k] = v
+		}
+	}
+	return result
+}
+
+// Flash returns the flash message for a key.
+// Returns empty string if the key has no flash message or if messages map is nil.
+// Common keys: "success", "error", "info", "warning"
+func (t *TemplateContext) Flash(key string) string {
+	if t.messages == nil {
+		return ""
+	}
+	return t.messages[FlashPrefix+key]
+}
+
+// HasFlash checks if a key has a flash message.
+// Returns false if messages map is nil.
+func (t *TemplateContext) HasFlash(key string) bool {
+	if t.messages == nil {
+		return false
+	}
+	_, exists := t.messages[FlashPrefix+key]
+	return exists
+}
+
+// HasAnyFlash checks if any flash messages exist.
+// Returns false if messages map is nil or contains no flash messages.
+func (t *TemplateContext) HasAnyFlash() bool {
+	if t.messages == nil {
+		return false
+	}
+	for k := range t.messages {
+		if strings.HasPrefix(k, FlashPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// AllFlash returns a copy of all flash messages (with prefix stripped).
+// The returned map is a defensive copy and mutations will not affect internal state.
+func (t *TemplateContext) AllFlash() map[string]string {
+	result := make(map[string]string)
+	if t.messages == nil {
+		return result
+	}
+	for k, v := range t.messages {
+		if strings.HasPrefix(k, FlashPrefix) {
+			result[strings.TrimPrefix(k, FlashPrefix)] = v
+		}
 	}
 	return result
 }
@@ -225,10 +301,14 @@ const (
 // For primitive types (string, int, bool, etc.), lvt context is not available to maintain
 // compatibility with standard Go templates.
 //
+// The messages map contains both field errors and flash messages. Flash messages are
+// identified by the "_flash:" prefix (e.g., "_flash:success" -> "Changes saved!").
+// Field errors affect ResponseMetadata.Success; flash messages don't.
+//
 // Note: If struct fields or map keys conflict with the reserved "lvt" key, they will be
 // skipped to ensure the lvt context remains accessible in templates.
-func ExecuteTemplateWithContext(tmpl *template.Template, data interface{}, errors map[string]string, devMode bool, uploadRegistry interface{}) ([]byte, error) {
-	lvtContext := NewTemplateContext(errors, devMode)
+func ExecuteTemplateWithContext(tmpl *template.Template, data interface{}, messages map[string]string, devMode bool, uploadRegistry interface{}) ([]byte, error) {
+	lvtContext := NewTemplateContext(messages, devMode)
 	if uploadRegistry != nil {
 		lvtContext.SetUploadRegistry(uploadRegistry)
 	}

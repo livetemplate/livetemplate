@@ -9,25 +9,41 @@ import (
 
 func TestNewTemplateContext(t *testing.T) {
 	tests := []struct {
-		name    string
-		errors  map[string]string
-		devMode bool
+		name     string
+		messages map[string]string
+		devMode  bool
 	}{
 		{
-			name:    "nil errors",
-			errors:  nil,
-			devMode: false,
+			name:     "nil messages",
+			messages: nil,
+			devMode:  false,
 		},
 		{
-			name:    "empty errors",
-			errors:  map[string]string{},
-			devMode: true,
+			name:     "empty messages",
+			messages: map[string]string{},
+			devMode:  true,
 		},
 		{
 			name: "with errors",
-			errors: map[string]string{
+			messages: map[string]string{
 				"email": "Invalid email",
 				"name":  "Required",
+			},
+			devMode: false,
+		},
+		{
+			name: "with flash messages",
+			messages: map[string]string{
+				"_flash:success": "Changes saved!",
+				"_flash:error":   "Something went wrong",
+			},
+			devMode: true,
+		},
+		{
+			name: "with mixed errors and flash",
+			messages: map[string]string{
+				"email":          "Invalid email",
+				"_flash:success": "Partial save completed",
 			},
 			devMode: false,
 		},
@@ -35,7 +51,7 @@ func TestNewTemplateContext(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := NewTemplateContext(tt.errors, tt.devMode)
+			ctx := NewTemplateContext(tt.messages, tt.devMode)
 			if ctx == nil {
 				t.Fatal("NewTemplateContext returned nil")
 			}
@@ -48,26 +64,26 @@ func TestNewTemplateContext(t *testing.T) {
 
 func TestTemplateContext_Error(t *testing.T) {
 	tests := []struct {
-		name   string
-		errors map[string]string
-		field  string
-		want   string
+		name     string
+		messages map[string]string
+		field    string
+		want     string
 	}{
 		{
-			name:   "nil errors map",
-			errors: nil,
-			field:  "email",
-			want:   "",
+			name:     "nil messages map",
+			messages: nil,
+			field:    "email",
+			want:     "",
 		},
 		{
-			name:   "empty errors map",
-			errors: map[string]string{},
-			field:  "email",
-			want:   "",
+			name:     "empty messages map",
+			messages: map[string]string{},
+			field:    "email",
+			want:     "",
 		},
 		{
 			name: "field exists",
-			errors: map[string]string{
+			messages: map[string]string{
 				"email": "Invalid email",
 			},
 			field: "email",
@@ -75,17 +91,25 @@ func TestTemplateContext_Error(t *testing.T) {
 		},
 		{
 			name: "field does not exist",
-			errors: map[string]string{
+			messages: map[string]string{
 				"email": "Invalid email",
 			},
 			field: "name",
+			want:  "",
+		},
+		{
+			name: "flash message not returned as error",
+			messages: map[string]string{
+				"_flash:success": "Changes saved!",
+			},
+			field: "success",
 			want:  "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := NewTemplateContext(tt.errors, false)
+			ctx := NewTemplateContext(tt.messages, false)
 			got := ctx.Error(tt.field)
 			if got != tt.want {
 				t.Errorf("Error(%q) = %q, want %q", tt.field, got, tt.want)
@@ -96,26 +120,26 @@ func TestTemplateContext_Error(t *testing.T) {
 
 func TestTemplateContext_HasError(t *testing.T) {
 	tests := []struct {
-		name   string
-		errors map[string]string
-		field  string
-		want   bool
+		name     string
+		messages map[string]string
+		field    string
+		want     bool
 	}{
 		{
-			name:   "nil errors map",
-			errors: nil,
-			field:  "email",
-			want:   false,
+			name:     "nil messages map",
+			messages: nil,
+			field:    "email",
+			want:     false,
 		},
 		{
-			name:   "empty errors map",
-			errors: map[string]string{},
-			field:  "email",
-			want:   false,
+			name:     "empty messages map",
+			messages: map[string]string{},
+			field:    "email",
+			want:     false,
 		},
 		{
 			name: "field exists",
-			errors: map[string]string{
+			messages: map[string]string{
 				"email": "Invalid email",
 			},
 			field: "email",
@@ -123,7 +147,7 @@ func TestTemplateContext_HasError(t *testing.T) {
 		},
 		{
 			name: "field does not exist",
-			errors: map[string]string{
+			messages: map[string]string{
 				"email": "Invalid email",
 			},
 			field: "name",
@@ -131,7 +155,7 @@ func TestTemplateContext_HasError(t *testing.T) {
 		},
 		{
 			name: "field exists with empty value",
-			errors: map[string]string{
+			messages: map[string]string{
 				"email": "",
 			},
 			field: "email",
@@ -141,7 +165,7 @@ func TestTemplateContext_HasError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := NewTemplateContext(tt.errors, false)
+			ctx := NewTemplateContext(tt.messages, false)
 			got := ctx.HasError(tt.field)
 			if got != tt.want {
 				t.Errorf("HasError(%q) = %v, want %v", tt.field, got, tt.want)
@@ -152,32 +176,48 @@ func TestTemplateContext_HasError(t *testing.T) {
 
 func TestTemplateContext_HasAnyError(t *testing.T) {
 	tests := []struct {
-		name   string
-		errors map[string]string
-		want   bool
+		name     string
+		messages map[string]string
+		want     bool
 	}{
 		{
-			name:   "nil errors map",
-			errors: nil,
-			want:   false,
+			name:     "nil messages map",
+			messages: nil,
+			want:     false,
 		},
 		{
-			name:   "empty errors map",
-			errors: map[string]string{},
-			want:   false,
+			name:     "empty messages map",
+			messages: map[string]string{},
+			want:     false,
 		},
 		{
 			name: "one error",
-			errors: map[string]string{
+			messages: map[string]string{
 				"email": "Invalid email",
 			},
 			want: true,
 		},
 		{
 			name: "multiple errors",
-			errors: map[string]string{
+			messages: map[string]string{
 				"email": "Invalid email",
 				"name":  "Required",
+			},
+			want: true,
+		},
+		{
+			name: "only flash messages - no errors",
+			messages: map[string]string{
+				"_flash:success": "Changes saved!",
+				"_flash:info":    "Welcome back",
+			},
+			want: false,
+		},
+		{
+			name: "mixed errors and flash",
+			messages: map[string]string{
+				"email":          "Invalid email",
+				"_flash:success": "Partial save",
 			},
 			want: true,
 		},
@@ -185,7 +225,7 @@ func TestTemplateContext_HasAnyError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := NewTemplateContext(tt.errors, false)
+			ctx := NewTemplateContext(tt.messages, false)
 			got := ctx.HasAnyError()
 			if got != tt.want {
 				t.Errorf("HasAnyError() = %v, want %v", got, tt.want)
@@ -196,49 +236,310 @@ func TestTemplateContext_HasAnyError(t *testing.T) {
 
 func TestTemplateContext_AllErrors(t *testing.T) {
 	tests := []struct {
-		name   string
-		errors map[string]string
+		name       string
+		messages   map[string]string
+		wantErrors map[string]string
 	}{
 		{
-			name:   "nil errors map",
-			errors: nil,
+			name:       "nil messages map",
+			messages:   nil,
+			wantErrors: map[string]string{},
 		},
 		{
-			name:   "empty errors map",
-			errors: map[string]string{},
+			name:       "empty messages map",
+			messages:   map[string]string{},
+			wantErrors: map[string]string{},
 		},
 		{
-			name: "with errors",
-			errors: map[string]string{
+			name: "with errors only",
+			messages: map[string]string{
 				"email": "Invalid email",
 				"name":  "Required",
 			},
+			wantErrors: map[string]string{
+				"email": "Invalid email",
+				"name":  "Required",
+			},
+		},
+		{
+			name: "flash messages excluded",
+			messages: map[string]string{
+				"email":          "Invalid email",
+				"_flash:success": "Changes saved!",
+				"_flash:info":    "Welcome",
+			},
+			wantErrors: map[string]string{
+				"email": "Invalid email",
+			},
+		},
+		{
+			name: "only flash messages",
+			messages: map[string]string{
+				"_flash:success": "Changes saved!",
+			},
+			wantErrors: map[string]string{},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := NewTemplateContext(tt.errors, false)
+			ctx := NewTemplateContext(tt.messages, false)
 			got := ctx.AllErrors()
 
 			if got == nil {
 				t.Error("AllErrors() returned nil, want non-nil map")
 			}
 
-			if tt.errors == nil {
-				if len(got) != 0 {
-					t.Errorf("AllErrors() returned %d errors, want 0", len(got))
-				}
-			} else {
-				if !reflect.DeepEqual(got, tt.errors) {
-					t.Errorf("AllErrors() = %v, want %v", got, tt.errors)
-				}
+			if !reflect.DeepEqual(got, tt.wantErrors) {
+				t.Errorf("AllErrors() = %v, want %v", got, tt.wantErrors)
 			}
 
 			got["test_mutation"] = "should not affect internal state"
 			got2 := ctx.AllErrors()
 			if _, exists := got2["test_mutation"]; exists {
 				t.Error("Mutation of AllErrors() return value affected internal state")
+			}
+		})
+	}
+}
+
+// Flash message tests
+
+func TestTemplateContext_Flash(t *testing.T) {
+	tests := []struct {
+		name     string
+		messages map[string]string
+		key      string
+		want     string
+	}{
+		{
+			name:     "nil messages map",
+			messages: nil,
+			key:      "success",
+			want:     "",
+		},
+		{
+			name:     "empty messages map",
+			messages: map[string]string{},
+			key:      "success",
+			want:     "",
+		},
+		{
+			name: "flash key exists",
+			messages: map[string]string{
+				"_flash:success": "Changes saved!",
+			},
+			key:  "success",
+			want: "Changes saved!",
+		},
+		{
+			name: "flash key does not exist",
+			messages: map[string]string{
+				"_flash:success": "Changes saved!",
+			},
+			key:  "error",
+			want: "",
+		},
+		{
+			name: "error not returned as flash",
+			messages: map[string]string{
+				"email": "Invalid email",
+			},
+			key:  "email",
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := NewTemplateContext(tt.messages, false)
+			got := ctx.Flash(tt.key)
+			if got != tt.want {
+				t.Errorf("Flash(%q) = %q, want %q", tt.key, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTemplateContext_HasFlash(t *testing.T) {
+	tests := []struct {
+		name     string
+		messages map[string]string
+		key      string
+		want     bool
+	}{
+		{
+			name:     "nil messages map",
+			messages: nil,
+			key:      "success",
+			want:     false,
+		},
+		{
+			name:     "empty messages map",
+			messages: map[string]string{},
+			key:      "success",
+			want:     false,
+		},
+		{
+			name: "flash key exists",
+			messages: map[string]string{
+				"_flash:success": "Changes saved!",
+			},
+			key:  "success",
+			want: true,
+		},
+		{
+			name: "flash key does not exist",
+			messages: map[string]string{
+				"_flash:success": "Changes saved!",
+			},
+			key:  "error",
+			want: false,
+		},
+		{
+			name: "flash key exists with empty value",
+			messages: map[string]string{
+				"_flash:warning": "",
+			},
+			key:  "warning",
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := NewTemplateContext(tt.messages, false)
+			got := ctx.HasFlash(tt.key)
+			if got != tt.want {
+				t.Errorf("HasFlash(%q) = %v, want %v", tt.key, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTemplateContext_HasAnyFlash(t *testing.T) {
+	tests := []struct {
+		name     string
+		messages map[string]string
+		want     bool
+	}{
+		{
+			name:     "nil messages map",
+			messages: nil,
+			want:     false,
+		},
+		{
+			name:     "empty messages map",
+			messages: map[string]string{},
+			want:     false,
+		},
+		{
+			name: "one flash message",
+			messages: map[string]string{
+				"_flash:success": "Changes saved!",
+			},
+			want: true,
+		},
+		{
+			name: "multiple flash messages",
+			messages: map[string]string{
+				"_flash:success": "Changes saved!",
+				"_flash:info":    "Welcome back",
+			},
+			want: true,
+		},
+		{
+			name: "only errors - no flash",
+			messages: map[string]string{
+				"email": "Invalid email",
+				"name":  "Required",
+			},
+			want: false,
+		},
+		{
+			name: "mixed errors and flash",
+			messages: map[string]string{
+				"email":          "Invalid email",
+				"_flash:success": "Partial save",
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := NewTemplateContext(tt.messages, false)
+			got := ctx.HasAnyFlash()
+			if got != tt.want {
+				t.Errorf("HasAnyFlash() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTemplateContext_AllFlash(t *testing.T) {
+	tests := []struct {
+		name      string
+		messages  map[string]string
+		wantFlash map[string]string
+	}{
+		{
+			name:      "nil messages map",
+			messages:  nil,
+			wantFlash: map[string]string{},
+		},
+		{
+			name:      "empty messages map",
+			messages:  map[string]string{},
+			wantFlash: map[string]string{},
+		},
+		{
+			name: "with flash only",
+			messages: map[string]string{
+				"_flash:success": "Changes saved!",
+				"_flash:info":    "Welcome",
+			},
+			wantFlash: map[string]string{
+				"success": "Changes saved!",
+				"info":    "Welcome",
+			},
+		},
+		{
+			name: "errors excluded from flash",
+			messages: map[string]string{
+				"email":          "Invalid email",
+				"_flash:success": "Changes saved!",
+			},
+			wantFlash: map[string]string{
+				"success": "Changes saved!",
+			},
+		},
+		{
+			name: "only errors",
+			messages: map[string]string{
+				"email": "Invalid email",
+			},
+			wantFlash: map[string]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := NewTemplateContext(tt.messages, false)
+			got := ctx.AllFlash()
+
+			if got == nil {
+				t.Error("AllFlash() returned nil, want non-nil map")
+			}
+
+			if !reflect.DeepEqual(got, tt.wantFlash) {
+				t.Errorf("AllFlash() = %v, want %v", got, tt.wantFlash)
+			}
+
+			got["test_mutation"] = "should not affect internal state"
+			got2 := ctx.AllFlash()
+			if _, exists := got2["test_mutation"]; exists {
+				t.Error("Mutation of AllFlash() return value affected internal state")
 			}
 		})
 	}

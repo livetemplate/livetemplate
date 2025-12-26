@@ -125,7 +125,7 @@ func (b *broadcaster) Send() error {
 
 	// Generate tree update
 	var buf bytes.Buffer
-	err := b.template.ExecuteUpdates(&buf, b.state.state, b.state.getErrors())
+	err := b.template.ExecuteUpdates(&buf, b.state.state, b.state.getMessages())
 	if err != nil {
 		return fmt.Errorf("template update failed: %w", err)
 	}
@@ -140,8 +140,8 @@ func (b *broadcaster) Send() error {
 	response := UpdateResponse{
 		Tree: tree,
 		Meta: &ResponseMetadata{
-			Success: len(b.state.getErrors()) == 0,
-			Errors:  b.state.getErrors(),
+			Success: !b.state.hasErrors(),
+			Errors:  b.state.getErrorsOnly(),
 		},
 	}
 
@@ -219,9 +219,9 @@ func (s *liveSession) triggerActionLocal(action string, data map[string]interfac
 
 		// Create connection state for this action
 		connSt := &connState{
-			state:   typedState,
-			errors:  make(map[string]string),
-			groupID: conn.GroupID,
+			state:    typedState,
+			messages: make(map[string]string),
+			groupID:  conn.GroupID,
 		}
 
 		// Create context with timeout for server-initiated actions
@@ -230,6 +230,7 @@ func (s *liveSession) triggerActionLocal(action string, data map[string]interfac
 		// Create Context for action dispatch
 		actionCtx := NewContext(ctx, action, data)
 		actionCtx = actionCtx.WithUserID(s.userID)
+		actionCtx = actionCtx.WithFlashSetter(connSt)
 
 		// Dispatch action using Controller+State pattern
 		newState, actionErr := DispatchWithState(s.handler.config.Controller, connSt.state, actionCtx)
@@ -362,33 +363,89 @@ type liveHandler struct {
 	isShutdown   atomic.Bool
 }
 
+// flashPrefix is used to identify flash messages in the unified messages map.
+// Flash messages are stored as "_flash:key" -> "message".
+const flashPrefix = "_flash:"
+
 type connState struct {
-	state    interface{}       // Typed state (cloned per session)
-	errors   map[string]string // Field errors from last action
-	errorsMu sync.RWMutex      // Mutex for thread-safe error access
-	groupID  string            // Session/group ID for this connection
+	state      interface{}       // Typed state (cloned per session)
+	messages   map[string]string // Unified map: field errors + flash (prefixed with "_flash:")
+	messagesMu sync.RWMutex      // Mutex for thread-safe message access
+	groupID    string            // Session/group ID for this connection
 }
 
 func (c *connState) setError(field, message string) {
-	c.errorsMu.Lock()
-	defer c.errorsMu.Unlock()
-	c.errors[field] = message
+	c.messagesMu.Lock()
+	defer c.messagesMu.Unlock()
+	c.messages[field] = message
 }
 
 func (c *connState) clearErrors() {
-	c.errorsMu.Lock()
-	defer c.errorsMu.Unlock()
-	c.errors = make(map[string]string)
+	c.messagesMu.Lock()
+	defer c.messagesMu.Unlock()
+	// Only clear non-flash messages (preserve flash for this render)
+	newMessages := make(map[string]string)
+	for k, v := range c.messages {
+		if strings.HasPrefix(k, flashPrefix) {
+			newMessages[k] = v
+		}
+	}
+	c.messages = newMessages
 }
 
-func (c *connState) getErrors() map[string]string {
-	c.errorsMu.RLock()
-	defer c.errorsMu.RUnlock()
+func (c *connState) getMessages() map[string]string {
+	c.messagesMu.RLock()
+	defer c.messagesMu.RUnlock()
 
 	// Return copy to avoid race conditions
-	result := make(map[string]string, len(c.errors))
-	for k, v := range c.errors {
+	result := make(map[string]string, len(c.messages))
+	for k, v := range c.messages {
 		result[k] = v
+	}
+	return result
+}
+
+func (c *connState) setFlash(key, message string) {
+	c.messagesMu.Lock()
+	defer c.messagesMu.Unlock()
+	c.messages[flashPrefix+key] = message
+}
+
+func (c *connState) clearFlash() {
+	c.messagesMu.Lock()
+	defer c.messagesMu.Unlock()
+	// Only clear flash messages (preserve errors)
+	newMessages := make(map[string]string)
+	for k, v := range c.messages {
+		if !strings.HasPrefix(k, flashPrefix) {
+			newMessages[k] = v
+		}
+	}
+	c.messages = newMessages
+}
+
+// hasErrors returns true if there are any field errors (non-flash messages)
+func (c *connState) hasErrors() bool {
+	c.messagesMu.RLock()
+	defer c.messagesMu.RUnlock()
+	for k := range c.messages {
+		if !strings.HasPrefix(k, flashPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// getErrorsOnly returns only field errors (excludes flash messages)
+func (c *connState) getErrorsOnly() map[string]string {
+	c.messagesMu.RLock()
+	defer c.messagesMu.RUnlock()
+
+	result := make(map[string]string)
+	for k, v := range c.messages {
+		if !strings.HasPrefix(k, flashPrefix) {
+			result[k] = v
+		}
 	}
 	return result
 }
@@ -526,11 +583,11 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}()
 	log.Printf("Registered connection (total: %d, groups: %d)", h.registry.Count(), h.registry.GroupCount())
 
-	// Create connection state (errors are per-connection, not shared)
+	// Create connection state (messages are per-connection, not shared)
 	connSt := &connState{
-		state:   typedState,
-		errors:  make(map[string]string),
-		groupID: groupID,
+		state:    typedState,
+		messages: make(map[string]string),
+		groupID:  groupID,
 	}
 
 	// Create context for lifecycle methods with query params from initial connection
@@ -564,7 +621,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Send initial tree
 	var buf bytes.Buffer
-	err = connTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getErrors())
+	err = connTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getMessages())
 	if err != nil {
 		log.Printf("Failed to generate initial tree: %v", err)
 		return
@@ -579,8 +636,8 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	response := UpdateResponse{
 		Tree: tree,
 		Meta: &ResponseMetadata{
-			Success: len(connSt.getErrors()) == 0,
-			Errors:  connSt.getErrors(),
+			Success: !connSt.hasErrors(),
+			Errors:  connSt.getErrorsOnly(),
 		},
 	}
 
@@ -657,6 +714,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		actionCtx := NewContext(r.Context(), msg.Action, msg.Data)
 		actionCtx = actionCtx.WithUserID(userID)
 		actionCtx = actionCtx.WithUploads(uploadRegistry)
+		actionCtx = actionCtx.WithFlashSetter(connSt)
 
 		// Dispatch action using Controller+State pattern
 		newState, actionErr := DispatchWithState(h.config.Controller, connSt.state, actionCtx)
@@ -689,7 +747,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 		// Generate tree update
 		buf.Reset()
-		if err = connTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getErrors()); err != nil {
+		if err = connTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getMessages()); err != nil {
 			log.Printf("Template update execution failed: %v", err)
 			continue
 		}
@@ -703,8 +761,8 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		response := UpdateResponse{
 			Tree: tree,
 			Meta: &ResponseMetadata{
-				Success: len(connSt.getErrors()) == 0,
-				Errors:  connSt.getErrors(),
+				Success: !connSt.hasErrors(),
+				Errors:  connSt.getErrorsOnly(),
 				Action:  msg.Action,
 			},
 		}
@@ -785,11 +843,11 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		typedState = storedState
 	}
 
-	// Create connection state (errors are per-request)
+	// Create connection state (messages are per-request)
 	connSt := &connState{
-		state:   typedState,
-		errors:  make(map[string]string),
-		groupID: groupID,
+		state:    typedState,
+		messages: make(map[string]string),
+		groupID:  groupID,
 	}
 
 	// Create lifecycle context with query params
@@ -811,7 +869,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Handle GET request for initial HTML page
 	if r.Method == http.MethodGet {
-		err := h.config.Template.Execute(w, connSt.state, connSt.getErrors())
+		err := h.config.Template.Execute(w, connSt.state, connSt.getMessages())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
@@ -886,7 +944,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Generate tree update
 	var buf bytes.Buffer
-	if err = httpTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getErrors()); err != nil {
+	if err = httpTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getMessages()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -900,8 +958,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	response := UpdateResponse{
 		Tree: tree,
 		Meta: &ResponseMetadata{
-			Success: len(connSt.getErrors()) == 0,
-			Errors:  connSt.getErrors(),
+			Success: !connSt.hasErrors(),
+			Errors:  connSt.getErrorsOnly(),
 			Action:  msg.Action,
 		},
 	}
@@ -1015,7 +1073,7 @@ func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}) err
 	}
 
 	// Generate update using the connection's template
-	// We pass the data directly - no errors to report for broadcasts
+	// We pass the data directly - no messages (errors/flash) for broadcasts
 	err := tmpl.ExecuteUpdates(&buf, data, nil)
 	if err != nil {
 		return fmt.Errorf("template update failed: %w", err)
@@ -1120,9 +1178,9 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 	for _, conn := range connections {
 		// Create connection state for this action
 		state := &connState{
-			state:   conn.Stores, // conn.Stores holds the typed state
-			errors:  make(map[string]string),
-			groupID: conn.GroupID,
+			state:    conn.Stores, // conn.Stores holds the typed state
+			messages: make(map[string]string),
+			groupID:  conn.GroupID,
 		}
 
 		// Create context with timeout for server-initiated actions
@@ -1131,6 +1189,7 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 		// Create Context for action dispatch
 		actionCtx := NewContext(ctx, msg.Action, msg.Data)
 		actionCtx = actionCtx.WithUserID(msg.UserID)
+		actionCtx = actionCtx.WithFlashSetter(state)
 
 		// Dispatch action using Controller+State pattern
 		newState, actionErr := DispatchWithState(h.config.Controller, state.state, actionCtx)
