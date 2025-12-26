@@ -17,6 +17,10 @@ type UploadAccessor interface {
 // FlashSetter allows setting flash messages from action handlers.
 // Flash messages are page-level notifications (success, info, warning, error)
 // that don't affect ResponseMetadata.Success (unlike field validation errors).
+//
+// The setFlash method is intentionally unexported to ensure flash messages
+// are only set through the Context.SetFlash() public API, maintaining
+// consistent behavior and preventing direct message map manipulation.
 type FlashSetter interface {
 	setFlash(key, message string)
 }

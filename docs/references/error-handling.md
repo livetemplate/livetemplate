@@ -433,12 +433,19 @@ You can set flash messages alongside validation errors:
 
 ```go
 func (c *TodoController) BulkDelete(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    var input struct {
+        IDs []string `json:"ids"`
+    }
+    if err := ctx.Bind(&input); err != nil {
+        return state, err
+    }
+
     var errs livetemplate.MultiError
     deleted := 0
 
-    for _, id := range ctx.GetStrings("ids") {
+    for _, id := range input.IDs {
         if err := c.DB.DeleteTodo(id); err != nil {
-            errs = append(errs, livetemplate.NewFieldError(id, err))
+            errs = append(errs, livetemplate.NewFieldError(id, err.Error()))
         } else {
             deleted++
         }
@@ -511,6 +518,26 @@ func (c *TodoController) BulkDelete(state TodoState, ctx *livetemplate.Context) 
 | `error` | Non-field error | "Connection failed" |
 | `warning` | Caution message | "Session expiring soon" |
 | `info` | Informational | "New features available" |
+
+### Flash Message Lifecycle
+
+Flash messages follow a "show once" pattern:
+
+1. **Set**: Action handler calls `ctx.SetFlash("success", "Saved!")`
+2. **Render**: Template displays flash via `{{.lvt.Flash "success"}}`
+3. **Clear**: Flash is automatically cleared after the response is sent
+
+**Key behaviors:**
+- Flash messages are **per-connection**, not shared across browser tabs
+- Flash persists until the next action completes (survives page refresh via session)
+- Each action clears any previous flash messages after rendering
+- Flash messages don't affect `ResponseMetadata.Success` (only field errors do)
+
+**Multi-tab behavior:**
+If a user has multiple tabs open (same session group):
+- Tab 1 triggers action → sets flash → Tab 1 sees flash
+- Tab 2 does NOT see Tab 1's flash (flash is per-connection)
+- State changes ARE broadcast to Tab 2 (state is shared)
 
 ---
 
