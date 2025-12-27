@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<a name="v0.7.8"></a>
+## [v0.7.8] - 2025-12-27
+
+### Bug Fixes
+
+- **diff:** detect tree node changes when statics differ
+- **mount:** enable flash messages on HTTP redirects with query params
+
+
 <a name="v0.7.7"></a>
 ## [v0.7.7] - 2025-12-26
 
@@ -395,7 +404,8 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.7.7...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.7.8...HEAD
+[v0.7.8]: https://github.com/livefir/livetemplate/compare/v0.7.7...v0.7.8
 [v0.7.7]: https://github.com/livefir/livetemplate/compare/v0.7.6...v0.7.7
 [v0.7.6]: https://github.com/livefir/livetemplate/compare/v0.7.5...v0.7.6
 [v0.7.5]: https://github.com/livefir/livetemplate/compare/v0.7.4...v0.7.5
