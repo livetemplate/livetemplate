@@ -603,17 +603,29 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	wsQueryData := send.QueryParamsToData(r)
 	lifecycleCtx := NewContext(context.Background(), "", wsQueryData)
 	lifecycleCtx = lifecycleCtx.WithUserID(userID)
+	lifecycleCtx = lifecycleCtx.WithFlashSetter(connSt)
 
-	// Call Mount for new sessions
-	if isNewSession {
+	// Check for flash query params (supports HTTP redirect patterns)
+	hasFlashQueryParams := false
+	if _, ok := wsQueryData["error"]; ok {
+		hasFlashQueryParams = true
+	}
+	if _, ok := wsQueryData["success"]; ok {
+		hasFlashQueryParams = true
+	}
+
+	// Call Mount for new sessions or when flash query params present
+	if isNewSession || hasFlashQueryParams {
 		newState, err := callMount(h.config.Controller, connSt.state, lifecycleCtx)
 		if err != nil {
 			log.Printf("Mount failed: %v", err)
 			return
 		}
 		connSt.state = newState
-		// Persist after Mount
-		h.config.SessionStore.Set(ctx, groupID, connSt.state)
+		if isNewSession {
+			// Persist after Mount
+			h.config.SessionStore.Set(ctx, groupID, connSt.state)
+		}
 	}
 
 	// Call OnConnect lifecycle method
@@ -866,9 +878,20 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	queryData := send.QueryParamsToData(r)
 	lifecycleCtx := NewContext(ctx, "", queryData)
 	lifecycleCtx = lifecycleCtx.WithUserID(userID)
+	lifecycleCtx = lifecycleCtx.WithFlashSetter(connSt)
 
-	// Call Mount for new sessions
-	if isNewSession {
+	// Call Mount for new sessions (Mount can use ctx.GetString to read query params)
+	// Also call Mount for existing sessions when there are query params that might affect state
+	// This supports HTTP redirect patterns like /auth?error=invalid_credentials
+	hasFlashQueryParams := false
+	if _, ok := queryData["error"]; ok {
+		hasFlashQueryParams = true
+	}
+	if _, ok := queryData["success"]; ok {
+		hasFlashQueryParams = true
+	}
+
+	if isNewSession || hasFlashQueryParams {
 		newState, err := callMount(h.config.Controller, connSt.state, lifecycleCtx)
 		if err != nil {
 			log.Printf("Mount failed: %v", err)
@@ -876,7 +899,9 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		connSt.state = newState
-		h.config.SessionStore.Set(ctx, groupID, connSt.state)
+		if isNewSession {
+			h.config.SessionStore.Set(ctx, groupID, connSt.state)
+		}
 	}
 
 	// Handle GET request for initial HTML page
