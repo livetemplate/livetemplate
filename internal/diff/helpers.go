@@ -43,6 +43,35 @@ func IsEmpty(v interface{}) bool {
 	}
 }
 
+// isMeaningfulValue checks if a value is meaningful (not empty/nil) and should
+// be reported when removed. This is used in CompareRangeItemsForChanges to
+// determine if removing a field should generate a change notification.
+//
+// A value is meaningful if:
+// - It's a non-empty string
+// - It's a TreeNode (which has structure/statics)
+// - It's a non-empty map or slice
+// - It's a non-nil value of another type
+func isMeaningfulValue(v interface{}) bool {
+	if v == nil {
+		return false
+	}
+	switch val := v.(type) {
+	case string:
+		return val != ""
+	case *TreeNode:
+		// TreeNodes are always meaningful - they have structure
+		return true
+	case map[string]interface{}:
+		return len(val) > 0
+	case []interface{}:
+		return len(val) > 0
+	default:
+		// Other types (int, bool, etc.) are meaningful
+		return true
+	}
+}
+
 // IsRangeConstruct checks if a value is a range construct (has Range and Statics).
 func IsRangeConstruct(value interface{}) bool {
 	// Check if value is a TreeNode with Range field

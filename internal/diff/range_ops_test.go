@@ -1065,3 +1065,194 @@ func TestCompareRangeItemsForChanges_NonExistentToTreeNode(t *testing.T) {
 		t.Errorf("Expected statics ['checked'], got %v", changeTree.Statics)
 	}
 }
+
+// TestCompareRangeItemsForChanges_StaticsDiffer tests detecting changes when
+// both old and new TreeNodes strip to empty but have different statics.
+// This is the core checkbox toggle scenario:
+// Old: {"s":["checked"]} -> strips to empty
+// New: {"s":[]} -> strips to empty
+// But they are visually different, so this IS a meaningful change.
+func TestCompareRangeItemsForChanges_StaticsDiffer(t *testing.T) {
+	// Old item has a checked checkbox (TreeNode with statics ["checked"])
+	oldItem := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": "task1",
+			"1": &TreeNode{Statics: []string{"checked"}}, // Checked state
+			"2": "Task text",
+		},
+	}
+
+	// New item has unchecked checkbox (TreeNode with empty statics)
+	newItem := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": "task1",
+			"1": &TreeNode{Statics: []string{}}, // Unchecked state - empty statics
+			"2": "Task text",
+		},
+	}
+
+	statics := []string{"<li>", "<input ", ">", "</li>"}
+
+	changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
+
+	// Should have 1 change for field "1" - the statics differ!
+	if len(changes) != 1 {
+		t.Fatalf("Expected 1 change (statics differ), got %d: %v", len(changes), changes)
+	}
+
+	// The change should be empty string to indicate field should be cleared
+	change1, ok := changes["1"]
+	if !ok {
+		t.Fatal("Expected change for field '1'")
+	}
+
+	// When both strip to empty but statics differ, we send empty string
+	if change1 != "" {
+		t.Errorf("Expected empty string for change, got %T: %v", change1, change1)
+	}
+}
+
+// TestCompareRangeItemsForChanges_StaticsSameNoChange tests that no change is
+// detected when both old and new TreeNodes have identical statics.
+func TestCompareRangeItemsForChanges_StaticsSameNoChange(t *testing.T) {
+	// Both have the same statics - no change should be detected
+	oldItem := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": "task1",
+			"1": &TreeNode{Statics: []string{"checked"}},
+			"2": "Task text",
+		},
+	}
+
+	newItem := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": "task1",
+			"1": &TreeNode{Statics: []string{"checked"}}, // Same statics
+			"2": "Task text",
+		},
+	}
+
+	statics := []string{"<li>", "<input ", ">", "</li>"}
+
+	changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
+
+	// Should have no changes - statics are identical
+	if len(changes) != 0 {
+		t.Errorf("Expected no changes (statics same), got %d: %v", len(changes), changes)
+	}
+}
+
+// TestCompareRangeItemsForChanges_FieldRemoved tests detecting when a field
+// exists in old item but is removed from new item.
+// This handles cases like unchecking a checkbox where the "checked" attribute
+// field exists in old but is absent from new.
+func TestCompareRangeItemsForChanges_FieldRemoved(t *testing.T) {
+	// Old item has a field "1" with a TreeNode value
+	oldItem := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": "task1",
+			"1": &TreeNode{Statics: []string{"checked"}}, // Field exists
+			"2": "Task text",
+		},
+	}
+
+	// New item doesn't have field "1" at all
+	newItem := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": "task1",
+			// Field "1" is absent - removed
+			"2": "Task text",
+		},
+	}
+
+	statics := []string{"<li>", "<input ", ">", "</li>"}
+
+	changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
+
+	// Should have 1 change for field "1" - it was removed
+	if len(changes) != 1 {
+		t.Fatalf("Expected 1 change (field removed), got %d: %v", len(changes), changes)
+	}
+
+	// The change should be empty string to indicate removal
+	change1, ok := changes["1"]
+	if !ok {
+		t.Fatal("Expected change for field '1'")
+	}
+
+	if change1 != "" {
+		t.Errorf("Expected empty string for removed field, got %T: %v", change1, change1)
+	}
+}
+
+// TestCompareRangeItemsForChanges_FieldRemovedWithStringValue tests detecting
+// when a field with a string value is removed from new item.
+func TestCompareRangeItemsForChanges_FieldRemovedWithStringValue(t *testing.T) {
+	// Old item has a field "1" with a string value
+	oldItem := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": "task1",
+			"1": "some value", // String value exists
+			"2": "Task text",
+		},
+	}
+
+	// New item doesn't have field "1" at all
+	newItem := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": "task1",
+			// Field "1" is absent - removed
+			"2": "Task text",
+		},
+	}
+
+	statics := []string{"<li>", "", "", "</li>"}
+
+	changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
+
+	// Should have 1 change for field "1" - it was removed
+	if len(changes) != 1 {
+		t.Fatalf("Expected 1 change (field removed), got %d: %v", len(changes), changes)
+	}
+
+	// The change should be empty string to indicate removal
+	change1, ok := changes["1"]
+	if !ok {
+		t.Fatal("Expected change for field '1'")
+	}
+
+	if change1 != "" {
+		t.Errorf("Expected empty string for removed field, got %T: %v", change1, change1)
+	}
+}
+
+// TestCompareRangeItemsForChanges_EmptyFieldNotReported tests that removing
+// an already-empty field doesn't generate a spurious change.
+func TestCompareRangeItemsForChanges_EmptyFieldNotReported(t *testing.T) {
+	// Old item has a field "1" with empty string
+	oldItem := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": "task1",
+			"1": "", // Empty string
+			"2": "Task text",
+		},
+	}
+
+	// New item doesn't have field "1" at all
+	newItem := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": "task1",
+			// Field "1" is absent
+			"2": "Task text",
+		},
+	}
+
+	statics := []string{"<li>", "", "", "</li>"}
+
+	changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
+
+	// Should have no changes - empty string to absent is not meaningful
+	if len(changes) != 0 {
+		t.Errorf("Expected no changes (empty to absent), got %d: %v", len(changes), changes)
+	}
+}

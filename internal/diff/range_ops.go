@@ -371,8 +371,8 @@ func CompareRangeItemsForChanges(oldItem, newItem interface{}, statics interface
 		}
 		if _, exists := newItemNode.Dynamics[fieldKey]; !exists {
 			// Field was removed - send empty string to indicate removal
-			// Check if old value was something meaningful (not empty)
-			if oldValue != "" {
+			// Only report if old value was meaningful (not empty string, nil, etc.)
+			if isMeaningfulValue(oldValue) {
 				changes[fieldKey] = ""
 			}
 		}
