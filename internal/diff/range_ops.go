@@ -166,13 +166,11 @@ func generateUpdateOperations(
 			// Compare items and generate update operation if different
 			changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
 			if len(changes) > 0 {
-				// Check if changes only contains empty values
-				if checkNonEmptyChanges(changes) {
-					operations = append(operations, []interface{}{"u", key, changes})
-				} else {
-					// All changes are empty strings - use simple format without changes
-					operations = append(operations, []interface{}{"u", key})
-				}
+				// Always include changes, even if they're all empty strings.
+				// Empty string changes indicate that a field should be cleared
+				// (e.g., removing "checked" attribute when toggling a checkbox off).
+				// The client needs to know about these changes to update the DOM.
+				operations = append(operations, []interface{}{"u", key, changes})
 			}
 		}
 	}
@@ -364,6 +362,22 @@ func CompareRangeItemsForChanges(oldItem, newItem interface{}, statics interface
 		}
 	}
 
+	// Also check for fields that were removed (in old but not in new).
+	// This handles cases like unchecking a checkbox: the "checked" attribute
+	// field exists in old but is absent from new (or is empty string).
+	for fieldKey, oldValue := range oldItemNode.Dynamics {
+		if fieldKey == keyPosStr {
+			continue // Skip the key field
+		}
+		if _, exists := newItemNode.Dynamics[fieldKey]; !exists {
+			// Field was removed - send empty string to indicate removal
+			// Check if old value was something meaningful (not empty)
+			if oldValue != "" {
+				changes[fieldKey] = ""
+			}
+		}
+	}
+
 	return changes
 }
 
@@ -395,11 +409,19 @@ func handleNestedTreeNodeChange(
 	// If stripping results in empty, check if this is a meaningful change
 	if IsEmpty(stripped) {
 		// Check if old value would also strip to empty
-		// If both old and new are static-only (strip to empty), don't send the change
 		if exists && oldIsTree {
 			oldStripped := PrepareTreeForClient(oldTreeNode, true)
 			if IsEmpty(oldStripped) {
-				// Both old and new strip to empty - no meaningful change, skip it
+				// Both old and new strip to empty (static-only).
+				// But we MUST check if the statics are different!
+				// e.g., old: {"s":["checked"]} vs new: {"s":[]}
+				// Both strip to empty but the visual output is different.
+				if !DeepEqual(oldTreeNode.Statics, newTreeNode.Statics) {
+					// Statics are different - this IS a meaningful change.
+					// Send empty string to indicate the field should be cleared.
+					changes[fieldKey] = ""
+				}
+				// If statics are the same, truly no change - skip it
 				return
 			}
 		}
@@ -423,15 +445,6 @@ func createItemKeyMap(items []interface{}, statics interface{}) map[string]inter
 	return itemsByKey
 }
 
-// checkNonEmptyChanges checks if there are any non-empty changes.
-func checkNonEmptyChanges(changes map[string]interface{}) bool {
-	for _, v := range changes {
-		if s, ok := v.(string); !ok || s != "" {
-			return true
-		}
-	}
-	return false
-}
 
 // stripStaticsFromOperations removes statics from all operations.
 // Range operations have format: ['a'/'p'/'i', items, statics?, metadata?]
