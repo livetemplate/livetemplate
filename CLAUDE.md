@@ -312,6 +312,9 @@ go test -v ./... -timeout=30s
 
 ## Development Conventions
 
+### Release Process
+- **Never create git tags manually** - Always use `release.sh` script for releases
+
 ### Code Style
 1. **No unnecessary comments** - Code should be self-documenting
 2. **Follow existing patterns** - Check neighboring code for conventions
