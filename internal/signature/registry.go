@@ -194,3 +194,32 @@ func (r *ClientStructureRegistry) HasPath(fieldPath string) bool {
 	_, exists := r.structures[fieldPath]
 	return exists
 }
+
+// InvalidatePath removes all registry entries that match the given path or are children of it.
+// This should be called when a TreeNode is replaced with a primitive value, because the client
+// loses the statics for that subtree and will need them again when the TreeNode returns.
+//
+// For example, if path is "0", this removes entries for "0", "0.0", "0.0.0", "0.1", etc.
+//
+// Thread-safe for concurrent writes.
+func (r *ClientStructureRegistry) InvalidatePath(fieldPath string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Build list of paths to remove (can't modify map while iterating)
+	var pathsToRemove []string
+	prefix := fieldPath + "."
+
+	for path, elem := range r.structures {
+		// Remove exact match or any child paths
+		if path == fieldPath || len(path) > len(fieldPath) && path[:len(prefix)] == prefix {
+			pathsToRemove = append(pathsToRemove, path)
+			r.lruList.Remove(elem)
+		}
+	}
+
+	// Remove from map
+	for _, path := range pathsToRemove {
+		delete(r.structures, path)
+	}
+}

@@ -353,6 +353,15 @@ func handleChangedField(
 		return
 	}
 
+	// Old value was a tree node but new value is primitive (e.g., conditional becoming empty)
+	// Invalidate registry entries for this path so statics are re-sent when tree node returns
+	if oldTreeNodePtr != nil {
+		registryUsable := registry != nil && !isNilRegistry(registry)
+		if registryUsable {
+			registry.InvalidatePath(fieldPath)
+		}
+	}
+
 	// At least one is a primitive value or type changed - send new value as-is
 	changes.SetDynamic(k, newValue)
 }
