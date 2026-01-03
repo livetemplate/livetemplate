@@ -1085,3 +1085,52 @@ func TestHandleEmptyRangeDiff(t *testing.T) {
 		t.Error("Expected empty range structure to be sent")
 	}
 }
+
+// TestHandleChangedField_NestedTreeNodeToPrimitive tests that registry is correctly
+// invalidated for nested TreeNode → primitive transitions.
+// This ensures the path parameter passed to InvalidatePath is correct for nested structures.
+func TestHandleChangedField_NestedTreeNodeToPrimitive(t *testing.T) {
+	registry := newMockRegistry()
+
+	// Simulate a nested structure: parent > container > modal
+	// Path would be something like "0.1.2"
+	nestedModal := &TreeNode{
+		Statics:  []string{"<div class=\"nested-modal\">", "</div>"},
+		Dynamics: map[string]interface{}{"0": "nested content"},
+	}
+
+	// Mark nested paths as seen
+	registry.MarkSeen("0.1.2", nestedModal)
+	registry.MarkSeen("0.1.2.0", "content marker")
+	// Also mark some sibling paths that should NOT be removed
+	registry.MarkSeen("0.1", "container marker")
+	registry.MarkSeen("0.1.3", "sibling marker")
+
+	// Verify registry has the entries
+	if !registry.seen["0.1.2"] {
+		t.Error("Registry should have entry for '0.1.2'")
+	}
+	if !registry.seen["0.1.2.0"] {
+		t.Error("Registry should have entry for '0.1.2.0'")
+	}
+
+	// Now the nested modal becomes empty
+	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	handleChangedField("0.1.2", nestedModal, "", "0.1.2", false, nil, registry, nil, nil, changes)
+
+	// After TreeNode → primitive, registry should invalidate path "0.1.2" and children
+	if registry.seen["0.1.2"] {
+		t.Error("Registry should NOT have entry for '0.1.2' after TreeNode→primitive")
+	}
+	if registry.seen["0.1.2.0"] {
+		t.Error("Registry should NOT have entry for '0.1.2.0' (child) after TreeNode→primitive")
+	}
+
+	// Sibling paths should still exist
+	if !registry.seen["0.1"] {
+		t.Error("Registry should still have entry for '0.1' (parent)")
+	}
+	if !registry.seen["0.1.3"] {
+		t.Error("Registry should still have entry for '0.1.3' (sibling)")
+	}
+}

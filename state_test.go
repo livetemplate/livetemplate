@@ -499,3 +499,250 @@ func TestAsState_ComplexNestedState(t *testing.T) {
 		t.Errorf("Metadata[version] mismatch: got %q", restored.Metadata["version"])
 	}
 }
+
+// ============================================================================
+// ClearTransientFields Tests
+// ============================================================================
+
+// testTransientState has a mix of transient and non-transient fields
+type testTransientState struct {
+	SearchQuery   string  `json:"search_query"`                    // Not transient
+	EditingID     string  `json:"editing_id" lvt:"transient"`      // Transient
+	EditingItem   *string `json:"editing_item" lvt:"transient"`    // Transient pointer
+	Counter       int     `json:"counter"`                         // Not transient
+	TransientInt  int     `json:"transient_int" lvt:"transient"`   // Transient int
+	TransientList []int   `json:"transient_list" lvt:"transient"`  // Transient slice
+}
+
+func TestClearTransientFields_StructPointer(t *testing.T) {
+	item := "test-item"
+	state := &testTransientState{
+		SearchQuery:   "hello",
+		EditingID:     "post-123",
+		EditingItem:   &item,
+		Counter:       42,
+		TransientInt:  100,
+		TransientList: []int{1, 2, 3},
+	}
+
+	result := ClearTransientFields(state)
+
+	// Should return same pointer type
+	resultPtr, ok := result.(*testTransientState)
+	if !ok {
+		t.Fatalf("Expected *testTransientState, got %T", result)
+	}
+
+	// Should be the same pointer (modified in place)
+	if resultPtr != state {
+		t.Error("Expected same pointer to be returned for pointer input")
+	}
+
+	// Transient fields should be cleared
+	if state.EditingID != "" {
+		t.Errorf("EditingID should be cleared, got %q", state.EditingID)
+	}
+	if state.EditingItem != nil {
+		t.Errorf("EditingItem should be nil, got %v", state.EditingItem)
+	}
+	if state.TransientInt != 0 {
+		t.Errorf("TransientInt should be 0, got %d", state.TransientInt)
+	}
+	if state.TransientList != nil {
+		t.Errorf("TransientList should be nil, got %v", state.TransientList)
+	}
+
+	// Non-transient fields should be preserved
+	if state.SearchQuery != "hello" {
+		t.Errorf("SearchQuery should be preserved, got %q", state.SearchQuery)
+	}
+	if state.Counter != 42 {
+		t.Errorf("Counter should be preserved, got %d", state.Counter)
+	}
+}
+
+func TestClearTransientFields_StructValue(t *testing.T) {
+	item := "test-item"
+	state := testTransientState{
+		SearchQuery:   "hello",
+		EditingID:     "post-123",
+		EditingItem:   &item,
+		Counter:       42,
+		TransientInt:  100,
+		TransientList: []int{1, 2, 3},
+	}
+
+	result := ClearTransientFields(state)
+
+	// Should return value type (not pointer)
+	resultVal, ok := result.(testTransientState)
+	if !ok {
+		t.Fatalf("Expected testTransientState, got %T", result)
+	}
+
+	// Transient fields should be cleared in result
+	if resultVal.EditingID != "" {
+		t.Errorf("EditingID should be cleared, got %q", resultVal.EditingID)
+	}
+	if resultVal.EditingItem != nil {
+		t.Errorf("EditingItem should be nil, got %v", resultVal.EditingItem)
+	}
+
+	// Non-transient fields should be preserved
+	if resultVal.SearchQuery != "hello" {
+		t.Errorf("SearchQuery should be preserved, got %q", resultVal.SearchQuery)
+	}
+	if resultVal.Counter != 42 {
+		t.Errorf("Counter should be preserved, got %d", resultVal.Counter)
+	}
+
+	// Original value should be unchanged (Go passes by value)
+	if state.EditingID != "post-123" {
+		t.Errorf("Original EditingID should be unchanged, got %q", state.EditingID)
+	}
+}
+
+func TestClearTransientFields_WithStateInterface(t *testing.T) {
+	item := "test-item"
+	originalState := &testTransientState{
+		SearchQuery:   "hello",
+		EditingID:     "post-123",
+		EditingItem:   &item,
+		Counter:       42,
+		TransientInt:  100,
+		TransientList: []int{1, 2, 3},
+	}
+
+	// Wrap in State interface (like jsonState does)
+	wrapped := AsState(originalState)
+
+	result := ClearTransientFields(wrapped)
+
+	// Result should be pointer to the struct (unwrapped from State)
+	resultPtr, ok := result.(*testTransientState)
+	if !ok {
+		t.Fatalf("Expected *testTransientState, got %T", result)
+	}
+
+	// Transient fields should be cleared
+	if resultPtr.EditingID != "" {
+		t.Errorf("EditingID should be cleared, got %q", resultPtr.EditingID)
+	}
+
+	// Non-transient fields should be preserved
+	if resultPtr.SearchQuery != "hello" {
+		t.Errorf("SearchQuery should be preserved, got %q", resultPtr.SearchQuery)
+	}
+}
+
+func TestClearTransientFields_NilPointer(t *testing.T) {
+	var state *testTransientState = nil
+
+	result := ClearTransientFields(state)
+
+	// Should return nil pointer without panicking
+	// Note: result is interface{} containing (*testTransientState)(nil)
+	resultPtr, ok := result.(*testTransientState)
+	if !ok {
+		t.Fatalf("Expected *testTransientState type, got %T", result)
+	}
+	if resultPtr != nil {
+		t.Errorf("Expected nil pointer, got %v", resultPtr)
+	}
+}
+
+func TestClearTransientFields_NonStruct(t *testing.T) {
+	// Test with non-struct types - should return unchanged
+	intVal := 42
+	result := ClearTransientFields(intVal)
+	if result != intVal {
+		t.Errorf("Expected %d, got %v", intVal, result)
+	}
+
+	strVal := "hello"
+	result = ClearTransientFields(strVal)
+	if result != strVal {
+		t.Errorf("Expected %q, got %v", strVal, result)
+	}
+}
+
+func TestClearTransientFields_NoTransientFields(t *testing.T) {
+	type noTransientState struct {
+		Name  string `json:"name"`
+		Count int    `json:"count"`
+	}
+
+	state := &noTransientState{Name: "test", Count: 10}
+	result := ClearTransientFields(state)
+
+	resultPtr, ok := result.(*noTransientState)
+	if !ok {
+		t.Fatalf("Expected *noTransientState, got %T", result)
+	}
+
+	// All fields should be preserved
+	if resultPtr.Name != "test" {
+		t.Errorf("Name should be preserved, got %q", resultPtr.Name)
+	}
+	if resultPtr.Count != 10 {
+		t.Errorf("Count should be preserved, got %d", resultPtr.Count)
+	}
+}
+
+func TestClearTransientFields_AllTransientFields(t *testing.T) {
+	type allTransientState struct {
+		Field1 string `lvt:"transient"`
+		Field2 int    `lvt:"transient"`
+	}
+
+	state := &allTransientState{Field1: "test", Field2: 42}
+	result := ClearTransientFields(state)
+
+	resultPtr, ok := result.(*allTransientState)
+	if !ok {
+		t.Fatalf("Expected *allTransientState, got %T", result)
+	}
+
+	// All fields should be cleared
+	if resultPtr.Field1 != "" {
+		t.Errorf("Field1 should be cleared, got %q", resultPtr.Field1)
+	}
+	if resultPtr.Field2 != 0 {
+		t.Errorf("Field2 should be cleared, got %d", resultPtr.Field2)
+	}
+}
+
+func TestClearTransientFields_MapAndSliceTypes(t *testing.T) {
+	type complexTransientState struct {
+		RegularMap    map[string]int   `json:"regular_map"`
+		TransientMap  map[string]int   `json:"transient_map" lvt:"transient"`
+		RegularSlice  []string         `json:"regular_slice"`
+		TransientSlice []string        `json:"transient_slice" lvt:"transient"`
+	}
+
+	state := &complexTransientState{
+		RegularMap:     map[string]int{"a": 1},
+		TransientMap:   map[string]int{"b": 2},
+		RegularSlice:   []string{"x", "y"},
+		TransientSlice: []string{"z"},
+	}
+
+	result := ClearTransientFields(state)
+	resultPtr := result.(*complexTransientState)
+
+	// Transient fields should be nil
+	if resultPtr.TransientMap != nil {
+		t.Errorf("TransientMap should be nil, got %v", resultPtr.TransientMap)
+	}
+	if resultPtr.TransientSlice != nil {
+		t.Errorf("TransientSlice should be nil, got %v", resultPtr.TransientSlice)
+	}
+
+	// Regular fields should be preserved
+	if resultPtr.RegularMap["a"] != 1 {
+		t.Errorf("RegularMap should be preserved, got %v", resultPtr.RegularMap)
+	}
+	if len(resultPtr.RegularSlice) != 2 {
+		t.Errorf("RegularSlice should be preserved, got %v", resultPtr.RegularSlice)
+	}
+}

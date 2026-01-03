@@ -287,12 +287,16 @@ func ClearTransientFields(state interface{}) interface{} {
 
 	v := reflect.ValueOf(state)
 
-	// Handle pointer vs value - we need an addressable struct to modify fields
+	// Track whether input was a pointer for correct return type
+	wasPointer := false
 	var elem reflect.Value
+
+	// Handle pointer vs value - we need an addressable struct to modify fields
 	if v.Kind() == reflect.Ptr {
 		if v.IsNil() {
 			return state
 		}
+		wasPointer = true
 		elem = v.Elem()
 	} else if v.Kind() == reflect.Struct {
 		// Value type - create an addressable copy
@@ -326,7 +330,10 @@ func ClearTransientFields(state interface{}) interface{} {
 			slog.Int("count", clearedCount))
 	}
 
-	// Return the modified value
+	// Return matching type: pointer if input was pointer, value otherwise
+	if wasPointer {
+		return elem.Addr().Interface()
+	}
 	return elem.Interface()
 }
 

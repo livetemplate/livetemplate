@@ -385,3 +385,64 @@ func TestClientStructureRegistry_ComplexScenario(t *testing.T) {
 		t.Error("Marked empty message should match")
 	}
 }
+
+// TestClientStructureRegistry_InvalidatePath tests path invalidation edge cases
+func TestClientStructureRegistry_InvalidatePath(t *testing.T) {
+	registry := signature.NewClientStructureRegistry()
+
+	// Setup nested structure
+	registry.MarkSeen("0", "root")
+	registry.MarkSeen("0.1", "child")
+	registry.MarkSeen("0.1.2", "grandchild")
+	registry.MarkSeen("00", "not-a-child") // Should NOT be removed (similar prefix but not child)
+	registry.MarkSeen("1", "sibling")      // Should NOT be removed
+
+	// Verify initial state
+	if !registry.HasPath("0") {
+		t.Error("Path '0' should exist before invalidation")
+	}
+
+	// Invalidate "0"
+	registry.InvalidatePath("0")
+
+	// Verify exact path and children removed
+	if registry.HasPath("0") {
+		t.Error("Path '0' should be invalidated")
+	}
+	if registry.HasPath("0.1") {
+		t.Error("Child path '0.1' should be invalidated")
+	}
+	if registry.HasPath("0.1.2") {
+		t.Error("Grandchild path '0.1.2' should be invalidated")
+	}
+
+	// Verify non-children preserved
+	if !registry.HasPath("00") {
+		t.Error("Path '00' should NOT be invalidated (not a child)")
+	}
+	if !registry.HasPath("1") {
+		t.Error("Sibling path '1' should NOT be invalidated")
+	}
+}
+
+// TestClientStructureRegistry_InvalidatePath_NonExistent tests invalidating a non-existent path
+func TestClientStructureRegistry_InvalidatePath_NonExistent(t *testing.T) {
+	registry := signature.NewClientStructureRegistry()
+	registry.MarkSeen("0", "value")
+
+	// Invalidating non-existent path should be a no-op
+	registry.InvalidatePath("999")
+
+	// Original path should still exist
+	if !registry.HasPath("0") {
+		t.Error("Path '0' should still exist after invalidating non-existent path")
+	}
+}
+
+// TestClientStructureRegistry_InvalidatePath_Empty tests invalidating with empty registry
+func TestClientStructureRegistry_InvalidatePath_Empty(t *testing.T) {
+	registry := signature.NewClientStructureRegistry()
+
+	// Should not panic on empty registry
+	registry.InvalidatePath("0")
+}

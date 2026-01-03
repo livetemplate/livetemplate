@@ -2,6 +2,7 @@ package signature
 
 import (
 	"container/list"
+	"strings"
 	"sync"
 )
 
@@ -211,8 +212,8 @@ func (r *ClientStructureRegistry) InvalidatePath(fieldPath string) {
 	prefix := fieldPath + "."
 
 	for path, elem := range r.structures {
-		// Remove exact match or any child paths
-		if path == fieldPath || len(path) > len(fieldPath) && path[:len(prefix)] == prefix {
+		// Remove exact match or any child paths (e.g., "0" removes "0", "0.1", "0.1.2")
+		if path == fieldPath || strings.HasPrefix(path, prefix) {
 			pathsToRemove = append(pathsToRemove, path)
 			r.lruList.Remove(elem)
 		}
