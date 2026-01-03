@@ -73,6 +73,7 @@ func (s *jsonState[T]) Inner() any {
 //	}
 const stateTag = "lvt"
 const stateTagValue = "state"
+const transientTagValue = "transient"
 
 // stateFieldCache caches reflection info for state fields by type.
 // Key: reflect.Type, Value: []stateFieldInfo
@@ -128,9 +129,27 @@ func getStateFieldInfo(store interface{}) []stateFieldInfo {
 	return fields
 }
 
-// validateStateTag warns if a tag value looks like a typo of "state".
-// Common mistakes: "State", "STATE", "states", "stae", etc.
+// validateStateTag warns if a tag value looks like a typo or invalid combination.
+// Valid values: "state" (for persistence in Controller+State pattern), "transient" (cleared on reload)
 func validateStateTag(tag, fieldName, typeName string) {
+	// Check for comma-separated values (invalid - can only use one)
+	if strings.Contains(tag, ",") {
+		slog.Warn("Invalid lvt tag: cannot combine multiple values",
+			slog.String("field", fieldName),
+			slog.String("type", typeName),
+			slog.String("got", tag),
+			slog.String("valid_values", "state, transient (use one, not both)"))
+		return
+	}
+
+	// Check if it's a known valid value
+	validValues := []string{stateTagValue, transientTagValue}
+	for _, valid := range validValues {
+		if tag == valid {
+			return // Valid, no warning needed
+		}
+	}
+
 	lowerTag := strings.ToLower(tag)
 
 	// Case variation of "state"
@@ -143,7 +162,17 @@ func validateStateTag(tag, fieldName, typeName string) {
 		return
 	}
 
-	// Common typos
+	// Case variation of "transient"
+	if lowerTag == transientTagValue && tag != transientTagValue {
+		slog.Warn("Possible typo in lvt tag: use lowercase 'transient'",
+			slog.String("field", fieldName),
+			slog.String("type", typeName),
+			slog.String("got", tag),
+			slog.String("expected", transientTagValue))
+		return
+	}
+
+	// Common typos of "state"
 	typos := []string{"states", "stae", "satte", "stat", "staet"}
 	for _, typo := range typos {
 		if lowerTag == typo {
@@ -152,6 +181,19 @@ func validateStateTag(tag, fieldName, typeName string) {
 				slog.String("type", typeName),
 				slog.String("got", tag),
 				slog.String("expected", stateTagValue))
+			return
+		}
+	}
+
+	// Common typos of "transient"
+	transientTypos := []string{"transiant", "transent", "trasient", "tranisent"}
+	for _, typo := range transientTypos {
+		if lowerTag == typo {
+			slog.Warn("Possible typo in lvt tag",
+				slog.String("field", fieldName),
+				slog.String("type", typeName),
+				slog.String("got", tag),
+				slog.String("expected", transientTagValue))
 			return
 		}
 	}
@@ -223,6 +265,69 @@ func InjectState(store interface{}, state map[string]interface{}) error {
 	}
 
 	return nil
+}
+
+// ClearTransientFields zeros out fields tagged with `lvt:"transient"`.
+// This is called when restoring state after a page reload/reconnect to ensure
+// transient UI state (like which modal is open) doesn't persist across page loads.
+//
+// Example usage in state struct:
+//
+//	type PostsState struct {
+//	    SearchQuery  string     `json:"search_query"`                    // Persisted
+//	    EditingID    string     `json:"editing_id" lvt:"transient"`      // Cleared on reload
+//	    EditingPost  *PostItem  `json:"editing_post" lvt:"transient"`    // Cleared on reload
+//	}
+func ClearTransientFields(state interface{}) interface{} {
+	// If state implements the State interface (e.g., jsonState wrapper),
+	// unwrap it to get the actual state struct
+	if s, ok := state.(State); ok {
+		state = s.Inner()
+	}
+
+	v := reflect.ValueOf(state)
+
+	// Handle pointer vs value - we need an addressable struct to modify fields
+	var elem reflect.Value
+	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return state
+		}
+		elem = v.Elem()
+	} else if v.Kind() == reflect.Struct {
+		// Value type - create an addressable copy
+		ptr := reflect.New(v.Type())
+		ptr.Elem().Set(v)
+		elem = ptr.Elem()
+	} else {
+		return state
+	}
+
+	if elem.Kind() != reflect.Struct {
+		return state
+	}
+
+	t := elem.Type()
+	clearedCount := 0
+	for i := 0; i < elem.NumField(); i++ {
+		field := t.Field(i)
+		lvtTag := field.Tag.Get(stateTag)
+		if lvtTag == transientTagValue {
+			if elem.Field(i).CanSet() {
+				elem.Field(i).Set(reflect.Zero(field.Type))
+				clearedCount++
+			}
+		}
+	}
+
+	if clearedCount > 0 {
+		slog.Debug("ClearTransientFields: cleared transient fields",
+			slog.String("type", t.Name()),
+			slog.Int("count", clearedCount))
+	}
+
+	// Return the modified value
+	return elem.Interface()
 }
 
 // stateEnvelope is the serialization format for state-tagged fields.
