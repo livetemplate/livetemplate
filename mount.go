@@ -561,7 +561,8 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Created new session group: %s", groupID)
 	} else {
 		// Existing session - use stored state
-		typedState = storedState
+		// Clear transient fields (e.g., EditingID) so they don't persist across page reloads
+		typedState = ClearTransientFields(storedState)
 	}
 
 	// Initialize upload registry for this connection
@@ -864,7 +865,10 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		isNewSession = true
 		log.Printf("HTTP: Created new session group: %s", groupID)
 	} else {
-		typedState = storedState
+		// Existing session - use stored state
+		log.Printf("HTTP: Using existing session group: %s", groupID)
+		// Clear transient fields (e.g., EditingID) so they don't persist across page reloads
+		typedState = ClearTransientFields(storedState)
 	}
 
 	// Create connection state (messages are per-request)

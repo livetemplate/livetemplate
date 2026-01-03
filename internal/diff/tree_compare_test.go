@@ -23,6 +23,16 @@ func (m *mockStructureRegistry) MarkSeen(path string, value interface{}) {
 	m.seen[path] = true
 }
 
+func (m *mockStructureRegistry) InvalidatePath(path string) {
+	// Remove all entries that match path or are children of path
+	prefix := path + "."
+	for key := range m.seen {
+		if key == path || (len(key) > len(path) && key[:len(prefix)] == prefix) {
+			delete(m.seen, key)
+		}
+	}
+}
+
 // TestCompareTreesAndGetChangesWithPath_NoDiff tests when trees are identical.
 func TestCompareTreesAndGetChangesWithPath_NoDiff(t *testing.T) {
 	oldTree := &TreeNode{
@@ -725,6 +735,96 @@ func TestHandleChangedField_TreeNodes(t *testing.T) {
 	}
 }
 
+// TestHandleChangedField_TreeNodeToPrimitive tests that registry is invalidated when
+// a TreeNode becomes a primitive value (e.g., conditional becomes empty).
+func TestHandleChangedField_TreeNodeToPrimitive(t *testing.T) {
+	registry := newMockRegistry()
+
+	// Simulate the modal being shown initially - client has seen statics
+	modalTree := &TreeNode{
+		Statics:  []string{"<div id=\"modal\">", "</div>"},
+		Dynamics: map[string]interface{}{"0": "modal content"},
+	}
+	registry.MarkSeen("0", modalTree)
+	registry.MarkSeen("0.0", "content marker")
+
+	// Verify registry has the entries
+	if !registry.HasSeen("0", modalTree) {
+		t.Error("Registry should have entry for '0'")
+	}
+
+	// Now the modal becomes empty (conditional false)
+	oldTree := &TreeNode{Dynamics: map[string]interface{}{"0": modalTree}}
+	newTree := &TreeNode{Dynamics: map[string]interface{}{"0": ""}}
+	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+
+	handleChangedField("0", modalTree, "", "0", false, nil, registry, oldTree, newTree, changes)
+
+	// After TreeNode → primitive, registry should be invalidated
+	if registry.HasSeen("0", modalTree) {
+		t.Error("Registry should NOT have entry for '0' after TreeNode→primitive")
+	}
+	if registry.seen["0.0"] {
+		t.Error("Registry should NOT have entry for '0.0' (child path) after TreeNode→primitive")
+	}
+
+	// The change should be the empty string
+	if changes.Dynamics["0"] != "" {
+		t.Errorf("Expected empty string, got: %v", changes.Dynamics["0"])
+	}
+}
+
+// TestHandleChangedField_ConditionalReopenScenario tests the full scenario:
+// TreeNode (modal shown) → primitive (modal hidden) → TreeNode (modal shown again)
+// The second showing should include statics because they were invalidated.
+func TestHandleChangedField_ConditionalReopenScenario(t *testing.T) {
+	registry := newMockRegistry()
+
+	// Step 1: Initial modal shown
+	modalTree1 := &TreeNode{
+		Statics:  []string{"<div id=\"modal\">", "</div>"},
+		Dynamics: map[string]interface{}{"0": "first content"},
+	}
+
+	// Mark as seen (simulating first render)
+	registry.MarkSeen("0", modalTree1)
+
+	// Step 2: Modal hidden (TreeNode → primitive)
+	oldTree := &TreeNode{Dynamics: map[string]interface{}{"0": modalTree1}}
+	newTree := &TreeNode{Dynamics: map[string]interface{}{"0": ""}}
+	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+
+	handleChangedField("0", modalTree1, "", "0", false, nil, registry, oldTree, newTree, changes)
+
+	// Registry should be invalidated
+	if registry.HasSeen("0", modalTree1) {
+		t.Error("After modal hidden, registry should not have entry for '0'")
+	}
+
+	// Step 3: Modal shown again (primitive → TreeNode)
+	modalTree2 := &TreeNode{
+		Statics:  []string{"<div id=\"modal\">", "</div>"},
+		Dynamics: map[string]interface{}{"0": "second content"},
+	}
+
+	oldTree2 := &TreeNode{Dynamics: map[string]interface{}{"0": ""}}
+	newTree2 := &TreeNode{Dynamics: map[string]interface{}{"0": modalTree2}}
+	changes2 := &TreeNode{Dynamics: make(map[string]interface{})}
+
+	handleChangedField("0", "", modalTree2, "0", false, nil, registry, oldTree2, newTree2, changes2)
+
+	// The new modal should be sent WITH statics (since registry was invalidated)
+	result, ok := changes2.Dynamics["0"].(*TreeNode)
+	if !ok {
+		t.Fatalf("Expected TreeNode in changes, got: %T", changes2.Dynamics["0"])
+	}
+
+	// Statics should be included (not stripped)
+	if result.Statics == nil || len(result.Statics) == 0 {
+		t.Error("Expected statics to be included when modal is shown after being hidden")
+	}
+}
+
 // TestIsStrippedValueEmpty tests the empty value detection helper.
 func TestIsStrippedValueEmpty(t *testing.T) {
 	tests := []struct {
@@ -983,5 +1083,54 @@ func TestHandleEmptyRangeDiff(t *testing.T) {
 	// Should send the empty range structure
 	if changes.Dynamics["0"] == nil {
 		t.Error("Expected empty range structure to be sent")
+	}
+}
+
+// TestHandleChangedField_NestedTreeNodeToPrimitive tests that registry is correctly
+// invalidated for nested TreeNode → primitive transitions.
+// This ensures the path parameter passed to InvalidatePath is correct for nested structures.
+func TestHandleChangedField_NestedTreeNodeToPrimitive(t *testing.T) {
+	registry := newMockRegistry()
+
+	// Simulate a nested structure: parent > container > modal
+	// Path would be something like "0.1.2"
+	nestedModal := &TreeNode{
+		Statics:  []string{"<div class=\"nested-modal\">", "</div>"},
+		Dynamics: map[string]interface{}{"0": "nested content"},
+	}
+
+	// Mark nested paths as seen
+	registry.MarkSeen("0.1.2", nestedModal)
+	registry.MarkSeen("0.1.2.0", "content marker")
+	// Also mark some sibling paths that should NOT be removed
+	registry.MarkSeen("0.1", "container marker")
+	registry.MarkSeen("0.1.3", "sibling marker")
+
+	// Verify registry has the entries
+	if !registry.seen["0.1.2"] {
+		t.Error("Registry should have entry for '0.1.2'")
+	}
+	if !registry.seen["0.1.2.0"] {
+		t.Error("Registry should have entry for '0.1.2.0'")
+	}
+
+	// Now the nested modal becomes empty
+	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	handleChangedField("0.1.2", nestedModal, "", "0.1.2", false, nil, registry, nil, nil, changes)
+
+	// After TreeNode → primitive, registry should invalidate path "0.1.2" and children
+	if registry.seen["0.1.2"] {
+		t.Error("Registry should NOT have entry for '0.1.2' after TreeNode→primitive")
+	}
+	if registry.seen["0.1.2.0"] {
+		t.Error("Registry should NOT have entry for '0.1.2.0' (child) after TreeNode→primitive")
+	}
+
+	// Sibling paths should still exist
+	if !registry.seen["0.1"] {
+		t.Error("Registry should still have entry for '0.1' (parent)")
+	}
+	if !registry.seen["0.1.3"] {
+		t.Error("Registry should still have entry for '0.1.3' (sibling)")
 	}
 }

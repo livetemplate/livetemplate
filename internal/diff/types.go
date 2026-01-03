@@ -24,4 +24,8 @@ type StructureRegistry interface {
 
 	// MarkSeen records that the client has now seen the given structure at the specified path.
 	MarkSeen(path string, value interface{})
+
+	// InvalidatePath removes all registry entries for the given path and its children.
+	// This should be called when a TreeNode is replaced with a primitive value.
+	InvalidatePath(path string)
 }
