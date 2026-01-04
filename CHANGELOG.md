@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<a name="v0.7.10"></a>
+## [v0.7.10] - 2026-01-04
+
+### Bug Fixes
+
+- handle range→else transitions in top-level range handling
+
+
 <a name="v0.7.9"></a>
 ## [v0.7.9] - 2026-01-03
 
@@ -412,7 +420,8 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.7.9...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.7.10...HEAD
+[v0.7.10]: https://github.com/livefir/livetemplate/compare/v0.7.9...v0.7.10
 [v0.7.9]: https://github.com/livefir/livetemplate/compare/v0.7.8...v0.7.9
 [v0.7.8]: https://github.com/livefir/livetemplate/compare/v0.7.7...v0.7.8
 [v0.7.7]: https://github.com/livefir/livetemplate/compare/v0.7.6...v0.7.7
