@@ -268,6 +268,80 @@ func TestHandleTopLevelRange_NewRange(t *testing.T) {
 	}
 }
 
+// TestHandleTopLevelRange_RangeToElse tests when range disappears and else clause appears.
+// This is the inverse of TestHandleTopLevelRange_NewRange.
+// Example: {{range .Items}}<item/>{{else}}No items{{end}}
+// When .Items goes from having items to empty, the else clause should replace the range.
+func TestHandleTopLevelRange_RangeToElse(t *testing.T) {
+	// Old tree is a range with items
+	oldTree := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Range: &RangeData{
+			Items:   []interface{}{map[string]interface{}{"id": "1"}},
+			Statics: []string{"<div>", "</div>"},
+		},
+	}
+
+	// New tree is NOT a range - it's the else clause content
+	// Example: <p>No items found matching "{{.SearchQuery}}"</p>
+	newTree := &TreeNode{
+		Statics:  []string{"<p>No items found matching \"", "\"</p>"},
+		Dynamics: map[string]interface{}{"0": "test query"},
+	}
+
+	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	handled := handleTopLevelRange(oldTree, newTree, "", nil, nil, changes)
+
+	if !handled {
+		t.Error("Expected handleTopLevelRange to return true for range→else transition")
+	}
+
+	// Should return full new tree (the else clause content)
+	if !changes.HasStatics() {
+		t.Error("Expected changes to have Statics from else clause")
+	}
+
+	// Verify the else clause content was properly returned
+	if changes.Dynamics["0"] != "test query" {
+		t.Errorf("Expected changes to contain else clause dynamic content, got: %v", changes.Dynamics["0"])
+	}
+}
+
+// TestHandleTopLevelRange_RangeToElse_WithRegistry tests range→else with registry invalidation.
+func TestHandleTopLevelRange_RangeToElse_WithRegistry(t *testing.T) {
+	registry := newMockRegistry()
+
+	// Mark the range statics as seen
+	registry.MarkSeen("testpath.__range_statics__", true)
+
+	// Old tree is a range
+	oldTree := &TreeNode{
+		Statics: []string{"<li>", "</li>"},
+		Range: &RangeData{
+			Items:   []interface{}{map[string]interface{}{"id": "1"}},
+			Statics: []string{"<li>", "</li>"},
+		},
+	}
+
+	// New tree is else clause
+	newTree := &TreeNode{
+		Statics:  []string{"<p>Empty</p>"},
+		Dynamics: map[string]interface{}{},
+	}
+
+	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	handled := handleTopLevelRange(oldTree, newTree, "testpath", nil, registry, changes)
+
+	if !handled {
+		t.Error("Expected handleTopLevelRange to return true")
+	}
+
+	// Registry should have been invalidated for range statics path
+	if registry.HasSeen("testpath.__range_statics__", nil) {
+		t.Error("Expected registry to be invalidated for range statics path after range→else transition")
+	}
+}
+
 // TestHandleMatchedRanges_WithOps tests matched ranges with operations.
 func TestHandleMatchedRanges_WithOps(t *testing.T) {
 	item1 := map[string]interface{}{"id": "1", "name": "Item 1"}
