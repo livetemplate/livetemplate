@@ -59,23 +59,41 @@ func handleTopLevelRange(
 	registry StructureRegistry,
 	changes *TreeNode,
 ) bool {
-	// CRITICAL FIX: Check if both trees ARE range constructs (top-level range template)
-	// Example: {{range .Items}}<div>...</div>{{end}} where the entire tree is a range
-	// OR if newTree is a range but oldTree isn't (range appearing for first time, e.g., from {{else}} clause)
-	if oldTree != nil && newTree != nil && newTree.HasRange() && newTree.HasStatics() {
-		// Case 1: Both are ranges and matched
+	if oldTree == nil || newTree == nil {
+		return false
+	}
+
+	// Case 1: newTree is a range (with or without items)
+	// This covers: range→range transitions and else→range transitions
+	if newTree.HasRange() && newTree.HasStatics() {
 		if oldTree.HasRange() && oldTree.HasStatics() {
+			// Both are ranges - use differential operations if matched
 			if _, isMatched := rangeMatches[currentPath]; isMatched {
 				return handleMatchedRanges(oldTree, newTree, currentPath, registry, changes)
 			}
 		} else {
-			// Case 2: newTree is a range but oldTree isn't (range appearing for first time)
-			// This happens when going from {{else}} clause to range content
-			// Return the full new tree so client can replace the else content with range items
+			// else→range: newTree is a range but oldTree isn't
+			// Return full new tree so client can replace the else content with range items
 			*changes = *newTree
 			return true
 		}
 	}
+
+	// Case 2: range→else transition
+	// oldTree was a range (had items) but newTree is NOT a range (it's the else clause content)
+	// This happens when collection becomes empty: {{range .Items}}...{{else}}No items{{end}}
+	if oldTree.HasRange() && oldTree.HasStatics() && !newTree.HasRange() {
+		// Return full new tree so client can replace range items with else content
+		// Also invalidate registry for this path since the range structure is gone
+		registryUsable := registry != nil && !isNilRegistry(registry)
+		if registryUsable {
+			rangeStaticsPath := currentPath + ".__range_statics__"
+			registry.InvalidatePath(rangeStaticsPath)
+		}
+		*changes = *newTree
+		return true
+	}
+
 	return false
 }
 
