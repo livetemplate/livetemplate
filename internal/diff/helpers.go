@@ -619,6 +619,17 @@ func IsComplexInsertionPattern(newKeys []string, oldItems, newItems []interface{
 		return false
 	}
 
+	// OPTIMIZATION: Check for simple append/prepend patterns first.
+	// These are common patterns (e.g., load_more, real-time feeds) that should NOT
+	// be considered complex regardless of how many items are added.
+	if AreAllItemsAtEnd(newKeys, oldItems, newItems, statics) {
+		return false // Append pattern - not complex
+	}
+	if AreAllItemsAtStart(newKeys, newItems, statics) {
+		return false // Prepend pattern - not complex
+	}
+
+	// For scattered insertions, count unique insertion points
 	insertionPoints := make(map[string]bool, len(newKeys))
 
 	for i, item := range newItems {
