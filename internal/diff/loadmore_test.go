@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -19,8 +20,8 @@ func TestLoadMoreScenario(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		oldItems[i] = &TreeNode{
 			Dynamics: map[string]interface{}{
-				"0": "id-" + string(rune('a'+i)),     // ID
-				"1": "Title " + string(rune('a'+i)), // Title
+				"0": fmt.Sprintf("id-%d", i),    // ID
+				"1": fmt.Sprintf("Title %d", i), // Title
 			},
 		}
 	}
@@ -30,8 +31,8 @@ func TestLoadMoreScenario(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		newItems[i] = &TreeNode{
 			Dynamics: map[string]interface{}{
-				"0": "id-" + string(rune('a'+i)),
-				"1": "Title " + string(rune('a'+i)),
+				"0": fmt.Sprintf("id-%d", i),
+				"1": fmt.Sprintf("Title %d", i),
 			},
 		}
 	}
