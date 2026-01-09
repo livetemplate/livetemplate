@@ -28,10 +28,16 @@ func PrepareTreeForClient(node interface{}, clientHasStatics bool) interface{} {
 		result := &TreeNode{
 			Dynamics: make(map[string]interface{}, len(v.Dynamics)),
 		}
-		// Recursively prepare dynamics, filtering out empty values
+		// Recursively prepare dynamics
 		for k, val := range v.Dynamics {
-			if prepared, ok := prepareAndFilterIfNeeded(val, clientHasStatics); ok {
+			prepared := PrepareTreeForClient(val, clientHasStatics)
+			if !IsEmpty(prepared) {
 				result.Dynamics[k] = prepared
+			} else if nestedNode, ok := val.(*TreeNode); ok && nestedNode.HasStatics() {
+				// For conditional blocks with statics but no dynamics, we must preserve
+				// the statics because the client needs them to render the content.
+				// This happens for {{if}} blocks where the branch content is pure static HTML.
+				result.Dynamics[k] = val // Keep original with statics
 			}
 		}
 		// Handle Range: preserve Items array without statics (client has them cached)
@@ -49,8 +55,12 @@ func PrepareTreeForClient(node interface{}, clientHasStatics bool) interface{} {
 			if k == "s" || k == "f" {
 				continue // Skip statics and fingerprint (client has them cached)
 			}
-			if prepared, ok := prepareAndFilterIfNeeded(val, clientHasStatics); ok {
+			prepared := PrepareTreeForClient(val, clientHasStatics)
+			if !IsEmpty(prepared) {
 				result[k] = prepared
+			} else if nestedNode, ok := val.(*TreeNode); ok && nestedNode.HasStatics() {
+				// For conditional blocks with statics but no dynamics, preserve the statics
+				result[k] = val
 			}
 		}
 		return result
