@@ -28,16 +28,19 @@ func PrepareTreeForClient(node interface{}, clientHasStatics bool) interface{} {
 		result := &TreeNode{
 			Dynamics: make(map[string]interface{}, len(v.Dynamics)),
 		}
-		// Recursively prepare dynamics
+		// Recursively prepare dynamics, filtering out empty values while preserving static-only conditional blocks
 		for k, val := range v.Dynamics {
 			prepared := PrepareTreeForClient(val, clientHasStatics)
 			if !IsEmpty(prepared) {
 				result.Dynamics[k] = prepared
 			} else if nestedNode, ok := val.(*TreeNode); ok && nestedNode.HasStatics() {
-				// For conditional blocks with statics but no dynamics, we must preserve
-				// the statics because the client needs them to render the content.
-				// This happens for {{if}} blocks where the branch content is pure static HTML.
-				result.Dynamics[k] = val // Keep original with statics
+				// Special case for conditional blocks ({{if}}/{{else}}) with static-only content.
+				// Even though clientHasStatics=true means we normally strip statics, conditional
+				// branches are dynamically-rendered structures. When a new item is prepended,
+				// the client hasn't seen THIS particular branch's statics yet - only the template's
+				// base statics are cached. We must send the full TreeNode so the client can render
+				// the branch content (e.g., <span>High</span> inside {{if eq .Priority "high"}}).
+				result.Dynamics[k] = val
 			}
 		}
 		// Handle Range: preserve Items array without statics (client has them cached)
@@ -59,7 +62,11 @@ func PrepareTreeForClient(node interface{}, clientHasStatics bool) interface{} {
 			if !IsEmpty(prepared) {
 				result[k] = prepared
 			} else if nestedNode, ok := val.(*TreeNode); ok && nestedNode.HasStatics() {
-				// For conditional blocks with statics but no dynamics, preserve the statics
+				// Mirror the TreeNode case above: if this entry represents a conditional
+				// block whose branch content is pure static HTML (no dynamics), then
+				// PrepareTreeForClient returns an "empty" value and we would normally
+				// drop it. However, the client still needs the static content in order
+				// to render that branch, so we keep the original value with its statics.
 				result[k] = val
 			}
 		}
