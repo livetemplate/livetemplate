@@ -694,6 +694,145 @@ func TestPrepareTreeForClient_EdgeCases(t *testing.T) {
 	})
 }
 
+// TestPrepareTreeForClient_StaticOnlyConditionalBlocks tests that TreeNodes with statics
+// but no dynamics are preserved when clientHasStatics is true. This is critical for
+// conditional blocks like {{if eq .Priority "high"}}<span>High</span>{{end}} where
+// the branch content is pure static HTML with no dynamic values.
+func TestPrepareTreeForClient_StaticOnlyConditionalBlocks(t *testing.T) {
+	t.Run("TreeNode with statics but empty dynamics is preserved", func(t *testing.T) {
+		// This simulates a conditional block like:
+		// {{if eq .Priority "high"}}<span style="color:red">High</span>{{end}}
+		// The branch has only static HTML content, no dynamics.
+		conditionalBlock := &TreeNode{
+			Statics:  []string{"<span style=\"color:red\">High</span>"},
+			Dynamics: map[string]interface{}{},
+		}
+
+		input := &TreeNode{
+			Statics: []string{"<div>", "</div>"},
+			Dynamics: map[string]interface{}{
+				"0": "Some dynamic content",
+				"1": conditionalBlock, // Static-only conditional
+			},
+		}
+
+		result := PrepareTreeForClient(input, true)
+		resultNode, ok := result.(*TreeNode)
+		if !ok {
+			t.Fatalf("Expected *TreeNode, got %T", result)
+		}
+
+		// The static-only conditional block should be preserved (not filtered out)
+		preserved, exists := resultNode.Dynamics["1"]
+		if !exists {
+			t.Fatal("Static-only conditional block at position '1' was incorrectly filtered out")
+		}
+
+		// It should be the original TreeNode with statics intact
+		preservedNode, ok := preserved.(*TreeNode)
+		if !ok {
+			t.Fatalf("Preserved value should be *TreeNode, got %T", preserved)
+		}
+
+		if len(preservedNode.Statics) == 0 {
+			t.Error("Preserved conditional block should have statics")
+		}
+		if preservedNode.Statics[0] != "<span style=\"color:red\">High</span>" {
+			t.Errorf("Statics content mismatch, got: %v", preservedNode.Statics)
+		}
+	})
+
+	t.Run("nested conditional blocks are preserved", func(t *testing.T) {
+		// Simulates nested conditionals like:
+		// {{if .Priority}}
+		//   {{if eq .Priority "high"}}<span>High</span>{{else}}<span>Normal</span>{{end}}
+		// {{end}}
+		innerConditional := &TreeNode{
+			Statics: []string{"<span>High</span>"},
+			Dynamics: map[string]interface{}{
+				"0": &TreeNode{ // Another static-only branch
+					Statics:  []string{"<span>Normal</span>"},
+					Dynamics: map[string]interface{}{},
+				},
+			},
+		}
+
+		input := &TreeNode{
+			Statics: []string{"<td>", "</td>"},
+			Dynamics: map[string]interface{}{
+				"0": innerConditional,
+			},
+		}
+
+		result := PrepareTreeForClient(input, true)
+		resultNode, ok := result.(*TreeNode)
+		if !ok {
+			t.Fatalf("Expected *TreeNode, got %T", result)
+		}
+
+		// Outer conditional should be preserved
+		outer, exists := resultNode.Dynamics["0"]
+		if !exists {
+			t.Fatal("Outer conditional was incorrectly filtered out")
+		}
+
+		outerNode, ok := outer.(*TreeNode)
+		if !ok {
+			t.Fatalf("Outer should be *TreeNode, got %T", outer)
+		}
+
+		// Inner static-only conditional should also be preserved
+		inner, exists := outerNode.Dynamics["0"]
+		if !exists {
+			t.Fatal("Inner static-only conditional was incorrectly filtered out")
+		}
+
+		innerNode, ok := inner.(*TreeNode)
+		if !ok {
+			t.Fatalf("Inner should be *TreeNode, got %T", inner)
+		}
+
+		if len(innerNode.Statics) == 0 {
+			t.Error("Inner conditional block should have statics preserved")
+		}
+	})
+
+	t.Run("map containing static-only TreeNode", func(t *testing.T) {
+		// Test the map[string]interface{} case
+		conditionalBlock := &TreeNode{
+			Statics:  []string{"<span>Status</span>"},
+			Dynamics: map[string]interface{}{},
+		}
+
+		input := map[string]interface{}{
+			"s": []string{"<div>", "</div>"},
+			"0": "dynamic value",
+			"1": conditionalBlock,
+		}
+
+		result := PrepareTreeForClient(input, true)
+		resultMap, ok := result.(map[string]interface{})
+		if !ok {
+			t.Fatalf("Expected map[string]interface{}, got %T", result)
+		}
+
+		// Static-only block should be preserved
+		preserved, exists := resultMap["1"]
+		if !exists {
+			t.Fatal("Static-only conditional in map was incorrectly filtered out")
+		}
+
+		preservedNode, ok := preserved.(*TreeNode)
+		if !ok {
+			t.Fatalf("Preserved value should be *TreeNode, got %T", preserved)
+		}
+
+		if len(preservedNode.Statics) == 0 {
+			t.Error("Preserved conditional should have statics")
+		}
+	})
+}
+
 // TestPrepareTreeForClient_Performance is a basic performance sanity check.
 func TestPrepareTreeForClient_Performance(t *testing.T) {
 	// This is not a benchmark, just a sanity check that we don't have obvious performance issues
