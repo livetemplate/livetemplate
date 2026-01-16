@@ -361,6 +361,6 @@ See `docs/SIMPLIFIED_DIFF_PROPOSAL.md` for the full design document.
 ### Remaining Work
 
 1. [x] Benchmark wire size impact ✅ See `internal/diff/diff_bench_test.go`
-2. [ ] Remove deprecated code in v0.9.0 (see deprecation timeline in SIMPLIFIED_DIFF_PROPOSAL.md)
+2. [x] Remove deprecated code ✅ `StructureRegistry` and `AreStructuresSimilar` removed in v0.8.0
 3. [x] Consider fingerprint caching ✅ Documented in SIMPLIFIED_DIFF_PROPOSAL.md (implement when benchmarks show need)
 4. [x] Document MD5 collision risk ✅ See SIMPLIFIED_DIFF_PROPOSAL.md "Technical Considerations"

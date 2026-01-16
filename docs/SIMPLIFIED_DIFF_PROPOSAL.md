@@ -558,19 +558,13 @@ func (t *TreeNode) GetFingerprint() string {
 }
 ```
 
-### Deprecation Timeline
+### Removal Timeline
 
 **v0.8.0 (Current):**
-- `StructureRegistry` interface marked as deprecated
-- `AreStructuresSimilar` function marked as deprecated
-- Both continue to work for backward compatibility
-- Documentation points to `ClientNeedsStatics` as replacement
-
-**v0.9.0 (Planned):**
-- Remove `StructureRegistry` interface from types.go
-- Remove `AreStructuresSimilar` from helpers.go
-- Remove any internal registry-based logic
-- Client code using these will get compile errors
+- `StructureRegistry` interface **REMOVED**
+- `AreStructuresSimilar` function **REMOVED**
+- All registry parameters removed from internal functions
+- `ClientNeedsStatics` is the only API for structure comparison
 
 **Migration Path:**
 ```go
@@ -584,6 +578,11 @@ if diff.ClientNeedsStatics(oldTree, newTree) {
     sendStatics = true
 }
 ```
+
+**Breaking Changes in v0.8.0:**
+- `StructureRegistry` interface no longer exists
+- `AreStructuresSimilar` function no longer exists
+- Functions no longer accept `registry` parameter
 
 ---
 

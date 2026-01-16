@@ -1,8 +1,6 @@
 package diff
 
 import (
-	"reflect"
-
 	"github.com/livetemplate/livetemplate/internal/build"
 )
 
@@ -15,7 +13,6 @@ import (
 //   - insideNewStructure: True if we're inside a structure the client hasn't seen
 //   - currentPath: Dot-separated path to current location in tree (e.g., "field.nested")
 //   - rangeMatches: Map of paths to matched range constructs (for differential operations)
-//   - registry: Optional registry tracking which structures client has seen (may be nil)
 //
 // Returns:
 //   - TreeNode containing only the changed fields (empty if no changes)
@@ -24,20 +21,19 @@ import (
 //   - Top-level range constructs with differential operations
 //   - Nil tree cases (tree removal)
 //   - Deep comparison of dynamic fields
-//   - Registry-based optimization (strips statics when client has them cached)
+//   - Fingerprint-based optimization (strips statics when client has them cached)
 func CompareTreesAndGetChangesWithPath(
 	oldTree, newTree *TreeNode,
 	insideNewStructure bool,
 	currentPath string,
 	rangeMatches map[string]string,
-	registry StructureRegistry,
 ) *TreeNode {
 	changes := &TreeNode{
 		Dynamics: make(map[string]interface{}),
 	}
 
 	// Handle top-level range constructs
-	if handleTopLevelRange(oldTree, newTree, currentPath, rangeMatches, registry, changes) {
+	if handleTopLevelRange(oldTree, newTree, currentPath, rangeMatches, changes) {
 		return changes
 	}
 
@@ -47,7 +43,7 @@ func CompareTreesAndGetChangesWithPath(
 	}
 
 	// Compare dynamic segments
-	compareDynamicSegments(oldTree, newTree, insideNewStructure, currentPath, rangeMatches, registry, changes)
+	compareDynamicSegments(oldTree, newTree, insideNewStructure, currentPath, rangeMatches, changes)
 
 	return changes
 }
@@ -58,7 +54,6 @@ func handleTopLevelRange(
 	oldTree, newTree *TreeNode,
 	currentPath string,
 	rangeMatches map[string]string,
-	registry StructureRegistry,
 	changes *TreeNode,
 ) bool {
 	if oldTree == nil || newTree == nil {
@@ -71,7 +66,7 @@ func handleTopLevelRange(
 		if oldTree.HasRange() && oldTree.HasStatics() {
 			// Both are ranges - use differential operations if matched
 			if _, isMatched := rangeMatches[currentPath]; isMatched {
-				return handleMatchedRanges(oldTree, newTree, currentPath, registry, changes)
+				return handleMatchedRanges(oldTree, newTree, changes)
 			}
 		} else {
 			// else→range: newTree is a range but oldTree isn't
@@ -86,12 +81,6 @@ func handleTopLevelRange(
 	// This happens when collection becomes empty: {{range .Items}}...{{else}}No items{{end}}
 	if oldTree.HasRange() && oldTree.HasStatics() && !newTree.HasRange() {
 		// Return full new tree so client can replace range items with else content
-		// Also invalidate registry for this path since the range structure is gone
-		registryUsable := registry != nil && !isNilRegistry(registry)
-		if registryUsable {
-			rangeStaticsPath := currentPath + ".__range_statics__"
-			registry.InvalidatePath(rangeStaticsPath)
-		}
 		*changes = *newTree
 		return true
 	}
@@ -101,10 +90,9 @@ func handleTopLevelRange(
 
 // handleMatchedRanges generates differential operations for matched range constructs.
 // Uses fingerprint comparison to determine if client needs range statics.
-func handleMatchedRanges(oldTree, newTree *TreeNode, currentPath string, registry StructureRegistry, changes *TreeNode) bool {
+func handleMatchedRanges(oldTree, newTree *TreeNode, changes *TreeNode) bool {
 	// Use fingerprint comparison to determine if client has range statics cached.
 	// If the structure fingerprints match, client already has the statics.
-	// This replaces the registry-based tracking with simpler fingerprint comparison.
 	clientHasRangeStatics := !ClientNeedsStatics(oldTree, newTree)
 
 	// Strip statics if client already has them cached
@@ -138,7 +126,6 @@ func compareDynamicSegments(
 	insideNewStructure bool,
 	currentPath string,
 	rangeMatches map[string]string,
-	registry StructureRegistry,
 	changes *TreeNode,
 ) {
 	for k, newValue := range newTree.Dynamics {
@@ -153,7 +140,7 @@ func compareDynamicSegments(
 
 		if !exists {
 			// Field is NEW compared to last update
-			handleNewField(k, newValue, fieldPath, insideNewStructure, registry, changes)
+			handleNewField(k, newValue, insideNewStructure, changes)
 		} else if !DeepEqual(oldValue, newValue) {
 			// Field exists but changed
 			handleChangedField(
@@ -161,7 +148,6 @@ func compareDynamicSegments(
 				fieldPath,
 				insideNewStructure,
 				rangeMatches,
-				registry,
 				oldTree, newTree,
 				changes,
 			)
@@ -181,9 +167,7 @@ func buildFieldPath(currentPath, k string) string {
 func handleNewField(
 	k string,
 	newValue interface{},
-	fieldPath string,
 	insideNewStructure bool,
-	registry StructureRegistry,
 	changes *TreeNode,
 ) {
 	// If we're inside a new structure, client has never seen this, so include statics
@@ -192,22 +176,17 @@ func handleNewField(
 		return
 	}
 
-	// Check if registry is usable (cache the check to avoid repeated reflection)
-	registryUsable := registry != nil && !isNilRegistry(registry)
-
-	// Check if client has seen THIS EXACT structure at this path (Phase 2: Registry)
-	clientHasStructure := false
-	if registryUsable {
-		clientHasStructure = registry.HasSeen(fieldPath, newValue)
-	}
-
-	// Handle tree node values
-	if handleNewTreeNodeField(k, newValue, clientHasStructure, fieldPath, registry, registryUsable, changes) {
+	// Handle tree node values - send full value with statics for new fields
+	if newTreeNode, ok := newValue.(*TreeNode); ok {
+		valueToSet, _ := handleStructureValue(newTreeNode, false)
+		changes.SetDynamic(k, valueToSet)
 		return
 	}
 
 	// Handle map values
-	if handleNewMapField(k, newValue, clientHasStructure, fieldPath, registry, registryUsable, changes) {
+	if m, ok := newValue.(map[string]interface{}); ok {
+		valueToSet, _ := handleStructureValue(m, false)
+		changes.SetDynamic(k, valueToSet)
 		return
 	}
 
@@ -238,7 +217,7 @@ func isStrippedValueEmpty(stripped interface{}) bool {
 	return false
 }
 
-// handleStructureValue handles TreeNode or map values with registry tracking.
+// handleStructureValue handles TreeNode or map values.
 // This function implements the core optimization: stripping statics when the client
 // already has them cached.
 //
@@ -248,11 +227,11 @@ func isStrippedValueEmpty(stripped interface{}) bool {
 //
 // Returns:
 //   - valueToSet: The value to send to client (stripped or full, or empty string)
-//   - shouldTrack: True if this structure should be tracked in registry
+//   - shouldTrack: True if this structure should be tracked (always false now, kept for compatibility)
 //
 // Behavior:
-//   - If client has structure: returns stripped value (dynamics only), shouldTrack=false
-//   - If client doesn't have structure: returns full value (with statics), shouldTrack=true
+//   - If client has structure: returns stripped value (dynamics only)
+//   - If client doesn't have structure: returns full value (with statics)
 //   - If stripped value is empty: returns empty string to signal static-only change
 //
 // Preconditions:
@@ -281,55 +260,7 @@ func handleStructureValue(
 	if isStrippedValueEmpty(stripped) {
 		return "", false
 	}
-	return newValue, true
-}
-
-// handleNewTreeNodeField handles new TreeNode field values.
-func handleNewTreeNodeField(
-	k string,
-	newValue interface{},
-	clientHasStructure bool,
-	fieldPath string,
-	registry StructureRegistry,
-	registryUsable bool,
-	changes *TreeNode,
-) bool {
-	newTreeNode, ok := newValue.(*TreeNode)
-	if !ok {
-		return false
-	}
-
-	valueToSet, shouldTrack := handleStructureValue(newTreeNode, clientHasStructure)
-	changes.SetDynamic(k, valueToSet)
-
-	if shouldTrack && registryUsable {
-		registry.MarkSeen(fieldPath, newValue)
-	}
-	return true
-}
-
-// handleNewMapField handles new map[string]interface{} field values.
-func handleNewMapField(
-	k string,
-	newValue interface{},
-	clientHasStructure bool,
-	fieldPath string,
-	registry StructureRegistry,
-	registryUsable bool,
-	changes *TreeNode,
-) bool {
-	m, ok := newValue.(map[string]interface{})
-	if !ok {
-		return false
-	}
-
-	valueToSet, shouldTrack := handleStructureValue(m, clientHasStructure)
-	changes.SetDynamic(k, valueToSet)
-
-	if shouldTrack && registryUsable {
-		registry.MarkSeen(fieldPath, newValue)
-	}
-	return true
+	return newValue, false
 }
 
 // handleChangedField processes a field that exists but changed value.
@@ -339,13 +270,12 @@ func handleChangedField(
 	fieldPath string,
 	insideNewStructure bool,
 	rangeMatches map[string]string,
-	registry StructureRegistry,
 	oldTree, newTree *TreeNode,
 	changes *TreeNode,
 ) {
 	// Check if this field has a range construct match
 	if _, isRangeMatch := rangeMatches[fieldPath]; isRangeMatch {
-		handleRangeMatch(k, oldValue, newValue, fieldPath, registry, changes)
+		handleRangeMatch(k, oldValue, newValue, changes)
 		return
 	}
 
@@ -355,7 +285,7 @@ func handleChangedField(
 		handleNestedTreeNodes(
 			k, oldTreeNodePtr, newTreeNodePtr,
 			fieldPath, insideNewStructure,
-			rangeMatches, registry,
+			rangeMatches,
 			changes,
 		)
 		return
@@ -363,19 +293,8 @@ func handleChangedField(
 
 	// New value is a tree node but old wasn't
 	if newTreeNodePtr != nil {
-		// Cache registry usability check
-		registryUsable := registry != nil && !isNilRegistry(registry)
-		handleNewTreeNodeFromPrimitive(k, newTreeNodePtr, fieldPath, registry, registryUsable, changes)
+		handleNewTreeNodeFromPrimitive(k, newTreeNodePtr, changes)
 		return
-	}
-
-	// Old value was a tree node but new value is primitive (e.g., conditional becoming empty)
-	// Invalidate registry entries for this path so statics are re-sent when tree node returns
-	if oldTreeNodePtr != nil {
-		registryUsable := registry != nil && !isNilRegistry(registry)
-		if registryUsable {
-			registry.InvalidatePath(fieldPath)
-		}
 	}
 
 	// At least one is a primitive value or type changed - send new value as-is
@@ -384,9 +303,8 @@ func handleChangedField(
 
 // handleRangeMatch handles changes in matched range constructs.
 // Uses fingerprint comparison to determine if client needs range statics.
-func handleRangeMatch(k string, oldValue, newValue interface{}, fieldPath string, registry StructureRegistry, changes *TreeNode) {
+func handleRangeMatch(k string, oldValue, newValue interface{}, changes *TreeNode) {
 	// Use fingerprint comparison to determine if client has range statics cached.
-	// Extract TreeNodes for fingerprint comparison.
 	clientHasRangeStatics := !clientNeedsStaticsForValue(oldValue, newValue)
 
 	// Strip statics if client already has them cached
@@ -435,12 +353,11 @@ func handleNestedTreeNodes(
 	fieldPath string,
 	insideNewStructure bool,
 	rangeMatches map[string]string,
-	registry StructureRegistry,
 	changes *TreeNode,
 ) {
 	// Check if this is a fundamental structure change using fingerprint comparison.
 	// This implements the simplified diff architecture: fingerprint comparison replaces
-	// complex AreStructuresSimilar checks with O(1) fingerprint comparison.
+	// complex structure checks with O(1) fingerprint comparison.
 	_, isRangeMatch := rangeMatches[fieldPath]
 
 	// Use fingerprint-based structure comparison for non-range matches
@@ -461,7 +378,6 @@ func handleNestedTreeNodes(
 			insideNewStructure || structureChanged,
 			fieldPath,
 			rangeMatches,
-			registry,
 		)
 
 		if nestedChanges.HasDynamics() {
@@ -495,48 +411,11 @@ func handleStaticOnlyChanges(k string, oldTreeNodePtr, newTreeNodePtr *TreeNode,
 func handleNewTreeNodeFromPrimitive(
 	k string,
 	newTreeNodePtr *TreeNode,
-	fieldPath string,
-	registry StructureRegistry,
-	registryUsable bool,
 	changes *TreeNode,
 ) {
-	// Use registry to check if client has seen THIS EXACT structure at this path
-	clientHasStructure := false
-	if registryUsable {
-		clientHasStructure = registry.HasSeen(fieldPath, newTreeNodePtr)
-	}
-
-	valueToSet, shouldTrack := handleStructureValue(newTreeNodePtr, clientHasStructure)
+	// New tree appearing where primitive was - client needs full structure with statics
+	valueToSet, _ := handleStructureValue(newTreeNodePtr, false)
 	changes.SetDynamic(k, valueToSet)
-
-	if shouldTrack && registryUsable {
-		registry.MarkSeen(fieldPath, newTreeNodePtr)
-	}
-}
-
-// isNilRegistry checks if the registry interface contains a nil pointer.
-// This handles the Go interface gotcha where an interface can be non-nil but contain a nil pointer.
-//
-// Background:
-// In Go, an interface value is nil only if both its type and value are nil.
-// A common bug is:
-//
-//	var ptr *ConcreteRegistry // ptr is nil
-//	var iface StructureRegistry = ptr // iface is non-nil (has type), but contains nil value
-//	if iface != nil { /* this is true! */ }
-//
-// This function uses reflection to detect this case and return true when the
-// underlying pointer is nil, even if the interface wrapper is non-nil.
-//
-// Performance note: Uses reflection, so should be cached by callers to avoid
-// repeated checks in hot paths.
-func isNilRegistry(registry StructureRegistry) bool {
-	if registry == nil {
-		return true
-	}
-	// Use reflection to check if the underlying value is nil
-	v := reflect.ValueOf(registry)
-	return v.Kind() == reflect.Ptr && v.IsNil()
 }
 
 // ClientNeedsStatics determines whether the client needs statics by comparing structure fingerprints.
