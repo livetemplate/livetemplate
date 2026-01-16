@@ -2,6 +2,8 @@ package diff
 
 import (
 	"reflect"
+
+	"github.com/livetemplate/livetemplate/internal/build"
 )
 
 // CompareTreesAndGetChangesWithPath compares two tree structures and returns minimal changes.
@@ -452,9 +454,13 @@ func handleNestedTreeNodes(
 	registry StructureRegistry,
 	changes *TreeNode,
 ) {
-	// Check if this is a fundamental structure change (not part of a range match)
+	// Check if this is a fundamental structure change using fingerprint comparison.
+	// This implements the simplified diff architecture: fingerprint comparison replaces
+	// complex AreStructuresSimilar checks with O(1) fingerprint comparison.
 	_, isRangeMatch := rangeMatches[fieldPath]
-	structureChanged := !isRangeMatch && !AreStructuresSimilar(oldTreeNodePtr, newTreeNodePtr)
+
+	// Use fingerprint-based structure comparison for non-range matches
+	structureChanged := !isRangeMatch && ClientNeedsStatics(oldTreeNodePtr, newTreeNodePtr)
 
 	// Check if both contain ranges
 	oldHasRange := ContainsRangeConstruct(oldTreeNodePtr)
@@ -462,9 +468,10 @@ func handleNestedTreeNodes(
 
 	if structureChanged && !(oldHasRange && newHasRange) {
 		// Structure changed and this isn't just range item updates
+		// Send full tree with statics since client needs the new structure
 		changes.SetDynamic(k, newTreeNodePtr)
 	} else {
-		// Structure similar, do normal diff
+		// Structure unchanged (same fingerprint) or both have ranges, do normal diff
 		nestedChanges := CompareTreesAndGetChangesWithPath(
 			oldTreeNodePtr, newTreeNodePtr,
 			insideNewStructure || structureChanged,
@@ -474,7 +481,7 @@ func handleNestedTreeNodes(
 		)
 
 		if nestedChanges.HasDynamics() {
-			// Use nested changes as-is
+			// Use nested changes as-is (statics stripped since structure unchanged)
 			changes.SetDynamic(k, nestedChanges)
 		} else {
 			// No dynamic changes detected, check static-only changes
@@ -484,16 +491,18 @@ func handleNestedTreeNodes(
 }
 
 // handleStaticOnlyChanges handles cases where only statics changed.
+// Uses fingerprint comparison to detect static structure changes.
 func handleStaticOnlyChanges(k string, oldTreeNodePtr, newTreeNodePtr *TreeNode, changes *TreeNode) {
 	oldStripped := PrepareTreeForClient(oldTreeNodePtr, true)
 	newStripped := PrepareTreeForClient(newTreeNodePtr, true)
 	oldIsEmpty := IsEmpty(oldStripped)
 	newIsEmpty := IsEmpty(newStripped)
 
-	// If both strip to empty (both static-only) but the originals aren't equal,
-	// the statics changed - send empty string to indicate change
-	if oldIsEmpty && newIsEmpty && !DeepEqual(oldTreeNodePtr, newTreeNodePtr) {
-		changes.SetDynamic(k, "")
+	// If both strip to empty (both static-only) but structures differ,
+	// the statics changed - use fingerprint comparison for efficient detection
+	if oldIsEmpty && newIsEmpty && ClientNeedsStatics(oldTreeNodePtr, newTreeNodePtr) {
+		// Structure fingerprints differ, so statics changed - send full new tree
+		changes.SetDynamic(k, newTreeNodePtr)
 	}
 }
 
@@ -543,4 +552,58 @@ func isNilRegistry(registry StructureRegistry) bool {
 	// Use reflection to check if the underlying value is nil
 	v := reflect.ValueOf(registry)
 	return v.Kind() == reflect.Ptr && v.IsNil()
+}
+
+// ClientNeedsStatics determines whether the client needs statics by comparing structure fingerprints.
+// This implements the core optimization from the simplified diff architecture:
+// - If old and new trees have the same structure fingerprint, client already has statics cached
+// - If fingerprints differ (or old is nil), client needs statics sent
+//
+// This fingerprint-based approach replaces complex path-based registry tracking with a simple
+// O(1) comparison after fingerprint calculation.
+//
+// Parameters:
+//   - oldTree: The previous tree state (may be nil for first render)
+//   - newTree: The current tree state (may be nil)
+//
+// Returns:
+//   - true if client needs statics (first render or structure changed)
+//   - false if client already has statics cached (same structure)
+func ClientNeedsStatics(oldTree, newTree *TreeNode) bool {
+	// First render or new structure appearing - client needs statics
+	if oldTree == nil {
+		return true
+	}
+
+	// Tree being removed - no statics needed
+	if newTree == nil {
+		return false
+	}
+
+	// Compare structure fingerprints
+	oldFingerprint := build.CalculateStructureFingerprint(oldTree)
+	newFingerprint := build.CalculateStructureFingerprint(newTree)
+
+	// If fingerprints match, client already has the static structure
+	return oldFingerprint != newFingerprint
+}
+
+// clientNeedsStaticsForValue determines if client needs statics for a dynamic value.
+// This is used when comparing individual dynamic values that may be TreeNodes.
+func clientNeedsStaticsForValue(oldValue, newValue interface{}) bool {
+	oldTree, oldIsTree := oldValue.(*TreeNode)
+	newTree, newIsTree := newValue.(*TreeNode)
+
+	// If new value isn't a tree, no statics to send
+	if !newIsTree {
+		return false
+	}
+
+	// If old value wasn't a tree, client needs statics for this new tree
+	if !oldIsTree {
+		return true
+	}
+
+	// Both are trees - compare fingerprints
+	return ClientNeedsStatics(oldTree, newTree)
 }

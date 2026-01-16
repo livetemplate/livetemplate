@@ -902,8 +902,8 @@ func TestHandleChangedField_ConditionalReopenScenario(t *testing.T) {
 // TestIsStrippedValueEmpty tests the empty value detection helper.
 func TestIsStrippedValueEmpty(t *testing.T) {
 	tests := []struct {
-		name     string
-		value    interface{}
+		name      string
+		value     interface{}
 		wantEmpty bool
 	}{
 		{"empty map", map[string]interface{}{}, true},
@@ -948,11 +948,11 @@ func TestIsStrippedValueEmpty(t *testing.T) {
 // TestHandleStructureValue tests the core structure value handling logic.
 func TestHandleStructureValue(t *testing.T) {
 	tests := []struct {
-		name                string
-		newValue            interface{}
+		name               string
+		newValue           interface{}
 		clientHasStructure bool
-		wantShouldTrack     bool
-		checkValue          func(t *testing.T, value interface{})
+		wantShouldTrack    bool
+		checkValue         func(t *testing.T, value interface{})
 	}{
 		{
 			name: "client has structure - returns stripped",
@@ -961,7 +961,7 @@ func TestHandleStructureValue(t *testing.T) {
 				Dynamics: map[string]interface{}{"0": "content"},
 			},
 			clientHasStructure: true,
-			wantShouldTrack:     false,
+			wantShouldTrack:    false,
 			checkValue: func(t *testing.T, value interface{}) {
 				// Stripped value should not include statics
 				if valueMap, ok := value.(map[string]interface{}); ok {
@@ -978,7 +978,7 @@ func TestHandleStructureValue(t *testing.T) {
 				Dynamics: map[string]interface{}{"0": "content"},
 			},
 			clientHasStructure: false,
-			wantShouldTrack:     true,
+			wantShouldTrack:    true,
 			checkValue: func(t *testing.T, value interface{}) {
 				// Should return original TreeNode
 				if _, ok := value.(*TreeNode); !ok {
@@ -993,7 +993,7 @@ func TestHandleStructureValue(t *testing.T) {
 				Dynamics: map[string]interface{}{},
 			},
 			clientHasStructure: true, // Client has structure, so we strip
-			wantShouldTrack:     false,
+			wantShouldTrack:    false,
 			checkValue: func(t *testing.T, value interface{}) {
 				// With the fix to isStrippedValueEmpty, empty TreeNodes are now recognized
 				// So we should get an empty string
@@ -1003,10 +1003,10 @@ func TestHandleStructureValue(t *testing.T) {
 			},
 		},
 		{
-			name:                "nil value returns empty string",
-			newValue:            nil,
-			clientHasStructure:  false,
-			wantShouldTrack:     false,
+			name:               "nil value returns empty string",
+			newValue:           nil,
+			clientHasStructure: false,
+			wantShouldTrack:    false,
 			checkValue: func(t *testing.T, value interface{}) {
 				if value != "" {
 					t.Errorf("Expected empty string for nil value, got %v", value)
@@ -1206,5 +1206,242 @@ func TestHandleChangedField_NestedTreeNodeToPrimitive(t *testing.T) {
 	}
 	if !registry.seen["0.1.3"] {
 		t.Error("Registry should still have entry for '0.1.3' (sibling)")
+	}
+}
+
+// =============================================================================
+// Fingerprint-Based Diffing Tests (Phase 2)
+// =============================================================================
+
+// TestClientNeedsStatics_NilOldTree tests that first render always needs statics.
+func TestClientNeedsStatics_NilOldTree(t *testing.T) {
+	newTree := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{"0": "hello"},
+	}
+
+	// First render (nil old) should always need statics
+	if !ClientNeedsStatics(nil, newTree) {
+		t.Error("Expected ClientNeedsStatics to return true for nil old tree (first render)")
+	}
+}
+
+// TestClientNeedsStatics_NilNewTree tests that removed tree doesn't need statics.
+func TestClientNeedsStatics_NilNewTree(t *testing.T) {
+	oldTree := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{"0": "hello"},
+	}
+
+	// Removed tree (nil new) should not need statics
+	if ClientNeedsStatics(oldTree, nil) {
+		t.Error("Expected ClientNeedsStatics to return false for nil new tree (removal)")
+	}
+}
+
+// TestClientNeedsStatics_SameStructure tests that identical structures don't need statics.
+func TestClientNeedsStatics_SameStructure(t *testing.T) {
+	oldTree := &TreeNode{
+		Statics:  []string{"<div class=\"test\">", "</div>"},
+		Dynamics: map[string]interface{}{"0": "old value"},
+	}
+	newTree := &TreeNode{
+		Statics:  []string{"<div class=\"test\">", "</div>"},
+		Dynamics: map[string]interface{}{"0": "new value"},
+	}
+
+	// Same statics, different dynamics - client already has statics
+	if ClientNeedsStatics(oldTree, newTree) {
+		t.Error("Expected ClientNeedsStatics to return false when statics are identical")
+	}
+}
+
+// TestClientNeedsStatics_DifferentStructure tests that different structures need statics.
+func TestClientNeedsStatics_DifferentStructure(t *testing.T) {
+	oldTree := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{"0": "value"},
+	}
+	newTree := &TreeNode{
+		Statics:  []string{"<span>", "</span>"},
+		Dynamics: map[string]interface{}{"0": "value"},
+	}
+
+	// Different statics - client needs new statics
+	if !ClientNeedsStatics(oldTree, newTree) {
+		t.Error("Expected ClientNeedsStatics to return true when statics differ")
+	}
+}
+
+// TestClientNeedsStatics_NestedStructureSame tests nested structures with same fingerprint.
+func TestClientNeedsStatics_NestedStructureSame(t *testing.T) {
+	oldTree := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"0": &TreeNode{
+				Statics:  []string{"<span>", "</span>"},
+				Dynamics: map[string]interface{}{"0": "nested old"},
+			},
+		},
+	}
+	newTree := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"0": &TreeNode{
+				Statics:  []string{"<span>", "</span>"},
+				Dynamics: map[string]interface{}{"0": "nested new"},
+			},
+		},
+	}
+
+	// Same nested structure - client already has statics
+	if ClientNeedsStatics(oldTree, newTree) {
+		t.Error("Expected ClientNeedsStatics to return false for same nested structure")
+	}
+}
+
+// TestClientNeedsStatics_NestedStructureDifferent tests nested structures with different fingerprint.
+func TestClientNeedsStatics_NestedStructureDifferent(t *testing.T) {
+	oldTree := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"0": &TreeNode{
+				Statics:  []string{"<span>", "</span>"},
+				Dynamics: map[string]interface{}{"0": "nested"},
+			},
+		},
+	}
+	newTree := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"0": &TreeNode{
+				Statics:  []string{"<p>", "</p>"}, // Different nested statics
+				Dynamics: map[string]interface{}{"0": "nested"},
+			},
+		},
+	}
+
+	// Different nested structure - client needs new statics
+	if !ClientNeedsStatics(oldTree, newTree) {
+		t.Error("Expected ClientNeedsStatics to return true for different nested structure")
+	}
+}
+
+// TestClientNeedsStaticsForValue_BothPrimitives tests primitive value comparison.
+func TestClientNeedsStaticsForValue_BothPrimitives(t *testing.T) {
+	// Primitive values don't need statics
+	if clientNeedsStaticsForValue("old", "new") {
+		t.Error("Expected false for primitive values")
+	}
+}
+
+// TestClientNeedsStaticsForValue_NewIsTree tests when new value becomes a tree.
+func TestClientNeedsStaticsForValue_NewIsTree(t *testing.T) {
+	oldValue := "primitive"
+	newValue := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{"0": "hello"},
+	}
+
+	// Old was primitive, new is tree - client needs statics for new tree
+	if !clientNeedsStaticsForValue(oldValue, newValue) {
+		t.Error("Expected true when new value is a tree but old wasn't")
+	}
+}
+
+// TestClientNeedsStaticsForValue_OldIsTree tests when old value was a tree.
+func TestClientNeedsStaticsForValue_OldIsTree(t *testing.T) {
+	oldValue := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{"0": "hello"},
+	}
+	newValue := "primitive"
+
+	// Old was tree, new is primitive - no statics to send
+	if clientNeedsStaticsForValue(oldValue, newValue) {
+		t.Error("Expected false when new value is not a tree")
+	}
+}
+
+// TestCompareTreesWithFingerprint_SameStructureDifferentDynamics tests that
+// when structure is the same (same fingerprint), only dynamics are included in diff.
+func TestCompareTreesWithFingerprint_SameStructureDifferentDynamics(t *testing.T) {
+	oldTree := &TreeNode{
+		Statics:  []string{"<div class=\"container\">", "</div>"},
+		Dynamics: map[string]interface{}{"0": "old text"},
+	}
+	newTree := &TreeNode{
+		Statics:  []string{"<div class=\"container\">", "</div>"},
+		Dynamics: map[string]interface{}{"0": "new text"},
+	}
+
+	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", nil, nil)
+
+	// Should have changed dynamic
+	if !changes.HasDynamics() {
+		t.Error("Expected changes for different dynamics")
+	}
+
+	changedValue, exists := changes.GetDynamic("0")
+	if !exists {
+		t.Error("Expected dynamic '0' to be changed")
+	}
+	if changedValue != "new text" {
+		t.Errorf("Expected 'new text', got: %v", changedValue)
+	}
+
+	// Should NOT have statics (client already has them - same fingerprint)
+	if changes.HasStatics() {
+		t.Errorf("Expected no statics in diff when structure unchanged, got: %v", changes.Statics)
+	}
+}
+
+// TestCompareNestedTreesWithFingerprint_StructureChangeSendsFullTree tests that
+// when nested structure changes, the full tree with statics is sent.
+func TestCompareNestedTreesWithFingerprint_StructureChangeSendsFullTree(t *testing.T) {
+	oldTree := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"0": &TreeNode{
+				Statics:  []string{"<span>", "</span>"},
+				Dynamics: map[string]interface{}{"0": "text"},
+			},
+		},
+	}
+	newTree := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"0": &TreeNode{
+				Statics:  []string{"<p class=\"changed\">", "</p>"}, // Changed structure
+				Dynamics: map[string]interface{}{"0": "text"},
+			},
+		},
+	}
+
+	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", nil, nil)
+
+	// Should have nested tree in dynamics
+	if !changes.HasDynamics() {
+		t.Error("Expected changes when nested structure changes")
+	}
+
+	nestedChange, exists := changes.GetDynamic("0")
+	if !exists {
+		t.Error("Expected dynamic '0' to be changed")
+	}
+
+	// The nested change should be the full new TreeNode (with statics)
+	nestedTree, ok := nestedChange.(*TreeNode)
+	if !ok {
+		t.Errorf("Expected nested change to be *TreeNode, got: %T", nestedChange)
+		return
+	}
+
+	// Full tree should have statics since structure changed
+	if !nestedTree.HasStatics() {
+		t.Error("Expected nested tree to include statics when structure changed")
+	}
+	if len(nestedTree.Statics) != 2 || nestedTree.Statics[0] != "<p class=\"changed\">" {
+		t.Errorf("Expected new statics in nested tree, got: %v", nestedTree.Statics)
 	}
 }
