@@ -516,8 +516,8 @@ After server changes are stable, can remove dead code:
 3. [x] Implement Phase 1 (fingerprinting) ✅ **`CalculateStructureFingerprint` added to `internal/build/fingerprint.go`**
 4. [x] Implement Phase 2 (integrate into diff) ✅ **`ClientNeedsStatics` integrated into `internal/diff/tree_compare.go`**
 5. [x] Phase 3: Simplify range handling ✅ **Range diffing now uses fingerprint comparison**
-6. [ ] Benchmark wire size impact
-7. [ ] Phase 4: Remove old code and cleanup (deprecate registry-based tracking)
+6. [x] Phase 4: Cleanup ✅ **Deprecated `AreStructuresSimilar` and `StructureRegistry`**
+7. [ ] Benchmark wire size impact (optional - can be done post-merge)
 
 ---
 
