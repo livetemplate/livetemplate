@@ -100,12 +100,12 @@ func handleTopLevelRange(
 }
 
 // handleMatchedRanges generates differential operations for matched range constructs.
+// Uses fingerprint comparison to determine if client needs range statics.
 func handleMatchedRanges(oldTree, newTree *TreeNode, currentPath string, registry StructureRegistry, changes *TreeNode) bool {
-	// Check if client has seen range statics at this path
-	// Use a special key for range statics to differentiate from regular tree statics
-	rangeStaticsPath := currentPath + ".__range_statics__"
-	registryUsable := registry != nil && !isNilRegistry(registry)
-	clientHasRangeStatics := registryUsable && registry.HasSeen(rangeStaticsPath, newTree.Statics)
+	// Use fingerprint comparison to determine if client has range statics cached.
+	// If the structure fingerprints match, client already has the statics.
+	// This replaces the registry-based tracking with simpler fingerprint comparison.
+	clientHasRangeStatics := !ClientNeedsStatics(oldTree, newTree)
 
 	// Strip statics if client already has them cached
 	diffOps := GenerateRangeDifferentialOperations(oldTree, newTree, clientHasRangeStatics)
@@ -114,13 +114,9 @@ func handleMatchedRanges(oldTree, newTree *TreeNode, currentPath string, registr
 		// Return the operations directly - the entire tree is the range
 		changes.Dynamics["d"] = diffOps
 
-		// Only include root-level statics if client hasn't seen them
+		// Only include root-level statics if client needs them (structure changed)
 		if !clientHasRangeStatics {
 			changes.Statics = newTree.Statics
-			// Mark range statics as seen
-			if registryUsable {
-				registry.MarkSeen(rangeStaticsPath, newTree.Statics)
-			}
 		}
 		return true
 	} else {
@@ -387,18 +383,11 @@ func handleChangedField(
 }
 
 // handleRangeMatch handles changes in matched range constructs.
+// Uses fingerprint comparison to determine if client needs range statics.
 func handleRangeMatch(k string, oldValue, newValue interface{}, fieldPath string, registry StructureRegistry, changes *TreeNode) {
-	// Check if client has seen range statics at this path
-	rangeStaticsPath := fieldPath + ".__range_statics__"
-	registryUsable := registry != nil && !isNilRegistry(registry)
-
-	// Get statics from new value to check/track
-	var rangeStatics interface{}
-	if newTreeNode, ok := newValue.(*TreeNode); ok && newTreeNode != nil {
-		rangeStatics = newTreeNode.Statics
-	}
-
-	clientHasRangeStatics := registryUsable && rangeStatics != nil && registry.HasSeen(rangeStaticsPath, rangeStatics)
+	// Use fingerprint comparison to determine if client has range statics cached.
+	// Extract TreeNodes for fingerprint comparison.
+	clientHasRangeStatics := !clientNeedsStaticsForValue(oldValue, newValue)
 
 	// Strip statics if client already has them cached
 	diffOps := GenerateRangeDifferentialOperations(oldValue, newValue, clientHasRangeStatics)
@@ -406,11 +395,6 @@ func handleRangeMatch(k string, oldValue, newValue interface{}, fieldPath string
 	if len(diffOps) > 0 {
 		// For nested ranges, set operations directly (not wrapped in TreeNode)
 		changes.SetDynamic(k, diffOps)
-
-		// Mark range statics as seen if we included them
-		if !clientHasRangeStatics && registryUsable && rangeStatics != nil {
-			registry.MarkSeen(rangeStaticsPath, rangeStatics)
-		}
 	} else {
 		// No diff operations generated - use fallback
 		handleEmptyRangeDiff(k, oldValue, newValue, changes)

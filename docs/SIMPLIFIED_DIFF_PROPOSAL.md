@@ -513,10 +513,11 @@ After server changes are stable, can remove dead code:
 
 1. [x] Review and approve this proposal
 2. [x] Analyze client compatibility ✅ **No changes needed**
-3. [ ] Create detailed test matrix for migration
-4. [ ] Implement Phase 1 (fingerprinting)
-5. [ ] Benchmark wire size impact
-6. [ ] Proceed with remaining phases
+3. [x] Implement Phase 1 (fingerprinting) ✅ **`CalculateStructureFingerprint` added to `internal/build/fingerprint.go`**
+4. [x] Implement Phase 2 (integrate into diff) ✅ **`ClientNeedsStatics` integrated into `internal/diff/tree_compare.go`**
+5. [ ] Phase 3: Simplify range handling with fingerprint comparison
+6. [ ] Benchmark wire size impact
+7. [ ] Phase 4: Remove old code and cleanup
 
 ---
 

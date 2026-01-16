@@ -1445,3 +1445,62 @@ func TestCompareNestedTreesWithFingerprint_StructureChangeSendsFullTree(t *testi
 		t.Errorf("Expected new statics in nested tree, got: %v", nestedTree.Statics)
 	}
 }
+
+// TestHandleMatchedRanges_FingerprintSameStructure tests that range operations
+// strip statics when structure fingerprints match.
+func TestHandleMatchedRanges_FingerprintSameStructure(t *testing.T) {
+	// Old and new ranges with same structure but different items
+	oldTree := &TreeNode{
+		Statics: []string{"<ul>", "</ul>"},
+		Range: &RangeData{
+			Statics: []string{"<li>", "</li>"},
+			Items: []interface{}{
+				&TreeNode{Dynamics: map[string]interface{}{"0": "item-1", "_k": "1"}},
+			},
+		},
+	}
+	newTree := &TreeNode{
+		Statics: []string{"<ul>", "</ul>"},
+		Range: &RangeData{
+			Statics: []string{"<li>", "</li>"},
+			Items: []interface{}{
+				&TreeNode{Dynamics: map[string]interface{}{"0": "item-1", "_k": "1"}},
+				&TreeNode{Dynamics: map[string]interface{}{"0": "item-2", "_k": "2"}},
+			},
+		},
+	}
+
+	// Structures are the same (same statics), so fingerprints should match
+	if ClientNeedsStatics(oldTree, newTree) {
+		t.Error("Expected ClientNeedsStatics to return false for same range structure")
+	}
+}
+
+// TestHandleMatchedRanges_FingerprintDifferentStructure tests that range operations
+// include statics when structure fingerprints differ.
+func TestHandleMatchedRanges_FingerprintDifferentStructure(t *testing.T) {
+	// Old and new ranges with different structure
+	oldTree := &TreeNode{
+		Statics: []string{"<ul>", "</ul>"},
+		Range: &RangeData{
+			Statics: []string{"<li>", "</li>"},
+			Items: []interface{}{
+				&TreeNode{Dynamics: map[string]interface{}{"0": "item-1", "_k": "1"}},
+			},
+		},
+	}
+	newTree := &TreeNode{
+		Statics: []string{"<ol>", "</ol>"}, // Changed from <ul> to <ol>
+		Range: &RangeData{
+			Statics: []string{"<li class=\"ordered\">", "</li>"}, // Changed item statics
+			Items: []interface{}{
+				&TreeNode{Dynamics: map[string]interface{}{"0": "item-1", "_k": "1"}},
+			},
+		},
+	}
+
+	// Structures are different, so fingerprints should NOT match
+	if !ClientNeedsStatics(oldTree, newTree) {
+		t.Error("Expected ClientNeedsStatics to return true for different range structure")
+	}
+}

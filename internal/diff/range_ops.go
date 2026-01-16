@@ -382,6 +382,7 @@ func CompareRangeItemsForChanges(oldItem, newItem interface{}, statics interface
 }
 
 // handleNestedTreeNodeChange handles changes in nested TreeNode fields.
+// Uses fingerprint comparison to detect static structure changes.
 func handleNestedTreeNodeChange(
 	fieldKey string,
 	oldValue interface{},
@@ -413,15 +414,15 @@ func handleNestedTreeNodeChange(
 			oldStripped := PrepareTreeForClient(oldTreeNode, true)
 			if IsEmpty(oldStripped) {
 				// Both old and new strip to empty (static-only).
-				// But we MUST check if the statics are different!
+				// Use fingerprint comparison to detect if statics changed.
 				// e.g., old: {"s":["checked"]} vs new: {"s":[]}
 				// Both strip to empty but the visual output is different.
-				if !DeepEqual(oldTreeNode.Statics, newTreeNode.Statics) {
-					// Statics are different - this IS a meaningful change.
-					// Send empty string to indicate the field should be cleared.
-					changes[fieldKey] = ""
+				if ClientNeedsStatics(oldTreeNode, newTreeNode) {
+					// Structure fingerprints differ - statics changed.
+					// Send full new tree so client gets the updated statics.
+					changes[fieldKey] = newTreeNode
 				}
-				// If statics are the same, truly no change - skip it
+				// If fingerprints are the same, truly no change - skip it
 				return
 			}
 		}
@@ -444,7 +445,6 @@ func createItemKeyMap(items []interface{}, statics interface{}) map[string]inter
 	}
 	return itemsByKey
 }
-
 
 // stripStaticsFromOperations removes statics from all operations.
 // Range operations have format: ['a'/'p'/'i', items, statics?, metadata?]
