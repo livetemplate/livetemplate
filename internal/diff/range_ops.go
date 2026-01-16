@@ -419,8 +419,8 @@ func handleNestedTreeNodeChange(
 				// Both strip to empty but the visual output is different.
 				if ClientNeedsStatics(oldTreeNode, newTreeNode) {
 					// Structure fingerprints differ - statics changed.
-					// Send full new tree so client gets the updated statics.
-					changes[fieldKey] = newTreeNode
+					// Send empty string to indicate the field should be cleared/re-rendered.
+					changes[fieldKey] = ""
 				}
 				// If fingerprints are the same, truly no change - skip it
 				return

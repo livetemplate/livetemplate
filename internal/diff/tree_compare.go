@@ -485,8 +485,9 @@ func handleStaticOnlyChanges(k string, oldTreeNodePtr, newTreeNodePtr *TreeNode,
 	// If both strip to empty (both static-only) but structures differ,
 	// the statics changed - use fingerprint comparison for efficient detection
 	if oldIsEmpty && newIsEmpty && ClientNeedsStatics(oldTreeNodePtr, newTreeNodePtr) {
-		// Structure fingerprints differ, so statics changed - send full new tree
-		changes.SetDynamic(k, newTreeNodePtr)
+		// Structure fingerprints differ, so statics changed - send empty string
+		// to indicate the field should be re-rendered with new statics
+		changes.SetDynamic(k, "")
 	}
 }
 
