@@ -381,6 +381,117 @@ If wire size increases significantly, we can add targeted optimizations for hot 
 
 ---
 
+## Client Compatibility Analysis
+
+### Client Repository
+
+The TypeScript client is at: https://github.com/livetemplate/client
+
+### Key Files Analyzed
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `state/tree-renderer.ts` | 814 | Core tree update handling |
+| `types.ts` | 37 | TypeScript interfaces |
+| `tests/tree-renderer.test.ts` | 187 | Behavior verification |
+
+### How the Client Works
+
+#### State Management
+
+```typescript
+private treeState: TreeNode = {};           // Current full tree
+private rangeState: Record<string, RangeStateEntry> = {};  // Range cache
+private rangeIdKeys: Record<string, string> = {};          // ID positions
+```
+
+#### Statics Caching (Already Implemented)
+
+```typescript
+// tree-renderer.ts lines 417-430
+this.rangeState[stateKey] = {
+  items: value.d,
+  statics: value.s,
+  staticsMap: value.sm,  // For heterogeneous ranges
+};
+```
+
+#### Range Operations Supported
+
+| Op | Format | Client Implementation |
+|----|--------|----------------------|
+| `r` | `["r", key]` | `splice(removeIndex, 1)` |
+| `u` | `["u", key, changes]` | `{...item, ...changes}` |
+| `a` | `["a", items, statics?, meta?]` | `push(...items)` |
+| `p` | `["p", items, statics?]` | `unshift(...items)` |
+| `i` | `["i", afterKey, items]` | `splice(targetIdx + 1, 0, ...)` |
+| `o` | `["o", [keys]]` | Reorder by key lookup |
+
+#### Range-to-Non-Range Transition (Critical Path)
+
+```typescript
+// tree-renderer.ts lines 139-145
+if (isRangeNode(existing) && !isRangeNode(update)) {
+  this.logger.debug(`Range→non-range transition, replacing`);
+  return update;  // Full replacement, not merge
+}
+```
+
+### Compatibility Assessment
+
+| Feature | Current Server | Simplified Server | Client Support | Compatible? |
+|---------|---------------|-------------------|----------------|-------------|
+| Statics (`s`) | Conditional | When fingerprint differs | ✅ Caches on receive | **Yes** |
+| Fingerprint (`f`) | Present | Used for comparison | ✅ Ignored (transparent) | **Yes** |
+| Range items (`d`) | Array | Same format | ✅ Stores in rangeState | **Yes** |
+| Range ops | `r/u/a/p/i/o` | Same format | ✅ All implemented | **Yes** |
+| StaticsMap (`sm`) | Sent for heterogeneous | **Removed** | ✅ Becomes dead code | **Yes** |
+| Full range replace | Supported | Used more often | ✅ Lines 78-80 | **Yes** |
+| Metadata (`m`) | idKey | Same | ✅ Lines 229-235 | **Yes** |
+
+### Dead Code After Migration (Safe)
+
+The following client code will never execute but won't cause errors:
+
+```typescript
+// tree-renderer.ts lines 509, 516-518, 727-735
+const hasStaticsMap = staticsMap && typeof staticsMap === "object";
+if (hasStaticsMap && item._sk && staticsMap[item._sk]) {
+  itemStatics = staticsMap[item._sk];
+}
+```
+
+### Test Coverage Verification
+
+Existing client tests already cover all scenarios:
+
+| Scenario | Test File | Test Name |
+|----------|-----------|-----------|
+| Range with items | `tree-renderer.test.ts` | `applyUpdate - range to non-range transition` |
+| Range → else | `tree-renderer.test.ts` | `should replace range structure with else clause content` |
+| Nested transitions | `tree-renderer.test.ts` | `should handle nested range to non-range transitions` |
+| Range merge | `tree-renderer.test.ts` | `should preserve range structure when update also has range` |
+| Render after transition | `tree-renderer.test.ts` | `should render else content after range items are removed` |
+
+### Conclusion
+
+**No client changes required.** The simplified server architecture is fully compatible with the current client:
+
+1. Wire format unchanged
+2. All operations already supported
+3. StaticsMap becomes dead code (safe to ignore)
+4. Full replacement already works
+5. CI will catch any issues via cross-repo tests
+
+### Optional Future Client Cleanup
+
+After server changes are stable, can remove dead code:
+- `staticsMap` field in `RangeStateEntry`
+- `hasStaticsMap` checks
+- `_sk` key lookups
+
+---
+
 ## Open Questions
 
 1. **LCS for ranges**: Should we implement LCS-based insert/delete/reorder detection, or start with simple full-replace?
@@ -388,9 +499,10 @@ If wire size increases significantly, we can add targeted optimizations for hot 
 
 2. **Heterogeneous ranges**: Current code handles items with different statics. Worth keeping?
    - Recommendation: Remove. Full replace is simpler and these are rare.
+   - **Confirmed**: Client already handles full replacement (lines 78-80)
 
 3. **Client changes**: Does the TypeScript client need updates?
-   - Likely minimal changes if wire format stays compatible
+   - **Answered**: No changes required. Wire format compatible. StaticsMap becomes dead code.
 
 4. **Fingerprint algorithm**: MD5? SHA256? FNV? CRC32?
    - Recommendation: FNV-1a (fast, good distribution, used by Go maps)
@@ -399,11 +511,12 @@ If wire size increases significantly, we can add targeted optimizations for hot 
 
 ## Next Steps
 
-1. [ ] Review and approve this proposal
-2. [ ] Create detailed test matrix for migration
-3. [ ] Implement Phase 1 (fingerprinting)
-4. [ ] Benchmark wire size impact
-5. [ ] Proceed with remaining phases
+1. [x] Review and approve this proposal
+2. [x] Analyze client compatibility ✅ **No changes needed**
+3. [ ] Create detailed test matrix for migration
+4. [ ] Implement Phase 1 (fingerprinting)
+5. [ ] Benchmark wire size impact
+6. [ ] Proceed with remaining phases
 
 ---
 
