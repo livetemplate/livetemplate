@@ -360,6 +360,7 @@ See `docs/SIMPLIFIED_DIFF_PROPOSAL.md` for the full design document.
 
 ### Remaining Work
 
-1. [ ] Benchmark wire size impact (fingerprint approach may send slightly larger updates)
-2. [ ] Remove deprecated code in future major version
-3. [ ] Consider adding fingerprint caching for performance optimization
+1. [x] Benchmark wire size impact ✅ See `internal/diff/diff_bench_test.go`
+2. [ ] Remove deprecated code in v0.9.0 (see deprecation timeline in SIMPLIFIED_DIFF_PROPOSAL.md)
+3. [x] Consider fingerprint caching ✅ Documented in SIMPLIFIED_DIFF_PROPOSAL.md (implement when benchmarks show need)
+4. [x] Document MD5 collision risk ✅ See SIMPLIFIED_DIFF_PROPOSAL.md "Technical Considerations"

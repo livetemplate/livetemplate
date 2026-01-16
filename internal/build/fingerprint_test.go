@@ -820,3 +820,269 @@ func TestCalculateStructureFingerprint_StaticsMapIncluded(t *testing.T) {
 		t.Error("Different StaticsMap values should produce different structure fingerprints")
 	}
 }
+
+// =============================================================================
+// Lexicographic Sorting Tests (10+ Keys)
+// =============================================================================
+
+// TestCalculateStructureFingerprint_LexicographicSorting10Keys tests that
+// lexicographic sorting handles 10+ keys correctly.
+// Issue: Keys "0"-"9" sort correctly, but "10", "11" may sort before "2" lexicographically.
+// This tests that the fingerprint is deterministic regardless of map iteration order.
+func TestCalculateStructureFingerprint_LexicographicSorting10Keys(t *testing.T) {
+	// Create tree with 15 dynamic keys (0-14)
+	dynamics := make(map[string]interface{})
+	for i := 0; i < 15; i++ {
+		key := string(rune('0' + i))
+		if i >= 10 {
+			key = "1" + string(rune('0'+i-10))
+		}
+		dynamics[key] = &TreeNode{
+			Statics:  []string{"<span>", "</span>"},
+			Dynamics: map[string]interface{}{"0": "nested"},
+		}
+	}
+
+	tree := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: dynamics,
+	}
+
+	// Calculate fingerprint multiple times to verify determinism
+	fingerprints := make([]string, 10)
+	for i := 0; i < 10; i++ {
+		fingerprints[i] = CalculateStructureFingerprint(tree)
+	}
+
+	// All fingerprints should be identical
+	for i := 1; i < 10; i++ {
+		if fingerprints[i] != fingerprints[0] {
+			t.Errorf("Fingerprint %d differs from fingerprint 0: %s vs %s", i, fingerprints[i], fingerprints[0])
+		}
+	}
+}
+
+// TestCalculateStructureFingerprint_LexicographicOrder validates correct ordering.
+// Keys: "0", "1", "10", "11", "2", "3"... should sort consistently.
+func TestCalculateStructureFingerprint_LexicographicOrder(t *testing.T) {
+	// Tree with keys that lexicographically sort differently than numerically
+	tree1 := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"0":  "val0",
+			"1":  "val1",
+			"10": "val10",
+			"11": "val11",
+			"2":  "val2",
+			"9":  "val9",
+		},
+	}
+
+	// Same tree, constructed in different order (should produce same fingerprint)
+	tree2 := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"9":  "val9",
+			"2":  "val2",
+			"11": "val11",
+			"10": "val10",
+			"1":  "val1",
+			"0":  "val0",
+		},
+	}
+
+	fp1 := CalculateStructureFingerprint(tree1)
+	fp2 := CalculateStructureFingerprint(tree2)
+
+	if fp1 != fp2 {
+		t.Error("Same tree with different construction order should produce same fingerprint")
+	}
+}
+
+// =============================================================================
+// Benchmarks
+// =============================================================================
+
+// Helper functions for benchmarks
+
+func createBenchTreeSmall() *TreeNode {
+	return &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{"0": "value"},
+	}
+}
+
+func createBenchTreeMedium() *TreeNode {
+	dynamics := make(map[string]interface{})
+	for i := 0; i < 20; i++ {
+		dynamics[string(rune('a'+i))] = &TreeNode{
+			Statics:  []string{"<span>", "</span>"},
+			Dynamics: map[string]interface{}{"0": "nested"},
+		}
+	}
+	return &TreeNode{
+		Statics:  []string{"<div class=\"container\">", "</div>"},
+		Dynamics: dynamics,
+	}
+}
+
+func createBenchTreeLarge() *TreeNode {
+	dynamics := make(map[string]interface{})
+	for i := 0; i < 100; i++ {
+		nested := make(map[string]interface{})
+		for j := 0; j < 5; j++ {
+			nested[string(rune('0'+j))] = "value"
+		}
+		dynamics[string(rune('a'+i%26))+string(rune('0'+i/26))] = &TreeNode{
+			Statics:  []string{"<span>", "</span>"},
+			Dynamics: nested,
+		}
+	}
+	return &TreeNode{
+		Statics:  []string{"<div class=\"large-container\">", "</div>"},
+		Dynamics: dynamics,
+	}
+}
+
+func createBenchTreeDeepNested(depth int) *TreeNode {
+	if depth == 0 {
+		return &TreeNode{
+			Statics:  []string{"<span>", "</span>"},
+			Dynamics: map[string]interface{}{"0": "leaf"},
+		}
+	}
+	return &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"0": createBenchTreeDeepNested(depth - 1),
+		},
+	}
+}
+
+func createBenchRangeTree(itemCount int) *TreeNode {
+	items := make([]interface{}, itemCount)
+	for i := 0; i < itemCount; i++ {
+		items[i] = &TreeNode{
+			Statics:  []string{"<li>", "</li>"},
+			Dynamics: map[string]interface{}{"0": "item", "_k": i},
+		}
+	}
+	return &TreeNode{
+		Statics: []string{"<ul>", "</ul>"},
+		Range: &RangeData{
+			Items:   items,
+			Statics: []string{"<li>", "</li>"},
+		},
+	}
+}
+
+// BenchmarkCalculateFingerprint_Small benchmarks fingerprinting a small tree.
+func BenchmarkCalculateFingerprint_Small(b *testing.B) {
+	tree := createBenchTreeSmall()
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = CalculateFingerprint(tree)
+	}
+}
+
+// BenchmarkCalculateFingerprint_Medium benchmarks fingerprinting a medium tree.
+func BenchmarkCalculateFingerprint_Medium(b *testing.B) {
+	tree := createBenchTreeMedium()
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = CalculateFingerprint(tree)
+	}
+}
+
+// BenchmarkCalculateFingerprint_Large benchmarks fingerprinting a large tree.
+func BenchmarkCalculateFingerprint_Large(b *testing.B) {
+	tree := createBenchTreeLarge()
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = CalculateFingerprint(tree)
+	}
+}
+
+// BenchmarkCalculateStructureFingerprint_Small benchmarks structure fingerprinting.
+func BenchmarkCalculateStructureFingerprint_Small(b *testing.B) {
+	tree := createBenchTreeSmall()
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = CalculateStructureFingerprint(tree)
+	}
+}
+
+// BenchmarkCalculateStructureFingerprint_Medium benchmarks structure fingerprinting.
+func BenchmarkCalculateStructureFingerprint_Medium(b *testing.B) {
+	tree := createBenchTreeMedium()
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = CalculateStructureFingerprint(tree)
+	}
+}
+
+// BenchmarkCalculateStructureFingerprint_Large benchmarks structure fingerprinting.
+func BenchmarkCalculateStructureFingerprint_Large(b *testing.B) {
+	tree := createBenchTreeLarge()
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = CalculateStructureFingerprint(tree)
+	}
+}
+
+// BenchmarkCalculateStructureFingerprint_DeepNested benchmarks deeply nested trees.
+func BenchmarkCalculateStructureFingerprint_DeepNested(b *testing.B) {
+	tree := createBenchTreeDeepNested(20)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = CalculateStructureFingerprint(tree)
+	}
+}
+
+// BenchmarkCalculateStructureFingerprint_Range100 benchmarks range trees.
+func BenchmarkCalculateStructureFingerprint_Range100(b *testing.B) {
+	tree := createBenchRangeTree(100)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = CalculateStructureFingerprint(tree)
+	}
+}
+
+// BenchmarkCalculateStructureFingerprint_Range1000 benchmarks large range trees.
+func BenchmarkCalculateStructureFingerprint_Range1000(b *testing.B) {
+	tree := createBenchRangeTree(1000)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = CalculateStructureFingerprint(tree)
+	}
+}
+
+// BenchmarkFingerprintComparison compares old vs new approach.
+// Old: CalculateFingerprint (includes dynamics)
+// New: CalculateStructureFingerprint (statics only)
+func BenchmarkFingerprintComparison(b *testing.B) {
+	tree := createBenchTreeMedium()
+
+	b.Run("Full_Fingerprint", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = CalculateFingerprint(tree)
+		}
+	})
+
+	b.Run("Structure_Fingerprint", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = CalculateStructureFingerprint(tree)
+		}
+	})
+}
