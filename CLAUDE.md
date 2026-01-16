@@ -226,17 +226,12 @@ The main `livetemplate` package provides a clean, minimal public API:
     - Config option: `WithWebSocketBufferSize(int)`
     - Metrics: `wsBufferFull`, `wsSlowClientCloses`, `wsWriteErrors`, `wsSendBufferSize`
 
-12. **Structure Tracking (`internal/signature/`)**:
-    - StructureSignature for optimizing tree updates
-    - ClientStructureRegistry for tracking client-side structures
-    - Reduces update payload by detecting structure changes
-
-13. **Execution Context (`internal/context/`)**:
+12. **Execution Context (`internal/context/`)**:
     - TemplateContext for error handling and dev mode
     - Template execution utilities
     - Error propagation to client
 
-14. **Client Library (`client/livetemplate-client.ts`)**:
+13. **Client Library (`client/livetemplate-client.ts`)**:
     - TypeScript client for browser integration
     - Handles tree-based updates efficiently
     - Manages static content caching

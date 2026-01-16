@@ -286,9 +286,7 @@ In order of impact:
 2. **`internal/diff/range_ops.go`**: Range differential operations (489 lines)
 3. **`internal/diff/helpers.go`**: Utility functions with implicit assumptions (780 lines)
 4. **`internal/diff/prepare.go`**: Wire format preparation (87 lines)
-5. **`internal/signature/signature.go`**: Signature calculation (148 lines)
-6. **`internal/signature/registry.go`**: Client state tracking (227 lines)
-7. **`internal/parse/range.go`**: Range tree building (438 lines)
+5. **`internal/parse/range.go`**: Range tree building (438 lines)
 
 ---
 

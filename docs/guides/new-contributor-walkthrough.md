@@ -450,20 +450,6 @@ The complete response sent to clients:
 
 **Tests:** [`registry_test.go`](../../internal/session/registry_test.go)
 
-### Structure Tracking ([`internal/signature/`](../../internal/signature/))
-
-**Purpose:** Cache structure signatures to avoid re-sending statics
-
-**Key types:**
-- [`StructureSignature`](../../internal/signature/signature.go#L20-L35) - Hash of static structure
-- [`ClientStructureRegistry`](../../internal/signature/registry.go#L25-L50) - Track what client has cached
-
-**Optimization:** When structure unchanged, send only signature reference instead of full statics array.
-
-**Tests:**
-- [`signature_test.go`](../../internal/signature/signature_test.go)
-- [`registry_test.go`](../../internal/signature/registry_test.go)
-
 ### Observability ([`internal/observe/`](../../internal/observe/))
 
 **Purpose:** Production-ready logging and metrics

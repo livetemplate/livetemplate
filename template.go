@@ -1256,7 +1256,6 @@ func (t *Template) generateInitialTreeWithoutRegistry(html string, data interfac
 	t.lastFingerprint = compat.CalculateFingerprint(tree)
 
 	// Add fingerprint to tree for client-side tracking
-	// NOTE: Caller is responsible for calling markAllStructuresAsSeen outside the lock
 	return compat.AddFingerprintToTree(tree), nil
 }
 
