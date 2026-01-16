@@ -145,6 +145,18 @@ func ContainsRangeConstruct(value interface{}) bool {
 
 // AreStructuresSimilar checks if two tree structures are fundamentally similar.
 // Returns true if they have similar structure (same static keys), false if completely different.
+//
+// Deprecated: Use ClientNeedsStatics instead, which uses fingerprint comparison
+// for O(1) structure comparison after initial fingerprint calculation.
+// This function performs element-by-element comparison which is less efficient.
+//
+// Migration:
+//
+//	// Old code:
+//	if AreStructuresSimilar(oldTree, newTree) { ... }
+//
+//	// New code:
+//	if !ClientNeedsStatics(oldTree, newTree) { ... }
 func AreStructuresSimilar(oldTree, newTree *TreeNode) bool {
 	if oldTree == nil || newTree == nil {
 		return false

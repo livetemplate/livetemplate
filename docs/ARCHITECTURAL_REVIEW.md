@@ -320,9 +320,58 @@ The code works, but it's **fragile by construction**. Each new Go template featu
 
 ---
 
+## Implementation Status (Updated January 2026)
+
+The fingerprint-based approach has been implemented to address the architectural concerns raised above. Instead of tracking state transitions explicitly, the system now uses structure fingerprints for O(1) comparison.
+
+### Completed Changes
+
+| Phase | Status | Description |
+|-------|--------|-------------|
+| Phase 1 | ✅ | `CalculateStructureFingerprint` in `internal/build/fingerprint.go` |
+| Phase 2 | ✅ | `ClientNeedsStatics` integrated into `internal/diff/tree_compare.go` |
+| Phase 3 | ✅ | Range handling simplified with fingerprint comparison |
+| Phase 4 | ✅ | Deprecated `AreStructuresSimilar` and `StructureRegistry` |
+
+### Key API Changes
+
+**New Functions:**
+- `build.CalculateStructureFingerprint(tree *TreeNode) string` - Hash of static structure only
+- `diff.ClientNeedsStatics(oldTree, newTree *TreeNode) bool` - Fingerprint-based comparison
+
+**Deprecated:**
+- `diff.AreStructuresSimilar` - Use `!ClientNeedsStatics()` instead
+- `diff.StructureRegistry` interface - No longer needed for statics decisions
+
+### How It Works
+
+```go
+// Old approach: Registry-based path tracking (49+ state transitions)
+rangeStaticsPath := currentPath + ".__range_statics__"
+clientHasStatics := registry.HasSeen(rangeStaticsPath, tree.Statics)
+
+// New approach: Fingerprint comparison (4 cases)
+clientHasStatics := !ClientNeedsStatics(oldTree, newTree)
+```
+
+The fingerprint approach reduces complexity by:
+1. Hashing only the **static structure** (statics arrays, dynamic positions, nested structure)
+2. Comparing fingerprints instead of tracking paths
+3. Using "when in doubt, send full tree" philosophy (inspired by Phoenix LiveView)
+
+See `docs/SIMPLIFIED_DIFF_PROPOSAL.md` for the full design document.
+
+---
+
 ## Next Steps
 
-1. **Immediate**: Create comprehensive test matrix for all transitions
-2. **Short-term**: Add dev-mode assertions for unhandled transition detection
-3. **Medium-term**: Document formal transition model
-4. **Long-term**: Consider gradual refactor toward state machine architecture
+1. ~~**Immediate**: Create comprehensive test matrix for all transitions~~ ✅ Fingerprint tests added
+2. ~~**Short-term**: Add dev-mode assertions for unhandled transition detection~~ ✅ Simplified via fingerprints
+3. ~~**Medium-term**: Document formal transition model~~ ✅ See SIMPLIFIED_DIFF_PROPOSAL.md
+4. ~~**Long-term**: Consider gradual refactor toward state machine architecture~~ ✅ Replaced with fingerprint approach
+
+### Remaining Work
+
+1. [ ] Benchmark wire size impact (fingerprint approach may send slightly larger updates)
+2. [ ] Remove deprecated code in future major version
+3. [ ] Consider adding fingerprint caching for performance optimization

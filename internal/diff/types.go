@@ -18,6 +18,17 @@ type TreeMetadata = build.TreeMetadata
 
 // StructureRegistry defines the interface for tracking client-side structure visibility.
 // It tracks which structures have been sent to the client to optimize subsequent updates.
+//
+// Deprecated: This registry-based approach is being replaced by fingerprint comparison.
+// The diff logic now uses ClientNeedsStatics() which compares structure fingerprints
+// to determine if the client needs statics, eliminating the need for path-based tracking.
+//
+// This interface is kept for backward compatibility but its methods are no longer called
+// for statics decisions. It may be removed in a future version.
+//
+// Migration: Instead of implementing StructureRegistry, use the fingerprint-based approach:
+//   - ClientNeedsStatics(oldTree, newTree) returns true if client needs statics
+//   - CalculateStructureFingerprint(tree) returns a fingerprint for structure comparison
 type StructureRegistry interface {
 	// HasSeen returns true if the client has seen the given structure at the specified path.
 	HasSeen(path string, value interface{}) bool
