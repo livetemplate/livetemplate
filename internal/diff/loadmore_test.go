@@ -118,7 +118,7 @@ func TestLoadMoreScenario(t *testing.T) {
 
 	// Step 3: Test the full diff
 	t.Log("Step 3: Computing tree diff")
-	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", rangeMatches, nil)
+	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", rangeMatches)
 
 	t.Logf("Changes: %+v", changes)
 

@@ -58,7 +58,7 @@ func BenchmarkCompareTreesNoChanges(b *testing.B) {
 
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		_ = CompareTreesAndGetChangesWithPath(tree, tree, false, "", nil, nil)
+		_ = CompareTreesAndGetChangesWithPath(tree, tree, false, "", nil)
 	}
 }
 
@@ -69,7 +69,7 @@ func BenchmarkCompareTreesSmallChange(b *testing.B) {
 
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		_ = CompareTreesAndGetChangesWithPath(tree1, tree2, false, "", nil, nil)
+		_ = CompareTreesAndGetChangesWithPath(tree1, tree2, false, "", nil)
 	}
 }
 
@@ -96,7 +96,7 @@ func BenchmarkCompareTreesLargeChange(b *testing.B) {
 			b.ResetTimer()
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				_ = CompareTreesAndGetChangesWithPath(tree1, tree2, false, "", nil, nil)
+				_ = CompareTreesAndGetChangesWithPath(tree1, tree2, false, "", nil)
 			}
 		})
 	}

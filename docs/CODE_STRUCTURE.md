@@ -220,15 +220,13 @@ treeNode{
 **Files:**
 - `builder.go` (210 lines) - Tree building orchestration
 - `tree_ops.go` (180 lines) - Tree manipulation operations
-- `fingerprint.go` (90 lines) - Change detection
+- `fingerprint.go` (90 lines) - Change detection via structure fingerprinting
 - `types.go` (40 lines) - Core tree types
-- `registry.go` (50 lines) - Structure registry
 
 **Key Types:**
 - `TreeNode` - map[string]interface{} representing tree structure
 - `RangeData` - Range metadata (item keys, construct ID)
 - `TreeMetadata` - Metadata annotations for trees
-- `StructureRegistry` - Tracks which structures client has seen
 
 **Key Functions:**
 - `BuildTree(statics []string, dynamics []interface{}) TreeNode` - Construct tree
@@ -253,8 +251,9 @@ treeNode{
 - `types.go` (27 lines) - Type aliases for compatibility
 
 **Key Functions:**
-- `CompareTreesAndGetChangesWithPath(old, new, insideNewStructure, path, rangeMatches, registry) TreeNode` - Main comparison orchestrator
-- `GenerateRangeDifferentialOperations(oldTree, newTree, constructID, registry) []interface{}` - Range diff orchestrator
+- `CompareTreesAndGetChangesWithPath(old, new, insideNewStructure, path, rangeMatches) TreeNode` - Main comparison orchestrator
+- `ClientNeedsStatics(oldTree, newTree) bool` - Fingerprint-based structure comparison
+- `GenerateRangeDifferentialOperations(oldTree, newTree, clientHasStatics) []interface{}` - Range diff orchestrator
 - `PrepareTreeForClient(node, clientHasStatics) interface{}` - Strip statics for wire transmission
 
 **Architecture Pattern:** Orchestrator → Coordinator → Helper

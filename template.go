@@ -112,7 +112,6 @@ import (
 	"github.com/livetemplate/livetemplate/internal/parse"
 	"github.com/livetemplate/livetemplate/internal/send"
 	"github.com/livetemplate/livetemplate/internal/session"
-	"github.com/livetemplate/livetemplate/internal/signature"
 	uploadtypes "github.com/livetemplate/livetemplate/internal/uploadtypes"
 	"github.com/livetemplate/livetemplate/pubsub"
 )
@@ -236,11 +235,10 @@ type Template struct {
 	lastTree        *treeNode // Store previous tree segments for comparison
 	initialTree     *treeNode
 	hasInitialTree  bool
-	lastFingerprint string                   // Fingerprint of the last generated tree for change detection
-	keyGen          *keyGenerator                     // Per-template key generation for wrapper approach
-	config          Config                            // Template configuration
-	registry        *signature.ClientStructureRegistry // Track structure signatures sent to client (Phase 2)
-	uploadRegistry  interface{}                        // Upload registry for this connection (*upload.Registry)
+	lastFingerprint string        // Fingerprint of the last generated tree for change detection
+	keyGen          *keyGenerator // Per-template key generation for wrapper approach
+	config          Config        // Template configuration
+	uploadRegistry  interface{}   // Upload registry for this connection (*upload.Registry)
 }
 
 // Funcs registers a template.FuncMap that will be applied to all template parsing and execution.
@@ -779,10 +777,9 @@ func New(name string, opts ...Option) (*Template, error) {
 	log.Printf("livetemplate.New(%q): DevMode=%v", name, config.DevMode)
 
 	tmpl := &Template{
-		name:     name,
-		keyGen:   compat.NewKeyGenerator(),
-		config:   config,
-		registry: signature.NewClientStructureRegistry(),
+		name:   name,
+		keyGen: compat.NewKeyGenerator(),
+		config: config,
 	}
 
 	// Parse component templates first (before project templates)
@@ -840,8 +837,7 @@ func (t *Template) Clone() (*Template, error) {
 		wrapperID:   wrapperID, // Share wrapper ID
 		funcs:       copyFuncMap(t.funcs),
 		keyGen:      compat.NewKeyGenerator(),
-		config:      config,                       // Preserve configuration
-		registry:    signature.NewClientStructureRegistry(), // Fresh registry for new session
+		config:      config, // Preserve configuration
 		// Don't copy lastData, lastHTML, lastTree, etc. - start fresh
 	}
 
@@ -1207,51 +1203,8 @@ func (t *Template) generateTreeInternalWithErrors(data interface{}, messages map
 	return t.buildTree(data, messages)
 }
 
-// markAllStructuresAsSeen recursively traverses a tree and marks all structures in the registry.
-// This should be called after generating the initial tree to record what the client has received.
-func (t *Template) markAllStructuresAsSeen(node *treeNode, basePath string) {
-	if node == nil || t.registry == nil {
-		return
-	}
-
-	// Mark the current node's structure
-	// This is critical: we mark the NODE itself (which includes range info if present)
-	// The signature system will detect if it's a range and hash the statics
-	t.registry.MarkSeen(basePath, node)
-
-	// If this node has a range, also mark the range statics path
-	// This is required for handleMatchedRanges in tree_compare.go which checks
-	// registry.HasSeen(rangeStaticsPath) to determine if statics can be stripped
-	if node.HasRange() {
-		rangeStaticsPath := basePath + ".__range_statics__"
-		t.registry.MarkSeen(rangeStaticsPath, node.Statics)
-	}
-
-	// Recursively mark all dynamics
-	for key, value := range node.Dynamics {
-		fieldPath := basePath
-		if fieldPath != "" {
-			fieldPath += "."
-		}
-		fieldPath += key
-
-		// If dynamic value is a TreeNode, recursively mark it
-		if childNode, ok := value.(*treeNode); ok {
-			t.markAllStructuresAsSeen(childNode, fieldPath)
-		} else {
-			// Mark scalar values
-			t.registry.MarkSeen(fieldPath, value)
-		}
-	}
-
-	// NOTE: We do NOT iterate over range items here.
-	// The range construct itself is marked above (node has Range info).
-	// Individual items are dynamic data, not structure.
-}
-
 // generateInitialTreeWithoutRegistry creates tree with statics and dynamics for first render.
 // NOTE: This method modifies template state. Caller must hold t.mu write lock.
-// NOTE: Does NOT call registry methods - caller should do that outside the lock.
 func (t *Template) generateInitialTreeWithoutRegistry(html string, data interface{}) (*treeNode, error) {
 	// Extract content from wrapper if we have one
 	var contentToAnalyze string
@@ -1388,7 +1341,7 @@ func (t *Template) compareTreesAndGetChanges(oldTree, newTree *treeNode) *treeNo
 func (t *Template) compareTreesAndGetChangesWithContext(oldTree, newTree *treeNode, insideNewStructure bool) *treeNode {
 	// Calculate range matches once at the top level for the entire tree
 	rangeMatches := diff.FindRangeConstructMatches(oldTree, newTree)
-	return diff.CompareTreesAndGetChangesWithPath(oldTree, newTree, insideNewStructure, "", rangeMatches, t.registry)
+	return diff.CompareTreesAndGetChangesWithPath(oldTree, newTree, insideNewStructure, "", rangeMatches)
 }
 
 // =============================================================================
@@ -1621,14 +1574,6 @@ func (t *Template) buildTree(data interface{}, messages map[string]string) (*tre
 
 	if treeErr != nil {
 		return nil, treeErr
-	}
-
-	// Mark structures in registry (registry has its own locking, so this is safe)
-	// Note: We keep the main lock held here for correctness, though markAllStructuresAsSeen
-	// has its own internal locking. The performance impact is minimal since this only runs
-	// on first render.
-	if isFirstRender && tree != nil {
-		t.markAllStructuresAsSeen(tree, "")
 	}
 
 	return tree, nil
