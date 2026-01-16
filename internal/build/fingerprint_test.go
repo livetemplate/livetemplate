@@ -541,3 +541,282 @@ func TestCalculateFingerprint_ComplexStructuralSharing(t *testing.T) {
 		t.Error("Complex structural sharing should produce consistent fingerprint")
 	}
 }
+
+// =============================================================================
+// CalculateStructureFingerprint Tests
+// =============================================================================
+
+// TestCalculateStructureFingerprint_SameStaticsDifferentDynamics tests that
+// trees with the same statics but different dynamic values produce the SAME
+// structure fingerprint (this is the key difference from CalculateFingerprint).
+func TestCalculateStructureFingerprint_SameStaticsDifferentDynamics(t *testing.T) {
+	tree1 := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{"0": "hello"},
+	}
+
+	tree2 := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{"0": "world"},
+	}
+
+	sfp1 := CalculateStructureFingerprint(tree1)
+	sfp2 := CalculateStructureFingerprint(tree2)
+
+	if sfp1 != sfp2 {
+		t.Errorf("Same statics with different dynamics should produce same structure fingerprint.\nTree1: %s\nTree2: %s", sfp1, sfp2)
+	}
+
+	// For contrast, regular fingerprint SHOULD be different
+	fp1 := CalculateFingerprint(tree1)
+	fp2 := CalculateFingerprint(tree2)
+
+	if fp1 == fp2 {
+		t.Error("Regular fingerprint should be different for different dynamic values")
+	}
+}
+
+// TestCalculateStructureFingerprint_DifferentStatics tests that trees with
+// different statics produce different structure fingerprints.
+func TestCalculateStructureFingerprint_DifferentStatics(t *testing.T) {
+	tree1 := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{"0": "value"},
+	}
+
+	tree2 := &TreeNode{
+		Statics:  []string{"<span>", "</span>"},
+		Dynamics: map[string]interface{}{"0": "value"},
+	}
+
+	sfp1 := CalculateStructureFingerprint(tree1)
+	sfp2 := CalculateStructureFingerprint(tree2)
+
+	if sfp1 == sfp2 {
+		t.Error("Different statics should produce different structure fingerprints")
+	}
+}
+
+// TestCalculateStructureFingerprint_DifferentDynamicPositions tests that
+// trees with different dynamic positions produce different structure fingerprints.
+func TestCalculateStructureFingerprint_DifferentDynamicPositions(t *testing.T) {
+	tree1 := &TreeNode{
+		Statics:  []string{"<div>", "", "</div>"},
+		Dynamics: map[string]interface{}{"0": "a", "1": "b"},
+	}
+
+	tree2 := &TreeNode{
+		Statics:  []string{"<div>", "", "</div>"},
+		Dynamics: map[string]interface{}{"0": "x"}, // Only one dynamic
+	}
+
+	sfp1 := CalculateStructureFingerprint(tree1)
+	sfp2 := CalculateStructureFingerprint(tree2)
+
+	if sfp1 == sfp2 {
+		t.Error("Different dynamic positions should produce different structure fingerprints")
+	}
+}
+
+// TestCalculateStructureFingerprint_NestedTreesSameStructure tests that nested
+// trees with the same structure produce the same structure fingerprint.
+func TestCalculateStructureFingerprint_NestedTreesSameStructure(t *testing.T) {
+	tree1 := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"0": &TreeNode{
+				Statics:  []string{"<span>", "</span>"},
+				Dynamics: map[string]interface{}{"0": "value1"},
+			},
+		},
+	}
+
+	tree2 := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"0": &TreeNode{
+				Statics:  []string{"<span>", "</span>"},
+				Dynamics: map[string]interface{}{"0": "different_value"},
+			},
+		},
+	}
+
+	sfp1 := CalculateStructureFingerprint(tree1)
+	sfp2 := CalculateStructureFingerprint(tree2)
+
+	if sfp1 != sfp2 {
+		t.Errorf("Nested trees with same structure should produce same fingerprint.\nTree1: %s\nTree2: %s", sfp1, sfp2)
+	}
+}
+
+// TestCalculateStructureFingerprint_NestedTreesDifferentStructure tests that nested
+// trees with different structures produce different structure fingerprints.
+func TestCalculateStructureFingerprint_NestedTreesDifferentStructure(t *testing.T) {
+	tree1 := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"0": &TreeNode{
+				Statics:  []string{"<span>", "</span>"},
+				Dynamics: map[string]interface{}{"0": "value"},
+			},
+		},
+	}
+
+	tree2 := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"0": &TreeNode{
+				Statics:  []string{"<p>", "</p>"}, // Different nested statics
+				Dynamics: map[string]interface{}{"0": "value"},
+			},
+		},
+	}
+
+	sfp1 := CalculateStructureFingerprint(tree1)
+	sfp2 := CalculateStructureFingerprint(tree2)
+
+	if sfp1 == sfp2 {
+		t.Error("Nested trees with different structures should produce different fingerprints")
+	}
+}
+
+// TestCalculateStructureFingerprint_WithRange tests that range statics are
+// included in the structure fingerprint.
+func TestCalculateStructureFingerprint_WithRange(t *testing.T) {
+	tree1 := &TreeNode{
+		Statics: []string{"<ul>", "</ul>"},
+		Range: &RangeData{
+			Statics: []string{"<li>", "</li>"},
+			Items:   []interface{}{map[string]interface{}{"0": "item1"}},
+		},
+	}
+
+	tree2 := &TreeNode{
+		Statics: []string{"<ul>", "</ul>"},
+		Range: &RangeData{
+			Statics: []string{"<li class=\"new\">", "</li>"}, // Different range statics
+			Items:   []interface{}{map[string]interface{}{"0": "item1"}},
+		},
+	}
+
+	sfp1 := CalculateStructureFingerprint(tree1)
+	sfp2 := CalculateStructureFingerprint(tree2)
+
+	if sfp1 == sfp2 {
+		t.Error("Different range statics should produce different structure fingerprints")
+	}
+}
+
+// TestCalculateStructureFingerprint_RangeSameStaticsDifferentItems tests that
+// range with same statics but different items produces same structure fingerprint.
+func TestCalculateStructureFingerprint_RangeSameStaticsDifferentItems(t *testing.T) {
+	tree1 := &TreeNode{
+		Statics: []string{"<ul>", "</ul>"},
+		Range: &RangeData{
+			Statics: []string{"<li>", "</li>"},
+			Items:   []interface{}{map[string]interface{}{"0": "item1"}},
+		},
+	}
+
+	tree2 := &TreeNode{
+		Statics: []string{"<ul>", "</ul>"},
+		Range: &RangeData{
+			Statics: []string{"<li>", "</li>"},
+			Items: []interface{}{
+				map[string]interface{}{"0": "different1"},
+				map[string]interface{}{"0": "different2"},
+			},
+		},
+	}
+
+	sfp1 := CalculateStructureFingerprint(tree1)
+	sfp2 := CalculateStructureFingerprint(tree2)
+
+	if sfp1 != sfp2 {
+		t.Errorf("Range with same statics but different items should produce same structure fingerprint.\nTree1: %s\nTree2: %s", sfp1, sfp2)
+	}
+}
+
+// TestCalculateStructureFingerprint_Deterministic tests that the function is deterministic.
+func TestCalculateStructureFingerprint_Deterministic(t *testing.T) {
+	tree := &TreeNode{
+		Statics: []string{"<div>", "<span>", "</span>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"0": "value1",
+			"1": &TreeNode{
+				Statics:  []string{"<p>", "</p>"},
+				Dynamics: map[string]interface{}{"0": "nested"},
+			},
+		},
+	}
+
+	sfp1 := CalculateStructureFingerprint(tree)
+	sfp2 := CalculateStructureFingerprint(tree)
+	sfp3 := CalculateStructureFingerprint(tree)
+
+	if sfp1 != sfp2 || sfp2 != sfp3 {
+		t.Errorf("Structure fingerprint should be deterministic.\nFP1: %s\nFP2: %s\nFP3: %s", sfp1, sfp2, sfp3)
+	}
+}
+
+// TestCalculateStructureFingerprint_NilTree tests that nil tree returns empty string.
+func TestCalculateStructureFingerprint_NilTree(t *testing.T) {
+	sfp := CalculateStructureFingerprint(nil)
+	if sfp != "" {
+		t.Errorf("Nil tree should return empty string, got: %s", sfp)
+	}
+}
+
+// TestCalculateStructureFingerprint_EmptyTree tests that empty tree produces valid fingerprint.
+func TestCalculateStructureFingerprint_EmptyTree(t *testing.T) {
+	tree := &TreeNode{}
+	sfp := CalculateStructureFingerprint(tree)
+	if sfp == "" {
+		t.Error("Empty tree should produce non-empty fingerprint")
+	}
+}
+
+// TestCalculateStructureFingerprint_CircularReference tests circular reference handling.
+func TestCalculateStructureFingerprint_CircularReference(t *testing.T) {
+	tree := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: make(map[string]interface{}),
+	}
+	// Create circular reference
+	tree.Dynamics["0"] = tree
+
+	// Should not panic and should produce valid fingerprint
+	sfp := CalculateStructureFingerprint(tree)
+	if sfp == "" {
+		t.Error("Circular reference should still produce non-empty fingerprint")
+	}
+}
+
+// TestCalculateStructureFingerprint_StaticsMapIncluded tests that StaticsMap
+// is included in the structure fingerprint.
+func TestCalculateStructureFingerprint_StaticsMapIncluded(t *testing.T) {
+	tree1 := &TreeNode{
+		Statics: []string{"<ul>", "</ul>"},
+		Range: &RangeData{
+			StaticsMap: map[string][]string{
+				"hash1": {"<li class=\"a\">", "</li>"},
+			},
+		},
+	}
+
+	tree2 := &TreeNode{
+		Statics: []string{"<ul>", "</ul>"},
+		Range: &RangeData{
+			StaticsMap: map[string][]string{
+				"hash1": {"<li class=\"b\">", "</li>"}, // Different statics in map
+			},
+		},
+	}
+
+	sfp1 := CalculateStructureFingerprint(tree1)
+	sfp2 := CalculateStructureFingerprint(tree2)
+
+	if sfp1 == sfp2 {
+		t.Error("Different StaticsMap values should produce different structure fingerprints")
+	}
+}
