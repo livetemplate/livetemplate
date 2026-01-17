@@ -236,13 +236,9 @@ jobs:
       env:
         CGO_ENABLED: 1
 
-    # Browser E2E tests are skipped until Tinkerdown adds --no-sandbox support for chromedp.
-    # Issue: Chrome fails with "No usable sandbox" on Ubuntu 23.10+ due to AppArmor restrictions.
-    # The tests need to pass chromedp.Flag("no-sandbox", true) when running in CI.
-    # See: https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md
-    # - name: Run Tinkerdown browser E2E tests
-    #   working-directory: tinkerdown
-    #   run: go test -v -race -timeout=15m -skip='TutorialNavigation' ./...
-    #   env:
-    #     CGO_ENABLED: 1
-    #     TINKERDOWN_BINARY: ${{ github.workspace }}/tinkerdown/tinkerdown
+    - name: Run Tinkerdown browser E2E tests
+      working-directory: tinkerdown
+      run: go test -v -race -timeout=15m -skip='TutorialNavigation' ./...
+      env:
+        CGO_ENABLED: 1
+        TINKERDOWN_BINARY: ${{ github.workspace }}/tinkerdown/tinkerdown
