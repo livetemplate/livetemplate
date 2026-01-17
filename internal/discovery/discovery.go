@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 )
 
 // ignoredTemplateDirs lists directories we skip during auto-discovery to avoid vendor assets.
@@ -118,7 +117,3 @@ func DiscoverTemplateFiles(baseDir string, customIgnoreDirs []string) ([]string,
 	return files, nil
 }
 
-// NormalizeStoreName converts a store name to lowercase for case-insensitive matching
-func NormalizeStoreName(name string) string {
-	return strings.ToLower(name)
-}

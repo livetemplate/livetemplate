@@ -97,17 +97,21 @@ func TestState(t *testing.T) {
 
 ---
 
-## Version 0.3.0 - 5-Phase Architecture
+## 5-Phase Architecture (Current)
 
-**Key Changes:**
-- Refactored into 5 operational phases: Parse → Build → Diff → Render → Send
-- New internal packages: `internal/keys/`, `internal/render/`, `internal/send/`
-- Cleaner API naming: `KeyGenerator` → `Generator`, `RenderNode` → `Node`, etc.
-- Message formatting and serialization moved to `internal/send/`
-- HTML rendering isolated in `internal/render/`
-- Key generation isolated in `internal/keys/`
+The library is organized into 5 operational phases: **Parse → Build → Diff → Render → Send**
 
-**Migration:** The public API remains backward compatible through type aliases. Direct imports of `internal/build` types (KeyGenerator, RenderNode) should be updated to new package locations.
+Each phase has its own internal package with clear responsibilities:
+- `internal/parse/` - Template parsing into tree structures
+- `internal/build/` - Tree construction, fingerprinting, operations
+- `internal/diff/` - Tree comparison and update generation
+- `internal/render/` - HTML rendering utilities
+- `internal/send/` - Message formatting and serialization
+
+Additional supporting packages:
+- `internal/keys/` - Key generation for range items (`Generator` type)
+- `internal/session/` - Connection registry and async WebSocket handling
+- `internal/observe/` - Logging and metrics
 
 ## Core Architecture
 

@@ -115,12 +115,7 @@ func generateRemovalOperations(
 
 	// Find removed items (in old but not in new)
 	// Extract and sort keys to ensure deterministic order
-	sortedOldKeys := make([]string, 0, len(oldItems))
-	for _, item := range oldItems {
-		if key, ok := GetItemKey(item, statics); ok {
-			sortedOldKeys = append(sortedOldKeys, key)
-		}
-	}
+	sortedOldKeys := ExtractItemKeys(oldItems, statics)
 	sort.Strings(sortedOldKeys)
 
 	for _, key := range sortedOldKeys {
@@ -144,12 +139,7 @@ func generateUpdateOperations(
 
 	// Find updated items (in both, but changed)
 	// Extract and sort keys to ensure deterministic order
-	sortedNewKeys := make([]string, 0, len(newItems))
-	for _, item := range newItems {
-		if key, ok := GetItemKey(item, statics); ok {
-			sortedNewKeys = append(sortedNewKeys, key)
-		}
-	}
+	sortedNewKeys := ExtractItemKeys(newItems, statics)
 	sort.Strings(sortedNewKeys)
 
 	for _, key := range sortedNewKeys {

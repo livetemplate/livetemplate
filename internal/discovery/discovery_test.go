@@ -177,50 +177,6 @@ func TestDiscoverTemplateFiles_MultipleCallDepths(t *testing.T) {
 	}
 }
 
-// TestNormalizeStoreName verifies store name normalization
-func TestNormalizeStoreName(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"MyStore", "mystore"},
-		{"UPPERCASE", "uppercase"},
-		{"lowercase", "lowercase"},
-		{"MixedCase", "mixedcase"},
-		{"", ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result := NormalizeStoreName(tt.input)
-			if result != tt.expected {
-				t.Errorf("NormalizeStoreName(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
-// TestNormalizeStoreName_CaseInsensitiveMatching verifies case-insensitive behavior
-func TestNormalizeStoreName_CaseInsensitiveMatching(t *testing.T) {
-	names := []string{"MyStore", "MYSTORE", "mystore", "MyStOrE"}
-
-	normalized := make(map[string]bool)
-	for _, name := range names {
-		normalized[NormalizeStoreName(name)] = true
-	}
-
-	// All should normalize to the same value
-	if len(normalized) != 1 {
-		t.Errorf("Expected all names to normalize to same value, got %d different values", len(normalized))
-	}
-
-	// Verify the normalized value
-	expected := "mystore"
-	if _, exists := normalized[expected]; !exists {
-		t.Errorf("Expected normalized value %q, got %v", expected, normalized)
-	}
-}
-
 // TestDiscoverTemplateFiles_SmartFallback verifies smart fallback behavior
 // When runtime.Caller fails, should try ./templates if it exists, otherwise use .
 func TestDiscoverTemplateFiles_SmartFallback(t *testing.T) {
