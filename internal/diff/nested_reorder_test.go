@@ -194,6 +194,59 @@ func TestIsPureReordering_WithAutoKeyField(t *testing.T) {
 	}
 }
 
+// TestIsPureReordering_CachedFingerprint tests that items with different
+// cachedStructureFingerprint values are still detected as equal when content matches.
+// This is important because old trees may have cached fingerprints while new trees don't.
+func TestIsPureReordering_CachedFingerprint(t *testing.T) {
+	// Create old items and trigger fingerprint caching by calling GetStructureFingerprint
+	oldNestedNode1 := &TreeNode{Statics: []string{"completed"}}
+	_ = oldNestedNode1.GetStructureFingerprint() // Cache the fingerprint
+	oldNestedNode2 := &TreeNode{Statics: []string{""}}
+	_ = oldNestedNode2.GetStructureFingerprint() // Cache the fingerprint
+
+	oldItem1 := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": oldNestedNode1,
+			"1": "todo-1",
+		},
+	}
+	oldItem2 := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": oldNestedNode2,
+			"1": "todo-2",
+		},
+	}
+
+	// Create new items WITHOUT cached fingerprint (fresh from build)
+	newItem1 := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": &TreeNode{Statics: []string{"completed"}},
+			"1": "todo-1",
+		},
+	}
+	newItem2 := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": &TreeNode{Statics: []string{""}},
+			"1": "todo-2",
+		},
+	}
+
+	// Reorder: old [1,2], new [2,1]
+	oldItems := []interface{}{oldItem1, oldItem2}
+	newItems := []interface{}{newItem2, newItem1}
+
+	oldKeys := []string{"todo-1", "todo-2"}
+	newKeys := []string{"todo-2", "todo-1"}
+
+	statics := []string{`<tr data-lvt-key="`, `">`, "</tr>"}
+
+	result := IsPureReordering(oldItems, newItems, oldKeys, newKeys, statics)
+
+	if !result {
+		t.Errorf("Expected IsPureReordering to return true even with different cached fingerprints, got false")
+	}
+}
+
 // TestIsPureReordering_AutoKeyFieldVariations tests that the _k auto-key field
 // variations don't break reordering detection:
 // - Both items have _k with same value

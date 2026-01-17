@@ -143,10 +143,82 @@ func ContainsRangeConstruct(value interface{}) bool {
 	return false
 }
 
-// DeepEqual compares two values deeply using reflect.DeepEqual.
-// This is more accurate and efficient than string comparison.
+// DeepEqual compares two values deeply.
+// For TreeNode pointers, it uses TreeNodeEqual to ignore internal cache fields.
+// For other types, it uses reflect.DeepEqual.
 func DeepEqual(a, b interface{}) bool {
+	// Handle TreeNode comparisons specially
+	if aNode, ok := a.(*TreeNode); ok {
+		if bNode, ok := b.(*TreeNode); ok {
+			return TreeNodeEqual(aNode, bNode)
+		}
+		return false
+	}
 	return reflect.DeepEqual(a, b)
+}
+
+// TreeNodeEqual compares two TreeNodes for equality, ignoring internal cache fields.
+// This is necessary because cachedStructureFingerprint may differ between otherwise
+// identical trees (old tree may have been cached, new tree hasn't).
+func TreeNodeEqual(a, b *TreeNode) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+
+	// Compare Statics
+	if !reflect.DeepEqual(a.Statics, b.Statics) {
+		return false
+	}
+
+	// Compare Dynamics size
+	if len(a.Dynamics) != len(b.Dynamics) {
+		return false
+	}
+
+	// Compare each dynamic value
+	for key, aVal := range a.Dynamics {
+		bVal, exists := b.Dynamics[key]
+		if !exists {
+			return false
+		}
+		if !DeepEqual(aVal, bVal) {
+			return false
+		}
+	}
+
+	// Compare Fingerprint (the computed hash)
+	if a.Fingerprint != b.Fingerprint {
+		return false
+	}
+
+	// Compare Range data if present
+	if (a.Range == nil) != (b.Range == nil) {
+		return false
+	}
+	if a.Range != nil {
+		if !reflect.DeepEqual(a.Range.Items, b.Range.Items) {
+			return false
+		}
+		if !reflect.DeepEqual(a.Range.Statics, b.Range.Statics) {
+			return false
+		}
+	}
+
+	// Compare Metadata if present
+	if (a.Metadata == nil) != (b.Metadata == nil) {
+		return false
+	}
+	if a.Metadata != nil && a.Metadata.IDKey != b.Metadata.IDKey {
+		return false
+	}
+
+	// Note: cachedStructureFingerprint is intentionally NOT compared
+	// It's an internal optimization field that may differ between trees
+
+	return true
 }
 
 // findKeyAttrPosition searches for key attributes in a string slice.
