@@ -238,7 +238,8 @@ jobs:
 
     - name: Run Tinkerdown browser E2E tests
       working-directory: tinkerdown
-      run: go test -v -race -timeout=15m -skip='TutorialNavigation' ./...
+      # Skip TutorialNavigation (requires special setup) and TestLvtSourcePostgres (requires Docker)
+      run: go test -v -race -timeout=15m -skip='TutorialNavigation|TestLvtSourcePostgres' ./...
       env:
         CGO_ENABLED: 1
         TINKERDOWN_BINARY: ${{ github.workspace }}/tinkerdown/tinkerdown
