@@ -84,14 +84,6 @@ func hashTreeWithCircularDetection(tree *TreeNode, hasher hash.Hash, visitPath m
 	}
 }
 
-// HashTreeIncremental incrementally hashes a tree node without full JSON marshaling.
-// This is much faster for nested trees as it avoids marshaling entire subtrees.
-// Deprecated: Use CalculateFingerprint which includes circular reference detection.
-func HashTreeIncremental(tree *TreeNode, hasher hash.Hash) {
-	visitPath := make(map[*TreeNode]struct{})
-	hashTreeWithCircularDetection(tree, hasher, visitPath)
-}
-
 // hashValueWithCircularDetection hashes a value with circular reference detection.
 // All values are terminated with null byte for consistent delimiter usage.
 func hashValueWithCircularDetection(value interface{}, hasher hash.Hash, visitPath map[*TreeNode]struct{}) {
@@ -158,23 +150,6 @@ func hashValueWithCircularDetection(value interface{}, hasher hash.Hash, visitPa
 		}
 		hasher.Write([]byte("\x00"))
 	}
-}
-
-// HashValueIncremental hashes a value incrementally based on its type.
-// For nested trees, it recursively hashes instead of marshaling.
-// Deprecated: Use CalculateFingerprint which includes circular reference detection.
-func HashValueIncremental(value interface{}, hasher hash.Hash) {
-	visitPath := make(map[*TreeNode]struct{})
-	hashValueWithCircularDetection(value, hasher, visitPath)
-}
-
-// AddFingerprintToTree is deprecated and does nothing.
-// Fingerprinting is handled internally by CalculateFingerprint.
-// This function is kept for backward compatibility and will be removed in a future version.
-//
-// Deprecated: Use CalculateFingerprint directly instead.
-func AddFingerprintToTree(tree *TreeNode) *TreeNode {
-	return tree
 }
 
 // CalculateStructureFingerprint calculates a fingerprint based ONLY on the static structure.

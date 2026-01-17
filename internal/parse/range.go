@@ -299,22 +299,6 @@ func buildRangeTreeWithStatics(items []rangeItemWithStatics, ctx *Context) (*Tre
 	return rangeTree, nil
 }
 
-// buildRangeTree constructs the final range tree with metadata.
-// Deprecated: Use buildRangeTreeWithStatics instead for heterogeneous support.
-func buildRangeTree(itemTrees []interface{}, itemStatics []string, ctx *Context) (*TreeNode, error) {
-	// Detect ID key position in statics
-	idKey := detectIDKey(itemStatics)
-
-	// Return range comprehension format with ID metadata
-	rangeTree := NewTreeNode()
-	if ctx.ShouldIncludeStatics() {
-		rangeTree.Statics = itemStatics
-	}
-	rangeTree.Range = NewRangeData(itemTrees, nil)
-	rangeTree.Metadata = NewTreeMetadata(idKey)
-	return rangeTree, nil
-}
-
 // executeRangeBodyWithVars executes a range body with variable declarations.
 // The indexOrKey parameter is either an int (for slices/arrays) or the key (for maps).
 func executeRangeBodyWithVars(node *parse.RangeNode, indexOrKey interface{}, item interface{}, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {

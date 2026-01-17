@@ -1255,8 +1255,8 @@ func (t *Template) generateInitialTreeWithoutRegistry(html string, data interfac
 	// Calculate and store initial fingerprint for change detection
 	t.lastFingerprint = compat.CalculateFingerprint(tree)
 
-	// Add fingerprint to tree for client-side tracking
-	return compat.AddFingerprintToTree(tree), nil
+	// NOTE: Caller is responsible for calling markAllStructuresAsSeen outside the lock
+	return tree, nil
 }
 
 // generateDiffBasedTree creates tree based on diff analysis
@@ -1322,8 +1322,7 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 	t.lastData = newData
 	t.lastHTML = newContent
 
-	// Add fingerprint to tree for client-side tracking
-	return compat.AddFingerprintToTree(tree), nil
+	return tree, nil
 }
 
 // =============================================================================

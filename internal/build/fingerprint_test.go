@@ -128,33 +128,6 @@ func TestHashValueIncremental_AllTypes(t *testing.T) {
 	}
 }
 
-// TestAddFingerprintToTree tests fingerprint function behavior.
-func TestAddFingerprintToTree(t *testing.T) {
-	tree := &TreeNode{
-		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "value"},
-	}
-
-	result := AddFingerprintToTree(tree)
-
-	// Function currently returns tree without modifying it (fingerprinting disabled)
-	if result != tree {
-		t.Error("AddFingerprintToTree should return the same tree")
-	}
-}
-
-// TestAddFingerprintToTree_EmptyTree tests with empty tree.
-func TestAddFingerprintToTree_EmptyTree(t *testing.T) {
-	tree := &TreeNode{}
-
-	result := AddFingerprintToTree(tree)
-
-	// Should return tree without modification
-	if result != tree {
-		t.Error("Should return same tree for empty tree")
-	}
-}
-
 // TestCalculateFingerprint_CircularReference tests circular reference detection.
 func TestCalculateFingerprint_CircularReference(t *testing.T) {
 	tree := &TreeNode{

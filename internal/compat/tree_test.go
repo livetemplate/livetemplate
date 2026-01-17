@@ -41,23 +41,6 @@ func TestCalculateFingerprint(t *testing.T) {
 	}
 }
 
-// TestAddFingerprintToTree verifies the fingerprint addition wrapper
-func TestAddFingerprintToTree(t *testing.T) {
-	tree := build.NewTreeNode()
-	tree.Statics = []string{"<div>", "</div>"}
-	tree.SetDynamic("0", "test")
-
-	result := AddFingerprintToTree(tree)
-	if result == nil {
-		t.Fatal("AddFingerprintToTree returned nil")
-	}
-	// Note: Current implementation just returns the tree as-is
-	// This is a smoke test to verify the wrapper doesn't panic
-	if result != tree {
-		t.Error("AddFingerprintToTree should return the same tree")
-	}
-}
-
 // TestGenerateRandomID verifies random ID generation
 func TestGenerateRandomID(t *testing.T) {
 	id1 := GenerateRandomID()

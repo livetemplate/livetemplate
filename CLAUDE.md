@@ -175,7 +175,11 @@ The main `livetemplate` package provides a clean, minimal public API:
 **Phase 3: Diff** (`internal/diff/`)
 - Tree comparison and update generation
 - Components: tree_compare.go, range_ops.go, prepare.go, helpers.go, types.go
-- Generates minimal updates using orchestrator → coordinator → helper pattern
+- Architecture: Hierarchical delegation pattern
+  - Orchestrator: `CompareTreesAndGetChangesWithPath()` - entry point
+  - Delegators: `handle*()` functions for specialized cases
+  - Coordinator: `GenerateRangeDifferentialOperations()` for range ops
+  - Helpers: ~70 utility functions in helpers.go
 
 **Phase 4: Render** (`internal/render/`)
 - HTML rendering utilities
