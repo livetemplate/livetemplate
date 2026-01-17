@@ -188,7 +188,9 @@ jobs:
     - name: Build Tinkerdown binary
       working-directory: tinkerdown
       # E2E tests need the binary to start the server
-      run: go build -v -o tinkerdown .
+      run: |
+        go build -v -o tinkerdown .
+        chmod +x tinkerdown
 
     - name: Run Tinkerdown unit tests
       working-directory: tinkerdown
