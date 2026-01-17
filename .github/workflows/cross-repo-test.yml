@@ -191,10 +191,19 @@ jobs:
       run: |
         go build -v -o tinkerdown .
         chmod +x tinkerdown
-        # Verify the binary is correct architecture
+        # Verify the binary is correct architecture and can execute
         file tinkerdown
-        # Verify it can be executed
         ./tinkerdown --version || ./tinkerdown -h || echo "Binary built (no version flag)"
+        # Install to PATH for tests that look for 'tinkerdown' command
+        sudo cp tinkerdown /usr/local/bin/tinkerdown
+        # Also create symlinks in all test directories (E2E tests use ./tinkerdown)
+        find . -name '*_e2e_test.go' -exec dirname {} \; | sort -u | while read dir; do
+          if [ "$dir" != "." ]; then
+            ln -sf "$(pwd)/tinkerdown" "$dir/tinkerdown"
+            echo "  → Created symlink in $dir"
+          fi
+        done
+        echo "✓ Binary installed and symlinked"
 
     - name: Run Tinkerdown unit tests
       working-directory: tinkerdown
@@ -206,9 +215,10 @@ jobs:
 
     - name: Run Tinkerdown browser E2E tests
       working-directory: tinkerdown
-      # Add binary directory to PATH so E2E test helper can find it
-      run: |
-        export PATH="$(pwd):$PATH"
-        go test -v -race -timeout=15m -skip='TutorialNavigation' ./...
+      run: go test -v -race -timeout=15m -skip='TutorialNavigation' ./...
       env:
         CGO_ENABLED: 1
+        # Provide binary path in case tests check this env var
+        TINKERDOWN_BINARY: ${{ github.workspace }}/tinkerdown/tinkerdown
+        # Disable Chrome sandbox for GitHub Actions compatibility
+        CHROMEDP_NO_SANDBOX: "true"
