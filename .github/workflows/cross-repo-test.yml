@@ -64,11 +64,21 @@ jobs:
         go mod tidy
         echo "✓ Replace directive added"
 
-    - name: Run LVT tests
+    - name: Run LVT unit tests
       working-directory: lvt
       run: go test -v -race -timeout=10m ./...
       env:
         CGO_ENABLED: 1
+        # LIVETEMPLATE_LOCAL_PATH enables integration tests to add replace directives
+        # to generated apps, ensuring they use local livetemplate instead of released version
+        LIVETEMPLATE_LOCAL_PATH: ${{ github.workspace }}/livetemplate
+
+    - name: Run LVT browser E2E tests
+      working-directory: lvt
+      run: go test -v -race -timeout=15m -tags=browser ./...
+      env:
+        CGO_ENABLED: 1
+        LIVETEMPLATE_LOCAL_PATH: ${{ github.workspace }}/livetemplate
 
   test-examples:
     name: Test Examples against Core Changes
@@ -175,11 +185,18 @@ jobs:
         go mod tidy
         echo "✓ Replace directives added"
 
-    - name: Run Tinkerdown tests
+    - name: Run Tinkerdown unit tests
       working-directory: tinkerdown
-      # Skip E2E tests and browser-based tests (require Chrome)
-      # Note: tutorial_nav_bug_test.go is missing //go:build !ci tag
-      run: go test -v -race -timeout=10m -tags=ci -skip='E2E|e2e|TutorialNavigation' ./...
+      # Use -tags=ci to exclude //go:build !ci tests (E2E tests)
+      run: go test -v -race -timeout=10m -tags=ci ./...
+      env:
+        CGO_ENABLED: 1
+
+    - name: Run Tinkerdown browser E2E tests
+      working-directory: tinkerdown
+      # Run E2E tests (without -tags=ci) but skip Chrome-specific test
+      # TutorialNavigation test has issues with headless Chrome in CI
+      run: go test -v -race -timeout=15m -skip='TutorialNavigation' ./...
       env:
         CGO_ENABLED: 1
 
