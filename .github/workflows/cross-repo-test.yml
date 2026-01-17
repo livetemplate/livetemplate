@@ -177,7 +177,9 @@ jobs:
 
     - name: Run Tinkerdown tests
       working-directory: tinkerdown
-      run: go test -v -race -timeout=10m -tags=ci -skip='E2E|e2e' ./...
+      # Skip E2E tests and browser-based tests (require Chrome)
+      # Note: tutorial_nav_bug_test.go is missing //go:build !ci tag
+      run: go test -v -race -timeout=10m -tags=ci -skip='E2E|e2e|TutorialNavigation' ./...
       env:
         CGO_ENABLED: 1
 
