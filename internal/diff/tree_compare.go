@@ -1,9 +1,5 @@
 package diff
 
-import (
-	"github.com/livetemplate/livetemplate/internal/build"
-)
-
 // CompareTreesAndGetChangesWithPath compares two tree structures and returns minimal changes.
 // This is the main orchestrator function that coordinates the comparison process.
 //
@@ -444,9 +440,10 @@ func ClientNeedsStatics(oldTree, newTree *TreeNode) bool {
 		return false
 	}
 
-	// Compare structure fingerprints
-	oldFingerprint := build.CalculateStructureFingerprint(oldTree)
-	newFingerprint := build.CalculateStructureFingerprint(newTree)
+	// Compare structure fingerprints using cached values
+	// GetStructureFingerprint computes and caches the fingerprint on first call
+	oldFingerprint := oldTree.GetStructureFingerprint()
+	newFingerprint := newTree.GetStructureFingerprint()
 
 	// If fingerprints match, client already has the static structure
 	return oldFingerprint != newFingerprint

@@ -1107,6 +1107,32 @@ func (h *liveHandler) autoBroadcastToGroup(groupID string, data interface{}, exc
 	}()
 }
 
+// hasStaticsInTree recursively checks if a tree contains any statics.
+// Used to determine if this is a full tree send or dynamics-only update.
+func hasStaticsInTree(tree map[string]interface{}) bool {
+	if tree == nil {
+		return false
+	}
+	// Check for statics at current level
+	if s, ok := tree["s"]; ok {
+		if arr, ok := s.([]interface{}); ok && len(arr) > 0 {
+			return true
+		}
+		if arr, ok := s.([]string); ok && len(arr) > 0 {
+			return true
+		}
+	}
+	// Recursively check nested objects
+	for _, v := range tree {
+		if nested, ok := v.(map[string]interface{}); ok {
+			if hasStaticsInTree(nested) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // sendUpdate generates and sends a template update to a single connection.
 // If messages is nil, no errors/flash will be included in the template.
 func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}, messages map[string]string) error {
@@ -1145,6 +1171,13 @@ func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}, mes
 	if err != nil {
 		return fmt.Errorf("failed to marshal response: %w", err)
 	}
+
+	// Debug log wire format metrics
+	includesStatics := hasStaticsInTree(tree)
+	slog.Debug("sendUpdate",
+		"payload_bytes", len(responseBytes),
+		"includes_statics", includesStatics,
+	)
 
 	// Send using the connection's Send method (thread-safe)
 	return conn.Send(websocket.TextMessage, responseBytes)

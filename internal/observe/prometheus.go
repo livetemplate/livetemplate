@@ -119,6 +119,24 @@ func (e *PrometheusExporter) WriteMetrics(w io.Writer) error {
 		"Current total number of queued messages across all connections",
 		e.metrics.wsSendBufferSize.Load())
 
+	// Wire format metrics (fingerprint-based diff tracking)
+	e.writeCounter(&sb, "livetemplate_full_tree_sends_total",
+		"Total number of sends with statics (first render or structure changed)",
+		e.metrics.fullTreeSends.Load())
+
+	e.writeCounter(&sb, "livetemplate_dynamics_only_sends_total",
+		"Total number of sends without statics (structure unchanged)",
+		e.metrics.dynamicsOnlySends.Load())
+
+	e.writeCounter(&sb, "livetemplate_fingerprint_mismatches_total",
+		"Total number of structure fingerprint mismatches detected",
+		e.metrics.fingerprintMismatches.Load())
+
+	// Update payload size histogram (bytes)
+	e.writeSizeHistogram(&sb, "livetemplate_update_payload_bytes",
+		"Distribution of update payload sizes in bytes",
+		e.metrics.updatePayloadBytes)
+
 	// Duration histograms (converted to seconds for Prometheus convention)
 	// Template execution durations
 	e.writeHistogram(&sb, "livetemplate_template_duration_seconds",
@@ -189,6 +207,39 @@ func (e *PrometheusExporter) writeHistogram(sb *strings.Builder, name, help stri
 	// For production use with full histogram support, track sum/count separately
 	sb.WriteString(fmt.Sprintf("%s_sum 0\n", name))     // Approximation: not tracked
 	sb.WriteString(fmt.Sprintf("%s_count 0\n\n", name)) // Approximation: not tracked
+}
+
+// writeSizeHistogram writes a size histogram metrics (quantiles in bytes).
+// Unlike duration histograms, size histograms report values directly in bytes.
+func (e *PrometheusExporter) writeSizeHistogram(sb *strings.Builder, name, help string, hist *SizeHistogram) {
+	sb.WriteString(fmt.Sprintf("# HELP %s %s\n", name, help))
+	sb.WriteString(fmt.Sprintf("# TYPE %s summary\n", name))
+
+	// Calculate common quantiles
+	quantiles := []struct {
+		q     int
+		label string
+	}{
+		{50, "0.5"},
+		{90, "0.9"},
+		{95, "0.95"},
+		{99, "0.99"},
+	}
+
+	// Write quantile values (bytes, no conversion needed)
+	for _, q := range quantiles {
+		valueBytes := hist.Percentile(q.q)
+		sb.WriteString(fmt.Sprintf("%s{quantile=\"%s\"} %d\n", name, q.label, valueBytes))
+	}
+
+	sb.WriteString(fmt.Sprintf("%s_sum 0\n", name))     // Approximation: not tracked
+	sb.WriteString(fmt.Sprintf("%s_count 0\n\n", name)) // Approximation: not tracked
+}
+
+// GetMetrics returns the underlying Metrics tracker.
+// Use this to record wire format metrics from send paths.
+func (e *PrometheusExporter) GetMetrics() *Metrics {
+	return e.metrics
 }
 
 // MetricsSnapshot represents a point-in-time snapshot of metrics.

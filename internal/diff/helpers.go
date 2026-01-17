@@ -194,7 +194,6 @@ func FindKeyPositionFromStatics(statics interface{}) int {
 }
 
 // GetItemKey extracts the key from a range item using the statics structure.
-// For heterogeneous ranges (StaticsMap), looks up the item's statics via its _sk field.
 func GetItemKey(item interface{}, statics interface{}) (string, bool) {
 	// Handle TreeNode items
 	if itemNode, ok := item.(*TreeNode); ok {
@@ -226,40 +225,15 @@ func GetItemKey(item interface{}, statics interface{}) (string, bool) {
 }
 
 // getItemStatics returns the effective statics for an item.
-// For homogeneous ranges, returns the shared statics.
-// For heterogeneous ranges (StaticsMap), looks up via the item's _sk field.
+// All ranges use shared statics (homogeneous approach).
+// StaticsMap was removed in v0.8.0 - heterogeneous ranges use full replace via fingerprint diff.
 func getItemStatics(itemNode *TreeNode, statics interface{}) interface{} {
 	// Handle nil statics
 	if statics == nil {
 		return nil
 	}
 
-	// Check if statics is a StaticsMap (heterogeneous range)
-	if staticsMap, ok := statics.(map[string][]string); ok {
-		if len(staticsMap) == 0 {
-			return nil
-		}
-
-		// Get the item's statics key
-		if sk, exists := itemNode.GetDynamic("_sk"); exists {
-			if skStr, ok := sk.(string); ok {
-				if itemStatics, found := staticsMap[skStr]; found {
-					return itemStatics
-				}
-			}
-		}
-
-		// Fallback: use first statics by sorted key for deterministic behavior
-		// This handles edge cases where _sk is missing (indicates a bug, but fail gracefully)
-		keys := make([]string, 0, len(staticsMap))
-		for k := range staticsMap {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		return staticsMap[keys[0]]
-	}
-
-	// Homogeneous range or other format - return as-is
+	// Return statics as-is - all ranges use shared statics
 	return statics
 }
 

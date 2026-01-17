@@ -65,14 +65,14 @@ type RangeItem struct {
 }
 ```
 
-### Key Changes from Current Model
+### Key Changes from Current Model (All Implemented)
 
-| Current | Proposed | Rationale |
-|---------|----------|-----------|
-| No fingerprint | `StructureFingerprint` | Enables O(1) structure comparison |
-| `Statics` sometimes nil | `Statics` always populated internally | Simplifies logic |
-| Complex `StaticsMap` for heterogeneous | Removed | Fall back to full replace |
-| `Metadata.IDKey` | `RangeItem.Key` explicit | Clearer contract |
+| Previous | Current (v0.8.0) | Rationale |
+|----------|------------------|-----------|
+| No fingerprint | `StructureFingerprint` ✅ | Enables O(1) structure comparison |
+| `Statics` sometimes nil | `Statics` always populated internally ✅ | Simplifies logic |
+| Complex `StaticsMap` for heterogeneous | **REMOVED** ✅ | Fall back to full replace via fingerprint |
+| `Metadata.IDKey` | `RangeItem.Key` explicit ✅ | Clearer contract |
 
 ---
 
@@ -349,36 +349,42 @@ func diffRangeItemsOnly(old, new *RangeData, clientHasStatics bool) *RangeData {
 
 ## Risk Mitigation
 
-### Testing Strategy
+### Testing Strategy (Implemented)
+
+Property-based tests are implemented in `internal/diff/diff_property_test.go` using `pgregory.net/rapid`:
 
 ```go
-// Property-based test: new diff is never "wrong", just sometimes larger
-func TestNewDiffCorrectness(t *testing.T) {
-    rapid.Check(t, func(t *rapid.T) {
-        old := generateRandomTree(t)
-        new := generateRandomTree(t)
+// Tests verify critical invariants:
 
-        oldDiff := oldDiffAlgorithm(old, new)
-        newDiff := newDiffAlgorithm(old, new)
+// 1. Determinism - same inputs always produce same output
+func TestClientNeedsStatics_Property_Deterministic(t *testing.T)
 
-        // Apply both diffs to old tree
-        result1 := applyDiff(old, oldDiff)
-        result2 := applyDiff(old, newDiff)
+// 2. Nil old tree always requires statics (first render)
+func TestClientNeedsStatics_Property_NilOldAlwaysTrue(t *testing.T)
 
-        // Both must produce the same final tree
-        assert.Equal(t, result1, result2)
-    })
-}
+// 3. Nil new tree never requires statics (removal)
+func TestClientNeedsStatics_Property_NilNewAlwaysFalse(t *testing.T)
+
+// 4. Identical trees produce same result regardless of pointer identity
+func TestClientNeedsStatics_Property_SameTreeSameResult(t *testing.T)
+
+// 5. Symmetry - if A→B needs statics, B→A should too
+func TestClientNeedsStatics_Property_SymmetryOnDifferent(t *testing.T)
+
+// 6. No false negatives - diff never misses actual changes
+func TestCompareTreesAndGetChanges_Property_NoFalseNegatives(t *testing.T)
+
+// 7. No spurious changes - identical trees have no dynamic changes
+func TestCompareTreesAndGetChanges_Property_NoSpuriousChanges(t *testing.T)
 ```
 
 ### Wire Size Monitoring
 
-Add metrics to track:
-- Average update size (old vs new algorithm)
-- Percentage of "full replace" fallbacks
-- P99 update size
+Debug logging tracks:
+- Update payload size in bytes
+- Whether statics are included (structure changed or first render)
 
-If wire size increases significantly, we can add targeted optimizations for hot paths.
+See "Wire Format Metrics" section above for implementation details.
 
 ---
 
@@ -524,47 +530,59 @@ Where:
 2. Switch to SHA-256 for larger hash space
 3. Add structure equality check as fallback when fingerprints match
 
-### Fingerprint Caching Consideration
+### Fingerprint Caching (Implemented)
 
-**Current Implementation:**
-- Fingerprints are calculated on-demand during comparison
-- Each `ClientNeedsStatics()` call computes fingerprints for both trees
+**Implementation:**
+- Fingerprints are cached on `TreeNode` after first calculation
+- `GetStructureFingerprint()` method computes and caches on first call
+- `InvalidateStructureFingerprint()` clears cache if tree structure changes
+- Avoids recalculation for deeply nested trees
 
-**Potential Optimization:**
-- Cache fingerprint on `TreeNode` after first calculation
-- Avoid recalculation for deeply nested trees
-- Estimated performance gain: 50-70% for deep trees (15+ levels)
-
-**When to implement:**
-- Benchmark results show fingerprint calculation is a bottleneck
-- Application has many deeply nested templates (10+ levels)
-- High-frequency updates on complex templates
-
-**Proposed API (future):**
+**API (internal/build/types.go):**
 ```go
 type TreeNode struct {
     // ... existing fields ...
 
-    // cachedFingerprint stores the computed fingerprint (internal use only)
-    cachedFingerprint string
+    // cachedStructureFingerprint stores the computed fingerprint (internal use only)
+    cachedStructureFingerprint string
 }
 
-// GetFingerprint returns the structure fingerprint, computing and caching if needed.
-func (t *TreeNode) GetFingerprint() string {
-    if t.cachedFingerprint == "" {
-        t.cachedFingerprint = CalculateStructureFingerprint(t)
+// GetStructureFingerprint returns the structure fingerprint, computing and caching if needed.
+func (t *TreeNode) GetStructureFingerprint() string {
+    if t == nil {
+        return ""
     }
-    return t.cachedFingerprint
+    if t.cachedStructureFingerprint == "" {
+        t.cachedStructureFingerprint = CalculateStructureFingerprint(t)
+    }
+    return t.cachedStructureFingerprint
+}
+
+// InvalidateStructureFingerprint clears the cached fingerprint.
+// Call this if the tree's static structure is modified after creation.
+func (t *TreeNode) InvalidateStructureFingerprint() {
+    if t != nil {
+        t.cachedStructureFingerprint = ""
+    }
 }
 ```
 
-### Removal Timeline
+**Performance:**
+- O(1) fingerprint comparison after initial calculation
+- Cache invalidation not typically needed (trees are usually immutable after creation)
 
-**v0.8.0 (Current):**
-- `StructureRegistry` interface **REMOVED**
-- `AreStructuresSimilar` function **REMOVED**
-- All registry parameters removed from internal functions
-- `ClientNeedsStatics` is the only API for structure comparison
+### Removal Timeline (Verified Complete)
+
+**v0.8.0 (Current) - All items verified as implemented:**
+- ✅ `StructureRegistry` interface **REMOVED** - Not in any Go files
+- ✅ `AreStructuresSimilar` function **REMOVED** - Not in any Go files
+- ✅ `ClientStructureRegistry` type **REMOVED** - Not in any Go files
+- ✅ `StructureSignature` type **REMOVED** - Not in any Go files
+- ✅ `internal/signature/` package **REMOVED** - Directory deleted
+- ✅ `StaticsMap` field **REMOVED** from `RangeData` - Heterogeneous ranges use full replace
+- ✅ `_sk` (statics key) field **REMOVED** from range items - No longer needed
+- ✅ All registry parameters removed from internal functions
+- ✅ `ClientNeedsStatics` is the only API for structure comparison (`internal/diff/tree_compare.go:432`)
 
 **Migration Path:**
 ```go
@@ -582,46 +600,52 @@ if diff.ClientNeedsStatics(oldTree, newTree) {
 **Breaking Changes in v0.8.0:**
 - `StructureRegistry` interface no longer exists
 - `AreStructuresSimilar` function no longer exists
+- `ClientStructureRegistry` type no longer exists
+- `StructureSignature` type no longer exists
+- `StaticsMap` field removed from `RangeData` struct
+- `_sk` (statics key) no longer added to range items
+- Wire format no longer includes `"sm"` key for ranges
 - Functions no longer accept `registry` parameter
 
 ---
 
 ## Wire Format Metrics
 
-### Tracking Wire Size Changes
+### Debug Logging (Implemented)
 
-Add the following metrics to monitor the impact of the fingerprint-based approach:
+Wire format metrics are logged via `slog.Debug` when debug logging is enabled. This provides visibility into update payload sizes and statics inclusion without adding Prometheus dependencies.
 
+**Implementation (mount.go sendUpdate):**
 ```go
-// internal/observe/metrics.go
-
-var (
-    // UpdatePayloadBytes tracks the size of update payloads sent to clients.
-    UpdatePayloadBytes = promauto.NewHistogram(prometheus.HistogramOpts{
-        Name:    "livetemplate_update_payload_bytes",
-        Help:    "Size of update payloads in bytes",
-        Buckets: []float64{100, 500, 1000, 5000, 10000, 50000, 100000},
-    })
-
-    // FullTreeSends counts when full tree (with statics) is sent.
-    FullTreeSends = promauto.NewCounter(prometheus.CounterOpts{
-        Name: "livetemplate_full_tree_sends_total",
-        Help: "Total number of times full tree with statics was sent",
-    })
-
-    // DynamicsOnlySends counts when only dynamics are sent.
-    DynamicsOnlySends = promauto.NewCounter(prometheus.CounterOpts{
-        Name: "livetemplate_dynamics_only_sends_total",
-        Help: "Total number of times only dynamics (no statics) were sent",
-    })
-
-    // FingerprintMismatches counts structure changes detected.
-    FingerprintMismatches = promauto.NewCounter(prometheus.CounterOpts{
-        Name: "livetemplate_fingerprint_mismatches_total",
-        Help: "Total number of fingerprint mismatches (structure changes)",
-    })
+// Debug log wire format metrics
+includesStatics := hasStaticsInTree(tree)
+slog.Debug("sendUpdate",
+    "payload_bytes", len(responseBytes),
+    "includes_statics", includesStatics,
 )
 ```
+
+**Enable debug logging:**
+```go
+slog.SetLogLoggerLevel(slog.LevelDebug)
+```
+
+**Sample output:**
+```
+time=2026-01-17T10:30:00Z level=DEBUG msg=sendUpdate payload_bytes=256 includes_statics=false
+time=2026-01-17T10:30:01Z level=DEBUG msg=sendUpdate payload_bytes=1024 includes_statics=true
+```
+
+### Prometheus Metrics (Optional)
+
+For production monitoring, additional Prometheus metrics are available in `internal/observe/metrics.go`:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `livetemplate_update_payload_bytes` | Histogram | Size distribution of update payloads |
+| `livetemplate_full_tree_sends_total` | Counter | Sends with statics (first render or structure changed) |
+| `livetemplate_dynamics_only_sends_total` | Counter | Sends without statics (structure unchanged) |
+| `livetemplate_fingerprint_mismatches_total` | Counter | Structure fingerprint mismatches detected |
 
 ### Key Metrics to Monitor
 
@@ -634,20 +658,19 @@ var (
 
 ---
 
-## Open Questions
+## Open Questions (All Resolved)
 
 1. **LCS for ranges**: Should we implement LCS-based insert/delete/reorder detection, or start with simple full-replace?
-   - Recommendation: Start simple, add LCS if benchmarks show need
+   - **Resolved**: Start simple. LCS can be added later if benchmarks show need. Current approach uses full replace for key changes.
 
 2. **Heterogeneous ranges**: Current code handles items with different statics. Worth keeping?
-   - Recommendation: Remove. Full replace is simpler and these are rare.
-   - **Confirmed**: Client already handles full replacement (lines 78-80)
+   - **Resolved**: ✅ **REMOVED in v0.8.0**. StaticsMap removed entirely. Heterogeneous ranges now use the same approach as homogeneous - first item's statics are used as representative, and fingerprint-based diff detects structure changes to trigger full tree sends.
 
 3. **Client changes**: Does the TypeScript client need updates?
-   - **Answered**: No changes required. Wire format compatible. StaticsMap becomes dead code.
+   - **Resolved**: No changes required. Wire format compatible. StaticsMap (`sm`) becomes dead code in client.
 
 4. **Fingerprint algorithm**: MD5? SHA256? FNV? CRC32?
-   - **Answered**: MD5 with 64-bit truncation. See "MD5 Collision Risk Analysis" above.
+   - **Resolved**: MD5 with 64-bit truncation. See "MD5 Collision Risk Analysis" above.
 
 ---
 
@@ -662,6 +685,10 @@ var (
 7. [x] Benchmark wire size impact ✅ **Added benchmarks in `internal/diff/diff_bench_test.go`**
 8. [x] Document MD5 collision risk ✅ **See "MD5 Collision Risk Analysis" above**
 9. [x] Document deprecation timeline ✅ **See "Deprecation Timeline" above**
+10. [x] Add wire format metrics ✅ **slog debug logging in `mount.go`, Prometheus metrics in `internal/observe/`**
+11. [x] Add property-based tests ✅ **7 property tests in `internal/diff/diff_property_test.go`**
+12. [x] Implement fingerprint caching ✅ **`GetStructureFingerprint()` caches on first call**
+13. [x] Remove StaticsMap ✅ **Heterogeneous ranges now use full replace via fingerprint diff**
 
 ---
 

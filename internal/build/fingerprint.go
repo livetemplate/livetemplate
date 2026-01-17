@@ -261,24 +261,6 @@ func hashStructureWithCircularDetection(tree *TreeNode, hasher hash.Hash, visitP
 				hasher.Write([]byte("\x00"))
 			}
 		}
-		// Hash statics map keys (for heterogeneous ranges)
-		if len(tree.Range.StaticsMap) > 0 {
-			smKeys := make([]string, 0, len(tree.Range.StaticsMap))
-			for k := range tree.Range.StaticsMap {
-				smKeys = append(smKeys, k)
-			}
-			sort.Strings(smKeys)
-			hasher.Write([]byte(fmt.Sprintf("sm:%d:", len(smKeys))))
-			for _, k := range smKeys {
-				hasher.Write([]byte(k))
-				hasher.Write([]byte(":"))
-				statics := tree.Range.StaticsMap[k]
-				for _, s := range statics {
-					hasher.Write([]byte(s))
-					hasher.Write([]byte("\x00"))
-				}
-			}
-		}
 		hasher.Write([]byte("}\x00"))
 	}
 }

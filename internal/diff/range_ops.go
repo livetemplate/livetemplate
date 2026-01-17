@@ -76,8 +76,6 @@ func extractRangeData(oldValue, newValue interface{}) (
 	// oldNode.Statics will be minimal (e.g., [""]) for empty ranges.
 	// newNode.Statics may be nil if ShouldIncludeStatics() returned false.
 	// In that case, check newNode.Range.Statics which should have the item template.
-	// For heterogeneous ranges (items with different statics due to conditionals),
-	// Range.Statics is nil and Range.StaticsMap contains per-item statics.
 	if len(oldItems) == 0 && len(newItems) > 0 {
 		// Try newNode.Statics first (set if ShouldIncludeStatics was true)
 		if newNode.Statics != nil && len(newNode.Statics) > 0 {
@@ -85,9 +83,6 @@ func extractRangeData(oldValue, newValue interface{}) (
 		} else if newNode.Range != nil && len(newNode.Range.Statics) > 0 {
 			// Fall back to Range.Statics which should always have item template
 			statics = newNode.Range.Statics
-		} else if newNode.Range != nil && len(newNode.Range.StaticsMap) > 0 {
-			// Heterogeneous range: use StaticsMap (items have _sk field referencing it)
-			statics = newNode.Range.StaticsMap
 		}
 		// If all are empty/nil, statics remains as oldNode.Statics (minimal)
 	} else if staticsSlice, ok := statics.([]string); ok && len(staticsSlice) == 0 {
@@ -96,9 +91,6 @@ func extractRangeData(oldValue, newValue interface{}) (
 			statics = newNode.Statics
 		} else if newNode.Range != nil && len(newNode.Range.Statics) > 0 {
 			statics = newNode.Range.Statics
-		} else if newNode.Range != nil && len(newNode.Range.StaticsMap) > 0 {
-			// Heterogeneous range fallback
-			statics = newNode.Range.StaticsMap
 		}
 	}
 

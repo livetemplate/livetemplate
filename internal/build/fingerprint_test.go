@@ -792,35 +792,6 @@ func TestCalculateStructureFingerprint_CircularReference(t *testing.T) {
 	}
 }
 
-// TestCalculateStructureFingerprint_StaticsMapIncluded tests that StaticsMap
-// is included in the structure fingerprint.
-func TestCalculateStructureFingerprint_StaticsMapIncluded(t *testing.T) {
-	tree1 := &TreeNode{
-		Statics: []string{"<ul>", "</ul>"},
-		Range: &RangeData{
-			StaticsMap: map[string][]string{
-				"hash1": {"<li class=\"a\">", "</li>"},
-			},
-		},
-	}
-
-	tree2 := &TreeNode{
-		Statics: []string{"<ul>", "</ul>"},
-		Range: &RangeData{
-			StaticsMap: map[string][]string{
-				"hash1": {"<li class=\"b\">", "</li>"}, // Different statics in map
-			},
-		},
-	}
-
-	sfp1 := CalculateStructureFingerprint(tree1)
-	sfp2 := CalculateStructureFingerprint(tree2)
-
-	if sfp1 == sfp2 {
-		t.Error("Different StaticsMap values should produce different structure fingerprints")
-	}
-}
-
 // =============================================================================
 // Lexicographic Sorting Tests (10+ Keys)
 // =============================================================================
