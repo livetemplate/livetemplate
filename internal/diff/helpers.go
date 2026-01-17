@@ -393,11 +393,12 @@ func IsPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []strin
 		keyPos := FindKeyPositionFromStatics(statics)
 		keyPosStr := fmt.Sprintf("%d", keyPos)
 
-		// Compare all fields except position field and key field
+		// Compare all fields except position field, key field, and auto-key field
 		for field, oldValue := range oldItemNode.Dynamics {
 			// Skip position field (contains positional display like "#0:")
 			// Skip key field (determined from statics)
-			if field == positionField || field == keyPosStr {
+			// Skip auto-generated key field "_k" (may be present in one tree but not the other)
+			if field == positionField || field == keyPosStr || field == "_k" {
 				continue
 			}
 
@@ -407,9 +408,9 @@ func IsPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []strin
 			}
 		}
 
-		// Also check that new item doesn't have extra fields (except position and key)
+		// Also check that new item doesn't have extra fields (except position, key, and auto-key)
 		for field := range newItemNode.Dynamics {
-			if field == positionField || field == keyPosStr {
+			if field == positionField || field == keyPosStr || field == "_k" {
 				continue
 			}
 			if _, exists := oldItemNode.GetDynamic(field); !exists {
