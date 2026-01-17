@@ -193,7 +193,8 @@ jobs:
     - name: Run Tinkerdown unit tests
       working-directory: tinkerdown
       # Use -tags=ci to exclude //go:build !ci tests (E2E tests)
-      run: go test -v -race -timeout=10m -tags=ci ./...
+      # Also skip TutorialNavigation test which requires Chrome but lacks //go:build !ci tag
+      run: go test -v -race -timeout=10m -tags=ci -skip='TutorialNavigation' ./...
       env:
         CGO_ENABLED: 1
 
