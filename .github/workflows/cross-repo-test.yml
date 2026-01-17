@@ -188,11 +188,34 @@ jobs:
     - name: Build Tinkerdown binary
       working-directory: tinkerdown
       # E2E tests need the binary to start the server
+      # The main package may be in cmd/tinkerdown/ or root - try both
       run: |
-        go build -v -o tinkerdown .
+        if [ -d "cmd/tinkerdown" ]; then
+          echo "Building from cmd/tinkerdown/"
+          go build -v -o tinkerdown ./cmd/tinkerdown
+        elif [ -d "cmd" ]; then
+          echo "Building from cmd/ (first main package found)"
+          MAIN_PKG=$(find cmd -name 'main.go' -exec dirname {} \; | head -1)
+          if [ -n "$MAIN_PKG" ]; then
+            go build -v -o tinkerdown "./$MAIN_PKG"
+          else
+            echo "No main.go found in cmd/, trying root"
+            go build -v -o tinkerdown .
+          fi
+        else
+          echo "Building from root"
+          go build -v -o tinkerdown .
+        fi
         chmod +x tinkerdown
-        # Verify the binary is correct architecture and can execute
+        # Verify the binary is an executable, not an archive
         file tinkerdown
+        if file tinkerdown | grep -q "ELF"; then
+          echo "✓ Binary is ELF executable"
+        else
+          echo "ERROR: Binary is not an ELF executable!"
+          file tinkerdown
+          exit 1
+        fi
         ./tinkerdown --version || ./tinkerdown -h || echo "Binary built (no version flag)"
         # Install to PATH for tests that look for 'tinkerdown' command
         sudo cp tinkerdown /usr/local/bin/tinkerdown
