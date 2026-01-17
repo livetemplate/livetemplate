@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<a name="unreleased"></a>
+## [Unreleased] - v0.8.0
+
+### Breaking Changes
+
+- **Removed `internal/signature/` package** - Structure tracking now uses fingerprint-based comparison
+- **Removed `AreStructuresSimilar()` function** - Use `ClientNeedsStatics(oldTree, newTree)` instead
+
+### Added
+
+- **Fingerprint-based diff architecture** - Phoenix LiveView-inspired approach using structure fingerprints
+- `CalculateStructureFingerprint(tree)` - Returns 64-bit MD5 hash of tree's static structure
+- `ClientNeedsStatics(old, new)` - Simple O(1) check if client needs statics sent
+- Property-based tests for diff invariants using `pgregory.net/rapid`
+
+### Changed
+
+- **Simplified diff algorithm** - Reduced from 49+ state transitions to 4 simple cases
+- Diff logic now compares structure fingerprints instead of tracking path-based state
+- Removed ~1,900 lines of complex registry code
+
+### Migration Guide
+
+**From v0.7.x to v0.8.0:**
+
+| Old API | New API |
+|---------|---------|
+| `AreStructuresSimilar(old, new)` | `!ClientNeedsStatics(old, new)` |
+| `signature.Registry` | No replacement needed (fingerprints are automatic) |
+
+**Note:** The wire format remains backward compatible. Clients require no changes.
+
+
 <a name="v0.7.12"></a>
 ## [v0.7.12] - 2026-01-10
 

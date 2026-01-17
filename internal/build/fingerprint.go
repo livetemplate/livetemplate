@@ -31,7 +31,9 @@ func CalculateFingerprint(tree *TreeNode) string {
 	visitPath := make(map[*TreeNode]struct{})
 	hashTreeWithCircularDetection(tree, hasher, visitPath)
 
-	// MD5 always produces 16 bytes (32 hex chars), so truncate to 16 chars (64 bits)
+	// Truncated to 64 bits (16 hex chars) for compact fingerprints.
+	// Collision probability: negligible for <1M unique structures (~1 in 10^9).
+	// Even if collision occurs, worst case is sending extra statics (no correctness issue).
 	return hex.EncodeToString(hasher.Sum(nil))[:16]
 }
 

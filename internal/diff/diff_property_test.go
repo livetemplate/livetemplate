@@ -195,3 +195,135 @@ func TestCompareTreesAndGetChanges_Property_NoSpuriousChanges(t *testing.T) {
 		}
 	})
 }
+
+// genRangeItem generates a random range item.
+func genRangeItem() *rapid.Generator[*TreeNode] {
+	return rapid.Custom(func(t *rapid.T) *TreeNode {
+		key := rapid.StringMatching(`item-[0-9]+`).Draw(t, "itemKey")
+		value := rapid.StringMatching(`[a-z]+`).Draw(t, "itemValue")
+		return &TreeNode{
+			Dynamics: map[string]interface{}{
+				"0": key,
+				"1": value,
+			},
+		}
+	})
+}
+
+// genRangeData generates random range data with 0-5 items.
+func genRangeData() *rapid.Generator[*RangeData] {
+	return rapid.Custom(func(t *rapid.T) *RangeData {
+		numItems := rapid.IntRange(0, 5).Draw(t, "numItems")
+		items := make([]interface{}, numItems)
+		for i := 0; i < numItems; i++ {
+			items[i] = genRangeItem().Draw(t, "rangeItem")
+		}
+		return &RangeData{
+			Items:   items,
+			Statics: []string{"<li id=\"", "\">", "</li>"},
+		}
+	})
+}
+
+// genTreeNodeWithRange generates a tree node that contains range data.
+func genTreeNodeWithRange() *rapid.Generator[*TreeNode] {
+	return rapid.Custom(func(t *rapid.T) *TreeNode {
+		rangeData := genRangeData().Draw(t, "rangeData")
+		return &TreeNode{
+			Statics: []string{"<ul>", "</ul>"},
+			Range:   rangeData,
+		}
+	})
+}
+
+// TestClientNeedsStatics_Property_WithRanges tests fingerprint comparison
+// works correctly with range data.
+func TestClientNeedsStatics_Property_WithRanges(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		tree1 := genTreeNodeWithRange().Draw(t, "tree1")
+		tree2 := genTreeNodeWithRange().Draw(t, "tree2")
+
+		// Should be deterministic
+		result1 := ClientNeedsStatics(tree1, tree2)
+		result2 := ClientNeedsStatics(tree1, tree2)
+
+		if result1 != result2 {
+			t.Errorf("ClientNeedsStatics with ranges is not deterministic: got %v, %v", result1, result2)
+		}
+	})
+}
+
+// TestClientNeedsStatics_Property_IdenticalRanges tests that identical
+// range trees don't require statics re-send.
+func TestClientNeedsStatics_Property_IdenticalRanges(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		// Generate the same range structure
+		numItems := rapid.IntRange(1, 3).Draw(t, "numItems")
+		items := make([]interface{}, numItems)
+		for i := 0; i < numItems; i++ {
+			items[i] = &TreeNode{
+				Dynamics: map[string]interface{}{
+					"0": "id-" + string(rune('a'+i)),
+					"1": "value",
+				},
+			}
+		}
+
+		statics := []string{"<li id=\"", "\">", "</li>"}
+		tree1 := &TreeNode{
+			Statics: []string{"<ul>", "</ul>"},
+			Range: &RangeData{
+				Items:   items,
+				Statics: statics,
+			},
+		}
+		tree2 := &TreeNode{
+			Statics: []string{"<ul>", "</ul>"},
+			Range: &RangeData{
+				Items:   items,
+				Statics: statics,
+			},
+		}
+
+		if ClientNeedsStatics(tree1, tree2) {
+			t.Error("Identical range trees should not need statics re-sent")
+		}
+	})
+}
+
+// TestCompareTreesAndGetChanges_Property_DeepNesting tests that
+// deeply nested structures are handled correctly.
+func TestCompareTreesAndGetChanges_Property_DeepNesting(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		depth := rapid.IntRange(3, 6).Draw(t, "depth")
+
+		// Build a deeply nested tree
+		oldTree := buildNestedTree(depth, "old_value")
+		newTree := buildNestedTree(depth, "new_value")
+
+		// Compare should find the change at the deepest level
+		changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", nil)
+
+		// There should be changes detected
+		if changes == nil {
+			t.Error("Expected changes for deeply nested tree with different values")
+		}
+	})
+}
+
+// buildNestedTree creates a tree with specified nesting depth.
+func buildNestedTree(depth int, leafValue string) *TreeNode {
+	if depth <= 1 {
+		return &TreeNode{
+			Statics:  []string{"<span>", "</span>"},
+			Dynamics: map[string]interface{}{"0": leafValue},
+		}
+	}
+
+	return &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"0": buildNestedTree(depth-1, leafValue),
+		},
+	}
+}
