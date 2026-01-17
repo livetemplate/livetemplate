@@ -185,6 +185,11 @@ jobs:
         go mod tidy
         echo "✓ Replace directives added"
 
+    - name: Build Tinkerdown binary
+      working-directory: tinkerdown
+      # E2E tests need the binary to start the server
+      run: go build -v -o tinkerdown ./...
+
     - name: Run Tinkerdown unit tests
       working-directory: tinkerdown
       # Use -tags=ci to exclude //go:build !ci tests (E2E tests)
@@ -199,7 +204,3 @@ jobs:
       run: go test -v -race -timeout=15m -skip='TutorialNavigation' ./...
       env:
         CGO_ENABLED: 1
-
-    - name: Build Tinkerdown
-      working-directory: tinkerdown
-      run: go build -v ./...
