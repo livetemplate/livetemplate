@@ -122,3 +122,65 @@ jobs:
       run: ./test-all.sh --skip-disabled
       env:
         CGO_ENABLED: 1
+
+  test-tinkerdown:
+    name: Test Tinkerdown against Core Changes
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout core library (this PR/branch)
+      uses: actions/checkout@v4
+      with:
+        path: livetemplate
+
+    - name: Checkout Tinkerdown
+      uses: actions/checkout@v4
+      with:
+        repository: livetemplate/tinkerdown
+        path: tinkerdown
+
+    - name: Checkout components library
+      uses: actions/checkout@v4
+      with:
+        repository: livetemplate/components
+        path: components
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: tinkerdown/client/package-lock.json
+
+    - name: Build Tinkerdown client
+      working-directory: tinkerdown/client
+      run: |
+        echo "Installing client dependencies..."
+        npm ci
+        echo "Building client library..."
+        npm run build
+        echo "✓ Tinkerdown client built successfully"
+
+    - name: Add replace directives to Tinkerdown
+      working-directory: tinkerdown
+      run: |
+        echo "Adding replace directives to use local core library..."
+        go mod edit -replace=github.com/livetemplate/livetemplate=../livetemplate
+        go mod edit -replace=github.com/livetemplate/components=../components
+        go mod tidy
+        echo "✓ Replace directives added"
+
+    - name: Run Tinkerdown tests
+      working-directory: tinkerdown
+      run: go test -v -race -timeout=10m -tags=ci -skip='E2E|e2e' ./...
+      env:
+        CGO_ENABLED: 1
+
+    - name: Build Tinkerdown
+      working-directory: tinkerdown
+      run: go build -v ./...
