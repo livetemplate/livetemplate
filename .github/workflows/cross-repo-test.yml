@@ -191,6 +191,10 @@ jobs:
       run: |
         go build -v -o tinkerdown .
         chmod +x tinkerdown
+        # Verify the binary is correct architecture
+        file tinkerdown
+        # Verify it can be executed
+        ./tinkerdown --version || ./tinkerdown -h || echo "Binary built (no version flag)"
 
     - name: Run Tinkerdown unit tests
       working-directory: tinkerdown
@@ -200,12 +204,11 @@ jobs:
       env:
         CGO_ENABLED: 1
 
-    # TODO: Re-enable browser E2E tests after investigating exec format error
-    # The binary builds successfully but fails with "exec format error" when tests try to execute it.
-    # This may be related to how the E2E test helper finds and starts the binary.
-    # For now, skip E2E tests and only run unit tests.
-    # - name: Run Tinkerdown browser E2E tests
-    #   working-directory: tinkerdown
-    #   run: go test -v -race -timeout=15m -skip='TutorialNavigation' ./...
-    #   env:
-    #     CGO_ENABLED: 1
+    - name: Run Tinkerdown browser E2E tests
+      working-directory: tinkerdown
+      # Add binary directory to PATH so E2E test helper can find it
+      run: |
+        export PATH="$(pwd):$PATH"
+        go test -v -race -timeout=15m -skip='TutorialNavigation' ./...
+      env:
+        CGO_ENABLED: 1
