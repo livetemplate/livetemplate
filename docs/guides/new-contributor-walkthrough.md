@@ -85,14 +85,13 @@ livetemplate/
 ├── *.go                          # Public API (template.go, mount.go, action.go, etc.)
 ├── internal/
 │   ├── parse/                    # Phase 1: Template parsing
-│   ├── build/                    # Phase 2: Tree construction
+│   ├── build/                    # Phase 2: Tree construction + fingerprinting
 │   ├── diff/                     # Phase 3: Tree comparison
 │   ├── render/                   # Phase 4: HTML/JSON rendering
 │   ├── send/                     # Phase 5: Message serialization
 │   ├── keys/                     # Sequential key generation
 │   ├── observe/                  # Logging and metrics
 │   ├── session/                  # Connection tracking
-│   ├── signature/                # Structure caching
 │   └── context/                  # Template execution context
 ├── client/                       # TypeScript browser client
 ├── docs/                         # Architecture and guides
@@ -208,7 +207,7 @@ The build phase takes the parsed AST and your data (e.g., `CounterState{Counter:
     - `"s"` key: array of static HTML strings
     - `"0"`, `"1"`, etc: dynamic values or nested trees
   - [`RangeData`](../../internal/build/types.go#L40-L55) - Metadata for range iterations
-  - [`TreeMetadata`](../../internal/build/types.go#L65-L75) - Wrapper IDs, signatures
+  - [`TreeMetadata`](../../internal/build/types.go#L65-L75) - Wrapper IDs and tree metadata
 - [`fingerprint.go`](../../internal/build/fingerprint.go) - Change detection
   - [`CalculateFingerprint(node)`](../../internal/build/fingerprint.go#L20-L50) - MD5 hash of tree
   - Used to skip rendering when nothing changed
@@ -466,7 +465,7 @@ The complete response sent to clients:
 The TypeScript client handles:
 1. **Event delegation:** Listens for `lvt-click`, `lvt-submit`, `lvt-change`, etc.
 2. **Transport:** WebSocket (preferred) with HTTP fallback
-3. **Statics cache:** Stores `"s"` arrays by signature
+3. **Statics cache:** Stores `"s"` arrays from first render for reuse
 4. **DOM patching:** Uses morphdom to apply minimal updates
 5. **Lifecycle events:** Fires `lvt:pending`, `lvt:success`, `lvt:error`, `lvt:done`
 

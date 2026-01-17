@@ -62,12 +62,22 @@ func hashTreeWithCircularDetection(tree *TreeNode, hasher hash.Hash, visitPath m
 		}
 	}
 
-	// Collect and sort dynamic keys for consistent hashing
+	// Collect and sort dynamic keys for consistent hashing.
 	// Uses lexicographic sorting (sort.Strings) which is sufficient because:
 	// 1. Dynamic keys are string-formatted indices ("0", "1", "2", etc.) from template positions
 	// 2. Lexicographic order provides consistent ordering across runs (deterministic hashing)
 	// 3. The actual numeric values don't matter for change detection - only consistency matters
 	// 4. Simpler and faster than numeric-aware sorting
+	//
+	// Note on lexicographic vs numeric order:
+	// Lexicographic: "0", "1", "10", "2", "3"... (sort.Strings)
+	// Numeric:       "0", "1", "2", "3"... "10"  (parseInt sort)
+	//
+	// This does NOT affect the client because:
+	// - Fingerprints are server-side only (client never sees them)
+	// - Client iterates dynamics by sequential index from statics array length
+	// - When client needs key sorting, it uses parseInt() for numeric order
+	// - JSON has unordered keys by specification anyway
 	keys := make([]string, 0, len(tree.Dynamics))
 	for k := range tree.Dynamics {
 		keys = append(keys, k)
