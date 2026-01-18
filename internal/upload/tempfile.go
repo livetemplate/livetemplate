@@ -179,12 +179,11 @@ func (m *TempFileManager) Count() int {
 }
 
 // GenerateEntryID generates a unique entry ID for an upload.
-func GenerateEntryID() string {
+// Returns an error if random generation fails (extremely rare).
+func GenerateEntryID() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		// Fallback to less secure but always available source
-		// This should never happen with crypto/rand
-		panic(fmt.Sprintf("crypto/rand failed: %v", err))
+		return "", fmt.Errorf("failed to generate entry ID: %w", err)
 	}
-	return hex.EncodeToString(b)
+	return hex.EncodeToString(b), nil
 }

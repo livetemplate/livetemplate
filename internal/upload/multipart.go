@@ -77,7 +77,10 @@ func processMultipartFile(
 	tempFileManager *TempFileManager,
 ) (*uploadtypes.UploadEntry, error) {
 	// Generate entry ID
-	entryID := GenerateEntryID()
+	entryID, err := GenerateEntryID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate entry ID: %w", err)
+	}
 
 	// Create entry
 	entry := &uploadtypes.UploadEntry{

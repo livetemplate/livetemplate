@@ -271,8 +271,14 @@ func TestCleanupStale(t *testing.T) {
 
 func TestGenerateEntryID(t *testing.T) {
 	// Generate multiple IDs
-	id1 := GenerateEntryID()
-	id2 := GenerateEntryID()
+	id1, err := GenerateEntryID()
+	if err != nil {
+		t.Fatalf("GenerateEntryID failed: %v", err)
+	}
+	id2, err := GenerateEntryID()
+	if err != nil {
+		t.Fatalf("GenerateEntryID failed: %v", err)
+	}
 
 	// Verify IDs are non-empty
 	if id1 == "" || id2 == "" {

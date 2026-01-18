@@ -1301,7 +1301,10 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 
 	for _, fileMeta := range startMsg.Files {
 		// Generate entry ID
-		entryID := upload.GenerateEntryID()
+		entryID, err := upload.GenerateEntryID()
+		if err != nil {
+			return fmt.Errorf("failed to generate entry ID: %w", err)
+		}
 
 		// Create upload entry with metadata
 		entry := &uploadtypes.UploadEntry{
