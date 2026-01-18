@@ -840,16 +840,21 @@ For our Task Manager example, adding one task:
 
 ## The Client Runtime
 
-**Location:** [`client/livetemplate-client.ts`](../../client/livetemplate-client.ts)
+**Package:** [@livetemplate/client](https://www.npmjs.com/package/@livetemplate/client) (published on npm)
 
-The TypeScript client handles:
+The TypeScript client library handles:
 1. **Event delegation:** Listens for `lvt-click`, `lvt-submit`, `lvt-change`, etc.
 2. **Transport:** WebSocket (preferred) with HTTP fallback
 3. **Statics cache:** Stores `"s"` arrays from first render for reuse
 4. **DOM patching:** Uses morphdom to apply minimal updates
 5. **Lifecycle events:** Fires `lvt:pending`, `lvt:success`, `lvt:error`, `lvt:done`
 
-**Tests:** [`client/tests/`](../../client/tests/)
+**Usage in HTML:**
+```html
+<script src="https://cdn.jsdelivr.net/npm/@livetemplate/client@latest/dist/livetemplate-client.browser.js"></script>
+```
+
+**Note:** The client library is maintained in a separate repository and published to npm. Browser E2E tests that validate client behavior live in the [lvt repository](https://github.com/livetemplate/lvt).
 
 ## End-to-End Flow: Task Manager Example Revisited
 
@@ -1104,22 +1109,19 @@ E2E tests live in the [lvt repository](https://github.com/livetemplate/lvt):
 
 **Example:** Add new lifecycle event
 
+**Note:** The client library is published as [@livetemplate/client](https://www.npmjs.com/package/@livetemplate/client) on npm and maintained in a separate repository.
+
 **Steps:**
-1. Update [`client/livetemplate-client.ts`](../../client/livetemplate-client.ts)
+1. Update client library repository
    - Add event dispatch
    - Update TypeScript types
 
-2. Build client:
-   ```bash
-   cd client && npm run build
-   ```
-
-3. Test in examples:
+2. Test client changes with examples:
    ```bash
    cd examples/counter && go run main.go
    ```
 
-4. Add E2E test in lvt repository
+3. Add E2E test in lvt repository to validate the new behavior
 
 ### 4. Add Observability
 
