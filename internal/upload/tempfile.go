@@ -64,7 +64,9 @@ func (m *TempFileManager) CreateTempFile(sessionID, uploadName, entryID string) 
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp file: %w", err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		return "", fmt.Errorf("failed to close temp file after creation: %w", err)
+	}
 
 	// Track the file
 	m.mu.Lock()
@@ -177,8 +179,11 @@ func (m *TempFileManager) Count() int {
 }
 
 // GenerateEntryID generates a unique entry ID for an upload.
-func GenerateEntryID() string {
+// Returns an error if random generation fails (extremely rare).
+func GenerateEntryID() (string, error) {
 	b := make([]byte, 16)
-	rand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate entry ID: %w", err)
+	}
+	return hex.EncodeToString(b), nil
 }

@@ -87,12 +87,14 @@ func TestContext_WithSession(t *testing.T) {
 	// A full test would need a mock Session implementation
 }
 
+type testContextKey string
+
 func TestContext_StandardContext(t *testing.T) {
-	baseCtx := context.WithValue(context.Background(), "key", "value")
+	baseCtx := context.WithValue(context.Background(), testContextKey("key"), "value")
 	ctx := NewContext(baseCtx, "test", nil)
 
 	// Should be able to use Context methods
-	if ctx.Value("key") != "value" {
+	if ctx.Value(testContextKey("key")) != "value" {
 		t.Error("Context.Value should work via embedded context.Context")
 	}
 }

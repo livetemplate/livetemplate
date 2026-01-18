@@ -96,7 +96,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -141,10 +140,6 @@ type treeNode = build.TreeNode
 // keyGenerator is an internal alias for keys.Generator.
 // Used internally by Template for sequential key generation.
 type keyGenerator = keys.Generator
-
-// treeGenerationContext is an internal alias for build.Context.
-// Used internally for tree generation.
-type treeGenerationContext = build.Context
 
 // =============================================================================
 // Configuration
@@ -798,20 +793,20 @@ func New(name string, opts ...Option) (*Template, error) {
 		// Use TemplateBaseDir from config if provided, otherwise fall back to runtime.Caller
 		files, err := discovery.DiscoverTemplateFiles(config.TemplateBaseDir, config.IgnoreTemplateDirs)
 		if err != nil {
-			return nil, fmt.Errorf("livetemplate.New(%q): template auto-discovery failed: %w\n\nBase directory searched: %q\nEnsure template files (.tmpl, .html, .gotmpl) exist in your project directory.", name, err, config.TemplateBaseDir)
+			return nil, fmt.Errorf("livetemplate.New(%q): template auto-discovery failed in %q: %w", name, config.TemplateBaseDir, err)
 		}
 		if len(files) == 0 {
-			return nil, fmt.Errorf("livetemplate.New(%q): no template files found\n\nBase directory searched: %q\nIgnored directories: %v\nLooking for extensions: .tmpl, .html, .gotmpl\n\nEnsure template files exist or use WithParseFiles() to specify explicit paths.", name, config.TemplateBaseDir, config.IgnoreTemplateDirs)
+			return nil, fmt.Errorf("livetemplate.New(%q): no template files found in %q (ignored: %v)", name, config.TemplateBaseDir, config.IgnoreTemplateDirs)
 		}
 		if config.DevMode {
 			log.Printf("Auto-discovered %d template file(s)", len(files))
 		}
 		if _, err := tmpl.ParseFiles(files...); err != nil {
-			return nil, fmt.Errorf("livetemplate.New(%q): failed to parse discovered template files: %w\n\nFiles discovered: %v\nEnsure templates contain valid Go template syntax.", name, err, files)
+			return nil, fmt.Errorf("livetemplate.New(%q): failed to parse discovered files %v: %w", name, files, err)
 		}
 	} else {
 		if _, err := tmpl.ParseFiles(config.TemplateFiles...); err != nil {
-			return nil, fmt.Errorf("livetemplate.New(%q): failed to parse template files: %w\n\nFiles specified: %v\nEnsure template files exist and contain valid Go template syntax.", name, err, config.TemplateFiles)
+			return nil, fmt.Errorf("livetemplate.New(%q): failed to parse template files %v: %w", name, config.TemplateFiles, err)
 		}
 	}
 
@@ -1494,15 +1489,6 @@ func (t *Template) validateTreeGeneration() error {
 	// The tree generation process automatically flattens composite templates
 	// No validation needed here - errors will be caught during flattening if they occur
 	return nil
-}
-
-// getStoreName derives the store name from the struct type
-func getStoreName(store interface{}) string {
-	t := reflect.TypeOf(store)
-	if t.Kind() == reflect.Ptr {
-		t = t.Elem()
-	}
-	return t.Name() // e.g., "CounterState", "UserState"
 }
 
 // =============================================================================

@@ -337,8 +337,12 @@ func TestGetSortedKeys_Performance(t *testing.T) {
 	// Verify sorted order
 	for i := 0; i < len(keys)-1; i++ {
 		var curr, next int
-		fmt.Sscanf(keys[i], "%d", &curr)
-		fmt.Sscanf(keys[i+1], "%d", &next)
+		if _, err := fmt.Sscanf(keys[i], "%d", &curr); err != nil {
+			t.Errorf("Failed to parse key %q: %v", keys[i], err)
+		}
+		if _, err := fmt.Sscanf(keys[i+1], "%d", &next); err != nil {
+			t.Errorf("Failed to parse key %q: %v", keys[i+1], err)
+		}
 		if curr > next {
 			t.Errorf("Keys not sorted: %d > %d at position %d", curr, next, i)
 		}

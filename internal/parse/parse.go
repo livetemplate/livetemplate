@@ -347,7 +347,7 @@ func getOrParseTemplate(cache *sync.Map, cacheKey, templateStr string, funcs tem
 			goto parse
 		}
 		// Apply FuncMap
-		if funcs != nil && len(funcs) > 0 {
+		if len(funcs) > 0 {
 			clone.Funcs(funcs)
 		}
 		return clone, nil
@@ -356,7 +356,7 @@ func getOrParseTemplate(cache *sync.Map, cacheKey, templateStr string, funcs tem
 parse:
 	// Parse new template with FuncMap
 	tmpl := template.New(cacheKey)
-	if funcs != nil && len(funcs) > 0 {
+	if len(funcs) > 0 {
 		tmpl = tmpl.Funcs(funcs)
 	}
 	parsedTmpl, err := tmpl.Parse(templateStr)

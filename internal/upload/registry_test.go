@@ -135,7 +135,9 @@ func TestUpload_GetEntries(t *testing.T) {
 			ClientType: "image/jpeg",
 			ClientSize: 1024,
 		}
-		upload.AddEntry(entry)
+		if err := upload.AddEntry(entry); err != nil {
+			t.Fatalf("AddEntry failed: %v", err)
+		}
 	}
 
 	entries := upload.GetEntries()
@@ -161,7 +163,9 @@ func TestUpload_GetValidEntries(t *testing.T) {
 		ClientType: "image/jpeg",
 		ClientSize: 1024,
 	}
-	upload.AddEntry(validEntry1)
+	if err := upload.AddEntry(validEntry1); err != nil {
+		t.Fatalf("AddEntry failed: %v", err)
+	}
 
 	// Add second valid entry
 	validEntry2 := &uploadtypes.UploadEntry{
@@ -170,7 +174,9 @@ func TestUpload_GetValidEntries(t *testing.T) {
 		ClientType: "image/jpeg",
 		ClientSize: 1024,
 	}
-	upload.AddEntry(validEntry2)
+	if err := upload.AddEntry(validEntry2); err != nil {
+		t.Fatalf("AddEntry failed: %v", err)
+	}
 
 	// Add third entry (exceeds max entries)
 	invalidEntry := &uploadtypes.UploadEntry{
@@ -179,7 +185,8 @@ func TestUpload_GetValidEntries(t *testing.T) {
 		ClientType: "image/jpeg",
 		ClientSize: 1024,
 	}
-	upload.AddEntry(invalidEntry) // Will fail validation but still be added
+	// This will fail validation but should still succeed in adding the entry
+	_ = upload.AddEntry(invalidEntry)
 
 	// Get only valid entries
 	validEntries := upload.GetValidEntries()
@@ -209,7 +216,9 @@ func TestUpload_GetCompletedEntries(t *testing.T) {
 		ClientSize: 1024,
 		Done:       true,
 	}
-	upload.AddEntry(completedEntry)
+	if err := upload.AddEntry(completedEntry); err != nil {
+		t.Fatalf("AddEntry failed: %v", err)
+	}
 
 	// Add incomplete entry
 	incompleteEntry := &uploadtypes.UploadEntry{
@@ -219,7 +228,9 @@ func TestUpload_GetCompletedEntries(t *testing.T) {
 		ClientSize: 1024,
 		Done:       false,
 	}
-	upload.AddEntry(incompleteEntry)
+	if err := upload.AddEntry(incompleteEntry); err != nil {
+		t.Fatalf("AddEntry failed: %v", err)
+	}
 
 	// Get only completed entries
 	completedEntries := upload.GetCompletedEntries()
@@ -244,7 +255,9 @@ func TestUpload_UpdateEntry(t *testing.T) {
 		ClientType: "image/jpeg",
 		ClientSize: 1024,
 	}
-	upload.AddEntry(entry)
+	if err := upload.AddEntry(entry); err != nil {
+		t.Fatalf("AddEntry failed: %v", err)
+	}
 
 	// Update progress
 	err := upload.UpdateEntry("entry-1", func(e *uploadtypes.UploadEntry) {
@@ -279,7 +292,9 @@ func TestUpload_RemoveEntry(t *testing.T) {
 		ClientType: "image/jpeg",
 		ClientSize: 1024,
 	}
-	upload.AddEntry(entry)
+	if err := upload.AddEntry(entry); err != nil {
+		t.Fatalf("AddEntry failed: %v", err)
+	}
 
 	// Remove entry
 	upload.RemoveEntry("entry-1")
@@ -309,7 +324,9 @@ func TestUpload_HasError(t *testing.T) {
 		ClientSize: 1024,
 		Error:      "upload failed",
 	}
-	upload.AddEntry(entry)
+	if err := upload.AddEntry(entry); err != nil {
+		t.Fatalf("AddEntry failed: %v", err)
+	}
 
 	if !upload.HasError() {
 		t.Error("Expected HasError to return true")

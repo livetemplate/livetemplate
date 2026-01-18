@@ -124,5 +124,5 @@ func LoggerWithTraceID(logger *Logger, ctx context.Context) *Logger {
 	if traceID == "" {
 		return logger
 	}
-	return &Logger{Logger: logger.Logger.With("trace_id", traceID)}
+	return &Logger{Logger: logger.With("trace_id", traceID)}
 }

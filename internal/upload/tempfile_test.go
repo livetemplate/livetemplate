@@ -10,7 +10,11 @@ import (
 func TestNewTempFileManager(t *testing.T) {
 	// Test with custom base dir
 	baseDir := filepath.Join(os.TempDir(), "test-uploads")
-	defer os.RemoveAll(baseDir)
+	defer func() {
+		if err := os.RemoveAll(baseDir); err != nil {
+			t.Errorf("Failed to remove test dir: %v", err)
+		}
+	}()
 
 	mgr, err := NewTempFileManager(baseDir)
 	if err != nil {
@@ -29,7 +33,11 @@ func TestNewTempFileManager(t *testing.T) {
 
 func TestCreateTempFile(t *testing.T) {
 	baseDir := filepath.Join(os.TempDir(), "test-uploads-create")
-	defer os.RemoveAll(baseDir)
+	defer func() {
+		if err := os.RemoveAll(baseDir); err != nil {
+			t.Errorf("Failed to remove test dir: %v", err)
+		}
+	}()
 
 	mgr, err := NewTempFileManager(baseDir)
 	if err != nil {
@@ -60,8 +68,15 @@ func TestCreateTempFile(t *testing.T) {
 }
 
 func TestCreateTempFile_ValidationErrors(t *testing.T) {
-	mgr, _ := NewTempFileManager("")
-	defer os.RemoveAll(mgr.baseDir)
+	mgr, err := NewTempFileManager("")
+	if err != nil {
+		t.Fatalf("NewTempFileManager failed: %v", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(mgr.baseDir); err != nil {
+			t.Errorf("Failed to remove test dir: %v", err)
+		}
+	}()
 
 	tests := []struct {
 		name       string
@@ -85,8 +100,15 @@ func TestCreateTempFile_ValidationErrors(t *testing.T) {
 }
 
 func TestGetFilePath(t *testing.T) {
-	mgr, _ := NewTempFileManager("")
-	defer os.RemoveAll(mgr.baseDir)
+	mgr, err := NewTempFileManager("")
+	if err != nil {
+		t.Fatalf("NewTempFileManager failed: %v", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(mgr.baseDir); err != nil {
+			t.Errorf("Failed to remove test dir: %v", err)
+		}
+	}()
 
 	// Create a file
 	path, err := mgr.CreateTempFile("session-123", "avatar", "entry-1")
@@ -108,8 +130,15 @@ func TestGetFilePath(t *testing.T) {
 }
 
 func TestRemoveFile(t *testing.T) {
-	mgr, _ := NewTempFileManager("")
-	defer os.RemoveAll(mgr.baseDir)
+	mgr, err := NewTempFileManager("")
+	if err != nil {
+		t.Fatalf("NewTempFileManager failed: %v", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(mgr.baseDir); err != nil {
+			t.Errorf("Failed to remove test dir: %v", err)
+		}
+	}()
 
 	// Create a file
 	path, err := mgr.CreateTempFile("session-123", "avatar", "entry-1")
@@ -139,16 +168,31 @@ func TestRemoveFile(t *testing.T) {
 }
 
 func TestRemoveSession(t *testing.T) {
-	mgr, _ := NewTempFileManager("")
-	defer os.RemoveAll(mgr.baseDir)
+	mgr, err := NewTempFileManager("")
+	if err != nil {
+		t.Fatalf("NewTempFileManager failed: %v", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(mgr.baseDir); err != nil {
+			t.Errorf("Failed to remove test dir: %v", err)
+		}
+	}()
 
 	// Create multiple files for same session
-	mgr.CreateTempFile("session-123", "avatar", "entry-1")
-	mgr.CreateTempFile("session-123", "avatar", "entry-2")
-	mgr.CreateTempFile("session-123", "documents", "entry-3")
+	if _, err := mgr.CreateTempFile("session-123", "avatar", "entry-1"); err != nil {
+		t.Fatalf("CreateTempFile failed: %v", err)
+	}
+	if _, err := mgr.CreateTempFile("session-123", "avatar", "entry-2"); err != nil {
+		t.Fatalf("CreateTempFile failed: %v", err)
+	}
+	if _, err := mgr.CreateTempFile("session-123", "documents", "entry-3"); err != nil {
+		t.Fatalf("CreateTempFile failed: %v", err)
+	}
 
 	// Create file for different session
-	mgr.CreateTempFile("session-456", "avatar", "entry-4")
+	if _, err := mgr.CreateTempFile("session-456", "avatar", "entry-4"); err != nil {
+		t.Fatalf("CreateTempFile failed: %v", err)
+	}
 
 	if mgr.Count() != 4 {
 		t.Fatalf("Expected 4 tracked files, got %d", mgr.Count())
@@ -178,12 +222,23 @@ func TestRemoveSession(t *testing.T) {
 }
 
 func TestCleanupStale(t *testing.T) {
-	mgr, _ := NewTempFileManager("")
-	defer os.RemoveAll(mgr.baseDir)
+	mgr, err := NewTempFileManager("")
+	if err != nil {
+		t.Fatalf("NewTempFileManager failed: %v", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(mgr.baseDir); err != nil {
+			t.Errorf("Failed to remove test dir: %v", err)
+		}
+	}()
 
 	// Create files
-	mgr.CreateTempFile("session-123", "avatar", "entry-1")
-	mgr.CreateTempFile("session-123", "avatar", "entry-2")
+	if _, err := mgr.CreateTempFile("session-123", "avatar", "entry-1"); err != nil {
+		t.Fatalf("CreateTempFile failed: %v", err)
+	}
+	if _, err := mgr.CreateTempFile("session-123", "avatar", "entry-2"); err != nil {
+		t.Fatalf("CreateTempFile failed: %v", err)
+	}
 
 	// Manually set creation time to be old
 	mgr.mu.Lock()
@@ -216,8 +271,14 @@ func TestCleanupStale(t *testing.T) {
 
 func TestGenerateEntryID(t *testing.T) {
 	// Generate multiple IDs
-	id1 := GenerateEntryID()
-	id2 := GenerateEntryID()
+	id1, err := GenerateEntryID()
+	if err != nil {
+		t.Fatalf("GenerateEntryID failed: %v", err)
+	}
+	id2, err := GenerateEntryID()
+	if err != nil {
+		t.Fatalf("GenerateEntryID failed: %v", err)
+	}
 
 	// Verify IDs are non-empty
 	if id1 == "" || id2 == "" {

@@ -14,7 +14,9 @@ func BenchmarkTemplateExecute(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			tmpl := Must(New("test"))
-			tmpl.Parse(`<div>{{.Name}}</div>`)
+			if _, err := tmpl.Parse(`<div>{{.Name}}</div>`); err != nil {
+				b.Fatal(err)
+			}
 			var buf bytes.Buffer
 			err := tmpl.Execute(&buf, data)
 			if err != nil {
@@ -25,10 +27,14 @@ func BenchmarkTemplateExecute(b *testing.B) {
 
 	b.Run("subsequent-render", func(b *testing.B) {
 		tmpl := Must(New("test"))
-		tmpl.Parse(`<div>{{.Name}}</div>`)
+		if _, err := tmpl.Parse(`<div>{{.Name}}</div>`); err != nil {
+			b.Fatal(err)
+		}
 		data := map[string]interface{}{"Name": "Test"}
 		var buf bytes.Buffer
-		tmpl.Execute(&buf, data) // Prime the cache
+		if err := tmpl.Execute(&buf, data); err != nil { // Prime the cache
+			b.Fatal(err)
+		}
 
 		b.ResetTimer()
 		b.ReportAllocs()
@@ -44,11 +50,15 @@ func BenchmarkTemplateExecute(b *testing.B) {
 
 func BenchmarkTemplateExecuteUpdates(b *testing.B) {
 	tmpl := Must(New("test"))
-	tmpl.Parse(`<div>{{.Name}}</div>`)
+	if _, err := tmpl.Parse(`<div>{{.Name}}</div>`); err != nil {
+		b.Fatal(err)
+	}
 
 	initialData := map[string]interface{}{"Name": "Initial"}
 	var buf bytes.Buffer
-	tmpl.ExecuteUpdates(&buf, initialData) // Prime
+	if err := tmpl.ExecuteUpdates(&buf, initialData); err != nil { // Prime
+		b.Fatal(err)
+	}
 
 	b.Run("no-changes", func(b *testing.B) {
 		b.ReportAllocs()
@@ -82,7 +92,9 @@ func BenchmarkTemplateExecuteUpdates(b *testing.B) {
 	</div>`
 
 	tmplLarge := Must(New("large"))
-	tmplLarge.Parse(largeTemplate)
+	if _, err := tmplLarge.Parse(largeTemplate); err != nil {
+		b.Fatal(err)
+	}
 	largeData := map[string]interface{}{
 		"Title":       "Title",
 		"Description": "Description",
@@ -91,7 +103,9 @@ func BenchmarkTemplateExecuteUpdates(b *testing.B) {
 		"Content":     "Content",
 	}
 	buf.Reset()
-	tmplLarge.ExecuteUpdates(&buf, largeData)
+	if err := tmplLarge.ExecuteUpdates(&buf, largeData); err != nil {
+		b.Fatal(err)
+	}
 
 	b.Run("large-update", func(b *testing.B) {
 		updatedData := map[string]interface{}{

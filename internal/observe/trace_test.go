@@ -22,7 +22,9 @@ func TestGenerateTraceID(t *testing.T) {
 
 	// Test that it's valid hex
 	for _, c := range traceID {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		isDigit := c >= '0' && c <= '9'
+		isHexLetter := c >= 'a' && c <= 'f'
+		if !isDigit && !isHexLetter {
 			t.Errorf("Trace ID contains invalid hex character: %c", c)
 		}
 	}

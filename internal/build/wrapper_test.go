@@ -43,7 +43,9 @@ func TestGenerateRandomID_Format(t *testing.T) {
 	// Check hex portion
 	hexPart := id[4:]
 	for _, c := range hexPart {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		isDigit := c >= '0' && c <= '9'
+		isHexLetter := c >= 'a' && c <= 'f'
+		if !isDigit && !isHexLetter {
 			t.Errorf("Expected hex characters, found: %c in %q", c, id)
 			break
 		}

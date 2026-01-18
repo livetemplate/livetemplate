@@ -24,7 +24,9 @@ func TestDiscoverTemplateFiles(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
-		f.Close()
+		if err := f.Close(); err != nil {
+			t.Errorf("Failed to close test file: %v", err)
+		}
 	}
 
 	// Test discovery
@@ -67,7 +69,9 @@ func TestDiscoverTemplateFiles_WithIgnoreDirs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
-		f.Close()
+		if err := f.Close(); err != nil {
+			t.Errorf("Failed to close test file: %v", err)
+		}
 	}
 
 	// Create a template in the root
@@ -76,7 +80,9 @@ func TestDiscoverTemplateFiles_WithIgnoreDirs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create root file: %v", err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Errorf("Failed to close root file: %v", err)
+	}
 
 	// Test discovery with custom ignore
 	files, err := DiscoverTemplateFiles(tmpDir, []string{"ignored"})
@@ -140,7 +146,9 @@ func TestDiscoverTemplateFiles_MultipleCallDepths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Errorf("Failed to close test file: %v", err)
+	}
 
 	// Test with explicit baseDir - should always work
 	files, err := DiscoverTemplateFiles(tmpDir, nil)
@@ -205,7 +213,9 @@ func TestDiscoverTemplateFiles_SmartFallback(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create template file: %v", err)
 		}
-		f.Close()
+		if err := f.Close(); err != nil {
+			t.Errorf("Failed to close template file: %v", err)
+		}
 
 		// Change to tmpDir so ./templates is accessible
 		if err := os.Chdir(tmpDir); err != nil {
@@ -234,7 +244,9 @@ func TestDiscoverTemplateFiles_SmartFallback(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create template file: %v", err)
 		}
-		f.Close()
+		if err := f.Close(); err != nil {
+			t.Errorf("Failed to close template file: %v", err)
+		}
 
 		// Change to tmpDir
 		if err := os.Chdir(tmpDir); err != nil {
@@ -273,7 +285,9 @@ func TestDiscoverTemplateFiles_SmartFallback(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to create template file %s: %v", path, err)
 			}
-			f.Close()
+			if err := f.Close(); err != nil {
+				t.Errorf("Failed to close template file %s: %v", path, err)
+			}
 		}
 
 		// Change to tmpDir

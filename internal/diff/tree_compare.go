@@ -363,7 +363,7 @@ func handleNestedTreeNodes(
 	oldHasRange := ContainsRangeConstruct(oldTreeNodePtr)
 	newHasRange := ContainsRangeConstruct(newTreeNodePtr)
 
-	if structureChanged && !(oldHasRange && newHasRange) {
+	if structureChanged && (!oldHasRange || !newHasRange) {
 		// Structure changed and this isn't just range item updates
 		// Send full tree with statics since client needs the new structure
 		changes.SetDynamic(k, newTreeNodePtr)

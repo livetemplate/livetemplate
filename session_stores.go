@@ -500,56 +500,6 @@ func (s *RedisSessionStore) serializeSingleStore(store interface{}) (string, err
 //   - "s:..." - State-only format (JSON envelope containing only `lvt:"state"` fields)
 //   - "g:..." - Gob format (entire store encoded with gob)
 //   - No prefix - Legacy gob format (backward compatibility)
-//
-// For state-only format ("s:"), this returns a *stateData wrapper containing
-// the deserialized state map. The caller (mount.go) is responsible for
-// creating a fresh controller clone and injecting the state into it.
-func (s *RedisSessionStore) deserializeSingleStore(encoded string) (interface{}, error) {
-	// Check format prefix
-	if len(encoded) >= 2 {
-		prefix := encoded[:2]
-		payload := encoded[2:]
-
-		switch prefix {
-		case "s:":
-			// State-only format - return wrapper for mount.go to handle
-			data, err := base64.StdEncoding.DecodeString(payload)
-			if err != nil {
-				return nil, fmt.Errorf("base64 decode failed: %w", err)
-			}
-			return &StateData{Raw: data}, nil
-
-		case "g:":
-			// Gob format with prefix
-			data, err := base64.StdEncoding.DecodeString(payload)
-			if err != nil {
-				return nil, fmt.Errorf("base64 decode failed: %w", err)
-			}
-			return s.decodeGob(data)
-		}
-	}
-
-	// Legacy format (no prefix) - assume gob
-	data, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return nil, fmt.Errorf("base64 decode failed: %w", err)
-	}
-	return s.decodeGob(data)
-}
-
-// decodeGob decodes gob-encoded bytes into a store interface.
-func (s *RedisSessionStore) decodeGob(data []byte) (interface{}, error) {
-	buf := bytes.NewBuffer(data)
-	dec := gob.NewDecoder(buf)
-
-	var store interface{}
-	if err := dec.Decode(&store); err != nil {
-		return nil, fmt.Errorf("gob decode failed: %w (hint: custom types must be registered with gob.Register() in init())", err)
-	}
-
-	return store, nil
-}
-
 // StateData wraps raw state bytes from Redis for later injection.
 // When mount.go encounters this type in Stores, it knows to:
 // 1. Clone the template's original store (which has dependencies)
@@ -572,21 +522,6 @@ func IsStateData(v interface{}) bool {
 func GetStateData(v interface{}) *StateData {
 	sd, _ := v.(*StateData)
 	return sd
-}
-
-// migrateToV2 migrates a legacy v1 session to v2 hash format.
-func (s *RedisSessionStore) migrateToV2(ctx context.Context, groupID string, state interface{}) {
-	key := sessionKeyPrefix + groupID
-
-	// Delete the legacy blob key first
-	s.client.Del(ctx, key)
-
-	// Also delete legacy access key if it exists
-	accessKey := key + sessionAccessKeySuffix
-	s.client.Del(ctx, accessKey)
-
-	// Write in v2 format
-	s.Set(ctx, groupID, state)
 }
 
 // Set stores state for a session group.

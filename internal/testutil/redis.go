@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"context"
+	"log"
 	"testing"
 	"time"
 
@@ -32,14 +33,18 @@ func StartRedisContainer(ctx context.Context, t *testing.T) (*RedisContainer, er
 	// Get connection string
 	connStr, err := container.ConnectionString(ctx)
 	if err != nil {
-		container.Terminate(ctx)
+		if termErr := container.Terminate(ctx); termErr != nil {
+			log.Printf("failed to terminate container after connection string error: %v", termErr)
+		}
 		return nil, err
 	}
 
 	// Parse options and create client
 	opt, err := goredis.ParseURL(connStr)
 	if err != nil {
-		container.Terminate(ctx)
+		if termErr := container.Terminate(ctx); termErr != nil {
+			log.Printf("failed to terminate container after URL parse error: %v", termErr)
+		}
 		return nil, err
 	}
 
@@ -52,8 +57,12 @@ func StartRedisContainer(ctx context.Context, t *testing.T) (*RedisContainer, er
 	for {
 		select {
 		case <-ctx.Done():
-			client.Close()
-			container.Terminate(context.Background())
+			if err := client.Close(); err != nil {
+				log.Printf("failed to close redis client on timeout: %v", err)
+			}
+			if err := container.Terminate(context.Background()); err != nil {
+				log.Printf("failed to terminate container on timeout: %v", err)
+			}
 			return nil, ctx.Err()
 		default:
 			if err := client.Ping(ctx).Err(); err == nil {
@@ -69,13 +78,18 @@ func StartRedisContainer(ctx context.Context, t *testing.T) (*RedisContainer, er
 
 // Close closes the Redis client and terminates the container
 func (rc *RedisContainer) Close(ctx context.Context) error {
+	var closeErr error
 	if rc.Client != nil {
-		rc.Client.Close()
+		if err := rc.Client.Close(); err != nil {
+			closeErr = err
+		}
 	}
 	if rc.Container != nil {
-		return rc.Container.Terminate(ctx)
+		if err := rc.Container.Terminate(ctx); err != nil {
+			return err
+		}
 	}
-	return nil
+	return closeErr
 }
 
 // GetTestRedisClient is a convenience function that starts a Redis container

@@ -16,7 +16,11 @@ func TestParseMultipartUpload_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewTempFileManager failed: %v", err)
 	}
-	defer os.RemoveAll(tempMgr.baseDir)
+	defer func() {
+		if err := os.RemoveAll(tempMgr.baseDir); err != nil {
+			t.Errorf("Failed to remove temp dir: %v", err)
+		}
+	}()
 
 	// Create multipart form with file
 	body := &bytes.Buffer{}
@@ -28,8 +32,12 @@ func TestParseMultipartUpload_Success(t *testing.T) {
 	}
 
 	testContent := []byte("fake image content")
-	part.Write(testContent)
-	writer.Close()
+	if _, err := part.Write(testContent); err != nil {
+		t.Fatalf("Failed to write test content: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Failed to close writer: %v", err)
+	}
 
 	// Create request
 	req := httptest.NewRequest("POST", "/upload", body)
@@ -85,16 +93,30 @@ func TestParseMultipartUpload_Success(t *testing.T) {
 }
 
 func TestParseMultipartUpload_ValidationError(t *testing.T) {
-	tempMgr, _ := NewTempFileManager("")
-	defer os.RemoveAll(tempMgr.baseDir)
+	tempMgr, err := NewTempFileManager("")
+	if err != nil {
+		t.Fatalf("NewTempFileManager failed: %v", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(tempMgr.baseDir); err != nil {
+			t.Errorf("Failed to remove temp dir: %v", err)
+		}
+	}()
 
 	// Create multipart form with invalid file type
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
-	part, _ := writer.CreateFormFile("avatar", "test.txt")
-	part.Write([]byte("text content"))
-	writer.Close()
+	part, err := writer.CreateFormFile("avatar", "test.txt")
+	if err != nil {
+		t.Fatalf("CreateFormFile failed: %v", err)
+	}
+	if _, err := part.Write([]byte("text content")); err != nil {
+		t.Fatalf("Failed to write content: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Failed to close writer: %v", err)
+	}
 
 	req := httptest.NewRequest("POST", "/upload", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
@@ -129,18 +151,32 @@ func TestParseMultipartUpload_ValidationError(t *testing.T) {
 }
 
 func TestParseMultipartUpload_FileTooLarge(t *testing.T) {
-	tempMgr, _ := NewTempFileManager("")
-	defer os.RemoveAll(tempMgr.baseDir)
+	tempMgr, err := NewTempFileManager("")
+	if err != nil {
+		t.Fatalf("NewTempFileManager failed: %v", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(tempMgr.baseDir); err != nil {
+			t.Errorf("Failed to remove temp dir: %v", err)
+		}
+	}()
 
 	// Create multipart form with large file
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
-	part, _ := writer.CreateFormFile("avatar", "large.jpg")
+	part, err := writer.CreateFormFile("avatar", "large.jpg")
+	if err != nil {
+		t.Fatalf("CreateFormFile failed: %v", err)
+	}
 	// Write more than the limit
 	largeContent := make([]byte, 2*1024)
-	part.Write(largeContent)
-	writer.Close()
+	if _, err := part.Write(largeContent); err != nil {
+		t.Fatalf("Failed to write content: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Failed to close writer: %v", err)
+	}
 
 	req := httptest.NewRequest("POST", "/upload", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
@@ -168,18 +204,32 @@ func TestParseMultipartUpload_FileTooLarge(t *testing.T) {
 }
 
 func TestParseMultipartUpload_TooManyFiles(t *testing.T) {
-	tempMgr, _ := NewTempFileManager("")
-	defer os.RemoveAll(tempMgr.baseDir)
+	tempMgr, err := NewTempFileManager("")
+	if err != nil {
+		t.Fatalf("NewTempFileManager failed: %v", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(tempMgr.baseDir); err != nil {
+			t.Errorf("Failed to remove temp dir: %v", err)
+		}
+	}()
 
 	// Create multipart form with multiple files
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
 	for i := 0; i < 3; i++ {
-		part, _ := writer.CreateFormFile("avatar", "test.jpg")
-		part.Write([]byte("content"))
+		part, err := writer.CreateFormFile("avatar", "test.jpg")
+		if err != nil {
+			t.Fatalf("CreateFormFile failed: %v", err)
+		}
+		if _, err := part.Write([]byte("content")); err != nil {
+			t.Fatalf("Failed to write content: %v", err)
+		}
 	}
-	writer.Close()
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Failed to close writer: %v", err)
+	}
 
 	req := httptest.NewRequest("POST", "/upload", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
@@ -190,20 +240,29 @@ func TestParseMultipartUpload_TooManyFiles(t *testing.T) {
 		MaxEntries: 2,
 	}
 
-	_, err := ParseMultipartUpload(req, "avatar", config, "session-123", tempMgr)
+	_, err = ParseMultipartUpload(req, "avatar", config, "session-123", tempMgr)
 	if err == nil {
 		t.Fatal("Expected error for too many files")
 	}
 }
 
 func TestParseMultipartUpload_NoFiles(t *testing.T) {
-	tempMgr, _ := NewTempFileManager("")
-	defer os.RemoveAll(tempMgr.baseDir)
+	tempMgr, err := NewTempFileManager("")
+	if err != nil {
+		t.Fatalf("NewTempFileManager failed: %v", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(tempMgr.baseDir); err != nil {
+			t.Errorf("Failed to remove temp dir: %v", err)
+		}
+	}()
 
 	// Create multipart form without files
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	writer.Close()
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Failed to close writer: %v", err)
+	}
 
 	req := httptest.NewRequest("POST", "/upload", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
@@ -213,25 +272,39 @@ func TestParseMultipartUpload_NoFiles(t *testing.T) {
 		MaxEntries: 1,
 	}
 
-	_, err := ParseMultipartUpload(req, "avatar", config, "session-123", tempMgr)
+	_, err = ParseMultipartUpload(req, "avatar", config, "session-123", tempMgr)
 	if err == nil {
 		t.Fatal("Expected error for no files")
 	}
 }
 
 func TestParseMultipartUpload_MultipleFiles(t *testing.T) {
-	tempMgr, _ := NewTempFileManager("")
-	defer os.RemoveAll(tempMgr.baseDir)
+	tempMgr, err := NewTempFileManager("")
+	if err != nil {
+		t.Fatalf("NewTempFileManager failed: %v", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(tempMgr.baseDir); err != nil {
+			t.Errorf("Failed to remove temp dir: %v", err)
+		}
+	}()
 
 	// Create multipart form with multiple valid files
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
 	for i := 1; i <= 3; i++ {
-		part, _ := writer.CreateFormFile("documents", "doc"+string(rune('0'+i))+".pdf")
-		part.Write([]byte("pdf content " + string(rune('0'+i))))
+		part, err := writer.CreateFormFile("documents", "doc"+string(rune('0'+i))+".pdf")
+		if err != nil {
+			t.Fatalf("CreateFormFile failed: %v", err)
+		}
+		if _, err := part.Write([]byte("pdf content " + string(rune('0'+i)))); err != nil {
+			t.Fatalf("Failed to write content: %v", err)
+		}
 	}
-	writer.Close()
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Failed to close writer: %v", err)
+	}
 
 	req := httptest.NewRequest("POST", "/upload", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())

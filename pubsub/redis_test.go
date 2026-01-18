@@ -16,10 +16,18 @@ func getTestRedisClient(t *testing.T) redis.UniversalClient {
 
 func TestRedisBroadcaster_PublishGlobal(t *testing.T) {
 	client := getTestRedisClient(t)
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
 
 	broadcaster := NewRedisBroadcaster(client)
-	defer broadcaster.Close()
+	defer func() {
+		if err := broadcaster.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster: %v", err)
+		}
+	}()
 
 	payload := []byte(`{"action": "test"}`)
 	err := broadcaster.PublishGlobal(payload)
@@ -30,10 +38,18 @@ func TestRedisBroadcaster_PublishGlobal(t *testing.T) {
 
 func TestRedisBroadcaster_PublishToGroup(t *testing.T) {
 	client := getTestRedisClient(t)
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
 
 	broadcaster := NewRedisBroadcaster(client)
-	defer broadcaster.Close()
+	defer func() {
+		if err := broadcaster.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster: %v", err)
+		}
+	}()
 
 	payload := []byte(`{"action": "test"}`)
 	err := broadcaster.PublishToGroup("group-123", payload)
@@ -44,10 +60,18 @@ func TestRedisBroadcaster_PublishToGroup(t *testing.T) {
 
 func TestRedisBroadcaster_PublishToUser(t *testing.T) {
 	client := getTestRedisClient(t)
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
 
 	broadcaster := NewRedisBroadcaster(client)
-	defer broadcaster.Close()
+	defer func() {
+		if err := broadcaster.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster: %v", err)
+		}
+	}()
 
 	payload := []byte(`{"action": "test"}`)
 	err := broadcaster.PublishToUser("user-123", payload)
@@ -58,13 +82,25 @@ func TestRedisBroadcaster_PublishToUser(t *testing.T) {
 
 func TestRedisBroadcaster_SubscribeAndReceive(t *testing.T) {
 	client := getTestRedisClient(t)
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
 
 	broadcaster1 := NewRedisBroadcaster(client)
-	defer broadcaster1.Close()
+	defer func() {
+		if err := broadcaster1.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster1: %v", err)
+		}
+	}()
 
 	broadcaster2 := NewRedisBroadcaster(client)
-	defer broadcaster2.Close()
+	defer func() {
+		if err := broadcaster2.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster2: %v", err)
+		}
+	}()
 
 	// Set up receiver
 	var received sync.WaitGroup
@@ -131,10 +167,18 @@ func TestRedisBroadcaster_SubscribeAndReceive(t *testing.T) {
 
 func TestRedisBroadcaster_LocalOptimization(t *testing.T) {
 	client := getTestRedisClient(t)
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
 
 	broadcaster := NewRedisBroadcaster(client)
-	defer broadcaster.Close()
+	defer func() {
+		if err := broadcaster.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster: %v", err)
+		}
+	}()
 
 	// Set up receiver
 	var receivedCount int
@@ -170,13 +214,25 @@ func TestRedisBroadcaster_LocalOptimization(t *testing.T) {
 
 func TestRedisBroadcaster_GroupBroadcast(t *testing.T) {
 	client := getTestRedisClient(t)
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
 
 	broadcaster1 := NewRedisBroadcaster(client)
-	defer broadcaster1.Close()
+	defer func() {
+		if err := broadcaster1.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster1: %v", err)
+		}
+	}()
 
 	broadcaster2 := NewRedisBroadcaster(client)
-	defer broadcaster2.Close()
+	defer func() {
+		if err := broadcaster2.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster2: %v", err)
+		}
+	}()
 
 	// Set up receiver
 	var received sync.WaitGroup
@@ -243,13 +299,25 @@ func TestRedisBroadcaster_GroupBroadcast(t *testing.T) {
 
 func TestRedisBroadcaster_UserBroadcast(t *testing.T) {
 	client := getTestRedisClient(t)
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
 
 	broadcaster1 := NewRedisBroadcaster(client)
-	defer broadcaster1.Close()
+	defer func() {
+		if err := broadcaster1.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster1: %v", err)
+		}
+	}()
 
 	broadcaster2 := NewRedisBroadcaster(client)
-	defer broadcaster2.Close()
+	defer func() {
+		if err := broadcaster2.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster2: %v", err)
+		}
+	}()
 
 	// Set up receiver
 	var received sync.WaitGroup
@@ -316,16 +384,32 @@ func TestRedisBroadcaster_UserBroadcast(t *testing.T) {
 
 func TestRedisBroadcaster_MultipleSubscribers(t *testing.T) {
 	client := getTestRedisClient(t)
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
 
 	broadcaster1 := NewRedisBroadcaster(client)
-	defer broadcaster1.Close()
+	defer func() {
+		if err := broadcaster1.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster1: %v", err)
+		}
+	}()
 
 	broadcaster2 := NewRedisBroadcaster(client)
-	defer broadcaster2.Close()
+	defer func() {
+		if err := broadcaster2.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster2: %v", err)
+		}
+	}()
 
 	broadcaster3 := NewRedisBroadcaster(client)
-	defer broadcaster3.Close()
+	defer func() {
+		if err := broadcaster3.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster3: %v", err)
+		}
+	}()
 
 	// Set up receivers
 	var received sync.WaitGroup
@@ -370,7 +454,11 @@ func TestRedisBroadcaster_MultipleSubscribers(t *testing.T) {
 
 func TestRedisBroadcaster_Close(t *testing.T) {
 	client := getTestRedisClient(t)
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
 
 	broadcaster := NewRedisBroadcaster(client)
 
@@ -397,10 +485,18 @@ func TestRedisBroadcaster_Close(t *testing.T) {
 
 func TestRedisBroadcaster_EmptyGroupID(t *testing.T) {
 	client := getTestRedisClient(t)
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
 
 	broadcaster := NewRedisBroadcaster(client)
-	defer broadcaster.Close()
+	defer func() {
+		if err := broadcaster.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster: %v", err)
+		}
+	}()
 
 	err := broadcaster.PublishToGroup("", []byte("test"))
 	if err == nil {
@@ -410,10 +506,18 @@ func TestRedisBroadcaster_EmptyGroupID(t *testing.T) {
 
 func TestRedisBroadcaster_EmptyUserID(t *testing.T) {
 	client := getTestRedisClient(t)
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
 
 	broadcaster := NewRedisBroadcaster(client)
-	defer broadcaster.Close()
+	defer func() {
+		if err := broadcaster.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster: %v", err)
+		}
+	}()
 
 	err := broadcaster.PublishToUser("", []byte("test"))
 	if err == nil {

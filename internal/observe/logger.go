@@ -56,7 +56,7 @@ func (l *Logger) WithContext(ctx context.Context) *Logger {
 // Call Complete() or Fail() on the returned Operation to log completion.
 func (l *Logger) StartOperation(op string) *Operation {
 	return &Operation{
-		logger: l.Logger.With("operation", op),
+		logger: l.With("operation", op),
 		start:  time.Now(),
 		op:     op,
 	}
@@ -90,7 +90,7 @@ func (o *Operation) Fail(err error) {
 
 // TemplateParsed logs template parsing completion.
 func (l *Logger) TemplateParsed(name string, duration time.Duration) {
-	l.Logger.Info("template_parsed",
+	l.Info("template_parsed",
 		"template", name,
 		"duration_ms", duration.Milliseconds(),
 	)
@@ -98,7 +98,7 @@ func (l *Logger) TemplateParsed(name string, duration time.Duration) {
 
 // TreeBuilt logs tree building completion.
 func (l *Logger) TreeBuilt(dataType string, duration time.Duration) {
-	l.Logger.Debug("tree_built",
+	l.Debug("tree_built",
 		"data_type", dataType,
 		"duration_ms", duration.Milliseconds(),
 	)
@@ -106,7 +106,7 @@ func (l *Logger) TreeBuilt(dataType string, duration time.Duration) {
 
 // TreeDiffed logs tree diffing completion.
 func (l *Logger) TreeDiffed(changesCount int, duration time.Duration) {
-	l.Logger.Debug("tree_diffed",
+	l.Debug("tree_diffed",
 		"changes", changesCount,
 		"duration_ms", duration.Milliseconds(),
 	)
@@ -114,7 +114,7 @@ func (l *Logger) TreeDiffed(changesCount int, duration time.Duration) {
 
 // Rendered logs rendering completion.
 func (l *Logger) Rendered(format string, bytes int, duration time.Duration) {
-	l.Logger.Debug("rendered",
+	l.Debug("rendered",
 		"format", format,
 		"bytes", bytes,
 		"duration_ms", duration.Milliseconds(),
@@ -123,7 +123,7 @@ func (l *Logger) Rendered(format string, bytes int, duration time.Duration) {
 
 // ActionReceived logs incoming action.
 func (l *Logger) ActionReceived(action string, store string) {
-	l.Logger.Info("action_received",
+	l.Info("action_received",
 		"action", action,
 		"store", store,
 	)
@@ -131,7 +131,7 @@ func (l *Logger) ActionReceived(action string, store string) {
 
 // WebSocketConnected logs WebSocket connection.
 func (l *Logger) WebSocketConnected(userID, groupID, remoteAddr string) {
-	l.Logger.Info("websocket_connected",
+	l.Info("websocket_connected",
 		"user_id", userID,
 		"group_id", groupID,
 		"remote_addr", remoteAddr,
@@ -140,7 +140,7 @@ func (l *Logger) WebSocketConnected(userID, groupID, remoteAddr string) {
 
 // WebSocketDisconnected logs WebSocket disconnection.
 func (l *Logger) WebSocketDisconnected(userID, groupID string, duration time.Duration) {
-	l.Logger.Info("websocket_disconnected",
+	l.Info("websocket_disconnected",
 		"user_id", userID,
 		"group_id", groupID,
 		"duration_seconds", duration.Seconds(),
@@ -149,7 +149,7 @@ func (l *Logger) WebSocketDisconnected(userID, groupID string, duration time.Dur
 
 // BroadcastSent logs broadcast completion.
 func (l *Logger) BroadcastSent(groupID string, recipientCount int) {
-	l.Logger.Info("broadcast_sent",
+	l.Info("broadcast_sent",
 		"group_id", groupID,
 		"recipients", recipientCount,
 	)
@@ -157,7 +157,7 @@ func (l *Logger) BroadcastSent(groupID string, recipientCount int) {
 
 // ErrorEncountered logs an error with context.
 func (l *Logger) ErrorEncountered(component string, err error) {
-	l.Logger.Error("error_encountered",
+	l.Error("error_encountered",
 		"component", component,
 		"error", err,
 	)

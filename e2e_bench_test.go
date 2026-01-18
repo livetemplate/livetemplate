@@ -39,7 +39,9 @@ func BenchmarkE2EUserJourney(b *testing.B) {
 	}
 
 	var buf bytes.Buffer
-	tmpl.Execute(&buf, map[string]interface{}{"Count": 0})
+	if err := tmpl.Execute(&buf, map[string]interface{}{"Count": 0}); err != nil {
+		b.Fatalf("Execute failed: %v", err)
+	}
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -62,7 +64,9 @@ func BenchmarkE2ETodoApp(b *testing.B) {
 		"Items": []map[string]interface{}{},
 	}
 	var buf bytes.Buffer
-	tmpl.Execute(&buf, initialData)
+	if err := tmpl.Execute(&buf, initialData); err != nil {
+		b.Fatalf("Execute failed: %v", err)
+	}
 
 	activities := []Activity{
 		{Action: "add", Data: map[string]interface{}{
@@ -104,7 +108,9 @@ func BenchmarkE2ERangeOperations(b *testing.B) {
 
 	baseItems := []string{"a", "b", "c"}
 	var buf bytes.Buffer
-	tmpl.Execute(&buf, map[string]interface{}{"Items": baseItems})
+	if err := tmpl.Execute(&buf, map[string]interface{}{"Items": baseItems}); err != nil {
+		b.Fatalf("Execute failed: %v", err)
+	}
 
 	b.Run("add-items", func(b *testing.B) {
 		b.ReportAllocs()
