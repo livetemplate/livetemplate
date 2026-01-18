@@ -67,6 +67,12 @@ type EnvConfig struct {
 	// Environment: LVT_METRICS_ENABLED (true/false, 1/0)
 	// Note: Reserved for future use. Currently loaded and validated but not applied.
 	MetricsEnabled bool
+
+	// ProgressiveEnhancement enables non-JS form submission support.
+	// When enabled (default: true), HTTP form submissions from non-JavaScript clients
+	// receive full HTML page responses using the POST-Redirect-GET pattern.
+	// Environment: LVT_PROGRESSIVE_ENHANCEMENT (true/false, 1/0)
+	ProgressiveEnhancement bool
 }
 
 // LoadEnvConfig loads configuration from environment variables.
@@ -93,6 +99,7 @@ func LoadEnvConfig() (*EnvConfig, error) {
 		ShutdownTimeout:        30 * time.Second,
 		LogLevel:               "info",
 		MetricsEnabled:         true,
+		ProgressiveEnhancement: true, // Default: enabled for non-JS form support
 	}
 
 	// Load MaxConnections
@@ -197,6 +204,15 @@ func LoadEnvConfig() (*EnvConfig, error) {
 		config.MetricsEnabled = b
 	}
 
+	// Load ProgressiveEnhancement
+	if val := os.Getenv("LVT_PROGRESSIVE_ENHANCEMENT"); val != "" {
+		b, err := parseBool(val)
+		if err != nil {
+			return nil, fmt.Errorf("invalid LVT_PROGRESSIVE_ENHANCEMENT: %w", err)
+		}
+		config.ProgressiveEnhancement = b
+	}
+
 	return config, nil
 }
 
@@ -241,6 +257,12 @@ func (c *EnvConfig) ToOptions() []Option {
 
 	if c.TemplateBaseDir != "" {
 		opts = append(opts, WithTemplateBaseDir(c.TemplateBaseDir))
+	}
+
+	// Note: ProgressiveEnhancement defaults to true, so we only add the option
+	// when explicitly set to false to disable it
+	if !c.ProgressiveEnhancement {
+		opts = append(opts, WithProgressiveEnhancement(false))
 	}
 
 	return opts

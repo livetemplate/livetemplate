@@ -21,14 +21,14 @@ func TestGenerateRangeDifferentialOperations_NoChange(t *testing.T) {
 	}
 
 	oldValue := &TreeNode{
-		Statics: []string{"<li>", "</li>"},
+		Statics: []string{`<li data-key="`, `">`, `</li>`},
 		Range: &RangeData{
 			Items: []interface{}{item1, item2},
 		},
 	}
 
 	newValue := &TreeNode{
-		Statics: []string{"<li>", "</li>"},
+		Statics: []string{`<li data-key="`, `">`, `</li>`},
 		Range: &RangeData{
 			Items: []interface{}{item1, item2},
 		},
@@ -56,7 +56,7 @@ func TestGenerateRangeDifferentialOperations_PureReorder(t *testing.T) {
 		},
 	}
 
-	statics := []string{"<li>", "</li>"}
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 
 	oldValue := &TreeNode{
 		Statics: statics,
@@ -120,7 +120,7 @@ func TestGenerateRangeDifferentialOperations_Removal(t *testing.T) {
 		},
 	}
 
-	statics := []string{"<li>", "</li>"}
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 
 	oldValue := &TreeNode{
 		Statics: statics,
@@ -168,7 +168,7 @@ func TestGenerateRangeDifferentialOperations_Update(t *testing.T) {
 		},
 	}
 
-	statics := []string{"<li>", "</li>"}
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 
 	oldValue := &TreeNode{
 		Statics: statics,
@@ -225,7 +225,7 @@ func TestGenerateRangeDifferentialOperations_Insertion(t *testing.T) {
 		},
 	}
 
-	statics := []string{"<li>", "</li>"}
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 
 	oldValue := &TreeNode{
 		Statics: statics,
@@ -291,7 +291,7 @@ func TestGenerateRangeDifferentialOperations_Mixed(t *testing.T) {
 		},
 	}
 
-	statics := []string{"<li>", "</li>"}
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 
 	oldValue := &TreeNode{
 		Statics: statics,
@@ -353,7 +353,7 @@ func TestGenerateRangeDifferentialOperations_EmptyToItems(t *testing.T) {
 		},
 	}
 
-	statics := []string{"<li>", "</li>"}
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 
 	oldValue := &TreeNode{
 		Statics: statics,
@@ -401,7 +401,7 @@ func TestGenerateRangeDifferentialOperations_ItemsToEmpty(t *testing.T) {
 		},
 	}
 
-	statics := []string{"<li>", "</li>"}
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 
 	oldValue := &TreeNode{
 		Statics: statics,
@@ -449,7 +449,7 @@ func TestGenerateRangeDifferentialOperations_StripStatics(t *testing.T) {
 		},
 	}
 
-	statics := []string{"<li>", "</li>"}
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 
 	oldValue := &TreeNode{
 		Statics: statics,
@@ -507,7 +507,7 @@ func TestExtractRangeData_TreeNode(t *testing.T) {
 		},
 	}
 
-	statics := []string{"<li>", "</li>"}
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 
 	oldValue := &TreeNode{
 		Statics: statics,
@@ -552,7 +552,7 @@ func TestExtractRangeData_TreeNode(t *testing.T) {
 
 // TestExtractRangeData_EmptyToItems tests statics handling in empty-to-items transition.
 func TestExtractRangeData_EmptyToItems(t *testing.T) {
-	statics := []string{"<li>", "</li>"}
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 
 	oldValue := &TreeNode{
 		Statics: []string{}, // Empty statics
@@ -591,7 +591,7 @@ func TestGenerateRemovalOperations(t *testing.T) {
 		&TreeNode{Dynamics: map[string]interface{}{"0": "id3"}},
 	}
 
-	statics := []string{"<li>", "</li>"}
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 	operations := []interface{}{}
 
 	ops := generateRemovalOperations(oldItems, newItems, statics, operations)
@@ -621,7 +621,7 @@ func TestGenerateUpdateOperations(t *testing.T) {
 		&TreeNode{Dynamics: map[string]interface{}{"0": "id1", "1": "New"}},
 	}
 
-	statics := []string{"<li>", "</li>"}
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 	operations := []interface{}{}
 
 	ops := generateUpdateOperations(oldItems, newItems, statics, operations)
@@ -661,7 +661,7 @@ func TestGenerateInsertionOperations_Prepend(t *testing.T) {
 		&TreeNode{Dynamics: map[string]interface{}{"0": "id2"}},
 	}
 
-	statics := []string{"<li>", "</li>"}
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 	operations := []interface{}{}
 
 	ops := generateInsertionOperations(oldItems, newItems, statics, nil, operations)
@@ -692,7 +692,7 @@ func TestGenerateInsertionOperations_Append(t *testing.T) {
 		&TreeNode{Dynamics: map[string]interface{}{"0": "id2"}},
 	}
 
-	statics := []string{"<li>", "</li>"}
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 	operations := []interface{}{}
 
 	ops := generateInsertionOperations(oldItems, newItems, statics, nil, operations)
@@ -725,7 +725,7 @@ func TestGenerateInsertionOperations_Complex(t *testing.T) {
 		&TreeNode{Dynamics: map[string]interface{}{"0": "id3"}},
 	}
 
-	statics := []string{"<li>", "</li>"}
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 	operations := []interface{}{}
 
 	ops := generateInsertionOperations(oldItems, newItems, statics, nil, operations)
@@ -761,7 +761,7 @@ func TestCompareRangeItemsForChanges_NoDiff(t *testing.T) {
 		},
 	}
 
-	statics := []string{"<li>", "</li>"}
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 
 	changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
 
@@ -834,7 +834,7 @@ func TestGenerateRangeDifferentialOperations_NilRangeData(t *testing.T) {
 
 // TestCompareRangeItemsForChanges_NilInputs tests nil input handling.
 func TestCompareRangeItemsForChanges_NilInputs(t *testing.T) {
-	statics := []string{"<li>", "</li>"}
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 
 	tests := []struct {
 		name     string
@@ -877,7 +877,7 @@ func TestCompareRangeItemsForChanges_Changed(t *testing.T) {
 		},
 	}
 
-	statics := []string{"<li>", "</li>"}
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 
 	changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
 
@@ -1184,5 +1184,208 @@ func TestCompareRangeItemsForChanges_EmptyFieldNotReported(t *testing.T) {
 	// Should have no changes - empty string to absent is not meaningful
 	if len(changes) != 0 {
 		t.Errorf("Expected no changes (empty to absent), got %d: %v", len(changes), changes)
+	}
+}
+
+// =============================================================================
+// AUTO-KEY GENERATION INTEGRATION TESTS
+// These tests verify that range diffing works correctly when templates don't
+// have explicit key attributes (data-key, id, etc.).
+// =============================================================================
+
+// TestRangeDiff_WithoutExplicitKeys verifies that range diffing works correctly
+// when no key attribute is present in the template statics.
+func TestRangeDiff_WithoutExplicitKeys(t *testing.T) {
+	// Statics WITHOUT key attribute - simulates {{range .Items}}<li>{{.}}</li>{{end}}
+	statics := []string{"<li>", "</li>"}
+
+	item1 := &TreeNode{Dynamics: map[string]interface{}{"0": "First"}}
+	item2 := &TreeNode{Dynamics: map[string]interface{}{"0": "Second"}}
+	item3 := &TreeNode{Dynamics: map[string]interface{}{"0": "Third"}}
+
+	oldValue := &TreeNode{
+		Statics: statics,
+		Range:   &RangeData{Items: []interface{}{item1, item2}},
+	}
+
+	newValue := &TreeNode{
+		Statics: statics,
+		Range:   &RangeData{Items: []interface{}{item1, item2, item3}},
+	}
+
+	ops := GenerateRangeDifferentialOperations(oldValue, newValue, false)
+
+	// Should have one operation (append)
+	if len(ops) != 1 {
+		t.Fatalf("Expected 1 operation (append), got %d: %v", len(ops), ops)
+	}
+
+	opArray, ok := ops[0].([]interface{})
+	if !ok {
+		t.Fatalf("Operation should be array, got %T", ops[0])
+	}
+
+	// Should be append operation
+	if opArray[0] != "a" {
+		t.Errorf("Expected append 'a', got %v", opArray[0])
+	}
+}
+
+// TestRangeDiff_RemovalWithoutExplicitKeys verifies removal works with hash keys.
+func TestRangeDiff_RemovalWithoutExplicitKeys(t *testing.T) {
+	// Statics WITHOUT key attribute
+	statics := []string{"<li>", "</li>"}
+
+	item1 := &TreeNode{Dynamics: map[string]interface{}{"0": "First"}}
+	item2 := &TreeNode{Dynamics: map[string]interface{}{"0": "Second"}}
+
+	oldValue := &TreeNode{
+		Statics: statics,
+		Range:   &RangeData{Items: []interface{}{item1, item2}},
+	}
+
+	newValue := &TreeNode{
+		Statics: statics,
+		Range:   &RangeData{Items: []interface{}{item1}}, // item2 removed
+	}
+
+	ops := GenerateRangeDifferentialOperations(oldValue, newValue, false)
+
+	// Should have one remove operation
+	if len(ops) != 1 {
+		t.Fatalf("Expected 1 operation (remove), got %d: %v", len(ops), ops)
+	}
+
+	opArray := ops[0].([]interface{})
+	if opArray[0] != "r" {
+		t.Errorf("Expected remove 'r', got %v", opArray[0])
+	}
+
+	// The key should be a hash (12 hex chars), not "0" or the content
+	removedKey := opArray[1].(string)
+	if len(removedKey) != 12 {
+		t.Errorf("Expected 12-char hash key, got %d chars: %s", len(removedKey), removedKey)
+	}
+}
+
+// TestRangeDiff_UpdateWithoutExplicitKeys verifies updates work with hash keys.
+func TestRangeDiff_UpdateWithoutExplicitKeys(t *testing.T) {
+	// Statics WITHOUT key attribute
+	statics := []string{`<div class="`, `">`, `</div>`}
+
+	item1Old := &TreeNode{Dynamics: map[string]interface{}{"0": "active", "1": "Original content"}}
+	item1New := &TreeNode{Dynamics: map[string]interface{}{"0": "active", "1": "Updated content"}}
+
+	oldValue := &TreeNode{
+		Statics: statics,
+		Range:   &RangeData{Items: []interface{}{item1Old}},
+	}
+
+	newValue := &TreeNode{
+		Statics: statics,
+		Range:   &RangeData{Items: []interface{}{item1New}},
+	}
+
+	ops := GenerateRangeDifferentialOperations(oldValue, newValue, false)
+
+	// Since the hash is based on ALL content, changing content changes the hash.
+	// This means we'll get a remove + insert/prepend, not an update.
+	// This is expected behavior for content-based hashing.
+	if len(ops) == 0 {
+		t.Fatal("Expected operations for content change, got none")
+	}
+
+	// Verify operations are valid
+	for _, op := range ops {
+		opArray := op.([]interface{})
+		opType := opArray[0].(string)
+		if opType != "r" && opType != "p" && opType != "i" && opType != "a" && opType != "u" {
+			t.Errorf("Unexpected operation type: %s", opType)
+		}
+	}
+}
+
+// TestRangeDiff_ReorderWithoutExplicitKeys verifies reordering works with hash keys.
+func TestRangeDiff_ReorderWithoutExplicitKeys(t *testing.T) {
+	// Statics WITHOUT key attribute
+	statics := []string{"<li>", "</li>"}
+
+	item1 := &TreeNode{Dynamics: map[string]interface{}{"0": "First"}}
+	item2 := &TreeNode{Dynamics: map[string]interface{}{"0": "Second"}}
+	item3 := &TreeNode{Dynamics: map[string]interface{}{"0": "Third"}}
+
+	oldValue := &TreeNode{
+		Statics: statics,
+		Range:   &RangeData{Items: []interface{}{item1, item2, item3}},
+	}
+
+	newValue := &TreeNode{
+		Statics: statics,
+		Range:   &RangeData{Items: []interface{}{item3, item1, item2}}, // Reordered
+	}
+
+	ops := GenerateRangeDifferentialOperations(oldValue, newValue, false)
+
+	// Should have one reorder operation
+	if len(ops) != 1 {
+		t.Fatalf("Expected 1 operation (reorder), got %d: %v", len(ops), ops)
+	}
+
+	opArray := ops[0].([]interface{})
+	if opArray[0] != "o" {
+		t.Errorf("Expected order 'o', got %v", opArray[0])
+	}
+
+	// Keys should all be 12-char hashes
+	order := opArray[1].([]string)
+	for i, key := range order {
+		if len(key) != 12 {
+			t.Errorf("Key %d should be 12-char hash, got %d: %s", i, len(key), key)
+		}
+	}
+}
+
+// TestRangeDiff_SamePosition0DifferentItems verifies that items with the same
+// value at position 0 are correctly differentiated using full content hash.
+// This was the core bug before the fix.
+func TestRangeDiff_SamePosition0DifferentItems(t *testing.T) {
+	// Statics WITHOUT key attribute - simulates CSS class at position 0
+	statics := []string{`<div class="`, `">`, `</div>`}
+
+	// Two items with same CSS class but different names
+	alice := &TreeNode{Dynamics: map[string]interface{}{"0": "active", "1": "Alice"}}
+	bob := &TreeNode{Dynamics: map[string]interface{}{"0": "active", "1": "Bob"}}
+
+	oldValue := &TreeNode{
+		Statics: statics,
+		Range:   &RangeData{Items: []interface{}{alice, bob}},
+	}
+
+	// Same items, just reordered
+	newValue := &TreeNode{
+		Statics: statics,
+		Range:   &RangeData{Items: []interface{}{bob, alice}},
+	}
+
+	ops := GenerateRangeDifferentialOperations(oldValue, newValue, false)
+
+	// Should be a pure reorder operation
+	if len(ops) != 1 {
+		t.Fatalf("Expected 1 reorder operation, got %d: %v", len(ops), ops)
+	}
+
+	opArray := ops[0].([]interface{})
+	if opArray[0] != "o" {
+		t.Errorf("Expected order 'o' (reorder), got %v. Items were incorrectly treated as different.", opArray[0])
+	}
+
+	order := opArray[1].([]string)
+	if len(order) != 2 {
+		t.Errorf("Expected 2 items in order, got %d", len(order))
+	}
+
+	// Keys should be unique (different hashes for Alice and Bob)
+	if order[0] == order[1] {
+		t.Errorf("BUG: Alice and Bob got same key: %s. Fix for same-position-0 bug failed!", order[0])
 	}
 }

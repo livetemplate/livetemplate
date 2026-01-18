@@ -347,7 +347,8 @@ func TestExtractItemKeys(t *testing.T) {
 		&TreeNode{Dynamics: map[string]interface{}{"0": "id3", "1": "Name3"}},
 	}
 
-	statics := []string{"<li>", "</li>"}
+	// Include data-key attribute so explicit keys are detected at position 0
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 
 	keys := ExtractItemKeys(items, statics)
 
@@ -411,7 +412,8 @@ func TestIsPureReordering(t *testing.T) {
 	item1 := &TreeNode{Dynamics: map[string]interface{}{"0": "id1", "1": "Name1"}}
 	item2 := &TreeNode{Dynamics: map[string]interface{}{"0": "id2", "1": "Name2"}}
 
-	statics := []string{"<li>", "</li>"}
+	// Include data-key attribute so explicit keys are detected at position 0
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 
 	tests := []struct {
 		name     string
@@ -470,7 +472,8 @@ func TestFindNewItems(t *testing.T) {
 		&TreeNode{Dynamics: map[string]interface{}{"0": "id4"}}, // New
 	}
 
-	statics := []string{"<li>", "</li>"}
+	// Include data-key attribute so explicit keys are detected at position 0
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 
 	newKeys := FindNewItems(oldItems, newItems, statics)
 
@@ -482,7 +485,8 @@ func TestFindNewItems(t *testing.T) {
 
 // TestAreAllItemsAtStart tests detecting if all items are at start.
 func TestAreAllItemsAtStart(t *testing.T) {
-	statics := []string{"<li>", "</li>"}
+	// Include data-key attribute so explicit keys are detected at position 0
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 
 	// Test basic functionality - ensure no panic
 	newKeys := []string{"new1"}
@@ -499,7 +503,8 @@ func TestAreAllItemsAtStart(t *testing.T) {
 
 // TestAreAllItemsAtEnd tests detecting if all items are at end.
 func TestAreAllItemsAtEnd(t *testing.T) {
-	statics := []string{"<li>", "</li>"}
+	// Include data-key attribute so explicit keys are detected at position 0
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 
 	tests := []struct {
 		name     string
@@ -864,7 +869,7 @@ func TestFindKeyPositionFromStatics_AllKeyTypes(t *testing.T) {
 		{
 			name:     "no key attribute",
 			statics:  []string{`<li>`, `</li>`},
-			expected: 0,
+			expected: -1, // Returns -1 when no key attribute found, enabling fallback to hash
 		},
 		{
 			name:     "key in middle position",
@@ -879,17 +884,17 @@ func TestFindKeyPositionFromStatics_AllKeyTypes(t *testing.T) {
 		{
 			name:     "[]interface{} with non-string",
 			statics:  []interface{}{`<li>`, 123, `</li>`},
-			expected: 0,
+			expected: -1, // No key attribute found, returns -1
 		},
 		{
 			name:     "empty statics",
 			statics:  []string{},
-			expected: 0,
+			expected: -1, // No key attribute found, returns -1
 		},
 		{
 			name:     "nil statics",
 			statics:  nil,
-			expected: 0,
+			expected: -1, // No key attribute found, returns -1
 		},
 	}
 
@@ -905,7 +910,8 @@ func TestFindKeyPositionFromStatics_AllKeyTypes(t *testing.T) {
 
 // TestAreAllItemsAtStart_TreeNode tests with TreeNode items (not just maps).
 func TestAreAllItemsAtStart_TreeNode(t *testing.T) {
-	statics := []string{"<li>", "</li>"}
+	// Include data-key attribute so explicit keys are detected at position 0
+	statics := []string{`<li data-key="`, `">`, `</li>`}
 
 	tests := []struct {
 		name     string
@@ -987,6 +993,377 @@ func TestIsComplexInsertionPattern_EdgeCases(t *testing.T) {
 			got := IsComplexInsertionPattern(tt.newKeys, tt.oldItems, tt.newItems, statics)
 			if got != tt.want {
 				t.Errorf("IsComplexInsertionPattern() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// AUTO-KEY GENERATION TESTS
+// These tests ensure the library correctly auto-generates keys when no explicit
+// key attribute (data-key, id, etc.) is present in the template.
+// =============================================================================
+
+// TestGetItemKey_FallbackToHash verifies that GetItemKey falls back to content-based
+// hash generation when no key attribute is found in statics.
+func TestGetItemKey_FallbackToHash(t *testing.T) {
+	tests := []struct {
+		name           string
+		statics        interface{}
+		items          []*TreeNode
+		expectHashKeys bool
+		description    string
+	}{
+		{
+			name:    "no key attribute - should generate hash keys",
+			statics: []string{"<li>", "</li>"},
+			items: []*TreeNode{
+				{Dynamics: map[string]interface{}{"0": "content1"}},
+				{Dynamics: map[string]interface{}{"0": "content2"}},
+			},
+			expectHashKeys: true,
+			description:    "Without data-key/id attributes, should use content hash",
+		},
+		{
+			name:    "with data-key attribute - should use explicit key",
+			statics: []string{`<li data-key="`, `">`, `</li>`},
+			items: []*TreeNode{
+				{Dynamics: map[string]interface{}{"0": "id1", "1": "content1"}},
+				{Dynamics: map[string]interface{}{"0": "id2", "1": "content2"}},
+			},
+			expectHashKeys: false,
+			description:    "With data-key attribute, should use position 0 value",
+		},
+		{
+			name:    "with id attribute - should use explicit key",
+			statics: []string{`<li id="`, `">`, `</li>`},
+			items: []*TreeNode{
+				{Dynamics: map[string]interface{}{"0": "item-1", "1": "content"}},
+			},
+			expectHashKeys: false,
+			description:    "With id attribute, should use position 0 value",
+		},
+		{
+			name:    "empty statics - should generate hash keys",
+			statics: []string{},
+			items: []*TreeNode{
+				{Dynamics: map[string]interface{}{"0": "value"}},
+			},
+			expectHashKeys: true,
+			description:    "Empty statics should fall back to hash",
+		},
+		{
+			name:    "nil statics - should generate hash keys",
+			statics: nil,
+			items: []*TreeNode{
+				{Dynamics: map[string]interface{}{"0": "value"}},
+			},
+			expectHashKeys: true,
+			description:    "Nil statics should fall back to hash",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for i, item := range tt.items {
+				key, exists := GetItemKey(item, tt.statics)
+				if !exists {
+					t.Fatalf("Item %d: GetItemKey should return exists=true, got false", i)
+				}
+				if key == "" {
+					t.Fatalf("Item %d: GetItemKey should return non-empty key", i)
+				}
+
+				if tt.expectHashKeys {
+					// Hash keys are 12 hex characters (from hashPrefixLength)
+					if len(key) != 12 {
+						t.Errorf("Item %d: Expected 12-char hash key, got %d chars: %s (%s)",
+							i, len(key), key, tt.description)
+					}
+					// Verify it's a valid hex string
+					for _, c := range key {
+						if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+							t.Errorf("Item %d: Hash key contains non-hex char: %s", i, key)
+							break
+						}
+					}
+				} else {
+					// Should be the explicit key from position 0
+					expectedKey := item.Dynamics["0"].(string)
+					if key != expectedKey {
+						t.Errorf("Item %d: Expected explicit key %q, got %q (%s)",
+							i, expectedKey, key, tt.description)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestGetItemKey_SamePosition0DifferentContent verifies that items with the same
+// value at position 0 but different overall content get DIFFERENT hash keys.
+// This was the core bug - before the fix, all items would get the same key.
+func TestGetItemKey_SamePosition0DifferentContent(t *testing.T) {
+	// Statics without key attribute - simulates templates like:
+	// {{range .Items}}<div class="{{if .Active}}active{{end}}">{{.Name}}</div>{{end}}
+	statics := []string{`<div class="`, `">`, `</div>`}
+
+	// Items with same value at position 0 (CSS class) but different content
+	item1 := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": "active", // Same CSS class
+			"1": "Alice",  // Different name
+		},
+	}
+	item2 := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": "active", // Same CSS class
+			"1": "Bob",    // Different name
+		},
+	}
+	item3 := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": "",       // Different CSS class (empty)
+			"1": "Charlie",
+		},
+	}
+
+	key1, _ := GetItemKey(item1, statics)
+	key2, _ := GetItemKey(item2, statics)
+	key3, _ := GetItemKey(item3, statics)
+
+	// All keys should be unique despite same value at position 0
+	if key1 == key2 {
+		t.Errorf("BUG: Items with same position 0 but different content got same key: %s", key1)
+	}
+	if key1 == key3 {
+		t.Errorf("Keys should be unique: key1=%s, key3=%s", key1, key3)
+	}
+	if key2 == key3 {
+		t.Errorf("Keys should be unique: key2=%s, key3=%s", key2, key3)
+	}
+
+	// All should be hash keys (12 hex chars)
+	for i, key := range []string{key1, key2, key3} {
+		if len(key) != 12 {
+			t.Errorf("Key %d should be 12-char hash, got %d: %s", i+1, len(key), key)
+		}
+	}
+}
+
+// TestExtractItemKeys_WithoutKeyAttribute verifies that ExtractItemKeys works
+// correctly when no key attribute is present, generating unique hash keys.
+func TestExtractItemKeys_WithoutKeyAttribute(t *testing.T) {
+	// No key attribute in statics
+	statics := []string{"<li>", "</li>"}
+
+	items := []interface{}{
+		&TreeNode{Dynamics: map[string]interface{}{"0": "First item"}},
+		&TreeNode{Dynamics: map[string]interface{}{"0": "Second item"}},
+		&TreeNode{Dynamics: map[string]interface{}{"0": "Third item"}},
+	}
+
+	keys := ExtractItemKeys(items, statics)
+
+	// Should get 3 unique keys
+	if len(keys) != 3 {
+		t.Fatalf("Expected 3 keys, got %d", len(keys))
+	}
+
+	// All keys should be unique
+	keySet := make(map[string]bool)
+	for i, key := range keys {
+		if key == "" {
+			t.Errorf("Key %d should not be empty", i)
+		}
+		if keySet[key] {
+			t.Errorf("Duplicate key found: %s", key)
+		}
+		keySet[key] = true
+	}
+
+	// All should be hash keys (12 hex chars)
+	for i, key := range keys {
+		if len(key) != 12 {
+			t.Errorf("Key %d should be 12-char hash, got %d: %s", i, len(key), key)
+		}
+	}
+}
+
+// TestExtractItemKeys_MixedScenarios tests various real-world scenarios
+func TestExtractItemKeys_MixedScenarios(t *testing.T) {
+	tests := []struct {
+		name            string
+		statics         interface{}
+		items           []interface{}
+		expectUniqueLen int
+		description     string
+	}{
+		{
+			name:    "todo list without data-key",
+			statics: []string{`<div class="todo `, `">`, " - ", `</div>`},
+			items: []interface{}{
+				&TreeNode{Dynamics: map[string]interface{}{"0": "", "1": "Buy milk", "2": "2024-01-01"}},
+				&TreeNode{Dynamics: map[string]interface{}{"0": "completed", "1": "Walk dog", "2": "2024-01-02"}},
+				&TreeNode{Dynamics: map[string]interface{}{"0": "", "1": "Call mom", "2": "2024-01-03"}},
+			},
+			expectUniqueLen: 3,
+			description:     "All todos should have unique keys even with same completion status",
+		},
+		{
+			name:    "items with identical content",
+			statics: []string{"<span>", "</span>"},
+			items: []interface{}{
+				&TreeNode{Dynamics: map[string]interface{}{"0": "Same"}},
+				&TreeNode{Dynamics: map[string]interface{}{"0": "Same"}},
+			},
+			expectUniqueLen: 1, // Same content = same hash = 1 unique key
+			description:     "Identical items get same hash (expected behavior)",
+		},
+		{
+			name:    "table rows with ID in hidden field",
+			statics: []string{`<tr><td><input type="hidden" value="`, `"></td><td>`, `</td></tr>`},
+			items: []interface{}{
+				&TreeNode{Dynamics: map[string]interface{}{"0": "row-1", "1": "Data A"}},
+				&TreeNode{Dynamics: map[string]interface{}{"0": "row-2", "1": "Data B"}},
+				&TreeNode{Dynamics: map[string]interface{}{"0": "row-3", "1": "Data A"}}, // Same data, different ID
+			},
+			expectUniqueLen: 3,
+			description:     "Rows with hidden IDs should be unique even with same visible data",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			keys := ExtractItemKeys(tt.items, tt.statics)
+
+			if len(keys) != len(tt.items) {
+				t.Fatalf("Expected %d keys, got %d", len(tt.items), len(keys))
+			}
+
+			// Count unique keys
+			keySet := make(map[string]bool)
+			for _, key := range keys {
+				keySet[key] = true
+			}
+
+			if len(keySet) != tt.expectUniqueLen {
+				t.Errorf("Expected %d unique keys, got %d (%s). Keys: %v",
+					tt.expectUniqueLen, len(keySet), tt.description, keys)
+			}
+		})
+	}
+}
+
+// TestGenerateItemHash_Stability verifies that hash generation is deterministic
+// and stable across multiple calls.
+func TestGenerateItemHash_Stability(t *testing.T) {
+	item := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": "value1",
+			"1": "value2",
+			"2": 123,
+			"3": true,
+		},
+	}
+
+	// Generate hash multiple times
+	hashes := make([]string, 100)
+	for i := 0; i < 100; i++ {
+		hashes[i] = GenerateItemHash(item)
+	}
+
+	// All hashes should be identical
+	for i := 1; i < len(hashes); i++ {
+		if hashes[i] != hashes[0] {
+			t.Errorf("Hash is not stable: call 0=%s, call %d=%s", hashes[0], i, hashes[i])
+		}
+	}
+}
+
+// TestGenerateItemHash_FieldOrderIndependence verifies that field order doesn't
+// affect the hash (keys are sorted before hashing).
+func TestGenerateItemHash_FieldOrderIndependence(t *testing.T) {
+	item1 := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": "a",
+			"1": "b",
+			"2": "c",
+		},
+	}
+
+	// Create with different insertion order (Go maps don't guarantee order)
+	item2 := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"2": "c",
+			"0": "a",
+			"1": "b",
+		},
+	}
+
+	hash1 := GenerateItemHash(item1)
+	hash2 := GenerateItemHash(item2)
+
+	if hash1 != hash2 {
+		t.Errorf("Hash should be independent of field order: %s != %s", hash1, hash2)
+	}
+}
+
+// TestFindKeyPositionFromStatics_ReturnsNegativeOne verifies that -1 is returned
+// when no key attribute is found, enabling the hash fallback.
+func TestFindKeyPositionFromStatics_ReturnsNegativeOne(t *testing.T) {
+	tests := []struct {
+		name    string
+		statics interface{}
+		want    int
+	}{
+		{
+			name:    "no key attribute returns -1",
+			statics: []string{"<div>", "</div>"},
+			want:    -1,
+		},
+		{
+			name:    "class attribute only returns -1",
+			statics: []string{`<div class="`, `">`, `</div>`},
+			want:    -1,
+		},
+		{
+			name:    "style attribute only returns -1",
+			statics: []string{`<span style="color: `, `">`, `</span>`},
+			want:    -1,
+		},
+		{
+			name:    "nil returns -1",
+			statics: nil,
+			want:    -1,
+		},
+		{
+			name:    "empty slice returns -1",
+			statics: []string{},
+			want:    -1,
+		},
+		{
+			name:    "data-key returns position",
+			statics: []string{`<li data-key="`, `">`, `</li>`},
+			want:    0,
+		},
+		{
+			name:    "id returns position",
+			statics: []string{`<div id="`, `">`, `</div>`},
+			want:    0,
+		},
+		{
+			name:    "key in second position",
+			statics: []string{`<div class="`, `" data-key="`, `">`, `</div>`},
+			want:    1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FindKeyPositionFromStatics(tt.statics)
+			if got != tt.want {
+				t.Errorf("FindKeyPositionFromStatics() = %d, want %d", got, tt.want)
 			}
 		})
 	}

@@ -331,7 +331,8 @@ func TestUpdateSpecification_SubsequentUpdates(t *testing.T) {
 
 // TestUpdateSpecification_RangeOperations validates range operation specification
 func TestUpdateSpecification_RangeOperations(t *testing.T) {
-	template := `{{range .Items}}<div>{{.ID}}: {{.Text}}</div>{{end}}`
+	// Include data-key so the ID is used as the explicit key for diffing
+	template := `{{range .Items}}<div data-key="{{.ID}}">{{.ID}}: {{.Text}}</div>{{end}}`
 
 	type Item struct {
 		ID   string

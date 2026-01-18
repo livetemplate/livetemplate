@@ -171,6 +171,7 @@ type Config struct {
 	UploadConfigs          map[string]uploadtypes.UploadConfig // Upload field configurations
 	WebSocketBufferSize    int                                 // WebSocket send buffer size per connection (default: 50)
 	ComponentTemplates     []*TemplateSet                      // Component library templates (parsed before project templates)
+	ProgressiveEnhancement bool                                // Enable non-JS form submission support with PRG pattern (default: true)
 }
 
 // =============================================================================
@@ -618,6 +619,34 @@ func WithComponentTemplates(sets ...*TemplateSet) Option {
 	}
 }
 
+// WithProgressiveEnhancement enables or disables progressive enhancement support.
+//
+// When enabled (default: true), HTTP form submissions from non-JavaScript clients
+// receive full HTML page responses instead of JSON. This allows applications to
+// work without JavaScript using standard HTML form submissions.
+//
+// The feature uses the POST-Redirect-GET (PRG) pattern:
+//   - Successful actions: 303 redirect to prevent duplicate submissions on refresh
+//   - Validation errors: Re-render page with errors inline (no redirect)
+//
+// Detection uses the Accept header: clients sending "application/json" receive JSON,
+// while browsers sending "text/html" receive full HTML pages.
+//
+// Example form structure for progressive enhancement:
+//
+//	<form method="POST" lvt-submit="add">
+//	    <input type="hidden" name="lvt-action" value="add">
+//	    <input type="text" name="title">
+//	    <button type="submit">Add</button>
+//	</form>
+//
+// The form works with both JavaScript (via lvt-submit) and without (via method="POST").
+func WithProgressiveEnhancement(enabled bool) Option {
+	return func(c *Config) {
+		c.ProgressiveEnhancement = enabled
+	}
+}
+
 // New creates a new template with the given name and options.
 //
 // By default, New auto-discovers template files in the current directory and common
@@ -755,12 +784,13 @@ func New(name string, opts ...Option) (*Template, error) {
 			// This will be replaced with origin-aware check after options are applied
 			CheckOrigin: nil, // Will be set after applying options
 		},
-		SessionStore:        NewMemorySessionStore(),
-		Authenticator:       &AnonymousAuthenticator{}, // Default: browser-based session grouping
-		MessageRateLimit:    10.0,                      // Default: 10 messages/sec
-		MessageRateBurst:    20,                        // Default: burst of 20
-		CookieMaxAge:        365 * 24 * time.Hour,      // Default: 1 year
-		WebSocketBufferSize: wsBufferSize,              // Default: 50 (or LVT_WS_BUFFER_SIZE env)
+		SessionStore:           NewMemorySessionStore(),
+		Authenticator:          &AnonymousAuthenticator{}, // Default: browser-based session grouping
+		MessageRateLimit:       10.0,                       // Default: 10 messages/sec
+		MessageRateBurst:       20,                         // Default: burst of 20
+		CookieMaxAge:           365 * 24 * time.Hour,       // Default: 1 year
+		WebSocketBufferSize:    wsBufferSize,               // Default: 50 (or LVT_WS_BUFFER_SIZE env)
+		ProgressiveEnhancement: true,                       // Default: enabled for non-JS form support
 	}
 
 	// Apply options
@@ -1427,6 +1457,7 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		CookieMaxAge:           t.config.CookieMaxAge,
 		UploadConfigs:          t.config.UploadConfigs,
 		wsBufferSize:           t.config.WebSocketBufferSize,
+		ProgressiveEnhancement: t.config.ProgressiveEnhancement,
 	}
 
 	limits := session.NewConnectionLimits(mountCfg.MaxConnections, mountCfg.MaxConnectionsPerGroup)

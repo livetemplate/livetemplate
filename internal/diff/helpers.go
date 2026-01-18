@@ -222,7 +222,7 @@ func TreeNodeEqual(a, b *TreeNode) bool {
 }
 
 // findKeyAttrPosition searches for key attributes in a string slice.
-// Returns the position where a key attribute is found, or 0 if not found.
+// Returns the position where a key attribute is found, or -1 if not found.
 func findKeyAttrPosition(statics []string, keyAttrs []string) int {
 	for i, staticStr := range statics {
 		// Check for any of the key attributes in priority order
@@ -233,7 +233,7 @@ func findKeyAttrPosition(statics []string, keyAttrs []string) int {
 			}
 		}
 	}
-	return 0 // Not found, default to 0
+	return -1 // Not found
 }
 
 // FindKeyPositionFromStatics parses the statics array to find which position contains the key.
@@ -262,7 +262,7 @@ func FindKeyPositionFromStatics(statics interface{}) int {
 		return findKeyAttrPosition(stringSlice, keyAttrs)
 	}
 
-	return 0 // Unknown type, default to position 0 for backwards compatibility
+	return -1 // Unknown type, no key attribute found
 }
 
 // GetItemKey extracts the key from a range item using the statics structure.
@@ -280,15 +280,19 @@ func GetItemKey(item interface{}, statics interface{}) (string, bool) {
 		effectiveStatics := getItemStatics(itemNode, statics)
 
 		keyPos := FindKeyPositionFromStatics(effectiveStatics)
-		keyPosStr := fmt.Sprintf("%d", keyPos)
 
-		if key, exists := itemNode.GetDynamic(keyPosStr); exists {
-			if keyStr, ok := key.(string); ok {
-				return keyStr, true
+		// Only use position-based lookup if a key attribute was actually found
+		// (keyPos >= 0 means a key attribute like data-key, id, etc. was detected)
+		if keyPos >= 0 {
+			keyPosStr := fmt.Sprintf("%d", keyPos)
+			if key, exists := itemNode.GetDynamic(keyPosStr); exists {
+				if keyStr, ok := key.(string); ok {
+					return keyStr, true
+				}
 			}
 		}
 
-		// If no explicit key found, generate a content-based hash
+		// No explicit key attribute found, generate a content-based hash
 		// This ensures items have stable keys even without template key attributes
 		return GenerateItemHash(itemNode), true
 	}

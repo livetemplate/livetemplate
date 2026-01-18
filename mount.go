@@ -10,6 +10,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"reflect"
 	"strings"
@@ -344,9 +345,10 @@ type mountConfig struct {
 	WebSocketDisabled      bool
 	MaxConnections         int64                // Maximum total connections (0 = unlimited)
 	MaxConnectionsPerGroup int64                // Maximum connections per group (0 = unlimited)
-	CookieMaxAge           time.Duration        // Session cookie max age (default: 1 year)
+	CookieMaxAge           time.Duration                       // Session cookie max age (default: 1 year)
 	UploadConfigs          map[string]uploadtypes.UploadConfig // Upload field configurations
-	wsBufferSize           int                  // WebSocket send buffer size per connection (default: 50)
+	wsBufferSize           int                                 // WebSocket send buffer size per connection (default: 50)
+	ProgressiveEnhancement bool                                // Enable non-JS form submission support with PRG pattern (default: true)
 }
 
 // mountOption is a functional option for configuring handlers (internal only)
@@ -431,6 +433,14 @@ func (c *connState) clearFlash() {
 		}
 	}
 	c.messages = newMessages
+}
+
+// getFlashValue returns the value of a flash message by key, or empty string if not set.
+// This is used for progressive enhancement to pass flash messages via query params.
+func (c *connState) getFlashValue(key string) string {
+	c.messagesMu.RLock()
+	defer c.messagesMu.RUnlock()
+	return c.messages[lvtcontext.FlashPrefix+key]
 }
 
 // hasErrors returns true if there are any field errors (non-flash messages)
@@ -807,6 +817,14 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Client disconnected: user=%q, group=%q (remaining: %d)", userID, groupID, h.registry.Count())
 }
 
+// wantsJSON returns true if the client expects a JSON response.
+// JS clients (fetch/XHR) send Accept: application/json, while browsers send text/html.
+// This is used for progressive enhancement to detect whether to return HTML or JSON.
+func wantsJSON(r *http.Request) bool {
+	accept := r.Header.Get("Accept")
+	return strings.Contains(accept, "application/json")
+}
+
 // setCookieIfNew sets the livetemplate-id cookie if it doesn't already exist
 func setCookieIfNew(w http.ResponseWriter, r *http.Request, groupID string, cookieMaxAge time.Duration) {
 	// Check if cookie already exists
@@ -984,7 +1002,44 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Auto-broadcast to WebSocket connections
 	h.autoBroadcastToGroup(groupID, connSt.state, nil)
 
-	// Generate tree update
+	// Check if we should return HTML for progressive enhancement
+	// Progressive enhancement is enabled AND client does not want JSON
+	if h.config.ProgressiveEnhancement && !wantsJSON(r) {
+		// Non-JS client: return HTML response using POST-Redirect-GET pattern
+		if connSt.hasErrors() {
+			// Validation errors: re-render page with errors inline (no redirect)
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if err := httpTmpl.Execute(w, connSt.state, connSt.getMessages()); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+			// Flash messages are preserved so they show in the re-rendered page
+			return
+		}
+
+		// Success: redirect to prevent duplicate submissions on refresh (PRG pattern)
+		redirectURL := r.URL.Path
+		if r.URL.RawQuery != "" {
+			// Preserve any existing query params except flash params
+			redirectURL += "?" + r.URL.RawQuery
+		}
+
+		// Add flash message to query params if one was set during action
+		if flashMsg := connSt.getFlashValue("success"); flashMsg != "" {
+			if strings.Contains(redirectURL, "?") {
+				redirectURL += "&success=" + url.QueryEscape(flashMsg)
+			} else {
+				redirectURL += "?success=" + url.QueryEscape(flashMsg)
+			}
+		}
+
+		// Clear flash messages before redirect (will be passed via query param)
+		connSt.clearFlash()
+
+		http.Redirect(w, r, redirectURL, http.StatusSeeOther) // 303 See Other
+		return
+	}
+
+	// JS client: return JSON tree update (existing behavior)
 	var buf bytes.Buffer
 	if err = httpTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getMessages()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
