@@ -1257,14 +1257,12 @@ See: [`internal/keys/generator.go`](../../internal/keys/generator.go)
 
 **Architecture:**
 - [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) - Detailed design and diagrams
-- [`docs/design/FIRST_PRINCIPLES.md`](../design/FIRST_PRINCIPLES.md) - Core principles
+- [`docs/CODE_STRUCTURE.md`](../CODE_STRUCTURE.md) - Code organization
+- [`docs/design/FIRST_PRINCIPLES.md`](../design/FIRST_PRINCIPLES.md) - Core principles (if exists)
 
 **Specifications:**
 - [`docs/specifications/tree-update-specification.md`](../specifications/tree-update-specification.md) - Tree format spec
-- [`docs/specifications/test-scenarios.md`](../specifications/test-scenarios.md) - Test coverage
-
-**Broadcasting:**
-- [`docs/BROADCASTING.md`](../BROADCASTING.md) - Server-initiated updates
+- [`docs/specifications/test-scenarios.md`](../specifications/test-scenarios.md) - Test coverage (if exists)
 
 **Examples:**
 - [Counter](https://github.com/livetemplate/examples/tree/main/counter) - Simplest example
