@@ -1,6 +1,7 @@
 package livetemplate
 
 import (
+	"context"
 	"errors"
 	"testing"
 )
@@ -101,7 +102,7 @@ func (c *testCounterController) WrongSig(state testCounterState) (testCounterSta
 func TestDispatchWithState_Increment(t *testing.T) {
 	ctrl := &testCounterController{}
 	state := testCounterState{Count: 5}
-	ctx := NewContext(nil, "increment", nil)
+	ctx := NewContext(context.TODO(), "increment", nil)
 
 	newState, err := DispatchWithState(ctrl, state, ctx)
 	if err != nil {
@@ -126,7 +127,7 @@ func TestDispatchWithState_WithData(t *testing.T) {
 	ctrl := &testCounterController{}
 	state := testCounterState{Count: 10}
 	data := map[string]interface{}{"amount": float64(5)} // JSON numbers are float64
-	ctx := NewContext(nil, "add", data)
+	ctx := NewContext(context.TODO(), "add", data)
 
 	newState, err := DispatchWithState(ctrl, state, ctx)
 	if err != nil {
@@ -142,7 +143,7 @@ func TestDispatchWithState_WithData(t *testing.T) {
 func TestDispatchWithState_MethodNotFound(t *testing.T) {
 	ctrl := &testCounterController{}
 	state := testCounterState{}
-	ctx := NewContext(nil, "nonexistent", nil)
+	ctx := NewContext(context.TODO(), "nonexistent", nil)
 
 	_, err := DispatchWithState(ctrl, state, ctx)
 	if !errors.Is(err, ErrMethodNotFound) {
@@ -153,7 +154,7 @@ func TestDispatchWithState_MethodNotFound(t *testing.T) {
 func TestDispatchWithState_EmptyAction(t *testing.T) {
 	ctrl := &testCounterController{}
 	state := testCounterState{}
-	ctx := NewContext(nil, "", nil)
+	ctx := NewContext(context.TODO(), "", nil)
 
 	_, err := DispatchWithState(ctrl, state, ctx)
 	if !errors.Is(err, ErrMethodNotFound) {
@@ -174,7 +175,7 @@ func TestDispatchWithState_NilContext(t *testing.T) {
 func TestDispatchWithState_MethodReturnsError(t *testing.T) {
 	ctrl := &testCounterController{}
 	state := testCounterState{}
-	ctx := NewContext(nil, "failingAction", nil)
+	ctx := NewContext(context.TODO(), "failingAction", nil)
 
 	_, err := DispatchWithState(ctrl, state, ctx)
 	if err == nil {
@@ -188,7 +189,7 @@ func TestDispatchWithState_MethodReturnsError(t *testing.T) {
 func TestDispatchWithState_SnakeCase(t *testing.T) {
 	ctrl := &testCounterController{}
 	state := testCounterState{Count: 0}
-	ctx := NewContext(nil, "failing_action", nil)
+	ctx := NewContext(context.TODO(), "failing_action", nil)
 
 	_, err := DispatchWithState(ctrl, state, ctx)
 	if err == nil || err.Error() != "action failed" {
@@ -199,7 +200,7 @@ func TestDispatchWithState_SnakeCase(t *testing.T) {
 func TestDispatchWithState_StateUnchangedOnError(t *testing.T) {
 	ctrl := &testCounterController{}
 	state := testCounterState{Count: 100}
-	ctx := NewContext(nil, "failingAction", nil)
+	ctx := NewContext(context.TODO(), "failingAction", nil)
 
 	newState, err := DispatchWithState(ctrl, state, ctx)
 	if err == nil {
@@ -216,7 +217,7 @@ func TestDispatchWithState_StateUnchangedOnError(t *testing.T) {
 func BenchmarkDispatchWithState_Cached(b *testing.B) {
 	ctrl := &testCounterController{}
 	state := testCounterState{Count: 0}
-	ctx := NewContext(nil, "increment", nil)
+	ctx := NewContext(context.TODO(), "increment", nil)
 
 	// Warm up cache
 	_, _ = DispatchWithState(ctrl, state, ctx)

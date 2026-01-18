@@ -262,7 +262,11 @@ func getTestRedisClient(t *testing.T) redis.UniversalClient {
 
 func TestRedisSessionStore_SetAndGet(t *testing.T) {
 	client := getTestRedisClient(t)
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
 
 	store := NewRedisSessionStore(client, WithSessionTTL(1*time.Hour))
 
@@ -296,7 +300,11 @@ func TestRedisSessionStore_SetAndGet(t *testing.T) {
 
 func TestRedisSessionStore_GetNonExistent(t *testing.T) {
 	client := getTestRedisClient(t)
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
 
 	store := NewRedisSessionStore(client)
 
@@ -309,7 +317,11 @@ func TestRedisSessionStore_GetNonExistent(t *testing.T) {
 
 func TestRedisSessionStore_Delete(t *testing.T) {
 	client := getTestRedisClient(t)
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
 
 	store := NewRedisSessionStore(client)
 
@@ -333,7 +345,11 @@ func TestRedisSessionStore_Delete(t *testing.T) {
 
 func TestRedisSessionStore_List(t *testing.T) {
 	client := getTestRedisClient(t)
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
 
 	store := NewRedisSessionStore(client)
 
@@ -372,7 +388,11 @@ func TestRedisSessionStore_List(t *testing.T) {
 
 func TestRedisSessionStore_ConcurrentAccess(t *testing.T) {
 	client := getTestRedisClient(t)
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
 
 	store := NewRedisSessionStore(client)
 
@@ -416,7 +436,11 @@ func TestRedisSessionStore_ConcurrentAccess(t *testing.T) {
 
 func TestRedisSessionStore_Ping(t *testing.T) {
 	client := getTestRedisClient(t)
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
 
 	store := NewRedisSessionStore(client)
 
@@ -428,7 +452,11 @@ func TestRedisSessionStore_Ping(t *testing.T) {
 
 func TestRedisSessionStore_Options(t *testing.T) {
 	client := getTestRedisClient(t)
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
 
 	customTTL := 2 * time.Hour
 	store := NewRedisSessionStore(client,
@@ -479,7 +507,7 @@ func TestGetStateData(t *testing.T) {
 
 func TestSession_Interface(t *testing.T) {
 	// Verify Session interface exists
-	var _ Session = (Session)(nil)
+	var _ = (Session)(nil)
 }
 
 func TestSessionAware_Interface(t *testing.T) {

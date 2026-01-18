@@ -24,7 +24,9 @@ func BenchmarkAsyncSendThroughput(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		conn.Send(websocket.TextMessage, []byte("benchmark message"))
+		if err := conn.Send(websocket.TextMessage, []byte("benchmark message")); err != nil {
+			b.Fatalf("Send failed: %v", err)
+		}
 	}
 }
 
@@ -54,7 +56,9 @@ func BenchmarkConcurrentConnections(b *testing.B) {
 			// Send messages concurrently to all connections
 			for i := 0; i < b.N; i++ {
 				for _, conn := range connections {
-					conn.Send(websocket.TextMessage, []byte("test"))
+					if err := conn.Send(websocket.TextMessage, []byte("test")); err != nil {
+						b.Fatalf("Send failed: %v", err)
+					}
 				}
 			}
 
@@ -104,7 +108,9 @@ func BenchmarkConcurrentSend(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			conn.Send(websocket.TextMessage, []byte("concurrent message"))
+			if err := conn.Send(websocket.TextMessage, []byte("concurrent message")); err != nil {
+				b.Fatalf("Send failed: %v", err)
+			}
 		}
 	})
 }
@@ -146,7 +152,9 @@ func BenchmarkCloseConnection(b *testing.B) {
 		registry.Register(conn, 50)
 		b.StartTimer()
 
-		conn.Close()
+		if err := conn.Close(); err != nil {
+			b.Fatalf("Close failed: %v", err)
+		}
 	}
 }
 
@@ -204,7 +212,9 @@ func BenchmarkBroadcastToGroup(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		groupConns := registry.GetByGroup("bench-group")
 		for _, conn := range groupConns {
-			conn.Send(websocket.TextMessage, message)
+			if err := conn.Send(websocket.TextMessage, message); err != nil {
+				b.Fatalf("Send failed: %v", err)
+			}
 		}
 	}
 
@@ -235,7 +245,9 @@ func BenchmarkBufferSizes(b *testing.B) {
 			b.ReportAllocs()
 
 			for i := 0; i < b.N; i++ {
-				conn.Send(websocket.TextMessage, []byte("test"))
+				if err := conn.Send(websocket.TextMessage, []byte("test")); err != nil {
+					b.Fatalf("Send failed: %v", err)
+				}
 			}
 		})
 	}

@@ -111,180 +111,6 @@ type BroadcastAware interface {
 	OnDisconnect()
 }
 
-// broadcaster implements the Broadcaster interface for a single WebSocket connection
-type broadcaster struct {
-	conn     *session.Connection
-	template *Template
-	state    *connState
-	handler  *liveHandler
-	mu       sync.Mutex
-}
-
-func (b *broadcaster) Send() error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	// Generate tree update
-	var buf bytes.Buffer
-	err := b.template.ExecuteUpdates(&buf, b.state.state, b.state.getMessages())
-	if err != nil {
-		return fmt.Errorf("template update failed: %w", err)
-	}
-
-	// Parse tree from buffer
-	var tree map[string]interface{}
-	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
-		return fmt.Errorf("failed to parse tree: %w", err)
-	}
-
-	// Wrap with metadata
-	response := UpdateResponse{
-		Tree: tree,
-		Meta: &ResponseMetadata{
-			Success: !b.state.hasErrors(),
-			Errors:  b.state.getErrorsOnly(),
-		},
-	}
-
-	// Encode and send
-	responseBytes, err := json.Marshal(response)
-	if err != nil {
-		return fmt.Errorf("failed to marshal response: %w", err)
-	}
-
-	return writeUpdateWebSocket(b.conn, responseBytes)
-}
-
-// liveSession implements the Session interface for server-initiated actions.
-// It is scoped to a single user and triggers actions on ALL their connections.
-type liveSession struct {
-	userID         string                      // User ID for targeting all user's connections
-	handler        *liveHandler                // Handler for registry access and action handling
-	uploadRegistry uploadRegistry              // Upload registry for action context
-	mu             sync.Mutex                  // Mutex for thread-safe operations
-}
-
-// TriggerAction dispatches the action to the matching store method,
-// then sends updates to all those connections.
-//
-// In distributed deployments with PubSub configured, this also publishes the
-// action to Redis so that other server instances can trigger the action on
-// their local connections for this user.
-func (s *liveSession) TriggerAction(action string, data map[string]interface{}) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Publish to Redis for distributed instances (if configured)
-	if s.handler.config.PubSubBroadcaster != nil {
-		if err := s.handler.config.PubSubBroadcaster.PublishServerAction(s.userID, action, data); err != nil {
-			slog.Error("Failed to publish server action to pubsub",
-				slog.String("user_id", s.userID),
-				slog.String("action", action),
-				slog.String("error", err.Error()))
-			// Don't return early - still try local execution
-		}
-	}
-
-	// Process action locally
-	return s.triggerActionLocal(action, data)
-}
-
-// triggerActionLocal executes the action on local connections only.
-// This is called both from TriggerAction and from the PubSub handler.
-func (s *liveSession) triggerActionLocal(action string, data map[string]interface{}) error {
-	// Get all connections for this user
-	connections := s.handler.registry.GetByUser(s.userID)
-	if len(connections) == 0 {
-		slog.Debug("No connections for user in TriggerAction",
-			slog.String("user_id", s.userID),
-			slog.String("action", action))
-		return nil
-	}
-
-	slog.Debug("TriggerAction for user",
-		slog.String("user_id", s.userID),
-		slog.String("action", action),
-		slog.Int("connection_count", len(connections)))
-
-	// Process action for each connection
-	var errCount int
-	for _, conn := range connections {
-		// Get typed state from connection
-		typedState := conn.Stores // Stores field now holds typed state
-		if typedState == nil {
-			slog.Warn("No state in connection",
-				slog.String("user_id", s.userID))
-			errCount++
-			continue
-		}
-
-		// Create connection state for this action
-		connSt := &connState{
-			state:    typedState,
-			messages: make(map[string]string),
-			groupID:  conn.GroupID,
-		}
-
-		// Create context with timeout for server-initiated actions
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-
-		// Create Context for action dispatch
-		actionCtx := NewContext(ctx, action, data)
-		actionCtx = actionCtx.WithUserID(s.userID)
-		actionCtx = actionCtx.WithFlashSetter(connSt)
-
-		// Dispatch action using Controller+State pattern
-		newState, actionErr := DispatchWithState(s.handler.config.Controller, connSt.state, actionCtx)
-		if actionErr != nil {
-			switch e := actionErr.(type) {
-			case FieldError:
-				connSt.setError(e.Field, e.Message)
-			case MultiError:
-				for _, fieldErr := range e {
-					connSt.setError(fieldErr.Field, fieldErr.Message)
-				}
-			default:
-				if !errors.Is(actionErr, ErrMethodNotFound) {
-					connSt.setError("_general", actionErr.Error())
-					slog.Warn("TriggerAction dispatch failed",
-						slog.String("user_id", s.userID),
-						slog.String("action", action),
-						slog.String("error", actionErr.Error()))
-				}
-			}
-		} else {
-			connSt.state = newState
-		}
-
-		// Persist state after action
-		s.handler.config.SessionStore.Set(ctx, conn.GroupID, connSt.state)
-
-		// Update connection's stored state
-		conn.Stores = connSt.state
-
-		cancel()
-
-		// Send update to this connection (with flash messages)
-		if err := s.handler.sendUpdate(conn, connSt.state, connSt.getMessages()); err != nil {
-			slog.Warn("TriggerAction sendUpdate failed",
-				slog.String("user_id", s.userID),
-				slog.String("action", action),
-				slog.String("error", err.Error()))
-			errCount++
-			continue
-		}
-
-		// Clear flash messages after successful send
-		connSt.clearFlash()
-	}
-
-	if errCount > 0 {
-		return fmt.Errorf("TriggerAction failed for %d/%d connections", errCount, len(connections))
-	}
-
-	return nil
-}
-
 // LiveHandler is the interface returned by Template.Handle()
 // It provides HTTP handling and lifecycle management for live template connections.
 //
@@ -348,9 +174,6 @@ type mountConfig struct {
 	UploadConfigs          map[string]uploadtypes.UploadConfig // Upload field configurations
 	wsBufferSize           int                  // WebSocket send buffer size per connection (default: 50)
 }
-
-// mountOption is a functional option for configuring handlers (internal only)
-type mountOption func(*mountConfig)
 
 // liveHandler handles both WebSocket and HTTP requests
 type liveHandler struct {
@@ -522,7 +345,11 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		log.Printf("WebSocket upgrade failed: %v", err)
 		return
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Printf("WebSocket close error: %v", err)
+		}
+	}()
 
 	// Acquire connection slot (increment counters)
 	if err := h.limits.Acquire(groupID); err != nil {
@@ -1378,7 +1205,9 @@ func (h *liveHandler) Shutdown(ctx context.Context) error {
 			// Force close remaining connections
 			for _, conn := range h.registry.GetAll() {
 				if conn.Conn != nil {
-					conn.Conn.Close()
+					if err := conn.Conn.Close(); err != nil {
+						log.Printf("Failed to force close connection: %v", err)
+					}
 				}
 			}
 		}
@@ -1408,72 +1237,6 @@ func (h *liveHandler) MetricsHandler() http.Handler {
 			return
 		}
 	})
-}
-
-// handleMultipartUploads processes multipart form file uploads from HTTP requests.
-// It detects configured uploads, parses the files, and dispatches upload completion actions.
-func (h *liveHandler) handleMultipartUploads(r *http.Request, sessionID string, uploadRegistry uploadRegistry, state interface{}) error {
-	// Check if this is multipart form data
-	contentType := r.Header.Get("Content-Type")
-	if !strings.HasPrefix(contentType, "multipart/form-data") {
-		return nil // Not a multipart request, nothing to do
-	}
-
-	// Type assert to get the concrete Registry type for accessing uploads
-	registry, ok := uploadRegistry.(*upload.Registry)
-	if !ok {
-		return fmt.Errorf("invalid upload registry type")
-	}
-
-	// Get all configured uploads
-	uploads := registry.GetAllUploads()
-	if len(uploads) == 0 {
-		return nil // No uploads configured
-	}
-
-	// Process each configured upload
-	for uploadName, uploadObj := range uploads {
-		// Parse multipart upload for this field
-		entries, err := upload.ParseMultipartUpload(r, uploadName, uploadObj.Config, sessionID, h.tempFileManager.(*upload.TempFileManager))
-		if err != nil {
-			// Check if it's just "no files found" error (expected for optional uploads)
-			if strings.Contains(err.Error(), "no files found") {
-				continue // Skip this upload field
-			}
-			log.Printf("Failed to parse multipart upload %q: %v", uploadName, err)
-			continue // Continue with other uploads
-		}
-
-		// Add entries to upload registry
-		for _, entry := range entries {
-			if err := uploadObj.AddEntry(entry); err != nil {
-				log.Printf("Failed to add entry to upload %q: %v", uploadName, err)
-			}
-		}
-
-		// Get valid completed entries
-		validEntries := uploadObj.GetValidEntries()
-		if len(validEntries) == 0 {
-			continue // No valid entries to consume
-		}
-
-		// Trigger upload completion action
-		uploadAction := fmt.Sprintf("upload_%s_complete", uploadName)
-
-		// Create Context for action dispatch
-		actionCtx := NewContext(r.Context(), uploadAction, make(map[string]interface{}))
-		actionCtx = actionCtx.WithUploads(uploadRegistry)
-
-		// Dispatch action using Controller+State pattern
-		newState, actionErr := DispatchWithState(h.config.Controller, state, actionCtx)
-		if actionErr != nil && !errors.Is(actionErr, ErrMethodNotFound) {
-			log.Printf("HTTP upload action %q failed: %v", uploadAction, actionErr)
-		} else if actionErr == nil {
-			state = newState
-		}
-	}
-
-	return nil
 }
 
 // handleUploadAction routes upload-related WebSocket actions to appropriate handlers.
@@ -1619,7 +1382,9 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 						AutoUpload: uploadInstance.Config.AutoUpload,
 					}
 					// Remove temp file since entry is invalid
-					os.Remove(tempPath)
+					if rmErr := os.Remove(tempPath); rmErr != nil {
+						log.Printf("Failed to remove temp file %s: %v", tempPath, rmErr)
+					}
 				} else {
 					entryInfo = upload.UploadEntryInfo{
 						EntryID:    entryID,
@@ -1894,10 +1659,4 @@ func (h *liveHandler) handleCancelUpload(ctx context.Context, conn *websocket.Co
 	}
 
 	return nil
-}
-
-// fileExists checks if a file exists
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
 }

@@ -51,8 +51,14 @@ func TestLoadEnvConfig_Defaults(t *testing.T) {
 
 func TestLoadEnvConfig_MaxConnections(t *testing.T) {
 	clearEnv(t)
-	os.Setenv("LVT_MAX_CONNECTIONS", "10000")
-	defer os.Unsetenv("LVT_MAX_CONNECTIONS")
+	if err := os.Setenv("LVT_MAX_CONNECTIONS", "10000"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("LVT_MAX_CONNECTIONS"); err != nil {
+			t.Errorf("Failed to unset env: %v", err)
+		}
+	}()
 
 	config, err := LoadEnvConfig()
 	if err != nil {
@@ -77,8 +83,14 @@ func TestLoadEnvConfig_MaxConnectionsInvalid(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			clearEnv(t)
-			os.Setenv("LVT_MAX_CONNECTIONS", tc.value)
-			defer os.Unsetenv("LVT_MAX_CONNECTIONS")
+			if err := os.Setenv("LVT_MAX_CONNECTIONS", tc.value); err != nil {
+				t.Fatalf("Failed to set env: %v", err)
+			}
+			defer func() {
+				if err := os.Unsetenv("LVT_MAX_CONNECTIONS"); err != nil {
+					t.Errorf("Failed to unset env: %v", err)
+				}
+			}()
 
 			_, err := LoadEnvConfig()
 			if err == nil {
@@ -90,8 +102,14 @@ func TestLoadEnvConfig_MaxConnectionsInvalid(t *testing.T) {
 
 func TestLoadEnvConfig_MaxConnectionsPerGroup(t *testing.T) {
 	clearEnv(t)
-	os.Setenv("LVT_MAX_CONNECTIONS_PER_GROUP", "100")
-	defer os.Unsetenv("LVT_MAX_CONNECTIONS_PER_GROUP")
+	if err := os.Setenv("LVT_MAX_CONNECTIONS_PER_GROUP", "100"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("LVT_MAX_CONNECTIONS_PER_GROUP"); err != nil {
+			t.Errorf("Failed to unset env: %v", err)
+		}
+	}()
 
 	config, err := LoadEnvConfig()
 	if err != nil {
@@ -105,8 +123,14 @@ func TestLoadEnvConfig_MaxConnectionsPerGroup(t *testing.T) {
 
 func TestLoadEnvConfig_AllowedOrigins(t *testing.T) {
 	clearEnv(t)
-	os.Setenv("LVT_ALLOWED_ORIGINS", "https://example.com,https://app.example.com")
-	defer os.Unsetenv("LVT_ALLOWED_ORIGINS")
+	if err := os.Setenv("LVT_ALLOWED_ORIGINS", "https://example.com,https://app.example.com"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("LVT_ALLOWED_ORIGINS"); err != nil {
+			t.Errorf("Failed to unset env: %v", err)
+		}
+	}()
 
 	config, err := LoadEnvConfig()
 	if err != nil {
@@ -128,8 +152,14 @@ func TestLoadEnvConfig_AllowedOrigins(t *testing.T) {
 
 func TestLoadEnvConfig_AllowedOriginsWithSpaces(t *testing.T) {
 	clearEnv(t)
-	os.Setenv("LVT_ALLOWED_ORIGINS", " https://example.com , https://app.example.com ")
-	defer os.Unsetenv("LVT_ALLOWED_ORIGINS")
+	if err := os.Setenv("LVT_ALLOWED_ORIGINS", " https://example.com , https://app.example.com "); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("LVT_ALLOWED_ORIGINS"); err != nil {
+			t.Errorf("Failed to unset env: %v", err)
+		}
+	}()
 
 	config, err := LoadEnvConfig()
 	if err != nil {
@@ -162,8 +192,14 @@ func TestLoadEnvConfig_DevMode(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.value, func(t *testing.T) {
 			clearEnv(t)
-			os.Setenv("LVT_DEV_MODE", tc.value)
-			defer os.Unsetenv("LVT_DEV_MODE")
+			if err := os.Setenv("LVT_DEV_MODE", tc.value); err != nil {
+				t.Fatalf("Failed to set env: %v", err)
+			}
+			defer func() {
+				if err := os.Unsetenv("LVT_DEV_MODE"); err != nil {
+					t.Errorf("Failed to unset env: %v", err)
+				}
+			}()
 
 			config, err := LoadEnvConfig()
 			if err != nil {
@@ -179,8 +215,14 @@ func TestLoadEnvConfig_DevMode(t *testing.T) {
 
 func TestLoadEnvConfig_DevModeInvalid(t *testing.T) {
 	clearEnv(t)
-	os.Setenv("LVT_DEV_MODE", "invalid")
-	defer os.Unsetenv("LVT_DEV_MODE")
+	if err := os.Setenv("LVT_DEV_MODE", "invalid"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("LVT_DEV_MODE"); err != nil {
+			t.Errorf("Failed to unset env: %v", err)
+		}
+	}()
 
 	_, err := LoadEnvConfig()
 	if err == nil {
@@ -202,8 +244,14 @@ func TestLoadEnvConfig_ShutdownTimeout(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.value, func(t *testing.T) {
 			clearEnv(t)
-			os.Setenv("LVT_SHUTDOWN_TIMEOUT", tc.value)
-			defer os.Unsetenv("LVT_SHUTDOWN_TIMEOUT")
+			if err := os.Setenv("LVT_SHUTDOWN_TIMEOUT", tc.value); err != nil {
+				t.Fatalf("Failed to set env: %v", err)
+			}
+			defer func() {
+				if err := os.Unsetenv("LVT_SHUTDOWN_TIMEOUT"); err != nil {
+					t.Errorf("Failed to unset env: %v", err)
+				}
+			}()
 
 			config, err := LoadEnvConfig()
 			if err != nil {
@@ -227,8 +275,14 @@ func TestLoadEnvConfig_ShutdownTimeoutInvalid(t *testing.T) {
 	for _, value := range testCases {
 		t.Run(value, func(t *testing.T) {
 			clearEnv(t)
-			os.Setenv("LVT_SHUTDOWN_TIMEOUT", value)
-			defer os.Unsetenv("LVT_SHUTDOWN_TIMEOUT")
+			if err := os.Setenv("LVT_SHUTDOWN_TIMEOUT", value); err != nil {
+				t.Fatalf("Failed to set env: %v", err)
+			}
+			defer func() {
+				if err := os.Unsetenv("LVT_SHUTDOWN_TIMEOUT"); err != nil {
+					t.Errorf("Failed to unset env: %v", err)
+				}
+			}()
 
 			_, err := LoadEnvConfig()
 			if err == nil {
@@ -244,8 +298,14 @@ func TestLoadEnvConfig_LogLevel(t *testing.T) {
 	for _, level := range validLevels {
 		t.Run(level, func(t *testing.T) {
 			clearEnv(t)
-			os.Setenv("LVT_LOG_LEVEL", level)
-			defer os.Unsetenv("LVT_LOG_LEVEL")
+			if err := os.Setenv("LVT_LOG_LEVEL", level); err != nil {
+				t.Fatalf("Failed to set env: %v", err)
+			}
+			defer func() {
+				if err := os.Unsetenv("LVT_LOG_LEVEL"); err != nil {
+					t.Errorf("Failed to unset env: %v", err)
+				}
+			}()
 
 			config, err := LoadEnvConfig()
 			if err != nil {
@@ -270,8 +330,14 @@ func TestLoadEnvConfig_LogLevel(t *testing.T) {
 
 func TestLoadEnvConfig_LogLevelInvalid(t *testing.T) {
 	clearEnv(t)
-	os.Setenv("LVT_LOG_LEVEL", "invalid")
-	defer os.Unsetenv("LVT_LOG_LEVEL")
+	if err := os.Setenv("LVT_LOG_LEVEL", "invalid"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("LVT_LOG_LEVEL"); err != nil {
+			t.Errorf("Failed to unset env: %v", err)
+		}
+	}()
 
 	_, err := LoadEnvConfig()
 	if err == nil {
@@ -281,8 +347,14 @@ func TestLoadEnvConfig_LogLevelInvalid(t *testing.T) {
 
 func TestLoadEnvConfig_MetricsEnabled(t *testing.T) {
 	clearEnv(t)
-	os.Setenv("LVT_METRICS_ENABLED", "false")
-	defer os.Unsetenv("LVT_METRICS_ENABLED")
+	if err := os.Setenv("LVT_METRICS_ENABLED", "false"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("LVT_METRICS_ENABLED"); err != nil {
+			t.Errorf("Failed to unset env: %v", err)
+		}
+	}()
 
 	config, err := LoadEnvConfig()
 	if err != nil {
@@ -421,26 +493,29 @@ func TestLoadEnvConfig_AllVariables(t *testing.T) {
 	clearEnv(t)
 
 	// Set all environment variables
-	os.Setenv("LVT_MAX_CONNECTIONS", "5000")
-	os.Setenv("LVT_MAX_CONNECTIONS_PER_GROUP", "50")
-	os.Setenv("LVT_ALLOWED_ORIGINS", "https://example.com")
-	os.Setenv("LVT_DEV_MODE", "true")
-	os.Setenv("LVT_WEBSOCKET_DISABLED", "false")
-	os.Setenv("LVT_LOADING_DISABLED", "true")
-	os.Setenv("LVT_SHUTDOWN_TIMEOUT", "45s")
-	os.Setenv("LVT_LOG_LEVEL", "debug")
-	os.Setenv("LVT_METRICS_ENABLED", "true")
+	envVars := map[string]string{
+		"LVT_MAX_CONNECTIONS":           "5000",
+		"LVT_MAX_CONNECTIONS_PER_GROUP": "50",
+		"LVT_ALLOWED_ORIGINS":           "https://example.com",
+		"LVT_DEV_MODE":                  "true",
+		"LVT_WEBSOCKET_DISABLED":        "false",
+		"LVT_LOADING_DISABLED":          "true",
+		"LVT_SHUTDOWN_TIMEOUT":          "45s",
+		"LVT_LOG_LEVEL":                 "debug",
+		"LVT_METRICS_ENABLED":           "true",
+	}
+	for k, v := range envVars {
+		if err := os.Setenv(k, v); err != nil {
+			t.Fatalf("Failed to set env %s: %v", k, err)
+		}
+	}
 
 	defer func() {
-		os.Unsetenv("LVT_MAX_CONNECTIONS")
-		os.Unsetenv("LVT_MAX_CONNECTIONS_PER_GROUP")
-		os.Unsetenv("LVT_ALLOWED_ORIGINS")
-		os.Unsetenv("LVT_DEV_MODE")
-		os.Unsetenv("LVT_WEBSOCKET_DISABLED")
-		os.Unsetenv("LVT_LOADING_DISABLED")
-		os.Unsetenv("LVT_SHUTDOWN_TIMEOUT")
-		os.Unsetenv("LVT_LOG_LEVEL")
-		os.Unsetenv("LVT_METRICS_ENABLED")
+		for k := range envVars {
+			if err := os.Unsetenv(k); err != nil {
+				t.Errorf("Failed to unset env %s: %v", k, err)
+			}
+		}
 	}()
 
 	config, err := LoadEnvConfig()
@@ -489,8 +564,14 @@ func TestLoadEnvConfig_AllVariables(t *testing.T) {
 // TestLoadEnvConfig_TemplateBaseDir tests template base directory configuration
 func TestLoadEnvConfig_TemplateBaseDir(t *testing.T) {
 	clearEnv(t)
-	os.Setenv("LVT_TEMPLATE_BASE_DIR", "/custom/templates")
-	defer os.Unsetenv("LVT_TEMPLATE_BASE_DIR")
+	if err := os.Setenv("LVT_TEMPLATE_BASE_DIR", "/custom/templates"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("LVT_TEMPLATE_BASE_DIR"); err != nil {
+			t.Errorf("Failed to unset env: %v", err)
+		}
+	}()
 
 	config, err := LoadEnvConfig()
 	if err != nil {
@@ -524,6 +605,8 @@ func clearEnv(t *testing.T) {
 		"LVT_METRICS_ENABLED",
 	}
 	for _, v := range vars {
-		os.Unsetenv(v)
+		if err := os.Unsetenv(v); err != nil {
+			t.Errorf("Failed to unset env %s: %v", v, err)
+		}
 	}
 }

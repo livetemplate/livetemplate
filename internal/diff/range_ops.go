@@ -78,7 +78,7 @@ func extractRangeData(oldValue, newValue interface{}) (
 	// In that case, check newNode.Range.Statics which should have the item template.
 	if len(oldItems) == 0 && len(newItems) > 0 {
 		// Try newNode.Statics first (set if ShouldIncludeStatics was true)
-		if newNode.Statics != nil && len(newNode.Statics) > 0 {
+		if len(newNode.Statics) > 0 {
 			statics = newNode.Statics
 		} else if newNode.Range != nil && len(newNode.Range.Statics) > 0 {
 			// Fall back to Range.Statics which should always have item template
@@ -87,7 +87,7 @@ func extractRangeData(oldValue, newValue interface{}) (
 		// If all are empty/nil, statics remains as oldNode.Statics (minimal)
 	} else if staticsSlice, ok := statics.([]string); ok && len(staticsSlice) == 0 {
 		// Fallback if old statics empty
-		if newNode.Statics != nil && len(newNode.Statics) > 0 {
+		if len(newNode.Statics) > 0 {
 			statics = newNode.Statics
 		} else if newNode.Range != nil && len(newNode.Range.Statics) > 0 {
 			statics = newNode.Range.Statics

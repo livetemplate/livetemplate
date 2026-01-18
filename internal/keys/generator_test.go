@@ -46,9 +46,15 @@ func TestGenerator_Reset(t *testing.T) {
 	kg := NewGenerator()
 
 	// Generate some keys
-	kg.NextKey()
-	kg.NextKey()
-	kg.NextKey()
+	if _, err := kg.NextKey(); err != nil {
+		t.Fatalf("NextKey() error: %v", err)
+	}
+	if _, err := kg.NextKey(); err != nil {
+		t.Fatalf("NextKey() error: %v", err)
+	}
+	if _, err := kg.NextKey(); err != nil {
+		t.Fatalf("NextKey() error: %v", err)
+	}
 
 	if kg.counter != 3 {
 		t.Errorf("Before reset: expected counter=3, got: %d", kg.counter)

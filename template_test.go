@@ -1935,7 +1935,7 @@ func TestTemplateGenerateInitialTreeFallsBackForChannelRange(t *testing.T) {
 	events <- "alpha"
 	events <- "beta"
 	close(events)
-	var data map[string]interface{} = map[string]interface{}{"Events": (<-chan string)(events)}
+	data := map[string]interface{}{"Events": (<-chan string)(events)}
 
 	ctx := build.NewContext()
 	ctx.FuncMap = tmpl.funcs

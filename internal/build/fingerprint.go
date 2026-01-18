@@ -55,7 +55,8 @@ func hashTreeWithCircularDetection(tree *TreeNode, hasher hash.Hash, visitPath m
 	// Add statics to hash (template structure)
 	if tree.HasStatics() {
 		// Write statics count first for disambiguation
-		hasher.Write([]byte(fmt.Sprintf("s:%d:", len(tree.Statics))))
+		// Note: hash.Write never returns an error, so we ignore the return value
+		_, _ = fmt.Fprintf(hasher, "s:%d:", len(tree.Statics))
 		for _, s := range tree.Statics {
 			hasher.Write([]byte(s))
 			hasher.Write([]byte("\x00")) // Null byte separator
@@ -88,7 +89,7 @@ func hashTreeWithCircularDetection(tree *TreeNode, hasher hash.Hash, visitPath m
 	for _, k := range keys {
 		value := tree.Dynamics[k]
 		// Write key with length prefix to prevent collisions
-		hasher.Write([]byte(fmt.Sprintf("k%d:", len(k))))
+		_, _ = fmt.Fprintf(hasher, "k%d:", len(k))
 		hasher.Write([]byte(k))
 		hasher.Write([]byte(":"))
 		hashValueWithCircularDetection(value, hasher, visitPath)
@@ -113,7 +114,7 @@ func hashValueWithCircularDetection(value interface{}, hasher hash.Hash, visitPa
 		if err != nil {
 			// For unmarshalable types, use type information instead
 			// This prevents different errors from producing different hashes for same data
-			hasher.Write([]byte(fmt.Sprintf("<type:%T>", v)))
+			_, _ = fmt.Fprintf(hasher, "<type:%T>", v)
 		} else {
 			hasher.Write(mapJSON)
 		}
@@ -121,7 +122,7 @@ func hashValueWithCircularDetection(value interface{}, hasher hash.Hash, visitPa
 
 	case []interface{}:
 		// Array - hash each element with length prefix
-		hasher.Write([]byte(fmt.Sprintf("arr[%d]:", len(v))))
+		_, _ = fmt.Fprintf(hasher, "arr[%d]:", len(v))
 		for _, item := range v {
 			hashValueWithCircularDetection(item, hasher, visitPath)
 		}
@@ -129,23 +130,23 @@ func hashValueWithCircularDetection(value interface{}, hasher hash.Hash, visitPa
 
 	case string:
 		// Write string with length prefix to prevent collisions
-		hasher.Write([]byte(fmt.Sprintf("str%d:", len(v))))
+		_, _ = fmt.Fprintf(hasher, "str%d:", len(v))
 		hasher.Write([]byte(v))
 		hasher.Write([]byte("\x00"))
 
 	case int:
-		hasher.Write([]byte(fmt.Sprintf("int:%d\x00", v)))
+		_, _ = fmt.Fprintf(hasher, "int:%d\x00", v)
 
 	case int64:
-		hasher.Write([]byte(fmt.Sprintf("i64:%d\x00", v)))
+		_, _ = fmt.Fprintf(hasher, "i64:%d\x00", v)
 
 	case float64:
 		// Use binary representation for exact equality
 		bits := math.Float64bits(v)
-		hasher.Write([]byte(fmt.Sprintf("f64:%016x\x00", bits)))
+		_, _ = fmt.Fprintf(hasher, "f64:%016x\x00", bits)
 
 	case bool:
-		hasher.Write([]byte(fmt.Sprintf("bool:%t\x00", v)))
+		_, _ = fmt.Fprintf(hasher, "bool:%t\x00", v)
 
 	case nil:
 		hasher.Write([]byte("nil\x00"))
@@ -156,7 +157,7 @@ func hashValueWithCircularDetection(value interface{}, hasher hash.Hash, visitPa
 		valueJSON, err := json.Marshal(v)
 		if err != nil {
 			// For unmarshalable types, use type information instead
-			hasher.Write([]byte(fmt.Sprintf("<type:%T>", v)))
+			_, _ = fmt.Fprintf(hasher, "<type:%T>", v)
 		} else {
 			hasher.Write(valueJSON)
 		}
@@ -205,7 +206,7 @@ func hashStructureWithCircularDetection(tree *TreeNode, hasher hash.Hash, visitP
 
 	// Hash statics (the core static structure)
 	if tree.HasStatics() {
-		hasher.Write([]byte(fmt.Sprintf("s:%d:", len(tree.Statics))))
+		_, _ = fmt.Fprintf(hasher, "s:%d:", len(tree.Statics))
 		for _, s := range tree.Statics {
 			hasher.Write([]byte(s))
 			hasher.Write([]byte("\x00"))
@@ -222,7 +223,7 @@ func hashStructureWithCircularDetection(tree *TreeNode, hasher hash.Hash, visitP
 
 	// For each dynamic position, hash the key and recurse into nested TreeNodes
 	for _, k := range keys {
-		hasher.Write([]byte(fmt.Sprintf("d:%s:", k)))
+		_, _ = fmt.Fprintf(hasher, "d:%s:", k)
 
 		value := tree.Dynamics[k]
 		// Only recurse into nested TreeNodes to capture nested structure
@@ -242,7 +243,7 @@ func hashStructureWithCircularDetection(tree *TreeNode, hasher hash.Hash, visitP
 		hasher.Write([]byte("range{"))
 		// Hash range statics (item template structure)
 		if len(tree.Range.Statics) > 0 {
-			hasher.Write([]byte(fmt.Sprintf("rs:%d:", len(tree.Range.Statics))))
+			_, _ = fmt.Fprintf(hasher, "rs:%d:", len(tree.Range.Statics))
 			for _, s := range tree.Range.Statics {
 				hasher.Write([]byte(s))
 				hasher.Write([]byte("\x00"))

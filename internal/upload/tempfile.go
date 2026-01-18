@@ -64,7 +64,9 @@ func (m *TempFileManager) CreateTempFile(sessionID, uploadName, entryID string) 
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp file: %w", err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		return "", fmt.Errorf("failed to close temp file after creation: %w", err)
+	}
 
 	// Track the file
 	m.mu.Lock()
@@ -179,6 +181,10 @@ func (m *TempFileManager) Count() int {
 // GenerateEntryID generates a unique entry ID for an upload.
 func GenerateEntryID() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to less secure but always available source
+		// This should never happen with crypto/rand
+		panic(fmt.Sprintf("crypto/rand failed: %v", err))
+	}
 	return hex.EncodeToString(b)
 }

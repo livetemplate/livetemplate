@@ -35,7 +35,9 @@ func TestTemplateContext_Uploads(t *testing.T) {
 		Valid:      true,
 		Done:       true,
 	}
-	avatarUpload.AddEntry(entry1)
+	if err := avatarUpload.AddEntry(entry1); err != nil {
+		t.Fatalf("Failed to add entry: %v", err)
+	}
 
 	// Create template context with upload registry
 	ctx := context.NewTemplateContext(nil, false)
@@ -91,28 +93,29 @@ func TestTemplateContext_HasUploadError(t *testing.T) {
 		MaxEntries: 1,
 	}
 
-	registry.CreateUpload("avatar", config)
+	if err := registry.CreateUpload("avatar", config); err != nil {
+		t.Fatalf("Failed to create upload: %v", err)
+	}
 	avatarUploadInterface := registry.GetUpload("avatar")
 	avatarUpload, ok := avatarUploadInterface.(*upload.Upload)
 	if !ok || avatarUpload == nil {
 		t.Fatal("Failed to get avatar upload")
 	}
 
-	// Add entry with error
+	// Add entry with invalid type - this triggers validation error but entry is still added
 	entry := &livetemplate.UploadEntry{
 		ID:         "entry-1",
 		ClientName: "file.txt",
 		ClientType: "text/plain",
 		ClientSize: 1024,
-		Valid:      false,
-		Error:      "invalid file type",
 	}
-	avatarUpload.AddEntry(entry)
+	// AddEntry returns error for invalid entries, but still adds them for error display
+	_ = avatarUpload.AddEntry(entry)
 
 	ctx := context.NewTemplateContext(nil, false)
 	ctx.SetUploadRegistry(registry)
 
-	// Test HasUploadError
+	// Test HasUploadError - entry was added with error due to type mismatch
 	if !ctx.HasUploadError("avatar") {
 		t.Error("Expected HasUploadError to return true")
 	}
@@ -130,28 +133,29 @@ func TestTemplateContext_UploadError(t *testing.T) {
 		MaxEntries: 1,
 	}
 
-	registry.CreateUpload("avatar", config)
+	if err := registry.CreateUpload("avatar", config); err != nil {
+		t.Fatalf("Failed to create upload: %v", err)
+	}
 	avatarUploadInterface := registry.GetUpload("avatar")
 	avatarUpload, ok := avatarUploadInterface.(*upload.Upload)
 	if !ok || avatarUpload == nil {
 		t.Fatal("Failed to get avatar upload")
 	}
 
-	// Add entry with error
+	// Add entry with invalid type - this triggers validation error but entry is still added
 	entry := &livetemplate.UploadEntry{
 		ID:         "entry-1",
 		ClientName: "file.txt",
 		ClientType: "text/plain",
 		ClientSize: 1024,
-		Valid:      false,
-		Error:      "invalid file type",
 	}
-	avatarUpload.AddEntry(entry)
+	// AddEntry returns error for invalid entries, but still adds them for error display
+	_ = avatarUpload.AddEntry(entry)
 
 	ctx := context.NewTemplateContext(nil, false)
 	ctx.SetUploadRegistry(registry)
 
-	// Test UploadError
+	// Test UploadError - entry was added with error due to type mismatch
 	errMsg := ctx.UploadError("avatar")
 	if errMsg == "" {
 		t.Error("Expected non-empty error message")
@@ -168,7 +172,9 @@ func TestTemplateContext_UploadError(t *testing.T) {
 	}
 
 	// Test upload with no errors
-	registry.CreateUpload("documents", config)
+	if err := registry.CreateUpload("documents", config); err != nil {
+		t.Fatalf("Failed to create documents upload: %v", err)
+	}
 	errMsg = ctx.UploadError("documents")
 	if errMsg != "" {
 		t.Errorf("Expected empty error for upload with no errors, got %q", errMsg)

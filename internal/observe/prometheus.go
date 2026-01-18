@@ -164,16 +164,16 @@ func (e *PrometheusExporter) WriteMetrics(w io.Writer) error {
 
 // writeGauge writes a gauge metric.
 func (e *PrometheusExporter) writeGauge(sb *strings.Builder, name, help string, value int64) {
-	sb.WriteString(fmt.Sprintf("# HELP %s %s\n", name, help))
-	sb.WriteString(fmt.Sprintf("# TYPE %s gauge\n", name))
-	sb.WriteString(fmt.Sprintf("%s %d\n\n", name, value))
+	fmt.Fprintf(sb, "# HELP %s %s\n", name, help)
+	fmt.Fprintf(sb, "# TYPE %s gauge\n", name)
+	fmt.Fprintf(sb, "%s %d\n\n", name, value)
 }
 
 // writeCounter writes a counter metric.
 func (e *PrometheusExporter) writeCounter(sb *strings.Builder, name, help string, value int64) {
-	sb.WriteString(fmt.Sprintf("# HELP %s %s\n", name, help))
-	sb.WriteString(fmt.Sprintf("# TYPE %s counter\n", name))
-	sb.WriteString(fmt.Sprintf("%s %d\n\n", name, value))
+	fmt.Fprintf(sb, "# HELP %s %s\n", name, help)
+	fmt.Fprintf(sb, "# TYPE %s counter\n", name)
+	fmt.Fprintf(sb, "%s %d\n\n", name, value)
 }
 
 // writeHistogram writes histogram metrics (quantiles).
@@ -181,8 +181,8 @@ func (e *PrometheusExporter) writeCounter(sb *strings.Builder, name, help string
 // Prometheus convention: Use summary type for pre-calculated quantiles.
 // For better performance, we export quantiles rather than raw buckets.
 func (e *PrometheusExporter) writeHistogram(sb *strings.Builder, name, help string, hist *DurationHistogram) {
-	sb.WriteString(fmt.Sprintf("# HELP %s %s\n", name, help))
-	sb.WriteString(fmt.Sprintf("# TYPE %s summary\n", name))
+	fmt.Fprintf(sb, "# HELP %s %s\n", name, help)
+	fmt.Fprintf(sb, "# TYPE %s summary\n", name)
 
 	// Calculate common quantiles
 	quantiles := []struct {
@@ -199,21 +199,21 @@ func (e *PrometheusExporter) writeHistogram(sb *strings.Builder, name, help stri
 	for _, q := range quantiles {
 		valueMs := hist.Percentile(q.q)
 		valueSec := float64(valueMs) / 1000.0
-		sb.WriteString(fmt.Sprintf("%s{quantile=\"%s\"} %.6f\n", name, q.label, valueSec))
+		fmt.Fprintf(sb, "%s{quantile=\"%s\"} %.6f\n", name, q.label, valueSec)
 	}
 
 	// Calculate and write sum and count for summary type
 	// Note: Our histogram doesn't track these, so we approximate
 	// For production use with full histogram support, track sum/count separately
-	sb.WriteString(fmt.Sprintf("%s_sum 0\n", name))     // Approximation: not tracked
-	sb.WriteString(fmt.Sprintf("%s_count 0\n\n", name)) // Approximation: not tracked
+	fmt.Fprintf(sb, "%s_sum 0\n", name)     // Approximation: not tracked
+	fmt.Fprintf(sb, "%s_count 0\n\n", name) // Approximation: not tracked
 }
 
 // writeSizeHistogram writes a size histogram metrics (quantiles in bytes).
 // Unlike duration histograms, size histograms report values directly in bytes.
 func (e *PrometheusExporter) writeSizeHistogram(sb *strings.Builder, name, help string, hist *SizeHistogram) {
-	sb.WriteString(fmt.Sprintf("# HELP %s %s\n", name, help))
-	sb.WriteString(fmt.Sprintf("# TYPE %s summary\n", name))
+	fmt.Fprintf(sb, "# HELP %s %s\n", name, help)
+	fmt.Fprintf(sb, "# TYPE %s summary\n", name)
 
 	// Calculate common quantiles
 	quantiles := []struct {
@@ -229,11 +229,11 @@ func (e *PrometheusExporter) writeSizeHistogram(sb *strings.Builder, name, help 
 	// Write quantile values (bytes, no conversion needed)
 	for _, q := range quantiles {
 		valueBytes := hist.Percentile(q.q)
-		sb.WriteString(fmt.Sprintf("%s{quantile=\"%s\"} %d\n", name, q.label, valueBytes))
+		fmt.Fprintf(sb, "%s{quantile=\"%s\"} %d\n", name, q.label, valueBytes)
 	}
 
-	sb.WriteString(fmt.Sprintf("%s_sum 0\n", name))     // Approximation: not tracked
-	sb.WriteString(fmt.Sprintf("%s_count 0\n\n", name)) // Approximation: not tracked
+	fmt.Fprintf(sb, "%s_sum 0\n", name)     // Approximation: not tracked
+	fmt.Fprintf(sb, "%s_count 0\n\n", name) // Approximation: not tracked
 }
 
 // GetMetrics returns the underlying Metrics tracker.

@@ -103,7 +103,11 @@ func TestCloseIsIdempotent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			conn.Close()
+			if err := conn.Close(); err != nil {
+				// First Close() succeeds, subsequent ones may return nil (idempotent)
+				// so we don't fail the test here
+				t.Logf("Close() returned: %v", err)
+			}
 		}()
 	}
 
@@ -216,7 +220,9 @@ func TestSendAfterClose(t *testing.T) {
 	registry.Register(conn, 10)
 
 	// Close the connection
-	conn.Close()
+	if err := conn.Close(); err != nil {
+		t.Errorf("Close() failed: %v", err)
+	}
 	time.Sleep(20 * time.Millisecond)
 
 	// Send should fail with ErrConnectionClosed
@@ -363,7 +369,9 @@ func TestConcurrentSendAndClose(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		time.Sleep(5 * time.Millisecond) // Let some sends happen first
-		conn.Close()
+		if err := conn.Close(); err != nil {
+			t.Logf("Close() returned: %v", err)
+		}
 	}()
 
 	wg.Wait()

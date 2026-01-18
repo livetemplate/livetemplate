@@ -95,7 +95,14 @@ func (c *Connection) Send(messageType int, data []byte) error {
 			c.metrics.WSBufferFull()
 			c.metrics.WSSlowClientClose()
 		}
-		go c.Close()
+		go func() {
+			if err := c.Close(); err != nil {
+				slog.Warn("failed to close slow client connection",
+					slog.String("error", err.Error()),
+					slog.String("group_id", c.GroupID),
+					slog.String("user_id", c.UserID))
+			}
+		}()
 		return ErrClientTooSlow
 	}
 }
@@ -158,7 +165,11 @@ func (c *Connection) Close() error {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		if c.Conn != nil {
-			c.Conn.Close()
+			if err := c.Conn.Close(); err != nil {
+				slog.Debug("WebSocket close returned error (may be expected if already closed)",
+					slog.String("error", err.Error()),
+					slog.String("group_id", c.GroupID))
+			}
 		}
 	})
 	return nil
@@ -170,7 +181,11 @@ func (c *Connection) Close() error {
 func (c *Connection) writePump() {
 	defer func() {
 		close(c.pumpExited) // Signal that writePump has exited
-		c.Close()           // Ensure connection is closed
+		if err := c.Close(); err != nil {
+			slog.Debug("connection close in writePump returned error",
+				slog.String("error", err.Error()),
+				slog.String("group_id", c.GroupID))
+		}
 	}()
 
 	for {
@@ -316,7 +331,11 @@ func (r *ConnectionRegistry) Unregister(conn *Connection) {
 
 	// Close the connection (triggers writePump shutdown)
 	// This is idempotent due to sync.Once, safe to call multiple times
-	conn.Close()
+	if err := conn.Close(); err != nil {
+		slog.Debug("connection close during unregister returned error",
+			slog.String("error", err.Error()),
+			slog.String("group_id", conn.GroupID))
+	}
 
 	// Remove from byGroup index
 	groupConns := r.byGroup[conn.GroupID]

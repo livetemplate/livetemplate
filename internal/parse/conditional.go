@@ -178,14 +178,14 @@ func transformConditionWithVars(pipeStr string, varCtx *varContext, usesRoot boo
 	varCtx.vars.Range(func(varName string, varValue interface{}) {
 		if strings.Contains(pipeStr, "$"+varName) {
 			fieldName := capitalizeFieldName(varName)
-			transformedCond = strings.Replace(transformedCond, "$"+varName, "."+fieldName, -1)
+			transformedCond = strings.ReplaceAll(transformedCond, "$"+varName, "."+fieldName)
 			execData[fieldName] = varValue
 		}
 	})
 
 	// Handle root variable
 	if usesRoot {
-		transformedCond = strings.Replace(transformedCond, "$.", ".RootData.", -1)
+		transformedCond = strings.ReplaceAll(transformedCond, "$.", ".RootData.")
 		execData["RootData"] = varCtx.parent
 	}
 
