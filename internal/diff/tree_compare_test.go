@@ -4,35 +4,6 @@ import (
 	"testing"
 )
 
-// mockStructureRegistry is a simple mock implementation for testing.
-type mockStructureRegistry struct {
-	seen map[string]bool
-}
-
-func newMockRegistry() *mockStructureRegistry {
-	return &mockStructureRegistry{
-		seen: make(map[string]bool),
-	}
-}
-
-func (m *mockStructureRegistry) HasSeen(path string, value interface{}) bool {
-	return m.seen[path]
-}
-
-func (m *mockStructureRegistry) MarkSeen(path string, value interface{}) {
-	m.seen[path] = true
-}
-
-func (m *mockStructureRegistry) InvalidatePath(path string) {
-	// Remove all entries that match path or are children of path
-	prefix := path + "."
-	for key := range m.seen {
-		if key == path || (len(key) > len(path) && key[:len(prefix)] == prefix) {
-			delete(m.seen, key)
-		}
-	}
-}
-
 // TestCompareTreesAndGetChangesWithPath_NoDiff tests when trees are identical.
 func TestCompareTreesAndGetChangesWithPath_NoDiff(t *testing.T) {
 	oldTree := &TreeNode{
@@ -44,7 +15,7 @@ func TestCompareTreesAndGetChangesWithPath_NoDiff(t *testing.T) {
 		Dynamics: map[string]interface{}{"0": "same"},
 	}
 
-	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", nil, nil)
+	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", nil)
 
 	if changes.HasDynamics() {
 		t.Errorf("Expected no changes for identical trees, got: %+v", changes.Dynamics)
@@ -62,7 +33,7 @@ func TestCompareTreesAndGetChangesWithPath_SimpleDiff(t *testing.T) {
 		Dynamics: map[string]interface{}{"0": "new"},
 	}
 
-	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", nil, nil)
+	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", nil)
 
 	if !changes.HasDynamics() {
 		t.Fatal("Expected changes for different values")
@@ -85,7 +56,7 @@ func TestCompareTreesAndGetChangesWithPath_NewField(t *testing.T) {
 		},
 	}
 
-	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", nil, nil)
+	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", nil)
 
 	if changes.Dynamics["1"] != "new field" {
 		t.Errorf("Expected new field '1' = 'new field', got: %v", changes.Dynamics["1"])
@@ -123,7 +94,7 @@ func TestCompareTreesAndGetChangesWithPath_NilTrees(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			changes := CompareTreesAndGetChangesWithPath(tt.oldTree, tt.newTree, false, "", nil, nil)
+			changes := CompareTreesAndGetChangesWithPath(tt.oldTree, tt.newTree, false, "", nil)
 
 			if changes == nil {
 				if !tt.wantNil {
@@ -158,7 +129,7 @@ func TestCompareTreesAndGetChangesWithPath_NestedTreeNode(t *testing.T) {
 		Dynamics: map[string]interface{}{"0": newNested},
 	}
 
-	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", nil, nil)
+	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", nil)
 
 	if !changes.HasDynamics() {
 		t.Fatal("Expected changes for nested TreeNode")
@@ -195,7 +166,7 @@ func TestCompareTreesAndGetChangesWithPath_TopLevelRange(t *testing.T) {
 	}
 
 	rangeMatches := map[string]string{"": "matched"}
-	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", rangeMatches, nil)
+	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", rangeMatches)
 
 	// Should return changes (either operations or fallback to full tree)
 	// The function may return operations or fallback depending on implementation details
@@ -236,7 +207,7 @@ func TestHandleTopLevelRange_BothRanges(t *testing.T) {
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
 	rangeMatches := map[string]string{"": "matched"}
 
-	handled := handleTopLevelRange(oldTree, newTree, "", rangeMatches, nil, changes)
+	handled := handleTopLevelRange(oldTree, newTree, "", rangeMatches, changes)
 
 	if !handled {
 		t.Error("Expected handleTopLevelRange to return true for matched ranges")
@@ -256,7 +227,7 @@ func TestHandleTopLevelRange_NewRange(t *testing.T) {
 	}
 
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
-	handled := handleTopLevelRange(oldTree, newTree, "", nil, nil, changes)
+	handled := handleTopLevelRange(oldTree, newTree, "", nil, changes)
 
 	if !handled {
 		t.Error("Expected handleTopLevelRange to return true for new range")
@@ -290,7 +261,7 @@ func TestHandleTopLevelRange_RangeToElse(t *testing.T) {
 	}
 
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
-	handled := handleTopLevelRange(oldTree, newTree, "", nil, nil, changes)
+	handled := handleTopLevelRange(oldTree, newTree, "", nil, changes)
 
 	if !handled {
 		t.Error("Expected handleTopLevelRange to return true for range→else transition")
@@ -304,41 +275,6 @@ func TestHandleTopLevelRange_RangeToElse(t *testing.T) {
 	// Verify the else clause content was properly returned
 	if changes.Dynamics["0"] != "test query" {
 		t.Errorf("Expected changes to contain else clause dynamic content, got: %v", changes.Dynamics["0"])
-	}
-}
-
-// TestHandleTopLevelRange_RangeToElse_WithRegistry tests range→else with registry invalidation.
-func TestHandleTopLevelRange_RangeToElse_WithRegistry(t *testing.T) {
-	registry := newMockRegistry()
-
-	// Mark the range statics as seen
-	registry.MarkSeen("testpath.__range_statics__", true)
-
-	// Old tree is a range
-	oldTree := &TreeNode{
-		Statics: []string{"<li>", "</li>"},
-		Range: &RangeData{
-			Items:   []interface{}{map[string]interface{}{"id": "1"}},
-			Statics: []string{"<li>", "</li>"},
-		},
-	}
-
-	// New tree is else clause
-	newTree := &TreeNode{
-		Statics:  []string{"<p>Empty</p>"},
-		Dynamics: map[string]interface{}{},
-	}
-
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
-	handled := handleTopLevelRange(oldTree, newTree, "testpath", nil, registry, changes)
-
-	if !handled {
-		t.Error("Expected handleTopLevelRange to return true")
-	}
-
-	// Registry should have been invalidated for range statics path
-	if registry.HasSeen("testpath.__range_statics__", nil) {
-		t.Error("Expected registry to be invalidated for range statics path after range→else transition")
 	}
 }
 
@@ -363,7 +299,7 @@ func TestHandleMatchedRanges_WithOps(t *testing.T) {
 	}
 
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
-	handled := handleMatchedRanges(oldTree, newTree, "", nil, changes)
+	handled := handleMatchedRanges(oldTree, newTree, changes)
 
 	if !handled {
 		t.Error("Expected handleMatchedRanges to return true")
@@ -372,9 +308,9 @@ func TestHandleMatchedRanges_WithOps(t *testing.T) {
 	// Function should handle the range - either with operations or fallback
 	// Check if we got operations
 	if _, hasOps := changes.Dynamics["d"]; hasOps {
-		// Got operations - verify statics included (since no registry, first time)
-		if !changes.HasStatics() {
-			t.Error("Expected statics to be included when operations present (no registry)")
+		// Got operations - statics should NOT be included (same fingerprint)
+		if changes.HasStatics() {
+			t.Error("Expected no statics when fingerprints match (same structure)")
 		}
 		return
 	}
@@ -403,7 +339,7 @@ func TestHandleMatchedRanges_EmptyRanges(t *testing.T) {
 	}
 
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
-	handled := handleMatchedRanges(oldTree, newTree, "", nil, changes)
+	handled := handleMatchedRanges(oldTree, newTree, changes)
 
 	if !handled {
 		t.Error("Expected handleMatchedRanges to return true for empty ranges")
@@ -428,7 +364,7 @@ func TestCompareDynamicSegments_NewField(t *testing.T) {
 	}
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
 
-	compareDynamicSegments(oldTree, newTree, false, "", nil, nil, changes)
+	compareDynamicSegments(oldTree, newTree, false, "", nil, changes)
 
 	if changes.Dynamics["1"] != "new" {
 		t.Errorf("Expected new field '1' = 'new', got: %v", changes.Dynamics["1"])
@@ -445,7 +381,7 @@ func TestCompareDynamicSegments_ChangedField(t *testing.T) {
 	}
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
 
-	compareDynamicSegments(oldTree, newTree, false, "", nil, nil, changes)
+	compareDynamicSegments(oldTree, newTree, false, "", nil, changes)
 
 	if changes.Dynamics["0"] != "new" {
 		t.Errorf("Expected changed field '0' = 'new', got: %v", changes.Dynamics["0"])
@@ -462,7 +398,7 @@ func TestCompareDynamicSegments_UnchangedField(t *testing.T) {
 	}
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
 
-	compareDynamicSegments(oldTree, newTree, false, "", nil, nil, changes)
+	compareDynamicSegments(oldTree, newTree, false, "", nil, changes)
 
 	if changes.HasDynamics() {
 		t.Errorf("Expected no changes for unchanged field, got: %+v", changes.Dynamics)
@@ -496,7 +432,7 @@ func TestBuildFieldPath(t *testing.T) {
 func TestHandleNewField_Primitive(t *testing.T) {
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
 
-	handleNewField("0", "value", "0", false, nil, changes)
+	handleNewField("0", "value", false, changes)
 
 	if changes.Dynamics["0"] != "value" {
 		t.Errorf("Expected '0' = 'value', got: %v", changes.Dynamics["0"])
@@ -510,18 +446,12 @@ func TestHandleNewField_TreeNode(t *testing.T) {
 		Dynamics: map[string]interface{}{"0": "content"},
 	}
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
-	registry := newMockRegistry()
 
-	handleNewField("0", newNode, "0", false, registry, changes)
+	handleNewField("0", newNode, false, changes)
 
 	// Should set the full TreeNode (client doesn't have structure yet)
 	if changes.Dynamics["0"] == nil {
 		t.Error("Expected field '0' to be set")
-	}
-
-	// Registry should track that structure was sent
-	if !registry.HasSeen("0", newNode) {
-		t.Error("Expected registry to mark structure as seen")
 	}
 }
 
@@ -529,62 +459,10 @@ func TestHandleNewField_TreeNode(t *testing.T) {
 func TestHandleNewField_InsideNewStructure(t *testing.T) {
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
 
-	handleNewField("0", "value", "0", true, nil, changes)
+	handleNewField("0", "value", true, changes)
 
 	if changes.Dynamics["0"] != "value" {
 		t.Errorf("Expected '0' = 'value' inside new structure, got: %v", changes.Dynamics["0"])
-	}
-}
-
-// TestHandleNewTreeNodeField tests TreeNode field handling.
-func TestHandleNewTreeNodeField(t *testing.T) {
-	newNode := &TreeNode{
-		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "content"},
-	}
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
-	registry := newMockRegistry()
-
-	// Test when client doesn't have structure
-	handled := handleNewTreeNodeField("0", newNode, false, "0", registry, true, changes)
-
-	if !handled {
-		t.Error("Expected handleNewTreeNodeField to return true for TreeNode")
-	}
-
-	if changes.Dynamics["0"] == nil {
-		t.Error("Expected field to be set")
-	}
-
-	// Test when client already has structure
-	registry.MarkSeen("1", newNode)
-	changes = &TreeNode{Dynamics: make(map[string]interface{})}
-	handleNewTreeNodeField("1", newNode, true, "1", registry, true, changes)
-
-	// Should strip statics when client has structure
-	result := changes.Dynamics["1"]
-	if result == nil {
-		t.Error("Expected field '1' to be set even when structure known")
-	}
-}
-
-// TestHandleNewMapField tests map field handling.
-func TestHandleNewMapField(t *testing.T) {
-	newMap := map[string]interface{}{
-		"s": []string{"<div>", "</div>"},
-		"0": "content",
-	}
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
-	registry := newMockRegistry()
-
-	handled := handleNewMapField("0", newMap, false, "0", registry, true, changes)
-
-	if !handled {
-		t.Error("Expected handleNewMapField to return true for map")
-	}
-
-	if changes.Dynamics["0"] == nil {
-		t.Error("Expected field to be set")
 	}
 }
 
@@ -637,7 +515,7 @@ func TestHandleNestedTreeNodes_StructureChanged(t *testing.T) {
 	}
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
 
-	handleNestedTreeNodes("0", oldNode, newNode, "0", false, nil, nil, changes)
+	handleNestedTreeNodes("0", oldNode, newNode, "0", false, nil, changes)
 
 	// Should send full new structure when structure changed
 	if changes.Dynamics["0"] == nil {
@@ -658,7 +536,7 @@ func TestHandleNestedTreeNodes_Similar(t *testing.T) {
 	}
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
 
-	handleNestedTreeNodes("0", oldNode, newNode, "0", false, nil, nil, changes)
+	handleNestedTreeNodes("0", oldNode, newNode, "0", false, nil, changes)
 
 	// Should produce nested changes
 	nestedChanges, ok := changes.Dynamics["0"].(*TreeNode)
@@ -699,40 +577,12 @@ func TestHandleNewTreeNodeFromPrimitive(t *testing.T) {
 		Dynamics: map[string]interface{}{"0": "content"},
 	}
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
-	registry := newMockRegistry()
 
-	handleNewTreeNodeFromPrimitive("0", newNode, "0", registry, true, changes)
+	handleNewTreeNodeFromPrimitive("0", newNode, changes)
 
 	// Should set full TreeNode
 	if changes.Dynamics["0"] == nil {
 		t.Error("Expected field '0' to be set")
-	}
-
-	// Should mark as seen in registry
-	if !registry.HasSeen("0", newNode) {
-		t.Error("Expected registry to mark as seen")
-	}
-}
-
-// TestIsNilRegistry tests nil registry detection.
-func TestIsNilRegistry(t *testing.T) {
-	// Nil interface
-	var nilRegistry StructureRegistry
-	if !isNilRegistry(nilRegistry) {
-		t.Error("Expected isNilRegistry(nil) = true")
-	}
-
-	// Non-nil registry
-	registry := newMockRegistry()
-	if isNilRegistry(registry) {
-		t.Error("Expected isNilRegistry(non-nil) = false")
-	}
-
-	// Nil pointer wrapped in interface
-	var nilPtr *mockStructureRegistry
-	var interfaceWithNilPtr StructureRegistry = nilPtr
-	if !isNilRegistry(interfaceWithNilPtr) {
-		t.Error("Expected isNilRegistry(interface with nil pointer) = true")
 	}
 }
 
@@ -742,7 +592,7 @@ func TestHandleChangedField_TypeChange(t *testing.T) {
 	newTree := &TreeNode{Dynamics: map[string]interface{}{"0": "new"}}
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
 
-	handleChangedField("0", "string", 123, "0", false, nil, nil, oldTree, newTree, changes)
+	handleChangedField("0", "string", 123, "0", false, nil, oldTree, newTree, changes)
 
 	// Should set new value when type changes
 	if changes.Dynamics["0"] != 123 {
@@ -773,7 +623,7 @@ func TestHandleChangedField_RangeMatch(t *testing.T) {
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
 	rangeMatches := map[string]string{"0": "matched"}
 
-	handleChangedField("0", oldValue, newValue, "0", false, rangeMatches, nil, oldTree, newTree, changes)
+	handleChangedField("0", oldValue, newValue, "0", false, rangeMatches, oldTree, newTree, changes)
 
 	// Should generate differential operations
 	if changes.Dynamics["0"] == nil {
@@ -796,7 +646,7 @@ func TestHandleChangedField_TreeNodes(t *testing.T) {
 	newTree := &TreeNode{Dynamics: map[string]interface{}{"0": newNode}}
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
 
-	handleChangedField("0", oldNode, newNode, "0", false, nil, nil, oldTree, newTree, changes)
+	handleChangedField("0", oldNode, newNode, "0", false, nil, oldTree, newTree, changes)
 
 	// Should produce nested changes
 	nestedChanges, ok := changes.Dynamics["0"].(*TreeNode)
@@ -809,22 +659,12 @@ func TestHandleChangedField_TreeNodes(t *testing.T) {
 	}
 }
 
-// TestHandleChangedField_TreeNodeToPrimitive tests that registry is invalidated when
-// a TreeNode becomes a primitive value (e.g., conditional becomes empty).
+// TestHandleChangedField_TreeNodeToPrimitive tests that TreeNode → primitive is handled.
 func TestHandleChangedField_TreeNodeToPrimitive(t *testing.T) {
-	registry := newMockRegistry()
-
-	// Simulate the modal being shown initially - client has seen statics
+	// Simulate the modal being shown initially
 	modalTree := &TreeNode{
 		Statics:  []string{"<div id=\"modal\">", "</div>"},
 		Dynamics: map[string]interface{}{"0": "modal content"},
-	}
-	registry.MarkSeen("0", modalTree)
-	registry.MarkSeen("0.0", "content marker")
-
-	// Verify registry has the entries
-	if !registry.HasSeen("0", modalTree) {
-		t.Error("Registry should have entry for '0'")
 	}
 
 	// Now the modal becomes empty (conditional false)
@@ -832,15 +672,7 @@ func TestHandleChangedField_TreeNodeToPrimitive(t *testing.T) {
 	newTree := &TreeNode{Dynamics: map[string]interface{}{"0": ""}}
 	changes := &TreeNode{Dynamics: make(map[string]interface{})}
 
-	handleChangedField("0", modalTree, "", "0", false, nil, registry, oldTree, newTree, changes)
-
-	// After TreeNode → primitive, registry should be invalidated
-	if registry.HasSeen("0", modalTree) {
-		t.Error("Registry should NOT have entry for '0' after TreeNode→primitive")
-	}
-	if registry.seen["0.0"] {
-		t.Error("Registry should NOT have entry for '0.0' (child path) after TreeNode→primitive")
-	}
+	handleChangedField("0", modalTree, "", "0", false, nil, oldTree, newTree, changes)
 
 	// The change should be the empty string
 	if changes.Dynamics["0"] != "" {
@@ -848,62 +680,11 @@ func TestHandleChangedField_TreeNodeToPrimitive(t *testing.T) {
 	}
 }
 
-// TestHandleChangedField_ConditionalReopenScenario tests the full scenario:
-// TreeNode (modal shown) → primitive (modal hidden) → TreeNode (modal shown again)
-// The second showing should include statics because they were invalidated.
-func TestHandleChangedField_ConditionalReopenScenario(t *testing.T) {
-	registry := newMockRegistry()
-
-	// Step 1: Initial modal shown
-	modalTree1 := &TreeNode{
-		Statics:  []string{"<div id=\"modal\">", "</div>"},
-		Dynamics: map[string]interface{}{"0": "first content"},
-	}
-
-	// Mark as seen (simulating first render)
-	registry.MarkSeen("0", modalTree1)
-
-	// Step 2: Modal hidden (TreeNode → primitive)
-	oldTree := &TreeNode{Dynamics: map[string]interface{}{"0": modalTree1}}
-	newTree := &TreeNode{Dynamics: map[string]interface{}{"0": ""}}
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
-
-	handleChangedField("0", modalTree1, "", "0", false, nil, registry, oldTree, newTree, changes)
-
-	// Registry should be invalidated
-	if registry.HasSeen("0", modalTree1) {
-		t.Error("After modal hidden, registry should not have entry for '0'")
-	}
-
-	// Step 3: Modal shown again (primitive → TreeNode)
-	modalTree2 := &TreeNode{
-		Statics:  []string{"<div id=\"modal\">", "</div>"},
-		Dynamics: map[string]interface{}{"0": "second content"},
-	}
-
-	oldTree2 := &TreeNode{Dynamics: map[string]interface{}{"0": ""}}
-	newTree2 := &TreeNode{Dynamics: map[string]interface{}{"0": modalTree2}}
-	changes2 := &TreeNode{Dynamics: make(map[string]interface{})}
-
-	handleChangedField("0", "", modalTree2, "0", false, nil, registry, oldTree2, newTree2, changes2)
-
-	// The new modal should be sent WITH statics (since registry was invalidated)
-	result, ok := changes2.Dynamics["0"].(*TreeNode)
-	if !ok {
-		t.Fatalf("Expected TreeNode in changes, got: %T", changes2.Dynamics["0"])
-	}
-
-	// Statics should be included (not stripped)
-	if result.Statics == nil || len(result.Statics) == 0 {
-		t.Error("Expected statics to be included when modal is shown after being hidden")
-	}
-}
-
 // TestIsStrippedValueEmpty tests the empty value detection helper.
 func TestIsStrippedValueEmpty(t *testing.T) {
 	tests := []struct {
-		name     string
-		value    interface{}
+		name      string
+		value     interface{}
 		wantEmpty bool
 	}{
 		{"empty map", map[string]interface{}{}, true},
@@ -948,11 +729,11 @@ func TestIsStrippedValueEmpty(t *testing.T) {
 // TestHandleStructureValue tests the core structure value handling logic.
 func TestHandleStructureValue(t *testing.T) {
 	tests := []struct {
-		name                string
-		newValue            interface{}
+		name               string
+		newValue           interface{}
 		clientHasStructure bool
-		wantShouldTrack     bool
-		checkValue          func(t *testing.T, value interface{})
+		wantShouldTrack    bool
+		checkValue         func(t *testing.T, value interface{})
 	}{
 		{
 			name: "client has structure - returns stripped",
@@ -961,7 +742,7 @@ func TestHandleStructureValue(t *testing.T) {
 				Dynamics: map[string]interface{}{"0": "content"},
 			},
 			clientHasStructure: true,
-			wantShouldTrack:     false,
+			wantShouldTrack:    false,
 			checkValue: func(t *testing.T, value interface{}) {
 				// Stripped value should not include statics
 				if valueMap, ok := value.(map[string]interface{}); ok {
@@ -978,7 +759,7 @@ func TestHandleStructureValue(t *testing.T) {
 				Dynamics: map[string]interface{}{"0": "content"},
 			},
 			clientHasStructure: false,
-			wantShouldTrack:     true,
+			wantShouldTrack:    false, // shouldTrack is always false now
 			checkValue: func(t *testing.T, value interface{}) {
 				// Should return original TreeNode
 				if _, ok := value.(*TreeNode); !ok {
@@ -992,8 +773,8 @@ func TestHandleStructureValue(t *testing.T) {
 				Statics:  []string{"<div>", "</div>"},
 				Dynamics: map[string]interface{}{},
 			},
-			clientHasStructure: true, // Client has structure, so we strip
-			wantShouldTrack:     false,
+			clientHasStructure: true,
+			wantShouldTrack:    false,
 			checkValue: func(t *testing.T, value interface{}) {
 				// With the fix to isStrippedValueEmpty, empty TreeNodes are now recognized
 				// So we should get an empty string
@@ -1003,10 +784,10 @@ func TestHandleStructureValue(t *testing.T) {
 			},
 		},
 		{
-			name:                "nil value returns empty string",
-			newValue:            nil,
-			clientHasStructure:  false,
-			wantShouldTrack:     false,
+			name:               "nil value returns empty string",
+			newValue:           nil,
+			clientHasStructure: false,
+			wantShouldTrack:    false,
 			checkValue: func(t *testing.T, value interface{}) {
 				if value != "" {
 					t.Errorf("Expected empty string for nil value, got %v", value)
@@ -1025,53 +806,6 @@ func TestHandleStructureValue(t *testing.T) {
 				tt.checkValue(t, value)
 			}
 		})
-	}
-}
-
-// TestHandleNewField_WithRegistry tests registry interaction.
-func TestHandleNewField_WithRegistry(t *testing.T) {
-	registry := newMockRegistry()
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
-
-	newNode := &TreeNode{
-		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "content"},
-	}
-
-	// First time: registry doesn't have structure
-	handleNewField("0", newNode, "0", false, registry, changes)
-
-	if !registry.HasSeen("0", newNode) {
-		t.Error("Expected registry to track new structure")
-	}
-
-	// Second time: registry already has structure
-	changes = &TreeNode{Dynamics: make(map[string]interface{})}
-	handleNewField("1", newNode, "1", false, registry, changes)
-
-	// Should use stripped value since not first time
-	if changes.Dynamics["1"] == nil {
-		t.Error("Expected field to be set")
-	}
-}
-
-// TestHandleNewField_NilRegistryInInterface tests the nil-in-interface edge case.
-func TestHandleNewField_NilRegistryInInterface(t *testing.T) {
-	// Create nil pointer wrapped in interface
-	var nilPtr *mockStructureRegistry
-	var registry StructureRegistry = nilPtr
-
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
-	newNode := &TreeNode{
-		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "content"},
-	}
-
-	// Should handle gracefully without panic
-	handleNewField("0", newNode, "0", false, registry, changes)
-
-	if changes.Dynamics["0"] == nil {
-		t.Error("Expected field to be set even with nil registry")
 	}
 }
 
@@ -1095,7 +829,7 @@ func TestCompareTreesAndGetChangesWithPath_DeepNesting(t *testing.T) {
 	oldTree := createNested(5, "old")
 	newTree := createNested(5, "new")
 
-	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", nil, nil)
+	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", nil)
 
 	if !changes.HasDynamics() {
 		t.Fatal("Expected changes for deeply nested structure")
@@ -1160,51 +894,298 @@ func TestHandleEmptyRangeDiff(t *testing.T) {
 	}
 }
 
-// TestHandleChangedField_NestedTreeNodeToPrimitive tests that registry is correctly
-// invalidated for nested TreeNode → primitive transitions.
-// This ensures the path parameter passed to InvalidatePath is correct for nested structures.
-func TestHandleChangedField_NestedTreeNodeToPrimitive(t *testing.T) {
-	registry := newMockRegistry()
+// =============================================================================
+// Fingerprint-Based Diffing Tests (Phase 2)
+// =============================================================================
 
-	// Simulate a nested structure: parent > container > modal
-	// Path would be something like "0.1.2"
-	nestedModal := &TreeNode{
-		Statics:  []string{"<div class=\"nested-modal\">", "</div>"},
-		Dynamics: map[string]interface{}{"0": "nested content"},
+// TestClientNeedsStatics_NilOldTree tests that first render always needs statics.
+func TestClientNeedsStatics_NilOldTree(t *testing.T) {
+	newTree := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{"0": "hello"},
 	}
 
-	// Mark nested paths as seen
-	registry.MarkSeen("0.1.2", nestedModal)
-	registry.MarkSeen("0.1.2.0", "content marker")
-	// Also mark some sibling paths that should NOT be removed
-	registry.MarkSeen("0.1", "container marker")
-	registry.MarkSeen("0.1.3", "sibling marker")
-
-	// Verify registry has the entries
-	if !registry.seen["0.1.2"] {
-		t.Error("Registry should have entry for '0.1.2'")
+	// First render (nil old) should always need statics
+	if !ClientNeedsStatics(nil, newTree) {
+		t.Error("Expected ClientNeedsStatics to return true for nil old tree (first render)")
 	}
-	if !registry.seen["0.1.2.0"] {
-		t.Error("Registry should have entry for '0.1.2.0'")
+}
+
+// TestClientNeedsStatics_NilNewTree tests that removed tree doesn't need statics.
+func TestClientNeedsStatics_NilNewTree(t *testing.T) {
+	oldTree := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{"0": "hello"},
 	}
 
-	// Now the nested modal becomes empty
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
-	handleChangedField("0.1.2", nestedModal, "", "0.1.2", false, nil, registry, nil, nil, changes)
+	// Removed tree (nil new) should not need statics
+	if ClientNeedsStatics(oldTree, nil) {
+		t.Error("Expected ClientNeedsStatics to return false for nil new tree (removal)")
+	}
+}
 
-	// After TreeNode → primitive, registry should invalidate path "0.1.2" and children
-	if registry.seen["0.1.2"] {
-		t.Error("Registry should NOT have entry for '0.1.2' after TreeNode→primitive")
+// TestClientNeedsStatics_SameStructure tests that identical structures don't need statics.
+func TestClientNeedsStatics_SameStructure(t *testing.T) {
+	oldTree := &TreeNode{
+		Statics:  []string{"<div class=\"test\">", "</div>"},
+		Dynamics: map[string]interface{}{"0": "old value"},
 	}
-	if registry.seen["0.1.2.0"] {
-		t.Error("Registry should NOT have entry for '0.1.2.0' (child) after TreeNode→primitive")
+	newTree := &TreeNode{
+		Statics:  []string{"<div class=\"test\">", "</div>"},
+		Dynamics: map[string]interface{}{"0": "new value"},
 	}
 
-	// Sibling paths should still exist
-	if !registry.seen["0.1"] {
-		t.Error("Registry should still have entry for '0.1' (parent)")
+	// Same statics, different dynamics - client already has statics
+	if ClientNeedsStatics(oldTree, newTree) {
+		t.Error("Expected ClientNeedsStatics to return false when statics are identical")
 	}
-	if !registry.seen["0.1.3"] {
-		t.Error("Registry should still have entry for '0.1.3' (sibling)")
+}
+
+// TestClientNeedsStatics_DifferentStructure tests that different structures need statics.
+func TestClientNeedsStatics_DifferentStructure(t *testing.T) {
+	oldTree := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{"0": "value"},
+	}
+	newTree := &TreeNode{
+		Statics:  []string{"<span>", "</span>"},
+		Dynamics: map[string]interface{}{"0": "value"},
+	}
+
+	// Different statics - client needs new statics
+	if !ClientNeedsStatics(oldTree, newTree) {
+		t.Error("Expected ClientNeedsStatics to return true when statics differ")
+	}
+}
+
+// TestClientNeedsStatics_NestedStructureSame tests nested structures with same fingerprint.
+func TestClientNeedsStatics_NestedStructureSame(t *testing.T) {
+	oldTree := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"0": &TreeNode{
+				Statics:  []string{"<span>", "</span>"},
+				Dynamics: map[string]interface{}{"0": "nested old"},
+			},
+		},
+	}
+	newTree := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"0": &TreeNode{
+				Statics:  []string{"<span>", "</span>"},
+				Dynamics: map[string]interface{}{"0": "nested new"},
+			},
+		},
+	}
+
+	// Same nested structure - client already has statics
+	if ClientNeedsStatics(oldTree, newTree) {
+		t.Error("Expected ClientNeedsStatics to return false for same nested structure")
+	}
+}
+
+// TestClientNeedsStatics_NestedStructureDifferent tests nested structures with different fingerprint.
+func TestClientNeedsStatics_NestedStructureDifferent(t *testing.T) {
+	oldTree := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"0": &TreeNode{
+				Statics:  []string{"<span>", "</span>"},
+				Dynamics: map[string]interface{}{"0": "nested"},
+			},
+		},
+	}
+	newTree := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"0": &TreeNode{
+				Statics:  []string{"<p>", "</p>"}, // Different nested statics
+				Dynamics: map[string]interface{}{"0": "nested"},
+			},
+		},
+	}
+
+	// Different nested structure - client needs new statics
+	if !ClientNeedsStatics(oldTree, newTree) {
+		t.Error("Expected ClientNeedsStatics to return true for different nested structure")
+	}
+}
+
+// TestClientNeedsStaticsForValue_BothPrimitives tests primitive value comparison.
+func TestClientNeedsStaticsForValue_BothPrimitives(t *testing.T) {
+	// Primitive values don't need statics
+	if clientNeedsStaticsForValue("old", "new") {
+		t.Error("Expected false for primitive values")
+	}
+}
+
+// TestClientNeedsStaticsForValue_NewIsTree tests when new value becomes a tree.
+func TestClientNeedsStaticsForValue_NewIsTree(t *testing.T) {
+	oldValue := "primitive"
+	newValue := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{"0": "hello"},
+	}
+
+	// Old was primitive, new is tree - client needs statics for new tree
+	if !clientNeedsStaticsForValue(oldValue, newValue) {
+		t.Error("Expected true when new value is a tree but old wasn't")
+	}
+}
+
+// TestClientNeedsStaticsForValue_OldIsTree tests when old value was a tree.
+func TestClientNeedsStaticsForValue_OldIsTree(t *testing.T) {
+	oldValue := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{"0": "hello"},
+	}
+	newValue := "primitive"
+
+	// Old was tree, new is primitive - no statics to send
+	if clientNeedsStaticsForValue(oldValue, newValue) {
+		t.Error("Expected false when new value is not a tree")
+	}
+}
+
+// TestCompareTreesWithFingerprint_SameStructureDifferentDynamics tests that
+// when structure is the same (same fingerprint), only dynamics are included in diff.
+func TestCompareTreesWithFingerprint_SameStructureDifferentDynamics(t *testing.T) {
+	oldTree := &TreeNode{
+		Statics:  []string{"<div class=\"container\">", "</div>"},
+		Dynamics: map[string]interface{}{"0": "old text"},
+	}
+	newTree := &TreeNode{
+		Statics:  []string{"<div class=\"container\">", "</div>"},
+		Dynamics: map[string]interface{}{"0": "new text"},
+	}
+
+	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", nil)
+
+	// Should have changed dynamic
+	if !changes.HasDynamics() {
+		t.Error("Expected changes for different dynamics")
+	}
+
+	changedValue, exists := changes.GetDynamic("0")
+	if !exists {
+		t.Error("Expected dynamic '0' to be changed")
+	}
+	if changedValue != "new text" {
+		t.Errorf("Expected 'new text', got: %v", changedValue)
+	}
+
+	// Should NOT have statics (client already has them - same fingerprint)
+	if changes.HasStatics() {
+		t.Errorf("Expected no statics in diff when structure unchanged, got: %v", changes.Statics)
+	}
+}
+
+// TestCompareNestedTreesWithFingerprint_StructureChangeSendsFullTree tests that
+// when nested structure changes, the full tree with statics is sent.
+func TestCompareNestedTreesWithFingerprint_StructureChangeSendsFullTree(t *testing.T) {
+	oldTree := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"0": &TreeNode{
+				Statics:  []string{"<span>", "</span>"},
+				Dynamics: map[string]interface{}{"0": "text"},
+			},
+		},
+	}
+	newTree := &TreeNode{
+		Statics: []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{
+			"0": &TreeNode{
+				Statics:  []string{"<p class=\"changed\">", "</p>"}, // Changed structure
+				Dynamics: map[string]interface{}{"0": "text"},
+			},
+		},
+	}
+
+	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", nil)
+
+	// Should have nested tree in dynamics
+	if !changes.HasDynamics() {
+		t.Error("Expected changes when nested structure changes")
+	}
+
+	nestedChange, exists := changes.GetDynamic("0")
+	if !exists {
+		t.Error("Expected dynamic '0' to be changed")
+	}
+
+	// The nested change should be the full new TreeNode (with statics)
+	nestedTree, ok := nestedChange.(*TreeNode)
+	if !ok {
+		t.Errorf("Expected nested change to be *TreeNode, got: %T", nestedChange)
+		return
+	}
+
+	// Full tree should have statics since structure changed
+	if !nestedTree.HasStatics() {
+		t.Error("Expected nested tree to include statics when structure changed")
+	}
+	if len(nestedTree.Statics) != 2 || nestedTree.Statics[0] != "<p class=\"changed\">" {
+		t.Errorf("Expected new statics in nested tree, got: %v", nestedTree.Statics)
+	}
+}
+
+// TestHandleMatchedRanges_FingerprintSameStructure tests that range operations
+// strip statics when structure fingerprints match.
+func TestHandleMatchedRanges_FingerprintSameStructure(t *testing.T) {
+	// Old and new ranges with same structure but different items
+	oldTree := &TreeNode{
+		Statics: []string{"<ul>", "</ul>"},
+		Range: &RangeData{
+			Statics: []string{"<li>", "</li>"},
+			Items: []interface{}{
+				&TreeNode{Dynamics: map[string]interface{}{"0": "item-1", "_k": "1"}},
+			},
+		},
+	}
+	newTree := &TreeNode{
+		Statics: []string{"<ul>", "</ul>"},
+		Range: &RangeData{
+			Statics: []string{"<li>", "</li>"},
+			Items: []interface{}{
+				&TreeNode{Dynamics: map[string]interface{}{"0": "item-1", "_k": "1"}},
+				&TreeNode{Dynamics: map[string]interface{}{"0": "item-2", "_k": "2"}},
+			},
+		},
+	}
+
+	// Structures are the same (same statics), so fingerprints should match
+	if ClientNeedsStatics(oldTree, newTree) {
+		t.Error("Expected ClientNeedsStatics to return false for same range structure")
+	}
+}
+
+// TestHandleMatchedRanges_FingerprintDifferentStructure tests that range operations
+// include statics when structure fingerprints differ.
+func TestHandleMatchedRanges_FingerprintDifferentStructure(t *testing.T) {
+	// Old and new ranges with different structure
+	oldTree := &TreeNode{
+		Statics: []string{"<ul>", "</ul>"},
+		Range: &RangeData{
+			Statics: []string{"<li>", "</li>"},
+			Items: []interface{}{
+				&TreeNode{Dynamics: map[string]interface{}{"0": "item-1", "_k": "1"}},
+			},
+		},
+	}
+	newTree := &TreeNode{
+		Statics: []string{"<ol>", "</ol>"}, // Changed from <ul> to <ol>
+		Range: &RangeData{
+			Statics: []string{"<li class=\"ordered\">", "</li>"}, // Changed item statics
+			Items: []interface{}{
+				&TreeNode{Dynamics: map[string]interface{}{"0": "item-1", "_k": "1"}},
+			},
+		},
+	}
+
+	// Structures are different, so fingerprints should NOT match
+	if !ClientNeedsStatics(oldTree, newTree) {
+		t.Error("Expected ClientNeedsStatics to return true for different range structure")
 	}
 }

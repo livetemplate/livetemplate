@@ -386,18 +386,20 @@ func TestHandleMapRange(t *testing.T) {
 	}
 }
 
-// TestBuildRangeTree tests range tree construction.
-func TestBuildRangeTree(t *testing.T) {
-	itemTrees := []interface{}{
-		&TreeNode{Dynamics: map[string]interface{}{"0": "a"}},
-		&TreeNode{Dynamics: map[string]interface{}{"0": "b"}},
-	}
+// TestBuildRangeTreeWithStatics_Homogeneous tests homogeneous range tree construction.
+func TestBuildRangeTreeWithStatics_Homogeneous(t *testing.T) {
 	itemStatics := []string{"<div id=\"", "\">", "</div>"}
+	staticsHash := hashStatics(itemStatics)
+
+	items := []rangeItemWithStatics{
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "a"}}, statics: itemStatics, hash: staticsHash},
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "b"}}, statics: itemStatics, hash: staticsHash},
+	}
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := buildRangeTree(itemTrees, itemStatics, ctx)
+	tree, err := buildRangeTreeWithStatics(items, ctx)
 	if err != nil {
-		t.Fatalf("buildRangeTree failed: %v", err)
+		t.Fatalf("buildRangeTreeWithStatics failed: %v", err)
 	}
 
 	if tree == nil {

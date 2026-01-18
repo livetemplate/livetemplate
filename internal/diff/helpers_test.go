@@ -230,28 +230,6 @@ func TestContainsRangeConstruct(t *testing.T) {
 	}
 }
 
-// TestAreStructuresSimilar tests structure similarity detection.
-func TestAreStructuresSimilar(t *testing.T) {
-	oldTree := &TreeNode{
-		Statics: []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{
-			"0": "old",
-		},
-	}
-
-	newTree := &TreeNode{
-		Statics: []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{
-			"0": "new",
-		},
-	}
-
-	// Test that function doesn't panic
-	_ = AreStructuresSimilar(oldTree, newTree)
-	_ = AreStructuresSimilar(nil, newTree)
-	_ = AreStructuresSimilar(oldTree, nil)
-}
-
 // TestDeepEqual tests deep equality for various types.
 func TestDeepEqual(t *testing.T) {
 	tests := []struct {

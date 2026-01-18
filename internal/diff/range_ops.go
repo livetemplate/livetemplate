@@ -76,8 +76,6 @@ func extractRangeData(oldValue, newValue interface{}) (
 	// oldNode.Statics will be minimal (e.g., [""]) for empty ranges.
 	// newNode.Statics may be nil if ShouldIncludeStatics() returned false.
 	// In that case, check newNode.Range.Statics which should have the item template.
-	// For heterogeneous ranges (items with different statics due to conditionals),
-	// Range.Statics is nil and Range.StaticsMap contains per-item statics.
 	if len(oldItems) == 0 && len(newItems) > 0 {
 		// Try newNode.Statics first (set if ShouldIncludeStatics was true)
 		if newNode.Statics != nil && len(newNode.Statics) > 0 {
@@ -85,9 +83,6 @@ func extractRangeData(oldValue, newValue interface{}) (
 		} else if newNode.Range != nil && len(newNode.Range.Statics) > 0 {
 			// Fall back to Range.Statics which should always have item template
 			statics = newNode.Range.Statics
-		} else if newNode.Range != nil && len(newNode.Range.StaticsMap) > 0 {
-			// Heterogeneous range: use StaticsMap (items have _sk field referencing it)
-			statics = newNode.Range.StaticsMap
 		}
 		// If all are empty/nil, statics remains as oldNode.Statics (minimal)
 	} else if staticsSlice, ok := statics.([]string); ok && len(staticsSlice) == 0 {
@@ -96,9 +91,6 @@ func extractRangeData(oldValue, newValue interface{}) (
 			statics = newNode.Statics
 		} else if newNode.Range != nil && len(newNode.Range.Statics) > 0 {
 			statics = newNode.Range.Statics
-		} else if newNode.Range != nil && len(newNode.Range.StaticsMap) > 0 {
-			// Heterogeneous range fallback
-			statics = newNode.Range.StaticsMap
 		}
 	}
 
@@ -123,12 +115,7 @@ func generateRemovalOperations(
 
 	// Find removed items (in old but not in new)
 	// Extract and sort keys to ensure deterministic order
-	sortedOldKeys := make([]string, 0, len(oldItems))
-	for _, item := range oldItems {
-		if key, ok := GetItemKey(item, statics); ok {
-			sortedOldKeys = append(sortedOldKeys, key)
-		}
-	}
+	sortedOldKeys := ExtractItemKeys(oldItems, statics)
 	sort.Strings(sortedOldKeys)
 
 	for _, key := range sortedOldKeys {
@@ -152,12 +139,7 @@ func generateUpdateOperations(
 
 	// Find updated items (in both, but changed)
 	// Extract and sort keys to ensure deterministic order
-	sortedNewKeys := make([]string, 0, len(newItems))
-	for _, item := range newItems {
-		if key, ok := GetItemKey(item, statics); ok {
-			sortedNewKeys = append(sortedNewKeys, key)
-		}
-	}
+	sortedNewKeys := ExtractItemKeys(newItems, statics)
 	sort.Strings(sortedNewKeys)
 
 	for _, key := range sortedNewKeys {
@@ -382,6 +364,7 @@ func CompareRangeItemsForChanges(oldItem, newItem interface{}, statics interface
 }
 
 // handleNestedTreeNodeChange handles changes in nested TreeNode fields.
+// Uses fingerprint comparison to detect static structure changes.
 func handleNestedTreeNodeChange(
 	fieldKey string,
 	oldValue interface{},
@@ -413,15 +396,15 @@ func handleNestedTreeNodeChange(
 			oldStripped := PrepareTreeForClient(oldTreeNode, true)
 			if IsEmpty(oldStripped) {
 				// Both old and new strip to empty (static-only).
-				// But we MUST check if the statics are different!
+				// Use fingerprint comparison to detect if statics changed.
 				// e.g., old: {"s":["checked"]} vs new: {"s":[]}
 				// Both strip to empty but the visual output is different.
-				if !DeepEqual(oldTreeNode.Statics, newTreeNode.Statics) {
-					// Statics are different - this IS a meaningful change.
-					// Send empty string to indicate the field should be cleared.
+				if ClientNeedsStatics(oldTreeNode, newTreeNode) {
+					// Structure fingerprints differ - statics changed.
+					// Send empty string to indicate the field should be cleared/re-rendered.
 					changes[fieldKey] = ""
 				}
-				// If statics are the same, truly no change - skip it
+				// If fingerprints are the same, truly no change - skip it
 				return
 			}
 		}
@@ -444,7 +427,6 @@ func createItemKeyMap(items []interface{}, statics interface{}) map[string]inter
 	}
 	return itemsByKey
 }
-
 
 // stripStaticsFromOperations removes statics from all operations.
 // Range operations have format: ['a'/'p'/'i', items, statics?, metadata?]

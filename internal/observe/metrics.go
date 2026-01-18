@@ -25,6 +25,11 @@ type Metrics struct {
 	wsSlowClientCloses  atomic.Int64 // Total count of connections closed due to slow clients
 	wsWriteErrors       atomic.Int64 // Total count of WebSocket write errors
 
+	// Wire format metrics (fingerprint-based diff tracking)
+	fullTreeSends        atomic.Int64 // Total sends with statics (structure changed or first render)
+	dynamicsOnlySends    atomic.Int64 // Total sends without statics (structure unchanged)
+	fingerprintMismatches atomic.Int64 // Total fingerprint mismatches (structure changes detected)
+
 	// Gauges (atomic for thread safety)
 	activeConnections atomic.Int64
 	activeGroups      atomic.Int64
@@ -37,16 +42,20 @@ type Metrics struct {
 	buildDurations    *DurationHistogram
 	diffDurations     *DurationHistogram
 	actionDurations   *DurationHistogram
+
+	// Wire format histogram (track payload sizes)
+	updatePayloadBytes *SizeHistogram
 }
 
 // NewMetrics creates a new metrics tracker.
 func NewMetrics(logger *slog.Logger) *Metrics {
 	return &Metrics{
-		logger:            logger,
-		templateDurations: NewDurationHistogram(),
-		buildDurations:    NewDurationHistogram(),
-		diffDurations:     NewDurationHistogram(),
-		actionDurations:   NewDurationHistogram(),
+		logger:             logger,
+		templateDurations:  NewDurationHistogram(),
+		buildDurations:     NewDurationHistogram(),
+		diffDurations:      NewDurationHistogram(),
+		actionDurations:    NewDurationHistogram(),
+		updatePayloadBytes: NewSizeHistogram(),
 	}
 }
 
@@ -134,6 +143,30 @@ func (m *Metrics) WSAddBufferSize(delta int64) {
 	m.wsSendBufferSize.Add(delta)
 }
 
+// Wire format metrics operations
+
+// FullTreeSent records when a full tree (with statics) is sent to the client.
+// This happens on first render or when the structure fingerprint changes.
+func (m *Metrics) FullTreeSent() {
+	m.fullTreeSends.Add(1)
+}
+
+// DynamicsOnlySent records when only dynamics (no statics) are sent.
+// This happens when structure is unchanged (fingerprints match).
+func (m *Metrics) DynamicsOnlySent() {
+	m.dynamicsOnlySends.Add(1)
+}
+
+// FingerprintMismatch records when a structure change is detected via fingerprint comparison.
+func (m *Metrics) FingerprintMismatch() {
+	m.fingerprintMismatches.Add(1)
+}
+
+// UpdatePayloadSent records the size of an update payload sent to the client.
+func (m *Metrics) UpdatePayloadSent(sizeBytes int) {
+	m.updatePayloadBytes.Record(int64(sizeBytes))
+}
+
 // EmitPeriodically emits metrics at the specified interval.
 // This should be called in a goroutine: go metrics.EmitPeriodically(60*time.Second)
 func (m *Metrics) EmitPeriodically(interval time.Duration) {
@@ -161,6 +194,11 @@ func (m *Metrics) emit() {
 		"ws_slow_client_closes", m.wsSlowClientCloses.Load(),
 		"ws_write_errors", m.wsWriteErrors.Load(),
 
+		// Wire format counters (fingerprint-based diff tracking)
+		"full_tree_sends", m.fullTreeSends.Load(),
+		"dynamics_only_sends", m.dynamicsOnlySends.Load(),
+		"fingerprint_mismatches", m.fingerprintMismatches.Load(),
+
 		// Gauges
 		"active_connections", m.activeConnections.Load(),
 		"active_groups", m.activeGroups.Load(),
@@ -182,6 +220,11 @@ func (m *Metrics) emit() {
 		// Histogram percentiles (action processing)
 		"action_p50_ms", m.actionDurations.Percentile(50),
 		"action_p95_ms", m.actionDurations.Percentile(95),
+
+		// Histogram percentiles (update payload sizes)
+		"payload_p50_bytes", m.updatePayloadBytes.Percentile(50),
+		"payload_p95_bytes", m.updatePayloadBytes.Percentile(95),
+		"payload_p99_bytes", m.updatePayloadBytes.Percentile(99),
 	)
 }
 
@@ -283,4 +326,76 @@ func partition(arr []int64, low, high int) int {
 
 	arr[i+1], arr[high] = arr[high], arr[i+1]
 	return i + 1
+}
+
+// SizeHistogram tracks byte size distribution using a simple ring buffer.
+// Similar to DurationHistogram but for payload sizes instead of durations.
+// Thread-safe: uses mutex to protect samples array from concurrent access.
+type SizeHistogram struct {
+	mu      sync.RWMutex // Protects samples array
+	samples []int64
+	pos     atomic.Int64
+	size    int
+}
+
+// NewSizeHistogram creates a new size histogram.
+// Keeps the last 1000 samples for percentile calculation.
+func NewSizeHistogram() *SizeHistogram {
+	return &SizeHistogram{
+		samples: make([]int64, 1000),
+		size:    1000,
+	}
+}
+
+// Record adds a size sample (in bytes) to the histogram.
+func (h *SizeHistogram) Record(sizeBytes int64) {
+	pos := int(h.pos.Add(1) % int64(h.size))
+	h.mu.Lock()
+	h.samples[pos] = sizeBytes
+	h.mu.Unlock()
+}
+
+// Percentile returns the approximate percentile value in bytes.
+// p should be between 0 and 100 (e.g., 50 for median, 95 for p95).
+func (h *SizeHistogram) Percentile(p int) int64 {
+	if p < 0 || p > 100 {
+		return 0
+	}
+
+	// Copy samples with read lock to prevent data races
+	h.mu.RLock()
+	samplesCopy := make([]int64, h.size)
+	copy(samplesCopy, h.samples)
+	h.mu.RUnlock()
+
+	// Count non-zero samples
+	var count int
+	for _, s := range samplesCopy {
+		if s > 0 {
+			count++
+		}
+	}
+
+	if count == 0 {
+		return 0
+	}
+
+	// Simple percentile calculation using sorting
+	nonZero := make([]int64, 0, count)
+	for _, s := range samplesCopy {
+		if s > 0 {
+			nonZero = append(nonZero, s)
+		}
+	}
+
+	// Sort samples (reuse quickSort from DurationHistogram)
+	quickSort(nonZero, 0, len(nonZero)-1)
+
+	// Calculate percentile index
+	index := (p * len(nonZero)) / 100
+	if index >= len(nonZero) {
+		index = len(nonZero) - 1
+	}
+
+	return nonZero[index]
 }

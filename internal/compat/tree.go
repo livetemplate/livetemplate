@@ -16,11 +16,6 @@ func CalculateFingerprint(tree *build.TreeNode) string {
 	return build.CalculateFingerprint(tree)
 }
 
-// addFingerprintToTree wraps internal/build.AddFingerprintToTree for backward compatibility
-func AddFingerprintToTree(tree *build.TreeNode) *build.TreeNode {
-	return build.AddFingerprintToTree(tree)
-}
-
 // Wrapper functions for backward compatibility
 
 // generateRandomID wraps internal/build.GenerateRandomID for backward compatibility

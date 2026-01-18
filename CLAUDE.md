@@ -97,17 +97,21 @@ func TestState(t *testing.T) {
 
 ---
 
-## Version 0.3.0 - 5-Phase Architecture
+## 5-Phase Architecture (Current)
 
-**Key Changes:**
-- Refactored into 5 operational phases: Parse → Build → Diff → Render → Send
-- New internal packages: `internal/keys/`, `internal/render/`, `internal/send/`
-- Cleaner API naming: `KeyGenerator` → `Generator`, `RenderNode` → `Node`, etc.
-- Message formatting and serialization moved to `internal/send/`
-- HTML rendering isolated in `internal/render/`
-- Key generation isolated in `internal/keys/`
+The library is organized into 5 operational phases: **Parse → Build → Diff → Render → Send**
 
-**Migration:** The public API remains backward compatible through type aliases. Direct imports of `internal/build` types (KeyGenerator, RenderNode) should be updated to new package locations.
+Each phase has its own internal package with clear responsibilities:
+- `internal/parse/` - Template parsing into tree structures
+- `internal/build/` - Tree construction, fingerprinting, operations
+- `internal/diff/` - Tree comparison and update generation
+- `internal/render/` - HTML rendering utilities
+- `internal/send/` - Message formatting and serialization
+
+Additional supporting packages:
+- `internal/keys/` - Key generation for range items (`Generator` type)
+- `internal/session/` - Connection registry and async WebSocket handling
+- `internal/observe/` - Logging and metrics
 
 ## Core Architecture
 
@@ -175,7 +179,11 @@ The main `livetemplate` package provides a clean, minimal public API:
 **Phase 3: Diff** (`internal/diff/`)
 - Tree comparison and update generation
 - Components: tree_compare.go, range_ops.go, prepare.go, helpers.go, types.go
-- Generates minimal updates using orchestrator → coordinator → helper pattern
+- Architecture: Hierarchical delegation pattern
+  - Orchestrator: `CompareTreesAndGetChangesWithPath()` - entry point
+  - Delegators: `handle*()` functions for specialized cases
+  - Coordinator: `GenerateRangeDifferentialOperations()` for range ops
+  - Helpers: ~70 utility functions in helpers.go
 
 **Phase 4: Render** (`internal/render/`)
 - HTML rendering utilities
@@ -226,17 +234,12 @@ The main `livetemplate` package provides a clean, minimal public API:
     - Config option: `WithWebSocketBufferSize(int)`
     - Metrics: `wsBufferFull`, `wsSlowClientCloses`, `wsWriteErrors`, `wsSendBufferSize`
 
-12. **Structure Tracking (`internal/signature/`)**:
-    - StructureSignature for optimizing tree updates
-    - ClientStructureRegistry for tracking client-side structures
-    - Reduces update payload by detecting structure changes
-
-13. **Execution Context (`internal/context/`)**:
+12. **Execution Context (`internal/context/`)**:
     - TemplateContext for error handling and dev mode
     - Template execution utilities
     - Error propagation to client
 
-14. **Client Library (`client/livetemplate-client.ts`)**:
+13. **Client Library (`client/livetemplate-client.ts`)**:
     - TypeScript client for browser integration
     - Handles tree-based updates efficiently
     - Manages static content caching

@@ -143,73 +143,82 @@ func ContainsRangeConstruct(value interface{}) bool {
 	return false
 }
 
-// AreStructuresSimilar checks if two tree structures are fundamentally similar.
-// Returns true if they have similar structure (same static keys), false if completely different.
-func AreStructuresSimilar(oldTree, newTree *TreeNode) bool {
-	if oldTree == nil || newTree == nil {
+// DeepEqual compares two values deeply.
+// For TreeNode pointers, it uses TreeNodeEqual to ignore internal cache fields.
+// For other types, it uses reflect.DeepEqual.
+func DeepEqual(a, b interface{}) bool {
+	// Handle TreeNode comparisons specially
+	if aNode, ok := a.(*TreeNode); ok {
+		if bNode, ok := b.(*TreeNode); ok {
+			return TreeNodeEqual(aNode, bNode)
+		}
 		return false
 	}
-	return areStructuresSimilarTreeNode(oldTree, newTree)
+	return reflect.DeepEqual(a, b)
 }
 
-// areStructuresSimilarTreeNode is the internal implementation of AreStructuresSimilar.
-// It compares the structural skeleton of two trees, focusing on static parts which
-// represent the template structure rather than dynamic data.
-func areStructuresSimilarTreeNode(oldTree, newTree *TreeNode) bool {
-	// Check if both have statics - if statics differ, structures are different
-	oldHasS := oldTree.HasStatics()
-	newHasS := newTree.HasStatics()
-
-	if oldHasS != newHasS {
-		return false // One has statics, other doesn't - different structure
+// TreeNodeEqual compares two TreeNodes for equality, ignoring internal cache fields.
+// This is necessary because cachedStructureFingerprint may differ between otherwise
+// identical trees (old tree may have been cached, new tree hasn't).
+func TreeNodeEqual(a, b *TreeNode) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
 	}
 
-	if oldHasS && newHasS {
-		oldS := oldTree.Statics
-		newS := newTree.Statics
+	// Compare Statics
+	if !reflect.DeepEqual(a.Statics, b.Statics) {
+		return false
+	}
 
-		// Different statics array lengths = different structure
-		if len(oldS) != len(newS) {
+	// Compare Dynamics size
+	if len(a.Dynamics) != len(b.Dynamics) {
+		return false
+	}
+
+	// Compare each dynamic value
+	for key, aVal := range a.Dynamics {
+		bVal, exists := b.Dynamics[key]
+		if !exists {
 			return false
 		}
-
-		// Compare each static element - these represent HTML template structure
-		for i := range oldS {
-			if oldS[i] != newS[i] {
-				return false
-			}
-		}
-
-		// Special case: Conditional wrapper detection
-		// Templates like {{if .Cond}}...{{end}} are wrapped as {"s": ["", ""], "0": branchTree}
-		// where empty statics are placeholders and the actual structure is in child "0".
-		// We need to recursively compare the child structures to determine true similarity.
-		if len(oldS) == 2 && oldS[0] == "" && oldS[1] == "" &&
-			len(newS) == 2 && newS[0] == "" && newS[1] == "" {
-			// Check if both have exactly one dynamic child "0"
-			oldChild, oldHasChild := oldTree.GetDynamic("0")
-			newChild, newHasChild := newTree.GetDynamic("0")
-
-			if oldHasChild && newHasChild {
-				// Both have a "0" child - need to compare the actual branch structures
-				oldChildNode, oldIsNode := oldChild.(*TreeNode)
-				newChildNode, newIsNode := newChild.(*TreeNode)
-
-				if oldIsNode && newIsNode {
-					// Recursively check child similarity to see if branches have same structure
-					return areStructuresSimilarTreeNode(oldChildNode, newChildNode)
-				}
-			}
+		if !DeepEqual(aVal, bVal) {
+			return false
 		}
 	}
 
-	return true
-}
+	// Compare Fingerprint (the computed hash)
+	if a.Fingerprint != b.Fingerprint {
+		return false
+	}
 
-// DeepEqual compares two values deeply using reflect.DeepEqual.
-// This is more accurate and efficient than string comparison.
-func DeepEqual(a, b interface{}) bool {
-	return reflect.DeepEqual(a, b)
+	// Compare Range data if present
+	if (a.Range == nil) != (b.Range == nil) {
+		return false
+	}
+	if a.Range != nil {
+		if !reflect.DeepEqual(a.Range.Items, b.Range.Items) {
+			return false
+		}
+		if !reflect.DeepEqual(a.Range.Statics, b.Range.Statics) {
+			return false
+		}
+	}
+
+	// Compare Metadata if present
+	if (a.Metadata == nil) != (b.Metadata == nil) {
+		return false
+	}
+	if a.Metadata != nil && a.Metadata.IDKey != b.Metadata.IDKey {
+		return false
+	}
+
+	// Note: cachedStructureFingerprint is intentionally NOT compared
+	// It's an internal optimization field that may differ between trees
+
+	return true
 }
 
 // findKeyAttrPosition searches for key attributes in a string slice.
@@ -257,7 +266,6 @@ func FindKeyPositionFromStatics(statics interface{}) int {
 }
 
 // GetItemKey extracts the key from a range item using the statics structure.
-// For heterogeneous ranges (StaticsMap), looks up the item's statics via its _sk field.
 func GetItemKey(item interface{}, statics interface{}) (string, bool) {
 	// Handle TreeNode items
 	if itemNode, ok := item.(*TreeNode); ok {
@@ -289,40 +297,15 @@ func GetItemKey(item interface{}, statics interface{}) (string, bool) {
 }
 
 // getItemStatics returns the effective statics for an item.
-// For homogeneous ranges, returns the shared statics.
-// For heterogeneous ranges (StaticsMap), looks up via the item's _sk field.
+// All ranges use shared statics (homogeneous approach).
+// StaticsMap was removed in v0.8.0 - heterogeneous ranges use full replace via fingerprint diff.
 func getItemStatics(itemNode *TreeNode, statics interface{}) interface{} {
 	// Handle nil statics
 	if statics == nil {
 		return nil
 	}
 
-	// Check if statics is a StaticsMap (heterogeneous range)
-	if staticsMap, ok := statics.(map[string][]string); ok {
-		if len(staticsMap) == 0 {
-			return nil
-		}
-
-		// Get the item's statics key
-		if sk, exists := itemNode.GetDynamic("_sk"); exists {
-			if skStr, ok := sk.(string); ok {
-				if itemStatics, found := staticsMap[skStr]; found {
-					return itemStatics
-				}
-			}
-		}
-
-		// Fallback: use first statics by sorted key for deterministic behavior
-		// This handles edge cases where _sk is missing (indicates a bug, but fail gracefully)
-		keys := make([]string, 0, len(staticsMap))
-		for k := range staticsMap {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		return staticsMap[keys[0]]
-	}
-
-	// Homogeneous range or other format - return as-is
+	// Return statics as-is - all ranges use shared statics
 	return statics
 }
 
@@ -482,11 +465,12 @@ func IsPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []strin
 		keyPos := FindKeyPositionFromStatics(statics)
 		keyPosStr := fmt.Sprintf("%d", keyPos)
 
-		// Compare all fields except position field and key field
+		// Compare all fields except position field, key field, and auto-key field
 		for field, oldValue := range oldItemNode.Dynamics {
 			// Skip position field (contains positional display like "#0:")
 			// Skip key field (determined from statics)
-			if field == positionField || field == keyPosStr {
+			// Skip auto-generated key field "_k" (may be present in one tree but not the other)
+			if field == positionField || field == keyPosStr || field == "_k" {
 				continue
 			}
 
@@ -496,9 +480,9 @@ func IsPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []strin
 			}
 		}
 
-		// Also check that new item doesn't have extra fields (except position and key)
+		// Also check that new item doesn't have extra fields (except position, key, and auto-key)
 		for field := range newItemNode.Dynamics {
-			if field == positionField || field == keyPosStr {
+			if field == positionField || field == keyPosStr || field == "_k" {
 				continue
 			}
 			if _, exists := oldItemNode.GetDynamic(field); !exists {

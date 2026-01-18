@@ -282,48 +282,19 @@ func buildRangeTreeWithStatics(items []rangeItemWithStatics, ctx *Context) (*Tre
 		return rangeTree, nil
 	}
 
-	// Heterogeneous - items have different statics
-	// Build StaticsMap with hash-based deduplication
-	staticsMap := make(map[string][]string)
-	for _, item := range items {
-		if _, exists := staticsMap[item.hash]; !exists {
-			staticsMap[item.hash] = item.statics
-		}
-	}
-
-	// Build item trees with _sk (statics key) reference
-	for i, item := range items {
-		itemTree := extractItemDynamicsWithStaticsKey(item.tree, item.hash)
-		itemTrees[i] = itemTree
-	}
+	// Heterogeneous ranges (items with different statics) are handled the same as homogeneous.
+	// Use first item's statics as representative. The fingerprint-based diff will detect
+	// structure changes and trigger full tree sends when item structures change.
+	// This simplifies the code - no StaticsMap complexity.
 
 	// Detect ID key from first item's statics (for metadata)
 	idKey := detectIDKey(items[0].statics)
 
 	rangeTree := NewTreeNode()
-	// In heterogeneous case, StaticsMap is the source of truth.
-	// Leave TreeNode.Statics nil to avoid ambiguity.
-	rangeTree.Range = &RangeData{
-		Items:      itemTrees,
-		Statics:    nil, // Not used when StaticsMap is present
-		StaticsMap: staticsMap,
-	}
-	rangeTree.Metadata = NewTreeMetadata(idKey)
-	return rangeTree, nil
-}
-
-// buildRangeTree constructs the final range tree with metadata.
-// Deprecated: Use buildRangeTreeWithStatics instead for heterogeneous support.
-func buildRangeTree(itemTrees []interface{}, itemStatics []string, ctx *Context) (*TreeNode, error) {
-	// Detect ID key position in statics
-	idKey := detectIDKey(itemStatics)
-
-	// Return range comprehension format with ID metadata
-	rangeTree := NewTreeNode()
 	if ctx.ShouldIncludeStatics() {
-		rangeTree.Statics = itemStatics
+		rangeTree.Statics = items[0].statics
 	}
-	rangeTree.Range = NewRangeData(itemTrees, nil)
+	rangeTree.Range = NewRangeData(itemTrees, items[0].statics)
 	rangeTree.Metadata = NewTreeMetadata(idKey)
 	return rangeTree, nil
 }
@@ -362,21 +333,6 @@ func extractItemDynamics(itemTree *TreeNode) *TreeNode {
 	// This is more efficient than creating a new map and copying
 	return &TreeNode{
 		Dynamics: itemTree.Dynamics,
-	}
-}
-
-// extractItemDynamicsWithStaticsKey extracts dynamics and adds a _sk (statics key) field.
-// Used for heterogeneous ranges where each item may have different statics.
-func extractItemDynamicsWithStaticsKey(itemTree *TreeNode, staticsKey string) *TreeNode {
-	// Create a new dynamics map with the _sk key
-	dynamics := make(map[string]interface{}, len(itemTree.Dynamics)+1)
-	for k, v := range itemTree.Dynamics {
-		dynamics[k] = v
-	}
-	dynamics["_sk"] = staticsKey
-
-	return &TreeNode{
-		Dynamics: dynamics,
 	}
 }
 

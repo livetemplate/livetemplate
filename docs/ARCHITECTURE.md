@@ -79,7 +79,8 @@ LiveTemplate is a reactive web framework for Go that uses tree-based DOM diffing
 
 **Files:**
 - `types.go` - TreeNode type definitions
-- `node.go` - Tree node operations, fingerprinting
+- `node.go` - Tree node operations
+- `fingerprint.go` - Structure fingerprinting for diff optimization
 - `build.go` - Tree building from AST + data
 - `walk.go` - Tree traversal utilities
 
@@ -90,18 +91,22 @@ LiveTemplate is a reactive web framework for Go that uses tree-based DOM diffing
 
 **Key Functions:**
 - `Build(tmpl *parse.Template, data interface{}, keyGen *keys.Generator) (*TreeNode, error)`
+- `CalculateStructureFingerprint(tree *TreeNode) string` - Hash of static structure only
+- `CalculateFingerprint(tree *TreeNode) string` - Hash of full tree (statics + dynamics)
 
 #### `internal/diff/`
 **Responsibility:** Compute minimal differences between trees
 
 **Files:**
-- `diff.go` - Main diffing algorithm
-- `range.go` - Range-specific diffing
-- `optimize.go` - Diff optimizations
+- `tree_compare.go` - Main tree comparison algorithm
+- `range_ops.go` - Range-specific diffing operations
+- `prepare.go` - Wire format preparation (strip statics when cached)
+- `helpers.go` - Utility functions for diff operations
 
 **Key Functions:**
-- `Compute(old, new *build.TreeNode, logger *observe.Logger) *build.TreeNode`
-- `ComputeRangeDiff(old, new *build.TreeNode) []RangeOperation`
+- `CompareTreesAndGetChanges(old, new *build.TreeNode, ...) *build.TreeNode`
+- `ClientNeedsStatics(oldTree, newTree *build.TreeNode) bool` - Fingerprint-based comparison
+- `GenerateRangeDifferentialOperations(old, new *build.TreeNode) []interface{}`
 
 #### `internal/render/`
 **Responsibility:** Render trees and diffs to output formats
@@ -322,7 +327,7 @@ func haveSameKeys(keys1, keys2 []string) bool
 ### Tree Building
 - **Frequency:** Every render
 - **Complexity:** O(n) where n = data size
-- **Optimization:** Incremental fingerprinting
+- **Optimization:** Structure fingerprinting for O(1) statics decision
 
 ### Tree Diffing
 - **Frequency:** Every update (not first render)
@@ -346,10 +351,21 @@ Client receives complete tree with statics:
 }
 ```
 
-Client caches statics by structure signature.
+Client caches statics for reuse in subsequent updates.
 
 ### Subsequent Updates
-Client receives only changed dynamics:
+Server uses **fingerprint-based comparison** to determine if client needs statics:
+
+```go
+// Simple 4-case logic (inspired by Phoenix LiveView)
+func ClientNeedsStatics(oldTree, newTree *TreeNode) bool {
+    if oldTree == nil { return true }   // First render
+    if newTree == nil { return false }  // Removal
+    return CalculateStructureFingerprint(oldTree) != CalculateStructureFingerprint(newTree)
+}
+```
+
+When structure is unchanged, client receives only changed dynamics:
 ```json
 {
   "1": "Updated description"
@@ -359,6 +375,13 @@ Client receives only changed dynamics:
 Client uses cached statics + new dynamics to rebuild DOM.
 
 **Bandwidth savings:** ~90% for typical updates (statics are the largest part)
+
+### Fingerprint-Based Optimization
+The fingerprint approach (v0.8.0+) replaces the previous registry-based tracking:
+- **O(1) comparison** instead of path-based registry lookups
+- **Simpler logic**: 4 cases vs 49+ state transitions
+- **No registry state**: Server compares fingerprints directly
+- **"When in doubt, send full tree"**: Safe fallback for edge cases
 
 ## Security Considerations
 

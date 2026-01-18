@@ -64,11 +64,21 @@ jobs:
         go mod tidy
         echo "✓ Replace directive added"
 
-    - name: Run LVT tests
+    - name: Run LVT unit tests
       working-directory: lvt
       run: go test -v -race -timeout=10m ./...
       env:
         CGO_ENABLED: 1
+        # LIVETEMPLATE_LOCAL_PATH enables integration tests to add replace directives
+        # to generated apps, ensuring they use local livetemplate instead of released version
+        LIVETEMPLATE_LOCAL_PATH: ${{ github.workspace }}/livetemplate
+
+    - name: Run LVT browser E2E tests
+      working-directory: lvt
+      run: go test -v -race -timeout=15m -tags=browser ./...
+      env:
+        CGO_ENABLED: 1
+        LIVETEMPLATE_LOCAL_PATH: ${{ github.workspace }}/livetemplate
 
   test-examples:
     name: Test Examples against Core Changes
@@ -122,3 +132,114 @@ jobs:
       run: ./test-all.sh --skip-disabled
       env:
         CGO_ENABLED: 1
+
+  test-tinkerdown:
+    name: Test Tinkerdown against Core Changes
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout core library (this PR/branch)
+      uses: actions/checkout@v4
+      with:
+        path: livetemplate
+
+    - name: Checkout Tinkerdown
+      uses: actions/checkout@v4
+      with:
+        repository: livetemplate/tinkerdown
+        path: tinkerdown
+
+    - name: Checkout components library
+      uses: actions/checkout@v4
+      with:
+        repository: livetemplate/components
+        path: components
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: tinkerdown/client/package-lock.json
+
+    - name: Build Tinkerdown client
+      working-directory: tinkerdown/client
+      run: |
+        echo "Installing client dependencies..."
+        npm ci
+        echo "Building client library..."
+        npm run build
+        echo "✓ Tinkerdown client built successfully"
+
+    - name: Add replace directives to Tinkerdown
+      working-directory: tinkerdown
+      run: |
+        echo "Adding replace directives to use local core library..."
+        go mod edit -replace=github.com/livetemplate/livetemplate=../livetemplate
+        go mod edit -replace=github.com/livetemplate/components=../components
+        go mod tidy
+        echo "✓ Replace directives added"
+
+    - name: Build Tinkerdown binary
+      working-directory: tinkerdown
+      # E2E tests need the binary to start the server
+      # The main package may be in cmd/tinkerdown/ or root - try both
+      run: |
+        if [ -d "cmd/tinkerdown" ]; then
+          echo "Building from cmd/tinkerdown/"
+          go build -v -o tinkerdown ./cmd/tinkerdown
+        elif [ -d "cmd" ]; then
+          echo "Building from cmd/ (first main package found)"
+          MAIN_PKG=$(find cmd -name 'main.go' -exec dirname {} \; | head -1)
+          if [ -n "$MAIN_PKG" ]; then
+            go build -v -o tinkerdown "./$MAIN_PKG"
+          else
+            echo "No main.go found in cmd/, trying root"
+            go build -v -o tinkerdown .
+          fi
+        else
+          echo "Building from root"
+          go build -v -o tinkerdown .
+        fi
+        chmod +x tinkerdown
+        # Verify the binary is an executable, not an archive
+        file tinkerdown
+        if file tinkerdown | grep -q "ELF"; then
+          echo "✓ Binary is ELF executable"
+        else
+          echo "ERROR: Binary is not an ELF executable!"
+          file tinkerdown
+          exit 1
+        fi
+        ./tinkerdown --version || ./tinkerdown -h || echo "Binary built (no version flag)"
+        # Install to PATH for tests that look for 'tinkerdown' command
+        sudo cp tinkerdown /usr/local/bin/tinkerdown
+        # Also create symlinks in all test directories (E2E tests use ./tinkerdown)
+        find . -name '*_e2e_test.go' -exec dirname {} \; | sort -u | while read dir; do
+          if [ "$dir" != "." ]; then
+            ln -sf "$(pwd)/tinkerdown" "$dir/tinkerdown"
+            echo "  → Created symlink in $dir"
+          fi
+        done
+        echo "✓ Binary installed and symlinked"
+
+    - name: Run Tinkerdown unit tests
+      working-directory: tinkerdown
+      # Use -tags=ci to exclude //go:build !ci tests (E2E tests)
+      # Also skip TutorialNavigation test which requires Chrome but lacks //go:build !ci tag
+      run: go test -v -race -timeout=10m -tags=ci -skip='TutorialNavigation' ./...
+      env:
+        CGO_ENABLED: 1
+
+    - name: Run Tinkerdown browser E2E tests
+      working-directory: tinkerdown
+      # Skip TutorialNavigation (requires special setup) and TestLvtSourcePostgres (requires Docker)
+      run: go test -v -race -timeout=15m -skip='TutorialNavigation|TestLvtSourcePostgres' ./...
+      env:
+        CGO_ENABLED: 1
+        TINKERDOWN_BINARY: ${{ github.workspace }}/tinkerdown/tinkerdown
