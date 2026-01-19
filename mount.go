@@ -10,6 +10,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"reflect"
 	"strings"
@@ -170,9 +171,10 @@ type mountConfig struct {
 	WebSocketDisabled      bool
 	MaxConnections         int64                // Maximum total connections (0 = unlimited)
 	MaxConnectionsPerGroup int64                // Maximum connections per group (0 = unlimited)
-	CookieMaxAge           time.Duration        // Session cookie max age (default: 1 year)
+	CookieMaxAge           time.Duration                       // Session cookie max age (default: 1 year)
 	UploadConfigs          map[string]uploadtypes.UploadConfig // Upload field configurations
-	wsBufferSize           int                  // WebSocket send buffer size per connection (default: 50)
+	wsBufferSize           int                                 // WebSocket send buffer size per connection (default: 50)
+	ProgressiveEnhancement bool                                // Enable non-JS form submission support with PRG pattern (default: true)
 }
 
 // liveHandler handles both WebSocket and HTTP requests
@@ -254,6 +256,14 @@ func (c *connState) clearFlash() {
 		}
 	}
 	c.messages = newMessages
+}
+
+// getFlashValue returns the value of a flash message by key, or empty string if not set.
+// This is used for progressive enhancement to pass flash messages via query params.
+func (c *connState) getFlashValue(key string) string {
+	c.messagesMu.RLock()
+	defer c.messagesMu.RUnlock()
+	return c.messages[lvtcontext.FlashPrefix+key]
 }
 
 // hasErrors returns true if there are any field errors (non-flash messages)
@@ -634,6 +644,45 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Client disconnected: user=%q, group=%q (remaining: %d)", userID, groupID, h.registry.Count())
 }
 
+// wantsJSON returns true if the client expects a JSON response.
+// JS clients (fetch/XHR) send Accept: application/json, while browsers send text/html.
+// This is used for progressive enhancement to detect whether to return HTML or JSON.
+//
+// The function parses the Accept header and checks if the first meaningful media type
+// is application/json (or a +json subtype). This avoids treating browsers that include
+// application/json as a secondary option as JSON clients.
+func wantsJSON(r *http.Request) bool {
+	accept := r.Header.Get("Accept")
+	if accept == "" {
+		return false
+	}
+
+	// Parse the Accept header and consider only the first meaningful media range.
+	// This avoids treating browsers that primarily prefer text/html as JSON clients
+	// when they include application/json as a secondary option.
+	for _, part := range strings.Split(accept, ",") {
+		mt := strings.TrimSpace(part)
+		if mt == "" {
+			continue
+		}
+
+		// Strip any parameters (e.g. ";q=0.9").
+		if semi := strings.Index(mt, ";"); semi != -1 {
+			mt = strings.TrimSpace(mt[:semi])
+		}
+
+		// Ignore wildcard entries like "*/*".
+		if mt == "*/*" {
+			continue
+		}
+
+		// Treat explicit JSON types (including +json subtypes) as JSON.
+		return mt == "application/json" || strings.HasSuffix(mt, "+json")
+	}
+
+	return false
+}
+
 // setCookieIfNew sets the livetemplate-id cookie if it doesn't already exist
 func setCookieIfNew(w http.ResponseWriter, r *http.Request, groupID string, cookieMaxAge time.Duration) {
 	// Check if cookie already exists
@@ -811,7 +860,71 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Auto-broadcast to WebSocket connections
 	h.autoBroadcastToGroup(groupID, connSt.state, nil)
 
-	// Generate tree update
+	// Check if we should return HTML for progressive enhancement
+	// Progressive enhancement is enabled AND client does not want JSON
+	if h.config.ProgressiveEnhancement && !wantsJSON(r) {
+		// Non-JS client: return HTML response using POST-Redirect-GET pattern
+		if connSt.hasErrors() {
+			// Validation errors: re-render page with errors inline (no redirect)
+			// Write to buffer first to handle template errors gracefully
+			var buf bytes.Buffer
+			if err := httpTmpl.Execute(&buf, connSt.state, connSt.getMessages()); err != nil {
+				log.Printf("Template execution failed: %v", err)
+				http.Error(w, "An error occurred rendering the page. Please try again.", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if _, err := w.Write(buf.Bytes()); err != nil {
+				log.Printf("Failed to write validation error response: %v", err)
+			}
+			// Flash messages are preserved so they show in the re-rendered page
+			return
+		}
+
+		// Success: redirect to prevent duplicate submissions on refresh (PRG pattern)
+		redirectURL := r.URL.Path
+
+		// Preserve existing query params, filtering out flash-related ones to avoid duplicates
+		queryVals := r.URL.Query()
+		queryVals.Del("success")
+		queryVals.Del("error")
+		if encoded := queryVals.Encode(); encoded != "" {
+			redirectURL += "?" + encoded
+		}
+
+		// Add flash messages to query params if set during action.
+		// Note: Only "success" and "error" flash types are passed via query params.
+		// For other flash types, consider using session cookies instead.
+		if flashMsg := connSt.getFlashValue("success"); flashMsg != "" {
+			// Limit flash message length to prevent URL length issues (max ~2000 chars for URLs)
+			if len(flashMsg) > 500 {
+				flashMsg = flashMsg[:500]
+			}
+			if strings.Contains(redirectURL, "?") {
+				redirectURL += "&success=" + url.QueryEscape(flashMsg)
+			} else {
+				redirectURL += "?success=" + url.QueryEscape(flashMsg)
+			}
+		}
+		if flashMsg := connSt.getFlashValue("error"); flashMsg != "" {
+			if len(flashMsg) > 500 {
+				flashMsg = flashMsg[:500]
+			}
+			if strings.Contains(redirectURL, "?") {
+				redirectURL += "&error=" + url.QueryEscape(flashMsg)
+			} else {
+				redirectURL += "?error=" + url.QueryEscape(flashMsg)
+			}
+		}
+
+		// Clear flash messages before redirect (will be passed via query param)
+		connSt.clearFlash()
+
+		http.Redirect(w, r, redirectURL, http.StatusSeeOther) // 303 See Other
+		return
+	}
+
+	// JS client: return JSON tree update (existing behavior)
 	var buf bytes.Buffer
 	if err = httpTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getMessages()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

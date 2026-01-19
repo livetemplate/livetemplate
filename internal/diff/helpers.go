@@ -222,7 +222,7 @@ func TreeNodeEqual(a, b *TreeNode) bool {
 }
 
 // findKeyAttrPosition searches for key attributes in a string slice.
-// Returns the position where a key attribute is found, or 0 if not found.
+// Returns the position where a key attribute is found, or -1 if not found.
 func findKeyAttrPosition(statics []string, keyAttrs []string) int {
 	for i, staticStr := range statics {
 		// Check for any of the key attributes in priority order
@@ -233,11 +233,12 @@ func findKeyAttrPosition(statics []string, keyAttrs []string) int {
 			}
 		}
 	}
-	return 0 // Not found, default to 0
+	return -1 // Not found
 }
 
 // FindKeyPositionFromStatics parses the statics array to find which position contains the key.
 // Supports both []string and []interface{} formats for backward compatibility.
+// Returns -1 if no key attribute (data-key, id, etc.) is found in the statics.
 func FindKeyPositionFromStatics(statics interface{}) int {
 	// Priority order for key attributes (same as server-side)
 	keyAttrs := []string{`data-lvt-key="`, `data-key="`, `key="`, `id="`}
@@ -262,7 +263,7 @@ func FindKeyPositionFromStatics(statics interface{}) int {
 		return findKeyAttrPosition(stringSlice, keyAttrs)
 	}
 
-	return 0 // Unknown type, default to position 0 for backwards compatibility
+	return -1 // Unknown type, no key attribute found
 }
 
 // GetItemKey extracts the key from a range item using the statics structure.
@@ -280,16 +281,25 @@ func GetItemKey(item interface{}, statics interface{}) (string, bool) {
 		effectiveStatics := getItemStatics(itemNode, statics)
 
 		keyPos := FindKeyPositionFromStatics(effectiveStatics)
-		keyPosStr := fmt.Sprintf("%d", keyPos)
 
-		if key, exists := itemNode.GetDynamic(keyPosStr); exists {
-			if keyStr, ok := key.(string); ok {
-				return keyStr, true
+		// Only use position-based lookup if a key attribute was actually found
+		// (keyPos >= 0 means a key attribute like data-key, id, etc. was detected)
+		if keyPos >= 0 {
+			keyPosStr := fmt.Sprintf("%d", keyPos)
+			if key, exists := itemNode.GetDynamic(keyPosStr); exists {
+				if keyStr, ok := key.(string); ok {
+					return keyStr, true
+				}
 			}
 		}
 
-		// If no explicit key found, generate a content-based hash
-		// This ensures items have stable keys even without template key attributes
+		// No explicit key attribute found, generate a content-based hash.
+		// This ensures items have stable keys even without template key attributes.
+		//
+		// Performance note: Content-based hashing involves JSON marshaling and hashing
+		// for each item. For large lists (1000+ items), consider using explicit data-key
+		// attributes for better performance. Also note that content changes will result
+		// in remove+insert operations rather than updates, since the hash changes.
 		return GenerateItemHash(itemNode), true
 	}
 

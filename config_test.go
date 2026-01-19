@@ -374,11 +374,12 @@ func TestEnvConfig_ToOptions(t *testing.T) {
 		DevMode:                true,
 		WebSocketDisabled:      true,
 		LoadingDisabled:        true,
+		ProgressiveEnhancement: true, // Default is true, so no option generated
 	}
 
 	opts := config.ToOptions()
 
-	// Should have 6 options
+	// Should have 6 options (ProgressiveEnhancement=true doesn't generate an option)
 	if len(opts) != 6 {
 		t.Errorf("Expected 6 options, got %d", len(opts))
 	}
@@ -420,13 +421,39 @@ func TestEnvConfig_ToOptionsZeroValues(t *testing.T) {
 		MaxConnectionsPerGroup: 0,
 		AllowedOrigins:         nil,
 		DevMode:                false,
+		ProgressiveEnhancement: true, // Default is true, so no option generated
 	}
 
 	opts := config.ToOptions()
 
-	// Should have 0 options (all values are defaults/zero)
+	// Should have 0 options (all values are defaults)
+	// Note: ProgressiveEnhancement=true is the default, which generates no option
 	if len(opts) != 0 {
-		t.Errorf("Expected 0 options for zero values, got %d", len(opts))
+		t.Errorf("Expected 0 options for default values, got %d", len(opts))
+	}
+}
+
+func TestEnvConfig_ToOptionsProgressiveEnhancementFalse(t *testing.T) {
+	config := &EnvConfig{
+		ProgressiveEnhancement: false, // Explicitly disabled, should generate option
+	}
+
+	opts := config.ToOptions()
+
+	// Should have 1 option (WithProgressiveEnhancement(false))
+	if len(opts) != 1 {
+		t.Errorf("Expected 1 option for ProgressiveEnhancement=false, got %d", len(opts))
+	}
+
+	// Apply option and verify it sets ProgressiveEnhancement to false
+	cfg := &Config{}
+	cfg.ProgressiveEnhancement = true // Start with default true
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	if cfg.ProgressiveEnhancement != false {
+		t.Error("Expected ProgressiveEnhancement=false after applying option")
 	}
 }
 
