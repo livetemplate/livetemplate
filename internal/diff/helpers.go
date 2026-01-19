@@ -238,6 +238,7 @@ func findKeyAttrPosition(statics []string, keyAttrs []string) int {
 
 // FindKeyPositionFromStatics parses the statics array to find which position contains the key.
 // Supports both []string and []interface{} formats for backward compatibility.
+// Returns -1 if no key attribute (data-key, id, etc.) is found in the statics.
 func FindKeyPositionFromStatics(statics interface{}) int {
 	// Priority order for key attributes (same as server-side)
 	keyAttrs := []string{`data-lvt-key="`, `data-key="`, `key="`, `id="`}
@@ -292,8 +293,13 @@ func GetItemKey(item interface{}, statics interface{}) (string, bool) {
 			}
 		}
 
-		// No explicit key attribute found, generate a content-based hash
-		// This ensures items have stable keys even without template key attributes
+		// No explicit key attribute found, generate a content-based hash.
+		// This ensures items have stable keys even without template key attributes.
+		//
+		// Performance note: Content-based hashing involves JSON marshaling and hashing
+		// for each item. For large lists (1000+ items), consider using explicit data-key
+		// attributes for better performance. Also note that content changes will result
+		// in remove+insert operations rather than updates, since the hash changes.
 		return GenerateItemHash(itemNode), true
 	}
 

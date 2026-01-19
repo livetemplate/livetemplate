@@ -5,6 +5,13 @@ import (
 	"testing"
 )
 
+// NOTE: Tests in this file use explicit data-key attributes in statics to test key-based diffing.
+// For tests that verify hash-based key generation (when no key attribute is present), see:
+// - TestRangeDiff_WithoutExplicitKeys
+// - TestRangeDiff_RemovalWithoutExplicitKeys
+// - TestRangeDiff_ReorderWithoutExplicitKeys
+// - TestRangeDiff_SamePosition0DifferentItems
+
 // TestGenerateRangeDifferentialOperations_NoChange tests that no operations are generated when items are identical.
 func TestGenerateRangeDifferentialOperations_NoChange(t *testing.T) {
 	item1 := &TreeNode{
