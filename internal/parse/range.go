@@ -366,11 +366,16 @@ func extractItemDynamics(itemTree *TreeNode) *TreeNode {
 
 // hasExplicitKeyAttribute checks if any key attribute is present in the statics.
 // Returns true if id=, data-key=, key=, or similar attributes are found.
+//
+// NOTE: The keyAttrs list must stay synchronized with:
+//   - detectIDKey() in this file
+//   - internal/keys.DefaultKeyAttributes
 func hasExplicitKeyAttribute(statics []string) bool {
 	if len(statics) == 0 {
 		return false
 	}
 
+	// Key attributes to check (must match detectIDKey and internal/keys.DefaultKeyAttributes)
 	keyAttrs := []string{
 		"id=\"",
 		"data-key=\"",
@@ -456,6 +461,10 @@ const hashPrefixLength = 12
 // generateItemHash creates a stable hash for a range item based on its content.
 // This is used when no explicit key attribute is provided in the template.
 // Uses FNV-1a hash for fast, non-cryptographic content fingerprinting.
+//
+// NOTE: This function duplicates internal/diff.GenerateItemHash intentionally.
+// The parse package cannot import diff (circular dependency), and the
+// implementations must stay synchronized. Both use FNV-1a with hashPrefixLength=12.
 func generateItemHash(item *TreeNode) string {
 	if item == nil {
 		return ""
