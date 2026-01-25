@@ -106,7 +106,7 @@ Before diving into the 5 phases, understand the public API that applications use
 ### [template.go](../../template.go)
 Main entry point for creating and managing templates:
 - `New(name string, opts ...TemplateOpt) *Template` - Create a template
-- `Template.Handle(controller, state, ...options) http.Handler` - Mount template as HTTP handler
+- `Template.Handle(controller, state, ...options) LiveHandler` - Mount template as HTTP handler
 - `Template.ExecuteUpdates(data interface{}) (tree, error)` - Orchestrates all 5 phases
 
 **Example with v0.7.0 Controller+State pattern:**
@@ -155,7 +155,7 @@ func (c *TaskController) Mount(state TaskState, ctx *livetemplate.Context) (Task
 
 // Called on each WebSocket connect (optional)
 func (c *TaskController) OnConnect(state TaskState, ctx *livetemplate.Context) (TaskState, error) {
-    c.Logger.Info("User connected", "session", ctx.SessionID())
+    c.Logger.Info("User connected", "userID", ctx.UserID())
     return state, nil
 }
 
@@ -172,9 +172,8 @@ Unified context for all lifecycle and action methods:
 - `Context` - Provides action name, data, request metadata, session info
 - `Context.Action()` - Get current action name
 - `Context.UserID()` - Get authenticated user ID
-- `Context.SessionID()` - Get session ID
 - `Context.GetString(key)`, `GetInt(key)`, `GetBool(key)` - Type-safe data access
-- `Context.BindAndValidate(dest)` - Parse and validate form/JSON data
+- `Context.BindAndValidate(dest, validator)` - Parse and validate form/JSON data
 
 **Example action method:**
 ```go
@@ -182,12 +181,13 @@ func (c *TaskController) AddTask(state TaskState, ctx *livetemplate.Context) (Ta
     name := ctx.GetString("name")
     status := ctx.GetString("status")
     
-    // Or use binding for complex data:
+    // Or use binding for complex data (requires go-playground/validator):
     var req struct {
         Name   string `json:"name" validate:"required"`
         Status string `json:"status" validate:"required,oneof=pending done"`
     }
-    if err := ctx.BindAndValidate(&req); err != nil {
+    validate := validator.New()
+    if err := ctx.BindAndValidate(&req, validate); err != nil {
         return state, err  // Validation errors sent to client
     }
     
@@ -516,7 +516,7 @@ state := TaskState{
   "3": {     // Range update operations
     "_range": true,
     "_ops": [
-      ["i", "1", "end", {  // Insert operation
+      ["i", "1", {  // Insert after item "1"
         "s": ["<li>", " - ", "</li>"],
         "0": "Deploy app",
         "1": "pending"
@@ -533,7 +533,7 @@ state := TaskState{
   "3": {
     "_range": true,
     "_ops": [
-      ["i", "1", "end", {"0": "Deploy app", "1": "pending"}]
+      ["i", "1", {"0": "Deploy app", "1": "pending"}]
     ]
   }
 }
@@ -548,7 +548,7 @@ Only changed values are included. Statics are cached client-side and the insert 
 - [`range_ops.go`](../../internal/diff/range_ops.go) - Range-specific diffing
   - Generates operations:
     - `["u", "item-id", updates]` - Update existing item
-    - `["i", "after-id", "position", data]` - Insert new item
+    - `["i", "after-id", data]` - Insert new item after specified key
     - `["r", "item-id"]` - Remove item
     - `["o", ["id1", "id2", ...]]` - Reorder items
 - [`prepare.go`](../../internal/diff/prepare.go) - Wire format preparation
@@ -561,7 +561,7 @@ Only changed values are included. Statics are cached client-side and the insert 
 
 In our example, adding "Deploy app" generates:
 ```json
-["i", "1", "end", {"0": "Deploy app", "1": "pending"}]
+["i", "1", {"0": "Deploy app", "1": "pending"}]
 ```
 
 This insert operation is much smaller than re-sending all three tasks.
@@ -698,7 +698,7 @@ Continuing with our Task Manager example, when a user adds a task via an action 
   "3": {     // Range operations
     "_range": true,
     "_ops": [
-      ["i", "1", "end", {"0": "Deploy app", "1": "pending"}]
+      ["i", "1", {"0": "Deploy app", "1": "pending"}]
     ]
   }
 }
@@ -712,7 +712,7 @@ Continuing with our Task Manager example, when a user adds a task via an action 
     "3": {
       "_range": true,
       "_ops": [
-        ["i", "1", "end", {"0": "Deploy app", "1": "pending"}]
+        ["i", "1", {"0": "Deploy app", "1": "pending"}]
       ]
     }
   },
@@ -793,9 +793,9 @@ For our Task Manager example, adding one task:
 
 **LiveTemplate update (tree-based diffing):**
 ```json
-{"1":"3","3":{"_range":true,"_ops":[["i","1","end",{"0":"Deploy app","1":"pending"}]]}}
+{"1":"3","3":{"_range":true,"_ops":[["i","1",{"0":"Deploy app","1":"pending"}]]}}
 ```
-**Size:** ~80-100 bytes (60-70% smaller!)
+**Size:** ~75-90 bytes (60-70% smaller!)
 
 **Tests to explore:**
 - [`message_test.go`](../../internal/send/message_test.go) - Message parsing
@@ -938,7 +938,7 @@ Now that you understand the 5 phases, let's trace a complete flow with our Task 
      "3": {     // Range changed
        "_range": true,
        "_ops": [
-         ["i", "1", "end", {"0": "Deploy app", "1": "pending"}]
+         ["i", "1", {"0": "Deploy app", "1": "pending"}]
        ]
      }
    }
@@ -951,7 +951,7 @@ Now that you understand the 5 phases, let's trace a complete flow with our Task 
        "1": "3",
        "3": {
          "_range": true,
-         "_ops": [["i", "1", "end", {"0": "Deploy app", "1": "pending"}]]
+         "_ops": [["i", "1", {"0": "Deploy app", "1": "pending"}]]
        }
      },
      "meta": {"success": true, "action": "addTask"}
@@ -1258,11 +1258,11 @@ See: [`internal/keys/generator.go`](../../internal/keys/generator.go)
 **Architecture:**
 - [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) - Detailed design and diagrams
 - [`docs/CODE_STRUCTURE.md`](../CODE_STRUCTURE.md) - Code organization
-- [`docs/design/FIRST_PRINCIPLES.md`](../design/FIRST_PRINCIPLES.md) - Core principles (if exists)
+- [`docs/design/FIRST_PRINCIPLES.md`](../design/FIRST_PRINCIPLES.md) - Core principles
 
 **Specifications:**
 - [`docs/specifications/tree-update-specification.md`](../specifications/tree-update-specification.md) - Tree format spec
-- [`docs/specifications/test-scenarios.md`](../specifications/test-scenarios.md) - Test coverage (if exists)
+- [`docs/specifications/test-scenarios.md`](../specifications/test-scenarios.md) - Test coverage
 
 **Examples:**
 - [Counter](https://github.com/livetemplate/examples/tree/main/counter) - Simplest example
