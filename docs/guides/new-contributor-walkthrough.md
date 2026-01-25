@@ -105,9 +105,9 @@ Before diving into the 5 phases, understand the public API that applications use
 
 ### [template.go](../../template.go)
 Main entry point for creating and managing templates:
-- `New(name string, opts ...TemplateOpt) *Template` - Create a template
-- `Template.Handle(controller, state, ...options) LiveHandler` - Mount template as HTTP handler
-- `Template.ExecuteUpdates(data interface{}) (tree, error)` - Orchestrates all 5 phases
+- `New(name string, opts ...Option) (*Template, error)` - Create a template
+- `Template.Handle(controller, state, ...HandleOption) LiveHandler` - Mount template as HTTP handler
+- `Template.ExecuteUpdates(w io.Writer, data interface{}, messages ...map[string]string) error` - Orchestrates all 5 phases
 
 **Example with v0.7.0 Controller+State pattern:**
 ```go
@@ -124,9 +124,14 @@ type TaskState struct {
     Tasks      []Task
 }
 
-// Create template
-tmpl := livetemplate.New("tasks")
-tmpl.Parse(templateString)
+// Create template (returns error)
+tmpl, err := livetemplate.New("tasks")
+if err != nil {
+    panic(err)
+}
+if _, err := tmpl.Parse(templateString); err != nil {
+    panic(err)
+}
 
 // Mount handler with explicit Controller+State separation
 handler := tmpl.Handle(
@@ -204,7 +209,8 @@ func (c *TaskController) AddTask(state TaskState, ctx *livetemplate.Context) (Ta
 State interface and wrapper:
 - `State` interface - Marker interface for serializable state
 - `AsState[T]()` - Generic wrapper for state types
-- `AssertPureState[T](t)` - Test helper to validate state purity
+
+**Note:** `AssertPureState[T](t)` is a test helper located in [`testing.go`](../../testing.go), not `state.go`.
 
 **Example usage:**
 ```go
@@ -230,7 +236,9 @@ handler := tmpl.Handle(controller, livetemplate.AsState(&TaskState{}))
 ### [auth.go](../../auth.go)
 Authentication and user identification:
 - `Authenticator` interface - Identify users from requests
-- `DefaultAuthenticator` - Cookie-based session authentication
+  - `Identify(r *http.Request) (userID string, err error)` - Get user ID from request
+  - `GetSessionGroup(r *http.Request, userID string) (string, error)` - Get session group ID
+- `AnonymousAuthenticator` - Default cookie-based session authentication
 
 **Example custom authenticator:**
 ```go
@@ -238,16 +246,18 @@ type JWTAuthenticator struct {
     secretKey []byte
 }
 
-func (a *JWTAuthenticator) GetUserID(r *http.Request) string {
+func (a *JWTAuthenticator) Identify(r *http.Request) (string, error) {
     token := r.Header.Get("Authorization")
     // Validate JWT and extract user ID
-    return userID
+    return userID, nil
 }
 
-// Use in handler
-handler := tmpl.Handle(
-    controller,
-    livetemplate.AsState(&state),
+func (a *JWTAuthenticator) GetSessionGroup(r *http.Request, userID string) (string, error) {
+    return userID, nil  // Use userID as session group
+}
+
+// Use authenticator with New(), not Handle()
+tmpl, err := livetemplate.New("tasks",
     livetemplate.WithAuthenticator(&JWTAuthenticator{secretKey}),
 )
 ```
@@ -410,11 +420,13 @@ The build phase generates this TreeNode:
 - `"s"` arrays contain static HTML fragments
 - `"0"`, `"1"`, etc. contain dynamic values
 - Conditional branches store the evaluated branch (TotalTasks > 0 = true branch)
-- Range constructs store metadata (`_range`, `_items`) with unique keys per item
+- Range constructs use `"d"` key for range data items in the wire format
+
+**Note:** The JSON examples above show a simplified conceptual structure. The actual wire format uses `"d"` for range data (see `TreeNode.MarshalJSON` in `types.go`).
 
 **Key files:**
 - [`types.go`](../../internal/build/types.go) - Core data structures
-  - `TreeNode` - `map[string]interface{}` with special keys
+  - `TreeNode` - Typed struct that marshals to map-like JSON wire format with special keys (`s`, `d`, `f`, `m`)
   - `RangeData` - Metadata for range iterations
   - `TreeMetadata` - Wrapper IDs and tree metadata
 - [`fingerprint.go`](../../internal/build/fingerprint.go) - Change detection
@@ -543,7 +555,7 @@ Only changed values are included. Statics are cached client-side and the insert 
 
 **Key files:**
 - [`tree_compare.go`](../../internal/diff/tree_compare.go) - Main diffing algorithm
-  - `CompareTreesAndGetChanges(old, new)` - Recursively compare nodes
+  - `CompareTreesAndGetChangesWithPath(...)` - Recursively compare nodes
   - Returns tree containing only changed values
 - [`range_ops.go`](../../internal/diff/range_ops.go) - Range-specific diffing
   - Generates operations:
@@ -751,12 +763,12 @@ If the action had validation errors:
 
 **Key files:**
 - [`message.go`](../../internal/send/message.go) - Incoming message parsing
-  - `ParseActionFromHTTP(req)` - Parse HTTP POST requests
-  - `ParseActionFromWebSocket(msg)` - Parse WebSocket frames
+  - `ParseActionFromHTTP(req *http.Request)` - Parse HTTP POST requests
+  - `ParseActionFromWebSocket(data []byte)` - Parse WebSocket frames
   - Extracts action name and data from client
 - [`response.go`](../../internal/send/response.go) - Outgoing response formatting
-  - `PrepareUpdate(tree, metadata)` - Wrap tree with metadata
-  - `SerializeUpdate(update)` - JSON serialization
+  - `PrepareUpdate(tree interface{}, errors map[string]string, action string)` - Wrap tree with metadata
+  - `SerializeUpdate(resp *UpdateResponse)` - JSON serialization
   - Adds success/error status, validation errors, action context
 - [`json.go`](../../internal/send/json.go) - JSON encoding utilities
 
@@ -1148,21 +1160,21 @@ E2E tests live in the [lvt repository](https://github.com/livetemplate/lvt):
 ### Enable Verbose Logging
 
 ```go
-tmpl := livetemplate.New("myapp",
+tmpl, err := livetemplate.New("myapp",
     livetemplate.WithDevMode(true),  // Enables detailed logs
 )
+if err != nil {
+    log.Fatal(err)
+}
 ```
 
 ### Inspect Tree Structures
 
 Add temporary logging in [`template.go`](../../template.go) before diff:
 ```go
-func (t *Template) ExecuteUpdates(data interface{}) (TreeNode, error) {
-    newTree := // ... build tree
-    log.Printf("Old tree: %+v", t.lastTree)
-    log.Printf("New tree: %+v", newTree)
-    // ... diff
-}
+// Inside ExecuteUpdates or related methods
+log.Printf("Old tree: %+v", t.lastTree)
+log.Printf("New tree: %+v", newTree)
 ```
 
 ### Use Render Package for Debugging
