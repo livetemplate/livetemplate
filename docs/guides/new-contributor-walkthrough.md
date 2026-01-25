@@ -11,14 +11,14 @@ sequenceDiagram
     participant Browser
     participant Server
 
-    Browser->>Server: User clicks button<br/>{action: "increment"}
-    Note over Server: Phase 1: Parse template
-    Note over Server: Phase 2: Build tree from data
-    Note over Server: Phase 3: Diff old vs new
+    Browser->>Server: User adds task<br/>{action: "addTask", data: {...}}
+    Note over Server: Phase 1: Parse template (cached)
+    Note over Server: Phase 2: Build tree from new data
+    Note over Server: Phase 3: Diff old vs new tree
     Note over Server: Phase 4: Render to JSON
     Note over Server: Phase 5: Send to client
-    Server->>Browser: {"0": "6"} (minimal update)
-    Note over Browser: DOM updated
+    Server->>Browser: {"1": "3", "3": {"_ops": [...]}} (minimal update)
+    Note over Browser: DOM patched efficiently
 ```
 
 ## The 5-Phase Architecture
@@ -105,36 +105,164 @@ Before diving into the 5 phases, understand the public API that applications use
 
 ### [template.go](../../template.go)
 Main entry point for creating and managing templates:
-- [`New(name string, opts ...TemplateOpt) *Template`](../../template.go#L50-L80) - Create a template
-- [`Template.Handle(controller, AsState(state), ...options) http.Handler`](../../template.go#L150-L180) - Mount template as HTTP handler
-- [`Template.ExecuteUpdates(data interface{}) (tree, error)`](../../template.go#L200-L250) - Orchestrates all 5 phases
+- `New(name string, opts ...Option) (*Template, error)` - Create a template
+- `Template.Handle(controller, state, ...HandleOption) LiveHandler` - Mount template as HTTP handler
+- `Template.ExecuteUpdates(w io.Writer, data interface{}, messages ...map[string]string) error` - Orchestrates all 5 phases
+
+**Example with v0.7.0 Controller+State pattern:**
+```go
+// Controller holds dependencies (singleton, never cloned)
+type TaskController struct {
+    DB     *sql.DB
+    Logger *slog.Logger
+}
+
+// State holds session data (cloned per session)
+type TaskState struct {
+    Title      string
+    TotalTasks int
+    Tasks      []Task
+}
+
+// Create template (returns error)
+tmpl, err := livetemplate.New("tasks")
+if err != nil {
+    panic(err)
+}
+if _, err := tmpl.Parse(templateString); err != nil {
+    panic(err)
+}
+
+// Mount handler with explicit Controller+State separation
+handler := tmpl.Handle(
+    &TaskController{DB: db, Logger: logger},
+    livetemplate.AsState(&TaskState{}),
+)
+http.Handle("/", handler)
+```
 
 **Tests:** [`template_test.go`](../../template_test.go)
 
 ### [mount.go](../../mount.go)
 HTTP/WebSocket handling and session lifecycle:
-- [`ServeHTTP(w, r)`](../../mount.go#L80-L120) - HTTP entry point
-- [`handleWebSocket(conn, req)`](../../mount.go#L150-L200) - WebSocket lifecycle
-- [`handleAction(ctx, msg)`](../../mount.go#L220-L280) - Action dispatch to controller methods
+- `ServeHTTP(w, r)` - HTTP entry point (initial page load)
+- `handleWebSocket(conn, req)` - WebSocket lifecycle management
+- `handleAction(ctx, msg)` - Action dispatch to controller methods
 
-**Tests:** [`mount_test.go`](../../mount_test.go)
+**Lifecycle methods in your controller:**
+```go
+// Called once when session is created
+func (c *TaskController) Mount(state TaskState, ctx *livetemplate.Context) (TaskState, error) {
+    state.Tasks = c.DB.LoadTasks()
+    state.TotalTasks = len(state.Tasks)
+    return state, nil
+}
 
-### [action.go](../../action.go)
-Action data binding and errors:
-- [`ActionData.Bind(dest)`](../../action.go#L70-L90) - Parse form/JSON into structs
-- [`FieldError` / `MultiError`](../../action.go#L100-L130) - Validation errors
+// Called on each WebSocket connect (optional)
+func (c *TaskController) OnConnect(state TaskState, ctx *livetemplate.Context) (TaskState, error) {
+    c.Logger.Info("User connected", "userID", ctx.UserID())
+    return state, nil
+}
+
+// Called on disconnect (optional)
+func (c *TaskController) OnDisconnect() {
+    // Cleanup if needed
+}
+```
+
+**Tests:** [`handle_test.go`](../../handle_test.go), [`lifecycle_test.go`](../../lifecycle_test.go)
 
 ### [context.go](../../context.go)
-Unified context for all lifecycle methods:
-- [`Context`](../../context.go#L20-L40) - Provides action name, data, request metadata
-- `Context.GetString(key)`, `GetInt(key)`, etc. - Type-safe data access
+Unified context for all lifecycle and action methods:
+- `Context` - Provides action name, data, request metadata, session info
+- `Context.Action()` - Get current action name
+- `Context.UserID()` - Get authenticated user ID
+- `Context.GetString(key)`, `GetInt(key)`, `GetBool(key)` - Type-safe data access
+- `Context.BindAndValidate(dest, validator)` - Parse and validate form/JSON data
+
+**Example action method:**
+```go
+func (c *TaskController) AddTask(state TaskState, ctx *livetemplate.Context) (TaskState, error) {
+    name := ctx.GetString("name")
+    status := ctx.GetString("status")
+    
+    // Or use binding for complex data (requires go-playground/validator):
+    var req struct {
+        Name   string `json:"name" validate:"required"`
+        Status string `json:"status" validate:"required,oneof=pending done"`
+    }
+    validate := validator.New()
+    if err := ctx.BindAndValidate(&req, validate); err != nil {
+        return state, err  // Validation errors sent to client
+    }
+    
+    task := Task{Name: req.Name, Status: req.Status}
+    state.Tasks = append(state.Tasks, task)
+    state.TotalTasks++
+    return state, nil
+}
+```
+
+**Tests:** [`context_test.go`](../../context_test.go)
 
 ### [state.go](../../state.go)
 State interface and wrapper:
-- [`State` interface](../../state.go#L15-L25) - Marker interface for serializable state
-- [`AsState[T]()`](../../state.go#L35-L50) - Generic wrapper for state types
+- `State` interface - Marker interface for serializable state
+- `AsState[T]()` - Generic wrapper for state types
 
-**Tests:** [`action_test.go`](../../action_test.go)
+**Note:** `AssertPureState[T](t)` is a test helper located in [`testing.go`](../../testing.go), not `state.go`.
+
+**Example usage:**
+```go
+// State must be serializable (no pointers to DB, Logger, etc.)
+type TaskState struct {
+    Title      string
+    TotalTasks int
+    Tasks      []Task  // ✓ OK: serializable slice
+    // DB *sql.DB     // ✗ BAD: would fail AssertPureState
+}
+
+// In tests
+func TestTaskState(t *testing.T) {
+    livetemplate.AssertPureState[TaskState](t)  // Ensures state is pure
+}
+
+// Mount with AsState wrapper
+handler := tmpl.Handle(controller, livetemplate.AsState(&TaskState{}))
+```
+
+**Tests:** [`state_test.go`](../../state_test.go)
+
+### [auth.go](../../auth.go)
+Authentication and user identification:
+- `Authenticator` interface - Identify users from requests
+  - `Identify(r *http.Request) (userID string, err error)` - Get user ID from request
+  - `GetSessionGroup(r *http.Request, userID string) (string, error)` - Get session group ID
+- `AnonymousAuthenticator` - Default cookie-based session authentication
+
+**Example custom authenticator:**
+```go
+type JWTAuthenticator struct {
+    secretKey []byte
+}
+
+func (a *JWTAuthenticator) Identify(r *http.Request) (string, error) {
+    token := r.Header.Get("Authorization")
+    // Validate JWT and extract user ID
+    return userID, nil
+}
+
+func (a *JWTAuthenticator) GetSessionGroup(r *http.Request, userID string) (string, error) {
+    return userID, nil  // Use userID as session group
+}
+
+// Use authenticator with New(), not Handle()
+tmpl, err := livetemplate.New("tasks",
+    livetemplate.WithAuthenticator(&JWTAuthenticator{secretKey}),
+)
+```
+
+**Tests:** [`auth_test.go`](../../auth_test.go)
 
 ## Phase 1: Parse
 
@@ -143,46 +271,83 @@ State interface and wrapper:
 
 ### How It Works
 
-The parse phase takes a template string like `<h1>{{.Title}}</h1>` and converts it into a structured representation that can be executed with data.
+The parse phase takes a template string and converts it into a structured representation that can be executed with data. Let's use a unified example throughout all 5 phases to see how each phase works together.
+
+### Example: Task Manager Template
+
+We'll trace this template through all 5 phases:
+
+```html
+<div>
+  <h1>{{.Title}}</h1>
+  <p>Total: {{.TotalTasks}}</p>
+  {{if gt .TotalTasks 0}}
+    <div class="status active">Tasks Active</div>
+  {{else}}
+    <div class="status inactive">No Tasks</div>
+  {{end}}
+  <ul>
+    {{range .Tasks}}
+      <li>{{.Name}} - {{.Status}}</li>
+    {{end}}
+  </ul>
+</div>
+```
+
+**Initial data:**
+```go
+type TaskState struct {
+    Title      string
+    TotalTasks int
+    Tasks      []Task
+}
+
+type Task struct {
+    Name   string
+    Status string
+}
+
+state := TaskState{
+    Title:      "My Tasks",
+    TotalTasks: 2,
+    Tasks: []Task{
+        {Name: "Write docs", Status: "done"},
+        {Name: "Review PR", Status: "pending"},
+    },
+}
+```
+
+### Phase 1 Output: Parsed AST
+
+After parsing, the template becomes a structured AST:
+
+```go
+[
+  FieldConstruct{Path: ".Title"},           // {{.Title}}
+  FieldConstruct{Path: ".TotalTasks"},      // {{.TotalTasks}}
+  ConditionalConstruct{                     // {{if gt .TotalTasks 0}}
+    Condition: "gt .TotalTasks 0",
+    TrueBranch: [/* "Tasks Active" branch */],
+    FalseBranch: [/* "No Tasks" branch */],
+  },
+  RangeConstruct{                           // {{range .Tasks}}
+    Collection: ".Tasks",
+    Body: [
+      FieldConstruct{Path: ".Name"},        // {{.Name}}
+      FieldConstruct{Path: ".Status"},      // {{.Status}}
+    ],
+  },
+]
+```
 
 **Key files:**
 - [`parse.go`](../../internal/parse/parse.go) - Main parsing orchestrator
-  - [`Parse(tmpl, funcMap)`](../../internal/parse/parse.go#L30-L80) - Entry point
   - Uses Go's `text/template` parser, wraps with LiveTemplate constructs
 - [`field.go`](../../internal/parse/field.go) - Handles `{{.Field}}` expressions
-  - [`FieldConstruct`](../../internal/parse/field.go#L15-L25) - Represents a field access
-  - [`CompileField(node)`](../../internal/parse/field.go#L40-L60) - Parse field from AST
-  - [`HydrateField(data)`](../../internal/parse/field.go#L70-L90) - Resolve field value
 - [`conditional.go`](../../internal/parse/conditional.go) - Handles `{{if}}{{else}}{{end}}`
-  - [`ConditionalConstruct`](../../internal/parse/conditional.go#L20-L35) - If/else branches
-  - [`CompileConditional(node)`](../../internal/parse/conditional.go#L50-L90) - Parse branches
-  - [`HydrateConditional(data)`](../../internal/parse/conditional.go#L100-L130) - Evaluate condition
 - [`range.go`](../../internal/parse/range.go) - Handles `{{range}}{{end}}` loops
-  - [`RangeConstruct`](../../internal/parse/range.go#L25-L40) - Loop representation
-  - [`CompileRange(node)`](../../internal/parse/range.go#L60-L100) - Parse range template
-  - [`HydrateRange(data, keyGen)`](../../internal/parse/range.go#L120-L180) - Iterate with keys
 - [`with.go`](../../internal/parse/with.go) - Handles `{{with}}{{end}}` context switching
 - [`var_context.go`](../../internal/parse/var_context.go) - Variable scope tracking during parsing
-
-### Example Flow
-
-Template:
-```html
-{{if .ShowTitle}}
-  <h1>{{.Title}}</h1>
-{{end}}
-```
-
-After parsing:
-```go
-ConditionalConstruct{
-  Condition: ".ShowTitle",
-  TrueBranch: []Construct{
-    FieldConstruct{Path: ".Title"}
-  },
-  FalseBranch: nil
-}
-```
 
 **Key insight:** Parsing happens once per template. The result is cached and reused for every render.
 
@@ -199,38 +364,75 @@ ConditionalConstruct{
 
 ### How It Works
 
-The build phase takes the parsed AST and your data (e.g., `CounterState{Counter: 5}`) and generates a **TreeNode** - the core data structure that separates static HTML from dynamic values.
+The build phase takes the parsed AST and your data and generates a **TreeNode** - the core data structure that separates static HTML from dynamic values.
 
-**Key files:**
-- [`types.go`](../../internal/build/types.go) - Core data structures
-  - [`TreeNode`](../../internal/build/types.go#L15-L25) - `map[string]interface{}` with special keys
-    - `"s"` key: array of static HTML strings
-    - `"0"`, `"1"`, etc: dynamic values or nested trees
-  - [`RangeData`](../../internal/build/types.go#L40-L55) - Metadata for range iterations
-  - [`TreeMetadata`](../../internal/build/types.go#L65-L75) - Wrapper IDs and tree metadata
-- [`fingerprint.go`](../../internal/build/fingerprint.go) - Change detection
-  - [`CalculateFingerprint(node)`](../../internal/build/fingerprint.go#L20-L50) - MD5 hash of tree
-  - Used to skip rendering when nothing changed
-- [`wrapper.go`](../../internal/build/wrapper.go) - Wrapper div injection
-  - [`InjectWrapper(html, wrapperID)`](../../internal/build/wrapper.go#L30-L70) - Adds `<div id="lvt-xxx">`
-  - Client uses this ID to target DOM updates
+### Phase 2 Output: TreeNode Structure
 
-### TreeNode Structure
+Continuing with our Task Manager example, when we execute the parsed template with the initial data:
 
-Example template:
-```html
-<div>Counter: {{.Counter}}</div>
-```
-
-With data `{Counter: 5}`, builds tree:
-```json
-{
-  "s": ["<div>Counter: ", "</div>"],
-  "0": "5"
+```go
+state := TaskState{
+    Title:      "My Tasks",
+    TotalTasks: 2,
+    Tasks: []Task{
+        {Name: "Write docs", Status: "done"},
+        {Name: "Review PR", Status: "pending"},
+    },
 }
 ```
 
-**Key insight:** Static parts (`"s"`) are sent only once. Updates send only changed dynamics (`"0": "6"`).
+The build phase generates this TreeNode:
+
+```json
+{
+  "s": ["<div><h1>", "</h1><p>Total: ", "</p>"],
+  "0": "My Tasks",
+  "1": "2",
+  "2": {
+    "s": ["<div class=\"status active\">Tasks Active</div>"],
+    "0": null
+  },
+  "3": {
+    "_range": true,
+    "_items": [
+      {
+        "_key": "0",
+        "_tree": {
+          "s": ["<li>", " - ", "</li>"],
+          "0": "Write docs",
+          "1": "done"
+        }
+      },
+      {
+        "_key": "1",
+        "_tree": {
+          "s": ["<li>", " - ", "</li>"],
+          "0": "Review PR",
+          "1": "pending"
+        }
+      }
+    ]
+  }
+}
+```
+
+**Key observations:**
+- `"s"` arrays contain static HTML fragments
+- `"0"`, `"1"`, etc. contain dynamic values
+- Conditional branches store the evaluated branch (TotalTasks > 0 = true branch)
+- Range constructs use `"d"` key for range data items in the wire format
+
+**Note:** The JSON examples above show a simplified conceptual structure. The actual wire format uses `"d"` for range data (see `TreeNode.MarshalJSON` in `types.go`).
+
+**Key files:**
+- [`types.go`](../../internal/build/types.go) - Core data structures
+  - `TreeNode` - Typed struct that marshals to map-like JSON wire format with special keys (`s`, `d`, `f`, `m`)
+  - `RangeData` - Metadata for range iterations
+  - `TreeMetadata` - Wrapper IDs and tree metadata
+- [`fingerprint.go`](../../internal/build/fingerprint.go) - Change detection
+  - `CalculateFingerprint(node)` - MD5 hash of tree for comparing changes
+- [`wrapper.go`](../../internal/build/wrapper.go) - Wrapper div injection
+  - `InjectWrapper(html, wrapperID)` - Adds `<div id="lvt-xxx">` for targeting
 
 ### The Wire Format Optimization
 
@@ -238,18 +440,19 @@ This is crucial to understand:
 
 1. **First render:** Tree includes full structure (statics + dynamics)
    ```json
-   {"s": ["<div>Counter: ", "</div>"], "0": "5"}
+   {"s": ["<div><h1>", "</h1>..."], "0": "My Tasks", "1": "2", ...}
    ```
 
-2. **Subsequent updates:** Tree includes ONLY changed dynamics
+2. **Subsequent updates:** Tree includes ONLY changed dynamics (no statics)
    ```json
-   {"0": "6"}
+   {"1": "3"}  // Only TotalTasks changed from 2 to 3
    ```
 
 The implementation: [`prepare.go`](../../internal/diff/prepare.go)
-- [`PrepareTreeForClient(node, clientHasStatics)`](../../internal/diff/prepare.go#L30-L80)
-- Removes statics from wire format if client has cached them
-- Result: Updates are ~10% the size of full renders
+- `PrepareTreeForClient(node, clientHasStatics)` removes statics from wire format if client has cached them
+- Result: Updates are typically ~10% the size of full renders
+
+**Key insight:** Static parts (`"s"`) are sent only once on first render. Updates send only changed dynamics.
 
 **Tests to explore:**
 - [`types_test.go`](../../internal/build/types_test.go) - TreeNode operations
@@ -265,51 +468,115 @@ The implementation: [`prepare.go`](../../internal/diff/prepare.go)
 
 The diff phase takes two TreeNodes (previous and current render) and determines the minimal set of changes needed to update the DOM.
 
-**Key files:**
-- [`tree_compare.go`](../../internal/diff/tree_compare.go) - Main diffing algorithm
-  - [`CompareTreesAndGetChanges(old, new)`](../../internal/diff/tree_compare.go#L30-L100) - Recursively compare nodes
-  - Returns tree containing only changed values
-  - Handles nested trees and conditional branches
-- [`range_ops.go`](../../internal/diff/range_ops.go) - Range-specific diffing
-  - [`DiffRanges(oldItems, newItems)`](../../internal/diff/range_ops.go#L40-L150) - List diffing
-  - Generates operations:
-    - `["u", "item-id", updates]` - Update existing item
-    - `["i", "after-id", "position", data]` - Insert new item
-    - `["r", "item-id"]` - Remove item
-    - `["o", ["id1", "id2", ...]]` - Reorder items
-- [`prepare.go`](../../internal/diff/prepare.go) - Wire format preparation
-  - [`PrepareTreeForClient(node, hasStatics)`](../../internal/diff/prepare.go#L30-L80) - Strip statics for updates
-- [`helpers.go`](../../internal/diff/helpers.go) - Diff utilities
+### Phase 3 Example: Data Changes
 
-### Example: Counter Increment
+Continuing with our Task Manager example, let's say a user adds a new task. The state changes:
+
+**Old state (from Phase 2):**
+```go
+state := TaskState{
+    Title:      "My Tasks",
+    TotalTasks: 2,
+    Tasks: []Task{
+        {Name: "Write docs", Status: "done"},
+        {Name: "Review PR", Status: "pending"},
+    },
+}
+```
+
+**New state (after user action):**
+```go
+state := TaskState{
+    Title:      "My Tasks",
+    TotalTasks: 3,  // Changed!
+    Tasks: []Task{
+        {Name: "Write docs", Status: "done"},
+        {Name: "Review PR", Status: "pending"},
+        {Name: "Deploy app", Status: "pending"},  // New task added!
+    },
+}
+```
+
+### Phase 3 Output: Diff Result
 
 **Old tree:**
 ```json
-{"s": ["<div>Counter: ", "</div>"], "0": "5"}
+{
+  "s": ["<div><h1>", "</h1><p>Total: ", "</p>..."],
+  "0": "My Tasks",
+  "1": "2",
+  "2": { /* conditional branch - unchanged */ },
+  "3": { /* range with 2 items */ }
+}
 ```
 
 **New tree:**
 ```json
-{"s": ["<div>Counter: ", "</div>"], "0": "6"}
+{
+  "s": ["<div><h1>", "</h1><p>Total: ", "</p>..."],
+  "0": "My Tasks",
+  "1": "3",  // Changed!
+  "2": { /* conditional branch - unchanged */ },
+  "3": { /* range with 3 items */ }  // Changed!
+}
 ```
 
-**Diff result (after prepare):**
+**Diff result (before wire format preparation):**
 ```json
-{"0": "6"}
+{
+  "1": "3",  // Only the changed TotalTasks
+  "3": {     // Range update operations
+    "_range": true,
+    "_ops": [
+      ["i", "1", {  // Insert after item "1"
+        "s": ["<li>", " - ", "</li>"],
+        "0": "Deploy app",
+        "1": "pending"
+      }]
+    ]
+  }
+}
 ```
 
-Only the changed dynamic value is included. Statics are cached client-side.
+**After PrepareTreeForClient (wire format - statics removed):**
+```json
+{
+  "1": "3",
+  "3": {
+    "_range": true,
+    "_ops": [
+      ["i", "1", {"0": "Deploy app", "1": "pending"}]
+    ]
+  }
+}
+```
+
+Only changed values are included. Statics are cached client-side and the insert operation is minimal.
+
+**Key files:**
+- [`tree_compare.go`](../../internal/diff/tree_compare.go) - Main diffing algorithm
+  - `CompareTreesAndGetChangesWithPath(...)` - Recursively compare nodes
+  - Returns tree containing only changed values
+- [`range_ops.go`](../../internal/diff/range_ops.go) - Range-specific diffing
+  - Generates operations:
+    - `["u", "item-id", updates]` - Update existing item
+    - `["i", "after-id", data]` - Insert new item after specified key
+    - `["r", "item-id"]` - Remove item
+    - `["o", ["id1", "id2", ...]]` - Reorder items
+- [`prepare.go`](../../internal/diff/prepare.go) - Wire format preparation
+  - `PrepareTreeForClient(node, hasStatics)` - Strip statics for updates
+- [`helpers.go`](../../internal/diff/helpers.go) - ~70 diff utility functions
 
 ### Range Diffing
 
 **Critical feature:** When iterating over lists, the diff phase generates efficient operations instead of re-sending entire lists.
 
-Example - adding an item to a todo list:
+In our example, adding "Deploy app" generates:
 ```json
-["i", "todo-2", "end", {"s": ["<li>", "</li>"], "0": "New item"}]
+["i", "1", {"0": "Deploy app", "1": "pending"}]
 ```
 
-This insert operation is much smaller than re-sending all todos.
+This insert operation is much smaller than re-sending all three tasks.
 
 **Tests to explore:**
 - [`tree_compare_test.go`](../../internal/diff/tree_compare_test.go) - Tree comparison
@@ -326,11 +593,47 @@ This insert operation is much smaller than re-sending all todos.
 
 The render phase formats tree structures for consumption by clients or tests.
 
+### Phase 4 Example: HTML Rendering
+
+Continuing with our Task Manager example, the render phase can convert the TreeNode to HTML.
+
+**TreeNode from Phase 2:**
+```json
+{
+  "s": ["<div><h1>", "</h1><p>Total: ", "</p>"],
+  "0": "My Tasks",
+  "1": "2",
+  "2": {
+    "s": ["<div class=\"status active\">Tasks Active</div>"]
+  },
+  "3": {
+    "_range": true,
+    "_items": [
+      {"_key": "0", "_tree": {"s": ["<li>", " - ", "</li>"], "0": "Write docs", "1": "done"}},
+      {"_key": "1", "_tree": {"s": ["<li>", " - ", "</li>"], "0": "Review PR", "1": "pending"}}
+    ]
+  }
+}
+```
+
+**Rendered HTML:**
+```html
+<div>
+  <h1>My Tasks</h1>
+  <p>Total: 2</p>
+  <div class="status active">Tasks Active</div>
+  <ul>
+    <li>Write docs - done</li>
+    <li>Review PR - pending</li>
+  </ul>
+</div>
+```
+
 **Key files:**
 - [`html.go`](../../internal/render/html.go) - HTML rendering
-  - [`TreeToHTML(node)`](../../internal/render/html.go#L30-L100) - Convert tree to HTML string
-  - [`Node(node)`](../../internal/render/html.go#L120-L180) - Render single node
-  - [`IsVoidElement(tag)`](../../internal/render/html.go#L200-L220) - Check for self-closing tags
+  - `TreeToHTML(node)` - Convert tree to HTML string
+  - `Node(node)` - Render single node
+  - `IsVoidElement(tag)` - Check for self-closing tags (`<br>`, `<img>`, etc.)
   - Used primarily for testing and validation
 - [`minify.go`](../../internal/render/minify.go) - HTML minification
   - Removes unnecessary whitespace
@@ -339,29 +642,42 @@ The render phase formats tree structures for consumption by clients or tests.
 
 **For initial page load:**
 - Tree → HTML → Full HTML document
-- Client receives complete page
+- Client receives complete page with all content
 
-**For updates:**
-- Tree → JSON (happens in Phase 5)
-- Client receives minimal update object
+**For updates (via Phase 5):**
+- Tree → JSON (diff result)
+- Client receives minimal update object like `{"1": "3"}`
 
 **For tests:**
 - Tree → HTML for golden file comparison
+- Validates that template rendering produces expected HTML
 
-### Example
+### Update Format vs HTML Format
 
-Tree:
+For our example where TotalTasks changes from 2 to 3:
+
+**Update JSON (sent to client):**
 ```json
-{"s": ["<div>Counter: ", "</div>"], "0": "5"}
+{"1": "3"}
 ```
 
-Rendered HTML:
+**Resulting HTML after client applies update:**
 ```html
-<div>Counter: 5</div>
+<div>
+  <h1>My Tasks</h1>
+  <p>Total: 3</p>  <!-- Only this changed -->
+  <div class="status active">Tasks Active</div>
+  <ul>
+    <li>Write docs - done</li>
+    <li>Review PR - pending</li>
+  </ul>
+</div>
 ```
+
+The client merges the update with cached statics to reconstruct the HTML.
 
 **Tests to explore:**
-- [`html_test.go`](../../internal/render/html_test.go) - HTML rendering
+- [`html_test.go`](../../internal/render/html_test.go) - HTML rendering tests
 
 ## Phase 5: Send
 
@@ -372,50 +688,126 @@ Rendered HTML:
 
 The send phase wraps diff results with metadata and serializes for wire transmission.
 
-**Key files:**
-- [`message.go`](../../internal/send/message.go) - Incoming message parsing
-  - [`ParseActionFromHTTP(req)`](../../internal/send/message.go#L30-L80) - Parse HTTP POST
-  - [`ParseActionFromWebSocket(msg)`](../../internal/send/message.go#L90-L130) - Parse WebSocket frame
-  - Extracts action name and data from client
-- [`response.go`](../../internal/send/response.go) - Outgoing response formatting
-  - [`PrepareUpdate(tree, metadata)`](../../internal/send/response.go#L30-L70) - Wrap tree with metadata
-  - [`SerializeUpdate(update)`](../../internal/send/response.go#L80-L110) - JSON serialization
-  - Adds success/error status, validation errors, action context
-- [`json.go`](../../internal/send/json.go) - JSON encoding utilities
+### Phase 5 Example: Complete Flow
 
-### Update Response Format
+Continuing with our Task Manager example, when a user adds a task via an action like `addTask`:
 
-The complete response sent to clients:
-
+**1. Client sends action:**
 ```json
 {
-  "tree": {"0": "6"},
+  "action": "addTask",
+  "data": {
+    "name": "Deploy app",
+    "status": "pending"
+  }
+}
+```
+
+**2. Server processes action and generates update (from Phase 3):**
+```json
+{
+  "1": "3",  // TotalTasks changed
+  "3": {     // Range operations
+    "_range": true,
+    "_ops": [
+      ["i", "1", {"0": "Deploy app", "1": "pending"}]
+    ]
+  }
+}
+```
+
+**3. Phase 5 wraps with metadata:**
+```json
+{
+  "tree": {
+    "1": "3",
+    "3": {
+      "_range": true,
+      "_ops": [
+        ["i", "1", {"0": "Deploy app", "1": "pending"}]
+      ]
+    }
+  },
   "meta": {
     "success": true,
-    "action": "increment",
+    "action": "addTask",
     "errors": null
   }
 }
 ```
 
-**With validation errors:**
+**4. Client receives and applies update:**
+- Merges `"1": "3"` with cached statics to update "Total: 3"
+- Executes insert operation to add new `<li>` to the list
+- Only changed DOM nodes are updated
+
+### With Validation Errors
+
+If the action had validation errors:
+
 ```json
 {
-  "tree": {"0": "5"},
+  "tree": {
+    "1": "2"  // No change, validation failed
+  },
   "meta": {
     "success": false,
-    "action": "signup",
+    "action": "addTask",
     "errors": {
-      "username": "already taken",
-      "password": "too short"
+      "name": "Task name is required",
+      "status": "Invalid status value"
     }
   }
 }
 ```
 
-**Transport:**
-- **WebSocket:** Direct frame push (preferred for reactivity)
-- **HTTP POST:** JSON response with appropriate headers (fallback)
+**Key files:**
+- [`message.go`](../../internal/send/message.go) - Incoming message parsing
+  - `ParseActionFromHTTP(req *http.Request)` - Parse HTTP POST requests
+  - `ParseActionFromWebSocket(data []byte)` - Parse WebSocket frames
+  - Extracts action name and data from client
+- [`response.go`](../../internal/send/response.go) - Outgoing response formatting
+  - `PrepareUpdate(tree interface{}, errors map[string]string, action string)` - Wrap tree with metadata
+  - `SerializeUpdate(resp *UpdateResponse)` - JSON serialization
+  - Adds success/error status, validation errors, action context
+- [`json.go`](../../internal/send/json.go) - JSON encoding utilities
+
+### Transport Options
+
+**WebSocket (preferred):**
+- Direct frame push for real-time updates
+- Bidirectional communication
+- Lower latency
+
+**HTTP POST (fallback):**
+- JSON response with appropriate headers
+- Works without WebSocket support
+- Slightly higher latency
+
+### Size Comparison
+
+For our Task Manager example, adding one task:
+
+**Full HTML re-render (naive approach):**
+```html
+<div>
+  <h1>My Tasks</h1>
+  <p>Total: 3</p>
+  <div class="status active">Tasks Active</div>
+  <ul>
+    <li>Write docs - done</li>
+    <li>Review PR - pending</li>
+    <li>Deploy app - pending</li>
+  </ul>
+</div>
+```
+**Size:** ~200-250 bytes
+
+**LiveTemplate update (tree-based diffing):**
+```json
+{"1":"3","3":{"_range":true,"_ops":[["i","1",{"0":"Deploy app","1":"pending"}]]}}
+```
+**Size:** ~75-90 bytes (60-70% smaller!)
 
 **Tests to explore:**
 - [`message_test.go`](../../internal/send/message_test.go) - Message parsing
@@ -460,58 +852,177 @@ The complete response sent to clients:
 
 ## The Client Runtime
 
-**Location:** [`client/livetemplate-client.ts`](../../client/livetemplate-client.ts)
+**Package:** [@livetemplate/client](https://www.npmjs.com/package/@livetemplate/client) (published on npm)
 
-The TypeScript client handles:
+The TypeScript client library handles:
 1. **Event delegation:** Listens for `lvt-click`, `lvt-submit`, `lvt-change`, etc.
 2. **Transport:** WebSocket (preferred) with HTTP fallback
 3. **Statics cache:** Stores `"s"` arrays from first render for reuse
 4. **DOM patching:** Uses morphdom to apply minimal updates
 5. **Lifecycle events:** Fires `lvt:pending`, `lvt:success`, `lvt:error`, `lvt:done`
 
-**Tests:** [`client/tests/`](../../client/tests/)
+**Usage in HTML:**
+```html
+<script src="https://cdn.jsdelivr.net/npm/@livetemplate/client@latest/dist/livetemplate-client.browser.js"></script>
+```
 
-## End-to-End Flow: Counter Example Revisited
+**Note:** The client library is maintained in a separate repository and published to npm. Browser E2E tests that validate client behavior live in the [lvt repository](https://github.com/livetemplate/lvt).
 
-Now that you understand the 5 phases, let's trace a complete flow:
+## End-to-End Flow: Task Manager Example Revisited
+
+Now that you understand the 5 phases, let's trace a complete flow with our Task Manager example:
 
 ### Initial Page Load (GET /)
 
 1. **Request:** Browser requests `/`
-2. **Handler:** [`mount.go`](../../mount.go) calls [`ServeHTTP()`](../../mount.go#L80-L120)
-3. **Phase 1-5:** Execute all phases to generate initial HTML
-   - Parse template (cached after first run)
-   - Build tree with data `{Counter: 0}`
-   - No diff (first render)
-   - Render tree to HTML
-   - Send complete HTML document
-4. **Response:** Browser receives full page with WebSocket connection script
-
-### User Clicks "+1" Button (Action)
-
-1. **Client:** Detects `lvt-click="increment"`, sends `{action: "increment"}` via WebSocket
-2. **Parse:** [`ParseActionFromWebSocket()`](../../internal/send/message.go#L90-L130) extracts action
-3. **Execute:** [`handleAction()`](../../mount.go#L220-L280) calls `CounterController.Increment(state, ctx)`
-4. **Update:** `state.Counter++` changes state from 0 to 1, returns new state
-5. **Phase 1:** Template already parsed (cached)
-6. **Phase 2:** Build new tree with `{Counter: 1}`
-   ```json
-   {"s": ["<div>Counter: ", "</div>"], "0": "1"}
+2. **Handler:** [`mount.go`](../../mount.go) calls `ServeHTTP()`
+3. **Lifecycle:** `Controller.Mount(state, ctx)` initializes state
+4. **Phase 1-5:** Execute all phases to generate initial HTML
+   - **Phase 1 (Parse):** Template parsed into AST (cached after first run)
+   - **Phase 2 (Build):** Build tree with initial data:
+     ```go
+     TaskState{
+       Title: "My Tasks",
+       TotalTasks: 2,
+       Tasks: []Task{
+         {Name: "Write docs", Status: "done"},
+         {Name: "Review PR", Status: "pending"},
+       }
+     }
+     ```
+   - **Phase 3 (Diff):** No diff (first render)
+   - **Phase 4 (Render):** Convert tree to HTML
+   - **Phase 5 (Send):** Send complete HTML document with WebSocket script
+5. **Response:** Browser receives full page:
+   ```html
+   <div>
+     <h1>My Tasks</h1>
+     <p>Total: 2</p>
+     <div class="status active">Tasks Active</div>
+     <ul>
+       <li>Write docs - done</li>
+       <li>Review PR - pending</li>
+     </ul>
+   </div>
    ```
-7. **Phase 3:** Diff against old tree
-   ```json
-   // Old: {"s": [...], "0": "0"}
-   // New: {"s": [...], "0": "1"}
-   // Diff: {"0": "1"}
-   ```
-8. **Phase 4:** Prepare for client (statics already cached)
-9. **Phase 5:** Serialize response
-   ```json
-   {"tree": {"0": "1"}, "meta": {"success": true, "action": "increment"}}
-   ```
-10. **Client:** Merges statics from cache with new dynamics, patches DOM
 
-**Total bytes sent:** ~50-60 bytes vs ~200-300 bytes for full HTML
+### User Adds Task (Action)
+
+1. **Client:** User triggers `lvt-click="addTask"` with form data:
+   ```json
+   {"name": "Deploy app", "status": "pending"}
+   ```
+2. **Phase 5 (Receive):** `ParseActionFromWebSocket()` extracts action and data
+3. **Execute:** `handleAction()` calls `TaskController.AddTask(state, ctx)`:
+   ```go
+   func (c *TaskController) AddTask(state TaskState, ctx *Context) (TaskState, error) {
+       name := ctx.GetString("name")
+       status := ctx.GetString("status")
+       state.Tasks = append(state.Tasks, Task{Name: name, Status: status})
+       state.TotalTasks++
+       return state, nil
+   }
+   ```
+4. **Update:** State changes:
+   ```go
+   // Old: TotalTasks: 2, Tasks: [2 items]
+   // New: TotalTasks: 3, Tasks: [3 items]
+   ```
+5. **Phase 1 (Parse):** Template already parsed (cached) ✓
+6. **Phase 2 (Build):** Build new tree with updated data:
+   ```json
+   {
+     "s": ["<div><h1>", "</h1><p>Total: ", "</p>..."],
+     "0": "My Tasks",
+     "1": "3",  // Changed from "2"
+     "2": { /* conditional - unchanged */ },
+     "3": {     // Range now has 3 items
+       "_range": true,
+       "_items": [/* 3 tasks */]
+     }
+   }
+   ```
+7. **Phase 3 (Diff):** Compare old vs new tree:
+   ```json
+   // Changes detected:
+   {
+     "1": "3",  // TotalTasks changed
+     "3": {     // Range changed
+       "_range": true,
+       "_ops": [
+         ["i", "1", {"0": "Deploy app", "1": "pending"}]
+       ]
+     }
+   }
+   ```
+8. **Phase 4 (Render):** Prepare for client (statics already cached)
+9. **Phase 5 (Send):** Serialize response:
+   ```json
+   {
+     "tree": {
+       "1": "3",
+       "3": {
+         "_range": true,
+         "_ops": [["i", "1", {"0": "Deploy app", "1": "pending"}]]
+       }
+     },
+     "meta": {"success": true, "action": "addTask"}
+   }
+   ```
+10. **Client:** Receives ~80 bytes, merges with cached statics:
+    - Updates "Total: 3" (dynamic position "1")
+    - Inserts new `<li>Deploy app - pending</li>` into list
+    - Only changed DOM nodes are patched
+
+**Payload size comparison:**
+- Full HTML re-render: ~250 bytes
+- LiveTemplate update: ~80 bytes (68% reduction!)
+
+### Another User Completes Task (Action)
+
+1. **Client:** User triggers `lvt-click="completeTask"` with `{"id": 1}`
+2. **Execute:** `TaskController.CompleteTask(state, ctx)`:
+   ```go
+   func (c *TaskController) CompleteTask(state TaskState, ctx *Context) (TaskState, error) {
+       id := ctx.GetInt("id")
+       state.Tasks[id].Status = "done"  // "pending" → "done"
+       return state, nil
+   }
+   ```
+3. **Phase 3 (Diff):** Detects change in range item:
+   ```json
+   {
+     "3": {
+       "_range": true,
+       "_ops": [
+         ["u", "1", {"1": "done"}]  // Update operation
+       ]
+     }
+   }
+   ```
+4. **Phase 5 (Send):** Response:
+   ```json
+   {
+     "tree": {
+       "3": {
+         "_range": true,
+         "_ops": [["u", "1", {"1": "done"}]]
+       }
+     },
+     "meta": {"success": true, "action": "completeTask"}
+   }
+   ```
+5. **Client:** Updates only the status text in the second task
+
+**Payload size:** ~60 bytes (even smaller!)
+
+### Key Observations
+
+1. **Template parsed once:** Cached and reused for every render
+2. **Minimal updates:** Only changed values transmitted
+3. **Efficient range operations:** Insert/update/delete instead of re-sending full list
+4. **Client-side caching:** Static HTML cached after first render
+5. **Predictable payloads:** Structured format enables reliable sizing
 
 ## Testing Strategy
 
@@ -610,22 +1121,19 @@ E2E tests live in the [lvt repository](https://github.com/livetemplate/lvt):
 
 **Example:** Add new lifecycle event
 
+**Note:** The client library is published as [@livetemplate/client](https://www.npmjs.com/package/@livetemplate/client) on npm and maintained in a separate repository.
+
 **Steps:**
-1. Update [`client/livetemplate-client.ts`](../../client/livetemplate-client.ts)
+1. Update client library repository
    - Add event dispatch
    - Update TypeScript types
 
-2. Build client:
-   ```bash
-   cd client && npm run build
-   ```
-
-3. Test in examples:
+2. Test client changes with examples:
    ```bash
    cd examples/counter && go run main.go
    ```
 
-4. Add E2E test in lvt repository
+3. Add E2E test in lvt repository to validate the new behavior
 
 ### 4. Add Observability
 
@@ -652,21 +1160,21 @@ E2E tests live in the [lvt repository](https://github.com/livetemplate/lvt):
 ### Enable Verbose Logging
 
 ```go
-tmpl := livetemplate.New("myapp",
+tmpl, err := livetemplate.New("myapp",
     livetemplate.WithDevMode(true),  // Enables detailed logs
 )
+if err != nil {
+    log.Fatal(err)
+}
 ```
 
 ### Inspect Tree Structures
 
 Add temporary logging in [`template.go`](../../template.go) before diff:
 ```go
-func (t *Template) ExecuteUpdates(data interface{}) (TreeNode, error) {
-    newTree := // ... build tree
-    log.Printf("Old tree: %+v", t.lastTree)
-    log.Printf("New tree: %+v", newTree)
-    // ... diff
-}
+// Inside ExecuteUpdates or related methods
+log.Printf("Old tree: %+v", t.lastTree)
+log.Printf("New tree: %+v", newTree)
 ```
 
 ### Use Render Package for Debugging
@@ -761,14 +1269,12 @@ See: [`internal/keys/generator.go`](../../internal/keys/generator.go)
 
 **Architecture:**
 - [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) - Detailed design and diagrams
+- [`docs/CODE_STRUCTURE.md`](../CODE_STRUCTURE.md) - Code organization
 - [`docs/design/FIRST_PRINCIPLES.md`](../design/FIRST_PRINCIPLES.md) - Core principles
 
 **Specifications:**
 - [`docs/specifications/tree-update-specification.md`](../specifications/tree-update-specification.md) - Tree format spec
 - [`docs/specifications/test-scenarios.md`](../specifications/test-scenarios.md) - Test coverage
-
-**Broadcasting:**
-- [`docs/BROADCASTING.md`](../BROADCASTING.md) - Server-initiated updates
 
 **Examples:**
 - [Counter](https://github.com/livetemplate/examples/tree/main/counter) - Simplest example
