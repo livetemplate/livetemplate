@@ -659,3 +659,153 @@ func TestExtractItemDynamics(t *testing.T) {
 		t.Error("Expected to share dynamics map (not a copy)")
 	}
 }
+
+// TestBuildRangeTreeWithStatics_AutoKey tests that items without explicit key attribute get _k injected.
+func TestBuildRangeTreeWithStatics_AutoKey(t *testing.T) {
+	// Statics without any key attribute (no id=, data-key=, etc.)
+	itemStatics := []string{"<div>", "</div>"}
+	staticsHash := hashStatics(itemStatics)
+
+	items := []rangeItemWithStatics{
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "a"}}, statics: itemStatics, hash: staticsHash},
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "b"}}, statics: itemStatics, hash: staticsHash},
+	}
+	ctx := &Context{IncludeStatics: true}
+
+	tree, err := buildRangeTreeWithStatics(items, ctx)
+	if err != nil {
+		t.Fatalf("buildRangeTreeWithStatics failed: %v", err)
+	}
+
+	if tree == nil {
+		t.Fatal("Expected non-nil tree")
+	}
+
+	// Should have idKey = "_k" since no explicit key attribute
+	if tree.Metadata == nil {
+		t.Fatal("Expected metadata")
+	}
+	if tree.Metadata.IDKey != "_k" {
+		t.Errorf("Expected IDKey='_k', got: %v", tree.Metadata.IDKey)
+	}
+
+	// Each item should have _k field
+	for i, item := range tree.Range.Items {
+		itemNode, ok := item.(*TreeNode)
+		if !ok {
+			t.Fatalf("Item %d is not a TreeNode", i)
+		}
+		k, exists := itemNode.GetDynamic("_k")
+		if !exists {
+			t.Errorf("Item %d should have _k field", i)
+		}
+		if kStr, ok := k.(string); !ok || kStr == "" {
+			t.Errorf("Item %d _k should be a non-empty string, got: %v", i, k)
+		}
+	}
+
+	// Verify that different content produces different keys
+	item0 := tree.Range.Items[0].(*TreeNode)
+	item1 := tree.Range.Items[1].(*TreeNode)
+	key0, _ := item0.GetDynamic("_k")
+	key1, _ := item1.GetDynamic("_k")
+	if key0 == key1 {
+		t.Errorf("Items with different content should have different _k values, got: %v and %v", key0, key1)
+	}
+}
+
+// TestBuildRangeTreeWithStatics_ExplicitKey_NoAutoKey tests that items with explicit key don't get _k injected.
+func TestBuildRangeTreeWithStatics_ExplicitKey_NoAutoKey(t *testing.T) {
+	// Statics with data-key attribute
+	itemStatics := []string{"<div data-key=\"", "\">", "</div>"}
+	staticsHash := hashStatics(itemStatics)
+
+	items := []rangeItemWithStatics{
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "id1", "1": "content-a"}}, statics: itemStatics, hash: staticsHash},
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "id2", "1": "content-b"}}, statics: itemStatics, hash: staticsHash},
+	}
+	ctx := &Context{IncludeStatics: true}
+
+	tree, err := buildRangeTreeWithStatics(items, ctx)
+	if err != nil {
+		t.Fatalf("buildRangeTreeWithStatics failed: %v", err)
+	}
+
+	if tree == nil {
+		t.Fatal("Expected non-nil tree")
+	}
+
+	// Should have idKey = "0" (position of data-key value), NOT "_k"
+	if tree.Metadata == nil {
+		t.Fatal("Expected metadata")
+	}
+	if tree.Metadata.IDKey != "0" {
+		t.Errorf("Expected IDKey='0', got: %v", tree.Metadata.IDKey)
+	}
+
+	// Items should NOT have _k field
+	for i, item := range tree.Range.Items {
+		itemNode, ok := item.(*TreeNode)
+		if !ok {
+			t.Fatalf("Item %d is not a TreeNode", i)
+		}
+		if _, exists := itemNode.GetDynamic("_k"); exists {
+			t.Errorf("Item %d should NOT have _k field when explicit key exists", i)
+		}
+	}
+}
+
+// TestGenerateItemHash_Deterministic tests that the hash function produces deterministic results.
+func TestGenerateItemHash_Deterministic(t *testing.T) {
+	item := &TreeNode{
+		Dynamics: map[string]interface{}{
+			"0": "title",
+			"1": "content",
+		},
+	}
+
+	hash1 := generateItemHash(item)
+	hash2 := generateItemHash(item)
+
+	if hash1 != hash2 {
+		t.Errorf("Hash should be deterministic, got: %v and %v", hash1, hash2)
+	}
+
+	if len(hash1) != hashPrefixLength {
+		t.Errorf("Hash length should be %d, got: %d", hashPrefixLength, len(hash1))
+	}
+}
+
+// TestGenerateItemHash_DifferentContent tests that different content produces different hashes.
+func TestGenerateItemHash_DifferentContent(t *testing.T) {
+	item1 := &TreeNode{
+		Dynamics: map[string]interface{}{"0": "a"},
+	}
+	item2 := &TreeNode{
+		Dynamics: map[string]interface{}{"0": "b"},
+	}
+
+	hash1 := generateItemHash(item1)
+	hash2 := generateItemHash(item2)
+
+	if hash1 == hash2 {
+		t.Errorf("Different content should produce different hashes, got: %v", hash1)
+	}
+}
+
+// TestGenerateItemHash_IgnoresAutoKey tests that _k field is excluded from hash calculation.
+func TestGenerateItemHash_IgnoresAutoKey(t *testing.T) {
+	itemWithoutK := &TreeNode{
+		Dynamics: map[string]interface{}{"0": "content"},
+	}
+	itemWithK := &TreeNode{
+		Dynamics: map[string]interface{}{"0": "content", "_k": "some-old-key"},
+	}
+
+	hash1 := generateItemHash(itemWithoutK)
+	hash2 := generateItemHash(itemWithK)
+
+	if hash1 != hash2 {
+		t.Errorf("_k field should be excluded from hash, got: %v and %v", hash1, hash2)
+	}
+}

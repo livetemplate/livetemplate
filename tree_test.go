@@ -1796,8 +1796,13 @@ func checkTreeInvariant(tree map[string]interface{}, context string) error {
 			return fmt.Errorf("%s: range item is not a map, got %T", context, items[0])
 		}
 
-		// Count dynamics in the item (all keys are dynamics)
-		itemDynamicsCount := len(firstItem)
+		// Count dynamics in the item (all keys are dynamics, except _k which is auto-key metadata)
+		itemDynamicsCount := 0
+		for k := range firstItem {
+			if k != "_k" { // Skip auto-generated key field
+				itemDynamicsCount++
+			}
+		}
 
 		// Verify the invariant for range items
 		if staticsCount != itemDynamicsCount+1 {
@@ -1867,8 +1872,8 @@ func TestIDKeyDetection(t *testing.T) {
 		{
 			name:          "No ID attribute",
 			template:      `{{range .Items}}<div>{{.Name}}</div>{{end}}`,
-			expectedIDKey: "0",
-			description:   "Should default to position 0 when no ID attribute found",
+			expectedIDKey: "_k",
+			description:   "Should use auto-generated _k key when no ID attribute found",
 		},
 	}
 
