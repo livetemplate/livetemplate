@@ -454,8 +454,12 @@ func detectIDKey(statics []string) string {
 }
 
 // hashPrefixLength is the number of characters to use from the generated hash
-// for compact item identifiers. 12 characters provide sufficient uniqueness
-// (48 bits of entropy) while keeping identifiers short.
+// for compact item identifiers. 12 hex characters = 48 bits of entropy.
+//
+// This provides sufficient uniqueness for single-session DOM item matching:
+// - Birthday paradox collision probability: ~0.0001% at 10,000 items
+// - Collision becomes likely (~50%) only around 16 million items
+// - For typical web apps with <1000 range items, collisions are negligible
 const hashPrefixLength = 12
 
 // generateItemHash creates a stable hash for a range item based on its content.
@@ -487,8 +491,9 @@ func generateItemHash(item *TreeNode) string {
 		val, _ := item.GetDynamic(k)
 		valJSON, err := json.Marshal(val)
 		if err != nil {
-			// Fallback to string representation if marshaling fails
-			parts = append(parts, fmt.Sprintf("%s:%v", k, val))
+			// Fallback to Go syntax representation for more stable output
+			// than %v (which has non-deterministic map ordering)
+			parts = append(parts, fmt.Sprintf("%s:%#v", k, val))
 		} else {
 			parts = append(parts, fmt.Sprintf("%s:%s", k, string(valJSON)))
 		}
