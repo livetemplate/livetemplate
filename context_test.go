@@ -61,6 +61,44 @@ func TestContext_GetBool(t *testing.T) {
 	}
 }
 
+func TestContext_GetBool_StringValues(t *testing.T) {
+	// HTTP form submissions send booleans as strings "true"/"false"
+	// GetBool should handle both boolean and string representations
+	data := map[string]interface{}{
+		"bool_true":   true,
+		"bool_false":  false,
+		"str_true":    "true",
+		"str_false":   "false",
+		"str_invalid": "yes",
+		"str_empty":   "",
+	}
+	ctx := NewContext(context.Background(), "test", data)
+
+	// Boolean values should work
+	if got := ctx.GetBool("bool_true"); !got {
+		t.Error("GetBool(bool_true) = false, want true")
+	}
+	if got := ctx.GetBool("bool_false"); got {
+		t.Error("GetBool(bool_false) = true, want false")
+	}
+
+	// String "true"/"false" should work (HTTP form path)
+	if got := ctx.GetBool("str_true"); !got {
+		t.Error("GetBool(str_true) = false, want true")
+	}
+	if got := ctx.GetBool("str_false"); got {
+		t.Error("GetBool(str_false) = true, want false")
+	}
+
+	// Invalid strings should return false
+	if got := ctx.GetBool("str_invalid"); got {
+		t.Error("GetBool(str_invalid) = true, want false")
+	}
+	if got := ctx.GetBool("str_empty"); got {
+		t.Error("GetBool(str_empty) = true, want false")
+	}
+}
+
 func TestContext_Has(t *testing.T) {
 	data := map[string]interface{}{"exists": "value"}
 	ctx := NewContext(context.Background(), "test", data)
@@ -113,5 +151,49 @@ func TestContext_NilData(t *testing.T) {
 
 	if ctx.Has("any") {
 		t.Error("Has with nil data = true, want false")
+	}
+}
+
+func TestContext_GetString_NumericValues(t *testing.T) {
+	// The client-side parseValue() converts numeric strings like "1" to numbers.
+	// GetString should handle both string and numeric values.
+	data := map[string]interface{}{
+		"id_string":  "123",
+		"id_int":     float64(456), // JSON numbers are float64
+		"id_float":   float64(3.14),
+		"negative":   float64(-42),
+		"safe_int":   float64(9007199254740991), // Max safe integer in JavaScript
+		"zero":       float64(0),
+	}
+	ctx := NewContext(context.Background(), "test", data)
+
+	// String value should work as before
+	if got := ctx.GetString("id_string"); got != "123" {
+		t.Errorf("GetString(id_string) = %q, want %q", got, "123")
+	}
+
+	// Integer as float64 should convert to string
+	if got := ctx.GetString("id_int"); got != "456" {
+		t.Errorf("GetString(id_int) = %q, want %q", got, "456")
+	}
+
+	// Float should convert to string without scientific notation
+	if got := ctx.GetString("id_float"); got != "3.14" {
+		t.Errorf("GetString(id_float) = %q, want %q", got, "3.14")
+	}
+
+	// Negative integers should work
+	if got := ctx.GetString("negative"); got != "-42" {
+		t.Errorf("GetString(negative) = %q, want %q", got, "-42")
+	}
+
+	// Large integers within safe range should work
+	if got := ctx.GetString("safe_int"); got != "9007199254740991" {
+		t.Errorf("GetString(safe_int) = %q, want %q", got, "9007199254740991")
+	}
+
+	// Zero should work
+	if got := ctx.GetString("zero"); got != "0" {
+		t.Errorf("GetString(zero) = %q, want %q", got, "0")
 	}
 }

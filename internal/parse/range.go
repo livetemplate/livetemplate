@@ -3,8 +3,11 @@ package parse
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"reflect"
+	"sort"
 	"strings"
 	"text/template/parse"
 )
@@ -263,13 +266,23 @@ func buildRangeTreeWithStatics(items []rangeItemWithStatics, ctx *Context) (*Tre
 	itemTrees := make([]interface{}, len(items))
 
 	if isHomogeneous {
+		// Detect ID key from first item's statics
+		idKey := detectIDKey(items[0].statics)
+
+		// If no explicit key attribute found, inject auto-generated keys.
+		// This ensures both server and client use the same key for item matching.
+		if !hasExplicitKeyAttribute(items[0].statics) {
+			for _, item := range items {
+				hash := generateItemHash(item.tree)
+				item.tree.SetDynamic("_k", hash)
+			}
+			idKey = "_k"
+		}
+
 		// All items share the same statics - use original format
 		for i, item := range items {
 			itemTrees[i] = extractItemDynamics(item.tree)
 		}
-
-		// Detect ID key from first item's statics
-		idKey := detectIDKey(items[0].statics)
 
 		rangeTree := NewTreeNode()
 		if ctx.ShouldIncludeStatics() {
@@ -289,6 +302,21 @@ func buildRangeTreeWithStatics(items []rangeItemWithStatics, ctx *Context) (*Tre
 
 	// Detect ID key from first item's statics (for metadata)
 	idKey := detectIDKey(items[0].statics)
+
+	// If no explicit key attribute found, inject auto-generated keys.
+	// This ensures both server and client use the same key for item matching.
+	if !hasExplicitKeyAttribute(items[0].statics) {
+		for _, item := range items {
+			hash := generateItemHash(item.tree)
+			item.tree.SetDynamic("_k", hash)
+		}
+		idKey = "_k"
+	}
+
+	// Extract dynamics from each item
+	for i, item := range items {
+		itemTrees[i] = extractItemDynamics(item.tree)
+	}
 
 	rangeTree := NewTreeNode()
 	if ctx.ShouldIncludeStatics() {
@@ -334,6 +362,39 @@ func extractItemDynamics(itemTree *TreeNode) *TreeNode {
 	return &TreeNode{
 		Dynamics: itemTree.Dynamics,
 	}
+}
+
+// hasExplicitKeyAttribute checks if any key attribute is present in the statics.
+// Returns true if id=, data-key=, key=, or similar attributes are found.
+//
+// NOTE: The keyAttrs list must stay synchronized with:
+//   - detectIDKey() in this file
+//   - internal/keys.DefaultKeyAttributes
+func hasExplicitKeyAttribute(statics []string) bool {
+	if len(statics) == 0 {
+		return false
+	}
+
+	// Key attributes to check (must match detectIDKey and internal/keys.DefaultKeyAttributes)
+	keyAttrs := []string{
+		"id=\"",
+		"data-key=\"",
+		"key=\"",
+		"data-lvt-key=\"",
+		"lvt-key=\"",
+		"data-id=\"",
+		"x-key=\"",
+		"v-key=\"",
+	}
+
+	for _, static := range statics {
+		for _, attr := range keyAttrs {
+			if strings.Contains(static, attr) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // detectIDKey detects which position in the dynamics contains the item ID
@@ -390,4 +451,63 @@ func detectIDKey(statics []string) string {
 
 	// Default to position 0 if no key attribute found
 	return "0"
+}
+
+// hashPrefixLength is the number of characters to use from the generated hash
+// for compact item identifiers. 12 hex characters = 48 bits of entropy.
+//
+// This provides sufficient uniqueness for single-session DOM item matching:
+// - Birthday paradox collision probability: ~0.0001% at 10,000 items
+// - Collision becomes likely (~50%) only around 16 million items
+// - For typical web apps with <1000 range items, collisions are negligible
+const hashPrefixLength = 12
+
+// generateItemHash creates a stable hash for a range item based on its content.
+// This is used when no explicit key attribute is provided in the template.
+// Uses FNV-1a hash for fast, non-cryptographic content fingerprinting.
+//
+// NOTE: This function duplicates internal/diff.GenerateItemHash intentionally.
+// The parse package cannot import diff (circular dependency), and the
+// implementations must stay synchronized. Both use FNV-1a with hashPrefixLength=12.
+func generateItemHash(item *TreeNode) string {
+	if item == nil {
+		return ""
+	}
+
+	// Create a canonical JSON representation for hashing
+	// Sort keys to ensure deterministic ordering
+	keys := make([]string, 0, len(item.Dynamics))
+	for k := range item.Dynamics {
+		// Skip internal/reserved fields
+		if k != "_k" {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+
+	// Build canonical representation
+	var parts []string
+	for _, k := range keys {
+		val, _ := item.GetDynamic(k)
+		valJSON, err := json.Marshal(val)
+		if err != nil {
+			// Fallback to Go syntax representation for more stable output
+			// than %v (which has non-deterministic map ordering)
+			parts = append(parts, fmt.Sprintf("%s:%#v", k, val))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s:%s", k, string(valJSON)))
+		}
+	}
+
+	// Hash the canonical representation using FNV-1a
+	content := strings.Join(parts, "|")
+	hasher := fnv.New64a()
+	hasher.Write([]byte(content))
+	hash := hex.EncodeToString(hasher.Sum(nil))
+
+	// Return first hashPrefixLength characters for compactness
+	if len(hash) >= hashPrefixLength {
+		return hash[:hashPrefixLength]
+	}
+	return hash
 }

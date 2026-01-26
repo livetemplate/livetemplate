@@ -95,11 +95,27 @@ func (a *ActionData) GetString(key string) string {
 }
 
 // GetStringOk extracts a string value with explicit success indicator.
-// Returns (value, true) if key exists and value is a string.
-// Returns ("", false) if key doesn't exist or value is not a string.
+// Returns (value, true) if key exists and value is a string or number.
+// Returns ("", false) if key doesn't exist or value cannot be converted to string.
+//
+// This method handles both string values and JSON numbers (float64), since
+// the client-side parseValue() may convert numeric strings like "1" to numbers.
 func (a *ActionData) GetStringOk(key string) (string, bool) {
+	// Handle string values directly
 	if v, ok := a.raw[key].(string); ok {
 		return v, true
+	}
+	// Handle float64 (JSON numbers) - convert to string
+	if v, ok := a.raw[key].(float64); ok {
+		// Use FormatFloat to avoid scientific notation and preserve precision
+		// Check if it's an integer value within safe bounds.
+		// JavaScript MAX_SAFE_INTEGER is 2^53-1; values beyond this may have precision issues.
+		// We also guard against int64 overflow for very large float64 values.
+		const maxSafeFloat = float64(1<<53 - 1) // JavaScript MAX_SAFE_INTEGER
+		if v >= -maxSafeFloat && v <= maxSafeFloat && v == float64(int64(v)) {
+			return strconv.FormatInt(int64(v), 10), true
+		}
+		return strconv.FormatFloat(v, 'f', -1, 64), true
 	}
 	return "", false
 }
@@ -178,11 +194,26 @@ func (a *ActionData) GetBool(key string) bool {
 }
 
 // GetBoolOk extracts a bool value with explicit success indicator.
-// Returns (value, true) if key exists and value is a bool.
-// Returns (false, false) if key doesn't exist or value is not a bool.
+// Returns (value, true) if key exists and value is a bool or boolean string.
+// Returns (false, false) if key doesn't exist or value cannot be parsed as bool.
+//
+// This method handles both boolean values and string values "true"/"false"
+// from HTML form submissions (HTTP path uses strings, WebSocket uses booleans).
+// String comparison is case-insensitive to handle variations like "True", "TRUE", etc.
 func (a *ActionData) GetBoolOk(key string) (bool, bool) {
+	// Handle bool values directly (from WebSocket + parseValue)
 	if v, ok := a.raw[key].(bool); ok {
 		return v, true
+	}
+	// Handle string values from HTTP form submissions (case-insensitive)
+	if v, ok := a.raw[key].(string); ok {
+		lowerV := strings.ToLower(v)
+		if lowerV == "true" {
+			return true, true
+		}
+		if lowerV == "false" {
+			return false, true
+		}
 	}
 	return false, false
 }
