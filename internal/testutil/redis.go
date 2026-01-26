@@ -3,6 +3,8 @@ package testutil
 import (
 	"context"
 	"log"
+	"os/exec"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,15 +12,46 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/redis"
 )
 
+var (
+	dockerAvailable     bool
+	dockerAvailableOnce sync.Once
+)
+
+// IsDockerAvailable checks if Docker is available for running containers.
+// The result is cached after the first call.
+func IsDockerAvailable() bool {
+	dockerAvailableOnce.Do(func() {
+		// Try to run "docker info" to check if Docker is available
+		cmd := exec.Command("docker", "info")
+		if err := cmd.Run(); err != nil {
+			dockerAvailable = false
+			return
+		}
+		dockerAvailable = true
+	})
+	return dockerAvailable
+}
+
+// SkipIfNoDocker skips the test if Docker is not available.
+func SkipIfNoDocker(t *testing.T) {
+	t.Helper()
+	if !IsDockerAvailable() {
+		t.Skip("Docker not available, skipping test")
+	}
+}
+
 // RedisContainer holds the Redis testcontainer and client
 type RedisContainer struct {
 	Container *redis.RedisContainer
 	Client    goredis.UniversalClient
 }
 
-// StartRedisContainer starts a Redis container for testing
+// StartRedisContainer starts a Redis container for testing.
+// If Docker is not available, the test is skipped.
 func StartRedisContainer(ctx context.Context, t *testing.T) (*RedisContainer, error) {
 	t.Helper()
+
+	SkipIfNoDocker(t)
 
 	// Start Redis container
 	container, err := redis.Run(ctx,
@@ -94,8 +127,11 @@ func (rc *RedisContainer) Close(ctx context.Context) error {
 
 // GetTestRedisClient is a convenience function that starts a Redis container
 // and returns a client. It registers cleanup with t.Cleanup.
+// If Docker is not available, the test is skipped.
 func GetTestRedisClient(t *testing.T) goredis.UniversalClient {
 	t.Helper()
+
+	SkipIfNoDocker(t)
 
 	ctx := context.Background()
 	rc, err := StartRedisContainer(ctx, t)
