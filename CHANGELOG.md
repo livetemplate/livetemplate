@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<a name="v0.8.1"></a>
+## [v0.8.1] - 2026-01-26
+
+### Bug Fixes
+
+- skip Redis tests gracefully when Docker is unavailable ([#109](https://github.com/livefir/livetemplate/issues/109))
+- address Copilot review comments on API accuracy
+- correct API references and range operation format in walkthrough
+
+### Features
+
+- auto-generated keys for range items without explicit key attribute ([#108](https://github.com/livefir/livetemplate/issues/108))
+- progressive enhancement support for non-JS form submissions ([#102](https://github.com/livefir/livetemplate/issues/102))
+
+
 <a name="v0.8.0"></a>
 ## [v0.8.0] - 2026-01-18
 
@@ -440,7 +455,8 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.1...HEAD
+[v0.8.1]: https://github.com/livefir/livetemplate/compare/v0.8.0...v0.8.1
 [v0.8.0]: https://github.com/livefir/livetemplate/compare/v0.7.12...v0.8.0
 [v0.7.12]: https://github.com/livefir/livetemplate/compare/v0.7.11...v0.7.12
 [v0.7.11]: https://github.com/livefir/livetemplate/compare/v0.7.10...v0.7.11
