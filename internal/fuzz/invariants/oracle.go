@@ -57,6 +57,21 @@ func ApplyDiff(oldTree, diffTree *build.TreeNode) *build.TreeNode {
 		if newTreeNode, ok := newValue.(*build.TreeNode); ok {
 			if oldValue, exists := result.GetDynamic(k); exists {
 				if oldTreeNode, ok := oldValue.(*build.TreeNode); ok {
+					// CRITICAL: Check for structure changes that require full replacement.
+					//
+					// When the diff tree has statics (new structure) but the old tree has
+					// dynamics that aren't in the diff, this is a structure replacement.
+					// Examples:
+					// - range→else: old has nested range, new has just statics
+					// - conditional branch change: old has if-branch, new has else-branch
+					//
+					// If the new tree has statics AND the old tree has dynamics that the
+					// new tree doesn't have, this is a full replacement, not a merge.
+					if shouldFullReplace(oldTreeNode, newTreeNode) {
+						result.SetDynamic(k, newTreeNode)
+						continue
+					}
+
 					// Recursively apply diff to nested tree
 					result.SetDynamic(k, ApplyDiff(oldTreeNode, newTreeNode))
 					continue
@@ -563,6 +578,65 @@ func rangesEqual(a, b *build.TreeNode) bool {
 	}
 
 	return true
+}
+
+// shouldFullReplace determines if a diff tree should fully replace the old tree
+// rather than being merged.
+//
+// This is needed for structure changes like:
+// - range→else: old tree has nested dynamics with range, new tree is just statics
+// - conditional branch switch: different branches with different structures
+//
+// The key insight: if the new tree has statics (indicating a complete structure)
+// and the old tree has dynamics that the new tree doesn't have, this is a
+// structural replacement, not a partial update.
+func shouldFullReplace(oldTree, newTree *build.TreeNode) bool {
+	// If new tree has statics, it's a complete structure definition
+	if len(newTree.Statics) == 0 {
+		return false // No statics means this is a partial update
+	}
+
+	// Check if old tree has range (directly or nested)
+	if hasRangeAnywhere(oldTree) && !hasRangeAnywhere(newTree) {
+		return true // Range→non-range transition
+	}
+
+	// Check if old tree has dynamics that new tree doesn't have
+	oldDyn := oldTree.GetDynamics()
+	newDyn := newTree.GetDynamics()
+
+	for k := range oldDyn {
+		if _, exists := newDyn[k]; !exists {
+			// Old tree has a dynamic that new tree doesn't
+			// If new tree has statics, this is a structure change
+			return true
+		}
+	}
+
+	return false
+}
+
+// hasRangeAnywhere checks if a tree or any of its children has a range.
+func hasRangeAnywhere(tree *build.TreeNode) bool {
+	if tree == nil {
+		return false
+	}
+
+	// Check direct range
+	if tree.HasRange() && tree.Range != nil {
+		return true
+	}
+
+	// Check children
+	for _, v := range tree.GetDynamics() {
+		if childTree, ok := v.(*build.TreeNode); ok {
+			if hasRangeAnywhere(childTree) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // jsonEqual compares two values using JSON serialization.
