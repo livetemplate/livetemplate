@@ -253,6 +253,16 @@ func handleStructureValue(
 	}
 
 	// Client doesn't have structure - send full value WITH statics
+	// Even if there are no dynamics (stripped is empty), we still need to
+	// send the tree with statics so the client knows what to render.
+	// Only return "" if the newValue itself has no content.
+	if treeNode, ok := newValue.(*TreeNode); ok {
+		if !treeNode.HasStatics() && !treeNode.HasDynamics() && !treeNode.HasRange() {
+			return "", false
+		}
+		return newValue, false
+	}
+	// For non-TreeNode values, fall back to stripped check
 	if isStrippedValueEmpty(stripped) {
 		return "", false
 	}
