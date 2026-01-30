@@ -874,3 +874,669 @@ func TestFuzzNestedConditionalRanges_Property(t *testing.T) {
 		runFuzzSessionWithWeights(t, rng, seed, numMutations, fuzzNestedConditionalRangeTemplate, shape, weights)
 	})
 }
+
+// =============================================================================
+// AGGRESSIVE EDGE CASE FUZZ TESTS
+// These tests target specific edge cases that have historically caused bugs.
+// =============================================================================
+
+// fuzzTreeNodeToPrimitiveTemplate tests TreeNode→primitive transitions (bug: db329a5)
+// When a conditional like {{if ne .EditingID ""}}...{{end}} goes from shown to hidden.
+var fuzzTreeNodeToPrimitiveTemplate = `<div>
+	<h1>{{.Title}}</h1>
+	{{if ne .EditingID ""}}
+		<div class="modal">
+			<h2>Editing: {{.EditingID}}</h2>
+			<input value="{{.EditingText}}">
+		</div>
+	{{end}}
+	<ul>
+	{{range .Items}}
+		<li id="{{.ID}}">{{.Text}}</li>
+	{{end}}
+	</ul>
+</div>`
+
+// fuzzMultipleConditionalsTemplate tests multiple conditionals toggling
+var fuzzMultipleConditionalsTemplate = `<div>
+	{{if .ShowHeader}}<header>{{.Title}}</header>{{end}}
+	{{if .ShowNav}}<nav>{{.NavText}}</nav>{{end}}
+	{{if .ShowContent}}
+		<main>
+			{{range .Items}}
+				<div id="{{.ID}}">{{.Text}}</div>
+			{{end}}
+		</main>
+	{{end}}
+	{{if .ShowFooter}}<footer>{{.FooterText}}</footer>{{end}}
+</div>`
+
+// fuzzDeeplyNestedTemplate tests deeply nested structures
+var fuzzDeeplyNestedTemplate = `<div>
+	{{if .Level1}}
+		<div class="l1">
+			{{if .Level2}}
+				<div class="l2">
+					{{if .Level3}}
+						<div class="l3">
+							{{range .Items}}
+								<span id="{{.ID}}">{{.Text}}</span>
+							{{end}}
+						</div>
+					{{else}}
+						<p>Level 3 hidden</p>
+					{{end}}
+				</div>
+			{{else}}
+				<p>Level 2 hidden</p>
+			{{end}}
+		</div>
+	{{else}}
+		<p>Level 1 hidden</p>
+	{{end}}
+</div>`
+
+// fuzzMultipleRangesTemplate tests multiple ranges with interleaved operations
+var fuzzMultipleRangesTemplate = `<div>
+	<h1>{{.Title}}</h1>
+	<section class="primary">
+		{{range .Items}}
+			<article id="{{.ID}}">
+				<h2>{{.Title}}</h2>
+				<p>{{.Body}}</p>
+			</article>
+		{{end}}
+	</section>
+	<aside class="sidebar">
+		{{range .Tags}}
+			<span id="{{.ID}}" class="tag">{{.Name}}</span>
+		{{end}}
+	</aside>
+	<footer>
+		{{range .Links}}
+			<a id="{{.ID}}" href="{{.URL}}">{{.Label}}</a>
+		{{end}}
+	</footer>
+</div>`
+
+// TestFuzzTreeNodeToPrimitive_Property tests TreeNode→primitive transitions.
+// This bug caused garbled output when conditionals were toggled multiple times.
+func TestFuzzTreeNodeToPrimitive_Property(t *testing.T) {
+	shape := &generators.StateShape{
+		Fields: map[string]generators.FieldType{
+			"Title":       generators.FieldString,
+			"EditingID":   generators.FieldString, // Empty string = hidden, non-empty = shown
+			"EditingText": generators.FieldString,
+		},
+		Slices: map[string]generators.SliceShape{
+			"Items": {
+				MinLen: 1,
+				MaxLen: 5,
+				ItemShape: &generators.StateShape{
+					Fields: map[string]generators.FieldType{
+						"ID":   generators.FieldString,
+						"Text": generators.FieldString,
+					},
+				},
+			},
+		},
+	}
+
+	// Weights that favor toggling EditingID between empty and non-empty
+	weights := mutations.MutationWeights{
+		SetField:     0.5, // Heavy field changes to toggle EditingID
+		ToggleBool:   0.0,
+		AppendSlice:  0.1,
+		PrependSlice: 0.05,
+		InsertSlice:  0.05,
+		RemoveSlice:  0.1,
+		ClearSlice:   0.0,
+		ReorderSlice: 0.05,
+		ReverseSlice: 0.05,
+		UpdateItem:   0.1,
+		KeyCollision: 0.0,
+	}
+
+	rapid.Check(t, func(rt *rapid.T) {
+		seed := rapid.Int64().Draw(rt, "seed")
+		numMutations := rapid.IntRange(20, 50).Draw(rt, "numMutations")
+
+		rng := rand.New(rand.NewSource(seed))
+		runFuzzSessionWithWeights(t, rng, seed, numMutations, fuzzTreeNodeToPrimitiveTemplate, shape, weights)
+	})
+}
+
+// TestFuzzMultipleConditionals_Property tests rapid toggling of multiple conditionals.
+func TestFuzzMultipleConditionals_Property(t *testing.T) {
+	shape := &generators.StateShape{
+		Fields: map[string]generators.FieldType{
+			"Title":       generators.FieldString,
+			"NavText":     generators.FieldString,
+			"FooterText":  generators.FieldString,
+			"ShowHeader":  generators.FieldBool,
+			"ShowNav":     generators.FieldBool,
+			"ShowContent": generators.FieldBool,
+			"ShowFooter":  generators.FieldBool,
+		},
+		Slices: map[string]generators.SliceShape{
+			"Items": {
+				MinLen: 1,
+				MaxLen: 5,
+				ItemShape: &generators.StateShape{
+					Fields: map[string]generators.FieldType{
+						"ID":   generators.FieldString,
+						"Text": generators.FieldString,
+					},
+				},
+			},
+		},
+	}
+
+	// Weights heavily favoring boolean toggles
+	weights := mutations.MutationWeights{
+		SetField:     0.1,
+		ToggleBool:   0.5, // Heavy toggle
+		AppendSlice:  0.05,
+		PrependSlice: 0.05,
+		InsertSlice:  0.05,
+		RemoveSlice:  0.05,
+		ClearSlice:   0.0,
+		ReorderSlice: 0.05,
+		ReverseSlice: 0.05,
+		UpdateItem:   0.05,
+		KeyCollision: 0.0,
+	}
+
+	rapid.Check(t, func(rt *rapid.T) {
+		seed := rapid.Int64().Draw(rt, "seed")
+		numMutations := rapid.IntRange(30, 100).Draw(rt, "numMutations")
+
+		rng := rand.New(rand.NewSource(seed))
+		runFuzzSessionWithWeights(t, rng, seed, numMutations, fuzzMultipleConditionalsTemplate, shape, weights)
+	})
+}
+
+// TestFuzzDeeplyNested_Property tests deeply nested conditional structures.
+func TestFuzzDeeplyNested_Property(t *testing.T) {
+	shape := &generators.StateShape{
+		Fields: map[string]generators.FieldType{
+			"Level1": generators.FieldBool,
+			"Level2": generators.FieldBool,
+			"Level3": generators.FieldBool,
+		},
+		Slices: map[string]generators.SliceShape{
+			"Items": {
+				MinLen: 1,
+				MaxLen: 5,
+				ItemShape: &generators.StateShape{
+					Fields: map[string]generators.FieldType{
+						"ID":   generators.FieldString,
+						"Text": generators.FieldString,
+					},
+				},
+			},
+		},
+	}
+
+	// Weights favoring level toggles
+	weights := mutations.MutationWeights{
+		SetField:     0.05,
+		ToggleBool:   0.45, // Heavy toggle
+		AppendSlice:  0.1,
+		PrependSlice: 0.05,
+		InsertSlice:  0.05,
+		RemoveSlice:  0.1,
+		ClearSlice:   0.0,
+		ReorderSlice: 0.05,
+		ReverseSlice: 0.05,
+		UpdateItem:   0.1,
+		KeyCollision: 0.0,
+	}
+
+	rapid.Check(t, func(rt *rapid.T) {
+		seed := rapid.Int64().Draw(rt, "seed")
+		numMutations := rapid.IntRange(30, 100).Draw(rt, "numMutations")
+
+		rng := rand.New(rand.NewSource(seed))
+		runFuzzSessionWithWeights(t, rng, seed, numMutations, fuzzDeeplyNestedTemplate, shape, weights)
+	})
+}
+
+// TestFuzzMultipleRanges_Property tests multiple ranges with concurrent operations.
+func TestFuzzMultipleRanges_Property(t *testing.T) {
+	shape := &generators.StateShape{
+		Fields: map[string]generators.FieldType{
+			"Title": generators.FieldString,
+		},
+		Slices: map[string]generators.SliceShape{
+			"Items": {
+				MinLen: 1,
+				MaxLen: 10,
+				ItemShape: &generators.StateShape{
+					Fields: map[string]generators.FieldType{
+						"ID":    generators.FieldString,
+						"Title": generators.FieldString,
+						"Body":  generators.FieldString,
+					},
+				},
+			},
+			"Tags": {
+				MinLen: 1,
+				MaxLen: 8,
+				ItemShape: &generators.StateShape{
+					Fields: map[string]generators.FieldType{
+						"ID":   generators.FieldString,
+						"Name": generators.FieldString,
+					},
+				},
+			},
+			"Links": {
+				MinLen: 1,
+				MaxLen: 5,
+				ItemShape: &generators.StateShape{
+					Fields: map[string]generators.FieldType{
+						"ID":    generators.FieldString,
+						"URL":   generators.FieldString,
+						"Label": generators.FieldString,
+					},
+				},
+			},
+		},
+	}
+
+	rapid.Check(t, func(rt *rapid.T) {
+		seed := rapid.Int64().Draw(rt, "seed")
+		numMutations := rapid.IntRange(30, 100).Draw(rt, "numMutations")
+
+		rng := rand.New(rand.NewSource(seed))
+		runFuzzSessionWithWeights(t, rng, seed, numMutations, fuzzMultipleRangesTemplate, shape,
+			mutations.RangeHeavyWeights)
+	})
+}
+
+// TestFuzzLongMutationSequence_Property tests very long mutation sequences.
+// This can reveal state accumulation bugs or memory issues.
+func TestFuzzLongMutationSequence_Property(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		seed := rapid.Int64().Draw(rt, "seed")
+		numMutations := rapid.IntRange(200, 500).Draw(rt, "numMutations")
+
+		rng := rand.New(rand.NewSource(seed))
+		runFuzzSession(t, rng, seed, numMutations, fuzzTodoTemplate, generators.DefaultStateShape())
+	})
+}
+
+// TestFuzzRapidToggling_Property tests rapid toggling of the same field.
+// This can reveal caching or state management bugs.
+func TestFuzzRapidToggling_Property(t *testing.T) {
+	shape := &generators.StateShape{
+		Fields: map[string]generators.FieldType{
+			"ShowList": generators.FieldBool,
+		},
+		Slices: map[string]generators.SliceShape{
+			"Items": {
+				MinLen: 2,
+				MaxLen: 5,
+				ItemShape: &generators.StateShape{
+					Fields: map[string]generators.FieldType{
+						"ID":   generators.FieldString,
+						"Text": generators.FieldString,
+					},
+				},
+			},
+		},
+	}
+
+	// 90% toggle, 10% other operations
+	weights := mutations.MutationWeights{
+		SetField:     0.02,
+		ToggleBool:   0.9, // Almost always toggle
+		AppendSlice:  0.02,
+		PrependSlice: 0.01,
+		InsertSlice:  0.01,
+		RemoveSlice:  0.01,
+		ClearSlice:   0.0,
+		ReorderSlice: 0.01,
+		ReverseSlice: 0.01,
+		UpdateItem:   0.01,
+		KeyCollision: 0.0,
+	}
+
+	rapid.Check(t, func(rt *rapid.T) {
+		seed := rapid.Int64().Draw(rt, "seed")
+		numMutations := rapid.IntRange(50, 200).Draw(rt, "numMutations")
+
+		rng := rand.New(rand.NewSource(seed))
+		runFuzzSessionWithWeights(t, rng, seed, numMutations, fuzzNestedConditionalRangeTemplate, shape, weights)
+	})
+}
+
+// Test: Static-only structure transitions
+// Bug pattern: When switching to a structure with only statics (no dynamics),
+// the diff might incorrectly send "" instead of the full structure.
+const fuzzStaticOnlyStructureTemplate = `<div>{{if .ShowDynamic}}<span>{{.Value}}</span>{{else}}<p>Static only message</p>{{end}}</div>`
+
+func TestFuzzStaticOnlyStructure_Property(t *testing.T) {
+	shape := &generators.StateShape{
+		Fields: map[string]generators.FieldType{
+			"ShowDynamic": generators.FieldBool,
+			"Value":       generators.FieldString,
+		},
+	}
+
+	// High weight for toggling ShowDynamic
+	weights := mutations.MutationWeights{
+		SetField:     0.1,
+		ToggleBool:   0.8, // Frequently toggle to trigger static-only transitions
+		AppendSlice:  0.0,
+		PrependSlice: 0.0,
+		InsertSlice:  0.0,
+		RemoveSlice:  0.0,
+		ClearSlice:   0.0,
+		ReorderSlice: 0.0,
+		ReverseSlice: 0.0,
+		UpdateItem:   0.0,
+		KeyCollision: 0.0,
+	}
+
+	rapid.Check(t, func(rt *rapid.T) {
+		seed := rapid.Int64().Draw(rt, "seed")
+		numMutations := rapid.IntRange(50, 150).Draw(rt, "numMutations")
+
+		rng := rand.New(rand.NewSource(seed))
+		runFuzzSessionWithWeights(t, rng, seed, numMutations, fuzzStaticOnlyStructureTemplate, shape, weights)
+	})
+}
+
+// Test: Primitive to TreeNode with only statics
+// When a field changes from a primitive to a TreeNode that has only statics
+const fuzzPrimitiveToStaticTreeTemplate = `<div>{{if .UseComplex}}<section><article>{{.Title}}</article></section>{{else}}{{.Simple}}{{end}}</div>`
+
+func TestFuzzPrimitiveToStaticTree_Property(t *testing.T) {
+	shape := &generators.StateShape{
+		Fields: map[string]generators.FieldType{
+			"UseComplex": generators.FieldBool,
+			"Title":      generators.FieldString,
+			"Simple":     generators.FieldString,
+		},
+	}
+
+	weights := mutations.MutationWeights{
+		SetField:     0.2,
+		ToggleBool:   0.7, // Trigger transitions
+		AppendSlice:  0.0,
+		PrependSlice: 0.0,
+		InsertSlice:  0.0,
+		RemoveSlice:  0.0,
+		ClearSlice:   0.0,
+		ReorderSlice: 0.0,
+		ReverseSlice: 0.0,
+		UpdateItem:   0.0,
+		KeyCollision: 0.0,
+	}
+
+	rapid.Check(t, func(rt *rapid.T) {
+		seed := rapid.Int64().Draw(rt, "seed")
+		numMutations := rapid.IntRange(50, 150).Draw(rt, "numMutations")
+
+		rng := rand.New(rand.NewSource(seed))
+		runFuzzSessionWithWeights(t, rng, seed, numMutations, fuzzPrimitiveToStaticTreeTemplate, shape, weights)
+	})
+}
+
+// Test: Empty statics arrays
+// Edge case: structures with empty statics arrays
+const fuzzEmptyStaticsTemplate = `{{if .ShowContent}}{{.Content}}{{else}}{{.Alternative}}{{end}}`
+
+func TestFuzzEmptyStatics_Property(t *testing.T) {
+	shape := &generators.StateShape{
+		Fields: map[string]generators.FieldType{
+			"ShowContent": generators.FieldBool,
+			"Content":     generators.FieldString,
+			"Alternative": generators.FieldString,
+		},
+	}
+
+	weights := mutations.MutationWeights{
+		SetField:     0.3,
+		ToggleBool:   0.6,
+		AppendSlice:  0.0,
+		PrependSlice: 0.0,
+		InsertSlice:  0.0,
+		RemoveSlice:  0.0,
+		ClearSlice:   0.0,
+		ReorderSlice: 0.0,
+		ReverseSlice: 0.0,
+		UpdateItem:   0.0,
+		KeyCollision: 0.0,
+	}
+
+	rapid.Check(t, func(rt *rapid.T) {
+		seed := rapid.Int64().Draw(rt, "seed")
+		numMutations := rapid.IntRange(50, 150).Draw(rt, "numMutations")
+
+		rng := rand.New(rand.NewSource(seed))
+		runFuzzSessionWithWeights(t, rng, seed, numMutations, fuzzEmptyStaticsTemplate, shape, weights)
+	})
+}
+
+// Test: Three-way conditional transitions
+// Transitions between multiple else-if branches
+const fuzzThreeWayConditionalTemplate = `<div>{{if .ShowA}}<span class="a">{{.ValueA}}</span>{{else if .ShowB}}<span class="b">{{.ValueB}}</span>{{else}}<span class="c">{{.ValueC}}</span>{{end}}</div>`
+
+func TestFuzzThreeWayConditional_Property(t *testing.T) {
+	shape := &generators.StateShape{
+		Fields: map[string]generators.FieldType{
+			"ShowA":  generators.FieldBool,
+			"ShowB":  generators.FieldBool,
+			"ValueA": generators.FieldString,
+			"ValueB": generators.FieldString,
+			"ValueC": generators.FieldString,
+		},
+	}
+
+	weights := mutations.MutationWeights{
+		SetField:     0.2,
+		ToggleBool:   0.7, // Rapid transitions between branches
+		AppendSlice:  0.0,
+		PrependSlice: 0.0,
+		InsertSlice:  0.0,
+		RemoveSlice:  0.0,
+		ClearSlice:   0.0,
+		ReorderSlice: 0.0,
+		ReverseSlice: 0.0,
+		UpdateItem:   0.0,
+		KeyCollision: 0.0,
+	}
+
+	rapid.Check(t, func(rt *rapid.T) {
+		seed := rapid.Int64().Draw(rt, "seed")
+		numMutations := rapid.IntRange(100, 300).Draw(rt, "numMutations")
+
+		rng := rand.New(rand.NewSource(seed))
+		runFuzzSessionWithWeights(t, rng, seed, numMutations, fuzzThreeWayConditionalTemplate, shape, weights)
+	})
+}
+
+// Test: Static-only conditional blocks inside range items (bug b223ed8)
+// When PrepareTreeForClient strips statics, static-only conditional blocks
+// like {{if eq .Priority "high"}}<span>High</span>{{end}} might be stripped entirely.
+const fuzzStaticOnlyConditionalInRangeTemplate = `<ul>
+{{range .Tasks}}
+<li id="{{.ID}}">
+  {{.Title}}
+  {{if .IsUrgent}}<span class="urgent">URGENT</span>{{end}}
+  {{if .IsDone}}<span class="done">✓</span>{{end}}
+</li>
+{{end}}
+</ul>`
+
+func TestFuzzStaticOnlyConditionalInRange_Property(t *testing.T) {
+	shape := &generators.StateShape{
+		Slices: map[string]generators.SliceShape{
+			"Tasks": {
+				MinLen: 1,
+				MaxLen: 8,
+				ItemShape: &generators.StateShape{
+					Fields: map[string]generators.FieldType{
+						"ID":       generators.FieldString,
+						"Title":    generators.FieldString,
+						"IsUrgent": generators.FieldBool,
+						"IsDone":   generators.FieldBool,
+					},
+				},
+			},
+		},
+	}
+
+	// Mix of operations including prepend and toggle
+	weights := mutations.MutationWeights{
+		SetField:     0.05,
+		ToggleBool:   0.15,
+		AppendSlice:  0.1,
+		PrependSlice: 0.15, // Prepend to trigger static-only conditional bug
+		InsertSlice:  0.1,
+		RemoveSlice:  0.1,
+		ClearSlice:   0.0,
+		ReorderSlice: 0.1,
+		ReverseSlice: 0.05,
+		UpdateItem:   0.20, // Toggle item booleans frequently
+		KeyCollision: 0.0,
+	}
+
+	rapid.Check(t, func(rt *rapid.T) {
+		seed := rapid.Int64().Draw(rt, "seed")
+		numMutations := rapid.IntRange(30, 80).Draw(rt, "numMutations")
+
+		rng := rand.New(rand.NewSource(seed))
+		runFuzzSessionWithWeights(t, rng, seed, numMutations, fuzzStaticOnlyConditionalInRangeTemplate, shape, weights)
+	})
+}
+
+// Test: Registry invalidation when conditional becomes empty (bug db329a5)
+// When a conditional like {{if ne .EditingID ""}}...{{end}} transitions from
+// shown to hidden (TreeNode → primitive), the client loses cached statics
+// but the registry still marks them as "seen".
+const fuzzRegistryInvalidationTemplate = `<div>
+<h1>{{.Title}}</h1>
+{{if ne .EditingID ""}}
+<div class="modal">
+  <h2>Editing: {{.EditingID}}</h2>
+  <input value="{{.EditText}}">
+  <button>Save</button>
+</div>
+{{end}}
+<ul>
+{{range .Items}}
+<li id="{{.ID}}">{{.Text}}</li>
+{{end}}
+</ul>
+</div>`
+
+func TestFuzzRegistryInvalidation_Property(t *testing.T) {
+	shape := &generators.StateShape{
+		Fields: map[string]generators.FieldType{
+			"Title":     generators.FieldString,
+			"EditingID": generators.FieldString, // Empty string = hidden, non-empty = shown
+			"EditText":  generators.FieldString,
+		},
+		Slices: map[string]generators.SliceShape{
+			"Items": {
+				MinLen: 1,
+				MaxLen: 5,
+				ItemShape: &generators.StateShape{
+					Fields: map[string]generators.FieldType{
+						"ID":   generators.FieldString,
+						"Text": generators.FieldString,
+					},
+				},
+			},
+		},
+	}
+
+	// High frequency of SetField to toggle EditingID between "" and "item-X"
+	weights := mutations.MutationWeights{
+		SetField:     0.50, // Frequently set EditingID to "" or "item-X"
+		ToggleBool:   0.0,
+		AppendSlice:  0.1,
+		PrependSlice: 0.05,
+		InsertSlice:  0.05,
+		RemoveSlice:  0.1,
+		ClearSlice:   0.0,
+		ReorderSlice: 0.05,
+		ReverseSlice: 0.05,
+		UpdateItem:   0.1,
+		KeyCollision: 0.0,
+	}
+
+	rapid.Check(t, func(rt *rapid.T) {
+		seed := rapid.Int64().Draw(rt, "seed")
+		numMutations := rapid.IntRange(30, 100).Draw(rt, "numMutations")
+
+		rng := rand.New(rand.NewSource(seed))
+		runFuzzSessionWithWeights(t, rng, seed, numMutations, fuzzRegistryInvalidationTemplate, shape, weights)
+	})
+}
+
+// Test: Empty→items transitions with proper statics (bug 7b675b7)
+// Ensure Range.Statics are populated when transitioning from empty to items
+const fuzzEmptyToItemsStaticsTemplate = `<div>
+{{if .ShowSection}}
+<section>
+  <h2>{{.SectionTitle}}</h2>
+  <ul>
+  {{range .Items}}
+  <li id="{{.ID}}" class="item">{{.Name}}</li>
+  {{else}}
+  <li class="empty">No items yet</li>
+  {{end}}
+  </ul>
+</section>
+{{else}}
+<p>Section hidden</p>
+{{end}}
+</div>`
+
+func TestFuzzEmptyToItemsStatics_Property(t *testing.T) {
+	shape := &generators.StateShape{
+		Fields: map[string]generators.FieldType{
+			"ShowSection":  generators.FieldBool,
+			"SectionTitle": generators.FieldString,
+		},
+		Slices: map[string]generators.SliceShape{
+			"Items": {
+				MinLen: 0, // Allow empty to test empty→items transition
+				MaxLen: 5,
+				ItemShape: &generators.StateShape{
+					Fields: map[string]generators.FieldType{
+						"ID":   generators.FieldString,
+						"Name": generators.FieldString,
+					},
+				},
+			},
+		},
+	}
+
+	// Mix that allows empty states and adding items
+	weights := mutations.MutationWeights{
+		SetField:     0.1,
+		ToggleBool:   0.2, // Toggle ShowSection
+		AppendSlice:  0.25,
+		PrependSlice: 0.15,
+		InsertSlice:  0.1,
+		RemoveSlice:  0.1, // Allow removing all items
+		ClearSlice:   0.05,
+		ReorderSlice: 0.0,
+		ReverseSlice: 0.0,
+		UpdateItem:   0.05,
+		KeyCollision: 0.0,
+	}
+
+	rapid.Check(t, func(rt *rapid.T) {
+		seed := rapid.Int64().Draw(rt, "seed")
+		numMutations := rapid.IntRange(30, 80).Draw(rt, "numMutations")
+
+		rng := rand.New(rand.NewSource(seed))
+		runFuzzSessionWithWeights(t, rng, seed, numMutations, fuzzEmptyToItemsStaticsTemplate, shape, weights)
+	})
+}
