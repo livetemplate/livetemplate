@@ -39,13 +39,18 @@ func CompareTreesAndGetChangesWithPath(
 	}
 
 	// Check for root-level structural changes that require full tree replacement.
-	// This catches cases like range→else where:
-	// - Position K changes from TreeNode to primitive (or vice versa)
-	// - The root statics change to accommodate the new structure
-	// Only check at root level (empty currentPath) or when not in new structure mode.
+	// This catches cases where the root structure fundamentally changed (like range→else).
+	// We only do this check if:
+	// 1. We're at root level (empty currentPath)
+	// 2. Not inside a new structure (which would already include statics)
+	// 3. The fingerprints differ (structure changed)
+	// 4. This is NOT a range→range change (which is handled by range operations)
 	if currentPath == "" && !insideNewStructure && oldTree != nil {
-		if ClientNeedsStatics(oldTree, newTree) {
-			// Structure changed at root level - return full new tree
+		oldHasRange := oldTree.HasRange()
+		newHasRange := newTree.HasRange()
+		// Only return full tree if structure changed AND one side doesn't have a range
+		// This avoids interfering with normal range operations while catching range→else
+		if ClientNeedsStatics(oldTree, newTree) && (!oldHasRange || !newHasRange) {
 			return newTree
 		}
 	}
