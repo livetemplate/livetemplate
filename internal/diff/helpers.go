@@ -72,6 +72,36 @@ func isMeaningfulValue(v interface{}) bool {
 	}
 }
 
+// hasDynamicsChanged checks if the set of dynamic keys differs between oldTree and newTree.
+// This is used to detect structural changes like range→else or else→range where
+// dynamics appear or disappear.
+func hasDynamicsChanged(oldTree, newTree *TreeNode) bool {
+	oldHasDynamics := oldTree != nil && oldTree.HasDynamics()
+	newHasDynamics := newTree != nil && newTree.HasDynamics()
+
+	// If one has dynamics and the other doesn't, keys definitely changed
+	if oldHasDynamics != newHasDynamics {
+		return true
+	}
+
+	// If neither has dynamics, keys are the same (both empty)
+	if !oldHasDynamics && !newHasDynamics {
+		return false
+	}
+
+	// Both have dynamics - check if key sets match
+	if len(oldTree.Dynamics) != len(newTree.Dynamics) {
+		return true
+	}
+
+	for k := range oldTree.Dynamics {
+		if _, exists := newTree.Dynamics[k]; !exists {
+			return true
+		}
+	}
+	return false
+}
+
 // IsRangeConstruct checks if a value is a range construct (has Range and Statics).
 func IsRangeConstruct(value interface{}) bool {
 	// Check if value is a TreeNode with Range field
@@ -403,6 +433,46 @@ func DetectPositionField(itemsByKey map[string]interface{}) string {
 		break // Intentional - only check first item
 	}
 	return ""
+}
+
+// HasReordering returns true if the order of keys differs between old and new,
+// regardless of whether content has changed. This is used to detect reordering
+// when items have also been updated - the IsPureReordering function only handles
+// the case where items reorder WITHOUT content changes.
+//
+// Returns false if lengths differ (which indicates insertions/removals, not reordering).
+func HasReordering(oldKeys, newKeys []string) bool {
+	// Different lengths means insertions/removals, not pure reordering
+	if len(oldKeys) != len(newKeys) {
+		return false
+	}
+
+	// Same length - check if any position differs
+	for i := range oldKeys {
+		if oldKeys[i] != newKeys[i] {
+			return true
+		}
+	}
+	return false
+}
+
+// sameKeySet returns true if oldKeys and newKeys contain the same set of keys,
+// regardless of order. This is used to determine if items were only reordered
+// (same set) vs had insertions/removals (different sets).
+func sameKeySet(oldKeys, newKeys []string) bool {
+	if len(oldKeys) != len(newKeys) {
+		return false
+	}
+	oldSet := make(map[string]bool, len(oldKeys))
+	for _, k := range oldKeys {
+		oldSet[k] = true
+	}
+	for _, k := range newKeys {
+		if !oldSet[k] {
+			return false
+		}
+	}
+	return true
 }
 
 // IsPureReordering checks if the items are the same but just in different order.
@@ -754,12 +824,22 @@ func FindRangeConstructMatches(oldTree, newTree *TreeNode) map[string]string {
 				matched = true
 				break // Each new range should match at most one old range
 			}
+
+			// FALLBACK: If one side has empty signature (empty range) and they're at
+			// the same path, match by position. This handles empty→items transitions
+			// where the empty range has no statics to derive a signature from.
+			// Note: Empty signature can be "" or "[]" (empty slice stringified).
+			oldEmpty := oldSignature == "" || oldSignature == "[]"
+			newEmpty := newSignature == "" || newSignature == "[]"
+			if oldField == newField && (oldEmpty || newEmpty) {
+				matches[newField] = oldField
+				matched = true
+				break
+			}
 		}
 
-		// FALLBACK: If no match found and one side has empty signature (empty range),
-		// AND there's only one range in each tree at the same position, match by position
+		// Legacy fallback for single-range trees (kept for backwards compatibility)
 		if !matched && len(newRanges) == 1 && len(oldRanges) == 1 {
-			// Single range in both trees at same position - must be the same construct
 			for oldField := range oldRanges {
 				if newField == oldField {
 					matches[newField] = oldField

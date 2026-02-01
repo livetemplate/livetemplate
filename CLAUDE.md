@@ -243,6 +243,7 @@ The main `livetemplate` package provides a clean, minimal public API:
     - TypeScript client for browser integration
     - Handles tree-based updates efficiently
     - Manages static content caching
+    - **External Repository**: Full TypeScript client also available at `github.com/livetemplate/client` (locally `../client`)
 
 ## Key Data Structures
 
@@ -413,10 +414,12 @@ The repository has a pre-commit hook that:
 4. Use golden files for regression testing
 
 ### Updating Client Library
-1. Edit `client/livetemplate-client.ts`
+1. Edit `client/livetemplate-client.ts` (embedded in this repo)
 2. Ensure compatibility with tree format
 3. Test with browser test suite
 4. Update TypeScript types if needed
+
+**Note**: Full TypeScript client is also maintained at `github.com/livetemplate/client` (locally `../client`). For cross-language testing or TypeScript-specific features, refer to that repository.
 
 ## Performance Considerations
 

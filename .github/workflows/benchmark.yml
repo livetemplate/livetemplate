@@ -30,7 +30,9 @@ jobs:
 
     - name: Run benchmarks
       run: |
-        go test -bench=. -benchmem -count=5 ./... 2>&1 | grep "^Benchmark" | grep -v -E "(livetemplate\.New|WARN|INFO|DEBUG|ERROR)" > current-bench.txt || true
+        # -run=^$ skips all regular tests, only runs benchmarks
+        # -count=3 for statistical significance while keeping runtime reasonable
+        go test -run=^$ -bench=. -benchmem -count=3 ./... 2>&1 | grep "^Benchmark" | grep -v -E "(livetemplate\.New|WARN|INFO|DEBUG|ERROR)" > current-bench.txt || true
         cat current-bench.txt
       env:
         GOWORK: off
@@ -53,13 +55,14 @@ jobs:
       id: regression-check
       run: |
         if [ -f comparison.txt ]; then
+          # Critical benchmarks: E2E, Template, and Diff (core functionality)
           # Check for critical regressions >20%
-          if grep -E 'Benchmark(E2E|Template).*\+[2-9][0-9]\.[0-9]+%' comparison.txt; then
+          if grep -E 'Benchmark(E2E|Template|CompareTrees|RangeDiff|PrepareTree).*\+[2-9][0-9]\.[0-9]+%' comparison.txt; then
             echo "status=fail" >> $GITHUB_OUTPUT
             echo "message=Critical performance regression detected (>20%)" >> $GITHUB_OUTPUT
             exit 1
           # Check for warnings >10%
-          elif grep -E 'Benchmark(E2E|Template).*\+1[0-9]\.[0-9]+%' comparison.txt; then
+          elif grep -E 'Benchmark(E2E|Template|CompareTrees|RangeDiff|PrepareTree).*\+1[0-9]\.[0-9]+%' comparison.txt; then
             echo "status=warn" >> $GITHUB_OUTPUT
             echo "message=Performance regression detected (>10%)" >> $GITHUB_OUTPUT
           else
@@ -92,7 +95,7 @@ jobs:
             `### Thresholds\n\n` +
             `- ⚠️ Warning: Regressions >10% on critical benchmarks\n` +
             `- ❌ Failure: Regressions >20% on critical benchmarks\n` +
-            `- Critical benchmarks: \`Benchmark(E2E|Template).*\`\n\n` +
+            `- Critical benchmarks: \`Benchmark(E2E|Template|CompareTrees|RangeDiff|PrepareTree).*\`\n\n` +
             `See [benchmarking guide](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${context.payload.pull_request.head.ref}/docs/performance/benchmarking-guide.md) for details.`;
 
           // Find existing benchmark comment

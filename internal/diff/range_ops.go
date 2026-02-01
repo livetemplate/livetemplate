@@ -34,6 +34,18 @@ func GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 	operations = generateUpdateOperations(oldItems, newItems, statics, operations)
 	operations = generateInsertionOperations(oldItems, newItems, statics, metadata, operations)
 
+	// Check if order changed alongside content updates.
+	// This handles the case where items both updated AND reordered (e.g., editing a title
+	// causes sort order to change). IsPureReordering only handles pure reorder (no content
+	// changes), so we need this additional check when updates exist.
+	//
+	// Only add reorder if:
+	// 1. Key sets are identical (no insertions or removals - same items in both)
+	// 2. Order actually differs
+	if sameKeySet(oldKeys, newKeys) && HasReordering(oldKeys, newKeys) {
+		operations = append(operations, []interface{}{"o", newKeys})
+	}
+
 	// Strip statics from all operations if requested
 	if stripStatics {
 		operations = stripStaticsFromOperations(operations)
@@ -59,7 +71,15 @@ func extractRangeData(oldValue, newValue interface{}) (
 	}
 
 	oldItems = oldNode.Range.Items
-	statics = oldNode.Statics
+	// Use Range.Statics (item template) for key extraction, not Statics (outer wrapper).
+	// oldNode.Statics is the outer wrapper (e.g., ["<ul>", "</ul>"]),
+	// but oldNode.Range.Statics is the item template (e.g., ["<li id=\"", "...", "</li>"])
+	// which contains the key attribute (id=", data-key=", etc.) needed for item matching.
+	if oldNode.Range.Statics != nil {
+		statics = oldNode.Range.Statics
+	} else {
+		statics = oldNode.Statics // Fallback if Range.Statics is nil
+	}
 
 	newNode, ok := newValue.(*TreeNode)
 	if !ok {
@@ -148,7 +168,7 @@ func generateUpdateOperations(
 			// Compare items and generate update operation if different
 			changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
 			if len(changes) > 0 {
-				// Always include changes, even if they're all empty strings.
+					// Always include changes, even if they're all empty strings.
 				// Empty string changes indicate that a field should be cleared
 				// (e.g., removing "checked" attribute when toggling a checkbox off).
 				// The client needs to know about these changes to update the DOM.
@@ -245,8 +265,9 @@ func handlePrependOperation(
 	itemsToPrepend := make([]interface{}, 0, len(addedKeys))
 	for _, key := range addedKeys {
 		if item, exists := newItemsByKey[key]; exists {
-			// Strip nested statics from items (client has cached them)
-			itemsToPrepend = append(itemsToPrepend, PrepareTreeForClient(item, true))
+			// Keep nested statics for new items - client hasn't seen these items before
+			// so nested TreeNode structures (like conditionals) need their statics.
+			itemsToPrepend = append(itemsToPrepend, PrepareTreeForClient(item, false))
 		}
 	}
 	// Use 'p' operation for prepending (O(1) on client)
@@ -265,8 +286,9 @@ func handleAppendOperation(
 	itemsToAppend := make([]interface{}, 0, len(addedKeys))
 	for _, key := range addedKeys {
 		if item, exists := newItemsByKey[key]; exists {
-			// Strip nested statics from items (client has cached them)
-			itemsToAppend = append(itemsToAppend, PrepareTreeForClient(item, true))
+			// Keep nested statics for new items - client hasn't seen these items before
+			// so nested TreeNode structures (like conditionals) need their statics.
+			itemsToAppend = append(itemsToAppend, PrepareTreeForClient(item, false))
 		}
 	}
 	// Use 'a' operation for appending (O(1) on client)
@@ -290,14 +312,16 @@ func handleIndividualInsertions(
 				if itemKey, ok := GetItemKey(item, statics); ok && itemKey == key {
 					if i == 0 {
 						// Item at start - use prepend for single item
-						strippedItem := PrepareTreeForClient(newItem, true)
-						operations = append(operations, []interface{}{"p", []interface{}{strippedItem}, statics})
+						// Keep nested statics for new items
+						preparedItem := PrepareTreeForClient(newItem, false)
+						operations = append(operations, []interface{}{"p", []interface{}{preparedItem}, statics})
 					} else {
 						// Find the item before this one and use simplified insert
 						if prevKey, ok := GetItemKey(newItems[i-1], statics); ok {
 							// Simplified insert: ['i', afterId, data] (no position param)
-							strippedItem := PrepareTreeForClient(newItem, true)
-							operations = append(operations, []interface{}{"i", prevKey, strippedItem})
+							// Keep nested statics for new items
+							preparedItem := PrepareTreeForClient(newItem, false)
+							operations = append(operations, []interface{}{"i", prevKey, preparedItem})
 						}
 					}
 					break
@@ -401,8 +425,9 @@ func handleNestedTreeNodeChange(
 				// Both strip to empty but the visual output is different.
 				if ClientNeedsStatics(oldTreeNode, newTreeNode) {
 					// Structure fingerprints differ - statics changed.
-					// Send empty string to indicate the field should be cleared/re-rendered.
-					changes[fieldKey] = ""
+					// Send the full new TreeNode WITH statics so client can update structure.
+					// This handles cases like conditional branch changes within range items.
+					changes[fieldKey] = PrepareTreeForClient(newTreeNode, false)
 				}
 				// If fingerprints are the same, truly no change - skip it
 				return
@@ -411,7 +436,17 @@ func handleNestedTreeNodeChange(
 		// Old doesn't exist or had dynamics, send empty string to indicate removal of dynamics
 		changes[fieldKey] = ""
 	} else {
-		changes[fieldKey] = stripped
+		// Check if structure changed (different statics needed) even when dynamics exist.
+		// This handles conditional branch changes within range items where both the
+		// structure (statics) AND content (dynamics) change simultaneously.
+		// e.g., {{if .HasError}}<span class="error-message">{{.Error}}</span>{{else}}<span class="status">Pending</span>{{end}}
+		// When HasError changes, we need to send new statics, not just new dynamics.
+		if oldIsTree && ClientNeedsStatics(oldTreeNode, newTreeNode) {
+			// Statics changed - send full tree with new statics
+			changes[fieldKey] = PrepareTreeForClient(newTreeNode, false)
+		} else {
+			changes[fieldKey] = stripped
+		}
 	}
 }
 

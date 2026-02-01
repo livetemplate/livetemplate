@@ -38,6 +38,21 @@ func CompareTreesAndGetChangesWithPath(
 		return &TreeNode{}
 	}
 
+	// Check for structural changes that involve dynamic field changes (like range↔else).
+	// When the set of dynamic keys differs AND structure changed, client needs the full new tree.
+	// This handles cases like:
+	//   - Range→Else: old={0: range_data}, new={statics_only} (field "0" removed)
+	//   - Else→Range: old={statics_only}, new={0: range_data} (field "0" added)
+	//   - Conditional branch change where dynamics appear or disappear
+	//
+	// We only do this when:
+	// 1. Structure fingerprint changed (ClientNeedsStatics)
+	// 2. The dynamic field keys differ (added or removed)
+	// This avoids triggering for normal range operations (where field keys are the same).
+	if oldTree != nil && ClientNeedsStatics(oldTree, newTree) && hasDynamicsChanged(oldTree, newTree) {
+		return newTree
+	}
+
 	// Compare dynamic segments
 	compareDynamicSegments(oldTree, newTree, insideNewStructure, currentPath, rangeMatches, changes)
 
@@ -253,6 +268,16 @@ func handleStructureValue(
 	}
 
 	// Client doesn't have structure - send full value WITH statics
+	// Even if there are no dynamics (stripped is empty), we still need to
+	// send the tree with statics so the client knows what to render.
+	// Only return "" if the newValue itself has no content.
+	if treeNode, ok := newValue.(*TreeNode); ok {
+		if !treeNode.HasStatics() && !treeNode.HasDynamics() && !treeNode.HasRange() {
+			return "", false
+		}
+		return newValue, false
+	}
+	// For non-TreeNode values, fall back to stripped check
 	if isStrippedValueEmpty(stripped) {
 		return "", false
 	}
@@ -287,7 +312,7 @@ func handleChangedField(
 		return
 	}
 
-	// New value is a tree node but old wasn't
+	// New value is a tree node but old wasn't (primitive→TreeNode transition)
 	if newTreeNodePtr != nil {
 		handleNewTreeNodeFromPrimitive(k, newTreeNodePtr, changes)
 		return
