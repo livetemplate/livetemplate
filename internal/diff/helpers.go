@@ -72,6 +72,36 @@ func isMeaningfulValue(v interface{}) bool {
 	}
 }
 
+// hasDynamicsChanged checks if the set of dynamic keys differs between oldTree and newTree.
+// This is used to detect structural changes like range→else or else→range where
+// dynamics appear or disappear.
+func hasDynamicsChanged(oldTree, newTree *TreeNode) bool {
+	oldHasDynamics := oldTree != nil && oldTree.HasDynamics()
+	newHasDynamics := newTree != nil && newTree.HasDynamics()
+
+	// If one has dynamics and the other doesn't, keys definitely changed
+	if oldHasDynamics != newHasDynamics {
+		return true
+	}
+
+	// If neither has dynamics, keys are the same (both empty)
+	if !oldHasDynamics && !newHasDynamics {
+		return false
+	}
+
+	// Both have dynamics - check if key sets match
+	if len(oldTree.Dynamics) != len(newTree.Dynamics) {
+		return true
+	}
+
+	for k := range oldTree.Dynamics {
+		if _, exists := newTree.Dynamics[k]; !exists {
+			return true
+		}
+	}
+	return false
+}
+
 // IsRangeConstruct checks if a value is a range construct (has Range and Statics).
 func IsRangeConstruct(value interface{}) bool {
 	// Check if value is a TreeNode with Range field
@@ -794,12 +824,22 @@ func FindRangeConstructMatches(oldTree, newTree *TreeNode) map[string]string {
 				matched = true
 				break // Each new range should match at most one old range
 			}
+
+			// FALLBACK: If one side has empty signature (empty range) and they're at
+			// the same path, match by position. This handles empty→items transitions
+			// where the empty range has no statics to derive a signature from.
+			// Note: Empty signature can be "" or "[]" (empty slice stringified).
+			oldEmpty := oldSignature == "" || oldSignature == "[]"
+			newEmpty := newSignature == "" || newSignature == "[]"
+			if oldField == newField && (oldEmpty || newEmpty) {
+				matches[newField] = oldField
+				matched = true
+				break
+			}
 		}
 
-		// FALLBACK: If no match found and one side has empty signature (empty range),
-		// AND there's only one range in each tree at the same position, match by position
+		// Legacy fallback for single-range trees (kept for backwards compatibility)
 		if !matched && len(newRanges) == 1 && len(oldRanges) == 1 {
-			// Single range in both trees at same position - must be the same construct
 			for oldField := range oldRanges {
 				if newField == oldField {
 					matches[newField] = oldField
