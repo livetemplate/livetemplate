@@ -3195,30 +3195,30 @@ func TestRangeTreeGeneration(t *testing.T) {
 	// This is correct because empty range never rendered item templates to client
 	// So client needs full structure with statics for first items
 
-	// The tree should contain append operations for empty→content transition
-	foundAppendOperation := false
+	// For empty→first transition, we expect full tree structure with "d" (items) and "s" (statics)
+	// NOT append operations - those are for subsequent additions
+	foundFullStructure := false
 	for key, value := range tree {
 		t.Logf("Tree key: %s, value type: %T", key, value)
 
-		// Check if value is operations array directly
-		if opsList, ok := value.([]interface{}); ok {
-			for _, op := range opsList {
-				if opArray, ok := op.([]interface{}); ok && len(opArray) >= 3 {
-					if opType, ok := opArray[0].(string); ok && opType == "a" {
-						t.Log("✅ Found append operation for first item (correct)")
-						foundAppendOperation = true
-						t.Logf("  Append operation includes statics: %v", len(opArray) >= 3)
-						if items, ok := opArray[1].([]interface{}); ok {
-							t.Logf("  Items to append: %d", len(items))
-						}
+		// Check if value is a TreeNode-like structure (map with "d" and/or "s")
+		if treeMap, ok := value.(map[string]interface{}); ok {
+			// Look for "d" key (items array) which indicates full structure
+			if _, hasDKey := treeMap["d"]; hasDKey {
+				t.Log("✅ Found full tree structure for first item (correct for empty→first)")
+				foundFullStructure = true
+				// Also verify statics are included since client never saw them
+				if sValue, hasSKey := treeMap["s"]; hasSKey {
+					if statics, ok := sValue.([]interface{}); ok {
+						t.Logf("  Statics included: %d segments", len(statics))
 					}
 				}
 			}
 		}
 	}
 
-	if !foundAppendOperation {
-		t.Error("No append operation found - expected for empty→first transition")
+	if !foundFullStructure {
+		t.Error("No full tree structure found - expected for empty→first transition (not append operation)")
 	}
 
 	// Step 3: Add a second item

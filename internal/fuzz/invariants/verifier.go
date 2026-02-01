@@ -27,15 +27,13 @@ func (v *Violation) Error() string {
 }
 
 // Verifier checks LiveTemplate's core invariants.
+//
+// Note: Diff correctness is validated by TypeScript oracle tests (fuzz_ts_oracle_test.go).
+// This verifier focuses on structural invariants that don't require diff application.
 type Verifier struct {
 	seed       int64
 	mutations  []mutations.Mutation
 	violations []Violation
-
-	// SkipDiffCorrectness skips the DiffCorrectness check.
-	// This is useful when the oracle implementation doesn't match the actual
-	// diff format (e.g., during initial development).
-	SkipDiffCorrectness bool
 }
 
 // NewVerifier creates a new invariant verifier.
@@ -75,12 +73,8 @@ func (v *Verifier) VerifyAll(
 	diffTree *build.TreeNode,
 	isFirstRender bool,
 ) error {
-	// P0: Diff Correctness (skipped by default until oracle matches actual diff format)
-	if !v.SkipDiffCorrectness {
-		if err := v.VerifyDiffCorrectness(oldTree, newTree, diffTree); err != nil {
-			return err
-		}
-	}
+	// NOTE: Diff correctness is validated by TypeScript oracle tests (fuzz_ts_oracle_test.go).
+	// The TypeScript oracle uses the production client code as the source of truth.
 
 	// P0: Update Minimality
 	if err := v.VerifyUpdateMinimality(diffTree, isFirstRender); err != nil {
@@ -100,34 +94,6 @@ func (v *Verifier) VerifyAll(
 	// P1: No Data Loss (JSON roundtrip)
 	if err := v.VerifyNoDataLoss(newState); err != nil {
 		return err
-	}
-
-	return nil
-}
-
-// VerifyDiffCorrectness checks that applying the diff to oldTree produces newTree.
-// This is the core correctness property: diff(old, new) when applied to old must yield new.
-func (v *Verifier) VerifyDiffCorrectness(oldTree, newTree, diffTree *build.TreeNode) error {
-	if oldTree == nil || newTree == nil {
-		return nil // First render or tree removal - no diff to verify
-	}
-
-	// Apply diff to old tree
-	reconstructed := ApplyDiff(oldTree, diffTree)
-
-	// Compare dynamics (statics are cached, so we only compare dynamics)
-	if !TreeDynamicsEqual(reconstructed, newTree) {
-		violation := &Violation{
-			Invariant:   "DiffCorrectness",
-			Description: "Applying diff to old tree does not produce new tree",
-			OldTree:     oldTree,
-			NewTree:     newTree,
-			Diff:        diffTree,
-			Mutations:   copyMutations(v.mutations),
-			Seed:        v.seed,
-		}
-		v.violations = append(v.violations, *violation)
-		return violation
 	}
 
 	return nil
@@ -466,6 +432,28 @@ func extractItemID(item any) string {
 		// Fall back to "0" for tree-format maps
 		if id, exists := v["0"]; exists {
 			if s, ok := id.(string); ok {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+// extractKey extracts the range key from an item.
+// For TreeNode items with range metadata, use the __key field.
+// For map items, look for the "__key" key.
+func extractKey(item any) string {
+	switch v := item.(type) {
+	case *build.TreeNode:
+		// Check for __key in dynamics
+		if key, exists := v.GetDynamic("__key"); exists {
+			if s, ok := key.(string); ok {
+				return s
+			}
+		}
+	case map[string]any:
+		if key, exists := v["__key"]; exists {
+			if s, ok := key.(string); ok {
 				return s
 			}
 		}

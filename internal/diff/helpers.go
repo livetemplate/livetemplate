@@ -405,6 +405,46 @@ func DetectPositionField(itemsByKey map[string]interface{}) string {
 	return ""
 }
 
+// HasReordering returns true if the order of keys differs between old and new,
+// regardless of whether content has changed. This is used to detect reordering
+// when items have also been updated - the IsPureReordering function only handles
+// the case where items reorder WITHOUT content changes.
+//
+// Returns false if lengths differ (which indicates insertions/removals, not reordering).
+func HasReordering(oldKeys, newKeys []string) bool {
+	// Different lengths means insertions/removals, not pure reordering
+	if len(oldKeys) != len(newKeys) {
+		return false
+	}
+
+	// Same length - check if any position differs
+	for i := range oldKeys {
+		if oldKeys[i] != newKeys[i] {
+			return true
+		}
+	}
+	return false
+}
+
+// sameKeySet returns true if oldKeys and newKeys contain the same set of keys,
+// regardless of order. This is used to determine if items were only reordered
+// (same set) vs had insertions/removals (different sets).
+func sameKeySet(oldKeys, newKeys []string) bool {
+	if len(oldKeys) != len(newKeys) {
+		return false
+	}
+	oldSet := make(map[string]bool, len(oldKeys))
+	for _, k := range oldKeys {
+		oldSet[k] = true
+	}
+	for _, k := range newKeys {
+		if !oldSet[k] {
+			return false
+		}
+	}
+	return true
+}
+
 // IsPureReordering checks if the items are the same but just in different order.
 func IsPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []string, statics interface{}) bool {
 	// Must have same number of items

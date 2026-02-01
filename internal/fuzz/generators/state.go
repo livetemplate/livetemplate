@@ -70,7 +70,7 @@ func DefaultStateShape() *StateShape {
 }
 
 // RangeHeavyStateShape returns a state shape optimized for testing range operations.
-// Note: MinLen is 1 (not 0) to avoid empty→items transitions which aren't fully supported yet.
+// MinLen is 0 to test empty↔items transitions (oracle hardened to support this).
 func RangeHeavyStateShape() *StateShape {
 	return &StateShape{
 		Fields: map[string]FieldType{
@@ -84,7 +84,7 @@ func RangeHeavyStateShape() *StateShape {
 						"Text": FieldString,
 					},
 				},
-				MinLen: 1, // Keep at least 1 item to avoid empty range edge cases
+				MinLen: 0, // ENABLED: tests empty→items transitions
 				MaxLen: 20,
 			},
 			"Tags": {
@@ -95,7 +95,7 @@ func RangeHeavyStateShape() *StateShape {
 						"Color": FieldString,
 					},
 				},
-				MinLen: 1, // Keep at least 1 item to avoid empty range edge cases
+				MinLen: 0, // ENABLED: tests empty→items transitions
 				MaxLen: 10,
 			},
 		},

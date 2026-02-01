@@ -38,6 +38,18 @@ func CompareTreesAndGetChangesWithPath(
 		return &TreeNode{}
 	}
 
+	// Check for root-level structural changes that require full tree replacement.
+	// This catches cases like range→else where:
+	// - Position K changes from TreeNode to primitive (or vice versa)
+	// - The root statics change to accommodate the new structure
+	// Only check at root level (empty currentPath) or when not in new structure mode.
+	if currentPath == "" && !insideNewStructure && oldTree != nil {
+		if ClientNeedsStatics(oldTree, newTree) {
+			// Structure changed at root level - return full new tree
+			return newTree
+		}
+	}
+
 	// Compare dynamic segments
 	compareDynamicSegments(oldTree, newTree, insideNewStructure, currentPath, rangeMatches, changes)
 
@@ -297,7 +309,7 @@ func handleChangedField(
 		return
 	}
 
-	// New value is a tree node but old wasn't
+	// New value is a tree node but old wasn't (primitive→TreeNode transition)
 	if newTreeNodePtr != nil {
 		handleNewTreeNodeFromPrimitive(k, newTreeNodePtr, changes)
 		return
