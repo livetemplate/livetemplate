@@ -255,14 +255,21 @@ func (o *TypeScriptOracle) Close() error {
 }
 
 // FindClientDir locates the TypeScript client directory containing oracle-server.js.
+// Searches common locations including CI paths and environment variable override.
 func FindClientDir() (string, error) {
+	// Allow override via environment variable for CI/custom setups
+	if envPath := os.Getenv("LIVETEMPLATE_CLIENT_DIR"); envPath != "" {
+		if _, err := os.Stat(filepath.Join(envPath, "oracle-server.js")); err == nil {
+			return envPath, nil
+		}
+	}
+
 	candidates := []string{
-		"../client",
-		"../../client",
-		"../../../client",
-		"../../../../client",
-		"../../../../../client",
-		"/Users/adnaan/code/livetemplate/client",
+		"./client",           // CI: client checked out as subdirectory
+		"../client",          // Local: sibling directory
+		"../../client",       // Local: from internal/fuzz/invariants
+		"../../../client",    // Local: deeper nesting
+		"../../../../client", // Local: even deeper
 	}
 
 	for _, candidate := range candidates {
@@ -275,5 +282,5 @@ func FindClientDir() (string, error) {
 		}
 	}
 
-	return "", errors.New("could not find TypeScript client directory with oracle-server.js")
+	return "", errors.New("could not find TypeScript client directory with oracle-server.js (set LIVETEMPLATE_CLIENT_DIR to override)")
 }

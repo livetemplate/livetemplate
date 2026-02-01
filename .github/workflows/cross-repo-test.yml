@@ -56,6 +56,16 @@ jobs:
         echo "✓ Client library built successfully"
         ls -la dist/
 
+    - name: Run core library tests with TypeScript oracle
+      working-directory: livetemplate
+      run: |
+        echo "Running core library tests including fuzz tests with TypeScript oracle..."
+        go test -v -race -timeout=300s ./...
+      env:
+        CGO_ENABLED: 1
+        # Client is at ./client relative to livetemplate directory
+        LIVETEMPLATE_CLIENT_DIR: ${{ github.workspace }}/livetemplate/client
+
     - name: Add replace directive to LVT
       working-directory: lvt
       run: |
