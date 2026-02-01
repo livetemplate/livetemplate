@@ -26,10 +26,10 @@ jobs:
     - name: Run tests
       run: |
         # Test only core library, excluding extracted components
-        # Timeout increased to 5m for fuzz tests (property-based testing)
+        # Timeout increased to 10m for fuzz tests (property-based testing)
         # Note: TypeScript oracle tests will be skipped (client repo not available)
         # Full TS oracle tests run in cross-repo-test.yml which has client setup
-        go test -v -race -timeout=300s $(go list ./... | grep -v '/cmd/lvt' | grep -v '/examples' | grep -v '/client')
+        go test -v -race -timeout=600s $(go list ./... | grep -v '/cmd/lvt' | grep -v '/examples' | grep -v '/client')
       env:
         CGO_ENABLED: 1
 
