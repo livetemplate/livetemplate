@@ -348,17 +348,99 @@ func TestFuzzAsyncOptimistic_TSOracle(t *testing.T) {
 	})
 }
 
+// TestCloseAllModalBug_TSOracle is a regression test for issue #111.
+// When close_all mutation closes multiple modals simultaneously, the diff operations
+// must correctly handle the combined structural changes by falling back to full tree
+// replacement when the insertion pattern is too complex.
+func TestCloseAllModalBug_TSOracle(t *testing.T) {
+	oracle := getTSOracle(t)
+
+	tmpl := &Template{
+		templateStr: app.ModalTemplate,
+		keyGen:      compat.NewKeyGenerator(),
+	}
+
+	if _, err := tmpl.Parse(app.ModalTemplate); err != nil {
+		t.Fatalf("Template parse error: %v", err)
+	}
+
+	// Create initial state with 6 modals (mix of open and closed)
+	// This reproduces the issue where 4 modals change from open to closed,
+	// causing their content-based keys to change simultaneously.
+	state := &app.ModalState{
+		Modals: []app.Modal{
+			{ID: "modal-1", Title: "Modal 1", Content: "Content 1", IsOpen: false, Priority: 1},
+			{ID: "modal-2", Title: "Modal 2", Content: "Content 2", IsOpen: true, Priority: 2},
+			{ID: "modal-3", Title: "Modal 3", Content: "Content 3", IsOpen: true, Priority: 3},
+			{ID: "modal-4", Title: "Modal 4", Content: "Content 4", IsOpen: false, Priority: 4},
+			{ID: "modal-5", Title: "Modal 5", Content: "Content 5", IsOpen: true, Priority: 5},
+			{ID: "modal-6", Title: "Modal 6", Content: "Content 6", IsOpen: true, Priority: 6},
+		},
+		ActivePanel: "bottom",
+	}
+
+	// First render
+	initialTree, err := compat.ParseTemplateToTree("test", app.ModalTemplate, state.ToMap(), tmpl.keyGen)
+	if err != nil {
+		t.Fatalf("Initial render failed: %v", err)
+	}
+
+	tmpl.lastTree = initialTree
+	initialBuildTree := convertToBuildTree(initialTree)
+	oracleTreeMap := invariants.TreeToMap(initialBuildTree)
+
+	// Apply close_all mutation - this closes all 4 open modals simultaneously
+	mutation := mutations.Mutation{Type: mutations.MutCloseAll}
+	if err := app.ApplyModalMutation(state, mutation); err != nil {
+		t.Fatalf("Failed to apply mutation: %v", err)
+	}
+
+	// Render after close_all
+	newTree, err := compat.ParseTemplateToTree("test", app.ModalTemplate, state.ToMap(), tmpl.keyGen)
+	if err != nil {
+		t.Fatalf("Render after close_all failed: %v", err)
+	}
+
+	diffTree := tmpl.compareTreesAndGetChanges(tmpl.lastTree, newTree)
+	newBuildTree := convertToBuildTree(newTree)
+	diffBuildTree := convertToBuildTree(diffTree)
+
+	diffMap := invariants.TreeToMap(diffBuildTree)
+	response, err := oracle.ApplyDiffRaw(oracleTreeMap, diffMap)
+	if err != nil {
+		t.Errorf("TypeScript oracle error: %v", err)
+		return
+	}
+
+	if response.Tree != nil {
+		if newOracleMap, ok := response.Tree.(map[string]any); ok {
+			oracleTreeMap = newOracleMap
+		}
+	}
+
+	// Compare HTML output - all 6 modal indicators should be present
+	expectedMap := invariants.TreeToMap(newBuildTree)
+	expectedHTML, err := render.TreeToHTML(expectedMap)
+	if err != nil {
+		t.Errorf("Failed to render expected tree: %v", err)
+		return
+	}
+
+	if !htmlEquivalent(response.HTML, expectedHTML) {
+		diffJSON, _ := json.MarshalIndent(diffMap, "", "  ")
+		t.Errorf("HTML mismatch after close_all!\nOracle:   %s\nExpected: %s\nDiff sent:\n%s",
+			normalizeHTMLForTest(response.HTML), normalizeHTMLForTest(expectedHTML), string(diffJSON))
+	}
+}
+
 // TestFuzzModalUpdateWhileOpen_TSOracle tests modal updates using TypeScript oracle.
 // Fixed in Phase 6b: Added data-modal-id attribute outside conditional in ModalTemplate
 // to ensure each modal has a unique key even when closed.
 //
-// SKIP: This test has a known issue with the close_all mutation causing missing
-// modal indicators in the oracle. The root cause is a differential operations bug
-// when many items are removed simultaneously via close_all. The fix for empty→items
-// and items→else transitions in Phase 7 does not address this scenario. The other
-// 3 TypeScript oracle tests pass and validate the core diff algorithm.
+// Fixed in issue #111: The close_all mutation bug where multiple items change their
+// content-based keys simultaneously is now handled by detecting complex insertion
+// patterns upfront and falling back to full tree replacement.
 func TestFuzzModalUpdateWhileOpen_TSOracle(t *testing.T) {
-	t.Skip("Known issue: close_all mutation causes differential ops bug with multiple items")
 
 	weights := mutations.MutationWeights{
 		UpdateModal: 0.40,
