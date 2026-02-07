@@ -11,6 +11,9 @@ import (
 // stripStatics: if true, removes "s" keys from operations (client has cached them)
 // if false, keeps "s" keys (client hasn't seen this structure yet)
 // This is the main orchestrator (30 lines).
+//
+// Returns empty slice when differential operations cannot fully express the change,
+// signaling that the caller should fall back to full tree replacement.
 func GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripStatics bool) []interface{} {
 	var operations []interface{}
 
@@ -27,6 +30,22 @@ func GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 	// Check for pure reordering
 	if IsPureReordering(oldItems, newItems, oldKeys, newKeys, statics) {
 		return []interface{}{[]interface{}{"o", newKeys}}
+	}
+
+	// Find new items (keys in new but not in old)
+	addedKeys := FindNewItems(oldItems, newItems, statics)
+
+	// FIX for issue #111: Check for complex insertion patterns BEFORE generating
+	// any differential operations. If the pattern is too complex (e.g., many items
+	// changing keys simultaneously due to structural changes like close_all), we need
+	// to fall back to full tree replacement rather than generating partial operations.
+	//
+	// This handles scenarios where items change their content-based keys (e.g., when
+	// {{if .IsOpen}} changes from true to false, the item's hash changes), resulting
+	// in what looks like removals+insertions at scattered positions.
+	if len(addedKeys) > 0 && IsComplexInsertionPattern(addedKeys, oldItems, newItems, statics) {
+		// Return empty to signal full tree replacement is needed
+		return operations
 	}
 
 	// Generate operations for removals, updates, and insertions
@@ -181,6 +200,8 @@ func generateUpdateOperations(
 }
 
 // generateInsertionOperations finds and generates insertion operations for new items.
+// NOTE: Complex insertion patterns are now checked upfront in GenerateRangeDifferentialOperations
+// to avoid generating partial operations (removes without inserts).
 func generateInsertionOperations(
 	oldItems, newItems []interface{},
 	statics interface{},
@@ -190,11 +211,6 @@ func generateInsertionOperations(
 	// Find new items
 	addedKeys := FindNewItems(oldItems, newItems, statics)
 	if len(addedKeys) == 0 {
-		return operations
-	}
-
-	// Check if it's a complex pattern that should fall back to full state
-	if IsComplexInsertionPattern(addedKeys, oldItems, newItems, statics) {
 		return operations
 	}
 
