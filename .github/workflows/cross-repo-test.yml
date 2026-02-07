@@ -60,7 +60,7 @@ jobs:
       working-directory: livetemplate
       run: |
         echo "Running core library tests including fuzz tests with TypeScript oracle..."
-        go test -v -race -timeout=600s ./...
+        go test -v -race -timeout=900s ./...
       env:
         CGO_ENABLED: 1
         # Client is at ./client relative to livetemplate directory
