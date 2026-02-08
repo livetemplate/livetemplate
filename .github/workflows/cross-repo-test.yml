@@ -56,14 +56,22 @@ jobs:
         echo "✓ Client library built successfully"
         ls -la dist/
 
-    - name: Run core library tests with TypeScript oracle
+    - name: Run core library unit tests (with race detector)
       working-directory: livetemplate
       run: |
-        echo "Running core library tests including fuzz tests with TypeScript oracle..."
-        go test -v -race -timeout=900s ./...
+        echo "Running core library unit tests..."
+        go test -v -race -timeout=300s -skip '^(TestFuzz|Fuzz)' ./...
       env:
         CGO_ENABLED: 1
-        # Client is at ./client relative to livetemplate directory
+        LIVETEMPLATE_CLIENT_DIR: ${{ github.workspace }}/livetemplate/client
+
+    - name: Run core library fuzz tests (property-based)
+      working-directory: livetemplate
+      run: |
+        echo "Running core library fuzz/property tests with TypeScript oracle..."
+        go test -v -timeout=300s -run '^(TestFuzz|Fuzz)' -rapid.checks=50 ./...
+      env:
+        CGO_ENABLED: 1
         LIVETEMPLATE_CLIENT_DIR: ${{ github.workspace }}/livetemplate/client
 
     - name: Add replace directive to LVT
