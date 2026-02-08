@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/livetemplate/livetemplate/internal/build"
+	"github.com/livetemplate/livetemplate/internal/diff"
 	"github.com/livetemplate/livetemplate/internal/fuzz/mutations"
 )
 
@@ -399,9 +400,14 @@ func buildIDKeyMap(rangeData *build.RangeData) map[string]string {
 		return idToKey
 	}
 
+	var statics interface{}
+	if len(rangeData.Statics) > 0 {
+		statics = rangeData.Statics
+	}
+
 	for _, item := range rangeData.Items {
 		id := extractItemID(item)
-		key := extractKey(item)
+		key := extractKey(item, statics)
 		if id != "" && key != "" {
 			idToKey[id] = key
 		}
@@ -439,24 +445,14 @@ func extractItemID(item any) string {
 	return ""
 }
 
-// extractKey extracts the range key from an item.
-// For TreeNode items with range metadata, use the __key field.
-// For map items, look for the "__key" key.
-func extractKey(item any) string {
-	switch v := item.(type) {
-	case *build.TreeNode:
-		// Check for __key in dynamics
-		if key, exists := v.GetDynamic("__key"); exists {
-			if s, ok := key.(string); ok {
-				return s
-			}
-		}
-	case map[string]any:
-		if key, exists := v["__key"]; exists {
-			if s, ok := key.(string); ok {
-				return s
-			}
-		}
+// extractKey extracts the range key from an item using the canonical key
+// extraction logic from the diff package. This checks for auto-generated keys
+// (_k field), key attributes found via statics (id=, data-key=), and falls
+// back to content-based hashing.
+func extractKey(item any, statics interface{}) string {
+	key, ok := diff.GetItemKey(item, statics)
+	if ok {
+		return key
 	}
 	return ""
 }
