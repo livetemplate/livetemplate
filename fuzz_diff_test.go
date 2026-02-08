@@ -2232,7 +2232,7 @@ func TestFuzzConcurrentMutations_Property(t *testing.T) {
 }
 
 // TestFuzzBurstReordering_Property tests rapid reordering operations.
-// Multiple reorders between renders stress key stability and diff correctness.
+// Multiple reorders between renders stress key stability and structural invariants.
 func TestFuzzBurstReordering_Property(t *testing.T) {
 
 	weights := mutations.MutationWeights{
