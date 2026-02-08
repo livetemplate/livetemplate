@@ -400,14 +400,9 @@ func buildIDKeyMap(rangeData *build.RangeData) map[string]string {
 		return idToKey
 	}
 
-	var statics interface{}
-	if len(rangeData.Statics) > 0 {
-		statics = rangeData.Statics
-	}
-
 	for _, item := range rangeData.Items {
 		id := extractItemID(item)
-		key := extractKey(item, statics)
+		key := extractKey(item, rangeData.Statics)
 		if id != "" && key != "" {
 			idToKey[id] = key
 		}
