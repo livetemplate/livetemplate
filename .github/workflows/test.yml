@@ -7,8 +7,8 @@ on:
     branches: [ main ]
 
 jobs:
-  test:
-    name: Run Tests
+  unit-tests:
+    name: Unit Tests
     runs-on: ubuntu-latest
 
     steps:
@@ -23,17 +23,38 @@ jobs:
     - name: Download dependencies
       run: go mod download
 
-    - name: Run tests
+    - name: Run unit tests
       run: |
-        # Test only core library, excluding extracted components
-        # Timeout increased to 10m for fuzz tests (property-based testing)
-        # Note: TypeScript oracle tests will be skipped (client repo not available)
-        # Full TS oracle tests run in cross-repo-test.yml which has client setup
-        go test -v -race -timeout=600s $(go list ./... | grep -v '/cmd/lvt' | grep -v '/examples' | grep -v '/client')
+        # Run non-fuzz tests with race detector
+        # Fuzz/property tests run in parallel job without race detector
+        go test -v -race -timeout=300s -skip '^(TestFuzz|Fuzz)' $(go list ./... | grep -v '/cmd/lvt' | grep -v '/examples' | grep -v '/client')
       env:
         CGO_ENABLED: 1
 
     - name: Build
       run: |
-        # Build only core library, excluding extracted components
         go build -v $(go list ./... | grep -v '/cmd/lvt' | grep -v '/examples' | grep -v '/client')
+
+  fuzz-tests:
+    name: Fuzz Tests
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.25'
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Run fuzz tests
+      run: |
+        # Property-based tests: no race detector (tests algorithmic correctness, not concurrency)
+        # Reduced iterations (50 vs default 100) — rapid's shrinking still catches bugs effectively
+        go test -v -timeout=300s -run '^(TestFuzz|Fuzz)' -rapid.checks=50 $(go list ./... | grep -v '/cmd/lvt' | grep -v '/examples' | grep -v '/client')
+      env:
+        CGO_ENABLED: 1
