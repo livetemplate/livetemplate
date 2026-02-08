@@ -2232,14 +2232,8 @@ func TestFuzzConcurrentMutations_Property(t *testing.T) {
 }
 
 // TestFuzzBurstReordering_Property tests rapid reordering operations.
-// Multiple reorders between renders stress key stability.
-//
-// KNOWN ISSUE: The oracle has difficulty tracking accumulated state when
-// multiple reorder operations happen between renders. This reveals a
-// limitation in the oracle's diff application, not necessarily the diff
-// algorithm itself. Needs investigation.
+// Multiple reorders between renders stress key stability and structural invariants.
 func TestFuzzBurstReordering_Property(t *testing.T) {
-	t.Skip("Oracle limitation: burst reordering causes divergence - needs investigation")
 
 	weights := mutations.MutationWeights{
 		ReorderSlice: 0.40, // Heavy reorder
@@ -2285,12 +2279,7 @@ func TestFuzzRapidToggle_Property(t *testing.T) {
 
 // TestFuzzBurstSliceOperations_Property tests burst slice add/remove operations.
 // Adding and removing items rapidly between renders stresses the diff algorithm.
-//
-// KNOWN ISSUE: Even without explicit reordering, insert/prepend operations cause
-// position shifts that the oracle has difficulty tracking across bursts. This
-// reveals oracle limitations with complex accumulated diffs.
 func TestFuzzBurstSliceOperations_Property(t *testing.T) {
-	t.Skip("Oracle limitation: burst slice ops cause divergence - needs investigation")
 
 	weights := mutations.MutationWeights{
 		AppendSlice:  0.25,
@@ -2394,13 +2383,7 @@ func runUndoRedoSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int)
 
 // TestFuzzLargeBurst_Property tests very large bursts of mutations.
 // This catches edge cases when many changes happen at once.
-//
-// KNOWN ISSUE: Large bursts with reordering reveal oracle divergence issues.
-// The oracle's diff application may not correctly handle complex accumulated
-// diffs involving multiple reorder+update operations. This is tracked as a
-// potential area for diff algorithm improvement.
 func TestFuzzLargeBurst_Property(t *testing.T) {
-	t.Skip("Large bursts reveal oracle divergence with complex diffs - needs investigation")
 
 	weights := mutations.MutationWeights{
 		AppendSlice:  0.15,
