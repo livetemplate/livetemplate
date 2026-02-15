@@ -9,13 +9,6 @@ import (
 	"github.com/livetemplate/livetemplate/internal/render"
 )
 
-// Fingerprinting wrappers for backward compatibility
-
-// calculateFingerprint wraps internal/build.CalculateFingerprint for backward compatibility
-func CalculateFingerprint(tree *build.TreeNode) string {
-	return build.CalculateFingerprint(tree)
-}
-
 // Wrapper functions for backward compatibility
 
 // generateRandomID wraps internal/build.GenerateRandomID for backward compatibility

@@ -231,8 +231,7 @@ type Template struct {
 	lastTree        *treeNode // Store previous tree segments for comparison
 	initialTree     *treeNode
 	hasInitialTree  bool
-	lastFingerprint string        // Fingerprint of the last generated tree for change detection
-	keyGen          *keyGenerator // Per-template key generation for wrapper approach
+	keyGen *keyGenerator // Per-template key generation for wrapper approach
 	config          Config        // Template configuration
 	uploadRegistry  interface{}   // Upload registry for this connection (*upload.Registry)
 }
@@ -1277,9 +1276,6 @@ func (t *Template) generateInitialTreeWithoutRegistry(html string, data interfac
 	// Store complete tree as the baseline for comparison
 	t.lastTree = tree
 
-	// Calculate and store initial fingerprint for change detection
-	t.lastFingerprint = compat.CalculateFingerprint(tree)
-
 	// NOTE: Caller is responsible for calling markAllStructuresAsSeen outside the lock
 	return tree, nil
 }
@@ -1338,10 +1334,6 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 	if err != nil {
 		return nil, err
 	}
-
-	// Calculate and store fingerprint for the new tree
-	newFingerprint := compat.CalculateFingerprint(tree)
-	t.lastFingerprint = newFingerprint
 
 	// Update cached state AFTER successful tree generation (use extracted content)
 	t.lastData = newData
