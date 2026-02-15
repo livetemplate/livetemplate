@@ -430,7 +430,7 @@ The build phase generates this TreeNode:
   - `RangeData` - Metadata for range iterations
   - `TreeMetadata` - Wrapper IDs and tree metadata
 - [`fingerprint.go`](../../internal/build/fingerprint.go) - Change detection
-  - `CalculateFingerprint(node)` - MD5 hash of tree for comparing changes
+  - `CalculateStructureFingerprint(node)` - MD5 hash of tree structure for detecting structural changes
 - [`wrapper.go`](../../internal/build/wrapper.go) - Wrapper div injection
   - `InjectWrapper(html, wrapperID)` - Adds `<div id="lvt-xxx">` for targeting
 

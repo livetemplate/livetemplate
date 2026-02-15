@@ -328,34 +328,15 @@ b1af918 - feat: observability and architecture documentation (Phase 1.1-1.2)
 
 **What was done:**
 
-1. **Created internal/build/fingerprint.go** (130 lines)
+1. **Created internal/build/fingerprint.go**
    - Moved fingerprinting logic from tree.go
-   - All functions exported with capital letters:
-     - `CalculateFingerprint(tree *TreeNode)` - Calculates 64-bit MD5 hash
-     - `HashTreeIncremental(tree *TreeNode, hasher hash.Hash)` - Incremental hashing without full JSON marshaling
-     - `HashValueIncremental(value interface{}, hasher hash.Hash)` - Type-based value hashing
-     - `AddFingerprintToTree(tree *TreeNode)` - Adds fingerprint metadata
-   - Optimized for performance: avoids marshaling entire subtrees
-   - Uses incremental hashing for nested trees
+   - Contains `CalculateStructureFingerprint(tree *TreeNode)` - structure-only fingerprinting
+   - Legacy fingerprinting helpers were removed as unused dead code
 
-2. **Updated tree.go** (removed 112 lines)
-   - Removed imports: crypto/md5, encoding/json, hash, sort
-   - Added import: `"github.com/livetemplate/livetemplate/internal/build"`
-   - Replaced 119 lines of fingerprinting code with 8 lines of wrappers:
-     ```go
-     func calculateFingerprint(tree *TreeNode) string {
-         return build.CalculateFingerprint(tree)
-     }
-
-     func addFingerprintToTree(tree *TreeNode) *TreeNode {
-         return build.AddFingerprintToTree(tree)
-     }
-     ```
-
-3. **Backward compatibility maintained**
-   - All existing code continues to work unchanged
-   - Wrapper functions maintain same signatures
-   - Zero breaking changes
+2. **Updated tree.go and template.go**
+   - Removed legacy fingerprinting wrappers from tree.go
+   - Removed `lastFingerprint` field from `Template` in template.go
+   - Structure fingerprinting is handled via `TreeNode.GetStructureFingerprint()` method
 
 **Actual Changes:**
 - tree.go: 599 lines → 487 lines (-112 lines)

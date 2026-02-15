@@ -23,24 +23,6 @@ func TestNewKeyGenerator(t *testing.T) {
 	}
 }
 
-// TestCalculateFingerprint verifies the fingerprint wrapper works
-func TestCalculateFingerprint(t *testing.T) {
-	tree := build.NewTreeNode()
-	tree.Statics = []string{"<div>", "</div>"}
-	tree.SetDynamic("0", "test")
-
-	fp := CalculateFingerprint(tree)
-	if fp == "" {
-		t.Error("CalculateFingerprint returned empty string")
-	}
-
-	// Verify deterministic
-	fp2 := CalculateFingerprint(tree)
-	if fp != fp2 {
-		t.Errorf("Fingerprint not deterministic: %s != %s", fp, fp2)
-	}
-}
-
 // TestGenerateRandomID verifies random ID generation
 func TestGenerateRandomID(t *testing.T) {
 	id1 := GenerateRandomID()

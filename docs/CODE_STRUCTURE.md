@@ -230,7 +230,7 @@ treeNode{
 
 **Key Functions:**
 - `BuildTree(statics []string, dynamics []interface{}) TreeNode` - Construct tree
-- `CalculateFingerprint(tree TreeNode) string` - MD5 hash for change detection
+- `CalculateStructureFingerprint(tree *TreeNode) string` - MD5 hash of static structure for change detection
 - `MergeTree(target, source TreeNode)` - Merge operations
 - `CloneTree(tree TreeNode) TreeNode` - Deep copy
 
