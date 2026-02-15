@@ -344,7 +344,7 @@ The library implements a critical optimization per the tree-update-specification
 - **First Render**: Tree includes complete static structure (`"s"` arrays) + all dynamics
 - **Updates**: Tree includes ONLY changed dynamics, NO statics (client has them cached)
 
-This is implemented by `prepareTreeForClient(node, clientHasStatics)` which:
+This is implemented by `PrepareTreeForClient(node, clientHasStatics)` which:
 1. Takes a fully-built tree (WITH statics, needed for comparison consistency)
 2. Returns a wire-format tree (WITHOUT statics if client has cached them)
 3. Implements spec requirement: "Updates MUST include ONLY changed dynamics"
@@ -352,7 +352,7 @@ This is implemented by `prepareTreeForClient(node, clientHasStatics)` which:
 **Key Architectural Points**:
 - Trees are ALWAYS generated WITH statics (ensures consistent comparison)
 - Comparison logic (`compareTreesAndGetChanges`) determines what changed
-- `prepareTreeForClient` removes statics before wire transmission
+- `PrepareTreeForClient` removes statics before wire transmission
 - This is NOT a "reactive fix" - it's the correct implementation of specification
 - Result: Updates are ~10% the size of full renders (statics are largest part)
 
@@ -369,17 +369,24 @@ The system uses MD5 structure fingerprints to decide whether statics need to be 
 
 **Decision flow** (`internal/diff/tree_compare.go`):
 ```go
-// ClientNeedsStatics compares structure fingerprints
-oldFP := oldTree.GetStructureFingerprint()
-newFP := newTree.GetStructureFingerprint()
-// Same fingerprint → client has statics cached → send dynamics only
-// Different fingerprint → structure changed → send full tree with statics
+func ClientNeedsStatics(oldTree, newTree *TreeNode) bool {
+    // First render: no previous tree → must send statics
+    if oldTree == nil { return true }
+    // Removal: new tree is gone → no statics needed
+    if newTree == nil { return false }
+    // Compare structure fingerprints for non-nil trees
+    oldFP := oldTree.GetStructureFingerprint()
+    newFP := newTree.GetStructureFingerprint()
+    // Same fingerprint → client has statics cached → send dynamics only
+    // Different fingerprint → structure changed → send full tree with statics
+    return oldFP != newFP
+}
 ```
 
 The lazy-cached fingerprint enables O(1) structure comparison, avoiding re-computation on subsequent comparisons.
 
 **Key functions**:
-- `CalculateStructureFingerprint(tree)` — Computes 64-bit fingerprint (truncated from MD5 hash) of static structure (`internal/build/fingerprint.go`)
+- `CalculateStructureFingerprint(tree)` — Computes MD5 truncated to 64 bits (16 hex chars) of static structure (`internal/build/fingerprint.go`)
 - `TreeNode.GetStructureFingerprint()` — Lazy-computes and caches fingerprint on first access (`internal/build/types.go`)
 - `ClientNeedsStatics(oldTree, newTree)` — Returns true if fingerprints differ (`internal/diff/tree_compare.go`)
 - `PrepareTreeForClient(tree, clientHasStatics)` — Strips statics from wire format when cached (`internal/diff/prepare.go`)
