@@ -92,7 +92,7 @@ LiveTemplate is a reactive web framework for Go that uses tree-based DOM diffing
 **Key Functions:**
 - `Build(tmpl *parse.Template, data interface{}, keyGen *keys.Generator) (*TreeNode, error)`
 - `CalculateStructureFingerprint(tree *TreeNode) string` - Hash of static structure only
-- `CalculateFingerprint(tree *TreeNode) string` - Hash of full tree (statics + dynamics)
+- `TreeNode.GetStructureFingerprint() string` - Cached structure fingerprint accessor
 
 #### `internal/diff/`
 **Responsibility:** Compute minimal differences between trees

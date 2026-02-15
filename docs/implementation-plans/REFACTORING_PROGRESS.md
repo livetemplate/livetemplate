@@ -331,11 +331,12 @@ b1af918 - feat: observability and architecture documentation (Phase 1.1-1.2)
 1. **Created internal/build/fingerprint.go**
    - Moved fingerprinting logic from tree.go
    - Contains `CalculateStructureFingerprint(tree *TreeNode)` - structure-only fingerprinting
-   - Legacy functions (`CalculateFingerprint`, `HashTreeIncremental`, `AddFingerprintToTree`) were removed as unused dead code
+   - Legacy fingerprinting helpers were removed as unused dead code
 
-2. **Updated tree.go**
-   - Removed legacy fingerprinting wrappers and `lastFingerprint` field
-   - Structure fingerprinting is handled via `TreeNode.StructureFingerprint()` method
+2. **Updated tree.go and template.go**
+   - Removed legacy fingerprinting wrappers from tree.go
+   - Removed `lastFingerprint` field from `Template` in template.go
+   - Structure fingerprinting is handled via `TreeNode.GetStructureFingerprint()` method
 
 **Actual Changes:**
 - tree.go: 599 lines → 487 lines (-112 lines)

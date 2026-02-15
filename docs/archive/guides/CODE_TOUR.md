@@ -484,7 +484,7 @@ tree := build.BuildTree(statics, dynamics)
 
 **Fingerprinting (`internal/build/fingerprint.go`):**
 ```go
-fingerprint := build.CalculateFingerprint(tree) // MD5 hash for change detection
+fingerprint := tree.GetStructureFingerprint() // MD5 hash of static structure for change detection
 ```
 
 ### Tree Comparison (`internal/diff/tree_compare.go`)

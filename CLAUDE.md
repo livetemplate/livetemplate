@@ -407,7 +407,7 @@ The repository has a pre-commit hook that:
 8. Ensure backward compatibility if modifying existing constructs
 
 ### Debugging Tree Generation
-1. Use `CalculateStructureFingerprint()` to track structural changes
+1. Use `TreeNode.GetStructureFingerprint()` to track structural changes
 2. Check `lastTree` vs current tree in Template
 3. Validate tree structure with `validateTreeStructure()`
 4. Use golden files for regression testing
