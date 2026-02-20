@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Behavioral Changes
 
-- **Auto-key generation for range items**: Items in `{{range}}` blocks without an explicit `data-key` attribute now use content-based hash keys instead of the value at position 0. Previously, all items sharing the same position-0 value (e.g., a CSS class like `"active"`) received identical keys, causing incorrect update, remove, and reorder operations. After this change, each item receives a unique key derived from its full content. Existing apps that rely on explicit `data-key` attributes are unaffected. Apps without explicit keys may see different (correct) diffing behavior on upgrade. ([#108](https://github.com/livefir/livetemplate/issues/108))
+- **Auto-key generation for range items**: Items in `{{range}}` blocks without an explicit `data-key` attribute now use content-based hash keys instead of the value at position 0. Previously, all items sharing the same position-0 value (e.g., a CSS class like `"active"`) received identical keys, causing incorrect update, remove, and reorder operations. After this change, each item receives a unique key derived from its full content. Existing apps that rely on explicit `data-key` attributes are unaffected. Apps without explicit keys may see different (correct) diffing behavior on upgrade. To opt into stable, predictable keys, add explicit `data-key` attributes to your range items. ([#108](https://github.com/livefir/livetemplate/issues/108))
 
 
 <a name="v0.8.0"></a>
