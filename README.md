@@ -40,17 +40,17 @@ The core idea — pioneered by [Phoenix LiveView](https://hexdocs.pm/phoenix_liv
 
 Standard HTML forms work out of the box — any action you can trigger with a form submission works over plain HTTP with a full page reload. Add the JavaScript client and those same forms get in-place DOM patching without reloads. For more granular interactions (click, keydown, focus), add `lvt-*` attributes. This is progressive enhancement: forms work without JS, and the experience gets smoother with it.
 
-A plain HTML form:
+A form that works both ways ([full example](https://github.com/livetemplate/examples/tree/main/progressive-enhancement)):
 
 ```html
-<form method="POST">
+<form method="POST" lvt-submit="add">
     <input type="hidden" name="lvt-action" value="add">
-    <input type="text" name="title">
-    <button type="submit">Add</button>
+    <input type="text" name="title" placeholder="What needs to be done?">
+    <button type="submit">Add Todo</button>
 </form>
 ```
 
-Without JS, the form POSTs normally and the page reloads with updated state. With the JS client loaded, the same form is automatically intercepted and the DOM is patched in place — no reload, no changes to the markup needed.
+Without JS, `method="POST"` and the `lvt-action` hidden field handle the submission with a full page reload. With the JS client loaded, `lvt-submit` intercepts the submission and patches the DOM in place — same form, both paths.
 
 The Go handler is the same either way:
 
