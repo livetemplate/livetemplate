@@ -494,8 +494,8 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		newState, err := callMount(h.config.Controller, connSt.state, lifecycleCtx)
 		if err != nil {
 			slog.Error("Mount failed",
-			slog.String("component", "live_handler"),
-			slog.Any("error", err))
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
 			return
 		}
 		connSt.state = newState
@@ -852,8 +852,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		newState, err := callMount(h.config.Controller, connSt.state, lifecycleCtx)
 		if err != nil {
 			slog.Error("Mount failed",
-			slog.String("component", "live_handler"),
-			slog.Any("error", err))
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
 			http.Error(w, "Failed to initialize application state", http.StatusInternalServerError)
 			return
 		}
@@ -1444,8 +1444,8 @@ func (h *liveHandler) Shutdown(ctx context.Context) error {
 				if conn.Conn != nil {
 					if err := conn.Conn.Close(); err != nil {
 						slog.Warn("Failed to force close connection",
-						slog.String("component", "live_handler"),
-						slog.Any("error", err))
+							slog.String("component", "live_handler"),
+							slog.Any("error", err))
 					}
 				}
 			}
@@ -1629,9 +1629,9 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 					// Remove temp file since entry is invalid
 					if rmErr := os.Remove(tempPath); rmErr != nil {
 						slog.Warn("Failed to remove temp file",
-						slog.String("component", "upload_handler"),
-						slog.String("path", tempPath),
-						slog.Any("error", rmErr))
+							slog.String("component", "upload_handler"),
+							slog.String("path", tempPath),
+							slog.Any("error", rmErr))
 					}
 				} else {
 					entryInfo = upload.UploadEntryInfo{
