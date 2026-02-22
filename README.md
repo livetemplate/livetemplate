@@ -38,7 +38,7 @@ The core idea — pioneered by [Phoenix LiveView](https://hexdocs.pm/phoenix_liv
 
 ### 1. Reactive UIs in Pure Go
 
-Your templates use familiar Go template syntax with `lvt-*` attributes for interactivity:
+Standard HTML forms work out of the box — any action you can trigger with a form submission works over plain HTTP, no JavaScript required. For more granular interactions (click, keydown, focus), add `lvt-*` attributes. This is progressive enhancement: your app works without JS, and gets richer with it.
 
 ```html
 <h1>Counter: {{.Counter}}</h1>
@@ -54,7 +54,7 @@ func (c *CounterController) Increment(state CounterState, ctx *livetemplate.Cont
 }
 ```
 
-No client code needed. The UI updates automatically when `Counter` changes. Your existing Go toolchain, testing infrastructure, and deployment pipeline all work as-is.
+No client code needed. The UI updates automatically when `Counter` changes. Your existing Go toolchain, testing infrastructure, and deployment pipeline all work as-is. The same Go method handles both form submissions and `lvt-*` events — you write the logic once.
 
 ### 2. Generate Complete Apps Instantly
 
