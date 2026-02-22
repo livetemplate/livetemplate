@@ -14,9 +14,9 @@ Build interactive web applications in Go using a simplified programming model. W
 
 ## A Better Way to Build Interactive Apps
 
-Every interactive feature in a traditional web app pays a complexity tax: design a REST endpoint, write a serializer, manage client-side state, update the DOM, and wire it all together. This tax adds up. Features that should be dynamic stay static because the cost of making them interactive isn't worth it. Chris McCord [described the problem well](https://fly.io/blog/how-we-got-to-liveview/) when explaining why he built Phoenix LiveView — conventional frameworks make you "fetch the world, munge it into some format, and shoot it over the wire... then throw all that state away" on every request.
+Every interactive feature in a traditional web app requires the same ceremony: design a REST endpoint, write a serializer, manage client-side state, update the DOM, and wire it all together. That overhead discourages interactivity — teams leave things static not because they should be, but because the plumbing isn't worth it. As Chris McCord [put it](https://fly.io/blog/how-we-got-to-liveview/) when explaining why he built Phoenix LiveView: conventional frameworks make you "fetch the world, munge it into some format, and shoot it over the wire... then throw all that state away" on every request.
 
-LiveTemplate brings that same idea to Go. Your application state lives on the server. When a user clicks a button, LiveTemplate calls a method on your Go struct, you update your state, and the UI reflects the change automatically. No endpoints to design, no JSON to serialize, no client-side state to synchronize. There's no complexity tax for making things interactive — so whatever makes sense to be dynamic gets to be dynamic.
+LiveTemplate brings that same idea to Go. Your application state lives on the server. When a user clicks a button, LiveTemplate calls a method on your Go struct, you update your state, and the UI reflects the change automatically. No endpoints to design, no JSON to serialize, no client-side state to synchronize. Making something interactive costs almost nothing, so you stop choosing between static and dynamic — you just make it dynamic.
 
 ```mermaid
 sequenceDiagram
