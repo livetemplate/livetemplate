@@ -424,7 +424,7 @@ func (s *RedisSessionStore) Get(ctx context.Context, groupID string) interface{}
 		if err != nil {
 			slog.Warn("Found legacy v1 session but failed to decode",
 				slog.String("group_id", groupID),
-				slog.String("error", err.Error()))
+				slog.Any("error", err))
 		} else {
 			slog.Info("Found legacy v1 session, deleting (incompatible with Controller+State)",
 				slog.String("group_id", groupID))
@@ -455,7 +455,7 @@ func (s *RedisSessionStore) deserializeFromHash(hashData map[string]string) inte
 		var state interface{}
 		if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
 			slog.Warn("Failed to unmarshal state",
-				slog.String("error", err.Error()))
+				slog.Any("error", err))
 			return nil
 		}
 		return state
@@ -545,7 +545,7 @@ func (s *RedisSessionStore) Set(ctx context.Context, groupID string, state inter
 	if err != nil {
 		slog.Error("RedisSessionStore.Set: failed to marshal state",
 			slog.String("group_id", groupID),
-			slog.String("error", err.Error()))
+			slog.Any("error", err))
 		return
 	}
 
@@ -561,7 +561,7 @@ func (s *RedisSessionStore) Set(ctx context.Context, groupID string, state inter
 	if err != nil {
 		slog.Error("RedisSessionStore.Set: failed to marshal metadata",
 			slog.String("group_id", groupID),
-			slog.String("error", err.Error()))
+			slog.Any("error", err))
 		return
 	}
 	fields[metaField] = string(metaJSON)
@@ -585,7 +585,7 @@ func (s *RedisSessionStore) Set(ctx context.Context, groupID string, state inter
 	if err := s.execPipelineWithRetry(ctx, pipe); err != nil {
 		slog.Error("RedisSessionStore.Set: redis persistence failed",
 			slog.String("group_id", groupID),
-			slog.String("error", err.Error()))
+			slog.Any("error", err))
 	}
 }
 
@@ -604,7 +604,7 @@ func (s *RedisSessionStore) SetStore(ctx context.Context, groupID string, storeN
 		slog.Error("RedisSessionStore.SetStore: serialization failed",
 			slog.String("group_id", groupID),
 			slog.String("store_name", storeName),
-			slog.String("error", err.Error()))
+			slog.Any("error", err))
 		return
 	}
 
@@ -617,7 +617,7 @@ func (s *RedisSessionStore) SetStore(ctx context.Context, groupID string, storeN
 	if err != nil {
 		slog.Error("RedisSessionStore.SetStore: failed to marshal metadata",
 			slog.String("group_id", groupID),
-			slog.String("error", err.Error()))
+			slog.Any("error", err))
 		return
 	}
 
@@ -636,7 +636,7 @@ func (s *RedisSessionStore) SetStore(ctx context.Context, groupID string, storeN
 		slog.Error("RedisSessionStore.SetStore: redis persistence failed",
 			slog.String("group_id", groupID),
 			slog.String("store_name", storeName),
-			slog.String("error", err.Error()))
+			slog.Any("error", err))
 	}
 }
 

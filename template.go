@@ -1171,7 +1171,7 @@ func (t *Template) Execute(wr io.Writer, data interface{}, messages ...map[strin
 		// Log for observability so operators can detect degraded performance
 		slog.Warn("Tree building failed, skipping cache update",
 			slog.String("template", t.name),
-			slog.String("error", treeErr.Error()))
+			slog.Any("error", treeErr))
 		return nil
 	}
 
@@ -1268,7 +1268,7 @@ func (t *Template) generateInitialTreeWithoutRegistry(html string, data interfac
 		// parseTemplateToTree failed, falling back to HTML structure
 		slog.Warn("Template parsing failed, falling back to HTML structure-based tree",
 			slog.String("template", t.name),
-			slog.String("error", err.Error()))
+			slog.Any("error", err))
 		tree = build.CreateHTMLStructureBasedTree(contentToAnalyze)
 	}
 
@@ -1462,7 +1462,7 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 	tempFileManager, err := newUploadTempFileManager("")
 	if err != nil {
 		slog.Error("Failed to create temp file manager - uploads will not work",
-			slog.String("error", err.Error()))
+			slog.Any("error", err))
 	}
 
 	handler := &liveHandler{
@@ -1483,13 +1483,13 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 			slog.Info("Starting pub/sub subscriber")
 			if err := mountCfg.PubSubBroadcaster.Subscribe(handler.handlePubSubMessage); err != nil {
 				slog.Error("Pub/sub subscriber error",
-					slog.String("error", err.Error()))
+					slog.Any("error", err))
 			}
 		}()
 
 		if err := mountCfg.PubSubBroadcaster.SubscribeServerActions(handler.handleServerActionMessage); err != nil {
 			slog.Error("Failed to subscribe to server actions",
-				slog.String("error", err.Error()))
+				slog.Any("error", err))
 		}
 	}
 
