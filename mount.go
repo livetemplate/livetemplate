@@ -1145,13 +1145,13 @@ func (h *liveHandler) handlePubSubMessage(msg *pubsub.BroadcastMessage) error {
 		for _, conn := range connections {
 			if err := h.sendUpdate(conn, data, nil); err != nil {
 				slog.Warn("Failed to send broadcast",
-					slog.String("component", "pubsub"),
+					slog.String("component", "pubsub_handler"),
 					slog.String("scope", "global"),
 					slog.Any("error", err))
 			}
 		}
 		slog.Debug("Fanned out broadcast",
-			slog.String("component", "pubsub"),
+			slog.String("component", "pubsub_handler"),
 			slog.String("scope", "global"),
 			slog.Int("count", len(connections)))
 
@@ -1161,14 +1161,14 @@ func (h *liveHandler) handlePubSubMessage(msg *pubsub.BroadcastMessage) error {
 		for _, conn := range connections {
 			if err := h.sendUpdate(conn, data, nil); err != nil {
 				slog.Warn("Failed to send broadcast",
-					slog.String("component", "pubsub"),
+					slog.String("component", "pubsub_handler"),
 					slog.String("scope", "group"),
 					slog.String("target_id", msg.GroupID),
 					slog.Any("error", err))
 			}
 		}
 		slog.Debug("Fanned out broadcast",
-			slog.String("component", "pubsub"),
+			slog.String("component", "pubsub_handler"),
 			slog.String("scope", "group"),
 			slog.String("target_id", msg.GroupID),
 			slog.Int("count", len(connections)))
@@ -1179,14 +1179,14 @@ func (h *liveHandler) handlePubSubMessage(msg *pubsub.BroadcastMessage) error {
 		for _, conn := range connections {
 			if err := h.sendUpdate(conn, data, nil); err != nil {
 				slog.Warn("Failed to send broadcast",
-					slog.String("component", "pubsub"),
+					slog.String("component", "pubsub_handler"),
 					slog.String("scope", "user"),
 					slog.String("target_id", msg.UserID),
 					slog.Any("error", err))
 			}
 		}
 		slog.Debug("Fanned out broadcast",
-			slog.String("component", "pubsub"),
+			slog.String("component", "pubsub_handler"),
 			slog.String("scope", "user"),
 			slog.String("target_id", msg.UserID),
 			slog.Int("count", len(connections)))
@@ -1207,14 +1207,14 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 	connections := h.registry.GetByUser(msg.UserID)
 	if len(connections) == 0 {
 		slog.Debug("No local connections for server action",
-			slog.String("component", "pubsub"),
+			slog.String("component", "pubsub_handler"),
 			slog.String("user_id", msg.UserID),
 			slog.String("action", msg.Action))
 		return nil
 	}
 
 	slog.Debug("Handling server action",
-		slog.String("component", "pubsub"),
+		slog.String("component", "pubsub_handler"),
 		slog.String("user_id", msg.UserID),
 		slog.String("action", msg.Action),
 		slog.Int("connection_count", len(connections)))
@@ -1253,7 +1253,7 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 			default:
 				if !errors.Is(actionErr, ErrMethodNotFound) {
 					slog.Warn("Action dispatch failed",
-						slog.String("component", "pubsub"),
+						slog.String("component", "pubsub_handler"),
 						slog.String("user_id", msg.UserID),
 						slog.String("action", msg.Action),
 						slog.Any("error", actionErr))
@@ -1272,7 +1272,7 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 		// Send update to this connection (with flash messages)
 		if err := h.sendUpdate(conn, state.state, state.getMessages()); err != nil {
 			slog.Warn("sendUpdate failed for server action",
-				slog.String("component", "pubsub"),
+				slog.String("component", "pubsub_handler"),
 				slog.String("user_id", msg.UserID),
 				slog.String("action", msg.Action),
 				slog.Any("error", err))
@@ -1286,14 +1286,14 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 
 	if errCount > 0 {
 		slog.Warn("Server action failed for some connections",
-			slog.String("component", "pubsub"),
+			slog.String("component", "pubsub_handler"),
 			slog.String("user_id", msg.UserID),
 			slog.String("action", msg.Action),
 			slog.Int("errors", errCount),
 			slog.Int("total", len(connections)))
 	} else {
 		slog.Debug("Server action completed successfully",
-			slog.String("component", "pubsub"),
+			slog.String("component", "pubsub_handler"),
 			slog.String("user_id", msg.UserID),
 			slog.String("action", msg.Action),
 			slog.Int("connection_count", len(connections)))
