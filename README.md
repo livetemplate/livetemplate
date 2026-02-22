@@ -43,14 +43,14 @@ Standard HTML forms work out of the box — any action you can trigger with a fo
 A plain HTML form:
 
 ```html
-<form method="POST" lvt-submit="add">
+<form method="POST">
     <input type="hidden" name="lvt-action" value="add">
     <input type="text" name="title">
     <button type="submit">Add</button>
 </form>
 ```
 
-Without JS, the form POSTs normally and the page reloads with updated state. With the JS client, `lvt-submit` intercepts the submission and patches the DOM in place — same form, no changes needed.
+Without JS, the form POSTs normally and the page reloads with updated state. With the JS client loaded, the same form is automatically intercepted and the DOM is patched in place — no reload, no changes to the markup needed.
 
 The Go handler is the same either way:
 
