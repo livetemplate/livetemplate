@@ -38,7 +38,7 @@ The core idea — pioneered by [Phoenix LiveView](https://hexdocs.pm/phoenix_liv
 
 ### 1. Reactive UIs in Pure Go
 
-Standard HTML forms work out of the box — any action you can trigger with a form submission works over plain HTTP, no JavaScript required. For more granular interactions (click, keydown, focus), add `lvt-*` attributes. This is progressive enhancement: your app works without JS, and gets richer with it.
+Standard HTML forms work out of the box — any action you can trigger with a form submission works over plain HTTP with a full page reload. Add the JavaScript client and those same forms get in-place DOM patching without reloads. For more granular interactions (click, keydown, focus), add `lvt-*` attributes. This is progressive enhancement: forms work without JS, and the experience gets smoother with it.
 
 ```html
 <h1>Counter: {{.Counter}}</h1>
