@@ -25,12 +25,12 @@ sequenceDiagram
 
     Browser->>Server: User clicks button<br/>{action: "increment"}
     Note over Server: s.Counter++<br/>(Counter: 5 → 6)
-    Note over Server: Tree diff calculated<br/>{"0": "6"} (50-90% smaller)
+    Note over Server: Compare old vs new<br/>Only Counter changed → {"0": "6"}
     Server->>Browser: {"0": "6"}
     Note over Browser: DOM updated<br/>Counter: 6
 ```
 
-This works because LiveTemplate uses **tree-based diffing** - a data model that makes updates predictable and efficient. When your state changes, LiveTemplate calculates exactly what changed and sends only that data (50-90% less than full HTML). The same predictable model that enables efficient updates also powers the `lvt` code generator, which can create complete CRUD applications that are reactive by default.
+This works because LiveTemplate splits your template into **static parts** (the HTML that never changes) and **dynamic parts** (the values that do). On first render, the client caches all the static HTML. After that, only changed values travel over the wire - a counter update sends `{"0": "6"}` instead of re-rendering the entire page. This is 50-90% less data than traditional approaches, and the same static/dynamic split powers the `lvt` code generator, which can create complete CRUD applications that are reactive by default.
 
 ## Why LiveTemplate?
 
@@ -57,7 +57,7 @@ That's it. No client code needed. The UI updates automatically when `Counter` ch
 
 ### 2. Generate Complete Apps Instantly
 
-Because the tree-based model is predictable, code generation works reliably. The `lvt` CLI generates complete CRUD applications - forms, tables, validation, database integration - all reactive by default:
+Because templates have a predictable static/dynamic structure, code generation works reliably. The `lvt` CLI generates complete CRUD applications - forms, tables, validation, database integration - all reactive by default:
 
 ```bash
 lvt new myapp
@@ -70,17 +70,25 @@ Generated code inherits the reactive programming model. No glue code, no manual 
 
 ### 3. Efficient by Design
 
-Tree-based diffing sends only what changed:
+LiveTemplate separates your template into static HTML (the parts that never change) and dynamic values (the parts that do). Consider this template:
+
+```html
+<div>Counter: {{.Counter}}</div>
+```
+
+On first render, the client receives the full structure — the static `<div>Counter: ` and `</div>` parts, plus the dynamic value `5`:
 
 ```json
-// First render: Full tree
 {"s": ["<div>Counter: ", "</div>"], "0": "5"}
+```
 
-// Updates: Only changed values
+The client caches the static parts. When the counter changes from 5 to 6, only the new value is sent:
+
+```json
 {"0": "6"}
 ```
 
-Static HTML is cached client-side. Updates are 50-90% smaller than traditional approaches.
+No re-rendered HTML, no string diffing — just the single value that changed. For typical pages with lots of markup and few changing values, this means **50-90% less data** than sending full HTML.
 
 ### 4. Idiomatic Go Error Handling
 
@@ -175,8 +183,8 @@ That's it! Click buttons and watch the counter update automatically.
 ## How It Works
 
 ```
-User clicks button → Server updates state → Template renders →
-Tree diff calculates changes → Client receives minimal update → DOM updates
+User clicks button → Server updates state → Template re-renders →
+Only changed values sent → Client patches the DOM
 ```
 
 1. Define your **State** as a Go struct (pure data, cloned per session)
@@ -204,8 +212,8 @@ LiveTemplate is designed for high-performance reactive updates with minimal band
 
 ### How It Works
 
-1. **First Render:** Full HTML + tree structure with static/dynamic separation
-2. **Subsequent Updates:** Only changed values (statics cached client-side)
+1. **First Render:** Full HTML sent; client caches the static parts
+2. **Subsequent Updates:** Only changed values sent (static HTML already cached)
 3. **Result:** 85%+ bandwidth savings, sub-millisecond latency
 
 ### Running Benchmarks
