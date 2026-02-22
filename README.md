@@ -40,12 +40,33 @@ The core idea — pioneered by [Phoenix LiveView](https://hexdocs.pm/phoenix_liv
 
 Standard HTML forms work out of the box — any action you can trigger with a form submission works over plain HTTP with a full page reload. Add the JavaScript client and those same forms get in-place DOM patching without reloads. For more granular interactions (click, keydown, focus), add `lvt-*` attributes. This is progressive enhancement: forms work without JS, and the experience gets smoother with it.
 
+A plain HTML form:
+
+```html
+<form method="POST" lvt-submit="add">
+    <input type="hidden" name="lvt-action" value="add">
+    <input type="text" name="title">
+    <button type="submit">Add</button>
+</form>
+```
+
+Without JS, the form POSTs normally and the page reloads with updated state. With the JS client, `lvt-submit` intercepts the submission and patches the DOM in place — same form, no changes needed.
+
+The Go handler is the same either way:
+
+```go
+func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    state.Items = append(state.Items, Todo{Title: ctx.GetString("title")})
+    return state, nil
+}
+```
+
+For interactions that don't map to form submissions, use `lvt-*` attributes:
+
 ```html
 <h1>Counter: {{.Counter}}</h1>
 <button lvt-click="increment">+</button>
 ```
-
-Handle the action in Go:
 
 ```go
 func (c *CounterController) Increment(state CounterState, ctx *livetemplate.Context) (CounterState, error) {
@@ -54,7 +75,7 @@ func (c *CounterController) Increment(state CounterState, ctx *livetemplate.Cont
 }
 ```
 
-No client code needed. The UI updates automatically when `Counter` changes. Your existing Go toolchain, testing infrastructure, and deployment pipeline all work as-is. The same Go method handles both form submissions and `lvt-*` events — you write the logic once.
+Your existing Go toolchain, testing infrastructure, and deployment pipeline all work as-is.
 
 ### 2. Generate Complete Apps Instantly
 
