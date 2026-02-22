@@ -34,7 +34,7 @@ This works because LiveTemplate splits your template into **static parts** (the 
 
 ## Why LiveTemplate?
 
-[Phoenix LiveView](https://hexdocs.pm/phoenix_live_view) proved that server-rendered reactive UIs are a powerful model — but it requires Elixir. LiveTemplate brings the same idea to Go: server state, automatic UI updates, minimal wire traffic. If your team already runs Go in production, you get reactive UIs without adopting a new language, runtime, or deployment model.
+The core idea — pioneered by [Phoenix LiveView](https://hexdocs.pm/phoenix_live_view) — is that your application state lives on the server, user interactions call server-side functions, and the framework automatically figures out what changed and pushes minimal updates to the browser. No REST APIs, no client-side state management, no JavaScript build step. LiveView proved this model works in production, but it requires Elixir. LiveTemplate brings it to Go: if your team already runs Go, you get reactive UIs without adopting a new language, runtime, or deployment model.
 
 ### 1. Reactive UIs in Pure Go
 
