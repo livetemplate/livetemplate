@@ -14,9 +14,9 @@ Build interactive web applications in Go using a simplified programming model. W
 
 ## A Better Way to Build Interactive Apps
 
-Traditional web development splits your application across two worlds. You write server code in one language, client code in another, then spend your time orchestrating between them - managing REST APIs, synchronizing state, serializing JSON, and manually updating the DOM. Every interactive feature requires wiring code in multiple places.
+Every interactive feature in a traditional web app pays a complexity tax: design a REST endpoint, write a serializer, manage client-side state, update the DOM, and wire it all together. This tax adds up. Features that should be dynamic stay static because the cost of making them interactive isn't worth it.
 
-LiveTemplate takes a different approach, inspired by Phoenix LiveView. Your application state lives in Go on the server. When a user clicks a button, LiveTemplate sends the action to your server, you update your Go struct, and the UI updates automatically. No REST endpoints to design, no state synchronization code to write, no manual DOM manipulation.
+LiveTemplate eliminates that tax. Your application state lives in Go on the server. When a user clicks a button, LiveTemplate calls a method on your Go struct, you update your state, and the UI reflects the change automatically. No endpoints to design, no JSON to serialize, no client-side state to synchronize. Making something interactive is as cheap as making it static — so whatever makes sense to be dynamic gets to be dynamic.
 
 ```mermaid
 sequenceDiagram
