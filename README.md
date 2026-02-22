@@ -34,7 +34,9 @@ This works because LiveTemplate splits your template into **static parts** (the 
 
 ## Why LiveTemplate?
 
-### 1. Write Server-Side, Get Reactive UIs
+[Phoenix LiveView](https://hexdocs.pm/phoenix_live_view) proved that server-rendered reactive UIs are a powerful model — but it requires Elixir. LiveTemplate brings the same idea to Go: server state, automatic UI updates, minimal wire traffic. If your team already runs Go in production, you get reactive UIs without adopting a new language, runtime, or deployment model.
+
+### 1. Reactive UIs in Pure Go
 
 Your templates use familiar Go template syntax with `lvt-*` attributes for interactivity:
 
@@ -46,18 +48,17 @@ Your templates use familiar Go template syntax with `lvt-*` attributes for inter
 Handle the action in Go:
 
 ```go
-// Action "increment" maps to method Increment()
 func (c *CounterController) Increment(state CounterState, ctx *livetemplate.Context) (CounterState, error) {
     state.Counter++
     return state, nil
 }
 ```
 
-That's it. No client code needed. The UI updates automatically when `Counter` changes.
+No client code needed. The UI updates automatically when `Counter` changes. Your existing Go toolchain, testing infrastructure, and deployment pipeline all work as-is.
 
 ### 2. Generate Complete Apps Instantly
 
-Because templates have a predictable static/dynamic structure, code generation works reliably. The `lvt` CLI generates complete CRUD applications - forms, tables, validation, database integration - all reactive by default:
+The `lvt` CLI generates complete CRUD applications — forms, tables, validation, database integration — all reactive by default:
 
 ```bash
 lvt new myapp
@@ -66,35 +67,53 @@ lvt gen products name price:float stock:int
 lvt serve
 ```
 
-Generated code inherits the reactive programming model. No glue code, no manual wiring.
+Code generation works reliably because templates have a predictable static/dynamic structure. Generated code inherits the reactive programming model. No glue code, no manual wiring. Pluggable CSS kits (Tailwind, Bulma, Pico, or plain HTML) let you match your team's preferred styling approach.
 
-### 3. Efficient by Design
+### 3. Safe State Management
 
-LiveTemplate separates your template into static HTML (the parts that never change) and dynamic values (the parts that do). Consider this template:
+LiveTemplate separates **controllers** (singleton, holds dependencies) from **state** (pure data, cloned per session). This prevents a class of bugs where session-specific data like OAuth tokens or caches accidentally leaks between users:
 
-```html
-<div>Counter: {{.Counter}}</div>
+```go
+// Controller: Singleton, holds shared dependencies — never cloned
+type TodoController struct {
+    DB     *sql.DB
+    Logger *slog.Logger
+}
+
+// State: Pure data, cloned per session — must be serializable
+type TodoState struct {
+    Items  []Todo
+    Filter string
+}
+
+func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    todo := c.DB.InsertTodo(ctx.GetString("title"))
+    state.Items = append(state.Items, todo)
+    return state, nil
+}
 ```
 
-On first render, the client receives the full structure — the static `<div>Counter: ` and `</div>` parts, plus the dynamic value `5`:
+The separation is enforced at the API level: `tmpl.Handle(controller, livetemplate.AsState(state))`. There's no way to accidentally put a database connection in cloned state.
+
+### 4. Efficient by Design
+
+LiveTemplate separates your template into static HTML (the parts that never change) and dynamic values (the parts that do). On first render, the client receives and caches the full structure:
 
 ```json
 {"s": ["<div>Counter: ", "</div>"], "0": "5"}
 ```
 
-The client caches the static parts. When the counter changes from 5 to 6, only the new value is sent:
+When the counter changes from 5 to 6, only the new value is sent:
 
 ```json
 {"0": "6"}
 ```
 
-No re-rendered HTML, no string diffing — just the single value that changed. For typical pages with lots of markup and few changing values, this means **50-90% less data** than sending full HTML.
+No re-rendered HTML, no string diffing — just the single value that changed. For typical pages with lots of markup and few changing values, this means **50-90% less data** than sending full HTML. This is the same static/dynamic split that [Phoenix LiveView uses](https://hexdocs.pm/phoenix_live_view/Phoenix.LiveView.html) — a proven approach to minimizing wire traffic.
 
-### 4. Idiomatic Go Error Handling
+### 5. Idiomatic Go Patterns
 
-Errors flow naturally using Go's familiar error handling patterns. Just return an error and LiveTemplate automatically displays it in your template:
-
-**Server (familiar Go code):**
+Errors flow naturally using Go's familiar patterns. Return an error and LiveTemplate automatically displays it in your template:
 
 ```go
 func (c *AuthController) Signup(state AuthState, ctx *livetemplate.Context) (AuthState, error) {
@@ -112,8 +131,6 @@ func (c *AuthController) Signup(state AuthState, ctx *livetemplate.Context) (Aut
 }
 ```
 
-**Template (automatic error display):**
-
 ```html
 <input name="username" {{if .lvt.HasError "username"}}aria-invalid="true"{{end}}>
 {{if .lvt.HasError "username"}}
@@ -121,7 +138,7 @@ func (c *AuthController) Signup(state AuthState, ctx *livetemplate.Context) (Aut
 {{end}}
 ```
 
-When you return a `FieldError` from Go, LiveTemplate automatically makes it available in your templates via `.lvt.HasError` and `.lvt.Error` helpers. No error serialization code. No client-side error state management.
+No error serialization code. No client-side error state management. Actions return `(State, error)` — the standard Go signature.
 
 ## Quick Start
 
@@ -276,5 +293,3 @@ MIT License - see [LICENSE](LICENSE) file for details.
 ---
 
 **Built with LiveTemplate?** Share your project in [GitHub Discussions](https://github.com/livetemplate/livetemplate/discussions).
-
-Inspired by [Phoenix LiveView](https://hexdocs.pm/phoenix_live_view).
