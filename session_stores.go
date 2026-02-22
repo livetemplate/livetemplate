@@ -7,7 +7,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"math"
 	"sync"
 	"time"
@@ -422,9 +422,12 @@ func (s *RedisSessionStore) Get(ctx context.Context, groupID string) interface{}
 		// Note: In pre-1.0 library, breaking changes are expected.
 		_, err = s.deserializeLegacyStores(data)
 		if err != nil {
-			log.Printf("RedisSessionStore: Found legacy v1 session but failed to decode: %v", err)
+			slog.Warn("Found legacy v1 session but failed to decode",
+				slog.String("group_id", groupID),
+				slog.String("error", err.Error()))
 		} else {
-			log.Printf("RedisSessionStore: Found legacy v1 session for group %s - deleting (incompatible with Controller+State)", groupID)
+			slog.Info("Found legacy v1 session, deleting (incompatible with Controller+State)",
+				slog.String("group_id", groupID))
 		}
 		s.Delete(ctx, groupID)
 		return nil
@@ -451,7 +454,8 @@ func (s *RedisSessionStore) deserializeFromHash(hashData map[string]string) inte
 	if stateJSON, ok := hashData["state"]; ok {
 		var state interface{}
 		if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
-			log.Printf("WARN: RedisSessionStore: failed to unmarshal state: %v", err)
+			slog.Warn("Failed to unmarshal state",
+				slog.String("error", err.Error()))
 			return nil
 		}
 		return state
@@ -539,7 +543,9 @@ func (s *RedisSessionStore) Set(ctx context.Context, groupID string, state inter
 	// Serialize state as JSON
 	stateJSON, err := json.Marshal(state)
 	if err != nil {
-		log.Printf("ERROR: RedisSessionStore.Set(%s): failed to marshal state: %v", groupID, err)
+		slog.Error("RedisSessionStore.Set: failed to marshal state",
+			slog.String("group_id", groupID),
+			slog.String("error", err.Error()))
 		return
 	}
 
@@ -553,7 +559,9 @@ func (s *RedisSessionStore) Set(ctx context.Context, groupID string, state inter
 	}
 	metaJSON, err := json.Marshal(meta)
 	if err != nil {
-		log.Printf("ERROR: RedisSessionStore.Set(%s): failed to marshal metadata: %v", groupID, err)
+		slog.Error("RedisSessionStore.Set: failed to marshal metadata",
+			slog.String("group_id", groupID),
+			slog.String("error", err.Error()))
 		return
 	}
 	fields[metaField] = string(metaJSON)
@@ -575,7 +583,9 @@ func (s *RedisSessionStore) Set(ctx context.Context, groupID string, state inter
 
 	// Execute pipeline with retry
 	if err := s.execPipelineWithRetry(ctx, pipe); err != nil {
-		log.Printf("ERROR: RedisSessionStore.Set(%s): redis persistence failed: %v", groupID, err)
+		slog.Error("RedisSessionStore.Set: redis persistence failed",
+			slog.String("group_id", groupID),
+			slog.String("error", err.Error()))
 	}
 }
 
@@ -591,7 +601,10 @@ func (s *RedisSessionStore) SetStore(ctx context.Context, groupID string, storeN
 	// Serialize the single store using Gob (preserves type information)
 	encoded, err := s.serializeSingleStore(store)
 	if err != nil {
-		log.Printf("ERROR: RedisSessionStore.SetStore(%s, %s): serialization failed: %v", groupID, storeName, err)
+		slog.Error("RedisSessionStore.SetStore: serialization failed",
+			slog.String("group_id", groupID),
+			slog.String("store_name", storeName),
+			slog.String("error", err.Error()))
 		return
 	}
 
@@ -602,7 +615,9 @@ func (s *RedisSessionStore) SetStore(ctx context.Context, groupID string, storeN
 	}
 	metaJSON, err := json.Marshal(meta)
 	if err != nil {
-		log.Printf("ERROR: RedisSessionStore.SetStore(%s): failed to marshal metadata: %v", groupID, err)
+		slog.Error("RedisSessionStore.SetStore: failed to marshal metadata",
+			slog.String("group_id", groupID),
+			slog.String("error", err.Error()))
 		return
 	}
 
@@ -618,7 +633,10 @@ func (s *RedisSessionStore) SetStore(ctx context.Context, groupID string, storeN
 
 	// Execute pipeline with retry
 	if err := s.execPipelineWithRetry(ctx, pipe); err != nil {
-		log.Printf("ERROR: RedisSessionStore.SetStore(%s, %s): redis persistence failed: %v", groupID, storeName, err)
+		slog.Error("RedisSessionStore.SetStore: redis persistence failed",
+			slog.String("group_id", groupID),
+			slog.String("store_name", storeName),
+			slog.String("error", err.Error()))
 	}
 }
 

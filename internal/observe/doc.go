@@ -1,27 +1,4 @@
-// Package observe provides structured logging and metrics for LiveTemplate.
-//
-// # Structured Logging
-//
-// All logging is done via slog with structured fields:
-//
-//	logger := observe.NewLogger(slog.LevelInfo, nil)
-//	logger.TemplateParsed("todos", 5*time.Millisecond)
-//	logger.ActionReceived("add_todo", "todos")
-//
-// Logs include contextual information (user_id, session_id, request_id)
-// when using WithContext:
-//
-//	ctx := context.WithValue(ctx, "user_id", "user-123")
-//	contextLogger := logger.WithContext(ctx)
-//	contextLogger.TreeBuilt("*TodoState", 3*time.Millisecond)
-//
-// # Operation Tracking
-//
-// Track operations with automatic duration logging:
-//
-//	op := logger.StartOperation("template_execute")
-//	defer op.Complete()
-//	// ... do work ...
+// Package observe provides operational metrics for LiveTemplate.
 //
 // # Metrics
 //
@@ -35,16 +12,17 @@
 //
 // Metrics are emitted as structured logs every interval.
 //
-// # Integration
+// # Prometheus Exporter
 //
-// Observability is integrated via Config:
+// Export metrics in Prometheus text format for scraping:
 //
-//	cfg := livetemplate.Config{
-//	    Logger: slog.New(handler),
-//	    LogLevel: slog.LevelInfo,
-//	    MetricsEnabled: true,
-//	    MetricsInterval: 60 * time.Second,
-//	}
+//	exporter := observe.NewPrometheusExporter(metrics, limits)
+//	http.Handle("/metrics", exporter)
+//
+// # Logging
+//
+// LiveTemplate uses Go's standard log/slog package directly for all structured
+// logging. See the slog package documentation for configuration options.
 //
 // See OBSERVABILITY.md in docs/ for complete guide.
 package observe

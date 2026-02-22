@@ -91,7 +91,6 @@ import (
 	"html/template"
 	"io"
 	"io/fs"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -798,7 +797,9 @@ func New(name string, opts ...Option) (*Template, error) {
 	}
 
 	// Log DevMode configuration for debugging
-	log.Printf("livetemplate.New(%q): DevMode=%v", name, config.DevMode)
+	slog.Debug("Template created",
+		slog.String("name", name),
+		slog.Bool("dev_mode", config.DevMode))
 
 	tmpl := &Template{
 		name:   name,
@@ -813,7 +814,8 @@ func New(name string, opts ...Option) (*Template, error) {
 			return nil, fmt.Errorf("livetemplate.New(%q): failed to parse component templates: %w", name, err)
 		}
 		if config.DevMode {
-			log.Printf("Parsed %d component template set(s)", len(config.ComponentTemplates))
+			slog.Debug("Parsed component template sets",
+				slog.Int("count", len(config.ComponentTemplates)))
 		}
 	}
 
@@ -828,7 +830,8 @@ func New(name string, opts ...Option) (*Template, error) {
 			return nil, fmt.Errorf("livetemplate.New(%q): no template files found in %q (ignored: %v)", name, config.TemplateBaseDir, config.IgnoreTemplateDirs)
 		}
 		if config.DevMode {
-			log.Printf("Auto-discovered %d template file(s)", len(files))
+			slog.Debug("Auto-discovered template files",
+				slog.Int("count", len(files)))
 		}
 		if _, err := tmpl.ParseFiles(files...); err != nil {
 			return nil, fmt.Errorf("livetemplate.New(%q): failed to parse discovered files %v: %w", name, files, err)
@@ -1414,7 +1417,8 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 						return true
 					}
 				}
-				log.Printf("WebSocket origin rejected: %s (not in allowed origins)", origin)
+				slog.Warn("WebSocket origin rejected",
+					slog.String("origin", origin))
 				return false
 			},
 		}
@@ -1476,14 +1480,16 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 	// Start pub/sub subscriber if broadcaster is configured
 	if mountCfg.PubSubBroadcaster != nil {
 		go func() {
-			log.Printf("LiveHandler: Starting pub/sub subscriber...")
+			slog.Info("Starting pub/sub subscriber")
 			if err := mountCfg.PubSubBroadcaster.Subscribe(handler.handlePubSubMessage); err != nil {
-				log.Printf("LiveHandler: Pub/sub subscriber error: %v", err)
+				slog.Error("Pub/sub subscriber error",
+					slog.String("error", err.Error()))
 			}
 		}()
 
 		if err := mountCfg.PubSubBroadcaster.SubscribeServerActions(handler.handleServerActionMessage); err != nil {
-			log.Printf("LiveHandler: Failed to subscribe to server actions: %v", err)
+			slog.Error("Failed to subscribe to server actions",
+				slog.String("error", err.Error()))
 		}
 	}
 
