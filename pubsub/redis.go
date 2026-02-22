@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -247,7 +247,9 @@ func (b *RedisBroadcaster) Subscribe(handler MessageHandler) error {
 		return fmt.Errorf("failed to subscribe: %w", err)
 	}
 
-	log.Printf("RedisBroadcaster: Subscribed to channel %s (instance: %s)", channelGlobal, b.instanceID)
+	slog.Info("RedisBroadcaster: subscribed to channel",
+		slog.String("channel", channelGlobal),
+		slog.String("instance_id", b.instanceID))
 
 	// Start message processing goroutine
 	b.wg.Add(1)
@@ -273,7 +275,8 @@ func (b *RedisBroadcaster) SubscribeServerActions(handler ServerActionHandler) e
 	b.serverActionHandler = handler
 	b.mu.Unlock()
 
-	log.Printf("RedisBroadcaster: Registered server action handler (instance: %s)", b.instanceID)
+	slog.Info("RedisBroadcaster: registered server action handler",
+		slog.String("instance_id", b.instanceID))
 	return nil
 }
 
@@ -301,7 +304,8 @@ func (b *RedisBroadcaster) SubscribeToServerAction(userID string) error {
 		return fmt.Errorf("failed to subscribe to server action channel: %w", err)
 	}
 
-	log.Printf("RedisBroadcaster: Subscribed to server action channel %s", channel)
+	slog.Info("RedisBroadcaster: subscribed to server action channel",
+		slog.String("channel", channel))
 	return nil
 }
 
@@ -329,7 +333,8 @@ func (b *RedisBroadcaster) SubscribeToGroup(groupID string) error {
 		return fmt.Errorf("failed to subscribe to group channel: %w", err)
 	}
 
-	log.Printf("RedisBroadcaster: Subscribed to group channel %s", channel)
+	slog.Info("RedisBroadcaster: subscribed to group channel",
+		slog.String("channel", channel))
 	return nil
 }
 
@@ -357,7 +362,8 @@ func (b *RedisBroadcaster) SubscribeToUser(userID string) error {
 		return fmt.Errorf("failed to subscribe to user channel: %w", err)
 	}
 
-	log.Printf("RedisBroadcaster: Subscribed to user channel %s", channel)
+	slog.Info("RedisBroadcaster: subscribed to user channel",
+		slog.String("channel", channel))
 	return nil
 }
 
@@ -369,7 +375,8 @@ func (b *RedisBroadcaster) processMessages() {
 	b.mu.RLock()
 	if b.pubsub == nil {
 		b.mu.RUnlock()
-		log.Printf("RedisBroadcaster: pubsub is nil, cannot process messages (instance: %s)", b.instanceID)
+		slog.Error("RedisBroadcaster: pubsub is nil, cannot process messages",
+			slog.String("instance_id", b.instanceID))
 		return
 	}
 	ch := b.pubsub.Channel()
@@ -378,14 +385,16 @@ func (b *RedisBroadcaster) processMessages() {
 	for {
 		select {
 		case <-b.ctx.Done():
-			log.Printf("RedisBroadcaster: Stopping message processing (instance: %s)", b.instanceID)
+			slog.Info("RedisBroadcaster: stopping message processing",
+				slog.String("instance_id", b.instanceID))
 			return
 
 		case redisMsg, ok := <-ch:
 			if !ok {
-				log.Printf("RedisBroadcaster: Channel closed, attempting reconnect")
+				slog.Warn("RedisBroadcaster: channel closed, attempting reconnect")
 				if err := b.reconnect(); err != nil {
-					log.Printf("RedisBroadcaster: Reconnect failed: %v", err)
+					slog.Error("RedisBroadcaster: reconnect failed",
+						slog.String("error", err.Error()))
 					return
 				}
 				// Update channel reference after reconnect
@@ -398,7 +407,8 @@ func (b *RedisBroadcaster) processMessages() {
 			}
 
 			if err := b.handleMessage(redisMsg); err != nil {
-				log.Printf("RedisBroadcaster: Failed to handle message: %v", err)
+				slog.Error("RedisBroadcaster: failed to handle message",
+					slog.String("error", err.Error()))
 			}
 		}
 	}
@@ -465,7 +475,7 @@ func (b *RedisBroadcaster) handleServerActionMessage(redisMsg *redis.Message) er
 	b.mu.RUnlock()
 
 	if handler == nil {
-		log.Printf("RedisBroadcaster: No server action handler registered, ignoring message")
+		slog.Warn("RedisBroadcaster: no server action handler registered, ignoring message")
 		return nil
 	}
 
@@ -501,7 +511,7 @@ func (b *RedisBroadcaster) reconnect() error {
 		return fmt.Errorf("failed to resubscribe: %w", err)
 	}
 
-	log.Printf("RedisBroadcaster: Reconnected successfully")
+	slog.Info("RedisBroadcaster: reconnected successfully")
 	return nil
 }
 
@@ -532,6 +542,7 @@ func (b *RedisBroadcaster) Close() error {
 		b.pubsub = nil
 	}
 
-	log.Printf("RedisBroadcaster: Closed (instance: %s)", b.instanceID)
+	slog.Info("RedisBroadcaster: closed",
+		slog.String("instance_id", b.instanceID))
 	return nil
 }

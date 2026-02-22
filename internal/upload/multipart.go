@@ -3,7 +3,7 @@ package upload
 import (
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 
@@ -56,7 +56,9 @@ func ParseMultipartUpload(
 				if e.TempPath != "" {
 					if rmErr := tempFileManager.RemoveFile(e.ID); rmErr != nil {
 						// Log but continue cleanup
-						log.Printf("failed to remove temp file %s during cleanup: %v", e.ID, rmErr)
+						slog.Warn("Failed to remove temp file during cleanup",
+							slog.String("entry_id", e.ID),
+							slog.String("error", rmErr.Error()))
 					}
 				}
 			}
@@ -107,7 +109,8 @@ func processMultipartFile(
 	}
 	defer func() {
 		if err := src.Close(); err != nil {
-			log.Printf("failed to close uploaded file: %v", err)
+			slog.Warn("Failed to close uploaded file",
+				slog.String("error", err.Error()))
 		}
 	}()
 
@@ -121,7 +124,9 @@ func processMultipartFile(
 	dst, err := tempFileManager.OpenForWriting(tempPath)
 	if err != nil {
 		if rmErr := tempFileManager.RemoveFile(entryID); rmErr != nil {
-			log.Printf("failed to remove temp file %s: %v", entryID, rmErr)
+			slog.Warn("Failed to remove temp file",
+				slog.String("entry_id", entryID),
+				slog.String("error", rmErr.Error()))
 		}
 		return nil, fmt.Errorf("failed to open temp file for writing: %w", err)
 	}
@@ -138,12 +143,16 @@ func processMultipartFile(
 		if closeErr := dst.Close(); closeErr != nil {
 			// Log close error but prioritize returning the write error
 			if rmErr := tempFileManager.RemoveFile(entryID); rmErr != nil {
-				log.Printf("failed to remove temp file %s: %v", entryID, rmErr)
+				slog.Warn("Failed to remove temp file",
+				slog.String("entry_id", entryID),
+				slog.String("error", rmErr.Error()))
 			}
 			return nil, fmt.Errorf("failed to write file: %w (close error: %v)", err, closeErr)
 		}
 		if rmErr := tempFileManager.RemoveFile(entryID); rmErr != nil {
-			log.Printf("failed to remove temp file %s: %v", entryID, rmErr)
+			slog.Warn("Failed to remove temp file",
+				slog.String("entry_id", entryID),
+				slog.String("error", rmErr.Error()))
 		}
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
@@ -152,12 +161,16 @@ func processMultipartFile(
 	if written > maxSize {
 		if closeErr := dst.Close(); closeErr != nil {
 			if rmErr := tempFileManager.RemoveFile(entryID); rmErr != nil {
-				log.Printf("failed to remove temp file %s: %v", entryID, rmErr)
+				slog.Warn("Failed to remove temp file",
+				slog.String("entry_id", entryID),
+				slog.String("error", rmErr.Error()))
 			}
 			return nil, fmt.Errorf("file size exceeded and close failed: %w", closeErr)
 		}
 		if rmErr := tempFileManager.RemoveFile(entryID); rmErr != nil {
-			log.Printf("failed to remove temp file %s: %v", entryID, rmErr)
+			slog.Warn("Failed to remove temp file",
+				slog.String("entry_id", entryID),
+				slog.String("error", rmErr.Error()))
 		}
 		entry.Valid = false
 		entry.Error = fmt.Sprintf("file size %d bytes exceeds maximum %d bytes", written, maxSize)
@@ -167,7 +180,9 @@ func processMultipartFile(
 	// Close file and check for errors (buffered writes may fail here)
 	if err := dst.Close(); err != nil {
 		if rmErr := tempFileManager.RemoveFile(entryID); rmErr != nil {
-			log.Printf("failed to remove temp file %s: %v", entryID, rmErr)
+			slog.Warn("Failed to remove temp file",
+				slog.String("entry_id", entryID),
+				slog.String("error", rmErr.Error()))
 		}
 		return nil, fmt.Errorf("failed to close temp file: %w", err)
 	}

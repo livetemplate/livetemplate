@@ -2,122 +2,58 @@
 
 ## Overview
 
-LiveTemplate uses Go's standard `log/slog` package for both structured logging and metrics emission. This unified approach provides:
+LiveTemplate provides production-ready observability through two complementary systems:
 
-- **Structured logging** with contextual information
-- **Operational metrics** emitted as structured logs
-- **Production-ready observability** from day 1
-- **Standard tooling** compatibility (no custom dependencies)
+- **Structured logging** via Go's standard `log/slog` package (used directly throughout the codebase)
+- **Operational metrics** via `internal/observe` package (counters, gauges, histograms with Prometheus export)
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     Application Code                         │
-└────────────────────┬────────────────────────────────────────┘
-                     ↓
-         ┌───────────────────────┐
-         │   observe.Logger      │  ← Domain-specific log methods
-         │   observe.Metrics     │  ← Operational counters/gauges
-         └───────────┬───────────┘
-                     ↓
-         ┌───────────────────────┐
-         │      slog.Logger      │  ← Go standard library
-         └───────────┬───────────┘
-                     ↓
-         ┌───────────────────────┐
-         │   slog.Handler        │  ← JSON/Text output
-         └───────────┬───────────┘
-                     ↓
-              stdout/stderr/file
-                     ↓
-         Log aggregation system
-         (e.g., Loki, CloudWatch,
-          Datadog, etc.)
+└──────────┬──────────────────────────┬───────────────────────┘
+           ↓                          ↓
+┌────────────────────┐   ┌───────────────────────┐
+│   log/slog         │   │   observe.Metrics     │  ← Operational counters/gauges
+│   (structured logs)│   │   PrometheusExporter  │  ← /metrics endpoint
+└──────────┬─────────┘   └───────────┬───────────┘
+           ↓                          ↓
+┌────────────────────┐   ┌───────────────────────┐
+│   slog.Handler     │   │   Prometheus scraper   │
+│   (JSON/Text)      │   │   or slog emission     │
+└──────────┬─────────┘   └───────────────────────┘
+           ↓
+    stdout/stderr/file
+           ↓
+    Log aggregation system
+    (e.g., Loki, CloudWatch,
+     Datadog, etc.)
 ```
 
-## Package: internal/observe
+## Structured Logging
 
-### Logger
+LiveTemplate uses Go's standard `log/slog` package directly for all structured logging. No wrapper is needed.
 
-The `Logger` wraps `slog.Logger` with LiveTemplate-specific methods for common operations.
-
-**Creation:**
+**Configuration:**
 
 ```go
-import "github.com/livetemplate/livetemplate/internal/observe"
+import "log/slog"
 
 // Development: human-readable text logs
-logger := observe.NewLogger(
-    slog.LevelDebug,
-    slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-        Level: slog.LevelDebug,
-    }),
-)
+slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelDebug,
+})))
 
 // Production: structured JSON logs
-logger := observe.NewLogger(
-    slog.LevelInfo,
-    slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-        Level: slog.LevelInfo,
-    }),
-)
-
-// Default: uses JSON handler on stdout
-logger := observe.NewLogger(slog.LevelInfo, nil)
+slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+    Level: slog.LevelInfo,
+})))
 ```
 
-**Domain-Specific Methods:**
+All LiveTemplate components log using `slog.Info()`, `slog.Warn()`, `slog.Error()`, and `slog.Debug()` with structured attributes. Configure the default logger at application startup to control output format and level.
 
-```go
-// Template operations
-logger.TemplateParsed("todos.html", time.Millisecond*5)
-logger.TreeBuilt("*main.TodoState", time.Millisecond*2)
-logger.TreeDiffed(3, time.Millisecond*1)
-
-// Rendering
-logger.Rendered("html", 1024, time.Millisecond*3)
-
-// WebSocket lifecycle
-logger.WebSocketConnected("user-123", "group-456", "192.168.1.1")
-logger.WebSocketDisconnected("user-123", "group-456", time.Minute*5)
-
-// Broadcasting
-logger.BroadcastSent("group-456", 10)
-
-// Actions
-logger.ActionReceived("increment", "counter")
-
-// Errors
-logger.ErrorEncountered("template_execution", err)
-```
-
-**Operation Tracking:**
-
-```go
-// Track operation with automatic duration logging
-op := logger.StartOperation("process_action")
-defer func() {
-    if err != nil {
-        op.Fail(err)
-    } else {
-        op.Complete()
-    }
-}()
-
-// ... do work ...
-```
-
-**Context-Aware Logging:**
-
-```go
-// Add context fields for request tracking
-ctxLogger := logger.WithContext(ctx)
-
-// All subsequent logs include context fields
-ctxLogger.Info("processing request")
-// Output: {"time":"...","level":"INFO","msg":"processing request","user_id":"user-123","session_id":"sess-456"}
-```
+## Package: internal/observe
 
 ### Metrics
 
@@ -126,7 +62,7 @@ The `Metrics` type tracks operational metrics and emits them periodically via sl
 **Creation:**
 
 ```go
-metrics := observe.NewMetrics(logger.Logger)
+metrics := observe.NewMetrics(slog.Default())
 
 // Start periodic emission (every 30 seconds)
 go metrics.EmitPeriodically(30 * time.Second)
@@ -218,26 +154,21 @@ import (
     "os"
     "time"
 
-    "github.com/livetemplate/livetemplate"
     "github.com/livetemplate/livetemplate/internal/observe"
 )
 
 func main() {
-    // Create logger (production: JSON, dev: Text)
-    logger := observe.NewLogger(slog.LevelInfo, nil)
+    // Configure structured logging (production: JSON, dev: Text)
+    slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+        Level: slog.LevelInfo,
+    })))
 
     // Create metrics tracker
-    metrics := observe.NewMetrics(logger.Logger)
+    metrics := observe.NewMetrics(slog.Default())
     go metrics.EmitPeriodically(30 * time.Second)
 
-    // Create LiveTemplate handler with observability
-    handler := livetemplate.New("app",
-        livetemplate.WithLogger(logger),      // Future: pass logger to handler
-        livetemplate.WithMetrics(metrics),    // Future: pass metrics to handler
-    )
-
-    // Handler will automatically log and record metrics
-    // for all operations (parsing, building, diffing, rendering)
+    // All LiveTemplate components will use slog for logging
+    // and metrics for operational counters/gauges
 }
 ```
 
@@ -279,12 +210,16 @@ go metrics.EmitPeriodically(10 * time.Second)
 
 **Good** (low cardinality):
 ```go
-logger.ActionReceived("increment", "counter")  // action type, store name
+slog.Info("Action received",
+    slog.String("action", "increment"),
+    slog.String("store", "counter"))
 ```
 
 **Bad** (high cardinality):
 ```go
-logger.ActionReceived("increment", userID)  // DO NOT use user IDs, session IDs, etc.
+slog.Info("Action received",
+    slog.String("action", "increment"),
+    slog.String("user_id", userID))  // DO NOT use user IDs, session IDs, etc. in metric labels
 ```
 
 High-cardinality fields (user IDs, session IDs) should only appear in individual log events, not in metric labels.
@@ -388,13 +323,14 @@ The observability system is designed for minimal overhead:
 func TestWithObservability(t *testing.T) {
     // Create test logger that captures output
     var buf bytes.Buffer
-    logger := observe.NewLogger(
-        slog.LevelDebug,
-        slog.NewJSONHandler(&buf, nil),
-    )
+    slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{
+        Level: slog.LevelDebug,
+    })))
 
-    // Use logger in test
-    logger.TemplateParsed("test.html", time.Millisecond)
+    // Trigger operations that log
+    slog.Info("template_parsed",
+        slog.String("template", "test.html"),
+        slog.Duration("duration", time.Millisecond))
 
     // Verify log output
     output := buf.String()
@@ -407,7 +343,6 @@ func TestWithObservability(t *testing.T) {
 ## Future Enhancements
 
 - [ ] OpenTelemetry trace integration
-- [ ] Prometheus metrics exporter
 - [ ] Distributed tracing with trace IDs
 - [ ] Custom metric labels/dimensions
 - [ ] Log sampling for high-traffic scenarios

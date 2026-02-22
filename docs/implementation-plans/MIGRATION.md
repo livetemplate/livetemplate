@@ -29,17 +29,16 @@ import (
     "log/slog"
     "os"
     "github.com/livetemplate/livetemplate"
-    "github.com/livetemplate/livetemplate/internal/observe"
 )
 
-// Create a logger (JSON for production, Text for development)
-logger := observe.NewLogger(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+// Configure structured logging (JSON for production, Text for development)
+slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
     Level: slog.LevelInfo,
-}))
+})))
 
 // Use with LiveTemplate
 tmpl := livetemplate.Must(livetemplate.New("mytemplate").Parse(templateString))
-// Template operations are automatically logged
+// Template operations are automatically logged via slog
 ```
 
 **What gets logged:**
@@ -123,7 +122,7 @@ go mod tidy
 
 ### Step 2: (Optional) Add Observability
 
-If you want production observability, add logging and metrics:
+If you want production observability, configure structured logging and metrics:
 
 ```go
 package main
@@ -131,20 +130,20 @@ package main
 import (
     "log/slog"
     "os"
+    "time"
     "github.com/livetemplate/livetemplate"
     "github.com/livetemplate/livetemplate/internal/observe"
 )
 
 func main() {
-    // Setup logger
-    logger := observe.NewLogger(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+    // Setup structured logging
+    slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
         Level: slog.LevelInfo,
-    }))
+    })))
 
     // Setup metrics
-    metrics := observe.NewMetrics()
-    metrics.StartEmission(logger, 60) // Emit every 60s
-    defer metrics.StopEmission()
+    metrics := observe.NewMetrics(slog.Default())
+    go metrics.EmitPeriodically(60 * time.Second)
 
     // Use LiveTemplate as normal
     tmpl := livetemplate.Must(livetemplate.New("index").Parse(`
@@ -201,8 +200,8 @@ html, _ := tmpl.Execute(map[string]interface{}{"Count": 5})
 ### After (v1.0) - Same Code Works + Optional Observability
 
 ```go
-// Optional: Add observability
-logger := observe.NewLogger(slog.NewTextHandler(os.Stdout, nil))
+// Optional: Configure structured logging
+slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
 
 // Existing code works exactly the same
 tmpl := livetemplate.Must(livetemplate.New("counter").Parse(`
@@ -210,7 +209,7 @@ tmpl := livetemplate.Must(livetemplate.New("counter").Parse(`
 `))
 
 html, _ := tmpl.Execute(map[string]interface{}{"Count": 5})
-// Now you get automatic logging of template operations!
+// Now you get automatic structured logging of template operations!
 ```
 
 ## Performance
@@ -249,12 +248,11 @@ BenchmarkTreeDiff-8            100000    15000 ns/op
 
 ### Q: Can I use custom slog handlers?
 
-**A:** Yes! The observability package works with any `slog.Handler` implementation:
+**A:** Yes! LiveTemplate uses `log/slog` directly, which works with any `slog.Handler` implementation:
 
 ```go
 // Custom handler
-handler := myCustomHandler{}
-logger := observe.NewLogger(handler)
+slog.SetDefault(slog.New(myCustomHandler{}))
 ```
 
 ## Getting Help
@@ -270,7 +268,7 @@ logger := observe.NewLogger(handler)
 
 - [ ] Update dependency: `go get -u github.com/livetemplate/livetemplate@v1.0.0`
 - [ ] Run tests: `go test ./...`
-- [ ] (Optional) Add observability with `internal/observe` package
+- [ ] (Optional) Configure `slog` and add metrics with `internal/observe` package
 - [ ] (Optional) Review new documentation (OBSERVABILITY.md, ARCHITECTURE.md)
 
 That's it! Your existing code works without changes, and you get the benefits of a production-ready, well-organized codebase.
