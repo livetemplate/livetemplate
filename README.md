@@ -75,7 +75,7 @@ func (c *CounterController) Increment(state CounterState, ctx *livetemplate.Cont
 }
 ```
 
-Your existing Go toolchain, testing infrastructure, and deployment pipeline all work as-is.
+Your existing Go toolchain, testing infrastructure, and deployment pipeline all work as-is. See the full [counter](https://github.com/livetemplate/examples/tree/main/counter) and [todos](https://github.com/livetemplate/examples/tree/main/todos) examples.
 
 ### 2. Generate Complete Apps Instantly
 
@@ -114,7 +114,7 @@ func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoSt
 }
 ```
 
-The separation is enforced at the API level: `tmpl.Handle(controller, livetemplate.AsState(state))`. There's no way to accidentally put a database connection in cloned state.
+The separation is enforced at the API level: `tmpl.Handle(controller, livetemplate.AsState(state))`. There's no way to accidentally put a database connection in cloned state. See the [chat example](https://github.com/livetemplate/examples/tree/main/chat) for a multi-user app using this pattern with broadcasting.
 
 ### 4. Efficient by Design
 
