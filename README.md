@@ -34,7 +34,9 @@ sequenceDiagram
 
 ### 1. Reactive UIs in Pure Go
 
-Standard HTML forms work out of the box — any action you can trigger with a form submission works over plain HTTP with a full page reload. Add the JavaScript client and those same forms get in-place DOM patching without reloads. For more granular interactions (click, keydown, focus), add `lvt-*` attributes. This is progressive enhancement: forms work without JS, and the experience gets smoother with it.
+All user-initiated interactions work over plain HTTP — no WebSocket required. The JS client sends actions as standard HTTP requests and patches the DOM with the response. WebSocket is only needed when the *server* needs to push updates unprompted (e.g., notifying other users in a chat room). Unlike Phoenix LiveView, which requires a persistent connection for all interactions, LiveTemplate treats WebSocket as an optional upgrade for broadcast scenarios only.
+
+This extends to progressive enhancement at the HTML level too: standard forms work without any JavaScript at all. Add the JS client and those same forms get in-place DOM patching instead of full page reloads. For more granular interactions (click, keydown, focus), add `lvt-*` attributes.
 
 A form that works both ways ([full example](https://github.com/livetemplate/examples/tree/main/progressive-enhancement)):
 
