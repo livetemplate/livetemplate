@@ -159,6 +159,23 @@ func (c *AuthController) Signup(state AuthState, ctx *livetemplate.Context) (Aut
 
 No error serialization code. No client-side error state management. Actions return `(State, error)` — the standard Go signature.
 
+## Current Limitations
+
+LiveTemplate is inspired by [Phoenix LiveView](https://hexdocs.pm/phoenix_live_view) but doesn't yet cover its full feature set. Here's what's missing:
+
+| Feature | LiveView | LiveTemplate | Notes |
+|---------|----------|--------------|-------|
+| **Live Navigation** | `push_navigate`, `push_patch` | Not yet | LiveView updates the URL and swaps page sections without a full reload. LiveTemplate requires full page navigation. |
+| **Stateful Components** | `LiveComponent` with own lifecycle | Stateless templates only | LiveView components have isolated state, events, and lifecycle hooks. LiveTemplate has `{{template}}` invocations but no component-level state or event handling. |
+| **Streams** | `stream/3` for large lists | Not yet | LiveView streams handle large/infinite lists without keeping all items in server memory. LiveTemplate keeps all state in memory. |
+| **JS Commands** | `JS.push`, `JS.toggle`, `JS.show` | Partial | LiveView has composable server-defined JS command chains. LiveTemplate's [reactive attributes](docs/references/client-attributes.md) cover common cases (disable, add/remove class, set attribute) but aren't as flexible. |
+| **Client Hooks** | `phx-hook` lifecycle callbacks | Not yet | LiveView hooks let you integrate third-party JS libraries (charts, maps, editors) with mounted/updated/destroyed callbacks. |
+| **Presence** | `Phoenix.Presence` | Not built-in | LiveView has built-in distributed presence tracking ("who's online"). Can be built on LiveTemplate's session stores but requires manual implementation. |
+| **Testing Helpers** | `live/2`, `render_click/3` | Minimal | LiveView provides a full test DSL for simulating user interactions without a browser. LiveTemplate has `AssertPureState` but no view-level test helpers yet. |
+| **Form Recovery** | Automatic on reconnect | Not yet | LiveView restores form inputs automatically after a WebSocket reconnection. |
+
+Some of these are on the roadmap. If a missing feature is blocking your project, [open an issue](https://github.com/livetemplate/livetemplate/issues) — it helps us prioritize.
+
 ## Quick Start
 
 ```bash
