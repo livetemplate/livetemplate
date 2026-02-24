@@ -30,11 +30,7 @@ sequenceDiagram
     Note over Browser: DOM updated<br/>Counter: 6
 ```
 
-This works because LiveTemplate splits your template into **static parts** (the HTML that never changes) and **dynamic parts** (the values that do). On first render, the client caches all the static HTML. After that, only changed values travel over the wire - a counter update sends `{"0": "6"}` instead of re-rendering the entire page. This is 50-90% less data than traditional approaches, and the same static/dynamic split powers the `lvt` code generator, which can create complete CRUD applications that are reactive by default.
-
 ## Why LiveTemplate?
-
-The core idea — pioneered by [Phoenix LiveView](https://hexdocs.pm/phoenix_live_view) — is that your application state lives on the server, user interactions call server-side functions, and the framework automatically figures out what changed and pushes minimal updates to the browser. No REST APIs, no client-side state management, no JavaScript build step. LiveView proved this model works in production, but it requires Elixir. LiveTemplate brings it to Go: if your team already runs Go, you get reactive UIs without adopting a new language, runtime, or deployment model.
 
 ### 1. Reactive UIs in Pure Go
 
