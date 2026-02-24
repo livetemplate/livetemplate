@@ -49,10 +49,6 @@
         100% { transform: scale(1); }
       }
 
-      .badge { rx: 4; }
-      .badge-http { fill: #1f6feb; }
-      .badge-text { fill: #ffffff; font-family: ui-monospace, monospace; font-size: 9px; font-weight: 600; text-anchor: middle; }
-
       .step-num { fill: #30363d; font-family: -apple-system, sans-serif; font-size: 11px; font-weight: 700; }
       .step-circle { fill: #21262d; stroke: #30363d; stroke-width: 1; }
       .step-active { fill: #1f6feb; stroke: #58a6ff; }
@@ -176,11 +172,6 @@
 
   <!-- Click animation ring on + button -->
   <circle class="click-ring click-loop" cx="145" cy="143" />
-
-  <!-- HTTP badge -->
-  <rect class="badge badge-http" x="110" y="178" width="38" height="16" />
-  <text class="badge-text" x="129" y="189">HTTP</text>
-  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 10px;" x="154" y="189">No WebSocket required</text>
 
   <!-- Code snippet in browser area -->
   <text style="fill: #484f58; font-family: ui-monospace, monospace; font-size: 10px;" x="50" y="220">// counter.tmpl</text>
