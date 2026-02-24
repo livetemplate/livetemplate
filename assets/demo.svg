@@ -1,10 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 420">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 460">
   <defs>
     <style>
-      @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
-      @keyframes slideRight { from { transform: translateX(-10px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-
       .bg { fill: #0d1117; }
       .browser-frame { fill: #161b22; stroke: #30363d; stroke-width: 1.5; rx: 8; }
       .browser-bar { fill: #21262d; }
@@ -13,245 +9,393 @@
       .dot-green { fill: #3fb950; }
       .url-bar { fill: #0d1117; rx: 4; stroke: #30363d; stroke-width: 0.5; }
       .url-text { fill: #8b949e; font-family: ui-monospace, monospace; font-size: 11px; }
-
-      .heading { fill: #e6edf3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 28px; font-weight: 600; }
-      .counter-val { fill: #58a6ff; font-family: ui-monospace, monospace; font-size: 42px; font-weight: 700; }
-      .btn { rx: 6; cursor: pointer; }
+      .heading { fill: #e6edf3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 24px; font-weight: 600; }
+      .counter-val { fill: #58a6ff; font-family: ui-monospace, monospace; font-size: 36px; font-weight: 700; }
+      .btn { rx: 6; }
       .btn-plus { fill: #238636; }
       .btn-minus { fill: #da3633; }
-      .btn-text { fill: #ffffff; font-family: -apple-system, sans-serif; font-size: 20px; font-weight: 600; text-anchor: middle; }
-
+      .btn-text { fill: #ffffff; font-family: -apple-system, sans-serif; font-size: 18px; font-weight: 600; text-anchor: middle; }
       .server-box { fill: #161b22; stroke: #30363d; stroke-width: 1; rx: 6; }
       .server-label { fill: #8b949e; font-family: ui-monospace, monospace; font-size: 10px; text-anchor: middle; }
-      .server-text { fill: #7ee787; font-family: ui-monospace, monospace; font-size: 11px; }
-      .wire-text { fill: #d2a8ff; font-family: ui-monospace, monospace; font-size: 12px; font-weight: 600; }
-      .wire-label { fill: #8b949e; font-family: ui-monospace, monospace; font-size: 9px; }
-      .arrow { stroke: #58a6ff; stroke-width: 1.5; fill: none; marker-end: url(#arrowhead); }
-      .arrow-return { stroke: #7ee787; stroke-width: 1.5; fill: none; marker-end: url(#arrowhead-green); }
-
-      .phase { opacity: 0; }
-      .phase-1 { animation: fadeIn 0.4s ease forwards; animation-delay: 0.5s; }
-      .phase-2 { animation: fadeIn 0.4s ease forwards; animation-delay: 2s; }
-      .phase-3 { animation: fadeIn 0.4s ease forwards; animation-delay: 3.5s; }
-      .phase-4 { animation: fadeIn 0.4s ease forwards; animation-delay: 5s; }
-
       .click-ring { fill: none; stroke: #58a6ff; stroke-width: 2; opacity: 0; }
-      .click-anim { animation: clickPulse 1s ease forwards; animation-delay: 2s; }
-      @keyframes clickPulse {
-        0% { r: 8; opacity: 0.8; stroke-width: 3; }
-        100% { r: 24; opacity: 0; stroke-width: 0; }
+      .mono { font-family: ui-monospace, monospace; }
+      .sans { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+      /* Payload boxes */
+      .payload-box { fill: #0d1117; stroke: #30363d; stroke-width: 1; rx: 5; }
+      .payload-box-highlight { fill: #0d1117; stroke: #238636; stroke-width: 1.5; rx: 5; }
+      .payload-key { fill: #ff7b72; font-family: ui-monospace, monospace; font-size: 11px; }
+      .payload-val { fill: #a5d6ff; font-family: ui-monospace, monospace; font-size: 11px; }
+      .payload-static { fill: #7ee787; font-family: ui-monospace, monospace; font-size: 11px; }
+      .payload-dim { fill: #484f58; font-family: ui-monospace, monospace; font-size: 11px; }
+
+      /* Phase labels */
+      .phase-label { fill: #e6edf3; font-family: -apple-system, sans-serif; font-size: 13px; font-weight: 700; }
+      .phase-sublabel { fill: #8b949e; font-family: -apple-system, sans-serif; font-size: 10px; }
+      .phase-num { fill: #0d1117; font-family: -apple-system, sans-serif; font-size: 10px; font-weight: 700; }
+      .phase-badge-1 { fill: #1f6feb; rx: 3; }
+      .phase-badge-2 { fill: #238636; rx: 3; }
+
+      /* Size comparison */
+      .size-bar-bg { fill: #21262d; rx: 3; }
+      .size-bar-full { fill: #1f6feb; rx: 3; }
+      .size-bar-update { fill: #238636; rx: 3; }
+      .size-label { fill: #8b949e; font-family: ui-monospace, monospace; font-size: 9px; }
+      .size-pct { fill: #3fb950; font-family: ui-monospace, monospace; font-size: 11px; font-weight: 700; }
+
+      /* Arrows */
+      .arrow-down { stroke: #58a6ff; stroke-width: 1.5; fill: none; marker-end: url(#arrowDown); }
+      .arrow-down-green { stroke: #7ee787; stroke-width: 1.5; fill: none; marker-end: url(#arrowDownGreen); }
+
+      /* === ANIMATION: 16s loop, 2 phases === */
+
+      /* Phase 1: First Render (0s-7s) */
+      /* Phase 2: Update (7s-14s) */
+      /* Reset (14s-16s) */
+
+      /* Phase 1 group: visible 0-7s */
+      .phase1-group { opacity: 0; animation: phase1Vis 16s ease infinite; }
+      @keyframes phase1Vis {
+        0% { opacity: 0; }
+        3% { opacity: 1; }
+        40% { opacity: 1; }
+        44% { opacity: 0; }
+        100% { opacity: 0; }
       }
 
-      .counter-update { animation: counterBump 0.4s ease forwards; animation-delay: 5s; }
-      @keyframes counterBump {
-        0% { transform: scale(1); }
-        50% { transform: scale(1.15); }
-        100% { transform: scale(1); }
+      /* Phase 2 group: visible 7-14s */
+      .phase2-group { opacity: 0; animation: phase2Vis 16s ease infinite; }
+      @keyframes phase2Vis {
+        0% { opacity: 0; }
+        44% { opacity: 0; }
+        48% { opacity: 1; }
+        85% { opacity: 1; }
+        90% { opacity: 0; }
+        100% { opacity: 0; }
       }
 
-      .step-num { fill: #30363d; font-family: -apple-system, sans-serif; font-size: 11px; font-weight: 700; }
-      .step-circle { fill: #21262d; stroke: #30363d; stroke-width: 1; }
-      .step-active { fill: #1f6feb; stroke: #58a6ff; }
-      .step-num-active { fill: #ffffff; }
-
-      .savings-box { fill: #0d1117; stroke: #238636; stroke-width: 1; rx: 6; }
-      .savings-text { fill: #3fb950; font-family: ui-monospace, monospace; font-size: 11px; font-weight: 600; text-anchor: middle; }
-
-      /* Looping animation */
-      .loop-group { animation: loopFade 8s ease infinite; }
-      @keyframes loopFade {
-        0%, 5% { opacity: 0; }
-        8%, 90% { opacity: 1; }
-        95%, 100% { opacity: 0; }
+      /* Counter: shows 0 during phase 1, then 5 appears, then 6 in phase 2 */
+      .counter-show-5 { opacity: 0; animation: show5 16s step-end infinite; }
+      @keyframes show5 {
+        0% { opacity: 0; }
+        15% { opacity: 1; }
+        65% { opacity: 1; }
+        66% { opacity: 0; }
+        100% { opacity: 0; }
+      }
+      .counter-show-6 { opacity: 0; animation: show6 16s step-end infinite; }
+      @keyframes show6 {
+        0% { opacity: 0; }
+        65% { opacity: 0; }
+        66% { opacity: 1; }
+        90% { opacity: 1; }
+        91% { opacity: 0; }
+        100% { opacity: 0; }
       }
 
-      .step-1 { animation: stepShow 8s ease infinite; }
-      .step-2 { animation: stepShow 8s ease infinite; animation-delay: 1.5s; }
-      .step-3 { animation: stepShow 8s ease infinite; animation-delay: 3s; }
-      .step-4 { animation: stepShow 8s ease infinite; animation-delay: 4.5s; }
-      @keyframes stepShow {
-        0%, 15% { opacity: 0; }
-        20%, 90% { opacity: 1; }
-        95%, 100% { opacity: 0; }
+      /* Bump when 6 appears */
+      .bump-6 { animation: bump6 16s ease infinite; }
+      @keyframes bump6 {
+        0%, 64% { transform: translate(0,0) scale(1); }
+        66% { transform: translate(0,0) scale(1.2); }
+        69% { transform: translate(0,0) scale(1); }
+        100% { transform: translate(0,0) scale(1); }
       }
 
-      .counter-5 { animation: counterSwap 8s step-end infinite; }
-      @keyframes counterSwap {
-        0%, 55% { opacity: 1; }
-        56%, 100% { opacity: 0; }
-      }
-      .counter-6 { animation: counterSwapIn 8s step-end infinite; }
-      @keyframes counterSwapIn {
-        0%, 55% { opacity: 0; }
-        56%, 100% { opacity: 1; }
+      /* Click pulse in phase 2 */
+      .click-phase2 { animation: clickP2 16s ease infinite; }
+      @keyframes clickP2 {
+        0%, 49% { r: 0; opacity: 0; }
+        51% { r: 6; opacity: 0.8; }
+        58% { r: 22; opacity: 0; }
+        59%, 100% { r: 0; opacity: 0; }
       }
 
-      .click-loop { animation: clickLoop 8s ease infinite; }
-      @keyframes clickLoop {
-        0%, 18% { r: 0; opacity: 0; }
-        20% { r: 6; opacity: 0.9; }
-        35% { r: 22; opacity: 0; }
-        36%, 100% { r: 0; opacity: 0; }
+      /* Arrow animations */
+      .arrow-phase1 { stroke-dasharray: 60; animation: arrowP1 16s ease infinite; }
+      @keyframes arrowP1 {
+        0%, 8% { stroke-dashoffset: 60; opacity: 0; }
+        10% { stroke-dashoffset: 60; opacity: 1; }
+        18% { stroke-dashoffset: 0; opacity: 1; }
+        40% { stroke-dashoffset: 0; opacity: 1; }
+        44% { opacity: 0; }
+        100% { opacity: 0; }
       }
 
-      .arrow-anim-1 { stroke-dasharray: 100; animation: drawLine 8s ease infinite; }
-      @keyframes drawLine {
-        0%, 25% { stroke-dashoffset: 100; opacity: 0; }
-        30% { stroke-dashoffset: 100; opacity: 1; }
-        45% { stroke-dashoffset: 0; opacity: 1; }
+      .arrow-phase2 { stroke-dasharray: 60; animation: arrowP2 16s ease infinite; }
+      @keyframes arrowP2 {
+        0%, 58% { stroke-dashoffset: 60; opacity: 0; }
+        60% { stroke-dashoffset: 60; opacity: 1; }
+        68% { stroke-dashoffset: 0; opacity: 1; }
         85% { stroke-dashoffset: 0; opacity: 1; }
-        95%, 100% { opacity: 0; }
+        90% { opacity: 0; }
+        100% { opacity: 0; }
       }
 
-      .arrow-anim-2 { stroke-dasharray: 100; animation: drawLineReturn 8s ease infinite; }
-      @keyframes drawLineReturn {
-        0%, 50% { stroke-dashoffset: 100; opacity: 0; }
-        55% { stroke-dashoffset: 100; opacity: 1; }
-        70% { stroke-dashoffset: 0; opacity: 1; }
-        85% { stroke-dashoffset: 0; opacity: 1; }
-        95%, 100% { opacity: 0; }
+      /* Payload box animations */
+      .payload-phase1 { opacity: 0; animation: payloadP1 16s ease infinite; }
+      @keyframes payloadP1 {
+        0%, 14% { opacity: 0; }
+        18% { opacity: 1; }
+        40% { opacity: 1; }
+        44% { opacity: 0; }
+        100% { opacity: 0; }
       }
 
-      .server-code-anim { animation: serverShow 8s ease infinite; }
-      @keyframes serverShow {
-        0%, 35% { opacity: 0; }
-        40%, 85% { opacity: 1; }
-        95%, 100% { opacity: 0; }
+      .payload-phase2 { opacity: 0; animation: payloadP2 16s ease infinite; }
+      @keyframes payloadP2 {
+        0%, 63% { opacity: 0; }
+        68% { opacity: 1; }
+        85% { opacity: 1; }
+        90% { opacity: 0; }
+        100% { opacity: 0; }
       }
 
-      .wire-anim { animation: wireShow 8s ease infinite; }
-      @keyframes wireShow {
-        0%, 60% { opacity: 0; }
-        65%, 85% { opacity: 1; }
-        95%, 100% { opacity: 0; }
+      /* Cache indicator */
+      .cache-note { opacity: 0; animation: cacheShow 16s ease infinite; }
+      @keyframes cacheShow {
+        0%, 22% { opacity: 0; }
+        26% { opacity: 1; }
+        40% { opacity: 1; }
+        44% { opacity: 0; }
+        100% { opacity: 0; }
       }
 
-      .bump-anim { animation: bump 8s ease infinite; }
-      @keyframes bump {
-        0%, 54% { transform: translate(0, 0) scale(1); }
-        57% { transform: translate(0, 0) scale(1.2); }
-        60%, 100% { transform: translate(0, 0) scale(1); }
+      /* Size comparison bar animation */
+      .size-compare { opacity: 0; animation: sizeShow 16s ease infinite; }
+      @keyframes sizeShow {
+        0%, 70% { opacity: 0; }
+        75% { opacity: 1; }
+        85% { opacity: 1; }
+        90% { opacity: 0; }
+        100% { opacity: 0; }
+      }
+
+      /* Browser loading state */
+      .browser-empty { opacity: 1; animation: browserEmpty 16s step-end infinite; }
+      @keyframes browserEmpty {
+        0% { opacity: 1; }
+        15% { opacity: 0; }
+        91% { opacity: 1; }
+        100% { opacity: 1; }
+      }
+      .browser-loaded { opacity: 0; animation: browserLoaded 16s step-end infinite; }
+      @keyframes browserLoaded {
+        0% { opacity: 0; }
+        15% { opacity: 1; }
+        91% { opacity: 0; }
+        100% { opacity: 0; }
       }
     </style>
 
-    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+    <marker id="arrowDown" markerWidth="8" markerHeight="6" refX="4" refY="6" orient="auto">
+      <path d="M0,0 L4,6 L8,0" fill="#58a6ff" />
+    </marker>
+    <marker id="arrowDownGreen" markerWidth="8" markerHeight="6" refX="4" refY="6" orient="auto">
+      <path d="M0,0 L4,6 L8,0" fill="#7ee787" />
+    </marker>
+    <marker id="arrowRight" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
       <path d="M0,0 L8,3 L0,6" fill="#58a6ff" />
     </marker>
-    <marker id="arrowhead-green" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+    <marker id="arrowRightGreen" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
       <path d="M0,0 L8,3 L0,6" fill="#7ee787" />
     </marker>
   </defs>
 
   <!-- Background -->
-  <rect class="bg" width="720" height="420" />
+  <rect class="bg" width="720" height="460" />
 
-  <!-- Browser Frame -->
-  <rect class="browser-frame" x="30" y="20" width="340" height="280" />
-  <rect class="browser-bar" x="30" y="20" width="340" height="32" rx="8" />
-  <rect x="30" y="44" width="340" height="8" fill="#21262d" />
-  <circle class="dot-red" cx="50" cy="36" r="5" />
-  <circle class="dot-yellow" cx="66" cy="36" r="5" />
-  <circle class="dot-green" cx="82" cy="36" r="5" />
-  <rect class="url-bar" x="100" y="28" width="200" height="16" />
-  <text class="url-text" x="140" y="40">localhost:8080</text>
+  <!-- ==================== BROWSER (left) ==================== -->
+  <rect class="browser-frame" x="30" y="20" width="280" height="200" />
+  <rect class="browser-bar" x="30" y="20" width="280" height="30" rx="8" />
+  <rect x="30" y="42" width="280" height="8" fill="#21262d" />
+  <circle class="dot-red" cx="48" cy="35" r="4.5" />
+  <circle class="dot-yellow" cx="62" cy="35" r="4.5" />
+  <circle class="dot-green" cx="76" cy="35" r="4.5" />
+  <rect class="url-bar" x="92" y="26" width="170" height="16" />
+  <text class="url-text" x="125" y="38">localhost:8080</text>
 
-  <!-- Browser Content -->
-  <text class="heading" x="110" y="105">Counter: </text>
-
-  <!-- Counter value: 5 (fades out) then 6 (fades in) -->
-  <g class="bump-anim">
-    <text class="counter-val counter-5" x="265" y="107">5</text>
-    <text class="counter-val counter-6" x="265" y="107">6</text>
+  <!-- Browser empty state (before first render) -->
+  <g class="browser-empty">
+    <text style="fill: #30363d; font-family: -apple-system, sans-serif; font-size: 14px; text-anchor: middle;" x="170" y="120">Loading...</text>
   </g>
 
-  <!-- Buttons -->
-  <rect class="btn btn-plus" x="110" y="125" width="70" height="36" />
-  <text class="btn-text" x="145" y="149">+</text>
-  <rect class="btn btn-minus" x="200" y="125" width="70" height="36" />
-  <text class="btn-text" x="235" y="149">−</text>
-
-  <!-- Click animation ring on + button -->
-  <circle class="click-ring click-loop" cx="145" cy="143" />
-
-  <!-- Code snippet in browser area -->
-  <text style="fill: #484f58; font-family: ui-monospace, monospace; font-size: 10px;" x="50" y="220">// counter.tmpl</text>
-  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 10px;" x="50" y="235">&lt;h1&gt;Counter: <tspan fill="#58a6ff">{{.Counter}}</tspan>&lt;/h1&gt;</text>
-  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 10px;" x="50" y="250">&lt;button <tspan fill="#d2a8ff">lvt-click="increment"</tspan>&gt;+&lt;/button&gt;</text>
-  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 10px;" x="50" y="265">&lt;button <tspan fill="#d2a8ff">lvt-click="decrement"</tspan>&gt;−&lt;/button&gt;</text>
-
-  <!-- Server Box -->
-  <rect class="server-box" x="420" y="20" width="270" height="280" />
-  <text class="server-label" x="555" y="38">SERVER (Go)</text>
-
-  <!-- Server code -->
-  <text style="fill: #484f58; font-family: ui-monospace, monospace; font-size: 10px;" x="435" y="62">// main.go</text>
-  <text style="fill: #ff7b72; font-family: ui-monospace, monospace; font-size: 10px;" x="435" y="78">func</text>
-  <text style="fill: #e6edf3; font-family: ui-monospace, monospace; font-size: 10px;" x="463" y="78">(c *CounterController)</text>
-  <text style="fill: #d2a8ff; font-family: ui-monospace, monospace; font-size: 10px;" x="435" y="93">Increment</text>
-  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 10px;" x="505" y="93">(state, ctx)</text>
-  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 10px;" x="435" y="113">  state.Counter++</text>
-  <text style="fill: #ff7b72; font-family: ui-monospace, monospace; font-size: 10px;" x="435" y="128">  return</text>
-  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 10px;" x="478" y="128">state, nil</text>
-
-  <!-- Animated server processing -->
-  <g class="server-code-anim" opacity="0">
-    <rect x="430" y="148" width="250" height="44" rx="4" fill="#0d1117" stroke="#30363d" stroke-width="0.5" />
-    <text style="fill: #484f58; font-family: ui-monospace, monospace; font-size: 9px;" x="440" y="162">// state change</text>
-    <text style="fill: #7ee787; font-family: ui-monospace, monospace; font-size: 11px;" x="440" y="180">Counter: 5 → 6</text>
+  <!-- Browser loaded state (after first render) -->
+  <g class="browser-loaded">
+    <text class="heading" x="75" y="90">Counter: </text>
+    <g class="bump-6">
+      <text class="counter-val counter-show-5" x="220" y="93">5</text>
+      <text class="counter-val counter-show-6" x="220" y="93">6</text>
+    </g>
+    <rect class="btn btn-plus" x="75" y="108" width="60" height="32" />
+    <text class="btn-text" x="105" y="129">+</text>
+    <rect class="btn btn-minus" x="150" y="108" width="60" height="32" />
+    <text class="btn-text" x="180" y="129">−</text>
+    <!-- Click ring -->
+    <circle class="click-ring click-phase2" cx="105" cy="124" />
   </g>
 
-  <!-- Wire format display -->
-  <g class="wire-anim" opacity="0">
-    <rect class="savings-box" x="430" y="200" width="250" height="50" />
-    <text class="wire-text" x="555" y="220">{"0": "6"}</text>
-    <text class="savings-text" x="555" y="240">7 bytes — 85% smaller than full HTML</text>
+  <!-- Template code in browser (always visible) -->
+  <text style="fill: #484f58; font-family: ui-monospace, monospace; font-size: 9.5px;" x="44" y="168">// counter.tmpl</text>
+  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 9.5px;" x="44" y="182">&lt;h1&gt;Counter: <tspan fill="#58a6ff">{{.Counter}}</tspan>&lt;/h1&gt;</text>
+  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 9.5px;" x="44" y="196">&lt;button <tspan fill="#d2a8ff">lvt-click="increment"</tspan>&gt;+&lt;/button&gt;</text>
+  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 9.5px;" x="44" y="210">&lt;button <tspan fill="#d2a8ff">lvt-click="decrement"</tspan>&gt;−&lt;/button&gt;</text>
+
+  <!-- ==================== SERVER (right) ==================== -->
+  <rect class="server-box" x="410" y="20" width="280" height="200" />
+  <text class="server-label" x="550" y="38">SERVER (Go)</text>
+
+  <text style="fill: #484f58; font-family: ui-monospace, monospace; font-size: 9.5px;" x="424" y="60">// main.go</text>
+  <text style="fill: #ff7b72; font-family: ui-monospace, monospace; font-size: 9.5px;" x="424" y="76">func <tspan fill="#e6edf3">(c *CounterController)</tspan></text>
+  <text style="fill: #d2a8ff; font-family: ui-monospace, monospace; font-size: 9.5px;" x="424" y="91">Increment<tspan fill="#8b949e">(state, ctx) {</tspan></text>
+  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 9.5px;" x="424" y="106">  state.Counter++</text>
+  <text style="fill: #ff7b72; font-family: ui-monospace, monospace; font-size: 9.5px;" x="424" y="121">  return <tspan fill="#8b949e">state, nil</tspan></text>
+  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 9.5px;" x="424" y="136">}</text>
+
+  <!-- Server state display -->
+  <rect x="424" y="150" width="252" height="28" rx="4" fill="#0d1117" stroke="#30363d" stroke-width="0.5" />
+  <g class="phase1-group">
+    <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 10px;" x="434" y="168">state = CounterState{Counter: <tspan fill="#58a6ff">5</tspan>}</text>
+  </g>
+  <g class="phase2-group">
+    <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 10px;" x="434" y="168">state = CounterState{Counter: <tspan fill="#58a6ff">5</tspan> → <tspan fill="#7ee787">6</tspan>}</text>
   </g>
 
-  <!-- Arrows between browser and server -->
-  <!-- Request arrow (browser → server) -->
-  <path class="arrow arrow-anim-1" d="M 370 100 L 418 100" />
-  <g class="server-code-anim" opacity="0">
-    <text style="fill: #58a6ff; font-family: ui-monospace, monospace; font-size: 9px;" x="375" y="94">{action: "increment"}</text>
+  <!-- Mount/render info -->
+  <g class="phase1-group">
+    <text style="fill: #484f58; font-family: ui-monospace, monospace; font-size: 9px;" x="424" y="196">tmpl.Handle(controller, AsState(state))</text>
+  </g>
+  <g class="phase2-group">
+    <text style="fill: #484f58; font-family: ui-monospace, monospace; font-size: 9px;" x="424" y="196">// Only Counter changed → send {"0": "6"}</text>
   </g>
 
-  <!-- Response arrow (server → browser) -->
-  <path class="arrow-return arrow-anim-2" d="M 418 160 L 370 160" />
+  <!-- ==================== PHASE 1: First Render ==================== -->
+  <g class="phase1-group">
+    <!-- Phase label -->
+    <rect class="phase-badge-1" x="330" y="24" width="70" height="18" />
+    <text class="phase-num" style="text-anchor: middle;" x="365" y="37">FIRST RENDER</text>
 
-  <!-- Flow Steps at bottom -->
-  <g transform="translate(30, 330)">
+    <!-- Arrow: server → payload area -->
+    <line class="arrow-phase1" x1="550" y1="220" x2="550" y2="248" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrowDown)" />
+  </g>
+
+  <!-- Phase 1 payload box -->
+  <g class="payload-phase1">
+    <rect class="payload-box" x="50" y="255" width="620" height="62" />
+    <text style="fill: #484f58; font-family: ui-monospace, monospace; font-size: 9px;" x="64" y="272">RESPONSE — full tree with statics + dynamics</text>
+    <text x="64" y="292">
+      <tspan class="payload-dim">{</tspan>
+      <tspan class="payload-key">"s"</tspan>
+      <tspan class="payload-dim">: [</tspan>
+      <tspan class="payload-static">"&lt;h1&gt;Counter: "</tspan>
+      <tspan class="payload-dim">, </tspan>
+      <tspan class="payload-static">"&lt;/h1&gt;&lt;button lvt-click=..."</tspan>
+      <tspan class="payload-dim">], </tspan>
+      <tspan class="payload-key">"0"</tspan>
+      <tspan class="payload-dim">: </tspan>
+      <tspan class="payload-val">"5"</tspan>
+      <tspan class="payload-dim">}</tspan>
+    </text>
+    <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 9px;" x="580" y="292">~95 bytes</text>
+
+    <!-- Arrow from payload to browser -->
+    <line x1="170" y1="255" x2="170" y2="228" stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrowDown)" style="transform: rotate(180deg); transform-origin: 170px 241px;" />
+  </g>
+
+  <!-- Cache indicator -->
+  <g class="cache-note">
+    <rect x="50" y="322" width="620" height="24" rx="4" fill="#21262d" stroke="#30363d" stroke-width="0.5" />
+    <text style="fill: #d29922; font-family: ui-monospace, monospace; font-size: 10px; text-anchor: middle;" x="360" y="338">Client caches "s" arrays — statics never resent</text>
+  </g>
+
+  <!-- ==================== PHASE 2: Update ==================== -->
+  <g class="phase2-group">
+    <!-- Phase label -->
+    <rect class="phase-badge-2" x="344" y="24" width="42" height="18" />
+    <text class="phase-num" style="text-anchor: middle;" x="365" y="37">UPDATE</text>
+
+    <!-- Arrow: click → server -->
+    <line x1="310" y1="124" x2="410" y2="124" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrowRight)" />
+    <text style="fill: #58a6ff; font-family: ui-monospace, monospace; font-size: 8px; text-anchor: middle;" x="360" y="118">{action: "increment"}</text>
+
+    <!-- Arrow: server → payload -->
+    <line class="arrow-phase2" x1="550" y1="220" x2="550" y2="248" stroke="#7ee787" stroke-width="1.5" marker-end="url(#arrowDownGreen)" />
+  </g>
+
+  <!-- Phase 2 payload box -->
+  <g class="payload-phase2">
+    <rect class="payload-box-highlight" x="50" y="255" width="620" height="62" />
+    <text style="fill: #484f58; font-family: ui-monospace, monospace; font-size: 9px;" x="64" y="272">RESPONSE — only the changed value (statics cached)</text>
+    <text x="64" y="292">
+      <tspan class="payload-dim">{</tspan>
+      <tspan class="payload-key">"0"</tspan>
+      <tspan class="payload-dim">: </tspan>
+      <tspan class="payload-val">"6"</tspan>
+      <tspan class="payload-dim">}</tspan>
+    </text>
+    <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 9px;" x="580" y="292">~10 bytes</text>
+
+    <!-- Arrow from payload to browser -->
+    <line x1="170" y1="255" x2="170" y2="228" stroke="#7ee787" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrowDownGreen)" style="transform: rotate(180deg); transform-origin: 170px 241px;" />
+  </g>
+
+  <!-- Size comparison (appears in phase 2) -->
+  <g class="size-compare">
+    <rect x="50" y="322" width="620" height="34" rx="4" fill="#21262d" stroke="#30363d" stroke-width="0.5" />
+
+    <!-- Full render bar -->
+    <text class="size-label" x="64" y="336">First render</text>
+    <rect class="size-bar-bg" x="140" y="328" width="280" height="8" />
+    <rect class="size-bar-full" x="140" y="328" width="280" height="8" />
+    <text class="size-label" x="426" y="336">~95 bytes</text>
+
+    <!-- Update bar -->
+    <text class="size-label" x="64" y="350">Update</text>
+    <rect class="size-bar-bg" x="140" y="342" width="280" height="8" />
+    <rect class="size-bar-update" x="140" y="342" width="30" height="8" />
+    <text class="size-label" x="176" y="350">~10 bytes</text>
+    <text class="size-pct" x="590" y="348">~90% smaller</text>
+  </g>
+
+  <!-- ==================== Bottom step indicators ==================== -->
+  <g transform="translate(30, 375)">
     <!-- Step 1 -->
-    <g class="step-1" opacity="0">
-      <circle cx="12" cy="12" r="12" class="step-circle step-active" />
-      <text class="step-num step-num-active" x="9" y="16">1</text>
-      <text style="fill: #e6edf3; font-family: -apple-system, sans-serif; font-size: 12px; font-weight: 600;" x="30" y="10">Click</text>
-      <text style="fill: #8b949e; font-family: -apple-system, sans-serif; font-size: 10px;" x="30" y="24">User clicks +</text>
+    <g class="phase1-group">
+      <rect x="0" y="0" width="155" height="50" rx="6" fill="#161b22" stroke="#1f6feb" stroke-width="1" />
+      <rect x="8" y="8" width="14" height="14" rx="7" fill="#1f6feb" />
+      <text style="fill: #fff; font-family: -apple-system, sans-serif; font-size: 9px; font-weight: 700; text-anchor: middle;" x="15" y="18">1</text>
+      <text style="fill: #e6edf3; font-family: -apple-system, sans-serif; font-size: 11px; font-weight: 600;" x="28" y="19">Page loads</text>
+      <text style="fill: #8b949e; font-family: -apple-system, sans-serif; font-size: 9px;" x="8" y="38">Server sends full tree</text>
     </g>
 
     <!-- Step 2 -->
-    <g class="step-2" opacity="0" transform="translate(160, 0)">
-      <circle cx="12" cy="12" r="12" class="step-circle step-active" />
-      <text class="step-num step-num-active" x="9" y="16">2</text>
-      <text style="fill: #e6edf3; font-family: -apple-system, sans-serif; font-size: 12px; font-weight: 600;" x="30" y="10">Update</text>
-      <text style="fill: #8b949e; font-family: -apple-system, sans-serif; font-size: 10px;" x="30" y="24">Counter++ on server</text>
+    <g class="cache-note">
+      <rect x="165" y="0" width="195" height="50" rx="6" fill="#161b22" stroke="#d29922" stroke-width="1" />
+      <rect x="173" y="8" width="14" height="14" rx="7" fill="#d29922" />
+      <text style="fill: #0d1117; font-family: -apple-system, sans-serif; font-size: 9px; font-weight: 700; text-anchor: middle;" x="180" y="18">2</text>
+      <text style="fill: #e6edf3; font-family: -apple-system, sans-serif; font-size: 11px; font-weight: 600;" x="193" y="19">Client caches statics</text>
+      <text style="fill: #8b949e; font-family: -apple-system, sans-serif; font-size: 9px;" x="173" y="38">"s" arrays stored, never resent</text>
     </g>
 
     <!-- Step 3 -->
-    <g class="step-3" opacity="0" transform="translate(330, 0)">
-      <circle cx="12" cy="12" r="12" class="step-circle step-active" />
-      <text class="step-num step-num-active" x="9" y="16">3</text>
-      <text style="fill: #e6edf3; font-family: -apple-system, sans-serif; font-size: 12px; font-weight: 600;" x="30" y="10">Diff</text>
-      <text style="fill: #8b949e; font-family: -apple-system, sans-serif; font-size: 10px;" x="30" y="24">Send {"0": "6"} only</text>
+    <g class="phase2-group">
+      <rect x="370" y="0" width="145" height="50" rx="6" fill="#161b22" stroke="#238636" stroke-width="1" />
+      <rect x="378" y="8" width="14" height="14" rx="7" fill="#238636" />
+      <text style="fill: #fff; font-family: -apple-system, sans-serif; font-size: 9px; font-weight: 700; text-anchor: middle;" x="385" y="18">3</text>
+      <text style="fill: #e6edf3; font-family: -apple-system, sans-serif; font-size: 11px; font-weight: 600;" x="398" y="19">User clicks +</text>
+      <text style="fill: #8b949e; font-family: -apple-system, sans-serif; font-size: 9px;" x="378" y="38">Only {"0":"6"} sent back</text>
     </g>
 
     <!-- Step 4 -->
-    <g class="step-4" opacity="0" transform="translate(510, 0)">
-      <circle cx="12" cy="12" r="12" class="step-circle step-active" />
-      <text class="step-num step-num-active" x="9" y="16">4</text>
-      <text style="fill: #e6edf3; font-family: -apple-system, sans-serif; font-size: 12px; font-weight: 600;" x="30" y="10">Patch</text>
-      <text style="fill: #8b949e; font-family: -apple-system, sans-serif; font-size: 10px;" x="30" y="24">DOM updated in-place</text>
+    <g class="size-compare">
+      <rect x="525" y="0" width="135" height="50" rx="6" fill="#161b22" stroke="#3fb950" stroke-width="1" />
+      <rect x="533" y="8" width="14" height="14" rx="7" fill="#3fb950" />
+      <text style="fill: #0d1117; font-family: -apple-system, sans-serif; font-size: 9px; font-weight: 700; text-anchor: middle;" x="540" y="18">4</text>
+      <text style="fill: #e6edf3; font-family: -apple-system, sans-serif; font-size: 11px; font-weight: 600;" x="553" y="19">DOM patched</text>
+      <text style="fill: #8b949e; font-family: -apple-system, sans-serif; font-size: 9px;" x="533" y="38">Counter: 5 → 6</text>
     </g>
   </g>
 
   <!-- Subtle branding -->
-  <text style="fill: #30363d; font-family: -apple-system, sans-serif; font-size: 10px; text-anchor: end;" x="700" y="410">livetemplate</text>
+  <text style="fill: #21262d; font-family: -apple-system, sans-serif; font-size: 10px; text-anchor: end;" x="700" y="450">livetemplate</text>
 </svg>
