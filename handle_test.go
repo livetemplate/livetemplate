@@ -805,3 +805,114 @@ func TestWebSocketDisabled_DiffOptimization(t *testing.T) {
 		t.Error("Second POST: expected NO statics in tree (diff optimization); got statics — this means the HTTP template cache is not working")
 	}
 }
+
+// ============================================================================
+// HTTP Template Cache Sweep Tests
+// ============================================================================
+
+func TestHTTPTemplateSweep_CleansStaleEntries(t *testing.T) {
+	tmpl, err := New("test", WithWebSocketDisabled())
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	store := NewMemorySessionStore()
+	handler := tmpl.Handle(&wsDisabledController{}, AsState(&wsDisabledState{}), WithStore(store))
+
+	lh := handler.(*liveHandler)
+
+	// Step 1: GET to create session
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	cookie := extractSessionCookie(rec)
+	if cookie == nil {
+		t.Fatal("Expected session cookie")
+	}
+
+	// Step 2: POST to populate httpTemplates cache
+	form := url.Values{}
+	form.Set("lvt-action", "Increment")
+	req = httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	// Verify cache entry exists
+	if _, ok := lh.httpTemplates.Load(cookie.Value); !ok {
+		t.Fatal("Expected httpTemplates cache entry after POST")
+	}
+
+	// Step 3: Delete session from store (simulates expiry)
+	store.Delete(t.Context(), cookie.Value)
+
+	// Step 4: Run sweep
+	lh.sweepStaleHTTPTemplates()
+
+	// Step 5: Verify cache entry was cleaned up
+	if _, ok := lh.httpTemplates.Load(cookie.Value); ok {
+		t.Error("Expected httpTemplates cache entry to be swept after session deletion")
+	}
+}
+
+func TestHTTPTemplateSweep_PreservesActiveSessions(t *testing.T) {
+	tmpl, err := New("test", WithWebSocketDisabled())
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	store := NewMemorySessionStore()
+	handler := tmpl.Handle(&wsDisabledController{}, AsState(&wsDisabledState{}), WithStore(store))
+
+	lh := handler.(*liveHandler)
+
+	// Create two sessions
+	req1 := httptest.NewRequest("GET", "/", nil)
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+	cookie1 := extractSessionCookie(rec1)
+
+	req2 := httptest.NewRequest("GET", "/", nil)
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+	cookie2 := extractSessionCookie(rec2)
+
+	// POST on both to populate cache
+	for _, cookie := range []*http.Cookie{cookie1, cookie2} {
+		form := url.Values{}
+		form.Set("lvt-action", "Increment")
+		req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Accept", "application/json")
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+	}
+
+	// Delete only session 1
+	store.Delete(t.Context(), cookie1.Value)
+
+	// Run sweep
+	lh.sweepStaleHTTPTemplates()
+
+	// Session 1 should be swept
+	if _, ok := lh.httpTemplates.Load(cookie1.Value); ok {
+		t.Error("Expected session 1 cache entry to be swept")
+	}
+
+	// Session 2 should be preserved
+	if _, ok := lh.httpTemplates.Load(cookie2.Value); !ok {
+		t.Error("Expected session 2 cache entry to be preserved")
+	}
+}

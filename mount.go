@@ -1061,6 +1061,45 @@ func (h *liveHandler) autoBroadcastToGroup(groupID string, data interface{}, exc
 	}()
 }
 
+// httpTemplateSweepLoop periodically removes cached HTTP templates for sessions
+// that no longer exist in the SessionStore. This prevents unbounded memory growth
+// on long-running servers with many ephemeral sessions.
+func (h *liveHandler) httpTemplateSweepLoop() {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-h.shutdownChan:
+			return
+		case <-ticker.C:
+			h.sweepStaleHTTPTemplates()
+		}
+	}
+}
+
+func (h *liveHandler) sweepStaleHTTPTemplates() {
+	activeSessions := make(map[string]struct{})
+	for _, groupID := range h.config.SessionStore.List(context.Background()) {
+		activeSessions[groupID] = struct{}{}
+	}
+
+	var swept int
+	h.httpTemplates.Range(func(key, value any) bool {
+		groupID := key.(string)
+		if _, active := activeSessions[groupID]; !active {
+			h.httpTemplates.Delete(groupID)
+			swept++
+		}
+		return true
+	})
+
+	if swept > 0 {
+		slog.Debug("Swept stale HTTP template cache entries",
+			slog.Int("swept", swept))
+	}
+}
+
 // hasStaticsInTree recursively checks if a tree contains any statics.
 // Used to determine if this is a full tree send or dynamics-only update.
 func hasStaticsInTree(tree map[string]interface{}) bool {

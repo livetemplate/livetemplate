@@ -1477,6 +1477,9 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 	// Wire up metrics to registry for WebSocket observability
 	handler.registry.SetMetrics(metrics)
 
+	// Start periodic sweep of stale HTTP template cache entries
+	go handler.httpTemplateSweepLoop()
+
 	// Start pub/sub subscriber if broadcaster is configured
 	if mountCfg.PubSubBroadcaster != nil {
 		go func() {
