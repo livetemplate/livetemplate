@@ -183,6 +183,7 @@ type liveHandler struct {
 	limits          *session.ConnectionLimits
 	metricsExporter *observe.PrometheusExporter
 	tempFileManager uploadTempFileManager
+	httpTemplates   sync.Map // groupID → *Template (cached for HTTP POST diff optimization)
 
 	// Graceful shutdown state
 	shutdownOnce sync.Once
@@ -742,6 +743,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		isNewSession = true
+		h.httpTemplates.Delete(groupID)
 		slog.Info("HTTP: created new session group", slog.String("group_id", groupID))
 	} else {
 		// Existing session - use stored state
@@ -852,11 +854,20 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Persist state after action
 	h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
 
-	// Clone template for HTTP response
-	httpTmpl, err := h.config.Template.Clone()
-	if err != nil {
-		http.Error(w, "Failed to clone template", http.StatusInternalServerError)
-		return
+	// Get or create cached template for this session group.
+	// Unlike WebSocket (which keeps a clone per connection), HTTP needs
+	// a cache keyed by groupID so that subsequent POSTs can produce
+	// diffs against the previous tree instead of full renders.
+	var httpTmpl *Template
+	if cached, ok := h.httpTemplates.Load(groupID); ok {
+		httpTmpl = cached.(*Template)
+	} else {
+		httpTmpl, err = h.config.Template.Clone()
+		if err != nil {
+			http.Error(w, "Failed to clone template", http.StatusInternalServerError)
+			return
+		}
+		h.httpTemplates.Store(groupID, httpTmpl)
 	}
 	httpTmpl.SetUploadRegistry(uploadRegistry)
 
