@@ -1,0 +1,266 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 420">
+  <defs>
+    <style>
+      @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+      @keyframes slideRight { from { transform: translateX(-10px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+      .bg { fill: #0d1117; }
+      .browser-frame { fill: #161b22; stroke: #30363d; stroke-width: 1.5; rx: 8; }
+      .browser-bar { fill: #21262d; }
+      .dot-red { fill: #f85149; }
+      .dot-yellow { fill: #d29922; }
+      .dot-green { fill: #3fb950; }
+      .url-bar { fill: #0d1117; rx: 4; stroke: #30363d; stroke-width: 0.5; }
+      .url-text { fill: #8b949e; font-family: ui-monospace, monospace; font-size: 11px; }
+
+      .heading { fill: #e6edf3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 28px; font-weight: 600; }
+      .counter-val { fill: #58a6ff; font-family: ui-monospace, monospace; font-size: 42px; font-weight: 700; }
+      .btn { rx: 6; cursor: pointer; }
+      .btn-plus { fill: #238636; }
+      .btn-minus { fill: #da3633; }
+      .btn-text { fill: #ffffff; font-family: -apple-system, sans-serif; font-size: 20px; font-weight: 600; text-anchor: middle; }
+
+      .server-box { fill: #161b22; stroke: #30363d; stroke-width: 1; rx: 6; }
+      .server-label { fill: #8b949e; font-family: ui-monospace, monospace; font-size: 10px; text-anchor: middle; }
+      .server-text { fill: #7ee787; font-family: ui-monospace, monospace; font-size: 11px; }
+      .wire-text { fill: #d2a8ff; font-family: ui-monospace, monospace; font-size: 12px; font-weight: 600; }
+      .wire-label { fill: #8b949e; font-family: ui-monospace, monospace; font-size: 9px; }
+      .arrow { stroke: #58a6ff; stroke-width: 1.5; fill: none; marker-end: url(#arrowhead); }
+      .arrow-return { stroke: #7ee787; stroke-width: 1.5; fill: none; marker-end: url(#arrowhead-green); }
+
+      .phase { opacity: 0; }
+      .phase-1 { animation: fadeIn 0.4s ease forwards; animation-delay: 0.5s; }
+      .phase-2 { animation: fadeIn 0.4s ease forwards; animation-delay: 2s; }
+      .phase-3 { animation: fadeIn 0.4s ease forwards; animation-delay: 3.5s; }
+      .phase-4 { animation: fadeIn 0.4s ease forwards; animation-delay: 5s; }
+
+      .click-ring { fill: none; stroke: #58a6ff; stroke-width: 2; opacity: 0; }
+      .click-anim { animation: clickPulse 1s ease forwards; animation-delay: 2s; }
+      @keyframes clickPulse {
+        0% { r: 8; opacity: 0.8; stroke-width: 3; }
+        100% { r: 24; opacity: 0; stroke-width: 0; }
+      }
+
+      .counter-update { animation: counterBump 0.4s ease forwards; animation-delay: 5s; }
+      @keyframes counterBump {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.15); }
+        100% { transform: scale(1); }
+      }
+
+      .badge { rx: 4; }
+      .badge-http { fill: #1f6feb; }
+      .badge-text { fill: #ffffff; font-family: ui-monospace, monospace; font-size: 9px; font-weight: 600; text-anchor: middle; }
+
+      .step-num { fill: #30363d; font-family: -apple-system, sans-serif; font-size: 11px; font-weight: 700; }
+      .step-circle { fill: #21262d; stroke: #30363d; stroke-width: 1; }
+      .step-active { fill: #1f6feb; stroke: #58a6ff; }
+      .step-num-active { fill: #ffffff; }
+
+      .savings-box { fill: #0d1117; stroke: #238636; stroke-width: 1; rx: 6; }
+      .savings-text { fill: #3fb950; font-family: ui-monospace, monospace; font-size: 11px; font-weight: 600; text-anchor: middle; }
+
+      /* Looping animation */
+      .loop-group { animation: loopFade 8s ease infinite; }
+      @keyframes loopFade {
+        0%, 5% { opacity: 0; }
+        8%, 90% { opacity: 1; }
+        95%, 100% { opacity: 0; }
+      }
+
+      .step-1 { animation: stepShow 8s ease infinite; }
+      .step-2 { animation: stepShow 8s ease infinite; animation-delay: 1.5s; }
+      .step-3 { animation: stepShow 8s ease infinite; animation-delay: 3s; }
+      .step-4 { animation: stepShow 8s ease infinite; animation-delay: 4.5s; }
+      @keyframes stepShow {
+        0%, 15% { opacity: 0; }
+        20%, 90% { opacity: 1; }
+        95%, 100% { opacity: 0; }
+      }
+
+      .counter-5 { animation: counterSwap 8s step-end infinite; }
+      @keyframes counterSwap {
+        0%, 55% { opacity: 1; }
+        56%, 100% { opacity: 0; }
+      }
+      .counter-6 { animation: counterSwapIn 8s step-end infinite; }
+      @keyframes counterSwapIn {
+        0%, 55% { opacity: 0; }
+        56%, 100% { opacity: 1; }
+      }
+
+      .click-loop { animation: clickLoop 8s ease infinite; }
+      @keyframes clickLoop {
+        0%, 18% { r: 0; opacity: 0; }
+        20% { r: 6; opacity: 0.9; }
+        35% { r: 22; opacity: 0; }
+        36%, 100% { r: 0; opacity: 0; }
+      }
+
+      .arrow-anim-1 { stroke-dasharray: 100; animation: drawLine 8s ease infinite; }
+      @keyframes drawLine {
+        0%, 25% { stroke-dashoffset: 100; opacity: 0; }
+        30% { stroke-dashoffset: 100; opacity: 1; }
+        45% { stroke-dashoffset: 0; opacity: 1; }
+        85% { stroke-dashoffset: 0; opacity: 1; }
+        95%, 100% { opacity: 0; }
+      }
+
+      .arrow-anim-2 { stroke-dasharray: 100; animation: drawLineReturn 8s ease infinite; }
+      @keyframes drawLineReturn {
+        0%, 50% { stroke-dashoffset: 100; opacity: 0; }
+        55% { stroke-dashoffset: 100; opacity: 1; }
+        70% { stroke-dashoffset: 0; opacity: 1; }
+        85% { stroke-dashoffset: 0; opacity: 1; }
+        95%, 100% { opacity: 0; }
+      }
+
+      .server-code-anim { animation: serverShow 8s ease infinite; }
+      @keyframes serverShow {
+        0%, 35% { opacity: 0; }
+        40%, 85% { opacity: 1; }
+        95%, 100% { opacity: 0; }
+      }
+
+      .wire-anim { animation: wireShow 8s ease infinite; }
+      @keyframes wireShow {
+        0%, 60% { opacity: 0; }
+        65%, 85% { opacity: 1; }
+        95%, 100% { opacity: 0; }
+      }
+
+      .bump-anim { animation: bump 8s ease infinite; }
+      @keyframes bump {
+        0%, 54% { transform: translate(0, 0) scale(1); }
+        57% { transform: translate(0, 0) scale(1.2); }
+        60%, 100% { transform: translate(0, 0) scale(1); }
+      }
+    </style>
+
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#58a6ff" />
+    </marker>
+    <marker id="arrowhead-green" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#7ee787" />
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect class="bg" width="720" height="420" />
+
+  <!-- Browser Frame -->
+  <rect class="browser-frame" x="30" y="20" width="340" height="280" />
+  <rect class="browser-bar" x="30" y="20" width="340" height="32" rx="8" />
+  <rect x="30" y="44" width="340" height="8" fill="#21262d" />
+  <circle class="dot-red" cx="50" cy="36" r="5" />
+  <circle class="dot-yellow" cx="66" cy="36" r="5" />
+  <circle class="dot-green" cx="82" cy="36" r="5" />
+  <rect class="url-bar" x="100" y="28" width="200" height="16" />
+  <text class="url-text" x="140" y="40">localhost:8080</text>
+
+  <!-- Browser Content -->
+  <text class="heading" x="110" y="105">Counter: </text>
+
+  <!-- Counter value: 5 (fades out) then 6 (fades in) -->
+  <g class="bump-anim">
+    <text class="counter-val counter-5" x="265" y="107">5</text>
+    <text class="counter-val counter-6" x="265" y="107">6</text>
+  </g>
+
+  <!-- Buttons -->
+  <rect class="btn btn-plus" x="110" y="125" width="70" height="36" />
+  <text class="btn-text" x="145" y="149">+</text>
+  <rect class="btn btn-minus" x="200" y="125" width="70" height="36" />
+  <text class="btn-text" x="235" y="149">−</text>
+
+  <!-- Click animation ring on + button -->
+  <circle class="click-ring click-loop" cx="145" cy="143" />
+
+  <!-- HTTP badge -->
+  <rect class="badge badge-http" x="110" y="178" width="38" height="16" />
+  <text class="badge-text" x="129" y="189">HTTP</text>
+  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 10px;" x="154" y="189">No WebSocket required</text>
+
+  <!-- Code snippet in browser area -->
+  <text style="fill: #484f58; font-family: ui-monospace, monospace; font-size: 10px;" x="50" y="220">// counter.tmpl</text>
+  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 10px;" x="50" y="235">&lt;h1&gt;Counter: <tspan fill="#58a6ff">{{.Counter}}</tspan>&lt;/h1&gt;</text>
+  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 10px;" x="50" y="250">&lt;button <tspan fill="#d2a8ff">lvt-click="increment"</tspan>&gt;+&lt;/button&gt;</text>
+  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 10px;" x="50" y="265">&lt;button <tspan fill="#d2a8ff">lvt-click="decrement"</tspan>&gt;−&lt;/button&gt;</text>
+
+  <!-- Server Box -->
+  <rect class="server-box" x="420" y="20" width="270" height="280" />
+  <text class="server-label" x="555" y="38">SERVER (Go)</text>
+
+  <!-- Server code -->
+  <text style="fill: #484f58; font-family: ui-monospace, monospace; font-size: 10px;" x="435" y="62">// main.go</text>
+  <text style="fill: #ff7b72; font-family: ui-monospace, monospace; font-size: 10px;" x="435" y="78">func</text>
+  <text style="fill: #e6edf3; font-family: ui-monospace, monospace; font-size: 10px;" x="463" y="78">(c *CounterController)</text>
+  <text style="fill: #d2a8ff; font-family: ui-monospace, monospace; font-size: 10px;" x="435" y="93">Increment</text>
+  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 10px;" x="505" y="93">(state, ctx)</text>
+  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 10px;" x="435" y="113">  state.Counter++</text>
+  <text style="fill: #ff7b72; font-family: ui-monospace, monospace; font-size: 10px;" x="435" y="128">  return</text>
+  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 10px;" x="478" y="128">state, nil</text>
+
+  <!-- Animated server processing -->
+  <g class="server-code-anim" opacity="0">
+    <rect x="430" y="148" width="250" height="44" rx="4" fill="#0d1117" stroke="#30363d" stroke-width="0.5" />
+    <text style="fill: #484f58; font-family: ui-monospace, monospace; font-size: 9px;" x="440" y="162">// state change</text>
+    <text style="fill: #7ee787; font-family: ui-monospace, monospace; font-size: 11px;" x="440" y="180">Counter: 5 → 6</text>
+  </g>
+
+  <!-- Wire format display -->
+  <g class="wire-anim" opacity="0">
+    <rect class="savings-box" x="430" y="200" width="250" height="50" />
+    <text class="wire-text" x="555" y="220">{"0": "6"}</text>
+    <text class="savings-text" x="555" y="240">7 bytes — 85% smaller than full HTML</text>
+  </g>
+
+  <!-- Arrows between browser and server -->
+  <!-- Request arrow (browser → server) -->
+  <path class="arrow arrow-anim-1" d="M 370 100 L 418 100" />
+  <g class="server-code-anim" opacity="0">
+    <text style="fill: #58a6ff; font-family: ui-monospace, monospace; font-size: 9px;" x="375" y="94">{action: "increment"}</text>
+  </g>
+
+  <!-- Response arrow (server → browser) -->
+  <path class="arrow-return arrow-anim-2" d="M 418 160 L 370 160" />
+
+  <!-- Flow Steps at bottom -->
+  <g transform="translate(30, 330)">
+    <!-- Step 1 -->
+    <g class="step-1" opacity="0">
+      <circle cx="12" cy="12" r="12" class="step-circle step-active" />
+      <text class="step-num step-num-active" x="9" y="16">1</text>
+      <text style="fill: #e6edf3; font-family: -apple-system, sans-serif; font-size: 12px; font-weight: 600;" x="30" y="10">Click</text>
+      <text style="fill: #8b949e; font-family: -apple-system, sans-serif; font-size: 10px;" x="30" y="24">User clicks +</text>
+    </g>
+
+    <!-- Step 2 -->
+    <g class="step-2" opacity="0" transform="translate(160, 0)">
+      <circle cx="12" cy="12" r="12" class="step-circle step-active" />
+      <text class="step-num step-num-active" x="9" y="16">2</text>
+      <text style="fill: #e6edf3; font-family: -apple-system, sans-serif; font-size: 12px; font-weight: 600;" x="30" y="10">Update</text>
+      <text style="fill: #8b949e; font-family: -apple-system, sans-serif; font-size: 10px;" x="30" y="24">Counter++ on server</text>
+    </g>
+
+    <!-- Step 3 -->
+    <g class="step-3" opacity="0" transform="translate(330, 0)">
+      <circle cx="12" cy="12" r="12" class="step-circle step-active" />
+      <text class="step-num step-num-active" x="9" y="16">3</text>
+      <text style="fill: #e6edf3; font-family: -apple-system, sans-serif; font-size: 12px; font-weight: 600;" x="30" y="10">Diff</text>
+      <text style="fill: #8b949e; font-family: -apple-system, sans-serif; font-size: 10px;" x="30" y="24">Send {"0": "6"} only</text>
+    </g>
+
+    <!-- Step 4 -->
+    <g class="step-4" opacity="0" transform="translate(510, 0)">
+      <circle cx="12" cy="12" r="12" class="step-circle step-active" />
+      <text class="step-num step-num-active" x="9" y="16">4</text>
+      <text style="fill: #e6edf3; font-family: -apple-system, sans-serif; font-size: 12px; font-weight: 600;" x="30" y="10">Patch</text>
+      <text style="fill: #8b949e; font-family: -apple-system, sans-serif; font-size: 10px;" x="30" y="24">DOM updated in-place</text>
+    </g>
+  </g>
+
+  <!-- Subtle branding -->
+  <text style="fill: #30363d; font-family: -apple-system, sans-serif; font-size: 10px; text-anchor: end;" x="700" y="410">livetemplate</text>
+</svg>

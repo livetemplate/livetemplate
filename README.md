@@ -4,6 +4,10 @@ Build interactive web applications in Go using a simplified programming model. W
 
 **[Quick Start](#quick-start)** • **[API Docs](https://pkg.go.dev/github.com/livetemplate/livetemplate)** • **[CLI Tool](https://github.com/livetemplate/lvt)** • **[Examples](https://github.com/livetemplate/examples)**
 
+<p align="center">
+  <img src="assets/demo.svg" alt="LiveTemplate reactive update flow — click a button, server updates state, only changed value sent to browser" width="720">
+</p>
+
 ---
 
 > **ALPHA SOFTWARE**
