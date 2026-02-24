@@ -916,3 +916,67 @@ func TestHTTPTemplateSweep_PreservesActiveSessions(t *testing.T) {
 		t.Error("Expected session 2 cache entry to be preserved")
 	}
 }
+
+func TestWebSocketDisabled_ConcurrentPOSTsSameSession(t *testing.T) {
+	handler := newWSDisabledHandler(t)
+
+	// Create session
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	cookie := extractSessionCookie(rec)
+	if cookie == nil {
+		t.Fatal("Expected session cookie")
+	}
+
+	// Send concurrent POSTs (simulates multiple tabs)
+	const concurrency = 10
+	errs := make(chan error, concurrency)
+
+	for i := 0; i < concurrency; i++ {
+		go func() {
+			form := url.Values{}
+			form.Set("lvt-action", "Increment")
+			r := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			r.Header.Set("Accept", "application/json")
+			r.AddCookie(cookie)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, r)
+			if w.Code != http.StatusOK {
+				errs <- errors.New("expected status 200, got " + http.StatusText(w.Code))
+				return
+			}
+
+			var resp map[string]interface{}
+			if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+				errs <- err
+				return
+			}
+			if _, ok := resp["tree"]; !ok {
+				errs <- errors.New("expected 'tree' in response")
+				return
+			}
+			errs <- nil
+		}()
+	}
+
+	for i := 0; i < concurrency; i++ {
+		if err := <-errs; err != nil {
+			t.Errorf("Concurrent POST failed: %v", err)
+		}
+	}
+
+	// Verify state advanced (exact count depends on scheduling — concurrent
+	// POSTs load the same state, so last-writer-wins is expected for HTTP).
+	// The key assertion is: no races, all responses valid, count > 0.
+	req = httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if strings.Contains(body, "Count: 0") {
+		t.Error("Expected count > 0 after concurrent increments, still at 0")
+	}
+}

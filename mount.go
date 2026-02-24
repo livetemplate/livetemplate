@@ -183,13 +183,21 @@ type liveHandler struct {
 	limits          *session.ConnectionLimits
 	metricsExporter *observe.PrometheusExporter
 	tempFileManager uploadTempFileManager
-	httpTemplates   sync.Map // groupID → *Template (cached for HTTP POST diff optimization)
+	httpTemplates sync.Map // groupID → *httpTemplateCacheEntry (cached for HTTP POST diff optimization)
 
 	// Graceful shutdown state
 	shutdownOnce sync.Once
 	shutdownChan chan struct{}
 	shutdownWg   sync.WaitGroup
 	isShutdown   atomic.Bool
+}
+
+// httpTemplateCacheEntry wraps a cached Template with a mutex.
+// Concurrent HTTP requests for the same groupID (e.g., multiple tabs)
+// must serialize template operations to avoid data races on lastTree/lastData.
+type httpTemplateCacheEntry struct {
+	mu   sync.Mutex
+	tmpl *Template
 }
 
 type connState struct {
@@ -858,17 +866,27 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Unlike WebSocket (which keeps a clone per connection), HTTP needs
 	// a cache keyed by groupID so that subsequent POSTs can produce
 	// diffs against the previous tree instead of full renders.
-	var httpTmpl *Template
+	// A per-entry mutex serializes concurrent requests for the same group
+	// (e.g., multiple browser tabs) to avoid data races on template state.
+	var entry *httpTemplateCacheEntry
 	if cached, ok := h.httpTemplates.Load(groupID); ok {
-		httpTmpl = cached.(*Template)
+		entry = cached.(*httpTemplateCacheEntry)
 	} else {
-		httpTmpl, err = h.config.Template.Clone()
-		if err != nil {
+		cloned, cloneErr := h.config.Template.Clone()
+		if cloneErr != nil {
 			http.Error(w, "Failed to clone template", http.StatusInternalServerError)
 			return
 		}
-		h.httpTemplates.Store(groupID, httpTmpl)
+		newEntry := &httpTemplateCacheEntry{tmpl: cloned}
+		if existing, loaded := h.httpTemplates.LoadOrStore(groupID, newEntry); loaded {
+			entry = existing.(*httpTemplateCacheEntry)
+		} else {
+			entry = newEntry
+		}
 	}
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	httpTmpl := entry.tmpl
 	httpTmpl.SetUploadRegistry(uploadRegistry)
 
 	// Auto-broadcast to WebSocket connections
