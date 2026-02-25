@@ -3,6 +3,7 @@ package livetemplate
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 )
 
@@ -44,13 +45,7 @@ func TestMethodNameToActions(t *testing.T) {
 			continue
 		}
 		for i, exp := range tt.expected {
-			found := false
-			for _, r := range result {
-				if r == exp {
-					found = true
-					break
-				}
-			}
+			found := slices.Contains(result, exp)
 			if !found {
 				t.Errorf("methodNameToActions(%q)[%d] missing %q, got %v", tt.methodName, i, exp, result)
 			}
@@ -126,7 +121,7 @@ func TestDispatchWithState_Increment(t *testing.T) {
 func TestDispatchWithState_WithData(t *testing.T) {
 	ctrl := &testCounterController{}
 	state := testCounterState{Count: 10}
-	data := map[string]interface{}{"amount": float64(5)} // JSON numbers are float64
+	data := map[string]any{"amount": float64(5)} // JSON numbers are float64
 	ctx := NewContext(context.TODO(), "add", data)
 
 	newState, err := DispatchWithState(ctrl, state, ctx)

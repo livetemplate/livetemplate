@@ -57,12 +57,10 @@ func TestLiveHandler_Shutdown_Idempotent(t *testing.T) {
 	var wg sync.WaitGroup
 	errors := make(chan error, 3)
 
-	for i := 0; i < 3; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 3 {
+		wg.Go(func() {
 			errors <- lh.Shutdown(ctx)
-		}()
+		})
 	}
 
 	wg.Wait()

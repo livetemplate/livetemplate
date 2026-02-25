@@ -25,7 +25,7 @@ import (
 //
 // Returns:
 //   - A map containing the original data fields plus the "lvt" namespace
-func AddLvtToData(data interface{}, messages map[string]string, devMode bool, uploadRegistry ...interface{}) interface{} {
+func AddLvtToData(data any, messages map[string]string, devMode bool, uploadRegistry ...any) any {
 	if messages == nil {
 		messages = make(map[string]string)
 	}
@@ -38,11 +38,11 @@ func AddLvtToData(data interface{}, messages map[string]string, devMode bool, up
 		lvtContext.SetUploadRegistry(uploadRegistry[0])
 	}
 
-	templateData := make(map[string]interface{})
+	templateData := make(map[string]any)
 	templateData["lvt"] = lvtContext
 
 	val := reflect.ValueOf(data)
-	if val.Kind() == reflect.Ptr {
+	if val.Kind() == reflect.Pointer {
 		val = val.Elem()
 	}
 

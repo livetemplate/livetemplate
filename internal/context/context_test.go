@@ -603,7 +603,7 @@ func TestExecuteTemplateWithContext_MapData(t *testing.T) {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"name": "Alice",
 		"city": "NYC",
 	}
@@ -710,7 +710,7 @@ func TestExecuteTemplateWithContext_PrimitiveData(t *testing.T) {
 
 	tests := []struct {
 		name string
-		data interface{}
+		data any
 		want string
 	}{
 		{"string", "hello", "Value: hello"},
@@ -835,7 +835,7 @@ func BenchmarkExecuteTemplateWithContext_Struct(b *testing.B) {
 
 func BenchmarkExecuteTemplateWithContext_Map(b *testing.B) {
 	tmpl, _ := template.New("test").Parse(`{{.name}} {{.email}} {{.age}}`)
-	data := map[string]interface{}{
+	data := map[string]any{
 		"name":  "John",
 		"email": "john@example.com",
 		"age":   30,
@@ -855,9 +855,9 @@ func TestTemplateContext_ConcurrentReads(t *testing.T) {
 	ctx := NewTemplateContext(errors, false)
 
 	done := make(chan bool)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
-			for j := 0; j < 100; j++ {
+			for range 100 {
 				_ = ctx.Error("field1")
 				_ = ctx.HasError("field2")
 				_ = ctx.HasAnyError()
@@ -867,7 +867,7 @@ func TestTemplateContext_ConcurrentReads(t *testing.T) {
 		}()
 	}
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 }
@@ -972,7 +972,7 @@ func TestExecuteTemplateWithContext_MapLvtCollision(t *testing.T) {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"name": "Test",
 		"lvt":  "ShouldBeSkipped", // This key conflicts with reserved key
 	}

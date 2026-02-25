@@ -98,7 +98,7 @@ func TestAnonymousAuthenticator_GetSessionGroup_Uniqueness(t *testing.T) {
 	seen := make(map[string]bool)
 	iterations := 100
 
-	for i := 0; i < iterations; i++ {
+	for i := range iterations {
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		groupID, err := auth.GetSessionGroup(req, "")
 
@@ -256,7 +256,7 @@ func TestBasicAuthenticator_GetSessionGroup_Consistency(t *testing.T) {
 	for _, user := range users {
 		// Call GetSessionGroup multiple times for same user
 		var groupIDs []string
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			groupID, err := auth.GetSessionGroup(req, user)
 			if err != nil {
@@ -319,7 +319,7 @@ func TestGenerateSessionID_Uniqueness(t *testing.T) {
 	seen := make(map[string]bool)
 	iterations := 1000
 
-	for i := 0; i < iterations; i++ {
+	for i := range iterations {
 		id, err := generateSessionID()
 		if err != nil {
 			t.Fatalf("generateSessionID() error = %v on iteration %d", err, i)

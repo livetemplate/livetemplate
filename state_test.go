@@ -55,7 +55,7 @@ type testBinaryController struct {
 func TestHasStateFields(t *testing.T) {
 	tests := []struct {
 		name     string
-		store    interface{}
+		store    any
 		expected bool
 	}{
 		{
@@ -158,7 +158,7 @@ func TestInjectState(t *testing.T) {
 			DBConn: "original",
 		}
 
-		state := map[string]interface{}{
+		state := map[string]any{
 			"Profile":  &testStateProfile{Name: "Jane", Email: "jane@example.com"},
 			"Settings": &testStateSettings{Theme: "light", Language: "fr"},
 		}
@@ -191,7 +191,7 @@ func TestInjectState(t *testing.T) {
 		controller := &testController{}
 
 		// Only inject Profile, not Settings
-		state := map[string]interface{}{
+		state := map[string]any{
 			"Profile": &testStateProfile{Name: "Only Profile"},
 		}
 
@@ -457,7 +457,7 @@ func TestAsState_ComplexNestedState(t *testing.T) {
 		ID    int
 		Name  string
 		Tags  []string
-		Props map[string]interface{}
+		Props map[string]any
 	}
 
 	type ComplexState struct {
@@ -468,7 +468,7 @@ func TestAsState_ComplexNestedState(t *testing.T) {
 
 	original := &ComplexState{
 		Items: []*Item{
-			{ID: 1, Name: "First", Tags: []string{"a", "b"}, Props: map[string]interface{}{"key": "value"}},
+			{ID: 1, Name: "First", Tags: []string{"a", "b"}, Props: map[string]any{"key": "value"}},
 			{ID: 2, Name: "Second", Tags: nil, Props: nil},
 		},
 		Metadata: map[string]string{"version": "1.0"},
@@ -506,12 +506,12 @@ func TestAsState_ComplexNestedState(t *testing.T) {
 
 // testTransientState has a mix of transient and non-transient fields
 type testTransientState struct {
-	SearchQuery   string  `json:"search_query"`                    // Not transient
-	EditingID     string  `json:"editing_id" lvt:"transient"`      // Transient
-	EditingItem   *string `json:"editing_item" lvt:"transient"`    // Transient pointer
-	Counter       int     `json:"counter"`                         // Not transient
-	TransientInt  int     `json:"transient_int" lvt:"transient"`   // Transient int
-	TransientList []int   `json:"transient_list" lvt:"transient"`  // Transient slice
+	SearchQuery   string  `json:"search_query"`                   // Not transient
+	EditingID     string  `json:"editing_id" lvt:"transient"`     // Transient
+	EditingItem   *string `json:"editing_item" lvt:"transient"`   // Transient pointer
+	Counter       int     `json:"counter"`                        // Not transient
+	TransientInt  int     `json:"transient_int" lvt:"transient"`  // Transient int
+	TransientList []int   `json:"transient_list" lvt:"transient"` // Transient slice
 }
 
 func TestClearTransientFields_StructPointer(t *testing.T) {
@@ -714,10 +714,10 @@ func TestClearTransientFields_AllTransientFields(t *testing.T) {
 
 func TestClearTransientFields_MapAndSliceTypes(t *testing.T) {
 	type complexTransientState struct {
-		RegularMap    map[string]int   `json:"regular_map"`
-		TransientMap  map[string]int   `json:"transient_map" lvt:"transient"`
-		RegularSlice  []string         `json:"regular_slice"`
-		TransientSlice []string        `json:"transient_slice" lvt:"transient"`
+		RegularMap     map[string]int `json:"regular_map"`
+		TransientMap   map[string]int `json:"transient_map" lvt:"transient"`
+		RegularSlice   []string       `json:"regular_slice"`
+		TransientSlice []string       `json:"transient_slice" lvt:"transient"`
 	}
 
 	state := &complexTransientState{

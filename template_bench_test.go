@@ -10,7 +10,7 @@ import (
 
 func BenchmarkTemplateExecute(b *testing.B) {
 	b.Run("initial-render", func(b *testing.B) {
-		data := map[string]interface{}{"Name": "Test"}
+		data := map[string]any{"Name": "Test"}
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			tmpl := Must(New("test"))
@@ -30,7 +30,7 @@ func BenchmarkTemplateExecute(b *testing.B) {
 		if _, err := tmpl.Parse(`<div>{{.Name}}</div>`); err != nil {
 			b.Fatal(err)
 		}
-		data := map[string]interface{}{"Name": "Test"}
+		data := map[string]any{"Name": "Test"}
 		var buf bytes.Buffer
 		if err := tmpl.Execute(&buf, data); err != nil { // Prime the cache
 			b.Fatal(err)
@@ -54,7 +54,7 @@ func BenchmarkTemplateExecuteUpdates(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	initialData := map[string]interface{}{"Name": "Initial"}
+	initialData := map[string]any{"Name": "Initial"}
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteUpdates(&buf, initialData); err != nil { // Prime
 		b.Fatal(err)
@@ -72,7 +72,7 @@ func BenchmarkTemplateExecuteUpdates(b *testing.B) {
 	})
 
 	b.Run("small-update", func(b *testing.B) {
-		data := map[string]interface{}{"Name": "Updated"}
+		data := map[string]any{"Name": "Updated"}
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			buf.Reset()
@@ -95,7 +95,7 @@ func BenchmarkTemplateExecuteUpdates(b *testing.B) {
 	if _, err := tmplLarge.Parse(largeTemplate); err != nil {
 		b.Fatal(err)
 	}
-	largeData := map[string]interface{}{
+	largeData := map[string]any{
 		"Title":       "Title",
 		"Description": "Description",
 		"Author":      "Author",
@@ -108,7 +108,7 @@ func BenchmarkTemplateExecuteUpdates(b *testing.B) {
 	}
 
 	b.Run("large-update", func(b *testing.B) {
-		updatedData := map[string]interface{}{
+		updatedData := map[string]any{
 			"Title":       "New Title",
 			"Description": "New Description",
 			"Author":      "New Author",
@@ -132,29 +132,29 @@ func BenchmarkTemplateComplexity(b *testing.B) {
 	tests := []struct {
 		name     string
 		template string
-		data     interface{}
+		data     any
 	}{
 		{
 			"simple-fields",
 			`<div>{{.A}} {{.B}} {{.C}}</div>`,
-			map[string]interface{}{"A": "a", "B": "b", "C": "c"},
+			map[string]any{"A": "a", "B": "b", "C": "c"},
 		},
 		{
 			"with-conditionals",
 			`<div>{{if .Show}}<span>{{.Name}}</span>{{else}}<span>Hidden</span>{{end}}</div>`,
-			map[string]interface{}{"Show": true, "Name": "Test"},
+			map[string]any{"Show": true, "Name": "Test"},
 		},
 		{
 			"with-ranges",
 			`<ul>{{range .Items}}<li>{{.}}</li>{{end}}</ul>`,
-			map[string]interface{}{"Items": []string{"a", "b", "c"}},
+			map[string]any{"Items": []string{"a", "b", "c"}},
 		},
 		{
 			"deeply-nested",
 			`<div>{{range .L1}}{{range .L2}}{{range .L3}}<span>{{.}}</span>{{end}}{{end}}{{end}}</div>`,
-			map[string]interface{}{
-				"L1": []map[string]interface{}{
-					{"L2": []map[string]interface{}{
+			map[string]any{
+				"L1": []map[string]any{
+					{"L2": []map[string]any{
 						{"L3": []string{"a", "b"}},
 					}},
 				},
@@ -193,7 +193,7 @@ func BenchmarkTemplateConcurrent(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	data := map[string]interface{}{"Name": "Test"}
+	data := map[string]any{"Name": "Test"}
 
 	concurrency := []int{1, 10, 100}
 

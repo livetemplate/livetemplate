@@ -48,7 +48,9 @@ func TestMain(m *testing.M) {
 
 	// Cleanup: close the TypeScript oracle if it was started
 	if globalTSOracle != nil {
-		globalTSOracle.Close()
+		if err := globalTSOracle.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to close TypeScript oracle: %v\n", err)
+		}
 	}
 
 	os.Exit(code)
@@ -89,7 +91,7 @@ func runAsyncFuzzSessionWithTSOracle(t *testing.T, rng *rand.Rand, seed int64, n
 
 	debugMode := true // Set to true to see diff details on error
 
-	for cycle := 0; cycle < numCycles; cycle++ {
+	for cycle := range numCycles {
 		oldStateMap := state.ToMap()
 
 		mutation := app.GenAsyncMutation(rng, state, weights)
@@ -198,7 +200,7 @@ func runModalFuzzSessionWithTSOracle(t *testing.T, rng *rand.Rand, seed int64, n
 		t.Fatalf("First render invariant violation: %v", err)
 	}
 
-	for cycle := 0; cycle < numCycles; cycle++ {
+	for cycle := range numCycles {
 		oldStateMap := state.ToMap()
 
 		mutation := app.GenModalMutation(rng, state, weights)
@@ -412,12 +414,6 @@ func TestCloseAllModalBug_TSOracle(t *testing.T) {
 		return
 	}
 
-	if response.Tree != nil {
-		if newOracleMap, ok := response.Tree.(map[string]any); ok {
-			oracleTreeMap = newOracleMap
-		}
-	}
-
 	// Compare HTML output - all 6 modal indicators should be present
 	expectedMap := invariants.TreeToMap(newBuildTree)
 	expectedHTML, err := render.TreeToHTML(expectedMap)
@@ -479,7 +475,7 @@ func debugInspectDiffTree(label string, tree *build.TreeNode) {
 }
 
 // debugInspectValue recursively inspects a value.
-func debugInspectValue(key string, value interface{}, depth int) {
+func debugInspectValue(key string, value any, depth int) {
 	indent := strings.Repeat("  ", depth)
 	switch val := value.(type) {
 	case *build.TreeNode:
@@ -488,12 +484,12 @@ func debugInspectValue(key string, value interface{}, depth int) {
 		for k, v := range val.GetDynamics() {
 			debugInspectValue(k, v, depth+1)
 		}
-	case []interface{}:
+	case []any:
 		fmt.Printf("[TEST_DEBUG] %skey=%s: []interface{} len=%d\n", indent, key, len(val))
 		for i, item := range val {
 			debugInspectValue(fmt.Sprintf("[%d]", i), item, depth+1)
 		}
-	case map[string]interface{}:
+	case map[string]any:
 		fmt.Printf("[TEST_DEBUG] %skey=%s: map[string]interface{}\n", indent, key)
 		for k, v := range val {
 			debugInspectValue(k, v, depth+1)

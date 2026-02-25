@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"strings"
 	"testing"
 
 	"github.com/livetemplate/livetemplate/internal/build"
@@ -131,7 +132,7 @@ func runFuzzSessionWithWeights(t *testing.T, rng *rand.Rand, seed int64, numMuta
 	tmpl.lastTree = prevTree
 
 	// Execute mutation sequence
-	for i := 0; i < numMutations; i++ {
+	for i := range numMutations {
 		// Generate mutation
 		mutation := genMutationSimple(rng, shape, state, weights)
 		verifier.RecordMutation(mutation)
@@ -417,14 +418,14 @@ func getSliceFromState(state map[string]any, name string) []any {
 func genRandomString(rng *rand.Rand) string {
 	words := []string{"alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"}
 	n := rng.Intn(3) + 1
-	result := ""
-	for i := 0; i < n; i++ {
+	var result strings.Builder
+	for i := range n {
 		if i > 0 {
-			result += " "
+			result.WriteString(" ")
 		}
-		result += words[rng.Intn(len(words))]
+		result.WriteString(words[rng.Intn(len(words))])
 	}
-	return result
+	return result.String()
 }
 
 func mustJSON(v any) string {
@@ -1640,7 +1641,7 @@ func runAppFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numMutations in
 	tmpl.lastTree = prevTree
 
 	// Execute mutation sequence
-	for i := 0; i < numMutations; i++ {
+	for i := range numMutations {
 		// Generate and apply mutation
 		mutation := app.GenMutation(rng, state, weights)
 		verifier.RecordMutation(mutation)
@@ -1893,7 +1894,7 @@ func runNestedRangeFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numMuta
 	tmpl.lastTree = prevTree
 
 	// Execute mutation sequence
-	for i := 0; i < numMutations; i++ {
+	for i := range numMutations {
 		// Generate and apply mutation
 		mutation := app.GenNestedRangeMutation(rng, state, weights)
 		verifier.RecordMutation(mutation)
@@ -1960,13 +1961,13 @@ func TestFuzzNestedRanges_Property(t *testing.T) {
 // When a category is collapsed, its items are hidden; when expanded, they appear.
 func TestFuzzNestedRanges_ToggleExpand_Property(t *testing.T) {
 	weights := mutations.MutationWeights{
-		ToggleExpand:      0.40, // Heavy toggle expand
-		AddToCategory:     0.15,
+		ToggleExpand:       0.40, // Heavy toggle expand
+		AddToCategory:      0.15,
 		RemoveFromCategory: 0.10,
-		AddCategory:       0.10,
-		RemoveCategory:    0.05,
-		UpdateItem:        0.10,
-		UpdateCategory:    0.10,
+		AddCategory:        0.10,
+		RemoveCategory:     0.05,
+		UpdateItem:         0.10,
+		UpdateCategory:     0.10,
 	}
 
 	rapid.Check(t, func(rt *rapid.T) {
@@ -2025,13 +2026,13 @@ func TestFuzzNestedRanges_Reorder_Property(t *testing.T) {
 // This tests the inner range else clause and empty→items transitions.
 func TestFuzzNestedRanges_EmptyCategories_Property(t *testing.T) {
 	weights := mutations.MutationWeights{
-		ClearSlice:        0.20, // Clear items from category
+		ClearSlice:         0.20, // Clear items from category
 		RemoveFromCategory: 0.15,
-		AddToCategory:     0.20, // Add items back
-		AddCategory:       0.10,
-		RemoveCategory:    0.10,
-		ToggleExpand:      0.15,
-		UpdateCategory:    0.10,
+		AddToCategory:      0.20, // Add items back
+		AddCategory:        0.10,
+		RemoveCategory:     0.10,
+		ToggleExpand:       0.15,
+		UpdateCategory:     0.10,
 	}
 
 	rapid.Check(t, func(rt *rapid.T) {
@@ -2088,12 +2089,12 @@ func runBurstAppFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numRenderC
 	tmpl.lastTree = prevTree
 
 	// Execute render cycles with burst mutations
-	for cycle := 0; cycle < numRenderCycles; cycle++ {
+	for cycle := range numRenderCycles {
 		oldStateMap := state.ToMap()
 
 		// Apply burst of mutations (no render between them)
 		var appliedMutations []mutations.Mutation
-		for b := 0; b < burstSize; b++ {
+		for range burstSize {
 			mutation := app.GenMutation(rng, state, weights)
 			if err := app.ApplyMutation(state, mutation); err != nil {
 				// Some mutations may fail, skip
@@ -2165,12 +2166,12 @@ func runBurstFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numRenderCycl
 
 	tmpl.lastTree = prevTree
 
-	for cycle := 0; cycle < numRenderCycles; cycle++ {
+	for cycle := range numRenderCycles {
 		oldState := mutations.DeepCopy(state)
 
 		// Apply burst of mutations
 		var appliedMutations []mutations.Mutation
-		for b := 0; b < burstSize; b++ {
+		for range burstSize {
 			mutation := genMutationSimple(rng, shape, state, weights)
 			newState, err := mutations.Apply(state, mutation)
 			if err != nil {
@@ -2212,12 +2213,12 @@ func runBurstFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numRenderCycl
 func TestFuzzConcurrentMutations_Property(t *testing.T) {
 	// Use weights for basic CRUD operations
 	weights := mutations.MutationWeights{
-		AppendSlice:  0.20,
-		RemoveSlice:  0.15,
-		UpdateItem:   0.30,
-		ToggleBool:   0.15,
-		SetField:     0.10,
-		InsertSlice:  0.10,
+		AppendSlice: 0.20,
+		RemoveSlice: 0.15,
+		UpdateItem:  0.30,
+		ToggleBool:  0.15,
+		SetField:    0.10,
+		InsertSlice: 0.10,
 	}
 
 	rapid.Check(t, func(rt *rapid.T) {
@@ -2258,12 +2259,12 @@ func TestFuzzBurstReordering_Property(t *testing.T) {
 // Toggling the same field multiple times between renders tests state consistency.
 func TestFuzzRapidToggle_Property(t *testing.T) {
 	weights := mutations.MutationWeights{
-		ToggleBool:   0.50, // Heavy toggle
-		SetField:     0.10,
-		AppendSlice:  0.10,
-		RemoveSlice:  0.10,
-		UpdateItem:   0.10,
-		ClearSlice:   0.10,
+		ToggleBool:  0.50, // Heavy toggle
+		SetField:    0.10,
+		AppendSlice: 0.10,
+		RemoveSlice: 0.10,
+		UpdateItem:  0.10,
+		ClearSlice:  0.10,
 	}
 
 	rapid.Check(t, func(rt *rapid.T) {
@@ -2344,7 +2345,7 @@ func runUndoRedoSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int)
 	tmpl.lastTree = prevTree
 	weights := mutations.AppOperationsWeights
 
-	for cycle := 0; cycle < numCycles; cycle++ {
+	for cycle := range numCycles {
 		// Save state for undo
 		savedState := state.Clone()
 		oldStateMap := state.ToMap()
@@ -2443,7 +2444,7 @@ func runPaginationFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycle
 		t.Fatalf("First render invariant violation: %v", err)
 	}
 
-	for cycle := 0; cycle < numCycles; cycle++ {
+	for cycle := range numCycles {
 		oldStateMap := state.ToMap()
 
 		mutation := app.GenPaginationMutation(rng, state, weights)
@@ -2556,7 +2557,7 @@ func runModalFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int
 		t.Fatalf("First render invariant violation: %v", err)
 	}
 
-	for cycle := 0; cycle < numCycles; cycle++ {
+	for cycle := range numCycles {
 		oldStateMap := state.ToMap()
 
 		mutation := app.GenModalMutation(rng, state, weights)
@@ -2630,11 +2631,11 @@ func TestFuzzModalPanelTransitions_Property(t *testing.T) {
 func TestFuzzModalOpenClose_Property(t *testing.T) {
 	// Avoid UpdateModal which causes oracle divergence
 	weights := mutations.MutationWeights{
-		OpenModal:    0.40,
-		CloseModal:   0.35,
-		CloseAll:     0.10,
-		SwitchPanel:  0.08,
-		TogglePanel:  0.07,
+		OpenModal:   0.40,
+		CloseModal:  0.35,
+		CloseAll:    0.10,
+		SwitchPanel: 0.08,
+		TogglePanel: 0.07,
 	}
 
 	rapid.Check(t, func(rt *rapid.T) {
@@ -2689,7 +2690,7 @@ func runFormFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int,
 		t.Fatalf("First render invariant violation: %v", err)
 	}
 
-	for cycle := 0; cycle < numCycles; cycle++ {
+	for cycle := range numCycles {
 		oldStateMap := state.ToMap()
 
 		mutation := app.GenFormMutation(rng, state, weights)
@@ -2802,7 +2803,7 @@ func runAsyncFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int
 		t.Fatalf("First render invariant violation: %v", err)
 	}
 
-	for cycle := 0; cycle < numCycles; cycle++ {
+	for cycle := range numCycles {
 		oldStateMap := state.ToMap()
 
 		mutation := app.GenAsyncMutation(rng, state, weights)
@@ -2891,7 +2892,7 @@ func runNotificationFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCyc
 		t.Fatalf("First render invariant violation: %v", err)
 	}
 
-	for cycle := 0; cycle < numCycles; cycle++ {
+	for cycle := range numCycles {
 		oldStateMap := state.ToMap()
 
 		mutation := app.GenNotificationMutation(rng, state, weights)
@@ -3003,7 +3004,7 @@ func runBulkFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int,
 		t.Fatalf("First render invariant violation: %v", err)
 	}
 
-	for cycle := 0; cycle < numCycles; cycle++ {
+	for cycle := range numCycles {
 		oldStateMap := state.ToMap()
 
 		mutation := app.GenBulkMutation(rng, state, weights)
@@ -3064,12 +3065,12 @@ func TestFuzzBulkSelection_Property(t *testing.T) {
 // TestFuzzBulkDelete_Property tests bulk delete operations.
 func TestFuzzBulkDelete_Property(t *testing.T) {
 	weights := mutations.MutationWeights{
-		ToggleSelect:    0.20,
-		SelectAll:       0.10,
-		BulkDelete:      0.25,
-		AppendSlice:     0.25,
-		RemoveSlice:     0.10,
-		DeselectAll:     0.10,
+		ToggleSelect: 0.20,
+		SelectAll:    0.10,
+		BulkDelete:   0.25,
+		AppendSlice:  0.25,
+		RemoveSlice:  0.10,
+		DeselectAll:  0.10,
 	}
 
 	rapid.Check(t, func(rt *rapid.T) {

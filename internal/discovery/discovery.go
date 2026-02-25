@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -58,9 +59,7 @@ func DiscoverTemplateFiles(baseDir string, customIgnoreDirs []string) ([]string,
 
 		// Build combined ignore map (default + custom)
 		ignoreMap := make(map[string]struct{}, len(ignoredTemplateDirs)+len(customIgnoreDirs))
-		for k, v := range ignoredTemplateDirs {
-			ignoreMap[k] = v
-		}
+		maps.Copy(ignoreMap, ignoredTemplateDirs)
 		for _, d := range customIgnoreDirs {
 			ignoreMap[d] = struct{}{}
 		}
@@ -116,4 +115,3 @@ func DiscoverTemplateFiles(baseDir string, customIgnoreDirs []string) ([]string,
 
 	return files, nil
 }
-

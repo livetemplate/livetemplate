@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"maps"
 	"reflect"
 	"sort"
 	"strings"
@@ -117,15 +118,15 @@ func Parse(templateStr string, funcMap template.FuncMap) (*Template, error) {
 //   - data: The data context for template evaluation (typically a struct or map)
 //   - keyGen: Generator for unique keys in range constructs (e.g., for list items)
 //   - ctx: Evaluation context containing:
-//     - FuncMap: Custom template functions available during evaluation
-//     - IncludeStatics: Whether to include static HTML in the tree (true for first render,
-//       false for updates to reduce payload size)
+//   - FuncMap: Custom template functions available during evaluation
+//   - IncludeStatics: Whether to include static HTML in the tree (true for first render,
+//     false for updates to reduce payload size)
 //
 // Returns:
 //   - *TreeNode: A tree structure containing:
-//     - Statics: Array of static HTML strings (if ctx.IncludeStatics is true)
-//     - Dynamics: Map of dynamic values keyed by position ("0", "1", etc.)
-//     - Range: Range metadata for list/map iterations (if template contains {{range}})
+//   - Statics: Array of static HTML strings (if ctx.IncludeStatics is true)
+//   - Dynamics: Map of dynamic values keyed by position ("0", "1", etc.)
+//   - Range: Range metadata for list/map iterations (if template contains {{range}})
 //   - error: Any error encountered during AST walking or expression evaluation
 //
 // The tree structure represents the template as alternating static and dynamic parts:
@@ -135,7 +136,7 @@ func Parse(templateStr string, funcMap template.FuncMap) (*Template, error) {
 //
 // For first renders, include statics for complete HTML. For updates, omit statics
 // (client caches them) to send only changed dynamics.
-func BuildTree(tmpl *Template, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+func BuildTree(tmpl *Template, data any, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	// Default context if not provided
 	if ctx == nil {
 		ctx = &Context{}
@@ -146,7 +147,7 @@ func BuildTree(tmpl *Template, data interface{}, keyGen KeyGenerator, ctx *Conte
 }
 
 // buildTreeFromAST recursively walks the AST and constructs the tree structure.
-func buildTreeFromAST(node parse.Node, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+func buildTreeFromAST(node parse.Node, data any, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	if node == nil {
 		// Context-aware static inclusion
 		if ctx.ShouldIncludeStatics() {
@@ -192,7 +193,7 @@ func buildTreeFromAST(node parse.Node, data interface{}, keyGen KeyGenerator, ct
 }
 
 // buildTreeFromList processes a list of nodes and merges their trees.
-func buildTreeFromList(node *parse.ListNode, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+func buildTreeFromList(node *parse.ListNode, data any, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	if node == nil || len(node.Nodes) == 0 {
 		if ctx.ShouldIncludeStatics() {
 			return NewTreeNodeWithStatics([]string{""}), nil
@@ -275,7 +276,7 @@ type keyValuePair struct {
 
 // getSortedKeys returns keys from a map sorted numerically.
 // Non-numeric keys are pushed to the end and sorted lexicographically.
-func getSortedKeys(m map[string]interface{}) []string {
+func getSortedKeys(m map[string]any) []string {
 	if len(m) == 0 {
 		return nil
 	}
@@ -390,7 +391,7 @@ func getOrParseASTTemplate(cacheKey, templateStr string, ctx *Context) (*templat
 }
 
 // evaluatePipe evaluates a pipe expression against data.
-func evaluatePipe(pipeStr string, data interface{}, ctx *Context) (interface{}, error) {
+func evaluatePipe(pipeStr string, data any, ctx *Context) (any, error) {
 	// Initialize capture function name lazily
 	initCaptureFunc()
 
@@ -399,18 +400,16 @@ func evaluatePipe(pipeStr string, data interface{}, ctx *Context) (interface{}, 
 	}
 
 	var (
-		captured   interface{}
+		captured   any
 		didCapture bool
 	)
 
 	// Build function map with capture helper and user-provided functions
 	funcs := make(template.FuncMap)
 	if userFuncs := getFuncMapFromContext(ctx); userFuncs != nil {
-		for name, fn := range userFuncs {
-			funcs[name] = fn
-		}
+		maps.Copy(funcs, userFuncs)
 	}
-	funcs[captureResultFuncName] = func(v interface{}) string {
+	funcs[captureResultFuncName] = func(v any) string {
 		captured = v
 		didCapture = true
 		return ""
@@ -450,7 +449,7 @@ func evaluatePipe(pipeStr string, data interface{}, ctx *Context) (interface{}, 
 // hashData generates a stable hash string from data for cache key generation.
 // Uses SHA256 for cryptographic strength and JSON serialization for stability.
 // Returns empty string on error (cache miss is safe fallback).
-func hashData(data interface{}) string {
+func hashData(data any) string {
 	// Handle nil data
 	if data == nil {
 		return "nil"
@@ -471,7 +470,7 @@ func hashData(data interface{}) string {
 // evaluatePipeWithCache evaluates a pipe expression with result caching.
 // Caches results based on (templateName + pipeStr + dataHash) to avoid redundant execution.
 // Falls back to uncached evaluation if cache operations fail.
-func evaluatePipeWithCache(templateName, pipeStr string, data interface{}, ctx *Context) (interface{}, error) {
+func evaluatePipeWithCache(templateName, pipeStr string, data any, ctx *Context) (any, error) {
 	// Generate cache key from template name, pipe string, and data hash
 	dataHash := hashData(data)
 	cacheKey := templateName + ":" + pipeStr + ":" + dataHash
@@ -521,7 +520,7 @@ func isZeroValue(v reflect.Value) bool {
 	}
 
 	switch v.Kind() {
-	case reflect.Ptr, reflect.Interface:
+	case reflect.Pointer, reflect.Interface:
 		return v.IsNil()
 	case reflect.Slice, reflect.Map:
 		return v.IsNil() || v.Len() == 0
@@ -556,4 +555,3 @@ func isZeroValue(v reflect.Value) bool {
 		return reflect.DeepEqual(v.Interface(), reflect.Zero(v.Type()).Interface())
 	}
 }
-

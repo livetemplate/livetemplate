@@ -6,7 +6,7 @@ import (
 )
 
 func TestContext_GetString(t *testing.T) {
-	data := map[string]interface{}{"name": "Alice"}
+	data := map[string]any{"name": "Alice"}
 	ctx := NewContext(context.Background(), "test_action", data)
 
 	if got := ctx.GetString("name"); got != "Alice" {
@@ -36,7 +36,7 @@ func TestContext_UserID(t *testing.T) {
 }
 
 func TestContext_GetInt(t *testing.T) {
-	data := map[string]interface{}{"count": float64(42)} // JSON numbers are float64
+	data := map[string]any{"count": float64(42)} // JSON numbers are float64
 	ctx := NewContext(context.Background(), "test", data)
 
 	if got := ctx.GetInt("count"); got != 42 {
@@ -49,7 +49,7 @@ func TestContext_GetInt(t *testing.T) {
 }
 
 func TestContext_GetBool(t *testing.T) {
-	data := map[string]interface{}{"active": true}
+	data := map[string]any{"active": true}
 	ctx := NewContext(context.Background(), "test", data)
 
 	if got := ctx.GetBool("active"); !got {
@@ -64,7 +64,7 @@ func TestContext_GetBool(t *testing.T) {
 func TestContext_GetBool_StringValues(t *testing.T) {
 	// HTTP form submissions send booleans as strings "true"/"false"
 	// GetBool should handle both boolean and string representations
-	data := map[string]interface{}{
+	data := map[string]any{
 		"bool_true":   true,
 		"bool_false":  false,
 		"str_true":    "true",
@@ -100,7 +100,7 @@ func TestContext_GetBool_StringValues(t *testing.T) {
 }
 
 func TestContext_Has(t *testing.T) {
-	data := map[string]interface{}{"exists": "value"}
+	data := map[string]any{"exists": "value"}
 	ctx := NewContext(context.Background(), "test", data)
 
 	if !ctx.Has("exists") {
@@ -157,13 +157,13 @@ func TestContext_NilData(t *testing.T) {
 func TestContext_GetString_NumericValues(t *testing.T) {
 	// The client-side parseValue() converts numeric strings like "1" to numbers.
 	// GetString should handle both string and numeric values.
-	data := map[string]interface{}{
-		"id_string":  "123",
-		"id_int":     float64(456), // JSON numbers are float64
-		"id_float":   float64(3.14),
-		"negative":   float64(-42),
-		"safe_int":   float64(9007199254740991), // Max safe integer in JavaScript
-		"zero":       float64(0),
+	data := map[string]any{
+		"id_string": "123",
+		"id_int":    float64(456), // JSON numbers are float64
+		"id_float":  float64(3.14),
+		"negative":  float64(-42),
+		"safe_int":  float64(9007199254740991), // Max safe integer in JavaScript
+		"zero":      float64(0),
 	}
 	ctx := NewContext(context.Background(), "test", data)
 

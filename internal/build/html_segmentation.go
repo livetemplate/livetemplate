@@ -47,7 +47,7 @@ func CreateHTMLStructureBasedTree(html string) *TreeNode {
 		segmentSize := len(html) / maxSegments
 
 		var statics []string
-		var dynamics []interface{}
+		var dynamics []any
 		lastPos := 0
 
 		for i, boundary := range boundaries {

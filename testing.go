@@ -3,6 +3,7 @@ package livetemplate
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -27,7 +28,7 @@ func validatePureState[T any]() error {
 }
 
 func validatePureStateType(typ reflect.Type, path string) error {
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
 
@@ -35,8 +36,7 @@ func validatePureStateType(typ reflect.Type, path string) error {
 		return nil // Non-struct types are OK
 	}
 
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		fieldPath := path + "." + field.Name
 		if path == "" {
 			fieldPath = field.Name
@@ -63,7 +63,7 @@ func validatePureStateType(typ reflect.Type, path string) error {
 
 // isDependencyType checks if a type looks like a dependency
 func isDependencyType(typ reflect.Type) bool {
-	if typ.Kind() != reflect.Ptr && typ.Kind() != reflect.Interface {
+	if typ.Kind() != reflect.Pointer && typ.Kind() != reflect.Interface {
 		return false
 	}
 
@@ -77,11 +77,5 @@ func isDependencyType(typ reflect.Type) bool {
 		"io.Writer", "io.Reader",
 	}
 
-	for _, p := range patterns {
-		if name == p {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(patterns, name)
 }

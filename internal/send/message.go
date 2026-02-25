@@ -4,6 +4,7 @@ package send
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -12,8 +13,8 @@ import (
 
 // ActionMessage represents an action message from the client (internal protocol).
 type ActionMessage struct {
-	Action string                 `json:"action"` // Action name, may include store prefix (e.g., "counter.increment")
-	Data   map[string]interface{} `json:"data"`   // All values from forms, inputs, data attributes, etc.
+	Action string         `json:"action"` // Action name, may include store prefix (e.g., "counter.increment")
+	Data   map[string]any `json:"data"`   // All values from forms, inputs, data attributes, etc.
 }
 
 // ParseActionFromHTTP parses an action message from HTTP POST request body (internal protocol).
@@ -43,7 +44,7 @@ func ParseActionFromHTTP(r *http.Request) (ActionMessage, error) {
 
 	// Ensure data map is initialized
 	if msg.Data == nil {
-		msg.Data = make(map[string]interface{})
+		msg.Data = make(map[string]any)
 	}
 
 	return msg, nil
@@ -56,7 +57,7 @@ func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		// If parse fails, default to empty action (upload-only request)
 		msg.Action = ""
-		msg.Data = make(map[string]interface{})
+		msg.Data = make(map[string]any)
 		return msg, nil
 	}
 
@@ -68,7 +69,7 @@ func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 
 	// Try to get data from JSON-encoded form field
 	if dataStr := r.FormValue("data"); dataStr != "" {
-		var data map[string]interface{}
+		var data map[string]any
 		if err := json.Unmarshal([]byte(dataStr), &data); err == nil {
 			msg.Data = data
 		}
@@ -76,7 +77,7 @@ func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 
 	// Initialize data map if not set
 	if msg.Data == nil {
-		msg.Data = make(map[string]interface{})
+		msg.Data = make(map[string]any)
 	}
 
 	return msg, nil
@@ -98,7 +99,7 @@ func parseURLEncodedForm(r *http.Request) (ActionMessage, error) {
 	}
 
 	// Convert all form fields to data map (except lvt-action and action)
-	msg.Data = make(map[string]interface{})
+	msg.Data = make(map[string]any)
 	for key, values := range r.Form {
 		if key == "lvt-action" || key == "action" {
 			continue // Skip action fields
@@ -108,7 +109,7 @@ func parseURLEncodedForm(r *http.Request) (ActionMessage, error) {
 			msg.Data[key] = values[0]
 		} else if len(values) > 1 {
 			// Convert to interface slice for multiple values
-			interfaceSlice := make([]interface{}, len(values))
+			interfaceSlice := make([]any, len(values))
 			for i, v := range values {
 				interfaceSlice[i] = v
 			}
@@ -128,7 +129,7 @@ func ParseActionFromWebSocket(data []byte) (ActionMessage, error) {
 
 	// Ensure data map is initialized
 	if msg.Data == nil {
-		msg.Data = make(map[string]interface{})
+		msg.Data = make(map[string]any)
 	}
 
 	return msg, nil
@@ -148,13 +149,13 @@ type ConnectionSender interface {
 
 // QueryParamsToData converts URL query parameters to action data map.
 // Single values are stored as strings, multiple values as []interface{}.
-func QueryParamsToData(r *http.Request) map[string]interface{} {
-	data := make(map[string]interface{})
+func QueryParamsToData(r *http.Request) map[string]any {
+	data := make(map[string]any)
 	for key, values := range r.URL.Query() {
 		if len(values) == 1 {
 			data[key] = values[0]
 		} else if len(values) > 1 {
-			interfaceSlice := make([]interface{}, len(values))
+			interfaceSlice := make([]any, len(values))
 			for i, v := range values {
 				interfaceSlice[i] = v
 			}
@@ -166,7 +167,7 @@ func QueryParamsToData(r *http.Request) map[string]interface{} {
 
 // MergeData merges base data with override data.
 // Override values take precedence over base values.
-func MergeData(base, override map[string]interface{}) map[string]interface{} {
+func MergeData(base, override map[string]any) map[string]any {
 	if len(base) == 0 {
 		return override
 	}
@@ -174,12 +175,8 @@ func MergeData(base, override map[string]interface{}) map[string]interface{} {
 		return base
 	}
 
-	merged := make(map[string]interface{}, len(base)+len(override))
-	for k, v := range base {
-		merged[k] = v
-	}
-	for k, v := range override {
-		merged[k] = v
-	}
+	merged := make(map[string]any, len(base)+len(override))
+	maps.Copy(merged, base)
+	maps.Copy(merged, override)
 	return merged
 }

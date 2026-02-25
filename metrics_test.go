@@ -90,10 +90,10 @@ func TestLiveHandler_MetricsHandler_Format(t *testing.T) {
 	metricsHandler.ServeHTTP(rec, req)
 
 	body := rec.Body.String()
-	lines := strings.Split(body, "\n")
+	lines := strings.SplitSeq(body, "\n")
 
 	// Check format of each line
-	for _, line := range lines {
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue

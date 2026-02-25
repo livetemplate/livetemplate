@@ -182,14 +182,14 @@ func TestTemplate_Execute(t *testing.T) {
 	tests := []struct {
 		name         string
 		templateText string
-		data         interface{}
+		data         any
 		wantContains []string
 		wantErr      bool
 	}{
 		{
 			name:         "simple field rendering",
 			templateText: "<p>Hello {{.Name}}!</p>",
-			data:         map[string]interface{}{"Name": "World"},
+			data:         map[string]any{"Name": "World"},
 			wantContains: []string{"<p>Hello World!</p>", "data-lvt-id=\""},
 			wantErr:      false,
 		},
@@ -275,8 +275,8 @@ func TestTemplate_ExecuteUpdates(t *testing.T) {
 	tests := []struct {
 		name             string
 		templateText     string
-		initialData      interface{}
-		updatedData      interface{}
+		initialData      any
+		updatedData      any
 		wantInitialKeys  []string
 		wantUpdateKeys   []string
 		wantStaticCached bool
@@ -284,8 +284,8 @@ func TestTemplate_ExecuteUpdates(t *testing.T) {
 		{
 			name:             "simple field update",
 			templateText:     "<p>Hello {{.Name}}!</p>",
-			initialData:      map[string]interface{}{"Name": "World"},
-			updatedData:      map[string]interface{}{"Name": "Alice"},
+			initialData:      map[string]any{"Name": "World"},
+			updatedData:      map[string]any{"Name": "Alice"},
 			wantInitialKeys:  []string{"s", "0"},
 			wantUpdateKeys:   []string{"0"}, // Only dynamic content should be in update
 			wantStaticCached: true,
@@ -324,8 +324,8 @@ func TestTemplate_ExecuteUpdates(t *testing.T) {
 		{
 			name:             "no changes - empty update",
 			templateText:     "<p>Hello {{.Name}}!</p>",
-			initialData:      map[string]interface{}{"Name": "World"},
-			updatedData:      map[string]interface{}{"Name": "World"}, // Same data
+			initialData:      map[string]any{"Name": "World"},
+			updatedData:      map[string]any{"Name": "World"}, // Same data
 			wantInitialKeys:  []string{"s", "0"},
 			wantUpdateKeys:   []string{}, // Empty update when no changes
 			wantStaticCached: true,
@@ -348,7 +348,7 @@ func TestTemplate_ExecuteUpdates(t *testing.T) {
 				return
 			}
 
-			var initialTree map[string]interface{}
+			var initialTree map[string]any
 			err = json.Unmarshal(initialBuf.Bytes(), &initialTree)
 			if err != nil {
 				t.Errorf("ExecuteUpdates() initial output is not valid JSON: %v", err)
@@ -375,7 +375,7 @@ func TestTemplate_ExecuteUpdates(t *testing.T) {
 			// Handle empty updates (no changes)
 			if len(tt.wantUpdateKeys) == 0 {
 				if len(updateBytes) > 2 { // Allow for empty JSON object "{}"
-					var updateTree map[string]interface{}
+					var updateTree map[string]any
 					err = json.Unmarshal(updateBytes, &updateTree)
 					if err == nil && len(updateTree) > 0 {
 						t.Errorf("ExecuteUpdates() should return empty update when data unchanged, got: %s", updateBytes)
@@ -384,7 +384,7 @@ func TestTemplate_ExecuteUpdates(t *testing.T) {
 				return
 			}
 
-			var updateTree map[string]interface{}
+			var updateTree map[string]any
 			err = json.Unmarshal(updateBytes, &updateTree)
 			if err != nil {
 				t.Errorf("ExecuteUpdates() update output is not valid JSON: %v", err)
@@ -452,12 +452,12 @@ func TestTemplate_CompileTimeTreeGeneration(t *testing.T) {
 			// ExecuteUpdates should work even without prior Execute call
 			// This tests the compile-time tree generation
 			var buf bytes.Buffer
-			err = tmpl.ExecuteUpdates(&buf, map[string]interface{}{
+			err = tmpl.ExecuteUpdates(&buf, map[string]any{
 				"Name":        "Test",
 				"ShowDetails": true,
 				"Details":     "Some details",
 				"Summary":     "Some summary",
-				"Items":       []map[string]interface{}{{"Text": "Item 1"}},
+				"Items":       []map[string]any{{"Text": "Item 1"}},
 			})
 
 			if err != nil {
@@ -465,7 +465,7 @@ func TestTemplate_CompileTimeTreeGeneration(t *testing.T) {
 				return
 			}
 
-			var tree map[string]interface{}
+			var tree map[string]any
 			err = json.Unmarshal(buf.Bytes(), &tree)
 			if err != nil {
 				t.Errorf("ExecuteUpdates() output is not valid JSON: %v", err)
@@ -489,36 +489,36 @@ func TestTemplate_RuntimeHydrationAndDiffing(t *testing.T) {
 	tests := []struct {
 		name          string
 		templateText  string
-		data1         interface{}
-		data2         interface{}
+		data1         any
+		data2         any
 		wantDifferent bool
 	}{
 		{
 			name:          "field value change",
 			templateText:  "<p>Hello {{.Name}}!</p>",
-			data1:         map[string]interface{}{"Name": "World"},
-			data2:         map[string]interface{}{"Name": "Alice"},
+			data1:         map[string]any{"Name": "World"},
+			data2:         map[string]any{"Name": "Alice"},
 			wantDifferent: true,
 		},
 		{
 			name:          "no change",
 			templateText:  "<p>Hello {{.Name}}!</p>",
-			data1:         map[string]interface{}{"Name": "World"},
-			data2:         map[string]interface{}{"Name": "World"},
+			data1:         map[string]any{"Name": "World"},
+			data2:         map[string]any{"Name": "World"},
 			wantDifferent: false,
 		},
 		{
 			name:          "structural change in conditional",
 			templateText:  "{{if .Show}}<div>{{.Content}}</div>{{else}}<span>Hidden</span>{{end}}",
-			data1:         map[string]interface{}{"Show": true, "Content": "Visible"},
-			data2:         map[string]interface{}{"Show": false, "Content": "Visible"},
+			data1:         map[string]any{"Show": true, "Content": "Visible"},
+			data2:         map[string]any{"Show": false, "Content": "Visible"},
 			wantDifferent: true,
 		},
 		{
 			name:          "list length change",
 			templateText:  "{{range .Items}}<li>{{.}}</li>{{end}}",
-			data1:         map[string]interface{}{"Items": []string{"A", "B"}},
-			data2:         map[string]interface{}{"Items": []string{"A", "B", "C"}},
+			data1:         map[string]any{"Items": []string{"A", "B"}},
+			data2:         map[string]any{"Items": []string{"A", "B", "C"}},
 			wantDifferent: true,
 		},
 	}
@@ -557,7 +557,7 @@ func TestTemplate_RuntimeHydrationAndDiffing(t *testing.T) {
 				}
 			} else {
 				// For no change, second call should return minimal/empty update
-				var tree2 map[string]interface{}
+				var tree2 map[string]any
 				if len(output2) > 2 { // More than empty JSON object
 					err = json.Unmarshal([]byte(output2), &tree2)
 					if err == nil && len(tree2) > 0 {
@@ -570,7 +570,7 @@ func TestTemplate_RuntimeHydrationAndDiffing(t *testing.T) {
 }
 
 // Helper function to extract keys from a map
-func getKeys(m map[string]interface{}) []string {
+func getKeys(m map[string]any) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
@@ -583,12 +583,12 @@ func TestTemplate_HtmlTemplateCompatibility(t *testing.T) {
 	tests := []struct {
 		name         string
 		templateText string
-		data         interface{}
+		data         any
 	}{
 		{
 			name:         "basic rendering compatibility",
 			templateText: "<p>Hello {{.Name}}!</p>",
-			data:         map[string]interface{}{"Name": "World"},
+			data:         map[string]any{"Name": "World"},
 		},
 	}
 
@@ -623,7 +623,7 @@ func BenchmarkTemplate_Execute(b *testing.B) {
 	if _, err := tmpl.Parse("<p>Hello {{.Name}}!</p>"); err != nil {
 		b.Fatalf("Parse failed: %v", err)
 	}
-	data := map[string]interface{}{"Name": "World"}
+	data := map[string]any{"Name": "World"}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -642,11 +642,11 @@ func BenchmarkTemplate_ExecuteUpdates(b *testing.B) {
 
 	// Prime the template
 	var initBuf bytes.Buffer
-	if err := tmpl.ExecuteUpdates(&initBuf, map[string]interface{}{"Name": "World"}); err != nil {
+	if err := tmpl.ExecuteUpdates(&initBuf, map[string]any{"Name": "World"}); err != nil {
 		b.Fatalf("Initial ExecuteUpdates failed: %v", err)
 	}
 
-	data := map[string]interface{}{"Name": "Alice"}
+	data := map[string]any{"Name": "Alice"}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -1066,7 +1066,7 @@ func TestFlattenTemplate_IntegrationWithTreeGeneration(t *testing.T) {
 	}
 
 	// Test with tree generation
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Title": "Test Page",
 		"Items": []map[string]string{
 			{"Name": "Item 1"},
@@ -1211,7 +1211,7 @@ func TestFlattenTemplate_ErrorCases(t *testing.T) {
 
 // ----- template_dynamic_structure_test.go -----
 // Helper function to execute template to HTML
-func executeToHTML(t *Template, data interface{}) (string, error) {
+func executeToHTML(t *Template, data any) (string, error) {
 	var buf bytes.Buffer
 	err := t.Execute(&buf, data)
 	if err != nil {
@@ -1221,14 +1221,14 @@ func executeToHTML(t *Template, data interface{}) (string, error) {
 }
 
 // Helper function to execute template to update (returns tree map)
-func executeToUpdate(t *Template, data interface{}) (map[string]interface{}, error) {
+func executeToUpdate(t *Template, data any) (map[string]any, error) {
 	var buf bytes.Buffer
 	err := t.ExecuteUpdates(&buf, data)
 	if err != nil {
 		return nil, err
 	}
 
-	var tree map[string]interface{}
+	var tree map[string]any
 	err = json.Unmarshal(buf.Bytes(), &tree)
 	if err != nil {
 		return nil, err
@@ -1321,7 +1321,7 @@ func TestDynamicModalStructure(t *testing.T) {
 
 			// Modal might be in various positions depending on template structure
 			// Look for nested structures that might contain the modal
-			if node, ok := v.(map[string]interface{}); ok {
+			if node, ok := v.(map[string]any); ok {
 				if statics, hasS := node["s"]; hasS {
 					hasStatics = true
 					if staticsArr, ok := statics.([]string); ok {
@@ -1416,7 +1416,7 @@ func TestDynamicModalStructure(t *testing.T) {
 				continue
 			}
 
-			if node, ok := v.(map[string]interface{}); ok {
+			if node, ok := v.(map[string]any); ok {
 				if statics, hasS := node["s"]; hasS {
 					if staticsArr, ok := statics.([]string); ok {
 						for _, s := range staticsArr {
@@ -1546,7 +1546,7 @@ func TestConditionalBranchSwitch(t *testing.T) {
 				continue
 			}
 
-			if node, ok := v.(map[string]interface{}); ok {
+			if node, ok := v.(map[string]any); ok {
 				if statics, hasS := node["s"]; hasS {
 					if staticsArr, ok := statics.([]string); ok {
 						for _, s := range staticsArr {
@@ -1700,13 +1700,13 @@ func findSubstring(s, substr string) bool {
 }
 
 // Helper to check for redundant statics in tree
-func checkForRedundantStatics(tree map[string]interface{}, keyword string) bool {
+func checkForRedundantStatics(tree map[string]any, keyword string) bool {
 	for k, v := range tree {
 		if k == "s" {
 			continue
 		}
 
-		if node, ok := v.(map[string]interface{}); ok {
+		if node, ok := v.(map[string]any); ok {
 			if statics, hasS := node["s"]; hasS {
 				if staticsArr, ok := statics.([]string); ok {
 					for _, s := range staticsArr {
@@ -1839,26 +1839,26 @@ func TestRangeDynamicDoesNotAppendContent(t *testing.T) {
 		t.Logf("update payload: %s", buf.String())
 	}
 
-	var tree map[string]interface{}
+	var tree map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
 		t.Fatalf("unmarshal tree: %v", err)
 	}
 
 	found := false
 	for _, v := range tree {
-		node, ok := v.(map[string]interface{})
+		node, ok := v.(map[string]any)
 		if !ok {
 			continue
 		}
-		rangeNode, ok := node["0"].(map[string]interface{})
+		rangeNode, ok := node["0"].(map[string]any)
 		if !ok {
 			continue
 		}
-		dItems, ok := rangeNode["d"].([]interface{})
+		dItems, ok := rangeNode["d"].([]any)
 		if !ok || len(dItems) == 0 {
 			continue
 		}
-		firstItem, ok := dItems[0].(map[string]interface{})
+		firstItem, ok := dItems[0].(map[string]any)
 		if !ok {
 			continue
 		}
@@ -1890,7 +1890,7 @@ func TestTemplateGenerateInitialTreeFallsBackForBlockWithDynamicTemplate(t *test
 	dynamicTemplateStr := `{{define "layout"}}<main>{{block "region" .}}{{template (printf "%s" .PartialName) .}}{{end}}</main>{{end}}{{define "content"}}<p>{{.Message}}</p>{{end}}{{template "layout" .}}`
 	tmpl.templateStr = dynamicTemplateStr
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"PartialName": "content",
 		"Message":     "hello",
 	}
@@ -1935,7 +1935,7 @@ func TestTemplateGenerateInitialTreeFallsBackForChannelRange(t *testing.T) {
 	events <- "alpha"
 	events <- "beta"
 	close(events)
-	data := map[string]interface{}{"Events": (<-chan string)(events)}
+	data := map[string]any{"Events": (<-chan string)(events)}
 
 	ctx := build.NewContext()
 	ctx.FuncMap = tmpl.funcs
@@ -1977,7 +1977,7 @@ func TestTemplateGenerateInitialTreeFallsBackForChannelRangeWithDecls(t *testing
 	events <- "alpha"
 	events <- "beta"
 	close(events)
-	data := map[string]interface{}{"Events": (<-chan string)(events)}
+	data := map[string]any{"Events": (<-chan string)(events)}
 
 	ctx := build.NewContext()
 	ctx.FuncMap = tmpl.funcs
@@ -2090,7 +2090,7 @@ func TestTemplateGenerateInitialTreeFallsBackForRangeBreak(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	data := map[string]interface{}{"Items": []string{"alpha", "stop", "gamma"}}
+	data := map[string]any{"Items": []string{"alpha", "stop", "gamma"}}
 
 	ctx := build.NewContext()
 	ctx.FuncMap = tmpl.funcs
@@ -2128,7 +2128,7 @@ func TestTemplateGenerateInitialTreeFallsBackForRangeContinue(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	data := map[string]interface{}{"Items": []string{"alpha", "skip", "gamma"}}
+	data := map[string]any{"Items": []string{"alpha", "skip", "gamma"}}
 
 	ctx := build.NewContext()
 	ctx.FuncMap = tmpl.funcs
@@ -2174,7 +2174,7 @@ func TestTemplateGenerateInitialTreeFallsBackForDynamicTemplateInvocation(t *tes
 	// what triggers the fallback path we want to guard.
 	tmpl.templateStr = dynamicTemplateStr
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"PartialName": "content",
 		"Message":     "hello",
 	}
@@ -2264,13 +2264,13 @@ func TestTemplateParity_DollarInRange(t *testing.T) {
 	tests := []struct {
 		name     string
 		tmpl     string
-		data     interface{}
+		data     any
 		expected string
 	}{
 		{
 			name: "$.Field in range",
 			tmpl: `{{range .Items}}{{.Name}}-{{$.Title}}{{end}}`,
-			data: map[string]interface{}{
+			data: map[string]any{
 				"Title": "ROOT",
 				"Items": []map[string]string{
 					{"Name": "A"},
@@ -2282,7 +2282,7 @@ func TestTemplateParity_DollarInRange(t *testing.T) {
 		{
 			name: "$.Field in if inside range",
 			tmpl: `{{range .Messages}}{{if eq .Username $.CurrentUser}}mine{{else}}other{{end}}{{end}}`,
-			data: map[string]interface{}{
+			data: map[string]any{
 				"CurrentUser": "alice",
 				"Messages": []map[string]string{
 					{"Username": "alice"},
@@ -2295,9 +2295,9 @@ func TestTemplateParity_DollarInRange(t *testing.T) {
 		{
 			name: "nested range with $",
 			tmpl: `{{range .Outer}}{{range .Inner}}{{.}}-{{$.Root}}{{end}}{{end}}`,
-			data: map[string]interface{}{
+			data: map[string]any{
 				"Root": "TOP",
-				"Outer": []map[string]interface{}{
+				"Outer": []map[string]any{
 					{
 						"Inner": []string{"a", "b"},
 					},
@@ -2308,7 +2308,7 @@ func TestTemplateParity_DollarInRange(t *testing.T) {
 		{
 			name: "$ with variable in range",
 			tmpl: `{{range $i, $v := .Items}}{{$i}}: {{$v.Name}}-{{$.Title}}{{end}}`,
-			data: map[string]interface{}{
+			data: map[string]any{
 				"Title": "ROOT",
 				"Items": []map[string]string{
 					{"Name": "A"},
@@ -2371,13 +2371,13 @@ func TestTemplateParity_DotInRange(t *testing.T) {
 	tests := []struct {
 		name     string
 		tmpl     string
-		data     interface{}
+		data     any
 		expected string
 	}{
 		{
 			name: "simple . in range",
 			tmpl: `{{range .Items}}{{.}}{{end}}`,
-			data: map[string]interface{}{
+			data: map[string]any{
 				"Items": []string{"a", "b", "c"},
 			},
 			expected: "abc",
@@ -2385,7 +2385,7 @@ func TestTemplateParity_DotInRange(t *testing.T) {
 		{
 			name: ". field access in range",
 			tmpl: `{{range .Items}}{{.Name}}{{end}}`,
-			data: map[string]interface{}{
+			data: map[string]any{
 				"Items": []map[string]string{
 					{"Name": "Alice"},
 					{"Name": "Bob"},
@@ -2466,13 +2466,13 @@ func TestTemplateParity_VariablesInRange(t *testing.T) {
 	tests := []struct {
 		name     string
 		tmpl     string
-		data     interface{}
+		data     any
 		expected string
 	}{
 		{
 			name: "single variable in range",
 			tmpl: `{{range $v := .Items}}{{$v}}{{end}}`,
-			data: map[string]interface{}{
+			data: map[string]any{
 				"Items": []string{"x", "y", "z"},
 			},
 			expected: "xyz",
@@ -2480,7 +2480,7 @@ func TestTemplateParity_VariablesInRange(t *testing.T) {
 		{
 			name: "index and value variables in range",
 			tmpl: `{{range $i, $v := .Items}}{{$i}}:{{$v}} {{end}}`,
-			data: map[string]interface{}{
+			data: map[string]any{
 				"Items": []string{"a", "b"},
 			},
 			expected: "0:a 1:b ",
@@ -2488,7 +2488,7 @@ func TestTemplateParity_VariablesInRange(t *testing.T) {
 		{
 			name: "variables with $ in if condition",
 			tmpl: `{{range $i, $v := .Items}}{{if eq $v $.Target}}{{$i}}{{end}}{{end}}`,
-			data: map[string]interface{}{
+			data: map[string]any{
 				"Target": "b",
 				"Items":  []string{"a", "b", "c"},
 			},
@@ -2534,7 +2534,7 @@ func TestTemplateParity_VariablesInRange(t *testing.T) {
 
 // ----- template_parity_complete_test.go -----
 // parityTest runs a parity check between standard Go template and LiveTemplate
-func parityTest(t *testing.T, tmpl string, data interface{}) {
+func parityTest(t *testing.T, tmpl string, data any) {
 	t.Helper()
 
 	// Test with standard Go template
@@ -2577,32 +2577,32 @@ func TestParity_ControlStructures_If(t *testing.T) {
 	tests := []struct {
 		name string
 		tmpl string
-		data interface{}
+		data any
 	}{
 		{
 			name: "if basic true",
 			tmpl: `{{if .Show}}visible{{end}}`,
-			data: map[string]interface{}{"Show": true},
+			data: map[string]any{"Show": true},
 		},
 		{
 			name: "if basic false",
 			tmpl: `{{if .Show}}visible{{end}}`,
-			data: map[string]interface{}{"Show": false},
+			data: map[string]any{"Show": false},
 		},
 		{
 			name: "if-else true branch",
 			tmpl: `{{if .Show}}yes{{else}}no{{end}}`,
-			data: map[string]interface{}{"Show": true},
+			data: map[string]any{"Show": true},
 		},
 		{
 			name: "if-else false branch",
 			tmpl: `{{if .Show}}yes{{else}}no{{end}}`,
-			data: map[string]interface{}{"Show": false},
+			data: map[string]any{"Show": false},
 		},
 		{
 			name: "if-else-if chain",
 			tmpl: `{{if eq .Status "active"}}active{{else if eq .Status "pending"}}pending{{else}}other{{end}}`,
-			data: map[string]interface{}{"Status": "pending"},
+			data: map[string]any{"Status": "pending"},
 		},
 	}
 
@@ -2617,27 +2617,27 @@ func TestParity_ControlStructures_Range(t *testing.T) {
 	tests := []struct {
 		name string
 		tmpl string
-		data interface{}
+		data any
 	}{
 		{
 			name: "range over slice",
 			tmpl: `{{range .Items}}{{.}}{{end}}`,
-			data: map[string]interface{}{"Items": []string{"a", "b", "c"}},
+			data: map[string]any{"Items": []string{"a", "b", "c"}},
 		},
 		{
 			name: "range with else - non-empty",
 			tmpl: `{{range .Items}}{{.}}{{else}}empty{{end}}`,
-			data: map[string]interface{}{"Items": []string{"a"}},
+			data: map[string]any{"Items": []string{"a"}},
 		},
 		{
 			name: "range with else - empty",
 			tmpl: `{{range .Items}}{{.}}{{else}}empty{{end}}`,
-			data: map[string]interface{}{"Items": []string{}},
+			data: map[string]any{"Items": []string{}},
 		},
 		{
 			name: "range over map",
 			tmpl: `{{range $k, $v := .Map}}{{$k}}={{$v}} {{end}}`,
-			data: map[string]interface{}{"Map": map[string]string{"a": "1", "b": "2"}},
+			data: map[string]any{"Map": map[string]string{"a": "1", "b": "2"}},
 		},
 	}
 
@@ -2652,22 +2652,22 @@ func TestParity_ControlStructures_With(t *testing.T) {
 	tests := []struct {
 		name string
 		tmpl string
-		data interface{}
+		data any
 	}{
 		{
 			name: "with basic",
 			tmpl: `{{with .User}}{{.Name}}{{end}}`,
-			data: map[string]interface{}{"User": map[string]string{"Name": "Alice"}},
+			data: map[string]any{"User": map[string]string{"Name": "Alice"}},
 		},
 		{
 			name: "with else - has value",
 			tmpl: `{{with .User}}{{.Name}}{{else}}no user{{end}}`,
-			data: map[string]interface{}{"User": map[string]string{"Name": "Bob"}},
+			data: map[string]any{"User": map[string]string{"Name": "Bob"}},
 		},
 		{
 			name: "with else - nil value",
 			tmpl: `{{with .User}}{{.Name}}{{else}}no user{{end}}`,
-			data: map[string]interface{}{"User": nil},
+			data: map[string]any{"User": nil},
 		},
 	}
 
@@ -2682,7 +2682,7 @@ func TestParity_ControlStructures_Template(t *testing.T) {
 	tests := []struct {
 		name string
 		tmpl string
-		data interface{}
+		data any
 	}{
 		{
 			name: "template with define",
@@ -2711,17 +2711,17 @@ func TestParity_RootVariable_InRange(t *testing.T) {
 	tests := []struct {
 		name string
 		tmpl string
-		data interface{}
+		data any
 	}{
 		{
 			name: "$ simple field in range",
 			tmpl: `{{range .Items}}{{.}}-{{$.Title}}{{end}}`,
-			data: map[string]interface{}{"Title": "ROOT", "Items": []string{"a", "b"}},
+			data: map[string]any{"Title": "ROOT", "Items": []string{"a", "b"}},
 		},
 		{
 			name: "$ in if inside range",
 			tmpl: `{{range .Users}}{{if eq .Name $.Admin}}admin{{else}}user{{end}}{{end}}`,
-			data: map[string]interface{}{
+			data: map[string]any{
 				"Admin": "alice",
 				"Users": []map[string]string{{"Name": "alice"}, {"Name": "bob"}},
 			},
@@ -2729,9 +2729,9 @@ func TestParity_RootVariable_InRange(t *testing.T) {
 		{
 			name: "$ nested ranges",
 			tmpl: `{{range .L1}}{{range .L2}}{{.}}-{{$.Root}}{{end}}{{end}}`,
-			data: map[string]interface{}{
+			data: map[string]any{
 				"Root": "TOP",
-				"L1": []map[string]interface{}{
+				"L1": []map[string]any{
 					{"L2": []string{"a", "b"}},
 				},
 			},
@@ -2739,7 +2739,7 @@ func TestParity_RootVariable_InRange(t *testing.T) {
 		{
 			name: "$ with range variables",
 			tmpl: `{{range $i, $v := .Items}}{{$i}}:{{$v}}-{{$.Title}}{{end}}`,
-			data: map[string]interface{}{"Title": "ROOT", "Items": []string{"x", "y"}},
+			data: map[string]any{"Title": "ROOT", "Items": []string{"x", "y"}},
 		},
 	}
 
@@ -2754,12 +2754,12 @@ func TestParity_RootVariable_InWith(t *testing.T) {
 	tests := []struct {
 		name string
 		tmpl string
-		data interface{}
+		data any
 	}{
 		{
 			name: "$ in with",
 			tmpl: `{{with .User}}{{.Name}}-{{$.Title}}{{end}}`,
-			data: map[string]interface{}{
+			data: map[string]any{
 				"Title": "ROOT",
 				"User":  map[string]string{"Name": "Alice"},
 			},
@@ -2767,7 +2767,7 @@ func TestParity_RootVariable_InWith(t *testing.T) {
 		{
 			name: "$ in with else branch",
 			tmpl: `{{with .User}}{{.Name}}{{else}}{{$.Default}}{{end}}`,
-			data: map[string]interface{}{"Default": "NONE", "User": nil},
+			data: map[string]any{"Default": "NONE", "User": nil},
 		},
 	}
 
@@ -2782,12 +2782,12 @@ func TestParity_RootVariable_NestedAccess(t *testing.T) {
 	tests := []struct {
 		name string
 		tmpl string
-		data interface{}
+		data any
 	}{
 		{
 			name: "$ nested field access",
 			tmpl: `{{range .Items}}{{$.Config.Name}}{{end}}`,
-			data: map[string]interface{}{
+			data: map[string]any{
 				"Config": map[string]string{"Name": "App"},
 				"Items":  []string{"a"},
 			},
@@ -2795,8 +2795,8 @@ func TestParity_RootVariable_NestedAccess(t *testing.T) {
 		{
 			name: "$ deep nested access",
 			tmpl: `{{range .Items}}{{$.A.B.C}}{{end}}`,
-			data: map[string]interface{}{
-				"A":     map[string]interface{}{"B": map[string]string{"C": "deep"}},
+			data: map[string]any{
+				"A":     map[string]any{"B": map[string]string{"C": "deep"}},
 				"Items": []string{"x"},
 			},
 		},
@@ -2817,27 +2817,27 @@ func TestParity_Variables_Declaration(t *testing.T) {
 	tests := []struct {
 		name string
 		tmpl string
-		data interface{}
+		data any
 	}{
 		{
 			name: "variable declaration",
 			tmpl: `{{$x := .Value}}{{$x}}`,
-			data: map[string]interface{}{"Value": "test"},
+			data: map[string]any{"Value": "test"},
 		},
 		{
 			name: "variable in pipeline",
 			tmpl: `{{$x := .Value}}{{$x | printf "Value: %s"}}`,
-			data: map[string]interface{}{"Value": "data"},
+			data: map[string]any{"Value": "data"},
 		},
 		{
 			name: "range single variable",
 			tmpl: `{{range $v := .Items}}{{$v}}{{end}}`,
-			data: map[string]interface{}{"Items": []string{"a", "b"}},
+			data: map[string]any{"Items": []string{"a", "b"}},
 		},
 		{
 			name: "range index and value",
 			tmpl: `{{range $i, $v := .Items}}{{$i}}:{{$v}} {{end}}`,
-			data: map[string]interface{}{"Items": []string{"x", "y"}},
+			data: map[string]any{"Items": []string{"x", "y"}},
 		},
 	}
 
@@ -2852,12 +2852,12 @@ func TestParity_Variables_WithDollar(t *testing.T) {
 	tests := []struct {
 		name string
 		tmpl string
-		data interface{}
+		data any
 	}{
 		{
 			name: "variable with $ in condition",
 			tmpl: `{{range $i, $v := .Items}}{{if eq $v $.Target}}{{$i}}{{end}}{{end}}`,
-			data: map[string]interface{}{
+			data: map[string]any{
 				"Target": "b",
 				"Items":  []string{"a", "b", "c"},
 			},
@@ -2865,7 +2865,7 @@ func TestParity_Variables_WithDollar(t *testing.T) {
 		{
 			name: "multiple variables with $",
 			tmpl: `{{range $i, $v := .Items}}{{$i}}-{{$v}}-{{$.Root}}{{end}}`,
-			data: map[string]interface{}{
+			data: map[string]any{
 				"Root":  "BASE",
 				"Items": []string{"x", "y"},
 			},
@@ -2887,27 +2887,27 @@ func TestParity_Functions_Comparison(t *testing.T) {
 	tests := []struct {
 		name string
 		tmpl string
-		data interface{}
+		data any
 	}{
 		{
 			name: "eq with $",
 			tmpl: `{{range .Items}}{{if eq . $.Target}}match{{end}}{{end}}`,
-			data: map[string]interface{}{"Target": "b", "Items": []string{"a", "b"}},
+			data: map[string]any{"Target": "b", "Items": []string{"a", "b"}},
 		},
 		{
 			name: "ne with $",
 			tmpl: `{{if ne .Status $.Expected}}different{{end}}`,
-			data: map[string]interface{}{"Status": "active", "Expected": "pending"},
+			data: map[string]any{"Status": "active", "Expected": "pending"},
 		},
 		{
 			name: "lt with $",
 			tmpl: `{{if lt .Count $.Limit}}under{{end}}`,
-			data: map[string]interface{}{"Count": 5, "Limit": 10},
+			data: map[string]any{"Count": 5, "Limit": 10},
 		},
 		{
 			name: "gt with $",
 			tmpl: `{{if gt .Count $.Min}}over{{end}}`,
-			data: map[string]interface{}{"Count": 15, "Min": 10},
+			data: map[string]any{"Count": 15, "Min": 10},
 		},
 	}
 
@@ -2922,22 +2922,22 @@ func TestParity_Functions_Logical(t *testing.T) {
 	tests := []struct {
 		name string
 		tmpl string
-		data interface{}
+		data any
 	}{
 		{
 			name: "and with $",
 			tmpl: `{{if and .Active $.Enabled}}yes{{end}}`,
-			data: map[string]interface{}{"Active": true, "Enabled": true},
+			data: map[string]any{"Active": true, "Enabled": true},
 		},
 		{
 			name: "or with $",
 			tmpl: `{{if or .A $.B}}yes{{end}}`,
-			data: map[string]interface{}{"A": false, "B": true},
+			data: map[string]any{"A": false, "B": true},
 		},
 		{
 			name: "not with $",
 			tmpl: `{{if not $.Disabled}}enabled{{end}}`,
-			data: map[string]interface{}{"Disabled": false},
+			data: map[string]any{"Disabled": false},
 		},
 	}
 
@@ -2952,27 +2952,27 @@ func TestParity_Functions_BuiltIn(t *testing.T) {
 	tests := []struct {
 		name string
 		tmpl string
-		data interface{}
+		data any
 	}{
 		{
 			name: "len with $",
 			tmpl: `{{len $.Items}}`,
-			data: map[string]interface{}{"Items": []string{"a", "b", "c"}},
+			data: map[string]any{"Items": []string{"a", "b", "c"}},
 		},
 		{
 			name: "index with $",
 			tmpl: `{{index $.Items 1}}`,
-			data: map[string]interface{}{"Items": []string{"a", "b", "c"}},
+			data: map[string]any{"Items": []string{"a", "b", "c"}},
 		},
 		{
 			name: "printf with $",
 			tmpl: `{{printf "Count: %d" $.Count}}`,
-			data: map[string]interface{}{"Count": 42},
+			data: map[string]any{"Count": 42},
 		},
 		{
 			name: "print with $",
 			tmpl: `{{print $.Value}}`,
-			data: map[string]interface{}{"Value": "test"},
+			data: map[string]any{"Value": "test"},
 		},
 	}
 
@@ -2991,13 +2991,13 @@ func TestParity_FieldAccess_Chained(t *testing.T) {
 	tests := []struct {
 		name string
 		tmpl string
-		data interface{}
+		data any
 	}{
 		{
 			name: "chained field access",
 			tmpl: `{{.User.Profile.Name}}`,
-			data: map[string]interface{}{
-				"User": map[string]interface{}{
+			data: map[string]any{
+				"User": map[string]any{
 					"Profile": map[string]string{"Name": "Alice"},
 				},
 			},
@@ -3005,8 +3005,8 @@ func TestParity_FieldAccess_Chained(t *testing.T) {
 		{
 			name: "chained with $ in range",
 			tmpl: `{{range .Items}}{{$.Config.App.Name}}{{end}}`,
-			data: map[string]interface{}{
-				"Config": map[string]interface{}{
+			data: map[string]any{
+				"Config": map[string]any{
 					"App": map[string]string{"Name": "MyApp"},
 				},
 				"Items": []string{"x"},
@@ -3025,20 +3025,20 @@ func TestParity_FieldAccess_OnVariable(t *testing.T) {
 	tests := []struct {
 		name string
 		tmpl string
-		data interface{}
+		data any
 	}{
 		{
 			name: "field access on variable",
 			tmpl: `{{range $item := .Items}}{{$item.Name}}{{end}}`,
-			data: map[string]interface{}{
+			data: map[string]any{
 				"Items": []map[string]string{{"Name": "A"}, {"Name": "B"}},
 			},
 		},
 		{
 			name: "chained on variable",
 			tmpl: `{{range $u := .Users}}{{$u.Profile.Name}}{{end}}`,
-			data: map[string]interface{}{
-				"Users": []map[string]interface{}{
+			data: map[string]any{
+				"Users": []map[string]any{
 					{"Profile": map[string]string{"Name": "Alice"}},
 				},
 			},
@@ -3060,17 +3060,17 @@ func TestParity_Pipelines_Basic(t *testing.T) {
 	tests := []struct {
 		name string
 		tmpl string
-		data interface{}
+		data any
 	}{
 		{
 			name: "simple pipeline",
 			tmpl: `{{.Value | printf "Result: %s"}}`,
-			data: map[string]interface{}{"Value": "test"},
+			data: map[string]any{"Value": "test"},
 		},
 		{
 			name: "chained pipeline",
 			tmpl: `{{.Value | printf "%s" | printf "Final: %s"}}`,
-			data: map[string]interface{}{"Value": "data"},
+			data: map[string]any{"Value": "data"},
 		},
 		// SKIP: Known limitation - LiveTemplate adds internal `lvt` field to data
 		// When printing entire $ structure, it includes this field
@@ -3083,7 +3083,7 @@ func TestParity_Pipelines_Basic(t *testing.T) {
 		{
 			name: "$.Field in pipeline",
 			tmpl: `{{range .Items}}{{$.Title | printf "Title: %s"}}{{end}}`,
-			data: map[string]interface{}{"Title": "ROOT", "Items": []string{"a"}},
+			data: map[string]any{"Title": "ROOT", "Items": []string{"a"}},
 		},
 	}
 
@@ -3098,17 +3098,17 @@ func TestParity_Pipelines_WithVariables(t *testing.T) {
 	tests := []struct {
 		name string
 		tmpl string
-		data interface{}
+		data any
 	}{
 		{
 			name: "variable in pipeline",
 			tmpl: `{{range $v := .Items}}{{$v | printf "%s"}}{{end}}`,
-			data: map[string]interface{}{"Items": []string{"a", "b"}},
+			data: map[string]any{"Items": []string{"a", "b"}},
 		},
 		{
 			name: "variable and $ in pipeline",
 			tmpl: `{{range $v := .Items}}{{$v | printf "%s"}} {{$.Title | printf "%s"}}{{end}}`,
-			data: map[string]interface{}{"Title": "T", "Items": []string{"x"}},
+			data: map[string]any{"Title": "T", "Items": []string{"x"}},
 		},
 	}
 
@@ -3127,27 +3127,27 @@ func TestParity_EdgeCases_Empty(t *testing.T) {
 	tests := []struct {
 		name string
 		tmpl string
-		data interface{}
+		data any
 	}{
 		{
 			name: "empty range",
 			tmpl: `{{range .Items}}{{.}}{{end}}`,
-			data: map[string]interface{}{"Items": []string{}},
+			data: map[string]any{"Items": []string{}},
 		},
 		{
 			name: "nil with",
 			tmpl: `{{with .User}}{{.}}{{else}}none{{end}}`,
-			data: map[string]interface{}{"User": nil},
+			data: map[string]any{"User": nil},
 		},
 		{
 			name: "zero value",
 			tmpl: `{{if .Count}}yes{{else}}no{{end}}`,
-			data: map[string]interface{}{"Count": 0},
+			data: map[string]any{"Count": 0},
 		},
 		{
 			name: "empty string",
 			tmpl: `{{if .Value}}yes{{else}}no{{end}}`,
-			data: map[string]interface{}{"Value": ""},
+			data: map[string]any{"Value": ""},
 		},
 	}
 
@@ -3162,17 +3162,17 @@ func TestParity_EdgeCases_RangeWithDollar(t *testing.T) {
 	tests := []struct {
 		name string
 		tmpl string
-		data interface{}
+		data any
 	}{
 		{
 			name: "empty range with $ in body",
 			tmpl: `{{range .Items}}{{$.Field}}{{end}}`,
-			data: map[string]interface{}{"Field": "value", "Items": []string{}},
+			data: map[string]any{"Field": "value", "Items": []string{}},
 		},
 		{
 			name: "range else with $",
 			tmpl: `{{range .Items}}item{{else}}{{$.Default}}{{end}}`,
-			data: map[string]interface{}{"Default": "EMPTY", "Items": []string{}},
+			data: map[string]any{"Default": "EMPTY", "Items": []string{}},
 		},
 	}
 
@@ -3265,7 +3265,7 @@ func TestKeyInjectionStabilityAcrossChanges(t *testing.T) {
 
 	// Generate a few keys to show the pattern
 	keys := make([]string, 3)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		keys[i] = compat.GenerateWrapperKey(kg)
 	}
 
@@ -3280,12 +3280,12 @@ func TestKeyInjectionUniversalCompatibility(t *testing.T) {
 	kg := compat.NewKeyGenerator()
 
 	// Test that wrapper approach works with ANY data type
-	testCases := []interface{}{
-		42,                                     // primitive int
-		"hello",                                // primitive string
-		true,                                   // primitive bool
-		[]int{1, 2, 3},                         // slice
-		map[string]interface{}{"key": "value"}, // map
+	testCases := []any{
+		42,                             // primitive int
+		"hello",                        // primitive string
+		true,                           // primitive bool
+		[]int{1, 2, 3},                 // slice
+		map[string]any{"key": "value"}, // map
 		struct {
 			Count  int
 			Active bool
@@ -3350,7 +3350,7 @@ func reconstructHTML(tree *build.TreeNode) string {
 						if nestedTree, ok := val.(*build.TreeNode); ok {
 							result.WriteString(reconstructHTML(nestedTree))
 						} else {
-							result.WriteString(fmt.Sprintf("%v", val))
+							fmt.Fprintf(&result, "%v", val)
 						}
 					}
 				}
@@ -3373,7 +3373,7 @@ func reconstructHTML(tree *build.TreeNode) string {
 				if nestedTree, ok := val.(*build.TreeNode); ok {
 					result.WriteString(reconstructHTML(nestedTree))
 				} else {
-					result.WriteString(fmt.Sprintf("%v", val))
+					fmt.Fprintf(&result, "%v", val)
 				}
 			}
 		}

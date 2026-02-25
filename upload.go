@@ -60,7 +60,7 @@ type UploadEntry = uploadtypes.UploadEntry
 // Implemented by internal/upload.Registry.
 type uploadRegistry interface {
 	CreateUpload(name string, config UploadConfig) error
-	GetUpload(name string) interface{}
+	GetUpload(name string) any
 	// UploadAccessor methods for Context
 	HasUploads(name string) bool
 	GetCompletedUploads(name string) []*uploadtypes.UploadEntry

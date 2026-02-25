@@ -36,23 +36,23 @@ type message = send.ActionMessage
 
 // ActionData wraps action data with utilities for binding and validation
 type ActionData struct {
-	raw   map[string]interface{}
+	raw   map[string]any
 	bytes []byte // Cached JSON for efficient binding
 }
 
 // newActionData creates ActionData from a map (internal use only)
-func newActionData(data map[string]interface{}) *ActionData {
+func newActionData(data map[string]any) *ActionData {
 	return &ActionData{raw: data}
 }
 
 // NewActionData creates ActionData from a map
 // This is the public version for use by external packages like livepage
-func NewActionData(data map[string]interface{}) *ActionData {
+func NewActionData(data map[string]any) *ActionData {
 	return newActionData(data)
 }
 
 // Bind unmarshals the data into a struct
-func (a *ActionData) Bind(v interface{}) error {
+func (a *ActionData) Bind(v any) error {
 	// Lazy marshal to JSON
 	if a.bytes == nil {
 		var err error
@@ -66,7 +66,7 @@ func (a *ActionData) Bind(v interface{}) error {
 }
 
 // BindAndValidate binds data to struct and validates it in one step
-func (a *ActionData) BindAndValidate(v interface{}, validate *validator.Validate) error {
+func (a *ActionData) BindAndValidate(v any, validate *validator.Validate) error {
 	if err := a.Bind(v); err != nil {
 		return err
 	}
@@ -79,7 +79,7 @@ func (a *ActionData) BindAndValidate(v interface{}, validate *validator.Validate
 }
 
 // Raw returns the underlying map for direct access
-func (a *ActionData) Raw() map[string]interface{} {
+func (a *ActionData) Raw() map[string]any {
 	return a.raw
 }
 
@@ -225,7 +225,7 @@ func (a *ActionData) Has(key string) bool {
 }
 
 // Get returns the raw value for a key
-func (a *ActionData) Get(key string) interface{} {
+func (a *ActionData) Get(key string) any {
 	return a.raw[key]
 }
 

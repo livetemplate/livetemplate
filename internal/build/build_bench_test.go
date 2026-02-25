@@ -20,7 +20,7 @@ func createTestTree(depth, breadth int) *TreeNode {
 	statics[breadth] = "</div>"
 
 	node := NewTreeNodeWithStatics(statics)
-	for i := 0; i < breadth; i++ {
+	for i := range breadth {
 		node.SetDynamic(fmt.Sprintf("%d", i), createTestTree(depth-1, breadth))
 	}
 

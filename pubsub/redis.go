@@ -149,7 +149,7 @@ func (b *RedisBroadcaster) PublishToUser(userID string, payload []byte) error {
 //
 // This dispatches to the matching store method on receiving instances, enabling
 // server-initiated actions to work across a distributed deployment.
-func (b *RedisBroadcaster) PublishServerAction(userID string, action string, data map[string]interface{}) error {
+func (b *RedisBroadcaster) PublishServerAction(userID string, action string, data map[string]any) error {
 	if userID == "" {
 		return fmt.Errorf("userID cannot be empty")
 	}

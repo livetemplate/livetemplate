@@ -2,6 +2,7 @@ package keys
 
 import (
 	"math"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -82,10 +83,10 @@ func TestGenerator_LoadExistingKeys(t *testing.T) {
 	kg := NewGenerator()
 
 	// Simulate old range data with keys
-	oldData := []interface{}{
-		map[string]interface{}{"0": "1", "1": "item1"},
-		map[string]interface{}{"0": "3", "1": "item2"},
-		map[string]interface{}{"0": "5", "1": "item3"},
+	oldData := []any{
+		map[string]any{"0": "1", "1": "item1"},
+		map[string]any{"0": "3", "1": "item2"},
+		map[string]any{"0": "5", "1": "item3"},
 	}
 
 	err := kg.LoadExistingKeys(oldData)
@@ -114,10 +115,10 @@ func TestGenerator_LoadExistingKeys_NonNumeric(t *testing.T) {
 
 	// Mix of numeric and non-numeric keys
 	// Non-numeric keys (UUIDs, content hashes) are common in practice
-	oldData := []interface{}{
-		map[string]interface{}{"0": "uuid-123", "1": "item1"},
-		map[string]interface{}{"0": "2", "1": "item2"},
-		map[string]interface{}{"0": "abc", "1": "item3"},
+	oldData := []any{
+		map[string]any{"0": "uuid-123", "1": "item1"},
+		map[string]any{"0": "2", "1": "item2"},
+		map[string]any{"0": "abc", "1": "item3"},
 	}
 
 	err := kg.LoadExistingKeys(oldData)
@@ -150,7 +151,7 @@ func TestGenerator_Uniqueness(t *testing.T) {
 	generated := make(map[string]bool)
 	count := 1000
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		key, err := kg.NextKey()
 		if err != nil {
 			t.Fatalf("NextKey() at iteration %d: %v", i, err)
@@ -330,13 +331,7 @@ func TestDefaultKeyAttributes(t *testing.T) {
 	// Check some expected defaults exist
 	expectedDefaults := []string{"id=\"", "data-key=\"", "key=\""}
 	for _, expected := range expectedDefaults {
-		found := false
-		for _, attr := range DefaultKeyAttributes {
-			if attr == expected {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(DefaultKeyAttributes, expected)
 		if !found {
 			t.Errorf("Expected default attribute %q not found in DefaultKeyAttributes", expected)
 		}
@@ -354,9 +349,9 @@ func TestGenerator_Concurrent(t *testing.T) {
 	errChan := make(chan error, numGoroutines*keysPerGoroutine)
 
 	// Launch goroutines to generate keys concurrently
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
-			for j := 0; j < keysPerGoroutine; j++ {
+			for range keysPerGoroutine {
 				key, err := kg.NextKey()
 				if err != nil {
 					errChan <- err
@@ -391,31 +386,31 @@ func TestGenerator_Concurrent(t *testing.T) {
 func TestLoadExistingKeys_InvalidData(t *testing.T) {
 	tests := []struct {
 		name     string
-		data     []interface{}
+		data     []any
 		wantErr  bool
 		errMatch string
 	}{
 		{
 			name:     "not a map",
-			data:     []interface{}{"not a map"},
+			data:     []any{"not a map"},
 			wantErr:  true,
 			errMatch: "is not a map",
 		},
 		{
 			name:     "missing key position",
-			data:     []interface{}{map[string]interface{}{"1": "value"}},
+			data:     []any{map[string]any{"1": "value"}},
 			wantErr:  true,
 			errMatch: "missing key at position",
 		},
 		{
 			name:     "key not a string",
-			data:     []interface{}{map[string]interface{}{"0": 123}},
+			data:     []any{map[string]any{"0": 123}},
 			wantErr:  true,
 			errMatch: "is not a string",
 		},
 		{
 			name:    "valid data",
-			data:    []interface{}{map[string]interface{}{"0": "1", "1": "item"}},
+			data:    []any{map[string]any{"0": "1", "1": "item"}},
 			wantErr: false,
 		},
 	}

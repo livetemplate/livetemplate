@@ -16,10 +16,10 @@ func TestLoadMoreScenario(t *testing.T) {
 	}
 
 	// Create 20 items for oldTree (initial page)
-	oldItems := make([]interface{}, 20)
-	for i := 0; i < 20; i++ {
+	oldItems := make([]any, 20)
+	for i := range 20 {
 		oldItems[i] = &TreeNode{
-			Dynamics: map[string]interface{}{
+			Dynamics: map[string]any{
 				"0": fmt.Sprintf("id-%d", i),    // ID
 				"1": fmt.Sprintf("Title %d", i), // Title
 			},
@@ -27,10 +27,10 @@ func TestLoadMoreScenario(t *testing.T) {
 	}
 
 	// Create 50 items for newTree (after load_more)
-	newItems := make([]interface{}, 50)
-	for i := 0; i < 50; i++ {
+	newItems := make([]any, 50)
+	for i := range 50 {
 		newItems[i] = &TreeNode{
-			Dynamics: map[string]interface{}{
+			Dynamics: map[string]any{
 				"0": fmt.Sprintf("id-%d", i),
 				"1": fmt.Sprintf("Title %d", i),
 			},
@@ -51,12 +51,12 @@ func TestLoadMoreScenario(t *testing.T) {
 	// Wrap in conditional wrapper (field 15) -> field 0
 	oldConditional := &TreeNode{
 		Statics:  []string{"", ""}, // Conditional wrapper statics
-		Dynamics: map[string]interface{}{"0": oldRange},
+		Dynamics: map[string]any{"0": oldRange},
 	}
 
 	oldTree := &TreeNode{
 		Statics:  []string{"<html>", "</html>"},
-		Dynamics: map[string]interface{}{"15": oldConditional},
+		Dynamics: map[string]any{"15": oldConditional},
 	}
 
 	// Create new tree structure (after load_more)
@@ -71,12 +71,12 @@ func TestLoadMoreScenario(t *testing.T) {
 
 	newConditional := &TreeNode{
 		Statics:  []string{"", ""},
-		Dynamics: map[string]interface{}{"0": newRange},
+		Dynamics: map[string]any{"0": newRange},
 	}
 
 	newTree := &TreeNode{
 		Statics:  []string{"<html>", "</html>"},
-		Dynamics: map[string]interface{}{"15": newConditional},
+		Dynamics: map[string]any{"15": newConditional},
 	}
 
 	// Step 1: Check if ranges are found
@@ -136,7 +136,7 @@ func TestLoadMoreScenario(t *testing.T) {
 				t.Logf("Field 15.0 changes: %+v", field0)
 
 				// Check if this is differential operations (array) or full tree
-				if ops, ok := field0.([]interface{}); ok {
+				if ops, ok := field0.([]any); ok {
 					t.Logf("Got differential operations: %d ops", len(ops))
 				} else if tn, ok := field0.(*TreeNode); ok {
 					// If it's a TreeNode, check if it has statics (BAD) or just ops

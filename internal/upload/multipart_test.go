@@ -218,7 +218,7 @@ func TestParseMultipartUpload_TooManyFiles(t *testing.T) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		part, err := writer.CreateFormFile("avatar", "test.jpg")
 		if err != nil {
 			t.Fatalf("CreateFormFile failed: %v", err)

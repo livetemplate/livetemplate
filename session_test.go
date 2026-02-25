@@ -148,11 +148,11 @@ func TestMemorySessionStore_ConcurrentAccess(t *testing.T) {
 	numOperations := 100
 
 	// Concurrent writes
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < numOperations; j++ {
+			for j := range numOperations {
 				groupID := "group-" + string(rune('a'+id))
 				state := &testStore{value: id*1000 + j}
 				store.Set(context.Background(), groupID, state)
@@ -161,11 +161,11 @@ func TestMemorySessionStore_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Concurrent reads
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < numOperations; j++ {
+			for range numOperations {
 				groupID := "group-" + string(rune('a'+id))
 				_ = store.Get(context.Background(), groupID)
 			}
@@ -289,7 +289,7 @@ func TestRedisSessionStore_SetAndGet(t *testing.T) {
 		if v.Value != 42 || v.Message != "hello" {
 			t.Errorf("Unexpected values: Value=%d, Message=%s", v.Value, v.Message)
 		}
-	case map[string]interface{}:
+	case map[string]any:
 		if v["value"] != float64(42) || v["message"] != "hello" {
 			t.Errorf("Unexpected values: %v", v)
 		}
@@ -401,11 +401,11 @@ func TestRedisSessionStore_ConcurrentAccess(t *testing.T) {
 	numOperations := 20
 
 	// Concurrent writes
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < numOperations; j++ {
+			for j := range numOperations {
 				groupID := "redis-concurrent-" + string(rune('a'+id))
 				state := &TestStore{Value: id*1000 + j, Message: "test"}
 				store.Set(context.Background(), groupID, state)
@@ -414,11 +414,11 @@ func TestRedisSessionStore_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Concurrent reads
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < numOperations; j++ {
+			for range numOperations {
 				groupID := "redis-concurrent-" + string(rune('a'+id))
 				_ = store.Get(context.Background(), groupID)
 			}
@@ -428,7 +428,7 @@ func TestRedisSessionStore_ConcurrentAccess(t *testing.T) {
 	wg.Wait()
 
 	// Cleanup
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		groupID := "redis-concurrent-" + string(rune('a'+i))
 		store.Delete(context.Background(), groupID)
 	}

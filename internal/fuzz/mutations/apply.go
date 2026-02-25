@@ -3,6 +3,7 @@ package mutations
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 )
 
@@ -103,10 +104,9 @@ func Apply(state map[string]any, m Mutation) (map[string]any, error) {
 		if len(slice) == 0 {
 			return result, nil // Nothing to remove
 		}
-		idx := m.Index % len(slice) // Wrap around for safety
-		if idx < 0 {
-			idx = 0
-		}
+		idx := max(
+			// Wrap around for safety
+			m.Index%len(slice), 0)
 		newSlice := append(slice[:idx], slice[idx+1:]...)
 		return setAtPath(result, m.Target, newSlice)
 
@@ -264,9 +264,7 @@ func DeepCopy(m map[string]any) map[string]any {
 	if err != nil {
 		// Fallback to shallow copy
 		result := make(map[string]any, len(m))
-		for k, v := range m {
-			result[k] = v
-		}
+		maps.Copy(result, m)
 		return result
 	}
 	var result map[string]any
@@ -442,7 +440,7 @@ func applyPermutation(slice []any, perm []int) []any {
 
 	// Fill any unused positions with remaining elements
 	j := 0
-	for i := 0; i < len(result); i++ {
+	for i := range result {
 		if !used[i] {
 			for j < len(slice) && used[j] {
 				j++

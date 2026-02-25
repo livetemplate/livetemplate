@@ -13,7 +13,7 @@ func TestGenerateRandomID_Uniqueness(t *testing.T) {
 	generated := make(map[string]bool)
 	count := 1000
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		id := GenerateRandomID()
 		if generated[id] {
 			t.Fatalf("Duplicate ID generated: %q at iteration %d", id, i)
@@ -488,7 +488,7 @@ func TestGenerateRandomID_NoPanic(t *testing.T) {
 	}()
 
 	// Should not panic under normal conditions
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		id := GenerateRandomID()
 		if len(id) != 20 { // lvt- (4) + 16 hex chars
 			t.Errorf("Unexpected ID length: %d", len(id))

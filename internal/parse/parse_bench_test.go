@@ -71,13 +71,13 @@ func BenchmarkBuildTree(b *testing.B) {
 	tests := []struct {
 		name     string
 		template string
-		data     interface{}
+		data     any
 	}{
-		{"simple", createSimpleTemplate(), map[string]interface{}{"Name": "Test"}},
-		{"conditional-true", createConditionalTemplate(), map[string]interface{}{"Show": true, "Name": "Test"}},
-		{"conditional-false", createConditionalTemplate(), map[string]interface{}{"Show": false, "Name": "Test"}},
-		{"range-small", createRangeTemplate(), map[string]interface{}{
-			"Items": []map[string]interface{}{
+		{"simple", createSimpleTemplate(), map[string]any{"Name": "Test"}},
+		{"conditional-true", createConditionalTemplate(), map[string]any{"Show": true, "Name": "Test"}},
+		{"conditional-false", createConditionalTemplate(), map[string]any{"Show": false, "Name": "Test"}},
+		{"range-small", createRangeTemplate(), map[string]any{
+			"Items": []map[string]any{
 				{"Name": "Item 1"},
 				{"Name": "Item 2"},
 				{"Name": "Item 3"},
@@ -121,11 +121,11 @@ func BenchmarkBuildTreeScale(b *testing.B) {
 
 	for _, scale := range scales {
 		b.Run(scale.name, func(b *testing.B) {
-			items := make([]map[string]interface{}, scale.size)
+			items := make([]map[string]any, scale.size)
 			for i := 0; i < scale.size; i++ {
-				items[i] = map[string]interface{}{"Name": "Item"}
+				items[i] = map[string]any{"Name": "Item"}
 			}
-			data := map[string]interface{}{"Items": items}
+			data := map[string]any{"Items": items}
 
 			tmpl, err := Parse(templateStr, nil)
 			if err != nil {

@@ -12,8 +12,8 @@ import (
 func ApplyFormMutation(state *FormState, mutation mutations.Mutation) error {
 	switch mutation.Type {
 	case mutations.MutSetFieldValue:
-		fieldName, ok := mutation.Target, true
-		if mutation.Target == "" {
+		fieldName := mutation.Target
+		if fieldName == "" {
 			return fmt.Errorf("MutSetFieldValue requires field name in Target")
 		}
 		value, ok := mutation.Value.(string)

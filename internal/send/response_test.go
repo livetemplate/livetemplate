@@ -8,7 +8,7 @@ import (
 
 // TestPrepareUpdate_WithErrors tests preparing updates with validation errors.
 func TestPrepareUpdate_WithErrors(t *testing.T) {
-	tree := map[string]interface{}{
+	tree := map[string]any{
 		"s": []string{"<div>", "</div>"},
 		"0": "test",
 	}
@@ -47,7 +47,7 @@ func TestPrepareUpdate_WithErrors(t *testing.T) {
 
 // TestPrepareUpdate_NoErrors tests preparing updates without errors.
 func TestPrepareUpdate_NoErrors(t *testing.T) {
-	tree := map[string]interface{}{
+	tree := map[string]any{
 		"s": []string{"<div>", "</div>"},
 		"0": "success",
 	}
@@ -78,7 +78,7 @@ func TestPrepareUpdate_NoErrors(t *testing.T) {
 
 // TestPrepareUpdate_EmptyErrors tests that empty error map doesn't add metadata.
 func TestPrepareUpdate_EmptyErrors(t *testing.T) {
-	tree := map[string]interface{}{
+	tree := map[string]any{
 		"s": []string{"<div>", "</div>"},
 	}
 	errors := map[string]string{} // Empty but not nil
@@ -92,7 +92,7 @@ func TestPrepareUpdate_EmptyErrors(t *testing.T) {
 
 // TestPrepareUpdate_OnlyAction tests metadata with only action, no errors.
 func TestPrepareUpdate_OnlyAction(t *testing.T) {
-	tree := map[string]interface{}{"0": "data"}
+	tree := map[string]any{"0": "data"}
 	action := "test-action"
 
 	resp := PrepareUpdate(tree, nil, action)
@@ -112,7 +112,7 @@ func TestPrepareUpdate_OnlyAction(t *testing.T) {
 
 // TestPrepareUpdate_NoMetadata tests that no metadata is added when neither errors nor action.
 func TestPrepareUpdate_NoMetadata(t *testing.T) {
-	tree := map[string]interface{}{"0": "simple"}
+	tree := map[string]any{"0": "simple"}
 
 	resp := PrepareUpdate(tree, nil, "")
 
@@ -128,7 +128,7 @@ func TestPrepareUpdate_NoMetadata(t *testing.T) {
 // TestSerializeUpdate_ValidTree tests serializing valid update responses.
 func TestSerializeUpdate_ValidTree(t *testing.T) {
 	resp := &UpdateResponse{
-		Tree: map[string]interface{}{
+		Tree: map[string]any{
 			"s": []string{"<div>", "</div>"},
 			"0": "content",
 		},
@@ -148,7 +148,7 @@ func TestSerializeUpdate_ValidTree(t *testing.T) {
 	}
 
 	// Verify it's valid JSON
-	var decoded map[string]interface{}
+	var decoded map[string]any
 	if err := json.Unmarshal(bytes, &decoded); err != nil {
 		t.Errorf("Expected valid JSON, got error: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestSerializeUpdate_ValidTree(t *testing.T) {
 // TestSerializeUpdate_NilMetadata tests serializing without metadata.
 func TestSerializeUpdate_NilMetadata(t *testing.T) {
 	resp := &UpdateResponse{
-		Tree: map[string]interface{}{"0": "test"},
+		Tree: map[string]any{"0": "test"},
 		Meta: nil,
 	}
 
@@ -175,7 +175,7 @@ func TestSerializeUpdate_NilMetadata(t *testing.T) {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
 
-	var decoded map[string]interface{}
+	var decoded map[string]any
 	if err := json.Unmarshal(bytes, &decoded); err != nil {
 		t.Fatalf("Expected valid JSON, got error: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestSerializeUpdate_NilMetadata(t *testing.T) {
 // TestSerializeUpdate_UnmarshalableTree tests handling of unmarshalable data.
 func TestSerializeUpdate_UnmarshalableTree(t *testing.T) {
 	// Create a cyclic structure that can't be marshaled
-	cyclicMap := make(map[string]interface{})
+	cyclicMap := make(map[string]any)
 	cyclicMap["self"] = cyclicMap
 
 	resp := &UpdateResponse{
@@ -209,10 +209,10 @@ func TestSerializeUpdate_UnmarshalableTree(t *testing.T) {
 // TestSerializeUpdate_ComplexTree tests serializing complex tree structures.
 func TestSerializeUpdate_ComplexTree(t *testing.T) {
 	resp := &UpdateResponse{
-		Tree: map[string]interface{}{
+		Tree: map[string]any{
 			"s": []string{"<div>", "<span>", "</span>", "</div>"},
 			"0": "title",
-			"1": map[string]interface{}{
+			"1": map[string]any{
 				"s": []string{"<p>", "</p>"},
 				"0": "nested content",
 			},
@@ -235,12 +235,12 @@ func TestSerializeUpdate_ComplexTree(t *testing.T) {
 	}
 
 	// Verify the nested structure survived serialization
-	tree, ok := decoded.Tree.(map[string]interface{})
+	tree, ok := decoded.Tree.(map[string]any)
 	if !ok {
 		t.Fatal("Expected tree to be a map")
 	}
 
-	statics, ok := tree["s"].([]interface{})
+	statics, ok := tree["s"].([]any)
 	if !ok {
 		t.Fatal("Expected statics to be an array")
 	}
@@ -252,7 +252,7 @@ func TestSerializeUpdate_ComplexTree(t *testing.T) {
 
 // TestPrepareAndSerialize_Integration tests the convenience function.
 func TestPrepareAndSerialize_Integration(t *testing.T) {
-	tree := map[string]interface{}{
+	tree := map[string]any{
 		"s": []string{"<div>", "</div>"},
 		"0": "test content",
 	}
@@ -293,7 +293,7 @@ func TestPrepareAndSerialize_Integration(t *testing.T) {
 
 // TestPrepareAndSerialize_NoErrorsNoAction tests convenience function with minimal data.
 func TestPrepareAndSerialize_NoErrorsNoAction(t *testing.T) {
-	tree := map[string]interface{}{"0": "simple"}
+	tree := map[string]any{"0": "simple"}
 
 	bytes, err := PrepareAndSerialize(tree, nil, "")
 	if err != nil {
@@ -330,7 +330,7 @@ func TestResponseMetadata_JSONMarshaling(t *testing.T) {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
 
-	var decoded map[string]interface{}
+	var decoded map[string]any
 	if err := json.Unmarshal(bytes, &decoded); err != nil {
 		t.Fatalf("Expected valid JSON, got error: %v", err)
 	}
@@ -370,7 +370,7 @@ func TestResponseMetadata_OmitEmpty(t *testing.T) {
 // TestUpdateResponse_JSONStructure tests the complete response structure.
 func TestUpdateResponse_JSONStructure(t *testing.T) {
 	resp := &UpdateResponse{
-		Tree: map[string]interface{}{
+		Tree: map[string]any{
 			"s": []string{"<div>", "</div>"},
 			"0": "value",
 		},
@@ -387,7 +387,7 @@ func TestUpdateResponse_JSONStructure(t *testing.T) {
 	}
 
 	// Verify JSON structure has both tree and meta at top level
-	var decoded map[string]interface{}
+	var decoded map[string]any
 	if err := json.Unmarshal(bytes, &decoded); err != nil {
 		t.Fatalf("Expected valid JSON, got error: %v", err)
 	}

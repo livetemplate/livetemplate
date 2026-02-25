@@ -67,7 +67,7 @@ type Broadcaster interface {
 
 	// PublishServerAction publishes a server-initiated action to all instances for a user.
 	// This dispatches to the matching store method on receiving instances.
-	PublishServerAction(userID string, action string, data map[string]interface{}) error
+	PublishServerAction(userID string, action string, data map[string]any) error
 
 	// Subscribe starts listening for broadcast messages and calls the handler
 	// The handler is responsible for fan-out to local connections
@@ -100,7 +100,7 @@ type ServerActionMessage struct {
 	Action string `json:"action"`
 
 	// Data contains the action data (may be nil)
-	Data map[string]interface{} `json:"data,omitempty"`
+	Data map[string]any `json:"data,omitempty"`
 
 	// Timestamp indicates when the message was published
 	Timestamp time.Time `json:"timestamp"`

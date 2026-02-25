@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -50,7 +51,7 @@ type Session interface {
 	// Example:
 	//   session.TriggerAction("tick", nil)
 	//   session.TriggerAction("new_notification", map[string]interface{}{"id": 123})
-	TriggerAction(action string, data map[string]interface{}) error
+	TriggerAction(action string, data map[string]any) error
 }
 
 // SessionAware is implemented by stores that need server-initiated actions.
@@ -160,16 +161,16 @@ type LiveHandler interface {
 // mountConfig configures the mount handler (internal only)
 type mountConfig struct {
 	Template               *Template
-	Controller             interface{}          // Singleton controller with dependencies
-	State                  State                // Initial state template (cloned per session)
+	Controller             any   // Singleton controller with dependencies
+	State                  State // Initial state template (cloned per session)
 	Upgrader               *websocket.Upgrader
 	SessionStore           SessionStore
 	Authenticator          Authenticator
-	PubSubBroadcaster      pubsub.Broadcaster   // Optional: for distributed broadcasting across instances
+	PubSubBroadcaster      pubsub.Broadcaster // Optional: for distributed broadcasting across instances
 	AllowedOrigins         []string
 	WebSocketDisabled      bool
-	MaxConnections         int64                // Maximum total connections (0 = unlimited)
-	MaxConnectionsPerGroup int64                // Maximum connections per group (0 = unlimited)
+	MaxConnections         int64                               // Maximum total connections (0 = unlimited)
+	MaxConnectionsPerGroup int64                               // Maximum connections per group (0 = unlimited)
 	CookieMaxAge           time.Duration                       // Session cookie max age (default: 1 year)
 	UploadConfigs          map[string]uploadtypes.UploadConfig // Upload field configurations
 	wsBufferSize           int                                 // WebSocket send buffer size per connection (default: 50)
@@ -192,7 +193,7 @@ type liveHandler struct {
 }
 
 type connState struct {
-	state      interface{}       // Typed state (cloned per session)
+	state      any               // Typed state (cloned per session)
 	messages   map[string]string // Unified map: field errors + flash (prefixed with "_flash:")
 	messagesMu sync.RWMutex      // Mutex for thread-safe message access
 	groupID    string            // Session/group ID for this connection
@@ -224,9 +225,7 @@ func (c *connState) getMessages() map[string]string {
 
 	// Return copy to avoid race conditions
 	result := make(map[string]string, len(c.messages))
-	for k, v := range c.messages {
-		result[k] = v
-	}
+	maps.Copy(result, c.messages)
 	return result
 }
 
@@ -410,7 +409,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	isNewSession := false
 	storedState := h.config.SessionStore.Get(ctx, groupID)
-	var typedState interface{}
+	var typedState any
 	if storedState == nil {
 		// New session - clone initial state and call Mount
 		typedState, err = h.cloneStateTyped()
@@ -529,7 +528,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var tree map[string]interface{}
+	var tree map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
 		slog.Error("Failed to parse initial tree",
 			slog.String("component", "live_handler"),
@@ -563,10 +562,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Create rate limiter for this connection (prevents DoS attacks)
 	var limiter *rate.Limiter
 	if h.config.Template.config.MessageRateLimit > 0 {
-		burst := h.config.Template.config.MessageRateBurst
-		if burst < 1 {
-			burst = 1
-		}
+		burst := max(h.config.Template.config.MessageRateBurst, 1)
 		limiter = rate.NewLimiter(rate.Limit(h.config.Template.config.MessageRateLimit), burst)
 	}
 
@@ -668,7 +664,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		var tree map[string]interface{}
+		var tree map[string]any
 		if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
 			slog.Error("Failed to parse tree",
 				slog.String("component", "live_handler"),
@@ -727,7 +723,7 @@ func wantsJSON(r *http.Request) bool {
 	// Parse the Accept header and consider only the first meaningful media range.
 	// This avoids treating browsers that primarily prefer text/html as JSON clients
 	// when they include application/json as a secondary option.
-	for _, part := range strings.Split(accept, ",") {
+	for part := range strings.SplitSeq(accept, ",") {
 		mt := strings.TrimSpace(part)
 		if mt == "" {
 			continue
@@ -801,7 +797,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	isNewSession := false
 	storedState := h.config.SessionStore.Get(ctx, groupID)
-	var typedState interface{}
+	var typedState any
 	if storedState == nil {
 		typedState, err = h.cloneStateTyped()
 		if err != nil {
@@ -1017,7 +1013,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var tree map[string]interface{}
+	var tree map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1055,7 +1051,7 @@ func (h *liveHandler) newUploadRegistry() uploadRegistry {
 // cloneStateTyped creates a typed clone using the State interface.
 // Returns the underlying value (not the State wrapper).
 // This ensures state contains only pure data (serialization = purity marker).
-func (h *liveHandler) cloneStateTyped() (interface{}, error) {
+func (h *liveHandler) cloneStateTyped() (any, error) {
 	if h.config.State == nil {
 		return nil, fmt.Errorf("no state configured")
 	}
@@ -1069,7 +1065,7 @@ func (h *liveHandler) cloneStateTyped() (interface{}, error) {
 	// Get the type of the inner value
 	innerVal := h.config.State.Inner()
 	innerType := reflect.TypeOf(innerVal)
-	if innerType.Kind() == reflect.Ptr {
+	if innerType.Kind() == reflect.Pointer {
 		innerType = innerType.Elem()
 	}
 
@@ -1092,7 +1088,7 @@ func (h *liveHandler) cloneStateTyped() (interface{}, error) {
 // Note: Under high load, this may launch many concurrent goroutines.
 // Each goroutine is relatively short-lived and uses per-connection template clones,
 // so this is safe but could cause temporary resource spikes.
-func (h *liveHandler) autoBroadcastToGroup(groupID string, data interface{}, excludeConn *session.Connection) {
+func (h *liveHandler) autoBroadcastToGroup(groupID string, data any, excludeConn *session.Connection) {
 	go func() {
 		var conns []*session.Connection
 		if excludeConn != nil {
@@ -1139,13 +1135,13 @@ func (h *liveHandler) autoBroadcastToGroup(groupID string, data interface{}, exc
 
 // hasStaticsInTree recursively checks if a tree contains any statics.
 // Used to determine if this is a full tree send or dynamics-only update.
-func hasStaticsInTree(tree map[string]interface{}) bool {
+func hasStaticsInTree(tree map[string]any) bool {
 	if tree == nil {
 		return false
 	}
 	// Check for statics at current level
 	if s, ok := tree["s"]; ok {
-		if arr, ok := s.([]interface{}); ok && len(arr) > 0 {
+		if arr, ok := s.([]any); ok && len(arr) > 0 {
 			return true
 		}
 		if arr, ok := s.([]string); ok && len(arr) > 0 {
@@ -1154,7 +1150,7 @@ func hasStaticsInTree(tree map[string]interface{}) bool {
 	}
 	// Recursively check nested objects
 	for _, v := range tree {
-		if nested, ok := v.(map[string]interface{}); ok {
+		if nested, ok := v.(map[string]any); ok {
 			if hasStaticsInTree(nested) {
 				return true
 			}
@@ -1165,7 +1161,7 @@ func hasStaticsInTree(tree map[string]interface{}) bool {
 
 // sendUpdate generates and sends a template update to a single connection.
 // If messages is nil, no errors/flash will be included in the template.
-func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}, messages map[string]string) error {
+func (h *liveHandler) sendUpdate(conn *session.Connection, data any, messages map[string]string) error {
 	// Use the connection's cloned template for independent tree diffing
 	var buf bytes.Buffer
 
@@ -1182,7 +1178,7 @@ func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}, mes
 	}
 
 	// Parse tree from buffer
-	var tree map[string]interface{}
+	var tree map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
 		return fmt.Errorf("failed to parse tree: %w", err)
 	}
@@ -1220,7 +1216,7 @@ func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}, mes
 // It deserializes the payload and fans it out to relevant local connections.
 func (h *liveHandler) handlePubSubMessage(msg *pubsub.BroadcastMessage) error {
 	// Deserialize the payload
-	var data interface{}
+	var data any
 	if err := json.Unmarshal(msg.Payload, &data); err != nil {
 		return fmt.Errorf("failed to unmarshal payload: %w", err)
 	}
@@ -1826,7 +1822,7 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 		uploadAction := fmt.Sprintf("upload_%s_complete", completeMsg.UploadName)
 
 		// Create Context for action dispatch
-		actionCtx := NewContext(ctx, uploadAction, make(map[string]interface{}))
+		actionCtx := NewContext(ctx, uploadAction, make(map[string]any))
 		actionCtx = actionCtx.WithUploads(uploadRegistry)
 
 		// Dispatch action using Controller+State pattern

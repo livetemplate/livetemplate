@@ -104,7 +104,7 @@ func TestRenderTreeToHTML(t *testing.T) {
 // TestParseTemplateToTree verifies template parsing
 func TestParseTemplateToTree(t *testing.T) {
 	tmpl := "<div>{{.Value}}</div>"
-	data := map[string]interface{}{"Value": "test"}
+	data := map[string]any{"Value": "test"}
 	kg := NewKeyGenerator()
 
 	tree, err := ParseTemplateToTree("test", tmpl, data, kg)

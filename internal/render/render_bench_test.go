@@ -27,24 +27,24 @@ func BenchmarkNodeRender(b *testing.B) {
 }
 
 func BenchmarkTreeToHTML(b *testing.B) {
-	simpleTree := map[string]interface{}{
+	simpleTree := map[string]any{
 		"s": []string{"<div>", "</div>"},
 		"0": "content",
 	}
 
-	nestedTree := map[string]interface{}{
+	nestedTree := map[string]any{
 		"s": []string{"<div>", "</div>"},
-		"0": map[string]interface{}{
+		"0": map[string]any{
 			"s": []string{"<span>", "</span>"},
 			"0": "nested",
 		},
 	}
 
-	rangeTree := map[string]interface{}{
+	rangeTree := map[string]any{
 		"s": []string{"<li>", "</li>"},
-		"d": []interface{}{
-			map[string]interface{}{"0": "item1"},
-			map[string]interface{}{"0": "item2"},
+		"d": []any{
+			map[string]any{"0": "item1"},
+			map[string]any{"0": "item2"},
 		},
 	}
 
@@ -92,12 +92,12 @@ func BenchmarkTreeToHTMLScale(b *testing.B) {
 	for _, scale := range scales {
 		b.Run(scale.name, func(b *testing.B) {
 			// Create a range tree with many items
-			items := make([]interface{}, scale.size)
+			items := make([]any, scale.size)
 			for i := 0; i < scale.size; i++ {
-				items[i] = map[string]interface{}{"0": "item"}
+				items[i] = map[string]any{"0": "item"}
 			}
 
-			rangeTree := map[string]interface{}{
+			rangeTree := map[string]any{
 				"s": []string{"<li>", "</li>"},
 				"d": items,
 			}

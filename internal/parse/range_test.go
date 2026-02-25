@@ -16,7 +16,7 @@ func TestHandleRangeNode_SimpleSlice(t *testing.T) {
 	}
 
 	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Items": []string{"a", "b", "c"},
 	}
 	ctx := &Context{IncludeStatics: true}
@@ -47,7 +47,7 @@ func TestHandleRangeNode_EmptySlice(t *testing.T) {
 	}
 
 	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Items": []string{},
 	}
 	ctx := &Context{IncludeStatics: true}
@@ -78,7 +78,7 @@ func TestHandleRangeNode_Map(t *testing.T) {
 	}
 
 	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Items": map[string]string{
 			"a": "alpha",
 			"b": "beta",
@@ -112,7 +112,7 @@ func TestHandleRangeNode_WithElse(t *testing.T) {
 	}
 
 	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Items": []string{},
 	}
 	ctx := &Context{IncludeStatics: true}
@@ -146,7 +146,7 @@ func TestHandleRangeNode_WithVarDecls(t *testing.T) {
 	}
 
 	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Items": []string{"a", "b"},
 	}
 	ctx := &Context{IncludeStatics: true}
@@ -177,7 +177,7 @@ func TestExtractRangeCollection_Simple(t *testing.T) {
 	}
 
 	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Items": []string{"a", "b"},
 	}
 	ctx := &Context{}
@@ -205,7 +205,7 @@ func TestExtractRangeCollection_WithDecls(t *testing.T) {
 	}
 
 	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Items": []string{"a", "b"},
 	}
 	ctx := &Context{}
@@ -233,7 +233,7 @@ func TestExtractRangeCollection_Error(t *testing.T) {
 	}
 
 	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
-	data := map[string]interface{}{}
+	data := map[string]any{}
 	ctx := &Context{}
 
 	// Should handle missing field gracefully
@@ -248,7 +248,7 @@ func TestExtractRangeCollection_Error(t *testing.T) {
 func TestIsEmpty_AllTypes(t *testing.T) {
 	tests := []struct {
 		name  string
-		value interface{}
+		value any
 		want  bool
 	}{
 		{"nil", nil, true},
@@ -279,7 +279,7 @@ func TestHandleEmptyRange_NoElse(t *testing.T) {
 	}
 
 	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
-	data := map[string]interface{}{}
+	data := map[string]any{}
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := handleEmptyRange(rangeNode, data, newMockKeyGen(), ctx)
@@ -308,7 +308,7 @@ func TestHandleEmptyRange_WithElse(t *testing.T) {
 	}
 
 	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
-	data := map[string]interface{}{}
+	data := map[string]any{}
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := handleEmptyRange(rangeNode, data, newMockKeyGen(), ctx)
@@ -334,7 +334,7 @@ func TestHandleSliceRange(t *testing.T) {
 	}
 
 	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
-	data := map[string]interface{}{}
+	data := map[string]any{}
 	collection := reflect.ValueOf([]string{"a", "b"})
 	ctx := &Context{IncludeStatics: true}
 
@@ -364,7 +364,7 @@ func TestHandleMapRange(t *testing.T) {
 	}
 
 	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
-	data := map[string]interface{}{}
+	data := map[string]any{}
 	collection := reflect.ValueOf(map[string]string{"a": "alpha", "b": "beta"})
 	ctx := &Context{IncludeStatics: true}
 
@@ -392,8 +392,8 @@ func TestBuildRangeTreeWithStatics_Homogeneous(t *testing.T) {
 	staticsHash := hashStatics(itemStatics)
 
 	items := []rangeItemWithStatics{
-		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "a"}}, statics: itemStatics, hash: staticsHash},
-		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "b"}}, statics: itemStatics, hash: staticsHash},
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]any{"0": "a"}}, statics: itemStatics, hash: staticsHash},
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]any{"0": "b"}}, statics: itemStatics, hash: staticsHash},
 	}
 	ctx := &Context{IncludeStatics: true}
 
@@ -432,7 +432,7 @@ func TestExecuteRangeBodyWithVars_SingleVar(t *testing.T) {
 	}
 
 	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
-	data := map[string]interface{}{}
+	data := map[string]any{}
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := executeRangeBodyWithVars(rangeNode, 0, "value", data, newMockKeyGen(), ctx)
@@ -457,7 +457,7 @@ func TestExecuteRangeBodyWithVars_TwoVars(t *testing.T) {
 	}
 
 	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
-	data := map[string]interface{}{}
+	data := map[string]any{}
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := executeRangeBodyWithVars(rangeNode, 1, "value", data, newMockKeyGen(), ctx)
@@ -482,7 +482,7 @@ func TestExecuteRangeBodyWithVarsMap(t *testing.T) {
 	}
 
 	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
-	data := map[string]interface{}{}
+	data := map[string]any{}
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := executeRangeBodyWithVars(rangeNode, "key", "value", data, newMockKeyGen(), ctx)
@@ -555,7 +555,7 @@ func TestHandleRangeNode_NonIterableType(t *testing.T) {
 
 	tests := []struct {
 		name  string
-		value interface{}
+		value any
 	}{
 		{"string", "hello"},
 		{"int", 42},
@@ -566,7 +566,7 @@ func TestHandleRangeNode_NonIterableType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
-			data := map[string]interface{}{
+			data := map[string]any{
 				"Value": tt.value,
 			}
 			ctx := &Context{IncludeStatics: true}
@@ -630,7 +630,7 @@ func TestDetectIDKey_MultiplePositions(t *testing.T) {
 func TestExtractItemDynamics(t *testing.T) {
 	itemTree := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "value"},
+		Dynamics: map[string]any{"0": "value"},
 		Metadata: NewTreeMetadata("0"),
 	}
 
@@ -667,8 +667,8 @@ func TestBuildRangeTreeWithStatics_AutoKey(t *testing.T) {
 	staticsHash := hashStatics(itemStatics)
 
 	items := []rangeItemWithStatics{
-		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "a"}}, statics: itemStatics, hash: staticsHash},
-		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "b"}}, statics: itemStatics, hash: staticsHash},
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]any{"0": "a"}}, statics: itemStatics, hash: staticsHash},
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]any{"0": "b"}}, statics: itemStatics, hash: staticsHash},
 	}
 	ctx := &Context{IncludeStatics: true}
 
@@ -721,8 +721,8 @@ func TestBuildRangeTreeWithStatics_ExplicitKey_NoAutoKey(t *testing.T) {
 	staticsHash := hashStatics(itemStatics)
 
 	items := []rangeItemWithStatics{
-		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "id1", "1": "content-a"}}, statics: itemStatics, hash: staticsHash},
-		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "id2", "1": "content-b"}}, statics: itemStatics, hash: staticsHash},
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]any{"0": "id1", "1": "content-a"}}, statics: itemStatics, hash: staticsHash},
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]any{"0": "id2", "1": "content-b"}}, statics: itemStatics, hash: staticsHash},
 	}
 	ctx := &Context{IncludeStatics: true}
 
@@ -758,7 +758,7 @@ func TestBuildRangeTreeWithStatics_ExplicitKey_NoAutoKey(t *testing.T) {
 // TestGenerateItemHash_Deterministic tests that the hash function produces deterministic results.
 func TestGenerateItemHash_Deterministic(t *testing.T) {
 	item := &TreeNode{
-		Dynamics: map[string]interface{}{
+		Dynamics: map[string]any{
 			"0": "title",
 			"1": "content",
 		},
@@ -779,10 +779,10 @@ func TestGenerateItemHash_Deterministic(t *testing.T) {
 // TestGenerateItemHash_DifferentContent tests that different content produces different hashes.
 func TestGenerateItemHash_DifferentContent(t *testing.T) {
 	item1 := &TreeNode{
-		Dynamics: map[string]interface{}{"0": "a"},
+		Dynamics: map[string]any{"0": "a"},
 	}
 	item2 := &TreeNode{
-		Dynamics: map[string]interface{}{"0": "b"},
+		Dynamics: map[string]any{"0": "b"},
 	}
 
 	hash1 := generateItemHash(item1)
@@ -796,10 +796,10 @@ func TestGenerateItemHash_DifferentContent(t *testing.T) {
 // TestGenerateItemHash_IgnoresAutoKey tests that _k field is excluded from hash calculation.
 func TestGenerateItemHash_IgnoresAutoKey(t *testing.T) {
 	itemWithoutK := &TreeNode{
-		Dynamics: map[string]interface{}{"0": "content"},
+		Dynamics: map[string]any{"0": "content"},
 	}
 	itemWithK := &TreeNode{
-		Dynamics: map[string]interface{}{"0": "content", "_k": "some-old-key"},
+		Dynamics: map[string]any{"0": "content", "_k": "some-old-key"},
 	}
 
 	hash1 := generateItemHash(itemWithoutK)

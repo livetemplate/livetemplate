@@ -19,7 +19,7 @@ func createSingleDynamicTree(value string, ctx *Context) *TreeNode {
 }
 
 // handleActionNode processes {{.Field}} or {{.Method}} expressions.
-func handleActionNode(node *parse.ActionNode, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+func handleActionNode(node *parse.ActionNode, data any, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	// Execute the action to get its value
 	nodeStr := node.String()
 	// Use cached template parsing to avoid repeated Parse() calls
@@ -83,7 +83,7 @@ func evaluateActionWithVars(actionStr string, varCtx *varContext, ctx *Context) 
 	// Identify which variables are used in the action
 	// Build search patterns once to avoid repeated string concatenation
 	usedVars := newOrderedVars()
-	varCtx.vars.Range(func(varName string, varValue interface{}) {
+	varCtx.vars.Range(func(varName string, varValue any) {
 		// Search for $varName pattern
 		searchPattern := "$" + varName
 		if strings.Contains(actionStr, searchPattern) {
@@ -100,10 +100,10 @@ func evaluateActionWithVars(actionStr string, varCtx *varContext, ctx *Context) 
 	transformedAction := actionStr
 
 	// Build exec data map
-	execData := make(map[string]interface{})
+	execData := make(map[string]any)
 
 	// Handle named variables ($index, $todo, etc.)
-	usedVars.Range(func(varName string, varValue interface{}) {
+	usedVars.Range(func(varName string, varValue any) {
 		// Validate variable name is not empty
 		if len(varName) == 0 {
 			return

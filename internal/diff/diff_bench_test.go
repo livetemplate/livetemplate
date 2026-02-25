@@ -12,16 +12,16 @@ import (
 func createSimpleTree() *build.TreeNode {
 	return &build.TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "value"},
+		Dynamics: map[string]any{"0": "value"},
 	}
 }
 
 func createTreeWithNFields(n int) *build.TreeNode {
 	tree := &build.TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: make(map[string]interface{}),
+		Dynamics: make(map[string]any),
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		key := string(rune('0' + i))
 		tree.Dynamics[key] = "value"
 	}
@@ -29,13 +29,13 @@ func createTreeWithNFields(n int) *build.TreeNode {
 }
 
 func createRangeTree(itemCount int) *build.TreeNode {
-	items := make([]interface{}, itemCount)
-	for i := 0; i < itemCount; i++ {
-		items[i] = map[string]interface{}{
+	items := make([]any, itemCount)
+	for i := range itemCount {
+		items[i] = map[string]any{
 			"key": i,
 			"tree": &build.TreeNode{
 				Statics:  []string{"<li>", "</li>"},
-				Dynamics: map[string]interface{}{"0": "item"},
+				Dynamics: map[string]any{"0": "item"},
 			},
 		}
 	}
@@ -108,7 +108,7 @@ func BenchmarkRangeDiffUpdate(b *testing.B) {
 	oldTree := createRangeTree(100)
 	newTree := createRangeTree(100)
 	// Change one item
-	newItem := newTree.Range.Items[50].(map[string]interface{})
+	newItem := newTree.Range.Items[50].(map[string]any)
 	newItemTree := newItem["tree"].(*build.TreeNode)
 	newItemTree.Dynamics["0"] = "updated"
 
@@ -166,12 +166,12 @@ func createNestedTree(depth int) *build.TreeNode {
 	if depth == 0 {
 		return &build.TreeNode{
 			Statics:  []string{"<span>", "</span>"},
-			Dynamics: map[string]interface{}{"0": "leaf"},
+			Dynamics: map[string]any{"0": "leaf"},
 		}
 	}
 	return &build.TreeNode{
 		Statics: []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{
+		Dynamics: map[string]any{
 			"0": createNestedTree(depth - 1),
 		},
 	}
@@ -197,11 +197,11 @@ func BenchmarkClientNeedsStatics_SameStructure(b *testing.B) {
 func BenchmarkClientNeedsStatics_DifferentStructure(b *testing.B) {
 	tree1 := &build.TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "value"},
+		Dynamics: map[string]any{"0": "value"},
 	}
 	tree2 := &build.TreeNode{
 		Statics:  []string{"<span>", "</span>"}, // Different statics
-		Dynamics: map[string]interface{}{"0": "value"},
+		Dynamics: map[string]any{"0": "value"},
 	}
 
 	b.ResetTimer()

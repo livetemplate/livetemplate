@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"maps"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -28,15 +30,15 @@ const (
 )
 
 // IsEmpty checks if a value is considered empty (empty string, empty map, empty slice).
-func IsEmpty(v interface{}) bool {
+func IsEmpty(v any) bool {
 	switch val := v.(type) {
 	case *TreeNode:
 		return !val.HasStatics() && !val.HasDynamics() && !val.HasRange()
 	case string:
 		return val == ""
-	case map[string]interface{}:
+	case map[string]any:
 		return len(val) == 0
-	case []interface{}:
+	case []any:
 		return len(val) == 0
 	default:
 		return false
@@ -52,7 +54,7 @@ func IsEmpty(v interface{}) bool {
 // - It's a TreeNode (which has structure/statics)
 // - It's a non-empty map or slice
 // - It's a non-nil value of another type
-func isMeaningfulValue(v interface{}) bool {
+func isMeaningfulValue(v any) bool {
 	if v == nil {
 		return false
 	}
@@ -62,9 +64,9 @@ func isMeaningfulValue(v interface{}) bool {
 	case *TreeNode:
 		// TreeNodes are always meaningful - they have structure
 		return true
-	case map[string]interface{}:
+	case map[string]any:
 		return len(val) > 0
-	case []interface{}:
+	case []any:
 		return len(val) > 0
 	default:
 		// Other types (int, bool, etc.) are meaningful
@@ -103,14 +105,14 @@ func hasDynamicsChanged(oldTree, newTree *TreeNode) bool {
 }
 
 // IsRangeConstruct checks if a value is a range construct (has Range and Statics).
-func IsRangeConstruct(value interface{}) bool {
+func IsRangeConstruct(value any) bool {
 	// Check if value is a TreeNode with Range field
 	if node, ok := value.(*TreeNode); ok {
 		return node.HasRange() && node.HasStatics()
 	}
 
 	// Fallback: check for map representation (for compatibility during migration)
-	if valueMap, ok := value.(map[string]interface{}); ok {
+	if valueMap, ok := value.(map[string]any); ok {
 		_, hasD := valueMap["d"]
 		_, hasS := valueMap["s"]
 		// Both "d" (data array) and "s" (statics array) must be present
@@ -122,16 +124,16 @@ func IsRangeConstruct(value interface{}) bool {
 
 // HasRangeItems checks if a range construct has any items in its data array.
 // Returns true only if value is a range AND has at least one item.
-func HasRangeItems(value interface{}) bool {
+func HasRangeItems(value any) bool {
 	// Check if value is a TreeNode with Range and items
 	if node, ok := value.(*TreeNode); ok {
 		return node.HasRange() && len(node.Range.Items) > 0
 	}
 
 	// Fallback: check for map representation
-	if valueMap, ok := value.(map[string]interface{}); ok {
+	if valueMap, ok := value.(map[string]any); ok {
 		if d, hasD := valueMap["d"]; hasD {
-			if dArray, ok := d.([]interface{}); ok {
+			if dArray, ok := d.([]any); ok {
 				return len(dArray) > 0
 			}
 		}
@@ -141,7 +143,7 @@ func HasRangeItems(value interface{}) bool {
 }
 
 // ContainsRangeConstruct recursively checks if a tree node or any of its children contains a range construct.
-func ContainsRangeConstruct(value interface{}) bool {
+func ContainsRangeConstruct(value any) bool {
 	// Check if this value itself is a range
 	if IsRangeConstruct(value) {
 		return true
@@ -158,7 +160,7 @@ func ContainsRangeConstruct(value interface{}) bool {
 	}
 
 	// Fallback: check for map representation
-	if valueMap, ok := value.(map[string]interface{}); ok {
+	if valueMap, ok := value.(map[string]any); ok {
 		// Recursively check all children (skip "s" and "f" keys)
 		for k, v := range valueMap {
 			if k == "s" || k == "f" {
@@ -176,7 +178,7 @@ func ContainsRangeConstruct(value interface{}) bool {
 // DeepEqual compares two values deeply.
 // For TreeNode pointers, it uses TreeNodeEqual to ignore internal cache fields.
 // For other types, it uses reflect.DeepEqual.
-func DeepEqual(a, b interface{}) bool {
+func DeepEqual(a, b any) bool {
 	// Handle TreeNode comparisons specially
 	if aNode, ok := a.(*TreeNode); ok {
 		if bNode, ok := b.(*TreeNode); ok {
@@ -269,7 +271,7 @@ func findKeyAttrPosition(statics []string, keyAttrs []string) int {
 // FindKeyPositionFromStatics parses the statics array to find which position contains the key.
 // Supports both []string and []interface{} formats for backward compatibility.
 // Returns -1 if no key attribute (data-key, id, etc.) is found in the statics.
-func FindKeyPositionFromStatics(statics interface{}) int {
+func FindKeyPositionFromStatics(statics any) int {
 	// Priority order for key attributes (same as server-side)
 	keyAttrs := []string{`data-lvt-key="`, `data-key="`, `key="`, `id="`}
 
@@ -279,7 +281,7 @@ func FindKeyPositionFromStatics(statics interface{}) int {
 	}
 
 	// Try []interface{} with string conversion
-	if staticsArr, ok := statics.([]interface{}); ok {
+	if staticsArr, ok := statics.([]any); ok {
 		// Convert []interface{} to []string
 		stringSlice := make([]string, 0, len(staticsArr))
 		for _, static := range staticsArr {
@@ -297,7 +299,7 @@ func FindKeyPositionFromStatics(statics interface{}) int {
 }
 
 // GetItemKey extracts the key from a range item using the statics structure.
-func GetItemKey(item interface{}, statics interface{}) (string, bool) {
+func GetItemKey(item any, statics any) (string, bool) {
 	// Handle TreeNode items
 	if itemNode, ok := item.(*TreeNode); ok {
 		// First, check for reserved auto-generated key field
@@ -339,7 +341,7 @@ func GetItemKey(item interface{}, statics interface{}) (string, bool) {
 // getItemStatics returns the effective statics for an item.
 // All ranges use shared statics (homogeneous approach).
 // StaticsMap was removed in v0.8.0 - heterogeneous ranges use full replace via fingerprint diff.
-func getItemStatics(itemNode *TreeNode, statics interface{}) interface{} {
+func getItemStatics(itemNode *TreeNode, statics any) any {
 	// Handle nil statics
 	if statics == nil {
 		return nil
@@ -352,7 +354,7 @@ func getItemStatics(itemNode *TreeNode, statics interface{}) interface{} {
 // GenerateItemHash creates a stable hash for a range item based on its content.
 // This is used when no explicit key attribute is provided in the template.
 // Uses FNV-1a hash for fast, non-cryptographic content fingerprinting.
-func GenerateItemHash(item interface{}) string {
+func GenerateItemHash(item any) string {
 	// Handle TreeNode
 	if itemNode, ok := item.(*TreeNode); ok {
 		// Create a canonical JSON representation for hashing
@@ -398,7 +400,7 @@ func GenerateItemHash(item interface{}) string {
 }
 
 // ExtractItemKeys extracts the keys from a slice of range items using the statics structure.
-func ExtractItemKeys(items []interface{}, statics interface{}) []string {
+func ExtractItemKeys(items []any, statics any) []string {
 	var keys []string
 	for _, item := range items {
 		// Items are now *TreeNode
@@ -416,7 +418,7 @@ func ExtractItemKeys(items []interface{}, statics interface{}) []string {
 // reordering detection, as position fields change when items are reordered even if
 // their actual content hasn't changed.
 // Note: Only checks the first item as position fields are consistent across all items.
-func DetectPositionField(itemsByKey map[string]interface{}) string {
+func DetectPositionField(itemsByKey map[string]any) string {
 	positionPattern := regexp.MustCompile(`^#\d+`)
 
 	// Check first item only - position field pattern is consistent across all items
@@ -476,7 +478,7 @@ func sameKeySet(oldKeys, newKeys []string) bool {
 }
 
 // IsPureReordering checks if the items are the same but just in different order.
-func IsPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []string, statics interface{}) bool {
+func IsPureReordering(oldItems, newItems []any, oldKeys, newKeys []string, statics any) bool {
 	// Must have same number of items
 	if len(oldKeys) != len(newKeys) {
 		return false
@@ -504,8 +506,8 @@ func IsPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []strin
 	}
 
 	// Now check if the items with same keys have identical content
-	oldItemsByKey := make(map[string]interface{}, len(oldItems))
-	newItemsByKey := make(map[string]interface{}, len(newItems))
+	oldItemsByKey := make(map[string]any, len(oldItems))
+	newItemsByKey := make(map[string]any, len(newItems))
 
 	for _, item := range oldItems {
 		if key, ok := GetItemKey(item, statics); ok {
@@ -583,7 +585,7 @@ func IsPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []strin
 }
 
 // FindNewItems returns keys of items that exist in new but not in old.
-func FindNewItems(oldItems, newItems []interface{}, statics interface{}) []string {
+func FindNewItems(oldItems, newItems []any, statics any) []string {
 	oldKeys := make(map[string]bool, len(oldItems))
 	for _, item := range oldItems {
 		if key, ok := GetItemKey(item, statics); ok {
@@ -604,7 +606,7 @@ func FindNewItems(oldItems, newItems []interface{}, statics interface{}) []strin
 }
 
 // AreAllItemsAtStart checks if all new items are at the beginning of the list (prepend).
-func AreAllItemsAtStart(newKeys []string, newItems []interface{}, statics interface{}) bool {
+func AreAllItemsAtStart(newKeys []string, newItems []any, statics any) bool {
 	if len(newKeys) == 0 {
 		return false
 	}
@@ -628,7 +630,7 @@ func AreAllItemsAtStart(newKeys []string, newItems []interface{}, statics interf
 }
 
 // AreAllItemsAtEnd checks if all new items are at the end of the list (append).
-func AreAllItemsAtEnd(newKeys []string, oldItems, newItems []interface{}, statics interface{}) bool {
+func AreAllItemsAtEnd(newKeys []string, oldItems, newItems []any, statics any) bool {
 	if len(newKeys) == 0 || len(oldItems) == 0 {
 		return false
 	}
@@ -639,19 +641,13 @@ func AreAllItemsAtEnd(newKeys []string, oldItems, newItems []interface{}, static
 
 	// Verify that items before startIndex are all old items
 	oldKeys := ExtractItemKeys(oldItems, statics)
-	for i := 0; i < startIndex; i++ {
+	for i := range startIndex {
 		if i >= len(newItems) {
 			return false
 		}
 		if itemKey, ok := GetItemKey(newItems[i], statics); ok {
 			// Check if this key exists in oldKeys
-			found := false
-			for _, oldKey := range oldKeys {
-				if oldKey == itemKey {
-					found = true
-					break
-				}
-			}
+			found := slices.Contains(oldKeys, itemKey)
 			if !found {
 				return false
 			}
@@ -678,7 +674,7 @@ func AreAllItemsAtEnd(newKeys []string, oldItems, newItems []interface{}, static
 }
 
 // IsComplexInsertionPattern checks if the insertion pattern is too complex for simple operations.
-func IsComplexInsertionPattern(newKeys []string, oldItems, newItems []interface{}, statics interface{}) bool {
+func IsComplexInsertionPattern(newKeys []string, oldItems, newItems []any, statics any) bool {
 	if len(newKeys) == 0 {
 		return false
 	}
@@ -699,20 +695,17 @@ func IsComplexInsertionPattern(newKeys []string, oldItems, newItems []interface{
 	for i, item := range newItems {
 		if keyStr, ok := GetItemKey(item, statics); ok {
 			// Check if this is a new key
-			for _, newKey := range newKeys {
-				if newKey == keyStr {
-					// Determine insertion point
-					var insertionPoint string
-					if i > 0 {
-						if prevKeyStr, ok := GetItemKey(newItems[i-1], statics); ok {
-							insertionPoint = prevKeyStr + ":after"
-						}
-					} else {
-						insertionPoint = "start"
+			if slices.Contains(newKeys, keyStr) {
+				// Determine insertion point
+				var insertionPoint string
+				if i > 0 {
+					if prevKeyStr, ok := GetItemKey(newItems[i-1], statics); ok {
+						insertionPoint = prevKeyStr + ":after"
 					}
-					insertionPoints[insertionPoint] = true
-					break
+				} else {
+					insertionPoint = "start"
 				}
+				insertionPoints[insertionPoint] = true
 			}
 		}
 	}
@@ -722,7 +715,7 @@ func IsComplexInsertionPattern(newKeys []string, oldItems, newItems []interface{
 
 // GetRangeSignature creates a signature for a range construct based on its static template structure.
 // This signature should be the same for the same template construct regardless of data.
-func GetRangeSignature(rangeValue interface{}) string {
+func GetRangeSignature(rangeValue any) string {
 	// Check if value is a TreeNode with statics
 	if node, ok := rangeValue.(*TreeNode); ok {
 		if node.HasStatics() {
@@ -732,7 +725,7 @@ func GetRangeSignature(rangeValue interface{}) string {
 	}
 
 	// Fallback: check for map representation (for compatibility during migration)
-	rangeMap, ok := rangeValue.(map[string]interface{})
+	rangeMap, ok := rangeValue.(map[string]any)
 	if !ok {
 		return ""
 	}
@@ -748,16 +741,16 @@ func GetRangeSignature(rangeValue interface{}) string {
 }
 
 // FindRangeConstructs finds all range constructs in a tree, recursively searching nested structures.
-func FindRangeConstructs(tree *TreeNode) map[string]interface{} {
+func FindRangeConstructs(tree *TreeNode) map[string]any {
 	if tree == nil {
-		return make(map[string]interface{})
+		return make(map[string]any)
 	}
 	return findRangeConstructsRecursive(tree, "")
 }
 
 // findRangeConstructsRecursive finds range constructs with path tracking.
-func findRangeConstructsRecursive(tree *TreeNode, path string) map[string]interface{} {
-	ranges := make(map[string]interface{})
+func findRangeConstructsRecursive(tree *TreeNode, path string) map[string]any {
+	ranges := make(map[string]any)
 
 	if tree == nil {
 		return ranges
@@ -787,9 +780,7 @@ func findRangeConstructsRecursive(tree *TreeNode, path string) map[string]interf
 			if nestedTree, ok := value.(*TreeNode); ok {
 				// Merge nested ranges into our map
 				nestedRanges := findRangeConstructsRecursive(nestedTree, fieldPath)
-				for k, v := range nestedRanges {
-					ranges[k] = v
-				}
+				maps.Copy(ranges, nestedRanges)
 			}
 		}
 	}

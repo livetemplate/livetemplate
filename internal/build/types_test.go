@@ -115,7 +115,7 @@ func TestIsTreeCompatible(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		value      interface{}
+		value      any
 		compatible bool
 	}{
 		{"nil", nil, true},
@@ -126,8 +126,8 @@ func TestIsTreeCompatible(t *testing.T) {
 		{"bool", true, true},
 		{"*TreeNode", NewTreeNode(), true},
 		{"*RangeData", &RangeData{}, true},
-		{"map[string]interface{}", map[string]interface{}{"key": "value"}, true},
-		{"[]interface{}", []interface{}{"a", "b"}, true},
+		{"map[string]interface{}", map[string]any{"key": "value"}, true},
+		{"[]interface{}", []any{"a", "b"}, true},
 		// Typed slices should be compatible (valid JSON arrays)
 		{"[]string", []string{"a", "b", "c"}, true},
 		{"[]int", []int{1, 2, 3}, true},
@@ -207,7 +207,7 @@ func TestTreeNode_HasRange(t *testing.T) {
 		t.Error("Empty node should not have range")
 	}
 
-	node.Range = &RangeData{Items: []interface{}{}}
+	node.Range = &RangeData{Items: []any{}}
 	if !node.HasRange() {
 		t.Error("Node with range should return true")
 	}
@@ -217,7 +217,7 @@ func TestTreeNode_HasRange(t *testing.T) {
 func TestTreeNode_MarshalJSON(t *testing.T) {
 	node := &TreeNode{
 		Statics:     []string{"<div>", "</div>"},
-		Dynamics:    map[string]interface{}{"0": "Hello"},
+		Dynamics:    map[string]any{"0": "Hello"},
 		Fingerprint: "abc123",
 	}
 
@@ -226,7 +226,7 @@ func TestTreeNode_MarshalJSON(t *testing.T) {
 		t.Fatalf("Marshal failed: %v", err)
 	}
 
-	var result map[string]interface{}
+	var result map[string]any
 	if err := json.Unmarshal(data, &result); err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 func TestTreeNode_ToMap(t *testing.T) {
 	node := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "value"},
+		Dynamics: map[string]any{"0": "value"},
 	}
 
 	m := node.ToMap()
@@ -289,8 +289,8 @@ func TestTreeNode_ToMap(t *testing.T) {
 
 // TestTreeNode_FromMap tests creation from map.
 func TestTreeNode_FromMap(t *testing.T) {
-	m := map[string]interface{}{
-		"s": []interface{}{"<div>", "</div>"},
+	m := map[string]any{
+		"s": []any{"<div>", "</div>"},
 		"0": "value",
 	}
 
@@ -312,7 +312,7 @@ func TestTreeNode_FromMap(t *testing.T) {
 func TestTreeNode_Clone(t *testing.T) {
 	original := &TreeNode{
 		Statics:     []string{"<div>", "</div>"},
-		Dynamics:    map[string]interface{}{"0": "value"},
+		Dynamics:    map[string]any{"0": "value"},
 		Fingerprint: "fp123",
 	}
 
@@ -333,11 +333,11 @@ func TestTreeNode_Clone(t *testing.T) {
 // TestTreeNode_NestedClone tests cloning with nested TreeNodes.
 func TestTreeNode_NestedClone(t *testing.T) {
 	nested := &TreeNode{
-		Dynamics: map[string]interface{}{"0": "nested-value"},
+		Dynamics: map[string]any{"0": "nested-value"},
 	}
 
 	original := &TreeNode{
-		Dynamics: map[string]interface{}{
+		Dynamics: map[string]any{
 			"0": nested,
 		},
 	}
@@ -360,7 +360,7 @@ func TestTreeNode_NestedClone(t *testing.T) {
 
 // TestRangeData_Creation tests RangeData constructor.
 func TestRangeData_Creation(t *testing.T) {
-	items := []interface{}{"item1", "item2"}
+	items := []any{"item1", "item2"}
 	statics := []string{"<li>", "</li>"}
 
 	rd := NewRangeData(items, statics)

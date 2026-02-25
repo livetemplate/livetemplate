@@ -34,10 +34,7 @@ func ApplyPaginationMutation(state *PaginatedState, mutation mutations.Mutation)
 		if !ok {
 			return fmt.Errorf("MutJumpToPage requires int value, got %T", mutation.Value)
 		}
-		maxPage := (len(state.Items) - 1) / state.PageSize
-		if maxPage < 0 {
-			maxPage = 0
-		}
+		maxPage := max((len(state.Items)-1)/state.PageSize, 0)
 		if page < 0 || page > maxPage {
 			return fmt.Errorf("page %d out of range [0, %d]", page, maxPage)
 		}
@@ -112,10 +109,7 @@ func DeriveVisibleItems(state *PaginatedState) {
 		start = state.Page * state.PageSize
 	}
 
-	end := start + state.PageSize
-	if end > len(state.Items) {
-		end = len(state.Items)
-	}
+	end := min(start+state.PageSize, len(state.Items))
 
 	state.VisibleItems = make([]Item, end-start)
 	copy(state.VisibleItems, state.Items[start:end])

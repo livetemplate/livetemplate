@@ -14,8 +14,8 @@ import (
 //
 // Returns empty slice when differential operations cannot fully express the change,
 // signaling that the caller should fall back to full tree replacement.
-func GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripStatics bool) []interface{} {
-	var operations []interface{}
+func GenerateRangeDifferentialOperations(oldValue, newValue any, stripStatics bool) []any {
+	var operations []any
 
 	// Extract range data from old and new values
 	oldItems, newItems, statics, metadata := extractRangeData(oldValue, newValue)
@@ -29,7 +29,7 @@ func GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 
 	// Check for pure reordering
 	if IsPureReordering(oldItems, newItems, oldKeys, newKeys, statics) {
-		return []interface{}{[]interface{}{"o", newKeys}}
+		return []any{[]any{"o", newKeys}}
 	}
 
 	// Find new items (keys in new but not in old)
@@ -62,7 +62,7 @@ func GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 	// 1. Key sets are identical (no insertions or removals - same items in both)
 	// 2. Order actually differs
 	if sameKeySet(oldKeys, newKeys) && HasReordering(oldKeys, newKeys) {
-		operations = append(operations, []interface{}{"o", newKeys})
+		operations = append(operations, []any{"o", newKeys})
 	}
 
 	// Strip statics from all operations if requested
@@ -74,10 +74,10 @@ func GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 }
 
 // extractRangeData extracts items, statics, and metadata from old and new range values.
-func extractRangeData(oldValue, newValue interface{}) (
-	oldItems, newItems []interface{},
-	statics interface{},
-	metadata map[string]interface{},
+func extractRangeData(oldValue, newValue any) (
+	oldItems, newItems []any,
+	statics any,
+	metadata map[string]any,
 ) {
 	// Try to extract TreeNode first
 	oldNode, ok := oldValue.(*TreeNode)
@@ -135,7 +135,7 @@ func extractRangeData(oldValue, newValue interface{}) (
 
 	// Extract metadata for empty→items transitions
 	if newNode.Metadata != nil {
-		metadata = map[string]interface{}{
+		metadata = map[string]any{
 			"idKey": newNode.Metadata.IDKey,
 		}
 	}
@@ -145,10 +145,10 @@ func extractRangeData(oldValue, newValue interface{}) (
 
 // generateRemovalOperations finds and generates removal operations for items that were deleted.
 func generateRemovalOperations(
-	oldItems, newItems []interface{},
-	statics interface{},
-	operations []interface{},
-) []interface{} {
+	oldItems, newItems []any,
+	statics any,
+	operations []any,
+) []any {
 	// Create map for easy lookup
 	newItemsByKey := createItemKeyMap(newItems, statics)
 
@@ -159,7 +159,7 @@ func generateRemovalOperations(
 
 	for _, key := range sortedOldKeys {
 		if _, exists := newItemsByKey[key]; !exists {
-			operations = append(operations, []interface{}{"r", key})
+			operations = append(operations, []any{"r", key})
 		}
 	}
 
@@ -168,10 +168,10 @@ func generateRemovalOperations(
 
 // generateUpdateOperations finds and generates update operations for changed items.
 func generateUpdateOperations(
-	oldItems, newItems []interface{},
-	statics interface{},
-	operations []interface{},
-) []interface{} {
+	oldItems, newItems []any,
+	statics any,
+	operations []any,
+) []any {
 	// Create maps for easy lookup
 	oldItemsByKey := createItemKeyMap(oldItems, statics)
 	newItemsByKey := createItemKeyMap(newItems, statics)
@@ -187,11 +187,11 @@ func generateUpdateOperations(
 			// Compare items and generate update operation if different
 			changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
 			if len(changes) > 0 {
-					// Always include changes, even if they're all empty strings.
+				// Always include changes, even if they're all empty strings.
 				// Empty string changes indicate that a field should be cleared
 				// (e.g., removing "checked" attribute when toggling a checkbox off).
 				// The client needs to know about these changes to update the DOM.
-				operations = append(operations, []interface{}{"u", key, changes})
+				operations = append(operations, []any{"u", key, changes})
 			}
 		}
 	}
@@ -203,11 +203,11 @@ func generateUpdateOperations(
 // NOTE: Complex insertion patterns are now checked upfront in GenerateRangeDifferentialOperations
 // to avoid generating partial operations (removes without inserts).
 func generateInsertionOperations(
-	oldItems, newItems []interface{},
-	statics interface{},
-	metadata map[string]interface{},
-	operations []interface{},
-) []interface{} {
+	oldItems, newItems []any,
+	statics any,
+	metadata map[string]any,
+	operations []any,
+) []any {
 	// Find new items
 	addedKeys := FindNewItems(oldItems, newItems, statics)
 	if len(addedKeys) == 0 {
@@ -225,14 +225,14 @@ func generateInsertionOperations(
 
 // handleEmptyToItemsTransition handles the transition from empty range to items.
 func handleEmptyToItemsTransition(
-	newItems []interface{},
-	statics interface{},
-	metadata map[string]interface{},
-	operations []interface{},
-) []interface{} {
+	newItems []any,
+	statics any,
+	metadata map[string]any,
+	operations []any,
+) []any {
 	// Build array of items to append, KEEPING nested statics
 	// The client hasn't seen these items before, so they need full structure
-	itemsToAppend := make([]interface{}, 0, len(newItems))
+	itemsToAppend := make([]any, 0, len(newItems))
 	for _, item := range newItems {
 		itemsToAppend = append(itemsToAppend, PrepareTreeForClient(item, false))
 	}
@@ -240,9 +240,9 @@ func handleEmptyToItemsTransition(
 	// Use 'a' operation with statics and metadata so client can initialize range state
 	// Format: ['a', items, statics, metadata]
 	if metadata != nil {
-		operations = append(operations, []interface{}{"a", itemsToAppend, statics, metadata})
+		operations = append(operations, []any{"a", itemsToAppend, statics, metadata})
 	} else {
-		operations = append(operations, []interface{}{"a", itemsToAppend, statics})
+		operations = append(operations, []any{"a", itemsToAppend, statics})
 	}
 
 	return operations
@@ -251,10 +251,10 @@ func handleEmptyToItemsTransition(
 // handleIncrementalInsertions handles insertions when range already has items.
 func handleIncrementalInsertions(
 	addedKeys []string,
-	oldItems, newItems []interface{},
-	statics interface{},
-	operations []interface{},
-) []interface{} {
+	oldItems, newItems []any,
+	statics any,
+	operations []any,
+) []any {
 	newItemsByKey := createItemKeyMap(newItems, statics)
 
 	// Check if all new items are at the start (prepend)
@@ -274,11 +274,11 @@ func handleIncrementalInsertions(
 // handlePrependOperation generates prepend operations for items at the start.
 func handlePrependOperation(
 	addedKeys []string,
-	newItemsByKey map[string]interface{},
-	statics interface{},
-	operations []interface{},
-) []interface{} {
-	itemsToPrepend := make([]interface{}, 0, len(addedKeys))
+	newItemsByKey map[string]any,
+	statics any,
+	operations []any,
+) []any {
+	itemsToPrepend := make([]any, 0, len(addedKeys))
 	for _, key := range addedKeys {
 		if item, exists := newItemsByKey[key]; exists {
 			// Keep nested statics for new items - client hasn't seen these items before
@@ -288,18 +288,18 @@ func handlePrependOperation(
 	}
 	// Use 'p' operation for prepending (O(1) on client)
 	// Format: ['p', items, statics] - statics describe how to render items
-	operations = append(operations, []interface{}{"p", itemsToPrepend, statics})
+	operations = append(operations, []any{"p", itemsToPrepend, statics})
 	return operations
 }
 
 // handleAppendOperation generates append operations for items at the end.
 func handleAppendOperation(
 	addedKeys []string,
-	newItemsByKey map[string]interface{},
-	statics interface{},
-	operations []interface{},
-) []interface{} {
-	itemsToAppend := make([]interface{}, 0, len(addedKeys))
+	newItemsByKey map[string]any,
+	statics any,
+	operations []any,
+) []any {
+	itemsToAppend := make([]any, 0, len(addedKeys))
 	for _, key := range addedKeys {
 		if item, exists := newItemsByKey[key]; exists {
 			// Keep nested statics for new items - client hasn't seen these items before
@@ -309,18 +309,18 @@ func handleAppendOperation(
 	}
 	// Use 'a' operation for appending (O(1) on client)
 	// Format: ['a', items, statics] - statics describe how to render items
-	operations = append(operations, []interface{}{"a", itemsToAppend, statics})
+	operations = append(operations, []any{"a", itemsToAppend, statics})
 	return operations
 }
 
 // handleIndividualInsertions generates insert operations for items at specific positions.
 func handleIndividualInsertions(
 	addedKeys []string,
-	newItems []interface{},
-	newItemsByKey map[string]interface{},
-	statics interface{},
-	operations []interface{},
-) []interface{} {
+	newItems []any,
+	newItemsByKey map[string]any,
+	statics any,
+	operations []any,
+) []any {
 	for _, key := range addedKeys {
 		if newItem, exists := newItemsByKey[key]; exists {
 			// Find position for this specific item
@@ -330,14 +330,14 @@ func handleIndividualInsertions(
 						// Item at start - use prepend for single item
 						// Keep nested statics for new items
 						preparedItem := PrepareTreeForClient(newItem, false)
-						operations = append(operations, []interface{}{"p", []interface{}{preparedItem}, statics})
+						operations = append(operations, []any{"p", []any{preparedItem}, statics})
 					} else {
 						// Find the item before this one and use simplified insert
 						if prevKey, ok := GetItemKey(newItems[i-1], statics); ok {
 							// Simplified insert: ['i', afterId, data] (no position param)
 							// Keep nested statics for new items
 							preparedItem := PrepareTreeForClient(newItem, false)
-							operations = append(operations, []interface{}{"i", prevKey, preparedItem})
+							operations = append(operations, []any{"i", prevKey, preparedItem})
 						}
 					}
 					break
@@ -350,8 +350,8 @@ func handleIndividualInsertions(
 
 // CompareRangeItemsForChanges compares two range items and returns a map of field changes.
 // For heterogeneous ranges, uses the item's _sk field to look up its specific statics.
-func CompareRangeItemsForChanges(oldItem, newItem interface{}, statics interface{}) map[string]interface{} {
-	changes := make(map[string]interface{})
+func CompareRangeItemsForChanges(oldItem, newItem any, statics any) map[string]any {
+	changes := make(map[string]any)
 
 	oldItemNode, ok1 := oldItem.(*TreeNode)
 	newItemNode, ok2 := newItem.(*TreeNode)
@@ -407,10 +407,10 @@ func CompareRangeItemsForChanges(oldItem, newItem interface{}, statics interface
 // Uses fingerprint comparison to detect static structure changes.
 func handleNestedTreeNodeChange(
 	fieldKey string,
-	oldValue interface{},
+	oldValue any,
 	newTreeNode *TreeNode,
 	exists bool,
-	changes map[string]interface{},
+	changes map[string]any,
 ) {
 	// Check if old value is also a TreeNode
 	oldTreeNode, oldIsTree := oldValue.(*TreeNode)
@@ -469,8 +469,8 @@ func handleNestedTreeNodeChange(
 // Helper functions
 
 // createItemKeyMap creates a map of items indexed by their keys.
-func createItemKeyMap(items []interface{}, statics interface{}) map[string]interface{} {
-	itemsByKey := make(map[string]interface{})
+func createItemKeyMap(items []any, statics any) map[string]any {
+	itemsByKey := make(map[string]any)
 	for _, item := range items {
 		if key, ok := GetItemKey(item, statics); ok {
 			itemsByKey[key] = item
@@ -482,10 +482,10 @@ func createItemKeyMap(items []interface{}, statics interface{}) map[string]inter
 // stripStaticsFromOperations removes statics from all operations.
 // Range operations have format: ['a'/'p'/'i', items, statics?, metadata?]
 // We strip the statics (index 2) when client has already seen them.
-func stripStaticsFromOperations(operations []interface{}) []interface{} {
-	result := make([]interface{}, len(operations))
+func stripStaticsFromOperations(operations []any) []any {
+	result := make([]any, len(operations))
 	for i, op := range operations {
-		opArr, ok := op.([]interface{})
+		opArr, ok := op.([]any)
 		if !ok || len(opArr) < 2 {
 			result[i] = op
 			continue
@@ -496,7 +496,7 @@ func stripStaticsFromOperations(operations []interface{}) []interface{} {
 		case "a", "p": // append/prepend: ['a'/'p', items, statics?, metadata?]
 			if len(opArr) >= 3 {
 				// Strip statics at index 2, keep metadata at index 3 if present
-				strippedOp := []interface{}{opArr[0], opArr[1]}
+				strippedOp := []any{opArr[0], opArr[1]}
 				if len(opArr) >= 4 {
 					// Keep metadata (index 3)
 					strippedOp = append(strippedOp, nil, opArr[3])
@@ -508,7 +508,7 @@ func stripStaticsFromOperations(operations []interface{}) []interface{} {
 		case "i": // insert: ['i', afterId, data, statics?]
 			if len(opArr) >= 4 {
 				// Strip statics at index 3
-				result[i] = []interface{}{opArr[0], opArr[1], opArr[2]}
+				result[i] = []any{opArr[0], opArr[1], opArr[2]}
 			} else {
 				result[i] = opArr
 			}

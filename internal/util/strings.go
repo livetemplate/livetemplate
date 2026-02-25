@@ -9,12 +9,9 @@ package util
 // but may split multi-byte UTF-8 sequences. For general text processing,
 // consider using a rune-based approach.
 func FindCommonPrefix(s1, s2 string) string {
-	minLen := len(s1)
-	if len(s2) < minLen {
-		minLen = len(s2)
-	}
+	minLen := min(len(s2), len(s1))
 
-	for i := 0; i < minLen; i++ {
+	for i := range minLen {
 		if s1[i] != s2[i] {
 			return s1[:i]
 		}
@@ -31,12 +28,9 @@ func FindCommonPrefix(s1, s2 string) string {
 // consider using a rune-based approach.
 func FindCommonSuffix(s1, s2 string) string {
 	len1, len2 := len(s1), len(s2)
-	minLen := len1
-	if len2 < minLen {
-		minLen = len2
-	}
+	minLen := min(len2, len1)
 
-	for i := 0; i < minLen; i++ {
+	for i := range minLen {
 		if s1[len1-1-i] != s2[len2-1-i] {
 			return s1[len1-i:]
 		}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -88,16 +89,16 @@ type stateFieldInfo struct {
 
 // HasStateFields checks if a store has any fields tagged with `lvt:"state"`.
 // This is used to determine if selective serialization should be used.
-func HasStateFields(store interface{}) bool {
+func HasStateFields(store any) bool {
 	fields := getStateFieldInfo(store)
 	return len(fields) > 0
 }
 
 // getStateFieldInfo returns metadata about state-tagged fields for a store type.
 // Results are cached by type for performance.
-func getStateFieldInfo(store interface{}) []stateFieldInfo {
+func getStateFieldInfo(store any) []stateFieldInfo {
 	storeType := reflect.TypeOf(store)
-	if storeType.Kind() == reflect.Ptr {
+	if storeType.Kind() == reflect.Pointer {
 		storeType = storeType.Elem()
 	}
 
@@ -144,10 +145,8 @@ func validateStateTag(tag, fieldName, typeName string) {
 
 	// Check if it's a known valid value
 	validValues := []string{stateTagValue, transientTagValue}
-	for _, valid := range validValues {
-		if tag == valid {
-			return // Valid, no warning needed
-		}
+	if slices.Contains(validValues, tag) {
+		return // Valid, no warning needed
 	}
 
 	lowerTag := strings.ToLower(tag)
@@ -174,28 +173,24 @@ func validateStateTag(tag, fieldName, typeName string) {
 
 	// Common typos of "state"
 	typos := []string{"states", "stae", "satte", "stat", "staet"}
-	for _, typo := range typos {
-		if lowerTag == typo {
-			slog.Warn("Possible typo in lvt tag",
-				slog.String("field", fieldName),
-				slog.String("type", typeName),
-				slog.String("got", tag),
-				slog.String("expected", stateTagValue))
-			return
-		}
+	if slices.Contains(typos, lowerTag) {
+		slog.Warn("Possible typo in lvt tag",
+			slog.String("field", fieldName),
+			slog.String("type", typeName),
+			slog.String("got", tag),
+			slog.String("expected", stateTagValue))
+		return
 	}
 
 	// Common typos of "transient"
 	transientTypos := []string{"transiant", "transent", "trasient", "tranisent"}
-	for _, typo := range transientTypos {
-		if lowerTag == typo {
-			slog.Warn("Possible typo in lvt tag",
-				slog.String("field", fieldName),
-				slog.String("type", typeName),
-				slog.String("got", tag),
-				slog.String("expected", transientTagValue))
-			return
-		}
+	if slices.Contains(transientTypos, lowerTag) {
+		slog.Warn("Possible typo in lvt tag",
+			slog.String("field", fieldName),
+			slog.String("type", typeName),
+			slog.String("got", tag),
+			slog.String("expected", transientTagValue))
+		return
 	}
 
 	// Unknown tag value - just log at debug level
@@ -210,18 +205,18 @@ func validateStateTag(tag, fieldName, typeName string) {
 //
 // The returned map has field names as keys and field values as values.
 // This map can be serialized with SerializeState.
-func ExtractState(store interface{}) map[string]interface{} {
+func ExtractState(store any) map[string]any {
 	fields := getStateFieldInfo(store)
 	if len(fields) == 0 {
 		return nil
 	}
 
 	storeValue := reflect.ValueOf(store)
-	if storeValue.Kind() == reflect.Ptr {
+	if storeValue.Kind() == reflect.Pointer {
 		storeValue = storeValue.Elem()
 	}
 
-	result := make(map[string]interface{}, len(fields))
+	result := make(map[string]any, len(fields))
 	for _, field := range fields {
 		fieldValue := storeValue.Field(field.Index)
 		if fieldValue.CanInterface() {
@@ -236,14 +231,14 @@ func ExtractState(store interface{}) map[string]interface{} {
 // This is used during deserialization to restore state into a cloned controller.
 //
 // The map should have field names as keys (matching the struct field names).
-func InjectState(store interface{}, state map[string]interface{}) error {
+func InjectState(store any, state map[string]any) error {
 	fields := getStateFieldInfo(store)
 	if len(fields) == 0 {
 		return nil
 	}
 
 	storeValue := reflect.ValueOf(store)
-	if storeValue.Kind() == reflect.Ptr {
+	if storeValue.Kind() == reflect.Pointer {
 		storeValue = storeValue.Elem()
 	}
 
@@ -278,7 +273,7 @@ func InjectState(store interface{}, state map[string]interface{}) error {
 //	    EditingID    string     `json:"editing_id" lvt:"transient"`      // Cleared on reload
 //	    EditingPost  *PostItem  `json:"editing_post" lvt:"transient"`    // Cleared on reload
 //	}
-func ClearTransientFields(state interface{}) interface{} {
+func ClearTransientFields(state any) any {
 	// If state implements the State interface (e.g., jsonState wrapper),
 	// unwrap it to get the actual state struct
 	if s, ok := state.(State); ok {
@@ -292,7 +287,7 @@ func ClearTransientFields(state interface{}) interface{} {
 	var elem reflect.Value
 
 	// Handle pointer vs value - we need an addressable struct to modify fields
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return state
 		}
@@ -348,7 +343,7 @@ type stateEnvelope struct {
 // Each field is serialized using BinaryMarshaler if available, otherwise JSON.
 //
 // The envelope format allows individual fields to use different serialization methods.
-func SerializeState(state map[string]interface{}) ([]byte, error) {
+func SerializeState(state map[string]any) ([]byte, error) {
 	if len(state) == 0 {
 		return nil, nil
 	}
@@ -385,7 +380,7 @@ func SerializeState(state map[string]interface{}) ([]byte, error) {
 //
 // For BinaryUnmarshaler fields, the method creates new instances and calls UnmarshalBinary.
 // For other fields, JSON is used.
-func DeserializeState(data []byte, store interface{}) (map[string]interface{}, error) {
+func DeserializeState(data []byte, store any) (map[string]any, error) {
 	if len(data) == 0 {
 		return nil, nil
 	}
@@ -405,7 +400,7 @@ func DeserializeState(data []byte, store interface{}) (map[string]interface{}, e
 		fieldTypes[f.Name] = f.Type
 	}
 
-	result := make(map[string]interface{}, len(envelope.Fields))
+	result := make(map[string]any, len(envelope.Fields))
 
 	for name, fieldData := range envelope.Fields {
 		fieldType, ok := fieldTypes[name]
@@ -416,7 +411,7 @@ func DeserializeState(data []byte, store interface{}) (map[string]interface{}, e
 
 		// Create a new instance of the field type
 		var fieldPtr reflect.Value
-		if fieldType.Kind() == reflect.Ptr {
+		if fieldType.Kind() == reflect.Pointer {
 			fieldPtr = reflect.New(fieldType.Elem())
 		} else {
 			fieldPtr = reflect.New(fieldType)
@@ -429,7 +424,7 @@ func DeserializeState(data []byte, store interface{}) (map[string]interface{}, e
 			if err := unmarshaler.UnmarshalBinary(fieldData); err != nil {
 				return nil, fmt.Errorf("failed to unmarshal field %q: %w", name, err)
 			}
-			if fieldType.Kind() == reflect.Ptr {
+			if fieldType.Kind() == reflect.Pointer {
 				result[name] = fieldValue
 			} else {
 				result[name] = fieldPtr.Elem().Interface()
@@ -439,7 +434,7 @@ func DeserializeState(data []byte, store interface{}) (map[string]interface{}, e
 			if err := json.Unmarshal(fieldData, fieldValue); err != nil {
 				return nil, fmt.Errorf("failed to JSON unmarshal field %q: %w", name, err)
 			}
-			if fieldType.Kind() == reflect.Ptr {
+			if fieldType.Kind() == reflect.Pointer {
 				result[name] = fieldValue
 			} else {
 				result[name] = fieldPtr.Elem().Interface()

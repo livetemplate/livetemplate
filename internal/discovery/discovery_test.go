@@ -275,9 +275,9 @@ func TestDiscoverTemplateFiles_SmartFallback(t *testing.T) {
 
 		// Create templates at different levels
 		files := map[string]string{
-			filepath.Join(tmpDir, "root.tmpl"):            "root",
-			filepath.Join(tmpDir, "views", "index.tmpl"):  "views",
-			filepath.Join(subDir, "login.tmpl"):           "nested",
+			filepath.Join(tmpDir, "root.tmpl"):           "root",
+			filepath.Join(tmpDir, "views", "index.tmpl"): "views",
+			filepath.Join(subDir, "login.tmpl"):          "nested",
 		}
 
 		for path := range files {

@@ -209,7 +209,7 @@ func TestHealthHandler_RegisterChecker_Concurrent(t *testing.T) {
 
 	// Register checkers concurrently
 	done := make(chan bool, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		go func(id int) {
 			handler.RegisterChecker("checker", &mockHealthChecker{})
 			done <- true
@@ -217,7 +217,7 @@ func TestHealthHandler_RegisterChecker_Concurrent(t *testing.T) {
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 
@@ -235,7 +235,7 @@ func TestHealthHandler_ConcurrentChecks(t *testing.T) {
 	handler := NewHealthHandler(1 * time.Second)
 
 	// Register multiple checkers with slight delays
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		handler.RegisterChecker("checker", &mockHealthChecker{
 			delay: 50 * time.Millisecond,
 		})

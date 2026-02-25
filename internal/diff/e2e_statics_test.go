@@ -81,7 +81,7 @@ func TestE2E_EmptyToItems_Statics(t *testing.T) {
 		t.Fatalf("Expected 1 operation, got %d", len(operations))
 	}
 
-	op, ok := operations[0].([]interface{})
+	op, ok := operations[0].([]any)
 	if !ok {
 		t.Fatalf("Expected operation to be []interface{}, got %T", operations[0])
 	}

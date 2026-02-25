@@ -227,7 +227,7 @@ func TestConnectionRegistry_Count(t *testing.T) {
 	}
 
 	// Add connections
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		conn := &Connection{GroupID: "group-1", UserID: "alice"}
 		registry.Register(conn, 50)
 	}
@@ -275,11 +275,11 @@ func TestConnectionRegistry_ConcurrentAccess(t *testing.T) {
 	goroutines := 10
 
 	// Concurrent registrations
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < iterations; j++ {
+			for range iterations {
 				conn := &Connection{
 					GroupID: "group-" + string(rune('0'+id)),
 					UserID:  "user-" + string(rune('0'+id)),
@@ -290,11 +290,11 @@ func TestConnectionRegistry_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Concurrent reads
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < iterations; j++ {
+			for range iterations {
 				registry.GetByGroup("group-" + string(rune('0'+id)))
 				registry.GetByUser("user-" + string(rune('0'+id)))
 				registry.GetAll()
@@ -304,7 +304,7 @@ func TestConnectionRegistry_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Concurrent unregistrations
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()

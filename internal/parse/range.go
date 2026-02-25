@@ -72,7 +72,7 @@ type rangeItemWithStatics struct {
 // It supports slices, arrays, and maps with optional variable declarations.
 // Returns a TreeNode with Range field containing all items and metadata with ID key position.
 // For empty collections, returns the else branch or an empty range tree.
-func handleRangeNode(node *parse.RangeNode, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+func handleRangeNode(node *parse.RangeNode, data any, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	// Extract collection to iterate over
 	collection, err := extractRangeCollection(node, data, ctx)
 	if err != nil {
@@ -104,7 +104,7 @@ func handleRangeNode(node *parse.RangeNode, data interface{}, keyGen KeyGenerato
 // extractRangeCollection extracts the collection expression from a range node.
 // Handles both simple ranges ({{range .Items}}) and ranges with variable declarations
 // ({{range $i, $v := .Items}}). Returns the collection to iterate over or an error.
-func extractRangeCollection(node *parse.RangeNode, data interface{}, ctx *Context) (interface{}, error) {
+func extractRangeCollection(node *parse.RangeNode, data any, ctx *Context) (any, error) {
 	if len(node.Pipe.Decl) > 0 {
 		// Has variable declarations - extract just the collection expression
 		if len(node.Pipe.Cmds) > 0 {
@@ -134,7 +134,7 @@ func isEmpty(v reflect.Value) bool {
 
 // handleEmptyRange handles empty collections or else branches.
 // If an else branch exists, builds and returns its tree. Otherwise returns an empty range tree.
-func handleEmptyRange(node *parse.RangeNode, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+func handleEmptyRange(node *parse.RangeNode, data any, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	// Empty range - use else branch if available
 	if node.ElseList != nil {
 		return buildTreeFromAST(node.ElseList, data, keyGen, ctx)
@@ -145,14 +145,14 @@ func handleEmptyRange(node *parse.RangeNode, data interface{}, keyGen KeyGenerat
 	if ctx.ShouldIncludeStatics() {
 		emptyRange.Statics = []string{""}
 	}
-	emptyRange.Range = NewRangeData([]interface{}{}, nil)
+	emptyRange.Range = NewRangeData([]any{}, nil)
 	return emptyRange, nil
 }
 
 // handleSliceRange processes slice/array range iterations.
 // Builds a tree for each item, collecting statics from all items for heterogeneous support.
 // The hasVarDecls flag determines whether to use variable context or direct dot context.
-func handleSliceRange(node *parse.RangeNode, collection reflect.Value, data interface{}, hasVarDecls bool, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+func handleSliceRange(node *parse.RangeNode, collection reflect.Value, data any, hasVarDecls bool, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	// Collect all items with their statics
 	itemsWithStatics := make([]rangeItemWithStatics, 0, collection.Len())
 
@@ -198,7 +198,7 @@ func handleSliceRange(node *parse.RangeNode, collection reflect.Value, data inte
 // handleMapRange processes map range iterations.
 // Similar to handleSliceRange but iterates over map keys.
 // Note: Map iteration order is non-deterministic in Go.
-func handleMapRange(node *parse.RangeNode, collection reflect.Value, data interface{}, hasVarDecls bool, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+func handleMapRange(node *parse.RangeNode, collection reflect.Value, data any, hasVarDecls bool, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	// Collect all items with their statics
 	keys := collection.MapKeys()
 	itemsWithStatics := make([]rangeItemWithStatics, 0, len(keys))
@@ -248,7 +248,7 @@ func buildRangeTreeWithStatics(items []rangeItemWithStatics, ctx *Context) (*Tre
 		if ctx.ShouldIncludeStatics() {
 			rangeTree.Statics = []string{""}
 		}
-		rangeTree.Range = NewRangeData([]interface{}{}, nil)
+		rangeTree.Range = NewRangeData([]any{}, nil)
 		return rangeTree, nil
 	}
 
@@ -263,7 +263,7 @@ func buildRangeTreeWithStatics(items []rangeItemWithStatics, ctx *Context) (*Tre
 	}
 
 	// Build item trees
-	itemTrees := make([]interface{}, len(items))
+	itemTrees := make([]any, len(items))
 
 	if isHomogeneous {
 		// Detect ID key from first item's statics
@@ -329,7 +329,7 @@ func buildRangeTreeWithStatics(items []rangeItemWithStatics, ctx *Context) (*Tre
 
 // executeRangeBodyWithVars executes a range body with variable declarations.
 // The indexOrKey parameter is either an int (for slices/arrays) or the key (for maps).
-func executeRangeBodyWithVars(node *parse.RangeNode, indexOrKey interface{}, item interface{}, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+func executeRangeBodyWithVars(node *parse.RangeNode, indexOrKey any, item any, data any, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	// Create a variable context
 	varCtx := &varContext{
 		parent: data,

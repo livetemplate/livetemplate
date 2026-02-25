@@ -83,7 +83,7 @@ func (kg *Generator) Reset() {
 // DynamicsGetter is an interface for types that have a Dynamics field.
 // This allows LoadExistingKeys to work with TreeNode without importing it.
 type DynamicsGetter interface {
-	GetDynamics() map[string]interface{}
+	GetDynamics() map[string]any
 }
 
 // LoadExistingKeys loads previous range data and updates the counter.
@@ -95,7 +95,7 @@ type DynamicsGetter interface {
 // Non-numeric keys (UUIDs, content hashes, custom keys) are tracked but don't affect the counter.
 // Returns an error if the data structure is invalid.
 // It is safe to call from multiple goroutines.
-func (kg *Generator) LoadExistingKeys(oldRangeData []interface{}) error {
+func (kg *Generator) LoadExistingKeys(oldRangeData []any) error {
 	kg.mu.Lock()
 	defer kg.mu.Unlock()
 
@@ -105,7 +105,7 @@ func (kg *Generator) LoadExistingKeys(oldRangeData []interface{}) error {
 
 		// Handle both map and DynamicsGetter formats
 		switch v := item.(type) {
-		case map[string]interface{}:
+		case map[string]any:
 			keyValue, exists := v[KeyDynamicPosition]
 			if !exists {
 				return fmt.Errorf("LoadExistingKeys: item %d missing key at position %q", i, KeyDynamicPosition)

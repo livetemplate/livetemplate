@@ -40,7 +40,7 @@ func BenchmarkConcurrentConnections(b *testing.B) {
 			connections := make([]*Connection, count)
 
 			// Create connections
-			for i := 0; i < count; i++ {
+			for i := range count {
 				conn := &Connection{
 					Conn:    nil,
 					GroupID: "bench-group",
@@ -120,7 +120,7 @@ func BenchmarkGetByGroup(b *testing.B) {
 	registry := NewConnectionRegistry()
 
 	// Create 100 connections in the same group
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		conn := &Connection{
 			Conn:    nil,
 			GroupID: "bench-group",
@@ -170,7 +170,7 @@ func BenchmarkMemoryUsage(b *testing.B) {
 		b.StartTimer()
 
 		// Create 100 connections
-		for j := 0; j < 100; j++ {
+		for j := range 100 {
 			conn := &Connection{
 				Conn:    nil,
 				GroupID: "bench-group",
@@ -194,7 +194,7 @@ func BenchmarkBroadcastToGroup(b *testing.B) {
 
 	// Create 100 connections in the same group
 	connections := make([]*Connection, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		conn := &Connection{
 			Conn:    nil,
 			GroupID: "bench-group",
@@ -279,7 +279,7 @@ func BenchmarkGetByGroupExcept(b *testing.B) {
 
 	// Create 100 connections in the same group
 	var excludeConn *Connection
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		conn := &Connection{
 			Conn:    nil,
 			GroupID: "bench-group",

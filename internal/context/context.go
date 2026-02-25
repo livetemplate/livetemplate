@@ -28,7 +28,7 @@ const FlashPrefix = "_flash:"
 type TemplateContext struct {
 	messages      map[string]string // Unified map: field errors + flash (prefixed with "_flash:")
 	DevMode       bool              // Development mode - use local client library instead of CDN
-	uploadEntries interface{}       // *upload.Registry for accessing upload state
+	uploadEntries any               // *upload.Registry for accessing upload state
 }
 
 // NewTemplateContext creates a new TemplateContext with the given messages map and devMode flag.
@@ -47,7 +47,7 @@ func NewTemplateContext(messages map[string]string, devMode bool) *TemplateConte
 
 // SetUploadRegistry sets the upload registry for this template context.
 // This allows templates to access upload state via .lvt.Uploads(name).
-func (t *TemplateContext) SetUploadRegistry(registry interface{}) {
+func (t *TemplateContext) SetUploadRegistry(registry any) {
 	t.uploadEntries = registry
 }
 
@@ -150,8 +150,8 @@ func (t *TemplateContext) AllFlash() map[string]string {
 		return result
 	}
 	for k, v := range t.messages {
-		if strings.HasPrefix(k, FlashPrefix) {
-			result[strings.TrimPrefix(k, FlashPrefix)] = v
+		if after, ok := strings.CutPrefix(k, FlashPrefix); ok {
+			result[after] = v
 		}
 	}
 	return result
@@ -161,7 +161,7 @@ func (t *TemplateContext) AllFlash() map[string]string {
 // Returns nil if no upload registry is set or upload doesn't exist.
 // The upload registry is expected to have a method: GetUpload(name string) interface{}
 // which returns an object with GetEntries() []interface{} method.
-func (t *TemplateContext) Uploads(name string) interface{} {
+func (t *TemplateContext) Uploads(name string) any {
 	if t.uploadEntries == nil {
 		return nil
 	}
@@ -316,21 +316,21 @@ const (
 //
 // Note: If struct fields or map keys conflict with the reserved "lvt" key, they will be
 // skipped to ensure the lvt context remains accessible in templates.
-func ExecuteTemplateWithContext(tmpl *template.Template, data interface{}, messages map[string]string, devMode bool, uploadRegistry interface{}) ([]byte, error) {
+func ExecuteTemplateWithContext(tmpl *template.Template, data any, messages map[string]string, devMode bool, uploadRegistry any) ([]byte, error) {
 	lvtContext := NewTemplateContext(messages, devMode)
 	if uploadRegistry != nil {
 		lvtContext.SetUploadRegistry(uploadRegistry)
 	}
 
-	var templateData interface{}
+	var templateData any
 
 	val := reflect.ValueOf(data)
 
 	// Handle nil pointer case explicitly
-	if val.Kind() == reflect.Ptr {
+	if val.Kind() == reflect.Pointer {
 		if val.IsNil() {
 			// Provide only lvt context for nil pointers
-			dataMap := make(map[string]interface{})
+			dataMap := make(map[string]any)
 			dataMap[TemplateContextKey] = lvtContext
 			templateData = dataMap
 			var buf bytes.Buffer
@@ -342,7 +342,7 @@ func ExecuteTemplateWithContext(tmpl *template.Template, data interface{}, messa
 
 	switch val.Kind() {
 	case reflect.Struct:
-		dataMap := make(map[string]interface{})
+		dataMap := make(map[string]any)
 
 		typ := val.Type()
 		for i := 0; i < val.NumField(); i++ {
@@ -386,7 +386,7 @@ func ExecuteTemplateWithContext(tmpl *template.Template, data interface{}, messa
 		templateData = dataMap
 
 	case reflect.Map:
-		dataMap := make(map[string]interface{})
+		dataMap := make(map[string]any)
 
 		for _, key := range val.MapKeys() {
 			keyStr := key.String()

@@ -87,8 +87,8 @@ func matchesMIMEType(mimeType, pattern string) bool {
 	}
 
 	// Wildcard match (e.g., "image/*")
-	if strings.HasSuffix(pattern, "/*") {
-		prefix := strings.TrimSuffix(pattern, "/*")
+	if before, ok := strings.CutSuffix(pattern, "/*"); ok {
+		prefix := before
 		if strings.HasPrefix(mimeType, prefix+"/") {
 			return true
 		}

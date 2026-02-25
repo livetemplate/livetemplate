@@ -9,13 +9,13 @@ import (
 func TestMarshalOrderedJSON(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    interface{}
+		input    any
 		expected string
 		wantErr  bool
 	}{
 		{
 			name:     "simple object",
-			input:    map[string]interface{}{"key": "value"},
+			input:    map[string]any{"key": "value"},
 			expected: `{"key":"value"}`,
 			wantErr:  false,
 		},
@@ -27,7 +27,7 @@ func TestMarshalOrderedJSON(t *testing.T) {
 		},
 		{
 			name:     "nested object",
-			input:    map[string]interface{}{"outer": map[string]string{"inner": "value"}},
+			input:    map[string]any{"outer": map[string]string{"inner": "value"}},
 			expected: `{"outer":{"inner":"value"}}`,
 			wantErr:  false,
 		},
@@ -51,7 +51,7 @@ func TestMarshalOrderedJSON(t *testing.T) {
 		},
 		{
 			name:     "empty object",
-			input:    map[string]interface{}{},
+			input:    map[string]any{},
 			expected: `{}`,
 			wantErr:  false,
 		},
@@ -108,7 +108,7 @@ func TestMarshalValue(t *testing.T) {
 
 func TestMarshalOrderedJSONNoTrailingNewline(t *testing.T) {
 	// Explicitly test that no trailing newline is present
-	tests := []interface{}{
+	tests := []any{
 		"simple string",
 		123,
 		true,

@@ -197,7 +197,7 @@ func TestParseActionFromWebSocket_ComplexData(t *testing.T) {
 	}
 
 	// Verify nested object
-	user, ok := msg.Data["user"].(map[string]interface{})
+	user, ok := msg.Data["user"].(map[string]any)
 	if !ok {
 		t.Error("Expected 'user' to be a map")
 	} else {
@@ -207,7 +207,7 @@ func TestParseActionFromWebSocket_ComplexData(t *testing.T) {
 	}
 
 	// Verify array
-	items, ok := msg.Data["items"].([]interface{})
+	items, ok := msg.Data["items"].([]any)
 	if !ok {
 		t.Error("Expected 'items' to be an array")
 	} else {
@@ -230,17 +230,17 @@ func TestParseActionFromWebSocket_ComplexData(t *testing.T) {
 // TestParseActionFromHTTP_URLEncoded tests parsing URL-encoded form data.
 func TestParseActionFromHTTP_URLEncoded(t *testing.T) {
 	tests := []struct {
-		name         string
-		body         string
-		wantAction   string
-		wantData     map[string]interface{}
-		wantErr      bool
+		name       string
+		body       string
+		wantAction string
+		wantData   map[string]any
+		wantErr    bool
 	}{
 		{
 			name:       "basic form with lvt-action",
 			body:       "lvt-action=login&username=testuser&password=secret",
 			wantAction: "login",
-			wantData: map[string]interface{}{
+			wantData: map[string]any{
 				"username": "testuser",
 				"password": "secret",
 			},
@@ -249,13 +249,13 @@ func TestParseActionFromHTTP_URLEncoded(t *testing.T) {
 			name:       "form with action (fallback)",
 			body:       "action=logout",
 			wantAction: "logout",
-			wantData:   map[string]interface{}{},
+			wantData:   map[string]any{},
 		},
 		{
 			name:       "lvt-action takes precedence over action",
 			body:       "lvt-action=real&action=fallback&data=test",
 			wantAction: "real",
-			wantData: map[string]interface{}{
+			wantData: map[string]any{
 				"data": "test",
 			},
 		},
@@ -263,13 +263,13 @@ func TestParseActionFromHTTP_URLEncoded(t *testing.T) {
 			name:       "empty form",
 			body:       "",
 			wantAction: "",
-			wantData:   map[string]interface{}{},
+			wantData:   map[string]any{},
 		},
 		{
 			name:       "form with special characters",
 			body:       "lvt-action=update&email=test%40example.com&name=John+Doe",
 			wantAction: "update",
-			wantData: map[string]interface{}{
+			wantData: map[string]any{
 				"email": "test@example.com",
 				"name":  "John Doe",
 			},
@@ -330,7 +330,7 @@ func TestParseActionFromHTTP_URLEncoded_MultipleValues(t *testing.T) {
 		t.Errorf("Action = %q, want %q", msg.Action, "update")
 	}
 
-	tags, ok := msg.Data["tags"].([]interface{})
+	tags, ok := msg.Data["tags"].([]any)
 	if !ok {
 		t.Fatalf("Expected tags to be []interface{}, got %T", msg.Data["tags"])
 	}
@@ -422,31 +422,31 @@ func TestQueryParamsToData(t *testing.T) {
 	tests := []struct {
 		name     string
 		url      string
-		expected map[string]interface{}
+		expected map[string]any
 	}{
 		{
 			name:     "empty query string",
 			url:      "http://example.com/",
-			expected: map[string]interface{}{},
+			expected: map[string]any{},
 		},
 		{
 			name: "single param",
 			url:  "http://example.com/?error=invalid",
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"error": "invalid",
 			},
 		},
 		{
 			name: "empty value",
 			url:  "http://example.com/?error=",
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"error": "",
 			},
 		},
 		{
 			name: "multiple params",
 			url:  "http://example.com/?error=invalid&success=created",
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"error":   "invalid",
 				"success": "created",
 			},
@@ -454,22 +454,22 @@ func TestQueryParamsToData(t *testing.T) {
 		{
 			name: "repeated param becomes slice",
 			url:  "http://example.com/?tags=a&tags=b&tags=c",
-			expected: map[string]interface{}{
-				"tags": []interface{}{"a", "b", "c"},
+			expected: map[string]any{
+				"tags": []any{"a", "b", "c"},
 			},
 		},
 		{
 			name: "mixed single and repeated",
 			url:  "http://example.com/?error=bad&items=1&items=2",
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"error": "bad",
-				"items": []interface{}{"1", "2"},
+				"items": []any{"1", "2"},
 			},
 		},
 		{
 			name: "url encoded values",
 			url:  "http://example.com/?email=test%40example.com&name=John+Doe",
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"email": "test@example.com",
 				"name":  "John Doe",
 			},
@@ -489,8 +489,8 @@ func TestQueryParamsToData(t *testing.T) {
 				gotVal := got[key]
 
 				// Handle slice comparison
-				if wantSlice, ok := want.([]interface{}); ok {
-					gotSlice, ok := gotVal.([]interface{})
+				if wantSlice, ok := want.([]any); ok {
+					gotSlice, ok := gotVal.([]any)
 					if !ok {
 						t.Errorf("key %q: expected slice, got %T", key, gotVal)
 						continue
@@ -516,9 +516,9 @@ func TestQueryParamsToData(t *testing.T) {
 func TestMergeData(t *testing.T) {
 	tests := []struct {
 		name     string
-		base     map[string]interface{}
-		override map[string]interface{}
-		expected map[string]interface{}
+		base     map[string]any
+		override map[string]any
+		expected map[string]any
 	}{
 		{
 			name:     "both nil",
@@ -529,38 +529,38 @@ func TestMergeData(t *testing.T) {
 		{
 			name:     "base nil",
 			base:     nil,
-			override: map[string]interface{}{"a": "1"},
-			expected: map[string]interface{}{"a": "1"},
+			override: map[string]any{"a": "1"},
+			expected: map[string]any{"a": "1"},
 		},
 		{
 			name:     "override nil",
-			base:     map[string]interface{}{"a": "1"},
+			base:     map[string]any{"a": "1"},
 			override: nil,
-			expected: map[string]interface{}{"a": "1"},
+			expected: map[string]any{"a": "1"},
 		},
 		{
 			name:     "both empty",
-			base:     map[string]interface{}{},
-			override: map[string]interface{}{},
-			expected: map[string]interface{}{},
+			base:     map[string]any{},
+			override: map[string]any{},
+			expected: map[string]any{},
 		},
 		{
 			name:     "override wins on conflict",
-			base:     map[string]interface{}{"a": "base", "b": "base"},
-			override: map[string]interface{}{"a": "override"},
-			expected: map[string]interface{}{"a": "override", "b": "base"},
+			base:     map[string]any{"a": "base", "b": "base"},
+			override: map[string]any{"a": "override"},
+			expected: map[string]any{"a": "override", "b": "base"},
 		},
 		{
 			name:     "no conflict - both preserved",
-			base:     map[string]interface{}{"a": "1"},
-			override: map[string]interface{}{"b": "2"},
-			expected: map[string]interface{}{"a": "1", "b": "2"},
+			base:     map[string]any{"a": "1"},
+			override: map[string]any{"b": "2"},
+			expected: map[string]any{"a": "1", "b": "2"},
 		},
 		{
 			name:     "form data over query params",
-			base:     map[string]interface{}{"error": "query_error", "page": "1"},
-			override: map[string]interface{}{"error": "form_error", "username": "test"},
-			expected: map[string]interface{}{"error": "form_error", "page": "1", "username": "test"},
+			base:     map[string]any{"error": "query_error", "page": "1"},
+			override: map[string]any{"error": "form_error", "username": "test"},
+			expected: map[string]any{"error": "form_error", "page": "1", "username": "test"},
 		},
 	}
 

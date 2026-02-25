@@ -12,18 +12,18 @@ import (
 func TestPrepareTreeForClient_WithoutStatics(t *testing.T) {
 	tests := []struct {
 		name  string
-		input interface{}
+		input any
 	}{
 		{
 			name: "TreeNode with statics and dynamics",
 			input: &TreeNode{
 				Statics:  []string{"<div>", "</div>"},
-				Dynamics: map[string]interface{}{"0": "Hello"},
+				Dynamics: map[string]any{"0": "Hello"},
 			},
 		},
 		{
 			name: "map with statics",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"s": []string{"<span>", "</span>"},
 				"0": "World",
 			},
@@ -58,38 +58,38 @@ func TestPrepareTreeForClient_WithStatics_TreeNode(t *testing.T) {
 			name: "simple TreeNode with statics",
 			input: &TreeNode{
 				Statics:  []string{"<div>", "</div>"},
-				Dynamics: map[string]interface{}{"0": "Hello"},
+				Dynamics: map[string]any{"0": "Hello"},
 			},
 			expected: &TreeNode{
-				Dynamics: map[string]interface{}{"0": "Hello"},
+				Dynamics: map[string]any{"0": "Hello"},
 			},
 		},
 		{
 			name: "TreeNode with fingerprint (should be stripped)",
 			input: &TreeNode{
 				Statics:     []string{"<p>", "</p>"},
-				Dynamics:    map[string]interface{}{"0": "Content"},
+				Dynamics:    map[string]any{"0": "Content"},
 				Fingerprint: "abc123",
 			},
 			expected: &TreeNode{
-				Dynamics: map[string]interface{}{"0": "Content"},
+				Dynamics: map[string]any{"0": "Content"},
 			},
 		},
 		{
 			name: "TreeNode with nested TreeNode",
 			input: &TreeNode{
 				Statics: []string{"<div>", "</div>"},
-				Dynamics: map[string]interface{}{
+				Dynamics: map[string]any{
 					"0": &TreeNode{
 						Statics:  []string{"<span>", "</span>"},
-						Dynamics: map[string]interface{}{"0": "Nested"},
+						Dynamics: map[string]any{"0": "Nested"},
 					},
 				},
 			},
 			expected: &TreeNode{
-				Dynamics: map[string]interface{}{
+				Dynamics: map[string]any{
 					"0": &TreeNode{
-						Dynamics: map[string]interface{}{"0": "Nested"},
+						Dynamics: map[string]any{"0": "Nested"},
 					},
 				},
 			},
@@ -98,29 +98,29 @@ func TestPrepareTreeForClient_WithStatics_TreeNode(t *testing.T) {
 			name: "TreeNode with empty dynamic (should be excluded)",
 			input: &TreeNode{
 				Statics: []string{"<div>", "</div>"},
-				Dynamics: map[string]interface{}{
+				Dynamics: map[string]any{
 					"0": "Value",
 					"1": "",
 				},
 			},
 			expected: &TreeNode{
-				Dynamics: map[string]interface{}{"0": "Value"},
+				Dynamics: map[string]any{"0": "Value"},
 			},
 		},
 		{
 			name: "TreeNode with Range (statics stripped from RangeData)",
 			input: &TreeNode{
 				Statics:  []string{"<ul>", "</ul>"},
-				Dynamics: map[string]interface{}{},
+				Dynamics: map[string]any{},
 				Range: &RangeData{
-					Items:   []interface{}{"item1", "item2"},
+					Items:   []any{"item1", "item2"},
 					Statics: []string{"<li>", "</li>"},
 				},
 			},
 			expected: &TreeNode{
-				Dynamics: map[string]interface{}{},
+				Dynamics: map[string]any{},
 				Range: &RangeData{
-					Items: []interface{}{"item1", "item2"},
+					Items: []any{"item1", "item2"},
 					// Statics should be empty (not included)
 				},
 			},
@@ -129,11 +129,11 @@ func TestPrepareTreeForClient_WithStatics_TreeNode(t *testing.T) {
 			name: "TreeNode with Metadata (should be preserved)",
 			input: &TreeNode{
 				Statics:  []string{"<div>", "</div>"},
-				Dynamics: map[string]interface{}{"0": "Value"},
+				Dynamics: map[string]any{"0": "Value"},
 				Metadata: &TreeMetadata{IDKey: "id"},
 			},
 			expected: &TreeNode{
-				Dynamics: map[string]interface{}{"0": "Value"},
+				Dynamics: map[string]any{"0": "Value"},
 				Metadata: &TreeMetadata{IDKey: "id"},
 			},
 		},
@@ -191,53 +191,53 @@ func TestPrepareTreeForClient_WithStatics_TreeNode(t *testing.T) {
 func TestPrepareTreeForClient_WithStatics_Map(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    map[string]interface{}
-		expected map[string]interface{}
+		input    map[string]any
+		expected map[string]any
 	}{
 		{
 			name: "map with statics key 's'",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"s": []string{"<div>", "</div>"},
 				"0": "Hello",
 			},
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"0": "Hello",
 			},
 		},
 		{
 			name: "map with fingerprint key 'f'",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"s": []string{"<p>", "</p>"},
 				"f": "abc123",
 				"0": "Content",
 			},
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"0": "Content",
 			},
 		},
 		{
 			name: "nested map with statics",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"s": []string{"<div>", "</div>"},
-				"0": map[string]interface{}{
+				"0": map[string]any{
 					"s": []string{"<span>", "</span>"},
 					"0": "Nested",
 				},
 			},
-			expected: map[string]interface{}{
-				"0": map[string]interface{}{
+			expected: map[string]any{
+				"0": map[string]any{
 					"0": "Nested",
 				},
 			},
 		},
 		{
 			name: "map with empty value (should be excluded)",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"s": []string{"<div>", "</div>"},
 				"0": "Value",
 				"1": "",
 			},
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"0": "Value",
 			},
 		},
@@ -247,7 +247,7 @@ func TestPrepareTreeForClient_WithStatics_Map(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := PrepareTreeForClient(tt.input, true)
 
-			resultMap, ok := result.(map[string]interface{})
+			resultMap, ok := result.(map[string]any)
 			if !ok {
 				t.Fatalf("PrepareTreeForClient() returned %T, want map[string]interface{}", result)
 			}
@@ -272,17 +272,17 @@ func TestPrepareTreeForClient_WithStatics_Map(t *testing.T) {
 func TestPrepareTreeForClient_WithStatics_Array(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    []interface{}
-		expected []interface{}
+		input    []any
+		expected []any
 	}{
 		{
 			name: "array of primitives",
-			input: []interface{}{
+			input: []any{
 				"item1",
 				"item2",
 				"item3",
 			},
-			expected: []interface{}{
+			expected: []any{
 				"item1",
 				"item2",
 				"item3",
@@ -290,33 +290,33 @@ func TestPrepareTreeForClient_WithStatics_Array(t *testing.T) {
 		},
 		{
 			name: "array with maps containing statics",
-			input: []interface{}{
-				map[string]interface{}{
+			input: []any{
+				map[string]any{
 					"s": []string{"<li>", "</li>"},
 					"0": "First",
 				},
-				map[string]interface{}{
+				map[string]any{
 					"s": []string{"<li>", "</li>"},
 					"0": "Second",
 				},
 			},
-			expected: []interface{}{
-				map[string]interface{}{
+			expected: []any{
+				map[string]any{
 					"0": "First",
 				},
-				map[string]interface{}{
+				map[string]any{
 					"0": "Second",
 				},
 			},
 		},
 		{
 			name: "array with empty string (should be excluded)",
-			input: []interface{}{
+			input: []any{
 				"value1",
 				"",
 				"value2",
 			},
-			expected: []interface{}{
+			expected: []any{
 				"value1",
 				"value2",
 			},
@@ -327,7 +327,7 @@ func TestPrepareTreeForClient_WithStatics_Array(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := PrepareTreeForClient(tt.input, true)
 
-			resultArray, ok := result.([]interface{})
+			resultArray, ok := result.([]any)
 			if !ok {
 				t.Fatalf("PrepareTreeForClient() returned %T, want []interface{}", result)
 			}
@@ -343,7 +343,7 @@ func TestPrepareTreeForClient_WithStatics_Array(t *testing.T) {
 func TestPrepareTreeForClient_Primitives(t *testing.T) {
 	tests := []struct {
 		name  string
-		input interface{}
+		input any
 	}{
 		{"string", "hello"},
 		{"int", 42},
@@ -374,24 +374,24 @@ func TestPrepareTreeForClient_ComplexNesting(t *testing.T) {
 	input := &TreeNode{
 		Statics:     []string{"<div>", "</div>"},
 		Fingerprint: "root-fp",
-		Dynamics: map[string]interface{}{
+		Dynamics: map[string]any{
 			"0": &TreeNode{
 				Statics:     []string{"<section>", "</section>"},
 				Fingerprint: "section-fp",
-				Dynamics: map[string]interface{}{
-					"0": map[string]interface{}{
+				Dynamics: map[string]any{
+					"0": map[string]any{
 						"s": []string{"<p>", "</p>"},
 						"f": "para-fp",
 						"0": "Deep content",
 					},
 				},
 			},
-			"1": []interface{}{
-				map[string]interface{}{
+			"1": []any{
+				map[string]any{
 					"s": []string{"<li>", "</li>"},
 					"0": "Item 1",
 				},
-				map[string]interface{}{
+				map[string]any{
 					"s": []string{"<li>", "</li>"},
 					"0": "Item 2",
 				},
@@ -426,7 +426,7 @@ func TestPrepareTreeForClient_ComplexNesting(t *testing.T) {
 	}
 
 	// Check deeply nested map at position "0" -> "0"
-	nestedMap, ok := nested0.Dynamics["0"].(map[string]interface{})
+	nestedMap, ok := nested0.Dynamics["0"].(map[string]any)
 	if !ok {
 		t.Fatalf("Dynamics['0']['0'] should be map, got %T", nested0.Dynamics["0"])
 	}
@@ -441,7 +441,7 @@ func TestPrepareTreeForClient_ComplexNesting(t *testing.T) {
 	}
 
 	// Check array at position "1"
-	array, ok := resultNode.Dynamics["1"].([]interface{})
+	array, ok := resultNode.Dynamics["1"].([]any)
 	if !ok {
 		t.Fatalf("Dynamics['1'] should be []interface{}, got %T", resultNode.Dynamics["1"])
 	}
@@ -449,7 +449,7 @@ func TestPrepareTreeForClient_ComplexNesting(t *testing.T) {
 		t.Errorf("Array length = %d, want 2", len(array))
 	}
 	for i, item := range array {
-		itemMap, ok := item.(map[string]interface{})
+		itemMap, ok := item.(map[string]any)
 		if !ok {
 			t.Errorf("Array item %d should be map, got %T", i, item)
 			continue
@@ -466,11 +466,11 @@ func TestPrepareTreeForClient_WireFormat(t *testing.T) {
 	input := &TreeNode{
 		Statics:     []string{"<div>", "</div>"},
 		Fingerprint: "fp123",
-		Dynamics: map[string]interface{}{
+		Dynamics: map[string]any{
 			"0": "Hello",
 			"1": &TreeNode{
 				Statics:  []string{"<span>", "</span>"},
-				Dynamics: map[string]interface{}{"0": "World"},
+				Dynamics: map[string]any{"0": "World"},
 			},
 		},
 		Metadata: &TreeMetadata{IDKey: "id"},
@@ -486,7 +486,7 @@ func TestPrepareTreeForClient_WireFormat(t *testing.T) {
 	}
 
 	// Unmarshal back to check structure
-	var wireFormat map[string]interface{}
+	var wireFormat map[string]any
 	if err := json.Unmarshal(jsonBytes, &wireFormat); err != nil {
 		t.Fatalf("Failed to unmarshal result: %v", err)
 	}
@@ -511,7 +511,7 @@ func TestPrepareTreeForClient_WireFormat(t *testing.T) {
 	}
 
 	// Check that nested TreeNode also has statics stripped
-	nested1, ok := wireFormat["1"].(map[string]interface{})
+	nested1, ok := wireFormat["1"].(map[string]any)
 	if !ok {
 		t.Fatalf("wireFormat['1'] should be map, got %T", wireFormat["1"])
 	}
@@ -528,7 +528,7 @@ func TestPrepareTreeForClient_EdgeCases(t *testing.T) {
 	t.Run("nil Range.Items", func(t *testing.T) {
 		input := &TreeNode{
 			Statics:  []string{"<ul>", "</ul>"},
-			Dynamics: map[string]interface{}{},
+			Dynamics: map[string]any{},
 			Range: &RangeData{
 				Items:   nil, // Explicitly nil
 				Statics: []string{"<li>", "</li>"},
@@ -556,12 +556,12 @@ func TestPrepareTreeForClient_EdgeCases(t *testing.T) {
 			if depth == 0 {
 				return &TreeNode{
 					Statics:  []string{"<span>", "</span>"},
-					Dynamics: map[string]interface{}{"0": "Deep content"},
+					Dynamics: map[string]any{"0": "Deep content"},
 				}
 			}
 			return &TreeNode{
 				Statics: []string{"<div>", "</div>"},
-				Dynamics: map[string]interface{}{
+				Dynamics: map[string]any{
 					"0": createNestedTree(depth - 1),
 				},
 			}
@@ -599,8 +599,8 @@ func TestPrepareTreeForClient_EdgeCases(t *testing.T) {
 
 	t.Run("large map with many keys", func(t *testing.T) {
 		// Create a TreeNode with 100 dynamic fields
-		dynamics := make(map[string]interface{})
-		for i := 0; i < 100; i++ {
+		dynamics := make(map[string]any)
+		for i := range 100 {
 			dynamics[fmt.Sprintf("%d", i)] = fmt.Sprintf("value-%d", i)
 		}
 
@@ -629,15 +629,15 @@ func TestPrepareTreeForClient_EdgeCases(t *testing.T) {
 	t.Run("mixed empty and non-empty nested values", func(t *testing.T) {
 		input := &TreeNode{
 			Statics: []string{"<div>", "</div>"},
-			Dynamics: map[string]interface{}{
+			Dynamics: map[string]any{
 				"0": "non-empty",
 				"1": "",
-				"2": map[string]interface{}{
+				"2": map[string]any{
 					"s": []string{"<span>", "</span>"},
 					"0": "nested-non-empty",
 					"1": "",
 				},
-				"3": map[string]interface{}{
+				"3": map[string]any{
 					"s": []string{"<p>", "</p>"},
 					"0": "",
 				},
@@ -656,7 +656,7 @@ func TestPrepareTreeForClient_EdgeCases(t *testing.T) {
 		}
 
 		// Nested map at "2" should only have non-empty value
-		nested2, ok := resultNode.Dynamics["2"].(map[string]interface{})
+		nested2, ok := resultNode.Dynamics["2"].(map[string]any)
 		if !ok {
 			t.Error("Dynamic '2' should be a map")
 		} else {
@@ -677,7 +677,7 @@ func TestPrepareTreeForClient_EdgeCases(t *testing.T) {
 	t.Run("nil Range pointer", func(t *testing.T) {
 		input := &TreeNode{
 			Statics:  []string{"<div>", "</div>"},
-			Dynamics: map[string]interface{}{"0": "content"},
+			Dynamics: map[string]any{"0": "content"},
 			Range:    nil, // Explicitly nil
 		}
 
@@ -705,12 +705,12 @@ func TestPrepareTreeForClient_StaticOnlyConditionalBlocks(t *testing.T) {
 		// The branch has only static HTML content, no dynamics.
 		conditionalBlock := &TreeNode{
 			Statics:  []string{"<span style=\"color:red\">High</span>"},
-			Dynamics: map[string]interface{}{},
+			Dynamics: map[string]any{},
 		}
 
 		input := &TreeNode{
 			Statics: []string{"<div>", "</div>"},
-			Dynamics: map[string]interface{}{
+			Dynamics: map[string]any{
 				"0": "Some dynamic content",
 				"1": conditionalBlock, // Static-only conditional
 			},
@@ -749,17 +749,17 @@ func TestPrepareTreeForClient_StaticOnlyConditionalBlocks(t *testing.T) {
 		// {{end}}
 		innerConditional := &TreeNode{
 			Statics: []string{"<span>High</span>"},
-			Dynamics: map[string]interface{}{
+			Dynamics: map[string]any{
 				"0": &TreeNode{ // Another static-only branch
 					Statics:  []string{"<span>Normal</span>"},
-					Dynamics: map[string]interface{}{},
+					Dynamics: map[string]any{},
 				},
 			},
 		}
 
 		input := &TreeNode{
 			Statics: []string{"<td>", "</td>"},
-			Dynamics: map[string]interface{}{
+			Dynamics: map[string]any{
 				"0": innerConditional,
 			},
 		}
@@ -801,17 +801,17 @@ func TestPrepareTreeForClient_StaticOnlyConditionalBlocks(t *testing.T) {
 		// Test the map[string]interface{} case
 		conditionalBlock := &TreeNode{
 			Statics:  []string{"<span>Status</span>"},
-			Dynamics: map[string]interface{}{},
+			Dynamics: map[string]any{},
 		}
 
-		input := map[string]interface{}{
+		input := map[string]any{
 			"s": []string{"<div>", "</div>"},
 			"0": "dynamic value",
 			"1": conditionalBlock,
 		}
 
 		result := PrepareTreeForClient(input, true)
-		resultMap, ok := result.(map[string]interface{})
+		resultMap, ok := result.(map[string]any)
 		if !ok {
 			t.Fatalf("Expected map[string]interface{}, got %T", result)
 		}
@@ -838,11 +838,11 @@ func TestPrepareTreeForClient_Performance(t *testing.T) {
 	// This is not a benchmark, just a sanity check that we don't have obvious performance issues
 
 	// Create a moderately complex tree
-	items := make([]interface{}, 50)
-	for i := 0; i < 50; i++ {
+	items := make([]any, 50)
+	for i := range 50 {
 		items[i] = &TreeNode{
 			Statics: []string{"<li>", "</li>"},
-			Dynamics: map[string]interface{}{
+			Dynamics: map[string]any{
 				"0": fmt.Sprintf("Item %d", i),
 				"1": fmt.Sprintf("Description %d", i),
 			},
@@ -851,7 +851,7 @@ func TestPrepareTreeForClient_Performance(t *testing.T) {
 
 	input := &TreeNode{
 		Statics: []string{"<div>", "<ul>", "</ul>", "</div>"},
-		Dynamics: map[string]interface{}{
+		Dynamics: map[string]any{
 			"0": "Header",
 			"1": &TreeNode{
 				Statics: []string{"", ""},
@@ -864,7 +864,7 @@ func TestPrepareTreeForClient_Performance(t *testing.T) {
 	}
 
 	// Run it 100 times - should complete quickly
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		result := PrepareTreeForClient(input, true)
 		if result == nil {
 			t.Fatal("PrepareTreeForClient returned nil")

@@ -28,7 +28,7 @@ func TestHandleActionNode_SimpleField(t *testing.T) {
 	}
 
 	actionNode := tmpl.Tree.Root.Nodes[0].(*parse.ActionNode)
-	data := map[string]interface{}{"Name": "John"}
+	data := map[string]any{"Name": "John"}
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := handleActionNode(actionNode, data, newMockKeyGen(), ctx)
@@ -82,7 +82,7 @@ func TestHandleActionNode_Pipeline(t *testing.T) {
 	}
 
 	actionNode := tmpl.Tree.Root.Nodes[0].(*parse.ActionNode)
-	data := map[string]interface{}{"Value": "test"}
+	data := map[string]any{"Value": "test"}
 	ctx := &Context{FuncMap: funcs, IncludeStatics: true}
 
 	tree, err := handleActionNode(actionNode, data, newMockKeyGen(), ctx)
@@ -103,7 +103,7 @@ func TestHandleActionNode_Error(t *testing.T) {
 	}
 
 	actionNode := tmpl.Tree.Root.Nodes[0].(*parse.ActionNode)
-	data := map[string]interface{}{}
+	data := map[string]any{}
 	ctx := &Context{IncludeStatics: true}
 
 	// Should execute but get empty string (template's zero value behavior)
@@ -127,9 +127,9 @@ func TestHandleActionNodeWithVars_NoVars(t *testing.T) {
 
 	actionNode := tmpl.Tree.Root.Nodes[0].(*parse.ActionNode)
 	varCtx := &varContext{
-		parent: map[string]interface{}{"Name": "John"},
+		parent: map[string]any{"Name": "John"},
 		vars:   newOrderedVars(),
-		dot:    map[string]interface{}{"Name": "Dot"},
+		dot:    map[string]any{"Name": "Dot"},
 	}
 	ctx := &Context{IncludeStatics: true}
 
@@ -157,9 +157,9 @@ func TestHandleActionNodeWithVars_WithVars(t *testing.T) {
 	actionNode := rangeNode.List.Nodes[0].(*parse.ActionNode)
 
 	varCtx := &varContext{
-		parent: map[string]interface{}{},
+		parent: map[string]any{},
 		vars:   newOrderedVars(),
-		dot:    map[string]interface{}{},
+		dot:    map[string]any{},
 	}
 	varCtx.vars.Set("name", "Variable")
 	ctx := &Context{IncludeStatics: true}
@@ -183,9 +183,9 @@ func TestHandleActionNodeWithVars_RootVar(t *testing.T) {
 
 	actionNode := tmpl.Tree.Root.Nodes[0].(*parse.ActionNode)
 	varCtx := &varContext{
-		parent: map[string]interface{}{"RootValue": "Root"},
+		parent: map[string]any{"RootValue": "Root"},
 		vars:   newOrderedVars(),
-		dot:    map[string]interface{}{"DotValue": "Dot"},
+		dot:    map[string]any{"DotValue": "Dot"},
 	}
 	ctx := &Context{IncludeStatics: true}
 
@@ -202,9 +202,9 @@ func TestHandleActionNodeWithVars_RootVar(t *testing.T) {
 // TestEvaluateActionWithVars_SingleVar tests single variable evaluation.
 func TestEvaluateActionWithVars_SingleVar(t *testing.T) {
 	varCtx := &varContext{
-		parent: map[string]interface{}{},
+		parent: map[string]any{},
 		vars:   newOrderedVars(),
-		dot:    map[string]interface{}{},
+		dot:    map[string]any{},
 	}
 	varCtx.vars.Set("name", "John")
 	ctx := &Context{}
@@ -218,9 +218,9 @@ func TestEvaluateActionWithVars_SingleVar(t *testing.T) {
 // TestEvaluateActionWithVars_MultipleVars tests multiple variables.
 func TestEvaluateActionWithVars_MultipleVars(t *testing.T) {
 	varCtx := &varContext{
-		parent: map[string]interface{}{},
+		parent: map[string]any{},
 		vars:   newOrderedVars(),
-		dot:    map[string]interface{}{},
+		dot:    map[string]any{},
 	}
 	varCtx.vars.Set("first", "John")
 	varCtx.vars.Set("last", "Doe")
@@ -236,9 +236,9 @@ func TestEvaluateActionWithVars_MultipleVars(t *testing.T) {
 // TestEvaluateActionWithVars_RootVar tests root variable.
 func TestEvaluateActionWithVars_RootVar(t *testing.T) {
 	varCtx := &varContext{
-		parent: map[string]interface{}{"Value": "Root"},
+		parent: map[string]any{"Value": "Root"},
 		vars:   newOrderedVars(),
-		dot:    map[string]interface{}{},
+		dot:    map[string]any{},
 	}
 	ctx := &Context{}
 
@@ -302,9 +302,9 @@ func TestIsLetter(t *testing.T) {
 // TestEvaluateActionWithVars_EmptyVariableName tests handling of empty variable names.
 func TestEvaluateActionWithVars_EmptyVariableName(t *testing.T) {
 	varCtx := &varContext{
-		parent: map[string]interface{}{},
+		parent: map[string]any{},
 		vars:   newOrderedVars(),
-		dot:    map[string]interface{}{},
+		dot:    map[string]any{},
 	}
 	// Set an empty variable name (edge case that should be handled gracefully)
 	varCtx.vars.Set("", "EmptyValue")
@@ -321,9 +321,9 @@ func TestEvaluateActionWithVars_EmptyVariableName(t *testing.T) {
 // TestEvaluateActionWithVars_NoVariablesUsed tests when no variables match.
 func TestEvaluateActionWithVars_NoVariablesUsed(t *testing.T) {
 	varCtx := &varContext{
-		parent: map[string]interface{}{},
+		parent: map[string]any{},
 		vars:   newOrderedVars(),
-		dot:    map[string]interface{}{},
+		dot:    map[string]any{},
 	}
 	varCtx.vars.Set("unused", "Value")
 	ctx := &Context{}
@@ -339,9 +339,9 @@ func TestEvaluateActionWithVars_NoVariablesUsed(t *testing.T) {
 // TestEvaluateActionWithVars_SpecialCharacters tests variables with special patterns.
 func TestEvaluateActionWithVars_SpecialCharacters(t *testing.T) {
 	varCtx := &varContext{
-		parent: map[string]interface{}{},
+		parent: map[string]any{},
 		vars:   newOrderedVars(),
-		dot:    map[string]interface{}{},
+		dot:    map[string]any{},
 	}
 	varCtx.vars.Set("var_name", "UnderscoreValue")
 	ctx := &Context{}
@@ -418,7 +418,7 @@ func TestHandleActionNode_EmptyValue(t *testing.T) {
 	}
 
 	actionNode := tmpl.Tree.Root.Nodes[0].(*parse.ActionNode)
-	data := map[string]interface{}{"Name": ""}
+	data := map[string]any{"Name": ""}
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := handleActionNode(actionNode, data, newMockKeyGen(), ctx)

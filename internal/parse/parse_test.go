@@ -69,7 +69,7 @@ func TestBuildTree_SimpleField(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	data := map[string]interface{}{"Name": "John"}
+	data := map[string]any{"Name": "John"}
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := BuildTree(tmpl, data, newMockKeyGen(), ctx)
@@ -89,8 +89,8 @@ func TestBuildTree_NestedFields(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	data := map[string]interface{}{
-		"User": map[string]interface{}{
+	data := map[string]any{
+		"User": map[string]any{
 			"Name": "John",
 		},
 	}
@@ -131,7 +131,7 @@ func TestBuildTreeFromAST_ActionNode(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	data := map[string]interface{}{"Name": "John"}
+	data := map[string]any{"Name": "John"}
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := buildTreeFromAST(tmpl.Tree.Root, data, newMockKeyGen(), ctx)
@@ -170,7 +170,7 @@ func TestBuildTreeFromList_SingleNode(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	data := map[string]interface{}{"Name": "John"}
+	data := map[string]any{"Name": "John"}
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := buildTreeFromList(tmpl.Tree.Root, data, newMockKeyGen(), ctx)
@@ -190,7 +190,7 @@ func TestBuildTreeFromList_MultipleNodes(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	data := map[string]interface{}{"Name": "John"}
+	data := map[string]any{"Name": "John"}
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := buildTreeFromList(tmpl.Tree.Root, data, newMockKeyGen(), ctx)
@@ -220,7 +220,7 @@ func TestBuildTreeFromList_EmptyList(t *testing.T) {
 
 // TestEvaluatePipe_Simple tests simple dot access.
 func TestEvaluatePipe_Simple(t *testing.T) {
-	data := map[string]interface{}{"Name": "John"}
+	data := map[string]any{"Name": "John"}
 	ctx := &Context{}
 
 	result, err := evaluatePipe(".Name", data, ctx)
@@ -235,7 +235,7 @@ func TestEvaluatePipe_Simple(t *testing.T) {
 
 // TestEvaluatePipe_Complex tests complex pipeline.
 func TestEvaluatePipe_Complex(t *testing.T) {
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Items": []string{"a", "b", "c"},
 	}
 	ctx := &Context{}
@@ -257,7 +257,7 @@ func TestEvaluatePipe_WithFuncs(t *testing.T) {
 		"upper": func(s string) string { return s + "_UPPER" },
 	}
 
-	data := map[string]interface{}{"Name": "John"}
+	data := map[string]any{"Name": "John"}
 	ctx := &Context{FuncMap: funcMap}
 
 	// Note: evaluatePipe uses the capture mechanism
@@ -290,7 +290,7 @@ func TestFormatPipe(t *testing.T) {
 func TestIsZeroValue_AllTypes(t *testing.T) {
 	tests := []struct {
 		name  string
-		value interface{}
+		value any
 		want  bool
 	}{
 		{"nil", nil, true},
@@ -322,8 +322,8 @@ func TestIsZeroValue_AllTypes(t *testing.T) {
 // TestGetSortedKeys_Performance tests that getSortedKeys is efficient.
 func TestGetSortedKeys_Performance(t *testing.T) {
 	// Create a map with many numeric keys
-	m := make(map[string]interface{})
-	for i := 0; i < 100; i++ {
+	m := make(map[string]any)
+	for i := range 100 {
 		m[fmt.Sprintf("%d", i)] = i
 	}
 
@@ -351,7 +351,7 @@ func TestGetSortedKeys_Performance(t *testing.T) {
 
 // TestGetSortedKeys_EmptyMap tests empty map handling.
 func TestGetSortedKeys_EmptyMap(t *testing.T) {
-	m := make(map[string]interface{})
+	m := make(map[string]any)
 	keys := getSortedKeys(m)
 
 	if keys != nil {
@@ -361,7 +361,7 @@ func TestGetSortedKeys_EmptyMap(t *testing.T) {
 
 // TestGetSortedKeys_Order tests specific ordering.
 func TestGetSortedKeys_Order(t *testing.T) {
-	m := map[string]interface{}{
+	m := map[string]any{
 		"0":  "a",
 		"10": "b",
 		"2":  "c",
@@ -391,7 +391,7 @@ func TestBuildTreeFromList_ErrorContext(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	data := map[string]interface{}{}
+	data := map[string]any{}
 	ctx := &Context{IncludeStatics: true}
 
 	_, err = buildTreeFromList(tmpl.Tree.Root, data, newMockKeyGen(), ctx)
@@ -442,7 +442,7 @@ func TestGetOrParseTemplate_Caching(t *testing.T) {
 	}
 
 	// Verify both templates can execute independently
-	data := map[string]interface{}{"Name": "Test"}
+	data := map[string]any{"Name": "Test"}
 	var buf1, buf2 strings.Builder
 	if err := tmpl1.Execute(&buf1, data); err != nil {
 		t.Errorf("Template 1 execute failed: %v", err)
@@ -469,11 +469,11 @@ func TestGetOrParseTemplate_ConcurrentAccess(t *testing.T) {
 	var wg sync.WaitGroup
 	errChan := make(chan error, numGoroutines*numIterations)
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < numIterations; j++ {
+			for j := range numIterations {
 				tmpl, err := getOrParseTemplate(cache, cacheKey, templateStr, funcs)
 				if err != nil {
 					errChan <- fmt.Errorf("goroutine %d iteration %d: parse failed: %w", id, j, err)
@@ -481,7 +481,7 @@ func TestGetOrParseTemplate_ConcurrentAccess(t *testing.T) {
 				}
 
 				// Execute template to ensure it's valid
-				data := map[string]interface{}{"Value": fmt.Sprintf("g%d-i%d", id, j)}
+				data := map[string]any{"Value": fmt.Sprintf("g%d-i%d", id, j)}
 				var buf strings.Builder
 				if err := tmpl.Execute(&buf, data); err != nil {
 					errChan <- fmt.Errorf("goroutine %d iteration %d: execute failed: %w", id, j, err)

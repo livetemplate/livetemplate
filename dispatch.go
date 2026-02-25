@@ -100,7 +100,7 @@ func toSnakeCase(s string) string {
 //	    state.Count++
 //	    return state, nil
 //	}
-func DispatchWithState(controller interface{}, state interface{}, ctx *Context) (interface{}, error) {
+func DispatchWithState(controller any, state any, ctx *Context) (any, error) {
 	if ctx == nil || ctx.action == "" {
 		return state, ErrMethodNotFound
 	}
@@ -171,8 +171,8 @@ func getMethodIndexNewSignature(controllerType reflect.Type, stateType reflect.T
 // buildMethodCacheNewSignature builds method cache for new signature
 func buildMethodCacheNewSignature(controllerType reflect.Type, stateType reflect.Type) map[string]int {
 	actionMap := make(map[string]int)
-	contextType := reflect.TypeOf((*Context)(nil))
-	errorType := reflect.TypeOf((*error)(nil)).Elem()
+	contextType := reflect.TypeFor[*Context]()
+	errorType := reflect.TypeFor[error]()
 
 	for i := 0; i < controllerType.NumMethod(); i++ {
 		method := controllerType.Method(i)

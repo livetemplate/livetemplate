@@ -8,7 +8,7 @@ import (
 
 type Activity struct {
 	Action string
-	Data   map[string]interface{}
+	Data   map[string]any
 }
 
 func simulateUserJourney(tmpl *Template, activities []Activity) error {
@@ -31,15 +31,15 @@ func BenchmarkE2EUserJourney(b *testing.B) {
 	}
 
 	activities := make([]Activity, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		activities[i] = Activity{
 			Action: "increment",
-			Data:   map[string]interface{}{"Count": i},
+			Data:   map[string]any{"Count": i},
 		}
 	}
 
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, map[string]interface{}{"Count": 0}); err != nil {
+	if err := tmpl.Execute(&buf, map[string]any{"Count": 0}); err != nil {
 		b.Fatalf("Execute failed: %v", err)
 	}
 
@@ -60,8 +60,8 @@ func BenchmarkE2ETodoApp(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	initialData := map[string]interface{}{
-		"Items": []map[string]interface{}{},
+	initialData := map[string]any{
+		"Items": []map[string]any{},
 	}
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, initialData); err != nil {
@@ -69,19 +69,19 @@ func BenchmarkE2ETodoApp(b *testing.B) {
 	}
 
 	activities := []Activity{
-		{Action: "add", Data: map[string]interface{}{
-			"Items": []map[string]interface{}{
+		{Action: "add", Data: map[string]any{
+			"Items": []map[string]any{
 				{"Text": "Todo 1"},
 			},
 		}},
-		{Action: "add", Data: map[string]interface{}{
-			"Items": []map[string]interface{}{
+		{Action: "add", Data: map[string]any{
+			"Items": []map[string]any{
 				{"Text": "Todo 1"},
 				{"Text": "Todo 2"},
 			},
 		}},
-		{Action: "add", Data: map[string]interface{}{
-			"Items": []map[string]interface{}{
+		{Action: "add", Data: map[string]any{
+			"Items": []map[string]any{
 				{"Text": "Todo 1"},
 				{"Text": "Todo 2"},
 				{"Text": "Todo 3"},
@@ -108,7 +108,7 @@ func BenchmarkE2ERangeOperations(b *testing.B) {
 
 	baseItems := []string{"a", "b", "c"}
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, map[string]interface{}{"Items": baseItems}); err != nil {
+	if err := tmpl.Execute(&buf, map[string]any{"Items": baseItems}); err != nil {
 		b.Fatalf("Execute failed: %v", err)
 	}
 
@@ -117,7 +117,7 @@ func BenchmarkE2ERangeOperations(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			buf.Reset()
 			newItems := append(baseItems, "d", "e")
-			err := tmpl.ExecuteUpdates(&buf, map[string]interface{}{"Items": newItems})
+			err := tmpl.ExecuteUpdates(&buf, map[string]any{"Items": newItems})
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -129,7 +129,7 @@ func BenchmarkE2ERangeOperations(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			buf.Reset()
 			newItems := baseItems[:2]
-			err := tmpl.ExecuteUpdates(&buf, map[string]interface{}{"Items": newItems})
+			err := tmpl.ExecuteUpdates(&buf, map[string]any{"Items": newItems})
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -141,7 +141,7 @@ func BenchmarkE2ERangeOperations(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			buf.Reset()
 			reordered := []string{"c", "a", "b"}
-			err := tmpl.ExecuteUpdates(&buf, map[string]interface{}{"Items": reordered})
+			err := tmpl.ExecuteUpdates(&buf, map[string]any{"Items": reordered})
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -153,7 +153,7 @@ func BenchmarkE2ERangeOperations(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			buf.Reset()
 			updated := []string{"x", "y", "z"}
-			err := tmpl.ExecuteUpdates(&buf, map[string]interface{}{"Items": updated})
+			err := tmpl.ExecuteUpdates(&buf, map[string]any{"Items": updated})
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -170,12 +170,12 @@ func BenchmarkE2EMultipleSessions(b *testing.B) {
 		b.Run(fmt.Sprintf("sessions-%d", sessionCount), func(b *testing.B) {
 			templates := make([]*Template, sessionCount)
 			buffers := make([]bytes.Buffer, sessionCount)
-			for i := 0; i < sessionCount; i++ {
+			for i := range sessionCount {
 				tmpl := Must(New("session"))
 				if _, err := tmpl.Parse(template); err != nil {
 					b.Fatal(err)
 				}
-				if err := tmpl.Execute(&buffers[i], map[string]interface{}{"Count": 0}); err != nil {
+				if err := tmpl.Execute(&buffers[i], map[string]any{"Count": 0}); err != nil {
 					b.Fatal(err)
 				}
 				templates[i] = tmpl
@@ -186,7 +186,7 @@ func BenchmarkE2EMultipleSessions(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				for j, tmpl := range templates {
 					buffers[j].Reset()
-					err := tmpl.ExecuteUpdates(&buffers[j], map[string]interface{}{"Count": i})
+					err := tmpl.ExecuteUpdates(&buffers[j], map[string]any{"Count": i})
 					if err != nil {
 						b.Fatal(err)
 					}

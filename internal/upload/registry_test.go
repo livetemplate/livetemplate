@@ -128,7 +128,7 @@ func TestUpload_GetEntries(t *testing.T) {
 	}
 
 	// Add some entries
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		entry := &uploadtypes.UploadEntry{
 			ID:         string(rune('a' + i)),
 			ClientName: "photo.jpg",

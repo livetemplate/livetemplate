@@ -3,6 +3,8 @@
 // which transform entire lists rather than individual items.
 package app
 
+import "maps"
+
 // AppState represents a realistic application state with view settings.
 // The key insight is that FilteredItems is a derived view computed from
 // Items + view settings (Filter, SortBy, SortOrder, SearchQuery).
@@ -384,15 +386,9 @@ func (s *FormState) Clone() *FormState {
 		Submitted:  s.Submitted,
 	}
 
-	for k, v := range s.Fields {
-		clone.Fields[k] = v
-	}
-	for k, v := range s.Errors {
-		clone.Errors[k] = v
-	}
-	for k, v := range s.Touched {
-		clone.Touched[k] = v
-	}
+	maps.Copy(clone.Fields, s.Fields)
+	maps.Copy(clone.Errors, s.Errors)
+	maps.Copy(clone.Touched, s.Touched)
 
 	return clone
 }
@@ -406,10 +402,10 @@ func (s *FormState) ToMap() map[string]any {
 		errorMsg := s.Errors[name]
 		touched := s.Touched[name]
 		fields = append(fields, map[string]any{
-			"Name":    name,
-			"Value":   value,
-			"Error":   errorMsg,
-			"Touched": touched,
+			"Name":     name,
+			"Value":    value,
+			"Error":    errorMsg,
+			"Touched":  touched,
 			"HasError": errorMsg != "",
 		})
 	}
@@ -463,12 +459,8 @@ func (s *AsyncState) Clone() *AsyncState {
 		copy(clone.Items, s.Items)
 	}
 
-	for k, v := range s.ItemLoading {
-		clone.ItemLoading[k] = v
-	}
-	for k, v := range s.ItemErrors {
-		clone.ItemErrors[k] = v
-	}
+	maps.Copy(clone.ItemLoading, s.ItemLoading)
+	maps.Copy(clone.ItemErrors, s.ItemErrors)
 
 	return clone
 }
@@ -628,9 +620,7 @@ func (s *BulkState) Clone() *BulkState {
 		SelectAll:   s.SelectAll,
 	}
 	copy(clone.Items, s.Items)
-	for k, v := range s.SelectedIDs {
-		clone.SelectedIDs[k] = v
-	}
+	maps.Copy(clone.SelectedIDs, s.SelectedIDs)
 	return clone
 }
 

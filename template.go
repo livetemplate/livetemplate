@@ -92,9 +92,11 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -152,16 +154,16 @@ type Config struct {
 	PubSubBroadcaster      pubsub.Broadcaster // Optional: for distributed broadcasting across instances
 	AllowedOrigins         []string           // Allowed WebSocket origins (empty = allow all in dev, restrict in prod)
 	WebSocketDisabled      bool
-	LoadingDisabled        bool                            // Disables automatic loading indicator on page load
-	TemplateFiles          []string                        // If set, overrides auto-discovery
-	TemplateBaseDir        string                          // Base directory for template auto-discovery (default: directory of calling code via runtime.Caller)
-	IgnoreTemplateDirs     []string                        // Additional directories to ignore during auto-discovery
-	DevMode                bool                            // Development mode - use local client library instead of CDN
-	MaxConnections         int64                           // Maximum total connections (0 = unlimited)
-	MaxConnectionsPerGroup int64                           // Maximum connections per group (0 = unlimited)
-	MessageRateLimit       float64                         // Messages per second per connection (0 = unlimited, default 10)
-	MessageRateBurst       int                             // Burst capacity for rate limiting (default 20)
-	CookieMaxAge           time.Duration                   // Session cookie max age (default: 1 year)
+	LoadingDisabled        bool                                // Disables automatic loading indicator on page load
+	TemplateFiles          []string                            // If set, overrides auto-discovery
+	TemplateBaseDir        string                              // Base directory for template auto-discovery (default: directory of calling code via runtime.Caller)
+	IgnoreTemplateDirs     []string                            // Additional directories to ignore during auto-discovery
+	DevMode                bool                                // Development mode - use local client library instead of CDN
+	MaxConnections         int64                               // Maximum total connections (0 = unlimited)
+	MaxConnectionsPerGroup int64                               // Maximum connections per group (0 = unlimited)
+	MessageRateLimit       float64                             // Messages per second per connection (0 = unlimited, default 10)
+	MessageRateBurst       int                                 // Burst capacity for rate limiting (default 20)
+	CookieMaxAge           time.Duration                       // Session cookie max age (default: 1 year)
 	UploadConfigs          map[string]uploadtypes.UploadConfig // Upload field configurations
 	WebSocketBufferSize    int                                 // WebSocket send buffer size per connection (default: 50)
 	ComponentTemplates     []*TemplateSet                      // Component library templates (parsed before project templates)
@@ -219,20 +221,20 @@ type TemplateSet struct {
 // It provides an API similar to html/template.Template but with additional ExecuteUpdates method
 // for generating tree-based updates that can be efficiently transmitted to clients.
 type Template struct {
-	name            string
-	templateStr     string
-	tmpl            *template.Template
-	wrapperID       string
-	funcs           template.FuncMap
-	mu              sync.RWMutex // Protects mutable state fields below
-	lastData        interface{}
-	lastHTML        string
-	lastTree        *treeNode // Store previous tree segments for comparison
-	initialTree     *treeNode
-	hasInitialTree  bool
-	keyGen *keyGenerator // Per-template key generation for wrapper approach
-	config          Config        // Template configuration
-	uploadRegistry  interface{}   // Upload registry for this connection (*upload.Registry)
+	name           string
+	templateStr    string
+	tmpl           *template.Template
+	wrapperID      string
+	funcs          template.FuncMap
+	mu             sync.RWMutex // Protects mutable state fields below
+	lastData       any
+	lastHTML       string
+	lastTree       *treeNode // Store previous tree segments for comparison
+	initialTree    *treeNode
+	hasInitialTree bool
+	keyGen         *keyGenerator // Per-template key generation for wrapper approach
+	config         Config        // Template configuration
+	uploadRegistry any           // Upload registry for this connection (*upload.Registry)
 }
 
 // Funcs registers a template.FuncMap that will be applied to all template parsing and execution.
@@ -245,9 +247,7 @@ func (t *Template) Funcs(funcMap template.FuncMap) *Template {
 		t.funcs = make(template.FuncMap, len(funcMap))
 	}
 
-	for name, fn := range funcMap {
-		t.funcs[name] = fn
-	}
+	maps.Copy(t.funcs, funcMap)
 
 	// Update the existing parsed template if one is available.
 	t.mu.Lock()
@@ -266,9 +266,7 @@ func copyFuncMap(src template.FuncMap) template.FuncMap {
 	}
 
 	clone := make(template.FuncMap, len(src))
-	for name, fn := range src {
-		clone[name] = fn
-	}
+	maps.Copy(clone, src)
 	return clone
 }
 
@@ -441,13 +439,13 @@ func WithMaxConnectionsPerGroup(max int64) Option {
 // but use more memory. Smaller buffers use less memory but may close slow clients more aggressively.
 //
 // Default: 50 messages per connection
-//  - Memory per connection: ~50KB (assuming 1KB avg message size)
-//  - Memory for 100 connections: ~5MB
+//   - Memory per connection: ~50KB (assuming 1KB avg message size)
+//   - Memory for 100 connections: ~5MB
 //
 // Recommended values:
-//  - Low traffic / memory constrained: 10-25
-//  - Normal traffic: 50 (default)
-//  - High traffic / burst heavy: 100-200
+//   - Low traffic / memory constrained: 10-25
+//   - Normal traffic: 50 (default)
+//   - High traffic / burst heavy: 100-200
 //
 // Environment variable override: LVT_WS_BUFFER_SIZE
 //
@@ -729,13 +727,7 @@ func createSecureOriginChecker(allowedOrigins []string, devMode bool) func(*http
 
 		// If AllowedOrigins is specified, check against the list
 		if len(allowedOrigins) > 0 {
-			for _, allowed := range allowedOrigins {
-				if origin == allowed {
-					return true
-				}
-			}
-			// Origin not in allowed list
-			return false
+			return slices.Contains(allowedOrigins, origin)
 		}
 
 		// Default: same-origin only
@@ -779,11 +771,11 @@ func New(name string, opts ...Option) (*Template, error) {
 		},
 		SessionStore:           NewMemorySessionStore(),
 		Authenticator:          &AnonymousAuthenticator{}, // Default: browser-based session grouping
-		MessageRateLimit:       10.0,                       // Default: 10 messages/sec
-		MessageRateBurst:       20,                         // Default: burst of 20
-		CookieMaxAge:           365 * 24 * time.Hour,       // Default: 1 year
-		WebSocketBufferSize:    wsBufferSize,               // Default: 50 (or LVT_WS_BUFFER_SIZE env)
-		ProgressiveEnhancement: true,                       // Default: enabled for non-JS form support
+		MessageRateLimit:       10.0,                      // Default: 10 messages/sec
+		MessageRateBurst:       20,                        // Default: burst of 20
+		CookieMaxAge:           365 * 24 * time.Hour,      // Default: 1 year
+		WebSocketBufferSize:    wsBufferSize,              // Default: 50 (or LVT_WS_BUFFER_SIZE env)
+		ProgressiveEnhancement: true,                      // Default: enabled for non-JS form support
 	}
 
 	// Apply options
@@ -881,7 +873,7 @@ func (t *Template) Clone() (*Template, error) {
 
 // SetUploadRegistry sets the upload registry for this template instance.
 // This should be called after cloning a template for a specific connection.
-func (t *Template) SetUploadRegistry(registry interface{}) {
+func (t *Template) SetUploadRegistry(registry any) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.uploadRegistry = registry
@@ -1124,11 +1116,12 @@ func (t *Template) parseComponentTemplates(sets []*TemplateSet) error {
 
 // Execute applies a parsed template to the specified data object,
 // writing the output to wr. It orchestrates all 5 phases:
-//   Phase 1: Parse (already done via Parse/ParseFiles/ParseGlob)
-//   Phase 2: Build - Generate tree structure
-//   Phase 3: Diff - Compare with cached state (no-op for first render)
-//   Phase 4: Render - Execute template to HTML
-//   Phase 5: Send - Write HTML response
+//
+//	Phase 1: Parse (already done via Parse/ParseFiles/ParseGlob)
+//	Phase 2: Build - Generate tree structure
+//	Phase 3: Diff - Compare with cached state (no-op for first render)
+//	Phase 4: Render - Execute template to HTML
+//	Phase 5: Send - Write HTML response
 //
 // Note: Phases execute in order 1→4→5→2 (Render before Build) to minimize
 // response latency. Tree building for caching happens after sending the response.
@@ -1136,7 +1129,7 @@ func (t *Template) parseComponentTemplates(sets []*TemplateSet) error {
 // The optional messages parameter provides context for templates via the lvt namespace.
 // It contains both field validation errors and flash messages (prefixed with "_flash:").
 // Field errors affect ResponseMetadata.Success; flash messages don't.
-func (t *Template) Execute(wr io.Writer, data interface{}, messages ...map[string]string) error {
+func (t *Template) Execute(wr io.Writer, data any, messages ...map[string]string) error {
 	if t.tmpl == nil {
 		return fmt.Errorf("template not parsed")
 	}
@@ -1181,11 +1174,12 @@ func (t *Template) Execute(wr io.Writer, data interface{}, messages ...map[strin
 // ExecuteUpdates generates a tree structure of static and dynamic content
 // that can be used by JavaScript clients to update changed parts efficiently.
 // It orchestrates all 5 phases:
-//   Phase 1: Parse (already done via Parse/ParseFiles/ParseGlob)
-//   Phase 2: Build - Generate tree structure (includes Phase 3: Diff internally)
-//   Phase 3: Diff - Compare with cached tree, return only changes (integrated in Build)
-//   Phase 4: Render - Execute template (integrated in Build)
-//   Phase 5: Send - Write JSON tree response
+//
+//	Phase 1: Parse (already done via Parse/ParseFiles/ParseGlob)
+//	Phase 2: Build - Generate tree structure (includes Phase 3: Diff internally)
+//	Phase 3: Diff - Compare with cached tree, return only changes (integrated in Build)
+//	Phase 4: Render - Execute template (integrated in Build)
+//	Phase 5: Send - Write JSON tree response
 //
 // Caching behavior:
 // - First call: Returns complete tree with static structure ("s" key) and dynamic values
@@ -1194,7 +1188,7 @@ func (t *Template) Execute(wr io.Writer, data interface{}, messages ...map[strin
 // The optional messages parameter provides context for templates via the lvt namespace.
 // It contains both field validation errors and flash messages (prefixed with "_flash:").
 // Field errors affect ResponseMetadata.Success; flash messages don't.
-func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, messages ...map[string]string) error {
+func (t *Template) ExecuteUpdates(wr io.Writer, data any, messages ...map[string]string) error {
 	if t.tmpl == nil {
 		return fmt.Errorf("template not parsed")
 	}
@@ -1226,13 +1220,13 @@ func (t *Template) ExecuteUpdates(wr io.Writer, data interface{}, messages ...ma
 // generateTreeInternalWithErrors delegates to buildTree() for backward compatibility.
 // DEPRECATED: Tests should use buildTree() directly. This wrapper exists only for
 // existing test code and will be removed in a future version.
-func (t *Template) generateTreeInternalWithErrors(data interface{}, messages map[string]string) (*treeNode, error) {
+func (t *Template) generateTreeInternalWithErrors(data any, messages map[string]string) (*treeNode, error) {
 	return t.buildTree(data, messages)
 }
 
 // generateInitialTreeWithoutRegistry creates tree with statics and dynamics for first render.
 // NOTE: This method modifies template state. Caller must hold t.mu write lock.
-func (t *Template) generateInitialTreeWithoutRegistry(html string, data interface{}) (*treeNode, error) {
+func (t *Template) generateInitialTreeWithoutRegistry(html string, data any) (*treeNode, error) {
 	// Extract content from wrapper if we have one
 	var contentToAnalyze string
 	if t.wrapperID != "" {
@@ -1285,7 +1279,7 @@ func (t *Template) generateInitialTreeWithoutRegistry(html string, data interfac
 
 // generateDiffBasedTree creates tree based on diff analysis
 // NOTE: This method modifies template state. Caller must hold t.mu write lock.
-func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newData interface{}) (*treeNode, error) {
+func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newData any) (*treeNode, error) {
 	// Extract content from wrapper if we have one for proper comparison
 	var oldContent, newContent string
 	if t.wrapperID != "" {
@@ -1388,7 +1382,7 @@ func (t *Template) compareTreesAndGetChangesWithContext(oldTree, newTree *treeNo
 //   - OnDisconnect() - Called on WebSocket disconnect
 //
 // Action methods have signature: func(state StateType, ctx *Context) (StateType, error)
-func (t *Template) Handle(controller interface{}, state State, opts ...HandleOption) LiveHandler {
+func (t *Template) Handle(controller any, state State, opts ...HandleOption) LiveHandler {
 	// Validate inputs
 	if controller == nil {
 		panic("Handle: controller cannot be nil")
@@ -1412,10 +1406,8 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 				if origin == "" {
 					return true
 				}
-				for _, allowed := range t.config.AllowedOrigins {
-					if origin == allowed {
-						return true
-					}
+				if slices.Contains(t.config.AllowedOrigins, origin) {
+					return true
 				}
 				slog.Warn("WebSocket origin rejected",
 					slog.String("origin", origin))
@@ -1528,7 +1520,7 @@ func (t *Template) validateTreeGeneration() error {
 // This is the main entry point for Phase 2 (Build).
 // It handles both initial renders and subsequent updates internally.
 // Thread-safe: uses single lock acquisition to prevent race conditions.
-func (t *Template) buildTree(data interface{}, messages map[string]string) (*treeNode, error) {
+func (t *Template) buildTree(data any, messages map[string]string) (*treeNode, error) {
 	// Phase 4: Render HTML (needed for tree building)
 	// Do this outside the lock as it's CPU-intensive and doesn't modify shared state
 	currentHTML, err := t.renderHTML(data, messages)
@@ -1599,7 +1591,7 @@ func (t *Template) buildTree(data interface{}, messages map[string]string) (*tre
 // renderHTML executes the template and returns the rendered HTML.
 // This is the main entry point for Phase 4 (Render).
 // It handles both full renders and update renders internally.
-func (t *Template) renderHTML(data interface{}, messages map[string]string) (string, error) {
+func (t *Template) renderHTML(data any, messages map[string]string) (string, error) {
 	if t.tmpl == nil {
 		return "", fmt.Errorf("template not parsed")
 	}
@@ -1625,7 +1617,7 @@ func (t *Template) renderHTML(data interface{}, messages map[string]string) (str
 // This is the main entry point for Phase 5 (Send).
 // For Execute(): sends HTML
 // For ExecuteUpdates(): sends JSON tree
-func (t *Template) sendResponse(wr io.Writer, data interface{}) error {
+func (t *Template) sendResponse(wr io.Writer, data any) error {
 	// Check if data is a TreeNode (JSON response) or HTML string
 	switch v := data.(type) {
 	case *treeNode:

@@ -58,7 +58,7 @@ func IsVoidElement(tagName string) bool {
 }
 
 // TreeToHTML renders a tree structure to HTML (used in tests).
-func TreeToHTML(tree map[string]interface{}) (string, error) {
+func TreeToHTML(tree map[string]any) (string, error) {
 	// Check if this is a range comprehension (has keyDynamics key with items)
 	if itemsRaw, hasD := tree[keyDynamics]; hasD {
 		return rangeComprehensionToHTML(tree, itemsRaw)
@@ -78,7 +78,7 @@ func TreeToHTML(tree map[string]interface{}) (string, error) {
 
 // renderTreeWithStatics interleaves static HTML fragments with dynamic values.
 // It handles nested trees and properly escapes HTML in dynamic values.
-func renderTreeWithStatics(statics []string, dynamics map[string]interface{}, result *strings.Builder) error {
+func renderTreeWithStatics(statics []string, dynamics map[string]any, result *strings.Builder) error {
 	for i, static := range statics {
 		result.WriteString(static)
 
@@ -87,7 +87,7 @@ func renderTreeWithStatics(statics []string, dynamics map[string]interface{}, re
 			dynKey := strconv.Itoa(i)
 			if dynValue, exists := dynamics[dynKey]; exists {
 				// Handle nested trees (like ranges)
-				if nestedTree, ok := dynValue.(map[string]interface{}); ok {
+				if nestedTree, ok := dynValue.(map[string]any); ok {
 					nestedHTML, err := TreeToHTML(nestedTree)
 					if err != nil {
 						return fmt.Errorf("rendering nested tree at position %d: %w", i, err)
@@ -115,7 +115,7 @@ func renderTreeWithStatics(statics []string, dynamics map[string]interface{}, re
 //	}
 //
 // This renders each item using the static template, interleaving dynamic values.
-func rangeComprehensionToHTML(tree map[string]interface{}, itemsRaw interface{}) (string, error) {
+func rangeComprehensionToHTML(tree map[string]any, itemsRaw any) (string, error) {
 	// Get statics for the range items
 	statics, ok := tree[keyStatics].([]string)
 	if !ok {
@@ -123,12 +123,12 @@ func rangeComprehensionToHTML(tree map[string]interface{}, itemsRaw interface{})
 	}
 
 	// Convert items to []interface{}
-	var items []interface{}
+	var items []any
 	switch v := itemsRaw.(type) {
-	case []interface{}:
+	case []any:
 		items = v
-	case []map[string]interface{}:
-		items = make([]interface{}, len(v))
+	case []map[string]any:
+		items = make([]any, len(v))
 		for i, item := range v {
 			items[i] = item
 		}
@@ -140,7 +140,7 @@ func rangeComprehensionToHTML(tree map[string]interface{}, itemsRaw interface{})
 
 	// Render each item using the statics as template
 	for itemIdx, itemRaw := range items {
-		itemMap, ok := itemRaw.(map[string]interface{})
+		itemMap, ok := itemRaw.(map[string]any)
 		if !ok {
 			return "", fmt.Errorf("range comprehension: item %d is not a map (got %T)", itemIdx, itemRaw)
 		}

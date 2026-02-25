@@ -30,7 +30,7 @@ import "reflect"
 // - Perform any one-time initialization
 //
 // If the controller doesn't have a Mount method, state is returned unchanged.
-func callMount(controller interface{}, state interface{}, ctx *Context) (interface{}, error) {
+func callMount(controller any, state any, ctx *Context) (any, error) {
 	return callLifecycleMethod(controller, state, ctx, "Mount")
 }
 
@@ -45,13 +45,13 @@ func callMount(controller interface{}, state interface{}, ctx *Context) (interfa
 // - Set up connection-specific state
 //
 // If the controller doesn't have an OnConnect method, state is returned unchanged.
-func callOnConnect(controller interface{}, state interface{}, ctx *Context) (interface{}, error) {
+func callOnConnect(controller any, state any, ctx *Context) (any, error) {
 	return callLifecycleMethod(controller, state, ctx, "OnConnect")
 }
 
 // callLifecycleMethod is a helper that calls a lifecycle method with the standard
 // signature: func(state StateType, ctx *Context) (StateType, error)
-func callLifecycleMethod(controller interface{}, state interface{}, ctx *Context, methodName string) (interface{}, error) {
+func callLifecycleMethod(controller any, state any, ctx *Context, methodName string) (any, error) {
 	controllerValue := reflect.ValueOf(controller)
 	controllerType := controllerValue.Type()
 
@@ -87,8 +87,8 @@ func callLifecycleMethod(controller interface{}, state interface{}, ctx *Context
 // isValidLifecycleSignature checks if method has signature:
 // func(state StateType, ctx *Context) (StateType, error)
 func isValidLifecycleSignature(methodType reflect.Type, stateType reflect.Type) bool {
-	contextType := reflect.TypeOf((*Context)(nil))
-	errorType := reflect.TypeOf((*error)(nil)).Elem()
+	contextType := reflect.TypeFor[*Context]()
+	errorType := reflect.TypeFor[error]()
 
 	// NumIn = 3 (receiver, state, ctx), NumOut = 2 (state, error)
 	if methodType.NumIn() != 3 || methodType.NumOut() != 2 {
@@ -129,7 +129,7 @@ func isValidLifecycleSignature(methodType reflect.Type, stateType reflect.Type) 
 //
 // Note: No state or context is passed because the connection is already closed.
 // Any cleanup that needs state should be done before this point.
-func callOnDisconnect(controller interface{}) {
+func callOnDisconnect(controller any) {
 	controllerValue := reflect.ValueOf(controller)
 	controllerType := controllerValue.Type()
 

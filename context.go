@@ -47,7 +47,7 @@ type Context struct {
 }
 
 // NewContext creates a new Context for action handling.
-func NewContext(ctx context.Context, action string, data map[string]interface{}) *Context {
+func NewContext(ctx context.Context, action string, data map[string]any) *Context {
 	return &Context{
 		Context: ctx,
 		action:  action,
@@ -121,7 +121,7 @@ func (c *Context) Has(key string) bool {
 	return c.data.Has(key)
 }
 
-func (c *Context) Get(key string) interface{} {
+func (c *Context) Get(key string) any {
 	if c.data == nil {
 		return nil
 	}
@@ -129,7 +129,7 @@ func (c *Context) Get(key string) interface{} {
 }
 
 // Bind unmarshals the action data into a struct.
-func (c *Context) Bind(v interface{}) error {
+func (c *Context) Bind(v any) error {
 	if c.data == nil {
 		return nil
 	}
@@ -138,7 +138,7 @@ func (c *Context) Bind(v interface{}) error {
 
 // BindAndValidate binds data to struct and validates it in one step.
 // Uses the provided go-playground/validator instance for validation.
-func (c *Context) BindAndValidate(v interface{}, validate *validator.Validate) error {
+func (c *Context) BindAndValidate(v any, validate *validator.Validate) error {
 	if c.data == nil {
 		return nil
 	}
@@ -219,7 +219,7 @@ func (c *Context) WithAction(action string) *Context {
 }
 
 // WithData returns a new Context with the given data.
-func (c *Context) WithData(data map[string]interface{}) *Context {
+func (c *Context) WithData(data map[string]any) *Context {
 	newCtx := *c
 	newCtx.data = newActionData(data)
 	return &newCtx

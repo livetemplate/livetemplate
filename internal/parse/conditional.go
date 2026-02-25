@@ -9,7 +9,7 @@ import (
 )
 
 // handleIfNode processes {{if}}...{{else}}...{{end}} constructs.
-func handleIfNode(node *parse.IfNode, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+func handleIfNode(node *parse.IfNode, data any, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	// Evaluate condition by executing just the if part
 	pipeStr := formatPipe(node.Pipe)
 	condTmpl := fmt.Sprintf("{{if %s}}true{{else}}false{{end}}", pipeStr)
@@ -50,7 +50,7 @@ func handleIfNodeWithVars(node *parse.IfNode, varCtx *varContext, keyGen KeyGene
 
 	// Check if condition uses variables or root
 	usesVars := false
-	varCtx.vars.Range(func(varName string, _ interface{}) {
+	varCtx.vars.Range(func(varName string, _ any) {
 		if strings.Contains(pipeStr, "$"+varName) {
 			usesVars = true
 		}
@@ -170,12 +170,12 @@ func createEmptyConditionalWrapper(ctx *Context) *TreeNode {
 
 // transformConditionWithVars transforms template variables in a condition to field references.
 // Converts $var to .Var and $. to .RootData. and builds execution data map.
-func transformConditionWithVars(pipeStr string, varCtx *varContext, usesRoot bool) (string, map[string]interface{}, error) {
+func transformConditionWithVars(pipeStr string, varCtx *varContext, usesRoot bool) (string, map[string]any, error) {
 	transformedCond := pipeStr
-	execData := make(map[string]interface{})
+	execData := make(map[string]any)
 
 	// Handle named variables
-	varCtx.vars.Range(func(varName string, varValue interface{}) {
+	varCtx.vars.Range(func(varName string, varValue any) {
 		if strings.Contains(pipeStr, "$"+varName) {
 			fieldName := capitalizeFieldName(varName)
 			transformedCond = strings.ReplaceAll(transformedCond, "$"+varName, "."+fieldName)
@@ -212,7 +212,7 @@ func capitalizeFieldName(varName string) string {
 // mergeFieldsIntoMap copies all accessible fields from value into the target map.
 // For structs, copies all exported fields. For maps, copies all entries.
 // Skips keys that already exist in target to avoid silent overwrites.
-func mergeFieldsIntoMap(value interface{}, target map[string]interface{}) error {
+func mergeFieldsIntoMap(value any, target map[string]any) error {
 	if value == nil {
 		return nil
 	}
@@ -220,7 +220,7 @@ func mergeFieldsIntoMap(value interface{}, target map[string]interface{}) error 
 	v := reflect.ValueOf(value)
 
 	// Dereference pointers
-	for v.Kind() == reflect.Ptr {
+	for v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return nil
 		}

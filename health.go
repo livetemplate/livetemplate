@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"sync"
 	"time"
@@ -125,9 +126,7 @@ func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request) {
 	// Get snapshot of checkers
 	h.checkersRW.RLock()
 	checkers := make(map[string]HealthChecker, len(h.checkers))
-	for name, checker := range h.checkers {
-		checkers[name] = checker
-	}
+	maps.Copy(checkers, h.checkers)
 	h.checkersRW.RUnlock()
 
 	// If no checkers registered, consider ready
@@ -257,7 +256,7 @@ func (c *SessionStoreHealthChecker) Check(ctx context.Context) error {
 		if v.Value != "ok" {
 			return fmt.Errorf("health check failed: retrieved data does not match expected value")
 		}
-	case map[string]interface{}:
+	case map[string]any:
 		if v["value"] != "ok" {
 			return fmt.Errorf("health check failed: retrieved data does not match expected value")
 		}

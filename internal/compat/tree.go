@@ -39,7 +39,7 @@ func NormalizeTemplateSpacing(templateStr string) string {
 // Rendering wrappers for backward compatibility
 
 // renderTreeToHTML wraps internal/render.TreeToHTML for backward compatibility (used in tests)
-func RenderTreeToHTML(tree map[string]interface{}) (string, error) {
+func RenderTreeToHTML(tree map[string]any) (string, error) {
 	return render.TreeToHTML(tree)
 }
 
@@ -106,7 +106,7 @@ func GenerateWrapperKey(keyGen *KeyGenerator) string {
 // parseTemplateToTree parses a template using the internal/parse package
 // templateName is used for expression caching
 // ctx is optional - if nil, defaults to first-render context (includes statics)
-func ParseTemplateToTree(templateName, templateStr string, data interface{}, keyGen *KeyGenerator, ctx ...*build.Context) (tree *build.TreeNode, err error) {
+func ParseTemplateToTree(templateName, templateStr string, data any, keyGen *KeyGenerator, ctx ...*build.Context) (tree *build.TreeNode, err error) {
 	// Get or create context
 	var genCtx *build.Context
 	if len(ctx) > 0 {

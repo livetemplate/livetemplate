@@ -25,7 +25,7 @@ func CompareTreesAndGetChangesWithPath(
 	rangeMatches map[string]string,
 ) *TreeNode {
 	changes := &TreeNode{
-		Dynamics: make(map[string]interface{}),
+		Dynamics: make(map[string]any),
 	}
 
 	// Handle top-level range constructs
@@ -143,7 +143,7 @@ func compareDynamicSegments(
 		// Build full path for this field
 		fieldPath := buildFieldPath(currentPath, k)
 
-		var oldValue interface{}
+		var oldValue any
 		var exists bool
 		if oldTree != nil {
 			oldValue, exists = oldTree.GetDynamic(k)
@@ -177,7 +177,7 @@ func buildFieldPath(currentPath, k string) string {
 // handleNewField processes a field that is new (not in old tree).
 func handleNewField(
 	k string,
-	newValue interface{},
+	newValue any,
 	insideNewStructure bool,
 	changes *TreeNode,
 ) {
@@ -195,7 +195,7 @@ func handleNewField(
 	}
 
 	// Handle map values
-	if m, ok := newValue.(map[string]interface{}); ok {
+	if m, ok := newValue.(map[string]any); ok {
 		valueToSet, _ := handleStructureValue(m, false)
 		changes.SetDynamic(k, valueToSet)
 		return
@@ -212,9 +212,9 @@ func handleNewField(
 //   - map[string]interface{} (serialized form)
 //   - *TreeNode (when passed a TreeNode directly)
 //   - string (empty indicator)
-func isStrippedValueEmpty(stripped interface{}) bool {
+func isStrippedValueEmpty(stripped any) bool {
 	// Check for empty map (most common case for serialized form)
-	if strippedMap, ok := stripped.(map[string]interface{}); ok && len(strippedMap) == 0 {
+	if strippedMap, ok := stripped.(map[string]any); ok && len(strippedMap) == 0 {
 		return true
 	}
 	// Check for empty string (explicit empty indicator)
@@ -248,9 +248,9 @@ func isStrippedValueEmpty(stripped interface{}) bool {
 // Preconditions:
 //   - newValue must not be nil (caller's responsibility to ensure)
 func handleStructureValue(
-	newValue interface{},
+	newValue any,
 	clientHasStructure bool,
-) (valueToSet interface{}, shouldTrack bool) {
+) (valueToSet any, shouldTrack bool) {
 	// Defensive check: newValue should never be nil, but handle gracefully
 	if newValue == nil {
 		return "", false
@@ -287,7 +287,7 @@ func handleStructureValue(
 // handleChangedField processes a field that exists but changed value.
 func handleChangedField(
 	k string,
-	oldValue, newValue interface{},
+	oldValue, newValue any,
 	fieldPath string,
 	insideNewStructure bool,
 	rangeMatches map[string]string,
@@ -324,7 +324,7 @@ func handleChangedField(
 
 // handleRangeMatch handles changes in matched range constructs.
 // Uses fingerprint comparison to determine if client needs range statics.
-func handleRangeMatch(k string, oldValue, newValue interface{}, changes *TreeNode) {
+func handleRangeMatch(k string, oldValue, newValue any, changes *TreeNode) {
 	// Use fingerprint comparison to determine if client has range statics cached.
 	clientHasRangeStatics := !clientNeedsStaticsForValue(oldValue, newValue)
 
@@ -341,7 +341,7 @@ func handleRangeMatch(k string, oldValue, newValue interface{}, changes *TreeNod
 }
 
 // handleEmptyRangeDiff handles the case when no diff operations were generated.
-func handleEmptyRangeDiff(k string, oldValue, newValue interface{}, changes *TreeNode) {
+func handleEmptyRangeDiff(k string, oldValue, newValue any, changes *TreeNode) {
 	// Check if both are empty ranges (no change needed)
 	if IsRangeConstruct(newValue) && !HasRangeItems(newValue) &&
 		IsRangeConstruct(oldValue) && !HasRangeItems(oldValue) {
@@ -361,7 +361,7 @@ func handleEmptyRangeDiff(k string, oldValue, newValue interface{}, changes *Tre
 }
 
 // extractTreeNodePair extracts TreeNode pointers from old and new values.
-func extractTreeNodePair(oldValue, newValue interface{}) (*TreeNode, *TreeNode, bool) {
+func extractTreeNodePair(oldValue, newValue any) (*TreeNode, *TreeNode, bool) {
 	oldTreeNodePtr, oldIsTree := oldValue.(*TreeNode)
 	newTreeNodePtr, newIsTree := newValue.(*TreeNode)
 	return oldTreeNodePtr, newTreeNodePtr, oldIsTree && newIsTree
@@ -476,7 +476,7 @@ func ClientNeedsStatics(oldTree, newTree *TreeNode) bool {
 
 // clientNeedsStaticsForValue determines if client needs statics for a dynamic value.
 // This is used when comparing individual dynamic values that may be TreeNodes.
-func clientNeedsStaticsForValue(oldValue, newValue interface{}) bool {
+func clientNeedsStaticsForValue(oldValue, newValue any) bool {
 	oldTree, oldIsTree := oldValue.(*TreeNode)
 	newTree, newIsTree := newValue.(*TreeNode)
 

@@ -86,7 +86,7 @@ func TestParseTemplateToTree_NestedConditionals(t *testing.T) {
 </div>`
 
 	// Sample data with both flags true
-	data := map[string]interface{}{
+	data := map[string]any{
 		"HasMore":   true,
 		"IsLoading": true,
 	}
@@ -137,7 +137,7 @@ func TestParseTemplateToTree_NestedConditionals_FalseFlags(t *testing.T) {
 </div>`
 
 	// Sample data with HasMore false
-	data := map[string]interface{}{
+	data := map[string]any{
 		"HasMore":   false,
 		"IsLoading": false,
 	}
@@ -168,7 +168,7 @@ func TestParseTemplateToTree_NestedConditionals_FalseFlags(t *testing.T) {
 }
 
 // Helper to marshal value to string for inspection
-func marshalToString(v interface{}) string {
+func marshalToString(v any) string {
 	bytes, _ := send.MarshalValue(v)
 	return string(bytes)
 }
@@ -198,7 +198,7 @@ func TestExecuteUpdates_NestedConditionals(t *testing.T) {
 	}
 
 	// Execute with data
-	data := map[string]interface{}{
+	data := map[string]any{
 		"HasMore":   true,
 		"IsLoading": true,
 	}
@@ -317,7 +317,7 @@ func TestTreeNode_HasRange(t *testing.T) {
 		t.Error("TreeNode without range should return false")
 	}
 
-	tn.Range = build.NewRangeData([]interface{}{}, []string{})
+	tn.Range = build.NewRangeData([]any{}, []string{})
 	if !tn.HasRange() {
 		t.Error("TreeNode with range should return true")
 	}
@@ -372,8 +372,8 @@ func TestTreeNode_MarshalJSON(t *testing.T) {
 			node: func() *build.TreeNode {
 				tn := build.NewTreeNode()
 				tn.Range = build.NewRangeData(
-					[]interface{}{
-						[]interface{}{"u", "item-1"},
+					[]any{
+						[]any{"u", "item-1"},
 					},
 					[]string{"<li>", "</li>"},
 				)
@@ -396,7 +396,7 @@ func TestTreeNode_MarshalJSON(t *testing.T) {
 				tn := build.NewTreeNodeWithStatics([]string{"<div>", "</div>"})
 				tn.SetDynamic("0", "Content")
 				tn.Fingerprint = "xyz789"
-				tn.Range = build.NewRangeData([]interface{}{}, []string{})
+				tn.Range = build.NewRangeData([]any{}, []string{})
 				tn.Metadata = build.NewTreeMetadata("key")
 				return tn
 			}(),
@@ -412,7 +412,7 @@ func TestTreeNode_MarshalJSON(t *testing.T) {
 			}
 
 			// Compare as JSON objects to avoid key ordering issues
-			var expected, actual map[string]interface{}
+			var expected, actual map[string]any
 			if err := json.Unmarshal([]byte(tt.expected), &expected); err != nil {
 				t.Fatalf("Failed to unmarshal expected JSON: %v", err)
 			}
@@ -509,7 +509,7 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 				if !ok {
 					t.Error("Nested dynamic not found")
 				}
-				nested, ok := val.(map[string]interface{})
+				nested, ok := val.(map[string]any)
 				if !ok {
 					t.Error("Nested value should be a map")
 				}
@@ -535,7 +535,7 @@ func TestTreeNode_ToMap(t *testing.T) {
 	tn := build.NewTreeNodeWithStatics([]string{"<div>", "</div>"})
 	tn.SetDynamic("0", "Content")
 	tn.Fingerprint = "xyz789"
-	tn.Range = build.NewRangeData([]interface{}{}, []string{"<li>", "</li>"})
+	tn.Range = build.NewRangeData([]any{}, []string{"<li>", "</li>"})
 	tn.Metadata = build.NewTreeMetadata("key")
 
 	m := tn.ToMap()
@@ -552,18 +552,18 @@ func TestTreeNode_ToMap(t *testing.T) {
 	if _, ok := m["d"]; !ok {
 		t.Error("Range data not in map")
 	}
-	if meta, ok := m["m"].(map[string]interface{}); !ok || meta["idKey"] != "key" {
+	if meta, ok := m["m"].(map[string]any); !ok || meta["idKey"] != "key" {
 		t.Error("Metadata not properly converted to map")
 	}
 }
 
 func TestTreeNode_FromMap(t *testing.T) {
-	m := map[string]interface{}{
-		"s": []interface{}{"<div>", "</div>"},
+	m := map[string]any{
+		"s": []any{"<div>", "</div>"},
 		"0": "Content",
 		"f": "xyz789",
-		"d": []interface{}{},
-		"m": map[string]interface{}{
+		"d": []any{},
+		"m": map[string]any{
 			"idKey": "key",
 		},
 	}
@@ -594,7 +594,7 @@ func TestTreeNode_Clone(t *testing.T) {
 	original := build.NewTreeNodeWithStatics([]string{"<div>", "</div>"})
 	original.SetDynamic("0", "Content")
 	original.Fingerprint = "abc123"
-	original.Range = build.NewRangeData([]interface{}{}, []string{"<li>", "</li>"})
+	original.Range = build.NewRangeData([]any{}, []string{"<li>", "</li>"})
 	original.Metadata = build.NewTreeMetadata("id")
 
 	clone := original.Clone()
@@ -652,9 +652,9 @@ func TestTreeNode_NestedClone(t *testing.T) {
 }
 
 func TestRangeData_Creation(t *testing.T) {
-	items := []interface{}{
-		[]interface{}{"u", "item-1"},
-		[]interface{}{"r", "item-2"},
+	items := []any{
+		[]any{"u", "item-1"},
+		[]any{"r", "item-2"},
 	}
 	statics := []string{"<li>", "</li>"}
 
@@ -714,11 +714,11 @@ func TestTreeNode_RoundTrip(t *testing.T) {
 
 func TestTreeNode_BackwardCompatibility(t *testing.T) {
 	// This is the old format (map[string]interface{})
-	oldFormat := map[string]interface{}{
-		"s": []interface{}{"<div>", "</div>"},
+	oldFormat := map[string]any{
+		"s": []any{"<div>", "</div>"},
 		"0": "Hello",
-		"1": map[string]interface{}{
-			"s": []interface{}{"<span>", "</span>"},
+		"1": map[string]any{
+			"s": []any{"<span>", "</span>"},
 			"0": "World",
 		},
 		"f": "abc123",
@@ -753,7 +753,7 @@ func TestTreeNode_BackwardCompatibility(t *testing.T) {
 		t.Fatalf("Failed to marshal TreeNode: %v", err)
 	}
 
-	var oldParsed, newParsed map[string]interface{}
+	var oldParsed, newParsed map[string]any
 	if err := json.Unmarshal(oldJSON, &oldParsed); err != nil {
 		t.Fatalf("Failed to unmarshal old JSON: %v", err)
 	}
@@ -770,7 +770,7 @@ func TestTreeNode_BackwardCompatibility(t *testing.T) {
 // TestDeepNesting specifically tests regex parser with deeply nested constructs
 // This addresses the concern: "regexes just stop working on deeply nested conditionals"
 func TestDeepNesting(t *testing.T) {
-	data := map[string]interface{}{
+	data := map[string]any{
 		"A": true,
 		"B": true,
 		"C": true,
@@ -781,12 +781,12 @@ func TestDeepNesting(t *testing.T) {
 		"H": true,
 		"I": true,
 		"J": true,
-		"User": map[string]interface{}{
+		"User": map[string]any{
 			"Name": "John",
 			"A":    true,
 			"B":    true,
 		},
-		"Items": []map[string]interface{}{
+		"Items": []map[string]any{
 			{"Name": "Item1", "Active": true, "A": true, "B": true},
 		},
 	}
@@ -859,14 +859,14 @@ func TestDeepNesting(t *testing.T) {
 // These require template flattening before tree generation
 func TestTemplateComposition(t *testing.T) {
 	t.Skip("Template composition/flattening not yet implemented in internal/parse package (TODO)")
-	data := map[string]interface{}{
+	data := map[string]any{
 		"A":     true,
 		"B":     true,
 		"Title": "Page Title",
-		"User": map[string]interface{}{
+		"User": map[string]any{
 			"Name": "John",
 		},
-		"Items": []map[string]interface{}{
+		"Items": []map[string]any{
 			{"Name": "Item1", "Active": true, "A": true, "B": true},
 		},
 	}
@@ -1066,11 +1066,11 @@ func FuzzParseTemplateToTree(f *testing.F) {
 		}
 
 		// Generate test data that matches common template patterns
-		data := map[string]interface{}{
+		data := map[string]any{
 			"Name":   "TestName",
 			"Show":   true,
 			"Items":  []string{"a", "b", "c"},
-			"User":   map[string]interface{}{"Name": "John"},
+			"User":   map[string]any{"Name": "John"},
 			"Count":  5,
 			"A":      true,
 			"B":      false,
@@ -1091,7 +1091,7 @@ func FuzzParseTemplateToTree(f *testing.F) {
 			// Phase 2: Control flow testing
 			"Type": "a",
 			"C":    false,
-			"Outer": []map[string]interface{}{
+			"Outer": []map[string]any{
 				{"Inner": []string{"x", "y"}},
 				{"Inner": []string{"p", "q"}},
 			},
@@ -1100,7 +1100,7 @@ func FuzzParseTemplateToTree(f *testing.F) {
 			// Phase 3: Variable scope and context testing
 			"Root": "root-value",
 			"Cond": true,
-			"ItemsWithSub": []map[string]interface{}{
+			"ItemsWithSub": []map[string]any{
 				{"Name": "item1", "Sub": []string{"s1", "s2"}},
 				{"Name": "item2", "Sub": []string{"s3", "s4"}},
 			},
@@ -1109,7 +1109,7 @@ func FuzzParseTemplateToTree(f *testing.F) {
 			"StringMap": map[string]string{"key1": "val1", "key2": "val2"},
 			"Numbers":   []int{1, 2, 3, 4, 5},
 			"Flags":     []bool{true, false, true},
-			"Mixed":     []interface{}{"string", 42, true},
+			"Mixed":     []any{"string", 42, true},
 			"PtrField":  (*string)(nil),
 
 			// Phase 5: Whitespace testing
@@ -1172,7 +1172,7 @@ func FuzzParseTemplateToTree(f *testing.F) {
 }
 
 // validateTreeStructure performs basic validation of tree structure
-func validateTreeStructure(tree map[string]interface{}) bool {
+func validateTreeStructure(tree map[string]any) bool {
 	if tree == nil {
 		return false
 	}
@@ -1185,7 +1185,7 @@ func validateTreeStructure(tree map[string]interface{}) bool {
 // validateTreeRenders attempts to render a tree to HTML
 // Returns true if the tree can be successfully rendered, false otherwise
 // This is Level 2 validation from the enhanced validation strategy
-func validateTreeRenders(tree map[string]interface{}) bool {
+func validateTreeRenders(tree map[string]any) bool {
 	if tree == nil {
 		return false
 	}
@@ -1206,14 +1206,14 @@ func validateTreeRenders(tree map[string]interface{}) bool {
 	var html strings.Builder
 
 	// Simple reconstruction: iterate through statics and dynamics
-	for i := 0; i < len(statics); i++ {
+	for i := range statics {
 		html.WriteString(statics[i])
 
 		// Check if there's a dynamic value at this position
 		dynamicKey := strconv.Itoa(i)
 		if dynamicVal, exists := tree[dynamicKey]; exists {
 			// Handle nested trees recursively
-			if nestedTree, isTree := dynamicVal.(map[string]interface{}); isTree {
+			if nestedTree, isTree := dynamicVal.(map[string]any); isTree {
 				if !validateTreeRenders(nestedTree) {
 					return false
 				}
@@ -1229,7 +1229,7 @@ func validateTreeRenders(tree map[string]interface{}) bool {
 // treesEqual performs deep equality comparison of two tree structures
 // Used for round-trip validation (Level 3)
 // Handles non-deterministic map iteration by sorting range comprehension items
-func treesEqual(tree1, tree2 map[string]interface{}) bool {
+func treesEqual(tree1, tree2 map[string]any) bool {
 	if tree1 == nil && tree2 == nil {
 		return true
 	}
@@ -1308,8 +1308,8 @@ func treesEqual(tree1, tree2 map[string]interface{}) bool {
 		}
 
 		// Both values exist, compare them
-		nested1, isTree1 := val1.(map[string]interface{})
-		nested2, isTree2 := val2.(map[string]interface{})
+		nested1, isTree1 := val1.(map[string]any)
+		nested2, isTree2 := val2.(map[string]any)
 
 		if isTree1 != isTree2 {
 			return false
@@ -1333,10 +1333,10 @@ func treesEqual(tree1, tree2 map[string]interface{}) bool {
 
 // rangeComprehensionsEqual compares two range comprehensions with sorted items
 // This handles non-deterministic map iteration order
-func rangeComprehensionsEqual(d1, d2 interface{}, tree1, tree2 map[string]interface{}) bool {
+func rangeComprehensionsEqual(d1, d2 any, tree1, tree2 map[string]any) bool {
 	// Extract items arrays
-	items1, ok1 := d1.([]interface{})
-	items2, ok2 := d2.([]interface{})
+	items1, ok1 := d1.([]any)
+	items2, ok2 := d2.([]any)
 
 	if !ok1 || !ok2 {
 		return false
@@ -1371,14 +1371,14 @@ func rangeComprehensionsEqual(d1, d2 interface{}, tree1, tree2 map[string]interf
 	copy(sortedStrs2, strs2)
 
 	// Simple bubble sort (fine for fuzz test validation)
-	for i := 0; i < len(sortedStrs1); i++ {
+	for i := range sortedStrs1 {
 		for j := i + 1; j < len(sortedStrs1); j++ {
 			if sortedStrs1[i] > sortedStrs1[j] {
 				sortedStrs1[i], sortedStrs1[j] = sortedStrs1[j], sortedStrs1[i]
 			}
 		}
 	}
-	for i := 0; i < len(sortedStrs2); i++ {
+	for i := range sortedStrs2 {
 		for j := i + 1; j < len(sortedStrs2); j++ {
 			if sortedStrs2[i] > sortedStrs2[j] {
 				sortedStrs2[i], sortedStrs2[j] = sortedStrs2[j], sortedStrs2[i]
@@ -1387,7 +1387,7 @@ func rangeComprehensionsEqual(d1, d2 interface{}, tree1, tree2 map[string]interf
 	}
 
 	// Compare sorted arrays
-	for i := 0; i < len(sortedStrs1); i++ {
+	for i := range sortedStrs1 {
 		if sortedStrs1[i] != sortedStrs2[i] {
 			return false
 		}
@@ -1398,7 +1398,7 @@ func rangeComprehensionsEqual(d1, d2 interface{}, tree1, tree2 map[string]interf
 
 // validateTreeRoundTrip performs round-trip validation: Parse → Render → Parse → Compare
 // This is Level 3 validation from the enhanced validation strategy
-func validateTreeRoundTrip(templateStr string, data map[string]interface{}, keyGen *keyGenerator) (bool, string) {
+func validateTreeRoundTrip(templateStr string, data map[string]any, keyGen *keyGenerator) (bool, string) {
 	// Parse template to tree1
 	tree1, err := compat.ParseTemplateToTree("test", templateStr, data, keyGen)
 	if err != nil {
@@ -1435,8 +1435,8 @@ func hasRangeConstruct(templateStr string) bool {
 
 // makeEmptyData creates a copy of test data with all collections replaced by empty ones
 // This is used for empty→non-empty transition testing (Level 4)
-func makeEmptyData(data map[string]interface{}) map[string]interface{} {
-	emptyData := make(map[string]interface{})
+func makeEmptyData(data map[string]any) map[string]any {
+	emptyData := make(map[string]any)
 
 	for key, val := range data {
 		switch val.(type) {
@@ -1446,14 +1446,14 @@ func makeEmptyData(data map[string]interface{}) map[string]interface{} {
 			emptyData[key] = []int{}
 		case []bool:
 			emptyData[key] = []bool{}
-		case []interface{}:
-			emptyData[key] = []interface{}{}
-		case []map[string]interface{}:
-			emptyData[key] = []map[string]interface{}{}
+		case []any:
+			emptyData[key] = []any{}
+		case []map[string]any:
+			emptyData[key] = []map[string]any{}
 		case map[string]string:
 			emptyData[key] = map[string]string{}
-		case map[string]interface{}:
-			emptyData[key] = map[string]interface{}{}
+		case map[string]any:
+			emptyData[key] = map[string]any{}
 		default:
 			// Preserve non-collection values
 			emptyData[key] = val
@@ -1465,7 +1465,7 @@ func makeEmptyData(data map[string]interface{}) map[string]interface{} {
 
 // validateTreeTransition checks that two trees (from different data states) are consistent
 // Used for Level 4 validation to ensure empty→non-empty transitions work correctly
-func validateTreeTransition(tree1, tree2 map[string]interface{}) (bool, string) {
+func validateTreeTransition(tree1, tree2 map[string]any) (bool, string) {
 	if tree1 == nil || tree2 == nil {
 		return false, "one or both trees are nil"
 	}
@@ -1497,7 +1497,7 @@ func validateTreeTransition(tree1, tree2 map[string]interface{}) (bool, string) 
 // validateEmptyToNonEmptyTransition tests that templates handle empty→non-empty state changes
 // This is Level 4 validation from the enhanced validation strategy
 // This directly tests the bug that was found in examples/todos
-func validateEmptyToNonEmptyTransition(templateStr string, data map[string]interface{}) (bool, string) {
+func validateEmptyToNonEmptyTransition(templateStr string, data map[string]any) (bool, string) {
 	// Create empty version of data
 	emptyData := makeEmptyData(data)
 
@@ -1546,7 +1546,7 @@ func TestTreeInvariantGuarantee(t *testing.T) {
 	tests := []struct {
 		name     string
 		template string
-		data     interface{}
+		data     any
 	}{
 		{
 			name:     "simple template",
@@ -1750,7 +1750,7 @@ func TestE2EInvariantGuarantee(t *testing.T) {
 }
 
 // checkTreeInvariant verifies the statics/dynamics invariant
-func checkTreeInvariant(tree map[string]interface{}, context string) error {
+func checkTreeInvariant(tree map[string]any, context string) error {
 	// Check if this is a dynamics-only update (no statics)
 	statics, hasStatics := tree["s"]
 	if !hasStatics {
@@ -1772,12 +1772,12 @@ func checkTreeInvariant(tree map[string]interface{}, context string) error {
 		// The invariant is: len(statics) = len(item_dynamics) + 1
 
 		// Get items array
-		var items []interface{}
+		var items []any
 		switch v := itemsRaw.(type) {
-		case []interface{}:
+		case []any:
 			items = v
-		case []map[string]interface{}:
-			items = make([]interface{}, len(v))
+		case []map[string]any:
+			items = make([]any, len(v))
 			for i, item := range v {
 				items[i] = item
 			}
@@ -1791,7 +1791,7 @@ func checkTreeInvariant(tree map[string]interface{}, context string) error {
 		}
 
 		// Get first item to check dynamics count
-		firstItem, ok := items[0].(map[string]interface{})
+		firstItem, ok := items[0].(map[string]any)
 		if !ok {
 			return fmt.Errorf("%s: range item is not a map, got %T", context, items[0])
 		}
@@ -1886,8 +1886,8 @@ func TestIDKeyDetection(t *testing.T) {
 			}
 
 			// Test data
-			data := map[string]interface{}{
-				"Items": []map[string]interface{}{
+			data := map[string]any{
+				"Items": []map[string]any{
 					{"ID": "1", "Key": "k1", "ItemID": "i1", "UID": "u1", "Class": "active", "Name": "Item 1", "Value": "V1", "Text": "T1", "Content": "C1"},
 					{"ID": "2", "Key": "k2", "ItemID": "i2", "UID": "u2", "Class": "inactive", "Name": "Item 2", "Value": "V2", "Text": "T2", "Content": "C2"},
 				},
@@ -1901,7 +1901,7 @@ func TestIDKeyDetection(t *testing.T) {
 			}
 
 			// Parse JSON output
-			var tree map[string]interface{}
+			var tree map[string]any
 			err = json.Unmarshal(buf.Bytes(), &tree)
 			if err != nil {
 				t.Fatalf("Failed to parse JSON output: %v", err)
@@ -1919,7 +1919,7 @@ func TestIDKeyDetection(t *testing.T) {
 				return
 			}
 
-			metaMap, ok := metadata.(map[string]interface{})
+			metaMap, ok := metadata.(map[string]any)
 			if !ok {
 				t.Errorf("Expected metadata to be a map, got %T", metadata)
 				return
@@ -2010,9 +2010,9 @@ func TestDetectIDKeyFunction(t *testing.T) {
 
 // UserActivity represents a single user action in a journey
 type UserActivity struct {
-	Type   string      `json:"type"`   // "visit", "add", "edit", "delete", "reorder", "toggle"
-	Target string      `json:"target"` // field or item identifier
-	Data   interface{} `json:"data"`   // action-specific data
+	Type   string `json:"type"`   // "visit", "add", "edit", "delete", "reorder", "toggle"
+	Target string `json:"target"` // field or item identifier
+	Data   any    `json:"data"`   // action-specific data
 }
 
 // UserJourney represents a sequence of user activities
@@ -2020,24 +2020,24 @@ type UserJourney []UserActivity
 
 // AppState represents a typical application state for testing
 type AppState struct {
-	Title       string      `json:"title"`
-	Items       []Item      `json:"items"`
-	ShowMenu    bool        `json:"show_menu"`
-	Count       int         `json:"count"`
-	Status      string      `json:"status"`
-	User        *User       `json:"user,omitempty"`
-	Settings    Settings    `json:"settings"`
-	ComplexData interface{} `json:"complex_data"`
+	Title       string   `json:"title"`
+	Items       []Item   `json:"items"`
+	ShowMenu    bool     `json:"show_menu"`
+	Count       int      `json:"count"`
+	Status      string   `json:"status"`
+	User        *User    `json:"user,omitempty"`
+	Settings    Settings `json:"settings"`
+	ComplexData any      `json:"complex_data"`
 }
 
 // Item represents a list item in the application
 type Item struct {
-	ID       string                 `json:"id"`
-	Text     string                 `json:"text"`
-	Complete bool                   `json:"complete"`
-	Priority string                 `json:"priority"`
-	Tags     []string               `json:"tags"`
-	Metadata map[string]interface{} `json:"metadata"`
+	ID       string         `json:"id"`
+	Text     string         `json:"text"`
+	Complete bool           `json:"complete"`
+	Priority string         `json:"priority"`
+	Tags     []string       `json:"tags"`
+	Metadata map[string]any `json:"metadata"`
 }
 
 // User represents user information
@@ -2058,8 +2058,8 @@ type Settings struct {
 type UpdateValidator struct {
 	FirstRenderSeen bool
 	SentStatics     map[string]bool // Track which fields have sent statics
-	LastTree        map[string]interface{}
-	LastState       interface{}
+	LastTree        map[string]any
+	LastState       any
 	UpdateCount     int
 	Violations      []string
 }
@@ -2073,15 +2073,15 @@ func NewUpdateValidator() *UpdateValidator {
 }
 
 // ValidateUpdate checks if an update follows the specification rules
-func (v *UpdateValidator) ValidateUpdate(tree interface{}, state interface{}, isFirst bool) error {
+func (v *UpdateValidator) ValidateUpdate(tree any, state any, isFirst bool) error {
 	// Convert to map for validation
-	var treeMap map[string]interface{}
+	var treeMap map[string]any
 	if tn, ok := tree.(*build.TreeNode); ok {
 		treeMap = tn.ToMap()
-	} else if tm, ok := tree.(map[string]interface{}); ok {
+	} else if tm, ok := tree.(map[string]any); ok {
 		treeMap = tm
-	} else if tm, ok := tree.(map[string]interface{}); ok {
-		treeMap = map[string]interface{}(tm)
+	} else if tm, ok := tree.(map[string]any); ok {
+		treeMap = map[string]any(tm)
 	} else {
 		return fmt.Errorf("invalid tree type: %T", tree)
 	}
@@ -2116,7 +2116,7 @@ func (v *UpdateValidator) ValidateUpdate(tree interface{}, state interface{}, is
 }
 
 // validateFirstRender ensures first render has complete statics
-func (v *UpdateValidator) validateFirstRender(tree map[string]interface{}) error {
+func (v *UpdateValidator) validateFirstRender(tree map[string]any) error {
 	// Must have statics array - JSON unmarshalling creates []interface{}, not []string
 	staticsValue, hasStatics := tree["s"]
 	if !hasStatics {
@@ -2128,7 +2128,7 @@ func (v *UpdateValidator) validateFirstRender(tree map[string]interface{}) error
 	switch statics := staticsValue.(type) {
 	case []string:
 		staticsLen = len(statics)
-	case []interface{}:
+	case []any:
 		staticsLen = len(statics)
 	default:
 		return fmt.Errorf("'s' key must be string array, got %T", staticsValue)
@@ -2158,7 +2158,7 @@ func (v *UpdateValidator) validateFirstRender(tree map[string]interface{}) error
 }
 
 // validateSubsequentUpdate ensures updates only contain changes
-func (v *UpdateValidator) validateSubsequentUpdate(tree, lastTree map[string]interface{}) error {
+func (v *UpdateValidator) validateSubsequentUpdate(tree, lastTree map[string]any) error {
 	// Check for unnecessary statics
 	for k, value := range tree {
 		if k == "s" {
@@ -2169,7 +2169,7 @@ func (v *UpdateValidator) validateSubsequentUpdate(tree, lastTree map[string]int
 		}
 
 		// For nested structures, check recursively
-		if nestedTree, ok := value.(map[string]interface{}); ok {
+		if nestedTree, ok := value.(map[string]any); ok {
 			if _, hasStatics := nestedTree["s"]; hasStatics {
 				fieldPath := k
 				if v.SentStatics[fieldPath] {
@@ -2192,11 +2192,11 @@ func (v *UpdateValidator) validateSubsequentUpdate(tree, lastTree map[string]int
 }
 
 // validateRangeOperations ensures range updates are granular
-func (v *UpdateValidator) validateRangeOperations(value interface{}) error {
+func (v *UpdateValidator) validateRangeOperations(value any) error {
 	// Check if this is a range operation array
-	if ops, ok := value.([]interface{}); ok {
+	if ops, ok := value.([]any); ok {
 		for _, op := range ops {
-			if opArray, ok := op.([]interface{}); ok && len(opArray) > 0 {
+			if opArray, ok := op.([]any); ok && len(opArray) > 0 {
 				opType, _ := opArray[0].(string)
 				switch opType {
 				case "i", "r", "u", "o", "a":
@@ -2216,7 +2216,7 @@ func (v *UpdateValidator) validateRangeOperations(value interface{}) error {
 }
 
 // markStaticsSent tracks which fields have sent their statics
-func (v *UpdateValidator) markStaticsSent(tree map[string]interface{}, prefix string) {
+func (v *UpdateValidator) markStaticsSent(tree map[string]any, prefix string) {
 	for k, value := range tree {
 		fieldPath := prefix + k
 		if k == "s" {
@@ -2224,10 +2224,10 @@ func (v *UpdateValidator) markStaticsSent(tree map[string]interface{}, prefix st
 		}
 
 		// Recursively mark nested structures
-		if nestedTree, ok := value.(map[string]interface{}); ok {
+		if nestedTree, ok := value.(map[string]any); ok {
 			v.markStaticsSent(nestedTree, fieldPath+".")
 		}
-		if nestedMap, ok := value.(map[string]interface{}); ok {
+		if nestedMap, ok := value.(map[string]any); ok {
 			v.markStaticsSent(nestedMap, fieldPath+".")
 		}
 	}
@@ -2271,7 +2271,7 @@ func (g *ActivityGenerator) GenerateJourney(length int) UserJourney {
 			activity.Data = g.generateItem()
 		case "edit":
 			activity.Target = fmt.Sprintf("item_%d", g.Rand.Intn(10))
-			activity.Data = map[string]interface{}{
+			activity.Data = map[string]any{
 				"text": g.generateText(),
 			}
 		case "delete":
@@ -2309,7 +2309,7 @@ func (g *ActivityGenerator) generateText() string {
 	words := []string{"task", "todo", "item", "work", "project", "feature", "bug", "test"}
 	count := g.Rand.Intn(5) + 1
 	result := make([]string, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		result[i] = words[g.Rand.Intn(len(words))]
 	}
 	return strings.Join(result, " ")
@@ -2320,15 +2320,15 @@ func (g *ActivityGenerator) generateTags() []string {
 	tags := []string{"urgent", "backend", "frontend", "bug", "feature", "docs"}
 	count := g.Rand.Intn(3)
 	result := make([]string, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		result[i] = tags[g.Rand.Intn(len(tags))]
 	}
 	return result
 }
 
 // generateMetadata creates random metadata
-func (g *ActivityGenerator) generateMetadata() map[string]interface{} {
-	meta := make(map[string]interface{})
+func (g *ActivityGenerator) generateMetadata() map[string]any {
+	meta := make(map[string]any)
 	if g.Rand.Float32() > 0.5 {
 		meta["created_at"] = "2025-01-01"
 	}
@@ -2341,7 +2341,7 @@ func (g *ActivityGenerator) generateMetadata() map[string]interface{} {
 // generateOrder creates a random order array
 func (g *ActivityGenerator) generateOrder(count int) []string {
 	order := make([]string, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		order[i] = fmt.Sprintf("item_%d", i)
 	}
 	// Shuffle
@@ -2353,7 +2353,7 @@ func (g *ActivityGenerator) generateOrder(count int) []string {
 }
 
 // generateFieldValue creates a value for a field
-func (g *ActivityGenerator) generateFieldValue(field string) interface{} {
+func (g *ActivityGenerator) generateFieldValue(field string) any {
 	switch field {
 	case "title":
 		return g.generateText()
@@ -2411,7 +2411,7 @@ func (s *StateSimulator) ApplyActivity(activity UserActivity) {
 		// Find and edit item by target ID
 		for i := range s.State.Items {
 			if s.State.Items[i].ID == activity.Target {
-				if updates, ok := activity.Data.(map[string]interface{}); ok {
+				if updates, ok := activity.Data.(map[string]any); ok {
 					if text, ok := updates["text"].(string); ok {
 						s.State.Items[i].Text = text
 					}
@@ -2696,19 +2696,19 @@ func TestRangeOperationGranularity(t *testing.T) {
 
 	// Verify the update contains only an insert operation
 	if val, ok := changes.GetDynamic("0"); ok {
-		if rangeOps, ok := val.([]interface{}); ok {
+		if rangeOps, ok := val.([]any); ok {
 			if len(rangeOps) != 1 {
 				t.Errorf("Expected 1 range operation, got %d", len(rangeOps))
 			}
 
-			if op, ok := rangeOps[0].([]interface{}); ok {
+			if op, ok := rangeOps[0].([]any); ok {
 				if op[0] != "i" {
 					t.Errorf("Expected insert operation 'i', got %v", op[0])
 				}
 			}
 		} else {
 			// Check if it's sending the full list (violation)
-			if fullList, ok := val.(map[string]interface{}); ok {
+			if fullList, ok := val.(map[string]any); ok {
 				if d, hasD := fullList["d"]; hasD {
 					t.Errorf("Update sent full list 'd' instead of granular operation: %v", d)
 				}
@@ -2782,7 +2782,7 @@ func testEmptyToContent(t *testing.T) {
 	}
 
 	updateJSON := buf2.Bytes()
-	var updateTree map[string]interface{}
+	var updateTree map[string]any
 	err = json.Unmarshal(updateJSON, &updateTree)
 	if err != nil {
 		t.Fatalf("Failed to parse update JSON: %v", err)
@@ -2805,7 +2805,7 @@ func testLargeList(t *testing.T) {
 
 	// Create large list
 	items := make([]Item, 1000)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		items[i] = Item{ID: fmt.Sprintf("item_%d", i)}
 	}
 
@@ -2819,7 +2819,7 @@ func testLargeList(t *testing.T) {
 	}
 
 	// Parse the JSON tree
-	var tree map[string]interface{}
+	var tree map[string]any
 	err = json.Unmarshal(buf.Bytes(), &tree)
 	if err != nil {
 		t.Fatalf("Failed to parse tree JSON: %v", err)
@@ -2829,12 +2829,12 @@ func testLargeList(t *testing.T) {
 	foundItems := false
 	itemCount := 0
 
-	var checkForItems func(node interface{})
-	checkForItems = func(node interface{}) {
+	var checkForItems func(node any)
+	checkForItems = func(node any) {
 		switch v := node.(type) {
-		case map[string]interface{}:
+		case map[string]any:
 			// Check if this is a range node with "d" key
-			if d, ok := v["d"].([]interface{}); ok {
+			if d, ok := v["d"].([]any); ok {
 				itemCount = len(d)
 				if itemCount == 1000 {
 					foundItems = true
@@ -2872,7 +2872,7 @@ func testDeepNesting(t *testing.T) {
 		t.Fatalf("Failed to parse template: %v", err)
 	}
 
-	state := map[string]interface{}{
+	state := map[string]any{
 		"l1": true, "l2": true, "l3": true, "l4": true, "l5": true,
 		"l6": true, "l7": true, "l8": true, "l9": true, "l10": true,
 	}
@@ -2904,7 +2904,7 @@ func testRapidUpdates(t *testing.T) {
 	validator := NewUpdateValidator()
 
 	// Simulate rapid counter updates
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		state := AppState{Count: i}
 
 		if i == 0 {
@@ -2915,7 +2915,7 @@ func testRapidUpdates(t *testing.T) {
 				t.Fatalf("ExecuteUpdates failed: %v", err)
 			}
 
-			var tree map[string]interface{}
+			var tree map[string]any
 			err = json.Unmarshal(buf.Bytes(), &tree)
 			if err != nil {
 				t.Fatalf("Failed to parse tree JSON: %v", err)
@@ -2930,7 +2930,7 @@ func testRapidUpdates(t *testing.T) {
 				t.Fatalf("ExecuteUpdates failed: %v", err)
 			}
 
-			var changes map[string]interface{}
+			var changes map[string]any
 			err = json.Unmarshal(buf.Bytes(), &changes)
 			if err != nil {
 				t.Fatalf("Failed to parse changes JSON: %v", err)
@@ -3006,7 +3006,7 @@ func TestComplexScenarios(t *testing.T) {
 			Text:     "Second task",
 			Complete: true,
 		}},
-		{Type: "edit", Target: "1", Data: map[string]interface{}{
+		{Type: "edit", Target: "1", Data: map[string]any{
 			"text": "Updated first task",
 		}},
 		{Type: "delete", Target: "2"},
@@ -3058,7 +3058,7 @@ func TestRegressionCases(t *testing.T) {
 			t.Fatalf("Failed to parse template: %v", err)
 		}
 
-		state := map[string]interface{}{
+		state := map[string]any{
 			"title":  "Test",
 			"items":  []string{"A", "B", "C"},
 			"footer": "Footer text",
@@ -3072,7 +3072,7 @@ func TestRegressionCases(t *testing.T) {
 		}
 
 		// Parse tree
-		var tree map[string]interface{}
+		var tree map[string]any
 		err = json.Unmarshal(buf.Bytes(), &tree)
 		if err != nil {
 			t.Fatalf("Failed to parse tree JSON: %v", err)
@@ -3093,7 +3093,7 @@ func TestRegressionCases(t *testing.T) {
 				foundFooter = true
 			}
 			// Check for range
-			if m, ok := v.(map[string]interface{}); ok {
+			if m, ok := v.(map[string]any); ok {
 				if _, hasD := m["d"]; hasD {
 					foundRange = true
 				}
@@ -3155,7 +3155,7 @@ func TestRangeTreeGeneration(t *testing.T) {
 		t.Fatalf("Failed initial ExecuteUpdates: %v", err)
 	}
 
-	var initialTree map[string]interface{}
+	var initialTree map[string]any
 	if err := json.Unmarshal(buf1.Bytes(), &initialTree); err != nil {
 		t.Fatalf("Failed to parse initial tree JSON: %v", err)
 	}
@@ -3177,7 +3177,7 @@ func TestRangeTreeGeneration(t *testing.T) {
 	}
 
 	// Parse the update tree
-	var tree map[string]interface{}
+	var tree map[string]any
 	if err := json.Unmarshal(buf2.Bytes(), &tree); err != nil {
 		t.Fatalf("Failed to parse update JSON: %v", err)
 	}
@@ -3203,12 +3203,12 @@ func TestRangeTreeGeneration(t *testing.T) {
 		t.Logf("Tree key: %s, value type: %T", key, value)
 
 		// Check for full tree structure format (map with "d" key)
-		if treeMap, ok := value.(map[string]interface{}); ok {
+		if treeMap, ok := value.(map[string]any); ok {
 			if _, hasDKey := treeMap["d"]; hasDKey {
 				t.Log("✅ Found full tree structure for first item")
 				foundValidFormat = true
 				if sValue, hasSKey := treeMap["s"]; hasSKey {
-					if statics, ok := sValue.([]interface{}); ok {
+					if statics, ok := sValue.([]any); ok {
 						t.Logf("  Statics included: %d segments", len(statics))
 					}
 				}
@@ -3216,19 +3216,19 @@ func TestRangeTreeGeneration(t *testing.T) {
 		}
 
 		// Check for append operation format (array of operations)
-		if opsList, ok := value.([]interface{}); ok {
+		if opsList, ok := value.([]any); ok {
 			for _, op := range opsList {
-				if opArray, ok := op.([]interface{}); ok && len(opArray) >= 2 {
+				if opArray, ok := op.([]any); ok && len(opArray) >= 2 {
 					if opType, ok := opArray[0].(string); ok && opType == "a" {
 						t.Log("✅ Found append operation for first item (correct for empty→first)")
 						foundValidFormat = true
 						// Check if statics are included (for empty→first, statics should be present)
 						if len(opArray) >= 3 {
-							if statics, ok := opArray[2].([]interface{}); ok {
+							if statics, ok := opArray[2].([]any); ok {
 								t.Logf("  Append operation includes statics: %d segments", len(statics))
 							}
 						}
-						if items, ok := opArray[1].([]interface{}); ok {
+						if items, ok := opArray[1].([]any); ok {
 							t.Logf("  Items to append: %d", len(items))
 						}
 					}
@@ -3255,7 +3255,7 @@ func TestRangeTreeGeneration(t *testing.T) {
 		t.Fatalf("Failed second update execute: %v", err)
 	}
 
-	var tree2 map[string]interface{}
+	var tree2 map[string]any
 	if err := json.Unmarshal(buf3.Bytes(), &tree2); err != nil {
 		t.Fatalf("Failed to parse second update JSON: %v", err)
 	}
@@ -3269,17 +3269,17 @@ func TestRangeTreeGeneration(t *testing.T) {
 	foundSecondAppend := false
 	for _, value := range tree2 {
 		// Check if value is a TreeNode structure (map with "d" and "s")
-		if treeMap, ok := value.(map[string]interface{}); ok {
+		if treeMap, ok := value.(map[string]any); ok {
 			// Look for operations in the "d" key
 			if dValue, hasDKey := treeMap["d"]; hasDKey {
-				if opsList, ok := dValue.([]interface{}); ok {
+				if opsList, ok := dValue.([]any); ok {
 					for _, op := range opsList {
-						if opArray, ok := op.([]interface{}); ok && len(opArray) >= 2 {
+						if opArray, ok := op.([]any); ok && len(opArray) >= 2 {
 							if opType, ok := opArray[0].(string); ok && opType == "a" {
 								t.Log("✅ Found append operation for second item (correct)")
 								foundSecondAppend = true
 								t.Logf("  Append operation includes statics: %v", len(opArray) >= 3)
-								if items, ok := opArray[1].([]interface{}); ok {
+								if items, ok := opArray[1].([]any); ok {
 									t.Logf("  Items to append: %d", len(items))
 								}
 							}
@@ -3287,15 +3287,15 @@ func TestRangeTreeGeneration(t *testing.T) {
 					}
 				}
 			}
-		} else if opsList, ok := value.([]interface{}); ok {
+		} else if opsList, ok := value.([]any); ok {
 			// Fallback: direct operations array (old format)
 			for _, op := range opsList {
-				if opArray, ok := op.([]interface{}); ok && len(opArray) >= 2 {
+				if opArray, ok := op.([]any); ok && len(opArray) >= 2 {
 					if opType, ok := opArray[0].(string); ok && opType == "a" {
 						t.Log("✅ Found append operation for second item (correct)")
 						foundSecondAppend = true
 						t.Logf("  Append operation includes statics: %v", len(opArray) >= 3)
-						if items, ok := opArray[1].([]interface{}); ok {
+						if items, ok := opArray[1].([]any); ok {
 							t.Logf("  Items to append: %d", len(items))
 						}
 					}
@@ -3360,7 +3360,7 @@ func TestPrependOperation(t *testing.T) {
 	t.Logf("Tree structure: %v", tree)
 
 	// For standalone range templates, operations are at tree["d"]
-	ops, ok := tree["d"].([]interface{})
+	ops, ok := tree["d"].([]any)
 	if !ok {
 		t.Fatalf("Expected range operations at 'd', got: %v", tree)
 	}
@@ -3370,7 +3370,7 @@ func TestPrependOperation(t *testing.T) {
 	}
 
 	// First operation should be prepend
-	firstOp, ok := ops[0].([]interface{})
+	firstOp, ok := ops[0].([]any)
 	if !ok {
 		t.Fatalf("Expected operation to be array, got %T", ops[0])
 	}
@@ -3437,15 +3437,15 @@ func TestSimplifiedInsertOperation(t *testing.T) {
 	}
 
 	// For standalone range templates, operations are at tree["d"]
-	ops, ok := tree["d"].([]interface{})
+	ops, ok := tree["d"].([]any)
 	if !ok {
 		t.Fatalf("Expected range operations at 'd', got: %v", tree)
 	}
 
 	// Find insert operation
-	var insertOp []interface{}
+	var insertOp []any
 	for _, op := range ops {
-		if opArray, ok := op.([]interface{}); ok && len(opArray) > 0 {
+		if opArray, ok := op.([]any); ok && len(opArray) > 0 {
 			if opType, ok := opArray[0].(string); ok && opType == "i" {
 				insertOp = opArray
 				break
@@ -3510,8 +3510,8 @@ func TestAppendVsPrepend(t *testing.T) {
 			t.Fatalf("Failed to execute update: %v", err)
 		}
 
-		ops := tree["d"].([]interface{})
-		firstOp := ops[0].([]interface{})
+		ops := tree["d"].([]any)
+		firstOp := ops[0].([]any)
 		opType := firstOp[0].(string)
 
 		if opType != "a" {
@@ -3552,8 +3552,8 @@ func TestAppendVsPrepend(t *testing.T) {
 			t.Fatalf("Failed to execute update: %v", err)
 		}
 
-		ops := tree["d"].([]interface{})
-		firstOp := ops[0].([]interface{})
+		ops := tree["d"].([]any)
+		firstOp := ops[0].([]any)
 		opType := firstOp[0].(string)
 
 		if opType != "p" {
@@ -3606,8 +3606,8 @@ func TestAllOperationTypes(t *testing.T) {
 			t.Fatalf("Failed to execute update: %v", err)
 		}
 
-		ops := tree["d"].([]interface{})
-		firstOp := ops[0].([]interface{})
+		ops := tree["d"].([]any)
+		firstOp := ops[0].([]any)
 
 		if firstOp[0].(string) != "u" {
 			t.Errorf("Expected update operation ('u'), got %q", firstOp[0])
@@ -3636,11 +3636,11 @@ func TestAllOperationTypes(t *testing.T) {
 		}
 
 		tree, _ := executeToUpdate(tpl2, updatedData)
-		ops := tree["d"].([]interface{})
+		ops := tree["d"].([]any)
 
-		var removeOp []interface{}
+		var removeOp []any
 		for _, op := range ops {
-			if opArray, ok := op.([]interface{}); ok {
+			if opArray, ok := op.([]any); ok {
 				if opArray[0].(string) == "r" {
 					removeOp = opArray
 					break
@@ -3657,4 +3657,3 @@ func TestAllOperationTypes(t *testing.T) {
 
 	t.Log("✅ All 6 operation types verified: Update ('u'), Remove ('r'), Append ('a'), Prepend ('p'), Insert ('i'), Reorder ('o')")
 }
-

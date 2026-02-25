@@ -11,7 +11,7 @@ func TestExtractRangeData_EmptyToItems_RangeStatics(t *testing.T) {
 	oldNode := &TreeNode{
 		Statics: []string{""},
 		Range: &RangeData{
-			Items:   []interface{}{},
+			Items:   []any{},
 			Statics: nil,
 		},
 	}
@@ -23,9 +23,9 @@ func TestExtractRangeData_EmptyToItems_RangeStatics(t *testing.T) {
 	newNode := &TreeNode{
 		Statics: nil, // Not included during updates
 		Range: &RangeData{
-			Items: []interface{}{
+			Items: []any{
 				&TreeNode{
-					Dynamics: map[string]interface{}{
+					Dynamics: map[string]any{
 						"0": "item-1",
 						"1": "Text 1",
 					},
@@ -76,7 +76,7 @@ func TestGenerateRangeDifferentialOperations_EmptyToItems_HasStatics(t *testing.
 	oldNode := &TreeNode{
 		Statics: []string{""},
 		Range: &RangeData{
-			Items:   []interface{}{},
+			Items:   []any{},
 			Statics: nil,
 		},
 	}
@@ -86,9 +86,9 @@ func TestGenerateRangeDifferentialOperations_EmptyToItems_HasStatics(t *testing.
 	newNode := &TreeNode{
 		Statics: nil, // Not included during updates
 		Range: &RangeData{
-			Items: []interface{}{
+			Items: []any{
 				&TreeNode{
-					Dynamics: map[string]interface{}{
+					Dynamics: map[string]any{
 						"0": "item-1",
 						"1": "Text 1",
 					},
@@ -108,7 +108,7 @@ func TestGenerateRangeDifferentialOperations_EmptyToItems_HasStatics(t *testing.
 		t.Fatalf("Expected 1 operation, got %d", len(operations))
 	}
 
-	op, ok := operations[0].([]interface{})
+	op, ok := operations[0].([]any)
 	if !ok {
 		t.Fatalf("Expected operation to be []interface{}, got %T", operations[0])
 	}

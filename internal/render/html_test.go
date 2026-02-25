@@ -227,7 +227,7 @@ func TestIsVoidElement_NonVoid(t *testing.T) {
 
 // TestTreeToHTML_Simple tests simple tree to HTML rendering.
 func TestTreeToHTML_Simple(t *testing.T) {
-	tree := map[string]interface{}{
+	tree := map[string]any{
 		"s": []string{"<div>", "</div>"},
 		"0": "content",
 	}
@@ -245,7 +245,7 @@ func TestTreeToHTML_Simple(t *testing.T) {
 
 // TestTreeToHTML_WithDynamics tests tree with multiple dynamic values.
 func TestTreeToHTML_WithDynamics(t *testing.T) {
-	tree := map[string]interface{}{
+	tree := map[string]any{
 		"s": []string{"<div>", " - ", "</div>"},
 		"0": "Hello",
 		"1": "World",
@@ -264,12 +264,12 @@ func TestTreeToHTML_WithDynamics(t *testing.T) {
 
 // TestTreeToHTML_Nested tests nested tree structures.
 func TestTreeToHTML_Nested(t *testing.T) {
-	nestedTree := map[string]interface{}{
+	nestedTree := map[string]any{
 		"s": []string{"<span>", "</span>"},
 		"0": "nested",
 	}
 
-	tree := map[string]interface{}{
+	tree := map[string]any{
 		"s": []string{"<div>", "</div>"},
 		"0": nestedTree,
 	}
@@ -289,24 +289,24 @@ func TestTreeToHTML_Nested(t *testing.T) {
 func TestTreeToHTML_Error(t *testing.T) {
 	tests := []struct {
 		name string
-		tree map[string]interface{}
+		tree map[string]any
 	}{
 		{
 			"no statics",
-			map[string]interface{}{
+			map[string]any{
 				"0": "value",
 			},
 		},
 		{
 			"empty statics",
-			map[string]interface{}{
+			map[string]any{
 				"s": []string{},
 				"0": "value",
 			},
 		},
 		{
 			"invalid statics type",
-			map[string]interface{}{
+			map[string]any{
 				"s": "not-a-slice",
 				"0": "value",
 			},
@@ -326,14 +326,14 @@ func TestTreeToHTML_Error(t *testing.T) {
 // TestRangeComprehensionToHTML tests range rendering.
 func TestRangeComprehensionToHTML(t *testing.T) {
 	// Range tree structure
-	tree := map[string]interface{}{
+	tree := map[string]any{
 		"s": []string{"<div id=\"", "\">", "</div>"},
-		"d": []interface{}{
-			map[string]interface{}{
+		"d": []any{
+			map[string]any{
 				"0": "id1",
 				"1": "Item 1",
 			},
-			map[string]interface{}{
+			map[string]any{
 				"0": "id2",
 				"1": "Item 2",
 			},
@@ -353,9 +353,9 @@ func TestRangeComprehensionToHTML(t *testing.T) {
 
 // TestRangeComprehensionToHTML_Empty tests empty range rendering.
 func TestRangeComprehensionToHTML_Empty(t *testing.T) {
-	tree := map[string]interface{}{
+	tree := map[string]any{
 		"s": []string{"<div>", "</div>"},
-		"d": []interface{}{},
+		"d": []any{},
 	}
 
 	html, err := TreeToHTML(tree)
@@ -371,15 +371,15 @@ func TestRangeComprehensionToHTML_Empty(t *testing.T) {
 
 // TestRangeComprehensionToHTML_NestedTrees tests range with nested trees.
 func TestRangeComprehensionToHTML_NestedTrees(t *testing.T) {
-	nestedTree := map[string]interface{}{
+	nestedTree := map[string]any{
 		"s": []string{"<span>", "</span>"},
 		"0": "nested",
 	}
 
-	tree := map[string]interface{}{
+	tree := map[string]any{
 		"s": []string{"<div>", "</div>"},
-		"d": []interface{}{
-			map[string]interface{}{
+		"d": []any{
+			map[string]any{
 				"0": nestedTree,
 			},
 		},
@@ -431,12 +431,12 @@ func TestIsVoidElement_CaseInsensitive(t *testing.T) {
 func TestTreeToHTML_HTMLEscaping(t *testing.T) {
 	tests := []struct {
 		name     string
-		tree     map[string]interface{}
+		tree     map[string]any
 		expected string
 	}{
 		{
 			name: "script tag",
-			tree: map[string]interface{}{
+			tree: map[string]any{
 				"s": []string{"<div>", "</div>"},
 				"0": "<script>alert('xss')</script>",
 			},
@@ -444,7 +444,7 @@ func TestTreeToHTML_HTMLEscaping(t *testing.T) {
 		},
 		{
 			name: "ampersand",
-			tree: map[string]interface{}{
+			tree: map[string]any{
 				"s": []string{"<div>", "</div>"},
 				"0": "Tom & Jerry",
 			},
@@ -452,7 +452,7 @@ func TestTreeToHTML_HTMLEscaping(t *testing.T) {
 		},
 		{
 			name: "angle brackets",
-			tree: map[string]interface{}{
+			tree: map[string]any{
 				"s": []string{"<div>", "</div>"},
 				"0": "5 < 10 > 3",
 			},
@@ -460,7 +460,7 @@ func TestTreeToHTML_HTMLEscaping(t *testing.T) {
 		},
 		{
 			name: "quotes",
-			tree: map[string]interface{}{
+			tree: map[string]any{
 				"s": []string{"<div>", "</div>"},
 				"0": `He said "hello"`,
 			},
@@ -484,13 +484,13 @@ func TestTreeToHTML_HTMLEscaping(t *testing.T) {
 
 // TestRangeComprehensionToHTML_HTMLEscaping tests HTML escaping in range items.
 func TestRangeComprehensionToHTML_HTMLEscaping(t *testing.T) {
-	tree := map[string]interface{}{
+	tree := map[string]any{
 		"s": []string{"<div>", "</div>"},
-		"d": []interface{}{
-			map[string]interface{}{
+		"d": []any{
+			map[string]any{
 				"0": "<script>alert('xss')</script>",
 			},
-			map[string]interface{}{
+			map[string]any{
 				"0": "Tom & Jerry",
 			},
 		},
@@ -511,31 +511,31 @@ func TestRangeComprehensionToHTML_HTMLEscaping(t *testing.T) {
 func TestRangeComprehensionToHTML_InvalidItem(t *testing.T) {
 	tests := []struct {
 		name string
-		tree map[string]interface{}
+		tree map[string]any
 	}{
 		{
 			name: "item is not a map",
-			tree: map[string]interface{}{
+			tree: map[string]any{
 				"s": []string{"<div>", "</div>"},
-				"d": []interface{}{
+				"d": []any{
 					"not a map",
 				},
 			},
 		},
 		{
 			name: "item is number",
-			tree: map[string]interface{}{
+			tree: map[string]any{
 				"s": []string{"<div>", "</div>"},
-				"d": []interface{}{
+				"d": []any{
 					42,
 				},
 			},
 		},
 		{
 			name: "item is nil",
-			tree: map[string]interface{}{
+			tree: map[string]any{
 				"s": []string{"<div>", "</div>"},
-				"d": []interface{}{
+				"d": []any{
 					nil,
 				},
 			},
@@ -558,11 +558,11 @@ func TestRangeComprehensionToHTML_InvalidItem(t *testing.T) {
 // TestTreeToHTML_NestedTreeError tests error handling in nested tree rendering.
 func TestTreeToHTML_NestedTreeError(t *testing.T) {
 	// Nested tree with invalid structure (no statics)
-	invalidNestedTree := map[string]interface{}{
+	invalidNestedTree := map[string]any{
 		"0": "value",
 	}
 
-	tree := map[string]interface{}{
+	tree := map[string]any{
 		"s": []string{"<div>", "</div>"},
 		"0": invalidNestedTree,
 	}
@@ -578,9 +578,9 @@ func TestTreeToHTML_NestedTreeError(t *testing.T) {
 
 // TestRangeComprehensionToHTML_MissingStatics tests error when statics are missing.
 func TestRangeComprehensionToHTML_MissingStatics(t *testing.T) {
-	tree := map[string]interface{}{
-		"d": []interface{}{
-			map[string]interface{}{
+	tree := map[string]any{
+		"d": []any{
+			map[string]any{
 				"0": "value",
 			},
 		},

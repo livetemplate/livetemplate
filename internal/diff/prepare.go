@@ -2,7 +2,7 @@ package diff
 
 // prepareAndFilterIfNeeded recursively prepares a value and returns it only if non-empty.
 // This helper consolidates the common pattern of prepare + filter logic.
-func prepareAndFilterIfNeeded(value interface{}, clientHasStatics bool) (interface{}, bool) {
+func prepareAndFilterIfNeeded(value any, clientHasStatics bool) (any, bool) {
 	prepared := PrepareTreeForClient(value, clientHasStatics)
 	if IsEmpty(prepared) {
 		return nil, false
@@ -15,7 +15,7 @@ func prepareAndFilterIfNeeded(value interface{}, clientHasStatics bool) (interfa
 // - If clientHasStatics is false (first render): everything is sent including statics
 // - If clientHasStatics is true (updates): statics are stripped to reduce wire size (~90% reduction)
 // Empty values are filtered out to minimize payload size.
-func PrepareTreeForClient(node interface{}, clientHasStatics bool) interface{} {
+func PrepareTreeForClient(node any, clientHasStatics bool) any {
 	if !clientHasStatics {
 		// Client doesn't have statics - send everything as-is
 		return node
@@ -26,7 +26,7 @@ func PrepareTreeForClient(node interface{}, clientHasStatics bool) interface{} {
 	case *TreeNode:
 		// Create new TreeNode without statics or fingerprint
 		result := &TreeNode{
-			Dynamics: make(map[string]interface{}, len(v.Dynamics)),
+			Dynamics: make(map[string]any, len(v.Dynamics)),
 		}
 		// Recursively prepare dynamics, filtering out empty values while preserving static-only conditional blocks
 		for k, val := range v.Dynamics {
@@ -52,8 +52,8 @@ func PrepareTreeForClient(node interface{}, clientHasStatics bool) interface{} {
 			result.Metadata = v.Metadata
 		}
 		return result
-	case map[string]interface{}:
-		result := make(map[string]interface{}, len(v))
+	case map[string]any:
+		result := make(map[string]any, len(v))
 		for k, val := range v {
 			if k == "s" || k == "f" {
 				continue // Skip statics and fingerprint (client has them cached)
@@ -71,9 +71,9 @@ func PrepareTreeForClient(node interface{}, clientHasStatics bool) interface{} {
 			}
 		}
 		return result
-	case []interface{}:
+	case []any:
 		// Don't pre-allocate since we're filtering - build slice dynamically
-		var result []interface{}
+		var result []any
 		for _, item := range v {
 			if prepared, ok := prepareAndFilterIfNeeded(item, clientHasStatics); ok {
 				result = append(result, prepared)

@@ -309,9 +309,9 @@ func (e *PrometheusExporter) Snapshot() MetricsSnapshot {
 // Useful for testing.
 func ParsePrometheusMetrics(text string) map[string]float64 {
 	metrics := make(map[string]float64)
-	lines := strings.Split(text, "\n")
+	lines := strings.SplitSeq(text, "\n")
 
-	for _, line := range lines {
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		// Skip comments and empty lines
 		if line == "" || strings.HasPrefix(line, "#") {

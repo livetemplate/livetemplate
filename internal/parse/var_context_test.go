@@ -23,7 +23,7 @@ func TestOrderedVars_Empty(t *testing.T) {
 	}
 
 	called := false
-	ov.Range(func(key string, value interface{}) {
+	ov.Range(func(key string, value any) {
 		called = true
 	})
 	if called {
@@ -122,7 +122,7 @@ func TestOrderedVars_InsertionOrder(t *testing.T) {
 
 	expected := []struct {
 		key   string
-		value interface{}
+		value any
 	}{
 		{"first", 1},
 		{"second", 2},
@@ -130,7 +130,7 @@ func TestOrderedVars_InsertionOrder(t *testing.T) {
 	}
 
 	i := 0
-	ov.Range(func(key string, value interface{}) {
+	ov.Range(func(key string, value any) {
 		if i >= len(expected) {
 			t.Fatalf("Range() called more than %d times", len(expected))
 		}
@@ -162,7 +162,7 @@ func TestOrderedVars_OrderPreservedAfterUpdate(t *testing.T) {
 	// Order should be preserved: a, b, c (not a, c, b)
 	expected := []string{"a", "b", "c"}
 	i := 0
-	ov.Range(func(key string, value interface{}) {
+	ov.Range(func(key string, value any) {
 		if i >= len(expected) {
 			t.Fatalf("Range() called more than %d times", len(expected))
 		}
@@ -217,7 +217,7 @@ func TestOrderedVars_ManyVariables(t *testing.T) {
 	ov := newOrderedVars()
 
 	// Add 100 variables
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		key := "var" + string(rune('0'+i%10))
 		ov.Set(key, i)
 	}
@@ -227,7 +227,7 @@ func TestOrderedVars_ManyVariables(t *testing.T) {
 	}
 
 	// Verify last values
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		key := "var" + string(rune('0'+i))
 		val, ok := ov.Get(key)
 		if !ok {
@@ -247,7 +247,7 @@ func TestOrderedVars_DifferentTypes(t *testing.T) {
 
 	testCases := []struct {
 		key   string
-		value interface{}
+		value any
 	}{
 		{"int", 42},
 		{"string", "hello"},
@@ -298,7 +298,7 @@ func TestOrderedVars_RangePanic(t *testing.T) {
 		}
 	}()
 
-	ov.Range(func(key string, value interface{}) {
+	ov.Range(func(key string, value any) {
 		panic("test panic")
 	})
 }
@@ -338,7 +338,7 @@ func TestCreateEmptyTree(t *testing.T) {
 
 // TestVarContext_FieldAccess tests accessing varContext fields
 func TestVarContext_FieldAccess(t *testing.T) {
-	data := map[string]interface{}{"key": "value"}
+	data := map[string]any{"key": "value"}
 	vc := &varContext{
 		parent: data,
 		vars:   newOrderedVars(),

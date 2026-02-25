@@ -3,6 +3,7 @@ package invariants
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 
 	"github.com/livetemplate/livetemplate/internal/build"
 	"github.com/livetemplate/livetemplate/internal/diff"
@@ -11,15 +12,15 @@ import (
 
 // Violation records a failed invariant check with context for debugging.
 type Violation struct {
-	Invariant   string                // Name of the violated invariant
-	Description string                // Human-readable description
-	OldState    any                   // State before mutation
-	NewState    any                   // State after mutation
-	OldTree     *build.TreeNode       // Tree before render
-	NewTree     *build.TreeNode       // Tree after render
-	Diff        *build.TreeNode       // Computed diff
-	Mutations   []mutations.Mutation  // Mutation sequence that led to failure
-	Seed        int64                 // Random seed for reproduction
+	Invariant   string               // Name of the violated invariant
+	Description string               // Human-readable description
+	OldState    any                  // State before mutation
+	NewState    any                  // State after mutation
+	OldTree     *build.TreeNode      // Tree before render
+	NewTree     *build.TreeNode      // Tree after render
+	Diff        *build.TreeNode      // Computed diff
+	Mutations   []mutations.Mutation // Mutation sequence that led to failure
+	Seed        int64                // Random seed for reproduction
 }
 
 func (v *Violation) Error() string {
@@ -307,8 +308,8 @@ func isEmptyTree(tree *build.TreeNode) bool {
 //
 // Note: This check is intentionally lenient. Without access to the old tree,
 // we can't distinguish between:
-//   1. Static-only node for new structure (VALID - needs statics)
-//   2. Static-only node for unchanged structure (INVALID - should be stripped)
+//  1. Static-only node for new structure (VALID - needs statics)
+//  2. Static-only node for unchanged structure (INVALID - should be stripped)
 //
 // We err on the side of allowing statics to avoid false positives.
 func hasUnexpectedStatics(tree *build.TreeNode) bool {
@@ -383,9 +384,7 @@ func extractAllRanges(tree *build.TreeNode, path string) map[string]*build.Range
 		childPath += k
 
 		if nested, ok := value.(*build.TreeNode); ok {
-			for p, r := range extractAllRanges(nested, childPath) {
-				ranges[p] = r
-			}
+			maps.Copy(ranges, extractAllRanges(nested, childPath))
 		}
 	}
 
@@ -444,7 +443,7 @@ func extractItemID(item any) string {
 // extraction logic from the diff package. This checks for auto-generated keys
 // (_k field), key attributes found via statics (id=, data-key=), and falls
 // back to content-based hashing.
-func extractKey(item any, statics interface{}) string {
+func extractKey(item any, statics any) string {
 	key, ok := diff.GetItemKey(item, statics)
 	if ok {
 		return key

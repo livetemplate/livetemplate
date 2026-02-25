@@ -4,6 +4,7 @@ package generators
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 
 	"pgregory.net/rapid"
 )
@@ -154,7 +155,7 @@ func genStateFromShape(t *rapid.T, shape *StateShape, depth int) map[string]any 
 	for name, sshape := range shape.Slices {
 		length := rapid.IntRange(sshape.MinLen, sshape.MaxLen).Draw(t, name+"_len")
 		items := make([]map[string]any, length)
-		for i := 0; i < length; i++ {
+		for i := range length {
 			items[i] = genStateFromShape(t, sshape.ItemShape, depth+1)
 			// Ensure unique ID for range tracking
 			if _, hasID := items[i]["ID"]; !hasID {
@@ -193,7 +194,7 @@ func genFieldValue(t *rapid.T, ftype FieldType, name string) any {
 	case FieldMap:
 		m := make(map[string]any)
 		n := rapid.IntRange(0, 3).Draw(t, name+"_size")
-		for i := 0; i < n; i++ {
+		for i := range n {
 			key := rapid.StringMatching(`[a-z]+`).Draw(t, fmt.Sprintf("%s_key_%d", name, i))
 			m[key] = rapid.StringMatching(`[a-zA-Z0-9 ]+`).Draw(t, fmt.Sprintf("%s_val_%d", name, i))
 		}
@@ -211,14 +212,14 @@ func genStringValue(t *rapid.T, name string) string {
 	case "Title", "Name", "Text", "Label":
 		words := []string{"todo", "task", "item", "work", "project", "feature", "bug", "test"}
 		n := rapid.IntRange(1, 3).Draw(t, name+"_words")
-		result := ""
-		for i := 0; i < n; i++ {
+		var result strings.Builder
+		for i := range n {
 			if i > 0 {
-				result += " "
+				result.WriteString(" ")
 			}
-			result += rapid.SampledFrom(words).Draw(t, fmt.Sprintf("%s_word_%d", name, i))
+			result.WriteString(rapid.SampledFrom(words).Draw(t, fmt.Sprintf("%s_word_%d", name, i)))
 		}
-		return result
+		return result.String()
 	case "Email":
 		return rapid.StringMatching(`[a-z]+@example\.com`).Draw(t, name)
 	case "Status":
@@ -250,7 +251,7 @@ func genStateSimple(rng *rand.Rand, shape *StateShape, depth int) map[string]any
 	for name, sshape := range shape.Slices {
 		length := sshape.MinLen + rng.Intn(sshape.MaxLen-sshape.MinLen+1)
 		items := make([]map[string]any, length)
-		for i := 0; i < length; i++ {
+		for i := range length {
 			items[i] = genStateSimple(rng, sshape.ItemShape, depth+1)
 			// Ensure unique ID
 			items[i]["ID"] = fmt.Sprintf("item-%d-%d", depth, i)

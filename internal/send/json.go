@@ -8,7 +8,7 @@ import (
 // MarshalOrderedJSON marshals a tree or other data structure to JSON with no HTML escaping.
 // This is used for wire format transmission where HTML entities should be preserved as-is.
 // The encoder removes the trailing newline that json.Encoder.Encode() adds.
-func MarshalOrderedJSON(tree interface{}) ([]byte, error) {
+func MarshalOrderedJSON(tree any) ([]byte, error) {
 	var buf bytes.Buffer
 	encoder := json.NewEncoder(&buf)
 	encoder.SetEscapeHTML(false)
@@ -25,6 +25,6 @@ func MarshalOrderedJSON(tree interface{}) ([]byte, error) {
 
 // MarshalValue marshals a single value to JSON with no HTML escaping.
 // This is an alias for MarshalOrderedJSON for backward compatibility.
-func MarshalValue(value interface{}) ([]byte, error) {
+func MarshalValue(value any) ([]byte, error) {
 	return MarshalOrderedJSON(value)
 }

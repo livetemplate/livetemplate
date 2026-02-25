@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"maps"
 	"reflect"
 )
 
@@ -18,7 +19,7 @@ type TreeNode struct {
 
 	// Dynamics maps position indices to dynamic content (keys: "0", "1", "2", etc.)
 	// Values can be: string, TreeNode, RangeData, or any JSON-serializable type
-	Dynamics map[string]interface{}
+	Dynamics map[string]any
 
 	// Fingerprint is the hash of the tree structure for change detection (key: "f")
 	Fingerprint string
@@ -61,7 +62,7 @@ func (t *TreeNode) InvalidateStructureFingerprint() {
 type RangeData struct {
 	// Items is the list of range operations
 	// Can contain: update, remove, append, prepend, insert, reorder operations
-	Items []interface{}
+	Items []any
 
 	// Statics are the static HTML parts for rendering range items.
 	// All items share the same statics (homogeneous ranges).
@@ -174,7 +175,7 @@ func (ctx *Context) WithPath(path string) *Context {
 // NewTreeNode creates a new TreeNode with initialized maps.
 func NewTreeNode() *TreeNode {
 	return &TreeNode{
-		Dynamics: make(map[string]interface{}),
+		Dynamics: make(map[string]any),
 	}
 }
 
@@ -182,12 +183,12 @@ func NewTreeNode() *TreeNode {
 func NewTreeNodeWithStatics(statics []string) *TreeNode {
 	return &TreeNode{
 		Statics:  statics,
-		Dynamics: make(map[string]interface{}),
+		Dynamics: make(map[string]any),
 	}
 }
 
 // NewRangeData creates a new RangeData with the given items and statics.
-func NewRangeData(items []interface{}, statics []string) *RangeData {
+func NewRangeData(items []any, statics []string) *RangeData {
 	return &RangeData{
 		Items:   items,
 		Statics: statics,
@@ -204,9 +205,9 @@ func NewTreeMetadata(idKey string) *TreeMetadata {
 // SetDynamic sets a dynamic value at the given position.
 // It includes a type guard to ensure only tree-compatible values are stored.
 // Non-compatible values (like raw structs) are converted to their string representation.
-func (tn *TreeNode) SetDynamic(position string, value interface{}) {
+func (tn *TreeNode) SetDynamic(position string, value any) {
 	if tn.Dynamics == nil {
-		tn.Dynamics = make(map[string]interface{})
+		tn.Dynamics = make(map[string]any)
 	}
 
 	// Type guard: only allow tree-compatible values
@@ -228,7 +229,7 @@ func (tn *TreeNode) SetDynamic(position string, value interface{}) {
 //
 // Raw structs and struct pointers (other than TreeNode/RangeData) are NOT tree-compatible
 // because they would serialize to JSON objects instead of strings.
-func isTreeCompatible(v interface{}) bool {
+func isTreeCompatible(v any) bool {
 	if v == nil {
 		return true
 	}
@@ -249,11 +250,11 @@ func isTreeCompatible(v interface{}) bool {
 		return true
 
 	// Maps are allowed (used in diff operations and for serialized tree data)
-	case map[string]interface{}:
+	case map[string]any:
 		return true
 
 	// Slices of interface{} are allowed (used in RangeData.Items)
-	case []interface{}:
+	case []any:
 		return true
 	}
 
@@ -262,7 +263,7 @@ func isTreeCompatible(v interface{}) bool {
 	kind := rv.Kind()
 
 	// Dereference pointers to check underlying type
-	if kind == reflect.Ptr {
+	if kind == reflect.Pointer {
 		if rv.IsNil() {
 			return true
 		}
@@ -295,7 +296,7 @@ func isTreeCompatible(v interface{}) bool {
 }
 
 // GetDynamic retrieves a dynamic value at the given position.
-func (tn *TreeNode) GetDynamic(position string) (interface{}, bool) {
+func (tn *TreeNode) GetDynamic(position string) (any, bool) {
 	if tn.Dynamics == nil {
 		return nil, false
 	}
@@ -306,7 +307,7 @@ func (tn *TreeNode) GetDynamic(position string) (interface{}, bool) {
 // GetDynamics returns the entire Dynamics map.
 // This implements the DynamicsGetter interface from internal/keys package,
 // allowing TreeNode to be used with key generation utilities.
-func (tn *TreeNode) GetDynamics() map[string]interface{} {
+func (tn *TreeNode) GetDynamics() map[string]any {
 	return tn.Dynamics
 }
 
@@ -336,7 +337,7 @@ func (tn *TreeNode) HasRange() bool {
 // This ensures that the typed TreeNode serializes to the same JSON format as the
 // original map[string]interface{} representation.
 func (tn *TreeNode) MarshalJSON() ([]byte, error) {
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 
 	// Add statics if present
 	if len(tn.Statics) > 0 {
@@ -344,9 +345,7 @@ func (tn *TreeNode) MarshalJSON() ([]byte, error) {
 	}
 
 	// Add dynamics
-	for key, value := range tn.Dynamics {
-		result[key] = value
-	}
+	maps.Copy(result, tn.Dynamics)
 
 	// Add fingerprint if present
 	if tn.Fingerprint != "" {
@@ -364,7 +363,7 @@ func (tn *TreeNode) MarshalJSON() ([]byte, error) {
 
 	// Add metadata if present
 	if tn.Metadata != nil {
-		result["m"] = map[string]interface{}{
+		result["m"] = map[string]any{
 			"idKey": tn.Metadata.IDKey,
 		}
 	}
@@ -375,19 +374,19 @@ func (tn *TreeNode) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements custom JSON unmarshaling from wire format.
 // This allows reading the old map[string]interface{} format into typed TreeNode.
 func (tn *TreeNode) UnmarshalJSON(data []byte) error {
-	var raw map[string]interface{}
+	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
 
 	// Initialize dynamics map
-	tn.Dynamics = make(map[string]interface{})
+	tn.Dynamics = make(map[string]any)
 
 	for key, value := range raw {
 		switch key {
 		case "s":
 			// Parse statics
-			if statics, ok := value.([]interface{}); ok {
+			if statics, ok := value.([]any); ok {
 				tn.Statics = make([]string, len(statics))
 				for i, s := range statics {
 					if str, ok := s.(string); ok {
@@ -410,7 +409,7 @@ func (tn *TreeNode) UnmarshalJSON(data []byte) error {
 
 		case "d":
 			// Parse range data
-			if items, ok := value.([]interface{}); ok {
+			if items, ok := value.([]any); ok {
 				if tn.Range == nil {
 					tn.Range = &RangeData{}
 				}
@@ -425,7 +424,7 @@ func (tn *TreeNode) UnmarshalJSON(data []byte) error {
 
 		case "m":
 			// Parse metadata
-			if meta, ok := value.(map[string]interface{}); ok {
+			if meta, ok := value.(map[string]any); ok {
 				if idKey, ok := meta["idKey"].(string); ok {
 					tn.Metadata = &TreeMetadata{
 						IDKey: idKey,
@@ -446,8 +445,8 @@ func (tn *TreeNode) UnmarshalJSON(data []byte) error {
 
 // ToMap converts the TreeNode back to map[string]interface{} format.
 // This is useful for gradual migration and interop with existing code.
-func (tn *TreeNode) ToMap() map[string]interface{} {
-	result := make(map[string]interface{})
+func (tn *TreeNode) ToMap() map[string]any {
+	result := make(map[string]any)
 
 	// Add statics
 	if len(tn.Statics) > 0 {
@@ -472,7 +471,7 @@ func (tn *TreeNode) ToMap() map[string]interface{} {
 	// Add range data
 	if tn.Range != nil {
 		// Recursively convert any nested TreeNodes in range items
-		convertedItems := make([]interface{}, len(tn.Range.Items))
+		convertedItems := make([]any, len(tn.Range.Items))
 		for i, item := range tn.Range.Items {
 			convertedItems[i] = convertValueToMap(item)
 		}
@@ -481,7 +480,7 @@ func (tn *TreeNode) ToMap() map[string]interface{} {
 
 	// Add metadata
 	if tn.Metadata != nil {
-		result["m"] = map[string]interface{}{
+		result["m"] = map[string]any{
 			"idKey": tn.Metadata.IDKey,
 		}
 	}
@@ -491,7 +490,7 @@ func (tn *TreeNode) ToMap() map[string]interface{} {
 
 // FromMap creates a TreeNode from a map[string]interface{}.
 // This is useful for converting existing code to use typed TreeNode.
-func FromMap(m map[string]interface{}) (*TreeNode, error) {
+func FromMap(m map[string]any) (*TreeNode, error) {
 	data, err := json.Marshal(m)
 	if err != nil {
 		return nil, err
@@ -519,7 +518,7 @@ func (tn *TreeNode) Clone() *TreeNode {
 
 	// Clone dynamics
 	if len(tn.Dynamics) > 0 {
-		clone.Dynamics = make(map[string]interface{}, len(tn.Dynamics))
+		clone.Dynamics = make(map[string]any, len(tn.Dynamics))
 		for k, v := range tn.Dynamics {
 			// Deep clone nested TreeNodes
 			if nestedNode, ok := v.(*TreeNode); ok {
@@ -533,7 +532,7 @@ func (tn *TreeNode) Clone() *TreeNode {
 	// Clone range data
 	if tn.Range != nil {
 		clone.Range = &RangeData{
-			Items: make([]interface{}, len(tn.Range.Items)),
+			Items: make([]any, len(tn.Range.Items)),
 		}
 		copy(clone.Range.Items, tn.Range.Items)
 		if len(tn.Range.Statics) > 0 {
@@ -554,21 +553,21 @@ func (tn *TreeNode) Clone() *TreeNode {
 
 // convertValueToMap recursively converts any *TreeNode pointers in a value to maps.
 // This is used to ensure complete conversion in ToMap() for nested structures.
-func convertValueToMap(value interface{}) interface{} {
+func convertValueToMap(value any) any {
 	switch v := value.(type) {
 	case *TreeNode:
 		// Convert TreeNode to map
 		return v.ToMap()
-	case map[string]interface{}:
+	case map[string]any:
 		// Recursively convert any TreeNodes in the map
-		result := make(map[string]interface{}, len(v))
+		result := make(map[string]any, len(v))
 		for key, val := range v {
 			result[key] = convertValueToMap(val)
 		}
 		return result
-	case []interface{}:
+	case []any:
 		// Recursively convert any TreeNodes in slices
-		result := make([]interface{}, len(v))
+		result := make([]any, len(v))
 		for i, val := range v {
 			result[i] = convertValueToMap(val)
 		}

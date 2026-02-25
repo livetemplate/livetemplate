@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"html/template"
+	"slices"
 	"strings"
 	"text/template/parse"
 )
@@ -159,10 +160,8 @@ func hasTemplateNode(node parse.Node) bool {
 		if n == nil {
 			return false
 		}
-		for _, child := range n.Nodes {
-			if hasTemplateNode(child) {
-				return true
-			}
+		if slices.ContainsFunc(n.Nodes, hasTemplateNode) {
+			return true
 		}
 	case *parse.IfNode:
 		if n == nil {
@@ -381,11 +380,11 @@ func formatCommandForFlatten(cmd *parse.CommandNode) string {
 		case *parse.IdentifierNode:
 			buf.WriteString(a.Ident)
 		case *parse.StringNode:
-			buf.WriteString(fmt.Sprintf("%q", a.Text))
+			fmt.Fprintf(&buf, "%q", a.Text)
 		case *parse.NumberNode:
 			buf.WriteString(a.String())
 		case *parse.BoolNode:
-			buf.WriteString(fmt.Sprintf("%v", a.True))
+			fmt.Fprintf(&buf, "%v", a.True)
 		case *parse.DotNode:
 			buf.WriteString(".")
 		case *parse.NilNode:

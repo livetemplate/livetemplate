@@ -11,15 +11,6 @@ import (
 	"github.com/livetemplate/livetemplate/internal/compat"
 )
 
-// mustFromMap is a test helper that converts a map to *build.TreeNode, panicking on error
-func mustFromMap(m map[string]interface{}) *build.TreeNode {
-	tree, err := build.FromMap(m)
-	if err != nil {
-		panic(fmt.Sprintf("mustFromMap failed: %v", err))
-	}
-	return tree
-}
-
 // Specification Compliance Tests - Current Status:
 //
 // TestUpdateSpecification_FirstRender: ✅ PASSING (5/5 tests)
@@ -42,7 +33,7 @@ func TestUpdateSpecification_FirstRender(t *testing.T) {
 	tests := []struct {
 		name       string
 		template   string
-		data       interface{}
+		data       any
 		validateFn func(t *testing.T, tree *build.TreeNode)
 	}{
 		{
@@ -197,8 +188,8 @@ func TestUpdateSpecification_SubsequentUpdates(t *testing.T) {
 	tests := []struct {
 		name                 string
 		template             string
-		initial              interface{}
-		update               interface{}
+		initial              any
+		update               any
 		validateFn           func(t *testing.T, changes *build.TreeNode)
 		skipComplianceChecks bool // Skip analyzer compliance checks for this test
 	}{
@@ -343,7 +334,7 @@ func TestUpdateSpecification_RangeOperations(t *testing.T) {
 		name       string
 		initial    []Item
 		update     []Item
-		validateOp func(t *testing.T, ops []interface{})
+		validateOp func(t *testing.T, ops []any)
 	}{
 		{
 			name:    "insert_single",
@@ -352,11 +343,11 @@ func TestUpdateSpecification_RangeOperations(t *testing.T) {
 				{ID: "1", Text: "First"},
 				{ID: "2", Text: "Second"},
 			},
-			validateOp: func(t *testing.T, ops []interface{}) {
+			validateOp: func(t *testing.T, ops []any) {
 				if len(ops) != 1 {
 					t.Fatalf("Expected 1 operation, got %d", len(ops))
 				}
-				op := ops[0].([]interface{})
+				op := ops[0].([]any)
 				// Phase 3: Adding at end now generates 'a' (append) instead of 'i' (insert)
 				// This is more efficient: O(1) vs O(n)
 				if op[0] != "a" {
@@ -373,11 +364,11 @@ func TestUpdateSpecification_RangeOperations(t *testing.T) {
 			update: []Item{
 				{ID: "1", Text: "First"},
 			},
-			validateOp: func(t *testing.T, ops []interface{}) {
+			validateOp: func(t *testing.T, ops []any) {
 				if len(ops) != 1 {
 					t.Fatalf("Expected 1 operation, got %d", len(ops))
 				}
-				op := ops[0].([]interface{})
+				op := ops[0].([]any)
 				if op[0] != "r" {
 					t.Errorf("Expected remove 'r', got %v", op[0])
 				}
@@ -394,11 +385,11 @@ func TestUpdateSpecification_RangeOperations(t *testing.T) {
 			update: []Item{
 				{ID: "1", Text: "Updated"},
 			},
-			validateOp: func(t *testing.T, ops []interface{}) {
+			validateOp: func(t *testing.T, ops []any) {
 				if len(ops) != 1 {
 					t.Fatalf("Expected 1 operation, got %d", len(ops))
 				}
-				op := ops[0].([]interface{})
+				op := ops[0].([]any)
 				if op[0] != "u" {
 					t.Errorf("Expected update 'u', got %v", op[0])
 				}
@@ -419,11 +410,11 @@ func TestUpdateSpecification_RangeOperations(t *testing.T) {
 				{ID: "1", Text: "First"},
 				{ID: "2", Text: "Second"},
 			},
-			validateOp: func(t *testing.T, ops []interface{}) {
+			validateOp: func(t *testing.T, ops []any) {
 				if len(ops) != 1 {
 					t.Fatalf("Expected 1 operation, got %d", len(ops))
 				}
-				op := ops[0].([]interface{})
+				op := ops[0].([]any)
 				if op[0] != "o" {
 					t.Errorf("Expected order 'o', got %v", op[0])
 				}
@@ -446,7 +437,7 @@ func TestUpdateSpecification_RangeOperations(t *testing.T) {
 				{ID: "1", Text: "Updated First"},
 				{ID: "3", Text: "Third"},
 			},
-			validateOp: func(t *testing.T, ops []interface{}) {
+			validateOp: func(t *testing.T, ops []any) {
 				// Should have remove and update/insert operations
 				if len(ops) < 2 {
 					t.Fatalf("Expected at least 2 operations, got %d", len(ops))
@@ -457,7 +448,7 @@ func TestUpdateSpecification_RangeOperations(t *testing.T) {
 				foundUpdate := false
 
 				for _, op := range ops {
-					opArray := op.([]interface{})
+					opArray := op.([]any)
 					opType := opArray[0].(string)
 					switch opType {
 					case "r":
@@ -504,9 +495,9 @@ func TestUpdateSpecification_RangeOperations(t *testing.T) {
 
 			// Extract range operations
 			// The range is typically at key "0"
-			var ops []interface{}
+			var ops []any
 			for _, v := range changes.Dynamics {
-				if opList, ok := v.([]interface{}); ok {
+				if opList, ok := v.([]any); ok {
 					ops = opList
 					break
 				}
@@ -644,9 +635,9 @@ func TestUserJourney_TodoApp(t *testing.T) {
 				// Should have range operations for adding items (insert "i" or append "a")
 				foundRangeOps := false
 				for _, v := range tree.Dynamics {
-					if ops, ok := v.([]interface{}); ok {
+					if ops, ok := v.([]any); ok {
 						for _, op := range ops {
-							if opArr, ok := op.([]interface{}); ok && len(opArr) > 0 {
+							if opArr, ok := op.([]any); ok && len(opArr) > 0 {
 								// Accept both "i" (insert) and "a" (append) as valid granular operations
 								if opArr[0] == "i" || opArr[0] == "a" {
 									foundRangeOps = true
@@ -905,7 +896,7 @@ func TestGoldenFileValidation(t *testing.T) {
 			}
 
 			// Parse as tree
-			var tree map[string]interface{}
+			var tree map[string]any
 			if err := json.Unmarshal(data, &tree); err != nil {
 				t.Fatalf("Failed to parse golden file: %v", err)
 			}
@@ -930,9 +921,9 @@ func TestGoldenFileValidation(t *testing.T) {
 			// Check for range operations
 			for k, v := range tree {
 				// Look for range operation patterns
-				if ops, ok := v.([]interface{}); ok {
+				if ops, ok := v.([]any); ok {
 					for _, op := range ops {
-						if opArr, ok := op.([]interface{}); ok && len(opArr) > 0 {
+						if opArr, ok := op.([]any); ok && len(opArr) > 0 {
 							opType := opArr[0]
 							// Validate operation format
 							switch opType {

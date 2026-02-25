@@ -7,7 +7,7 @@ import (
 )
 
 // handleWithNode processes {{with}}...{{end}} constructs.
-func handleWithNode(node *parse.WithNode, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+func handleWithNode(node *parse.WithNode, data any, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	// Evaluate the with pipe to get the new context
 	pipeStr := formatPipe(node.Pipe)
 

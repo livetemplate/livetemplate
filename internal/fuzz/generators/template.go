@@ -10,13 +10,13 @@ import (
 
 // TemplateConfig controls random template generation.
 type TemplateConfig struct {
-	MaxDepth       int      // Maximum nesting depth
-	MaxFields      int      // Maximum number of fields per level
-	MaxRanges      int      // Maximum number of ranges per template
-	MaxConditionals int     // Maximum number of conditionals per template
-	AllowWith      bool     // Allow {{with}} constructs
-	AllowNested    bool     // Allow nested structures (ranges in ranges, etc.)
-	KeyAttributes  []string // Key attribute patterns for range items
+	MaxDepth        int      // Maximum nesting depth
+	MaxFields       int      // Maximum number of fields per level
+	MaxRanges       int      // Maximum number of ranges per template
+	MaxConditionals int      // Maximum number of conditionals per template
+	AllowWith       bool     // Allow {{with}} constructs
+	AllowNested     bool     // Allow nested structures (ranges in ranges, etc.)
+	KeyAttributes   []string // Key attribute patterns for range items
 }
 
 // DefaultTemplateConfig returns a balanced config for general fuzzing.
@@ -102,7 +102,7 @@ func (g *templateGenerator) generateBody(shape *StateShape, depth int) string {
 
 	// Decide what constructs to include
 	numFields := rapid.IntRange(1, g.config.MaxFields).Draw(g.t, fmt.Sprintf("numFields_%d", depth))
-	for i := 0; i < numFields; i++ {
+	for range numFields {
 		construct := g.chooseConstruct(depth)
 		switch construct {
 		case "field":
@@ -205,7 +205,7 @@ func (g *templateGenerator) generateRangeConstruct(shape *StateShape, _ int) str
 
 	// Add 1-3 additional fields to item
 	numItemFields := rapid.IntRange(1, 3).Draw(g.t, fmt.Sprintf("numItemFields_%s", rangeName))
-	for i := 0; i < numItemFields; i++ {
+	for i := range numItemFields {
 		fieldName := rapid.SampledFrom([]string{"Text", "Name", "Label", "Value", "Title"}).Draw(g.t, fmt.Sprintf("itemField_%s_%d", rangeName, i))
 		// Avoid duplicates
 		if _, exists := itemShape.Fields[fieldName]; !exists {
@@ -273,7 +273,7 @@ func (g *templateGenerator) generateWithConstruct(shape *StateShape, _ int) stri
 
 	// Add 1-2 fields to nested object
 	numFields := rapid.IntRange(1, 2).Draw(g.t, fmt.Sprintf("numWithFields_%s", withName))
-	for i := 0; i < numFields; i++ {
+	for i := range numFields {
 		fieldName := rapid.SampledFrom([]string{"Name", "Value", "Label", "Description"}).Draw(g.t, fmt.Sprintf("withField_%s_%d", withName, i))
 		if _, exists := nestedShape.Fields[fieldName]; !exists {
 			nestedShape.Fields[fieldName] = FieldString
@@ -336,12 +336,12 @@ func extractFields(template string, shape *StateShape, _ string) {
 		expr := strings.TrimSpace(template[start+2 : end-2])
 
 		// Parse the expression
-		if strings.HasPrefix(expr, "range ") {
+		if after, ok := strings.CutPrefix(expr, "range "); ok {
 			// Range construct: {{range .Items}}
-			rangeExpr := strings.TrimPrefix(expr, "range ")
+			rangeExpr := after
 			rangeExpr = strings.TrimSpace(rangeExpr)
-			if strings.HasPrefix(rangeExpr, ".") {
-				name := strings.TrimPrefix(rangeExpr, ".")
+			if after, ok := strings.CutPrefix(rangeExpr, "."); ok {
+				name := after
 				// Find the corresponding {{end}}
 				rangeEnd := findMatchingEnd(template[end:], "range")
 				if rangeEnd > 0 {
@@ -359,20 +359,20 @@ func extractFields(template string, shape *StateShape, _ string) {
 					}
 				}
 			}
-		} else if strings.HasPrefix(expr, "if ") {
+		} else if after, ok := strings.CutPrefix(expr, "if "); ok {
 			// Conditional: {{if .Field}}
-			condExpr := strings.TrimPrefix(expr, "if ")
+			condExpr := after
 			condExpr = strings.TrimSpace(condExpr)
-			if strings.HasPrefix(condExpr, ".") {
-				name := strings.TrimPrefix(condExpr, ".")
+			if after, ok := strings.CutPrefix(condExpr, "."); ok {
+				name := after
 				shape.Fields[name] = FieldBool
 			}
-		} else if strings.HasPrefix(expr, "with ") {
+		} else if after, ok := strings.CutPrefix(expr, "with "); ok {
 			// With construct: {{with .Obj}}
-			withExpr := strings.TrimPrefix(expr, "with ")
+			withExpr := after
 			withExpr = strings.TrimSpace(withExpr)
-			if strings.HasPrefix(withExpr, ".") {
-				name := strings.TrimPrefix(withExpr, ".")
+			if after, ok := strings.CutPrefix(withExpr, "."); ok {
+				name := after
 				// Find body and extract nested fields
 				withEnd := findMatchingEnd(template[end:], "with")
 				if withEnd > 0 {

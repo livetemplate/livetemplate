@@ -21,7 +21,7 @@ func TestWritePumpRegistrationAndCleanup(t *testing.T) {
 
 	// Register 10 connections (should start 10 writePumps)
 	var connections []*Connection
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		conn := &Connection{
 			Conn:    nil, // Nil conn, won't actually write
 			GroupID: "test-group",
@@ -99,16 +99,14 @@ func TestCloseIsIdempotent(t *testing.T) {
 
 	// Call Close() multiple times concurrently
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			if err := conn.Close(); err != nil {
 				// First Close() succeeds, subsequent ones may return nil (idempotent)
 				// so we don't fail the test here
 				t.Logf("Close() returned: %v", err)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -134,7 +132,7 @@ func TestNoGoroutineLeaks(t *testing.T) {
 
 	registry := NewConnectionRegistry()
 
-	for i := 0; i < 10000; i++ {
+	for range 10000 {
 		conn := &Connection{
 			Conn:    nil,
 			GroupID: "test-group",
@@ -178,7 +176,7 @@ func TestExtendedGoroutineLeaks(t *testing.T) {
 	registry := NewConnectionRegistry()
 
 	// Progress reporting every 100k iterations
-	for i := 0; i < 1000000; i++ {
+	for i := range 1000000 {
 		if i > 0 && i%100000 == 0 {
 			t.Logf("Processed %d connections...", i)
 		}
@@ -241,11 +239,11 @@ func TestConcurrentRegisterUnregister(t *testing.T) {
 	iterations := 100
 
 	// Concurrent registrations and unregistrations
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < iterations; j++ {
+			for range iterations {
 				conn := &Connection{
 					Conn:    nil,
 					GroupID: "test-group",
@@ -354,25 +352,21 @@ func TestConcurrentSendAndClose(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Start multiple senders
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 100; j++ {
+	for range 10 {
+		wg.Go(func() {
+			for range 100 {
 				_ = conn.Send(websocket.TextMessage, []byte("test"))
 			}
-		}()
+		})
 	}
 
 	// Close concurrently while sends are happening
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		time.Sleep(5 * time.Millisecond) // Let some sends happen first
 		if err := conn.Close(); err != nil {
 			t.Logf("Close() returned: %v", err)
 		}
-	}()
+	})
 
 	wg.Wait()
 

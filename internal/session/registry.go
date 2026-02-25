@@ -34,9 +34,9 @@ type Connection struct {
 	Conn     *websocket.Conn // WebSocket connection
 	GroupID  string          // Session group ID (shared state boundary)
 	UserID   string          // User identity ("" for anonymous)
-	Template interface{}     // Per-connection template for tree diffing (*livetemplate.Template)
-	Stores   interface{}     // Reference to shared stores from session group (livetemplate.Stores)
-	Uploads  interface{}     // Per-connection upload registry (*upload.Registry)
+	Template any             // Per-connection template for tree diffing (*livetemplate.Template)
+	Stores   any             // Reference to shared stores from session group (livetemplate.Stores)
+	Uploads  any             // Per-connection upload registry (*upload.Registry)
 	mu       sync.Mutex      // Protects writes to Conn
 
 	// Async sending infrastructure

@@ -2,6 +2,7 @@ package upload
 
 import (
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -17,8 +18,8 @@ type Registry struct {
 
 // Upload tracks entries for a specific upload field.
 type Upload struct {
-	Name    string                         // Field name (e.g., "avatar")
-	Config  uploadtypes.UploadConfig      // Upload configuration
+	Name    string                              // Field name (e.g., "avatar")
+	Config  uploadtypes.UploadConfig            // Upload configuration
 	Entries map[string]*uploadtypes.UploadEntry // entry ID → entry
 	mu      sync.RWMutex
 }
@@ -52,7 +53,7 @@ func (r *Registry) CreateUpload(name string, config uploadtypes.UploadConfig) er
 // GetUpload returns the upload for a given name.
 // Returns nil if upload doesn't exist.
 // Returns interface{} to satisfy the uploadRegistry interface in main package.
-func (r *Registry) GetUpload(name string) interface{} {
+func (r *Registry) GetUpload(name string) any {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	upload := r.uploads[name]
@@ -68,9 +69,7 @@ func (r *Registry) GetAllUploads() map[string]*Upload {
 	defer r.mu.RUnlock()
 
 	result := make(map[string]*Upload, len(r.uploads))
-	for name, upload := range r.uploads {
-		result[name] = upload
-	}
+	maps.Copy(result, r.uploads)
 	return result
 }
 

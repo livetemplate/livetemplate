@@ -10,7 +10,7 @@ func TestConnectionLimits_NoLimits(t *testing.T) {
 	limits := NewConnectionLimits(0, 0)
 
 	// Should accept unlimited connections
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		groupID := "group-1"
 		if !limits.CanAccept(groupID) {
 			t.Fatal("CanAccept should return true when no limits are set")
@@ -29,7 +29,7 @@ func TestConnectionLimits_GlobalLimit(t *testing.T) {
 	limits := NewConnectionLimits(10, 0)
 
 	// Accept first 10 connections
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		groupID := "group-1"
 		if !limits.CanAccept(groupID) {
 			t.Fatalf("CanAccept should return true for connection %d", i)
@@ -62,7 +62,7 @@ func TestConnectionLimits_PerGroupLimit(t *testing.T) {
 	limits := NewConnectionLimits(0, 5)
 
 	// Accept 5 connections for group-1
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if !limits.CanAccept("group-1") {
 			t.Fatalf("CanAccept should return true for connection %d", i)
 		}
@@ -102,7 +102,7 @@ func TestConnectionLimits_Release(t *testing.T) {
 	limits := NewConnectionLimits(10, 5)
 
 	// Acquire 5 connections for group-1
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		if err := limits.Acquire("group-1"); err != nil {
 			t.Fatalf("Acquire failed: %v", err)
 		}
@@ -148,7 +148,7 @@ func TestConnectionLimits_ConcurrentAccess(t *testing.T) {
 	successCount := int32(0)
 
 	// Try to acquire 200 connections concurrently (should only succeed 100 or fewer due to limits)
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		wg.Add(1)
 		groupID := "group-1"
 		if i >= 100 {
@@ -189,21 +189,21 @@ func TestConnectionLimits_BothLimits(t *testing.T) {
 	limits := NewConnectionLimits(15, 5)
 
 	// Fill group-1 to per-group limit (5 connections)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		if err := limits.Acquire("group-1"); err != nil {
 			t.Fatalf("Acquire failed for group-1: %v", err)
 		}
 	}
 
 	// Fill group-2 to per-group limit (5 connections)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		if err := limits.Acquire("group-2"); err != nil {
 			t.Fatalf("Acquire failed for group-2: %v", err)
 		}
 	}
 
 	// Fill group-3 to per-group limit (5 connections)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		if err := limits.Acquire("group-3"); err != nil {
 			t.Fatalf("Acquire failed for group-3: %v", err)
 		}

@@ -8,11 +8,11 @@ import (
 func TestCompareTreesAndGetChangesWithPath_NoDiff(t *testing.T) {
 	oldTree := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "same"},
+		Dynamics: map[string]any{"0": "same"},
 	}
 	newTree := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "same"},
+		Dynamics: map[string]any{"0": "same"},
 	}
 
 	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", nil)
@@ -26,11 +26,11 @@ func TestCompareTreesAndGetChangesWithPath_NoDiff(t *testing.T) {
 func TestCompareTreesAndGetChangesWithPath_SimpleDiff(t *testing.T) {
 	oldTree := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "old"},
+		Dynamics: map[string]any{"0": "old"},
 	}
 	newTree := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "new"},
+		Dynamics: map[string]any{"0": "new"},
 	}
 
 	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", nil)
@@ -47,10 +47,10 @@ func TestCompareTreesAndGetChangesWithPath_SimpleDiff(t *testing.T) {
 // TestCompareTreesAndGetChangesWithPath_NewField tests when a new field appears.
 func TestCompareTreesAndGetChangesWithPath_NewField(t *testing.T) {
 	oldTree := &TreeNode{
-		Dynamics: map[string]interface{}{"0": "value"},
+		Dynamics: map[string]any{"0": "value"},
 	}
 	newTree := &TreeNode{
-		Dynamics: map[string]interface{}{
+		Dynamics: map[string]any{
 			"0": "value",
 			"1": "new field",
 		},
@@ -81,12 +81,12 @@ func TestCompareTreesAndGetChangesWithPath_NilTrees(t *testing.T) {
 		{
 			name:      "old nil, new has data",
 			oldTree:   nil,
-			newTree:   &TreeNode{Dynamics: map[string]interface{}{"0": "value"}},
+			newTree:   &TreeNode{Dynamics: map[string]any{"0": "value"}},
 			wantEmpty: false,
 		},
 		{
 			name:      "old has data, new nil",
-			oldTree:   &TreeNode{Dynamics: map[string]interface{}{"0": "value"}},
+			oldTree:   &TreeNode{Dynamics: map[string]any{"0": "value"}},
 			newTree:   nil,
 			wantEmpty: true,
 		},
@@ -115,18 +115,18 @@ func TestCompareTreesAndGetChangesWithPath_NilTrees(t *testing.T) {
 func TestCompareTreesAndGetChangesWithPath_NestedTreeNode(t *testing.T) {
 	oldNested := &TreeNode{
 		Statics:  []string{"<span>", "</span>"},
-		Dynamics: map[string]interface{}{"0": "old"},
+		Dynamics: map[string]any{"0": "old"},
 	}
 	newNested := &TreeNode{
 		Statics:  []string{"<span>", "</span>"},
-		Dynamics: map[string]interface{}{"0": "new"},
+		Dynamics: map[string]any{"0": "new"},
 	}
 
 	oldTree := &TreeNode{
-		Dynamics: map[string]interface{}{"0": oldNested},
+		Dynamics: map[string]any{"0": oldNested},
 	}
 	newTree := &TreeNode{
-		Dynamics: map[string]interface{}{"0": newNested},
+		Dynamics: map[string]any{"0": newNested},
 	}
 
 	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", nil)
@@ -147,20 +147,20 @@ func TestCompareTreesAndGetChangesWithPath_NestedTreeNode(t *testing.T) {
 
 // TestCompareTreesAndGetChangesWithPath_TopLevelRange tests top-level range constructs.
 func TestCompareTreesAndGetChangesWithPath_TopLevelRange(t *testing.T) {
-	item1 := map[string]interface{}{"id": "1", "name": "Item 1"}
-	item2 := map[string]interface{}{"id": "2", "name": "Item 2"}
+	item1 := map[string]any{"id": "1", "name": "Item 1"}
+	item2 := map[string]any{"id": "2", "name": "Item 2"}
 
 	oldTree := &TreeNode{
 		Statics: []string{"<li>", "</li>"},
 		Range: &RangeData{
-			Items:   []interface{}{item1},
+			Items:   []any{item1},
 			Statics: []string{"<li>", "</li>"},
 		},
 	}
 	newTree := &TreeNode{
 		Statics: []string{"<li>", "</li>"},
 		Range: &RangeData{
-			Items:   []interface{}{item1, item2},
+			Items:   []any{item1, item2},
 			Statics: []string{"<li>", "</li>"},
 		},
 	}
@@ -194,17 +194,17 @@ func TestHandleTopLevelRange_BothRanges(t *testing.T) {
 	oldTree := &TreeNode{
 		Statics: []string{"<div>", "</div>"},
 		Range: &RangeData{
-			Items: []interface{}{map[string]interface{}{"id": "1"}},
+			Items: []any{map[string]any{"id": "1"}},
 		},
 	}
 	newTree := &TreeNode{
 		Statics: []string{"<div>", "</div>"},
 		Range: &RangeData{
-			Items: []interface{}{map[string]interface{}{"id": "1"}},
+			Items: []any{map[string]any{"id": "1"}},
 		},
 	}
 
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	changes := &TreeNode{Dynamics: make(map[string]any)}
 	rangeMatches := map[string]string{"": "matched"}
 
 	handled := handleTopLevelRange(oldTree, newTree, "", rangeMatches, changes)
@@ -217,16 +217,16 @@ func TestHandleTopLevelRange_BothRanges(t *testing.T) {
 // TestHandleTopLevelRange_NewRange tests when range appears for first time.
 func TestHandleTopLevelRange_NewRange(t *testing.T) {
 	oldTree := &TreeNode{
-		Dynamics: map[string]interface{}{"0": "else content"},
+		Dynamics: map[string]any{"0": "else content"},
 	}
 	newTree := &TreeNode{
 		Statics: []string{"<div>", "</div>"},
 		Range: &RangeData{
-			Items: []interface{}{map[string]interface{}{"id": "1"}},
+			Items: []any{map[string]any{"id": "1"}},
 		},
 	}
 
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	changes := &TreeNode{Dynamics: make(map[string]any)}
 	handled := handleTopLevelRange(oldTree, newTree, "", nil, changes)
 
 	if !handled {
@@ -248,7 +248,7 @@ func TestHandleTopLevelRange_RangeToElse(t *testing.T) {
 	oldTree := &TreeNode{
 		Statics: []string{"<div>", "</div>"},
 		Range: &RangeData{
-			Items:   []interface{}{map[string]interface{}{"id": "1"}},
+			Items:   []any{map[string]any{"id": "1"}},
 			Statics: []string{"<div>", "</div>"},
 		},
 	}
@@ -257,10 +257,10 @@ func TestHandleTopLevelRange_RangeToElse(t *testing.T) {
 	// Example: <p>No items found matching "{{.SearchQuery}}"</p>
 	newTree := &TreeNode{
 		Statics:  []string{"<p>No items found matching \"", "\"</p>"},
-		Dynamics: map[string]interface{}{"0": "test query"},
+		Dynamics: map[string]any{"0": "test query"},
 	}
 
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	changes := &TreeNode{Dynamics: make(map[string]any)}
 	handled := handleTopLevelRange(oldTree, newTree, "", nil, changes)
 
 	if !handled {
@@ -280,25 +280,25 @@ func TestHandleTopLevelRange_RangeToElse(t *testing.T) {
 
 // TestHandleMatchedRanges_WithOps tests matched ranges with operations.
 func TestHandleMatchedRanges_WithOps(t *testing.T) {
-	item1 := map[string]interface{}{"id": "1", "name": "Item 1"}
-	item2 := map[string]interface{}{"id": "2", "name": "Item 2"}
+	item1 := map[string]any{"id": "1", "name": "Item 1"}
+	item2 := map[string]any{"id": "2", "name": "Item 2"}
 
 	oldTree := &TreeNode{
 		Statics: []string{"<li>", "</li>"},
 		Range: &RangeData{
-			Items:   []interface{}{item1},
+			Items:   []any{item1},
 			Statics: []string{"<li>", "</li>"},
 		},
 	}
 	newTree := &TreeNode{
 		Statics: []string{"<li>", "</li>"},
 		Range: &RangeData{
-			Items:   []interface{}{item1, item2},
+			Items:   []any{item1, item2},
 			Statics: []string{"<li>", "</li>"},
 		},
 	}
 
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	changes := &TreeNode{Dynamics: make(map[string]any)}
 	handled := handleMatchedRanges(oldTree, newTree, changes)
 
 	if !handled {
@@ -326,19 +326,19 @@ func TestHandleMatchedRanges_EmptyRanges(t *testing.T) {
 	oldTree := &TreeNode{
 		Statics: []string{"<li>", "</li>"},
 		Range: &RangeData{
-			Items:   []interface{}{},
+			Items:   []any{},
 			Statics: []string{"<li>", "</li>"},
 		},
 	}
 	newTree := &TreeNode{
 		Statics: []string{"<li>", "</li>"},
 		Range: &RangeData{
-			Items:   []interface{}{},
+			Items:   []any{},
 			Statics: []string{"<li>", "</li>"},
 		},
 	}
 
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	changes := &TreeNode{Dynamics: make(map[string]any)}
 	handled := handleMatchedRanges(oldTree, newTree, changes)
 
 	if !handled {
@@ -354,15 +354,15 @@ func TestHandleMatchedRanges_EmptyRanges(t *testing.T) {
 // TestCompareDynamicSegments_NewField tests new field detection.
 func TestCompareDynamicSegments_NewField(t *testing.T) {
 	oldTree := &TreeNode{
-		Dynamics: map[string]interface{}{"0": "value"},
+		Dynamics: map[string]any{"0": "value"},
 	}
 	newTree := &TreeNode{
-		Dynamics: map[string]interface{}{
+		Dynamics: map[string]any{
 			"0": "value",
 			"1": "new",
 		},
 	}
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	changes := &TreeNode{Dynamics: make(map[string]any)}
 
 	compareDynamicSegments(oldTree, newTree, false, "", nil, changes)
 
@@ -374,12 +374,12 @@ func TestCompareDynamicSegments_NewField(t *testing.T) {
 // TestCompareDynamicSegments_ChangedField tests changed field detection.
 func TestCompareDynamicSegments_ChangedField(t *testing.T) {
 	oldTree := &TreeNode{
-		Dynamics: map[string]interface{}{"0": "old"},
+		Dynamics: map[string]any{"0": "old"},
 	}
 	newTree := &TreeNode{
-		Dynamics: map[string]interface{}{"0": "new"},
+		Dynamics: map[string]any{"0": "new"},
 	}
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	changes := &TreeNode{Dynamics: make(map[string]any)}
 
 	compareDynamicSegments(oldTree, newTree, false, "", nil, changes)
 
@@ -391,12 +391,12 @@ func TestCompareDynamicSegments_ChangedField(t *testing.T) {
 // TestCompareDynamicSegments_UnchangedField tests that unchanged fields are not included.
 func TestCompareDynamicSegments_UnchangedField(t *testing.T) {
 	oldTree := &TreeNode{
-		Dynamics: map[string]interface{}{"0": "same"},
+		Dynamics: map[string]any{"0": "same"},
 	}
 	newTree := &TreeNode{
-		Dynamics: map[string]interface{}{"0": "same"},
+		Dynamics: map[string]any{"0": "same"},
 	}
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	changes := &TreeNode{Dynamics: make(map[string]any)}
 
 	compareDynamicSegments(oldTree, newTree, false, "", nil, changes)
 
@@ -430,7 +430,7 @@ func TestBuildFieldPath(t *testing.T) {
 
 // TestHandleNewField_Primitive tests handling new primitive fields.
 func TestHandleNewField_Primitive(t *testing.T) {
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	changes := &TreeNode{Dynamics: make(map[string]any)}
 
 	handleNewField("0", "value", false, changes)
 
@@ -443,9 +443,9 @@ func TestHandleNewField_Primitive(t *testing.T) {
 func TestHandleNewField_TreeNode(t *testing.T) {
 	newNode := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "content"},
+		Dynamics: map[string]any{"0": "content"},
 	}
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	changes := &TreeNode{Dynamics: make(map[string]any)}
 
 	handleNewField("0", newNode, false, changes)
 
@@ -457,7 +457,7 @@ func TestHandleNewField_TreeNode(t *testing.T) {
 
 // TestHandleNewField_InsideNewStructure tests handling fields inside new structures.
 func TestHandleNewField_InsideNewStructure(t *testing.T) {
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	changes := &TreeNode{Dynamics: make(map[string]any)}
 
 	handleNewField("0", "value", true, changes)
 
@@ -468,8 +468,8 @@ func TestHandleNewField_InsideNewStructure(t *testing.T) {
 
 // TestExtractTreeNodePair tests TreeNode pair extraction.
 func TestExtractTreeNodePair(t *testing.T) {
-	oldNode := &TreeNode{Dynamics: map[string]interface{}{"0": "old"}}
-	newNode := &TreeNode{Dynamics: map[string]interface{}{"0": "new"}}
+	oldNode := &TreeNode{Dynamics: map[string]any{"0": "old"}}
+	newNode := &TreeNode{Dynamics: map[string]any{"0": "new"}}
 
 	// Both TreeNodes
 	oldPtr, newPtr, both := extractTreeNodePair(oldNode, newNode)
@@ -507,13 +507,13 @@ func TestHandleNestedTreeNodes_StructureChanged(t *testing.T) {
 	// Different structures
 	oldNode := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "content"},
+		Dynamics: map[string]any{"0": "content"},
 	}
 	newNode := &TreeNode{
 		Statics:  []string{"<span>", "</span>"},
-		Dynamics: map[string]interface{}{"0": "content"},
+		Dynamics: map[string]any{"0": "content"},
 	}
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	changes := &TreeNode{Dynamics: make(map[string]any)}
 
 	handleNestedTreeNodes("0", oldNode, newNode, "0", false, nil, changes)
 
@@ -528,13 +528,13 @@ func TestHandleNestedTreeNodes_Similar(t *testing.T) {
 	// Similar structures, different content
 	oldNode := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "old"},
+		Dynamics: map[string]any{"0": "old"},
 	}
 	newNode := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "new"},
+		Dynamics: map[string]any{"0": "new"},
 	}
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	changes := &TreeNode{Dynamics: make(map[string]any)}
 
 	handleNestedTreeNodes("0", oldNode, newNode, "0", false, nil, changes)
 
@@ -554,13 +554,13 @@ func TestHandleStaticOnlyChanges(t *testing.T) {
 	// Same dynamics, different statics
 	oldNode := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{},
+		Dynamics: map[string]any{},
 	}
 	newNode := &TreeNode{
 		Statics:  []string{"<span>", "</span>"},
-		Dynamics: map[string]interface{}{},
+		Dynamics: map[string]any{},
 	}
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	changes := &TreeNode{Dynamics: make(map[string]any)}
 
 	handleStaticOnlyChanges("0", oldNode, newNode, changes)
 
@@ -574,9 +574,9 @@ func TestHandleStaticOnlyChanges(t *testing.T) {
 func TestHandleNewTreeNodeFromPrimitive(t *testing.T) {
 	newNode := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "content"},
+		Dynamics: map[string]any{"0": "content"},
 	}
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	changes := &TreeNode{Dynamics: make(map[string]any)}
 
 	handleNewTreeNodeFromPrimitive("0", newNode, changes)
 
@@ -588,9 +588,9 @@ func TestHandleNewTreeNodeFromPrimitive(t *testing.T) {
 
 // TestHandleChangedField_TypeChange tests when field type changes.
 func TestHandleChangedField_TypeChange(t *testing.T) {
-	oldTree := &TreeNode{Dynamics: map[string]interface{}{"0": "old"}}
-	newTree := &TreeNode{Dynamics: map[string]interface{}{"0": "new"}}
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	oldTree := &TreeNode{Dynamics: map[string]any{"0": "old"}}
+	newTree := &TreeNode{Dynamics: map[string]any{"0": "new"}}
+	changes := &TreeNode{Dynamics: make(map[string]any)}
 
 	handleChangedField("0", "string", 123, "0", false, nil, oldTree, newTree, changes)
 
@@ -602,25 +602,25 @@ func TestHandleChangedField_TypeChange(t *testing.T) {
 
 // TestHandleChangedField_RangeMatch tests matched range handling.
 func TestHandleChangedField_RangeMatch(t *testing.T) {
-	item1 := map[string]interface{}{"id": "1", "name": "Item 1"}
-	item2 := map[string]interface{}{"id": "2", "name": "Item 2"}
+	item1 := map[string]any{"id": "1", "name": "Item 1"}
+	item2 := map[string]any{"id": "2", "name": "Item 2"}
 
 	oldValue := &TreeNode{
 		Range: &RangeData{
-			Items:   []interface{}{item1},
+			Items:   []any{item1},
 			Statics: []string{"<li>", "</li>"},
 		},
 	}
 	newValue := &TreeNode{
 		Range: &RangeData{
-			Items:   []interface{}{item1, item2},
+			Items:   []any{item1, item2},
 			Statics: []string{"<li>", "</li>"},
 		},
 	}
 
-	oldTree := &TreeNode{Dynamics: map[string]interface{}{"0": oldValue}}
-	newTree := &TreeNode{Dynamics: map[string]interface{}{"0": newValue}}
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	oldTree := &TreeNode{Dynamics: map[string]any{"0": oldValue}}
+	newTree := &TreeNode{Dynamics: map[string]any{"0": newValue}}
+	changes := &TreeNode{Dynamics: make(map[string]any)}
 	rangeMatches := map[string]string{"0": "matched"}
 
 	handleChangedField("0", oldValue, newValue, "0", false, rangeMatches, oldTree, newTree, changes)
@@ -635,16 +635,16 @@ func TestHandleChangedField_RangeMatch(t *testing.T) {
 func TestHandleChangedField_TreeNodes(t *testing.T) {
 	oldNode := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "old"},
+		Dynamics: map[string]any{"0": "old"},
 	}
 	newNode := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "new"},
+		Dynamics: map[string]any{"0": "new"},
 	}
 
-	oldTree := &TreeNode{Dynamics: map[string]interface{}{"0": oldNode}}
-	newTree := &TreeNode{Dynamics: map[string]interface{}{"0": newNode}}
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	oldTree := &TreeNode{Dynamics: map[string]any{"0": oldNode}}
+	newTree := &TreeNode{Dynamics: map[string]any{"0": newNode}}
+	changes := &TreeNode{Dynamics: make(map[string]any)}
 
 	handleChangedField("0", oldNode, newNode, "0", false, nil, oldTree, newTree, changes)
 
@@ -664,13 +664,13 @@ func TestHandleChangedField_TreeNodeToPrimitive(t *testing.T) {
 	// Simulate the modal being shown initially
 	modalTree := &TreeNode{
 		Statics:  []string{"<div id=\"modal\">", "</div>"},
-		Dynamics: map[string]interface{}{"0": "modal content"},
+		Dynamics: map[string]any{"0": "modal content"},
 	}
 
 	// Now the modal becomes empty (conditional false)
-	oldTree := &TreeNode{Dynamics: map[string]interface{}{"0": modalTree}}
-	newTree := &TreeNode{Dynamics: map[string]interface{}{"0": ""}}
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	oldTree := &TreeNode{Dynamics: map[string]any{"0": modalTree}}
+	newTree := &TreeNode{Dynamics: map[string]any{"0": ""}}
+	changes := &TreeNode{Dynamics: make(map[string]any)}
 
 	handleChangedField("0", modalTree, "", "0", false, nil, oldTree, newTree, changes)
 
@@ -684,34 +684,34 @@ func TestHandleChangedField_TreeNodeToPrimitive(t *testing.T) {
 func TestIsStrippedValueEmpty(t *testing.T) {
 	tests := []struct {
 		name      string
-		value     interface{}
+		value     any
 		wantEmpty bool
 	}{
-		{"empty map", map[string]interface{}{}, true},
+		{"empty map", map[string]any{}, true},
 		{"empty string", "", true},
-		{"non-empty map", map[string]interface{}{"key": "value"}, false},
+		{"non-empty map", map[string]any{"key": "value"}, false},
 		{"non-empty string", "content", false},
 		{"nil", nil, false},
 		{"number", 42, false},
-		{"map with nil value", map[string]interface{}{"key": nil}, false},
+		{"map with nil value", map[string]any{"key": nil}, false},
 		{
 			"empty TreeNode (no statics, no dynamics)",
-			&TreeNode{Statics: nil, Dynamics: map[string]interface{}{}},
+			&TreeNode{Statics: nil, Dynamics: map[string]any{}},
 			true,
 		},
 		{
 			"TreeNode with statics only",
-			&TreeNode{Statics: []string{"<div>", "</div>"}, Dynamics: map[string]interface{}{}},
+			&TreeNode{Statics: []string{"<div>", "</div>"}, Dynamics: map[string]any{}},
 			false,
 		},
 		{
 			"TreeNode with dynamics only",
-			&TreeNode{Statics: nil, Dynamics: map[string]interface{}{"0": "value"}},
+			&TreeNode{Statics: nil, Dynamics: map[string]any{"0": "value"}},
 			false,
 		},
 		{
 			"TreeNode with both statics and dynamics",
-			&TreeNode{Statics: []string{"<div>", "</div>"}, Dynamics: map[string]interface{}{"0": "value"}},
+			&TreeNode{Statics: []string{"<div>", "</div>"}, Dynamics: map[string]any{"0": "value"}},
 			false,
 		},
 	}
@@ -730,22 +730,22 @@ func TestIsStrippedValueEmpty(t *testing.T) {
 func TestHandleStructureValue(t *testing.T) {
 	tests := []struct {
 		name               string
-		newValue           interface{}
+		newValue           any
 		clientHasStructure bool
 		wantShouldTrack    bool
-		checkValue         func(t *testing.T, value interface{})
+		checkValue         func(t *testing.T, value any)
 	}{
 		{
 			name: "client has structure - returns stripped",
 			newValue: &TreeNode{
 				Statics:  []string{"<div>", "</div>"},
-				Dynamics: map[string]interface{}{"0": "content"},
+				Dynamics: map[string]any{"0": "content"},
 			},
 			clientHasStructure: true,
 			wantShouldTrack:    false,
-			checkValue: func(t *testing.T, value interface{}) {
+			checkValue: func(t *testing.T, value any) {
 				// Stripped value should not include statics
-				if valueMap, ok := value.(map[string]interface{}); ok {
+				if valueMap, ok := value.(map[string]any); ok {
 					if _, hasStatics := valueMap["s"]; hasStatics {
 						t.Error("Expected statics to be stripped")
 					}
@@ -756,11 +756,11 @@ func TestHandleStructureValue(t *testing.T) {
 			name: "client doesn't have structure - returns full",
 			newValue: &TreeNode{
 				Statics:  []string{"<div>", "</div>"},
-				Dynamics: map[string]interface{}{"0": "content"},
+				Dynamics: map[string]any{"0": "content"},
 			},
 			clientHasStructure: false,
 			wantShouldTrack:    false, // shouldTrack is always false now
-			checkValue: func(t *testing.T, value interface{}) {
+			checkValue: func(t *testing.T, value any) {
 				// Should return original TreeNode
 				if _, ok := value.(*TreeNode); !ok {
 					t.Errorf("Expected *TreeNode, got %T", value)
@@ -771,11 +771,11 @@ func TestHandleStructureValue(t *testing.T) {
 			name: "static-only structure (no dynamics) - returns empty string",
 			newValue: &TreeNode{
 				Statics:  []string{"<div>", "</div>"},
-				Dynamics: map[string]interface{}{},
+				Dynamics: map[string]any{},
 			},
 			clientHasStructure: true,
 			wantShouldTrack:    false,
-			checkValue: func(t *testing.T, value interface{}) {
+			checkValue: func(t *testing.T, value any) {
 				// With the fix to isStrippedValueEmpty, empty TreeNodes are now recognized
 				// So we should get an empty string
 				if value != "" {
@@ -788,7 +788,7 @@ func TestHandleStructureValue(t *testing.T) {
 			newValue:           nil,
 			clientHasStructure: false,
 			wantShouldTrack:    false,
-			checkValue: func(t *testing.T, value interface{}) {
+			checkValue: func(t *testing.T, value any) {
 				if value != "" {
 					t.Errorf("Expected empty string for nil value, got %v", value)
 				}
@@ -817,12 +817,12 @@ func TestCompareTreesAndGetChangesWithPath_DeepNesting(t *testing.T) {
 		if depth == 0 {
 			return &TreeNode{
 				Statics:  []string{"<span>", "</span>"},
-				Dynamics: map[string]interface{}{"0": value},
+				Dynamics: map[string]any{"0": value},
 			}
 		}
 		return &TreeNode{
 			Statics:  []string{"<div>", "</div>"},
-			Dynamics: map[string]interface{}{"0": createNested(depth-1, value)},
+			Dynamics: map[string]any{"0": createNested(depth-1, value)},
 		}
 	}
 
@@ -837,7 +837,7 @@ func TestCompareTreesAndGetChangesWithPath_DeepNesting(t *testing.T) {
 
 	// Verify change propagated to deepest level
 	current := changes
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if !current.HasDynamics() {
 			t.Fatalf("Expected dynamics at level %d", i)
 		}
@@ -853,15 +853,15 @@ func TestCompareTreesAndGetChangesWithPath_DeepNesting(t *testing.T) {
 
 // TestHandleEmptyRangeDiff tests empty range handling.
 func TestHandleEmptyRangeDiff(t *testing.T) {
-	changes := &TreeNode{Dynamics: make(map[string]interface{})}
+	changes := &TreeNode{Dynamics: make(map[string]any)}
 
 	// Both empty ranges - this needs Statics to qualify as range constructs
 	oldRange := &TreeNode{
-		Range:   &RangeData{Items: []interface{}{}, Statics: []string{"<li>", "</li>"}},
+		Range:   &RangeData{Items: []any{}, Statics: []string{"<li>", "</li>"}},
 		Statics: []string{"<li>", "</li>"},
 	}
 	newRange := &TreeNode{
-		Range:   &RangeData{Items: []interface{}{}, Statics: []string{"<li>", "</li>"}},
+		Range:   &RangeData{Items: []any{}, Statics: []string{"<li>", "</li>"}},
 		Statics: []string{"<li>", "</li>"},
 	}
 
@@ -873,16 +873,16 @@ func TestHandleEmptyRangeDiff(t *testing.T) {
 	}
 
 	// Transition from items to empty
-	changes = &TreeNode{Dynamics: make(map[string]interface{})}
+	changes = &TreeNode{Dynamics: make(map[string]any)}
 	oldRange = &TreeNode{
 		Range: &RangeData{
-			Items:   []interface{}{map[string]interface{}{"id": "1"}},
+			Items:   []any{map[string]any{"id": "1"}},
 			Statics: []string{"<li>", "</li>"},
 		},
 		Statics: []string{"<li>", "</li>"},
 	}
 	newRange = &TreeNode{
-		Range:   &RangeData{Items: []interface{}{}, Statics: []string{"<li>", "</li>"}},
+		Range:   &RangeData{Items: []any{}, Statics: []string{"<li>", "</li>"}},
 		Statics: []string{"<li>", "</li>"},
 	}
 
@@ -902,7 +902,7 @@ func TestHandleEmptyRangeDiff(t *testing.T) {
 func TestClientNeedsStatics_NilOldTree(t *testing.T) {
 	newTree := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "hello"},
+		Dynamics: map[string]any{"0": "hello"},
 	}
 
 	// First render (nil old) should always need statics
@@ -915,7 +915,7 @@ func TestClientNeedsStatics_NilOldTree(t *testing.T) {
 func TestClientNeedsStatics_NilNewTree(t *testing.T) {
 	oldTree := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "hello"},
+		Dynamics: map[string]any{"0": "hello"},
 	}
 
 	// Removed tree (nil new) should not need statics
@@ -928,11 +928,11 @@ func TestClientNeedsStatics_NilNewTree(t *testing.T) {
 func TestClientNeedsStatics_SameStructure(t *testing.T) {
 	oldTree := &TreeNode{
 		Statics:  []string{"<div class=\"test\">", "</div>"},
-		Dynamics: map[string]interface{}{"0": "old value"},
+		Dynamics: map[string]any{"0": "old value"},
 	}
 	newTree := &TreeNode{
 		Statics:  []string{"<div class=\"test\">", "</div>"},
-		Dynamics: map[string]interface{}{"0": "new value"},
+		Dynamics: map[string]any{"0": "new value"},
 	}
 
 	// Same statics, different dynamics - client already has statics
@@ -945,11 +945,11 @@ func TestClientNeedsStatics_SameStructure(t *testing.T) {
 func TestClientNeedsStatics_DifferentStructure(t *testing.T) {
 	oldTree := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "value"},
+		Dynamics: map[string]any{"0": "value"},
 	}
 	newTree := &TreeNode{
 		Statics:  []string{"<span>", "</span>"},
-		Dynamics: map[string]interface{}{"0": "value"},
+		Dynamics: map[string]any{"0": "value"},
 	}
 
 	// Different statics - client needs new statics
@@ -962,19 +962,19 @@ func TestClientNeedsStatics_DifferentStructure(t *testing.T) {
 func TestClientNeedsStatics_NestedStructureSame(t *testing.T) {
 	oldTree := &TreeNode{
 		Statics: []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{
+		Dynamics: map[string]any{
 			"0": &TreeNode{
 				Statics:  []string{"<span>", "</span>"},
-				Dynamics: map[string]interface{}{"0": "nested old"},
+				Dynamics: map[string]any{"0": "nested old"},
 			},
 		},
 	}
 	newTree := &TreeNode{
 		Statics: []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{
+		Dynamics: map[string]any{
 			"0": &TreeNode{
 				Statics:  []string{"<span>", "</span>"},
-				Dynamics: map[string]interface{}{"0": "nested new"},
+				Dynamics: map[string]any{"0": "nested new"},
 			},
 		},
 	}
@@ -989,19 +989,19 @@ func TestClientNeedsStatics_NestedStructureSame(t *testing.T) {
 func TestClientNeedsStatics_NestedStructureDifferent(t *testing.T) {
 	oldTree := &TreeNode{
 		Statics: []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{
+		Dynamics: map[string]any{
 			"0": &TreeNode{
 				Statics:  []string{"<span>", "</span>"},
-				Dynamics: map[string]interface{}{"0": "nested"},
+				Dynamics: map[string]any{"0": "nested"},
 			},
 		},
 	}
 	newTree := &TreeNode{
 		Statics: []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{
+		Dynamics: map[string]any{
 			"0": &TreeNode{
 				Statics:  []string{"<p>", "</p>"}, // Different nested statics
-				Dynamics: map[string]interface{}{"0": "nested"},
+				Dynamics: map[string]any{"0": "nested"},
 			},
 		},
 	}
@@ -1025,7 +1025,7 @@ func TestClientNeedsStaticsForValue_NewIsTree(t *testing.T) {
 	oldValue := "primitive"
 	newValue := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "hello"},
+		Dynamics: map[string]any{"0": "hello"},
 	}
 
 	// Old was primitive, new is tree - client needs statics for new tree
@@ -1038,7 +1038,7 @@ func TestClientNeedsStaticsForValue_NewIsTree(t *testing.T) {
 func TestClientNeedsStaticsForValue_OldIsTree(t *testing.T) {
 	oldValue := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "hello"},
+		Dynamics: map[string]any{"0": "hello"},
 	}
 	newValue := "primitive"
 
@@ -1053,11 +1053,11 @@ func TestClientNeedsStaticsForValue_OldIsTree(t *testing.T) {
 func TestCompareTreesWithFingerprint_SameStructureDifferentDynamics(t *testing.T) {
 	oldTree := &TreeNode{
 		Statics:  []string{"<div class=\"container\">", "</div>"},
-		Dynamics: map[string]interface{}{"0": "old text"},
+		Dynamics: map[string]any{"0": "old text"},
 	}
 	newTree := &TreeNode{
 		Statics:  []string{"<div class=\"container\">", "</div>"},
-		Dynamics: map[string]interface{}{"0": "new text"},
+		Dynamics: map[string]any{"0": "new text"},
 	}
 
 	changes := CompareTreesAndGetChangesWithPath(oldTree, newTree, false, "", nil)
@@ -1086,19 +1086,19 @@ func TestCompareTreesWithFingerprint_SameStructureDifferentDynamics(t *testing.T
 func TestCompareNestedTreesWithFingerprint_StructureChangeSendsFullTree(t *testing.T) {
 	oldTree := &TreeNode{
 		Statics: []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{
+		Dynamics: map[string]any{
 			"0": &TreeNode{
 				Statics:  []string{"<span>", "</span>"},
-				Dynamics: map[string]interface{}{"0": "text"},
+				Dynamics: map[string]any{"0": "text"},
 			},
 		},
 	}
 	newTree := &TreeNode{
 		Statics: []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{
+		Dynamics: map[string]any{
 			"0": &TreeNode{
 				Statics:  []string{"<p class=\"changed\">", "</p>"}, // Changed structure
-				Dynamics: map[string]interface{}{"0": "text"},
+				Dynamics: map[string]any{"0": "text"},
 			},
 		},
 	}
@@ -1139,8 +1139,8 @@ func TestHandleMatchedRanges_FingerprintSameStructure(t *testing.T) {
 		Statics: []string{"<ul>", "</ul>"},
 		Range: &RangeData{
 			Statics: []string{"<li>", "</li>"},
-			Items: []interface{}{
-				&TreeNode{Dynamics: map[string]interface{}{"0": "item-1", "_k": "1"}},
+			Items: []any{
+				&TreeNode{Dynamics: map[string]any{"0": "item-1", "_k": "1"}},
 			},
 		},
 	}
@@ -1148,9 +1148,9 @@ func TestHandleMatchedRanges_FingerprintSameStructure(t *testing.T) {
 		Statics: []string{"<ul>", "</ul>"},
 		Range: &RangeData{
 			Statics: []string{"<li>", "</li>"},
-			Items: []interface{}{
-				&TreeNode{Dynamics: map[string]interface{}{"0": "item-1", "_k": "1"}},
-				&TreeNode{Dynamics: map[string]interface{}{"0": "item-2", "_k": "2"}},
+			Items: []any{
+				&TreeNode{Dynamics: map[string]any{"0": "item-1", "_k": "1"}},
+				&TreeNode{Dynamics: map[string]any{"0": "item-2", "_k": "2"}},
 			},
 		},
 	}
@@ -1169,8 +1169,8 @@ func TestHandleMatchedRanges_FingerprintDifferentStructure(t *testing.T) {
 		Statics: []string{"<ul>", "</ul>"},
 		Range: &RangeData{
 			Statics: []string{"<li>", "</li>"},
-			Items: []interface{}{
-				&TreeNode{Dynamics: map[string]interface{}{"0": "item-1", "_k": "1"}},
+			Items: []any{
+				&TreeNode{Dynamics: map[string]any{"0": "item-1", "_k": "1"}},
 			},
 		},
 	}
@@ -1178,8 +1178,8 @@ func TestHandleMatchedRanges_FingerprintDifferentStructure(t *testing.T) {
 		Statics: []string{"<ol>", "</ol>"}, // Changed from <ul> to <ol>
 		Range: &RangeData{
 			Statics: []string{"<li class=\"ordered\">", "</li>"}, // Changed item statics
-			Items: []interface{}{
-				&TreeNode{Dynamics: map[string]interface{}{"0": "item-1", "_k": "1"}},
+			Items: []any{
+				&TreeNode{Dynamics: map[string]any{"0": "item-1", "_k": "1"}},
 			},
 		},
 	}

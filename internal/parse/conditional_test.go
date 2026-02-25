@@ -14,7 +14,7 @@ func TestHandleIfNode_TrueBranch(t *testing.T) {
 	}
 
 	ifNode := tmpl.Tree.Root.Nodes[0].(*parse.IfNode)
-	data := map[string]interface{}{"Show": true}
+	data := map[string]any{"Show": true}
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := handleIfNode(ifNode, data, newMockKeyGen(), ctx)
@@ -40,7 +40,7 @@ func TestHandleIfNode_FalseBranch(t *testing.T) {
 	}
 
 	ifNode := tmpl.Tree.Root.Nodes[0].(*parse.IfNode)
-	data := map[string]interface{}{"Show": false}
+	data := map[string]any{"Show": false}
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := handleIfNode(ifNode, data, newMockKeyGen(), ctx)
@@ -64,7 +64,7 @@ func TestHandleIfNode_WithElse(t *testing.T) {
 	ifNode := tmpl.Tree.Root.Nodes[0].(*parse.IfNode)
 
 	// Test true branch
-	data := map[string]interface{}{"Show": true}
+	data := map[string]any{"Show": true}
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := handleIfNode(ifNode, data, newMockKeyGen(), ctx)
@@ -77,7 +77,7 @@ func TestHandleIfNode_WithElse(t *testing.T) {
 	}
 
 	// Test false branch (else)
-	data = map[string]interface{}{"Show": false}
+	data = map[string]any{"Show": false}
 	tree, err = handleIfNode(ifNode, data, newMockKeyGen(), ctx)
 	if err != nil {
 		t.Fatalf("handleIfNode failed on else: %v", err)
@@ -96,7 +96,7 @@ func TestHandleIfNode_NoElse(t *testing.T) {
 	}
 
 	ifNode := tmpl.Tree.Root.Nodes[0].(*parse.IfNode)
-	data := map[string]interface{}{"Show": false}
+	data := map[string]any{"Show": false}
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := handleIfNode(ifNode, data, newMockKeyGen(), ctx)
@@ -118,7 +118,7 @@ func TestHandleIfNode_NestedIf(t *testing.T) {
 	}
 
 	ifNode := tmpl.Tree.Root.Nodes[0].(*parse.IfNode)
-	data := map[string]interface{}{"Outer": true, "Inner": true}
+	data := map[string]any{"Outer": true, "Inner": true}
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := handleIfNode(ifNode, data, newMockKeyGen(), ctx)
@@ -144,7 +144,7 @@ func TestHandleIfNode_ComplexCondition(t *testing.T) {
 	}
 
 	ifNode := tmpl.Tree.Root.Nodes[0].(*parse.IfNode)
-	data := map[string]interface{}{"A": true, "B": true}
+	data := map[string]any{"A": true, "B": true}
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := handleIfNode(ifNode, data, newMockKeyGen(), ctx)
@@ -170,9 +170,9 @@ func TestHandleIfNodeWithVars_NoVars(t *testing.T) {
 
 	ifNode := tmpl.Tree.Root.Nodes[0].(*parse.IfNode)
 	varCtx := &varContext{
-		parent: map[string]interface{}{},
+		parent: map[string]any{},
 		vars:   newOrderedVars(),
-		dot:    map[string]interface{}{"Show": true},
+		dot:    map[string]any{"Show": true},
 	}
 	ctx := &Context{IncludeStatics: true}
 
@@ -203,9 +203,9 @@ func TestHandleIfNodeWithVars_WithVars(t *testing.T) {
 	ifNode := rangeNode.List.Nodes[0].(*parse.IfNode)
 
 	varCtx := &varContext{
-		parent: map[string]interface{}{},
+		parent: map[string]any{},
 		vars:   newOrderedVars(),
-		dot:    map[string]interface{}{},
+		dot:    map[string]any{},
 	}
 	varCtx.vars.Set("show", true)
 	ctx := &Context{IncludeStatics: true}
@@ -233,9 +233,9 @@ func TestHandleIfNodeWithVars_RootVar(t *testing.T) {
 
 	ifNode := tmpl.Tree.Root.Nodes[0].(*parse.IfNode)
 	varCtx := &varContext{
-		parent: map[string]interface{}{"Show": true},
+		parent: map[string]any{"Show": true},
 		vars:   newOrderedVars(),
-		dot:    map[string]interface{}{},
+		dot:    map[string]any{},
 	}
 	ctx := &Context{IncludeStatics: true}
 
@@ -261,7 +261,7 @@ func TestMergeFieldsIntoMap_Struct(t *testing.T) {
 	}
 
 	data := TestStruct{Name: "test", Value: 42}
-	target := make(map[string]interface{})
+	target := make(map[string]any)
 
 	err := mergeFieldsIntoMap(data, target)
 	if err != nil {
@@ -279,11 +279,11 @@ func TestMergeFieldsIntoMap_Struct(t *testing.T) {
 
 // TestMergeFieldsIntoMap_Map tests merging map into map.
 func TestMergeFieldsIntoMap_Map(t *testing.T) {
-	data := map[string]interface{}{
+	data := map[string]any{
 		"name":  "test",
 		"value": 42,
 	}
-	target := make(map[string]interface{})
+	target := make(map[string]any)
 
 	err := mergeFieldsIntoMap(data, target)
 	if err != nil {
@@ -302,7 +302,7 @@ func TestMergeFieldsIntoMap_Map(t *testing.T) {
 // TestMergeFieldsIntoMap_Primitive tests merging primitive value (should be no-op).
 func TestMergeFieldsIntoMap_Primitive(t *testing.T) {
 	data := "string value"
-	target := make(map[string]interface{})
+	target := make(map[string]any)
 
 	err := mergeFieldsIntoMap(data, target)
 	if err != nil {
@@ -317,7 +317,7 @@ func TestMergeFieldsIntoMap_Primitive(t *testing.T) {
 
 // TestMergeFieldsIntoMap_Nil tests merging nil value.
 func TestMergeFieldsIntoMap_Nil(t *testing.T) {
-	target := make(map[string]interface{})
+	target := make(map[string]any)
 
 	err := mergeFieldsIntoMap(nil, target)
 	if err != nil {
@@ -332,11 +332,11 @@ func TestMergeFieldsIntoMap_Nil(t *testing.T) {
 
 // TestMergeFieldsIntoMap_ExistingKeys tests that existing keys are not overwritten.
 func TestMergeFieldsIntoMap_ExistingKeys(t *testing.T) {
-	data := map[string]interface{}{
+	data := map[string]any{
 		"name": "from-data",
 		"age":  30,
 	}
-	target := map[string]interface{}{
+	target := map[string]any{
 		"name": "existing",
 	}
 
@@ -362,7 +362,7 @@ func TestMergeFieldsIntoMap_UnexportedFields(t *testing.T) {
 	}
 
 	data := TestStruct{Public: "visible", private: "hidden"}
-	target := make(map[string]interface{})
+	target := make(map[string]any)
 
 	err := mergeFieldsIntoMap(data, target)
 	if err != nil {
@@ -415,7 +415,7 @@ func TestHandleIfNode_ElseIf(t *testing.T) {
 	ctx := &Context{IncludeStatics: true}
 
 	// Test first condition true
-	data := map[string]interface{}{"A": true, "B": false}
+	data := map[string]any{"A": true, "B": false}
 	tree, err := handleIfNode(ifNode, data, newMockKeyGen(), ctx)
 	if err != nil {
 		t.Fatalf("handleIfNode failed on first branch: %v", err)
@@ -425,7 +425,7 @@ func TestHandleIfNode_ElseIf(t *testing.T) {
 	}
 
 	// Test second condition true
-	data = map[string]interface{}{"A": false, "B": true}
+	data = map[string]any{"A": false, "B": true}
 	tree, err = handleIfNode(ifNode, data, newMockKeyGen(), ctx)
 	if err != nil {
 		t.Fatalf("handleIfNode failed on second branch: %v", err)
@@ -435,7 +435,7 @@ func TestHandleIfNode_ElseIf(t *testing.T) {
 	}
 
 	// Test else branch
-	data = map[string]interface{}{"A": false, "B": false}
+	data = map[string]any{"A": false, "B": false}
 	tree, err = handleIfNode(ifNode, data, newMockKeyGen(), ctx)
 	if err != nil {
 		t.Fatalf("handleIfNode failed on else branch: %v", err)
@@ -456,11 +456,11 @@ func TestHandleIfNodeWithVars_ComplexNesting(t *testing.T) {
 	ifNode := rangeNode.List.Nodes[0].(*parse.IfNode)
 
 	varCtx := &varContext{
-		parent: map[string]interface{}{},
+		parent: map[string]any{},
 		vars:   newOrderedVars(),
-		dot:    map[string]interface{}{"Active": true, "Name": "test"},
+		dot:    map[string]any{"Active": true, "Name": "test"},
 	}
-	varCtx.vars.Set("item", map[string]interface{}{"Active": true, "Name": "test"})
+	varCtx.vars.Set("item", map[string]any{"Active": true, "Name": "test"})
 	ctx := &Context{IncludeStatics: true}
 
 	tree, err := handleIfNodeWithVars(ifNode, varCtx, newMockKeyGen(), ctx)
@@ -488,9 +488,9 @@ func TestHandleIfNodeWithVars_SingleCharVariable(t *testing.T) {
 	ifNode := rangeNode.List.Nodes[0].(*parse.IfNode)
 
 	varCtx := &varContext{
-		parent: map[string]interface{}{},
+		parent: map[string]any{},
 		vars:   newOrderedVars(),
-		dot:    map[string]interface{}{},
+		dot:    map[string]any{},
 	}
 	varCtx.vars.Set("x", true)
 	ctx := &Context{IncludeStatics: true}

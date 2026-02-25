@@ -17,7 +17,11 @@ func TestTypeScriptOracle_SimpleField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create oracle: %v", err)
 	}
-	defer oracle.Close()
+	defer func() {
+		if err := oracle.Close(); err != nil {
+			t.Logf("failed to close oracle: %v", err)
+		}
+	}()
 
 	oldTree := &build.TreeNode{
 		Statics:  []string{"<div>", "</div>"},
@@ -49,7 +53,11 @@ func TestTypeScriptOracle_RangeAppend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create oracle: %v", err)
 	}
-	defer oracle.Close()
+	defer func() {
+		if err := oracle.Close(); err != nil {
+			t.Logf("failed to close oracle: %v", err)
+		}
+	}()
 
 	// Old tree with one item in range
 	oldTreeMap := map[string]any{
@@ -95,10 +103,14 @@ func TestTypeScriptOracle_MultipleCalls(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create oracle: %v", err)
 	}
-	defer oracle.Close()
+	defer func() {
+		if err := oracle.Close(); err != nil {
+			t.Logf("failed to close oracle: %v", err)
+		}
+	}()
 
 	// Make multiple calls to verify the persistent process works
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		oldTree := &build.TreeNode{
 			Statics:  []string{"<div>", "</div>"},
 			Dynamics: map[string]any{"0": "old"},
@@ -130,7 +142,11 @@ func TestTypeScriptOracle_ConditionalBranchChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create oracle: %v", err)
 	}
-	defer oracle.Close()
+	defer func() {
+		if err := oracle.Close(); err != nil {
+			t.Logf("failed to close oracle: %v", err)
+		}
+	}()
 
 	// Old: conditional shows "ON"
 	oldTree := &build.TreeNode{
@@ -163,4 +179,3 @@ func TestTypeScriptOracle_ConditionalBranchChange(t *testing.T) {
 		t.Errorf("HTML should contain 'off' class: %s", response.HTML)
 	}
 }
-

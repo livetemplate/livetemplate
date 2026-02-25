@@ -26,7 +26,7 @@ func BenchmarkErrorPaths(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		data := map[string]interface{}{"Other": "value"}
+		data := map[string]any{"Other": "value"}
 		var buf bytes.Buffer
 
 		b.ResetTimer()
@@ -71,7 +71,7 @@ func BenchmarkErrorPaths(b *testing.B) {
 			}
 
 			var buf bytes.Buffer
-			data := map[string]interface{}{"Name": "Test"}
+			data := map[string]any{"Name": "Test"}
 			err = tmpl.Execute(&buf, data)
 			if err != nil {
 				b.Fatal(err)

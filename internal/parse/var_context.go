@@ -11,15 +11,15 @@ import (
 //   - vars: Variable bindings created by range/with ($index, $value, etc.)
 //   - dot: The current dot context (may differ from parent in nested scopes)
 type varContext struct {
-	parent interface{} // Original data
+	parent any         // Original data
 	vars   orderedVars // Variable bindings ($index, $todo, etc.)
-	dot    interface{} // Current dot context
+	dot    any         // Current dot context
 }
 
 // varPair represents a single variable binding with a name and value.
 type varPair struct {
 	key   string
-	value interface{}
+	value any
 }
 
 // orderedVars is a deterministic map-like structure that preserves insertion order.
@@ -47,7 +47,7 @@ func newOrderedVars() orderedVars {
 // Set adds or updates a key-value pair.
 // The key should be a valid Go template variable name (matching $[a-zA-Z_][a-zA-Z0-9_]*).
 // Empty keys are silently ignored to prevent errors during template parsing.
-func (ov *orderedVars) Set(key string, value interface{}) {
+func (ov *orderedVars) Set(key string, value any) {
 	// Reject empty keys to prevent invalid variable bindings
 	if key == "" {
 		return
@@ -68,7 +68,7 @@ func (ov *orderedVars) Set(key string, value interface{}) {
 
 // Get retrieves a value by key. Returns (value, true) if found, (nil, false) otherwise.
 // Uses O(1) map lookup for optimal performance.
-func (ov orderedVars) Get(key string) (interface{}, bool) {
+func (ov orderedVars) Get(key string) (any, bool) {
 	pos, exists := ov.index[key]
 	if !exists {
 		return nil, false
@@ -83,7 +83,7 @@ func (ov orderedVars) Len() int {
 
 // Range iterates over all key-value pairs in insertion order.
 // Calls fn for each pair. If fn panics, iteration stops and the panic propagates.
-func (ov orderedVars) Range(fn func(key string, value interface{})) {
+func (ov orderedVars) Range(fn func(key string, value any)) {
 	for _, pair := range ov.pairs {
 		fn(pair.key, pair.value)
 	}
