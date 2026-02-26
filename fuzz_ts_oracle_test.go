@@ -485,12 +485,12 @@ func debugInspectValue(key string, value any, depth int) {
 			debugInspectValue(k, v, depth+1)
 		}
 	case []any:
-		fmt.Printf("[TEST_DEBUG] %skey=%s: []interface{} len=%d\n", indent, key, len(val))
+		fmt.Printf("[TEST_DEBUG] %skey=%s: []any len=%d\n", indent, key, len(val))
 		for i, item := range val {
 			debugInspectValue(fmt.Sprintf("[%d]", i), item, depth+1)
 		}
 	case map[string]any:
-		fmt.Printf("[TEST_DEBUG] %skey=%s: map[string]interface{}\n", indent, key)
+		fmt.Printf("[TEST_DEBUG] %skey=%s: map[string]any\n", indent, key)
 		for k, v := range val {
 			debugInspectValue(k, v, depth+1)
 		}

@@ -233,10 +233,12 @@ func (o *TypeScriptOracle) Close() error {
 
 	o.closed = true
 
-	// Close stdin to signal server to exit
+	// Close stdin to signal server to exit; accumulate error but
+	// always continue to wait/kill the child process.
+	var closeErr error
 	if o.stdin != nil {
 		if err := o.stdin.Close(); err != nil {
-			return fmt.Errorf("closing stdin: %w", err)
+			closeErr = fmt.Errorf("closing stdin: %w", err)
 		}
 	}
 
@@ -248,13 +250,13 @@ func (o *TypeScriptOracle) Close() error {
 
 	select {
 	case err := <-done:
-		return err
+		return errors.Join(closeErr, err)
 	case <-time.After(5 * time.Second):
 		// Force kill if it doesn't exit
 		if err := o.process.Process.Kill(); err != nil {
-			return fmt.Errorf("oracle server did not exit cleanly, kill failed: %w", err)
+			return errors.Join(closeErr, fmt.Errorf("oracle server did not exit cleanly, kill failed: %w", err))
 		}
-		return errors.New("oracle server did not exit cleanly, killed")
+		return errors.Join(closeErr, errors.New("oracle server did not exit cleanly, killed"))
 	}
 }
 

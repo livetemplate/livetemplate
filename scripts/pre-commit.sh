@@ -117,13 +117,10 @@ fi
 # Step 3: Run npm tests (client library)
 if [ -d "client" ]; then
     echo "🧪 Running npm tests..."
-    cd client
-    if npm test; then
+    if (cd client && npm test); then
         echo "✅ Client tests passed"
-        cd ..
     else
         echo "❌ Client tests failed - commit blocked"
-        cd ..
         exit 1
     fi
 else
