@@ -852,6 +852,84 @@ func TestWebSocketDisabled_GETReturnsJSONForJSClient(t *testing.T) {
 	}
 }
 
+func TestWebSocketDisabled_MultiTabDiffCorrectness(t *testing.T) {
+	handler := newWSDisabledHandler(t)
+
+	// Create a session via GET
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	cookie := extractSessionCookie(rec)
+	if cookie == nil {
+		t.Fatal("Expected session cookie")
+	}
+
+	// Tab A: POST Increment (first action — response includes statics)
+	postWithCookie := func(action string) *httptest.ResponseRecorder {
+		form := url.Values{}
+		form.Set("lvt-action", action)
+		r := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("Accept", "application/json")
+		r.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+
+	recA1 := postWithCookie("Increment")
+	if recA1.Code != http.StatusOK {
+		t.Fatalf("Tab A first POST: expected 200, got %d", recA1.Code)
+	}
+
+	// Tab B: POST Increment (same session, simulating second tab)
+	// Should still return a valid tree (diff against Tab A's last state)
+	recB1 := postWithCookie("Increment")
+	if recB1.Code != http.StatusOK {
+		t.Fatalf("Tab B POST: expected 200, got %d", recB1.Code)
+	}
+
+	var respB map[string]interface{}
+	if err := json.NewDecoder(recB1.Body).Decode(&respB); err != nil {
+		t.Fatalf("Tab B: failed to decode JSON: %v", err)
+	}
+
+	tree, ok := respB["tree"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Tab B: expected 'tree' object in response")
+	}
+
+	// The response must be valid JSON with a tree — regardless of whether
+	// it contains statics or not. In HTTP mode, tabs share diff state via
+	// a per-groupID cache. The serialized mutex ensures no data races.
+	// The client handles both full trees and diffs correctly.
+	if len(tree) == 0 {
+		t.Error("Tab B: expected non-empty tree")
+	}
+
+	meta, ok := respB["meta"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Tab B: expected 'meta' object in response")
+	}
+	if success, _ := meta["success"].(bool); !success {
+		t.Error("Tab B: expected meta.success=true")
+	}
+
+	// Tab A: POST again — should still produce a valid diff
+	recA2 := postWithCookie("Increment")
+	if recA2.Code != http.StatusOK {
+		t.Fatalf("Tab A second POST: expected 200, got %d", recA2.Code)
+	}
+
+	var respA2 map[string]interface{}
+	if err := json.NewDecoder(recA2.Body).Decode(&respA2); err != nil {
+		t.Fatalf("Tab A second POST: failed to decode JSON: %v", err)
+	}
+	if _, ok := respA2["tree"].(map[string]interface{}); !ok {
+		t.Fatal("Tab A second POST: expected 'tree' object")
+	}
+}
+
 // ============================================================================
 // HTTP Template Cache Sweep Tests
 // ============================================================================
