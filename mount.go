@@ -243,6 +243,7 @@ func (c *connState) setFlash(key, message string) {
 	// Validate key: reject keys with ":" or starting with "_"
 	if strings.Contains(key, ":") || strings.HasPrefix(key, "_") {
 		slog.Warn("Invalid flash key ignored",
+			slog.String("component", "live_handler"),
 			slog.String("key", key),
 			slog.String("reason", "keys must not contain ':' or start with '_'"))
 		return
@@ -333,14 +334,18 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Authenticate user and get session group
 	userID, err := h.config.Authenticator.Identify(r)
 	if err != nil {
-		slog.Error("Authentication failed", slog.Any("error", err))
+		slog.Error("Authentication failed",
+			slog.String("component", "live_handler"),
+			slog.Any("error", err))
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	groupID, err := h.config.Authenticator.GetSessionGroup(r, userID)
 	if err != nil {
-		slog.Error("Failed to get session group", slog.Any("error", err))
+		slog.Error("Failed to get session group",
+			slog.String("component", "live_handler"),
+			slog.Any("error", err))
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -349,6 +354,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	if !h.limits.CanAccept(groupID) {
 		stats := h.limits.Stats()
 		slog.Warn("Connection rejected (at capacity)",
+			slog.String("component", "live_handler"),
 			slog.Int64("active", stats.ActiveConnections),
 			slog.Int64("max", stats.MaxConnections),
 			slog.String("group_id", groupID),
@@ -364,33 +370,48 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Upgrade to WebSocket after authentication and limit check succeeds
 	conn, err := h.config.Upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		slog.Error("WebSocket upgrade failed", slog.Any("error", err))
+		slog.Error("WebSocket upgrade failed",
+			slog.String("component", "live_handler"),
+			slog.Any("error", err))
 		return
 	}
 	defer func() {
 		if err := conn.Close(); err != nil {
-			slog.Warn("WebSocket close error", slog.Any("error", err))
+			slog.Warn("WebSocket close error",
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
 		}
 	}()
 
 	// Acquire connection slot (increment counters)
 	if err := h.limits.Acquire(groupID); err != nil {
-		slog.Error("Failed to acquire connection slot", slog.Any("error", err))
+		slog.Error("Failed to acquire connection slot",
+			slog.String("component", "live_handler"),
+			slog.Any("error", err))
 		if writeErr := conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseServiceRestart, "Service at capacity")); writeErr != nil {
-			slog.Warn("Failed to send close message", slog.Any("error", writeErr))
+			slog.Warn("Failed to send close message",
+				slog.String("component", "live_handler"),
+				slog.Any("error", writeErr))
 		}
 		return
 	}
 	defer h.limits.Release(groupID)
 
-	slog.Info("Client connected", slog.String("user_id", userID), slog.String("group_id", groupID), slog.String("remote_addr", conn.RemoteAddr().String()), slog.Int64("active_connections", h.limits.ActiveConnections()))
+	slog.Info("Client connected",
+		slog.String("component", "live_handler"),
+		slog.String("user_id", userID),
+		slog.String("group_id", groupID),
+		slog.String("remote_addr", conn.RemoteAddr().String()),
+		slog.Int64("active_connections", h.limits.ActiveConnections()))
 
 	// Clone template for this connection to avoid state conflicts
 	// Each WebSocket connection needs its own template instance because
 	// ExecuteUpdates() tracks state (lastTree, lastData, etc.)
 	connTmpl, err := h.config.Template.Clone()
 	if err != nil {
-		slog.Error("Failed to clone template", slog.Any("error", err))
+		slog.Error("Failed to clone template",
+			slog.String("component", "live_handler"),
+			slog.Any("error", err))
 		return
 	}
 
@@ -403,11 +424,15 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		// New session - clone initial state and call Mount
 		typedState, err = h.cloneStateTyped()
 		if err != nil {
-			slog.Error("Failed to clone state", slog.Any("error", err))
+			slog.Error("Failed to clone state",
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
 			return
 		}
 		isNewSession = true
-		slog.Info("Created new session group", slog.String("group_id", groupID))
+		slog.Info("Created new session group",
+			slog.String("component", "live_handler"),
+			slog.String("group_id", groupID))
 	} else {
 		// Existing session - use stored state
 		// Clear transient fields (e.g., EditingID) so they don't persist across page reloads
@@ -418,7 +443,10 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	uploadRegistry := h.newUploadRegistry()
 	for name, config := range h.config.UploadConfigs {
 		if err := uploadRegistry.CreateUpload(name, config); err != nil {
-			slog.Warn("Failed to create upload", slog.String("upload_name", name), slog.Any("error", err))
+			slog.Warn("Failed to create upload",
+				slog.String("component", "live_handler"),
+				slog.String("upload_name", name),
+				slog.Any("error", err))
 		}
 	}
 	connTmpl.SetUploadRegistry(uploadRegistry)
@@ -437,10 +465,16 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer h.registry.Unregister(connection)
 	defer func() {
 		if err := h.tempFileManager.RemoveSession(groupID); err != nil {
-			slog.Warn("Failed to clean up temp files", slog.String("group_id", groupID), slog.Any("error", err))
+			slog.Warn("Failed to clean up temp files",
+				slog.String("component", "live_handler"),
+				slog.String("group_id", groupID),
+				slog.Any("error", err))
 		}
 	}()
-	slog.Debug("Registered connection", slog.Int("total_connections", h.registry.Count()), slog.Int("total_groups", h.registry.GroupCount()))
+	slog.Debug("Registered connection",
+		slog.String("component", "live_handler"),
+		slog.Int("total_connections", h.registry.Count()),
+		slog.Int("total_groups", h.registry.GroupCount()))
 
 	// Create connection state (messages are per-connection, not shared)
 	connSt := &connState{
@@ -468,7 +502,9 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	if isNewSession || hasFlashQueryParams {
 		newState, err := callMount(h.config.Controller, connSt.state, lifecycleCtx)
 		if err != nil {
-			slog.Error("Mount failed", slog.Any("error", err))
+			slog.Error("Mount failed",
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
 			return
 		}
 		connSt.state = newState
@@ -481,7 +517,9 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Call OnConnect lifecycle method
 	newState, err := callOnConnect(h.config.Controller, connSt.state, lifecycleCtx)
 	if err != nil {
-		slog.Warn("OnConnect failed", slog.Any("error", err))
+		slog.Warn("OnConnect failed",
+			slog.String("component", "live_handler"),
+			slog.Any("error", err))
 		// Continue anyway - OnConnect errors are non-fatal
 	} else {
 		connSt.state = newState
@@ -494,13 +532,17 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	var buf bytes.Buffer
 	err = connTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getMessages())
 	if err != nil {
-		slog.Error("Failed to generate initial tree", slog.Any("error", err))
+		slog.Error("Failed to generate initial tree",
+			slog.String("component", "live_handler"),
+			slog.Any("error", err))
 		return
 	}
 
 	var tree map[string]interface{}
 	if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
-		slog.Error("Failed to parse initial tree", slog.Any("error", err))
+		slog.Error("Failed to parse initial tree",
+			slog.String("component", "live_handler"),
+			slog.Any("error", err))
 		return
 	}
 
@@ -514,12 +556,16 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	responseBytes, err := json.Marshal(response)
 	if err != nil {
-		slog.Error("Failed to marshal initial response", slog.Any("error", err))
+		slog.Error("Failed to marshal initial response",
+			slog.String("component", "live_handler"),
+			slog.Any("error", err))
 		return
 	}
 
 	if err = writeUpdateWebSocket(connection, responseBytes); err != nil {
-		slog.Error("Failed to send initial tree", slog.Any("error", err))
+		slog.Error("Failed to send initial tree",
+			slog.String("component", "live_handler"),
+			slog.Any("error", err))
 		return
 	}
 
@@ -538,7 +584,9 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		_, data, err := conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				slog.Warn("WebSocket error", slog.Any("error", err))
+				slog.Warn("WebSocket error",
+					slog.String("component", "live_handler"),
+					slog.Any("error", err))
 			}
 			break
 		}
@@ -561,14 +609,18 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		// Parse message
 		msg, err := parseActionFromWebSocket(data)
 		if err != nil {
-			slog.Warn("Failed to parse message", slog.Any("error", err))
+			slog.Warn("Failed to parse message",
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
 			continue
 		}
 
 		// Check if this is an upload-related action
 		uploadHandled, err := h.handleUploadAction(r.Context(), conn, data, msg, connSt, uploadRegistry, connection)
 		if err != nil {
-			slog.Warn("Upload action error", slog.Any("error", err))
+			slog.Warn("Upload action error",
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
 			continue
 		}
 		if uploadHandled {
@@ -619,13 +671,17 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		// Generate tree update
 		buf.Reset()
 		if err = connTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getMessages()); err != nil {
-			slog.Error("Template update execution failed", slog.Any("error", err))
+			slog.Error("Template update execution failed",
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
 			continue
 		}
 
 		var tree map[string]interface{}
 		if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
-			slog.Error("Failed to parse tree", slog.Any("error", err))
+			slog.Error("Failed to parse tree",
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
 			continue
 		}
 
@@ -640,12 +696,16 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 		responseBytes, err := json.Marshal(response)
 		if err != nil {
-			slog.Error("Failed to marshal response", slog.Any("error", err))
+			slog.Error("Failed to marshal response",
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
 			continue
 		}
 
 		if err = writeUpdateWebSocket(connection, responseBytes); err != nil {
-			slog.Error("WebSocket write failed", slog.Any("error", err))
+			slog.Error("WebSocket write failed",
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
 			break
 		}
 
@@ -653,7 +713,11 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		connSt.clearFlash()
 	}
 
-	slog.Info("Client disconnected", slog.String("user_id", userID), slog.String("group_id", groupID), slog.Int("remaining_connections", h.registry.Count()))
+	slog.Info("Client disconnected",
+		slog.String("component", "live_handler"),
+		slog.String("user_id", userID),
+		slog.String("group_id", groupID),
+		slog.Int("remaining_connections", h.registry.Count()))
 }
 
 // wantsJSON returns true if the client expects a JSON response.
@@ -723,14 +787,18 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Authenticate user and get session group
 	userID, err := h.config.Authenticator.Identify(r)
 	if err != nil {
-		slog.Error("HTTP authentication failed", slog.Any("error", err))
+		slog.Error("HTTP authentication failed",
+			slog.String("component", "live_handler"),
+			slog.Any("error", err))
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	groupID, err := h.config.Authenticator.GetSessionGroup(r, userID)
 	if err != nil {
-		slog.Error("Failed to get session group for HTTP", slog.Any("error", err))
+		slog.Error("Failed to get session group for HTTP",
+			slog.String("component", "live_handler"),
+			slog.Any("error", err))
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -746,16 +814,22 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if storedState == nil {
 		typedState, err = h.cloneStateTyped()
 		if err != nil {
-			slog.Error("Failed to clone state", slog.Any("error", err))
+			slog.Error("Failed to clone state",
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 		isNewSession = true
 		h.httpTemplates.Delete(groupID)
-		slog.Info("HTTP: created new session group", slog.String("group_id", groupID))
+		slog.Info("Created new session group",
+			slog.String("component", "live_handler"),
+			slog.String("group_id", groupID))
 	} else {
 		// Existing session - use stored state
-		slog.Debug("HTTP: using existing session group", slog.String("group_id", groupID))
+		slog.Debug("Using existing session group",
+			slog.String("component", "live_handler"),
+			slog.String("group_id", groupID))
 		// Clear transient fields (e.g., EditingID) so they don't persist across page reloads
 		typedState = ClearTransientFields(storedState)
 	}
@@ -787,7 +861,9 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if isNewSession || hasFlashQueryParams {
 		newState, err := callMount(h.config.Controller, connSt.state, lifecycleCtx)
 		if err != nil {
-			slog.Error("Mount failed", slog.Any("error", err))
+			slog.Error("Mount failed",
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
 			http.Error(w, "Failed to initialize application state", http.StatusInternalServerError)
 			return
 		}
@@ -851,7 +927,10 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	uploadRegistry := h.newUploadRegistry()
 	for name, config := range h.config.UploadConfigs {
 		if err := uploadRegistry.CreateUpload(name, config); err != nil {
-			slog.Warn("Failed to create upload", slog.String("upload_name", name), slog.Any("error", err))
+			slog.Warn("Failed to create upload",
+				slog.String("component", "live_handler"),
+				slog.String("upload_name", name),
+				slog.Any("error", err))
 		}
 	}
 
@@ -936,13 +1015,17 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			// Write to buffer first to handle template errors gracefully
 			var buf bytes.Buffer
 			if err := httpTmpl.Execute(&buf, connSt.state, connSt.getMessages()); err != nil {
-				slog.Error("Template execution failed", slog.Any("error", err))
+				slog.Error("Template execution failed",
+					slog.String("component", "live_handler"),
+					slog.Any("error", err))
 				http.Error(w, "An error occurred rendering the page. Please try again.", http.StatusInternalServerError)
 				return
 			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			if _, err := w.Write(buf.Bytes()); err != nil {
-				slog.Warn("Failed to write validation error response", slog.Any("error", err))
+				slog.Warn("Failed to write validation error response",
+					slog.String("component", "live_handler"),
+					slog.Any("error", err))
 			}
 			// Flash messages are preserved so they show in the re-rendered page
 			return
@@ -1086,11 +1169,13 @@ func (h *liveHandler) autoBroadcastToGroup(groupID string, data interface{}, exc
 
 		if len(conns) == 0 {
 			slog.Debug("No connections for auto-broadcast",
+				slog.String("component", "live_handler"),
 				slog.String("group_id", groupID))
 			return
 		}
 
 		slog.Debug("Auto-broadcasting to group",
+			slog.String("component", "live_handler"),
 			slog.String("group_id", groupID),
 			slog.Int("connection_count", len(conns)))
 
@@ -1098,6 +1183,7 @@ func (h *liveHandler) autoBroadcastToGroup(groupID string, data interface{}, exc
 		for _, conn := range conns {
 			if err := h.sendUpdate(conn, data, nil); err != nil {
 				slog.Warn("Auto-broadcast send failed",
+					slog.String("component", "live_handler"),
 					slog.String("group_id", groupID),
 					slog.String("user_id", conn.UserID),
 					slog.Any("error", err))
@@ -1107,6 +1193,7 @@ func (h *liveHandler) autoBroadcastToGroup(groupID string, data interface{}, exc
 
 		if errCount > 0 {
 			slog.Warn("Auto-broadcast completed with errors",
+				slog.String("component", "live_handler"),
 				slog.String("group_id", groupID),
 				slog.Int("error_count", errCount),
 				slog.Int("total_connections", len(conns)))
@@ -1221,8 +1308,9 @@ func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}, mes
 	// Debug log wire format metrics
 	includesStatics := hasStaticsInTree(tree)
 	slog.Debug("sendUpdate",
-		"payload_bytes", len(responseBytes),
-		"includes_statics", includesStatics,
+		slog.String("component", "live_handler"),
+		slog.Int("payload_bytes", len(responseBytes)),
+		slog.Bool("includes_statics", includesStatics),
 	)
 
 	// Send using the connection's Send method (thread-safe)
@@ -1458,7 +1546,9 @@ func (h *liveHandler) Shutdown(ctx context.Context) error {
 			for _, conn := range h.registry.GetAll() {
 				if conn.Conn != nil {
 					if err := conn.Conn.Close(); err != nil {
-						slog.Warn("Failed to force close connection", slog.Any("error", err))
+						slog.Warn("Failed to force close connection",
+							slog.String("component", "live_handler"),
+							slog.Any("error", err))
 					}
 				}
 			}
@@ -1485,7 +1575,9 @@ func (h *liveHandler) MetricsHandler() http.Handler {
 
 		// Write metrics
 		if err := h.metricsExporter.WriteMetrics(w); err != nil {
-			slog.Error("Error writing metrics", slog.Any("error", err))
+			slog.Error("Error writing metrics",
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
@@ -1639,7 +1731,10 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 					}
 					// Remove temp file since entry is invalid
 					if rmErr := os.Remove(tempPath); rmErr != nil {
-						slog.Warn("Failed to remove temp file", slog.String("path", tempPath), slog.Any("error", rmErr))
+						slog.Warn("Failed to remove temp file",
+							slog.String("component", "upload_handler"),
+							slog.String("path", tempPath),
+							slog.Any("error", rmErr))
 					}
 				} else {
 					entryInfo = upload.UploadEntryInfo{
@@ -1762,12 +1857,16 @@ func (h *liveHandler) handleUploadChunk(ctx context.Context, conn *websocket.Con
 
 	progressBytes, err := upload.SerializeUploadProgressMessage(progressMsg)
 	if err != nil {
-		slog.Warn("Failed to serialize progress message", slog.Any("error", err))
+		slog.Warn("Failed to serialize progress message",
+			slog.String("component", "upload_handler"),
+			slog.Any("error", err))
 		return nil // Don't fail chunk processing due to progress message error
 	}
 
 	if err := writeUpdateWebSocket(connection, progressBytes); err != nil {
-		slog.Warn("Failed to send progress update", slog.Any("error", err))
+		slog.Warn("Failed to send progress update",
+			slog.String("component", "upload_handler"),
+			slog.Any("error", err))
 		// Don't fail - progress updates are best-effort
 	}
 
@@ -1807,7 +1906,10 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 			e.Progress = 100
 		})
 		if err != nil {
-			slog.Warn("Failed to mark entry as done", slog.String("entry_id", entryID), slog.Any("error", err))
+			slog.Warn("Failed to mark entry as done",
+				slog.String("component", "upload_handler"),
+				slog.String("entry_id", entryID),
+				slog.Any("error", err))
 		}
 	}
 
@@ -1833,7 +1935,10 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 		// Dispatch action using Controller+State pattern
 		newState, actionErr := DispatchWithState(h.config.Controller, state.state, actionCtx)
 		if actionErr != nil && !errors.Is(actionErr, ErrMethodNotFound) {
-			slog.Warn("Upload action failed", slog.String("action", uploadAction), slog.Any("error", actionErr))
+			slog.Warn("Upload action failed",
+				slog.String("component", "upload_handler"),
+				slog.String("action", uploadAction),
+				slog.Any("error", actionErr))
 			response.Success = false
 			response.Error = actionErr.Error()
 		} else if actionErr == nil {
@@ -1844,7 +1949,9 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 	// Send tree update to current connection to show upload completion immediately
 	// This replaces the old upload_complete response to avoid duplicate messages
 	if err := h.sendUpdate(connection, state.state, state.getMessages()); err != nil {
-		slog.Warn("Failed to send tree update after upload", slog.Any("error", err))
+		slog.Warn("Failed to send tree update after upload",
+			slog.String("component", "upload_handler"),
+			slog.Any("error", err))
 		return nil // Don't fail the upload, just skip the update
 	}
 
@@ -1889,14 +1996,19 @@ func (h *liveHandler) handleCancelUpload(ctx context.Context, conn *websocket.Co
 
 	if targetUpload == nil {
 		// Entry not found - might have already been removed
-		slog.Warn("Entry not found for cancellation", slog.String("entry_id", cancelMsg.EntryID))
+		slog.Warn("Entry not found for cancellation",
+			slog.String("component", "upload_handler"),
+			slog.String("entry_id", cancelMsg.EntryID))
 	} else {
 		// Get entry to find temp file path
 		entry := targetUpload.GetEntry(cancelMsg.EntryID)
 		if entry != nil && entry.TempPath != "" {
 			// Remove temp file directly
 			if err := os.Remove(entry.TempPath); err != nil {
-				slog.Warn("Failed to remove temp file for entry", slog.String("entry_id", cancelMsg.EntryID), slog.Any("error", err))
+				slog.Warn("Failed to remove temp file for entry",
+					slog.String("component", "upload_handler"),
+					slog.String("entry_id", cancelMsg.EntryID),
+					slog.Any("error", err))
 			}
 		}
 

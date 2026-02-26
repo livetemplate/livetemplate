@@ -423,10 +423,12 @@ func (s *RedisSessionStore) Get(ctx context.Context, groupID string) interface{}
 		_, err = s.deserializeLegacyStores(data)
 		if err != nil {
 			slog.Warn("Found legacy v1 session but failed to decode",
+				slog.String("component", "redis_session_store"),
 				slog.String("group_id", groupID),
 				slog.Any("error", err))
 		} else {
 			slog.Info("Found legacy v1 session, deleting (incompatible with Controller+State)",
+				slog.String("component", "redis_session_store"),
 				slog.String("group_id", groupID))
 		}
 		s.Delete(ctx, groupID)
@@ -455,6 +457,7 @@ func (s *RedisSessionStore) deserializeFromHash(hashData map[string]string) inte
 		var state interface{}
 		if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
 			slog.Warn("Failed to unmarshal state",
+				slog.String("component", "redis_session_store"),
 				slog.Any("error", err))
 			return nil
 		}
