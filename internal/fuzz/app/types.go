@@ -406,10 +406,10 @@ func (s *FormState) ToMap() map[string]any {
 		errorMsg := s.Errors[name]
 		touched := s.Touched[name]
 		fields = append(fields, map[string]any{
-			"Name":    name,
-			"Value":   value,
-			"Error":   errorMsg,
-			"Touched": touched,
+			"Name":     name,
+			"Value":    value,
+			"Error":    errorMsg,
+			"Touched":  touched,
 			"HasError": errorMsg != "",
 		})
 	}

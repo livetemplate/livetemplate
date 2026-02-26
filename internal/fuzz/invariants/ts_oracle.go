@@ -235,7 +235,9 @@ func (o *TypeScriptOracle) Close() error {
 
 	// Close stdin to signal server to exit
 	if o.stdin != nil {
-		o.stdin.Close()
+		if err := o.stdin.Close(); err != nil {
+			return fmt.Errorf("closing stdin: %w", err)
+		}
 	}
 
 	// Wait for process to exit with timeout
@@ -249,7 +251,9 @@ func (o *TypeScriptOracle) Close() error {
 		return err
 	case <-time.After(5 * time.Second):
 		// Force kill if it doesn't exit
-		o.process.Process.Kill()
+		if err := o.process.Process.Kill(); err != nil {
+			return fmt.Errorf("oracle server did not exit cleanly, kill failed: %w", err)
+		}
 		return errors.New("oracle server did not exit cleanly, killed")
 	}
 }

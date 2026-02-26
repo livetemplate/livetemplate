@@ -116,4 +116,3 @@ func DiscoverTemplateFiles(baseDir string, customIgnoreDirs []string) ([]string,
 
 	return files, nil
 }
-

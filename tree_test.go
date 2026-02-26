@@ -3657,4 +3657,3 @@ func TestAllOperationTypes(t *testing.T) {
 
 	t.Log("✅ All 6 operation types verified: Update ('u'), Remove ('r'), Append ('a'), Prepend ('p'), Insert ('i'), Reorder ('o')")
 }
-

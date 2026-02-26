@@ -17,8 +17,8 @@ type Registry struct {
 
 // Upload tracks entries for a specific upload field.
 type Upload struct {
-	Name    string                         // Field name (e.g., "avatar")
-	Config  uploadtypes.UploadConfig      // Upload configuration
+	Name    string                              // Field name (e.g., "avatar")
+	Config  uploadtypes.UploadConfig            // Upload configuration
 	Entries map[string]*uploadtypes.UploadEntry // entry ID → entry
 	mu      sync.RWMutex
 }

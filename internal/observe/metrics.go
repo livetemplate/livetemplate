@@ -21,13 +21,13 @@ type Metrics struct {
 	errorsEncountered atomic.Int64
 
 	// WebSocket async sending counters
-	wsBufferFull        atomic.Int64 // Total count of buffer overflow events
-	wsSlowClientCloses  atomic.Int64 // Total count of connections closed due to slow clients
-	wsWriteErrors       atomic.Int64 // Total count of WebSocket write errors
+	wsBufferFull       atomic.Int64 // Total count of buffer overflow events
+	wsSlowClientCloses atomic.Int64 // Total count of connections closed due to slow clients
+	wsWriteErrors      atomic.Int64 // Total count of WebSocket write errors
 
 	// Wire format metrics (fingerprint-based diff tracking)
-	fullTreeSends        atomic.Int64 // Total sends with statics (structure changed or first render)
-	dynamicsOnlySends    atomic.Int64 // Total sends without statics (structure unchanged)
+	fullTreeSends         atomic.Int64 // Total sends with statics (structure changed or first render)
+	dynamicsOnlySends     atomic.Int64 // Total sends without statics (structure unchanged)
 	fingerprintMismatches atomic.Int64 // Total fingerprint mismatches (structure changes detected)
 
 	// Gauges (atomic for thread safety)

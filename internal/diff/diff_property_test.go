@@ -40,7 +40,7 @@ func genDynamics(depth int) *rapid.Generator[map[string]interface{}] {
 			key := rapid.StringMatching(`[0-9]`).Draw(t, "key")
 			// 30% chance of nested tree, 70% primitive
 			if rapid.Float64Range(0, 1).Draw(t, "nestedChance") < 0.3 {
-				result[key] = genTreeNode(depth - 1).Draw(t, "nestedTree")
+				result[key] = genTreeNode(depth-1).Draw(t, "nestedTree")
 			} else {
 				result[key] = rapid.StringMatching(`[a-zA-Z0-9 ]+`).Draw(t, "value")
 			}

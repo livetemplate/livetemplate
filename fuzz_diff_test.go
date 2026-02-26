@@ -1960,13 +1960,13 @@ func TestFuzzNestedRanges_Property(t *testing.T) {
 // When a category is collapsed, its items are hidden; when expanded, they appear.
 func TestFuzzNestedRanges_ToggleExpand_Property(t *testing.T) {
 	weights := mutations.MutationWeights{
-		ToggleExpand:      0.40, // Heavy toggle expand
-		AddToCategory:     0.15,
+		ToggleExpand:       0.40, // Heavy toggle expand
+		AddToCategory:      0.15,
 		RemoveFromCategory: 0.10,
-		AddCategory:       0.10,
-		RemoveCategory:    0.05,
-		UpdateItem:        0.10,
-		UpdateCategory:    0.10,
+		AddCategory:        0.10,
+		RemoveCategory:     0.05,
+		UpdateItem:         0.10,
+		UpdateCategory:     0.10,
 	}
 
 	rapid.Check(t, func(rt *rapid.T) {
@@ -2025,13 +2025,13 @@ func TestFuzzNestedRanges_Reorder_Property(t *testing.T) {
 // This tests the inner range else clause and empty→items transitions.
 func TestFuzzNestedRanges_EmptyCategories_Property(t *testing.T) {
 	weights := mutations.MutationWeights{
-		ClearSlice:        0.20, // Clear items from category
+		ClearSlice:         0.20, // Clear items from category
 		RemoveFromCategory: 0.15,
-		AddToCategory:     0.20, // Add items back
-		AddCategory:       0.10,
-		RemoveCategory:    0.10,
-		ToggleExpand:      0.15,
-		UpdateCategory:    0.10,
+		AddToCategory:      0.20, // Add items back
+		AddCategory:        0.10,
+		RemoveCategory:     0.10,
+		ToggleExpand:       0.15,
+		UpdateCategory:     0.10,
 	}
 
 	rapid.Check(t, func(rt *rapid.T) {
@@ -2212,12 +2212,12 @@ func runBurstFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numRenderCycl
 func TestFuzzConcurrentMutations_Property(t *testing.T) {
 	// Use weights for basic CRUD operations
 	weights := mutations.MutationWeights{
-		AppendSlice:  0.20,
-		RemoveSlice:  0.15,
-		UpdateItem:   0.30,
-		ToggleBool:   0.15,
-		SetField:     0.10,
-		InsertSlice:  0.10,
+		AppendSlice: 0.20,
+		RemoveSlice: 0.15,
+		UpdateItem:  0.30,
+		ToggleBool:  0.15,
+		SetField:    0.10,
+		InsertSlice: 0.10,
 	}
 
 	rapid.Check(t, func(rt *rapid.T) {
@@ -2258,12 +2258,12 @@ func TestFuzzBurstReordering_Property(t *testing.T) {
 // Toggling the same field multiple times between renders tests state consistency.
 func TestFuzzRapidToggle_Property(t *testing.T) {
 	weights := mutations.MutationWeights{
-		ToggleBool:   0.50, // Heavy toggle
-		SetField:     0.10,
-		AppendSlice:  0.10,
-		RemoveSlice:  0.10,
-		UpdateItem:   0.10,
-		ClearSlice:   0.10,
+		ToggleBool:  0.50, // Heavy toggle
+		SetField:    0.10,
+		AppendSlice: 0.10,
+		RemoveSlice: 0.10,
+		UpdateItem:  0.10,
+		ClearSlice:  0.10,
 	}
 
 	rapid.Check(t, func(rt *rapid.T) {
@@ -2630,11 +2630,11 @@ func TestFuzzModalPanelTransitions_Property(t *testing.T) {
 func TestFuzzModalOpenClose_Property(t *testing.T) {
 	// Avoid UpdateModal which causes oracle divergence
 	weights := mutations.MutationWeights{
-		OpenModal:    0.40,
-		CloseModal:   0.35,
-		CloseAll:     0.10,
-		SwitchPanel:  0.08,
-		TogglePanel:  0.07,
+		OpenModal:   0.40,
+		CloseModal:  0.35,
+		CloseAll:    0.10,
+		SwitchPanel: 0.08,
+		TogglePanel: 0.07,
 	}
 
 	rapid.Check(t, func(rt *rapid.T) {
@@ -3064,12 +3064,12 @@ func TestFuzzBulkSelection_Property(t *testing.T) {
 // TestFuzzBulkDelete_Property tests bulk delete operations.
 func TestFuzzBulkDelete_Property(t *testing.T) {
 	weights := mutations.MutationWeights{
-		ToggleSelect:    0.20,
-		SelectAll:       0.10,
-		BulkDelete:      0.25,
-		AppendSlice:     0.25,
-		RemoveSlice:     0.10,
-		DeselectAll:     0.10,
+		ToggleSelect: 0.20,
+		SelectAll:    0.10,
+		BulkDelete:   0.25,
+		AppendSlice:  0.25,
+		RemoveSlice:  0.10,
+		DeselectAll:  0.10,
 	}
 
 	rapid.Check(t, func(rt *rapid.T) {

@@ -160,16 +160,16 @@ type LiveHandler interface {
 // mountConfig configures the mount handler (internal only)
 type mountConfig struct {
 	Template               *Template
-	Controller             interface{}          // Singleton controller with dependencies
-	State                  State                // Initial state template (cloned per session)
+	Controller             interface{} // Singleton controller with dependencies
+	State                  State       // Initial state template (cloned per session)
 	Upgrader               *websocket.Upgrader
 	SessionStore           SessionStore
 	Authenticator          Authenticator
-	PubSubBroadcaster      pubsub.Broadcaster   // Optional: for distributed broadcasting across instances
+	PubSubBroadcaster      pubsub.Broadcaster // Optional: for distributed broadcasting across instances
 	AllowedOrigins         []string
 	WebSocketDisabled      bool
-	MaxConnections         int64                // Maximum total connections (0 = unlimited)
-	MaxConnectionsPerGroup int64                // Maximum connections per group (0 = unlimited)
+	MaxConnections         int64                               // Maximum total connections (0 = unlimited)
+	MaxConnectionsPerGroup int64                               // Maximum connections per group (0 = unlimited)
 	CookieMaxAge           time.Duration                       // Session cookie max age (default: 1 year)
 	UploadConfigs          map[string]uploadtypes.UploadConfig // Upload field configurations
 	wsBufferSize           int                                 // WebSocket send buffer size per connection (default: 50)
@@ -183,7 +183,7 @@ type liveHandler struct {
 	limits          *session.ConnectionLimits
 	metricsExporter *observe.PrometheusExporter
 	tempFileManager uploadTempFileManager
-	httpTemplates sync.Map // groupID → *httpTemplateCacheEntry (cached for HTTP POST diff optimization)
+	httpTemplates   sync.Map // groupID → *httpTemplateCacheEntry (cached for HTTP POST diff optimization)
 
 	// Graceful shutdown state
 	shutdownOnce sync.Once
@@ -797,8 +797,43 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Handle GET request for initial HTML page
+	// Handle GET request
 	if r.Method == http.MethodGet {
+		if wantsJSON(r) {
+			// JS client in HTTP mode: return initial tree as JSON
+			httpTmpl, cloneErr := h.config.Template.Clone()
+			if cloneErr != nil {
+				http.Error(w, "Failed to clone template", http.StatusInternalServerError)
+				return
+			}
+
+			var buf bytes.Buffer
+			if err := httpTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getMessages()); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			var tree map[string]any
+			if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			response := UpdateResponse{
+				Tree: tree,
+				Meta: &ResponseMetadata{
+					Success: true,
+				},
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(response); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+			return
+		}
+
+		// Browser: return initial HTML page
 		err := h.config.Template.Execute(w, connSt.state, connSt.getMessages())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

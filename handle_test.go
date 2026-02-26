@@ -806,6 +806,52 @@ func TestWebSocketDisabled_DiffOptimization(t *testing.T) {
 	}
 }
 
+func TestWebSocketDisabled_GETReturnsJSONForJSClient(t *testing.T) {
+	handler := newWSDisabledHandler(t)
+
+	// GET HTML first to create session
+	getReq := httptest.NewRequest("GET", "/", nil)
+	getReq.Header.Set("Accept", "text/html")
+	getW := httptest.NewRecorder()
+	handler.ServeHTTP(getW, getReq)
+	cookie := extractSessionCookie(getW)
+
+	// GET with Accept: application/json (like the JS client in HTTP mode)
+	jsonReq := httptest.NewRequest("GET", "/", nil)
+	jsonReq.Header.Set("Accept", "application/json")
+	if cookie != nil {
+		jsonReq.AddCookie(cookie)
+	}
+	jsonW := httptest.NewRecorder()
+	handler.ServeHTTP(jsonW, jsonReq)
+
+	if jsonW.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", jsonW.Code)
+	}
+
+	ct := jsonW.Header().Get("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		t.Fatalf("Expected Content-Type application/json, got %q", ct)
+	}
+
+	var resp struct {
+		Tree map[string]any `json:"tree"`
+		Meta *struct {
+			Success bool `json:"success"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(jsonW.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Failed to unmarshal JSON response: %v", err)
+	}
+
+	if resp.Tree == nil {
+		t.Fatal("Expected tree in JSON response")
+	}
+	if resp.Meta == nil || !resp.Meta.Success {
+		t.Fatal("Expected meta.success=true in JSON response")
+	}
+}
+
 // ============================================================================
 // HTTP Template Cache Sweep Tests
 // ============================================================================

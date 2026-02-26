@@ -158,12 +158,12 @@ func TestContext_GetString_NumericValues(t *testing.T) {
 	// The client-side parseValue() converts numeric strings like "1" to numbers.
 	// GetString should handle both string and numeric values.
 	data := map[string]interface{}{
-		"id_string":  "123",
-		"id_int":     float64(456), // JSON numbers are float64
-		"id_float":   float64(3.14),
-		"negative":   float64(-42),
-		"safe_int":   float64(9007199254740991), // Max safe integer in JavaScript
-		"zero":       float64(0),
+		"id_string": "123",
+		"id_int":    float64(456), // JSON numbers are float64
+		"id_float":  float64(3.14),
+		"negative":  float64(-42),
+		"safe_int":  float64(9007199254740991), // Max safe integer in JavaScript
+		"zero":      float64(0),
 	}
 	ctx := NewContext(context.Background(), "test", data)
 

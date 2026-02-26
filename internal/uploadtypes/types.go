@@ -39,7 +39,7 @@ type UploadEntry struct {
 	Done        bool
 	Error       string
 	TempPath    string
-	BytesRecv   int64     // Bytes received so far (for chunked uploads)
+	BytesRecv   int64 // Bytes received so far (for chunked uploads)
 	ExternalRef string
 	CreatedAt   time.Time
 	CompletedAt time.Time

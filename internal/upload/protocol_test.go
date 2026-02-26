@@ -8,11 +8,11 @@ import (
 
 func TestParseUploadStartMessage(t *testing.T) {
 	tests := []struct {
-		name      string
-		json      string
-		wantErr   bool
-		errMsg    string
-		validate  func(*testing.T, *UploadStartMessage)
+		name     string
+		json     string
+		wantErr  bool
+		errMsg   string
+		validate func(*testing.T, *UploadStartMessage)
 	}{
 		{
 			name: "valid single file",

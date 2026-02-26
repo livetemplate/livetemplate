@@ -152,16 +152,16 @@ type Config struct {
 	PubSubBroadcaster      pubsub.Broadcaster // Optional: for distributed broadcasting across instances
 	AllowedOrigins         []string           // Allowed WebSocket origins (empty = allow all in dev, restrict in prod)
 	WebSocketDisabled      bool
-	LoadingDisabled        bool                            // Disables automatic loading indicator on page load
-	TemplateFiles          []string                        // If set, overrides auto-discovery
-	TemplateBaseDir        string                          // Base directory for template auto-discovery (default: directory of calling code via runtime.Caller)
-	IgnoreTemplateDirs     []string                        // Additional directories to ignore during auto-discovery
-	DevMode                bool                            // Development mode - use local client library instead of CDN
-	MaxConnections         int64                           // Maximum total connections (0 = unlimited)
-	MaxConnectionsPerGroup int64                           // Maximum connections per group (0 = unlimited)
-	MessageRateLimit       float64                         // Messages per second per connection (0 = unlimited, default 10)
-	MessageRateBurst       int                             // Burst capacity for rate limiting (default 20)
-	CookieMaxAge           time.Duration                   // Session cookie max age (default: 1 year)
+	LoadingDisabled        bool                                // Disables automatic loading indicator on page load
+	TemplateFiles          []string                            // If set, overrides auto-discovery
+	TemplateBaseDir        string                              // Base directory for template auto-discovery (default: directory of calling code via runtime.Caller)
+	IgnoreTemplateDirs     []string                            // Additional directories to ignore during auto-discovery
+	DevMode                bool                                // Development mode - use local client library instead of CDN
+	MaxConnections         int64                               // Maximum total connections (0 = unlimited)
+	MaxConnectionsPerGroup int64                               // Maximum connections per group (0 = unlimited)
+	MessageRateLimit       float64                             // Messages per second per connection (0 = unlimited, default 10)
+	MessageRateBurst       int                                 // Burst capacity for rate limiting (default 20)
+	CookieMaxAge           time.Duration                       // Session cookie max age (default: 1 year)
 	UploadConfigs          map[string]uploadtypes.UploadConfig // Upload field configurations
 	WebSocketBufferSize    int                                 // WebSocket send buffer size per connection (default: 50)
 	ComponentTemplates     []*TemplateSet                      // Component library templates (parsed before project templates)
@@ -219,20 +219,20 @@ type TemplateSet struct {
 // It provides an API similar to html/template.Template but with additional ExecuteUpdates method
 // for generating tree-based updates that can be efficiently transmitted to clients.
 type Template struct {
-	name            string
-	templateStr     string
-	tmpl            *template.Template
-	wrapperID       string
-	funcs           template.FuncMap
-	mu              sync.RWMutex // Protects mutable state fields below
-	lastData        interface{}
-	lastHTML        string
-	lastTree        *treeNode // Store previous tree segments for comparison
-	initialTree     *treeNode
-	hasInitialTree  bool
-	keyGen *keyGenerator // Per-template key generation for wrapper approach
-	config          Config        // Template configuration
-	uploadRegistry  interface{}   // Upload registry for this connection (*upload.Registry)
+	name           string
+	templateStr    string
+	tmpl           *template.Template
+	wrapperID      string
+	funcs          template.FuncMap
+	mu             sync.RWMutex // Protects mutable state fields below
+	lastData       interface{}
+	lastHTML       string
+	lastTree       *treeNode // Store previous tree segments for comparison
+	initialTree    *treeNode
+	hasInitialTree bool
+	keyGen         *keyGenerator // Per-template key generation for wrapper approach
+	config         Config        // Template configuration
+	uploadRegistry interface{}   // Upload registry for this connection (*upload.Registry)
 }
 
 // Funcs registers a template.FuncMap that will be applied to all template parsing and execution.
@@ -441,13 +441,13 @@ func WithMaxConnectionsPerGroup(max int64) Option {
 // but use more memory. Smaller buffers use less memory but may close slow clients more aggressively.
 //
 // Default: 50 messages per connection
-//  - Memory per connection: ~50KB (assuming 1KB avg message size)
-//  - Memory for 100 connections: ~5MB
+//   - Memory per connection: ~50KB (assuming 1KB avg message size)
+//   - Memory for 100 connections: ~5MB
 //
 // Recommended values:
-//  - Low traffic / memory constrained: 10-25
-//  - Normal traffic: 50 (default)
-//  - High traffic / burst heavy: 100-200
+//   - Low traffic / memory constrained: 10-25
+//   - Normal traffic: 50 (default)
+//   - High traffic / burst heavy: 100-200
 //
 // Environment variable override: LVT_WS_BUFFER_SIZE
 //
@@ -779,11 +779,11 @@ func New(name string, opts ...Option) (*Template, error) {
 		},
 		SessionStore:           NewMemorySessionStore(),
 		Authenticator:          &AnonymousAuthenticator{}, // Default: browser-based session grouping
-		MessageRateLimit:       10.0,                       // Default: 10 messages/sec
-		MessageRateBurst:       20,                         // Default: burst of 20
-		CookieMaxAge:           365 * 24 * time.Hour,       // Default: 1 year
-		WebSocketBufferSize:    wsBufferSize,               // Default: 50 (or LVT_WS_BUFFER_SIZE env)
-		ProgressiveEnhancement: true,                       // Default: enabled for non-JS form support
+		MessageRateLimit:       10.0,                      // Default: 10 messages/sec
+		MessageRateBurst:       20,                        // Default: burst of 20
+		CookieMaxAge:           365 * 24 * time.Hour,      // Default: 1 year
+		WebSocketBufferSize:    wsBufferSize,              // Default: 50 (or LVT_WS_BUFFER_SIZE env)
+		ProgressiveEnhancement: true,                      // Default: enabled for non-JS form support
 	}
 
 	// Apply options
@@ -1124,11 +1124,12 @@ func (t *Template) parseComponentTemplates(sets []*TemplateSet) error {
 
 // Execute applies a parsed template to the specified data object,
 // writing the output to wr. It orchestrates all 5 phases:
-//   Phase 1: Parse (already done via Parse/ParseFiles/ParseGlob)
-//   Phase 2: Build - Generate tree structure
-//   Phase 3: Diff - Compare with cached state (no-op for first render)
-//   Phase 4: Render - Execute template to HTML
-//   Phase 5: Send - Write HTML response
+//
+//	Phase 1: Parse (already done via Parse/ParseFiles/ParseGlob)
+//	Phase 2: Build - Generate tree structure
+//	Phase 3: Diff - Compare with cached state (no-op for first render)
+//	Phase 4: Render - Execute template to HTML
+//	Phase 5: Send - Write HTML response
 //
 // Note: Phases execute in order 1→4→5→2 (Render before Build) to minimize
 // response latency. Tree building for caching happens after sending the response.
@@ -1181,11 +1182,12 @@ func (t *Template) Execute(wr io.Writer, data interface{}, messages ...map[strin
 // ExecuteUpdates generates a tree structure of static and dynamic content
 // that can be used by JavaScript clients to update changed parts efficiently.
 // It orchestrates all 5 phases:
-//   Phase 1: Parse (already done via Parse/ParseFiles/ParseGlob)
-//   Phase 2: Build - Generate tree structure (includes Phase 3: Diff internally)
-//   Phase 3: Diff - Compare with cached tree, return only changes (integrated in Build)
-//   Phase 4: Render - Execute template (integrated in Build)
-//   Phase 5: Send - Write JSON tree response
+//
+//	Phase 1: Parse (already done via Parse/ParseFiles/ParseGlob)
+//	Phase 2: Build - Generate tree structure (includes Phase 3: Diff internally)
+//	Phase 3: Diff - Compare with cached tree, return only changes (integrated in Build)
+//	Phase 4: Render - Execute template (integrated in Build)
+//	Phase 5: Send - Write JSON tree response
 //
 // Caching behavior:
 // - First call: Returns complete tree with static structure ("s" key) and dynamic values

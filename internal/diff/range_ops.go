@@ -187,7 +187,7 @@ func generateUpdateOperations(
 			// Compare items and generate update operation if different
 			changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
 			if len(changes) > 0 {
-					// Always include changes, even if they're all empty strings.
+				// Always include changes, even if they're all empty strings.
 				// Empty string changes indicate that a field should be cleared
 				// (e.g., removing "checked" attribute when toggling a checkbox off).
 				// The client needs to know about these changes to update the DOM.
