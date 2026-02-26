@@ -381,11 +381,11 @@ func formatCommandForFlatten(cmd *parse.CommandNode) string {
 		case *parse.IdentifierNode:
 			buf.WriteString(a.Ident)
 		case *parse.StringNode:
-			buf.WriteString(fmt.Sprintf("%q", a.Text))
+			fmt.Fprintf(&buf, "%q", a.Text)
 		case *parse.NumberNode:
 			buf.WriteString(a.String())
 		case *parse.BoolNode:
-			buf.WriteString(fmt.Sprintf("%v", a.True))
+			fmt.Fprintf(&buf, "%v", a.True)
 		case *parse.DotNode:
 			buf.WriteString(".")
 		case *parse.NilNode:

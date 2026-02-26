@@ -30,12 +30,12 @@ type UploadStartResponse struct {
 
 // UploadEntryInfo contains entry ID and validation status.
 type UploadEntryInfo struct {
-	EntryID    string              `json:"entry_id"`              // Server-generated ID for tracking chunks
-	ClientName string              `json:"client_name"`           // Original filename
-	Valid      bool                `json:"valid"`                 // Whether entry passed initial validation
-	Error      string              `json:"error"`                 // Error message if validation failed
-	AutoUpload bool                `json:"auto_upload"`           // Whether to auto-upload on file selection
-	External   *ExternalUploadMeta `json:"external,omitempty"`    // Presigned upload metadata (if External configured)
+	EntryID    string              `json:"entry_id"`           // Server-generated ID for tracking chunks
+	ClientName string              `json:"client_name"`        // Original filename
+	Valid      bool                `json:"valid"`              // Whether entry passed initial validation
+	Error      string              `json:"error"`              // Error message if validation failed
+	AutoUpload bool                `json:"auto_upload"`        // Whether to auto-upload on file selection
+	External   *ExternalUploadMeta `json:"external,omitempty"` // Presigned upload metadata (if External configured)
 }
 
 // ExternalUploadMeta contains presigned upload configuration for external storage.

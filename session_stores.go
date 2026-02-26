@@ -80,13 +80,13 @@ type SingleStoreSetter interface {
 // For multi-instance deployments, use a persistent SessionStore (e.g., Redis).
 type MemorySessionStore struct {
 	groups          map[string]interface{} // groupID → state
-	lastAccess      map[string]time.Time // groupID → last access timestamp
-	mu              sync.RWMutex         // Protects groups and lastAccess
-	cleanupTTL      time.Duration        // Time to live for inactive groups
-	cleanupInterval time.Duration        // How often to run cleanup (default: 1 hour)
-	stopCh          chan struct{}        // Signal to stop cleanup goroutine
-	ctx             context.Context      // Context for cleanup goroutine
-	cancel          context.CancelFunc   // Cancel function for cleanup
+	lastAccess      map[string]time.Time   // groupID → last access timestamp
+	mu              sync.RWMutex           // Protects groups and lastAccess
+	cleanupTTL      time.Duration          // Time to live for inactive groups
+	cleanupInterval time.Duration          // How often to run cleanup (default: 1 hour)
+	stopCh          chan struct{}          // Signal to stop cleanup goroutine
+	ctx             context.Context        // Context for cleanup goroutine
+	cancel          context.CancelFunc     // Cancel function for cleanup
 }
 
 // SessionStoreOption configures MemorySessionStore
@@ -507,6 +507,7 @@ func (s *RedisSessionStore) serializeSingleStore(store interface{}) (string, err
 //   - "s:..." - State-only format (JSON envelope containing only `lvt:"state"` fields)
 //   - "g:..." - Gob format (entire store encoded with gob)
 //   - No prefix - Legacy gob format (backward compatibility)
+//
 // StateData wraps raw state bytes from Redis for later injection.
 // When mount.go encounters this type in Stores, it knows to:
 // 1. Clone the template's original store (which has dependencies)

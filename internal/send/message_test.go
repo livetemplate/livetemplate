@@ -230,11 +230,11 @@ func TestParseActionFromWebSocket_ComplexData(t *testing.T) {
 // TestParseActionFromHTTP_URLEncoded tests parsing URL-encoded form data.
 func TestParseActionFromHTTP_URLEncoded(t *testing.T) {
 	tests := []struct {
-		name         string
-		body         string
-		wantAction   string
-		wantData     map[string]interface{}
-		wantErr      bool
+		name       string
+		body       string
+		wantAction string
+		wantData   map[string]interface{}
+		wantErr    bool
 	}{
 		{
 			name:       "basic form with lvt-action",

@@ -48,7 +48,9 @@ func TestMain(m *testing.M) {
 
 	// Cleanup: close the TypeScript oracle if it was started
 	if globalTSOracle != nil {
-		globalTSOracle.Close()
+		if err := globalTSOracle.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to close TypeScript oracle: %v\n", err)
+		}
 	}
 
 	os.Exit(code)
@@ -410,12 +412,6 @@ func TestCloseAllModalBug_TSOracle(t *testing.T) {
 	if err != nil {
 		t.Errorf("TypeScript oracle error: %v", err)
 		return
-	}
-
-	if response.Tree != nil {
-		if newOracleMap, ok := response.Tree.(map[string]any); ok {
-			oracleTreeMap = newOracleMap
-		}
 	}
 
 	// Compare HTML output - all 6 modal indicators should be present

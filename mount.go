@@ -160,16 +160,16 @@ type LiveHandler interface {
 // mountConfig configures the mount handler (internal only)
 type mountConfig struct {
 	Template               *Template
-	Controller             interface{}          // Singleton controller with dependencies
-	State                  State                // Initial state template (cloned per session)
+	Controller             interface{} // Singleton controller with dependencies
+	State                  State       // Initial state template (cloned per session)
 	Upgrader               *websocket.Upgrader
 	SessionStore           SessionStore
 	Authenticator          Authenticator
-	PubSubBroadcaster      pubsub.Broadcaster   // Optional: for distributed broadcasting across instances
+	PubSubBroadcaster      pubsub.Broadcaster // Optional: for distributed broadcasting across instances
 	AllowedOrigins         []string
 	WebSocketDisabled      bool
-	MaxConnections         int64                // Maximum total connections (0 = unlimited)
-	MaxConnectionsPerGroup int64                // Maximum connections per group (0 = unlimited)
+	MaxConnections         int64                               // Maximum total connections (0 = unlimited)
+	MaxConnectionsPerGroup int64                               // Maximum connections per group (0 = unlimited)
 	CookieMaxAge           time.Duration                       // Session cookie max age (default: 1 year)
 	UploadConfigs          map[string]uploadtypes.UploadConfig // Upload field configurations
 	wsBufferSize           int                                 // WebSocket send buffer size per connection (default: 50)
@@ -183,12 +183,21 @@ type liveHandler struct {
 	limits          *session.ConnectionLimits
 	metricsExporter *observe.PrometheusExporter
 	tempFileManager uploadTempFileManager
+	httpTemplates   sync.Map // groupID → *httpTemplateCacheEntry (cached for HTTP POST diff optimization)
 
 	// Graceful shutdown state
 	shutdownOnce sync.Once
 	shutdownChan chan struct{}
 	shutdownWg   sync.WaitGroup
 	isShutdown   atomic.Bool
+}
+
+// httpTemplateCacheEntry wraps a cached Template with a mutex.
+// Concurrent HTTP requests for the same groupID (e.g., multiple tabs)
+// must serialize template operations to avoid data races on lastTree/lastData.
+type httpTemplateCacheEntry struct {
+	mu   sync.Mutex
+	tmpl *Template
 }
 
 type connState struct {
@@ -812,6 +821,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		isNewSession = true
+		h.httpTemplates.Delete(groupID)
 		slog.Info("Created new session group",
 			slog.String("component", "live_handler"),
 			slog.String("group_id", groupID))
@@ -863,8 +873,43 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Handle GET request for initial HTML page
+	// Handle GET request
 	if r.Method == http.MethodGet {
+		if wantsJSON(r) {
+			// JS client in HTTP mode: return initial tree as JSON
+			httpTmpl, cloneErr := h.config.Template.Clone()
+			if cloneErr != nil {
+				http.Error(w, "Failed to clone template", http.StatusInternalServerError)
+				return
+			}
+
+			var buf bytes.Buffer
+			if err := httpTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getMessages()); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			var tree map[string]any
+			if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			response := UpdateResponse{
+				Tree: tree,
+				Meta: &ResponseMetadata{
+					Success: true,
+				},
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(response); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+			return
+		}
+
+		// Browser: return initial HTML page
 		err := h.config.Template.Execute(w, connSt.state, connSt.getMessages())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -931,12 +976,31 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Persist state after action
 	h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
 
-	// Clone template for HTTP response
-	httpTmpl, err := h.config.Template.Clone()
-	if err != nil {
-		http.Error(w, "Failed to clone template", http.StatusInternalServerError)
-		return
+	// Get or create cached template for this session group.
+	// Unlike WebSocket (which keeps a clone per connection), HTTP needs
+	// a cache keyed by groupID so that subsequent POSTs can produce
+	// diffs against the previous tree instead of full renders.
+	// A per-entry mutex serializes concurrent requests for the same group
+	// (e.g., multiple browser tabs) to avoid data races on template state.
+	var entry *httpTemplateCacheEntry
+	if cached, ok := h.httpTemplates.Load(groupID); ok {
+		entry = cached.(*httpTemplateCacheEntry)
+	} else {
+		cloned, cloneErr := h.config.Template.Clone()
+		if cloneErr != nil {
+			http.Error(w, "Failed to clone template", http.StatusInternalServerError)
+			return
+		}
+		newEntry := &httpTemplateCacheEntry{tmpl: cloned}
+		if existing, loaded := h.httpTemplates.LoadOrStore(groupID, newEntry); loaded {
+			entry = existing.(*httpTemplateCacheEntry)
+		} else {
+			entry = newEntry
+		}
 	}
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	httpTmpl := entry.tmpl
 	httpTmpl.SetUploadRegistry(uploadRegistry)
 
 	// Auto-broadcast to WebSocket connections
@@ -1135,6 +1199,45 @@ func (h *liveHandler) autoBroadcastToGroup(groupID string, data interface{}, exc
 				slog.Int("total_connections", len(conns)))
 		}
 	}()
+}
+
+// httpTemplateSweepLoop periodically removes cached HTTP templates for sessions
+// that no longer exist in the SessionStore. This prevents unbounded memory growth
+// on long-running servers with many ephemeral sessions.
+func (h *liveHandler) httpTemplateSweepLoop() {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-h.shutdownChan:
+			return
+		case <-ticker.C:
+			h.sweepStaleHTTPTemplates()
+		}
+	}
+}
+
+func (h *liveHandler) sweepStaleHTTPTemplates() {
+	activeSessions := make(map[string]struct{})
+	for _, groupID := range h.config.SessionStore.List(context.Background()) {
+		activeSessions[groupID] = struct{}{}
+	}
+
+	var swept int
+	h.httpTemplates.Range(func(key, value any) bool {
+		groupID := key.(string)
+		if _, active := activeSessions[groupID]; !active {
+			h.httpTemplates.Delete(groupID)
+			swept++
+		}
+		return true
+	})
+
+	if swept > 0 {
+		slog.Debug("Swept stale HTTP template cache entries",
+			slog.Int("swept", swept))
+	}
 }
 
 // hasStaticsInTree recursively checks if a tree contains any statics.

@@ -506,12 +506,12 @@ func TestAsState_ComplexNestedState(t *testing.T) {
 
 // testTransientState has a mix of transient and non-transient fields
 type testTransientState struct {
-	SearchQuery   string  `json:"search_query"`                    // Not transient
-	EditingID     string  `json:"editing_id" lvt:"transient"`      // Transient
-	EditingItem   *string `json:"editing_item" lvt:"transient"`    // Transient pointer
-	Counter       int     `json:"counter"`                         // Not transient
-	TransientInt  int     `json:"transient_int" lvt:"transient"`   // Transient int
-	TransientList []int   `json:"transient_list" lvt:"transient"`  // Transient slice
+	SearchQuery   string  `json:"search_query"`                   // Not transient
+	EditingID     string  `json:"editing_id" lvt:"transient"`     // Transient
+	EditingItem   *string `json:"editing_item" lvt:"transient"`   // Transient pointer
+	Counter       int     `json:"counter"`                        // Not transient
+	TransientInt  int     `json:"transient_int" lvt:"transient"`  // Transient int
+	TransientList []int   `json:"transient_list" lvt:"transient"` // Transient slice
 }
 
 func TestClearTransientFields_StructPointer(t *testing.T) {
@@ -714,10 +714,10 @@ func TestClearTransientFields_AllTransientFields(t *testing.T) {
 
 func TestClearTransientFields_MapAndSliceTypes(t *testing.T) {
 	type complexTransientState struct {
-		RegularMap    map[string]int   `json:"regular_map"`
-		TransientMap  map[string]int   `json:"transient_map" lvt:"transient"`
-		RegularSlice  []string         `json:"regular_slice"`
-		TransientSlice []string        `json:"transient_slice" lvt:"transient"`
+		RegularMap     map[string]int `json:"regular_map"`
+		TransientMap   map[string]int `json:"transient_map" lvt:"transient"`
+		RegularSlice   []string       `json:"regular_slice"`
+		TransientSlice []string       `json:"transient_slice" lvt:"transient"`
 	}
 
 	state := &complexTransientState{

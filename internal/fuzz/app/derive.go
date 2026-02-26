@@ -22,9 +22,7 @@ func DeriveFilteredItems(state *AppState) {
 
 	// Start with a copy of all items
 	result := make([]Item, 0, len(state.Items))
-	for _, item := range state.Items {
-		result = append(result, item)
-	}
+	result = append(result, state.Items...)
 
 	// Step 1: Filter by status
 	result = filterByStatus(result, state.Filter)

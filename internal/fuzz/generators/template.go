@@ -10,13 +10,13 @@ import (
 
 // TemplateConfig controls random template generation.
 type TemplateConfig struct {
-	MaxDepth       int      // Maximum nesting depth
-	MaxFields      int      // Maximum number of fields per level
-	MaxRanges      int      // Maximum number of ranges per template
-	MaxConditionals int     // Maximum number of conditionals per template
-	AllowWith      bool     // Allow {{with}} constructs
-	AllowNested    bool     // Allow nested structures (ranges in ranges, etc.)
-	KeyAttributes  []string // Key attribute patterns for range items
+	MaxDepth        int      // Maximum nesting depth
+	MaxFields       int      // Maximum number of fields per level
+	MaxRanges       int      // Maximum number of ranges per template
+	MaxConditionals int      // Maximum number of conditionals per template
+	AllowWith       bool     // Allow {{with}} constructs
+	AllowNested     bool     // Allow nested structures (ranges in ranges, etc.)
+	KeyAttributes   []string // Key attribute patterns for range items
 }
 
 // DefaultTemplateConfig returns a balanced config for general fuzzing.
