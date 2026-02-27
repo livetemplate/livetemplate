@@ -4,6 +4,10 @@ Build interactive web applications in Go using a simplified programming model. W
 
 **[Quick Start](#quick-start)** • **[API Docs](https://pkg.go.dev/github.com/livetemplate/livetemplate)** • **[CLI Tool](https://github.com/livetemplate/lvt)** • **[Examples](https://github.com/livetemplate/examples)**
 
+<p align="center">
+  <img src="assets/demo.svg" alt="LiveTemplate reactive update flow — click a button, server updates state, only changed value sent to browser" width="720">
+</p>
+
 ---
 
 > **ALPHA SOFTWARE**
@@ -14,9 +18,9 @@ Build interactive web applications in Go using a simplified programming model. W
 
 ## A Better Way to Build Interactive Apps
 
-Traditional web development splits your application across two worlds. You write server code in one language, client code in another, then spend your time orchestrating between them - managing REST APIs, synchronizing state, serializing JSON, and manually updating the DOM. Every interactive feature requires wiring code in multiple places.
+Every interactive feature in a traditional web app requires the same ceremony: design a REST endpoint, write a serializer, manage client-side state, update the DOM, and wire it all together. That overhead discourages interactivity — teams leave things static not because they should be, but because the plumbing isn't worth it. As Chris McCord [put it](https://fly.io/blog/how-we-got-to-liveview/) when explaining why he built Phoenix LiveView: conventional frameworks make you "fetch the world, munge it into some format, and shoot it over the wire... then throw all that state away" on every request.
 
-LiveTemplate takes a different approach, inspired by Phoenix LiveView. Your application state lives in Go on the server. When a user clicks a button, LiveTemplate sends the action to your server, you update your Go struct, and the UI updates automatically. No REST endpoints to design, no state synchronization code to write, no manual DOM manipulation.
+LiveView's answer was to keep all state on the server and push rendered updates over a persistent connection — no REST layer, no client-side framework. LiveTemplate brings that approach to Go, but with one major difference: it doesn't require a persistent connection and works equally well over standard HTTP. When a user clicks a button, LiveTemplate calls a method on your Go struct, you update your state, and only what changed is sent back to the browser. No endpoints to design, no JSON to serialize, no client-side state to synchronize.
 
 ```mermaid
 sequenceDiagram
@@ -25,39 +29,59 @@ sequenceDiagram
 
     Browser->>Server: User clicks button<br/>{action: "increment"}
     Note over Server: s.Counter++<br/>(Counter: 5 → 6)
-    Note over Server: Tree diff calculated<br/>{"0": "6"} (50-90% smaller)
+    Note over Server: Tree diff calculated<br/>Only Counter changed → {"0": "6"}
     Server->>Browser: {"0": "6"}
     Note over Browser: DOM updated<br/>Counter: 6
 ```
 
-This works because LiveTemplate uses **tree-based diffing** - a data model that makes updates predictable and efficient. When your state changes, LiveTemplate calculates exactly what changed and sends only that data (50-90% less than full HTML). The same predictable model that enables efficient updates also powers the `lvt` code generator, which can create complete CRUD applications that are reactive by default.
-
 ## Why LiveTemplate?
 
-### 1. Write Server-Side, Get Reactive UIs
+### 1. Reactive UIs in Pure Go
 
-Your templates use familiar Go template syntax with `lvt-*` attributes for interactivity:
+All user-initiated interactions work over plain HTTP — no WebSocket required. The JS client sends actions as standard HTTP requests and patches the DOM with the response. WebSocket is only needed when the *server* needs to push updates unprompted (e.g., notifying other users in a chat room). Unlike Phoenix LiveView, which requires a persistent connection for all interactions, LiveTemplate treats WebSocket as an optional upgrade for broadcast scenarios only.
+
+This extends to progressive enhancement at the HTML level too: standard forms work without any JavaScript at all. Add the JS client and those same forms get in-place DOM patching instead of full page reloads. For more granular interactions (click, keydown, focus), add `lvt-*` attributes.
+
+A form that works both ways ([full example](https://github.com/livetemplate/examples/tree/main/progressive-enhancement)):
+
+```html
+<form method="POST" lvt-submit="add">
+    <input type="hidden" name="lvt-action" value="add">
+    <input type="text" name="title" placeholder="What needs to be done?">
+    <button type="submit">Add Todo</button>
+</form>
+```
+
+Without JS, `method="POST"` and the `lvt-action` hidden field handle the submission with a full page reload. With the JS client loaded, `lvt-submit` intercepts the submission and patches the DOM in place — same form, both paths.
+
+The Go handler is the same either way:
+
+```go
+func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    state.Items = append(state.Items, Todo{Title: ctx.GetString("title")})
+    return state, nil
+}
+```
+
+For interactions that don't map to form submissions, use `lvt-*` attributes:
 
 ```html
 <h1>Counter: {{.Counter}}</h1>
 <button lvt-click="increment">+</button>
 ```
 
-Handle the action in Go:
-
 ```go
-// Action "increment" maps to method Increment()
 func (c *CounterController) Increment(state CounterState, ctx *livetemplate.Context) (CounterState, error) {
     state.Counter++
     return state, nil
 }
 ```
 
-That's it. No client code needed. The UI updates automatically when `Counter` changes.
+Your existing Go toolchain, testing infrastructure, and deployment pipeline all work as-is. See the full [counter](https://github.com/livetemplate/examples/tree/main/counter) and [todos](https://github.com/livetemplate/examples/tree/main/todos) examples.
 
 ### 2. Generate Complete Apps Instantly
 
-Because the tree-based model is predictable, code generation works reliably. The `lvt` CLI generates complete CRUD applications - forms, tables, validation, database integration - all reactive by default:
+The `lvt` CLI generates complete CRUD applications — forms, tables, validation, database integration — all reactive by default:
 
 ```bash
 lvt new myapp
@@ -66,27 +90,55 @@ lvt gen products name price:float stock:int
 lvt serve
 ```
 
-Generated code inherits the reactive programming model. No glue code, no manual wiring.
+Code generation works reliably because templates have a predictable static/dynamic structure. Generated code inherits the reactive programming model. No glue code, no manual wiring. Pluggable CSS kits (Tailwind, Bulma, Pico, or plain HTML) let you match your team's preferred styling approach.
 
-### 3. Efficient by Design
+### 3. Safe State Management
 
-Tree-based diffing sends only what changed:
+LiveTemplate separates **controllers** (singleton, holds dependencies) from **state** (pure data, cloned per session). This prevents a class of bugs where session-specific data like OAuth tokens or caches accidentally leaks between users:
+
+```go
+// Controller: Singleton, holds shared dependencies — never cloned
+type TodoController struct {
+    DB     *sql.DB
+    Logger *slog.Logger
+}
+
+// State: Pure data, cloned per session — must be serializable
+type TodoState struct {
+    Items  []Todo
+    Filter string
+}
+
+func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    todo := Todo{Title: ctx.GetString("title")}
+    // c.DB is a dependency on the controller, not in cloned state
+    c.DB.Create(&todo)
+    state.Items = append(state.Items, todo)
+    return state, nil
+}
+```
+
+The separation is enforced at the API level: `tmpl.Handle(controller, livetemplate.AsState(state))`. Convention and the `AssertPureState[T]()` test helper catch accidental dependency leakage. See the [chat example](https://github.com/livetemplate/examples/tree/main/chat) for a multi-user app using this pattern with broadcasting.
+
+### 4. Efficient by Design
+
+LiveTemplate separates your template into static HTML (the parts that never change) and dynamic values (the parts that do). On first render, the client receives and caches the full structure:
 
 ```json
-// First render: Full tree
 {"s": ["<div>Counter: ", "</div>"], "0": "5"}
+```
 
-// Updates: Only changed values
+When the counter changes from 5 to 6, only the new value is sent:
+
+```json
 {"0": "6"}
 ```
 
-Static HTML is cached client-side. Updates are 50-90% smaller than traditional approaches.
+No re-rendered HTML, no string diffing — just the single value that changed. For typical pages with lots of markup and few changing values, this means **50-90% less data** than sending full HTML. This optimization works over both plain HTTP and WebSocket — the server tracks tree state per session, so subsequent actions always send minimal diffs regardless of transport. This is the same static/dynamic split that [Phoenix LiveView uses](https://hexdocs.pm/phoenix_live_view/Phoenix.LiveView.html) — a proven approach to minimizing wire traffic.
 
-### 4. Idiomatic Go Error Handling
+### 5. Idiomatic Go Error Handling
 
-Errors flow naturally using Go's familiar error handling patterns. Just return an error and LiveTemplate automatically displays it in your template:
-
-**Server (familiar Go code):**
+Errors flow naturally using Go's familiar patterns. Return an error and LiveTemplate automatically displays it in your template:
 
 ```go
 func (c *AuthController) Signup(state AuthState, ctx *livetemplate.Context) (AuthState, error) {
@@ -104,8 +156,6 @@ func (c *AuthController) Signup(state AuthState, ctx *livetemplate.Context) (Aut
 }
 ```
 
-**Template (automatic error display):**
-
 ```html
 <input name="username" {{if .lvt.HasError "username"}}aria-invalid="true"{{end}}>
 {{if .lvt.HasError "username"}}
@@ -113,7 +163,24 @@ func (c *AuthController) Signup(state AuthState, ctx *livetemplate.Context) (Aut
 {{end}}
 ```
 
-When you return a `FieldError` from Go, LiveTemplate automatically makes it available in your templates via `.lvt.HasError` and `.lvt.Error` helpers. No error serialization code. No client-side error state management.
+No error serialization code. No client-side error state management. Actions return `(State, error)` — the standard Go signature.
+
+## Current Limitations
+
+LiveTemplate is inspired by [Phoenix LiveView](https://hexdocs.pm/phoenix_live_view) but doesn't yet cover its full feature set. Here's what's missing:
+
+| Feature | LiveView | LiveTemplate | Notes |
+|---------|----------|--------------|-------|
+| **Live Navigation** | `push_navigate`, `push_patch` | Not yet | LiveView updates the URL and swaps page sections without a full reload. LiveTemplate requires full page navigation. |
+| **Stateful Components** | `LiveComponent` with own lifecycle | Stateless templates only | LiveView components have isolated state, events, and lifecycle hooks. LiveTemplate has `{{template}}` invocations but no component-level state or event handling. |
+| **Streams** | `stream/3` for large lists | Not yet | LiveView streams handle large/infinite lists without keeping all items in server memory. LiveTemplate keeps all state in memory. |
+| **JS Commands** | `JS.push`, `JS.toggle`, `JS.show` | Partial | LiveView has composable server-defined JS command chains. LiveTemplate's [reactive attributes](docs/references/client-attributes.md) cover common cases (disable, add/remove class, set attribute) but aren't as flexible. |
+| **Client Hooks** | `phx-hook` lifecycle callbacks | Not yet | LiveView hooks let you integrate third-party JS libraries (charts, maps, editors) with mounted/updated/destroyed callbacks. |
+| **Presence** | `Phoenix.Presence` | Not built-in | LiveView has built-in distributed presence tracking ("who's online"). Can be built on LiveTemplate's session stores but requires manual implementation. |
+| **Testing Helpers** | `live/2`, `render_click/3` | Minimal | LiveView provides a full test DSL for simulating user interactions without a browser. LiveTemplate has `AssertPureState` but no view-level test helpers yet. |
+| **Form Recovery** | Automatic on reconnect | Not yet | LiveView restores form inputs automatically after a WebSocket reconnection. |
+
+Some of these are on the roadmap. If a missing feature is blocking your project, [open an issue](https://github.com/livetemplate/livetemplate/issues) — it helps us prioritize.
 
 ## Quick Start
 
@@ -175,8 +242,8 @@ That's it! Click buttons and watch the counter update automatically.
 ## How It Works
 
 ```
-User clicks button → Server updates state → Template renders →
-Tree diff calculates changes → Client receives minimal update → DOM updates
+User clicks button → Server updates state → Template re-renders →
+Only changed values sent → Client patches the DOM
 ```
 
 1. Define your **State** as a Go struct (pure data, cloned per session)
@@ -185,7 +252,7 @@ Tree diff calculates changes → Client receives minimal update → DOM updates
 4. Use standard Go templates with `lvt-*` attributes
 5. LiveTemplate automatically syncs state to UI
 
-All interactive features work over HTTP. WebSocket is optional, required only for server-initiated broadcasts (e.g., multi-user chat notifications).
+All interactive features — including efficient tree-based diffs — work over plain HTTP. WebSocket is optional, required only for server-initiated broadcasts (e.g., multi-user chat notifications).
 
 ## Performance
 
@@ -204,8 +271,8 @@ LiveTemplate is designed for high-performance reactive updates with minimal band
 
 ### How It Works
 
-1. **First Render:** Full HTML + tree structure with static/dynamic separation
-2. **Subsequent Updates:** Only changed values (statics cached client-side)
+1. **First Render:** Full HTML sent; client caches the static parts
+2. **Subsequent Updates:** Only changed values sent (static HTML already cached)
 3. **Result:** 85%+ bandwidth savings, sub-millisecond latency
 
 ### Running Benchmarks
@@ -268,5 +335,3 @@ MIT License - see [LICENSE](LICENSE) file for details.
 ---
 
 **Built with LiveTemplate?** Share your project in [GitHub Discussions](https://github.com/livetemplate/livetemplate/discussions).
-
-Inspired by [Phoenix LiveView](https://hexdocs.pm/phoenix_live_view).
