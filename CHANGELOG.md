@@ -6,8 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<a name="v0.8.3"></a>
+## [v0.8.3] - 2026-02-27
+
+### Bug Fixes
+
+- skip npm tests in pre-commit when client/ directory is absent
+- cache HTTP templates per session to enable diff optimization ([#134](https://github.com/livefir/livetemplate/issues/134))
+- add component attribute to all remaining slog calls ([#132](https://github.com/livefir/livetemplate/issues/132))
+- slog cleanup — error handling, formatting, and component attributes ([#130](https://github.com/livefir/livetemplate/issues/130))
+- enable burst mutation fuzz tests and fix KeyStability invariant ([#118](https://github.com/livefir/livetemplate/issues/118))
+- handle complex insertion patterns in range differential operations ([#113](https://github.com/livefir/livetemplate/issues/113))
+
+### Code Refactoring
+
+- migrate log.Printf to structured slog logging ([#100](https://github.com/livefir/livetemplate/issues/100)) ([#123](https://github.com/livefir/livetemplate/issues/123))
+
+### Documentation
+
+- document auto-key behavioral change in release notes ([#121](https://github.com/livefir/livetemplate/issues/121))
+- document fingerprint-based diff architecture ([#120](https://github.com/livefir/livetemplate/issues/120))
+
+
 <a name="v0.8.2"></a>
-## [v0.8.2] - 2026-02-01
+## [v0.8.2] - 2026-02-02
 
 ### Features
 
@@ -27,10 +49,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - auto-generated keys for range items without explicit key attribute ([#108](https://github.com/livefir/livetemplate/issues/108))
 - progressive enhancement support for non-JS form submissions ([#102](https://github.com/livefir/livetemplate/issues/102))
-
-### Behavioral Changes
-
-- **Auto-key generation for range items**: Items in `{{range}}` blocks without an explicit `data-key` attribute now use content-based hash keys instead of the value at position 0. Previously, all items sharing the same position-0 value (e.g., a CSS class like `"active"`) received identical keys, causing incorrect update, remove, and reorder operations. After this change, each item receives a unique key derived from its full content. Existing apps that rely on explicit `data-key` attributes are unaffected. Apps without explicit keys may see different (correct) diffing behavior on upgrade. To opt into stable, predictable keys, add explicit `data-key` attributes to your range items. ([#108](https://github.com/livefir/livetemplate/issues/108))
 
 
 <a name="v0.8.0"></a>
@@ -467,7 +485,8 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.2...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.3...HEAD
+[v0.8.3]: https://github.com/livefir/livetemplate/compare/v0.8.2...v0.8.3
 [v0.8.2]: https://github.com/livefir/livetemplate/compare/v0.8.1...v0.8.2
 [v0.8.1]: https://github.com/livefir/livetemplate/compare/v0.8.0...v0.8.1
 [v0.8.0]: https://github.com/livefir/livetemplate/compare/v0.7.12...v0.8.0
