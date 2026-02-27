@@ -115,15 +115,19 @@ else
 fi
 
 # Step 3: Run npm tests (client library)
-echo "🧪 Running npm tests..."
-cd client
-if npm test; then
-    echo "✅ Client tests passed"
-    cd ..
+if [ -d "client" ]; then
+    echo "🧪 Running npm tests..."
+    cd client
+    if npm test; then
+        echo "✅ Client tests passed"
+        cd ..
+    else
+        echo "❌ Client tests failed - commit blocked"
+        cd ..
+        exit 1
+    fi
 else
-    echo "❌ Client tests failed - commit blocked"
-    cd ..
-    exit 1
+    echo "⏭️  Skipping npm tests (client/ directory not found)"
 fi
 
 # Step 4: Run all Go tests with increased timeout for slow e2e tests
