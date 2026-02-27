@@ -293,10 +293,19 @@ func TestProgressiveEnhancement_NonJSFormSuccess(t *testing.T) {
 		t.Errorf("Expected status 303, got %d", rec.Code)
 	}
 
-	// Should have Location header with flash message
+	// Location should be clean (no flash params in URL)
 	location := rec.Header().Get("Location")
-	if !strings.Contains(location, "success=") {
-		t.Errorf("Expected flash message in redirect URL, got: %s", location)
+	if strings.Contains(location, "success=") {
+		t.Errorf("Flash message should NOT be in redirect URL, got: %s", location)
+	}
+
+	// Flash should be in Set-Cookie header
+	flashCookie := extractFlashCookie(rec)
+	if flashCookie == nil {
+		t.Fatal("Expected lvt-flash cookie to be set")
+	}
+	if !strings.Contains(flashCookie.Value, "success=") {
+		t.Errorf("Expected 'success=' in flash cookie value, got: %s", flashCookie.Value)
 	}
 }
 
@@ -371,6 +380,67 @@ func TestProgressiveEnhancement_Disabled(t *testing.T) {
 	}
 }
 
+func TestProgressiveEnhancement_FlashCookieConsumed(t *testing.T) {
+	tmpl, err := New("test")
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse(`<div>{{if .lvt.HasFlash "success"}}<p class="flash">{{.lvt.Flash "success"}}</p>{{end}}{{range .Items}}<p>{{.}}</p>{{end}}</div>`)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	handler := tmpl.Handle(&peTestController{}, AsState(&peTestState{}))
+
+	// Step 1: POST to trigger action and get flash cookie
+	form := url.Values{}
+	form.Set("lvt-action", "Add")
+	form.Set("title", "Cookie test")
+
+	req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("Expected 303 redirect, got %d", rec.Code)
+	}
+
+	sessionCookie := extractSessionCookie(rec)
+	flashCookie := extractFlashCookie(rec)
+	if flashCookie == nil {
+		t.Fatal("Expected lvt-flash cookie in POST response")
+	}
+
+	// Step 2: Follow redirect GET with flash cookie
+	req = httptest.NewRequest("GET", rec.Header().Get("Location"), nil)
+	if sessionCookie != nil {
+		req.AddCookie(sessionCookie)
+	}
+	req.AddCookie(flashCookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "Added: Cookie test") {
+		t.Errorf("Expected flash message in rendered HTML, got: %s", body)
+	}
+
+	// Step 3: Verify cookie was cleared (MaxAge=-1)
+	clearCookie := extractFlashCookie(rec)
+	if clearCookie == nil {
+		t.Fatal("Expected lvt-flash cookie to be cleared in GET response")
+	}
+	if clearCookie.MaxAge != -1 {
+		t.Errorf("Expected MaxAge=-1 to clear cookie, got %d", clearCookie.MaxAge)
+	}
+}
+
 // ============================================================================
 // WebSocket Disabled Mode Tests
 // ============================================================================
@@ -407,6 +477,15 @@ func (c *wsDisabledController) Increment(state wsDisabledState, ctx *Context) (w
 func extractSessionCookie(rec *httptest.ResponseRecorder) *http.Cookie {
 	for _, c := range rec.Result().Cookies() {
 		if c.Name == "livetemplate-id" {
+			return c
+		}
+	}
+	return nil
+}
+
+func extractFlashCookie(rec *httptest.ResponseRecorder) *http.Cookie {
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == "lvt-flash" {
 			return c
 		}
 	}
@@ -567,9 +646,19 @@ func TestWebSocketDisabled_POSTActionSuccess(t *testing.T) {
 		t.Errorf("Expected status 303, got %d", rec.Code)
 	}
 
+	// Location should be clean (no flash params)
 	location := rec.Header().Get("Location")
-	if !strings.Contains(location, "success=") {
-		t.Errorf("Expected flash message in redirect URL, got: %s", location)
+	if strings.Contains(location, "success=") {
+		t.Errorf("Flash message should NOT be in redirect URL, got: %s", location)
+	}
+
+	// Flash should be in cookie
+	flashCookie := extractFlashCookie(rec)
+	if flashCookie == nil {
+		t.Fatal("Expected lvt-flash cookie to be set")
+	}
+	if !strings.Contains(flashCookie.Value, "success=") {
+		t.Errorf("Expected 'success=' in flash cookie value, got: %s", flashCookie.Value)
 	}
 }
 
