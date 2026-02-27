@@ -132,7 +132,7 @@ When the counter changes from 5 to 6, only the new value is sent:
 {"0": "6"}
 ```
 
-No re-rendered HTML, no string diffing — just the single value that changed. For typical pages with lots of markup and few changing values, this means **50-90% less data** than sending full HTML. This is the same static/dynamic split that [Phoenix LiveView uses](https://hexdocs.pm/phoenix_live_view/Phoenix.LiveView.html) — a proven approach to minimizing wire traffic.
+No re-rendered HTML, no string diffing — just the single value that changed. For typical pages with lots of markup and few changing values, this means **50-90% less data** than sending full HTML. This optimization works over both plain HTTP and WebSocket — the server tracks tree state per session, so subsequent actions always send minimal diffs regardless of transport. This is the same static/dynamic split that [Phoenix LiveView uses](https://hexdocs.pm/phoenix_live_view/Phoenix.LiveView.html) — a proven approach to minimizing wire traffic.
 
 ### 5. Idiomatic Go Patterns
 
@@ -250,7 +250,7 @@ Only changed values sent → Client patches the DOM
 4. Use standard Go templates with `lvt-*` attributes
 5. LiveTemplate automatically syncs state to UI
 
-All interactive features work over HTTP. WebSocket is optional, required only for server-initiated broadcasts (e.g., multi-user chat notifications).
+All interactive features — including efficient tree-based diffs — work over plain HTTP. WebSocket is optional, required only for server-initiated broadcasts (e.g., multi-user chat notifications).
 
 ## Performance
 
