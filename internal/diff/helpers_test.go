@@ -1082,7 +1082,7 @@ func TestGetItemKey_FallbackToHash(t *testing.T) {
 					}
 					// Verify it's a valid hex string
 					for _, c := range key {
-						if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+						if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 							t.Errorf("Item %d: Hash key contains non-hex char: %s", i, key)
 							break
 						}
@@ -1123,7 +1123,7 @@ func TestGetItemKey_SamePosition0DifferentContent(t *testing.T) {
 	}
 	item3 := &TreeNode{
 		Dynamics: map[string]interface{}{
-			"0": "",       // Different CSS class (empty)
+			"0": "", // Different CSS class (empty)
 			"1": "Charlie",
 		},
 	}

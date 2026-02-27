@@ -3350,7 +3350,7 @@ func reconstructHTML(tree *build.TreeNode) string {
 						if nestedTree, ok := val.(*build.TreeNode); ok {
 							result.WriteString(reconstructHTML(nestedTree))
 						} else {
-							result.WriteString(fmt.Sprintf("%v", val))
+							fmt.Fprintf(&result, "%v", val)
 						}
 					}
 				}
@@ -3373,7 +3373,7 @@ func reconstructHTML(tree *build.TreeNode) string {
 				if nestedTree, ok := val.(*build.TreeNode); ok {
 					result.WriteString(reconstructHTML(nestedTree))
 				} else {
-					result.WriteString(fmt.Sprintf("%v", val))
+					fmt.Fprintf(&result, "%v", val)
 				}
 			}
 		}

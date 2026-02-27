@@ -1,6 +1,7 @@
 package livetemplate
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -367,5 +368,739 @@ func TestProgressiveEnhancement_Disabled(t *testing.T) {
 	contentType := rec.Header().Get("Content-Type")
 	if !strings.Contains(contentType, "application/json") {
 		t.Errorf("Expected Content-Type application/json when PE disabled, got %s", contentType)
+	}
+}
+
+// ============================================================================
+// WebSocket Disabled Mode Tests
+// ============================================================================
+
+type wsDisabledState struct {
+	Count   int
+	Items   []string
+	Message string
+}
+
+type wsDisabledController struct{}
+
+func (c *wsDisabledController) Mount(state wsDisabledState, ctx *Context) (wsDisabledState, error) {
+	state.Message = "mounted"
+	return state, nil
+}
+
+func (c *wsDisabledController) Add(state wsDisabledState, ctx *Context) (wsDisabledState, error) {
+	title := ctx.GetString("title")
+	if title == "" {
+		return state, NewFieldError("title", errors.New("Title is required"))
+	}
+	state.Items = append(state.Items, title)
+	state.Count++
+	ctx.SetFlash("success", "Added: "+title)
+	return state, nil
+}
+
+func (c *wsDisabledController) Increment(state wsDisabledState, ctx *Context) (wsDisabledState, error) {
+	state.Count++
+	return state, nil
+}
+
+func extractSessionCookie(rec *httptest.ResponseRecorder) *http.Cookie {
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == "livetemplate-id" {
+			return c
+		}
+	}
+	return nil
+}
+
+func newWSDisabledHandler(t *testing.T, opts ...Option) LiveHandler {
+	t.Helper()
+	baseOpts := []Option{WithWebSocketDisabled()}
+	baseOpts = append(baseOpts, opts...)
+	tmpl, err := New("test", baseOpts...)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse(`<div>Count: {{.Count}}{{if .Message}} Message: {{.Message}}{{end}}{{range .Items}} Item: {{.}}{{end}}{{if .lvt.HasError "title"}} Error: {{.lvt.Error "title"}}{{end}}</div>`)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	return tmpl.Handle(&wsDisabledController{}, AsState(&wsDisabledState{}))
+}
+
+func TestWebSocketDisabled_ResponseHeader(t *testing.T) {
+	tests := []struct {
+		name           string
+		wsDisabled     bool
+		method         string
+		expectedHeader string
+	}{
+		{"enabled", false, "GET", "enabled"},
+		{"disabled GET", true, "GET", "disabled"},
+		{"disabled POST", true, "POST", "disabled"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var opts []Option
+			if tt.wsDisabled {
+				opts = append(opts, WithWebSocketDisabled())
+			}
+			tmpl, err := New("test", opts...)
+			if err != nil {
+				t.Fatalf("New failed: %v", err)
+			}
+			tmpl, err = tmpl.Parse("<div>{{.Count}}</div>")
+			if err != nil {
+				t.Fatalf("Parse failed: %v", err)
+			}
+
+			handler := tmpl.Handle(&wsDisabledController{}, AsState(&wsDisabledState{}))
+
+			var req *http.Request
+			if tt.method == "POST" {
+				form := url.Values{}
+				form.Set("lvt-action", "Increment")
+				req = httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				req.Header.Set("Accept", "application/json")
+			} else {
+				req = httptest.NewRequest("GET", "/", nil)
+			}
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			got := rec.Header().Get("X-LiveTemplate-WebSocket")
+			if got != tt.expectedHeader {
+				t.Errorf("X-LiveTemplate-WebSocket = %q, want %q", got, tt.expectedHeader)
+			}
+		})
+	}
+}
+
+func TestWebSocketDisabled_UpgradeRejected(t *testing.T) {
+	handler := newWSDisabledHandler(t)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("Expected status 400, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "WebSocket is disabled") {
+		t.Errorf("Expected 'WebSocket is disabled' in body, got: %s", body)
+	}
+}
+
+func TestWebSocketDisabled_GETRendersHTML(t *testing.T) {
+	tmpl, err := New("test", WithWebSocketDisabled())
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>Count: {{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	handler := tmpl.Handle(&wsDisabledController{}, AsState(&wsDisabledState{Count: 42}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "Count: 42") {
+		t.Errorf("Expected 'Count: 42' in body, got: %s", body)
+	}
+	if !strings.Contains(body, "<div") {
+		t.Errorf("Expected HTML content, got: %s", body)
+	}
+}
+
+func TestWebSocketDisabled_GETCallsMount(t *testing.T) {
+	handler := newWSDisabledHandler(t)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "Message: mounted") {
+		t.Errorf("Expected 'Message: mounted' in body (Mount should be called), got: %s", body)
+	}
+}
+
+func TestWebSocketDisabled_POSTActionSuccess(t *testing.T) {
+	handler := newWSDisabledHandler(t)
+
+	form := url.Values{}
+	form.Set("lvt-action", "Add")
+	form.Set("title", "Test item")
+
+	req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Errorf("Expected status 303, got %d", rec.Code)
+	}
+
+	location := rec.Header().Get("Location")
+	if !strings.Contains(location, "success=") {
+		t.Errorf("Expected flash message in redirect URL, got: %s", location)
+	}
+}
+
+func TestWebSocketDisabled_POSTValidationError(t *testing.T) {
+	handler := newWSDisabledHandler(t)
+
+	form := url.Values{}
+	form.Set("lvt-action", "Add")
+	form.Set("title", "")
+
+	req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "Title is required") {
+		t.Errorf("Expected 'Title is required' in body, got: %s", body)
+	}
+}
+
+func TestWebSocketDisabled_POSTReturnsJSONForJSClient(t *testing.T) {
+	handler := newWSDisabledHandler(t)
+
+	form := url.Values{}
+	form.Set("lvt-action", "Increment")
+
+	req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+
+	contentType := rec.Header().Get("Content-Type")
+	if !strings.Contains(contentType, "application/json") {
+		t.Errorf("Expected Content-Type application/json, got %s", contentType)
+	}
+
+	var response map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("Failed to decode JSON response: %v", err)
+	}
+
+	if _, ok := response["tree"]; !ok {
+		t.Error("Expected 'tree' key in JSON response")
+	}
+}
+
+func TestWebSocketDisabled_StatePersistsAcrossRequests(t *testing.T) {
+	handler := newWSDisabledHandler(t)
+
+	// Step 1: GET to create session
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	cookie := extractSessionCookie(rec)
+	if cookie == nil {
+		t.Fatal("Expected session cookie to be set")
+	}
+
+	// Step 2: POST with cookie (Increment)
+	form := url.Values{}
+	form.Set("lvt-action", "Increment")
+	req = httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html")
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	// Step 3: GET with same cookie to verify state persists
+	req = httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "Count: 1") {
+		t.Errorf("Expected 'Count: 1' after increment, got: %s", body)
+	}
+}
+
+func TestWebSocketDisabled_SessionIsolation(t *testing.T) {
+	handler := newWSDisabledHandler(t)
+
+	// Session A: GET to create session
+	reqA := httptest.NewRequest("GET", "/", nil)
+	recA := httptest.NewRecorder()
+	handler.ServeHTTP(recA, reqA)
+	cookieA := extractSessionCookie(recA)
+	if cookieA == nil {
+		t.Fatal("Expected session cookie for session A")
+	}
+
+	// Session A: POST Increment
+	form := url.Values{}
+	form.Set("lvt-action", "Increment")
+	reqA = httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+	reqA.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	reqA.Header.Set("Accept", "text/html")
+	reqA.AddCookie(cookieA)
+	recA = httptest.NewRecorder()
+	handler.ServeHTTP(recA, reqA)
+
+	// Session B: GET (no cookie → new session)
+	reqB := httptest.NewRequest("GET", "/", nil)
+	recB := httptest.NewRecorder()
+	handler.ServeHTTP(recB, reqB)
+
+	bodyB := recB.Body.String()
+	if !strings.Contains(bodyB, "Count: 0") {
+		t.Errorf("Session B should have Count: 0, got: %s", bodyB)
+	}
+
+	// Session A: GET to verify count is still 1
+	reqA = httptest.NewRequest("GET", "/", nil)
+	reqA.AddCookie(cookieA)
+	recA = httptest.NewRecorder()
+	handler.ServeHTTP(recA, reqA)
+
+	bodyA := recA.Body.String()
+	if !strings.Contains(bodyA, "Count: 1") {
+		t.Errorf("Session A should have Count: 1, got: %s", bodyA)
+	}
+}
+
+func TestWebSocketDisabled_WithPEDisabled(t *testing.T) {
+	handler := newWSDisabledHandler(t, WithProgressiveEnhancement(false))
+
+	form := url.Values{}
+	form.Set("lvt-action", "Increment")
+
+	req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+
+	contentType := rec.Header().Get("Content-Type")
+	if !strings.Contains(contentType, "application/json") {
+		t.Errorf("Expected Content-Type application/json when PE disabled, got %s", contentType)
+	}
+}
+
+func TestWebSocketDisabled_DiffOptimization(t *testing.T) {
+	handler := newWSDisabledHandler(t)
+
+	// Step 1: GET to create session
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	cookie := extractSessionCookie(rec)
+	if cookie == nil {
+		t.Fatal("Expected session cookie to be set")
+	}
+
+	// Step 2: First POST — should include statics ("s" key) since it's the
+	// first time the cached HTTP template renders via ExecuteUpdates
+	form := url.Values{}
+	form.Set("lvt-action", "Increment")
+	req = httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("First POST: expected status 200, got %d", rec.Code)
+	}
+
+	var firstResp map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&firstResp); err != nil {
+		t.Fatalf("First POST: failed to decode JSON: %v", err)
+	}
+
+	firstTree, ok := firstResp["tree"].(map[string]interface{})
+	if !ok {
+		t.Fatal("First POST: expected 'tree' to be an object")
+	}
+
+	if !hasStaticsInTree(firstTree) {
+		t.Error("First POST: expected statics ('s' key) in tree for initial render")
+	}
+
+	// Step 3: Second POST — should NOT include statics (diff only)
+	form = url.Values{}
+	form.Set("lvt-action", "Increment")
+	req = httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Second POST: expected status 200, got %d", rec.Code)
+	}
+
+	var secondResp map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&secondResp); err != nil {
+		t.Fatalf("Second POST: failed to decode JSON: %v", err)
+	}
+
+	secondTree, ok := secondResp["tree"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Second POST: expected 'tree' to be an object")
+	}
+
+	if hasStaticsInTree(secondTree) {
+		t.Error("Second POST: expected NO statics in tree (diff optimization); got statics — this means the HTTP template cache is not working")
+	}
+}
+
+func TestWebSocketDisabled_GETReturnsJSONForJSClient(t *testing.T) {
+	handler := newWSDisabledHandler(t)
+
+	// GET HTML first to create session
+	getReq := httptest.NewRequest("GET", "/", nil)
+	getReq.Header.Set("Accept", "text/html")
+	getW := httptest.NewRecorder()
+	handler.ServeHTTP(getW, getReq)
+	cookie := extractSessionCookie(getW)
+
+	// GET with Accept: application/json (like the JS client in HTTP mode)
+	jsonReq := httptest.NewRequest("GET", "/", nil)
+	jsonReq.Header.Set("Accept", "application/json")
+	if cookie != nil {
+		jsonReq.AddCookie(cookie)
+	}
+	jsonW := httptest.NewRecorder()
+	handler.ServeHTTP(jsonW, jsonReq)
+
+	if jsonW.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", jsonW.Code)
+	}
+
+	ct := jsonW.Header().Get("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		t.Fatalf("Expected Content-Type application/json, got %q", ct)
+	}
+
+	var resp struct {
+		Tree map[string]any `json:"tree"`
+		Meta *struct {
+			Success bool `json:"success"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(jsonW.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Failed to unmarshal JSON response: %v", err)
+	}
+
+	if resp.Tree == nil {
+		t.Fatal("Expected tree in JSON response")
+	}
+	if resp.Meta == nil || !resp.Meta.Success {
+		t.Fatal("Expected meta.success=true in JSON response")
+	}
+}
+
+func TestWebSocketDisabled_MultiTabDiffCorrectness(t *testing.T) {
+	handler := newWSDisabledHandler(t)
+
+	// Create a session via GET
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	cookie := extractSessionCookie(rec)
+	if cookie == nil {
+		t.Fatal("Expected session cookie")
+	}
+
+	// Tab A: POST Increment (first action — response includes statics)
+	postWithCookie := func(action string) *httptest.ResponseRecorder {
+		form := url.Values{}
+		form.Set("lvt-action", action)
+		r := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("Accept", "application/json")
+		r.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+
+	recA1 := postWithCookie("Increment")
+	if recA1.Code != http.StatusOK {
+		t.Fatalf("Tab A first POST: expected 200, got %d", recA1.Code)
+	}
+
+	// Tab B: POST Increment (same session, simulating second tab)
+	// Should still return a valid tree (diff against Tab A's last state)
+	recB1 := postWithCookie("Increment")
+	if recB1.Code != http.StatusOK {
+		t.Fatalf("Tab B POST: expected 200, got %d", recB1.Code)
+	}
+
+	var respB map[string]interface{}
+	if err := json.NewDecoder(recB1.Body).Decode(&respB); err != nil {
+		t.Fatalf("Tab B: failed to decode JSON: %v", err)
+	}
+
+	tree, ok := respB["tree"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Tab B: expected 'tree' object in response")
+	}
+
+	// The response must be valid JSON with a tree — regardless of whether
+	// it contains statics or not. In HTTP mode, tabs share diff state via
+	// a per-groupID cache. The serialized mutex ensures no data races.
+	// The client handles both full trees and diffs correctly.
+	if len(tree) == 0 {
+		t.Error("Tab B: expected non-empty tree")
+	}
+
+	meta, ok := respB["meta"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Tab B: expected 'meta' object in response")
+	}
+	if success, _ := meta["success"].(bool); !success {
+		t.Error("Tab B: expected meta.success=true")
+	}
+
+	// Tab A: POST again — should still produce a valid diff
+	recA2 := postWithCookie("Increment")
+	if recA2.Code != http.StatusOK {
+		t.Fatalf("Tab A second POST: expected 200, got %d", recA2.Code)
+	}
+
+	var respA2 map[string]interface{}
+	if err := json.NewDecoder(recA2.Body).Decode(&respA2); err != nil {
+		t.Fatalf("Tab A second POST: failed to decode JSON: %v", err)
+	}
+	if _, ok := respA2["tree"].(map[string]interface{}); !ok {
+		t.Fatal("Tab A second POST: expected 'tree' object")
+	}
+}
+
+// ============================================================================
+// HTTP Template Cache Sweep Tests
+// ============================================================================
+
+func TestHTTPTemplateSweep_CleansStaleEntries(t *testing.T) {
+	tmpl, err := New("test", WithWebSocketDisabled())
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	store := NewMemorySessionStore()
+	handler := tmpl.Handle(&wsDisabledController{}, AsState(&wsDisabledState{}), WithStore(store))
+
+	lh := handler.(*liveHandler)
+
+	// Step 1: GET to create session
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	cookie := extractSessionCookie(rec)
+	if cookie == nil {
+		t.Fatal("Expected session cookie")
+	}
+
+	// Step 2: POST to populate httpTemplates cache
+	form := url.Values{}
+	form.Set("lvt-action", "Increment")
+	req = httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	// Verify cache entry exists
+	if _, ok := lh.httpTemplates.Load(cookie.Value); !ok {
+		t.Fatal("Expected httpTemplates cache entry after POST")
+	}
+
+	// Step 3: Delete session from store (simulates expiry)
+	store.Delete(t.Context(), cookie.Value)
+
+	// Step 4: Run sweep
+	lh.sweepStaleHTTPTemplates()
+
+	// Step 5: Verify cache entry was cleaned up
+	if _, ok := lh.httpTemplates.Load(cookie.Value); ok {
+		t.Error("Expected httpTemplates cache entry to be swept after session deletion")
+	}
+}
+
+func TestHTTPTemplateSweep_PreservesActiveSessions(t *testing.T) {
+	tmpl, err := New("test", WithWebSocketDisabled())
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	store := NewMemorySessionStore()
+	handler := tmpl.Handle(&wsDisabledController{}, AsState(&wsDisabledState{}), WithStore(store))
+
+	lh := handler.(*liveHandler)
+
+	// Create two sessions
+	req1 := httptest.NewRequest("GET", "/", nil)
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+	cookie1 := extractSessionCookie(rec1)
+
+	req2 := httptest.NewRequest("GET", "/", nil)
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+	cookie2 := extractSessionCookie(rec2)
+
+	// POST on both to populate cache
+	for _, cookie := range []*http.Cookie{cookie1, cookie2} {
+		form := url.Values{}
+		form.Set("lvt-action", "Increment")
+		req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Accept", "application/json")
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+	}
+
+	// Delete only session 1
+	store.Delete(t.Context(), cookie1.Value)
+
+	// Run sweep
+	lh.sweepStaleHTTPTemplates()
+
+	// Session 1 should be swept
+	if _, ok := lh.httpTemplates.Load(cookie1.Value); ok {
+		t.Error("Expected session 1 cache entry to be swept")
+	}
+
+	// Session 2 should be preserved
+	if _, ok := lh.httpTemplates.Load(cookie2.Value); !ok {
+		t.Error("Expected session 2 cache entry to be preserved")
+	}
+}
+
+func TestWebSocketDisabled_ConcurrentPOSTsSameSession(t *testing.T) {
+	handler := newWSDisabledHandler(t)
+
+	// Create session
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	cookie := extractSessionCookie(rec)
+	if cookie == nil {
+		t.Fatal("Expected session cookie")
+	}
+
+	// Send concurrent POSTs (simulates multiple tabs)
+	const concurrency = 10
+	errs := make(chan error, concurrency)
+
+	for i := 0; i < concurrency; i++ {
+		go func() {
+			form := url.Values{}
+			form.Set("lvt-action", "Increment")
+			r := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			r.Header.Set("Accept", "application/json")
+			r.AddCookie(cookie)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, r)
+			if w.Code != http.StatusOK {
+				errs <- errors.New("expected status 200, got " + http.StatusText(w.Code))
+				return
+			}
+
+			var resp map[string]interface{}
+			if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+				errs <- err
+				return
+			}
+			if _, ok := resp["tree"]; !ok {
+				errs <- errors.New("expected 'tree' in response")
+				return
+			}
+			errs <- nil
+		}()
+	}
+
+	for i := 0; i < concurrency; i++ {
+		if err := <-errs; err != nil {
+			t.Errorf("Concurrent POST failed: %v", err)
+		}
+	}
+
+	// Verify state advanced (exact count depends on scheduling — concurrent
+	// POSTs load the same state, so last-writer-wins is expected for HTTP).
+	// The key assertion is: no races, all responses valid, count > 0.
+	req = httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if strings.Contains(body, "Count: 0") {
+		t.Error("Expected count > 0 after concurrent increments, still at 0")
 	}
 }

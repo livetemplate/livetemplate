@@ -103,7 +103,7 @@ func (h *HealthHandler) Live(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		// Log error but can't change status code (already written)
 		slog.Error("Failed to encode liveness response",
-			slog.String("error", err.Error()))
+			slog.Any("error", err))
 		return
 	}
 }
@@ -142,7 +142,7 @@ func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewEncoder(w).Encode(response); err != nil {
 			// Log error but can't change status code (already written)
 			slog.Error("Failed to encode readiness response (no checkers)",
-				slog.String("error", err.Error()))
+				slog.Any("error", err))
 			return
 		}
 		return
@@ -208,7 +208,7 @@ func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		// Log error but can't change status code (already written)
 		slog.Error("Failed to encode readiness response",
-			slog.String("error", err.Error()),
+			slog.Any("error", err),
 			slog.Int("status_code", statusCode))
 		return
 	}

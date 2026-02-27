@@ -34,7 +34,7 @@ func MinifyHTML(htmlContent string) string {
 		if err != nil {
 			// If minification fails, fall back to original content
 			slog.Warn("HTML minification failed, using original content",
-				slog.String("error", err.Error()),
+				slog.Any("error", err),
 				slog.Int("content_length", len(htmlContent)))
 			return htmlContent
 		}

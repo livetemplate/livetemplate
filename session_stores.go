@@ -80,13 +80,13 @@ type SingleStoreSetter interface {
 // For multi-instance deployments, use a persistent SessionStore (e.g., Redis).
 type MemorySessionStore struct {
 	groups          map[string]interface{} // groupID → state
-	lastAccess      map[string]time.Time // groupID → last access timestamp
-	mu              sync.RWMutex         // Protects groups and lastAccess
-	cleanupTTL      time.Duration        // Time to live for inactive groups
-	cleanupInterval time.Duration        // How often to run cleanup (default: 1 hour)
-	stopCh          chan struct{}        // Signal to stop cleanup goroutine
-	ctx             context.Context      // Context for cleanup goroutine
-	cancel          context.CancelFunc   // Cancel function for cleanup
+	lastAccess      map[string]time.Time   // groupID → last access timestamp
+	mu              sync.RWMutex           // Protects groups and lastAccess
+	cleanupTTL      time.Duration          // Time to live for inactive groups
+	cleanupInterval time.Duration          // How often to run cleanup (default: 1 hour)
+	stopCh          chan struct{}          // Signal to stop cleanup goroutine
+	ctx             context.Context        // Context for cleanup goroutine
+	cancel          context.CancelFunc     // Cancel function for cleanup
 }
 
 // SessionStoreOption configures MemorySessionStore
@@ -423,10 +423,12 @@ func (s *RedisSessionStore) Get(ctx context.Context, groupID string) interface{}
 		_, err = s.deserializeLegacyStores(data)
 		if err != nil {
 			slog.Warn("Found legacy v1 session but failed to decode",
+				slog.String("component", "redis_session_store"),
 				slog.String("group_id", groupID),
-				slog.String("error", err.Error()))
+				slog.Any("error", err))
 		} else {
 			slog.Info("Found legacy v1 session, deleting (incompatible with Controller+State)",
+				slog.String("component", "redis_session_store"),
 				slog.String("group_id", groupID))
 		}
 		s.Delete(ctx, groupID)
@@ -455,7 +457,8 @@ func (s *RedisSessionStore) deserializeFromHash(hashData map[string]string) inte
 		var state interface{}
 		if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
 			slog.Warn("Failed to unmarshal state",
-				slog.String("error", err.Error()))
+				slog.String("component", "redis_session_store"),
+				slog.Any("error", err))
 			return nil
 		}
 		return state
@@ -504,6 +507,7 @@ func (s *RedisSessionStore) serializeSingleStore(store interface{}) (string, err
 //   - "s:..." - State-only format (JSON envelope containing only `lvt:"state"` fields)
 //   - "g:..." - Gob format (entire store encoded with gob)
 //   - No prefix - Legacy gob format (backward compatibility)
+//
 // StateData wraps raw state bytes from Redis for later injection.
 // When mount.go encounters this type in Stores, it knows to:
 // 1. Clone the template's original store (which has dependencies)
@@ -543,9 +547,11 @@ func (s *RedisSessionStore) Set(ctx context.Context, groupID string, state inter
 	// Serialize state as JSON
 	stateJSON, err := json.Marshal(state)
 	if err != nil {
-		slog.Error("RedisSessionStore.Set: failed to marshal state",
+		slog.Error("Failed to marshal state",
+			slog.String("component", "redis_session_store"),
+			slog.String("operation", "Set"),
 			slog.String("group_id", groupID),
-			slog.String("error", err.Error()))
+			slog.Any("error", err))
 		return
 	}
 
@@ -559,9 +565,11 @@ func (s *RedisSessionStore) Set(ctx context.Context, groupID string, state inter
 	}
 	metaJSON, err := json.Marshal(meta)
 	if err != nil {
-		slog.Error("RedisSessionStore.Set: failed to marshal metadata",
+		slog.Error("Failed to marshal metadata",
+			slog.String("component", "redis_session_store"),
+			slog.String("operation", "Set"),
 			slog.String("group_id", groupID),
-			slog.String("error", err.Error()))
+			slog.Any("error", err))
 		return
 	}
 	fields[metaField] = string(metaJSON)
@@ -583,9 +591,11 @@ func (s *RedisSessionStore) Set(ctx context.Context, groupID string, state inter
 
 	// Execute pipeline with retry
 	if err := s.execPipelineWithRetry(ctx, pipe); err != nil {
-		slog.Error("RedisSessionStore.Set: redis persistence failed",
+		slog.Error("Redis persistence failed",
+			slog.String("component", "redis_session_store"),
+			slog.String("operation", "Set"),
 			slog.String("group_id", groupID),
-			slog.String("error", err.Error()))
+			slog.Any("error", err))
 	}
 }
 
@@ -601,10 +611,12 @@ func (s *RedisSessionStore) SetStore(ctx context.Context, groupID string, storeN
 	// Serialize the single store using Gob (preserves type information)
 	encoded, err := s.serializeSingleStore(store)
 	if err != nil {
-		slog.Error("RedisSessionStore.SetStore: serialization failed",
+		slog.Error("Serialization failed",
+			slog.String("component", "redis_session_store"),
+			slog.String("operation", "SetStore"),
 			slog.String("group_id", groupID),
 			slog.String("store_name", storeName),
-			slog.String("error", err.Error()))
+			slog.Any("error", err))
 		return
 	}
 
@@ -615,9 +627,11 @@ func (s *RedisSessionStore) SetStore(ctx context.Context, groupID string, storeN
 	}
 	metaJSON, err := json.Marshal(meta)
 	if err != nil {
-		slog.Error("RedisSessionStore.SetStore: failed to marshal metadata",
+		slog.Error("Failed to marshal metadata",
+			slog.String("component", "redis_session_store"),
+			slog.String("operation", "SetStore"),
 			slog.String("group_id", groupID),
-			slog.String("error", err.Error()))
+			slog.Any("error", err))
 		return
 	}
 
@@ -633,10 +647,12 @@ func (s *RedisSessionStore) SetStore(ctx context.Context, groupID string, storeN
 
 	// Execute pipeline with retry
 	if err := s.execPipelineWithRetry(ctx, pipe); err != nil {
-		slog.Error("RedisSessionStore.SetStore: redis persistence failed",
+		slog.Error("Redis persistence failed",
+			slog.String("component", "redis_session_store"),
+			slog.String("operation", "SetStore"),
 			slog.String("group_id", groupID),
 			slog.String("store_name", storeName),
-			slog.String("error", err.Error()))
+			slog.Any("error", err))
 	}
 }
 

@@ -87,14 +87,14 @@ const (
 	MutSubmitError     MutationType = "submit_error"      // Form submission failed
 
 	// Async loading mutations (for testing loading states)
-	MutStartLoading     MutationType = "start_loading"      // Start global loading
-	MutFinishLoading    MutationType = "finish_loading"     // Finish global loading
-	MutStartItemLoad    MutationType = "start_item_load"    // Start per-item loading
-	MutFinishItemLoad   MutationType = "finish_item_load"   // Finish per-item loading
-	MutSetItemError     MutationType = "set_item_error"     // Set per-item error
-	MutClearItemError   MutationType = "clear_item_error"   // Clear per-item error
-	MutOptimisticUpdate MutationType = "optimistic_update"  // Optimistic update
-	MutRollbackUpdate   MutationType = "rollback_update"    // Rollback optimistic update
+	MutStartLoading     MutationType = "start_loading"     // Start global loading
+	MutFinishLoading    MutationType = "finish_loading"    // Finish global loading
+	MutStartItemLoad    MutationType = "start_item_load"   // Start per-item loading
+	MutFinishItemLoad   MutationType = "finish_item_load"  // Finish per-item loading
+	MutSetItemError     MutationType = "set_item_error"    // Set per-item error
+	MutClearItemError   MutationType = "clear_item_error"  // Clear per-item error
+	MutOptimisticUpdate MutationType = "optimistic_update" // Optimistic update
+	MutRollbackUpdate   MutationType = "rollback_update"   // Rollback optimistic update
 
 	// Notification queue mutations
 	MutAddNotification     MutationType = "add_notification"     // Add notification to queue
@@ -350,9 +350,9 @@ var PaginationWeights = MutationWeights{
 	ToggleLoading:  0.07,
 
 	// Item CRUD (25%)
-	AppendSlice:  0.08,
-	RemoveSlice:  0.08,
-	UpdateItem:   0.09,
+	AppendSlice: 0.08,
+	RemoveSlice: 0.08,
+	UpdateItem:  0.09,
 
 	// Edge cases (10%)
 	EdgeCases:  0.05,

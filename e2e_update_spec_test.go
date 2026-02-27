@@ -11,15 +11,6 @@ import (
 	"github.com/livetemplate/livetemplate/internal/compat"
 )
 
-// mustFromMap is a test helper that converts a map to *build.TreeNode, panicking on error
-func mustFromMap(m map[string]interface{}) *build.TreeNode {
-	tree, err := build.FromMap(m)
-	if err != nil {
-		panic(fmt.Sprintf("mustFromMap failed: %v", err))
-	}
-	return tree
-}
-
 // Specification Compliance Tests - Current Status:
 //
 // TestUpdateSpecification_FirstRender: ✅ PASSING (5/5 tests)

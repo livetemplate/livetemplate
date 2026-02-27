@@ -119,4 +119,3 @@ func (p *S3Presigner) generateKey(entry *uploadtypes.UploadEntry) string {
 	}
 	return fmt.Sprintf("%s/%s", entry.ID, filename)
 }
-

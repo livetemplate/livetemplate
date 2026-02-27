@@ -916,7 +916,7 @@ func TestCompareRangeItemsForChanges_NonTreeNodeToTreeNode(t *testing.T) {
 	oldItem := &TreeNode{
 		Dynamics: map[string]interface{}{
 			"0": "task1",
-			"1": "",         // Empty string (unchecked checkbox)
+			"1": "", // Empty string (unchecked checkbox)
 			"2": "Task text",
 		},
 	}

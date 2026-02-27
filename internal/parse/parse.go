@@ -117,15 +117,15 @@ func Parse(templateStr string, funcMap template.FuncMap) (*Template, error) {
 //   - data: The data context for template evaluation (typically a struct or map)
 //   - keyGen: Generator for unique keys in range constructs (e.g., for list items)
 //   - ctx: Evaluation context containing:
-//     - FuncMap: Custom template functions available during evaluation
-//     - IncludeStatics: Whether to include static HTML in the tree (true for first render,
-//       false for updates to reduce payload size)
+//   - FuncMap: Custom template functions available during evaluation
+//   - IncludeStatics: Whether to include static HTML in the tree (true for first render,
+//     false for updates to reduce payload size)
 //
 // Returns:
 //   - *TreeNode: A tree structure containing:
-//     - Statics: Array of static HTML strings (if ctx.IncludeStatics is true)
-//     - Dynamics: Map of dynamic values keyed by position ("0", "1", etc.)
-//     - Range: Range metadata for list/map iterations (if template contains {{range}})
+//   - Statics: Array of static HTML strings (if ctx.IncludeStatics is true)
+//   - Dynamics: Map of dynamic values keyed by position ("0", "1", etc.)
+//   - Range: Range metadata for list/map iterations (if template contains {{range}})
 //   - error: Any error encountered during AST walking or expression evaluation
 //
 // The tree structure represents the template as alternating static and dynamic parts:
@@ -556,4 +556,3 @@ func isZeroValue(v reflect.Value) bool {
 		return reflect.DeepEqual(v.Interface(), reflect.Zero(v.Type()).Interface())
 	}
 }
-

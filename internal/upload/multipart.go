@@ -58,7 +58,7 @@ func ParseMultipartUpload(
 						// Log but continue cleanup
 						slog.Warn("Failed to remove temp file during cleanup",
 							slog.String("entry_id", e.ID),
-							slog.String("error", rmErr.Error()))
+							slog.Any("error", rmErr))
 					}
 				}
 			}
@@ -110,7 +110,7 @@ func processMultipartFile(
 	defer func() {
 		if err := src.Close(); err != nil {
 			slog.Warn("Failed to close uploaded file",
-				slog.String("error", err.Error()))
+				slog.Any("error", err))
 		}
 	}()
 
@@ -126,7 +126,7 @@ func processMultipartFile(
 		if rmErr := tempFileManager.RemoveFile(entryID); rmErr != nil {
 			slog.Warn("Failed to remove temp file",
 				slog.String("entry_id", entryID),
-				slog.String("error", rmErr.Error()))
+				slog.Any("error", rmErr))
 		}
 		return nil, fmt.Errorf("failed to open temp file for writing: %w", err)
 	}
@@ -144,15 +144,15 @@ func processMultipartFile(
 			// Log close error but prioritize returning the write error
 			if rmErr := tempFileManager.RemoveFile(entryID); rmErr != nil {
 				slog.Warn("Failed to remove temp file",
-				slog.String("entry_id", entryID),
-				slog.String("error", rmErr.Error()))
+					slog.String("entry_id", entryID),
+					slog.Any("error", rmErr))
 			}
 			return nil, fmt.Errorf("failed to write file: %w (close error: %v)", err, closeErr)
 		}
 		if rmErr := tempFileManager.RemoveFile(entryID); rmErr != nil {
 			slog.Warn("Failed to remove temp file",
 				slog.String("entry_id", entryID),
-				slog.String("error", rmErr.Error()))
+				slog.Any("error", rmErr))
 		}
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
@@ -162,15 +162,15 @@ func processMultipartFile(
 		if closeErr := dst.Close(); closeErr != nil {
 			if rmErr := tempFileManager.RemoveFile(entryID); rmErr != nil {
 				slog.Warn("Failed to remove temp file",
-				slog.String("entry_id", entryID),
-				slog.String("error", rmErr.Error()))
+					slog.String("entry_id", entryID),
+					slog.Any("error", rmErr))
 			}
 			return nil, fmt.Errorf("file size exceeded and close failed: %w", closeErr)
 		}
 		if rmErr := tempFileManager.RemoveFile(entryID); rmErr != nil {
 			slog.Warn("Failed to remove temp file",
 				slog.String("entry_id", entryID),
-				slog.String("error", rmErr.Error()))
+				slog.Any("error", rmErr))
 		}
 		entry.Valid = false
 		entry.Error = fmt.Sprintf("file size %d bytes exceeds maximum %d bytes", written, maxSize)
@@ -182,7 +182,7 @@ func processMultipartFile(
 		if rmErr := tempFileManager.RemoveFile(entryID); rmErr != nil {
 			slog.Warn("Failed to remove temp file",
 				slog.String("entry_id", entryID),
-				slog.String("error", rmErr.Error()))
+				slog.Any("error", rmErr))
 		}
 		return nil, fmt.Errorf("failed to close temp file: %w", err)
 	}
