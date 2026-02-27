@@ -20,7 +20,7 @@ Build interactive web applications in Go using a simplified programming model. W
 
 Every interactive feature in a traditional web app requires the same ceremony: design a REST endpoint, write a serializer, manage client-side state, update the DOM, and wire it all together. That overhead discourages interactivity — teams leave things static not because they should be, but because the plumbing isn't worth it. As Chris McCord [put it](https://fly.io/blog/how-we-got-to-liveview/) when explaining why he built Phoenix LiveView: conventional frameworks make you "fetch the world, munge it into some format, and shoot it over the wire... then throw all that state away" on every request.
 
-LiveView's answer was to keep all state on the server and push rendered updates over a persistent connection — no REST layer, no client-side framework. LiveTemplate brings that approach to Go, but with one major difference: it doesn't require a persistent connection and works equally well over standard HTTP. When a user clicks a button, LiveTemplate calls a method on your Go struct, you update your state, and the UI reflects the change automatically. No endpoints to design, no JSON to serialize, no client-side state to synchronize. Making something interactive costs almost nothing, so you stop choosing between static and dynamic — you just make it dynamic.
+LiveView's answer was to keep all state on the server and push rendered updates over a persistent connection — no REST layer, no client-side framework. LiveTemplate brings that approach to Go, but with one major difference: it doesn't require a persistent connection and works equally well over standard HTTP. When a user clicks a button, LiveTemplate calls a method on your Go struct, you update your state, and only what changed is sent back to the browser. No endpoints to design, no JSON to serialize, no client-side state to synchronize.
 
 ```mermaid
 sequenceDiagram
@@ -110,13 +110,15 @@ type TodoState struct {
 }
 
 func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
-    todo := c.DB.InsertTodo(ctx.GetString("title"))
+    todo := Todo{Title: ctx.GetString("title")}
+    // c.DB is a dependency on the controller, not in cloned state
+    c.DB.Create(&todo)
     state.Items = append(state.Items, todo)
     return state, nil
 }
 ```
 
-The separation is enforced at the API level: `tmpl.Handle(controller, livetemplate.AsState(state))`. There's no way to accidentally put a database connection in cloned state. See the [chat example](https://github.com/livetemplate/examples/tree/main/chat) for a multi-user app using this pattern with broadcasting.
+The separation is enforced at the API level: `tmpl.Handle(controller, livetemplate.AsState(state))`. Convention and the `AssertPureState[T]()` test helper catch accidental dependency leakage. See the [chat example](https://github.com/livetemplate/examples/tree/main/chat) for a multi-user app using this pattern with broadcasting.
 
 ### 4. Efficient by Design
 
@@ -134,7 +136,7 @@ When the counter changes from 5 to 6, only the new value is sent:
 
 No re-rendered HTML, no string diffing — just the single value that changed. For typical pages with lots of markup and few changing values, this means **50-90% less data** than sending full HTML. This optimization works over both plain HTTP and WebSocket — the server tracks tree state per session, so subsequent actions always send minimal diffs regardless of transport. This is the same static/dynamic split that [Phoenix LiveView uses](https://hexdocs.pm/phoenix_live_view/Phoenix.LiveView.html) — a proven approach to minimizing wire traffic.
 
-### 5. Idiomatic Go Patterns
+### 5. Idiomatic Go Error Handling
 
 Errors flow naturally using Go's familiar patterns. Return an error and LiveTemplate automatically displays it in your template:
 
