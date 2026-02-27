@@ -29,7 +29,7 @@ sequenceDiagram
 
     Browser->>Server: User clicks button<br/>{action: "increment"}
     Note over Server: s.Counter++<br/>(Counter: 5 → 6)
-    Note over Server: Compare old vs new<br/>Only Counter changed → {"0": "6"}
+    Note over Server: Tree diff calculated<br/>Only Counter changed → {"0": "6"}
     Server->>Browser: {"0": "6"}
     Note over Browser: DOM updated<br/>Counter: 6
 ```
