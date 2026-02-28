@@ -267,12 +267,17 @@ func (c *connState) clearFlash() {
 	c.messages = newMessages
 }
 
-// getFlashValue returns the value of a flash message by key, or empty string if not set.
-// This is used for progressive enhancement to pass flash messages via query params.
-func (c *connState) getFlashValue(key string) string {
+// getFlashValues returns all flash messages as url.Values for cookie encoding.
+func (c *connState) getFlashValues() url.Values {
 	c.messagesMu.RLock()
 	defer c.messagesMu.RUnlock()
-	return c.messages[lvtcontext.FlashPrefix+key]
+	vals := url.Values{}
+	for k, v := range c.messages {
+		if strings.HasPrefix(k, lvtcontext.FlashPrefix) {
+			vals.Set(strings.TrimPrefix(k, lvtcontext.FlashPrefix), v)
+		}
+	}
+	return vals
 }
 
 // hasErrors returns true if there are any field errors (non-flash messages)
@@ -847,18 +852,27 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	lifecycleCtx = lifecycleCtx.WithUserID(userID)
 	lifecycleCtx = lifecycleCtx.WithFlashSetter(connSt)
 
-	// Call Mount for new sessions (Mount can use ctx.GetString to read query params)
-	// Also call Mount for existing sessions when there are query params that might affect state
-	// This supports HTTP redirect patterns like /auth?error=invalid_credentials
-	hasFlashQueryParams := false
-	if _, ok := queryData["error"]; ok {
-		hasFlashQueryParams = true
-	}
-	if _, ok := queryData["success"]; ok {
-		hasFlashQueryParams = true
+	// Read flash messages from cookie (set by POST redirect)
+	hasFlashCookie := false
+	if flashCookie, err := r.Cookie("lvt-flash"); err == nil && flashCookie.Value != "" {
+		hasFlashCookie = true
+		if flashValues, err := url.ParseQuery(flashCookie.Value); err == nil {
+			for key, values := range flashValues {
+				if len(values) > 0 {
+					connSt.setFlash(key, values[0])
+				}
+			}
+		}
+		// Clear cookie immediately (one-time read)
+		http.SetCookie(w, &http.Cookie{
+			Name:   "lvt-flash",
+			Value:  "",
+			Path:   "/",
+			MaxAge: -1,
+		})
 	}
 
-	if isNewSession || hasFlashQueryParams {
+	if isNewSession || hasFlashCookie {
 		newState, err := callMount(h.config.Controller, connSt.state, lifecycleCtx)
 		if err != nil {
 			slog.Error("Mount failed",
@@ -1033,43 +1047,23 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 		// Success: redirect to prevent duplicate submissions on refresh (PRG pattern)
 		redirectURL := r.URL.Path
-
-		// Preserve existing query params, filtering out flash-related ones to avoid duplicates
-		queryVals := r.URL.Query()
-		queryVals.Del("success")
-		queryVals.Del("error")
-		if encoded := queryVals.Encode(); encoded != "" {
+		if encoded := r.URL.Query().Encode(); encoded != "" {
 			redirectURL += "?" + encoded
 		}
 
-		// Add flash messages to query params if set during action.
-		// Note: Only "success" and "error" flash types are passed via query params.
-		// For other flash types, consider using session cookies instead.
-		if flashMsg := connSt.getFlashValue("success"); flashMsg != "" {
-			// Limit flash message length to prevent URL length issues (max ~2000 chars for URLs)
-			if len(flashMsg) > 500 {
-				flashMsg = flashMsg[:500]
-			}
-			if strings.Contains(redirectURL, "?") {
-				redirectURL += "&success=" + url.QueryEscape(flashMsg)
-			} else {
-				redirectURL += "?success=" + url.QueryEscape(flashMsg)
-			}
-		}
-		if flashMsg := connSt.getFlashValue("error"); flashMsg != "" {
-			if len(flashMsg) > 500 {
-				flashMsg = flashMsg[:500]
-			}
-			if strings.Contains(redirectURL, "?") {
-				redirectURL += "&error=" + url.QueryEscape(flashMsg)
-			} else {
-				redirectURL += "?error=" + url.QueryEscape(flashMsg)
-			}
+		// Set flash messages via cookie (consumed on next GET)
+		if flashVals := connSt.getFlashValues(); len(flashVals) > 0 {
+			http.SetCookie(w, &http.Cookie{
+				Name:     "lvt-flash",
+				Value:    flashVals.Encode(),
+				Path:     "/",
+				HttpOnly: true,
+				SameSite: http.SameSiteLaxMode,
+				MaxAge:   10,
+			})
 		}
 
-		// Clear flash messages before redirect (will be passed via query param)
 		connSt.clearFlash()
-
 		http.Redirect(w, r, redirectURL, http.StatusSeeOther) // 303 See Other
 		return
 	}
