@@ -78,50 +78,26 @@ mux.Handle("/metrics", handler.MetricsHandler()) // Prometheus text format
 - `livetemplate_trees_built_total`
 - `livetemplate_trees_diffed_total`
 - `livetemplate_broadcasts_sent_total`
-- `livetemplate_ws_buffer_full_total`
-- `livetemplate_ws_slow_client_closes_total`
-- `livetemplate_ws_write_errors_total`
+- `livetemplate_errors_total`
+- `livetemplate_connections_rejected_total`
+- `livetemplate_websocket_buffer_full_total`
+- `livetemplate_websocket_slow_client_closes_total`
+- `livetemplate_websocket_write_errors_total`
+- `livetemplate_full_tree_sends_total`
+- `livetemplate_dynamics_only_sends_total`
+- `livetemplate_fingerprint_mismatches_total`
 
 **Gauges:**
-- `livetemplate_active_connections`
-- `livetemplate_active_groups`
-- `livetemplate_ws_send_buffer_size`
+- `livetemplate_connections_active`
+- `livetemplate_groups_active`
+- `livetemplate_websocket_send_buffer_size`
 
-**Histograms (with p50/p95/p99):**
+**Summaries (with quantiles p50/p90/p95/p99):**
 - `livetemplate_template_duration_seconds`
-- `livetemplate_tree_build_duration_seconds`
+- `livetemplate_build_duration_seconds`
 - `livetemplate_diff_duration_seconds`
 - `livetemplate_action_duration_seconds`
-
-**Emitted Metric Format:**
-
-```json
-{
-  "time": "2025-10-31T12:34:56Z",
-  "level": "INFO",
-  "msg": "metrics",
-  "actions_processed": 1523,
-  "templates_executed": 1523,
-  "trees_built": 1523,
-  "trees_diffed": 1321,
-  "html_rendered": 202,
-  "json_rendered": 1321,
-  "broadcasts_sent": 45,
-  "websocket_connected": 3,
-  "websocket_disconnected": 1,
-  "active_connections": 10,
-  "active_groups": 5,
-  "template_duration_p50": 3,
-  "template_duration_p95": 8,
-  "template_duration_p99": 12,
-  "tree_build_duration_p50": 2,
-  "tree_build_duration_p95": 5,
-  "tree_build_duration_p99": 9,
-  "diff_duration_p50": 1,
-  "diff_duration_p95": 3,
-  "diff_duration_p99": 7
-}
-```
+- `livetemplate_update_payload_bytes`
 
 ## Log Output Formats
 
@@ -359,16 +335,19 @@ mux.Handle("/", otelhttp.NewHandler(handler, "livetemplate"))
 Alternatively, add a simple request-ID middleware:
 
 ```go
+// import "github.com/google/uuid"
+
+type ctxKey struct{}
+
 func RequestIDMiddleware(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         id := r.Header.Get("X-Request-ID")
         if id == "" {
             id = uuid.NewString()
         }
-        ctx := r.Context()
-        logger := slog.Default().With(slog.String("request_id", id))
-        ctx = context.WithValue(ctx, requestIDKey, id)
         w.Header().Set("X-Request-ID", id)
+        ctx := context.WithValue(r.Context(), ctxKey{}, id)
+        slog.InfoContext(ctx, "request", slog.String("request_id", id), slog.String("path", r.URL.Path))
         next.ServeHTTP(w, r.WithContext(ctx))
     })
 }
