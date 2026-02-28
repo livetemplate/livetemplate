@@ -207,9 +207,9 @@ The main `livetemplate` package provides a clean, minimal public API:
    - Thread-safe counter with overflow protection
 
 10. **Observability (`internal/observe/`)**:
-    - Production-ready logging and metrics
-    - Components: logger.go, metrics.go, context.go
-    - Structured logging with slog, operational metrics
+    - Operational metrics with Prometheus export
+    - Components: metrics.go, prometheus.go
+    - Exposed via public `handler.MetricsHandler()` API
 
 11. **Session Management (`internal/session/`)**: ⚡ **NEW: Async WebSocket Architecture**
     - **Async Sending Infrastructure**: Channel-based message queuing with background writePump goroutines
