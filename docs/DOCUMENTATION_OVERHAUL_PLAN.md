@@ -148,9 +148,18 @@ The documentation has not been systematically updated since ~v0.7.0. The codebas
 
 ## Phase 4: Update Guides
 
-### 4a. `docs/guides/new-contributor-walkthrough.md` (Accuracy: ~100%)
+### 4a. `docs/guides/new-contributor-walkthrough.md` (Accuracy: ~85%)
 
-**No changes needed.** Excellent, current documentation with correct Controller+State pattern.
+**Issues:**
+- **Broken file references**: `internal/session/connection.go` and `internal/observe/logger.go` do not exist
+- **Repository structure diagram (lines 83-100)**: Lists `client/` and `examples/` directories that don't exist in this repo (moved to separate repos). Missing 7 internal packages: `compat/`, `discovery/`, `fuzz/`, `testutil/`, `upload/`, `uploadtypes/`, `util/`
+- **Missing source files**: `internal/parse/flatten.go`, `internal/parse/types.go`, `internal/build/html_diff.go`, `internal/build/html_segmentation.go` exist but aren't referenced
+- **Go version (line 58)**: Claims "Go 1.22+" but `go.mod` requires Go 1.26.0
+- **API inaccuracy (line 635)**: `render.Node()` signature shown as `Node(node)` but actual is `Node(w *strings.Builder, n *html.Node)`
+
+**Note:** Architecture explanations, code examples, and Controller+State patterns are all correct and current.
+
+**Action:** Fix broken file references, update repo structure diagram, add missing internal packages, correct Go version, fix `Node()` signature.
 
 ### 4b. `docs/guides/auth-customization.md` (Accuracy: ~70%)
 
@@ -302,7 +311,7 @@ The documentation has not been systematically updated since ~v0.7.0. The codebas
 | Already archived (no change) | 6 |
 | **Total** | **22** (+4 new archive subdirectories to create) |
 
-### Files to Update (12 files)
+### Files to Update (13 files)
 
 | File | Severity |
 |------|----------|
@@ -310,6 +319,7 @@ The documentation has not been systematically updated since ~v0.7.0. The codebas
 | `docs/ROADMAP.md` | High - shows 66% when actually ~80% |
 | `docs/ARCHITECTURE.md` | Medium - file listings incomplete |
 | `docs/CONFIGURATION.md` | Medium - missing env vars |
+| `docs/guides/new-contributor-walkthrough.md` | Medium - broken file refs, stale repo structure, wrong Go version |
 | `docs/guides/lvt-cli-guide.md` | Medium - aspirational features |
 | `docs/guides/auth-customization.md` | Medium - assumes unimplemented command |
 | `docs/references/client-attributes.md` | Medium - unimplemented attributes |
@@ -319,7 +329,7 @@ The documentation has not been systematically updated since ~v0.7.0. The codebas
 | `docs/specifications/test-scenarios.md` | Low - clarify as spec vs status |
 | `CLAUDE.md` | Low - CLI section references |
 
-### Files Needing No Changes (27 files)
+### Files Needing No Changes (26 files)
 
 All reference docs, specifications, performance docs, design docs, and contributor guides that are already accurate and current.
 
