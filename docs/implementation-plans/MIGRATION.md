@@ -62,23 +62,14 @@ tmpl := livetemplate.Must(livetemplate.New("mytemplate").Parse(templateString))
 
 #### Operational Metrics
 
+Metrics are collected automatically and exposed via a Prometheus endpoint:
+
 ```go
-import "github.com/livetemplate/livetemplate/internal/observe"
+handler := tmpl.Handle(controller, livetemplate.AsState(&State{}))
 
-// Create metrics collector
-metrics := observe.NewMetrics()
-
-// Start periodic emission (every 60 seconds)
-metrics.StartEmission(logger, 60)
-defer metrics.StopEmission()
-
-// Metrics are automatically collected for:
-// - Template executions
-// - Tree builds
-// - Tree diffs
-// - Actions processed
-// - WebSocket connections
-// - Broadcasts sent
+mux := http.NewServeMux()
+mux.Handle("/", handler)
+mux.Handle("/metrics", handler.MetricsHandler()) // Prometheus text format
 ```
 
 **Available metrics:**
@@ -107,9 +98,9 @@ The codebase now uses operational phase naming for better clarity:
 - `internal/parse/` - Template parsing (replaces old tree_ast.go)
 - `internal/build/` - Tree building operations
 - `internal/diff/` - Tree comparison and differential operations
-- `internal/observe/` - Logging and metrics
+- `internal/observe/` - Operational metrics (exposed via public `MetricsHandler()`)
 
-**You don't need to import these packages** - they're internal implementation details. The public API (`github.com/livetemplate/livetemplate`) remains unchanged.
+**You don't need to import these packages** - they're internal implementation details that cannot be imported externally. The public API (`github.com/livetemplate/livetemplate`) remains unchanged.
 
 ## Migration Steps
 
@@ -122,17 +113,17 @@ go mod tidy
 
 ### Step 2: (Optional) Add Observability
 
-If you want production observability, configure structured logging and metrics:
+If you want production observability, configure structured logging and expose the metrics endpoint:
 
 ```go
 package main
 
 import (
     "log/slog"
+    "net/http"
     "os"
-    "time"
+
     "github.com/livetemplate/livetemplate"
-    "github.com/livetemplate/livetemplate/internal/observe"
 )
 
 func main() {
@@ -141,16 +132,18 @@ func main() {
         Level: slog.LevelInfo,
     })))
 
-    // Setup metrics
-    metrics := observe.NewMetrics(slog.Default())
-    go metrics.EmitPeriodically(60 * time.Second)
-
     // Use LiveTemplate as normal
     tmpl := livetemplate.Must(livetemplate.New("index").Parse(`
         <h1>{{.Title}}</h1>
     `))
 
-    // ... rest of your code
+    handler := tmpl.Handle(controller, livetemplate.AsState(&State{}))
+
+    mux := http.NewServeMux()
+    mux.Handle("/", handler)
+    mux.Handle("/metrics", handler.MetricsHandler()) // Prometheus metrics
+
+    http.ListenAndServe(":8080", mux)
 }
 ```
 
@@ -244,7 +237,7 @@ BenchmarkTreeDiff-8            100000    15000 ns/op
 
 ### Q: Do I need to enable observability?
 
-**A:** No! Observability is completely optional. If you don't import `internal/observe`, there's zero overhead.
+**A:** No! Observability is completely optional. Structured logging uses `log/slog` (zero overhead if not configured), and the Prometheus `/metrics` endpoint is only active if you register it.
 
 ### Q: Can I use custom slog handlers?
 
@@ -268,7 +261,7 @@ slog.SetDefault(slog.New(myCustomHandler{}))
 
 - [ ] Update dependency: `go get -u github.com/livetemplate/livetemplate@v1.0.0`
 - [ ] Run tests: `go test ./...`
-- [ ] (Optional) Configure `slog` and add metrics with `internal/observe` package
+- [ ] (Optional) Configure `slog` and expose `/metrics` endpoint via `handler.MetricsHandler()`
 - [ ] (Optional) Review new documentation (OBSERVABILITY.md, ARCHITECTURE.md)
 
 That's it! Your existing code works without changes, and you get the benefits of a production-ready, well-organized codebase.

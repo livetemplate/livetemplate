@@ -53,44 +53,45 @@ slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 
 All LiveTemplate components log using `slog.Info()`, `slog.Warn()`, `slog.Error()`, and `slog.Debug()` with structured attributes. Configure the default logger at application startup to control output format and level.
 
-## Package: internal/observe
+## Metrics
 
-### Metrics
+LiveTemplate automatically tracks operational metrics internally. These metrics are exposed via the public `MetricsHandler()` method on any LiveTemplate handler.
 
-The `Metrics` type tracks operational metrics and emits them periodically via slog.
-
-**Creation:**
+### Prometheus Export
 
 ```go
-metrics := observe.NewMetrics(slog.Default())
+tmpl := livetemplate.Must(livetemplate.New("myapp",
+    livetemplate.WithDevMode(false),
+))
+handler := tmpl.Handle(controller, livetemplate.AsState(&State{}))
 
-// Start periodic emission (every 30 seconds)
-go metrics.EmitPeriodically(30 * time.Second)
+mux := http.NewServeMux()
+mux.Handle("/", handler)
+mux.Handle("/metrics", handler.MetricsHandler()) // Prometheus text format
 ```
 
-**Recording Metrics:**
+### Available Metrics
 
-```go
-// Counters (increment only)
-metrics.ActionProcessed()
-metrics.TemplateExecuted()
-metrics.TreeBuilt()
-metrics.TreeDiffed()
-metrics.HTMLRendered()
-metrics.JSONRendered()
-metrics.BroadcastSent()
-metrics.WebSocketConnected()
-metrics.WebSocketDisconnected()
+**Counters:**
+- `livetemplate_actions_processed_total`
+- `livetemplate_templates_executed_total`
+- `livetemplate_trees_built_total`
+- `livetemplate_trees_diffed_total`
+- `livetemplate_broadcasts_sent_total`
+- `livetemplate_ws_buffer_full_total`
+- `livetemplate_ws_slow_client_closes_total`
+- `livetemplate_ws_write_errors_total`
 
-// Gauges (set absolute value)
-metrics.SetActiveConnections(10)
-metrics.SetActiveGroups(5)
+**Gauges:**
+- `livetemplate_active_connections`
+- `livetemplate_active_groups`
+- `livetemplate_ws_send_buffer_size`
 
-// Durations (histograms for percentile calculation)
-metrics.RecordTemplateDuration(time.Millisecond * 5)
-metrics.RecordTreeBuildDuration(time.Millisecond * 2)
-metrics.RecordDiffDuration(time.Millisecond * 1)
-```
+**Histograms (with p50/p95/p99):**
+- `livetemplate_template_duration_seconds`
+- `livetemplate_tree_build_duration_seconds`
+- `livetemplate_diff_duration_seconds`
+- `livetemplate_action_duration_seconds`
 
 **Emitted Metric Format:**
 
@@ -151,10 +152,10 @@ package main
 
 import (
     "log/slog"
+    "net/http"
     "os"
-    "time"
 
-    "github.com/livetemplate/livetemplate/internal/observe"
+    "github.com/livetemplate/livetemplate"
 )
 
 func main() {
@@ -163,14 +164,18 @@ func main() {
         Level: slog.LevelInfo,
     })))
 
-    // Create metrics tracker
-    metrics := observe.NewMetrics(slog.Default())
-    go metrics.EmitPeriodically(30 * time.Second)
+    tmpl := livetemplate.Must(livetemplate.New("myapp"))
+    handler := tmpl.Handle(controller, livetemplate.AsState(&State{}))
 
-    // All LiveTemplate components will use slog for logging
-    // and metrics for operational counters/gauges
+    mux := http.NewServeMux()
+    mux.Handle("/", handler)
+    mux.Handle("/metrics", handler.MetricsHandler()) // Prometheus endpoint
+
+    http.ListenAndServe(":8080", mux)
 }
 ```
+
+> **Note:** The `internal/observe` package is internal to the library and cannot be imported by external applications (per Go's `internal/` visibility rules). Use the public `MetricsHandler()` API shown above for Prometheus export, and configure `log/slog` at application startup for structured logging.
 
 ## Log Levels
 
@@ -340,10 +345,38 @@ func TestWithObservability(t *testing.T) {
 }
 ```
 
+## Request-ID Correlation
+
+LiveTemplate does not include built-in request-ID middleware. For request tracing and correlation, use a standard middleware from your HTTP router or an OpenTelemetry instrumentation library:
+
+```go
+import "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
+// Wrap your handler with OpenTelemetry instrumentation
+mux.Handle("/", otelhttp.NewHandler(handler, "livetemplate"))
+```
+
+Alternatively, add a simple request-ID middleware:
+
+```go
+func RequestIDMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        id := r.Header.Get("X-Request-ID")
+        if id == "" {
+            id = uuid.NewString()
+        }
+        ctx := r.Context()
+        logger := slog.Default().With(slog.String("request_id", id))
+        ctx = context.WithValue(ctx, requestIDKey, id)
+        w.Header().Set("X-Request-ID", id)
+        next.ServeHTTP(w, r.WithContext(ctx))
+    })
+}
+```
+
 ## Future Enhancements
 
 - [ ] OpenTelemetry trace integration
-- [ ] Distributed tracing with trace IDs
 - [ ] Custom metric labels/dimensions
 - [ ] Log sampling for high-traffic scenarios
 - [ ] Performance profiling integration (pprof)
