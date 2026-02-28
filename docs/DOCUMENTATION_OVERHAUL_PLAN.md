@@ -36,7 +36,7 @@ The documentation has not been systematically updated since ~v0.7.0. The codebas
 ## Batch 1: Archive Completed Planning Artifacts
 
 **Effort:** Small (file moves only)
-**Status:** [ ] Not started
+**Status:** [x] Complete
 
 Move completed plans, implemented proposals, and finished implementation tracking docs into `docs/archive/` so they don't clutter active documentation.
 
