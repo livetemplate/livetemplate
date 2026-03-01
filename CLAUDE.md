@@ -438,14 +438,12 @@ The repository has a pre-commit hook that:
 ## Common Tasks
 
 ### Adding New Template Construct
-1. Define construct type in `internal/parse/constructs.go`
-2. Implement `Construct` interface with Parse, Compile, Hydrate methods
-3. Add parser logic in `internal/parse/parser.go`
-4. Add compilation logic in `internal/parse/compile.go`
-5. Add hydration logic in `internal/parse/hydrate.go`
-6. Add helper functions in `internal/parse/helpers.go` if needed
-7. Write tests in appropriate test files
-8. Ensure backward compatibility if modifying existing constructs
+1. Add handling logic in the appropriate `internal/parse/` file (e.g., `field.go`, `conditional.go`, `range.go`, `with.go`)
+2. For new construct types, create a new file in `internal/parse/` following existing patterns
+3. Add parser logic in `internal/parse/parse.go`
+4. Update type definitions in `internal/parse/types.go` if needed
+5. Write tests in appropriate test files
+6. Ensure backward compatibility if modifying existing constructs
 
 ### Debugging Tree Generation
 1. Use `TreeNode.GetStructureFingerprint()` to track structural changes
