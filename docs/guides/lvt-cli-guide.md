@@ -1,5 +1,7 @@
 # LiveTemplate CLI (`lvt`) - Complete Guide
 
+> **Scope:** The `lvt` CLI source code lives in a separate repository: [`github.com/livetemplate/lvt`](https://github.com/livetemplate/lvt). This guide is maintained here as a reference for users of the core LiveTemplate library.
+
 The `lvt` CLI is a Phoenix-inspired code generator for building LiveTemplate applications with CRUD functionality, authentication, and real-time features.
 
 ## Table of Contents
@@ -23,14 +25,14 @@ The `lvt` CLI is a Phoenix-inspired code generator for building LiveTemplate app
 ## Installation
 
 ```bash
-go install github.com/livetemplate/livetemplate/cmd/lvt@latest
+go install github.com/livetemplate/lvt/cmd/lvt@latest
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/livetemplate/livetemplate
-cd livetemplate
+git clone https://github.com/livetemplate/lvt
+cd lvt
 go build -o lvt ./cmd/lvt
 ```
 
@@ -320,8 +322,10 @@ import (
 emailSender := email.NewConsoleEmailSender()
 authHandler := auth.NewUserHandler(db, emailSender, "http://localhost:8080")
 
-// Register routes
-http.Handle("/auth", livetemplate.NewHandler(authHandler, "internal/app/auth/auth.tmpl"))
+// Create template and register routes
+tmpl, _ := livetemplate.New("auth")
+tmpl.Parse(authTemplate)
+http.Handle("/auth", tmpl.Handle(authHandler, livetemplate.AsState(&auth.State{})))
 http.HandleFunc("/auth/logout", authHandler.HandleLogout)
 http.HandleFunc("/auth/magic", authHandler.HandleMagicLinkVerify)      // if magic-link enabled
 http.HandleFunc("/auth/reset", authHandler.HandleResetPassword)        // if password-reset enabled
