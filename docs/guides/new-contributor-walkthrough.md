@@ -54,7 +54,7 @@ Click the buttons and open your browser's Network tab. Watch how each action pro
 ## Local Development Setup
 
 **Required:**
-- Go 1.22+ with modules enabled
+- Go 1.26.0+ with modules enabled
 - Git
 
 **Optional but recommended:**
@@ -90,13 +90,20 @@ livetemplate/
 │   ├── render/                   # Phase 4: HTML/JSON rendering
 │   ├── send/                     # Phase 5: Message serialization
 │   ├── keys/                     # Sequential key generation
-│   ├── observe/                  # Logging and metrics
-│   ├── session/                  # Connection tracking
-│   └── context/                  # Template execution context
-├── client/                       # TypeScript browser client
+│   ├── observe/                  # Metrics and Prometheus export
+│   ├── session/                  # Connection tracking and WebSocket management
+│   ├── context/                  # Template execution context
+│   ├── compat/                   # Tree compatibility helpers
+│   ├── discovery/                # Template discovery utilities
+│   ├── fuzz/                     # Fuzz testing infrastructure
+│   ├── testutil/                 # Test utilities (Redis helpers)
+│   ├── upload/                   # File upload handling
+│   ├── uploadtypes/              # Upload type definitions
+│   └── util/                     # String utilities
+├── pubsub/                       # Pub/sub broadcasting
 ├── docs/                         # Architecture and guides
 ├── testdata/                     # Test fixtures and golden files
-└── examples/                     # Sample applications (separate repo)
+└── scripts/                      # Release and build scripts
 ```
 
 ## The Public API (Entry Points)
@@ -348,6 +355,8 @@ After parsing, the template becomes a structured AST:
 - [`range.go`](../../internal/parse/range.go) - Handles `{{range}}{{end}}` loops
 - [`with.go`](../../internal/parse/with.go) - Handles `{{with}}{{end}}` context switching
 - [`var_context.go`](../../internal/parse/var_context.go) - Variable scope tracking during parsing
+- [`flatten.go`](../../internal/parse/flatten.go) - Tree flattening utilities
+- [`types.go`](../../internal/parse/types.go) - Construct type definitions (FieldConstruct, ConditionalConstruct, etc.)
 
 **Key insight:** Parsing happens once per template. The result is cached and reused for every render.
 
@@ -433,6 +442,8 @@ The build phase generates this TreeNode:
   - `CalculateStructureFingerprint(node)` - MD5 hash of tree structure for detecting structural changes
 - [`wrapper.go`](../../internal/build/wrapper.go) - Wrapper div injection
   - `InjectWrapper(html, wrapperID)` - Adds `<div id="lvt-xxx">` for targeting
+- [`html_diff.go`](../../internal/build/html_diff.go) - HTML diffing utilities for tree construction
+- [`html_segmentation.go`](../../internal/build/html_segmentation.go) - HTML segmentation into static/dynamic parts
 
 ### The Wire Format Optimization
 
@@ -631,12 +642,12 @@ Continuing with our Task Manager example, the render phase can convert the TreeN
 
 **Key files:**
 - [`html.go`](../../internal/render/html.go) - HTML rendering
-  - `TreeToHTML(node)` - Convert tree to HTML string
-  - `Node(node)` - Render single node
-  - `IsVoidElement(tag)` - Check for self-closing tags (`<br>`, `<img>`, etc.)
+  - `TreeToHTML(tree map[string]interface{}) (string, error)` - Convert tree to HTML string
+  - `Node(w *strings.Builder, n *html.Node)` - Recursively render an HTML node to a builder
+  - `IsVoidElement(tagName string) bool` - Check for self-closing tags (`<br>`, `<img>`, etc.)
   - Used primarily for testing and validation
 - [`minify.go`](../../internal/render/minify.go) - HTML minification
-  - Removes unnecessary whitespace
+  - `MinifyHTML(htmlContent string) string` - Minify HTML or normalize whitespace for text-only content
 
 ### When This Phase Runs
 
@@ -822,9 +833,13 @@ For our Task Manager example, adding one task:
 
 **Files:**
 - [`generator.go`](../../internal/keys/generator.go)
-  - [`Generator`](../../internal/keys/generator.go#L15-L25) - Thread-safe counter
-  - [`Next()`](../../internal/keys/generator.go#L35-L50) - Get next sequential key
-  - [`Reset()`](../../internal/keys/generator.go#L60-L70) - Reset counter between renders
+  - [`Generator`](../../internal/keys/generator.go#L40-L44) - Thread-safe counter
+  - [`NextKey()`](../../internal/keys/generator.go#L62-L72) - Get next sequential key
+  - [`Reset()`](../../internal/keys/generator.go#L76-L81) - Reset counter between renders
+  - [`LoadExistingKeys()`](../../internal/keys/generator.go#L98-L150) - Load previous range data for key continuity
+  - [`DetectIDKey()`](../../internal/keys/generator.go#L160-L162) - Detect which dynamic position holds item IDs
+- [`loader.go`](../../internal/keys/loader.go)
+  - [`LoadExistingKeyMappings()`](../../internal/keys/loader.go#L23-L40) - Traverse a tree node to load range key mappings into a generator
 
 **Why it matters:** Range items need stable keys for diffing. The generator ensures keys are deterministic within a render but reset between renders for consistency.
 
@@ -835,9 +850,9 @@ For our Task Manager example, adding one task:
 **Purpose:** Track WebSocket connections and enforce limits
 
 **Key types:**
-- [`Connection`](../../internal/session/connection.go#L20-L35) - Single WebSocket connection
-- [`ConnectionRegistry`](../../internal/session/registry.go#L25-L45) - Index connections by user/group
-- [`ConnectionLimits`](../../internal/session/limits.go#L20-L35) - Enforce max connections
+- [`Connection`](../../internal/session/registry.go#L33) - Single WebSocket connection with async send channel
+- [`ConnectionRegistry`](../../internal/session/registry.go#L270) - Index connections by user/group
+- [`ConnectionLimits`](../../internal/session/limits.go#L16) - Enforce max connections
 
 **Tests:** [`registry_test.go`](../../internal/session/registry_test.go)
 
@@ -846,9 +861,9 @@ For our Task Manager example, adding one task:
 **Purpose:** Production-ready logging and metrics
 
 **Files:**
-- [`logger.go`](../../internal/observe/logger.go) - Structured logging with slog
-- [`metrics.go`](../../internal/observe/metrics.go) - Operational metrics
-- [`prometheus_test.go`](../../internal/observe/prometheus_test.go) - Prometheus integration
+- [`doc.go`](../../internal/observe/doc.go) - Package documentation
+- [`metrics.go`](../../internal/observe/metrics.go) - Operational metrics (`Metrics` type with atomic counters, histograms)
+- [`prometheus.go`](../../internal/observe/prometheus.go) - Prometheus text format exporter (`PrometheusExporter` type)
 
 ## The Client Runtime
 

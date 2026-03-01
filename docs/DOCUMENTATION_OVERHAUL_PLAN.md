@@ -140,7 +140,7 @@ These are the highest-value docs and need line-by-line regeneration from the act
 ## Batch 3: Update Guides (thorough re-audit required)
 
 **Effort:** Medium
-**Status:** [ ] Not started
+**Status:** [x] Complete
 
 **IMPORTANT:** The initial audit rated these too generously. Each guide must be read line-by-line with every file reference and code example verified.
 
