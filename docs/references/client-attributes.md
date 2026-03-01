@@ -16,7 +16,6 @@ Complete reference for LiveTemplate client-side `lvt-*` HTML attributes.
 - [Modals](#modals)
 - [File Uploads](#file-uploads)
 - [Form Behavior](#form-behavior)
-- [Multi-Store Pattern](#multi-store-pattern)
 - [Attribute Reference](#attribute-reference)
 
 ---
@@ -595,42 +594,6 @@ Require confirmation for destructive actions:
 
 ---
 
-## Multi-Store Pattern
-
-Use namespaced actions for applications with multiple state stores.
-
-### Server Setup
-
-```go
-stores := livetemplate.Stores{
-    "counter": &CounterState{},
-    "todos":   &TodosState{},
-    "user":    &UserState{},
-}
-
-handler := livetemplate.HandleStores(tmpl, stores)
-http.Handle("/", handler)
-```
-
-### Template Usage
-
-```html
-<!-- Namespaced actions: store.action -->
-<button lvt-click="counter.increment">+</button>
-<button lvt-click="counter.decrement">-</button>
-
-<form lvt-submit="todos.add">
-    <input type="text" name="text">
-    <button type="submit">Add Todo</button>
-</form>
-
-<button lvt-click="user.logout">Logout</button>
-```
-
-Each action is routed to the corresponding store's `Change()` method.
-
----
-
 ## Attribute Reference
 
 Complete reference of all `lvt-*` attributes.
@@ -770,14 +733,7 @@ Prefer declarative reactive attributes over JavaScript for common UI patterns:
 <div lvt-window-scroll="loadMore" lvt-throttle="100">
 ```
 
-### 4. Namespace Multi-Store Actions
-
-```html
-<button lvt-click="todos.add">Add</button>
-<button lvt-click="user.logout">Logout</button>
-```
-
-### 5. Show Validation Errors
+### 4. Show Validation Errors
 
 ```html
 <input
@@ -789,7 +745,7 @@ Prefer declarative reactive attributes over JavaScript for common UI patterns:
 {{end}}
 ```
 
-### 6. Reset Forms on Success
+### 5. Reset Forms on Success
 
 Use reactive attributes for automatic form reset:
 
@@ -800,7 +756,7 @@ Use reactive attributes for automatic form reset:
 </form>
 ```
 
-### 7. Accessibility with Reactive Attributes
+### 6. Accessibility with Reactive Attributes
 
 ```html
 <button

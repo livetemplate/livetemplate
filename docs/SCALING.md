@@ -62,7 +62,7 @@ handler := livetemplate.Mount(rootStore,
 ```go
 // Option A: Still single-host with Redis for persistence
 redisClient := redis.NewClient(&redis.Options{
-    Addr: os.Getenv("LVT_REDIS_URL"),
+    Addr: os.Getenv("REDIS_URL"),
 })
 sessionStore := livetemplate.NewRedisSessionStore(redisClient,
     livetemplate.WithFallbackToMemory(true),
@@ -1861,7 +1861,6 @@ redis_connected_clients{instance="redis1"} > 9000  # 90% of Redis max clients
 
 ## Next Steps
 
-- **Redis Setup:** See [REDIS_INTEGRATION.md](REDIS_INTEGRATION.md) for Redis configuration
 - **Roadmap:** See [ROADMAP.md](ROADMAP.md) for upcoming scaling features
 - **Architecture:** See [ARCHITECTURE.md](ARCHITECTURE.md) for system design
 

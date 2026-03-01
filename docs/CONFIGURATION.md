@@ -102,6 +102,24 @@ Disable WebSocket connections (HTTP-only mode).
 
 **Use case**: Testing or deployments where WebSocket is not available.
 
+#### `LVT_WS_BUFFER_SIZE`
+
+WebSocket send buffer size per connection (async message queuing).
+
+- **Type**: Integer
+- **Default**: `50`
+- **Example**: `LVT_WS_BUFFER_SIZE=100`
+- **Validation**: Must be > 0
+
+**Use case**: Tune WebSocket backpressure behavior. Larger buffers handle burst traffic; smaller buffers reduce memory per connection.
+
+**Recommended values**:
+- Low traffic / memory constrained: `10`-`25`
+- Normal traffic: `50` (default)
+- High traffic / burst heavy: `100`-`200`
+
+**Note**: This variable is loaded directly in `New()`, not via `LoadEnvConfig()`.
+
 ### Application Mode
 
 #### `LVT_DEV_MODE`
@@ -132,6 +150,27 @@ Disable the automatic loading indicator on page load.
 - **Accepted values**: `true`, `false`, `1`, `0`, `yes`, `no`, `on`, `off` (case-insensitive)
 
 **Use case**: Custom loading indicators or SSR scenarios.
+
+#### `LVT_PROGRESSIVE_ENHANCEMENT`
+
+Enable non-JS form submission support via POST-Redirect-GET pattern.
+
+- **Type**: Boolean
+- **Default**: `true`
+- **Example**: `LVT_PROGRESSIVE_ENHANCEMENT=false`
+- **Accepted values**: `true`, `false`, `1`, `0`, `yes`, `no`, `on`, `off` (case-insensitive)
+
+**Use case**: When enabled, HTTP form submissions from non-JavaScript clients receive full HTML page responses. Disable if you only support WebSocket-capable clients.
+
+#### `LVT_TEMPLATE_BASE_DIR`
+
+Base directory for template auto-discovery.
+
+- **Type**: String (file path)
+- **Default**: Empty (uses `runtime.Caller` detection)
+- **Example**: `LVT_TEMPLATE_BASE_DIR=./templates`
+
+**Use case**: Override automatic template directory detection. Useful in containerized deployments where `runtime.Caller` may resolve to an unexpected path.
 
 ### Graceful Shutdown
 
@@ -204,6 +243,7 @@ export LVT_ALLOWED_ORIGINS="https://example.com,https://app.example.com"
 export LVT_SHUTDOWN_TIMEOUT=30s
 export LVT_LOG_LEVEL=info
 export LVT_METRICS_ENABLED=true
+export LVT_WS_BUFFER_SIZE=100
 ```
 
 ### High-Security Environment
@@ -239,6 +279,7 @@ services:
       LVT_SHUTDOWN_TIMEOUT: "30s"
       LVT_LOG_LEVEL: "info"
       LVT_METRICS_ENABLED: "true"
+      LVT_WS_BUFFER_SIZE: "100"
     ports:
       - "8080:8080"
 ```

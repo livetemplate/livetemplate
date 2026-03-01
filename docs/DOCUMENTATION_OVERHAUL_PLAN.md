@@ -178,7 +178,7 @@ These are the highest-value docs and need line-by-line regeneration from the act
 ## Batch 4: Update Configuration, Operations, and Reference Docs
 
 **Effort:** Medium
-**Status:** [ ] Not started
+**Status:** [x] Complete
 
 ### 4a. `docs/CONFIGURATION.md`
 
