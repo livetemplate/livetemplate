@@ -583,7 +583,7 @@ func WithPubSubBroadcaster(broadcaster pubsub.Broadcaster) Option {
 //
 // Example:
 //
-//	import "github.com/livetemplate/components"
+//	import "github.com/livetemplate/lvt/components"
 //
 //	tmpl, err := livetemplate.New("app",
 //	    livetemplate.WithComponentTemplates(components.All()...),
@@ -592,8 +592,8 @@ func WithPubSubBroadcaster(broadcaster pubsub.Broadcaster) Option {
 // Or with specific components:
 //
 //	import (
-//	    "github.com/livetemplate/components/dropdown"
-//	    "github.com/livetemplate/components/tabs"
+//	    "github.com/livetemplate/lvt/components/dropdown"
+//	    "github.com/livetemplate/lvt/components/tabs"
 //	)
 //
 //	tmpl, err := livetemplate.New("app",
