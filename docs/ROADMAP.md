@@ -550,7 +550,7 @@ const delay = Math.min(
 | Milestone | Tasks | Completed | Progress | Status |
 |-----------|-------|-----------|----------|--------|
 | **M1: Production Foundation** | 35 | 28 | `[████████████████░░░░] 80%` | 🟡 IN PROGRESS |
-| **M2: Horizontal Scaling** | 21 | 18 | `[████████████████░░░░] 86%` | 🟡 IN PROGRESS |
+| **M2: Horizontal Scaling** | 21 | 18 | `[█████████████████░░░] 86%` | 🟡 IN PROGRESS |
 | **M3: Enterprise Scale** | 14 | 0 | `[░░░░░░░░░░░░░░░░░░░░] 0%` | 🔴 TODO |
 | **TOTAL** | **70** | **46** | `[█████████████░░░░░░░] 66%` | 🟡 IN PROGRESS |
 

@@ -53,7 +53,7 @@ livetemplate/
 - `New(name string, opts ...Option) *Template` - Create new template
 - `Execute(wr io.Writer, data interface{}) error` - Full HTML render
 - `ExecuteUpdates(wr io.Writer, data interface{}) error` - Tree updates
-- `Handle(controller, state, ...options) http.Handler` - WebSocket/HTTP handler
+- `Handle(controller, state, ...options) LiveHandler` - WebSocket/HTTP handler (embeds `http.Handler`, adds `Shutdown(ctx)` and `MetricsHandler()`)
 - `ParseFiles(filenames ...string) (*Template, error)` - Parse templates
 
 **Dependencies:**

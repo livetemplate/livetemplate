@@ -249,10 +249,16 @@ The main `livetemplate` package provides a clean, minimal public API:
 
 ### TreeNode
 ```go
-type TreeNode map[string]interface{}
+type TreeNode struct {
+    Statics     []string                // Static HTML parts (key: "s")
+    Dynamics    map[string]interface{}   // Dynamic content (keys: "0", "1", etc.)
+    Fingerprint string                   // Structure hash (key: "f")
+    Range       *RangeData              // Range operation data (key: "d")
+    Metadata    *TreeMetadata           // Additional metadata (key: "m")
+}
 ```
 - Core structure for representing static/dynamic content
-- Keys: "s" for statics array, numeric strings for dynamic values
+- Custom JSON marshaling maintains wire format compatibility (numeric keys for dynamics)
 - Can be nested for complex templates
 
 ### Template
