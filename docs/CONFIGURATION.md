@@ -109,14 +109,14 @@ WebSocket send buffer size per connection (async message queuing).
 - **Type**: Integer
 - **Default**: `50`
 - **Example**: `LVT_WS_BUFFER_SIZE=100`
-- **Validation**: Must be > 0
+- **Validation**: Must be > 0 (invalid values log a warning and fall back to the default — no error is returned)
 
 **Use case**: Tune WebSocket backpressure behavior. Larger buffers handle burst traffic; smaller buffers reduce memory per connection.
 
 **Recommended values**:
 - Low traffic / memory constrained: `10`-`25`
 - Normal traffic: `50` (default)
-- High traffic / burst heavy: `100`-`200`
+- High traffic / burst heavy: `100`-`1000`
 
 **Note**: This variable is loaded directly in `New()`, not via `LoadEnvConfig()`.
 
