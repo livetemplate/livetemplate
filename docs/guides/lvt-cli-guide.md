@@ -323,8 +323,13 @@ emailSender := email.NewConsoleEmailSender()
 authHandler := auth.NewUserHandler(db, emailSender, "http://localhost:8080")
 
 // Create template and register routes
-tmpl, _ := livetemplate.New("auth")
-tmpl.Parse(authTemplate)
+tmpl, err := livetemplate.New("auth")
+if err != nil {
+	log.Fatal(err)
+}
+if _, err := tmpl.ParseFiles("internal/app/auth/auth.tmpl"); err != nil {
+	log.Fatal(err)
+}
 http.Handle("/auth", tmpl.Handle(authHandler, livetemplate.AsState(&auth.State{})))
 http.HandleFunc("/auth/logout", authHandler.HandleLogout)
 http.HandleFunc("/auth/magic", authHandler.HandleMagicLinkVerify)      // if magic-link enabled

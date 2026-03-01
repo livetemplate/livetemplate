@@ -647,7 +647,7 @@ Continuing with our Task Manager example, the render phase can convert the TreeN
   - `IsVoidElement(tagName string) bool` - Check for self-closing tags (`<br>`, `<img>`, etc.)
   - Used primarily for testing and validation
 - [`minify.go`](../../internal/render/minify.go) - HTML minification
-  - Removes unnecessary whitespace
+  - `MinifyHTML(htmlContent string) string` - Minify HTML or normalize whitespace for text-only content
 
 ### When This Phase Runs
 
@@ -838,6 +838,8 @@ For our Task Manager example, adding one task:
   - [`Reset()`](../../internal/keys/generator.go#L76-L81) - Reset counter between renders
   - [`LoadExistingKeys()`](../../internal/keys/generator.go#L98-L150) - Load previous range data for key continuity
   - [`DetectIDKey()`](../../internal/keys/generator.go#L160-L162) - Detect which dynamic position holds item IDs
+- [`loader.go`](../../internal/keys/loader.go)
+  - [`LoadExistingKeyMappings()`](../../internal/keys/loader.go#L23-L40) - Traverse a tree node to load range key mappings into a generator
 
 **Why it matters:** Range items need stable keys for diffing. The generator ensures keys are deterministic within a render but reset between renders for consistency.
 
