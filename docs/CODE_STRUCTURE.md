@@ -6,10 +6,9 @@ This document provides a comprehensive map of the LiveTemplate codebase, explain
 
 - [Project Overview](#project-overview)
 - [Core Library Files](#core-library-files)
-- [Supporting Files](#supporting-files)
+- [Internal Packages](#internal-packages)
+- [Top-Level Packages](#top-level-packages)
 - [Test Files](#test-files)
-- [CLI Tool](#cli-tool)
-- [Client Library](#client-library)
 - [File Dependencies](#file-dependencies)
 - [Entry Points](#entry-points)
 
@@ -17,85 +16,60 @@ This document provides a comprehensive map of the LiveTemplate codebase, explain
 
 ```
 livetemplate/
-├── *.go                    # Core library (21 files)
-├── client/                 # TypeScript client library
-│   ├── livetemplate-client.ts
-│   └── livetemplate-client.test.ts
-├── cmd/lvt/                # CLI tool for code generation
-│   ├── main.go
-│   ├── commands/
-│   └── internal/
-├── examples/               # Example applications
-│   ├── counter/
-│   └── todos/
-├── testdata/               # Test fixtures and golden files
-├── docs/                   # Documentation
-└── scripts/                # Development scripts
+├── *.go                    # Core library (15 files)
+├── internal/
+│   ├── build/              # Tree types, fingerprinting, wrapper injection
+│   ├── compat/             # Backward compatibility wrappers
+│   ├── context/            # Template execution context
+│   ├── diff/               # Tree comparison and update generation
+│   ├── discovery/          # Template file auto-discovery
+│   ├── fuzz/               # Fuzz testing framework
+│   ├── keys/               # Range item key generation
+│   ├── observe/            # Metrics and Prometheus export
+│   ├── parse/              # Template parsing into tree structures
+│   ├── render/             # HTML rendering and minification
+│   ├── send/               # Message parsing and serialization
+│   ├── session/            # WebSocket connection registry
+│   ├── testutil/           # Test utilities (Redis helpers)
+│   ├── upload/             # File upload infrastructure
+│   ├── uploadtypes/        # Upload type definitions
+│   └── util/               # String utility functions
+├── pubsub/                 # Redis pub/sub broadcasting
+├── testdata/               # Test fixtures, golden files, fuzz corpus
+└── docs/                   # Documentation
 ```
 
 ## Core Library Files
 
 ### Public API Layer
 
-#### template.go (~1,400 lines)
+#### template.go (1,655 lines)
 **Purpose:** Main API entry point and orchestrator for the library
 
 **Key Types:**
 - `Template` - Core template management type
-- `Config` - Template configuration options
-- `UpdateResponse` - Wrapper for tree updates
-- `ResponseMetadata` - Action metadata
 
 **Key Functions:**
 - `New(name string, opts ...Option) *Template` - Create new template
 - `Execute(wr io.Writer, data interface{}) error` - Full HTML render
 - `ExecuteUpdates(wr io.Writer, data interface{}) error` - Tree updates
-- `Handle(store Store) http.Handler` - WebSocket/HTTP handler
+- `Handle(controller, state, ...options) http.Handler` - WebSocket/HTTP handler
 - `ParseFiles(filenames ...string) (*Template, error)` - Parse templates
 
 **Dependencies:**
-- tree.go (tree operations)
 - internal/parse/ (template parsing)
 - internal/build/ (tree building)
 - internal/diff/ (tree comparison)
 - internal/observe/ (observability)
 - mount.go (HTTP handlers)
-- session.go (session management)
+- session_stores.go (session management)
 
 **Used By:** All user applications
 
-**Architecture Note:** v1.0 refactored template.go from 2,500 to 1,400 lines by extracting parsing, building, and diffing logic into internal packages while maintaining 100% backward compatibility.
-
 ---
 
-#### action.go (~270 lines)
-**Purpose:** Action protocol and data binding
-
-**Key Types:**
-- `ActionData` - Type-safe data extraction
-- `FieldError` - Validation error
-- `MultiError` - Collection of field errors
-
-**Key Functions:**
-- `Bind(v interface{}) error` - Unmarshal to struct
-- `BindAndValidate(v, validator) error` - Bind + validate
-- `GetString/GetInt/GetFloat/GetBool(key)` - Type-safe getters
-- `ValidationToMultiError(err) MultiError` - Convert validator errors
-
-**Internal Functions:**
-- `parseAction(action string) (controller, actualAction)` - Parse "controller.action"
-- `parseActionFromHTTP(r *http.Request) (message, error)` - HTTP parser
-- `parseActionFromWebSocket(data []byte) (message, error)` - WS parser
-- `writeUpdateWebSocket(conn, update) error` - WS writer
-
-**Dependencies:** None (self-contained)
-
-**Used By:** template.go, mount.go, user applications
-
----
-
-#### mount.go (~500 lines)
-**Purpose:** HTTP/WebSocket handlers and Controller+State pattern
+#### mount.go (2,024 lines)
+**Purpose:** HTTP/WebSocket handlers, Controller+State pattern, and connection lifecycle
 
 **Key Functions:**
 - `Handle(controller, AsState(state), ...options) http.Handler` - Create handler with controller and state
@@ -108,153 +82,252 @@ livetemplate/
 - Error handling (validation errors, panics)
 - Broadcasting support
 - Controller lifecycle methods (Mount, OnConnect, OnDisconnect)
+- Graceful shutdown with connection draining
 
 **Dependencies:**
 - template.go (Template type)
 - context.go (Context type)
 - state.go (State interface, AsState wrapper)
-- session.go (SessionStore)
+- session_stores.go (SessionStore)
+- internal/session/ (ConnectionRegistry)
 
 **Used By:** User applications (via Template.Handle())
 
 ---
 
-#### session.go (~150 lines)
-**Purpose:** Session management for HTTP requests
+#### session_stores.go (905 lines)
+**Purpose:** Session store abstraction for single-instance and distributed deployments
 
 **Key Types:**
 - `SessionStore` interface - Session storage abstraction
-- `MemorySessionStore` - In-memory implementation
+- `MemorySessionStore` - In-memory implementation for single-instance
+- `RedisSessionStore` - Redis-backed implementation for multi-instance
 
 **Key Functions:**
-- `NewMemorySessionStore() SessionStore` - Create memory store
-- `GetSession(r *http.Request) (Session, error)` - Get session
-- `SaveSession(w, r, session) error` - Save session
+- `NewMemorySessionStore() *MemorySessionStore`
+- `NewRedisSessionStore(client *redis.Client, ...options) *RedisSessionStore`
 
-**Dependencies:** None
+**Dependencies:** `github.com/redis/go-redis/v9`
 
 **Used By:** mount.go
 
 ---
 
-### Template Processing Layer
+#### state.go (451 lines)
+**Purpose:** State interface and generic session state management
 
-#### tree.go (~400 lines)
-**Purpose:** Tree operations and key generation
-
-**Key Types (Private):**
-- `treeNode` - map[string]interface{} representing tree structure
-- `keyGenerator` - Sequential key generation
-- `keyAttributeConfig` - Configuration for key attributes
+**Key Types:**
+- `StateWrapper` interface - State cloning and serialization contract
+- `AsState[T]()` - Generic wrapper that marks a struct as session state
 
 **Key Functions:**
-- `parseTemplateToTree(templateStr, data, keyGen) (treeNode, error)` - Entry point
-- `calculateFingerprint(tree) string` - MD5 hash for change detection
-- `newKeyGenerator() *keyGenerator` - Create key generator
-- `generateRandomID() string` - Random wrapper ID generation
-- `injectWrapperDiv(html, wrapperID, loadingDisabled) string` - Wrapper injection
-- `extractTemplateContent(input, wrapperID) string` - Extract wrapped content
-- `normalizeTemplateSpacing(templateStr) string` - Normalize {{}} spacing
+- `AsState[T any](initial *T) *TypedState[T]` - Create typed state wrapper
 
-**Tree Format:**
-```go
-treeNode{
-    "s": []string{"<div>", "</div>"},  // Statics
-    "0": "dynamic value",               // Dynamic at position 0
-    "1": nestedTreeNode,                // Nested tree
-}
-```
-
-**Dependencies:**
-- internal/parse/ (AST parser)
-- internal/build/ (tree building)
-
-**Used By:** template.go
+**Used By:** mount.go, user applications
 
 ---
 
-### Internal Packages (v1.0 Architecture)
-
-#### internal/parse/ (~1,320 lines)
-**Purpose:** AST-based template parser - parses Go templates into tree structures
-
-**Files:**
-- `parser.go` (280 lines) - Main parser entry point
-- `constructs.go` (290 lines) - Construct type definitions
-- `compile.go` (320 lines) - Compilation logic (structure definition)
-- `hydrate.go` (260 lines) - Hydration logic (data filling)
-- `helpers.go` (170 lines) - Utility functions
+#### action.go (329 lines)
+**Purpose:** Action protocol and data binding
 
 **Key Types:**
-- `Construct` interface - Common interface for all template constructs
-- `FieldConstruct` - Simple field replacement `{{.Field}}`
-- `ConditionalConstruct` - If/else branches `{{if .Cond}}...{{else}}...{{end}}`
-- `RangeConstruct` - Iteration `{{range .Items}}...{{end}}`
-- `WithConstruct` - Context switching `{{with .Item}}...{{end}}`
-- `TemplateInvokeConstruct` - Template invocation `{{template "name" .}}`
+- `ActionData` - Type-safe data extraction
+- `FieldError` - Validation error
+- `MultiError` - Collection of field errors
 
 **Key Functions:**
-- `ParseTemplateToTreeAST(templateStr, data, keyGen) (TreeNode, error)` - Main parser
-- `buildTreeFromAST(node, data, keyGen) (TreeNode, error)` - Recursive AST walk
-- `compileConstruct(construct) error` - Compile phase
-- `hydrateConstruct(construct, data) error` - Hydration phase
+- `Bind(v interface{}) error` - Unmarshal to struct
+- `BindAndValidate(v, validator) error` - Bind + validate
+- `GetString/GetInt/GetFloat/GetBool(key)` - Type-safe getters
+
+**Dependencies:** None (self-contained)
+
+**Used By:** context.go, mount.go, user applications
+
+---
+
+#### config.go (312 lines)
+**Purpose:** Template and handler configuration via options pattern
+
+**Key Types:**
+- `TemplateConfig` - Template customization options
+
+**Key Functions:**
+- Configuration options: `WithDevMode()`, `WithCompressHTML()`, `WithMaxConnections()`, etc.
+- Environment variable loading (`LVT_*` prefix)
+
+**Used By:** template.go, mount.go
+
+---
+
+#### health.go (303 lines)
+**Purpose:** Health check endpoints for Kubernetes probes
+
+**Key Types:**
+- `HealthHandler` - HTTP handler for health endpoints
+- `HealthChecker` interface - Custom dependency health checks
+
+**Key Functions:**
+- `NewHealthHandler(checkers ...HealthChecker) *HealthHandler`
+- `Live(w, r)` - Liveness probe (`/health/live`)
+- `Ready(w, r)` - Readiness probe (`/health/ready`)
+
+**Used By:** User applications (Kubernetes deployments)
+
+---
+
+#### context.go (278 lines)
+**Purpose:** Unified context for lifecycle and action methods
+
+**Key Types:**
+- `Context` - Unified context replacing the old ActionContext
+
+**Key Functions:**
+- `Action() string` - Get current action name
+- `UserID() string` - Get authenticated user ID
+- `GetString(key) string` - Type-safe string extraction
+- `GetInt(key) int` - Type-safe int extraction
+- `BindAndValidate(v, validator) error` - Bind + validate
+
+**Used By:** mount.go, user controller methods
+
+---
+
+#### dispatch.go (214 lines)
+**Purpose:** Reflection-based action method dispatch
+
+**Key Functions:**
+- Method lookup and caching per controller type
+- Dispatch actions to controller methods by name
+
+**Used By:** mount.go
+
+---
+
+#### auth.go (199 lines)
+**Purpose:** Authentication interface and default implementation
+
+**Key Types:**
+- `Authenticator` interface - User identification contract
+- `DefaultAuthenticator` - Cookie-based session authentication
+
+**Used By:** mount.go
+
+---
+
+#### lifecycle.go (147 lines)
+**Purpose:** Controller lifecycle method detection and invocation
+
+**Key Functions:**
+- Detection and invocation of `Mount()`, `OnConnect()`, `OnDisconnect()` methods
+
+**Used By:** mount.go
+
+---
+
+#### s3_presigner.go (121 lines)
+**Purpose:** S3 presigned URL generation for file uploads
+
+**Used By:** upload.go
+
+---
+
+#### testing.go (87 lines)
+**Purpose:** Test helpers for library users
+
+**Key Functions:**
+- `AssertPureState[T](t) ` - Verify state struct contains no dependency types
+
+**Used By:** User test files
+
+---
+
+#### upload.go (82 lines)
+**Purpose:** File upload public API
+
+**Used By:** mount.go, user applications
+
+---
+
+#### upload_init.go (22 lines)
+**Purpose:** Upload subsystem initialization
+
+**Used By:** mount.go
+
+---
+
+## Internal Packages
+
+### Phase 1: Parse — `internal/parse/` (2,149 lines)
+
+**Purpose:** Parse Go templates into tree structures with separated statics and dynamics
+
+**Files:**
+| File | Lines | Purpose |
+|------|-------|---------|
+| `parse.go` | 558 | Main parser, `Parse()` and `BuildTree()` |
+| `range.go` | 513 | `{{range}}` handling with key generation |
+| `flatten.go` | 405 | Template composition (`{{template "name" .}}` inlining) |
+| `conditional.go` | 262 | `{{if}}{{else}}{{end}}` handling |
+| `var_context.go` | 182 | Variable scoping for nested contexts |
+| `field.go` | 167 | `{{.Field}}` handling |
+| `with.go` | 35 | `{{with}}{{end}}` handling |
+| `types.go` | 27 | Shared type definitions |
+
+**Key Functions:**
+- `Parse(templateStr string, funcMap template.FuncMap) (*Template, error)` - Parse template string
+- `BuildTree(tmpl *Template, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error)` - Build tree from AST + data
 
 **How It Works:**
-1. Parse template using stdlib html/template
-2. Walk AST to identify template constructs
-3. Compile constructs (define structure)
-4. Hydrate constructs (fill with data)
-5. Build tree with statics and dynamics separated
-
-**Dependencies:**
-- internal/build/ (tree types)
-- template_flatten.go (template composition)
-
-**Used By:** tree.go, template.go
+1. Parse template using stdlib `html/template`
+2. Walk AST to identify template constructs (fields, conditionals, ranges, etc.)
+3. Flatten template compositions (inline `{{template}}` calls)
+4. Build tree with statics and dynamics separated
 
 ---
 
-#### internal/build/ (~570 lines)
-**Purpose:** Tree construction and operations
+### Phase 2: Build — `internal/build/` (1,090 lines)
+
+**Purpose:** Tree type definitions, fingerprinting, wrapper injection, and HTML utilities
 
 **Files:**
-- `builder.go` (210 lines) - Tree building orchestration
-- `tree_ops.go` (180 lines) - Tree manipulation operations
-- `fingerprint.go` (90 lines) - Change detection via structure fingerprinting
-- `types.go` (40 lines) - Core tree types
+| File | Lines | Purpose |
+|------|-------|---------|
+| `types.go` | 580 | `TreeNode` struct, `RangeData`, tree operations |
+| `wrapper.go` | 263 | Wrapper div injection and extraction |
+| `fingerprint.go` | 97 | MD5-based structure fingerprinting |
+| `html_segmentation.go` | 94 | HTML segmentation for statics extraction |
+| `html_diff.go` | 56 | HTML-level diff utilities |
 
 **Key Types:**
-- `TreeNode` - map[string]interface{} representing tree structure
+- `TreeNode` (struct) - Core tree structure with statics and dynamics
 - `RangeData` - Range metadata (item keys, construct ID)
-- `TreeMetadata` - Metadata annotations for trees
+- `TreeMetadata` - Metadata annotations
 
 **Key Functions:**
-- `BuildTree(statics []string, dynamics []interface{}) TreeNode` - Construct tree
-- `CalculateStructureFingerprint(tree *TreeNode) string` - MD5 hash of static structure for change detection
-- `MergeTree(target, source TreeNode)` - Merge operations
-- `CloneTree(tree TreeNode) TreeNode` - Deep copy
-
-**Dependencies:** None (foundational)
-
-**Used By:** internal/parse/, internal/diff/, tree.go, template.go
+- `CalculateStructureFingerprint(tree *TreeNode) string` - MD5 hash of static structure
+- `TreeNode.GetStructureFingerprint() string` - Cached fingerprint accessor
 
 ---
 
-#### internal/diff/ (~1,570 lines)
+### Phase 3: Diff — `internal/diff/` (1,972 lines)
+
 **Purpose:** Tree comparison and minimal update generation
 
 **Files:**
-- `tree_compare.go` (420 lines) - Main tree comparison logic
-- `range_ops.go` (400 lines) - Range differential operations
-- `prepare.go` (62 lines) - Client preparation (static stripping)
-- `helpers.go` (661 lines) - Comparison helper functions
-- `types.go` (27 lines) - Type aliases for compatibility
+| File | Lines | Purpose |
+|------|-------|---------|
+| `helpers.go` | 853 | ~70 utility functions for comparisons |
+| `range_ops.go` | 521 | Range differential operations (insert, remove, update, reorder) |
+| `tree_compare.go` | 495 | Main comparison orchestrator |
+| `prepare.go` | 86 | Wire format preparation (strip statics when cached) |
+| `types.go` | 17 | Type aliases for compatibility |
 
 **Key Functions:**
-- `CompareTreesAndGetChangesWithPath(old, new, insideNewStructure, path, rangeMatches) TreeNode` - Main comparison orchestrator
-- `ClientNeedsStatics(oldTree, newTree) bool` - Fingerprint-based structure comparison
-- `GenerateRangeDifferentialOperations(oldTree, newTree, clientHasStatics) []interface{}` - Range diff orchestrator
-- `PrepareTreeForClient(node, clientHasStatics) interface{}` - Strip statics for wire transmission
+- `CompareTreesAndGetChangesWithPath(old, new, insideNewStructure, path, rangeMatches)` - Main comparison
+- `ClientNeedsStatics(oldTree, newTree *build.TreeNode) bool` - Fingerprint-based comparison
+- `GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripStatics bool) []interface{}` - Range diff
+- `PrepareTreeForClient(node interface{}, clientHasStatics bool) interface{}` - Strip statics for wire transmission
 
 **Architecture Pattern:** Orchestrator → Coordinator → Helper
 - **Orchestrators** (~30 lines): High-level flow control
@@ -267,385 +340,248 @@ treeNode{
 - `["r", "item-id"]` - Remove item
 - `["o", ["id1", "id2", ...]]` - Reorder items
 
-**Wire Format Optimization:**
-- First render: Full tree WITH statics
-- Updates: ONLY changed dynamics, NO statics (client has cached them)
-- Result: ~90% size reduction for updates
-
-**Dependencies:**
-- internal/build/ (tree types)
-
-**Used By:** template.go
-
 ---
 
-#### internal/observe/ (~449 lines)
-**Purpose:** Production-ready observability with structured logging and metrics
+### Phase 4: Render — `internal/render/` (217 lines)
+
+**Purpose:** HTML rendering and minification
 
 **Files:**
-- `logger.go` (180 lines) - Structured logging with slog
-- `metrics.go` (210 lines) - Operational metrics
-- `context.go` (59 lines) - Context enrichment
+| File | Lines | Purpose |
+|------|-------|---------|
+| `html.go` | 154 | Tree → HTML rendering, void element detection |
+| `minify.go` | 63 | HTML whitespace minification |
+
+**Key Functions:**
+- `Node(w *strings.Builder, n *html.Node)` - Render HTML node to builder
+- `TreeToHTML(tree map[string]interface{}) (string, error)` - Convert tree to HTML
+- `IsVoidElement(tagName string) bool` - Check if element is self-closing
+- `MinifyHTML(htmlContent string) string` - Remove unnecessary whitespace
+
+---
+
+### Phase 5: Send — `internal/send/` (270 lines)
+
+**Purpose:** Action message parsing, update response wrapping, and JSON serialization
+
+**Files:**
+| File | Lines | Purpose |
+|------|-------|---------|
+| `message.go` | 185 | Parse actions from HTTP requests and WebSocket messages |
+| `response.go` | 55 | Update response wrapping |
+| `json.go` | 30 | Ordered JSON serialization |
+
+**Key Functions:**
+- `ParseActionFromHTTP(r *http.Request) (ActionMessage, error)` - Parse action from HTTP
+- `PrepareUpdate(tree, errors, action) *UpdateResponse` - Wrap update for client
+- `SerializeUpdate(resp *UpdateResponse) ([]byte, error)` - Serialize to JSON
+- `MarshalOrderedJSON(tree interface{}) ([]byte, error)` - Deterministic JSON output
+
+---
+
+### Supporting Packages
+
+#### `internal/keys/` (241 lines)
+**Purpose:** Sequential key generation for range items
+
+**Files:**
+- `generator.go` (201) - Key generator with thread-safe counter
+- `loader.go` (40) - Key loading utilities
+
+#### `internal/context/` (507 lines)
+**Purpose:** Template execution context and data utilities
+
+**Files:**
+- `context.go` (412) - TemplateContext for error handling and dev mode
+- `data.go` (95) - Data extraction utilities
+
+#### `internal/session/` (695 lines)
+**Purpose:** WebSocket connection registry with async write pump
+
+**Files:**
+- `registry.go` (510) - Connection type, ConnectionRegistry with dual indexing
+- `limits.go` (185) - ConnectionLimits for per-instance and per-group limits
 
 **Key Types:**
-- `Logger` - Wrapper around slog.Logger with domain-specific methods
+- `Connection` - WebSocket connection with dedicated writePump goroutine
+- `ConnectionRegistry` - Thread-safe registry indexed by groupID and userID
+- `ConnectionLimits` - Global and per-group connection limits
+
+#### `internal/observe/` (785 lines)
+**Purpose:** Operational metrics and Prometheus export
+
+**Files:**
+- `metrics.go` (401) - Counters, gauges, and histograms for all operations
+- `prometheus.go` (356) - PrometheusExporter for `/metrics` endpoint
+- `doc.go` (28) - Package documentation
+
+**Key Types:**
 - `Metrics` - Operational metrics collector
+- `PrometheusExporter` - Prometheus-compatible exporter
+
+#### `internal/compat/` (142 lines)
+**Purpose:** Backward compatibility wrappers for tree operations
+
+#### `internal/discovery/` (118 lines)
+**Purpose:** Template file auto-discovery from conventional directories
+
+#### `internal/upload/` (1,037 lines)
+**Purpose:** File upload infrastructure
+
+**Files:**
+- `registry.go` (244) - Upload registry for tracking uploads
+- `protocol.go` (219) - Upload protocol handling
+- `multipart.go` (197) - Multipart form parsing
+- `tempfile.go` (189) - Temporary file management
+- `validate.go` (109) - Upload validation rules
+- `accessor.go` (79) - Upload accessor interface
+
+#### `internal/uploadtypes/` (52 lines)
+**Purpose:** Upload type definitions shared across packages
+
+#### `internal/testutil/` (153 lines)
+**Purpose:** Test utilities (Redis test helpers)
+
+#### `internal/util/` (45 lines)
+**Purpose:** String utility functions
 
 **Key Functions:**
-- `NewLogger(level, handler) *Logger` - Create structured logger
-- `NewMetrics(logger) *Metrics` - Create metrics collector
-- `EmitPeriodically(interval)` - Background metrics emission
-- `RecordTemplateExecution(duration)` - Record timing
-- `RecordWebSocketConnection()` - Record connection
-- `RecordAction(action, duration)` - Record action metrics
+- `FindCommonPrefix(s1, s2 string) string`
+- `FindCommonSuffix(s1, s2 string) string`
 
-**Metrics Tracked:**
-- Template executions (count, duration)
-- WebSocket connections (active, total)
-- Actions processed (by type)
-- Errors (by type)
-- Update sizes (bytes)
+#### `internal/fuzz/` (6,599 lines)
+**Purpose:** Fuzz testing framework for tree diff correctness validation
 
-**Log Levels:**
-- Debug: Template operations, tree generation
-- Info: Connections, configuration
-- Warn: Validation failures, retries
-- Error: Fatal errors, panics
-
-**Dependencies:** None (uses stdlib slog)
-
-**Used By:** template.go, mount.go, examples/
+**Subpackages:**
+- `app/` - Application state types and mutation generators (10 files)
+- `generators/` - Random state and template generators (2 files)
+- `invariants/` - Invariant verifiers: update minimality, key stability, tree structure, no data loss (3 files)
+- `mutations/` - Mutation types and application logic (2 files)
 
 ---
 
-#### template_flatten.go (~400 lines)
-**Purpose:** Template composition resolver
+## Top-Level Packages
 
-**Key Functions:**
-- `flattenTemplate(tmpl *template.Template) (string, error)` - Flatten template
-- `hasTemplateComposition(tmpl) bool` - Check for {{template}} calls
-- `resolveTemplateInvocations(node, tmpl, result) error` - Resolve invocations
-- `getTemplateByName(tmpl, name) (*template.Template, error)` - Find template
+### `pubsub/` (675 lines)
+**Purpose:** Redis pub/sub broadcasting for distributed multi-instance deployments
 
-**How It Works:**
-1. Detect {{template "name" .}} invocations
-2. Inline the referenced template's content
-3. Recursively resolve nested invocations
-4. Return flattened template string
-
-**Dependencies:** None (self-contained)
-
-**Used By:** tree_ast.go
-
----
-
-#### template_discovery.go (~100 lines)
-**Purpose:** Auto-discovery of template files
-
-**Key Functions:**
-- `discoverTemplateFiles() ([]string, error)` - Find template files
-- `findTemplateFile(name) string` - Find specific template
-
-**Search Locations:**
-- Current directory
-- ./templates/
-- ./views/
-- ./web/templates/
-- ./web/views/
-
-**Search Extensions:**
-- .tmpl
-- .html
-- .gotmpl
-
-**Dependencies:** None
-
-**Used By:** template.go (New function)
-
----
-
-### Supporting Files
-
-#### errors.go (~50 lines)
-**Purpose:** Error handling utilities
-
-**Key Functions:**
-- Error wrapping and formatting
-- Validation error helpers
-
-**Dependencies:** None
-
-**Used By:** template.go, mount.go
-
----
-
-#### html_minify.go (~100 lines)
-**Purpose:** HTML minification (optional optimization)
-
-**Key Functions:**
-- `minifyHTML(html string) string` - Remove unnecessary whitespace
-
-**Dependencies:** None
-
-**Used By:** template.go (conditionally)
+**Files:**
+- `redis.go` (561) - Redis-based pub/sub broadcaster with reconnection
+- `types.go` (114) - Message types and broadcaster interface
 
 ---
 
 ## Test Files
 
-### E2E Tests
+### Core Tests
 
-#### e2e_test.go (~1,800 lines)
-**Purpose:** End-to-end rendering sequences with golden file validation
+| File | Lines | Purpose |
+|------|-------|---------|
+| `tree_test.go` | 3,659 | Tree generation and invariant tests |
+| `template_test.go` | 3,383 | Core template functionality |
+| `fuzz_diff_test.go` | 3,082 | Fuzz-based diff testing |
+| `handle_test.go` | 1,195 | HTTP/WebSocket handler tests |
+| `e2e_update_spec_test.go` | 953 | Tree update specification compliance |
+| `state_test.go` | 748 | State cloning and serialization |
+| `config_test.go` | 639 | Configuration option tests |
+| `session_test.go` | 530 | Session store tests |
+| `fuzz_ts_oracle_test.go` | 500 | TypeScript oracle validation |
+| `upload_test.go` | 487 | File upload tests |
+| `auth_test.go` | 344 | Authentication tests |
+| `health_test.go` | 347 | Health check endpoint tests |
+| `s3_presigner_test.go` | 331 | S3 presigner tests |
+| `dispatch_test.go` | 229 | Action dispatch tests |
+| `lifecycle_test.go` | 220 | Lifecycle method tests |
+| `template_bench_test.go` | 215 | Template benchmarks |
+| `component_templates_test.go` | 205 | Component template tests |
+| `context_test.go` | 199 | Context tests |
+| `e2e_bench_test.go` | 197 | E2E benchmarks |
+| `shutdown_test.go` | 195 | Graceful shutdown tests |
+| `metrics_test.go` | 123 | Metrics tests |
+| `error_bench_test.go` | 81 | Error handling benchmarks |
+| `testing_test.go` | 56 | Test helper tests |
+| `tree_bench_test.go` | 42 | Tree operation benchmarks |
 
-**Test Scenarios:**
-- Complete rendering sequence (todos)
-- Simple counter updates
-- Component-based templates
-- Range operations (add, remove, reorder)
-- No-change updates
-- Performance benchmarks
+### Browser E2E Tests
 
-**Golden Files:** testdata/e2e/*.json, *.html
+Browser-based chromedp E2E tests are maintained in the lvt repository:
+- Location: `github.com/livetemplate/lvt/e2e/livetemplate_core_test.go`
+- Tests validate: complete rendering sequences, loading indicators, focus preservation, etc.
 
----
+### Test Data
 
-### Integration Tests
-
-#### template_test.go (~800 lines)
-**Purpose:** Core template functionality tests
-
-**Test Coverage:**
-- Template parsing
-- Tree generation
-- Update generation
-- Error handling
-- Configuration options
-
----
-
-#### focus_preservation_test.go (~300 lines)
-**Purpose:** Browser E2E test for focus preservation
-
-**Tests:**
-- Input focus maintained during updates
-- Scroll position preserved
-- Form state persistence
-
-**Uses:** chromedp for browser automation
-
----
-
-#### loading_indicator_test.go (~200 lines)
-**Purpose:** Browser E2E test for loading indicators
-
-**Tests:**
-- Loading indicator shown/hidden correctly
-- Timing and transitions
-- User experience
-
-**Uses:** chromedp
-
----
-
-### Unit Tests
-
-#### tree_invariant_test.go (~400 lines)
-**Purpose:** Tree structure invariant validation
-
-**Tests:**
-- Tree structure correctness
-- Statics/dynamics separation
-- Key uniqueness
-- Fingerprint consistency
-
----
-
-#### tree_fuzz_test.go (~200 lines)
-**Purpose:** Fuzz testing for template parser
-
-**Tests:**
-- Random template inputs
-- Parser robustness
-- Crash prevention
-
----
-
-#### tree_deep_nesting_test.go (~150 lines)
-**Purpose:** Deep nesting scenarios
-
-**Tests:**
-- Deeply nested conditionals
-- Nested ranges
-- Performance with deep structures
-
----
-
-#### tree_nested_conditionals_test.go (~150 lines)
-**Purpose:** Complex conditional logic
-
-**Tests:**
-- If/else chains
-- Nested if statements
-- Edge cases
-
----
-
-#### key_injection_test.go (~200 lines)
-**Purpose:** Key generation and stability tests
-
-**Tests:**
-- Key uniqueness
-- Key stability across renders
-- Key generation patterns
-
----
-
-#### template_flatten_test.go (~300 lines)
-**Purpose:** Template composition tests
-
-**Tests:**
-- Template invocations
-- Nested templates
-- Recursive resolution
-
----
-
-### Test Helpers
-
-#### tree_test_helpers.go (~100 lines)
-**Purpose:** Shared test utilities
-
-**Functions:**
-- Tree comparison helpers
-- JSON normalization
-- Test data generation
-
----
-
-## CLI Tool
-
-Located in `cmd/lvt/`:
-
-```
-cmd/lvt/
-├── main.go                 # CLI entry point
-├── commands/               # CLI commands
-│   ├── new.go              # Create new apps
-│   ├── gen.go              # Generate resources
-│   ├── kits.go             # Kit management
-│   └── serve.go            # Development server
-├── internal/
-│   ├── generator/          # Code generation engine
-│   ├── kits/               # Kit system
-│   │   ├── loader.go       # Kit loading
-│   │   ├── types.go        # Kit types
-│   │   └── system/         # Built-in kits (Tailwind, Bulma, Pico, None)
-│   ├── config/             # Configuration management
-│   └── serve/              # Development server
-└── e2e/                    # E2E tests for CLI
-    └── tutorial_test.go    # Tutorial walkthrough test
-```
-
-**Key Features:**
-- App scaffolding with CSS framework selection
-- CRUD generation with forms, tables, validation
-- Component system (reusable UI blocks)
-- Kit system (CSS framework integrations)
-- Hot reload development server
-
-See [CLI Documentation](user-guide.md) for details.
-
----
-
-## Client Library
-
-Located in `client/`:
-
-```
-client/
-├── livetemplate-client.ts          # Main client implementation
-├── livetemplate-client.test.ts     # Jest tests
-├── package.json
-├── tsconfig.json
-└── dist/                           # Built output
-    └── livetemplate-client.min.js
-```
-
-**Key Features:**
-- WebSocket connection with auto-reconnect
-- HTTP fallback
-- Event delegation (`lvt-*` attributes)
-- Tree-based DOM updates
-- Focus preservation
-- Loading indicators
-- Form lifecycle events
-
-**Size:** ~15KB minified
+- `testdata/fixtures/` - Template fixtures for unit tests
+- `testdata/golden/` - Golden files for snapshot testing
+- `testdata/fuzz/` - Fuzz test corpus
 
 ---
 
 ## File Dependencies
 
-### Dependency Graph (v1.0)
+### Dependency Graph
 
 ```
 User Application
     ↓
 template.go (Public API & Orchestrator)
     ↓
-    ├→ tree.go (Tree operations)
+    ├→ internal/parse/ (Template parsing + composition)
     │    ↓
-    │    ├→ internal/parse/ (AST parser)
-    │    │    ↓
-    │    │    ├→ internal/build/ (Tree building)
-    │    │    └→ template_flatten.go (Composition)
-    │    │
-    │    └→ internal/build/ (Tree building)
+    │    └→ internal/build/ (Tree types)
+    │
+    ├→ internal/build/ (Fingerprinting, wrapper injection)
     │
     ├→ internal/diff/ (Tree comparison)
     │    ↓
     │    └→ internal/build/ (Tree types)
     │
-    ├→ internal/observe/ (Observability)
+    ├→ internal/observe/ (Metrics)
     │
-    ├→ action.go (Actions & data binding)
+    ├→ internal/discovery/ (Template file discovery)
+    │
+    ├→ action.go (Action data binding)
     │
     ├→ mount.go (HTTP/WebSocket handlers)
     │    ↓
-    │    ├→ session.go (Session management)
     │    ├→ context.go (Context type)
     │    ├→ state.go (State interface)
+    │    ├→ dispatch.go (Action dispatch)
+    │    ├→ lifecycle.go (Lifecycle methods)
+    │    ├→ auth.go (Authentication)
+    │    ├→ session_stores.go (Session storage)
+    │    ├→ internal/session/ (Connection registry)
+    │    ├→ internal/send/ (Message parsing)
     │    └→ internal/observe/ (Logging)
     │
-    └→ template_discovery.go (File discovery)
+    └→ config.go (Configuration)
 ```
 
 ### Import Relationships
 
-**Level 0 (No dependencies - Foundational):**
+**Level 0 (No internal dependencies — Foundational):**
 - action.go
-- errors.go
-- html_minify.go
-- session.go
-- template_discovery.go
-- template_flatten.go
 - internal/build/ (tree types and operations)
-- internal/observe/ (observability)
+- internal/keys/ (key generation)
+- internal/util/ (string utilities)
 
-**Level 1 (Depends on Level 0 - Internal Packages):**
-- internal/parse/ (uses internal/build/, template_flatten.go)
+**Level 1 (Depends on Level 0 — Internal Packages):**
+- internal/parse/ (uses internal/build/)
 - internal/diff/ (uses internal/build/)
+- internal/render/ (uses internal/build/)
+- internal/send/ (standalone)
+- internal/observe/ (standalone)
 
-**Level 2 (Depends on Level 1 - Core Logic):**
-- tree.go (uses internal/parse/, internal/build/)
+**Level 2 (Depends on Level 1 — Public API Support):**
+- context.go, state.go, dispatch.go, lifecycle.go, auth.go
+- session_stores.go (uses internal/session/)
+- config.go
 
-**Level 3 (Depends on Level 2 - Public API):**
-- template.go (uses tree.go, internal/parse/, internal/build/, internal/diff/, internal/observe/, action.go, session.go)
-- mount.go (uses action.go, session.go, internal/observe/)
+**Level 3 (Depends on Level 2 — Public API):**
+- template.go (uses internal/parse/, internal/build/, internal/diff/, internal/observe/, config.go)
+- mount.go (uses context.go, state.go, dispatch.go, session_stores.go, internal/session/, internal/send/)
 
 **Top Level:**
-- User applications (use template.go, action.go, mount.go)
+- User applications (use template.go, mount.go)
 
 ---
 
@@ -687,111 +623,119 @@ func (c *CounterController) Increment(state CounterState, ctx *livetemplate.Cont
 }
 ```
 
-### For Contributors (v1.0)
+### For Contributors
 
 **Adding New Template Features:**
-1. Start in internal/parse/constructs.go (define construct type)
-2. Implement Parse, Compile, Hydrate methods
-3. Add parser logic in internal/parse/parser.go
-4. Add compilation in internal/parse/compile.go
-5. Add hydration in internal/parse/hydrate.go
-6. Add tests in template_test.go
-7. Update internal/build/ if tree structure changes
+1. Start in `internal/parse/` (define construct handling)
+2. Add parser logic in `internal/parse/parse.go`
+3. Add tests in `template_test.go` and `tree_test.go`
+4. Update `internal/build/` if tree structure changes
+5. Update `internal/diff/` if comparison logic changes
 
 **Modifying Tree Structure:**
-1. Start in internal/build/types.go (TreeNode definition)
-2. Update internal/build/tree_ops.go (operations)
-3. Update internal/parse/ (tree building)
-4. Update internal/diff/ (comparison logic)
-5. Update client/livetemplate-client.ts (tree consumption)
-6. Add tests in tree_invariant_test.go
+1. Start in `internal/build/types.go` (TreeNode definition)
+2. Update `internal/parse/` (tree building)
+3. Update `internal/diff/` (comparison logic)
+4. Add tests in `tree_test.go`
 
 **Improving Diff Algorithm:**
-1. Start in internal/diff/tree_compare.go (orchestrator)
+1. Start in `internal/diff/tree_compare.go` (orchestrator)
 2. Add coordinator functions for specific scenarios
-3. Add helper functions in internal/diff/helpers.go
+3. Add helper functions in `internal/diff/helpers.go`
 4. Follow orchestrator → coordinator → helper pattern
-5. Ensure functions are <50 lines
-6. Add tests in e2e_test.go
+5. Add tests in `e2e_update_spec_test.go`
 
 **Adding HTTP/WebSocket Features:**
-1. Start in mount.go
-2. Update action.go if protocol changes
-3. Add observability in internal/observe/
-4. Add tests in e2e_test.go
-
-**Adding Observability:**
-1. Add metrics in internal/observe/metrics.go
-2. Add logging in internal/observe/logger.go
-3. Integrate in template.go or mount.go
-4. Test in examples/observability/
+1. Start in `mount.go`
+2. Update `internal/send/` if protocol changes
+3. Add observability in `internal/observe/`
+4. Add tests in `handle_test.go`
 
 ---
 
 ## Quick Reference
 
-### Where to Find Things (v1.0)
+### Where to Find Things
 
 | What | Where |
 |------|-------|
-| Public API | template.go |
-| Controller+State pattern | mount.go, state.go, context.go |
-| Action data binding | action.go |
-| Template parsing | internal/parse/ |
-| Tree building | internal/build/ |
-| Tree comparison | internal/diff/ |
-| Observability | internal/observe/ |
-| Tree operations | tree.go |
-| HTTP handlers | mount.go |
-| Session management | session.go |
-| Template discovery | template_discovery.go |
-| Composition resolver | template_flatten.go |
-| E2E tests | e2e_test.go |
-| Client library | client/livetemplate-client.ts |
-| CLI tool | cmd/lvt/ |
+| Public API | `template.go` |
+| Controller+State pattern | `mount.go`, `state.go`, `context.go` |
+| Action data binding | `action.go` |
+| Template parsing | `internal/parse/` |
+| Tree types and fingerprinting | `internal/build/` |
+| Tree comparison | `internal/diff/` |
+| HTML rendering | `internal/render/` |
+| Message serialization | `internal/send/` |
+| Observability and metrics | `internal/observe/` |
+| HTTP/WebSocket handlers | `mount.go` |
+| Session storage | `session_stores.go` |
+| Connection registry | `internal/session/` |
+| File uploads | `upload.go`, `internal/upload/` |
+| Health checks | `health.go` |
+| Configuration | `config.go` |
+| Authentication | `auth.go` |
+| Redis pub/sub | `pubsub/` |
+| Fuzz testing | `internal/fuzz/` |
+| CLI tool | Separate repo: `livetemplate/lvt` |
+| TypeScript client | Separate repo: `livetemplate/client` |
 
-### Component Size Summary (v1.0)
+### Component Size Summary
 
 | Component | Lines | Purpose |
 |-----------|-------|---------|
-| internal/diff/ | ~1,570 | Tree comparison & updates |
-| template.go | ~1,400 | Main API (orchestrator) |
-| e2e_test.go | ~1,800 | E2E tests |
-| internal/parse/ | ~1,320 | Template parsing (AST) |
-| template_test.go | ~800 | Unit tests |
-| internal/build/ | ~570 | Tree building |
-| mount.go | ~500 | HTTP/WS handlers |
-| internal/observe/ | ~449 | Observability |
-| tree.go | ~400 | Tree operations |
-| template_flatten.go | ~400 | Composition |
-| action.go | ~270 | Actions |
-| session.go | ~150 | Sessions |
-| template_discovery.go | ~100 | Discovery |
+| `internal/fuzz/` | 6,599 | Fuzz testing framework |
+| `internal/parse/` | 2,149 | Template parsing (AST) |
+| `mount.go` | 2,024 | HTTP/WS handlers |
+| `internal/diff/` | 1,972 | Tree comparison & updates |
+| `template.go` | 1,655 | Main API (orchestrator) |
+| `internal/build/` | 1,090 | Tree types & fingerprinting |
+| `internal/upload/` | 1,037 | File upload infrastructure |
+| `session_stores.go` | 905 | Session storage |
+| `internal/observe/` | 785 | Observability |
+| `internal/session/` | 695 | Connection registry |
+| `pubsub/` | 675 | Redis pub/sub |
+| `internal/context/` | 507 | Execution context |
+| `state.go` | 451 | State management |
+| `action.go` | 329 | Actions & data binding |
+| `config.go` | 312 | Configuration |
+| `health.go` | 303 | Health checks |
+| `context.go` | 278 | Context type |
+| `internal/send/` | 270 | Message serialization |
+| `internal/keys/` | 241 | Key generation |
+| `internal/render/` | 217 | HTML rendering |
+| `dispatch.go` | 214 | Action dispatch |
+| `auth.go` | 199 | Authentication |
+| `internal/testutil/` | 153 | Test utilities |
+| `lifecycle.go` | 147 | Lifecycle methods |
+| `internal/compat/` | 142 | Backward compatibility |
+| `s3_presigner.go` | 121 | S3 presigning |
+| `internal/discovery/` | 118 | Template discovery |
+| `testing.go` | 87 | Test helpers |
+| `upload.go` | 82 | Upload API |
+| `internal/uploadtypes/` | 52 | Upload types |
+| `internal/util/` | 45 | String utilities |
+| `upload_init.go` | 22 | Upload init |
 
-**Total:** ~8,000 lines of core library code + ~3,000 lines of tests + ~3,900 lines in internal packages
-
-**Architecture Note:** v1.0 refactored monolithic template.go (2,500 lines) into orchestrator (1,400 lines) + internal packages (3,900 lines) with zero breaking changes.
+**Total:** ~7,130 lines of root-level library code + ~16,070 lines in internal packages + 675 lines in pubsub
 
 ---
 
-## Navigation Tips (v1.0)
+## Navigation Tips
 
 **For New Users:**
-1. **Start with template.go** - Understand the public API
-2. **Then mount.go, state.go, context.go** - Learn the Controller+State pattern
-3. **Then examples/** - See real usage (counter, todos, observability)
-4. **Then action.go** - Understand action data binding
-5. **Check e2e_test.go** - See comprehensive test scenarios
+1. **Start with `template.go`** — Understand the public API
+2. **Then `mount.go`, `state.go`, `context.go`** — Learn the Controller+State pattern
+3. **Then `action.go`** — Understand action data binding
+4. **Check test files** — See comprehensive test scenarios
 
 **For Contributors:**
-1. **Read ARCHITECTURE.md** - Understand v1.0 design principles
-2. **Read internal/parse/parser.go** - See how templates are parsed
-3. **Read internal/build/builder.go** - See how trees are built
-4. **Read internal/diff/tree_compare.go** - See orchestrator → coordinator → helper pattern
-5. **Check CLAUDE.md** - Development guidelines and conventions
-6. **Run tests** - `go test -v ./...`
-
-For guided walkthrough, see [CODE_TOUR.md](CODE_TOUR.md)
+1. **Read `ARCHITECTURE.md`** — Understand the 5-phase design
+2. **Read `internal/parse/parse.go`** — See how templates are parsed
+3. **Read `internal/build/types.go`** — See tree structure definition
+4. **Read `internal/diff/tree_compare.go`** — See orchestrator → coordinator → helper pattern
+5. **Check `CLAUDE.md`** — Development guidelines and conventions
+6. **Run tests** — `go test -v ./...`
 
 For architecture details, see [ARCHITECTURE.md](ARCHITECTURE.md)
 
