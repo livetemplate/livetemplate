@@ -159,6 +159,7 @@ Enable non-JS form submission support via POST-Redirect-GET pattern.
 - **Default**: `true`
 - **Example**: `LVT_PROGRESSIVE_ENHANCEMENT=false`
 - **Accepted values**: `true`, `false`, `1`, `0`, `yes`, `no`, `on`, `off` (case-insensitive)
+- **Validation**: Invalid values cause a startup error via `LoadEnvConfig()`
 
 **Use case**: When enabled, HTTP form submissions from non-JavaScript clients receive full HTML page responses. Disable if you only support WebSocket-capable clients.
 
