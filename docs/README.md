@@ -42,7 +42,6 @@ System architecture and design documents:
 - **[Code Structure](CODE_STRUCTURE.md)** - File-by-file codebase organization
 - **[First Principles](design/FIRST_PRINCIPLES.md)** - Core design principles and philosophy
 - **[Multi-Session Isolation](design/multi-session-isolation.md)** - Session isolation and multi-user design
-- **[Architectural Review](ARCHITECTURAL_REVIEW.md)** - Fingerprint-based diff architecture analysis
 
 ## Specifications
 
@@ -68,53 +67,39 @@ Benchmarking and performance analysis:
 
 ## Proposals
 
-Feature proposals and RFCs:
+Active feature proposals and RFCs:
 
-- **[Controller+State Pattern](proposals/002-controller-state-pattern.md)** - Controller+State separation RFC
-- **[Async WebSocket Sends](proposals/async-websocket-sends.md)** - Channel-based async WebSocket architecture
 - **[Reactive Attributes](proposals/reactive-attributes.md)** - Reactive `lvt-*` attributes proposal
-- **[Authentication v0.5](proposals/authentication-v0.5.md)** - Authentication system design
 - **[Event Bindings](proposals/bindings-proposal.md)** - Event binding system proposal
 - **[Data Binding](proposals/lvt-bind-proposal.md)** - Data binding proposal
-- **[Value Deduplication](proposals/value-deduplication-proposal.md)** - Wire format optimization proposal
-- **[Store Pattern Redesign](proposals/store-pattern-redesign.md)** - Store pattern redesign (preceded Controller+State)
-- **[Bug Fix Persistence](proposals/bug-fix-persistence-and-design-improvements.md)** - Bug fixes and design improvements
 
 ## Implementation Plans
 
-Internal tracking for implementation work:
+Active implementation tracking:
 
-- **[Implementation Status](implementation-plans/IMPLEMENTATION_STATUS.md)** - Current status tracking
 - **[Migration Guide](implementation-plans/MIGRATION.md)** - API migration guide
-- **[Refactoring Progress](implementation-plans/REFACTORING_PROGRESS.md)** - 5-phase architecture refactoring
 - **[Architecture Improvements](implementation-plans/ARCHITECTURE_IMPROVEMENTS.md)** - Proposed improvements
-- **[Testing Framework Progress](implementation-plans/TESTING_FRAMEWORK_PROGRESS.md)** - Testing framework development
-- **[Strip Statics Refactor](implementation-plans/REFACTOR_STRIP_STATICS.md)** - Static stripping optimization
-- **[Validation Conditionals](implementation-plans/BUG-VALIDATION-CONDITIONALS.md)** - Validation and conditional handling
 - **[HTML Fallback Coverage](implementation-plans/html-fallback-coverage.md)** - HTML fallback implementation coverage
-- **[Implementation Readiness](implementation-plans/implementation-readiness.md)** - Readiness checklist
 
 ## Design & Planning History
 
-Historical design documents and feature plans:
+Active design documents and future feature plans:
 
-- **[Controller+State Pattern Plan](plans/2024-12-06-controller-state-pattern.md)** - Original design plan
-- **[lvt gen auth](plans/2025-11-01-lvt-gen-auth.md)** - Auth generation plan
-- **[lvt gen stack Design](plans/2025-11-02-lvt-gen-stack-design.md)** - Stack generation design
-- **[lvt gen stack Implementation](plans/2025-11-02-lvt-gen-stack-implementation.md)** - Stack generation implementation
-- **[Performance Benchmarks Plan](plans/2025-11-10-performance-benchmarks.md)** - Benchmarking plan
-- **[Upload Feature Plan](plans/upload-feature-implementation.md)** - File upload implementation plan
-- **[lvt gen stack Complete](IMPLEMENTATION_COMPLETE.md)** - Stack generation completion report
-- **[lvt gen stack Implementation (alt)](lvt-gen-stack-implementation.md)** - Stack generation details
-- **[Simplified Diff Proposal](SIMPLIFIED_DIFF_PROPOSAL.md)** - Simplified diffing algorithm proposal
 - **[Fuzz Framework Design](fuzz-framework-design.md)** - Fuzzing test framework design
 
 ## Archive
 
-Outdated documentation preserved for historical reference:
+Completed, implemented, or superseded documentation preserved for historical reference:
 
 - **[archive/guides/](archive/guides/)** - Archived guides (user-guide, CODE_TOUR, kit-development, serve-guide)
 - **[archive/client-structure-registry.md](archive/client-structure-registry.md)** - Previous client registry implementation (replaced by fingerprint-based approach)
+- **[archive/plans/](archive/plans/)** - Completed plans: Controller+State, uploads, lvt gen stack, lvt gen auth, performance benchmarks
+- **[archive/proposals/](archive/proposals/)** - Implemented/declined proposals: Controller+State RFC, async WebSocket, auth v0.5, value dedup, store redesign, bug fix persistence
+- **[archive/implementation-plans/](archive/implementation-plans/)** - Completed tracking: implementation status, refactoring progress, strip statics, validation conditionals, testing framework, implementation readiness
+- **[archive/ARCHITECTURAL_REVIEW.md](archive/ARCHITECTURAL_REVIEW.md)** - Fingerprint-based diff architecture analysis (all recommendations implemented)
+- **[archive/SIMPLIFIED_DIFF_PROPOSAL.md](archive/SIMPLIFIED_DIFF_PROPOSAL.md)** - Simplified diffing algorithm (implemented in v0.8.0)
+- **[archive/IMPLEMENTATION_COMPLETE.md](archive/IMPLEMENTATION_COMPLETE.md)** - lvt gen stack completion report
+- **[archive/lvt-gen-stack-implementation.md](archive/lvt-gen-stack-implementation.md)** - Stack generation implementation details
 
 ## Quick Links
 

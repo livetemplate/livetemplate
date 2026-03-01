@@ -5,8 +5,8 @@
 **Created**: 2025-10-19
 **Last Updated**: 2025-10-20
 **Implementation Branch**: `feat/multi-session-isolation`
-**Implementation Status**: See [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md)
-**Documentation**: See [BROADCASTING.md](../BROADCASTING.md)
+**Implementation Status**: See [IMPLEMENTATION_STATUS.md](../archive/implementation-plans/IMPLEMENTATION_STATUS.md)
+**Documentation**: See [Session Management](../references/session.md)
 
 ## Table of Contents
 1. [Implementation Progress](#implementation-progress)
@@ -69,7 +69,7 @@
 - Implement `Broadcast()`, `BroadcastToUsers()`, `BroadcastToGroup()`
 - Error handling and concurrency tests
 
-For detailed progress tracking, see [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md).
+For detailed progress tracking, see [IMPLEMENTATION_STATUS.md](../archive/implementation-plans/IMPLEMENTATION_STATUS.md).
 
 ---
 
@@ -1350,7 +1350,7 @@ http.Handle("/", authMiddleware.Wrap(tmpl.Handle(state)))
 
 ## Implementation Plan
 
-**Note**: ✅ indicates completed phases. See [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) for detailed progress.
+**Note**: ✅ indicates completed phases. See [IMPLEMENTATION_STATUS.md](../archive/implementation-plans/IMPLEMENTATION_STATUS.md) for detailed progress.
 
 ### Phase 1: Authentication Infrastructure ✅ COMPLETE
 **Files:** `auth.go` (new)
