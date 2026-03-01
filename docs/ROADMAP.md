@@ -50,7 +50,7 @@ Enable LiveTemplate applications to scale from **single-host hobby projects** to
 | Milestone | Focus | Duration | Status | Target Completion |
 |-----------|-------|----------|--------|-------------------|
 | **M1: Production Foundation** | Critical fixes, health checks, limits | 4-6 weeks | 🟡 80% | Week 6 |
-| **M2: Horizontal Scaling** | Redis integration, multi-instance | 4-5 weeks | 🟢 89% | Week 11 |
+| **M2: Horizontal Scaling** | Redis integration, multi-instance | 4-5 weeks | 🟡 86% | Week 11 |
 | **M3: Enterprise Scale** | Advanced resilience, optimization | 8-12 weeks | 🔴 0% | Week 26 |
 
 **Overall Progress:** `[█████████████░░░░░░░] 66% (46/70 tasks)`
@@ -279,7 +279,7 @@ export LVT_REDIS_URL=redis://localhost:6379/0  # Optional for M2
 - ✅ Auto-scaling based on connection count
 
 **Duration:** 6-8 weeks
-**Progress:** `[████████░░] 17/19 tasks (89%)`
+**Progress:** `[█████████████████░░░] 18/21 tasks (86%)`
 
 ---
 
@@ -562,8 +562,8 @@ const delay = Math.min(
 | Instances Supported | 1 | 1-2 | 2-10 | 10-100+ |
 | Deployment Downtime | Minutes | <30s | 0s | 0s |
 | Redis Required | No | No | Yes | Yes |
-| Health Check Endpoints | 0 | 2 | 2 | 2 |
-| Prometheus Metrics | 0 | 15+ | 20+ | 30+ |
+| Health Check Endpoints | 2 | 2 | 2 | 2 |
+| Prometheus Metrics | 15+ | 15+ | 20+ | 30+ |
 | Production Examples | 0 | 1 | 2 | 3 |
 
 ### Weekly Update Template
@@ -726,11 +726,10 @@ handler := livetemplate.Mount(rootStore,
 
 ## References
 
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md) - System architecture
-- [OBSERVABILITY.md](docs/OBSERVABILITY.md) - Logging and metrics
-- [SESSION.md](docs/SESSION.md) - Session API and server-initiated actions
-- [SCALING.md](docs/SCALING.md) - To be created in M1
-- [REDIS_INTEGRATION.md](docs/REDIS_INTEGRATION.md) - To be created in M2
+- [ARCHITECTURE.md](ARCHITECTURE.md) - System architecture
+- [OBSERVABILITY.md](OBSERVABILITY.md) - Logging and metrics
+- [Session API](references/session.md) - Session API and server-initiated actions
+- [SCALING.md](SCALING.md) - Scaling guide
 
 ---
 

@@ -102,7 +102,7 @@ After moving files, update docs/README.md to remove archived files from active s
 ## Batch 2: Update Core Architecture Docs
 
 **Effort:** Large
-**Status:** [ ] Not started
+**Status:** [x] Complete
 
 These are the highest-value docs and need line-by-line regeneration from the actual codebase.
 

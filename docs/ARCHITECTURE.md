@@ -41,16 +41,16 @@ LiveTemplate is a reactive web framework for Go that uses tree-based DOM diffing
 │  Phase 4: RENDER                                                │
 │  Package: internal/render/                                      │
 │  Input:   Tree or Changes                                       │
-│  Output:  HTML or JSON                                          │
-│  Job:     Format for wire transmission                          │
+│  Output:  HTML (for testing and validation)                     │
+│  Job:     HTML rendering and minification                       │
 └──────────────────────────┬─────────────────────────────────────┘
                            ↓
 ┌────────────────────────────────────────────────────────────────┐
 │  Phase 5: SEND                                                  │
 │  Package: internal/send/                                        │
-│  Input:   Rendered output                                       │
-│  Output:  HTTP response / WebSocket message                     │
-│  Job:     Deliver updates to client                             │
+│  Input:   Tree updates + action data                            │
+│  Output:  Serialized JSON messages                              │
+│  Job:     Message parsing and serialization                     │
 └────────────────────────────────────────────────────────────────┘
                            ↓
                     Client applies update
@@ -60,122 +60,176 @@ LiveTemplate is a reactive web framework for Go that uses tree-based DOM diffing
 
 ### Operational Phases (Main Flow)
 
-#### `internal/parse/`
+#### `internal/parse/` — 8 files, 2,149 lines
 **Responsibility:** Parse Go templates into executable AST
 
 **Files:**
-- `parse.go` - Main parsing logic
-- `field.go` - `{{.Field}}` handling
-- `conditional.go` - `{{if}}{{else}}{{end}}` handling
-- `range.go` - `{{range}}{{end}}` handling
-- `with.go` - `{{with}}{{end}}` handling
-- `invoke.go` - `{{template}}` handling
+- `parse.go` (558) - Main parser entry point, `Parse()` and `BuildTree()`
+- `field.go` (167) - `{{.Field}}` handling
+- `conditional.go` (262) - `{{if}}{{else}}{{end}}` handling
+- `range.go` (513) - `{{range}}{{end}}` handling
+- `with.go` (35) - `{{with}}{{end}}` handling
+- `flatten.go` (405) - Template composition (`{{template "name" .}}` inlining)
+- `types.go` (27) - Shared type definitions
+- `var_context.go` (182) - Variable context for template scoping
 
 **Key Functions:**
-- `Parse(text string, funcMap template.FuncMap) (*Template, error)`
+- `Parse(templateStr string, funcMap template.FuncMap) (*Template, error)`
+- `BuildTree(tmpl *Template, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error)`
 
-#### `internal/build/`
-**Responsibility:** Build tree structures from AST and data
+#### `internal/build/` — 5 files, 1,090 lines
+**Responsibility:** Tree types, fingerprinting, wrapper injection, and HTML diffing
 
 **Files:**
-- `types.go` - TreeNode type definitions
-- `node.go` - Tree node operations
-- `fingerprint.go` - Structure fingerprinting for diff optimization
-- `build.go` - Tree building from AST + data
-- `walk.go` - Tree traversal utilities
+- `types.go` (580) - `TreeNode` struct, `RangeData`, `TreeMetadata`, tree operations
+- `wrapper.go` (263) - Wrapper div injection and HTML content extraction
+- `fingerprint.go` (97) - Structure fingerprinting for diff optimization
+- `html_diff.go` (56) - HTML-level diff utilities
+- `html_segmentation.go` (94) - HTML segmentation for statics extraction
 
 **Key Types:**
-- `TreeNode` - Tree structure with statics and dynamics
-- `RangeData` - Range iteration data
-- `TreeMetadata` - Tree metadata
+- `TreeNode` (struct) - Tree structure with statics and dynamics
+- `RangeData` - Range metadata (item keys, construct ID)
+- `TreeMetadata` - Metadata annotations for trees
 
 **Key Functions:**
-- `Build(tmpl *parse.Template, data interface{}, keyGen *keys.Generator) (*TreeNode, error)`
-- `CalculateStructureFingerprint(tree *TreeNode) string` - Hash of static structure only
+- `CalculateStructureFingerprint(tree *TreeNode) string` - MD5 hash of static structure
 - `TreeNode.GetStructureFingerprint() string` - Cached structure fingerprint accessor
 
-#### `internal/diff/`
+#### `internal/diff/` — 5 files, 1,972 lines
 **Responsibility:** Compute minimal differences between trees
 
 **Files:**
-- `tree_compare.go` - Main tree comparison algorithm
-- `range_ops.go` - Range-specific diffing operations
-- `prepare.go` - Wire format preparation (strip statics when cached)
-- `helpers.go` - Utility functions for diff operations
+- `tree_compare.go` (495) - Main tree comparison algorithm
+- `range_ops.go` (521) - Range-specific diffing operations
+- `helpers.go` (853) - Utility functions for diff operations
+- `prepare.go` (86) - Wire format preparation (strip statics when cached)
+- `types.go` (17) - Type aliases for compatibility
 
 **Key Functions:**
-- `CompareTreesAndGetChanges(old, new *build.TreeNode, ...) *build.TreeNode`
+- `CompareTreesAndGetChangesWithPath(old, new *build.TreeNode, ...) *build.TreeNode`
 - `ClientNeedsStatics(oldTree, newTree *build.TreeNode) bool` - Fingerprint-based comparison
-- `GenerateRangeDifferentialOperations(old, new *build.TreeNode) []interface{}`
+- `GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripStatics bool) []interface{}`
+- `PrepareTreeForClient(node interface{}, clientHasStatics bool) interface{}`
 
-#### `internal/render/`
-**Responsibility:** Render trees and diffs to output formats
+#### `internal/render/` — 2 files, 217 lines
+**Responsibility:** HTML rendering and minification
 
 **Files:**
-- `html.go` - Tree → HTML rendering
-- `json.go` - Diff → JSON rendering
-- `wrapper.go` - HTML wrapper injection
+- `html.go` (154) - Tree → HTML rendering, void element detection
+- `minify.go` (63) - HTML minification
 
 **Key Functions:**
-- `HTML(tree *build.TreeNode, wrapperID string) (string, error)`
-- `JSON(changes *build.TreeNode) ([]byte, error)`
+- `Node(w *strings.Builder, n *html.Node)` - Render HTML node to builder
+- `TreeToHTML(tree map[string]interface{}) (string, error)` - Convert tree to HTML string
+- `IsVoidElement(tagName string) bool` - Check if element is self-closing
+- `MinifyHTML(htmlContent string) string` - Remove unnecessary whitespace
 
-#### `internal/send/`
-**Responsibility:** HTTP/WebSocket communication with clients
+#### `internal/send/` — 3 files, 270 lines
+**Responsibility:** Action message parsing, update serialization, and JSON encoding
 
 **Files:**
-- `handler.go` - Main HTTP handler
-- `websocket.go` - WebSocket upgrade and handling
-- `broadcast.go` - Broadcasting to multiple clients
+- `message.go` (185) - Action message parsing from HTTP/WebSocket
+- `response.go` (55) - Update response wrapping
+- `json.go` (30) - Ordered JSON serialization
 
-**Key Types:**
-- `Handler` - HTTP handler implementing ServeHTTP
-- `Connection` - WebSocket connection wrapper
+**Key Functions:**
+- `ParseActionFromHTTP(r *http.Request) (ActionMessage, error)` - Parse action from HTTP request
+- `PrepareUpdate(tree interface{}, errors map[string]string, action string) *UpdateResponse`
+- `SerializeUpdate(resp *UpdateResponse) ([]byte, error)` - Serialize update to JSON
+- `MarshalOrderedJSON(tree interface{}) ([]byte, error)` - Deterministic JSON output
 
 ### Supporting Packages
 
-#### `internal/keys/`
+#### `internal/keys/` — 2 files, 241 lines
 **Responsibility:** Generate stable keys for range items
 
 **Key Functions:**
 - `New() *Generator`
 - `(*Generator).Next() string`
 
-#### `internal/context/`
-**Responsibility:** Template execution context
+#### `internal/context/` — 2 files, 507 lines
+**Responsibility:** Template execution context and data utilities
+
+**Files:**
+- `context.go` (412) - TemplateContext for error handling and dev mode
+- `data.go` (95) - Data extraction utilities
+
+#### `internal/session/` — 2 files, 695 lines
+**Responsibility:** WebSocket connection registry and connection limits
+
+**Files:**
+- `registry.go` (510) - Connection type, ConnectionRegistry with dual indexing (groupID + userID)
+- `limits.go` (185) - ConnectionLimits for per-instance and per-group limits
 
 **Key Types:**
-- `TemplateContext` - Template execution utilities
+- `Connection` - WebSocket connection with async write pump
+- `ConnectionRegistry` - Thread-safe registry with dual indexing
+- `ConnectionLimits` - Global and per-group connection limits
+
+#### `internal/observe/` — 3 files, 785 lines
+**Responsibility:** Operational metrics and Prometheus export
+
+**Files:**
+- `metrics.go` (401) - Metrics struct with counters, gauges, and histograms
+- `prometheus.go` (356) - PrometheusExporter for `/metrics` endpoint
+- `doc.go` (28) - Package documentation
+
+**Key Types:**
+- `Metrics` - Operational metrics collector
+- `PrometheusExporter` - Prometheus-compatible metrics exporter
 
 **Key Functions:**
-- `NewContext()` - Create new template context
-- Error propagation utilities
-
-#### `internal/session/`
-**Responsibility:** Session management
-
-**Key Types:**
-- `State` interface
-- `Manager` - Session manager
-
-#### `internal/observe/`
-**Responsibility:** Structured logging and metrics (slog-based)
-
-**Key Types:**
-- `Logger` - Structured logger with domain methods
-- `Metrics` - Operational metrics tracker
-
-**Key Functions:**
-- `NewLogger(level slog.Level, handler slog.Handler) *Logger`
 - `NewMetrics(logger *slog.Logger) *Metrics`
+- `NewPrometheusExporter(metrics *Metrics, limitsGetter LimitsGetter) *PrometheusExporter`
 
-#### `internal/util/`
-**Responsibility:** Generic utility functions
+#### `internal/util/` — 1 file, 45 lines
+**Responsibility:** String utility functions
 
 **Key Functions:**
-- `Map[T, U](slice []T, fn func(T) U) []U`
-- `Filter[T](slice []T, fn func(T) bool) []T`
-- `Keys[K, V](m map[K]V) []K`
+- `FindCommonPrefix(s1, s2 string) string`
+- `FindCommonSuffix(s1, s2 string) string`
+
+#### `internal/compat/` — 1 file, 142 lines
+**Responsibility:** Backward compatibility wrappers for tree operations
+
+#### `internal/discovery/` — 1 file, 118 lines
+**Responsibility:** Template file auto-discovery from conventional directories
+
+#### `internal/upload/` — 6 files, 1,037 lines
+**Responsibility:** File upload infrastructure (multipart parsing, temp files, validation)
+
+**Files:**
+- `registry.go` (244) - Upload registry for tracking uploads
+- `protocol.go` (219) - Upload protocol handling
+- `multipart.go` (197) - Multipart form parsing
+- `tempfile.go` (189) - Temporary file management
+- `validate.go` (109) - Upload validation rules
+- `accessor.go` (79) - Upload accessor interface
+
+#### `internal/uploadtypes/` — 1 file, 52 lines
+**Responsibility:** Upload type definitions shared across packages
+
+#### `internal/testutil/` — 1 file, 153 lines
+**Responsibility:** Test utilities (Redis test helpers)
+
+#### `internal/fuzz/` — 4 subpackages, 18 files, 6,599 lines
+**Responsibility:** Fuzz testing framework for tree diff validation
+
+**Subpackages:**
+- `app/` - Application state types and mutation generators
+- `generators/` - Random state and template generators
+- `invariants/` - Invariant verifiers (minimality, key stability, structure, data loss)
+- `mutations/` - Mutation types and application logic
+
+### Top-Level Package
+
+#### `pubsub/` — 2 files, 675 lines
+**Responsibility:** Redis pub/sub broadcasting for distributed deployments
+
+**Files:**
+- `redis.go` (561) - Redis-based pub/sub broadcaster
+- `types.go` (114) - Pub/sub message types and interfaces
 
 ## Design Decisions
 
@@ -442,6 +496,6 @@ See [OBSERVABILITY.md](OBSERVABILITY.md) for complete guide.
 ## Related Documentation
 
 - [OBSERVABILITY.md](OBSERVABILITY.md) - Logging and metrics guide
-- [MIGRATION.md](MIGRATION.md) - Alpha → v1.0 migration guide
+- [MIGRATION.md](implementation-plans/MIGRATION.md) - Alpha → v1.0 migration guide
 - [CODE_STRUCTURE.md](CODE_STRUCTURE.md) - Codebase organization
 - [API Reference](https://pkg.go.dev/github.com/livetemplate/livetemplate) - Go package docs
