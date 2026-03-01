@@ -279,9 +279,9 @@ These are the highest-value docs and need line-by-line regeneration from the act
 | Implemented/declined proposals | 6 |
 | Completed implementation tracking | 6 |
 | Completed top-level docs | 4 |
-| Fuzz framework design | 1 |
+| Fuzz framework design (Batch 5) | 1 |
 | Already archived (no change) | 6 |
-| **Total to move** | **23** |
+| **Total to move (Batch 1)** | **22** |
 
 ### Files to Update (13 files)
 
@@ -309,7 +309,7 @@ These are the highest-value docs and need line-by-line regeneration from the act
 
 | Batch | Scope | Effort | Key Work |
 |-------|-------|--------|----------|
-| **1** | Archiving | Small | `git mv` 23 files, update index |
+| **1** | Archiving | Small | `git mv` 22 files, update index |
 | **2** | Core architecture docs | Large | Regenerate ARCHITECTURE.md, CODE_STRUCTURE.md, ROADMAP.md from codebase |
 | **3** | Guides | Medium | Line-by-line audit of 3 guides (1300+ lines total) |
 | **4** | Config + references | Medium | Verify 11 files against source code |

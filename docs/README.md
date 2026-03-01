@@ -83,6 +83,8 @@ Active implementation tracking:
 
 ## Design & Planning History
 
+Active design documents and future feature plans:
+
 - **[Fuzz Framework Design](fuzz-framework-design.md)** - Fuzzing test framework design
 
 ## Archive

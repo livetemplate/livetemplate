@@ -6,7 +6,7 @@
 **Last Updated**: 2025-10-20
 **Implementation Branch**: `feat/multi-session-isolation`
 **Implementation Status**: See [IMPLEMENTATION_STATUS.md](../archive/implementation-plans/IMPLEMENTATION_STATUS.md)
-**Documentation**: See [BROADCASTING.md](../BROADCASTING.md)
+**Documentation**: See [Session Management](../references/session.md)
 
 ## Table of Contents
 1. [Implementation Progress](#implementation-progress)
