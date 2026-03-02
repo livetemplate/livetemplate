@@ -4,6 +4,11 @@ Version: 1.0.0
 Last Updated: 2025-10-22
 Status: Draft
 
+> **Scope:** This is a **test specification** describing expected behavior and coverage targets,
+> not an implementation status tracker. For actual test implementations, see:
+> `template_test.go` (including key injection tests), `tree_test.go` (tree invariants),
+> `e2e_update_spec_test.go`, and `internal/*/` package tests.
+
 ## 1. Introduction
 
 This document defines comprehensive test scenarios for validating LiveTemplate's tree update generation system. It covers single-step operations, multi-step user journeys, edge cases, and performance scenarios.

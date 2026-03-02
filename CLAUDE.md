@@ -2,12 +2,11 @@
 
 ## Project Overview
 
-LiveTemplate is a high-performance Go library and CLI tool for building reactive web applications. The project consists of two main parts:
+LiveTemplate is a high-performance Go library for building reactive web applications. It provides an API similar to `html/template` but with the additional capability of generating minimal, tree-based updates that can be efficiently transmitted to clients.
 
-1. **Core Library** - Go library for generating ultra-efficient HTML template updates using tree-based optimization
-2. **CLI Tool (lvt)** - Code generator and development server for rapid application development
-
-The core library provides an API similar to `html/template` but with the additional capability of generating minimal, tree-based updates that can be efficiently transmitted to clients.
+**Related repositories:**
+- **CLI Tool (lvt)**: Code generator and development server — maintained at `github.com/livetemplate/lvt`
+- **TypeScript Client**: Browser-side update handler — maintained at `github.com/livetemplate/client`
 
 ## Version 0.7.0 - Controller+State Pattern
 
@@ -167,13 +166,13 @@ The main `livetemplate` package provides a clean, minimal public API:
 **Phase 1: Parse** (`internal/parse/`)
 - Parses Go templates into tree structures
 - Handles template constructs (fields, conditionals, ranges, with, template invokes)
-- Components: parser.go, constructs.go, compile.go, hydrate.go, helpers.go
-- Manages construct compilation and hydration with single-responsibility functions
+- Components: parse.go, conditional.go, field.go, range.go, with.go, flatten.go, types.go, var_context.go
+- Each construct type has a dedicated file following single-responsibility design
 
 **Phase 2: Build** (`internal/build/`)
 - Tree construction and operations
-- Components: builder.go, tree_ops.go, fingerprint.go, types.go, wrapper.go
-- Handles tree creation, manipulation, and change detection
+- Components: fingerprint.go, html_diff.go, html_segmentation.go, types.go, wrapper.go
+- Handles tree creation, HTML diffing, segmentation, and change detection
 - Wrapper div injection and HTML content extraction
 
 **Phase 3: Diff** (`internal/diff/`)
@@ -187,24 +186,24 @@ The main `livetemplate` package provides a clean, minimal public API:
 
 **Phase 4: Render** (`internal/render/`)
 - HTML rendering utilities
-- Components: html.go, html_test.go
+- Components: html.go, minify.go
 - Functions: `Node()`, `TreeToHTML()`, `IsVoidElement()`
-- Converts tree structures to HTML strings for testing and validation
+- Converts tree structures to HTML strings; includes HTML minification
 
 **Phase 5: Send** (`internal/send/`)
 - Message formatting and serialization
-- Components: message.go, response.go
+- Components: json.go, message.go, response.go
 - Action message parsing (HTTP/WebSocket)
-- Update response wrapping and JSON serialization
+- Update response wrapping, JSON serialization, and custom JSON encoding
 - Functions: `ParseActionFromHTTP()`, `PrepareUpdate()`, `SerializeUpdate()`
 
 **Supporting Packages:**
 
 9. **Key Generation (`internal/keys/`)**:
    - Sequential key generation for range items
-   - Components: generator.go, generator_test.go
+   - Components: generator.go, loader.go
    - Type: `Generator` (renamed from KeyGenerator)
-   - Thread-safe counter with overflow protection
+   - Thread-safe counter with overflow protection; loader for key persistence
 
 10. **Observability (`internal/observe/`)**:
     - Operational metrics with Prometheus export
@@ -239,11 +238,33 @@ The main `livetemplate` package provides a clean, minimal public API:
     - Template execution utilities
     - Error propagation to client
 
-13. **Client Library (`client/livetemplate-client.ts`)**:
-    - TypeScript client for browser integration
-    - Handles tree-based updates efficiently
-    - Manages static content caching
-    - **External Repository**: Full TypeScript client also available at `github.com/livetemplate/client` (locally `../client`)
+13. **Compatibility (`internal/compat/`)**:
+    - Compatibility layer for tree structures
+    - Components: tree.go
+
+14. **Template Discovery (`internal/discovery/`)**:
+    - Automatic template file discovery
+    - Components: discovery.go
+
+15. **File Uploads (`internal/upload/`)**:
+    - File upload handling infrastructure
+    - Components: accessor.go, multipart.go, protocol.go, registry.go, tempfile.go, validate.go
+
+16. **Upload Types (`internal/uploadtypes/`)**:
+    - Upload type definitions shared across packages
+    - Components: types.go
+
+17. **Test Utilities (`internal/testutil/`)**:
+    - Shared test helpers (e.g., Redis test setup)
+    - Components: redis.go
+
+18. **String Utilities (`internal/util/`)**:
+    - General-purpose string utilities
+    - Components: strings.go
+
+19. **Fuzz Testing (`internal/fuzz/`)**:
+    - Fuzz testing infrastructure for tree invariant validation
+    - Subpackages: app/ (mutations, templates, types), generators/ (state, template), invariants/ (verifier, helpers, TS oracle), mutations/ (apply, types)
 
 ## Key Data Structures
 
@@ -264,16 +285,20 @@ type TreeNode struct {
 ### Template
 ```go
 type Template struct {
-    name            string
-    templateStr     string
-    tmpl            *template.Template
-    wrapperID       string
-    lastData        interface{}
-    lastHTML        string
-    lastTree        TreeNode
-    initialTree     TreeNode
-    hasInitialTree  bool
-    keyGen          *KeyGenerator
+    name           string
+    templateStr    string
+    tmpl           *template.Template
+    wrapperID      string
+    funcs          template.FuncMap
+    mu             sync.RWMutex
+    lastData       interface{}
+    lastHTML       string
+    lastTree       *treeNode
+    initialTree    *treeNode
+    hasInitialTree bool
+    keyGen         *keyGenerator
+    config         Config
+    uploadRegistry interface{}
 }
 ```
 
@@ -287,10 +312,9 @@ type Template struct {
 ## Testing Strategy
 
 ### Test Files Structure
-- `template_test.go`: Core template functionality tests
+- `template_test.go`: Core template functionality tests (includes key injection tests)
+- `tree_test.go`: Tree structure invariant validation
 - `e2e_update_spec_test.go`: Tree update specification compliance tests
-- `tree_invariant_test.go`: Tree structure invariant validation
-- `key_injection_test.go`: Key generation and stability tests
 - Internal package tests: `internal/*/`
 
 **Browser-based E2E Tests:**
@@ -452,12 +476,11 @@ The repository has a pre-commit hook that:
 4. Use golden files for regression testing
 
 ### Updating Client Library
-1. Edit `client/livetemplate-client.ts` (embedded in this repo)
+The TypeScript client is maintained in a separate repository at `github.com/livetemplate/client` (locally `../client`).
+1. Make changes in the client repository
 2. Ensure compatibility with tree format
 3. Test with browser test suite
 4. Update TypeScript types if needed
-
-**Note**: Full TypeScript client is also maintained at `github.com/livetemplate/client` (locally `../client`). For cross-language testing or TypeScript-specific features, refer to that repository.
 
 ## Performance Considerations
 
@@ -526,87 +549,3 @@ The repository has a pre-commit hook that:
 - Add metrics and profiling hooks
 - Enhance client-side caching strategies
 
----
-
-## CLI Tool (lvt)
-
-The `lvt` CLI tool provides code generation and development server capabilities for rapid application development.
-
-### Tool Structure
-
-```
-cmd/lvt/
-├── main.go                     # CLI entry point
-├── commands/                   # CLI commands
-│   ├── new.go                  # Create new apps
-│   ├── gen.go                  # Generate resources
-│   ├── kits.go                 # Kit management
-│   ├── config.go               # Configuration
-│   └── serve.go                # Development server
-├── internal/
-│   ├── generator/              # Code generation
-│   ├── kits/                   # Kit system
-│   │   ├── loader.go           # Kit loading
-│   │   ├── types.go            # Kit types
-│   │   ├── manifest.go         # Manifest parsing
-│   │   └── system/             # System kits
-│   │       ├── tailwind/
-│   │       ├── bulma/
-│   │       ├── pico/
-│   │       └── none/
-│   ├── config/                 # Configuration management
-│   ├── validator/              # Validation
-│   └── serve/                  # Development server
-```
-
-### Kits System
-
-Kits are complete starter packages that include:
-- **CSS Helpers**: ~60 methods for generating CSS classes
-- **Components**: Reusable UI template blocks (form, table, layout, etc.)
-- **Templates**: Generator templates for resources, views, and apps
-
-#### System Kits
-
-Four built-in kits are embedded in the `lvt` binary:
-1. **Tailwind** - Utility-first CSS framework
-2. **Bulma** - Component-based CSS framework
-3. **Pico** - Minimal semantic CSS framework
-4. **None** - Plain HTML with no framework
-
-#### Kit Cascade
-
-Kits are loaded with cascade priority:
-1. Project: `.lvt/kits/<name>/` (highest priority)
-2. User: `~/.config/lvt/kits/<name>/`
-3. System: Embedded in binary (fallback)
-
-### CLI Commands
-
-#### Application Commands
-- `lvt new <name> --kit <kit-name>` - Create new app (CSS from kit)
-- `lvt gen <resource> [fields...]` - Generate CRUD (CSS from kit)
-
-#### Kit Commands
-- `lvt kits list` - List available kits
-- `lvt kits info <name>` - Show kit information
-- `lvt kits create <name>` - Create new kit
-- `lvt kits customize <name>` - Copy kit for customization
-- `lvt kits validate <path>` - Validate kit structure
-
-#### Development Server
-- `lvt serve` - Start development server with hot reload
-
-### Development Conventions (CLI)
-
-1. **Kit Manifests**: All kits have a `kit.yaml` manifest
-2. **Component Templates**: Use `[[ ]]` delimiters (not `{{ }}`)
-3. **Embedded Resources**: System kits are embedded via `//go:embed`
-4. **Cascade Loading**: Project > User > System priority
-
-### Key Implementation Details (CLI)
-
-- **Kit Loader**: Automatically discovers and loads kits from configured paths
-- **Generator**: Uses templates from kits to generate code
-- **Hot Reload**: WebSocket-based reload for development server
-- **Validation**: Validates kit structure, manifest, and templates before use
