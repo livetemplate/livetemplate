@@ -2,6 +2,7 @@ package parse
 
 import (
 	"fmt"
+	"sort"
 	"text/template/parse"
 )
 
@@ -87,6 +88,20 @@ func (ov orderedVars) Range(fn func(key string, value interface{})) {
 	for _, pair := range ov.pairs {
 		fn(pair.key, pair.value)
 	}
+}
+
+// sortedVarNames returns variable names from vars sorted by descending length.
+// This ensures longer names are matched first, preventing partial matches
+// (e.g., $col is processed before $c).
+func sortedVarNames(vars *orderedVars) []string {
+	var names []string
+	vars.Range(func(key string, _ interface{}) {
+		names = append(names, key)
+	})
+	sort.Slice(names, func(i, j int) bool {
+		return len(names[i]) > len(names[j])
+	})
+	return names
 }
 
 // createEmptyTree creates a tree node representing empty content.

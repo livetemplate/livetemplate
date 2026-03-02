@@ -105,10 +105,7 @@ func TestVarDeclaration_WithRange(t *testing.T) {
 	}
 
 	// Range should have 2 items
-	items, ok := rangeTree.Range.Items, true
-	if !ok {
-		t.Fatal("range has no items")
-	}
+	items := rangeTree.Range.Items
 	if len(items) != 2 {
 		t.Fatalf("range items = %d, want 2", len(items))
 	}
@@ -344,8 +341,8 @@ func TestVarDeclaration_WithRangeVarDecl(t *testing.T) {
 		t.Fatal("no Range data")
 	}
 
-	items, ok := rangeTree.Range.Items, true
-	if !ok || len(items) != 2 {
+	items := rangeTree.Range.Items
+	if len(items) != 2 {
 		t.Fatalf("items count = %d, want 2", len(items))
 	}
 

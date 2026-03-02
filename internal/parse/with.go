@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"text/template/parse"
+	"unicode"
+	"unicode/utf8"
 )
 
 // handleWithNode processes {{with}}...{{end}} constructs.
@@ -55,10 +57,15 @@ func handleWithNodeWithVars(node *parse.WithNode, varCtx *varContext, keyGen Key
 		return createEmptyTree(ctx), nil
 	}
 
-	// Create new varCtx with changed dot but inherited variables
+	// Create new varCtx with changed dot but copied variables to prevent
+	// inner scope mutations from leaking to outer scope.
+	copiedVars := newOrderedVars()
+	varCtx.vars.Range(func(key string, value interface{}) {
+		copiedVars.Set(key, value)
+	})
 	newVarCtx := &varContext{
 		parent: varCtx.parent,
-		vars:   varCtx.vars,
+		vars:   copiedVars,
 		dot:    newContext,
 	}
 	return buildTreeFromASTWithVars(node.List, newVarCtx, keyGen, ctx)
@@ -67,27 +74,32 @@ func handleWithNodeWithVars(node *parse.WithNode, varCtx *varContext, keyGen Key
 // evaluatePipeWithVarCtx evaluates a pipe expression, transforming variable references
 // ($c.Field) into field accesses (.C.Field) so they work in standalone template evaluation.
 func evaluatePipeWithVarCtx(pipeStr string, varCtx *varContext, ctx *Context) (interface{}, error) {
-	// Check if pipe references any variables
+	// Check if pipe references any variables (sorted by descending length to prevent partial matches)
+	sortedNames := sortedVarNames(&varCtx.vars)
 	usesVar := false
-	varCtx.vars.Range(func(varName string, _ interface{}) {
+	for _, varName := range sortedNames {
 		if strings.Contains(pipeStr, "$"+varName) {
 			usesVar = true
+			break
 		}
-	})
+	}
 
 	if !usesVar {
 		return evaluatePipeWithCache(ctx.TemplateName, pipeStr, varCtx.dot, ctx)
 	}
 
 	// Transform variable references: $c.Field → .C.Field
+	// Process longer names first to prevent partial matches (e.g., $col before $c)
 	transformedExpr := pipeStr
 	execData := make(map[string]interface{})
-	varCtx.vars.Range(func(varName string, varValue interface{}) {
+	for _, varName := range sortedNames {
 		if strings.Contains(pipeStr, "$"+varName) {
-			fieldName := strings.ToUpper(varName[:1]) + varName[1:]
+			r, size := utf8.DecodeRuneInString(varName)
+			fieldName := string(unicode.ToUpper(r)) + varName[size:]
 			transformedExpr = strings.ReplaceAll(transformedExpr, "$"+varName, "."+fieldName)
+			varValue, _ := varCtx.vars.Get(varName)
 			execData[fieldName] = varValue
 		}
-	})
+	}
 	return evaluatePipeWithCache(ctx.TemplateName, transformedExpr, execData, ctx)
 }
