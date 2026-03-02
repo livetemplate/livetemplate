@@ -1,8 +1,12 @@
 # LiveTemplate Fuzz Testing Framework Design
 
+> **Implementation Status:** This framework is implemented in `internal/fuzz/` with four subpackages:
+> `app/` (mutation types, templates, types), `generators/` (state, template),
+> `invariants/` (verifier, TS oracle), and `mutations/` (apply, types).
+
 ## Executive Summary
 
-This document proposes a systematic fuzz testing framework for LiveTemplate's core components. The framework validates the library's invariants under random state mutations, finding bugs that humans wouldn't think to test for.
+This document describes the systematic fuzz testing framework for LiveTemplate's core components. The framework validates the library's invariants under random state mutations, finding bugs that humans wouldn't think to test for.
 
 ### Key Findings from Codebase Analysis
 
