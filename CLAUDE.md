@@ -264,7 +264,7 @@ The main `livetemplate` package provides a clean, minimal public API:
 
 19. **Fuzz Testing (`internal/fuzz/`)**:
     - Fuzz testing infrastructure for tree invariant validation
-    - Subpackages: app/ (mutation types, templates), generators/ (state, template), invariants/ (verifier, TS oracle), mutations/ (apply, types)
+    - Subpackages: app/ (mutations, templates, types), generators/ (state, template), invariants/ (verifier, helpers, TS oracle), mutations/ (apply, types)
 
 ## Key Data Structures
 
@@ -312,10 +312,9 @@ type Template struct {
 ## Testing Strategy
 
 ### Test Files Structure
-- `template_test.go`: Core template functionality tests
+- `template_test.go`: Core template functionality tests (includes key injection tests)
+- `tree_test.go`: Tree structure invariant validation
 - `e2e_update_spec_test.go`: Tree update specification compliance tests
-- `tree_invariant_test.go`: Tree structure invariant validation
-- `key_injection_test.go`: Key generation and stability tests
 - Internal package tests: `internal/*/`
 
 **Browser-based E2E Tests:**

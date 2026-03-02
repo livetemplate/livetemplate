@@ -1,8 +1,7 @@
 # LiveTemplate Fuzz Testing Framework Design
 
-> **Implementation Status:** This framework is implemented in `internal/fuzz/` with four subpackages:
-> `app/` (mutation types, templates, types), `generators/` (state, template),
-> `invariants/` (verifier, TS oracle), and `mutations/` (apply, types).
+> **Implementation Status:** This framework is implemented in `internal/fuzz/` with four subpackages.
+> See the directory for the full file listing.
 
 ## Executive Summary
 

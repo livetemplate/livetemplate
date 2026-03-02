@@ -6,8 +6,8 @@ Status: Draft
 
 > **Scope:** This is a **test specification** describing expected behavior and coverage targets,
 > not an implementation status tracker. For actual test implementations, see:
-> `template_test.go`, `e2e_update_spec_test.go`, `tree_invariant_test.go`,
-> `key_injection_test.go`, and `internal/*/` package tests.
+> `template_test.go` (including key injection tests), `tree_test.go` (tree invariants),
+> `e2e_update_spec_test.go`, and `internal/*/` package tests.
 
 ## 1. Introduction
 
