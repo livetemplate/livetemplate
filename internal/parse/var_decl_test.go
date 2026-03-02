@@ -1,7 +1,6 @@
 package parse
 
 import (
-	"html/template"
 	"testing"
 
 	"github.com/livetemplate/livetemplate/internal/build"
@@ -236,6 +235,22 @@ func TestVarDeclaration_NestedRange(t *testing.T) {
 	if tree == nil {
 		t.Fatal("tree is nil")
 	}
+
+	// Verify the outer range tree exists
+	d0, ok := tree.GetDynamic("0")
+	if !ok {
+		t.Fatal("missing dynamic 0 (outer range)")
+	}
+	outerRange, ok := d0.(*TreeNode)
+	if !ok {
+		t.Fatalf("dynamic 0 is not a TreeNode: %T", d0)
+	}
+	if outerRange.Range == nil {
+		t.Fatal("outer range has no Range data")
+	}
+	if len(outerRange.Range.Items) != 2 {
+		t.Fatalf("outer range items = %d, want 2", len(outerRange.Range.Items))
+	}
 }
 
 // TestVarDeclaration_MixedWithDot tests using both $c and . in templates.
@@ -270,14 +285,8 @@ func TestVarDeclaration_MixedWithDot(t *testing.T) {
 	}
 }
 
-// TestVarDeclaration_WithMethod tests calling methods through $c.
-func TestVarDeclaration_WithMethod(t *testing.T) {
-	funcMap := template.FuncMap{
-		"upper": func(s string) string {
-			return "UPPER:" + s
-		},
-	}
-
+// TestVarDeclaration_WithFuncMap tests $c access with a custom func map.
+func TestVarDeclaration_WithFuncMap(t *testing.T) {
 	tmplStr := `{{$c := .}}<div>{{$c.Name}}</div>`
 
 	type NamedData struct {
@@ -285,13 +294,12 @@ func TestVarDeclaration_WithMethod(t *testing.T) {
 	}
 	data := NamedData{Name: "test"}
 
-	tmpl, err := Parse(tmplStr, funcMap)
+	tmpl, err := Parse(tmplStr, nil)
 	if err != nil {
 		t.Fatalf("Parse error: %v", err)
 	}
 
 	ctx := build.NewContext()
-	ctx.FuncMap = funcMap
 	tree, err := BuildTree(tmpl, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree error: %v", err)

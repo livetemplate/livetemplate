@@ -3,7 +3,10 @@ package parse
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"text/template/parse"
+	"unicode"
+	"unicode/utf8"
 )
 
 // varContext holds variable bindings for template execution.
@@ -102,6 +105,40 @@ func sortedVarNames(vars *orderedVars) []string {
 		return len(names[i]) > len(names[j])
 	})
 	return names
+}
+
+// transformAndEvalWithVars evaluates an expression that may contain variable references.
+// It transforms $varName.Field into .VarName.Field with a synthetic data map,
+// then evaluates via evaluatePipeWithCache. If no variables are referenced, it
+// evaluates directly against the dot context.
+// Variable names are processed in descending length order to prevent partial matches
+// (e.g., $col is replaced before $c).
+func transformAndEvalWithVars(expr string, varCtx *varContext, ctx *Context) (interface{}, error) {
+	sortedNames := sortedVarNames(&varCtx.vars)
+	usesVar := false
+	for _, varName := range sortedNames {
+		if strings.Contains(expr, "$"+varName) {
+			usesVar = true
+			break
+		}
+	}
+
+	if !usesVar {
+		return evaluatePipeWithCache(ctx.TemplateName, expr, varCtx.dot, ctx)
+	}
+
+	transformedExpr := expr
+	execData := make(map[string]interface{})
+	for _, varName := range sortedNames {
+		if strings.Contains(expr, "$"+varName) {
+			r, size := utf8.DecodeRuneInString(varName)
+			fieldName := string(unicode.ToUpper(r)) + varName[size:]
+			transformedExpr = strings.ReplaceAll(transformedExpr, "$"+varName, "."+fieldName)
+			varValue, _ := varCtx.vars.Get(varName)
+			execData[fieldName] = varValue
+		}
+	}
+	return evaluatePipeWithCache(ctx.TemplateName, transformedExpr, execData, ctx)
 }
 
 // createEmptyTree creates a tree node representing empty content.

@@ -10,8 +10,6 @@ import (
 	"sort"
 	"strings"
 	"text/template/parse"
-	"unicode"
-	"unicode/utf8"
 )
 
 // staticsHashPrefixLen is the number of hex characters to use for statics hash keys.
@@ -442,64 +440,14 @@ func extractRangeCollectionFromVarCtx(node *parse.RangeNode, varCtx *varContext,
 			lastCmd := node.Pipe.Cmds[len(node.Pipe.Cmds)-1]
 			if len(lastCmd.Args) > 0 {
 				collectionExpr := lastCmd.Args[0].String()
-				// Check if expression uses a variable (e.g., $c.Items)
-				// Sort by descending length to prevent partial matches
-				sortedNames := sortedVarNames(&varCtx.vars)
-				usesVar := false
-				for _, varName := range sortedNames {
-					if strings.Contains(collectionExpr, "$"+varName) {
-						usesVar = true
-						break
-					}
-				}
-				if usesVar {
-					// Transform variable references: $c.Field → .C.Field
-					// Process longer names first to prevent partial matches
-					transformedExpr := collectionExpr
-					execData := make(map[string]interface{})
-					for _, varName := range sortedNames {
-						if strings.Contains(collectionExpr, "$"+varName) {
-							r, size := utf8.DecodeRuneInString(varName)
-							fieldName := string(unicode.ToUpper(r)) + varName[size:]
-							transformedExpr = strings.ReplaceAll(transformedExpr, "$"+varName, "."+fieldName)
-							varValue, _ := varCtx.vars.Get(varName)
-							execData[fieldName] = varValue
-						}
-					}
-					return evaluatePipeWithCache(ctx.TemplateName, transformedExpr, execData, ctx)
-				}
-				return evaluatePipeWithCache(ctx.TemplateName, collectionExpr, varCtx.dot, ctx)
+				return transformAndEvalWithVars(collectionExpr, varCtx, ctx)
 			}
 		}
 		return nil, fmt.Errorf("range with declarations has no collection expression")
 	}
 
 	pipeStr := formatPipe(node.Pipe)
-	// Check if pipe references variables (sorted by descending length to prevent partial matches)
-	sortedNames := sortedVarNames(&varCtx.vars)
-	usesVar := false
-	for _, varName := range sortedNames {
-		if strings.Contains(pipeStr, "$"+varName) {
-			usesVar = true
-			break
-		}
-	}
-	if usesVar {
-		// Process longer names first to prevent partial matches
-		transformedExpr := pipeStr
-		execData := make(map[string]interface{})
-		for _, varName := range sortedNames {
-			if strings.Contains(pipeStr, "$"+varName) {
-				r, size := utf8.DecodeRuneInString(varName)
-				fieldName := string(unicode.ToUpper(r)) + varName[size:]
-				transformedExpr = strings.ReplaceAll(transformedExpr, "$"+varName, "."+fieldName)
-				varValue, _ := varCtx.vars.Get(varName)
-				execData[fieldName] = varValue
-			}
-		}
-		return evaluatePipeWithCache(ctx.TemplateName, transformedExpr, execData, ctx)
-	}
-	return evaluatePipeWithCache(ctx.TemplateName, pipeStr, varCtx.dot, ctx)
+	return transformAndEvalWithVars(pipeStr, varCtx, ctx)
 }
 
 // handleSliceRangeWithInheritedVars processes slice range with inherited variables.

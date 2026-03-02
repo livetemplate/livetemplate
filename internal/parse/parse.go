@@ -656,17 +656,18 @@ func registerVarDeclaration(actionNode *parse.ActionNode, varCtx *varContext, ct
 		// Strip $ prefix: Go's parser stores "$c" but evaluateActionWithVars
 		// builds search patterns as "$" + varName, so vars must be stored without $.
 		varName = strings.TrimPrefix(varName, "$")
-		if len(actionNode.Pipe.Cmds) > 0 {
-			// Get the expression from the last command
-			lastCmd := actionNode.Pipe.Cmds[len(actionNode.Pipe.Cmds)-1]
-			exprStr := strings.TrimSpace(lastCmd.String())
-
-			value, err := evaluatePipeWithCache(ctx.TemplateName, exprStr, varCtx.dot, ctx)
-			if err != nil {
-				return fmt.Errorf("variable $%s evaluation error: %w", varName, err)
-			}
-			varCtx.vars.Set(varName, value)
+		if len(actionNode.Pipe.Cmds) == 0 {
+			return fmt.Errorf("variable $%s declaration has no right-hand side expression", varName)
 		}
+		// Get the expression from the last command
+		lastCmd := actionNode.Pipe.Cmds[len(actionNode.Pipe.Cmds)-1]
+		exprStr := strings.TrimSpace(lastCmd.String())
+
+		value, err := evaluatePipeWithCache(ctx.TemplateName, exprStr, varCtx.dot, ctx)
+		if err != nil {
+			return fmt.Errorf("variable $%s evaluation error: %w", varName, err)
+		}
+		varCtx.vars.Set(varName, value)
 	}
 	return nil
 }

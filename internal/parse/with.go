@@ -3,10 +3,7 @@ package parse
 import (
 	"fmt"
 	"reflect"
-	"strings"
 	"text/template/parse"
-	"unicode"
-	"unicode/utf8"
 )
 
 // handleWithNode processes {{with}}...{{end}} constructs.
@@ -74,32 +71,5 @@ func handleWithNodeWithVars(node *parse.WithNode, varCtx *varContext, keyGen Key
 // evaluatePipeWithVarCtx evaluates a pipe expression, transforming variable references
 // ($c.Field) into field accesses (.C.Field) so they work in standalone template evaluation.
 func evaluatePipeWithVarCtx(pipeStr string, varCtx *varContext, ctx *Context) (interface{}, error) {
-	// Check if pipe references any variables (sorted by descending length to prevent partial matches)
-	sortedNames := sortedVarNames(&varCtx.vars)
-	usesVar := false
-	for _, varName := range sortedNames {
-		if strings.Contains(pipeStr, "$"+varName) {
-			usesVar = true
-			break
-		}
-	}
-
-	if !usesVar {
-		return evaluatePipeWithCache(ctx.TemplateName, pipeStr, varCtx.dot, ctx)
-	}
-
-	// Transform variable references: $c.Field → .C.Field
-	// Process longer names first to prevent partial matches (e.g., $col before $c)
-	transformedExpr := pipeStr
-	execData := make(map[string]interface{})
-	for _, varName := range sortedNames {
-		if strings.Contains(pipeStr, "$"+varName) {
-			r, size := utf8.DecodeRuneInString(varName)
-			fieldName := string(unicode.ToUpper(r)) + varName[size:]
-			transformedExpr = strings.ReplaceAll(transformedExpr, "$"+varName, "."+fieldName)
-			varValue, _ := varCtx.vars.Get(varName)
-			execData[fieldName] = varValue
-		}
-	}
-	return evaluatePipeWithCache(ctx.TemplateName, transformedExpr, execData, ctx)
+	return transformAndEvalWithVars(pipeStr, varCtx, ctx)
 }
