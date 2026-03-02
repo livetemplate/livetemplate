@@ -330,6 +330,12 @@ func buildRangeTreeWithStatics(items []rangeItemWithStatics, ctx *Context) (*Tre
 // executeRangeBodyWithVars executes a range body with variable declarations.
 // The indexOrKey parameter is either an int (for slices/arrays) or the key (for maps).
 func executeRangeBodyWithVars(node *parse.RangeNode, indexOrKey interface{}, item interface{}, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+	return executeRangeBodyWithVarsAndInherited(node, indexOrKey, item, data, nil, keyGen, ctx)
+}
+
+// executeRangeBodyWithVarsAndInherited executes a range body with both range-declared
+// variables and inherited variables from parent scope.
+func executeRangeBodyWithVarsAndInherited(node *parse.RangeNode, indexOrKey interface{}, item interface{}, data interface{}, inheritedVars *orderedVars, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	// Create a variable context
 	varCtx := &varContext{
 		parent: data,
@@ -337,21 +343,206 @@ func executeRangeBodyWithVars(node *parse.RangeNode, indexOrKey interface{}, ite
 		dot:    item,
 	}
 
-	// Populate variables from declarations
+	// Copy inherited variables first (parent scope vars like $c)
+	if inheritedVars != nil {
+		inheritedVars.Range(func(key string, value interface{}) {
+			varCtx.vars.Set(key, value)
+		})
+	}
+
+	// Populate variables from range declarations (these override inherited if same name).
+	// Strip $ prefix: Go's parser stores "$v" but evaluateActionWithVars
+	// builds search patterns as "$" + varName, so vars must be stored without $.
 	if len(node.Pipe.Decl) == 1 {
 		// {{range $v := ...}} - single variable (value)
-		varName := node.Pipe.Decl[0].Ident[0]
+		varName := strings.TrimPrefix(node.Pipe.Decl[0].Ident[0], "$")
 		varCtx.vars.Set(varName, item)
 	} else if len(node.Pipe.Decl) >= 2 {
 		// {{range $i, $v := ...}} or {{range $k, $v := ...}}
-		indexKeyVar := node.Pipe.Decl[0].Ident[0]
-		valueVar := node.Pipe.Decl[1].Ident[0]
+		indexKeyVar := strings.TrimPrefix(node.Pipe.Decl[0].Ident[0], "$")
+		valueVar := strings.TrimPrefix(node.Pipe.Decl[1].Ident[0], "$")
 		varCtx.vars.Set(indexKeyVar, indexOrKey)
 		varCtx.vars.Set(valueVar, item)
 	}
 
 	// Walk the range body AST with the variable context
 	return buildTreeFromASTWithVars(node.List, varCtx, keyGen, ctx)
+}
+
+// handleRangeNodeWithInheritedVars handles range nodes while propagating inherited
+// variables from the parent scope. This enables variables like $c defined outside
+// a range block to be accessible inside the range body and nested ranges.
+func handleRangeNodeWithInheritedVars(node *parse.RangeNode, parentVarCtx *varContext, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+	// Extract collection - evaluate pipe against the dot context
+	collection, err := extractRangeCollectionFromVarCtx(node, parentVarCtx, ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	collectionValue := reflect.ValueOf(collection)
+	if isEmpty(collectionValue) {
+		if node.ElseList != nil {
+			return buildTreeFromASTWithVars(node.ElseList, parentVarCtx, keyGen, ctx)
+		}
+		emptyRange := NewTreeNode()
+		if ctx.ShouldIncludeStatics() {
+			emptyRange.Statics = []string{""}
+		}
+		emptyRange.Range = NewRangeData([]interface{}{}, nil)
+		return emptyRange, nil
+	}
+
+	kind := collectionValue.Kind()
+	if kind != reflect.Slice && kind != reflect.Array && kind != reflect.Map {
+		return nil, fmt.Errorf("range over non-iterable type: %v", kind)
+	}
+
+	hasVarDecls := len(node.Pipe.Decl) > 0
+
+	if kind == reflect.Map {
+		return handleMapRangeWithInheritedVars(node, collectionValue, parentVarCtx, hasVarDecls, keyGen, ctx)
+	}
+
+	return handleSliceRangeWithInheritedVars(node, collectionValue, parentVarCtx, hasVarDecls, keyGen, ctx)
+}
+
+// extractRangeCollectionFromVarCtx extracts the range collection, handling both
+// simple expressions and variable references in the pipe.
+func extractRangeCollectionFromVarCtx(node *parse.RangeNode, varCtx *varContext, ctx *Context) (interface{}, error) {
+	if len(node.Pipe.Decl) > 0 {
+		if len(node.Pipe.Cmds) > 0 {
+			lastCmd := node.Pipe.Cmds[len(node.Pipe.Cmds)-1]
+			if len(lastCmd.Args) > 0 {
+				collectionExpr := lastCmd.Args[0].String()
+				// Check if expression uses a variable (e.g., $c.Items)
+				usesVar := false
+				varCtx.vars.Range(func(varName string, _ interface{}) {
+					if strings.Contains(collectionExpr, "$"+varName) {
+						usesVar = true
+					}
+				})
+				if usesVar {
+					// Evaluate using variable context
+					result := evaluateActionWithVars("{{"+collectionExpr+"}}", varCtx, ctx)
+					// The result is a string, but we need the actual value
+					// Use evaluatePipe with var-transformed expression
+					transformedExpr := collectionExpr
+					execData := make(map[string]interface{})
+					varCtx.vars.Range(func(varName string, varValue interface{}) {
+						if strings.Contains(collectionExpr, "$"+varName) {
+							fieldName := strings.ToUpper(varName[:1]) + varName[1:]
+							transformedExpr = strings.ReplaceAll(transformedExpr, "$"+varName, "."+fieldName)
+							execData[fieldName] = varValue
+						}
+					})
+					_ = result // discard string result
+					return evaluatePipeWithCache(ctx.TemplateName, transformedExpr, execData, ctx)
+				}
+				return evaluatePipeWithCache(ctx.TemplateName, collectionExpr, varCtx.dot, ctx)
+			}
+		}
+		return nil, fmt.Errorf("range with declarations has no collection expression")
+	}
+
+	pipeStr := formatPipe(node.Pipe)
+	// Check if pipe references variables
+	usesVar := false
+	varCtx.vars.Range(func(varName string, _ interface{}) {
+		if strings.Contains(pipeStr, "$"+varName) {
+			usesVar = true
+		}
+	})
+	if usesVar {
+		transformedExpr := pipeStr
+		execData := make(map[string]interface{})
+		varCtx.vars.Range(func(varName string, varValue interface{}) {
+			if strings.Contains(pipeStr, "$"+varName) {
+				fieldName := strings.ToUpper(varName[:1]) + varName[1:]
+				transformedExpr = strings.ReplaceAll(transformedExpr, "$"+varName, "."+fieldName)
+				execData[fieldName] = varValue
+			}
+		})
+		return evaluatePipeWithCache(ctx.TemplateName, transformedExpr, execData, ctx)
+	}
+	return evaluatePipeWithCache(ctx.TemplateName, pipeStr, varCtx.dot, ctx)
+}
+
+// handleSliceRangeWithInheritedVars processes slice range with inherited variables.
+func handleSliceRangeWithInheritedVars(node *parse.RangeNode, collection reflect.Value, parentVarCtx *varContext, hasVarDecls bool, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+	itemsWithStatics := make([]rangeItemWithStatics, 0, collection.Len())
+	itemCtx := contextWithStatics(ctx)
+
+	for i := 0; i < collection.Len(); i++ {
+		item := collection.Index(i).Interface()
+		var itemTree *TreeNode
+		var err error
+
+		if hasVarDecls {
+			itemTree, err = executeRangeBodyWithVarsAndInherited(node, i, item, parentVarCtx.dot, &parentVarCtx.vars, keyGen, itemCtx)
+		} else {
+			// No range-specific vars, but still pass inherited vars
+			varCtx := &varContext{
+				parent: parentVarCtx.dot,
+				vars:   newOrderedVars(),
+				dot:    item,
+			}
+			parentVarCtx.vars.Range(func(key string, value interface{}) {
+				varCtx.vars.Set(key, value)
+			})
+			itemTree, err = buildTreeFromASTWithVars(node.List, varCtx, keyGen, itemCtx)
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("range item %d error: %w", i, err)
+		}
+
+		itemsWithStatics = append(itemsWithStatics, rangeItemWithStatics{
+			tree:    itemTree,
+			statics: itemTree.Statics,
+			hash:    hashStatics(itemTree.Statics),
+		})
+	}
+
+	return buildRangeTreeWithStatics(itemsWithStatics, ctx)
+}
+
+// handleMapRangeWithInheritedVars processes map range with inherited variables.
+func handleMapRangeWithInheritedVars(node *parse.RangeNode, collection reflect.Value, parentVarCtx *varContext, hasVarDecls bool, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+	keys := collection.MapKeys()
+	itemsWithStatics := make([]rangeItemWithStatics, 0, len(keys))
+	itemCtx := contextWithStatics(ctx)
+
+	for i, key := range keys {
+		item := collection.MapIndex(key).Interface()
+		var itemTree *TreeNode
+		var err error
+
+		if hasVarDecls {
+			itemTree, err = executeRangeBodyWithVarsAndInherited(node, key.Interface(), item, parentVarCtx.dot, &parentVarCtx.vars, keyGen, itemCtx)
+		} else {
+			varCtx := &varContext{
+				parent: parentVarCtx.dot,
+				vars:   newOrderedVars(),
+				dot:    item,
+			}
+			parentVarCtx.vars.Range(func(key string, value interface{}) {
+				varCtx.vars.Set(key, value)
+			})
+			itemTree, err = buildTreeFromASTWithVars(node.List, varCtx, keyGen, itemCtx)
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("range item %d error: %w", i, err)
+		}
+
+		itemsWithStatics = append(itemsWithStatics, rangeItemWithStatics{
+			tree:    itemTree,
+			statics: itemTree.Statics,
+			hash:    hashStatics(itemTree.Statics),
+		})
+	}
+
+	return buildRangeTreeWithStatics(itemsWithStatics, ctx)
 }
 
 // extractItemDynamics extracts only the dynamics from an item tree,

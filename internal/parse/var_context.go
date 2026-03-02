@@ -121,11 +121,12 @@ func buildTreeFromASTWithVars(node parse.Node, varCtx *varContext, keyGen KeyGen
 		return handleIfNodeWithVars(n, varCtx, keyGen, ctx)
 
 	case *parse.RangeNode:
-		// Nested range - handle recursively
-		return handleRangeNode(n, varCtx.dot, keyGen, ctx)
+		// Nested range - propagate inherited variables through
+		return handleRangeNodeWithInheritedVars(n, varCtx, keyGen, ctx)
 
 	case *parse.WithNode:
-		return handleWithNode(n, varCtx.dot, keyGen, ctx)
+		// With block - propagate inherited variables through
+		return handleWithNodeWithVars(n, varCtx, keyGen, ctx)
 
 	default:
 		return nil, fmt.Errorf("unhandled node type in varCtx: %T", n)
