@@ -1,6 +1,8 @@
 # LiveTemplate API Reference
 
-Complete reference for LiveTemplate manifests, interfaces, and CLI commands.
+> **Scope:** This reference documents the **`lvt` CLI tool** (`github.com/livetemplate/lvt`). For the core library Go API, see the [Go package documentation](https://pkg.go.dev/github.com/livetemplate/livetemplate).
+
+Complete reference for LiveTemplate CLI manifests, interfaces, and commands.
 
 ## Table of Contents
 

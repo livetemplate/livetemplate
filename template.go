@@ -447,7 +447,7 @@ func WithMaxConnectionsPerGroup(max int64) Option {
 // Recommended values:
 //   - Low traffic / memory constrained: 10-25
 //   - Normal traffic: 50 (default)
-//   - High traffic / burst heavy: 100-200
+//   - High traffic / burst heavy: 100-1000
 //
 // Environment variable override: LVT_WS_BUFFER_SIZE
 //
