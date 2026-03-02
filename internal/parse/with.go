@@ -33,3 +33,43 @@ func handleWithNode(node *parse.WithNode, data interface{}, keyGen KeyGenerator,
 	// Execute body with new context
 	return buildTreeFromAST(node.List, newContext, keyGen, ctx)
 }
+
+// handleWithNodeWithVars processes {{with}}...{{end}} constructs while propagating
+// inherited variables from the parent scope. This enables variables like $c defined
+// outside the with block to be accessible inside it.
+func handleWithNodeWithVars(node *parse.WithNode, varCtx *varContext, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+	pipeStr := formatPipe(node.Pipe)
+
+	// Evaluate pipe, handling variable references like $c.Inner
+	newContext, err := evaluatePipeWithVarCtx(pipeStr, varCtx, ctx)
+	if err != nil {
+		return nil, fmt.Errorf("with evaluation error: %w", err)
+	}
+
+	contextValue := reflect.ValueOf(newContext)
+	if !contextValue.IsValid() || isZeroValue(contextValue) {
+		if node.ElseList != nil {
+			return buildTreeFromASTWithVars(node.ElseList, varCtx, keyGen, ctx)
+		}
+		return createEmptyTree(ctx), nil
+	}
+
+	// Create new varCtx with changed dot but copied variables to prevent
+	// inner scope mutations from leaking to outer scope.
+	copiedVars := newOrderedVars()
+	varCtx.vars.Range(func(key string, value interface{}) {
+		copiedVars.Set(key, value)
+	})
+	newVarCtx := &varContext{
+		parent: varCtx.parent,
+		vars:   copiedVars,
+		dot:    newContext,
+	}
+	return buildTreeFromASTWithVars(node.List, newVarCtx, keyGen, ctx)
+}
+
+// evaluatePipeWithVarCtx evaluates a pipe expression, transforming variable references
+// ($c.Field) into field accesses (.C.Field) so they work in standalone template evaluation.
+func evaluatePipeWithVarCtx(pipeStr string, varCtx *varContext, ctx *Context) (interface{}, error) {
+	return transformAndEvalWithVars(pipeStr, varCtx, ctx)
+}

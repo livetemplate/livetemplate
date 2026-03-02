@@ -2,7 +2,11 @@ package parse
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 	"text/template/parse"
+	"unicode"
+	"unicode/utf8"
 )
 
 // varContext holds variable bindings for template execution.
@@ -89,6 +93,54 @@ func (ov orderedVars) Range(fn func(key string, value interface{})) {
 	}
 }
 
+// sortedVarNames returns variable names from vars sorted by descending length.
+// This ensures longer names are matched first, preventing partial matches
+// (e.g., $col is processed before $c).
+func sortedVarNames(vars *orderedVars) []string {
+	var names []string
+	vars.Range(func(key string, _ interface{}) {
+		names = append(names, key)
+	})
+	sort.Slice(names, func(i, j int) bool {
+		return len(names[i]) > len(names[j])
+	})
+	return names
+}
+
+// transformAndEvalWithVars evaluates an expression that may contain variable references.
+// It transforms $varName.Field into .VarName.Field with a synthetic data map,
+// then evaluates via evaluatePipeWithCache. If no variables are referenced, it
+// evaluates directly against the dot context.
+// Variable names are processed in descending length order to prevent partial matches
+// (e.g., $col is replaced before $c).
+func transformAndEvalWithVars(expr string, varCtx *varContext, ctx *Context) (interface{}, error) {
+	sortedNames := sortedVarNames(&varCtx.vars)
+	usesVar := false
+	for _, varName := range sortedNames {
+		if strings.Contains(expr, "$"+varName) {
+			usesVar = true
+			break
+		}
+	}
+
+	if !usesVar {
+		return evaluatePipeWithCache(ctx.TemplateName, expr, varCtx.dot, ctx)
+	}
+
+	transformedExpr := expr
+	execData := make(map[string]interface{})
+	for _, varName := range sortedNames {
+		if strings.Contains(expr, "$"+varName) {
+			r, size := utf8.DecodeRuneInString(varName)
+			fieldName := string(unicode.ToUpper(r)) + varName[size:]
+			transformedExpr = strings.ReplaceAll(transformedExpr, "$"+varName, "."+fieldName)
+			varValue, _ := varCtx.vars.Get(varName)
+			execData[fieldName] = varValue
+		}
+	}
+	return evaluatePipeWithCache(ctx.TemplateName, transformedExpr, execData, ctx)
+}
+
 // createEmptyTree creates a tree node representing empty content.
 // If statics should be included, returns a tree with a single empty static string.
 func createEmptyTree(ctx *Context) *TreeNode {
@@ -121,11 +173,12 @@ func buildTreeFromASTWithVars(node parse.Node, varCtx *varContext, keyGen KeyGen
 		return handleIfNodeWithVars(n, varCtx, keyGen, ctx)
 
 	case *parse.RangeNode:
-		// Nested range - handle recursively
-		return handleRangeNode(n, varCtx.dot, keyGen, ctx)
+		// Nested range - propagate inherited variables through
+		return handleRangeNodeWithInheritedVars(n, varCtx, keyGen, ctx)
 
 	case *parse.WithNode:
-		return handleWithNode(n, varCtx.dot, keyGen, ctx)
+		// With block - propagate inherited variables through
+		return handleWithNodeWithVars(n, varCtx, keyGen, ctx)
 
 	default:
 		return nil, fmt.Errorf("unhandled node type in varCtx: %T", n)

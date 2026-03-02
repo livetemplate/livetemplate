@@ -200,6 +200,14 @@ func buildTreeFromList(node *parse.ListNode, data interface{}, keyGen KeyGenerat
 		return NewTreeNode(), nil
 	}
 
+	// Check if any child has variable declarations (e.g., {{$c := .}}).
+	// If so, delegate to the vars-aware path which tracks variables and
+	// propagates them through nested scopes (range, with, if).
+	if listHasVarDeclarations(node) {
+		varCtx := &varContext{parent: data, vars: newOrderedVars(), dot: data}
+		return buildTreeFromListWithDeclVars(node, varCtx, keyGen, ctx)
+	}
+
 	// Walk AST and merge trees from all nodes
 	var statics []string
 	tree := NewTreeNode()
@@ -555,4 +563,111 @@ func isZeroValue(v reflect.Value) bool {
 		// Fallback for uncommon types (e.g., UnsafePointer)
 		return reflect.DeepEqual(v.Interface(), reflect.Zero(v.Type()).Interface())
 	}
+}
+
+// listHasVarDeclarations checks if any child node in a list is a variable declaration action
+// (e.g., {{$c := .}}). These require the vars-aware processing path.
+func listHasVarDeclarations(node *parse.ListNode) bool {
+	for _, child := range node.Nodes {
+		if actionNode, ok := child.(*parse.ActionNode); ok &&
+			actionNode.Pipe != nil && len(actionNode.Pipe.Decl) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// buildTreeFromListWithDeclVars processes a list of nodes with variable declaration support.
+// When a variable declaration like {{$c := .}} is encountered, it registers the variable
+// and uses the vars-aware path for all subsequent nodes, propagating variables through
+// nested scopes (range, with, if).
+func buildTreeFromListWithDeclVars(node *parse.ListNode, varCtx *varContext, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+	if node == nil || len(node.Nodes) == 0 {
+		return createEmptyTree(ctx), nil
+	}
+
+	var statics []string
+	tree := NewTreeNode()
+	dynamicIndex := 0
+	statics = append(statics, "")
+
+	for i, child := range node.Nodes {
+		// Check for variable declaration actions (e.g., {{$c := .}})
+		if actionNode, ok := child.(*parse.ActionNode); ok &&
+			actionNode.Pipe != nil && len(actionNode.Pipe.Decl) > 0 {
+			if err := registerVarDeclaration(actionNode, varCtx, ctx); err != nil {
+				return nil, fmt.Errorf("child node %d (%T): var declaration: %w", i, child, err)
+			}
+			// Variable declarations produce no output
+			continue
+		}
+
+		// Process child using vars-aware path
+		childTree, err := buildTreeFromASTWithVars(child, varCtx, keyGen, ctx)
+		if err != nil {
+			return nil, fmt.Errorf("child node %d (%T): %w", i, child, err)
+		}
+
+		// Handle range comprehension
+		if childTree.HasRange() {
+			if len(node.Nodes) == 1 {
+				return childTree, nil
+			}
+			tree.SetDynamic(fmt.Sprintf("%d", dynamicIndex), childTree)
+			dynamicIndex++
+			statics = append(statics, "")
+			continue
+		}
+
+		// Merge child tree
+		childStatics := childTree.Statics
+		if len(childStatics) == 0 {
+			continue
+		}
+		if len(statics) > 0 && len(childStatics) > 0 {
+			statics[len(statics)-1] += childStatics[0]
+		}
+		if len(childStatics) > 1 {
+			statics = append(statics, childStatics[1:]...)
+		}
+		childKeys := getSortedKeys(childTree.Dynamics)
+		for _, k := range childKeys {
+			tree.SetDynamic(fmt.Sprintf("%d", dynamicIndex), childTree.Dynamics[k])
+			dynamicIndex++
+		}
+	}
+
+	for len(statics) <= dynamicIndex {
+		statics = append(statics, "")
+	}
+
+	if ctx.ShouldIncludeStatics() {
+		tree.Statics = statics
+	}
+	return tree, nil
+}
+
+// registerVarDeclaration evaluates a variable declaration action and registers
+// the variables in the provided varContext. For {{$c := .}}, this evaluates "."
+// against the current dot context and sets varCtx.vars["c"] = result.
+func registerVarDeclaration(actionNode *parse.ActionNode, varCtx *varContext, ctx *Context) error {
+	for _, decl := range actionNode.Pipe.Decl {
+		varName := decl.Ident[0]
+		// Strip $ prefix: Go's parser stores "$c" but evaluateActionWithVars
+		// builds search patterns as "$" + varName, so vars must be stored without $.
+		varName = strings.TrimPrefix(varName, "$")
+		if len(actionNode.Pipe.Cmds) == 0 {
+			return fmt.Errorf("variable $%s declaration has no right-hand side expression", varName)
+		}
+		// Get the expression from the last command
+		lastCmd := actionNode.Pipe.Cmds[len(actionNode.Pipe.Cmds)-1]
+		exprStr := strings.TrimSpace(lastCmd.String())
+
+		value, err := evaluatePipeWithCache(ctx.TemplateName, exprStr, varCtx.dot, ctx)
+		if err != nil {
+			return fmt.Errorf("variable $%s evaluation error: %w", varName, err)
+		}
+		varCtx.vars.Set(varName, value)
+	}
+	return nil
 }
