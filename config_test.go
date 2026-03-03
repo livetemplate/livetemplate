@@ -430,13 +430,15 @@ func TestEnvConfig_ToOptionsZeroValues(t *testing.T) {
 		MaxConnectionsPerGroup: 0,
 		AllowedOrigins:         nil,
 		DevMode:                false,
-		ProgressiveEnhancement: true, // Default is true, so no option generated
+		ProgressiveEnhancement: true,                       // Default is true, so no option generated
+		WebSocketBufferSize:    defaultWebSocketBufferSize, // Default (50) should not generate an option
 	}
 
 	opts := config.ToOptions()
 
 	// Should have 0 options (all values are defaults)
 	// Note: ProgressiveEnhancement=true is the default, which generates no option
+	// Note: WebSocketBufferSize=50 is the default, which generates no option
 	if len(opts) != 0 {
 		t.Errorf("Expected 0 options for default values, got %d", len(opts))
 	}
