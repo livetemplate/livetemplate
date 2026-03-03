@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/livetemplate/livetemplate/internal/build"
-	"github.com/livetemplate/livetemplate/internal/compat"
+	"github.com/livetemplate/livetemplate/internal/keys"
 	"github.com/livetemplate/livetemplate/internal/fuzz/app"
 	"github.com/livetemplate/livetemplate/internal/fuzz/invariants"
 	"github.com/livetemplate/livetemplate/internal/fuzz/mutations"
@@ -64,7 +64,7 @@ func runAsyncFuzzSessionWithTSOracle(t *testing.T, rng *rand.Rand, seed int64, n
 
 	tmpl := &Template{
 		templateStr: templateStr,
-		keyGen:      compat.NewKeyGenerator(),
+		keyGen:      keys.NewGenerator(),
 	}
 
 	if _, err := tmpl.Parse(templateStr); err != nil {
@@ -75,7 +75,7 @@ func runAsyncFuzzSessionWithTSOracle(t *testing.T, rng *rand.Rand, seed int64, n
 
 	verifier := invariants.NewVerifier(seed)
 
-	initialTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+	initialTree, err := parseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -99,7 +99,7 @@ func runAsyncFuzzSessionWithTSOracle(t *testing.T, rng *rand.Rand, seed int64, n
 			continue
 		}
 
-		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+		newTree, err := parseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
 		if err != nil {
 			t.Fatalf("Render failed at cycle %d: %v", cycle, err)
 		}
@@ -175,7 +175,7 @@ func runModalFuzzSessionWithTSOracle(t *testing.T, rng *rand.Rand, seed int64, n
 
 	tmpl := &Template{
 		templateStr: templateStr,
-		keyGen:      compat.NewKeyGenerator(),
+		keyGen:      keys.NewGenerator(),
 	}
 
 	if _, err := tmpl.Parse(templateStr); err != nil {
@@ -186,7 +186,7 @@ func runModalFuzzSessionWithTSOracle(t *testing.T, rng *rand.Rand, seed int64, n
 
 	verifier := invariants.NewVerifier(seed)
 
-	initialTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+	initialTree, err := parseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -208,7 +208,7 @@ func runModalFuzzSessionWithTSOracle(t *testing.T, rng *rand.Rand, seed int64, n
 			continue
 		}
 
-		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+		newTree, err := parseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
 		if err != nil {
 			t.Fatalf("Render failed at cycle %d: %v", cycle, err)
 		}
@@ -359,7 +359,7 @@ func TestCloseAllModalBug_TSOracle(t *testing.T) {
 
 	tmpl := &Template{
 		templateStr: app.ModalTemplate,
-		keyGen:      compat.NewKeyGenerator(),
+		keyGen:      keys.NewGenerator(),
 	}
 
 	if _, err := tmpl.Parse(app.ModalTemplate); err != nil {
@@ -382,7 +382,7 @@ func TestCloseAllModalBug_TSOracle(t *testing.T) {
 	}
 
 	// First render
-	initialTree, err := compat.ParseTemplateToTree("test", app.ModalTemplate, state.ToMap(), tmpl.keyGen)
+	initialTree, err := parseTemplateToTree("test", app.ModalTemplate, state.ToMap(), tmpl.keyGen)
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -398,7 +398,7 @@ func TestCloseAllModalBug_TSOracle(t *testing.T) {
 	}
 
 	// Render after close_all
-	newTree, err := compat.ParseTemplateToTree("test", app.ModalTemplate, state.ToMap(), tmpl.keyGen)
+	newTree, err := parseTemplateToTree("test", app.ModalTemplate, state.ToMap(), tmpl.keyGen)
 	if err != nil {
 		t.Fatalf("Render after close_all failed: %v", err)
 	}

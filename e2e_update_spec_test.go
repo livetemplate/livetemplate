@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/livetemplate/livetemplate/internal/build"
-	"github.com/livetemplate/livetemplate/internal/compat"
+	"github.com/livetemplate/livetemplate/internal/keys"
 )
 
 // Specification Compliance Tests - Current Status:
@@ -158,14 +158,14 @@ func TestUpdateSpecification_FirstRender(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpl := &Template{
 				templateStr: tt.template,
-				keyGen:      compat.NewKeyGenerator(),
+				keyGen:      keys.NewGenerator(),
 			}
 
 			if _, err := tmpl.Parse(tmpl.templateStr); err != nil {
 				t.Fatalf("Failed to parse template: %v", err)
 			}
 
-			tree, err := compat.ParseTemplateToTree("test", tt.template, tt.data, tmpl.keyGen)
+			tree, err := parseTemplateToTree("test", tt.template, tt.data, tmpl.keyGen)
 			if err != nil {
 				t.Fatalf("Failed to generate tree: %v", err)
 			}
@@ -286,7 +286,7 @@ func TestUpdateSpecification_SubsequentUpdates(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpl := &Template{
 				templateStr: tt.template,
-				keyGen:      compat.NewKeyGenerator(),
+				keyGen:      keys.NewGenerator(),
 			}
 
 			if _, err := tmpl.Parse(tmpl.templateStr); err != nil {
@@ -294,13 +294,13 @@ func TestUpdateSpecification_SubsequentUpdates(t *testing.T) {
 			}
 
 			// Generate initial tree
-			initialTree, err := compat.ParseTemplateToTree("test", tt.template, tt.initial, tmpl.keyGen)
+			initialTree, err := parseTemplateToTree("test", tt.template, tt.initial, tmpl.keyGen)
 			if err != nil {
 				t.Fatalf("Failed to generate initial tree: %v", err)
 			}
 
 			// Generate updated tree
-			updatedTree, err := compat.ParseTemplateToTree("test", tt.template, tt.update, tmpl.keyGen)
+			updatedTree, err := parseTemplateToTree("test", tt.template, tt.update, tmpl.keyGen)
 			if err != nil {
 				t.Fatalf("Failed to generate updated tree: %v", err)
 			}
@@ -474,7 +474,7 @@ func TestUpdateSpecification_RangeOperations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpl := &Template{
 				templateStr: template,
-				keyGen:      compat.NewKeyGenerator(),
+				keyGen:      keys.NewGenerator(),
 			}
 
 			if _, err := tmpl.Parse(tmpl.templateStr); err != nil {
@@ -483,11 +483,11 @@ func TestUpdateSpecification_RangeOperations(t *testing.T) {
 
 			// Generate initial tree
 			initialData := struct{ Items []Item }{Items: tt.initial}
-			initialTree, _ := compat.ParseTemplateToTree("test", template, initialData, tmpl.keyGen)
+			initialTree, _ := parseTemplateToTree("test", template, initialData, tmpl.keyGen)
 
 			// Generate updated tree
 			updateData := struct{ Items []Item }{Items: tt.update}
-			updatedTree, _ := compat.ParseTemplateToTree("test", template, updateData, tmpl.keyGen)
+			updatedTree, _ := parseTemplateToTree("test", template, updateData, tmpl.keyGen)
 
 			// Get changes
 			tmpl.lastTree = initialTree
@@ -677,7 +677,7 @@ func TestUserJourney_TodoApp(t *testing.T) {
 	// Run journey
 	tmpl := &Template{
 		templateStr: template,
-		keyGen:      compat.NewKeyGenerator(),
+		keyGen:      keys.NewGenerator(),
 	}
 
 	if _, err := tmpl.Parse(tmpl.templateStr); err != nil {
@@ -804,7 +804,7 @@ func TestComplexTemplate(t *testing.T) {
 	// Parse and generate initial tree
 	tmpl := &Template{
 		templateStr: template,
-		keyGen:      compat.NewKeyGenerator(),
+		keyGen:      keys.NewGenerator(),
 		wrapperID:   "test-wrapper",
 	}
 
@@ -853,7 +853,7 @@ func TestComplexTemplate(t *testing.T) {
 
 	// Generate updated tree
 	tmpl.lastTree = initialTree
-	updatedTree, _ := compat.ParseTemplateToTree("test", template, updatedData, tmpl.keyGen)
+	updatedTree, _ := parseTemplateToTree("test", template, updatedData, tmpl.keyGen)
 	changes := tmpl.compareTreesAndGetChanges(initialTree, updatedTree)
 
 	// Basic validation: check that we got changes
@@ -867,7 +867,7 @@ func BenchmarkSpecificationCompliance(b *testing.B) {
 	template := `<div>{{.Count}}</div>`
 	tmpl := &Template{
 		templateStr: template,
-		keyGen:      compat.NewKeyGenerator(),
+		keyGen:      keys.NewGenerator(),
 	}
 	_, _ = tmpl.Parse(tmpl.templateStr)
 

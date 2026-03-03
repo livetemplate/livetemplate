@@ -238,31 +238,27 @@ The main `livetemplate` package provides a clean, minimal public API:
     - Template execution utilities
     - Error propagation to client
 
-13. **Compatibility (`internal/compat/`)**:
-    - Compatibility layer for tree structures
-    - Components: tree.go
-
-14. **Template Discovery (`internal/discovery/`)**:
+13. **Template Discovery (`internal/discovery/`)**:
     - Automatic template file discovery
     - Components: discovery.go
 
-15. **File Uploads (`internal/upload/`)**:
+14. **File Uploads (`internal/upload/`)**:
     - File upload handling infrastructure
     - Components: accessor.go, multipart.go, protocol.go, registry.go, tempfile.go, validate.go
 
-16. **Upload Types (`internal/uploadtypes/`)**:
+15. **Upload Types (`internal/uploadtypes/`)**:
     - Upload type definitions shared across packages
     - Components: types.go
 
-17. **Test Utilities (`internal/testutil/`)**:
+16. **Test Utilities (`internal/testutil/`)**:
     - Shared test helpers (e.g., Redis test setup)
     - Components: redis.go
 
-18. **String Utilities (`internal/util/`)**:
+17. **String Utilities (`internal/util/`)**:
     - General-purpose string utilities
     - Components: strings.go
 
-19. **Fuzz Testing (`internal/fuzz/`)**:
+18. **Fuzz Testing (`internal/fuzz/`)**:
     - Fuzz testing infrastructure for tree invariant validation
     - Subpackages: app/ (mutations, templates, types), generators/ (state, template), invariants/ (verifier, helpers, TS oracle), mutations/ (apply, types)
 

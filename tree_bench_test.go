@@ -3,7 +3,7 @@ package livetemplate
 import (
 	"testing"
 
-	"github.com/livetemplate/livetemplate/internal/compat"
+	"github.com/livetemplate/livetemplate/internal/keys"
 )
 
 func BenchmarkUserJourney(b *testing.B) {
@@ -22,7 +22,7 @@ func BenchmarkUserJourney(b *testing.B) {
 		simulator := NewStateSimulator()
 		tmpl := &Template{
 			templateStr: templateStr,
-			keyGen:      compat.NewKeyGenerator(),
+			keyGen:      keys.NewGenerator(),
 		}
 		_, _ = tmpl.Parse(tmpl.templateStr)
 
@@ -33,7 +33,7 @@ func BenchmarkUserJourney(b *testing.B) {
 			if j == 0 {
 				_, _ = tmpl.generateInitialTreeWithoutRegistry(templateStr, state)
 			} else {
-				newTree, _ := compat.ParseTemplateToTree("test", templateStr, state, tmpl.keyGen)
+				newTree, _ := parseTemplateToTree("test", templateStr, state, tmpl.keyGen)
 				tmpl.compareTreesAndGetChanges(tmpl.lastTree, newTree)
 				tmpl.lastTree = newTree
 			}

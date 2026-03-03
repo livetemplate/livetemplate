@@ -419,9 +419,6 @@ livetemplate/
 - `Metrics` - Operational metrics collector
 - `PrometheusExporter` - Prometheus-compatible exporter
 
-#### `internal/compat/` (142 lines)
-**Purpose:** Backward compatibility wrappers for tree operations
-
 #### `internal/discovery/` (118 lines)
 **Purpose:** Template file auto-discovery from conventional directories
 
@@ -708,7 +705,6 @@ func (c *CounterController) Increment(state CounterState, ctx *livetemplate.Cont
 | `auth.go` | 199 | Authentication |
 | `internal/testutil/` | 153 | Test utilities |
 | `lifecycle.go` | 147 | Lifecycle methods |
-| `internal/compat/` | 142 | Backward compatibility |
 | `s3_presigner.go` | 121 | S3 presigning |
 | `internal/discovery/` | 118 | Template discovery |
 | `testing.go` | 87 | Test helpers |

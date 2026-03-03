@@ -93,7 +93,6 @@ livetemplate/
 │   ├── observe/                  # Metrics and Prometheus export
 │   ├── session/                  # Connection tracking and WebSocket management
 │   ├── context/                  # Template execution context
-│   ├── compat/                   # Tree compatibility helpers
 │   ├── discovery/                # Template discovery utilities
 │   ├── fuzz/                     # Fuzz testing infrastructure
 │   ├── testutil/                 # Test utilities (Redis helpers)

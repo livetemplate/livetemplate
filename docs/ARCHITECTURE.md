@@ -190,9 +190,6 @@ LiveTemplate is a reactive web framework for Go that uses tree-based DOM diffing
 - `FindCommonPrefix(s1, s2 string) string`
 - `FindCommonSuffix(s1, s2 string) string`
 
-#### `internal/compat/` — 1 file, 142 lines
-**Responsibility:** Backward compatibility wrappers for tree operations
-
 #### `internal/discovery/` — 1 file, 118 lines
 **Responsibility:** Template file auto-discovery from conventional directories
 

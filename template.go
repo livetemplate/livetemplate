@@ -101,7 +101,6 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/livetemplate/livetemplate/internal/build"
-	"github.com/livetemplate/livetemplate/internal/compat"
 	"github.com/livetemplate/livetemplate/internal/context"
 	"github.com/livetemplate/livetemplate/internal/diff"
 	"github.com/livetemplate/livetemplate/internal/discovery"
@@ -139,6 +138,63 @@ type treeNode = build.TreeNode
 // keyGenerator is an internal alias for keys.Generator.
 // Used internally by Template for sequential key generation.
 type keyGenerator = keys.Generator
+
+// keyGeneratorAdapter adapts keyGenerator to parse.KeyGenerator interface.
+// Panics on error instead of propagating because the parse.KeyGenerator
+// interface doesn't support error returns. Key generation errors only occur
+// on counter overflow (after 2^63-1 keys), which is effectively impossible.
+type keyGeneratorAdapter struct {
+	kg *keyGenerator
+}
+
+func (kga *keyGeneratorAdapter) Next() string {
+	key, err := kga.kg.NextKey()
+	if err != nil {
+		panic(fmt.Sprintf("key generation failed: %v", err))
+	}
+	return key
+}
+
+// generateWrapperKey generates a wrapper key using the key generator.
+// Panics on counter overflow (after 2^63-1 keys), which is effectively impossible.
+func generateWrapperKey(keyGen *keyGenerator) string {
+	key, err := keyGen.NextKey()
+	if err != nil {
+		panic(fmt.Sprintf("key generation failed: %v", err))
+	}
+	return key
+}
+
+// parseTemplateToTree parses a template string into a tree structure.
+// templateName is used for expression caching.
+// ctx is optional - if nil, defaults to first-render context (includes statics).
+func parseTemplateToTree(templateName, templateStr string, data interface{}, keyGen *keyGenerator, ctx ...*build.Context) (tree *build.TreeNode, err error) {
+	var genCtx *build.Context
+	if len(ctx) > 0 {
+		genCtx = ctx[0]
+	}
+	if genCtx == nil {
+		genCtx = build.NewContext()
+	}
+
+	genCtx.TemplateName = templateName
+
+	if !genCtx.DevMode {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("template execution panic: %v", r)
+			}
+		}()
+	}
+
+	tmpl, err := parse.Parse(templateStr, genCtx.FuncMap)
+	if err != nil {
+		return nil, err
+	}
+
+	keyGenAdapter := &keyGeneratorAdapter{kg: keyGen}
+	return parse.BuildTree(tmpl, data, keyGenAdapter, genCtx)
+}
 
 // =============================================================================
 // Configuration
@@ -803,7 +859,7 @@ func New(name string, opts ...Option) (*Template, error) {
 
 	tmpl := &Template{
 		name:   name,
-		keyGen: compat.NewKeyGenerator(),
+		keyGen: keys.NewGenerator(),
 		config: config,
 	}
 
@@ -863,7 +919,7 @@ func (t *Template) Clone() (*Template, error) {
 		templateStr: templateStr,
 		wrapperID:   wrapperID, // Share wrapper ID
 		funcs:       copyFuncMap(t.funcs),
-		keyGen:      compat.NewKeyGenerator(),
+		keyGen:      keys.NewGenerator(),
 		config:      config, // Preserve configuration
 		// Don't copy lastData, lastHTML, lastTree, etc. - start fresh
 	}
@@ -902,13 +958,13 @@ func (t *Template) newUploadRegistry() uploadRegistry {
 func (t *Template) Parse(text string) (*Template, error) {
 	// Normalize template spacing to handle formatter-added spaces
 	// This prevents issues when formatters add spaces like "{{ range" instead of "{{range"
-	text = compat.NormalizeTemplateSpacing(text)
+	text = build.NormalizeTemplateSpacing(text)
 
 	// Determine if this is a full HTML document
 	isFullHTML := strings.Contains(text, "<!DOCTYPE") || strings.Contains(text, "<html")
 
 	// Always generate wrapper ID for consistent update targeting
-	t.wrapperID = compat.GenerateRandomID()
+	t.wrapperID = build.GenerateRandomID()
 
 	// First, parse WITHOUT wrapper to check if flattening is needed
 	baseTemplate := template.New(t.name)
@@ -943,7 +999,7 @@ func (t *Template) parseInternal(text string, baseTemplate *template.Template, i
 	var templateContent string
 	if isFullHTML {
 		// Inject wrapper div around body content
-		templateContent = compat.InjectWrapperDiv(text, t.wrapperID, t.config.LoadingDisabled)
+		templateContent = build.InjectWrapperDiv(text, t.wrapperID, t.config.LoadingDisabled)
 	} else {
 		// For standalone templates, wrap the entire content
 		loadingAttr := ""
@@ -1001,13 +1057,13 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error) {
 	}
 
 	// Normalize template spacing
-	text := compat.NormalizeTemplateSpacing(string(content))
+	text := build.NormalizeTemplateSpacing(string(content))
 
 	// Determine if this is a full HTML document
 	isFullHTML := strings.Contains(text, "<!DOCTYPE") || strings.Contains(text, "<html")
 
 	// Always generate wrapper ID for consistent update targeting
-	t.wrapperID = compat.GenerateRandomID()
+	t.wrapperID = build.GenerateRandomID()
 
 	// First, parse WITHOUT wrapper to check if flattening is needed
 	// If component templates were already parsed, use that as the base
@@ -1238,7 +1294,7 @@ func (t *Template) generateInitialTreeWithoutRegistry(html string, data interfac
 	// Extract content from wrapper if we have one
 	var contentToAnalyze string
 	if t.wrapperID != "" {
-		contentToAnalyze = compat.ExtractTemplateContent(html, t.wrapperID)
+		contentToAnalyze = build.ExtractTemplateContent(html, t.wrapperID)
 	} else {
 		contentToAnalyze = html
 	}
@@ -1249,7 +1305,7 @@ func (t *Template) generateInitialTreeWithoutRegistry(html string, data interfac
 	if t.wrapperID != "" {
 		// For templates with <body> tags, extract body content
 		// For templates without <body> tags (including flattened templates), use template as-is
-		bodyContent := compat.ExtractTemplateBodyContent(t.templateStr)
+		bodyContent := build.ExtractTemplateBodyContent(t.templateStr)
 		// extractTemplateBodyContent returns the full template if no <body> tag found
 		// So we can use it directly - it will be the flattened template content without wrapper
 
@@ -1265,7 +1321,7 @@ func (t *Template) generateInitialTreeWithoutRegistry(html string, data interfac
 	ctx := build.NewContext()
 	ctx.FuncMap = t.funcs
 	ctx.DevMode = t.config.DevMode
-	tree, err := compat.ParseTemplateToTree(t.name, templateContent, data, t.keyGen, ctx)
+	tree, err := parseTemplateToTree(t.name, templateContent, data, t.keyGen, ctx)
 	if err != nil {
 		// parseTemplateToTree failed, falling back to HTML structure
 		slog.Warn("Template parsing failed, falling back to HTML structure-based tree",
@@ -1291,8 +1347,8 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 	// Extract content from wrapper if we have one for proper comparison
 	var oldContent, newContent string
 	if t.wrapperID != "" {
-		oldContent = compat.ExtractTemplateContent(oldHTML, t.wrapperID)
-		newContent = compat.ExtractTemplateContent(newHTML, t.wrapperID)
+		oldContent = build.ExtractTemplateContent(oldHTML, t.wrapperID)
+		newContent = build.ExtractTemplateContent(newHTML, t.wrapperID)
 	} else {
 		oldContent = oldHTML
 		newContent = newHTML
@@ -1303,7 +1359,7 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 		// Generate complete tree with current data using the template instance's keyGen
 		// to ensure consistent key mapping across renders
 		// Don't strip scripts - they may contain template logic
-		bodyContent := compat.ExtractTemplateBodyContent(t.templateStr)
+		bodyContent := build.ExtractTemplateBodyContent(t.templateStr)
 		templateContent := bodyContent
 
 		// IMPORTANT: Always generate trees WITH statics for comparison purposes
@@ -1312,7 +1368,7 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 		ctx := build.NewContext()
 		ctx.FuncMap = t.funcs
 		ctx.DevMode = t.config.DevMode
-		newTree, err := compat.ParseTemplateToTree(t.name, templateContent, newData, t.keyGen, ctx)
+		newTree, err := parseTemplateToTree(t.name, templateContent, newData, t.keyGen, ctx)
 		if err != nil {
 			return nil, fmt.Errorf("tree generation failed: %w", err)
 		}
@@ -1556,7 +1612,7 @@ func (t *Template) buildTree(data interface{}, messages map[string]string) (*tre
 
 	// Initialize key generator if needed (defensive check)
 	if t.keyGen == nil {
-		t.keyGen = compat.NewKeyGenerator()
+		t.keyGen = keys.NewGenerator()
 	}
 
 	// Load existing key mappings if available
@@ -1577,7 +1633,7 @@ func (t *Template) buildTree(data interface{}, messages map[string]string) (*tre
 		// Extract content from wrapper for consistent caching
 		var contentToCache string
 		if t.wrapperID != "" {
-			contentToCache = compat.ExtractTemplateContent(currentHTML, t.wrapperID)
+			contentToCache = build.ExtractTemplateContent(currentHTML, t.wrapperID)
 		} else {
 			contentToCache = currentHTML
 		}
