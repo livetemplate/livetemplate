@@ -758,18 +758,6 @@ func createSecureOriginChecker(allowedOrigins []string, devMode bool) func(*http
 }
 
 func New(name string, opts ...Option) (*Template, error) {
-	// Get WebSocket buffer size default (50, or from LVT_WS_BUFFER_SIZE env var)
-	wsBufferSize := 50
-	if envSize := os.Getenv("LVT_WS_BUFFER_SIZE"); envSize != "" {
-		var parsed int
-		if n, err := fmt.Sscanf(envSize, "%d", &parsed); err == nil && n == 1 && parsed > 0 {
-			wsBufferSize = parsed
-		} else {
-			slog.Warn("Invalid LVT_WS_BUFFER_SIZE environment variable, using default",
-				slog.String("value", envSize), slog.Int("default", 50))
-		}
-	}
-
 	// Default configuration
 	config := Config{
 		Upgrader: &websocket.Upgrader{
@@ -782,7 +770,7 @@ func New(name string, opts ...Option) (*Template, error) {
 		MessageRateLimit:       10.0,                      // Default: 10 messages/sec
 		MessageRateBurst:       20,                        // Default: burst of 20
 		CookieMaxAge:           365 * 24 * time.Hour,      // Default: 1 year
-		WebSocketBufferSize:    wsBufferSize,              // Default: 50 (or LVT_WS_BUFFER_SIZE env)
+		WebSocketBufferSize:    50,                        // Default: 50 (override via WithWebSocketBufferSize or EnvConfig)
 		ProgressiveEnhancement: true,                      // Default: enabled for non-JS form support
 	}
 

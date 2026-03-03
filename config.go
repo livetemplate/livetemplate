@@ -73,6 +73,11 @@ type EnvConfig struct {
 	// receive full HTML page responses using the POST-Redirect-GET pattern.
 	// Environment: LVT_PROGRESSIVE_ENHANCEMENT (true/false, 1/0)
 	ProgressiveEnhancement bool
+
+	// WebSocketBufferSize sets the send buffer size per WebSocket connection.
+	// Controls backpressure behavior: slow clients are disconnected when buffer is full.
+	// Environment: LVT_WS_BUFFER_SIZE (positive integer, default: 50)
+	WebSocketBufferSize int
 }
 
 // LoadEnvConfig loads configuration from environment variables.
@@ -100,6 +105,7 @@ func LoadEnvConfig() (*EnvConfig, error) {
 		LogLevel:               "info",
 		MetricsEnabled:         true,
 		ProgressiveEnhancement: true, // Default: enabled for non-JS form support
+		WebSocketBufferSize:    50,
 	}
 
 	// Load MaxConnections
@@ -213,6 +219,18 @@ func LoadEnvConfig() (*EnvConfig, error) {
 		config.ProgressiveEnhancement = b
 	}
 
+	// Load WebSocketBufferSize
+	if val := os.Getenv("LVT_WS_BUFFER_SIZE"); val != "" {
+		n, err := strconv.ParseInt(val, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid LVT_WS_BUFFER_SIZE: %w", err)
+		}
+		if n <= 0 {
+			return nil, fmt.Errorf("invalid LVT_WS_BUFFER_SIZE: must be positive, got %d", n)
+		}
+		config.WebSocketBufferSize = int(n)
+	}
+
 	return config, nil
 }
 
@@ -265,6 +283,10 @@ func (c *EnvConfig) ToOptions() []Option {
 		opts = append(opts, WithProgressiveEnhancement(false))
 	}
 
+	if c.WebSocketBufferSize > 0 && c.WebSocketBufferSize != 50 {
+		opts = append(opts, WithWebSocketBufferSize(c.WebSocketBufferSize))
+	}
+
 	return opts
 }
 
@@ -282,6 +304,10 @@ func (c *EnvConfig) Validate() error {
 
 	if c.ShutdownTimeout < 0 {
 		return fmt.Errorf("ShutdownTimeout must be positive, got %s", c.ShutdownTimeout)
+	}
+
+	if c.WebSocketBufferSize < 0 {
+		return fmt.Errorf("WebSocketBufferSize must be positive, got %d", c.WebSocketBufferSize)
 	}
 
 	validLevels := map[string]bool{
