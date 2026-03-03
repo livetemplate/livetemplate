@@ -689,6 +689,18 @@ func WithProgressiveEnhancement(enabled bool) Option {
 //   - Loading indicator enabled
 //   - Production mode (CDN client library)
 //
+// # Environment Variables
+//
+// New does not read environment variables directly. To apply environment-based
+// configuration (e.g., LVT_WS_BUFFER_SIZE, LVT_MAX_CONNECTIONS), use
+// [LoadEnvConfig] and pass the resulting options:
+//
+//	envConfig, err := livetemplate.LoadEnvConfig()
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	tmpl := livetemplate.New("app", envConfig.ToOptions()...)
+//
 // See the With* functions for available options.
 
 // Must is a helper that wraps a call to New and panics if the error is non-nil.
