@@ -766,12 +766,12 @@ func New(name string, opts ...Option) (*Template, error) {
 			CheckOrigin: nil, // Will be set after applying options
 		},
 		SessionStore:           NewMemorySessionStore(),
-		Authenticator:          &AnonymousAuthenticator{}, // Default: browser-based session grouping
-		MessageRateLimit:       10.0,                      // Default: 10 messages/sec
-		MessageRateBurst:       20,                        // Default: burst of 20
-		CookieMaxAge:           365 * 24 * time.Hour,      // Default: 1 year
-		WebSocketBufferSize:    50,                        // Default: 50 (override via WithWebSocketBufferSize or EnvConfig)
-		ProgressiveEnhancement: true,                      // Default: enabled for non-JS form support
+		Authenticator:          &AnonymousAuthenticator{},  // Default: browser-based session grouping
+		MessageRateLimit:       10.0,                       // Default: 10 messages/sec
+		MessageRateBurst:       20,                         // Default: burst of 20
+		CookieMaxAge:           365 * 24 * time.Hour,       // Default: 1 year
+		WebSocketBufferSize:    defaultWebSocketBufferSize, // Override via WithWebSocketBufferSize or EnvConfig
+		ProgressiveEnhancement: true,                       // Default: enabled for non-JS form support
 	}
 
 	// Apply options

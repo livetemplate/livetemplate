@@ -472,6 +472,7 @@ func TestEnvConfig_Validate(t *testing.T) {
 		MaxConnectionsPerGroup: 100,
 		ShutdownTimeout:        30 * time.Second,
 		LogLevel:               "info",
+		WebSocketBufferSize:    50,
 	}
 
 	if err := validConfig.Validate(); err != nil {
@@ -510,8 +511,25 @@ func TestEnvConfig_ValidateInvalid(t *testing.T) {
 		{
 			name: "invalid LogLevel",
 			config: &EnvConfig{
-				ShutdownTimeout: 30 * time.Second,
-				LogLevel:        "invalid",
+				ShutdownTimeout:     30 * time.Second,
+				LogLevel:            "invalid",
+				WebSocketBufferSize: 50,
+			},
+		},
+		{
+			name: "zero WebSocketBufferSize",
+			config: &EnvConfig{
+				ShutdownTimeout:     30 * time.Second,
+				LogLevel:            "info",
+				WebSocketBufferSize: 0,
+			},
+		},
+		{
+			name: "negative WebSocketBufferSize",
+			config: &EnvConfig{
+				ShutdownTimeout:     30 * time.Second,
+				LogLevel:            "info",
+				WebSocketBufferSize: -1,
 			},
 		},
 	}
@@ -539,6 +557,7 @@ func TestLoadEnvConfig_AllVariables(t *testing.T) {
 		"LVT_SHUTDOWN_TIMEOUT":          "45s",
 		"LVT_LOG_LEVEL":                 "debug",
 		"LVT_METRICS_ENABLED":           "true",
+		"LVT_WS_BUFFER_SIZE":            "200",
 	}
 	for k, v := range envVars {
 		if err := os.Setenv(k, v); err != nil {
@@ -594,6 +613,10 @@ func TestLoadEnvConfig_AllVariables(t *testing.T) {
 
 	if !config.MetricsEnabled {
 		t.Error("Expected MetricsEnabled=true")
+	}
+
+	if config.WebSocketBufferSize != 200 {
+		t.Errorf("Expected WebSocketBufferSize=200, got %d", config.WebSocketBufferSize)
 	}
 }
 
@@ -674,19 +697,6 @@ func TestLoadEnvConfig_WebSocketBufferSizeInvalid(t *testing.T) {
 				t.Errorf("Expected error for invalid LVT_WS_BUFFER_SIZE=%s", tc.value)
 			}
 		})
-	}
-}
-
-func TestLoadEnvConfig_WebSocketBufferSizeDefault(t *testing.T) {
-	clearEnv(t)
-
-	config, err := LoadEnvConfig()
-	if err != nil {
-		t.Fatalf("LoadEnvConfig failed: %v", err)
-	}
-
-	if config.WebSocketBufferSize != 50 {
-		t.Errorf("Expected default WebSocketBufferSize=50, got %d", config.WebSocketBufferSize)
 	}
 }
 

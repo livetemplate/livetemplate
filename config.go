@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const defaultWebSocketBufferSize = 50
+
 // EnvConfig holds environment-based configuration for LiveTemplate.
 //
 // All configuration can be set via environment variables with the LVT_ prefix.
@@ -105,7 +107,7 @@ func LoadEnvConfig() (*EnvConfig, error) {
 		LogLevel:               "info",
 		MetricsEnabled:         true,
 		ProgressiveEnhancement: true, // Default: enabled for non-JS form support
-		WebSocketBufferSize:    50,
+		WebSocketBufferSize:    defaultWebSocketBufferSize,
 	}
 
 	// Load MaxConnections
@@ -283,7 +285,7 @@ func (c *EnvConfig) ToOptions() []Option {
 		opts = append(opts, WithProgressiveEnhancement(false))
 	}
 
-	if c.WebSocketBufferSize > 0 && c.WebSocketBufferSize != 50 {
+	if c.WebSocketBufferSize > 0 && c.WebSocketBufferSize != defaultWebSocketBufferSize {
 		opts = append(opts, WithWebSocketBufferSize(c.WebSocketBufferSize))
 	}
 
@@ -306,7 +308,7 @@ func (c *EnvConfig) Validate() error {
 		return fmt.Errorf("ShutdownTimeout must be positive, got %s", c.ShutdownTimeout)
 	}
 
-	if c.WebSocketBufferSize < 0 {
+	if c.WebSocketBufferSize <= 0 {
 		return fmt.Errorf("WebSocketBufferSize must be positive, got %d", c.WebSocketBufferSize)
 	}
 
