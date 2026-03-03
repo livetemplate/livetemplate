@@ -223,14 +223,14 @@ func LoadEnvConfig() (*EnvConfig, error) {
 
 	// Load WebSocketBufferSize
 	if val := os.Getenv("LVT_WS_BUFFER_SIZE"); val != "" {
-		n, err := strconv.ParseInt(val, 10, 64)
+		n, err := strconv.Atoi(val)
 		if err != nil {
 			return nil, fmt.Errorf("invalid LVT_WS_BUFFER_SIZE: %w", err)
 		}
 		if n <= 0 {
 			return nil, fmt.Errorf("invalid LVT_WS_BUFFER_SIZE: must be positive, got %d", n)
 		}
-		config.WebSocketBufferSize = int(n)
+		config.WebSocketBufferSize = n
 	}
 
 	return config, nil
@@ -285,6 +285,8 @@ func (c *EnvConfig) ToOptions() []Option {
 		opts = append(opts, WithProgressiveEnhancement(false))
 	}
 
+	// WebSocketBufferSize: skip when it matches New()'s hardcoded default,
+	// since emitting the option would be a no-op.
 	if c.WebSocketBufferSize > 0 && c.WebSocketBufferSize != defaultWebSocketBufferSize {
 		opts = append(opts, WithWebSocketBufferSize(c.WebSocketBufferSize))
 	}
