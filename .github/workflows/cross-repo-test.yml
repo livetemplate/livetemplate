@@ -139,7 +139,6 @@ jobs:
           echo "  → Setting up $example..."
           cd "$example"
           go mod edit -replace=github.com/livetemplate/livetemplate=$ROOT_DIR/livetemplate
-          go mod edit -replace=github.com/livetemplate/lvt=$ROOT_DIR/lvt
           go mod edit -replace=github.com/livetemplate/lvt/components=$ROOT_DIR/lvt/components
           go mod tidy
           cd - > /dev/null
