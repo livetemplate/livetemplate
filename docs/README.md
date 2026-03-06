@@ -29,8 +29,6 @@ Complete API references, configuration, and specifications:
 Step-by-step guides and tutorials:
 
 - **[New Contributor Walkthrough](guides/new-contributor-walkthrough.md)** - Comprehensive guide to the 5-phase architecture
-- **[Auth Customization](guides/auth-customization.md)** - Custom authentication implementation
-- **[lvt CLI Guide](guides/lvt-cli-guide.md)** - Using the `lvt` CLI tool for code generation
 
 Older guides are available in [`archive/guides/`](archive/guides/) for historical reference.
 
