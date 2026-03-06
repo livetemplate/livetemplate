@@ -689,6 +689,18 @@ func WithProgressiveEnhancement(enabled bool) Option {
 //   - Loading indicator enabled
 //   - Production mode (CDN client library)
 //
+// # Environment Variables
+//
+// New does not read environment variables directly. To apply environment-based
+// configuration (e.g., LVT_WS_BUFFER_SIZE, LVT_MAX_CONNECTIONS), use
+// [LoadEnvConfig] and pass the resulting options:
+//
+//	envConfig, err := livetemplate.LoadEnvConfig()
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	tmpl := livetemplate.New("app", envConfig.ToOptions()...)
+//
 // See the With* functions for available options.
 
 // Must is a helper that wraps a call to New and panics if the error is non-nil.
@@ -758,18 +770,6 @@ func createSecureOriginChecker(allowedOrigins []string, devMode bool) func(*http
 }
 
 func New(name string, opts ...Option) (*Template, error) {
-	// Get WebSocket buffer size default (50, or from LVT_WS_BUFFER_SIZE env var)
-	wsBufferSize := 50
-	if envSize := os.Getenv("LVT_WS_BUFFER_SIZE"); envSize != "" {
-		var parsed int
-		if n, err := fmt.Sscanf(envSize, "%d", &parsed); err == nil && n == 1 && parsed > 0 {
-			wsBufferSize = parsed
-		} else {
-			slog.Warn("Invalid LVT_WS_BUFFER_SIZE environment variable, using default",
-				slog.String("value", envSize), slog.Int("default", 50))
-		}
-	}
-
 	// Default configuration
 	config := Config{
 		Upgrader: &websocket.Upgrader{
@@ -778,12 +778,12 @@ func New(name string, opts ...Option) (*Template, error) {
 			CheckOrigin: nil, // Will be set after applying options
 		},
 		SessionStore:           NewMemorySessionStore(),
-		Authenticator:          &AnonymousAuthenticator{}, // Default: browser-based session grouping
-		MessageRateLimit:       10.0,                      // Default: 10 messages/sec
-		MessageRateBurst:       20,                        // Default: burst of 20
-		CookieMaxAge:           365 * 24 * time.Hour,      // Default: 1 year
-		WebSocketBufferSize:    wsBufferSize,              // Default: 50 (or LVT_WS_BUFFER_SIZE env)
-		ProgressiveEnhancement: true,                      // Default: enabled for non-JS form support
+		Authenticator:          &AnonymousAuthenticator{},  // Default: browser-based session grouping
+		MessageRateLimit:       10.0,                       // Default: 10 messages/sec
+		MessageRateBurst:       20,                         // Default: burst of 20
+		CookieMaxAge:           365 * 24 * time.Hour,       // Default: 1 year
+		WebSocketBufferSize:    defaultWebSocketBufferSize, // Override via WithWebSocketBufferSize or EnvConfig
+		ProgressiveEnhancement: true,                       // Default: enabled for non-JS form support
 	}
 
 	// Apply options

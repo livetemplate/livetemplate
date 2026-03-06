@@ -47,6 +47,10 @@ func TestLoadEnvConfig_Defaults(t *testing.T) {
 	if config.MetricsEnabled != true {
 		t.Error("Expected MetricsEnabled=true")
 	}
+
+	if config.WebSocketBufferSize != 50 {
+		t.Errorf("Expected WebSocketBufferSize=50, got %d", config.WebSocketBufferSize)
+	}
 }
 
 func TestLoadEnvConfig_MaxConnections(t *testing.T) {
@@ -375,13 +379,14 @@ func TestEnvConfig_ToOptions(t *testing.T) {
 		WebSocketDisabled:      true,
 		LoadingDisabled:        true,
 		ProgressiveEnhancement: true, // Default is true, so no option generated
+		WebSocketBufferSize:    100,
 	}
 
 	opts := config.ToOptions()
 
-	// Should have 6 options (ProgressiveEnhancement=true doesn't generate an option)
-	if len(opts) != 6 {
-		t.Errorf("Expected 6 options, got %d", len(opts))
+	// Should have 7 options (ProgressiveEnhancement=true doesn't generate an option)
+	if len(opts) != 7 {
+		t.Errorf("Expected 7 options, got %d", len(opts))
 	}
 
 	// Apply options to a Config to verify they work
@@ -413,6 +418,10 @@ func TestEnvConfig_ToOptions(t *testing.T) {
 	if cfg.LoadingDisabled != true {
 		t.Error("Expected LoadingDisabled=true")
 	}
+
+	if cfg.WebSocketBufferSize != 100 {
+		t.Errorf("Expected WebSocketBufferSize=100, got %d", cfg.WebSocketBufferSize)
+	}
 }
 
 func TestEnvConfig_ToOptionsZeroValues(t *testing.T) {
@@ -421,13 +430,15 @@ func TestEnvConfig_ToOptionsZeroValues(t *testing.T) {
 		MaxConnectionsPerGroup: 0,
 		AllowedOrigins:         nil,
 		DevMode:                false,
-		ProgressiveEnhancement: true, // Default is true, so no option generated
+		ProgressiveEnhancement: true,                       // Default is true, so no option generated
+		WebSocketBufferSize:    defaultWebSocketBufferSize, // Default (50) should not generate an option
 	}
 
 	opts := config.ToOptions()
 
 	// Should have 0 options (all values are defaults)
 	// Note: ProgressiveEnhancement=true is the default, which generates no option
+	// Note: WebSocketBufferSize=50 is the default, which generates no option
 	if len(opts) != 0 {
 		t.Errorf("Expected 0 options for default values, got %d", len(opts))
 	}
@@ -463,6 +474,7 @@ func TestEnvConfig_Validate(t *testing.T) {
 		MaxConnectionsPerGroup: 100,
 		ShutdownTimeout:        30 * time.Second,
 		LogLevel:               "info",
+		WebSocketBufferSize:    50,
 	}
 
 	if err := validConfig.Validate(); err != nil {
@@ -501,8 +513,25 @@ func TestEnvConfig_ValidateInvalid(t *testing.T) {
 		{
 			name: "invalid LogLevel",
 			config: &EnvConfig{
-				ShutdownTimeout: 30 * time.Second,
-				LogLevel:        "invalid",
+				ShutdownTimeout:     30 * time.Second,
+				LogLevel:            "invalid",
+				WebSocketBufferSize: 50,
+			},
+		},
+		{
+			name: "zero WebSocketBufferSize",
+			config: &EnvConfig{
+				ShutdownTimeout:     30 * time.Second,
+				LogLevel:            "info",
+				WebSocketBufferSize: 0,
+			},
+		},
+		{
+			name: "negative WebSocketBufferSize",
+			config: &EnvConfig{
+				ShutdownTimeout:     30 * time.Second,
+				LogLevel:            "info",
+				WebSocketBufferSize: -1,
 			},
 		},
 	}
@@ -530,6 +559,7 @@ func TestLoadEnvConfig_AllVariables(t *testing.T) {
 		"LVT_SHUTDOWN_TIMEOUT":          "45s",
 		"LVT_LOG_LEVEL":                 "debug",
 		"LVT_METRICS_ENABLED":           "true",
+		"LVT_WS_BUFFER_SIZE":            "200",
 	}
 	for k, v := range envVars {
 		if err := os.Setenv(k, v); err != nil {
@@ -586,6 +616,10 @@ func TestLoadEnvConfig_AllVariables(t *testing.T) {
 	if !config.MetricsEnabled {
 		t.Error("Expected MetricsEnabled=true")
 	}
+
+	if config.WebSocketBufferSize != 200 {
+		t.Errorf("Expected WebSocketBufferSize=200, got %d", config.WebSocketBufferSize)
+	}
 }
 
 // TestLoadEnvConfig_TemplateBaseDir tests template base directory configuration
@@ -616,6 +650,58 @@ func TestLoadEnvConfig_TemplateBaseDir(t *testing.T) {
 	}
 }
 
+func TestLoadEnvConfig_WebSocketBufferSize(t *testing.T) {
+	clearEnv(t)
+	if err := os.Setenv("LVT_WS_BUFFER_SIZE", "100"); err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
+	defer func() {
+		if err := os.Unsetenv("LVT_WS_BUFFER_SIZE"); err != nil {
+			t.Errorf("Failed to unset env: %v", err)
+		}
+	}()
+
+	config, err := LoadEnvConfig()
+	if err != nil {
+		t.Fatalf("LoadEnvConfig failed: %v", err)
+	}
+
+	if config.WebSocketBufferSize != 100 {
+		t.Errorf("Expected WebSocketBufferSize=100, got %d", config.WebSocketBufferSize)
+	}
+}
+
+func TestLoadEnvConfig_WebSocketBufferSizeInvalid(t *testing.T) {
+	testCases := []struct {
+		name  string
+		value string
+	}{
+		{"negative", "-1"},
+		{"zero", "0"},
+		{"not a number", "abc"},
+		{"float", "1.5"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			clearEnv(t)
+			if err := os.Setenv("LVT_WS_BUFFER_SIZE", tc.value); err != nil {
+				t.Fatalf("Failed to set env: %v", err)
+			}
+			defer func() {
+				if err := os.Unsetenv("LVT_WS_BUFFER_SIZE"); err != nil {
+					t.Errorf("Failed to unset env: %v", err)
+				}
+			}()
+
+			_, err := LoadEnvConfig()
+			if err == nil {
+				t.Errorf("Expected error for invalid LVT_WS_BUFFER_SIZE=%s", tc.value)
+			}
+		})
+	}
+}
+
 // clearEnv removes all LVT_ environment variables
 func clearEnv(t *testing.T) {
 	t.Helper()
@@ -630,6 +716,7 @@ func clearEnv(t *testing.T) {
 		"LVT_SHUTDOWN_TIMEOUT",
 		"LVT_LOG_LEVEL",
 		"LVT_METRICS_ENABLED",
+		"LVT_WS_BUFFER_SIZE",
 	}
 	for _, v := range vars {
 		if err := os.Unsetenv(v); err != nil {

@@ -139,7 +139,7 @@ jobs:
           echo "  → Setting up $example..."
           cd "$example"
           go mod edit -replace=github.com/livetemplate/livetemplate=$ROOT_DIR/livetemplate
-          go mod edit -replace=github.com/livetemplate/lvt=$ROOT_DIR/lvt
+          go mod edit -replace=github.com/livetemplate/lvt/components=$ROOT_DIR/lvt/components
           go mod tidy
           cd - > /dev/null
         done
@@ -167,11 +167,11 @@ jobs:
         repository: livetemplate/tinkerdown
         path: tinkerdown
 
-    - name: Checkout components library
+    - name: Checkout LVT (contains components)
       uses: actions/checkout@v4
       with:
-        repository: livetemplate/components
-        path: components
+        repository: livetemplate/lvt
+        path: lvt
 
     - name: Set up Go
       uses: actions/setup-go@v5
@@ -199,7 +199,7 @@ jobs:
       run: |
         echo "Adding replace directives to use local core library..."
         go mod edit -replace=github.com/livetemplate/livetemplate=../livetemplate
-        go mod edit -replace=github.com/livetemplate/components=../components
+        go mod edit -replace=github.com/livetemplate/lvt/components=../lvt/components
         go mod tidy
         echo "✓ Replace directives added"
 
