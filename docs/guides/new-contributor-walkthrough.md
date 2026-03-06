@@ -2,6 +2,32 @@
 
 Welcome! This guide introduces you to the LiveTemplate codebase through the lens of its **5-phase architecture**. By the end, you'll understand how a user action in the browser flows through the system and becomes a minimal DOM update.
 
+> **How to use this guide:** Read it linearly for a full walkthrough, or jump to any section using the table of contents below. Each phase section is self-contained with links to source files and tests.
+
+## Table of Contents
+
+- [What Makes LiveTemplate Different](#what-makes-livetemplate-different)
+- [Local Development Setup](#local-development-setup)
+- [Quick Start: Running the Counter Example](#quick-start-running-the-counter-example)
+- [Repository Structure](#repository-structure)
+- [The Public API (Entry Points)](#the-public-api-entry-points)
+- [Phase 1: Parse](#phase-1-parse)
+- [Phase 2: Build](#phase-2-build)
+- [Phase 3: Diff](#phase-3-diff)
+- [Phase 4: Render](#phase-4-render)
+- [Phase 5: Send](#phase-5-send)
+- [Supporting Packages](#supporting-packages)
+- [The Client Runtime](#the-client-runtime)
+- [End-to-End Flow: Task Manager Example Revisited](#end-to-end-flow-task-manager-example-revisited)
+- [Testing Strategy](#testing-strategy)
+- [Common Contributor Tasks](#common-contributor-tasks)
+- [Debugging Tips](#debugging-tips)
+- [Architecture Decisions](#architecture-decisions)
+- [Quick Reference](#quick-reference)
+- [Further Reading](#further-reading)
+- [Getting Help](#getting-help)
+- [Suggested First Issues](#suggested-first-issues)
+
 ## What Makes LiveTemplate Different
 
 LiveTemplate is inspired by Phoenix LiveView - it lets you build reactive web applications by writing only server-side Go code. The key innovation is **tree-based diffing**: templates are parsed into tree structures that separate static HTML from dynamic values. When state changes, LiveTemplate calculates exactly what changed and sends only that data to the browser (typically 50-90% smaller than full HTML).
@@ -21,6 +47,8 @@ sequenceDiagram
     Note over Browser: DOM patched efficiently
 ```
 
+> **If the diagram above doesn't render:** Browser sends action → Server runs Parse → Build → Diff → Render → Send → Browser receives minimal JSON update and patches the DOM.
+
 ## The 5-Phase Architecture
 
 The codebase is organized into 5 clear operational phases:
@@ -32,24 +60,6 @@ The codebase is organized into 5 clear operational phases:
 5. **[Send](#phase-5-send)** ([`internal/send/`](../../internal/send/)) - Deliver updates via HTTP/WebSocket
 
 Each phase has a single responsibility, making the codebase easier to understand and modify.
-
-## Quick Start: Running the Counter Example
-
-Before diving into internals, let's see LiveTemplate in action with the simplest example:
-
-```bash
-# Clone and navigate to examples (separate repo)
-git clone https://github.com/livetemplate/examples
-cd examples/counter
-go run main.go
-# Open http://localhost:8080
-```
-
-**Key files to explore:**
-- [`main.go`](https://github.com/livetemplate/examples/blob/main/counter/main.go) - Server setup and state management
-- [`counter.tmpl`](https://github.com/livetemplate/examples/blob/main/counter/counter.tmpl) - Template with `lvt-*` bindings
-
-Click the buttons and open your browser's Network tab. Watch how each action produces a tiny JSON payload like `{"0": "6"}` instead of full HTML. That's tree-based diffing at work.
 
 ## Local Development Setup
 
@@ -64,19 +74,39 @@ Click the buttons and open your browser's Network tab. Watch how each action pro
 **Essential commands:**
 ```bash
 # Run all tests
-GOWORK=off go test ./...
+go test ./...
 
 # Run specific package tests
-GOWORK=off go test ./internal/parse -v
-GOWORK=off go test ./internal/build -v
-GOWORK=off go test ./internal/diff -v
+go test ./internal/parse -v
+go test ./internal/build -v
+go test ./internal/diff -v
 
 # Run with race detector
-GOWORK=off go test -race ./...
+go test -race ./...
 
 # Update golden test files (when intentionally changing output)
-UPDATE_GOLDEN=1 GOWORK=off go test ./...
+UPDATE_GOLDEN=1 go test ./...
 ```
+
+> **Ready to submit a PR?** See [`CONTRIBUTING.md`](../../CONTRIBUTING.md) for the full contribution workflow — commit message format, pre-commit hooks, PR templates, and review process.
+
+## Quick Start: Running the Counter Example
+
+Before diving into internals, see LiveTemplate in action with the simplest example:
+
+```bash
+# Clone and navigate to examples (separate repo)
+git clone https://github.com/livetemplate/examples
+cd examples/counter
+go run main.go
+# Open http://localhost:8080
+```
+
+**Key files to explore:**
+- [`main.go`](https://github.com/livetemplate/examples/blob/main/counter/main.go) - Server setup and state management
+- [`counter.tmpl`](https://github.com/livetemplate/examples/blob/main/counter/counter.tmpl) - Template with `lvt-*` bindings
+
+Click the buttons and open your browser's Network tab. Watch how each action produces a tiny JSON payload like `{"0": "6"}` instead of full HTML. That's tree-based diffing at work.
 
 ## Repository Structure
 
@@ -1041,45 +1071,21 @@ Now that you understand the 5 phases, let's trace a complete flow with our Task 
 
 ## Testing Strategy
 
-LiveTemplate has comprehensive test coverage across all phases:
+Each phase section above links to its specific test files. Here's a summary of the test categories:
 
-### Unit Tests
+| Category | Command | Description |
+|----------|---------|-------------|
+| **All tests** | `go test ./...` | Run everything |
+| **Per-phase** | `go test ./internal/parse -v` | Test a single phase (swap `parse` for `build`, `diff`, `render`, `send`) |
+| **Integration** | `go test -run TestTemplate -v` | Core template functionality |
+| **Race detector** | `go test -race ./...` | Detect concurrency bugs |
+| **Golden files** | `UPDATE_GOLDEN=1 go test ./...` | Update expected output after intentional changes |
 
-Run tests for specific packages:
-```bash
-GOWORK=off go test ./internal/parse -v       # Parse phase
-GOWORK=off go test ./internal/build -v       # Build phase
-GOWORK=off go test ./internal/diff -v        # Diff phase
-GOWORK=off go test ./internal/render -v      # Render phase
-GOWORK=off go test ./internal/send -v        # Send phase
-```
+Golden files live in [`testdata/`](../../testdata/) (`fixtures/` for inputs, `golden/` for expected output).
 
-### Integration Tests
+Browser E2E tests live in the [lvt repository](https://github.com/livetemplate/lvt) at `e2e/livetemplate_core_test.go` (chromedp-based).
 
-Core template functionality:
-```bash
-GOWORK=off go test ./... -run TestTemplate -v
-GOWORK=off go test ./... -run TestMount -v
-GOWORK=off go test ./... -run TestAction -v
-```
-
-### Golden File Tests
-
-Many tests use golden files in [`testdata/`](../../testdata/):
-- `testdata/fixtures/` - Input templates
-- `testdata/golden/` - Expected output
-
-Update golden files when intentionally changing output:
-```bash
-UPDATE_GOLDEN=1 GOWORK=off go test ./...
-```
-
-### Browser E2E Tests
-
-E2E tests live in the [lvt repository](https://github.com/livetemplate/lvt):
-- Location: `github.com/livetemplate/lvt/e2e/livetemplate_core_test.go`
-- Uses chromedp for real browser automation
-- Tests: focus preservation, loading indicators, form submission, etc.
+For full testing details, pre-commit hooks, and CI workflow, see [`CONTRIBUTING.md`](../../CONTRIBUTING.md#testing).
 
 ## Common Contributor Tasks
 
@@ -1127,7 +1133,7 @@ E2E tests live in the [lvt repository](https://github.com/livetemplate/lvt):
 
 3. Verify with tests:
    ```bash
-   GOWORK=off go test ./internal/diff -bench=. -benchmem
+   go test ./internal/diff -bench=. -benchmem
    ```
 
 4. Update documentation with performance characteristics
@@ -1192,14 +1198,14 @@ log.Printf("Old tree: %+v", t.lastTree)
 log.Printf("New tree: %+v", newTree)
 ```
 
-### Use Render Package for Debugging
+### Inspect Tree Structures as JSON
 
-Convert any tree to HTML for inspection:
+Pretty-print any tree for inspection:
 ```go
-import "github.com/livetemplate/livetemplate/internal/render"
+import "encoding/json"
 
-html := render.TreeToHTML(myTree)
-fmt.Println(html)
+data, _ := json.MarshalIndent(myTree, "", "  ")
+fmt.Println(string(data))
 ```
 
 ### Golden File Workflow
@@ -1208,14 +1214,14 @@ When changing output format:
 
 1. Run tests to see diff:
    ```bash
-   GOWORK=off go test ./internal/diff -v
+   go test ./internal/diff -v
    ```
 
 2. Verify changes are intentional
 
 3. Update golden files:
    ```bash
-   UPDATE_GOLDEN=1 GOWORK=off go test ./internal/diff
+   UPDATE_GOLDEN=1 go test ./internal/diff
    ```
 
 4. Commit updated golden files with code changes
@@ -1224,8 +1230,8 @@ When changing output format:
 
 Always test concurrent code with race detector:
 ```bash
-GOWORK=off go test -race ./internal/session
-GOWORK=off go test -race ./...
+go test -race ./internal/session
+go test -race ./...
 ```
 
 ## Architecture Decisions
@@ -1279,6 +1285,32 @@ See: [`docs/specifications/tree-update-specification.md`](../specifications/tree
 - Stable within single render (enables diffing)
 
 See: [`internal/keys/generator.go`](../../internal/keys/generator.go)
+
+## Quick Reference
+
+| Phase | Package | Key Files | Test Command |
+|-------|---------|-----------|-------------|
+| **1. Parse** | `internal/parse/` | `parse.go`, `field.go`, `conditional.go`, `range.go` | `go test ./internal/parse -v` |
+| **2. Build** | `internal/build/` | `types.go`, `fingerprint.go`, `wrapper.go` | `go test ./internal/build -v` |
+| **3. Diff** | `internal/diff/` | `tree_compare.go`, `range_ops.go`, `prepare.go` | `go test ./internal/diff -v` |
+| **4. Render** | `internal/render/` | `html.go`, `minify.go` | `go test ./internal/render -v` |
+| **5. Send** | `internal/send/` | `message.go`, `response.go`, `json.go` | `go test ./internal/send -v` |
+
+| Public API File | Purpose |
+|-----------------|---------|
+| `template.go` | Template creation, parsing, execution |
+| `mount.go` | HTTP/WebSocket handlers, session lifecycle |
+| `context.go` | Unified context for actions and lifecycle |
+| `state.go` | State interface, `AsState[T]()` wrapper |
+| `auth.go` | Authenticator interface |
+
+| Command | What It Does |
+|---------|-------------|
+| `go test ./...` | Run all tests |
+| `go test -race ./...` | Run with race detector |
+| `UPDATE_GOLDEN=1 go test ./...` | Update golden files |
+| `go test -run TestName -v` | Run specific test |
+| `go test ./internal/diff -bench=. -benchmem` | Run benchmarks |
 
 ## Further Reading
 
