@@ -524,7 +524,7 @@ Look for issues labeled `good first issue` - these are:
 
 2. **Read the architecture docs**
    - `CLAUDE.md` - Development guidelines
-   - `docs/ARCHITECTURE.md` - System architecture and design decisions
+   - `docs/design/ARCHITECTURE.md` - System architecture and design decisions
 
 3. **Run the examples**
    ```bash

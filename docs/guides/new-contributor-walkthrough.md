@@ -1315,8 +1315,8 @@ See: [`internal/keys/generator.go`](../../internal/keys/generator.go)
 ## Further Reading
 
 **Architecture:**
-- [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) - Detailed design and diagrams
-- [`docs/CODE_STRUCTURE.md`](../CODE_STRUCTURE.md) - Code organization
+- [`docs/design/ARCHITECTURE.md`](../design/ARCHITECTURE.md) - Detailed design and diagrams
+- [`docs/design/CODE_STRUCTURE.md`](../design/CODE_STRUCTURE.md) - Code organization
 - [`docs/design/FIRST_PRINCIPLES.md`](../design/FIRST_PRINCIPLES.md) - Core principles
 
 **Specifications:**

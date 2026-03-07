@@ -20,9 +20,9 @@ Complete API references, configuration, and specifications:
 - **[Session Management](references/session.md)** - Session stores and connection management
 - **[Template Support Matrix](references/template-support-matrix.md)** - Supported Go template features
 - **[API Reference](references/api-reference.md)** - Kit manifest schemas and API reference
-- **[Configuration](CONFIGURATION.md)** - Environment variables, connection limits, WebSocket settings
-- **[File Uploads](uploads.md)** - Phoenix LiveView-inspired upload system
-- **[Observability](OBSERVABILITY.md)** - Structured logging (slog) and Prometheus metrics
+- **[Configuration](references/CONFIGURATION.md)** - Environment variables, connection limits, WebSocket settings
+- **[File Uploads](references/uploads.md)** - Phoenix LiveView-inspired upload system
+- **[Observability](guides/OBSERVABILITY.md)** - Structured logging (slog) and Prometheus metrics
 
 ## Guides
 
@@ -38,8 +38,8 @@ Older guides are available in [`archive/guides/`](archive/guides/) for historica
 
 System architecture and design documents:
 
-- **[Architecture Overview](ARCHITECTURE.md)** - 5-phase system flow, package structure, and design decisions
-- **[Code Structure](CODE_STRUCTURE.md)** - File-by-file codebase organization
+- **[Architecture Overview](design/ARCHITECTURE.md)** - 5-phase system flow, package structure, and design decisions
+- **[Code Structure](design/CODE_STRUCTURE.md)** - File-by-file codebase organization
 - **[First Principles](design/FIRST_PRINCIPLES.md)** - Core design principles and philosophy
 - **[Multi-Session Isolation](design/multi-session-isolation.md)** - Session isolation and multi-user design
 
@@ -62,8 +62,8 @@ Benchmarking and performance analysis:
 
 ## Operations & Scaling
 
-- **[Scaling Guide](SCALING.md)** - 4 scaling tiers (Hobby to Enterprise), Redis integration
-- **[Roadmap](ROADMAP.md)** - Production readiness milestones and progress
+- **[Scaling Guide](guides/SCALING.md)** - 4 scaling tiers (Hobby to Enterprise), Redis integration
+- **[Roadmap](implementation-plans/ROADMAP.md)** - Production readiness milestones and progress
 
 ## Proposals
 
@@ -85,7 +85,7 @@ Active implementation tracking:
 
 Active design documents and future feature plans:
 
-- **[Fuzz Framework Design](fuzz-framework-design.md)** - Fuzzing test framework design
+- **[Fuzz Framework Design](design/fuzz-framework-design.md)** - Fuzzing test framework design
 
 ## Archive
 
@@ -108,5 +108,5 @@ Completed, implemented, or superseded documentation preserved for historical ref
 | **New users** | [Main README](../README.md) → [Quick Start](../README.md#quick-start) |
 | **New contributors** | [Contributor Walkthrough](guides/new-contributor-walkthrough.md) → [Contributing Guide](../CONTRIBUTING.md) |
 | **Building features** | [Controller+State Pattern](references/controller-pattern.md) → [Client Attributes](references/client-attributes.md) |
-| **Understanding internals** | [Architecture](ARCHITECTURE.md) → [Code Structure](CODE_STRUCTURE.md) |
-| **Deploying** | [Configuration](CONFIGURATION.md) → [Scaling](SCALING.md) |
+| **Understanding internals** | [Architecture](design/ARCHITECTURE.md) → [Code Structure](design/CODE_STRUCTURE.md) |
+| **Deploying** | [Configuration](references/CONFIGURATION.md) → [Scaling](guides/SCALING.md) |
