@@ -1,6 +1,6 @@
 # LiveTemplate Tree Update Specification
 
-Version: 2.0.0
+Version: 1.0.0
 Last Updated: 2026-03-07
 Status: Final
 
@@ -606,8 +606,7 @@ Uses append with statics and metadata since client needs to initialize range sta
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.0.0 | 2025-10-22 | Initial specification (Draft) |
-| 2.0.0 | 2026-03-07 | Finalized. TreeNode as typed struct. Structure fingerprinting. Append/prepend/insert operations. Metadata field. Simplified insert format. Wire format optimization. |
+| 1.0.0 | 2026-03-07 | Initial release (Final). TreeNode as typed struct. Structure fingerprinting. Append/prepend/insert operations. Metadata field. Wire format optimization. |
 
 ## Appendix A: JSON Schema
 
