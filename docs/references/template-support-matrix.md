@@ -184,6 +184,7 @@ Template composition is fully supported through automatic AST flattening. `Flatt
 | Phase 6 | 11 seeds | 61 | Pipelines, comparison/logical functions, index/len |
 
 **Total Baseline Coverage**: 2150 interesting inputs (after fuzzing)
+**Fuzz Executions**: Ongoing via multi-layer infrastructure (diff fuzzing, TypeScript oracle, mutation testing)
 **Failures**: 0 crashes, 0 structural errors
 
 ---
