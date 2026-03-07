@@ -85,11 +85,9 @@ Expected Tree (empty):
 
 Expected Update (empty→items uses append with statics+metadata):
 {
-  "0": {
-    "d": [
-      ["a", [{"0": "First"}], ["<li>", "</li>"], {"idKey": "0"}]
-    ]
-  }
+  "0": [
+    ["a", [{"0": "First"}], ["<li>", "</li>"], {"idKey": "0"}]
+  ]
 }
 ```
 
