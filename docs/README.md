@@ -30,6 +30,8 @@ Step-by-step guides and tutorials:
 
 - **[New Contributor Walkthrough](guides/new-contributor-walkthrough.md)** - Comprehensive guide to the 5-phase architecture
 
+For `lvt` CLI documentation (code generation, auth, migrations), see the [lvt repository](https://github.com/livetemplate/lvt).
+
 Older guides are available in [`archive/guides/`](archive/guides/) for historical reference.
 
 ## Architecture & Design
