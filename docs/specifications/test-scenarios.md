@@ -1,8 +1,8 @@
 # LiveTemplate Test Scenarios Specification
 
-Version: 1.0.0
-Last Updated: 2025-10-22
-Status: Draft
+Version: 2.0.0
+Last Updated: 2026-03-07
+Status: Final
 
 > **Scope:** This is a **test specification** describing expected behavior and coverage targets,
 > not an implementation status tracker. For actual test implementations, see:
@@ -83,10 +83,12 @@ Expected Tree (empty):
   }
 }
 
-Expected Update (with content):
+Expected Update (empty→items uses append with statics+metadata):
 {
   "0": {
-    "d": [{"0": "First"}]  // No statics needed, client has structure
+    "d": [
+      ["a", [{"0": "First"}], ["<li>", "</li>"], {"idKey": "0"}]
+    ]
   }
 }
 ```
@@ -99,7 +101,7 @@ Update:  {Items: []}
 Expected Update:
 {
   "0": {
-    "d": []  // Empty array, statics retained
+    "d": []  // Empty array, statics retained by client
   }
 }
 ```
@@ -112,9 +114,9 @@ Template: {{if .Premium}}Pro User{{else}}Free User{{end}}
 Initial: {Premium: false}
 Update:  {Premium: true}
 
-Expected Update:
+Expected Update (static-only branch sent as TreeNode with statics):
 {
-  "0": "Pro User"  // Only the new branch content
+  "0": {"s": ["Pro User"]}
 }
 ```
 
@@ -132,28 +134,54 @@ Expected Update:
 
 ### 3.4 Range Operations
 
-#### Test: Single Item Add
+#### Test: Single Item Append
 ```go
-Initial: {Items: ["A", "B"]}
-Update:  {Items: ["A", "B", "C"]}
+Initial: {Items: [{ID: "1", Text: "First"}]}
+Update:  {Items: [{ID: "1", Text: "First"}, {ID: "2", Text: "Second"}]}
 
-Expected Update:
+Expected Update (item at end triggers append):
 {
   "0": [
-    ["i", "item-b", "end", {"0": "item-c", "1": "C"}]
+    ["a", [{"0": "2", "1": "Second"}], ["<div data-key=\"", "\">", "</div>"]]
+  ]
+}
+```
+
+#### Test: Single Item Prepend
+```go
+Initial: {Items: [{ID: "2", Text: "Second"}]}
+Update:  {Items: [{ID: "1", Text: "First"}, {ID: "2", Text: "Second"}]}
+
+Expected Update (item at start triggers prepend):
+{
+  "0": [
+    ["p", [{"0": "1", "1": "First"}], ["<div data-key=\"", "\">", "</div>"]]
+  ]
+}
+```
+
+#### Test: Single Item Insert
+```go
+Initial: {Items: [{ID: "1", Text: "First"}, {ID: "3", Text: "Third"}]}
+Update:  {Items: [{ID: "1", Text: "First"}, {ID: "2", Text: "Between"}, {ID: "3", Text: "Third"}]}
+
+Expected Update (item at specific position):
+{
+  "0": [
+    ["i", "1", {"0": "2", "1": "Between"}]
   ]
 }
 ```
 
 #### Test: Single Item Remove
 ```go
-Initial: {Items: ["A", "B", "C"]}
-Update:  {Items: ["A", "C"]}
+Initial: {Items: [{ID: "1", Text: "First"}, {ID: "2", Text: "Second"}]}
+Update:  {Items: [{ID: "1", Text: "First"}]}
 
 Expected Update:
 {
   "0": [
-    ["r", "item-b"]
+    ["r", "2"]
   ]
 }
 ```
@@ -173,13 +201,27 @@ Expected Update:
 
 #### Test: Items Reorder
 ```go
-Initial: {Items: ["A", "B", "C"]}
-Update:  {Items: ["C", "A", "B"]}
+Initial: {Items: [{ID: "1"}, {ID: "2"}, {ID: "3"}]}
+Update:  {Items: [{ID: "3"}, {ID: "1"}, {ID: "2"}]}
 
-Expected Update:
+Expected Update (pure reorder, no content changes):
 {
   "0": [
-    ["o", ["item-c", "item-a", "item-b"]]
+    ["o", ["3", "1", "2"]]
+  ]
+}
+```
+
+#### Test: Update + Reorder
+```go
+Initial: {Items: [{ID: "1", Text: "A"}, {ID: "2", Text: "B"}]}
+Update:  {Items: [{ID: "2", Text: "B"}, {ID: "1", Text: "Changed"}]}
+
+Expected Update (content changed AND order changed):
+{
+  "0": [
+    ["u", "1", {"1": "Changed"}],
+    ["o", ["2", "1"]]
   ]
 }
 ```
@@ -202,22 +244,24 @@ Steps:
      Action: Add todo "Learn Go"
      State: {Todos: [{ID: "1", Text: "Learn Go"}]}
      Validate:
-       - Insert operation only
+       - Append operation with statics and metadata (empty→items)
+       - Format: ["a", items, statics, metadata]
        - No full list sent
 
   3. Add_Second_Todo:
      Action: Add todo "Build app"
      State: {Todos: [..., {ID: "2", Text: "Build app"}]}
      Validate:
-       - Single insert operation
-       - Position after first item
+       - Single append operation (item at end)
+       - Format: ["a", items, statics]
+       - Statics stripped if fingerprint unchanged
 
   4. Complete_First:
      Action: Mark first as complete
-     State: {Todos[0].Complete: true}
+     State: {Todos[0].Done: true}
      Validate:
        - Update operation for item "1"
-       - Only changed field sent
+       - Only changed fields sent
 
   5. Delete_Second:
      Action: Remove second todo
@@ -230,8 +274,8 @@ Steps:
      Action: Add 3 todos at once
      State: {Todos: [...4 items]}
      Validate:
-       - Three insert operations
-       - Each with correct position
+       - Append operation with all new items
+       - Format: ["a", [item1, item2, item3], statics]
 
   7. Reorder_All:
      Action: Drag to reorder
@@ -264,21 +308,21 @@ Steps:
      Action: Send "Hello"
      State: {Messages: [{User: "self", Text: "Hello"}]}
      Validate:
-       - Insert operation for message
+       - Append operation with statics+metadata (empty→items)
        - Timestamp included
 
   3. Other_User_Joins:
      Action: "Alice" joins
      State: {Users: ["self", "Alice"]}
      Validate:
-       - Insert operation for user
+       - Append operation for user
        - OR full user list update
 
   4. Receive_Message:
      Action: Alice sends message
      State: {Messages: [..., {User: "Alice", Text: "Hi"}]}
      Validate:
-       - Insert at end
+       - Append at end
        - Message structure correct
 
   5. Edit_Message:
@@ -299,8 +343,8 @@ Steps:
      Action: Load previous messages
      State: {Messages: [old_msgs + current]}
      Validate:
-       - Multiple insert operations
-       - Prepended to list
+       - Prepend operation for history messages
+       - Format: ["p", items, statics]
 
   8. User_Leaves:
      Action: Alice disconnects
@@ -326,21 +370,21 @@ Steps:
      Action: Metrics loaded
      State: {Widgets: [w1, w2, w3], Loading: false}
      Validate:
-       - Multiple widgets appear
-       - Loading disappears
+       - Append operation with statics+metadata (empty→items)
+       - Loading disappears (conditional update)
 
   3. Real_Time_Update:
      Action: Metric changes
      State: {Widgets[0].Value: new_value}
      Validate:
-       - Single widget update
+       - Single widget update operation
        - Specific field only
 
   4. Add_Widget:
      Action: User adds widget
      State: {Widgets: [..., new_widget]}
      Validate:
-       - Insert operation
+       - Append operation
        - Widget fully defined
 
   5. Configure_Widget:
@@ -361,7 +405,7 @@ Steps:
      Action: Apply time filter
      State: {All_widgets_update}
      Validate:
-       - Multiple updates
+       - Multiple update operations
        - Each widget affected
 
   8. Remove_Widget:
@@ -387,8 +431,8 @@ Updates:
 
 Expected:
   - Each update contains only "0": "new_value"
-  - No statics resent
-  - Updates queued properly
+  - No statics resent (fingerprint unchanged)
+  - Updates queued properly via async WebSocket send
 ```
 
 #### Test: Concurrent Operations
@@ -438,7 +482,7 @@ Structure:
 Validate:
   - Tree structure maintains depth
   - Updates affect only changed level
-  - No structure corruption
+  - Structure fingerprints computed correctly at each level
 ```
 
 ### 5.3 Special Characters
@@ -453,7 +497,7 @@ Expected:
 
 #### Test: Unicode Content
 ```yaml
-Data: {Text: "Hello 世界 🌍"}
+Data: {Text: "Hello 世界"}
 Expected:
   - Correct encoding
   - No data loss
@@ -469,6 +513,54 @@ Expected:
   - Tree structure correct
 ```
 
+### 5.5 Fingerprint Edge Cases
+
+#### Test: Same Content, Different Structure
+```yaml
+Old Template: <div>{{.Text}}</div>
+New Template: <span>{{.Text}}</span>
+Data: {Text: "Same"}
+
+Expected:
+  - Structure fingerprints differ
+  - Statics re-sent with update
+```
+
+#### Test: Different Content, Same Structure
+```yaml
+Template: <div>{{.Text}}</div>
+Old Data: {Text: "Hello"}
+New Data: {Text: "World"}
+
+Expected:
+  - Structure fingerprints match
+  - Only dynamic value sent (no statics)
+```
+
+### 5.6 Range Operation Edge Cases
+
+#### Test: Complex Insertion Pattern Fallback
+```yaml
+Scenario: Many items change keys simultaneously (e.g., close_all action)
+Expected:
+  - Differential operations return empty
+  - Caller falls back to full tree replacement
+  - No partial operations (no removes without matching inserts)
+```
+
+#### Test: Empty→Items→Empty→Items Cycle
+```yaml
+Steps:
+  1. Start empty
+  2. Add items (append with statics+metadata)
+  3. Clear all (empty "d": [])
+  4. Add items again (append with statics+metadata)
+
+Validate:
+  - Each empty→items transition sends statics
+  - Client can reconstruct range state each time
+```
+
 ## 6. Performance Scenarios
 
 ### 6.1 Benchmarks
@@ -480,6 +572,7 @@ Expected:
 | Large list update | 1000 | < 50ms | < 100KB |
 | Deep nesting | 10 levels | < 10ms | < 5KB |
 | Complex template | 50 fields | < 20ms | < 20KB |
+| Fingerprint comparison | any | O(1) | negligible |
 
 ### 6.2 Memory Tests
 
@@ -489,12 +582,12 @@ Scenario: 10000 update cycles
 Monitor:
   - Memory growth
   - Goroutine leaks
-  - Tree cache size
+  - Fingerprint cache size
 
 Expected:
   - Stable memory usage
   - No goroutine accumulation
-  - Cache bounded
+  - Fingerprint cache bounded (one per TreeNode)
 ```
 
 ## 7. Regression Tests
@@ -522,8 +615,19 @@ Transition:
   To: {Items: ["A"]}
 
 Validate:
-  - Statics included when needed
-  - Structure preserved
+  - Append operation includes statics
+  - Metadata included for item key detection
+```
+
+#### Test: Conditional Branch Static-Only Changes
+```yaml
+Issue: Static-only conditional branches not detected as changes
+Template: {{if .Active}}ON{{else}}OFF{{end}}
+Transition: Active: true → false
+
+Validate:
+  - Fingerprint comparison detects structure change
+  - New branch statics sent to client
 ```
 
 ## 8. Fuzz Test Scenarios
@@ -567,10 +671,15 @@ Properties:
      Operation affects only target items
 
   4. Fingerprint_Deterministic:
-     Same data → Same fingerprint
+     Same static structure → Same fingerprint
+     Different structure → Different fingerprint (with high probability)
 
   5. Round_Trip_Preservation:
      Tree → HTML → Parse → Tree (identical)
+
+  6. Fingerprint_Ignores_Values:
+     Two trees with same structure but different dynamic values
+     MUST produce the same structure fingerprint
 ```
 
 ## 9. Validation Criteria
@@ -579,13 +688,14 @@ Properties:
 
 - **Specification Compliance**: 100% adherence
 - **Update Efficiency**: < 10% overhead
-- **Operation Granularity**: 100% granular
-- **Statics Redundancy**: 0% after first render
+- **Operation Granularity**: 100% granular (where possible; complex patterns fall back to full replacement)
+- **Statics Redundancy**: 0% after first render (when fingerprint unchanged)
 
 ### 9.2 Performance Metrics
 
 - **Tree Generation**: O(n) complexity verified
 - **Diff Computation**: O(m) for m changes
+- **Fingerprint Comparison**: O(1) after initial computation
 - **Memory Usage**: Linear with template size
 - **Update Latency**: < 10ms p99
 
@@ -604,11 +714,11 @@ type TestScenario struct {
 type Step struct {
     Action      string
     Data        interface{}
-    Expected    TreeNode
+    Expected    *build.TreeNode
 }
 
 type Validator interface {
-    Validate(actual, expected TreeNode) error
+    Validate(actual, expected *build.TreeNode) error
 }
 ```
 
@@ -667,8 +777,8 @@ Failed fuzzing sequences must be:
 
 ### Pattern: List CRUD
 ```yaml
-Create: Insert operation
-Read: Initial tree with "d"
+Create: Append/prepend/insert operation
+Read: Initial tree with "d" and statics
 Update: Update operation on item
 Delete: Remove operation
 ```
@@ -676,8 +786,8 @@ Delete: Remove operation
 ### Pattern: Toggle UI
 ```yaml
 Show: Condition true, content appears
-Hide: Condition false, empty string
-Toggle: Only dynamic changes
+Hide: Condition false, empty string (or static-only TreeNode)
+Toggle: Only dynamic changes (fingerprint may differ for static-only branches)
 ```
 
 ### Pattern: Form States
@@ -686,7 +796,7 @@ Empty: Initial state
 Dirty: Fields have values
 Submitting: Loading indicator
 Success: Clear form, show message
-Error: Show validation errors
+Error: Show validation errors (via response metadata)
 ```
 
 ## Appendix B: Test Data Generators
