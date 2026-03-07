@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document provides a comprehensive matrix of Go template patterns and their support status in LiveTemplate's template parser. All patterns have been systematically tested through 6 phases of fuzz testing with 60+ explicit test seeds and 2150+ baseline coverage patterns.
+This document provides a comprehensive matrix of Go template patterns and their support status in LiveTemplate's AST-based template parser. All patterns have been systematically tested through 6 phases of fuzz testing with 60+ explicit test seeds and 2150+ baseline coverage patterns.
 
 **Test Coverage**: ~95% of Go template features
 **Fuzz Testing**: Multi-layer infrastructure with TypeScript oracle validation, mutation testing, and invariant checking
@@ -83,7 +83,7 @@ This document provides a comprehensive matrix of Go template patterns and their 
 | Pattern | Status | Phase | Example | Notes |
 |---------|--------|-------|---------|-------|
 | Variable declaration | ✅ | Phase 3 | `{{$x := .Value}}{{$x}}` | Basic assignment |
-| Context alias | ✅ | — | `{{$c := .}}{{$c.Field}}` | Alias for dot context; see `internal/parse/var_decl_test.go` |
+| Context alias | ✅ | Phase 3 | `{{$c := .}}{{$c.Field}}` | Alias for dot context; see `internal/parse/var_decl_test.go` |
 | Variable reassignment | ✅ | Phase 3 | `{{$x := ""}}{{$x = "new"}}{{$x}}` | In if/else blocks |
 | Multiple variables | ✅ | Phase 3 | `{{$a := .A}}{{$b := .B}}{{$a}}{{$b}}` | Multiple declarations |
 | Range variables | ✅ | Phase 3 | `{{range $i, $v := .Items}}{{$i}}: {{$v}}{{end}}` | Index and value |
@@ -279,7 +279,7 @@ Use intermediate variables instead.
 - **Go text/template**: https://pkg.go.dev/text/template
 - **Go html/template**: https://pkg.go.dev/html/template
 - **Fuzz Tests**: `fuzz_diff_test.go`, `fuzz_ts_oracle_test.go`
-- **Fuzz Infrastructure**: `internal/fuzz/` (invariants, mutations, generators)
+- **Fuzz Infrastructure**: `internal/fuzz/` (app, invariants, mutations, generators)
 - **Parser Implementation**: `internal/parse/` package
 - **Variable Context**: `internal/parse/var_context.go`
 - **Template Flattening**: `internal/parse/flatten.go`
