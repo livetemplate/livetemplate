@@ -299,20 +299,20 @@ See the full [performance documentation](docs/performance/) for comprehensive an
 - [Controller+State Pattern](docs/references/controller-pattern.md) - Core architecture pattern
 - [Client Attributes](docs/references/client-attributes.md) - `lvt-*` event bindings
 - [Error Handling](docs/references/error-handling.md) - Validation and errors
-- [Configuration](docs/CONFIGURATION.md) - Template and server options
+- [Configuration](docs/references/CONFIGURATION.md) - Template and server options
 
 **Feature Guides:**
 
-- [File Uploads](docs/uploads.md) - Phoenix LiveView-inspired upload system
+- [File Uploads](docs/references/uploads.md) - Phoenix LiveView-inspired upload system
 - [Server Actions](docs/references/server-actions.md) - Push updates from server-side code
 - [Session Management](docs/references/session.md) - Session stores and scaling
-- [Horizontal Scaling](docs/SCALING.md) - Redis-backed session stores
+- [Horizontal Scaling](docs/guides/SCALING.md) - Redis-backed session stores
 - [Authentication](docs/references/authentication.md) - User identification and custom authenticators
-- [Observability](docs/OBSERVABILITY.md) - Logging and metrics
+- [Observability](docs/guides/OBSERVABILITY.md) - Logging and metrics
 
 **Architecture:**
 
-- [Architecture Overview](docs/ARCHITECTURE.md) - System design
+- [Architecture Overview](docs/design/ARCHITECTURE.md) - System design
 - [Performance Characteristics](docs/performance/performance-characteristics.md) - Phase analysis
 - [Benchmarking Guide](docs/performance/benchmarking-guide.md) - How to benchmark
 
