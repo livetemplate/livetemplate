@@ -2,12 +2,11 @@
 
 ## Overview
 
-This document provides a comprehensive matrix of Go template patterns and their support status in LiveTemplate's AST-based template parser. All patterns have been systematically tested through 6 phases of fuzz testing with 60+ explicit test seeds and 2150+ baseline coverage patterns.
+This document provides a comprehensive matrix of Go template patterns and their support status in LiveTemplate's template parser. All patterns have been systematically tested through 6 phases of fuzz testing with 60+ explicit test seeds and 2150+ baseline coverage patterns.
 
-**Parser Version**: AST-based parser (default since October 2025)
 **Test Coverage**: ~95% of Go template features
-**Fuzz Testing**: 2.2M+ executions, 0 crashes
-**Last Updated**: 2025-10-15
+**Fuzz Testing**: Multi-layer infrastructure with TypeScript oracle validation, mutation testing, and invariant checking
+**Last Updated**: 2026-03-07
 
 ---
 
@@ -84,6 +83,7 @@ This document provides a comprehensive matrix of Go template patterns and their 
 | Pattern | Status | Phase | Example | Notes |
 |---------|--------|-------|---------|-------|
 | Variable declaration | ✅ | Phase 3 | `{{$x := .Value}}{{$x}}` | Basic assignment |
+| Context alias | ✅ | — | `{{$c := .}}{{$c.Field}}` | Alias for dot context; see `internal/parse/var_decl_test.go` |
 | Variable reassignment | ✅ | Phase 3 | `{{$x := ""}}{{$x = "new"}}{{$x}}` | In if/else blocks |
 | Multiple variables | ✅ | Phase 3 | `{{$a := .A}}{{$b := .B}}{{$a}}{{$b}}` | Multiple declarations |
 | Range variables | ✅ | Phase 3 | `{{range $i, $v := .Items}}{{$i}}: {{$v}}{{end}}` | Index and value |
@@ -141,18 +141,18 @@ This document provides a comprehensive matrix of Go template patterns and their 
 
 ---
 
-## Known Limitations
-
-### 1. Template Composition
+## Template Composition
 
 | Pattern | Status | Notes |
 |---------|--------|-------|
-| `{{define}}` / `{{template}}` | ⚠️ | Requires template flattening pre-processing |
-| `{{block}}` | ⚠️ | May have edge cases with complex data contexts |
+| `{{define}}` / `{{template}}` | ✅ | Automatically flattened via `FlattenTemplate()` in `internal/parse/flatten.go` |
+| `{{block}}` | ✅ | Resolved during flattening; equivalent to `{{define}}` + `{{template}}` |
 | Circular template references | ❌ | Not supported, would cause infinite loop |
 | Undefined template invocation | ❌ | Returns error from Go template engine |
 
-### 2. Custom Functions
+Template composition is fully supported through automatic AST flattening. `FlattenTemplate()` walks the parsed template tree, identifies the entry point, and inlines all `{{template}}` invocations into a single flat template before tree generation.
+
+## Custom Functions
 
 | Pattern | Status | Notes |
 |---------|--------|-------|
@@ -160,7 +160,7 @@ This document provides a comprehensive matrix of Go template patterns and their 
 | User-defined functions | ⚠️ | Must be registered with Go template engine |
 | Method calls on data | ✅ | Works if methods are public |
 
-### 3. Performance Considerations
+## Performance Considerations
 
 | Scenario | Performance | Notes |
 |----------|-------------|-------|
@@ -184,7 +184,6 @@ This document provides a comprehensive matrix of Go template patterns and their 
 | Phase 6 | 11 seeds | 61 | Pipelines, comparison/logical functions, index/len |
 
 **Total Baseline Coverage**: 2150 interesting inputs (after fuzzing)
-**Fuzz Executions**: 2.2M+ test cases
 **Failures**: 0 crashes, 0 structural errors
 
 ---
@@ -196,27 +195,21 @@ LiveTemplate employs multi-level validation for fuzz testing:
 ### Level 1: Structure Validation ✅
 - Verifies tree has required `"s"` (statics) key
 - Checks basic tree structure validity
-- **Status**: Implemented and active
 
 ### Level 2: Render Validation ✅
 - Attempts to reconstruct HTML from tree
 - Validates semantic correctness
 - Ensures tree is not just syntactically valid but also renderable
-- **Status**: Implemented and active (2025-10-15)
 
 ### Level 3: Round-Trip Validation ✅
 - Parse → Render → Parse → Compare
 - Ensures bidirectional consistency
-- **Status**: Complete and active (2025-10-15, parser determinism fixed)
-- **Fix**: Replaced map iteration with deterministic ordered structures
-- **Implementation**: `orderedVars` (tree_ast.go:12-87) + sorted TreeNode iteration (getOrderedDynamicKeys)
+- Uses deterministic `orderedVars` structure (`internal/parse/var_context.go`) and sorted TreeNode iteration
 
 ### Level 4: Transition Validation ✅
 - Tests empty→non-empty state changes
 - Validates dynamic updates work correctly
-- **Status**: Implemented and active (2025-10-15)
-- **Coverage**: Directly tests the critical examples/todos bug
-- **Validation**: Both empty and non-empty trees must be valid and renderable
+- Both empty and non-empty trees must be valid and renderable
 
 ---
 
@@ -261,16 +254,18 @@ LiveTemplate employs multi-level validation for fuzz testing:
 ```
 **Alternative** to variable declarations.
 
+**5. Template Composition**
+```go
+{{define "user"}}
+  <div>{{.Name}} - {{.Email}}</div>
+{{end}}
+{{template "user" .CurrentUser}}
+```
+**Fully supported** — automatically flattened before tree generation.
+
 ### ⚠️ Patterns to Avoid
 
-**1. Complex Template Composition**
-```go
-{{define "user"}}...{{end}}
-{{template "user" .Field}}  // May have edge cases
-```
-Use simpler patterns or ensure proper flattening.
-
-**2. Deeply Nested Variables**
+**1. Deeply Nested Variables**
 ```go
 {{range}}{{range}}{{range}}{{$$$.Field}}{{end}}{{end}}{{end}}
 ```
@@ -278,38 +273,23 @@ Use intermediate variables instead.
 
 ---
 
-## Migration Notes
-
-### From Regex Parser to AST Parser
-
-The AST parser (default since October 2025) provides significant improvements:
-
-| Feature | Regex Parser | AST Parser | Improvement |
-|---------|--------------|------------|-------------|
-| Deep nesting support | 27% pass rate | 100% pass rate | **+170%** |
-| `{{with}}` constructs | 0/5 pass | 5/5 pass | **+100%** |
-| `{{range}}` constructs | 0/5 pass | 5/5 pass | **+100%** |
-| Range with variables | ❌ | ✅ | **New feature** |
-| Fuzzing stability | 0 crashes | 0 crashes | Same |
-
-**Migration**: Automatic - AST parser is now the default. No code changes required.
-
----
-
 ## References
 
-- **Fuzz Testing Strategy**: `docs/fuzz-testing-strategy.md`
+- **Fuzz Framework Design**: `docs/fuzz-framework-design.md`
 - **Go text/template**: https://pkg.go.dev/text/template
 - **Go html/template**: https://pkg.go.dev/html/template
-- **Test File**: `tree_fuzz_test.go`
-- **Parser Implementation**: `tree_ast.go`
+- **Fuzz Tests**: `fuzz_diff_test.go`, `fuzz_ts_oracle_test.go`
+- **Fuzz Infrastructure**: `internal/fuzz/` (invariants, mutations, generators)
+- **Parser Implementation**: `internal/parse/` package
+- **Variable Context**: `internal/parse/var_context.go`
+- **Template Flattening**: `internal/parse/flatten.go`
 
 ---
 
 ## Maintenance
 
 **Document Owner**: LiveTemplate Core Team
-**Last Updated**: 2025-10-15 (Validation Levels 2-4 implemented and active, parser determinism fixed)
+**Last Updated**: 2026-03-07
 **Next Review**: When new Go template features are added
 **Feedback**: Report issues or unsupported patterns via GitHub issues
 
@@ -317,13 +297,12 @@ The AST parser (default since October 2025) provides significant improvements:
 
 ## Summary
 
-LiveTemplate's AST-based parser provides **comprehensive support** for Go template patterns with:
+LiveTemplate's parser provides **comprehensive support** for Go template patterns with:
 
-- ✅ **60+ explicitly tested patterns**
-- ✅ **2150+ baseline coverage patterns**
-- ✅ **95% feature coverage** of Go templates
-- ✅ **0 crashes** in 2.2M+ fuzz executions
-- ✅ **Enhanced validation** (structure + render)
-- ✅ **Production-ready** with extensive testing
+- ✅ **60+ explicitly tested patterns** across all Go template constructs
+- ✅ **Full template composition** via automatic AST flattening
+- ✅ **Variable declarations** including `$c := .` context aliasing
+- ✅ **Multi-layer fuzz testing** with TypeScript oracle validation
+- ✅ **Production-ready** with extensive testing and 0 crashes
 
-All standard Go template patterns are supported. Template composition may require additional setup but is functional. Performance is excellent across all tested scenarios.
+All standard Go template patterns are supported, including template composition (`{{define}}`/`{{template}}`/`{{block}}`). Performance is excellent across all tested scenarios.
