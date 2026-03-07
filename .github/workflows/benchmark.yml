@@ -3,6 +3,10 @@ name: Performance Benchmarks
 on:
   pull_request:
     branches: [ main ]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
   workflow_dispatch:  # Allow manual triggering
 
 permissions:
