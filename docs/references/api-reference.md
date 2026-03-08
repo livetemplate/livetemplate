@@ -206,14 +206,16 @@ Primarily useful in tests. In production, Context is created internally and pass
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| `GetString` | `(key string) string` | Get a string value from action data |
-| `GetInt` | `(key string) int` | Get an integer value |
-| `GetFloat` | `(key string) float64` | Get a float value |
-| `GetBool` | `(key string) bool` | Get a boolean value |
+| `GetStringOk` | `(key string) (string, bool)` | Get a string value; bool indicates presence |
+| `GetIntOk` | `(key string) (int, bool)` | Get an integer value; bool indicates presence |
+| `GetFloatOk` | `(key string) (float64, bool)` | Get a float value; bool indicates presence |
+| `GetBoolOk` | `(key string) (bool, bool)` | Get a boolean value; bool indicates presence |
 | `Has` | `(key string) bool` | Check if a key exists in action data |
 | `Get` | `(key string) interface{}` | Get a raw value |
 | `Bind` | `(v interface{}) error` | Unmarshal action data into a struct |
 | `BindAndValidate` | `(v interface{}, validate *validator.Validate) error` | Bind and validate in one step |
+
+**Deprecated:** `GetString`, `GetInt`, `GetFloat`, `GetBool` (without `Ok` suffix) still work but return zero values on missing keys, making it impossible to distinguish missing from empty. Use the `*Ok` variants instead.
 
 ### HTTP Operations
 
@@ -280,8 +282,15 @@ type TimerController struct {
 func (c *TimerController) OnConnect(ctx context.Context, session livetemplate.Session) error {
     c.session = session
     go func() {
-        for range time.Tick(time.Second) {
-            c.session.TriggerAction("tick", nil)
+        ticker := time.NewTicker(time.Second)
+        defer ticker.Stop()
+        for {
+            select {
+            case <-ticker.C:
+                c.session.TriggerAction("tick", nil)
+            case <-ctx.Done():
+                return
+            }
         }
     }()
     return nil
