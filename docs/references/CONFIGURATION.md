@@ -328,6 +328,19 @@ tmpl := livetemplate.New("app",
 )
 ```
 
+### Additional Option Functions
+
+| Option | Description |
+|--------|-------------|
+| `WithUpgrader(upgrader)` | Custom `*websocket.Upgrader` for WebSocket connections |
+| `WithUpload(name, config)` | Configure file upload fields (see [Upload Reference](uploads.md)) |
+| `WithPubSubBroadcaster(broadcaster)` | Redis pub/sub for distributed deployments |
+| `WithComponentTemplates(sets...)` | Register component template sets |
+| `WithIgnoreTemplateDirs(dirs...)` | Skip directories during template discovery |
+| `WithPermissiveOriginCheck()` | Bypass origin check (dev only) |
+| `WithProgressiveEnhancement(enabled)` | Non-JS form submission support (default: true) |
+| `WithCookieMaxAge(duration)` | Session cookie max age (default: 365 days) |
+
 **Note**: Programmatic configuration takes precedence over environment variables.
 
 ## Validation
@@ -392,6 +405,6 @@ if err := envConfig.Validate(); err != nil {
 
 ## See Also
 
-- [ROADMAP.md](ROADMAP.md) - Production scalability roadmap
-- [OBSERVABILITY.md](OBSERVABILITY.md) - Logging and metrics guide
-- [SCALING.md](SCALING.md) - Scaling recommendations
+- [ROADMAP.md](../implementation-plans/ROADMAP.md) - Production scalability roadmap
+- [OBSERVABILITY.md](../guides/OBSERVABILITY.md) - Logging and metrics guide
+- [SCALING.md](../guides/SCALING.md) - Scaling recommendations

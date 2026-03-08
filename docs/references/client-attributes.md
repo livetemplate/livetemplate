@@ -800,6 +800,5 @@ form.addEventListener('lvt:pending', (e) => {
 - **[Go API Reference](https://pkg.go.dev/github.com/livetemplate/livetemplate)** - Server-side API
 - **[Error Handling Reference](error-handling.md)** - Validation, error display, client-side handling
 - **[Template Support Matrix](template-support-matrix.md)** - Supported Go template features
-- **[Architecture](../ARCHITECTURE.md)** - System architecture
-- **[User Guide](../guides/user-guide.md)** - Getting started with CLI
+- **[Architecture](../design/ARCHITECTURE.md)** - System architecture
 - **[Contributing Guide](../../CONTRIBUTING.md)** - How to contribute
