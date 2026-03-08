@@ -156,7 +156,7 @@ Action dispatch is automatic: `lvt-click="addItem"` dispatches to `AddItem()`.
 
 | Tag | Description |
 |-----|-------------|
-| `lvt:"state"` | Mark fields for selective persistence (legacy pattern) |
+| `lvt:"state"` | Mark fields for selective persistence |
 | `lvt:"transient"` | Field is cleared on page reload/reconnect |
 
 ### Testing
@@ -251,23 +251,30 @@ Sets a flash message available in templates via `.lvt.Flash(key)`. Common keys: 
 
 ```go
 type Session interface {
-    TriggerAction(action string, data map[string]interface{})
+    TriggerAction(action string, data map[string]interface{}) error
 }
 ```
 
-Enables server-initiated actions for the current user's connections (all tabs/devices). Access via `ctx.Session()`.
+Enables server-initiated actions for the current user's connections (all tabs/devices).
 
 Use cases: timers, background job notifications, webhook-triggered updates.
 
+Session is accessed via the `SessionAware` interface on the controller, not via `ctx.Session()`:
+
 ```go
-func (c *Controller) Mount(state S, ctx *livetemplate.Context) (S, error) {
-    session := ctx.Session()
+// Controller implements SessionAware to receive the session on connect
+type TimerController struct {
+    session livetemplate.Session
+}
+
+func (c *TimerController) OnConnect(ctx context.Context, session livetemplate.Session) error {
+    c.session = session
     go func() {
         for range time.Tick(time.Second) {
-            session.TriggerAction("tick", nil)
+            c.session.TriggerAction("tick", nil)
         }
     }()
-    return state, nil
+    return nil
 }
 ```
 
@@ -425,9 +432,9 @@ tmpl, _ := livetemplate.New("app", config.ToOptions()...)
 | `LVT_WEBSOCKET_DISABLED` | bool | false | HTTP-only mode |
 | `LVT_LOADING_DISABLED` | bool | false | Disable automatic loading indicator |
 | `LVT_TEMPLATE_BASE_DIR` | string | "" | Base directory for template discovery |
-| `LVT_SHUTDOWN_TIMEOUT` | duration | 30s | Graceful shutdown timeout |
-| `LVT_LOG_LEVEL` | string | "info" | Log level (debug, info, warn, error) |
-| `LVT_METRICS_ENABLED` | bool | true | Enable Prometheus metrics |
+| `LVT_SHUTDOWN_TIMEOUT` | duration | 30s | Graceful shutdown timeout (reserved, not yet applied) |
+| `LVT_LOG_LEVEL` | string | "info" | Log level (reserved, not yet applied) |
+| `LVT_METRICS_ENABLED` | bool | true | Enable Prometheus metrics (reserved, not yet applied) |
 | `LVT_PROGRESSIVE_ENHANCEMENT` | bool | true | Enable non-JS form submission |
 | `LVT_WS_BUFFER_SIZE` | int | 50 | WebSocket send buffer size per connection |
 
