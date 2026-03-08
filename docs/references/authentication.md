@@ -205,16 +205,6 @@ ctx.Redirect("https://evil.com", http.StatusFound)  // Rejected
 ctx.Redirect("//evil.com", http.StatusFound)        // Rejected (protocol-relative)
 ```
 
-### Header Operations
-
-```go
-// Set response header
-ctx.SetHeader("X-Custom-Header", "value")
-
-// Get request header
-authHeader := ctx.GetHeader("Authorization")
-```
-
 ### Error Types
 
 ```go
@@ -430,4 +420,4 @@ LiveTemplate's `Redirect()` method automatically prevents open redirects by:
 - [Server Actions Reference](server-actions.md) - Push updates from server-side code
 - [Session Reference](session.md) - Session stores and connection management
 - [Error Handling](error-handling.md) - Validation and error display
-- [Scaling Guide](../SCALING.md) - Redis-backed session stores for distributed deployments
+- [Scaling Guide](../guides/SCALING.md) - Redis-backed session stores for distributed deployments
