@@ -54,7 +54,7 @@ type SessionStore interface {
 
 ### SingleStoreSetter
 
-An optimization interface implemented by both `MemorySessionStore` and `RedisSessionStore` for updating a single named store within a session group without replacing the entire state:
+An optimization interface for updating a single named store within a session group without replacing the entire state. Both `MemorySessionStore` and `RedisSessionStore` implement this interface. Note: `MemorySessionStore.SetStore()` is a no-op since in-memory references are already updated in-place; the optimization primarily benefits `RedisSessionStore` where it avoids re-serializing all stores on every action:
 
 ```go
 type SingleStoreSetter interface {
