@@ -446,6 +446,8 @@ type Broadcaster interface {
 
 ```go
 import (
+    "time"
+
     "github.com/livetemplate/livetemplate"
     "github.com/livetemplate/livetemplate/pubsub"
     "github.com/redis/go-redis/v9"
