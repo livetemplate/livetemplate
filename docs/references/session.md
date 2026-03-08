@@ -38,17 +38,27 @@ The session store interface manages session groups:
 type SessionStore interface {
     // Get retrieves the state for a session group.
     // Returns nil if the group doesn't exist.
-    Get(ctx context.Context, groupID string) State
+    Get(ctx context.Context, groupID string) interface{}
 
     // Set stores state for a session group.
     // Creates a new group if it doesn't exist, updates if it does.
-    Set(ctx context.Context, groupID string, state State)
+    Set(ctx context.Context, groupID string, state interface{})
 
     // Delete removes a session group and all its state.
     Delete(ctx context.Context, groupID string)
 
     // List returns all active session group IDs.
     List(ctx context.Context) []string
+}
+```
+
+### SingleStoreSetter
+
+An optimization interface implemented by both `MemorySessionStore` and `RedisSessionStore` for updating a single named store within a session group without replacing the entire state:
+
+```go
+type SingleStoreSetter interface {
+    SetStore(ctx context.Context, groupID string, storeName string, store interface{})
 }
 ```
 
@@ -283,13 +293,18 @@ tmpl := livetemplate.New("app",
 
 ### Rate Limiting
 
-Limit message rate per connection:
+Limit message rate per connection using a token bucket algorithm:
 
 ```go
 tmpl := livetemplate.New("app",
     livetemplate.WithMessageRateLimit(10, 20), // 10 msg/sec, burst of 20
 )
 ```
+
+| Parameter | Description |
+|-----------|-------------|
+| `messagesPerSecond` (`float64`) | Sustained message rate |
+| `burstCapacity` (`int`) | Maximum burst size above sustained rate |
 
 ## Error Handling
 
@@ -329,4 +344,4 @@ var (
 
 - [Server Actions Reference](server-actions.md) - TriggerAction API for server-initiated updates
 - [Authentication Reference](authentication.md) - User identification and custom authenticators
-- [Scaling Guide](../SCALING.md) - Horizontal scaling with Redis
+- [Scaling Guide](../guides/SCALING.md) - Horizontal scaling with Redis
