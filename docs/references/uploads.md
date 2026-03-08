@@ -122,7 +122,7 @@ type UploadEntry struct {
     Error       string    // Error message if validation or upload failed
     TempPath    string    // Server-side temporary file path (server uploads only)
     BytesRecv   int64     // Bytes received so far (for progress tracking)
-    ExternalRef string    // Final storage reference (external uploads only, e.g., S3 URL)
+    ExternalRef string    // Presigned URL from Presigner (external uploads only)
     CreatedAt   time.Time
     CompletedAt time.Time
 }
@@ -217,9 +217,9 @@ tmpl := livetemplate.New("photos",
 ### S3 Upload Flow
 
 1. **Client selects file** - Sends file metadata to server
-2. **Server generates presigned URL** - Returns to client
+2. **Server generates presigned URL** - Calls `Presigner.Presign()`, stores the URL in `UploadEntry.ExternalRef`, and returns `UploadMeta` to the client
 3. **Client uploads directly to S3** - No server bandwidth used
-4. **Client notifies server** - Server stores S3 key in `ExternalRef`
+4. **Client sends `upload_complete`** - Server marks entries as done
 5. **Action handler processes** - Access via `ctx.GetCompletedUploads()`
 
 ### Presigner Interface
@@ -258,7 +258,7 @@ func (p *AzurePresigner) Presign(entry *livetemplate.UploadEntry) (livetemplate.
 }
 ```
 
-## Client Library (TypeScript)
+## Client Library
 
 The LiveTemplate client automatically detects `lvt-upload` attributes on file inputs:
 
