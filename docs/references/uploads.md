@@ -234,8 +234,8 @@ type Presigner interface {
 type UploadMeta struct {
     Uploader string            // Provider name (e.g., "s3", "gcs", "azure")
     URL      string            // Presigned upload URL
-    Fields   map[string]string // Form fields for multipart POST
-    Headers  map[string]string // HTTP headers for PUT
+    Fields   map[string]string // Form fields for multipart POST providers (nil for PUT-based providers like S3)
+    Headers  map[string]string // HTTP headers for the upload request
 }
 ```
 
