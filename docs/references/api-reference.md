@@ -76,6 +76,12 @@ func (t *Template) ParseFiles(filenames ...string) (*Template, error)
 Parses template files. The first file is the main template; additional files provide definitions.
 
 ```go
+func (t *Template) ParseGlob(pattern string) (*Template, error)
+```
+
+Parses all template files matching the glob pattern.
+
+```go
 func (t *Template) Funcs(funcMap template.FuncMap) *Template
 ```
 
@@ -185,6 +191,8 @@ func TestTodoState(t *testing.T) {
 func NewContext(ctx context.Context, action string, data map[string]interface{}) *Context
 ```
 
+Primarily useful in tests. In production, Context is created internally and passed to controller methods.
+
 ### Action and Identity
 
 | Method | Signature | Description |
@@ -259,7 +267,9 @@ Enables server-initiated actions for the current user's connections (all tabs/de
 
 Use cases: timers, background job notifications, webhook-triggered updates.
 
-Session is accessed via the `SessionAware` interface on the controller, not via `ctx.Session()`:
+Session is accessed via the `SessionAware` interface on the controller, not via `ctx.Session()`.
+
+**Note:** The `SessionAware.OnConnect(ctx context.Context, session Session) error` method is distinct from the lifecycle `OnConnect(state S, ctx *Context) (S, error)`. The lifecycle version handles state updates on WebSocket connect. The `SessionAware` version provides a `Session` handle for background goroutines that need to trigger actions asynchronously. A controller can implement both.
 
 ```go
 // Controller implements SessionAware to receive the session on connect
