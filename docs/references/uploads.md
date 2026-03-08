@@ -51,14 +51,12 @@ Access completed uploads via the Context:
 
 ```go
 func (c *ProfileController) SaveProfile(state ProfileState, ctx *livetemplate.Context) (ProfileState, error) {
-    if ctx.HasUploads("avatar") {
-        for _, entry := range ctx.GetCompletedUploads("avatar") {
-            // entry.TempPath: server-side temporary file path
-            // entry.ClientName: original filename
-            // entry.ClientType: MIME type
-            // entry.ClientSize: file size in bytes
-            state.AvatarPath = moveToStorage(entry.TempPath)
-        }
+    for _, entry := range ctx.GetCompletedUploads("avatar") {
+        // entry.TempPath: server-side temporary file path
+        // entry.ClientName: original filename
+        // entry.ClientType: MIME type
+        // entry.ClientSize: file size in bytes
+        state.AvatarPath = moveToStorage(entry.TempPath)
     }
     return state, nil
 }
@@ -132,7 +130,7 @@ type UploadEntry struct {
 
 | Method | Return Type | Description |
 |--------|-------------|-------------|
-| `ctx.HasUploads(name)` | `bool` | Check if uploads exist for a field |
+| `ctx.HasUploads(name)` | `bool` | Check if any entries exist for a field (including in-progress) |
 | `ctx.GetCompletedUploads(name)` | `[]*UploadEntry` | Get all completed upload entries |
 
 ## Template Helpers
