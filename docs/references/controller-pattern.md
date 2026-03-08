@@ -141,7 +141,7 @@ The `*livetemplate.Context` provides access to action data and HTTP utilities.
 
 | Method | Return Type | Description |
 |--------|-------------|-------------|
-| `Action()` | `string` | Get action name that triggered this handler |
+| `Action()` | `string` | Get action name (empty for lifecycle methods like Mount/OnConnect) |
 | `Get(key)` | `interface{}` | Get raw value (for non-primitive types) |
 | `GetString(key)` | `string` | Get string value (empty if missing) |
 | `GetInt(key)` | `int` | Get integer value (0 if missing/invalid) |
@@ -479,7 +479,7 @@ http.Handle("/", handler)
 
 ## Upload Access
 
-When templates are configured with `WithUpload()`, completed uploads are accessible via Context:
+When templates are configured with `WithUpload(...)`, completed uploads are accessible via Context:
 
 ```go
 func (c *Controller) SaveProfile(state State, ctx *livetemplate.Context) (State, error) {
@@ -499,7 +499,7 @@ func (c *Controller) SaveProfile(state State, ctx *livetemplate.Context) (State,
 
 ## Testing
 
-Use `AssertPureState[T]()` to verify state structs contain no dependency types:
+Use `AssertPureState[T]()` as a sanity check to catch common dependency types accidentally added to state structs (this is a heuristic, not a comprehensive serializability check):
 
 ```go
 func TestState(t *testing.T) {
