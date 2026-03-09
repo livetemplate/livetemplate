@@ -69,9 +69,8 @@ Benchmarking and performance analysis:
 
 Active feature proposals and RFCs:
 
-- **[Reactive Attributes](proposals/reactive-attributes.md)** - Reactive `lvt-*` attributes proposal
-- **[Event Bindings](proposals/bindings-proposal.md)** - Event binding system proposal
-- **[Data Binding](proposals/lvt-bind-proposal.md)** - Data binding proposal
+- **[Lifecycle Hooks](proposals/lifecycle-hooks-proposal.md)** - `lvt-hook` for JS library integration
+- **[Data Binding](proposals/lvt-bind-proposal.md)** - Two-way form data binding (`lvt-bind`) proposal
 
 ## Implementation Plans
 
@@ -94,7 +93,7 @@ Completed, implemented, or superseded documentation preserved for historical ref
 - **[archive/guides/](archive/guides/)** - Archived guides (user-guide, CODE_TOUR, kit-development, serve-guide)
 - **[archive/client-structure-registry.md](archive/client-structure-registry.md)** - Previous client registry implementation (replaced by fingerprint-based approach)
 - **[archive/plans/](archive/plans/)** - Completed plans: Controller+State, uploads, lvt gen stack, lvt gen auth, performance benchmarks
-- **[archive/proposals/](archive/proposals/)** - Implemented/declined proposals: Controller+State RFC, async WebSocket, auth v0.5, value dedup, store redesign, bug fix persistence
+- **[archive/proposals/](archive/proposals/)** - Implemented/declined proposals: Controller+State RFC, async WebSocket, auth v0.5, value dedup, store redesign, bug fix persistence, reactive attributes, event bindings
 - **[archive/implementation-plans/](archive/implementation-plans/)** - Completed tracking: implementation status, refactoring progress, strip statics, validation conditionals, testing framework, implementation readiness
 - **[archive/ARCHITECTURAL_REVIEW.md](archive/ARCHITECTURAL_REVIEW.md)** - Fingerprint-based diff architecture analysis (all recommendations implemented)
 - **[archive/SIMPLIFIED_DIFF_PROPOSAL.md](archive/SIMPLIFIED_DIFF_PROPOSAL.md)** - Simplified diffing algorithm (implemented in v0.8.0)
