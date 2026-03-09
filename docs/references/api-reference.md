@@ -1,958 +1,703 @@
-# LiveTemplate API Reference
+# Go Library API Reference
 
-> **Scope:** This reference documents the **`lvt` CLI tool** (`github.com/livetemplate/lvt`). For the core library Go API, see the [Go package documentation](https://pkg.go.dev/github.com/livetemplate/livetemplate).
+> **Scope:** This reference documents the **`livetemplate` Go library** (`github.com/livetemplate/livetemplate`). For the CLI tool, see the [lvt repository](https://github.com/livetemplate/lvt).
 
-Complete reference for LiveTemplate CLI manifests, interfaces, and commands.
-
-## Table of Contents
-
-- [Component Manifest Schema](#component-manifest-schema)
-- [Kit Manifest Schema](#kit-manifest-schema)
-- [CSSHelpers Interface](#csshelpers-interface)
-- [Config File Reference](#config-file-reference)
-- [CLI Commands](#cli-commands)
-
----
-
-## Component Manifest Schema
-
-**Note:** Components are part of kits in LiveTemplate. Component manifests are located in the `components/` directory within a kit.
-
-Component manifests are defined in `component.yaml` files inside a kit's `components/<name>/` directory.
-
-### Schema
-
-```yaml
-# Required fields
-name: string                     # Component name (lowercase, alphanumeric, hyphens)
-version: string                  # Semantic version (e.g., "1.0.0")
-description: string              # Brief description of component
-
-# Categorization
-category: string                 # Component category (see categories below)
-tags: []string                   # Search tags
-
-# Inputs definition
-inputs:
-  - name: string                 # Input name (PascalCase recommended)
-    type: string                 # Input type (string, int, float, bool, array, object)
-    description: string          # Input description
-    required: bool               # Whether input is required
-    default: any                 # Default value (optional)
-
-# Templates
-templates: []string              # List of template files (e.g., ["form.tmpl", "header.tmpl"])
-
-# Dependencies
-dependencies: []string           # Component dependencies (e.g., ["layout", "button"])
-
-# Kit preference (optional)
-kit: string                      # Preferred kit for preview (e.g., "tailwind")
-```
-
-### Field Descriptions
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | string | Yes | Unique component name (lowercase, alphanumeric, hyphens only) |
-| `version` | string | Yes | Semantic version following semver spec |
-| `description` | string | Yes | Brief description of what the component does |
-| `category` | string | No | Component category for organization |
-| `tags` | []string | No | Searchable tags |
-| `inputs` | []Input | No | Input specifications (see Input Schema below) |
-| `templates` | []string | Yes | List of template files relative to component directory |
-| `dependencies` | []string | No | Names of other components this component depends on |
-| `kit` | string | No | Preferred CSS kit for preview |
-
-### Input Schema
-
-```yaml
-name: string              # Input name (e.g., "Title", "Items")
-type: string              # One of: string, int, float, bool, array, object
-description: string       # What this input is for
-required: bool            # Whether this input must be provided
-default: any              # Default value if not provided (type must match)
-```
-
-### Valid Input Types
-
-| Type | Go Type | Example Value |
-|------|---------|---------------|
-| `string` | string | "Hello World" |
-| `int` | int | 42 |
-| `float` | float64 | 3.14 |
-| `bool` | bool | true |
-| `array` | []interface{} | ["a", "b", "c"] |
-| `object` | map[string]interface{} | {"key": "value"} |
-
-### Standard Categories
-
-| Category | Description | Examples |
-|----------|-------------|----------|
-| `forms` | Form components | Input fields, selects, checkboxes, form groups |
-| `layout` | Layout components | Containers, grids, sections, wrappers |
-| `data` | Data display | Tables, lists, cards, data grids |
-| `feedback` | User feedback | Alerts, modals, toasts, notifications |
-| `navigation` | Navigation | Menus, breadcrumbs, tabs, pagination |
-| `buttons` | Buttons | Button variants, button groups |
-| `typography` | Text elements | Headings, paragraphs, text styles |
-| `media` | Media elements | Images, videos, galleries |
-
-### Example: Form Component
-
-```yaml
-name: form
-version: 1.0.0
-description: Form with fields and validation support
-category: forms
-tags:
-  - form
-  - input
-  - validation
-
-inputs:
-  - name: Title
-    type: string
-    description: Form title
-    required: false
-    default: ""
-
-  - name: Fields
-    type: array
-    description: Array of field objects (Name, Type, Label, Value, Placeholder)
-    required: true
-
-  - name: SubmitURL
-    type: string
-    description: Form submission URL
-    required: true
-
-  - name: Method
-    type: string
-    description: HTTP method (GET or POST)
-    required: false
-    default: "POST"
-
-  - name: SubmitText
-    type: string
-    description: Submit button text
-    required: false
-    default: "Submit"
-
-templates:
-  - form.tmpl
-
-dependencies:
-  - layout
-
-kit: tailwind
-```
-
----
-
-## Kit Manifest Schema
-
-Kit manifests are defined in `kit.yaml` files.
-
-### Schema
-
-```yaml
-# Required fields
-name: string                     # Kit name (lowercase, alphanumeric, hyphens)
-version: string                  # Semantic version (e.g., "1.0.0")
-description: string              # Brief description of CSS framework
-
-# Framework information
-framework: string                # Framework name (e.g., "tailwind", "bulma")
-author: string                   # Kit author (optional)
-license: string                  # License (e.g., "MIT") (optional)
-
-# CDN link (optional but recommended)
-cdn: string                      # CSS CDN URL
-
-# Components included in this kit
-components: []string             # List of component template files
-
-# Templates included in this kit
-templates:
-  resource: bool                 # Includes resource templates
-  view: bool                     # Includes view templates
-  app: bool                      # Includes app templates
-
-# Categorization
-tags: []string                   # Searchable tags
-```
-
-### Field Descriptions
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | string | Yes | Unique kit name (lowercase, alphanumeric, hyphens only) |
-| `version` | string | Yes | Semantic version following semver spec |
-| `description` | string | Yes | Brief description of the CSS framework |
-| `framework` | string | Yes | Framework identifier (e.g., "tailwind", "bulma", "pico") |
-| `author` | string | No | Kit author name or organization |
-| `license` | string | No | License type (e.g., "MIT", "Apache 2.0") |
-| `cdn` | string | No | CSS CDN URL (recommended if framework provides CDN) |
-| `components` | []string | No | List of component template files included in this kit |
-| `templates.resource` | bool | No | Whether kit includes resource templates |
-| `templates.view` | bool | No | Whether kit includes view templates |
-| `templates.app` | bool | No | Whether kit includes app templates |
-| `tags` | []string | No | Searchable tags |
-
-### Example: Tailwind Kit
-
-```yaml
-name: tailwind
-version: 1.0.0
-description: Tailwind CSS utility-first framework integration
-framework: tailwind
-author: LiveTemplate Team
-license: MIT
-cdn: https://cdn.tailwindcss.com
-components:
-  - detail.tmpl
-  - form.tmpl
-  - layout.tmpl
-  - pagination.tmpl
-  - search.tmpl
-  - sort.tmpl
-  - stats.tmpl
-  - table.tmpl
-  - toolbar.tmpl
-templates:
-  resource: true
-  view: true
-  app: true
-tags:
-  - css
-  - utility
-  - tailwind
-  - responsive
-```
-
-### Example: Pico Kit
-
-```yaml
-name: pico
-version: 1.0.0
-description: Pico CSS semantic/classless framework starter kit
-framework: pico
-author: LiveTemplate Team
-license: MIT
-cdn: <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-components:
-  - detail.tmpl
-  - form.tmpl
-  - layout.tmpl
-  - pagination.tmpl
-  - search.tmpl
-  - sort.tmpl
-  - stats.tmpl
-  - table.tmpl
-  - toolbar.tmpl
-templates:
-  resource: true
-  view: true
-  app: true
-tags:
-  - css
-  - semantic
-  - classless
-```
-
----
-
-## CSSHelpers Interface
-
-The CSSHelpers interface defines ~70 methods that all kits must implement.
-
-### Framework Information
+## Quick Start
 
 ```go
-CSSCDN() string  // Returns CDN URL for CSS framework
-```
+package main
 
-**Usage in templates:**
-```html
-<link rel="stylesheet" href="[[csscdn]]">
-```
+import (
+    "log"
+    "net/http"
 
----
+    "github.com/livetemplate/livetemplate"
+)
 
-### Layout Helpers
+type AppController struct {
+    // Dependencies (singleton, never cloned)
+}
 
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `ContainerClass()` | - | string | Main container class |
-| `SectionClass()` | - | string | Section wrapper class |
-| `BoxClass()` | - | string | Box/panel class |
-| `ColumnClass()` | - | string | Single column class |
-| `ColumnsClass()` | - | string | Column container class |
+type AppState struct {
+    Count int
+}
 
-**Usage in templates:**
-```html
-<div class="[[containerClass]]">
-  <section class="[[sectionClass]]">
-    <div class="[[boxClass]]">
-      Content
-    </div>
-  </section>
-</div>
-```
+func (c *AppController) Increment(state AppState, ctx *livetemplate.Context) (AppState, error) {
+    state.Count++
+    return state, nil
+}
 
----
+func main() {
+    tmpl, err := livetemplate.New("app")
+    if err != nil {
+        log.Fatal(err)
+    }
+    tmpl.Parse(`<h1>Count: {{.Count}}</h1><button lvt-click="increment">+</button>`)
 
-### Form Helpers
-
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `FormClass()` | - | string | Form element class |
-| `FieldClass()` | - | string | Form field wrapper class |
-| `LabelClass()` | - | string | Label element class |
-| `InputClass()` | - | string | Text input class |
-| `TextareaClass()` | - | string | Textarea class |
-| `SelectClass()` | - | string | Select dropdown class |
-| `CheckboxClass()` | - | string | Checkbox input class |
-| `RadioClass()` | - | string | Radio input class |
-| `ButtonClass(variant)` | variant: string | string | Button class with variant |
-| `ButtonGroupClass()` | - | string | Button group container |
-
-**Variants for ButtonClass:**
-- `primary` - Primary action button
-- `secondary` - Secondary action button
-- `success` - Success/confirmation button
-- `danger` - Destructive action button
-- `warning` - Warning button
-- `info` - Informational button
-
-**Usage in templates:**
-```html
-<form class="[[formClass]]">
-  <div class="[[fieldClass]]">
-    <label class="[[labelClass]]">Name</label>
-    <input class="[[inputClass]]" type="text">
-  </div>
-
-  <div class="[[fieldClass]]">
-    <label class="[[labelClass]]">Description</label>
-    <textarea class="[[textareaClass]]"></textarea>
-  </div>
-
-  <div class="[[buttonGroupClass]]">
-    <button class="[[buttonClass "primary"]]">Save</button>
-    <button class="[[buttonClass "secondary"]]">Cancel</button>
-  </div>
-</form>
+    handler := tmpl.Handle(&AppController{}, livetemplate.AsState(&AppState{}))
+    http.Handle("/", handler)
+    log.Fatal(http.ListenAndServe(":8080", nil))
+}
 ```
 
 ---
 
-### Table Helpers
+## Template
 
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `TableClass()` | - | string | Table element class |
-| `TableContainerClass()` | - | string | Table wrapper/container class |
-| `TheadClass()` | - | string | Table header section class |
-| `TbodyClass()` | - | string | Table body section class |
-| `ThClass()` | - | string | Table header cell class |
-| `TdClass()` | - | string | Table data cell class |
-| `TrClass()` | - | string | Table row class |
+The `Template` type manages template parsing, execution, and tree-based update generation.
 
-**Usage in templates:**
-```html
-<div class="[[tableContainerClass]]">
-  <table class="[[tableClass]]">
-    <thead class="[[theadClass]]">
-      <tr class="[[trClass]]">
-        <th class="[[thClass]]">Name</th>
-        <th class="[[thClass]]">Value</th>
-      </tr>
-    </thead>
-    <tbody class="[[tbodyClass]]">
-      <tr class="[[trClass]]">
-        <td class="[[tdClass]]">Data</td>
-        <td class="[[tdClass]]">123</td>
-      </tr>
-    </tbody>
-  </table>
-</div>
+### Creating Templates
+
+```go
+func New(name string, opts ...Option) (*Template, error)
+```
+
+Creates a new template with the given name and options. Auto-discovers template files in the caller's directory.
+
+```go
+tmpl, err := livetemplate.New("todos",
+    livetemplate.WithDevMode(true),
+    livetemplate.WithSessionStore(redisStore),
+)
+```
+
+### Parsing
+
+```go
+func (t *Template) Parse(text string) (*Template, error)
+```
+
+Parses a template string. Supports `{{define}}`, `{{block}}`, and `{{template}}` composition via automatic flattening.
+
+```go
+func (t *Template) ParseFiles(filenames ...string) (*Template, error)
+```
+
+Parses template files. The first file is the main template; additional files provide definitions.
+
+```go
+func (t *Template) ParseGlob(pattern string) (*Template, error)
+```
+
+Parses all template files matching the glob pattern.
+
+```go
+func (t *Template) Funcs(funcMap template.FuncMap) *Template
+```
+
+Registers custom template functions. Must be called before `Parse` or `ParseFiles`.
+
+### Mounting
+
+```go
+func (t *Template) Handle(controller interface{}, state State, opts ...HandleOption) LiveHandler
+```
+
+Creates an HTTP/WebSocket handler from a controller and initial state. The controller is a singleton holding dependencies; state is cloned per session.
+
+```go
+handler := tmpl.Handle(&TodoController{DB: db}, livetemplate.AsState(&TodoState{}))
+```
+
+**HandleOption:**
+
+| Option | Description |
+|--------|-------------|
+| `WithStore(store SessionStore)` | Override the session store for this handler |
+
+---
+
+## Controller+State Pattern
+
+### State Interface
+
+```go
+type State interface {
+    encoding.BinaryMarshaler
+    encoding.BinaryUnmarshaler
+    Inner() any
+}
+```
+
+State represents serializable session data. Use `AsState[T]()` instead of implementing directly.
+
+### AsState
+
+```go
+func AsState[T any](s *T) State
+```
+
+Wraps a plain struct pointer to satisfy the `State` interface using JSON serialization.
+
+```go
+state := livetemplate.AsState(&TodoState{Items: []Todo{}})
+```
+
+### Lifecycle Methods
+
+Controllers may implement these optional lifecycle methods:
+
+```go
+// Called once when a new session is created
+func (c *Controller) Mount(state S, ctx *livetemplate.Context) (S, error)
+
+// Called on each WebSocket connect (including reconnects)
+func (c *Controller) OnConnect(state S, ctx *livetemplate.Context) (S, error)
+
+// Called when a WebSocket disconnects
+func (c *Controller) OnDisconnect()
+```
+
+### Action Methods
+
+Action methods handle user interactions. They receive the current state and return the modified state:
+
+```go
+func (c *Controller) ActionName(state S, ctx *livetemplate.Context) (S, error)
+```
+
+Action dispatch is automatic: `lvt-click="addItem"` dispatches to `AddItem()`.
+
+### Struct Tags
+
+| Tag | Description |
+|-----|-------------|
+| `lvt:"state"` | Mark fields for selective persistence |
+| `lvt:"transient"` | Field is cleared on page reload/reconnect |
+
+### Testing
+
+```go
+func AssertPureState[T any](t *testing.T)
+```
+
+Validates that a state type contains only serializable data. Catches accidental inclusion of `*sql.DB`, `*slog.Logger`, etc.
+
+```go
+func TestTodoState(t *testing.T) {
+    livetemplate.AssertPureState[TodoState](t)
+}
 ```
 
 ---
 
-### Navigation Helpers
+## Context
 
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `NavbarClass()` | - | string | Navigation bar class |
-| `NavbarBrandClass()` | - | string | Brand/logo section class |
-| `NavbarMenuClass()` | - | string | Menu container class |
-| `NavbarItemClass()` | - | string | Individual nav item class |
-| `NavbarStartClass()` | - | string | Left-aligned nav section |
-| `NavbarEndClass()` | - | string | Right-aligned nav section |
+`Context` is the unified context for all lifecycle and action methods. It embeds `context.Context`.
 
-**Usage in templates:**
-```html
-<nav class="[[navbarClass]]">
-  <div class="[[navbarBrandClass]]">
-    <a href="/">Logo</a>
-  </div>
-  <div class="[[navbarMenuClass]]">
-    <div class="[[navbarStartClass]]">
-      <a class="[[navbarItemClass]]">Home</a>
-      <a class="[[navbarItemClass]]">About</a>
-    </div>
-    <div class="[[navbarEndClass]]">
-      <a class="[[navbarItemClass]]">Login</a>
-    </div>
-  </div>
-</nav>
+### Constructor
+
+```go
+func NewContext(ctx context.Context, action string, data map[string]interface{}) *Context
+```
+
+Primarily useful in tests. In production, Context is created internally and passed to controller methods.
+
+### Action and Identity
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `Action` | `() string` | Returns the action name that triggered this context |
+| `UserID` | `() string` | Returns the authenticated user's ID |
+| `Session` | `() Session` | Returns the Session for server-initiated actions |
+| `IsHTTP` | `() bool` | Whether this is an HTTP (not WebSocket) context |
+
+### Data Extraction
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `GetString` | `(key string) string` | Get a string value from action data |
+| `GetInt` | `(key string) int` | Get an integer value |
+| `GetFloat` | `(key string) float64` | Get a float value |
+| `GetBool` | `(key string) bool` | Get a boolean value |
+| `Has` | `(key string) bool` | Check if a key exists in action data |
+| `Get` | `(key string) interface{}` | Get a raw value |
+| `Bind` | `(v interface{}) error` | Unmarshal action data into a struct |
+| `BindAndValidate` | `(v interface{}, validate *validator.Validate) error` | Bind and validate in one step |
+
+### HTTP Operations
+
+These methods return `ErrNoHTTPContext` when called from a WebSocket action.
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `SetCookie` | `(cookie *http.Cookie) error` | Set an HTTP cookie |
+| `DeleteCookie` | `(name string) error` | Delete an HTTP cookie |
+| `GetCookie` | `(name string) (*http.Cookie, error)` | Get an HTTP cookie |
+| `Redirect` | `(url string, code int) error` | Send an HTTP redirect (3xx only, relative paths only) |
+
+### Upload Access
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `HasUploads` | `(name string) bool` | Check if uploads exist for a field |
+| `GetCompletedUploads` | `(name string) []*UploadEntry` | Get completed upload entries |
+
+### Flash Messages
+
+```go
+func (c *Context) SetFlash(key, message string)
+```
+
+Sets a flash message available in templates via `.lvt.Flash(key)`. Common keys: `"success"`, `"error"`, `"info"`, `"warning"`. Flash messages are cleared after each render.
+
+### Context Builders
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `WithUserID` | `(userID string) *Context` | Returns new Context with user ID |
+| `WithSession` | `(session Session) *Context` | Returns new Context with session |
+| `WithHTTP` | `(w http.ResponseWriter, r *http.Request) *Context` | Returns new Context with HTTP |
+| `WithAction` | `(action string) *Context` | Returns new Context with action name |
+| `WithData` | `(data map[string]interface{}) *Context` | Returns new Context with data |
+| `WithUploads` | `(uploads UploadAccessor) *Context` | Returns new Context with uploads |
+| `WithFlashSetter` | `(setter FlashSetter) *Context` | Returns new Context with flash setter |
+
+---
+
+## Session
+
+```go
+type Session interface {
+    TriggerAction(action string, data map[string]interface{}) error
+}
+```
+
+Enables server-initiated actions for the current user's connections (all tabs/devices).
+
+Use cases: timers, background job notifications, webhook-triggered updates.
+
+Session is accessed via the `SessionAware` interface on the controller, not via `ctx.Session()`.
+
+**Note:** The `SessionAware.OnConnect(ctx context.Context, session Session) error` method is distinct from the lifecycle `OnConnect(state S, ctx *Context) (S, error)`. The lifecycle version handles state updates on WebSocket connect. The `SessionAware` version provides a `Session` handle for background goroutines that need to trigger actions asynchronously. A controller can implement both.
+
+```go
+// Controller implements SessionAware to receive the session on connect
+type TimerController struct {
+    session livetemplate.Session
+}
+
+func (c *TimerController) OnConnect(ctx context.Context, session livetemplate.Session) error {
+    c.session = session
+    go func() {
+        ticker := time.NewTicker(time.Second)
+        defer ticker.Stop()
+        for {
+            select {
+            case <-ticker.C:
+                c.session.TriggerAction("tick", nil)
+            case <-ctx.Done():
+                return
+            }
+        }
+    }()
+    return nil
+}
 ```
 
 ---
 
-### Typography Helpers
+## LiveHandler
 
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `TitleClass(level)` | level: int | string | Heading class (level 1-6) |
-| `SubtitleClass()` | - | string | Subtitle class |
-| `TextClass(size)` | size: string | string | Text size class |
-| `TextMutedClass()` | - | string | Muted/secondary text |
-| `TextPrimaryClass()` | - | string | Primary color text |
-| `TextDangerClass()` | - | string | Danger/error text |
-| `TextSuccessClass()` | - | string | Success text |
-| `TextWarningClass()` | - | string | Warning text |
+```go
+type LiveHandler interface {
+    http.Handler
+    Shutdown(ctx context.Context) error
+    MetricsHandler() http.Handler
+}
+```
 
-**Size options for TextClass:**
-- `xs` - Extra small
-- `sm` - Small
-- `md` - Medium (base)
-- `lg` - Large
-- `xl` - Extra large
+Returned by `Template.Handle()`. Serves both HTTP and WebSocket requests.
 
-**Usage in templates:**
-```html
-<h1 class="[[titleClass 1]]">Main Title</h1>
-<h2 class="[[titleClass 2]]">Section Title</h2>
-<p class="[[subtitleClass]]">Subtitle text</p>
-<p class="[[textClass "lg"]]">Large text</p>
-<p class="[[textMutedClass]]">Secondary information</p>
-<p class="[[textDangerClass]]">Error message</p>
-<p class="[[textSuccessClass]]">Success message</p>
+| Method | Description |
+|--------|-------------|
+| `ServeHTTP` | Handles HTTP requests and WebSocket upgrades |
+| `Shutdown` | Gracefully drains connections with context timeout |
+| `MetricsHandler` | Returns Prometheus metrics endpoint handler |
+
+---
+
+## Authentication
+
+### Authenticator Interface
+
+```go
+type Authenticator interface {
+    Identify(r *http.Request) (userID string, err error)
+    GetSessionGroup(r *http.Request, userID string) (groupID string, err error)
+}
+```
+
+Maps HTTP requests to user IDs and session groups.
+
+### Built-in Authenticators
+
+**AnonymousAuthenticator** (default): Browser-based session grouping via persistent cookie. All tabs in the same browser share state.
+
+```go
+// Used by default - no configuration needed
+```
+
+**BasicAuthenticator**: HTTP Basic Auth with user-provided validation.
+
+```go
+func NewBasicAuthenticator(validateFunc func(username, password string) (bool, error)) *BasicAuthenticator
+```
+
+```go
+auth := livetemplate.NewBasicAuthenticator(func(user, pass string) (bool, error) {
+    return db.ValidateUser(user, pass)
+})
+tmpl, _ := livetemplate.New("app", livetemplate.WithAuthenticator(auth))
 ```
 
 ---
 
-### Card Helpers
+## Session Stores
 
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `CardClass()` | - | string | Card container class |
-| `CardHeaderClass()` | - | string | Card header class |
-| `CardBodyClass()` | - | string | Card body class |
-| `CardFooterClass()` | - | string | Card footer class |
+### SessionStore Interface
 
-**Usage in templates:**
-```html
-<div class="[[cardClass]]">
-  <div class="[[cardHeaderClass]]">
-    <h3>Card Title</h3>
-  </div>
-  <div class="[[cardBodyClass]]">
-    <p>Card content goes here</p>
-  </div>
-  <div class="[[cardFooterClass]]">
-    <button class="[[buttonClass "primary"]]">Action</button>
-  </div>
-</div>
+```go
+type SessionStore interface {
+    Get(ctx context.Context, groupID string) interface{}
+    Set(ctx context.Context, groupID string, state interface{})
+    Delete(ctx context.Context, groupID string)
+    List(ctx context.Context) []string
+}
+```
+
+### SingleStoreSetter Interface
+
+Optional optimization for targeted persistence of individual stores:
+
+```go
+type SingleStoreSetter interface {
+    SetStore(ctx context.Context, groupID string, storeName string, store interface{})
+}
+```
+
+### MemorySessionStore
+
+In-memory store with automatic cleanup. Suitable for single-instance deployments.
+
+```go
+func NewMemorySessionStore(opts ...SessionStoreOption) *MemorySessionStore
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `WithCleanupTTL(ttl)` | 24h | TTL for inactive session groups |
+| `WithCleanupInterval(interval)` | 1h | Cleanup goroutine interval |
+
+```go
+store := livetemplate.NewMemorySessionStore(
+    livetemplate.WithCleanupTTL(1 * time.Hour),
+)
+defer store.Close()
+```
+
+### RedisSessionStore
+
+Redis-backed store for distributed deployments. Supports Redis, Redis Cluster, Ring, and Sentinel.
+
+```go
+func NewRedisSessionStore(client redis.UniversalClient, opts ...RedisSessionStoreOption) *RedisSessionStore
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `WithSessionTTL(ttl)` | 24h | Session expiry in Redis |
+| `WithMaxRetries(n)` | 3 | Retry attempts with exponential backoff |
+| `WithRetryDelay(delay)` | 100ms | Base delay between retries |
+
+```go
+client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+store := livetemplate.NewRedisSessionStore(client,
+    livetemplate.WithSessionTTL(24 * time.Hour),
+)
+defer store.Close()
+```
+
+Both implementations satisfy `SingleStoreSetter`.
+
+---
+
+## Configuration
+
+### Environment Variables
+
+Load configuration from environment variables with `LVT_` prefix:
+
+```go
+func LoadEnvConfig() (*EnvConfig, error)
+```
+
+```go
+config, err := livetemplate.LoadEnvConfig()
+if err != nil {
+    log.Fatal(err)
+}
+tmpl, _ := livetemplate.New("app", config.ToOptions()...)
+```
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `LVT_MAX_CONNECTIONS` | int64 | 0 (unlimited) | Max concurrent WebSocket connections |
+| `LVT_MAX_CONNECTIONS_PER_GROUP` | int64 | 0 (unlimited) | Max connections per session group |
+| `LVT_ALLOWED_ORIGINS` | string | "" | Comma-separated allowed WebSocket origins |
+| `LVT_DEV_MODE` | bool | false | Enable development mode |
+| `LVT_WEBSOCKET_DISABLED` | bool | false | HTTP-only mode |
+| `LVT_LOADING_DISABLED` | bool | false | Disable automatic loading indicator |
+| `LVT_TEMPLATE_BASE_DIR` | string | "" | Base directory for template discovery |
+| `LVT_SHUTDOWN_TIMEOUT` | duration | 30s | Graceful shutdown timeout (reserved, not yet applied) |
+| `LVT_LOG_LEVEL` | string | "info" | Log level (reserved, not yet applied) |
+| `LVT_METRICS_ENABLED` | bool | true | Enable Prometheus metrics (reserved, not yet applied) |
+| `LVT_PROGRESSIVE_ENHANCEMENT` | bool | true | Enable non-JS form submission |
+| `LVT_WS_BUFFER_SIZE` | int | 50 | WebSocket send buffer size per connection |
+
+### Template Option Functions
+
+Options passed to `New()`:
+
+| Option | Signature | Description |
+|--------|-----------|-------------|
+| `WithDevMode` | `(enabled bool)` | Enable development mode |
+| `WithSessionStore` | `(store SessionStore)` | Set session store |
+| `WithAuthenticator` | `(auth Authenticator)` | Set authenticator |
+| `WithAllowedOrigins` | `(origins []string)` | Allowed WebSocket origins |
+| `WithPermissiveOriginCheck` | `()` | Bypass origin check (dev only) |
+| `WithMaxConnections` | `(max int64)` | Max WebSocket connections |
+| `WithMaxConnectionsPerGroup` | `(max int64)` | Max connections per group |
+| `WithWebSocketDisabled` | `()` | HTTP-only mode |
+| `WithWebSocketBufferSize` | `(size int)` | WebSocket send buffer size |
+| `WithLoadingDisabled` | `()` | Disable loading indicator |
+| `WithMessageRateLimit` | `(messagesPerSecond float64, burstCapacity int)` | WebSocket rate limiting |
+| `WithCookieMaxAge` | `(maxAge time.Duration)` | Session cookie max age |
+| `WithUpgrader` | `(upgrader *websocket.Upgrader)` | Custom WebSocket upgrader |
+| `WithParseFiles` | `(files ...string)` | Explicit template files |
+| `WithTemplateBaseDir` | `(dir string)` | Template discovery base dir |
+| `WithIgnoreTemplateDirs` | `(dirs ...string)` | Skip directories during discovery |
+| `WithUpload` | `(name string, config UploadConfig)` | Configure upload field |
+| `WithPubSubBroadcaster` | `(broadcaster pubsub.Broadcaster)` | Enable distributed broadcasting |
+| `WithComponentTemplates` | `(sets ...*TemplateSet)` | Register component templates |
+| `WithProgressiveEnhancement` | `(enabled bool)` | Non-JS form submission support |
+
+---
+
+## Uploads
+
+### WithUpload
+
+Configure upload fields at template creation:
+
+```go
+tmpl, _ := livetemplate.New("profile",
+    livetemplate.WithUpload("avatar", livetemplate.UploadConfig{
+        Accept:      []string{"image/*"},
+        MaxFileSize: 5 * 1024 * 1024, // 5MB
+        MaxEntries:  1,
+        AutoUpload:  true,
+    }),
+)
+```
+
+### UploadConfig
+
+```go
+type UploadConfig struct {
+    Accept      []string  // Allowed MIME types or extensions
+    MaxEntries  int       // Max concurrent files (0 = unlimited)
+    MaxFileSize int64     // Max file size in bytes (0 = unlimited)
+    AutoUpload  bool      // Start upload on file selection
+    ChunkSize   int       // WebSocket chunk size (default: 256KB)
+    External    Presigner // Optional presigner for direct-to-storage uploads
+}
+```
+
+### UploadEntry
+
+```go
+type UploadEntry struct {
+    ID          string
+    ClientName  string    // Original filename
+    ClientType  string    // MIME type
+    ClientSize  int64     // File size in bytes
+    Progress    int       // 0-100
+    Valid       bool      // Passed validation
+    Done        bool      // Upload completed
+    Error       string    // Error message
+    TempPath    string    // Server-side temp file (server uploads)
+    BytesRecv   int64     // Bytes received
+    ExternalRef string    // Storage reference (external uploads)
+    CreatedAt   time.Time
+    CompletedAt time.Time
+}
+```
+
+### External Uploads (S3)
+
+```go
+type Presigner interface {
+    Presign(entry *UploadEntry) (UploadMeta, error)
+}
+
+type UploadMeta struct {
+    Uploader string            // Provider name (e.g., "s3")
+    URL      string            // Presigned upload URL
+    Fields   map[string]string // Form fields for multipart POST
+    Headers  map[string]string // HTTP headers for PUT
+}
+```
+
+**S3Presigner:**
+
+```go
+func NewS3Presigner(cfg S3Config) (*S3Presigner, error)
+
+type S3Config struct {
+    Bucket          string
+    Region          string
+    AccessKeyID     string        // Optional: uses default chain if empty
+    SecretAccessKey string
+    Endpoint        string        // Custom endpoint (MinIO, LocalStack)
+    Expiry          time.Duration // Default: 15 minutes
+    KeyPrefix       string        // S3 key prefix
+}
+```
+
+For complete upload documentation, see [Upload Reference](uploads.md).
+
+---
+
+## Health Checks
+
+### HealthHandler
+
+```go
+func NewHealthHandler(timeout time.Duration) *HealthHandler
+```
+
+Provides Kubernetes-ready health endpoints:
+
+```go
+health := livetemplate.NewHealthHandler(5 * time.Second)
+health.RegisterChecker("database", dbChecker)
+health.RegisterChecker("redis", livetemplate.NewRedisHealthChecker(redisStore))
+
+mux.HandleFunc("/health/live", health.Live)
+mux.HandleFunc("/health/ready", health.Ready)
+```
+
+### HealthChecker Interface
+
+```go
+type HealthChecker interface {
+    Check(ctx context.Context) error
+}
+```
+
+### Built-in Checkers
+
+```go
+func NewSessionStoreHealthChecker(store SessionStore) *SessionStoreHealthChecker
+func NewRedisHealthChecker(store *RedisSessionStore) *RedisHealthChecker
 ```
 
 ---
 
-### Pagination Helpers
+## PubSub (Distributed Broadcasting)
 
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `PaginationClass()` | - | string | Pagination container class |
-| `PaginationListClass()` | - | string | Pagination list class |
-| `PaginationItemClass()` | - | string | Pagination item class |
-| `PaginationButtonClass(state)` | state: string | string | Pagination button with state |
+Package `pubsub` provides cross-instance messaging for horizontally scaled deployments.
 
-**States for PaginationButtonClass:**
-- `active` - Current page
-- `disabled` - Disabled page link
-- `normal` - Regular page link
+### Broadcaster Interface
 
-**Usage in templates:**
-```html
-<nav class="[[paginationClass]]">
-  <ul class="[[paginationListClass]]">
-    <li class="[[paginationItemClass]]">
-      <a class="[[paginationButtonClass "normal"]]">1</a>
-    </li>
-    <li class="[[paginationItemClass]]">
-      <a class="[[paginationButtonClass "active"]]">2</a>
-    </li>
-    <li class="[[paginationItemClass]]">
-      <a class="[[paginationButtonClass "disabled"]]">3</a>
-    </li>
-  </ul>
-</nav>
+```go
+type Broadcaster interface {
+    PublishGlobal(payload []byte) error
+    PublishToGroup(groupID string, payload []byte) error
+    PublishToUser(userID string, payload []byte) error
+    PublishServerAction(userID string, action string, data map[string]interface{}) error
+    Subscribe(handler MessageHandler) error
+    SubscribeServerActions(handler ServerActionHandler) error
+    Close() error
+}
 ```
+
+### Redis Implementation
+
+```go
+func NewRedisBroadcaster(client redis.UniversalClient, opts ...RedisBroadcasterOption) *RedisBroadcaster
+```
+
+```go
+import "github.com/livetemplate/livetemplate/pubsub"
+
+broadcaster := pubsub.NewRedisBroadcaster(redisClient)
+defer broadcaster.Close()
+
+tmpl, _ := livetemplate.New("app",
+    livetemplate.WithPubSubBroadcaster(broadcaster),
+)
+```
+
+### Broadcast Scopes
+
+| Scope | Method | Description |
+|-------|--------|-------------|
+| Global | `PublishGlobal` | All connections on all instances |
+| Group | `PublishToGroup` | All connections in a session group |
+| User | `PublishToUser` | All connections for a specific user |
+| ServerAction | `PublishServerAction` | Trigger action on a user's connections |
 
 ---
 
-### Alert/Notification Helpers
+## Error Types
 
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `AlertClass(variant)` | variant: string | string | Alert box class with variant |
-| `NotificationClass(variant)` | variant: string | string | Notification class with variant |
+### Sentinel Errors
 
-**Variants:**
-- `info` - Informational message
-- `success` - Success message
-- `warning` - Warning message
-- `error` / `danger` - Error message
+| Error | Description |
+|-------|-------------|
+| `ErrNoHTTPContext` | HTTP method called from WebSocket action |
+| `ErrInvalidRedirectCode` | Redirect status code is not 3xx |
+| `ErrInvalidRedirectURL` | Redirect URL is not a valid relative path |
+| `ErrMethodNotFound` | No controller method matches the action name |
 
-**Usage in templates:**
-```html
-<div class="[[alertClass "success"]]">
-  Operation completed successfully!
-</div>
+### FieldError
 
-<div class="[[alertClass "error"]]">
-  An error occurred
-</div>
+```go
+type FieldError struct {
+    Field   string
+    Message string
+}
+
+func NewFieldError(field string, err error) FieldError
 ```
+
+### MultiError
+
+```go
+type MultiError []FieldError
+```
+
+A collection of field errors. Implements the `error` interface. Return from action methods to display per-field validation errors in templates.
+
+### ValidationToMultiError
+
+```go
+func ValidationToMultiError(err error) MultiError
+```
+
+Converts `go-playground/validator` errors to `MultiError`.
 
 ---
 
-### Badge/Tag Helpers
-
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `BadgeClass(variant)` | variant: string | string | Badge class with variant |
-| `TagClass(variant)` | variant: string | string | Tag class with variant |
-
-**Variants:** Same as alert variants (info, success, warning, danger)
-
-**Usage in templates:**
-```html
-<span class="[[badgeClass "primary"]]">New</span>
-<span class="[[tagClass "info"]]">Category</span>
-```
-
----
-
-### Modal Helpers
-
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `ModalClass()` | - | string | Modal container class |
-| `ModalBackgroundClass()` | - | string | Modal background/overlay class |
-| `ModalContentClass()` | - | string | Modal content area class |
-| `ModalCloseClass()` | - | string | Modal close button class |
-
-**Usage in templates:**
-```html
-<div class="[[modalClass]]">
-  <div class="[[modalBackgroundClass]]"></div>
-  <div class="[[modalContentClass]]">
-    <button class="[[modalCloseClass]]">×</button>
-    <p>Modal content</p>
-  </div>
-</div>
-```
-
----
-
-### Loading Helpers
-
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `SpinnerClass()` | - | string | Spinner/loading indicator class |
-| `LoadingClass()` | - | string | Loading state class |
-
----
-
-### Grid Helpers
-
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `GridClass()` | - | string | CSS Grid container class |
-| `GridItemClass()` | - | string | CSS Grid item class |
-
----
-
-### Flex Helpers
-
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `FlexClass()` | - | string | Flexbox container class |
-| `FlexItemClass()` | - | string | Flexbox item class |
-
----
-
-### Spacing Helpers
-
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `MarginClass(size)` | size: string | string | Margin utility class |
-| `PaddingClass(size)` | size: string | string | Padding utility class |
-
-**Size options:** `0`, `1`, `2`, `3`, `4`, `5`, `auto` (framework-dependent)
-
----
-
-### Display Helpers
-
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `HiddenClass()` | - | string | Hide element class |
-| `VisibleClass()` | - | string | Show element class |
-
----
-
-### Framework Checks
-
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `NeedsWrapper()` | - | bool | Whether framework needs wrapper div |
-| `NeedsArticle()` | - | bool | Whether framework uses article tags |
-
----
-
-### Template Utility Functions
-
-| Method | Parameters | Returns | Description |
-|--------|------------|---------|-------------|
-| `Dict(values...)` | variadic interface{} | map[string]interface{} | Create map from key-value pairs |
-| `Until(count)` | count: int | []int | Generate range from 1 to count |
-| `Add(a, b)` | a, b: int | int | Add two integers |
-
-**Usage in templates:**
-```html
-<!-- Dict: Create map for template invocation -->
-[[template "alert" dict "Message" "Hello" "Type" "info"]]
-
-<!-- Until: Generate range -->
-[[range until 5]]
-  <span>Item [[.]]</span>
-[[end]]
-<!-- Outputs: Item 1, Item 2, Item 3, Item 4, Item 5 -->
-
-<!-- Add: Arithmetic -->
-<p>Next page: [[add .CurrentPage 1]]</p>
-```
-
----
-
-## Config File Reference
-
-Configuration is stored in `~/.config/lvt/config.yaml`.
-
-### Schema
-
-```yaml
-# Kit search paths
-kits_paths:
-  - /path/to/kits/dir1
-  - /path/to/kits/dir2
-
-# Default preferences
-defaults:
-  kit: tailwind              # Default kit for new projects
-```
-
-### Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `kits_paths` | []string | Directories to search for custom kits |
-| `defaults.kit` | string | Default CSS kit for new projects (not yet implemented) |
-
-### Example
-
-```yaml
-kits_paths:
-  - /Users/you/.lvt/kits
-  - /Users/you/projects/custom-kits
-
-defaults:
-  kit: tailwind
-```
-
----
-
-## CLI Commands
-
-Complete reference of all lvt CLI commands.
-
-### App Commands
-
-#### lvt new
-
-Create a new Go web application.
-
-```bash
-lvt new <name> [options]
-```
-
-**Arguments:**
-- `<name>` - Application name (required)
-
-**Options:**
-- CSS framework is determined by the chosen kit
-- `--dir <path>` - Directory to create app in (default: ./<name>)
-
-**Examples:**
-```bash
-lvt new myapp
-lvt new myapp --kit multi  # Uses Tailwind CSS
-lvt new blogapp --kit simple --dir ~/projects/blogapp  # Uses Pico CSS
-```
-
----
-
-#### lvt gen
-
-Generate a CRUD resource.
-
-```bash
-lvt gen <resource> [fields...] [options]
-```
-
-**Arguments:**
-- `<resource>` - Resource name (singular, e.g., "product")
-- `[fields...]` - Field definitions (e.g., "name", "price:float", "stock:int")
-
-**Field Types:**
-- `name` (no type) - Default to string
-- `name:string` - Text field
-- `name:text` - Textarea field
-- `name:int` - Integer field
-- `name:float` - Float field
-- `name:bool` - Boolean checkbox
-- `name:date` - Date field
-- `name:datetime` - Datetime field
-
-**Options:**
-- CSS framework is determined by the kit
-
-**Examples:**
-```bash
-lvt gen products name price:float stock:int
-lvt gen articles title content:text published:bool  # Uses kit's CSS
-lvt gen users name email password:string created_at:datetime
-```
-
----
-
-### Kit Commands
-
-**Note:** Components are developed as part of kits. To work on components, customize a kit using `lvt kits customize <name> --only components`.
-
-#### lvt kits list
-
-List available kits.
-
-```bash
-lvt kits list [options]
-```
-
-**Options:**
-- `--filter <source>` - Filter by source (system, local, community, all)
-- `--format <format>` - Output format (table, json, simple)
-- `--search <query>` - Search by name or description
-
-**Examples:**
-```bash
-lvt kits list
-lvt kits list --filter=system
-lvt kits list --format=json
-lvt kits list --search=tailwind
-```
-
----
-
-#### lvt kits info
-
-Show kit information.
-
-```bash
-lvt kits info <name>
-```
-
-**Arguments:**
-- `<name>` - Kit name
-
-**Examples:**
-```bash
-lvt kits info tailwind
-lvt kits info bulma
-```
-
----
-
-#### lvt kits create
-
-Create a new kit.
-
-```bash
-lvt kits create <name>
-```
-
-**Arguments:**
-- `<name>` - Kit name
-
-**Examples:**
-```bash
-lvt kits create bootstrap
-lvt kits create myframework
-```
-
----
-
-#### lvt kits validate
-
-Validate a kit.
-
-```bash
-lvt kits validate <path>
-```
-
-**Arguments:**
-- `<path>` - Path to kit directory
-
-**Examples:**
-```bash
-lvt kits validate ~/.lvt/kits/mykit
-lvt kits validate .
-```
-
----
-
-#### lvt kits customize
-
-Copy a kit for customization.
-
-```bash
-lvt kits customize <name> [options]
-```
-
-**Arguments:**
-- `<name>` - Kit name to customize
-
-**Options:**
-- `--global` - Copy to user config directory (`~/.config/lvt/kits/`) instead of project directory (`.lvt/kits/`)
-- `--only <type>` - Copy only specific parts (components or templates)
-
-**Examples:**
-```bash
-# Copy entire kit to project directory
-lvt kits customize tailwind
-
-# Copy to global config for all projects
-lvt kits customize tailwind --global
-
-# Copy only components
-lvt kits customize tailwind --only components
-
-# Copy only templates
-lvt kits customize tailwind --only templates
-```
-
-**Kit Customization Cascade:**
-
-When you customize a kit, LiveTemplate searches in this order:
-1. **Project**: `.lvt/kits/<name>/` (highest priority)
-2. **User**: `~/.config/lvt/kits/<name>/`
-3. **System**: Embedded kits (fallback)
-
-This allows project-specific and user-specific overrides.
-
----
-
-### Config Commands
-
-#### lvt config list
-
-List all configuration.
-
-```bash
-lvt config list
-```
-
----
-
-#### lvt config get
-
-Get a configuration value.
-
-```bash
-lvt config get <key>
-```
-
-**Arguments:**
-- `<key>` - Configuration key (kits_paths)
-
-**Examples:**
-```bash
-lvt config get kits_paths
-```
-
----
-
-#### lvt config set
-
-Set a configuration value.
-
-```bash
-lvt config set <key> <value>
-```
-
-**Arguments:**
-- `<key>` - Configuration key
-- `<value>` - Configuration value
-
-**Examples:**
-```bash
-lvt config set kits_paths ~/.lvt/kits
-```
-
----
-
-### Serve Command
-
-#### lvt serve
-
-Start development server.
-
-```bash
-lvt serve [options]
-```
-
-**Options:**
-- `--port <port>` / `-p <port>` - Server port (default: 3000)
-- `--host <host>` / `-h <host>` - Server host (default: localhost)
-- `--dir <path>` / `-d <path>` - Project directory (default: .)
-- `--mode <mode>` / `-m <mode>` - Force mode (component, kit, app)
-- `--no-browser` - Don't open browser automatically
-- `--no-reload` - Disable hot reload
-
-**Examples:**
-```bash
-lvt serve
-lvt serve --port 8080
-lvt serve --host 0.0.0.0 --port 3000
-lvt serve --mode component
-lvt serve --no-browser --no-reload
-```
-
----
-
-Last updated: 2025-10-17
+## See Also
+
+- [Controller+State Pattern](controller-pattern.md) - Architecture guide
+- [Upload Reference](uploads.md) - File upload system
+- [Configuration](CONFIGURATION.md) - Environment and option configuration
+- [Authentication](authentication.md) - Auth setup
+- [Session Management](session.md) - Session stores and persistence
+- [Server Actions](server-actions.md) - Broadcasting and server-initiated updates
+- [Error Handling](error-handling.md) - Validation and error display
+- [Client Attributes](client-attributes.md) - Template attribute reference
