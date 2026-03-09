@@ -1,8 +1,8 @@
 # lvt-bind: Automatic Form State Binding Proposal
 
 **Status:** Future Feature
-**Date:** 2025-10-01
-**Complexity:** Medium-High (~970 lines of code)
+**Date:** 2025-10-01 (updated 2026-03 for Controller+State API)
+**Complexity:** Medium-High (~1150 lines of code)
 
 ## Overview
 
@@ -10,7 +10,7 @@ Add automatic two-way binding between HTML form inputs and server state using th
 
 ## Goals
 
-1. **Eliminate boilerplate**: No manual `Change()` methods for simple field updates
+1. **Eliminate boilerplate**: No manual action methods for simple field updates
 2. **Automatic syncing**: Input changes automatically update server state
 3. **Server validation**: Validate inputs on server-side, display errors in template
 4. **Template-driven**: Use existing template expressions (`{{.FieldName}}`) for bindings
@@ -70,8 +70,9 @@ Started with complex state binding using `data-bind` attributes and JavaScript s
 
 ### 3. Server-Side Validation (Template-Based)
 
-**Server state includes errors:**
+**State includes errors, Controller holds dependencies:**
 ```go
+// STATE: Pure data, cloned per session
 type FormState struct {
     Name   string            `json:"name"`
     Email  string            `json:"email"`
@@ -79,8 +80,13 @@ type FormState struct {
     Errors map[string]string `json:"errors"` // Field -> error message
 }
 
-// Implement validation interface
-func (s *FormState) Validate(fields map[string]interface{}) map[string]string {
+// CONTROLLER: Singleton, holds dependencies
+type FormController struct {
+    Logger *slog.Logger
+}
+
+// BindValidate is called when field updates arrive via lvt-bind
+func (c *FormController) BindValidate(state FormState, fields map[string]interface{}) (FormState, map[string]string) {
     errors := make(map[string]string)
 
     if name, ok := fields["Name"].(string); ok {
@@ -95,9 +101,8 @@ func (s *FormState) Validate(fields map[string]interface{}) map[string]string {
         }
     }
 
-    // Store in state so template can render them
-    s.Errors = errors
-    return errors
+    state.Errors = errors
+    return state, errors
 }
 ```
 
@@ -169,43 +174,49 @@ No special error protocol needed - errors are just part of the state rendered by
 ```go
 package livetemplate
 
-// BindValidator interface for stores that validate field updates
-type BindValidator interface {
-    Validate(fields map[string]interface{}) map[string]string
+// Bind validation uses reflection-based method lookup, matching the pattern
+// in dispatch.go. If the controller has a BindValidate method with the
+// signature: func (c *Controller) BindValidate(state S, fields map[string]interface{}) (S, map[string]string)
+// it will be called. Otherwise, fields are applied directly to state via reflection.
+//
+// Note: Go generic interfaces cannot be used for runtime type assertions,
+// so we use reflection like the existing action dispatch system.
+
+// applyBindUpdate checks for a BindValidate method on the controller via
+// reflection, falling back to direct field application on state.
+func applyBindUpdate(controller any, state any, fields map[string]interface{}) (any, error) {
+    // Look for BindValidate method on controller (reflection-based, like dispatch.go)
+    method := reflect.ValueOf(controller).MethodByName("BindValidate")
+    if method.IsValid() {
+        results := method.Call([]reflect.Value{
+            reflect.ValueOf(state),
+            reflect.ValueOf(fields),
+        })
+        return results[0].Interface(), nil
+    }
+
+    // Fallback: apply fields directly to state struct via reflection
+    return applyFields(state, fields)
 }
 
-// ApplyFields uses reflection to update struct fields
-func ApplyFields(store interface{}, fields map[string]interface{}) error {
-    storeValue := reflect.ValueOf(store).Elem()
+// applyFields uses reflection to update state struct fields
+func applyFields(state any, fields map[string]interface{}) (any, error) {
+    stateValue := reflect.ValueOf(state)
+    // Work with a copy to avoid mutating the original
+    stateCopy := reflect.New(stateValue.Type()).Elem()
+    stateCopy.Set(stateValue)
 
     for fieldName, value := range fields {
-        field := storeValue.FieldByName(fieldName)
+        field := stateCopy.FieldByName(fieldName)
         if !field.IsValid() || !field.CanSet() {
-            return fmt.Errorf("field %s not found or not settable", fieldName)
+            return state, fmt.Errorf("field %s not found or not settable", fieldName)
         }
 
-        // Convert JSON value to field type
         convertedValue := convertToFieldType(value, field.Type())
         field.Set(convertedValue)
     }
 
-    return nil
-}
-
-// ValidateAndApply validates then applies field updates
-func ValidateAndApply(store interface{}, fields map[string]interface{}) error {
-    // Run validation if store implements BindValidator
-    if validator, ok := store.(BindValidator); ok {
-        errors := validator.Validate(fields)
-        if len(errors) > 0 {
-            // Validation failed, but errors are stored in state
-            // Template will render them
-            return nil
-        }
-    }
-
-    // Apply field updates
-    return ApplyFields(store, fields)
+    return stateCopy.Interface(), nil
 }
 
 // Type conversion helpers
@@ -235,7 +246,7 @@ func ParseBindMessage(data []byte) (BindMessage, error) {
 
 **Modify: `mount.go`** (~80 lines)
 ```go
-func (h *liveHandler) handleMessage(data []byte, stores Stores, tmpl *Template) ([]byte, error) {
+func (h *liveHandler) handleMessage(data []byte, controller any, state any, tmpl *Template) (any, []byte, error) {
     // Detect message type
     var msgType struct {
         Type string `json:"type"`
@@ -243,41 +254,40 @@ func (h *liveHandler) handleMessage(data []byte, stores Stores, tmpl *Template) 
     json.Unmarshal(data, &msgType)
 
     if msgType.Type == "bind" {
-        return h.handleBind(data, stores, tmpl)
+        return h.handleBind(data, controller, state, tmpl)
     }
 
     // Fall back to action (existing behavior)
-    return h.handleAction(data, stores, tmpl)
+    return h.handleAction(data, controller, state, tmpl)
 }
 
-func (h *liveHandler) handleBind(data []byte, stores Stores, tmpl *Template) ([]byte, error) {
+func (h *liveHandler) handleBind(data []byte, controller any, state any, tmpl *Template) (any, []byte, error) {
     bindMsg, err := ParseBindMessage(data)
     if err != nil {
-        return nil, err
+        return state, nil, err
     }
 
-    store := stores[""] // Single store for now
-
-    // Validate and apply field updates
-    err = ValidateAndApply(store, bindMsg.Fields)
+    // If controller implements BindValidator, use it
+    // Otherwise, apply fields directly to state via reflection
+    newState, err := applyBindUpdate(controller, state, bindMsg.Fields)
     if err != nil {
-        return nil, err
+        return state, nil, err
     }
 
     // Generate tree diff (same as existing flow)
     var buf bytes.Buffer
-    err = tmpl.ExecuteUpdates(&buf, store)
+    err = tmpl.ExecuteUpdates(&buf, newState)
     if err != nil {
-        return nil, err
+        return newState, nil, err
     }
 
-    return buf.Bytes(), nil
+    return newState, buf.Bytes(), nil
 }
 ```
 
 ### 2. Client-Side (TypeScript)
 
-**Modify: `client/livetemplate-client.ts`** (~200 lines)
+**Modify: client library (`github.com/livetemplate/client`)** (~200 lines)
 
 ```typescript
 class BindManager {
@@ -385,13 +395,20 @@ package main
 
 import (
     "log"
+    "log/slog"
     "net/http"
     "strings"
     "time"
     "github.com/livetemplate/livetemplate"
 )
 
-type UserForm struct {
+// CONTROLLER: Singleton, holds dependencies
+type FormController struct {
+    Logger *slog.Logger
+}
+
+// STATE: Pure data, cloned per session
+type FormState struct {
     Name    string            `json:"name"`
     Email   string            `json:"email"`
     Age     int               `json:"age"`
@@ -400,62 +417,54 @@ type UserForm struct {
     Errors  map[string]string `json:"errors"`
 }
 
-// Implement BindValidator
-func (f *UserForm) Validate(fields map[string]interface{}) map[string]string {
+// BindValidate validates and applies field updates
+func (c *FormController) BindValidate(state FormState, fields map[string]interface{}) (FormState, map[string]string) {
     errors := make(map[string]string)
 
-    // Validate name
     if name, ok := fields["Name"].(string); ok {
-        f.Name = name
+        state.Name = name
         if len(name) < 2 {
             errors["Name"] = "Name must be at least 2 characters"
         }
     }
 
-    // Validate email
     if email, ok := fields["Email"].(string); ok {
-        f.Email = email
+        state.Email = email
         if !strings.Contains(email, "@") {
             errors["Email"] = "Invalid email address"
         }
     }
 
-    // Validate age
     if age, ok := fields["Age"].(float64); ok {
-        f.Age = int(age)
+        state.Age = int(age)
         if age < 18 || age > 120 {
             errors["Age"] = "Age must be between 18 and 120"
         }
     }
 
-    // Update timestamp if validation passed
     if len(errors) == 0 {
-        f.Updated = time.Now().Format(time.RFC3339)
-        f.Errors = nil
+        state.Updated = time.Now().Format(time.RFC3339)
+        state.Errors = nil
     } else {
-        f.Errors = errors
+        state.Errors = errors
     }
 
-    return errors
+    return state, errors
 }
 
 func main() {
-    state := &UserForm{
-        Name:    "",
-        Email:   "",
-        Age:     18,
-        Bio:     "",
-        Updated: time.Now().Format(time.RFC3339),
-        Errors:  make(map[string]string),
+    controller := &FormController{
+        Logger: slog.Default(),
     }
 
     tmpl := livetemplate.New("form")
     tmpl.ParseFiles("form.html")
 
-    http.Handle("/", tmpl.Handle(state))
-    // In production: serve from CDN
-    // For development: use internal/testing.ServeClientLibrary
-    http.HandleFunc("/livetemplate-client.js", e2etest.ServeClientLibrary)
+    http.Handle("/", tmpl.Handle(controller, livetemplate.AsState(&FormState{
+        Age:     18,
+        Updated: time.Now().Format(time.RFC3339),
+        Errors:  make(map[string]string),
+    })))
 
     log.Println("Server starting on :8080")
     http.ListenAndServe(":8080", nil)
@@ -607,7 +616,7 @@ func main() {
 - **New:** `examples/form-bind/form_test.go` (~200 lines)
 - **Modify:** `action.go` (~30 lines added)
 - **Modify:** `mount.go` (~80 lines added)
-- **Modify:** `client/livetemplate-client.ts` (~200 lines added)
+- **Modify:** client library `github.com/livetemplate/client` (~200 lines added)
 
 **Total:** ~840 new lines, ~310 modified lines = **~1150 lines of code**
 
@@ -643,11 +652,10 @@ func main() {
 ## Limitations & Future Enhancements
 
 ### Current Limitations
-1. Single store only (no multi-store support yet)
-2. No nested field binding (e.g., `User.Address.City`)
-3. No array/slice field updates
-4. No file upload handling
-5. No custom validators (besides `Validate()` method)
+1. No nested field binding (e.g., `User.Address.City`)
+2. No array/slice field updates
+3. No file upload handling
+4. No custom validators (besides `BindValidate()` method)
 
 ### Future Enhancements
 1. **Nested field binding**: Support `Address.City` paths
@@ -693,9 +701,9 @@ Insert error divs via JavaScript instead of template rendering.
 - **HTMX**: hx-post, hx-trigger for form handling
 
 ### Internal References
-- Current action system: `action.go`, `mount.go`
-- Tree diff system: `template.go`, `tree.go`
-- Client library: `client/livetemplate-client.ts`
+- Controller+State pattern: `mount.go`, `context.go`
+- Tree diff system: `template.go`, internal diff/build packages
+- Client library: `github.com/livetemplate/client`
 
 ## Next Steps
 
@@ -712,6 +720,6 @@ When ready to implement:
 
 1. **Trigger defaults**: Should `lvt-bind` without value default to "change" or "blur"?
 2. **Error clearing**: Should errors auto-clear on next input, or only after validation passes?
-3. **Multi-store**: Should we support `lvt-bind="storeName"` for multi-store apps?
-4. **Nested fields**: How to handle nested struct updates (e.g., `User.Address.City`)?
-5. **Type conversion errors**: How to handle invalid type conversions (e.g., "abc" for number field)?
+3. **Nested fields**: How to handle nested struct updates (e.g., `User.Address.City`)?
+4. **Type conversion errors**: How to handle invalid type conversions (e.g., "abc" for number field)?
+5. **State size**: How to handle large state structs with many bound fields (serialization cost)?
