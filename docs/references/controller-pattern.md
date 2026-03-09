@@ -141,6 +141,8 @@ The `*livetemplate.Context` provides access to action data and HTTP utilities.
 
 | Method | Return Type | Description |
 |--------|-------------|-------------|
+| `Action()` | `string` | Get action name (empty for lifecycle methods like Mount/OnConnect) |
+| `Get(key)` | `interface{}` | Get raw value (for non-primitive types) |
 | `GetString(key)` | `string` | Get string value (empty if missing) |
 | `GetInt(key)` | `int` | Get integer value (0 if missing/invalid) |
 | `GetFloat(key)` | `float64` | Get float value (0 if missing/invalid) |
@@ -249,8 +251,6 @@ func (c *Controller) Login(state State, ctx *livetemplate.Context) (State, error
 | `GetCookie(name)` | Get request cookie |
 | `DeleteCookie(name)` | Delete cookie |
 | `Redirect(url, code)` | Redirect response |
-| `SetHeader(key, value)` | Set response header |
-| `GetHeader(key)` | Get request header |
 
 ## Error Handling
 
@@ -477,9 +477,41 @@ handler := tmpl.Handle(controller, livetemplate.AsState(initialState))
 http.Handle("/", handler)
 ```
 
+## Upload Access
+
+When templates are configured with `WithUpload(...)`, completed uploads are accessible via Context:
+
+```go
+func (c *Controller) SaveProfile(state State, ctx *livetemplate.Context) (State, error) {
+    if ctx.HasUploads("avatar") {
+        for _, entry := range ctx.GetCompletedUploads("avatar") {
+            state.AvatarPath = entry.TempPath
+        }
+    }
+    return state, nil
+}
+```
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `HasUploads(name)` | `bool` | Check if uploads exist for field |
+| `GetCompletedUploads(name)` | `[]*UploadEntry` | Get completed upload entries |
+
+## Testing
+
+Use `AssertPureState[T]()` as a sanity check to catch common dependency types accidentally added to state structs (this is a heuristic, not a comprehensive serializability check):
+
+```go
+func TestState(t *testing.T) {
+    // Fails if TodoState contains *sql.DB, *slog.Logger, etc.
+    livetemplate.AssertPureState[TodoState](t)
+}
+```
+
 ## See Also
 
 - [Server Actions Reference](server-actions.md) - Server-initiated updates with TriggerAction
 - [Session Reference](session.md) - Session stores and connection management
 - [Error Handling Reference](error-handling.md) - Detailed error handling patterns
 - [Authentication Reference](authentication.md) - User identification and session grouping
+- [Upload Reference](uploads.md) - File upload configuration and handling
