@@ -13,3 +13,4 @@ This directory contains completed, implemented, superseded, or declined document
 - **plans/** — Completed implementation plans
 - **implementation-plans/** — Completed tracking documents
 - **guides/** — Superseded guides
+- Standalone files — Architecture reviews, completion reports, and implementation details

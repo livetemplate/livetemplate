@@ -2,7 +2,7 @@
 
 **Status:** Future Feature
 **Date:** 2025-10-01 (updated 2026-03 for Controller+State API)
-**Complexity:** Medium-High (~970 lines of code)
+**Complexity:** Medium-High (~1150 lines of code)
 
 ## Overview
 
@@ -174,18 +174,40 @@ No special error protocol needed - errors are just part of the state rendered by
 ```go
 package livetemplate
 
-// BindValidator interface for controllers that validate field updates.
-// The controller receives current state, returns modified state + any errors.
-type BindValidator[S any] interface {
-    BindValidate(state S, fields map[string]interface{}) (S, map[string]string)
+// Bind validation uses reflection-based method lookup, matching the pattern
+// in dispatch.go. If the controller has a BindValidate method with the
+// signature: func (c *Controller) BindValidate(state S, fields map[string]interface{}) (S, map[string]string)
+// it will be called. Otherwise, fields are applied directly to state via reflection.
+//
+// Note: Go generic interfaces cannot be used for runtime type assertions,
+// so we use reflection like the existing action dispatch system.
+
+// applyBindUpdate checks for a BindValidate method on the controller via
+// reflection, falling back to direct field application on state.
+func applyBindUpdate(controller any, state any, fields map[string]interface{}) (any, error) {
+    // Look for BindValidate method on controller (reflection-based, like dispatch.go)
+    method := reflect.ValueOf(controller).MethodByName("BindValidate")
+    if method.IsValid() {
+        results := method.Call([]reflect.Value{
+            reflect.ValueOf(state),
+            reflect.ValueOf(fields),
+        })
+        return results[0].Interface(), nil
+    }
+
+    // Fallback: apply fields directly to state struct via reflection
+    return applyFields(state, fields)
 }
 
-// ApplyFields uses reflection to update state struct fields
-func ApplyFields[S any](state S, fields map[string]interface{}) (S, error) {
-    stateValue := reflect.ValueOf(&state).Elem()
+// applyFields uses reflection to update state struct fields
+func applyFields(state any, fields map[string]interface{}) (any, error) {
+    stateValue := reflect.ValueOf(state)
+    // Work with a copy to avoid mutating the original
+    stateCopy := reflect.New(stateValue.Type()).Elem()
+    stateCopy.Set(stateValue)
 
     for fieldName, value := range fields {
-        field := stateValue.FieldByName(fieldName)
+        field := stateCopy.FieldByName(fieldName)
         if !field.IsValid() || !field.CanSet() {
             return state, fmt.Errorf("field %s not found or not settable", fieldName)
         }
@@ -194,7 +216,7 @@ func ApplyFields[S any](state S, fields map[string]interface{}) (S, error) {
         field.Set(convertedValue)
     }
 
-    return state, nil
+    return stateCopy.Interface(), nil
 }
 
 // Type conversion helpers
@@ -265,7 +287,7 @@ func (h *liveHandler) handleBind(data []byte, controller any, state any, tmpl *T
 
 ### 2. Client-Side (TypeScript)
 
-**Modify: `client/livetemplate-client.ts`** (~200 lines)
+**Modify: client library (`github.com/livetemplate/client`)** (~200 lines)
 
 ```typescript
 class BindManager {
@@ -594,7 +616,7 @@ func main() {
 - **New:** `examples/form-bind/form_test.go` (~200 lines)
 - **Modify:** `action.go` (~30 lines added)
 - **Modify:** `mount.go` (~80 lines added)
-- **Modify:** `client/livetemplate-client.ts` (~200 lines added)
+- **Modify:** client library `github.com/livetemplate/client` (~200 lines added)
 
 **Total:** ~840 new lines, ~310 modified lines = **~1150 lines of code**
 

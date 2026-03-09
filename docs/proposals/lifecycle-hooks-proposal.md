@@ -68,7 +68,7 @@ Inside each callback, `this` provides:
 | Property | Type | Description |
 |----------|------|-------------|
 | `this.el` | `HTMLElement` | The DOM element with `lvt-hook` |
-| `this.data` | `Record<string, string>` | Parsed `data-*` attributes from the element |
+| `this.data` | `Record<string, string>` | Parsed `data-*` attributes via `HTMLElement.dataset` (e.g., `data-chart-type` → `this.data.chartType`) |
 | `this.pushEvent(event, payload)` | `Function` | Send a custom event to the server |
 
 ### Lifecycle Callbacks
@@ -233,7 +233,7 @@ func (c *DashboardController) ChartClicked(state DashboardState, ctx *livetempla
 
 ### Client-Side Only
 
-The hook system is entirely client-side. No server-side changes are needed. The implementation involves:
+The hook lifecycle system (mounted/updated/destroyed/connected/disconnected) is entirely client-side. No server-side protocol changes are needed. The optional `pushEvent()` method reuses the existing action message wire format, so controllers must implement matching action methods (e.g., `ChartClicked`) for `pushEvent` calls to be handled — but this uses existing dispatch infrastructure with no new server code. The implementation involves:
 
 1. **Hook Registry** — Store hook definitions keyed by name
 2. **DOM Patch Integration** — After each DOM patch, detect:
