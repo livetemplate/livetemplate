@@ -496,6 +496,6 @@ See [OBSERVABILITY.md](OBSERVABILITY.md) for complete guide.
 ## Related Documentation
 
 - [OBSERVABILITY.md](OBSERVABILITY.md) - Logging and metrics guide
-- [MIGRATION.md](implementation-plans/MIGRATION.md) - Alpha → v1.0 migration guide
+- [ROADMAP.md](../../ROADMAP.md) - Project roadmap
 - [CODE_STRUCTURE.md](CODE_STRUCTURE.md) - Codebase organization
 - [API Reference](https://pkg.go.dev/github.com/livetemplate/livetemplate) - Go package docs
