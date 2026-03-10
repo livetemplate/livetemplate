@@ -1,8 +1,14 @@
 # Known Performance Bottlenecks
 
 **Last Profiled:** 2025-11-10
-**Go Version:** 1.26.0
+**Go Version (profiles):** 1.25.3
+**Go Version (benchmarks):** 1.26.0
 **Architecture:** arm64 (Apple M2)
+
+> **Note:** The CPU and memory profiles (pprof output) below are from the original 2025-11-10 session
+> on Go 1.25.3. Function names have been updated to reflect the current codebase (e.g.,
+> `calculateFingerprintOld` → `CalculateStructureFingerprint`). Benchmark numbers throughout
+> have been updated to Go 1.26.0 results.
 
 ## Profiling Methodology
 

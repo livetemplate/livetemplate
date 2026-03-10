@@ -1,5 +1,11 @@
 # LiveTemplate Performance Characteristics
 
+> **Benchmark Environment:** Go 1.26.0, arm64 (Apple M2). Numbers updated March 2026.
+> Absolute timings are higher than the November 2025 baseline due to expanded benchmark
+> scope (per-benchmark template setup costs, Controller+State cloning overhead). Allocation
+> counts and memory-per-operation remain comparable. Relative performance characteristics
+> (O(n) scaling, phase ratios) are unchanged.
+
 ## Architectural Overview
 
 LiveTemplate implements a 5-phase architecture optimized for minimal updates:
@@ -265,19 +271,19 @@ The session registry (`internal/session/`) implements channel-based async messag
 **Benchmark Results:**
 
 ```
-BenchmarkRegisterUnregister        2743 ns/op     1210 B/op    13 allocs/op
-BenchmarkGetByGroup                494.9 ns/op    896 B/op     1 allocs/op
-BenchmarkCloseConnection           3410 ns/op     254 B/op     3 allocs/op
-BenchmarkBroadcastToGroup          26172 ns/op    4096 B/op    101 allocs/op
-BenchmarkMemoryUsage               84593 ns/op    98073 B/op   620 allocs/op
-BenchmarkConcurrentRegistrations   3252 ns/op     1244 B/op    11 allocs/op
+BenchmarkRegisterUnregister        2410 ns/op     1210 B/op    13 allocs/op
+BenchmarkGetByGroup                326.2 ns/op    896 B/op     1 allocs/op
+BenchmarkCloseConnection           3039 ns/op     253 B/op     3 allocs/op
+BenchmarkBroadcastToGroup          28091 ns/op    4096 B/op    101 allocs/op
+BenchmarkMemoryUsage               70540 ns/op    98102 B/op   620 allocs/op
+BenchmarkConcurrentRegistrations   3421 ns/op     1248 B/op    11 allocs/op
 ```
 
 **Key Findings:**
 - ~980 bytes per connection (measured via `BenchmarkMemoryUsage`)
-- Group lookup is fast (~495ns) with dual indexing by groupID and userID
-- Register/unregister cycle: ~2.7µs
-- Broadcast to 100-connection group: ~26µs (~260ns per connection)
+- Group lookup is fast (~326ns) with dual indexing by groupID and userID
+- Register/unregister cycle: ~2.4µs
+- Broadcast to 100-connection group: ~28µs (~280ns per connection)
 
 ## End-to-End Performance
 
