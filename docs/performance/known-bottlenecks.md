@@ -1,7 +1,7 @@
 # Known Performance Bottlenecks
 
 **Last Profiled:** 2025-11-10
-**Go Version:** 1.25.3
+**Go Version:** 1.26.0
 **Architecture:** arm64 (Apple M2)
 
 ## Profiling Methodology
@@ -53,9 +53,9 @@ Dropped 923 nodes (cum <= 0.59s)
 - **Optimization Opportunity:** Reduce allocations (see Memory Bottlenecks section)
 
 #### Fingerprinting (Phase 2: Build)
-- **Location:** `github.com/livetemplate/livetemplate.calculateFingerprintOld`
+- **Location:** `internal/build/fingerprint.go:CalculateStructureFingerprint`
 - **Impact:** 5.93% of CPU time (cumulative)
-- **Optimization Opportunity:** Consider faster hashing algorithms or caching fingerprints
+- **Optimization Opportunity:** Fingerprints are now lazy-cached on TreeNode via `GetStructureFingerprint()`. Consider faster hashing algorithms (xxhash) for further improvement.
 
 #### Overall Distribution
 Most CPU time is spent in:
@@ -99,7 +99,7 @@ Dropped 593 nodes (cum <= 297.59MB)
   664.64MB  1.12%  github.com/livetemplate/livetemplate/internal/context.ExecuteTemplateWithContext
   613.53MB  1.03%  github.com/livetemplate/livetemplate/internal/build.NewTreeNode
   473.03MB  0.79%  github.com/livetemplate/livetemplate/internal/build.NewTreeNodeWithStatics
-  444.04MB  0.75%  github.com/livetemplate/livetemplate.calculateFingerprintOld
+  444.04MB  0.75%  github.com/livetemplate/livetemplate/internal/build.CalculateStructureFingerprint
   440.61MB  0.74%  github.com/livetemplate/livetemplate/internal/context.AddLvtToData
   233.57MB  0.39%  github.com/livetemplate/livetemplate/internal/build.(*TreeNode).UnmarshalJSON
   198.02MB  0.33%  github.com/livetemplate/livetemplate.(*Template).renderHTML
@@ -110,30 +110,30 @@ Dropped 593 nodes (cum <= 297.59MB)
 ### Allocations per Operation
 
 **Initial Render (simple template):**
-- Total allocations: ~237 allocs/op
+- Total allocations: ~245 allocs/op
 - Bytes allocated: ~29 KB/op
-- Example: BenchmarkTemplateConcurrent/1-8 (22710 ns/op, 28999 B/op, 237 allocs/op)
+- Example: BenchmarkTemplateConcurrent/goroutines-1-8 (73773 ns/op, 29304 B/op, 245 allocs/op)
 
 **Small Update:**
-- Total allocations: ~221 allocs/op
+- Total allocations: ~229 allocs/op
 - Bytes allocated: ~28 KB/op
-- Example: BenchmarkTemplateExecuteUpdates/small-update-8 (17150 ns/op, 28041 B/op, 221 allocs/op)
+- Example: BenchmarkTemplateExecuteUpdates/small-update-8 (82313 ns/op, 28320 B/op, 229 allocs/op)
 
 **Large Update:**
-- Total allocations: ~728 allocs/op
-- Bytes allocated: ~78 KB/op
-- Example: BenchmarkTemplateExecuteUpdates/large-update-8 (59740 ns/op, 78055 B/op, 728 allocs/op)
+- Total allocations: ~752 allocs/op
+- Bytes allocated: ~79 KB/op
+- Example: BenchmarkTemplateExecuteUpdates/large-update-8 (180408 ns/op, 78625 B/op, 752 allocs/op)
 
 **Range Operations:**
-- Add items: 756 allocs/op, 82 KB/op
-- Remove items: 405 allocs/op, 44 KB/op
-- Reorder items: 525 allocs/op, 58 KB/op
-- Update items: 525 allocs/op, 58 KB/op
+- Add items: 844 allocs/op, 85 KB/op
+- Remove items: 456 allocs/op, 46 KB/op
+- Reorder items: 588 allocs/op, 60 KB/op
+- Update items: 588 allocs/op, 60 KB/op
 
 **Complex User Journey (E2E):**
-- Total allocations: ~22,880 allocs/op
+- Total allocations: ~23,652 allocs/op
 - Bytes allocated: ~2.9 MB/op
-- Example: BenchmarkE2EUserJourney-8 (1664558 ns/op, 2895522 B/op, 22874 allocs/op)
+- Example: BenchmarkE2EUserJourney-8 (5639997 ns/op, 2919203 B/op, 23652 allocs/op)
 
 ### Cache Memory Usage
 
@@ -143,9 +143,11 @@ Dropped 593 nodes (cum <= 297.59MB)
 - addFuncs: 4.4 GB (7.31% of total)
 - Template escaper operations: ~5 GB (8.25% cumulative)
 
-**Structure Registry:**
-- Max entries: 1000 (LRU eviction)
-- Estimated overhead: Minimal compared to template parsing overhead
+**Fingerprint Cache:**
+- Lazy-computed per TreeNode via `GetStructureFingerprint()`
+- MD5 hash truncated to 64 bits (16 hex chars)
+- No eviction needed — cached on the tree node itself, lifetime tied to node
+- Replaced the earlier `ClientStructureRegistry` (LRU, max 1000 entries), removed in PR #86
 
 ## Optimization Priorities
 
@@ -216,17 +218,15 @@ Based on profiling data, prioritize:
 
 - [ ] **Replace MD5 Fingerprinting with xxhash**
   - Location: `internal/build/fingerprint.go`, Phase 2 (Build)
-  - Goal: Reduce 5.93% CPU time in `calculateFingerprintOld`
+  - Goal: Reduce 5.93% CPU time in `CalculateStructureFingerprint`
   - Approach: Replace `crypto/md5` with `github.com/cespare/xxhash/v2` for non-cryptographic hashing
   - Expected Impact: 5-6% CPU reduction in fingerprinting operations
-  - Verification: Run `BenchmarkFingerprint` and verify performance improvement
+  - Verification: Run `BenchmarkCalculateStructureFingerprint_*` and verify performance improvement
 
-- [ ] **Implement Fingerprint Caching**
-  - Location: `template.go`, Phase 2 (Build)
-  - Goal: Avoid recalculating fingerprints for unchanged data
-  - Approach: Cache fingerprints keyed by data hash, invalidate on data changes
-  - Expected Impact: 3-5% CPU reduction in update operations
-  - Verification: Run `BenchmarkTemplateExecuteUpdates` with no changes
+- [x] **Implement Fingerprint Caching** *(Completed — lazy-cached on TreeNode)*
+  - Location: `internal/build/types.go:GetStructureFingerprint()`, Phase 2 (Build)
+  - Approach: Fingerprints are lazy-computed on first access and cached on the TreeNode itself
+  - Impact: O(1) structure comparison after first access; no separate cache data structure needed
 
 - [ ] **Evaluate Faster JSON Library**
   - Location: `internal/send/message.go`, Phase 5 (Send)
@@ -292,8 +292,8 @@ Based on profiling data, prioritize:
 
 Update this section as tasks are completed:
 
-**Last Updated:** 2025-11-10
-**Completed Tasks:** 0/14
+**Last Updated:** 2026-03-10
+**Completed Tasks:** 1/14
 **In Progress:** 0
 **Blocked:** 0
 
