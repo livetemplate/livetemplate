@@ -22,8 +22,8 @@ Remaining documentation and metrics work from the scalability milestones (M1/M2)
 
 Deferred work from the architecture improvements — Phase 6A complete, remaining 6B/6C estimated 3-4 days:
 
-- [ ] State management refactor — consolidate `rangeState`, `rangeStatics`, `rangeIdKeys` into unified state; simplify `deepMergeTreeNodes` (~500-700 lines saved)
-- [ ] Code quality pass — remove redundant type checks, extract helpers (~50-100 lines saved)
+- [ ] State management refactor — consolidate `rangeState`, `rangeStatics`, `rangeIdKeys` into unified state; simplify `deepMergeTreeNodes`
+- [ ] Code quality pass — remove redundant type checks, extract helpers
 - [ ] Fix E2E test isolation (chromedp tests currently excluded from CI)
 
 See [docs/roadmap/ARCHITECTURE_IMPROVEMENTS.md](docs/roadmap/ARCHITECTURE_IMPROVEMENTS.md) for full context.
@@ -48,7 +48,7 @@ Enable clients to resume sessions after reconnection without full re-render. Req
 
 ### Automatic Form Binding (`lvt-bind`)
 
-Two-way binding between HTML form inputs and server state. Eliminates boilerplate for simple field updates. ~1150 lines of new code.
+Two-way binding between HTML form inputs and server state. Eliminates boilerplate for simple field updates.
 
 See [docs/proposals/lvt-bind-proposal.md](docs/proposals/lvt-bind-proposal.md)
 
