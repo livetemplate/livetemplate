@@ -12,5 +12,7 @@ This directory contains completed, implemented, superseded, or declined document
 - **proposals/** — Implemented or declined feature proposals
 - **plans/** — Completed implementation plans
 - **implementation-plans/** — Completed tracking documents
+  - `scalability-roadmap.md` — Original 3-milestone production scalability plan (M1/M2/M3 with 70 granular tasks). Superseded by root `ROADMAP.md`.
+  - `v1.0-migration-guide.md` — v1.0 internal refactoring migration guide. 100% complete, zero breaking changes.
 - **guides/** — Superseded guides
 - Standalone files — Architecture reviews, completion reports, and implementation details

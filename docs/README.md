@@ -63,7 +63,7 @@ Benchmarking and performance analysis:
 ## Operations & Scaling
 
 - **[Scaling Guide](guides/SCALING.md)** - 4 scaling tiers (Hobby to Enterprise), Redis integration
-- **[Roadmap](implementation-plans/ROADMAP.md)** - Production readiness milestones and progress
+- **[Roadmap](../ROADMAP.md)** - Prioritized roadmap (Now/Next/Later/Blocked)
 
 ## Proposals
 
@@ -72,13 +72,12 @@ Active feature proposals and RFCs:
 - **[Lifecycle Hooks](proposals/lifecycle-hooks-proposal.md)** - `lvt-hook` for JS library integration
 - **[Data Binding](proposals/lvt-bind-proposal.md)** - Two-way form data binding (`lvt-bind`) proposal
 
-## Implementation Plans
+## Roadmap Tracking
 
 Active implementation tracking:
 
-- **[Migration Guide](implementation-plans/MIGRATION.md)** - API migration guide
-- **[Architecture Improvements](implementation-plans/ARCHITECTURE_IMPROVEMENTS.md)** - Proposed improvements
-- **[HTML Fallback Coverage](implementation-plans/html-fallback-coverage.md)** - HTML fallback implementation coverage
+- **[Architecture Improvements](roadmap/ARCHITECTURE_IMPROVEMENTS.md)** - Client simplification (Phase 6B/6C)
+- **[HTML Fallback Coverage](roadmap/html-fallback-coverage.md)** - HTML fallback implementation coverage
 
 ## Design & Planning History
 
@@ -94,7 +93,7 @@ Completed, implemented, or superseded documentation preserved for historical ref
 - **[archive/client-structure-registry.md](archive/client-structure-registry.md)** - Previous client registry implementation (replaced by fingerprint-based approach)
 - **[archive/plans/](archive/plans/)** - Completed plans: Controller+State, uploads, lvt gen stack, lvt gen auth, performance benchmarks
 - **[archive/proposals/](archive/proposals/)** - Implemented/declined proposals: Controller+State RFC, async WebSocket, auth v0.5, value dedup, store redesign, bug fix persistence, reactive attributes, event bindings
-- **[archive/implementation-plans/](archive/implementation-plans/)** - Completed tracking: implementation status, refactoring progress, strip statics, validation conditionals, testing framework, implementation readiness
+- **[archive/implementation-plans/](archive/implementation-plans/)** - Completed tracking: scalability roadmap (M1/M2/M3), v1.0 migration guide, implementation status, refactoring progress, strip statics, validation conditionals, testing framework, implementation readiness
 - **[archive/ARCHITECTURAL_REVIEW.md](archive/ARCHITECTURAL_REVIEW.md)** - Fingerprint-based diff architecture analysis (all recommendations implemented)
 - **[archive/SIMPLIFIED_DIFF_PROPOSAL.md](archive/SIMPLIFIED_DIFF_PROPOSAL.md)** - Simplified diffing algorithm (implemented in v0.8.0)
 - **[archive/IMPLEMENTATION_COMPLETE.md](archive/IMPLEMENTATION_COMPLETE.md)** - lvt gen stack completion report

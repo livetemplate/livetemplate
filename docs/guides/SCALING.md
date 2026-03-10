@@ -1861,7 +1861,7 @@ redis_connected_clients{instance="redis1"} > 9000  # 90% of Redis max clients
 
 ## Next Steps
 
-- **Roadmap:** See [ROADMAP.md](ROADMAP.md) for upcoming scaling features
+- **Roadmap:** See [ROADMAP.md](../../ROADMAP.md) for upcoming scaling features
 - **Architecture:** See [ARCHITECTURE.md](ARCHITECTURE.md) for system design
 
 ---
