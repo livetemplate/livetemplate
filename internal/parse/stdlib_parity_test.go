@@ -230,18 +230,22 @@ func TestStdlibParity_WithBlocks(t *testing.T) {
 				"Item": map[string]interface{}{"Name": "found"},
 			},
 		},
-		// NOTE: {{$.Title}} inside {{with}} is a known pre-existing divergence.
-		// The non-var path (handleWithNode) doesn't track the root data separately,
-		// so $ resolves against the narrowed with context instead of root.
-		// This is tracked separately from issue #176.
-		// {
-		// 	name: "with root access",
-		// 	tmpl: "{{with .Item}}{{.Name}} from {{$.Title}}{{end}}",
-		// 	data: map[string]interface{}{
-		// 		"Title": "root",
-		// 		"Item":  map[string]interface{}{"Name": "child"},
-		// 	},
-		// },
+		{
+			name: "with root access via $",
+			tmpl: "{{with .Item}}{{.Name}} from {{$.Title}}{{end}}",
+			data: map[string]interface{}{
+				"Title": "root",
+				"Item":  map[string]interface{}{"Name": "child"},
+			},
+		},
+		{
+			name: "with root access standalone $",
+			tmpl: `{{with .Item}}{{$.Title}}{{end}}`,
+			data: map[string]interface{}{
+				"Title": "hello",
+				"Item":  map[string]interface{}{"Name": "child"},
+			},
+		},
 	}
 
 	for _, tt := range tests {
