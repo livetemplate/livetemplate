@@ -160,6 +160,11 @@ Action dispatch is automatic: `lvt-click="addItem"` dispatches to `AddItem()`.
 
 ### Struct Tags
 
+> **Deprecated:** Struct tags are legacy from the pre-v0.7.0 API where controllers and state
+> were a single struct. In the current Controller+State pattern, use `AsState[T]()` to
+> designate the entire state struct — no field-level tags needed. These tags remain for
+> backward compatibility but will be removed in a future release.
+
 | Tag | Description |
 |-----|-------------|
 | `lvt:"state"` | Mark fields for selective persistence |
@@ -267,7 +272,7 @@ Enables server-initiated actions for the current user's connections (all tabs/de
 
 Use cases: timers, background job notifications, webhook-triggered updates.
 
-Session is accessed via the `SessionAware` interface on the controller, not via `ctx.Session()`.
+Session is accessed by implementing the `SessionAware` interface on your controller. The `ctx.Session()` method exists on `*Context` but is not populated by the framework in action handlers — use `SessionAware.OnConnect` to receive a `Session` handle for background goroutines that need to trigger actions asynchronously.
 
 **Note:** The `SessionAware.OnConnect(ctx context.Context, session Session) error` method is distinct from the lifecycle `OnConnect(state S, ctx *Context) (S, error)`. The lifecycle version handles state updates on WebSocket connect. The `SessionAware` version provides a `Session` handle for background goroutines that need to trigger actions asynchronously. A controller can implement both.
 
@@ -339,6 +344,10 @@ Maps HTTP requests to user IDs and session groups.
 ```
 
 **BasicAuthenticator**: HTTP Basic Auth with user-provided validation.
+
+> **Security:** Basic Auth transmits credentials in base64 (not encrypted). Always use HTTPS
+> in production. The BasicAuthenticator provides **no built-in rate limiting or account lockout**, so you must enforce brute-force protection (for example via a WAF, reverse proxy, or auth service) before using it in production.
+> Consider session-based auth for browser-facing applications.
 
 ```go
 func NewBasicAuthenticator(validateFunc func(username, password string) (bool, error)) *BasicAuthenticator

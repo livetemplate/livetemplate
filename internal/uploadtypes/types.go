@@ -45,7 +45,9 @@ type UploadEntry struct {
 	CompletedAt time.Time
 }
 
-// UploadAware interface (duplicated here to avoid cycles).
+// Deprecated: UploadAware is the legacy upload interface. Use WithUpload() option
+// combined with Context.HasUploads() and Context.GetCompletedUploads() instead.
+// See docs/references/uploads.md for the current API.
 type UploadAware interface {
 	AllowUploads() map[string]UploadConfig
 	ConsumeUpload(ctx context.Context, name string, entries []*UploadEntry) error

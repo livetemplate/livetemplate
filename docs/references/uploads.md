@@ -361,6 +361,80 @@ ChunkSize: 512 * 1024, // 512KB chunks
 - Chunked uploads: one chunk in memory at a time
 - External uploads: no server memory used
 
+## Troubleshooting
+
+### Upload Not Starting
+
+- Verify `lvt-upload` attribute matches the field name in `WithUpload()`
+- Check browser console for JavaScript errors
+- Ensure the template includes `lvt-upload="fieldName"` on the file input
+
+### Progress Not Updating
+
+- Progress events require chunked uploads (default 256KB chunks)
+- Very small files may complete in a single chunk with no intermediate progress
+- Check WebSocket connection is active
+
+### File Rejected by Validation
+
+- `Accept` validation checks MIME type and extension — ensure both match
+- `MaxFileSize` is in bytes — use `5 << 20` for 5MB, not `5000000`
+- `MaxEntries` limits concurrent uploads per field
+
+### Temporary Files Not Cleaned Up
+
+- Temp files are cleaned automatically on WebSocket disconnect
+- For HTTP-only mode, implement cleanup in your action handler
+- Check system temp directory permissions if files persist
+
+### External Upload (S3) Errors
+
+- Verify presigner returns valid URLs with correct expiration
+- Check CORS configuration allows PUT from the client origin
+- S3 keys are sanitized via `filepath.Base()` — forward-slash paths are stripped (note: on Unix, backslash-separated paths like `..\..\..\etc\passwd` are treated as literal filenames)
+
+### Content Validation
+
+MIME types can be spoofed. For security-critical uploads, validate actual file content:
+
+```go
+import (
+    "fmt"
+    "io"
+    "net/http"
+    "os"
+    "strings"
+
+    "github.com/livetemplate/livetemplate"
+)
+
+func (c *Controller) SaveAvatar(state State, ctx *livetemplate.Context) (State, error) {
+    for _, entry := range ctx.GetCompletedUploads("avatar") {
+        detected, err := detectContentType(entry.TempPath)
+        if err != nil {
+            return state, fmt.Errorf("reading upload: %w", err)
+        }
+        if !strings.HasPrefix(detected, "image/") {
+            return state, fmt.Errorf("invalid file type: %s", detected)
+        }
+    }
+    return state, nil
+}
+
+func detectContentType(path string) (string, error) {
+    f, err := os.Open(path)
+    if err != nil {
+        return "", err
+    }
+    defer f.Close()
+    buf := make([]byte, 512)
+    if _, err := f.Read(buf); err != nil && err != io.EOF {
+        return "", err
+    }
+    return http.DetectContentType(buf), nil
+}
+```
+
 ## See Also
 
 - [Controller+State Pattern](controller-pattern.md) - Core architecture pattern

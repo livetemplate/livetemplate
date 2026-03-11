@@ -301,10 +301,12 @@ tmpl := livetemplate.New("app",
 )
 ```
 
-| Parameter | Description |
-|-----------|-------------|
-| `messagesPerSecond` (`float64`) | Sustained message rate |
-| `burstCapacity` (`int`) | Maximum burst size above sustained rate |
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `messagesPerSecond` (`float64`) | Sustained message rate | `10` |
+| `burstCapacity` (`int`) | Maximum burst size above sustained rate | `20` |
+
+Set `messagesPerSecond = 0` to disable rate limiting (not recommended for production).
 
 ## Error Handling
 

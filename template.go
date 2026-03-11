@@ -508,7 +508,7 @@ func WithCookieMaxAge(maxAge time.Duration) Option {
 // WithUpload configures file upload support for a specific form field.
 //
 // Upload configuration specifies validation rules, size limits, and storage options.
-// Once configured, uploads are accessible via ActionContext during action handling.
+// Once configured, uploads are accessible via Context during action handling.
 //
 // Example:
 //
@@ -520,18 +520,15 @@ func WithCookieMaxAge(maxAge time.Duration) Option {
 //	    }),
 //	)
 //
-// In your store's Change method, access uploads via ActionContext:
+// In your controller's action method, access uploads via Context:
 //
-//	func (s *ProfileStore) Change(ctx *ActionContext) error {
-//	    switch ctx.Action {
-//	    case "save_profile":
-//	        if ctx.HasUploads("avatar") {
-//	            for _, entry := range ctx.GetCompletedUploads("avatar") {
-//	                s.AvatarURL = moveToStorage(entry.TempPath)
-//	            }
+//	func (c *ProfileController) SaveProfile(state ProfileState, ctx *livetemplate.Context) (ProfileState, error) {
+//	    if ctx.HasUploads("avatar") {
+//	        for _, entry := range ctx.GetCompletedUploads("avatar") {
+//	            state.AvatarURL = moveToStorage(entry.TempPath)
 //	        }
 //	    }
-//	    return nil
+//	    return state, nil
 //	}
 func WithUpload(name string, config uploadtypes.UploadConfig) Option {
 	return func(c *Config) {

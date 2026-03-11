@@ -366,6 +366,28 @@ go test -v ./... -timeout=30s
 - Supports any data type without special handling
 - Keys reset between renders for consistency
 
+### Best Practices: `data-key` Attributes in Range Templates
+
+When rendering lists with `{{range}}`, the diff engine needs stable keys to track items across renders. By default, LiveTemplate auto-generates hash-based keys from item content. Explicit `data-key` attributes give you control:
+
+```html
+{{range .Items}}
+<div data-key="{{.ID}}">{{.Name}}</div>
+{{end}}
+```
+
+**When to use explicit `data-key`:**
+- Items have a natural unique identifier (database ID, UUID)
+- List items are reordered frequently (drag-and-drop, sorting)
+- Items may have identical content but different identity
+
+**When auto-generated keys suffice:**
+- Small static lists (<100 items) with no reordering
+- Items are always appended/removed, never reordered
+- Content is unique across all items
+
+**Key stability matters for performance:** Stable keys enable the diff engine to emit minimal `["u", key, changes]` operations instead of removing and re-inserting items. Unstable keys (e.g., using array index) cause unnecessary DOM thrashing on the client.
+
 ## Important Implementation Details
 
 ### Wire Format Optimization
