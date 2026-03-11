@@ -272,7 +272,7 @@ Enables server-initiated actions for the current user's connections (all tabs/de
 
 Use cases: timers, background job notifications, webhook-triggered updates.
 
-Session is accessed by implementing the `SessionAware` interface on your controller. There is no `ctx.Session()` method — the session handle is delivered via the `SessionAware.OnConnect` callback.
+Within normal request/WebSocket lifecycle handlers, you can access the current connection's session via `ctx.Session()`. For long-lived or background goroutines that outlive a single request, implement the `SessionAware` interface on your controller to receive a `Session` handle via the `OnConnect` callback.
 
 **Note:** The `SessionAware.OnConnect(ctx context.Context, session Session) error` method is distinct from the lifecycle `OnConnect(state S, ctx *Context) (S, error)`. The lifecycle version handles state updates on WebSocket connect. The `SessionAware` version provides a `Session` handle for background goroutines that need to trigger actions asynchronously. A controller can implement both.
 
@@ -346,7 +346,8 @@ Maps HTTP requests to user IDs and session groups.
 **BasicAuthenticator**: HTTP Basic Auth with user-provided validation.
 
 > **Security:** Basic Auth transmits credentials in base64 (not encrypted). Always use HTTPS
-> in production. Consider session-based auth for browser-facing applications.
+> in production. The BasicAuthenticator provides **no built-in rate limiting or account lockout**, so you must enforce brute-force protection (for example via a WAF, reverse proxy, or auth service) before using it in production.
+> Consider session-based auth for browser-facing applications.
 
 ```go
 func NewBasicAuthenticator(validateFunc func(username, password string) (bool, error)) *BasicAuthenticator

@@ -310,7 +310,7 @@ BenchmarkTemplateExecuteUpdates/large        180408 ns/op  78625 B/op   752 allo
 
 ### Real-World Examples
 
-From README and benchmark data:
+From benchmark data (Go 1.26, expanded benchmark scope including per-benchmark template setup):
 
 | Operation | Latency | Bandwidth Savings |
 |-----------|---------|-------------------|
@@ -319,7 +319,7 @@ From README and benchmark data:
 | Large Update (5+ fields) | ~65-180µs | 65% vs full render |
 | Range Operations | ~87-193µs | 80% vs full render |
 
-Latency numbers are from Go micro-benchmarks (no network). Wire size savings come from static stripping — updates omit cached `"s"` arrays.
+Latency numbers are from Go micro-benchmarks (no network) and include per-benchmark template setup overhead. Wire size savings come from static stripping — updates omit cached `"s"` arrays. The README shows lower latency ranges (~30-65µs for range ops) which reflect the original Go 1.21 baseline without per-benchmark setup costs.
 
 ### User Journey Performance
 

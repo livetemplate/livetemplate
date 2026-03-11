@@ -379,7 +379,7 @@ ChunkSize: 512 * 1024, // 512KB chunks
 
 - `Accept` validation checks MIME type and extension — ensure both match
 - `MaxFileSize` is in bytes — use `5 << 20` for 5MB, not `5000000`
-- `MaxFiles` limits concurrent uploads per field
+- `MaxEntries` limits concurrent uploads per field
 
 ### Temporary Files Not Cleaned Up
 
@@ -400,16 +400,28 @@ MIME types can be spoofed. For security-critical uploads, validate actual file c
 ```go
 func (c *Controller) SaveAvatar(state State, ctx *livetemplate.Context) (State, error) {
     for _, entry := range ctx.GetCompletedUploads("avatar") {
-        f, _ := os.Open(entry.TempPath)
-        defer f.Close()
-        buf := make([]byte, 512)
-        f.Read(buf)
-        detected := http.DetectContentType(buf)
+        detected, err := detectContentType(entry.TempPath)
+        if err != nil {
+            return state, fmt.Errorf("reading upload: %w", err)
+        }
         if !strings.HasPrefix(detected, "image/") {
             return state, fmt.Errorf("invalid file type: %s", detected)
         }
     }
     return state, nil
+}
+
+func detectContentType(path string) (string, error) {
+    f, err := os.Open(path)
+    if err != nil {
+        return "", err
+    }
+    defer f.Close()
+    buf := make([]byte, 512)
+    if _, err := f.Read(buf); err != nil && err != io.EOF {
+        return "", err
+    }
+    return http.DetectContentType(buf), nil
 }
 ```
 

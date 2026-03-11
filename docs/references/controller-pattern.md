@@ -149,7 +149,7 @@ The `*livetemplate.Context` provides access to action data and HTTP utilities.
 | `GetBool(key)` | `bool` | Get boolean value (false if missing) |
 | `Has(key)` | `bool` | Check if key exists |
 | `Bind(v)` | `error` | Unmarshal action data into a struct |
-| `BindAndValidate(v, validate)` | `error` | Bind + validate using go-playground/validator |
+| `BindAndValidate(v, validate)` | `error` | Bind + validate using `*validator.Validate` from go-playground/validator |
 
 Example:
 
