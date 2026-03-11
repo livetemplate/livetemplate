@@ -310,13 +310,16 @@ BenchmarkTemplateExecuteUpdates/large        180408 ns/op  78625 B/op   752 allo
 
 ### Real-World Examples
 
-From README performance numbers:
+From README and benchmark data:
 
-| Operation | Latency | Bandwidth |
-|-----------|---------|-----------|
-| Initial Render | ~1.2ms | 1782 bytes |
-| First Update | ~120µs | 695 bytes (61% savings) |
-| Second Update | ~120µs | 244 bytes (86% savings) |
+| Operation | Latency | Bandwidth Savings |
+|-----------|---------|-------------------|
+| Initial Render | ~20-65µs | - |
+| Small Update (1-2 fields) | ~18-31µs | 85% vs full render |
+| Large Update (5+ fields) | ~65-180µs | 65% vs full render |
+| Range Operations | ~87-193µs | 80% vs full render |
+
+Latency numbers are from Go micro-benchmarks (no network). Wire size savings come from static stripping — updates omit cached `"s"` arrays.
 
 ### User Journey Performance
 
