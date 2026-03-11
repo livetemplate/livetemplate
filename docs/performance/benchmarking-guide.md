@@ -23,6 +23,8 @@ Comprehensive scenarios in root directory:
 - **Template Operations:** `template_bench_test.go`
 - **User Journeys:** `e2e_bench_test.go`
 - **Tree Operations:** `tree_bench_test.go` (fingerprinting)
+- **Error Handling:** `error_bench_test.go`
+- **Session Operations:** `internal/session/registry_bench_test.go` (async sends, concurrent connections, buffer sizes)
 
 ## Running Benchmarks
 
