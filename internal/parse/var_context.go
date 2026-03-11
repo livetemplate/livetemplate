@@ -265,6 +265,12 @@ func buildTreeFromASTWithVars(node parse.Node, varCtx *varContext, keyGen KeyGen
 		// With block - propagate inherited variables through
 		return handleWithNodeWithVars(n, varCtx, keyGen, ctx)
 
+	case *parse.CommentNode:
+		return NewTreeNode(), nil
+
+	case *parse.TemplateNode:
+		return nil, fmt.Errorf("template invocation found - should be flattened: %s", n.Name)
+
 	default:
 		return nil, fmt.Errorf("unhandled node type in varCtx: %T", n)
 	}
@@ -276,15 +282,32 @@ func buildTreeFromListWithVars(node *parse.ListNode, varCtx *varContext, keyGen 
 		return createEmptyTree(ctx), nil
 	}
 
+	// Check if any child has variable declarations; if so, delegate to the
+	// declaration-aware path which registers variables into varCtx.
+	if listHasVarDeclarations(node) {
+		return buildTreeFromListWithDeclVars(node, varCtx, keyGen, ctx)
+	}
+
 	var statics []string
 	tree := NewTreeNode()
 	dynamicIndex := 0
 	statics = append(statics, "")
 
-	for _, child := range node.Nodes {
+	for i, child := range node.Nodes {
 		childTree, err := buildTreeFromASTWithVars(child, varCtx, keyGen, ctx)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("child node %d (%T): %w", i, child, err)
+		}
+
+		// Handle range comprehension (has Range field)
+		if childTree.HasRange() {
+			if len(node.Nodes) == 1 {
+				return childTree, nil
+			}
+			tree.SetDynamic(fmt.Sprintf("%d", dynamicIndex), childTree)
+			dynamicIndex++
+			statics = append(statics, "")
+			continue
 		}
 
 		// Merge child tree
