@@ -391,13 +391,23 @@ ChunkSize: 512 * 1024, // 512KB chunks
 
 - Verify presigner returns valid URLs with correct expiration
 - Check CORS configuration allows PUT from the client origin
-- S3 keys are sanitized via `filepath.Base()` — nested paths in filenames are stripped
+- S3 keys are sanitized via `filepath.Base()` — forward-slash paths are stripped (note: on Unix, backslash-separated paths like `..\..\..\etc\passwd` are treated as literal filenames)
 
 ### Content Validation
 
 MIME types can be spoofed. For security-critical uploads, validate actual file content:
 
 ```go
+import (
+    "fmt"
+    "io"
+    "net/http"
+    "os"
+    "strings"
+
+    "github.com/livetemplate/livetemplate"
+)
+
 func (c *Controller) SaveAvatar(state State, ctx *livetemplate.Context) (State, error) {
     for _, entry := range ctx.GetCompletedUploads("avatar") {
         detected, err := detectContentType(entry.TempPath)
