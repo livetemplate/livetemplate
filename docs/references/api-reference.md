@@ -272,7 +272,7 @@ Enables server-initiated actions for the current user's connections (all tabs/de
 
 Use cases: timers, background job notifications, webhook-triggered updates.
 
-Within normal request/WebSocket lifecycle handlers, you can access the current connection's session via `ctx.Session()`. For long-lived or background goroutines that outlive a single request, implement the `SessionAware` interface on your controller to receive a `Session` handle via the `OnConnect` callback.
+Session is accessed by implementing the `SessionAware` interface on your controller. The `ctx.Session()` method exists on `*Context` but is not populated by the framework in action handlers — use `SessionAware.OnConnect` to receive a `Session` handle for background goroutines that need to trigger actions asynchronously.
 
 **Note:** The `SessionAware.OnConnect(ctx context.Context, session Session) error` method is distinct from the lifecycle `OnConnect(state S, ctx *Context) (S, error)`. The lifecycle version handles state updates on WebSocket connect. The `SessionAware` version provides a `Session` handle for background goroutines that need to trigger actions asynchronously. A controller can implement both.
 
