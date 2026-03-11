@@ -1,0 +1,54 @@
+bug: $ (root variable) inside {{with}} resolves against narrowed context instead of root data
+
+---
+
+## Description
+
+When using `$` or `$.Field` inside a `{{with}}` block, the root variable resolves against the narrowed `with` context instead of the original root data. This diverges from Go's standard `text/template` behavior where `$` always refers to the root data passed to `Execute()`.
+
+## Reproduction
+
+```go
+tmpl := `{{with .Item}}{{.Name}} from {{$.Title}}{{end}}`
+data := map[string]interface{}{
+    "Title": "root",
+    "Item":  map[string]interface{}{"Name": "child"},
+}
+```
+
+**Expected (stdlib `html/template`):** `child from root`
+**Actual (livetemplate):** `child from ` (empty — `$.Title` resolves against the narrowed `.Item` context which has no `Title` field)
+
+## Root Cause
+
+In `internal/parse/with.go`, `handleWithNode()` (the non-var path) passes the narrowed context as `data` to `buildTreeFromAST`:
+
+```go
+// Line 34 — newContext is the {{with}} value, not the original root data
+return buildTreeFromAST(node.List, newContext, keyGen, ctx)
+```
+
+Go's template engine tracks the root data (`$`) separately from the current dot (`.`). When `$` is used inside a `with` block, it should resolve against the original root, but `handleWithNode` loses the root reference by passing only `newContext`.
+
+The var-aware path (`handleWithNodeWithVars`) handles this correctly by maintaining `varCtx.parent` as the root data. The non-var path has no equivalent mechanism.
+
+## Affected Code
+
+- `internal/parse/with.go:34` — `handleWithNode()` loses root data reference
+- The var-aware path (`handleWithNodeWithVars`, line 63) correctly sets `parent: varCtx.parent`
+
+## Suggested Fix
+
+Pass the original `data` alongside `newContext` so that `$` can resolve against the root. Options:
+
+1. **Always use the var-aware path** for `with` blocks (convert to `varContext` even when no explicit variables exist)
+2. **Thread root data** through the non-var `buildTreeFromAST` call chain so `$` resolves correctly
+3. **Wrap the with body** in a `varContext` with `parent = data` and `dot = newContext` (minimal change)
+
+## Discovered During
+
+Found by the standard library parity tests added in the PR for #176. The test is currently commented out in `internal/parse/stdlib_parity_test.go` with a note referencing this as a pre-existing divergence.
+
+## Impact
+
+Any template using `$.Field` inside a `{{with}}` block without other variable declarations will silently produce empty/wrong values for the root field access. This is a correctness bug — the output diverges from what Go's standard template engine produces.
