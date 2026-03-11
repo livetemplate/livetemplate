@@ -209,7 +209,10 @@ func TestEvaluateActionWithVars_SingleVar(t *testing.T) {
 	varCtx.vars.Set("name", "John")
 	ctx := &Context{}
 
-	result := evaluateActionWithVars("{{$name}}", varCtx, ctx)
+	result, err := evaluateActionWithVars("{{$name}}", varCtx, ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if result != "John" {
 		t.Errorf("Expected 'John', got: %v", result)
 	}
@@ -227,7 +230,10 @@ func TestEvaluateActionWithVars_MultipleVars(t *testing.T) {
 	ctx := &Context{}
 
 	// Template that uses both variables
-	result := evaluateActionWithVars("{{$first}} {{$last}}", varCtx, ctx)
+	result, err := evaluateActionWithVars("{{$first}} {{$last}}", varCtx, ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if result != "John Doe" {
 		t.Errorf("Expected 'John Doe', got: %v", result)
 	}
@@ -242,7 +248,10 @@ func TestEvaluateActionWithVars_RootVar(t *testing.T) {
 	}
 	ctx := &Context{}
 
-	result := evaluateActionWithVars("{{$.Value}}", varCtx, ctx)
+	result, err := evaluateActionWithVars("{{$.Value}}", varCtx, ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if result != "Root" {
 		t.Errorf("Expected 'Root', got: %v", result)
 	}
@@ -312,7 +321,10 @@ func TestEvaluateActionWithVars_EmptyVariableName(t *testing.T) {
 	ctx := &Context{}
 
 	// Should skip empty variable name and use valid one
-	result := evaluateActionWithVars("{{$valid}}", varCtx, ctx)
+	result, err := evaluateActionWithVars("{{$valid}}", varCtx, ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if result != "ValidValue" {
 		t.Errorf("Expected 'ValidValue', got: %v", result)
 	}
@@ -329,7 +341,10 @@ func TestEvaluateActionWithVars_NoVariablesUsed(t *testing.T) {
 	ctx := &Context{}
 
 	// Action doesn't use any variables
-	result := evaluateActionWithVars("{{`static`}}", varCtx, ctx)
+	result, err := evaluateActionWithVars("{{`static`}}", varCtx, ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	// Should return empty string since no variables are used
 	if result != "" {
 		t.Errorf("Expected empty string, got: %v", result)
@@ -346,7 +361,10 @@ func TestEvaluateActionWithVars_SpecialCharacters(t *testing.T) {
 	varCtx.vars.Set("var_name", "UnderscoreValue")
 	ctx := &Context{}
 
-	result := evaluateActionWithVars("{{$var_name}}", varCtx, ctx)
+	result, err := evaluateActionWithVars("{{$var_name}}", varCtx, ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if result != "UnderscoreValue" {
 		t.Errorf("Expected 'UnderscoreValue', got: %v", result)
 	}

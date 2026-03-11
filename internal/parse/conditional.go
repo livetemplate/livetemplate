@@ -3,7 +3,6 @@ package parse
 import (
 	"bytes"
 	"fmt"
-	"reflect"
 	"strings"
 	"text/template/parse"
 )
@@ -63,7 +62,7 @@ func handleIfNodeWithVars(node *parse.IfNode, varCtx *varContext, keyGen KeyGene
 	}
 
 	// Condition uses variables or root - transform it
-	transformedCond, execData, err := transformConditionWithVars(pipeStr, varCtx, usesRoot)
+	transformedCond, execData, err := transformConditionWithVars(pipeStr, varCtx)
 	if err != nil {
 		return nil, err
 	}
@@ -169,94 +168,7 @@ func createEmptyConditionalWrapper(ctx *Context) *TreeNode {
 }
 
 // transformConditionWithVars transforms template variables in a condition to field references.
-// Converts $var to .Var and $. to .RootData. and builds execution data map.
-func transformConditionWithVars(pipeStr string, varCtx *varContext, usesRoot bool) (string, map[string]interface{}, error) {
-	transformedCond := pipeStr
-	execData := make(map[string]interface{})
-
-	// Handle named variables
-	varCtx.vars.Range(func(varName string, varValue interface{}) {
-		if strings.Contains(pipeStr, "$"+varName) {
-			fieldName := capitalizeFieldName(varName)
-			transformedCond = strings.ReplaceAll(transformedCond, "$"+varName, "."+fieldName)
-			execData[fieldName] = varValue
-		}
-	})
-
-	// Handle root variable
-	if usesRoot {
-		transformedCond = strings.ReplaceAll(transformedCond, "$.", ".RootData.")
-		execData["RootData"] = varCtx.parent
-	}
-
-	// Merge current dot context into execData
-	if err := mergeFieldsIntoMap(varCtx.dot, execData); err != nil {
-		return "", nil, fmt.Errorf("failed to merge dot fields: %w", err)
-	}
-
-	return transformedCond, execData, nil
-}
-
-// capitalizeFieldName converts a variable name to a capitalized field name.
-// Examples: "show" -> "Show", "isActive" -> "IsActive", "x" -> "X"
-func capitalizeFieldName(varName string) string {
-	if len(varName) == 0 {
-		return varName
-	}
-	if len(varName) == 1 {
-		return strings.ToUpper(varName)
-	}
-	return strings.ToUpper(varName[:1]) + varName[1:]
-}
-
-// mergeFieldsIntoMap copies all accessible fields from value into the target map.
-// For structs, copies all exported fields. For maps, copies all entries.
-// Skips keys that already exist in target to avoid silent overwrites.
-func mergeFieldsIntoMap(value interface{}, target map[string]interface{}) error {
-	if value == nil {
-		return nil
-	}
-
-	v := reflect.ValueOf(value)
-
-	// Dereference pointers
-	for v.Kind() == reflect.Ptr {
-		if v.IsNil() {
-			return nil
-		}
-		v = v.Elem()
-	}
-
-	switch v.Kind() {
-	case reflect.Map:
-		// Copy all map entries
-		for _, key := range v.MapKeys() {
-			keyStr := fmt.Sprintf("%v", key.Interface())
-			// Don't overwrite existing keys (variables take precedence)
-			if _, exists := target[keyStr]; !exists {
-				target[keyStr] = v.MapIndex(key).Interface()
-			}
-		}
-
-	case reflect.Struct:
-		// Copy all exported struct fields
-		t := v.Type()
-		for i := 0; i < v.NumField(); i++ {
-			field := t.Field(i)
-			// Only copy exported fields (PkgPath is empty for exported fields)
-			if field.PkgPath == "" {
-				fieldValue := v.Field(i)
-				// Don't overwrite existing keys (variables take precedence)
-				if _, exists := target[field.Name]; !exists {
-					target[field.Name] = fieldValue.Interface()
-				}
-			}
-		}
-
-	default:
-		// For primitive types, no fields to merge
-		return nil
-	}
-
-	return nil
+// Delegates to buildExecData for unified variable transformation and dot context merging.
+func transformConditionWithVars(pipeStr string, varCtx *varContext) (string, map[string]interface{}, error) {
+	return buildExecData(pipeStr, varCtx)
 }

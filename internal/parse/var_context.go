@@ -2,6 +2,7 @@ package parse
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"text/template/parse"
@@ -107,6 +108,96 @@ func sortedVarNames(vars *orderedVars) []string {
 	return names
 }
 
+// capitalizeFieldName converts a variable name to a capitalized field name.
+// Uses UTF8-safe rune decoding to correctly handle multi-byte characters.
+// Examples: "show" -> "Show", "isActive" -> "IsActive", "ñame" -> "Ñame"
+func capitalizeFieldName(varName string) string {
+	if len(varName) == 0 {
+		return varName
+	}
+	r, size := utf8.DecodeRuneInString(varName)
+	return string(unicode.ToUpper(r)) + varName[size:]
+}
+
+// mergeFieldsIntoMap copies all accessible fields from value into the target map.
+// For structs, copies all exported fields. For maps, copies all entries.
+// Skips keys that already exist in target to avoid silent overwrites.
+func mergeFieldsIntoMap(value interface{}, target map[string]interface{}) error {
+	if value == nil {
+		return nil
+	}
+
+	v := reflect.ValueOf(value)
+
+	// Dereference pointers
+	for v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return nil
+		}
+		v = v.Elem()
+	}
+
+	switch v.Kind() {
+	case reflect.Map:
+		for _, key := range v.MapKeys() {
+			keyStr := fmt.Sprintf("%v", key.Interface())
+			if _, exists := target[keyStr]; !exists {
+				target[keyStr] = v.MapIndex(key).Interface()
+			}
+		}
+
+	case reflect.Struct:
+		t := v.Type()
+		for i := 0; i < v.NumField(); i++ {
+			field := t.Field(i)
+			if field.PkgPath == "" {
+				fieldValue := v.Field(i)
+				if _, exists := target[field.Name]; !exists {
+					target[field.Name] = fieldValue.Interface()
+				}
+			}
+		}
+
+	default:
+		return nil
+	}
+
+	return nil
+}
+
+// buildExecData constructs the transformed expression string and synthetic execution
+// data map for evaluating a Go template expression containing variable references.
+// It handles:
+//   - UTF8-safe capitalization of variable names ($var -> .Var)
+//   - Descending-length variable name ordering to prevent partial matches ($col before $c)
+//   - Root variable ($. / standalone $) detection and transformation
+//   - Dot context field merging so expressions like {{$c.Method .Type}} work
+func buildExecData(expr string, varCtx *varContext) (string, map[string]interface{}, error) {
+	sortedNames := sortedVarNames(&varCtx.vars)
+	transformedExpr := expr
+	execData := make(map[string]interface{})
+
+	for _, varName := range sortedNames {
+		if strings.Contains(expr, "$"+varName) {
+			fieldName := capitalizeFieldName(varName)
+			transformedExpr = strings.ReplaceAll(transformedExpr, "$"+varName, "."+fieldName)
+			varValue, _ := varCtx.vars.Get(varName)
+			execData[fieldName] = varValue
+		}
+	}
+
+	if detectsRootVariable(expr, varCtx.vars) {
+		transformedExpr = strings.ReplaceAll(transformedExpr, "$.", ".RootData.")
+		execData["RootData"] = varCtx.parent
+	}
+
+	if err := mergeFieldsIntoMap(varCtx.dot, execData); err != nil {
+		return "", nil, fmt.Errorf("failed to merge dot fields: %w", err)
+	}
+
+	return transformedExpr, execData, nil
+}
+
 // transformAndEvalWithVars evaluates an expression that may contain variable references.
 // It transforms $varName.Field into .VarName.Field with a synthetic data map,
 // then evaluates via evaluatePipeWithCache. If no variables are referenced, it
@@ -122,21 +213,15 @@ func transformAndEvalWithVars(expr string, varCtx *varContext, ctx *Context) (in
 			break
 		}
 	}
+	usesRoot := detectsRootVariable(expr, varCtx.vars)
 
-	if !usesVar {
+	if !usesVar && !usesRoot {
 		return evaluatePipeWithCache(ctx.TemplateName, expr, varCtx.dot, ctx)
 	}
 
-	transformedExpr := expr
-	execData := make(map[string]interface{})
-	for _, varName := range sortedNames {
-		if strings.Contains(expr, "$"+varName) {
-			r, size := utf8.DecodeRuneInString(varName)
-			fieldName := string(unicode.ToUpper(r)) + varName[size:]
-			transformedExpr = strings.ReplaceAll(transformedExpr, "$"+varName, "."+fieldName)
-			varValue, _ := varCtx.vars.Get(varName)
-			execData[fieldName] = varValue
-		}
+	transformedExpr, execData, err := buildExecData(expr, varCtx)
+	if err != nil {
+		return nil, err
 	}
 	return evaluatePipeWithCache(ctx.TemplateName, transformedExpr, execData, ctx)
 }
