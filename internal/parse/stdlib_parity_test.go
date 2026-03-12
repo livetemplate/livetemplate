@@ -10,6 +10,9 @@ import (
 
 // treeToHTML reconstructs HTML from a TreeNode by interleaving statics and dynamics.
 // This is a test helper that mirrors the render package's logic.
+// NOTE: This helper does not handle RangeData (tree.Range). Any parity test
+// involving {{range}} will produce incomplete HTML from the LVT side.
+// Range tests should use BuildTree output directly or a dedicated range helper.
 func treeToHTML(tree *TreeNode) string {
 	if tree == nil {
 		return ""
@@ -246,6 +249,21 @@ func TestStdlibParity_WithBlocks(t *testing.T) {
 				"Item":  map[string]interface{}{"Name": "child"},
 			},
 		},
+		{
+			name: "with nil value",
+			tmpl: "<div>{{with .Item}}{{.Name}}{{end}}</div>",
+			data: map[string]interface{}{"Item": nil},
+		},
+		{
+			name: "with nil and else",
+			tmpl: "{{with .Item}}{{.Name}}{{else}}nothing{{end}}",
+			data: map[string]interface{}{"Item": nil},
+		},
+		{
+			name: "with empty string",
+			tmpl: "{{with .Val}}got {{.}}{{else}}empty{{end}}",
+			data: map[string]interface{}{"Val": ""},
+		},
 	}
 
 	for _, tt := range tests {
@@ -302,6 +320,95 @@ func TestStdlibParity_ConditionWithFields(t *testing.T) {
 
 			if stdlib != lvt {
 				t.Errorf("output mismatch:\n  stdlib: %q\n  lvt:    %q", stdlib, lvt)
+			}
+		})
+	}
+}
+
+// TestStdlibParity_RangeVarWithDotField tests that range bodies accessing both
+// declared variables ($index) and dot fields (.Name) produce the same output as
+// the standard library. This is the primary regression scenario from the PR:
+// $index was not being resolved in pipe expressions.
+// Uses BuildTree + direct dynamic inspection because treeToHTML does not handle RangeData.
+func TestStdlibParity_RangeVarWithDotField(t *testing.T) {
+	type Item struct {
+		Name string
+	}
+
+	tests := []struct {
+		name    string
+		tmpl    string
+		data    interface{}
+		wantStd string
+	}{
+		{
+			name: "index with printf and dot field",
+			tmpl: `{{range $i, $v := .Items}}#{{$i}}:{{$v.Name}} {{end}}`,
+			data: map[string]interface{}{
+				"Items": []Item{{Name: "a"}, {Name: "b"}},
+			},
+			wantStd: "#0:a #1:b ",
+		},
+		{
+			name: "index piped to printf",
+			tmpl: `{{range $i, $v := .Items}}{{$i | printf "#%d"}}={{.Name}} {{end}}`,
+			data: map[string]interface{}{
+				"Items": []Item{{Name: "x"}, {Name: "y"}, {Name: "z"}},
+			},
+			wantStd: "#0=x #1=y #2=z ",
+		},
+		{
+			name: "var and dot field in same expression",
+			tmpl: `{{range $i, $v := .Items}}{{printf "%d-%s" $i .Name}} {{end}}`,
+			data: map[string]interface{}{
+				"Items": []Item{{Name: "foo"}, {Name: "bar"}},
+			},
+			wantStd: "0-foo 1-bar ",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Verify stdlib produces expected output
+			stdlib := stdlibRender(t, tt.tmpl, tt.data, nil)
+			if stdlib != tt.wantStd {
+				t.Fatalf("stdlib output %q does not match expected %q", stdlib, tt.wantStd)
+			}
+
+			// Build LVT tree and extract range item dynamics to reconstruct output
+			tmpl, err := Parse(tt.tmpl, nil)
+			if err != nil {
+				t.Fatalf("parse failed: %v", err)
+			}
+			ctx := &Context{IncludeStatics: true}
+			tree, err := BuildTree(tmpl, tt.data, newMockKeyGen(), ctx)
+			if err != nil {
+				t.Fatalf("BuildTree failed: %v", err)
+			}
+
+			// The range produces a tree with Range data containing items.
+			// Each item is a *TreeNode with dynamics only (statics are shared).
+			// Reconstruct output using the shared statics + per-item dynamics.
+			if tree.Range == nil {
+				t.Fatal("expected tree to have Range data")
+			}
+
+			var lvtOutput strings.Builder
+			for _, item := range tree.Range.Items {
+				itemTree, ok := item.(*TreeNode)
+				if !ok {
+					t.Fatalf("range item is %T, want *TreeNode", item)
+				}
+				// Reconstruct with shared range statics
+				itemWithStatics := &TreeNode{
+					Statics:  tree.Range.Statics,
+					Dynamics: itemTree.Dynamics,
+				}
+				lvtOutput.WriteString(treeToHTML(itemWithStatics))
+			}
+
+			if lvtOutput.String() != stdlib {
+				t.Errorf("output mismatch:\n  stdlib: %q\n  lvt:    %q", stdlib, lvtOutput.String())
 			}
 		})
 	}
