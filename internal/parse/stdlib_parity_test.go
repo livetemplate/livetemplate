@@ -8,12 +8,12 @@ import (
 	"testing"
 )
 
-// treeToHTML reconstructs HTML from a TreeNode by interleaving statics and dynamics.
+// flatTreeToHTML reconstructs HTML from a TreeNode by interleaving statics and dynamics.
 // This is a test helper that mirrors the render package's logic.
 // NOTE: This helper does not handle RangeData (tree.Range). Any parity test
 // involving {{range}} will produce incomplete HTML from the LVT side.
 // Range tests should use BuildTree output directly or a dedicated range helper.
-func treeToHTML(tree *TreeNode) string {
+func flatTreeToHTML(tree *TreeNode) string {
 	if tree == nil {
 		return ""
 	}
@@ -28,7 +28,7 @@ func treeToHTML(tree *TreeNode) string {
 				case string:
 					result.WriteString(v)
 				case *TreeNode:
-					result.WriteString(treeToHTML(v))
+					result.WriteString(flatTreeToHTML(v))
 				default:
 					fmt.Fprintf(&result, "%v", v)
 				}
@@ -68,7 +68,7 @@ func lvtRender(t *testing.T, tmplStr string, data interface{}, funcMap template.
 	if err != nil {
 		t.Fatalf("livetemplate BuildTree failed: %v", err)
 	}
-	return treeToHTML(tree)
+	return flatTreeToHTML(tree)
 }
 
 // TestStdlibParity_SimpleFields tests that simple field access produces identical output.
@@ -329,7 +329,7 @@ func TestStdlibParity_ConditionWithFields(t *testing.T) {
 // declared variables ($index) and dot fields (.Name) produce the same output as
 // the standard library. This is the primary regression scenario from the PR:
 // $index was not being resolved in pipe expressions.
-// Uses BuildTree + direct dynamic inspection because treeToHTML does not handle RangeData.
+// Uses BuildTree + direct dynamic inspection because flatTreeToHTML does not handle RangeData.
 func TestStdlibParity_RangeVarWithDotField(t *testing.T) {
 	type Item struct {
 		Name string
@@ -404,7 +404,7 @@ func TestStdlibParity_RangeVarWithDotField(t *testing.T) {
 					Statics:  tree.Range.Statics,
 					Dynamics: itemTree.Dynamics,
 				}
-				lvtOutput.WriteString(treeToHTML(itemWithStatics))
+				lvtOutput.WriteString(flatTreeToHTML(itemWithStatics))
 			}
 
 			if lvtOutput.String() != stdlib {

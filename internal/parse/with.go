@@ -32,6 +32,8 @@ func handleWithNode(node *parse.WithNode, data interface{}, keyGen KeyGenerator,
 
 	// Execute body with new context, using var-aware path so that $ (root variable)
 	// resolves to the original data, not the narrowed with context.
+	// Precondition: template invocations ({{template "name" .}}) inside with blocks
+	// must be flattened before reaching this point (see FlattenTemplate in flatten.go).
 	bodyVarCtx := &varContext{
 		parent: data,
 		vars:   newOrderedVars(),

@@ -192,9 +192,11 @@ func buildExecData(expr string, varCtx *varContext) (string, map[string]interfac
 	}
 
 	// Merge dot fields so mixed-context expressions (e.g. {{$c.Method .Type}}) work.
-	// This involves reflection; kept minimal by the caller's hasVars guard.
-	if err := mergeFieldsIntoMap(varCtx.dot, execData); err != nil {
-		return "", nil, fmt.Errorf("failed to merge dot fields: %w", err)
+	// Skip when dot is nil to avoid unnecessary reflection.
+	if varCtx.dot != nil {
+		if err := mergeFieldsIntoMap(varCtx.dot, execData); err != nil {
+			return "", nil, fmt.Errorf("failed to merge dot fields: %w", err)
+		}
 	}
 
 	return transformedExpr, execData, nil
