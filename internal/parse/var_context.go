@@ -187,6 +187,8 @@ func buildExecData(expr string, varCtx *varContext) (string, map[string]interfac
 	}
 
 	if detectsRootVariable(expr, varCtx.vars) {
+		// NOTE: "RootData" is a reserved synthetic key. If template data has a field
+		// named "RootData", it will be shadowed by the root variable substitution.
 		transformedExpr = strings.ReplaceAll(transformedExpr, "$.", ".RootData.")
 		execData["RootData"] = varCtx.parent
 	}

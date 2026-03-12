@@ -57,6 +57,8 @@ func stdlibRender(t *testing.T, tmplStr string, data interface{}, funcMap templa
 }
 
 // lvtRender builds a tree using livetemplate's parse engine and reconstructs HTML.
+// For templates producing range output, use TestStdlibParity_RangeVarWithDotField
+// pattern instead (inspect tree.Range directly).
 func lvtRender(t *testing.T, tmplStr string, data interface{}, funcMap template.FuncMap) string {
 	t.Helper()
 	tmpl, err := Parse(tmplStr, funcMap)
@@ -67,6 +69,9 @@ func lvtRender(t *testing.T, tmplStr string, data interface{}, funcMap template.
 	tree, err := BuildTree(tmpl, data, newMockKeyGen(), ctx)
 	if err != nil {
 		t.Fatalf("livetemplate BuildTree failed: %v", err)
+	}
+	if tree.Range != nil {
+		t.Fatal("lvtRender does not handle range output; use direct tree.Range inspection instead")
 	}
 	return flatTreeToHTML(tree)
 }
