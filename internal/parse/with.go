@@ -30,8 +30,16 @@ func handleWithNode(node *parse.WithNode, data interface{}, keyGen KeyGenerator,
 		return NewTreeNode(), nil
 	}
 
-	// Execute body with new context
-	return buildTreeFromAST(node.List, newContext, keyGen, ctx)
+	// Execute body with new context, using var-aware path so that $ (root variable)
+	// resolves to the original data, not the narrowed with context.
+	// Precondition: template invocations ({{template "name" .}}) inside with blocks
+	// must be flattened before reaching this point (see FlattenTemplate in flatten.go).
+	bodyVarCtx := &varContext{
+		parent: data,
+		vars:   newOrderedVars(),
+		dot:    newContext,
+	}
+	return buildTreeFromASTWithVars(node.List, bodyVarCtx, keyGen, ctx)
 }
 
 // handleWithNodeWithVars processes {{with}}...{{end}} constructs while propagating

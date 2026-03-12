@@ -71,68 +71,38 @@ func handleActionNodeWithVars(node *parse.ActionNode, varCtx *varContext, keyGen
 	}
 
 	// Has variables - evaluate with variable context
-	result := evaluateActionWithVars(nodeStr, varCtx, ctx)
+	result, err := evaluateActionWithVars(nodeStr, varCtx, ctx)
+	if err != nil {
+		return nil, fmt.Errorf("action with vars error: %w", err)
+	}
 	return createSingleDynamicTree(result, ctx), nil
 }
 
 // evaluateActionWithVars evaluates an action string that contains variable references.
-func evaluateActionWithVars(actionStr string, varCtx *varContext, ctx *Context) string {
-	// Check if the action uses the root $ variable
-	usesRootVar := detectsRootVariable(actionStr, varCtx.vars)
-
-	// Identify which variables are used in the action
-	// Build search patterns once to avoid repeated string concatenation
-	usedVars := newOrderedVars()
-	varCtx.vars.Range(func(varName string, varValue interface{}) {
-		// Search for $varName pattern
-		searchPattern := "$" + varName
-		if strings.Contains(actionStr, searchPattern) {
-			usedVars.Set(varName, varValue)
-		}
-	})
-
-	// If we have no variables and don't use root, shouldn't happen but handle gracefully
-	if usedVars.Len() == 0 && !usesRootVar {
-		return ""
+func evaluateActionWithVars(actionStr string, varCtx *varContext, ctx *Context) (string, error) {
+	transformedAction, execData, err := buildExecData(actionStr, varCtx)
+	if err != nil {
+		return "", fmt.Errorf("action var transform error: %w", err)
 	}
 
-	// Transform the action string to replace variable references with field accesses
-	transformedAction := actionStr
-
-	// Build exec data map
-	execData := make(map[string]interface{})
-
-	// Handle named variables ($index, $todo, etc.)
-	usedVars.Range(func(varName string, varValue interface{}) {
-		// Validate variable name is not empty
-		if len(varName) == 0 {
-			return
-		}
-		// Capitalize first letter for field access
-		fieldName := strings.ToUpper(varName[:1]) + varName[1:]
-		transformedAction = strings.ReplaceAll(transformedAction, "$"+varName, "."+fieldName)
-		execData[fieldName] = varValue
-	})
-
-	// Handle root variable ($. or standalone $)
-	if usesRootVar {
-		transformedAction = strings.ReplaceAll(transformedAction, "$.", ".RootData.")
-		execData["RootData"] = varCtx.parent
+	// Defensive guard: should not happen since the caller detected a VariableNode,
+	// but if buildExecData couldn't match any variables and dot is nil, execData
+	// will be empty — return empty string rather than executing with no data.
+	if len(execData) == 0 {
+		return "", nil
 	}
 
-	// Execute the wrapper template
-	// Use cached template parsing to avoid repeated Parse() calls
 	tmpl, err := getOrParseASTTemplate("varaction:"+transformedAction, transformedAction, ctx)
 	if err != nil {
-		return fmt.Sprintf("ERROR: %v", err)
+		return "", fmt.Errorf("action parse error (transformed: %s): %w", transformedAction, err)
 	}
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, execData); err != nil {
-		return fmt.Sprintf("ERROR: %v", err)
+		return "", fmt.Errorf("action execute error (transformed: %s): %w", transformedAction, err)
 	}
 
-	return buf.String()
+	return buf.String(), nil
 }
 
 // detectsRootVariable checks if an action string uses the $ root variable.

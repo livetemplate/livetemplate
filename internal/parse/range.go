@@ -329,11 +329,10 @@ func buildRangeTreeWithStatics(items []rangeItemWithStatics, ctx *Context) (*Tre
 
 // executeRangeBodyWithVars executes a range body with variable declarations.
 // The indexOrKey parameter is either an int (for slices/arrays) or the key (for maps).
-// Note: Variables are stored WITH the $ prefix (e.g., "$i") to preserve backward
-// compatibility. The evaluateActionWithVars function builds patterns as "$" + varName,
-// so "$" + "$i" = "$$i" which intentionally does NOT match {{$i}} in templates.
-// This means range variables are resolved through Go's template engine, not through
-// variable substitution. Only the inherited-vars path strips $ for proper resolution.
+// Variables are stored WITHOUT the $ prefix: Go's parser stores "$v" but
+// buildExecData builds search patterns as "$" + varName, so vars must be
+// stored without $ for proper resolution (e.g., "index" so that "$"+"index"
+// matches {{$index}} in templates).
 func executeRangeBodyWithVars(node *parse.RangeNode, indexOrKey interface{}, item interface{}, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	// Create a variable context
 	varCtx := &varContext{
@@ -342,15 +341,17 @@ func executeRangeBodyWithVars(node *parse.RangeNode, indexOrKey interface{}, ite
 		dot:    item,
 	}
 
-	// Populate variables from declarations (keep $ prefix for backward compatibility)
+	// Populate variables from range declarations.
+	// Strip $ prefix: Go's parser stores "$v" but evaluateActionWithVars
+	// builds search patterns as "$" + varName, so vars must be stored without $.
 	if len(node.Pipe.Decl) == 1 {
 		// {{range $v := ...}} - single variable (value)
-		varName := node.Pipe.Decl[0].Ident[0]
+		varName := strings.TrimPrefix(node.Pipe.Decl[0].Ident[0], "$")
 		varCtx.vars.Set(varName, item)
 	} else if len(node.Pipe.Decl) >= 2 {
 		// {{range $i, $v := ...}} or {{range $k, $v := ...}}
-		indexKeyVar := node.Pipe.Decl[0].Ident[0]
-		valueVar := node.Pipe.Decl[1].Ident[0]
+		indexKeyVar := strings.TrimPrefix(node.Pipe.Decl[0].Ident[0], "$")
+		valueVar := strings.TrimPrefix(node.Pipe.Decl[1].Ident[0], "$")
 		varCtx.vars.Set(indexKeyVar, indexOrKey)
 		varCtx.vars.Set(valueVar, item)
 	}
