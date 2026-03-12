@@ -13,6 +13,8 @@ import (
 // NOTE: This helper does not handle RangeData (tree.Range). Any parity test
 // involving {{range}} will produce incomplete HTML from the LVT side.
 // Range tests should use BuildTree output directly or a dedicated range helper.
+// This mirrors the static/dynamic interleaving in internal/render.TreeToHTML;
+// keep in sync if the tree format changes.
 func flatTreeToHTML(tree *TreeNode) string {
 	if tree == nil {
 		return ""
