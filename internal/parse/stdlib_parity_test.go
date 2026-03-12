@@ -27,7 +27,7 @@ func treeToHTML(tree *TreeNode) string {
 				case *TreeNode:
 					result.WriteString(treeToHTML(v))
 				default:
-					result.WriteString(fmt.Sprintf("%v", v))
+					fmt.Fprintf(&result, "%v", v)
 				}
 			}
 		}
@@ -179,7 +179,7 @@ func TestStdlibParity_Conditionals(t *testing.T) {
 func TestStdlibParity_Pipelines(t *testing.T) {
 	funcs := template.FuncMap{
 		"upper": strings.ToUpper,
-		"add": func(a, b int) int { return a + b },
+		"add":   func(a, b int) int { return a + b },
 	}
 
 	tests := []struct {
