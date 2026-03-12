@@ -85,6 +85,10 @@ func evaluateActionWithVars(actionStr string, varCtx *varContext, ctx *Context) 
 		return "", fmt.Errorf("action var transform error: %w", err)
 	}
 
+	// Guard: if no variables, root refs, or dot fields were added to execData,
+	// there's nothing to execute against. This can only happen if the caller
+	// (handleActionNodeWithVars) incorrectly detected a VariableNode that
+	// buildExecData couldn't match — a defensive fallback, not a normal path.
 	if len(execData) == 0 {
 		return "", nil
 	}

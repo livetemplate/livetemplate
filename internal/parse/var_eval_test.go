@@ -252,15 +252,19 @@ func TestBuildExecData_NoVarsNoRoot(t *testing.T) {
 	}
 }
 
-// TestBuildExecData_RangeVarPrefixConvention tests that the range variable prefix
-// convention is preserved: vars stored with "$" prefix are NOT matched.
-func TestBuildExecData_RangeVarPrefixConvention(t *testing.T) {
+// TestBuildExecData_DollarPrefixedVarNotMatched tests that if a variable is
+// accidentally stored WITH a "$" prefix (e.g., "$v" instead of "v"),
+// buildExecData will NOT match it — because the search pattern becomes
+// "$" + "$v" = "$$v", which doesn't appear in "{{$v}}".
+// This is a defensive test: executeRangeBodyWithVars strips the $ prefix,
+// so this scenario should not arise in normal usage.
+func TestBuildExecData_DollarPrefixedVarNotMatched(t *testing.T) {
 	varCtx := &varContext{
 		parent: map[string]interface{}{},
 		vars:   newOrderedVars(),
 		dot:    map[string]interface{}{},
 	}
-	// Stored with $ prefix (as executeRangeBodyWithVars does)
+	// Deliberately store with $ prefix (the wrong way) to verify defensive behavior
 	varCtx.vars.Set("$v", "value")
 
 	transformed, execData, err := buildExecData("{{$v}}", varCtx)
@@ -269,7 +273,6 @@ func TestBuildExecData_RangeVarPrefixConvention(t *testing.T) {
 	}
 
 	// "$v" stored with $ means search pattern is "$$v" which won't match "{{$v}}"
-	// So the expression should remain unchanged and execData should not have "$v" mapped
 	if _, ok := execData["$V"]; ok {
 		t.Error("execData should NOT contain key for $-prefixed var (would match $$v)")
 	}

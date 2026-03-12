@@ -62,7 +62,7 @@ func handleIfNodeWithVars(node *parse.IfNode, varCtx *varContext, keyGen KeyGene
 	}
 
 	// Condition uses variables or root - transform it
-	transformedCond, execData, err := transformConditionWithVars(pipeStr, varCtx)
+	transformedCond, execData, err := buildExecData(pipeStr, varCtx)
 	if err != nil {
 		return nil, err
 	}
@@ -165,10 +165,4 @@ func createEmptyConditionalWrapper(ctx *Context) *TreeNode {
 	}
 	tree.SetDynamic("0", "")
 	return tree
-}
-
-// transformConditionWithVars transforms template variables in a condition to field references.
-// Delegates to buildExecData for unified variable transformation and dot context merging.
-func transformConditionWithVars(pipeStr string, varCtx *varContext) (string, map[string]interface{}, error) {
-	return buildExecData(pipeStr, varCtx)
 }
