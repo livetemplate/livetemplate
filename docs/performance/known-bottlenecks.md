@@ -6,9 +6,8 @@
 **Architecture:** arm64 (Apple M2)
 
 > **Note:** The CPU and memory profiles (pprof output) below are from the original 2025-11-10 session
-> on Go 1.25.3. Function names have been updated to reflect the current codebase (e.g.,
-> `calculateFingerprintOld` → `CalculateStructureFingerprint`). Benchmark numbers throughout
-> have been updated to Go 1.26.0 results.
+> on Go 1.25.3. Function names have been updated to reflect the current codebase.
+> Benchmark numbers throughout have been updated to Go 1.26.0 results.
 
 ## Profiling Methodology
 
@@ -118,17 +117,17 @@ Dropped 593 nodes (cum <= 297.59MB)
 **Initial Render (simple template):**
 - Total allocations: ~245 allocs/op
 - Bytes allocated: ~29 KB/op
-- Example: BenchmarkTemplateConcurrent/goroutines-1-8 (73773 ns/op, 29304 B/op, 245 allocs/op)
+- Example: BenchmarkTemplateConcurrent/goroutines-1-8 (74338 ns/op, 29305 B/op, 245 allocs/op)
 
 **Small Update:**
 - Total allocations: ~229 allocs/op
 - Bytes allocated: ~28 KB/op
-- Example: BenchmarkTemplateExecuteUpdates/small-update-8 (82313 ns/op, 28320 B/op, 229 allocs/op)
+- Example: BenchmarkTemplateExecuteUpdates/small-update-8 (38554 ns/op, 28320 B/op, 229 allocs/op)
 
 **Large Update:**
 - Total allocations: ~752 allocs/op
 - Bytes allocated: ~79 KB/op
-- Example: BenchmarkTemplateExecuteUpdates/large-update-8 (180408 ns/op, 78625 B/op, 752 allocs/op)
+- Example: BenchmarkTemplateExecuteUpdates/large-update-8 (233551 ns/op, 78625 B/op, 752 allocs/op)
 
 **Range Operations:**
 - Add items: 844 allocs/op, 85 KB/op
@@ -139,7 +138,7 @@ Dropped 593 nodes (cum <= 297.59MB)
 **Complex User Journey (E2E):**
 - Total allocations: ~23,652 allocs/op
 - Bytes allocated: ~2.9 MB/op
-- Example: BenchmarkE2EUserJourney-8 (5639997 ns/op, 2919203 B/op, 23652 allocs/op)
+- Example: BenchmarkE2EUserJourney-8 (4250095 ns/op, 2919203 B/op, 23652 allocs/op)
 
 ### Cache Memory Usage
 
