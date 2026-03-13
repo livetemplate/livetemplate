@@ -114,10 +114,15 @@ Dropped 593 nodes (cum <= 297.59MB)
 
 ### Allocations per Operation
 
-**Initial Render (simple template):**
+**Initial Render (includes template parsing, one-time cost):**
+- Total allocations: ~3,979 allocs/op
+- Bytes allocated: ~429 KB/op
+- Example: BenchmarkTemplateExecute/initial-render-8 (1768635 ns/op, 429488 B/op, 3979 allocs/op)
+
+**Subsequent Render (per-session, reuses parsed template):**
 - Total allocations: ~245 allocs/op
 - Bytes allocated: ~29 KB/op
-- Example: BenchmarkTemplateConcurrent/goroutines-1-8 (74338 ns/op, 29305 B/op, 245 allocs/op)
+- Example: BenchmarkTemplateExecute/subsequent-render-8 (41262 ns/op, 29304 B/op, 245 allocs/op)
 
 **Small Update:**
 - Total allocations: ~229 allocs/op

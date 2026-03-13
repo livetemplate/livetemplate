@@ -1,10 +1,10 @@
 # LiveTemplate Performance Characteristics
 
 > **Benchmark Environment:** Go 1.26.0, arm64 (Apple M2). Numbers updated March 2026.
-> Absolute timings are higher than the November 2025 baseline due to expanded benchmark
-> scope (per-benchmark template setup costs, Controller+State cloning overhead). Allocation
-> counts and memory-per-operation remain comparable. Relative performance characteristics
-> (O(n) scaling, phase ratios) are unchanged.
+> These are single-run results (`make bench-save`); ns/op timings vary between runs due to
+> system load and scheduling. Allocation counts (B/op, allocs/op) are deterministic and
+> remain comparable across runs. For statistically confident comparisons, use `make bench-10x`
+> with benchstat.
 
 ## Architectural Overview
 
@@ -250,7 +250,7 @@ BenchmarkSerializeUpdate              3729 ns/op    648 B/op     10 allocs/op
 ### Key Findings
 
 - WebSocket parsing 4.0x faster than HTTP (927ns vs 3714ns)
-- Serialization overhead minimal (~3.7µs)
+- Serialization: ~3.7µs per update (648 B/op, 10 allocs/op)
 - Low allocation counts across all operations
 
 ### Async WebSocket Sends
@@ -284,6 +284,8 @@ BenchmarkConcurrentRegistrations   5131 ns/op     1245 B/op    11 allocs/op
 - Group lookup is fast (~418ns) with dual indexing by groupID and userID
 - Register/unregister cycle: ~3.4µs
 - Broadcast to 100-connection group: ~41µs (~410ns per connection)
+
+**Note:** `BenchmarkConcurrentConnections`, `BenchmarkAsyncSendThroughput`, `BenchmarkConcurrentSend`, and `BenchmarkBufferSizes` are omitted from the baseline — they use mock WebSocket connections that don't drain their read side, causing intermittent "client too slow" failures. These benchmarks need a mock that consumes messages to produce reliable results.
 
 ## End-to-End Performance
 
@@ -366,7 +368,7 @@ Tree operations scale with data size:
 - **100 items:** 1.3ms (10x data, ~17x time)
 - **1000 items:** 8.1ms (100x data, ~104x time)
 
-Confirms O(n) complexity.
+Scaling is roughly linear with fixed overhead — allocation counts scale at O(n) (1197 → 11736 → 117113 allocs/op for 10x data steps), confirming the algorithm is linear, while timing includes per-iteration fixed costs that inflate the apparent ratio at smaller sizes.
 
 ### Concurrent Session Scaling
 
@@ -376,7 +378,7 @@ BenchmarkTemplateConcurrent/goroutines-10     67784 ns/op   29307 B/op   245 all
 BenchmarkTemplateConcurrent/goroutines-100    58917 ns/op   29310 B/op   245 allocs/op
 ```
 
-Performance per session remains constant under concurrency.
+Per-session allocations remain constant under concurrency (245 allocs/op regardless of goroutine count). Wall-clock time per operation improves with parallelism due to CPU utilization.
 
 ## Memory Usage
 
