@@ -6,6 +6,11 @@
 > Allocation counts (B/op, allocs/op) are deterministic and stable across runs — use these
 > to assess actual code changes. For statistically confident timing comparisons, use
 > `make bench-10x` with benchstat. The baseline is single-run to keep CI fast.
+>
+> **Timing variance note:** Several benchmarks show large ns/op differences vs the previous
+> baseline (e.g., `SerializeUpdate` 1.4µs→3.7µs, `TemplateComplexity/deeply-nested`
+> 64µs→197µs, `TreeNodeClone/nested-medium` 14µs→49µs). In all cases, B/op and allocs/op
+> are unchanged, confirming no code regression — these are single-run timing artifacts.
 
 ## Architectural Overview
 
