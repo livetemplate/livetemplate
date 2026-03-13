@@ -1,10 +1,11 @@
 # LiveTemplate Performance Characteristics
 
 > **Benchmark Environment:** Go 1.26.0, arm64 (Apple M2). Numbers updated March 2026.
-> These are single-run results (`make bench-save`); ns/op timings vary between runs due to
-> system load and scheduling. Allocation counts (B/op, allocs/op) are deterministic and
-> remain comparable across runs. For statistically confident comparisons, use `make bench-10x`
-> with benchstat.
+> These are single-run results (`make bench-save`); ns/op timings can vary significantly
+> between runs (2-4x swings observed) due to system load, thermal throttling, and GC timing.
+> Allocation counts (B/op, allocs/op) are deterministic and stable across runs — use these
+> to assess actual code changes. For statistically confident timing comparisons, use
+> `make bench-10x` with benchstat. The baseline is single-run to keep CI fast.
 
 ## Architectural Overview
 
