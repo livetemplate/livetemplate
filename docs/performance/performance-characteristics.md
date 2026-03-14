@@ -13,8 +13,9 @@
 > code changes, not benchmark restructuring). Several benchmarks show large ns/op differences
 > with *unchanged* allocs (e.g., `SerializeUpdate` 1.4µs→3.7µs, `Template_ExecuteUpdates`
 > 41µs→93µs, `TemplateComplexity/deeply-nested` 64µs→197µs, `TreeNodeClone/nested-medium`
-> 14µs→49µs, `BroadcastToGroup` 28µs→41µs, `BuildTreeScale/medium-100` 874µs→1.3ms,
-> `TemplateExecuteUpdates/large-update` 180µs→234µs) — these are single-run timing
+> 14µs→49µs, `TreeNodeCreation/flat` 623ns→1228ns, `BroadcastToGroup` 28µs→41µs,
+> `BuildTreeScale/medium-100` 874µs→1.3ms, `TemplateExecuteUpdates/large-update`
+> 180µs→234µs) — these are single-run timing
 > artifacts, not code regressions.
 
 ## Architectural Overview
@@ -261,7 +262,7 @@ BenchmarkSerializeUpdate              3729 ns/op    648 B/op     10 allocs/op
 ### Key Findings
 
 - WebSocket parsing 4.0x faster than HTTP (927ns vs 3714ns)
-- Serialization: ~3.7µs per update (648 B/op, 10 allocs/op)
+- Serialization: ~3.7µs per update in this single-run baseline (648 B/op, 10 allocs/op); previous baseline showed ~1.4µs — use `make bench-10x` for stable timing
 - Low allocation counts across all operations
 
 ### Async WebSocket Sends
