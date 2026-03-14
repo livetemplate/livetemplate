@@ -7,10 +7,13 @@
 > to assess actual code changes. For statistically confident timing comparisons, use
 > `make bench-10x` with benchstat. The baseline is single-run to keep CI fast.
 >
-> **Timing variance note:** Several benchmarks show large ns/op differences vs the previous
-> baseline (e.g., `SerializeUpdate` 1.4µs→3.7µs, `TemplateComplexity/deeply-nested`
-> 64µs→197µs, `TreeNodeClone/nested-medium` 14µs→49µs). In all cases, B/op and allocs/op
-> are unchanged, confirming no code regression — these are single-run timing artifacts.
+> **Baseline change notes:** The previous baseline was from November 2025. Code changes since
+> then (Controller+State pattern, async WebSocket, etc.) explain allocation differences in
+> benchmarks like `TemplateExecute/initial-render` (26K→4K allocs — real improvement from
+> code changes, not benchmark restructuring). Several benchmarks show large ns/op differences
+> with *unchanged* allocs (e.g., `SerializeUpdate` 1.4µs→3.7µs, `Template_ExecuteUpdates`
+> 41µs→93µs, `TemplateComplexity/deeply-nested` 64µs→197µs, `TreeNodeClone/nested-medium`
+> 14µs→49µs) — these are single-run timing artifacts, not code regressions.
 
 ## Architectural Overview
 
@@ -362,7 +365,7 @@ HTTP POST handlers now cache templates per session group using `sync.Map`, enabl
 Performance scales linearly with template complexity:
 
 - **Simple fields:** ~89µs per render
-- **Conditionals:** ~117µs per render (optimized early-exit)
+- **Conditionals:** ~117µs per render
 - **Ranges:** ~137µs per render (large update)
 - **Nested:** ~197µs per render
 
