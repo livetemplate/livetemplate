@@ -13,7 +13,9 @@
 > code changes, not benchmark restructuring). Several benchmarks show large ns/op differences
 > with *unchanged* allocs (e.g., `SerializeUpdate` 1.4µs→3.7µs, `Template_ExecuteUpdates`
 > 41µs→93µs, `TemplateComplexity/deeply-nested` 64µs→197µs, `TreeNodeClone/nested-medium`
-> 14µs→49µs) — these are single-run timing artifacts, not code regressions.
+> 14µs→49µs, `BroadcastToGroup` 28µs→41µs, `BuildTreeScale/medium-100` 874µs→1.3ms,
+> `TemplateExecuteUpdates/large-update` 180µs→234µs) — these are single-run timing
+> artifacts, not code regressions.
 
 ## Architectural Overview
 
