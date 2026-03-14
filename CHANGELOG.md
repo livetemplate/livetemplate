@@ -6,6 +6,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<a name="v0.8.4"></a>
+## [v0.8.4] - 2026-03-11
+
+### Bug Fixes
+
+- use cookie-based flash messages instead of URL query params ([#136](https://github.com/livefir/livetemplate/issues/136))
+
+### Documentation
+
+- batch address 9 documentation follow-up issues ([#178](https://github.com/livefir/livetemplate/issues/178))
+- update performance docs to reflect current codebase ([#175](https://github.com/livefir/livetemplate/issues/175))
+- audit and reorganize proposals directory ([#173](https://github.com/livefir/livetemplate/issues/173))
+- replace api-reference.md with Go library API reference ([#164](https://github.com/livefir/livetemplate/issues/164))
+- rewrite uploads.md for Controller+State pattern ([#163](https://github.com/livefir/livetemplate/issues/163))
+- fix broken links in CONFIGURATION.md and client-attributes.md ([#162](https://github.com/livefir/livetemplate/issues/162))
+- fix session.md interface signatures and add missing features ([#161](https://github.com/livefir/livetemplate/issues/161))
+- expand server-actions.md with pubsub package details ([#160](https://github.com/livefir/livetemplate/issues/160))
+- fix controller-pattern.md phantom methods, add missing APIs ([#159](https://github.com/livefir/livetemplate/issues/159))
+- fix authentication.md phantom methods and broken link ([#158](https://github.com/livefir/livetemplate/issues/158))
+- update template-support-matrix.md with current codebase state ([#157](https://github.com/livefir/livetemplate/issues/157))
+- fix spec inaccuracies found during implementation verification ([#156](https://github.com/livefir/livetemplate/issues/156))
+- move lvt-specific guides to lvt repo ([#153](https://github.com/livefir/livetemplate/issues/153))
+- improve new contributor walkthrough guide ([#152](https://github.com/livefir/livetemplate/issues/152))
+- audit specs, design, performance, and CLAUDE.md (Batch 5) ([#149](https://github.com/livefir/livetemplate/issues/149))
+- update configuration and reference docs (Batch 4) ([#147](https://github.com/livefir/livetemplate/issues/147))
+- audit and fix guide documentation (Batch 3) ([#146](https://github.com/livefir/livetemplate/issues/146))
+- regenerate core architecture docs (Batch 2) ([#145](https://github.com/livefir/livetemplate/issues/145))
+- update component import paths in doc comments
+- archive 22 completed planning artifacts (Batch 1) ([#144](https://github.com/livefir/livetemplate/issues/144))
+- Add comprehensive documentation overhaul plan and update README index ([#138](https://github.com/livefir/livetemplate/issues/138))
+- fix metric names to match prometheus.go output
+- fix internal/observe imports and document TraceMiddleware removal ([#137](https://github.com/livefir/livetemplate/issues/137))
+
+### Features
+
+- integrate LVT_WS_BUFFER_SIZE into EnvConfig system ([#151](https://github.com/livefir/livetemplate/issues/151))
+- support template variable declarations ($c := .) in parser ([#150](https://github.com/livefir/livetemplate/issues/150))
+- support template variable declarations ($c := .) in parser
+
+
 <a name="v0.8.3"></a>
 ## [v0.8.3] - 2026-02-27
 
@@ -485,7 +525,8 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.3...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.4...HEAD
+[v0.8.4]: https://github.com/livefir/livetemplate/compare/v0.8.3...v0.8.4
 [v0.8.3]: https://github.com/livefir/livetemplate/compare/v0.8.2...v0.8.3
 [v0.8.2]: https://github.com/livefir/livetemplate/compare/v0.8.1...v0.8.2
 [v0.8.1]: https://github.com/livefir/livetemplate/compare/v0.8.0...v0.8.1
