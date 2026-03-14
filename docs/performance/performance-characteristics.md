@@ -261,7 +261,7 @@ BenchmarkSerializeUpdate              3729 ns/op    648 B/op     10 allocs/op
 
 ### Key Findings
 
-- WebSocket parsing 4.0x faster than HTTP (927ns vs 3714ns)
+- WebSocket parsing roughly 4x faster than HTTP (927ns vs 3714ns in this single run)
 - Serialization: ~3.7µs per update in this single-run baseline (648 B/op, 10 allocs/op); previous baseline showed ~1.4µs — use `make bench-10x` for stable timing
 - Low allocation counts across all operations
 
