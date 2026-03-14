@@ -291,12 +291,12 @@ BenchmarkConcurrentRegistrations   5131 ns/op     1245 B/op    11 allocs/op
 ```
 
 **Key Findings:**
-- ~980 bytes per connection (measured via `BenchmarkMemoryUsage`)
+- ~980 bytes per connection (`BenchmarkMemoryUsage`: 98028 B/op ÷ 100 connections)
 - Group lookup is fast (~418ns) with dual indexing by groupID and userID
 - Register/unregister cycle: ~3.4µs
 - Broadcast to 100-connection group: ~41µs (~410ns per connection)
 
-**Note:** `BenchmarkConcurrentConnections`, `BenchmarkAsyncSendThroughput`, `BenchmarkConcurrentSend`, and `BenchmarkBufferSizes` are omitted from the baseline — they use mock WebSocket connections that don't drain their read side, causing intermittent "client too slow" failures. These benchmarks need a mock that consumes messages to produce reliable results.
+**Note:** `BenchmarkConcurrentConnections`, `BenchmarkAsyncSendThroughput`, `BenchmarkConcurrentSend`, and `BenchmarkBufferSizes` are omitted from the baseline — they use mock WebSocket connections that don't drain their read side, causing intermittent "client too slow" failures. Tracked in [#186](https://github.com/livetemplate/livetemplate/issues/186).
 
 ## End-to-End Performance
 
@@ -389,7 +389,7 @@ BenchmarkTemplateConcurrent/goroutines-10     67784 ns/op   29307 B/op   245 all
 BenchmarkTemplateConcurrent/goroutines-100    58917 ns/op   29310 B/op   245 allocs/op
 ```
 
-Per-session allocations remain constant under concurrency (245 allocs/op regardless of goroutine count). Wall-clock time per operation improves with parallelism due to CPU utilization.
+Per-session allocations remain constant under concurrency (245 allocs/op regardless of goroutine count). Wall-clock time per operation improves modestly with parallelism. The degree of speedup varies between single-run baselines (e.g., 2.2x in Nov 2025 vs 1.3x here) due to system load and thermal state — allocation stability confirms no lock contention was introduced.
 
 ## Memory Usage
 
