@@ -847,6 +847,9 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			slog.String("group_id", groupID))
 	} else if pathChanged && h.config.State == nil {
 		// No AsState configured — can't reset, just update the tracked path.
+		// Path is committed early (unlike the State != nil branch which defers
+		// until after Mount) because no Mount/reset occurs here, so there is
+		// no failure to retry.
 		h.httpLastPaths.Store(groupID, currentPath)
 		slog.Debug("Path changed but no per-request state configured, skipping reset",
 			slog.String("component", "live_handler"),
