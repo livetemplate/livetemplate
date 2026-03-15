@@ -909,10 +909,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if isNewSession || hasFlashCookie {
 		newState, err := callMount(h.config.Controller, connSt.state, lifecycleCtx)
 		if err != nil {
-			// Restore previous path so retries re-detect the change.
-			if pathChanged {
-				h.httpLastPaths.Delete(groupID)
-			}
+			// httpLastPaths still holds the previous path (Store is deferred
+			// until after success), so retries naturally re-detect the change.
 			slog.Error("Mount failed",
 				slog.String("component", "live_handler"),
 				slog.Any("error", err))

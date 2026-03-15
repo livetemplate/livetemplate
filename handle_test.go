@@ -1466,11 +1466,29 @@ func TestWebSocketDisabled_PathChangeMountFailureRetry(t *testing.T) {
 	if cookie == nil {
 		t.Fatal("Expected session cookie")
 	}
-	if !strings.Contains(rec.Body.String(), "Message: mounted") {
-		t.Fatalf("Initial mount should succeed, got: %s", rec.Body.String())
+
+	// Step 2: POST /page-a to increment count to 1
+	// This ensures stale state differs from fresh state, so the retry
+	// assertion can distinguish "Mount was called" from "used stale state".
+	form := url.Values{}
+	form.Set("lvt-action", "Increment")
+	req = httptest.NewRequest("POST", "/page-a", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html")
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	// Verify count is 1
+	req = httptest.NewRequest("GET", "/page-a", nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), "Count: 1") {
+		t.Fatalf("Expected Count: 1 after increment, got: %s", rec.Body.String())
 	}
 
-	// Step 2: Make next Mount fail, then GET /page-b (triggers path change)
+	// Step 3: Make next Mount fail, then GET /page-b (triggers path change)
 	ctrl.failNext <- struct{}{}
 	req = httptest.NewRequest("GET", "/page-b", nil)
 	req.AddCookie(cookie)
@@ -1480,8 +1498,9 @@ func TestWebSocketDisabled_PathChangeMountFailureRetry(t *testing.T) {
 		t.Fatalf("Expected 500 on Mount failure, got %d", rec.Code)
 	}
 
-	// Step 3: Retry GET /page-b — Mount should succeed this time because
-	// httpLastPaths was rolled back, allowing path-change re-detection.
+	// Step 4: Retry GET /page-b — Mount should succeed this time because
+	// httpLastPaths still holds "/page-a", allowing path-change re-detection.
+	// If the rollback is broken, the retry would use stale state (Count: 1).
 	req = httptest.NewRequest("GET", "/page-b", nil)
 	req.AddCookie(cookie)
 	rec = httptest.NewRecorder()
@@ -1490,10 +1509,10 @@ func TestWebSocketDisabled_PathChangeMountFailureRetry(t *testing.T) {
 		t.Fatalf("Expected 200 on retry, got %d", rec.Code)
 	}
 	body := rec.Body.String()
+	if !strings.Contains(body, "Count: 0") {
+		t.Errorf("Retry should have fresh state with Count: 0 (Mount called), got: %s", body)
+	}
 	if !strings.Contains(body, "Message: mounted") {
 		t.Errorf("Retry should call Mount, got: %s", body)
-	}
-	if !strings.Contains(body, "Count: 0") {
-		t.Errorf("Retry should have fresh state with Count: 0, got: %s", body)
 	}
 }
