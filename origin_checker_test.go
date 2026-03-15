@@ -50,6 +50,17 @@ func TestCreateSecureOriginChecker(t *testing.T) {
 			want:           false,
 		},
 
+		// AllowedOrigins takes priority over X-Forwarded-Proto
+		{
+			name:           "X-Forwarded-Proto ignored when allowedOrigins is set",
+			allowedOrigins: []string{"https://example.com"},
+			origin:         "https://example.com",
+			host:           "example.com",
+			tls:            false,
+			forwardedProto: "http", // would cause mismatch in same-origin path, but allowedOrigins takes priority
+			want:           true,
+		},
+
 		// Same-origin: direct TLS connection
 		{
 			name:   "direct HTTPS connection with matching origin",

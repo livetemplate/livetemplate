@@ -377,6 +377,14 @@ func WithAuthenticator(auth Authenticator) Option {
 //	    }))
 //
 // Security note: Always set this in production to prevent CSRF attacks via WebSocket.
+//
+// When AllowedOrigins is not set, same-origin detection relies on X-Forwarded-Proto
+// (if present) or r.TLS to determine the request scheme. X-Forwarded-Proto is trusted
+// unconditionally, which is safe when the server is behind a reverse proxy that sets
+// this header. If the server is directly reachable by clients (without a proxy stripping
+// or overwriting the header), a client could forge X-Forwarded-Proto. In such deployments,
+// use WithAllowedOrigins to explicitly list trusted origins rather than relying on
+// same-origin detection.
 func WithAllowedOrigins(origins []string) Option {
 	return func(c *Config) {
 		c.AllowedOrigins = origins
