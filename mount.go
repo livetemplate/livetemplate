@@ -184,6 +184,7 @@ type liveHandler struct {
 	metricsExporter *observe.PrometheusExporter
 	tempFileManager uploadTempFileManager
 	httpTemplates   sync.Map // groupID → *httpTemplateCacheEntry (cached for HTTP POST diff optimization)
+	httpLastPaths   sync.Map // groupID → string (last served request path, for detecting URL changes)
 
 	// Graceful shutdown state
 	shutdownOnce sync.Once
@@ -816,6 +817,19 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	isNewSession := false
 	storedState := h.config.SessionStore.Get(ctx, groupID)
 	var typedState interface{}
+
+	// Detect URL path change: when the same session navigates to a different URL
+	// (e.g., page-mode resource from /posts/alpha to /posts/beta), use fresh state
+	// so the current URL's data is rendered instead of stale cached data.
+	pathChanged := false
+	currentPath := r.URL.Path
+	if lastPath, ok := h.httpLastPaths.Load(groupID); ok {
+		if lastPath.(string) != currentPath {
+			pathChanged = true
+		}
+	}
+	h.httpLastPaths.Store(groupID, currentPath)
+
 	if storedState == nil {
 		typedState, err = h.cloneStateTyped()
 		if err != nil {
@@ -830,8 +844,25 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		slog.Info("Created new session group",
 			slog.String("component", "live_handler"),
 			slog.String("group_id", groupID))
+	} else if pathChanged && h.config.State != nil {
+		// Session exists but URL path changed and handler provides per-request state.
+		// Use fresh state from Handle(AsState(...)) so the new URL's data is rendered.
+		typedState, err = h.cloneStateTyped()
+		if err != nil {
+			slog.Error("Failed to clone per-request state",
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		isNewSession = true
+		h.httpTemplates.Delete(groupID)
+		slog.Debug("Refreshing session for new URL path",
+			slog.String("component", "live_handler"),
+			slog.String("group_id", groupID),
+			slog.String("path", currentPath))
 	} else {
-		// Existing session - use stored state
+		// Existing session, same URL - use stored state
 		slog.Debug("Using existing session group",
 			slog.String("component", "live_handler"),
 			slog.String("group_id", groupID))
@@ -1223,6 +1254,7 @@ func (h *liveHandler) sweepStaleHTTPTemplates() {
 		groupID := key.(string)
 		if _, active := activeSessions[groupID]; !active {
 			h.httpTemplates.Delete(groupID)
+			h.httpLastPaths.Delete(groupID)
 			swept++
 		}
 		return true

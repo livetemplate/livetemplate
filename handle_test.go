@@ -1193,3 +1193,55 @@ func TestWebSocketDisabled_ConcurrentPOSTsSameSession(t *testing.T) {
 		t.Error("Expected count > 0 after concurrent increments, still at 0")
 	}
 }
+
+func TestWebSocketDisabled_PathChangeResetsState(t *testing.T) {
+	handler := newWSDisabledHandler(t)
+
+	// Step 1: GET /page-a — creates session
+	req := httptest.NewRequest("GET", "/page-a", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	cookie := extractSessionCookie(rec)
+	if cookie == nil {
+		t.Fatal("Expected session cookie")
+	}
+	if !strings.Contains(rec.Body.String(), "Count: 0") {
+		t.Errorf("Expected 'Count: 0' on initial load, got: %s", rec.Body.String())
+	}
+
+	// Step 2: POST /page-a — increment count
+	form := url.Values{}
+	form.Set("lvt-action", "Increment")
+	req = httptest.NewRequest("POST", "/page-a", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html")
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	// Step 3: GET /page-a — same path, state should persist
+	req = httptest.NewRequest("GET", "/page-a", nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "Count: 1") {
+		t.Errorf("Same path: expected 'Count: 1', got: %s", body)
+	}
+
+	// Step 4: GET /page-b — different path, state should reset (fresh Mount)
+	req = httptest.NewRequest("GET", "/page-b", nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	body = rec.Body.String()
+	if !strings.Contains(body, "Count: 0") {
+		t.Errorf("Different path: expected 'Count: 0' (fresh state), got: %s", body)
+	}
+	if !strings.Contains(body, "Message: mounted") {
+		t.Errorf("Different path: expected 'Message: mounted' (Mount called), got: %s", body)
+	}
+}
