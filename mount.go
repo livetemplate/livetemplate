@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"reflect"
 	"strings"
 	"sync"
@@ -823,10 +824,12 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// use fresh state so the current URL's data is rendered instead of stale cached data.
 	// Only GET requests update the path — POST requests target a specific action and
 	// should not be treated as page navigations that reset state.
-	currentPath := r.URL.Path
+	// Paths are normalized (path.Clean) so that trailing-slash variants like
+	// /posts/alpha and /posts/alpha/ are treated as the same path.
+	currentPath := path.Clean(r.URL.Path)
 	pathChanged := false
 	if r.Method == http.MethodGet {
-		if prev, loaded := h.httpLastPaths.Swap(groupID, currentPath); loaded {
+		if prev, loaded := h.httpLastPaths.Load(groupID); loaded {
 			pathChanged = prev.(string) != currentPath
 		}
 	}
@@ -907,6 +910,11 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if isNewSession || hasFlashCookie {
 		newState, err := callMount(h.config.Controller, connSt.state, lifecycleCtx)
 		if err != nil {
+			// Mount failed — restore the previous path so that retries
+			// re-detect the path change and call Mount again.
+			if pathChanged {
+				h.httpLastPaths.Delete(groupID)
+			}
 			slog.Error("Mount failed",
 				slog.String("component", "live_handler"),
 				slog.Any("error", err))
@@ -916,6 +924,11 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		connSt.state = newState
 		if isNewSession {
 			h.config.SessionStore.Set(ctx, groupID, connSt.state)
+		}
+		// Commit the new path only after successful Mount, so that retries
+		// after Mount failure re-trigger path-change detection.
+		if r.Method == http.MethodGet {
+			h.httpLastPaths.Store(groupID, currentPath)
 		}
 	}
 

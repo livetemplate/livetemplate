@@ -1388,3 +1388,39 @@ func TestWebSocketDisabled_PathChangeResetsState(t *testing.T) {
 		t.Errorf("Different path: expected 'Message: mounted' (Mount called), got: %s", body)
 	}
 }
+
+func TestWebSocketDisabled_TrailingSlashDoesNotResetState(t *testing.T) {
+	handler := newWSDisabledHandler(t)
+
+	// Step 1: GET /page-a — creates session
+	req := httptest.NewRequest("GET", "/page-a", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	cookie := extractSessionCookie(rec)
+	if cookie == nil {
+		t.Fatal("Expected session cookie")
+	}
+
+	// Step 2: POST /page-a — increment count
+	form := url.Values{}
+	form.Set("lvt-action", "Increment")
+	req = httptest.NewRequest("POST", "/page-a", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html")
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	// Step 3: GET /page-a/ (trailing slash) — same path after normalization,
+	// state should persist and NOT reset.
+	req = httptest.NewRequest("GET", "/page-a/", nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "Count: 1") {
+		t.Errorf("Trailing slash: expected 'Count: 1' (same path), got: %s", body)
+	}
+}
