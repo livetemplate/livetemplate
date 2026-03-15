@@ -66,7 +66,7 @@ func TestRangeStaticsAlwaysPopulated(t *testing.T) {
 	}
 }
 
-// TestRangeStaticsEmptyToItems ensures Range.Statics is populated during empty→items transition
+// TestRangeStaticsEmptyToItems ensures Range.Statics is populated during empty->items transition
 func TestRangeStaticsEmptyToItems(t *testing.T) {
 	templateStr := `{{range .Items}}<li id="{{.ID}}">{{.Text}}</li>{{end}}`
 
@@ -109,7 +109,7 @@ func TestRangeStaticsEmptyToItems(t *testing.T) {
 
 	// CRITICAL: Range.Statics must have the item template
 	if tree2.Range.Statics == nil {
-		t.Error("Range.Statics should have the item template for empty→items transition!")
+		t.Error("Range.Statics should have the item template for empty->items transition!")
 	}
 	if len(tree2.Range.Statics) == 0 {
 		t.Error("Range.Statics should not be empty - needs item template for rendering!")
@@ -118,7 +118,6 @@ func TestRangeStaticsEmptyToItems(t *testing.T) {
 
 // TestTodosScenario simulates the exact todos template scenario with conditional
 func TestTodosScenario(t *testing.T) {
-	// Simplified version of the todos template with the conditional
 	templateStr := `{{range .Items}}<tr id="{{.ID}}">{{if .Completed}}completed{{else}}pending{{end}}</tr>{{end}}`
 
 	tmpl, err := Parse(templateStr, template.FuncMap{})
@@ -159,7 +158,7 @@ func TestTodosScenario(t *testing.T) {
 
 	// CRITICAL: Range.Statics must have the item template
 	if tree2.Range.Statics == nil {
-		t.Error("Range.Statics should have the item template for empty→items transition!")
+		t.Error("Range.Statics should have the item template for empty->items transition!")
 	}
 	if len(tree2.Range.Statics) == 0 {
 		t.Error("Range.Statics should not be empty - needs item template for rendering!")

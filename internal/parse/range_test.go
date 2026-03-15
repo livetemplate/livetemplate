@@ -5,25 +5,20 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"text/template/parse"
 )
 
-// TestHandleRangeNode_SimpleSlice tests range over simple slice.
-func TestHandleRangeNode_SimpleSlice(t *testing.T) {
-	tmpl, err := template.New("test").Parse("{{range .Items}}<div>{{.}}</div>{{end}}")
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
+// TestHandleRange_SimpleSlice tests range over simple slice.
+func TestHandleRange_SimpleSlice(t *testing.T) {
+	rangeNode := parseRangeNode(t, "{{range .Items}}<div>{{.}}</div>{{end}}", nil)
 	data := map[string]interface{}{
 		"Items": []string{"a", "b", "c"},
 	}
+	eval := testEval(nil)
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := handleRangeNode(rangeNode, data, newMockKeyGen(), ctx)
+	tree, err := handleRange(rangeNode, eval, data, nil, newMockKeyGen(), ctx)
 	if err != nil {
-		t.Fatalf("handleRangeNode failed: %v", err)
+		t.Fatalf("handleRange failed: %v", err)
 	}
 
 	if tree == nil {
@@ -39,22 +34,18 @@ func TestHandleRangeNode_SimpleSlice(t *testing.T) {
 	}
 }
 
-// TestHandleRangeNode_EmptySlice tests range over empty slice.
-func TestHandleRangeNode_EmptySlice(t *testing.T) {
-	tmpl, err := template.New("test").Parse("{{range .Items}}<div>{{.}}</div>{{end}}")
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
+// TestHandleRange_EmptySlice tests range over empty slice.
+func TestHandleRange_EmptySlice(t *testing.T) {
+	rangeNode := parseRangeNode(t, "{{range .Items}}<div>{{.}}</div>{{end}}", nil)
 	data := map[string]interface{}{
 		"Items": []string{},
 	}
+	eval := testEval(nil)
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := handleRangeNode(rangeNode, data, newMockKeyGen(), ctx)
+	tree, err := handleRange(rangeNode, eval, data, nil, newMockKeyGen(), ctx)
 	if err != nil {
-		t.Fatalf("handleRangeNode failed: %v", err)
+		t.Fatalf("handleRange failed: %v", err)
 	}
 
 	if tree == nil {
@@ -70,25 +61,21 @@ func TestHandleRangeNode_EmptySlice(t *testing.T) {
 	}
 }
 
-// TestHandleRangeNode_Map tests range over map.
-func TestHandleRangeNode_Map(t *testing.T) {
-	tmpl, err := template.New("test").Parse("{{range .Items}}<div>{{.}}</div>{{end}}")
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
+// TestHandleRange_Map tests range over map.
+func TestHandleRange_Map(t *testing.T) {
+	rangeNode := parseRangeNode(t, "{{range .Items}}<div>{{.}}</div>{{end}}", nil)
 	data := map[string]interface{}{
 		"Items": map[string]string{
 			"a": "alpha",
 			"b": "beta",
 		},
 	}
+	eval := testEval(nil)
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := handleRangeNode(rangeNode, data, newMockKeyGen(), ctx)
+	tree, err := handleRange(rangeNode, eval, data, nil, newMockKeyGen(), ctx)
 	if err != nil {
-		t.Fatalf("handleRangeNode failed: %v", err)
+		t.Fatalf("handleRange failed: %v", err)
 	}
 
 	if tree == nil {
@@ -104,22 +91,18 @@ func TestHandleRangeNode_Map(t *testing.T) {
 	}
 }
 
-// TestHandleRangeNode_WithElse tests range with else branch.
-func TestHandleRangeNode_WithElse(t *testing.T) {
-	tmpl, err := template.New("test").Parse("{{range .Items}}<div>{{.}}</div>{{else}}<div>empty</div>{{end}}")
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
+// TestHandleRange_WithElse tests range with else branch.
+func TestHandleRange_WithElse(t *testing.T) {
+	rangeNode := parseRangeNode(t, "{{range .Items}}<div>{{.}}</div>{{else}}<div>empty</div>{{end}}", nil)
 	data := map[string]interface{}{
 		"Items": []string{},
 	}
+	eval := testEval(nil)
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := handleRangeNode(rangeNode, data, newMockKeyGen(), ctx)
+	tree, err := handleRange(rangeNode, eval, data, nil, newMockKeyGen(), ctx)
 	if err != nil {
-		t.Fatalf("handleRangeNode failed: %v", err)
+		t.Fatalf("handleRange failed: %v", err)
 	}
 
 	if tree == nil {
@@ -128,32 +111,26 @@ func TestHandleRangeNode_WithElse(t *testing.T) {
 
 	// With else branch, should return the else content
 	if tree.HasRange() && len(tree.Range.Items) == 0 {
-		// Empty range case - valid
 		return
 	}
 
-	// Or should have else branch content
 	if !tree.HasStatics() && !tree.HasDynamics() {
 		t.Error("Expected statics or dynamics for else branch")
 	}
 }
 
-// TestHandleRangeNode_WithVarDecls tests range with variable declarations.
-func TestHandleRangeNode_WithVarDecls(t *testing.T) {
-	tmpl, err := template.New("test").Parse("{{range $i, $v := .Items}}<div>{{$i}}: {{$v}}</div>{{end}}")
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
+// TestHandleRange_WithVarDecls tests range with variable declarations.
+func TestHandleRange_WithVarDecls(t *testing.T) {
+	rangeNode := parseRangeNode(t, "{{range $i, $v := .Items}}<div>{{$i}}: {{$v}}</div>{{end}}", nil)
 	data := map[string]interface{}{
 		"Items": []string{"a", "b"},
 	}
+	eval := testEval(nil)
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := handleRangeNode(rangeNode, data, newMockKeyGen(), ctx)
+	tree, err := handleRange(rangeNode, eval, data, nil, newMockKeyGen(), ctx)
 	if err != nil {
-		t.Fatalf("handleRangeNode failed: %v", err)
+		t.Fatalf("handleRange failed: %v", err)
 	}
 
 	if tree == nil {
@@ -169,22 +146,17 @@ func TestHandleRangeNode_WithVarDecls(t *testing.T) {
 	}
 }
 
-// TestExtractRangeCollection_Simple tests simple collection extraction.
-func TestExtractRangeCollection_Simple(t *testing.T) {
-	tmpl, err := template.New("test").Parse("{{range .Items}}{{.}}{{end}}")
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
+// TestExtractCollection_Simple tests simple collection extraction.
+func TestExtractCollection_Simple(t *testing.T) {
+	rangeNode := parseRangeNode(t, "{{range .Items}}{{.}}{{end}}", nil)
 	data := map[string]interface{}{
 		"Items": []string{"a", "b"},
 	}
-	ctx := &Context{}
+	eval := testEval(nil)
 
-	collection, err := extractRangeCollection(rangeNode, data, ctx)
+	collection, err := extractCollection(rangeNode, eval, data, nil)
 	if err != nil {
-		t.Fatalf("extractRangeCollection failed: %v", err)
+		t.Fatalf("extractCollection failed: %v", err)
 	}
 
 	slice, ok := collection.([]string)
@@ -197,22 +169,17 @@ func TestExtractRangeCollection_Simple(t *testing.T) {
 	}
 }
 
-// TestExtractRangeCollection_WithDecls tests extraction with variable declarations.
-func TestExtractRangeCollection_WithDecls(t *testing.T) {
-	tmpl, err := template.New("test").Parse("{{range $i, $v := .Items}}{{$v}}{{end}}")
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
+// TestExtractCollection_WithDecls tests extraction with variable declarations.
+func TestExtractCollection_WithDecls(t *testing.T) {
+	rangeNode := parseRangeNode(t, "{{range $i, $v := .Items}}{{$v}}{{end}}", nil)
 	data := map[string]interface{}{
 		"Items": []string{"a", "b"},
 	}
-	ctx := &Context{}
+	eval := testEval(nil)
 
-	collection, err := extractRangeCollection(rangeNode, data, ctx)
+	collection, err := extractCollection(rangeNode, eval, data, nil)
 	if err != nil {
-		t.Fatalf("extractRangeCollection failed: %v", err)
+		t.Fatalf("extractCollection failed: %v", err)
 	}
 
 	slice, ok := collection.([]string)
@@ -225,20 +192,13 @@ func TestExtractRangeCollection_WithDecls(t *testing.T) {
 	}
 }
 
-// TestExtractRangeCollection_Error tests error handling.
-func TestExtractRangeCollection_Error(t *testing.T) {
-	tmpl, err := template.New("test").Parse("{{range .Missing}}{{.}}{{end}}")
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
+// TestExtractCollection_Error tests error handling.
+func TestExtractCollection_Error(t *testing.T) {
+	rangeNode := parseRangeNode(t, "{{range .Missing}}{{.}}{{end}}", nil)
 	data := map[string]interface{}{}
-	ctx := &Context{}
+	eval := testEval(nil)
 
-	// Should handle missing field gracefully
-	_, err = extractRangeCollection(rangeNode, data, ctx)
-	// Error or nil collection both acceptable
+	_, err := extractCollection(rangeNode, eval, data, nil)
 	if err != nil {
 		t.Logf("Got expected error: %v", err)
 	}
@@ -273,16 +233,12 @@ func TestIsEmpty_AllTypes(t *testing.T) {
 
 // TestHandleEmptyRange_NoElse tests empty range without else.
 func TestHandleEmptyRange_NoElse(t *testing.T) {
-	tmpl, err := template.New("test").Parse("{{range .Items}}{{.}}{{end}}")
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
+	rangeNode := parseRangeNode(t, "{{range .Items}}{{.}}{{end}}", nil)
+	eval := testEval(nil)
 	data := map[string]interface{}{}
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := handleEmptyRange(rangeNode, data, newMockKeyGen(), ctx)
+	tree, err := handleEmptyRange(rangeNode, eval, data, nil, newMockKeyGen(), ctx)
 	if err != nil {
 		t.Fatalf("handleEmptyRange failed: %v", err)
 	}
@@ -302,16 +258,12 @@ func TestHandleEmptyRange_NoElse(t *testing.T) {
 
 // TestHandleEmptyRange_WithElse tests empty range with else branch.
 func TestHandleEmptyRange_WithElse(t *testing.T) {
-	tmpl, err := template.New("test").Parse("{{range .Items}}{{.}}{{else}}<div>empty</div>{{end}}")
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
-	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
+	rangeNode := parseRangeNode(t, "{{range .Items}}{{.}}{{else}}<div>empty</div>{{end}}", nil)
+	eval := testEval(nil)
 	data := map[string]interface{}{}
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := handleEmptyRange(rangeNode, data, newMockKeyGen(), ctx)
+	tree, err := handleEmptyRange(rangeNode, eval, data, nil, newMockKeyGen(), ctx)
 	if err != nil {
 		t.Fatalf("handleEmptyRange failed: %v", err)
 	}
@@ -320,27 +272,23 @@ func TestHandleEmptyRange_WithElse(t *testing.T) {
 		t.Fatal("Expected non-nil tree for else branch")
 	}
 
-	// Should have else branch content
 	if !tree.HasStatics() && !tree.HasDynamics() && !tree.HasRange() {
 		t.Error("Expected content for else branch")
 	}
 }
 
-// TestHandleSliceRange tests slice range processing.
-func TestHandleSliceRange(t *testing.T) {
-	tmpl, err := template.New("test").Parse("{{range .Items}}<div>{{.}}</div>{{end}}")
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
+// TestHandleRange_SliceViaHandleRange tests slice range processing through handleRange.
+func TestHandleRange_SliceViaHandleRange(t *testing.T) {
+	rangeNode := parseRangeNode(t, "{{range .Items}}<div>{{.}}</div>{{end}}", nil)
+	data := map[string]interface{}{
+		"Items": []string{"a", "b"},
 	}
-
-	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
-	data := map[string]interface{}{}
-	collection := reflect.ValueOf([]string{"a", "b"})
+	eval := testEval(nil)
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := handleSliceRange(rangeNode, collection, data, false, newMockKeyGen(), ctx)
+	tree, err := handleRange(rangeNode, eval, data, nil, newMockKeyGen(), ctx)
 	if err != nil {
-		t.Fatalf("handleSliceRange failed: %v", err)
+		t.Fatalf("handleRange failed: %v", err)
 	}
 
 	if tree == nil {
@@ -356,21 +304,18 @@ func TestHandleSliceRange(t *testing.T) {
 	}
 }
 
-// TestHandleMapRange tests map range processing.
-func TestHandleMapRange(t *testing.T) {
-	tmpl, err := template.New("test").Parse("{{range .Items}}<div>{{.}}</div>{{end}}")
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
+// TestHandleRange_MapViaHandleRange tests map range processing through handleRange.
+func TestHandleRange_MapViaHandleRange(t *testing.T) {
+	rangeNode := parseRangeNode(t, "{{range .Items}}<div>{{.}}</div>{{end}}", nil)
+	data := map[string]interface{}{
+		"Items": map[string]string{"a": "alpha", "b": "beta"},
 	}
-
-	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
-	data := map[string]interface{}{}
-	collection := reflect.ValueOf(map[string]string{"a": "alpha", "b": "beta"})
+	eval := testEval(nil)
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := handleMapRange(rangeNode, collection, data, false, newMockKeyGen(), ctx)
+	tree, err := handleRange(rangeNode, eval, data, nil, newMockKeyGen(), ctx)
 	if err != nil {
-		t.Fatalf("handleMapRange failed: %v", err)
+		t.Fatalf("handleRange failed: %v", err)
 	}
 
 	if tree == nil {
@@ -418,83 +363,127 @@ func TestBuildRangeTreeWithStatics_Homogeneous(t *testing.T) {
 		t.Error("Expected metadata")
 	}
 
-	// Should detect id key at position 0
 	if tree.Metadata.IDKey != "0" {
 		t.Errorf("Expected IDKey='0', got: %v", tree.Metadata.IDKey)
 	}
 }
 
-// TestExecuteRangeBodyWithVars_SingleVar tests single variable range.
-func TestExecuteRangeBodyWithVars_SingleVar(t *testing.T) {
-	tmpl, err := template.New("test").Parse("{{range $v := .Items}}<div>{{$v}}</div>{{end}}")
+// TestHandleRange_SingleVarViaBuiltTree tests single variable range through BuildTree.
+func TestHandleRange_SingleVarViaBuiltTree(t *testing.T) {
+	tmplStr := "{{range $v := .Items}}<div>{{$v}}</div>{{end}}"
+	data := map[string]interface{}{
+		"Items": []string{"value"},
+	}
+
+	tmpl, err := Parse(tmplStr, nil)
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
-	data := map[string]interface{}{}
 	ctx := &Context{IncludeStatics: true}
-
-	tree, err := executeRangeBodyWithVars(rangeNode, 0, "value", data, newMockKeyGen(), ctx)
+	tree, err := BuildTree(tmpl, data, newMockKeyGen(), ctx)
 	if err != nil {
-		t.Fatalf("executeRangeBodyWithVars failed: %v", err)
+		t.Fatalf("BuildTree failed: %v", err)
 	}
 
 	if tree == nil {
 		t.Fatal("Expected non-nil tree")
 	}
 
-	if !tree.HasDynamics() {
+	if !tree.HasRange() {
+		t.Error("Expected range data")
+	}
+
+	if len(tree.Range.Items) != 1 {
+		t.Errorf("Expected 1 item, got: %d", len(tree.Range.Items))
+	}
+
+	itemTree, ok := tree.Range.Items[0].(*TreeNode)
+	if !ok {
+		t.Fatal("Expected *TreeNode for range item")
+	}
+
+	if !itemTree.HasDynamics() {
 		t.Error("Expected dynamics for variable")
 	}
 }
 
-// TestExecuteRangeBodyWithVars_TwoVars tests index and value variables.
-func TestExecuteRangeBodyWithVars_TwoVars(t *testing.T) {
-	tmpl, err := template.New("test").Parse("{{range $i, $v := .Items}}<div>{{$i}}: {{$v}}</div>{{end}}")
+// TestHandleRange_TwoVarsViaBuiltTree tests index and value variables through BuildTree.
+func TestHandleRange_TwoVarsViaBuiltTree(t *testing.T) {
+	tmplStr := "{{range $i, $v := .Items}}<div>{{$i}}: {{$v}}</div>{{end}}"
+	data := map[string]interface{}{
+		"Items": []string{"a", "b"},
+	}
+
+	tmpl, err := Parse(tmplStr, nil)
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
-	data := map[string]interface{}{}
 	ctx := &Context{IncludeStatics: true}
-
-	tree, err := executeRangeBodyWithVars(rangeNode, 1, "value", data, newMockKeyGen(), ctx)
+	tree, err := BuildTree(tmpl, data, newMockKeyGen(), ctx)
 	if err != nil {
-		t.Fatalf("executeRangeBodyWithVars failed: %v", err)
+		t.Fatalf("BuildTree failed: %v", err)
 	}
 
 	if tree == nil {
 		t.Fatal("Expected non-nil tree")
 	}
 
-	if !tree.HasDynamics() {
-		t.Error("Expected dynamics for variables")
+	if !tree.HasRange() {
+		t.Error("Expected range data")
+	}
+
+	if len(tree.Range.Items) != 2 {
+		t.Errorf("Expected 2 items, got: %d", len(tree.Range.Items))
+	}
+
+	for _, item := range tree.Range.Items {
+		itemTree, ok := item.(*TreeNode)
+		if !ok {
+			t.Fatal("Expected *TreeNode for range item")
+		}
+		if !itemTree.HasDynamics() {
+			t.Error("Expected dynamics for variables")
+		}
 	}
 }
 
-// TestExecuteRangeBodyWithVarsMap tests map key-value variables.
-func TestExecuteRangeBodyWithVarsMap(t *testing.T) {
-	tmpl, err := template.New("test").Parse("{{range $k, $v := .Items}}<div>{{$k}}: {{$v}}</div>{{end}}")
+// TestHandleRange_MapVarsViaBuiltTree tests map key-value variables through BuildTree.
+func TestHandleRange_MapVarsViaBuiltTree(t *testing.T) {
+	tmplStr := "{{range $k, $v := .Items}}<div>{{$k}}: {{$v}}</div>{{end}}"
+	data := map[string]interface{}{
+		"Items": map[string]string{"key": "value"},
+	}
+
+	tmpl, err := Parse(tmplStr, nil)
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
-	data := map[string]interface{}{}
 	ctx := &Context{IncludeStatics: true}
-
-	tree, err := executeRangeBodyWithVars(rangeNode, "key", "value", data, newMockKeyGen(), ctx)
+	tree, err := BuildTree(tmpl, data, newMockKeyGen(), ctx)
 	if err != nil {
-		t.Fatalf("executeRangeBodyWithVars failed: %v", err)
+		t.Fatalf("BuildTree failed: %v", err)
 	}
 
 	if tree == nil {
 		t.Fatal("Expected non-nil tree")
 	}
 
-	if !tree.HasDynamics() {
+	if !tree.HasRange() {
+		t.Error("Expected range data")
+	}
+
+	if len(tree.Range.Items) != 1 {
+		t.Errorf("Expected 1 item, got: %d", len(tree.Range.Items))
+	}
+
+	itemTree, ok := tree.Range.Items[0].(*TreeNode)
+	if !ok {
+		t.Fatal("Expected *TreeNode for range item")
+	}
+	if !itemTree.HasDynamics() {
 		t.Error("Expected dynamics for variables")
 	}
 }
@@ -529,7 +518,6 @@ func TestDetectIDKey_AllPatterns(t *testing.T) {
 
 // TestDetectIDKey_Priority tests priority order of key detection.
 func TestDetectIDKey_Priority(t *testing.T) {
-	// id= should take priority over data-key=
 	statics := []string{"<div data-key=\"x\" id=\"", "\">test</div>"}
 	got := detectIDKey(statics)
 	if got != "0" {
@@ -546,13 +534,8 @@ func TestDetectIDKey_NoKey(t *testing.T) {
 	}
 }
 
-// TestHandleRangeNode_NonIterableType tests error handling for non-iterable types.
-func TestHandleRangeNode_NonIterableType(t *testing.T) {
-	tmpl, err := template.New("test").Parse("{{range .Value}}{{.}}{{end}}")
-	if err != nil {
-		t.Fatalf("Parse failed: %v", err)
-	}
-
+// TestHandleRange_NonIterableType tests error handling for non-iterable types.
+func TestHandleRange_NonIterableType(t *testing.T) {
 	tests := []struct {
 		name  string
 		value interface{}
@@ -565,13 +548,14 @@ func TestHandleRangeNode_NonIterableType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rangeNode := tmpl.Tree.Root.Nodes[0].(*parse.RangeNode)
+			rangeNode := parseRangeNode(t, "{{range .Value}}{{.}}{{end}}", nil)
 			data := map[string]interface{}{
 				"Value": tt.value,
 			}
+			eval := testEval(nil)
 			ctx := &Context{IncludeStatics: true}
 
-			_, err := handleRangeNode(rangeNode, data, newMockKeyGen(), ctx)
+			_, err := handleRange(rangeNode, eval, data, nil, newMockKeyGen(), ctx)
 			if err == nil {
 				t.Error("Expected error for non-iterable type, got nil")
 			}
@@ -653,7 +637,6 @@ func TestExtractItemDynamics(t *testing.T) {
 	}
 
 	// Verify the dynamics map is shared (same underlying map)
-	// Modify the result and verify it affects the original
 	result.Dynamics["1"] = "test"
 	if itemTree.Dynamics["1"] != "test" {
 		t.Error("Expected to share dynamics map (not a copy)")
@@ -662,7 +645,6 @@ func TestExtractItemDynamics(t *testing.T) {
 
 // TestBuildRangeTreeWithStatics_AutoKey tests that items without explicit key attribute get _k injected.
 func TestBuildRangeTreeWithStatics_AutoKey(t *testing.T) {
-	// Statics without any key attribute (no id=, data-key=, etc.)
 	itemStatics := []string{"<div>", "</div>"}
 	staticsHash := hashStatics(itemStatics)
 
@@ -681,7 +663,6 @@ func TestBuildRangeTreeWithStatics_AutoKey(t *testing.T) {
 		t.Fatal("Expected non-nil tree")
 	}
 
-	// Should have idKey = "_k" since no explicit key attribute
 	if tree.Metadata == nil {
 		t.Fatal("Expected metadata")
 	}
@@ -689,7 +670,6 @@ func TestBuildRangeTreeWithStatics_AutoKey(t *testing.T) {
 		t.Errorf("Expected IDKey='_k', got: %v", tree.Metadata.IDKey)
 	}
 
-	// Each item should have _k field
 	for i, item := range tree.Range.Items {
 		itemNode, ok := item.(*TreeNode)
 		if !ok {
@@ -704,7 +684,6 @@ func TestBuildRangeTreeWithStatics_AutoKey(t *testing.T) {
 		}
 	}
 
-	// Verify that different content produces different keys
 	item0 := tree.Range.Items[0].(*TreeNode)
 	item1 := tree.Range.Items[1].(*TreeNode)
 	key0, _ := item0.GetDynamic("_k")
@@ -716,7 +695,6 @@ func TestBuildRangeTreeWithStatics_AutoKey(t *testing.T) {
 
 // TestBuildRangeTreeWithStatics_ExplicitKey_NoAutoKey tests that items with explicit key don't get _k injected.
 func TestBuildRangeTreeWithStatics_ExplicitKey_NoAutoKey(t *testing.T) {
-	// Statics with data-key attribute
 	itemStatics := []string{"<div data-key=\"", "\">", "</div>"}
 	staticsHash := hashStatics(itemStatics)
 
@@ -735,7 +713,6 @@ func TestBuildRangeTreeWithStatics_ExplicitKey_NoAutoKey(t *testing.T) {
 		t.Fatal("Expected non-nil tree")
 	}
 
-	// Should have idKey = "0" (position of data-key value), NOT "_k"
 	if tree.Metadata == nil {
 		t.Fatal("Expected metadata")
 	}
@@ -743,7 +720,6 @@ func TestBuildRangeTreeWithStatics_ExplicitKey_NoAutoKey(t *testing.T) {
 		t.Errorf("Expected IDKey='0', got: %v", tree.Metadata.IDKey)
 	}
 
-	// Items should NOT have _k field
 	for i, item := range tree.Range.Items {
 		itemNode, ok := item.(*TreeNode)
 		if !ok {
@@ -807,5 +783,36 @@ func TestGenerateItemHash_IgnoresAutoKey(t *testing.T) {
 
 	if hash1 != hash2 {
 		t.Errorf("_k field should be excluded from hash, got: %v and %v", hash1, hash2)
+	}
+}
+
+// TestHandleRange_ViaFullBuildTree tests range processing through the full BuildTree API.
+func TestHandleRange_ViaFullBuildTree(t *testing.T) {
+	tmplStr := "{{range .Items}}<div>{{.}}</div>{{end}}"
+	data := map[string]interface{}{
+		"Items": []string{"a", "b", "c"},
+	}
+
+	tmpl, err := Parse(tmplStr, template.FuncMap{})
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctx := &Context{IncludeStatics: true}
+	tree, err := BuildTree(tmpl, data, newMockKeyGen(), ctx)
+	if err != nil {
+		t.Fatalf("BuildTree failed: %v", err)
+	}
+
+	if tree == nil {
+		t.Fatal("Expected non-nil tree")
+	}
+
+	if !tree.HasRange() {
+		t.Error("Expected range data")
+	}
+
+	if len(tree.Range.Items) != 3 {
+		t.Errorf("Expected 3 items, got: %d", len(tree.Range.Items))
 	}
 }
