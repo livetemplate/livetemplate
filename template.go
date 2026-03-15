@@ -754,10 +754,15 @@ func createSecureOriginChecker(allowedOrigins []string, devMode bool) func(*http
 			return false
 		}
 
-		// Extract scheme from request
-		scheme := "https"
-		if r.TLS == nil {
-			scheme = "http"
+		// Extract scheme from request — check X-Forwarded-Proto first
+		// for reverse proxy scenarios (e.g., Fly.io, Cloudflare, AWS ALB)
+		// where TLS is terminated at the proxy and r.TLS is nil.
+		scheme := r.Header.Get("X-Forwarded-Proto")
+		if scheme == "" {
+			scheme = "https"
+			if r.TLS == nil {
+				scheme = "http"
+			}
 		}
 
 		// Check if origin matches scheme://host
