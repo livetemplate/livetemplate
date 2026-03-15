@@ -821,14 +821,12 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Detect URL path change: when the same session navigates to a different URL
 	// (e.g., page-mode resource from /posts/alpha to /posts/beta), use fresh state
 	// so the current URL's data is rendered instead of stale cached data.
-	pathChanged := false
+	// Swap is atomic — avoids race between concurrent requests for the same groupID.
 	currentPath := r.URL.Path
-	if lastPath, ok := h.httpLastPaths.Load(groupID); ok {
-		if lastPath.(string) != currentPath {
-			pathChanged = true
-		}
+	pathChanged := false
+	if prev, loaded := h.httpLastPaths.Swap(groupID, currentPath); loaded {
+		pathChanged = prev.(string) != currentPath
 	}
-	h.httpLastPaths.Store(groupID, currentPath)
 
 	if storedState == nil {
 		typedState, err = h.cloneStateTyped()
