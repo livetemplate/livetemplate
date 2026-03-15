@@ -824,8 +824,11 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// use fresh state so the current URL's data is rendered instead of stale cached data.
 	// Only GET requests update the path — POST requests target a specific action and
 	// should not be treated as page navigations that reset state.
-	// Paths are normalized (path.Clean) so that trailing-slash variants like
-	// /posts/alpha and /posts/alpha/ are treated as the same path.
+	// Paths are normalized via path.Clean: trailing slashes are removed,
+	// double slashes collapsed, and . / .. segments resolved. This means
+	// /posts/alpha/ and /posts/alpha are treated as the same path.
+	// This detection only applies to HTTP-mode handlers (handleHTTP);
+	// WebSocket sessions manage state differently and do not track paths.
 	currentPath := path.Clean(r.URL.Path)
 	pathChanged := false
 	if r.Method == http.MethodGet {
@@ -851,6 +854,9 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	} else if pathChanged && h.config.State == nil {
 		// Path changed but no per-request state configured (no AsState(...)),
 		// so we can't reset — continue with the stored state.
+		// Still update httpLastPaths so subsequent GETs to the same path
+		// don't re-trigger path-change detection on every request.
+		h.httpLastPaths.Store(groupID, currentPath)
 		slog.Debug("URL path changed but no per-request state configured, skipping reset",
 			slog.String("component", "live_handler"),
 			slog.String("group_id", groupID),
