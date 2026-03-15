@@ -848,6 +848,14 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		slog.Info("Created new session group",
 			slog.String("component", "live_handler"),
 			slog.String("group_id", groupID))
+	} else if pathChanged && h.config.State == nil {
+		// Path changed but no per-request state configured (no AsState(...)),
+		// so we can't reset — continue with the stored state.
+		slog.Debug("URL path changed but no per-request state configured, skipping reset",
+			slog.String("component", "live_handler"),
+			slog.String("group_id", groupID),
+			slog.String("path", currentPath))
+		typedState = ClearTransientFields(storedState)
 	} else if pathChanged && h.config.State != nil {
 		// Session exists but URL path changed and handler provides per-request state.
 		// Use fresh state from Handle(AsState(...)) so the new URL's data is rendered.
@@ -1276,7 +1284,10 @@ func (h *liveHandler) sweepStaleHTTPTemplates() {
 
 	// Also sweep orphaned httpLastPaths entries — GET-only sessions populate
 	// httpLastPaths but never create httpTemplates entries, so the loop above
-	// would miss them.
+	// would miss them. The primary sweep already deletes from httpLastPaths for
+	// sessions that had httpTemplates entries, so this pass only catches entries
+	// that existed solely in httpLastPaths. The swept counter tracks total map
+	// entries removed across both passes (not unique sessions).
 	h.httpLastPaths.Range(func(key, value any) bool {
 		groupID := key.(string)
 		if _, active := activeSessions[groupID]; !active {
