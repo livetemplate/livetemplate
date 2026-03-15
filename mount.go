@@ -824,6 +824,9 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// POST requests are excluded — they target actions, not page navigations.
 	// Paths are normalized via path.Clean to treat /a/ and /a as identical.
 	currentPath := path.Clean(r.URL.Path)
+	if currentPath == "." {
+		currentPath = "/"
+	}
 	pathChanged := false
 	if r.Method == http.MethodGet {
 		if prev, loaded := h.httpLastPaths.Load(groupID); loaded {
@@ -845,19 +848,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		slog.Info("Created new session group",
 			slog.String("component", "live_handler"),
 			slog.String("group_id", groupID))
-	} else if pathChanged && h.config.State == nil {
-		// No AsState configured — can't reset, just update the tracked path.
-		// Path is committed early (unlike the State != nil branch which defers
-		// until after Mount) because no Mount/reset occurs here, so there is
-		// no failure to retry.
-		h.httpLastPaths.Store(groupID, currentPath)
-		slog.Debug("Path changed but no per-request state configured, skipping reset",
-			slog.String("component", "live_handler"),
-			slog.String("group_id", groupID),
-			slog.String("path", currentPath))
-		typedState = ClearTransientFields(storedState)
-	} else if pathChanged && h.config.State != nil {
-		// Path changed with AsState configured — use fresh state for the new URL.
+	} else if pathChanged {
+		// Path changed — use fresh state for the new URL.
 		typedState, err = h.cloneStateTyped()
 		if err != nil {
 			slog.Error("Failed to clone per-request state",

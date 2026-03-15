@@ -1424,3 +1424,76 @@ func TestWebSocketDisabled_TrailingSlashDoesNotResetState(t *testing.T) {
 		t.Errorf("Trailing slash: expected 'Count: 1' (same path), got: %s", body)
 	}
 }
+
+// failingMountController fails Mount on demand via a channel signal.
+type failingMountController struct {
+	failNext chan struct{}
+}
+
+func (c *failingMountController) Mount(state wsDisabledState, ctx *Context) (wsDisabledState, error) {
+	select {
+	case <-c.failNext:
+		return state, errors.New("mount failed")
+	default:
+		state.Message = "mounted"
+		return state, nil
+	}
+}
+
+func (c *failingMountController) Increment(state wsDisabledState, ctx *Context) (wsDisabledState, error) {
+	state.Count++
+	return state, nil
+}
+
+func TestWebSocketDisabled_PathChangeMountFailureRetry(t *testing.T) {
+	ctrl := &failingMountController{failNext: make(chan struct{}, 1)}
+
+	tmpl, err := New("test", WithWebSocketDisabled())
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse(`<div>Count: {{.Count}}{{if .Message}} Message: {{.Message}}{{end}}</div>`)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	handler := tmpl.Handle(ctrl, AsState(&wsDisabledState{}))
+
+	// Step 1: GET /page-a — creates session
+	req := httptest.NewRequest("GET", "/page-a", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	cookie := extractSessionCookie(rec)
+	if cookie == nil {
+		t.Fatal("Expected session cookie")
+	}
+	if !strings.Contains(rec.Body.String(), "Message: mounted") {
+		t.Fatalf("Initial mount should succeed, got: %s", rec.Body.String())
+	}
+
+	// Step 2: Make next Mount fail, then GET /page-b (triggers path change)
+	ctrl.failNext <- struct{}{}
+	req = httptest.NewRequest("GET", "/page-b", nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("Expected 500 on Mount failure, got %d", rec.Code)
+	}
+
+	// Step 3: Retry GET /page-b — Mount should succeed this time because
+	// httpLastPaths was rolled back, allowing path-change re-detection.
+	req = httptest.NewRequest("GET", "/page-b", nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200 on retry, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Message: mounted") {
+		t.Errorf("Retry should call Mount, got: %s", body)
+	}
+	if !strings.Contains(body, "Count: 0") {
+		t.Errorf("Retry should have fresh state with Count: 0, got: %s", body)
+	}
+}
