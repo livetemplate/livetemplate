@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"reflect"
 	"strings"
 	"sync"
@@ -184,6 +185,7 @@ type liveHandler struct {
 	metricsExporter *observe.PrometheusExporter
 	tempFileManager uploadTempFileManager
 	httpTemplates   sync.Map // groupID → *httpTemplateCacheEntry (cached for HTTP POST diff optimization)
+	httpLastPaths   sync.Map // groupID → string (last served request path, for detecting URL changes)
 
 	// Graceful shutdown state
 	shutdownOnce sync.Once
@@ -816,6 +818,22 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	isNewSession := false
 	storedState := h.config.SessionStore.Get(ctx, groupID)
 	var typedState interface{}
+
+	// Detect URL path change on GET requests to reset stale cached state
+	// (e.g., page-mode navigation from /posts/alpha to /posts/beta).
+	// POST requests are excluded — they target actions, not page navigations.
+	// Paths are normalized via path.Clean to treat /a/ and /a as identical.
+	currentPath := path.Clean(r.URL.Path)
+	if currentPath == "." {
+		currentPath = "/"
+	}
+	pathChanged := false
+	if r.Method == http.MethodGet {
+		if prev, loaded := h.httpLastPaths.Load(groupID); loaded {
+			pathChanged = prev.(string) != currentPath
+		}
+	}
+
 	if storedState == nil {
 		typedState, err = h.cloneStateTyped()
 		if err != nil {
@@ -830,8 +848,24 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		slog.Info("Created new session group",
 			slog.String("component", "live_handler"),
 			slog.String("group_id", groupID))
+	} else if pathChanged {
+		// Path changed — use fresh state for the new URL.
+		typedState, err = h.cloneStateTyped()
+		if err != nil {
+			slog.Error("Failed to clone per-request state",
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		isNewSession = true
+		h.httpTemplates.Delete(groupID)
+		slog.Debug("Refreshing session for new URL path",
+			slog.String("component", "live_handler"),
+			slog.String("group_id", groupID),
+			slog.String("path", currentPath))
 	} else {
-		// Existing session - use stored state
+		// Existing session, same URL - use stored state
 		slog.Debug("Using existing session group",
 			slog.String("component", "live_handler"),
 			slog.String("group_id", groupID))
@@ -875,6 +909,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if isNewSession || hasFlashCookie {
 		newState, err := callMount(h.config.Controller, connSt.state, lifecycleCtx)
 		if err != nil {
+			// httpLastPaths still holds the previous path (Store is deferred
+			// until after success), so retries naturally re-detect the change.
 			slog.Error("Mount failed",
 				slog.String("component", "live_handler"),
 				slog.Any("error", err))
@@ -884,6 +920,10 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		connSt.state = newState
 		if isNewSession {
 			h.config.SessionStore.Set(ctx, groupID, connSt.state)
+		}
+		// Commit path after successful Mount (not before, to allow retries).
+		if r.Method == http.MethodGet {
+			h.httpLastPaths.Store(groupID, currentPath)
 		}
 	}
 
@@ -1218,19 +1258,31 @@ func (h *liveHandler) sweepStaleHTTPTemplates() {
 		activeSessions[groupID] = struct{}{}
 	}
 
-	var swept int
+	sweptSessions := make(map[string]struct{})
 	h.httpTemplates.Range(func(key, value any) bool {
 		groupID := key.(string)
 		if _, active := activeSessions[groupID]; !active {
 			h.httpTemplates.Delete(groupID)
-			swept++
+			h.httpLastPaths.Delete(groupID)
+			sweptSessions[groupID] = struct{}{}
 		}
 		return true
 	})
 
-	if swept > 0 {
-		slog.Debug("Swept stale HTTP template cache entries",
-			slog.Int("swept", swept))
+	// Sweep orphaned httpLastPaths entries from GET-only sessions that
+	// never created httpTemplates entries.
+	h.httpLastPaths.Range(func(key, value any) bool {
+		groupID := key.(string)
+		if _, active := activeSessions[groupID]; !active {
+			h.httpLastPaths.Delete(groupID)
+			sweptSessions[groupID] = struct{}{}
+		}
+		return true
+	})
+
+	if len(sweptSessions) > 0 {
+		slog.Debug("Swept stale HTTP cache entries",
+			slog.Int("sessions", len(sweptSessions)))
 	}
 }
 
