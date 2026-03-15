@@ -818,14 +818,17 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	storedState := h.config.SessionStore.Get(ctx, groupID)
 	var typedState interface{}
 
-	// Detect URL path change: when the same session navigates to a different URL
-	// (e.g., page-mode resource from /posts/alpha to /posts/beta), use fresh state
-	// so the current URL's data is rendered instead of stale cached data.
-	// Swap is atomic — avoids race between concurrent requests for the same groupID.
+	// Detect URL path change on GET requests: when the same session navigates to
+	// a different URL (e.g., page-mode resource from /posts/alpha to /posts/beta),
+	// use fresh state so the current URL's data is rendered instead of stale cached data.
+	// Only GET requests update the path — POST requests target a specific action and
+	// should not be treated as page navigations that reset state.
 	currentPath := r.URL.Path
 	pathChanged := false
-	if prev, loaded := h.httpLastPaths.Swap(groupID, currentPath); loaded {
-		pathChanged = prev.(string) != currentPath
+	if r.Method == http.MethodGet {
+		if prev, loaded := h.httpLastPaths.Swap(groupID, currentPath); loaded {
+			pathChanged = prev.(string) != currentPath
+		}
 	}
 
 	if storedState == nil {
@@ -1252,6 +1255,18 @@ func (h *liveHandler) sweepStaleHTTPTemplates() {
 		groupID := key.(string)
 		if _, active := activeSessions[groupID]; !active {
 			h.httpTemplates.Delete(groupID)
+			h.httpLastPaths.Delete(groupID)
+			swept++
+		}
+		return true
+	})
+
+	// Also sweep orphaned httpLastPaths entries — GET-only sessions populate
+	// httpLastPaths but never create httpTemplates entries, so the loop above
+	// would miss them.
+	h.httpLastPaths.Range(func(key, value any) bool {
+		groupID := key.(string)
+		if _, active := activeSessions[groupID]; !active {
 			h.httpLastPaths.Delete(groupID)
 			swept++
 		}

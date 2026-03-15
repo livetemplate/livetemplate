@@ -762,21 +762,12 @@ func createSecureOriginChecker(allowedOrigins []string, devMode bool) func(*http
 			return false
 		}
 
-		// Extract scheme from request — check X-Forwarded-Proto first
-		// for reverse proxy scenarios (e.g., Fly.io, Cloudflare, AWS ALB)
-		// where TLS is terminated at the proxy and r.TLS is nil.
-		//
-		// Note: X-Forwarded-Proto is trusted unconditionally. This is safe when
-		// the server is behind a reverse proxy that sets this header. If the server
-		// is directly exposed to the internet, a client could forge this header.
-		// In that scenario, consider using WithAllowedOrigins to explicitly list
-		// trusted origins instead of relying on same-origin detection.
+		// Derive scheme from X-Forwarded-Proto (reverse proxy) or r.TLS (direct).
+		// See WithAllowedOrigins godoc for security trade-offs of trusting this header.
 		scheme := ""
 		if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
-			// Normalize: take first value (chained proxies use comma-separated),
-			// trim whitespace, and lowercase for case-insensitive comparison.
-			val := strings.ToLower(strings.TrimSpace(strings.SplitN(proto, ",", 2)[0]))
-			// Only accept known schemes; ignore invalid values.
+			first, _, _ := strings.Cut(proto, ",")
+			val := strings.ToLower(strings.TrimSpace(first))
 			if val == "http" || val == "https" {
 				scheme = val
 			}
