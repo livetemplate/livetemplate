@@ -63,22 +63,22 @@ This architecture enables:
 ### Benchmark Results
 
 ```
-BenchmarkParse/simple            1644 ns/op    3744 B/op     43 allocs/op
-BenchmarkParse/conditional       3017 ns/op    4504 B/op     64 allocs/op
-BenchmarkParse/range             2461 ns/op    4336 B/op     59 allocs/op
-BenchmarkBuildTree/simple        2376 ns/op    5188 B/op     36 allocs/op
-BenchmarkBuildTree/cond-true     3249 ns/op    6565 B/op     60 allocs/op
-BenchmarkBuildTree/range-small   6333 ns/op   10725 B/op    151 allocs/op
-BenchmarkBuildTreeScale/small-10      16725 ns/op   24550 B/op    431 allocs/op
-BenchmarkBuildTreeScale/medium-100   137344 ns/op  202863 B/op   4031 allocs/op
-BenchmarkBuildTreeScale/large-1000  1415670 ns/op 1991387 B/op  40785 allocs/op
+BenchmarkParse/simple            1714 ns/op    3744 B/op     43 allocs/op
+BenchmarkParse/conditional       2864 ns/op    4504 B/op     64 allocs/op
+BenchmarkParse/range             2550 ns/op    4336 B/op     59 allocs/op
+BenchmarkBuildTree/simple        1200 ns/op    2825 B/op     27 allocs/op
+BenchmarkBuildTree/cond-true     1891 ns/op    4129 B/op     48 allocs/op
+BenchmarkBuildTree/range-small   4464 ns/op    7582 B/op    126 allocs/op
+BenchmarkBuildTreeScale/small-10      11719 ns/op   19519 B/op    365 allocs/op
+BenchmarkBuildTreeScale/medium-100   109596 ns/op  173293 B/op   3425 allocs/op
+BenchmarkBuildTreeScale/large-1000  1101278 ns/op 1714725 B/op  34775 allocs/op
 ```
 
 ### Key Findings
 
-- Simple template parsing: ~1.6µs with minimal allocations
-- BuildTree is 2.6-5.8x faster than the previous re-parse approach
-- 60-69% fewer allocations across all benchmarks
+- Simple template parsing: ~1.7µs with minimal allocations
+- BuildTree is 5-9x faster than the previous re-parse approach
+- 67-75% fewer allocations across all benchmarks
 - Performance gains scale with template complexity
 - Tree building dominates for large datasets (100+ items)
 - Memory usage scales predictably: ~11.9 MB per 1000 items
