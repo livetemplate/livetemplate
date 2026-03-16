@@ -205,7 +205,7 @@ LiveTemplate employs multi-level validation for fuzz testing:
 ### Level 3: Round-Trip Validation ✅
 - Parse → Render → Parse → Compare
 - Ensures bidirectional consistency
-- Uses deterministic `orderedVars` structure (`internal/parse/var_context.go`) and sorted TreeNode iteration
+- Uses deterministic `orderedVars` structure (`internal/parse/vars.go`) and sorted TreeNode iteration
 
 ### Level 4: Transition Validation ✅
 - Tests empty→non-empty state changes
@@ -282,7 +282,7 @@ Use intermediate variables instead.
 - **Fuzz Tests**: `fuzz_diff_test.go`, `fuzz_ts_oracle_test.go`
 - **Fuzz Infrastructure**: `internal/fuzz/` (app, invariants, mutations, generators)
 - **Parser Implementation**: `internal/parse/` package
-- **Variable Context**: `internal/parse/var_context.go`
+- **Variable Context**: `internal/parse/vars.go`
 - **Template Flattening**: `internal/parse/flatten.go`
 
 ---

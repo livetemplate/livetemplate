@@ -258,21 +258,26 @@ livetemplate/
 
 ## Internal Packages
 
-### Phase 1: Parse — `internal/parse/` (2,149 lines)
+### Phase 1: Parse — `internal/parse/` (~2,200 lines)
 
 **Purpose:** Parse Go templates into tree structures with separated statics and dynamics
 
 **Files:**
 | File | Lines | Purpose |
 |------|-------|---------|
-| `parse.go` | 558 | Main parser, `Parse()` and `BuildTree()` |
-| `range.go` | 513 | `{{range}}` handling with key generation |
+| `api.go` | 45 | Public API: `Parse()` and `BuildTree()` |
+| `eval.go` | 825 | Custom AST evaluator (walks PipeNode/CommandNode via reflection) |
+| `walker.go` | 201 | Unified AST walker with optional variable context |
+| `range.go` | 171 | `{{range}}` handling with key generation |
+| `keys.go` | 130 | Key detection and content hashing for range items |
+| `helpers.go` | 131 | Shared utilities (isZeroValue, formatPipe, getSortedKeys) |
+| `vars.go` | 90 | Variable context (orderedVars, varContext) |
+| `conditional.go` | 57 | `{{if}}{{else}}{{end}}` handling |
+| `errors.go` | 42 | Structured ParseError type |
 | `flatten.go` | 405 | Template composition (`{{template "name" .}}` inlining) |
-| `conditional.go` | 262 | `{{if}}{{else}}{{end}}` handling |
-| `var_context.go` | 182 | Variable scoping for nested contexts |
-| `field.go` | 167 | `{{.Field}}` handling |
-| `with.go` | 35 | `{{with}}{{end}}` handling |
-| `types.go` | 27 | Shared type definitions |
+| `with.go` | 30 | `{{with}}{{end}}` handling |
+| `field.go` | 29 | `{{.Field}}` and action handling |
+| `types.go` | 27 | Shared type definitions and KeyGenerator interface |
 
 **Key Functions:**
 - `Parse(templateStr string, funcMap template.FuncMap) (*Template, error)` - Parse template string
@@ -280,9 +285,10 @@ livetemplate/
 
 **How It Works:**
 1. Parse template using stdlib `html/template`
-2. Walk AST to identify template constructs (fields, conditionals, ranges, etc.)
-3. Flatten template compositions (inline `{{template}}` calls)
-4. Build tree with statics and dynamics separated
+2. Walk AST with unified walker (`walkAST`) that handles variable context
+3. Evaluate expressions directly via custom AST evaluator (no re-parsing)
+4. Flatten template compositions (inline `{{template}}` calls)
+5. Build tree with statics and dynamics separated
 
 ---
 
@@ -317,7 +323,10 @@ livetemplate/
 **Files:**
 | File | Lines | Purpose |
 |------|-------|---------|
-| `helpers.go` | 853 | ~70 utility functions for comparisons |
+| `helpers_value.go` | 117 | Value inspection and range detection |
+| `helpers_compare.go` | 68 | Deep comparison (DeepEqual, TreeNodeEqual) |
+| `helpers_keys.go` | 162 | Key extraction, hashing, position detection |
+| `helpers_range.go` | 348 | Range analysis (reordering, insertion patterns) |
 | `range_ops.go` | 521 | Range differential operations (insert, remove, update, reorder) |
 | `tree_compare.go` | 495 | Main comparison orchestrator |
 | `prepare.go` | 86 | Wire format preparation (strip statics when cached) |
@@ -641,7 +650,7 @@ func (c *CounterController) Increment(state CounterState, ctx *livetemplate.Cont
 **Improving Diff Algorithm:**
 1. Start in `internal/diff/tree_compare.go` (orchestrator)
 2. Add coordinator functions for specific scenarios
-3. Add helper functions in `internal/diff/helpers.go`
+3. Add helper functions in the appropriate `internal/diff/helpers_*.go` file
 4. Follow orchestrator → coordinator → helper pattern
 5. Add tests in `e2e_update_spec_test.go`
 

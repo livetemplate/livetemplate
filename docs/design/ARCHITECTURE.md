@@ -60,18 +60,23 @@ LiveTemplate is a reactive web framework for Go that uses tree-based DOM diffing
 
 ### Operational Phases (Main Flow)
 
-#### `internal/parse/` — 8 files, 2,149 lines
-**Responsibility:** Parse Go templates into executable AST
+#### `internal/parse/` — 13 files, ~2,200 lines
+**Responsibility:** Parse Go templates and build tree structures via custom AST evaluation
 
 **Files:**
-- `parse.go` (558) - Main parser entry point, `Parse()` and `BuildTree()`
-- `field.go` (167) - `{{.Field}}` handling
-- `conditional.go` (262) - `{{if}}{{else}}{{end}}` handling
-- `range.go` (513) - `{{range}}{{end}}` handling
-- `with.go` (35) - `{{with}}{{end}}` handling
+- `api.go` (45) - Public API: `Parse()` and `BuildTree()`
+- `eval.go` (825) - Custom AST evaluator (walks PipeNode/CommandNode via reflection)
+- `walker.go` (201) - Unified AST walker with optional variable context
+- `range.go` (171) - `{{range}}{{end}}` handling
+- `keys.go` (130) - Key detection and content hashing for range items
+- `helpers.go` (131) - Shared utilities
+- `vars.go` (90) - Variable context (orderedVars, varContext)
+- `conditional.go` (57) - `{{if}}{{else}}{{end}}` handling
+- `errors.go` (42) - Structured ParseError type
 - `flatten.go` (405) - Template composition (`{{template "name" .}}` inlining)
-- `types.go` (27) - Shared type definitions
-- `var_context.go` (182) - Variable context for template scoping
+- `with.go` (30) - `{{with}}{{end}}` handling
+- `field.go` (29) - `{{.Field}}` and action handling
+- `types.go` (27) - Shared type definitions and KeyGenerator interface
 
 **Key Functions:**
 - `Parse(templateStr string, funcMap template.FuncMap) (*Template, error)`
@@ -102,7 +107,10 @@ LiveTemplate is a reactive web framework for Go that uses tree-based DOM diffing
 **Files:**
 - `tree_compare.go` (495) - Main tree comparison algorithm
 - `range_ops.go` (521) - Range-specific diffing operations
-- `helpers.go` (853) - Utility functions for diff operations
+- `helpers_value.go` (117) - Value inspection and range detection utilities
+- `helpers_compare.go` (68) - Deep comparison (DeepEqual, TreeNodeEqual)
+- `helpers_keys.go` (162) - Key extraction, hashing, and position detection
+- `helpers_range.go` (348) - Range analysis (reordering, insertion patterns, discovery)
 - `prepare.go` (86) - Wire format preparation (strip statics when cached)
 - `types.go` (17) - Type aliases for compatibility
 
