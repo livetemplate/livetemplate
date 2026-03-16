@@ -9,7 +9,8 @@ import (
 	"text/template/parse"
 )
 
-// sentinel is used to distinguish "no pipe argument" from an explicit nil.
+// sentinel distinguishes "no pipe argument" from an explicit nil.
+// Identity-compared via pointer address; never written to; package-internal only.
 var sentinel = &struct{}{}
 
 // evaluator walks parse.PipeNode and parse.CommandNode directly via reflection,
@@ -69,7 +70,7 @@ func (e *evaluator) evalCommand(cmd *parse.CommandNode, dot interface{}, varCtx 
 	firstWord := cmd.Args[0]
 	switch n := firstWord.(type) {
 	case *parse.FieldNode:
-		return e.evalFieldNode(dot, n, cmd.Args[1:], pipeArg)
+		return e.evalFieldNode(dot, n, cmd.Args[1:], varCtx, pipeArg)
 
 	case *parse.ChainNode:
 		return e.evalChainNode(dot, n, cmd.Args[1:], varCtx, pipeArg)
@@ -105,7 +106,7 @@ func (e *evaluator) evalCommand(cmd *parse.CommandNode, dot interface{}, varCtx 
 }
 
 // evalFieldNode evaluates a field access chain on dot: .Name, .User.Name
-func (e *evaluator) evalFieldNode(dot interface{}, node *parse.FieldNode, args []parse.Node, pipeArg interface{}) (interface{}, error) {
+func (e *evaluator) evalFieldNode(dot interface{}, node *parse.FieldNode, args []parse.Node, varCtx *varContext, pipeArg interface{}) (interface{}, error) {
 	val, err := resolveFieldChain(dot, node.Ident)
 	if err != nil {
 		return nil, &ParseError{Phase: "eval", NodeType: "field", Expr: node.String(), Err: err}
@@ -115,7 +116,7 @@ func (e *evaluator) evalFieldNode(dot interface{}, node *parse.FieldNode, args [
 		if val == nil {
 			return nil, nil // nil receiver with args — return nil gracefully
 		}
-		return e.callMethodOrFieldWithArgs(val, args, dot, nil, pipeArg)
+		return e.callMethodOrFieldWithArgs(val, args, dot, varCtx, pipeArg)
 	}
 	return val, nil
 }
@@ -185,7 +186,7 @@ func (e *evaluator) evalVariableNode(node *parse.VariableNode, args []parse.Node
 
 	// If there are extra args or a pipe arg, call as method
 	if len(args) > 0 || pipeArg != sentinel {
-		return e.callMethodOrFieldWithArgs(val, args, dot, nil, pipeArg)
+		return e.callMethodOrFieldWithArgs(val, args, dot, varCtx, pipeArg)
 	}
 	return val, nil
 }
@@ -377,6 +378,8 @@ func isErrorResult(v reflect.Value) bool {
 
 // callFunc calls a function with the given arguments using reflection.
 // Handles variadic functions and (T, error) return patterns.
+// Per Go template conventions, functions must return either T or (T, error).
+// If a two-value return's second value doesn't implement error, it is ignored.
 func callFunc(fn reflect.Value, args []interface{}) (result interface{}, err error) {
 	// Recover from panics in user-provided functions (type mismatches, nil derefs, etc.)
 	defer func() {
