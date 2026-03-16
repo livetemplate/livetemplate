@@ -164,10 +164,10 @@ The main `livetemplate` package provides a clean, minimal public API:
 ### Internal Packages (5-Phase Architecture)
 
 **Phase 1: Parse** (`internal/parse/`)
-- Parses Go templates into tree structures
+- Parses Go templates into tree structures using a custom AST evaluator
 - Handles template constructs (fields, conditionals, ranges, with, template invokes)
-- Components: parse.go, conditional.go, field.go, range.go, with.go, flatten.go, types.go, var_context.go
-- Each construct type has a dedicated file following single-responsibility design
+- Components: api.go, walker.go, eval.go, field.go, conditional.go, range.go, with.go, vars.go, keys.go, helpers.go, errors.go, flatten.go, types.go
+- Single unified AST walker with optional variable context
 
 **Phase 2: Build** (`internal/build/`)
 - Tree construction and operations
@@ -177,12 +177,11 @@ The main `livetemplate` package provides a clean, minimal public API:
 
 **Phase 3: Diff** (`internal/diff/`)
 - Tree comparison and update generation
-- Components: tree_compare.go, range_ops.go, prepare.go, helpers.go, types.go
+- Components: tree_compare.go, range_ops.go, prepare.go, helpers_value.go, helpers_compare.go, helpers_keys.go, helpers_range.go, types.go
 - Architecture: Hierarchical delegation pattern
   - Orchestrator: `CompareTreesAndGetChangesWithPath()` - entry point
   - Delegators: `handle*()` functions for specialized cases
   - Coordinator: `GenerateRangeDifferentialOperations()` for range ops
-  - Helpers: ~70 utility functions in helpers.go
 
 **Phase 4: Render** (`internal/render/`)
 - HTML rendering utilities

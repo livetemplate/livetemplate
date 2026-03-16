@@ -1,5 +1,5 @@
 # Single-run baseline — use `make bench-10x` + benchstat for statistically robust comparison
-# Go 1.26.0 | arm64 (Apple M2) | 2026-03-13
+# Go 1.26.0 | arm64 (Apple M2) | 2026-03-16
 BenchmarkDispatchWithState_Cached-8   	 3417730	       296.6 ns/op	      80 B/op	       4 allocs/op
 BenchmarkE2EUserJourney-8             	     454	   4250095 ns/op	 2919203 B/op	   23652 allocs/op
 BenchmarkE2ETodoApp-8                 	    2755	    654627 ns/op	  145164 B/op	    1532 allocs/op
@@ -79,18 +79,18 @@ BenchmarkWireSizeComparison/medium_20_with_statics-8          	  213036	      59
 BenchmarkWireSizeComparison/medium_20_without_statics-8       	  192729	      5896 ns/op	       251.0 bytes/op	    5511 B/op	      55 allocs/op
 BenchmarkWireSizeComparison/large_100_with_statics-8          	   38222	     29970 ns/op	      1232 bytes/op	   19277 B/op	     215 allocs/op
 BenchmarkWireSizeComparison/large_100_without_statics-8       	   41872	     29875 ns/op	      1232 bytes/op	   24297 B/op	     219 allocs/op
-BenchmarkParse/simple-8     	  570288	      2575 ns/op	    3744 B/op	      43 allocs/op
-BenchmarkParse/conditional-8         	  330288	      3340 ns/op	    4504 B/op	      64 allocs/op
-BenchmarkParse/range-8               	  444028	      3609 ns/op	    4336 B/op	      59 allocs/op
-BenchmarkParse/nested-8              	  311612	      5049 ns/op	    4720 B/op	      69 allocs/op
-BenchmarkParse/complex-8             	  123367	      9817 ns/op	    7072 B/op	     126 allocs/op
-BenchmarkBuildTree/simple-8          	  160855	     11273 ns/op	   11242 B/op	     100 allocs/op
-BenchmarkBuildTree/conditional-true-8         	   69956	     14741 ns/op	   21932 B/op	     195 allocs/op
-BenchmarkBuildTree/conditional-false-8        	  167146	      6729 ns/op	   11002 B/op	     102 allocs/op
-BenchmarkBuildTree/range-small-8              	   49032	     25720 ns/op	   36950 B/op	     378 allocs/op
-BenchmarkBuildTreeScale/small-10-8            	   15464	     77563 ns/op	  120040 B/op	    1197 allocs/op
-BenchmarkBuildTreeScale/medium-100-8          	    1554	   1295268 ns/op	 1190517 B/op	   11736 allocs/op
-BenchmarkBuildTreeScale/large-1000-8          	     146	   8085147 ns/op	11911935 B/op	  117113 allocs/op
+BenchmarkParse/simple-8     	  707443	      1714 ns/op	    3744 B/op	      43 allocs/op
+BenchmarkParse/conditional-8         	  413396	      2864 ns/op	    4504 B/op	      64 allocs/op
+BenchmarkParse/range-8               	  476246	      2550 ns/op	    4336 B/op	      59 allocs/op
+BenchmarkParse/nested-8              	  354178	      3258 ns/op	    4720 B/op	      69 allocs/op
+BenchmarkParse/complex-8             	  187854	      6369 ns/op	    7072 B/op	     126 allocs/op
+BenchmarkBuildTree/simple-8          	 1003599	      1200 ns/op	    2825 B/op	      27 allocs/op
+BenchmarkBuildTree/conditional-true-8         	  637848	      1891 ns/op	    4129 B/op	      48 allocs/op
+BenchmarkBuildTree/conditional-false-8        	  879074	      1353 ns/op	    3121 B/op	      33 allocs/op
+BenchmarkBuildTree/range-small-8              	  256986	      4464 ns/op	    7582 B/op	     126 allocs/op
+BenchmarkBuildTreeScale/small-10-8            	  101155	     11719 ns/op	   19519 B/op	     365 allocs/op
+BenchmarkBuildTreeScale/medium-100-8          	   10000	    109596 ns/op	  173293 B/op	    3425 allocs/op
+BenchmarkBuildTreeScale/large-1000-8          	     992	   1101278 ns/op	 1714725 B/op	   34775 allocs/op
 BenchmarkNodeRender-8          	14642858	        69.08 ns/op	      56 B/op	       3 allocs/op
 BenchmarkTreeToHTML/simple-8   	10270905	       126.2 ns/op	      64 B/op	       4 allocs/op
 BenchmarkTreeToHTML/nested-8   	 5458836	       217.7 ns/op	     144 B/op	       7 allocs/op

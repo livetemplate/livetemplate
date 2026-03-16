@@ -28,7 +28,6 @@ func TestVarDeclaration_Basic(t *testing.T) {
 		t.Fatalf("BuildTree error: %v", err)
 	}
 
-	// Check that dynamics were extracted correctly
 	d0, ok := tree.GetDynamic("0")
 	if !ok {
 		t.Fatal("missing dynamic 0")
@@ -45,7 +44,6 @@ func TestVarDeclaration_Basic(t *testing.T) {
 		t.Errorf("dynamic 1 = %v, want world", d1)
 	}
 
-	// Check statics
 	if len(tree.Statics) != 3 {
 		t.Fatalf("statics length = %d, want 3", len(tree.Statics))
 	}
@@ -81,7 +79,6 @@ func TestVarDeclaration_WithRange(t *testing.T) {
 		t.Fatalf("BuildTree error: %v", err)
 	}
 
-	// First dynamic should be the outer class
 	d0, ok := tree.GetDynamic("0")
 	if !ok {
 		t.Fatal("missing dynamic 0 (outer class)")
@@ -90,7 +87,6 @@ func TestVarDeclaration_WithRange(t *testing.T) {
 		t.Errorf("dynamic 0 = %v, want my-class", d0)
 	}
 
-	// Second dynamic should be the range tree
 	d1, ok := tree.GetDynamic("1")
 	if !ok {
 		t.Fatal("missing dynamic 1 (range)")
@@ -103,13 +99,11 @@ func TestVarDeclaration_WithRange(t *testing.T) {
 		t.Fatal("range tree has no Range data")
 	}
 
-	// Range should have 2 items
 	items := rangeTree.Range.Items
 	if len(items) != 2 {
 		t.Fatalf("range items = %d, want 2", len(items))
 	}
 
-	// Each range item should have $c.Class resolved
 	for i, item := range items {
 		itemTree, ok := item.(*TreeNode)
 		if !ok {
@@ -146,7 +140,6 @@ func TestVarDeclaration_WithIf(t *testing.T) {
 		t.Fatalf("BuildTree error: %v", err)
 	}
 
-	// The if branch should resolve $c.Label
 	d0, ok := tree.GetDynamic("0")
 	if !ok {
 		t.Fatal("missing dynamic 0")
@@ -188,7 +181,7 @@ func TestVarDeclaration_WithWith(t *testing.T) {
 		t.Fatalf("BuildTree error: %v", err)
 	}
 
-	// With blocks don't wrap — their content merges into the parent tree.
+	// With blocks don't wrap -- their content merges into the parent tree.
 	// $c.Style and .Value should appear as direct dynamics.
 	d0, ok := tree.GetDynamic("0")
 	if !ok {
@@ -231,12 +224,10 @@ func TestVarDeclaration_NestedRange(t *testing.T) {
 		t.Fatalf("BuildTree error: %v", err)
 	}
 
-	// Should not error - $c.Style should be accessible from inner range
 	if tree == nil {
 		t.Fatal("tree is nil")
 	}
 
-	// Verify the outer range tree exists
 	d0, ok := tree.GetDynamic("0")
 	if !ok {
 		t.Fatal("missing dynamic 0 (outer range)")
@@ -336,7 +327,6 @@ func TestVarDeclaration_WithRangeVarDecl(t *testing.T) {
 		t.Fatal("tree is nil")
 	}
 
-	// Should have range data
 	d0, ok := tree.GetDynamic("0")
 	if !ok {
 		t.Fatal("missing dynamic 0")
@@ -354,7 +344,6 @@ func TestVarDeclaration_WithRangeVarDecl(t *testing.T) {
 		t.Fatalf("items count = %d, want 2", len(items))
 	}
 
-	// Each item should have $c.Style resolved
 	for i, item := range items {
 		itemTree, ok := item.(*TreeNode)
 		if !ok {

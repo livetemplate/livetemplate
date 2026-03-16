@@ -360,11 +360,8 @@ func CompareRangeItemsForChanges(oldItem, newItem interface{}, statics interface
 		return changes
 	}
 
-	// Get effective statics for the new item (handles both homogeneous and heterogeneous)
-	effectiveStatics := getItemStatics(newItemNode, statics)
-
 	// Find key position to skip it
-	keyPos := FindKeyPositionFromStatics(effectiveStatics)
+	keyPos := FindKeyPositionFromStatics(statics)
 	keyPosStr := fmt.Sprintf("%d", keyPos)
 
 	// Compare each field (except the key field)
