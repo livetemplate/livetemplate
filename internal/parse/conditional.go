@@ -29,8 +29,8 @@ func handleIf(node *parse.IfNode, eval *evaluator, data interface{}, varCtx *var
 }
 
 // selectBranch chooses which branch of an if/else to execute.
-func selectBranch(node *parse.IfNode, isTrue bool) *parse.ListNode {
-	if isTrue {
+func selectBranch(node *parse.IfNode, condResult bool) *parse.ListNode {
+	if condResult {
 		return node.List
 	}
 	return node.ElseList

@@ -1,7 +1,6 @@
 package parse
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -10,26 +9,11 @@ import (
 	"strings"
 )
 
-const (
-	staticsHashPrefixLen = 16
-	hashPrefixLength     = 12
-)
+const hashPrefixLength = 12
 
-// rangeItemWithStatics holds an item tree and its statics together.
+// rangeItemWithStatics holds an item tree for range processing.
 type rangeItemWithStatics struct {
-	tree    *TreeNode
-	statics []string
-	hash    string
-}
-
-// hashStatics creates a short hash key for a statics array.
-func hashStatics(statics []string) string {
-	h := sha256.New()
-	for _, s := range statics {
-		h.Write([]byte(s))
-		h.Write([]byte{0})
-	}
-	return hex.EncodeToString(h.Sum(nil))[:staticsHashPrefixLen]
+	tree *TreeNode
 }
 
 // hasExplicitKeyAttribute checks if any key attribute is present in the statics.

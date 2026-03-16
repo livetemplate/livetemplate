@@ -275,12 +275,11 @@ func TestVarEval_NoVarsPlainDotField(t *testing.T) {
 	}
 }
 
-// TestVarEval_ErrorPropagation tests that errors are properly propagated.
+// TestVarEval_ErrorPropagation tests that missing struct fields produce empty output
+// (matching Go template behavior where missing fields render as <no value> or empty).
 func TestVarEval_ErrorPropagation(t *testing.T) {
-	// Go's template parser catches undefined variables at parse time,
-	// so we test error propagation for missing field access instead.
 	type Data struct{}
-	tmplStr := `<span>{{.NonExistentField.Nested}}</span>`
+	tmplStr := `<span>{{.NonExistentField}}</span>`
 	data := Data{}
 
 	tmpl, err := Parse(tmplStr, nil)
@@ -289,9 +288,13 @@ func TestVarEval_ErrorPropagation(t *testing.T) {
 	}
 
 	ctx := build.NewContext()
-	_, err = BuildTree(tmpl, data, nil, ctx)
-	if err == nil {
-		t.Error("expected error for invalid field access, got nil")
+	tree, err := BuildTree(tmpl, data, nil, ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	d0, _ := tree.GetDynamic("0")
+	if d0 != "" {
+		t.Errorf("expected empty string for missing field, got %q", d0)
 	}
 }
 

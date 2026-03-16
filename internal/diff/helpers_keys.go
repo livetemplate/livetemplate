@@ -66,9 +66,7 @@ func GetItemKey(item interface{}, statics interface{}) (string, bool) {
 		}
 	}
 
-	// Get the effective statics for this item
-	effectiveStatics := getItemStatics(itemNode, statics)
-	keyPos := FindKeyPositionFromStatics(effectiveStatics)
+	keyPos := FindKeyPositionFromStatics(statics)
 
 	if keyPos >= 0 {
 		keyPosStr := fmt.Sprintf("%d", keyPos)
@@ -81,14 +79,6 @@ func GetItemKey(item interface{}, statics interface{}) (string, bool) {
 
 	// No explicit key attribute — generate a content-based hash
 	return GenerateItemHash(itemNode), true
-}
-
-// getItemStatics returns the effective statics for an item.
-func getItemStatics(itemNode *TreeNode, statics interface{}) interface{} {
-	if statics == nil {
-		return nil
-	}
-	return statics
 }
 
 // GenerateItemHash creates a stable hash for a range item based on its content.

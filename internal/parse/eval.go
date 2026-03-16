@@ -15,24 +15,27 @@ var sentinel = &struct{}{}
 // evaluator walks parse.PipeNode and parse.CommandNode directly via reflection,
 // replacing the old "serialize → re-parse → execute" pattern.
 type evaluator struct {
-	funcMap  htmltemplate.FuncMap
 	builtins map[string]reflect.Value
 }
 
-func newEvaluator(funcMap htmltemplate.FuncMap) *evaluator {
-	e := &evaluator{
-		funcMap:  funcMap,
-		builtins: make(map[string]reflect.Value),
-	}
-	// Register builtins matching text/template/funcs.go
+// cachedBuiltins holds pre-reflected builtin functions, computed once.
+var cachedBuiltins = func() map[string]reflect.Value {
+	m := make(map[string]reflect.Value)
 	for name, fn := range defaultBuiltins() {
-		e.builtins[name] = reflect.ValueOf(fn)
+		m[name] = reflect.ValueOf(fn)
 	}
-	// Pre-resolve user FuncMap to reflect.Values
+	return m
+}()
+
+func newEvaluator(funcMap htmltemplate.FuncMap) *evaluator {
+	builtins := make(map[string]reflect.Value, len(cachedBuiltins)+len(funcMap))
+	for name, fn := range cachedBuiltins {
+		builtins[name] = fn
+	}
 	for name, fn := range funcMap {
-		e.builtins[name] = reflect.ValueOf(fn)
+		builtins[name] = reflect.ValueOf(fn)
 	}
-	return e
+	return &evaluator{builtins: builtins}
 }
 
 // evalPipe evaluates a pipeline, threading results between commands.
@@ -109,6 +112,9 @@ func (e *evaluator) evalFieldNode(dot interface{}, node *parse.FieldNode, args [
 	}
 	// If there are extra args or a pipe arg, this is a method call
 	if len(args) > 0 || pipeArg != sentinel {
+		if val == nil {
+			return nil, nil // nil receiver with args — return nil gracefully
+		}
 		return e.callMethodOrFieldWithArgs(val, args, dot, nil, pipeArg)
 	}
 	return val, nil
@@ -271,15 +277,9 @@ func (e *evaluator) callMethodOrFieldWithArgs(val interface{}, args []parse.Node
 func resolveFieldChain(value interface{}, fields []string) (interface{}, error) {
 	v := reflect.ValueOf(value)
 	for _, field := range fields {
-		v = deref(v)
-		if !v.IsValid() {
-			return nil, fmt.Errorf("nil pointer evaluating field %q", field)
-		}
-
-		// Try method first (on original value, before deref, for pointer receivers)
-		origV := reflect.ValueOf(value)
-		if origV.IsValid() {
-			if method := origV.MethodByName(field); method.IsValid() {
+		// Try method on pre-deref value first (for pointer receivers)
+		if v.IsValid() {
+			if method := v.MethodByName(field); method.IsValid() {
 				result, err := callMethod(method)
 				if err != nil {
 					return nil, err
@@ -288,6 +288,12 @@ func resolveFieldChain(value interface{}, fields []string) (interface{}, error) 
 				v = reflect.ValueOf(value)
 				continue
 			}
+		}
+
+		v = deref(v)
+		if !v.IsValid() {
+			// Nil mid-chain — return nil gracefully to match Go template behavior
+			return nil, nil
 		}
 
 		// Try method on dereferenced value
@@ -305,7 +311,9 @@ func resolveFieldChain(value interface{}, fields []string) (interface{}, error) 
 		case reflect.Struct:
 			fv := v.FieldByName(field)
 			if !fv.IsValid() {
-				return nil, fmt.Errorf("struct has no field %q", field)
+				// Missing struct field — return nil to match Go template behavior
+				// where {{if .MissingField}} evaluates as falsy
+				return nil, nil
 			}
 			value = fv.Interface()
 			v = fv
@@ -347,10 +355,24 @@ func callMethod(method reflect.Value) (interface{}, error) {
 	if len(results) == 0 {
 		return nil, nil
 	}
-	if len(results) == 2 && !results[1].IsNil() {
+	if len(results) == 2 && isErrorResult(results[1]) {
 		return nil, results[1].Interface().(error)
 	}
 	return results[0].Interface(), nil
+}
+
+// isErrorResult checks if a reflect.Value contains a non-nil error.
+// Handles both nilable and non-nilable types safely.
+var errorType = reflect.TypeOf((*error)(nil)).Elem()
+
+func isErrorResult(v reflect.Value) bool {
+	if !v.IsValid() || !v.Type().Implements(errorType) {
+		return false
+	}
+	if v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface {
+		return !v.IsNil()
+	}
+	return true
 }
 
 // callFunc calls a function with the given arguments using reflection.
@@ -361,47 +383,34 @@ func callFunc(fn reflect.Value, args []interface{}) (interface{}, error) {
 	isVariadic := ft.IsVariadic()
 
 	// Build reflect.Value arguments
-	var in []reflect.Value
+	in := make([]reflect.Value, 0, len(args))
 	if isVariadic {
-		// Fixed params + variadic
 		fixedCount := numIn - 1
-		in = make([]reflect.Value, 0, len(args))
 		for i, arg := range args {
 			if i < fixedCount {
 				in = append(in, convertArg(arg, ft.In(i)))
 			} else {
-				// Variadic element type
 				elemType := ft.In(numIn - 1).Elem()
 				in = append(in, convertArg(arg, elemType))
 			}
 		}
 	} else {
-		in = make([]reflect.Value, len(args))
 		for i, arg := range args {
 			if i < numIn {
-				in = append(in[:i], convertArg(arg, ft.In(i)))
+				in = append(in, convertArg(arg, ft.In(i)))
 			} else {
-				in = append(in[:i], reflect.ValueOf(arg))
+				in = append(in, reflect.ValueOf(arg))
 			}
 		}
 	}
 
-	var results []reflect.Value
-	if isVariadic {
-		results = fn.Call(in)
-	} else {
-		results = fn.Call(in)
-	}
+	results := fn.Call(in)
 
-	// Handle return values
 	if len(results) == 0 {
 		return nil, nil
 	}
-	if len(results) == 2 {
-		if !results[1].IsNil() {
-			return nil, results[1].Interface().(error)
-		}
-		return results[0].Interface(), nil
+	if len(results) == 2 && isErrorResult(results[1]) {
+		return nil, results[1].Interface().(error)
 	}
 	return results[0].Interface(), nil
 }

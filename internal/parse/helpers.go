@@ -1,9 +1,9 @@
 package parse
 
 import (
-	"fmt"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"text/template/parse"
 )
@@ -57,8 +57,7 @@ func getSortedKeys(m map[string]interface{}) []string {
 	}
 	pairs := make([]kv, 0, len(m))
 	for k := range m {
-		var num int
-		_, err := fmt.Sscanf(k, "%d", &num)
+		num, err := strconv.Atoi(k)
 		pairs = append(pairs, kv{key: k, num: num, valid: err == nil})
 	}
 	sort.Slice(pairs, func(i, j int) bool {

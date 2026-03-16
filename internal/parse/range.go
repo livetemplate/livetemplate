@@ -84,11 +84,7 @@ func iterateSlice(node *parse.RangeNode, collection reflect.Value, eval *evaluat
 			return nil, fmt.Errorf("range item %d error: %w", i, err)
 		}
 
-		itemsWithStatics = append(itemsWithStatics, rangeItemWithStatics{
-			tree:    itemTree,
-			statics: itemTree.Statics,
-			hash:    hashStatics(itemTree.Statics),
-		})
+		itemsWithStatics = append(itemsWithStatics, rangeItemWithStatics{tree: itemTree})
 	}
 	return buildRangeTreeWithStatics(itemsWithStatics, ctx)
 }
@@ -108,11 +104,7 @@ func iterateMap(node *parse.RangeNode, collection reflect.Value, eval *evaluator
 			return nil, fmt.Errorf("range item %d error: %w", i, err)
 		}
 
-		itemsWithStatics = append(itemsWithStatics, rangeItemWithStatics{
-			tree:    itemTree,
-			statics: itemTree.Statics,
-			hash:    hashStatics(itemTree.Statics),
-		})
+		itemsWithStatics = append(itemsWithStatics, rangeItemWithStatics{tree: itemTree})
 	}
 	return buildRangeTreeWithStatics(itemsWithStatics, ctx)
 }
@@ -128,20 +120,11 @@ func buildRangeTreeWithStatics(items []rangeItemWithStatics, ctx *Context) (*Tre
 		return rangeTree, nil
 	}
 
-	// Check if all items have the same statics (homogeneous)
-	firstHash := items[0].hash
-	isHomogeneous := true
-	for i := 1; i < len(items); i++ {
-		if items[i].hash != firstHash {
-			isHomogeneous = false
-			break
-		}
-	}
-	_ = isHomogeneous // both paths treated the same now
+	firstStatics := items[0].tree.Statics
 
-	idKey := detectIDKey(items[0].statics)
+	idKey := detectIDKey(firstStatics)
 
-	if !hasExplicitKeyAttribute(items[0].statics) {
+	if !hasExplicitKeyAttribute(firstStatics) {
 		for _, item := range items {
 			hash := generateItemHash(item.tree)
 			item.tree.SetDynamic("_k", hash)
@@ -156,9 +139,9 @@ func buildRangeTreeWithStatics(items []rangeItemWithStatics, ctx *Context) (*Tre
 
 	rangeTree := NewTreeNode()
 	if ctx.ShouldIncludeStatics() {
-		rangeTree.Statics = items[0].statics
+		rangeTree.Statics = firstStatics
 	}
-	rangeTree.Range = NewRangeData(itemTrees, items[0].statics)
+	rangeTree.Range = NewRangeData(itemTrees, firstStatics)
 	rangeTree.Metadata = NewTreeMetadata(idKey)
 	return rangeTree, nil
 }

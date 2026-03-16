@@ -334,11 +334,10 @@ func TestHandleRange_MapViaHandleRange(t *testing.T) {
 // TestBuildRangeTreeWithStatics_Homogeneous tests homogeneous range tree construction.
 func TestBuildRangeTreeWithStatics_Homogeneous(t *testing.T) {
 	itemStatics := []string{"<div id=\"", "\">", "</div>"}
-	staticsHash := hashStatics(itemStatics)
 
 	items := []rangeItemWithStatics{
-		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "a"}}, statics: itemStatics, hash: staticsHash},
-		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "b"}}, statics: itemStatics, hash: staticsHash},
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "a"}}},
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "b"}}},
 	}
 	ctx := &Context{IncludeStatics: true}
 
@@ -646,11 +645,10 @@ func TestExtractItemDynamics(t *testing.T) {
 // TestBuildRangeTreeWithStatics_AutoKey tests that items without explicit key attribute get _k injected.
 func TestBuildRangeTreeWithStatics_AutoKey(t *testing.T) {
 	itemStatics := []string{"<div>", "</div>"}
-	staticsHash := hashStatics(itemStatics)
 
 	items := []rangeItemWithStatics{
-		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "a"}}, statics: itemStatics, hash: staticsHash},
-		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "b"}}, statics: itemStatics, hash: staticsHash},
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "a"}}},
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "b"}}},
 	}
 	ctx := &Context{IncludeStatics: true}
 
@@ -696,11 +694,10 @@ func TestBuildRangeTreeWithStatics_AutoKey(t *testing.T) {
 // TestBuildRangeTreeWithStatics_ExplicitKey_NoAutoKey tests that items with explicit key don't get _k injected.
 func TestBuildRangeTreeWithStatics_ExplicitKey_NoAutoKey(t *testing.T) {
 	itemStatics := []string{"<div data-key=\"", "\">", "</div>"}
-	staticsHash := hashStatics(itemStatics)
 
 	items := []rangeItemWithStatics{
-		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "id1", "1": "content-a"}}, statics: itemStatics, hash: staticsHash},
-		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "id2", "1": "content-b"}}, statics: itemStatics, hash: staticsHash},
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "id1", "1": "content-a"}}},
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "id2", "1": "content-b"}}},
 	}
 	ctx := &Context{IncludeStatics: true}
 
