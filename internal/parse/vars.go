@@ -66,24 +66,21 @@ func (ov orderedVars) Range(fn func(key string, value interface{})) {
 
 // registerVarDeclaration evaluates a variable declaration and registers it in varCtx.
 func registerVarDeclaration(eval *evaluator, actionNode *parse.ActionNode, varCtx *varContext, ctx *Context) error {
+	if len(actionNode.Pipe.Cmds) == 0 {
+		return &ParseError{
+			Phase: "eval", NodeType: "var",
+			Msg: "variable declaration has no right-hand side expression",
+		}
+	}
+
+	// Evaluate the RHS pipe once (not per declaration variable)
+	value, err := eval.evalPipe(actionNode.Pipe, varCtx.dot, varCtx)
+	if err != nil {
+		return &ParseError{Phase: "eval", NodeType: "var", Err: err}
+	}
+
 	for _, decl := range actionNode.Pipe.Decl {
 		varName := strings.TrimPrefix(decl.Ident[0], "$")
-		if len(actionNode.Pipe.Cmds) == 0 {
-			return &ParseError{
-				Phase: "eval", NodeType: "var",
-				Expr: "$" + varName,
-				Msg:  "variable declaration has no right-hand side expression",
-			}
-		}
-		// Evaluate the RHS pipe against the current dot context
-		value, err := eval.evalPipe(actionNode.Pipe, varCtx.dot, varCtx)
-		if err != nil {
-			return &ParseError{
-				Phase: "eval", NodeType: "var",
-				Expr: "$" + varName,
-				Err:  err,
-			}
-		}
 		varCtx.vars.Set(varName, value)
 	}
 	return nil

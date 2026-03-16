@@ -377,10 +377,31 @@ func isErrorResult(v reflect.Value) bool {
 
 // callFunc calls a function with the given arguments using reflection.
 // Handles variadic functions and (T, error) return patterns.
-func callFunc(fn reflect.Value, args []interface{}) (interface{}, error) {
+func callFunc(fn reflect.Value, args []interface{}) (result interface{}, err error) {
+	// Recover from panics in user-provided functions (type mismatches, nil derefs, etc.)
+	defer func() {
+		if r := recover(); r != nil {
+			err = &ParseError{Phase: "eval", NodeType: "call", Msg: fmt.Sprintf("panic calling function: %v", r)}
+		}
+	}()
+
 	ft := fn.Type()
 	numIn := ft.NumIn()
 	isVariadic := ft.IsVariadic()
+
+	// Validate argument count for non-variadic functions
+	if !isVariadic && len(args) != numIn {
+		return nil, &ParseError{
+			Phase: "eval", NodeType: "call",
+			Msg: fmt.Sprintf("wrong number of args: got %d, want %d", len(args), numIn),
+		}
+	}
+	if isVariadic && len(args) < numIn-1 {
+		return nil, &ParseError{
+			Phase: "eval", NodeType: "call",
+			Msg: fmt.Sprintf("not enough args: got %d, want at least %d", len(args), numIn-1),
+		}
+	}
 
 	// Build reflect.Value arguments
 	in := make([]reflect.Value, 0, len(args))
@@ -396,11 +417,7 @@ func callFunc(fn reflect.Value, args []interface{}) (interface{}, error) {
 		}
 	} else {
 		for i, arg := range args {
-			if i < numIn {
-				in = append(in, convertArg(arg, ft.In(i)))
-			} else {
-				in = append(in, reflect.ValueOf(arg))
-			}
+			in = append(in, convertArg(arg, ft.In(i)))
 		}
 	}
 
@@ -517,6 +534,14 @@ func valueToString(val interface{}) string {
 	}
 	switch v := val.(type) {
 	case htmltemplate.HTML:
+		return string(v)
+	case htmltemplate.URL:
+		return string(v)
+	case htmltemplate.JS:
+		return string(v)
+	case htmltemplate.CSS:
+		return string(v)
+	case htmltemplate.HTMLAttr:
 		return string(v)
 	case string:
 		return html.EscapeString(v)

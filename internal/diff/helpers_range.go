@@ -174,21 +174,19 @@ func AreAllItemsAtEnd(newKeys []string, oldItems, newItems []interface{}, static
 	}
 
 	startIndex := len(newItems) - len(newKeys)
-	oldKeysList := ExtractItemKeys(oldItems, statics)
+	oldKeysSet := make(map[string]bool, len(oldItems))
+	for _, item := range oldItems {
+		if key, ok := GetItemKey(item, statics); ok {
+			oldKeysSet[key] = true
+		}
+	}
 
 	for i := 0; i < startIndex; i++ {
 		if i >= len(newItems) {
 			return false
 		}
 		if itemKey, ok := GetItemKey(newItems[i], statics); ok {
-			found := false
-			for _, oldKey := range oldKeysList {
-				if oldKey == itemKey {
-					found = true
-					break
-				}
-			}
-			if !found {
+			if !oldKeysSet[itemKey] {
 				return false
 			}
 		} else {
