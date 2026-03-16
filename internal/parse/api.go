@@ -39,7 +39,3 @@ func BuildTree(tmpl *Template, data interface{}, keyGen KeyGenerator, ctx *Conte
 	eval := newEvaluator(ctx.FuncMap)
 	return walkAST(tmpl.ast.Root, eval, data, nil, keyGen, ctx)
 }
-
-// InvalidateExecutionCache is a no-op retained for API compatibility.
-// The new evaluator does not use caches.
-func InvalidateExecutionCache() {}
