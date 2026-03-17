@@ -1,6 +1,11 @@
 package build
 
 import (
+	"crypto/md5"
+	"encoding/hex"
+	"fmt"
+	"hash/fnv"
+	"sync"
 	"testing"
 )
 
@@ -450,5 +455,178 @@ func BenchmarkCalculateStructureFingerprint_Range1000(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		_ = CalculateStructureFingerprint(tree)
+	}
+}
+
+// =============================================================================
+// Algorithm Comparison Benchmarks (#90)
+// =============================================================================
+
+// fingerprintWithMD5 computes fingerprint using MD5 (current algorithm).
+func fingerprintWithMD5(tree *TreeNode) string {
+	hasher := md5.New()
+	visitPath := make(map[*TreeNode]struct{})
+	hashStructureWithCircularDetection(tree, hasher, visitPath)
+	return hex.EncodeToString(hasher.Sum(nil))[:16]
+}
+
+// fingerprintWithFNV1a computes fingerprint using FNV-1a (candidate replacement).
+func fingerprintWithFNV1a(tree *TreeNode) string {
+	hasher := fnv.New128a()
+	visitPath := make(map[*TreeNode]struct{})
+	hashStructureWithCircularDetection(tree, hasher, visitPath)
+	return hex.EncodeToString(hasher.Sum(nil))[:16]
+}
+
+func BenchmarkFingerprintAlgorithms(b *testing.B) {
+	trees := []struct {
+		name string
+		tree *TreeNode
+	}{
+		{"small", createBenchTreeSmall()},
+		{"medium", createBenchTreeMedium()},
+		{"large", createBenchTreeLarge()},
+		{"deep-20", createBenchTreeDeepNested(20)},
+	}
+
+	for _, tc := range trees {
+		b.Run(tc.name+"/MD5", func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				_ = fingerprintWithMD5(tc.tree)
+			}
+		})
+		b.Run(tc.name+"/FNV1a", func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				_ = fingerprintWithFNV1a(tc.tree)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// Stress Tests (#93)
+// =============================================================================
+
+func TestFingerprintStress_DeepNesting(t *testing.T) {
+	tree := createBenchTreeDeepNested(100)
+	fp := CalculateStructureFingerprint(tree)
+	if fp == "" {
+		t.Error("expected non-empty fingerprint for 100-level deep tree")
+	}
+	// Verify determinism
+	fp2 := CalculateStructureFingerprint(tree)
+	if fp != fp2 {
+		t.Errorf("non-deterministic: %q != %q", fp, fp2)
+	}
+}
+
+func TestFingerprintStress_WideTree(t *testing.T) {
+	dynamics := make(map[string]interface{})
+	for i := 0; i < 10000; i++ {
+		dynamics[fmt.Sprintf("%d", i)] = "value"
+	}
+	tree := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: dynamics,
+	}
+	fp := CalculateStructureFingerprint(tree)
+	if fp == "" {
+		t.Error("expected non-empty fingerprint for 10k-wide tree")
+	}
+}
+
+func TestFingerprintStress_ConcurrentAccess(t *testing.T) {
+	tree := createBenchTreeMedium()
+	// Pre-populate cache
+	_ = tree.GetStructureFingerprint()
+
+	var wg sync.WaitGroup
+	results := make([]string, 100)
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			results[idx] = tree.GetStructureFingerprint()
+		}(i)
+	}
+	wg.Wait()
+
+	// All goroutines should get the same fingerprint
+	for i := 1; i < len(results); i++ {
+		if results[i] != results[0] {
+			t.Errorf("goroutine %d got %q, expected %q", i, results[i], results[0])
+		}
+	}
+}
+
+func TestFingerprintStress_CacheCoherency(t *testing.T) {
+	tree := &TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: map[string]interface{}{"0": "value"},
+	}
+
+	fp1 := tree.GetStructureFingerprint()
+	if fp1 == "" {
+		t.Fatal("expected non-empty fingerprint")
+	}
+
+	// Modify tree structure and invalidate cache
+	tree.Statics = []string{"<span>", "</span>"}
+	tree.InvalidateStructureFingerprint()
+
+	fp2 := tree.GetStructureFingerprint()
+	if fp2 == "" {
+		t.Fatal("expected non-empty fingerprint after invalidation")
+	}
+	if fp1 == fp2 {
+		t.Error("fingerprint should change after structural modification")
+	}
+}
+
+func TestFingerprintStress_Determinism(t *testing.T) {
+	// Build two identical trees independently
+	buildTree := func() *TreeNode {
+		return &TreeNode{
+			Statics: []string{"<div class=\"test\">", "<span>", "</span>", "</div>"},
+			Dynamics: map[string]interface{}{
+				"0": "value",
+				"1": &TreeNode{
+					Statics:  []string{"<p>", "</p>"},
+					Dynamics: map[string]interface{}{"0": "nested"},
+				},
+			},
+		}
+	}
+
+	tree1 := buildTree()
+	tree2 := buildTree()
+
+	fp1 := CalculateStructureFingerprint(tree1)
+	fp2 := CalculateStructureFingerprint(tree2)
+
+	if fp1 != fp2 {
+		t.Errorf("independently built identical trees should have same fingerprint: %q != %q", fp1, fp2)
+	}
+}
+
+func TestFingerprintStress_CollisionResistance(t *testing.T) {
+	seen := make(map[string]int)
+	const count = 10000
+
+	for i := 0; i < count; i++ {
+		tree := &TreeNode{
+			Statics: []string{fmt.Sprintf("<div class=\"c%d\">", i), "</div>"},
+			Dynamics: map[string]interface{}{
+				"0": "value",
+			},
+		}
+		fp := CalculateStructureFingerprint(tree)
+		if prev, exists := seen[fp]; exists {
+			t.Errorf("collision: tree %d and tree %d both have fingerprint %q", prev, i, fp)
+		}
+		seen[fp] = i
 	}
 }

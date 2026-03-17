@@ -1,10 +1,10 @@
 package build
 
 import (
-	"crypto/md5"
 	"encoding/hex"
 	"fmt"
 	"hash"
+	"hash/fnv"
 	"sort"
 )
 
@@ -26,11 +26,13 @@ func CalculateStructureFingerprint(tree *TreeNode) string {
 		return ""
 	}
 
-	hasher := md5.New()
+	hasher := fnv.New128a()
 	visitPath := make(map[*TreeNode]struct{})
 	hashStructureWithCircularDetection(tree, hasher, visitPath)
 
-	// Return 16 hex chars (64 bits) for compact representation
+	// Return 16 hex chars (64 bits) for compact representation.
+	// FNV-1a 128-bit provides excellent distribution; truncating to 64 bits
+	// gives <0.01% collision probability at 10,000 unique structures.
 	return hex.EncodeToString(hasher.Sum(nil))[:16]
 }
 
