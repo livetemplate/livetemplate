@@ -610,7 +610,7 @@ func TestFingerprintStress_CollisionResistance(t *testing.T) {
 		}
 		fp := CalculateStructureFingerprint(tree)
 		if prev, exists := seen[fp]; exists {
-			t.Errorf("collision: tree %d and tree %d both have fingerprint %q", prev, i, fp)
+			t.Fatalf("collision: tree %d and tree %d both have fingerprint %q", prev, i, fp)
 		}
 		seen[fp] = i
 	}

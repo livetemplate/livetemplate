@@ -29,8 +29,15 @@ var (
 // - Nested TreeNode structures (recursively)
 // - Range statics
 //
+// This enables the "fingerprint + full replace" optimization (inspired by Phoenix LiveView):
+// - If structure fingerprint is the same, client already has statics cached
+// - If structure fingerprint differs, send full tree with statics
+//
 // Two trees with the same StructureFingerprint have identical static HTML structure
 // and can be diffed by comparing only dynamic values.
+//
+// Invariant: always returns a non-empty string for non-nil input.
+// The empty string is reserved as an invalidation sentinel in GetStructureFingerprint.
 func CalculateStructureFingerprint(tree *TreeNode) string {
 	if tree == nil {
 		return ""

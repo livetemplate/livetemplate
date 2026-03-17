@@ -13,6 +13,9 @@ import (
 // TreeNode represents a node in the template tree structure with type safety.
 // It replaces the old map[string]interface{} representation while maintaining
 // wire format compatibility through custom JSON marshaling.
+//
+// TreeNode should not be value-copied after first use of GetStructureFingerprint,
+// as it contains an atomic.Value for fingerprint caching. Always use *TreeNode.
 type TreeNode struct {
 	// Statics are the static HTML parts of the template (key: "s")
 	Statics []string
