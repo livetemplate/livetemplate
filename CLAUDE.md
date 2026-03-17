@@ -408,7 +408,7 @@ This is implemented by `PrepareTreeForClient(node, clientHasStatics)` which:
 
 ### Fingerprint-Based Structure Comparison
 
-The system uses MD5 structure fingerprints to decide whether statics need to be resent. This replaced an earlier per-path `ClientStructureRegistry` approach (removed in [PR #86](https://github.com/livetemplate/livetemplate/pull/86)) that was more complex and harder to debug.
+The system uses FNV-1a structure fingerprints to decide whether statics need to be resent. This replaced an earlier per-path `ClientStructureRegistry` approach (removed in [PR #86](https://github.com/livetemplate/livetemplate/pull/86)) that was more complex and harder to debug.
 
 **What gets fingerprinted** (`internal/build/fingerprint.go`):
 - Statics arrays (the HTML template parts between dynamic slots)
@@ -436,7 +436,7 @@ func ClientNeedsStatics(oldTree, newTree *TreeNode) bool {
 The lazy-cached fingerprint enables O(1) structure comparison, avoiding re-computation on subsequent comparisons.
 
 **Key functions**:
-- `CalculateStructureFingerprint(tree)` — Computes MD5 truncated to 64 bits (16 hex chars) of static structure (`internal/build/fingerprint.go`)
+- `CalculateStructureFingerprint(tree)` — Computes FNV-1a 128-bit truncated to 64 bits (16 hex chars) of static structure (`internal/build/fingerprint.go`)
 - `TreeNode.GetStructureFingerprint()` — Lazy-computes and caches fingerprint on first access (`internal/build/types.go`)
 - `ClientNeedsStatics(oldTree, newTree)` — Returns true if fingerprints differ (`internal/diff/tree_compare.go`)
 - `PrepareTreeForClient(tree, clientHasStatics)` — Strips statics from wire format when cached (`internal/diff/prepare.go`)
@@ -507,7 +507,7 @@ The TypeScript client is maintained in a separate repository at `github.com/live
 
 1. **Tree Diffing**: O(n) complexity for most operations
 2. **Memory**: Trees are kept in memory for diffing
-3. **Fingerprinting**: MD5 hashing for change detection
+3. **Fingerprinting**: FNV-1a hashing for change detection
 4. **Key Generation**: Sequential integers for minimal overhead
 
 ## Security Notes

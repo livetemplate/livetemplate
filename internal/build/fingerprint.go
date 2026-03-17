@@ -2,10 +2,24 @@ package build
 
 import (
 	"encoding/hex"
-	"fmt"
 	"hash"
 	"hash/fnv"
 	"sort"
+	"strconv"
+)
+
+// Pre-allocated byte slices to avoid repeated string→[]byte conversions in the hot path.
+var (
+	fpSep      = []byte("\x00")
+	fpCircular = []byte("<circular>\x00")
+	fpStatPfx  = []byte("s:")
+	fpDynPfx   = []byte("d:")
+	fpColon    = []byte(":")
+	fpTreeOpen = []byte("tree{")
+	fpClose    = []byte("}\x00")
+	fpVal      = []byte("val\x00")
+	fpRngOpen  = []byte("range{")
+	fpRngPfx   = []byte("rs:")
 )
 
 // CalculateStructureFingerprint calculates a fingerprint based ONLY on the static structure.
@@ -14,10 +28,6 @@ import (
 // - The positions where dynamics exist (keys only, not values)
 // - Nested TreeNode structures (recursively)
 // - Range statics
-//
-// This enables the "fingerprint + full replace" optimization from Phoenix LiveView:
-// - If structure fingerprint is the same, client already has statics cached
-// - If structure fingerprint differs, send full tree with statics
 //
 // Two trees with the same StructureFingerprint have identical static HTML structure
 // and can be diffed by comparing only dynamic values.
@@ -39,61 +49,56 @@ func CalculateStructureFingerprint(tree *TreeNode) string {
 // hashStructureWithCircularDetection hashes only the static structure of a tree.
 // It includes statics and the shape of dynamics, but NOT dynamic values.
 func hashStructureWithCircularDetection(tree *TreeNode, hasher hash.Hash, visitPath map[*TreeNode]struct{}) {
-	// Check for circular reference in current path
 	if _, found := visitPath[tree]; found {
-		hasher.Write([]byte("<circular>\x00"))
+		hasher.Write(fpCircular)
 		return
 	}
 
-	// Mark this node as part of current path
 	visitPath[tree] = struct{}{}
 	defer delete(visitPath, tree)
 
-	// Hash statics (the core static structure)
 	if tree.HasStatics() {
-		_, _ = fmt.Fprintf(hasher, "s:%d:", len(tree.Statics))
+		hasher.Write(fpStatPfx)
+		hasher.Write([]byte(strconv.Itoa(len(tree.Statics))))
+		hasher.Write(fpColon)
 		for _, s := range tree.Statics {
 			hasher.Write([]byte(s))
-			hasher.Write([]byte("\x00"))
+			hasher.Write(fpSep)
 		}
 	}
 
-	// Hash dynamic keys (positions only, not values)
-	// This captures the structure: "there's a dynamic at position 0, 1, 2"
 	keys := make([]string, 0, len(tree.Dynamics))
 	for k := range tree.Dynamics {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 
-	// For each dynamic position, hash the key and recurse into nested TreeNodes
 	for _, k := range keys {
-		_, _ = fmt.Fprintf(hasher, "d:%s:", k)
+		hasher.Write(fpDynPfx)
+		hasher.Write([]byte(k))
+		hasher.Write(fpColon)
 
 		value := tree.Dynamics[k]
-		// Only recurse into nested TreeNodes to capture nested structure
 		if nestedTree, ok := value.(*TreeNode); ok {
-			hasher.Write([]byte("tree{"))
+			hasher.Write(fpTreeOpen)
 			hashStructureWithCircularDetection(nestedTree, hasher, visitPath)
-			hasher.Write([]byte("}\x00"))
+			hasher.Write(fpClose)
 		} else {
-			// For primitive values, just mark that a dynamic exists here
-			// We don't hash the value itself - that's the key difference
-			hasher.Write([]byte("val\x00"))
+			hasher.Write(fpVal)
 		}
 	}
 
-	// Hash range structure if present
 	if tree.Range != nil {
-		hasher.Write([]byte("range{"))
-		// Hash range statics (item template structure)
+		hasher.Write(fpRngOpen)
 		if len(tree.Range.Statics) > 0 {
-			_, _ = fmt.Fprintf(hasher, "rs:%d:", len(tree.Range.Statics))
+			hasher.Write(fpRngPfx)
+			hasher.Write([]byte(strconv.Itoa(len(tree.Range.Statics))))
+			hasher.Write(fpColon)
 			for _, s := range tree.Range.Statics {
 				hasher.Write([]byte(s))
-				hasher.Write([]byte("\x00"))
+				hasher.Write(fpSep)
 			}
 		}
-		hasher.Write([]byte("}\x00"))
+		hasher.Write(fpClose)
 	}
 }

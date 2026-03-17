@@ -3,8 +3,9 @@ package build
 import (
 	"crypto/md5"
 	"encoding/hex"
-	"fmt"
+	"hash"
 	"hash/fnv"
+	"strconv"
 	"sync"
 	"testing"
 )
@@ -462,20 +463,12 @@ func BenchmarkCalculateStructureFingerprint_Range1000(b *testing.B) {
 // Algorithm Comparison Benchmarks (#90)
 // =============================================================================
 
-// fingerprintWithMD5 computes fingerprint using MD5 (current algorithm).
-func fingerprintWithMD5(tree *TreeNode) string {
-	hasher := md5.New()
+// fingerprintWith computes a fingerprint using the given hash function.
+// Used for benchmarking different hash algorithms against the same tree walker.
+func fingerprintWith(tree *TreeNode, h hash.Hash) string {
 	visitPath := make(map[*TreeNode]struct{})
-	hashStructureWithCircularDetection(tree, hasher, visitPath)
-	return hex.EncodeToString(hasher.Sum(nil))[:16]
-}
-
-// fingerprintWithFNV1a computes fingerprint using FNV-1a (candidate replacement).
-func fingerprintWithFNV1a(tree *TreeNode) string {
-	hasher := fnv.New128a()
-	visitPath := make(map[*TreeNode]struct{})
-	hashStructureWithCircularDetection(tree, hasher, visitPath)
-	return hex.EncodeToString(hasher.Sum(nil))[:16]
+	hashStructureWithCircularDetection(tree, h, visitPath)
+	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
 func BenchmarkFingerprintAlgorithms(b *testing.B) {
@@ -493,13 +486,13 @@ func BenchmarkFingerprintAlgorithms(b *testing.B) {
 		b.Run(tc.name+"/MD5", func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				_ = fingerprintWithMD5(tc.tree)
+				_ = fingerprintWith(tc.tree, md5.New())
 			}
 		})
-		b.Run(tc.name+"/FNV1a", func(b *testing.B) {
+		b.Run(tc.name+"/FNV1a128", func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				_ = fingerprintWithFNV1a(tc.tree)
+				_ = fingerprintWith(tc.tree, fnv.New128a())
 			}
 		})
 	}
@@ -515,17 +508,12 @@ func TestFingerprintStress_DeepNesting(t *testing.T) {
 	if fp == "" {
 		t.Error("expected non-empty fingerprint for 100-level deep tree")
 	}
-	// Verify determinism
-	fp2 := CalculateStructureFingerprint(tree)
-	if fp != fp2 {
-		t.Errorf("non-deterministic: %q != %q", fp, fp2)
-	}
 }
 
 func TestFingerprintStress_WideTree(t *testing.T) {
 	dynamics := make(map[string]interface{})
 	for i := 0; i < 10000; i++ {
-		dynamics[fmt.Sprintf("%d", i)] = "value"
+		dynamics[strconv.Itoa(i)] = "value"
 	}
 	tree := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
@@ -537,10 +525,11 @@ func TestFingerprintStress_WideTree(t *testing.T) {
 	}
 }
 
-func TestFingerprintStress_ConcurrentAccess(t *testing.T) {
+func TestFingerprintStress_ConcurrentCompute(t *testing.T) {
+	// Do NOT pre-populate cache — let goroutines race to compute.
+	// All writers produce the same value, so this tests that concurrent
+	// compute-and-cache is safe (benign race on identical values).
 	tree := createBenchTreeMedium()
-	// Pre-populate cache
-	_ = tree.GetStructureFingerprint()
 
 	var wg sync.WaitGroup
 	results := make([]string, 100)
@@ -554,7 +543,6 @@ func TestFingerprintStress_ConcurrentAccess(t *testing.T) {
 	}
 	wg.Wait()
 
-	// All goroutines should get the same fingerprint
 	for i := 1; i < len(results); i++ {
 		if results[i] != results[0] {
 			t.Errorf("goroutine %d got %q, expected %q", i, results[i], results[0])
@@ -573,7 +561,6 @@ func TestFingerprintStress_CacheCoherency(t *testing.T) {
 		t.Fatal("expected non-empty fingerprint")
 	}
 
-	// Modify tree structure and invalidate cache
 	tree.Statics = []string{"<span>", "</span>"}
 	tree.InvalidateStructureFingerprint()
 
@@ -586,8 +573,7 @@ func TestFingerprintStress_CacheCoherency(t *testing.T) {
 	}
 }
 
-func TestFingerprintStress_Determinism(t *testing.T) {
-	// Build two identical trees independently
+func TestFingerprintStress_IndependentTreeEquivalence(t *testing.T) {
 	buildTree := func() *TreeNode {
 		return &TreeNode{
 			Statics: []string{"<div class=\"test\">", "<span>", "</span>", "</div>"},
@@ -601,11 +587,8 @@ func TestFingerprintStress_Determinism(t *testing.T) {
 		}
 	}
 
-	tree1 := buildTree()
-	tree2 := buildTree()
-
-	fp1 := CalculateStructureFingerprint(tree1)
-	fp2 := CalculateStructureFingerprint(tree2)
+	fp1 := CalculateStructureFingerprint(buildTree())
+	fp2 := CalculateStructureFingerprint(buildTree())
 
 	if fp1 != fp2 {
 		t.Errorf("independently built identical trees should have same fingerprint: %q != %q", fp1, fp2)
@@ -618,7 +601,7 @@ func TestFingerprintStress_CollisionResistance(t *testing.T) {
 
 	for i := 0; i < count; i++ {
 		tree := &TreeNode{
-			Statics: []string{fmt.Sprintf("<div class=\"c%d\">", i), "</div>"},
+			Statics: []string{"<div class=\"c" + strconv.Itoa(i) + "\">", "</div>"},
 			Dynamics: map[string]interface{}{
 				"0": "value",
 			},
