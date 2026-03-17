@@ -597,7 +597,7 @@ func TestFingerprintStress_IndependentTreeEquivalence(t *testing.T) {
 	}
 }
 
-func TestFingerprintStress_CollisionResistance(t *testing.T) {
+func TestFingerprintStress_NoDuplicatesIn10kStructures(t *testing.T) {
 	seen := make(map[string]int)
 	const count = 10000
 
