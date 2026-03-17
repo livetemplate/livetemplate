@@ -464,7 +464,7 @@ func BenchmarkCalculateStructureFingerprint_Range1000(b *testing.B) {
 // =============================================================================
 
 // fingerprintWith computes a fingerprint using the given hash function.
-// Used for benchmarking different hash algorithms against the same tree walker.
+// Used for comparing MD5 (previous algorithm) vs FNV-1a 128 (current algorithm).
 func fingerprintWith(tree *TreeNode, h hash.Hash) string {
 	visitPath := make(map[*TreeNode]struct{})
 	hashStructureWithCircularDetection(tree, h, visitPath)
@@ -483,14 +483,16 @@ func BenchmarkFingerprintAlgorithms(b *testing.B) {
 	}
 
 	for _, tc := range trees {
-		b.Run(tc.name+"/MD5", func(b *testing.B) {
+		b.Run(tc.name+"/MD5-previous", func(b *testing.B) {
 			b.ReportAllocs()
+			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				_ = fingerprintWith(tc.tree, md5.New())
 			}
 		})
-		b.Run(tc.name+"/FNV1a128", func(b *testing.B) {
+		b.Run(tc.name+"/FNV1a128-current", func(b *testing.B) {
 			b.ReportAllocs()
+			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				_ = fingerprintWith(tc.tree, fnv.New128a())
 			}

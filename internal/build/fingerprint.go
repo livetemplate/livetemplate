@@ -41,8 +41,8 @@ func CalculateStructureFingerprint(tree *TreeNode) string {
 	hashStructureWithCircularDetection(tree, hasher, visitPath)
 
 	// Return 16 hex chars (64 bits) for compact representation.
-	// FNV-1a 128-bit provides excellent distribution; truncating to 64 bits
-	// gives <0.01% collision probability at 10,000 unique structures.
+	// Collision is only relevant across distinct template structures within
+	// a single application; the failure mode is a redundant statics resend.
 	return hex.EncodeToString(hasher.Sum(nil))[:16]
 }
 
