@@ -255,15 +255,7 @@ func TestRedisBroadcaster_GroupBroadcast(t *testing.T) {
 	// Give subscriber time to start
 	time.Sleep(100 * time.Millisecond)
 
-	// Subscribe to specific group
-	if err := broadcaster2.SubscribeToGroup("group-123"); err != nil {
-		t.Fatalf("SubscribeToGroup failed: %v", err)
-	}
-
-	// Give subscription time to register
-	time.Sleep(100 * time.Millisecond)
-
-	// Publish to group
+	// Publish to group (arrives via global channel, no dynamic subscription needed)
 	payload := []byte(`{"test": "group-data"}`)
 	if err := broadcaster1.PublishToGroup("group-123", payload); err != nil {
 		t.Fatalf("PublishToGroup failed: %v", err)
@@ -340,15 +332,7 @@ func TestRedisBroadcaster_UserBroadcast(t *testing.T) {
 	// Give subscriber time to start
 	time.Sleep(100 * time.Millisecond)
 
-	// Subscribe to specific user
-	if err := broadcaster2.SubscribeToUser("user-456"); err != nil {
-		t.Fatalf("SubscribeToUser failed: %v", err)
-	}
-
-	// Give subscription time to register
-	time.Sleep(100 * time.Millisecond)
-
-	// Publish to user
+	// Publish to user (arrives via global channel, no dynamic subscription needed)
 	payload := []byte(`{"test": "user-data"}`)
 	if err := broadcaster1.PublishToUser("user-456", payload); err != nil {
 		t.Fatalf("PublishToUser failed: %v", err)
@@ -522,5 +506,183 @@ func TestRedisBroadcaster_EmptyUserID(t *testing.T) {
 	err := broadcaster.PublishToUser("", []byte("test"))
 	if err == nil {
 		t.Error("Expected error for empty userID")
+	}
+}
+
+func TestRedisBroadcaster_ServerActionViaSingleChannel(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
+
+	broadcaster1 := NewRedisBroadcaster(client)
+	defer func() {
+		if err := broadcaster1.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster1: %v", err)
+		}
+	}()
+
+	broadcaster2 := NewRedisBroadcaster(client)
+	defer func() {
+		if err := broadcaster2.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster2: %v", err)
+		}
+	}()
+
+	var received sync.WaitGroup
+	received.Add(1)
+
+	var receivedMsg *ServerActionMessage
+	if err := broadcaster2.SubscribeServerActions(func(msg *ServerActionMessage) error {
+		receivedMsg = msg
+		received.Done()
+		return nil
+	}); err != nil {
+		t.Fatalf("SubscribeServerActions failed: %v", err)
+	}
+
+	go func() {
+		if err := broadcaster2.Subscribe(func(msg *BroadcastMessage) error {
+			return nil
+		}); err != nil {
+			t.Errorf("Subscribe failed: %v", err)
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	if err := broadcaster1.PublishServerAction("user-789", "refresh", map[string]interface{}{"key": "value"}); err != nil {
+		t.Fatalf("PublishServerAction failed: %v", err)
+	}
+
+	done := make(chan bool)
+	go func() {
+		received.Wait()
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		// Success
+	case <-time.After(5 * time.Second):
+		t.Fatal("Timeout waiting for server action message")
+	}
+
+	if receivedMsg == nil {
+		t.Fatal("No server action message received")
+	}
+
+	if receivedMsg.UserID != "user-789" {
+		t.Errorf("Expected UserID='user-789', got '%s'", receivedMsg.UserID)
+	}
+
+	if receivedMsg.Action != "refresh" {
+		t.Errorf("Expected Action='refresh', got '%s'", receivedMsg.Action)
+	}
+}
+
+func TestRedisBroadcaster_ReconnectPreservesAllMessageTypes(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
+
+	publisher := NewRedisBroadcaster(client)
+	defer func() {
+		if err := publisher.Close(); err != nil {
+			t.Errorf("Failed to close publisher: %v", err)
+		}
+	}()
+
+	subscriber := NewRedisBroadcaster(client, WithReconnectDelay(10*time.Millisecond))
+	defer func() {
+		if err := subscriber.Close(); err != nil {
+			t.Errorf("Failed to close subscriber: %v", err)
+		}
+	}()
+
+	var mu sync.Mutex
+	var broadcastMsgs []*BroadcastMessage
+	var serverActionMsgs []*ServerActionMessage
+
+	if err := subscriber.SubscribeServerActions(func(msg *ServerActionMessage) error {
+		mu.Lock()
+		serverActionMsgs = append(serverActionMsgs, msg)
+		mu.Unlock()
+		return nil
+	}); err != nil {
+		t.Fatalf("SubscribeServerActions failed: %v", err)
+	}
+
+	go func() {
+		if err := subscriber.Subscribe(func(msg *BroadcastMessage) error {
+			mu.Lock()
+			broadcastMsgs = append(broadcastMsgs, msg)
+			mu.Unlock()
+			return nil
+		}); err != nil {
+			t.Errorf("Subscribe failed: %v", err)
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Force a reconnect by closing the internal pubsub
+	subscriber.mu.Lock()
+	if subscriber.pubsub != nil {
+		_ = subscriber.pubsub.Close()
+	}
+	subscriber.mu.Unlock()
+
+	// Wait for reconnect to complete
+	time.Sleep(200 * time.Millisecond)
+
+	// Publish all message types after reconnect
+	if err := publisher.PublishGlobal([]byte(`{"test": "global"}`)); err != nil {
+		t.Fatalf("PublishGlobal failed: %v", err)
+	}
+	if err := publisher.PublishToGroup("g1", []byte(`{"test": "group"}`)); err != nil {
+		t.Fatalf("PublishToGroup failed: %v", err)
+	}
+	if err := publisher.PublishToUser("u1", []byte(`{"test": "user"}`)); err != nil {
+		t.Fatalf("PublishToUser failed: %v", err)
+	}
+	if err := publisher.PublishServerAction("u1", "tick", nil); err != nil {
+		t.Fatalf("PublishServerAction failed: %v", err)
+	}
+
+	// Wait for messages
+	time.Sleep(500 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(broadcastMsgs) != 3 {
+		t.Fatalf("Expected 3 broadcast messages (global+group+user), got %d", len(broadcastMsgs))
+	}
+
+	scopes := map[BroadcastScope]bool{}
+	for _, msg := range broadcastMsgs {
+		scopes[msg.Scope] = true
+	}
+	if !scopes[ScopeGlobal] {
+		t.Error("Missing global broadcast after reconnect")
+	}
+	if !scopes[ScopeGroup] {
+		t.Error("Missing group broadcast after reconnect")
+	}
+	if !scopes[ScopeUser] {
+		t.Error("Missing user broadcast after reconnect")
+	}
+
+	if len(serverActionMsgs) != 1 {
+		t.Fatalf("Expected 1 server action message, got %d", len(serverActionMsgs))
+	}
+	if serverActionMsgs[0].Action != "tick" {
+		t.Errorf("Expected action='tick', got '%s'", serverActionMsgs[0].Action)
 	}
 }

@@ -13,16 +13,9 @@ import (
 )
 
 // Redis channel schema:
-// livetemplate:broadcast:global           -> Global broadcasts (all instances, all connections)
-// livetemplate:broadcast:group:{groupID}  -> Group-specific broadcasts
-// livetemplate:broadcast:user:{userID}    -> User-specific broadcasts
-
-const (
-	channelGlobal       = "livetemplate:broadcast:global"
-	channelGroup        = "livetemplate:broadcast:group:"
-	channelUser         = "livetemplate:broadcast:user:"
-	channelServerAction = "livetemplate:action:user:" // Server-initiated actions channel
-)
+// All message types (global, group, user, server_action) route through a single channel.
+// Scope-based filtering happens at the application layer via the connection registry.
+const channelGlobal = "livetemplate:broadcast:global"
 
 // RedisBroadcaster implements distributed broadcasting using Redis Pub/Sub.
 //
@@ -120,8 +113,7 @@ func (b *RedisBroadcaster) PublishToGroup(groupID string, payload []byte) error 
 		InstanceID: b.instanceID,
 	}
 
-	channel := channelGroup + groupID
-	return b.publish(channel, msg)
+	return b.publish(channelGlobal, msg)
 }
 
 // PublishToUser publishes a message to all instances for a specific user.
@@ -141,8 +133,7 @@ func (b *RedisBroadcaster) PublishToUser(userID string, payload []byte) error {
 		InstanceID: b.instanceID,
 	}
 
-	channel := channelUser + userID
-	return b.publish(channel, msg)
+	return b.publish(channelGlobal, msg)
 }
 
 // PublishServerAction publishes a server-initiated action to all instances for a user.
@@ -166,7 +157,7 @@ func (b *RedisBroadcaster) PublishServerAction(userID string, action string, dat
 		InstanceID: b.instanceID,
 	}
 
-	return b.publishServerAction(channelServerAction+userID, msg)
+	return b.publishServerAction(channelGlobal, msg)
 }
 
 // publishServerAction serializes and publishes a server action message to a Redis channel.
@@ -237,8 +228,7 @@ func (b *RedisBroadcaster) Subscribe(handler MessageHandler) error {
 	}
 	b.handler = handler
 
-	// Subscribe to global channel (all broadcasts)
-	// Individual group/user channels will be subscribed dynamically as needed
+	// All messages route through single channel; scope-based filtering happens at application layer
 	b.pubsub = b.client.Subscribe(b.ctx, channelGlobal)
 	b.mu.Unlock()
 
@@ -279,96 +269,6 @@ func (b *RedisBroadcaster) SubscribeServerActions(handler ServerActionHandler) e
 	slog.Info("Registered server action handler",
 		slog.String("component", "redis_broadcaster"),
 		slog.String("instance_id", b.instanceID))
-	return nil
-}
-
-// SubscribeToServerAction subscribes to server actions for a specific user.
-//
-// This is called dynamically when a user connects.
-func (b *RedisBroadcaster) SubscribeToServerAction(userID string) error {
-	if userID == "" {
-		return fmt.Errorf("userID cannot be empty")
-	}
-
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if b.closed {
-		return fmt.Errorf("broadcaster is closed")
-	}
-
-	if b.pubsub == nil {
-		return fmt.Errorf("not subscribed")
-	}
-
-	channel := channelServerAction + userID
-	if err := b.pubsub.Subscribe(b.ctx, channel); err != nil {
-		return fmt.Errorf("failed to subscribe to server action channel: %w", err)
-	}
-
-	slog.Info("Subscribed to server action channel",
-		slog.String("component", "redis_broadcaster"),
-		slog.String("channel", channel))
-	return nil
-}
-
-// SubscribeToGroup subscribes to broadcasts for a specific group.
-//
-// This is called dynamically when connections join a group.
-func (b *RedisBroadcaster) SubscribeToGroup(groupID string) error {
-	if groupID == "" {
-		return fmt.Errorf("groupID cannot be empty")
-	}
-
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if b.closed {
-		return fmt.Errorf("broadcaster is closed")
-	}
-
-	if b.pubsub == nil {
-		return fmt.Errorf("not subscribed")
-	}
-
-	channel := channelGroup + groupID
-	if err := b.pubsub.Subscribe(b.ctx, channel); err != nil {
-		return fmt.Errorf("failed to subscribe to group channel: %w", err)
-	}
-
-	slog.Info("Subscribed to group channel",
-		slog.String("component", "redis_broadcaster"),
-		slog.String("channel", channel))
-	return nil
-}
-
-// SubscribeToUser subscribes to broadcasts for a specific user.
-//
-// This is called dynamically when a user connects.
-func (b *RedisBroadcaster) SubscribeToUser(userID string) error {
-	if userID == "" {
-		return fmt.Errorf("userID cannot be empty")
-	}
-
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if b.closed {
-		return fmt.Errorf("broadcaster is closed")
-	}
-
-	if b.pubsub == nil {
-		return fmt.Errorf("not subscribed")
-	}
-
-	channel := channelUser + userID
-	if err := b.pubsub.Subscribe(b.ctx, channel); err != nil {
-		return fmt.Errorf("failed to subscribe to user channel: %w", err)
-	}
-
-	slog.Info("Subscribed to user channel",
-		slog.String("component", "redis_broadcaster"),
-		slog.String("channel", channel))
 	return nil
 }
 
