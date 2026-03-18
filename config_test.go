@@ -379,12 +379,13 @@ func TestEnvConfig_ToOptions(t *testing.T) {
 		WebSocketDisabled:      true,
 		LoadingDisabled:        true,
 		ProgressiveEnhancement: true, // Default is true, so no option generated
+		TrustForwardedHeaders:  true, // Default is true, so no option generated
 		WebSocketBufferSize:    100,
 	}
 
 	opts := config.ToOptions()
 
-	// Should have 7 options (ProgressiveEnhancement=true doesn't generate an option)
+	// Should have 7 options (ProgressiveEnhancement=true and TrustForwardedHeaders=true don't generate options)
 	if len(opts) != 7 {
 		t.Errorf("Expected 7 options, got %d", len(opts))
 	}
@@ -431,6 +432,7 @@ func TestEnvConfig_ToOptionsZeroValues(t *testing.T) {
 		AllowedOrigins:         nil,
 		DevMode:                false,
 		ProgressiveEnhancement: true,                       // Default is true, so no option generated
+		TrustForwardedHeaders:  true,                       // Default is true, so no option generated
 		WebSocketBufferSize:    defaultWebSocketBufferSize, // Default (50) should not generate an option
 	}
 
@@ -447,6 +449,7 @@ func TestEnvConfig_ToOptionsZeroValues(t *testing.T) {
 func TestEnvConfig_ToOptionsProgressiveEnhancementFalse(t *testing.T) {
 	config := &EnvConfig{
 		ProgressiveEnhancement: false, // Explicitly disabled, should generate option
+		TrustForwardedHeaders:  true,  // Default, should not generate option
 	}
 
 	opts := config.ToOptions()

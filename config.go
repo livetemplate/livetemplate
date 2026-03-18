@@ -80,6 +80,13 @@ type EnvConfig struct {
 	// Controls backpressure behavior: slow clients are disconnected when buffer is full.
 	// Environment: LVT_WS_BUFFER_SIZE (positive integer, default: 50)
 	WebSocketBufferSize int
+
+	// TrustForwardedHeaders controls whether X-Forwarded-Proto is trusted for
+	// scheme detection in same-origin WebSocket checks.
+	// Default: true (safe when behind a reverse proxy).
+	// Set to false if the server is directly reachable by clients without a proxy.
+	// Environment: LVT_TRUST_FORWARDED_HEADERS (true/false, 1/0)
+	TrustForwardedHeaders bool
 }
 
 // LoadEnvConfig loads configuration from environment variables.
@@ -108,6 +115,7 @@ func LoadEnvConfig() (*EnvConfig, error) {
 		MetricsEnabled:         true,
 		ProgressiveEnhancement: true, // Default: enabled for non-JS form support
 		WebSocketBufferSize:    defaultWebSocketBufferSize,
+		TrustForwardedHeaders:  true, // Default: trust X-Forwarded-Proto (safe behind proxy)
 	}
 
 	// Load MaxConnections
@@ -233,6 +241,15 @@ func LoadEnvConfig() (*EnvConfig, error) {
 		config.WebSocketBufferSize = n
 	}
 
+	// Load TrustForwardedHeaders
+	if val := os.Getenv("LVT_TRUST_FORWARDED_HEADERS"); val != "" {
+		b, err := parseBool(val)
+		if err != nil {
+			return nil, fmt.Errorf("invalid LVT_TRUST_FORWARDED_HEADERS: %w", err)
+		}
+		config.TrustForwardedHeaders = b
+	}
+
 	return config, nil
 }
 
@@ -289,6 +306,11 @@ func (c *EnvConfig) ToOptions() []Option {
 	// since emitting the option would be a no-op.
 	if c.WebSocketBufferSize > 0 && c.WebSocketBufferSize != defaultWebSocketBufferSize {
 		opts = append(opts, WithWebSocketBufferSize(c.WebSocketBufferSize))
+	}
+
+	// TrustForwardedHeaders defaults to true; only add option when explicitly disabled
+	if !c.TrustForwardedHeaders {
+		opts = append(opts, WithTrustForwardedHeaders(false))
 	}
 
 	return opts
