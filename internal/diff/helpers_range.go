@@ -41,46 +41,52 @@ func sameKeySet(oldKeys, newKeys []string) bool {
 
 // IsPureReordering checks if the items are the same but just in different order.
 func IsPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []string, statics interface{}) bool {
-	if len(oldKeys) != len(newKeys) {
+	ctx := newRangeContext(oldItems, newItems, statics, nil)
+	return isPureReorderingCtx(ctx)
+}
+
+// FindNewItems returns keys of items that exist in new but not in old.
+func FindNewItems(oldItems, newItems []interface{}, statics interface{}) []string {
+	ctx := newRangeContext(oldItems, newItems, statics, nil)
+	return ctx.addedKeys
+}
+
+// AreAllItemsAtStart checks if all new items are at the beginning of the list (prepend).
+func AreAllItemsAtStart(newKeys []string, newItems []interface{}, statics interface{}) bool {
+	ctx := newRangeContext(nil, newItems, statics, nil)
+	ctx.addedKeys = newKeys
+	return areAllItemsAtStartCtx(ctx)
+}
+
+// AreAllItemsAtEnd checks if all new items are at the end of the list (append).
+func AreAllItemsAtEnd(newKeys []string, oldItems, newItems []interface{}, statics interface{}) bool {
+	ctx := newRangeContext(oldItems, newItems, statics, nil)
+	ctx.addedKeys = newKeys
+	return areAllItemsAtEndCtx(ctx)
+}
+
+// IsComplexInsertionPattern checks if the insertion pattern is too complex for simple operations.
+func IsComplexInsertionPattern(newKeys []string, oldItems, newItems []interface{}, statics interface{}) bool {
+	ctx := newRangeContext(oldItems, newItems, statics, nil)
+	ctx.addedKeys = newKeys
+	return isComplexInsertionPatternCtx(ctx)
+}
+
+// Context-aware internal variants that use pre-computed data from rangeContext.
+
+func isPureReorderingCtx(ctx *rangeContext) bool {
+	if len(ctx.oldKeys) != len(ctx.newKeys) {
 		return false
 	}
 
-	oldKeySet := make(map[string]bool)
-	newKeySet := make(map[string]bool)
-	for _, k := range oldKeys {
-		oldKeySet[k] = true
-	}
-	for _, k := range newKeys {
-		newKeySet[k] = true
-	}
-
-	if len(oldKeySet) != len(newKeySet) {
+	if !sameKeySet(ctx.oldKeys, ctx.newKeys) {
 		return false
 	}
-	for k := range oldKeySet {
-		if !newKeySet[k] {
-			return false
-		}
-	}
 
-	oldItemsByKey := make(map[string]interface{}, len(oldItems))
-	newItemsByKey := make(map[string]interface{}, len(newItems))
+	positionField := DetectPositionField(ctx.oldByKey)
 
-	for _, item := range oldItems {
-		if key, ok := GetItemKey(item, statics); ok {
-			oldItemsByKey[key] = item
-		}
-	}
-	for _, item := range newItems {
-		if key, ok := GetItemKey(item, statics); ok {
-			newItemsByKey[key] = item
-		}
-	}
-
-	positionField := DetectPositionField(oldItemsByKey)
-
-	for key, oldItem := range oldItemsByKey {
-		newItem, exists := newItemsByKey[key]
+	for key, oldItem := range ctx.oldByKey {
+		newItem, exists := ctx.newByKey[key]
 		if !exists {
 			return false
 		}
@@ -95,11 +101,8 @@ func IsPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []strin
 			continue
 		}
 
-		keyPos := FindKeyPositionFromStatics(statics)
-		keyPosStr := fmt.Sprintf("%d", keyPos)
-
 		for field, oldValue := range oldItemNode.Dynamics {
-			if field == positionField || field == keyPosStr || field == "_k" {
+			if field == positionField || field == ctx.keyPosStr || field == "_k" {
 				continue
 			}
 			newValue, exists := newItemNode.GetDynamic(field)
@@ -109,7 +112,7 @@ func IsPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []strin
 		}
 
 		for field := range newItemNode.Dynamics {
-			if field == positionField || field == keyPosStr || field == "_k" {
+			if field == positionField || field == ctx.keyPosStr || field == "_k" {
 				continue
 			}
 			if _, exists := oldItemNode.GetDynamic(field); !exists {
@@ -118,8 +121,8 @@ func IsPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []strin
 		}
 	}
 
-	for i := range oldKeys {
-		if oldKeys[i] != newKeys[i] {
+	for i := range ctx.oldKeys {
+		if ctx.oldKeys[i] != ctx.newKeys[i] {
 			return true
 		}
 	}
@@ -127,36 +130,15 @@ func IsPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []strin
 	return false
 }
 
-// FindNewItems returns keys of items that exist in new but not in old.
-func FindNewItems(oldItems, newItems []interface{}, statics interface{}) []string {
-	oldKeys := make(map[string]bool, len(oldItems))
-	for _, item := range oldItems {
-		if key, ok := GetItemKey(item, statics); ok {
-			oldKeys[key] = true
-		}
-	}
-
-	var newKeys []string
-	for _, item := range newItems {
-		if key, ok := GetItemKey(item, statics); ok {
-			if !oldKeys[key] {
-				newKeys = append(newKeys, key)
-			}
-		}
-	}
-	return newKeys
-}
-
-// AreAllItemsAtStart checks if all new items are at the beginning of the list (prepend).
-func AreAllItemsAtStart(newKeys []string, newItems []interface{}, statics interface{}) bool {
-	if len(newKeys) == 0 {
+func areAllItemsAtStartCtx(ctx *rangeContext) bool {
+	if len(ctx.addedKeys) == 0 {
 		return false
 	}
-	for i, key := range newKeys {
-		if i >= len(newItems) {
+	for i, key := range ctx.addedKeys {
+		if i >= len(ctx.newItems) {
 			return false
 		}
-		if itemKey, ok := GetItemKey(newItems[i], statics); ok {
+		if itemKey, ok := ctx.getItemKey(ctx.newItems[i]); ok {
 			if itemKey != key {
 				return false
 			}
@@ -167,26 +149,19 @@ func AreAllItemsAtStart(newKeys []string, newItems []interface{}, statics interf
 	return true
 }
 
-// AreAllItemsAtEnd checks if all new items are at the end of the list (append).
-func AreAllItemsAtEnd(newKeys []string, oldItems, newItems []interface{}, statics interface{}) bool {
-	if len(newKeys) == 0 || len(oldItems) == 0 {
+func areAllItemsAtEndCtx(ctx *rangeContext) bool {
+	if len(ctx.addedKeys) == 0 || len(ctx.oldItems) == 0 {
 		return false
 	}
 
-	startIndex := len(newItems) - len(newKeys)
-	oldKeysSet := make(map[string]bool, len(oldItems))
-	for _, item := range oldItems {
-		if key, ok := GetItemKey(item, statics); ok {
-			oldKeysSet[key] = true
-		}
-	}
+	startIndex := len(ctx.newItems) - len(ctx.addedKeys)
 
 	for i := 0; i < startIndex; i++ {
-		if i >= len(newItems) {
+		if i >= len(ctx.newItems) {
 			return false
 		}
-		if itemKey, ok := GetItemKey(newItems[i], statics); ok {
-			if !oldKeysSet[itemKey] {
+		if itemKey, ok := ctx.getItemKey(ctx.newItems[i]); ok {
+			if _, exists := ctx.oldByKey[itemKey]; !exists {
 				return false
 			}
 		} else {
@@ -194,12 +169,12 @@ func AreAllItemsAtEnd(newKeys []string, oldItems, newItems []interface{}, static
 		}
 	}
 
-	for i, key := range newKeys {
+	for i, key := range ctx.addedKeys {
 		index := startIndex + i
-		if index >= len(newItems) {
+		if index >= len(ctx.newItems) {
 			return false
 		}
-		if itemKey, ok := GetItemKey(newItems[index], statics); ok {
+		if itemKey, ok := ctx.getItemKey(ctx.newItems[index]); ok {
 			if itemKey != key {
 				return false
 			}
@@ -210,35 +185,31 @@ func AreAllItemsAtEnd(newKeys []string, oldItems, newItems []interface{}, static
 	return true
 }
 
-// IsComplexInsertionPattern checks if the insertion pattern is too complex for simple operations.
-func IsComplexInsertionPattern(newKeys []string, oldItems, newItems []interface{}, statics interface{}) bool {
-	if len(newKeys) == 0 {
+func isComplexInsertionPatternCtx(ctx *rangeContext) bool {
+	if len(ctx.addedKeys) == 0 {
 		return false
 	}
 
-	if AreAllItemsAtEnd(newKeys, oldItems, newItems, statics) {
+	if areAllItemsAtEndCtx(ctx) {
 		return false
 	}
-	if AreAllItemsAtStart(newKeys, newItems, statics) {
+	if areAllItemsAtStartCtx(ctx) {
 		return false
 	}
 
-	insertionPoints := make(map[string]bool, len(newKeys))
-	for i, item := range newItems {
-		if keyStr, ok := GetItemKey(item, statics); ok {
-			for _, newKey := range newKeys {
-				if newKey == keyStr {
-					var insertionPoint string
-					if i > 0 {
-						if prevKeyStr, ok := GetItemKey(newItems[i-1], statics); ok {
-							insertionPoint = prevKeyStr + ":after"
-						}
-					} else {
-						insertionPoint = "start"
+	insertionPoints := make(map[string]bool, len(ctx.addedKeys))
+	for i, item := range ctx.newItems {
+		if keyStr, ok := ctx.getItemKey(item); ok {
+			if _, inOld := ctx.oldByKey[keyStr]; !inOld {
+				var insertionPoint string
+				if i > 0 {
+					if prevKeyStr, ok := ctx.getItemKey(ctx.newItems[i-1]); ok {
+						insertionPoint = prevKeyStr + ":after"
 					}
-					insertionPoints[insertionPoint] = true
-					break
+				} else {
+					insertionPoint = "start"
 				}
+				insertionPoints[insertionPoint] = true
 			}
 		}
 	}
