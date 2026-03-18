@@ -7,11 +7,15 @@ import (
 	"fmt"
 	"html/template"
 	"reflect"
+	"sync/atomic"
 )
 
 // TreeNode represents a node in the template tree structure with type safety.
 // It replaces the old map[string]interface{} representation while maintaining
 // wire format compatibility through custom JSON marshaling.
+//
+// TreeNode should not be value-copied after first use of GetStructureFingerprint,
+// as it contains an atomic.Value for fingerprint caching. Always use *TreeNode.
 type TreeNode struct {
 	// Statics are the static HTML parts of the template (key: "s")
 	Statics []string
@@ -30,29 +34,34 @@ type TreeNode struct {
 	Metadata *TreeMetadata
 
 	// cachedStructureFingerprint stores the computed structure fingerprint.
-	// This is an internal optimization field, not serialized to wire format.
-	// Use GetStructureFingerprint() to access.
-	cachedStructureFingerprint string
+	// Uses atomic.Value for thread-safe lazy caching without sync.Once
+	// (sync.Once contains a mutex which triggers copylocks when TreeNode is copied).
+	cachedStructureFingerprint atomic.Value // stores string
 }
 
 // GetStructureFingerprint returns the structure fingerprint, computing and caching if needed.
 // The structure fingerprint is based only on static structure, not dynamic values.
 // This enables O(1) comparison for determining if client needs statics re-sent.
+// Safe for concurrent use.
 func (t *TreeNode) GetStructureFingerprint() string {
 	if t == nil {
 		return ""
 	}
-	if t.cachedStructureFingerprint == "" {
-		t.cachedStructureFingerprint = CalculateStructureFingerprint(t)
+	if v := t.cachedStructureFingerprint.Load(); v != nil {
+		if s := v.(string); s != "" {
+			return s
+		}
 	}
-	return t.cachedStructureFingerprint
+	fp := CalculateStructureFingerprint(t)
+	t.cachedStructureFingerprint.Store(fp)
+	return fp
 }
 
 // InvalidateStructureFingerprint clears the cached fingerprint.
 // Call this if the tree structure is modified after creation.
 func (t *TreeNode) InvalidateStructureFingerprint() {
 	if t != nil {
-		t.cachedStructureFingerprint = ""
+		t.cachedStructureFingerprint.Store("")
 	}
 }
 
