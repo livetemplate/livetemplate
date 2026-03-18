@@ -73,7 +73,7 @@ func (ctx *rangeContext) getItemKey(item interface{}) (string, bool) {
 // if false, keeps "s" keys (client hasn't seen this structure yet)
 // This is the main orchestrator (30 lines).
 //
-// Returns empty slice when differential operations cannot fully express the change,
+// Returns nil when differential operations cannot fully express the change,
 // signaling that the caller should fall back to full tree replacement.
 func GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripStatics bool) []interface{} {
 	oldItems, newItems, statics, metadata := extractRangeData(oldValue, newValue)

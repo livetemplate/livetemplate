@@ -40,7 +40,7 @@ func sameKeySet(oldKeys, newKeys []string) bool {
 }
 
 // IsPureReordering checks if the items are the same but just in different order.
-func IsPureReordering(oldItems, newItems []interface{}, oldKeys, newKeys []string, statics interface{}) bool {
+func IsPureReordering(oldItems, newItems []interface{}, statics interface{}) bool {
 	ctx := newRangeContext(oldItems, newItems, statics, nil)
 	return isPureReorderingCtx(ctx)
 }

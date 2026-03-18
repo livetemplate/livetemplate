@@ -30,8 +30,10 @@ func DeepEqual(a, b interface{}) bool {
 }
 
 // TreeNodeEqual compares two TreeNodes for equality, ignoring internal cache fields.
+// Pointer identity is checked first to handle shared references and prevent
+// infinite recursion on cyclic graphs.
 func TreeNodeEqual(a, b *TreeNode) bool {
-	if a == nil && b == nil {
+	if a == b {
 		return true
 	}
 	if a == nil || b == nil {
