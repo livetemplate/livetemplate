@@ -524,3 +524,120 @@ func TestRedisBroadcaster_EmptyUserID(t *testing.T) {
 		t.Error("Expected error for empty userID")
 	}
 }
+
+func TestRedisBroadcaster_ReconnectPreservesDynamicSubscriptions(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
+
+	publisher := NewRedisBroadcaster(client)
+	defer func() {
+		if err := publisher.Close(); err != nil {
+			t.Errorf("Failed to close publisher: %v", err)
+		}
+	}()
+
+	subscriber := NewRedisBroadcaster(client, WithReconnectDelay(10*time.Millisecond))
+	defer func() {
+		if err := subscriber.Close(); err != nil {
+			t.Errorf("Failed to close subscriber: %v", err)
+		}
+	}()
+
+	var mu sync.Mutex
+	var broadcastMsgs []*BroadcastMessage
+	var serverActionMsgs []*ServerActionMessage
+
+	if err := subscriber.SubscribeServerActions(func(msg *ServerActionMessage) error {
+		mu.Lock()
+		serverActionMsgs = append(serverActionMsgs, msg)
+		mu.Unlock()
+		return nil
+	}); err != nil {
+		t.Fatalf("SubscribeServerActions failed: %v", err)
+	}
+
+	go func() {
+		if err := subscriber.Subscribe(func(msg *BroadcastMessage) error {
+			mu.Lock()
+			broadcastMsgs = append(broadcastMsgs, msg)
+			mu.Unlock()
+			return nil
+		}); err != nil {
+			t.Errorf("Subscribe failed: %v", err)
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Subscribe to dynamic channels before reconnect
+	if err := subscriber.SubscribeToGroup("g1"); err != nil {
+		t.Fatalf("SubscribeToGroup failed: %v", err)
+	}
+	if err := subscriber.SubscribeToUser("u1"); err != nil {
+		t.Fatalf("SubscribeToUser failed: %v", err)
+	}
+	if err := subscriber.SubscribeToServerAction("u1"); err != nil {
+		t.Fatalf("SubscribeToServerAction failed: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Force a reconnect by closing the internal pubsub
+	subscriber.mu.Lock()
+	if subscriber.pubsub != nil {
+		_ = subscriber.pubsub.Close()
+	}
+	subscriber.mu.Unlock()
+
+	// Wait for reconnect to complete
+	time.Sleep(200 * time.Millisecond)
+
+	// Publish to all channel types after reconnect
+	if err := publisher.PublishGlobal([]byte(`{"test": "global"}`)); err != nil {
+		t.Fatalf("PublishGlobal failed: %v", err)
+	}
+	if err := publisher.PublishToGroup("g1", []byte(`{"test": "group"}`)); err != nil {
+		t.Fatalf("PublishToGroup failed: %v", err)
+	}
+	if err := publisher.PublishToUser("u1", []byte(`{"test": "user"}`)); err != nil {
+		t.Fatalf("PublishToUser failed: %v", err)
+	}
+	if err := publisher.PublishServerAction("u1", "tick", nil); err != nil {
+		t.Fatalf("PublishServerAction failed: %v", err)
+	}
+
+	// Wait for messages
+	time.Sleep(500 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(broadcastMsgs) != 3 {
+		t.Fatalf("Expected 3 broadcast messages (global+group+user), got %d", len(broadcastMsgs))
+	}
+
+	scopes := map[BroadcastScope]bool{}
+	for _, msg := range broadcastMsgs {
+		scopes[msg.Scope] = true
+	}
+	if !scopes[ScopeGlobal] {
+		t.Error("Missing global broadcast after reconnect")
+	}
+	if !scopes[ScopeGroup] {
+		t.Error("Missing group broadcast after reconnect")
+	}
+	if !scopes[ScopeUser] {
+		t.Error("Missing user broadcast after reconnect")
+	}
+
+	if len(serverActionMsgs) != 1 {
+		t.Fatalf("Expected 1 server action message, got %d", len(serverActionMsgs))
+	}
+	if serverActionMsgs[0].Action != "tick" {
+		t.Errorf("Expected action='tick', got '%s'", serverActionMsgs[0].Action)
+	}
+}

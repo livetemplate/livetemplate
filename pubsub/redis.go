@@ -43,7 +43,8 @@ type RedisBroadcaster struct {
 	wg                  sync.WaitGroup
 	mu                  sync.RWMutex
 	closed              bool
-	reconnectDelay      time.Duration // Delay before reconnecting after subscription failure (default: 1s)
+	reconnectDelay      time.Duration       // Delay before reconnecting after subscription failure (default: 1s)
+	subscribedChannels  map[string]struct{} // Tracks dynamic channel subscriptions for reconnect replay
 }
 
 // RedisBroadcasterOption configures RedisBroadcaster.
@@ -73,11 +74,12 @@ func NewRedisBroadcaster(client redis.UniversalClient, opts ...RedisBroadcasterO
 	ctx, cancel := context.WithCancel(context.Background())
 
 	b := &RedisBroadcaster{
-		client:         client,
-		instanceID:     uuid.New().String(),
-		ctx:            ctx,
-		cancel:         cancel,
-		reconnectDelay: 1 * time.Second, // Default: 1 second
+		client:             client,
+		instanceID:         uuid.New().String(),
+		ctx:                ctx,
+		cancel:             cancel,
+		reconnectDelay:     1 * time.Second, // Default: 1 second
+		subscribedChannels: make(map[string]struct{}),
 	}
 
 	// Apply options
@@ -306,6 +308,8 @@ func (b *RedisBroadcaster) SubscribeToServerAction(userID string) error {
 		return fmt.Errorf("failed to subscribe to server action channel: %w", err)
 	}
 
+	b.subscribedChannels[channel] = struct{}{}
+
 	slog.Info("Subscribed to server action channel",
 		slog.String("component", "redis_broadcaster"),
 		slog.String("channel", channel))
@@ -336,6 +340,8 @@ func (b *RedisBroadcaster) SubscribeToGroup(groupID string) error {
 		return fmt.Errorf("failed to subscribe to group channel: %w", err)
 	}
 
+	b.subscribedChannels[channel] = struct{}{}
+
 	slog.Info("Subscribed to group channel",
 		slog.String("component", "redis_broadcaster"),
 		slog.String("channel", channel))
@@ -365,6 +371,8 @@ func (b *RedisBroadcaster) SubscribeToUser(userID string) error {
 	if err := b.pubsub.Subscribe(b.ctx, channel); err != nil {
 		return fmt.Errorf("failed to subscribe to user channel: %w", err)
 	}
+
+	b.subscribedChannels[channel] = struct{}{}
 
 	slog.Info("Subscribed to user channel",
 		slog.String("component", "redis_broadcaster"),
@@ -498,6 +506,7 @@ func (b *RedisBroadcaster) handleServerActionMessage(redisMsg *redis.Message) er
 }
 
 // reconnect attempts to re-establish the Redis subscription after a failure.
+// It replays all dynamic channel subscriptions that were active before disconnection.
 func (b *RedisBroadcaster) reconnect() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -514,8 +523,15 @@ func (b *RedisBroadcaster) reconnect() error {
 	// Wait before reconnecting
 	time.Sleep(b.reconnectDelay)
 
-	// Create new subscription
-	b.pubsub = b.client.Subscribe(b.ctx, channelGlobal)
+	// Collect all channels to subscribe: global + all dynamic channels
+	channels := make([]string, 0, 1+len(b.subscribedChannels))
+	channels = append(channels, channelGlobal)
+	for ch := range b.subscribedChannels {
+		channels = append(channels, ch)
+	}
+
+	// Re-subscribe to all channels at once
+	b.pubsub = b.client.Subscribe(b.ctx, channels...)
 
 	// Wait for confirmation
 	if _, err := b.pubsub.Receive(b.ctx); err != nil {
@@ -523,7 +539,8 @@ func (b *RedisBroadcaster) reconnect() error {
 	}
 
 	slog.Info("Reconnected successfully",
-		slog.String("component", "redis_broadcaster"))
+		slog.String("component", "redis_broadcaster"),
+		slog.Int("dynamic_channels", len(b.subscribedChannels)))
 	return nil
 }
 
