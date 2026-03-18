@@ -1,15 +1,11 @@
 package parse
 
 import (
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"hash/fnv"
-	"sort"
 	"strings"
-)
 
-const hashPrefixLength = 12
+	"github.com/livetemplate/livetemplate/internal/keys"
+)
 
 // rangeItemWithStatics holds an item tree for range processing.
 type rangeItemWithStatics struct {
@@ -83,32 +79,5 @@ func generateItemHash(item *TreeNode) string {
 	if item == nil {
 		return ""
 	}
-	keys := make([]string, 0, len(item.Dynamics))
-	for k := range item.Dynamics {
-		if k != "_k" {
-			keys = append(keys, k)
-		}
-	}
-	sort.Strings(keys)
-
-	var parts []string
-	for _, k := range keys {
-		val, _ := item.GetDynamic(k)
-		valJSON, err := json.Marshal(val)
-		if err != nil {
-			parts = append(parts, fmt.Sprintf("%s:%#v", k, val))
-		} else {
-			parts = append(parts, fmt.Sprintf("%s:%s", k, string(valJSON)))
-		}
-	}
-
-	content := strings.Join(parts, "|")
-	hasher := fnv.New64a()
-	hasher.Write([]byte(content))
-	hash := hex.EncodeToString(hasher.Sum(nil))
-
-	if len(hash) >= hashPrefixLength {
-		return hash[:hashPrefixLength]
-	}
-	return hash
+	return keys.GenerateItemHash(item.Dynamics)
 }
