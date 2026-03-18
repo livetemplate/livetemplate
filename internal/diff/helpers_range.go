@@ -27,12 +27,12 @@ func sameKeySet(oldKeys, newKeys []string) bool {
 	if len(oldKeys) != len(newKeys) {
 		return false
 	}
-	oldSet := make(map[string]bool, len(oldKeys))
+	oldSet := make(map[string]struct{}, len(oldKeys))
 	for _, k := range oldKeys {
-		oldSet[k] = true
+		oldSet[k] = struct{}{}
 	}
 	for _, k := range newKeys {
-		if !oldSet[k] {
+		if _, exists := oldSet[k]; !exists {
 			return false
 		}
 	}
@@ -102,7 +102,7 @@ func isPureReorderingCtx(ctx *rangeContext) bool {
 		}
 
 		for field, oldValue := range oldItemNode.Dynamics {
-			if field == positionField || field == ctx.keyPosStr || field == "_k" {
+			if field == positionField || (ctx.keyPos >= 0 && field == ctx.keyPosStr) || field == "_k" {
 				continue
 			}
 			newValue, exists := newItemNode.GetDynamic(field)
@@ -112,7 +112,7 @@ func isPureReorderingCtx(ctx *rangeContext) bool {
 		}
 
 		for field := range newItemNode.Dynamics {
-			if field == positionField || field == ctx.keyPosStr || field == "_k" {
+			if field == positionField || (ctx.keyPos >= 0 && field == ctx.keyPosStr) || field == "_k" {
 				continue
 			}
 			if _, exists := oldItemNode.GetDynamic(field); !exists {

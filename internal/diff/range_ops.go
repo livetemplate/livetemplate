@@ -200,8 +200,10 @@ func generateUpdateOps(ctx *rangeContext, operations []interface{}) []interface{
 	for _, key := range sortedNewKeys {
 		newItem := ctx.newByKey[key]
 		if oldItem, exists := ctx.oldByKey[key]; exists {
-			changes := compareRangeItemsWithKeyPos(oldItem, newItem, ctx.keyPosStr)
+			changes := compareRangeItemsWithKeyPos(oldItem, newItem, ctx.keyPos, ctx.keyPosStr)
 			if len(changes) > 0 {
+				// Include all changes, even empty strings — they signal field removal
+				// (e.g., removing "checked" attribute when toggling a checkbox off).
 				operations = append(operations, []interface{}{"u", key, changes})
 			}
 		}
@@ -326,10 +328,10 @@ func handleIndividualInsertionsCtx(ctx *rangeContext, operations []interface{}) 
 func CompareRangeItemsForChanges(oldItem, newItem interface{}, statics interface{}) map[string]interface{} {
 	keyPos := FindKeyPositionFromStatics(statics)
 	keyPosStr := strconv.Itoa(keyPos)
-	return compareRangeItemsWithKeyPos(oldItem, newItem, keyPosStr)
+	return compareRangeItemsWithKeyPos(oldItem, newItem, keyPos, keyPosStr)
 }
 
-func compareRangeItemsWithKeyPos(oldItem, newItem interface{}, keyPosStr string) map[string]interface{} {
+func compareRangeItemsWithKeyPos(oldItem, newItem interface{}, keyPos int, keyPosStr string) map[string]interface{} {
 	changes := make(map[string]interface{})
 
 	oldItemNode, ok1 := oldItem.(*TreeNode)
@@ -340,7 +342,7 @@ func compareRangeItemsWithKeyPos(oldItem, newItem interface{}, keyPosStr string)
 	}
 
 	for fieldKey, newValue := range newItemNode.Dynamics {
-		if fieldKey == keyPosStr {
+		if keyPos >= 0 && fieldKey == keyPosStr {
 			continue
 		}
 
@@ -354,8 +356,9 @@ func compareRangeItemsWithKeyPos(oldItem, newItem interface{}, keyPosStr string)
 		}
 	}
 
+	// Check for fields removed (in old but not in new), e.g. unchecking a checkbox.
 	for fieldKey, oldValue := range oldItemNode.Dynamics {
-		if fieldKey == keyPosStr {
+		if keyPos >= 0 && fieldKey == keyPosStr {
 			continue
 		}
 		if _, exists := newItemNode.Dynamics[fieldKey]; !exists {
