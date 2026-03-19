@@ -81,6 +81,16 @@ type Broadcaster interface {
 	Close() error
 }
 
+// DynamicSubscriber allows subscribing to scoped channels at runtime.
+// Implementations that support per-scope channels (for transport-level
+// data isolation) should implement this interface. The handler layer
+// type-asserts and calls these methods during WebSocket connection setup.
+type DynamicSubscriber interface {
+	SubscribeToGroup(groupID string) error
+	SubscribeToUser(userID string) error
+	SubscribeToServerAction(userID string) error
+}
+
 // MessageHandler is called when a broadcast message is received.
 // It should fan out the message to relevant local connections.
 type MessageHandler func(msg *BroadcastMessage) error

@@ -616,47 +616,7 @@ func NewRedisHealthChecker(store *RedisSessionStore) *RedisHealthChecker
 
 ## PubSub (Distributed Broadcasting)
 
-Package `pubsub` provides cross-instance messaging for horizontally scaled deployments.
-
-### Broadcaster Interface
-
-```go
-type Broadcaster interface {
-    PublishGlobal(payload []byte) error
-    PublishToGroup(groupID string, payload []byte) error
-    PublishToUser(userID string, payload []byte) error
-    PublishServerAction(userID string, action string, data map[string]interface{}) error
-    Subscribe(handler MessageHandler) error
-    SubscribeServerActions(handler ServerActionHandler) error
-    Close() error
-}
-```
-
-### Redis Implementation
-
-```go
-func NewRedisBroadcaster(client redis.UniversalClient, opts ...RedisBroadcasterOption) *RedisBroadcaster
-```
-
-```go
-import "github.com/livetemplate/livetemplate/pubsub"
-
-broadcaster := pubsub.NewRedisBroadcaster(redisClient)
-defer broadcaster.Close()
-
-tmpl, _ := livetemplate.New("app",
-    livetemplate.WithPubSubBroadcaster(broadcaster),
-)
-```
-
-### Broadcast Scopes
-
-| Scope | Method | Description |
-|-------|--------|-------------|
-| Global | `PublishGlobal` | All connections on all instances |
-| Group | `PublishToGroup` | All connections in a session group |
-| User | `PublishToUser` | All connections for a specific user |
-| ServerAction | `PublishServerAction` | Trigger action on a user's connections |
+Package `pubsub` provides cross-instance messaging for horizontally scaled deployments. See the [PubSub Reference](pubsub.md) for the complete API including `Broadcaster`, `DynamicSubscriber`, broadcast scopes, channel schema, and subscription lifecycle.
 
 ---
 

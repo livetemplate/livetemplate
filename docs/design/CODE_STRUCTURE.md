@@ -471,12 +471,12 @@ livetemplate/
 
 ## Top-Level Packages
 
-### `pubsub/` (675 lines)
+### `pubsub/` (716 lines)
 **Purpose:** Redis pub/sub broadcasting for distributed multi-instance deployments
 
 **Files:**
-- `redis.go` (561) - Redis-based pub/sub broadcaster with reconnection
-- `types.go` (114) - Message types and broadcaster interface
+- `redis.go` (592) - Redis-based pub/sub broadcaster with subscription tracking and reconnect replay
+- `types.go` (124) - Message types, `Broadcaster` interface, and `DynamicSubscriber` optional interface
 
 ---
 
