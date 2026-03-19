@@ -31,10 +31,7 @@ func newDrainingBenchConn(groupID string, bufferSize int) (conn *Connection, cle
 	}()
 
 	return conn, func() {
-		if err := conn.Close(); err != nil {
-			// Ignore close errors in benchmarks — connection may already be closed
-			_ = err
-		}
+		_ = conn.Close()
 	}
 }
 
@@ -232,7 +229,7 @@ func BenchmarkBufferSizes(b *testing.B) {
 	for _, bufferSize := range bufferSizes {
 		b.Run(fmt.Sprintf("buf_%d", bufferSize), func(b *testing.B) {
 			conn, cleanup := newDrainingBenchConn("bench-group", bufferSize)
-			defer cleanup()
+			defer func() { cleanup() }()
 
 			b.ResetTimer()
 			b.ReportAllocs()
