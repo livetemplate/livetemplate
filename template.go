@@ -166,6 +166,7 @@ type Config struct {
 	WebSocketBufferSize    int                                 // WebSocket send buffer size per connection (default: 50)
 	ComponentTemplates     []*TemplateSet                      // Component library templates (parsed before project templates)
 	ProgressiveEnhancement bool                                // Enable non-JS form submission support with PRG pattern (default: true)
+	TrustForwardedHeaders  bool                                // Trust X-Forwarded-Proto header for scheme detection (default: true)
 }
 
 // =============================================================================
@@ -379,15 +380,33 @@ func WithAuthenticator(auth Authenticator) Option {
 // Security note: Always set this in production to prevent CSRF attacks via WebSocket.
 //
 // When AllowedOrigins is not set, same-origin detection relies on X-Forwarded-Proto
-// (if present) or r.TLS to determine the request scheme. X-Forwarded-Proto is trusted
-// unconditionally, which is safe when the server is behind a reverse proxy that sets
-// this header. If the server is directly reachable by clients (without a proxy stripping
-// or overwriting the header), a client could forge X-Forwarded-Proto. In such deployments,
-// use WithAllowedOrigins to explicitly list trusted origins rather than relying on
-// same-origin detection.
+// (if present and trusted) or r.TLS to determine the request scheme. By default,
+// X-Forwarded-Proto is trusted (see [WithTrustForwardedHeaders]). If the server is
+// directly reachable by clients without a proxy, either set WithTrustForwardedHeaders(false)
+// to ignore forwarded headers, or use WithAllowedOrigins to explicitly list trusted origins.
 func WithAllowedOrigins(origins []string) Option {
 	return func(c *Config) {
 		c.AllowedOrigins = origins
+	}
+}
+
+// WithTrustForwardedHeaders controls whether X-Forwarded-Proto is trusted for
+// scheme detection in same-origin WebSocket checks.
+//
+// Default: true (backward compatible). When true, the origin checker reads
+// X-Forwarded-Proto to determine whether the original client connection used
+// HTTP or HTTPS. This is safe when the server is behind a reverse proxy that
+// sets/overwrites this header.
+//
+// Set to false if the server is directly reachable by clients (no proxy) to
+// prevent clients from forging the header. In this case, scheme detection falls
+// back to r.TLS (non-nil = HTTPS, nil = HTTP).
+//
+// This option only affects the default same-origin check. It has no effect when
+// WithAllowedOrigins is set (explicit origins take priority).
+func WithTrustForwardedHeaders(trust bool) Option {
+	return func(c *Config) {
+		c.TrustForwardedHeaders = trust
 	}
 }
 
@@ -730,7 +749,7 @@ func Must(t *Template, err error) *Template {
 //   - DevMode=false with AllowedOrigins set: Only allows listed origins
 //
 // This prevents CSRF attacks by rejecting WebSocket upgrade requests from unauthorized origins.
-func createSecureOriginChecker(allowedOrigins []string, devMode bool) func(*http.Request) bool {
+func createSecureOriginChecker(allowedOrigins []string, devMode bool, trustForwardedHeaders bool) func(*http.Request) bool {
 	return func(r *http.Request) bool {
 		// Development mode: allow all origins for convenience
 		if devMode {
@@ -762,14 +781,16 @@ func createSecureOriginChecker(allowedOrigins []string, devMode bool) func(*http
 			return false
 		}
 
-		// Derive scheme from X-Forwarded-Proto (reverse proxy) or r.TLS (direct).
-		// See WithAllowedOrigins godoc for security trade-offs of trusting this header.
+		// Derive scheme from X-Forwarded-Proto (if trusted) or r.TLS (direct).
+		// See WithTrustForwardedHeaders godoc for security trade-offs.
 		scheme := ""
-		if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
-			first, _, _ := strings.Cut(proto, ",")
-			val := strings.ToLower(strings.TrimSpace(first))
-			if val == "http" || val == "https" {
-				scheme = val
+		if trustForwardedHeaders {
+			if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+				first, _, _ := strings.Cut(proto, ",")
+				val := strings.ToLower(strings.TrimSpace(first))
+				if val == "http" || val == "https" {
+					scheme = val
+				}
 			}
 		}
 		if scheme == "" {
@@ -800,6 +821,7 @@ func New(name string, opts ...Option) (*Template, error) {
 		CookieMaxAge:           365 * 24 * time.Hour,       // Default: 1 year
 		WebSocketBufferSize:    defaultWebSocketBufferSize, // Override via WithWebSocketBufferSize or EnvConfig
 		ProgressiveEnhancement: true,                       // Default: enabled for non-JS form support
+		TrustForwardedHeaders:  true,                       // Default: trust X-Forwarded-Proto (safe behind proxy)
 	}
 
 	// Apply options
@@ -809,7 +831,7 @@ func New(name string, opts ...Option) (*Template, error) {
 
 	// Set secure CheckOrigin after options are applied
 	if config.Upgrader.CheckOrigin == nil {
-		config.Upgrader.CheckOrigin = createSecureOriginChecker(config.AllowedOrigins, config.DevMode)
+		config.Upgrader.CheckOrigin = createSecureOriginChecker(config.AllowedOrigins, config.DevMode, config.TrustForwardedHeaders)
 	}
 
 	// Log DevMode configuration for debugging

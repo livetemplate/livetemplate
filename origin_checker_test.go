@@ -200,7 +200,7 @@ func TestCreateSecureOriginChecker(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			checker := createSecureOriginChecker(tt.allowedOrigins, tt.devMode)
+			checker := createSecureOriginChecker(tt.allowedOrigins, tt.devMode, true)
 
 			req, err := http.NewRequest("GET", "/ws", nil)
 			if err != nil {
@@ -221,6 +221,68 @@ func TestCreateSecureOriginChecker(t *testing.T) {
 			if got != tt.want {
 				t.Errorf("createSecureOriginChecker(%v, %v)(origin=%q, host=%q, tls=%v, proto=%q) = %v, want %v",
 					tt.allowedOrigins, tt.devMode, tt.origin, tt.host, tt.tls, tt.forwardedProto, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCreateSecureOriginChecker_UntrustedForwardedHeaders(t *testing.T) {
+	tests := []struct {
+		name           string
+		origin         string
+		host           string
+		tls            bool
+		forwardedProto string
+		want           bool
+	}{
+		{
+			name:           "X-Forwarded-Proto ignored when untrusted",
+			origin:         "https://example.com",
+			host:           "example.com",
+			tls:            false,
+			forwardedProto: "https",
+			want:           false, // Without proxy trust, TLS=nil means HTTP, but origin says HTTPS
+		},
+		{
+			name:           "falls back to r.TLS when untrusted",
+			origin:         "http://example.com",
+			host:           "example.com",
+			tls:            false,
+			forwardedProto: "https",
+			want:           true, // r.TLS=nil → HTTP scheme, origin says HTTP → match
+		},
+		{
+			name:   "direct HTTPS works without proxy",
+			origin: "https://example.com",
+			host:   "example.com",
+			tls:    true,
+			want:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			checker := createSecureOriginChecker(nil, false, false)
+
+			req, err := http.NewRequest("GET", "/ws", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Host = tt.host
+			if tt.origin != "" {
+				req.Header.Set("Origin", tt.origin)
+			}
+			if tt.forwardedProto != "" {
+				req.Header.Set("X-Forwarded-Proto", tt.forwardedProto)
+			}
+			if tt.tls {
+				req.TLS = &tls.ConnectionState{}
+			}
+
+			got := checker(req)
+			if got != tt.want {
+				t.Errorf("trust=false (origin=%q, host=%q, tls=%v, proto=%q) = %v, want %v",
+					tt.origin, tt.host, tt.tls, tt.forwardedProto, got, tt.want)
 			}
 		})
 	}

@@ -51,6 +51,10 @@ func TestLoadEnvConfig_Defaults(t *testing.T) {
 	if config.WebSocketBufferSize != 50 {
 		t.Errorf("Expected WebSocketBufferSize=50, got %d", config.WebSocketBufferSize)
 	}
+
+	if config.TrustForwardedHeaders != true {
+		t.Error("Expected TrustForwardedHeaders=true")
+	}
 }
 
 func TestLoadEnvConfig_MaxConnections(t *testing.T) {
@@ -379,12 +383,13 @@ func TestEnvConfig_ToOptions(t *testing.T) {
 		WebSocketDisabled:      true,
 		LoadingDisabled:        true,
 		ProgressiveEnhancement: true, // Default is true, so no option generated
+		TrustForwardedHeaders:  true, // Default is true, so no option generated
 		WebSocketBufferSize:    100,
 	}
 
 	opts := config.ToOptions()
 
-	// Should have 7 options (ProgressiveEnhancement=true doesn't generate an option)
+	// Should have 7 options (ProgressiveEnhancement=true and TrustForwardedHeaders=true don't generate options)
 	if len(opts) != 7 {
 		t.Errorf("Expected 7 options, got %d", len(opts))
 	}
@@ -431,6 +436,7 @@ func TestEnvConfig_ToOptionsZeroValues(t *testing.T) {
 		AllowedOrigins:         nil,
 		DevMode:                false,
 		ProgressiveEnhancement: true,                       // Default is true, so no option generated
+		TrustForwardedHeaders:  true,                       // Default is true, so no option generated
 		WebSocketBufferSize:    defaultWebSocketBufferSize, // Default (50) should not generate an option
 	}
 
@@ -447,6 +453,7 @@ func TestEnvConfig_ToOptionsZeroValues(t *testing.T) {
 func TestEnvConfig_ToOptionsProgressiveEnhancementFalse(t *testing.T) {
 	config := &EnvConfig{
 		ProgressiveEnhancement: false, // Explicitly disabled, should generate option
+		TrustForwardedHeaders:  true,  // Default, should not generate option
 	}
 
 	opts := config.ToOptions()
@@ -702,6 +709,53 @@ func TestLoadEnvConfig_WebSocketBufferSizeInvalid(t *testing.T) {
 	}
 }
 
+func TestLoadEnvConfig_TrustForwardedHeaders(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("LVT_TRUST_FORWARDED_HEADERS", "false")
+
+	config, err := LoadEnvConfig()
+	if err != nil {
+		t.Fatalf("LoadEnvConfig failed: %v", err)
+	}
+
+	if config.TrustForwardedHeaders != false {
+		t.Error("Expected TrustForwardedHeaders=false")
+	}
+}
+
+func TestLoadEnvConfig_TrustForwardedHeadersInvalid(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("LVT_TRUST_FORWARDED_HEADERS", "invalid")
+
+	_, err := LoadEnvConfig()
+	if err == nil {
+		t.Error("Expected error for invalid LVT_TRUST_FORWARDED_HEADERS")
+	}
+}
+
+func TestEnvConfig_ToOptionsTrustForwardedHeadersFalse(t *testing.T) {
+	config := &EnvConfig{
+		TrustForwardedHeaders:  false, // Explicitly disabled, should generate option
+		ProgressiveEnhancement: true,  // Default, should not generate option
+	}
+
+	opts := config.ToOptions()
+
+	if len(opts) != 1 {
+		t.Errorf("Expected 1 option for TrustForwardedHeaders=false, got %d", len(opts))
+	}
+
+	cfg := &Config{}
+	cfg.TrustForwardedHeaders = true // Start with default true
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	if cfg.TrustForwardedHeaders != false {
+		t.Error("Expected TrustForwardedHeaders=false after applying option")
+	}
+}
+
 // clearEnv removes all LVT_ environment variables
 func clearEnv(t *testing.T) {
 	t.Helper()
@@ -717,6 +771,7 @@ func clearEnv(t *testing.T) {
 		"LVT_LOG_LEVEL",
 		"LVT_METRICS_ENABLED",
 		"LVT_WS_BUFFER_SIZE",
+		"LVT_TRUST_FORWARDED_HEADERS",
 	}
 	for _, v := range vars {
 		if err := os.Unsetenv(v); err != nil {
