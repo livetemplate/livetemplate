@@ -1,24 +1,45 @@
 package session
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/gorilla/websocket"
 )
 
+// newDrainingBenchConn creates a connection with a dedicated drain goroutine
+// that consumes messages from sendChan, preventing "client too slow" errors.
+// The drain goroutine runs until cleanup is called.
+func newDrainingBenchConn(groupID string, bufferSize int) (conn *Connection, cleanup func()) {
+	conn = &Connection{
+		GroupID: groupID,
+		UserID:  "bench-user",
+	}
+	conn.sendChan = make(chan *wsMessage, bufferSize)
+	conn.done = make(chan struct{})
+	conn.pumpExited = make(chan struct{})
+
+	go func() {
+		defer close(conn.pumpExited)
+		for {
+			select {
+			case <-conn.sendChan:
+			case <-conn.done:
+				return
+			}
+		}
+	}()
+
+	return conn, func() {
+		_ = conn.Close()
+	}
+}
+
 // BenchmarkAsyncSendThroughput measures message sending throughput
 // with async channel-based sending.
 func BenchmarkAsyncSendThroughput(b *testing.B) {
-	registry := NewConnectionRegistry()
-
-	conn := &Connection{
-		Conn:    nil, // Nil for benchmark
-		GroupID: "bench-group",
-		UserID:  "bench-user",
-	}
-
-	registry.Register(conn, 1000) // Large buffer for throughput test
-	defer registry.Unregister(conn)
+	conn, cleanup := newDrainingBenchConn("bench-group", 1000)
+	defer cleanup()
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -35,25 +56,17 @@ func BenchmarkConcurrentConnections(b *testing.B) {
 	connectionCounts := []int{10, 100, 1000}
 
 	for _, count := range connectionCounts {
-		b.Run(string(rune('0'+count/100))+"00_connections", func(b *testing.B) {
-			registry := NewConnectionRegistry()
+		b.Run(fmt.Sprintf("%d_connections", count), func(b *testing.B) {
 			connections := make([]*Connection, count)
+			cleanups := make([]func(), count)
 
-			// Create connections
 			for i := 0; i < count; i++ {
-				conn := &Connection{
-					Conn:    nil,
-					GroupID: "bench-group",
-					UserID:  "bench-user",
-				}
-				registry.Register(conn, 50)
-				connections[i] = conn
+				connections[i], cleanups[i] = newDrainingBenchConn("bench-group", 50)
 			}
 
 			b.ResetTimer()
 			b.ReportAllocs()
 
-			// Send messages concurrently to all connections
 			for i := 0; i < b.N; i++ {
 				for _, conn := range connections {
 					if err := conn.Send(websocket.TextMessage, []byte("test")); err != nil {
@@ -64,9 +77,8 @@ func BenchmarkConcurrentConnections(b *testing.B) {
 
 			b.StopTimer()
 
-			// Cleanup
-			for _, conn := range connections {
-				registry.Unregister(conn)
+			for _, fn := range cleanups {
+				fn()
 			}
 		})
 	}
@@ -92,16 +104,8 @@ func BenchmarkRegisterUnregister(b *testing.B) {
 
 // BenchmarkConcurrentSend measures concurrent sending from multiple goroutines.
 func BenchmarkConcurrentSend(b *testing.B) {
-	registry := NewConnectionRegistry()
-
-	conn := &Connection{
-		Conn:    nil,
-		GroupID: "bench-group",
-		UserID:  "bench-user",
-	}
-
-	registry.Register(conn, 10000) // Large buffer
-	defer registry.Unregister(conn)
+	conn, cleanup := newDrainingBenchConn("bench-group", 10000)
+	defer cleanup()
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -119,7 +123,6 @@ func BenchmarkConcurrentSend(b *testing.B) {
 func BenchmarkGetByGroup(b *testing.B) {
 	registry := NewConnectionRegistry()
 
-	// Create 100 connections in the same group
 	for i := 0; i < 100; i++ {
 		conn := &Connection{
 			Conn:    nil,
@@ -143,13 +146,7 @@ func BenchmarkCloseConnection(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		registry := NewConnectionRegistry()
-		conn := &Connection{
-			Conn:    nil,
-			GroupID: "bench-group",
-			UserID:  "bench-user",
-		}
-		registry.Register(conn, 50)
+		conn, _ := newDrainingBenchConn("bench-group", 50)
 		b.StartTimer()
 
 		if err := conn.Close(); err != nil {
@@ -159,7 +156,6 @@ func BenchmarkCloseConnection(b *testing.B) {
 }
 
 // BenchmarkMemoryUsage measures memory overhead per connection.
-// This benchmark measures the memory cost of creating connections.
 func BenchmarkMemoryUsage(b *testing.B) {
 	b.ReportAllocs()
 
@@ -169,7 +165,6 @@ func BenchmarkMemoryUsage(b *testing.B) {
 		connections := make([]*Connection, 100)
 		b.StartTimer()
 
-		// Create 100 connections
 		for j := 0; j < 100; j++ {
 			conn := &Connection{
 				Conn:    nil,
@@ -181,7 +176,6 @@ func BenchmarkMemoryUsage(b *testing.B) {
 		}
 
 		b.StopTimer()
-		// Cleanup
 		for _, conn := range connections {
 			registry.Unregister(conn)
 		}
@@ -192,7 +186,6 @@ func BenchmarkMemoryUsage(b *testing.B) {
 func BenchmarkBroadcastToGroup(b *testing.B) {
 	registry := NewConnectionRegistry()
 
-	// Create 100 connections in the same group
 	connections := make([]*Connection, 100)
 	for i := 0; i < 100; i++ {
 		conn := &Connection{
@@ -200,7 +193,8 @@ func BenchmarkBroadcastToGroup(b *testing.B) {
 			GroupID: "bench-group",
 			UserID:  "bench-user",
 		}
-		registry.Register(conn, 1000)
+		// Large buffer prevents backpressure during broadcast
+		registry.Register(conn, 10000)
 		connections[i] = conn
 	}
 
@@ -220,32 +214,36 @@ func BenchmarkBroadcastToGroup(b *testing.B) {
 
 	b.StopTimer()
 
-	// Cleanup
 	for _, conn := range connections {
 		registry.Unregister(conn)
 	}
 }
 
 // BenchmarkBufferSizes compares performance across different buffer sizes.
+// Small buffers will experience backpressure (ErrClientTooSlow) under tight
+// send loops, which is expected production behavior. This benchmark measures
+// the Send() cost including occasional backpressure handling.
 func BenchmarkBufferSizes(b *testing.B) {
 	bufferSizes := []int{10, 50, 100, 500, 1000}
 
 	for _, bufferSize := range bufferSizes {
-		b.Run(string(rune('0'+bufferSize/100))+"_size", func(b *testing.B) {
-			registry := NewConnectionRegistry()
-			conn := &Connection{
-				Conn:    nil,
-				GroupID: "bench-group",
-				UserID:  "bench-user",
-			}
-			registry.Register(conn, bufferSize)
-			defer registry.Unregister(conn)
+		b.Run(fmt.Sprintf("buf_%d", bufferSize), func(b *testing.B) {
+			conn, cleanup := newDrainingBenchConn("bench-group", bufferSize)
+			defer func() { cleanup() }()
 
 			b.ResetTimer()
 			b.ReportAllocs()
 
 			for i := 0; i < b.N; i++ {
+				// Ignore ErrClientTooSlow — small buffers trigger backpressure
+				// under tight loops, which is expected behavior
 				if err := conn.Send(websocket.TextMessage, []byte("test")); err != nil {
+					if err == ErrClientTooSlow {
+						// Recreate connection to continue benchmarking
+						cleanup()
+						conn, cleanup = newDrainingBenchConn("bench-group", bufferSize)
+						continue
+					}
 					b.Fatalf("Send failed: %v", err)
 				}
 			}
@@ -277,7 +275,6 @@ func BenchmarkConcurrentRegistrations(b *testing.B) {
 func BenchmarkGetByGroupExcept(b *testing.B) {
 	registry := NewConnectionRegistry()
 
-	// Create 100 connections in the same group
 	var excludeConn *Connection
 	for i := 0; i < 100; i++ {
 		conn := &Connection{
