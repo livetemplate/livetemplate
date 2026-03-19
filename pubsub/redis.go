@@ -12,6 +12,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+var _ DynamicSubscriber = (*RedisBroadcaster)(nil)
+
 // Redis channel schema:
 // livetemplate:broadcast:global           -> Global broadcasts (all instances, all connections)
 // livetemplate:broadcast:group:{groupID}  -> Group-specific broadcasts
@@ -304,6 +306,10 @@ func (b *RedisBroadcaster) SubscribeToServerAction(userID string) error {
 	}
 
 	channel := channelServerAction + userID
+	if _, exists := b.subscribedChannels[channel]; exists {
+		return nil
+	}
+
 	if err := b.pubsub.Subscribe(b.ctx, channel); err != nil {
 		return fmt.Errorf("failed to subscribe to server action channel: %w", err)
 	}
@@ -336,6 +342,10 @@ func (b *RedisBroadcaster) SubscribeToGroup(groupID string) error {
 	}
 
 	channel := channelGroup + groupID
+	if _, exists := b.subscribedChannels[channel]; exists {
+		return nil
+	}
+
 	if err := b.pubsub.Subscribe(b.ctx, channel); err != nil {
 		return fmt.Errorf("failed to subscribe to group channel: %w", err)
 	}
@@ -368,6 +378,10 @@ func (b *RedisBroadcaster) SubscribeToUser(userID string) error {
 	}
 
 	channel := channelUser + userID
+	if _, exists := b.subscribedChannels[channel]; exists {
+		return nil
+	}
+
 	if err := b.pubsub.Subscribe(b.ctx, channel); err != nil {
 		return fmt.Errorf("failed to subscribe to user channel: %w", err)
 	}

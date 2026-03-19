@@ -483,6 +483,30 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		slog.Int("total_connections", h.registry.Count()),
 		slog.Int("total_groups", h.registry.GroupCount()))
 
+	// Subscribe to scoped pub/sub channels for cross-instance broadcasting
+	if ds, ok := h.config.PubSubBroadcaster.(pubsub.DynamicSubscriber); ok {
+		if err := ds.SubscribeToGroup(groupID); err != nil {
+			slog.Warn("Failed to subscribe to group channel",
+				slog.String("component", "live_handler"),
+				slog.String("group_id", groupID),
+				slog.Any("error", err))
+		}
+		if userID != "" {
+			if err := ds.SubscribeToUser(userID); err != nil {
+				slog.Warn("Failed to subscribe to user channel",
+					slog.String("component", "live_handler"),
+					slog.String("user_id", userID),
+					slog.Any("error", err))
+			}
+			if err := ds.SubscribeToServerAction(userID); err != nil {
+				slog.Warn("Failed to subscribe to server action channel",
+					slog.String("component", "live_handler"),
+					slog.String("user_id", userID),
+					slog.Any("error", err))
+			}
+		}
+	}
+
 	// Create connection state (messages are per-connection, not shared)
 	connSt := &connState{
 		state:    typedState,

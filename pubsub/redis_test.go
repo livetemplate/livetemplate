@@ -641,3 +641,166 @@ func TestRedisBroadcaster_ReconnectPreservesDynamicSubscriptions(t *testing.T) {
 		t.Errorf("Expected action='tick', got '%s'", serverActionMsgs[0].Action)
 	}
 }
+
+func TestRedisBroadcaster_SubscribeDedup(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
+
+	broadcaster := NewRedisBroadcaster(client)
+	defer func() {
+		if err := broadcaster.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster: %v", err)
+		}
+	}()
+
+	go func() {
+		if err := broadcaster.Subscribe(func(msg *BroadcastMessage) error {
+			return nil
+		}); err != nil {
+			t.Errorf("Subscribe failed: %v", err)
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// First subscription should succeed
+	if err := broadcaster.SubscribeToGroup("g1"); err != nil {
+		t.Fatalf("First SubscribeToGroup failed: %v", err)
+	}
+
+	// Second subscription to same group should be a no-op (dedup)
+	if err := broadcaster.SubscribeToGroup("g1"); err != nil {
+		t.Fatalf("Second SubscribeToGroup failed: %v", err)
+	}
+
+	// Different group should succeed
+	if err := broadcaster.SubscribeToGroup("g2"); err != nil {
+		t.Fatalf("SubscribeToGroup for g2 failed: %v", err)
+	}
+
+	// Verify subscribedChannels has exactly 2 group entries
+	broadcaster.mu.RLock()
+	count := len(broadcaster.subscribedChannels)
+	broadcaster.mu.RUnlock()
+
+	if count != 2 {
+		t.Errorf("Expected 2 entries in subscribedChannels, got %d", count)
+	}
+
+	// Same dedup for user channels
+	if err := broadcaster.SubscribeToUser("u1"); err != nil {
+		t.Fatalf("First SubscribeToUser failed: %v", err)
+	}
+	if err := broadcaster.SubscribeToUser("u1"); err != nil {
+		t.Fatalf("Second SubscribeToUser failed: %v", err)
+	}
+
+	broadcaster.mu.RLock()
+	count = len(broadcaster.subscribedChannels)
+	broadcaster.mu.RUnlock()
+
+	// 2 groups + 1 user = 3
+	if count != 3 {
+		t.Errorf("Expected 3 entries in subscribedChannels, got %d", count)
+	}
+}
+
+func TestRedisBroadcaster_DynamicSubscriberInterface(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
+
+	broadcaster := NewRedisBroadcaster(client)
+	defer func() {
+		if err := broadcaster.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster: %v", err)
+		}
+	}()
+
+	// Verify RedisBroadcaster satisfies both interfaces
+	var _ Broadcaster = broadcaster
+	var _ DynamicSubscriber = broadcaster
+}
+
+func TestRedisBroadcaster_CrossInstanceGroupBroadcast(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
+
+	// Instance A: publisher
+	instanceA := NewRedisBroadcaster(client)
+	defer func() {
+		if err := instanceA.Close(); err != nil {
+			t.Errorf("Failed to close instanceA: %v", err)
+		}
+	}()
+
+	// Instance B: subscriber with dynamic group subscription
+	instanceB := NewRedisBroadcaster(client)
+	defer func() {
+		if err := instanceB.Close(); err != nil {
+			t.Errorf("Failed to close instanceB: %v", err)
+		}
+	}()
+
+	var received sync.WaitGroup
+	received.Add(1)
+
+	var receivedMsg *BroadcastMessage
+	go func() {
+		if err := instanceB.Subscribe(func(msg *BroadcastMessage) error {
+			receivedMsg = msg
+			received.Done()
+			return nil
+		}); err != nil {
+			t.Errorf("Subscribe failed: %v", err)
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Instance B subscribes to group channel dynamically
+	if err := instanceB.SubscribeToGroup("tenant-42"); err != nil {
+		t.Fatalf("SubscribeToGroup failed: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Instance A publishes to that group
+	if err := instanceA.PublishToGroup("tenant-42", []byte(`{"update": "new-data"}`)); err != nil {
+		t.Fatalf("PublishToGroup failed: %v", err)
+	}
+
+	done := make(chan bool)
+	go func() {
+		received.Wait()
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		// Success
+	case <-time.After(5 * time.Second):
+		t.Fatal("Timeout: instance B did not receive group broadcast from instance A")
+	}
+
+	if receivedMsg == nil {
+		t.Fatal("No message received")
+	}
+	if receivedMsg.Scope != ScopeGroup {
+		t.Errorf("Expected Scope=ScopeGroup, got '%s'", receivedMsg.Scope)
+	}
+	if receivedMsg.GroupID != "tenant-42" {
+		t.Errorf("Expected GroupID='tenant-42', got '%s'", receivedMsg.GroupID)
+	}
+}
