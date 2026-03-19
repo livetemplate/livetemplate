@@ -1,13 +1,9 @@
 # Known Performance Bottlenecks
 
-**Last Profiled:** 2025-11-10
-**Go Version (profiles):** 1.25.3
+**Last Profiled:** 2026-03-19
+**Go Version (profiles):** 1.26.0
 **Go Version (benchmarks):** 1.26.0
 **Architecture:** arm64 (Apple M2)
-
-> **Note:** The CPU and memory profiles (pprof output) below are from the original 2025-11-10 session
-> on Go 1.25.3. Function names have been updated to reflect the current codebase.
-> Benchmark numbers throughout have been updated to Go 1.26.0 results.
 
 ## Profiling Methodology
 
@@ -30,132 +26,145 @@ go tool pprof -top -alloc_space profiles/mem.prof
 ```
 File: livetemplate.test
 Type: cpu
-Time: 2025-11-10 09:35:50 CET
-Duration: 66.83s, Total samples = 118.61s (177.48%)
-Showing nodes accounting for 102s, 86.00% of 118.61s total
-Dropped 923 nodes (cum <= 0.59s)
+Time: 2026-03-19 20:53:34 CET
+Duration: 66.90s, Total samples = 100.03s (149.52%)
+Showing nodes accounting for 84.02s, 83.99% of 100.03s total
+Dropped 1039 nodes (cum <= 0.50s)
       flat  flat%   sum%        cum   cum%
-     0.03s 0.025% 0.025%     73.09s 61.62%  runtime.systemstack
-     0.04s 0.034% 0.059%     50.96s 42.96%  runtime.gcBgMarkWorker.func2
-     2.14s  1.80%  1.86%     50.82s 42.85%  runtime.gcDrain
-         0     0%  1.86%     37.49s 31.61%  runtime.gcDrainMarkWorkerIdle (inline)
-     0.30s  0.25%  2.12%     26.84s 22.63%  runtime.gcBgMarkWorker
-     0.02s 0.017%  2.13%     23.51s 19.82%  runtime.preemptM
-    23.42s 19.75% 21.88%     23.42s 19.75%  runtime.pthread_kill
-         0     0% 21.88%     23.42s 19.75%  runtime.signalM (inline)
-     0.07s 0.059% 21.94%     22.53s 19.00%  runtime.schedule
-     0.02s 0.017% 21.95%     22.12s 18.65%  runtime.mcall
-     0.37s  0.31% 22.27%     21.94s 18.50%  runtime.park_m
-     0.16s  0.13% 22.40%     21.64s 18.24%  runtime.(*gcWork).balance
-     0.01s 0.0084% 22.41%     21.11s 17.80%  runtime.preemptone
+     0.09s  0.09%  0.09%     59.39s 59.37%  runtime.systemstack
+     0.02s  0.02%  0.11%     26.20s 26.19%  runtime.gcBgMarkWorker.func2
+     0.23s  0.23%  0.34%     26.12s 26.11%  runtime.gcDrain
+    23.54s 23.53% 23.87%     23.54s 23.53%  runtime.kevent
+         0     0% 23.87%     23.54s 23.53%  runtime.netpoll
+         0     0% 23.87%     23.46s 23.45%  runtime.startTheWorldWithSema
+         0     0% 23.87%     23.29s 23.28%  runtime.gcStart.func4
+     0.03s  0.03% 23.90%     18.37s 18.36%  runtime.schedule
+     0.04s  0.04% 23.94%     18.35s 18.34%  runtime.gcBgMarkWorker
+     0.01s  0.01% 23.95%     17.41s 17.40%  runtime.mcall
+     0.04s  0.04% 23.99%     17.01s 17.00%  runtime.park_m
+     0.16s  0.16% 24.15%     16.90s 16.89%  runtime.findRunnable
+         0     0% 24.15%     16.87s 16.86%  runtime.gcDrainMarkWorkerIdle (inline)
 ```
 
 ### Key Findings
 
 #### Runtime/GC Overhead
-- **Impact:** ~62% of CPU time in garbage collection
+- **Impact:** ~59% of CPU time in garbage collection
 - **Analysis:** The benchmark suite allocates heavily, triggering frequent GC cycles
 - **Optimization Opportunity:** Reduce allocations (see Memory Bottlenecks section)
 
 #### Fingerprinting (Phase 2: Build)
 - **Location:** `internal/build/fingerprint.go:CalculateStructureFingerprint`
-- **Impact:** 5.93% of CPU time (cumulative)
-- **Optimization Opportunity:** Fingerprints are now lazy-cached on TreeNode via `GetStructureFingerprint()`. Consider faster hashing algorithms (xxhash) for further improvement.
+- **Impact:** No longer a measurable CPU hotspot (previously 5.93% of CPU samples in Nov 2025)
+- **Status:** Replaced MD5 with FNV-1a 128-bit (commit 1e351ca). Lazy-cached on TreeNode via `GetStructureFingerprint()`. No longer a significant bottleneck.
+- **Tradeoff:** `ClientNeedsStatics` fingerprint comparison slowed from ~4ns to ~6.6ns (zero-alloc, likely from `atomic.Value` type assertion overhead). Acceptable: the 2.6ns increase per comparison is negligible vs the ~3100ns saved per range diff operation.
 
 #### Overall Distribution
 Most CPU time is spent in:
-1. Garbage collection (62%)
+1. Garbage collection (59%)
 2. Runtime overhead (scheduling, memory management)
-3. Application logic (fingerprinting, template rendering, tree diffing)
+3. Application logic (template rendering, tree diffing)
 
 The high GC overhead indicates that memory allocation reduction would have the most significant performance impact.
 
 ## Memory Bottlenecks
+
+> **Note:** Total allocation volume is 80.8 GB vs 59.5 GB in the previous session. This reflects
+> more benchmark iterations (faster per-op code → higher `b.N`), not a regression. Per-operation
+> allocation counts (B/op, allocs/op) decreased across the board — see Allocations per Operation below.
 
 ### Analysis Summary
 
 ```
 File: livetemplate.test
 Type: alloc_space
-Time: 2025-11-10 09:38:31 CET
-Showing nodes accounting for 53296.42MB, 89.55% of 59518.77MB total
-Dropped 593 nodes (cum <= 297.59MB)
+Time: 2026-03-19 20:54:41 CET
+Showing nodes accounting for 71049.58MB, 87.91% of 80820.80MB total
+Dropped 701 nodes (cum <= 404.10MB)
       flat  flat%   sum%        cum   cum%
-11250.34MB 18.90% 18.90% 11250.34MB 18.90%  golang.org/x/net/html.NewTokenizerFragment
- 5365.74MB  9.02% 27.92%  5365.74MB  9.02%  text/template.addValueFuncs
- 4353.49MB  7.31% 35.23%  4353.49MB  7.31%  text/template.addFuncs (inline)
- 2891.70MB  4.86% 40.09%  5108.28MB  8.58%  encoding/json.mapEncoder.encode
- 2397.04MB  4.03% 44.12%  2397.04MB  4.03%  reflect.copyVal
- 1781.82MB  2.99% 47.11%  1781.82MB  2.99%  text/template.builtins (inline)
- 1653.45MB  2.78% 49.89%  6767.23MB 11.37%  encoding/json.Marshal
- 1594.57MB  2.68% 52.57%  1594.57MB  2.68%  html/template.makeEscaper (inline)
- 1539.38MB  2.59% 55.15%  2165.66MB  3.64%  encoding/json.(*decodeState).objectInterface
- 1522.66MB  2.56% 57.71%  1701.17MB  2.86%  golang.org/x/net/html.(*parser).addElement (inline)
- 1471.99MB  2.47% 60.19%  4912.33MB  8.25%  html/template.(*escaper).escapeTemplateBody
- 1459.98MB  2.45% 62.64%  1459.98MB  2.45%  maps.Copy (html/template context maps)
- 1317.86MB  2.21% 64.85%  1317.86MB  2.21%  github.com/livetemplate/livetemplate/internal/build.(*TreeNode).SetDynamic
- 1167.32MB  1.96% 66.81%  1167.32MB  1.96%  html/template.(*escaper).editActionNode
+23859.12MB 29.52% 29.52% 23859.12MB 29.52%  golang.org/x/net/html.NewTokenizerFragment
+ 4953.86MB  6.13% 35.65%  4953.86MB  6.13%  github.com/livetemplate/livetemplate/internal/build.(*TreeNode).SetDynamic
+ 4768.48MB  5.90% 41.55%  4768.48MB  5.90%  github.com/livetemplate/livetemplate/internal/parse.newEvaluator
+ 4056.65MB  5.02% 46.57%  4056.65MB  5.02%  text/template.builtins (inline)
+ 3304.85MB  4.09% 50.66%  3680.86MB  4.55%  golang.org/x/net/html.(*parser).addElement (inline)
+ 2512.16MB  3.11% 53.77%  2512.16MB  3.11%  github.com/livetemplate/livetemplate/internal/build.NewTreeNode (partial-inline)
+ 2189.64MB  2.71% 56.48%  2189.64MB  2.71%  github.com/livetemplate/livetemplate/internal/build.NewTreeNodeWithStatics
+ 1734.29MB  2.15% 58.62% 31051.92MB 38.42%  golang.org/x/net/html.ParseWithOptions
+ 1441.32MB  1.78% 60.41%  4188.02MB  5.18%  github.com/livetemplate/livetemplate/internal/context.ExecuteTemplateWithContext
+ 1340.52MB  1.66% 62.06%  1340.52MB  1.66%  reflect.unsafe_New
+ 1288.33MB  1.59% 63.66%  1700.85MB  2.10%  encoding/json.(*decodeState).objectInterface
+ 1273.17MB  1.58% 65.23%  3129.77MB  3.87%  html/template.New
+ 1021.68MB  1.26% 66.50%  1021.68MB  1.26%  bytes.growSlice
+  958.60MB  1.19% 67.68%   958.60MB  1.19%  golang.org/x/net/html.(*parser).addText
+  952.26MB  1.18% 68.86%   952.26MB  1.18%  text/template/parse.New (inline)
+  947.72MB  1.17% 70.03%  1197.73MB  1.48%  github.com/livetemplate/livetemplate/internal/context.AddLvtToData
+  912.04MB  1.13% 71.16%   912.04MB  1.13%  html/template.makeEscaper (inline)
+  864.67MB  1.07% 72.23%   864.67MB  1.07%  text/template/parse.(*Tree).newText (inline)
+  814.15MB  1.01% 73.24%   814.15MB  1.01%  github.com/livetemplate/livetemplate/internal/diff.findRangeConstructsRecursive
 ```
 
 ### LiveTemplate-Specific Allocations
 
 ```
- 1317.86MB  2.21%  github.com/livetemplate/livetemplate/internal/build.(*TreeNode).SetDynamic
-  664.64MB  1.12%  github.com/livetemplate/livetemplate/internal/context.ExecuteTemplateWithContext
-  613.53MB  1.03%  github.com/livetemplate/livetemplate/internal/build.NewTreeNode
-  473.03MB  0.79%  github.com/livetemplate/livetemplate/internal/build.NewTreeNodeWithStatics
-  444.04MB  0.75%  github.com/livetemplate/livetemplate/internal/build.CalculateStructureFingerprint
-  440.61MB  0.74%  github.com/livetemplate/livetemplate/internal/context.AddLvtToData
-  233.57MB  0.39%  github.com/livetemplate/livetemplate/internal/build.(*TreeNode).UnmarshalJSON
-  198.02MB  0.33%  github.com/livetemplate/livetemplate.(*Template).renderHTML
-  162.51MB  0.27%  github.com/livetemplate/livetemplate/internal/diff.CompareTreesAndGetChangesWithPath
-  149.52MB  0.25%  github.com/livetemplate/livetemplate/internal/diff.FindRangeConstructMatches
+ 4953.86MB  6.13%  github.com/livetemplate/livetemplate/internal/build.(*TreeNode).SetDynamic
+ 4768.48MB  5.90%  github.com/livetemplate/livetemplate/internal/parse.newEvaluator
+ 2512.16MB  3.11%  github.com/livetemplate/livetemplate/internal/build.NewTreeNode
+ 2189.64MB  2.71%  github.com/livetemplate/livetemplate/internal/build.NewTreeNodeWithStatics
+ 1441.32MB  1.78%  github.com/livetemplate/livetemplate/internal/context.ExecuteTemplateWithContext
+  947.72MB  1.17%  github.com/livetemplate/livetemplate/internal/context.AddLvtToData
+  814.15MB  1.01%  github.com/livetemplate/livetemplate/internal/diff.findRangeConstructsRecursive
+  663.52MB  0.82%  github.com/livetemplate/livetemplate/internal/parse.getSortedKeys
+  557.51MB  0.69%  github.com/livetemplate/livetemplate/internal/build.CalculateStructureFingerprint
+  525.51MB  0.65%  github.com/livetemplate/livetemplate/internal/parse.walkAST
+  423.04MB  0.52%  github.com/livetemplate/livetemplate.(*Template).renderHTML
+  402.53MB  0.50%  github.com/livetemplate/livetemplate/internal/diff.CompareTreesAndGetChangesWithPath
+  377.57MB  0.47%  github.com/livetemplate/livetemplate/internal/diff.FindRangeConstructMatches
 ```
 
 ### Allocations per Operation
 
 **Initial Render (includes template parsing, one-time cost):**
-- Total allocations: ~3,979 allocs/op
-- Bytes allocated: ~429 KB/op
-- Example: BenchmarkTemplateExecute/initial-render-8 (1768635 ns/op, 429488 B/op, 3979 allocs/op)
+- Total allocations: ~3,954 allocs/op
+- Bytes allocated: ~417 KB/op
+- Example: BenchmarkTemplateExecute/initial-render-8 (1406553 ns/op, 426485 B/op, 3954 allocs/op)
 
 **Subsequent Render (per-session, reuses parsed template):**
-- Total allocations: ~245 allocs/op
-- Bytes allocated: ~29 KB/op
-- Example: BenchmarkTemplateExecute/subsequent-render-8 (41262 ns/op, 29304 B/op, 245 allocs/op)
+- Total allocations: ~170 allocs/op
+- Bytes allocated: ~20 KB/op
+- Example: BenchmarkTemplateExecute/subsequent-render-8 (10572 ns/op, 20818 B/op, 170 allocs/op)
 
 **Small Update:**
-- Total allocations: ~229 allocs/op
-- Bytes allocated: ~28 KB/op
-- Example: BenchmarkTemplateExecuteUpdates/small-update-8 (38554 ns/op, 28320 B/op, 229 allocs/op)
+- Total allocations: ~154 allocs/op
+- Bytes allocated: ~19 KB/op
+- Example: BenchmarkTemplateExecuteUpdates/small-update-8 (9579 ns/op, 19840 B/op, 154 allocs/op)
 
 **Large Update:**
-- Total allocations: ~752 allocs/op
-- Bytes allocated: ~79 KB/op
-- Example: BenchmarkTemplateExecuteUpdates/large-update-8 (233551 ns/op, 78625 B/op, 752 allocs/op)
+- Total allocations: ~357 allocs/op
+- Bytes allocated: ~30 KB/op
+- Example: BenchmarkTemplateExecuteUpdates/large-update-8 (22937 ns/op, 30390 B/op, 357 allocs/op)
 
 **Range Operations:**
-- Add items: 844 allocs/op, 85 KB/op
-- Remove items: 456 allocs/op, 46 KB/op
-- Reorder items: 588 allocs/op, 60 KB/op
-- Update items: 588 allocs/op, 60 KB/op
+- Add items: 406 allocs/op, 32 KB/op
+- Remove items: 268 allocs/op, 25 KB/op
+- Reorder items: 315 allocs/op, 28 KB/op
+- Update items: 315 allocs/op, 28 KB/op
 
 **Complex User Journey (E2E):**
-- Total allocations: ~23,652 allocs/op
-- Bytes allocated: ~2.9 MB/op
-- Example: BenchmarkE2EUserJourney-8 (4250095 ns/op, 2919203 B/op, 23652 allocs/op)
+- Total allocations: ~16,174 allocs/op
+- Bytes allocated: ~2.0 MB/op
+- Example: BenchmarkE2EUserJourney-8 (1083172 ns/op, 2073551 B/op, 16174 allocs/op)
 
 ### Cache Memory Usage
 
 **Parse Caches:**
 - Template parsing involves significant allocations in text/template and html/template
-- addValueFuncs: 5.4 GB (9.02% of total)
-- addFuncs: 4.4 GB (7.31% of total)
-- Template escaper operations: ~5 GB (8.25% cumulative)
+- builtins: 4.1 GB (5.02% of total)
+- Template escaper operations: ~3.1 GB (3.87% cumulative)
+- newEvaluator (custom AST evaluator): 4.8 GB (5.90% of total)
 
 **Fingerprint Cache:**
 - Lazy-computed per TreeNode via `GetStructureFingerprint()`
-- MD5 hash truncated to 64 bits (16 hex chars)
+- FNV-1a 128-bit hash truncated to 64 bits (16 hex chars)
 - No eviction needed — cached on the tree node itself, lifetime tied to node
 - Replaced the earlier `ClientStructureRegistry` (LRU, max 1000 entries), removed in PR #86
 
@@ -164,33 +173,35 @@ Dropped 593 nodes (cum <= 297.59MB)
 Based on profiling data, prioritize:
 
 1. **[High] Reduce Template Parsing Allocations**
-   - Current: 18.9 GB in html.NewTokenizerFragment (18.90% of allocations)
-   - Current: 12.7 GB in text/template functions (16.33% of allocations)
+   - Current: 23.9 GB in html.NewTokenizerFragment (29.52% of allocations)
+   - Current: 4.1 GB in text/template.builtins (5.02% of allocations)
    - Potential improvement: Implement template caching, reduce parsing frequency
-   - Impact: Would reduce GC pressure significantly (62% CPU time)
+   - Impact: Would reduce GC pressure significantly (59% CPU time)
 
 2. **[High] Optimize TreeNode Operations (Phase 2: Build)**
-   - Current: 1.3 GB in SetDynamic (2.21% of allocations)
-   - Current: 613 MB in NewTreeNode (1.03% of allocations)
-   - Current: 473 MB in NewTreeNodeWithStatics (0.79% of allocations)
+   - Current: 5.0 GB in SetDynamic (6.13% of allocations)
+   - Current: 2.5 GB in NewTreeNode (3.11% of allocations)
+   - Current: 2.2 GB in NewTreeNodeWithStatics (2.71% of allocations)
    - Potential improvement: Object pooling, reduce map allocations
-   - Impact: ~4% reduction in total allocations
+   - Impact: ~12% reduction in total allocations
 
-3. **[Medium] JSON Serialization (Phase 5: Send)**
-   - Current: 6.8 GB in JSON marshaling (11.37% cumulative)
+3. **[Medium] Parse Evaluator Allocations (Phase 1: Parse)**
+   - Current: 4.8 GB in newEvaluator (5.90% of total)
+   - Current: 664 MB in getSortedKeys (0.82% of total)
+   - Potential improvement: Pool evaluators, cache sorted key slices
+   - Impact: ~7% reduction in total allocations
+
+4. **[Medium] JSON Serialization (Phase 5: Send)**
+   - Current: 1.7 GB in JSON decoding (2.10% cumulative)
    - Potential improvement: Use faster JSON library or custom serialization
-   - Impact: 11% of allocations, but necessary for wire format
-
-4. **[Medium] Fingerprinting Optimization (Phase 2: Build)**
-   - Current: 444 MB allocations + 5.93% CPU time
-   - Potential improvement: Use faster hash algorithm (xxhash), cache results
-   - Impact: 6% CPU reduction
+   - Impact: Reduced from 11.37% in Nov 2025 — lower priority now
 
 5. **[Low] Diff Operations (Phase 3: Diff)**
-   - Current: 162 MB in CompareTreesAndGetChangesWithPath (0.27%)
-   - Current: 149 MB in FindRangeConstructMatches (0.25%)
+   - Current: 814 MB in findRangeConstructsRecursive (1.01%)
+   - Current: 403 MB in CompareTreesAndGetChangesWithPath (0.50%)
+   - Current: 378 MB in FindRangeConstructMatches (0.47%)
    - Potential improvement: Algorithmic optimizations
-   - Impact: <1% of total allocations
+   - Impact: ~2% of total allocations
 
 ## Optimization Task List
 
@@ -198,7 +209,7 @@ Based on profiling data, prioritize:
 
 - [ ] **Implement Template Parse Caching**
   - Location: `template.go`, Phase 1 (Parse)
-  - Goal: Reduce 18.9 GB allocations in `html.NewTokenizerFragment` and 12.7 GB in text/template functions
+  - Goal: Reduce 23.9 GB allocations in `html.NewTokenizerFragment` and template functions
   - Approach: Cache parsed `text/template.Template` and `html/template.Template` objects by template string hash
   - Expected Impact: 50% reduction in allocations, 30-40% reduction in CPU time (less GC)
   - Verification: Run `make bench-compare` and `make profile-mem` to confirm reduction
@@ -212,9 +223,9 @@ Based on profiling data, prioritize:
 
 - [ ] **Implement TreeNode Object Pooling**
   - Location: `internal/build/tree_ops.go`, Phase 2 (Build)
-  - Goal: Reduce 2.4 GB allocations from TreeNode creation (SetDynamic, NewTreeNode, NewTreeNodeWithStatics)
+  - Goal: Reduce 9.7 GB allocations from TreeNode creation (SetDynamic, NewTreeNode, NewTreeNodeWithStatics)
   - Approach: Use `sync.Pool` for TreeNode objects, reset and reuse instead of allocating new
-  - Expected Impact: 4% reduction in total allocations, 5-10% reduction in Build phase time
+  - Expected Impact: 12% reduction in total allocations, 10-15% reduction in Build phase time
   - Verification: Run `BenchmarkTreeNodeCreation` and `BenchmarkBuildTree` to confirm
 
 - [ ] **Optimize TreeNode Map Allocations**
@@ -226,12 +237,10 @@ Based on profiling data, prioritize:
 
 ### Medium Priority Tasks
 
-- [ ] **Replace MD5 Fingerprinting with xxhash**
+- [x] **Replace MD5 Fingerprinting with FNV-1a** *(Completed 2026-03-18, commit 1e351ca)*
   - Location: `internal/build/fingerprint.go`, Phase 2 (Build)
-  - Goal: Reduce 5.93% CPU time in `CalculateStructureFingerprint`
-  - Approach: Replace `crypto/md5` with `github.com/cespare/xxhash/v2` for non-cryptographic hashing
-  - Expected Impact: 5-6% CPU reduction in fingerprinting operations
-  - Verification: Run `BenchmarkCalculateStructureFingerprint_*` and verify performance improvement
+  - Approach: Replaced `crypto/md5` with `hash/fnv` (FNV-1a 128-bit truncated to 64 bits). Thread-safe atomic.Value caching.
+  - Actual Impact: 43% faster small trees, 44% medium, 47% large, 17% deep-nested. Fingerprinting dropped from 5.93% CPU to <1%.
 
 - [x] **Implement Fingerprint Caching** *(Completed — lazy-cached on TreeNode)*
   - Location: `internal/build/types.go:GetStructureFingerprint()`, Phase 2 (Build)
@@ -240,10 +249,17 @@ Based on profiling data, prioritize:
 
 - [ ] **Evaluate Faster JSON Library**
   - Location: `internal/send/message.go`, Phase 5 (Send)
-  - Goal: Reduce 6.8 GB allocations in JSON marshaling (11.37% of total)
+  - Goal: Reduce JSON marshaling allocations
   - Approach: Benchmark `encoding/json` vs `github.com/json-iterator/go` vs `github.com/goccy/go-json`
   - Expected Impact: 10-20% reduction in Send phase allocations and time
   - Verification: Run `BenchmarkSendMessage` and compare marshal performance
+
+- [ ] **Pool Parse Evaluators**
+  - Location: `internal/parse/eval.go`, Phase 1 (Parse)
+  - Goal: Reduce 4.8 GB allocations in `newEvaluator` (newly visible after parse rewrite, commit 4f5cba3)
+  - Approach: Use `sync.Pool` to reuse evaluator objects across parse operations
+  - Expected Impact: 5-6% reduction in total allocations
+  - Verification: Run `BenchmarkBuildTree` and check parse allocations decrease
 
 - [ ] **Implement Custom Binary Format (Optional)**
   - Location: `internal/send/`, Phase 5 (Send)
@@ -261,16 +277,14 @@ Based on profiling data, prioritize:
   - Expected Impact: <1% reduction in total allocations
   - Verification: Run `BenchmarkCompareTrees` with deeply nested structures
 
-- [ ] **Reduce Range Match Allocations**
+- [x] **Reduce Range Diff Allocations** *(Completed 2026-03-19, commit b9faf28)*
   - Location: `internal/diff/range_ops.go`, Phase 3 (Diff)
-  - Goal: Optimize `FindRangeConstructMatches` allocations (149 MB)
-  - Approach: Pre-allocate match slices, use object pooling for match results
-  - Expected Impact: <1% reduction in total allocations
-  - Verification: Run `BenchmarkRangeOperations` and check Diff phase performance
+  - Approach: `rangeContext` pre-computes key maps and positions once per range diff. DeepEqual fast paths for string, int, float64, bool. Package-level compiled regex for position field detection.
+  - Actual Impact: 59% faster (5332→2205 ns/op), 54% fewer allocs (37→17). E2E range operations improved 5-6x.
 
 - [ ] **Reduce HTML Parsing Fallback Frequency**
   - Location: `internal/parse/parser.go`, Phase 1 (Parse)
-  - Goal: Decrease 11.3 GB allocations in `html.NewTokenizerFragment` fallback
+  - Goal: Decrease 23.9 GB allocations in `html.NewTokenizerFragment` fallback
   - Approach: Improve template construct coverage to avoid fallback to HTML parsing
   - Expected Impact: 10-15% reduction if fallback usage decreases significantly
   - Verification: Add logging to track fallback frequency, aim for <5% of templates
@@ -302,8 +316,8 @@ Based on profiling data, prioritize:
 
 Update this section as tasks are completed:
 
-**Last Updated:** 2026-03-10
-**Completed Tasks:** 1/14
+**Last Updated:** 2026-03-19
+**Completed Tasks:** 3/15
 **In Progress:** 0
 **Blocked:** 0
 
@@ -316,29 +330,30 @@ When completing a task:
 ## Phase-Specific Analysis
 
 ### Phase 1: Parse
-- **Primary Bottleneck:** Template parsing via text/template and html/template
-- **Allocations:** ~30 GB (50% of total)
-- **Recommendation:** Cache parsed templates aggressively, reduce re-parsing
+- **Primary Bottleneck:** Template parsing via text/template, html/template, and AST evaluator
+- **Allocations:** ~33 GB (41% of total) — html.NewTokenizerFragment 29.52%, newEvaluator 5.90%, builtins 5.02%
+- **Recommendation:** Cache parsed templates aggressively, pool evaluators, reduce re-parsing
 
 ### Phase 2: Build
-- **Primary Bottleneck:** TreeNode allocations and fingerprinting
-- **Allocations:** ~2.8 GB (4.7% of total)
-- **CPU Time:** 5.93% (fingerprinting)
-- **Recommendation:** Object pooling for TreeNodes, optimize fingerprint caching
+- **Primary Bottleneck:** TreeNode allocations
+- **Allocations:** ~9.7 GB (12.0% of total) — SetDynamic 6.13%, NewTreeNode 3.11%, NewTreeNodeWithStatics 2.71%
+- **CPU Time:** Fingerprinting now <1% (FNV-1a, previously 5.93% with MD5)
+- **Recommendation:** Object pooling for TreeNodes, pre-allocate maps
 
 ### Phase 3: Diff
-- **Primary Bottleneck:** Tree comparison with large structures
-- **Allocations:** ~312 MB (0.52% of total)
+- **Primary Bottleneck:** Range construct discovery and tree comparison
+- **Allocations:** ~1.6 GB (2.0% of total) — findRangeConstructsRecursive 1.01%, CompareTreesAndGetChangesWithPath 0.50%, FindRangeConstructMatches 0.47%
+- **Status:** Range diff operations 59% faster after `rangeContext` optimization (commit b9faf28)
 - **Recommendation:** Optimize comparison algorithms for deeply nested trees
 
 ### Phase 4: Render
 - **Primary Bottleneck:** HTML parsing for fallback cases
-- **Allocations:** 11.3 GB in html.NewTokenizerFragment (18.90%)
+- **Allocations:** 23.9 GB in html.NewTokenizerFragment (29.52%)
 - **Recommendation:** Reduce fallback to HTML parsing, improve template construct coverage
 
 ### Phase 5: Send
-- **Primary Bottleneck:** JSON marshaling
-- **Allocations:** 6.8 GB (11.37% of total)
+- **Primary Bottleneck:** JSON marshaling and decoding
+- **Allocations:** ~1.7 GB in JSON decoding (2.10% cumulative)
 - **Recommendation:** Consider faster JSON library or custom binary format
 
 ## Regenerating Profiles

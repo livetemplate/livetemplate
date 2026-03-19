@@ -1,22 +1,18 @@
 # LiveTemplate Performance Characteristics
 
-> **Benchmark Environment:** Go 1.26.0, arm64 (Apple M2). Numbers updated March 2026.
+> **Benchmark Environment:** Go 1.26.0, arm64 (Apple M2). Numbers updated 2026-03-19.
 > These are single-run results (`make bench-save`); ns/op timings can vary significantly
 > between runs (2-4x swings observed) due to system load, thermal throttling, and GC timing.
 > Allocation counts (B/op, allocs/op) are deterministic and stable across runs — use these
 > to assess actual code changes. For statistically confident timing comparisons, use
 > `make bench-10x` with benchstat. The baseline is single-run to keep CI fast.
 >
-> **Baseline change notes:** The previous baseline was from November 2025. Code changes since
-> then (Controller+State pattern, async WebSocket, etc.) explain allocation differences in
-> benchmarks like `TemplateExecute/initial-render` (26K→4K allocs — real improvement from
-> code changes, not benchmark restructuring). Several benchmarks show large ns/op differences
-> with *unchanged* allocs (e.g., `SerializeUpdate` 1.4µs→3.7µs, `Template_ExecuteUpdates`
-> 41µs→93µs, `TemplateComplexity/deeply-nested` 64µs→197µs, `TreeNodeClone/nested-medium`
-> 14µs→49µs, `TreeNodeCreation/flat` 623ns→1228ns, `BroadcastToGroup` 28µs→41µs,
-> `BuildTreeScale/medium-100` 874µs→1.3ms, `TemplateExecuteUpdates/large-update`
-> 180µs→234µs) — these are single-run timing
-> artifacts, not code regressions.
+> **Baseline change notes:** This baseline captures the FNV-1a fingerprinting optimization
+> (commit 1e351ca, replacing MD5) and `rangeContext` range diff optimization (commit b9faf28).
+> Key allocation improvements vs the previous (2026-03-16) baseline: subsequent render 245→170
+> allocs, small update 229→154 allocs, large update 752→357 allocs, E2E range add 844→406
+> allocs, E2E user journey 23652→16174 allocs. These are real improvements from the FNV-1a
+> and rangeContext optimizations compounding across the update pipeline.
 
 ## Architectural Overview
 
@@ -58,25 +54,25 @@ This architecture enables:
 
 2. **Lazy Structure Fingerprinting**
    - `GetStructureFingerprint()` uses O(1) cache lookup for subsequent calls
-   - MD5 truncated to 64 bits for compact representation
+   - FNV-1a 128-bit truncated to 64 bits for compact representation
 
 ### Benchmark Results
 
 ```
-BenchmarkParse/simple            1714 ns/op    3744 B/op     43 allocs/op
-BenchmarkParse/conditional       2864 ns/op    4504 B/op     64 allocs/op
-BenchmarkParse/range             2550 ns/op    4336 B/op     59 allocs/op
-BenchmarkBuildTree/simple        1200 ns/op    2825 B/op     27 allocs/op
-BenchmarkBuildTree/cond-true     1891 ns/op    4129 B/op     48 allocs/op
-BenchmarkBuildTree/range-small   4464 ns/op    7582 B/op    126 allocs/op
-BenchmarkBuildTreeScale/small-10      11719 ns/op   19519 B/op    365 allocs/op
-BenchmarkBuildTreeScale/medium-100   109596 ns/op  173293 B/op   3425 allocs/op
-BenchmarkBuildTreeScale/large-1000  1101278 ns/op 1714725 B/op  34775 allocs/op
+BenchmarkParse/simple            1764 ns/op    3744 B/op     43 allocs/op
+BenchmarkParse/conditional       2861 ns/op    4504 B/op     64 allocs/op
+BenchmarkParse/range             2527 ns/op    4336 B/op     59 allocs/op
+BenchmarkBuildTree/simple        1216 ns/op    2825 B/op     27 allocs/op
+BenchmarkBuildTree/cond-true     1900 ns/op    4129 B/op     48 allocs/op
+BenchmarkBuildTree/range-small   4470 ns/op    7582 B/op    126 allocs/op
+BenchmarkBuildTreeScale/small-10      11844 ns/op   19519 B/op    365 allocs/op
+BenchmarkBuildTreeScale/medium-100   107243 ns/op  173291 B/op   3425 allocs/op
+BenchmarkBuildTreeScale/large-1000  1095077 ns/op 1714725 B/op  34775 allocs/op
 ```
 
 ### Key Findings
 
-- Simple template parsing: ~1.7µs with minimal allocations
+- Simple template parsing: ~1.8µs with minimal allocations
 - BuildTree is 5-9x faster than the previous re-parse approach
 - 67-75% fewer allocations across all benchmarks
 - Performance gains scale with template complexity
@@ -111,23 +107,23 @@ BenchmarkBuildTreeScale/large-1000  1101278 ns/op 1714725 B/op  34775 allocs/op
    - Optimized for wire format
 
 3. **Fingerprint Caching**
-   - MD5 hash of tree structure
+   - FNV-1a hash of tree structure (replaced MD5 in commit 1e351ca)
    - Fast equality check without deep comparison
    - Cached until tree changes
 
 ### Benchmark Results
 
 ```
-BenchmarkTreeNodeCreation/flat          1228 ns/op    1312 B/op    19 allocs/op
-BenchmarkTreeNodeMarshalJSON/nested-small  46611 ns/op   27940 B/op   358 allocs/op
-BenchmarkWrapperInjection/full-html     3397 ns/op    7096 B/op    37 allocs/op
+BenchmarkTreeNodeCreation/flat           624.4 ns/op    1312 B/op    19 allocs/op
+BenchmarkTreeNodeMarshalJSON/nested-small  46096 ns/op   27943 B/op   358 allocs/op
+BenchmarkWrapperInjection/full-html      3075 ns/op    7096 B/op    37 allocs/op
 ```
 
 ### Key Findings
 
-- Flat tree creation is fast (~1.2µs)
+- Flat tree creation is fast (~624ns)
 - JSON marshaling is the primary cost for nested structures
-- Wrapper injection adds minimal overhead (~3.4µs)
+- Wrapper injection adds minimal overhead (~3.1µs)
 
 ## Phase 3: Diff
 
@@ -147,7 +143,7 @@ BenchmarkWrapperInjection/full-html     3397 ns/op    7096 B/op    37 allocs/op
 ### Optimizations
 
 1. **Fingerprint-Based Static Stripping**
-   - Structure fingerprints (MD5, 64-bit) compared between old/new trees
+   - Structure fingerprints (FNV-1a, 64-bit) compared between old/new trees
    - When fingerprints match, client already has statics cached — updates omit static arrays
    - When fingerprints differ (structural change), full tree with statics is resent
    - Replaced the earlier `ClientStructureRegistry` (LRU, max 1000 entries), removed in PR #86
@@ -162,22 +158,31 @@ BenchmarkWrapperInjection/full-html     3397 ns/op    7096 B/op    37 allocs/op
    - Reuses existing DOM nodes on client
    - Operations: `["u", key, updates]`, `["i", after, pos, data]`, `["r", key]`, `["o", [keys]]`
 
+4. **Pre-computed Range Context** *(Added in commit b9faf28)*
+   - `rangeContext` pre-computes key maps and positions once per range diff
+   - DeepEqual fast paths for string, int, float64, bool (avoids reflect.DeepEqual)
+   - Package-level compiled regex for position field detection
+
 ### Benchmark Results
 
 ```
-BenchmarkCompareTreesNoChanges          459.1 ns/op   128 B/op     2 allocs/op
-BenchmarkCompareTreesSmallChange        215.1 ns/op   416 B/op     3 allocs/op
-BenchmarkCompareTreesLargeChange/10     1044 ns/op    1032 B/op    6 allocs/op
-BenchmarkCompareTreesLargeChange/100    10144 ns/op   9448 B/op    12 allocs/op
-BenchmarkRangeDiffUpdate                5332 ns/op    18944 B/op   37 allocs/op
-BenchmarkRangeDiffInsert                5411 ns/op    18944 B/op   37 allocs/op
+BenchmarkCompareTreesNoChanges          257.1 ns/op   128 B/op     2 allocs/op
+BenchmarkCompareTreesSmallChange        176.6 ns/op   416 B/op     3 allocs/op
+BenchmarkCompareTreesLargeChange/10      660.6 ns/op   1032 B/op    6 allocs/op
+BenchmarkCompareTreesLargeChange/100    6288 ns/op    9448 B/op    12 allocs/op
+BenchmarkRangeDiffUpdate                2205 ns/op   14122 B/op   17 allocs/op
+BenchmarkRangeDiffInsert                2192 ns/op   14122 B/op   17 allocs/op
+BenchmarkRangeDiffRemove                2193 ns/op   14122 B/op   17 allocs/op
+BenchmarkRangeDiff_TreeNode_Update     48169 ns/op   33622 B/op  128 allocs/op
+BenchmarkRangeDiff_TreeNode_Reorder    28405 ns/op   21187 B/op   22 allocs/op
+BenchmarkRangeDiff_TreeNode_LargeList 532559 ns/op  448500 B/op 1038 allocs/op
 ```
 
 ### Key Findings
 
-- No-change detection is extremely fast (~459ns)
-- Small changes detected in ~215ns
-- Range operations average ~5.4µs regardless of operation type
+- No-change detection is extremely fast (~257ns)
+- Small changes detected in ~177ns
+- Range operations average ~2.2µs regardless of operation type (down from ~5.4µs)
 - Memory usage scales linearly with changed nodes
 
 ## Phase 4: Render
@@ -211,18 +216,18 @@ BenchmarkRangeDiffInsert                5411 ns/op    18944 B/op   37 allocs/op
 ### Benchmark Results
 
 ```
-BenchmarkNodeRender                69.08 ns/op   56 B/op      3 allocs/op
-BenchmarkTreeToHTML/simple         126.2 ns/op   64 B/op      4 allocs/op
-BenchmarkTreeToHTML/nested         217.7 ns/op   144 B/op     7 allocs/op
-BenchmarkTreeToHTMLScale/small-10  720.0 ns/op   544 B/op     16 allocs/op
-BenchmarkTreeToHTMLScale/medium-100 6071 ns/op   3721 B/op    109 allocs/op
-BenchmarkTreeToHTMLScale/large-1000 62296 ns/op  66996 B/op   1017 allocs/op
+BenchmarkNodeRender                70.95 ns/op   56 B/op      3 allocs/op
+BenchmarkTreeToHTML/simple         116.8 ns/op   64 B/op      4 allocs/op
+BenchmarkTreeToHTML/nested         209.1 ns/op   144 B/op     7 allocs/op
+BenchmarkTreeToHTMLScale/small-10  731.7 ns/op   544 B/op     16 allocs/op
+BenchmarkTreeToHTMLScale/medium-100 6076 ns/op   3721 B/op    109 allocs/op
+BenchmarkTreeToHTMLScale/large-1000 63109 ns/op  66996 B/op   1017 allocs/op
 ```
 
 ### Key Findings
 
-- Single node rendering: ~69ns (minimal overhead)
-- HTML conversion scales linearly: ~62µs per 1000 nodes
+- Single node rendering: ~71ns (minimal overhead)
+- HTML conversion scales linearly: ~63µs per 1000 nodes
 - Memory efficient: ~67 KB for 1000-node trees
 
 ## Phase 5: Send
@@ -252,15 +257,15 @@ BenchmarkTreeToHTMLScale/large-1000 62296 ns/op  66996 B/op   1017 allocs/op
 ### Benchmark Results
 
 ```
-BenchmarkParseActionFromHTTP          3714 ns/op    6962 B/op    30 allocs/op
-BenchmarkParseActionFromWebSocket     927.2 ns/op   656 B/op     13 allocs/op
-BenchmarkSerializeUpdate              3729 ns/op    648 B/op     10 allocs/op
+BenchmarkParseActionFromHTTP          1746 ns/op    6962 B/op    30 allocs/op
+BenchmarkParseActionFromWebSocket     722.5 ns/op   656 B/op     13 allocs/op
+BenchmarkSerializeUpdate              877.5 ns/op   648 B/op     10 allocs/op
 ```
 
 ### Key Findings
 
-- WebSocket parsing roughly 4x faster than HTTP (927ns vs 3714ns in this single run)
-- Serialization: ~3.7µs per update in this single-run baseline (648 B/op, 10 allocs/op); previous baseline showed ~1.4µs — use `make bench-10x` for stable timing
+- WebSocket parsing roughly 2.4x faster than HTTP (723ns vs 1746ns)
+- Serialization: ~878ns per update (648 B/op, 10 allocs/op)
 - Low allocation counts across all operations
 
 ### Async WebSocket Sends
@@ -281,21 +286,33 @@ The session registry (`internal/session/`) implements channel-based async messag
 **Benchmark Results:**
 
 ```
-BenchmarkRegisterUnregister        3402 ns/op     1213 B/op    13 allocs/op
-BenchmarkGetByGroup                418.4 ns/op    896 B/op     1 allocs/op
-BenchmarkCloseConnection           3719 ns/op     254 B/op     3 allocs/op
-BenchmarkBroadcastToGroup          41241 ns/op    4096 B/op    101 allocs/op
-BenchmarkMemoryUsage               68110 ns/op    98028 B/op   619 allocs/op
-BenchmarkConcurrentRegistrations   5131 ns/op     1245 B/op    11 allocs/op
+BenchmarkRegisterUnregister        2508 ns/op     1210 B/op    13 allocs/op
+BenchmarkGetByGroup                246.4 ns/op    896 B/op     1 allocs/op
+BenchmarkCloseConnection           1344 ns/op     248 B/op     3 allocs/op
+BenchmarkBroadcastToGroup          21370 ns/op    4096 B/op    101 allocs/op
+BenchmarkMemoryUsage               55731 ns/op    98101 B/op   620 allocs/op
+BenchmarkConcurrentRegistrations   2738 ns/op     1241 B/op    11 allocs/op
+BenchmarkConcurrentConnections/1000  145226 ns/op  36001 B/op  2000 allocs/op
+```
+
+**Buffer Size Scaling:**
+
+```
+BenchmarkBufferSizes/buf_10    267.4 ns/op   114 B/op   3 allocs/op
+BenchmarkBufferSizes/buf_50    160.7 ns/op    56 B/op   2 allocs/op
+BenchmarkBufferSizes/buf_100   139.1 ns/op    48 B/op   2 allocs/op
+BenchmarkBufferSizes/buf_500   155.5 ns/op    37 B/op   2 allocs/op
+BenchmarkBufferSizes/buf_1000  156.6 ns/op    36 B/op   2 allocs/op
 ```
 
 **Key Findings:**
-- ~980 bytes per connection (`BenchmarkMemoryUsage`: 98028 B/op ÷ 100 connections)
-- Group lookup is fast (~418ns) with dual indexing by groupID and userID
-- Register/unregister cycle: ~3.4µs
-- Broadcast to 100-connection group: ~41µs (~410ns per connection)
+- ~981 bytes per connection (`BenchmarkMemoryUsage`: 98101 B/op ÷ 100 connections)
+- Group lookup is fast (~246ns) with dual indexing by groupID and userID
+- Register/unregister cycle: ~2.5µs
+- Broadcast to 100-connection group: ~21µs (~214ns per connection)
+- Buffer size sweet spot: 50-100 messages (diminishing returns above 100)
 
-**Note:** `BenchmarkConcurrentConnections`, `BenchmarkAsyncSendThroughput`, `BenchmarkConcurrentSend`, and `BenchmarkBufferSizes` are omitted from the baseline — they use mock WebSocket connections that don't drain their read side, causing intermittent "client too slow" failures. Tracked in [#186](https://github.com/livetemplate/livetemplate/issues/186).
+**Note:** `BenchmarkAsyncSendThroughput`, `BenchmarkConcurrentSend`, and `BenchmarkConcurrentConnections` at 10/100 connections still intermittently fail due to mock WebSocket drain timing. Tracked in [#186](https://github.com/livetemplate/livetemplate/issues/186). The `newDrainingBenchConn` helper (commit ead7c62) fixed the 1000-connection variant.
 
 ## End-to-End Performance
 
@@ -315,31 +332,31 @@ BenchmarkConcurrentRegistrations   5131 ns/op     1245 B/op    11 allocs/op
 ### Benchmark Results
 
 ```
-BenchmarkTemplateExecuteUpdates/no-changes   26143 ns/op   28320 B/op   229 allocs/op
-BenchmarkTemplateExecuteUpdates/small        38554 ns/op   28320 B/op   229 allocs/op
-BenchmarkTemplateExecuteUpdates/large        233551 ns/op  78625 B/op   752 allocs/op
+BenchmarkTemplateExecuteUpdates/no-changes    9666 ns/op   19840 B/op   154 allocs/op
+BenchmarkTemplateExecuteUpdates/small         9579 ns/op   19840 B/op   154 allocs/op
+BenchmarkTemplateExecuteUpdates/large        22937 ns/op   30390 B/op   357 allocs/op
 ```
 
 ### Real-World Examples
 
-From benchmark data (Go 1.26, expanded benchmark scope including per-benchmark template setup):
+From benchmark data (Go 1.26.0):
 
 | Operation | Latency | Bandwidth Savings |
 |-----------|---------|-------------------|
-| Initial Render | ~20-76µs | - |
-| Small Update (1-2 fields) | ~26-39µs | 85% vs full render |
-| Large Update (5+ fields) | ~85-234µs | 65% vs full render |
-| Range Operations | ~79-121µs | 80% vs full render |
+| Initial Render | ~16-21µs | - |
+| Small Update (1-2 fields) | ~10µs | 85% vs full render |
+| Large Update (5+ fields) | ~21-23µs | 65% vs full render |
+| Range Operations | ~16-24µs | 80% vs full render |
 
-Latency numbers are from Go micro-benchmarks (no network) and include per-benchmark template setup overhead. Wire size savings come from static stripping — updates omit cached `"s"` arrays. The README shows lower latency ranges (~30-65µs for range ops) which reflect the original Go 1.21 baseline without per-benchmark setup costs.
+Latency numbers are from Go micro-benchmarks (no network) and include per-benchmark template setup overhead. Wire size savings come from static stripping — updates omit cached `"s"` arrays.
 
 ### User Journey Performance
 
 ```
-BenchmarkE2ERangeOperations/add-items      121190 ns/op   84713 B/op   844 allocs/op
-BenchmarkE2ERangeOperations/remove-items   79139 ns/op    45888 B/op   456 allocs/op
-BenchmarkE2ERangeOperations/reorder-items  88578 ns/op    59833 B/op   588 allocs/op
-BenchmarkE2ERangeOperations/update-items   85062 ns/op    59833 B/op   588 allocs/op
+BenchmarkE2ERangeOperations/add-items      22950 ns/op   32967 B/op   406 allocs/op
+BenchmarkE2ERangeOperations/remove-items   16015 ns/op   25839 B/op   268 allocs/op
+BenchmarkE2ERangeOperations/reorder-items  18402 ns/op   28241 B/op   315 allocs/op
+BenchmarkE2ERangeOperations/update-items   23705 ns/op   28240 B/op   315 allocs/op
 ```
 
 ### HTTP Mode Optimization
@@ -363,32 +380,32 @@ HTTP POST handlers now cache templates per session group using `sync.Map`, enabl
 
 ### Template Complexity
 
-Performance scales linearly with template complexity:
+Allocation counts scale with template complexity (ns/op varies between single runs):
 
-- **Simple fields:** ~89µs per render
-- **Conditionals:** ~117µs per render
-- **Ranges:** ~137µs per render (large update)
-- **Nested:** ~197µs per render
+- **Simple fields:** 260 allocs/op, ~24 KB/op
+- **Conditionals:** 234 allocs/op, ~23 KB/op
+- **Ranges:** 342 allocs/op, ~29 KB/op
+- **Nested:** 351 allocs/op, ~29 KB/op
 
 ### Data Size Scaling
 
 Tree operations scale with data size:
 
-- **10 items:** 78µs
-- **100 items:** 1.3ms (10x data, ~17x time)
-- **1000 items:** 8.1ms (100x data, ~104x time)
+- **10 items:** 12µs
+- **100 items:** 107µs (10x data, ~9x time)
+- **1000 items:** 1.1ms (100x data, ~92x time)
 
-Scaling is roughly linear with fixed overhead — allocation counts scale at O(n) (1197 → 11736 → 117113 allocs/op for 10x data steps), confirming the algorithm is linear, while timing includes per-iteration fixed costs that inflate the apparent ratio at smaller sizes.
+Scaling is roughly linear with fixed overhead — allocation counts scale at O(n) (365 → 3425 → 34775 allocs/op for 10x data steps), confirming the algorithm is linear, while timing includes per-iteration fixed costs that inflate the apparent ratio at smaller sizes.
 
 ### Concurrent Session Scaling
 
 ```
-BenchmarkTemplateConcurrent/goroutines-1      74338 ns/op   29305 B/op   245 allocs/op
-BenchmarkTemplateConcurrent/goroutines-10     67784 ns/op   29307 B/op   245 allocs/op
-BenchmarkTemplateConcurrent/goroutines-100    58917 ns/op   29310 B/op   245 allocs/op
+BenchmarkTemplateConcurrent/goroutines-1      14058 ns/op   20819 B/op   170 allocs/op
+BenchmarkTemplateConcurrent/goroutines-10     12477 ns/op   20824 B/op   170 allocs/op
+BenchmarkTemplateConcurrent/goroutines-100    14549 ns/op   20827 B/op   170 allocs/op
 ```
 
-Per-session allocations remain constant under concurrency (245 allocs/op regardless of goroutine count). Wall-clock time per operation improves modestly with parallelism. The degree of speedup varies between single-run baselines (e.g., 2.2x in Nov 2025 vs 1.3x here) due to system load and thermal state — allocation stability confirms no lock contention was introduced.
+Per-session allocations remain constant under concurrency (170 allocs/op regardless of goroutine count). The degree of speedup varies between single-run baselines due to system load and thermal state — allocation stability confirms no lock contention was introduced.
 
 ## Memory Usage
 
@@ -396,9 +413,10 @@ Per-session allocations remain constant under concurrency (245 allocs/op regardl
 
 From benchmark allocations:
 
-- **Initial render:** ~29 KB allocated
-- **Small update:** ~28 KB allocated
-- **Large update:** ~79 KB allocated
+- **Initial render (one-time):** ~417 KB allocated (`BenchmarkTemplateExecute/initial-render`)
+- **Subsequent render:** ~20 KB allocated (`BenchmarkTemplateExecute/subsequent-render`)
+- **Small update:** ~19 KB allocated
+- **Large update:** ~30 KB allocated
 
 ### Cache Memory
 
@@ -416,8 +434,8 @@ From benchmark allocations:
 
 From memory profiling:
 
-- **Hot paths:** Tree building, JSON marshaling
-- **Optimization opportunities:** Reuse tree nodes, pool allocations
+- **Hot paths:** Tree building, JSON marshaling, AST evaluation
+- **Optimization opportunities:** Reuse tree nodes, pool allocations, pool evaluators
 
 ## Optimization Opportunities
 
@@ -425,9 +443,15 @@ See [Known Bottlenecks](known-bottlenecks.md) for detailed profiling analysis.
 
 ### Current Priorities
 
-1. Tree building for large datasets (1000+ items)
-2. JSON marshaling for deeply nested structures
-3. Template parsing cache efficiency
+1. Template parsing allocations (29.52% of total — html.NewTokenizerFragment)
+2. TreeNode operations (12% of total — SetDynamic, NewTreeNode, NewTreeNodeWithStatics)
+3. Parse evaluator allocations (5.90% — newEvaluator)
+
+### Recently Completed
+
+1. **FNV-1a fingerprinting** (commit 1e351ca) — 43-47% faster fingerprinting, dropped from 5.93% CPU to <1%
+2. **rangeContext optimization** (commit b9faf28) — 59% faster range diff, 54% fewer allocs
+3. **Fingerprint caching** — lazy-computed on TreeNode, O(1) comparison
 
 ## Performance Testing
 
