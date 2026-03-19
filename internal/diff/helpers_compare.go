@@ -1,29 +1,46 @@
 package diff
 
-import "reflect"
+import (
+	"reflect"
+	"slices"
+)
 
 // DeepEqual compares two values deeply.
 // For TreeNode pointers, it uses TreeNodeEqual to ignore internal cache fields.
+// Fast paths for common types avoid reflect.DeepEqual overhead.
 func DeepEqual(a, b interface{}) bool {
-	if aNode, ok := a.(*TreeNode); ok {
-		if bNode, ok := b.(*TreeNode); ok {
-			return TreeNodeEqual(aNode, bNode)
-		}
-		return false
+	switch av := a.(type) {
+	case string:
+		bv, ok := b.(string)
+		return ok && av == bv
+	case *TreeNode:
+		bv, ok := b.(*TreeNode)
+		return ok && TreeNodeEqual(av, bv)
+	case int:
+		bv, ok := b.(int)
+		return ok && av == bv
+	case float64:
+		bv, ok := b.(float64)
+		return ok && av == bv
+	case bool:
+		bv, ok := b.(bool)
+		return ok && av == bv
 	}
 	return reflect.DeepEqual(a, b)
 }
 
 // TreeNodeEqual compares two TreeNodes for equality, ignoring internal cache fields.
+// Pointer identity is checked first to handle shared references and prevent
+// infinite recursion on cyclic graphs.
 func TreeNodeEqual(a, b *TreeNode) bool {
-	if a == nil && b == nil {
+	if a == b {
 		return true
 	}
 	if a == nil || b == nil {
 		return false
 	}
 
-	if !reflect.DeepEqual(a.Statics, b.Statics) {
+	if !slices.Equal(a.Statics, b.Statics) {
 		return false
 	}
 
@@ -49,10 +66,10 @@ func TreeNodeEqual(a, b *TreeNode) bool {
 		return false
 	}
 	if a.Range != nil {
-		if !reflect.DeepEqual(a.Range.Items, b.Range.Items) {
+		if !rangeItemsEqual(a.Range.Items, b.Range.Items) {
 			return false
 		}
-		if !reflect.DeepEqual(a.Range.Statics, b.Range.Statics) {
+		if !slices.Equal(a.Range.Statics, b.Range.Statics) {
 			return false
 		}
 	}
@@ -64,5 +81,17 @@ func TreeNodeEqual(a, b *TreeNode) bool {
 		return false
 	}
 
+	return true
+}
+
+func rangeItemsEqual(a, b []interface{}) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, av := range a {
+		if !DeepEqual(av, b[i]) {
+			return false
+		}
+	}
 	return true
 }

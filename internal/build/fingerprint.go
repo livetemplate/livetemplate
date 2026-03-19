@@ -64,9 +64,11 @@ func hashStructureWithCircularDetection(tree *TreeNode, hasher hash.Hash, visitP
 	visitPath[tree] = struct{}{}
 	defer delete(visitPath, tree)
 
+	var intBuf [20]byte
+
 	if tree.HasStatics() {
 		hasher.Write(fpStatPfx)
-		hasher.Write([]byte(strconv.Itoa(len(tree.Statics))))
+		hasher.Write(strconv.AppendInt(intBuf[:0], int64(len(tree.Statics)), 10))
 		hasher.Write(fpColon)
 		for _, s := range tree.Statics {
 			hasher.Write([]byte(s))
@@ -99,7 +101,7 @@ func hashStructureWithCircularDetection(tree *TreeNode, hasher hash.Hash, visitP
 		hasher.Write(fpRngOpen)
 		if len(tree.Range.Statics) > 0 {
 			hasher.Write(fpRngPfx)
-			hasher.Write([]byte(strconv.Itoa(len(tree.Range.Statics))))
+			hasher.Write(strconv.AppendInt(intBuf[:0], int64(len(tree.Range.Statics)), 10))
 			hasher.Write(fpColon)
 			for _, s := range tree.Range.Statics {
 				hasher.Write([]byte(s))

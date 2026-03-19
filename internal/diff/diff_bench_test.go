@@ -2,6 +2,7 @@ package diff
 
 import (
 	"encoding/json"
+	"strconv"
 	"testing"
 
 	"github.com/livetemplate/livetemplate/internal/build"
@@ -132,6 +133,71 @@ func BenchmarkRangeDiffRemove(b *testing.B) {
 	oldTree := createRangeTree(100)
 	newTree := createRangeTree(99)
 
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = GenerateRangeDifferentialOperations(oldTree, newTree, false)
+	}
+}
+
+// =============================================================================
+// TreeNode-based Range Benchmarks (realistic production items)
+// =============================================================================
+
+// createTreeNodeRangeTree creates a range tree where items are *TreeNode
+// with explicit data-key attributes, matching production behavior.
+func createTreeNodeRangeTree(itemCount int) *build.TreeNode {
+	statics := []string{`<li data-key="`, `">`, ` - `, `</li>`}
+	items := make([]interface{}, itemCount)
+	for i := 0; i < itemCount; i++ {
+		key := "item-" + strconv.Itoa(i)
+		items[i] = &build.TreeNode{
+			Dynamics: map[string]interface{}{
+				"0": key,
+				"1": "Item " + strconv.Itoa(i),
+				"2": "active",
+			},
+		}
+	}
+	return &build.TreeNode{
+		Statics: []string{"<ul>", "</ul>"},
+		Range: &build.RangeData{
+			Items:   items,
+			Statics: statics,
+		},
+	}
+}
+
+func BenchmarkRangeDiff_TreeNode_Update(b *testing.B) {
+	oldTree := createTreeNodeRangeTree(100)
+	newTree := createTreeNodeRangeTree(100)
+	newTree.Range.Items[50].(*build.TreeNode).Dynamics["2"] = "updated"
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = GenerateRangeDifferentialOperations(oldTree, newTree, false)
+	}
+}
+
+func BenchmarkRangeDiff_TreeNode_Reorder(b *testing.B) {
+	oldTree := createTreeNodeRangeTree(100)
+	newTree := createTreeNodeRangeTree(100)
+	// Swap first and last items
+	newTree.Range.Items[0], newTree.Range.Items[99] = newTree.Range.Items[99], newTree.Range.Items[0]
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = GenerateRangeDifferentialOperations(oldTree, newTree, false)
+	}
+}
+
+func BenchmarkRangeDiff_TreeNode_LargeList(b *testing.B) {
+	oldTree := createTreeNodeRangeTree(1000)
+	newTree := createTreeNodeRangeTree(1000)
+	newTree.Range.Items[500].(*build.TreeNode).Dynamics["2"] = "updated"
+
+	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		_ = GenerateRangeDifferentialOperations(oldTree, newTree, false)

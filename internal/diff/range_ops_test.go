@@ -601,7 +601,8 @@ func TestGenerateRemovalOperations(t *testing.T) {
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 	operations := []interface{}{}
 
-	ops := generateRemovalOperations(oldItems, newItems, statics, operations)
+	ctx := newRangeContext(oldItems, newItems, statics, nil)
+	ops := generateRemovalOps(ctx, operations)
 
 	// Should generate one removal for id2
 	if len(ops) != 1 {
@@ -631,7 +632,8 @@ func TestGenerateUpdateOperations(t *testing.T) {
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 	operations := []interface{}{}
 
-	ops := generateUpdateOperations(oldItems, newItems, statics, operations)
+	ctx := newRangeContext(oldItems, newItems, statics, nil)
+	ops := generateUpdateOps(ctx, operations)
 
 	// Should generate one update operation
 	if len(ops) != 1 {
@@ -671,7 +673,7 @@ func TestGenerateInsertionOperations_Prepend(t *testing.T) {
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 	operations := []interface{}{}
 
-	ops := generateInsertionOperations(oldItems, newItems, statics, nil, operations)
+	ops := generateInsertionOps(newRangeContext(oldItems, newItems, statics, nil), operations)
 
 	// Should generate prepend operation
 	found := false
@@ -702,7 +704,7 @@ func TestGenerateInsertionOperations_Append(t *testing.T) {
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 	operations := []interface{}{}
 
-	ops := generateInsertionOperations(oldItems, newItems, statics, nil, operations)
+	ops := generateInsertionOps(newRangeContext(oldItems, newItems, statics, nil), operations)
 
 	// Should generate append operation
 	found := false
@@ -735,7 +737,7 @@ func TestGenerateInsertionOperations_Complex(t *testing.T) {
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 	operations := []interface{}{}
 
-	ops := generateInsertionOperations(oldItems, newItems, statics, nil, operations)
+	ops := generateInsertionOps(newRangeContext(oldItems, newItems, statics, nil), operations)
 
 	// Should generate individual insert operation
 	found := false

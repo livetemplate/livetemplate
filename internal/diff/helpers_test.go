@@ -451,7 +451,7 @@ func TestIsPureReordering(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := IsPureReordering(tt.oldItems, tt.newItems, tt.oldKeys, tt.newKeys, statics)
+			got := IsPureReordering(tt.oldItems, tt.newItems, statics)
 			if got != tt.want {
 				t.Errorf("IsPureReordering() = %v, want %v", got, tt.want)
 			}

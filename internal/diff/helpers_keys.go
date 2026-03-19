@@ -7,8 +7,11 @@ import (
 	"hash/fnv"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
+
+var positionPattern = regexp.MustCompile(`^#\d+`)
 
 const (
 	// hashPrefixLength is the number of characters to use from the generated hash
@@ -54,22 +57,25 @@ func FindKeyPositionFromStatics(statics interface{}) int {
 
 // GetItemKey extracts the key from a range item using the statics structure.
 func GetItemKey(item interface{}, statics interface{}) (string, bool) {
+	keyPos := FindKeyPositionFromStatics(statics)
+	keyPosStr := strconv.Itoa(keyPos)
+	return getItemKeyWithPos(item, keyPos, keyPosStr)
+}
+
+// getItemKeyWithPos extracts the key using pre-computed key position.
+func getItemKeyWithPos(item interface{}, keyPos int, keyPosStr string) (string, bool) {
 	itemNode, ok := item.(*TreeNode)
 	if !ok {
 		return "", false
 	}
 
-	// First, check for reserved auto-generated key field
 	if autoKey, exists := itemNode.GetDynamic("_k"); exists {
 		if keyStr, ok := autoKey.(string); ok {
 			return keyStr, true
 		}
 	}
 
-	keyPos := FindKeyPositionFromStatics(statics)
-
 	if keyPos >= 0 {
-		keyPosStr := fmt.Sprintf("%d", keyPos)
 		if key, exists := itemNode.GetDynamic(keyPosStr); exists {
 			if keyStr, ok := key.(string); ok {
 				return keyStr, true
@@ -77,7 +83,6 @@ func GetItemKey(item interface{}, statics interface{}) (string, bool) {
 		}
 	}
 
-	// No explicit key attribute — generate a content-based hash
 	return GenerateItemHash(itemNode), true
 }
 
@@ -134,8 +139,6 @@ func ExtractItemKeys(items []interface{}, statics interface{}) []string {
 
 // DetectPositionField finds the field containing positional display like "#0", "#1", etc.
 func DetectPositionField(itemsByKey map[string]interface{}) string {
-	positionPattern := regexp.MustCompile(`^#\d+`)
-
 	for _, item := range itemsByKey {
 		if itemNode, ok := item.(*TreeNode); ok {
 			for field, value := range itemNode.Dynamics {

@@ -3,69 +3,105 @@
 package diff
 
 import (
-	"fmt"
 	"sort"
+	"strconv"
 )
+
+// rangeContext holds pre-computed data for a single range diff operation,
+// avoiding redundant key extraction, map creation, and statics parsing.
+type rangeContext struct {
+	oldItems  []interface{}
+	newItems  []interface{}
+	statics   interface{}
+	metadata  map[string]interface{}
+	oldKeys   []string
+	newKeys   []string
+	oldByKey  map[string]interface{}
+	newByKey  map[string]interface{}
+	keyPos    int
+	keyPosStr string
+	addedKeys []string
+}
+
+func newRangeContext(oldItems, newItems []interface{}, statics interface{}, metadata map[string]interface{}) *rangeContext {
+	ctx := &rangeContext{
+		oldItems: oldItems,
+		newItems: newItems,
+		statics:  statics,
+		metadata: metadata,
+		oldByKey: make(map[string]interface{}, len(oldItems)),
+		newByKey: make(map[string]interface{}, len(newItems)),
+		oldKeys:  make([]string, 0, len(oldItems)),
+		newKeys:  make([]string, 0, len(newItems)),
+	}
+	ctx.keyPos = FindKeyPositionFromStatics(statics)
+	ctx.keyPosStr = strconv.Itoa(ctx.keyPos)
+
+	for _, item := range oldItems {
+		if key, ok := getItemKeyWithPos(item, ctx.keyPos, ctx.keyPosStr); ok {
+			ctx.oldKeys = append(ctx.oldKeys, key)
+			ctx.oldByKey[key] = item
+		}
+	}
+	for _, item := range newItems {
+		if key, ok := getItemKeyWithPos(item, ctx.keyPos, ctx.keyPosStr); ok {
+			ctx.newKeys = append(ctx.newKeys, key)
+			ctx.newByKey[key] = item
+		}
+	}
+
+	// Compute added keys (in new but not in old)
+	oldKeySet := make(map[string]struct{}, len(ctx.oldKeys))
+	for _, k := range ctx.oldKeys {
+		oldKeySet[k] = struct{}{}
+	}
+	for _, k := range ctx.newKeys {
+		if _, exists := oldKeySet[k]; !exists {
+			ctx.addedKeys = append(ctx.addedKeys, k)
+		}
+	}
+
+	return ctx
+}
+
+func (ctx *rangeContext) getItemKey(item interface{}) (string, bool) {
+	return getItemKeyWithPos(item, ctx.keyPos, ctx.keyPosStr)
+}
 
 // GenerateRangeDifferentialOperations generates differential operations for range constructs.
 // stripStatics: if true, removes "s" keys from operations (client has cached them)
 // if false, keeps "s" keys (client hasn't seen this structure yet)
 // This is the main orchestrator (30 lines).
 //
-// Returns empty slice when differential operations cannot fully express the change,
+// Returns nil when differential operations cannot fully express the change,
 // signaling that the caller should fall back to full tree replacement.
 func GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripStatics bool) []interface{} {
-	var operations []interface{}
-
-	// Extract range data from old and new values
 	oldItems, newItems, statics, metadata := extractRangeData(oldValue, newValue)
 	if oldItems == nil || newItems == nil {
-		return operations
+		return nil
 	}
 
-	// Get item keys for comparison
-	oldKeys := ExtractItemKeys(oldItems, statics)
-	newKeys := ExtractItemKeys(newItems, statics)
+	ctx := newRangeContext(oldItems, newItems, statics, metadata)
 
-	// Check for pure reordering
-	if IsPureReordering(oldItems, newItems, oldKeys, newKeys, statics) {
-		return []interface{}{[]interface{}{"o", newKeys}}
+	if isPureReorderingCtx(ctx) {
+		return []interface{}{[]interface{}{"o", ctx.newKeys}}
 	}
-
-	// Find new items (keys in new but not in old)
-	addedKeys := FindNewItems(oldItems, newItems, statics)
 
 	// FIX for issue #111: Check for complex insertion patterns BEFORE generating
-	// any differential operations. If the pattern is too complex (e.g., many items
-	// changing keys simultaneously due to structural changes like close_all), we need
-	// to fall back to full tree replacement rather than generating partial operations.
-	//
-	// This handles scenarios where items change their content-based keys (e.g., when
-	// {{if .IsOpen}} changes from true to false, the item's hash changes), resulting
-	// in what looks like removals+insertions at scattered positions.
-	if len(addedKeys) > 0 && IsComplexInsertionPattern(addedKeys, oldItems, newItems, statics) {
-		// Return empty to signal full tree replacement is needed
-		return operations
+	// any differential operations.
+	if len(ctx.addedKeys) > 0 && isComplexInsertionPatternCtx(ctx) {
+		return nil
 	}
 
-	// Generate operations for removals, updates, and insertions
-	operations = generateRemovalOperations(oldItems, newItems, statics, operations)
-	operations = generateUpdateOperations(oldItems, newItems, statics, operations)
-	operations = generateInsertionOperations(oldItems, newItems, statics, metadata, operations)
+	operations := make([]interface{}, 0, 4)
+	operations = generateRemovalOps(ctx, operations)
+	operations = generateUpdateOps(ctx, operations)
+	operations = generateInsertionOps(ctx, operations)
 
-	// Check if order changed alongside content updates.
-	// This handles the case where items both updated AND reordered (e.g., editing a title
-	// causes sort order to change). IsPureReordering only handles pure reorder (no content
-	// changes), so we need this additional check when updates exist.
-	//
-	// Only add reorder if:
-	// 1. Key sets are identical (no insertions or removals - same items in both)
-	// 2. Order actually differs
-	if sameKeySet(oldKeys, newKeys) && HasReordering(oldKeys, newKeys) {
-		operations = append(operations, []interface{}{"o", newKeys})
+	if sameKeySet(ctx.oldKeys, ctx.newKeys) && HasReordering(ctx.oldKeys, ctx.newKeys) {
+		operations = append(operations, []interface{}{"o", ctx.newKeys})
 	}
 
-	// Strip statics from all operations if requested
 	if stripStatics {
 		operations = stripStaticsFromOperations(operations)
 	}
@@ -143,84 +179,48 @@ func extractRangeData(oldValue, newValue interface{}) (
 	return oldItems, newItems, statics, metadata
 }
 
-// generateRemovalOperations finds and generates removal operations for items that were deleted.
-func generateRemovalOperations(
-	oldItems, newItems []interface{},
-	statics interface{},
-	operations []interface{},
-) []interface{} {
-	// Create map for easy lookup
-	newItemsByKey := createItemKeyMap(newItems, statics)
-
-	// Find removed items (in old but not in new)
-	// Extract and sort keys to ensure deterministic order
-	sortedOldKeys := ExtractItemKeys(oldItems, statics)
+func generateRemovalOps(ctx *rangeContext, operations []interface{}) []interface{} {
+	sortedOldKeys := make([]string, len(ctx.oldKeys))
+	copy(sortedOldKeys, ctx.oldKeys)
 	sort.Strings(sortedOldKeys)
 
 	for _, key := range sortedOldKeys {
-		if _, exists := newItemsByKey[key]; !exists {
+		if _, exists := ctx.newByKey[key]; !exists {
 			operations = append(operations, []interface{}{"r", key})
 		}
 	}
-
 	return operations
 }
 
-// generateUpdateOperations finds and generates update operations for changed items.
-func generateUpdateOperations(
-	oldItems, newItems []interface{},
-	statics interface{},
-	operations []interface{},
-) []interface{} {
-	// Create maps for easy lookup
-	oldItemsByKey := createItemKeyMap(oldItems, statics)
-	newItemsByKey := createItemKeyMap(newItems, statics)
-
-	// Find updated items (in both, but changed)
-	// Extract and sort keys to ensure deterministic order
-	sortedNewKeys := ExtractItemKeys(newItems, statics)
+func generateUpdateOps(ctx *rangeContext, operations []interface{}) []interface{} {
+	sortedNewKeys := make([]string, len(ctx.newKeys))
+	copy(sortedNewKeys, ctx.newKeys)
 	sort.Strings(sortedNewKeys)
 
 	for _, key := range sortedNewKeys {
-		newItem := newItemsByKey[key]
-		if oldItem, exists := oldItemsByKey[key]; exists {
-			// Compare items and generate update operation if different
-			changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
+		newItem := ctx.newByKey[key]
+		if oldItem, exists := ctx.oldByKey[key]; exists {
+			changes := compareRangeItemsWithKeyPos(oldItem, newItem, ctx.keyPos, ctx.keyPosStr)
 			if len(changes) > 0 {
-				// Always include changes, even if they're all empty strings.
-				// Empty string changes indicate that a field should be cleared
+				// Include all changes, even empty strings — they signal field removal
 				// (e.g., removing "checked" attribute when toggling a checkbox off).
-				// The client needs to know about these changes to update the DOM.
 				operations = append(operations, []interface{}{"u", key, changes})
 			}
 		}
 	}
-
 	return operations
 }
 
-// generateInsertionOperations finds and generates insertion operations for new items.
-// NOTE: Complex insertion patterns are now checked upfront in GenerateRangeDifferentialOperations
-// to avoid generating partial operations (removes without inserts).
-func generateInsertionOperations(
-	oldItems, newItems []interface{},
-	statics interface{},
-	metadata map[string]interface{},
-	operations []interface{},
-) []interface{} {
-	// Find new items
-	addedKeys := FindNewItems(oldItems, newItems, statics)
-	if len(addedKeys) == 0 {
+func generateInsertionOps(ctx *rangeContext, operations []interface{}) []interface{} {
+	if len(ctx.addedKeys) == 0 {
 		return operations
 	}
 
-	// SPECIAL CASE: If old range was empty, use 'a' (append) with statics and metadata
-	if len(oldItems) == 0 {
-		return handleEmptyToItemsTransition(newItems, statics, metadata, operations)
+	if len(ctx.oldItems) == 0 {
+		return handleEmptyToItemsTransition(ctx.newItems, ctx.statics, ctx.metadata, operations)
 	}
 
-	// Range has existing items - detect append/prepend/insert patterns
-	return handleIncrementalInsertions(addedKeys, oldItems, newItems, statics, operations)
+	return handleIncrementalInsertionsCtx(ctx, operations)
 }
 
 // handleEmptyToItemsTransition handles the transition from empty range to items.
@@ -248,27 +248,16 @@ func handleEmptyToItemsTransition(
 	return operations
 }
 
-// handleIncrementalInsertions handles insertions when range already has items.
-func handleIncrementalInsertions(
-	addedKeys []string,
-	oldItems, newItems []interface{},
-	statics interface{},
-	operations []interface{},
-) []interface{} {
-	newItemsByKey := createItemKeyMap(newItems, statics)
-
-	// Check if all new items are at the start (prepend)
-	if AreAllItemsAtStart(addedKeys, newItems, statics) {
-		return handlePrependOperation(addedKeys, newItemsByKey, statics, operations)
+func handleIncrementalInsertionsCtx(ctx *rangeContext, operations []interface{}) []interface{} {
+	if areAllItemsAtStartCtx(ctx) {
+		return handlePrependOperation(ctx.addedKeys, ctx.newByKey, ctx.statics, operations)
 	}
 
-	// Check if all new items are at the end (append)
-	if AreAllItemsAtEnd(addedKeys, oldItems, newItems, statics) {
-		return handleAppendOperation(addedKeys, newItemsByKey, statics, operations)
+	if areAllItemsAtEndCtx(ctx) {
+		return handleAppendOperation(ctx.addedKeys, ctx.newByKey, ctx.statics, operations)
 	}
 
-	// Individual insertions at specific positions
-	return handleIndividualInsertions(addedKeys, newItems, newItemsByKey, statics, operations)
+	return handleIndividualInsertionsCtx(ctx, operations)
 }
 
 // handlePrependOperation generates prepend operations for items at the start.
@@ -313,29 +302,16 @@ func handleAppendOperation(
 	return operations
 }
 
-// handleIndividualInsertions generates insert operations for items at specific positions.
-func handleIndividualInsertions(
-	addedKeys []string,
-	newItems []interface{},
-	newItemsByKey map[string]interface{},
-	statics interface{},
-	operations []interface{},
-) []interface{} {
-	for _, key := range addedKeys {
-		if newItem, exists := newItemsByKey[key]; exists {
-			// Find position for this specific item
-			for i, item := range newItems {
-				if itemKey, ok := GetItemKey(item, statics); ok && itemKey == key {
+func handleIndividualInsertionsCtx(ctx *rangeContext, operations []interface{}) []interface{} {
+	for _, key := range ctx.addedKeys {
+		if newItem, exists := ctx.newByKey[key]; exists {
+			for i, item := range ctx.newItems {
+				if itemKey, ok := ctx.getItemKey(item); ok && itemKey == key {
 					if i == 0 {
-						// Item at start - use prepend for single item
-						// Keep nested statics for new items
 						preparedItem := PrepareTreeForClient(newItem, false)
-						operations = append(operations, []interface{}{"p", []interface{}{preparedItem}, statics})
+						operations = append(operations, []interface{}{"p", []interface{}{preparedItem}, ctx.statics})
 					} else {
-						// Find the item before this one and use simplified insert
-						if prevKey, ok := GetItemKey(newItems[i-1], statics); ok {
-							// Simplified insert: ['i', afterId, data] (no position param)
-							// Keep nested statics for new items
+						if prevKey, ok := ctx.getItemKey(ctx.newItems[i-1]); ok {
 							preparedItem := PrepareTreeForClient(newItem, false)
 							operations = append(operations, []interface{}{"i", prevKey, preparedItem})
 						}
@@ -349,8 +325,13 @@ func handleIndividualInsertions(
 }
 
 // CompareRangeItemsForChanges compares two range items and returns a map of field changes.
-// For heterogeneous ranges, uses the item's _sk field to look up its specific statics.
 func CompareRangeItemsForChanges(oldItem, newItem interface{}, statics interface{}) map[string]interface{} {
+	keyPos := FindKeyPositionFromStatics(statics)
+	keyPosStr := strconv.Itoa(keyPos)
+	return compareRangeItemsWithKeyPos(oldItem, newItem, keyPos, keyPosStr)
+}
+
+func compareRangeItemsWithKeyPos(oldItem, newItem interface{}, keyPos int, keyPosStr string) map[string]interface{} {
 	changes := make(map[string]interface{})
 
 	oldItemNode, ok1 := oldItem.(*TreeNode)
@@ -360,19 +341,13 @@ func CompareRangeItemsForChanges(oldItem, newItem interface{}, statics interface
 		return changes
 	}
 
-	// Find key position to skip it
-	keyPos := FindKeyPositionFromStatics(statics)
-	keyPosStr := fmt.Sprintf("%d", keyPos)
-
-	// Compare each field (except the key field)
 	for fieldKey, newValue := range newItemNode.Dynamics {
-		if fieldKey == keyPosStr {
-			continue // Skip the key field
+		if keyPos >= 0 && fieldKey == keyPosStr {
+			continue
 		}
 
 		oldValue, exists := oldItemNode.GetDynamic(fieldKey)
 		if !exists || !DeepEqual(oldValue, newValue) {
-			// Strip statics from nested tree nodes since client already has them cached
 			if newTreeNode, ok := newValue.(*TreeNode); ok {
 				handleNestedTreeNodeChange(fieldKey, oldValue, newTreeNode, exists, changes)
 			} else {
@@ -381,16 +356,12 @@ func CompareRangeItemsForChanges(oldItem, newItem interface{}, statics interface
 		}
 	}
 
-	// Also check for fields that were removed (in old but not in new).
-	// This handles cases like unchecking a checkbox: the "checked" attribute
-	// field exists in old but is absent from new (or is empty string).
+	// Check for fields removed (in old but not in new), e.g. unchecking a checkbox.
 	for fieldKey, oldValue := range oldItemNode.Dynamics {
-		if fieldKey == keyPosStr {
-			continue // Skip the key field
+		if keyPos >= 0 && fieldKey == keyPosStr {
+			continue
 		}
 		if _, exists := newItemNode.Dynamics[fieldKey]; !exists {
-			// Field was removed - send empty string to indicate removal
-			// Only report if old value was meaningful (not empty string, nil, etc.)
 			if isMeaningfulValue(oldValue) {
 				changes[fieldKey] = ""
 			}
@@ -461,19 +432,6 @@ func handleNestedTreeNodeChange(
 			changes[fieldKey] = stripped
 		}
 	}
-}
-
-// Helper functions
-
-// createItemKeyMap creates a map of items indexed by their keys.
-func createItemKeyMap(items []interface{}, statics interface{}) map[string]interface{} {
-	itemsByKey := make(map[string]interface{})
-	for _, item := range items {
-		if key, ok := GetItemKey(item, statics); ok {
-			itemsByKey[key] = item
-		}
-	}
-	return itemsByKey
 }
 
 // stripStaticsFromOperations removes statics from all operations.

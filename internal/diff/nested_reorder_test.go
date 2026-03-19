@@ -40,12 +40,9 @@ func TestIsPureReordering_WithNestedTreeNodes(t *testing.T) {
 	oldItems := []interface{}{item1, item2}
 	newItems := []interface{}{item2, item1}
 
-	oldKeys := []string{"todo-1", "todo-3"}
-	newKeys := []string{"todo-3", "todo-1"}
-
 	statics := []string{`<tr data-lvt-key="`, `">`, "</tr>"} // Statics with key
 
-	result := IsPureReordering(oldItems, newItems, oldKeys, newKeys, statics)
+	result := IsPureReordering(oldItems, newItems, statics)
 
 	if !result {
 		t.Errorf("Expected IsPureReordering to return true for same items in different order, got false")
@@ -74,12 +71,9 @@ func TestIsPureReordering_WithDifferentNestedTreeNodeValues(t *testing.T) {
 	oldItems := []interface{}{item1Old}
 	newItems := []interface{}{item1New}
 
-	oldKeys := []string{"todo-1"}
-	newKeys := []string{"todo-1"}
-
 	statics := []string{`<tr data-lvt-key="`, `">`, "</tr>"}
 
-	result := IsPureReordering(oldItems, newItems, oldKeys, newKeys, statics)
+	result := IsPureReordering(oldItems, newItems, statics)
 
 	if result {
 		t.Errorf("Expected IsPureReordering to return false when item content changed, got true")
@@ -126,12 +120,9 @@ func TestIsPureReordering_WithIdenticalNestedTreeNodes(t *testing.T) {
 	oldItems := []interface{}{oldItem1, oldItem2}
 	newItems := []interface{}{newItem2, newItem1} // Reordered
 
-	oldKeys := []string{"todo-1", "todo-2"}
-	newKeys := []string{"todo-2", "todo-1"} // Reordered
-
 	statics := []string{`<tr data-lvt-key="`, `">`, "</tr>"}
 
-	result := IsPureReordering(oldItems, newItems, oldKeys, newKeys, statics)
+	result := IsPureReordering(oldItems, newItems, statics)
 
 	if !result {
 		t.Errorf("Expected IsPureReordering to return true for identical content in different order, got false")
@@ -182,12 +173,9 @@ func TestIsPureReordering_WithAutoKeyField(t *testing.T) {
 	oldItems := []interface{}{oldItem1, oldItem2}
 	newItems := []interface{}{newItem2, newItem1}
 
-	oldKeys := []string{"todo-1", "todo-2"}
-	newKeys := []string{"todo-2", "todo-1"}
-
 	statics := []string{`<tr data-lvt-key="`, `">`, "</tr>"}
 
-	result := IsPureReordering(oldItems, newItems, oldKeys, newKeys, statics)
+	result := IsPureReordering(oldItems, newItems, statics)
 
 	if !result {
 		t.Errorf("Expected IsPureReordering to return true when items have _k field, got false")
@@ -235,12 +223,9 @@ func TestIsPureReordering_CachedFingerprint(t *testing.T) {
 	oldItems := []interface{}{oldItem1, oldItem2}
 	newItems := []interface{}{newItem2, newItem1}
 
-	oldKeys := []string{"todo-1", "todo-2"}
-	newKeys := []string{"todo-2", "todo-1"}
-
 	statics := []string{`<tr data-lvt-key="`, `">`, "</tr>"}
 
-	result := IsPureReordering(oldItems, newItems, oldKeys, newKeys, statics)
+	result := IsPureReordering(oldItems, newItems, statics)
 
 	if !result {
 		t.Errorf("Expected IsPureReordering to return true even with different cached fingerprints, got false")
@@ -292,13 +277,10 @@ func TestIsPureReordering_AutoKeyFieldVariations(t *testing.T) {
 	oldItems := []interface{}{oldItem1, oldItem2}
 	newItems := []interface{}{newItem2, newItem1}
 
-	oldKeys := []string{"todo-1", "todo-2"}
-	newKeys := []string{"todo-2", "todo-1"}
-
 	// Statics with key at position 0 (after first static)
 	statics := []string{`<tr data-lvt-key="`, `">`, `<td>`, `</td>`, "</tr>"}
 
-	result := IsPureReordering(oldItems, newItems, oldKeys, newKeys, statics)
+	result := IsPureReordering(oldItems, newItems, statics)
 
 	if !result {
 		t.Errorf("Expected IsPureReordering to return true for items with _k field, got false")
