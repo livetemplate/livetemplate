@@ -519,7 +519,9 @@ func (b *RedisBroadcaster) Close() error {
 	// Wait for goroutines to finish
 	b.wg.Wait()
 
-	// Close pubsub with write lock
+	// Close pubsub with write lock.
+	// Safe to nil subscribedChannels: b.closed is already true (set above),
+	// so subscribeTo() and reconnect() will return early before accessing the map.
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
