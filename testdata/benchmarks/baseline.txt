@@ -1,5 +1,6 @@
 # Single-run baseline — use `make bench-10x` + benchstat for statistically robust comparison
 # Go 1.26.0 | arm64 (Apple M2) | 2026-03-19
+# Note: `make bench-save` strips these headers; re-add manually after regeneration
 BenchmarkDispatchWithState_Cached-8   	 5117846	       236.0 ns/op	      80 B/op	       4 allocs/op
 BenchmarkE2EUserJourney-8             	    1036	   1083172 ns/op	 2073551 B/op	   16174 allocs/op
 BenchmarkE2ETodoApp-8                 	   19636	     58810 ns/op	   85436 B/op	     946 allocs/op

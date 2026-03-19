@@ -55,7 +55,7 @@ Dropped 1039 nodes (cum <= 0.50s)
 
 #### Fingerprinting (Phase 2: Build)
 - **Location:** `internal/build/fingerprint.go:CalculateStructureFingerprint`
-- **Impact:** 0.69% of allocations (557 MB cumulative) — down from 5.93% CPU in Nov 2025
+- **Impact:** No longer a measurable CPU hotspot (previously 5.93% of CPU samples in Nov 2025)
 - **Status:** Replaced MD5 with FNV-1a 128-bit (commit 1e351ca). Lazy-cached on TreeNode via `GetStructureFingerprint()`. No longer a significant bottleneck.
 
 #### Overall Distribution

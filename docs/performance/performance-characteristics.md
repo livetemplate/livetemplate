@@ -380,12 +380,12 @@ HTTP POST handlers now cache templates per session group using `sync.Map`, enabl
 
 ### Template Complexity
 
-Performance scales linearly with template complexity:
+Allocation counts scale with template complexity (ns/op varies between single runs):
 
-- **Simple fields:** ~16µs per render
-- **Conditionals:** ~14µs per render
-- **Ranges:** ~21µs per render (large update)
-- **Nested:** ~21µs per render
+- **Simple fields:** 260 allocs/op, ~24 KB/op
+- **Conditionals:** 234 allocs/op, ~23 KB/op
+- **Ranges:** 342 allocs/op, ~29 KB/op
+- **Nested:** 351 allocs/op, ~29 KB/op
 
 ### Data Size Scaling
 
@@ -413,7 +413,8 @@ Per-session allocations remain constant under concurrency (170 allocs/op regardl
 
 From benchmark allocations:
 
-- **Initial render:** ~20 KB allocated
+- **Initial render (one-time):** ~417 KB allocated (`BenchmarkTemplateExecute/initial-render`)
+- **Subsequent render:** ~20 KB allocated (`BenchmarkTemplateExecute/subsequent-render`)
 - **Small update:** ~19 KB allocated
 - **Large update:** ~30 KB allocated
 
