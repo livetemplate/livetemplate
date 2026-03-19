@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/livetemplate/livetemplate/internal/keys"
 )
 
 // TestHandleRange_SimpleSlice tests range over simple slice.
@@ -744,8 +746,8 @@ func TestGenerateItemHash_Deterministic(t *testing.T) {
 		t.Errorf("Hash should be deterministic, got: %v and %v", hash1, hash2)
 	}
 
-	if len(hash1) != hashPrefixLength {
-		t.Errorf("Hash length should be %d, got: %d", hashPrefixLength, len(hash1))
+	if len(hash1) != keys.HashPrefixLength {
+		t.Errorf("Hash length should be %d, got: %d", keys.HashPrefixLength, len(hash1))
 	}
 }
 

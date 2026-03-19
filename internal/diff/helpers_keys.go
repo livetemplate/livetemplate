@@ -1,23 +1,14 @@
 package diff
 
 import (
-	"encoding/hex"
-	"encoding/json"
-	"fmt"
-	"hash/fnv"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/livetemplate/livetemplate/internal/keys"
 )
 
 var positionPattern = regexp.MustCompile(`^#\d+`)
-
-const (
-	// hashPrefixLength is the number of characters to use from the generated hash
-	// for compact item identifiers. 12 characters = 48 bits of entropy.
-	hashPrefixLength = 12
-)
 
 // findKeyAttrPosition searches for key attributes in a string slice.
 func findKeyAttrPosition(statics []string, keyAttrs []string) int {
@@ -93,48 +84,20 @@ func GenerateItemHash(item interface{}) string {
 	if !ok {
 		return ""
 	}
-
-	keys := make([]string, 0, len(itemNode.Dynamics))
-	for k := range itemNode.Dynamics {
-		if k != "_k" {
-			keys = append(keys, k)
-		}
-	}
-	sort.Strings(keys)
-
-	var parts []string
-	for _, k := range keys {
-		val, _ := itemNode.GetDynamic(k)
-		valJSON, err := json.Marshal(val)
-		if err != nil {
-			parts = append(parts, fmt.Sprintf("%s:%v", k, val))
-		} else {
-			parts = append(parts, fmt.Sprintf("%s:%s", k, string(valJSON)))
-		}
-	}
-
-	content := strings.Join(parts, "|")
-	hasher := fnv.New64a()
-	hasher.Write([]byte(content))
-	hash := hex.EncodeToString(hasher.Sum(nil))
-
-	if len(hash) >= hashPrefixLength {
-		return hash[:hashPrefixLength]
-	}
-	return hash
+	return keys.GenerateItemHash(itemNode.Dynamics)
 }
 
 // ExtractItemKeys extracts the keys from a slice of range items using the statics structure.
 func ExtractItemKeys(items []interface{}, statics interface{}) []string {
-	var keys []string
+	var result []string
 	for _, item := range items {
 		if itemNode, ok := item.(*TreeNode); ok {
 			if key, ok := GetItemKey(itemNode, statics); ok {
-				keys = append(keys, key)
+				result = append(result, key)
 			}
 		}
 	}
-	return keys
+	return result
 }
 
 // DetectPositionField finds the field containing positional display like "#0", "#1", etc.
