@@ -57,6 +57,7 @@ Dropped 1039 nodes (cum <= 0.50s)
 - **Location:** `internal/build/fingerprint.go:CalculateStructureFingerprint`
 - **Impact:** No longer a measurable CPU hotspot (previously 5.93% of CPU samples in Nov 2025)
 - **Status:** Replaced MD5 with FNV-1a 128-bit (commit 1e351ca). Lazy-cached on TreeNode via `GetStructureFingerprint()`. No longer a significant bottleneck.
+- **Tradeoff:** `ClientNeedsStatics` fingerprint comparison slowed from ~4ns to ~6.6ns (zero-alloc, likely from `atomic.Value` type assertion overhead). Acceptable: the 2.6ns increase per comparison is negligible vs the ~3100ns saved per range diff operation.
 
 #### Overall Distribution
 Most CPU time is spent in:
@@ -67,6 +68,10 @@ Most CPU time is spent in:
 The high GC overhead indicates that memory allocation reduction would have the most significant performance impact.
 
 ## Memory Bottlenecks
+
+> **Note:** Total allocation volume is 80.8 GB vs 59.5 GB in the previous session. This reflects
+> more benchmark iterations (faster per-op code → higher `b.N`), not a regression. Per-operation
+> allocation counts (B/op, allocs/op) decreased across the board — see Allocations per Operation below.
 
 ### Analysis Summary
 
@@ -251,7 +256,7 @@ Based on profiling data, prioritize:
 
 - [ ] **Pool Parse Evaluators**
   - Location: `internal/parse/eval.go`, Phase 1 (Parse)
-  - Goal: Reduce 4.8 GB allocations in `newEvaluator`
+  - Goal: Reduce 4.8 GB allocations in `newEvaluator` (newly visible after parse rewrite, commit 4f5cba3)
   - Approach: Use `sync.Pool` to reuse evaluator objects across parse operations
   - Expected Impact: 5-6% reduction in total allocations
   - Verification: Run `BenchmarkBuildTree` and check parse allocations decrease
