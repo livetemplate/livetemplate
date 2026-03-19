@@ -40,6 +40,31 @@ func flatTreeToHTML(tree *TreeNode) string {
 	return result.String()
 }
 
+// renderRangeTreeToHTML reconstructs HTML from a tree with Range data by iterating
+// over range items, combining shared statics with per-item dynamics.
+// The tree shape assumption: each range item is a *TreeNode whose Dynamics map
+// to positions in the shared tree.Range.Statics. If the internal tree shape for
+// range items changes, this helper must be updated accordingly.
+func renderRangeTreeToHTML(t *testing.T, tree *TreeNode) string {
+	t.Helper()
+	if tree.Range == nil {
+		t.Fatal("expected tree to have Range data")
+	}
+	var output strings.Builder
+	for _, item := range tree.Range.Items {
+		itemTree, ok := item.(*TreeNode)
+		if !ok {
+			t.Fatalf("range item is %T, want *TreeNode", item)
+		}
+		itemWithStatics := &TreeNode{
+			Statics:  tree.Range.Statics,
+			Dynamics: itemTree.Dynamics,
+		}
+		output.WriteString(flatTreeToHTML(itemWithStatics))
+	}
+	return output.String()
+}
+
 // stdlibRender executes a template using the standard html/template engine.
 func stdlibRender(t *testing.T, tmplStr string, data interface{}, funcMap template.FuncMap) string {
 	t.Helper()
@@ -403,29 +428,10 @@ func TestStdlibParity_RangeVarWithDotField(t *testing.T) {
 				t.Fatalf("BuildTree failed: %v", err)
 			}
 
-			// The range produces a tree with Range data containing items.
-			// Each item is a *TreeNode with dynamics only (statics are shared).
-			// Reconstruct output using the shared statics + per-item dynamics.
-			if tree.Range == nil {
-				t.Fatal("expected tree to have Range data")
-			}
+			lvtOutput := renderRangeTreeToHTML(t, tree)
 
-			var lvtOutput strings.Builder
-			for _, item := range tree.Range.Items {
-				itemTree, ok := item.(*TreeNode)
-				if !ok {
-					t.Fatalf("range item is %T, want *TreeNode", item)
-				}
-				// Reconstruct with shared range statics
-				itemWithStatics := &TreeNode{
-					Statics:  tree.Range.Statics,
-					Dynamics: itemTree.Dynamics,
-				}
-				lvtOutput.WriteString(flatTreeToHTML(itemWithStatics))
-			}
-
-			if lvtOutput.String() != stdlib {
-				t.Errorf("output mismatch:\n  stdlib: %q\n  lvt:    %q", stdlib, lvtOutput.String())
+			if lvtOutput != stdlib {
+				t.Errorf("output mismatch:\n  stdlib: %q\n  lvt:    %q", stdlib, lvtOutput)
 			}
 		})
 	}
@@ -487,6 +493,32 @@ func TestStdlibParity_SafeTypes(t *testing.T) {
 				t.Errorf("output mismatch:\n  stdlib: %q\n  lvt:    %q", stdlib, lvt)
 			}
 		})
+	}
+}
+
+// TestStdlibDivergence_URLWithAmpersand documents the known divergence between stdlib and
+// LiveTemplate for template.URL values containing ampersands in HTML attribute context.
+// stdlib html/template applies HTML-attribute escaping (& → &amp;) even for template.URL,
+// but LiveTemplate treats safe types as raw strings at the tree level.
+func TestStdlibDivergence_URLWithAmpersand(t *testing.T) {
+	tmplStr := `<a href="{{.Link}}">link</a>`
+	data := map[string]interface{}{"Link": template.URL("https://example.com?a=1&b=2")}
+
+	stdlib := stdlibRender(t, tmplStr, data, nil)
+	lvt := lvtRender(t, tmplStr, data, nil)
+
+	// stdlib escapes & to &amp; in attribute context
+	if stdlib != `<a href="https://example.com?a=1&amp;b=2">link</a>` {
+		t.Fatalf("unexpected stdlib output: %q", stdlib)
+	}
+
+	// LVT outputs the raw URL (known divergence)
+	if lvt != `<a href="https://example.com?a=1&b=2">link</a>` {
+		t.Fatalf("unexpected lvt output: %q", lvt)
+	}
+
+	if stdlib == lvt {
+		t.Error("expected divergence between stdlib and LVT for URL with ampersand — if they now match, this test can be converted to a parity test")
 	}
 }
 
@@ -560,25 +592,10 @@ func TestStdlibParity_NestedIfInsideRange(t *testing.T) {
 				t.Fatalf("BuildTree failed: %v", err)
 			}
 
-			if tree.Range == nil {
-				t.Fatal("expected tree to have Range data")
-			}
+			lvtOutput := renderRangeTreeToHTML(t, tree)
 
-			var lvtOutput strings.Builder
-			for _, item := range tree.Range.Items {
-				itemTree, ok := item.(*TreeNode)
-				if !ok {
-					t.Fatalf("range item is %T, want *TreeNode", item)
-				}
-				itemWithStatics := &TreeNode{
-					Statics:  tree.Range.Statics,
-					Dynamics: itemTree.Dynamics,
-				}
-				lvtOutput.WriteString(flatTreeToHTML(itemWithStatics))
-			}
-
-			if lvtOutput.String() != stdlib {
-				t.Errorf("output mismatch:\n  stdlib: %q\n  lvt:    %q", stdlib, lvtOutput.String())
+			if lvtOutput != stdlib {
+				t.Errorf("output mismatch:\n  stdlib: %q\n  lvt:    %q", stdlib, lvtOutput)
 			}
 		})
 	}
