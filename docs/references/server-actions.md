@@ -424,67 +424,7 @@ Background job completes
 
 ## Distributed Deployments
 
-In multi-instance deployments, use the `pubsub` package to synchronize server actions across instances via Redis.
-
-### PubSub Broadcaster
-
-The `pubsub.Broadcaster` interface provides cross-instance messaging:
-
-```go
-type Broadcaster interface {
-    PublishGlobal(payload []byte) error
-    PublishToGroup(groupID string, payload []byte) error
-    PublishToUser(userID string, payload []byte) error
-    PublishServerAction(userID string, action string, data map[string]interface{}) error
-    Subscribe(handler MessageHandler) error
-    SubscribeServerActions(handler ServerActionHandler) error
-    Close() error
-}
-```
-
-### Redis Setup
-
-```go
-import (
-    "time"
-
-    "github.com/livetemplate/livetemplate"
-    "github.com/livetemplate/livetemplate/pubsub"
-    "github.com/redis/go-redis/v9"
-)
-
-client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
-
-broadcaster := pubsub.NewRedisBroadcaster(client,
-    pubsub.WithReconnectDelay(5*time.Second),
-)
-defer broadcaster.Close()
-
-tmpl := livetemplate.New("app",
-    livetemplate.WithPubSubBroadcaster(broadcaster),
-)
-```
-
-With PubSub configured, `TriggerAction()` automatically publishes to Redis so all instances can update their local connections for the user:
-
-```go
-// Instance 1: User connects here
-session.TriggerAction("update", nil)
-
-// Instance 2: If user has tabs here, they also receive the update
-// (Happens transparently via Redis PubSub)
-```
-
-This happens transparently - no code changes needed in your controllers.
-
-### Broadcast Scopes
-
-| Method | Scope | Use Case |
-|--------|-------|----------|
-| `PublishGlobal(payload)` | All connections | System announcements |
-| `PublishToGroup(groupID, payload)` | Session group | Collaborative editing |
-| `PublishToUser(userID, payload)` | All user's connections | Notifications |
-| `PublishServerAction(userID, action, data)` | User's action handler | Server-initiated actions |
+In multi-instance deployments, `TriggerAction()` automatically publishes to Redis so all instances can update their local connections. See the [PubSub Reference](pubsub.md) for setup, channel schema, and subscription lifecycle.
 
 ### Deprecated Interfaces
 

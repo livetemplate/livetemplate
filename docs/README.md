@@ -18,6 +18,7 @@ Complete API references, configuration, and specifications:
 - **[Authentication](references/authentication.md)** - Authentication system and custom authenticators
 - **[Server Actions](references/server-actions.md)** - Server-initiated actions (TriggerAction API)
 - **[Session Management](references/session.md)** - Session stores and connection management
+- **[PubSub](references/pubsub.md)** - Distributed broadcasting, Redis channel schema, subscription lifecycle
 - **[Template Support Matrix](references/template-support-matrix.md)** - Supported Go template features
 - **[API Reference](references/api-reference.md)** - Kit manifest schemas and API reference
 - **[Configuration](references/CONFIGURATION.md)** - Environment variables, connection limits, WebSocket settings

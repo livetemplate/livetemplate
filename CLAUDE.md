@@ -129,6 +129,7 @@ The main `livetemplate` package provides a clean, minimal public API:
    - Broadcaster and BroadcastAware interfaces for server-initiated updates
    - WebSocket connection lifecycle management
    - Auto-broadcasting to session groups
+   - Dynamic pub/sub subscription via `DynamicSubscriber` type assertion during WebSocket setup
 
 3. **Session Stores (`session_stores.go`)**:
    - SessionStore interface for session group management
@@ -563,6 +564,20 @@ The TypeScript client is maintained in a separate repository at `github.com/live
 - For low-latency: Decrease buffer size (10-20)
 - Monitor `wsBufferFull` metric to detect backpressure
 - Use Prometheus metrics at `/metrics` endpoint for observability
+
+### PubSub / Cross-Instance Broadcasting Issues
+
+**Cross-instance messages not received:**
+- Verify `WithPubSubBroadcaster(broadcaster)` is configured
+- Check Redis connectivity; all instances must use the same Redis
+- Subscriptions are created automatically during WebSocket setup via `DynamicSubscriber` type assertion
+
+**Subscriptions lost after Redis reconnection:**
+- Should auto-recover: `reconnect()` replays all tracked channels from `subscribedChannels` map
+- Check logs for `"Reconnected successfully"` with `dynamic_channels` count
+- If `dynamic_channels=0`, no dynamic subscriptions were active
+
+**See also:** [PubSub Reference](docs/references/pubsub.md)
 
 ## Future Improvements
 - Consider adding more sophisticated diffing algorithms

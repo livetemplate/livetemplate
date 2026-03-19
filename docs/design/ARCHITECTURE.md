@@ -232,12 +232,17 @@ LiveTemplate is a reactive web framework for Go that uses tree-based DOM diffing
 
 ### Top-Level Package
 
-#### `pubsub/` — 2 files, 675 lines
+#### `pubsub/` — 2 files, 716 lines
 **Responsibility:** Redis pub/sub broadcasting for distributed deployments
 
 **Files:**
-- `redis.go` (561) - Redis-based pub/sub broadcaster
-- `types.go` (114) - Pub/sub message types and interfaces
+- `redis.go` (592) - Redis-based pub/sub broadcaster with subscription tracking and reconnect replay
+- `types.go` (124) - Pub/sub message types, `Broadcaster` interface, and `DynamicSubscriber` optional interface
+
+**Key concepts:**
+- Per-scope Redis channels provide transport-level data isolation
+- `subscribedChannels` map tracks active subscriptions for dedup and reconnect replay
+- `DynamicSubscriber` interface enables automatic subscription via type assertion in `mount.go`
 
 ## Design Decisions
 
