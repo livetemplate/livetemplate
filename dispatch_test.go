@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/go-playground/validator/v10"
 )
 
 func TestToSnakeCase(t *testing.T) {
@@ -18,12 +20,100 @@ func TestToSnakeCase(t *testing.T) {
 		{"", ""},
 		{"a", "a"},
 		{"A", "a"},
+		{"PasswordConfirmation", "password_confirmation"},
+		{"PhoneNumber", "phone_number"},
 	}
 
 	for _, tt := range tests {
 		result := toSnakeCase(tt.input)
 		if result != tt.expected {
 			t.Errorf("toSnakeCase(%q) = %q, expected %q", tt.input, result, tt.expected)
+		}
+	}
+}
+
+func TestFormatFieldName(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"", ""},
+		{"Title", "Title"},
+		{"Email", "Email"},
+		{"PhoneNumber", "Phone Number"},
+		{"PasswordConfirmation", "Password Confirmation"},
+		{"URLField", "URL Field"},
+		{"A", "A"},
+	}
+
+	for _, tt := range tests {
+		result := formatFieldName(tt.input)
+		if result != tt.expected {
+			t.Errorf("formatFieldName(%q) = %q, expected %q", tt.input, result, tt.expected)
+		}
+	}
+}
+
+func TestValidationToMultiError(t *testing.T) {
+	validate := validator.New()
+
+	type TestInput struct {
+		Email                string `validate:"required,email"`
+		Website              string `validate:"required,url"`
+		PasswordConfirmation string `validate:"required,eqfield=Password"`
+		Password             string `validate:"required,min=8"`
+	}
+
+	input := TestInput{
+		Email:                "not-an-email",
+		Website:              "not-a-url",
+		PasswordConfirmation: "short",
+		Password:             "short",
+	}
+
+	err := validate.Struct(input)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+
+	multiErr := ValidationToMultiError(err)
+
+	// Check that we got field errors
+	if len(multiErr) == 0 {
+		t.Fatal("expected at least one field error")
+	}
+
+	// Verify field names are snake_case
+	fieldMap := make(map[string]string)
+	for _, fe := range multiErr {
+		fieldMap[fe.Field] = fe.Message
+	}
+
+	// email field should use snake_case
+	if msg, ok := fieldMap["email"]; ok {
+		if msg != "Email must be a valid email address" {
+			t.Errorf("email message = %q, want %q", msg, "Email must be a valid email address")
+		}
+	}
+
+	// website field should use snake_case
+	if msg, ok := fieldMap["website"]; ok {
+		if msg != "Website must be a valid URL" {
+			t.Errorf("website message = %q, want %q", msg, "Website must be a valid URL")
+		}
+	}
+
+	// password_confirmation should use snake_case (multi-word)
+	if msg, ok := fieldMap["password_confirmation"]; ok {
+		if msg != "Password Confirmation must match Password" {
+			t.Errorf("password_confirmation message = %q, want %q", msg, "Password Confirmation must match Password")
+		}
+	}
+
+	// password should use snake_case and have min message
+	if msg, ok := fieldMap["password"]; ok {
+		if msg != "Password must be at least 8 characters" {
+			t.Errorf("password message = %q, want %q", msg, "Password must be at least 8 characters")
 		}
 	}
 }

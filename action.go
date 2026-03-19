@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/livetemplate/livetemplate/internal/send"
@@ -272,6 +273,30 @@ func (m MultiError) Error() string {
 	return strings.Join(msgs, "; ")
 }
 
+// formatFieldName converts PascalCase struct field names to human-readable display names.
+// e.g., "PhoneNumber" → "Phone Number", "URL" → "URL", "Email" → "Email"
+func formatFieldName(name string) string {
+	if name == "" {
+		return name
+	}
+	var result []rune
+	runes := []rune(name)
+	for i, r := range runes {
+		if i > 0 && unicode.IsUpper(r) {
+			// Insert space before uppercase if preceded by lowercase,
+			// or if preceded by uppercase followed by lowercase (e.g., "URLField" → "URL Field")
+			prev := runes[i-1]
+			if unicode.IsLower(prev) {
+				result = append(result, ' ')
+			} else if unicode.IsUpper(prev) && i+1 < len(runes) && unicode.IsLower(runes[i+1]) {
+				result = append(result, ' ')
+			}
+		}
+		result = append(result, r)
+	}
+	return string(result)
+}
+
 // ValidationToMultiError converts go-playground/validator errors to MultiError
 func ValidationToMultiError(err error) MultiError {
 	var fieldErrors MultiError
@@ -282,27 +307,32 @@ func ValidationToMultiError(err error) MultiError {
 	}
 
 	for _, e := range validationErrs {
-		// Convert struct field name (e.g., "Title") to lowercase to match HTML form input names (e.g., "title")
-		// HTML input names are typically lowercase, but struct fields are PascalCase
+		// Convert struct field name (e.g., "PasswordConfirmation") to snake_case
+		// to match HTML form input names (e.g., "password_confirmation")
 		structFieldName := e.Field()
-		formFieldName := strings.ToLower(structFieldName)
+		formFieldName := toSnakeCase(structFieldName)
+		displayName := formatFieldName(structFieldName)
 
 		var message string
 		switch e.Tag() {
 		case "required":
-			message = fmt.Sprintf("%s is required", structFieldName)
+			message = fmt.Sprintf("%s is required", displayName)
 		case "min":
-			message = fmt.Sprintf("%s must be at least %s characters", structFieldName, e.Param())
+			message = fmt.Sprintf("%s must be at least %s characters", displayName, e.Param())
 		case "max":
-			message = fmt.Sprintf("%s must be at most %s characters", structFieldName, e.Param())
+			message = fmt.Sprintf("%s must be at most %s characters", displayName, e.Param())
 		case "email":
-			message = fmt.Sprintf("%s must be a valid email", structFieldName)
+			message = fmt.Sprintf("%s must be a valid email address", displayName)
+		case "url":
+			message = fmt.Sprintf("%s must be a valid URL", displayName)
+		case "eqfield":
+			message = fmt.Sprintf("%s must match %s", displayName, formatFieldName(e.Param()))
 		default:
-			message = fmt.Sprintf("%s is invalid", structFieldName)
+			message = fmt.Sprintf("%s is invalid", displayName)
 		}
 
 		fieldErrors = append(fieldErrors, FieldError{
-			Field:   formFieldName, // Use lowercase to match HTML input names
+			Field:   formFieldName, // Use snake_case to match HTML input names
 			Message: message,
 		})
 	}
