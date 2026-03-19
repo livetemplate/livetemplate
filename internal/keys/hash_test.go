@@ -60,6 +60,25 @@ func TestGenerateItemHash_EmptyDynamics(t *testing.T) {
 	}
 }
 
+func TestGenerateItemHash_UnhashableFallback(t *testing.T) {
+	// Values that json.Marshal cannot serialize use a deterministic type-based fallback
+	// instead of %v (which includes non-deterministic pointer addresses).
+	ch := make(chan int)
+	d1 := map[string]interface{}{"0": ch}
+	d2 := map[string]interface{}{"0": ch}
+
+	hash1 := GenerateItemHash(d1)
+	hash2 := GenerateItemHash(d2)
+
+	if hash1 != hash2 {
+		t.Errorf("Unhashable fallback should be deterministic, got: %v and %v", hash1, hash2)
+	}
+
+	if hash1 == "" {
+		t.Error("Unhashable values should still produce a non-empty hash")
+	}
+}
+
 func TestGenerateItemHash_FieldOrderIndependence(t *testing.T) {
 	d1 := map[string]interface{}{"0": "a", "1": "b", "2": "c"}
 	d2 := map[string]interface{}{"2": "c", "0": "a", "1": "b"}

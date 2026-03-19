@@ -19,20 +19,20 @@ const (
 // Uses FNV-1a hash for fast, non-cryptographic content fingerprinting.
 // The "_k" key is excluded from hashing since it is the auto-generated key itself.
 func GenerateItemHash(dynamics map[string]interface{}) string {
-	keys := make([]string, 0, len(dynamics))
+	dynKeys := make([]string, 0, len(dynamics))
 	for k := range dynamics {
 		if k != "_k" {
-			keys = append(keys, k)
+			dynKeys = append(dynKeys, k)
 		}
 	}
-	sort.Strings(keys)
+	sort.Strings(dynKeys)
 
 	var parts []string
-	for _, k := range keys {
+	for _, k := range dynKeys {
 		val := dynamics[k]
 		valJSON, err := json.Marshal(val)
 		if err != nil {
-			parts = append(parts, fmt.Sprintf("%s:%v", k, val))
+			parts = append(parts, fmt.Sprintf("%s:<unhashable:%T>", k, val))
 		} else {
 			parts = append(parts, fmt.Sprintf("%s:%s", k, string(valJSON)))
 		}
