@@ -130,7 +130,7 @@ func TestRedisBroadcaster_SubscribeAndReceive(t *testing.T) {
 	}
 
 	// Wait for message with timeout
-	done := make(chan bool)
+	done := make(chan bool, 1)
 	go func() {
 		received.Wait()
 		done <- true
@@ -270,7 +270,7 @@ func TestRedisBroadcaster_GroupBroadcast(t *testing.T) {
 	}
 
 	// Wait for message with timeout
-	done := make(chan bool)
+	done := make(chan bool, 1)
 	go func() {
 		received.Wait()
 		done <- true
@@ -355,7 +355,7 @@ func TestRedisBroadcaster_UserBroadcast(t *testing.T) {
 	}
 
 	// Wait for message with timeout
-	done := make(chan bool)
+	done := make(chan bool, 1)
 	go func() {
 		received.Wait()
 		done <- true
@@ -438,7 +438,7 @@ func TestRedisBroadcaster_MultipleSubscribers(t *testing.T) {
 	}
 
 	// Wait for messages with timeout
-	done := make(chan bool)
+	done := make(chan bool, 1)
 	go func() {
 		received.Wait()
 		done <- true
@@ -761,7 +761,7 @@ func TestRedisBroadcaster_CrossInstanceGroupBroadcast(t *testing.T) {
 		t.Fatalf("PublishToGroup failed: %v", err)
 	}
 
-	done := make(chan bool)
+	done := make(chan bool, 1)
 	go func() {
 		received.Wait()
 		done <- true
@@ -782,5 +782,74 @@ func TestRedisBroadcaster_CrossInstanceGroupBroadcast(t *testing.T) {
 	}
 	if receivedMsg.GroupID != "tenant-42" {
 		t.Errorf("Expected GroupID='tenant-42', got '%s'", receivedMsg.GroupID)
+	}
+}
+
+func TestRedisBroadcaster_UnsubscribedGroupNotReceived(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
+
+	publisher := NewRedisBroadcaster(client)
+	defer func() {
+		if err := publisher.Close(); err != nil {
+			t.Errorf("Failed to close publisher: %v", err)
+		}
+	}()
+
+	subscriber := NewRedisBroadcaster(client)
+	defer func() {
+		if err := subscriber.Close(); err != nil {
+			t.Errorf("Failed to close subscriber: %v", err)
+		}
+	}()
+
+	var mu sync.Mutex
+	var received []*BroadcastMessage
+
+	go func() {
+		if err := subscriber.Subscribe(func(msg *BroadcastMessage) error {
+			mu.Lock()
+			received = append(received, msg)
+			mu.Unlock()
+			return nil
+		}); err != nil {
+			t.Errorf("Subscribe failed: %v", err)
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Subscribe to group-A only, NOT group-B
+	if err := subscriber.SubscribeToGroup("group-A"); err != nil {
+		t.Fatalf("SubscribeToGroup failed: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Publish to group-B (subscriber should NOT receive this)
+	if err := publisher.PublishToGroup("group-B", []byte(`{"test": "should-not-arrive"}`)); err != nil {
+		t.Fatalf("PublishToGroup failed: %v", err)
+	}
+
+	// Publish to group-A (subscriber should receive this)
+	if err := publisher.PublishToGroup("group-A", []byte(`{"test": "should-arrive"}`)); err != nil {
+		t.Fatalf("PublishToGroup failed: %v", err)
+	}
+
+	// Wait for messages to propagate
+	time.Sleep(500 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(received) != 1 {
+		t.Fatalf("Expected 1 message (group-A only), got %d", len(received))
+	}
+	if received[0].GroupID != "group-A" {
+		t.Errorf("Expected GroupID='group-A', got '%s'", received[0].GroupID)
 	}
 }
