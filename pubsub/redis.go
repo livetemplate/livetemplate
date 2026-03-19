@@ -287,85 +287,31 @@ func (b *RedisBroadcaster) SubscribeServerActions(handler ServerActionHandler) e
 }
 
 // SubscribeToServerAction subscribes to server actions for a specific user.
-//
-// This is called dynamically when a user connects.
 func (b *RedisBroadcaster) SubscribeToServerAction(userID string) error {
 	if userID == "" {
 		return fmt.Errorf("userID cannot be empty")
 	}
-
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if b.closed {
-		return fmt.Errorf("broadcaster is closed")
-	}
-
-	if b.pubsub == nil {
-		return fmt.Errorf("not subscribed")
-	}
-
-	channel := channelServerAction + userID
-	if _, exists := b.subscribedChannels[channel]; exists {
-		return nil
-	}
-
-	if err := b.pubsub.Subscribe(b.ctx, channel); err != nil {
-		return fmt.Errorf("failed to subscribe to server action channel: %w", err)
-	}
-
-	b.subscribedChannels[channel] = struct{}{}
-
-	slog.Info("Subscribed to server action channel",
-		slog.String("component", "redis_broadcaster"),
-		slog.String("channel", channel))
-	return nil
+	return b.subscribeTo(channelServerAction+userID, "server action")
 }
 
 // SubscribeToGroup subscribes to broadcasts for a specific group.
-//
-// This is called dynamically when connections join a group.
 func (b *RedisBroadcaster) SubscribeToGroup(groupID string) error {
 	if groupID == "" {
 		return fmt.Errorf("groupID cannot be empty")
 	}
-
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if b.closed {
-		return fmt.Errorf("broadcaster is closed")
-	}
-
-	if b.pubsub == nil {
-		return fmt.Errorf("not subscribed")
-	}
-
-	channel := channelGroup + groupID
-	if _, exists := b.subscribedChannels[channel]; exists {
-		return nil
-	}
-
-	if err := b.pubsub.Subscribe(b.ctx, channel); err != nil {
-		return fmt.Errorf("failed to subscribe to group channel: %w", err)
-	}
-
-	b.subscribedChannels[channel] = struct{}{}
-
-	slog.Info("Subscribed to group channel",
-		slog.String("component", "redis_broadcaster"),
-		slog.String("channel", channel))
-	return nil
+	return b.subscribeTo(channelGroup+groupID, "group")
 }
 
 // SubscribeToUser subscribes to broadcasts for a specific user.
-//
-// This is called dynamically when a user connects.
 func (b *RedisBroadcaster) SubscribeToUser(userID string) error {
 	if userID == "" {
 		return fmt.Errorf("userID cannot be empty")
 	}
+	return b.subscribeTo(channelUser+userID, "user")
+}
 
+// subscribeTo subscribes to a Redis channel with dedup. Caller must validate the ID is non-empty.
+func (b *RedisBroadcaster) subscribeTo(channel, label string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -377,18 +323,17 @@ func (b *RedisBroadcaster) SubscribeToUser(userID string) error {
 		return fmt.Errorf("not subscribed")
 	}
 
-	channel := channelUser + userID
 	if _, exists := b.subscribedChannels[channel]; exists {
 		return nil
 	}
 
 	if err := b.pubsub.Subscribe(b.ctx, channel); err != nil {
-		return fmt.Errorf("failed to subscribe to user channel: %w", err)
+		return fmt.Errorf("failed to subscribe to %s channel: %w", label, err)
 	}
 
 	b.subscribedChannels[channel] = struct{}{}
 
-	slog.Info("Subscribed to user channel",
+	slog.Info("Subscribed to "+label+" channel",
 		slog.String("component", "redis_broadcaster"),
 		slog.String("channel", channel))
 	return nil
@@ -584,6 +529,7 @@ func (b *RedisBroadcaster) Close() error {
 		}
 		b.pubsub = nil
 	}
+	b.subscribedChannels = nil
 
 	slog.Info("Closed",
 		slog.String("component", "redis_broadcaster"),

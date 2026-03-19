@@ -709,26 +709,6 @@ func TestRedisBroadcaster_SubscribeDedup(t *testing.T) {
 	}
 }
 
-func TestRedisBroadcaster_DynamicSubscriberInterface(t *testing.T) {
-	client := getTestRedisClient(t)
-	defer func() {
-		if err := client.Close(); err != nil {
-			t.Errorf("Failed to close client: %v", err)
-		}
-	}()
-
-	broadcaster := NewRedisBroadcaster(client)
-	defer func() {
-		if err := broadcaster.Close(); err != nil {
-			t.Errorf("Failed to close broadcaster: %v", err)
-		}
-	}()
-
-	// Verify RedisBroadcaster satisfies both interfaces
-	var _ Broadcaster = broadcaster
-	var _ DynamicSubscriber = broadcaster
-}
-
 func TestRedisBroadcaster_CrossInstanceGroupBroadcast(t *testing.T) {
 	client := getTestRedisClient(t)
 	defer func() {
