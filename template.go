@@ -220,20 +220,22 @@ type TemplateSet struct {
 // It provides an API similar to html/template.Template but with additional ExecuteUpdates method
 // for generating tree-based updates that can be efficiently transmitted to clients.
 type Template struct {
-	name           string
-	templateStr    string
-	tmpl           *template.Template
-	wrapperID      string
-	funcs          template.FuncMap
-	mu             sync.RWMutex // Protects mutable state fields below
-	lastData       interface{}
-	lastHTML       string
-	lastTree       *treeNode // Store previous tree segments for comparison
-	initialTree    *treeNode
-	hasInitialTree bool
-	keyGen         *keyGenerator // Per-template key generation for wrapper approach
-	config         Config        // Template configuration
-	uploadRegistry interface{}   // Upload registry for this connection (*upload.Registry)
+	name                string
+	templateStr         string
+	tmpl                *template.Template
+	wrapperID           string
+	funcs               template.FuncMap
+	mu                  sync.RWMutex // Protects mutable state fields below
+	lastData            interface{}
+	lastHTML            string
+	lastTree            *treeNode // Store previous tree segments for comparison
+	initialTree         *treeNode
+	hasInitialTree      bool
+	keyGen              *keyGenerator   // Per-template key generation for wrapper approach
+	config              Config          // Template configuration
+	uploadRegistry      interface{}     // Upload registry for this connection (*upload.Registry)
+	cachedParseTemplate *parse.Template // Cached AST to avoid re-parsing on every render
+	cachedBodyContent   string          // Cached result of ExtractTemplateBodyContent(t.templateStr)
 }
 
 // Funcs registers a template.FuncMap that will be applied to all template parsing and execution.
@@ -255,6 +257,7 @@ func (t *Template) Funcs(funcMap template.FuncMap) *Template {
 	if t.tmpl != nil {
 		t.tmpl = t.tmpl.Funcs(t.funcs)
 	}
+	t.cachedParseTemplate = nil // Invalidate cached AST since funcMap changed
 	t.mu.Unlock()
 
 	return t
@@ -1271,41 +1274,40 @@ func (t *Template) generateTreeInternalWithErrors(data interface{}, messages map
 }
 
 // generateInitialTreeWithoutRegistry creates tree with statics and dynamics for first render.
+// extractedContent is the pre-extracted HTML content (from wrapper extraction in buildTree).
 // NOTE: This method modifies template state. Caller must hold t.mu write lock.
-func (t *Template) generateInitialTreeWithoutRegistry(html string, data interface{}) (*treeNode, error) {
-	// Extract content from wrapper if we have one
-	var contentToAnalyze string
-	if t.wrapperID != "" {
-		contentToAnalyze = compat.ExtractTemplateContent(html, t.wrapperID)
-	} else {
-		contentToAnalyze = html
-	}
+func (t *Template) generateInitialTreeWithoutRegistry(html string, data interface{}, extractedContent string) (*treeNode, error) {
+	contentToAnalyze := extractedContent
 
 	// Get the template source (with {{}} placeholders)
-	// We need the template source, not rendered HTML, so parseTemplateToTree can identify dynamics
-	var templateContent string
-	if t.wrapperID != "" {
-		// For templates with <body> tags, extract body content
-		// For templates without <body> tags (including flattened templates), use template as-is
-		bodyContent := compat.ExtractTemplateBodyContent(t.templateStr)
-		// extractTemplateBodyContent returns the full template if no <body> tag found
-		// So we can use it directly - it will be the flattened template content without wrapper
-
-		// Don't strip scripts - they may contain template logic like {{if .DevMode}}
-		// that needs to be parsed correctly
-		templateContent = bodyContent
-	} else {
-		templateContent = t.templateStr
+	if t.cachedBodyContent == "" {
+		if t.wrapperID != "" {
+			t.cachedBodyContent = compat.ExtractTemplateBodyContent(t.templateStr)
+		} else {
+			t.cachedBodyContent = t.templateStr
+		}
 	}
+	templateContent := t.cachedBodyContent
 
-	// Use the original parser - it maintains the correct invariant and handles dynamics properly
-	// First render: create context that includes all statics
 	ctx := build.NewContext()
 	ctx.FuncMap = t.funcs
 	ctx.DevMode = t.config.DevMode
-	tree, err := compat.ParseTemplateToTree(t.name, templateContent, data, t.keyGen, ctx)
+
+	var tree *treeNode
+	var err error
+
+	if t.cachedParseTemplate != nil {
+		tree, err = compat.BuildTreeFromCached(t.cachedParseTemplate, data, t.keyGen, ctx)
+	} else {
+		var parsedTmpl *parse.Template
+		parsedTmpl, err = compat.ParseAndCacheTemplate(templateContent, t.funcs)
+		if err == nil {
+			t.cachedParseTemplate = parsedTmpl
+			tree, err = compat.BuildTreeFromCached(parsedTmpl, data, t.keyGen, ctx)
+		}
+	}
+
 	if err != nil {
-		// parseTemplateToTree failed, falling back to HTML structure
 		slog.Warn("Template parsing failed, falling back to HTML structure-based tree",
 			slog.String("template", t.name),
 			slog.Any("error", err))
@@ -1326,7 +1328,53 @@ func (t *Template) generateInitialTreeWithoutRegistry(html string, data interfac
 // generateDiffBasedTree creates tree based on diff analysis
 // NOTE: This method modifies template state. Caller must hold t.mu write lock.
 func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newData interface{}) (*treeNode, error) {
-	// Extract content from wrapper if we have one for proper comparison
+	// Generate new complete tree for comparison
+	if t.hasInitialTree {
+		// MAIN PATH: tree generation uses t.templateStr, not extracted HTML
+		// No html.Parse() extraction needed on this path
+		if t.cachedBodyContent == "" {
+			if t.wrapperID != "" {
+				t.cachedBodyContent = compat.ExtractTemplateBodyContent(t.templateStr)
+			} else {
+				t.cachedBodyContent = t.templateStr
+			}
+		}
+		templateContent := t.cachedBodyContent
+
+		ctx := build.NewContext()
+		ctx.FuncMap = t.funcs
+		ctx.DevMode = t.config.DevMode
+
+		var newTree *treeNode
+		var err error
+
+		if t.cachedParseTemplate != nil {
+			newTree, err = compat.BuildTreeFromCached(t.cachedParseTemplate, newData, t.keyGen, ctx)
+		} else {
+			var parsedTmpl *parse.Template
+			parsedTmpl, err = compat.ParseAndCacheTemplate(templateContent, t.funcs)
+			if err == nil {
+				t.cachedParseTemplate = parsedTmpl
+				newTree, err = compat.BuildTreeFromCached(parsedTmpl, newData, t.keyGen, ctx)
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("tree generation failed: %w", err)
+		}
+
+		changedTree := t.compareTreesAndGetChanges(t.lastTree, newTree)
+
+		if !changedTree.HasStatics() && !changedTree.HasDynamics() && !changedTree.HasRange() {
+			return build.NewTreeNode(), nil
+		}
+
+		t.lastData = newData
+		t.lastTree = newTree
+
+		return changedTree, nil
+	}
+
+	// FALLBACK PATH: extract lazily (rare - only when hasInitialTree is false)
 	var oldContent, newContent string
 	if t.wrapperID != "" {
 		oldContent = compat.ExtractTemplateContent(oldHTML, t.wrapperID)
@@ -1336,49 +1384,11 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 		newContent = newHTML
 	}
 
-	// Generate new complete tree for comparison
-	if t.hasInitialTree {
-		// Generate complete tree with current data using the template instance's keyGen
-		// to ensure consistent key mapping across renders
-		// Don't strip scripts - they may contain template logic
-		bodyContent := compat.ExtractTemplateBodyContent(t.templateStr)
-		templateContent := bodyContent
-
-		// IMPORTANT: Always generate trees WITH statics for comparison purposes
-		// The stripping happens in compareTreesAndGetChanges, not here
-		// Using nil context defaults to including statics
-		ctx := build.NewContext()
-		ctx.FuncMap = t.funcs
-		ctx.DevMode = t.config.DevMode
-		newTree, err := compat.ParseTemplateToTree(t.name, templateContent, newData, t.keyGen, ctx)
-		if err != nil {
-			return nil, fmt.Errorf("tree generation failed: %w", err)
-		}
-
-		// Compare trees and get only changed dynamics
-		// This function will strip statics appropriately based on client state
-		changedTree := t.compareTreesAndGetChanges(t.lastTree, newTree)
-
-		// If no changes, return empty TreeNode
-		if !changedTree.HasStatics() && !changedTree.HasDynamics() && !changedTree.HasRange() {
-			return build.NewTreeNode(), nil
-		}
-
-		// Update cached state for next comparison
-		t.lastData = newData
-		t.lastHTML = newContent
-		t.lastTree = newTree
-
-		return changedTree, nil
-	}
-
-	// Fallback to analyzing the change (shouldn't happen after first render)
 	tree, err := build.AnalyzeChangeAndCreateTree(oldContent, newContent)
 	if err != nil {
 		return nil, err
 	}
 
-	// Update cached state AFTER successful tree generation (use extracted content)
 	t.lastData = newData
 	t.lastHTML = newContent
 
@@ -1622,7 +1632,7 @@ func (t *Template) buildTree(data interface{}, messages map[string]string) (*tre
 
 		t.lastData = dataWithLvt
 		t.lastHTML = contentToCache
-		tree, treeErr = t.generateInitialTreeWithoutRegistry(currentHTML, dataWithLvt)
+		tree, treeErr = t.generateInitialTreeWithoutRegistry(currentHTML, dataWithLvt, contentToCache)
 	} else {
 		// Subsequent renders - use diffing approach
 		tree, treeErr = t.generateDiffBasedTree(t.lastHTML, currentHTML, t.lastData, dataWithLvt)

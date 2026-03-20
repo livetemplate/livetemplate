@@ -39,6 +39,20 @@ func newEvaluator(funcMap htmltemplate.FuncMap) *evaluator {
 	return &evaluator{builtins: builtins}
 }
 
+// PrecomputeBuiltins merges cachedBuiltins with the user-supplied FuncMap
+// into a single map that can be reused across renders, eliminating per-render
+// map allocation in newEvaluator.
+func PrecomputeBuiltins(funcMap htmltemplate.FuncMap) map[string]reflect.Value {
+	merged := make(map[string]reflect.Value, len(cachedBuiltins)+len(funcMap))
+	for name, fn := range cachedBuiltins {
+		merged[name] = fn
+	}
+	for name, fn := range funcMap {
+		merged[name] = reflect.ValueOf(fn)
+	}
+	return merged
+}
+
 // evalPipe evaluates a pipeline, threading results between commands.
 // dot is the current context; data is the root data.
 // Returns the raw value (not HTML-escaped).

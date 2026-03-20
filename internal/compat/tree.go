@@ -2,6 +2,7 @@ package compat
 
 import (
 	"fmt"
+	htmltemplate "html/template"
 
 	"github.com/livetemplate/livetemplate/internal/build"
 	"github.com/livetemplate/livetemplate/internal/keys"
@@ -137,6 +138,35 @@ func ParseTemplateToTree(templateName, templateStr string, data interface{}, key
 
 	// Build tree using internal/parse package
 	// Create adapter for keyGenerator to match parse.KeyGenerator interface
+	keyGenAdapter := &keyGeneratorAdapter{kg: keyGen}
+	return parse.BuildTree(tmpl, data, keyGenAdapter, genCtx)
+}
+
+// ParseAndCacheTemplate parses a template string into a reusable *parse.Template
+// that can be passed to BuildTreeFromCached on subsequent renders to skip re-parsing.
+func ParseAndCacheTemplate(templateStr string, funcMap htmltemplate.FuncMap) (*parse.Template, error) {
+	return parse.Parse(templateStr, funcMap)
+}
+
+// BuildTreeFromCached builds a tree from a previously parsed template, skipping
+// the parse step entirely. This avoids re-parsing the same template on every render.
+func BuildTreeFromCached(tmpl *parse.Template, data interface{}, keyGen *KeyGenerator, ctx ...*build.Context) (tree *build.TreeNode, err error) {
+	var genCtx *build.Context
+	if len(ctx) > 0 {
+		genCtx = ctx[0]
+	}
+	if genCtx == nil {
+		genCtx = build.NewContext()
+	}
+
+	if !genCtx.DevMode {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("template execution panic: %v", r)
+			}
+		}()
+	}
+
 	keyGenAdapter := &keyGeneratorAdapter{kg: keyGen}
 	return parse.BuildTree(tmpl, data, keyGenAdapter, genCtx)
 }
