@@ -220,22 +220,23 @@ type TemplateSet struct {
 // It provides an API similar to html/template.Template but with additional ExecuteUpdates method
 // for generating tree-based updates that can be efficiently transmitted to clients.
 type Template struct {
-	name                string
-	templateStr         string
-	tmpl                *template.Template
-	wrapperID           string
-	funcs               template.FuncMap
-	mu                  sync.RWMutex // Protects mutable state fields below
-	lastData            interface{}
-	lastHTML            string
-	lastTree            *treeNode // Store previous tree segments for comparison
-	initialTree         *treeNode
-	hasInitialTree      bool
-	keyGen              *keyGenerator   // Per-template key generation for wrapper approach
-	config              Config          // Template configuration
-	uploadRegistry      interface{}     // Upload registry for this connection (*upload.Registry)
-	cachedParseTemplate *parse.Template // Cached AST to avoid re-parsing on every render
-	cachedBodyContent   string          // Cached result of ExtractTemplateBodyContent(t.templateStr)
+	name                   string
+	templateStr            string
+	tmpl                   *template.Template
+	wrapperID              string
+	funcs                  template.FuncMap
+	mu                     sync.RWMutex // Protects mutable state fields below
+	lastData               interface{}
+	lastHTML               string
+	lastTree               *treeNode // Store previous tree segments for comparison
+	initialTree            *treeNode
+	hasInitialTree         bool
+	keyGen                 *keyGenerator   // Per-template key generation for wrapper approach
+	config                 Config          // Template configuration
+	uploadRegistry         interface{}     // Upload registry for this connection (*upload.Registry)
+	cachedParseTemplate    *parse.Template // Cached AST to avoid re-parsing on every render
+	cachedBodyContent      string          // Cached result of ExtractTemplateBodyContent(t.templateStr)
+	cachedBodyContentValid bool            // Whether cachedBodyContent has been computed (empty string is valid)
 }
 
 // Funcs registers a template.FuncMap that will be applied to all template parsing and execution.
@@ -1013,6 +1014,9 @@ func (t *Template) parseInternal(text string, baseTemplate *template.Template, i
 	// Store the template text for tree generation (flattened if it had composition)
 	t.templateStr = text
 	t.tmpl = tmpl
+	t.cachedParseTemplate = nil // Invalidate cached AST when template source changes
+	t.cachedBodyContent = ""    // Invalidate cached body content
+	t.cachedBodyContentValid = false
 
 	// Validate that tree generation works with this template
 	// This ensures templates with {{define}}/{{block}} are caught during initialization
@@ -1273,45 +1277,50 @@ func (t *Template) generateTreeInternalWithErrors(data interface{}, messages map
 	return t.buildTree(data, messages)
 }
 
-// generateInitialTreeWithoutRegistry creates tree with statics and dynamics for first render.
-// extractedContent is the pre-extracted HTML content (from wrapper extraction in buildTree).
-// NOTE: This method modifies template state. Caller must hold t.mu write lock.
-func (t *Template) generateInitialTreeWithoutRegistry(html string, data interface{}, extractedContent string) (*treeNode, error) {
-	contentToAnalyze := extractedContent
-
-	// Get the template source (with {{}} placeholders)
-	if t.cachedBodyContent == "" {
+// getOrComputeBodyContent returns the cached body content, computing it on first call.
+// Caller must hold t.mu write lock.
+func (t *Template) getOrComputeBodyContent() string {
+	if !t.cachedBodyContentValid {
 		if t.wrapperID != "" {
 			t.cachedBodyContent = compat.ExtractTemplateBodyContent(t.templateStr)
 		} else {
 			t.cachedBodyContent = t.templateStr
 		}
+		t.cachedBodyContentValid = true
 	}
-	templateContent := t.cachedBodyContent
+	return t.cachedBodyContent
+}
 
+// buildTreeWithCache builds a tree using the cached parse template, parsing on first call.
+// Caller must hold t.mu write lock.
+func (t *Template) buildTreeWithCache(data interface{}, ctx *build.Context) (*treeNode, error) {
+	if t.cachedParseTemplate == nil {
+		templateContent := t.getOrComputeBodyContent()
+		parsedTmpl, err := compat.ParseAndCacheTemplate(templateContent, t.funcs)
+		if err != nil {
+			return nil, err
+		}
+		t.cachedParseTemplate = parsedTmpl
+	}
+	// ctx.FuncMap is set by callers but not used here — builtins were pre-computed
+	// at parse time and stored on cachedParseTemplate (see PrecomputeBuiltins).
+	return compat.BuildTreeFromCached(t.cachedParseTemplate, data, t.keyGen, ctx)
+}
+
+// generateInitialTreeWithoutRegistry creates tree with statics and dynamics for first render.
+// extractedContent is the pre-extracted HTML content (from wrapper extraction in buildTree).
+// NOTE: This method modifies template state. Caller must hold t.mu write lock.
+func (t *Template) generateInitialTreeWithoutRegistry(_ string, data interface{}, extractedContent string) (*treeNode, error) {
 	ctx := build.NewContext()
 	ctx.FuncMap = t.funcs
 	ctx.DevMode = t.config.DevMode
 
-	var tree *treeNode
-	var err error
-
-	if t.cachedParseTemplate != nil {
-		tree, err = compat.BuildTreeFromCached(t.cachedParseTemplate, data, t.keyGen, ctx)
-	} else {
-		var parsedTmpl *parse.Template
-		parsedTmpl, err = compat.ParseAndCacheTemplate(templateContent, t.funcs)
-		if err == nil {
-			t.cachedParseTemplate = parsedTmpl
-			tree, err = compat.BuildTreeFromCached(parsedTmpl, data, t.keyGen, ctx)
-		}
-	}
-
+	tree, err := t.buildTreeWithCache(data, ctx)
 	if err != nil {
 		slog.Warn("Template parsing failed, falling back to HTML structure-based tree",
 			slog.String("template", t.name),
 			slog.Any("error", err))
-		tree = build.CreateHTMLStructureBasedTree(contentToAnalyze)
+		tree = build.CreateHTMLStructureBasedTree(extractedContent)
 	}
 
 	// Cache the initial structure for future dynamics-only updates
@@ -1330,34 +1339,13 @@ func (t *Template) generateInitialTreeWithoutRegistry(html string, data interfac
 func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newData interface{}) (*treeNode, error) {
 	// Generate new complete tree for comparison
 	if t.hasInitialTree {
-		// MAIN PATH: tree generation uses t.templateStr, not extracted HTML
-		// No html.Parse() extraction needed on this path
-		if t.cachedBodyContent == "" {
-			if t.wrapperID != "" {
-				t.cachedBodyContent = compat.ExtractTemplateBodyContent(t.templateStr)
-			} else {
-				t.cachedBodyContent = t.templateStr
-			}
-		}
-		templateContent := t.cachedBodyContent
-
+		// MAIN PATH: tree generation uses t.templateStr, not extracted HTML.
+		// No html.Parse() extraction needed on this path.
 		ctx := build.NewContext()
 		ctx.FuncMap = t.funcs
 		ctx.DevMode = t.config.DevMode
 
-		var newTree *treeNode
-		var err error
-
-		if t.cachedParseTemplate != nil {
-			newTree, err = compat.BuildTreeFromCached(t.cachedParseTemplate, newData, t.keyGen, ctx)
-		} else {
-			var parsedTmpl *parse.Template
-			parsedTmpl, err = compat.ParseAndCacheTemplate(templateContent, t.funcs)
-			if err == nil {
-				t.cachedParseTemplate = parsedTmpl
-				newTree, err = compat.BuildTreeFromCached(parsedTmpl, newData, t.keyGen, ctx)
-			}
-		}
+		newTree, err := t.buildTreeWithCache(newData, ctx)
 		if err != nil {
 			return nil, fmt.Errorf("tree generation failed: %w", err)
 		}

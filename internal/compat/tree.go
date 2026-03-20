@@ -150,11 +150,8 @@ func ParseAndCacheTemplate(templateStr string, funcMap htmltemplate.FuncMap) (*p
 
 // BuildTreeFromCached builds a tree from a previously parsed template, skipping
 // the parse step entirely. This avoids re-parsing the same template on every render.
-func BuildTreeFromCached(tmpl *parse.Template, data interface{}, keyGen *KeyGenerator, ctx ...*build.Context) (tree *build.TreeNode, err error) {
-	var genCtx *build.Context
-	if len(ctx) > 0 {
-		genCtx = ctx[0]
-	}
+func BuildTreeFromCached(tmpl *parse.Template, data interface{}, keyGen *KeyGenerator, ctx *build.Context) (tree *build.TreeNode, err error) {
+	genCtx := ctx
 	if genCtx == nil {
 		genCtx = build.NewContext()
 	}

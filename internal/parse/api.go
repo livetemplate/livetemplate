@@ -30,7 +30,7 @@ func Parse(templateStr string, funcMap template.FuncMap) (*Template, error) {
 	return &Template{
 		name:     parsed.Name(),
 		ast:      parsed.Tree,
-		builtins: PrecomputeBuiltins(funcMap),
+		builtins: precomputeBuiltins(funcMap),
 	}, nil
 }
 
