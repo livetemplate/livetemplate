@@ -66,7 +66,7 @@ func buildDataMapWithContext(data interface{}, lvtContext *TemplateContext) inte
 			}
 
 			if field.Name == TemplateContextKey {
-				slog.Warn("struct field shadows LiveTemplate 'lvt' namespace and will be overwritten",
+				slog.Warn("struct field shadows LiveTemplate 'lvt' namespace and will be skipped",
 					slog.String("field", field.Name),
 					slog.String("type", typ.Name()))
 				continue
@@ -83,7 +83,7 @@ func buildDataMapWithContext(data interface{}, lvtContext *TemplateContext) inte
 		for _, key := range val.MapKeys() {
 			keyStr := key.String()
 			if keyStr == TemplateContextKey {
-				slog.Warn("map key shadows LiveTemplate 'lvt' namespace and will be overwritten",
+				slog.Warn("map key shadows LiveTemplate 'lvt' namespace and will be skipped",
 					slog.String("key", keyStr))
 			}
 			if keyStr != TemplateContextKey {

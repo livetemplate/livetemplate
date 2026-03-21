@@ -20,6 +20,10 @@ const (
 	// KeyDynamicPosition is the map key where item IDs are stored
 	// in the dynamics structure of range item maps.
 	KeyDynamicPosition = "0"
+
+	// keyDynamicIndex is the integer equivalent of KeyDynamicPosition,
+	// used by the PositionGetter fast path for direct slice access.
+	keyDynamicIndex = 0
 )
 
 // DefaultKeyAttributes are the default HTML attributes searched for item keys.
@@ -126,7 +130,7 @@ func (kg *Generator) LoadExistingKeys(oldRangeData []interface{}) error {
 
 		case PositionGetter:
 			// Direct slice access — avoids constructing a map via GetDynamics()
-			if keyValue, exists := v.GetDynamic(0); exists {
+			if keyValue, exists := v.GetDynamic(keyDynamicIndex); exists {
 				if str, ok := keyValue.(string); ok {
 					keyStr = str
 				}

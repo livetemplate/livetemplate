@@ -4,6 +4,7 @@ import (
 	"text/template/parse"
 )
 
+// Shared sentinel — assign to tree.Statics only; never mutate elements directly.
 var defaultFieldStatics = []string{"", ""}
 
 // createSingleDynamicTree creates a tree node with a single dynamic value at position 0.
