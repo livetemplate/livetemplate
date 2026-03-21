@@ -1310,9 +1310,8 @@ func (t *Template) buildTreeWithCache(data interface{}, ctx *build.Context) (*tr
 // generateInitialTreeWithoutRegistry creates tree with statics and dynamics for first render.
 // extractedContent is the pre-extracted HTML content (from wrapper extraction in buildTree).
 // NOTE: This method modifies template state. Caller must hold t.mu write lock.
-func (t *Template) generateInitialTreeWithoutRegistry(_ string, data interface{}, extractedContent string) (*treeNode, error) {
+func (t *Template) generateInitialTreeWithoutRegistry(data interface{}, extractedContent string) (*treeNode, error) {
 	ctx := build.NewContext()
-	ctx.FuncMap = t.funcs
 	ctx.DevMode = t.config.DevMode
 
 	tree, err := t.buildTreeWithCache(data, ctx)
@@ -1342,7 +1341,6 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 		// MAIN PATH: tree generation uses t.templateStr, not extracted HTML.
 		// No html.Parse() extraction needed on this path.
 		ctx := build.NewContext()
-		ctx.FuncMap = t.funcs
 		ctx.DevMode = t.config.DevMode
 
 		newTree, err := t.buildTreeWithCache(newData, ctx)
@@ -1620,7 +1618,7 @@ func (t *Template) buildTree(data interface{}, messages map[string]string) (*tre
 
 		t.lastData = dataWithLvt
 		t.lastHTML = contentToCache
-		tree, treeErr = t.generateInitialTreeWithoutRegistry(currentHTML, dataWithLvt, contentToCache)
+		tree, treeErr = t.generateInitialTreeWithoutRegistry(dataWithLvt, contentToCache)
 	} else {
 		// Subsequent renders - use diffing approach
 		tree, treeErr = t.generateDiffBasedTree(t.lastHTML, currentHTML, t.lastData, dataWithLvt)

@@ -35,15 +35,11 @@ func Parse(templateStr string, funcMap template.FuncMap) (*Template, error) {
 }
 
 // BuildTree constructs a tree structure from the parsed AST and data.
+// tmpl.builtins is always set by Parse() via precomputeBuiltins.
 func BuildTree(tmpl *Template, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	if ctx == nil {
 		ctx = &Context{}
 	}
-	var eval *evaluator
-	if tmpl.builtins != nil {
-		eval = &evaluator{builtins: tmpl.builtins}
-	} else {
-		eval = newEvaluator(ctx.FuncMap)
-	}
+	eval := &evaluator{builtins: tmpl.builtins}
 	return walkAST(tmpl.ast.Root, eval, data, nil, keyGen, ctx)
 }
