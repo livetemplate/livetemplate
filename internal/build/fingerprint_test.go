@@ -20,12 +20,12 @@ import (
 func TestCalculateStructureFingerprint_SameStaticsDifferentDynamics(t *testing.T) {
 	tree1 := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "hello"},
+		Dynamics: []interface{}{"hello"},
 	}
 
 	tree2 := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "world"},
+		Dynamics: []interface{}{"world"},
 	}
 
 	sfp1 := CalculateStructureFingerprint(tree1)
@@ -41,12 +41,12 @@ func TestCalculateStructureFingerprint_SameStaticsDifferentDynamics(t *testing.T
 func TestCalculateStructureFingerprint_DifferentStatics(t *testing.T) {
 	tree1 := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "value"},
+		Dynamics: []interface{}{"value"},
 	}
 
 	tree2 := &TreeNode{
 		Statics:  []string{"<span>", "</span>"},
-		Dynamics: map[string]interface{}{"0": "value"},
+		Dynamics: []interface{}{"value"},
 	}
 
 	sfp1 := CalculateStructureFingerprint(tree1)
@@ -62,12 +62,12 @@ func TestCalculateStructureFingerprint_DifferentStatics(t *testing.T) {
 func TestCalculateStructureFingerprint_DifferentDynamicPositions(t *testing.T) {
 	tree1 := &TreeNode{
 		Statics:  []string{"<div>", "", "</div>"},
-		Dynamics: map[string]interface{}{"0": "a", "1": "b"},
+		Dynamics: []interface{}{"a", "b"},
 	}
 
 	tree2 := &TreeNode{
 		Statics:  []string{"<div>", "", "</div>"},
-		Dynamics: map[string]interface{}{"0": "x"}, // Only one dynamic
+		Dynamics: []interface{}{"x"}, // Only one dynamic
 	}
 
 	sfp1 := CalculateStructureFingerprint(tree1)
@@ -83,20 +83,20 @@ func TestCalculateStructureFingerprint_DifferentDynamicPositions(t *testing.T) {
 func TestCalculateStructureFingerprint_NestedTreesSameStructure(t *testing.T) {
 	tree1 := &TreeNode{
 		Statics: []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{
-			"0": &TreeNode{
+		Dynamics: []interface{}{
+			&TreeNode{
 				Statics:  []string{"<span>", "</span>"},
-				Dynamics: map[string]interface{}{"0": "value1"},
+				Dynamics: []interface{}{"value1"},
 			},
 		},
 	}
 
 	tree2 := &TreeNode{
 		Statics: []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{
-			"0": &TreeNode{
+		Dynamics: []interface{}{
+			&TreeNode{
 				Statics:  []string{"<span>", "</span>"},
-				Dynamics: map[string]interface{}{"0": "different_value"},
+				Dynamics: []interface{}{"different_value"},
 			},
 		},
 	}
@@ -114,20 +114,20 @@ func TestCalculateStructureFingerprint_NestedTreesSameStructure(t *testing.T) {
 func TestCalculateStructureFingerprint_NestedTreesDifferentStructure(t *testing.T) {
 	tree1 := &TreeNode{
 		Statics: []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{
-			"0": &TreeNode{
+		Dynamics: []interface{}{
+			&TreeNode{
 				Statics:  []string{"<span>", "</span>"},
-				Dynamics: map[string]interface{}{"0": "value"},
+				Dynamics: []interface{}{"value"},
 			},
 		},
 	}
 
 	tree2 := &TreeNode{
 		Statics: []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{
-			"0": &TreeNode{
+		Dynamics: []interface{}{
+			&TreeNode{
 				Statics:  []string{"<p>", "</p>"}, // Different nested statics
-				Dynamics: map[string]interface{}{"0": "value"},
+				Dynamics: []interface{}{"value"},
 			},
 		},
 	}
@@ -201,11 +201,11 @@ func TestCalculateStructureFingerprint_RangeSameStaticsDifferentItems(t *testing
 func TestCalculateStructureFingerprint_Deterministic(t *testing.T) {
 	tree := &TreeNode{
 		Statics: []string{"<div>", "<span>", "</span>", "</div>"},
-		Dynamics: map[string]interface{}{
-			"0": "value1",
-			"1": &TreeNode{
+		Dynamics: []interface{}{
+			"value1",
+			&TreeNode{
 				Statics:  []string{"<p>", "</p>"},
-				Dynamics: map[string]interface{}{"0": "nested"},
+				Dynamics: []interface{}{"nested"},
 			},
 		},
 	}
@@ -240,10 +240,11 @@ func TestCalculateStructureFingerprint_EmptyTree(t *testing.T) {
 func TestCalculateStructureFingerprint_CircularReference(t *testing.T) {
 	tree := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: make(map[string]interface{}),
+		Dynamics: []interface{}{nil},
 	}
 	// Create circular reference
-	tree.Dynamics["0"] = tree
+	tree.Dynamics[0] = tree
+	tree.dynamicCount = 1
 
 	// Should not panic and should produce valid fingerprint
 	sfp := CalculateStructureFingerprint(tree)
@@ -256,21 +257,15 @@ func TestCalculateStructureFingerprint_CircularReference(t *testing.T) {
 // Lexicographic Sorting Tests (10+ Keys)
 // =============================================================================
 
-// TestCalculateStructureFingerprint_LexicographicSorting10Keys tests that
-// lexicographic sorting handles 10+ keys correctly.
-// Issue: Keys "0"-"9" sort correctly, but "10", "11" may sort before "2" lexicographically.
-// This tests that the fingerprint is deterministic regardless of map iteration order.
-func TestCalculateStructureFingerprint_LexicographicSorting10Keys(t *testing.T) {
-	// Create tree with 15 dynamic keys (0-14)
-	dynamics := make(map[string]interface{})
+// TestCalculateStructureFingerprint_ManyDynamics tests that
+// fingerprinting with 15 dynamics is deterministic (slice iteration is inherently ordered).
+func TestCalculateStructureFingerprint_ManyDynamics(t *testing.T) {
+	// Create tree with 15 dynamic positions (0-14)
+	dynamics := make([]interface{}, 15)
 	for i := 0; i < 15; i++ {
-		key := string(rune('0' + i))
-		if i >= 10 {
-			key = "1" + string(rune('0'+i-10))
-		}
-		dynamics[key] = &TreeNode{
+		dynamics[i] = &TreeNode{
 			Statics:  []string{"<span>", "</span>"},
-			Dynamics: map[string]interface{}{"0": "nested"},
+			Dynamics: []interface{}{"nested"},
 		}
 	}
 
@@ -293,40 +288,25 @@ func TestCalculateStructureFingerprint_LexicographicSorting10Keys(t *testing.T) 
 	}
 }
 
-// TestCalculateStructureFingerprint_LexicographicOrder validates correct ordering.
-// Keys: "0", "1", "10", "11", "2", "3"... should sort consistently.
-func TestCalculateStructureFingerprint_LexicographicOrder(t *testing.T) {
-	// Tree with keys that lexicographically sort differently than numerically
+// TestCalculateStructureFingerprint_SliceOrder validates that identically-constructed
+// slice-based dynamics produce consistent fingerprints.
+func TestCalculateStructureFingerprint_SliceOrder(t *testing.T) {
+	// Two trees with the same dynamics in the same slice positions
 	tree1 := &TreeNode{
-		Statics: []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{
-			"0":  "val0",
-			"1":  "val1",
-			"10": "val10",
-			"11": "val11",
-			"2":  "val2",
-			"9":  "val9",
-		},
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: []interface{}{"val0", "val1", "val2", nil, nil, nil, nil, nil, nil, "val9", "val10", "val11"},
 	}
 
-	// Same tree, constructed in different order (should produce same fingerprint)
 	tree2 := &TreeNode{
-		Statics: []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{
-			"9":  "val9",
-			"2":  "val2",
-			"11": "val11",
-			"10": "val10",
-			"1":  "val1",
-			"0":  "val0",
-		},
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: []interface{}{"val0", "val1", "val2", nil, nil, nil, nil, nil, nil, "val9", "val10", "val11"},
 	}
 
 	fp1 := CalculateStructureFingerprint(tree1)
 	fp2 := CalculateStructureFingerprint(tree2)
 
 	if fp1 != fp2 {
-		t.Error("Same tree with different construction order should produce same fingerprint")
+		t.Error("Identically constructed trees should produce same fingerprint")
 	}
 }
 
@@ -337,16 +317,16 @@ func TestCalculateStructureFingerprint_LexicographicOrder(t *testing.T) {
 func createBenchTreeSmall() *TreeNode {
 	return &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "value"},
+		Dynamics: []interface{}{"value"},
 	}
 }
 
 func createBenchTreeMedium() *TreeNode {
-	dynamics := make(map[string]interface{})
+	dynamics := make([]interface{}, 20)
 	for i := 0; i < 20; i++ {
-		dynamics[string(rune('a'+i))] = &TreeNode{
+		dynamics[i] = &TreeNode{
 			Statics:  []string{"<span>", "</span>"},
-			Dynamics: map[string]interface{}{"0": "nested"},
+			Dynamics: []interface{}{"nested"},
 		}
 	}
 	return &TreeNode{
@@ -356,13 +336,13 @@ func createBenchTreeMedium() *TreeNode {
 }
 
 func createBenchTreeLarge() *TreeNode {
-	dynamics := make(map[string]interface{})
+	dynamics := make([]interface{}, 100)
 	for i := 0; i < 100; i++ {
-		nested := make(map[string]interface{})
+		nested := make([]interface{}, 5)
 		for j := 0; j < 5; j++ {
-			nested[string(rune('0'+j))] = "value"
+			nested[j] = "value"
 		}
-		dynamics[string(rune('a'+i%26))+string(rune('0'+i/26))] = &TreeNode{
+		dynamics[i] = &TreeNode{
 			Statics:  []string{"<span>", "</span>"},
 			Dynamics: nested,
 		}
@@ -377,14 +357,12 @@ func createBenchTreeDeepNested(depth int) *TreeNode {
 	if depth == 0 {
 		return &TreeNode{
 			Statics:  []string{"<span>", "</span>"},
-			Dynamics: map[string]interface{}{"0": "leaf"},
+			Dynamics: []interface{}{"leaf"},
 		}
 	}
 	return &TreeNode{
-		Statics: []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{
-			"0": createBenchTreeDeepNested(depth - 1),
-		},
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: []interface{}{createBenchTreeDeepNested(depth - 1)},
 	}
 }
 
@@ -393,7 +371,8 @@ func createBenchRangeTree(itemCount int) *TreeNode {
 	for i := 0; i < itemCount; i++ {
 		items[i] = &TreeNode{
 			Statics:  []string{"<li>", "</li>"},
-			Dynamics: map[string]interface{}{"0": "item", "_k": i},
+			Dynamics: []interface{}{"item"},
+			AutoKey:  strconv.Itoa(i),
 		}
 	}
 	return &TreeNode{
@@ -513,9 +492,9 @@ func TestFingerprintStress_DeepNesting(t *testing.T) {
 }
 
 func TestFingerprintStress_WideTree(t *testing.T) {
-	dynamics := make(map[string]interface{})
+	dynamics := make([]interface{}, 10000)
 	for i := 0; i < 10000; i++ {
-		dynamics[strconv.Itoa(i)] = "value"
+		dynamics[i] = "value"
 	}
 	tree := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
@@ -555,7 +534,7 @@ func TestFingerprintStress_ConcurrentCompute(t *testing.T) {
 func TestFingerprintStress_CacheCoherency(t *testing.T) {
 	tree := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "value"},
+		Dynamics: []interface{}{"value"},
 	}
 
 	fp1 := tree.GetStructureFingerprint()
@@ -579,11 +558,11 @@ func TestFingerprintStress_IndependentTreeEquivalence(t *testing.T) {
 	buildTree := func() *TreeNode {
 		return &TreeNode{
 			Statics: []string{"<div class=\"test\">", "<span>", "</span>", "</div>"},
-			Dynamics: map[string]interface{}{
-				"0": "value",
-				"1": &TreeNode{
+			Dynamics: []interface{}{
+				"value",
+				&TreeNode{
 					Statics:  []string{"<p>", "</p>"},
-					Dynamics: map[string]interface{}{"0": "nested"},
+					Dynamics: []interface{}{"nested"},
 				},
 			},
 		}
@@ -603,10 +582,8 @@ func TestFingerprintStress_NoDuplicatesIn10kStructures(t *testing.T) {
 
 	for i := 0; i < count; i++ {
 		tree := &TreeNode{
-			Statics: []string{"<div class=\"c" + strconv.Itoa(i) + "\">", "</div>"},
-			Dynamics: map[string]interface{}{
-				"0": "value",
-			},
+			Statics:  []string{"<div class=\"c" + strconv.Itoa(i) + "\">", "</div>"},
+			Dynamics: []interface{}{"value"},
 		}
 		fp := CalculateStructureFingerprint(tree)
 		if prev, exists := seen[fp]; exists {

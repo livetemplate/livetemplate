@@ -47,7 +47,7 @@ func AnalyzeChangeAndCreateTree(oldHTML, newHTML string) (*TreeNode, error) {
 	if commonPrefix != "" || commonSuffix != "" {
 		dynamicPart := newHTML[changeStart:changeEnd]
 		tree := NewTreeNodeWithStatics([]string{commonPrefix, commonSuffix})
-		tree.SetDynamic("0", render.MinifyHTML(dynamicPart))
+		tree.SetDynamic(0, render.MinifyHTML(dynamicPart))
 		return tree, nil
 	}
 

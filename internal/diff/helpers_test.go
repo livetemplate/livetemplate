@@ -15,7 +15,7 @@ func TestIsEmpty_AllTypes(t *testing.T) {
 	}{
 		{"empty TreeNode", &TreeNode{}, true},
 		{"TreeNode with statics", &TreeNode{Statics: []string{"<div>"}}, false},
-		{"TreeNode with dynamics", &TreeNode{Dynamics: map[string]interface{}{"0": "val"}}, false},
+		{"TreeNode with dynamics", &TreeNode{Dynamics: []interface{}{"val"}}, false},
 		{"TreeNode with range", &TreeNode{Range: &RangeData{Items: []interface{}{}}}, false},
 		{"empty string", "", true},
 		{"non-empty string", "hello", false},
@@ -195,21 +195,17 @@ func TestContainsRangeConstruct(t *testing.T) {
 		{
 			name: "nested range in dynamics",
 			value: &TreeNode{
-				Dynamics: map[string]interface{}{
-					"0": &TreeNode{
-						Range:   &RangeData{Items: []interface{}{}},
-						Statics: []string{"<li>", "</li>"},
-					},
-				},
+				Dynamics: []interface{}{&TreeNode{
+					Range:   &RangeData{Items: []interface{}{}},
+					Statics: []string{"<li>", "</li>"},
+				}},
 			},
 			want: true,
 		},
 		{
 			name: "no range construct",
 			value: &TreeNode{
-				Dynamics: map[string]interface{}{
-					"0": "value",
-				},
+				Dynamics: []interface{}{"value"},
 			},
 			want: false,
 		},
@@ -272,10 +268,7 @@ func TestFindKeyPositionFromStatics(t *testing.T) {
 // TestGetItemKey tests item key extraction.
 func TestGetItemKey(t *testing.T) {
 	item := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "item-id-123",
-			"1": "Name",
-		},
+		Dynamics: []interface{}{"item-id-123", "Name"},
 	}
 
 	statics := []string{"<li>", "</li>"}
@@ -299,24 +292,15 @@ func TestGetItemKey(t *testing.T) {
 // TestGenerateItemHash tests item hashing.
 func TestGenerateItemHash(t *testing.T) {
 	item1 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "value1",
-			"1": "value2",
-		},
+		Dynamics: []interface{}{"value1", "value2"},
 	}
 
 	item2 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "value1",
-			"1": "value2",
-		},
+		Dynamics: []interface{}{"value1", "value2"},
 	}
 
 	item3 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "different",
-			"1": "values",
-		},
+		Dynamics: []interface{}{"different", "values"},
 	}
 
 	hash1 := GenerateItemHash(item1)
@@ -342,9 +326,9 @@ func TestGenerateItemHash(t *testing.T) {
 // TestExtractItemKeys tests extracting keys from items array.
 func TestExtractItemKeys(t *testing.T) {
 	items := []interface{}{
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id1", "1": "Name1"}},
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id2", "1": "Name2"}},
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id3", "1": "Name3"}},
+		&TreeNode{Dynamics: []interface{}{"id1", "Name1"}},
+		&TreeNode{Dynamics: []interface{}{"id2", "Name2"}},
+		&TreeNode{Dynamics: []interface{}{"id3", "Name3"}},
 	}
 
 	// Include data-key attribute so explicit keys are detected at position 0
@@ -369,16 +353,10 @@ func TestDetectPositionField(t *testing.T) {
 			name: "items with position field (string pattern #0, #1)",
 			itemsByKey: map[string]interface{}{
 				"id1": &TreeNode{
-					Dynamics: map[string]interface{}{
-						"0": "id1",
-						"1": "#0", // Position pattern
-					},
+					Dynamics: []interface{}{"id1", "#0"},
 				},
 				"id2": &TreeNode{
-					Dynamics: map[string]interface{}{
-						"0": "id2",
-						"1": "#1", // Position pattern
-					},
+					Dynamics: []interface{}{"id2", "#1"},
 				},
 			},
 			want: "1",
@@ -387,10 +365,7 @@ func TestDetectPositionField(t *testing.T) {
 			name: "items without position field",
 			itemsByKey: map[string]interface{}{
 				"id1": &TreeNode{
-					Dynamics: map[string]interface{}{
-						"0": "id1",
-						"1": "name1",
-					},
+					Dynamics: []interface{}{"id1", "name1"},
 				},
 			},
 			want: "",
@@ -409,8 +384,8 @@ func TestDetectPositionField(t *testing.T) {
 
 // TestIsPureReordering tests pure reordering detection.
 func TestIsPureReordering(t *testing.T) {
-	item1 := &TreeNode{Dynamics: map[string]interface{}{"0": "id1", "1": "Name1"}}
-	item2 := &TreeNode{Dynamics: map[string]interface{}{"0": "id2", "1": "Name2"}}
+	item1 := &TreeNode{Dynamics: []interface{}{"id1", "Name1"}}
+	item2 := &TreeNode{Dynamics: []interface{}{"id2", "Name2"}}
 
 	// Include data-key attribute so explicit keys are detected at position 0
 	statics := []string{`<li data-key="`, `">`, `</li>`}
@@ -462,14 +437,14 @@ func TestIsPureReordering(t *testing.T) {
 // TestFindNewItems tests finding new items.
 func TestFindNewItems(t *testing.T) {
 	oldItems := []interface{}{
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id1"}},
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id2"}},
+		&TreeNode{Dynamics: []interface{}{"id1"}},
+		&TreeNode{Dynamics: []interface{}{"id2"}},
 	}
 
 	newItems := []interface{}{
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id1"}},
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id3"}}, // New
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id4"}}, // New
+		&TreeNode{Dynamics: []interface{}{"id1"}},
+		&TreeNode{Dynamics: []interface{}{"id3"}}, // New
+		&TreeNode{Dynamics: []interface{}{"id4"}}, // New
 	}
 
 	// Include data-key attribute so explicit keys are detected at position 0
@@ -517,12 +492,12 @@ func TestAreAllItemsAtEnd(t *testing.T) {
 			name:    "all items at end",
 			newKeys: []string{"new1", "new2"},
 			oldItems: []interface{}{
-				&TreeNode{Dynamics: map[string]interface{}{"0": "old1"}},
+				&TreeNode{Dynamics: []interface{}{"old1"}},
 			},
 			newItems: []interface{}{
-				&TreeNode{Dynamics: map[string]interface{}{"0": "old1"}},
-				&TreeNode{Dynamics: map[string]interface{}{"0": "new1"}},
-				&TreeNode{Dynamics: map[string]interface{}{"0": "new2"}},
+				&TreeNode{Dynamics: []interface{}{"old1"}},
+				&TreeNode{Dynamics: []interface{}{"new1"}},
+				&TreeNode{Dynamics: []interface{}{"new2"}},
 			},
 			want: true,
 		},
@@ -530,11 +505,11 @@ func TestAreAllItemsAtEnd(t *testing.T) {
 			name:    "items not at end",
 			newKeys: []string{"new1"},
 			oldItems: []interface{}{
-				&TreeNode{Dynamics: map[string]interface{}{"0": "old1"}},
+				&TreeNode{Dynamics: []interface{}{"old1"}},
 			},
 			newItems: []interface{}{
-				&TreeNode{Dynamics: map[string]interface{}{"0": "new1"}},
-				&TreeNode{Dynamics: map[string]interface{}{"0": "old1"}},
+				&TreeNode{Dynamics: []interface{}{"new1"}},
+				&TreeNode{Dynamics: []interface{}{"old1"}},
 			},
 			want: false,
 		},
@@ -565,11 +540,11 @@ func TestIsComplexInsertionPattern(t *testing.T) {
 			name:    "simple append (not complex)",
 			newKeys: []string{"new1"},
 			oldItems: []interface{}{
-				&TreeNode{Dynamics: map[string]interface{}{"0": "old1"}},
+				&TreeNode{Dynamics: []interface{}{"old1"}},
 			},
 			newItems: []interface{}{
-				&TreeNode{Dynamics: map[string]interface{}{"0": "old1"}},
-				&TreeNode{Dynamics: map[string]interface{}{"0": "new1"}},
+				&TreeNode{Dynamics: []interface{}{"old1"}},
+				&TreeNode{Dynamics: []interface{}{"new1"}},
 			},
 			want: false,
 		},
@@ -577,11 +552,11 @@ func TestIsComplexInsertionPattern(t *testing.T) {
 			name:    "simple prepend (not complex)",
 			newKeys: []string{"new1"},
 			oldItems: []interface{}{
-				&TreeNode{Dynamics: map[string]interface{}{"0": "old1"}},
+				&TreeNode{Dynamics: []interface{}{"old1"}},
 			},
 			newItems: []interface{}{
-				&TreeNode{Dynamics: map[string]interface{}{"0": "new1"}},
-				&TreeNode{Dynamics: map[string]interface{}{"0": "old1"}},
+				&TreeNode{Dynamics: []interface{}{"new1"}},
+				&TreeNode{Dynamics: []interface{}{"old1"}},
 			},
 			want: false,
 		},
@@ -602,7 +577,7 @@ func TestGetRangeSignature(t *testing.T) {
 	rangeValue := &TreeNode{
 		Range: &RangeData{
 			Items: []interface{}{
-				&TreeNode{Dynamics: map[string]interface{}{"0": "id1"}},
+				&TreeNode{Dynamics: []interface{}{"id1"}},
 			},
 		},
 		Statics: []string{"<li>", "</li>"},
@@ -625,12 +600,10 @@ func TestGetRangeSignature(t *testing.T) {
 // TestFindRangeConstructs tests finding range constructs in tree.
 func TestFindRangeConstructs(t *testing.T) {
 	tree := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": &TreeNode{
-				Range:   &RangeData{Items: []interface{}{}},
-				Statics: []string{"<li>", "</li>"},
-			},
-		},
+		Dynamics: []interface{}{&TreeNode{
+			Range:   &RangeData{Items: []interface{}{}},
+			Statics: []string{"<li>", "</li>"},
+		}},
 	}
 
 	ranges := FindRangeConstructs(tree)
@@ -643,21 +616,17 @@ func TestFindRangeConstructs(t *testing.T) {
 // TestFindRangeConstructMatches tests matching range constructs between trees.
 func TestFindRangeConstructMatches(t *testing.T) {
 	oldTree := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": &TreeNode{
-				Range:   &RangeData{Items: []interface{}{}},
-				Statics: []string{"<li>", "</li>"},
-			},
-		},
+		Dynamics: []interface{}{&TreeNode{
+			Range:   &RangeData{Items: []interface{}{}},
+			Statics: []string{"<li>", "</li>"},
+		}},
 	}
 
 	newTree := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": &TreeNode{
-				Range:   &RangeData{Items: []interface{}{}},
-				Statics: []string{"<li>", "</li>"},
-			},
-		},
+		Dynamics: []interface{}{&TreeNode{
+			Range:   &RangeData{Items: []interface{}{}},
+			Statics: []string{"<li>", "</li>"},
+		}},
 	}
 
 	matches := FindRangeConstructMatches(oldTree, newTree)
@@ -675,7 +644,7 @@ func TestGenerateItemHash_Consistency(t *testing.T) {
 	}{
 		{
 			name: "empty dynamics",
-			item: &TreeNode{Dynamics: map[string]interface{}{}},
+			item: &TreeNode{Dynamics: nil},
 		},
 		{
 			name: "nil dynamics",
@@ -684,10 +653,7 @@ func TestGenerateItemHash_Consistency(t *testing.T) {
 		{
 			name: "with reserved key",
 			item: &TreeNode{
-				Dynamics: map[string]interface{}{
-					"_k": "reserved-key",
-					"0":  "value1",
-				},
+				Dynamics: []interface{}{"value1"}, AutoKey: "reserved-key",
 			},
 		},
 	}
@@ -720,17 +686,11 @@ func TestGenerateItemHash_Collisions(t *testing.T) {
 	// Test that different content produces different hashes
 	t.Run("different content produces different hashes", func(t *testing.T) {
 		item1 := &TreeNode{
-			Dynamics: map[string]interface{}{
-				"0": "value1",
-				"1": "value2",
-			},
+			Dynamics: []interface{}{"value1", "value2"},
 		}
 
 		item2 := &TreeNode{
-			Dynamics: map[string]interface{}{
-				"0": "different",
-				"1": "values",
-			},
+			Dynamics: []interface{}{"different", "values"},
 		}
 
 		hash1 := GenerateItemHash(item1)
@@ -749,11 +709,7 @@ func TestGenerateItemHash_Collisions(t *testing.T) {
 
 		for i := 0; i < numItems; i++ {
 			item := &TreeNode{
-				Dynamics: map[string]interface{}{
-					"0": fmt.Sprintf("id-%d", i),
-					"1": fmt.Sprintf("name-%d", i),
-					"2": i,
-				},
+				Dynamics: []interface{}{fmt.Sprintf("id-%d", i), fmt.Sprintf("name-%d", i), i},
 			}
 
 			hash := GenerateItemHash(item)
@@ -778,19 +734,7 @@ func TestGenerateItemHash_Collisions(t *testing.T) {
 	// Test with large TreeNode structures
 	t.Run("large structures produce stable hashes", func(t *testing.T) {
 		largeItem := &TreeNode{
-			Dynamics: map[string]interface{}{
-				"0":  "id",
-				"1":  "name",
-				"2":  "description",
-				"3":  123,
-				"4":  456.789,
-				"5":  true,
-				"6":  []interface{}{"a", "b", "c"},
-				"7":  map[string]interface{}{"key": "value"},
-				"8":  "long text content that extends beyond normal field sizes",
-				"9":  []interface{}{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
-				"10": map[string]interface{}{"nested": map[string]interface{}{"deep": "value"}},
-			},
+			Dynamics: []interface{}{"id", "name", "description", 123, 456.789, true, []interface{}{"a", "b", "c"}, map[string]interface{}{"key": "value"}, "long text content that extends beyond normal field sizes", []interface{}{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, map[string]interface{}{"nested": map[string]interface{}{"deep": "value"}}},
 		}
 
 		// Hash should be stable even with large content
@@ -814,19 +758,11 @@ func TestGenerateItemHash_Collisions(t *testing.T) {
 	// Test field order independence (should be deterministic due to sorting)
 	t.Run("field order independence", func(t *testing.T) {
 		item1 := &TreeNode{
-			Dynamics: map[string]interface{}{
-				"0": "a",
-				"1": "b",
-				"2": "c",
-			},
+			Dynamics: []interface{}{"a", "b", "c"},
 		}
 
 		item2 := &TreeNode{
-			Dynamics: map[string]interface{}{
-				"2": "c",
-				"0": "a",
-				"1": "b",
-			},
+			Dynamics: []interface{}{"a", "b", "c"},
 		}
 
 		hash1 := GenerateItemHash(item1)
@@ -923,9 +859,9 @@ func TestAreAllItemsAtStart_TreeNode(t *testing.T) {
 			name:    "TreeNode items at start",
 			newKeys: []string{"new1", "new2"},
 			newItems: []interface{}{
-				&TreeNode{Dynamics: map[string]interface{}{"0": "new1"}},
-				&TreeNode{Dynamics: map[string]interface{}{"0": "new2"}},
-				&TreeNode{Dynamics: map[string]interface{}{"0": "old1"}},
+				&TreeNode{Dynamics: []interface{}{"new1"}},
+				&TreeNode{Dynamics: []interface{}{"new2"}},
+				&TreeNode{Dynamics: []interface{}{"old1"}},
 			},
 			want: true,
 		},
@@ -933,8 +869,8 @@ func TestAreAllItemsAtStart_TreeNode(t *testing.T) {
 			name:    "TreeNode items not at start",
 			newKeys: []string{"new1"},
 			newItems: []interface{}{
-				&TreeNode{Dynamics: map[string]interface{}{"0": "old1"}},
-				&TreeNode{Dynamics: map[string]interface{}{"0": "new1"}},
+				&TreeNode{Dynamics: []interface{}{"old1"}},
+				&TreeNode{Dynamics: []interface{}{"new1"}},
 			},
 			want: false,
 		},
@@ -978,11 +914,11 @@ func TestIsComplexInsertionPattern_EdgeCases(t *testing.T) {
 			name:    "single insertion point",
 			newKeys: []string{"new1"},
 			oldItems: []interface{}{
-				&TreeNode{Dynamics: map[string]interface{}{"0": "old1"}},
+				&TreeNode{Dynamics: []interface{}{"old1"}},
 			},
 			newItems: []interface{}{
-				&TreeNode{Dynamics: map[string]interface{}{"0": "new1"}},
-				&TreeNode{Dynamics: map[string]interface{}{"0": "old1"}},
+				&TreeNode{Dynamics: []interface{}{"new1"}},
+				&TreeNode{Dynamics: []interface{}{"old1"}},
 			},
 			want: false,
 		},
@@ -1018,8 +954,8 @@ func TestGetItemKey_FallbackToHash(t *testing.T) {
 			name:    "no key attribute - should generate hash keys",
 			statics: []string{"<li>", "</li>"},
 			items: []*TreeNode{
-				{Dynamics: map[string]interface{}{"0": "content1"}},
-				{Dynamics: map[string]interface{}{"0": "content2"}},
+				{Dynamics: []interface{}{"content1"}},
+				{Dynamics: []interface{}{"content2"}},
 			},
 			expectHashKeys: true,
 			description:    "Without data-key/id attributes, should use content hash",
@@ -1028,8 +964,8 @@ func TestGetItemKey_FallbackToHash(t *testing.T) {
 			name:    "with data-key attribute - should use explicit key",
 			statics: []string{`<li data-key="`, `">`, `</li>`},
 			items: []*TreeNode{
-				{Dynamics: map[string]interface{}{"0": "id1", "1": "content1"}},
-				{Dynamics: map[string]interface{}{"0": "id2", "1": "content2"}},
+				{Dynamics: []interface{}{"id1", "content1"}},
+				{Dynamics: []interface{}{"id2", "content2"}},
 			},
 			expectHashKeys: false,
 			description:    "With data-key attribute, should use position 0 value",
@@ -1038,7 +974,7 @@ func TestGetItemKey_FallbackToHash(t *testing.T) {
 			name:    "with id attribute - should use explicit key",
 			statics: []string{`<li id="`, `">`, `</li>`},
 			items: []*TreeNode{
-				{Dynamics: map[string]interface{}{"0": "item-1", "1": "content"}},
+				{Dynamics: []interface{}{"item-1", "content"}},
 			},
 			expectHashKeys: false,
 			description:    "With id attribute, should use position 0 value",
@@ -1047,7 +983,7 @@ func TestGetItemKey_FallbackToHash(t *testing.T) {
 			name:    "empty statics - should generate hash keys",
 			statics: []string{},
 			items: []*TreeNode{
-				{Dynamics: map[string]interface{}{"0": "value"}},
+				{Dynamics: []interface{}{"value"}},
 			},
 			expectHashKeys: true,
 			description:    "Empty statics should fall back to hash",
@@ -1056,7 +992,7 @@ func TestGetItemKey_FallbackToHash(t *testing.T) {
 			name:    "nil statics - should generate hash keys",
 			statics: nil,
 			items: []*TreeNode{
-				{Dynamics: map[string]interface{}{"0": "value"}},
+				{Dynamics: []interface{}{"value"}},
 			},
 			expectHashKeys: true,
 			description:    "Nil statics should fall back to hash",
@@ -1089,7 +1025,7 @@ func TestGetItemKey_FallbackToHash(t *testing.T) {
 					}
 				} else {
 					// Should be the explicit key from position 0
-					expectedKey := item.Dynamics["0"].(string)
+					expectedKey := item.Dynamics[0].(string)
 					if key != expectedKey {
 						t.Errorf("Item %d: Expected explicit key %q, got %q (%s)",
 							i, expectedKey, key, tt.description)
@@ -1110,22 +1046,13 @@ func TestGetItemKey_SamePosition0DifferentContent(t *testing.T) {
 
 	// Items with same value at position 0 (CSS class) but different content
 	item1 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "active", // Same CSS class
-			"1": "Alice",  // Different name
-		},
+		Dynamics: []interface{}{"active", "Alice"},
 	}
 	item2 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "active", // Same CSS class
-			"1": "Bob",    // Different name
-		},
+		Dynamics: []interface{}{"active", "Bob"},
 	}
 	item3 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "", // Different CSS class (empty)
-			"1": "Charlie",
-		},
+		Dynamics: []interface{}{"", "Charlie"},
 	}
 
 	key1, _ := GetItemKey(item1, statics)
@@ -1158,9 +1085,9 @@ func TestExtractItemKeys_WithoutKeyAttribute(t *testing.T) {
 	statics := []string{"<li>", "</li>"}
 
 	items := []interface{}{
-		&TreeNode{Dynamics: map[string]interface{}{"0": "First item"}},
-		&TreeNode{Dynamics: map[string]interface{}{"0": "Second item"}},
-		&TreeNode{Dynamics: map[string]interface{}{"0": "Third item"}},
+		&TreeNode{Dynamics: []interface{}{"First item"}},
+		&TreeNode{Dynamics: []interface{}{"Second item"}},
+		&TreeNode{Dynamics: []interface{}{"Third item"}},
 	}
 
 	keys := ExtractItemKeys(items, statics)
@@ -1203,9 +1130,9 @@ func TestExtractItemKeys_MixedScenarios(t *testing.T) {
 			name:    "todo list without data-key",
 			statics: []string{`<div class="todo `, `">`, " - ", `</div>`},
 			items: []interface{}{
-				&TreeNode{Dynamics: map[string]interface{}{"0": "", "1": "Buy milk", "2": "2024-01-01"}},
-				&TreeNode{Dynamics: map[string]interface{}{"0": "completed", "1": "Walk dog", "2": "2024-01-02"}},
-				&TreeNode{Dynamics: map[string]interface{}{"0": "", "1": "Call mom", "2": "2024-01-03"}},
+				&TreeNode{Dynamics: []interface{}{"", "Buy milk", "2024-01-01"}},
+				&TreeNode{Dynamics: []interface{}{"completed", "Walk dog", "2024-01-02"}},
+				&TreeNode{Dynamics: []interface{}{"", "Call mom", "2024-01-03"}},
 			},
 			expectUniqueLen: 3,
 			description:     "All todos should have unique keys even with same completion status",
@@ -1214,8 +1141,8 @@ func TestExtractItemKeys_MixedScenarios(t *testing.T) {
 			name:    "items with identical content",
 			statics: []string{"<span>", "</span>"},
 			items: []interface{}{
-				&TreeNode{Dynamics: map[string]interface{}{"0": "Same"}},
-				&TreeNode{Dynamics: map[string]interface{}{"0": "Same"}},
+				&TreeNode{Dynamics: []interface{}{"Same"}},
+				&TreeNode{Dynamics: []interface{}{"Same"}},
 			},
 			expectUniqueLen: 1, // Same content = same hash = 1 unique key
 			description:     "Identical items get same hash (expected behavior)",
@@ -1224,9 +1151,9 @@ func TestExtractItemKeys_MixedScenarios(t *testing.T) {
 			name:    "table rows with ID in hidden field",
 			statics: []string{`<tr><td><input type="hidden" value="`, `"></td><td>`, `</td></tr>`},
 			items: []interface{}{
-				&TreeNode{Dynamics: map[string]interface{}{"0": "row-1", "1": "Data A"}},
-				&TreeNode{Dynamics: map[string]interface{}{"0": "row-2", "1": "Data B"}},
-				&TreeNode{Dynamics: map[string]interface{}{"0": "row-3", "1": "Data A"}}, // Same data, different ID
+				&TreeNode{Dynamics: []interface{}{"row-1", "Data A"}},
+				&TreeNode{Dynamics: []interface{}{"row-2", "Data B"}},
+				&TreeNode{Dynamics: []interface{}{"row-3", "Data A"}}, // Same data, different ID
 			},
 			expectUniqueLen: 3,
 			description:     "Rows with hidden IDs should be unique even with same visible data",
@@ -1259,12 +1186,7 @@ func TestExtractItemKeys_MixedScenarios(t *testing.T) {
 // and stable across multiple calls.
 func TestGenerateItemHash_Stability(t *testing.T) {
 	item := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "value1",
-			"1": "value2",
-			"2": 123,
-			"3": true,
-		},
+		Dynamics: []interface{}{"value1", "value2", 123, true},
 	}
 
 	// Generate hash multiple times
@@ -1285,20 +1207,12 @@ func TestGenerateItemHash_Stability(t *testing.T) {
 // affect the hash (keys are sorted before hashing).
 func TestGenerateItemHash_FieldOrderIndependence(t *testing.T) {
 	item1 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "a",
-			"1": "b",
-			"2": "c",
-		},
+		Dynamics: []interface{}{"a", "b", "c"},
 	}
 
 	// Create with different insertion order (Go maps don't guarantee order)
 	item2 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"2": "c",
-			"0": "a",
-			"1": "b",
-		},
+		Dynamics: []interface{}{"a", "b", "c"},
 	}
 
 	hash1 := GenerateItemHash(item1)

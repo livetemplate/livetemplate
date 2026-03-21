@@ -28,7 +28,7 @@ func TestVarDeclaration_Basic(t *testing.T) {
 		t.Fatalf("BuildTree error: %v", err)
 	}
 
-	d0, ok := tree.GetDynamic("0")
+	d0, ok := tree.GetDynamic(0)
 	if !ok {
 		t.Fatal("missing dynamic 0")
 	}
@@ -36,7 +36,7 @@ func TestVarDeclaration_Basic(t *testing.T) {
 		t.Errorf("dynamic 0 = %v, want hello", d0)
 	}
 
-	d1, ok := tree.GetDynamic("1")
+	d1, ok := tree.GetDynamic(1)
 	if !ok {
 		t.Fatal("missing dynamic 1")
 	}
@@ -79,7 +79,7 @@ func TestVarDeclaration_WithRange(t *testing.T) {
 		t.Fatalf("BuildTree error: %v", err)
 	}
 
-	d0, ok := tree.GetDynamic("0")
+	d0, ok := tree.GetDynamic(0)
 	if !ok {
 		t.Fatal("missing dynamic 0 (outer class)")
 	}
@@ -87,7 +87,7 @@ func TestVarDeclaration_WithRange(t *testing.T) {
 		t.Errorf("dynamic 0 = %v, want my-class", d0)
 	}
 
-	d1, ok := tree.GetDynamic("1")
+	d1, ok := tree.GetDynamic(1)
 	if !ok {
 		t.Fatal("missing dynamic 1 (range)")
 	}
@@ -109,7 +109,7 @@ func TestVarDeclaration_WithRange(t *testing.T) {
 		if !ok {
 			t.Fatalf("range item %d is not a TreeNode: %T", i, item)
 		}
-		classVal, ok := itemTree.GetDynamic("0")
+		classVal, ok := itemTree.GetDynamic(0)
 		if !ok {
 			t.Fatalf("range item %d missing dynamic 0", i)
 		}
@@ -140,7 +140,7 @@ func TestVarDeclaration_WithIf(t *testing.T) {
 		t.Fatalf("BuildTree error: %v", err)
 	}
 
-	d0, ok := tree.GetDynamic("0")
+	d0, ok := tree.GetDynamic(0)
 	if !ok {
 		t.Fatal("missing dynamic 0")
 	}
@@ -148,7 +148,7 @@ func TestVarDeclaration_WithIf(t *testing.T) {
 	if !ok {
 		t.Fatalf("dynamic 0 is not a TreeNode: %T", d0)
 	}
-	labelVal, ok := ifTree.GetDynamic("0")
+	labelVal, ok := ifTree.GetDynamic(0)
 	if !ok {
 		t.Fatal("missing if-body dynamic 0")
 	}
@@ -183,7 +183,7 @@ func TestVarDeclaration_WithWith(t *testing.T) {
 
 	// With blocks don't wrap -- their content merges into the parent tree.
 	// $c.Style and .Value should appear as direct dynamics.
-	d0, ok := tree.GetDynamic("0")
+	d0, ok := tree.GetDynamic(0)
 	if !ok {
 		t.Fatal("missing dynamic 0 (style)")
 	}
@@ -191,7 +191,7 @@ func TestVarDeclaration_WithWith(t *testing.T) {
 		t.Errorf("dynamic 0 (style) = %v, want bold", d0)
 	}
 
-	d1, ok := tree.GetDynamic("1")
+	d1, ok := tree.GetDynamic(1)
 	if !ok {
 		t.Fatal("missing dynamic 1 (value)")
 	}
@@ -228,7 +228,7 @@ func TestVarDeclaration_NestedRange(t *testing.T) {
 		t.Fatal("tree is nil")
 	}
 
-	d0, ok := tree.GetDynamic("0")
+	d0, ok := tree.GetDynamic(0)
 	if !ok {
 		t.Fatal("missing dynamic 0 (outer range)")
 	}
@@ -265,12 +265,12 @@ func TestVarDeclaration_MixedWithDot(t *testing.T) {
 		t.Fatalf("BuildTree error: %v", err)
 	}
 
-	d0, _ := tree.GetDynamic("0")
+	d0, _ := tree.GetDynamic(0)
 	if d0 != "my-id" {
 		t.Errorf("dynamic 0 (ID) = %v, want my-id", d0)
 	}
 
-	d1, _ := tree.GetDynamic("1")
+	d1, _ := tree.GetDynamic(1)
 	if d1 != "my-label" {
 		t.Errorf("dynamic 1 (Label) = %v, want my-label", d1)
 	}
@@ -296,7 +296,7 @@ func TestVarDeclaration_WithFuncMap(t *testing.T) {
 		t.Fatalf("BuildTree error: %v", err)
 	}
 
-	d0, _ := tree.GetDynamic("0")
+	d0, _ := tree.GetDynamic(0)
 	if d0 != "test" {
 		t.Errorf("dynamic 0 = %v, want test", d0)
 	}
@@ -327,7 +327,7 @@ func TestVarDeclaration_WithRangeVarDecl(t *testing.T) {
 		t.Fatal("tree is nil")
 	}
 
-	d0, ok := tree.GetDynamic("0")
+	d0, ok := tree.GetDynamic(0)
 	if !ok {
 		t.Fatal("missing dynamic 0")
 	}
@@ -349,7 +349,7 @@ func TestVarDeclaration_WithRangeVarDecl(t *testing.T) {
 		if !ok {
 			t.Fatalf("item %d not TreeNode", i)
 		}
-		styleVal, ok := itemTree.GetDynamic("0")
+		styleVal, ok := itemTree.GetDynamic(0)
 		if !ok {
 			t.Fatalf("item %d missing dynamic 0", i)
 		}

@@ -15,16 +15,10 @@ import (
 // TestGenerateRangeDifferentialOperations_NoChange tests that no operations are generated when items are identical.
 func TestGenerateRangeDifferentialOperations_NoChange(t *testing.T) {
 	item1 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id1",
-			"1": "Name 1",
-		},
+		Dynamics: []interface{}{"id1", "Name 1"},
 	}
 	item2 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id2",
-			"1": "Name 2",
-		},
+		Dynamics: []interface{}{"id2", "Name 2"},
 	}
 
 	oldValue := &TreeNode{
@@ -51,16 +45,10 @@ func TestGenerateRangeDifferentialOperations_NoChange(t *testing.T) {
 // TestGenerateRangeDifferentialOperations_PureReorder tests pure reordering without changes.
 func TestGenerateRangeDifferentialOperations_PureReorder(t *testing.T) {
 	item1 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id1",
-			"1": "Name 1",
-		},
+		Dynamics: []interface{}{"id1", "Name 1"},
 	}
 	item2 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id2",
-			"1": "Name 2",
-		},
+		Dynamics: []interface{}{"id2", "Name 2"},
 	}
 
 	statics := []string{`<li data-key="`, `">`, `</li>`}
@@ -109,22 +97,13 @@ func TestGenerateRangeDifferentialOperations_PureReorder(t *testing.T) {
 // TestGenerateRangeDifferentialOperations_Removal tests item removal operations.
 func TestGenerateRangeDifferentialOperations_Removal(t *testing.T) {
 	item1 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id1",
-			"1": "Name 1",
-		},
+		Dynamics: []interface{}{"id1", "Name 1"},
 	}
 	item2 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id2",
-			"1": "Name 2",
-		},
+		Dynamics: []interface{}{"id2", "Name 2"},
 	}
 	item3 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id3",
-			"1": "Name 3",
-		},
+		Dynamics: []interface{}{"id3", "Name 3"},
 	}
 
 	statics := []string{`<li data-key="`, `">`, `</li>`}
@@ -163,16 +142,10 @@ func TestGenerateRangeDifferentialOperations_Removal(t *testing.T) {
 // TestGenerateRangeDifferentialOperations_Update tests item update operations.
 func TestGenerateRangeDifferentialOperations_Update(t *testing.T) {
 	item1Old := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id1",
-			"1": "Old Name",
-		},
+		Dynamics: []interface{}{"id1", "Old Name"},
 	}
 	item1New := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id1",
-			"1": "New Name",
-		},
+		Dynamics: []interface{}{"id1", "New Name"},
 	}
 
 	statics := []string{`<li data-key="`, `">`, `</li>`}
@@ -220,16 +193,10 @@ func TestGenerateRangeDifferentialOperations_Update(t *testing.T) {
 // TestGenerateRangeDifferentialOperations_Insertion tests item insertion (append).
 func TestGenerateRangeDifferentialOperations_Insertion(t *testing.T) {
 	item1 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id1",
-			"1": "Name 1",
-		},
+		Dynamics: []interface{}{"id1", "Name 1"},
 	}
 	item2 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id2",
-			"1": "Name 2",
-		},
+		Dynamics: []interface{}{"id2", "Name 2"},
 	}
 
 	statics := []string{`<li data-key="`, `">`, `</li>`}
@@ -268,34 +235,19 @@ func TestGenerateRangeDifferentialOperations_Insertion(t *testing.T) {
 // TestGenerateRangeDifferentialOperations_Mixed tests mixed operations (removal + update + insertion).
 func TestGenerateRangeDifferentialOperations_Mixed(t *testing.T) {
 	item1 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id1",
-			"1": "Name 1",
-		},
+		Dynamics: []interface{}{"id1", "Name 1"},
 	}
 	item2Old := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id2",
-			"1": "Old Name",
-		},
+		Dynamics: []interface{}{"id2", "Old Name"},
 	}
 	item2New := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id2",
-			"1": "New Name",
-		},
+		Dynamics: []interface{}{"id2", "New Name"},
 	}
 	item3 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id3",
-			"1": "Name 3",
-		},
+		Dynamics: []interface{}{"id3", "Name 3"},
 	}
 	item4 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id4",
-			"1": "Name 4",
-		},
+		Dynamics: []interface{}{"id4", "Name 4"},
 	}
 
 	statics := []string{`<li data-key="`, `">`, `</li>`}
@@ -354,10 +306,7 @@ func TestGenerateRangeDifferentialOperations_Mixed(t *testing.T) {
 // TestGenerateRangeDifferentialOperations_EmptyToItems tests transition from empty to items.
 func TestGenerateRangeDifferentialOperations_EmptyToItems(t *testing.T) {
 	item1 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id1",
-			"1": "Name 1",
-		},
+		Dynamics: []interface{}{"id1", "Name 1"},
 	}
 
 	statics := []string{`<li data-key="`, `">`, `</li>`}
@@ -402,10 +351,7 @@ func TestGenerateRangeDifferentialOperations_EmptyToItems(t *testing.T) {
 // TestGenerateRangeDifferentialOperations_ItemsToEmpty tests transition from items to empty.
 func TestGenerateRangeDifferentialOperations_ItemsToEmpty(t *testing.T) {
 	item1 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id1",
-			"1": "Name 1",
-		},
+		Dynamics: []interface{}{"id1", "Name 1"},
 	}
 
 	statics := []string{`<li data-key="`, `">`, `</li>`}
@@ -444,16 +390,10 @@ func TestGenerateRangeDifferentialOperations_ItemsToEmpty(t *testing.T) {
 // TestGenerateRangeDifferentialOperations_StripStatics tests static stripping when stripStatics=true.
 func TestGenerateRangeDifferentialOperations_StripStatics(t *testing.T) {
 	item1 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id1",
-			"1": "Name 1",
-		},
+		Dynamics: []interface{}{"id1", "Name 1"},
 	}
 	item2 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id2",
-			"1": "Name 2",
-		},
+		Dynamics: []interface{}{"id2", "Name 2"},
 	}
 
 	statics := []string{`<li data-key="`, `">`, `</li>`}
@@ -509,9 +449,7 @@ func TestGenerateRangeDifferentialOperations_StripStatics(t *testing.T) {
 // TestExtractRangeData_TreeNode tests extracting range data from TreeNode.
 func TestExtractRangeData_TreeNode(t *testing.T) {
 	item1 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id1",
-		},
+		Dynamics: []interface{}{"id1"},
 	}
 
 	statics := []string{`<li data-key="`, `">`, `</li>`}
@@ -572,7 +510,7 @@ func TestExtractRangeData_EmptyToItems(t *testing.T) {
 		Statics: statics, // New statics for items
 		Range: &RangeData{
 			Items: []interface{}{
-				&TreeNode{Dynamics: map[string]interface{}{"0": "id1"}},
+				&TreeNode{Dynamics: []interface{}{"id1"}},
 			},
 		},
 	}
@@ -588,14 +526,14 @@ func TestExtractRangeData_EmptyToItems(t *testing.T) {
 // TestGenerateRemovalOperations tests removal operation generation.
 func TestGenerateRemovalOperations(t *testing.T) {
 	oldItems := []interface{}{
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id1"}},
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id2"}},
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id3"}},
+		&TreeNode{Dynamics: []interface{}{"id1"}},
+		&TreeNode{Dynamics: []interface{}{"id2"}},
+		&TreeNode{Dynamics: []interface{}{"id3"}},
 	}
 
 	newItems := []interface{}{
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id1"}},
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id3"}},
+		&TreeNode{Dynamics: []interface{}{"id1"}},
+		&TreeNode{Dynamics: []interface{}{"id3"}},
 	}
 
 	statics := []string{`<li data-key="`, `">`, `</li>`}
@@ -622,11 +560,11 @@ func TestGenerateRemovalOperations(t *testing.T) {
 // TestGenerateUpdateOperations tests update operation generation.
 func TestGenerateUpdateOperations(t *testing.T) {
 	oldItems := []interface{}{
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id1", "1": "Old"}},
+		&TreeNode{Dynamics: []interface{}{"id1", "Old"}},
 	}
 
 	newItems := []interface{}{
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id1", "1": "New"}},
+		&TreeNode{Dynamics: []interface{}{"id1", "New"}},
 	}
 
 	statics := []string{`<li data-key="`, `">`, `</li>`}
@@ -662,12 +600,12 @@ func TestGenerateUpdateOperations(t *testing.T) {
 // TestGenerateInsertionOperations_Prepend tests prepend insertion.
 func TestGenerateInsertionOperations_Prepend(t *testing.T) {
 	oldItems := []interface{}{
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id2"}},
+		&TreeNode{Dynamics: []interface{}{"id2"}},
 	}
 
 	newItems := []interface{}{
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id1"}},
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id2"}},
+		&TreeNode{Dynamics: []interface{}{"id1"}},
+		&TreeNode{Dynamics: []interface{}{"id2"}},
 	}
 
 	statics := []string{`<li data-key="`, `">`, `</li>`}
@@ -693,12 +631,12 @@ func TestGenerateInsertionOperations_Prepend(t *testing.T) {
 // TestGenerateInsertionOperations_Append tests append insertion.
 func TestGenerateInsertionOperations_Append(t *testing.T) {
 	oldItems := []interface{}{
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id1"}},
+		&TreeNode{Dynamics: []interface{}{"id1"}},
 	}
 
 	newItems := []interface{}{
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id1"}},
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id2"}},
+		&TreeNode{Dynamics: []interface{}{"id1"}},
+		&TreeNode{Dynamics: []interface{}{"id2"}},
 	}
 
 	statics := []string{`<li data-key="`, `">`, `</li>`}
@@ -724,14 +662,14 @@ func TestGenerateInsertionOperations_Append(t *testing.T) {
 // TestGenerateInsertionOperations_Complex tests complex insertion pattern.
 func TestGenerateInsertionOperations_Complex(t *testing.T) {
 	oldItems := []interface{}{
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id1"}},
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id3"}},
+		&TreeNode{Dynamics: []interface{}{"id1"}},
+		&TreeNode{Dynamics: []interface{}{"id3"}},
 	}
 
 	newItems := []interface{}{
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id1"}},
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id2"}}, // Inserted in middle
-		&TreeNode{Dynamics: map[string]interface{}{"0": "id3"}},
+		&TreeNode{Dynamics: []interface{}{"id1"}},
+		&TreeNode{Dynamics: []interface{}{"id2"}}, // Inserted in middle
+		&TreeNode{Dynamics: []interface{}{"id3"}},
 	}
 
 	statics := []string{`<li data-key="`, `">`, `</li>`}
@@ -757,17 +695,11 @@ func TestGenerateInsertionOperations_Complex(t *testing.T) {
 // TestCompareRangeItemsForChanges_NoDiff tests no changes between items.
 func TestCompareRangeItemsForChanges_NoDiff(t *testing.T) {
 	oldItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id1",
-			"1": "Name",
-		},
+		Dynamics: []interface{}{"id1", "Name"},
 	}
 
 	newItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id1",
-			"1": "Name",
-		},
+		Dynamics: []interface{}{"id1", "Name"},
 	}
 
 	statics := []string{`<li data-key="`, `">`, `</li>`}
@@ -852,10 +784,10 @@ func TestCompareRangeItemsForChanges_NilInputs(t *testing.T) {
 		expected int
 	}{
 		{"both nil", nil, nil, 0},
-		{"old nil", nil, &TreeNode{Dynamics: map[string]interface{}{"0": "id1"}}, 0},
-		{"new nil", &TreeNode{Dynamics: map[string]interface{}{"0": "id1"}}, nil, 0},
-		{"non-TreeNode old", "not a tree", &TreeNode{Dynamics: map[string]interface{}{"0": "id1"}}, 0},
-		{"non-TreeNode new", &TreeNode{Dynamics: map[string]interface{}{"0": "id1"}}, "not a tree", 0},
+		{"old nil", nil, &TreeNode{Dynamics: []interface{}{"id1"}}, 0},
+		{"new nil", &TreeNode{Dynamics: []interface{}{"id1"}}, nil, 0},
+		{"non-TreeNode old", "not a tree", &TreeNode{Dynamics: []interface{}{"id1"}}, 0},
+		{"non-TreeNode new", &TreeNode{Dynamics: []interface{}{"id1"}}, "not a tree", 0},
 	}
 
 	for _, tt := range tests {
@@ -871,19 +803,11 @@ func TestCompareRangeItemsForChanges_NilInputs(t *testing.T) {
 // TestCompareRangeItemsForChanges_Changed tests detecting changes between items.
 func TestCompareRangeItemsForChanges_Changed(t *testing.T) {
 	oldItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id1",
-			"1": "Old Name",
-			"2": "Old Value",
-		},
+		Dynamics: []interface{}{"id1", "Old Name", "Old Value"},
 	}
 
 	newItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id1",
-			"1": "New Name",
-			"2": "Old Value", // Unchanged
-		},
+		Dynamics: []interface{}{"id1", "New Name", "Old Value"}, // Unchanged
 	}
 
 	statics := []string{`<li data-key="`, `">`, `</li>`}
@@ -916,20 +840,12 @@ func TestCompareRangeItemsForChanges_Changed(t *testing.T) {
 func TestCompareRangeItemsForChanges_NonTreeNodeToTreeNode(t *testing.T) {
 	// Old item has an empty string for the checkbox field
 	oldItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "task1",
-			"1": "", // Empty string (unchecked checkbox)
-			"2": "Task text",
-		},
+		Dynamics: []interface{}{"task1", "", "Task text"},
 	}
 
 	// New item has a TreeNode with statics for the checkbox field
 	newItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "task1",
-			"1": &TreeNode{Statics: []string{"checked"}}, // TreeNode with statics (checked)
-			"2": "Task text",
-		},
+		Dynamics: []interface{}{"task1", &TreeNode{Statics: []string{"checked"}}, "Task text"},
 	}
 
 	statics := []string{"<li>", "<input ", ">", "</li>"}
@@ -964,18 +880,12 @@ func TestCompareRangeItemsForChanges_NonTreeNodeToTreeNode(t *testing.T) {
 func TestCompareRangeItemsForChanges_NonExistentToTreeNode(t *testing.T) {
 	// Old item doesn't have the field at all
 	oldItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "task1",
-			// Field "1" doesn't exist
-		},
+		Dynamics: []interface{}{"task1"},
 	}
 
 	// New item has a TreeNode with statics for the field
 	newItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "task1",
-			"1": &TreeNode{Statics: []string{"checked"}}, // TreeNode with statics
-		},
+		Dynamics: []interface{}{"task1", &TreeNode{Statics: []string{"checked"}}},
 	}
 
 	statics := []string{"<li>", "<input ", ">", "</li>"}
@@ -1014,20 +924,12 @@ func TestCompareRangeItemsForChanges_NonExistentToTreeNode(t *testing.T) {
 func TestCompareRangeItemsForChanges_StaticsDiffer(t *testing.T) {
 	// Old item has a checked checkbox (TreeNode with statics ["checked"])
 	oldItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "task1",
-			"1": &TreeNode{Statics: []string{"checked"}}, // Checked state
-			"2": "Task text",
-		},
+		Dynamics: []interface{}{"task1", &TreeNode{Statics: []string{"checked"}}, "Task text"},
 	}
 
 	// New item has unchecked checkbox (TreeNode with empty statics)
 	newItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "task1",
-			"1": &TreeNode{Statics: []string{}}, // Unchecked state - empty statics
-			"2": "Task text",
-		},
+		Dynamics: []interface{}{"task1", &TreeNode{Statics: []string{}}, "Task text"},
 	}
 
 	statics := []string{"<li>", "<input ", ">", "</li>"}
@@ -1063,19 +965,11 @@ func TestCompareRangeItemsForChanges_StaticsDiffer(t *testing.T) {
 func TestCompareRangeItemsForChanges_StaticsSameNoChange(t *testing.T) {
 	// Both have the same statics - no change should be detected
 	oldItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "task1",
-			"1": &TreeNode{Statics: []string{"checked"}},
-			"2": "Task text",
-		},
+		Dynamics: []interface{}{"task1", &TreeNode{Statics: []string{"checked"}}, "Task text"},
 	}
 
 	newItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "task1",
-			"1": &TreeNode{Statics: []string{"checked"}}, // Same statics
-			"2": "Task text",
-		},
+		Dynamics: []interface{}{"task1", &TreeNode{Statics: []string{"checked"}}, "Task text"},
 	}
 
 	statics := []string{"<li>", "<input ", ">", "</li>"}
@@ -1095,20 +989,12 @@ func TestCompareRangeItemsForChanges_StaticsSameNoChange(t *testing.T) {
 func TestCompareRangeItemsForChanges_FieldRemoved(t *testing.T) {
 	// Old item has a field "1" with a TreeNode value
 	oldItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "task1",
-			"1": &TreeNode{Statics: []string{"checked"}}, // Field exists
-			"2": "Task text",
-		},
+		Dynamics: []interface{}{"task1", &TreeNode{Statics: []string{"checked"}}, "Task text"},
 	}
 
-	// New item doesn't have field "1" at all
+	// New item doesn't have field "1" at all (nil at position 1)
 	newItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "task1",
-			// Field "1" is absent - removed
-			"2": "Task text",
-		},
+		Dynamics: []interface{}{"task1", nil, "Task text"},
 	}
 
 	statics := []string{"<li>", "<input ", ">", "</li>"}
@@ -1136,20 +1022,12 @@ func TestCompareRangeItemsForChanges_FieldRemoved(t *testing.T) {
 func TestCompareRangeItemsForChanges_FieldRemovedWithStringValue(t *testing.T) {
 	// Old item has a field "1" with a string value
 	oldItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "task1",
-			"1": "some value", // String value exists
-			"2": "Task text",
-		},
+		Dynamics: []interface{}{"task1", "some value", "Task text"},
 	}
 
-	// New item doesn't have field "1" at all
+	// New item doesn't have field "1" at all (nil at position 1)
 	newItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "task1",
-			// Field "1" is absent - removed
-			"2": "Task text",
-		},
+		Dynamics: []interface{}{"task1", nil, "Task text"},
 	}
 
 	statics := []string{"<li>", "", "", "</li>"}
@@ -1177,20 +1055,12 @@ func TestCompareRangeItemsForChanges_FieldRemovedWithStringValue(t *testing.T) {
 func TestCompareRangeItemsForChanges_EmptyFieldNotReported(t *testing.T) {
 	// Old item has a field "1" with empty string
 	oldItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "task1",
-			"1": "", // Empty string
-			"2": "Task text",
-		},
+		Dynamics: []interface{}{"task1", "", "Task text"},
 	}
 
-	// New item doesn't have field "1" at all
+	// New item doesn't have field "1" at all (nil at position 1)
 	newItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "task1",
-			// Field "1" is absent
-			"2": "Task text",
-		},
+		Dynamics: []interface{}{"task1", nil, "Task text"},
 	}
 
 	statics := []string{"<li>", "", "", "</li>"}
@@ -1215,9 +1085,9 @@ func TestRangeDiff_WithoutExplicitKeys(t *testing.T) {
 	// Statics WITHOUT key attribute - simulates {{range .Items}}<li>{{.}}</li>{{end}}
 	statics := []string{"<li>", "</li>"}
 
-	item1 := &TreeNode{Dynamics: map[string]interface{}{"0": "First"}}
-	item2 := &TreeNode{Dynamics: map[string]interface{}{"0": "Second"}}
-	item3 := &TreeNode{Dynamics: map[string]interface{}{"0": "Third"}}
+	item1 := &TreeNode{Dynamics: []interface{}{"First"}}
+	item2 := &TreeNode{Dynamics: []interface{}{"Second"}}
+	item3 := &TreeNode{Dynamics: []interface{}{"Third"}}
 
 	oldValue := &TreeNode{
 		Statics: statics,
@@ -1252,8 +1122,8 @@ func TestRangeDiff_RemovalWithoutExplicitKeys(t *testing.T) {
 	// Statics WITHOUT key attribute
 	statics := []string{"<li>", "</li>"}
 
-	item1 := &TreeNode{Dynamics: map[string]interface{}{"0": "First"}}
-	item2 := &TreeNode{Dynamics: map[string]interface{}{"0": "Second"}}
+	item1 := &TreeNode{Dynamics: []interface{}{"First"}}
+	item2 := &TreeNode{Dynamics: []interface{}{"Second"}}
 
 	oldValue := &TreeNode{
 		Statics: statics,
@@ -1289,8 +1159,8 @@ func TestRangeDiff_UpdateWithoutExplicitKeys(t *testing.T) {
 	// Statics WITHOUT key attribute
 	statics := []string{`<div class="`, `">`, `</div>`}
 
-	item1Old := &TreeNode{Dynamics: map[string]interface{}{"0": "active", "1": "Original content"}}
-	item1New := &TreeNode{Dynamics: map[string]interface{}{"0": "active", "1": "Updated content"}}
+	item1Old := &TreeNode{Dynamics: []interface{}{"active", "Original content"}}
+	item1New := &TreeNode{Dynamics: []interface{}{"active", "Updated content"}}
 
 	oldValue := &TreeNode{
 		Statics: statics,
@@ -1326,9 +1196,9 @@ func TestRangeDiff_ReorderWithoutExplicitKeys(t *testing.T) {
 	// Statics WITHOUT key attribute
 	statics := []string{"<li>", "</li>"}
 
-	item1 := &TreeNode{Dynamics: map[string]interface{}{"0": "First"}}
-	item2 := &TreeNode{Dynamics: map[string]interface{}{"0": "Second"}}
-	item3 := &TreeNode{Dynamics: map[string]interface{}{"0": "Third"}}
+	item1 := &TreeNode{Dynamics: []interface{}{"First"}}
+	item2 := &TreeNode{Dynamics: []interface{}{"Second"}}
+	item3 := &TreeNode{Dynamics: []interface{}{"Third"}}
 
 	oldValue := &TreeNode{
 		Statics: statics,
@@ -1369,8 +1239,8 @@ func TestRangeDiff_SamePosition0DifferentItems(t *testing.T) {
 	statics := []string{`<div class="`, `">`, `</div>`}
 
 	// Two items with same CSS class but different names
-	alice := &TreeNode{Dynamics: map[string]interface{}{"0": "active", "1": "Alice"}}
-	bob := &TreeNode{Dynamics: map[string]interface{}{"0": "active", "1": "Bob"}}
+	alice := &TreeNode{Dynamics: []interface{}{"active", "Alice"}}
+	bob := &TreeNode{Dynamics: []interface{}{"active", "Bob"}}
 
 	oldValue := &TreeNode{
 		Statics: statics,
@@ -1555,28 +1425,16 @@ func TestGenerateRangeDifferentialOperations_UpdateAndReorder(t *testing.T) {
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 
 	item1Old := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id1",
-			"1": "Alpha",
-		},
+		Dynamics: []interface{}{"id1", "Alpha"},
 	}
 	item2 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id2",
-			"1": "Beta",
-		},
+		Dynamics: []interface{}{"id2", "Beta"},
 	}
 	item3 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id3",
-			"1": "Charlie",
-		},
+		Dynamics: []interface{}{"id3", "Charlie"},
 	}
 	item1New := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "id1",
-			"1": "Alpha Updated", // Content changed
-		},
+		Dynamics: []interface{}{"id1", "Alpha Updated"}, // Content changed
 	}
 
 	oldValue := &TreeNode{
@@ -1635,13 +1493,13 @@ func TestGenerateRangeDifferentialOperations_UpdateAndReorder(t *testing.T) {
 func TestGenerateRangeDifferentialOperations_MultipleUpdatesAndReorder(t *testing.T) {
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 
-	item1Old := &TreeNode{Dynamics: map[string]interface{}{"0": "id1", "1": "One"}}
-	item2Old := &TreeNode{Dynamics: map[string]interface{}{"0": "id2", "1": "Two"}}
-	item3Old := &TreeNode{Dynamics: map[string]interface{}{"0": "id3", "1": "Three"}}
+	item1Old := &TreeNode{Dynamics: []interface{}{"id1", "One"}}
+	item2Old := &TreeNode{Dynamics: []interface{}{"id2", "Two"}}
+	item3Old := &TreeNode{Dynamics: []interface{}{"id3", "Three"}}
 
-	item1New := &TreeNode{Dynamics: map[string]interface{}{"0": "id1", "1": "One Updated"}}
-	item2New := &TreeNode{Dynamics: map[string]interface{}{"0": "id2", "1": "Two Updated"}}
-	item3New := &TreeNode{Dynamics: map[string]interface{}{"0": "id3", "1": "Three"}} // Unchanged
+	item1New := &TreeNode{Dynamics: []interface{}{"id1", "One Updated"}}
+	item2New := &TreeNode{Dynamics: []interface{}{"id2", "Two Updated"}}
+	item3New := &TreeNode{Dynamics: []interface{}{"id3", "Three"}} // Unchanged
 
 	oldValue := &TreeNode{
 		Statics: statics,
@@ -1683,10 +1541,10 @@ func TestGenerateRangeDifferentialOperations_MultipleUpdatesAndReorder(t *testin
 func TestGenerateRangeDifferentialOperations_UpdateNoReorder(t *testing.T) {
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 
-	item1Old := &TreeNode{Dynamics: map[string]interface{}{"0": "id1", "1": "Old"}}
-	item2 := &TreeNode{Dynamics: map[string]interface{}{"0": "id2", "1": "Same"}}
+	item1Old := &TreeNode{Dynamics: []interface{}{"id1", "Old"}}
+	item2 := &TreeNode{Dynamics: []interface{}{"id2", "Same"}}
 
-	item1New := &TreeNode{Dynamics: map[string]interface{}{"0": "id1", "1": "New"}}
+	item1New := &TreeNode{Dynamics: []interface{}{"id1", "New"}}
 
 	oldValue := &TreeNode{
 		Statics: statics,
@@ -1727,9 +1585,9 @@ func TestGenerateRangeDifferentialOperations_UpdateNoReorder(t *testing.T) {
 func TestGenerateRangeDifferentialOperations_RemovalNoReorder(t *testing.T) {
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 
-	item1 := &TreeNode{Dynamics: map[string]interface{}{"0": "id1", "1": "One"}}
-	item2 := &TreeNode{Dynamics: map[string]interface{}{"0": "id2", "1": "Two"}}
-	item3 := &TreeNode{Dynamics: map[string]interface{}{"0": "id3", "1": "Three"}}
+	item1 := &TreeNode{Dynamics: []interface{}{"id1", "One"}}
+	item2 := &TreeNode{Dynamics: []interface{}{"id2", "Two"}}
+	item3 := &TreeNode{Dynamics: []interface{}{"id3", "Three"}}
 
 	oldValue := &TreeNode{
 		Statics: statics,
@@ -1770,9 +1628,9 @@ func TestGenerateRangeDifferentialOperations_RemovalNoReorder(t *testing.T) {
 func TestGenerateRangeDifferentialOperations_InsertionNoReorder(t *testing.T) {
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 
-	item1 := &TreeNode{Dynamics: map[string]interface{}{"0": "id1", "1": "One"}}
-	item2 := &TreeNode{Dynamics: map[string]interface{}{"0": "id2", "1": "Two"}}
-	item3 := &TreeNode{Dynamics: map[string]interface{}{"0": "id3", "1": "Three"}}
+	item1 := &TreeNode{Dynamics: []interface{}{"id1", "One"}}
+	item2 := &TreeNode{Dynamics: []interface{}{"id2", "Two"}}
+	item3 := &TreeNode{Dynamics: []interface{}{"id3", "Three"}}
 
 	oldValue := &TreeNode{
 		Statics: statics,
@@ -1828,24 +1686,18 @@ func TestGenerateRangeDifferentialOperations_InsertionNoReorder(t *testing.T) {
 func TestCompareRangeItemsForChanges_ConditionalBranchChange(t *testing.T) {
 	// Old item: showing status (HasError=false)
 	oldItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "task1",
-			"1": &TreeNode{
-				Statics:  []string{`<span class="status">`, `</span>`},
-				Dynamics: map[string]interface{}{"0": "Pending"},
-			},
-		},
+		Dynamics: []interface{}{"task1", &TreeNode{
+			Statics:  []string{`<span class="status">`, `</span>`},
+			Dynamics: []interface{}{"Pending"},
+		}},
 	}
 
 	// New item: showing error (HasError=true) - DIFFERENT statics AND dynamics
 	newItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "task1",
-			"1": &TreeNode{
-				Statics:  []string{`<span class="error-message">`, `</span>`},
-				Dynamics: map[string]interface{}{"0": "Permission denied"},
-			},
-		},
+		Dynamics: []interface{}{"task1", &TreeNode{
+			Statics:  []string{`<span class="error-message">`, `</span>`},
+			Dynamics: []interface{}{"Permission denied"},
+		}},
 	}
 
 	statics := []string{"<li>", "", "</li>"}
@@ -1878,7 +1730,7 @@ func TestCompareRangeItemsForChanges_ConditionalBranchChange(t *testing.T) {
 	}
 
 	// Verify dynamics are also included
-	if changeTree.Dynamics["0"] != "Permission denied" {
+	if changeTree.Dynamics[0] != "Permission denied" {
 		t.Errorf("Expected dynamics with error message, got %v", changeTree.Dynamics)
 	}
 }
@@ -1889,24 +1741,18 @@ func TestCompareRangeItemsForChanges_ConditionalBranchChange(t *testing.T) {
 func TestCompareRangeItemsForChanges_SameStructureDifferentContent(t *testing.T) {
 	// Old item: status showing "Pending"
 	oldItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "task1",
-			"1": &TreeNode{
-				Statics:  []string{`<span class="status">`, `</span>`},
-				Dynamics: map[string]interface{}{"0": "Pending"},
-			},
-		},
+		Dynamics: []interface{}{"task1", &TreeNode{
+			Statics:  []string{`<span class="status">`, `</span>`},
+			Dynamics: []interface{}{"Pending"},
+		}},
 	}
 
 	// New item: status showing "Done" - SAME statics, different dynamics
 	newItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "task1",
-			"1": &TreeNode{
-				Statics:  []string{`<span class="status">`, `</span>`},
-				Dynamics: map[string]interface{}{"0": "Done"},
-			},
-		},
+		Dynamics: []interface{}{"task1", &TreeNode{
+			Statics:  []string{`<span class="status">`, `</span>`},
+			Dynamics: []interface{}{"Done"},
+		}},
 	}
 
 	statics := []string{"<li>", "", "</li>"}
@@ -1953,26 +1799,18 @@ func TestCompareRangeItemsForChanges_SameStructureDifferentContent(t *testing.T)
 func TestCompareRangeItemsForChanges_ConditionalBranchChange_LoadingToError(t *testing.T) {
 	// Old item: showing loading spinner
 	oldItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "item-1",
-			"1": &TreeNode{
-				Statics:  []string{`<span class="spinner">`, `</span>`},
-				Dynamics: map[string]interface{}{"0": "⏳"},
-			},
-			"2": "Item Title",
-		},
+		Dynamics: []interface{}{"item-1", &TreeNode{
+			Statics:  []string{`<span class="spinner">`, `</span>`},
+			Dynamics: []interface{}{"⏳"},
+		}, "Item Title"},
 	}
 
 	// New item: showing error (loading finished with error)
 	newItem := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "item-1",
-			"1": &TreeNode{
-				Statics:  []string{`<span class="error">`, `</span>`},
-				Dynamics: map[string]interface{}{"0": "Network timeout"},
-			},
-			"2": "Item Title",
-		},
+		Dynamics: []interface{}{"item-1", &TreeNode{
+			Statics:  []string{`<span class="error">`, `</span>`},
+			Dynamics: []interface{}{"Network timeout"},
+		}, "Item Title"},
 	}
 
 	statics := []string{"<li id=\"", "\">", "", "", "</li>"}

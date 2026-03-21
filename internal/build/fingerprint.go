@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"hash"
 	"hash/fnv"
-	"sort"
 	"strconv"
 )
 
@@ -76,19 +75,15 @@ func hashStructureWithCircularDetection(tree *TreeNode, hasher hash.Hash, visitP
 		}
 	}
 
-	keys := make([]string, 0, len(tree.Dynamics))
-	for k := range tree.Dynamics {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	for _, k := range keys {
+	for i, v := range tree.Dynamics {
+		if v == nil {
+			continue
+		}
 		hasher.Write(fpDynPfx)
-		hasher.Write([]byte(k))
+		hasher.Write(strconv.AppendInt(intBuf[:0], int64(i), 10))
 		hasher.Write(fpColon)
 
-		value := tree.Dynamics[k]
-		if nestedTree, ok := value.(*TreeNode); ok {
+		if nestedTree, ok := v.(*TreeNode); ok {
 			hasher.Write(fpTreeOpen)
 			hashStructureWithCircularDetection(nestedTree, hasher, visitPath)
 			hasher.Write(fpClose)

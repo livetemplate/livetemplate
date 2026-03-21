@@ -14,12 +14,18 @@ func TestNewTreeNode(t *testing.T) {
 		t.Fatal("NewTreeNode() should not return nil")
 	}
 
-	if node.Dynamics == nil {
-		t.Error("Dynamics map should be initialized")
+	if node.Dynamics != nil {
+		t.Error("Dynamics slice should be nil (lazy-initialized)")
 	}
 
 	if len(node.Statics) != 0 {
 		t.Error("Statics should be empty")
+	}
+
+	// Verify SetDynamic lazy-inits the slice
+	node.SetDynamic(0, "value")
+	if node.Dynamics == nil {
+		t.Error("Dynamics slice should be initialized after SetDynamic")
 	}
 }
 
@@ -36,23 +42,29 @@ func TestNewTreeNodeWithStatics(t *testing.T) {
 		t.Errorf("Statics = %v, want %v", node.Statics, statics)
 	}
 
+	if node.Dynamics != nil {
+		t.Error("Dynamics slice should be nil (lazy-initialized)")
+	}
+
+	// Verify SetDynamic lazy-inits the slice
+	node.SetDynamic(0, "value")
 	if node.Dynamics == nil {
-		t.Error("Dynamics map should be initialized")
+		t.Error("Dynamics slice should be initialized after SetDynamic")
 	}
 }
 
 // TestTreeNode_SetDynamic tests setting dynamic values.
 func TestTreeNode_SetDynamic(t *testing.T) {
 	node := NewTreeNode()
-	node.SetDynamic("0", "value1")
-	node.SetDynamic("1", "value2")
+	node.SetDynamic(0, "value1")
+	node.SetDynamic(1, "value2")
 
-	if node.Dynamics["0"] != "value1" {
-		t.Errorf("Dynamics['0'] = %v, want 'value1'", node.Dynamics["0"])
+	if node.Dynamics[0] != "value1" {
+		t.Errorf("Dynamics[0] = %v, want 'value1'", node.Dynamics[0])
 	}
 
-	if node.Dynamics["1"] != "value2" {
-		t.Errorf("Dynamics['1'] = %v, want 'value2'", node.Dynamics["1"])
+	if node.Dynamics[1] != "value2" {
+		t.Errorf("Dynamics[1] = %v, want 'value2'", node.Dynamics[1])
 	}
 }
 
@@ -68,42 +80,42 @@ func TestTreeNode_SetDynamic_TypeGuard(t *testing.T) {
 
 	// Test: raw struct should be converted to string
 	post := EditingPosts{Title: "Hello", Content: "World"}
-	node.SetDynamic("0", post)
-	if _, ok := node.Dynamics["0"].(string); !ok {
-		t.Errorf("Raw struct should be converted to string, got type %T", node.Dynamics["0"])
+	node.SetDynamic(0, post)
+	if _, ok := node.Dynamics[0].(string); !ok {
+		t.Errorf("Raw struct should be converted to string, got type %T", node.Dynamics[0])
 	}
 
 	// Test: pointer to struct should also be converted to string
-	node.SetDynamic("1", &post)
-	if _, ok := node.Dynamics["1"].(string); !ok {
-		t.Errorf("Pointer to struct should be converted to string, got type %T", node.Dynamics["1"])
+	node.SetDynamic(1, &post)
+	if _, ok := node.Dynamics[1].(string); !ok {
+		t.Errorf("Pointer to struct should be converted to string, got type %T", node.Dynamics[1])
 	}
 
 	// Test: TreeNode pointer should be preserved (allowed type)
 	childTree := NewTreeNode()
-	childTree.SetDynamic("inner", "value")
-	node.SetDynamic("2", childTree)
-	if _, ok := node.Dynamics["2"].(*TreeNode); !ok {
-		t.Errorf("TreeNode pointer should be preserved, got type %T", node.Dynamics["2"])
+	childTree.SetDynamic(0, "value")
+	node.SetDynamic(2, childTree)
+	if _, ok := node.Dynamics[2].(*TreeNode); !ok {
+		t.Errorf("TreeNode pointer should be preserved, got type %T", node.Dynamics[2])
 	}
 
 	// Test: primitive types should be preserved
-	node.SetDynamic("3", "string value")
-	node.SetDynamic("4", 42)
-	node.SetDynamic("5", true)
-	node.SetDynamic("6", 3.14)
+	node.SetDynamic(3, "string value")
+	node.SetDynamic(4, 42)
+	node.SetDynamic(5, true)
+	node.SetDynamic(6, 3.14)
 
-	if node.Dynamics["3"] != "string value" {
-		t.Errorf("String should be preserved, got %v", node.Dynamics["3"])
+	if node.Dynamics[3] != "string value" {
+		t.Errorf("String should be preserved, got %v", node.Dynamics[3])
 	}
-	if node.Dynamics["4"] != 42 {
-		t.Errorf("Int should be preserved, got %v", node.Dynamics["4"])
+	if node.Dynamics[4] != 42 {
+		t.Errorf("Int should be preserved, got %v", node.Dynamics[4])
 	}
-	if node.Dynamics["5"] != true {
-		t.Errorf("Bool should be preserved, got %v", node.Dynamics["5"])
+	if node.Dynamics[5] != true {
+		t.Errorf("Bool should be preserved, got %v", node.Dynamics[5])
 	}
-	if node.Dynamics["6"] != 3.14 {
-		t.Errorf("Float should be preserved, got %v", node.Dynamics["6"])
+	if node.Dynamics[6] != 3.14 {
+		t.Errorf("Float should be preserved, got %v", node.Dynamics[6])
 	}
 }
 
@@ -158,19 +170,19 @@ func TestIsTreeCompatible(t *testing.T) {
 // TestTreeNode_GetDynamic tests getting dynamic values.
 func TestTreeNode_GetDynamic(t *testing.T) {
 	node := NewTreeNode()
-	node.SetDynamic("0", "test-value")
+	node.SetDynamic(0, "test-value")
 
-	val, ok := node.GetDynamic("0")
+	val, ok := node.GetDynamic(0)
 	if !ok {
-		t.Error("GetDynamic('0') should return ok=true")
+		t.Error("GetDynamic(0) should return ok=true")
 	}
 	if val != "test-value" {
-		t.Errorf("GetDynamic('0') = %v, want 'test-value'", val)
+		t.Errorf("GetDynamic(0) = %v, want 'test-value'", val)
 	}
 
-	_, ok = node.GetDynamic("999")
+	_, ok = node.GetDynamic(999)
 	if ok {
-		t.Error("GetDynamic('999') should return ok=false for non-existent key")
+		t.Error("GetDynamic(999) should return ok=false for non-existent index")
 	}
 }
 
@@ -194,7 +206,7 @@ func TestTreeNode_HasDynamics(t *testing.T) {
 		t.Error("Empty node should not have dynamics")
 	}
 
-	node.SetDynamic("0", "value")
+	node.SetDynamic(0, "value")
 	if !node.HasDynamics() {
 		t.Error("Node with dynamics should return true")
 	}
@@ -217,9 +229,10 @@ func TestTreeNode_HasRange(t *testing.T) {
 func TestTreeNode_MarshalJSON(t *testing.T) {
 	node := &TreeNode{
 		Statics:     []string{"<div>", "</div>"},
-		Dynamics:    map[string]interface{}{"0": "Hello"},
+		Dynamics:    []interface{}{"Hello"},
 		Fingerprint: "abc123",
 	}
+	node.dynamicCount = 1
 
 	data, err := json.Marshal(node)
 	if err != nil {
@@ -261,8 +274,8 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 		t.Errorf("Statics = %v, want %v", node.Statics, expectedStatics)
 	}
 
-	if node.Dynamics["0"] != "Hello" {
-		t.Errorf("Dynamics['0'] = %v, want 'Hello'", node.Dynamics["0"])
+	if node.Dynamics[0] != "Hello" {
+		t.Errorf("Dynamics[0] = %v, want 'Hello'", node.Dynamics[0])
 	}
 
 	if node.Fingerprint != "abc123" {
@@ -274,8 +287,9 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 func TestTreeNode_ToMap(t *testing.T) {
 	node := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "value"},
+		Dynamics: []interface{}{"value"},
 	}
+	node.dynamicCount = 1
 
 	m := node.ToMap()
 
@@ -303,8 +317,8 @@ func TestTreeNode_FromMap(t *testing.T) {
 		t.Errorf("Statics length = %d, want 2", len(node.Statics))
 	}
 
-	if node.Dynamics["0"] != "value" {
-		t.Errorf("Dynamics['0'] = %v, want 'value'", node.Dynamics["0"])
+	if node.Dynamics[0] != "value" {
+		t.Errorf("Dynamics[0] = %v, want 'value'", node.Dynamics[0])
 	}
 }
 
@@ -312,9 +326,10 @@ func TestTreeNode_FromMap(t *testing.T) {
 func TestTreeNode_Clone(t *testing.T) {
 	original := &TreeNode{
 		Statics:     []string{"<div>", "</div>"},
-		Dynamics:    map[string]interface{}{"0": "value"},
+		Dynamics:    []interface{}{"value"},
 		Fingerprint: "fp123",
 	}
+	original.dynamicCount = 1
 
 	clone := original.Clone()
 
@@ -333,27 +348,27 @@ func TestTreeNode_Clone(t *testing.T) {
 // TestTreeNode_NestedClone tests cloning with nested TreeNodes.
 func TestTreeNode_NestedClone(t *testing.T) {
 	nested := &TreeNode{
-		Dynamics: map[string]interface{}{"0": "nested-value"},
+		Dynamics: []interface{}{"nested-value"},
 	}
+	nested.dynamicCount = 1
 
 	original := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": nested,
-		},
+		Dynamics: []interface{}{nested},
 	}
+	original.dynamicCount = 1
 
 	clone := original.Clone()
 
-	clonedNested, ok := clone.Dynamics["0"].(*TreeNode)
+	clonedNested, ok := clone.Dynamics[0].(*TreeNode)
 	if !ok {
 		t.Fatal("Cloned nested should be *TreeNode")
 	}
 
 	// Modify nested clone
-	clonedNested.SetDynamic("0", "modified")
+	clonedNested.SetDynamic(0, "modified")
 
 	// Original nested should be unchanged
-	if nested.Dynamics["0"] == "modified" {
+	if nested.Dynamics[0] == "modified" {
 		t.Error("Modifying cloned nested should not affect original")
 	}
 }

@@ -338,8 +338,8 @@ func TestBuildRangeTreeWithStatics_Homogeneous(t *testing.T) {
 	itemStatics := []string{"<div id=\"", "\">", "</div>"}
 
 	items := []rangeItemWithStatics{
-		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "a"}}},
-		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "b"}}},
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: []interface{}{"a"}}},
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: []interface{}{"b"}}},
 	}
 	ctx := &Context{IncludeStatics: true}
 
@@ -494,17 +494,17 @@ func TestDetectIDKey_AllPatterns(t *testing.T) {
 	tests := []struct {
 		name     string
 		statics  []string
-		expected string
+		expected int
 	}{
-		{"id attribute", []string{"<div id=\"", "\">test</div>"}, "0"},
-		{"data-key attribute", []string{"<div data-key=\"", "\">test</div>"}, "0"},
-		{"key attribute", []string{"<div key=\"", "\">test</div>"}, "0"},
-		{"data-lvt-key attribute", []string{"<div data-lvt-key=\"", "\">test</div>"}, "0"},
-		{"lvt-key attribute", []string{"<div lvt-key=\"", "\">test</div>"}, "0"},
-		{"data-id attribute", []string{"<div data-id=\"", "\">test</div>"}, "0"},
-		{"x-key attribute", []string{"<div x-key=\"", "\">test</div>"}, "0"},
-		{"v-key attribute", []string{"<div v-key=\"", "\">test</div>"}, "0"},
-		{"no key", []string{"<div>", "</div>"}, "0"},
+		{"id attribute", []string{"<div id=\"", "\">test</div>"}, 0},
+		{"data-key attribute", []string{"<div data-key=\"", "\">test</div>"}, 0},
+		{"key attribute", []string{"<div key=\"", "\">test</div>"}, 0},
+		{"data-lvt-key attribute", []string{"<div data-lvt-key=\"", "\">test</div>"}, 0},
+		{"lvt-key attribute", []string{"<div lvt-key=\"", "\">test</div>"}, 0},
+		{"data-id attribute", []string{"<div data-id=\"", "\">test</div>"}, 0},
+		{"x-key attribute", []string{"<div x-key=\"", "\">test</div>"}, 0},
+		{"v-key attribute", []string{"<div v-key=\"", "\">test</div>"}, 0},
+		{"no key", []string{"<div>", "</div>"}, 0},
 	}
 
 	for _, tt := range tests {
@@ -521,8 +521,8 @@ func TestDetectIDKey_AllPatterns(t *testing.T) {
 func TestDetectIDKey_Priority(t *testing.T) {
 	statics := []string{"<div data-key=\"x\" id=\"", "\">test</div>"}
 	got := detectIDKey(statics)
-	if got != "0" {
-		t.Errorf("Expected '0' (id takes priority), got: %v", got)
+	if got != 0 {
+		t.Errorf("Expected 0 (id takes priority), got: %v", got)
 	}
 }
 
@@ -530,8 +530,8 @@ func TestDetectIDKey_Priority(t *testing.T) {
 func TestDetectIDKey_NoKey(t *testing.T) {
 	statics := []string{"<div>", "</div>"}
 	got := detectIDKey(statics)
-	if got != "0" {
-		t.Errorf("Expected '0' (default), got: %v", got)
+	if got != 0 {
+		t.Errorf("Expected 0 (default), got: %v", got)
 	}
 }
 
@@ -572,32 +572,32 @@ func TestDetectIDKey_MultiplePositions(t *testing.T) {
 	tests := []struct {
 		name     string
 		statics  []string
-		expected string
+		expected int
 	}{
 		{
 			"key at position 0",
 			[]string{"<div id=\"", "\">", "</div>"},
-			"0",
+			0,
 		},
 		{
 			"key at position 1",
 			[]string{"<div>", "<span id=\"", "\">", "</span></div>"},
-			"1",
+			1,
 		},
 		{
 			"key at position 2",
 			[]string{"<div>", "<span>", "<a id=\"", "\">link</a></span></div>"},
-			"2",
+			2,
 		},
 		{
 			"multiple keys - first one wins",
 			[]string{"<div id=\"", "\"><span data-key=\"", "\"></span></div>"},
-			"0",
+			0,
 		},
 		{
 			"multiple keys in same static - earliest wins",
 			[]string{"<div><span data-key=\"x\"></span><div id=\"", "\"></div>"},
-			"0",
+			0,
 		},
 	}
 
@@ -615,7 +615,7 @@ func TestDetectIDKey_MultiplePositions(t *testing.T) {
 func TestExtractItemDynamics(t *testing.T) {
 	itemTree := &TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "value"},
+		Dynamics: []interface{}{"value"},
 		Metadata: NewTreeMetadata("0"),
 	}
 
@@ -633,14 +633,14 @@ func TestExtractItemDynamics(t *testing.T) {
 	if len(result.Dynamics) != 1 {
 		t.Errorf("Expected 1 dynamic, got: %d", len(result.Dynamics))
 	}
-	if result.Dynamics["0"] != "value" {
-		t.Errorf("Expected dynamic value 'value', got: %v", result.Dynamics["0"])
+	if result.Dynamics[0] != "value" {
+		t.Errorf("Expected dynamic value 'value', got: %v", result.Dynamics[0])
 	}
 
-	// Verify the dynamics map is shared (same underlying map)
-	result.Dynamics["1"] = "test"
-	if itemTree.Dynamics["1"] != "test" {
-		t.Error("Expected to share dynamics map (not a copy)")
+	// Verify the dynamics slice is a copy (not shared)
+	result.Dynamics[0] = "modified"
+	if itemTree.Dynamics[0] == "modified" {
+		t.Error("Expected dynamics slice to be a copy, not shared")
 	}
 }
 
@@ -649,8 +649,8 @@ func TestBuildRangeTreeWithStatics_AutoKey(t *testing.T) {
 	itemStatics := []string{"<div>", "</div>"}
 
 	items := []rangeItemWithStatics{
-		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "a"}}},
-		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "b"}}},
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: []interface{}{"a"}}},
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: []interface{}{"b"}}},
 	}
 	ctx := &Context{IncludeStatics: true}
 
@@ -675,21 +675,15 @@ func TestBuildRangeTreeWithStatics_AutoKey(t *testing.T) {
 		if !ok {
 			t.Fatalf("Item %d is not a TreeNode", i)
 		}
-		k, exists := itemNode.GetDynamic("_k")
-		if !exists {
-			t.Errorf("Item %d should have _k field", i)
-		}
-		if kStr, ok := k.(string); !ok || kStr == "" {
-			t.Errorf("Item %d _k should be a non-empty string, got: %v", i, k)
+		if itemNode.AutoKey == "" {
+			t.Errorf("Item %d should have AutoKey set", i)
 		}
 	}
 
 	item0 := tree.Range.Items[0].(*TreeNode)
 	item1 := tree.Range.Items[1].(*TreeNode)
-	key0, _ := item0.GetDynamic("_k")
-	key1, _ := item1.GetDynamic("_k")
-	if key0 == key1 {
-		t.Errorf("Items with different content should have different _k values, got: %v and %v", key0, key1)
+	if item0.AutoKey == item1.AutoKey {
+		t.Errorf("Items with different content should have different AutoKey values, got: %v and %v", item0.AutoKey, item1.AutoKey)
 	}
 }
 
@@ -698,8 +692,8 @@ func TestBuildRangeTreeWithStatics_ExplicitKey_NoAutoKey(t *testing.T) {
 	itemStatics := []string{"<div data-key=\"", "\">", "</div>"}
 
 	items := []rangeItemWithStatics{
-		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "id1", "1": "content-a"}}},
-		{tree: &TreeNode{Statics: itemStatics, Dynamics: map[string]interface{}{"0": "id2", "1": "content-b"}}},
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: []interface{}{"id1", "content-a"}}},
+		{tree: &TreeNode{Statics: itemStatics, Dynamics: []interface{}{"id2", "content-b"}}},
 	}
 	ctx := &Context{IncludeStatics: true}
 
@@ -724,8 +718,8 @@ func TestBuildRangeTreeWithStatics_ExplicitKey_NoAutoKey(t *testing.T) {
 		if !ok {
 			t.Fatalf("Item %d is not a TreeNode", i)
 		}
-		if _, exists := itemNode.GetDynamic("_k"); exists {
-			t.Errorf("Item %d should NOT have _k field when explicit key exists", i)
+		if itemNode.AutoKey != "" {
+			t.Errorf("Item %d should NOT have AutoKey when explicit key exists", i)
 		}
 	}
 }
@@ -733,10 +727,7 @@ func TestBuildRangeTreeWithStatics_ExplicitKey_NoAutoKey(t *testing.T) {
 // TestGenerateItemHash_Deterministic tests that the hash function produces deterministic results.
 func TestGenerateItemHash_Deterministic(t *testing.T) {
 	item := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": "title",
-			"1": "content",
-		},
+		Dynamics: []interface{}{"title", "content"},
 	}
 
 	hash1 := generateItemHash(item)
@@ -754,10 +745,10 @@ func TestGenerateItemHash_Deterministic(t *testing.T) {
 // TestGenerateItemHash_DifferentContent tests that different content produces different hashes.
 func TestGenerateItemHash_DifferentContent(t *testing.T) {
 	item1 := &TreeNode{
-		Dynamics: map[string]interface{}{"0": "a"},
+		Dynamics: []interface{}{"a"},
 	}
 	item2 := &TreeNode{
-		Dynamics: map[string]interface{}{"0": "b"},
+		Dynamics: []interface{}{"b"},
 	}
 
 	hash1 := generateItemHash(item1)
@@ -768,20 +759,21 @@ func TestGenerateItemHash_DifferentContent(t *testing.T) {
 	}
 }
 
-// TestGenerateItemHash_IgnoresAutoKey tests that _k field is excluded from hash calculation.
+// TestGenerateItemHash_IgnoresAutoKey tests that AutoKey is excluded from hash calculation.
 func TestGenerateItemHash_IgnoresAutoKey(t *testing.T) {
 	itemWithoutK := &TreeNode{
-		Dynamics: map[string]interface{}{"0": "content"},
+		Dynamics: []interface{}{"content"},
 	}
 	itemWithK := &TreeNode{
-		Dynamics: map[string]interface{}{"0": "content", "_k": "some-old-key"},
+		Dynamics: []interface{}{"content"},
+		AutoKey:  "some-old-key",
 	}
 
 	hash1 := generateItemHash(itemWithoutK)
 	hash2 := generateItemHash(itemWithK)
 
 	if hash1 != hash2 {
-		t.Errorf("_k field should be excluded from hash, got: %v and %v", hash1, hash2)
+		t.Errorf("AutoKey should be excluded from hash, got: %v and %v", hash1, hash2)
 	}
 }
 

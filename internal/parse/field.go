@@ -10,7 +10,7 @@ func createSingleDynamicTree(value string, ctx *Context) *TreeNode {
 	if ctx.ShouldIncludeStatics() {
 		tree.Statics = []string{"", ""}
 	}
-	tree.SetDynamic("0", value)
+	tree.SetDynamic(0, value)
 	return tree
 }
 

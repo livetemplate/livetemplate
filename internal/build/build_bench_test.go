@@ -1,7 +1,6 @@
 package build
 
 import (
-	"fmt"
 	"testing"
 )
 
@@ -21,7 +20,7 @@ func createTestTree(depth, breadth int) *TreeNode {
 
 	node := NewTreeNodeWithStatics(statics)
 	for i := 0; i < breadth; i++ {
-		node.SetDynamic(fmt.Sprintf("%d", i), createTestTree(depth-1, breadth))
+		node.SetDynamic(i, createTestTree(depth-1, breadth))
 	}
 
 	return node

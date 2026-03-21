@@ -25,10 +25,7 @@ func TestExtractRangeData_EmptyToItems_RangeStatics(t *testing.T) {
 		Range: &RangeData{
 			Items: []interface{}{
 				&TreeNode{
-					Dynamics: map[string]interface{}{
-						"0": "item-1",
-						"1": "Text 1",
-					},
+					Dynamics: []interface{}{"item-1", "Text 1"},
 				},
 			},
 			Statics: itemStatics, // Should be populated by my fix
@@ -88,10 +85,7 @@ func TestGenerateRangeDifferentialOperations_EmptyToItems_HasStatics(t *testing.
 		Range: &RangeData{
 			Items: []interface{}{
 				&TreeNode{
-					Dynamics: map[string]interface{}{
-						"0": "item-1",
-						"1": "Text 1",
-					},
+					Dynamics: []interface{}{"item-1", "Text 1"},
 				},
 			},
 			Statics: itemStatics,

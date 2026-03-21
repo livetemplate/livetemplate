@@ -2,8 +2,6 @@ package parse
 
 import (
 	"reflect"
-	"sort"
-	"strconv"
 	"strings"
 	"text/template/parse"
 )
@@ -43,40 +41,6 @@ func contextWithStatics(ctx *Context) *Context {
 	newCtx.IncludeStatics = true
 	newCtx.IsFirstRender = true
 	return &newCtx
-}
-
-// getSortedKeys returns keys from a map sorted numerically.
-func getSortedKeys(m map[string]interface{}) []string {
-	if len(m) == 0 {
-		return nil
-	}
-	type kv struct {
-		key   string
-		num   int
-		valid bool
-	}
-	pairs := make([]kv, 0, len(m))
-	for k := range m {
-		num, err := strconv.Atoi(k)
-		pairs = append(pairs, kv{key: k, num: num, valid: err == nil})
-	}
-	sort.Slice(pairs, func(i, j int) bool {
-		if pairs[i].valid && pairs[j].valid {
-			return pairs[i].num < pairs[j].num
-		}
-		if pairs[i].valid {
-			return true
-		}
-		if pairs[j].valid {
-			return false
-		}
-		return pairs[i].key < pairs[j].key
-	})
-	keys := make([]string, len(pairs))
-	for i, pair := range pairs {
-		keys[i] = pair.key
-	}
-	return keys
 }
 
 // isZeroValue checks if a reflect.Value is the zero value for its type.

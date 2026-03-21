@@ -25,14 +25,17 @@ func PrepareTreeForClient(node interface{}, clientHasStatics bool) interface{} {
 	switch v := node.(type) {
 	case *TreeNode:
 		// Create new TreeNode without statics or fingerprint
-		result := &TreeNode{
-			Dynamics: make(map[string]interface{}, len(v.Dynamics)),
-		}
+		result := &TreeNode{}
+		// Pre-allocate to avoid repeated growth in SetDynamic
+		result.GrowDynamics(len(v.Dynamics))
 		// Recursively prepare dynamics, filtering out empty values while preserving static-only conditional blocks
-		for k, val := range v.Dynamics {
+		for i, val := range v.Dynamics {
+			if val == nil {
+				continue
+			}
 			prepared := PrepareTreeForClient(val, clientHasStatics)
 			if !IsEmpty(prepared) {
-				result.Dynamics[k] = prepared
+				result.SetDynamic(i, prepared)
 			} else if nestedNode, ok := val.(*TreeNode); ok && nestedNode.HasStatics() {
 				// Special case for conditional blocks ({{if}}/{{else}}) with static-only content.
 				// Even though clientHasStatics=true means we normally strip statics, conditional
@@ -40,9 +43,11 @@ func PrepareTreeForClient(node interface{}, clientHasStatics bool) interface{} {
 				// the client hasn't seen THIS particular branch's statics yet - only the template's
 				// base statics are cached. We must send the full TreeNode so the client can render
 				// the branch content (e.g., <span>High</span> inside {{if eq .Priority "high"}}).
-				result.Dynamics[k] = val
+				result.SetDynamic(i, val)
 			}
 		}
+		// Remove trailing nil entries from pre-allocated dynamics
+		result.TrimDynamics()
 		// Handle Range: preserve Items array without statics (client has them cached)
 		if v.HasRange() {
 			result.Range = &RangeData{Items: v.Range.Items}

@@ -7,8 +7,26 @@ import (
 	"fmt"
 	"html/template"
 	"reflect"
+	"strconv"
 	"sync/atomic"
 )
+
+var positionKeys [100]string
+
+func init() {
+	for i := range positionKeys {
+		positionKeys[i] = strconv.Itoa(i)
+	}
+}
+
+// PositionKey returns a cached string for common integer positions (0-99).
+// For positions >= 100, it falls back to strconv.Itoa.
+func PositionKey(index int) string {
+	if index >= 0 && index < len(positionKeys) {
+		return positionKeys[index]
+	}
+	return strconv.Itoa(index)
+}
 
 // TreeNode represents a node in the template tree structure with type safety.
 // It replaces the old map[string]interface{} representation while maintaining
@@ -20,9 +38,14 @@ type TreeNode struct {
 	// Statics are the static HTML parts of the template (key: "s")
 	Statics []string
 
-	// Dynamics maps position indices to dynamic content (keys: "0", "1", "2", etc.)
-	// Values can be: string, TreeNode, RangeData, or any JSON-serializable type
-	Dynamics map[string]interface{}
+	// Dynamics is a slice of dynamic content indexed by position (keys: "0", "1", "2", etc.)
+	// Values can be: string, TreeNode, RangeData, or any JSON-serializable type.
+	// nil entries represent unset positions (gaps are allowed).
+	Dynamics []interface{}
+
+	// AutoKey holds the auto-generated key for range items (was "_k" in the old map).
+	// Non-empty only for TreeNodes that represent items inside a range.
+	AutoKey string
 
 	// Fingerprint is the hash of the tree structure for change detection (key: "f")
 	Fingerprint string
@@ -32,6 +55,9 @@ type TreeNode struct {
 
 	// Metadata contains additional information like ID key mappings (key: "m")
 	Metadata *TreeMetadata
+
+	// dynamicCount tracks the number of non-nil entries in Dynamics for fast HasDynamics.
+	dynamicCount int
 
 	// cachedStructureFingerprint stores the computed structure fingerprint.
 	// Uses atomic.Value for thread-safe lazy caching without sync.Once
@@ -180,18 +206,17 @@ func (ctx *Context) WithPath(path string) *Context {
 	return &newCtx
 }
 
-// NewTreeNode creates a new TreeNode with initialized maps.
+// NewTreeNode creates a new TreeNode.
+// The Dynamics slice is lazily allocated on first SetDynamic call.
 func NewTreeNode() *TreeNode {
-	return &TreeNode{
-		Dynamics: make(map[string]interface{}),
-	}
+	return &TreeNode{}
 }
 
 // NewTreeNodeWithStatics creates a new TreeNode with the given static parts.
+// The Dynamics slice is lazily allocated on first SetDynamic call.
 func NewTreeNodeWithStatics(statics []string) *TreeNode {
 	return &TreeNode{
-		Statics:  statics,
-		Dynamics: make(map[string]interface{}),
+		Statics: statics,
 	}
 }
 
@@ -210,21 +235,68 @@ func NewTreeMetadata(idKey string) *TreeMetadata {
 	}
 }
 
-// SetDynamic sets a dynamic value at the given position.
+// TrimDynamics removes trailing nil entries from the Dynamics slice.
+// Only trailing nils are removed — internal gaps (e.g., [val, nil, val]) are preserved
+// since position indices carry meaning in the wire format.
+func (tn *TreeNode) TrimDynamics() {
+	i := len(tn.Dynamics)
+	for i > 0 && tn.Dynamics[i-1] == nil {
+		i--
+	}
+	tn.Dynamics = tn.Dynamics[:i]
+}
+
+// GrowDynamics ensures the Dynamics slice has at least the given capacity.
+// Call this before a sequence of SetDynamic calls with known indices to avoid
+// repeated slice reallocation.
+func (tn *TreeNode) GrowDynamics(size int) {
+	if size > len(tn.Dynamics) {
+		newDyn := make([]interface{}, size)
+		copy(newDyn, tn.Dynamics)
+		tn.Dynamics = newDyn
+	}
+}
+
+// SetDynamic sets a dynamic value at the given index.
 // It includes a type guard to ensure only tree-compatible values are stored.
 // Non-compatible values (like raw structs) are converted to their string representation.
-func (tn *TreeNode) SetDynamic(position string, value interface{}) {
-	if tn.Dynamics == nil {
-		tn.Dynamics = make(map[string]interface{})
+// The Dynamics slice auto-grows to accommodate the index. Negative indices are ignored.
+func (tn *TreeNode) SetDynamic(index int, value interface{}) {
+	if index < 0 {
+		return
+	}
+	if index >= len(tn.Dynamics) {
+		newDyn := make([]interface{}, index+1)
+		copy(newDyn, tn.Dynamics)
+		tn.Dynamics = newDyn
+	}
+
+	old := tn.Dynamics[index]
+
+	// If dynamicCount is stale (0 but slice has non-nil entries, e.g. from struct
+	// literal construction), recompute it before updating to maintain the invariant.
+	if tn.dynamicCount == 0 && old != nil {
+		for _, v := range tn.Dynamics {
+			if v != nil {
+				tn.dynamicCount++
+			}
+		}
 	}
 
 	// Type guard: only allow tree-compatible values
 	if !isTreeCompatible(value) {
 		// Convert incompatible types (like raw structs) to string representation
-		tn.Dynamics[position] = fmt.Sprintf("%v", value)
-		return
+		value = fmt.Sprintf("%v", value)
 	}
-	tn.Dynamics[position] = value
+
+	tn.Dynamics[index] = value
+
+	// Update count
+	if old == nil && value != nil {
+		tn.dynamicCount++
+	} else if old != nil && value == nil {
+		tn.dynamicCount--
+	}
 }
 
 // isTreeCompatible checks if a value is suitable for tree dynamics.
@@ -303,20 +375,51 @@ func isTreeCompatible(v interface{}) bool {
 	return true
 }
 
-// GetDynamic retrieves a dynamic value at the given position.
-func (tn *TreeNode) GetDynamic(position string) (interface{}, bool) {
-	if tn.Dynamics == nil {
+// GetDynamic retrieves a dynamic value at the given index.
+func (tn *TreeNode) GetDynamic(index int) (interface{}, bool) {
+	if index < 0 || index >= len(tn.Dynamics) {
 		return nil, false
 	}
-	val, ok := tn.Dynamics[position]
-	return val, ok
+	v := tn.Dynamics[index]
+	return v, v != nil
 }
 
-// GetDynamics returns the entire Dynamics map.
-// This implements the DynamicsGetter interface from internal/keys package,
-// allowing TreeNode to be used with key generation utilities.
+// GetDynamics returns the dynamics as a map[string]interface{} for backward compatibility.
+// This implements the DynamicsGetter interface from internal/keys package.
+// The map is constructed lazily on each call.
 func (tn *TreeNode) GetDynamics() map[string]interface{} {
-	return tn.Dynamics
+	if tn.dynamicCount == 0 && len(tn.Dynamics) == 0 && tn.AutoKey == "" {
+		return nil
+	}
+	capacity := tn.dynamicCount
+	if capacity == 0 {
+		capacity = len(tn.Dynamics)
+	}
+	m := make(map[string]interface{}, capacity+1)
+	for i, v := range tn.Dynamics {
+		if v != nil {
+			m[PositionKey(i)] = v
+		}
+	}
+	if tn.AutoKey != "" {
+		m["_k"] = tn.AutoKey
+	}
+	return m
+}
+
+// DynamicLen returns the number of non-nil dynamic entries.
+func (tn *TreeNode) DynamicLen() int {
+	if tn.dynamicCount > 0 {
+		return tn.dynamicCount
+	}
+	// Fallback: count directly for struct-literal constructed nodes
+	count := 0
+	for _, v := range tn.Dynamics {
+		if v != nil {
+			count++
+		}
+	}
+	return count
 }
 
 // HasStatics returns true if the node has static parts.
@@ -326,7 +429,7 @@ func (tn *TreeNode) HasStatics() bool {
 
 // HasDynamics returns true if the node has dynamic content.
 func (tn *TreeNode) HasDynamics() bool {
-	return len(tn.Dynamics) > 0
+	return tn.DynamicLen() > 0
 }
 
 // HasRange returns true if the node represents a range.
@@ -338,6 +441,7 @@ func (tn *TreeNode) HasRange() bool {
 // The TreeNode is marshaled as a map[string]interface{} with keys:
 //   - "s": statics array
 //   - "0", "1", "2", etc.: dynamic values at positions
+//   - "_k": auto-generated key for range items
 //   - "f": fingerprint
 //   - "d": range data
 //   - "m": metadata
@@ -352,9 +456,16 @@ func (tn *TreeNode) MarshalJSON() ([]byte, error) {
 		result["s"] = tn.Statics
 	}
 
-	// Add dynamics
-	for key, value := range tn.Dynamics {
-		result[key] = value
+	// Add dynamics — iterate by index, skip nil entries
+	for i, v := range tn.Dynamics {
+		if v != nil {
+			result[PositionKey(i)] = v
+		}
+	}
+
+	// Add auto-generated key if present
+	if tn.AutoKey != "" {
+		result["_k"] = tn.AutoKey
 	}
 
 	// Add fingerprint if present
@@ -388,9 +499,6 @@ func (tn *TreeNode) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-
-	// Initialize dynamics map
-	tn.Dynamics = make(map[string]interface{})
 
 	for key, value := range raw {
 		switch key {
@@ -444,9 +552,21 @@ func (tn *TreeNode) UnmarshalJSON(data []byte) error {
 				return fmt.Errorf("invalid metadata: expected object, got %T", value)
 			}
 
+		case "_k":
+			// Parse auto-generated key
+			if k, ok := value.(string); ok {
+				tn.AutoKey = k
+			}
+
 		default:
-			// Numeric keys are dynamics
-			tn.Dynamics[key] = value
+			// Numeric keys are dynamics — parse to int, route through SetDynamic
+			// for consistent dynamicCount tracking (handles nil, duplicates, type guard)
+			index, err := strconv.Atoi(key)
+			if err != nil {
+				// Skip unknown non-numeric keys
+				continue
+			}
+			tn.SetDynamic(index, value)
 		}
 	}
 
@@ -463,14 +583,23 @@ func (tn *TreeNode) ToMap() map[string]interface{} {
 		result["s"] = tn.Statics
 	}
 
-	// Add dynamics
-	for key, value := range tn.Dynamics {
+	// Add dynamics — iterate by index
+	for i, v := range tn.Dynamics {
+		if v == nil {
+			continue
+		}
+		key := PositionKey(i)
 		// Recursively convert nested TreeNodes
-		if nestedNode, ok := value.(*TreeNode); ok {
+		if nestedNode, ok := v.(*TreeNode); ok {
 			result[key] = nestedNode.ToMap()
 		} else {
-			result[key] = value
+			result[key] = v
 		}
+	}
+
+	// Add auto-generated key
+	if tn.AutoKey != "" {
+		result["_k"] = tn.AutoKey
 	}
 
 	// Add fingerprint
@@ -517,7 +646,9 @@ func FromMap(m map[string]interface{}) (*TreeNode, error) {
 // Clone creates a deep copy of the TreeNode.
 func (tn *TreeNode) Clone() *TreeNode {
 	clone := &TreeNode{
-		Fingerprint: tn.Fingerprint,
+		Fingerprint:  tn.Fingerprint,
+		AutoKey:      tn.AutoKey,
+		dynamicCount: tn.dynamicCount,
 	}
 
 	// Clone statics
@@ -528,13 +659,13 @@ func (tn *TreeNode) Clone() *TreeNode {
 
 	// Clone dynamics
 	if len(tn.Dynamics) > 0 {
-		clone.Dynamics = make(map[string]interface{}, len(tn.Dynamics))
-		for k, v := range tn.Dynamics {
+		clone.Dynamics = make([]interface{}, len(tn.Dynamics))
+		for i, v := range tn.Dynamics {
 			// Deep clone nested TreeNodes
 			if nestedNode, ok := v.(*TreeNode); ok {
-				clone.Dynamics[k] = nestedNode.Clone()
+				clone.Dynamics[i] = nestedNode.Clone()
 			} else {
-				clone.Dynamics[k] = v
+				clone.Dynamics[i] = v
 			}
 		}
 	}

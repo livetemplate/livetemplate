@@ -1,6 +1,11 @@
 package diff
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+
+	"github.com/livetemplate/livetemplate/internal/build"
+)
 
 const (
 	// maxInsertionPoints is the threshold for determining if an insertion pattern
@@ -84,6 +89,10 @@ func isPureReorderingCtx(ctx *rangeContext) bool {
 	}
 
 	positionField := DetectPositionField(ctx.oldByKey)
+	positionFieldInt := -1
+	if positionField != "" {
+		positionFieldInt, _ = strconv.Atoi(positionField)
+	}
 
 	for key, oldItem := range ctx.oldByKey {
 		newItem, exists := ctx.newByKey[key]
@@ -101,21 +110,27 @@ func isPureReorderingCtx(ctx *rangeContext) bool {
 			continue
 		}
 
-		for field, oldValue := range oldItemNode.Dynamics {
-			if field == positionField || (ctx.keyPos >= 0 && field == ctx.keyPosStr) || field == "_k" {
+		for i, oldValue := range oldItemNode.Dynamics {
+			if oldValue == nil {
 				continue
 			}
-			newValue, exists := newItemNode.GetDynamic(field)
+			if i == positionFieldInt || (ctx.keyPos >= 0 && i == ctx.keyPos) {
+				continue
+			}
+			newValue, exists := newItemNode.GetDynamic(i)
 			if !exists || !DeepEqual(oldValue, newValue) {
 				return false
 			}
 		}
 
-		for field := range newItemNode.Dynamics {
-			if field == positionField || (ctx.keyPos >= 0 && field == ctx.keyPosStr) || field == "_k" {
+		for i, newValue := range newItemNode.Dynamics {
+			if newValue == nil {
 				continue
 			}
-			if _, exists := oldItemNode.GetDynamic(field); !exists {
+			if i == positionFieldInt || (ctx.keyPos >= 0 && i == ctx.keyPos) {
+				continue
+			}
+			if _, exists := oldItemNode.GetDynamic(i); !exists {
 				return false
 			}
 		}
@@ -256,7 +271,11 @@ func findRangeConstructsRecursive(tree *TreeNode, path string) map[string]interf
 		return ranges
 	}
 
-	for field, value := range tree.Dynamics {
+	for i, value := range tree.Dynamics {
+		if value == nil {
+			continue
+		}
+		field := build.PositionKey(i)
 		fieldPath := field
 		if path != "" {
 			fieldPath = path + "." + field

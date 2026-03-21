@@ -17,8 +17,8 @@ func TestHandleAction_SimpleField(t *testing.T) {
 		t.Fatalf("handleAction failed: %v", err)
 	}
 
-	if tree.Dynamics["0"] != "John" {
-		t.Errorf("Expected dynamics['0'] = 'John', got: %v", tree.Dynamics["0"])
+	if tree.Dynamics[0] != "John" {
+		t.Errorf("Expected dynamics['0'] = 'John', got: %v", tree.Dynamics[0])
 	}
 
 	if len(tree.Statics) != 2 {
@@ -41,8 +41,8 @@ func TestHandleAction_StructField(t *testing.T) {
 		t.Fatalf("handleAction failed: %v", err)
 	}
 
-	if tree.Dynamics["0"] != "test" {
-		t.Errorf("Expected dynamics['0'] = 'test', got: %v", tree.Dynamics["0"])
+	if tree.Dynamics[0] != "test" {
+		t.Errorf("Expected dynamics['0'] = 'test', got: %v", tree.Dynamics[0])
 	}
 }
 
@@ -61,8 +61,8 @@ func TestHandleAction_Pipeline(t *testing.T) {
 		t.Fatalf("handleAction failed: %v", err)
 	}
 
-	if tree.Dynamics["0"] != "test_UPPER" {
-		t.Errorf("Expected dynamics['0'] = 'test_UPPER', got: %v", tree.Dynamics["0"])
+	if tree.Dynamics[0] != "test_UPPER" {
+		t.Errorf("Expected dynamics['0'] = 'test_UPPER', got: %v", tree.Dynamics[0])
 	}
 }
 
@@ -78,8 +78,8 @@ func TestHandleAction_MissingField(t *testing.T) {
 	}
 
 	// Map returns nil for missing keys; valueToString converts nil to ""
-	if tree.Dynamics["0"] != "" {
-		t.Errorf("Expected empty dynamics['0'], got: %v", tree.Dynamics["0"])
+	if tree.Dynamics[0] != "" {
+		t.Errorf("Expected empty dynamics['0'], got: %v", tree.Dynamics[0])
 	}
 }
 
@@ -94,8 +94,8 @@ func TestHandleAction_EmptyValue(t *testing.T) {
 		t.Fatalf("handleAction failed: %v", err)
 	}
 
-	if tree.Dynamics["0"] != "" {
-		t.Errorf("Expected empty dynamics['0'], got: %v", tree.Dynamics["0"])
+	if tree.Dynamics[0] != "" {
+		t.Errorf("Expected empty dynamics['0'], got: %v", tree.Dynamics[0])
 	}
 }
 
@@ -114,8 +114,8 @@ func TestHandleAction_WithVarCtx_DotAccess(t *testing.T) {
 		t.Fatalf("handleAction failed: %v", err)
 	}
 
-	if tree.Dynamics["0"] != "Dot" {
-		t.Errorf("Expected dynamics['0'] = 'Dot', got: %v", tree.Dynamics["0"])
+	if tree.Dynamics[0] != "Dot" {
+		t.Errorf("Expected dynamics['0'] = 'Dot', got: %v", tree.Dynamics[0])
 	}
 }
 
@@ -142,8 +142,8 @@ func TestHandleAction_WithVarCtx_VariableAccess(t *testing.T) {
 		t.Fatalf("handleAction failed: %v", err)
 	}
 
-	if tree.Dynamics["0"] != "Variable" {
-		t.Errorf("Expected dynamics['0'] = 'Variable', got: %v", tree.Dynamics["0"])
+	if tree.Dynamics[0] != "Variable" {
+		t.Errorf("Expected dynamics['0'] = 'Variable', got: %v", tree.Dynamics[0])
 	}
 }
 
@@ -162,8 +162,8 @@ func TestHandleAction_WithVarCtx_RootVariable(t *testing.T) {
 		t.Fatalf("handleAction failed: %v", err)
 	}
 
-	if tree.Dynamics["0"] != "Root" {
-		t.Errorf("Expected dynamics['0'] = 'Root', got: %v", tree.Dynamics["0"])
+	if tree.Dynamics[0] != "Root" {
+		t.Errorf("Expected dynamics['0'] = 'Root', got: %v", tree.Dynamics[0])
 	}
 }
 
@@ -190,8 +190,8 @@ func TestHandleAction_SingleVariable(t *testing.T) {
 		t.Fatalf("handleAction failed: %v", err)
 	}
 
-	if tree.Dynamics["0"] != "John" {
-		t.Errorf("Expected dynamics['0'] = 'John', got: %v", tree.Dynamics["0"])
+	if tree.Dynamics[0] != "John" {
+		t.Errorf("Expected dynamics['0'] = 'John', got: %v", tree.Dynamics[0])
 	}
 }
 
@@ -210,8 +210,8 @@ func TestHandleAction_RootVariableFromVarCtx(t *testing.T) {
 		t.Fatalf("handleAction failed: %v", err)
 	}
 
-	if tree.Dynamics["0"] != "Root" {
-		t.Errorf("Expected dynamics['0'] = 'Root', got: %v", tree.Dynamics["0"])
+	if tree.Dynamics[0] != "Root" {
+		t.Errorf("Expected dynamics['0'] = 'Root', got: %v", tree.Dynamics[0])
 	}
 }
 
@@ -238,8 +238,8 @@ func TestHandleAction_VariableWithUnderscore(t *testing.T) {
 		t.Fatalf("handleAction failed: %v", err)
 	}
 
-	if tree.Dynamics["0"] != "UnderscoreValue" {
-		t.Errorf("Expected dynamics['0'] = 'UnderscoreValue', got: %v", tree.Dynamics["0"])
+	if tree.Dynamics[0] != "UnderscoreValue" {
+		t.Errorf("Expected dynamics['0'] = 'UnderscoreValue', got: %v", tree.Dynamics[0])
 	}
 }
 
@@ -247,8 +247,8 @@ func TestCreateSingleDynamicTree_WithStatics(t *testing.T) {
 	ctx := &Context{IncludeStatics: true}
 	tree := createSingleDynamicTree("test value", ctx)
 
-	if tree.Dynamics["0"] != "test value" {
-		t.Errorf("Expected dynamics['0'] = 'test value', got: %v", tree.Dynamics["0"])
+	if tree.Dynamics[0] != "test value" {
+		t.Errorf("Expected dynamics['0'] = 'test value', got: %v", tree.Dynamics[0])
 	}
 
 	if len(tree.Statics) != 2 {
@@ -264,8 +264,8 @@ func TestCreateSingleDynamicTree_WithoutStatics(t *testing.T) {
 	ctx := &Context{IncludeStatics: false}
 	tree := createSingleDynamicTree("test value", ctx)
 
-	if tree.Dynamics["0"] != "test value" {
-		t.Errorf("Expected dynamics['0'] = 'test value', got: %v", tree.Dynamics["0"])
+	if tree.Dynamics[0] != "test value" {
+		t.Errorf("Expected dynamics['0'] = 'test value', got: %v", tree.Dynamics[0])
 	}
 
 	if tree.Statics != nil {

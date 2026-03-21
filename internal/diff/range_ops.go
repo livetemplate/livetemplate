@@ -4,7 +4,8 @@ package diff
 
 import (
 	"sort"
-	"strconv"
+
+	"github.com/livetemplate/livetemplate/internal/build"
 )
 
 // rangeContext holds pre-computed data for a single range diff operation,
@@ -19,7 +20,6 @@ type rangeContext struct {
 	oldByKey  map[string]interface{}
 	newByKey  map[string]interface{}
 	keyPos    int
-	keyPosStr string
 	addedKeys []string
 }
 
@@ -35,16 +35,15 @@ func newRangeContext(oldItems, newItems []interface{}, statics interface{}, meta
 		newKeys:  make([]string, 0, len(newItems)),
 	}
 	ctx.keyPos = FindKeyPositionFromStatics(statics)
-	ctx.keyPosStr = strconv.Itoa(ctx.keyPos)
 
 	for _, item := range oldItems {
-		if key, ok := getItemKeyWithPos(item, ctx.keyPos, ctx.keyPosStr); ok {
+		if key, ok := getItemKeyWithPos(item, ctx.keyPos); ok {
 			ctx.oldKeys = append(ctx.oldKeys, key)
 			ctx.oldByKey[key] = item
 		}
 	}
 	for _, item := range newItems {
-		if key, ok := getItemKeyWithPos(item, ctx.keyPos, ctx.keyPosStr); ok {
+		if key, ok := getItemKeyWithPos(item, ctx.keyPos); ok {
 			ctx.newKeys = append(ctx.newKeys, key)
 			ctx.newByKey[key] = item
 		}
@@ -65,7 +64,7 @@ func newRangeContext(oldItems, newItems []interface{}, statics interface{}, meta
 }
 
 func (ctx *rangeContext) getItemKey(item interface{}) (string, bool) {
-	return getItemKeyWithPos(item, ctx.keyPos, ctx.keyPosStr)
+	return getItemKeyWithPos(item, ctx.keyPos)
 }
 
 // GenerateRangeDifferentialOperations generates differential operations for range constructs.
@@ -200,7 +199,7 @@ func generateUpdateOps(ctx *rangeContext, operations []interface{}) []interface{
 	for _, key := range sortedNewKeys {
 		newItem := ctx.newByKey[key]
 		if oldItem, exists := ctx.oldByKey[key]; exists {
-			changes := compareRangeItemsWithKeyPos(oldItem, newItem, ctx.keyPos, ctx.keyPosStr)
+			changes := compareRangeItemsWithKeyPos(oldItem, newItem, ctx.keyPos)
 			if len(changes) > 0 {
 				// Include all changes, even empty strings — they signal field removal
 				// (e.g., removing "checked" attribute when toggling a checkbox off).
@@ -327,11 +326,10 @@ func handleIndividualInsertionsCtx(ctx *rangeContext, operations []interface{}) 
 // CompareRangeItemsForChanges compares two range items and returns a map of field changes.
 func CompareRangeItemsForChanges(oldItem, newItem interface{}, statics interface{}) map[string]interface{} {
 	keyPos := FindKeyPositionFromStatics(statics)
-	keyPosStr := strconv.Itoa(keyPos)
-	return compareRangeItemsWithKeyPos(oldItem, newItem, keyPos, keyPosStr)
+	return compareRangeItemsWithKeyPos(oldItem, newItem, keyPos)
 }
 
-func compareRangeItemsWithKeyPos(oldItem, newItem interface{}, keyPos int, keyPosStr string) map[string]interface{} {
+func compareRangeItemsWithKeyPos(oldItem, newItem interface{}, keyPos int) map[string]interface{} {
 	changes := make(map[string]interface{})
 
 	oldItemNode, ok1 := oldItem.(*TreeNode)
@@ -341,12 +339,16 @@ func compareRangeItemsWithKeyPos(oldItem, newItem interface{}, keyPos int, keyPo
 		return changes
 	}
 
-	for fieldKey, newValue := range newItemNode.Dynamics {
-		if keyPos >= 0 && fieldKey == keyPosStr {
+	for i, newValue := range newItemNode.Dynamics {
+		if newValue == nil {
+			continue
+		}
+		if keyPos >= 0 && i == keyPos {
 			continue
 		}
 
-		oldValue, exists := oldItemNode.GetDynamic(fieldKey)
+		fieldKey := build.PositionKey(i)
+		oldValue, exists := oldItemNode.GetDynamic(i)
 		if !exists || !DeepEqual(oldValue, newValue) {
 			if newTreeNode, ok := newValue.(*TreeNode); ok {
 				handleNestedTreeNodeChange(fieldKey, oldValue, newTreeNode, exists, changes)
@@ -357,13 +359,21 @@ func compareRangeItemsWithKeyPos(oldItem, newItem interface{}, keyPos int, keyPo
 	}
 
 	// Check for fields removed (in old but not in new), e.g. unchecking a checkbox.
-	for fieldKey, oldValue := range oldItemNode.Dynamics {
-		if keyPos >= 0 && fieldKey == keyPosStr {
+	for i, oldValue := range oldItemNode.Dynamics {
+		if oldValue == nil {
 			continue
 		}
-		if _, exists := newItemNode.Dynamics[fieldKey]; !exists {
+		if keyPos >= 0 && i == keyPos {
+			continue
+		}
+		// Check if the position exists and is non-nil in new
+		var newExists bool
+		if i < len(newItemNode.Dynamics) && newItemNode.Dynamics[i] != nil {
+			newExists = true
+		}
+		if !newExists {
 			if isMeaningfulValue(oldValue) {
-				changes[fieldKey] = ""
+				changes[build.PositionKey(i)] = ""
 			}
 		}
 	}

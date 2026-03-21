@@ -1,7 +1,6 @@
 package parse
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/livetemplate/livetemplate/internal/keys"
@@ -39,9 +38,10 @@ func hasExplicitKeyAttribute(statics []string) bool {
 
 // detectIDKey detects which dynamic position contains the item ID
 // by scanning statics for key attribute patterns.
-func detectIDKey(statics []string) string {
+// Returns the integer index of the dynamic position containing the key.
+func detectIDKey(statics []string) int {
 	if len(statics) == 0 {
-		return "0"
+		return 0
 	}
 	keyAttrs := []string{
 		"id=\"",
@@ -68,10 +68,10 @@ func detectIDKey(statics []string) string {
 			}
 		}
 		if matchedIdx != -1 {
-			return fmt.Sprintf("%d", i)
+			return i
 		}
 	}
-	return "0"
+	return 0
 }
 
 // generateItemHash creates a stable hash for a range item based on its content.
@@ -79,5 +79,5 @@ func generateItemHash(item *TreeNode) string {
 	if item == nil {
 		return ""
 	}
-	return keys.GenerateItemHash(item.Dynamics)
+	return keys.GenerateItemHashFromSlice(item.Dynamics)
 }

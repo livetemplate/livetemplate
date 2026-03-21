@@ -13,20 +13,19 @@ import (
 func createSimpleTree() *build.TreeNode {
 	return &build.TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "value"},
+		Dynamics: []interface{}{"value"},
 	}
 }
 
 func createTreeWithNFields(n int) *build.TreeNode {
-	tree := &build.TreeNode{
+	dynamics := make([]interface{}, n)
+	for i := range dynamics {
+		dynamics[i] = "value"
+	}
+	return &build.TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: make(map[string]interface{}),
+		Dynamics: dynamics,
 	}
-	for i := 0; i < n; i++ {
-		key := string(rune('0' + i))
-		tree.Dynamics[key] = "value"
-	}
-	return tree
 }
 
 func createRangeTree(itemCount int) *build.TreeNode {
@@ -36,7 +35,7 @@ func createRangeTree(itemCount int) *build.TreeNode {
 			"key": i,
 			"tree": &build.TreeNode{
 				Statics:  []string{"<li>", "</li>"},
-				Dynamics: map[string]interface{}{"0": "item"},
+				Dynamics: []interface{}{"item"},
 			},
 		}
 	}
@@ -66,7 +65,7 @@ func BenchmarkCompareTreesNoChanges(b *testing.B) {
 func BenchmarkCompareTreesSmallChange(b *testing.B) {
 	tree1 := createSimpleTree()
 	tree2 := createSimpleTree()
-	tree2.Dynamics["0"] = "changed"
+	tree2.Dynamics[0] = "changed"
 
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
@@ -90,8 +89,7 @@ func BenchmarkCompareTreesLargeChange(b *testing.B) {
 			tree2 := createTreeWithNFields(tt.size)
 			// Change every field
 			for i := 0; i < tt.size; i++ {
-				key := string(rune('0' + i))
-				tree2.Dynamics[key] = "changed"
+				tree2.SetDynamic(i, "changed")
 			}
 
 			b.ResetTimer()
@@ -111,7 +109,7 @@ func BenchmarkRangeDiffUpdate(b *testing.B) {
 	// Change one item
 	newItem := newTree.Range.Items[50].(map[string]interface{})
 	newItemTree := newItem["tree"].(*build.TreeNode)
-	newItemTree.Dynamics["0"] = "updated"
+	newItemTree.Dynamics[0] = "updated"
 
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
@@ -151,11 +149,7 @@ func createTreeNodeRangeTree(itemCount int) *build.TreeNode {
 	for i := 0; i < itemCount; i++ {
 		key := "item-" + strconv.Itoa(i)
 		items[i] = &build.TreeNode{
-			Dynamics: map[string]interface{}{
-				"0": key,
-				"1": "Item " + strconv.Itoa(i),
-				"2": "active",
-			},
+			Dynamics: []interface{}{key, "Item " + strconv.Itoa(i), "active"},
 		}
 	}
 	return &build.TreeNode{
@@ -170,7 +164,7 @@ func createTreeNodeRangeTree(itemCount int) *build.TreeNode {
 func BenchmarkRangeDiff_TreeNode_Update(b *testing.B) {
 	oldTree := createTreeNodeRangeTree(100)
 	newTree := createTreeNodeRangeTree(100)
-	newTree.Range.Items[50].(*build.TreeNode).Dynamics["2"] = "updated"
+	newTree.Range.Items[50].(*build.TreeNode).Dynamics[2] = "updated"
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -195,7 +189,7 @@ func BenchmarkRangeDiff_TreeNode_Reorder(b *testing.B) {
 func BenchmarkRangeDiff_TreeNode_LargeList(b *testing.B) {
 	oldTree := createTreeNodeRangeTree(1000)
 	newTree := createTreeNodeRangeTree(1000)
-	newTree.Range.Items[500].(*build.TreeNode).Dynamics["2"] = "updated"
+	newTree.Range.Items[500].(*build.TreeNode).Dynamics[2] = "updated"
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -232,14 +226,12 @@ func createNestedTree(depth int) *build.TreeNode {
 	if depth == 0 {
 		return &build.TreeNode{
 			Statics:  []string{"<span>", "</span>"},
-			Dynamics: map[string]interface{}{"0": "leaf"},
+			Dynamics: []interface{}{"leaf"},
 		}
 	}
 	return &build.TreeNode{
-		Statics: []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{
-			"0": createNestedTree(depth - 1),
-		},
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: []interface{}{createNestedTree(depth - 1)},
 	}
 }
 
@@ -263,11 +255,11 @@ func BenchmarkClientNeedsStatics_SameStructure(b *testing.B) {
 func BenchmarkClientNeedsStatics_DifferentStructure(b *testing.B) {
 	tree1 := &build.TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "value"},
+		Dynamics: []interface{}{"value"},
 	}
 	tree2 := &build.TreeNode{
 		Statics:  []string{"<span>", "</span>"}, // Different statics
-		Dynamics: map[string]interface{}{"0": "value"},
+		Dynamics: []interface{}{"value"},
 	}
 
 	b.ResetTimer()
