@@ -254,21 +254,22 @@ func GetRangeSignature(rangeValue interface{}) string {
 
 // FindRangeConstructs finds all range constructs in a tree, recursively searching nested structures.
 func FindRangeConstructs(tree *TreeNode) map[string]interface{} {
+	result := make(map[string]interface{})
 	if tree == nil {
-		return make(map[string]interface{})
+		return result
 	}
-	return findRangeConstructsRecursive(tree, "")
+	findRangeConstructsRecursive(tree, "", result)
+	return result
 }
 
-func findRangeConstructsRecursive(tree *TreeNode, path string) map[string]interface{} {
-	ranges := make(map[string]interface{})
+func findRangeConstructsRecursive(tree *TreeNode, path string, result map[string]interface{}) {
 	if tree == nil {
-		return ranges
+		return
 	}
 
 	if tree.HasRange() && tree.HasStatics() {
-		ranges[path] = tree
-		return ranges
+		result[path] = tree
+		return
 	}
 
 	for i, value := range tree.Dynamics {
@@ -281,15 +282,11 @@ func findRangeConstructsRecursive(tree *TreeNode, path string) map[string]interf
 			fieldPath = path + "." + field
 		}
 		if IsRangeConstruct(value) {
-			ranges[fieldPath] = value
+			result[fieldPath] = value
 		} else if nestedTree, ok := value.(*TreeNode); ok {
-			nestedRanges := findRangeConstructsRecursive(nestedTree, fieldPath)
-			for k, v := range nestedRanges {
-				ranges[k] = v
-			}
+			findRangeConstructsRecursive(nestedTree, fieldPath, result)
 		}
 	}
-	return ranges
 }
 
 // FindRangeConstructMatches finds matching range constructs between old and new trees.

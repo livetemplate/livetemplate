@@ -14,10 +14,13 @@ func formatPipe(pipe *parse.PipeNode) string {
 	return strings.TrimSpace(pipe.String())
 }
 
+// Shared sentinel — assign to tree.Statics only; never mutate elements directly.
+var defaultEmptyStatics = []string{""}
+
 // createEmptyTree creates a tree node representing empty content.
 func createEmptyTree(ctx *Context) *TreeNode {
 	if ctx.ShouldIncludeStatics() {
-		return NewTreeNodeWithStatics([]string{""})
+		return NewTreeNodeWithStatics(defaultEmptyStatics)
 	}
 	return NewTreeNode()
 }

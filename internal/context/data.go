@@ -6,90 +6,104 @@ import (
 	"strings"
 )
 
-// AddLvtToData converts data to include lvt context for template execution.
-//
-// This function:
-// 1. Creates a LiveTemplate context with messages (errors + flash) and dev mode settings
-// 2. Wraps the original data in a map with "lvt" namespace
-// 3. Handles both struct and map data types
-// 4. For structs, respects json tags for field naming
-//
-// The resulting map allows templates to access both the original data fields
-// and LiveTemplate-specific functionality through the "lvt" namespace.
-//
-// Parameters:
-//   - data: The original template data (struct, map, or other type)
-//   - messages: Unified map containing field errors and flash messages (prefixed with "_flash:")
-//   - devMode: Whether to enable development mode features
-//   - uploadRegistry: Optional upload registry (pass nil if uploads not needed)
-//
-// Returns:
-//   - A map containing the original data fields plus the "lvt" namespace
-func AddLvtToData(data interface{}, messages map[string]string, devMode bool, uploadRegistry ...interface{}) interface{} {
+// BuildDataMap creates a template data map with lvt context from the given data.
+// This is the single source of truth for data→map conversion, used by both
+// template execution and tree building to avoid duplicate reflection.
+func BuildDataMap(data interface{}, messages map[string]string, devMode bool, uploadRegistry interface{}) interface{} {
 	if messages == nil {
 		messages = make(map[string]string)
 	}
 
-	// Create LiveTemplate context
 	lvtContext := NewTemplateContext(messages, devMode)
-
-	// Set upload registry if provided
-	if len(uploadRegistry) > 0 && uploadRegistry[0] != nil {
-		lvtContext.SetUploadRegistry(uploadRegistry[0])
+	if uploadRegistry != nil {
+		lvtContext.SetUploadRegistry(uploadRegistry)
 	}
 
-	templateData := make(map[string]interface{})
-	templateData["lvt"] = lvtContext
+	return buildDataMapWithContext(data, lvtContext)
+}
 
+// buildDataMapWithContext does the actual reflection and map construction.
+func buildDataMapWithContext(data interface{}, lvtContext *TemplateContext) interface{} {
 	val := reflect.ValueOf(data)
+
 	if val.Kind() == reflect.Ptr {
+		if val.IsNil() {
+			dataMap := make(map[string]interface{})
+			dataMap[TemplateContextKey] = lvtContext
+			return dataMap
+		}
 		val = val.Elem()
 	}
 
-	if val.Kind() == reflect.Struct {
+	switch val.Kind() {
+	case reflect.Struct:
+		dataMap := make(map[string]interface{})
 		typ := val.Type()
 		for i := 0; i < val.NumField(); i++ {
 			field := typ.Field(i)
-
 			if !field.IsExported() {
 				continue
 			}
 
-			fieldName := field.Name
-			if jsonTag := field.Tag.Get("json"); jsonTag != "" {
-				if commaIdx := strings.Index(jsonTag, ","); commaIdx > 0 {
-					fieldName = jsonTag[:commaIdx]
-				} else if jsonTag != "-" {
-					fieldName = jsonTag
+			fieldValue := val.Field(i).Interface()
+			jsonTag := field.Tag.Get("json")
+
+			if jsonTag == "-" {
+				continue
+			}
+
+			if jsonTag != "" {
+				if commaIdx := strings.Index(jsonTag, ","); commaIdx >= 0 {
+					if commaIdx == 0 {
+						jsonTag = ""
+					} else {
+						jsonTag = jsonTag[:commaIdx]
+					}
+				}
+				if jsonTag != "" && jsonTag != TemplateContextKey {
+					dataMap[jsonTag] = fieldValue
 				}
 			}
 
-			// Warn if field will shadow the "lvt" namespace
-			if fieldName == "lvt" || field.Name == "lvt" {
-				slog.Warn("struct field shadows LiveTemplate 'lvt' namespace and will be overwritten",
+			if field.Name == TemplateContextKey {
+				slog.Warn("struct field shadows LiveTemplate 'lvt' namespace and will be skipped",
 					slog.String("field", field.Name),
 					slog.String("type", typ.Name()))
+				continue
 			}
 
-			// Store field under both json tag name (if present) and original struct field name.
-			// This dual mapping ensures templates work with both naming conventions:
-			// - {{.fieldName}} using json tag (e.g., "user_id")
-			// - {{.FieldName}} using struct field name (e.g., "UserID")
-			// This maintains backward compatibility with existing templates.
-			templateData[fieldName] = val.Field(i).Interface()
-			templateData[field.Name] = val.Field(i).Interface()
+			dataMap[field.Name] = fieldValue
 		}
-	} else if val.Kind() == reflect.Map {
+
+		dataMap[TemplateContextKey] = lvtContext
+		return dataMap
+
+	case reflect.Map:
+		dataMap := make(map[string]interface{})
 		for _, key := range val.MapKeys() {
 			keyStr := key.String()
-			// Warn if map key will shadow the "lvt" namespace
-			if keyStr == "lvt" {
-				slog.Warn("map key shadows LiveTemplate 'lvt' namespace and will be overwritten",
+			if keyStr == TemplateContextKey {
+				slog.Warn("map key shadows LiveTemplate 'lvt' namespace and will be skipped",
 					slog.String("key", keyStr))
 			}
-			templateData[keyStr] = val.MapIndex(key).Interface()
+			if keyStr != TemplateContextKey {
+				dataMap[keyStr] = val.MapIndex(key).Interface()
+			}
 		}
-	}
+		dataMap[TemplateContextKey] = lvtContext
+		return dataMap
 
-	return templateData
+	default:
+		return data
+	}
+}
+
+// AddLvtToData converts data to include lvt context for template execution.
+// This is a convenience wrapper around BuildDataMap for backward compatibility.
+func AddLvtToData(data interface{}, messages map[string]string, devMode bool, uploadRegistry ...interface{}) interface{} {
+	var registry interface{}
+	if len(uploadRegistry) > 0 {
+		registry = uploadRegistry[0]
+	}
+	return BuildDataMap(data, messages, devMode, registry)
 }

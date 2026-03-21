@@ -8,12 +8,17 @@ import (
 	"html/template"
 	"reflect"
 	"strings"
+	"sync"
 )
 
 // FlashPrefix is the prefix used to identify flash messages in the unified messages map.
 // Flash messages are stored as "_flash:key" -> "message" in the map.
 // This allows a single map to contain both field errors and flash messages.
 const FlashPrefix = "_flash:"
+
+var bufferPool = sync.Pool{
+	New: func() interface{} { return new(bytes.Buffer) },
+}
 
 // TemplateContext provides utility functions for templates via the lvt namespace.
 //
@@ -317,96 +322,27 @@ const (
 // Note: If struct fields or map keys conflict with the reserved "lvt" key, they will be
 // skipped to ensure the lvt context remains accessible in templates.
 func ExecuteTemplateWithContext(tmpl *template.Template, data interface{}, messages map[string]string, devMode bool, uploadRegistry interface{}) ([]byte, error) {
-	lvtContext := NewTemplateContext(messages, devMode)
-	if uploadRegistry != nil {
-		lvtContext.SetUploadRegistry(uploadRegistry)
+	dataMap := BuildDataMap(data, messages, devMode, uploadRegistry)
+	return executeWithBuffer(tmpl, dataMap)
+}
+
+// ExecuteTemplateWithDataMap executes a template with a pre-built data map.
+// Use this when the data map has already been constructed via BuildDataMap
+// to avoid duplicate reflection.
+func ExecuteTemplateWithDataMap(tmpl *template.Template, dataMap interface{}) ([]byte, error) {
+	return executeWithBuffer(tmpl, dataMap)
+}
+
+func executeWithBuffer(tmpl *template.Template, data interface{}) ([]byte, error) {
+	buf := bufferPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	err := tmpl.Execute(buf, data)
+	if err != nil {
+		bufferPool.Put(buf)
+		return nil, err
 	}
-
-	var templateData interface{}
-
-	val := reflect.ValueOf(data)
-
-	// Handle nil pointer case explicitly
-	if val.Kind() == reflect.Ptr {
-		if val.IsNil() {
-			// Provide only lvt context for nil pointers
-			dataMap := make(map[string]interface{})
-			dataMap[TemplateContextKey] = lvtContext
-			templateData = dataMap
-			var buf bytes.Buffer
-			err := tmpl.Execute(&buf, templateData)
-			return buf.Bytes(), err
-		}
-		val = val.Elem()
-	}
-
-	switch val.Kind() {
-	case reflect.Struct:
-		dataMap := make(map[string]interface{})
-
-		typ := val.Type()
-		for i := 0; i < val.NumField(); i++ {
-			field := typ.Field(i)
-			if !field.IsExported() {
-				continue
-			}
-
-			fieldValue := val.Field(i).Interface()
-			jsonTag := field.Tag.Get("json")
-
-			if jsonTag == "-" {
-				continue
-			}
-
-			// Handle JSON tags properly
-			if jsonTag != "" {
-				// Handle ",omitempty" and similar cases
-				if commaIdx := strings.Index(jsonTag, ","); commaIdx >= 0 {
-					if commaIdx == 0 {
-						// Tag is just ",omitempty" - use field name
-						jsonTag = ""
-					} else {
-						jsonTag = jsonTag[:commaIdx]
-					}
-				}
-				// Skip if tag results in reserved key
-				if jsonTag != "" && jsonTag != TemplateContextKey {
-					dataMap[jsonTag] = fieldValue
-				}
-			}
-
-			// Skip field name if it conflicts with reserved key
-			if field.Name != TemplateContextKey {
-				dataMap[field.Name] = fieldValue
-			}
-		}
-
-		// Add lvt context last to prevent field collision
-		dataMap[TemplateContextKey] = lvtContext
-		templateData = dataMap
-
-	case reflect.Map:
-		dataMap := make(map[string]interface{})
-
-		for _, key := range val.MapKeys() {
-			keyStr := key.String()
-			// Skip map keys that conflict with reserved key
-			if keyStr != TemplateContextKey {
-				dataMap[keyStr] = val.MapIndex(key).Interface()
-			}
-		}
-
-		// Add lvt context last to ensure it's always available
-		dataMap[TemplateContextKey] = lvtContext
-		templateData = dataMap
-
-	default:
-		// For primitive types (string, int, bool, etc.), we can't inject lvt
-		// Pass the data as-is to maintain compatibility with standard templates
-		templateData = data
-	}
-
-	var buf bytes.Buffer
-	err := tmpl.Execute(&buf, templateData)
-	return buf.Bytes(), err
+	result := make([]byte, buf.Len())
+	copy(result, buf.Bytes())
+	bufferPool.Put(buf)
+	return result, nil
 }
