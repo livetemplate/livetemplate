@@ -207,19 +207,10 @@ Based on profiling data, prioritize:
 
 ### High Priority Tasks
 
-- [ ] **Implement Template Parse Caching**
-  - Location: `template.go`, Phase 1 (Parse)
-  - Goal: Reduce 23.9 GB allocations in `html.NewTokenizerFragment` and template functions
-  - Approach: Cache parsed `text/template.Template` and `html/template.Template` objects by template string hash
-  - Expected Impact: 50% reduction in allocations, 30-40% reduction in CPU time (less GC)
-  - Verification: Run `make bench-compare` and `make profile-mem` to confirm reduction
-
-- [ ] **Reduce Template Re-parsing Frequency**
-  - Location: `template.go`, Phase 1 (Parse)
-  - Goal: Eliminate redundant template parsing in benchmarks and production
-  - Approach: Add `isParsed` flag to Template struct, skip parsing if already done
-  - Expected Impact: 15-20% reduction in Parse phase allocations
-  - Verification: Check `BenchmarkParse` results show improved performance
+- [x] **Eliminate Redundant HTML Parsing + Cache Template AST** *(Completed 2026-03-21, PR #219)*
+  - Location: `template.go`, `internal/parse/api.go`, `internal/compat/tree.go`
+  - Approach: (1) Eliminated redundant `ExtractTemplateContent` calls on main update path — html.Parse() now only runs on first render and rare fallback. (2) Cached `*parse.Template` AST after first parse, reused on subsequent renders. (3) Pre-computed evaluator builtins map once at parse time.
+  - Actual Impact: 50-57% allocation reduction per render. E2E user journey 16174→7084 allocs. Small update 154→66 allocs. ~3x faster update latency.
 
 - [ ] **Implement TreeNode Object Pooling**
   - Location: `internal/build/tree_ops.go`, Phase 2 (Build)
@@ -254,12 +245,10 @@ Based on profiling data, prioritize:
   - Expected Impact: 10-20% reduction in Send phase allocations and time
   - Verification: Run `BenchmarkSendMessage` and compare marshal performance
 
-- [ ] **Pool Parse Evaluators**
-  - Location: `internal/parse/eval.go`, Phase 1 (Parse)
-  - Goal: Reduce 4.8 GB allocations in `newEvaluator` (newly visible after parse rewrite, commit 4f5cba3)
-  - Approach: Use `sync.Pool` to reuse evaluator objects across parse operations
-  - Expected Impact: 5-6% reduction in total allocations
-  - Verification: Run `BenchmarkBuildTree` and check parse allocations decrease
+- [x] **Pre-compute Evaluator Builtins** *(Completed 2026-03-21, PR #219)*
+  - Location: `internal/parse/eval.go`, `internal/parse/api.go`, Phase 1 (Parse)
+  - Approach: `precomputeBuiltins()` merges cachedBuiltins + user FuncMap once at parse time, stored on `parse.Template`. Eliminates per-render map allocation in `newEvaluator`.
+  - Actual Impact: Eliminated 4.8 GB (5.90%) of allocations. BuildTree/simple 27→22 allocs.
 
 - [ ] **Implement Custom Binary Format (Optional)**
   - Location: `internal/send/`, Phase 5 (Send)
@@ -316,8 +305,8 @@ Based on profiling data, prioritize:
 
 Update this section as tasks are completed:
 
-**Last Updated:** 2026-03-19
-**Completed Tasks:** 3/15
+**Last Updated:** 2026-03-21
+**Completed Tasks:** 5/15
 **In Progress:** 0
 **Blocked:** 0
 

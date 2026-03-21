@@ -1277,7 +1277,9 @@ func (t *Template) generateTreeInternalWithErrors(data interface{}, messages map
 	return t.buildTree(data, messages)
 }
 
-// getOrComputeBodyContent returns the cached body content, computing it on first call.
+// getOrComputeBodyContent returns the cached body content from t.templateStr (the template
+// source with {{}} action syntax), NOT from rendered HTML. The parser needs template actions
+// to identify dynamic slots, so this intentionally uses the source text.
 // Caller must hold t.mu write lock.
 func (t *Template) getOrComputeBodyContent() string {
 	if !t.cachedBodyContentValid {
@@ -1338,8 +1340,11 @@ func (t *Template) generateInitialTreeWithoutRegistry(data interface{}, extracte
 func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newData interface{}) (*treeNode, error) {
 	// Generate new complete tree for comparison
 	if t.hasInitialTree {
-		// MAIN PATH: tree generation uses t.templateStr, not extracted HTML.
-		// No html.Parse() extraction needed on this path.
+		// MAIN PATH: tree generation uses t.templateStr (template source), not extracted
+		// rendered HTML. No html.Parse() extraction needed on this path.
+		// Note: t.lastHTML is intentionally not updated here — it holds stale data from
+		// the first render. This is safe because lastHTML is only consumed by the fallback
+		// path below, which is unreachable once hasInitialTree is true.
 		ctx := build.NewContext()
 		ctx.DevMode = t.config.DevMode
 

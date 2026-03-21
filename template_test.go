@@ -3339,8 +3339,11 @@ func TestFuncsCacheInvalidation(t *testing.T) {
 	}
 	secondRender := buf2.String()
 
-	if strings.Contains(secondRender, "WORLD") && !strings.Contains(secondRender, "world") {
+	if !strings.Contains(secondRender, "world") {
 		t.Fatalf("Expected lowercase 'world' after Funcs() invalidation, got: %s", secondRender)
+	}
+	if strings.Contains(secondRender, "WORLD") {
+		t.Fatalf("Old transform (ToUpper) still active after Funcs() invalidation, got: %s", secondRender)
 	}
 }
 
