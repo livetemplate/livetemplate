@@ -50,13 +50,22 @@ func TreeNodeEqual(a, b *TreeNode) bool {
 
 	for i, aVal := range a.Dynamics {
 		if i >= len(b.Dynamics) {
-			return false
+			if aVal != nil {
+				return false
+			}
+			continue
 		}
 		bVal := b.Dynamics[i]
 		if (aVal == nil) != (bVal == nil) {
 			return false
 		}
 		if aVal != nil && !DeepEqual(aVal, bVal) {
+			return false
+		}
+	}
+	// Check b's extra entries beyond a's length for non-nil values
+	for i := len(a.Dynamics); i < len(b.Dynamics); i++ {
+		if b.Dynamics[i] != nil {
 			return false
 		}
 	}

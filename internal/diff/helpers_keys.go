@@ -49,12 +49,11 @@ func FindKeyPositionFromStatics(statics interface{}) int {
 // GetItemKey extracts the key from a range item using the statics structure.
 func GetItemKey(item interface{}, statics interface{}) (string, bool) {
 	keyPos := FindKeyPositionFromStatics(statics)
-	keyPosStr := build.PositionKey(keyPos)
-	return getItemKeyWithPos(item, keyPos, keyPosStr)
+	return getItemKeyWithPos(item, keyPos)
 }
 
 // getItemKeyWithPos extracts the key using pre-computed key position.
-func getItemKeyWithPos(item interface{}, keyPos int, keyPosStr string) (string, bool) {
+func getItemKeyWithPos(item interface{}, keyPos int) (string, bool) {
 	itemNode, ok := item.(*TreeNode)
 	if !ok {
 		return "", false

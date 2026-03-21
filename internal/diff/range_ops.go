@@ -20,7 +20,6 @@ type rangeContext struct {
 	oldByKey  map[string]interface{}
 	newByKey  map[string]interface{}
 	keyPos    int
-	keyPosStr string
 	addedKeys []string
 }
 
@@ -36,16 +35,15 @@ func newRangeContext(oldItems, newItems []interface{}, statics interface{}, meta
 		newKeys:  make([]string, 0, len(newItems)),
 	}
 	ctx.keyPos = FindKeyPositionFromStatics(statics)
-	ctx.keyPosStr = build.PositionKey(ctx.keyPos)
 
 	for _, item := range oldItems {
-		if key, ok := getItemKeyWithPos(item, ctx.keyPos, ctx.keyPosStr); ok {
+		if key, ok := getItemKeyWithPos(item, ctx.keyPos); ok {
 			ctx.oldKeys = append(ctx.oldKeys, key)
 			ctx.oldByKey[key] = item
 		}
 	}
 	for _, item := range newItems {
-		if key, ok := getItemKeyWithPos(item, ctx.keyPos, ctx.keyPosStr); ok {
+		if key, ok := getItemKeyWithPos(item, ctx.keyPos); ok {
 			ctx.newKeys = append(ctx.newKeys, key)
 			ctx.newByKey[key] = item
 		}
@@ -66,7 +64,7 @@ func newRangeContext(oldItems, newItems []interface{}, statics interface{}, meta
 }
 
 func (ctx *rangeContext) getItemKey(item interface{}) (string, bool) {
-	return getItemKeyWithPos(item, ctx.keyPos, ctx.keyPosStr)
+	return getItemKeyWithPos(item, ctx.keyPos)
 }
 
 // GenerateRangeDifferentialOperations generates differential operations for range constructs.
@@ -201,7 +199,7 @@ func generateUpdateOps(ctx *rangeContext, operations []interface{}) []interface{
 	for _, key := range sortedNewKeys {
 		newItem := ctx.newByKey[key]
 		if oldItem, exists := ctx.oldByKey[key]; exists {
-			changes := compareRangeItemsWithKeyPos(oldItem, newItem, ctx.keyPos, ctx.keyPosStr)
+			changes := compareRangeItemsWithKeyPos(oldItem, newItem, ctx.keyPos)
 			if len(changes) > 0 {
 				// Include all changes, even empty strings — they signal field removal
 				// (e.g., removing "checked" attribute when toggling a checkbox off).
@@ -328,11 +326,10 @@ func handleIndividualInsertionsCtx(ctx *rangeContext, operations []interface{}) 
 // CompareRangeItemsForChanges compares two range items and returns a map of field changes.
 func CompareRangeItemsForChanges(oldItem, newItem interface{}, statics interface{}) map[string]interface{} {
 	keyPos := FindKeyPositionFromStatics(statics)
-	keyPosStr := build.PositionKey(keyPos)
-	return compareRangeItemsWithKeyPos(oldItem, newItem, keyPos, keyPosStr)
+	return compareRangeItemsWithKeyPos(oldItem, newItem, keyPos)
 }
 
-func compareRangeItemsWithKeyPos(oldItem, newItem interface{}, keyPos int, keyPosStr string) map[string]interface{} {
+func compareRangeItemsWithKeyPos(oldItem, newItem interface{}, keyPos int) map[string]interface{} {
 	changes := make(map[string]interface{})
 
 	oldItemNode, ok1 := oldItem.(*TreeNode)

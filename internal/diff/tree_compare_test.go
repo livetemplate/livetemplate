@@ -577,11 +577,9 @@ func TestHandleNewTreeNodeFromPrimitive(t *testing.T) {
 
 // TestHandleChangedField_TypeChange tests when field type changes.
 func TestHandleChangedField_TypeChange(t *testing.T) {
-	oldTree := &TreeNode{Dynamics: []interface{}{"old"}}
-	newTree := &TreeNode{Dynamics: []interface{}{"new"}}
 	changes := &TreeNode{}
 
-	handleChangedField(0, "string", 123, "0", false, nil, oldTree, newTree, changes)
+	handleChangedField(0, "string", 123, "0", false, nil, changes)
 
 	// Should set new value when type changes
 	if changes.Dynamics[0] != 123 {
@@ -607,12 +605,10 @@ func TestHandleChangedField_RangeMatch(t *testing.T) {
 		},
 	}
 
-	oldTree := &TreeNode{Dynamics: []interface{}{oldValue}}
-	newTree := &TreeNode{Dynamics: []interface{}{newValue}}
 	changes := &TreeNode{}
 	rangeMatches := map[string]string{"0": "matched"}
 
-	handleChangedField(0, oldValue, newValue, "0", false, rangeMatches, oldTree, newTree, changes)
+	handleChangedField(0, oldValue, newValue, "0", false, rangeMatches, changes)
 
 	// Should generate differential operations
 	if changes.Dynamics[0] == nil {
@@ -631,11 +627,9 @@ func TestHandleChangedField_TreeNodes(t *testing.T) {
 		Dynamics: []interface{}{"new"},
 	}
 
-	oldTree := &TreeNode{Dynamics: []interface{}{oldNode}}
-	newTree := &TreeNode{Dynamics: []interface{}{newNode}}
 	changes := &TreeNode{}
 
-	handleChangedField(0, oldNode, newNode, "0", false, nil, oldTree, newTree, changes)
+	handleChangedField(0, oldNode, newNode, "0", false, nil, changes)
 
 	// Should produce nested changes
 	nestedChanges, ok := changes.Dynamics[0].(*TreeNode)
@@ -656,12 +650,9 @@ func TestHandleChangedField_TreeNodeToPrimitive(t *testing.T) {
 		Dynamics: []interface{}{"modal content"},
 	}
 
-	// Now the modal becomes empty (conditional false)
-	oldTree := &TreeNode{Dynamics: []interface{}{modalTree}}
-	newTree := &TreeNode{Dynamics: []interface{}{""}}
 	changes := &TreeNode{}
 
-	handleChangedField(0, modalTree, "", "0", false, nil, oldTree, newTree, changes)
+	handleChangedField(0, modalTree, "", "0", false, nil, changes)
 
 	// The change should be the empty string
 	if changes.Dynamics[0] != "" {

@@ -168,7 +168,6 @@ func compareDynamicSegments(
 				fieldPath,
 				insideNewStructure,
 				rangeMatches,
-				oldTree, newTree,
 				changes,
 			)
 		}
@@ -302,7 +301,6 @@ func handleChangedField(
 	fieldPath string,
 	insideNewStructure bool,
 	rangeMatches map[string]string,
-	oldTree, newTree *TreeNode,
 	changes *TreeNode,
 ) {
 	// Check if this field has a range construct match

@@ -236,6 +236,8 @@ func NewTreeMetadata(idKey string) *TreeMetadata {
 }
 
 // TrimDynamics removes trailing nil entries from the Dynamics slice.
+// Only trailing nils are removed — internal gaps (e.g., [val, nil, val]) are preserved
+// since position indices carry meaning in the wire format.
 func (tn *TreeNode) TrimDynamics() {
 	i := len(tn.Dynamics)
 	for i > 0 && tn.Dynamics[i-1] == nil {
