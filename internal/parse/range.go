@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"reflect"
 	"text/template/parse"
+
+	"github.com/livetemplate/livetemplate/internal/build"
 )
 
 // handleRange processes {{range}}...{{end}} constructs.
@@ -122,12 +124,12 @@ func buildRangeTreeWithStatics(items []rangeItemWithStatics, ctx *Context) (*Tre
 
 	firstStatics := items[0].tree.Statics
 
-	idKey := detectIDKey(firstStatics)
+	idKey := build.PositionKey(detectIDKey(firstStatics))
 
 	if !hasExplicitKeyAttribute(firstStatics) {
 		for _, item := range items {
 			hash := generateItemHash(item.tree)
-			item.tree.SetDynamic("_k", hash)
+			item.tree.AutoKey = hash
 		}
 		idKey = "_k"
 	}
@@ -146,9 +148,13 @@ func buildRangeTreeWithStatics(items []rangeItemWithStatics, ctx *Context) (*Tre
 	return rangeTree, nil
 }
 
-// extractItemDynamics extracts only the dynamics from an item tree.
+// extractItemDynamics extracts only the dynamics from an item tree (no statics).
 func extractItemDynamics(itemTree *TreeNode) *TreeNode {
-	return &TreeNode{
-		Dynamics: itemTree.Dynamics,
+	result := NewTreeNode()
+	result.AutoKey = itemTree.AutoKey
+	if len(itemTree.Dynamics) > 0 {
+		result.Dynamics = make([]interface{}, len(itemTree.Dynamics))
+		copy(result.Dynamics, itemTree.Dynamics)
 	}
+	return result
 }

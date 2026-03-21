@@ -18,31 +18,29 @@ func genStatics() *rapid.Generator[[]string] {
 	)
 }
 
-// genDynamics generates a map of dynamic values.
-func genDynamics(depth int) *rapid.Generator[map[string]interface{}] {
+// genDynamics generates a slice of dynamic values.
+func genDynamics(depth int) *rapid.Generator[[]interface{}] {
 	if depth <= 0 {
 		// At max depth, only generate primitive values
-		return rapid.Custom(func(t *rapid.T) map[string]interface{} {
+		return rapid.Custom(func(t *rapid.T) []interface{} {
 			n := rapid.IntRange(0, 3).Draw(t, "numDynamics")
-			result := make(map[string]interface{})
+			result := make([]interface{}, n)
 			for i := 0; i < n; i++ {
-				key := rapid.StringMatching(`[0-9]`).Draw(t, "key")
-				result[key] = rapid.StringMatching(`[a-zA-Z0-9 ]+`).Draw(t, "value")
+				result[i] = rapid.StringMatching(`[a-zA-Z0-9 ]+`).Draw(t, "value")
 			}
 			return result
 		})
 	}
 
-	return rapid.Custom(func(t *rapid.T) map[string]interface{} {
+	return rapid.Custom(func(t *rapid.T) []interface{} {
 		n := rapid.IntRange(0, 3).Draw(t, "numDynamics")
-		result := make(map[string]interface{})
+		result := make([]interface{}, n)
 		for i := 0; i < n; i++ {
-			key := rapid.StringMatching(`[0-9]`).Draw(t, "key")
 			// 30% chance of nested tree, 70% primitive
 			if rapid.Float64Range(0, 1).Draw(t, "nestedChance") < 0.3 {
-				result[key] = genTreeNode(depth-1).Draw(t, "nestedTree")
+				result[i] = genTreeNode(depth-1).Draw(t, "nestedTree")
 			} else {
-				result[key] = rapid.StringMatching(`[a-zA-Z0-9 ]+`).Draw(t, "value")
+				result[i] = rapid.StringMatching(`[a-zA-Z0-9 ]+`).Draw(t, "value")
 			}
 		}
 		return result
@@ -147,14 +145,14 @@ func TestCompareTreesAndGetChanges_Property_NoFalseNegatives(t *testing.T) {
 		// Generate old tree with a known dynamic value
 		oldTree := &TreeNode{
 			Statics:  []string{"<div>", "</div>"},
-			Dynamics: map[string]interface{}{"0": "old_value"},
+			Dynamics: []interface{}{"old_value"},
 		}
 
 		// Generate new tree with a different dynamic value
 		newValue := rapid.StringMatching(`new_[a-z]+`).Draw(t, "newValue")
 		newTree := &TreeNode{
 			Statics:  []string{"<div>", "</div>"},
-			Dynamics: map[string]interface{}{"0": newValue},
+			Dynamics: []interface{}{newValue},
 		}
 
 		// Compare
@@ -162,7 +160,7 @@ func TestCompareTreesAndGetChanges_Property_NoFalseNegatives(t *testing.T) {
 
 		// If values differ, there should be a change recorded
 		if newValue != "old_value" {
-			if changes == nil || changes.Dynamics == nil || changes.Dynamics["0"] != newValue {
+			if changes == nil || changes.Dynamics == nil || changes.Dynamics[0] != newValue {
 				t.Errorf("Expected change for dynamic '0' from 'old_value' to '%s'", newValue)
 			}
 		}
@@ -179,11 +177,11 @@ func TestCompareTreesAndGetChanges_Property_NoSpuriousChanges(t *testing.T) {
 
 		tree1 := &TreeNode{
 			Statics:  statics,
-			Dynamics: map[string]interface{}{"0": value},
+			Dynamics: []interface{}{value},
 		}
 		tree2 := &TreeNode{
 			Statics:  statics,
-			Dynamics: map[string]interface{}{"0": value},
+			Dynamics: []interface{}{value},
 		}
 
 		// Compare identical trees
@@ -202,10 +200,7 @@ func genRangeItem() *rapid.Generator[*TreeNode] {
 		key := rapid.StringMatching(`item-[0-9]+`).Draw(t, "itemKey")
 		value := rapid.StringMatching(`[a-z]+`).Draw(t, "itemValue")
 		return &TreeNode{
-			Dynamics: map[string]interface{}{
-				"0": key,
-				"1": value,
-			},
+			Dynamics: []interface{}{key, value},
 		}
 	})
 }
@@ -262,10 +257,7 @@ func TestClientNeedsStatics_Property_IdenticalRanges(t *testing.T) {
 		items := make([]interface{}, numItems)
 		for i := 0; i < numItems; i++ {
 			items[i] = &TreeNode{
-				Dynamics: map[string]interface{}{
-					"0": "id-" + string(rune('a'+i)),
-					"1": "value",
-				},
+				Dynamics: []interface{}{"id-" + string(rune('a'+i)), "value"},
 			}
 		}
 
@@ -316,14 +308,12 @@ func buildNestedTree(depth int, leafValue string) *TreeNode {
 	if depth <= 1 {
 		return &TreeNode{
 			Statics:  []string{"<span>", "</span>"},
-			Dynamics: map[string]interface{}{"0": leafValue},
+			Dynamics: []interface{}{leafValue},
 		}
 	}
 
 	return &TreeNode{
-		Statics: []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{
-			"0": buildNestedTree(depth-1, leafValue),
-		},
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: []interface{}{buildNestedTree(depth-1, leafValue)},
 	}
 }

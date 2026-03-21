@@ -37,7 +37,7 @@ func isMeaningfulValue(v interface{}) bool {
 	}
 }
 
-// hasDynamicsChanged checks if the set of dynamic keys differs between oldTree and newTree.
+// hasDynamicsChanged checks if the set of dynamic positions differs between oldTree and newTree.
 func hasDynamicsChanged(oldTree, newTree *TreeNode) bool {
 	oldHasDynamics := oldTree != nil && oldTree.HasDynamics()
 	newHasDynamics := newTree != nil && newTree.HasDynamics()
@@ -50,12 +50,28 @@ func hasDynamicsChanged(oldTree, newTree *TreeNode) bool {
 		return false
 	}
 
-	if len(oldTree.Dynamics) != len(newTree.Dynamics) {
+	if oldTree.DynamicLen() != newTree.DynamicLen() {
 		return true
 	}
 
-	for k := range oldTree.Dynamics {
-		if _, exists := newTree.Dynamics[k]; !exists {
+	// Check that non-nil positions match
+	maxLen := len(oldTree.Dynamics)
+	if len(newTree.Dynamics) > maxLen {
+		maxLen = len(newTree.Dynamics)
+	}
+	for i := 0; i < maxLen; i++ {
+		var oldNil, newNil bool
+		if i >= len(oldTree.Dynamics) {
+			oldNil = true
+		} else {
+			oldNil = oldTree.Dynamics[i] == nil
+		}
+		if i >= len(newTree.Dynamics) {
+			newNil = true
+		} else {
+			newNil = newTree.Dynamics[i] == nil
+		}
+		if oldNil != newNil {
 			return true
 		}
 	}

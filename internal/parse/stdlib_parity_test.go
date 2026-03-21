@@ -23,9 +23,9 @@ func flatTreeToHTML(tree *TreeNode) string {
 	var result strings.Builder
 	for i, static := range tree.Statics {
 		result.WriteString(static)
-		if i < len(tree.Statics)-1 {
-			key := fmt.Sprintf("%d", i)
-			if dyn, ok := tree.Dynamics[key]; ok {
+		if i < len(tree.Statics)-1 && i < len(tree.Dynamics) {
+			dyn := tree.Dynamics[i]
+			if dyn != nil {
 				switch v := dyn.(type) {
 				case string:
 					result.WriteString(v)

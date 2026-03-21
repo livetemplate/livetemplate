@@ -2,9 +2,9 @@ package diff
 
 import (
 	"regexp"
-	"strconv"
 	"strings"
 
+	"github.com/livetemplate/livetemplate/internal/build"
 	"github.com/livetemplate/livetemplate/internal/keys"
 )
 
@@ -49,7 +49,7 @@ func FindKeyPositionFromStatics(statics interface{}) int {
 // GetItemKey extracts the key from a range item using the statics structure.
 func GetItemKey(item interface{}, statics interface{}) (string, bool) {
 	keyPos := FindKeyPositionFromStatics(statics)
-	keyPosStr := strconv.Itoa(keyPos)
+	keyPosStr := build.PositionKey(keyPos)
 	return getItemKeyWithPos(item, keyPos, keyPosStr)
 }
 
@@ -60,14 +60,12 @@ func getItemKeyWithPos(item interface{}, keyPos int, keyPosStr string) (string, 
 		return "", false
 	}
 
-	if autoKey, exists := itemNode.GetDynamic("_k"); exists {
-		if keyStr, ok := autoKey.(string); ok {
-			return keyStr, true
-		}
+	if itemNode.AutoKey != "" {
+		return itemNode.AutoKey, true
 	}
 
 	if keyPos >= 0 {
-		if key, exists := itemNode.GetDynamic(keyPosStr); exists {
+		if key, exists := itemNode.GetDynamic(keyPos); exists {
 			if keyStr, ok := key.(string); ok {
 				return keyStr, true
 			}
@@ -84,7 +82,7 @@ func GenerateItemHash(item interface{}) string {
 	if !ok {
 		return ""
 	}
-	return keys.GenerateItemHash(itemNode.Dynamics)
+	return keys.GenerateItemHashFromSlice(itemNode.Dynamics)
 }
 
 // ExtractItemKeys extracts the keys from a slice of range items using the statics structure.
@@ -101,13 +99,17 @@ func ExtractItemKeys(items []interface{}, statics interface{}) []string {
 }
 
 // DetectPositionField finds the field containing positional display like "#0", "#1", etc.
+// Returns the position as a string key (e.g., "1", "2") for use in wire format.
 func DetectPositionField(itemsByKey map[string]interface{}) string {
 	for _, item := range itemsByKey {
 		if itemNode, ok := item.(*TreeNode); ok {
-			for field, value := range itemNode.Dynamics {
+			for i, value := range itemNode.Dynamics {
+				if value == nil {
+					continue
+				}
 				if strValue, ok := value.(string); ok {
 					if positionPattern.MatchString(strValue) {
-						return field
+						return build.PositionKey(i)
 					}
 				}
 			}

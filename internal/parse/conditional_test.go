@@ -50,8 +50,8 @@ func TestHandleIf_FalseBranch(t *testing.T) {
 	}
 
 	// Should have wrapper with empty dynamic value
-	if tree.Dynamics["0"] != "" {
-		t.Errorf("Expected empty string for false condition, got: %v", tree.Dynamics["0"])
+	if tree.Dynamics[0] != "" {
+		t.Errorf("Expected empty string for false condition, got: %v", tree.Dynamics[0])
 	}
 }
 
@@ -107,8 +107,8 @@ func TestHandleIf_NoElse(t *testing.T) {
 	}
 
 	// Should return wrapper with empty dynamic
-	if tree.Dynamics["0"] != "" {
-		t.Errorf("Expected empty dynamic for false with no else, got: %v", tree.Dynamics["0"])
+	if tree.Dynamics[0] != "" {
+		t.Errorf("Expected empty dynamic for false with no else, got: %v", tree.Dynamics[0])
 	}
 }
 

@@ -50,7 +50,7 @@ func TestVarEval_SimpleVarAccess(t *testing.T) {
 				t.Fatalf("BuildTree failed: %v", err)
 			}
 
-			d0, ok := tree.GetDynamic("0")
+			d0, ok := tree.GetDynamic(0)
 			if !ok {
 				t.Fatal("missing dynamic 0")
 			}
@@ -103,7 +103,7 @@ func TestVarEval_PartialMatchPrevention(t *testing.T) {
 				t.Fatalf("BuildTree failed: %v", err)
 			}
 
-			d0, ok := tree.GetDynamic("0")
+			d0, ok := tree.GetDynamic(0)
 			if !ok {
 				t.Fatal("missing dynamic 0")
 			}
@@ -133,7 +133,7 @@ func TestVarEval_RootVariable(t *testing.T) {
 		t.Fatalf("BuildTree failed: %v", err)
 	}
 
-	d0, ok := tree.GetDynamic("0")
+	d0, ok := tree.GetDynamic(0)
 	if !ok {
 		t.Fatal("missing dynamic 0")
 	}
@@ -162,7 +162,7 @@ func TestVarEval_MixedRootAndVars(t *testing.T) {
 		t.Fatalf("BuildTree failed: %v", err)
 	}
 
-	d0, ok := tree.GetDynamic("0")
+	d0, ok := tree.GetDynamic(0)
 	if !ok {
 		t.Fatal("missing dynamic 0 ($x)")
 	}
@@ -170,7 +170,7 @@ func TestVarEval_MixedRootAndVars(t *testing.T) {
 		t.Errorf("dynamic 0 = %v, want 42", d0)
 	}
 
-	d1, ok := tree.GetDynamic("1")
+	d1, ok := tree.GetDynamic(1)
 	if !ok {
 		t.Fatal("missing dynamic 1 ($.Title)")
 	}
@@ -200,7 +200,7 @@ func TestVarEval_DotContextMerging(t *testing.T) {
 			t.Fatalf("BuildTree failed: %v", err)
 		}
 
-		d0, ok := tree.GetDynamic("0")
+		d0, ok := tree.GetDynamic(0)
 		if !ok {
 			t.Fatal("missing dynamic 0 ($c)")
 		}
@@ -208,7 +208,7 @@ func TestVarEval_DotContextMerging(t *testing.T) {
 			t.Errorf("dynamic 0 ($c) = %v, want ctrl", d0)
 		}
 
-		d1, ok := tree.GetDynamic("1")
+		d1, ok := tree.GetDynamic(1)
 		if !ok {
 			t.Fatal("missing dynamic 1 (.Type)")
 		}
@@ -240,7 +240,7 @@ func TestVarEval_DotContextMerging(t *testing.T) {
 			t.Fatalf("BuildTree failed: %v", err)
 		}
 
-		d1, ok := tree.GetDynamic("1")
+		d1, ok := tree.GetDynamic(1)
 		if !ok {
 			t.Fatal("missing dynamic 1 (.Type)")
 		}
@@ -266,7 +266,7 @@ func TestVarEval_NoVarsPlainDotField(t *testing.T) {
 		t.Fatalf("BuildTree failed: %v", err)
 	}
 
-	d0, ok := tree.GetDynamic("0")
+	d0, ok := tree.GetDynamic(0)
 	if !ok {
 		t.Fatal("missing dynamic 0")
 	}
@@ -292,7 +292,7 @@ func TestVarEval_ErrorPropagation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	d0, _ := tree.GetDynamic("0")
+	d0, _ := tree.GetDynamic(0)
 	if d0 != "" {
 		t.Errorf("expected empty string for missing field, got %q", d0)
 	}
@@ -318,7 +318,7 @@ func TestVarEval_DotContextAccess(t *testing.T) {
 		t.Fatalf("BuildTree failed: %v", err)
 	}
 
-	d0, ok := tree.GetDynamic("0")
+	d0, ok := tree.GetDynamic(0)
 	if !ok {
 		t.Fatal("missing dynamic 0 ($cls)")
 	}
@@ -326,7 +326,7 @@ func TestVarEval_DotContextAccess(t *testing.T) {
 		t.Errorf("dynamic 0 ($cls) = %v, want primary", d0)
 	}
 
-	d1, ok := tree.GetDynamic("1")
+	d1, ok := tree.GetDynamic(1)
 	if !ok {
 		t.Fatal("missing dynamic 1 (.Type)")
 	}
@@ -364,7 +364,7 @@ func TestVarEval_HandleAction_Direct(t *testing.T) {
 		t.Fatalf("handleAction failed: %v", err)
 	}
 
-	d0, ok := tree.GetDynamic("0")
+	d0, ok := tree.GetDynamic(0)
 	if !ok {
 		t.Fatal("missing dynamic 0")
 	}
@@ -389,7 +389,7 @@ func TestVarEval_HandleAction_DotField(t *testing.T) {
 		t.Fatalf("handleAction failed: %v", err)
 	}
 
-	d0, ok := tree.GetDynamic("0")
+	d0, ok := tree.GetDynamic(0)
 	if !ok {
 		t.Fatal("missing dynamic 0")
 	}
@@ -419,7 +419,7 @@ func TestVarEval_HandleAction_MixedVarAndDot(t *testing.T) {
 		t.Fatalf("BuildTree failed: %v", err)
 	}
 
-	d0, ok := tree.GetDynamic("0")
+	d0, ok := tree.GetDynamic(0)
 	if !ok {
 		t.Fatal("missing dynamic 0")
 	}

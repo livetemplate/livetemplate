@@ -55,7 +55,7 @@ func TestParseTemplateToTree_WithFuncMapRange(t *testing.T) {
 		t.Fatalf("unexpected statics: %#v", tree.Statics)
 	}
 
-	dynamic, ok := tree.Dynamics["0"]
+	dynamic, ok := tree.GetDynamic(0)
 	if !ok {
 		t.Fatalf("expected dynamic range at position 0")
 	}
@@ -228,11 +228,17 @@ func TestNewTreeNode(t *testing.T) {
 	if tn == nil {
 		t.Fatal("build.NewTreeNode returned nil")
 	}
-	if tn.Dynamics == nil {
-		t.Error("Dynamics map should be initialized")
+	if tn.Dynamics != nil {
+		t.Error("Dynamics map should be nil (lazy-initialized)")
 	}
 	if len(tn.Statics) != 0 {
 		t.Error("Statics should be empty")
+	}
+
+	// Verify SetDynamic lazy-inits the slice
+	tn.SetDynamic(0, "value")
+	if tn.Dynamics == nil {
+		t.Error("Dynamics slice should be initialized after SetDynamic")
 	}
 }
 
@@ -254,26 +260,26 @@ func TestNewTreeNodeWithStatics(t *testing.T) {
 func TestTreeNode_SetDynamic(t *testing.T) {
 	tn := build.NewTreeNode()
 
-	tn.SetDynamic("0", "Hello")
-	tn.SetDynamic("1", 42)
-	tn.SetDynamic("2", true)
+	tn.SetDynamic(0, "Hello")
+	tn.SetDynamic(1, 42)
+	tn.SetDynamic(2, true)
 
-	if val, ok := tn.GetDynamic("0"); !ok || val != "Hello" {
+	if val, ok := tn.GetDynamic(0); !ok || val != "Hello" {
 		t.Error("Failed to get string dynamic")
 	}
-	if val, ok := tn.GetDynamic("1"); !ok || val != 42 {
+	if val, ok := tn.GetDynamic(1); !ok || val != 42 {
 		t.Error("Failed to get int dynamic")
 	}
-	if val, ok := tn.GetDynamic("2"); !ok || val != true {
+	if val, ok := tn.GetDynamic(2); !ok || val != true {
 		t.Error("Failed to get bool dynamic")
 	}
 }
 
 func TestTreeNode_GetDynamic(t *testing.T) {
 	tn := build.NewTreeNode()
-	tn.SetDynamic("0", "test")
+	tn.SetDynamic(0, "test")
 
-	val, ok := tn.GetDynamic("0")
+	val, ok := tn.GetDynamic(0)
 	if !ok {
 		t.Error("GetDynamic should return true for existing key")
 	}
@@ -281,7 +287,7 @@ func TestTreeNode_GetDynamic(t *testing.T) {
 		t.Errorf("Expected 'test', got %v", val)
 	}
 
-	_, ok = tn.GetDynamic("999")
+	_, ok = tn.GetDynamic(999)
 	if ok {
 		t.Error("GetDynamic should return false for non-existing key")
 	}
@@ -305,7 +311,7 @@ func TestTreeNode_HasDynamics(t *testing.T) {
 		t.Error("Empty TreeNode should not have dynamics")
 	}
 
-	tn.SetDynamic("0", "test")
+	tn.SetDynamic(0, "test")
 	if !tn.HasDynamics() {
 		t.Error("TreeNode with dynamics should return true")
 	}
@@ -343,8 +349,8 @@ func TestTreeNode_MarshalJSON(t *testing.T) {
 			name: "node with dynamics only",
 			node: func() *build.TreeNode {
 				tn := build.NewTreeNode()
-				tn.SetDynamic("0", "Hello")
-				tn.SetDynamic("1", "World")
+				tn.SetDynamic(0, "Hello")
+				tn.SetDynamic(1, "World")
 				return tn
 			}(),
 			expected: `{"0":"Hello","1":"World"}`,
@@ -353,7 +359,7 @@ func TestTreeNode_MarshalJSON(t *testing.T) {
 			name: "node with statics and dynamics",
 			node: func() *build.TreeNode {
 				tn := build.NewTreeNodeWithStatics([]string{"<h1>", "</h1>"})
-				tn.SetDynamic("0", "Title")
+				tn.SetDynamic(0, "Title")
 				return tn
 			}(),
 			expected: `{"0":"Title","s":["<h1>","</h1>"]}`,
@@ -394,7 +400,7 @@ func TestTreeNode_MarshalJSON(t *testing.T) {
 			name: "complete node",
 			node: func() *build.TreeNode {
 				tn := build.NewTreeNodeWithStatics([]string{"<div>", "</div>"})
-				tn.SetDynamic("0", "Content")
+				tn.SetDynamic(0, "Content")
 				tn.Fingerprint = "xyz789"
 				tn.Range = build.NewRangeData([]interface{}{}, []string{})
 				tn.Metadata = build.NewTreeMetadata("key")
@@ -460,10 +466,10 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 			name:  "dynamics only",
 			input: `{"0":"Hello","1":"World"}`,
 			check: func(t *testing.T, tn *build.TreeNode) {
-				if val, ok := tn.GetDynamic("0"); !ok || val != "Hello" {
+				if val, ok := tn.GetDynamic(0); !ok || val != "Hello" {
 					t.Error("Dynamic 0 not properly unmarshaled")
 				}
-				if val, ok := tn.GetDynamic("1"); !ok || val != "World" {
+				if val, ok := tn.GetDynamic(1); !ok || val != "World" {
 					t.Error("Dynamic 1 not properly unmarshaled")
 				}
 			},
@@ -505,7 +511,7 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 			name:  "nested dynamics",
 			input: `{"0":"text","1":{"s":["<span>","</span>"],"0":"nested"}}`,
 			check: func(t *testing.T, tn *build.TreeNode) {
-				val, ok := tn.GetDynamic("1")
+				val, ok := tn.GetDynamic(1)
 				if !ok {
 					t.Error("Nested dynamic not found")
 				}
@@ -533,7 +539,7 @@ func TestTreeNode_UnmarshalJSON(t *testing.T) {
 
 func TestTreeNode_ToMap(t *testing.T) {
 	tn := build.NewTreeNodeWithStatics([]string{"<div>", "</div>"})
-	tn.SetDynamic("0", "Content")
+	tn.SetDynamic(0, "Content")
 	tn.Fingerprint = "xyz789"
 	tn.Range = build.NewRangeData([]interface{}{}, []string{"<li>", "</li>"})
 	tn.Metadata = build.NewTreeMetadata("key")
@@ -576,7 +582,7 @@ func TestTreeNode_FromMap(t *testing.T) {
 	if len(tn.Statics) != 2 {
 		t.Error("Statics not properly converted from map")
 	}
-	if val, ok := tn.GetDynamic("0"); !ok || val != "Content" {
+	if val, ok := tn.GetDynamic(0); !ok || val != "Content" {
 		t.Error("Dynamic not properly converted from map")
 	}
 	if tn.Fingerprint != "xyz789" {
@@ -592,7 +598,7 @@ func TestTreeNode_FromMap(t *testing.T) {
 
 func TestTreeNode_Clone(t *testing.T) {
 	original := build.NewTreeNodeWithStatics([]string{"<div>", "</div>"})
-	original.SetDynamic("0", "Content")
+	original.SetDynamic(0, "Content")
 	original.Fingerprint = "abc123"
 	original.Range = build.NewRangeData([]interface{}{}, []string{"<li>", "</li>"})
 	original.Metadata = build.NewTreeMetadata("id")
@@ -603,7 +609,7 @@ func TestTreeNode_Clone(t *testing.T) {
 	if len(clone.Statics) != 2 || clone.Statics[0] != "<div>" {
 		t.Error("Clone statics don't match")
 	}
-	if val, ok := clone.GetDynamic("0"); !ok || val != "Content" {
+	if val, ok := clone.GetDynamic(0); !ok || val != "Content" {
 		t.Error("Clone dynamics don't match")
 	}
 	if clone.Fingerprint != "abc123" {
@@ -617,23 +623,23 @@ func TestTreeNode_Clone(t *testing.T) {
 	}
 
 	// Verify clone is independent (modify original)
-	original.SetDynamic("0", "Modified")
-	if val, _ := clone.GetDynamic("0"); val == "Modified" {
+	original.SetDynamic(0, "Modified")
+	if val, _ := clone.GetDynamic(0); val == "Modified" {
 		t.Error("Clone should be independent of original")
 	}
 }
 
 func TestTreeNode_NestedClone(t *testing.T) {
 	nested := build.NewTreeNodeWithStatics([]string{"<span>", "</span>"})
-	nested.SetDynamic("0", "Nested")
+	nested.SetDynamic(0, "Nested")
 
 	parent := build.NewTreeNode()
-	parent.SetDynamic("0", nested)
+	parent.SetDynamic(0, nested)
 
 	clone := parent.Clone()
 
 	// Get nested from clone
-	clonedNested, ok := clone.GetDynamic("0")
+	clonedNested, ok := clone.GetDynamic(0)
 	if !ok {
 		t.Fatal("Nested node not found in clone")
 	}
@@ -643,10 +649,10 @@ func TestTreeNode_NestedClone(t *testing.T) {
 	}
 
 	// Modify original nested
-	nested.SetDynamic("0", "Modified")
+	nested.SetDynamic(0, "Modified")
 
 	// Verify clone's nested is independent
-	if val, _ := clonedNestedNode.GetDynamic("0"); val == "Modified" {
+	if val, _ := clonedNestedNode.GetDynamic(0); val == "Modified" {
 		t.Error("Cloned nested node should be independent")
 	}
 }
@@ -685,7 +691,7 @@ func TestTreeMetadata_Creation(t *testing.T) {
 func TestTreeNode_RoundTrip(t *testing.T) {
 	// Create a complex tree
 	original := build.NewTreeNodeWithStatics([]string{"<div>", "</div>"})
-	original.SetDynamic("0", "Content")
+	original.SetDynamic(0, "Content")
 	original.Fingerprint = "abc123"
 
 	// Marshal to JSON
@@ -704,7 +710,7 @@ func TestTreeNode_RoundTrip(t *testing.T) {
 	if len(restored.Statics) != 2 {
 		t.Error("Round trip lost statics")
 	}
-	if val, ok := restored.GetDynamic("0"); !ok || val != "Content" {
+	if val, ok := restored.GetDynamic(0); !ok || val != "Content" {
 		t.Error("Round trip lost dynamics")
 	}
 	if restored.Fingerprint != "abc123" {
@@ -740,7 +746,7 @@ func TestTreeNode_BackwardCompatibility(t *testing.T) {
 	if len(tn.Statics) != 2 {
 		t.Error("Old format statics not parsed correctly")
 	}
-	if val, ok := tn.GetDynamic("0"); !ok || val != "Hello" {
+	if val, ok := tn.GetDynamic(0); !ok || val != "Hello" {
 		t.Error("Old format dynamic not parsed correctly")
 	}
 	if tn.Fingerprint != "abc123" {
@@ -2695,7 +2701,7 @@ func TestRangeOperationGranularity(t *testing.T) {
 	changes := tmpl.compareTreesAndGetChanges(tree1, tree2)
 
 	// Verify the update contains only an insert operation
-	if val, ok := changes.GetDynamic("0"); ok {
+	if val, ok := changes.GetDynamic(0); ok {
 		if rangeOps, ok := val.([]interface{}); ok {
 			if len(rangeOps) != 1 {
 				t.Errorf("Expected 1 range operation, got %d", len(rangeOps))

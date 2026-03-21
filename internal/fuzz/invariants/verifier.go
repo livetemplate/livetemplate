@@ -418,7 +418,7 @@ func extractItemID(item any) string {
 	switch v := item.(type) {
 	case *build.TreeNode:
 		// ID is typically at position "0" (first dynamic in the template)
-		if val, exists := v.GetDynamic("0"); exists {
+		if val, exists := v.GetDynamic(0); exists {
 			if s, ok := val.(string); ok {
 				return s
 			}

@@ -1752,7 +1752,7 @@ func TestTemplateGenerateTreeWithFuncMap(t *testing.T) {
 	}
 
 	tree := tmpl.initialTree
-	dynamic, ok := tree.Dynamics["0"]
+	dynamic, ok := tree.GetDynamic(0)
 	if !ok {
 		t.Fatalf("expected dynamic range at position 0")
 	}
@@ -2057,21 +2057,21 @@ func TestCreateHTMLStructureBasedTreeSegmentsBlockBoundaries(t *testing.T) {
 		t.Fatalf("unexpected statics: %#v", tree.Statics)
 	}
 
-	if len(tree.Dynamics) != 2 {
-		t.Fatalf("expected 2 dynamic segments, got %d", len(tree.Dynamics))
+	if tree.DynamicLen() != 2 {
+		t.Fatalf("expected 2 dynamic segments, got %d", tree.DynamicLen())
 	}
 
-	segmentZero, ok := tree.Dynamics["0"].(string)
+	segmentZero, ok := tree.Dynamics[0].(string)
 	if !ok {
-		t.Fatalf("expected dynamic segment 0 to be string, got %T", tree.Dynamics["0"])
+		t.Fatalf("expected dynamic segment 0 to be string, got %T", tree.Dynamics[0])
 	}
 	if !strings.Contains(segmentZero, "<main") || !strings.Contains(segmentZero, "body") {
 		t.Fatalf("dynamic segment 0 missing expected content: %q", segmentZero)
 	}
 
-	segmentOne, ok := tree.Dynamics["1"].(string)
+	segmentOne, ok := tree.Dynamics[1].(string)
 	if !ok {
-		t.Fatalf("expected dynamic segment 1 to be string, got %T", tree.Dynamics["1"])
+		t.Fatalf("expected dynamic segment 1 to be string, got %T", tree.Dynamics[1])
 	}
 	if !strings.Contains(segmentOne, "<div") || !strings.Contains(segmentOne, "footer") {
 		t.Fatalf("dynamic segment 1 missing expected content: %q", segmentOne)
@@ -3217,9 +3217,9 @@ func TestAnalyzeChangeAndCreateTree_PartialChangeKeepsStatics(t *testing.T) {
 		t.Fatalf("unexpected statics: %#v", tree.Statics)
 	}
 
-	dynamic, ok := tree.Dynamics["0"].(string)
+	dynamic, ok := tree.Dynamics[0].(string)
 	if !ok {
-		t.Fatalf("expected string dynamic, got %#v", tree.Dynamics["0"])
+		t.Fatalf("expected string dynamic, got %#v", tree.Dynamics[0])
 	}
 
 	if strings.TrimSpace(dynamic) != "World" {
@@ -3345,8 +3345,7 @@ func reconstructHTML(tree *build.TreeNode) string {
 			for i, static := range tree.Statics {
 				result.WriteString(static)
 				if i < len(tree.Statics)-1 {
-					key := fmt.Sprintf("%d", i)
-					if val, exists := itemNode.GetDynamic(key); exists {
+					if val, exists := itemNode.GetDynamic(i); exists {
 						if nestedTree, ok := val.(*build.TreeNode); ok {
 							result.WriteString(reconstructHTML(nestedTree))
 						} else {
@@ -3367,8 +3366,7 @@ func reconstructHTML(tree *build.TreeNode) string {
 
 		// Add dynamic value if exists
 		if i < len(tree.Statics)-1 {
-			key := fmt.Sprintf("%d", i)
-			if val, exists := tree.GetDynamic(key); exists {
+			if val, exists := tree.GetDynamic(i); exists {
 				// Check if value is nested tree with its own range
 				if nestedTree, ok := val.(*build.TreeNode); ok {
 					result.WriteString(reconstructHTML(nestedTree))

@@ -100,7 +100,7 @@ func walkList(node *parse.ListNode, eval *evaluator, data interface{}, varCtx *v
 			if len(node.Nodes) == 1 {
 				return childTree, nil
 			}
-			tree.SetDynamic(fmt.Sprintf("%d", dynamicIndex), childTree)
+			tree.SetDynamic(dynamicIndex, childTree)
 			dynamicIndex++
 			statics = append(statics, "")
 			continue
@@ -121,9 +121,8 @@ func walkList(node *parse.ListNode, eval *evaluator, data interface{}, varCtx *v
 		}
 
 		// Copy dynamic values, renumbering them
-		childKeys := getSortedKeys(childTree.Dynamics)
-		for _, k := range childKeys {
-			tree.SetDynamic(fmt.Sprintf("%d", dynamicIndex), childTree.Dynamics[k])
+		for _, v := range childTree.Dynamics {
+			tree.SetDynamic(dynamicIndex, v)
 			dynamicIndex++
 		}
 	}

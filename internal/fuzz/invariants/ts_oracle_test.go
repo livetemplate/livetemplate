@@ -25,11 +25,11 @@ func TestTypeScriptOracle_SimpleField(t *testing.T) {
 
 	oldTree := &build.TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]any{"0": "hello"},
+		Dynamics: []interface{}{"hello"},
 	}
 
 	diffTree := &build.TreeNode{
-		Dynamics: map[string]any{"0": "world"},
+		Dynamics: []interface{}{"world"},
 	}
 
 	response, err := oracle.ApplyDiff(oldTree, diffTree)
@@ -113,11 +113,11 @@ func TestTypeScriptOracle_MultipleCalls(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		oldTree := &build.TreeNode{
 			Statics:  []string{"<div>", "</div>"},
-			Dynamics: map[string]any{"0": "old"},
+			Dynamics: []interface{}{"old"},
 		}
 
 		diffTree := &build.TreeNode{
-			Dynamics: map[string]any{"0": "new"},
+			Dynamics: []interface{}{"new"},
 		}
 
 		response, err := oracle.ApplyDiff(oldTree, diffTree)
@@ -151,8 +151,8 @@ func TestTypeScriptOracle_ConditionalBranchChange(t *testing.T) {
 	// Old: conditional shows "ON"
 	oldTree := &build.TreeNode{
 		Statics: []string{"<div>", "</div>"},
-		Dynamics: map[string]any{
-			"0": &build.TreeNode{
+		Dynamics: []interface{}{
+			&build.TreeNode{
 				Statics: []string{"<span class=\"on\">", "</span>"},
 			},
 		},
@@ -160,8 +160,8 @@ func TestTypeScriptOracle_ConditionalBranchChange(t *testing.T) {
 
 	// Diff: conditional changes to show "OFF"
 	diffTree := &build.TreeNode{
-		Dynamics: map[string]any{
-			"0": &build.TreeNode{
+		Dynamics: []interface{}{
+			&build.TreeNode{
 				Statics: []string{"<span class=\"off\">", "</span>"},
 			},
 		},

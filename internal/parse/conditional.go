@@ -42,7 +42,7 @@ func createConditionalWrapper(branchTree *TreeNode, ctx *Context) *TreeNode {
 	if ctx.ShouldIncludeStatics() {
 		wrapper.Statics = []string{"", ""}
 	}
-	wrapper.SetDynamic("0", branchTree)
+	wrapper.SetDynamic(0, branchTree)
 	return wrapper
 }
 
@@ -52,6 +52,6 @@ func createEmptyConditionalWrapper(ctx *Context) *TreeNode {
 	if ctx.ShouldIncludeStatics() {
 		tree.Statics = []string{"", ""}
 	}
-	tree.SetDynamic("0", "")
+	tree.SetDynamic(0, "")
 	return tree
 }

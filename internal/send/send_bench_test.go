@@ -40,7 +40,7 @@ func BenchmarkParseActionFromWebSocket(b *testing.B) {
 func BenchmarkPrepareUpdate(b *testing.B) {
 	tree := &build.TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "updated value"},
+		Dynamics: []interface{}{"updated value"},
 	}
 
 	b.Run("without-errors", func(b *testing.B) {
@@ -65,7 +65,7 @@ func BenchmarkPrepareUpdate(b *testing.B) {
 func BenchmarkSerializeUpdate(b *testing.B) {
 	tree := &build.TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "value"},
+		Dynamics: []interface{}{"value"},
 	}
 
 	response := PrepareUpdate(tree, nil, "")
@@ -82,7 +82,7 @@ func BenchmarkSerializeUpdate(b *testing.B) {
 func BenchmarkPrepareAndSerialize(b *testing.B) {
 	tree := &build.TreeNode{
 		Statics:  []string{"<div>", "</div>"},
-		Dynamics: map[string]interface{}{"0": "value"},
+		Dynamics: []interface{}{"value"},
 	}
 
 	b.Run("simple-update", func(b *testing.B) {
@@ -154,17 +154,17 @@ func BenchmarkSerializeUpdateScale(b *testing.B) {
 			"simple",
 			&build.TreeNode{
 				Statics:  []string{"<div>", "</div>"},
-				Dynamics: map[string]interface{}{"0": "value"},
+				Dynamics: []interface{}{"value"},
 			},
 		},
 		{
 			"nested",
 			&build.TreeNode{
 				Statics: []string{"<div>", "</div>"},
-				Dynamics: map[string]interface{}{
-					"0": &build.TreeNode{
+				Dynamics: []interface{}{
+					&build.TreeNode{
 						Statics:  []string{"<span>", "</span>"},
-						Dynamics: map[string]interface{}{"0": "nested"},
+						Dynamics: []interface{}{"nested"},
 					},
 				},
 			},
@@ -172,13 +172,8 @@ func BenchmarkSerializeUpdateScale(b *testing.B) {
 		{
 			"multiple-fields",
 			&build.TreeNode{
-				Statics: []string{"<div>", "", "", "", "</div>"},
-				Dynamics: map[string]interface{}{
-					"0": "value1",
-					"1": "value2",
-					"2": "value3",
-					"3": "value4",
-				},
+				Statics:  []string{"<div>", "", "", "", "</div>"},
+				Dynamics: []interface{}{"value1", "value2", "value3", "value4"},
 			},
 		},
 	}

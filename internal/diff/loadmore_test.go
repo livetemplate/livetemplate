@@ -19,10 +19,7 @@ func TestLoadMoreScenario(t *testing.T) {
 	oldItems := make([]interface{}, 20)
 	for i := 0; i < 20; i++ {
 		oldItems[i] = &TreeNode{
-			Dynamics: map[string]interface{}{
-				"0": fmt.Sprintf("id-%d", i),    // ID
-				"1": fmt.Sprintf("Title %d", i), // Title
-			},
+			Dynamics: []interface{}{fmt.Sprintf("id-%d", i), fmt.Sprintf("Title %d", i)},
 		}
 	}
 
@@ -30,10 +27,7 @@ func TestLoadMoreScenario(t *testing.T) {
 	newItems := make([]interface{}, 50)
 	for i := 0; i < 50; i++ {
 		newItems[i] = &TreeNode{
-			Dynamics: map[string]interface{}{
-				"0": fmt.Sprintf("id-%d", i),
-				"1": fmt.Sprintf("Title %d", i),
-			},
+			Dynamics: []interface{}{fmt.Sprintf("id-%d", i), fmt.Sprintf("Title %d", i)},
 		}
 	}
 
@@ -51,12 +45,12 @@ func TestLoadMoreScenario(t *testing.T) {
 	// Wrap in conditional wrapper (field 15) -> field 0
 	oldConditional := &TreeNode{
 		Statics:  []string{"", ""}, // Conditional wrapper statics
-		Dynamics: map[string]interface{}{"0": oldRange},
+		Dynamics: []interface{}{oldRange},
 	}
 
 	oldTree := &TreeNode{
 		Statics:  []string{"<html>", "</html>"},
-		Dynamics: map[string]interface{}{"15": oldConditional},
+		Dynamics: []interface{}{nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, oldConditional},
 	}
 
 	// Create new tree structure (after load_more)
@@ -71,12 +65,12 @@ func TestLoadMoreScenario(t *testing.T) {
 
 	newConditional := &TreeNode{
 		Statics:  []string{"", ""},
-		Dynamics: map[string]interface{}{"0": newRange},
+		Dynamics: []interface{}{newRange},
 	}
 
 	newTree := &TreeNode{
 		Statics:  []string{"<html>", "</html>"},
-		Dynamics: map[string]interface{}{"15": newConditional},
+		Dynamics: []interface{}{nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, newConditional},
 	}
 
 	// Step 1: Check if ranges are found
@@ -124,7 +118,7 @@ func TestLoadMoreScenario(t *testing.T) {
 
 	// Check if changes contain differential operations instead of full tree
 	if changes.HasDynamics() {
-		field15, exists := changes.GetDynamic("15")
+		field15, exists := changes.GetDynamic(15)
 		if !exists {
 			t.Log("No changes at field 15 - good if items were just appended")
 		} else {
@@ -132,7 +126,7 @@ func TestLoadMoreScenario(t *testing.T) {
 
 			// If field 15 is a TreeNode, check its field 0
 			if node, ok := field15.(*TreeNode); ok && node.HasDynamics() {
-				field0, _ := node.GetDynamic("0")
+				field0, _ := node.GetDynamic(0)
 				t.Logf("Field 15.0 changes: %+v", field0)
 
 				// Check if this is differential operations (array) or full tree

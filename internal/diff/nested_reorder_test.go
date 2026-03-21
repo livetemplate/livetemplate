@@ -8,29 +8,29 @@ import (
 func TestIsPureReordering_WithNestedTreeNodes(t *testing.T) {
 	// Create items with nested TreeNodes (like checkbox indicators)
 	item1 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": &TreeNode{Statics: []string{"completed"}}, // Status indicator
-			"1": "todo-1",                                  // ID
-			"2": "",                                        // Empty field
-			"3": "Learn Go templates",                      // Title
-			"4": &TreeNode{Statics: []string{"✓"}},         // Checkbox
-			"5": &TreeNode{ // Priority
+		Dynamics: []interface{}{
+			&TreeNode{Statics: []string{"completed"}}, // Status indicator
+			"todo-1",                          // ID
+			"",                                // Empty field
+			"Learn Go templates",              // Title
+			&TreeNode{Statics: []string{"✓"}}, // Checkbox
+			&TreeNode{ // Priority
 				Statics:  []string{" (Priority: ", ")"},
-				Dynamics: map[string]interface{}{"0": "High"},
+				Dynamics: []interface{}{"High"},
 			},
 		},
 	}
 
 	item2 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": &TreeNode{Statics: []string{""}},  // Not completed
-			"1": "todo-3",                          // ID
-			"2": "",                                // Empty field
-			"3": "Write documentation",             // Title
-			"4": &TreeNode{Statics: []string{"○"}}, // Unchecked
-			"5": &TreeNode{
+		Dynamics: []interface{}{
+			&TreeNode{Statics: []string{""}},  // Not completed
+			"todo-3",                          // ID
+			"",                                // Empty field
+			"Write documentation",             // Title
+			&TreeNode{Statics: []string{"○"}}, // Unchecked
+			&TreeNode{
 				Statics:  []string{" (Priority: ", ")"},
-				Dynamics: map[string]interface{}{"0": "Low"},
+				Dynamics: []interface{}{"Low"},
 			},
 		},
 	}
@@ -54,17 +54,17 @@ func TestIsPureReordering_WithNestedTreeNodes(t *testing.T) {
 func TestIsPureReordering_WithDifferentNestedTreeNodeValues(t *testing.T) {
 	// Old item1 has "completed" status
 	item1Old := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": &TreeNode{Statics: []string{"completed"}},
-			"1": "todo-1",
+		Dynamics: []interface{}{
+			&TreeNode{Statics: []string{"completed"}},
+			"todo-1",
 		},
 	}
 
 	// New item1 has "" (not completed) status - DIFFERENT content, same key
 	item1New := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": &TreeNode{Statics: []string{""}}, // Changed from completed to not
-			"1": "todo-1",
+		Dynamics: []interface{}{
+			&TreeNode{Statics: []string{""}}, // Changed from completed to not
+			"todo-1",
 		},
 	}
 
@@ -85,34 +85,34 @@ func TestIsPureReordering_WithDifferentNestedTreeNodeValues(t *testing.T) {
 func TestIsPureReordering_WithIdenticalNestedTreeNodes(t *testing.T) {
 	// Create old items
 	oldItem1 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": &TreeNode{Statics: []string{"completed"}},
-			"1": "todo-1",
-			"2": "Task A",
+		Dynamics: []interface{}{
+			&TreeNode{Statics: []string{"completed"}},
+			"todo-1",
+			"Task A",
 		},
 	}
 	oldItem2 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": &TreeNode{Statics: []string{""}},
-			"1": "todo-2",
-			"2": "Task B",
+		Dynamics: []interface{}{
+			&TreeNode{Statics: []string{""}},
+			"todo-2",
+			"Task B",
 		},
 	}
 
 	// Create NEW items with IDENTICAL content but DIFFERENT pointers (as would happen
 	// when rebuilding the tree from template execution)
 	newItem1 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": &TreeNode{Statics: []string{"completed"}}, // Same content, new pointer
-			"1": "todo-1",
-			"2": "Task A",
+		Dynamics: []interface{}{
+			&TreeNode{Statics: []string{"completed"}}, // Same content, new pointer
+			"todo-1",
+			"Task A",
 		},
 	}
 	newItem2 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": &TreeNode{Statics: []string{""}}, // Same content, new pointer
-			"1": "todo-2",
-			"2": "Task B",
+		Dynamics: []interface{}{
+			&TreeNode{Statics: []string{""}}, // Same content, new pointer
+			"todo-2",
+			"Task B",
 		},
 	}
 
@@ -133,40 +133,40 @@ func TestIsPureReordering_WithIdenticalNestedTreeNodes(t *testing.T) {
 // is correctly skipped during comparison, preventing false negatives when one tree
 // has _k fields but another doesn't.
 func TestIsPureReordering_WithAutoKeyField(t *testing.T) {
-	// OLD items: from initial render, have _k auto-key field
+	// OLD items: from initial render, have AutoKey field
 	oldItem1 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"_k": "todo-1", // Auto-generated key
-			"0":  &TreeNode{Statics: []string{"completed"}},
-			"1":  "todo-1",
-			"2":  "Task A",
+		Dynamics: []interface{}{
+			&TreeNode{Statics: []string{"completed"}},
+			"todo-1",
+			"Task A",
 		},
+		AutoKey: "todo-1",
 	}
 	oldItem2 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"_k": "todo-2", // Auto-generated key
-			"0":  &TreeNode{Statics: []string{""}},
-			"1":  "todo-2",
-			"2":  "Task B",
+		Dynamics: []interface{}{
+			&TreeNode{Statics: []string{""}},
+			"todo-2",
+			"Task B",
 		},
+		AutoKey: "todo-2",
 	}
 
-	// NEW items: from re-render, also have _k but may have been regenerated
+	// NEW items: from re-render, also have AutoKey but may have been regenerated
 	newItem1 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"_k": "todo-1", // Same key
-			"0":  &TreeNode{Statics: []string{"completed"}},
-			"1":  "todo-1",
-			"2":  "Task A",
+		Dynamics: []interface{}{
+			&TreeNode{Statics: []string{"completed"}},
+			"todo-1",
+			"Task A",
 		},
+		AutoKey: "todo-1",
 	}
 	newItem2 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"_k": "todo-2", // Same key
-			"0":  &TreeNode{Statics: []string{""}},
-			"1":  "todo-2",
-			"2":  "Task B",
+		Dynamics: []interface{}{
+			&TreeNode{Statics: []string{""}},
+			"todo-2",
+			"Task B",
 		},
+		AutoKey: "todo-2",
 	}
 
 	// Reorder: old [1,2], new [2,1]
@@ -178,7 +178,7 @@ func TestIsPureReordering_WithAutoKeyField(t *testing.T) {
 	result := IsPureReordering(oldItems, newItems, statics)
 
 	if !result {
-		t.Errorf("Expected IsPureReordering to return true when items have _k field, got false")
+		t.Errorf("Expected IsPureReordering to return true when items have AutoKey field, got false")
 	}
 }
 
@@ -193,30 +193,18 @@ func TestIsPureReordering_CachedFingerprint(t *testing.T) {
 	_ = oldNestedNode2.GetStructureFingerprint() // Cache the fingerprint
 
 	oldItem1 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": oldNestedNode1,
-			"1": "todo-1",
-		},
+		Dynamics: []interface{}{oldNestedNode1, "todo-1"},
 	}
 	oldItem2 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": oldNestedNode2,
-			"1": "todo-2",
-		},
+		Dynamics: []interface{}{oldNestedNode2, "todo-2"},
 	}
 
 	// Create new items WITHOUT cached fingerprint (fresh from build)
 	newItem1 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": &TreeNode{Statics: []string{"completed"}},
-			"1": "todo-1",
-		},
+		Dynamics: []interface{}{&TreeNode{Statics: []string{"completed"}}, "todo-1"},
 	}
 	newItem2 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"0": &TreeNode{Statics: []string{""}},
-			"1": "todo-2",
-		},
+		Dynamics: []interface{}{&TreeNode{Statics: []string{""}}, "todo-2"},
 	}
 
 	// Reorder: old [1,2], new [2,1]
@@ -232,45 +220,45 @@ func TestIsPureReordering_CachedFingerprint(t *testing.T) {
 	}
 }
 
-// TestIsPureReordering_AutoKeyFieldVariations tests that the _k auto-key field
+// TestIsPureReordering_AutoKeyFieldVariations tests that the AutoKey field
 // variations don't break reordering detection:
-// - Both items have _k with same value
-// - Both items have _k with different values (shouldn't matter if actual content matches)
+// - Both items have AutoKey with same value
+// - Both items have AutoKey with different values (shouldn't matter if actual content matches)
 func TestIsPureReordering_AutoKeyFieldVariations(t *testing.T) {
-	// OLD items: Have _k field
+	// OLD items: Have AutoKey field
 	oldItem1 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"_k": "todo-1",
-			"0":  "todo-1", // Key at position 0
-			"1":  &TreeNode{Statics: []string{"completed"}},
-			"2":  "Task A",
+		Dynamics: []interface{}{
+			"todo-1", // Key at position 0
+			&TreeNode{Statics: []string{"completed"}},
+			"Task A",
 		},
+		AutoKey: "todo-1",
 	}
 	oldItem2 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"_k": "todo-2",
-			"0":  "todo-2", // Key at position 0
-			"1":  &TreeNode{Statics: []string{""}},
-			"2":  "Task B",
+		Dynamics: []interface{}{
+			"todo-2", // Key at position 0
+			&TreeNode{Statics: []string{""}},
+			"Task B",
 		},
+		AutoKey: "todo-2",
 	}
 
-	// NEW items: Also have _k field
+	// NEW items: Also have AutoKey field
 	newItem1 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"_k": "todo-1",
-			"0":  "todo-1",
-			"1":  &TreeNode{Statics: []string{"completed"}},
-			"2":  "Task A",
+		Dynamics: []interface{}{
+			"todo-1",
+			&TreeNode{Statics: []string{"completed"}},
+			"Task A",
 		},
+		AutoKey: "todo-1",
 	}
 	newItem2 := &TreeNode{
-		Dynamics: map[string]interface{}{
-			"_k": "todo-2",
-			"0":  "todo-2",
-			"1":  &TreeNode{Statics: []string{""}},
-			"2":  "Task B",
+		Dynamics: []interface{}{
+			"todo-2",
+			&TreeNode{Statics: []string{""}},
+			"Task B",
 		},
+		AutoKey: "todo-2",
 	}
 
 	// Reorder: old [1,2], new [2,1]
@@ -283,6 +271,6 @@ func TestIsPureReordering_AutoKeyFieldVariations(t *testing.T) {
 	result := IsPureReordering(oldItems, newItems, statics)
 
 	if !result {
-		t.Errorf("Expected IsPureReordering to return true for items with _k field, got false")
+		t.Errorf("Expected IsPureReordering to return true for items with AutoKey field, got false")
 	}
 }

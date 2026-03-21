@@ -1,7 +1,6 @@
 package build
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
@@ -78,7 +77,7 @@ func CreateHTMLStructureBasedTree(html string) *TreeNode {
 			if strDyn, ok := dyn.(string); ok && strings.Contains(strDyn, "<") {
 				dyn = render.MinifyHTML(strDyn)
 			}
-			tree.SetDynamic(fmt.Sprintf("%d", i), dyn)
+			tree.SetDynamic(i, dyn)
 		}
 
 		// If we got reasonable segmentation, use it
@@ -89,6 +88,6 @@ func CreateHTMLStructureBasedTree(html string) *TreeNode {
 
 	// Fallback to single segment strategy
 	fallback := NewTreeNodeWithStatics([]string{"", ""})
-	fallback.SetDynamic("0", render.MinifyHTML(html))
+	fallback.SetDynamic(0, render.MinifyHTML(html))
 	return fallback
 }

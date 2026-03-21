@@ -86,7 +86,7 @@ func TestRenderTreeToHTML(t *testing.T) {
 	// Create a proper TreeNode and convert to map
 	tree := build.NewTreeNode()
 	tree.Statics = []string{"<div>", "</div>"}
-	tree.SetDynamic("0", "test")
+	tree.SetDynamic(0, "test")
 	treeMap := tree.ToMap()
 
 	html, err := RenderTreeToHTML(treeMap)

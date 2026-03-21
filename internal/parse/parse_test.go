@@ -75,8 +75,8 @@ func TestBuildTree_SimpleField(t *testing.T) {
 		t.Fatalf("BuildTree failed: %v", err)
 	}
 
-	if tree.Dynamics["0"] != "John" {
-		t.Errorf("Expected dynamics['0'] = 'John', got: %v", tree.Dynamics["0"])
+	if tree.Dynamics[0] != "John" {
+		t.Errorf("Expected dynamics['0'] = 'John', got: %v", tree.Dynamics[0])
 	}
 }
 
@@ -99,8 +99,8 @@ func TestBuildTree_NestedFields(t *testing.T) {
 		t.Fatalf("BuildTree failed: %v", err)
 	}
 
-	if tree.Dynamics["0"] != "John" {
-		t.Errorf("Expected dynamics['0'] = 'John', got: %v", tree.Dynamics["0"])
+	if tree.Dynamics[0] != "John" {
+		t.Errorf("Expected dynamics['0'] = 'John', got: %v", tree.Dynamics[0])
 	}
 }
 
@@ -139,8 +139,8 @@ func TestWalkAST_ActionNode(t *testing.T) {
 		t.Fatalf("walkAST failed: %v", err)
 	}
 
-	if tree.Dynamics["0"] != "John" {
-		t.Errorf("Expected dynamics['0'] = 'John', got: %v", tree.Dynamics["0"])
+	if tree.Dynamics[0] != "John" {
+		t.Errorf("Expected dynamics['0'] = 'John', got: %v", tree.Dynamics[0])
 	}
 }
 
@@ -180,8 +180,8 @@ func TestWalkList_SingleNode(t *testing.T) {
 		t.Fatalf("walkList failed: %v", err)
 	}
 
-	if tree.Dynamics["0"] != "John" {
-		t.Errorf("Expected dynamics['0'] = 'John', got: %v", tree.Dynamics["0"])
+	if tree.Dynamics[0] != "John" {
+		t.Errorf("Expected dynamics['0'] = 'John', got: %v", tree.Dynamics[0])
 	}
 }
 
@@ -237,8 +237,8 @@ func TestEvalPipe_Simple(t *testing.T) {
 		t.Fatalf("BuildTree failed: %v", err)
 	}
 
-	if tree.Dynamics["0"] != "John" {
-		t.Errorf("Expected 'John', got: %v", tree.Dynamics["0"])
+	if tree.Dynamics[0] != "John" {
+		t.Errorf("Expected 'John', got: %v", tree.Dynamics[0])
 	}
 }
 
@@ -265,7 +265,7 @@ func TestEvalPipe_Complex(t *testing.T) {
 	}
 
 	// The dynamic should contain the result of len(.Items) = 3
-	val := tree.Dynamics["0"]
+	val := tree.Dynamics[0]
 	if val == nil {
 		t.Fatal("Expected non-nil dynamic at position 0")
 	}
@@ -293,8 +293,8 @@ func TestEvalPipe_WithFuncs(t *testing.T) {
 		t.Fatalf("BuildTree failed: %v", err)
 	}
 
-	if tree.Dynamics["0"] != "John_UPPER" {
-		t.Errorf("Expected 'John_UPPER', got: %v", tree.Dynamics["0"])
+	if tree.Dynamics[0] != "John_UPPER" {
+		t.Errorf("Expected 'John_UPPER', got: %v", tree.Dynamics[0])
 	}
 }
 
@@ -343,69 +343,6 @@ func TestIsZeroValue_AllTypes(t *testing.T) {
 				t.Errorf("isZeroValue(%v) = %v, want %v", tt.value, got, tt.want)
 			}
 		})
-	}
-}
-
-// TestGetSortedKeys_Performance tests that getSortedKeys is efficient.
-func TestGetSortedKeys_Performance(t *testing.T) {
-	// Create a map with many numeric keys
-	m := make(map[string]interface{})
-	for i := 0; i < 100; i++ {
-		m[fmt.Sprintf("%d", i)] = i
-	}
-
-	keys := getSortedKeys(m)
-
-	// Verify we got all keys
-	if len(keys) != 100 {
-		t.Errorf("Expected 100 keys, got %d", len(keys))
-	}
-
-	// Verify sorted order
-	for i := 0; i < len(keys)-1; i++ {
-		var curr, next int
-		if _, err := fmt.Sscanf(keys[i], "%d", &curr); err != nil {
-			t.Errorf("Failed to parse key %q: %v", keys[i], err)
-		}
-		if _, err := fmt.Sscanf(keys[i+1], "%d", &next); err != nil {
-			t.Errorf("Failed to parse key %q: %v", keys[i+1], err)
-		}
-		if curr > next {
-			t.Errorf("Keys not sorted: %d > %d at position %d", curr, next, i)
-		}
-	}
-}
-
-// TestGetSortedKeys_EmptyMap tests empty map handling.
-func TestGetSortedKeys_EmptyMap(t *testing.T) {
-	m := make(map[string]interface{})
-	keys := getSortedKeys(m)
-
-	if keys != nil {
-		t.Errorf("Expected nil for empty map, got %v", keys)
-	}
-}
-
-// TestGetSortedKeys_Order tests specific ordering.
-func TestGetSortedKeys_Order(t *testing.T) {
-	m := map[string]interface{}{
-		"0":  "a",
-		"10": "b",
-		"2":  "c",
-		"1":  "d",
-	}
-
-	keys := getSortedKeys(m)
-
-	expected := []string{"0", "1", "2", "10"}
-	if len(keys) != len(expected) {
-		t.Fatalf("Expected %d keys, got %d", len(expected), len(keys))
-	}
-
-	for i, key := range keys {
-		if key != expected[i] {
-			t.Errorf("Expected key %q at position %d, got %q", expected[i], i, key)
-		}
 	}
 }
 

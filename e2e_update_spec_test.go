@@ -49,7 +49,7 @@ func TestUpdateSpecification_FirstRender(t *testing.T) {
 					t.Errorf("Expected 2 static segments, got %d", len(tree.Statics))
 				}
 				// Must have dynamic
-				if val, ok := tree.GetDynamic("0"); !ok || val != "Test" {
+				if val, ok := tree.GetDynamic(0); !ok || val != "Test" {
 					t.Errorf("Expected dynamic '0' to be 'Test', got %v", val)
 				}
 			},
@@ -64,7 +64,7 @@ func TestUpdateSpecification_FirstRender(t *testing.T) {
 					t.Error("Conditional missing wrapper statics")
 				}
 				// Check dynamic content
-				if val, ok := tree.GetDynamic("0"); ok {
+				if val, ok := tree.GetDynamic(0); ok {
 					dynamicContent := fmt.Sprintf("%v", val)
 					if !strings.Contains(dynamicContent, "Visible") {
 						t.Error("Conditional content not found in dynamic")
@@ -82,7 +82,7 @@ func TestUpdateSpecification_FirstRender(t *testing.T) {
 					t.Error("Empty range missing statics")
 				}
 				// Should have empty 'd' array - check nested TreeNode
-				if val, ok := tree.GetDynamic("0"); ok {
+				if val, ok := tree.GetDynamic(0); ok {
 					if rangeNode, ok := val.(*build.TreeNode); ok && rangeNode.HasRange() {
 						if len(rangeNode.Range.Items) != 0 {
 							t.Errorf("Empty range should have empty 'd', got %d items", len(rangeNode.Range.Items))
@@ -101,7 +101,7 @@ func TestUpdateSpecification_FirstRender(t *testing.T) {
 					t.Error("Range missing top-level statics")
 				}
 				// Check range structure
-				if val, ok := tree.GetDynamic("0"); ok {
+				if val, ok := tree.GetDynamic(0); ok {
 					if rangeNode, ok := val.(*build.TreeNode); ok {
 						// Range should have its own statics
 						if !rangeNode.HasStatics() {
@@ -129,7 +129,7 @@ func TestUpdateSpecification_FirstRender(t *testing.T) {
 			},
 			validateFn: func(t *testing.T, tree *build.TreeNode) {
 				// Should have multiple dynamics
-				if val, _ := tree.GetDynamic("0"); val != "Header" {
+				if val, _ := tree.GetDynamic(0); val != "Header" {
 					t.Error("Title dynamic missing or incorrect")
 				}
 				// Range should be at some numeric key
@@ -200,10 +200,10 @@ func TestUpdateSpecification_SubsequentUpdates(t *testing.T) {
 			update:   struct{ Count int }{Count: 10},
 			validateFn: func(t *testing.T, changes *build.TreeNode) {
 				// Should only have the changed dynamic
-				if len(changes.Dynamics) != 1 {
-					t.Errorf("Expected 1 change, got %d", len(changes.Dynamics))
+				if changes.DynamicLen() != 1 {
+					t.Errorf("Expected 1 change, got %d", changes.DynamicLen())
 				}
-				if val, ok := changes.GetDynamic("0"); !ok || val != "10" {
+				if val, ok := changes.GetDynamic(0); !ok || val != "10" {
 					t.Errorf("Expected count to be '10', got %v", val)
 				}
 				// Should NOT have statics
@@ -219,8 +219,8 @@ func TestUpdateSpecification_SubsequentUpdates(t *testing.T) {
 			update:   struct{ Value string }{Value: "Same"},
 			validateFn: func(t *testing.T, changes *build.TreeNode) {
 				// Should be empty
-				if len(changes.Dynamics) != 0 {
-					t.Errorf("No-change update should be empty, got %d fields", len(changes.Dynamics))
+				if changes.DynamicLen() != 0 {
+					t.Errorf("No-change update should be empty, got %d fields", changes.DynamicLen())
 				}
 			},
 		},
@@ -232,8 +232,8 @@ func TestUpdateSpecification_SubsequentUpdates(t *testing.T) {
 			skipComplianceChecks: true, // Skip compliance - we accept wrapped format for compatibility
 			validateFn: func(t *testing.T, changes *build.TreeNode) {
 				// Should only have the branch content change
-				if len(changes.Dynamics) != 1 {
-					t.Errorf("Expected 1 change, got %d", len(changes.Dynamics))
+				if changes.DynamicLen() != 1 {
+					t.Errorf("Expected 1 change, got %d", changes.DynamicLen())
 				}
 
 				// KNOWN OPTIMIZATION OPPORTUNITY:
@@ -241,7 +241,7 @@ func TestUpdateSpecification_SubsequentUpdates(t *testing.T) {
 				// This works correctly but includes redundant statics wrapper
 				// Unwrapping this breaks E2E tests where client expects tree node format
 				// TODO: Optimize by detecting pure static-value nodes and unwrapping them
-				val, _ := changes.GetDynamic("0")
+				val, _ := changes.GetDynamic(0)
 				if strVal, ok := val.(string); ok && strVal == "OFF" {
 					// Optimal case: just the value
 					return
@@ -266,16 +266,16 @@ func TestUpdateSpecification_SubsequentUpdates(t *testing.T) {
 			},
 			validateFn: func(t *testing.T, changes *build.TreeNode) {
 				// Should have changes for A and C, not B
-				if val, ok := changes.GetDynamic("0"); !ok || val != "X" {
+				if val, ok := changes.GetDynamic(0); !ok || val != "X" {
 					t.Errorf("Expected A to be 'X', got %v", val)
 				}
-				if val, ok := changes.GetDynamic("2"); !ok || val != "Z" {
+				if val, ok := changes.GetDynamic(2); !ok || val != "Z" {
 					t.Errorf("Expected C to be 'Z', got %v", val)
 				}
 				// B should not be in changes (unchanged)
 				// Note: In practice, position "1" might be included if tree structure changed
 				// But value should be different if included
-				if val, hasB := changes.GetDynamic("1"); hasB && val == "2" {
+				if val, hasB := changes.GetDynamic(1); hasB && val == "2" {
 					t.Log("Position '1' included in changes as expected")
 				}
 			},
@@ -494,13 +494,20 @@ func TestUpdateSpecification_RangeOperations(t *testing.T) {
 			changes := tmpl.compareTreesAndGetChanges(initialTree, updatedTree)
 
 			// Extract range operations
-			// The range is typically at key "0"
+			// Range ops may be in Dynamics (nested range) or directly on Range.Items (top-level range)
 			var ops []interface{}
 			for _, v := range changes.Dynamics {
 				if opList, ok := v.([]interface{}); ok {
 					ops = opList
 					break
 				}
+				if tn, ok := v.(*build.TreeNode); ok && tn.HasRange() {
+					ops = tn.Range.Items
+					break
+				}
+			}
+			if ops == nil && changes.HasRange() {
+				ops = changes.Range.Items
 			}
 
 			if ops == nil {
@@ -667,7 +674,7 @@ func TestUserJourney_TodoApp(t *testing.T) {
 			validate: func(t *testing.T, tree *build.TreeNode, isFirst bool) {
 				// Should update the conditional
 				// Form should disappear (empty string or specific update)
-				if len(tree.Dynamics) == 0 {
+				if tree.DynamicLen() == 0 {
 					t.Error("Expected update for form toggle")
 				}
 			},

@@ -90,3 +90,54 @@ func TestGenerateItemHash_FieldOrderIndependence(t *testing.T) {
 		t.Errorf("Field order should not affect hash, got: %v and %v", hash1, hash2)
 	}
 }
+
+func TestGenerateItemHashFromSlice_Deterministic(t *testing.T) {
+	dynamics := []interface{}{"title", "content"}
+
+	hash1 := GenerateItemHashFromSlice(dynamics)
+	hash2 := GenerateItemHashFromSlice(dynamics)
+
+	if hash1 != hash2 {
+		t.Errorf("Hash should be deterministic, got: %v and %v", hash1, hash2)
+	}
+	if len(hash1) != HashPrefixLength {
+		t.Errorf("Hash length should be %d, got: %d", HashPrefixLength, len(hash1))
+	}
+}
+
+func TestGenerateItemHashFromSlice_SkipsNilEntries(t *testing.T) {
+	withNils := []interface{}{"a", nil, "b"}
+	withoutNils := []interface{}{"a", nil, "b"}
+
+	hash1 := GenerateItemHashFromSlice(withNils)
+	hash2 := GenerateItemHashFromSlice(withoutNils)
+
+	if hash1 != hash2 {
+		t.Errorf("Same content should produce same hash, got: %v and %v", hash1, hash2)
+	}
+}
+
+func TestGenerateItemHashFromSlice_MatchesMapVersion(t *testing.T) {
+	// For single-digit keys (0-9), map sort order matches numeric order,
+	// so slice and map versions should produce identical hashes.
+	sliceHash := GenerateItemHashFromSlice([]interface{}{"a", "b", "c"})
+	mapHash := GenerateItemHash(map[string]interface{}{"0": "a", "1": "b", "2": "c"})
+
+	if sliceHash != mapHash {
+		t.Errorf("Slice and map versions should match for single-digit keys, got slice=%v map=%v", sliceHash, mapHash)
+	}
+}
+
+func TestGenerateItemHashFromSlice_Empty(t *testing.T) {
+	hash := GenerateItemHashFromSlice([]interface{}{})
+	if hash == "" {
+		t.Error("Empty slice should return a non-empty hash")
+	}
+}
+
+func TestGenerateItemHashFromSlice_Nil(t *testing.T) {
+	hash := GenerateItemHashFromSlice(nil)
+	if hash == "" {
+		t.Error("Nil slice should return a non-empty hash")
+	}
+}

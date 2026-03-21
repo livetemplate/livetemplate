@@ -1,5 +1,9 @@
 package diff
 
+import (
+	"github.com/livetemplate/livetemplate/internal/build"
+)
+
 // CompareTreesAndGetChangesWithPath compares two tree structures and returns minimal changes.
 // This is the main orchestrator function that coordinates the comparison process.
 //
@@ -24,9 +28,7 @@ func CompareTreesAndGetChangesWithPath(
 	currentPath string,
 	rangeMatches map[string]string,
 ) *TreeNode {
-	changes := &TreeNode{
-		Dynamics: make(map[string]interface{}),
-	}
+	changes := &TreeNode{}
 
 	// Handle top-level range constructs
 	if handleTopLevelRange(oldTree, newTree, currentPath, rangeMatches, changes) {
@@ -111,7 +113,7 @@ func handleMatchedRanges(oldTree, newTree *TreeNode, changes *TreeNode) bool {
 
 	if len(diffOps) > 0 {
 		// Return the operations directly - the entire tree is the range
-		changes.Dynamics["d"] = diffOps
+		changes.Range = &RangeData{Items: diffOps}
 
 		// Only include root-level statics if client needs them (structure changed)
 		if !clientHasRangeStatics {
@@ -139,23 +141,30 @@ func compareDynamicSegments(
 	rangeMatches map[string]string,
 	changes *TreeNode,
 ) {
-	for k, newValue := range newTree.Dynamics {
+	// Pre-allocate changes slice to avoid repeated growth
+	changes.GrowDynamics(len(newTree.Dynamics))
+	for i, newValue := range newTree.Dynamics {
+		if newValue == nil {
+			continue
+		}
+
 		// Build full path for this field
-		fieldPath := buildFieldPath(currentPath, k)
+		posKey := build.PositionKey(i)
+		fieldPath := buildFieldPath(currentPath, posKey)
 
 		var oldValue interface{}
 		var exists bool
 		if oldTree != nil {
-			oldValue, exists = oldTree.GetDynamic(k)
+			oldValue, exists = oldTree.GetDynamic(i)
 		}
 
 		if !exists {
 			// Field is NEW compared to last update
-			handleNewField(k, newValue, insideNewStructure, changes)
+			handleNewField(i, newValue, insideNewStructure, changes)
 		} else if !DeepEqual(oldValue, newValue) {
 			// Field exists but changed
 			handleChangedField(
-				k, oldValue, newValue,
+				i, oldValue, newValue,
 				fieldPath,
 				insideNewStructure,
 				rangeMatches,
@@ -164,6 +173,8 @@ func compareDynamicSegments(
 			)
 		}
 	}
+	// Remove trailing nil entries from pre-allocated changes
+	changes.TrimDynamics()
 }
 
 // buildFieldPath constructs the full path for a field.
@@ -176,7 +187,7 @@ func buildFieldPath(currentPath, k string) string {
 
 // handleNewField processes a field that is new (not in old tree).
 func handleNewField(
-	k string,
+	k int,
 	newValue interface{},
 	insideNewStructure bool,
 	changes *TreeNode,
@@ -286,7 +297,7 @@ func handleStructureValue(
 
 // handleChangedField processes a field that exists but changed value.
 func handleChangedField(
-	k string,
+	k int,
 	oldValue, newValue interface{},
 	fieldPath string,
 	insideNewStructure bool,
@@ -324,7 +335,7 @@ func handleChangedField(
 
 // handleRangeMatch handles changes in matched range constructs.
 // Uses fingerprint comparison to determine if client needs range statics.
-func handleRangeMatch(k string, oldValue, newValue interface{}, changes *TreeNode) {
+func handleRangeMatch(k int, oldValue, newValue interface{}, changes *TreeNode) {
 	// Use fingerprint comparison to determine if client has range statics cached.
 	clientHasRangeStatics := !clientNeedsStaticsForValue(oldValue, newValue)
 
@@ -341,23 +352,15 @@ func handleRangeMatch(k string, oldValue, newValue interface{}, changes *TreeNod
 }
 
 // handleEmptyRangeDiff handles the case when no diff operations were generated.
-func handleEmptyRangeDiff(k string, oldValue, newValue interface{}, changes *TreeNode) {
-	// Check if both are empty ranges (no change needed)
+func handleEmptyRangeDiff(k int, oldValue, newValue interface{}, changes *TreeNode) {
+	// Both empty ranges means no change needed
 	if IsRangeConstruct(newValue) && !HasRangeItems(newValue) &&
 		IsRangeConstruct(oldValue) && !HasRangeItems(oldValue) {
-		// Both empty ranges, no update needed
 		return
 	}
 
-	// Check if new value is an empty range (items→empty transition)
-	// Send the empty range structure so client knows to clear items
-	if IsRangeConstruct(newValue) && !HasRangeItems(newValue) {
-		// Send empty range with statics (client will clear items and keep structure)
-		changes.SetDynamic(k, newValue)
-	} else {
-		// Regular fallback with statics included
-		changes.SetDynamic(k, newValue)
-	}
+	// Send new value so client can update (covers both items->empty and other transitions)
+	changes.SetDynamic(k, newValue)
 }
 
 // extractTreeNodePair extracts TreeNode pointers from old and new values.
@@ -369,7 +372,7 @@ func extractTreeNodePair(oldValue, newValue interface{}) (*TreeNode, *TreeNode, 
 
 // handleNestedTreeNodes handles comparison of nested TreeNode structures.
 func handleNestedTreeNodes(
-	k string,
+	k int,
 	oldTreeNodePtr, newTreeNodePtr *TreeNode,
 	fieldPath string,
 	insideNewStructure bool,
@@ -401,7 +404,7 @@ func handleNestedTreeNodes(
 			rangeMatches,
 		)
 
-		if nestedChanges.HasDynamics() {
+		if nestedChanges.HasDynamics() || nestedChanges.HasRange() {
 			// Use nested changes as-is (statics stripped since structure unchanged)
 			changes.SetDynamic(k, nestedChanges)
 		} else {
@@ -413,7 +416,7 @@ func handleNestedTreeNodes(
 
 // handleStaticOnlyChanges handles cases where only statics changed.
 // Uses fingerprint comparison to detect static structure changes.
-func handleStaticOnlyChanges(k string, oldTreeNodePtr, newTreeNodePtr *TreeNode, changes *TreeNode) {
+func handleStaticOnlyChanges(k int, oldTreeNodePtr, newTreeNodePtr *TreeNode, changes *TreeNode) {
 	oldStripped := PrepareTreeForClient(oldTreeNodePtr, true)
 	newStripped := PrepareTreeForClient(newTreeNodePtr, true)
 	oldIsEmpty := IsEmpty(oldStripped)
@@ -430,7 +433,7 @@ func handleStaticOnlyChanges(k string, oldTreeNodePtr, newTreeNodePtr *TreeNode,
 
 // handleNewTreeNodeFromPrimitive handles when new value is TreeNode but old wasn't.
 func handleNewTreeNodeFromPrimitive(
-	k string,
+	k int,
 	newTreeNodePtr *TreeNode,
 	changes *TreeNode,
 ) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -30,14 +31,35 @@ func GenerateItemHash(dynamics map[string]interface{}) string {
 	var parts []string
 	for _, k := range dynKeys {
 		val := dynamics[k]
-		valJSON, err := json.Marshal(val)
-		if err != nil {
-			parts = append(parts, fmt.Sprintf("%s:<unhashable:%T>", k, val))
-		} else {
-			parts = append(parts, fmt.Sprintf("%s:%s", k, string(valJSON)))
-		}
+		parts = append(parts, formatHashPart(k, val))
 	}
 
+	return hashParts(parts)
+}
+
+// GenerateItemHashFromSlice creates a stable hash from a dynamics slice.
+// This avoids the overhead of converting []interface{} to map[string]interface{}
+// when the dynamics are already in slice form. Nil entries are skipped.
+func GenerateItemHashFromSlice(dynamics []interface{}) string {
+	var parts []string
+	for i, val := range dynamics {
+		if val == nil {
+			continue
+		}
+		parts = append(parts, formatHashPart(strconv.Itoa(i), val))
+	}
+	return hashParts(parts)
+}
+
+func formatHashPart(key string, val interface{}) string {
+	valJSON, err := json.Marshal(val)
+	if err != nil {
+		return fmt.Sprintf("%s:<unhashable:%T>", key, val)
+	}
+	return fmt.Sprintf("%s:%s", key, string(valJSON))
+}
+
+func hashParts(parts []string) string {
 	content := strings.Join(parts, "|")
 	hasher := fnv.New64a()
 	hasher.Write([]byte(content))
