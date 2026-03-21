@@ -271,6 +271,16 @@ func (tn *TreeNode) SetDynamic(index int, value interface{}) {
 
 	old := tn.Dynamics[index]
 
+	// If dynamicCount is stale (0 but slice has non-nil entries, e.g. from struct
+	// literal construction), recompute it before updating to maintain the invariant.
+	if tn.dynamicCount == 0 && old != nil {
+		for _, v := range tn.Dynamics {
+			if v != nil {
+				tn.dynamicCount++
+			}
+		}
+	}
+
 	// Type guard: only allow tree-compatible values
 	if !isTreeCompatible(value) {
 		// Convert incompatible types (like raw structs) to string representation
