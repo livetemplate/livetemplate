@@ -547,19 +547,14 @@ func (tn *TreeNode) UnmarshalJSON(data []byte) error {
 			}
 
 		default:
-			// Numeric keys are dynamics — parse to int, grow slice
+			// Numeric keys are dynamics — parse to int, route through SetDynamic
+			// for consistent dynamicCount tracking (handles nil, duplicates, type guard)
 			index, err := strconv.Atoi(key)
 			if err != nil {
 				// Skip unknown non-numeric keys
 				continue
 			}
-			if index >= len(tn.Dynamics) {
-				newDyn := make([]interface{}, index+1)
-				copy(newDyn, tn.Dynamics)
-				tn.Dynamics = newDyn
-			}
-			tn.Dynamics[index] = value
-			tn.dynamicCount++
+			tn.SetDynamic(index, value)
 		}
 	}
 

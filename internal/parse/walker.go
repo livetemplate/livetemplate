@@ -120,8 +120,11 @@ func walkList(node *parse.ListNode, eval *evaluator, data interface{}, varCtx *v
 			statics = append(statics, childStatics[1:]...)
 		}
 
-		// Copy dynamic values, renumbering them
+		// Copy dynamic values, renumbering them (skip nil gaps)
 		for _, v := range childTree.Dynamics {
+			if v == nil {
+				continue
+			}
 			tree.SetDynamic(dynamicIndex, v)
 			dynamicIndex++
 		}

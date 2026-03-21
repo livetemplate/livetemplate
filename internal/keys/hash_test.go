@@ -106,14 +106,27 @@ func TestGenerateItemHashFromSlice_Deterministic(t *testing.T) {
 }
 
 func TestGenerateItemHashFromSlice_SkipsNilEntries(t *testing.T) {
+	// Nil entries should be skipped: [a, nil, b] should hash identically
+	// to [a, nil, b] — they represent the same logical content.
+	// Also verify that the hash is non-empty (nils don't break hashing).
 	withNils := []interface{}{"a", nil, "b"}
-	withoutNils := []interface{}{"a", nil, "b"}
+	hash := GenerateItemHashFromSlice(withNils)
+	if hash == "" {
+		t.Error("Hash should not be empty for non-nil content")
+	}
 
-	hash1 := GenerateItemHashFromSlice(withNils)
-	hash2 := GenerateItemHashFromSlice(withoutNils)
+	// Verify nil-only and empty slices produce the same hash (no content)
+	nilOnly := []interface{}{nil, nil}
+	empty := []interface{}{}
+	if GenerateItemHashFromSlice(nilOnly) != GenerateItemHashFromSlice(empty) {
+		t.Error("Nil-only and empty slices should produce the same hash")
+	}
 
-	if hash1 != hash2 {
-		t.Errorf("Same content should produce same hash, got: %v and %v", hash1, hash2)
+	// Verify position matters: [a, nil, b] != [b, nil, a]
+	reversed := []interface{}{"b", nil, "a"}
+	revHash := GenerateItemHashFromSlice(reversed)
+	if hash == revHash {
+		t.Errorf("Different orderings should produce different hashes")
 	}
 }
 
