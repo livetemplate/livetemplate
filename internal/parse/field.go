@@ -4,11 +4,13 @@ import (
 	"text/template/parse"
 )
 
+var defaultFieldStatics = []string{"", ""}
+
 // createSingleDynamicTree creates a tree node with a single dynamic value at position 0.
 func createSingleDynamicTree(value string, ctx *Context) *TreeNode {
 	tree := NewTreeNode()
 	if ctx.ShouldIncludeStatics() {
-		tree.Statics = []string{"", ""}
+		tree.Statics = defaultFieldStatics
 	}
 	tree.SetDynamic(0, value)
 	return tree

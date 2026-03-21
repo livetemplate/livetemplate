@@ -80,6 +80,13 @@ func (kg *Generator) Reset() {
 	kg.counter = 0
 }
 
+// PositionGetter provides direct index-based access to dynamics.
+// More efficient than DynamicsGetter when only a single position is needed,
+// as it avoids constructing a map.
+type PositionGetter interface {
+	GetDynamic(index int) (interface{}, bool)
+}
+
 // DynamicsGetter is an interface for types that have a Dynamics field.
 // This allows LoadExistingKeys to work with TreeNode without importing it.
 type DynamicsGetter interface {
@@ -117,10 +124,19 @@ func (kg *Generator) LoadExistingKeys(oldRangeData []interface{}) error {
 				return fmt.Errorf("LoadExistingKeys: item %d key at position %q is not a string, got %T", i, KeyDynamicPosition, keyValue)
 			}
 
+		case PositionGetter:
+			// Direct slice access — avoids constructing a map via GetDynamics()
+			if keyValue, exists := v.GetDynamic(0); exists {
+				if str, ok := keyValue.(string); ok {
+					keyStr = str
+				}
+			}
+			if keyStr == "" {
+				continue
+			}
+
 		case DynamicsGetter:
-			// For types with GetDynamics() method (e.g., TreeNode)
-			// Items without keys or dynamics are silently skipped (not an error)
-			// since they may be structural nodes not representing range items
+			// Fallback for types that only implement the map-based interface
 			dynamics := v.GetDynamics()
 			if dynamics != nil {
 				keyValue, exists := dynamics[KeyDynamicPosition]
@@ -130,7 +146,6 @@ func (kg *Generator) LoadExistingKeys(oldRangeData []interface{}) error {
 					}
 				}
 			}
-			// Skip items without keys - they may be structural nodes
 			if keyStr == "" {
 				continue
 			}

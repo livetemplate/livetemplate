@@ -40,7 +40,7 @@ func selectBranch(node *parse.IfNode, condResult bool) *parse.ListNode {
 func createConditionalWrapper(branchTree *TreeNode, ctx *Context) *TreeNode {
 	wrapper := NewTreeNode()
 	if ctx.ShouldIncludeStatics() {
-		wrapper.Statics = []string{"", ""}
+		wrapper.Statics = defaultFieldStatics
 	}
 	wrapper.SetDynamic(0, branchTree)
 	return wrapper
@@ -50,7 +50,7 @@ func createConditionalWrapper(branchTree *TreeNode, ctx *Context) *TreeNode {
 func createEmptyConditionalWrapper(ctx *Context) *TreeNode {
 	tree := NewTreeNode()
 	if ctx.ShouldIncludeStatics() {
-		tree.Statics = []string{"", ""}
+		tree.Statics = defaultFieldStatics
 	}
 	tree.SetDynamic(0, "")
 	return tree

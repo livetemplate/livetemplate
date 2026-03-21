@@ -1573,15 +1573,17 @@ func (t *Template) validateTreeGeneration() error {
 // It handles both initial renders and subsequent updates internally.
 // Thread-safe: uses single lock acquisition to prevent race conditions.
 func (t *Template) buildTree(data interface{}, messages map[string]string) (*treeNode, error) {
-	// Phase 4: Render HTML (needed for tree building)
-	// Do this outside the lock as it's CPU-intensive and doesn't modify shared state
-	currentHTML, err := t.renderHTML(data, messages)
+	// Build data map ONCE — this performs reflection over the data struct/map.
+	// The result is reused for both HTML rendering and tree building,
+	// eliminating the duplicate reflection that previously occurred in
+	// renderHTML (via ExecuteTemplateWithContext) and AddLvtToData.
+	dataWithLvt := context.BuildDataMap(data, messages, t.config.DevMode, t.uploadRegistry)
+
+	// Phase 4: Render HTML using pre-built data map (no reflection)
+	currentHTML, err := t.renderHTMLWithData(dataWithLvt)
 	if err != nil {
 		return nil, err
 	}
-
-	// Convert data to include lvt context (with upload registry if set)
-	dataWithLvt := context.AddLvtToData(data, messages, t.config.DevMode, t.uploadRegistry)
 
 	// Note: We don't invalidate the expression cache here because:
 	// 1. Cache keys include dataHash, so changed data naturally misses the cache
@@ -1654,6 +1656,21 @@ func (t *Template) renderHTML(data interface{}, messages map[string]string) (str
 
 	// Execute template with lvt context
 	htmlBytes, err := context.ExecuteTemplateWithContext(t.tmpl, data, messages, t.config.DevMode, t.uploadRegistry)
+	if err != nil {
+		return "", err
+	}
+
+	return string(htmlBytes), nil
+}
+
+// renderHTMLWithData executes the template with a pre-built data map.
+// Used by buildTree to avoid duplicate reflection.
+func (t *Template) renderHTMLWithData(dataWithLvt interface{}) (string, error) {
+	if t.tmpl == nil {
+		return "", fmt.Errorf("template not parsed")
+	}
+
+	htmlBytes, err := context.ExecuteTemplateWithDataMap(t.tmpl, dataWithLvt)
 	if err != nil {
 		return "", err
 	}

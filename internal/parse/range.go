@@ -66,7 +66,7 @@ func handleEmptyRange(node *parse.RangeNode, eval *evaluator, data interface{}, 
 	}
 	emptyRange := NewTreeNode()
 	if ctx.ShouldIncludeStatics() {
-		emptyRange.Statics = []string{""}
+		emptyRange.Statics = defaultEmptyStatics
 	}
 	emptyRange.Range = NewRangeData([]interface{}{}, nil)
 	return emptyRange, nil
@@ -116,7 +116,7 @@ func buildRangeTreeWithStatics(items []rangeItemWithStatics, ctx *Context) (*Tre
 	if len(items) == 0 {
 		rangeTree := NewTreeNode()
 		if ctx.ShouldIncludeStatics() {
-			rangeTree.Statics = []string{""}
+			rangeTree.Statics = defaultEmptyStatics
 		}
 		rangeTree.Range = NewRangeData([]interface{}{}, nil)
 		return rangeTree, nil
