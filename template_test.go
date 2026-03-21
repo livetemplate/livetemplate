@@ -3310,6 +3310,43 @@ func TestKeyInjectionUniversalCompatibility(t *testing.T) {
 	t.Logf("✅ All data types handled uniformly - no special cases needed!")
 }
 
+func TestFuncsCacheInvalidation(t *testing.T) {
+	tmpl := Must(New("test"))
+
+	upper := template.FuncMap{"transform": strings.ToUpper}
+	tmpl.Funcs(upper)
+	if _, err := tmpl.Parse(`<div>{{transform .Name}}</div>`); err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	var buf1 bytes.Buffer
+	if err := tmpl.Execute(&buf1, map[string]interface{}{"Name": "hello"}); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	firstRender := buf1.String()
+
+	if !strings.Contains(firstRender, "HELLO") {
+		t.Fatalf("Expected HELLO in first render, got: %s", firstRender)
+	}
+
+	// Change Funcs — must invalidate cached parse template
+	lower := template.FuncMap{"transform": strings.ToLower}
+	tmpl.Funcs(lower)
+
+	var buf2 bytes.Buffer
+	if err := tmpl.ExecuteUpdates(&buf2, map[string]interface{}{"Name": "WORLD"}); err != nil {
+		t.Fatalf("ExecuteUpdates failed: %v", err)
+	}
+	secondRender := buf2.String()
+
+	if !strings.Contains(secondRender, "world") {
+		t.Fatalf("Expected lowercase 'world' after Funcs() invalidation, got: %s", secondRender)
+	}
+	if strings.Contains(secondRender, "WORLD") {
+		t.Fatalf("Old transform (ToUpper) still active after Funcs() invalidation, got: %s", secondRender)
+	}
+}
+
 // =============================================================================
 // Test Helpers
 // =============================================================================

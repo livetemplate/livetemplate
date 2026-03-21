@@ -29,14 +29,20 @@ var cachedBuiltins = func() map[string]reflect.Value {
 }()
 
 func newEvaluator(funcMap htmltemplate.FuncMap) *evaluator {
-	builtins := make(map[string]reflect.Value, len(cachedBuiltins)+len(funcMap))
+	return &evaluator{builtins: precomputeBuiltins(funcMap)}
+}
+
+// precomputeBuiltins merges cachedBuiltins with the user-supplied FuncMap
+// into a single immutable map. Used at parse time to avoid per-render map copies.
+func precomputeBuiltins(funcMap htmltemplate.FuncMap) map[string]reflect.Value {
+	merged := make(map[string]reflect.Value, len(cachedBuiltins)+len(funcMap))
 	for name, fn := range cachedBuiltins {
-		builtins[name] = fn
+		merged[name] = fn
 	}
 	for name, fn := range funcMap {
-		builtins[name] = reflect.ValueOf(fn)
+		merged[name] = reflect.ValueOf(fn)
 	}
-	return &evaluator{builtins: builtins}
+	return merged
 }
 
 // evalPipe evaluates a pipeline, threading results between commands.

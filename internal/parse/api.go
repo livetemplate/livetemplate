@@ -3,13 +3,15 @@ package parse
 import (
 	"fmt"
 	"html/template"
+	"reflect"
 	"text/template/parse"
 )
 
 // Template represents a parsed template with its AST.
 type Template struct {
-	name string
-	ast  *parse.Tree
+	name     string
+	ast      *parse.Tree
+	builtins map[string]reflect.Value
 }
 
 // Parse parses a template string into an executable template structure.
@@ -26,16 +28,18 @@ func Parse(templateStr string, funcMap template.FuncMap) (*Template, error) {
 		return nil, fmt.Errorf("template has no parse tree")
 	}
 	return &Template{
-		name: parsed.Name(),
-		ast:  parsed.Tree,
+		name:     parsed.Name(),
+		ast:      parsed.Tree,
+		builtins: precomputeBuiltins(funcMap),
 	}, nil
 }
 
 // BuildTree constructs a tree structure from the parsed AST and data.
+// tmpl.builtins is always set by Parse() via precomputeBuiltins.
 func BuildTree(tmpl *Template, data interface{}, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
 	if ctx == nil {
 		ctx = &Context{}
 	}
-	eval := newEvaluator(ctx.FuncMap)
+	eval := &evaluator{builtins: tmpl.builtins}
 	return walkAST(tmpl.ast.Root, eval, data, nil, keyGen, ctx)
 }
