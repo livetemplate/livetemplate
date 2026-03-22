@@ -1,6 +1,7 @@
 # Known Performance Bottlenecks
 
-**Last Profiled:** 2026-03-19
+**Last CPU Profiled:** 2026-03-19
+**Last Memory Profiled:** 2026-03-22
 **Go Version (profiles):** 1.26.0
 **Go Version (benchmarks):** 1.26.0
 **Architecture:** arm64 (Apple M2)
@@ -69,98 +70,102 @@ The high GC overhead indicates that memory allocation reduction would have the m
 
 ## Memory Bottlenecks
 
-> **Note:** Total allocation volume is 80.8 GB vs 59.5 GB in the previous session. This reflects
-> more benchmark iterations (faster per-op code → higher `b.N`), not a regression. Per-operation
-> allocation counts (B/op, allocs/op) decreased across the board — see Allocations per Operation below.
+> **Note:** Profile shape changed significantly after PRs #219, #220, #224. Previous top allocator
+> `SetDynamic` (6.13%) dropped to 1.56% due to Dynamics map→slice conversion. `newEvaluator` (5.90%)
+> eliminated by pre-computed builtins. NewTreeNode struct allocation is now the dominant LiveTemplate hotspot.
 
 ### Analysis Summary
 
 ```
 File: livetemplate.test
 Type: alloc_space
-Time: 2026-03-19 20:54:41 CET
-Showing nodes accounting for 71049.58MB, 87.91% of 80820.80MB total
-Dropped 701 nodes (cum <= 404.10MB)
+Time: 2026-03-22
+Showing top allocators (LiveTemplate-specific highlighted below)
       flat  flat%   sum%        cum   cum%
-23859.12MB 29.52% 29.52% 23859.12MB 29.52%  golang.org/x/net/html.NewTokenizerFragment
- 4953.86MB  6.13% 35.65%  4953.86MB  6.13%  github.com/livetemplate/livetemplate/internal/build.(*TreeNode).SetDynamic
- 4768.48MB  5.90% 41.55%  4768.48MB  5.90%  github.com/livetemplate/livetemplate/internal/parse.newEvaluator
- 4056.65MB  5.02% 46.57%  4056.65MB  5.02%  text/template.builtins (inline)
- 3304.85MB  4.09% 50.66%  3680.86MB  4.55%  golang.org/x/net/html.(*parser).addElement (inline)
- 2512.16MB  3.11% 53.77%  2512.16MB  3.11%  github.com/livetemplate/livetemplate/internal/build.NewTreeNode (partial-inline)
- 2189.64MB  2.71% 56.48%  2189.64MB  2.71%  github.com/livetemplate/livetemplate/internal/build.NewTreeNodeWithStatics
- 1734.29MB  2.15% 58.62% 31051.92MB 38.42%  golang.org/x/net/html.ParseWithOptions
- 1441.32MB  1.78% 60.41%  4188.02MB  5.18%  github.com/livetemplate/livetemplate/internal/context.ExecuteTemplateWithContext
- 1340.52MB  1.66% 62.06%  1340.52MB  1.66%  reflect.unsafe_New
- 1288.33MB  1.59% 63.66%  1700.85MB  2.10%  encoding/json.(*decodeState).objectInterface
- 1273.17MB  1.58% 65.23%  3129.77MB  3.87%  html/template.New
- 1021.68MB  1.26% 66.50%  1021.68MB  1.26%  bytes.growSlice
-  958.60MB  1.19% 67.68%   958.60MB  1.19%  golang.org/x/net/html.(*parser).addText
-  952.26MB  1.18% 68.86%   952.26MB  1.18%  text/template/parse.New (inline)
-  947.72MB  1.17% 70.03%  1197.73MB  1.48%  github.com/livetemplate/livetemplate/internal/context.AddLvtToData
-  912.04MB  1.13% 71.16%   912.04MB  1.13%  html/template.makeEscaper (inline)
-  864.67MB  1.07% 72.23%   864.67MB  1.07%  text/template/parse.(*Tree).newText (inline)
-  814.15MB  1.01% 73.24%   814.15MB  1.01%  github.com/livetemplate/livetemplate/internal/diff.findRangeConstructsRecursive
+ 5398.16MB 12.09%         github.com/livetemplate/livetemplate/internal/build.NewTreeNode
+ 4096.50MB  9.18%         github.com/livetemplate/livetemplate/internal/build.NewTreeNodeWithStatics
+ 3597.37MB  8.06%         github.com/livetemplate/livetemplate/internal/context.buildDataMapWithContext
+ 1784.03MB  4.00%         reflect.unsafe_New
+ 1456.09MB  3.26%         text/template.(*Template).execute
+ 1361.57MB  3.05%         golang.org/x/net/html.NewTokenizerFragment
+ 1245.82MB  2.79%         encoding/json.(*decodeState).objectInterface
+ 1174.12MB  2.63%         github.com/livetemplate/livetemplate/internal/context.executeWithBuffer
+ 1039.63MB  2.33%         github.com/livetemplate/livetemplate/internal/diff.CompareTreesAndGetChangesWithPath
+  865.19MB  1.94%         github.com/livetemplate/livetemplate/internal/build.(*TreeNode).MarshalJSON
+  849.02MB  1.90%         github.com/livetemplate/livetemplate/internal/parse.walkAST
+  833.58MB  1.87%         github.com/livetemplate/livetemplate.(*Template).renderHTMLWithData
+  790.13MB  1.77%         github.com/livetemplate/livetemplate/internal/diff.FindRangeConstructMatches
+  697.52MB  1.56%         github.com/livetemplate/livetemplate/internal/build.(*TreeNode).SetDynamic
+  664.11MB  1.49%         encoding/json.mapEncoder.encode
+  622.53MB  1.39%         github.com/livetemplate/livetemplate/internal/parse.walkList
+  603.14MB  1.35%         github.com/livetemplate/livetemplate/internal/build.(*TreeNode).GetDynamics
+  565.01MB  1.27%         github.com/livetemplate/livetemplate/internal/build.hashStructureWithCircularDetection
+  556.57MB  1.25%         text/template.builtins
+  520.53MB  1.17%         github.com/livetemplate/livetemplate/internal/parse.newOrderedVars
+  514.64MB  1.15%         github.com/livetemplate/livetemplate/internal/parse.precomputeBuiltins
 ```
 
 ### LiveTemplate-Specific Allocations
 
 ```
- 4953.86MB  6.13%  github.com/livetemplate/livetemplate/internal/build.(*TreeNode).SetDynamic
- 4768.48MB  5.90%  github.com/livetemplate/livetemplate/internal/parse.newEvaluator
- 2512.16MB  3.11%  github.com/livetemplate/livetemplate/internal/build.NewTreeNode
- 2189.64MB  2.71%  github.com/livetemplate/livetemplate/internal/build.NewTreeNodeWithStatics
- 1441.32MB  1.78%  github.com/livetemplate/livetemplate/internal/context.ExecuteTemplateWithContext
-  947.72MB  1.17%  github.com/livetemplate/livetemplate/internal/context.AddLvtToData
-  814.15MB  1.01%  github.com/livetemplate/livetemplate/internal/diff.findRangeConstructsRecursive
-  663.52MB  0.82%  github.com/livetemplate/livetemplate/internal/parse.getSortedKeys
-  557.51MB  0.69%  github.com/livetemplate/livetemplate/internal/build.CalculateStructureFingerprint
-  525.51MB  0.65%  github.com/livetemplate/livetemplate/internal/parse.walkAST
-  423.04MB  0.52%  github.com/livetemplate/livetemplate.(*Template).renderHTML
-  402.53MB  0.50%  github.com/livetemplate/livetemplate/internal/diff.CompareTreesAndGetChangesWithPath
-  377.57MB  0.47%  github.com/livetemplate/livetemplate/internal/diff.FindRangeConstructMatches
+ 5398.16MB 12.09%  github.com/livetemplate/livetemplate/internal/build.NewTreeNode
+ 4096.50MB  9.18%  github.com/livetemplate/livetemplate/internal/build.NewTreeNodeWithStatics
+ 3597.37MB  8.06%  github.com/livetemplate/livetemplate/internal/context.buildDataMapWithContext
+ 1174.12MB  2.63%  github.com/livetemplate/livetemplate/internal/context.executeWithBuffer
+ 1039.63MB  2.33%  github.com/livetemplate/livetemplate/internal/diff.CompareTreesAndGetChangesWithPath
+  865.19MB  1.94%  github.com/livetemplate/livetemplate/internal/build.(*TreeNode).MarshalJSON
+  849.02MB  1.90%  github.com/livetemplate/livetemplate/internal/parse.walkAST
+  833.58MB  1.87%  github.com/livetemplate/livetemplate.(*Template).renderHTMLWithData
+  790.13MB  1.77%  github.com/livetemplate/livetemplate/internal/diff.FindRangeConstructMatches
+  697.52MB  1.56%  github.com/livetemplate/livetemplate/internal/build.(*TreeNode).SetDynamic
+  622.53MB  1.39%  github.com/livetemplate/livetemplate/internal/parse.walkList
+  603.14MB  1.35%  github.com/livetemplate/livetemplate/internal/build.(*TreeNode).GetDynamics
+  565.01MB  1.27%  github.com/livetemplate/livetemplate/internal/build.hashStructureWithCircularDetection
+  520.53MB  1.17%  github.com/livetemplate/livetemplate/internal/parse.newOrderedVars
+  514.64MB  1.15%  github.com/livetemplate/livetemplate/internal/parse.precomputeBuiltins
 ```
 
 ### Allocations per Operation
 
 **Initial Render (includes template parsing, one-time cost):**
-- Total allocations: ~3,954 allocs/op
-- Bytes allocated: ~417 KB/op
-- Example: BenchmarkTemplateExecute/initial-render-8 (1406553 ns/op, 426485 B/op, 3954 allocs/op)
+- Total allocations: ~3,910 allocs/op
+- Bytes allocated: ~419 KB/op
+- Example: BenchmarkTemplateExecute/initial-render-8 (1898294 ns/op, 419101 B/op, 3910 allocs/op)
 
 **Subsequent Render (per-session, reuses parsed template):**
-- Total allocations: ~170 allocs/op
-- Bytes allocated: ~20 KB/op
-- Example: BenchmarkTemplateExecute/subsequent-render-8 (10572 ns/op, 20818 B/op, 170 allocs/op)
+- Total allocations: ~61 allocs/op
+- Bytes allocated: ~3 KB/op
+- Example: BenchmarkTemplateExecute/subsequent-render-8 (3025 ns/op, 3033 B/op, 61 allocs/op)
 
 **Small Update:**
-- Total allocations: ~154 allocs/op
-- Bytes allocated: ~19 KB/op
-- Example: BenchmarkTemplateExecuteUpdates/small-update-8 (9579 ns/op, 19840 B/op, 154 allocs/op)
+- Total allocations: ~46 allocs/op
+- Bytes allocated: ~2.2 KB/op
+- Example: BenchmarkTemplateExecuteUpdates/small-update-8 (2263 ns/op, 2201 B/op, 46 allocs/op)
 
 **Large Update:**
-- Total allocations: ~357 allocs/op
-- Bytes allocated: ~30 KB/op
-- Example: BenchmarkTemplateExecuteUpdates/large-update-8 (22937 ns/op, 30390 B/op, 357 allocs/op)
+- Total allocations: ~123 allocs/op
+- Bytes allocated: ~5.2 KB/op
+- Example: BenchmarkTemplateExecuteUpdates/large-update-8 (6789 ns/op, 5187 B/op, 123 allocs/op)
 
 **Range Operations:**
-- Add items: 406 allocs/op, 32 KB/op
-- Remove items: 268 allocs/op, 25 KB/op
-- Reorder items: 315 allocs/op, 28 KB/op
-- Update items: 315 allocs/op, 28 KB/op
+- Add items: 222 allocs/op, 9.4 KB/op
+- Remove items: 124 allocs/op, 5.5 KB/op
+- Reorder items: 157 allocs/op, 6.8 KB/op
+- Update items: 157 allocs/op, 6.8 KB/op
 
 **Complex User Journey (E2E):**
-- Total allocations: ~16,174 allocs/op
-- Bytes allocated: ~2.0 MB/op
-- Example: BenchmarkE2EUserJourney-8 (1083172 ns/op, 2073551 B/op, 16174 allocs/op)
+- Total allocations: ~5,083 allocs/op
+- Bytes allocated: ~252 KB/op
+- Example: BenchmarkE2EUserJourney-8 (256978 ns/op, 251941 B/op, 5083 allocs/op)
 
 ### Cache Memory Usage
 
 **Parse Caches:**
 - Template parsing involves significant allocations in text/template and html/template
-- builtins: 4.1 GB (5.02% of total)
-- Template escaper operations: ~3.1 GB (3.87% cumulative)
-- newEvaluator (custom AST evaluator): 4.8 GB (5.90% of total)
+- builtins: 557 MB (1.25% of total) — down from 4.1 GB after pre-computation
+- Template escaper operations: reduced after AST caching
+- newEvaluator: eliminated as allocator (builtins pre-computed in PR #219)
+- precomputeBuiltins: 515 MB (1.15%) — one-time cost per template parse
 
 **Fingerprint Cache:**
 - Lazy-computed per TreeNode via `GetStructureFingerprint()`
@@ -172,36 +177,37 @@ Dropped 701 nodes (cum <= 404.10MB)
 
 Based on profiling data, prioritize:
 
-1. **[High] Reduce Template Parsing Allocations**
-   - Current: 23.9 GB in html.NewTokenizerFragment (29.52% of allocations)
-   - Current: 4.1 GB in text/template.builtins (5.02% of allocations)
-   - Potential improvement: Implement template caching, reduce parsing frequency
-   - Impact: Would reduce GC pressure significantly (59% CPU time)
+1. **[High] TreeNode Struct Pooling (Phase 2: Build)**
+   - Current: 5.4 GB in NewTreeNode (12.09% of allocations)
+   - Current: 4.1 GB in NewTreeNodeWithStatics (9.18% of allocations)
+   - Combined: 22.4% of total — now the dominant LiveTemplate hotspot
+   - Potential improvement: `sync.Pool` for TreeNode structs, reset and reuse
+   - Impact: ~20% reduction in total allocations and GC pressure
 
-2. **[High] Optimize TreeNode Operations (Phase 2: Build)**
-   - Current: 5.0 GB in SetDynamic (6.13% of allocations)
-   - Current: 2.5 GB in NewTreeNode (3.11% of allocations)
-   - Current: 2.2 GB in NewTreeNodeWithStatics (2.71% of allocations)
-   - Potential improvement: Object pooling, reduce map allocations
+2. **[High] Reflection Overhead**
+   - Current: 3.6 GB in buildDataMapWithContext (8.06%)
+   - Current: 1.8 GB in reflect.unsafe_New (4.00%)
+   - Potential improvement: Code generation for data map construction, reduce reflection in hot paths
    - Impact: ~12% reduction in total allocations
 
-3. **[Medium] Parse Evaluator Allocations (Phase 1: Parse)**
-   - Current: 4.8 GB in newEvaluator (5.90% of total)
-   - Current: 664 MB in getSortedKeys (0.82% of total)
-   - Potential improvement: Pool evaluators, cache sorted key slices
-   - Impact: ~7% reduction in total allocations
+3. **[Medium] stdlib Template Execution**
+   - Current: 1.5 GB in text/template.(*Template).execute (3.26%)
+   - Current: 1.2 GB in executeWithBuffer (2.63%)
+   - Potential improvement: Template caching optimizations, reduce per-execution overhead
+   - Impact: ~6% reduction in total allocations
 
 4. **[Medium] JSON Serialization (Phase 5: Send)**
-   - Current: 1.7 GB in JSON decoding (2.10% cumulative)
+   - Current: 1.2 GB in JSON decoding (2.79%)
+   - Current: 865 MB in MarshalJSON (1.94%)
+   - Current: 664 MB in mapEncoder.encode (1.49%)
    - Potential improvement: Use faster JSON library or custom serialization
-   - Impact: Reduced from 11.37% in Nov 2025 — lower priority now
+   - Impact: ~6% reduction in total allocations
 
 5. **[Low] Diff Operations (Phase 3: Diff)**
-   - Current: 814 MB in findRangeConstructsRecursive (1.01%)
-   - Current: 403 MB in CompareTreesAndGetChangesWithPath (0.50%)
-   - Current: 378 MB in FindRangeConstructMatches (0.47%)
+   - Current: 1.0 GB in CompareTreesAndGetChangesWithPath (2.33%)
+   - Current: 790 MB in FindRangeConstructMatches (1.77%)
    - Potential improvement: Algorithmic optimizations
-   - Impact: ~2% of total allocations
+   - Impact: ~4% of total allocations
 
 ## Optimization Task List
 
@@ -212,19 +218,22 @@ Based on profiling data, prioritize:
   - Approach: (1) Eliminated redundant `ExtractTemplateContent` calls on main update path — html.Parse() now only runs on first render and rare fallback. (2) Cached `*parse.Template` AST after first parse, reused on subsequent renders. (3) Pre-computed evaluator builtins map once at parse time.
   - Actual Impact: 50-57% allocation reduction per render. E2E user journey 16174→7084 allocs. Small update 154→66 allocs. ~3x faster update latency.
 
-- [ ] **Implement TreeNode Object Pooling**
-  - Location: `internal/build/tree_ops.go`, Phase 2 (Build)
-  - Goal: Reduce 9.7 GB allocations from TreeNode creation (SetDynamic, NewTreeNode, NewTreeNodeWithStatics)
-  - Approach: Use `sync.Pool` for TreeNode objects, reset and reuse instead of allocating new
-  - Expected Impact: 12% reduction in total allocations, 10-15% reduction in Build phase time
-  - Verification: Run `BenchmarkTreeNodeCreation` and `BenchmarkBuildTree` to confirm
-
-- [ ] **Optimize TreeNode Map Allocations**
+- [x] **Replace Dynamics map with []interface{} slice** *(Completed 2026-03-21, PR #220)*
   - Location: `internal/build/types.go`, Phase 2 (Build)
-  - Goal: Reduce map allocations in TreeNode.Dynamics and TreeNode.Statics
-  - Approach: Pre-allocate maps with estimated capacity based on template complexity
-  - Expected Impact: 1-2% reduction in allocations
-  - Verification: Profile memory and check `SetDynamic` allocations decrease
+  - Approach: Replaced `map[string]interface{}` with `[]interface{}` for Dynamics. Index-based access via `PositionKey` cached string table. Updated all consumers (diff, build, send).
+  - Actual Impact: Eliminated map hash/bucket allocations. BuildTree/simple 27→14 allocs. CompareTreesLargeChange/100 12→2 allocs. Small update 66→46 allocs.
+
+- [x] **Shared Statics, Buffer Pool, Reflection Dedup** *(Completed 2026-03-21, PR #224)*
+  - Location: `internal/build/`, `internal/context/`, Phase 2 (Build)
+  - Approach: (1) Shared sentinel empty `[]string{}` statics across TreeNodes. (2) `sync.Pool` for `bytes.Buffer` in JSON marshaling and HTML rendering. (3) `PositionKey` cached string table avoids repeated `strconv.Itoa`. (4) Deduplicated reflection lookups for controller/state dispatch.
+  - Actual Impact: Subsequent render 66→61 allocs, 7.5KB→3KB. E2E user journey 7084→5083 allocs.
+
+- [ ] **Implement TreeNode Struct Pooling**
+  - Location: `internal/build/types.go`, Phase 2 (Build)
+  - Goal: Reduce 9.5 GB allocations from TreeNode creation (NewTreeNode 12.09%, NewTreeNodeWithStatics 9.18%)
+  - Approach: Use `sync.Pool` for TreeNode structs, reset and reuse instead of allocating new
+  - Expected Impact: 20% reduction in total allocations, 15-20% reduction in Build phase time
+  - Verification: Run `BenchmarkTreeNodeCreation` and `BenchmarkBuildTree` to confirm
 
 ### Medium Priority Tasks
 
@@ -250,6 +259,11 @@ Based on profiling data, prioritize:
   - Approach: `precomputeBuiltins()` merges cachedBuiltins + user FuncMap once at parse time, stored on `parse.Template`. Eliminates per-render map allocation in `newEvaluator`.
   - Actual Impact: Eliminated 4.8 GB (5.90%) of allocations. BuildTree/simple 27→22 allocs.
 
+- [x] **Optimize TreeNode Map Allocations** *(Completed 2026-03-21, PR #220)*
+  - Location: `internal/build/types.go`, Phase 2 (Build)
+  - Approach: Replaced Dynamics map with `[]interface{}` slice — eliminates map allocation entirely
+  - Actual Impact: map replaced by slice, SetDynamic dropped from 6.13% to 1.56% of allocations
+
 - [ ] **Implement Custom Binary Format (Optional)**
   - Location: `internal/send/`, Phase 5 (Send)
   - Goal: Alternative to JSON for internal communication (non-wire format)
@@ -273,9 +287,9 @@ Based on profiling data, prioritize:
 
 - [ ] **Reduce HTML Parsing Fallback Frequency**
   - Location: `internal/parse/parser.go`, Phase 1 (Parse)
-  - Goal: Decrease 23.9 GB allocations in `html.NewTokenizerFragment` fallback
+  - Goal: Further reduce 1.4 GB allocations in `html.NewTokenizerFragment` fallback (3.05%, down from 29.52% after PR #219)
   - Approach: Improve template construct coverage to avoid fallback to HTML parsing
-  - Expected Impact: 10-15% reduction if fallback usage decreases significantly
+  - Expected Impact: 2-3% reduction if fallback usage decreases significantly
   - Verification: Add logging to track fallback frequency, aim for <5% of templates
 
 ### Monitoring & Validation Tasks
@@ -305,8 +319,8 @@ Based on profiling data, prioritize:
 
 Update this section as tasks are completed:
 
-**Last Updated:** 2026-03-21
-**Completed Tasks:** 5/15
+**Last Updated:** 2026-03-22
+**Completed Tasks:** 8/15
 **In Progress:** 0
 **Blocked:** 0
 
@@ -319,30 +333,32 @@ When completing a task:
 ## Phase-Specific Analysis
 
 ### Phase 1: Parse
-- **Primary Bottleneck:** Template parsing via text/template, html/template, and AST evaluator
-- **Allocations:** ~33 GB (41% of total) — html.NewTokenizerFragment 29.52%, newEvaluator 5.90%, builtins 5.02%
-- **Recommendation:** Cache parsed templates aggressively, pool evaluators, reduce re-parsing
+- **Primary Bottleneck:** AST walking and ordered variable management
+- **Allocations:** walkAST 1.90%, walkList 1.39%, newOrderedVars 1.17%, precomputeBuiltins 1.15%
+- **Status:** `newEvaluator` eliminated as allocator (was 5.90%), builtins pre-computed once at parse time (PR #219)
+- **Recommendation:** Pool ordered variable maps, reduce AST walk allocations
 
 ### Phase 2: Build
-- **Primary Bottleneck:** TreeNode allocations
-- **Allocations:** ~9.7 GB (12.0% of total) — SetDynamic 6.13%, NewTreeNode 3.11%, NewTreeNodeWithStatics 2.71%
-- **CPU Time:** Fingerprinting now <1% (FNV-1a, previously 5.93% with MD5)
-- **Recommendation:** Object pooling for TreeNodes, pre-allocate maps
+- **Primary Bottleneck:** TreeNode struct allocations (dominant hotspot)
+- **Allocations:** ~9.5 GB (22.4% of total) — NewTreeNode 12.09%, NewTreeNodeWithStatics 9.18%, SetDynamic 1.56%
+- **Status:** Dynamics map→slice (PR #220) eliminated map overhead. SetDynamic dropped from 6.13% to 1.56%.
+- **CPU Time:** Fingerprinting <1% (FNV-1a). hashStructureWithCircularDetection 1.27%.
+- **Recommendation:** `sync.Pool` for TreeNode structs — the single highest-impact remaining optimization
 
 ### Phase 3: Diff
-- **Primary Bottleneck:** Range construct discovery and tree comparison
-- **Allocations:** ~1.6 GB (2.0% of total) — findRangeConstructsRecursive 1.01%, CompareTreesAndGetChangesWithPath 0.50%, FindRangeConstructMatches 0.47%
-- **Status:** Range diff operations 59% faster after `rangeContext` optimization (commit b9faf28)
+- **Primary Bottleneck:** Tree comparison and range construct matching
+- **Allocations:** ~1.8 GB (4.1% of total) — CompareTreesAndGetChangesWithPath 2.33%, FindRangeConstructMatches 1.77%
+- **Status:** Range diff operations 59% faster after `rangeContext` (commit b9faf28). Pass-through result map in findRangeConstructsRecursive (PR #224).
 - **Recommendation:** Optimize comparison algorithms for deeply nested trees
 
 ### Phase 4: Render
-- **Primary Bottleneck:** HTML parsing for fallback cases
-- **Allocations:** 23.9 GB in html.NewTokenizerFragment (29.52%)
-- **Recommendation:** Reduce fallback to HTML parsing, improve template construct coverage
+- **Primary Bottleneck:** HTML parsing for fallback cases (reduced)
+- **Allocations:** html.NewTokenizerFragment 3.05% (was 29.52% — PR #219 eliminated redundant calls)
+- **Recommendation:** Continue reducing fallback to HTML parsing
 
 ### Phase 5: Send
 - **Primary Bottleneck:** JSON marshaling and decoding
-- **Allocations:** ~1.7 GB in JSON decoding (2.10% cumulative)
+- **Allocations:** MarshalJSON 1.94%, JSON decoding 2.79%, mapEncoder 1.49%
 - **Recommendation:** Consider faster JSON library or custom binary format
 
 ## Regenerating Profiles
