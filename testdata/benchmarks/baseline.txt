@@ -131,12 +131,12 @@ BenchmarkParseActionScale/large-ws-8            	  413596	      2914 ns/op	    1
 BenchmarkSerializeUpdateScale/simple-8          	 1203338	       944.4 ns/op	     648 B/op	      10 allocs/op
 BenchmarkSerializeUpdateScale/nested-8          	  595752	      2069 ns/op	    1313 B/op	      19 allocs/op
 BenchmarkSerializeUpdateScale/multiple-fields-8 	  783783	      1547 ns/op	     968 B/op	      16 allocs/op
-BenchmarkAsyncSendThroughput-8       	--- FAIL: BenchmarkAsyncSendThroughput-8
-BenchmarkConcurrentConnections/10_connections-8         	--- FAIL: BenchmarkConcurrentConnections/10_connections-8
+# BenchmarkAsyncSendThroughput-8 failed in this run; no baseline recorded
+# BenchmarkConcurrentConnections/10_connections-8 failed in this run; no baseline recorded
 BenchmarkConcurrentConnections/100_connections-8        	   59728	     19757 ns/op	    3600 B/op	     200 allocs/op
 BenchmarkConcurrentConnections/1000_connections-8       	    8186	    143886 ns/op	   36001 B/op	    2000 allocs/op
 BenchmarkRegisterUnregister-8                           	  460474	      2698 ns/op	    1210 B/op	      13 allocs/op
-BenchmarkConcurrentSend-8                               	--- FAIL: BenchmarkConcurrentSend-8
+# BenchmarkConcurrentSend-8 failed in this run; no baseline recorded
 BenchmarkGetByGroup-8                                   	 4588725	       276.4 ns/op	     896 B/op	       1 allocs/op
 BenchmarkCloseConnection-8                              	  910707	      1224 ns/op	     248 B/op	       3 allocs/op
 BenchmarkMemoryUsage-8                                  	   29671	     40346 ns/op	   98126 B/op	     620 allocs/op

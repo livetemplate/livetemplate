@@ -66,9 +66,9 @@ BenchmarkParse/range             4032 ns/op    5840 B/op     63 allocs/op
 BenchmarkBuildTree/simple         398 ns/op     672 B/op     14 allocs/op
 BenchmarkBuildTree/cond-true      678 ns/op    1328 B/op     27 allocs/op
 BenchmarkBuildTree/range-small   2445 ns/op    3955 B/op     90 allocs/op
-BenchmarkBuildTreeScale/small-10       6916 ns/op   11577 B/op    266 allocs/op
-BenchmarkBuildTreeScale/medium-100    63388 ns/op  109861 B/op   2516 allocs/op
-BenchmarkBuildTreeScale/large-1000   662906 ns/op 1096220 B/op  25763 allocs/op
+BenchmarkBuildTreeScale/small-10       6916 ns/op   11576 B/op    266 allocs/op
+BenchmarkBuildTreeScale/medium-100    63388 ns/op  109862 B/op   2516 allocs/op
+BenchmarkBuildTreeScale/large-1000   662906 ns/op 1096212 B/op  25763 allocs/op
 ```
 
 ### Key Findings
@@ -130,7 +130,7 @@ BenchmarkBuildTreeScale/large-1000   662906 ns/op 1096220 B/op  25763 allocs/op
 
 ```
 BenchmarkTreeNodeCreation/flat           411.5 ns/op    1264 B/op    17 allocs/op
-BenchmarkTreeNodeMarshalJSON/nested-small  47939 ns/op   27940 B/op   358 allocs/op
+BenchmarkTreeNodeMarshalJSON/nested-small  47939 ns/op   27942 B/op   358 allocs/op
 BenchmarkWrapperInjection/full-html      3267 ns/op    7096 B/op    37 allocs/op
 ```
 
@@ -192,9 +192,9 @@ BenchmarkCompareTreesLargeChange/100    1322 ns/op    1920 B/op     2 allocs/op
 BenchmarkRangeDiffUpdate                2231 ns/op   14104 B/op    16 allocs/op
 BenchmarkRangeDiffInsert                2238 ns/op   14104 B/op    16 allocs/op
 BenchmarkRangeDiffRemove                2258 ns/op   14104 B/op    16 allocs/op
-BenchmarkRangeDiff_TreeNode_Update     26724 ns/op   33508 B/op   128 allocs/op
-BenchmarkRangeDiff_TreeNode_Reorder    13438 ns/op   21132 B/op    22 allocs/op
-BenchmarkRangeDiff_TreeNode_LargeList 317231 ns/op  449335 B/op  1038 allocs/op
+BenchmarkRangeDiff_TreeNode_Update     26724 ns/op   33459 B/op   128 allocs/op
+BenchmarkRangeDiff_TreeNode_Reorder    13438 ns/op   21116 B/op    22 allocs/op
+BenchmarkRangeDiff_TreeNode_LargeList 317231 ns/op  449505 B/op  1038 allocs/op
 ```
 
 ### Key Findings
@@ -374,10 +374,10 @@ Latency numbers are from Go micro-benchmarks (no network). Update latencies drop
 ### User Journey Performance
 
 ```
-BenchmarkE2ERangeOperations/add-items      9516 ns/op   9401 B/op   222 allocs/op
-BenchmarkE2ERangeOperations/remove-items   5453 ns/op   5493 B/op   124 allocs/op
-BenchmarkE2ERangeOperations/reorder-items  6780 ns/op   6774 B/op   157 allocs/op
-BenchmarkE2ERangeOperations/update-items   6745 ns/op   6774 B/op   157 allocs/op
+BenchmarkE2ERangeOperations/add-items      9516 ns/op   9404 B/op   222 allocs/op
+BenchmarkE2ERangeOperations/remove-items   5453 ns/op   5495 B/op   124 allocs/op
+BenchmarkE2ERangeOperations/reorder-items  6780 ns/op   6776 B/op   157 allocs/op
+BenchmarkE2ERangeOperations/update-items   6745 ns/op   6776 B/op   157 allocs/op
 ```
 
 ### HTTP Mode Optimization

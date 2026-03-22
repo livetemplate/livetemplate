@@ -1,6 +1,7 @@
 # Known Performance Bottlenecks
 
-**Last Profiled:** 2026-03-22
+**Last CPU Profiled:** 2026-03-19
+**Last Memory Profiled:** 2026-03-22
 **Go Version (profiles):** 1.26.0
 **Go Version (benchmarks):** 1.26.0
 **Architecture:** arm64 (Apple M2)
