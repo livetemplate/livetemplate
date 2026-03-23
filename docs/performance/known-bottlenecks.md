@@ -179,8 +179,9 @@ Showing top allocators (44.6 GB total across all benchmark iterations)
 > allocation hotspots are dominated by Go runtime/stdlib costs (TreeNode struct heap
 > escapes, reflection, `text/template` internals) that cannot be eliminated without
 > replacing core Go mechanisms. TreeNode struct pooling via `sync.Pool` was investigated
-> and rejected — Go's GC clears the pool between cycles, so in benchmarks (and typical
-> per-session usage patterns), the pool is almost always cold and provides <3% improvement.
+> and rejected — Go's GC may drop pool entries at any time (and clears them during
+> stop-the-world pauses), so in benchmarks and typical per-session usage
+> patterns, the pool is almost always cold and provides <3% improvement.
 > The library has reached a practical optimization floor for allocation-based improvements.
 
 Based on profiling data:
@@ -190,8 +191,8 @@ Based on profiling data:
    - Combined: 22.7% of total — the dominant LiveTemplate hotspot
    - **Investigated:** `sync.Pool` with recursive `ReleaseTree` at `lastTree` replacement point.
      Implementation was correct (all tests + race detector passed), but benchmarks showed
-     only -2.7% geomean improvement. Root cause: Go's `sync.Pool` is cleared every GC cycle.
-     In micro-benchmarks and typical per-session render patterns, the pool is almost always
+     only -2.7% geomean improvement. Root cause: Go's `sync.Pool` entries may be dropped at any time and are
+     cleared during GC. In micro-benchmarks and typical per-session render patterns, the pool is
      cold — `Get` allocates a new struct anyway. The ~128-byte TreeNode struct is too small
      for pool overhead to pay off vs direct allocation.
    - **Conclusion:** Not worth the complexity. TreeNode allocation is an inherent cost of the
@@ -207,7 +208,7 @@ Based on profiling data:
    - Impact: Theoretical ~12%, practical ~5% after accounting for stdlib reflection floor
 
 3. **[Low — stdlib Bound] Template Execution**
-   - Current: 1.4 GB in text/template.execute (3.25%)
+   - Current: 1.4 GB in text/template.(*Template).execute (3.25%)
    - Current: 1.2 GB in executeWithBuffer (2.63%)
    - These are Go stdlib internals — cannot be optimized without replacing `html/template`
    - `bytes.Buffer` already pooled (PR #224)

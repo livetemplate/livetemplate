@@ -470,7 +470,7 @@ The library has reached a practical optimization floor for allocation-based impr
 The remaining hotspots are:
 
 1. **TreeNode struct allocation (22.7%)** — investigated `sync.Pool` recycling, rejected
-   (only -2.7% gain; Go's GC clears pool between cycles). Would require arena allocation
+   (only -2.7% gain; Go's GC may drop pool entries at any time). Would require arena allocation
    or replacing the tree-based architecture to improve further.
 2. **Reflection overhead (12.7%)** — already deduplicated (PR #224). Further reduction
    requires code generation, which adds build complexity for modest gains.
