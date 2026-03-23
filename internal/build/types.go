@@ -3,17 +3,14 @@
 package build
 
 import (
-	"encoding/json"
 	"fmt"
 	"html/template"
 	"reflect"
 	"strconv"
 	"sync/atomic"
 
-	jsoniter "github.com/json-iterator/go"
+	"github.com/livetemplate/livetemplate/internal/jsonutil"
 )
-
-var jsonAPI = jsoniter.ConfigCompatibleWithStandardLibrary
 
 var positionKeys [100]string
 
@@ -493,14 +490,14 @@ func (tn *TreeNode) MarshalJSON() ([]byte, error) {
 		}
 	}
 
-	return jsonAPI.Marshal(result)
+	return jsonutil.API.Marshal(result)
 }
 
 // UnmarshalJSON implements custom JSON unmarshaling from wire format.
 // This allows reading the old map[string]interface{} format into typed TreeNode.
 func (tn *TreeNode) UnmarshalJSON(data []byte) error {
 	var raw map[string]interface{}
-	if err := json.Unmarshal(data, &raw); err != nil {
+	if err := jsonutil.API.Unmarshal(data, &raw); err != nil {
 		return err
 	}
 
@@ -634,13 +631,13 @@ func (tn *TreeNode) ToMap() map[string]interface{} {
 // FromMap creates a TreeNode from a map[string]interface{}.
 // This is useful for converting existing code to use typed TreeNode.
 func FromMap(m map[string]interface{}) (*TreeNode, error) {
-	data, err := json.Marshal(m)
+	data, err := jsonutil.API.Marshal(m)
 	if err != nil {
 		return nil, err
 	}
 
 	var tn TreeNode
-	if err := json.Unmarshal(data, &tn); err != nil {
+	if err := jsonutil.API.Unmarshal(data, &tn); err != nil {
 		return nil, err
 	}
 

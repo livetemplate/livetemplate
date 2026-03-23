@@ -2,6 +2,8 @@ package send
 
 import (
 	"fmt"
+
+	"github.com/livetemplate/livetemplate/internal/jsonutil"
 )
 
 // UpdateResponse represents a tree update response sent to the client.
@@ -39,7 +41,7 @@ func PrepareUpdate(tree interface{}, errors map[string]string, action string) *U
 
 // SerializeUpdate marshals an UpdateResponse to JSON bytes.
 func SerializeUpdate(resp *UpdateResponse) ([]byte, error) {
-	bytes, err := jsonAPI.Marshal(resp)
+	bytes, err := jsonutil.API.Marshal(resp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal update response: %w", err)
 	}
