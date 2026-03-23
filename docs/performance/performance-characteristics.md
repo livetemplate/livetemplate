@@ -455,27 +455,46 @@ From benchmark allocations:
 
 From memory profiling:
 
-- **Hot paths:** Tree building, JSON marshaling, AST evaluation
-- **Optimization opportunities:** Reuse tree nodes, pool allocations, pool evaluators
+- **Hot paths:** Tree building, reflection-based data map construction, JSON marshaling
+- **Remaining allocations are dominated by Go runtime/stdlib costs** — TreeNode struct heap
+  escapes (22.7%), reflection (12.7%), `text/template` internals (3.3%). These cannot be
+  eliminated without replacing core Go mechanisms.
 
-## Optimization Opportunities
+## Optimization Status
 
 See [Known Bottlenecks](known-bottlenecks.md) for detailed profiling analysis.
 
-### Current Priorities
+### Diminishing Returns (as of 2026-03-23)
 
-1. NewTreeNode struct pooling (22.4% of total — NewTreeNode 12.09%, NewTreeNodeWithStatics 9.18%, SetDynamic 1.56%)
-2. Reflection overhead (8.3% — reflect.unsafe_New 4.00%, buildDataMapWithContext 8.06%)
-3. stdlib template execution (3.26% — text/template.(*Template).execute)
+The library has reached a practical optimization floor for allocation-based improvements.
+The remaining hotspots are:
 
-### Recently Completed
+1. **TreeNode struct allocation (22.7%)** — investigated `sync.Pool` recycling, rejected
+   (only -2.7% gain; Go's GC may drop pool entries at any time). Would require arena allocation
+   or replacing the tree-based architecture to improve further.
+2. **Reflection overhead (12.7%)** — already deduplicated (PR #224). Further reduction
+   requires code generation, which adds build complexity for modest gains.
+3. **stdlib template execution (3.3%)** — Go's `text/template` internals; cannot optimize
+   without replacing the template engine.
+
+### Completed Optimizations
 
 1. **PR #219: Parse alloc reduction** — eliminated redundant HTML parsing, cached AST, pre-computed builtins. 50-57% allocation reduction per render.
-2. **PR #220: Dynamics map to slice** — replaced `map[string]interface{}` with `[]interface{}` for Dynamics. Eliminated map overhead in tree comparison and building.
-3. **PR #224: Shared statics, buffer pool, reflection dedup** — shared sentinel statics, `sync.Pool` for `bytes.Buffer`, `PositionKey` cached string table, deduplicated reflection.
+2. **PR #220: Dynamics map to slice** — replaced `map[string]interface{}` with `[]interface{}` for Dynamics. -20.6% geomean across all benchmarks.
+3. **PR #224: Shared statics, buffer pool, reflection dedup** — shared sentinel statics, `sync.Pool` for `bytes.Buffer`, deduplicated reflection. -9.7% geomean.
 4. **FNV-1a fingerprinting** (commit 1e351ca) — 43-47% faster fingerprinting, dropped from 5.93% CPU to <1%
 5. **rangeContext optimization** (commit b9faf28) — 59% faster range diff, 54% fewer allocs
 6. **Fingerprint caching** — lazy-computed on TreeNode, O(1) comparison
+
+### Cumulative Impact (PRs #219 + #220 + #224 vs pre-optimization baseline)
+
+| Metric | Before | After | Change |
+|--------|--------|-------|--------|
+| Small update allocs | 154 | 46 | **-70%** |
+| Subsequent render allocs | 170 | 61 | **-64%** |
+| E2E user journey allocs | 16,174 | 5,083 | **-69%** |
+| Concurrent session allocs | 170 | 61 | **-64%** |
+| Small update latency | ~10µs | ~2µs | **-80%** |
 
 ## Performance Testing
 
