@@ -1,7 +1,7 @@
 # Known Performance Bottlenecks
 
 **Last CPU Profiled:** 2026-03-19
-**Last Memory Profiled:** 2026-03-22
+**Last Memory Profiled:** 2026-03-23
 **Go Version (profiles):** 1.26.0
 **Go Version (benchmarks):** 1.26.0
 **Architecture:** arm64 (Apple M2)
@@ -79,58 +79,58 @@ The high GC overhead indicates that memory allocation reduction would have the m
 ```
 File: livetemplate.test
 Type: alloc_space
-Time: 2026-03-22
-Showing top allocators (LiveTemplate-specific highlighted below)
+Time: 2026-03-23
+Showing top allocators (44.6 GB total across all benchmark iterations)
       flat  flat%   sum%        cum   cum%
- 5398.16MB 12.09%         github.com/livetemplate/livetemplate/internal/build.NewTreeNode
- 4096.50MB  9.18%         github.com/livetemplate/livetemplate/internal/build.NewTreeNodeWithStatics
- 3597.37MB  8.06%         github.com/livetemplate/livetemplate/internal/context.buildDataMapWithContext
- 1784.03MB  4.00%         reflect.unsafe_New
- 1456.09MB  3.26%         text/template.(*Template).execute
- 1361.57MB  3.05%         golang.org/x/net/html.NewTokenizerFragment
- 1245.82MB  2.79%         encoding/json.(*decodeState).objectInterface
- 1174.12MB  2.63%         github.com/livetemplate/livetemplate/internal/context.executeWithBuffer
- 1039.63MB  2.33%         github.com/livetemplate/livetemplate/internal/diff.CompareTreesAndGetChangesWithPath
-  865.19MB  1.94%         github.com/livetemplate/livetemplate/internal/build.(*TreeNode).MarshalJSON
-  849.02MB  1.90%         github.com/livetemplate/livetemplate/internal/parse.walkAST
-  833.58MB  1.87%         github.com/livetemplate/livetemplate.(*Template).renderHTMLWithData
-  790.13MB  1.77%         github.com/livetemplate/livetemplate/internal/diff.FindRangeConstructMatches
-  697.52MB  1.56%         github.com/livetemplate/livetemplate/internal/build.(*TreeNode).SetDynamic
-  664.11MB  1.49%         encoding/json.mapEncoder.encode
-  622.53MB  1.39%         github.com/livetemplate/livetemplate/internal/parse.walkList
-  603.14MB  1.35%         github.com/livetemplate/livetemplate/internal/build.(*TreeNode).GetDynamics
-  565.01MB  1.27%         github.com/livetemplate/livetemplate/internal/build.hashStructureWithCircularDetection
-  556.57MB  1.25%         text/template.builtins
-  520.53MB  1.17%         github.com/livetemplate/livetemplate/internal/parse.newOrderedVars
-  514.64MB  1.15%         github.com/livetemplate/livetemplate/internal/parse.precomputeBuiltins
+ 5796.21MB 13.01%         github.com/livetemplate/livetemplate/internal/build.NewTreeNode
+ 4318.53MB  9.69%         github.com/livetemplate/livetemplate/internal/build.NewTreeNodeWithStatics
+ 3884.94MB  8.72%         github.com/livetemplate/livetemplate/internal/context.buildDataMapWithContext
+ 1971.53MB  4.42%         reflect.unsafe_New
+ 1446.59MB  3.25%         text/template.(*Template).execute
+ 1224.32MB  2.75%         encoding/json.(*decodeState).objectInterface
+ 1170.62MB  2.63%         github.com/livetemplate/livetemplate/internal/context.executeWithBuffer
+ 1069.63MB  2.40%         github.com/livetemplate/livetemplate/internal/diff.CompareTreesAndGetChangesWithPath
+  941.70MB  2.11%         github.com/livetemplate/livetemplate/internal/build.(*TreeNode).MarshalJSON
+  895.65MB  2.01%         github.com/livetemplate/livetemplate/internal/diff.FindRangeConstructMatches
+  892.02MB  2.00%         github.com/livetemplate/livetemplate/internal/parse.walkAST
+  853.59MB  1.92%         github.com/livetemplate/livetemplate.(*Template).renderHTMLWithData
+  732.52MB  1.64%         github.com/livetemplate/livetemplate/internal/build.(*TreeNode).SetDynamic
+  673.61MB  1.51%         encoding/json.mapEncoder.encode
+  611.01MB  1.37%         github.com/livetemplate/livetemplate/internal/build.hashStructureWithCircularDetection
+  607.27MB  1.36%         github.com/livetemplate/livetemplate/internal/parse.precomputeBuiltins
+  599.15MB  1.34%         github.com/livetemplate/livetemplate/internal/build.(*TreeNode).GetDynamics
+  592.03MB  1.33%         github.com/livetemplate/livetemplate/internal/parse.walkList
+  565.09MB  1.27%         text/template.builtins
+  556.03MB  1.25%         github.com/livetemplate/livetemplate/internal/parse.newOrderedVars
+  522.52MB  1.17%         html/template.htmlReplacer
 ```
 
 ### LiveTemplate-Specific Allocations
 
 ```
- 5398.16MB 12.09%  github.com/livetemplate/livetemplate/internal/build.NewTreeNode
- 4096.50MB  9.18%  github.com/livetemplate/livetemplate/internal/build.NewTreeNodeWithStatics
- 3597.37MB  8.06%  github.com/livetemplate/livetemplate/internal/context.buildDataMapWithContext
- 1174.12MB  2.63%  github.com/livetemplate/livetemplate/internal/context.executeWithBuffer
- 1039.63MB  2.33%  github.com/livetemplate/livetemplate/internal/diff.CompareTreesAndGetChangesWithPath
-  865.19MB  1.94%  github.com/livetemplate/livetemplate/internal/build.(*TreeNode).MarshalJSON
-  849.02MB  1.90%  github.com/livetemplate/livetemplate/internal/parse.walkAST
-  833.58MB  1.87%  github.com/livetemplate/livetemplate.(*Template).renderHTMLWithData
-  790.13MB  1.77%  github.com/livetemplate/livetemplate/internal/diff.FindRangeConstructMatches
-  697.52MB  1.56%  github.com/livetemplate/livetemplate/internal/build.(*TreeNode).SetDynamic
-  622.53MB  1.39%  github.com/livetemplate/livetemplate/internal/parse.walkList
-  603.14MB  1.35%  github.com/livetemplate/livetemplate/internal/build.(*TreeNode).GetDynamics
-  565.01MB  1.27%  github.com/livetemplate/livetemplate/internal/build.hashStructureWithCircularDetection
-  520.53MB  1.17%  github.com/livetemplate/livetemplate/internal/parse.newOrderedVars
-  514.64MB  1.15%  github.com/livetemplate/livetemplate/internal/parse.precomputeBuiltins
+ 5796.21MB 13.01%  github.com/livetemplate/livetemplate/internal/build.NewTreeNode
+ 4318.53MB  9.69%  github.com/livetemplate/livetemplate/internal/build.NewTreeNodeWithStatics
+ 3884.94MB  8.72%  github.com/livetemplate/livetemplate/internal/context.buildDataMapWithContext
+ 1170.62MB  2.63%  github.com/livetemplate/livetemplate/internal/context.executeWithBuffer
+ 1069.63MB  2.40%  github.com/livetemplate/livetemplate/internal/diff.CompareTreesAndGetChangesWithPath
+  941.70MB  2.11%  github.com/livetemplate/livetemplate/internal/build.(*TreeNode).MarshalJSON
+  895.65MB  2.01%  github.com/livetemplate/livetemplate/internal/diff.FindRangeConstructMatches
+  892.02MB  2.00%  github.com/livetemplate/livetemplate/internal/parse.walkAST
+  853.59MB  1.92%  github.com/livetemplate/livetemplate.(*Template).renderHTMLWithData
+  732.52MB  1.64%  github.com/livetemplate/livetemplate/internal/build.(*TreeNode).SetDynamic
+  611.01MB  1.37%  github.com/livetemplate/livetemplate/internal/build.hashStructureWithCircularDetection
+  607.27MB  1.36%  github.com/livetemplate/livetemplate/internal/parse.precomputeBuiltins
+  599.15MB  1.34%  github.com/livetemplate/livetemplate/internal/build.(*TreeNode).GetDynamics
+  592.03MB  1.33%  github.com/livetemplate/livetemplate/internal/parse.walkList
+  556.03MB  1.25%  github.com/livetemplate/livetemplate/internal/parse.newOrderedVars
 ```
 
 ### Allocations per Operation
 
 **Initial Render (includes template parsing, one-time cost):**
-- Total allocations: ~3,910 allocs/op
-- Bytes allocated: ~419 KB/op
-- Example: BenchmarkTemplateExecute/initial-render-8 (1898294 ns/op, 419101 B/op, 3910 allocs/op)
+- Total allocations: ~3,911 allocs/op
+- Bytes allocated: ~421 KB/op
+- Example: BenchmarkTemplateExecute/initial-render-8 (1746355 ns/op, 421275 B/op, 3911 allocs/op)
 
 **Subsequent Render (per-session, reuses parsed template):**
 - Total allocations: ~61 allocs/op
@@ -175,39 +175,55 @@ Showing top allocators (LiveTemplate-specific highlighted below)
 
 ## Optimization Priorities
 
-Based on profiling data, prioritize:
+> **Diminishing Returns Note (2026-03-23):** After PRs #219, #220, #224, the remaining
+> allocation hotspots are dominated by Go runtime/stdlib costs (TreeNode struct heap
+> escapes, reflection, `text/template` internals) that cannot be eliminated without
+> replacing core Go mechanisms. TreeNode struct pooling via `sync.Pool` was investigated
+> and rejected — Go's GC clears the pool between cycles, so in benchmarks (and typical
+> per-session usage patterns), the pool is almost always cold and provides <3% improvement.
+> The library has reached a practical optimization floor for allocation-based improvements.
 
-1. **[High] TreeNode Struct Pooling (Phase 2: Build)**
-   - Current: 5.4 GB in NewTreeNode (12.09% of allocations)
-   - Current: 4.1 GB in NewTreeNodeWithStatics (9.18% of allocations)
-   - Combined: 22.4% of total — now the dominant LiveTemplate hotspot
-   - Potential improvement: `sync.Pool` for TreeNode structs, reset and reuse
-   - Impact: ~20% reduction in total allocations and GC pressure
+Based on profiling data:
 
-2. **[High] Reflection Overhead**
-   - Current: 3.6 GB in buildDataMapWithContext (8.06%)
-   - Current: 1.8 GB in reflect.unsafe_New (4.00%)
-   - Potential improvement: Code generation for data map construction, reduce reflection in hot paths
-   - Impact: ~12% reduction in total allocations
+1. **[Investigated — Not Viable] TreeNode Struct Pooling (Phase 2: Build)**
+   - Current: 5.8 GB in NewTreeNode (13.01%), 4.3 GB in NewTreeNodeWithStatics (9.69%)
+   - Combined: 22.7% of total — the dominant LiveTemplate hotspot
+   - **Investigated:** `sync.Pool` with recursive `ReleaseTree` at `lastTree` replacement point.
+     Implementation was correct (all tests + race detector passed), but benchmarks showed
+     only -2.7% geomean improvement. Root cause: Go's `sync.Pool` is cleared every GC cycle.
+     In micro-benchmarks and typical per-session render patterns, the pool is almost always
+     cold — `Get` allocates a new struct anyway. The ~128-byte TreeNode struct is too small
+     for pool overhead to pay off vs direct allocation.
+   - **Conclusion:** Not worth the complexity. TreeNode allocation is an inherent cost of the
+     tree-based diffing architecture. Would require replacing `*TreeNode` with arena allocation
+     or a fundamentally different data structure to improve further.
 
-3. **[Medium] stdlib Template Execution**
-   - Current: 1.5 GB in text/template.(*Template).execute (3.26%)
+2. **[Low — Diminishing Returns] Reflection Overhead**
+   - Current: 3.9 GB in buildDataMapWithContext (8.72%)
+   - Current: 2.0 GB in reflect.unsafe_New (4.42%)
+   - Already deduplicated (PR #224) — reflection now runs once per render, not twice
+   - Further reduction would require code generation (`go generate` for typed data maps)
+     which adds build complexity for modest gains
+   - Impact: Theoretical ~12%, practical ~5% after accounting for stdlib reflection floor
+
+3. **[Low — stdlib Bound] Template Execution**
+   - Current: 1.4 GB in text/template.execute (3.25%)
    - Current: 1.2 GB in executeWithBuffer (2.63%)
-   - Potential improvement: Template caching optimizations, reduce per-execution overhead
-   - Impact: ~6% reduction in total allocations
+   - These are Go stdlib internals — cannot be optimized without replacing `html/template`
+   - `bytes.Buffer` already pooled (PR #224)
 
-4. **[Medium] JSON Serialization (Phase 5: Send)**
-   - Current: 1.2 GB in JSON decoding (2.79%)
-   - Current: 865 MB in MarshalJSON (1.94%)
-   - Current: 664 MB in mapEncoder.encode (1.49%)
-   - Potential improvement: Use faster JSON library or custom serialization
-   - Impact: ~6% reduction in total allocations
+4. **[Low] JSON Serialization (Phase 5: Send)**
+   - Current: 1.2 GB in JSON decoding (2.75%)
+   - Current: 942 MB in MarshalJSON (2.11%)
+   - Current: 674 MB in mapEncoder.encode (1.51%)
+   - Potential improvement: Evaluate faster JSON libraries (json-iterator, go-json)
+   - Impact: ~6% reduction in Send phase, but Send is not the bottleneck
 
 5. **[Low] Diff Operations (Phase 3: Diff)**
-   - Current: 1.0 GB in CompareTreesAndGetChangesWithPath (2.33%)
-   - Current: 790 MB in FindRangeConstructMatches (1.77%)
-   - Potential improvement: Algorithmic optimizations
-   - Impact: ~4% of total allocations
+   - Current: 1.1 GB in CompareTreesAndGetChangesWithPath (2.40%)
+   - Current: 896 MB in FindRangeConstructMatches (2.01%)
+   - Already optimized (pass-through result map in PR #224, rangeContext in commit b9faf28)
+   - Impact: ~4% of total allocations — further gains require algorithmic changes
 
 ## Optimization Task List
 
@@ -228,12 +244,14 @@ Based on profiling data, prioritize:
   - Approach: (1) Shared sentinel empty `[]string{}` statics across TreeNodes. (2) `sync.Pool` for `bytes.Buffer` in JSON marshaling and HTML rendering. (3) `PositionKey` cached string table avoids repeated `strconv.Itoa`. (4) Deduplicated reflection lookups for controller/state dispatch.
   - Actual Impact: Subsequent render 66→61 allocs, 7.5KB→3KB. E2E user journey 7084→5083 allocs.
 
-- [ ] **Implement TreeNode Struct Pooling**
+- [~] **Implement TreeNode Struct Pooling** *(Investigated 2026-03-23, not viable)*
   - Location: `internal/build/types.go`, Phase 2 (Build)
-  - Goal: Reduce 9.5 GB allocations from TreeNode creation (NewTreeNode 12.09%, NewTreeNodeWithStatics 9.18%)
-  - Approach: Use `sync.Pool` for TreeNode structs, reset and reuse instead of allocating new
-  - Expected Impact: 20% reduction in total allocations, 15-20% reduction in Build phase time
-  - Verification: Run `BenchmarkTreeNodeCreation` and `BenchmarkBuildTree` to confirm
+  - Goal: Reduce 9.5 GB allocations from TreeNode creation (22.7% combined)
+  - Approach: `sync.Pool` for TreeNode structs with recursive `ReleaseTree` at `lastTree` replacement
+  - **Result:** Implementation correct (all tests + race detector passed), but only -2.7% geomean
+    improvement. Go's `sync.Pool` is cleared every GC cycle, so the pool is cold in benchmarks
+    and typical per-session patterns. The ~128-byte TreeNode struct is too small for pool overhead
+    to pay off. Would require arena allocation or a different data structure to improve further.
 
 ### Medium Priority Tasks
 
@@ -319,8 +337,8 @@ Based on profiling data, prioritize:
 
 Update this section as tasks are completed:
 
-**Last Updated:** 2026-03-22
-**Completed Tasks:** 8/15
+**Last Updated:** 2026-03-23
+**Completed Tasks:** 8/15 (1 investigated and rejected)
 **In Progress:** 0
 **Blocked:** 0
 
