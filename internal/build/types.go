@@ -9,7 +9,11 @@ import (
 	"reflect"
 	"strconv"
 	"sync/atomic"
+
+	jsoniter "github.com/json-iterator/go"
 )
+
+var jsonAPI = jsoniter.ConfigCompatibleWithStandardLibrary
 
 var positionKeys [100]string
 
@@ -489,7 +493,7 @@ func (tn *TreeNode) MarshalJSON() ([]byte, error) {
 		}
 	}
 
-	return json.Marshal(result)
+	return jsonAPI.Marshal(result)
 }
 
 // UnmarshalJSON implements custom JSON unmarshaling from wire format.

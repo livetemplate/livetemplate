@@ -1,7 +1,6 @@
 package send
 
 import (
-	"encoding/json"
 	"fmt"
 )
 
@@ -40,7 +39,7 @@ func PrepareUpdate(tree interface{}, errors map[string]string, action string) *U
 
 // SerializeUpdate marshals an UpdateResponse to JSON bytes.
 func SerializeUpdate(resp *UpdateResponse) ([]byte, error) {
-	bytes, err := json.Marshal(resp)
+	bytes, err := jsonAPI.Marshal(resp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal update response: %w", err)
 	}
