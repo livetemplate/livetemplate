@@ -12,16 +12,16 @@ import (
 	"time"
 )
 
-// Known WebSocket overhead constants (from BenchmarkMemoryUsage: ~980B base connection,
-// plus goroutine stacks and send buffer). These cannot be measured in library tests
+// Known WebSocket overhead constants. These cannot be measured in library tests
 // since real WebSocket connections are created in the lvt repository.
 const (
-	wsConnectionBaseBytes  = 980      // Measured in BenchmarkMemoryUsage
-	wsGoroutineStackBytes  = 2 * 2048 // 2 goroutines (readPump + writePump) × ~2KB stack
-	wsDefaultBufferSize    = 50       // Default send buffer size
-	wsMessageOverheadBytes = 100      // Average message overhead in buffer
-	wsOverheadPerConn      = wsConnectionBaseBytes + wsGoroutineStackBytes + wsDefaultBufferSize*wsMessageOverheadBytes
-	ramHeadroomFactor      = 1.5 // 50% headroom for GC, runtime, OS
+	wsConnectionStructBytes = 980      // Measured in BenchmarkMemoryUsage (struct + channels + registry)
+	wsGoroutineStackBytes   = 2 * 2048 // 2 goroutines (readPump + writePump) × ~2KB initial stack
+	wsReadBufferBytes       = 1024     // gorilla read buffer (default, configurable via GorillaUpgrader)
+	wsWriteBufferBytes      = 1024     // gorilla write buffer (default, configurable via GorillaUpgrader)
+	wsOverheadPerConn       = wsConnectionStructBytes + wsGoroutineStackBytes +
+		wsReadBufferBytes + wsWriteBufferBytes
+	ramHeadroomFactor = 1.5 // 50% headroom for GC, runtime, OS
 )
 
 // Scale points for capacity planning

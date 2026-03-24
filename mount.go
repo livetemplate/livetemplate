@@ -18,7 +18,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gorilla/websocket"
 	lvtcontext "github.com/livetemplate/livetemplate/internal/context"
 	"github.com/livetemplate/livetemplate/internal/observe"
 	"github.com/livetemplate/livetemplate/internal/send"
@@ -163,7 +162,7 @@ type mountConfig struct {
 	Template               *Template
 	Controller             interface{} // Singleton controller with dependencies
 	State                  State       // Initial state template (cloned per session)
-	Upgrader               *websocket.Upgrader
+	Upgrader               WSUpgrader
 	SessionStore           SessionStore
 	Authenticator          Authenticator
 	PubSubBroadcaster      pubsub.Broadcaster // Optional: for distributed broadcasting across instances
@@ -316,7 +315,7 @@ func (h *liveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-LiveTemplate-WebSocket", "enabled")
 	}
 
-	if websocket.IsWebSocketUpgrade(r) {
+	if WSIsUpgrade(r) {
 		if h.config.WebSocketDisabled {
 			http.Error(w, "WebSocket is disabled on this endpoint", http.StatusBadRequest)
 			return
@@ -395,7 +394,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		slog.Error("Failed to acquire connection slot",
 			slog.String("component", "live_handler"),
 			slog.Any("error", err))
-		if writeErr := conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseServiceRestart, "Service at capacity")); writeErr != nil {
+		if writeErr := conn.WriteMessage(WSCloseMessage, WSFormatCloseMessage(WSCloseServiceRestart, "Service at capacity")); writeErr != nil {
 			slog.Warn("Failed to send close message",
 				slog.String("component", "live_handler"),
 				slog.Any("error", writeErr))
@@ -408,7 +407,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		slog.String("component", "live_handler"),
 		slog.String("user_id", userID),
 		slog.String("group_id", groupID),
-		slog.String("remote_addr", conn.RemoteAddr().String()),
+		slog.String("remote_addr", r.RemoteAddr),
 		slog.Int64("active_connections", h.limits.ActiveConnections()))
 
 	// Clone template for this connection to avoid state conflicts
@@ -614,7 +613,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	for {
 		_, data, err := conn.ReadMessage()
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+			if WSIsUnexpectedCloseError(err, WSCloseGoingAway, WSCloseAbnormalClosure) {
 				slog.Warn("WebSocket error",
 					slog.String("component", "live_handler"),
 					slog.Any("error", err))
@@ -1384,7 +1383,7 @@ func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}, mes
 	)
 
 	// Send using the connection's Send method (thread-safe)
-	return conn.Send(websocket.TextMessage, responseBytes)
+	return conn.Send(WSTextMessage, responseBytes)
 }
 
 // handlePubSubMessage handles incoming pub/sub broadcast messages from other instances.
@@ -1587,11 +1586,11 @@ func (h *liveHandler) Shutdown(ctx context.Context) error {
 			slog.Int("count", len(connections)))
 
 		// Send close frames to all connections
-		closeMessage := websocket.FormatCloseMessage(websocket.CloseGoingAway, "Server shutting down")
+		closeMessage := WSFormatCloseMessage(WSCloseGoingAway, "Server shutting down")
 		for _, conn := range connections {
 			// Send close frame (best effort, ignore errors)
 			if conn.Conn != nil {
-				_ = conn.Send(websocket.CloseMessage, closeMessage)
+				_ = conn.Send(WSCloseMessage, closeMessage)
 			}
 		}
 
@@ -1656,7 +1655,7 @@ func (h *liveHandler) MetricsHandler() http.Handler {
 
 // handleUploadAction routes upload-related WebSocket actions to appropriate handlers.
 // Returns (handled=true, err) if this was an upload action, (handled=false, nil) otherwise.
-func (h *liveHandler) handleUploadAction(ctx context.Context, conn *websocket.Conn, rawData []byte, msg message, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) (bool, error) {
+func (h *liveHandler) handleUploadAction(ctx context.Context, conn WSConn, rawData []byte, msg message, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) (bool, error) {
 	switch msg.Action {
 	case "upload_start":
 		return true, h.handleUploadStart(ctx, conn, rawData, state, uploadRegistry, connection)
@@ -1673,7 +1672,7 @@ func (h *liveHandler) handleUploadAction(ctx context.Context, conn *websocket.Co
 
 // handleUploadStart processes upload_start action from WebSocket client.
 // Client sends file metadata, server creates upload entries and responds with entry IDs.
-func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Conn, rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
+func (h *liveHandler) handleUploadStart(ctx context.Context, conn WSConn, rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
 	// Parse upload_start message from raw WebSocket data
 	startMsg, err := upload.ParseUploadStartMessage(rawData)
 	if err != nil {
@@ -1827,7 +1826,7 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 		return fmt.Errorf("failed to marshal upload_start response: %w", err)
 	}
 
-	if err := connection.Send(websocket.TextMessage, responseData); err != nil {
+	if err := connection.Send(WSTextMessage, responseData); err != nil {
 		return fmt.Errorf("failed to send upload_start response: %w", err)
 	}
 
@@ -1840,7 +1839,7 @@ func (h *liveHandler) handleUploadStart(ctx context.Context, conn *websocket.Con
 
 // handleUploadChunk processes upload_chunk action from WebSocket client.
 // Client sends base64-encoded chunk data, server decodes and appends to temp file.
-func (h *liveHandler) handleUploadChunk(ctx context.Context, conn *websocket.Conn, rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
+func (h *liveHandler) handleUploadChunk(ctx context.Context, conn WSConn, rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
 	// Parse upload_chunk message from raw WebSocket data
 	chunkMsg, err := upload.ParseUploadChunkMessage(rawData)
 	if err != nil {
@@ -1945,7 +1944,7 @@ func (h *liveHandler) handleUploadChunk(ctx context.Context, conn *websocket.Con
 
 // handleUploadComplete processes upload_complete action from WebSocket client.
 // Client indicates all chunks sent, server marks entries as done and calls ConsumeUpload.
-func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.Conn, rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
+func (h *liveHandler) handleUploadComplete(ctx context.Context, conn WSConn, rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
 	// Parse upload_complete message from raw WebSocket data
 	completeMsg, err := upload.ParseUploadCompleteMessage(rawData)
 	if err != nil {
@@ -2037,7 +2036,7 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn *websocket.
 
 // handleCancelUpload processes cancel_upload action from WebSocket client.
 // Client cancels an upload, server cleans up temp file and removes entry.
-func (h *liveHandler) handleCancelUpload(ctx context.Context, conn *websocket.Conn, rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
+func (h *liveHandler) handleCancelUpload(ctx context.Context, conn WSConn, rawData []byte, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) error {
 	// Parse cancel_upload message from raw WebSocket data
 	cancelMsg, err := upload.ParseCancelUploadMessage(rawData)
 	if err != nil {

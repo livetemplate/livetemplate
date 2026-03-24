@@ -99,7 +99,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/livetemplate/livetemplate/internal/build"
 	"github.com/livetemplate/livetemplate/internal/compat"
 	"github.com/livetemplate/livetemplate/internal/context"
@@ -146,7 +145,7 @@ type keyGenerator = keys.Generator
 
 // Config holds template configuration options
 type Config struct {
-	Upgrader               *websocket.Upgrader
+	Upgrader               WSUpgrader
 	SessionStore           SessionStore
 	Authenticator          Authenticator      // User authentication and session grouping
 	PubSubBroadcaster      pubsub.Broadcaster // Optional: for distributed broadcasting across instances
@@ -290,8 +289,8 @@ func WithTemplateBaseDir(dir string) Option {
 	}
 }
 
-// WithUpgrader sets a custom WebSocket upgrader
-func WithUpgrader(upgrader *websocket.Upgrader) Option {
+// WithUpgrader sets a custom WebSocket upgrader.
+func WithUpgrader(upgrader WSUpgrader) Option {
 	return func(c *Config) {
 		c.Upgrader = upgrader
 	}
@@ -417,8 +416,10 @@ func WithTrustForwardedHeaders(trust bool) Option {
 //	)
 func WithPermissiveOriginCheck() Option {
 	return func(c *Config) {
-		c.Upgrader.CheckOrigin = func(r *http.Request) bool {
-			return true
+		if gu, ok := c.Upgrader.(*GorillaUpgrader); ok {
+			gu.SetCheckOrigin(func(r *http.Request) bool {
+				return true
+			})
 		}
 	}
 }
@@ -798,11 +799,7 @@ func createSecureOriginChecker(allowedOrigins []string, devMode bool, trustForwa
 func New(name string, opts ...Option) (*Template, error) {
 	// Default configuration
 	config := Config{
-		Upgrader: &websocket.Upgrader{
-			// Secure default: same-origin only
-			// This will be replaced with origin-aware check after options are applied
-			CheckOrigin: nil, // Will be set after applying options
-		},
+		Upgrader:               NewGorillaUpgrader(), // Default: gorilla with 1KB buffers
 		SessionStore:           NewMemorySessionStore(),
 		Authenticator:          &AnonymousAuthenticator{},  // Default: browser-based session grouping
 		MessageRateLimit:       10.0,                       // Default: 10 messages/sec
@@ -818,9 +815,11 @@ func New(name string, opts ...Option) (*Template, error) {
 		opt(&config)
 	}
 
-	// Set secure CheckOrigin after options are applied
-	if config.Upgrader.CheckOrigin == nil {
-		config.Upgrader.CheckOrigin = createSecureOriginChecker(config.AllowedOrigins, config.DevMode, config.TrustForwardedHeaders)
+	// Set secure CheckOrigin on the default gorilla upgrader (after options are applied)
+	if gu, ok := config.Upgrader.(*GorillaUpgrader); ok {
+		if gu.inner.CheckOrigin == nil {
+			gu.SetCheckOrigin(createSecureOriginChecker(config.AllowedOrigins, config.DevMode, config.TrustForwardedHeaders))
+		}
 	}
 
 	// Log DevMode configuration for debugging
@@ -1432,22 +1431,21 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 	// Create WebSocket upgrader with origin validation
 	upgrader := t.config.Upgrader
 	if len(t.config.AllowedOrigins) > 0 {
-		upgrader = &websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool {
-				origin := r.Header.Get("Origin")
-				if origin == "" {
+		allowedOrigins := t.config.AllowedOrigins
+		upgrader = NewGorillaUpgrader(WithGorillaCheckOrigin(func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			if origin == "" {
+				return true
+			}
+			for _, allowed := range allowedOrigins {
+				if origin == allowed {
 					return true
 				}
-				for _, allowed := range t.config.AllowedOrigins {
-					if origin == allowed {
-						return true
-					}
-				}
-				slog.Warn("WebSocket origin rejected",
-					slog.String("origin", origin))
-				return false
-			},
-		}
+			}
+			slog.Warn("WebSocket origin rejected",
+				slog.String("origin", origin))
+			return false
+		}))
 	}
 
 	// Determine session store - use option, then template config, then default

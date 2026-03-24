@@ -6,9 +6,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gorilla/websocket"
 	"github.com/livetemplate/livetemplate/internal/jsonutil"
 )
+
+const wsTextMessage = 1 // RFC 6455 text message type
 
 // ActionMessage represents an action message from the client (internal protocol).
 type ActionMessage struct {
@@ -137,7 +138,7 @@ func ParseActionFromWebSocket(data []byte) (ActionMessage, error) {
 // WriteUpdateToWebSocket writes a tree update to WebSocket connection (internal protocol).
 // Uses async Send() method to avoid blocking on slow clients.
 func WriteUpdateToWebSocket(conn ConnectionSender, update []byte) error {
-	return conn.Send(websocket.TextMessage, update)
+	return conn.Send(wsTextMessage, update)
 }
 
 // ConnectionSender is an interface for sending WebSocket messages asynchronously.
