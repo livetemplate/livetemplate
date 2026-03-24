@@ -12,6 +12,7 @@ var API = jsoniter.ConfigCompatibleWithStandardLibrary
 
 // NoEscape is a json-iterator instance with HTML escaping disabled and map keys sorted.
 // Use this for wire format transmission where HTML entities should be preserved as-is.
+// SortMapKeys must remain true — required by MarshalOrderedJSON's deterministic output contract.
 var NoEscape = jsoniter.Config{
 	EscapeHTML:             false,
 	SortMapKeys:            true,

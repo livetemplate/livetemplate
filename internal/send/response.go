@@ -40,10 +40,19 @@ func PrepareUpdate(tree interface{}, errors map[string]string, action string) *U
 }
 
 // SerializeUpdate marshals an UpdateResponse to JSON bytes.
-func SerializeUpdate(resp *UpdateResponse) ([]byte, error) {
-	bytes, err := jsonutil.API.Marshal(resp)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal update response: %w", err)
+// Includes recovery from stack overflow to handle cyclic data gracefully
+// (json-iterator does not detect cycles like encoding/json does).
+func SerializeUpdate(resp *UpdateResponse) (result []byte, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			result = nil
+			err = fmt.Errorf("failed to marshal update response: panic during serialization (possible cyclic data): %v", r)
+		}
+	}()
+
+	bytes, marshalErr := jsonutil.API.Marshal(resp)
+	if marshalErr != nil {
+		return nil, fmt.Errorf("failed to marshal update response: %w", marshalErr)
 	}
 	return bytes, nil
 }

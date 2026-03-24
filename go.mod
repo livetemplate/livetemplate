@@ -8,9 +8,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.7
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.7
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.95.1
-	github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433
+	github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433 // benchmark-only (behind //go:build jsonbench)
 	github.com/go-playground/validator/v10 v10.30.1
-	github.com/goccy/go-json v0.10.6
+	github.com/goccy/go-json v0.10.6 // benchmark-only (behind //go:build jsonbench)
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/json-iterator/go v1.1.12

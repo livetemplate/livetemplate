@@ -12,9 +12,14 @@ import (
 	gojson "github.com/goccy/go-json"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/livetemplate/livetemplate/internal/build"
+	"github.com/livetemplate/livetemplate/internal/jsonutil"
 )
 
-var jsoniterAPI = jsoniter.ConfigCompatibleWithStandardLibrary
+// jsoniterAPI uses the production singleton for accurate benchmarking.
+var jsoniterAPI = jsonutil.API
+
+// jsoniterDirect is a separate instance for comparing config overhead.
+var jsoniterDirect = jsoniter.ConfigCompatibleWithStandardLibrary
 
 // Test data builders
 
