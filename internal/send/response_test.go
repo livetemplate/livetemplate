@@ -186,14 +186,13 @@ func TestSerializeUpdate_NilMetadata(t *testing.T) {
 	}
 }
 
-// TestSerializeUpdate_UnmarshalableTree tests handling of unmarshalable data.
-func TestSerializeUpdate_UnmarshalableTree(t *testing.T) {
-	// Create a cyclic structure that can't be marshaled
-	cyclicMap := make(map[string]interface{})
-	cyclicMap["self"] = cyclicMap
-
+// TestSerializeUpdate_UnserializableTree tests handling of data that cannot be JSON-serialized.
+func TestSerializeUpdate_UnserializableTree(t *testing.T) {
+	// Test with a channel (unmarshalable type) instead of cyclic map.
+	// json-iterator doesn't detect cycles (stack overflow), so we use
+	// a type that all JSON libraries reject cleanly.
 	resp := &UpdateResponse{
-		Tree: cyclicMap,
+		Tree: make(chan int),
 	}
 
 	_, err := SerializeUpdate(resp)

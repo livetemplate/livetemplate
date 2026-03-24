@@ -2,12 +2,12 @@
 package send
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/gorilla/websocket"
+	"github.com/livetemplate/livetemplate/internal/jsonutil"
 )
 
 // ActionMessage represents an action message from the client (internal protocol).
@@ -37,7 +37,7 @@ func ParseActionFromHTTP(r *http.Request) (ActionMessage, error) {
 	}
 
 	// Default: JSON request body
-	if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
+	if err := jsonutil.API.NewDecoder(r.Body).Decode(&msg); err != nil {
 		return ActionMessage{}, fmt.Errorf("failed to parse action: %w", err)
 	}
 
@@ -69,7 +69,7 @@ func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 	// Try to get data from JSON-encoded form field
 	if dataStr := r.FormValue("data"); dataStr != "" {
 		var data map[string]interface{}
-		if err := json.Unmarshal([]byte(dataStr), &data); err == nil {
+		if err := jsonutil.API.Unmarshal([]byte(dataStr), &data); err == nil {
 			msg.Data = data
 		}
 	}
@@ -122,7 +122,7 @@ func parseURLEncodedForm(r *http.Request) (ActionMessage, error) {
 // ParseActionFromWebSocket parses an action message from WebSocket message bytes (internal protocol).
 func ParseActionFromWebSocket(data []byte) (ActionMessage, error) {
 	var msg ActionMessage
-	if err := json.Unmarshal(data, &msg); err != nil {
+	if err := jsonutil.API.Unmarshal(data, &msg); err != nil {
 		return ActionMessage{}, fmt.Errorf("failed to parse action: %w", err)
 	}
 
