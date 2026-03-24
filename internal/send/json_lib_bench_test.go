@@ -3,6 +3,7 @@ package send
 import (
 	"bytes"
 	stdjson "encoding/json"
+	"strings"
 	"testing"
 
 	jsonv2 "github.com/go-json-experiment/json"
@@ -316,10 +317,22 @@ func TestJSONLibrary_WireFormatCompatibility(t *testing.T) {
 	tree := simpleTree()
 	tree.SetDynamic(0, "<b>bold</b>") // HTML content that must not be escaped
 
-	stdBytes, _ := stdjson.Marshal(tree)
-	iterBytes, _ := jsoniterAPI.Marshal(tree)
-	goBytes, _ := gojson.Marshal(tree)
-	v2Bytes, _ := jsonv2.Marshal(tree)
+	stdBytes, err := stdjson.Marshal(tree)
+	if err != nil {
+		t.Fatalf("stdlib marshal failed: %v", err)
+	}
+	iterBytes, err := jsoniterAPI.Marshal(tree)
+	if err != nil {
+		t.Fatalf("jsoniter marshal failed: %v", err)
+	}
+	goBytes, err := gojson.Marshal(tree)
+	if err != nil {
+		t.Fatalf("gojson marshal failed: %v", err)
+	}
+	v2Bytes, err := jsonv2.Marshal(tree)
+	if err != nil {
+		t.Fatalf("jsonv2 marshal failed: %v", err)
+	}
 
 	// All libraries must produce valid JSON that round-trips correctly
 	for _, tc := range []struct {
@@ -340,9 +353,14 @@ func TestJSONLibrary_WireFormatCompatibility(t *testing.T) {
 			if _, ok := result["s"]; !ok {
 				t.Errorf("%s: missing 's' key", tc.name)
 			}
-			// Check dynamic at position 0
-			if _, ok := result["0"]; !ok {
+			// Check dynamic at position 0 contains unescaped HTML
+			val, ok := result["0"]
+			if !ok {
 				t.Errorf("%s: missing '0' key", tc.name)
+			} else if str, ok := val.(string); ok {
+				if !strings.Contains(str, "<b>") {
+					t.Errorf("%s: HTML was escaped in dynamic value: %s", tc.name, str)
+				}
 			}
 		})
 	}
