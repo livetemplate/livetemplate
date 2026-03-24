@@ -85,24 +85,28 @@ type FormController struct {
     Logger *slog.Logger
 }
 
-// BindValidate is called when field updates arrive via lvt-bind
-func (c *FormController) BindValidate(state FormState, fields map[string]interface{}) (FormState, map[string]string) {
+// BindValidate is called when field updates arrive via lvt-bind.
+// Signature matches the v0.7.0 action pattern: controller method receives
+// state + context, returns updated state + error.
+func (c *FormController) BindValidate(state FormState, ctx *livetemplate.Context, fields map[string]interface{}) (FormState, error) {
     errors := make(map[string]string)
 
     if name, ok := fields["Name"].(string); ok {
+        state.Name = name
         if len(name) < 2 {
             errors["Name"] = "Name must be at least 2 characters"
         }
     }
 
     if email, ok := fields["Email"].(string); ok {
+        state.Email = email
         if !strings.Contains(email, "@") {
             errors["Email"] = "Invalid email address"
         }
     }
 
     state.Errors = errors
-    return state, errors
+    return state, nil
 }
 ```
 
@@ -176,7 +180,7 @@ package livetemplate
 
 // Bind validation uses reflection-based method lookup, matching the pattern
 // in dispatch.go. If the controller has a BindValidate method with the
-// signature: func (c *Controller) BindValidate(state S, fields map[string]interface{}) (S, map[string]string)
+// signature: func (c *Controller) BindValidate(state S, ctx *Context, fields map[string]interface{}) (S, error)
 // it will be called. Otherwise, fields are applied directly to state via reflection.
 //
 // Note: Go generic interfaces cannot be used for runtime type assertions,
@@ -184,14 +188,19 @@ package livetemplate
 
 // applyBindUpdate checks for a BindValidate method on the controller via
 // reflection, falling back to direct field application on state.
-func applyBindUpdate(controller any, state any, fields map[string]interface{}) (any, error) {
+func applyBindUpdate(controller any, state any, ctx *Context, fields map[string]interface{}) (any, error) {
     // Look for BindValidate method on controller (reflection-based, like dispatch.go)
     method := reflect.ValueOf(controller).MethodByName("BindValidate")
     if method.IsValid() {
         results := method.Call([]reflect.Value{
             reflect.ValueOf(state),
+            reflect.ValueOf(ctx),
             reflect.ValueOf(fields),
         })
+        // results[0] = updated state, results[1] = error interface
+        if errVal := results[1].Interface(); errVal != nil {
+            return state, errVal.(error)
+        }
         return results[0].Interface(), nil
     }
 
@@ -199,9 +208,19 @@ func applyBindUpdate(controller any, state any, fields map[string]interface{}) (
     return applyFields(state, fields)
 }
 
-// applyFields uses reflection to update state struct fields
+// applyFields uses reflection to update state struct fields.
+// State must be a struct (or pointer to struct); returns an error otherwise.
 func applyFields(state any, fields map[string]interface{}) (any, error) {
     stateValue := reflect.ValueOf(state)
+
+    // Dereference pointer if needed
+    if stateValue.Kind() == reflect.Ptr {
+        stateValue = stateValue.Elem()
+    }
+    if stateValue.Kind() != reflect.Struct {
+        return state, fmt.Errorf("state must be a struct, got %s", stateValue.Kind())
+    }
+
     // Work with a copy to avoid mutating the original
     stateCopy := reflect.New(stateValue.Type()).Elem()
     stateCopy.Set(stateValue)
@@ -212,18 +231,63 @@ func applyFields(state any, fields map[string]interface{}) (any, error) {
             return state, fmt.Errorf("field %s not found or not settable", fieldName)
         }
 
-        convertedValue := convertToFieldType(value, field.Type())
+        convertedValue, err := convertToFieldType(value, field.Type())
+        if err != nil {
+            return state, fmt.Errorf("field %s: %w", fieldName, err)
+        }
         field.Set(convertedValue)
     }
 
     return stateCopy.Interface(), nil
 }
 
-// Type conversion helpers
-func convertToFieldType(value interface{}, targetType reflect.Type) reflect.Value {
-    // Handle JSON number -> int conversion
-    // Handle string -> various type conversions
-    // etc.
+// convertToFieldType converts a JSON-decoded value to the target reflect.Type.
+// Returns an error if the conversion is not possible.
+func convertToFieldType(value interface{}, targetType reflect.Type) (reflect.Value, error) {
+    v := reflect.ValueOf(value)
+
+    // Direct assignability check
+    if v.Type().AssignableTo(targetType) {
+        return v, nil
+    }
+
+    // Handle JSON number (float64) -> int/int64/uint/etc.
+    if v.Kind() == reflect.Float64 {
+        switch targetType.Kind() {
+        case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+            return reflect.ValueOf(value).Convert(targetType), nil
+        case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+            return reflect.ValueOf(value).Convert(targetType), nil
+        case reflect.Float32:
+            return reflect.ValueOf(value).Convert(targetType), nil
+        }
+    }
+
+    // Handle string -> numeric conversions
+    if v.Kind() == reflect.String {
+        switch targetType.Kind() {
+        case reflect.Int, reflect.Int64:
+            n, err := strconv.ParseInt(v.String(), 10, 64)
+            if err != nil {
+                return reflect.Value{}, fmt.Errorf("cannot convert %q to %s: %w", v.String(), targetType, err)
+            }
+            return reflect.ValueOf(n).Convert(targetType), nil
+        case reflect.Float64:
+            f, err := strconv.ParseFloat(v.String(), 64)
+            if err != nil {
+                return reflect.Value{}, fmt.Errorf("cannot convert %q to %s: %w", v.String(), targetType, err)
+            }
+            return reflect.ValueOf(f).Convert(targetType), nil
+        case reflect.Bool:
+            b, err := strconv.ParseBool(v.String())
+            if err != nil {
+                return reflect.Value{}, fmt.Errorf("cannot convert %q to bool: %w", v.String(), err)
+            }
+            return reflect.ValueOf(b), nil
+        }
+    }
+
+    return reflect.Value{}, fmt.Errorf("cannot convert %T to %s", value, targetType)
 }
 ```
 
@@ -246,30 +310,33 @@ func ParseBindMessage(data []byte) (BindMessage, error) {
 
 **Modify: `mount.go`** (~80 lines)
 ```go
-func (h *liveHandler) handleMessage(data []byte, controller any, state any, tmpl *Template) (any, []byte, error) {
+func (h *liveHandler) handleMessage(data []byte, controller any, state any, ctx *Context, tmpl *Template) (any, []byte, error) {
     // Detect message type
     var msgType struct {
         Type string `json:"type"`
     }
-    json.Unmarshal(data, &msgType)
+    if err := json.Unmarshal(data, &msgType); err != nil {
+        return state, nil, fmt.Errorf("invalid message: %w", err)
+    }
 
     if msgType.Type == "bind" {
-        return h.handleBind(data, controller, state, tmpl)
+        return h.handleBind(data, controller, state, ctx, tmpl)
     }
 
     // Fall back to action (existing behavior)
-    return h.handleAction(data, controller, state, tmpl)
+    return h.handleAction(data, controller, state, ctx, tmpl)
 }
 
-func (h *liveHandler) handleBind(data []byte, controller any, state any, tmpl *Template) (any, []byte, error) {
+func (h *liveHandler) handleBind(data []byte, controller any, state any, ctx *Context, tmpl *Template) (any, []byte, error) {
     bindMsg, err := ParseBindMessage(data)
     if err != nil {
         return state, nil, err
     }
 
-    // If controller implements BindValidator, use it
+    // If controller has BindValidate method, use it (with Context for
+    // access to user identity, request info, etc.)
     // Otherwise, apply fields directly to state via reflection
-    newState, err := applyBindUpdate(controller, state, bindMsg.Fields)
+    newState, err := applyBindUpdate(controller, state, ctx, bindMsg.Fields)
     if err != nil {
         return state, nil, err
     }
@@ -417,8 +484,9 @@ type FormState struct {
     Errors  map[string]string `json:"errors"`
 }
 
-// BindValidate validates and applies field updates
-func (c *FormController) BindValidate(state FormState, fields map[string]interface{}) (FormState, map[string]string) {
+// BindValidate validates and applies field updates.
+// Receives *Context for access to user identity, request info, etc.
+func (c *FormController) BindValidate(state FormState, ctx *livetemplate.Context, fields map[string]interface{}) (FormState, error) {
     errors := make(map[string]string)
 
     if name, ok := fields["Name"].(string); ok {
@@ -449,7 +517,7 @@ func (c *FormController) BindValidate(state FormState, fields map[string]interfa
         state.Errors = errors
     }
 
-    return state, errors
+    return state, nil
 }
 
 func main() {
