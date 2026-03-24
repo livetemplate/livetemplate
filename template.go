@@ -226,10 +226,8 @@ type Template struct {
 	wrapperID              string
 	funcs                  template.FuncMap
 	mu                     sync.RWMutex // Protects mutable state fields below
-	lastData               interface{}
 	lastHTML               string
 	lastTree               *treeNode // Store previous tree segments for comparison
-	initialTree            *treeNode
 	hasInitialTree         bool
 	keyGen                 *keyGenerator   // Per-template key generation for wrapper approach
 	config                 Config          // Template configuration
@@ -262,19 +260,6 @@ func (t *Template) Funcs(funcMap template.FuncMap) *Template {
 	t.mu.Unlock()
 
 	return t
-}
-
-// copyFuncMap creates a shallow copy of a FuncMap to prevent caller mutation.
-func copyFuncMap(src template.FuncMap) template.FuncMap {
-	if len(src) == 0 {
-		return nil
-	}
-
-	clone := make(template.FuncMap, len(src))
-	for name, fn := range src {
-		clone[name] = fn
-	}
-	return clone
 }
 
 // UpdateResponse wraps a tree update with metadata for form lifecycle.
@@ -896,26 +881,29 @@ func (t *Template) Clone() (*Template, error) {
 	templateStr := t.templateStr
 	wrapperID := t.wrapperID
 	config := t.config
+	tmpl := t.tmpl
+	funcs := t.funcs
+	cachedParse := t.cachedParseTemplate
+	bodyContent := t.cachedBodyContent
+	bodyContentValid := t.cachedBodyContentValid
 	t.mu.RUnlock()
 
-	// Cannot clone an executed html/template, must re-parse from source
-	// Create a fresh template instance with the same configuration
+	// Share immutable data from master instead of re-creating per clone.
+	// Go's html/template.Execute() is safe for concurrent use after parsing
+	// (see go.dev/src/html/template/template.go line 118). The template is
+	// never modified after Parse(), so sharing is safe.
 	clone := &Template{
-		name:        name,
-		templateStr: templateStr,
-		wrapperID:   wrapperID, // Share wrapper ID
-		funcs:       copyFuncMap(t.funcs),
-		keyGen:      compat.NewKeyGenerator(),
-		config:      config, // Preserve configuration
-		// Don't copy lastData, lastHTML, lastTree, etc. - start fresh
-	}
-
-	// Re-parse the template from source
-	if templateStr != "" {
-		_, err := clone.Parse(templateStr)
-		if err != nil {
-			return nil, fmt.Errorf("failed to re-parse template: %w", err)
-		}
+		name:                   name,
+		templateStr:            templateStr,
+		tmpl:                   tmpl, // Share parsed template (concurrent Execute is safe)
+		wrapperID:              wrapperID,
+		funcs:                  funcs, // Share FuncMap (read-only after Parse)
+		keyGen:                 compat.NewKeyGenerator(),
+		config:                 config,
+		cachedParseTemplate:    cachedParse, // Share parsed AST + builtins
+		cachedBodyContent:      bodyContent, // Share extracted body content
+		cachedBodyContentValid: bodyContentValid,
+		// Don't copy lastData, lastHTML, lastTree, etc. - start fresh per session
 	}
 
 	return clone, nil
@@ -1324,8 +1312,6 @@ func (t *Template) generateInitialTreeWithoutRegistry(data interface{}, extracte
 		tree = build.CreateHTMLStructureBasedTree(extractedContent)
 	}
 
-	// Cache the initial structure for future dynamics-only updates
-	t.initialTree = tree
 	t.hasInitialTree = true
 
 	// Store complete tree as the baseline for comparison
@@ -1359,8 +1345,8 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 			return build.NewTreeNode(), nil
 		}
 
-		t.lastData = newData
 		t.lastTree = newTree
+		t.lastHTML = "" // Free stale HTML — unreachable once AST path is active
 
 		return changedTree, nil
 	}
@@ -1380,7 +1366,6 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 		return nil, err
 	}
 
-	t.lastData = newData
 	t.lastHTML = newContent
 
 	return tree, nil
@@ -1607,8 +1592,7 @@ func (t *Template) buildTree(data interface{}, messages map[string]string) (*tre
 		}
 	}
 
-	// Determine if this is first render
-	isFirstRender := t.lastData == nil
+	isFirstRender := !t.hasInitialTree
 
 	// Build tree based on render type
 	var tree *treeNode
@@ -1623,12 +1607,11 @@ func (t *Template) buildTree(data interface{}, messages map[string]string) (*tre
 			contentToCache = currentHTML
 		}
 
-		t.lastData = dataWithLvt
 		t.lastHTML = contentToCache
 		tree, treeErr = t.generateInitialTreeWithoutRegistry(dataWithLvt, contentToCache)
 	} else {
 		// Subsequent renders - use diffing approach
-		tree, treeErr = t.generateDiffBasedTree(t.lastHTML, currentHTML, t.lastData, dataWithLvt)
+		tree, treeErr = t.generateDiffBasedTree(t.lastHTML, currentHTML, nil, dataWithLvt)
 	}
 
 	if treeErr != nil {

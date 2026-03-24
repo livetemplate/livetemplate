@@ -1745,13 +1745,13 @@ func TestTemplateGenerateTreeWithFuncMap(t *testing.T) {
 		t.Fatalf("Execute failed: %v", err)
 	}
 
-	// After Execute(), check the cached initialTree instead of calling generateTreeInternalWithErrors
+	// After Execute(), check the cached lastTree instead of calling generateTreeInternalWithErrors
 	// (calling it again with same data would generate an empty diff)
-	if tmpl.initialTree == nil {
-		t.Fatalf("expected initial tree to be cached")
+	if tmpl.lastTree == nil {
+		t.Fatalf("expected last tree to be cached")
 	}
 
-	tree := tmpl.initialTree
+	tree := tmpl.lastTree
 	dynamic, ok := tree.GetDynamic(0)
 	if !ok {
 		t.Fatalf("expected dynamic range at position 0")
@@ -1919,8 +1919,8 @@ func TestTemplateGenerateInitialTreeFallsBackForBlockWithDynamicTemplate(t *test
 	}
 
 	expected := build.CreateHTMLStructureBasedTree(tmpl.lastHTML)
-	if !reflect.DeepEqual(tmpl.initialTree, expected) {
-		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.initialTree)
+	if !reflect.DeepEqual(tmpl.lastTree, expected) {
+		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.lastTree)
 	}
 }
 
@@ -1961,8 +1961,8 @@ func TestTemplateGenerateInitialTreeFallsBackForChannelRange(t *testing.T) {
 	}
 
 	expected := build.CreateHTMLStructureBasedTree(tmpl.lastHTML)
-	if !reflect.DeepEqual(tmpl.initialTree, expected) {
-		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.initialTree)
+	if !reflect.DeepEqual(tmpl.lastTree, expected) {
+		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.lastTree)
 	}
 }
 
@@ -2003,8 +2003,8 @@ func TestTemplateGenerateInitialTreeFallsBackForChannelRangeWithDecls(t *testing
 	}
 
 	expected := build.CreateHTMLStructureBasedTree(tmpl.lastHTML)
-	if !reflect.DeepEqual(tmpl.initialTree, expected) {
-		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.initialTree)
+	if !reflect.DeepEqual(tmpl.lastTree, expected) {
+		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.lastTree)
 	}
 }
 
@@ -2039,8 +2039,8 @@ func TestTemplateGenerateInitialTreeFallsBackForIntegerRange(t *testing.T) {
 	}
 
 	expected := build.CreateHTMLStructureBasedTree(tmpl.lastHTML)
-	if !reflect.DeepEqual(tmpl.initialTree, expected) {
-		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.initialTree)
+	if !reflect.DeepEqual(tmpl.lastTree, expected) {
+		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.lastTree)
 	}
 }
 
@@ -2116,8 +2116,8 @@ func TestTemplateGenerateInitialTreeFallsBackForRangeBreak(t *testing.T) {
 	}
 
 	expected := build.CreateHTMLStructureBasedTree(tmpl.lastHTML)
-	if !reflect.DeepEqual(tmpl.initialTree, expected) {
-		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.initialTree)
+	if !reflect.DeepEqual(tmpl.lastTree, expected) {
+		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.lastTree)
 	}
 }
 
@@ -2154,8 +2154,8 @@ func TestTemplateGenerateInitialTreeFallsBackForRangeContinue(t *testing.T) {
 	}
 
 	expected := build.CreateHTMLStructureBasedTree(tmpl.lastHTML)
-	if !reflect.DeepEqual(tmpl.initialTree, expected) {
-		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.initialTree)
+	if !reflect.DeepEqual(tmpl.lastTree, expected) {
+		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.lastTree)
 	}
 }
 
@@ -2204,8 +2204,8 @@ func TestTemplateGenerateInitialTreeFallsBackForDynamicTemplateInvocation(t *tes
 
 	// The initial tree must match HTML segmentation fallback.
 	expected := build.CreateHTMLStructureBasedTree(tmpl.lastHTML)
-	if !reflect.DeepEqual(tmpl.initialTree, expected) {
-		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.initialTree)
+	if !reflect.DeepEqual(tmpl.lastTree, expected) {
+		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.lastTree)
 	}
 }
 
@@ -2252,8 +2252,8 @@ func TestTemplateGenerateInitialTreeFallsBackForWithIterSeq(t *testing.T) {
 	}
 
 	expected := build.CreateHTMLStructureBasedTree(tmpl.lastHTML)
-	if !reflect.DeepEqual(tmpl.initialTree, expected) {
-		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.initialTree)
+	if !reflect.DeepEqual(tmpl.lastTree, expected) {
+		t.Fatalf("expected fallback tree to match HTML segmentation\nwant: %#v\ngot:  %#v", expected, tmpl.lastTree)
 	}
 }
 
