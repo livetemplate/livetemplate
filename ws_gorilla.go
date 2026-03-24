@@ -43,6 +43,12 @@ func WithGorillaCheckOrigin(fn func(*http.Request) bool) GorillaOption {
 	return func(u *websocket.Upgrader) { u.CheckOrigin = fn }
 }
 
+// WithGorillaCompression enables permessage-deflate compression.
+// Reduces bandwidth for larger payloads at the cost of CPU.
+func WithGorillaCompression() GorillaOption {
+	return func(u *websocket.Upgrader) { u.EnableCompression = true }
+}
+
 // Upgrade upgrades an HTTP connection to a WebSocket connection.
 func (g *GorillaUpgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeader http.Header) (WSConn, error) {
 	conn, err := g.inner.Upgrade(w, r, responseHeader)

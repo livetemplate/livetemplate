@@ -486,6 +486,17 @@ func WithWebSocketBufferSize(size int) Option {
 	}
 }
 
+// WithWebSocketCompression enables permessage-deflate WebSocket compression.
+// Reduces bandwidth for larger payloads at the cost of CPU.
+// Only effective when using the default GorillaUpgrader.
+func WithWebSocketCompression() Option {
+	return func(c *Config) {
+		if gu, ok := c.Upgrader.(*GorillaUpgrader); ok {
+			gu.inner.EnableCompression = true
+		}
+	}
+}
+
 // WithMessageRateLimit sets the rate limit for WebSocket messages per connection.
 //
 // Uses token bucket algorithm: messagesPerSecond determines the rate,
@@ -896,9 +907,8 @@ func (t *Template) Clone() (*Template, error) {
 		templateStr:            templateStr,
 		tmpl:                   tmpl, // Share parsed template (concurrent Execute is safe)
 		wrapperID:              wrapperID,
-		funcs:                  funcs, // Share FuncMap (read-only after Parse)
-		keyGen:                 compat.NewKeyGenerator(),
-		config:                 config,
+		funcs:                  funcs,       // Share FuncMap (read-only after Parse)
+		config:                 config,      // keyGen allocated lazily on first buildTree (nil-safe at line 1582)
 		cachedParseTemplate:    cachedParse, // Share parsed AST + builtins
 		cachedBodyContent:      bodyContent, // Share extracted body content
 		cachedBodyContentValid: bodyContentValid,
