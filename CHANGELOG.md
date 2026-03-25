@@ -6,15 +6,55 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-<a name="v0.8.4"></a>
-## [v0.8.4] - 2026-03-11
+<a name="v0.8.5"></a>
+## [v0.8.5] - 2026-03-25
 
 ### Bug Fixes
 
+- session benchmarks fail with 'client too slow' ([#209](https://github.com/livefir/livetemplate/issues/209))
+- track dynamic pubsub subscriptions for reconnect and wire into mount ([#213](https://github.com/livefir/livetemplate/issues/213))
+- check X-Forwarded-Proto in WebSocket origin checker ([#190](https://github.com/livefir/livetemplate/issues/190))
+
+### Code Refactoring
+
+- move progressive complexity examples to examples repo ([#248](https://github.com/livefir/livetemplate/issues/248))
+- deduplicate generateItemHash into shared keys package ([#208](https://github.com/livefir/livetemplate/issues/208))
+- rewrite parse package with custom AST evaluator ([#199](https://github.com/livefir/livetemplate/issues/199))
+
+### Documentation
+
+- update perf docs with TreeNode pooling investigation results ([#228](https://github.com/livefir/livetemplate/issues/228))
+- update performance docs and baseline for recent optimizations ([#227](https://github.com/livefir/livetemplate/issues/227))
+- update performance docs and baseline for recent optimizations ([#217](https://github.com/livefir/livetemplate/issues/217))
+
+### Features
+
+- progressive complexity model for form handling ([#233](https://github.com/livefir/livetemplate/issues/233))
+- enhance ValidationToMultiError with friendly names and new tags ([#218](https://github.com/livefir/livetemplate/issues/218))
+- add WithTrustForwardedHeaders config option ([#211](https://github.com/livefir/livetemplate/issues/211))
+
+### Performance Improvements
+
+- system card benchmark and per-session memory optimization ([#235](https://github.com/livefir/livetemplate/issues/235))
+- replace encoding/json with json-iterator in hot paths ([#229](https://github.com/livefir/livetemplate/issues/229))
+- reduce allocations with shared statics, buffer pool, and reflection dedup ([#224](https://github.com/livefir/livetemplate/issues/224))
+- replace TreeNode Dynamics map with slice for ~20% speedup ([#220](https://github.com/livefir/livetemplate/issues/220))
+- reduce template parsing allocations by 50-57% per render ([#219](https://github.com/livefir/livetemplate/issues/219))
+- optimize range diffing with pre-computed context ([#212](https://github.com/livefir/livetemplate/issues/212))
+- switch fingerprint hash to FNV-1a; add stress tests ([#205](https://github.com/livefir/livetemplate/issues/205))
+
+
+<a name="v0.8.4"></a>
+## [v0.8.4] - 2026-03-14
+
+### Bug Fixes
+
+- unify divergent expression evaluation paths ([#176](https://github.com/livefir/livetemplate/issues/176)) ([#179](https://github.com/livefir/livetemplate/issues/179))
 - use cookie-based flash messages instead of URL query params ([#136](https://github.com/livefir/livetemplate/issues/136))
 
 ### Documentation
 
+- refresh benchmark baseline and remove stale references ([#185](https://github.com/livefir/livetemplate/issues/185))
 - batch address 9 documentation follow-up issues ([#178](https://github.com/livefir/livetemplate/issues/178))
 - update performance docs to reflect current codebase ([#175](https://github.com/livefir/livetemplate/issues/175))
 - audit and reorganize proposals directory ([#173](https://github.com/livefir/livetemplate/issues/173))
@@ -525,7 +565,8 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.4...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.5...HEAD
+[v0.8.5]: https://github.com/livefir/livetemplate/compare/v0.8.4...v0.8.5
 [v0.8.4]: https://github.com/livefir/livetemplate/compare/v0.8.3...v0.8.4
 [v0.8.3]: https://github.com/livefir/livetemplate/compare/v0.8.2...v0.8.3
 [v0.8.2]: https://github.com/livefir/livetemplate/compare/v0.8.1...v0.8.2
