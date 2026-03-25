@@ -181,7 +181,9 @@ Get the error message for an upload field:
 ### Setup S3 Presigner
 
 ```go
-s3Config := livetemplate.S3Config{
+import "github.com/livetemplate/lvt/pkg/s3presigner"
+
+s3Config := s3presigner.S3Config{
     Bucket:    "my-uploads",
     Region:    "us-east-1",
     KeyPrefix: "uploads",        // Optional: organizes S3 keys
@@ -198,7 +200,7 @@ s3Config := livetemplate.S3Config{
     Endpoint: "http://localhost:9000",
 }
 
-presigner, err := livetemplate.NewS3Presigner(s3Config)
+presigner, err := s3presigner.NewS3Presigner(s3Config)
 if err != nil {
     log.Fatal(err)
 }
