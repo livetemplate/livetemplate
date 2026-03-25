@@ -558,9 +558,11 @@ type UploadMeta struct {
 }
 ```
 
-**S3Presigner:**
+**S3Presigner (provided by `github.com/livetemplate/lvt/pkg/s3presigner`):**
 
 ```go
+// package s3presigner
+
 func NewS3Presigner(cfg S3Config) (*S3Presigner, error)
 
 type S3Config struct {
