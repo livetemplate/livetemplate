@@ -68,7 +68,7 @@ func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoSt
 }
 ```
 
-Forms without a named button auto-route to a conventional `Submit()` method — no attributes needed at all for the simplest case. See the [Progressive Complexity Guide](docs/guides/progressive-complexity.md) for the full walkthrough.
+Forms without a named button auto-route to a conventional `Submit()` method — no attributes needed at all for the simplest case. See the [Progressive Complexity Guide](docs/guides/progressive-complexity.md) for the full walkthrough and the [todos-progressive](https://github.com/livetemplate/examples/tree/main/todos-progressive) and [profile-progressive](https://github.com/livetemplate/examples/tree/main/profile-progressive) examples.
 
 For interactions that HTML can't express (timing, reactive DOM, keyboard shortcuts), use `lvt-*` attributes:
 
