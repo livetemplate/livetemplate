@@ -1,11 +1,12 @@
 # Client Attributes Reference
 
-Complete reference for LiveTemplate client-side `lvt-*` HTML attributes.
+Complete reference for LiveTemplate form handling and `lvt-*` HTML attributes.
 
 **For server-side Go API:** See [pkg.go.dev/github.com/livetemplate/livetemplate](https://pkg.go.dev/github.com/livetemplate/livetemplate)
 
 ## Table of Contents
 
+- [Standard HTML Form Routing](#standard-html-form-routing)
 - [Event Bindings](#event-bindings)
 - [Data Passing](#data-passing)
 - [Form Lifecycle Events](#form-lifecycle-events)
@@ -20,9 +21,107 @@ Complete reference for LiveTemplate client-side `lvt-*` HTML attributes.
 
 ---
 
+## Standard HTML Form Routing
+
+LiveTemplate follows a **progressive complexity** model. Standard HTML forms work without any `lvt-*` attributes. Use `lvt-*` only for behaviors HTML cannot express (debounce, loading states, reactive DOM, etc.).
+
+### Auto-Submit (Zero Attributes)
+
+All `<form>` elements within a LiveTemplate-managed region are automatically intercepted. Forms without explicit action routing default to the `Submit()` method on the controller:
+
+```html
+<!-- No lvt-* needed — auto-routes to Submit() -->
+<form method="POST">
+    <input type="text" name="title" placeholder="New todo...">
+    <button type="submit">Add</button>
+</form>
+```
+
+```go
+func (c *Controller) Submit(state State, ctx *livetemplate.Context) (State, error) {
+    title := ctx.GetString("title")
+    // ...
+    return state, nil
+}
+```
+
+### Action Routing via Button Name
+
+The button's `name` IS the action. Button `value` carries optional data:
+
+```html
+<form method="POST">
+    <input type="text" name="Title" value="{{.Title}}">
+    <button name="save">Save</button>
+    <button name="save-draft" formnovalidate>Save Draft</button>
+</form>
+```
+
+`<button name="save">` routes to `Save()`. `<button name="save-draft">` routes to `SaveDraft()`.
+
+### Action Routing via Form Name
+
+Use the `name` attribute on the form itself:
+
+```html
+<form name="search" method="POST">
+    <input name="query" value="{{.Query}}">
+    <button type="submit">Search</button>
+</form>
+```
+
+Routes to `Search()` on the controller **when using the JS client**, which reads `form.name`. A plain HTML POST does not include the form's `name` attribute, so for no-JS compatibility use `<button name="search">` instead.
+
+### Data Passing
+
+Data can be passed via hidden inputs, button `value`, or `data-*` attributes:
+
+```html
+{{range .Items}}
+<form method="POST">
+    <input type="hidden" name="id" value="{{.ID}}">
+    <button name="toggle">{{if .Done}}Undo{{else}}Done{{end}}</button>
+    <button name="delete" value="{{.ID}}">Delete</button>
+</form>
+{{end}}
+```
+
+- Hidden inputs: `ctx.GetString("id")`
+- Button value: `ctx.GetString("value")`
+- `data-*` on button: `ctx.GetString("key")`
+
+### Action Resolution Order
+
+The client resolves the action name in this order (first match wins):
+
+1. `lvt-submit="X"` on the form → action is `X` (backward compatible, highest precedence)
+2. Clicked button's `name` attribute → action is the button name
+3. `form name="X"` → action is `X`
+4. None of the above → defaults to `"submit"` → routes to `Submit()`
+
+### Opt-Out
+
+Forms that should NOT be auto-intercepted (external URLs, downloads):
+
+```html
+<form action="/api/export" method="POST" lvt-no-intercept>
+    <button type="submit">Export CSV</button>
+</form>
+```
+
+### Transport Compatibility
+
+| Mechanism | No JS | JS + HTTP | JS + WebSocket |
+|-----------|-------|-----------|----------------|
+| `button name="action"` | Native POST | Client extracts | Client extracts |
+| `form name` | N/A (use button) | Client reads | Client reads |
+| Hidden inputs | Native POST | In FormData | In FormData |
+
+---
+
 ## Event Bindings
 
-LiveTemplate uses `lvt-*` attributes to bind DOM events to server-side actions.
+LiveTemplate uses `lvt-*` attributes to bind DOM events to server-side actions. These are for interactions that standard HTML forms cannot express.
 
 ### Basic Events
 

@@ -40,6 +40,7 @@ type Context struct {
 	session     Session
 	uploads     UploadAccessor
 	flashSetter FlashSetter
+	formSchema  *FormSchema
 
 	// HTTP context (nil for WebSocket actions)
 	w http.ResponseWriter
@@ -230,6 +231,31 @@ func (c *Context) WithUploads(uploads UploadAccessor) *Context {
 	newCtx := *c
 	newCtx.uploads = uploads
 	return &newCtx
+}
+
+// WithFormSchema returns a new Context with the given form validation schema.
+func (c *Context) WithFormSchema(schema *FormSchema) *Context {
+	newCtx := *c
+	newCtx.formSchema = schema
+	return &newCtx
+}
+
+// ValidateForm validates form data against HTML attributes inferred from the template.
+// Uses validation rules extracted from HTML attributes like required, pattern, min, max,
+// minlength, maxlength, and input type (email, url, number).
+// Returns MultiError with field-level errors, or nil if all fields are valid.
+//
+// Note: the schema must be set via WithFormSchema(ExtractFormSchema(statics)).
+// If no schema is set, returns nil (no validation). For production validation
+// with complex rules, use BindAndValidate() with go-playground/validator tags.
+//
+// Known limitation: ExtractFormSchema merges all forms in a template into one
+// schema. If your template has multiple forms, use BindAndValidate() instead.
+func (c *Context) ValidateForm() error {
+	if c.formSchema == nil {
+		return nil
+	}
+	return c.formSchema.Validate(c.data.Raw())
 }
 
 // HasUploads checks if there are any uploads for the given field name.

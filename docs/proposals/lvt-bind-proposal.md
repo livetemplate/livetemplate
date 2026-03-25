@@ -1,6 +1,8 @@
 # lvt-bind: Automatic Form State Binding Proposal
 
-**Status:** Future Feature
+> **SUPERSEDED** by [progressive-complexity-proposal.md](progressive-complexity-proposal.md) (2026-03-24). The progressive complexity model handles all `lvt-bind` use cases with standard HTML + implicit methods (`Submit()`, `Change()`), requiring ~250 lines instead of ~1150 and no new protocol or method signatures.
+
+**Status:** Superseded
 **Date:** 2025-10-01 (updated 2026-03 for Controller+State API)
 **Complexity:** Medium-High (~1150 lines of code)
 

@@ -40,30 +40,37 @@ sequenceDiagram
 
 All user-initiated interactions work over plain HTTP — no WebSocket required. The JS client sends actions as standard HTTP requests and patches the DOM with the response. WebSocket is only needed when the *server* needs to push updates unprompted (e.g., notifying other users in a chat room). Unlike Phoenix LiveView, which requires a persistent connection for all interactions, LiveTemplate treats WebSocket as an optional upgrade for broadcast scenarios only.
 
-This extends to progressive enhancement at the HTML level too: standard forms work without any JavaScript at all. Add the JS client and those same forms get in-place DOM patching instead of full page reloads. For more granular interactions (click, keydown, focus), add `lvt-*` attributes.
+This extends to progressive enhancement at the HTML level too. LiveTemplate follows a **progressive complexity** model — start with standard HTML, add custom attributes only when you need behaviors HTML can't express:
 
-A form that works both ways ([full example](https://github.com/livetemplate/examples/tree/main/progressive-enhancement)):
+| Tier | What you write | When to use |
+|------|---------------|-------------|
+| **Tier 1: Standard HTML** | `<form>`, `<button name="add">`, `<dialog>`, `<a href>` | Forms, actions, modals, navigation |
+| **Tier 2: `lvt-*` attributes** | `lvt-debounce`, `lvt-key`, `lvt-addClass-on:pending` | Timing, keyboard shortcuts, reactive DOM |
+
+A form that works at all transport levels — no JS, fetch, and WebSocket — with zero custom attributes:
 
 ```html
-<form method="POST" lvt-submit="add">
-    <input type="hidden" name="lvt-action" value="add">
-    <input type="text" name="title" placeholder="What needs to be done?">
-    <button type="submit">Add Todo</button>
+<form method="POST">
+    <input type="text" name="title" required placeholder="What needs to be done?">
+    <button name="add">Add Todo</button>
 </form>
 ```
 
-Without JS, `method="POST"` and the `lvt-action` hidden field handle the submission with a full page reload. With the JS client loaded, `lvt-submit` intercepts the submission and patches the DOM in place — same form, both paths.
-
-The Go handler is the same either way:
+The button's `name` IS the action — `<button name="add">` routes to the `Add()` method. Without JS, the form POSTs normally. With the JS client, the submission is intercepted and the DOM is patched in place. One declaration, three transport modes.
 
 ```go
 func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    if err := ctx.ValidateForm(); err != nil {  // Inferred from HTML required attr
+        return state, err
+    }
     state.Items = append(state.Items, Todo{Title: ctx.GetString("title")})
     return state, nil
 }
 ```
 
-For interactions that don't map to form submissions, use `lvt-*` attributes:
+Forms without a named button auto-route to a conventional `Submit()` method — no attributes needed at all for the simplest case. See the [Progressive Complexity Guide](docs/guides/progressive-complexity.md) for the full walkthrough.
+
+For interactions that HTML can't express (timing, reactive DOM, keyboard shortcuts), use `lvt-*` attributes:
 
 ```html
 <h1>Counter: {{.Counter}}</h1>

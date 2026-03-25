@@ -39,7 +39,17 @@
 - Automatic HTML escaping for security
 - Users should be able to drop in LiveTemplate with minimal changes
 
-### 5. Code Organization Follows Single Responsibility
+### 5. Progressive Complexity / Standard HTML First
+**Start with standard HTML. Add `lvt-*` only when HTML can't express it.**
+
+- Standard HTML forms work without any `lvt-*` attributes (auto-intercept, auto-submit)
+- Action routing uses `button name="action"` and `form name` before `lvt-submit`
+- Template expressions (`{{.Field}}`) in `value=` attributes ARE binding declarations
+- `lvt-*` attributes reserved for non-HTML behaviors: debounce, reactive DOM, hooks, loading states
+- Three transport modes degrade gracefully: WebSocket → fetch → no-JS POST
+- **Never require `lvt-*` for something standard HTML already handles**
+
+### 6. Code Organization Follows Single Responsibility
 **Each package has one clear purpose with minimal coupling.**
 
 - `internal/parse/`: Template parsing into constructs (parser.go, constructs.go, compile.go, hydrate.go)
@@ -49,7 +59,7 @@
 - Core library: Orchestrates internal packages, provides public API
 - **Never mix concerns** - parsing doesn't diff, building doesn't parse
 
-### 6. Testing Validates Behavior, Not Implementation
+### 7. Testing Validates Behavior, Not Implementation
 **Tests focus on correctness of tree updates and rendering sequences.**
 
 - E2E tests: Complete rendering sequences (first render → updates)
@@ -59,7 +69,7 @@
 - Fuzz tests: Random inputs don't break invariants
 - **Tests MUST access: browser console logs, server logs, WebSocket messages, rendered HTML**
 
-### 7. Kit System Enables CSS Framework Flexibility
+### 8. Kit System Enables CSS Framework Flexibility
 **CLI tool supports multiple CSS frameworks via pluggable kits.**
 
 - Cascade priority: Project (.lvt/kits) → User (~/.config/lvt/kits) → System (embedded)
@@ -68,7 +78,7 @@
 - Component templates use `[[ ]]` delimiters (not `{{ }}`)
 - **Always load kits following cascade priority** - never skip levels
 
-### 8. Generator Code is Generic and Reusable
+### 9. Generator Code is Generic and Reusable
 **Code generation creates library code applicable to all use cases.**
 
 - Generated code works for: tests, examples, AND production apps
@@ -77,7 +87,7 @@
 - Validation happens at generation time, not runtime
 - **Never generate code that only works for one use case**
 
-### 9. Security by Default
+### 10. Security by Default
 **Template execution and WebSocket communication are secure by default.**
 
 - HTML escaping via `html/template` - automatic and required
@@ -86,7 +96,7 @@
 - Git commits never skip hooks (no --no-verify) unless explicitly requested
 - **Security features cannot be disabled accidentally**
 
-### 10. Observability is Production-Ready
+### 11. Observability is Production-Ready
 **Logging and metrics are built-in and structured.**
 
 - Structured logging via slog (not fmt.Printf)

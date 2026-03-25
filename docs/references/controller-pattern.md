@@ -30,7 +30,7 @@ handler := tmpl.Handle(controller, livetemplate.AsState(&TodoState{}))
 Actions are automatically dispatched to methods matching the action name:
 
 ```go
-// Template: lvt-click="add"
+// Template: <button name="action" value="add">  OR  lvt-click="add"
 // Dispatches to: Add() method
 
 func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
@@ -45,6 +45,50 @@ func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoSt
 - Method names are discoverable by IDE
 - Type-safe action handlers
 - Cached method lookups (O(1) after first call)
+
+### Implicit Action Methods
+
+LiveTemplate provides two conventional method names that are auto-routed without any explicit attributes:
+
+**`Submit()`** — Called when a form submits with no explicit action routing (`lvt-submit`, `button name="action"`, or `form name`):
+
+```go
+// Template: <form method="POST"><button type="submit">Save</button></form>
+// Auto-routes to Submit() because no action is specified
+
+func (c *Controller) Submit(state State, ctx *livetemplate.Context) (State, error) {
+    var input struct {
+        Title string `validate:"required,min=3"`
+    }
+    if err := ctx.BindAndValidate(&input, validate); err != nil {
+        return state, err
+    }
+    // process...
+    return state, nil
+}
+```
+
+**`Change()`** — Called when a bound input changes (Phase 2: inferred bindings). Optional — if absent, live change tracking is disabled:
+
+```go
+// Auto-routes when an input with value="{{.Field}}" changes
+func (c *Controller) Change(state State, ctx *livetemplate.Context) (State, error) {
+    if ctx.Has("Name") { state.Name = ctx.GetString("Name") }
+    return state, nil
+}
+```
+
+### Standard HTML Action Routing
+
+Actions can be routed using standard HTML attributes instead of `lvt-*`:
+
+| HTML Pattern | Routed To |
+|-------------|-----------|
+| `<form>` (no attributes) | `Submit()` |
+| `<button name="save">` | `Save()` |
+| `<form name="search">` | `Search()` (JS client only; `form.name` is not sent in a non-JS POST) |
+| `lvt-submit="create"` | `Create()` (backward compatible) |
+| `lvt-click="delete"` | `Delete()` (for non-form interactions) |
 
 ### Method Signature
 

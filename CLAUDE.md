@@ -96,6 +96,43 @@ func TestState(t *testing.T) {
 
 ---
 
+## Progressive Complexity Model
+
+LiveTemplate follows a progressive complexity model where standard HTML handles simple to moderate UI and `lvt-*` attributes are reserved for behaviors HTML cannot express.
+
+### Template Tiers
+
+| Tier | What You Write | Examples |
+|------|---------------|---------|
+| **Tier 1: Standard HTML** | Forms, buttons, dialogs, links, validation — no `lvt-*` | `<button name="save">`, `<dialog>`, `<a href>`, `ctx.ValidateForm()` |
+| **Tier 2: `lvt-*` Attributes** | Custom attributes for non-HTML behaviors | `lvt-debounce`, `lvt-key`, `lvt-addClass-on:pending`, `lvt-hook` |
+
+### Tier 1 Capabilities
+
+- **Form auto-submit**: `<form>` → routes to `Submit()` by default
+- **Button name = action**: `<button name="save">` → routes to `Save()`
+- **Button value = data**: `<button name="delete" value="{{.ID}}">` → `ctx.GetString("value")`
+- **Form name = action**: `<form name="search">` → routes to `Search()`
+- **Validation inference**: HTML `required`, `pattern`, `min`, `max`, `type` → `ctx.ValidateForm()`
+- **Dialogs**: `<dialog>` + `command`/`commandfor` + `method="dialog"`
+- **Link interception**: `<a href>` auto-intercepted for SPA navigation
+- **Loading states**: `aria-busy` + `<fieldset disabled>` automatic during submission
+- **Standalone buttons**: `form` attribute references auto-injected hidden form
+
+### When to Use Tier 2 (`lvt-*`)
+
+Only for behaviors standard HTML cannot express:
+- `lvt-debounce`, `lvt-throttle` — timing control
+- `lvt-key` — keyboard key filtering
+- `lvt-addClass-on:pending` — lifecycle-driven reactive DOM
+- `lvt-window-keydown` — global event routing
+- `lvt-hook` — JS library integration
+- `lvt-scroll="bottom-sticky"` — threshold-based scroll
+
+See `docs/guides/progressive-complexity.md` for the full walkthrough.
+
+---
+
 ## 5-Phase Architecture (Current)
 
 The library is organized into 5 operational phases: **Parse → Build → Diff → Render → Send**
