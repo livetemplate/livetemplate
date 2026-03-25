@@ -70,7 +70,7 @@ Use the `name` attribute on the form itself:
 </form>
 ```
 
-Routes to `Search()` on the controller.
+Routes to `Search()` on the controller **when using the JS client**, which reads `form.name`. A plain HTML POST does not include the form's `name` attribute, so for no-JS compatibility use `<button name="search">` instead.
 
 ### Data Passing
 

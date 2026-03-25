@@ -678,7 +678,7 @@ func (c *AuthController) Signup(state AuthState, ctx *livetemplate.Context) (Aut
 
 **Template:**
 ```html
-<form name="signup" method="POST">
+<form method="POST">
     <h2>Sign Up</h2>
 
     {{if .lvt.Errors}}
@@ -727,7 +727,7 @@ func (c *AuthController) Signup(state AuthState, ctx *livetemplate.Context) (Aut
         <small class="help">Must be at least 8 characters</small>
     </div>
 
-    <button type="submit" class="btn-primary">Sign Up</button>
+    <button name="signup" type="submit" class="btn-primary">Sign Up</button>
 </form>
 ```
 

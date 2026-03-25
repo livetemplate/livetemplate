@@ -391,6 +391,30 @@ func TestDispatchWithState_FormNameRouting(t *testing.T) {
 	}
 }
 
+func TestApplyDefaultAction_EmptyActionWithData(t *testing.T) {
+	msg := &message{Action: "", Data: map[string]interface{}{"Title": "x"}}
+	applyDefaultAction(msg)
+	if msg.Action != defaultFormAction {
+		t.Errorf("Action = %q, want %q", msg.Action, defaultFormAction)
+	}
+}
+
+func TestApplyDefaultAction_EmptyActionNoData(t *testing.T) {
+	msg := &message{Action: ""}
+	applyDefaultAction(msg)
+	if msg.Action != defaultFormAction {
+		t.Errorf("Action = %q, want %q (empty forms should still route)", msg.Action, defaultFormAction)
+	}
+}
+
+func TestApplyDefaultAction_ExplicitActionUnchanged(t *testing.T) {
+	msg := &message{Action: "delete", Data: map[string]interface{}{"id": "1"}}
+	applyDefaultAction(msg)
+	if msg.Action != "delete" {
+		t.Errorf("Explicit action mutated: got %q", msg.Action)
+	}
+}
+
 func TestDispatchWithState_NoSubmitMethodReturnsError(t *testing.T) {
 	ctrl := &testCounterController{} // has no Submit() method
 	state := testCounterState{}

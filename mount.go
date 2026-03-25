@@ -1022,8 +1022,12 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Route forms without explicit action to the conventional Submit() method.
-	applyDefaultAction(&msg)
+	// Route browser form submissions without explicit action to Submit().
+	// Only apply for form Content-Types, not JSON action requests.
+	ct := r.Header.Get("Content-Type")
+	if strings.HasPrefix(ct, "application/x-www-form-urlencoded") || strings.HasPrefix(ct, "multipart/form-data") {
+		applyDefaultAction(&msg)
+	}
 
 	// Clear previous errors
 	connSt.clearErrors()

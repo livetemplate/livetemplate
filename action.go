@@ -41,9 +41,10 @@ type message = send.ActionMessage
 const defaultFormAction = "submit"
 
 // applyDefaultAction sets the action to defaultFormAction for forms that
-// submitted without explicit action routing.
+// submitted without explicit action routing. Called only for browser form
+// submissions (not JSON action requests).
 func applyDefaultAction(msg *message) {
-	if msg.Action == "" && len(msg.Data) > 0 {
+	if msg.Action == "" {
 		msg.Action = defaultFormAction
 	}
 }

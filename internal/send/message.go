@@ -108,14 +108,26 @@ func parseURLEncodedForm(r *http.Request) (ActionMessage, error) {
 
 	// If no explicit action, detect button-name-as-action:
 	// A submit button with name="X" and no value submits "X=" in form data.
-	// We detect this as a single-value field with an empty string.
+	// We detect this as the unique single-value field with an empty string.
+	// If multiple empty-value fields exist, we skip (ambiguous — can't determine which button).
 	if msg.Action == "" {
+		var candidate string
+		ambiguous := false
 		for key, values := range r.Form {
-			if len(values) == 1 && values[0] == "" && key != "" {
-				msg.Action = key
-				actionFields[key] = true
-				break
+			if key == "" || actionFields[key] {
+				continue
 			}
+			if len(values) == 1 && values[0] == "" {
+				if candidate != "" {
+					ambiguous = true
+					break
+				}
+				candidate = key
+			}
+		}
+		if candidate != "" && !ambiguous {
+			msg.Action = candidate
+			actionFields[candidate] = true
 		}
 	}
 

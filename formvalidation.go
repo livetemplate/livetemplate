@@ -2,9 +2,11 @@ package livetemplate
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // FormRule represents a validation rule inferred from HTML input attributes.
@@ -18,7 +20,8 @@ type FormRule struct {
 	Max       float64
 	HasMin    bool
 	HasMax    bool
-	Pattern   string
+	Pattern   string         // raw pattern string
+	PatternRe *regexp.Regexp // pre-compiled pattern (nil if invalid or absent)
 }
 
 // FormSchema holds validation rules inferred from template statics.
@@ -29,11 +32,15 @@ type FormSchema struct {
 // inputAttrRegex matches HTML input/textarea/select elements and captures their attributes.
 var inputAttrRegex = regexp.MustCompile(`<(?:input|textarea|select)\b([^>]*)>`)
 
-// attrRegex matches individual HTML attributes (name="value" or bare attributes like "required").
+// attrRegex matches individual HTML attributes.
+// Handles double-quoted values only; single-quoted values are not extracted.
 var attrRegex = regexp.MustCompile(`(\w[\w-]*)(?:\s*=\s*"([^"]*)")?`)
 
 // ExtractFormSchema scans template statics for HTML validation attributes
 // on <input>, <textarea>, and <select> elements.
+//
+// Known limitation: if a field's name attribute is a template expression (dynamic),
+// it will be split across statics and may not be detected.
 func ExtractFormSchema(statics []string) *FormSchema {
 	schema := &FormSchema{}
 	fullHTML := strings.Join(statics, "")
@@ -89,9 +96,9 @@ func ExtractFormSchema(statics []string) *FormSchema {
 
 		if v, ok := attrs["pattern"]; ok {
 			rule.Pattern = v
+			rule.PatternRe, _ = regexp.Compile(v)
 		}
 
-		// Only add rules that have at least one validation attribute
 		if rule.Required || rule.InputType == "email" || rule.InputType == "url" ||
 			rule.MinLength >= 0 || rule.MaxLength >= 0 || rule.HasMin || rule.HasMax || rule.Pattern != "" {
 			schema.Rules = append(schema.Rules, rule)
@@ -101,13 +108,12 @@ func ExtractFormSchema(statics []string) *FormSchema {
 	return schema
 }
 
-// parseHTMLAttributes extracts attribute name-value pairs from an HTML element's attribute string.
 func parseHTMLAttributes(attrStr string) map[string]string {
 	attrs := make(map[string]string)
 	matches := attrRegex.FindAllStringSubmatch(attrStr, -1)
 	for _, m := range matches {
 		key := strings.ToLower(m[1])
-		val := m[2] // empty string for bare attributes like "required"
+		val := m[2]
 		attrs[key] = val
 	}
 	return attrs
@@ -144,15 +150,19 @@ func (s *FormSchema) Validate(data map[string]interface{}) error {
 			errs = append(errs, FieldError{Field: toSnakeCase(rule.Field), Message: fmt.Sprintf("%s must be a valid email address", fieldName)})
 		}
 
-		if rule.InputType == "url" && !strings.HasPrefix(strVal, "http") {
-			errs = append(errs, FieldError{Field: toSnakeCase(rule.Field), Message: fmt.Sprintf("%s must be a valid URL", fieldName)})
+		if rule.InputType == "url" {
+			u, err := url.Parse(strVal)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				errs = append(errs, FieldError{Field: toSnakeCase(rule.Field), Message: fmt.Sprintf("%s must be a valid URL", fieldName)})
+			}
 		}
 
-		if rule.MinLength >= 0 && len(strVal) < rule.MinLength {
+		// Use rune count for minlength/maxlength (HTML counts Unicode code points, not bytes)
+		if rule.MinLength >= 0 && utf8.RuneCountInString(strVal) < rule.MinLength {
 			errs = append(errs, FieldError{Field: toSnakeCase(rule.Field), Message: fmt.Sprintf("%s must be at least %d characters", fieldName, rule.MinLength)})
 		}
 
-		if rule.MaxLength >= 0 && len(strVal) > rule.MaxLength {
+		if rule.MaxLength >= 0 && utf8.RuneCountInString(strVal) > rule.MaxLength {
 			errs = append(errs, FieldError{Field: toSnakeCase(rule.Field), Message: fmt.Sprintf("%s must be at most %d characters", fieldName, rule.MaxLength)})
 		}
 
@@ -167,11 +177,8 @@ func (s *FormSchema) Validate(data map[string]interface{}) error {
 			}
 		}
 
-		if rule.Pattern != "" {
-			re, err := regexp.Compile(rule.Pattern)
-			if err == nil && !re.MatchString(strVal) {
-				errs = append(errs, FieldError{Field: toSnakeCase(rule.Field), Message: fmt.Sprintf("%s is invalid", fieldName)})
-			}
+		if rule.PatternRe != nil && !rule.PatternRe.MatchString(strVal) {
+			errs = append(errs, FieldError{Field: toSnakeCase(rule.Field), Message: fmt.Sprintf("%s is invalid", fieldName)})
 		}
 	}
 

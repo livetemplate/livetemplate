@@ -154,12 +154,14 @@ Form `name` attribute becomes the action. Routes to `Search()`.
 
 Hidden inputs and `data-*` attributes on the submit button are included in action data.
 
-### Action Resolution Priority
+### Action Resolution Order
 
-1. Button `name="action"` + `value="X"` → action is X
-2. Form `name="X"` → action is X
-3. None → default `""` → server defaults to `"submit"`
-4. `lvt-submit="X"` → backward compat, overrides all above
+The client resolves the action in this order (first match wins):
+
+1. `lvt-submit="X"` on form → action is X (backward compat, highest precedence)
+2. Clicked button's `name` attribute → action is the button name
+3. Form `name="X"` → action is X (JS client only; `form.name` not sent in non-JS POST)
+4. None → default `""` → server defaults to `"submit"`
 
 ### What Already Works Today
 

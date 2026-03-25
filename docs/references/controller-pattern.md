@@ -85,8 +85,8 @@ Actions can be routed using standard HTML attributes instead of `lvt-*`:
 | HTML Pattern | Routed To |
 |-------------|-----------|
 | `<form>` (no attributes) | `Submit()` |
-| `<button name="action" value="save">` | `Save()` |
-| `<form name="search">` | `Search()` |
+| `<button name="save">` | `Save()` |
+| `<form name="search">` | `Search()` (JS client only; `form.name` is not sent in a non-JS POST) |
 | `lvt-submit="create"` | `Create()` (backward compatible) |
 | `lvt-click="delete"` | `Delete()` (for non-form interactions) |
 

@@ -3,6 +3,7 @@ package livetemplate
 import (
 	"context"
 	"errors"
+	"regexp"
 	"testing"
 )
 
@@ -168,7 +169,7 @@ func TestFormSchema_Validate_MinMax(t *testing.T) {
 func TestFormSchema_Validate_Pattern(t *testing.T) {
 	schema := &FormSchema{
 		Rules: []FormRule{
-			{Field: "Code", Pattern: "^[A-Z]{3}$", MinLength: -1, MaxLength: -1},
+			{Field: "Code", Pattern: "^[A-Z]{3}$", PatternRe: regexp.MustCompile("^[A-Z]{3}$"), MinLength: -1, MaxLength: -1},
 		},
 	}
 
