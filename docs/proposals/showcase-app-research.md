@@ -77,9 +77,149 @@ GTFS (General Transit Feed Specification) is the global standard. Over 1000 tran
 | Crypto/Finance Explorer | B+ | High retention but saturated market (TradingView). |
 | News/RSS Aggregator | B+ | Lots of competition (Feedly, Miniflux). |
 
+## Berlin: First City Implementation
+
+### Why Berlin?
+- **Multi-modal**: U-Bahn, S-Bahn, Tram, Bus, Ferry — showcases different transport types in one dashboard
+- **High frequency**: Trains every 2-5 min during rush hour = lots of real-time updates
+- **Large tech community**: Good pool of early adopters and potential contributors
+- **Strong open data culture**: Active civic tech scene
+- **Pain points are well-known**: S-Bahn unreliability (Ringbahn meme), bloated BVG app, confusing Ersatzverkehr
+
+### Berlin Transit APIs
+
+**Primary: `v6.bvg.transport.rest` (by derhuerst)**
+- No authentication, free, JSON REST API
+- Wraps BVG/VBB HAFAS backend
+- Key endpoints:
+  - `GET /stops/{id}/departures` — Real-time departures with delays
+  - `GET /stops/{id}/arrivals` — Arrivals at a stop
+  - `GET /locations?query={name}` — Search stops by name
+  - `GET /locations/nearby?latitude={lat}&longitude={lon}` — Nearby stops
+  - `GET /radar?north=&west=&south=&east=` — Vehicle positions in bounding box
+  - `GET /journeys?from={id}&to={id}` — Route planning
+- Response includes: line info, direction, planned/actual times, delay in seconds, platform, remarks (disruptions)
+- Self-hostable via `hafas-rest-api` for production use
+
+**Also available:**
+- `v6.vbb.transport.rest` — Broader VBB network (Berlin + Brandenburg)
+- VBB GTFS Static — Schedule data from `daten.berlin.de` or `vbb.de` (CSV/ZIP, updated monthly)
+- GTFS-RT — Via `opendata-oepnv.de` (free registration, protobuf format)
+- BVG FaSta API — Elevator/escalator status for accessibility
+
+### Berlin-Specific Pain Points to Solve
+
+| Pain Point | How the App Addresses It |
+|-----------|--------------------------|
+| S-Bahn Ringbahn disruptions | Prominent disruption banner at top of dashboard |
+| BVG app is slow and bloated | Zero-JS initial load, instant departure info |
+| Ersatzverkehr confusion | Clear replacement service indicators with affected routes |
+| Evening frequency drop (10 min gaps) | Exact countdowns matter more after 20:00 |
+| Multi-operator complexity (BVG + DB S-Bahn) | Unified view across all operators |
+| Night service confusion | Time-of-day aware display ("next service at 04:30") |
+
+### UI Design: Glanceable Departure Board
+
+Inspired by German station departure boards (Abfahrtstafel):
+
+```
+┌─────────────────────────────────────────────────┐
+│ ⚠ S41/S42 Ringbahn: Einschränkungen Südkreuz   │
+│   ↔ Neukölln. Ersatzverkehr mit Bussen.         │
+├─────────────────────────────────────────────────┤
+│ 📍 S+U Alexanderplatz                           │
+│                                                 │
+│ [S7]  S Westkreuz              2 min            │
+│ [S5]  S Strausberg Nord        4 min            │
+│ [U2]  Ruhleben                 1 min            │
+│ [U5]  Hönow                    3 min   +2 min   │
+│ [U8]  Hermannstraße            6 min            │
+│ [M4]  Falkenberg               2 min            │
+│ [Bus] 100 Zoologischer Garten  8 min            │
+│                                                 │
+│ 📍 U Weinmeisterstraße                          │
+│                                                 │
+│ [U8]  Wittenau                  1 min            │
+│ [U8]  Hermannstraße             7 min            │
+├─────────────────────────────────────────────────┤
+│ Last updated: 3 seconds ago                     │
+└─────────────────────────────────────────────────┘
+```
+
+**Visual elements:**
+- Line badges with official BVG/DB colors (S-Bahn green, U-Bahn blue, Bus purple, Tram red)
+- Countdown format ("2 min") not clock time ("14:37")
+- Delay shown in red ("+2 min")
+- Cancelled services struck through with ⚠
+- Disruption banner impossible to miss
+
+### Feature Priority
+
+**P0 — Must Have (MVP):**
+1. Favorite stops — pre-configured, zero-tap to view
+2. Real-time countdowns — auto-updating via LiveTemplate diffs
+3. Line badges with correct BVG/DB colors
+4. Delay and cancellation indicators
+5. Auto-refresh via server push (no manual reload)
+6. Disruption banner for saved lines
+
+**P1 — Should Have:**
+7. Walking time offset — dim departures you can't make
+8. Line filtering per stop — show only lines you care about
+9. Multiple stops on one screen — "Home" and "Office" side by side
+10. Dark mode — for permanent display / bedside screen
+
+**P2 — Nice to Have:**
+11. "Can I make it?" green/yellow/red indicator
+12. Historical reliability stats
+13. Browser notifications on disruptions
+
+**Explicitly Out of Scope:**
+- Trip planning (use Citymapper/Google Maps)
+- Ticket purchasing
+- Maps
+- Account creation for basic usage
+
+### Architecture (LiveTemplate Pattern)
+
+```go
+// CONTROLLER: Singleton, holds API client
+type TransitController struct {
+    Client  *hafas.Client   // VBB/BVG REST client
+    Cache   *StopCache      // Shared departure cache
+    Ticker  *time.Ticker    // 30s polling interval
+}
+
+// STATE: Per-session, user's configuration
+type TransitState struct {
+    FavoriteStops []FavoriteStop  // User's saved stops
+    Departures    map[string][]Departure  // Current departures per stop
+    Disruptions   []Disruption   // Active service alerts
+    WalkingTimes  map[string]int // Minutes to reach each stop
+    DarkMode      bool
+}
+
+// Server-initiated polling broadcasts to all sessions viewing same stops
+func (c *TransitController) RefreshDepartures(state TransitState, ctx *livetemplate.Context) (TransitState, error) {
+    for _, stop := range state.FavoriteStops {
+        deps, _ := c.Client.Departures(stop.ID, 15) // next 15 minutes
+        state.Departures[stop.ID] = deps
+    }
+    state.Disruptions = c.Client.ActiveDisruptions()
+    return state, nil
+}
+```
+
+**Data flow:**
+1. Server polls VBB API every 30 seconds
+2. Broadcasts departure updates to all connected sessions
+3. LiveTemplate diffs: only changed countdown values + new/removed departures sent
+4. Client DOM updates in-place — no page reload, no full list re-render
+
 ## Next Steps
 
-1. **Prototype**: Build a minimal transit dashboard for one city (suggest NYC MTA or London TfL — both have excellent real-time APIs)
-2. **Validate**: Share with transit communities for feedback
-3. **Expand**: Add more agencies via GTFS-RT standard
-4. **Community**: Open-source the app as a reference implementation for LiveTemplate
+1. **Prototype**: Build MVP with 2-3 Berlin stops using `v6.bvg.transport.rest`
+2. **Validate**: Share in r/berlin, Berlin tech meetups, BVG-related communities
+3. **Iterate**: Add P1 features based on user feedback
+4. **Expand**: Self-host `hafas-rest-api`, add other cities via GTFS-RT
+5. **Community**: Open-source as the LiveTemplate reference app
