@@ -15,10 +15,10 @@ import (
 // Known WebSocket overhead constants. These cannot be measured in library tests
 // since real WebSocket connections are created in the lvt repository.
 const (
-	wsConnectionStructBytes = 980      // Measured in BenchmarkMemoryUsage (struct + channels + registry)
-	wsGoroutineStackBytes   = 2 * 2048 // 2 goroutines (readPump + writePump) × ~2KB initial stack
-	wsReadBufferBytes       = 1024     // gorilla read buffer (default, configurable via GorillaUpgrader)
-	wsWriteBufferBytes      = 1024     // gorilla write buffer (default, configurable via GorillaUpgrader)
+	wsConnectionStructBytes = 980  // Measured in BenchmarkMemoryUsage (struct + channels + registry)
+	wsGoroutineStackBytes   = 2048 // 1 goroutine (writePump) × ~2KB; readPump reuses net/http's handler goroutine
+	wsReadBufferBytes       = 1024 // gorilla read buffer (configurable via GorillaUpgrader)
+	wsWriteBufferBytes      = 0    // gorilla write buffer pooled via sync.Pool (amortized, not per-connection)
 	wsOverheadPerConn       = wsConnectionStructBytes + wsGoroutineStackBytes +
 		wsReadBufferBytes + wsWriteBufferBytes
 	ramHeadroomFactor = 1.5 // 50% headroom for GC, runtime, OS

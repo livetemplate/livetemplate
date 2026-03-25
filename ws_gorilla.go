@@ -3,9 +3,14 @@ package livetemplate
 import (
 	"errors"
 	"net/http"
+	"sync"
 
 	"github.com/gorilla/websocket"
 )
+
+// defaultWriteBufferPool is a shared pool for gorilla write buffers.
+// Using a pool avoids per-connection write buffer allocation (~1KB saved per connection).
+var defaultWriteBufferPool = &sync.Pool{}
 
 // GorillaUpgrader wraps gorilla/websocket.Upgrader as a WSUpgrader.
 type GorillaUpgrader struct {
@@ -17,10 +22,12 @@ type GorillaOption func(*websocket.Upgrader)
 
 // NewGorillaUpgrader creates a WSUpgrader backed by gorilla/websocket.
 // Default buffer sizes are 1024 bytes (optimized for LiveTemplate's small payloads).
+// Write buffers are pooled via sync.Pool to avoid per-connection allocation.
 func NewGorillaUpgrader(opts ...GorillaOption) *GorillaUpgrader {
 	u := &websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
+		WriteBufferPool: defaultWriteBufferPool,
 	}
 	for _, opt := range opts {
 		opt(u)
@@ -41,6 +48,12 @@ func WithGorillaWriteBufferSize(size int) GorillaOption {
 // WithGorillaCheckOrigin sets the origin check function for the gorilla upgrader.
 func WithGorillaCheckOrigin(fn func(*http.Request) bool) GorillaOption {
 	return func(u *websocket.Upgrader) { u.CheckOrigin = fn }
+}
+
+// WithGorillaWriteBufferPool sets a custom write buffer pool.
+// Pass nil to disable pooling (each connection allocates its own buffer).
+func WithGorillaWriteBufferPool(pool websocket.BufferPool) GorillaOption {
+	return func(u *websocket.Upgrader) { u.WriteBufferPool = pool }
 }
 
 // WithGorillaCompression enables permessage-deflate compression.
