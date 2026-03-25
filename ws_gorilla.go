@@ -10,6 +10,8 @@ import (
 
 // defaultWriteBufferPool is a shared pool for gorilla write buffers.
 // Using a pool avoids per-connection write buffer allocation (~1KB saved per connection).
+// Intentionally has no New func — gorilla allocates the buffer on nil Get() and returns
+// it to the pool after write, so the pool self-populates after the first write per connection.
 var defaultWriteBufferPool = &sync.Pool{}
 
 // GorillaUpgrader wraps gorilla/websocket.Upgrader as a WSUpgrader.
