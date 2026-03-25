@@ -280,7 +280,7 @@ The preview updates live as the user types. If no `Change()` method exists, the 
 
 ---
 
-## 11. When to Use Tier 2 (`lvt-*`)
+## 11. When to Use Tier 2 (`lvt-*`) (draft)
 
 Use `lvt-*` attributes only for behaviors standard HTML cannot express:
 
