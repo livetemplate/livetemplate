@@ -255,7 +255,9 @@ Works without JavaScript. Keyboard accessible by default.
 
 ## 10. Live Updates
 
-Add a `Change()` method to your controller to enable live updates as the user types (requires inferred bindings — Phase 2):
+> **Coming soon:** This feature requires inferred bindings (Phase 2), which is not yet implemented. The `Change()` convention is designed but the client-side binding inference is pending.
+
+Add a `Change()` method to your controller to enable live updates as the user types:
 
 ```html
 <form method="POST">

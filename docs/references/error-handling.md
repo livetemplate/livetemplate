@@ -264,7 +264,7 @@ With CSS:
     {{end}}
 
     <!-- Form fields -->
-    <button type="submit" name="action" value="create">Create</button>
+    <button name="create" type="submit">Create</button>
 </form>
 ```
 

@@ -149,7 +149,9 @@ func (s *FormSchema) Validate(data map[string]interface{}) error {
 		}
 
 		if rule.InputType == "email" {
-			if _, err := mail.ParseAddress(strVal); err != nil {
+			// HTML input[type=email] only accepts bare addr-spec (user@host), not display names.
+			addr, err := mail.ParseAddress(strVal)
+			if err != nil || addr.Address != strVal {
 				errs = append(errs, FieldError{Field: toSnakeCase(rule.Field), Message: fmt.Sprintf("%s must be a valid email address", fieldName)})
 			}
 		}
