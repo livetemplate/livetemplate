@@ -561,11 +561,11 @@ type UploadMeta struct {
 **S3Presigner (provided by `github.com/livetemplate/lvt/pkg/s3presigner`):**
 
 ```go
-import "github.com/livetemplate/lvt/pkg/s3presigner"
+// package s3presigner
 
-func s3presigner.NewS3Presigner(cfg s3presigner.S3Config) (*s3presigner.S3Presigner, error)
+func NewS3Presigner(cfg S3Config) (*S3Presigner, error)
 
-type s3presigner.S3Config struct {
+type S3Config struct {
     Bucket          string
     Region          string
     AccessKeyID     string        // Optional: uses default chain if empty

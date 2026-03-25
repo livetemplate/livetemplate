@@ -180,9 +180,9 @@ Get the error message for an upload field:
 
 ### Setup S3 Presigner
 
-```go
-import "github.com/livetemplate/lvt/pkg/s3presigner"
+Import `github.com/livetemplate/lvt/pkg/s3presigner` to use the S3 presigner:
 
+```go
 s3Config := s3presigner.S3Config{
     Bucket:    "my-uploads",
     Region:    "us-east-1",
