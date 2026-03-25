@@ -563,6 +563,10 @@ func measureUpdateThroughput(scenario appScenario, sessionCount int) throughputR
 
 	wg.Wait()
 
+	if v := firstErr.Load(); v != nil {
+		panic(fmt.Sprintf("measureUpdateThroughput: ExecuteUpdates failed: %v", v))
+	}
+
 	ops := totalOps.Load()
 	meanLatency := int64(0)
 	if ops > 0 {

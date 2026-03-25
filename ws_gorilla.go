@@ -101,11 +101,11 @@ func (c *gorillaConn) ReadMessage() (int, []byte, error) {
 }
 
 func (c *gorillaConn) WriteMessage(messageType int, data []byte) error {
-	return c.conn.WriteMessage(messageType, data)
+	return convertGorillaError(c.conn.WriteMessage(messageType, data))
 }
 
 func (c *gorillaConn) Close() error {
-	return c.conn.Close()
+	return convertGorillaError(c.conn.Close())
 }
 
 // convertGorillaError converts gorilla-specific error types to LiveTemplate's WSCloseError.

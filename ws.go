@@ -3,6 +3,7 @@ package livetemplate
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"unicode/utf8"
@@ -47,7 +48,7 @@ type WSCloseError struct {
 }
 
 func (e *WSCloseError) Error() string {
-	return "websocket: close " + WSCloseStatusText(e.Code) + " " + e.Text
+	return fmt.Sprintf("websocket: close %d %s", e.Code, e.Text)
 }
 
 // WSCloseStatusText returns a text description for the close code.

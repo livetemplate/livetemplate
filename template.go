@@ -420,6 +420,8 @@ func WithPermissiveOriginCheck() Option {
 			gu.SetCheckOrigin(func(r *http.Request) bool {
 				return true
 			})
+		} else {
+			slog.Warn("WithPermissiveOriginCheck has no effect on non-Gorilla WSUpgrader implementations")
 		}
 	}
 }
@@ -493,6 +495,8 @@ func WithWebSocketCompression() Option {
 	return func(c *Config) {
 		if gu, ok := c.Upgrader.(*GorillaUpgrader); ok {
 			gu.SetCompression(true)
+		} else {
+			slog.Warn("WithWebSocketCompression has no effect on non-Gorilla WSUpgrader implementations")
 		}
 	}
 }
@@ -1334,7 +1338,7 @@ func (t *Template) generateInitialTreeWithoutRegistry(data interface{}, extracte
 
 // generateDiffBasedTree creates tree based on diff analysis
 // NOTE: This method modifies template state. Caller must hold t.mu write lock.
-func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newData interface{}) (*treeNode, error) {
+func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, newData interface{}) (*treeNode, error) {
 	// Generate new complete tree for comparison
 	if t.hasInitialTree {
 		// MAIN PATH: tree generation uses t.templateStr (template source), not extracted
@@ -1624,7 +1628,7 @@ func (t *Template) buildTree(data interface{}, messages map[string]string) (*tre
 		tree, treeErr = t.generateInitialTreeWithoutRegistry(dataWithLvt, contentToCache)
 	} else {
 		// Subsequent renders - use diffing approach
-		tree, treeErr = t.generateDiffBasedTree(t.lastHTML, currentHTML, nil, dataWithLvt)
+		tree, treeErr = t.generateDiffBasedTree(t.lastHTML, currentHTML, dataWithLvt)
 	}
 
 	if treeErr != nil {
