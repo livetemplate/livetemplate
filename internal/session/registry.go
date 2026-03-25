@@ -6,9 +6,16 @@ import (
 	"log/slog"
 	"sync"
 	"time"
-
-	"github.com/gorilla/websocket"
 )
+
+// WSConn is the interface for a WebSocket connection used by the session package.
+// This mirrors the WSConn interface in the root livetemplate package, defined here
+// to avoid circular imports.
+type WSConn interface {
+	ReadMessage() (messageType int, p []byte, err error)
+	WriteMessage(messageType int, data []byte) error
+	Close() error
+}
 
 // Connection represents a WebSocket connection with associated metadata.
 //
@@ -31,13 +38,13 @@ import (
 //   - Stores: livetemplate.Stores (map[string]Store)
 //   - Uploads: *upload.Registry
 type Connection struct {
-	Conn     *websocket.Conn // WebSocket connection
-	GroupID  string          // Session group ID (shared state boundary)
-	UserID   string          // User identity ("" for anonymous)
-	Template interface{}     // Per-connection template for tree diffing (*livetemplate.Template)
-	Stores   interface{}     // Reference to shared stores from session group (livetemplate.Stores)
-	Uploads  interface{}     // Per-connection upload registry (*upload.Registry)
-	mu       sync.Mutex      // Protects writes to Conn
+	Conn     WSConn      // WebSocket connection
+	GroupID  string      // Session group ID (shared state boundary)
+	UserID   string      // User identity ("" for anonymous)
+	Template interface{} // Per-connection template for tree diffing (*livetemplate.Template)
+	Stores   interface{} // Reference to shared stores from session group (livetemplate.Stores)
+	Uploads  interface{} // Per-connection upload registry (*upload.Registry)
+	mu       sync.Mutex  // Protects writes to Conn
 
 	// Async sending infrastructure
 	sendChan   chan *wsMessage // Buffered channel for queued messages

@@ -1,4 +1,4 @@
-.PHONY: bench bench-10x bench-save bench-compare bench-quick profile-cpu profile-mem profile-all coverage coverage-html
+.PHONY: bench bench-10x bench-save bench-compare bench-quick system-card profile-cpu profile-mem profile-all coverage coverage-html
 
 # Run all benchmarks
 bench:
@@ -23,6 +23,10 @@ bench-compare:
 # Quick smoke test (critical benchmarks only)
 bench-quick:
 	GOWORK=off go test -bench='Benchmark(E2E|Template)' -benchmem -timeout=5m ./...
+
+# Generate system card with capacity planning estimates
+system-card:
+	GOWORK=off go test -run TestSystemCard -v -timeout=120s .
 
 # Profile CPU (root package only, as -cpuprofile doesn't work with ./...)
 profile-cpu:

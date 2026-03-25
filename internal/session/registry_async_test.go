@@ -5,9 +5,9 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/gorilla/websocket"
 )
+
+const wsTextMessage = 1 // RFC 6455 text message type (mirrors WSTextMessage in root package)
 
 // TestWritePumpRegistrationAndCleanup verifies that writePump goroutines
 // are started on Register() and cleaned up on Unregister().
@@ -64,7 +64,7 @@ func TestSendWithNilConnection(t *testing.T) {
 	}
 
 	// Send without initializing async infrastructure (no Register call)
-	err := conn.Send(websocket.TextMessage, []byte("test"))
+	err := conn.Send(wsTextMessage, []byte("test"))
 	if err != nil {
 		t.Fatalf("Send with nil conn failed: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestCloseIsIdempotent(t *testing.T) {
 
 	// If we get here without panic, sync.Once worked
 	// Verify connection is actually closed
-	err := conn.Send(websocket.TextMessage, []byte("test"))
+	err := conn.Send(wsTextMessage, []byte("test"))
 	if err != ErrConnectionClosed {
 		t.Errorf("Expected ErrConnectionClosed after Close(), got: %v", err)
 	}
@@ -226,7 +226,7 @@ func TestSendAfterClose(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 
 	// Send should fail with ErrConnectionClosed
-	err := conn.Send(websocket.TextMessage, []byte("test"))
+	err := conn.Send(wsTextMessage, []byte("test"))
 	if err != ErrConnectionClosed {
 		t.Errorf("Expected ErrConnectionClosed, got: %v", err)
 	}
@@ -359,7 +359,7 @@ func TestConcurrentSendAndClose(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 100; j++ {
-				_ = conn.Send(websocket.TextMessage, []byte("test"))
+				_ = conn.Send(wsTextMessage, []byte("test"))
 			}
 		}()
 	}
@@ -377,7 +377,7 @@ func TestConcurrentSendAndClose(t *testing.T) {
 	wg.Wait()
 
 	// Verify connection is closed
-	err := conn.Send(websocket.TextMessage, []byte("after close"))
+	err := conn.Send(wsTextMessage, []byte("after close"))
 	if err != ErrConnectionClosed {
 		t.Errorf("Expected ErrConnectionClosed after concurrent close, got: %v", err)
 	}

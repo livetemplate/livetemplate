@@ -3,16 +3,20 @@ package session
 import (
 	"sync"
 	"testing"
-
-	"github.com/gorilla/websocket"
 )
+
+type mockWSConn struct{}
+
+func (m *mockWSConn) ReadMessage() (int, []byte, error) { return 0, nil, nil }
+func (m *mockWSConn) WriteMessage(int, []byte) error    { return nil }
+func (m *mockWSConn) Close() error                      { return nil }
 
 // TestConnectionRegistry_RegisterAndGet tests basic registration and retrieval
 func TestConnectionRegistry_RegisterAndGet(t *testing.T) {
 	registry := NewConnectionRegistry()
 
 	conn1 := &Connection{
-		Conn:    &websocket.Conn{},
+		Conn:    &mockWSConn{},
 		GroupID: "group-1",
 		UserID:  "alice",
 	}

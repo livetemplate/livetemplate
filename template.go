@@ -99,7 +99,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/livetemplate/livetemplate/internal/build"
 	"github.com/livetemplate/livetemplate/internal/compat"
 	"github.com/livetemplate/livetemplate/internal/context"
@@ -146,7 +145,7 @@ type keyGenerator = keys.Generator
 
 // Config holds template configuration options
 type Config struct {
-	Upgrader               *websocket.Upgrader
+	Upgrader               WSUpgrader
 	SessionStore           SessionStore
 	Authenticator          Authenticator      // User authentication and session grouping
 	PubSubBroadcaster      pubsub.Broadcaster // Optional: for distributed broadcasting across instances
@@ -226,10 +225,8 @@ type Template struct {
 	wrapperID              string
 	funcs                  template.FuncMap
 	mu                     sync.RWMutex // Protects mutable state fields below
-	lastData               interface{}
 	lastHTML               string
 	lastTree               *treeNode // Store previous tree segments for comparison
-	initialTree            *treeNode
 	hasInitialTree         bool
 	keyGen                 *keyGenerator   // Per-template key generation for wrapper approach
 	config                 Config          // Template configuration
@@ -264,19 +261,6 @@ func (t *Template) Funcs(funcMap template.FuncMap) *Template {
 	return t
 }
 
-// copyFuncMap creates a shallow copy of a FuncMap to prevent caller mutation.
-func copyFuncMap(src template.FuncMap) template.FuncMap {
-	if len(src) == 0 {
-		return nil
-	}
-
-	clone := make(template.FuncMap, len(src))
-	for name, fn := range src {
-		clone[name] = fn
-	}
-	return clone
-}
-
 // UpdateResponse wraps a tree update with metadata for form lifecycle.
 // Tree is an opaque type representing the update payload - the client library handles this automatically.
 // This is an alias for internal/send.UpdateResponse for backward compatibility.
@@ -305,8 +289,8 @@ func WithTemplateBaseDir(dir string) Option {
 	}
 }
 
-// WithUpgrader sets a custom WebSocket upgrader
-func WithUpgrader(upgrader *websocket.Upgrader) Option {
+// WithUpgrader sets a custom WebSocket upgrader.
+func WithUpgrader(upgrader WSUpgrader) Option {
 	return func(c *Config) {
 		c.Upgrader = upgrader
 	}
@@ -432,8 +416,12 @@ func WithTrustForwardedHeaders(trust bool) Option {
 //	)
 func WithPermissiveOriginCheck() Option {
 	return func(c *Config) {
-		c.Upgrader.CheckOrigin = func(r *http.Request) bool {
-			return true
+		if gu, ok := c.Upgrader.(*GorillaUpgrader); ok {
+			gu.SetCheckOrigin(func(r *http.Request) bool {
+				return true
+			})
+		} else {
+			slog.Warn("WithPermissiveOriginCheck has no effect on non-Gorilla WSUpgrader implementations")
 		}
 	}
 }
@@ -496,6 +484,19 @@ func WithWebSocketBufferSize(size int) Option {
 			c.WebSocketBufferSize = 50
 		} else {
 			c.WebSocketBufferSize = size
+		}
+	}
+}
+
+// WithWebSocketCompression enables permessage-deflate WebSocket compression.
+// Reduces bandwidth for larger payloads at the cost of CPU.
+// Only effective when using the default GorillaUpgrader.
+func WithWebSocketCompression() Option {
+	return func(c *Config) {
+		if gu, ok := c.Upgrader.(*GorillaUpgrader); ok {
+			gu.SetCompression(true)
+		} else {
+			slog.Warn("WithWebSocketCompression has no effect on non-Gorilla WSUpgrader implementations")
 		}
 	}
 }
@@ -813,11 +814,7 @@ func createSecureOriginChecker(allowedOrigins []string, devMode bool, trustForwa
 func New(name string, opts ...Option) (*Template, error) {
 	// Default configuration
 	config := Config{
-		Upgrader: &websocket.Upgrader{
-			// Secure default: same-origin only
-			// This will be replaced with origin-aware check after options are applied
-			CheckOrigin: nil, // Will be set after applying options
-		},
+		Upgrader:               NewGorillaUpgrader(), // Default: gorilla with 1KB buffers
 		SessionStore:           NewMemorySessionStore(),
 		Authenticator:          &AnonymousAuthenticator{},  // Default: browser-based session grouping
 		MessageRateLimit:       10.0,                       // Default: 10 messages/sec
@@ -833,9 +830,11 @@ func New(name string, opts ...Option) (*Template, error) {
 		opt(&config)
 	}
 
-	// Set secure CheckOrigin after options are applied
-	if config.Upgrader.CheckOrigin == nil {
-		config.Upgrader.CheckOrigin = createSecureOriginChecker(config.AllowedOrigins, config.DevMode, config.TrustForwardedHeaders)
+	// Set secure CheckOrigin on the default gorilla upgrader (after options are applied)
+	if gu, ok := config.Upgrader.(*GorillaUpgrader); ok {
+		if gu.inner.CheckOrigin == nil {
+			gu.SetCheckOrigin(createSecureOriginChecker(config.AllowedOrigins, config.DevMode, config.TrustForwardedHeaders))
+		}
 	}
 
 	// Log DevMode configuration for debugging
@@ -896,26 +895,28 @@ func (t *Template) Clone() (*Template, error) {
 	templateStr := t.templateStr
 	wrapperID := t.wrapperID
 	config := t.config
+	tmpl := t.tmpl
+	funcs := t.funcs
+	cachedParse := t.cachedParseTemplate
+	bodyContent := t.cachedBodyContent
+	bodyContentValid := t.cachedBodyContentValid
 	t.mu.RUnlock()
 
-	// Cannot clone an executed html/template, must re-parse from source
-	// Create a fresh template instance with the same configuration
+	// Share immutable data from master instead of re-creating per clone.
+	// Go's html/template.Execute() is safe for concurrent use after parsing
+	// (see go.dev/src/html/template/template.go line 118). The template is
+	// never modified after Parse(), so sharing is safe.
 	clone := &Template{
-		name:        name,
-		templateStr: templateStr,
-		wrapperID:   wrapperID, // Share wrapper ID
-		funcs:       copyFuncMap(t.funcs),
-		keyGen:      compat.NewKeyGenerator(),
-		config:      config, // Preserve configuration
-		// Don't copy lastData, lastHTML, lastTree, etc. - start fresh
-	}
-
-	// Re-parse the template from source
-	if templateStr != "" {
-		_, err := clone.Parse(templateStr)
-		if err != nil {
-			return nil, fmt.Errorf("failed to re-parse template: %w", err)
-		}
+		name:                   name,
+		templateStr:            templateStr,
+		tmpl:                   tmpl, // Share parsed template (concurrent Execute is safe)
+		wrapperID:              wrapperID,
+		funcs:                  funcs,       // Share FuncMap (read-only after Parse)
+		config:                 config,      // keyGen allocated lazily on first buildTree (nil-safe at line 1582)
+		cachedParseTemplate:    cachedParse, // Share parsed AST + builtins
+		cachedBodyContent:      bodyContent, // Share extracted body content
+		cachedBodyContentValid: bodyContentValid,
+		// Don't copy lastData, lastHTML, lastTree, etc. - start fresh per session
 	}
 
 	return clone, nil
@@ -1322,11 +1323,12 @@ func (t *Template) generateInitialTreeWithoutRegistry(data interface{}, extracte
 			slog.String("template", t.name),
 			slog.Any("error", err))
 		tree = build.CreateHTMLStructureBasedTree(extractedContent)
+		// Don't set hasInitialTree — subsequent renders must use the HTML fallback
+		// path (AnalyzeChangeAndCreateTree) since the AST path will fail again.
+	} else {
+		t.hasInitialTree = true
+		t.lastHTML = "" // Free initial HTML — no longer needed once AST path is active
 	}
-
-	// Cache the initial structure for future dynamics-only updates
-	t.initialTree = tree
-	t.hasInitialTree = true
 
 	// Store complete tree as the baseline for comparison
 	t.lastTree = tree
@@ -1337,7 +1339,7 @@ func (t *Template) generateInitialTreeWithoutRegistry(data interface{}, extracte
 
 // generateDiffBasedTree creates tree based on diff analysis
 // NOTE: This method modifies template state. Caller must hold t.mu write lock.
-func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newData interface{}) (*treeNode, error) {
+func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, newData interface{}) (*treeNode, error) {
 	// Generate new complete tree for comparison
 	if t.hasInitialTree {
 		// MAIN PATH: tree generation uses t.templateStr (template source), not extracted
@@ -1359,7 +1361,6 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 			return build.NewTreeNode(), nil
 		}
 
-		t.lastData = newData
 		t.lastTree = newTree
 
 		return changedTree, nil
@@ -1380,7 +1381,6 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 		return nil, err
 	}
 
-	t.lastData = newData
 	t.lastHTML = newContent
 
 	return tree, nil
@@ -1444,16 +1444,18 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		opt(&config)
 	}
 
-	// Create WebSocket upgrader with origin validation
+	// Apply origin validation to a copy of the upgrader (avoid mutating shared state)
 	upgrader := t.config.Upgrader
 	if len(t.config.AllowedOrigins) > 0 {
-		upgrader = &websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool {
+		if gu, ok := upgrader.(*GorillaUpgrader); ok {
+			upgCopy := gu.Copy()
+			allowedOrigins := t.config.AllowedOrigins
+			upgCopy.SetCheckOrigin(func(r *http.Request) bool {
 				origin := r.Header.Get("Origin")
 				if origin == "" {
 					return true
 				}
-				for _, allowed := range t.config.AllowedOrigins {
+				for _, allowed := range allowedOrigins {
 					if origin == allowed {
 						return true
 					}
@@ -1461,7 +1463,8 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 				slog.Warn("WebSocket origin rejected",
 					slog.String("origin", origin))
 				return false
-			},
+			})
+			upgrader = upgCopy
 		}
 	}
 
@@ -1607,8 +1610,7 @@ func (t *Template) buildTree(data interface{}, messages map[string]string) (*tre
 		}
 	}
 
-	// Determine if this is first render
-	isFirstRender := t.lastData == nil
+	isFirstRender := !t.hasInitialTree
 
 	// Build tree based on render type
 	var tree *treeNode
@@ -1623,12 +1625,11 @@ func (t *Template) buildTree(data interface{}, messages map[string]string) (*tre
 			contentToCache = currentHTML
 		}
 
-		t.lastData = dataWithLvt
 		t.lastHTML = contentToCache
 		tree, treeErr = t.generateInitialTreeWithoutRegistry(dataWithLvt, contentToCache)
 	} else {
 		// Subsequent renders - use diffing approach
-		tree, treeErr = t.generateDiffBasedTree(t.lastHTML, currentHTML, t.lastData, dataWithLvt)
+		tree, treeErr = t.generateDiffBasedTree(t.lastHTML, currentHTML, dataWithLvt)
 	}
 
 	if treeErr != nil {

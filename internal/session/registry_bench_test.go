@@ -3,9 +3,9 @@ package session
 import (
 	"fmt"
 	"testing"
-
-	"github.com/gorilla/websocket"
 )
+
+const benchWSTextMessage = 1 // RFC 6455 text message type (mirrors WSTextMessage in root package)
 
 // newDrainingBenchConn creates a connection with a dedicated drain goroutine
 // that consumes messages from sendChan, preventing "client too slow" errors.
@@ -45,7 +45,7 @@ func BenchmarkAsyncSendThroughput(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		if err := conn.Send(websocket.TextMessage, []byte("benchmark message")); err != nil {
+		if err := conn.Send(benchWSTextMessage, []byte("benchmark message")); err != nil {
 			b.Fatalf("Send failed: %v", err)
 		}
 	}
@@ -69,7 +69,7 @@ func BenchmarkConcurrentConnections(b *testing.B) {
 
 			for i := 0; i < b.N; i++ {
 				for _, conn := range connections {
-					if err := conn.Send(websocket.TextMessage, []byte("test")); err != nil {
+					if err := conn.Send(benchWSTextMessage, []byte("test")); err != nil {
 						b.Fatalf("Send failed: %v", err)
 					}
 				}
@@ -112,7 +112,7 @@ func BenchmarkConcurrentSend(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			if err := conn.Send(websocket.TextMessage, []byte("concurrent message")); err != nil {
+			if err := conn.Send(benchWSTextMessage, []byte("concurrent message")); err != nil {
 				b.Fatalf("Send failed: %v", err)
 			}
 		}
@@ -206,7 +206,7 @@ func BenchmarkBroadcastToGroup(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		groupConns := registry.GetByGroup("bench-group")
 		for _, conn := range groupConns {
-			if err := conn.Send(websocket.TextMessage, message); err != nil {
+			if err := conn.Send(benchWSTextMessage, message); err != nil {
 				b.Fatalf("Send failed: %v", err)
 			}
 		}
@@ -237,7 +237,7 @@ func BenchmarkBufferSizes(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				// Ignore ErrClientTooSlow — small buffers trigger backpressure
 				// under tight loops, which is expected behavior
-				if err := conn.Send(websocket.TextMessage, []byte("test")); err != nil {
+				if err := conn.Send(benchWSTextMessage, []byte("test")); err != nil {
 					if err == ErrClientTooSlow {
 						// Recreate connection to continue benchmarking
 						cleanup()
