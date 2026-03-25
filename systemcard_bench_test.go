@@ -432,7 +432,10 @@ func measureSessionMemory(scenario appScenario, sessionCount int) sessionMemoryR
 	var after runtime.MemStats
 	runtime.ReadMemStats(&after)
 
-	totalMem := after.HeapInuse - before.HeapInuse
+	var totalMem uint64
+	if after.HeapInuse > before.HeapInuse {
+		totalMem = after.HeapInuse - before.HeapInuse
+	}
 	perSession := totalMem / uint64(sessionCount)
 
 	// Keep templates alive until after measurement
@@ -535,6 +538,7 @@ func measureUpdateThroughput(scenario appScenario, sessionCount int) throughputR
 
 	deadline := time.Now().Add(duration)
 
+	var firstErr atomic.Value
 	for idx := 0; idx < sessionCount; idx++ {
 		wg.Add(1)
 		go func(tmpl *Template, session int) {
@@ -547,6 +551,7 @@ func measureUpdateThroughput(scenario appScenario, sessionCount int) throughputR
 				buf.Reset()
 				start := time.Now()
 				if err := tmpl.ExecuteUpdates(&buf, state); err != nil {
+					firstErr.CompareAndSwap(nil, err)
 					return
 				}
 				elapsed := time.Since(start)
@@ -672,7 +677,8 @@ func calculateCapacity(mem sessionMemoryResult, payload payloadResult, singleUpd
 
 	bandwidth := float64(payload.UpdateBytes) * scenario.UpdatesPerSec * float64(sessionCount)
 
-	goroutines := 2*sessionCount + runtime.NumGoroutine()
+	// 1 goroutine per connection (writePump); readPump reuses net/http's handler goroutine
+	goroutines := sessionCount + runtime.NumGoroutine()
 
 	return capacityEstimate{
 		RAM:          ram,

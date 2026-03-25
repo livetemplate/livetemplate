@@ -68,7 +68,11 @@ func WSCloseStatusText(code int) string {
 }
 
 // WSFormatCloseMessage builds a WebSocket close frame payload.
+// Per RFC 6455 §5.5, the close reason must be <= 123 bytes (125 - 2 for code).
 func WSFormatCloseMessage(closeCode int, text string) []byte {
+	if len(text) > 123 {
+		text = text[:123]
+	}
 	buf := make([]byte, 2+len(text))
 	binary.BigEndian.PutUint16(buf, uint16(closeCode))
 	copy(buf[2:], text)
@@ -90,9 +94,11 @@ func WSIsUnexpectedCloseError(err error, expectedCodes ...int) bool {
 	return true
 }
 
-// WSIsUpgrade reports whether the HTTP request is a WebSocket upgrade request.
+// WSIsUpgrade reports whether the HTTP request is a WebSocket upgrade request
+// per RFC 6455 §4.1 (requires GET method).
 func WSIsUpgrade(r *http.Request) bool {
-	return headerContainsValue(r.Header, "Connection", "upgrade") &&
+	return r.Method == http.MethodGet &&
+		headerContainsValue(r.Header, "Connection", "upgrade") &&
 		headerContainsValue(r.Header, "Upgrade", "websocket")
 }
 

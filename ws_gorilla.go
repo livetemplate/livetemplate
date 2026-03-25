@@ -62,6 +62,11 @@ func WithGorillaCompression() GorillaOption {
 	return func(u *websocket.Upgrader) { u.EnableCompression = true }
 }
 
+// SetCompression enables or disables permessage-deflate compression.
+func (g *GorillaUpgrader) SetCompression(enabled bool) {
+	g.inner.EnableCompression = enabled
+}
+
 // Upgrade upgrades an HTTP connection to a WebSocket connection.
 func (g *GorillaUpgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeader http.Header) (WSConn, error) {
 	conn, err := g.inner.Upgrade(w, r, responseHeader)

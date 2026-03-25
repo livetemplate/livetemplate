@@ -492,7 +492,7 @@ func WithWebSocketBufferSize(size int) Option {
 func WithWebSocketCompression() Option {
 	return func(c *Config) {
 		if gu, ok := c.Upgrader.(*GorillaUpgrader); ok {
-			gu.inner.EnableCompression = true
+			gu.SetCompression(true)
 		}
 	}
 }
@@ -1319,9 +1319,11 @@ func (t *Template) generateInitialTreeWithoutRegistry(data interface{}, extracte
 			slog.String("template", t.name),
 			slog.Any("error", err))
 		tree = build.CreateHTMLStructureBasedTree(extractedContent)
+		// Don't set hasInitialTree — subsequent renders must use the HTML fallback
+		// path (AnalyzeChangeAndCreateTree) since the AST path will fail again.
+	} else {
+		t.hasInitialTree = true
 	}
-
-	t.hasInitialTree = true
 
 	// Store complete tree as the baseline for comparison
 	t.lastTree = tree
@@ -1438,24 +1440,26 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		opt(&config)
 	}
 
-	// Create WebSocket upgrader with origin validation
+	// Apply origin validation to the upgrader without replacing it
 	upgrader := t.config.Upgrader
 	if len(t.config.AllowedOrigins) > 0 {
-		allowedOrigins := t.config.AllowedOrigins
-		upgrader = NewGorillaUpgrader(WithGorillaCheckOrigin(func(r *http.Request) bool {
-			origin := r.Header.Get("Origin")
-			if origin == "" {
-				return true
-			}
-			for _, allowed := range allowedOrigins {
-				if origin == allowed {
+		if gu, ok := upgrader.(*GorillaUpgrader); ok {
+			allowedOrigins := t.config.AllowedOrigins
+			gu.SetCheckOrigin(func(r *http.Request) bool {
+				origin := r.Header.Get("Origin")
+				if origin == "" {
 					return true
 				}
-			}
-			slog.Warn("WebSocket origin rejected",
-				slog.String("origin", origin))
-			return false
-		}))
+				for _, allowed := range allowedOrigins {
+					if origin == allowed {
+						return true
+					}
+				}
+				slog.Warn("WebSocket origin rejected",
+					slog.String("origin", origin))
+				return false
+			})
+		}
 	}
 
 	// Determine session store - use option, then template config, then default
