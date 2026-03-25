@@ -2,6 +2,7 @@ package livetemplate
 
 import (
 	"fmt"
+	"net/mail"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -96,7 +97,8 @@ func ExtractFormSchema(statics []string) *FormSchema {
 
 		if v, ok := attrs["pattern"]; ok {
 			rule.Pattern = v
-			rule.PatternRe, _ = regexp.Compile(v)
+			// HTML pattern attribute implicitly anchors the full string (^...$)
+			rule.PatternRe, _ = regexp.Compile("^(?:" + v + ")$")
 		}
 
 		if rule.Required || rule.InputType == "email" || rule.InputType == "url" ||
@@ -146,8 +148,10 @@ func (s *FormSchema) Validate(data map[string]interface{}) error {
 			continue
 		}
 
-		if rule.InputType == "email" && !strings.Contains(strVal, "@") {
-			errs = append(errs, FieldError{Field: toSnakeCase(rule.Field), Message: fmt.Sprintf("%s must be a valid email address", fieldName)})
+		if rule.InputType == "email" {
+			if _, err := mail.ParseAddress(strVal); err != nil {
+				errs = append(errs, FieldError{Field: toSnakeCase(rule.Field), Message: fmt.Sprintf("%s must be a valid email address", fieldName)})
+			}
 		}
 
 		if rule.InputType == "url" {

@@ -244,6 +244,13 @@ func (c *Context) WithFormSchema(schema *FormSchema) *Context {
 // Uses validation rules extracted from HTML attributes like required, pattern, min, max,
 // minlength, maxlength, and input type (email, url, number).
 // Returns MultiError with field-level errors, or nil if all fields are valid.
+//
+// Note: the schema must be set via WithFormSchema(ExtractFormSchema(statics)).
+// If no schema is set, returns nil (no validation). For production validation
+// with complex rules, use BindAndValidate() with go-playground/validator tags.
+//
+// Known limitation: ExtractFormSchema merges all forms in a template into one
+// schema. If your template has multiple forms, use BindAndValidate() instead.
 func (c *Context) ValidateForm() error {
 	if c.formSchema == nil {
 		return nil

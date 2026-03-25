@@ -10,7 +10,7 @@ LiveTemplate should offer a path from simplicity of implicit inference to explic
 Two key insights drive this proposal:
 
 1. **Template expressions ARE binding declarations.** `<input name="Title" value="{{.Title}}">` already declares that input "Title" is bound to state field `.Title`. No `lvt-bind` attribute needed.
-2. **Standard HTML already routes actions.** `<button name="action" value="delete">` works at all three transport levels (no-JS POST, fetch, WebSocket) without duplication. No `lvt-submit` needed.
+2. **Standard HTML already routes actions.** `<button name="delete">` routes to `Delete()` — the button's name IS the action. Works at all three transport levels. No `lvt-submit` needed.
 
 This supersedes the `lvt-bind` proposal which introduced a new message type, new method signature, and new reflection code (~1150 lines) while still requiring an explicit attribute.
 
@@ -117,8 +117,8 @@ When you need multiple forms or specific action routing, still use standard HTML
 ```html
 <form method="POST">
     <input type="text" name="Title" value="{{.Title}}">
-    <button type="submit" name="action" value="save">Save</button>
-    <button type="submit" name="action" value="save-draft">Save Draft</button>
+    <button name="save">Save</button>
+    <button name="save-draft" formnovalidate>Save Draft</button>
 </form>
 ```
 
@@ -143,10 +143,8 @@ Form `name` attribute becomes the action. Routes to `Search()`.
     {{.Title}}
     <form method="POST">
         <input type="hidden" name="id" value="{{.ID}}">
-        <button type="submit" name="action" value="toggle">
-            {{if .Done}}Undo{{else}}Done{{end}}
-        </button>
-        <button type="submit" name="action" value="delete">Delete</button>
+        <button name="toggle">{{if .Done}}Undo{{else}}Done{{end}}</button>
+        <button name="delete">Delete</button>
     </form>
 </li>
 {{end}}
@@ -187,8 +185,8 @@ Reserved for behaviors standard HTML cannot express:
 
 | Old Pattern | Standard HTML Replacement |
 |-------------|--------------------------|
-| `lvt-submit="save"` | `<form name="save">` or `<button name="action" value="save">` |
-| `lvt-click="delete" lvt-data-id="X"` | `<form><input type="hidden" name="id" value="X"><button name="action" value="delete">` |
+| `lvt-submit="save"` | `<button name="save">` or `<form name="save">` |
+| `lvt-click="delete" lvt-data-id="X"` | `<form><input type="hidden" name="id" value="X"><button name="delete">` |
 | `lvt-data-*="X"` | `data-*="X"` on submit button, or hidden `<input>` |
 
 Existing `lvt-*` attributes continue to work (backward compatible).
@@ -196,7 +194,7 @@ Existing `lvt-*` attributes continue to work (backward compatible).
 Standard HTML routing and `lvt-*` reactive behavior can be combined freely:
 
 ```html
-<button type="submit" name="action" value="save"
+<button name="save"
     lvt-disable-on:pending
     lvt-addClass-on:pending="opacity-50"
     lvt-enable-on:done>

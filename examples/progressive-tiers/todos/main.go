@@ -3,7 +3,7 @@
 // This demo shows LiveTemplate's progressive complexity model using
 // ZERO lvt-* attributes. All action routing uses standard HTML:
 //   - Form auto-submit (no attributes) → Submit() method
-//   - button name="action" value="X" → X() method
+//   - button name="X" → X() method
 //   - form name="X" → X() method
 //
 // Works at all three transport levels:
@@ -87,7 +87,7 @@ func (c *TodoController) Submit(state TodoState, ctx *livetemplate.Context) (Tod
 	return state, nil
 }
 
-// Toggle handles button name="action" value="toggle" (Tier 1: standard HTML routing).
+// Toggle handles button name="toggle" (Tier 1: standard HTML routing).
 func (c *TodoController) Toggle(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
 	id := ctx.GetString("id")
 	for i := range state.Items {
@@ -99,7 +99,7 @@ func (c *TodoController) Toggle(state TodoState, ctx *livetemplate.Context) (Tod
 	return state, nil
 }
 
-// Delete handles button name="action" value="delete" (Tier 1: standard HTML routing).
+// Delete handles button name="delete" (Tier 1: standard HTML routing).
 func (c *TodoController) Delete(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
 	id := ctx.GetString("id")
 	state.Items = slices.DeleteFunc(state.Items, func(t Todo) bool { return t.ID == id })
@@ -188,7 +188,7 @@ const todoTemplate = `<!DOCTYPE html>
 
     <!-- ==========================================
          TIER 1: Standard HTML action routing
-         button name="action" value="X" → X() method
+         button name="X" → X() method
          ========================================== -->
     <div class="tier-label">Tier 1: button name=&quot;action&quot;</div>
     <ul>
@@ -197,10 +197,10 @@ const todoTemplate = `<!DOCTYPE html>
             <form method="POST">
                 <input type="hidden" name="id" value="{{.ID}}">
                 <span class="{{if .Done}}done{{end}}">{{.Title}}</span>
-                <button type="submit" name="action" value="toggle">
+                <button type="submit" name="toggle">
                     {{if .Done}}Undo{{else}}Done{{end}}
                 </button>
-                <button type="submit" name="action" value="delete">Delete</button>
+                <button type="submit" name="delete">Delete</button>
             </form>
         </li>
     {{end}}
