@@ -34,7 +34,8 @@ type FormSchema struct {
 var inputAttrRegex = regexp.MustCompile(`<(?:input|textarea|select)\b([^>]*)>`)
 
 // attrRegex matches individual HTML attributes.
-// Handles double-quoted values only; single-quoted values are not extracted.
+// Handles double-quoted values only. This is sufficient because Go's html/template
+// always renders attributes with double quotes in statics.
 var attrRegex = regexp.MustCompile(`(\w[\w-]*)(?:\s*=\s*"([^"]*)")?`)
 
 // ExtractFormSchema scans template statics for HTML validation attributes
