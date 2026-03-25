@@ -96,6 +96,62 @@ func TestState(t *testing.T) {
 
 ---
 
+## Progressive Complexity Model
+
+LiveTemplate follows a progressive complexity model where standard HTML handles simple to moderate UI and `lvt-*` attributes are reserved for behaviors HTML cannot express.
+
+### Template Tiers
+
+| Tier | What You Write | Routing |
+|------|---------------|---------|
+| **Tier 1** | Zero `lvt-*` attributes | Auto-intercept → `Submit()` method |
+| **Tier 2** | Standard HTML attributes | `button name="action"`, `form name`, hidden inputs |
+| **Tier 3** | `lvt-*` attributes | Debounce, throttle, loading states, reactive DOM |
+
+### Transport Modes
+
+All three degrade gracefully:
+- **No JS**: Standard HTML POST + PRG pattern
+- **JS + HTTP**: `fetch()` POST + DOM patching
+- **JS + WebSocket**: WebSocket + server push (broadcasting only)
+
+### Implicit Action Methods
+
+- **`Submit()`**: Default handler when forms submit without explicit action routing
+- **`Change()`**: Optional handler for live field updates (inferred bindings, Phase 2)
+- `button name="action" value="X"` routes to `X()` method
+- `form name="X"` routes to `X()` method
+
+### Standard HTML Routing (Preferred)
+
+```html
+<!-- Tier 1: Auto-submit to Submit() -->
+<form method="POST">
+    <input name="Title" value="{{.Title}}">
+    <button type="submit">Save</button>
+</form>
+
+<!-- Tier 2: Button routes to Delete() -->
+<form method="POST">
+    <input type="hidden" name="id" value="{{.ID}}">
+    <button type="submit" name="action" value="delete">Delete</button>
+</form>
+```
+
+### When to Use `lvt-*`
+
+Only for behaviors standard HTML cannot express:
+- `lvt-debounce`, `lvt-throttle` — timing control
+- `lvt-disable-with` — loading state text swap
+- `lvt-key` — keyboard key filtering
+- `lvt-addClass-on:pending` — reactive DOM
+- `lvt-hook` — JS library integration
+- `lvt-click` — non-form button interactions
+
+See `docs/proposals/progressive-complexity-proposal.md` for the full proposal.
+
+---
+
 ## 5-Phase Architecture (Current)
 
 The library is organized into 5 operational phases: **Parse → Build → Diff → Render → Send**

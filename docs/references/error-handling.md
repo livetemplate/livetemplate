@@ -201,7 +201,7 @@ LiveTemplate provides template helpers for displaying errors.
 ### Basic Error Display
 
 ```html
-<form lvt-submit="save">
+<form method="POST">
     <div>
         <label for="email">Email</label>
         <input
@@ -254,7 +254,7 @@ With CSS:
 ### Error Summary at Top
 
 ```html
-<form lvt-submit="create">
+<form method="POST">
     {{if .lvt.Errors}}
         <div class="alert alert-error">
             {{range .lvt.Errors}}
@@ -264,6 +264,7 @@ With CSS:
     {{end}}
 
     <!-- Form fields -->
+    <button type="submit" name="action" value="create">Create</button>
 </form>
 ```
 
@@ -677,7 +678,7 @@ func (c *AuthController) Signup(state AuthState, ctx *livetemplate.Context) (Aut
 
 **Template:**
 ```html
-<form lvt-submit="signup">
+<form name="signup" method="POST">
     <h2>Sign Up</h2>
 
     {{if .lvt.Errors}}

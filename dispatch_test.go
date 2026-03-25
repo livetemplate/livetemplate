@@ -304,6 +304,104 @@ func TestDispatchWithState_StateUnchangedOnError(t *testing.T) {
 	}
 }
 
+// ============================================================================
+// Progressive Complexity: Default Action & Standard HTML Routing Tests
+// ============================================================================
+
+type testFormState struct {
+	Title  string
+	Filter string
+}
+
+type testFormController struct {
+	SubmitCalled bool
+	DeleteCalled bool
+	FilterCalled bool
+}
+
+func (c *testFormController) Submit(state testFormState, ctx *Context) (testFormState, error) {
+	c.SubmitCalled = true
+	state.Title = ctx.GetString("Title")
+	return state, nil
+}
+
+func (c *testFormController) Delete(state testFormState, ctx *Context) (testFormState, error) {
+	c.DeleteCalled = true
+	return state, nil
+}
+
+func (c *testFormController) Filter(state testFormState, ctx *Context) (testFormState, error) {
+	c.FilterCalled = true
+	state.Filter = ctx.GetString("filter")
+	return state, nil
+}
+
+func TestDispatchWithState_DefaultSubmitAction(t *testing.T) {
+	ctrl := &testFormController{}
+	state := testFormState{}
+	data := map[string]interface{}{"Title": "Buy milk"}
+	ctx := NewContext(context.TODO(), "submit", data)
+
+	newState, err := DispatchWithState(ctrl, state, ctx)
+	if err != nil {
+		t.Fatalf("DispatchWithState failed: %v", err)
+	}
+
+	result := newState.(testFormState)
+	if result.Title != "Buy milk" {
+		t.Errorf("Title = %q, want %q", result.Title, "Buy milk")
+	}
+	if !ctrl.SubmitCalled {
+		t.Error("Submit was not called")
+	}
+}
+
+func TestDispatchWithState_ButtonNameActionRouting(t *testing.T) {
+	ctrl := &testFormController{}
+	state := testFormState{}
+	data := map[string]interface{}{"id": "123"}
+	ctx := NewContext(context.TODO(), "delete", data)
+
+	_, err := DispatchWithState(ctrl, state, ctx)
+	if err != nil {
+		t.Fatalf("DispatchWithState failed: %v", err)
+	}
+	if !ctrl.DeleteCalled {
+		t.Error("Delete was not called via button name='action' value='delete'")
+	}
+}
+
+func TestDispatchWithState_FormNameRouting(t *testing.T) {
+	ctrl := &testFormController{}
+	state := testFormState{}
+	data := map[string]interface{}{"filter": "active"}
+	ctx := NewContext(context.TODO(), "filter", data)
+
+	newState, err := DispatchWithState(ctrl, state, ctx)
+	if err != nil {
+		t.Fatalf("DispatchWithState failed: %v", err)
+	}
+
+	result := newState.(testFormState)
+	if result.Filter != "active" {
+		t.Errorf("Filter = %q, want %q", result.Filter, "active")
+	}
+	if !ctrl.FilterCalled {
+		t.Error("Filter was not called via form name routing")
+	}
+}
+
+func TestDispatchWithState_NoSubmitMethodReturnsError(t *testing.T) {
+	ctrl := &testCounterController{} // has no Submit() method
+	state := testCounterState{}
+	ctx := NewContext(context.TODO(), "submit", map[string]interface{}{"Title": "test"})
+
+	_, err := DispatchWithState(ctrl, state, ctx)
+	if !errors.Is(err, ErrMethodNotFound) {
+		t.Errorf("Expected ErrMethodNotFound for controller without Submit(), got %v", err)
+	}
+}
+
 func BenchmarkDispatchWithState_Cached(b *testing.B) {
 	ctrl := &testCounterController{}
 	state := testCounterState{Count: 0}

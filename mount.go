@@ -658,6 +658,9 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
+		// Route forms without explicit action to the conventional Submit() method.
+		applyDefaultAction(&msg)
+
 		// Clear previous errors
 		connSt.clearErrors()
 
@@ -1018,6 +1021,9 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	// Route forms without explicit action to the conventional Submit() method.
+	applyDefaultAction(&msg)
 
 	// Clear previous errors
 	connSt.clearErrors()

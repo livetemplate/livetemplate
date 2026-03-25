@@ -35,6 +35,19 @@ var (
 // message is an alias for internal/send.ActionMessage for backward compatibility
 type message = send.ActionMessage
 
+// defaultFormAction is the conventional action name used when a form submits
+// without explicit routing (no lvt-submit, button name="action", or form name).
+// Maps to the Submit() method on the controller via methodNameToActions().
+const defaultFormAction = "submit"
+
+// applyDefaultAction sets the action to defaultFormAction for forms that
+// submitted without explicit action routing.
+func applyDefaultAction(msg *message) {
+	if msg.Action == "" && len(msg.Data) > 0 {
+		msg.Action = defaultFormAction
+	}
+}
+
 // ActionData wraps action data with utilities for binding and validation
 type ActionData struct {
 	raw   map[string]interface{}
