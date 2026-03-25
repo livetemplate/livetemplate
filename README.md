@@ -44,32 +44,33 @@ This extends to progressive enhancement at the HTML level too. LiveTemplate foll
 
 | Tier | What you write | When to use |
 |------|---------------|-------------|
-| **Tier 1: Standard HTML** | `<form>`, `<button name="action">`, hidden inputs | Simple to moderate forms |
-| **Tier 2: `lvt-*` attributes** | `lvt-debounce`, `lvt-disable-with`, `lvt-key` | Timing, loading states, keyboard shortcuts |
+| **Tier 1: Standard HTML** | `<form>`, `<button name="add">`, `<dialog>`, `<a href>` | Forms, actions, modals, navigation |
+| **Tier 2: `lvt-*` attributes** | `lvt-debounce`, `lvt-key`, `lvt-addClass-on:pending` | Timing, keyboard shortcuts, reactive DOM |
 
-A form that works at all transport levels — no JS, fetch, and WebSocket — with zero custom attributes ([full example](https://github.com/livetemplate/examples/tree/main/progressive-enhancement)):
+A form that works at all transport levels — no JS, fetch, and WebSocket — with zero custom attributes:
 
 ```html
 <form method="POST">
-    <input type="text" name="title" placeholder="What needs to be done?">
-    <button type="submit" name="action" value="add">Add Todo</button>
+    <input type="text" name="title" required placeholder="What needs to be done?">
+    <button name="add">Add Todo</button>
 </form>
 ```
 
-The standard `button name="action" value="add"` routes to the `Add()` method on the controller. Without JS, the form POSTs normally. With the JS client loaded, the submission is intercepted and the DOM is patched in place. One declaration, three transport modes, no duplication.
-
-The Go handler is the same either way:
+The button's `name` IS the action — `<button name="add">` routes to the `Add()` method. Without JS, the form POSTs normally. With the JS client, the submission is intercepted and the DOM is patched in place. One declaration, three transport modes.
 
 ```go
 func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    if err := ctx.ValidateForm(); err != nil {  // Inferred from HTML required attr
+        return state, err
+    }
     state.Items = append(state.Items, Todo{Title: ctx.GetString("title")})
     return state, nil
 }
 ```
 
-Forms without a `button name="action"` auto-route to a conventional `Submit()` method — no attributes needed at all for the simplest case.
+Forms without a named button auto-route to a conventional `Submit()` method — no attributes needed at all for the simplest case. See the [Progressive Complexity Guide](docs/guides/progressive-complexity.md) for the full walkthrough.
 
-For interactions that don't map to form submissions (counters, toggles, keyboard shortcuts), use `lvt-*` attributes:
+For interactions that HTML can't express (timing, reactive DOM, keyboard shortcuts), use `lvt-*` attributes:
 
 ```html
 <h1>Counter: {{.Counter}}</h1>

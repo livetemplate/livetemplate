@@ -274,6 +274,28 @@ func TestParseActionFromHTTP_URLEncoded(t *testing.T) {
 				"name":  "John Doe",
 			},
 		},
+		{
+			name:       "button name as action (empty value)",
+			body:       "increment=&title=test",
+			wantAction: "increment",
+			wantData: map[string]interface{}{
+				"title": "test",
+			},
+		},
+		{
+			name:       "button name as action (standalone)",
+			body:       "delete=",
+			wantAction: "delete",
+			wantData:   map[string]interface{}{},
+		},
+		{
+			name:       "action field takes precedence over button name",
+			body:       "action=save&draft=",
+			wantAction: "save",
+			wantData: map[string]interface{}{
+				"draft": "",
+			},
+		},
 	}
 
 	for _, tt := range tests {

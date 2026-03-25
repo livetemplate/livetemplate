@@ -104,50 +104,32 @@ LiveTemplate follows a progressive complexity model where standard HTML handles 
 
 | Tier | What You Write | Examples |
 |------|---------------|---------|
-| **Tier 1: Standard HTML** | Forms, buttons, hidden inputs — no `lvt-*` | Auto-submit → `Submit()`, `button name="action"`, `form name` |
-| **Tier 2: `lvt-*` Attributes** | Custom attributes for non-HTML behaviors | `lvt-debounce`, `lvt-disable-with`, `lvt-key`, reactive DOM, hooks |
+| **Tier 1: Standard HTML** | Forms, buttons, dialogs, links, validation — no `lvt-*` | `<button name="save">`, `<dialog>`, `<a href>`, `ctx.ValidateForm()` |
+| **Tier 2: `lvt-*` Attributes** | Custom attributes for non-HTML behaviors | `lvt-debounce`, `lvt-key`, `lvt-addClass-on:pending`, `lvt-hook` |
 
-### Transport Modes
+### Tier 1 Capabilities
 
-All three degrade gracefully:
-- **No JS**: Standard HTML POST + PRG pattern
-- **JS + HTTP**: `fetch()` POST + DOM patching
-- **JS + WebSocket**: WebSocket + server push (broadcasting only)
+- **Form auto-submit**: `<form>` → routes to `Submit()` by default
+- **Button name = action**: `<button name="save">` → routes to `Save()`
+- **Button value = data**: `<button name="delete" value="{{.ID}}">` → `ctx.GetString("value")`
+- **Form name = action**: `<form name="search">` → routes to `Search()`
+- **Validation inference**: HTML `required`, `pattern`, `min`, `max`, `type` → `ctx.ValidateForm()`
+- **Dialogs**: `<dialog>` + `command`/`commandfor` + `method="dialog"`
+- **Link interception**: `<a href>` auto-intercepted for SPA navigation
+- **Loading states**: `aria-busy` + `<fieldset disabled>` automatic during submission
+- **Standalone buttons**: `form` attribute references auto-injected hidden form
 
-### Implicit Action Methods
-
-- **`Submit()`**: Default handler when forms submit without explicit action routing
-- **`Change()`**: Optional handler for live field updates (inferred bindings, Phase 2)
-- `button name="action" value="X"` routes to `X()` method
-- `form name="X"` routes to `X()` method
-
-### Standard HTML Routing (Preferred)
-
-```html
-<!-- Tier 1: Auto-submit to Submit() -->
-<form method="POST">
-    <input name="Title" value="{{.Title}}">
-    <button type="submit">Save</button>
-</form>
-
-<!-- Tier 2: Button routes to Delete() -->
-<form method="POST">
-    <input type="hidden" name="id" value="{{.ID}}">
-    <button type="submit" name="action" value="delete">Delete</button>
-</form>
-```
-
-### When to Use `lvt-*`
+### When to Use Tier 2 (`lvt-*`)
 
 Only for behaviors standard HTML cannot express:
 - `lvt-debounce`, `lvt-throttle` — timing control
-- `lvt-disable-with` — loading state text swap
 - `lvt-key` — keyboard key filtering
-- `lvt-addClass-on:pending` — reactive DOM
+- `lvt-addClass-on:pending` — lifecycle-driven reactive DOM
+- `lvt-window-keydown` — global event routing
 - `lvt-hook` — JS library integration
-- `lvt-click` — non-form button interactions
+- `lvt-scroll="bottom-sticky"` — threshold-based scroll
 
-See `docs/proposals/progressive-complexity-proposal.md` for the full proposal.
+See `docs/guides/progressive-complexity.md` for the full walkthrough.
 
 ---
 

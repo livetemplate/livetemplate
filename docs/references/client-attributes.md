@@ -45,19 +45,19 @@ func (c *Controller) Submit(state State, ctx *livetemplate.Context) (State, erro
 }
 ```
 
-### Action Routing via Button
+### Action Routing via Button Name
 
-Use `button name="action"` to route different buttons to different controller methods:
+The button's `name` IS the action. Button `value` carries optional data:
 
 ```html
 <form method="POST">
     <input type="text" name="Title" value="{{.Title}}">
-    <button type="submit" name="action" value="save">Save</button>
-    <button type="submit" name="action" value="save-draft">Save Draft</button>
+    <button name="save">Save</button>
+    <button name="save-draft" formnovalidate>Save Draft</button>
 </form>
 ```
 
-The clicked button's value becomes the action: `Save()` or `SaveDraft()`.
+`<button name="save">` routes to `Save()`. `<button name="save-draft">` routes to `SaveDraft()`.
 
 ### Action Routing via Form Name
 
@@ -72,25 +72,30 @@ Use the `name` attribute on the form itself:
 
 Routes to `Search()` on the controller.
 
-### Data Passing via Hidden Inputs
+### Data Passing
+
+Data can be passed via hidden inputs, button `value`, or `data-*` attributes:
 
 ```html
 {{range .Items}}
 <form method="POST">
     <input type="hidden" name="id" value="{{.ID}}">
-    <button type="submit" name="action" value="delete">Delete</button>
+    <button name="toggle">{{if .Done}}Undo{{else}}Done{{end}}</button>
+    <button name="delete" value="{{.ID}}">Delete</button>
 </form>
 {{end}}
 ```
 
-Hidden inputs and `data-*` attributes on the submit button are included in action data (accessible via `ctx.GetString("id")`).
+- Hidden inputs: `ctx.GetString("id")`
+- Button value: `ctx.GetString("value")`
+- `data-*` on button: `ctx.GetString("key")`
 
 ### Action Resolution Order
 
 The client resolves the action name in this order (first match wins):
 
 1. `lvt-submit="X"` on the form → action is `X` (backward compatible, highest precedence)
-2. `button name="action" value="X"` on the clicked submit button → action is `X`
+2. Clicked button's `name` attribute → action is the button name
 3. `form name="X"` → action is `X`
 4. None of the above → defaults to `"submit"` → routes to `Submit()`
 

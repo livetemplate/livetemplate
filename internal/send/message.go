@@ -83,7 +83,13 @@ func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 }
 
 // parseURLEncodedForm parses action from application/x-www-form-urlencoded (standard HTML forms).
-// Action is specified via "lvt-action" field, all other fields become data.
+//
+// Action resolution order (first match wins):
+//  1. "lvt-action" form field (legacy explicit routing)
+//  2. "action" form field (standard HTML: <button name="action" value="X">)
+//  3. Button name routing: a form field with an empty string value is treated as a
+//     submit button whose name is the action (standard HTML: <button name="increment">)
+//  4. Empty string (server defaults to "submit" via applyDefaultAction)
 func parseURLEncodedForm(r *http.Request) (ActionMessage, error) {
 	var msg ActionMessage
 
@@ -97,17 +103,31 @@ func parseURLEncodedForm(r *http.Request) (ActionMessage, error) {
 		msg.Action = r.FormValue("action")
 	}
 
-	// Convert all form fields to data map (except lvt-action and action)
+	// Action routing fields to exclude from data
+	actionFields := map[string]bool{"lvt-action": true, "action": true}
+
+	// If no explicit action, detect button-name-as-action:
+	// A submit button with name="X" and no value submits "X=" in form data.
+	// We detect this as a single-value field with an empty string.
+	if msg.Action == "" {
+		for key, values := range r.Form {
+			if len(values) == 1 && values[0] == "" && key != "" {
+				msg.Action = key
+				actionFields[key] = true
+				break
+			}
+		}
+	}
+
+	// Convert all form fields to data map (except action routing fields)
 	msg.Data = make(map[string]interface{})
 	for key, values := range r.Form {
-		if key == "lvt-action" || key == "action" {
-			continue // Skip action fields
+		if actionFields[key] {
+			continue
 		}
-		// Use first value (forms typically have single values)
 		if len(values) == 1 {
 			msg.Data[key] = values[0]
 		} else if len(values) > 1 {
-			// Convert to interface slice for multiple values
 			interfaceSlice := make([]interface{}, len(values))
 			for i, v := range values {
 				interfaceSlice[i] = v
