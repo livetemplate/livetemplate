@@ -1,10 +1,10 @@
-// Progressive Complexity Demo: Todo App (Tiers 1+2)
+// Progressive Complexity Demo: Todo App (Tier 1: Standard HTML)
 //
 // This demo shows LiveTemplate's progressive complexity model using
 // ZERO lvt-* attributes. All action routing uses standard HTML:
-//   - Tier 1: Form auto-submit (no attributes) → Submit() method
-//   - Tier 2: button name="action" value="X" → X() method
-//   - Tier 2: form name="X" → X() method
+//   - Form auto-submit (no attributes) → Submit() method
+//   - button name="action" value="X" → X() method
+//   - form name="X" → X() method
 //
 // Works at all three transport levels:
 //   - No JS:         POST + PRG pattern (full page reload)
@@ -87,7 +87,7 @@ func (c *TodoController) Submit(state TodoState, ctx *livetemplate.Context) (Tod
 	return state, nil
 }
 
-// Toggle handles button name="action" value="toggle" (Tier 2: standard HTML routing).
+// Toggle handles button name="action" value="toggle" (Tier 1: standard HTML routing).
 func (c *TodoController) Toggle(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
 	id := ctx.GetString("id")
 	for i := range state.Items {
@@ -99,14 +99,14 @@ func (c *TodoController) Toggle(state TodoState, ctx *livetemplate.Context) (Tod
 	return state, nil
 }
 
-// Delete handles button name="action" value="delete" (Tier 2: standard HTML routing).
+// Delete handles button name="action" value="delete" (Tier 1: standard HTML routing).
 func (c *TodoController) Delete(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
 	id := ctx.GetString("id")
 	state.Items = slices.DeleteFunc(state.Items, func(t Todo) bool { return t.ID == id })
 	return state, nil
 }
 
-// Filter handles form name="filter" (Tier 2: form name routing).
+// Filter handles form name="filter" (Tier 1: standard HTML routing).
 func (c *TodoController) Filter(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
 	state.ActiveFilter = ctx.GetString("filter")
 	return state, nil
@@ -174,7 +174,7 @@ const todoTemplate = `<!DOCTYPE html>
     <p class="subtitle">Zero <code>lvt-*</code> attributes &mdash; standard HTML only</p>
 
     <!-- ==========================================
-         TIER 1: Auto-submit form (no attributes)
+         TIER 1: Auto-submit form
          Works at all transport levels.
          ========================================== -->
     <div class="tier-label">Tier 1: auto-submit</div>
@@ -187,10 +187,10 @@ const todoTemplate = `<!DOCTYPE html>
     {{end}}
 
     <!-- ==========================================
-         TIER 2: Standard HTML action routing
+         TIER 1: Standard HTML action routing
          button name="action" value="X" → X() method
          ========================================== -->
-    <div class="tier-label">Tier 2: button name=&quot;action&quot;</div>
+    <div class="tier-label">Tier 1: button name=&quot;action&quot;</div>
     <ul>
     {{range .FilteredItems}}
         <li data-key="{{.ID}}">
@@ -207,10 +207,10 @@ const todoTemplate = `<!DOCTYPE html>
     </ul>
 
     <!-- ==========================================
-         TIER 2: Filter via form name
+         TIER 1: Filter via form name
          form name="filter" → Filter() method
          ========================================== -->
-    <div class="tier-label">Tier 2: form name</div>
+    <div class="tier-label">Tier 1: form name</div>
     <form name="filter" method="POST" class="filters">
         <button type="submit" name="filter" value="all">All</button>
         <button type="submit" name="filter" value="active">Active</button>

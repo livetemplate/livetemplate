@@ -44,8 +44,8 @@ This extends to progressive enhancement at the HTML level too. LiveTemplate foll
 
 | Tier | What you write | When to use |
 |------|---------------|-------------|
-| **Standard HTML** | `<form>`, `<button name="action">`, hidden inputs | Simple to moderate forms |
-| **`lvt-*` attributes** | `lvt-debounce`, `lvt-disable-with`, `lvt-key` | Timing, loading states, keyboard shortcuts |
+| **Tier 1: Standard HTML** | `<form>`, `<button name="action">`, hidden inputs | Simple to moderate forms |
+| **Tier 2: `lvt-*` attributes** | `lvt-debounce`, `lvt-disable-with`, `lvt-key` | Timing, loading states, keyboard shortcuts |
 
 A form that works at all transport levels — no JS, fetch, and WebSocket — with zero custom attributes ([full example](https://github.com/livetemplate/examples/tree/main/progressive-enhancement)):
 

@@ -18,12 +18,10 @@ This supersedes the `lvt-bind` proposal which introduced a new message type, new
 
 ### Dimension 1: Template Complexity
 
-| Tier | Template Style | Action Routing |
-|------|---------------|----------------|
-| **Tier 1** | Zero `lvt-*` attributes | Auto-intercept → `Submit()` / `Change()` |
-| **Tier 2** | Standard HTML attributes | `button name="action"`, `form name`, `data-*`, hidden inputs |
-| **Tier 3** | `lvt-*` attributes | Debounce, throttle, key filter, reactive DOM, loading states |
-| **Tier 4** | Advanced `lvt-*` | Reactive attributes, lifecycle hooks, window events |
+| Tier | What You Write | Examples |
+|------|---------------|---------|
+| **Tier 1: Standard HTML** | Forms, buttons, hidden inputs — no `lvt-*` | Auto-submit → `Submit()`, `button name="action"`, `form name`, `Change()` |
+| **Tier 2: `lvt-*` Attributes** | Custom attributes for non-HTML behaviors | `lvt-debounce`, `lvt-disable-with`, `lvt-key`, reactive DOM, hooks, window events |
 
 ### Dimension 2: Transport Capability
 
@@ -35,7 +33,7 @@ This supersedes the `lvt-bind` proposal which introduced a new message type, new
 
 Standard HTML (`button name="action"`) is the only approach that works at all three levels without duplication. The current `lvt-submit` + hidden `lvt-action` approach requires duplicated routing declarations.
 
-## Tier 1: Zero `lvt-*` Attributes
+## Tier 1: Standard HTML
 
 A plain HTML form within a LiveTemplate-managed region just works.
 
@@ -112,9 +110,7 @@ func (c *ProfileController) Change(state ProfileState, ctx *livetemplate.Context
 
 The client auto-intercepts all `<form>` elements in the LiveTemplate wrapper div. Opt out with `lvt-no-intercept` on a form.
 
-## Tier 2: Standard HTML Attributes
-
-When you need multiple forms or specific action routing, use standard HTML.
+When you need multiple forms or specific action routing, still use standard HTML.
 
 ### Action Routing via Button
 
@@ -169,7 +165,7 @@ Hidden inputs and `data-*` attributes on the submit button are included in actio
 
 `parseURLEncodedForm()` in `internal/send/message.go` already checks `r.FormValue("action")` as a fallback. `<button name="action" value="delete">` already routes to `Delete()` on the HTTP POST path with zero code changes.
 
-## Tier 3: `lvt-*` Attributes
+## Tier 2: `lvt-*` Attributes
 
 Reserved for behaviors standard HTML cannot express:
 
@@ -195,9 +191,7 @@ Reserved for behaviors standard HTML cannot express:
 
 Existing `lvt-*` attributes continue to work (backward compatible).
 
-## Tier 4: Advanced Patterns
-
-Standard HTML for routing combined with `lvt-*` for reactive behavior:
+Standard HTML routing and `lvt-*` reactive behavior can be combined freely:
 
 ```html
 <button type="submit" name="action" value="save"
@@ -234,14 +228,14 @@ The server dispatches `"change"` to `Change()` via existing `methodNameToActions
 | Feature | No JS | JS + HTTP | JS + WebSocket |
 |---------|-------|-----------|----------------|
 | Form submit (Tier 1) | POST + PRG | fetch + DOM patch | WS + DOM patch |
-| `button name="action"` (Tier 2) | Native POST | Client extracts | Client extracts |
-| `form name` (Tier 2) | N/A (use button) | Client reads | Client reads |
-| Hidden inputs (Tier 2) | Native POST | In FormData | In FormData |
-| Inferred bindings | N/A | fetch per change | WS per change |
-| `lvt-*` attributes (Tier 3+) | N/A | Works | Works |
+| `button name="action"` (Tier 1) | Native POST | Client extracts | Client extracts |
+| `form name` (Tier 1) | N/A (use button) | Client reads | Client reads |
+| Hidden inputs (Tier 1) | Native POST | In FormData | In FormData |
+| Inferred bindings (Tier 1) | N/A | fetch per change | WS per change |
+| `lvt-*` attributes (Tier 2) | N/A | Works | Works |
 | Server push / broadcast | N/A | N/A | Works |
 
-Tiers 1-2 degrade gracefully to no-JS. Tier 3+ requires JS but is additive.
+Tier 1 degrades gracefully to no-JS. Tier 2 requires JS but is additive.
 
 ## Implementation Phases
 
@@ -271,7 +265,7 @@ Tiers 1-2 degrade gracefully to no-JS. Tier 3+ requires JS but is additive.
 
 ## References
 
-- **Turbo Drive (Hotwire)**: Intercepts all forms — fully implicit, inspiration for Tier 1
+- **Turbo Drive (Hotwire)**: Intercepts all forms — fully implicit, inspiration for Tier 1 auto-intercept
 - **Remix**: Progressive enhancement — forms work without JS
 - **Phoenix LiveView**: `phx-submit`/`phx-change` — explicit only, contrast point
 - **HTMX**: `hx-boost` for implicit interception — similar opt-in concept

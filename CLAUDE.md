@@ -102,11 +102,10 @@ LiveTemplate follows a progressive complexity model where standard HTML handles 
 
 ### Template Tiers
 
-| Tier | What You Write | Routing |
+| Tier | What You Write | Examples |
 |------|---------------|---------|
-| **Tier 1** | Zero `lvt-*` attributes | Auto-intercept → `Submit()` method |
-| **Tier 2** | Standard HTML attributes | `button name="action"`, `form name`, hidden inputs |
-| **Tier 3** | `lvt-*` attributes | Debounce, throttle, loading states, reactive DOM |
+| **Tier 1: Standard HTML** | Forms, buttons, hidden inputs — no `lvt-*` | Auto-submit → `Submit()`, `button name="action"`, `form name` |
+| **Tier 2: `lvt-*` Attributes** | Custom attributes for non-HTML behaviors | `lvt-debounce`, `lvt-disable-with`, `lvt-key`, reactive DOM, hooks |
 
 ### Transport Modes
 
