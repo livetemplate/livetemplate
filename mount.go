@@ -659,10 +659,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Route forms without explicit action to the conventional Submit() method.
-		// On WebSocket, only default when data is present (the client sends form data).
-		if msg.Action == "" && len(msg.Data) > 0 {
-			msg.Action = defaultFormAction
-		}
+		applyDefaultAction(&msg)
 
 		// Clear previous errors
 		connSt.clearErrors()

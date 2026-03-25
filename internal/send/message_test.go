@@ -296,6 +296,16 @@ func TestParseActionFromHTTP_URLEncoded(t *testing.T) {
 				"draft": "",
 			},
 		},
+		{
+			name:       "ambiguous empty values skips button detection",
+			body:       "delete=&archive=&title=test",
+			wantAction: "",
+			wantData: map[string]interface{}{
+				"delete":  "",
+				"archive": "",
+				"title":   "test",
+			},
+		},
 	}
 
 	for _, tt := range tests {

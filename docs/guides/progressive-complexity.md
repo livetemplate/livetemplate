@@ -101,7 +101,9 @@ The wrapper ID is available in the rendered HTML's `data-lvt-id` attribute.
 
 ## 4. Validation from HTML Attributes
 
-HTML validation attributes (`required`, `pattern`, `min`, `max`, `minlength`, `maxlength`, `type`) are automatically inferred by the framework. Use `ctx.ValidateForm()` instead of writing Go struct tags:
+> **Note:** Auto-wiring the form schema from template statics is not yet implemented. Currently you must call `ctx.WithFormSchema(ExtractFormSchema(statics))` manually. For production validation, use `ctx.BindAndValidate()` with struct tags. `formnovalidate` on buttons is not yet respected server-side.
+
+HTML validation attributes (`required`, `pattern`, `min`, `max`, `minlength`, `maxlength`, `type`) can be extracted by the framework. Use `ctx.ValidateForm()` instead of writing Go struct tags:
 
 ```html
 <form method="POST">
