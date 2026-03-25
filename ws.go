@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 )
 
 // WSConn is the interface for a WebSocket connection.
@@ -72,6 +73,10 @@ func WSCloseStatusText(code int) string {
 func WSFormatCloseMessage(closeCode int, text string) []byte {
 	if len(text) > 123 {
 		text = text[:123]
+		// Ensure we don't split a multi-byte UTF-8 character (RFC 6455 §8.1)
+		for len(text) > 0 && !utf8.ValidString(text) {
+			text = text[:len(text)-1]
+		}
 	}
 	buf := make([]byte, 2+len(text))
 	binary.BigEndian.PutUint16(buf, uint16(closeCode))

@@ -1357,7 +1357,6 @@ func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, oldData, newDa
 		}
 
 		t.lastTree = newTree
-		t.lastHTML = "" // Free stale HTML — unreachable once AST path is active
 
 		return changedTree, nil
 	}
@@ -1440,12 +1439,13 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		opt(&config)
 	}
 
-	// Apply origin validation to the upgrader without replacing it
+	// Apply origin validation to a copy of the upgrader (avoid mutating shared state)
 	upgrader := t.config.Upgrader
 	if len(t.config.AllowedOrigins) > 0 {
 		if gu, ok := upgrader.(*GorillaUpgrader); ok {
+			upgCopy := gu.Copy()
 			allowedOrigins := t.config.AllowedOrigins
-			gu.SetCheckOrigin(func(r *http.Request) bool {
+			upgCopy.SetCheckOrigin(func(r *http.Request) bool {
 				origin := r.Header.Get("Origin")
 				if origin == "" {
 					return true
@@ -1459,6 +1459,7 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 					slog.String("origin", origin))
 				return false
 			})
+			upgrader = upgCopy
 		}
 	}
 

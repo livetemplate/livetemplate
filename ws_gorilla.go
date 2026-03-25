@@ -62,6 +62,12 @@ func WithGorillaCompression() GorillaOption {
 	return func(u *websocket.Upgrader) { u.EnableCompression = true }
 }
 
+// Copy creates a shallow copy of the upgrader to avoid mutating shared state.
+func (g *GorillaUpgrader) Copy() *GorillaUpgrader {
+	innerCopy := *g.inner
+	return &GorillaUpgrader{inner: &innerCopy}
+}
+
 // SetCompression enables or disables permessage-deflate compression.
 func (g *GorillaUpgrader) SetCompression(enabled bool) {
 	g.inner.EnableCompression = enabled
