@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const wsTextMessage = 1 // RFC 6455 text message type
+const wsTextMessage = 1 // RFC 6455 text message type (mirrors WSTextMessage in root package)
 
 // TestWritePumpRegistrationAndCleanup verifies that writePump goroutines
 // are started on Register() and cleaned up on Unregister().

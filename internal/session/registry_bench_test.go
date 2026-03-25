@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-const benchWSTextMessage = 1 // RFC 6455 text message type
+const benchWSTextMessage = 1 // RFC 6455 text message type (mirrors WSTextMessage in root package)
 
 // newDrainingBenchConn creates a connection with a dedicated drain goroutine
 // that consumes messages from sendChan, preventing "client too slow" errors.

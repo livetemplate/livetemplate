@@ -1327,6 +1327,7 @@ func (t *Template) generateInitialTreeWithoutRegistry(data interface{}, extracte
 		// path (AnalyzeChangeAndCreateTree) since the AST path will fail again.
 	} else {
 		t.hasInitialTree = true
+		t.lastHTML = "" // Free initial HTML — no longer needed once AST path is active
 	}
 
 	// Store complete tree as the baseline for comparison

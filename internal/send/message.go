@@ -9,7 +9,7 @@ import (
 	"github.com/livetemplate/livetemplate/internal/jsonutil"
 )
 
-const wsTextMessage = 1 // RFC 6455 text message type
+const wsTextMessage = 1 // RFC 6455 text message type (mirrors WSTextMessage in root package)
 
 // ActionMessage represents an action message from the client (internal protocol).
 type ActionMessage struct {

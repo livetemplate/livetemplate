@@ -1044,14 +1044,12 @@ func BenchmarkSystemCard(b *testing.B) {
 	}
 }
 
-// Ensure state types are JSON-serializable (compile-time check)
-var _ = func() bool {
+func TestStateTypesAreJSONSerializable(t *testing.T) {
 	for _, check := range []any{
 		&dashboardState{}, &todoState{}, &feedState{}, &chatState{},
 	} {
 		if _, err := json.Marshal(check); err != nil {
-			panic(fmt.Sprintf("state type not serializable: %v", err))
+			t.Fatalf("state type %T not serializable: %v", check, err)
 		}
 	}
-	return true
-}()
+}
