@@ -54,6 +54,8 @@ func safeMethodCall(method reflect.Value) (results []reflect.Value, panicked boo
 	defer func() {
 		if r := recover(); r != nil {
 			panicked = true
+			slog.Debug("method panicked during template data precomputation",
+				slog.Any("panic", r))
 		}
 	}()
 	return method.Call(nil), false
@@ -62,6 +64,12 @@ func safeMethodCall(method reflect.Value) (results []reflect.Value, panicked boo
 // BuildDataMap creates a template data map with lvt context from the given data.
 // This is the single source of truth for data→map conversion, used by both
 // template execution and tree building to avoid duplicate reflection.
+//
+// For struct data, exported zero-arg methods are eagerly evaluated and their
+// return values stored in the map. This differs from html/template's lazy
+// dispatch — all qualifying methods run on every call, even if the template
+// doesn't reference them. Avoid methods with side effects or expensive
+// computations in State types.
 func BuildDataMap(data interface{}, messages map[string]string, devMode bool, uploadRegistry interface{}) interface{} {
 	if messages == nil {
 		messages = make(map[string]string)

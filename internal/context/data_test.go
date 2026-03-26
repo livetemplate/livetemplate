@@ -205,6 +205,34 @@ func TestBuildDataMap_ErrorMethodIncludedWhenNil(t *testing.T) {
 	}
 }
 
+type PanickingState struct {
+	Safe string
+}
+
+func (s PanickingState) Boom() string {
+	panic("kaboom")
+}
+
+func (s PanickingState) OK() string {
+	return "fine"
+}
+
+func TestBuildDataMap_PanickingMethodSkipped(t *testing.T) {
+	state := PanickingState{Safe: "value"}
+	dataMap := BuildDataMap(state, nil, false, nil)
+	dm := dataMap.(map[string]interface{})
+
+	if _, exists := dm["Boom"]; exists {
+		t.Error("Panicking method should be omitted from map")
+	}
+	if v, ok := dm["OK"].(string); !ok || v != "fine" {
+		t.Errorf("Non-panicking method should be present, got %v", dm["OK"])
+	}
+	if v, ok := dm["Safe"].(string); !ok || v != "value" {
+		t.Errorf("Field should be present, got %v", dm["Safe"])
+	}
+}
+
 func TestBuildDataMap_LvtContextAlwaysPresent(t *testing.T) {
 	state := CounterState{Value: 1}
 	dataMap := BuildDataMap(state, nil, true, nil)
