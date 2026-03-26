@@ -87,6 +87,7 @@ During form submission, the framework automatically manages loading indicators:
 |---|---|---|---|
 | Form submit | POST + page reload | `fetch()` + DOM patch | WS message + DOM patch |
 | `button name` routing | Native POST | Client extracts | Client extracts |
+| Standalone button (no form) | N/A (use form) | Client detects | Client detects |
 | `form name` routing | N/A (use button name) | Client reads `form.name` | Client reads `form.name` |
 | Hidden inputs | Native POST | In FormData | In FormData |
 | `Change()` auto-binding | N/A | Works | Works |
