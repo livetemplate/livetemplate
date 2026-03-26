@@ -355,10 +355,10 @@ Use `lvt-*` attributes only when standard HTML cannot express the behavior. For 
 For interactions outside the form submit lifecycle — hover effects, focus/blur tracking, click-away detection:
 
 ```html
-<!-- Tooltip on hover (no form involved) -->
-<div lvt-mouseenter="showTooltip" lvt-mouseleave="hideTooltip"
-    lvt-data-id="{{.ID}}">
+<!-- Show/hide tooltip on hover (no form involved) -->
+<div lvt-mouseenter="showTooltip" lvt-mouseleave="hideTooltip">
     {{.Label}}
+    {{if .TooltipVisible}}<span class="tooltip">{{.TooltipText}}</span>{{end}}
 </div>
 
 <!-- Close dropdown when clicking outside -->
@@ -392,8 +392,8 @@ See [Client Attributes Reference — Rate Limiting](../references/client-attribu
 Filter events by key and listen at the window level for global shortcuts:
 
 ```html
-<!-- Submit on Enter key only -->
-<input lvt-keydown="submit" lvt-key="Enter" name="query">
+<!-- Submit search on Enter key only -->
+<input lvt-keydown="submitSearch" lvt-key="Enter" name="query">
 
 <!-- Global Escape key to close modal -->
 <div lvt-window-keydown="closeModal" lvt-key="Escape">
@@ -468,6 +468,7 @@ A search interface combining debounced input, loading states, keyboard shortcuts
 <!-- Global Escape key clears the search -->
 <div lvt-window-keydown="clearSearch" lvt-key="Escape">
 
+    <!-- lvt-input fires directly without a form — Tier 2 event binding -->
     <input name="Query" value="{{.Query}}"
         lvt-input="search" lvt-debounce="300"
         lvt-addClass-on:pending="border-blue-500"

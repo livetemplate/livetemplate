@@ -20,7 +20,7 @@ Quick-reference for how standard HTML maps to LiveTemplate behavior. For the lea
 
 When a form is submitted, the action is resolved in this order (first match wins):
 
-1. `lvt-submit="X"` on the form (backward compatible, highest priority)
+1. `lvt-submit="X"` on the form (legacy — avoid in new code; use button `name` or form `name` instead)
 2. Clicked button's `name` attribute
 3. Form's `name` attribute
 4. Default: `"submit"` → `Submit()`
