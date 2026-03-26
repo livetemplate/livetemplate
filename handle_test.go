@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/gorilla/websocket"
 )
 
 // ============================================================================
@@ -1615,6 +1617,109 @@ func TestHandle_NoCapabilitiesWithoutChangeMethod(t *testing.T) {
 	meta, ok := resp["meta"].(map[string]interface{})
 	if !ok {
 		t.Fatal("Expected meta field in response")
+	}
+
+	if _, exists := meta["capabilities"]; exists {
+		t.Error("Expected capabilities to be omitted when controller has no Change() method")
+	}
+}
+
+func TestHandle_CapabilitiesInWebSocketInitialRender(t *testing.T) {
+	tmpl, err := New("test")
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Name}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &capControllerWithChange{}
+	state := AsState(&capState{Name: "test"})
+
+	handler := tmpl.Handle(ctrl, state)
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("WebSocket dial failed: %v", err)
+	}
+	defer func() {
+		if err := ws.Close(); err != nil {
+			t.Logf("WebSocket close error: %v", err)
+		}
+	}()
+
+	_, msg, err := ws.ReadMessage()
+	if err != nil {
+		t.Fatalf("WebSocket read failed: %v", err)
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(msg, &resp); err != nil {
+		t.Fatalf("Failed to parse WebSocket response: %v", err)
+	}
+
+	meta, ok := resp["meta"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected meta field in WebSocket initial render")
+	}
+
+	caps, ok := meta["capabilities"].([]interface{})
+	if !ok {
+		t.Fatal("Expected capabilities array in WebSocket initial render meta")
+	}
+
+	if len(caps) != 1 || caps[0] != "change" {
+		t.Errorf("Expected capabilities=[\"change\"], got %v", caps)
+	}
+}
+
+func TestHandle_NoCapabilitiesInWebSocketWithoutChangeMethod(t *testing.T) {
+	tmpl, err := New("test")
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Name}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &capControllerWithoutChange{}
+	state := AsState(&capState{Name: "test"})
+
+	handler := tmpl.Handle(ctrl, state)
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("WebSocket dial failed: %v", err)
+	}
+	defer func() {
+		if err := ws.Close(); err != nil {
+			t.Logf("WebSocket close error: %v", err)
+		}
+	}()
+
+	_, msg, err := ws.ReadMessage()
+	if err != nil {
+		t.Fatalf("WebSocket read failed: %v", err)
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(msg, &resp); err != nil {
+		t.Fatalf("Failed to parse WebSocket response: %v", err)
+	}
+
+	meta, ok := resp["meta"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Expected meta field in WebSocket initial render")
 	}
 
 	if _, exists := meta["capabilities"]; exists {

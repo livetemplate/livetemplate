@@ -20,7 +20,8 @@ type ResponseMetadata struct {
 	Capabilities []string          `json:"capabilities,omitempty"` // only on initial render
 }
 
-// PrepareUpdate wraps a tree with metadata for sending to client.
+// PrepareUpdate wraps a tree with metadata for action responses.
+// For initial renders, construct UpdateResponse directly to include Capabilities.
 // If errors is nil or empty, metadata is not included.
 // If action is non-empty, it's included in the metadata.
 func PrepareUpdate(tree interface{}, errors map[string]string, action string) *UpdateResponse {
