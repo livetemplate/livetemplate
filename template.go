@@ -1501,11 +1501,9 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 	if v := reflect.ValueOf(innerVal); v.Kind() == reflect.Ptr {
 		innerVal = v.Elem().Interface()
 	}
-	var capabilities []string
 	if HasActionMethod(controller, innerVal, CapabilityChange) {
-		capabilities = append(capabilities, CapabilityChange)
+		mountCfg.Capabilities = []string{CapabilityChange}
 	}
-	mountCfg.Capabilities = capabilities
 
 	limits := session.NewConnectionLimits(mountCfg.MaxConnections, mountCfg.MaxConnectionsPerGroup)
 	metrics := observe.NewMetrics(slog.Default())
