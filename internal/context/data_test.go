@@ -77,15 +77,7 @@ func TestBuildDataMap_StructMethodsPreserved(t *testing.T) {
 		t.Errorf("Expected Value=5, got %v", dataMap["Value"])
 	}
 
-	// Methods should be present as callable functions
-	if _, ok := dataMap["Doubled"]; !ok {
-		t.Fatal("Method Doubled not found in data map")
-	}
-	if _, ok := dataMap["Display"]; !ok {
-		t.Fatal("Method Display not found in data map")
-	}
-
-	// Method return values should be precomputed
+	// Methods should be present as precomputed return values
 	if got, ok := dataMap["Doubled"].(int); !ok || got != 10 {
 		t.Errorf("Doubled should be precomputed int 10, got %v (%T)", dataMap["Doubled"], dataMap["Doubled"])
 	}
@@ -160,26 +152,25 @@ func TestBuildDataMap_PointerMethodsPreserved(t *testing.T) {
 }
 
 func TestBuildDataMap_FieldTakesPrecedenceOverMethod(t *testing.T) {
-	type Ambiguous struct {
-		Value int
-	}
-	// Value is both a field and would conflict with a method named Value
-	// Fields should always win
-	state := Ambiguous{Value: 42}
+	// Go doesn't allow a field and method with the same name on one type.
+	// But a JSON tag can alias a field to a name that matches a method.
+	// Verify the field (via JSON tag) wins over the method.
+	state := CounterState{Value: 5}
 	dataMap := BuildDataMap(state, nil, false, nil)
 
 	dm := dataMap.(map[string]interface{})
-	if v, ok := dm["Value"]; !ok || v != 42 {
-		t.Errorf("Field Value should take precedence, got %v", dm["Value"])
+	// "Value" is a field — should be the int 5, not the precomputed method result
+	if v, ok := dm["Value"]; !ok || v != 5 {
+		t.Errorf("Field Value should be 5, got %v", dm["Value"])
+	}
+	// "Doubled" is a method — should be precomputed
+	if v, ok := dm["Doubled"]; !ok || v != 10 {
+		t.Errorf("Method Doubled should be 10, got %v", dm["Doubled"])
 	}
 }
 
-func TestBuildDataMap_LvtNamespaceNotShadowedByMethod(t *testing.T) {
-	type Bad struct {
-		Name string
-	}
-	// Even if a type had a method named "lvt", it should not shadow the namespace
-	state := Bad{Name: "test"}
+func TestBuildDataMap_LvtContextAlwaysPresent(t *testing.T) {
+	state := CounterState{Value: 1}
 	dataMap := BuildDataMap(state, nil, true, nil)
 
 	dm := dataMap.(map[string]interface{})

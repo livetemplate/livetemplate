@@ -42,13 +42,24 @@ func getMethodMeta(ptrType reflect.Type) []methodMeta {
 		case 1:
 			meta = append(meta, methodMeta{Name: method.Name, Index: i})
 		case 2:
-			if mt.Out(1).Implements(errorInterface) {
+			if mt.Out(1) == errorInterface {
 				meta = append(meta, methodMeta{Name: method.Name, Index: i, HasError: true})
 			}
 		}
 	}
 	methodMetaCache.Store(ptrType, meta)
 	return meta
+}
+
+// safeMethodCall invokes a zero-arg method with panic recovery, matching the
+// safety behavior of Go's html/template which recovers panics during execution.
+func safeMethodCall(method reflect.Value) (results []reflect.Value, panicked bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			panicked = true
+		}
+	}()
+	return method.Call(nil), false
 }
 
 // BuildDataMap creates a template data map with lvt context from the given data.
@@ -136,7 +147,10 @@ func buildDataMapWithContext(data interface{}, lvtContext *TemplateContext) inte
 			if _, exists := dataMap[m.Name]; exists {
 				continue
 			}
-			results := ptrVal.Method(m.Index).Call(nil)
+			results, panicked := safeMethodCall(ptrVal.Method(m.Index))
+			if panicked {
+				continue
+			}
 			if m.HasError && !results[1].IsNil() {
 				continue
 			}
