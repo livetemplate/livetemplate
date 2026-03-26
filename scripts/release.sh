@@ -232,9 +232,12 @@ extract_release_notes() {
 publish_github() {
     local new_version=$1
 
-    log_step "Pushing commits and tags to GitHub"
-    git push origin main || git push origin master || {
-        log_error "Failed to push to origin. Check your branch name."
+    local branch
+    branch=$(git rev-parse --abbrev-ref HEAD)
+
+    log_step "Pushing commits and tags to GitHub (branch: $branch)"
+    git push origin "$branch" || {
+        log_error "Failed to push to origin. You may need to 'git pull --rebase origin $branch' first."
         exit 1
     }
     git push origin "v$new_version"
