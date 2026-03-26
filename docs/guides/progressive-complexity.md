@@ -382,7 +382,7 @@ HTML has no mechanism for debounce or throttle. **Debounce** waits until the use
 <input lvt-input="search" lvt-debounce="300" name="query" placeholder="Search...">
 
 <!-- Fire scroll handler at most once per 100ms -->
-<div lvt-window-scroll="loadMore" lvt-throttle="100">
+<div lvt-window-scroll="loadMore" lvt-throttle="100">...</div>
 ```
 
 See [Client Attributes Reference — Rate Limiting](../references/client-attributes.md#rate-limiting) for details.

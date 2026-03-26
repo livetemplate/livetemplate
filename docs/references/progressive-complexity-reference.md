@@ -10,7 +10,7 @@ Quick-reference for how standard HTML maps to LiveTemplate behavior. For the lea
 |---|---|---|
 | `<form method="POST">` | Auto-intercepted, routes to default action | `Submit()` |
 | `<button name="save">` | Button name becomes action | `Save()` |
-| `<button name="save-draft">` | Hyphenated names converted to PascalCase | `SaveDraft()` |
+| `<button name="saveDraft">` | camelCase names converted to PascalCase | `SaveDraft()` |
 | `<button name="delete" value="{{.ID}}">` | Value passed as data | `ctx.GetString("value")` |
 | `<form name="search">` | Form name becomes action (JS client only) | `Search()` |
 | `<input type="hidden" name="id" value="{{.ID}}">` | Included in form data | `ctx.GetString("id")` |
