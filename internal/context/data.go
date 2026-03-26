@@ -4,11 +4,75 @@ import (
 	"log/slog"
 	"reflect"
 	"strings"
+	"sync"
 )
+
+var errorInterface = reflect.TypeOf((*error)(nil)).Elem()
+
+// methodMeta holds cached metadata about which methods on a type
+// qualify for template precomputation (zero-arg, 1 or 2 returns).
+type methodMeta struct {
+	Name  string
+	Index int
+	// HasError is true when the method returns (value, error).
+	HasError bool
+}
+
+// methodMetaCache caches per-type method metadata to avoid repeated
+// signature scanning on every render. Follows the sync.Map pattern
+// used by dispatch.go (methodCacheNewSignature) and state.go (stateFieldCache).
+var methodMetaCache sync.Map // reflect.Type → []methodMeta
+
+func getMethodMeta(ptrType reflect.Type) []methodMeta {
+	if cached, ok := methodMetaCache.Load(ptrType); ok {
+		return cached.([]methodMeta)
+	}
+	var meta []methodMeta
+	for i := 0; i < ptrType.NumMethod(); i++ {
+		method := ptrType.Method(i)
+		if method.Name == TemplateContextKey {
+			continue
+		}
+		mt := method.Type
+		numIn := mt.NumIn() // includes receiver
+		if numIn != 1 {
+			continue
+		}
+		switch mt.NumOut() {
+		case 1:
+			meta = append(meta, methodMeta{Name: method.Name, Index: i})
+		case 2:
+			if mt.Out(1) == errorInterface {
+				meta = append(meta, methodMeta{Name: method.Name, Index: i, HasError: true})
+			}
+		}
+	}
+	actual, _ := methodMetaCache.LoadOrStore(ptrType, meta)
+	return actual.([]methodMeta)
+}
+
+// safeMethodCall invokes a zero-arg method with panic recovery, matching the
+// safety behavior of Go's html/template which recovers panics during execution.
+func safeMethodCall(method reflect.Value) (results []reflect.Value, panicked bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			panicked = true
+			slog.Debug("method panicked during template data precomputation",
+				slog.Any("panic", r))
+		}
+	}()
+	return method.Call(nil), false
+}
 
 // BuildDataMap creates a template data map with lvt context from the given data.
 // This is the single source of truth for data→map conversion, used by both
 // template execution and tree building to avoid duplicate reflection.
+//
+// For struct data, exported zero-arg methods are eagerly evaluated and their
+// return values stored in the map. This differs from html/template's lazy
+// dispatch — all qualifying methods run on every call, even if the template
+// doesn't reference them. Avoid methods with side effects or expensive
+// computations in State types.
 func BuildDataMap(data interface{}, messages map[string]string, devMode bool, uploadRegistry interface{}) interface{} {
 	if messages == nil {
 		messages = make(map[string]string)
@@ -26,12 +90,16 @@ func BuildDataMap(data interface{}, messages map[string]string, devMode bool, up
 func buildDataMapWithContext(data interface{}, lvtContext *TemplateContext) interface{} {
 	val := reflect.ValueOf(data)
 
+	// Track whether input was a pointer so we can reuse it for method calls
+	// instead of allocating a new one via reflect.New.
+	var ptrVal reflect.Value
 	if val.Kind() == reflect.Ptr {
 		if val.IsNil() {
 			dataMap := make(map[string]interface{})
 			dataMap[TemplateContextKey] = lvtContext
 			return dataMap
 		}
+		ptrVal = val
 		val = val.Elem()
 	}
 
@@ -73,6 +141,37 @@ func buildDataMapWithContext(data interface{}, lvtContext *TemplateContext) inte
 			}
 
 			dataMap[field.Name] = fieldValue
+		}
+
+		// Precompute exported methods so {{.MethodName}} works in templates.
+		// Go templates auto-call methods on structs, but since we convert to a map,
+		// we need to call zero-arg methods and store their return values.
+		// Fields take precedence over methods (matching Go's resolution order).
+		//
+		// Semantic note: this is eager evaluation — ALL qualifying methods are called
+		// on every render, even if the template doesn't reference them. Methods that
+		// return (T, error) are omitted with a warning when error is non-nil (unlike
+		// html/template which would stop execution with the error).
+		if !ptrVal.IsValid() {
+			ptrVal = reflect.New(typ)
+			ptrVal.Elem().Set(val)
+		}
+		for _, m := range getMethodMeta(ptrVal.Type()) {
+			if _, exists := dataMap[m.Name]; exists {
+				continue
+			}
+			results, panicked := safeMethodCall(ptrVal.Method(m.Index))
+			if panicked {
+				continue
+			}
+			if m.HasError && !results[1].IsNil() {
+				slog.Warn("method returned error during template data precomputation, omitting",
+					slog.String("method", m.Name),
+					slog.String("type", typ.Name()),
+					slog.Any("error", results[1].Interface()))
+				continue
+			}
+			dataMap[m.Name] = results[0].Interface()
 		}
 
 		dataMap[TemplateContextKey] = lvtContext

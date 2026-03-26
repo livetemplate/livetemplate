@@ -2,8 +2,12 @@ package livetemplate
 
 import (
 	"database/sql"
+	"html/template"
 	"log/slog"
+	"strings"
 	"testing"
+
+	lvtcontext "github.com/livetemplate/livetemplate/internal/context"
 )
 
 // PureState contains only serializable data - should pass
@@ -53,4 +57,66 @@ func TestAssertPureState_DetectsNestedDependency(t *testing.T) {
 func TestAssertPureState_PointerToPureState(t *testing.T) {
 	// Pointers to pure state should also pass
 	AssertPureState[*PureState](t)
+}
+
+// StateWithMethods has computed properties via methods — still pure state
+type StateWithMethods struct {
+	Items  []string
+	Filter string
+}
+
+func (s StateWithMethods) ActiveCount() int {
+	count := 0
+	for _, item := range s.Items {
+		if item != "" {
+			count++
+		}
+	}
+	return count
+}
+
+func (s StateWithMethods) FilteredItems() []string {
+	if s.Filter == "" {
+		return s.Items
+	}
+	var result []string
+	for _, item := range s.Items {
+		if strings.Contains(item, s.Filter) {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func TestAssertPureState_WithMethods(t *testing.T) {
+	// State structs with methods should pass — methods are not dependencies
+	AssertPureState[StateWithMethods](t)
+}
+
+func TestStateMethodsInTemplates(t *testing.T) {
+	// End-to-end: AssertPureState passes AND methods work in templates via BuildDataMap
+	AssertPureState[StateWithMethods](t)
+
+	state := StateWithMethods{
+		Items:  []string{"alpha", "beta", ""},
+		Filter: "a",
+	}
+	dataMap := lvtcontext.BuildDataMap(state, nil, false, nil)
+
+	tmpl, err := template.New("test").Parse(
+		`Count={{.ActiveCount}} Filtered={{len .FilteredItems}} Items={{len .Items}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var buf strings.Builder
+	if err := tmpl.Execute(&buf, dataMap); err != nil {
+		t.Fatalf("Template execution failed: %v", err)
+	}
+
+	got := buf.String()
+	want := "Count=2 Filtered=2 Items=3"
+	if got != want {
+		t.Errorf("Template output = %q, want %q", got, want)
+	}
 }
