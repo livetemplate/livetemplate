@@ -1495,6 +1495,12 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		ProgressiveEnhancement: t.config.ProgressiveEnhancement,
 	}
 
+	var capabilities []string
+	if HasActionMethod(controller, state.Inner(), CapabilityChange) {
+		capabilities = append(capabilities, CapabilityChange)
+	}
+	mountCfg.Capabilities = capabilities
+
 	limits := session.NewConnectionLimits(mountCfg.MaxConnections, mountCfg.MaxConnectionsPerGroup)
 	metrics := observe.NewMetrics(slog.Default())
 	metricsExporter := observe.NewPrometheusExporter(metrics, limits)

@@ -14,9 +14,10 @@ type UpdateResponse struct {
 
 // ResponseMetadata contains information about the action that generated the update.
 type ResponseMetadata struct {
-	Success bool              `json:"success"` // true if no validation errors
-	Errors  map[string]string `json:"errors"`  // field errors
-	Action  string            `json:"action,omitempty"`
+	Success      bool              `json:"success"`
+	Errors       map[string]string `json:"errors"`
+	Action       string            `json:"action,omitempty"`       // only on action responses
+	Capabilities []string          `json:"capabilities,omitempty"` // only on initial render
 }
 
 // PrepareUpdate wraps a tree with metadata for sending to client.

@@ -12,6 +12,9 @@ import (
 // ErrMethodNotFound is returned when Dispatch cannot find a method matching the action.
 var ErrMethodNotFound = errors.New("method not found for action")
 
+// CapabilityChange is the capability name for controllers with a Change() method.
+const CapabilityChange = "change"
+
 // DispatchError provides context about a failed dispatch.
 type DispatchError struct {
 	Action    string
@@ -134,6 +137,15 @@ func DispatchWithState(controller interface{}, state interface{}, ctx *Context) 
 	}
 
 	return newState, err
+}
+
+// HasActionMethod checks if a controller has a method that can handle the given action.
+// Uses the same signature validation as DispatchWithState: func(state, *Context) (state, error).
+// The state parameter should be the concrete state value (e.g., from State.Inner()), not the State wrapper.
+func HasActionMethod(controller interface{}, state interface{}, action string) bool {
+	controllerType := reflect.TypeOf(controller)
+	stateType := reflect.TypeOf(state)
+	return getMethodIndexNewSignature(controllerType, stateType, action) >= 0
 }
 
 // methodCacheNewSignature caches method lookups for new signature
