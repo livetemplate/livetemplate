@@ -174,6 +174,7 @@ type mountConfig struct {
 	UploadConfigs          map[string]uploadtypes.UploadConfig // Upload field configurations
 	wsBufferSize           int                                 // WebSocket send buffer size per connection (default: 50)
 	ProgressiveEnhancement bool                                // Enable non-JS form submission support with PRG pattern (default: true)
+	Capabilities           []string                            // Controller capabilities detected at setup (e.g., ["change"])
 }
 
 // liveHandler handles both WebSocket and HTTP requests
@@ -579,8 +580,9 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	response := UpdateResponse{
 		Tree: tree,
 		Meta: &ResponseMetadata{
-			Success: !connSt.hasErrors(),
-			Errors:  connSt.getErrorsOnly(),
+			Success:      !connSt.hasErrors(),
+			Errors:       connSt.getErrorsOnly(),
+			Capabilities: h.config.Capabilities,
 		},
 	}
 
@@ -978,7 +980,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			response := UpdateResponse{
 				Tree: tree,
 				Meta: &ResponseMetadata{
-					Success: true,
+					Success:      true,
+					Capabilities: h.config.Capabilities,
 				},
 			}
 

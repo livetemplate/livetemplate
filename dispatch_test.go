@@ -439,3 +439,70 @@ func BenchmarkDispatchWithState_Cached(b *testing.B) {
 		_, _ = DispatchWithState(ctrl, state, ctx)
 	}
 }
+
+// ============================================================================
+// HasActionMethod Tests
+// ============================================================================
+
+type changeController struct{}
+
+func (c *changeController) Change(state testCounterState, ctx *Context) (testCounterState, error) {
+	return state, nil
+}
+
+type noChangeController struct{}
+
+func (c *noChangeController) Submit(state testCounterState, ctx *Context) (testCounterState, error) {
+	return state, nil
+}
+
+type wrongSigChangeController struct{}
+
+func (c *wrongSigChangeController) Change(state testCounterState) testCounterState {
+	return state
+}
+
+func TestHasActionMethod_WithChange(t *testing.T) {
+	ctrl := &changeController{}
+	state := testCounterState{}
+
+	if !HasActionMethod(ctrl, state, "change") {
+		t.Error("expected HasActionMethod to return true for controller with Change()")
+	}
+}
+
+func TestHasActionMethod_WithoutChange(t *testing.T) {
+	ctrl := &noChangeController{}
+	state := testCounterState{}
+
+	if HasActionMethod(ctrl, state, "change") {
+		t.Error("expected HasActionMethod to return false for controller without Change()")
+	}
+}
+
+func TestHasActionMethod_WrongSignature(t *testing.T) {
+	ctrl := &wrongSigChangeController{}
+	state := testCounterState{}
+
+	if HasActionMethod(ctrl, state, "change") {
+		t.Error("expected HasActionMethod to return false for controller with wrong Change() signature")
+	}
+}
+
+func TestHasActionMethod_OtherMethods(t *testing.T) {
+	ctrl := &noChangeController{}
+	state := testCounterState{}
+
+	if !HasActionMethod(ctrl, state, "submit") {
+		t.Error("expected HasActionMethod to return true for controller with Submit()")
+	}
+}
+
+func TestHasActionMethod_PascalCaseAction(t *testing.T) {
+	ctrl := &changeController{}
+	state := testCounterState{}
+
+	if !HasActionMethod(ctrl, state, "Change") {
+		t.Error("expected HasActionMethod to return true for PascalCase action name")
+	}
+}

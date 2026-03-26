@@ -404,3 +404,47 @@ func TestUpdateResponse_JSONStructure(t *testing.T) {
 		t.Errorf("Expected 2 top-level keys, got: %d", len(decoded))
 	}
 }
+
+func TestResponseMetadata_CapabilitiesOmittedWhenNil(t *testing.T) {
+	meta := &ResponseMetadata{
+		Success: true,
+		Errors:  map[string]string{},
+	}
+
+	bytes, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	jsonStr := string(bytes)
+	if strings.Contains(jsonStr, `"capabilities"`) {
+		t.Error("Expected nil capabilities to be omitted from JSON")
+	}
+}
+
+func TestResponseMetadata_CapabilitiesIncludedWhenSet(t *testing.T) {
+	meta := &ResponseMetadata{
+		Success:      true,
+		Errors:       map[string]string{},
+		Capabilities: []string{"change"},
+	}
+
+	bytes, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(bytes, &decoded); err != nil {
+		t.Fatalf("Expected valid JSON, got error: %v", err)
+	}
+
+	caps, ok := decoded["capabilities"].([]interface{})
+	if !ok {
+		t.Fatal("Expected capabilities to be an array")
+	}
+
+	if len(caps) != 1 || caps[0] != "change" {
+		t.Errorf("Expected capabilities=[\"change\"], got %v", caps)
+	}
+}
