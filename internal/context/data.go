@@ -30,9 +30,6 @@ func getMethodMeta(ptrType reflect.Type) []methodMeta {
 	var meta []methodMeta
 	for i := 0; i < ptrType.NumMethod(); i++ {
 		method := ptrType.Method(i)
-		if method.Name == TemplateContextKey {
-			continue
-		}
 		mt := method.Type
 		numIn := mt.NumIn() // includes receiver
 		if numIn != 1 {
@@ -139,6 +136,11 @@ func buildDataMapWithContext(data interface{}, lvtContext *TemplateContext) inte
 		// Go templates auto-call methods on structs, but since we convert to a map,
 		// we need to call zero-arg methods and store their return values.
 		// Fields take precedence over methods (matching Go's resolution order).
+		//
+		// Semantic note: this is eager evaluation — ALL qualifying methods are called
+		// on every render, even if the template doesn't reference them. Methods that
+		// return (T, error) are silently omitted when error is non-nil (unlike
+		// html/template which would stop execution with the error).
 		if !ptrVal.IsValid() {
 			ptrVal = reflect.New(typ)
 			ptrVal.Elem().Set(val)

@@ -1,6 +1,7 @@
 package context
 
 import (
+	"fmt"
 	"html/template"
 	"strings"
 	"testing"
@@ -151,21 +152,56 @@ func TestBuildDataMap_PointerMethodsPreserved(t *testing.T) {
 	}
 }
 
+type JSONTagCollision struct {
+	Computed string `json:"Doubled"`
+}
+
+func (s JSONTagCollision) Doubled() string {
+	return "from-method"
+}
+
 func TestBuildDataMap_FieldTakesPrecedenceOverMethod(t *testing.T) {
-	// Go doesn't allow a field and method with the same name on one type.
-	// But a JSON tag can alias a field to a name that matches a method.
-	// Verify the field (via JSON tag) wins over the method.
-	state := CounterState{Value: 5}
+	// A JSON tag can alias a field to a name that matches a method.
+	// The field value (via JSON tag) should win.
+	state := JSONTagCollision{Computed: "from-field"}
 	dataMap := BuildDataMap(state, nil, false, nil)
 
 	dm := dataMap.(map[string]interface{})
-	// "Value" is a field — should be the int 5, not the precomputed method result
-	if v, ok := dm["Value"]; !ok || v != 5 {
-		t.Errorf("Field Value should be 5, got %v", dm["Value"])
+	if v, ok := dm["Doubled"].(string); !ok || v != "from-field" {
+		t.Errorf("JSON-tagged field should take precedence over method, got %v", dm["Doubled"])
 	}
-	// "Doubled" is a method — should be precomputed
-	if v, ok := dm["Doubled"]; !ok || v != 10 {
-		t.Errorf("Method Doubled should be 10, got %v", dm["Doubled"])
+}
+
+type FallibleState struct {
+	OK bool
+}
+
+func (s FallibleState) Name() (string, error) {
+	if !s.OK {
+		return "", fmt.Errorf("not ready")
+	}
+	return "ready", nil
+}
+
+func TestBuildDataMap_ErrorMethodOmittedWhenNonNil(t *testing.T) {
+	// When a method returns (T, error) and the error is non-nil,
+	// the method is silently omitted from the map.
+	state := FallibleState{OK: false}
+	dataMap := BuildDataMap(state, nil, false, nil)
+	dm := dataMap.(map[string]interface{})
+
+	if _, exists := dm["Name"]; exists {
+		t.Error("Method returning non-nil error should be omitted from map")
+	}
+}
+
+func TestBuildDataMap_ErrorMethodIncludedWhenNil(t *testing.T) {
+	state := FallibleState{OK: true}
+	dataMap := BuildDataMap(state, nil, false, nil)
+	dm := dataMap.(map[string]interface{})
+
+	if v, ok := dm["Name"].(string); !ok || v != "ready" {
+		t.Errorf("Method returning nil error should be included, got %v", dm["Name"])
 	}
 }
 
