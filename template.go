@@ -1496,11 +1496,10 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		ProgressiveEnhancement: t.config.ProgressiveEnhancement,
 	}
 
-	// Detect controller capabilities for client auto-inference.
 	// Dereference pointer to match the value type used by DispatchWithState.
 	innerVal := state.Inner()
 	if v := reflect.ValueOf(innerVal); v.Kind() == reflect.Ptr {
-		innerVal = reflect.New(v.Type().Elem()).Elem().Interface()
+		innerVal = v.Elem().Interface()
 	}
 	var capabilities []string
 	if HasActionMethod(controller, innerVal, CapabilityChange) {
