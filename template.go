@@ -95,6 +95,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -1495,8 +1496,14 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		ProgressiveEnhancement: t.config.ProgressiveEnhancement,
 	}
 
+	// Detect controller capabilities for client auto-inference.
+	// Dereference pointer to match the value type used by DispatchWithState.
+	innerVal := state.Inner()
+	if v := reflect.ValueOf(innerVal); v.Kind() == reflect.Ptr {
+		innerVal = reflect.New(v.Type().Elem()).Elem().Interface()
+	}
 	var capabilities []string
-	if HasActionMethod(controller, state.Inner(), CapabilityChange) {
+	if HasActionMethod(controller, innerVal, CapabilityChange) {
 		capabilities = append(capabilities, CapabilityChange)
 	}
 	mountCfg.Capabilities = capabilities
