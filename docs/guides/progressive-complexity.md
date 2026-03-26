@@ -87,15 +87,20 @@ func (c *Controller) Delete(state State, ctx *livetemplate.Context) (State, erro
 
 ## 3. Standalone Buttons
 
-Buttons outside a form can reference the auto-injected hidden form using the standard HTML `form` attribute. The framework injects `<form id="{wrapperID}-form" method="POST" hidden>` at the top of every page.
+Buttons with a `name` attribute work as actions even outside any `<form>`:
 
 ```html
 <h1>Counter: {{.Counter}}</h1>
-<button form="lvt-abc123-form" name="increment">+</button>
-<button form="lvt-abc123-form" name="decrement">-</button>
+<button name="increment">+</button>
+<button name="decrement">-</button>
 ```
 
-The wrapper ID is available in the rendered HTML's `data-lvt-id` attribute.
+The button's `name` routes to the corresponding Go method. Button `value` and `data-*` attributes are sent as action data:
+
+```html
+<button name="delete" value="{{.ID}}">Delete</button>
+<button name="edit" data-id="{{.ID}}" data-mode="quick">Quick Edit</button>
+```
 
 ---
 

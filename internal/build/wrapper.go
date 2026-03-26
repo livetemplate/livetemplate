@@ -76,19 +76,6 @@ func InjectWrapperDiv(htmlDoc string, wrapperID string, loadingDisabled bool) st
 		wrapperDiv.Attr = append(wrapperDiv.Attr, html.Attribute{Key: "data-lvt-loading", Val: "true"})
 	}
 
-	// Add hidden form for standalone button actions (progressive complexity).
-	// Buttons outside forms can reference this via the "form" HTML attribute.
-	hiddenForm := &html.Node{
-		Type: html.ElementNode,
-		Data: "form",
-		Attr: []html.Attribute{
-			{Key: "id", Val: wrapperID + "-form"},
-			{Key: "method", Val: "POST"},
-			{Key: "hidden", Val: ""},
-		},
-	}
-	wrapperDiv.AppendChild(hiddenForm)
-
 	// Add content nodes to wrapper
 	for _, node := range contentNodes {
 		wrapperDiv.AppendChild(node)
@@ -169,9 +156,7 @@ func injectWrapperDivStringBased(htmlDoc string, wrapperID string, loadingDisabl
 		loadingAttr = ` data-lvt-loading="true"`
 	}
 
-	// Create the wrapper div with hidden form for standalone buttons + content
-	hiddenForm := fmt.Sprintf(`<form id="%s-form" method="POST" hidden></form>`, wrapperID)
-	wrappedContent := fmt.Sprintf(`<div data-lvt-id="%s"%s>%s%s</div>%s`, wrapperID, loadingAttr, hiddenForm, contentToWrap, scriptsSection)
+	wrappedContent := fmt.Sprintf(`<div data-lvt-id="%s"%s>%s</div>%s`, wrapperID, loadingAttr, contentToWrap, scriptsSection)
 
 	// Reconstruct the HTML with the wrapper
 	result := htmlDoc[:bodyTagEnd] + wrappedContent + htmlDoc[bodyEnd:]
