@@ -87,11 +87,9 @@ type Session interface {
 //	    // Cleanup if needed
 //	}
 //
-//	func (s *TimerStore) Change(ctx *livetemplate.ActionContext) error {
-//	    if ctx.Action == "tick" {
-//	        s.Seconds++
-//	    }
-//	    return nil
+//	func (s *TimerStore) Tick(state TimerState, ctx *livetemplate.Context) (TimerState, error) {
+//	    state.Seconds++
+//	    return state, nil
 //	}
 type SessionAware interface {
 	OnConnect(ctx context.Context, session Session) error

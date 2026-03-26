@@ -68,7 +68,7 @@ func (c *Controller) Submit(state State, ctx *livetemplate.Context) (State, erro
 }
 ```
 
-**`Change()`** — Called when a bound input changes (Phase 2: inferred bindings). Optional — if absent, live change tracking is disabled:
+**`Change()`** — Called when a form input with a dynamic value changes. The server detects this method and sends `capabilities: ["change"]` in the initial render; the client auto-wires debounced input events (300ms default). No `lvt-*` attributes needed. Optional:
 
 ```go
 // Auto-routes when an input with value="{{.Field}}" changes
