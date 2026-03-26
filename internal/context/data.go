@@ -30,6 +30,9 @@ func getMethodMeta(ptrType reflect.Type) []methodMeta {
 	var meta []methodMeta
 	for i := 0; i < ptrType.NumMethod(); i++ {
 		method := ptrType.Method(i)
+		if method.Name == TemplateContextKey {
+			continue
+		}
 		mt := method.Type
 		numIn := mt.NumIn() // includes receiver
 		if numIn != 1 {
@@ -44,8 +47,8 @@ func getMethodMeta(ptrType reflect.Type) []methodMeta {
 			}
 		}
 	}
-	methodMetaCache.Store(ptrType, meta)
-	return meta
+	actual, _ := methodMetaCache.LoadOrStore(ptrType, meta)
+	return actual.([]methodMeta)
 }
 
 // safeMethodCall invokes a zero-arg method with panic recovery, matching the
@@ -147,7 +150,7 @@ func buildDataMapWithContext(data interface{}, lvtContext *TemplateContext) inte
 		//
 		// Semantic note: this is eager evaluation — ALL qualifying methods are called
 		// on every render, even if the template doesn't reference them. Methods that
-		// return (T, error) are silently omitted when error is non-nil (unlike
+		// return (T, error) are omitted with a warning when error is non-nil (unlike
 		// html/template which would stop execution with the error).
 		if !ptrVal.IsValid() {
 			ptrVal = reflect.New(typ)
@@ -162,6 +165,10 @@ func buildDataMapWithContext(data interface{}, lvtContext *TemplateContext) inte
 				continue
 			}
 			if m.HasError && !results[1].IsNil() {
+				slog.Warn("method returned error during template data precomputation, omitting",
+					slog.String("method", m.Name),
+					slog.String("type", typ.Name()),
+					slog.Any("error", results[1].Interface()))
 				continue
 			}
 			dataMap[m.Name] = results[0].Interface()
