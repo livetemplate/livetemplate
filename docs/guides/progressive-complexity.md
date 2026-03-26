@@ -352,15 +352,24 @@ Use `lvt-*` attributes only when standard HTML cannot express the behavior. For 
 
 ### 12.1 Event Bindings Outside Forms
 
-For interactions outside the form submit lifecycle — standalone buttons, input listeners, hover effects:
+For interactions outside the form submit lifecycle — hover effects, focus/blur tracking, click-away detection:
 
 ```html
-<h1>Counter: {{.Counter}}</h1>
-<button lvt-click="increment">+</button>
-<button lvt-click="decrement">-</button>
+<!-- Tooltip on hover (no form involved) -->
+<div lvt-mouseenter="showTooltip" lvt-mouseleave="hideTooltip"
+    lvt-data-id="{{.ID}}">
+    {{.Label}}
+</div>
+
+<!-- Close dropdown when clicking outside -->
+<div lvt-click-away="closeDropdown">
+    {{if .DropdownOpen}}
+        <ul>{{range .Options}}<li>{{.}}</li>{{end}}</ul>
+    {{end}}
+</div>
 ```
 
-> **Prefer Tier 1 when possible:** For buttons inside forms, use `<button name="action">` instead of `lvt-click`. See [Section 2](#2-multiple-actions-with-button-names).
+> **Prefer Tier 1 when possible:** For buttons that trigger actions, use `<form>` + `<button name="action">` instead of `lvt-click`. See [Section 2](#2-multiple-actions-with-button-names).
 
 See [Client Attributes Reference — Event Bindings](../references/client-attributes.md#event-bindings) for the full list: `lvt-click`, `lvt-input`, `lvt-change`, `lvt-focus`, `lvt-blur`, `lvt-mouseenter`, `lvt-mouseleave`, `lvt-click-away`.
 
@@ -431,12 +440,21 @@ Declarative UI behaviors for scroll management, visual feedback, and animations:
     {{end}}
 </div>
 
+<!-- Preserve scroll position across updates (e.g., search results) -->
+<div lvt-scroll="preserve" class="results">
+    {{range .Results}}
+        <div>{{.Title}}</div>
+    {{end}}
+</div>
+
 <!-- Highlight updated items -->
 <div lvt-highlight="flash">{{.UpdatedContent}}</div>
 
 <!-- Fade in new content -->
 <div lvt-animate="fade">{{.NewContent}}</div>
 ```
+
+Scroll modes: `bottom` (always scroll to bottom), `bottom-sticky` (scroll only if user is near bottom), `top` (scroll to top), `preserve` (maintain current scroll position across updates).
 
 See [Client Attributes Reference — Directives](../references/client-attributes.md#directives) for all scroll, highlight, and animation options.
 
@@ -447,19 +465,21 @@ A search interface combining debounced input, loading states, keyboard shortcuts
 ```html
 <h1>Search</h1>
 
-<div lvt-window-keydown="focusSearch" lvt-key="/">
+<!-- Global Escape key clears the search -->
+<div lvt-window-keydown="clearSearch" lvt-key="Escape">
 
     <input name="Query" value="{{.Query}}"
         lvt-input="search" lvt-debounce="300"
         lvt-addClass-on:pending="border-blue-500"
         lvt-removeClass-on:done="border-blue-500"
-        placeholder="Type to search... (press / to focus)">
+        placeholder="Type to search...">
 
-    <button lvt-click="clearSearch"
-        lvt-disable-on:pending
-        lvt-key="Escape">
-        Clear
-    </button>
+    <form method="POST">
+        <button name="clear-search"
+            lvt-disable-on:pending>
+            Clear
+        </button>
+    </form>
 
     <div class="results" lvt-scroll="preserve">
         {{if .Query}}
@@ -503,10 +523,6 @@ func (c *SearchController) Search(state SearchState, ctx *livetemplate.Context) 
 func (c *SearchController) ClearSearch(state SearchState, ctx *livetemplate.Context) (SearchState, error) {
     state.Query = ""
     state.Results = nil
-    return state, nil
-}
-
-func (c *SearchController) FocusSearch(state SearchState, ctx *livetemplate.Context) (SearchState, error) {
     return state, nil
 }
 ```
