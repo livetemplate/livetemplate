@@ -87,7 +87,7 @@ func (c *Controller) Delete(state State, ctx *livetemplate.Context) (State, erro
 
 ## 3. Standalone Buttons
 
-Buttons with a `name` attribute work as actions even outside any `<form>`:
+Buttons with a `name` attribute work as actions even outside any `<form>` (requires JS client — fetch or WebSocket):
 
 ```html
 <h1>Counter: {{.Counter}}</h1>
@@ -101,6 +101,8 @@ The button's `name` routes to the corresponding Go method. Button `value` and `d
 <button name="delete" value="{{.ID}}">Delete</button>
 <button name="edit" data-id="{{.ID}}" data-mode="quick">Quick Edit</button>
 ```
+
+> **No-JS fallback:** For progressive enhancement without JavaScript, wrap buttons in a `<form method="POST">` instead (see [Section 2](#2-multiple-actions-with-button-names)).
 
 ---
 

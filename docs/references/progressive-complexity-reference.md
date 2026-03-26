@@ -14,7 +14,7 @@ Quick-reference for how standard HTML maps to LiveTemplate behavior. For the lea
 | `<button name="delete" value="{{.ID}}">` | Value passed as data | `ctx.GetString("value")` |
 | `<form name="search">` | Form name becomes action (JS client only) | `Search()` |
 | `<input type="hidden" name="id" value="{{.ID}}">` | Included in form data | `ctx.GetString("id")` |
-| `<button name="increment">` | Standalone button outside any form | `Increment()` |
+| `<button name="increment">` | Standalone button outside any form (JS client only) | `Increment()` |
 
 ## Action Resolution Order
 
