@@ -478,7 +478,7 @@ A search interface combining debounced input, loading states, keyboard shortcuts
         placeholder="Type to search...">
 
     <form method="POST">
-        <button name="clear-search"
+        <button name="clearSearch"
             lvt-disable-on:pending>
             Clear
         </button>
