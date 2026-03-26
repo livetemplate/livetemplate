@@ -355,7 +355,7 @@ Use `lvt-*` attributes only when standard HTML cannot express the behavior. For 
 For interactions outside the form submit lifecycle — hover effects, focus/blur tracking, click-away detection:
 
 ```html
-<!-- Show/hide tooltip on hover (no form involved) -->
+<!-- Server-rendered tooltip on hover (use CSS :hover for static tooltips instead) -->
 <div lvt-mouseenter="showTooltip" lvt-mouseleave="hideTooltip">
     {{.Label}}
     {{if .TooltipVisible}}<span class="tooltip">{{.TooltipText}}</span>{{end}}
@@ -375,7 +375,7 @@ See [Client Attributes Reference — Event Bindings](../references/client-attrib
 
 ### 12.2 Rate Limiting
 
-HTML has no mechanism for debounce or throttle. These are essential for search inputs and scroll handlers:
+HTML has no mechanism for debounce or throttle. **Debounce** waits until the user stops (ideal for typing). **Throttle** limits frequency (ideal for scroll/resize). Both are essential for search inputs and scroll handlers:
 
 ```html
 <!-- Wait 300ms after user stops typing -->
@@ -460,7 +460,9 @@ See [Client Attributes Reference — Directives](../references/client-attributes
 
 ### 12.6 Complete Tier 2 Example
 
-A search interface combining debounced input, loading states, keyboard shortcuts, and scroll preservation:
+A search interface combining debounced input, loading states, keyboard shortcuts, and scroll preservation.
+
+> **`Change()` vs `lvt-input`:** Use `Change()` ([Section 10](#10-live-updates)) when you want generic live-update on all form inputs — no `lvt-*` needed. Use `lvt-input` when you need per-element control: a specific action name, custom debounce, or only some inputs triggering server calls.
 
 ```html
 <h1>Search</h1>
