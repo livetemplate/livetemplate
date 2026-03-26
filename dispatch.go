@@ -141,10 +141,15 @@ func DispatchWithState(controller interface{}, state interface{}, ctx *Context) 
 
 // HasActionMethod checks if a controller has a method that can handle the given action.
 // Uses the same signature validation as DispatchWithState: func(state, *Context) (state, error).
-// The state parameter should be the concrete state value (e.g., from State.Inner()), not the State wrapper.
+// Automatically dereferences pointer state types to match the value type used by dispatch.
 func HasActionMethod(controller interface{}, state interface{}, action string) bool {
 	controllerType := reflect.TypeOf(controller)
 	stateType := reflect.TypeOf(state)
+	// DispatchWithState receives dereferenced value types (e.g., TodoState not *TodoState).
+	// State.Inner() returns a pointer, so dereference to match the dispatch path.
+	if stateType.Kind() == reflect.Ptr {
+		stateType = stateType.Elem()
+	}
 	return getMethodIndexNewSignature(controllerType, stateType, action) >= 0
 }
 
