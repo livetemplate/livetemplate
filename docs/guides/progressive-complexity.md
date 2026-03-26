@@ -257,9 +257,7 @@ Works without JavaScript. Keyboard accessible by default.
 
 ## 10. Live Updates
 
-> **Coming soon:** This feature requires inferred bindings (Phase 2), which is not yet implemented. The `Change()` convention is designed but the client-side binding inference is pending..
-
-Add a `Change()` method to your controller to enable live updates as the user types:
+Add a `Change()` method to your controller to enable live updates as the user types — no `lvt-*` attributes needed:
 
 ```html
 <form method="POST">
@@ -276,40 +274,17 @@ func (c *Controller) Change(state State, ctx *livetemplate.Context) (State, erro
 }
 ```
 
-The preview updates live as the user types. If no `Change()` method exists, the form is submit-only.
+**What happens:** The server detects the `Change()` method and sends `capabilities: ["change"]` in the initial render. The client auto-wires debounced input events (300ms default) on form fields with dynamic values. The preview updates live as the user types. If no `Change()` method exists, the form is submit-only.
 
----
-
-## 11. When to Use Tier 2 (`lvt-*`) (draft)
-
-Use `lvt-*` attributes only for behaviors standard HTML cannot express:
-
-| Need | Tier 2 Attribute | Why HTML Can't |
-|------|-----------------|----------------|
-| Wait for typing pause | `lvt-debounce="300"` | Timing control |
-| Limit event rate | `lvt-throttle="100"` | Rate limiting |
-| Filter by key | `lvt-key="Enter"` | Key-specific routing |
-| Lifecycle DOM changes | `lvt-addClass-on:pending="loading"` | State-driven mutations |
-| Global keyboard shortcuts | `lvt-window-keydown="shortcut"` | Window-level events |
-| JS library integration | `lvt-hook="chart"` | Lifecycle callbacks |
-| Sticky scroll | `lvt-scroll="bottom-sticky"` | Threshold logic |
+Override the default debounce per input with `lvt-debounce`:
 
 ```html
-<!-- Tier 2: debounced live search (timing not expressible in HTML) -->
-<input name="Query" value="{{.Query}}" lvt-input="search" lvt-debounce="300">
-
-<!-- Tier 2: loading indicator with class toggle -->
-<button name="save"
-    lvt-disable-on:pending
-    lvt-addClass-on:pending="opacity-50"
-    lvt-enable-on:done>
-    Save
-</button>
+<input name="Name" value="{{.Name}}" lvt-debounce="500">
 ```
 
 ---
 
-## 12. Complete Example
+## 11. Complete Tier 1 Example
 
 A todo app using Tier 1 only (zero `lvt-*` attributes):
 
@@ -368,3 +343,174 @@ func (c *TodoController) Filter(state TodoState, ctx *livetemplate.Context) (Tod
     return state, nil
 }
 ```
+
+---
+
+## 12. Tier 2: `lvt-*` Attributes
+
+Use `lvt-*` attributes only when standard HTML cannot express the behavior. For the complete attribute reference, see the [Client Attributes Reference](../references/client-attributes.md).
+
+### 12.1 Event Bindings Outside Forms
+
+For interactions outside the form submit lifecycle — standalone buttons, input listeners, hover effects:
+
+```html
+<h1>Counter: {{.Counter}}</h1>
+<button lvt-click="increment">+</button>
+<button lvt-click="decrement">-</button>
+```
+
+> **Prefer Tier 1 when possible:** For buttons inside forms, use `<button name="action">` instead of `lvt-click`. See [Section 2](#2-multiple-actions-with-button-names).
+
+See [Client Attributes Reference — Event Bindings](../references/client-attributes.md#event-bindings) for the full list: `lvt-click`, `lvt-input`, `lvt-change`, `lvt-focus`, `lvt-blur`, `lvt-mouseenter`, `lvt-mouseleave`, `lvt-click-away`.
+
+### 12.2 Rate Limiting
+
+HTML has no mechanism for debounce or throttle. These are essential for search inputs and scroll handlers:
+
+```html
+<!-- Wait 300ms after user stops typing -->
+<input lvt-input="search" lvt-debounce="300" name="query" placeholder="Search...">
+
+<!-- Fire scroll handler at most once per 100ms -->
+<div lvt-window-scroll="loadMore" lvt-throttle="100">
+```
+
+See [Client Attributes Reference — Rate Limiting](../references/client-attributes.md#rate-limiting) for details.
+
+### 12.3 Keyboard Shortcuts
+
+Filter events by key and listen at the window level for global shortcuts:
+
+```html
+<!-- Submit on Enter key only -->
+<input lvt-keydown="submit" lvt-key="Enter" name="query">
+
+<!-- Global Escape key to close modal -->
+<div lvt-window-keydown="closeModal" lvt-key="Escape">
+    Modal content...
+</div>
+```
+
+See [Client Attributes Reference — Keyboard Events](../references/client-attributes.md#keyboard-events) for valid key values.
+
+### 12.4 Reactive DOM
+
+Declarative DOM mutations tied to the action lifecycle (`pending`, `success`, `error`, `done`):
+
+```html
+<!-- Button with loading state -->
+<button name="save"
+    lvt-disable-on:pending
+    lvt-addClass-on:pending="opacity-50"
+    lvt-enable-on:done
+    lvt-removeClass-on:done="opacity-50">
+    Save
+</button>
+
+<!-- Reset form after successful submission -->
+<form method="POST" lvt-reset-on:success>
+    <input name="title" placeholder="New todo">
+    <button type="submit">Add</button>
+</form>
+```
+
+Available reactive actions: `lvt-disable-on`, `lvt-enable-on`, `lvt-addClass-on`, `lvt-removeClass-on`, `lvt-toggleClass-on`, `lvt-setAttr-on`, `lvt-toggleAttr-on`, `lvt-reset-on`.
+
+See [Client Attributes Reference — Reactive Attributes](../references/client-attributes.md#reactive-attributes) for the full pattern.
+
+### 12.5 Directives
+
+Declarative UI behaviors for scroll management, visual feedback, and animations:
+
+```html
+<!-- Chat messages: auto-scroll to bottom, stick if user is near bottom -->
+<div lvt-scroll="bottom-sticky" lvt-scroll-threshold="100" class="chat-messages">
+    {{range .Messages}}
+        <div>{{.Text}}</div>
+    {{end}}
+</div>
+
+<!-- Highlight updated items -->
+<div lvt-highlight="flash">{{.UpdatedContent}}</div>
+
+<!-- Fade in new content -->
+<div lvt-animate="fade">{{.NewContent}}</div>
+```
+
+See [Client Attributes Reference — Directives](../references/client-attributes.md#directives) for all scroll, highlight, and animation options.
+
+### 12.6 Complete Tier 2 Example
+
+A search interface combining debounced input, loading states, keyboard shortcuts, and scroll preservation:
+
+```html
+<h1>Search</h1>
+
+<div lvt-window-keydown="focusSearch" lvt-key="/">
+
+    <input name="Query" value="{{.Query}}"
+        lvt-input="search" lvt-debounce="300"
+        lvt-addClass-on:pending="border-blue-500"
+        lvt-removeClass-on:done="border-blue-500"
+        placeholder="Type to search... (press / to focus)">
+
+    <button lvt-click="clearSearch"
+        lvt-disable-on:pending
+        lvt-key="Escape">
+        Clear
+    </button>
+
+    <div class="results" lvt-scroll="preserve">
+        {{if .Query}}
+            <p>{{len .Results}} results for "{{.Query}}"</p>
+        {{end}}
+        {{range .Results}}
+            <div data-key="{{.ID}}" lvt-animate="fade">
+                <h3>{{.Title}}</h3>
+                <p>{{.Summary}}</p>
+            </div>
+        {{end}}
+    </div>
+
+</div>
+```
+
+```go
+type SearchController struct {
+    DB *sql.DB
+}
+
+type SearchState struct {
+    Query   string
+    Results []Result
+}
+
+func (c *SearchController) Search(state SearchState, ctx *livetemplate.Context) (SearchState, error) {
+    state.Query = ctx.GetString("Query")
+    if state.Query == "" {
+        state.Results = nil
+        return state, nil
+    }
+    results, err := c.DB.Search(state.Query)
+    if err != nil {
+        return state, err
+    }
+    state.Results = results
+    return state, nil
+}
+
+func (c *SearchController) ClearSearch(state SearchState, ctx *livetemplate.Context) (SearchState, error) {
+    state.Query = ""
+    state.Results = nil
+    return state, nil
+}
+
+func (c *SearchController) FocusSearch(state SearchState, ctx *livetemplate.Context) (SearchState, error) {
+    return state, nil
+}
+```
+
+---
+
+See also: [Progressive Complexity Reference](../references/progressive-complexity-reference.md) for a quick-lookup table of HTML attributes and their framework behaviors, and [Client Attributes Reference](../references/client-attributes.md) for the complete `lvt-*` attribute listing.

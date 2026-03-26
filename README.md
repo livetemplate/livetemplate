@@ -70,36 +70,26 @@ func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoSt
 
 Forms without a named button auto-route to a conventional `Submit()` method — no attributes needed at all for the simplest case. See the [Progressive Complexity Guide](docs/guides/progressive-complexity.md) for the full walkthrough and the [todos-progressive](https://github.com/livetemplate/examples/tree/main/todos-progressive) and [profile-progressive](https://github.com/livetemplate/examples/tree/main/profile-progressive) examples.
 
-For interactions that HTML can't express (timing, reactive DOM, keyboard shortcuts), use `lvt-*` attributes:
+For behaviors that HTML can't express — timing control, reactive DOM, keyboard shortcuts — use `lvt-*` attributes:
 
 ```html
-<h1>Counter: {{.Counter}}</h1>
-<button lvt-click="increment">+</button>
+<!-- Debounced search: waits 300ms after typing stops before querying -->
+<input name="Query" value="{{.Query}}"
+    lvt-input="search" lvt-debounce="300"
+    placeholder="Search...">
 ```
 
 ```go
-func (c *CounterController) Increment(state CounterState, ctx *livetemplate.Context) (CounterState, error) {
-    state.Counter++
+func (c *AppController) Search(state AppState, ctx *livetemplate.Context) (AppState, error) {
+    state.Query = ctx.GetString("Query")
+    state.Results = c.DB.Search(state.Query)
     return state, nil
 }
 ```
 
-Your existing Go toolchain, testing infrastructure, and deployment pipeline all work as-is. See the full [counter](https://github.com/livetemplate/examples/tree/main/counter) and [todos](https://github.com/livetemplate/examples/tree/main/todos) examples.
+Your existing Go toolchain, testing infrastructure, and deployment pipeline all work as-is. See the [examples](https://github.com/livetemplate/examples) repository.
 
-### 2. Generate Complete Apps Instantly
-
-The `lvt` CLI generates complete CRUD applications — forms, tables, validation, database integration — all reactive by default:
-
-```bash
-lvt new myapp
-cd myapp
-lvt gen products name price:float stock:int
-lvt serve
-```
-
-Code generation works reliably because templates have a predictable static/dynamic structure. Generated code inherits the reactive programming model. No glue code, no manual wiring. Pluggable CSS kits (Tailwind, Bulma, Pico, or plain HTML) let you match your team's preferred styling approach.
-
-### 3. Safe State Management
+### 2. Safe State Management
 
 LiveTemplate separates **controllers** (singleton, holds dependencies) from **state** (pure data, cloned per session). This prevents a class of bugs where session-specific data like OAuth tokens or caches accidentally leaks between users:
 
@@ -127,7 +117,7 @@ func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoSt
 
 The separation is enforced at the API level: `tmpl.Handle(controller, livetemplate.AsState(state))`. Convention and the `AssertPureState[T]()` test helper catch accidental dependency leakage. See the [chat example](https://github.com/livetemplate/examples/tree/main/chat) for a multi-user app using this pattern with broadcasting.
 
-### 4. Efficient by Design
+### 3. Efficient by Design
 
 LiveTemplate separates your template into static HTML (the parts that never change) and dynamic values (the parts that do). On first render, the client receives and caches the full structure:
 
@@ -143,7 +133,7 @@ When the counter changes from 5 to 6, only the new value is sent:
 
 No re-rendered HTML, no string diffing — just the single value that changed. For typical pages with lots of markup and few changing values, this means **50-90% less data** than sending full HTML. This optimization works over both plain HTTP and WebSocket — the server tracks tree state per session, so subsequent actions always send minimal diffs regardless of transport. This is the same static/dynamic split that [Phoenix LiveView uses](https://hexdocs.pm/phoenix_live_view/Phoenix.LiveView.html) — a proven approach to minimizing wire traffic.
 
-### 5. Idiomatic Go Error Handling
+### 4. Idiomatic Go Error Handling
 
 Errors flow naturally using Go's familiar patterns. Return an error and LiveTemplate automatically displays it in your template:
 
@@ -171,6 +161,19 @@ func (c *AuthController) Signup(state AuthState, ctx *livetemplate.Context) (Aut
 ```
 
 No error serialization code. No client-side error state management. Actions return `(State, error)` — the standard Go signature.
+
+### 5. Generate Complete Apps Instantly
+
+The `lvt` CLI generates complete CRUD applications — forms, tables, validation, database integration — all reactive by default:
+
+```bash
+lvt new myapp
+cd myapp
+lvt gen products name price:float stock:int
+lvt serve
+```
+
+Code generation works reliably because templates have a predictable static/dynamic structure. Generated code inherits the reactive programming model. No glue code, no manual wiring. Pluggable CSS kits (Tailwind, Bulma, Pico, or plain HTML) let you match your team's preferred styling approach.
 
 ## Current Limitations
 
@@ -232,8 +235,10 @@ func main() {
 ```html
 <!-- counter.tmpl -->
 <h1>Counter: {{.Counter}}</h1>
-<button lvt-click="increment">+</button>
-<button lvt-click="decrement">-</button>
+<form method="POST" style="display:inline">
+    <button name="increment">+</button>
+    <button name="decrement">-</button>
+</form>
 
 <script src="https://cdn.jsdelivr.net/npm/@livetemplate/client@latest/dist/livetemplate-client.browser.js"></script>
 ```
@@ -256,7 +261,7 @@ Only changed values sent → Client patches the DOM
 1. Define your **State** as a Go struct (pure data, cloned per session)
 2. Define your **Controller** with dependencies (singleton)
 3. Handle actions as methods on the Controller (action name → method name)
-4. Use standard Go templates with `lvt-*` attributes
+4. Use standard Go templates (add `lvt-*` attributes only when needed)
 5. LiveTemplate automatically syncs state to UI
 
 All interactive features — including efficient tree-based diffs — work over plain HTTP. WebSocket is optional, required only for server-initiated broadcasts (e.g., multi-user chat notifications).
@@ -303,6 +308,8 @@ See the full [performance documentation](docs/performance/) for comprehensive an
 **Core Documentation:**
 
 - [Go API Reference](https://pkg.go.dev/github.com/livetemplate/livetemplate) - Server-side API
+- [Progressive Complexity Guide](docs/guides/progressive-complexity.md) - Standard HTML first, `lvt-*` only when needed
+- [Progressive Complexity Reference](docs/references/progressive-complexity-reference.md) - Quick-lookup for HTML → framework behavior
 - [Controller+State Pattern](docs/references/controller-pattern.md) - Core architecture pattern
 - [Client Attributes](docs/references/client-attributes.md) - `lvt-*` event bindings
 - [Error Handling](docs/references/error-handling.md) - Validation and errors
