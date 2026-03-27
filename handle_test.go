@@ -1515,12 +1515,15 @@ func TestWebSocketDisabled_ErrorsDoNotLeakAcrossRoutes_JSONClient(t *testing.T) 
 
 	handler := newWSDisabledHandler(t)
 
-	// Step 1: GET /page-a (HTML) to create session
+	// Step 1: GET /page-a (HTML first to create session before JSON requests)
 	req := httptest.NewRequest("GET", "/page-a", nil)
 	req.Header.Set("Accept", "text/html")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", rec.Code)
+	}
 	cookie := extractSessionCookie(rec)
 	if cookie == nil {
 		t.Fatal("Expected session cookie")
