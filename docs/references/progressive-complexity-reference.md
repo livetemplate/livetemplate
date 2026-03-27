@@ -14,7 +14,7 @@ Quick-reference for how standard HTML maps to LiveTemplate behavior. For the lea
 | `<button name="delete" value="{{.ID}}">` | Value passed as data | `ctx.GetString("value")` |
 | `<form name="search">` | Form name becomes action (JS client only) | `Search()` |
 | `<input type="hidden" name="id" value="{{.ID}}">` | Included in form data | `ctx.GetString("id")` |
-| `<button form="lvt-xxx-form" name="increment">` | Standalone button references auto-injected hidden form | `Increment()` |
+| `<button name="increment">` | Standalone button outside any form (JS client only) | `Increment()` |
 
 ## Action Resolution Order
 
@@ -87,6 +87,7 @@ During form submission, the framework automatically manages loading indicators:
 |---|---|---|---|
 | Form submit | POST + page reload | `fetch()` + DOM patch | WS message + DOM patch |
 | `button name` routing | Native POST | Client extracts | Client extracts |
+| Standalone button (no form) | N/A (use form) | Client detects | Client detects |
 | `form name` routing | N/A (use button name) | Client reads `form.name` | Client reads `form.name` |
 | Hidden inputs | Native POST | In FormData | In FormData |
 | `Change()` auto-binding | N/A | Works | Works |
