@@ -1427,6 +1427,189 @@ func TestWebSocketDisabled_TrailingSlashDoesNotResetState(t *testing.T) {
 	}
 }
 
+func TestWebSocketDisabled_ErrorsDoNotLeakAcrossRoutes(t *testing.T) {
+	handler := newWSDisabledHandler(t)
+
+	// Step 1: GET /page-a — creates session, no errors
+	req := httptest.NewRequest("GET", "/page-a", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	cookie := extractSessionCookie(rec)
+	if cookie == nil {
+		t.Fatal("Expected session cookie")
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "Error:") {
+		t.Errorf("Initial GET should have no errors, got: %s", body)
+	}
+
+	// Step 2: POST /page-a with empty title — triggers validation error
+	form := url.Values{}
+	form.Set("lvt-action", "Add")
+	form.Set("title", "")
+	req = httptest.NewRequest("POST", "/page-a", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html")
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", rec.Code)
+	}
+	body = rec.Body.String()
+	if !strings.Contains(body, "Error: Title is required") {
+		t.Errorf("POST with empty title should show error, got: %s", body)
+	}
+
+	// Step 3: GET /page-a — same route, errors should be gone (fresh request)
+	req = httptest.NewRequest("GET", "/page-a", nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", rec.Code)
+	}
+	body = rec.Body.String()
+	if strings.Contains(body, "Error:") {
+		t.Errorf("GET after POST error should have no errors, got: %s", body)
+	}
+	if !strings.Contains(body, "Count: 0") {
+		t.Errorf("State should be intact after failed POST, got: %s", body)
+	}
+
+	// Step 4: GET /page-b — different route, no errors should leak
+	req = httptest.NewRequest("GET", "/page-b", nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", rec.Code)
+	}
+	body = rec.Body.String()
+	if strings.Contains(body, "Error:") {
+		t.Errorf("GET on different route should have no errors, got: %s", body)
+	}
+	if !strings.Contains(body, "Count: 0") {
+		t.Errorf("Different route should have fresh state, got: %s", body)
+	}
+	if !strings.Contains(body, "Message: mounted") {
+		t.Errorf("Different route should call Mount, got: %s", body)
+	}
+}
+
+func TestWebSocketDisabled_ErrorsDoNotLeakAcrossRoutes_JSONClient(t *testing.T) {
+	type jsonResponse struct {
+		Tree map[string]any `json:"tree"`
+		Meta *struct {
+			Success bool              `json:"success"`
+			Errors  map[string]string `json:"errors"`
+		} `json:"meta"`
+	}
+
+	handler := newWSDisabledHandler(t)
+
+	// Step 1: GET /page-a (HTML first to create session before JSON requests)
+	req := httptest.NewRequest("GET", "/page-a", nil)
+	req.Header.Set("Accept", "text/html")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", rec.Code)
+	}
+	cookie := extractSessionCookie(rec)
+	if cookie == nil {
+		t.Fatal("Expected session cookie")
+	}
+
+	// Step 2: POST /page-a with empty title (JSON) — should return errors in meta
+	form := url.Values{}
+	form.Set("lvt-action", "Add")
+	form.Set("title", "")
+	req = httptest.NewRequest("POST", "/page-a", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", rec.Code)
+	}
+	var resp jsonResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Failed to unmarshal JSON response: %v", err)
+	}
+	if resp.Meta == nil {
+		t.Fatal("Expected meta in response")
+	}
+	if resp.Meta.Success {
+		t.Error("Expected meta.success=false for validation error")
+	}
+	if resp.Meta.Errors["title"] != "Title is required" {
+		t.Errorf("Expected title error, got errors: %v", resp.Meta.Errors)
+	}
+
+	// Step 3: POST /page-a with valid title (JSON) — errors should clear
+	form = url.Values{}
+	form.Set("lvt-action", "Add")
+	form.Set("title", "hello")
+	req = httptest.NewRequest("POST", "/page-a", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", rec.Code)
+	}
+	var resp2 jsonResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp2); err != nil {
+		t.Fatalf("Failed to unmarshal JSON response: %v", err)
+	}
+	if resp2.Meta == nil {
+		t.Fatal("Expected meta in response")
+	}
+	if !resp2.Meta.Success {
+		t.Error("Expected meta.success=true after valid submission")
+	}
+	if len(resp2.Meta.Errors) > 0 {
+		t.Errorf("Expected no errors after valid submission, got: %v", resp2.Meta.Errors)
+	}
+
+	// Step 4: GET /page-b (JSON) — no errors should leak to different route
+	req = httptest.NewRequest("GET", "/page-b", nil)
+	req.Header.Set("Accept", "application/json")
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", rec.Code)
+	}
+	var resp3 jsonResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp3); err != nil {
+		t.Fatalf("Failed to unmarshal JSON response: %v", err)
+	}
+	if resp3.Meta == nil {
+		t.Fatal("Expected meta in response")
+	}
+	if !resp3.Meta.Success {
+		t.Error("Expected meta.success=true on different route GET")
+	}
+	if len(resp3.Meta.Errors) > 0 {
+		t.Errorf("Expected no errors on different route, got: %v", resp3.Meta.Errors)
+	}
+}
+
 // failingMountController fails Mount on demand via a channel signal.
 type failingMountController struct {
 	failNext chan struct{}
