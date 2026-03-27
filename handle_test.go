@@ -1427,11 +1427,6 @@ func TestWebSocketDisabled_TrailingSlashDoesNotResetState(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// Error Route Scoping Tests (Issue #270)
-// Verify .lvt.Error does not leak across HTTP routes.
-// =============================================================================
-
 func TestWebSocketDisabled_ErrorsDoNotLeakAcrossRoutes(t *testing.T) {
 	handler := newWSDisabledHandler(t)
 
@@ -1577,7 +1572,10 @@ func TestWebSocketDisabled_ErrorsDoNotLeakAcrossRoutes_JSONClient(t *testing.T) 
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp2); err != nil {
 		t.Fatalf("Failed to unmarshal JSON response: %v", err)
 	}
-	if resp2.Meta == nil || !resp2.Meta.Success {
+	if resp2.Meta == nil {
+		t.Fatal("Expected meta in response")
+	}
+	if !resp2.Meta.Success {
 		t.Error("Expected meta.success=true after valid submission")
 	}
 	if len(resp2.Meta.Errors) > 0 {
@@ -1598,7 +1596,10 @@ func TestWebSocketDisabled_ErrorsDoNotLeakAcrossRoutes_JSONClient(t *testing.T) 
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp3); err != nil {
 		t.Fatalf("Failed to unmarshal JSON response: %v", err)
 	}
-	if resp3.Meta == nil || !resp3.Meta.Success {
+	if resp3.Meta == nil {
+		t.Fatal("Expected meta in response")
+	}
+	if !resp3.Meta.Success {
 		t.Error("Expected meta.success=true on different route GET")
 	}
 	if len(resp3.Meta.Errors) > 0 {
