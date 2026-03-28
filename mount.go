@@ -1386,10 +1386,8 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 
 	connSt.state = newState
 
-	// Process any chained broadcasts from the dispatched action
-	for _, br := range ctx.pendingBroadcasts() {
-		h.dispatchBroadcastToGroup(connSt.groupID, connection, br.Action, br.Data)
-	}
+	// Chained BroadcastAction calls from dispatched actions are intentionally
+	// not processed to prevent infinite broadcast storms.
 
 	if err := h.sendUpdate(connection, connSt.state, connSt.getMessages()); err != nil {
 		slog.Warn("sendUpdate failed during broadcast dispatch",

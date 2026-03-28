@@ -353,13 +353,7 @@ func (r *ConnectionRegistry) Register(conn *Connection, bufferSize int) {
 	conn.done = make(chan struct{})
 	conn.pumpExited = make(chan struct{})
 	conn.metrics = r.metrics // Set metrics from registry
-	// DispatchChan uses a smaller buffer than sendChan: broadcast actions
-	// are less frequent than WebSocket messages and each holds a map allocation.
-	dispatchBufSize := 16
-	if bufferSize < dispatchBufSize {
-		dispatchBufSize = bufferSize
-	}
-	conn.DispatchChan = make(chan *DispatchRequest, dispatchBufSize)
+	conn.DispatchChan = make(chan *DispatchRequest, min(16, bufferSize))
 
 	// Start write pump goroutine
 	go conn.writePump()
