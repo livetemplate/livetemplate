@@ -27,15 +27,116 @@ type State interface {
 }
 
 // AsState wraps a plain struct pointer to satisfy the State interface.
-// Uses JSON serialization by default. For custom serialization,
+// Panics if the state type contains dependency fields (e.g., *sql.DB,
+// *slog.Logger) that belong in the controller. Checks direct fields,
+// nested structs, pointer-to-struct fields, and slice/array/map element
+// types. Uses JSON serialization by default. For custom serialization,
 // implement the State interface directly on your type.
+//
+// The check is best-effort: it matches a fixed set of known stdlib
+// dependency types. Custom wrappers (e.g., type AppDB struct{ *sql.DB })
+// or third-party types (e.g., *pgxpool.Pool) are not caught.
+// Use AssertPureState[T]() in tests for stricter validation.
 //
 // Example:
 //
 //	state := AsState(&TodoState{})
 //	handler := tmpl.Handle(&TodoController{DB: db}, state)
 func AsState[T any](s *T) State {
+	if err := validatePureState[T](); err != nil {
+		panic(fmt.Sprintf("livetemplate.AsState: %v", err))
+	}
 	return &jsonState[T]{value: s}
+}
+
+var pureStateCache sync.Map // reflect.Type → error (nil for pure)
+
+func validatePureState[T any]() error {
+	var zero T
+	typ := reflect.TypeOf(zero)
+	if typ == nil {
+		return nil
+	}
+	if cached, ok := pureStateCache.Load(typ); ok {
+		// A nil error stored as any produces a nil interface value,
+		// so the nil check correctly handles the "type is pure" case.
+		if cached == nil {
+			return nil
+		}
+		return cached.(error)
+	}
+	err := validatePureStateType(typ, "", make(map[reflect.Type]bool))
+	pureStateCache.Store(typ, err)
+	return err
+}
+
+func validatePureStateType(typ reflect.Type, path string, visited map[reflect.Type]bool) error {
+	if typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+	}
+	if typ.Kind() != reflect.Struct {
+		return nil
+	}
+	if visited[typ] {
+		return nil
+	}
+	visited[typ] = true
+	for i := range typ.NumField() {
+		field := typ.Field(i)
+		fieldPath := field.Name
+		if path != "" {
+			fieldPath = path + "." + field.Name
+		}
+		if err := checkFieldType(field.Type, fieldPath, visited); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func checkFieldType(ft reflect.Type, fieldPath string, visited map[reflect.Type]bool) error {
+	// isDependencyType only matches pointer/interface kinds; value-type structs
+	// fall through to recursive descent below.
+	if isDependencyType(ft) {
+		return fmt.Errorf("field %s appears to be a dependency (%s) - move to controller",
+			fieldPath, ft.String())
+	}
+	switch ft.Kind() {
+	case reflect.Struct:
+		return validatePureStateType(ft, fieldPath, visited)
+	case reflect.Ptr:
+		if ft.Elem().Kind() == reflect.Struct {
+			return validatePureStateType(ft.Elem(), fieldPath, visited)
+		}
+	case reflect.Slice, reflect.Array:
+		return checkFieldType(ft.Elem(), fieldPath+"[]", visited)
+	case reflect.Map:
+		if err := checkFieldType(ft.Key(), fieldPath+"[key]", visited); err != nil {
+			return err
+		}
+		return checkFieldType(ft.Elem(), fieldPath+"[value]", visited)
+	}
+	return nil
+}
+
+func isDependencyType(typ reflect.Type) bool {
+	if typ.Kind() != reflect.Ptr && typ.Kind() != reflect.Interface {
+		return false
+	}
+	name := typ.String()
+	patterns := []string{
+		"*sql.DB", "*sql.Tx", "*sql.Conn",
+		"*slog.Logger", "*log.Logger",
+		"*http.Client",
+		"*redis.Client",
+		"io.Writer", "io.Reader",
+	}
+	for _, p := range patterns {
+		if name == p {
+			return true
+		}
+	}
+	return false
 }
 
 // jsonState is the generic wrapper implementing State with JSON serialization

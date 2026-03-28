@@ -88,6 +88,137 @@ func (s StateWithMethods) FilteredItems() []string {
 	return result
 }
 
+func TestAsState_PanicsOnImpureState(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("Expected panic for impure state")
+		}
+		msg, ok := r.(string)
+		if !ok {
+			t.Fatalf("Expected string panic, got %T: %v", r, r)
+		}
+		if !strings.Contains(msg, "livetemplate.AsState") {
+			t.Errorf("Panic message should mention AsState, got: %s", msg)
+		}
+		if !strings.Contains(msg, "Logger") {
+			t.Errorf("Panic message should mention the offending field, got: %s", msg)
+		}
+	}()
+	AsState(&ImpureState{})
+}
+
+func TestAsState_PanicsOnNestedImpureState(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("Expected panic for nested impure state")
+		}
+		msg, ok := r.(string)
+		if !ok {
+			t.Fatalf("Expected string panic, got %T: %v", r, r)
+		}
+		if !strings.Contains(msg, "Data.DB") {
+			t.Errorf("Panic message should mention nested field path, got: %s", msg)
+		}
+	}()
+	AsState(&NestedImpureState{})
+}
+
+type PointerNestedImpureState struct {
+	Cfg *struct {
+		DB *sql.DB
+	}
+}
+
+func TestAsState_PanicsOnPointerToNestedImpureState(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("Expected panic for pointer-to-struct with dependency")
+		}
+		msg, ok := r.(string)
+		if !ok {
+			t.Fatalf("Expected string panic, got %T: %v", r, r)
+		}
+		if !strings.Contains(msg, "Cfg.DB") {
+			t.Errorf("Panic message should mention nested field path through pointer, got: %s", msg)
+		}
+	}()
+	AsState(&PointerNestedImpureState{})
+}
+
+type SliceImpureState struct {
+	Loggers []*slog.Logger
+}
+
+func TestAsState_PanicsOnSliceOfDependency(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("Expected panic for slice of dependency type")
+		}
+		msg, ok := r.(string)
+		if !ok {
+			t.Fatalf("Expected string panic, got %T: %v", r, r)
+		}
+		if !strings.Contains(msg, "Loggers") {
+			t.Errorf("Panic message should mention the field, got: %s", msg)
+		}
+	}()
+	AsState(&SliceImpureState{})
+}
+
+type MapImpureState struct {
+	Connections map[string]*sql.DB
+}
+
+func TestAsState_PanicsOnMapOfDependency(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("Expected panic for map of dependency type")
+		}
+		msg, ok := r.(string)
+		if !ok {
+			t.Fatalf("Expected string panic, got %T: %v", r, r)
+		}
+		if !strings.Contains(msg, "Connections") {
+			t.Errorf("Panic message should mention the field, got: %s", msg)
+		}
+	}()
+	AsState(&MapImpureState{})
+}
+
+type SelfRefState struct {
+	Next  *SelfRefState
+	Value string
+}
+
+func TestAsState_SelfReferentialStateDoesNotStackOverflow(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Self-referential pure state should not panic, got: %v", r)
+		}
+	}()
+	s := AsState(&SelfRefState{Value: "root"})
+	if s == nil {
+		t.Fatal("Expected non-nil State")
+	}
+}
+
+func TestAsState_PureStateDoesNotPanic(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Pure state should not panic, got: %v", r)
+		}
+	}()
+	s := AsState(&PureState{Count: 1, Name: "test"})
+	if s == nil {
+		t.Fatal("Expected non-nil State")
+	}
+}
+
 func TestAssertPureState_WithMethods(t *testing.T) {
 	// State structs with methods should pass — methods are not dependencies
 	AssertPureState[StateWithMethods](t)
