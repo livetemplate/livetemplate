@@ -190,6 +190,23 @@ func TestAsState_PanicsOnMapOfDependency(t *testing.T) {
 	AsState(&MapImpureState{})
 }
 
+type SelfRefState struct {
+	Next  *SelfRefState
+	Value string
+}
+
+func TestAsState_SelfReferentialStateDoesNotStackOverflow(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Self-referential pure state should not panic, got: %v", r)
+		}
+	}()
+	s := AsState(&SelfRefState{Value: "root"})
+	if s == nil {
+		t.Fatal("Expected non-nil State")
+	}
+}
+
 func TestAsState_PureStateDoesNotPanic(t *testing.T) {
 	defer func() {
 		if r := recover(); r != nil {

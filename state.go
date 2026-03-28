@@ -58,55 +58,63 @@ func validatePureState[T any]() error {
 		return nil
 	}
 	if cached, ok := pureStateCache.Load(typ); ok {
+		// A nil error stored as any produces a nil interface value,
+		// so the nil check correctly handles the "type is pure" case.
 		if cached == nil {
 			return nil
 		}
 		return cached.(error)
 	}
-	err := validatePureStateType(typ, "")
+	err := validatePureStateType(typ, "", make(map[reflect.Type]bool))
 	pureStateCache.Store(typ, err)
 	return err
 }
 
-func validatePureStateType(typ reflect.Type, path string) error {
+func validatePureStateType(typ reflect.Type, path string, visited map[reflect.Type]bool) error {
 	if typ.Kind() == reflect.Ptr {
 		typ = typ.Elem()
 	}
 	if typ.Kind() != reflect.Struct {
 		return nil
 	}
+	if visited[typ] {
+		return nil
+	}
+	visited[typ] = true
 	for i := range typ.NumField() {
 		field := typ.Field(i)
 		fieldPath := field.Name
 		if path != "" {
 			fieldPath = path + "." + field.Name
 		}
-		if err := checkFieldType(field.Type, fieldPath); err != nil {
+		if err := checkFieldType(field.Type, fieldPath, visited); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func checkFieldType(ft reflect.Type, fieldPath string) error {
+func checkFieldType(ft reflect.Type, fieldPath string, visited map[reflect.Type]bool) error {
+	// isDependencyType only matches pointer/interface kinds; value-type structs
+	// fall through to recursive descent below.
 	if isDependencyType(ft) {
 		return fmt.Errorf("field %s appears to be a dependency (%s) - move to controller",
 			fieldPath, ft.String())
 	}
 	switch ft.Kind() {
 	case reflect.Struct:
-		return validatePureStateType(ft, fieldPath)
+		return validatePureStateType(ft, fieldPath, visited)
 	case reflect.Ptr:
 		if ft.Elem().Kind() == reflect.Struct {
-			return validatePureStateType(ft.Elem(), fieldPath)
+			return validatePureStateType(ft.Elem(), fieldPath, visited)
 		}
 	case reflect.Slice, reflect.Array:
-		return checkFieldType(ft.Elem(), fieldPath+"[]")
+		return checkFieldType(ft.Elem(), fieldPath+"[]", visited)
 	case reflect.Map:
-		if err := checkFieldType(ft.Key(), fieldPath+"[key]"); err != nil {
+		if err := checkFieldType(ft.Key(), fieldPath+"[key]", visited); err != nil {
 			return err
 		}
-		return checkFieldType(ft.Elem(), fieldPath+"[value]")
+		return checkFieldType(ft.Elem(), fieldPath+"[value]", visited)
 	}
 	return nil
 }
