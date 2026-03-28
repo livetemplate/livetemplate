@@ -335,6 +335,10 @@ func (c *Context) BroadcastAction(action string, data map[string]interface{}) {
 	if action == "" {
 		return
 	}
+	const maxBroadcasts = 100
+	if len(c.broadcasts) >= maxBroadcasts {
+		return
+	}
 	c.broadcasts = append(c.broadcasts, broadcastRequest{Action: action, Data: data})
 }
 

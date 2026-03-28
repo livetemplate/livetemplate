@@ -47,12 +47,11 @@ type Connection struct {
 	mu       sync.Mutex  // Protects writes to Conn
 
 	// Async sending infrastructure
-	sendChan          chan *wsMessage // Buffered channel for queued messages
-	done              chan struct{}   // Signal for graceful shutdown
-	pumpExited        chan struct{}   // Signals writePump has exited cleanly
-	closeOnce         sync.Once       // Prevents double-close race conditions
-	dispatchCloseOnce sync.Once       // Prevents double-close of DispatchChan
-	metrics           MetricsRecorder // Optional: metrics recorder for observability
+	sendChan   chan *wsMessage // Buffered channel for queued messages
+	done       chan struct{}   // Signal for graceful shutdown
+	pumpExited chan struct{}   // Signals writePump has exited cleanly
+	closeOnce  sync.Once       // Prevents double-close race conditions
+	metrics    MetricsRecorder // Optional: metrics recorder for observability
 
 	// Dispatch channel for broadcast actions from other connections.
 	// Actions enqueued here are processed by the connection's select-based event loop.
@@ -376,20 +375,10 @@ func (r *ConnectionRegistry) Unregister(conn *Connection) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Close the connection (triggers writePump shutdown)
-	// This is idempotent due to sync.Once, safe to call multiple times
-	if err := conn.Close(); err != nil {
-		slog.Debug("connection close during unregister returned error",
-			slog.Any("error", err),
-			slog.String("group_id", conn.GroupID))
-	}
-
-	// Close DispatchChan so the event loop's select detects disconnect.
-	conn.dispatchCloseOnce.Do(func() {
-		if conn.DispatchChan != nil {
-			close(conn.DispatchChan)
-		}
-	})
+	// Remove from indexes FIRST so no new dispatches target this connection.
+	// Then close the connection (triggers writePump shutdown via done channel).
+	// DispatchChan is NOT closed — senders use the done channel to detect shutdown.
+	// This avoids send-on-closed-channel panics in concurrent EnqueueDispatch calls.
 
 	// Remove from byGroup index
 	groupConns := r.byGroup[conn.GroupID]
@@ -407,6 +396,14 @@ func (r *ConnectionRegistry) Unregister(conn *Connection) {
 	// Clean up empty slices
 	if len(r.byUser[conn.UserID]) == 0 {
 		delete(r.byUser, conn.UserID)
+	}
+
+	// Close the connection AFTER removing from indexes.
+	// This signals the done channel, which EnqueueDispatch checks before sending.
+	if err := conn.Close(); err != nil {
+		slog.Debug("connection close during unregister returned error",
+			slog.Any("error", err),
+			slog.String("group_id", conn.GroupID))
 	}
 }
 

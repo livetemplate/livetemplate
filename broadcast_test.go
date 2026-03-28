@@ -134,7 +134,6 @@ func TestHTTPPost_BroadcastAction_DispatchesToWebSocket(t *testing.T) {
 	server, wsURL := setupBroadcastTestServer(t)
 	defer server.Close()
 
-	// Connect a WebSocket client (simulates an open browser tab)
 	ws := connectWS(t, wsURL)
 	defer func() {
 		if err := ws.Close(); err != nil {
@@ -142,22 +141,35 @@ func TestHTTPPost_BroadcastAction_DispatchesToWebSocket(t *testing.T) {
 		}
 	}()
 
-	// Wait for WS connection to register (poll instead of sleep for CI reliability)
-	time.Sleep(50 * time.Millisecond)
+	// Retry POST until WS receives the broadcast (covers registration race)
+	var update map[string]interface{}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		form := url.Values{}
+		form.Set("action", "increment")
+		resp, err := http.Post(server.URL+"/", "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
+		if err != nil {
+			t.Fatalf("HTTP POST failed: %v", err)
+		}
+		if err := resp.Body.Close(); err != nil {
+			t.Logf("response body close error: %v", err)
+		}
 
-	// Send HTTP POST that triggers BroadcastAction("RefreshCount", ...)
-	form := url.Values{}
-	form.Set("action", "increment")
-	resp, err := http.Post(server.URL+"/", "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
-	if err != nil {
-		t.Fatalf("HTTP POST failed: %v", err)
+		if err := ws.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+			t.Fatalf("SetReadDeadline failed: %v", err)
+		}
+		_, msg, err := ws.ReadMessage()
+		if err != nil {
+			continue // WS not registered yet or no update — retry
+		}
+		if err := json.Unmarshal(msg, &update); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+		break
 	}
-	if err := resp.Body.Close(); err != nil {
-		t.Logf("response body close error: %v", err)
+	if update == nil {
+		t.Fatal("WS never received broadcast from HTTP POST")
 	}
-
-	// The WebSocket should receive a broadcast update (dispatched via RefreshCount action)
-	update := readWSUpdate(t, ws, 3*time.Second)
 
 	meta, ok := update["meta"].(map[string]interface{})
 	if !ok {
@@ -189,9 +201,6 @@ func TestWSAction_BroadcastAction_DispatchesToOtherWS(t *testing.T) {
 		}
 	}()
 
-	// Wait for WS connections to register
-	time.Sleep(50 * time.Millisecond)
-
 	// Tab 1 sends SetMessage action
 	actionMsg := map[string]interface{}{
 		"action": "set_message",
@@ -215,6 +224,16 @@ func TestWSAction_BroadcastAction_DispatchesToOtherWS(t *testing.T) {
 	if meta2["success"] != true {
 		t.Errorf("Tab 2 expected success=true, got %v", meta2["success"])
 	}
+
+	// Tab 1 (sender) should NOT receive the broadcast dispatch.
+	// It already got its own action response above — no second message expected.
+	if err := ws1.SetReadDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline failed: %v", err)
+	}
+	_, _, err := ws1.ReadMessage()
+	if err == nil {
+		t.Error("Tab 1 (sender) should NOT receive its own broadcast dispatch")
+	}
 }
 
 // TestSharedState_HTTPPost_AutoBroadcasts verifies that WithSharedState()
@@ -232,25 +251,32 @@ func TestSharedState_HTTPPost_AutoBroadcasts(t *testing.T) {
 		}
 	}()
 
-	// Wait for WS connection to register (poll instead of sleep for CI reliability)
-	time.Sleep(50 * time.Millisecond)
+	// Retry POST until WS receives the broadcast (covers registration race)
+	var update map[string]interface{}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		form := url.Values{}
+		form.Set("action", "increment")
+		resp, err := http.Post(server.URL+"/", "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
+		if err != nil {
+			t.Fatalf("HTTP POST failed: %v", err)
+		}
+		if err := resp.Body.Close(); err != nil {
+			t.Logf("response body close error: %v", err)
+		}
 
-	// Send HTTP POST (Increment action updates state)
-	form := url.Values{}
-	form.Set("action", "increment")
-	resp, err := http.Post(server.URL+"/", "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
-	if err != nil {
-		t.Fatalf("HTTP POST failed: %v", err)
+		if err := ws.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+			t.Fatalf("SetReadDeadline failed: %v", err)
+		}
+		_, msg, err := ws.ReadMessage()
+		if err != nil {
+			continue
+		}
+		if err := json.Unmarshal(msg, &update); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+		break
 	}
-	if err := resp.Body.Close(); err != nil {
-		t.Logf("response body close error: %v", err)
-	}
-
-	// In shared-state mode, WS should receive auto-broadcast update
-	// (from autoBroadcastToGroup, not from BroadcastAction).
-	// PLUS the BroadcastAction("RefreshCount") dispatch.
-	// We should receive at least one update.
-	update := readWSUpdate(t, ws, 3*time.Second)
 	if update == nil {
 		t.Fatal("Expected WebSocket to receive update in SharedState mode")
 	}

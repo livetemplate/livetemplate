@@ -82,8 +82,15 @@ func (c *ChatController) Send(state ChatState, ctx *livetemplate.Context) (ChatS
 	}
 
 	msg := Message{User: state.CurrentUser, Text: text}
-	data, _ := json.Marshal(msg)
-	c.rdb.RPush(context.Background(), messagesKey, data)
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("Failed to marshal message: %v", err)
+		return state, err
+	}
+	if err := c.rdb.RPush(context.Background(), messagesKey, data).Err(); err != nil {
+		log.Printf("Failed to push message to Redis: %v", err)
+		return state, err
+	}
 
 	state.Messages = c.loadMessages()
 	ctx.BroadcastAction("RefreshMessages", nil)

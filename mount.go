@@ -732,14 +732,13 @@ eventLoop:
 			}
 
 			if h.config.SharedState {
-				// Shared-state mode: persist to SessionStore and auto-broadcast
+				// Shared-state mode: persist to SessionStore and auto-broadcast.
+				// BroadcastAction calls are ignored — auto-broadcast already handles sync.
 				h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
 				connection.Stores = connSt.state
 				h.autoBroadcastToGroup(groupID, connSt.state, connection)
-			}
-
-			// Process deferred broadcasts in both modes (only on successful action)
-			if actionErr == nil {
+			} else if actionErr == nil {
+				// Per-connection mode: process deferred broadcasts
 				for _, br := range actionCtx.pendingBroadcasts() {
 					h.dispatchBroadcastToGroup(groupID, connection, br.Action, br.Data)
 				}
@@ -789,10 +788,7 @@ eventLoop:
 			// Clear flash messages after successful render (flash shows once per action)
 			connSt.clearFlash()
 
-		case req, ok := <-connection.DispatchChan:
-			if !ok {
-				break eventLoop
-			}
+		case req := <-connection.DispatchChan:
 			h.handleDispatchedAction(connSt, connection, req, userID)
 		}
 	}
@@ -1143,12 +1139,10 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	httpTmpl.SetUploadRegistry(uploadRegistry)
 
 	if h.config.SharedState {
-		// Shared-state mode: push state to all WebSocket connections
+		// Shared-state mode: auto-broadcast handles sync. BroadcastAction calls ignored.
 		h.autoBroadcastToGroup(groupID, connSt.state, nil)
-	}
-
-	// Process deferred broadcasts in both modes
-	if actionErr == nil {
+	} else if actionErr == nil {
+		// Per-connection mode: process deferred broadcasts
 		for _, br := range actionCtx.pendingBroadcasts() {
 			h.dispatchBroadcastToGroup(groupID, nil, br.Action, br.Data)
 		}
@@ -1385,6 +1379,10 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 	}
 
 	connSt.state = newState
+
+	if h.config.SharedState {
+		h.config.SessionStore.Set(context.Background(), connSt.groupID, connSt.state)
+	}
 
 	// Chained BroadcastAction calls from dispatched actions are intentionally
 	// not processed to prevent infinite broadcast storms.
