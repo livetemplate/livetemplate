@@ -27,15 +27,72 @@ type State interface {
 }
 
 // AsState wraps a plain struct pointer to satisfy the State interface.
-// Uses JSON serialization by default. For custom serialization,
-// implement the State interface directly on your type.
+// Panics if the state type contains dependency fields (e.g., *sql.DB,
+// *slog.Logger) that belong in the controller. Uses JSON serialization
+// by default. For custom serialization, implement the State interface
+// directly on your type.
 //
 // Example:
 //
 //	state := AsState(&TodoState{})
 //	handler := tmpl.Handle(&TodoController{DB: db}, state)
 func AsState[T any](s *T) State {
+	if err := validatePureState[T](); err != nil {
+		panic(fmt.Sprintf("livetemplate.AsState: %v", err))
+	}
 	return &jsonState[T]{value: s}
+}
+
+func validatePureState[T any]() error {
+	var zero T
+	typ := reflect.TypeOf(zero)
+	return validatePureStateType(typ, "")
+}
+
+func validatePureStateType(typ reflect.Type, path string) error {
+	if typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+	}
+	if typ.Kind() != reflect.Struct {
+		return nil
+	}
+	for i := range typ.NumField() {
+		field := typ.Field(i)
+		fieldPath := field.Name
+		if path != "" {
+			fieldPath = path + "." + field.Name
+		}
+		if isDependencyType(field.Type) {
+			return fmt.Errorf("field %s appears to be a dependency (%s) - move to controller",
+				fieldPath, field.Type.String())
+		}
+		if field.Type.Kind() == reflect.Struct {
+			if err := validatePureStateType(field.Type, fieldPath); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func isDependencyType(typ reflect.Type) bool {
+	if typ.Kind() != reflect.Ptr && typ.Kind() != reflect.Interface {
+		return false
+	}
+	name := typ.String()
+	patterns := []string{
+		"*sql.DB", "*sql.Tx", "*sql.Conn",
+		"*slog.Logger", "*log.Logger",
+		"*http.Client",
+		"*redis.Client",
+		"io.Writer", "io.Reader",
+	}
+	for _, p := range patterns {
+		if name == p {
+			return true
+		}
+	}
+	return false
 }
 
 // jsonState is the generic wrapper implementing State with JSON serialization
