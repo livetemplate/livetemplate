@@ -733,10 +733,14 @@ eventLoop:
 
 			if h.config.SharedState {
 				// Shared-state mode: persist to SessionStore and auto-broadcast.
-				// BroadcastAction calls are ignored — auto-broadcast already handles sync.
 				h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
 				connection.Stores = connSt.state
 				h.autoBroadcastToGroup(groupID, connSt.state, connection)
+				if dropped := actionCtx.pendingBroadcasts(); len(dropped) > 0 {
+					slog.Debug("BroadcastAction calls ignored in SharedState mode (auto-broadcast handles sync)",
+						slog.String("component", "live_handler"),
+						slog.Int("dropped_count", len(dropped)))
+				}
 			} else if actionErr == nil {
 				// Per-connection mode: process deferred broadcasts
 				for _, br := range actionCtx.pendingBroadcasts() {
@@ -1139,8 +1143,12 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	httpTmpl.SetUploadRegistry(uploadRegistry)
 
 	if h.config.SharedState {
-		// Shared-state mode: auto-broadcast handles sync. BroadcastAction calls ignored.
 		h.autoBroadcastToGroup(groupID, connSt.state, nil)
+		if dropped := actionCtx.pendingBroadcasts(); len(dropped) > 0 {
+			slog.Debug("BroadcastAction calls ignored in SharedState mode (auto-broadcast handles sync)",
+				slog.String("component", "live_handler"),
+				slog.Int("dropped_count", len(dropped)))
+		}
 	} else if actionErr == nil {
 		// Per-connection mode: process deferred broadcasts
 		for _, br := range actionCtx.pendingBroadcasts() {
