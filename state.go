@@ -28,9 +28,15 @@ type State interface {
 
 // AsState wraps a plain struct pointer to satisfy the State interface.
 // Panics if the state type contains dependency fields (e.g., *sql.DB,
-// *slog.Logger) that belong in the controller. Uses JSON serialization
-// by default. For custom serialization, implement the State interface
-// directly on your type.
+// *slog.Logger) that belong in the controller. Checks direct fields,
+// nested structs, pointer-to-struct fields, and slice/array/map element
+// types. Uses JSON serialization by default. For custom serialization,
+// implement the State interface directly on your type.
+//
+// The check is best-effort: it matches a fixed set of known stdlib
+// dependency types. Custom wrappers (e.g., type AppDB struct{ *sql.DB })
+// or third-party types (e.g., *pgxpool.Pool) are not caught.
+// Use AssertPureState[T]() in tests for stricter validation.
 //
 // Example:
 //
@@ -75,19 +81,32 @@ func validatePureStateType(typ reflect.Type, path string) error {
 		if path != "" {
 			fieldPath = path + "." + field.Name
 		}
-		if isDependencyType(field.Type) {
-			return fmt.Errorf("field %s appears to be a dependency (%s) - move to controller",
-				fieldPath, field.Type.String())
+		if err := checkFieldType(field.Type, fieldPath); err != nil {
+			return err
 		}
-		if field.Type.Kind() == reflect.Struct {
-			if err := validatePureStateType(field.Type, fieldPath); err != nil {
-				return err
-			}
-		} else if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct {
-			if err := validatePureStateType(field.Type.Elem(), fieldPath); err != nil {
-				return err
-			}
+	}
+	return nil
+}
+
+func checkFieldType(ft reflect.Type, fieldPath string) error {
+	if isDependencyType(ft) {
+		return fmt.Errorf("field %s appears to be a dependency (%s) - move to controller",
+			fieldPath, ft.String())
+	}
+	switch ft.Kind() {
+	case reflect.Struct:
+		return validatePureStateType(ft, fieldPath)
+	case reflect.Ptr:
+		if ft.Elem().Kind() == reflect.Struct {
+			return validatePureStateType(ft.Elem(), fieldPath)
 		}
+	case reflect.Slice, reflect.Array:
+		return checkFieldType(ft.Elem(), fieldPath+"[]")
+	case reflect.Map:
+		if err := checkFieldType(ft.Key(), fieldPath+"[key]"); err != nil {
+			return err
+		}
+		return checkFieldType(ft.Elem(), fieldPath+"[value]")
 	}
 	return nil
 }

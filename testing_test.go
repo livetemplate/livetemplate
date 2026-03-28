@@ -148,6 +148,48 @@ func TestAsState_PanicsOnPointerToNestedImpureState(t *testing.T) {
 	AsState(&PointerNestedImpureState{})
 }
 
+type SliceImpureState struct {
+	Loggers []*slog.Logger
+}
+
+func TestAsState_PanicsOnSliceOfDependency(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("Expected panic for slice of dependency type")
+		}
+		msg, ok := r.(string)
+		if !ok {
+			t.Fatalf("Expected string panic, got %T: %v", r, r)
+		}
+		if !strings.Contains(msg, "Loggers") {
+			t.Errorf("Panic message should mention the field, got: %s", msg)
+		}
+	}()
+	AsState(&SliceImpureState{})
+}
+
+type MapImpureState struct {
+	Connections map[string]*sql.DB
+}
+
+func TestAsState_PanicsOnMapOfDependency(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("Expected panic for map of dependency type")
+		}
+		msg, ok := r.(string)
+		if !ok {
+			t.Fatalf("Expected string panic, got %T: %v", r, r)
+		}
+		if !strings.Contains(msg, "Connections") {
+			t.Errorf("Panic message should mention the field, got: %s", msg)
+		}
+	}()
+	AsState(&MapImpureState{})
+}
+
 func TestAsState_PureStateDoesNotPanic(t *testing.T) {
 	defer func() {
 		if r := recover(); r != nil {
