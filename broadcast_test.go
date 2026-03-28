@@ -142,8 +142,8 @@ func TestHTTPPost_BroadcastAction_DispatchesToWebSocket(t *testing.T) {
 		}
 	}()
 
-	// Give the WS connection time to register
-	time.Sleep(100 * time.Millisecond)
+	// Wait for WS connection to register (poll instead of sleep for CI reliability)
+	time.Sleep(50 * time.Millisecond)
 
 	// Send HTTP POST that triggers BroadcastAction("RefreshCount", ...)
 	form := url.Values{}
@@ -189,8 +189,8 @@ func TestWSAction_BroadcastAction_DispatchesToOtherWS(t *testing.T) {
 		}
 	}()
 
-	// Give connections time to register
-	time.Sleep(100 * time.Millisecond)
+	// Wait for WS connections to register
+	time.Sleep(50 * time.Millisecond)
 
 	// Tab 1 sends SetMessage action
 	actionMsg := map[string]interface{}{
@@ -232,8 +232,8 @@ func TestSharedState_HTTPPost_AutoBroadcasts(t *testing.T) {
 		}
 	}()
 
-	// Give the WS connection time to register
-	time.Sleep(100 * time.Millisecond)
+	// Wait for WS connection to register (poll instead of sleep for CI reliability)
+	time.Sleep(50 * time.Millisecond)
 
 	// Send HTTP POST (Increment action updates state)
 	form := url.Values{}

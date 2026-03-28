@@ -1388,6 +1388,12 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 
 	// Chained BroadcastAction calls from dispatched actions are intentionally
 	// not processed to prevent infinite broadcast storms.
+	if dropped := ctx.pendingBroadcasts(); len(dropped) > 0 {
+		slog.Warn("BroadcastAction calls inside a dispatched action are ignored (prevents broadcast storms)",
+			slog.String("component", "live_handler"),
+			slog.String("action", req.Action),
+			slog.Int("dropped_count", len(dropped)))
+	}
 
 	if err := h.sendUpdate(connection, connSt.state, connSt.getMessages()); err != nil {
 		slog.Warn("sendUpdate failed during broadcast dispatch",
