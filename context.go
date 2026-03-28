@@ -322,6 +322,13 @@ func (c *Context) SetFlash(key, message string) {
 // Broadcasts are deferred: they execute only after the triggering action returns
 // without error. If the action returns an error, queued broadcasts are discarded.
 //
+// Constraints:
+//   - Dispatched actions run with context.Background() — middleware-injected
+//     request values (auth tokens, tracing spans) are not available.
+//   - BroadcastAction calls inside a dispatched action are ignored to prevent
+//     infinite broadcast storms.
+//   - Silently ignored when WithSharedState() is enabled (auto-broadcast handles sync).
+//
 // Example:
 //
 //	func (c *ChatController) Send(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
