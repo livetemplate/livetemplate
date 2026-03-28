@@ -52,12 +52,41 @@ type Connection struct {
 	pumpExited chan struct{}   // Signals writePump has exited cleanly
 	closeOnce  sync.Once       // Prevents double-close race conditions
 	metrics    MetricsRecorder // Optional: metrics recorder for observability
+
+	// Dispatch channel for broadcast actions from other connections.
+	// Actions enqueued here are processed by the connection's select-based event loop.
+	DispatchChan chan *DispatchRequest
 }
 
 // wsMessage represents a WebSocket message to be sent asynchronously.
 type wsMessage struct {
 	messageType int
 	data        []byte
+}
+
+// DispatchRequest represents an action to dispatch on a connection's event loop.
+// Used by BroadcastAction to fan out actions to other connections in the same group.
+type DispatchRequest struct {
+	Action string
+	Data   map[string]interface{}
+}
+
+// EnqueueDispatch queues an action for dispatch on this connection's event loop.
+// Non-blocking: drops the request if the channel is full, closed, or not initialized.
+func (c *Connection) EnqueueDispatch(req *DispatchRequest) {
+	if c.DispatchChan == nil {
+		return
+	}
+	// Recover from send-on-closed-channel if the connection was unregistered
+	// between GetByGroupExcept and this call.
+	defer func() { _ = recover() }() //nolint:errcheck // recover returns interface{}, safe to discard
+	select {
+	case c.DispatchChan <- req:
+	default:
+		slog.Warn("dispatch channel full, dropping broadcast action",
+			slog.String("action", req.Action),
+			slog.String("group_id", c.GroupID))
+	}
 }
 
 // Send queues a message for async delivery to this connection.
@@ -314,6 +343,13 @@ func (r *ConnectionRegistry) Register(conn *Connection, bufferSize int) {
 	conn.done = make(chan struct{})
 	conn.pumpExited = make(chan struct{})
 	conn.metrics = r.metrics // Set metrics from registry
+	// DispatchChan uses a smaller buffer than sendChan: broadcast actions
+	// are less frequent than WebSocket messages and each holds a map allocation.
+	dispatchBufSize := 16
+	if bufferSize < dispatchBufSize {
+		dispatchBufSize = bufferSize
+	}
+	conn.DispatchChan = make(chan *DispatchRequest, dispatchBufSize)
 
 	// Start write pump goroutine
 	go conn.writePump()
@@ -343,6 +379,15 @@ func (r *ConnectionRegistry) Unregister(conn *Connection) {
 			slog.Any("error", err),
 			slog.String("group_id", conn.GroupID))
 	}
+
+	// Close DispatchChan so the event loop's select detects disconnect.
+	// Recover from double-close (Unregister is idempotent).
+	func() {
+		defer func() { _ = recover() }() //nolint:errcheck // recover returns interface{}, safe to discard
+		if conn.DispatchChan != nil {
+			close(conn.DispatchChan)
+		}
+	}()
 
 	// Remove from byGroup index
 	groupConns := r.byGroup[conn.GroupID]

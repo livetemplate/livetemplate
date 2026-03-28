@@ -25,6 +25,13 @@ type FlashSetter interface {
 	setFlash(key, message string)
 }
 
+// broadcastRequest represents a deferred broadcast action to be dispatched
+// to other connections in the same session group after the current action completes.
+type broadcastRequest struct {
+	Action string
+	Data   map[string]interface{}
+}
+
 // Context provides unified context for all controller lifecycle methods.
 // It embeds context.Context for cancellation, timeout, and request-scoped values.
 //
@@ -41,6 +48,7 @@ type Context struct {
 	uploads     UploadAccessor
 	flashSetter FlashSetter
 	formSchema  *FormSchema
+	broadcasts  []broadcastRequest
 
 	// HTTP context (nil for WebSocket actions)
 	w http.ResponseWriter
@@ -301,4 +309,36 @@ func (c *Context) SetFlash(key, message string) {
 	if c.flashSetter != nil {
 		c.flashSetter.setFlash(key, message)
 	}
+}
+
+// BroadcastAction queues a broadcast to all other connections in the same
+// session group. The named action is dispatched on each receiving connection
+// after the current action completes successfully.
+//
+// Each receiving connection runs the named action with its own per-connection
+// state via DispatchWithState, preserving per-connection fields (e.g., CurrentUser).
+//
+// Broadcasts are deferred: they execute only after the triggering action returns
+// without error. If the action returns an error, queued broadcasts are discarded.
+//
+// Example:
+//
+//	func (c *ChatController) Send(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
+//	    c.mu.Lock()
+//	    c.messages = append(c.messages, msg)
+//	    c.mu.Unlock()
+//	    state.Messages = c.copyMessages()
+//	    ctx.BroadcastAction("RefreshMessages", nil)
+//	    return state, nil
+//	}
+func (c *Context) BroadcastAction(action string, data map[string]interface{}) {
+	c.broadcasts = append(c.broadcasts, broadcastRequest{Action: action, Data: data})
+}
+
+// pendingBroadcasts returns and clears pending broadcast requests.
+// Called by the mount handler after action dispatch to process deferred broadcasts.
+func (c *Context) pendingBroadcasts() []broadcastRequest {
+	b := c.broadcasts
+	c.broadcasts = nil
+	return b
 }

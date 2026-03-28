@@ -77,6 +77,15 @@ type Broadcaster interface {
 	// The handler is responsible for triggering actions on local connections
 	SubscribeServerActions(handler ServerActionHandler) error
 
+	// PublishGroupAction publishes a group-scoped action to all instances.
+	// Each receiving instance dispatches the action on all local connections
+	// in the target group via their DispatchChan.
+	PublishGroupAction(groupID string, action string, data map[string]interface{}) error
+
+	// SubscribeGroupActions starts listening for group action messages.
+	// The handler dispatches actions to local connections in the target group.
+	SubscribeGroupActions(handler GroupActionHandler) error
+
 	// Close stops the broadcaster and cleans up resources
 	Close() error
 }
@@ -89,6 +98,7 @@ type DynamicSubscriber interface {
 	SubscribeToGroup(groupID string) error
 	SubscribeToUser(userID string) error
 	SubscribeToServerAction(userID string) error
+	SubscribeToGroupAction(groupID string) error
 }
 
 // MessageHandler is called when a broadcast message is received.
@@ -122,3 +132,20 @@ type ServerActionMessage struct {
 // ServerActionHandler is called when a server action message is received.
 // It should trigger the action on relevant local connections.
 type ServerActionHandler func(msg *ServerActionMessage) error
+
+// GroupActionMessage represents a group-scoped action sent over Redis Pub/Sub.
+// Unlike ServerActionMessage (user-scoped), this targets all connections in a
+// specific session group across all instances. Used by BroadcastAction to deliver
+// explicit cross-connection broadcasts in per-connection state mode.
+type GroupActionMessage struct {
+	Type       string                 `json:"type"`
+	GroupID    string                 `json:"groupID"`
+	Action     string                 `json:"action"`
+	Data       map[string]interface{} `json:"data,omitempty"`
+	Timestamp  time.Time              `json:"timestamp"`
+	InstanceID string                 `json:"instanceID"`
+}
+
+// GroupActionHandler is called when a group action message is received.
+// It should dispatch the action to relevant local connections in the group.
+type GroupActionHandler func(msg *GroupActionMessage) error

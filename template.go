@@ -166,6 +166,7 @@ type Config struct {
 	ComponentTemplates     []*TemplateSet                      // Component library templates (parsed before project templates)
 	ProgressiveEnhancement bool                                // Enable non-JS form submission support with PRG pattern (default: true)
 	TrustForwardedHeaders  bool                                // Trust X-Forwarded-Proto header for scheme detection (default: true)
+	SharedState            bool                                // Restore pre-v0.9 shared state with auto-broadcast (default: false = per-connection)
 }
 
 // =============================================================================
@@ -395,6 +396,20 @@ func WithAllowedOrigins(origins []string) Option {
 func WithTrustForwardedHeaders(trust bool) Option {
 	return func(c *Config) {
 		c.TrustForwardedHeaders = trust
+	}
+}
+
+// WithSharedState restores the pre-v0.9 shared state behavior where WebSocket
+// actions automatically broadcast state to all connections in the session group
+// and persist state to the SessionStore after each action.
+//
+// Default (without this option): per-connection state. Each connection owns its
+// state independently. Use ctx.BroadcastAction() for explicit cross-connection updates.
+//
+// Use this for apps where all tabs should share state (dashboards, admin panels).
+func WithSharedState() Option {
+	return func(c *Config) {
+		c.SharedState = true
 	}
 }
 
@@ -1493,6 +1508,7 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		UploadConfigs:          t.config.UploadConfigs,
 		wsBufferSize:           t.config.WebSocketBufferSize,
 		ProgressiveEnhancement: t.config.ProgressiveEnhancement,
+		SharedState:            t.config.SharedState,
 	}
 
 	if HasActionMethod(controller, state.Inner(), CapabilityChange) {
@@ -1540,6 +1556,11 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 
 		if err := mountCfg.PubSubBroadcaster.SubscribeServerActions(handler.handleServerActionMessage); err != nil {
 			slog.Error("Failed to subscribe to server actions",
+				slog.Any("error", err))
+		}
+
+		if err := mountCfg.PubSubBroadcaster.SubscribeGroupActions(handler.handleGroupActionMessage); err != nil {
+			slog.Error("Failed to subscribe to group actions",
 				slog.Any("error", err))
 		}
 	}
