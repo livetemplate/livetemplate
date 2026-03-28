@@ -411,8 +411,10 @@ When a user has multiple tabs or devices connected:
 User clicks button in Tab 1
     └─► Tab 1's action method called
         └─► Tab 1 receives update
-        └─► Tab 2, Tab 3 automatically receive update (auto-broadcast)
+        └─► Tab 2, Tab 3 automatically receive update (WithSharedState mode only)
 ```
+
+> In the default per-connection state mode, other tabs do not receive updates automatically. Use `ctx.BroadcastAction("ActionName", nil)` to explicitly dispatch to other connections.
 
 **Server Action (TriggerAction):**
 ```

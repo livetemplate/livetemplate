@@ -499,6 +499,26 @@ func (c *NotificationController) AddMessage(state NotificationState, ctx *livete
 }
 ```
 
+### Cross-Tab Updates with BroadcastAction
+
+In per-connection state mode (the default), use `ctx.BroadcastAction()` to dispatch a named action to all other connections in the session group. Each receiving connection runs the action with its own state, preserving per-connection fields.
+
+```go
+func (c *ChatController) Send(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
+    c.mu.Lock()
+    c.messages = append(c.messages, Message{User: state.CurrentUser, Text: ctx.GetString("message")})
+    c.mu.Unlock()
+    state.Messages = c.copyMessages()
+    ctx.BroadcastAction("RefreshMessages", nil) // dispatches to other connections
+    return state, nil
+}
+
+func (c *ChatController) RefreshMessages(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
+    state.Messages = c.copyMessages() // each connection's CurrentUser is preserved
+    return state, nil
+}
+```
+
 ## Registration
 
 ```go
