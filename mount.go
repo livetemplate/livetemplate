@@ -1335,7 +1335,7 @@ func (h *liveHandler) autoBroadcastToGroup(groupID string, data interface{}, exc
 //
 // For single-instance deployments, this does local fan-out only.
 // For multi-instance deployments with a PubSubBroadcaster, this also publishes
-// a group action message to Redis for remote instances (Phase 4).
+// a group action message to Redis for remote instances.
 func (h *liveHandler) dispatchBroadcastToGroup(groupID string, excludeConn *session.Connection, action string, data map[string]interface{}) {
 	// Local fan-out: dispatch to other connections on this instance
 	conns := h.registry.GetByGroupExcept(groupID, excludeConn)

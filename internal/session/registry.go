@@ -47,11 +47,12 @@ type Connection struct {
 	mu       sync.Mutex  // Protects writes to Conn
 
 	// Async sending infrastructure
-	sendChan   chan *wsMessage // Buffered channel for queued messages
-	done       chan struct{}   // Signal for graceful shutdown
-	pumpExited chan struct{}   // Signals writePump has exited cleanly
-	closeOnce  sync.Once       // Prevents double-close race conditions
-	metrics    MetricsRecorder // Optional: metrics recorder for observability
+	sendChan          chan *wsMessage // Buffered channel for queued messages
+	done              chan struct{}   // Signal for graceful shutdown
+	pumpExited        chan struct{}   // Signals writePump has exited cleanly
+	closeOnce         sync.Once       // Prevents double-close race conditions
+	dispatchCloseOnce sync.Once       // Prevents double-close of DispatchChan
+	metrics           MetricsRecorder // Optional: metrics recorder for observability
 
 	// Dispatch channel for broadcast actions from other connections.
 	// Actions enqueued here are processed by the connection's select-based event loop.
@@ -82,11 +83,15 @@ func (c *Connection) EnqueueDispatch(req *DispatchRequest) {
 	if c.DispatchChan == nil {
 		return
 	}
-	// Recover from send-on-closed-channel if the connection was unregistered
-	// between GetByGroupExcept and this call.
-	defer func() { _ = recover() }() //nolint:errcheck // recover returns interface{}, safe to discard
+	select {
+	case <-c.done:
+		return // connection shutting down
+	default:
+	}
 	select {
 	case c.DispatchChan <- req:
+	case <-c.done:
+		return // connection closed between checks
 	default:
 		slog.Warn("dispatch channel full, dropping broadcast action",
 			slog.String("action", req.Action),
@@ -386,13 +391,11 @@ func (r *ConnectionRegistry) Unregister(conn *Connection) {
 	}
 
 	// Close DispatchChan so the event loop's select detects disconnect.
-	// Recover from double-close (Unregister is idempotent).
-	func() {
-		defer func() { _ = recover() }() //nolint:errcheck // recover returns interface{}, safe to discard
+	conn.dispatchCloseOnce.Do(func() {
 		if conn.DispatchChan != nil {
 			close(conn.DispatchChan)
 		}
-	}()
+	})
 
 	// Remove from byGroup index
 	groupConns := r.byGroup[conn.GroupID]

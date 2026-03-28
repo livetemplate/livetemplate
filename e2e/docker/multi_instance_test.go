@@ -101,32 +101,9 @@ func waitForChrome(timeout time.Duration) error {
 	return fmt.Errorf("timeout waiting for Chrome")
 }
 
-func newRemoteBrowser(t *testing.T) (context.Context, context.CancelFunc) {
-	t.Helper()
-	allocCtx, allocCancel := chromedp.NewRemoteAllocator(context.Background(), chromeWSURL)
-	ctx, ctxCancel := chromedp.NewContext(allocCtx)
-	cancel := func() {
-		ctxCancel()
-		allocCancel()
-	}
-	return ctx, cancel
-}
-
 func newTab(t *testing.T, allocCtx context.Context) (context.Context, context.CancelFunc) {
 	t.Helper()
 	return chromedp.NewContext(allocCtx)
-}
-
-// collectConsoleLogs enables console log collection for debugging.
-func collectConsoleLogs(t *testing.T, ctx context.Context) {
-	t.Helper()
-	chromedp.ListenTarget(ctx, func(ev interface{}) {
-		if ev, ok := ev.(interface{ GetType() string }); ok {
-			if ev.GetType() == "log" {
-				t.Logf("[console] %v", ev)
-			}
-		}
-	})
 }
 
 // TestPerConnectionStateIsolation verifies that two tabs on different servers
@@ -313,14 +290,18 @@ func TestBroadcastPreservesPerConnectionState(t *testing.T) {
 
 	// Verify Tab 1 is still Alice
 	var user1 string
-	chromedp.Run(tab1Ctx, chromedp.Text(`#user`, &user1, chromedp.ByID))
+	if err := chromedp.Run(tab1Ctx, chromedp.Text(`#user`, &user1, chromedp.ByID)); err != nil {
+		t.Fatalf("Tab 1 read user failed: %v", err)
+	}
 	if !strings.Contains(user1, "Alice") {
 		t.Errorf("Tab 1 CurrentUser should be Alice, got %q", user1)
 	}
 
 	// Verify Tab 2 is still Bob (NOT overwritten by Alice's broadcast)
 	var user2 string
-	chromedp.Run(tab2Ctx, chromedp.Text(`#user`, &user2, chromedp.ByID))
+	if err := chromedp.Run(tab2Ctx, chromedp.Text(`#user`, &user2, chromedp.ByID)); err != nil {
+		t.Fatalf("Tab 2 read user failed: %v", err)
+	}
 	if !strings.Contains(user2, "Bob") {
 		t.Errorf("Tab 2 CurrentUser should be Bob, got %q", user2)
 	}
@@ -345,7 +326,9 @@ func TestInstanceIdentification(t *testing.T) {
 	}
 
 	var instance1 string
-	chromedp.Run(tab1Ctx, chromedp.Text(`#instance`, &instance1, chromedp.ByID))
+	if err := chromedp.Run(tab1Ctx, chromedp.Text(`#instance`, &instance1, chromedp.ByID)); err != nil {
+		t.Fatalf("Tab 1 read instance failed: %v", err)
+	}
 	if !strings.Contains(instance1, "server-a") {
 		t.Errorf("Tab 1 expected instance server-a, got %q", instance1)
 	}
@@ -363,7 +346,9 @@ func TestInstanceIdentification(t *testing.T) {
 	}
 
 	var instance2 string
-	chromedp.Run(tab2Ctx, chromedp.Text(`#instance`, &instance2, chromedp.ByID))
+	if err := chromedp.Run(tab2Ctx, chromedp.Text(`#instance`, &instance2, chromedp.ByID)); err != nil {
+		t.Fatalf("Tab 2 read instance failed: %v", err)
+	}
 	if !strings.Contains(instance2, "server-b") {
 		t.Errorf("Tab 2 expected instance server-b, got %q", instance2)
 	}
