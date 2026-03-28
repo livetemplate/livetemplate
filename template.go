@@ -408,8 +408,8 @@ func WithTrustForwardedHeaders(trust bool) Option {
 //
 // Use this for apps where all tabs should share state (dashboards, admin panels).
 //
-// Note: If an action also calls ctx.BroadcastAction(), connections may receive
-// both the auto-broadcast update and the dispatched action update.
+// Note: ctx.BroadcastAction() calls are silently ignored in this mode since
+// auto-broadcast already syncs all connections after every action.
 func WithSharedState() Option {
 	return func(c *Config) {
 		c.SharedState = true

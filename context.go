@@ -2,6 +2,7 @@ package livetemplate
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-playground/validator/v10"
@@ -337,6 +338,9 @@ func (c *Context) BroadcastAction(action string, data map[string]interface{}) {
 	}
 	const maxBroadcasts = 100
 	if len(c.broadcasts) >= maxBroadcasts {
+		slog.Warn("BroadcastAction cap reached, dropping",
+			slog.String("action", action),
+			slog.Int("limit", maxBroadcasts))
 		return
 	}
 	c.broadcasts = append(c.broadcasts, broadcastRequest{Action: action, Data: data})

@@ -1,6 +1,6 @@
 module github.com/livetemplate/livetemplate/e2e/docker/app
 
-go 1.26.0
+go 1.24
 
 require (
 	github.com/livetemplate/livetemplate v0.0.0
