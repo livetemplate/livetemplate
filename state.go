@@ -43,10 +43,23 @@ func AsState[T any](s *T) State {
 	return &jsonState[T]{value: s}
 }
 
+var pureStateCache sync.Map // reflect.Type → error (nil for pure)
+
 func validatePureState[T any]() error {
 	var zero T
 	typ := reflect.TypeOf(zero)
-	return validatePureStateType(typ, "")
+	if typ == nil {
+		return nil
+	}
+	if cached, ok := pureStateCache.Load(typ); ok {
+		if cached == nil {
+			return nil
+		}
+		return cached.(error)
+	}
+	err := validatePureStateType(typ, "")
+	pureStateCache.Store(typ, err)
+	return err
 }
 
 func validatePureStateType(typ reflect.Type, path string) error {
@@ -68,6 +81,10 @@ func validatePureStateType(typ reflect.Type, path string) error {
 		}
 		if field.Type.Kind() == reflect.Struct {
 			if err := validatePureStateType(field.Type, fieldPath); err != nil {
+				return err
+			}
+		} else if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct {
+			if err := validatePureStateType(field.Type.Elem(), fieldPath); err != nil {
 				return err
 			}
 		}

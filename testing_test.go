@@ -114,12 +114,38 @@ func TestAsState_PanicsOnNestedImpureState(t *testing.T) {
 		if r == nil {
 			t.Fatal("Expected panic for nested impure state")
 		}
-		msg := r.(string)
+		msg, ok := r.(string)
+		if !ok {
+			t.Fatalf("Expected string panic, got %T: %v", r, r)
+		}
 		if !strings.Contains(msg, "Data.DB") {
 			t.Errorf("Panic message should mention nested field path, got: %s", msg)
 		}
 	}()
 	AsState(&NestedImpureState{})
+}
+
+type PointerNestedImpureState struct {
+	Cfg *struct {
+		DB *sql.DB
+	}
+}
+
+func TestAsState_PanicsOnPointerToNestedImpureState(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("Expected panic for pointer-to-struct with dependency")
+		}
+		msg, ok := r.(string)
+		if !ok {
+			t.Fatalf("Expected string panic, got %T: %v", r, r)
+		}
+		if !strings.Contains(msg, "Cfg.DB") {
+			t.Errorf("Panic message should mention nested field path through pointer, got: %s", msg)
+		}
+	}()
+	AsState(&PointerNestedImpureState{})
 }
 
 func TestAsState_PureStateDoesNotPanic(t *testing.T) {
