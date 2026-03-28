@@ -71,6 +71,11 @@ type DispatchRequest struct {
 	Data   map[string]interface{}
 }
 
+// Done returns a channel that is closed when the connection is shutting down.
+func (c *Connection) Done() <-chan struct{} {
+	return c.done
+}
+
 // EnqueueDispatch queues an action for dispatch on this connection's event loop.
 // Non-blocking: drops the request if the channel is full, closed, or not initialized.
 func (c *Connection) EnqueueDispatch(req *DispatchRequest) {

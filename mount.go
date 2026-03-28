@@ -630,7 +630,11 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		defer close(readChan)
 		for {
 			_, data, err := conn.ReadMessage()
-			readChan <- wsReadMessage{data: data, err: err}
+			select {
+			case readChan <- wsReadMessage{data: data, err: err}:
+			case <-connection.Done():
+				return
+			}
 			if err != nil {
 				return
 			}
@@ -728,16 +732,16 @@ eventLoop:
 			}
 
 			if h.config.SharedState {
-				// Legacy shared-state mode: persist to SessionStore and auto-broadcast
+				// Shared-state mode: persist to SessionStore and auto-broadcast
 				h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
 				connection.Stores = connSt.state
 				h.autoBroadcastToGroup(groupID, connSt.state, connection)
-			} else {
-				// Per-connection mode: process deferred broadcasts (only on successful action)
-				if actionErr == nil {
-					for _, br := range actionCtx.pendingBroadcasts() {
-						h.dispatchBroadcastToGroup(groupID, connection, br.Action, br.Data)
-					}
+			}
+
+			// Process deferred broadcasts in both modes (only on successful action)
+			if actionErr == nil {
+				for _, br := range actionCtx.pendingBroadcasts() {
+					h.dispatchBroadcastToGroup(groupID, connection, br.Action, br.Data)
 				}
 			}
 
@@ -1139,16 +1143,14 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	httpTmpl.SetUploadRegistry(uploadRegistry)
 
 	if h.config.SharedState {
-		// Legacy shared-state mode: push state to all WebSocket connections
+		// Shared-state mode: push state to all WebSocket connections
 		h.autoBroadcastToGroup(groupID, connSt.state, nil)
-	} else {
-		// Per-connection mode: process deferred broadcasts from BroadcastAction()
-		// HTTP has no persistent connection, so we dispatch named actions to
-		// all WebSocket connections in the group (none excluded).
-		if actionErr == nil {
-			for _, br := range actionCtx.pendingBroadcasts() {
-				h.dispatchBroadcastToGroup(groupID, nil, br.Action, br.Data)
-			}
+	}
+
+	// Process deferred broadcasts in both modes
+	if actionErr == nil {
+		for _, br := range actionCtx.pendingBroadcasts() {
+			h.dispatchBroadcastToGroup(groupID, nil, br.Action, br.Data)
 		}
 	}
 
@@ -1364,6 +1366,8 @@ func (h *liveHandler) dispatchBroadcastToGroup(groupID string, excludeConn *sess
 // handleDispatchedAction processes a broadcast action received via DispatchChan.
 // Called from the connection's event loop goroutine, so all state access is serialized.
 func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *session.Connection, req *session.DispatchRequest, userID string) {
+	connSt.clearErrors()
+
 	ctx := NewContext(context.Background(), req.Action, req.Data)
 	ctx = ctx.WithUserID(userID)
 	ctx = ctx.WithFlashSetter(connSt)
@@ -1381,6 +1385,11 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 	}
 
 	connSt.state = newState
+
+	// Process any chained broadcasts from the dispatched action
+	for _, br := range ctx.pendingBroadcasts() {
+		h.dispatchBroadcastToGroup(connSt.groupID, connection, br.Action, br.Data)
+	}
 
 	if err := h.sendUpdate(connection, connSt.state, connSt.getMessages()); err != nil {
 		slog.Warn("sendUpdate failed during broadcast dispatch",
@@ -1692,8 +1701,9 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 			conn.Stores = newState // Update connection's stored state
 		}
 
-		// Per-connection state: no SessionStore persist after server actions.
-		// State stays local to this connection.
+		if h.config.SharedState {
+			h.config.SessionStore.Set(context.Background(), conn.GroupID, state.state)
+		}
 
 		// Send update to this connection (with flash messages)
 		if err := h.sendUpdate(conn, state.state, state.getMessages()); err != nil {

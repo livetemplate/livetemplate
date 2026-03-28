@@ -177,6 +177,6 @@ const chatTemplate = `<!DOCTYPE html>
 </div>
 {{end}}
 </div>
-<script src="https://cdn.jsdelivr.net/npm/@livetemplate/client@latest/dist/livetemplate-client.browser.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@livetemplate/client@0.8.7/dist/livetemplate-client.browser.js"></script>
 </body>
 </html>`
