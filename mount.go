@@ -820,6 +820,18 @@ eventLoop:
 // The function parses the Accept header and checks if the first meaningful media type
 // is application/json (or a +json subtype). This avoids treating browsers that include
 // application/json as a secondary option as JSON clients.
+// knownAssetExts lists file extensions that browsers request automatically
+// (favicon, manifest, etc.) and should not trigger pathChanged navigation logic.
+var knownAssetExts = map[string]bool{
+	".ico": true, ".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".svg": true, ".webp": true,
+	".css": true, ".js": true, ".mjs": true, ".map": true, ".woff": true, ".woff2": true, ".ttf": true,
+	".json": true, ".xml": true, ".txt": true, ".webmanifest": true,
+}
+
+func isKnownAssetExt(ext string) bool {
+	return knownAssetExts[strings.ToLower(ext)]
+}
+
 func wantsJSON(r *http.Request) bool {
 	accept := r.Header.Get("Accept")
 	if accept == "" {
@@ -915,7 +927,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// Asset requests (favicon.ico, manifest.json, etc.) that hit catch-all
 	// handlers are not page navigations and must not trigger pathChanged.
-	isAssetRequest := strings.ContainsRune(path.Base(currentPath), '.') && currentPath != "/"
+	isAssetRequest := isKnownAssetExt(path.Ext(currentPath))
 	pathChanged := false
 	if r.Method == http.MethodGet && !isAssetRequest {
 		if prev, loaded := h.httpLastPaths.Load(groupID); loaded {

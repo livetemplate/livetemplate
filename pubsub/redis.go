@@ -482,22 +482,27 @@ func (b *RedisBroadcaster) handleServerActionMessage(redisMsg *redis.Message) er
 
 // handleGroupActionMessage processes a group action message.
 // Note: handleMessage already filters own-instance messages before calling this.
-// The check here is a redundant safety guard.
+// The instanceID check here is a redundant safety guard (single parse, no extra unmarshal).
 func (b *RedisBroadcaster) handleGroupActionMessage(redisMsg *redis.Message) error {
-	var instanceCheck struct {
-		InstanceID string `json:"instanceID"`
+	var msg GroupActionMessage
+	if err := json.Unmarshal([]byte(redisMsg.Payload), &msg); err != nil {
+		return fmt.Errorf("failed to unmarshal group action message: %w", err)
 	}
-	if err := json.Unmarshal([]byte(redisMsg.Payload), &instanceCheck); err == nil {
-		if instanceCheck.InstanceID == b.instanceID {
-			return nil
-		}
+	if msg.InstanceID == b.instanceID {
+		return nil
 	}
 
-	return dispatchTypedMessage(redisMsg, func() func(*GroupActionMessage) error {
-		b.mu.RLock()
-		defer b.mu.RUnlock()
-		return b.groupActionHandler
-	})
+	b.mu.RLock()
+	handler := b.groupActionHandler
+	b.mu.RUnlock()
+
+	if handler == nil {
+		slog.Warn("No group action handler registered, ignoring message",
+			slog.String("component", "redis_broadcaster"))
+		return nil
+	}
+
+	return handler(&msg)
 }
 
 // dispatchTypedMessage unmarshals a Redis message into a typed struct, retrieves
