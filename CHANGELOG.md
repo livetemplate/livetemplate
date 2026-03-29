@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<a name="v0.8.9"></a>
+## [v0.8.9] - 2026-03-30
+
+### Bug Fixes
+
+- flash messages not rendered in WebSocket tree-diff mode ([#283](https://github.com/livefir/livetemplate/issues/283))
+- pull latest from remote before starting release ([#281](https://github.com/livefir/livetemplate/issues/281))
+
+
 <a name="v0.8.8"></a>
 ## [v0.8.8] - 2026-03-29
 
@@ -612,7 +621,8 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.8...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.9...HEAD
+[v0.8.9]: https://github.com/livefir/livetemplate/compare/v0.8.8...v0.8.9
 [v0.8.8]: https://github.com/livefir/livetemplate/compare/v0.8.7...v0.8.8
 [v0.8.7]: https://github.com/livefir/livetemplate/compare/v0.8.6...v0.8.7
 [v0.8.6]: https://github.com/livefir/livetemplate/compare/v0.8.5...v0.8.6
