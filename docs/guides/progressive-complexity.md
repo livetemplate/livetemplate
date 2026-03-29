@@ -370,7 +370,7 @@ This is why all Tier 1 examples use `<form method="POST">` — they work without
 
 ### JavaScript + HTTP (fetch)
 
-When JavaScript is available but WebSocket is not connected (or disabled via `WithWebSocketDisabled()`), the JS client intercepts form submissions and sends them via `fetch()`. The server responds with a JSON tree update, and the client patches the DOM. No page reload occurs.
+When JavaScript is available but WebSocket is not connected, the JS client intercepts form submissions and sends them via `fetch()`. The server responds with a JSON tree update, and the client patches the DOM. No page reload occurs.
 
 This transport is also used as the automatic fallback when a WebSocket connection disconnects.
 

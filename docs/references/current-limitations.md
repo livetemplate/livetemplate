@@ -31,7 +31,7 @@ These features require the JavaScript client (fetch or WebSocket transport). Sta
 |---------|-------------------|-----|
 | Standalone buttons outside `<form>` | Wrap in `<form method="POST">` | Button click events require JS to intercept |
 | `Change()` live input binding | N/A — form is submit-only | Requires client to detect input changes and send to server |
-| `form.name` routing | Use `button name` instead | `<form name>` is a DOM attribute, not sent in POST data |
+| `form.name` routing | Use `button name` instead | JS client reads `form.name` as an action router — standard HTML POST ignores it as a routing signal |
 | `lvt-*` attributes | Use standard HTML equivalents (see [Progressive Complexity Guide](../guides/progressive-complexity.md)) | Custom attributes require JS to interpret |
 | Server push / broadcast | N/A — poll or page reload | Requires WebSocket connection |
 | SPA navigation (link interception) | Standard full-page navigation | Requires JS to intercept clicks and use `fetch()` |

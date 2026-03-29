@@ -140,6 +140,8 @@ In the HTTP path (non-WebSocket), each session group has a per-group `httpTempla
 
 See [Current Limitations](current-limitations.md) for the full limitations reference.
 
+---
+
 ## See Also
 
 - [Controller+State Pattern](controller-pattern.md) — Full pattern reference with lifecycle methods and examples
