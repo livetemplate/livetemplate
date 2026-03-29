@@ -1495,8 +1495,6 @@ func hasStaticsInTree(tree map[string]interface{}) bool {
 	return false
 }
 
-// sendUpdate generates and sends a template update to a single connection.
-// If messages is nil, no errors/flash will be included in the template.
 // writeUnauthorized sends a 401 response, adding WWW-Authenticate if the
 // authenticator implements ChallengeAuthenticator (e.g., BasicAuthenticator).
 func (h *liveHandler) writeUnauthorized(w http.ResponseWriter) {
@@ -1506,6 +1504,8 @@ func (h *liveHandler) writeUnauthorized(w http.ResponseWriter) {
 	http.Error(w, "Unauthorized", http.StatusUnauthorized)
 }
 
+// sendUpdate generates and sends a template update to a single connection.
+// If messages is nil, no errors/flash will be included in the template.
 func (h *liveHandler) sendUpdate(conn *session.Connection, data interface{}, messages map[string]string) error {
 	// Use the connection's cloned template for independent tree diffing
 	var buf bytes.Buffer
