@@ -13,6 +13,8 @@ This directory contains all documentation for the LiveTemplate core library. For
 Complete API references, configuration, and specifications:
 
 - **[Controller+State Pattern](references/controller-pattern.md)** - Core architecture pattern (v0.7.0+)
+- **[State Safety](references/state-safety.md)** - Enforcement layers for state purity and session isolation
+- **[Current Limitations](references/current-limitations.md)** - Known limitations and workarounds
 - **[Client Attributes](references/client-attributes.md)** - `lvt-*` HTML event binding reference
 - **[Error Handling](references/error-handling.md)** - Validation errors, field errors, and error display
 - **[Authentication](references/authentication.md)** - Authentication system and custom authenticators

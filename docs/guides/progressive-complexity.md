@@ -353,11 +353,62 @@ func (c *TodoController) Filter(state TodoState, ctx *livetemplate.Context) (Tod
 
 ---
 
-## 12. Tier 2: `lvt-*` Attributes
+## 12. Progressive Enhancement
+
+LiveTemplate supports three transport layers that degrade gracefully: **WebSocket** → **fetch (HTTP)** → **no-JS (POST + page reload)**. All Tier 1 features (Sections 1-11) work across all three layers. This is controlled by the `ProgressiveEnhancement` config flag (default: `true`).
+
+### No JavaScript (POST + Page Reload)
+
+When JavaScript is unavailable, forms submit as standard HTML POST requests. The server uses the **Post-Redirect-Get (PRG)** pattern:
+
+1. User submits `<form method="POST">`
+2. Server processes the action, updates state
+3. **On success**: 303 redirect back to the same URL — prevents duplicate submissions on browser refresh. Flash messages are passed via a short-lived `lvt-flash` cookie (10-second max-age, consumed immediately on the next GET)
+4. **On validation error**: Re-renders the page inline with errors — no redirect, so error messages appear next to the relevant fields
+
+This is why all Tier 1 examples use `<form method="POST">` — they work without JavaScript by design.
+
+### JavaScript + HTTP (fetch)
+
+When JavaScript is available but WebSocket is not connected (or disabled via `WithWebSocketDisabled()`), the JS client intercepts form submissions and sends them via `fetch()`. The server responds with a JSON tree update, and the client patches the DOM. No page reload occurs.
+
+This transport is also used as the automatic fallback when a WebSocket connection disconnects.
+
+### JavaScript + WebSocket
+
+Full bidirectional communication. Actions are sent as WebSocket messages, and the server can push updates at any time. Server push (`Session.TriggerAction()`, `ctx.BroadcastAction()`) is only available in this mode.
+
+### How the Server Detects Transport
+
+The server determines the client's transport from the HTTP request:
+
+| Signal | Transport | Response |
+|--------|-----------|----------|
+| WebSocket upgrade header | WebSocket | Upgrade to WebSocket, send JSON trees |
+| `Accept: application/json` | fetch (JS client) | JSON tree update |
+| Standard browser `Accept: text/html` | No JS | Full HTML page (PRG pattern for POST) |
+
+### What Works at Each Level
+
+For a complete feature-by-transport breakdown, see the [Transport Compatibility table](../references/progressive-complexity-reference.md#transport-compatibility) in the reference doc.
+
+### Disabling Progressive Enhancement
+
+```go
+tmpl := livetemplate.New("app",
+    livetemplate.WithProgressiveEnhancement(false),
+)
+```
+
+When disabled, POST requests from non-JS browsers return JSON instead of HTML. Only disable this if all clients have JavaScript.
+
+---
+
+## 13. Tier 2: `lvt-*` Attributes
 
 Use `lvt-*` attributes only when standard HTML cannot express the behavior. For the complete attribute reference, see the [Client Attributes Reference](../references/client-attributes.md).
 
-### 12.1 Event Bindings Outside Forms
+### 13.1 Event Bindings Outside Forms
 
 For interactions outside the form submit lifecycle — hover effects, focus/blur tracking, click-away detection:
 
@@ -380,7 +431,7 @@ For interactions outside the form submit lifecycle — hover effects, focus/blur
 
 See [Client Attributes Reference — Event Bindings](../references/client-attributes.md#event-bindings) for the full list: `lvt-click`, `lvt-input`, `lvt-change`, `lvt-focus`, `lvt-blur`, `lvt-mouseenter`, `lvt-mouseleave`, `lvt-click-away`.
 
-### 12.2 Rate Limiting
+### 13.2 Rate Limiting
 
 HTML has no mechanism for debounce or throttle. **Debounce** waits until the user stops (ideal for typing). **Throttle** limits frequency (ideal for scroll/resize). Both are essential for search inputs and scroll handlers:
 
@@ -394,7 +445,7 @@ HTML has no mechanism for debounce or throttle. **Debounce** waits until the use
 
 See [Client Attributes Reference — Rate Limiting](../references/client-attributes.md#rate-limiting) for details.
 
-### 12.3 Keyboard Shortcuts
+### 13.3 Keyboard Shortcuts
 
 Filter events by key and listen at the window level for global shortcuts:
 
@@ -410,7 +461,7 @@ Filter events by key and listen at the window level for global shortcuts:
 
 See [Client Attributes Reference — Keyboard Events](../references/client-attributes.md#keyboard-events) for valid key values.
 
-### 12.4 Reactive DOM
+### 13.4 Reactive DOM
 
 Declarative DOM mutations tied to the action lifecycle (`pending`, `success`, `error`, `done`):
 
@@ -435,7 +486,7 @@ Available reactive actions: `lvt-disable-on`, `lvt-enable-on`, `lvt-addClass-on`
 
 See [Client Attributes Reference — Reactive Attributes](../references/client-attributes.md#reactive-attributes) for the full pattern.
 
-### 12.5 Directives
+### 13.5 Directives
 
 Declarative UI behaviors for scroll management, visual feedback, and animations:
 
@@ -465,7 +516,7 @@ Scroll modes: `bottom` (always scroll to bottom), `bottom-sticky` (scroll only i
 
 See [Client Attributes Reference — Directives](../references/client-attributes.md#directives) for all scroll, highlight, and animation options.
 
-### 12.6 Complete Tier 2 Example
+### 13.6 Complete Tier 2 Example
 
 A search interface combining debounced input, loading states, keyboard shortcuts, and scroll preservation.
 
