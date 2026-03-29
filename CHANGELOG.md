@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<a name="v0.8.8"></a>
+## [v0.8.8] - 2026-03-29
+
+### Bug Fixes
+
+- AsState panics if state contains dependency types ([#273](https://github.com/livefir/livetemplate/issues/273))
+
+### Features
+
+- per-connection state scoping (LiveView-style socket assigns) ([#275](https://github.com/livefir/livetemplate/issues/275))
+
+### Breaking change
+
+
+actions no longer auto-broadcast state or persist to SessionStore.
+Use WithSharedState() to restore the old behavior for backward compatibility.
+
+Key changes:
+- Remove auto-broadcast and SessionStore persist from WebSocket action loop
+- Add ctx.BroadcastAction() API for explicit cross-connection dispatch
+- Restructure WS message loop to select-based event loop (readPump + DispatchChan)
+- Add GroupActionMessage type and Redis PubSub support for cross-instance broadcast
+- Add WithSharedState() option for backward compatibility
+- Handle BroadcastAction from both WebSocket and HTTP POST paths
+
+
 <a name="v0.8.7"></a>
 ## [v0.8.7] - 2026-03-27
 
@@ -586,7 +612,8 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.7...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.8...HEAD
+[v0.8.8]: https://github.com/livefir/livetemplate/compare/v0.8.7...v0.8.8
 [v0.8.7]: https://github.com/livefir/livetemplate/compare/v0.8.6...v0.8.7
 [v0.8.6]: https://github.com/livefir/livetemplate/compare/v0.8.5...v0.8.6
 [v0.8.5]: https://github.com/livefir/livetemplate/compare/v0.8.4...v0.8.5
