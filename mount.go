@@ -913,8 +913,11 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if currentPath == "." {
 		currentPath = "/"
 	}
+	// Asset requests (favicon.ico, manifest.json, etc.) that hit catch-all
+	// handlers are not page navigations and must not trigger pathChanged.
+	isAssetRequest := strings.ContainsRune(path.Base(currentPath), '.') && currentPath != "/"
 	pathChanged := false
-	if r.Method == http.MethodGet {
+	if r.Method == http.MethodGet && !isAssetRequest {
 		if prev, loaded := h.httpLastPaths.Load(groupID); loaded {
 			pathChanged = prev.(string) != currentPath
 		}
@@ -1008,7 +1011,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			h.config.SessionStore.Set(ctx, groupID, connSt.state)
 		}
 		// Commit path after successful Mount (not before, to allow retries).
-		if r.Method == http.MethodGet {
+		if r.Method == http.MethodGet && !isAssetRequest {
 			h.httpLastPaths.Store(groupID, currentPath)
 		}
 	}
