@@ -323,7 +323,7 @@ func resolveFieldChain(value interface{}, fields []string) (interface{}, error) 
 				return nil, nil
 			}
 			value = fv.Interface()
-			v = fv
+			v = reflect.ValueOf(value)
 
 		case reflect.Map:
 			key := reflect.ValueOf(field)
