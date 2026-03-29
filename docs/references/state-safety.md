@@ -50,7 +50,7 @@ Detection is heuristic — it matches these 9 known dependency patterns. Custom 
 
 ### Layer 3: Serialization Boundary
 
-Each new session gets a deep copy of state via JSON marshal/unmarshal in `cloneStateTyped()`. This catches non-serializable fields that pass Layer 2:
+Each new session gets a deep copy of state via JSON marshal/unmarshal. This catches non-serializable fields that pass Layer 2:
 
 - Functions and closures
 - Channels
