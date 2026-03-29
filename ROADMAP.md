@@ -2,7 +2,7 @@
 
 **Current version:** v0.8.3 (2026-02-27)
 
-For known limitations and workarounds, see [Current Limitations](docs/references/current-limitations.md). This roadmap shows what's actively being worked on, what's coming next, and what's on the horizon. For detailed feature proposals, see `docs/proposals/`. For completed historical plans, see `docs/archive/implementation-plans/`.
+This roadmap shows what's actively being worked on, what's coming next, and what's on the horizon. For known limitations and workarounds, see [Current Limitations](docs/references/current-limitations.md). For detailed feature proposals, see `docs/proposals/`. For completed historical plans, see `docs/archive/implementation-plans/`.
 
 ---
 

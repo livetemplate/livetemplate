@@ -2,7 +2,7 @@
 
 Known limitations of LiveTemplate, organized by category. Each entry includes the impact, workaround, and current status. For planned improvements, see the [Roadmap](../../ROADMAP.md).
 
-All limitations verified against codebase as of v0.8.9 (2026-03-30).
+All limitations verified against codebase as of v0.8.9.
 
 ---
 
@@ -15,7 +15,7 @@ These Go template constructs trigger a fallback to HTML segmentation, which prod
 | Dynamic template indirection (`{{template (printf ...)}}`) | Use static template names | By design (fallback) |
 | Channel ranges (`{{range .Stream}}`) | Collect channel to slice before passing to template | Blocked on Go templates |
 | Integer literal ranges (`{{range 3}}`) | Range over a pre-built slice | Blocked on Go templates |
-| `{{break}}` / `{{continue}}` (Go 1.25) | Restructure template logic to avoid control flow | Blocked on Go templates |
+| `{{break}}` / `{{continue}}` (Go 1.23+) | Restructure template logic to avoid control flow | Planned — LiveTemplate parser doesn't yet handle BreakNode/ContinueNode |
 | `{{block}}` with dynamic template names | Use `{{template "name" .}}` with static names | By design (fallback) |
 | `iter.Seq` ranges | Collect iterator to slice before passing to template | Blocked on Go templates |
 
