@@ -352,6 +352,13 @@ func TestBasicAuthenticator_WWWAuthenticate(t *testing.T) {
 	}
 }
 
+type authTestController struct{}
+type authTestState struct{ Count int }
+
+func (c *authTestController) Mount(state authTestState, ctx *Context) (authTestState, error) {
+	return state, nil
+}
+
 func TestBasicAuth_401_IncludesWWWAuthenticateHeader(t *testing.T) {
 	auth := NewBasicAuthenticator(func(username, password string) (bool, error) {
 		return username == "admin" && password == "secret", nil
@@ -366,7 +373,7 @@ func TestBasicAuth_401_IncludesWWWAuthenticateHeader(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	handler := tmpl.Handle(&testHandleController{}, AsState(&testHandleState{}))
+	handler := tmpl.Handle(&authTestController{}, AsState(&authTestState{}))
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
