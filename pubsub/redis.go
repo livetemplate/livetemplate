@@ -13,6 +13,8 @@ import (
 )
 
 var _ DynamicSubscriber = (*RedisBroadcaster)(nil)
+var _ GroupActionBroadcaster = (*RedisBroadcaster)(nil)
+var _ GroupActionSubscriber = (*RedisBroadcaster)(nil)
 
 // Redis channel schema:
 // livetemplate:broadcast:global           -> Global broadcasts (all instances, all connections)
@@ -23,7 +25,8 @@ const (
 	channelGlobal       = "livetemplate:broadcast:global"
 	channelGroup        = "livetemplate:broadcast:group:"
 	channelUser         = "livetemplate:broadcast:user:"
-	channelServerAction = "livetemplate:action:user:" // Server-initiated actions channel
+	channelServerAction = "livetemplate:action:user:"       // Server-initiated actions channel
+	channelGroupAction  = "livetemplate:groupaction:group:" // Group-scoped broadcast actions channel
 )
 
 // RedisBroadcaster implements distributed broadcasting using Redis Pub/Sub.
@@ -40,6 +43,7 @@ type RedisBroadcaster struct {
 	instanceID          string
 	handler             MessageHandler
 	serverActionHandler ServerActionHandler
+	groupActionHandler  GroupActionHandler
 	ctx                 context.Context
 	cancel              context.CancelFunc
 	wg                  sync.WaitGroup
@@ -104,7 +108,7 @@ func (b *RedisBroadcaster) PublishGlobal(payload []byte) error {
 		InstanceID: b.instanceID,
 	}
 
-	return b.publish(channelGlobal, msg)
+	return b.publishJSON(channelGlobal, msg)
 }
 
 // PublishToGroup publishes a message to all instances for a specific group.
@@ -125,7 +129,7 @@ func (b *RedisBroadcaster) PublishToGroup(groupID string, payload []byte) error 
 	}
 
 	channel := channelGroup + groupID
-	return b.publish(channel, msg)
+	return b.publishJSON(channel, msg)
 }
 
 // PublishToUser publishes a message to all instances for a specific user.
@@ -146,7 +150,7 @@ func (b *RedisBroadcaster) PublishToUser(userID string, payload []byte) error {
 	}
 
 	channel := channelUser + userID
-	return b.publish(channel, msg)
+	return b.publishJSON(channel, msg)
 }
 
 // PublishServerAction publishes a server-initiated action to all instances for a user.
@@ -170,11 +174,11 @@ func (b *RedisBroadcaster) PublishServerAction(userID string, action string, dat
 		InstanceID: b.instanceID,
 	}
 
-	return b.publishServerAction(channelServerAction+userID, msg)
+	return b.publishJSON(channelServerAction+userID, msg)
 }
 
-// publishServerAction serializes and publishes a server action message to a Redis channel.
-func (b *RedisBroadcaster) publishServerAction(channel string, msg *ServerActionMessage) error {
+// publishJSON serializes any message as JSON and publishes it to a Redis channel.
+func (b *RedisBroadcaster) publishJSON(channel string, msg interface{}) error {
 	b.mu.RLock()
 	closed := b.closed
 	b.mu.RUnlock()
@@ -185,32 +189,7 @@ func (b *RedisBroadcaster) publishServerAction(channel string, msg *ServerAction
 
 	data, err := json.Marshal(msg)
 	if err != nil {
-		return fmt.Errorf("failed to marshal server action message: %w", err)
-	}
-
-	ctx, cancel := context.WithTimeout(b.ctx, 5*time.Second)
-	defer cancel()
-
-	if err := b.client.Publish(ctx, channel, data).Err(); err != nil {
-		return fmt.Errorf("failed to publish to Redis: %w", err)
-	}
-
-	return nil
-}
-
-// publish serializes and publishes a message to a Redis channel.
-func (b *RedisBroadcaster) publish(channel string, msg *BroadcastMessage) error {
-	b.mu.RLock()
-	closed := b.closed
-	b.mu.RUnlock()
-
-	if closed {
-		return fmt.Errorf("broadcaster is closed")
-	}
-
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("failed to marshal broadcast message: %w", err)
+		return fmt.Errorf("failed to marshal message for channel %s: %w", channel, err)
 	}
 
 	ctx, cancel := context.WithTimeout(b.ctx, 5*time.Second)
@@ -308,6 +287,57 @@ func (b *RedisBroadcaster) SubscribeToUser(userID string) error {
 		return fmt.Errorf("userID cannot be empty")
 	}
 	return b.subscribeTo(channelUser+userID, "user")
+}
+
+// PublishGroupAction publishes a group-scoped action to all instances.
+// Each receiving instance dispatches the action on all local connections
+// in the target group via their DispatchChan.
+func (b *RedisBroadcaster) PublishGroupAction(groupID string, action string, data map[string]interface{}) error {
+	if groupID == "" {
+		return fmt.Errorf("groupID cannot be empty")
+	}
+	if action == "" {
+		return fmt.Errorf("action cannot be empty")
+	}
+
+	msg := &GroupActionMessage{
+		Type:       "group_action",
+		GroupID:    groupID,
+		Action:     action,
+		Data:       data,
+		Timestamp:  time.Now(),
+		InstanceID: b.instanceID,
+	}
+
+	return b.publishJSON(channelGroupAction+groupID, msg)
+}
+
+// SubscribeGroupActions starts listening for group action messages.
+func (b *RedisBroadcaster) SubscribeGroupActions(handler GroupActionHandler) error {
+	if handler == nil {
+		return fmt.Errorf("handler cannot be nil")
+	}
+
+	b.mu.Lock()
+	if b.groupActionHandler != nil {
+		b.mu.Unlock()
+		return fmt.Errorf("already subscribed to group actions")
+	}
+	b.groupActionHandler = handler
+	b.mu.Unlock()
+
+	slog.Info("Registered group action handler",
+		slog.String("component", "redis_broadcaster"),
+		slog.String("instance_id", b.instanceID))
+	return nil
+}
+
+// SubscribeToGroupAction subscribes to group actions for a specific group.
+func (b *RedisBroadcaster) SubscribeToGroupAction(groupID string) error {
+	if groupID == "" {
+		return fmt.Errorf("groupID cannot be empty")
+	}
+	return b.subscribeTo(channelGroupAction+groupID, "group action")
 }
 
 // subscribeTo subscribes to a Redis channel with dedup. Caller must validate the ID is non-empty.
@@ -411,6 +441,8 @@ func (b *RedisBroadcaster) handleMessage(redisMsg *redis.Message) error {
 	switch typeCheck.Type {
 	case "server_action":
 		return b.handleServerActionMessage(redisMsg)
+	case "group_action":
+		return b.handleGroupActionMessage(redisMsg)
 	default:
 		return b.handleBroadcastMessage(redisMsg)
 	}
@@ -441,27 +473,55 @@ func (b *RedisBroadcaster) handleBroadcastMessage(redisMsg *redis.Message) error
 
 // handleServerActionMessage processes a server action message.
 func (b *RedisBroadcaster) handleServerActionMessage(redisMsg *redis.Message) error {
-	var msg ServerActionMessage
+	return dispatchTypedMessage(redisMsg, func() func(*ServerActionMessage) error {
+		b.mu.RLock()
+		defer b.mu.RUnlock()
+		return b.serverActionHandler
+	})
+}
+
+// handleGroupActionMessage processes a group action message.
+// Note: handleMessage already filters own-instance messages before calling this.
+// The instanceID check here is a redundant safety guard (single parse, no extra unmarshal).
+func (b *RedisBroadcaster) handleGroupActionMessage(redisMsg *redis.Message) error {
+	var msg GroupActionMessage
 	if err := json.Unmarshal([]byte(redisMsg.Payload), &msg); err != nil {
-		return fmt.Errorf("failed to unmarshal server action message: %w", err)
+		return fmt.Errorf("failed to unmarshal group action message: %w", err)
+	}
+	if msg.InstanceID == b.instanceID {
+		return nil
 	}
 
-	// Call the server action handler
 	b.mu.RLock()
-	handler := b.serverActionHandler
+	handler := b.groupActionHandler
 	b.mu.RUnlock()
 
 	if handler == nil {
-		slog.Warn("No server action handler registered, ignoring message",
+		slog.Warn("No group action handler registered, ignoring message",
 			slog.String("component", "redis_broadcaster"))
 		return nil
 	}
 
-	if err := handler(&msg); err != nil {
-		return fmt.Errorf("server action handler failed: %w", err)
+	return handler(&msg)
+}
+
+// dispatchTypedMessage unmarshals a Redis message into a typed struct, retrieves
+// the handler via getHandler, and calls it. Used by handleServerActionMessage
+// and handleGroupActionMessage to avoid repeating the unmarshal+dispatch pattern.
+func dispatchTypedMessage[T any](redisMsg *redis.Message, getHandler func() func(*T) error) error {
+	var msg T
+	if err := json.Unmarshal([]byte(redisMsg.Payload), &msg); err != nil {
+		return fmt.Errorf("failed to unmarshal message: %w", err)
 	}
 
-	return nil
+	handler := getHandler()
+	if handler == nil {
+		slog.Warn("No handler registered, ignoring message",
+			slog.String("component", "redis_broadcaster"))
+		return nil
+	}
+
+	return handler(&msg)
 }
 
 // reconnect attempts to re-establish the Redis subscription after a failure.

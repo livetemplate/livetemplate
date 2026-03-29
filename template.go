@@ -166,6 +166,8 @@ type Config struct {
 	ComponentTemplates     []*TemplateSet                      // Component library templates (parsed before project templates)
 	ProgressiveEnhancement bool                                // Enable non-JS form submission support with PRG pattern (default: true)
 	TrustForwardedHeaders  bool                                // Trust X-Forwarded-Proto header for scheme detection (default: true)
+	SharedState            bool                                // Restore pre-v0.9 shared state with auto-broadcast (default: false = per-connection)
+	DispatchBufferSize     int                                 // Broadcast dispatch channel buffer per connection (default: 16)
 }
 
 // =============================================================================
@@ -398,6 +400,23 @@ func WithTrustForwardedHeaders(trust bool) Option {
 	}
 }
 
+// WithSharedState restores the pre-v0.9 shared state behavior where WebSocket
+// actions automatically broadcast state to all connections in the session group
+// and persist state to the SessionStore after each action.
+//
+// Default (without this option): per-connection state. Each connection owns its
+// state independently. Use ctx.BroadcastAction() for explicit cross-connection updates.
+//
+// Use this for apps where all tabs should share state (dashboards, admin panels).
+//
+// Note: ctx.BroadcastAction() calls are silently ignored in this mode since
+// auto-broadcast already syncs all connections after every action.
+func WithSharedState() Option {
+	return func(c *Config) {
+		c.SharedState = true
+	}
+}
+
 // WithPermissiveOriginCheck disables origin checking for WebSocket connections.
 //
 // WARNING: This allows connections from any origin and should ONLY be used in:
@@ -485,6 +504,16 @@ func WithWebSocketBufferSize(size int) Option {
 		} else {
 			c.WebSocketBufferSize = size
 		}
+	}
+}
+
+// WithDispatchBufferSize sets the buffer size for the broadcast dispatch channel
+// per WebSocket connection. This is separate from the WebSocket send buffer
+// (WithWebSocketBufferSize) because dispatch requests are less frequent.
+// Default: 16. Increase for apps with high broadcast fan-out.
+func WithDispatchBufferSize(size int) Option {
+	return func(c *Config) {
+		c.DispatchBufferSize = size
 	}
 }
 
@@ -1493,6 +1522,7 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		UploadConfigs:          t.config.UploadConfigs,
 		wsBufferSize:           t.config.WebSocketBufferSize,
 		ProgressiveEnhancement: t.config.ProgressiveEnhancement,
+		SharedState:            t.config.SharedState,
 	}
 
 	if HasActionMethod(controller, state.Inner(), CapabilityChange) {
@@ -1524,6 +1554,9 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 
 	// Wire up metrics to registry for WebSocket observability
 	handler.registry.SetMetrics(metrics)
+	if t.config.DispatchBufferSize > 0 {
+		handler.registry.SetDispatchBufferSize(t.config.DispatchBufferSize)
+	}
 
 	// Start periodic sweep of stale HTTP template cache entries
 	go handler.httpTemplateSweepLoop()
@@ -1541,6 +1574,13 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		if err := mountCfg.PubSubBroadcaster.SubscribeServerActions(handler.handleServerActionMessage); err != nil {
 			slog.Error("Failed to subscribe to server actions",
 				slog.Any("error", err))
+		}
+
+		if gab, ok := mountCfg.PubSubBroadcaster.(pubsub.GroupActionBroadcaster); ok {
+			if err := gab.SubscribeGroupActions(handler.handleGroupActionMessage); err != nil {
+				slog.Error("Failed to subscribe to group actions",
+					slog.Any("error", err))
+			}
 		}
 	}
 

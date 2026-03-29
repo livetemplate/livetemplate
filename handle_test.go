@@ -3,6 +3,7 @@ package livetemplate
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -1858,6 +1859,86 @@ func TestHandle_CapabilitiesInWebSocketInitialRender(t *testing.T) {
 
 	if len(caps) != 1 || caps[0] != "change" {
 		t.Errorf("Expected capabilities=[\"change\"], got %v", caps)
+	}
+}
+
+// fixedGroupAuthHandle always returns the same groupID.
+type fixedGroupAuthHandle struct {
+	groupID string
+}
+
+func (a *fixedGroupAuthHandle) Identify(_ *http.Request) (string, error) { return "", nil }
+func (a *fixedGroupAuthHandle) GetSessionGroup(_ *http.Request, _ string) (string, error) {
+	return a.groupID, nil
+}
+
+// TestFaviconDoesNotResetState verifies that browser requests for /favicon.ico
+// do not trigger pathChanged logic and wipe session state (#276).
+func TestFaviconDoesNotResetState(t *testing.T) {
+	auth := &fixedGroupAuthHandle{groupID: "favicon-test"}
+
+	tmpl, err := New("test", WithAuthenticator(auth), WithSharedState())
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &testHandleController{}
+	handler := tmpl.Handle(ctrl, AsState(&testHandleState{}))
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// 1. GET / — establishes session
+	resp, err := http.Get(server.URL + "/")
+	if err != nil {
+		t.Fatalf("GET / failed: %v", err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Logf("body close: %v", err)
+	}
+
+	// 2. POST increment — updates state (Count becomes 1)
+	form := url.Values{}
+	form.Set("action", "increment")
+	resp, err = http.Post(server.URL+"/", "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("POST failed: %v", err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Logf("body close: %v", err)
+	}
+
+	// 3. GET /favicon.ico — must NOT reset state
+	resp, err = http.Get(server.URL + "/favicon.ico")
+	if err != nil {
+		t.Fatalf("GET /favicon.ico failed: %v", err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Logf("body close: %v", err)
+	}
+
+	// 4. GET / — should see incremented state, not fresh state
+	resp, err = http.Get(server.URL + "/")
+	if err != nil {
+		t.Fatalf("GET / failed: %v", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Logf("body close: %v", err)
+		}
+	}()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("Read body failed: %v", err)
+	}
+
+	if !strings.Contains(string(body), ">1<") {
+		t.Errorf("Expected state to be preserved (Count=1) after /favicon.ico, got body: %s", string(body))
 	}
 }
 

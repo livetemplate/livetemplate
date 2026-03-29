@@ -99,6 +99,9 @@ This happens automatically — no application code needed. If the broadcaster do
 | `PublishToGroup(groupID, payload)` | Session group | Collaborative editing |
 | `PublishToUser(userID, payload)` | All user's connections | Notifications |
 | `PublishServerAction(userID, action, data)` | User's action handler | Server-initiated actions |
+| `PublishGroupAction(groupID, action, data)` | Group's action handler | Cross-connection broadcasts via `BroadcastAction` |
+
+`GroupActionMessage` is used by `ctx.BroadcastAction()` for cross-instance delivery. Unlike `ServerActionMessage` (user-scoped), it targets all connections in a session group. Each receiving instance dispatches the action on local connections via their event loop.
 
 ## Redis Channel Schema
 
@@ -110,6 +113,7 @@ Each scope maps to a dedicated Redis Pub/Sub channel:
 | `livetemplate:broadcast:group:{groupID}` | Group | Subscribed when a connection joins a group |
 | `livetemplate:broadcast:user:{userID}` | User | Subscribed when an authenticated user connects |
 | `livetemplate:action:user:{userID}` | ServerAction | Subscribed when an authenticated user connects |
+| `livetemplate:groupaction:group:{groupID}` | GroupAction | Subscribed when a connection joins a group |
 
 Per-scope channels provide **transport-level data isolation**: an instance only receives messages for groups and users it has active connections for.
 

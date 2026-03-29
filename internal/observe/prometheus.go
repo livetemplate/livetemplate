@@ -119,6 +119,10 @@ func (e *PrometheusExporter) WriteMetrics(w io.Writer) error {
 		"Current total number of queued messages across all connections",
 		e.metrics.wsSendBufferSize.Load())
 
+	e.writeCounter(&sb, "livetemplate_websocket_dispatch_dropped_total",
+		"Total number of broadcast dispatch drops (dispatch channel full)",
+		e.metrics.wsDispatchDropped.Load())
+
 	// Wire format metrics (fingerprint-based diff tracking)
 	e.writeCounter(&sb, "livetemplate_full_tree_sends_total",
 		"Total number of sends with statics (first render or structure changed)",

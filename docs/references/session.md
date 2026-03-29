@@ -13,19 +13,27 @@ For pushing updates from server-side code, see [Server Actions Reference](server
 - **Connections**: Individual WebSocket connections within a group
 - **Session store**: Persistence layer for session groups (in-memory or Redis)
 
-### Automatic Session Syncing
+### Per-Connection State (Default)
 
-When a user performs an action, all tabs in the same browser session automatically receive updates. This happens with zero configuration:
+Since v0.9, each WebSocket connection owns its state independently. Actions update only the calling connection's state. `OnConnect()` initializes per-connection state (e.g., resetting `CurrentUser` to empty for each new tab). Cross-tab sync requires explicit `ctx.BroadcastAction("ActionName", data)`, which dispatches the named action to all other connections in the session group, preserving each connection's per-connection fields.
+
+**Reconnect behavior:** Per-connection state is ephemeral — it is not persisted to SessionStore after actions. On reconnect, `Mount()` runs against the SessionStore (which holds the initial state from the first connection's Mount), then `OnConnect()` re-initializes per-connection fields. Persistent data should be stored externally (database, Redis) and loaded in `Mount()` or `OnConnect()`.
+
+### Shared State Mode (Opt-In)
+
+> **Note:** This behavior requires `WithSharedState()`. It is no longer the default.
+
+When using `WithSharedState()`, all tabs in the same browser session automatically receive updates after every action:
 
 ```go
 func (c *ChatController) SendMessage(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
     newMessage := ctx.GetString("message")
     state.Messages = append(state.Messages, newMessage)
-    return state, nil  // All tabs in same browser update automatically
+    return state, nil  // All tabs in same browser update automatically (SharedState mode only)
 }
 ```
 
-**How it works:**
+**How it works in SharedState mode:**
 - Each browser gets a unique session ID (via cookie: `livetemplate-id`)
 - All tabs in the same browser share this session ID (`groupID`)
 - State changes automatically broadcast to all tabs in the same session group

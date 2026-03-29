@@ -36,6 +36,16 @@ type Authenticator interface {
 	GetSessionGroup(r *http.Request, userID string) (groupID string, err error)
 }
 
+// ChallengeAuthenticator is an optional interface for authenticators that require
+// the browser to prompt for credentials (e.g., HTTP Basic Auth). When Identify
+// returns an error, the handler checks if the authenticator implements this
+// interface and sets the WWW-Authenticate header per RFC 7235.
+type ChallengeAuthenticator interface {
+	// WWWAuthenticate returns the value for the WWW-Authenticate response header.
+	// Example: `Basic realm="LiveTemplate"`
+	WWWAuthenticate() string
+}
+
 // AnonymousAuthenticator provides browser-based session grouping for anonymous users.
 //
 // This is the default authenticator and implements the most common use case:
@@ -121,13 +131,27 @@ type BasicAuthenticator struct {
 	// Returns true if credentials are valid, false otherwise.
 	// Returns error for system failures (e.g., database connection error).
 	ValidateFunc func(username, password string) (bool, error)
+
+	// Realm is the protection space identifier in WWW-Authenticate headers.
+	// Default: "LiveTemplate"
+	Realm string
 }
 
 // NewBasicAuthenticator creates a BasicAuthenticator with the given validation function.
 func NewBasicAuthenticator(validateFunc func(username, password string) (bool, error)) *BasicAuthenticator {
 	return &BasicAuthenticator{
 		ValidateFunc: validateFunc,
+		Realm:        "LiveTemplate",
 	}
+}
+
+// WWWAuthenticate returns the WWW-Authenticate header value for HTTP Basic Auth.
+func (a *BasicAuthenticator) WWWAuthenticate() string {
+	realm := a.Realm
+	if realm == "" {
+		realm = "LiveTemplate"
+	}
+	return fmt.Sprintf(`Basic realm="%s"`, realm)
 }
 
 // Identify extracts and validates HTTP Basic Auth credentials.

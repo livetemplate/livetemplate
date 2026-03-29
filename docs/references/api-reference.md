@@ -206,6 +206,7 @@ Primarily useful in tests. In production, Context is created internally and pass
 | `UserID` | `() string` | Returns the authenticated user's ID |
 | `Session` | `() Session` | Returns the Session for server-initiated actions |
 | `IsHTTP` | `() bool` | Whether this is an HTTP (not WebSocket) context |
+| `BroadcastAction` | `(action string, data map[string]interface{})` | Queues a named action dispatch to all other connections in the session group. Deferred until the current action completes successfully. |
 
 ### Data Extraction
 
@@ -490,6 +491,7 @@ Options passed to `New()`:
 | `WithPubSubBroadcaster` | `(broadcaster pubsub.Broadcaster)` | Enable distributed broadcasting |
 | `WithComponentTemplates` | `(sets ...*TemplateSet)` | Register component templates |
 | `WithProgressiveEnhancement` | `(enabled bool)` | Non-JS form submission support |
+| `WithSharedState` | `()` | Restores pre-v0.9 shared state with auto-broadcast (default: per-connection) |
 
 ---
 

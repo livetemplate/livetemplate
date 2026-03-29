@@ -81,6 +81,18 @@ type Broadcaster interface {
 	Close() error
 }
 
+// GroupActionBroadcaster extends Broadcaster with group-scoped action dispatch.
+// Implementations that support BroadcastAction for cross-instance delivery should
+// implement this interface. The handler layer type-asserts and calls these methods
+// during action dispatch and WebSocket connection setup.
+type GroupActionBroadcaster interface {
+	// PublishGroupAction publishes a group-scoped action to all instances.
+	PublishGroupAction(groupID string, action string, data map[string]interface{}) error
+
+	// SubscribeGroupActions starts listening for group action messages.
+	SubscribeGroupActions(handler GroupActionHandler) error
+}
+
 // DynamicSubscriber allows subscribing to scoped channels at runtime.
 // Implementations that support per-scope channels (for transport-level
 // data isolation) should implement this interface. The handler layer
@@ -89,6 +101,12 @@ type DynamicSubscriber interface {
 	SubscribeToGroup(groupID string) error
 	SubscribeToUser(userID string) error
 	SubscribeToServerAction(userID string) error
+}
+
+// GroupActionSubscriber allows subscribing to group action channels at runtime.
+// Checked via type assertion during WebSocket connection setup.
+type GroupActionSubscriber interface {
+	SubscribeToGroupAction(groupID string) error
 }
 
 // MessageHandler is called when a broadcast message is received.
@@ -122,3 +140,20 @@ type ServerActionMessage struct {
 // ServerActionHandler is called when a server action message is received.
 // It should trigger the action on relevant local connections.
 type ServerActionHandler func(msg *ServerActionMessage) error
+
+// GroupActionMessage represents a group-scoped action sent over Redis Pub/Sub.
+// Unlike ServerActionMessage (user-scoped), this targets all connections in a
+// specific session group across all instances. Used by BroadcastAction to deliver
+// explicit cross-connection broadcasts in per-connection state mode.
+type GroupActionMessage struct {
+	Type       string                 `json:"type"`
+	GroupID    string                 `json:"groupID"`
+	Action     string                 `json:"action"`
+	Data       map[string]interface{} `json:"data,omitempty"`
+	Timestamp  time.Time              `json:"timestamp"`
+	InstanceID string                 `json:"instanceID"`
+}
+
+// GroupActionHandler is called when a group action message is received.
+// It should dispatch the action to relevant local connections in the group.
+type GroupActionHandler func(msg *GroupActionMessage) error

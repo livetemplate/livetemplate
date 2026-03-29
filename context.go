@@ -2,6 +2,7 @@ package livetemplate
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-playground/validator/v10"
@@ -25,6 +26,13 @@ type FlashSetter interface {
 	setFlash(key, message string)
 }
 
+// broadcastRequest represents a deferred broadcast action to be dispatched
+// to other connections in the same session group after the current action completes.
+type broadcastRequest struct {
+	Action string
+	Data   map[string]interface{}
+}
+
 // Context provides unified context for all controller lifecycle methods.
 // It embeds context.Context for cancellation, timeout, and request-scoped values.
 //
@@ -41,6 +49,7 @@ type Context struct {
 	uploads     UploadAccessor
 	flashSetter FlashSetter
 	formSchema  *FormSchema
+	broadcasts  []broadcastRequest
 
 	// HTTP context (nil for WebSocket actions)
 	w http.ResponseWriter
@@ -301,4 +310,59 @@ func (c *Context) SetFlash(key, message string) {
 	if c.flashSetter != nil {
 		c.flashSetter.setFlash(key, message)
 	}
+}
+
+// BroadcastAction queues a broadcast to all other connections in the same
+// session group. The named action is dispatched on each receiving connection
+// after the current action completes successfully.
+//
+// Each receiving connection runs the named action with its own per-connection
+// state via DispatchWithState, preserving per-connection fields (e.g., CurrentUser).
+//
+// Broadcasts are deferred: they execute only after the triggering action returns
+// without error. If the action returns an error, queued broadcasts are discarded.
+//
+// Constraints:
+//   - Dispatched actions run with context.Background() — middleware-injected
+//     request values (auth tokens, tracing spans) are not available.
+//   - BroadcastAction calls inside a dispatched action are ignored to prevent
+//     infinite broadcast storms.
+//   - Silently ignored when WithSharedState() is enabled (auto-broadcast handles sync).
+//   - Context.With*() methods create shallow copies. Broadcasts queued after the
+//     copy diverge (append allocates a new backing array once capacity is exceeded).
+//
+// Example:
+//
+//	func (c *ChatController) Send(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
+//	    c.mu.Lock()
+//	    c.messages = append(c.messages, msg)
+//	    c.mu.Unlock()
+//	    state.Messages = c.copyMessages()
+//	    ctx.BroadcastAction("RefreshMessages", nil)
+//	    return state, nil
+//	}
+//
+// MaxBroadcastsPerAction is the maximum number of BroadcastAction calls
+// allowed per action invocation. Excess calls are dropped with an error log.
+const MaxBroadcastsPerAction = 100
+
+func (c *Context) BroadcastAction(action string, data map[string]interface{}) {
+	if action == "" {
+		return
+	}
+	if len(c.broadcasts) >= MaxBroadcastsPerAction {
+		slog.Error("BroadcastAction cap reached, dropping",
+			slog.String("action", action),
+			slog.Int("limit", MaxBroadcastsPerAction))
+		return
+	}
+	c.broadcasts = append(c.broadcasts, broadcastRequest{Action: action, Data: data})
+}
+
+// pendingBroadcasts returns and clears pending broadcast requests.
+// Called by the mount handler after action dispatch to process deferred broadcasts.
+func (c *Context) pendingBroadcasts() []broadcastRequest {
+	b := c.broadcasts
+	c.broadcasts = nil
+	return b
 }

@@ -77,6 +77,10 @@ func (c *Controller) OnDisconnect()
 | `ctx.Action` | `ctx.Action()` |
 | `ctx.Data` | `ctx.GetString()`, `ctx.GetInt()`, `ctx.BindAndValidate()` |
 
+### BroadcastAction Note
+
+`ctx.BroadcastAction()` accumulates broadcasts on the Context. Since `ctx.With*()` methods create shallow copies, call `BroadcastAction` after all `With*()` calls in the same scope, or broadcasts queued before the copy may not propagate to the handler's view of the context.
+
 ### Testing Helper
 
 Use `AssertPureState[T]()` in tests to catch common mistakes:
@@ -165,7 +169,7 @@ The main `livetemplate` package provides a clean, minimal public API:
    - LiveHandler interface for HTTP/WebSocket handling
    - Broadcaster and BroadcastAware interfaces for server-initiated updates
    - WebSocket connection lifecycle management
-   - Auto-broadcasting to session groups
+   - Per-connection state with explicit `BroadcastAction` (auto-broadcast opt-in via `WithSharedState()`)
    - Dynamic pub/sub subscription via `DynamicSubscriber` type assertion during WebSocket setup
 
 3. **Session Stores (`session_stores.go`)**:
@@ -189,7 +193,7 @@ The main `livetemplate` package provides a clean, minimal public API:
    - Unified Context for all lifecycle and action methods
    - ActionData for form/JSON data handling
    - FieldError and MultiError for validation
-   - Methods: `Action()`, `UserID()`, `GetString()`, `GetInt()`, `BindAndValidate()`
+   - Methods: `Action()`, `UserID()`, `GetString()`, `GetInt()`, `BindAndValidate()`, `BroadcastAction()`
 
 7. **Authentication (`auth.go`)**:
    - Authenticator interface for user identification
@@ -197,7 +201,7 @@ The main `livetemplate` package provides a clean, minimal public API:
 
 8. **Configuration (`config.go`)**:
    - TemplateConfig for template customization
-   - DevMode, CompressHTML, and other options
+   - DevMode, CompressHTML, SharedState, and other options
 
 ### Internal Packages (5-Phase Architecture)
 

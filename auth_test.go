@@ -341,4 +341,59 @@ func TestGenerateSessionID_Uniqueness(t *testing.T) {
 func TestAuthenticator_Interface(t *testing.T) {
 	var _ Authenticator = (*AnonymousAuthenticator)(nil)
 	var _ Authenticator = (*BasicAuthenticator)(nil)
+	var _ ChallengeAuthenticator = (*BasicAuthenticator)(nil)
+}
+
+func TestBasicAuthenticator_WWWAuthenticate(t *testing.T) {
+	auth := NewBasicAuthenticator(nil)
+	got := auth.WWWAuthenticate()
+	if got != `Basic realm="LiveTemplate"` {
+		t.Errorf("WWWAuthenticate() = %q, want %q", got, `Basic realm="LiveTemplate"`)
+	}
+}
+
+type authTestController struct{}
+type authTestState struct{ Count int }
+
+func (c *authTestController) Mount(state authTestState, ctx *Context) (authTestState, error) {
+	return state, nil
+}
+
+func TestBasicAuth_401_IncludesWWWAuthenticateHeader(t *testing.T) {
+	auth := NewBasicAuthenticator(func(username, password string) (bool, error) {
+		return username == "admin" && password == "secret", nil
+	})
+
+	tmpl, err := New("test", WithAuthenticator(auth))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>test</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	handler := tmpl.Handle(&authTestController{}, AsState(&authTestState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// Request without credentials
+	resp, err := http.Get(server.URL)
+	if err != nil {
+		t.Fatalf("GET failed: %v", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Logf("body close error: %v", err)
+		}
+	}()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	if wwwAuth != `Basic realm="LiveTemplate"` {
+		t.Errorf("WWW-Authenticate header = %q, want %q", wwwAuth, `Basic realm="LiveTemplate"`)
+	}
 }

@@ -172,6 +172,7 @@ type mountConfig struct {
 	UploadConfigs          map[string]uploadtypes.UploadConfig // Upload field configurations
 	wsBufferSize           int                                 // WebSocket send buffer size per connection (default: 50)
 	ProgressiveEnhancement bool                                // Enable non-JS form submission support with PRG pattern (default: true)
+	SharedState            bool                                // Restore pre-v0.9 shared state with auto-broadcast
 	Capabilities           []string                            // Controller capabilities detected at setup (e.g., ["change"])
 }
 
@@ -198,6 +199,12 @@ type liveHandler struct {
 type httpTemplateCacheEntry struct {
 	mu   sync.Mutex
 	tmpl *Template
+}
+
+// wsReadMessage carries data from the readPump goroutine to the event loop.
+type wsReadMessage struct {
+	data []byte
+	err  error
 }
 
 type connState struct {
@@ -342,7 +349,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		slog.Error("Authentication failed",
 			slog.String("component", "live_handler"),
 			slog.Any("error", err))
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		h.writeUnauthorized(w)
 		return
 	}
 
@@ -489,6 +496,14 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				slog.String("group_id", groupID),
 				slog.Any("error", err))
 		}
+		if gas, ok := h.config.PubSubBroadcaster.(pubsub.GroupActionSubscriber); ok {
+			if err := gas.SubscribeToGroupAction(groupID); err != nil {
+				slog.Warn("Failed to subscribe to group action channel",
+					slog.String("component", "live_handler"),
+					slog.String("group_id", groupID),
+					slog.Any("error", err))
+			}
+		}
 		if userID != "" {
 			if err := ds.SubscribeToUser(userID); err != nil {
 				slog.Warn("Failed to subscribe to user channel",
@@ -609,141 +624,186 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		limiter = rate.NewLimiter(rate.Limit(h.config.Template.config.MessageRateLimit), burst)
 	}
 
-	// Message loop
+	// Start readPump goroutine: reads from WebSocket and sends to readChan.
+	// This decouples WebSocket reads from state mutations, allowing the event
+	// loop to also process broadcast dispatches via DispatchChan.
+	// Buffer of 1: deliberately serializes client messages with dispatch processing.
+	// During dispatch handling, the readPump blocks after buffering one message.
+	// This bounds memory and ensures state mutations are strictly sequential.
+	// Tradeoff: slow dispatched actions (e.g., DB calls) pause client message processing.
+	// Increasing the buffer would NOT help — state mutations must still be sequential.
+	readChan := make(chan wsReadMessage, 1)
+	go func() {
+		defer close(readChan)
+		for {
+			_, data, err := conn.ReadMessage()
+			// If both readChan and Done are ready, Go's select may pick Done,
+			// discarding the error. The event loop still exits via readChan close.
+			select {
+			case readChan <- wsReadMessage{data: data, err: err}:
+			case <-connection.Done():
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	// Event loop: processes both client messages (readChan) and
+	// broadcast action dispatches (DispatchChan) serially.
+	// All state mutations happen in this single goroutine — no mutex needed.
+eventLoop:
 	for {
-		_, data, err := conn.ReadMessage()
-		if err != nil {
-			if WSIsUnexpectedCloseError(err, WSCloseGoingAway, WSCloseAbnormalClosure) {
-				slog.Warn("WebSocket error",
+		select {
+		case rm, ok := <-readChan:
+			if !ok {
+				break eventLoop
+			}
+			if rm.err != nil {
+				if WSIsUnexpectedCloseError(rm.err, WSCloseGoingAway, WSCloseAbnormalClosure) {
+					slog.Warn("WebSocket error",
+						slog.String("component", "live_handler"),
+						slog.Any("error", rm.err))
+				}
+				break eventLoop
+			}
+
+			// Rate limiting check
+			if limiter != nil && !limiter.Allow() {
+				errorResp := UpdateResponse{
+					Tree: nil,
+					Meta: &ResponseMetadata{
+						Success: false,
+						Errors:  map[string]string{"_rate_limit": "Too many requests. Please slow down."},
+					},
+				}
+				if respBytes, err := json.Marshal(errorResp); err == nil {
+					_ = writeUpdateWebSocket(connection, respBytes)
+				}
+				continue
+			}
+
+			// Parse message
+			msg, err := parseActionFromWebSocket(rm.data)
+			if err != nil {
+				slog.Warn("Failed to parse message",
 					slog.String("component", "live_handler"),
 					slog.Any("error", err))
+				continue
 			}
-			break
-		}
 
-		// Rate limiting check
-		if limiter != nil && !limiter.Allow() {
-			errorResp := UpdateResponse{
-				Tree: nil,
+			// Check if this is an upload-related action
+			uploadHandled, err := h.handleUploadAction(r.Context(), conn, rm.data, msg, connSt, uploadRegistry, connection)
+			if err != nil {
+				slog.Warn("Upload action error",
+					slog.String("component", "live_handler"),
+					slog.Any("error", err))
+				continue
+			}
+			if uploadHandled {
+				continue
+			}
+
+			// Route forms without explicit action to the conventional Submit() method.
+			applyDefaultAction(&msg)
+
+			// Clear previous errors
+			connSt.clearErrors()
+
+			// Create Context for action dispatch.
+			// Note: Query params from initial WS connection are NOT included here.
+			// They're already available in Mount/OnConnect via wsQueryData.
+			// WebSocket actions use only msg.Data from the client message.
+			actionCtx := NewContext(r.Context(), msg.Action, msg.Data)
+			actionCtx = actionCtx.WithUserID(userID)
+			actionCtx = actionCtx.WithUploads(uploadRegistry)
+			actionCtx = actionCtx.WithFlashSetter(connSt)
+
+			// Dispatch action using Controller+State pattern
+			newState, actionErr := DispatchWithState(h.config.Controller, connSt.state, actionCtx)
+			if actionErr != nil {
+				// Handle errors
+				switch e := actionErr.(type) {
+				case FieldError:
+					connSt.setError(e.Field, e.Message)
+				case MultiError:
+					for _, fieldErr := range e {
+						connSt.setError(fieldErr.Field, fieldErr.Message)
+					}
+				default:
+					if !errors.Is(actionErr, ErrMethodNotFound) {
+						connSt.setError("_general", actionErr.Error())
+					}
+				}
+			} else {
+				connSt.state = newState
+			}
+
+			if h.config.SharedState {
+				// Shared-state mode: persist to SessionStore and auto-broadcast.
+				h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
+				connection.Stores = connSt.state
+				h.autoBroadcastToGroup(groupID, connSt.state, connection)
+				if dropped := actionCtx.pendingBroadcasts(); len(dropped) > 0 {
+					slog.Debug("BroadcastAction calls ignored in SharedState mode (auto-broadcast handles sync)",
+						slog.String("component", "live_handler"),
+						slog.Int("dropped_count", len(dropped)))
+				}
+			} else if actionErr == nil {
+				// Per-connection mode: process deferred broadcasts
+				for _, br := range actionCtx.pendingBroadcasts() {
+					h.dispatchBroadcastToGroup(groupID, connection, br.Action, br.Data)
+				}
+			}
+
+			// Generate tree update
+			buf.Reset()
+			if err = connTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getMessages()); err != nil {
+				slog.Error("Template update execution failed",
+					slog.String("component", "live_handler"),
+					slog.Any("error", err))
+				continue
+			}
+
+			var tree map[string]interface{}
+			if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
+				slog.Error("Failed to parse tree",
+					slog.String("component", "live_handler"),
+					slog.Any("error", err))
+				continue
+			}
+
+			response := UpdateResponse{
+				Tree: tree,
 				Meta: &ResponseMetadata{
-					Success: false,
-					Errors:  map[string]string{"_rate_limit": "Too many requests. Please slow down."},
+					Success: !connSt.hasErrors(),
+					Errors:  connSt.getErrorsOnly(),
+					Action:  msg.Action,
 				},
 			}
-			if respBytes, err := json.Marshal(errorResp); err == nil {
-				_ = writeUpdateWebSocket(connection, respBytes)
+
+			responseBytes, err := json.Marshal(response)
+			if err != nil {
+				slog.Error("Failed to marshal response",
+					slog.String("component", "live_handler"),
+					slog.Any("error", err))
+				continue
 			}
-			continue
-		}
 
-		// Parse message
-		msg, err := parseActionFromWebSocket(data)
-		if err != nil {
-			slog.Warn("Failed to parse message",
-				slog.String("component", "live_handler"),
-				slog.Any("error", err))
-			continue
-		}
-
-		// Check if this is an upload-related action
-		uploadHandled, err := h.handleUploadAction(r.Context(), conn, data, msg, connSt, uploadRegistry, connection)
-		if err != nil {
-			slog.Warn("Upload action error",
-				slog.String("component", "live_handler"),
-				slog.Any("error", err))
-			continue
-		}
-		if uploadHandled {
-			continue
-		}
-
-		// Route forms without explicit action to the conventional Submit() method.
-		applyDefaultAction(&msg)
-
-		// Clear previous errors
-		connSt.clearErrors()
-
-		// Create Context for action dispatch.
-		// Note: Query params from initial WS connection are NOT included here.
-		// They're already available in Mount/OnConnect via wsQueryData.
-		// WebSocket actions use only msg.Data from the client message.
-		actionCtx := NewContext(r.Context(), msg.Action, msg.Data)
-		actionCtx = actionCtx.WithUserID(userID)
-		actionCtx = actionCtx.WithUploads(uploadRegistry)
-		actionCtx = actionCtx.WithFlashSetter(connSt)
-
-		// Dispatch action using Controller+State pattern
-		newState, actionErr := DispatchWithState(h.config.Controller, connSt.state, actionCtx)
-		if actionErr != nil {
-			// Handle errors
-			switch e := actionErr.(type) {
-			case FieldError:
-				connSt.setError(e.Field, e.Message)
-			case MultiError:
-				for _, fieldErr := range e {
-					connSt.setError(fieldErr.Field, fieldErr.Message)
-				}
-			default:
-				if !errors.Is(actionErr, ErrMethodNotFound) {
-					connSt.setError("_general", actionErr.Error())
-				}
+			if err = writeUpdateWebSocket(connection, responseBytes); err != nil {
+				slog.Error("WebSocket write failed",
+					slog.String("component", "live_handler"),
+					slog.Any("error", err))
+				break eventLoop
 			}
-		} else {
-			connSt.state = newState
+
+			// Clear flash messages after successful render (flash shows once per action)
+			connSt.clearFlash()
+
+		case req := <-connection.DispatchChan:
+			h.handleDispatchedAction(connSt, connection, req, userID)
 		}
-
-		// Persist state after action
-		h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
-
-		// Update the connection's stored state for broadcasts
-		connection.Stores = connSt.state
-
-		// Auto-broadcast to other connections in same session group
-		h.autoBroadcastToGroup(groupID, connSt.state, connection)
-
-		// Generate tree update
-		buf.Reset()
-		if err = connTmpl.ExecuteUpdates(&buf, connSt.state, connSt.getMessages()); err != nil {
-			slog.Error("Template update execution failed",
-				slog.String("component", "live_handler"),
-				slog.Any("error", err))
-			continue
-		}
-
-		var tree map[string]interface{}
-		if err := json.Unmarshal(buf.Bytes(), &tree); err != nil {
-			slog.Error("Failed to parse tree",
-				slog.String("component", "live_handler"),
-				slog.Any("error", err))
-			continue
-		}
-
-		response := UpdateResponse{
-			Tree: tree,
-			Meta: &ResponseMetadata{
-				Success: !connSt.hasErrors(),
-				Errors:  connSt.getErrorsOnly(),
-				Action:  msg.Action,
-			},
-		}
-
-		responseBytes, err := json.Marshal(response)
-		if err != nil {
-			slog.Error("Failed to marshal response",
-				slog.String("component", "live_handler"),
-				slog.Any("error", err))
-			continue
-		}
-
-		if err = writeUpdateWebSocket(connection, responseBytes); err != nil {
-			slog.Error("WebSocket write failed",
-				slog.String("component", "live_handler"),
-				slog.Any("error", err))
-			break
-		}
-
-		// Clear flash messages after successful render (flash shows once per action)
-		connSt.clearFlash()
 	}
 
 	slog.Info("Client disconnected",
@@ -760,6 +820,20 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 // The function parses the Accept header and checks if the first meaningful media type
 // is application/json (or a +json subtype). This avoids treating browsers that include
 // application/json as a secondary option as JSON clients.
+// knownAssetExts lists file extensions that browsers request automatically
+// (favicon, manifest, etc.) and should not trigger pathChanged navigation logic.
+var knownAssetExts = map[string]bool{
+	".ico": true, ".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".svg": true, ".webp": true,
+	".css": true, ".js": true, ".mjs": true, ".map": true, ".woff": true, ".woff2": true, ".ttf": true,
+	".json": true, ".xml": true, ".txt": true, ".webmanifest": true,
+}
+
+// isKnownAssetExt checks if the extension (from path.Ext, includes leading dot)
+// matches a known static asset type. Uses ToLower for case-insensitive matching.
+func isKnownAssetExt(ext string) bool {
+	return knownAssetExts[strings.ToLower(ext)]
+}
+
 func wantsJSON(r *http.Request) bool {
 	accept := r.Header.Get("Accept")
 	if accept == "" {
@@ -823,7 +897,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		slog.Error("HTTP authentication failed",
 			slog.String("component", "live_handler"),
 			slog.Any("error", err))
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		h.writeUnauthorized(w)
 		return
 	}
 
@@ -853,8 +927,11 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if currentPath == "." {
 		currentPath = "/"
 	}
+	// Asset requests (favicon.ico, manifest.json, etc.) that hit catch-all
+	// handlers are not page navigations and must not trigger pathChanged.
+	isAssetRequest := isKnownAssetExt(path.Ext(currentPath))
 	pathChanged := false
-	if r.Method == http.MethodGet {
+	if r.Method == http.MethodGet && !isAssetRequest {
 		if prev, loaded := h.httpLastPaths.Load(groupID); loaded {
 			pathChanged = prev.(string) != currentPath
 		}
@@ -948,7 +1025,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			h.config.SessionStore.Set(ctx, groupID, connSt.state)
 		}
 		// Commit path after successful Mount (not before, to allow retries).
-		if r.Method == http.MethodGet {
+		if r.Method == http.MethodGet && !isAssetRequest {
 			h.httpLastPaths.Store(groupID, currentPath)
 		}
 	}
@@ -1091,8 +1168,19 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	httpTmpl := entry.tmpl
 	httpTmpl.SetUploadRegistry(uploadRegistry)
 
-	// Auto-broadcast to WebSocket connections
-	h.autoBroadcastToGroup(groupID, connSt.state, nil)
+	if h.config.SharedState {
+		h.autoBroadcastToGroup(groupID, connSt.state, nil)
+		if dropped := actionCtx.pendingBroadcasts(); len(dropped) > 0 {
+			slog.Debug("BroadcastAction calls ignored in SharedState mode (auto-broadcast handles sync)",
+				slog.String("component", "live_handler"),
+				slog.Int("dropped_count", len(dropped)))
+		}
+	} else if actionErr == nil {
+		// Per-connection mode: process deferred broadcasts
+		for _, br := range actionCtx.pendingBroadcasts() {
+			h.dispatchBroadcastToGroup(groupID, nil, br.Action, br.Data)
+		}
+	}
 
 	// Check if we should return HTML for progressive enhancement
 	// Progressive enhancement is enabled AND client does not want JSON
@@ -1269,6 +1357,86 @@ func (h *liveHandler) autoBroadcastToGroup(groupID string, data interface{}, exc
 	}()
 }
 
+// dispatchBroadcastToGroup dispatches a named action to all other connections
+// in the same session group. Each connection processes the action independently
+// via its DispatchChan, preserving per-connection state.
+//
+// For single-instance deployments, this does local fan-out only.
+// For multi-instance deployments with a PubSubBroadcaster, this also publishes
+// a group action message to Redis for remote instances.
+func (h *liveHandler) dispatchBroadcastToGroup(groupID string, excludeConn *session.Connection, action string, data map[string]interface{}) {
+	// Local fan-out: dispatch to other connections on this instance
+	conns := h.registry.GetByGroupExcept(groupID, excludeConn)
+	for _, conn := range conns {
+		conn.EnqueueDispatch(&session.DispatchRequest{Action: action, Data: data})
+	}
+
+	// Remote fan-out: publish to Redis PubSub for other instances.
+	// The local-first optimization in RedisBroadcaster drops our own messages,
+	// so local connections only get the dispatch above (no double-processing).
+	if gab, ok := h.config.PubSubBroadcaster.(pubsub.GroupActionBroadcaster); ok {
+		if err := gab.PublishGroupAction(groupID, action, data); err != nil {
+			slog.Warn("Failed to publish group action to PubSub",
+				slog.String("component", "live_handler"),
+				slog.String("group_id", groupID),
+				slog.String("action", action),
+				slog.Any("error", err))
+		}
+	}
+
+	slog.Debug("Dispatched broadcast to group",
+		slog.String("component", "live_handler"),
+		slog.String("group_id", groupID),
+		slog.String("action", action),
+		slog.Int("local_connections", len(conns)))
+}
+
+// handleDispatchedAction processes a broadcast action received via DispatchChan.
+// Called from the connection's event loop goroutine, so all state access is serialized.
+// Rate limiting is intentionally not applied — these are server-originated dispatches.
+func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *session.Connection, req *session.DispatchRequest, userID string) {
+	connSt.clearErrors()
+
+	ctx := NewContext(context.Background(), req.Action, req.Data)
+	ctx = ctx.WithUserID(userID)
+	ctx = ctx.WithFlashSetter(connSt)
+
+	newState, err := DispatchWithState(h.config.Controller, connSt.state, ctx)
+	if err != nil {
+		if !errors.Is(err, ErrMethodNotFound) {
+			slog.Warn("Broadcast action dispatch failed",
+				slog.String("component", "live_handler"),
+				slog.String("action", req.Action),
+				slog.String("group_id", connSt.groupID),
+				slog.Any("error", err))
+		}
+		return
+	}
+
+	connSt.state = newState
+
+	// Note: SharedState persistence is not needed here because dispatched actions
+	// only occur in per-connection mode (SharedState uses autoBroadcastToGroup instead).
+
+	// Chained BroadcastAction calls from dispatched actions are intentionally
+	// not processed to prevent infinite broadcast storms.
+	if dropped := ctx.pendingBroadcasts(); len(dropped) > 0 {
+		slog.Error("BroadcastAction calls inside a dispatched action are ignored (prevents broadcast storms)",
+			slog.String("component", "live_handler"),
+			slog.String("action", req.Action),
+			slog.Int("dropped_count", len(dropped)))
+	}
+
+	if err := h.sendUpdate(connection, connSt.state, connSt.getMessages()); err != nil {
+		slog.Warn("sendUpdate failed during broadcast dispatch",
+			slog.String("component", "live_handler"),
+			slog.String("action", req.Action),
+			slog.Any("error", err))
+	}
+
+	connSt.clearFlash()
+}
+
 // httpTemplateSweepLoop periodically removes cached HTTP templates for sessions
 // that no longer exist in the SessionStore. This prevents unbounded memory growth
 // on long-running servers with many ephemeral sessions.
@@ -1344,6 +1512,15 @@ func hasStaticsInTree(tree map[string]interface{}) bool {
 		}
 	}
 	return false
+}
+
+// writeUnauthorized sends a 401 response, adding WWW-Authenticate if the
+// authenticator implements ChallengeAuthenticator (e.g., BasicAuthenticator).
+func (h *liveHandler) writeUnauthorized(w http.ResponseWriter) {
+	if ca, ok := h.config.Authenticator.(ChallengeAuthenticator); ok {
+		w.Header().Set("WWW-Authenticate", ca.WWWAuthenticate())
+	}
+	http.Error(w, "Unauthorized", http.StatusUnauthorized)
 }
 
 // sendUpdate generates and sends a template update to a single connection.
@@ -1469,6 +1646,40 @@ func (h *liveHandler) handlePubSubMessage(msg *pubsub.BroadcastMessage) error {
 	return nil
 }
 
+// handleGroupActionMessage handles incoming group action messages from other instances.
+//
+// This is called by the RedisBroadcaster when a group action message is received from
+// a remote instance. It enqueues the action dispatch on all local connections in the
+// target group via their DispatchChan, ensuring state mutations happen in each
+// connection's event loop goroutine.
+// Note: own-instance messages are already filtered by RedisBroadcaster.handleMessage
+// (line ~434 in redis.go) before routing here. No InstanceID check needed.
+func (h *liveHandler) handleGroupActionMessage(msg *pubsub.GroupActionMessage) error {
+	connections := h.registry.GetByGroup(msg.GroupID)
+	if len(connections) == 0 {
+		slog.Debug("No local connections for group action",
+			slog.String("component", "pubsub_handler"),
+			slog.String("group_id", msg.GroupID),
+			slog.String("action", msg.Action))
+		return nil
+	}
+
+	for _, conn := range connections {
+		conn.EnqueueDispatch(&session.DispatchRequest{
+			Action: msg.Action,
+			Data:   msg.Data,
+		})
+	}
+
+	slog.Debug("Enqueued group action for local connections",
+		slog.String("component", "pubsub_handler"),
+		slog.String("group_id", msg.GroupID),
+		slog.String("action", msg.Action),
+		slog.Int("connection_count", len(connections)))
+
+	return nil
+}
+
 // handleServerActionMessage handles incoming server action messages from other instances.
 //
 // This is called by the RedisBroadcaster subscriber when a server action message is received.
@@ -1537,8 +1748,9 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 			conn.Stores = newState // Update connection's stored state
 		}
 
-		// Persist state after action
-		h.config.SessionStore.Set(context.Background(), conn.GroupID, state.state)
+		if h.config.SharedState {
+			h.config.SessionStore.Set(context.Background(), conn.GroupID, state.state)
+		}
 
 		// Send update to this connection (with flash messages)
 		if err := h.sendUpdate(conn, state.state, state.getMessages()); err != nil {

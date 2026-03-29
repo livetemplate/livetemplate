@@ -42,7 +42,7 @@ type Connection struct {
 	GroupID  string      // Session group ID (shared state boundary)
 	UserID   string      // User identity ("" for anonymous)
 	Template interface{} // Per-connection template for tree diffing (*livetemplate.Template)
-	Stores   interface{} // Reference to shared stores from session group (livetemplate.Stores)
+	Stores   interface{} // State snapshot. Updated per-action in SharedState mode only. In per-connection mode, connState.state is authoritative. TODO: rename to State in next major version.
 	Uploads  interface{} // Per-connection upload registry (*upload.Registry)
 	mu       sync.Mutex  // Protects writes to Conn
 
@@ -52,12 +52,53 @@ type Connection struct {
 	pumpExited chan struct{}   // Signals writePump has exited cleanly
 	closeOnce  sync.Once       // Prevents double-close race conditions
 	metrics    MetricsRecorder // Optional: metrics recorder for observability
+
+	// Dispatch channel for broadcast actions from other connections.
+	// Actions enqueued here are processed by the connection's select-based event loop.
+	DispatchChan chan *DispatchRequest
 }
 
 // wsMessage represents a WebSocket message to be sent asynchronously.
 type wsMessage struct {
 	messageType int
 	data        []byte
+}
+
+// DispatchRequest represents an action to dispatch on a connection's event loop.
+// Used by BroadcastAction to fan out actions to other connections in the same group.
+type DispatchRequest struct {
+	Action string
+	Data   map[string]interface{}
+}
+
+// Done returns a channel that is closed when the connection is shutting down.
+func (c *Connection) Done() <-chan struct{} {
+	return c.done
+}
+
+// EnqueueDispatch queues an action for dispatch on this connection's event loop.
+// Non-blocking: drops the request if the channel is full, closed, or not initialized.
+func (c *Connection) EnqueueDispatch(req *DispatchRequest) {
+	if c.DispatchChan == nil {
+		return
+	}
+	select {
+	case <-c.done:
+		return // connection shutting down
+	default:
+	}
+	select {
+	case c.DispatchChan <- req:
+	case <-c.done:
+		return // connection closed between checks
+	default:
+		if c.metrics != nil {
+			c.metrics.WSDispatchDropped()
+		}
+		slog.Warn("dispatch channel full, dropping broadcast action",
+			slog.String("action", req.Action),
+			slog.String("group_id", c.GroupID))
+	}
 }
 
 // Send queues a message for async delivery to this connection.
@@ -260,6 +301,7 @@ type MetricsRecorder interface {
 	WSSlowClientClose()
 	WSWriteError()
 	WSAddBufferSize(delta int64)
+	WSDispatchDropped()
 }
 
 // ConnectionRegistry tracks all active WebSocket connections with dual indexing.
@@ -275,11 +317,14 @@ type MetricsRecorder interface {
 // - GetByUser("alice"): Get all devices for authenticated user "alice"
 // - GetByUser(""): Get all connections for anonymous users
 type ConnectionRegistry struct {
-	byGroup map[string][]*Connection // groupID → connections
-	byUser  map[string][]*Connection // userID → connections  (empty string for anonymous)
-	mu      sync.RWMutex             // Protects both maps
-	metrics MetricsRecorder          // Optional: metrics recorder for observability
+	byGroup            map[string][]*Connection // groupID → connections
+	byUser             map[string][]*Connection // userID → connections  (empty string for anonymous)
+	mu                 sync.RWMutex             // Protects both maps
+	metrics            MetricsRecorder          // Optional: metrics recorder for observability
+	dispatchBufferSize int                      // Dispatch channel buffer size (0 = use default)
 }
+
+const defaultDispatchBufferSize = 16
 
 // NewConnectionRegistry creates a new empty connection registry.
 func NewConnectionRegistry() *ConnectionRegistry {
@@ -287,6 +332,13 @@ func NewConnectionRegistry() *ConnectionRegistry {
 		byGroup: make(map[string][]*Connection),
 		byUser:  make(map[string][]*Connection),
 	}
+}
+
+// SetDispatchBufferSize sets the buffer size for the dispatch channel.
+// Must be called before any connections are registered.
+// Default: 16.
+func (r *ConnectionRegistry) SetDispatchBufferSize(size int) {
+	r.dispatchBufferSize = size
 }
 
 // SetMetrics sets the metrics recorder for observability.
@@ -314,6 +366,11 @@ func (r *ConnectionRegistry) Register(conn *Connection, bufferSize int) {
 	conn.done = make(chan struct{})
 	conn.pumpExited = make(chan struct{})
 	conn.metrics = r.metrics // Set metrics from registry
+	dispatchBuf := r.dispatchBufferSize
+	if dispatchBuf <= 0 {
+		dispatchBuf = defaultDispatchBufferSize
+	}
+	conn.DispatchChan = make(chan *DispatchRequest, dispatchBuf)
 
 	// Start write pump goroutine
 	go conn.writePump()
@@ -336,13 +393,10 @@ func (r *ConnectionRegistry) Unregister(conn *Connection) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Close the connection (triggers writePump shutdown)
-	// This is idempotent due to sync.Once, safe to call multiple times
-	if err := conn.Close(); err != nil {
-		slog.Debug("connection close during unregister returned error",
-			slog.Any("error", err),
-			slog.String("group_id", conn.GroupID))
-	}
+	// Remove from indexes FIRST so no new dispatches target this connection.
+	// Then close the connection (triggers writePump shutdown via done channel).
+	// DispatchChan is NOT closed — senders use the done channel to detect shutdown.
+	// This avoids send-on-closed-channel panics in concurrent EnqueueDispatch calls.
 
 	// Remove from byGroup index
 	groupConns := r.byGroup[conn.GroupID]
@@ -360,6 +414,14 @@ func (r *ConnectionRegistry) Unregister(conn *Connection) {
 	// Clean up empty slices
 	if len(r.byUser[conn.UserID]) == 0 {
 		delete(r.byUser, conn.UserID)
+	}
+
+	// Close the connection AFTER removing from indexes.
+	// This signals the done channel, which EnqueueDispatch checks before sending.
+	if err := conn.Close(); err != nil {
+		slog.Debug("connection close during unregister returned error",
+			slog.Any("error", err),
+			slog.String("group_id", conn.GroupID))
 	}
 }
 
@@ -412,7 +474,8 @@ func (r *ConnectionRegistry) GetByGroupExcept(groupID string, excludeConn *Conne
 		return []*Connection{}
 	}
 
-	// Filter out the excluded connection
+	// Filter out the excluded connection. When excludeConn is nil (e.g., HTTP path),
+	// all connections are returned since no registered connection is nil.
 	result := make([]*Connection, 0, len(conns)-1)
 	for _, conn := range conns {
 		if conn != excludeConn {

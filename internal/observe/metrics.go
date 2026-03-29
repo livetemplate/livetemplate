@@ -24,6 +24,7 @@ type Metrics struct {
 	wsBufferFull       atomic.Int64 // Total count of buffer overflow events
 	wsSlowClientCloses atomic.Int64 // Total count of connections closed due to slow clients
 	wsWriteErrors      atomic.Int64 // Total count of WebSocket write errors
+	wsDispatchDropped  atomic.Int64 // Total count of broadcast dispatch drops (channel full)
 
 	// Wire format metrics (fingerprint-based diff tracking)
 	fullTreeSends         atomic.Int64 // Total sends with statics (structure changed or first render)
@@ -141,6 +142,11 @@ func (m *Metrics) WSSetBufferSize(size int64) {
 // WSAddBufferSize adds to the current buffer size (when message queued).
 func (m *Metrics) WSAddBufferSize(delta int64) {
 	m.wsSendBufferSize.Add(delta)
+}
+
+// WSDispatchDropped increments the broadcast dispatch drop counter.
+func (m *Metrics) WSDispatchDropped() {
+	m.wsDispatchDropped.Add(1)
 }
 
 // Wire format metrics operations
