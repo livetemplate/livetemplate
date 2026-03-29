@@ -316,6 +316,16 @@ main() {
         exit 1
     fi
 
+    # Pull latest from remote
+    local branch
+    branch=$(git rev-parse --abbrev-ref HEAD)
+    log_step "Pulling latest changes from origin/$branch"
+    git pull --rebase origin "$branch" || {
+        log_error "Failed to pull latest changes. Resolve conflicts and try again."
+        exit 1
+    }
+    log_info "Up to date with origin/$branch"
+
     # Get current version
     current_version=$(get_current_version)
     log_info "Current version: $current_version"
