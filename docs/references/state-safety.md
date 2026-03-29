@@ -46,7 +46,7 @@ livetemplate.AsState: field DB appears to be a dependency (*sql.DB) - move to co
 | `io.Writer` | I/O |
 | `io.Reader` | I/O |
 
-Detection is heuristic — it matches these 9 known stdlib patterns. Custom wrappers (e.g., `type AppDB struct{ *sql.DB }`) and third-party types (e.g., `*pgxpool.Pool`) are **not caught** by this layer. Use Layer 4 (test helper) for stricter coverage.
+Detection is heuristic — it matches these 9 known dependency patterns. Custom wrappers (e.g., `type AppDB struct{ *sql.DB }`) and other third-party types (e.g., `*pgxpool.Pool`) are **not caught** by this layer. Use Layer 4 (test helper) for stricter coverage.
 
 ### Layer 3: Serialization Boundary
 
@@ -134,7 +134,7 @@ In the HTTP path (non-WebSocket), each session group has a per-group `httpTempla
 
 ## Limitations
 
-- **Dependency detection is heuristic**: Only catches 9 known stdlib patterns. Custom wrappers and third-party types require `AssertPureState[T]()` in tests.
+- **Dependency detection is heuristic**: Only catches 9 known dependency patterns (stdlib types like `*sql.DB` plus common third-party types like `*redis.Client`). Custom wrappers and other third-party types require `AssertPureState[T]()` in tests.
 - **Session isolation depends on Authenticator**: A custom `Authenticator` that returns the same `groupID` for different users would break isolation. Use the built-in authenticators or ensure `GetSessionGroup` maps distinct users to distinct groups.
 - **JSON serialization overhead**: State cloning involves a JSON round-trip per session. Keep state structs small for best performance.
 

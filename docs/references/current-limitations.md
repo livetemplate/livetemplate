@@ -46,7 +46,7 @@ See the [Transport Compatibility table](progressive-complexity-reference.md#tran
 |-----------|--------|-----------|
 | JSON serialization overhead | State is cloned via JSON marshal/unmarshal per session | Keep state structs small; avoid large nested structures |
 | State must be JSON-serializable | Functions, channels, and unexported fields cannot be in state | Put non-serializable dependencies in the controller |
-| Dependency detection is heuristic | `AsState[T]()` only catches 9 known stdlib dependency patterns | Add `AssertPureState[T](t)` to test files for stricter validation |
+| Dependency detection is heuristic | `AsState[T]()` only catches 9 known dependency patterns (stdlib + `*redis.Client`) | Add `AssertPureState[T](t)` to test files for stricter validation |
 
 See [State Safety Reference](state-safety.md) for the full enforcement architecture.
 
