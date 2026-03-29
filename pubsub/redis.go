@@ -13,6 +13,8 @@ import (
 )
 
 var _ DynamicSubscriber = (*RedisBroadcaster)(nil)
+var _ GroupActionBroadcaster = (*RedisBroadcaster)(nil)
+var _ GroupActionSubscriber = (*RedisBroadcaster)(nil)
 
 // Redis channel schema:
 // livetemplate:broadcast:global           -> Global broadcasts (all instances, all connections)

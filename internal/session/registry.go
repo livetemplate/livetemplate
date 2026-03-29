@@ -92,6 +92,9 @@ func (c *Connection) EnqueueDispatch(req *DispatchRequest) {
 	case <-c.done:
 		return // connection closed between checks
 	default:
+		if c.metrics != nil {
+			c.metrics.WSDispatchDropped()
+		}
 		slog.Warn("dispatch channel full, dropping broadcast action",
 			slog.String("action", req.Action),
 			slog.String("group_id", c.GroupID))
@@ -298,6 +301,7 @@ type MetricsRecorder interface {
 	WSSlowClientClose()
 	WSWriteError()
 	WSAddBufferSize(delta int64)
+	WSDispatchDropped()
 }
 
 // ConnectionRegistry tracks all active WebSocket connections with dual indexing.

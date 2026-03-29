@@ -496,11 +496,13 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				slog.String("group_id", groupID),
 				slog.Any("error", err))
 		}
-		if err := ds.SubscribeToGroupAction(groupID); err != nil {
-			slog.Warn("Failed to subscribe to group action channel",
-				slog.String("component", "live_handler"),
-				slog.String("group_id", groupID),
-				slog.Any("error", err))
+		if gas, ok := h.config.PubSubBroadcaster.(pubsub.GroupActionSubscriber); ok {
+			if err := gas.SubscribeToGroupAction(groupID); err != nil {
+				slog.Warn("Failed to subscribe to group action channel",
+					slog.String("component", "live_handler"),
+					slog.String("group_id", groupID),
+					slog.Any("error", err))
+			}
 		}
 		if userID != "" {
 			if err := ds.SubscribeToUser(userID); err != nil {
@@ -625,6 +627,9 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Start readPump goroutine: reads from WebSocket and sends to readChan.
 	// This decouples WebSocket reads from state mutations, allowing the event
 	// loop to also process broadcast dispatches via DispatchChan.
+	// Buffer of 1: deliberately serializes client messages with dispatch processing.
+	// During dispatch handling, the readPump blocks after buffering one message.
+	// This bounds memory and ensures state mutations are strictly sequential.
 	readChan := make(chan wsReadMessage, 1)
 	go func() {
 		defer close(readChan)
@@ -1348,8 +1353,8 @@ func (h *liveHandler) dispatchBroadcastToGroup(groupID string, excludeConn *sess
 	// Remote fan-out: publish to Redis PubSub for other instances.
 	// The local-first optimization in RedisBroadcaster drops our own messages,
 	// so local connections only get the dispatch above (no double-processing).
-	if h.config.PubSubBroadcaster != nil {
-		if err := h.config.PubSubBroadcaster.PublishGroupAction(groupID, action, data); err != nil {
+	if gab, ok := h.config.PubSubBroadcaster.(pubsub.GroupActionBroadcaster); ok {
+		if err := gab.PublishGroupAction(groupID, action, data); err != nil {
 			slog.Warn("Failed to publish group action to PubSub",
 				slog.String("component", "live_handler"),
 				slog.String("group_id", groupID),
@@ -1388,9 +1393,8 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 
 	connSt.state = newState
 
-	if h.config.SharedState {
-		h.config.SessionStore.Set(context.Background(), connSt.groupID, connSt.state)
-	}
+	// Note: SharedState persistence is not needed here because dispatched actions
+	// only occur in per-connection mode (SharedState uses autoBroadcastToGroup instead).
 
 	// Chained BroadcastAction calls from dispatched actions are intentionally
 	// not processed to prevent infinite broadcast storms.

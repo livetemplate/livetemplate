@@ -110,7 +110,9 @@ func newTab(t *testing.T, allocCtx context.Context) (context.Context, context.Ca
 // have independent per-connection state. Tab 1 joins as "Alice" on server-a,
 // Tab 2 on server-b should NOT see "Alice" as CurrentUser.
 func TestPerConnectionStateIsolation(t *testing.T) {
-	allocCtx, allocCancel := chromedp.NewRemoteAllocator(context.Background(), chromeWSURL)
+	testCtx, testTimeout := context.WithTimeout(context.Background(), 30*time.Second)
+	defer testTimeout()
+	allocCtx, allocCancel := chromedp.NewRemoteAllocator(testCtx, chromeWSURL)
 	defer allocCancel()
 
 	// Tab 1: connect to server-a, join as Alice
@@ -163,7 +165,9 @@ func TestPerConnectionStateIsolation(t *testing.T) {
 // TestCrossInstanceBroadcast verifies that a message sent on server-a
 // reaches a tab connected to server-b via Redis PubSub.
 func TestCrossInstanceBroadcast(t *testing.T) {
-	allocCtx, allocCancel := chromedp.NewRemoteAllocator(context.Background(), chromeWSURL)
+	testCtx, testTimeout := context.WithTimeout(context.Background(), 30*time.Second)
+	defer testTimeout()
+	allocCtx, allocCancel := chromedp.NewRemoteAllocator(testCtx, chromeWSURL)
 	defer allocCancel()
 
 	// Tab 1: server-a, join as Alice, wait for chat UI
@@ -237,7 +241,9 @@ func TestCrossInstanceBroadcast(t *testing.T) {
 // don't overwrite per-connection fields. Each tab has its own CurrentUser
 // and receiving a broadcast should NOT change it.
 func TestBroadcastPreservesPerConnectionState(t *testing.T) {
-	allocCtx, allocCancel := chromedp.NewRemoteAllocator(context.Background(), chromeWSURL)
+	testCtx, testTimeout := context.WithTimeout(context.Background(), 30*time.Second)
+	defer testTimeout()
+	allocCtx, allocCancel := chromedp.NewRemoteAllocator(testCtx, chromeWSURL)
 	defer allocCancel()
 
 	// Tab 1: server-a, join as Alice
@@ -310,7 +316,9 @@ func TestBroadcastPreservesPerConnectionState(t *testing.T) {
 // TestInstanceIdentification verifies that tabs connected to different servers
 // show the correct instance ID, confirming they are truly on different servers.
 func TestInstanceIdentification(t *testing.T) {
-	allocCtx, allocCancel := chromedp.NewRemoteAllocator(context.Background(), chromeWSURL)
+	testCtx, testTimeout := context.WithTimeout(context.Background(), 30*time.Second)
+	defer testTimeout()
+	allocCtx, allocCancel := chromedp.NewRemoteAllocator(testCtx, chromeWSURL)
 	defer allocCancel()
 
 	// Tab 1: server-a

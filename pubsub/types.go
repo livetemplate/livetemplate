@@ -77,17 +77,20 @@ type Broadcaster interface {
 	// The handler is responsible for triggering actions on local connections
 	SubscribeServerActions(handler ServerActionHandler) error
 
+	// Close stops the broadcaster and cleans up resources
+	Close() error
+}
+
+// GroupActionBroadcaster extends Broadcaster with group-scoped action dispatch.
+// Implementations that support BroadcastAction for cross-instance delivery should
+// implement this interface. The handler layer type-asserts and calls these methods
+// during action dispatch and WebSocket connection setup.
+type GroupActionBroadcaster interface {
 	// PublishGroupAction publishes a group-scoped action to all instances.
-	// Each receiving instance dispatches the action on all local connections
-	// in the target group via their DispatchChan.
 	PublishGroupAction(groupID string, action string, data map[string]interface{}) error
 
 	// SubscribeGroupActions starts listening for group action messages.
-	// The handler dispatches actions to local connections in the target group.
 	SubscribeGroupActions(handler GroupActionHandler) error
-
-	// Close stops the broadcaster and cleans up resources
-	Close() error
 }
 
 // DynamicSubscriber allows subscribing to scoped channels at runtime.
@@ -98,6 +101,11 @@ type DynamicSubscriber interface {
 	SubscribeToGroup(groupID string) error
 	SubscribeToUser(userID string) error
 	SubscribeToServerAction(userID string) error
+}
+
+// GroupActionSubscriber allows subscribing to group action channels at runtime.
+// Checked via type assertion during WebSocket connection setup.
+type GroupActionSubscriber interface {
 	SubscribeToGroupAction(groupID string) error
 }
 

@@ -1562,9 +1562,11 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 				slog.Any("error", err))
 		}
 
-		if err := mountCfg.PubSubBroadcaster.SubscribeGroupActions(handler.handleGroupActionMessage); err != nil {
-			slog.Error("Failed to subscribe to group actions",
-				slog.Any("error", err))
+		if gab, ok := mountCfg.PubSubBroadcaster.(pubsub.GroupActionBroadcaster); ok {
+			if err := gab.SubscribeGroupActions(handler.handleGroupActionMessage); err != nil {
+				slog.Error("Failed to subscribe to group actions",
+					slog.Any("error", err))
+			}
 		}
 	}
 

@@ -98,17 +98,17 @@ func connectWS(t *testing.T, wsURL string) *websocket.Conn {
 	if err != nil {
 		t.Fatalf("WebSocket dial failed: %v", err)
 	}
-	// Read initial render
 	if err := ws.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
 		t.Fatalf("SetReadDeadline failed: %v", err)
 	}
-	_, _, err = ws.ReadMessage()
+	_, initialMsg, err := ws.ReadMessage()
 	if err != nil {
 		if closeErr := ws.Close(); closeErr != nil {
 			t.Logf("WebSocket close error: %v", closeErr)
 		}
 		t.Fatalf("Failed to read initial render: %v", err)
 	}
+	t.Logf("connectWS initial render (%d bytes)", len(initialMsg))
 	return ws
 }
 
