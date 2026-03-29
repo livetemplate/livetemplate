@@ -318,13 +318,20 @@ main() {
 
     # Pull latest from remote
     local branch
-    branch=$(git rev-parse --abbrev-ref HEAD)
-    log_step "Pulling latest changes from origin/$branch"
-    git pull --rebase origin "$branch" || {
-        log_error "Failed to pull latest changes. Resolve conflicts and try again."
+    if ! branch=$(git symbolic-ref --short HEAD 2>/dev/null); then
+        log_error "Repository is in a detached HEAD state. Please check out a branch before running this script."
         exit 1
-    }
-    log_info "Up to date with origin/$branch"
+    fi
+    if [ "$dry_run_mode" = true ]; then
+        log_info "[dry-run] Would pull latest from origin/$branch"
+    else
+        log_step "Pulling latest changes from origin/$branch"
+        git pull --rebase origin "$branch" || {
+            log_error "Failed to pull latest changes. Resolve conflicts and try again."
+            exit 1
+        }
+        log_info "Up to date with origin/$branch"
+    fi
 
     # Get current version
     current_version=$(get_current_version)
