@@ -636,3 +636,85 @@ func TestStdlibParity_HTMLEscaping(t *testing.T) {
 		})
 	}
 }
+
+// testMapHelper mirrors how *TemplateContext is stored under the "lvt" key.
+type testMapHelper struct {
+	data map[string]string
+}
+
+func (h *testMapHelper) Get(key string) string {
+	if h.data == nil {
+		return ""
+	}
+	return h.data[key]
+}
+
+func (h *testMapHelper) Has(key string) bool {
+	if h.data == nil {
+		return false
+	}
+	_, ok := h.data[key]
+	return ok
+}
+
+// Validates the pattern used by .lvt.Flash, .lvt.HasFlash, etc.
+func TestStdlibParity_MethodCallOnMapValue(t *testing.T) {
+	helper := &testMapHelper{data: map[string]string{
+		"success": "Item added",
+		"error":   "Something failed",
+	}}
+	emptyHelper := &testMapHelper{}
+
+	tests := []struct {
+		name string
+		tmpl string
+		data interface{}
+	}{
+		{
+			name: "method with arg returns value",
+			tmpl: `<span>{{.ctx.Get "success"}}</span>`,
+			data: map[string]interface{}{"ctx": helper},
+		},
+		{
+			name: "method with arg returns empty",
+			tmpl: `<span>{{.ctx.Get "missing"}}</span>`,
+			data: map[string]interface{}{"ctx": helper},
+		},
+		{
+			name: "conditional on method with arg (true)",
+			tmpl: `{{if .ctx.Has "success"}}found{{else}}empty{{end}}`,
+			data: map[string]interface{}{"ctx": helper},
+		},
+		{
+			name: "conditional on method with arg (false)",
+			tmpl: `{{if .ctx.Has "missing"}}found{{else}}empty{{end}}`,
+			data: map[string]interface{}{"ctx": helper},
+		},
+		{
+			name: "nil data method call",
+			tmpl: `<span>{{.ctx.Get "success"}}</span>`,
+			data: map[string]interface{}{"ctx": emptyHelper},
+		},
+		{
+			name: "method in if-else with output",
+			tmpl: `{{if .ctx.Has "success"}}<p>{{.ctx.Get "success"}}</p>{{end}}`,
+			data: map[string]interface{}{"ctx": helper},
+		},
+		{
+			name: "method in if-else with no match",
+			tmpl: `{{if .ctx.Has "success"}}<p>{{.ctx.Get "success"}}</p>{{end}}`,
+			data: map[string]interface{}{"ctx": emptyHelper},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdlib := stdlibRender(t, tt.tmpl, tt.data, nil)
+			lvt := lvtRender(t, tt.tmpl, tt.data, nil)
+
+			if stdlib != lvt {
+				t.Errorf("output mismatch:\n  stdlib: %q\n  lvt:    %q", stdlib, lvt)
+			}
+		})
+	}
+}

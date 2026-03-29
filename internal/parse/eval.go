@@ -342,7 +342,7 @@ func resolveFieldChain(value interface{}, fields []string) (interface{}, error) 
 				v = reflect.Value{}
 			} else {
 				value = mv.Interface()
-				v = mv
+				v = reflect.ValueOf(value)
 			}
 
 		default:
