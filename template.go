@@ -167,6 +167,7 @@ type Config struct {
 	ProgressiveEnhancement bool                                // Enable non-JS form submission support with PRG pattern (default: true)
 	TrustForwardedHeaders  bool                                // Trust X-Forwarded-Proto header for scheme detection (default: true)
 	SharedState            bool                                // Restore pre-v0.9 shared state with auto-broadcast (default: false = per-connection)
+	DispatchBufferSize     int                                 // Broadcast dispatch channel buffer per connection (default: 16)
 }
 
 // =============================================================================
@@ -503,6 +504,16 @@ func WithWebSocketBufferSize(size int) Option {
 		} else {
 			c.WebSocketBufferSize = size
 		}
+	}
+}
+
+// WithDispatchBufferSize sets the buffer size for the broadcast dispatch channel
+// per WebSocket connection. This is separate from the WebSocket send buffer
+// (WithWebSocketBufferSize) because dispatch requests are less frequent.
+// Default: 16. Increase for apps with high broadcast fan-out.
+func WithDispatchBufferSize(size int) Option {
+	return func(c *Config) {
+		c.DispatchBufferSize = size
 	}
 }
 
@@ -1543,6 +1554,9 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 
 	// Wire up metrics to registry for WebSocket observability
 	handler.registry.SetMetrics(metrics)
+	if t.config.DispatchBufferSize > 0 {
+		handler.registry.SetDispatchBufferSize(t.config.DispatchBufferSize)
+	}
 
 	// Start periodic sweep of stale HTTP template cache entries
 	go handler.httpTemplateSweepLoop()

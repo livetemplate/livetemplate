@@ -93,7 +93,7 @@ func TestBroadcastAction_CapEnforced(t *testing.T) {
 		ctx.BroadcastAction("Action", map[string]interface{}{"i": i})
 	}
 	b := ctx.pendingBroadcasts()
-	if len(b) != 100 {
-		t.Fatalf("expected cap at 100, got %d", len(b))
+	if len(b) != MaxBroadcastsPerAction {
+		t.Fatalf("expected cap at %d, got %d", MaxBroadcastsPerAction, len(b))
 	}
 }

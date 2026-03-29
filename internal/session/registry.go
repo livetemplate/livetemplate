@@ -42,7 +42,7 @@ type Connection struct {
 	GroupID  string      // Session group ID (shared state boundary)
 	UserID   string      // User identity ("" for anonymous)
 	Template interface{} // Per-connection template for tree diffing (*livetemplate.Template)
-	Stores   interface{} // State snapshot. Updated per-action in SharedState mode only. In per-connection mode, connState.state is authoritative.
+	Stores   interface{} // State snapshot. Updated per-action in SharedState mode only. In per-connection mode, connState.state is authoritative. TODO: rename to State in next major version.
 	Uploads  interface{} // Per-connection upload registry (*upload.Registry)
 	mu       sync.Mutex  // Protects writes to Conn
 
@@ -317,11 +317,14 @@ type MetricsRecorder interface {
 // - GetByUser("alice"): Get all devices for authenticated user "alice"
 // - GetByUser(""): Get all connections for anonymous users
 type ConnectionRegistry struct {
-	byGroup map[string][]*Connection // groupID → connections
-	byUser  map[string][]*Connection // userID → connections  (empty string for anonymous)
-	mu      sync.RWMutex             // Protects both maps
-	metrics MetricsRecorder          // Optional: metrics recorder for observability
+	byGroup            map[string][]*Connection // groupID → connections
+	byUser             map[string][]*Connection // userID → connections  (empty string for anonymous)
+	mu                 sync.RWMutex             // Protects both maps
+	metrics            MetricsRecorder          // Optional: metrics recorder for observability
+	dispatchBufferSize int                      // Dispatch channel buffer size (0 = use default)
 }
+
+const defaultDispatchBufferSize = 16
 
 // NewConnectionRegistry creates a new empty connection registry.
 func NewConnectionRegistry() *ConnectionRegistry {
@@ -329,6 +332,13 @@ func NewConnectionRegistry() *ConnectionRegistry {
 		byGroup: make(map[string][]*Connection),
 		byUser:  make(map[string][]*Connection),
 	}
+}
+
+// SetDispatchBufferSize sets the buffer size for the dispatch channel.
+// Must be called before any connections are registered.
+// Default: 16.
+func (r *ConnectionRegistry) SetDispatchBufferSize(size int) {
+	r.dispatchBufferSize = size
 }
 
 // SetMetrics sets the metrics recorder for observability.
@@ -356,7 +366,11 @@ func (r *ConnectionRegistry) Register(conn *Connection, bufferSize int) {
 	conn.done = make(chan struct{})
 	conn.pumpExited = make(chan struct{})
 	conn.metrics = r.metrics // Set metrics from registry
-	conn.DispatchChan = make(chan *DispatchRequest, bufferSize)
+	dispatchBuf := r.dispatchBufferSize
+	if dispatchBuf <= 0 {
+		dispatchBuf = defaultDispatchBufferSize
+	}
+	conn.DispatchChan = make(chan *DispatchRequest, dispatchBuf)
 
 	// Start write pump goroutine
 	go conn.writePump()

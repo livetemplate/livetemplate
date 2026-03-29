@@ -341,15 +341,19 @@ func (c *Context) SetFlash(key, message string) {
 //	    ctx.BroadcastAction("RefreshMessages", nil)
 //	    return state, nil
 //	}
+//
+// MaxBroadcastsPerAction is the maximum number of BroadcastAction calls
+// allowed per action invocation. Excess calls are dropped with an error log.
+const MaxBroadcastsPerAction = 100
+
 func (c *Context) BroadcastAction(action string, data map[string]interface{}) {
 	if action == "" {
 		return
 	}
-	const maxBroadcasts = 100
-	if len(c.broadcasts) >= maxBroadcasts {
-		slog.Warn("BroadcastAction cap reached, dropping",
+	if len(c.broadcasts) >= MaxBroadcastsPerAction {
+		slog.Error("BroadcastAction cap reached, dropping",
 			slog.String("action", action),
-			slog.Int("limit", maxBroadcasts))
+			slog.Int("limit", MaxBroadcastsPerAction))
 		return
 	}
 	c.broadcasts = append(c.broadcasts, broadcastRequest{Action: action, Data: data})

@@ -77,6 +77,10 @@ func (c *Controller) OnDisconnect()
 | `ctx.Action` | `ctx.Action()` |
 | `ctx.Data` | `ctx.GetString()`, `ctx.GetInt()`, `ctx.BindAndValidate()` |
 
+### BroadcastAction Note
+
+`ctx.BroadcastAction()` accumulates broadcasts on the Context. Since `ctx.With*()` methods create shallow copies, call `BroadcastAction` after all `With*()` calls in the same scope, or broadcasts queued before the copy may not propagate to the handler's view of the context.
+
 ### Testing Helper
 
 Use `AssertPureState[T]()` in tests to catch common mistakes:

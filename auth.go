@@ -131,18 +131,27 @@ type BasicAuthenticator struct {
 	// Returns true if credentials are valid, false otherwise.
 	// Returns error for system failures (e.g., database connection error).
 	ValidateFunc func(username, password string) (bool, error)
+
+	// Realm is the protection space identifier in WWW-Authenticate headers.
+	// Default: "LiveTemplate"
+	Realm string
 }
 
 // NewBasicAuthenticator creates a BasicAuthenticator with the given validation function.
 func NewBasicAuthenticator(validateFunc func(username, password string) (bool, error)) *BasicAuthenticator {
 	return &BasicAuthenticator{
 		ValidateFunc: validateFunc,
+		Realm:        "LiveTemplate",
 	}
 }
 
 // WWWAuthenticate returns the WWW-Authenticate header value for HTTP Basic Auth.
 func (a *BasicAuthenticator) WWWAuthenticate() string {
-	return `Basic realm="LiveTemplate"`
+	realm := a.Realm
+	if realm == "" {
+		realm = "LiveTemplate"
+	}
+	return fmt.Sprintf(`Basic realm="%s"`, realm)
 }
 
 // Identify extracts and validates HTTP Basic Auth credentials.

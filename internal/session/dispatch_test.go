@@ -84,7 +84,7 @@ func TestRegister_InitializesDispatchChan(t *testing.T) {
 		t.Fatal("DispatchChan should be initialized after Register")
 	}
 
-	if cap(conn.DispatchChan) != 10 {
-		t.Errorf("DispatchChan capacity should be 10, got %d", cap(conn.DispatchChan))
+	if cap(conn.DispatchChan) != defaultDispatchBufferSize {
+		t.Errorf("DispatchChan capacity should be %d (default), got %d", defaultDispatchBufferSize, cap(conn.DispatchChan))
 	}
 }
