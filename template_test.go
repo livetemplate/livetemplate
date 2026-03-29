@@ -408,6 +408,89 @@ func TestTemplate_ExecuteUpdates(t *testing.T) {
 	}
 }
 
+func TestTemplate_ExecuteUpdates_FlashMessages(t *testing.T) {
+	tmpl := Must(New("test"))
+	_, err := tmpl.Parse(`<div>{{if .lvt.HasFlash "success"}}<p>{{.lvt.Flash "success"}}</p>{{end}}</div>`)
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
+
+	type State struct{}
+
+	// Render 1: No flash messages (baseline)
+	var buf1 bytes.Buffer
+	err = tmpl.ExecuteUpdates(&buf1, State{}, map[string]string{})
+	if err != nil {
+		t.Fatalf("ExecuteUpdates() render 1 failed: %v", err)
+	}
+
+	// Render 2: Flash message set — should produce update with flash content
+	var buf2 bytes.Buffer
+	err = tmpl.ExecuteUpdates(&buf2, State{}, map[string]string{
+		"_flash:success": "Item added",
+	})
+	if err != nil {
+		t.Fatalf("ExecuteUpdates() render 2 failed: %v", err)
+	}
+
+	updateJSON := buf2.String()
+	if updateJSON == "{}" {
+		t.Fatal("ExecuteUpdates() render 2 returned empty update; expected flash content")
+	}
+	if !strings.Contains(updateJSON, "Item added") {
+		t.Errorf("ExecuteUpdates() render 2 should contain flash message, got: %s", updateJSON)
+	}
+
+	// Render 3: Flash cleared — should revert (conditional changes back to empty)
+	var buf3 bytes.Buffer
+	err = tmpl.ExecuteUpdates(&buf3, State{}, map[string]string{})
+	if err != nil {
+		t.Fatalf("ExecuteUpdates() render 3 failed: %v", err)
+	}
+
+	revertJSON := buf3.String()
+	if revertJSON == "{}" {
+		t.Fatal("ExecuteUpdates() render 3 returned empty update; expected revert of flash content")
+	}
+	if strings.Contains(revertJSON, "Item added") {
+		t.Errorf("ExecuteUpdates() render 3 should not contain flash message after clear, got: %s", revertJSON)
+	}
+}
+
+func TestTemplate_ExecuteUpdates_FlashWithoutConditional(t *testing.T) {
+	tmpl := Must(New("test"))
+	_, err := tmpl.Parse(`<div><span>{{.lvt.Flash "info"}}</span></div>`)
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
+
+	type State struct{}
+
+	// Render 1: No flash (baseline)
+	var buf1 bytes.Buffer
+	err = tmpl.ExecuteUpdates(&buf1, State{}, map[string]string{})
+	if err != nil {
+		t.Fatalf("ExecuteUpdates() render 1 failed: %v", err)
+	}
+
+	// Render 2: Flash set — dynamic value changes from "" to "Hello"
+	var buf2 bytes.Buffer
+	err = tmpl.ExecuteUpdates(&buf2, State{}, map[string]string{
+		"_flash:info": "Hello",
+	})
+	if err != nil {
+		t.Fatalf("ExecuteUpdates() render 2 failed: %v", err)
+	}
+
+	updateJSON := buf2.String()
+	if updateJSON == "{}" {
+		t.Fatal("ExecuteUpdates() render 2 returned empty update; expected flash content")
+	}
+	if !strings.Contains(updateJSON, "Hello") {
+		t.Errorf("ExecuteUpdates() render 2 should contain flash value, got: %s", updateJSON)
+	}
+}
+
 func TestTemplate_CompileTimeTreeGeneration(t *testing.T) {
 	tests := []struct {
 		name                string
