@@ -349,6 +349,9 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		slog.Error("Authentication failed",
 			slog.String("component", "live_handler"),
 			slog.Any("error", err))
+		if ca, ok := h.config.Authenticator.(ChallengeAuthenticator); ok {
+			w.Header().Set("WWW-Authenticate", ca.WWWAuthenticate())
+		}
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -879,6 +882,9 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		slog.Error("HTTP authentication failed",
 			slog.String("component", "live_handler"),
 			slog.Any("error", err))
+		if ca, ok := h.config.Authenticator.(ChallengeAuthenticator); ok {
+			w.Header().Set("WWW-Authenticate", ca.WWWAuthenticate())
+		}
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
