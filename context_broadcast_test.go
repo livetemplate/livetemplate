@@ -78,3 +78,22 @@ func TestBroadcastAction_PreservedThroughWithMethods(t *testing.T) {
 		t.Fatalf("derived ctx expected 2 broadcasts, got %d", len(b2))
 	}
 }
+
+func TestBroadcastAction_EmptyActionIgnored(t *testing.T) {
+	ctx := NewContext(context.Background(), "TestAction", nil)
+	ctx.BroadcastAction("", nil)
+	if b := ctx.pendingBroadcasts(); len(b) != 0 {
+		t.Fatalf("empty action should be ignored, got %d broadcasts", len(b))
+	}
+}
+
+func TestBroadcastAction_CapEnforced(t *testing.T) {
+	ctx := NewContext(context.Background(), "TestAction", nil)
+	for i := range 200 {
+		ctx.BroadcastAction("Action", map[string]interface{}{"i": i})
+	}
+	b := ctx.pendingBroadcasts()
+	if len(b) != 100 {
+		t.Fatalf("expected cap at 100, got %d", len(b))
+	}
+}

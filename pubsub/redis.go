@@ -189,7 +189,7 @@ func (b *RedisBroadcaster) publishJSON(channel string, msg interface{}) error {
 
 	data, err := json.Marshal(msg)
 	if err != nil {
-		return fmt.Errorf("failed to marshal message: %w", err)
+		return fmt.Errorf("failed to marshal message for channel %s: %w", channel, err)
 	}
 
 	ctx, cancel := context.WithTimeout(b.ctx, 5*time.Second)
@@ -481,7 +481,18 @@ func (b *RedisBroadcaster) handleServerActionMessage(redisMsg *redis.Message) er
 }
 
 // handleGroupActionMessage processes a group action message.
+// Note: handleMessage already filters own-instance messages before calling this.
+// The check here is a redundant safety guard.
 func (b *RedisBroadcaster) handleGroupActionMessage(redisMsg *redis.Message) error {
+	var instanceCheck struct {
+		InstanceID string `json:"instanceID"`
+	}
+	if err := json.Unmarshal([]byte(redisMsg.Payload), &instanceCheck); err == nil {
+		if instanceCheck.InstanceID == b.instanceID {
+			return nil
+		}
+	}
+
 	return dispatchTypedMessage(redisMsg, func() func(*GroupActionMessage) error {
 		b.mu.RLock()
 		defer b.mu.RUnlock()

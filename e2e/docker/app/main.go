@@ -23,6 +23,7 @@ func (a *fixedGroupAuth) GetSessionGroup(_ *http.Request, _ string) (string, err
 }
 
 type Message struct {
+	ID   int    `json:"id"`
 	User string `json:"user"`
 	Text string `json:"text"`
 }
@@ -81,7 +82,8 @@ func (c *ChatController) Send(state ChatState, ctx *livetemplate.Context) (ChatS
 		return state, nil
 	}
 
-	msg := Message{User: state.CurrentUser, Text: text}
+	nextID, _ := c.rdb.LLen(context.Background(), messagesKey).Result()
+	msg := Message{ID: int(nextID + 1), User: state.CurrentUser, Text: text}
 	data, err := json.Marshal(msg)
 	if err != nil {
 		log.Printf("Failed to marshal message: %v", err)
@@ -168,7 +170,7 @@ const chatTemplate = `<!DOCTYPE html>
 <div id="user">Logged in as: {{.CurrentUser}}</div>
 <div id="messages">
 {{range .Messages}}
-<div class="msg" data-key="{{.User}}-{{.Text}}"><b>{{.User}}</b>: {{.Text}}</div>
+<div class="msg" data-key="msg-{{.ID}}"><b>{{.User}}</b>: {{.Text}}</div>
 {{end}}
 </div>
 <form name="send">

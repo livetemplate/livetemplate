@@ -630,6 +630,8 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Buffer of 1: deliberately serializes client messages with dispatch processing.
 	// During dispatch handling, the readPump blocks after buffering one message.
 	// This bounds memory and ensures state mutations are strictly sequential.
+	// Tradeoff: slow dispatched actions (e.g., DB calls) pause client message processing.
+	// Increasing the buffer would NOT help — state mutations must still be sequential.
 	readChan := make(chan wsReadMessage, 1)
 	go func() {
 		defer close(readChan)

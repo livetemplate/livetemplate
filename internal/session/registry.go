@@ -356,7 +356,7 @@ func (r *ConnectionRegistry) Register(conn *Connection, bufferSize int) {
 	conn.done = make(chan struct{})
 	conn.pumpExited = make(chan struct{})
 	conn.metrics = r.metrics // Set metrics from registry
-	conn.DispatchChan = make(chan *DispatchRequest, min(16, bufferSize))
+	conn.DispatchChan = make(chan *DispatchRequest, bufferSize)
 
 	// Start write pump goroutine
 	go conn.writePump()
@@ -460,7 +460,8 @@ func (r *ConnectionRegistry) GetByGroupExcept(groupID string, excludeConn *Conne
 		return []*Connection{}
 	}
 
-	// Filter out the excluded connection
+	// Filter out the excluded connection. When excludeConn is nil (e.g., HTTP path),
+	// all connections are returned since no registered connection is nil.
 	result := make([]*Connection, 0, len(conns)-1)
 	for _, conn := range conns {
 		if conn != excludeConn {
