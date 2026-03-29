@@ -96,7 +96,7 @@ Authenticator.GetSessionGroup(r, userID) → groupID
 
 The `groupID` is the authorization boundary for all state access. Users cannot specify a `groupID` directly in the URL or headers — the `Authenticator` computes it from the request's identity (cookies, auth headers).
 
-The built-in `AnonymousAuthenticator` generates a random 256-bit `groupID` per browser (stored in a `livetemplate-id` cookie). The `BasicAuthenticator` maps `groupID = userID` for authenticated users.
+The built-in `AnonymousAuthenticator` generates a random 256-bit `groupID` per browser (base64-encoded, stored in a `livetemplate-id` cookie). The `BasicAuthenticator` maps `groupID = userID` for authenticated users.
 
 ### Per-Session State Cloning
 
@@ -135,7 +135,7 @@ In the HTTP path (non-WebSocket), each session group has a per-group `httpTempla
 ## Limitations
 
 - **Dependency detection is heuristic**: Only catches 9 known dependency patterns (stdlib types like `*sql.DB` plus common third-party types like `*redis.Client`). Custom wrappers and other third-party types require `AssertPureState[T]()` in tests.
-- **Session isolation depends on Authenticator**: A custom `Authenticator` that returns the same `groupID` for different users would break isolation. Use the built-in authenticators or ensure `GetSessionGroup` maps distinct users to distinct groups.
+- **Warning — Session isolation depends on Authenticator**: A custom `Authenticator` that returns the same `groupID` for different users would break isolation. Use the built-in authenticators or ensure `GetSessionGroup` maps distinct users to distinct groups.
 - **JSON serialization overhead**: State cloning involves a JSON round-trip per session. Keep state structs small for best performance.
 
 See [Current Limitations](current-limitations.md) for the full limitations reference.

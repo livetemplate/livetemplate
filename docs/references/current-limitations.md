@@ -2,7 +2,7 @@
 
 Known limitations of LiveTemplate, organized by category. Each entry includes the impact, workaround, and current status. For planned improvements, see the [Roadmap](../../ROADMAP.md).
 
-All limitations verified against codebase as of v0.8.9.
+All limitations verified against the current codebase.
 
 ---
 
@@ -90,7 +90,7 @@ Use `ctx.IsHTTP()` to check which transport is active in an action method.
 
 | Limitation | Detail | Status |
 |-----------|--------|--------|
-| TreeNode allocations (22.7% of memory) | Inherent cost of tree-based diffing architecture | Investigated — `sync.Pool` yielded only -2.7% improvement, not viable |
+| TreeNode allocations (22.7% of memory) | Inherent cost of tree-based diffing architecture | Investigated — `sync.Pool` yielded only 2.7% allocation reduction, not worth the complexity |
 | State cloning JSON round-trip | Per-session cost on first request | Keep state small; subsequent renders are fast (~3 KB, 61 allocs) |
 | HTML fallback parsing (3.05% of allocations) | Triggered by unsupported template constructs (see Template Features above) | Improve template construct coverage to reduce fallback frequency |
 
