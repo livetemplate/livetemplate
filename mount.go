@@ -635,6 +635,8 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		defer close(readChan)
 		for {
 			_, data, err := conn.ReadMessage()
+			// If both readChan and Done are ready, Go's select may pick Done,
+			// discarding the error. The event loop still exits via readChan close.
 			select {
 			case readChan <- wsReadMessage{data: data, err: err}:
 			case <-connection.Done():
@@ -1372,6 +1374,7 @@ func (h *liveHandler) dispatchBroadcastToGroup(groupID string, excludeConn *sess
 
 // handleDispatchedAction processes a broadcast action received via DispatchChan.
 // Called from the connection's event loop goroutine, so all state access is serialized.
+// Rate limiting is intentionally not applied — these are server-originated dispatches.
 func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *session.Connection, req *session.DispatchRequest, userID string) {
 	connSt.clearErrors()
 
@@ -1630,6 +1633,8 @@ func (h *liveHandler) handlePubSubMessage(msg *pubsub.BroadcastMessage) error {
 // a remote instance. It enqueues the action dispatch on all local connections in the
 // target group via their DispatchChan, ensuring state mutations happen in each
 // connection's event loop goroutine.
+// Note: own-instance messages are already filtered by RedisBroadcaster.handleMessage
+// (line ~434 in redis.go) before routing here. No InstanceID check needed.
 func (h *liveHandler) handleGroupActionMessage(msg *pubsub.GroupActionMessage) error {
 	connections := h.registry.GetByGroup(msg.GroupID)
 	if len(connections) == 0 {

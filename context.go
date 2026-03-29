@@ -328,8 +328,8 @@ func (c *Context) SetFlash(key, message string) {
 //   - BroadcastAction calls inside a dispatched action are ignored to prevent
 //     infinite broadcast storms.
 //   - Silently ignored when WithSharedState() is enabled (auto-broadcast handles sync).
-//   - Broadcasts are accumulated on the Context value. Context.With*() methods create
-//     shallow copies — broadcasts queued before the copy are visible to both.
+//   - Context.With*() methods create shallow copies. Broadcasts queued after the
+//     copy diverge (append allocates a new backing array once capacity is exceeded).
 //
 // Example:
 //
