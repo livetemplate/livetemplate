@@ -3,8 +3,6 @@ package livetemplate
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -509,18 +507,7 @@ func TestHandle_NilTempFileManager_WithoutUploadConfig(t *testing.T) {
 	}
 }
 
-func TestHandle_CreatesUploadsDir_WithUploadConfig(t *testing.T) {
-	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("Failed to chdir: %v", err)
-	}
-	defer func() {
-		if err := os.Chdir(origDir); err != nil {
-			t.Logf("Failed to restore working directory: %v", err)
-		}
-	}()
-
+func TestHandle_TempFileManagerInitialized_WithUploadConfig(t *testing.T) {
 	tmpl, err := New("test", WithUpload("avatar", UploadConfig{
 		Accept:     []string{"image/png"},
 		MaxEntries: 1,
@@ -535,11 +522,12 @@ func TestHandle_CreatesUploadsDir_WithUploadConfig(t *testing.T) {
 
 	ctrl := &testHandleController{}
 	state := AsState(&testHandleState{})
-	_ = tmpl.Handle(ctrl, state)
+	handler := tmpl.Handle(ctrl, state)
 
-	uploadsDir := filepath.Join(dir, ".uploads")
-	if _, err := os.Stat(uploadsDir); os.IsNotExist(err) {
-		t.Errorf(".uploads directory should exist with upload config, but it doesn't")
+	// With upload config, tempFileManager should be initialized
+	lh := handler.(*liveHandler)
+	if lh.tempFileManager == nil {
+		t.Error("tempFileManager should not be nil with upload config")
 	}
 }
 

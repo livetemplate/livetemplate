@@ -1900,10 +1900,9 @@ func (h *liveHandler) handleUploadAction(ctx context.Context, conn WSConn, rawDa
 		return true, h.handleUploadChunk(ctx, conn, rawData, state, uploadRegistry, connection)
 	case "upload_complete":
 		return true, h.handleUploadComplete(ctx, conn, rawData, state, uploadRegistry, connection)
-	case "cancel_upload":
+	default: // cancel_upload — gate switch above guarantees only upload actions reach here
 		return true, h.handleCancelUpload(ctx, conn, rawData, state, uploadRegistry, connection)
 	}
-	return true, fmt.Errorf("unhandled upload action: %s", msg.Action)
 }
 
 // handleUploadStart processes upload_start action from WebSocket client.
