@@ -167,6 +167,7 @@ type Config struct {
 	ProgressiveEnhancement bool                                // Enable non-JS form submission support with PRG pattern (default: true)
 	TrustForwardedHeaders  bool                                // Trust X-Forwarded-Proto header for scheme detection (default: true)
 	SharedState            bool                                // Restore pre-v0.9 shared state with auto-broadcast (default: false = per-connection)
+	StatePersistence       bool                                // Persist per-connection state to SessionStore after actions (default: false = ephemeral)
 	DispatchBufferSize     int                                 // Broadcast dispatch channel buffer per connection (default: 16)
 }
 
@@ -414,6 +415,27 @@ func WithTrustForwardedHeaders(trust bool) Option {
 func WithSharedState() Option {
 	return func(c *Config) {
 		c.SharedState = true
+	}
+}
+
+// WithStatePersistence enables automatic state persistence to SessionStore after
+// every action (WebSocket, HTTP POST, dispatched, server-initiated). On page
+// refresh, the new connection loads the last-persisted state instead of running
+// Mount() with fresh initial state.
+//
+// Without this option (the default), state is ephemeral — it lives only in memory
+// for the duration of the connection. On reconnect, Mount() runs fresh and should
+// reload state from an external source (database, Redis). This matches Phoenix
+// LiveView's socket assigns model.
+//
+// Use this for quick prototyping or apps where SessionStore is the source of truth:
+//
+//	tmpl := livetemplate.New("app",
+//	    livetemplate.WithStatePersistence(),
+//	)
+func WithStatePersistence() Option {
+	return func(c *Config) {
+		c.StatePersistence = true
 	}
 }
 
@@ -1523,6 +1545,7 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		wsBufferSize:           t.config.WebSocketBufferSize,
 		ProgressiveEnhancement: t.config.ProgressiveEnhancement,
 		SharedState:            t.config.SharedState,
+		StatePersistence:       t.config.StatePersistence,
 	}
 
 	if HasActionMethod(controller, state.Inner(), CapabilityChange) {

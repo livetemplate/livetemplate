@@ -501,7 +501,7 @@ func extractFlashCookie(rec *httptest.ResponseRecorder) *http.Cookie {
 
 func newWSDisabledHandler(t *testing.T, opts ...Option) LiveHandler {
 	t.Helper()
-	baseOpts := []Option{WithWebSocketDisabled()}
+	baseOpts := []Option{WithWebSocketDisabled(), WithStatePersistence()}
 	baseOpts = append(baseOpts, opts...)
 	tmpl, err := New("test", baseOpts...)
 	if err != nil {
@@ -1638,7 +1638,7 @@ func (c *failingMountController) Increment(state wsDisabledState, ctx *Context) 
 func TestWebSocketDisabled_PathChangeMountFailureRetry(t *testing.T) {
 	ctrl := &failingMountController{failNext: make(chan struct{}, 1)}
 
-	tmpl, err := New("test", WithWebSocketDisabled())
+	tmpl, err := New("test", WithWebSocketDisabled(), WithStatePersistence())
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -2056,7 +2056,7 @@ func treeDynamic(t *testing.T, raw []byte, key string) string {
 func TestPerConnectionState_WSActionPersistsToStore(t *testing.T) {
 	auth := &fixedGroupAuth{groupID: "persist-test"}
 
-	tmpl, err := New("test", WithAuthenticator(auth))
+	tmpl, err := New("test", WithAuthenticator(auth), WithStatePersistence())
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -2119,7 +2119,7 @@ func TestPerConnectionState_WSActionPersistsToStore(t *testing.T) {
 func TestPerConnectionState_DispatchedActionPersists(t *testing.T) {
 	auth := &fixedGroupAuth{groupID: "dispatch-persist-test"}
 
-	tmpl, err := New("test", WithAuthenticator(auth))
+	tmpl, err := New("test", WithAuthenticator(auth), WithStatePersistence())
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -2284,6 +2284,7 @@ func TestPerConnectionState_ServerActionPersists(t *testing.T) {
 	tmpl, err := New("test",
 		WithAuthenticator(auth),
 		WithPubSubBroadcaster(subscriber),
+		WithStatePersistence(),
 	)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
@@ -2340,5 +2341,61 @@ func TestPerConnectionState_ServerActionPersists(t *testing.T) {
 
 	if v := treeDynamic(t, reconnectMsg, "0"); v != "1" {
 		t.Errorf("Server action state NOT persisted: expected Count=1, got dynamic 0=%q. Full: %s", v, string(reconnectMsg))
+	}
+}
+
+// TestEphemeralState_WSActionNotPersisted verifies that without WithStatePersistence(),
+// state is ephemeral — actions update in-memory state but reconnection gets fresh state
+// from Mount() (Count resets to 0).
+func TestEphemeralState_WSActionNotPersisted(t *testing.T) {
+	auth := &fixedGroupAuth{groupID: "ephemeral-test"}
+
+	// No WithStatePersistence — default ephemeral mode
+	tmpl, err := New("test", WithAuthenticator(auth))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>Count: {{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &testHandleController{}
+	handler := tmpl.Handle(ctrl, AsState(&testHandleState{}))
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	// 1. Connect and increment
+	ws1, _ := connectWSRaw(t, wsURL)
+	actionMsg, _ := json.Marshal(map[string]interface{}{
+		"action": "increment",
+		"data":   map[string]interface{}{},
+	})
+	if err := ws1.WriteMessage(websocket.TextMessage, actionMsg); err != nil {
+		t.Fatalf("WS1 write failed: %v", err)
+	}
+	if err := ws1.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline failed: %v", err)
+	}
+	_, actionResp, err := ws1.ReadMessage()
+	if err != nil {
+		t.Fatalf("WS1 read failed: %v", err)
+	}
+	if v := treeDynamic(t, actionResp, "0"); v != "1" {
+		t.Fatalf("Expected Count=1 in action response, got %q", v)
+	}
+
+	// 2. Reconnect — should get fresh Mount() state (Count=0), not persisted state
+	ws2, reconnectMsg := reconnectWSRaw(t, wsURL, ws1)
+	defer func() {
+		if err := ws2.Close(); err != nil {
+			t.Logf("ws2 close: %v", err)
+		}
+	}()
+
+	if v := treeDynamic(t, reconnectMsg, "0"); v != "0" {
+		t.Errorf("Ephemeral state should reset on reconnect: expected Count=0, got %q. Full: %s", v, string(reconnectMsg))
 	}
 }
