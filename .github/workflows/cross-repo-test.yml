@@ -138,20 +138,14 @@ jobs:
         go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
         echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
-    - name: Add replace directives to all examples
+    - name: Add replace directives to examples
       working-directory: examples
       run: |
-        echo "Adding replace directives to all working examples..."
-        ROOT_DIR="$(pwd)/.."
-        for example in counter chat todos graceful-shutdown testing/01_basic; do
-          echo "  → Setting up $example..."
-          cd "$example"
-          go mod edit -replace=github.com/livetemplate/livetemplate=$ROOT_DIR/livetemplate
-          go mod edit -replace=github.com/livetemplate/lvt/components=$ROOT_DIR/lvt/components
-          go mod tidy
-          cd - > /dev/null
-        done
-        echo "✓ All replace directives added"
+        echo "Adding replace directives to examples monorepo..."
+        go mod edit -replace=github.com/livetemplate/livetemplate=../livetemplate
+        go mod edit -replace=github.com/livetemplate/lvt/components=../lvt/components
+        go mod tidy
+        echo "✓ Replace directives added"
 
     - name: Run examples test suite
       working-directory: examples

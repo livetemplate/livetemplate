@@ -1536,11 +1536,15 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 	// Initialize upload factories (lazy, done once)
 	initUploadFactories()
 
-	// Create temp file manager for uploads
-	tempFileManager, err := newUploadTempFileManager("")
-	if err != nil {
-		slog.Error("Failed to create temp file manager - uploads will not work",
-			slog.Any("error", err))
+	// Avoid creating .uploads temp directory for templates that don't use uploads
+	var tempFileManager uploadTempFileManager
+	if len(t.config.UploadConfigs) > 0 {
+		var err error
+		tempFileManager, err = newUploadTempFileManager("")
+		if err != nil {
+			slog.Error("Failed to create temp file manager - uploads will not work",
+				slog.Any("error", err))
+		}
 	}
 
 	handler := &liveHandler{

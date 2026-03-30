@@ -485,3 +485,76 @@ func ExamplePresigner() {
 	meta, _ := presign(presigner, entry)
 	_ = meta.URL // https://storage.example.com/upload/entry-123
 }
+
+func TestHandle_NilTempFileManager_WithoutUploadConfig(t *testing.T) {
+	tmpl, err := New("test")
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &testHandleController{}
+	state := AsState(&testHandleState{})
+	handler := tmpl.Handle(ctrl, state)
+
+	// Without upload config, tempFileManager should be nil (no .uploads dir created)
+	lh := handler.(*liveHandler)
+	if lh.tempFileManager != nil {
+		t.Error("tempFileManager should be nil without upload config")
+	}
+}
+
+func TestHandle_TempFileManagerInitialized_WithUploadConfig(t *testing.T) {
+	tmpl, err := New("test", WithUpload("avatar", UploadConfig{
+		Accept:     []string{"image/png"},
+		MaxEntries: 1,
+	}))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &testHandleController{}
+	state := AsState(&testHandleState{})
+	handler := tmpl.Handle(ctrl, state)
+
+	// With upload config, tempFileManager should be initialized
+	lh := handler.(*liveHandler)
+	if lh.tempFileManager == nil {
+		t.Error("tempFileManager should not be nil with upload config")
+	}
+}
+
+func TestHandleUploadAction_NilTempFileManager(t *testing.T) {
+	handler := &liveHandler{
+		tempFileManager: nil,
+	}
+
+	actions := []string{"upload_start", "upload_chunk", "upload_complete", "cancel_upload"}
+	for _, action := range actions {
+		msg := message{Action: action}
+		handled, err := handler.handleUploadAction(context.Background(), nil, nil, msg, nil, nil, nil)
+		if !handled {
+			t.Errorf("action %q: expected handled=true, got false", action)
+		}
+		if err == nil {
+			t.Errorf("action %q: expected error for nil tempFileManager, got nil", action)
+		}
+	}
+
+	// Non-upload actions should return handled=false
+	msg := message{Action: "some_other_action"}
+	handled, err := handler.handleUploadAction(context.Background(), nil, nil, msg, nil, nil, nil)
+	if handled {
+		t.Error("non-upload action: expected handled=false, got true")
+	}
+	if err != nil {
+		t.Errorf("non-upload action: expected no error, got %v", err)
+	}
+}
