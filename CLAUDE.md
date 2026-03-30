@@ -169,7 +169,7 @@ The main `livetemplate` package provides a clean, minimal public API:
    - LiveHandler interface for HTTP/WebSocket handling
    - Broadcaster and BroadcastAware interfaces for server-initiated updates
    - WebSocket connection lifecycle management
-   - Per-connection state with explicit `BroadcastAction` (auto-broadcast opt-in via `WithSharedState()`)
+   - Per-connection state with session persistence and explicit `BroadcastAction` for cross-tab sync (auto-broadcast opt-in via `WithSharedState()`)
    - Dynamic pub/sub subscription via `DynamicSubscriber` type assertion during WebSocket setup
 
 3. **Session Stores (`session_stores.go`)**:

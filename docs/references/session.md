@@ -17,7 +17,19 @@ For pushing updates from server-side code, see [Server Actions Reference](server
 
 Since v0.9, each WebSocket connection owns its state independently. Actions update only the calling connection's state. `OnConnect()` initializes per-connection state (e.g., resetting `CurrentUser` to empty for each new tab). Cross-tab sync requires explicit `ctx.BroadcastAction("ActionName", data)`, which dispatches the named action to all other connections in the session group, preserving each connection's per-connection fields.
 
-**Reconnect behavior:** Per-connection state is ephemeral — it is not persisted to SessionStore after actions. On reconnect, `Mount()` runs against the SessionStore (which holds the initial state from the first connection's Mount), then `OnConnect()` re-initializes per-connection fields. Persistent data should be stored externally (database, Redis) and loaded in `Mount()` or `OnConnect()`.
+**Reconnect behavior:** State is persisted to SessionStore after every action (both HTTP and WebSocket). On reconnect, the new connection loads the last-persisted state from SessionStore, clears any transient fields (`lvt:"transient"`), then calls `OnConnect()` to re-initialize per-connection fields. The key difference from `WithSharedState()` is that per-connection mode does NOT auto-broadcast to other tabs — cross-tab sync requires explicit `ctx.BroadcastAction()`.
+
+### State Persistence Matrix
+
+| Operation | Per-Connection Mode | SharedState Mode |
+|-----------|-------------------|-----------------|
+| Mount() (new session) | Persisted | Persisted |
+| OnConnect() (reconnect) | Not persisted | Not persisted |
+| HTTP POST action | Persisted | Persisted + auto-broadcast |
+| WebSocket action | Persisted | Persisted + auto-broadcast |
+| Dispatched action (BroadcastAction) | Persisted | N/A (uses auto-broadcast) |
+| Server action (TriggerAction) | Persisted (since v0.8.10) | Persisted |
+| Auto-broadcast to other tabs | No | Yes |
 
 ### Shared State Mode (Opt-In)
 

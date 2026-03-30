@@ -3,14 +3,18 @@ package livetemplate
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/livetemplate/livetemplate/internal/testutil"
+	"github.com/livetemplate/livetemplate/pubsub"
 )
 
 // ============================================================================
@@ -1988,5 +1992,353 @@ func TestHandle_NoCapabilitiesInWebSocketWithoutChangeMethod(t *testing.T) {
 
 	if _, exists := meta["capabilities"]; exists {
 		t.Error("Expected capabilities to be omitted when controller has no Change() method")
+	}
+}
+
+// ============================================================================
+// Per-Connection State Persistence Tests (#289)
+// ============================================================================
+
+// reconnectWSRaw closes an existing connection, waits briefly for server-side
+// cleanup, then connects a new one. Returns the new connection and its initial
+// render message.
+func reconnectWSRaw(t *testing.T, wsURL string, old *websocket.Conn) (*websocket.Conn, []byte) {
+	t.Helper()
+	if err := old.Close(); err != nil {
+		t.Logf("old connection close: %v", err)
+	}
+	// Brief pause for server-side unregister to complete before reconnecting.
+	time.Sleep(50 * time.Millisecond)
+	return connectWSRaw(t, wsURL)
+}
+
+// connectWSRaw connects and returns the raw initial render message.
+func connectWSRaw(t *testing.T, wsURL string) (*websocket.Conn, []byte) {
+	t.Helper()
+	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("WebSocket dial failed: %v", err)
+	}
+	if err := ws.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline failed: %v", err)
+	}
+	_, msg, err := ws.ReadMessage()
+	if err != nil {
+		if closeErr := ws.Close(); closeErr != nil {
+			t.Logf("WebSocket close error: %v", closeErr)
+		}
+		t.Fatalf("Failed to read initial render: %v", err)
+	}
+	return ws, msg
+}
+
+// treeDynamic extracts a dynamic value by key from a WS response tree.
+func treeDynamic(t *testing.T, raw []byte, key string) string {
+	t.Helper()
+	var resp map[string]interface{}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		t.Fatalf("Failed to parse WS response: %v", err)
+	}
+	tree, ok := resp["tree"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected tree field in response, got: %s", string(raw))
+	}
+	val, ok := tree[key]
+	if !ok {
+		t.Fatalf("Expected key %q in tree, got: %v", key, tree)
+	}
+	return fmt.Sprintf("%v", val)
+}
+
+// TestPerConnectionState_WSActionPersistsToStore verifies that WebSocket action
+// state changes in per-connection mode are persisted to SessionStore, so a page
+// refresh (new WS connection) gets the updated state, not fresh initial state.
+func TestPerConnectionState_WSActionPersistsToStore(t *testing.T) {
+	auth := &fixedGroupAuth{groupID: "persist-test"}
+
+	tmpl, err := New("test", WithAuthenticator(auth))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>Count: {{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &testHandleController{}
+	handler := tmpl.Handle(ctrl, AsState(&testHandleState{}))
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	// 1. Connect WS1 and verify initial render has Count: 0
+	ws1, initialMsg := connectWSRaw(t, wsURL)
+	if v := treeDynamic(t, initialMsg, "0"); v != "0" {
+		t.Fatalf("Expected initial Count=0, got dynamic 0=%q", v)
+	}
+
+	// 2. Send increment action
+	actionMsg, _ := json.Marshal(map[string]interface{}{
+		"action": "increment",
+		"data":   map[string]interface{}{},
+	})
+	if err := ws1.WriteMessage(websocket.TextMessage, actionMsg); err != nil {
+		t.Fatalf("WS1 write failed: %v", err)
+	}
+
+	// 3. Read action response — should reflect Count: 1
+	if err := ws1.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline failed: %v", err)
+	}
+	_, actionResp, err := ws1.ReadMessage()
+	if err != nil {
+		t.Fatalf("WS1 read action response failed: %v", err)
+	}
+	if v := treeDynamic(t, actionResp, "0"); v != "1" {
+		t.Fatalf("Expected action response Count=1, got dynamic 0=%q", v)
+	}
+
+	// 4. Close WS1 and reconnect (simulates page refresh)
+	ws2, reconnectMsg := reconnectWSRaw(t, wsURL, ws1)
+	defer func() {
+		if err := ws2.Close(); err != nil {
+			t.Logf("ws2 close error: %v", err)
+		}
+	}()
+
+	// 6. Verify the reconnected WS sees Count: 1, not Count: 0
+	if v := treeDynamic(t, reconnectMsg, "0"); v != "1" {
+		t.Errorf("State NOT persisted: expected Count=1 on reconnect, got dynamic 0=%q. Full response: %s", v, string(reconnectMsg))
+	}
+}
+
+// TestPerConnectionState_DispatchedActionPersists verifies that state changes
+// from BroadcastAction dispatches are also persisted in per-connection mode,
+// so reconnection after a dispatched action sees the updated state.
+func TestPerConnectionState_DispatchedActionPersists(t *testing.T) {
+	auth := &fixedGroupAuth{groupID: "dispatch-persist-test"}
+
+	tmpl, err := New("test", WithAuthenticator(auth))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Count}} - {{.Message}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &broadcastTestController{}
+	handler := tmpl.Handle(ctrl, AsState(&broadcastTestState{}))
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	// 1. Connect two WS clients
+	ws1 := connectWS(t, wsURL)
+	defer func() {
+		if err := ws1.Close(); err != nil {
+			t.Logf("ws1 close: %v", err)
+		}
+	}()
+	ws2 := connectWS(t, wsURL)
+	defer func() {
+		if err := ws2.Close(); err != nil {
+			t.Logf("ws2 close: %v", err)
+		}
+	}()
+
+	// 2. WS1 sends SetMessage (which calls BroadcastAction("SyncMessage"))
+	actionMsg, _ := json.Marshal(map[string]interface{}{
+		"action": "set_message",
+		"data":   map[string]interface{}{"value": "persisted-msg"},
+	})
+	if err := ws1.WriteMessage(websocket.TextMessage, actionMsg); err != nil {
+		t.Fatalf("WS1 write failed: %v", err)
+	}
+
+	// 3. WS1 receives its own action response
+	readWSUpdate(t, ws1, 3*time.Second)
+
+	// 4. WS2 receives the dispatched SyncMessage
+	readWSUpdate(t, ws2, 3*time.Second)
+
+	// 5. Close both connections and reconnect (simulates page refresh)
+	if err := ws1.Close(); err != nil {
+		t.Logf("ws1 close: %v", err)
+	}
+	ws3, reconnectMsg := reconnectWSRaw(t, wsURL, ws2)
+	defer func() {
+		if err := ws3.Close(); err != nil {
+			t.Logf("ws3 close: %v", err)
+		}
+	}()
+
+	// 7. Verify the reconnected WS sees the persisted message
+	if !strings.Contains(string(reconnectMsg), "persisted-msg") {
+		t.Errorf("Dispatched action state was NOT persisted. Got: %s", string(reconnectMsg))
+	}
+}
+
+// TestPerConnectionState_NoAutoBroadcast verifies that adding persistence to
+// per-connection mode does NOT accidentally enable auto-broadcast. When WS1
+// performs an action, WS2 should NOT receive an automatic update (that's what
+// WithSharedState is for).
+func TestPerConnectionState_NoAutoBroadcast(t *testing.T) {
+	auth := &fixedGroupAuth{groupID: "no-autobroadcast-test"}
+
+	tmpl, err := New("test", WithAuthenticator(auth))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>Count: {{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &testHandleController{}
+	handler := tmpl.Handle(ctrl, AsState(&testHandleState{}))
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	// Connect two WS clients
+	ws1 := connectWS(t, wsURL)
+	defer func() {
+		if err := ws1.Close(); err != nil {
+			t.Logf("ws1 close: %v", err)
+		}
+	}()
+	ws2 := connectWS(t, wsURL)
+	defer func() {
+		if err := ws2.Close(); err != nil {
+			t.Logf("ws2 close: %v", err)
+		}
+	}()
+
+	// WS1 sends increment action
+	actionMsg, _ := json.Marshal(map[string]interface{}{
+		"action": "increment",
+		"data":   map[string]interface{}{},
+	})
+	if err := ws1.WriteMessage(websocket.TextMessage, actionMsg); err != nil {
+		t.Fatalf("WS1 write failed: %v", err)
+	}
+
+	// WS1 should receive its own action response
+	if err := ws1.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline failed: %v", err)
+	}
+	_, _, err = ws1.ReadMessage()
+	if err != nil {
+		t.Fatalf("WS1 should have received action response: %v", err)
+	}
+
+	// WS2 should NOT receive any auto-broadcast update
+	if err := ws2.SetReadDeadline(time.Now().Add(300 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline failed: %v", err)
+	}
+	_, _, err = ws2.ReadMessage()
+	if err == nil {
+		t.Error("WS2 should NOT receive auto-broadcast in per-connection mode")
+	}
+}
+
+// fixedUserAuth returns a fixed groupID and userID for server action tests.
+type fixedUserAuth struct {
+	groupID string
+	userID  string
+}
+
+func (a *fixedUserAuth) Identify(_ *http.Request) (string, error) { return a.userID, nil }
+func (a *fixedUserAuth) GetSessionGroup(_ *http.Request, _ string) (string, error) {
+	return a.groupID, nil
+}
+
+// TestPerConnectionState_ServerActionPersists verifies that server-initiated
+// actions (via PubSub/TriggerAction) persist state in per-connection mode.
+func TestPerConnectionState_ServerActionPersists(t *testing.T) {
+	testutil.SkipIfNoDocker(t)
+
+	client := testutil.GetTestRedisClient(t)
+
+	// Two separate broadcasters: one subscribes (handler), one publishes.
+	// Same Redis, different instance IDs (RedisBroadcaster skips own-instance messages).
+	subscriber := pubsub.NewRedisBroadcaster(client)
+	defer func() {
+		if err := subscriber.Close(); err != nil {
+			t.Logf("subscriber close: %v", err)
+		}
+	}()
+	publisher := pubsub.NewRedisBroadcaster(client)
+	defer func() {
+		if err := publisher.Close(); err != nil {
+			t.Logf("publisher close: %v", err)
+		}
+	}()
+
+	auth := &fixedUserAuth{groupID: "server-action-test", userID: "test-user"}
+
+	tmpl, err := New("test",
+		WithAuthenticator(auth),
+		WithPubSubBroadcaster(subscriber),
+	)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>Count: {{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &testHandleController{}
+	handler := tmpl.Handle(ctrl, AsState(&testHandleState{}))
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	// 1. Connect WS and read initial render
+	ws1, initialMsg := connectWSRaw(t, wsURL)
+	defer func() {
+		if err := ws1.Close(); err != nil {
+			t.Logf("ws1 close: %v", err)
+		}
+	}()
+
+	if v := treeDynamic(t, initialMsg, "0"); v != "0" {
+		t.Fatalf("Expected initial Count=0, got dynamic 0=%q", v)
+	}
+
+	// Wait for PubSub subscription to be established
+	time.Sleep(500 * time.Millisecond)
+
+	// 2. Publish a server action that increments the counter
+	if err := publisher.PublishServerAction("test-user", "increment", nil); err != nil {
+		t.Fatalf("PublishServerAction failed: %v", err)
+	}
+
+	// 3. WS1 should receive the server action update
+	update := readWSUpdate(t, ws1, 5*time.Second)
+	tree, ok := update["tree"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected tree in server action update, got: %v", update)
+	}
+	if v := fmt.Sprintf("%v", tree["0"]); v != "1" {
+		t.Fatalf("Expected Count=1 after server action, got dynamic 0=%q", v)
+	}
+
+	// 4. Close WS1 and reconnect to verify persisted state
+	ws2, reconnectMsg := reconnectWSRaw(t, wsURL, ws1)
+	defer func() {
+		if err := ws2.Close(); err != nil {
+			t.Logf("ws2 close: %v", err)
+		}
+	}()
+
+	if v := treeDynamic(t, reconnectMsg, "0"); v != "1" {
+		t.Errorf("Server action state NOT persisted: expected Count=1, got dynamic 0=%q. Full: %s", v, string(reconnectMsg))
 	}
 }
