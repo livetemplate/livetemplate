@@ -1417,8 +1417,8 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 
 	connSt.state = newState
 
-	// Persist state for reconnection. Dispatched actions only occur in per-connection
-	// mode (SharedState uses autoBroadcastToGroup instead).
+	// Persist state for reconnection. Uses context.Background() because this runs
+	// in the WS event-loop goroutine, not an HTTP handler — no request context available.
 	h.config.SessionStore.Set(context.Background(), connSt.groupID, connSt.state)
 	connection.Stores = connSt.state
 
@@ -1749,11 +1749,8 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 			}
 		} else {
 			state.state = newState
-			conn.Stores = newState // Update connection's stored state
-		}
-
-		if actionErr == nil {
-			h.config.SessionStore.Set(context.Background(), conn.GroupID, state.state)
+			conn.Stores = newState
+			h.config.SessionStore.Set(context.Background(), conn.GroupID, newState)
 		}
 
 		// Send update to this connection (with flash messages)

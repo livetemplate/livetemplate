@@ -1999,6 +1999,19 @@ func TestHandle_NoCapabilitiesInWebSocketWithoutChangeMethod(t *testing.T) {
 // Per-Connection State Persistence Tests (#289)
 // ============================================================================
 
+// reconnectWSRaw closes an existing connection, waits briefly for server-side
+// cleanup, then connects a new one. Returns the new connection and its initial
+// render message.
+func reconnectWSRaw(t *testing.T, wsURL string, old *websocket.Conn) (*websocket.Conn, []byte) {
+	t.Helper()
+	if err := old.Close(); err != nil {
+		t.Logf("old connection close: %v", err)
+	}
+	// Brief pause for server-side unregister to complete before reconnecting.
+	time.Sleep(50 * time.Millisecond)
+	return connectWSRaw(t, wsURL)
+}
+
 // connectWSRaw connects and returns the raw initial render message.
 func connectWSRaw(t *testing.T, wsURL string) (*websocket.Conn, []byte) {
 	t.Helper()
@@ -2086,17 +2099,8 @@ func TestPerConnectionState_WSActionPersistsToStore(t *testing.T) {
 		t.Fatalf("Expected action response Count=1, got dynamic 0=%q", v)
 	}
 
-	// 4. Close WS1 (simulates tab close / page leaving)
-	if err := ws1.Close(); err != nil {
-		t.Logf("ws1 close error: %v", err)
-	}
-
-	// Wait for server-side unregister to complete before reconnecting,
-	// otherwise the new connection may race with cleanup of the old one.
-	time.Sleep(100 * time.Millisecond)
-
-	// 5. Connect WS2 (simulates page refresh) — should get persisted state
-	ws2, reconnectMsg := connectWSRaw(t, wsURL)
+	// 4. Close WS1 and reconnect (simulates page refresh)
+	ws2, reconnectMsg := reconnectWSRaw(t, wsURL, ws1)
 	defer func() {
 		if err := ws2.Close(); err != nil {
 			t.Logf("ws2 close error: %v", err)
@@ -2160,18 +2164,11 @@ func TestPerConnectionState_DispatchedActionPersists(t *testing.T) {
 	// 4. WS2 receives the dispatched SyncMessage
 	readWSUpdate(t, ws2, 3*time.Second)
 
-	// 5. Close both connections and wait for server-side unregister to complete
-	// before reconnecting, otherwise the new connection may race with cleanup.
+	// 5. Close both connections and reconnect (simulates page refresh)
 	if err := ws1.Close(); err != nil {
 		t.Logf("ws1 close: %v", err)
 	}
-	if err := ws2.Close(); err != nil {
-		t.Logf("ws2 close: %v", err)
-	}
-	time.Sleep(100 * time.Millisecond)
-
-	// 6. Connect WS3 (simulates page refresh)
-	ws3, reconnectMsg := connectWSRaw(t, wsURL)
+	ws3, reconnectMsg := reconnectWSRaw(t, wsURL, ws2)
 	defer func() {
 		if err := ws3.Close(); err != nil {
 			t.Logf("ws3 close: %v", err)
@@ -2333,16 +2330,8 @@ func TestPerConnectionState_ServerActionPersists(t *testing.T) {
 		t.Fatalf("Expected Count=1 after server action, got dynamic 0=%q", v)
 	}
 
-	// 4. Close WS1
-	if err := ws1.Close(); err != nil {
-		t.Logf("ws1 close: %v", err)
-	}
-	// Wait for server-side unregister to complete before reconnecting,
-	// otherwise the new connection may race with cleanup of the old one.
-	time.Sleep(100 * time.Millisecond)
-
-	// 5. Reconnect and verify persisted state
-	ws2, reconnectMsg := connectWSRaw(t, wsURL)
+	// 4. Close WS1 and reconnect to verify persisted state
+	ws2, reconnectMsg := reconnectWSRaw(t, wsURL, ws1)
 	defer func() {
 		if err := ws2.Close(); err != nil {
 			t.Logf("ws2 close: %v", err)
