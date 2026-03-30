@@ -2107,7 +2107,7 @@ func TestPerConnectionState_WSActionPersistsToStore(t *testing.T) {
 		}
 	}()
 
-	// 6. Verify the reconnected WS sees Count: 1, not Count: 0
+	// 5. Verify the reconnected WS sees Count: 1, not Count: 0
 	if v := treeDynamic(t, reconnectMsg, "0"); v != "1" {
 		t.Errorf("State NOT persisted: expected Count=1 on reconnect, got dynamic 0=%q. Full response: %s", v, string(reconnectMsg))
 	}

@@ -1777,8 +1777,8 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 		state.clearFlash()
 	}
 
-	// Persist once after all connections updated (avoids N writes to the same key
-	// when multiple tabs are open for the same user).
+	// Persist once after all connections updated. All connections for a given userID
+	// share the same groupID, so this avoids N writes to the same key.
 	if (h.config.StatePersistence || h.config.SharedState) && lastGroupID != "" {
 		h.config.SessionStore.Set(context.Background(), lastGroupID, lastState)
 	}
