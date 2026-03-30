@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/livetemplate/livetemplate/internal/testutil"
+	"github.com/livetemplate/livetemplate/pubsub"
 )
 
 // ============================================================================
@@ -2244,5 +2246,110 @@ func TestPerConnectionState_NoAutoBroadcast(t *testing.T) {
 	_, _, err = ws2.ReadMessage()
 	if err == nil {
 		t.Error("WS2 should NOT receive auto-broadcast in per-connection mode")
+	}
+}
+
+// fixedUserAuth returns a fixed groupID and userID for server action tests.
+type fixedUserAuth struct {
+	groupID string
+	userID  string
+}
+
+func (a *fixedUserAuth) Identify(_ *http.Request) (string, error) { return a.userID, nil }
+func (a *fixedUserAuth) GetSessionGroup(_ *http.Request, _ string) (string, error) {
+	return a.groupID, nil
+}
+
+// TestPerConnectionState_ServerActionPersists verifies that server-initiated
+// actions (via PubSub/TriggerAction) persist state in per-connection mode.
+func TestPerConnectionState_ServerActionPersists(t *testing.T) {
+	testutil.SkipIfNoDocker(t)
+
+	client := testutil.GetTestRedisClient(t)
+
+	// Two separate broadcasters: one subscribes (handler), one publishes.
+	// Same Redis, different instance IDs (RedisBroadcaster skips own-instance messages).
+	subscriber := pubsub.NewRedisBroadcaster(client)
+	defer func() {
+		if err := subscriber.Close(); err != nil {
+			t.Logf("subscriber close: %v", err)
+		}
+	}()
+	publisher := pubsub.NewRedisBroadcaster(client)
+	defer func() {
+		if err := publisher.Close(); err != nil {
+			t.Logf("publisher close: %v", err)
+		}
+	}()
+
+	auth := &fixedUserAuth{groupID: "server-action-test", userID: "test-user"}
+
+	tmpl, err := New("test",
+		WithAuthenticator(auth),
+		WithPubSubBroadcaster(subscriber),
+	)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>Count: {{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &testHandleController{}
+	handler := tmpl.Handle(ctrl, AsState(&testHandleState{}))
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	// 1. Connect WS and read initial render
+	ws1, initialMsg := connectWSRaw(t, wsURL)
+	defer func() {
+		if err := ws1.Close(); err != nil {
+			t.Logf("ws1 close: %v", err)
+		}
+	}()
+
+	if v := treeDynamic(t, initialMsg, "0"); v != "0" {
+		t.Fatalf("Expected initial Count=0, got dynamic 0=%q", v)
+	}
+
+	// Wait for PubSub subscription to be established
+	time.Sleep(500 * time.Millisecond)
+
+	// 2. Publish a server action that increments the counter
+	if err := publisher.PublishServerAction("test-user", "increment", nil); err != nil {
+		t.Fatalf("PublishServerAction failed: %v", err)
+	}
+
+	// 3. WS1 should receive the server action update
+	update := readWSUpdate(t, ws1, 5*time.Second)
+	tree, ok := update["tree"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected tree in server action update, got: %v", update)
+	}
+	if v := fmt.Sprintf("%v", tree["0"]); v != "1" {
+		t.Fatalf("Expected Count=1 after server action, got dynamic 0=%q", v)
+	}
+
+	// 4. Close WS1
+	if err := ws1.Close(); err != nil {
+		t.Logf("ws1 close: %v", err)
+	}
+	// Wait for server-side unregister to complete before reconnecting,
+	// otherwise the new connection may race with cleanup of the old one.
+	time.Sleep(100 * time.Millisecond)
+
+	// 5. Reconnect and verify persisted state
+	ws2, reconnectMsg := connectWSRaw(t, wsURL)
+	defer func() {
+		if err := ws2.Close(); err != nil {
+			t.Logf("ws2 close: %v", err)
+		}
+	}()
+
+	if v := treeDynamic(t, reconnectMsg, "0"); v != "1" {
+		t.Errorf("Server action state NOT persisted: expected Count=1, got dynamic 0=%q. Full: %s", v, string(reconnectMsg))
 	}
 }
