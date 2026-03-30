@@ -35,7 +35,7 @@ HTML validation attributes become server-side rules:
 <input type="email" name="Email" required minlength="5">
 ```
 
-Calling `ctx.ValidateForm()` checks these constraints server-side — no Go struct tags needed for the common case.
+When wired up with `ctx.WithFormSchema(ExtractFormSchema(statics))`, calling `ctx.ValidateForm()` checks these constraints server-side. For production use, `ctx.BindAndValidate()` with Go struct tags is recommended.
 
 ---
 

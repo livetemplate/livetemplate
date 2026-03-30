@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -144,12 +145,15 @@ func TestDemoGif(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	// Set up chromedp
+	// Set up chromedp with overall test timeout
+	testCtx, testTimeout := context.WithTimeout(context.Background(), 60*time.Second)
+	defer testTimeout()
+
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", true),
 		chromedp.WindowSize(420, 380),
 	)
-	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	allocCtx, allocCancel := chromedp.NewExecAllocator(testCtx, opts...)
 	defer allocCancel()
 
 	// Create two browser contexts (two "tabs")
@@ -204,13 +208,13 @@ func TestDemoGif(t *testing.T) {
 	}
 	frames = append(frames, f)
 
-	// Click Add
+	// Click Add and wait for item to appear in both tabs
 	if err := chromedp.Run(tab1Ctx,
 		chromedp.Evaluate(`document.getElementById('add-btn').click()`, nil),
 	); err != nil {
 		t.Fatalf("Tab A click 1: %v", err)
 	}
-	time.Sleep(1 * time.Second)
+	waitForContent(t, tab2Ctx, "Buy groceries")
 
 	// Frame 3: "Buy groceries" in both tabs (Tab A added + broadcast to Tab B)
 	f, err = captureComposite(t, tab1Ctx, tab2Ctx)
@@ -235,13 +239,13 @@ func TestDemoGif(t *testing.T) {
 	}
 	frames = append(frames, f)
 
-	// Click Add
+	// Click Add and wait for item to appear in both tabs
 	if err := chromedp.Run(tab1Ctx,
 		chromedp.Evaluate(`document.getElementById('add-btn').click()`, nil),
 	); err != nil {
 		t.Fatalf("Tab A click 2: %v", err)
 	}
-	time.Sleep(1 * time.Second)
+	waitForContent(t, tab2Ctx, "Walk the dog")
 
 	// Frame 5: Both items in both tabs
 	f, err = captureComposite(t, tab1Ctx, tab2Ctx)
@@ -263,6 +267,7 @@ func TestDemoGif(t *testing.T) {
 
 	// Encode GIF — delays in centiseconds (100cs = 1s)
 	// Slow pacing: 2s empty, 2s typing, 2.5s result, 2s typing, 3s final
+	// Intentionally writes to the repo assets/ dir so the README GIF stays up-to-date.
 	outPath := "../../assets/reactive-demo.gif"
 	if err := encodeGIF(outPath, frames, []int{200, 200, 250, 200, 300}); err != nil {
 		t.Fatalf("Encode GIF: %v", err)
@@ -341,16 +346,27 @@ func encodeGIF(path string, frames []image.Image, delays []int) error {
 
 func containsAll(s string, substrs ...string) bool {
 	for _, sub := range substrs {
-		found := false
-		for i := 0; i <= len(s)-len(sub); i++ {
-			if s[i:i+len(sub)] == sub {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !strings.Contains(s, sub) {
 			return false
 		}
 	}
 	return true
+}
+
+// waitForContent polls Tab B until the expected text appears in #todo-list,
+// with a 5-second timeout. This replaces time.Sleep for robust synchronization.
+func waitForContent(t *testing.T, ctx context.Context, expected string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var html string
+		if err := chromedp.Run(ctx, chromedp.InnerHTML(`#todo-list`, &html, chromedp.ByID)); err != nil {
+			t.Fatalf("waitForContent: %v", err)
+		}
+		if strings.Contains(html, expected) {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("waitForContent: %q not found in #todo-list after 5s", expected)
 }
