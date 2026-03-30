@@ -420,13 +420,16 @@ func WithSharedState() Option {
 
 // WithStatePersistence enables automatic state persistence to SessionStore after
 // every action (WebSocket, HTTP POST, dispatched, server-initiated). On page
-// refresh, the new connection loads the last-persisted state instead of running
-// Mount() with fresh initial state.
+// refresh, the new connection loads the last-persisted state instead of the
+// initial Mount() snapshot.
 //
 // Without this option (the default), state is ephemeral — it lives only in memory
-// for the duration of the connection. On reconnect, Mount() runs fresh and should
-// reload state from an external source (database, Redis). This matches Phoenix
-// LiveView's socket assigns model.
+// for the duration of the connection. On reconnect, the stored Mount() state is
+// reloaded (with transient fields cleared) but action-driven changes are lost.
+// Mount() itself only runs once per session (when SessionStore has no entry).
+//
+// Note: WithSharedState() implies persistence (it always persists and auto-broadcasts).
+// Combining both options is valid but redundant — WithSharedState() alone is sufficient.
 //
 // Use this for quick prototyping or apps where SessionStore is the source of truth:
 //

@@ -17,7 +17,7 @@ For pushing updates from server-side code, see [Server Actions Reference](server
 
 Since v0.9, each WebSocket connection owns its state independently. Actions update only the calling connection's state. `OnConnect()` initializes per-connection state (e.g., resetting `CurrentUser` to empty for each new tab). Cross-tab sync requires explicit `ctx.BroadcastAction("ActionName", data)`, which dispatches the named action to all other connections in the session group, preserving each connection's per-connection fields.
 
-**Reconnect behavior:** Per-connection state is ephemeral by default — it lives only in memory for the duration of the connection. On reconnect, `Mount()` runs fresh and should reload state from the authoritative source (database, Redis). Use `WithStatePersistence()` to persist state to SessionStore after every action so it survives page refresh.
+**Reconnect behavior:** When a session is first created, `Mount()` runs and its result is saved to SessionStore. On reconnect, that stored Mount state is reloaded (with transient fields cleared) and `Mount()` does not re-run. In ephemeral mode (default), actions update only in-memory state and do not write to the store, so action-driven changes do not survive page refresh. Use `WithStatePersistence()` to persist action state to SessionStore so it survives page refresh.
 
 ### State Persistence Matrix
 

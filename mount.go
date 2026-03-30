@@ -1711,10 +1711,10 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 		slog.String("action", msg.Action),
 		slog.Int("connection_count", len(connections)))
 
-	// Process action for each connection
+	// Process action for each connection.
+	// Track last successful state per groupID for deduped persistence.
 	var errCount int
-	var lastGroupID string
-	var lastState interface{}
+	groupStates := make(map[string]interface{})
 	for _, conn := range connections {
 		// Create connection state for this action
 		state := &connState{
@@ -1758,8 +1758,7 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 		} else {
 			state.state = newState
 			conn.Stores = newState
-			lastGroupID = conn.GroupID
-			lastState = newState
+			groupStates[conn.GroupID] = newState
 		}
 
 		// Send update to this connection (with flash messages)
@@ -1777,10 +1776,13 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 		state.clearFlash()
 	}
 
-	// Persist once after all connections updated. All connections for a given userID
-	// share the same groupID, so this avoids N writes to the same key.
-	if (h.config.StatePersistence || h.config.SharedState) && lastGroupID != "" {
-		h.config.SessionStore.Set(context.Background(), lastGroupID, lastState)
+	// Persist once per distinct groupID (avoids N writes for multi-tab users
+	// sharing a groupID, while correctly handling multi-device users with
+	// different groupIDs).
+	if h.config.StatePersistence || h.config.SharedState {
+		for gid, st := range groupStates {
+			h.config.SessionStore.Set(context.Background(), gid, st)
+		}
 	}
 
 	if errCount > 0 {
