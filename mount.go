@@ -476,6 +476,9 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	h.registry.Register(connection, h.config.wsBufferSize)
 	defer h.registry.Unregister(connection)
 	defer func() {
+		if h.tempFileManager == nil {
+			return
+		}
 		if err := h.tempFileManager.RemoveSession(groupID); err != nil {
 			slog.Warn("Failed to clean up temp files",
 				slog.String("component", "live_handler"),
@@ -1879,6 +1882,12 @@ func (h *liveHandler) MetricsHandler() http.Handler {
 // handleUploadAction routes upload-related WebSocket actions to appropriate handlers.
 // Returns (handled=true, err) if this was an upload action, (handled=false, nil) otherwise.
 func (h *liveHandler) handleUploadAction(ctx context.Context, conn WSConn, rawData []byte, msg message, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) (bool, error) {
+	if h.tempFileManager == nil {
+		switch msg.Action {
+		case "upload_start", "upload_chunk", "upload_complete", "cancel_upload":
+			return true, fmt.Errorf("uploads not configured: no temp file manager available")
+		}
+	}
 	switch msg.Action {
 	case "upload_start":
 		return true, h.handleUploadStart(ctx, conn, rawData, state, uploadRegistry, connection)
