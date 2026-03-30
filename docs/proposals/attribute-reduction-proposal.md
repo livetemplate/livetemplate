@@ -2,7 +2,7 @@
 
 **Status:** Proposal
 **Date:** 2026-03-30
-**Issue:** [#288](https://github.com/livetemplate/livetemplate/issues/288)
+**Issue:** [#288](https://github.com/livetemplate/livetemplate/issues/288), [#271](https://github.com/livetemplate/livetemplate/issues/271)
 
 ## Summary
 
@@ -205,6 +205,62 @@ Or with `data-*` on the button (already supported by the client):
 
 **Rationale:** The `Change()` convention (v0.8.6+) auto-wires input events when the controller has a `Change()` method. Explicit `lvt-change` is only needed to route to a different method name.
 
+### `lvt-upload` — Narrow Scope (Tier 1 for Basic Uploads)
+
+Basic file uploads can use standard HTML with no `lvt-*` attributes. See [Tier 1 File Uploads Proposal](tier1-file-uploads-proposal.md) for full design.
+
+**Current:**
+```html
+<input type="file" lvt-upload="avatar" accept="image/*">
+```
+
+```go
+tmpl := livetemplate.New("profile",
+    livetemplate.WithUpload("avatar", livetemplate.UploadConfig{
+        Accept:      []string{"image/*"},
+        MaxFileSize: 5 << 20,
+        MaxEntries:  1,
+        AutoUpload:  true,
+    }),
+)
+```
+
+**Replacement (standard HTML):**
+```html
+<form method="POST" enctype="multipart/form-data">
+    <input type="file" name="avatar" accept="image/*">
+    <button type="submit">Upload</button>
+</form>
+
+{{if .Uploading}}
+    <progress value="{{.UploadProgress}}" max="100"></progress>
+{{end}}
+```
+
+```go
+func (c *Controller) Submit(state State, ctx *livetemplate.Context) (State, error) {
+    for _, entry := range ctx.GetCompletedUploads("avatar") {
+        state.AvatarPath = moveToStorage(entry.TempPath)
+    }
+    return state, nil
+}
+```
+
+**Key design decisions:**
+- **HTTP fetch for file transport, not WebSocket.** Binary data over WS requires base64 encoding (33% overhead) and a custom chunked protocol. HTTP multipart is native and efficient.
+- **Progress via reactive state.** Server wraps `multipart.Reader` with a byte-counting `io.Reader`, updates session state (e.g., `state.UploadProgress = 45`), and triggers re-render. Progress is just a normal Go template variable — no special protocol.
+- **Auto-upload inferred from HTML structure.** File input in a form without a submit button → auto-submit on file selection. Mirrors the standalone button convention.
+- **Validation inferred from HTML attributes.** `accept="image/*"` → allowed MIME types. `multiple` present → unlimited entries. No explicit `WithUpload()` config needed for basic cases.
+
+**Keep `lvt-upload` for Tier 2-only features:**
+```html
+<!-- Custom drop zone (non-input element) — still needs lvt-upload -->
+<div lvt-upload="documents" class="drop-zone">Drop files here</div>
+
+<!-- Direct-to-S3 presigned uploads — still needs lvt-upload -->
+<input type="file" lvt-upload="large-file" data-strategy="presigned">
+```
+
 ### Summary of Eliminations
 
 | Attribute | Action | Replacement |
@@ -218,8 +274,9 @@ Or with `data-*` on the button (already supported by the client):
 | `lvt-value-*` | Eliminate | Hidden `<input>` or button `value` |
 | `lvt-click` | Narrow | Keep only for non-button elements |
 | `lvt-change` | Narrow | Keep only for non-`Change()` routing |
+| `lvt-upload` | Narrow | Keep only for Tier 2 features (custom drop zones, presigned S3) |
 
-**Impact: 7 attributes eliminated, 2 narrowed in scope.**
+**Impact: 7 attributes eliminated, 3 narrowed in scope.**
 
 ## Category 2: Can Be Consolidated
 
@@ -378,7 +435,7 @@ These attributes express behaviors that standard HTML cannot. They are the **ess
 ### Upload
 | Attribute | Why |
 |-----------|-----|
-| `lvt-upload` | File upload identifier — framework-specific protocol |
+| `lvt-upload` (narrowed) | Tier 2-only: custom drop zones (`<div>` as drop target) and direct-to-S3 presigned uploads. Basic file uploads moved to Tier 1 via standard `<input type="file" name="...">` in a `<form>`. See [Tier 1 File Uploads Proposal](tier1-file-uploads-proposal.md). |
 
 ## Category 4: Needs Discussion
 
@@ -395,7 +452,7 @@ These attributes are technically needed but their real-world usage may be rare e
 
 | Category | Before | After |
 |----------|--------|-------|
-| **Total `lvt-*` attributes** | ~51 | ~37 |
+| **Total `lvt-*` attributes** | ~51 | ~36 |
 | Event bindings | 11 | 10 (narrowed scope on 2) |
 | Data passing | 2 patterns (`lvt-data-*`, `lvt-value-*`) | 0 (standard HTML) |
 | Modals | 2 | 0 (native `<dialog>`) |
@@ -405,7 +462,8 @@ These attributes are technically needed but their real-world usage may be rare e
 | Highlight directives | 3 | 1 + CSS custom properties |
 | Animation directives | 2 | 1 + CSS custom properties |
 | Enable/disable sugar | 2 | 0 (use `lvt-toggleAttr-on`) |
-| Timing, keyboard, reactive, form, upload | 25 | 25 (unchanged — essential) |
+| Upload | 1 | Narrowed (Tier 1 for basic uploads, Tier 2 for drop zones/S3) |
+| Timing, keyboard, reactive, form | 24 | 24 (unchanged — essential) |
 
 ## Migration Path
 
@@ -423,7 +481,13 @@ These attributes are technically needed but their real-world usage may be rare e
 - Scroll/highlight/animate configuration attributes removed
 - Client reads `--lvt-*` custom properties from computed styles
 
-### Phase 4: Removal (major version)
+### Phase 4: Tier 1 File Uploads (minor version)
+- Basic file uploads work with standard `<input type="file" name="...">` — no `lvt-upload` needed
+- Progress tracking via reactive state variables (not custom protocol)
+- Auto-upload inferred from HTML structure (no submit button → auto-submit on selection)
+- See [Tier 1 File Uploads Proposal](tier1-file-uploads-proposal.md) for implementation phases
+
+### Phase 5: Removal (major version)
 - Remove deprecated attributes from client
 - Remove `lvt-data-*`, `lvt-value-*`, `lvt-modal-open/close`, `lvt-confirm`
 - Remove `disable-on`/`enable-on` sugar
@@ -433,4 +497,5 @@ These attributes are technically needed but their real-world usage may be rare e
 - [Progressive Complexity Proposal](progressive-complexity-proposal.md) — Foundation for Tier 1/Tier 2 model
 - [Client Attributes Reference](../references/client-attributes.md) — Current complete attribute listing
 - [Progressive Complexity Reference](../references/progressive-complexity-reference.md) — Quick reference
+- [Tier 1 File Uploads Proposal](tier1-file-uploads-proposal.md) — Moving basic file uploads to standard HTML
 - [HTML Invoker Commands](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes/command) — `command`/`commandfor` spec
