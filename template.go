@@ -431,9 +431,10 @@ func WithSharedState() Option {
 // Note: WithSharedState() implies persistence (it always persists and auto-broadcasts).
 // Combining both options is valid but redundant — WithSharedState() alone is sufficient.
 //
-// Use this for quick prototyping or apps where SessionStore is the source of truth:
+// Use this when per-connection state should survive page refresh (e.g., wizard flows,
+// multi-step forms, or apps where SessionStore is the source of truth):
 //
-//	tmpl := livetemplate.New("app",
+//	tmpl, err := livetemplate.New("app",
 //	    livetemplate.WithStatePersistence(),
 //	)
 func WithStatePersistence() Option {

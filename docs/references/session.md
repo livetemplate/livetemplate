@@ -30,7 +30,7 @@ Since v0.9, each WebSocket connection owns its state independently. Actions upda
 | Dispatched action | Not persisted | Persisted | N/A (uses auto-broadcast) |
 | Server action | Not persisted | Persisted (once per dispatch) | Persisted |
 | Auto-broadcast | No | No | Yes |
-| Page refresh | Mount() re-runs | Loads persisted state | Loads persisted state |
+| Page refresh | Mount state reloaded (action changes lost) | Loads persisted state | Loads persisted state |
 
 > **Multi-tab behavior:** With `WithStatePersistence()`, server actions persist once per dispatch (not per-tab) to avoid non-deterministic overwrites. For strongly consistent cross-tab state, use an external database as the source of truth.
 

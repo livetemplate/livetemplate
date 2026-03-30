@@ -501,6 +501,7 @@ func extractFlashCookie(rec *httptest.ResponseRecorder) *http.Cookie {
 
 func newWSDisabledHandler(t *testing.T, opts ...Option) LiveHandler {
 	t.Helper()
+	// WithStatePersistence needed: HTTP-only tests rely on POST state surviving across requests.
 	baseOpts := []Option{WithWebSocketDisabled(), WithStatePersistence()}
 	baseOpts = append(baseOpts, opts...)
 	tmpl, err := New("test", baseOpts...)
