@@ -1902,9 +1902,8 @@ func (h *liveHandler) handleUploadAction(ctx context.Context, conn WSConn, rawDa
 		return true, h.handleUploadComplete(ctx, conn, rawData, state, uploadRegistry, connection)
 	case "cancel_upload":
 		return true, h.handleCancelUpload(ctx, conn, rawData, state, uploadRegistry, connection)
-	default:
-		return true, fmt.Errorf("unknown upload action: %s", msg.Action)
 	}
+	panic("unreachable: upload action not dispatched")
 }
 
 // handleUploadStart processes upload_start action from WebSocket client.
