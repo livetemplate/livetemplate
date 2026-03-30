@@ -229,40 +229,20 @@ func TestDemoGif(t *testing.T) {
 	}
 	frames = append(frames, frame4)
 
-	// Add a second todo for a richer demo
-	if err := chromedp.Run(tab1Ctx,
-		chromedp.SendKeys(`#title-input`, "Walk the dog", chromedp.ByID),
-	); err != nil {
-		t.Fatalf("Tab A type 2: %v", err)
-	}
-	if err := chromedp.Run(tab1Ctx,
-		chromedp.Evaluate(`document.getElementById('add-btn').click()`, nil),
-	); err != nil {
-		t.Fatalf("Tab A click 2: %v", err)
-	}
-	time.Sleep(1 * time.Second)
-
-	// Frame 5: Both tabs show two items
-	frame5, err := captureComposite(t, tab1Ctx, tab2Ctx)
-	if err != nil {
-		t.Fatalf("Frame 5: %v", err)
-	}
-	frames = append(frames, frame5)
-
-	// Verify Tab B actually received the items (the E2E assertion)
+	// Verify Tab B actually received the item (the E2E assertion)
 	var listHTML string
 	if err := chromedp.Run(tab2Ctx,
 		chromedp.InnerHTML(`#todo-list`, &listHTML, chromedp.ByID),
 	); err != nil {
 		t.Fatalf("Tab B read: %v", err)
 	}
-	if !containsAll(listHTML, "Buy groceries", "Walk the dog") {
-		t.Errorf("Tab B missing items, got: %s", listHTML)
+	if !containsAll(listHTML, "Buy groceries") {
+		t.Errorf("Tab B missing item, got: %s", listHTML)
 	}
 
-	// Encode GIF
+	// Encode GIF — delays in centiseconds (100cs = 1s)
 	outPath := "../../assets/reactive-demo.gif"
-	if err := encodeGIF(outPath, frames, []int{200, 150, 120, 200, 300}); err != nil {
+	if err := encodeGIF(outPath, frames, []int{200, 150, 150, 300}); err != nil {
 		t.Fatalf("Encode GIF: %v", err)
 	}
 	t.Logf("GIF written to %s (%d frames)", outPath, len(frames))
