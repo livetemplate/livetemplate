@@ -488,18 +488,7 @@ func ExamplePresigner() {
 	_ = meta.URL // https://storage.example.com/upload/entry-123
 }
 
-func TestHandle_NoUploadsDir_WithoutUploadConfig(t *testing.T) {
-	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("Failed to chdir: %v", err)
-	}
-	defer func() {
-		if err := os.Chdir(origDir); err != nil {
-			t.Logf("Failed to restore working directory: %v", err)
-		}
-	}()
-
+func TestHandle_NilTempFileManager_WithoutUploadConfig(t *testing.T) {
 	tmpl, err := New("test")
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
@@ -511,11 +500,12 @@ func TestHandle_NoUploadsDir_WithoutUploadConfig(t *testing.T) {
 
 	ctrl := &testHandleController{}
 	state := AsState(&testHandleState{})
-	_ = tmpl.Handle(ctrl, state)
+	handler := tmpl.Handle(ctrl, state)
 
-	uploadsDir := filepath.Join(dir, ".uploads")
-	if _, err := os.Stat(uploadsDir); !os.IsNotExist(err) {
-		t.Errorf(".uploads directory should not exist without upload config, but it does")
+	// Without upload config, tempFileManager should be nil (no .uploads dir created)
+	lh := handler.(*liveHandler)
+	if lh.tempFileManager != nil {
+		t.Error("tempFileManager should be nil without upload config")
 	}
 }
 
