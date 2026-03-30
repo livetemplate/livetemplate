@@ -36,58 +36,35 @@ sequenceDiagram
 
 ## Why LiveTemplate?
 
-### 1. Reactive UIs in Pure Go
+### 1. Standard HTML, Reactive by Default
 
-All user-initiated interactions work over plain HTTP — no WebSocket required. The JS client sends actions as standard HTTP requests and patches the DOM with the response. WebSocket is only needed when the *server* needs to push updates unprompted (e.g., notifying other users in a chat room). Unlike Phoenix LiveView, which requires a persistent connection for all interactions, LiveTemplate treats WebSocket as an optional upgrade for broadcast scenarios only.
+A todo added in one tab appears in the other — no page reload, no custom attributes:
 
-This extends to progressive enhancement at the HTML level too. LiveTemplate follows a **progressive complexity** model — start with standard HTML, add custom attributes only when you need behaviors HTML can't express:
+<p align="center">
+  <img src="assets/reactive-demo.gif" alt="Two browser tabs — a todo added in one appears in the other in real-time" width="720">
+</p>
 
-| Tier | What you write | When to use |
-|------|---------------|-------------|
-| **Tier 1: Standard HTML** | `<form>`, `<button name="add">`, `<dialog>`, `<a href>` | Forms, actions, modals, navigation |
-| **Tier 2: `lvt-*` attributes** | `lvt-debounce`, `lvt-key`, `lvt-addClass-on:pending` | Timing, keyboard shortcuts, reactive DOM |
-
-A form that works at all transport levels — no JS, fetch, and WebSocket — with zero custom attributes:
+The HTML behind that demo:
 
 ```html
 <form method="POST">
-    <input type="text" name="title" required placeholder="What needs to be done?">
-    <button name="add">Add Todo</button>
+    <input type="text" name="title" placeholder="New todo...">
+    <button name="add">Add</button>
 </form>
+<ul>
+{{range .Items}}<li>{{.Title}}</li>{{end}}
+</ul>
 ```
-
-The button's `name` IS the action — `<button name="add">` routes to the `Add()` method. Without JS, the form POSTs normally. With the JS client, the submission is intercepted and the DOM is patched in place. One declaration, three transport modes.
 
 ```go
 func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
-    if err := ctx.ValidateForm(); err != nil {  // Inferred from HTML required attr
-        return state, err
-    }
     state.Items = append(state.Items, Todo{Title: ctx.GetString("title")})
+    ctx.BroadcastAction("Refresh", nil)  // other tabs see the change
     return state, nil
 }
 ```
 
-Forms without a named button auto-route to a conventional `Submit()` method — no attributes needed at all for the simplest case. See the [Progressive Complexity Guide](docs/guides/progressive-complexity.md) for the full walkthrough and the [todos-progressive](https://github.com/livetemplate/examples/tree/main/todos-progressive) and [profile-progressive](https://github.com/livetemplate/examples/tree/main/profile-progressive) examples.
-
-For behaviors that HTML can't express — timing control, reactive DOM, keyboard shortcuts — use `lvt-*` attributes:
-
-```html
-<!-- Debounced search: waits 300ms after typing stops before querying -->
-<input name="Query" value="{{.Query}}"
-    lvt-input="search" lvt-debounce="300"
-    placeholder="Search...">
-```
-
-```go
-func (c *AppController) Search(state AppState, ctx *livetemplate.Context) (AppState, error) {
-    state.Query = ctx.GetString("Query")
-    state.Results = c.DB.Search(state.Query)
-    return state, nil
-}
-```
-
-Your existing Go toolchain, testing infrastructure, and deployment pipeline all work as-is. See the [examples](https://github.com/livetemplate/examples) repository.
+`<button name="add">` routes to `Add()`. `BroadcastAction` pushes the update to every connected tab. The same form works without JavaScript (POST + page reload), with fetch (DOM patch), and over WebSocket (real-time) — like [Phoenix LiveView](https://hexdocs.pm/phoenix_live_view), but without requiring a persistent connection. Custom `lvt-*` attributes are available for behaviors HTML can't express (debounce, keyboard shortcuts, reactive DOM). See the [Progressive Complexity Guide](docs/guides/progressive-complexity.md) and [Standard HTML Reactivity](docs/guides/standard-html-reactivity.md) for how this compares to htmx, Livewire, and LiveView.
 
 ### 2. Safe State Management
 

@@ -29,6 +29,7 @@ Complete API references, configuration, and specifications:
 
 Step-by-step guides and tutorials:
 
+- **[Standard HTML Reactivity](guides/standard-html-reactivity.md)** - How standard HTML works reactively and comparison with htmx, Livewire, and LiveView
 - **[New Contributor Walkthrough](guides/new-contributor-walkthrough.md)** - Comprehensive guide to the 5-phase architecture
 
 For `lvt` CLI documentation (code generation, auth, migrations), see the [lvt repository](https://github.com/livetemplate/lvt).
