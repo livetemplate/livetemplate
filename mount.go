@@ -1752,7 +1752,9 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 			conn.Stores = newState // Update connection's stored state
 		}
 
-		h.config.SessionStore.Set(context.Background(), conn.GroupID, state.state)
+		if actionErr == nil {
+			h.config.SessionStore.Set(context.Background(), conn.GroupID, state.state)
+		}
 
 		// Send update to this connection (with flash messages)
 		if err := h.sendUpdate(conn, state.state, state.getMessages()); err != nil {

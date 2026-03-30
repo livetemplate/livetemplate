@@ -2089,7 +2089,8 @@ func TestPerConnectionState_WSActionPersistsToStore(t *testing.T) {
 		t.Logf("ws1 close error: %v", err)
 	}
 
-	// Small delay to ensure the connection is fully closed
+	// Wait for server-side unregister to complete before reconnecting,
+	// otherwise the new connection may race with cleanup of the old one.
 	time.Sleep(100 * time.Millisecond)
 
 	// 5. Connect WS2 (simulates page refresh) — should get persisted state
@@ -2157,7 +2158,12 @@ func TestPerConnectionState_DispatchedActionPersists(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// 6. Connect WS3 (simulates page refresh)
-	_, reconnectMsg := connectWSRaw(t, wsURL)
+	ws3, reconnectMsg := connectWSRaw(t, wsURL)
+	defer func() {
+		if err := ws3.Close(); err != nil {
+			t.Logf("ws3 close: %v", err)
+		}
+	}()
 
 	// 7. Verify the reconnected WS sees the persisted message
 	if !strings.Contains(string(reconnectMsg), "persisted-msg") {
