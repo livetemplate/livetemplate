@@ -2131,7 +2131,17 @@ func TestPerConnectionState_DispatchedActionPersists(t *testing.T) {
 
 	// 1. Connect two WS clients
 	ws1 := connectWS(t, wsURL)
+	defer func() {
+		if err := ws1.Close(); err != nil {
+			t.Logf("ws1 close: %v", err)
+		}
+	}()
 	ws2 := connectWS(t, wsURL)
+	defer func() {
+		if err := ws2.Close(); err != nil {
+			t.Logf("ws2 close: %v", err)
+		}
+	}()
 
 	// 2. WS1 sends SetMessage (which calls BroadcastAction("SyncMessage"))
 	actionMsg, _ := json.Marshal(map[string]interface{}{
@@ -2148,7 +2158,8 @@ func TestPerConnectionState_DispatchedActionPersists(t *testing.T) {
 	// 4. WS2 receives the dispatched SyncMessage
 	readWSUpdate(t, ws2, 3*time.Second)
 
-	// 5. Close both connections
+	// 5. Close both connections and wait for server-side unregister to complete
+	// before reconnecting, otherwise the new connection may race with cleanup.
 	if err := ws1.Close(); err != nil {
 		t.Logf("ws1 close: %v", err)
 	}
