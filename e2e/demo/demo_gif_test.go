@@ -181,68 +181,90 @@ func TestDemoGif(t *testing.T) {
 
 	var frames []image.Image
 
-	// Frame 1: Both tabs empty
-	frame1, err := captureComposite(t, tab1Ctx, tab2Ctx)
+	// --- Frame 1: Both tabs empty ---
+	f, err := captureComposite(t, tab1Ctx, tab2Ctx)
 	if err != nil {
 		t.Fatalf("Frame 1: %v", err)
 	}
-	frames = append(frames, frame1)
+	frames = append(frames, f)
 
-	// Tab A: type "Buy groceries" and click Add
+	// --- "Buy groceries" flow ---
+
+	// Tab A: type "Buy groceries"
 	if err := chromedp.Run(tab1Ctx,
 		chromedp.SendKeys(`#title-input`, "Buy groceries", chromedp.ByID),
 	); err != nil {
-		t.Fatalf("Tab A type: %v", err)
+		t.Fatalf("Tab A type 1: %v", err)
 	}
 
-	// Frame 2: Tab A has text typed
-	frame2, err := captureComposite(t, tab1Ctx, tab2Ctx)
+	// Frame 2: Tab A has "Buy groceries" typed
+	f, err = captureComposite(t, tab1Ctx, tab2Ctx)
 	if err != nil {
 		t.Fatalf("Frame 2: %v", err)
 	}
-	frames = append(frames, frame2)
+	frames = append(frames, f)
 
-	// Click the Add button
+	// Click Add
 	if err := chromedp.Run(tab1Ctx,
 		chromedp.Evaluate(`document.getElementById('add-btn').click()`, nil),
 	); err != nil {
-		t.Fatalf("Tab A click: %v", err)
+		t.Fatalf("Tab A click 1: %v", err)
 	}
+	time.Sleep(1 * time.Second)
 
-	// Wait for the item to appear in Tab A
-	time.Sleep(500 * time.Millisecond)
-
-	// Frame 3: Tab A shows item
-	frame3, err := captureComposite(t, tab1Ctx, tab2Ctx)
+	// Frame 3: "Buy groceries" in both tabs (Tab A added + broadcast to Tab B)
+	f, err = captureComposite(t, tab1Ctx, tab2Ctx)
 	if err != nil {
 		t.Fatalf("Frame 3: %v", err)
 	}
-	frames = append(frames, frame3)
+	frames = append(frames, f)
 
-	// Wait for broadcast to reach Tab B
-	time.Sleep(1 * time.Second)
+	// --- "Walk the dog" flow ---
 
-	// Frame 4: Tab B shows item too (the reactive moment)
-	frame4, err := captureComposite(t, tab1Ctx, tab2Ctx)
+	// Tab A: type "Walk the dog"
+	if err := chromedp.Run(tab1Ctx,
+		chromedp.SendKeys(`#title-input`, "Walk the dog", chromedp.ByID),
+	); err != nil {
+		t.Fatalf("Tab A type 2: %v", err)
+	}
+
+	// Frame 4: Tab A has "Walk the dog" typed, both tabs show "Buy groceries"
+	f, err = captureComposite(t, tab1Ctx, tab2Ctx)
 	if err != nil {
 		t.Fatalf("Frame 4: %v", err)
 	}
-	frames = append(frames, frame4)
+	frames = append(frames, f)
 
-	// Verify Tab B actually received the item (the E2E assertion)
+	// Click Add
+	if err := chromedp.Run(tab1Ctx,
+		chromedp.Evaluate(`document.getElementById('add-btn').click()`, nil),
+	); err != nil {
+		t.Fatalf("Tab A click 2: %v", err)
+	}
+	time.Sleep(1 * time.Second)
+
+	// Frame 5: Both items in both tabs
+	f, err = captureComposite(t, tab1Ctx, tab2Ctx)
+	if err != nil {
+		t.Fatalf("Frame 5: %v", err)
+	}
+	frames = append(frames, f)
+
+	// Verify Tab B received both items
 	var listHTML string
 	if err := chromedp.Run(tab2Ctx,
 		chromedp.InnerHTML(`#todo-list`, &listHTML, chromedp.ByID),
 	); err != nil {
 		t.Fatalf("Tab B read: %v", err)
 	}
-	if !containsAll(listHTML, "Buy groceries") {
-		t.Errorf("Tab B missing item, got: %s", listHTML)
+	if !containsAll(listHTML, "Buy groceries", "Walk the dog") {
+		t.Errorf("Tab B missing items, got: %s", listHTML)
 	}
 
 	// Encode GIF — delays in centiseconds (100cs = 1s)
+	// Slow pacing: 2s empty, 2s typing, 2.5s result, 2s typing, 3s final
 	outPath := "../../assets/reactive-demo.gif"
-	if err := encodeGIF(outPath, frames, []int{200, 150, 150, 300}); err != nil {
+	if err := encodeGIF(outPath, frames, []int{200, 200, 250, 200, 300}); err != nil {
 		t.Fatalf("Encode GIF: %v", err)
 	}
 	t.Logf("GIF written to %s (%d frames)", outPath, len(frames))
