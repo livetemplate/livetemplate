@@ -751,7 +751,9 @@ eventLoop:
 						slog.Int("dropped_count", len(dropped)))
 				}
 			} else if actionErr == nil {
-				// Per-connection mode: process deferred broadcasts
+				// Per-connection mode: persist state for reconnection, then process deferred broadcasts
+				h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
+				connection.Stores = connSt.state
 				for _, br := range actionCtx.pendingBroadcasts() {
 					h.dispatchBroadcastToGroup(groupID, connection, br.Action, br.Data)
 				}
@@ -1415,8 +1417,10 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 
 	connSt.state = newState
 
-	// Note: SharedState persistence is not needed here because dispatched actions
-	// only occur in per-connection mode (SharedState uses autoBroadcastToGroup instead).
+	// Persist state for reconnection. Dispatched actions only occur in per-connection
+	// mode (SharedState uses autoBroadcastToGroup instead).
+	h.config.SessionStore.Set(context.Background(), connSt.groupID, connSt.state)
+	connection.Stores = connSt.state
 
 	// Chained BroadcastAction calls from dispatched actions are intentionally
 	// not processed to prevent infinite broadcast storms.
@@ -1748,9 +1752,7 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 			conn.Stores = newState // Update connection's stored state
 		}
 
-		if h.config.SharedState {
-			h.config.SessionStore.Set(context.Background(), conn.GroupID, state.state)
-		}
+		h.config.SessionStore.Set(context.Background(), conn.GroupID, state.state)
 
 		// Send update to this connection (with flash messages)
 		if err := h.sendUpdate(conn, state.state, state.getMessages()); err != nil {
