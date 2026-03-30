@@ -28,7 +28,7 @@ Since v0.9, each WebSocket connection owns its state independently. Actions upda
 | HTTP POST action | Persisted | Persisted + auto-broadcast |
 | WebSocket action | Persisted | Persisted + auto-broadcast |
 | Dispatched action (BroadcastAction) | Persisted | N/A (uses auto-broadcast) |
-| Server action (TriggerAction) | Persisted (since v0.9.0) | Persisted |
+| Server action (TriggerAction) | Persisted (since v0.8.10) | Persisted |
 | Auto-broadcast to other tabs | No | Yes |
 
 ### Shared State Mode (Opt-In)
