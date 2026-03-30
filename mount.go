@@ -1882,12 +1882,17 @@ func (h *liveHandler) MetricsHandler() http.Handler {
 // handleUploadAction routes upload-related WebSocket actions to appropriate handlers.
 // Returns (handled=true, err) if this was an upload action, (handled=false, nil) otherwise.
 func (h *liveHandler) handleUploadAction(ctx context.Context, conn WSConn, rawData []byte, msg message, state *connState, uploadRegistry uploadRegistry, connection *session.Connection) (bool, error) {
-	if h.tempFileManager == nil {
-		switch msg.Action {
-		case "upload_start", "upload_chunk", "upload_complete", "cancel_upload":
-			return true, fmt.Errorf("uploads not configured: no temp file manager available")
-		}
+	switch msg.Action {
+	case "upload_start", "upload_chunk", "upload_complete", "cancel_upload":
+		// handled below
+	default:
+		return false, nil // Not an upload action
 	}
+
+	if h.tempFileManager == nil {
+		return true, fmt.Errorf("uploads not configured: no temp file manager available")
+	}
+
 	switch msg.Action {
 	case "upload_start":
 		return true, h.handleUploadStart(ctx, conn, rawData, state, uploadRegistry, connection)
@@ -1898,7 +1903,7 @@ func (h *liveHandler) handleUploadAction(ctx context.Context, conn WSConn, rawDa
 	case "cancel_upload":
 		return true, h.handleCancelUpload(ctx, conn, rawData, state, uploadRegistry, connection)
 	default:
-		return false, nil // Not an upload action
+		return false, nil
 	}
 }
 

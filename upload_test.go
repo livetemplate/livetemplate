@@ -3,6 +3,8 @@ package livetemplate
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -484,4 +486,97 @@ func ExamplePresigner() {
 
 	meta, _ := presign(presigner, entry)
 	_ = meta.URL // https://storage.example.com/upload/entry-123
+}
+
+func TestHandle_NoUploadsDir_WithoutUploadConfig(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Failed to chdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Logf("Failed to restore working directory: %v", err)
+		}
+	}()
+
+	tmpl, err := New("test")
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &testHandleController{}
+	state := AsState(&testHandleState{})
+	_ = tmpl.Handle(ctrl, state)
+
+	uploadsDir := filepath.Join(dir, ".uploads")
+	if _, err := os.Stat(uploadsDir); !os.IsNotExist(err) {
+		t.Errorf(".uploads directory should not exist without upload config, but it does")
+	}
+}
+
+func TestHandle_CreatesUploadsDir_WithUploadConfig(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Failed to chdir: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Logf("Failed to restore working directory: %v", err)
+		}
+	}()
+
+	tmpl, err := New("test", WithUpload("avatar", UploadConfig{
+		Accept:     []string{"image/png"},
+		MaxEntries: 1,
+	}))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &testHandleController{}
+	state := AsState(&testHandleState{})
+	_ = tmpl.Handle(ctrl, state)
+
+	uploadsDir := filepath.Join(dir, ".uploads")
+	if _, err := os.Stat(uploadsDir); os.IsNotExist(err) {
+		t.Errorf(".uploads directory should exist with upload config, but it doesn't")
+	}
+}
+
+func TestHandleUploadAction_NilTempFileManager(t *testing.T) {
+	handler := &liveHandler{
+		tempFileManager: nil,
+	}
+
+	actions := []string{"upload_start", "upload_chunk", "upload_complete", "cancel_upload"}
+	for _, action := range actions {
+		msg := message{Action: action}
+		handled, err := handler.handleUploadAction(context.Background(), nil, nil, msg, nil, nil, nil)
+		if !handled {
+			t.Errorf("action %q: expected handled=true, got false", action)
+		}
+		if err == nil {
+			t.Errorf("action %q: expected error for nil tempFileManager, got nil", action)
+		}
+	}
+
+	// Non-upload actions should return handled=false
+	msg := message{Action: "some_other_action"}
+	handled, err := handler.handleUploadAction(context.Background(), nil, nil, msg, nil, nil, nil)
+	if handled {
+		t.Error("non-upload action: expected handled=false, got true")
+	}
+	if err != nil {
+		t.Errorf("non-upload action: expected no error, got %v", err)
+	}
 }
