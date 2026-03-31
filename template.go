@@ -167,6 +167,7 @@ type Config struct {
 	ProgressiveEnhancement bool                                // Enable non-JS form submission support with PRG pattern (default: true)
 	TrustForwardedHeaders  bool                                // Trust X-Forwarded-Proto header for scheme detection (default: true)
 	SharedState            bool                                // Restore pre-v0.9 shared state with auto-broadcast (default: false = per-connection)
+	StatePersistence       bool                                // Persist per-connection state to SessionStore after actions (default: false = ephemeral)
 	DispatchBufferSize     int                                 // Broadcast dispatch channel buffer per connection (default: 16)
 }
 
@@ -414,6 +415,31 @@ func WithTrustForwardedHeaders(trust bool) Option {
 func WithSharedState() Option {
 	return func(c *Config) {
 		c.SharedState = true
+	}
+}
+
+// WithStatePersistence enables automatic state persistence to SessionStore after
+// every action (WebSocket, HTTP POST, dispatched, server-initiated). On page
+// refresh, the new connection loads the last-persisted state instead of the
+// initial Mount() snapshot.
+//
+// Without this option (the default), state is ephemeral — it lives only in memory
+// for the duration of the connection. On reconnect, the stored Mount() state is
+// reloaded (with transient fields cleared) but action-driven changes are lost.
+// Mount() itself only runs once per session (when SessionStore has no entry).
+//
+// Note: WithSharedState() implies persistence (it always persists and auto-broadcasts).
+// Combining both options is valid but redundant — WithSharedState() alone is sufficient.
+//
+// Use this when per-connection state should survive page refresh (e.g., wizard flows,
+// multi-step forms, or apps where SessionStore is the source of truth):
+//
+//	tmpl, err := livetemplate.New("app",
+//	    livetemplate.WithStatePersistence(),
+//	)
+func WithStatePersistence() Option {
+	return func(c *Config) {
+		c.StatePersistence = true
 	}
 }
 
@@ -1523,6 +1549,7 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		wsBufferSize:           t.config.WebSocketBufferSize,
 		ProgressiveEnhancement: t.config.ProgressiveEnhancement,
 		SharedState:            t.config.SharedState,
+		StatePersistence:       t.config.StatePersistence,
 	}
 
 	if HasActionMethod(controller, state.Inner(), CapabilityChange) {

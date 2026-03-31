@@ -173,6 +173,7 @@ type mountConfig struct {
 	wsBufferSize           int                                 // WebSocket send buffer size per connection (default: 50)
 	ProgressiveEnhancement bool                                // Enable non-JS form submission support with PRG pattern (default: true)
 	SharedState            bool                                // Restore pre-v0.9 shared state with auto-broadcast
+	StatePersistence       bool                                // Persist per-connection state to SessionStore after actions
 	Capabilities           []string                            // Controller capabilities detected at setup (e.g., ["change"])
 }
 
@@ -754,8 +755,10 @@ eventLoop:
 						slog.Int("dropped_count", len(dropped)))
 				}
 			} else if actionErr == nil {
-				// Per-connection mode: persist state for reconnection, then process deferred broadcasts
-				h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
+				// Per-connection mode: update connection state, then process deferred broadcasts
+				if h.config.StatePersistence {
+					h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
+				}
 				connection.Stores = connSt.state
 				for _, br := range actionCtx.pendingBroadcasts() {
 					h.dispatchBroadcastToGroup(groupID, connection, br.Action, br.Data)
@@ -1143,8 +1146,9 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		connSt.state = newState
 	}
 
-	// Persist state after action
-	h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
+	if h.config.StatePersistence || h.config.SharedState {
+		h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
+	}
 
 	// Get or create cached template for this session group.
 	// Unlike WebSocket (which keeps a clone per connection), HTTP needs
@@ -1419,11 +1423,10 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 	}
 
 	connSt.state = newState
-
-	// Persist state for reconnection. Uses context.Background() because this runs
-	// in the WS event-loop goroutine, not an HTTP handler — no request context available.
-	h.config.SessionStore.Set(context.Background(), connSt.groupID, connSt.state)
 	connection.Stores = connSt.state
+	if h.config.StatePersistence {
+		h.config.SessionStore.Set(context.Background(), connSt.groupID, connSt.state)
+	}
 
 	// Chained BroadcastAction calls from dispatched actions are intentionally
 	// not processed to prevent infinite broadcast storms.
@@ -1708,8 +1711,10 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 		slog.String("action", msg.Action),
 		slog.Int("connection_count", len(connections)))
 
-	// Process action for each connection
+	// Process action for each connection.
+	// Track last successful state per groupID for deduped persistence.
 	var errCount int
+	groupStates := make(map[string]interface{})
 	for _, conn := range connections {
 		// Create connection state for this action
 		state := &connState{
@@ -1753,7 +1758,7 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 		} else {
 			state.state = newState
 			conn.Stores = newState
-			h.config.SessionStore.Set(context.Background(), conn.GroupID, newState)
+			groupStates[conn.GroupID] = newState
 		}
 
 		// Send update to this connection (with flash messages)
@@ -1769,6 +1774,15 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 
 		// Clear flash messages after successful send
 		state.clearFlash()
+	}
+
+	// Persist once per distinct groupID (avoids N writes for multi-tab users
+	// sharing a groupID, while correctly handling multi-device users with
+	// different groupIDs).
+	if h.config.StatePersistence || h.config.SharedState {
+		for gid, st := range groupStates {
+			h.config.SessionStore.Set(context.Background(), gid, st)
+		}
 	}
 
 	if errCount > 0 {

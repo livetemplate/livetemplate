@@ -17,19 +17,22 @@ For pushing updates from server-side code, see [Server Actions Reference](server
 
 Since v0.9, each WebSocket connection owns its state independently. Actions update only the calling connection's state. `OnConnect()` initializes per-connection state (e.g., resetting `CurrentUser` to empty for each new tab). Cross-tab sync requires explicit `ctx.BroadcastAction("ActionName", data)`, which dispatches the named action to all other connections in the session group, preserving each connection's per-connection fields.
 
-**Reconnect behavior:** State is persisted to SessionStore after every action (both HTTP and WebSocket). On reconnect, the new connection loads the last-persisted state from SessionStore, clears any transient fields (`lvt:"transient"`), then calls `OnConnect()` to re-initialize per-connection fields. The key difference from `WithSharedState()` is that per-connection mode does NOT auto-broadcast to other tabs — cross-tab sync requires explicit `ctx.BroadcastAction()`.
+**Reconnect behavior:** When a session is first created, `Mount()` runs and its result is saved to SessionStore. On reconnect, that stored Mount state is reloaded (with transient fields cleared) and `Mount()` does not re-run. In ephemeral mode (default), actions update only in-memory state and do not write to the store, so action-driven changes do not survive page refresh. Use `WithStatePersistence()` to persist action state to SessionStore so it survives page refresh.
 
 ### State Persistence Matrix
 
-| Operation | Per-Connection Mode | SharedState Mode |
-|-----------|-------------------|-----------------|
-| Mount() (new session) | Persisted | Persisted |
-| OnConnect() (reconnect) | Not persisted | Not persisted |
-| HTTP POST action | Persisted | Persisted + auto-broadcast |
-| WebSocket action | Persisted | Persisted + auto-broadcast |
-| Dispatched action (BroadcastAction) | Persisted | N/A (uses auto-broadcast) |
-| Server action (TriggerAction) | Persisted (since v0.8.10) | Persisted |
-| Auto-broadcast to other tabs | No | Yes |
+| Operation | Default (ephemeral) | WithStatePersistence() | WithSharedState() |
+|-----------|-------------------|----------------------|-----------------|
+| Mount() (new session) | Persisted | Persisted | Persisted |
+| OnConnect() (reconnect) | Not persisted | Not persisted | Not persisted |
+| HTTP POST action | Not persisted | Persisted | Persisted + auto-broadcast |
+| WebSocket action | Not persisted | Persisted | Persisted + auto-broadcast |
+| Dispatched action | Not persisted | Persisted | N/A (uses auto-broadcast) |
+| Server action | Not persisted | Persisted (once per dispatch) | Persisted |
+| Auto-broadcast | No | No | Yes |
+| Page refresh | Mount state reloaded (action changes lost) | Loads persisted state | Loads persisted state |
+
+> **Multi-tab behavior:** With `WithStatePersistence()`, server actions persist once per dispatch (not per-tab) to avoid non-deterministic overwrites. For strongly consistent cross-tab state, use an external database as the source of truth.
 
 ### Shared State Mode (Opt-In)
 
