@@ -155,6 +155,8 @@ type LiveHandler interface {
 	MetricsHandler() http.Handler
 }
 
+const syncMethodName = "Sync"
+
 // mountConfig configures the mount handler (internal only)
 type mountConfig struct {
 	Template               *Template
@@ -746,11 +748,15 @@ eventLoop:
 			if actionErr == nil {
 				h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
 				connection.Stores = connSt.state
+				hasSyncBroadcast := false
 				for _, br := range actionCtx.pendingBroadcasts() {
 					h.dispatchBroadcastToGroup(groupID, connection, br.Action, br.Data)
+					if br.Action == syncMethodName {
+						hasSyncBroadcast = true
+					}
 				}
-				if h.config.HasSync {
-					h.dispatchBroadcastToGroup(groupID, connection, "Sync", nil)
+				if h.config.HasSync && !hasSyncBroadcast {
+					h.dispatchBroadcastToGroup(groupID, connection, syncMethodName, nil)
 				}
 			}
 
@@ -1168,11 +1174,15 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	httpTmpl.SetUploadRegistry(uploadRegistry)
 
 	if actionErr == nil {
+		hasSyncBroadcast := false
 		for _, br := range actionCtx.pendingBroadcasts() {
 			h.dispatchBroadcastToGroup(groupID, nil, br.Action, br.Data)
+			if br.Action == syncMethodName {
+				hasSyncBroadcast = true
+			}
 		}
-		if h.config.HasSync {
-			h.dispatchBroadcastToGroup(groupID, nil, "Sync", nil)
+		if h.config.HasSync && !hasSyncBroadcast {
+			h.dispatchBroadcastToGroup(groupID, nil, syncMethodName, nil)
 		}
 	}
 
@@ -2216,7 +2226,7 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn WSConn, raw
 
 	// Dispatch Sync to other connections if controller implements it
 	if h.config.HasSync {
-		h.dispatchBroadcastToGroup(state.groupID, connection, "Sync", nil)
+		h.dispatchBroadcastToGroup(state.groupID, connection, syncMethodName, nil)
 	}
 
 	return nil

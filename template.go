@@ -166,7 +166,6 @@ type Config struct {
 	ComponentTemplates     []*TemplateSet                      // Component library templates (parsed before project templates)
 	ProgressiveEnhancement bool                                // Enable non-JS form submission support with PRG pattern (default: true)
 	TrustForwardedHeaders  bool                                // Trust X-Forwarded-Proto header for scheme detection (default: true)
-	HasSync                bool                                // Controller implements Sync() lifecycle method (auto-detected)
 	DispatchBufferSize     int                                 // Broadcast dispatch channel buffer per connection (default: 16)
 }
 
@@ -1505,7 +1504,7 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		UploadConfigs:          t.config.UploadConfigs,
 		wsBufferSize:           t.config.WebSocketBufferSize,
 		ProgressiveEnhancement: t.config.ProgressiveEnhancement,
-		HasSync:                HasActionMethod(controller, state.Inner(), "Sync"),
+		HasSync:                HasActionMethod(controller, state.Inner(), syncMethodName),
 	}
 
 	if HasActionMethod(controller, state.Inner(), CapabilityChange) {
