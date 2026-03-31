@@ -984,9 +984,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	lifecycleCtx = lifecycleCtx.WithFlashSetter(connSt)
 
 	// Read flash messages from cookie (set by POST redirect)
-	hasFlashCookie := false
 	if flashCookie, err := r.Cookie("lvt-flash"); err == nil && flashCookie.Value != "" {
-		hasFlashCookie = true
 		if flashValues, err := url.ParseQuery(flashCookie.Value); err == nil {
 			for key, values := range flashValues {
 				if len(values) > 0 {
@@ -1004,7 +1002,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	isHTTPGet := r.Method == http.MethodGet && !isAssetRequest
-	if isNewSession || isHTTPGet || hasFlashCookie {
+	if isNewSession || isHTTPGet {
 		newState, err := callMount(h.config.Controller, connSt.state, lifecycleCtx)
 		if err != nil {
 			// httpLastPaths still holds the previous path (Store is deferred
@@ -2222,10 +2220,8 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn WSConn, raw
 	// Clear flash messages after successful send
 	state.clearFlash()
 
-	// Dispatch Sync to other connections if controller implements it
-	if h.config.HasSync {
-		h.dispatchBroadcastToGroup(state.groupID, connection, syncMethodName, nil)
-	}
+	// Dispatch Sync to peer connections for upload completion visibility
+	h.dispatchBroadcastToGroup(state.groupID, connection, syncMethodName, nil)
 
 	return nil
 }
