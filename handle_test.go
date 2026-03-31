@@ -2688,3 +2688,61 @@ func TestMount_RunsOnWSReconnect(t *testing.T) {
 		t.Errorf("Expected Mount() to run on reconnect (Message='mounted'), got %q. Full: %s", v, string(reconnectMsg))
 	}
 }
+
+// TestWithEphemeralState_DispatchedActionNotPersisted verifies that dispatched
+// actions in ephemeral mode modify in-memory state but don't persist to the store.
+func TestWithEphemeralState_DispatchedActionNotPersisted(t *testing.T) {
+	auth := &fixedGroupAuth{groupID: "ephemeral-dispatch-test"}
+
+	tmpl, err := New("test", WithAuthenticator(auth))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Count}} - {{.Message}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &broadcastTestController{}
+	handler := tmpl.Handle(ctrl, AsState(&broadcastTestState{}), WithEphemeralState())
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	ws1 := connectWS(t, wsURL)
+	defer func() {
+		if err := ws1.Close(); err != nil {
+			t.Logf("ws1 close: %v", err)
+		}
+	}()
+
+	// HTTP POST triggers Increment, which broadcasts RefreshCount to WS1
+	form := url.Values{}
+	form.Set("lvt-action", "Increment")
+	req, _ := http.NewRequest("POST", server.URL+"/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST failed: %v", err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Logf("resp body close: %v", err)
+	}
+
+	// WS1 receives the dispatched RefreshCount
+	readWSUpdate(t, ws1, 3*time.Second)
+
+	// Reconnect — ephemeral: Count should be 0 (not persisted)
+	ws2, reconnectMsg := reconnectWSRaw(t, wsURL, ws1)
+	defer func() {
+		if err := ws2.Close(); err != nil {
+			t.Logf("ws2 close: %v", err)
+		}
+	}()
+
+	if v := treeDynamic(t, reconnectMsg, "0"); v != "0" {
+		t.Errorf("Ephemeral: expected Count=0 on reconnect (dispatch not persisted), got %q. Full: %s", v, string(reconnectMsg))
+	}
+}

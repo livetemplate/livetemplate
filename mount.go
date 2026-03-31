@@ -157,8 +157,10 @@ type LiveHandler interface {
 
 const syncMethodName = "Sync"
 
-// ephemeralSweepTTL is how long idle HTTP template cache entries survive in ephemeral mode
-// before being evicted by the sweep loop.
+// ephemeralSweepTTL is how long idle HTTP template cache entries survive in ephemeral
+// mode before being evicted by the sweep loop. 30 minutes balances memory reclamation
+// for abandoned sessions vs keeping diff baselines alive for active users between
+// interactions (e.g., reading a page before submitting a form).
 const ephemeralSweepTTL = 30 * time.Minute
 
 // mountConfig configures the mount handler (internal only)
@@ -1035,7 +1037,9 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		connSt.state = newState
-		if !h.config.EphemeralState {
+		// Persist after Mount on GET/new-session only. On POST the action handler
+		// will persist after the action succeeds, avoiding a redundant Set.
+		if !h.config.EphemeralState && (isNewSession || isHTTPGet) {
 			h.config.SessionStore.Set(ctx, groupID, connSt.state)
 		}
 		// Commit path after successful Mount (not before, to allow retries).

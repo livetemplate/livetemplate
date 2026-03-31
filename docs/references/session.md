@@ -36,6 +36,8 @@ State is automatically persisted to SessionStore after every successful action (
 | Server action | Persisted (once per group) |
 | Page refresh | Mount() re-runs with persisted state |
 
+> **Note:** This matrix describes the default persistent mode. With `WithEphemeralState()`, all "Persisted" operations are skipped — see [Ephemeral State](#ephemeral-state-opting-out-of-persistence) below.
+
 ### Ephemeral State (Opting Out of Persistence)
 
 Use `WithEphemeralState()` to disable state persistence entirely. Every request starts with fresh-cloned state and `Mount()` loads data from the database. State is never read from or written to the SessionStore.
