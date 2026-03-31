@@ -501,8 +501,7 @@ func extractFlashCookie(rec *httptest.ResponseRecorder) *http.Cookie {
 
 func newWSDisabledHandler(t *testing.T, opts ...Option) LiveHandler {
 	t.Helper()
-	// WithStatePersistence needed: HTTP-only tests rely on POST state surviving across requests.
-	baseOpts := []Option{WithWebSocketDisabled(), WithStatePersistence()}
+	baseOpts := []Option{WithWebSocketDisabled()}
 	baseOpts = append(baseOpts, opts...)
 	tmpl, err := New("test", baseOpts...)
 	if err != nil {
@@ -1639,7 +1638,7 @@ func (c *failingMountController) Increment(state wsDisabledState, ctx *Context) 
 func TestWebSocketDisabled_PathChangeMountFailureRetry(t *testing.T) {
 	ctrl := &failingMountController{failNext: make(chan struct{}, 1)}
 
-	tmpl, err := New("test", WithWebSocketDisabled(), WithStatePersistence())
+	tmpl, err := New("test", WithWebSocketDisabled())
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -1882,7 +1881,7 @@ func (a *fixedGroupAuthHandle) GetSessionGroup(_ *http.Request, _ string) (strin
 func TestFaviconDoesNotResetState(t *testing.T) {
 	auth := &fixedGroupAuthHandle{groupID: "favicon-test"}
 
-	tmpl, err := New("test", WithAuthenticator(auth), WithSharedState())
+	tmpl, err := New("test", WithAuthenticator(auth))
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -2057,7 +2056,7 @@ func treeDynamic(t *testing.T, raw []byte, key string) string {
 func TestPerConnectionState_WSActionPersistsToStore(t *testing.T) {
 	auth := &fixedGroupAuth{groupID: "persist-test"}
 
-	tmpl, err := New("test", WithAuthenticator(auth), WithStatePersistence())
+	tmpl, err := New("test", WithAuthenticator(auth))
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -2120,7 +2119,7 @@ func TestPerConnectionState_WSActionPersistsToStore(t *testing.T) {
 func TestPerConnectionState_DispatchedActionPersists(t *testing.T) {
 	auth := &fixedGroupAuth{groupID: "dispatch-persist-test"}
 
-	tmpl, err := New("test", WithAuthenticator(auth), WithStatePersistence())
+	tmpl, err := New("test", WithAuthenticator(auth))
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
@@ -2182,10 +2181,8 @@ func TestPerConnectionState_DispatchedActionPersists(t *testing.T) {
 	}
 }
 
-// TestPerConnectionState_NoAutoBroadcast verifies that adding persistence to
-// per-connection mode does NOT accidentally enable auto-broadcast. When WS1
-// performs an action, WS2 should NOT receive an automatic update (that's what
-// WithSharedState is for).
+// TestPerConnectionState_NoAutoBroadcast verifies that without a Sync() method,
+// WS2 does NOT receive an automatic update when WS1 performs an action.
 func TestPerConnectionState_NoAutoBroadcast(t *testing.T) {
 	auth := &fixedGroupAuth{groupID: "no-autobroadcast-test"}
 
@@ -2285,7 +2282,6 @@ func TestPerConnectionState_ServerActionPersists(t *testing.T) {
 	tmpl, err := New("test",
 		WithAuthenticator(auth),
 		WithPubSubBroadcaster(subscriber),
-		WithStatePersistence(),
 	)
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
@@ -2345,13 +2341,11 @@ func TestPerConnectionState_ServerActionPersists(t *testing.T) {
 	}
 }
 
-// TestEphemeralState_WSActionNotPersisted verifies that without WithStatePersistence(),
-// state is ephemeral — actions update in-memory state but reconnection gets fresh state
-// from Mount() (Count resets to 0).
-func TestEphemeralState_WSActionNotPersisted(t *testing.T) {
-	auth := &fixedGroupAuth{groupID: "ephemeral-test"}
+// TestStatePersistence_WSActionPersisted verifies that state is always persisted
+// to SessionStore after actions, so reconnection gets the updated state.
+func TestStatePersistence_WSActionPersisted(t *testing.T) {
+	auth := &fixedGroupAuth{groupID: "persist-default-test"}
 
-	// No WithStatePersistence — default ephemeral mode
 	tmpl, err := New("test", WithAuthenticator(auth))
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
@@ -2388,7 +2382,7 @@ func TestEphemeralState_WSActionNotPersisted(t *testing.T) {
 		t.Fatalf("Expected Count=1 in action response, got %q", v)
 	}
 
-	// 2. Reconnect — should get fresh Mount() state (Count=0), not persisted state
+	// 2. Reconnect — should get persisted state (Count=1) since persistence is default
 	ws2, reconnectMsg := reconnectWSRaw(t, wsURL, ws1)
 	defer func() {
 		if err := ws2.Close(); err != nil {
@@ -2396,7 +2390,7 @@ func TestEphemeralState_WSActionNotPersisted(t *testing.T) {
 		}
 	}()
 
-	if v := treeDynamic(t, reconnectMsg, "0"); v != "0" {
-		t.Errorf("Ephemeral state should reset on reconnect: expected Count=0, got %q. Full: %s", v, string(reconnectMsg))
+	if v := treeDynamic(t, reconnectMsg, "0"); v != "1" {
+		t.Errorf("State should be persisted on reconnect: expected Count=1, got %q. Full: %s", v, string(reconnectMsg))
 	}
 }

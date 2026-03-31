@@ -113,7 +113,7 @@ No API exists to access another group's state. State is deserialized fresh on ea
 
 ### Broadcast Scoping
 
-Both `SharedState` auto-broadcast and explicit `BroadcastAction()` are scoped to the sender's `groupID`. The connection registry filters recipients via `GetByGroup(groupID)` — messages only reach connections in the same group. Different groups are never informed of each other's updates.
+Both `Sync()` auto-dispatch and explicit `BroadcastAction()` are scoped to the sender's `groupID`. The connection registry filters recipients via `GetByGroup(groupID)` — messages only reach connections in the same group. Different groups are never informed of each other's updates.
 
 ### HTTP Request Isolation
 

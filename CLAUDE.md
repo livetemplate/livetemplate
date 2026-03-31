@@ -57,11 +57,14 @@ handler := tmpl.Handle(controller, livetemplate.AsState(&TodoState{}))
 ### Lifecycle Methods
 
 ```go
-// Called once when session is created
+// Called when a new session is created and on every HTTP GET request
 func (c *Controller) Mount(state State, ctx *Context) (State, error)
 
 // Called on each WebSocket connect (optional)
 func (c *Controller) OnConnect(state State, ctx *Context) (State, error)
+
+// Called on peer connections after any action in the same session group (optional)
+func (c *Controller) Sync(state State, ctx *Context) (State, error)
 
 // Called on disconnect (optional)
 func (c *Controller) OnDisconnect()
@@ -169,7 +172,7 @@ The main `livetemplate` package provides a clean, minimal public API:
    - LiveHandler interface for HTTP/WebSocket handling
    - Broadcaster and BroadcastAware interfaces for server-initiated updates
    - WebSocket connection lifecycle management
-   - Per-connection state (ephemeral by default, opt-in persistence via `WithStatePersistence()`). Explicit `BroadcastAction` for cross-tab sync (auto-broadcast opt-in via `WithSharedState()`)
+   - Per-connection state with automatic persistence to SessionStore. Cross-tab sync via `Sync()` lifecycle method (auto-dispatched when controller implements it)
    - Dynamic pub/sub subscription via `DynamicSubscriber` type assertion during WebSocket setup
 
 3. **Session Stores (`session_stores.go`)**:
@@ -201,7 +204,7 @@ The main `livetemplate` package provides a clean, minimal public API:
 
 8. **Configuration (`config.go`)**:
    - TemplateConfig for template customization
-   - DevMode, CompressHTML, SharedState, and other options
+   - DevMode, CompressHTML, and other options
 
 ### Internal Packages (5-Phase Architecture)
 

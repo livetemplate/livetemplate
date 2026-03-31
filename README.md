@@ -264,7 +264,7 @@ Only changed values sent → Client patches the DOM
 4. Use standard Go templates (add `lvt-*` attributes only when needed)
 5. LiveTemplate automatically syncs state to UI
 
-State is per-connection by default — each WebSocket connection owns its state independently. Cross-tab sync is explicit via `ctx.BroadcastAction()`. Use `WithSharedState()` to restore auto-broadcast for all tabs.
+State is persisted to SessionStore after every action. Cross-tab sync is automatic when the controller implements a `Sync()` method — the framework dispatches it to peer connections after each action. Use `ctx.BroadcastAction()` for custom cross-connection updates.
 
 All interactive features — including efficient tree-based diffs — work over plain HTTP. WebSocket is optional, required only for server-initiated broadcasts (e.g., multi-user chat notifications).
 

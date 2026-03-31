@@ -3,10 +3,12 @@ package livetemplate
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -237,52 +239,6 @@ func TestWSAction_BroadcastAction_DispatchesToOtherWS(t *testing.T) {
 	}
 }
 
-// TestSharedState_HTTPPost_AutoBroadcasts verifies that WithSharedState()
-// restores auto-broadcast behavior: HTTP POST actions automatically push
-// state to all WebSocket connections without BroadcastAction.
-func TestSharedState_HTTPPost_AutoBroadcasts(t *testing.T) {
-	server, wsURL := setupBroadcastTestServer(t, WithSharedState())
-	defer server.Close()
-
-	// Connect a WebSocket client
-	ws := connectWS(t, wsURL)
-	defer func() {
-		if err := ws.Close(); err != nil {
-			t.Logf("WebSocket close error: %v", err)
-		}
-	}()
-
-	// Retry POST until WS receives the broadcast (covers registration race)
-	var update map[string]interface{}
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		form := url.Values{}
-		form.Set("action", "increment")
-		resp, err := http.Post(server.URL+"/", "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
-		if err != nil {
-			t.Fatalf("HTTP POST failed: %v", err)
-		}
-		if err := resp.Body.Close(); err != nil {
-			t.Logf("response body close error: %v", err)
-		}
-
-		if err := ws.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
-			t.Fatalf("SetReadDeadline failed: %v", err)
-		}
-		_, msg, err := ws.ReadMessage()
-		if err != nil {
-			continue
-		}
-		if err := json.Unmarshal(msg, &update); err != nil {
-			t.Fatalf("Failed to parse response: %v", err)
-		}
-		break
-	}
-	if update == nil {
-		t.Fatal("Expected WebSocket to receive update in SharedState mode")
-	}
-}
-
 func connectWSWithAuth(t *testing.T, wsURL, username, password string) *websocket.Conn {
 	t.Helper()
 	header := http.Header{}
@@ -305,64 +261,180 @@ func connectWSWithAuth(t *testing.T, wsURL, username, password string) *websocke
 	return ws
 }
 
-// TestSharedState_AuthenticatedUser_AutoSyncsAllTabs verifies that
-// BasicAuthenticator + WithSharedState() auto-broadcasts to all tabs
-// for the same authenticated user with zero BroadcastAction calls.
-func TestSharedState_AuthenticatedUser_AutoSyncsAllTabs(t *testing.T) {
+// --- Sync lifecycle tests ---
+
+type syncDBItem struct {
+	ID   string
+	Text string
+}
+
+type syncDB struct {
+	mu    sync.Mutex
+	items map[string][]syncDBItem
+}
+
+func (db *syncDB) addItem(userID, id, text string) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	db.items[userID] = append(db.items[userID], syncDBItem{ID: id, Text: text})
+}
+
+func (db *syncDB) getItems(userID string) []syncDBItem {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	result := make([]syncDBItem, len(db.items[userID]))
+	copy(result, db.items[userID])
+	return result
+}
+
+type syncState struct {
+	Items []syncDBItem
+}
+
+type syncController struct {
+	DB *syncDB
+}
+
+func (c *syncController) Mount(state syncState, ctx *Context) (syncState, error) {
+	state.Items = c.DB.getItems(ctx.UserID())
+	return state, nil
+}
+
+func (c *syncController) Add(state syncState, ctx *Context) (syncState, error) {
+	text := ctx.GetString("text")
+	id := fmt.Sprintf("item-%d", len(state.Items)+1)
+	c.DB.addItem(ctx.UserID(), id, text)
+	state.Items = c.DB.getItems(ctx.UserID())
+	return state, nil
+}
+
+func (c *syncController) Sync(state syncState, ctx *Context) (syncState, error) {
+	state.Items = c.DB.getItems(ctx.UserID())
+	return state, nil
+}
+
+func TestSyncLifecycle_AutoDispatchesToPeers(t *testing.T) {
+	db := &syncDB{items: make(map[string][]syncDBItem)}
+
 	auth := NewBasicAuthenticator(func(username, password string) (bool, error) {
-		return username == "testuser" && password == "testpass", nil
+		return username == "alice" && password == "pass", nil
 	})
 
-	tmpl, err := New("test", WithAuthenticator(auth), WithSharedState())
+	tmpl, err := New("test", WithAuthenticator(auth))
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
 	}
-	tmpl, err = tmpl.Parse("<div>{{.Count}} - {{.Message}}</div>")
+	tmpl, err = tmpl.Parse("<div>{{len .Items}} items</div>")
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	ctrl := &broadcastTestController{}
-	handler := tmpl.Handle(ctrl, AsState(&broadcastTestState{}))
+	ctrl := &syncController{DB: db}
+	handler := tmpl.Handle(ctrl, AsState(&syncState{}))
 
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
 
-	// Two tabs, same authenticated user → same groupID
-	ws1 := connectWSWithAuth(t, wsURL, "testuser", "testpass")
+	ws1 := connectWSWithAuth(t, wsURL, "alice", "pass")
 	defer func() {
 		if err := ws1.Close(); err != nil {
-			t.Logf("ws1 close error: %v", err)
+			t.Logf("ws1 close: %v", err)
 		}
 	}()
-	ws2 := connectWSWithAuth(t, wsURL, "testuser", "testpass")
+	ws2 := connectWSWithAuth(t, wsURL, "alice", "pass")
 	defer func() {
 		if err := ws2.Close(); err != nil {
-			t.Logf("ws2 close error: %v", err)
+			t.Logf("ws2 close: %v", err)
 		}
 	}()
 
-	// Tab 1 sends increment — controller does NOT call BroadcastAction
-	actionMsg := map[string]interface{}{
-		"action": "increment",
+	addMsg := map[string]interface{}{
+		"action": "add",
+		"data":   map[string]interface{}{"text": "buy milk"},
 	}
-	msgBytes, _ := json.Marshal(actionMsg)
+	msgBytes, _ := json.Marshal(addMsg)
 	if err := ws1.WriteMessage(websocket.TextMessage, msgBytes); err != nil {
-		t.Fatalf("WS1 write failed: %v", err)
+		t.Fatalf("ws1 write failed: %v", err)
 	}
 
-	// Tab 1 receives its own action response
 	update1 := readWSUpdate(t, ws1, 3*time.Second)
 	meta1, _ := update1["meta"].(map[string]interface{})
-	if meta1["action"] != "increment" {
-		t.Errorf("Tab 1 expected action=increment, got %v", meta1["action"])
+	if meta1["action"] != "add" {
+		t.Errorf("Tab 1 expected action=add, got %v", meta1["action"])
 	}
 
-	// Tab 2 receives auto-broadcast — zero BroadcastAction calls needed
 	update2 := readWSUpdate(t, ws2, 3*time.Second)
 	meta2, _ := update2["meta"].(map[string]interface{})
 	if meta2["success"] != true {
-		t.Errorf("Tab 2 expected success=true from auto-broadcast, got %v", meta2["success"])
+		t.Errorf("Tab 2 expected success=true from Sync dispatch, got %v", meta2["success"])
+	}
+
+	items := db.getItems("alice")
+	if len(items) != 1 || items[0].Text != "buy milk" {
+		t.Errorf("Expected 1 item 'buy milk', got %v", items)
+	}
+}
+
+type noSyncController struct{}
+
+func (c *noSyncController) Mount(state syncState, ctx *Context) (syncState, error) {
+	return state, nil
+}
+
+func (c *noSyncController) Add(state syncState, ctx *Context) (syncState, error) {
+	state.Items = append(state.Items, syncDBItem{ID: "1", Text: ctx.GetString("text")})
+	return state, nil
+}
+
+func TestSyncLifecycle_NotDispatchedWithoutMethod(t *testing.T) {
+	auth := &fixedGroupAuth{groupID: "no-sync-test"}
+
+	tmpl, err := New("test", WithAuthenticator(auth))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{len .Items}} items</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &noSyncController{}
+	handler := tmpl.Handle(ctrl, AsState(&syncState{}))
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	ws1 := connectWS(t, wsURL)
+	defer func() {
+		if err := ws1.Close(); err != nil {
+			t.Logf("ws1 close: %v", err)
+		}
+	}()
+	ws2 := connectWS(t, wsURL)
+	defer func() {
+		if err := ws2.Close(); err != nil {
+			t.Logf("ws2 close: %v", err)
+		}
+	}()
+
+	addMsg := map[string]interface{}{
+		"action": "add",
+		"data":   map[string]interface{}{"text": "hello"},
+	}
+	msgBytes, _ := json.Marshal(addMsg)
+	if err := ws1.WriteMessage(websocket.TextMessage, msgBytes); err != nil {
+		t.Fatalf("ws1 write failed: %v", err)
+	}
+
+	_ = readWSUpdate(t, ws1, 3*time.Second)
+
+	if err := ws2.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline failed: %v", err)
+	}
+	_, _, err = ws2.ReadMessage()
+	if err == nil {
+		t.Error("Tab 2 should NOT receive update when controller has no Sync() method")
 	}
 }

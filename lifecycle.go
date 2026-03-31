@@ -10,11 +10,17 @@ import "reflect"
 // calls at specific points in the session/connection lifecycle:
 //
 // - Mount(state, ctx) -> (state, error)
-//   Called once when a new session is created. Use for initial data loading.
+//   Called when a new session is created and on every HTTP GET request.
+//   Use for initial data loading from database.
 //
 // - OnConnect(state, ctx) -> (state, error)
 //   Called every time a WebSocket connects (including reconnects).
 //   Use for subscriptions or refresh logic.
+//
+// - Sync(state, ctx) -> (state, error)
+//   Called on peer connections after any action in the same session group.
+//   Use for reloading state from database to keep connections in sync.
+//   The framework auto-dispatches this when the controller implements it.
 //
 // - OnDisconnect()
 //   Called when WebSocket closes. Use for cleanup (unsubscribe, stop goroutines).
@@ -24,10 +30,9 @@ import "reflect"
 //
 // Mount signature: func(state StateType, ctx *Context) (StateType, error)
 //
-// Mount is called once when a new session is created. It's the place to:
-// - Load initial data from database
-// - Set up default state values
-// - Perform any one-time initialization
+// Mount is called when a new session is created and on every HTTP GET request.
+// It receives the current state (from SessionStore) and returns refreshed state.
+// Use it to load/refresh data from the database while preserving UI state.
 //
 // If the controller doesn't have a Mount method, state is returned unchanged.
 func callMount(controller interface{}, state interface{}, ctx *Context) (interface{}, error) {

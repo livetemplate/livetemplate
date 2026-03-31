@@ -172,8 +172,7 @@ type mountConfig struct {
 	UploadConfigs          map[string]uploadtypes.UploadConfig // Upload field configurations
 	wsBufferSize           int                                 // WebSocket send buffer size per connection (default: 50)
 	ProgressiveEnhancement bool                                // Enable non-JS form submission support with PRG pattern (default: true)
-	SharedState            bool                                // Restore pre-v0.9 shared state with auto-broadcast
-	StatePersistence       bool                                // Persist per-connection state to SessionStore after actions
+	HasSync                bool                                // Controller implements Sync() lifecycle method (auto-detected)
 	Capabilities           []string                            // Controller capabilities detected at setup (e.g., ["change"])
 }
 
@@ -744,24 +743,14 @@ eventLoop:
 				connSt.state = newState
 			}
 
-			if h.config.SharedState {
-				// Shared-state mode: persist to SessionStore and auto-broadcast.
+			if actionErr == nil {
 				h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
-				connection.Stores = connSt.state
-				h.autoBroadcastToGroup(groupID, connSt.state, connection)
-				if dropped := actionCtx.pendingBroadcasts(); len(dropped) > 0 {
-					slog.Debug("BroadcastAction calls ignored in SharedState mode (auto-broadcast handles sync)",
-						slog.String("component", "live_handler"),
-						slog.Int("dropped_count", len(dropped)))
-				}
-			} else if actionErr == nil {
-				// Per-connection mode: update connection state, then process deferred broadcasts
-				if h.config.StatePersistence {
-					h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
-				}
 				connection.Stores = connSt.state
 				for _, br := range actionCtx.pendingBroadcasts() {
 					h.dispatchBroadcastToGroup(groupID, connection, br.Action, br.Data)
+				}
+				if h.config.HasSync {
+					h.dispatchBroadcastToGroup(groupID, connection, "Sync", nil)
 				}
 			}
 
@@ -1017,7 +1006,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	if isNewSession || hasFlashCookie {
+	isHTTPGet := r.Method == http.MethodGet && !isAssetRequest
+	if isNewSession || isHTTPGet || hasFlashCookie {
 		newState, err := callMount(h.config.Controller, connSt.state, lifecycleCtx)
 		if err != nil {
 			// httpLastPaths still holds the previous path (Store is deferred
@@ -1029,11 +1019,11 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		connSt.state = newState
-		if isNewSession {
+		if isNewSession || isHTTPGet {
 			h.config.SessionStore.Set(ctx, groupID, connSt.state)
 		}
 		// Commit path after successful Mount (not before, to allow retries).
-		if r.Method == http.MethodGet && !isAssetRequest {
+		if isHTTPGet {
 			h.httpLastPaths.Store(groupID, currentPath)
 		}
 	}
@@ -1146,7 +1136,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		connSt.state = newState
 	}
 
-	if actionErr == nil && (h.config.StatePersistence || h.config.SharedState) {
+	if actionErr == nil {
 		h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
 	}
 
@@ -1177,17 +1167,12 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	httpTmpl := entry.tmpl
 	httpTmpl.SetUploadRegistry(uploadRegistry)
 
-	if h.config.SharedState {
-		h.autoBroadcastToGroup(groupID, connSt.state, nil)
-		if dropped := actionCtx.pendingBroadcasts(); len(dropped) > 0 {
-			slog.Debug("BroadcastAction calls ignored in SharedState mode (auto-broadcast handles sync)",
-				slog.String("component", "live_handler"),
-				slog.Int("dropped_count", len(dropped)))
-		}
-	} else if actionErr == nil {
-		// Per-connection mode: process deferred broadcasts
+	if actionErr == nil {
 		for _, br := range actionCtx.pendingBroadcasts() {
 			h.dispatchBroadcastToGroup(groupID, nil, br.Action, br.Data)
+		}
+		if h.config.HasSync {
+			h.dispatchBroadcastToGroup(groupID, nil, "Sync", nil)
 		}
 	}
 
@@ -1314,58 +1299,6 @@ func (h *liveHandler) cloneStateTyped() (interface{}, error) {
 	return newStatePtr.Elem().Interface(), nil
 }
 
-// autoBroadcastToGroup broadcasts template updates to all connections in a group.
-// Optionally excludes a specific connection (for WebSocket sender).
-// Runs asynchronously to avoid blocking the caller.
-//
-// Note: Under high load, this may launch many concurrent goroutines.
-// Each goroutine is relatively short-lived and uses per-connection template clones,
-// so this is safe but could cause temporary resource spikes.
-func (h *liveHandler) autoBroadcastToGroup(groupID string, data interface{}, excludeConn *session.Connection) {
-	go func() {
-		var conns []*session.Connection
-		if excludeConn != nil {
-			// WebSocket: exclude the sender
-			conns = h.registry.GetByGroupExcept(groupID, excludeConn)
-		} else {
-			// HTTP: broadcast to all connections (no sender to exclude)
-			conns = h.registry.GetByGroup(groupID)
-		}
-
-		if len(conns) == 0 {
-			slog.Debug("No connections for auto-broadcast",
-				slog.String("component", "live_handler"),
-				slog.String("group_id", groupID))
-			return
-		}
-
-		slog.Debug("Auto-broadcasting to group",
-			slog.String("component", "live_handler"),
-			slog.String("group_id", groupID),
-			slog.Int("connection_count", len(conns)))
-
-		var errCount int
-		for _, conn := range conns {
-			if err := h.sendUpdate(conn, data, nil); err != nil {
-				slog.Warn("Auto-broadcast send failed",
-					slog.String("component", "live_handler"),
-					slog.String("group_id", groupID),
-					slog.String("user_id", conn.UserID),
-					slog.Any("error", err))
-				errCount++
-			}
-		}
-
-		if errCount > 0 {
-			slog.Warn("Auto-broadcast completed with errors",
-				slog.String("component", "live_handler"),
-				slog.String("group_id", groupID),
-				slog.Int("error_count", errCount),
-				slog.Int("total_connections", len(conns)))
-		}
-	}()
-}
-
 // dispatchBroadcastToGroup dispatches a named action to all other connections
 // in the same session group. Each connection processes the action independently
 // via its DispatchChan, preserving per-connection state.
@@ -1424,9 +1357,7 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 
 	connSt.state = newState
 	connection.Stores = connSt.state
-	if h.config.StatePersistence {
-		h.config.SessionStore.Set(context.Background(), connSt.groupID, connSt.state)
-	}
+	h.config.SessionStore.Set(context.Background(), connSt.groupID, connSt.state)
 
 	// Chained BroadcastAction calls from dispatched actions are intentionally
 	// not processed to prevent infinite broadcast storms.
@@ -1779,18 +1710,16 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 	// Persist once per distinct groupID (avoids N writes for multi-tab users
 	// sharing a groupID, while correctly handling multi-device users with
 	// different groupIDs).
-	if h.config.StatePersistence || h.config.SharedState {
-		successCount := len(connections) - errCount
-		if len(groupStates) > 0 && len(groupStates) < successCount {
-			slog.Debug("Server action: multi-tab state deduped for persistence",
-				slog.String("component", "pubsub_handler"),
-				slog.String("action", msg.Action),
-				slog.Int("connections", successCount),
-				slog.Int("groups_persisted", len(groupStates)))
-		}
-		for gid, st := range groupStates {
-			h.config.SessionStore.Set(context.Background(), gid, st)
-		}
+	successCount := len(connections) - errCount
+	if len(groupStates) > 0 && len(groupStates) < successCount {
+		slog.Debug("Server action: multi-tab state deduped for persistence",
+			slog.String("component", "pubsub_handler"),
+			slog.String("action", msg.Action),
+			slog.Int("connections", successCount),
+			slog.Int("groups_persisted", len(groupStates)))
+	}
+	for gid, st := range groupStates {
+		h.config.SessionStore.Set(context.Background(), gid, st)
 	}
 
 	if errCount > 0 {
@@ -2285,9 +2214,10 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn WSConn, raw
 	// Clear flash messages after successful send
 	state.clearFlash()
 
-	// Broadcast to other connections in the same group to show upload completion in all tabs
-	// Exclude the current connection since we just sent the update above
-	h.autoBroadcastToGroup(state.groupID, state.state, connection)
+	// Dispatch Sync to other connections if controller implements it
+	if h.config.HasSync {
+		h.dispatchBroadcastToGroup(state.groupID, connection, "Sync", nil)
+	}
 
 	return nil
 }
