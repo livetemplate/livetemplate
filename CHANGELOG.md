@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<a name="v0.8.11"></a>
+## [v0.8.11] - 2026-04-01
+
+### Features
+
+- add WithEphemeralState() to opt out of state persistence ([#301](https://github.com/livefir/livetemplate/issues/301))
+
+
 <a name="v0.8.10"></a>
 ## [v0.8.10] - 2026-03-31
 
@@ -641,7 +649,8 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.10...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.11...HEAD
+[v0.8.11]: https://github.com/livefir/livetemplate/compare/v0.8.10...v0.8.11
 [v0.8.10]: https://github.com/livefir/livetemplate/compare/v0.8.9...v0.8.10
 [v0.8.9]: https://github.com/livefir/livetemplate/compare/v0.8.8...v0.8.9
 [v0.8.8]: https://github.com/livefir/livetemplate/compare/v0.8.7...v0.8.8
