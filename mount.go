@@ -174,7 +174,7 @@ type mountConfig struct {
 	UploadConfigs          map[string]uploadtypes.UploadConfig // Upload field configurations
 	wsBufferSize           int                                 // WebSocket send buffer size per connection (default: 50)
 	ProgressiveEnhancement bool                                // Enable non-JS form submission support with PRG pattern (default: true)
-	HasSync                bool                                // Controller implements Sync() lifecycle method (auto-detected)
+	HasSync                bool                                // Controller implements Sync() lifecycle method (detected once at Handle() time via reflection, not per-request)
 	Capabilities           []string                            // Controller capabilities detected at setup (e.g., ["change"])
 }
 
@@ -748,16 +748,7 @@ eventLoop:
 			if actionErr == nil {
 				h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
 				connection.Stores = connSt.state
-				syncExplicitlyBroadcast := false
-				for _, br := range actionCtx.pendingBroadcasts() {
-					h.dispatchBroadcastToGroup(groupID, connection, br.Action, br.Data)
-					if br.Action == syncMethodName {
-						syncExplicitlyBroadcast = true
-					}
-				}
-				if h.config.HasSync && !syncExplicitlyBroadcast {
-					h.dispatchBroadcastToGroup(groupID, connection, syncMethodName, nil)
-				}
+				h.processBroadcastsAndSync(groupID, connection, actionCtx.pendingBroadcasts())
 			}
 
 			// Generate tree update
@@ -1174,16 +1165,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	httpTmpl.SetUploadRegistry(uploadRegistry)
 
 	if actionErr == nil {
-		syncExplicitlyBroadcast := false
-		for _, br := range actionCtx.pendingBroadcasts() {
-			h.dispatchBroadcastToGroup(groupID, nil, br.Action, br.Data)
-			if br.Action == syncMethodName {
-				syncExplicitlyBroadcast = true
-			}
-		}
-		if h.config.HasSync && !syncExplicitlyBroadcast {
-			h.dispatchBroadcastToGroup(groupID, nil, syncMethodName, nil)
-		}
+		h.processBroadcastsAndSync(groupID, nil, actionCtx.pendingBroadcasts())
 	}
 
 	// Check if we should return HTML for progressive enhancement
@@ -1307,6 +1289,22 @@ func (h *liveHandler) cloneStateTyped() (interface{}, error) {
 
 	// Return the dereferenced value (to match method signatures)
 	return newStatePtr.Elem().Interface(), nil
+}
+
+// processBroadcastsAndSync dispatches pending broadcasts and auto-dispatches Sync
+// to peer connections if the controller implements it. Skips auto-Sync if the
+// controller already explicitly broadcast a "Sync" action.
+func (h *liveHandler) processBroadcastsAndSync(groupID string, excludeConn *session.Connection, broadcasts []broadcastRequest) {
+	syncExplicitlyBroadcast := false
+	for _, br := range broadcasts {
+		h.dispatchBroadcastToGroup(groupID, excludeConn, br.Action, br.Data)
+		if br.Action == syncMethodName {
+			syncExplicitlyBroadcast = true
+		}
+	}
+	if h.config.HasSync && !syncExplicitlyBroadcast {
+		h.dispatchBroadcastToGroup(groupID, excludeConn, syncMethodName, nil)
+	}
 }
 
 // dispatchBroadcastToGroup dispatches a named action to all other connections
