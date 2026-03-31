@@ -1146,7 +1146,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		connSt.state = newState
 	}
 
-	if h.config.StatePersistence || h.config.SharedState {
+	if actionErr == nil && (h.config.StatePersistence || h.config.SharedState) {
 		h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
 	}
 
@@ -1780,6 +1780,14 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 	// sharing a groupID, while correctly handling multi-device users with
 	// different groupIDs).
 	if h.config.StatePersistence || h.config.SharedState {
+		successCount := len(connections) - errCount
+		if len(groupStates) > 0 && len(groupStates) < successCount {
+			slog.Debug("Server action: multi-tab state deduped for persistence",
+				slog.String("component", "pubsub_handler"),
+				slog.String("action", msg.Action),
+				slog.Int("connections", successCount),
+				slog.Int("groups_persisted", len(groupStates)))
+		}
 		for gid, st := range groupStates {
 			h.config.SessionStore.Set(context.Background(), gid, st)
 		}
