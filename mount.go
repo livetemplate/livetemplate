@@ -439,7 +439,6 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Get or create state for this session group
 	ctx := r.Context()
-	isNewSession := false
 	var typedState interface{}
 	if h.config.EphemeralState {
 		// Ephemeral: always start fresh, never consult SessionStore
@@ -459,7 +458,6 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				slog.Any("error", err))
 			return
 		}
-		isNewSession = true
 		slog.Info("Created new session group",
 			slog.String("component", "live_handler"),
 			slog.String("group_id", groupID))
@@ -565,7 +563,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	connSt.state = newState
-	if isNewSession && !h.config.EphemeralState {
+	if !h.config.EphemeralState {
 		h.config.SessionStore.Set(ctx, groupID, connSt.state)
 	}
 

@@ -21,6 +21,8 @@ State is automatically persisted to SessionStore after every successful action (
 
 **Mount() lifecycle:** `Mount()` is called on every HTTP request (GET and POST) and every WebSocket connect (new and reconnect). It receives the current state and returns refreshed state. This ensures data is always fresh from the database. Keep Mount cheap — it runs on every request.
 
+**Mount on POST:** Since Mount runs before actions on HTTP POST, it must preserve UI state fields it doesn't manage. If Mount only refreshes DB-sourced fields (e.g., `state.Items = db.GetItems()`), client-side fields like filters or draft text are preserved from the stored state. If Mount unconditionally overwrites fields, those will be reset before the action runs. Guard side effects with `ctx.Action() == ""` to restrict them to page loads.
+
 ### State Persistence Matrix
 
 | Operation | Behavior |
@@ -28,7 +30,7 @@ State is automatically persisted to SessionStore after every successful action (
 | Mount() (new session) | Persisted |
 | Mount() (HTTP GET) | Persisted |
 | Mount() (HTTP POST) | Persisted |
-| Mount() (WS reconnect) | Not persisted (state already in store) |
+| Mount() (WS reconnect) | Persisted |
 | OnConnect() (WS connect) | Not persisted |
 | HTTP POST action | Persisted on success |
 | WebSocket action | Persisted on success |

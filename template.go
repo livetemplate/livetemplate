@@ -1591,9 +1591,12 @@ func WithStore(store SessionStore) HandleOption {
 }
 
 // WithEphemeralState disables state persistence to the SessionStore.
-// Every HTTP request and WebSocket connect starts with fresh state from Mount().
-// Use this when the database is your canonical state store and LiveTemplate
-// state is a rendering projection that doesn't need to survive page refreshes.
+// Every HTTP request and WebSocket connect/reconnect starts with fresh state
+// from Mount(). Use this when the database is your canonical state store and
+// LiveTemplate state is a rendering projection that doesn't need to survive
+// page refreshes or WebSocket reconnections.
+//
+// HTTP template diff caches are evicted after 30 minutes of inactivity.
 func WithEphemeralState() HandleOption {
 	return func(c *handleConfig) {
 		c.ephemeralState = true

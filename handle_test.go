@@ -2746,3 +2746,60 @@ func TestWithEphemeralState_DispatchedActionNotPersisted(t *testing.T) {
 		t.Errorf("Ephemeral: expected Count=0 on reconnect (dispatch not persisted), got %q. Full: %s", v, string(reconnectMsg))
 	}
 }
+
+// TestWithEphemeralState_SyncStillWorks verifies that Sync() auto-dispatches
+// to peer connections in ephemeral mode (uses in-memory registry, not SessionStore).
+func TestWithEphemeralState_SyncStillWorks(t *testing.T) {
+	db := &syncDB{items: make(map[string][]syncDBItem)}
+	auth := &fixedGroupAuth{groupID: "ephemeral-sync-test"}
+
+	tmpl, err := New("test", WithAuthenticator(auth))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{len .Items}} items</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &syncController{DB: db}
+	handler := tmpl.Handle(ctrl, AsState(&itemsState{}), WithEphemeralState())
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	ws1 := connectWS(t, wsURL)
+	defer func() {
+		if err := ws1.Close(); err != nil {
+			t.Logf("ws1 close: %v", err)
+		}
+	}()
+	ws2 := connectWS(t, wsURL)
+	defer func() {
+		if err := ws2.Close(); err != nil {
+			t.Logf("ws2 close: %v", err)
+		}
+	}()
+
+	// WS1 adds an item — Sync should auto-dispatch to WS2
+	addMsg, _ := json.Marshal(map[string]interface{}{
+		"action": "add",
+		"data":   map[string]interface{}{"text": "test item"},
+	})
+	if err := ws1.WriteMessage(websocket.TextMessage, addMsg); err != nil {
+		t.Fatalf("ws1 write failed: %v", err)
+	}
+
+	// WS1 gets its own action response
+	readWSUpdate(t, ws1, 3*time.Second)
+
+	// WS2 should receive the Sync dispatch (in-memory, not via SessionStore).
+	// Dynamic "0" is {{len .Items}} = "1" after Add.
+	update2 := readWSUpdate(t, ws2, 3*time.Second)
+	if tree, ok := update2["tree"].(map[string]interface{}); ok {
+		if v, ok := tree["0"].(string); ok && v != "1" {
+			t.Errorf("Ephemeral Sync: expected len(Items)=1 on WS2, got %q", v)
+		}
+	}
+}
