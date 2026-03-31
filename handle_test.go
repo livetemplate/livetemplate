@@ -2113,10 +2113,10 @@ func TestPerConnectionState_WSActionPersistsToStore(t *testing.T) {
 	}
 }
 
-// TestPerConnectionState_DispatchedActionPersists verifies that state changes
-// from actions are persisted, so reconnection sees updated state.
+// TestPerConnectionState_ActionPersistsAcrossReconnect verifies that state changes
+// from WS actions are persisted, so reconnection sees updated state.
 // Uses Count (not Message) because Mount() overwrites Message on every connect.
-func TestPerConnectionState_DispatchedActionPersists(t *testing.T) {
+func TestPerConnectionState_ActionPersistsAcrossReconnect(t *testing.T) {
 	auth := &fixedGroupAuth{groupID: "dispatch-persist-test"}
 
 	tmpl, err := New("test", WithAuthenticator(auth))

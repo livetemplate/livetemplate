@@ -448,7 +448,6 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				slog.Any("error", err))
 			return
 		}
-		isNewSession = true
 	} else if storedState := h.config.SessionStore.Get(ctx, groupID); storedState == nil {
 		// New session - clone initial state and call Mount
 		typedState, err = h.cloneStateTyped()
@@ -939,7 +938,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if h.config.EphemeralState {
 		// Ephemeral: always start fresh, never consult SessionStore.
-		// httpTemplates is deleted so the next POST builds a fresh diff baseline.
+		// On GET, delete the cached template so the first render sends full statics.
+		// On POST, keep the cache so responses are incremental diffs (smaller payloads).
 		typedState, err = h.cloneStateTyped()
 		if err != nil {
 			slog.Error("Failed to clone state",
@@ -948,7 +948,9 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		h.httpTemplates.Delete(groupID)
+		if r.Method == http.MethodGet {
+			h.httpTemplates.Delete(groupID)
+		}
 	} else if storedState := h.config.SessionStore.Get(ctx, groupID); storedState == nil {
 		typedState, err = h.cloneStateTyped()
 		if err != nil {
@@ -1177,7 +1179,9 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			entry = newEntry
 		}
 	}
-	entry.lastAccessed.Store(time.Now().Unix())
+	if h.config.EphemeralState {
+		entry.lastAccessed.Store(time.Now().Unix())
+	}
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 	httpTmpl := entry.tmpl
@@ -1408,9 +1412,10 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 	connSt.clearFlash()
 }
 
-// httpTemplateSweepLoop periodically removes cached HTTP templates for sessions
-// that no longer exist in the SessionStore. This prevents unbounded memory growth
-// on long-running servers with many ephemeral sessions.
+// httpTemplateSweepLoop periodically removes cached HTTP templates to prevent
+// unbounded memory growth. In persistent mode, evicts entries whose session no
+// longer exists in the SessionStore. In ephemeral mode (no SessionStore), evicts
+// entries idle for longer than ephemeralSweepTTL.
 func (h *liveHandler) httpTemplateSweepLoop() {
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
