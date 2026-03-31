@@ -48,7 +48,7 @@ See the [Transport Compatibility table](progressive-complexity-reference.md#tran
 | State must be JSON-serializable | Functions, channels, and unexported fields cannot be in state | Put non-serializable dependencies in the controller |
 | Dependency detection is heuristic | `AsState[T]()` only catches 9 known dependency patterns (stdlib + `*redis.Client`) | Add `AssertPureState[T](t)` to test files for stricter validation |
 
-See [State Safety Reference](state-safety.md) for the full enforcement architecture.
+See [Session Reference — State Safety](session.md#state-safety) for the full enforcement architecture.
 
 ---
 
@@ -101,7 +101,7 @@ See [Known Bottlenecks](../performance/known-bottlenecks.md) for detailed profil
 ## See Also
 
 - [Roadmap](../../ROADMAP.md) — Planned improvements and feature timeline
-- [State Safety Reference](state-safety.md) — Enforcement layers for state purity and session isolation
+- [Session Reference — State Safety](session.md#state-safety) — Enforcement layers for state purity and session isolation
 - [Template Support Matrix](template-support-matrix.md) — Supported Go template features
 - [HTML Fallback Coverage](../roadmap/html-fallback-coverage.md) — Fallback trigger test coverage
 - [Known Bottlenecks](../performance/known-bottlenecks.md) — Performance profiling and optimization
