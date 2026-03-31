@@ -98,7 +98,7 @@ livetemplate.AsState: field DB appears to be a dependency (*sql.DB) - move to co
 | `io.Writer` | I/O |
 | `io.Reader` | I/O |
 
-Detection is heuristic — it matches these 9 known dependency patterns. Custom wrappers (e.g., `type AppDB struct{ *sql.DB }`) and other third-party types (e.g., `*pgxpool.Pool`) are **not caught** by this layer. Use Layer 4 (test helper) for stricter coverage.
+Detection is heuristic — it matches these 9 known dependency patterns by comparing the reflected type string (for example, `*sql.DB`). Struct wrappers that embed these types (e.g., `type AppDB struct{ *sql.DB }`) are still detected because validation descends into nested struct fields. Defined pointer types (e.g., `type AppDB *sql.DB`) and other third-party types (e.g., `*pgxpool.Pool`) are **not** caught by this layer. Layer 4 (the test helper) runs the same validation logic but reports failures as test errors instead of panics.
 
 #### Layer 3: Serialization Boundary
 
@@ -106,10 +106,10 @@ Each new session gets a deep copy of state via JSON marshal/unmarshal. This catc
 
 - Functions and closures
 - Channels
-- Unexported fields (not visible to `encoding/json`)
+- Unexported fields (ignored by `encoding/json`; data in these fields is not cloned or persisted)
 - Circular references
 
-If state contains any of these, the JSON round-trip fails at runtime when the first session is created.
+If state contains functions, channels, or circular references, the JSON round-trip fails at runtime when the first session is created; unexported fields are silently omitted from the cloned and persisted state.
 
 #### Layer 4: Test Helper
 
@@ -152,9 +152,18 @@ The built-in `AnonymousAuthenticator` generates a random 256-bit `groupID` per b
 
 Each session group gets an independent state clone via JSON serialization/deserialization. No shared pointers exist across sessions. Each WebSocket connection also gets its own template clone (`Template.Clone()`) for independent diff state, preventing one tab's updates from corrupting another tab's tree comparison.
 
+#### SessionStore Keying
+
+State persistence is keyed by `groupID`. No API exists to access another group's state:
+
+- **MemorySessionStore**: Go map keyed by `groupID`
+- **RedisSessionStore**: Redis hash at `livetemplate:session:{groupID}`
+
+State is deserialized fresh on each `Get()`, preventing reference sharing across requests.
+
 #### Broadcast Scoping
 
-Both `Sync()` auto-dispatch and explicit `BroadcastAction()` are scoped to the sender's `groupID`. The [ConnectionRegistry](#connectionregistry) filters recipients via `GetByGroup(groupID)` — messages only reach connections in the same group. Different groups are never informed of each other's updates.
+Both `Sync()` auto-dispatch and explicit `BroadcastAction()` are scoped to the sender's `groupID`. The [ConnectionRegistry](#connection-registry) filters recipients via `GetByGroup(groupID)` — messages only reach connections in the same group. Different groups are never informed of each other's updates.
 
 #### HTTP Request Isolation
 
@@ -485,8 +494,8 @@ var (
 
 ## Limitations
 
-- **Dependency detection is heuristic**: Only catches 9 known dependency patterns (stdlib types like `*sql.DB` plus common third-party types like `*redis.Client`). Custom wrappers and other third-party types require `AssertPureState[T]()` in tests.
-- **Session isolation depends on Authenticator**: A custom `Authenticator` that returns the same `groupID` for different users would break isolation. Use the built-in authenticators or ensure `GetSessionGroup` maps distinct users to distinct groups.
+- **Dependency detection is heuristic**: Only catches 9 known dependency patterns (stdlib types like `*sql.DB` plus common third-party types like `*redis.Client`). `AssertPureState[T](t)` uses the same `validatePureState` heuristics as `AsState`—it helps you catch the *same* issues earlier in CI / tests without panicking, but it does not broaden detection. Truly unknown custom wrappers or third-party types will not be flagged unless you extend the framework's pattern list or add custom validation.
+- **Warning — Session isolation depends on Authenticator**: A custom `Authenticator` that returns the same `groupID` for different users would break isolation. Use the built-in authenticators or ensure `GetSessionGroup` maps distinct users to distinct groups.
 - **JSON serialization overhead**: State cloning involves a JSON round-trip per session. Keep state structs small for best performance.
 
 See [Current Limitations](current-limitations.md) for the full limitations reference.
