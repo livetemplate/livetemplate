@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<a name="v0.8.10"></a>
+## [v0.8.10] - 2026-03-31
+
+### Bug Fixes
+
+- skip HTTP POST persistence on action error + add multi-tab dedup logging ([#296](https://github.com/livefir/livetemplate/issues/296))
+- only create .uploads directory when uploads are configured ([#287](https://github.com/livefir/livetemplate/issues/287))
+
+### Documentation
+
+- add Tier 1 file uploads proposal ([#271](https://github.com/livefir/livetemplate/issues/271)) ([#291](https://github.com/livefir/livetemplate/issues/291))
+- state safety, current limitations, and progressive enhancement ([#284](https://github.com/livefir/livetemplate/issues/284))
+
+### Features
+
+- simplify state management — remove WithSharedState/WithStatePersistence, add Sync() lifecycle ([#298](https://github.com/livefir/livetemplate/issues/298))
+- make state persistence opt-in via WithStatePersistence() ([#295](https://github.com/livefir/livetemplate/issues/295))
+- per-connection state persists to session store for page refresh ([#290](https://github.com/livefir/livetemplate/issues/290))
+
+
 <a name="v0.8.9"></a>
 ## [v0.8.9] - 2026-03-30
 
@@ -621,7 +641,8 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.9...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.10...HEAD
+[v0.8.10]: https://github.com/livefir/livetemplate/compare/v0.8.9...v0.8.10
 [v0.8.9]: https://github.com/livefir/livetemplate/compare/v0.8.8...v0.8.9
 [v0.8.8]: https://github.com/livefir/livetemplate/compare/v0.8.7...v0.8.8
 [v0.8.7]: https://github.com/livefir/livetemplate/compare/v0.8.6...v0.8.7
