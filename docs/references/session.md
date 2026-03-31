@@ -13,45 +13,44 @@ For pushing updates from server-side code, see [Server Actions Reference](server
 - **Connections**: Individual WebSocket connections within a group
 - **Session store**: Persistence layer for session groups (in-memory or Redis)
 
-### Per-Connection State (Default)
+### State Persistence
 
-Since v0.9, each WebSocket connection owns its state independently. Actions update only the calling connection's state. `OnConnect()` initializes per-connection state (e.g., resetting `CurrentUser` to empty for each new tab). Cross-tab sync requires explicit `ctx.BroadcastAction("ActionName", data)`, which dispatches the named action to all other connections in the session group, preserving each connection's per-connection fields.
+State is automatically persisted to SessionStore after every successful action (WebSocket, HTTP POST, dispatched, server-initiated). On page refresh, `Mount()` re-runs with the persisted state, allowing controllers to refresh data from the database while preserving UI state.
 
-**Reconnect behavior:** When a session is first created, `Mount()` runs and its result is saved to SessionStore. On reconnect, that stored Mount state is reloaded (with transient fields cleared) and `Mount()` does not re-run. In ephemeral mode (default), actions update only in-memory state and do not write to the store, so action-driven changes do not survive page refresh. Use `WithStatePersistence()` to persist action state to SessionStore so it survives page refresh.
+**Why always-on persistence?** LiveTemplate supports both WebSocket and HTTP-only modes. In WebSocket mode, state naturally lives in memory for the lifetime of the connection. In HTTP-only mode (progressive enhancement), each request is stateless — without persistence, form submissions via POST-Redirect-GET would lose all action-driven state changes. Always-on persistence ensures both modes behave consistently: actions persist, page loads get fresh state via `Mount()`, and the developer doesn't need to think about which mode the client is using.
+
+**Reconnect behavior:** `Mount()` is called on every HTTP GET request and on new session creation. It receives the current state from SessionStore and returns refreshed state. This ensures data is always fresh from the database on page load.
 
 ### State Persistence Matrix
 
-| Operation | Default (ephemeral) | WithStatePersistence() | WithSharedState() |
-|-----------|-------------------|----------------------|-----------------|
-| Mount() (new session) | Persisted | Persisted | Persisted |
-| OnConnect() (reconnect) | Not persisted | Not persisted | Not persisted |
-| HTTP POST action | Not persisted | Persisted | Persisted + auto-broadcast |
-| WebSocket action | Not persisted | Persisted | Persisted + auto-broadcast |
-| Dispatched action | Not persisted | Persisted | N/A (uses auto-broadcast) |
-| Server action | Not persisted | Persisted (once per dispatch) | Persisted |
-| Auto-broadcast | No | No | Yes |
-| Page refresh | Mount state reloaded (action changes lost) | Loads persisted state | Loads persisted state |
+| Operation | Behavior |
+|-----------|---------|
+| Mount() (new session) | Persisted |
+| Mount() (HTTP GET) | Persisted |
+| OnConnect() (WS connect) | Not persisted |
+| HTTP POST action | Persisted on success |
+| WebSocket action | Persisted on success |
+| Dispatched action | Persisted on success |
+| Server action | Persisted (once per group) |
+| Page refresh | Mount() re-runs with persisted state |
 
-> **Multi-tab behavior:** With `WithStatePersistence()`, server actions persist once per dispatch (not per-tab) to avoid non-deterministic overwrites. For strongly consistent cross-tab state, use an external database as the source of truth.
+### Sync Lifecycle Method
 
-### Shared State Mode (Opt-In)
-
-> **Note:** This behavior requires `WithSharedState()`. It is no longer the default.
-
-When using `WithSharedState()`, all tabs in the same browser session automatically receive updates after every action:
+When the controller implements a `Sync()` method, the framework automatically dispatches it to peer connections in the same session group after every action. This is the recommended way to keep multiple tabs in sync:
 
 ```go
-func (c *ChatController) SendMessage(state ChatState, ctx *livetemplate.Context) (ChatState, error) {
-    newMessage := ctx.GetString("message")
-    state.Messages = append(state.Messages, newMessage)
-    return state, nil  // All tabs in same browser update automatically (SharedState mode only)
+func (c *TodoController) Sync(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    state.Items = c.DB.GetItems(ctx.UserID())
+    return state, nil  // Peer connections reload from database
 }
 ```
 
-**How it works in SharedState mode:**
+**How it works:**
 - Each browser gets a unique session ID (via cookie: `livetemplate-id`)
 - All tabs in the same browser share this session ID (`groupID`)
-- State changes automatically broadcast to all tabs in the same session group
+- After any action, `Sync` is dispatched to all other connections in the group
+- Each connection runs `Sync` with its own state, reloading from the database
+- If the controller does not implement `Sync()`, no cross-tab dispatch occurs
 
 ## Session Store Interface
 

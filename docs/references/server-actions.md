@@ -411,10 +411,10 @@ When a user has multiple tabs or devices connected:
 User clicks button in Tab 1
     └─► Tab 1's action method called
         └─► Tab 1 receives update
-        └─► Tab 2, Tab 3 automatically receive update (WithSharedState mode only)
+        └─► Tab 2, Tab 3 receive Sync() dispatch (if controller implements Sync)
 ```
 
-> In the default per-connection state mode, other tabs do not receive updates automatically. Use `ctx.BroadcastAction("ActionName", nil)` to explicitly dispatch to other connections.
+> When the controller implements a `Sync()` method, other tabs automatically receive a Sync dispatch after each action. Without `Sync()`, use `ctx.BroadcastAction("ActionName", nil)` for explicit cross-tab sync.
 
 **Server Action (TriggerAction):**
 ```

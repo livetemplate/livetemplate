@@ -42,7 +42,7 @@ type Connection struct {
 	GroupID  string      // Session group ID (shared state boundary)
 	UserID   string      // User identity ("" for anonymous)
 	Template interface{} // Per-connection template for tree diffing (*livetemplate.Template)
-	Stores   interface{} // State snapshot. Updated per-action in SharedState mode only. In per-connection mode, connState.state is authoritative. TODO: rename to State in next major version.
+	Stores   interface{} // State snapshot, updated per-action.
 	Uploads  interface{} // Per-connection upload registry (*upload.Registry)
 	mu       sync.Mutex  // Protects writes to Conn
 
