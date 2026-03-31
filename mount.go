@@ -1177,6 +1177,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		newEntry := &httpTemplateCacheEntry{tmpl: cloned}
+		newEntry.lastAccessed.Store(time.Now().Unix())
 		if existing, loaded := h.httpTemplates.LoadOrStore(groupID, newEntry); loaded {
 			entry = existing.(*httpTemplateCacheEntry)
 		} else {
