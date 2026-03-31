@@ -577,7 +577,7 @@ func TestState(t *testing.T) {
 ## See Also
 
 - [Server Actions Reference](server-actions.md) - Server-initiated updates with TriggerAction
-- [Session Reference](session.md) - Session stores and connection management
+- [Session Reference](session.md) - State safety, session stores, and connection management
 - [Error Handling Reference](error-handling.md) - Detailed error handling patterns
 - [Authentication Reference](authentication.md) - User identification and session grouping
 - [Upload Reference](uploads.md) - File upload configuration and handling

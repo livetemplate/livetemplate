@@ -13,13 +13,12 @@ This directory contains all documentation for the LiveTemplate core library. For
 Complete API references, configuration, and specifications:
 
 - **[Controller+State Pattern](references/controller-pattern.md)** - Core architecture pattern (v0.7.0+)
-- **[State Safety](references/state-safety.md)** - Enforcement layers for state purity and session isolation
 - **[Current Limitations](references/current-limitations.md)** - Known limitations and workarounds
 - **[Client Attributes](references/client-attributes.md)** - `lvt-*` HTML event binding reference
 - **[Error Handling](references/error-handling.md)** - Validation errors, field errors, and error display
 - **[Authentication](references/authentication.md)** - Authentication system and custom authenticators
 - **[Server Actions](references/server-actions.md)** - Server-initiated actions (TriggerAction API)
-- **[Session Management](references/session.md)** - Session stores and connection management
+- **[Session Management](references/session.md)** - State safety, session stores, and connection management
 - **[PubSub](references/pubsub.md)** - Distributed broadcasting, Redis channel schema, subscription lifecycle
 - **[Template Support Matrix](references/template-support-matrix.md)** - Supported Go template features
 - **[API Reference](references/api-reference.md)** - Kit manifest schemas and API reference
