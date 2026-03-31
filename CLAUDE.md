@@ -57,7 +57,7 @@ handler := tmpl.Handle(controller, livetemplate.AsState(&TodoState{}))
 ### Lifecycle Methods
 
 ```go
-// Called when a new session is created and on every HTTP GET request
+// Called on every HTTP request (GET/POST) and every WebSocket connect
 func (c *Controller) Mount(state State, ctx *Context) (State, error)
 
 // Called on each WebSocket connect (optional)
@@ -80,9 +80,9 @@ func (c *Controller) OnDisconnect()
 | `ctx.Action` | `ctx.Action()` |
 | `ctx.Data` | `ctx.GetString()`, `ctx.GetInt()`, `ctx.BindAndValidate()` |
 | `WithSharedState()` | Implement `Sync()` lifecycle method on controller |
-| `WithStatePersistence()` | Remove — persistence is now always on |
+| `WithStatePersistence()` | Remove — persistence is now always on. Use `WithEphemeralState()` to opt out |
 
-**Mount() behavioral change:** `Mount()` now runs on every HTTP GET request, not just on session creation. Controllers that relied on Mount running once (e.g., one-time analytics, resetting state fields) should gate that logic on a condition. Keep Mount cheap — it runs on every page load.
+**Mount() behavioral change:** `Mount()` now runs on every HTTP request (GET and POST) and every WebSocket connect (new and reconnect). Controllers that relied on Mount running once (e.g., one-time analytics, resetting state fields) should gate that logic on a condition. Keep Mount cheap — it runs on every request.
 
 ### BroadcastAction Note
 
