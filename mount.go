@@ -748,14 +748,14 @@ eventLoop:
 			if actionErr == nil {
 				h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
 				connection.Stores = connSt.state
-				hasSyncBroadcast := false
+				syncExplicitlyBroadcast := false
 				for _, br := range actionCtx.pendingBroadcasts() {
 					h.dispatchBroadcastToGroup(groupID, connection, br.Action, br.Data)
 					if br.Action == syncMethodName {
-						hasSyncBroadcast = true
+						syncExplicitlyBroadcast = true
 					}
 				}
-				if h.config.HasSync && !hasSyncBroadcast {
+				if h.config.HasSync && !syncExplicitlyBroadcast {
 					h.dispatchBroadcastToGroup(groupID, connection, syncMethodName, nil)
 				}
 			}
@@ -1174,14 +1174,14 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	httpTmpl.SetUploadRegistry(uploadRegistry)
 
 	if actionErr == nil {
-		hasSyncBroadcast := false
+		syncExplicitlyBroadcast := false
 		for _, br := range actionCtx.pendingBroadcasts() {
 			h.dispatchBroadcastToGroup(groupID, nil, br.Action, br.Data)
 			if br.Action == syncMethodName {
-				hasSyncBroadcast = true
+				syncExplicitlyBroadcast = true
 			}
 		}
-		if h.config.HasSync && !hasSyncBroadcast {
+		if h.config.HasSync && !syncExplicitlyBroadcast {
 			h.dispatchBroadcastToGroup(groupID, nil, syncMethodName, nil)
 		}
 	}

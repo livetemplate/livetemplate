@@ -17,6 +17,8 @@ For pushing updates from server-side code, see [Server Actions Reference](server
 
 State is automatically persisted to SessionStore after every successful action (WebSocket, HTTP POST, dispatched, server-initiated). On page refresh, `Mount()` re-runs with the persisted state, allowing controllers to refresh data from the database while preserving UI state.
 
+**Why always-on persistence?** LiveTemplate supports both WebSocket and HTTP-only modes. In WebSocket mode, state naturally lives in memory for the lifetime of the connection. In HTTP-only mode (progressive enhancement), each request is stateless — without persistence, form submissions via POST-Redirect-GET would lose all action-driven state changes. Always-on persistence ensures both modes behave consistently: actions persist, page loads get fresh state via `Mount()`, and the developer doesn't need to think about which mode the client is using.
+
 **Reconnect behavior:** `Mount()` is called on every HTTP GET request and on new session creation. It receives the current state from SessionStore and returns refreshed state. This ensures data is always fresh from the database on page load.
 
 ### State Persistence Matrix
