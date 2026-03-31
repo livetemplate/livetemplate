@@ -1292,6 +1292,7 @@ func (h *liveHandler) cloneStateTyped() (interface{}, error) {
 // processBroadcastsAndSync dispatches pending broadcasts and auto-dispatches Sync
 // to peer connections if the controller implements it. Skips auto-Sync if the
 // controller already explicitly broadcast a "Sync" action.
+// Non-blocking: EnqueueDispatch uses a buffered channel with a default case.
 func (h *liveHandler) processBroadcastsAndSync(groupID string, excludeConn *session.Connection, broadcasts []broadcastRequest) {
 	syncExplicitlyBroadcast := false
 	for _, br := range broadcasts {

@@ -287,7 +287,7 @@ func (db *syncDB) getItems(userID string) []syncDBItem {
 	return result
 }
 
-type syncState struct {
+type itemsState struct {
 	Items []syncDBItem
 }
 
@@ -295,12 +295,12 @@ type syncController struct {
 	DB *syncDB
 }
 
-func (c *syncController) Mount(state syncState, ctx *Context) (syncState, error) {
+func (c *syncController) Mount(state itemsState, ctx *Context) (itemsState, error) {
 	state.Items = c.DB.getItems(ctx.UserID())
 	return state, nil
 }
 
-func (c *syncController) Add(state syncState, ctx *Context) (syncState, error) {
+func (c *syncController) Add(state itemsState, ctx *Context) (itemsState, error) {
 	text := ctx.GetString("text")
 	id := fmt.Sprintf("item-%d", len(state.Items)+1)
 	c.DB.addItem(ctx.UserID(), id, text)
@@ -308,7 +308,7 @@ func (c *syncController) Add(state syncState, ctx *Context) (syncState, error) {
 	return state, nil
 }
 
-func (c *syncController) Sync(state syncState, ctx *Context) (syncState, error) {
+func (c *syncController) Sync(state itemsState, ctx *Context) (itemsState, error) {
 	state.Items = c.DB.getItems(ctx.UserID())
 	return state, nil
 }
@@ -330,7 +330,7 @@ func TestSyncLifecycle_AutoDispatchesToPeers(t *testing.T) {
 	}
 
 	ctrl := &syncController{DB: db}
-	handler := tmpl.Handle(ctrl, AsState(&syncState{}))
+	handler := tmpl.Handle(ctrl, AsState(&itemsState{}))
 
 	server := httptest.NewServer(handler)
 	defer server.Close()
@@ -378,11 +378,11 @@ func TestSyncLifecycle_AutoDispatchesToPeers(t *testing.T) {
 
 type noSyncController struct{}
 
-func (c *noSyncController) Mount(state syncState, ctx *Context) (syncState, error) {
+func (c *noSyncController) Mount(state itemsState, ctx *Context) (itemsState, error) {
 	return state, nil
 }
 
-func (c *noSyncController) Add(state syncState, ctx *Context) (syncState, error) {
+func (c *noSyncController) Add(state itemsState, ctx *Context) (itemsState, error) {
 	state.Items = append(state.Items, syncDBItem{ID: "1", Text: ctx.GetString("text")})
 	return state, nil
 }
@@ -402,7 +402,7 @@ func TestSyncLifecycle_NotDispatchedWithoutMethod(t *testing.T) {
 	}
 
 	ctrl := &noSyncController{}
-	handler := tmpl.Handle(ctrl, AsState(&syncState{}))
+	handler := tmpl.Handle(ctrl, AsState(&itemsState{}))
 
 	server := httptest.NewServer(handler)
 	defer server.Close()

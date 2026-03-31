@@ -79,6 +79,10 @@ func (c *Controller) OnDisconnect()
 | `tmpl.Handle(&Store{})` | `tmpl.Handle(&Controller{}, AsState(&State{}))` |
 | `ctx.Action` | `ctx.Action()` |
 | `ctx.Data` | `ctx.GetString()`, `ctx.GetInt()`, `ctx.BindAndValidate()` |
+| `WithSharedState()` | Implement `Sync()` lifecycle method on controller |
+| `WithStatePersistence()` | Remove — persistence is now always on |
+
+**Mount() behavioral change:** `Mount()` now runs on every HTTP GET request, not just on session creation. Controllers that relied on Mount running once (e.g., one-time analytics, resetting state fields) should gate that logic on a condition. Keep Mount cheap — it runs on every page load.
 
 ### BroadcastAction Note
 
