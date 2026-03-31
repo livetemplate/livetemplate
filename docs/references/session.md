@@ -19,7 +19,9 @@ State is automatically persisted to SessionStore after every successful action (
 
 **Why always-on persistence?** LiveTemplate supports both WebSocket and HTTP-only modes. In WebSocket mode, state naturally lives in memory for the lifetime of the connection. In HTTP-only mode (progressive enhancement), each request is stateless — without persistence, form submissions via POST-Redirect-GET would lose all action-driven state changes. Always-on persistence ensures both modes behave consistently: actions persist, page loads get fresh state via `Mount()`, and the developer doesn't need to think about which mode the client is using.
 
-**Reconnect behavior:** `Mount()` is called on every HTTP GET request and on new session creation. It receives the current state from SessionStore and returns refreshed state. This ensures data is always fresh from the database on page load.
+**Mount() lifecycle:** `Mount()` is called on every HTTP request (GET and POST) and every WebSocket connect (new and reconnect). It receives the current state and returns refreshed state. This ensures data is always fresh from the database. Keep Mount cheap — it runs on every request.
+
+**Mount on POST:** Since Mount runs before actions on HTTP POST, it must preserve UI state fields it doesn't manage. If Mount only refreshes DB-sourced fields (e.g., `state.Items = db.GetItems()`), client-side fields like filters or draft text are preserved from the stored state. If Mount unconditionally overwrites fields, those will be reset before the action runs. Guard side effects with `ctx.Action() == ""` to restrict them to page loads.
 
 ### State Persistence Matrix
 
@@ -27,12 +29,45 @@ State is automatically persisted to SessionStore after every successful action (
 |-----------|---------|
 | Mount() (new session) | Persisted |
 | Mount() (HTTP GET) | Persisted |
+| Mount() (HTTP POST) | Persisted |
+| Mount() (WS reconnect) | Persisted |
 | OnConnect() (WS connect) | Not persisted |
 | HTTP POST action | Persisted on success |
 | WebSocket action | Persisted on success |
 | Dispatched action | Persisted on success |
 | Server action | Persisted (once per group) |
 | Page refresh | Mount() re-runs with persisted state |
+
+> **Note:** This matrix describes the default persistent mode. With `WithEphemeralState()`, all "Persisted" operations are skipped — see [Ephemeral State](#ephemeral-state-opting-out-of-persistence) below.
+
+### Ephemeral State (Opting Out of Persistence)
+
+Use `WithEphemeralState()` to disable state persistence entirely. Every request starts with fresh-cloned state and `Mount()` loads data from the database. State is never read from or written to the SessionStore.
+
+```go
+handler := tmpl.Handle(controller, livetemplate.AsState(&State{}),
+    livetemplate.WithEphemeralState(),
+)
+```
+
+**When to use ephemeral state:**
+- The database is your canonical state store
+- LiveTemplate state is a rendering projection (loaded from DB in Mount)
+- You don't need UI state (filters, selections) to survive page refresh
+- You want to avoid the overhead of session serialization
+
+**How it works:**
+
+| Mode | Behavior |
+|------|---------|
+| HTTP GET | Fresh state → Mount() loads from DB → render |
+| HTTP POST | Fresh state → Mount() loads from DB → action runs → render → state discarded |
+| WS connect | Fresh state → Mount() loads from DB → state lives in memory for connection lifetime |
+| WS action | Modifies in-memory state (same as persistent mode) |
+| WS reconnect | Fresh state → Mount() loads from DB (previous action state lost unless written to DB) |
+| Multi-tab | Each tab gets independent state. `Sync()` still works via in-memory connection registry |
+
+**`WithEphemeralState()` + `WithStore()`:** These options do not conflict. The store is simply never used for Get/Set operations when ephemeral is enabled.
 
 ### Sync Lifecycle Method
 

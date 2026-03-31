@@ -2113,10 +2113,10 @@ func TestPerConnectionState_WSActionPersistsToStore(t *testing.T) {
 	}
 }
 
-// TestPerConnectionState_DispatchedActionPersists verifies that state changes
-// from BroadcastAction dispatches are also persisted in per-connection mode,
-// so reconnection after a dispatched action sees the updated state.
-func TestPerConnectionState_DispatchedActionPersists(t *testing.T) {
+// TestPerConnectionState_ActionPersistsAcrossReconnect verifies that state changes
+// from WS actions are persisted, so reconnection sees updated state.
+// Uses Count (not Message) because Mount() overwrites Message on every connect.
+func TestPerConnectionState_ActionPersistsAcrossReconnect(t *testing.T) {
 	auth := &fixedGroupAuth{groupID: "dispatch-persist-test"}
 
 	tmpl, err := New("test", WithAuthenticator(auth))
@@ -2128,56 +2128,43 @@ func TestPerConnectionState_DispatchedActionPersists(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	ctrl := &broadcastTestController{}
-	handler := tmpl.Handle(ctrl, AsState(&broadcastTestState{}))
+	ctrl := &testHandleController{}
+	handler := tmpl.Handle(ctrl, AsState(&testHandleState{}))
 
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
 
-	// 1. Connect two WS clients
-	ws1 := connectWS(t, wsURL)
-	defer func() {
-		if err := ws1.Close(); err != nil {
-			t.Logf("ws1 close: %v", err)
-		}
-	}()
-	ws2 := connectWS(t, wsURL)
+	// 1. Connect and increment
+	ws1, _ := connectWSRaw(t, wsURL)
+	actionMsg, _ := json.Marshal(map[string]interface{}{
+		"action": "increment",
+		"data":   map[string]interface{}{},
+	})
+	if err := ws1.WriteMessage(websocket.TextMessage, actionMsg); err != nil {
+		t.Fatalf("WS1 write failed: %v", err)
+	}
+	if err := ws1.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline failed: %v", err)
+	}
+	_, actionResp, err := ws1.ReadMessage()
+	if err != nil {
+		t.Fatalf("WS1 read failed: %v", err)
+	}
+	if v := treeDynamic(t, actionResp, "0"); v != "1" {
+		t.Fatalf("Expected Count=1 in action response, got %q", v)
+	}
+
+	// 2. Reconnect — persisted state should survive (Count=1)
+	ws2, reconnectMsg := reconnectWSRaw(t, wsURL, ws1)
 	defer func() {
 		if err := ws2.Close(); err != nil {
 			t.Logf("ws2 close: %v", err)
 		}
 	}()
 
-	// 2. WS1 sends SetMessage (which calls BroadcastAction("SyncMessage"))
-	actionMsg, _ := json.Marshal(map[string]interface{}{
-		"action": "set_message",
-		"data":   map[string]interface{}{"value": "persisted-msg"},
-	})
-	if err := ws1.WriteMessage(websocket.TextMessage, actionMsg); err != nil {
-		t.Fatalf("WS1 write failed: %v", err)
-	}
-
-	// 3. WS1 receives its own action response
-	readWSUpdate(t, ws1, 3*time.Second)
-
-	// 4. WS2 receives the dispatched SyncMessage
-	readWSUpdate(t, ws2, 3*time.Second)
-
-	// 5. Close both connections and reconnect (simulates page refresh)
-	if err := ws1.Close(); err != nil {
-		t.Logf("ws1 close: %v", err)
-	}
-	ws3, reconnectMsg := reconnectWSRaw(t, wsURL, ws2)
-	defer func() {
-		if err := ws3.Close(); err != nil {
-			t.Logf("ws3 close: %v", err)
-		}
-	}()
-
-	// 7. Verify the reconnected WS sees the persisted message
-	if !strings.Contains(string(reconnectMsg), "persisted-msg") {
-		t.Errorf("Dispatched action state was NOT persisted. Got: %s", string(reconnectMsg))
+	if v := treeDynamic(t, reconnectMsg, "0"); v != "1" {
+		t.Errorf("Action state NOT persisted: expected Count=1, got %q. Full: %s", v, string(reconnectMsg))
 	}
 }
 
@@ -2392,5 +2379,427 @@ func TestStatePersistence_WSActionPersisted(t *testing.T) {
 
 	if v := treeDynamic(t, reconnectMsg, "0"); v != "1" {
 		t.Errorf("State should be persisted on reconnect: expected Count=1, got %q. Full: %s", v, string(reconnectMsg))
+	}
+}
+
+// =============================================================================
+// WithEphemeralState Tests
+// =============================================================================
+
+// TestWithEphemeralState_WSReconnectFresh verifies that ephemeral state causes
+// WebSocket reconnect to start with fresh state (action changes not persisted).
+func TestWithEphemeralState_WSReconnectFresh(t *testing.T) {
+	auth := &fixedGroupAuth{groupID: "ephemeral-ws-test"}
+
+	tmpl, err := New("test", WithAuthenticator(auth))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>Count: {{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &testHandleController{}
+	handler := tmpl.Handle(ctrl, AsState(&testHandleState{}), WithEphemeralState())
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	// 1. Connect and increment
+	ws1, _ := connectWSRaw(t, wsURL)
+	actionMsg, _ := json.Marshal(map[string]interface{}{
+		"action": "increment",
+		"data":   map[string]interface{}{},
+	})
+	if err := ws1.WriteMessage(websocket.TextMessage, actionMsg); err != nil {
+		t.Fatalf("WS1 write failed: %v", err)
+	}
+	if err := ws1.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline failed: %v", err)
+	}
+	_, actionResp, err := ws1.ReadMessage()
+	if err != nil {
+		t.Fatalf("WS1 read failed: %v", err)
+	}
+	if v := treeDynamic(t, actionResp, "0"); v != "1" {
+		t.Fatalf("Expected Count=1 in action response, got %q", v)
+	}
+
+	// 2. Reconnect — ephemeral: should get fresh state (Count=0)
+	ws2, reconnectMsg := reconnectWSRaw(t, wsURL, ws1)
+	defer func() {
+		if err := ws2.Close(); err != nil {
+			t.Logf("ws2 close: %v", err)
+		}
+	}()
+
+	if v := treeDynamic(t, reconnectMsg, "0"); v != "0" {
+		t.Errorf("Ephemeral: expected Count=0 on reconnect (fresh state), got %q. Full: %s", v, string(reconnectMsg))
+	}
+}
+
+// TestWithEphemeralState_WSActionInMemory verifies that actions within a single
+// WebSocket connection still modify in-memory state normally.
+func TestWithEphemeralState_WSActionInMemory(t *testing.T) {
+	auth := &fixedGroupAuth{groupID: "ephemeral-ws-inmem-test"}
+
+	tmpl, err := New("test", WithAuthenticator(auth))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>Count: {{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &testHandleController{}
+	handler := tmpl.Handle(ctrl, AsState(&testHandleState{}), WithEphemeralState())
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	ws, _ := connectWSRaw(t, wsURL)
+	defer func() {
+		if err := ws.Close(); err != nil {
+			t.Logf("ws close: %v", err)
+		}
+	}()
+
+	// Increment twice within the same connection
+	actionMsg, _ := json.Marshal(map[string]interface{}{
+		"action": "increment",
+		"data":   map[string]interface{}{},
+	})
+	for i := 0; i < 2; i++ {
+		if err := ws.WriteMessage(websocket.TextMessage, actionMsg); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+		if err := ws.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+			t.Fatalf("SetReadDeadline failed: %v", err)
+		}
+		_, _, err := ws.ReadMessage()
+		if err != nil {
+			t.Fatalf("Read failed: %v", err)
+		}
+	}
+
+	// Third action should return Count=3
+	if err := ws.WriteMessage(websocket.TextMessage, actionMsg); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+	if err := ws.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline failed: %v", err)
+	}
+	_, resp, err := ws.ReadMessage()
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	if v := treeDynamic(t, resp, "0"); v != "3" {
+		t.Errorf("Expected Count=3 in action response, got %q", v)
+	}
+}
+
+// TestWithEphemeralState_HTTPGetAlwaysFresh verifies that every HTTP GET with
+// ephemeral state starts with fresh state (Mount called each time).
+func TestWithEphemeralState_HTTPGetAlwaysFresh(t *testing.T) {
+	tmpl, err := New("test", WithWebSocketDisabled())
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>Count: {{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &testHandleController{}
+	handler := tmpl.Handle(ctrl, AsState(&testHandleState{}), WithEphemeralState())
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// First GET
+	resp1, err := http.Get(server.URL + "/")
+	if err != nil {
+		t.Fatalf("GET 1 failed: %v", err)
+	}
+	body1, _ := io.ReadAll(resp1.Body)
+	if err := resp1.Body.Close(); err != nil {
+		t.Logf("resp1 body close: %v", err)
+	}
+
+	if !strings.Contains(string(body1), "Count: 0") {
+		t.Fatalf("GET 1: expected Count: 0, got: %s", string(body1))
+	}
+
+	// Extract session cookie
+	cookies := resp1.Cookies()
+
+	// POST to increment
+	form := url.Values{}
+	form.Set("lvt-action", "Increment")
+	req, _ := http.NewRequest("POST", server.URL+"/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp2, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST failed: %v", err)
+	}
+	if err := resp2.Body.Close(); err != nil {
+		t.Logf("resp2 body close: %v", err)
+	}
+
+	// Second GET (with same session cookie) — should still be fresh (Count: 0)
+	req2, _ := http.NewRequest("GET", server.URL+"/", nil)
+	for _, c := range cookies {
+		req2.AddCookie(c)
+	}
+	resp3, err := client.Do(req2)
+	if err != nil {
+		t.Fatalf("GET 2 failed: %v", err)
+	}
+	body3, _ := io.ReadAll(resp3.Body)
+	if err := resp3.Body.Close(); err != nil {
+		t.Logf("resp3 body close: %v", err)
+	}
+
+	if !strings.Contains(string(body3), "Count: 0") {
+		t.Errorf("Ephemeral: GET 2 should have fresh state (Count: 0), got: %s", string(body3))
+	}
+}
+
+// TestWithEphemeralState_HTTPPostWorks verifies that HTTP POST actions still
+// work in ephemeral mode (Mount runs before action).
+func TestWithEphemeralState_HTTPPostWorks(t *testing.T) {
+	tmpl, err := New("test", WithWebSocketDisabled())
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>Count: {{.Count}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &testHandleController{}
+	handler := tmpl.Handle(ctrl, AsState(&testHandleState{}), WithEphemeralState())
+
+	// POST with JSON (JS client mode) to get the response body directly
+	form := url.Values{}
+	form.Set("lvt-action", "Increment")
+	req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `"0":"1"`) {
+		t.Errorf("Expected Count=1 in POST response, got: %s", body)
+	}
+}
+
+// TestMount_RunsOnHTTPPost verifies Mount() runs on POST requests (not just GET).
+func TestMount_RunsOnHTTPPost(t *testing.T) {
+	tmpl, err := New("test", WithWebSocketDisabled())
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse(`<div>Count: {{.Count}}{{if .Message}} Message: {{.Message}}{{end}}</div>`)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &testHandleController{}
+	handler := tmpl.Handle(ctrl, AsState(&testHandleState{}))
+
+	// POST with JSON accept to get structured response
+	form := url.Values{}
+	form.Set("lvt-action", "Increment")
+	req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	// Mount sets Message = "mounted", Increment sets Count++
+	// Both should be reflected in the response
+	if !strings.Contains(body, "mounted") {
+		t.Errorf("Expected Mount() to have run (Message='mounted'), got: %s", body)
+	}
+}
+
+// TestMount_RunsOnWSReconnect verifies Mount() runs on WebSocket reconnect.
+func TestMount_RunsOnWSReconnect(t *testing.T) {
+	auth := &fixedGroupAuth{groupID: "mount-ws-reconnect-test"}
+
+	tmpl, err := New("test", WithAuthenticator(auth))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Count}} - {{.Message}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &testHandleController{}
+	handler := tmpl.Handle(ctrl, AsState(&testHandleState{}))
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	// Connect, increment, then reconnect
+	ws1, _ := connectWSRaw(t, wsURL)
+	actionMsg, _ := json.Marshal(map[string]interface{}{
+		"action": "increment",
+		"data":   map[string]interface{}{},
+	})
+	if err := ws1.WriteMessage(websocket.TextMessage, actionMsg); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+	if err := ws1.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline failed: %v", err)
+	}
+	if _, _, err := ws1.ReadMessage(); err != nil {
+		t.Fatalf("ReadMessage failed: %v", err)
+	}
+
+	// Reconnect
+	ws2, reconnectMsg := reconnectWSRaw(t, wsURL, ws1)
+	defer func() {
+		if err := ws2.Close(); err != nil {
+			t.Logf("ws2 close: %v", err)
+		}
+	}()
+
+	// Mount() should have run on reconnect (Message = "mounted")
+	if v := treeDynamic(t, reconnectMsg, "1"); v != "mounted" {
+		t.Errorf("Expected Mount() to run on reconnect (Message='mounted'), got %q. Full: %s", v, string(reconnectMsg))
+	}
+}
+
+// TestWithEphemeralState_DispatchedActionNotPersisted verifies that dispatched
+// actions in ephemeral mode modify in-memory state but don't persist to the store.
+func TestWithEphemeralState_DispatchedActionNotPersisted(t *testing.T) {
+	auth := &fixedGroupAuth{groupID: "ephemeral-dispatch-test"}
+
+	tmpl, err := New("test", WithAuthenticator(auth))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{.Count}} - {{.Message}}</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &broadcastTestController{}
+	handler := tmpl.Handle(ctrl, AsState(&broadcastTestState{}), WithEphemeralState())
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	ws1 := connectWS(t, wsURL)
+	defer func() {
+		if err := ws1.Close(); err != nil {
+			t.Logf("ws1 close: %v", err)
+		}
+	}()
+
+	// HTTP POST triggers Increment, which broadcasts RefreshCount to WS1
+	form := url.Values{}
+	form.Set("lvt-action", "Increment")
+	req, _ := http.NewRequest("POST", server.URL+"/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST failed: %v", err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Logf("resp body close: %v", err)
+	}
+
+	// WS1 receives the dispatched RefreshCount
+	readWSUpdate(t, ws1, 3*time.Second)
+
+	// Reconnect — ephemeral: Count should be 0 (not persisted)
+	ws2, reconnectMsg := reconnectWSRaw(t, wsURL, ws1)
+	defer func() {
+		if err := ws2.Close(); err != nil {
+			t.Logf("ws2 close: %v", err)
+		}
+	}()
+
+	if v := treeDynamic(t, reconnectMsg, "0"); v != "0" {
+		t.Errorf("Ephemeral: expected Count=0 on reconnect (dispatch not persisted), got %q. Full: %s", v, string(reconnectMsg))
+	}
+}
+
+// TestWithEphemeralState_SyncStillWorks verifies that Sync() auto-dispatches
+// to peer connections in ephemeral mode (uses in-memory registry, not SessionStore).
+func TestWithEphemeralState_SyncStillWorks(t *testing.T) {
+	db := &syncDB{items: make(map[string][]syncDBItem)}
+	auth := &fixedGroupAuth{groupID: "ephemeral-sync-test"}
+
+	tmpl, err := New("test", WithAuthenticator(auth))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse("<div>{{len .Items}} items</div>")
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &syncController{DB: db}
+	handler := tmpl.Handle(ctrl, AsState(&itemsState{}), WithEphemeralState())
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+
+	ws1 := connectWS(t, wsURL)
+	defer func() {
+		if err := ws1.Close(); err != nil {
+			t.Logf("ws1 close: %v", err)
+		}
+	}()
+	ws2 := connectWS(t, wsURL)
+	defer func() {
+		if err := ws2.Close(); err != nil {
+			t.Logf("ws2 close: %v", err)
+		}
+	}()
+
+	// WS1 adds an item — Sync should auto-dispatch to WS2
+	addMsg, _ := json.Marshal(map[string]interface{}{
+		"action": "add",
+		"data":   map[string]interface{}{"text": "test item"},
+	})
+	if err := ws1.WriteMessage(websocket.TextMessage, addMsg); err != nil {
+		t.Fatalf("ws1 write failed: %v", err)
+	}
+
+	// WS1 gets its own action response
+	readWSUpdate(t, ws1, 3*time.Second)
+
+	// WS2 should receive the Sync dispatch (in-memory, not via SessionStore).
+	// Dynamic "0" is {{len .Items}} = "1" after Add.
+	update2 := readWSUpdate(t, ws2, 3*time.Second)
+	if tree, ok := update2["tree"].(map[string]interface{}); ok {
+		if v, ok := tree["0"].(string); ok && v != "1" {
+			t.Errorf("Ephemeral Sync: expected len(Items)=1 on WS2, got %q", v)
+		}
 	}
 }

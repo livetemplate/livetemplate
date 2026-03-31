@@ -104,6 +104,7 @@ handler := tmpl.Handle(&TodoController{DB: db}, livetemplate.AsState(&TodoState{
 | Option | Description |
 |--------|-------------|
 | `WithStore(store SessionStore)` | Override the session store for this handler |
+| `WithEphemeralState()` | Disable state persistence; every request starts fresh from Mount() |
 
 ---
 

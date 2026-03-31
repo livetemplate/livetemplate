@@ -157,6 +157,12 @@ type LiveHandler interface {
 
 const syncMethodName = "Sync"
 
+// ephemeralSweepTTL is how long idle HTTP template cache entries survive in ephemeral
+// mode before being evicted by the sweep loop. 30 minutes balances memory reclamation
+// for abandoned sessions vs keeping diff baselines alive for active users between
+// interactions (e.g., reading a page before submitting a form).
+const ephemeralSweepTTL = 30 * time.Minute
+
 // mountConfig configures the mount handler (internal only)
 type mountConfig struct {
 	Template               *Template
@@ -175,6 +181,7 @@ type mountConfig struct {
 	wsBufferSize           int                                 // WebSocket send buffer size per connection (default: 50)
 	ProgressiveEnhancement bool                                // Enable non-JS form submission support with PRG pattern (default: true)
 	HasSync                bool                                // Controller implements Sync() lifecycle method (detected once at Handle() time via reflection, not per-request)
+	EphemeralState         bool                                // When true, skip SessionStore.Get/Set (state is rebuilt via Mount each time)
 	Capabilities           []string                            // Controller capabilities detected at setup (e.g., ["change"])
 }
 
@@ -199,8 +206,9 @@ type liveHandler struct {
 // Concurrent HTTP requests for the same groupID (e.g., multiple tabs)
 // must serialize template operations to avoid data races on lastTree/lastData.
 type httpTemplateCacheEntry struct {
-	mu   sync.Mutex
-	tmpl *Template
+	mu           sync.Mutex
+	tmpl         *Template
+	lastAccessed atomic.Int64 // unix timestamp, for time-based eviction in ephemeral mode
 }
 
 // wsReadMessage carries data from the readPump goroutine to the event loop.
@@ -431,10 +439,17 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Get or create state for this session group
 	ctx := r.Context()
-	isNewSession := false
-	storedState := h.config.SessionStore.Get(ctx, groupID)
 	var typedState interface{}
-	if storedState == nil {
+	if h.config.EphemeralState {
+		// Ephemeral: always start fresh, never consult SessionStore
+		typedState, err = h.cloneStateTyped()
+		if err != nil {
+			slog.Error("Failed to clone state",
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
+			return
+		}
+	} else if storedState := h.config.SessionStore.Get(ctx, groupID); storedState == nil {
 		// New session - clone initial state and call Mount
 		typedState, err = h.cloneStateTyped()
 		if err != nil {
@@ -443,7 +458,6 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				slog.Any("error", err))
 			return
 		}
-		isNewSession = true
 		slog.Info("Created new session group",
 			slog.String("component", "live_handler"),
 			slog.String("group_id", groupID))
@@ -538,33 +552,23 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	lifecycleCtx = lifecycleCtx.WithUserID(userID)
 	lifecycleCtx = lifecycleCtx.WithFlashSetter(connSt)
 
-	// Check for flash query params (supports HTTP redirect patterns)
-	hasFlashQueryParams := false
-	if _, ok := wsQueryData["error"]; ok {
-		hasFlashQueryParams = true
+	// Call Mount on every WebSocket connect (new session AND reconnect).
+	// Mount() refreshes state from the database, ensuring actions always
+	// work with fresh data. Keep Mount cheap — it runs on every connect.
+	newState, err := callMount(h.config.Controller, connSt.state, lifecycleCtx)
+	if err != nil {
+		slog.Error("Mount failed",
+			slog.String("component", "live_handler"),
+			slog.Any("error", err))
+		return
 	}
-	if _, ok := wsQueryData["success"]; ok {
-		hasFlashQueryParams = true
-	}
-
-	// Call Mount for new sessions or when flash query params present
-	if isNewSession || hasFlashQueryParams {
-		newState, err := callMount(h.config.Controller, connSt.state, lifecycleCtx)
-		if err != nil {
-			slog.Error("Mount failed",
-				slog.String("component", "live_handler"),
-				slog.Any("error", err))
-			return
-		}
-		connSt.state = newState
-		if isNewSession {
-			// Persist after Mount
-			h.config.SessionStore.Set(ctx, groupID, connSt.state)
-		}
+	connSt.state = newState
+	if !h.config.EphemeralState {
+		h.config.SessionStore.Set(ctx, groupID, connSt.state)
 	}
 
 	// Call OnConnect lifecycle method
-	newState, err := callOnConnect(h.config.Controller, connSt.state, lifecycleCtx)
+	newState, err = callOnConnect(h.config.Controller, connSt.state, lifecycleCtx)
 	if err != nil {
 		slog.Warn("OnConnect failed",
 			slog.String("component", "live_handler"),
@@ -746,7 +750,9 @@ eventLoop:
 			}
 
 			if actionErr == nil {
-				h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
+				if !h.config.EphemeralState {
+					h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
+				}
 				connection.Stores = connSt.state
 				h.processBroadcastsAndSync(groupID, connection, actionCtx.pendingBroadcasts())
 			}
@@ -910,7 +916,6 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Get or create state for this session group
 	ctx := r.Context()
 	isNewSession := false
-	storedState := h.config.SessionStore.Get(ctx, groupID)
 	var typedState interface{}
 
 	// Detect URL path change on GET requests to reset stale cached state
@@ -925,13 +930,28 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// handlers are not page navigations and must not trigger pathChanged.
 	isAssetRequest := isKnownAssetExt(path.Ext(currentPath))
 	pathChanged := false
-	if r.Method == http.MethodGet && !isAssetRequest {
+	if !h.config.EphemeralState && r.Method == http.MethodGet && !isAssetRequest {
 		if prev, loaded := h.httpLastPaths.Load(groupID); loaded {
 			pathChanged = prev.(string) != currentPath
 		}
 	}
 
-	if storedState == nil {
+	if h.config.EphemeralState {
+		// Ephemeral: always start fresh, never consult SessionStore.
+		// On GET, delete the cached template so the first render sends full statics.
+		// On POST, keep the cache so responses are incremental diffs (smaller payloads).
+		typedState, err = h.cloneStateTyped()
+		if err != nil {
+			slog.Error("Failed to clone state",
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		if r.Method == http.MethodGet {
+			h.httpTemplates.Delete(groupID)
+		}
+	} else if storedState := h.config.SessionStore.Get(ctx, groupID); storedState == nil {
 		typedState, err = h.cloneStateTyped()
 		if err != nil {
 			slog.Error("Failed to clone state",
@@ -1002,7 +1022,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	isHTTPGet := r.Method == http.MethodGet && !isAssetRequest
-	if isNewSession || isHTTPGet {
+	isPageRequest := !isAssetRequest
+	if isNewSession || isPageRequest {
 		newState, err := callMount(h.config.Controller, connSt.state, lifecycleCtx)
 		if err != nil {
 			// httpLastPaths still holds the previous path (Store is deferred
@@ -1014,11 +1035,14 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		connSt.state = newState
-		if isNewSession || isHTTPGet {
+		// Persist after Mount on GET/new-session only. On POST the action handler
+		// will persist after the action succeeds, avoiding a redundant Set.
+		if !h.config.EphemeralState && (isNewSession || isHTTPGet) {
 			h.config.SessionStore.Set(ctx, groupID, connSt.state)
 		}
 		// Commit path after successful Mount (not before, to allow retries).
-		if isHTTPGet {
+		// Skip in ephemeral mode — pathChanged is never checked so storing is wasteful.
+		if isHTTPGet && !h.config.EphemeralState {
 			h.httpLastPaths.Store(groupID, currentPath)
 		}
 	}
@@ -1131,7 +1155,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		connSt.state = newState
 	}
 
-	if actionErr == nil {
+	if actionErr == nil && !h.config.EphemeralState {
 		h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
 	}
 
@@ -1151,11 +1175,15 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		newEntry := &httpTemplateCacheEntry{tmpl: cloned}
+		newEntry.lastAccessed.Store(time.Now().Unix())
 		if existing, loaded := h.httpTemplates.LoadOrStore(groupID, newEntry); loaded {
 			entry = existing.(*httpTemplateCacheEntry)
 		} else {
 			entry = newEntry
 		}
+	}
+	if h.config.EphemeralState {
+		entry.lastAccessed.Store(time.Now().Unix())
 	}
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
@@ -1364,7 +1392,9 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 
 	connSt.state = newState
 	connection.Stores = connSt.state
-	h.config.SessionStore.Set(context.Background(), connSt.groupID, connSt.state)
+	if !h.config.EphemeralState {
+		h.config.SessionStore.Set(context.Background(), connSt.groupID, connSt.state)
+	}
 
 	// Chained BroadcastAction calls from dispatched actions are intentionally
 	// not processed to prevent infinite broadcast storms.
@@ -1385,9 +1415,10 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 	connSt.clearFlash()
 }
 
-// httpTemplateSweepLoop periodically removes cached HTTP templates for sessions
-// that no longer exist in the SessionStore. This prevents unbounded memory growth
-// on long-running servers with many ephemeral sessions.
+// httpTemplateSweepLoop periodically removes cached HTTP templates to prevent
+// unbounded memory growth. In persistent mode, evicts entries whose session no
+// longer exists in the SessionStore. In ephemeral mode (no SessionStore), evicts
+// entries idle for longer than ephemeralSweepTTL.
 func (h *liveHandler) httpTemplateSweepLoop() {
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
@@ -1403,32 +1434,48 @@ func (h *liveHandler) httpTemplateSweepLoop() {
 }
 
 func (h *liveHandler) sweepStaleHTTPTemplates() {
-	activeSessions := make(map[string]struct{})
-	for _, groupID := range h.config.SessionStore.List(context.Background()) {
-		activeSessions[groupID] = struct{}{}
-	}
-
 	sweptSessions := make(map[string]struct{})
-	h.httpTemplates.Range(func(key, value any) bool {
-		groupID := key.(string)
-		if _, active := activeSessions[groupID]; !active {
-			h.httpTemplates.Delete(groupID)
-			h.httpLastPaths.Delete(groupID)
-			sweptSessions[groupID] = struct{}{}
-		}
-		return true
-	})
 
-	// Sweep orphaned httpLastPaths entries from GET-only sessions that
-	// never created httpTemplates entries.
-	h.httpLastPaths.Range(func(key, value any) bool {
-		groupID := key.(string)
-		if _, active := activeSessions[groupID]; !active {
-			h.httpLastPaths.Delete(groupID)
-			sweptSessions[groupID] = struct{}{}
+	if h.config.EphemeralState {
+		// Ephemeral mode: no SessionStore to check. Evict entries idle for >30 minutes.
+		cutoff := time.Now().Add(-ephemeralSweepTTL).Unix()
+		h.httpTemplates.Range(func(key, value any) bool {
+			groupID := key.(string)
+			entry := value.(*httpTemplateCacheEntry)
+			if entry.lastAccessed.Load() < cutoff {
+				h.httpTemplates.Delete(groupID)
+				h.httpLastPaths.Delete(groupID)
+				sweptSessions[groupID] = struct{}{}
+			}
+			return true
+		})
+	} else {
+		activeSessions := make(map[string]struct{})
+		for _, groupID := range h.config.SessionStore.List(context.Background()) {
+			activeSessions[groupID] = struct{}{}
 		}
-		return true
-	})
+
+		h.httpTemplates.Range(func(key, value any) bool {
+			groupID := key.(string)
+			if _, active := activeSessions[groupID]; !active {
+				h.httpTemplates.Delete(groupID)
+				h.httpLastPaths.Delete(groupID)
+				sweptSessions[groupID] = struct{}{}
+			}
+			return true
+		})
+
+		// Sweep orphaned httpLastPaths entries from GET-only sessions that
+		// never created httpTemplates entries.
+		h.httpLastPaths.Range(func(key, value any) bool {
+			groupID := key.(string)
+			if _, active := activeSessions[groupID]; !active {
+				h.httpLastPaths.Delete(groupID)
+				sweptSessions[groupID] = struct{}{}
+			}
+			return true
+		})
+	}
 
 	if len(sweptSessions) > 0 {
 		slog.Debug("Swept stale HTTP cache entries",
@@ -1726,7 +1773,9 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 			slog.Int("groups_persisted", len(groupStates)))
 	}
 	for gid, st := range groupStates {
-		h.config.SessionStore.Set(context.Background(), gid, st)
+		if !h.config.EphemeralState {
+			h.config.SessionStore.Set(context.Background(), gid, st)
+		}
 	}
 
 	if errCount > 0 {
