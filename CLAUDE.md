@@ -82,7 +82,7 @@ func (c *Controller) OnDisconnect()
 | `WithSharedState()` | Implement `Sync()` lifecycle method on controller |
 | `WithStatePersistence()` | Remove — persistence is now always on. Use `WithEphemeralState()` to opt out |
 
-**Mount() behavioral change:** `Mount()` now runs on every HTTP request (GET and POST) and every WebSocket connect (new and reconnect). Controllers that relied on Mount running once (e.g., one-time analytics, resetting state fields) should gate that logic on a condition. Keep Mount cheap — it runs on every request.
+**Mount() behavioral change:** `Mount()` now runs on every HTTP request (GET and POST) and every WebSocket connect (new and reconnect). Controllers that relied on Mount running only on GET (e.g., once-per-visit analytics, logging unique visits) must gate that logic with `ctx.Action() == ""` or a similar condition. Keep Mount cheap — it runs on every request.
 
 ### BroadcastAction Note
 

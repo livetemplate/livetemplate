@@ -938,7 +938,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.config.EphemeralState {
-		// Ephemeral: always start fresh, never consult SessionStore
+		// Ephemeral: always start fresh, never consult SessionStore.
+		// httpTemplates is deleted so the next POST builds a fresh diff baseline.
 		typedState, err = h.cloneStateTyped()
 		if err != nil {
 			slog.Error("Failed to clone state",
@@ -947,7 +948,6 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		isNewSession = true
 		h.httpTemplates.Delete(groupID)
 	} else if storedState := h.config.SessionStore.Get(ctx, groupID); storedState == nil {
 		typedState, err = h.cloneStateTyped()
@@ -1020,8 +1020,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	isHTTPGet := r.Method == http.MethodGet && !isAssetRequest
-	isHTTPRequest := !isAssetRequest
-	if isNewSession || isHTTPRequest {
+	isPageRequest := !isAssetRequest
+	if isNewSession || isPageRequest {
 		newState, err := callMount(h.config.Controller, connSt.state, lifecycleCtx)
 		if err != nil {
 			// httpLastPaths still holds the previous path (Store is deferred
