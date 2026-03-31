@@ -388,6 +388,8 @@ func (c *noSyncController) Add(state syncState, ctx *Context) (syncState, error)
 }
 
 func TestSyncLifecycle_NotDispatchedWithoutMethod(t *testing.T) {
+	// fixedGroupAuth forces all connections into the same group regardless of auth,
+	// so connectWS (unauthenticated) still shares groupID "no-sync-test".
 	auth := &fixedGroupAuth{groupID: "no-sync-test"}
 
 	tmpl, err := New("test", WithAuthenticator(auth))

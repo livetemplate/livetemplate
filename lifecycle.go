@@ -33,6 +33,7 @@ import "reflect"
 // Mount is called when a new session is created and on every HTTP GET request.
 // It receives the current state (from SessionStore) and returns refreshed state.
 // Use it to load/refresh data from the database while preserving UI state.
+// Keep Mount cheap — it runs on every page load, not just session creation.
 //
 // If the controller doesn't have a Mount method, state is returned unchanged.
 func callMount(controller interface{}, state interface{}, ctx *Context) (interface{}, error) {
