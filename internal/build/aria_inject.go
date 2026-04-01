@@ -16,6 +16,10 @@ var formElements = map[string]bool{
 // InjectAriaInvalid adds aria-invalid="true" to form elements whose name matches a field error.
 // This is a safety net for non-JS HTTP responses — templates should also use the
 // {{.lvt.AriaInvalid "field"}} helper which works for both HTTP and WebSocket paths.
+//
+// Note: when injection occurs, golang.org/x/net/html re-serializes the entire HTML,
+// which may normalize attribute quoting, void element syntax, and whitespace.
+// This only affects the HTTP response path when field errors are present.
 func InjectAriaInvalid(htmlStr string, fieldErrors map[string]string) string {
 	if len(fieldErrors) == 0 {
 		return htmlStr
@@ -35,7 +39,7 @@ func InjectAriaInvalid(htmlStr string, fieldErrors map[string]string) string {
 	// html.Parse always produces a full document tree (<html><head><body>).
 	// For fragment input, render only body children to avoid adding a wrapper.
 	// Detect full documents by checking for an <html> element in the parsed tree.
-	if hasHTMLElement(doc) {
+	if hasDoctype(doc) {
 		if err := html.Render(&buf, doc); err != nil {
 			return htmlStr
 		}
@@ -84,10 +88,9 @@ func injectAriaInvalidWalk(n *html.Node, fieldErrors map[string]string) bool {
 	return injected
 }
 
-// hasHTMLElement checks if the parsed tree has a DOCTYPE node, indicating the
-// input was a full HTML document (not a fragment). html.Parse always creates
-// an implicit <html> node, but only preserves DOCTYPE when present in the input.
-func hasHTMLElement(doc *html.Node) bool {
+// hasDoctype checks if the parsed tree has a DOCTYPE node, indicating the input
+// was a full HTML document rather than a fragment.
+func hasDoctype(doc *html.Node) bool {
 	for c := doc.FirstChild; c != nil; c = c.NextSibling {
 		if c.Type == html.DoctypeNode {
 			return true

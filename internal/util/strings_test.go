@@ -2,6 +2,34 @@ package util
 
 import "testing"
 
+func TestToSnakeCase(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"", ""},
+		{"a", "a"},
+		{"A", "a"},
+		{"already_snake", "already_snake"},
+		{"Increment", "increment"},
+		{"AddItem", "add_item"},
+		{"UpdateUserProfile", "update_user_profile"},
+		{"PasswordConfirmation", "password_confirmation"},
+		{"PhoneNumber", "phone_number"},
+		{"HTMLParser", "h_t_m_l_parser"},
+		{"DisplayName", "display_name"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := ToSnakeCase(tt.input)
+			if result != tt.expected {
+				t.Errorf("ToSnakeCase(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestFindCommonPrefix(t *testing.T) {
 	tests := []struct {
 		name     string
