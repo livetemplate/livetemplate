@@ -22,8 +22,27 @@ import (
 // ============================================================================
 
 type testHandleState struct {
+	Count   int `lvt:"persist"`
+	Message string
+}
+
+// testEphemeralState is like testHandleState but without persist tags.
+// Used by ephemeral tests that verify state does NOT survive reconnection.
+type testEphemeralState struct {
 	Count   int
 	Message string
+}
+
+type testEphemeralController struct{}
+
+func (c *testEphemeralController) Mount(state testEphemeralState, ctx *Context) (testEphemeralState, error) {
+	state.Message = "mounted"
+	return state, nil
+}
+
+func (c *testEphemeralController) Increment(state testEphemeralState, ctx *Context) (testEphemeralState, error) {
+	state.Count++
+	return state, nil
 }
 
 type testHandleController struct {
@@ -453,7 +472,7 @@ func TestProgressiveEnhancement_FlashCookieConsumed(t *testing.T) {
 // ============================================================================
 
 type wsDisabledState struct {
-	Count   int
+	Count   int `lvt:"persist"`
 	Items   []string
 	Message string
 }
@@ -2383,12 +2402,12 @@ func TestStatePersistence_WSActionPersisted(t *testing.T) {
 }
 
 // =============================================================================
-// WithEphemeralState Tests
+// Ephemeral State Tests (no lvt:"persist" tags = ephemeral by default)
 // =============================================================================
 
-// TestWithEphemeralState_WSReconnectFresh verifies that ephemeral state causes
+// TestEphemeral_WSReconnectFresh verifies that state without persist tags causes
 // WebSocket reconnect to start with fresh state (action changes not persisted).
-func TestWithEphemeralState_WSReconnectFresh(t *testing.T) {
+func TestEphemeral_WSReconnectFresh(t *testing.T) {
 	auth := &fixedGroupAuth{groupID: "ephemeral-ws-test"}
 
 	tmpl, err := New("test", WithAuthenticator(auth))
@@ -2400,8 +2419,8 @@ func TestWithEphemeralState_WSReconnectFresh(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	ctrl := &testHandleController{}
-	handler := tmpl.Handle(ctrl, AsState(&testHandleState{}), WithEphemeralState())
+	ctrl := &testEphemeralController{}
+	handler := tmpl.Handle(ctrl, AsState(&testEphemeralState{}))
 
 	server := httptest.NewServer(handler)
 	defer server.Close()
@@ -2440,9 +2459,9 @@ func TestWithEphemeralState_WSReconnectFresh(t *testing.T) {
 	}
 }
 
-// TestWithEphemeralState_WSActionInMemory verifies that actions within a single
+// TestEphemeral_WSActionInMemory verifies that actions within a single
 // WebSocket connection still modify in-memory state normally.
-func TestWithEphemeralState_WSActionInMemory(t *testing.T) {
+func TestEphemeral_WSActionInMemory(t *testing.T) {
 	auth := &fixedGroupAuth{groupID: "ephemeral-ws-inmem-test"}
 
 	tmpl, err := New("test", WithAuthenticator(auth))
@@ -2454,8 +2473,8 @@ func TestWithEphemeralState_WSActionInMemory(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	ctrl := &testHandleController{}
-	handler := tmpl.Handle(ctrl, AsState(&testHandleState{}), WithEphemeralState())
+	ctrl := &testEphemeralController{}
+	handler := tmpl.Handle(ctrl, AsState(&testEphemeralState{}))
 
 	server := httptest.NewServer(handler)
 	defer server.Close()
@@ -2502,9 +2521,9 @@ func TestWithEphemeralState_WSActionInMemory(t *testing.T) {
 	}
 }
 
-// TestWithEphemeralState_HTTPGetAlwaysFresh verifies that every HTTP GET with
+// TestEphemeral_HTTPGetAlwaysFresh verifies that every HTTP GET with
 // ephemeral state starts with fresh state (Mount called each time).
-func TestWithEphemeralState_HTTPGetAlwaysFresh(t *testing.T) {
+func TestEphemeral_HTTPGetAlwaysFresh(t *testing.T) {
 	tmpl, err := New("test", WithWebSocketDisabled())
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
@@ -2514,8 +2533,8 @@ func TestWithEphemeralState_HTTPGetAlwaysFresh(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	ctrl := &testHandleController{}
-	handler := tmpl.Handle(ctrl, AsState(&testHandleState{}), WithEphemeralState())
+	ctrl := &testEphemeralController{}
+	handler := tmpl.Handle(ctrl, AsState(&testEphemeralState{}))
 
 	server := httptest.NewServer(handler)
 	defer server.Close()
@@ -2576,9 +2595,9 @@ func TestWithEphemeralState_HTTPGetAlwaysFresh(t *testing.T) {
 	}
 }
 
-// TestWithEphemeralState_HTTPPostWorks verifies that HTTP POST actions still
+// TestEphemeral_HTTPPostWorks verifies that HTTP POST actions still
 // work in ephemeral mode (Mount runs before action).
-func TestWithEphemeralState_HTTPPostWorks(t *testing.T) {
+func TestEphemeral_HTTPPostWorks(t *testing.T) {
 	tmpl, err := New("test", WithWebSocketDisabled())
 	if err != nil {
 		t.Fatalf("New failed: %v", err)
@@ -2588,8 +2607,8 @@ func TestWithEphemeralState_HTTPPostWorks(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	ctrl := &testHandleController{}
-	handler := tmpl.Handle(ctrl, AsState(&testHandleState{}), WithEphemeralState())
+	ctrl := &testEphemeralController{}
+	handler := tmpl.Handle(ctrl, AsState(&testEphemeralState{}))
 
 	// POST with JSON (JS client mode) to get the response body directly
 	form := url.Values{}
@@ -2618,8 +2637,8 @@ func TestMount_RunsOnHTTPPost(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	ctrl := &testHandleController{}
-	handler := tmpl.Handle(ctrl, AsState(&testHandleState{}))
+	ctrl := &testEphemeralController{}
+	handler := tmpl.Handle(ctrl, AsState(&testEphemeralState{}))
 
 	// POST with JSON accept to get structured response
 	form := url.Values{}
@@ -2652,8 +2671,8 @@ func TestMount_RunsOnWSReconnect(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	ctrl := &testHandleController{}
-	handler := tmpl.Handle(ctrl, AsState(&testHandleState{}))
+	ctrl := &testEphemeralController{}
+	handler := tmpl.Handle(ctrl, AsState(&testEphemeralState{}))
 
 	server := httptest.NewServer(handler)
 	defer server.Close()
@@ -2689,9 +2708,9 @@ func TestMount_RunsOnWSReconnect(t *testing.T) {
 	}
 }
 
-// TestWithEphemeralState_DispatchedActionNotPersisted verifies that dispatched
+// TestEphemeral_DispatchedActionNotPersisted verifies that dispatched
 // actions in ephemeral mode modify in-memory state but don't persist to the store.
-func TestWithEphemeralState_DispatchedActionNotPersisted(t *testing.T) {
+func TestEphemeral_DispatchedActionNotPersisted(t *testing.T) {
 	auth := &fixedGroupAuth{groupID: "ephemeral-dispatch-test"}
 
 	tmpl, err := New("test", WithAuthenticator(auth))
@@ -2704,7 +2723,7 @@ func TestWithEphemeralState_DispatchedActionNotPersisted(t *testing.T) {
 	}
 
 	ctrl := &broadcastTestController{}
-	handler := tmpl.Handle(ctrl, AsState(&broadcastTestState{}), WithEphemeralState())
+	handler := tmpl.Handle(ctrl, AsState(&broadcastTestState{}))
 
 	server := httptest.NewServer(handler)
 	defer server.Close()
@@ -2747,9 +2766,9 @@ func TestWithEphemeralState_DispatchedActionNotPersisted(t *testing.T) {
 	}
 }
 
-// TestWithEphemeralState_SyncStillWorks verifies that Sync() auto-dispatches
+// TestEphemeral_SyncStillWorks verifies that Sync() auto-dispatches
 // to peer connections in ephemeral mode (uses in-memory registry, not SessionStore).
-func TestWithEphemeralState_SyncStillWorks(t *testing.T) {
+func TestEphemeral_SyncStillWorks(t *testing.T) {
 	db := &syncDB{items: make(map[string][]syncDBItem)}
 	auth := &fixedGroupAuth{groupID: "ephemeral-sync-test"}
 
@@ -2763,7 +2782,7 @@ func TestWithEphemeralState_SyncStillWorks(t *testing.T) {
 	}
 
 	ctrl := &syncController{DB: db}
-	handler := tmpl.Handle(ctrl, AsState(&itemsState{}), WithEphemeralState())
+	handler := tmpl.Handle(ctrl, AsState(&itemsState{}))
 
 	server := httptest.NewServer(handler)
 	defer server.Close()

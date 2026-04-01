@@ -3,7 +3,6 @@ package livetemplate
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
@@ -43,26 +42,6 @@ type SessionStore interface {
 	// Used for broadcasting and cleanup operations.
 	// The context can be used for cancellation, timeouts, and tracing.
 	List(ctx context.Context) []string
-}
-
-// SingleStoreSetter is an optional interface that SessionStore implementations
-// can implement to support targeted persistence of individual stores.
-//
-// This is an optimization for multi-store setups: instead of persisting all stores
-// after every action, only the modified store is persisted. This is especially
-// beneficial for Redis-based stores where network roundtrips are expensive.
-//
-// Implementation guidelines:
-//   - MemorySessionStore: no-op (references are already updated in-place)
-//   - RedisSessionStore: serialize and write only the specified store
-//
-// The framework will check if the SessionStore implements this interface
-// and use SetStore when available, falling back to Set otherwise.
-type SingleStoreSetter interface {
-	// SetStore persists a single store within a session group.
-	// This is more efficient than Set() when only one store has changed.
-	// The storeName is the key in the Stores map (empty string for single-store mode).
-	SetStore(ctx context.Context, groupID string, storeName string, store interface{})
 }
 
 // ========================================
@@ -194,17 +173,6 @@ func (s *MemorySessionStore) List(ctx context.Context) []string {
 	return groupIDs
 }
 
-// SetStore is a no-op for MemorySessionStore.
-// Memory stores use references, so modifications to store objects are already
-// persisted in-place. This method is provided for interface compliance.
-func (s *MemorySessionStore) SetStore(ctx context.Context, groupID string, storeName string, store interface{}) {
-	// No-op: MemorySessionStore uses references, so the store is already updated in-place.
-	// We just update the last access time to prevent premature cleanup.
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.lastAccess[groupID] = time.Now()
-}
-
 // Close stops the cleanup goroutine.
 // Should be called when shutting down the application.
 func (s *MemorySessionStore) Close() {
@@ -269,6 +237,7 @@ const (
 
 	// Hash field names for v2 schema
 	metaField      = "_meta"
+	stateField     = "state"
 	schemaVersion2 = "2"
 )
 
@@ -449,87 +418,13 @@ func (s *RedisSessionStore) queueTTLRefresh(groupID string) {
 	}
 }
 
-// deserializeFromHash deserializes state from a Redis hash (v2 format).
-// In Controller+State pattern, state is stored as JSON under the "state" key.
+// deserializeFromHash extracts state JSON bytes from a Redis hash (v2 format).
+// Returns raw JSON bytes for the caller (mount.go) to deserialize with type info.
 func (s *RedisSessionStore) deserializeFromHash(hashData map[string]string) interface{} {
-	// New Controller+State pattern: state is stored as plain JSON under "state" key
-	if stateJSON, ok := hashData["state"]; ok {
-		var state interface{}
-		if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
-			slog.Warn("Failed to unmarshal state",
-				slog.String("component", "redis_session_store"),
-				slog.Any("error", err))
-			return nil
-		}
-		return state
+	if stateJSON, ok := hashData[stateField]; ok && stateJSON != "" {
+		return []byte(stateJSON)
 	}
-
-	// No state found
 	return nil
-}
-
-// serializeSingleStore encodes a single store for Redis storage.
-//
-// If the store has `lvt:"state"` tagged fields, only those fields are serialized.
-// This allows controllers to have non-serializable dependencies (DB, Logger, etc.)
-// while still persisting their state.
-//
-// If the store has no state tags, the entire store is serialized using Gob
-// (backward compatible behavior).
-func (s *RedisSessionStore) serializeSingleStore(store interface{}) (string, error) {
-	// Check if store has state-tagged fields
-	stateFields := ExtractState(store)
-	if stateFields != nil {
-		// Serialize only state fields
-		data, err := SerializeState(stateFields)
-		if err != nil {
-			return "", fmt.Errorf("state serialization failed: %w", err)
-		}
-		// Prefix with "s:" to indicate state-only format
-		return "s:" + base64.StdEncoding.EncodeToString(data), nil
-	}
-
-	// No state tags - serialize entire store using Gob (backward compatible)
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-
-	if err := enc.Encode(&store); err != nil {
-		return "", fmt.Errorf("gob encode failed: %w (hint: custom types must be registered with gob.Register() in init())", err)
-	}
-
-	// Prefix with "g:" to indicate Gob format
-	return "g:" + base64.StdEncoding.EncodeToString(buf.Bytes()), nil
-}
-
-// deserializeSingleStore decodes a single store from Redis storage.
-//
-// Supported formats (detected by prefix):
-//   - "s:..." - State-only format (JSON envelope containing only `lvt:"state"` fields)
-//   - "g:..." - Gob format (entire store encoded with gob)
-//   - No prefix - Legacy gob format (backward compatibility)
-//
-// StateData wraps raw state bytes from Redis for later injection.
-// When mount.go encounters this type in Stores, it knows to:
-// 1. Clone the template's original store (which has dependencies)
-// 2. Deserialize state into the clone using DeserializeState()
-// 3. Inject state into the clone using InjectState()
-//
-// This type is exported so mount.go can detect and handle it.
-type StateData struct {
-	Raw []byte // Raw state envelope bytes (JSON format from SerializeState)
-}
-
-// IsStateData checks if a value is wrapped state data that needs injection.
-func IsStateData(v interface{}) bool {
-	_, ok := v.(*StateData)
-	return ok
-}
-
-// GetStateData extracts the StateData wrapper from a value, if present.
-// Returns nil if the value is not StateData.
-func GetStateData(v interface{}) *StateData {
-	sd, _ := v.(*StateData)
-	return sd
 }
 
 // Set stores state for a session group.
@@ -544,15 +439,21 @@ func (s *RedisSessionStore) Set(ctx context.Context, groupID string, state inter
 		return
 	}
 
-	// Serialize state as JSON
-	stateJSON, err := json.Marshal(state)
-	if err != nil {
-		slog.Error("Failed to marshal state",
-			slog.String("component", "redis_session_store"),
-			slog.String("operation", "Set"),
-			slog.String("group_id", groupID),
-			slog.Any("error", err))
-		return
+	// State can be raw JSON bytes (from selective persistence) or a struct
+	var stateJSON []byte
+	var err error
+	if raw, ok := state.([]byte); ok {
+		stateJSON = raw
+	} else {
+		stateJSON, err = json.Marshal(state)
+		if err != nil {
+			slog.Error("Failed to marshal state",
+				slog.String("component", "redis_session_store"),
+				slog.String("operation", "Set"),
+				slog.String("group_id", groupID),
+				slog.Any("error", err))
+			return
+		}
 	}
 
 	// Build hash fields
@@ -575,7 +476,7 @@ func (s *RedisSessionStore) Set(ctx context.Context, groupID string, state inter
 	fields[metaField] = string(metaJSON)
 
 	// Store state under "state" key
-	fields["state"] = string(stateJSON)
+	fields[stateField] = string(stateJSON)
 
 	// Use pipeline for atomic operations
 	pipe := s.client.Pipeline()
@@ -595,63 +496,6 @@ func (s *RedisSessionStore) Set(ctx context.Context, groupID string, state inter
 			slog.String("component", "redis_session_store"),
 			slog.String("operation", "Set"),
 			slog.String("group_id", groupID),
-			slog.Any("error", err))
-	}
-}
-
-// SetStore persists a single store within a session group.
-// Uses Redis HSET to update only the specified store field, which is
-// more efficient than Set() when only one store has changed.
-//
-// This is the primary optimization of v2 schema: instead of serializing
-// and writing all stores, we only serialize and write the modified store.
-func (s *RedisSessionStore) SetStore(ctx context.Context, groupID string, storeName string, store interface{}) {
-	key := sessionKeyPrefix + groupID
-
-	// Serialize the single store using Gob (preserves type information)
-	encoded, err := s.serializeSingleStore(store)
-	if err != nil {
-		slog.Error("Serialization failed",
-			slog.String("component", "redis_session_store"),
-			slog.String("operation", "SetStore"),
-			slog.String("group_id", groupID),
-			slog.String("store_name", storeName),
-			slog.Any("error", err))
-		return
-	}
-
-	// Update metadata
-	meta := sessionMeta{
-		Version:   schemaVersion2,
-		UpdatedAt: time.Now().Unix(),
-	}
-	metaJSON, err := json.Marshal(meta)
-	if err != nil {
-		slog.Error("Failed to marshal metadata",
-			slog.String("component", "redis_session_store"),
-			slog.String("operation", "SetStore"),
-			slog.String("group_id", groupID),
-			slog.Any("error", err))
-		return
-	}
-
-	// Use pipeline to update both the store field and metadata atomically
-	pipe := s.client.Pipeline()
-
-	// Set the store field and metadata
-	pipe.HSet(ctx, key, storeName, encoded)
-	pipe.HSet(ctx, key, metaField, string(metaJSON))
-
-	// Refresh TTL
-	pipe.Expire(ctx, key, s.ttl)
-
-	// Execute pipeline with retry
-	if err := s.execPipelineWithRetry(ctx, pipe); err != nil {
-		slog.Error("Redis persistence failed",
-			slog.String("component", "redis_session_store"),
-			slog.String("operation", "SetStore"),
-			slog.String("group_id", groupID),
-			slog.String("store_name", storeName),
 			slog.Any("error", err))
 	}
 }

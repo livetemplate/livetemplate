@@ -1505,7 +1505,6 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		wsBufferSize:           t.config.WebSocketBufferSize,
 		ProgressiveEnhancement: t.config.ProgressiveEnhancement,
 		HasSync:                HasActionMethod(controller, state.Inner(), syncMethodName),
-		EphemeralState:         config.ephemeralState,
 	}
 
 	if HasActionMethod(controller, state.Inner(), CapabilityChange) {
@@ -1530,8 +1529,15 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 		}
 	}
 
+	// Detect persist fields for selective state persistence
+	var ps persistableState
+	if p, ok := state.(persistableState); ok && p.HasPersistFields() {
+		ps = p
+	}
+
 	handler := &liveHandler{
 		config:          mountCfg,
+		persistable:     ps,
 		registry:        session.NewConnectionRegistry(),
 		limits:          limits,
 		metricsExporter: metricsExporter,
@@ -1578,8 +1584,7 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 type HandleOption func(*handleConfig)
 
 type handleConfig struct {
-	sessionStore   SessionStore
-	ephemeralState bool
+	sessionStore SessionStore
 }
 
 // WithStore sets the session store for state persistence.
@@ -1587,19 +1592,6 @@ type handleConfig struct {
 func WithStore(store SessionStore) HandleOption {
 	return func(c *handleConfig) {
 		c.sessionStore = store
-	}
-}
-
-// WithEphemeralState disables state persistence to the SessionStore.
-// Every HTTP request and WebSocket connect/reconnect starts with fresh state
-// from Mount(). Use this when the database is your canonical state store and
-// LiveTemplate state is a rendering projection that doesn't need to survive
-// page refreshes or WebSocket reconnections.
-//
-// HTTP template diff caches are evicted after 30 minutes of inactivity.
-func WithEphemeralState() HandleOption {
-	return func(c *handleConfig) {
-		c.ephemeralState = true
 	}
 }
 

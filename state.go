@@ -46,7 +46,10 @@ func AsState[T any](s *T) State {
 	if err := validatePureState[T](); err != nil {
 		panic(fmt.Sprintf("livetemplate.AsState: %v", err))
 	}
-	return &jsonState[T]{value: s}
+	return &jsonState[T]{
+		value:         s,
+		persistFields: detectPersistFields[T](),
+	}
 }
 
 var pureStateCache sync.Map // reflect.Type → error (nil for pure)
@@ -139,9 +142,26 @@ func isDependencyType(typ reflect.Type) bool {
 	return false
 }
 
-// jsonState is the generic wrapper implementing State with JSON serialization
+// persistableState is an internal interface for selective state persistence.
+// Implemented by jsonState[T] when the state type has lvt:"persist" tagged fields.
+// Used by mount.go to determine persistence behavior.
+type persistableState interface {
+	HasPersistFields() bool
+	ExtractPersistFields(state interface{}) ([]byte, error)
+	InjectPersistFields(data []byte) (interface{}, error)
+}
+
+// jsonState is the generic wrapper implementing State with JSON serialization.
+// It also detects lvt:"persist" tags at construction time for selective persistence.
 type jsonState[T any] struct {
-	value *T
+	value         *T
+	persistFields []persistFieldInfo // cached at AsState() time; nil if no persist tags
+}
+
+// persistFieldInfo holds metadata for a field tagged with lvt:"persist".
+type persistFieldInfo struct {
+	jsonName string // JSON tag name used for serialization
+	index    int    // Field index in struct
 }
 
 func (s *jsonState[T]) MarshalBinary() ([]byte, error) {
@@ -156,397 +176,173 @@ func (s *jsonState[T]) Inner() any {
 	return s.value
 }
 
-// =============================================================================
-// Legacy State Tag Handling (to be removed in Task 9)
-// =============================================================================
-
-// stateTag is the struct tag used to mark fields for persistence.
-// Fields tagged with `lvt:"state"` are serialized/deserialized by the framework.
-// Fields without this tag are NOT persisted (e.g., dependencies like DB, Logger).
-//
-// Example:
-//
-//	type UserController struct {
-//	    Profile  *UserProfile  `lvt:"state"`  // Persisted
-//	    Settings *UserSettings `lvt:"state"`  // Persisted
-//	    DB       *sql.DB                      // NOT persisted
-//	    Logger   *slog.Logger                 // NOT persisted
-//	}
-const stateTag = "lvt"
-const stateTagValue = "state"
-const transientTagValue = "transient"
-
-// stateFieldCache caches reflection info for state fields by type.
-// Key: reflect.Type, Value: []stateFieldInfo
-var stateFieldCache sync.Map
-
-// stateFieldInfo holds metadata about a state field.
-type stateFieldInfo struct {
-	Name  string       // Field name
-	Index int          // Field index in struct
-	Type  reflect.Type // Field type
+// HasPersistFields returns true if the state type has any lvt:"persist" tagged fields.
+func (s *jsonState[T]) HasPersistFields() bool {
+	return len(s.persistFields) > 0
 }
 
-// HasStateFields checks if a store has any fields tagged with `lvt:"state"`.
-// This is used to determine if selective serialization should be used.
-func HasStateFields(store interface{}) bool {
-	fields := getStateFieldInfo(store)
-	return len(fields) > 0
+// ExtractPersistFields serializes only lvt:"persist" tagged fields from a raw state value.
+// Returns JSON bytes containing only the persist fields, suitable for SessionStore storage.
+func (s *jsonState[T]) ExtractPersistFields(state interface{}) ([]byte, error) {
+	if len(s.persistFields) == 0 {
+		return nil, nil
+	}
+	v := reflect.ValueOf(state)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+	m := make(map[string]any, len(s.persistFields))
+	for _, f := range s.persistFields {
+		m[f.jsonName] = v.Field(f.index).Interface()
+	}
+	return json.Marshal(m)
 }
 
-// getStateFieldInfo returns metadata about state-tagged fields for a store type.
-// Results are cached by type for performance.
-func getStateFieldInfo(store interface{}) []stateFieldInfo {
-	storeType := reflect.TypeOf(store)
-	if storeType.Kind() == reflect.Ptr {
-		storeType = storeType.Elem()
+// InjectPersistFields creates a zero-value state and deserializes persist field data into it.
+// Only persist-tagged fields are populated; all other fields remain at zero values.
+// Returns the state as a value type (not pointer).
+func (s *jsonState[T]) InjectPersistFields(data []byte) (interface{}, error) {
+	if len(s.persistFields) == 0 || len(data) == 0 {
+		var zero T
+		return zero, nil
 	}
-
-	// Check cache
-	if cached, ok := stateFieldCache.Load(storeType); ok {
-		return cached.([]stateFieldInfo)
+	// Decode into map first so only persist-tagged fields are applied,
+	// regardless of what keys the stored data contains.
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("failed to deserialize persist fields: %w", err)
 	}
-
-	// Build field info
-	var fields []stateFieldInfo
-	for i := 0; i < storeType.NumField(); i++ {
-		field := storeType.Field(i)
-		tag := field.Tag.Get(stateTag)
-
-		if tag == stateTagValue {
-			fields = append(fields, stateFieldInfo{
-				Name:  field.Name,
-				Index: i,
-				Type:  field.Type,
-			})
-		} else if tag != "" {
-			// Warn on potential typos: case variations or common mistakes
-			validateStateTag(tag, field.Name, storeType.Name())
+	var state T
+	rv := reflect.ValueOf(&state).Elem()
+	for _, f := range s.persistFields {
+		fieldData, ok := raw[f.jsonName]
+		if !ok {
+			continue
+		}
+		fv := rv.Field(f.index)
+		if !fv.CanSet() {
+			continue
+		}
+		if err := json.Unmarshal(fieldData, fv.Addr().Interface()); err != nil {
+			return nil, fmt.Errorf("failed to deserialize persist field %q: %w", f.jsonName, err)
 		}
 	}
+	return state, nil
+}
 
-	// Cache and return
-	stateFieldCache.Store(storeType, fields)
+// detectPersistFields inspects a struct type for lvt:"persist" tagged fields.
+func detectPersistFields[T any]() []persistFieldInfo {
+	var zero T
+	t := reflect.TypeOf(zero)
+	if t == nil {
+		return nil
+	}
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return nil
+	}
+	var fields []persistFieldInfo
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		tag := f.Tag.Get(stateTag)
+		if tag != "" && tag != persistTagValue {
+			validatePersistTag(tag, f.Name, t.Name())
+		}
+		if tag == persistTagValue {
+			// Skip unexported fields — they can't be serialized
+			if !f.IsExported() {
+				slog.Warn("lvt:\"persist\" on unexported field is ignored",
+					slog.String("field", f.Name),
+					slog.String("type", t.Name()))
+				continue
+			}
+			// Skip json:"-" fields — they can't round-trip through JSON
+			jt := f.Tag.Get("json")
+			if jt == "-" {
+				slog.Warn("lvt:\"persist\" on json:\"-\" field is ignored (cannot serialize)",
+					slog.String("field", f.Name),
+					slog.String("type", t.Name()))
+				continue
+			}
+			jsonName := f.Name
+			if jt != "" {
+				parts := strings.Split(jt, ",")
+				if parts[0] != "" && parts[0] != "-" {
+					jsonName = parts[0]
+				}
+			}
+			fields = append(fields, persistFieldInfo{
+				jsonName: jsonName,
+				index:    i,
+			})
+		}
+	}
 	return fields
 }
 
-// validateStateTag warns if a tag value looks like a typo or invalid combination.
-// Valid values: "state" (for persistence in Controller+State pattern), "transient" (cleared on reload)
-func validateStateTag(tag, fieldName, typeName string) {
-	// Check for comma-separated values (invalid - can only use one)
-	if strings.Contains(tag, ",") {
-		slog.Warn("Invalid lvt tag: cannot combine multiple values",
-			slog.String("field", fieldName),
-			slog.String("type", typeName),
-			slog.String("got", tag),
-			slog.String("valid_values", "state, transient (use one, not both)"))
+// =============================================================================
+// Selective Persistence via lvt:"persist" Tag
+// =============================================================================
+
+// stateTag is the struct tag key for LiveTemplate field annotations.
+const stateTag = "lvt"
+
+// persistTagValue marks a field for persistence to SessionStore.
+// Fields with this tag survive page refresh; fields without it are ephemeral
+// (zero value on reload, loaded by Mount() from DB or URL params).
+const persistTagValue = "persist"
+
+// validatePersistTag warns if a tag value looks like a typo.
+func validatePersistTag(tag, fieldName, typeName string) {
+	if tag == persistTagValue {
 		return
 	}
 
-	// Check if it's a known valid value
-	validValues := []string{stateTagValue, transientTagValue}
-	for _, valid := range validValues {
-		if tag == valid {
-			return // Valid, no warning needed
-		}
+	// Warn about removed tag values from previous versions
+	if tag == "state" || tag == "transient" {
+		slog.Warn("lvt tag value is no longer supported, use 'persist' instead",
+			slog.String("field", fieldName),
+			slog.String("type", typeName),
+			slog.String("got", tag))
+		return
+	}
+
+	if strings.Contains(tag, ",") {
+		slog.Warn("Invalid lvt tag: only single values are allowed",
+			slog.String("field", fieldName),
+			slog.String("type", typeName),
+			slog.String("got", tag),
+			slog.String("valid_values", "persist"))
+		return
 	}
 
 	lowerTag := strings.ToLower(tag)
 
-	// Case variation of "state"
-	if lowerTag == stateTagValue && tag != stateTagValue {
-		slog.Warn("Possible typo in lvt tag: use lowercase 'state'",
+	if lowerTag == persistTagValue && tag != persistTagValue {
+		slog.Warn("Possible typo in lvt tag: use lowercase 'persist'",
 			slog.String("field", fieldName),
 			slog.String("type", typeName),
 			slog.String("got", tag),
-			slog.String("expected", stateTagValue))
+			slog.String("expected", persistTagValue))
 		return
 	}
 
-	// Case variation of "transient"
-	if lowerTag == transientTagValue && tag != transientTagValue {
-		slog.Warn("Possible typo in lvt tag: use lowercase 'transient'",
-			slog.String("field", fieldName),
-			slog.String("type", typeName),
-			slog.String("got", tag),
-			slog.String("expected", transientTagValue))
-		return
-	}
-
-	// Common typos of "state"
-	typos := []string{"states", "stae", "satte", "stat", "staet"}
+	typos := []string{"persit", "persits", "presist", "persistant", "persistent"}
 	for _, typo := range typos {
 		if lowerTag == typo {
 			slog.Warn("Possible typo in lvt tag",
 				slog.String("field", fieldName),
 				slog.String("type", typeName),
 				slog.String("got", tag),
-				slog.String("expected", stateTagValue))
+				slog.String("expected", persistTagValue))
 			return
 		}
 	}
 
-	// Common typos of "transient"
-	transientTypos := []string{"transiant", "transent", "trasient", "tranisent"}
-	for _, typo := range transientTypos {
-		if lowerTag == typo {
-			slog.Warn("Possible typo in lvt tag",
-				slog.String("field", fieldName),
-				slog.String("type", typeName),
-				slog.String("got", tag),
-				slog.String("expected", transientTagValue))
-			return
-		}
-	}
-
-	// Unknown tag value - just log at debug level
 	slog.Debug("Unknown lvt tag value",
 		slog.String("field", fieldName),
 		slog.String("type", typeName),
 		slog.String("got", tag))
-}
-
-// ExtractState extracts state-tagged fields from a store into a serializable map.
-// Returns nil if the store has no state-tagged fields.
-//
-// The returned map has field names as keys and field values as values.
-// This map can be serialized with SerializeState.
-func ExtractState(store interface{}) map[string]interface{} {
-	fields := getStateFieldInfo(store)
-	if len(fields) == 0 {
-		return nil
-	}
-
-	storeValue := reflect.ValueOf(store)
-	if storeValue.Kind() == reflect.Ptr {
-		storeValue = storeValue.Elem()
-	}
-
-	result := make(map[string]interface{}, len(fields))
-	for _, field := range fields {
-		fieldValue := storeValue.Field(field.Index)
-		if fieldValue.CanInterface() {
-			result[field.Name] = fieldValue.Interface()
-		}
-	}
-
-	return result
-}
-
-// InjectState injects state from a map back into a store's state-tagged fields.
-// This is used during deserialization to restore state into a cloned controller.
-//
-// The map should have field names as keys (matching the struct field names).
-func InjectState(store interface{}, state map[string]interface{}) error {
-	fields := getStateFieldInfo(store)
-	if len(fields) == 0 {
-		return nil
-	}
-
-	storeValue := reflect.ValueOf(store)
-	if storeValue.Kind() == reflect.Ptr {
-		storeValue = storeValue.Elem()
-	}
-
-	for _, field := range fields {
-		if value, ok := state[field.Name]; ok {
-			fieldValue := storeValue.Field(field.Index)
-			if fieldValue.CanSet() {
-				// Handle type conversion
-				valueReflect := reflect.ValueOf(value)
-				if valueReflect.Type().AssignableTo(field.Type) {
-					fieldValue.Set(valueReflect)
-				} else if valueReflect.Type().ConvertibleTo(field.Type) {
-					fieldValue.Set(valueReflect.Convert(field.Type))
-				} else {
-					return fmt.Errorf("cannot assign %T to field %s of type %s", value, field.Name, field.Type)
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
-// ClearTransientFields zeros out fields tagged with `lvt:"transient"`.
-// This is called when restoring state after a page reload/reconnect to ensure
-// transient UI state (like which modal is open) doesn't persist across page loads.
-//
-// Example usage in state struct:
-//
-//	type PostsState struct {
-//	    SearchQuery  string     `json:"search_query"`                    // Persisted
-//	    EditingID    string     `json:"editing_id" lvt:"transient"`      // Cleared on reload
-//	    EditingPost  *PostItem  `json:"editing_post" lvt:"transient"`    // Cleared on reload
-//	}
-func ClearTransientFields(state interface{}) interface{} {
-	// If state implements the State interface (e.g., jsonState wrapper),
-	// unwrap it to get the actual state struct
-	if s, ok := state.(State); ok {
-		state = s.Inner()
-	}
-
-	v := reflect.ValueOf(state)
-
-	// Track whether input was a pointer for correct return type
-	wasPointer := false
-	var elem reflect.Value
-
-	// Handle pointer vs value - we need an addressable struct to modify fields
-	if v.Kind() == reflect.Ptr {
-		if v.IsNil() {
-			return state
-		}
-		wasPointer = true
-		elem = v.Elem()
-	} else if v.Kind() == reflect.Struct {
-		// Value type - create an addressable copy
-		ptr := reflect.New(v.Type())
-		ptr.Elem().Set(v)
-		elem = ptr.Elem()
-	} else {
-		return state
-	}
-
-	if elem.Kind() != reflect.Struct {
-		return state
-	}
-
-	t := elem.Type()
-	clearedCount := 0
-	for i := 0; i < elem.NumField(); i++ {
-		field := t.Field(i)
-		lvtTag := field.Tag.Get(stateTag)
-		if lvtTag == transientTagValue {
-			if elem.Field(i).CanSet() {
-				elem.Field(i).Set(reflect.Zero(field.Type))
-				clearedCount++
-			}
-		}
-	}
-
-	if clearedCount > 0 {
-		slog.Debug("ClearTransientFields: cleared transient fields",
-			slog.String("type", t.Name()),
-			slog.Int("count", clearedCount))
-	}
-
-	// Return matching type: pointer if input was pointer, value otherwise
-	if wasPointer {
-		return elem.Addr().Interface()
-	}
-	return elem.Interface()
-}
-
-// stateEnvelope is the serialization format for state-tagged fields.
-// Each field is serialized independently (either via BinaryMarshaler or JSON).
-type stateEnvelope struct {
-	Version int               `json:"v"`      // Envelope version for future compatibility
-	Fields  map[string][]byte `json:"fields"` // Field name -> serialized bytes
-}
-
-// SerializeState serializes state fields into bytes.
-// Each field is serialized using BinaryMarshaler if available, otherwise JSON.
-//
-// The envelope format allows individual fields to use different serialization methods.
-func SerializeState(state map[string]interface{}) ([]byte, error) {
-	if len(state) == 0 {
-		return nil, nil
-	}
-
-	envelope := stateEnvelope{
-		Version: 1,
-		Fields:  make(map[string][]byte, len(state)),
-	}
-
-	for name, value := range state {
-		var data []byte
-		var err error
-
-		// Check if value implements BinaryMarshaler
-		if marshaler, ok := value.(encoding.BinaryMarshaler); ok {
-			data, err = marshaler.MarshalBinary()
-		} else {
-			// Default to JSON
-			data, err = json.Marshal(value)
-		}
-
-		if err != nil {
-			return nil, fmt.Errorf("failed to serialize field %q: %w", name, err)
-		}
-
-		envelope.Fields[name] = data
-	}
-
-	return json.Marshal(envelope)
-}
-
-// DeserializeState deserializes state bytes into a map of field values.
-// The store parameter provides type information for proper deserialization.
-//
-// For BinaryUnmarshaler fields, the method creates new instances and calls UnmarshalBinary.
-// For other fields, JSON is used.
-func DeserializeState(data []byte, store interface{}) (map[string]interface{}, error) {
-	if len(data) == 0 {
-		return nil, nil
-	}
-
-	var envelope stateEnvelope
-	if err := json.Unmarshal(data, &envelope); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal state envelope: %w", err)
-	}
-
-	if envelope.Version != 1 {
-		return nil, fmt.Errorf("unsupported state envelope version: %d", envelope.Version)
-	}
-
-	fields := getStateFieldInfo(store)
-	fieldTypes := make(map[string]reflect.Type, len(fields))
-	for _, f := range fields {
-		fieldTypes[f.Name] = f.Type
-	}
-
-	result := make(map[string]interface{}, len(envelope.Fields))
-
-	for name, fieldData := range envelope.Fields {
-		fieldType, ok := fieldTypes[name]
-		if !ok {
-			// Field no longer exists in struct - skip
-			continue
-		}
-
-		// Create a new instance of the field type
-		var fieldPtr reflect.Value
-		if fieldType.Kind() == reflect.Ptr {
-			fieldPtr = reflect.New(fieldType.Elem())
-		} else {
-			fieldPtr = reflect.New(fieldType)
-		}
-
-		fieldValue := fieldPtr.Interface()
-
-		// Check if field implements BinaryUnmarshaler
-		if unmarshaler, ok := fieldValue.(encoding.BinaryUnmarshaler); ok {
-			if err := unmarshaler.UnmarshalBinary(fieldData); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal field %q: %w", name, err)
-			}
-			if fieldType.Kind() == reflect.Ptr {
-				result[name] = fieldValue
-			} else {
-				result[name] = fieldPtr.Elem().Interface()
-			}
-		} else {
-			// Default to JSON
-			if err := json.Unmarshal(fieldData, fieldValue); err != nil {
-				return nil, fmt.Errorf("failed to JSON unmarshal field %q: %w", name, err)
-			}
-			if fieldType.Kind() == reflect.Ptr {
-				result[name] = fieldValue
-			} else {
-				result[name] = fieldPtr.Elem().Interface()
-			}
-		}
-	}
-
-	return result, nil
 }
