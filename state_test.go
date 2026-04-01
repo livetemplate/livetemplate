@@ -293,8 +293,9 @@ func TestPersistFields_JSONTagWithOptions(t *testing.T) {
 	state := AsState(&StateWithOptions{})
 	js := state.(*jsonState[StateWithOptions])
 
-	if len(js.persistFields) != 3 {
-		t.Fatalf("Expected 3 persist fields, got %d", len(js.persistFields))
+	// json:"-" fields are skipped (can't round-trip), so only 2 persist fields
+	if len(js.persistFields) != 2 {
+		t.Fatalf("Expected 2 persist fields (json:\"-\" skipped), got %d", len(js.persistFields))
 	}
 
 	// "filter,omitempty" should extract "filter" as json name
@@ -302,17 +303,9 @@ func TestPersistFields_JSONTagWithOptions(t *testing.T) {
 		t.Errorf("First field jsonName: got %q, want %q", js.persistFields[0].jsonName, "filter")
 	}
 
-	// json:"-" should use field name as fallback since - means skip
-	// Actually "-" is a valid json name meaning skip, so we check the parsing
-	// The detectPersistFields function checks for "-" and skips it, falling back to field name
-	// Wait, actually our code checks `parts[0] != "-"` so for `-`, it falls back to field Name
-	if js.persistFields[1].jsonName != "NoJSON" {
-		t.Errorf("Second field jsonName: got %q, want %q", js.persistFields[1].jsonName, "NoJSON")
-	}
-
 	// No json tag should use field name
-	if js.persistFields[2].jsonName != "Plain" {
-		t.Errorf("Third field jsonName: got %q, want %q", js.persistFields[2].jsonName, "Plain")
+	if js.persistFields[1].jsonName != "Plain" {
+		t.Errorf("Second field jsonName: got %q, want %q", js.persistFields[1].jsonName, "Plain")
 	}
 }
 

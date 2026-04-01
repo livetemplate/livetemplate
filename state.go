@@ -201,18 +201,31 @@ func (s *jsonState[T]) ExtractPersistFields(state interface{}) ([]byte, error) {
 // InjectPersistFields creates a zero-value state and deserializes persist field data into it.
 // Only persist-tagged fields are populated; all other fields remain at zero values.
 // Returns the state as a value type (not pointer).
-//
-// Safety invariant: data must contain only persist-field keys (as produced by
-// ExtractPersistFields). The function uses json.Unmarshal which would populate
-// any matching field — the caller contract, not this function, ensures selectivity.
 func (s *jsonState[T]) InjectPersistFields(data []byte) (interface{}, error) {
 	if len(s.persistFields) == 0 || len(data) == 0 {
 		var zero T
 		return zero, nil
 	}
-	var state T
-	if err := json.Unmarshal(data, &state); err != nil {
+	// Decode into map first so only persist-tagged fields are applied,
+	// regardless of what keys the stored data contains.
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("failed to deserialize persist fields: %w", err)
+	}
+	var state T
+	rv := reflect.ValueOf(&state).Elem()
+	for _, f := range s.persistFields {
+		fieldData, ok := raw[f.jsonName]
+		if !ok {
+			continue
+		}
+		fv := rv.Field(f.index)
+		if !fv.CanSet() {
+			continue
+		}
+		if err := json.Unmarshal(fieldData, fv.Addr().Interface()); err != nil {
+			return nil, fmt.Errorf("failed to deserialize persist field %q: %w", f.jsonName, err)
+		}
 	}
 	return state, nil
 }
@@ -238,8 +251,23 @@ func detectPersistFields[T any]() []persistFieldInfo {
 			validatePersistTag(tag, f.Name, t.Name())
 		}
 		if tag == persistTagValue {
+			// Skip unexported fields — they can't be serialized
+			if !f.IsExported() {
+				slog.Warn("lvt:\"persist\" on unexported field is ignored",
+					slog.String("field", f.Name),
+					slog.String("type", t.Name()))
+				continue
+			}
+			// Skip json:"-" fields — they can't round-trip through JSON
+			jt := f.Tag.Get("json")
+			if jt == "-" {
+				slog.Warn("lvt:\"persist\" on json:\"-\" field is ignored (cannot serialize)",
+					slog.String("field", f.Name),
+					slog.String("type", t.Name()))
+				continue
+			}
 			jsonName := f.Name
-			if jt := f.Tag.Get("json"); jt != "" {
+			if jt != "" {
 				parts := strings.Split(jt, ",")
 				if parts[0] != "" && parts[0] != "-" {
 					jsonName = parts[0]
