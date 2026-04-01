@@ -1,6 +1,35 @@
 // Package util provides generic utility functions that can be used across the livetemplate codebase.
 package util
 
+import (
+	"strings"
+	"unicode"
+)
+
+// ToSnakeCase converts PascalCase/camelCase to snake_case.
+// Example: "AddItem" → "add_item", "UpdateUserProfile" → "update_user_profile"
+func ToSnakeCase(s string) string {
+	if s == "" {
+		return ""
+	}
+
+	var result strings.Builder
+	result.Grow(len(s) + 5)
+
+	for i, r := range s {
+		if unicode.IsUpper(r) {
+			if i > 0 {
+				result.WriteByte('_')
+			}
+			result.WriteRune(unicode.ToLower(r))
+		} else {
+			result.WriteRune(r)
+		}
+	}
+
+	return result.String()
+}
+
 // FindCommonPrefix finds the longest common prefix between two strings.
 // Returns the prefix string, or empty string if no common prefix exists.
 //

@@ -5,6 +5,7 @@ package context
 
 import (
 	"bytes"
+	"html"
 	"html/template"
 	"reflect"
 	"strings"
@@ -68,6 +69,26 @@ func (t *TemplateContext) Error(field string) string {
 		return ""
 	}
 	return t.messages[field]
+}
+
+// ErrorTag returns the error message wrapped in a <small> element as template.HTML.
+// Returns empty template.HTML if the field has no error.
+// The error message text is HTML-escaped to prevent XSS.
+func (t *TemplateContext) ErrorTag(field string) template.HTML {
+	msg := t.Error(field)
+	if msg == "" {
+		return ""
+	}
+	return template.HTML("<small>" + html.EscapeString(msg) + "</small>")
+}
+
+// AriaInvalid returns aria-invalid="true" as template.HTML if the field has an error.
+// Returns empty template.HTML if no error exists.
+func (t *TemplateContext) AriaInvalid(field string) template.HTML {
+	if t.HasError(field) {
+		return template.HTML(`aria-invalid="true"`)
+	}
+	return ""
 }
 
 // HasError checks if a field has an error.

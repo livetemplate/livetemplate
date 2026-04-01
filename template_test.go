@@ -491,6 +491,95 @@ func TestTemplate_ExecuteUpdates_FlashWithoutConditional(t *testing.T) {
 	}
 }
 
+func TestTemplate_AriaInvalidHelper(t *testing.T) {
+	tmpl := Must(New("test"))
+	_, err := tmpl.Parse(`<div><input name="title" type="text" {{.lvt.AriaInvalid "title"}}></div>`)
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
+
+	type State struct{}
+
+	// With error — should output aria-invalid="true"
+	var buf bytes.Buffer
+	err = tmpl.Execute(&buf, State{}, map[string]string{"title": "Required"})
+	if err != nil {
+		t.Fatalf("Execute() failed: %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, `aria-invalid="true"`) {
+		t.Errorf("expected aria-invalid on input with error, got: %s", output)
+	}
+
+	// Without error — no aria-invalid
+	tmpl2 := Must(New("test2"))
+	tmpl2, _ = tmpl2.Parse(`<div><input name="title" type="text" {{.lvt.AriaInvalid "title"}}></div>`)
+	var buf2 bytes.Buffer
+	err = tmpl2.Execute(&buf2, State{}, map[string]string{})
+	if err != nil {
+		t.Fatalf("Execute() failed: %v", err)
+	}
+	output2 := buf2.String()
+	if strings.Contains(output2, "aria-invalid") {
+		t.Errorf("expected no aria-invalid without errors, got: %s", output2)
+	}
+}
+
+func TestTemplate_AriaInvalidAutoInjection_HTTPPath(t *testing.T) {
+	// Auto-injection in renderHTML still works for non-JS form submissions
+	tmpl := Must(New("test"))
+	_, err := tmpl.Parse(`<div><input name="title" type="text"></div>`)
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
+
+	type State struct{}
+
+	var buf bytes.Buffer
+	err = tmpl.Execute(&buf, State{}, map[string]string{"title": "Required"})
+	if err != nil {
+		t.Fatalf("Execute() failed: %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, `aria-invalid="true"`) {
+		t.Errorf("expected auto-injected aria-invalid in HTTP response, got: %s", output)
+	}
+}
+
+func TestTemplate_ErrorTagIntegration(t *testing.T) {
+	tmpl := Must(New("test"))
+	_, err := tmpl.Parse(`<div><input name="title" type="text">{{.lvt.ErrorTag "title"}}</div>`)
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
+
+	type State struct{}
+
+	// With error — should render <small> tag
+	var buf bytes.Buffer
+	err = tmpl.Execute(&buf, State{}, map[string]string{"title": "Required"})
+	if err != nil {
+		t.Fatalf("Execute() failed: %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, "<small>Required</small>") {
+		t.Errorf("expected <small>Required</small>, got: %s", output)
+	}
+
+	// Without error — should render nothing for ErrorTag
+	tmpl2 := Must(New("test2"))
+	tmpl2, _ = tmpl2.Parse(`<div><input name="title" type="text">{{.lvt.ErrorTag "title"}}</div>`)
+	var buf2 bytes.Buffer
+	err = tmpl2.Execute(&buf2, State{}, map[string]string{})
+	if err != nil {
+		t.Fatalf("Execute() failed: %v", err)
+	}
+	output2 := buf2.String()
+	if strings.Contains(output2, "<small>") {
+		t.Errorf("expected no <small> tag without errors, got: %s", output2)
+	}
+}
+
 func TestTemplate_CompileTimeTreeGeneration(t *testing.T) {
 	tests := []struct {
 		name                string

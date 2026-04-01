@@ -174,6 +174,122 @@ func TestTemplateContext_HasError(t *testing.T) {
 	}
 }
 
+func TestTemplateContext_ErrorTag(t *testing.T) {
+	tests := []struct {
+		name     string
+		messages map[string]string
+		field    string
+		want     template.HTML
+	}{
+		{
+			name:     "nil messages map",
+			messages: nil,
+			field:    "email",
+			want:     "",
+		},
+		{
+			name:     "field not in map",
+			messages: map[string]string{},
+			field:    "email",
+			want:     "",
+		},
+		{
+			name: "field exists",
+			messages: map[string]string{
+				"email": "Invalid email",
+			},
+			field: "email",
+			want:  "<small>Invalid email</small>",
+		},
+		{
+			name: "field does not exist",
+			messages: map[string]string{
+				"email": "Invalid email",
+			},
+			field: "name",
+			want:  "",
+		},
+		{
+			name: "HTML chars in message are escaped",
+			messages: map[string]string{
+				"count": "must be <10 & >0",
+			},
+			field: "count",
+			want:  "<small>must be &lt;10 &amp; &gt;0</small>",
+		},
+		{
+			name: "flash message key returns empty",
+			messages: map[string]string{
+				"_flash:success": "Saved!",
+			},
+			field: "_flash:success",
+			want:  "",
+		},
+		{
+			name: "empty error message returns empty",
+			messages: map[string]string{
+				"email": "",
+			},
+			field: "email",
+			want:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := NewTemplateContext(tt.messages, false)
+			got := ctx.ErrorTag(tt.field)
+			if got != tt.want {
+				t.Errorf("ErrorTag(%q) = %q, want %q", tt.field, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTemplateContext_AriaInvalid(t *testing.T) {
+	tests := []struct {
+		name     string
+		messages map[string]string
+		field    string
+		want     template.HTML
+	}{
+		{
+			name:     "nil messages",
+			messages: nil,
+			field:    "email",
+			want:     "",
+		},
+		{
+			name:     "no error for field",
+			messages: map[string]string{"title": "Required"},
+			field:    "email",
+			want:     "",
+		},
+		{
+			name:     "error exists",
+			messages: map[string]string{"email": "Invalid"},
+			field:    "email",
+			want:     `aria-invalid="true"`,
+		},
+		{
+			name:     "flash key returns empty",
+			messages: map[string]string{"_flash:success": "OK"},
+			field:    "_flash:success",
+			want:     "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := NewTemplateContext(tt.messages, false)
+			got := ctx.AriaInvalid(tt.field)
+			if got != tt.want {
+				t.Errorf("AriaInvalid(%q) = %q, want %q", tt.field, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestTemplateContext_HasAnyError(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -1706,7 +1706,14 @@ func (t *Template) renderHTML(data interface{}, messages map[string]string) (str
 		return "", err
 	}
 
-	return string(htmlBytes), nil
+	result := string(htmlBytes)
+
+	// Auto-inject aria-invalid="true" on form elements with validation errors
+	if fieldErrors := filterFieldErrors(messages); len(fieldErrors) > 0 {
+		result = build.InjectAriaInvalid(result, fieldErrors)
+	}
+
+	return result, nil
 }
 
 // renderHTMLWithData executes the template with a pre-built data map.
@@ -1722,6 +1729,24 @@ func (t *Template) renderHTMLWithData(dataWithLvt interface{}) (string, error) {
 	}
 
 	return string(htmlBytes), nil
+}
+
+// filterFieldErrors returns a map of only field errors (excludes flash messages).
+// Returns nil if there are no field errors.
+func filterFieldErrors(messages map[string]string) map[string]string {
+	if messages == nil {
+		return nil
+	}
+	var result map[string]string
+	for k, v := range messages {
+		if !strings.HasPrefix(k, context.FlashPrefix) {
+			if result == nil {
+				result = make(map[string]string)
+			}
+			result[k] = v
+		}
+	}
+	return result
 }
 
 // =============================================================================
