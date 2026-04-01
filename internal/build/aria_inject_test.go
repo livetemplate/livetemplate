@@ -106,3 +106,16 @@ func TestInjectAriaInvalid_FullDocument(t *testing.T) {
 		t.Errorf("expected aria-invalid in full document, got: %s", result)
 	}
 }
+
+func TestInjectAriaInvalid_HTMLCommentFragment(t *testing.T) {
+	// HTML comments starting with <! must not be treated as full documents
+	html := `<!-- comment --><div><input name="title" type="text"></div>`
+	errors := map[string]string{"title": "Required"}
+	result := InjectAriaInvalid(html, errors)
+	if !strings.Contains(result, `aria-invalid="true"`) {
+		t.Errorf("expected aria-invalid in comment fragment, got: %s", result)
+	}
+	if strings.Contains(result, "<html>") {
+		t.Errorf("fragment should not be wrapped in <html>, got: %s", result)
+	}
+}

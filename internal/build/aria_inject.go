@@ -31,8 +31,8 @@ func InjectAriaInvalid(htmlStr string, fieldErrors map[string]string) string {
 	// html.Parse always produces a full document tree (<html><head><body>).
 	// For fragment input, render only body children to avoid adding a wrapper.
 	trimmed := strings.TrimSpace(htmlStr)
-	isFullDoc := strings.HasPrefix(trimmed, "<!") ||
-		strings.HasPrefix(strings.ToLower(trimmed), "<html")
+	isFullDoc := (len(trimmed) >= 9 && strings.EqualFold(trimmed[:9], "<!doctype")) ||
+		(len(trimmed) >= 5 && strings.EqualFold(trimmed[:5], "<html"))
 
 	if isFullDoc {
 		if err := html.Render(&buf, doc); err != nil {

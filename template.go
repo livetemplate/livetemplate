@@ -1708,7 +1708,10 @@ func (t *Template) renderHTML(data interface{}, messages map[string]string) (str
 
 	result := string(htmlBytes)
 
-	// Auto-inject aria-invalid="true" on form elements with validation errors
+	// Auto-inject aria-invalid="true" on form elements with validation errors.
+	// Only applied in the HTTP response path (renderHTML). The WebSocket tree path
+	// (buildTree → buildTreeWithCache) builds trees from the template AST, not rendered
+	// HTML, so templates should use {{.lvt.AriaInvalid "field"}} for WebSocket updates.
 	if fieldErrors := filterFieldErrors(messages); len(fieldErrors) > 0 {
 		result = build.InjectAriaInvalid(result, fieldErrors)
 	}
