@@ -6,7 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"unicode"
+
+	"github.com/livetemplate/livetemplate/internal/util"
 )
 
 // ErrMethodNotFound is returned when Dispatch cannot find a method matching the action.
@@ -60,28 +61,8 @@ func methodNameToActions(methodName string) []string {
 	return actions
 }
 
-// toSnakeCase converts PascalCase/camelCase to snake_case.
-// Example: "AddItem" → "add_item", "UpdateUserProfile" → "update_user_profile"
 func toSnakeCase(s string) string {
-	if s == "" {
-		return ""
-	}
-
-	var result strings.Builder
-	result.Grow(len(s) + 5) // Estimate with room for underscores
-
-	for i, r := range s {
-		if unicode.IsUpper(r) {
-			if i > 0 {
-				result.WriteByte('_')
-			}
-			result.WriteRune(unicode.ToLower(r))
-		} else {
-			result.WriteRune(r)
-		}
-	}
-
-	return result.String()
+	return util.ToSnakeCase(s)
 }
 
 // =============================================================================

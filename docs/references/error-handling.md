@@ -196,9 +196,30 @@ LiveTemplate provides template helpers for displaying errors.
 |--------|-------------|---------|
 | `.lvt.HasError "field"` | Check if field has error | `bool` |
 | `.lvt.Error "field"` | Get error message for field | `string` |
+| `.lvt.ErrorTag "field"` | Get error in `<small>` tag (or empty) | `template.HTML` |
+| `.lvt.AriaInvalid "field"` | Get `aria-invalid="true"` if error (or empty) | `template.HTML` |
 | `.lvt.Errors` | Get all errors | `map[string]string` |
 
-### Basic Error Display
+### Basic Error Display (Recommended)
+
+```html
+<form method="POST">
+    <label for="email">Email
+        <input type="email" id="email" name="email" {{.lvt.AriaInvalid "email"}}>
+        {{.lvt.ErrorTag "email"}}
+    </label>
+
+    <button type="submit">Save</button>
+</form>
+```
+
+`AriaInvalid` outputs `aria-invalid="true"` when the field has an error, or nothing when it doesn't. `ErrorTag` renders `<small>error message</small>` or nothing. Together they replace the verbose `{{if .lvt.HasError}}...{{end}}` pattern.
+
+**Always use `AriaInvalid` in your templates.** It is required for WebSocket (JS) updates, which is the primary LiveTemplate use case. As a safety net, non-JS form submissions also get automatic `aria-invalid` injection on the HTTP response — but this is a progressive enhancement fallback, not a replacement for the template helper.
+
+### Explicit Error Display
+
+For custom error elements or styling, use the explicit pattern:
 
 ```html
 <form method="POST">

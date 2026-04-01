@@ -137,6 +137,7 @@ LiveTemplate follows a progressive complexity model where standard HTML handles 
 - **Dialogs**: `<dialog>` + `command`/`commandfor` + `method="dialog"`
 - **Link interception**: `<a href>` auto-intercepted for SPA navigation
 - **Loading states**: `aria-busy` + `<fieldset disabled>` automatic during submission
+- **Error display**: Auto `aria-invalid="true"` on form elements with errors + `.lvt.ErrorTag "field"` helper
 - **Standalone buttons**: `<button name="action">` outside forms triggers named action directly (JS client only)
 
 ### When to Use Tier 2 (`lvt-*`)
