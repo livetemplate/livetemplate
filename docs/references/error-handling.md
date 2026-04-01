@@ -215,6 +215,8 @@ LiveTemplate provides template helpers for displaying errors.
 
 `AriaInvalid` outputs `aria-invalid="true"` when the field has an error, or nothing when it doesn't. `ErrorTag` renders `<small>error message</small>` or nothing. Together they replace the verbose `{{if .lvt.HasError}}...{{end}}` pattern.
 
+**Important:** `AriaInvalid` must be used in templates for WebSocket (JS) updates to work. Non-JS form submissions get automatic `aria-invalid` injection on the HTTP response, but WebSocket re-renders build trees from the template AST — only explicit template helpers produce diffs.
+
 ### Explicit Error Display
 
 For custom error elements or styling, use the explicit pattern:

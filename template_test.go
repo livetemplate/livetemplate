@@ -525,6 +525,29 @@ func TestTemplate_AriaInvalidHelper(t *testing.T) {
 	}
 }
 
+func TestTemplate_AriaInvalidNoDuplication(t *testing.T) {
+	// When template uses AriaInvalid helper AND HTTP auto-injection runs,
+	// aria-invalid should appear exactly once (not twice)
+	tmpl := Must(New("test"))
+	_, err := tmpl.Parse(`<div><input name="title" type="text" {{.lvt.AriaInvalid "title"}}></div>`)
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
+
+	type State struct{}
+
+	var buf bytes.Buffer
+	err = tmpl.Execute(&buf, State{}, map[string]string{"title": "Required"})
+	if err != nil {
+		t.Fatalf("Execute() failed: %v", err)
+	}
+	output := buf.String()
+	count := strings.Count(output, "aria-invalid")
+	if count != 1 {
+		t.Errorf("expected exactly 1 aria-invalid (no duplication), found %d in: %s", count, output)
+	}
+}
+
 func TestTemplate_AriaInvalidAutoInjection_HTTPPath(t *testing.T) {
 	// Auto-injection in renderHTML still works for non-JS form submissions
 	tmpl := Must(New("test"))
