@@ -201,6 +201,10 @@ func (s *jsonState[T]) ExtractPersistFields(state interface{}) ([]byte, error) {
 // InjectPersistFields creates a zero-value state and deserializes persist field data into it.
 // Only persist-tagged fields are populated; all other fields remain at zero values.
 // Returns the state as a value type (not pointer).
+//
+// Safety invariant: data must contain only persist-field keys (as produced by
+// ExtractPersistFields). The function uses json.Unmarshal which would populate
+// any matching field — the caller contract, not this function, ensures selectivity.
 func (s *jsonState[T]) InjectPersistFields(data []byte) (interface{}, error) {
 	if len(s.persistFields) == 0 || len(data) == 0 {
 		var zero T
@@ -265,6 +269,15 @@ const persistTagValue = "persist"
 // validatePersistTag warns if a tag value looks like a typo.
 func validatePersistTag(tag, fieldName, typeName string) {
 	if tag == persistTagValue {
+		return
+	}
+
+	// Warn about removed tag values from previous versions
+	if tag == "state" || tag == "transient" {
+		slog.Warn("lvt tag value is no longer supported, use 'persist' instead",
+			slog.String("field", fieldName),
+			slog.String("type", typeName),
+			slog.String("got", tag))
 		return
 	}
 

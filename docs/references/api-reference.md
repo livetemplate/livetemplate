@@ -170,7 +170,6 @@ Action dispatch is automatic: `lvt-click="addItem"` dispatches to `AddItem()`.
 
 | Tag | Description |
 |-----|-------------|
-| `lvt:"state"` | Mark fields for selective persistence |
 | `lvt:"persist"` | Field is persisted to SessionStore, survives page refresh. Fields without this tag are ephemeral. |
 
 ### Testing
