@@ -80,7 +80,7 @@ func (c *Controller) OnDisconnect()
 | `ctx.Action` | `ctx.Action()` |
 | `ctx.Data` | `ctx.GetString()`, `ctx.GetInt()`, `ctx.BindAndValidate()` |
 | `WithSharedState()` | Implement `Sync()` lifecycle method on controller |
-| `WithStatePersistence()` | Remove — persistence is now always on. Use `WithEphemeralState()` to opt out |
+| `WithStatePersistence()` | Remove — use `lvt:"persist"` tag on state fields that should survive page refresh |
 
 **Mount() behavioral change (breaking):** `Mount()` now runs on every HTTP request (GET and POST) and every WebSocket connect (new and reconnect). Controllers with side effects in Mount that should only fire on page loads (not form submissions) must guard them:
 

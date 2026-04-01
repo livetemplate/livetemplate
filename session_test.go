@@ -3,6 +3,7 @@ package livetemplate
 import (
 	"context"
 	"encoding/gob"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -270,31 +271,27 @@ func TestRedisSessionStore_SetAndGet(t *testing.T) {
 
 	store := NewRedisSessionStore(client, WithSessionTTL(1*time.Hour))
 
-	// Create test state
-	state := &TestStore{Value: 42, Message: "hello"}
+	// Store raw JSON bytes (as mount.go does with persist fields)
+	stateJSON := []byte(`{"value":42,"message":"hello"}`)
+	store.Set(context.Background(), "test-group-1", stateJSON)
 
-	// Set state
-	store.Set(context.Background(), "test-group-1", state)
-
-	// Get state back
+	// Get returns raw JSON bytes
 	retrieved := store.Get(context.Background(), "test-group-1")
 	if retrieved == nil {
 		t.Fatal("Expected state to be retrieved, got nil")
 	}
 
-	// Verify the state was correctly serialized and deserialized
-	// Note: After JSON round-trip, we get map[string]interface{}
-	switch v := retrieved.(type) {
-	case *TestStore:
-		if v.Value != 42 || v.Message != "hello" {
-			t.Errorf("Unexpected values: Value=%d, Message=%s", v.Value, v.Message)
-		}
-	case map[string]interface{}:
-		if v["value"] != float64(42) || v["message"] != "hello" {
-			t.Errorf("Unexpected values: %v", v)
-		}
-	default:
-		t.Fatalf("Expected *TestStore or map, got %T", retrieved)
+	data, ok := retrieved.([]byte)
+	if !ok {
+		t.Fatalf("Expected []byte, got %T", retrieved)
+	}
+
+	var result TestStore
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+	if result.Value != 42 || result.Message != "hello" {
+		t.Errorf("Unexpected values: Value=%d, Message=%s", result.Value, result.Message)
 	}
 }
 
@@ -471,33 +468,6 @@ func TestRedisSessionStore_Options(t *testing.T) {
 
 	if store.maxRetries != 5 {
 		t.Errorf("WithRetryPolicy() set maxRetries to %d, want 5", store.maxRetries)
-	}
-}
-
-// TestIsStateData tests the IsStateData helper
-func TestIsStateData(t *testing.T) {
-	sd := &StateData{Raw: []byte(`test`)}
-
-	if !IsStateData(sd) {
-		t.Error("IsStateData should return true for *StateData")
-	}
-
-	if IsStateData("not state data") {
-		t.Error("IsStateData should return false for non-StateData")
-	}
-}
-
-// TestGetStateData tests the GetStateData helper
-func TestGetStateData(t *testing.T) {
-	sd := &StateData{Raw: []byte(`test`)}
-
-	result := GetStateData(sd)
-	if result != sd {
-		t.Error("GetStateData should return the same StateData pointer")
-	}
-
-	if GetStateData("not state data") != nil {
-		t.Error("GetStateData should return nil for non-StateData")
 	}
 }
 

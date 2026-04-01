@@ -181,13 +181,13 @@ type mountConfig struct {
 	wsBufferSize           int                                 // WebSocket send buffer size per connection (default: 50)
 	ProgressiveEnhancement bool                                // Enable non-JS form submission support with PRG pattern (default: true)
 	HasSync                bool                                // Controller implements Sync() lifecycle method (detected once at Handle() time via reflection, not per-request)
-	EphemeralState         bool                                // When true, skip SessionStore.Get/Set (state is rebuilt via Mount each time)
 	Capabilities           []string                            // Controller capabilities detected at setup (e.g., ["change"])
 }
 
 // liveHandler handles both WebSocket and HTTP requests
 type liveHandler struct {
 	config          mountConfig
+	persistable     persistableState // non-nil if state has lvt:"persist" fields
 	registry        *session.ConnectionRegistry
 	limits          *session.ConnectionLimits
 	metricsExporter *observe.PrometheusExporter
@@ -437,34 +437,30 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get or create state for this session group
+	// Get or create state for this session group.
+	// If persist fields exist, try to restore them from SessionStore.
+	// Otherwise, always start with a fresh clone (ephemeral).
 	ctx := r.Context()
 	var typedState interface{}
-	if h.config.EphemeralState {
-		// Ephemeral: always start fresh, never consult SessionStore
-		typedState, err = h.cloneStateTyped()
-		if err != nil {
-			slog.Error("Failed to clone state",
-				slog.String("component", "live_handler"),
-				slog.Any("error", err))
-			return
-		}
-	} else if storedState := h.config.SessionStore.Get(ctx, groupID); storedState == nil {
-		// New session - clone initial state and call Mount
-		typedState, err = h.cloneStateTyped()
-		if err != nil {
-			slog.Error("Failed to clone state",
-				slog.String("component", "live_handler"),
-				slog.Any("error", err))
-			return
-		}
-		slog.Info("Created new session group",
-			slog.String("component", "live_handler"),
-			slog.String("group_id", groupID))
+	if restored, ok := h.restorePersistedState(ctx, groupID); ok {
+		typedState = restored
 	} else {
-		// Existing session - use stored state
-		// Clear transient fields (e.g., EditingID) so they don't persist across page reloads
-		typedState = ClearTransientFields(storedState)
+		typedState, err = h.cloneStateTyped()
+		if err != nil {
+			slog.Error("Failed to clone state",
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
+			return
+		}
+		if h.persistable == nil {
+			slog.Debug("Using fresh state (no persist fields)",
+				slog.String("component", "live_handler"),
+				slog.String("group_id", groupID))
+		} else {
+			slog.Info("Created new session group",
+				slog.String("component", "live_handler"),
+				slog.String("group_id", groupID))
+		}
 	}
 
 	// Initialize upload registry for this connection
@@ -563,9 +559,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	connSt.state = newState
-	if !h.config.EphemeralState {
-		h.config.SessionStore.Set(ctx, groupID, connSt.state)
-	}
+	h.persistState(ctx, groupID, connSt.state)
 
 	// Call OnConnect lifecycle method
 	newState, err = callOnConnect(h.config.Controller, connSt.state, lifecycleCtx)
@@ -750,9 +744,7 @@ eventLoop:
 			}
 
 			if actionErr == nil {
-				if !h.config.EphemeralState {
-					h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
-				}
+				h.persistState(r.Context(), groupID, connSt.state)
 				connection.Stores = connSt.state
 				h.processBroadcastsAndSync(groupID, connection, actionCtx.pendingBroadcasts())
 			}
@@ -930,43 +922,14 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// handlers are not page navigations and must not trigger pathChanged.
 	isAssetRequest := isKnownAssetExt(path.Ext(currentPath))
 	pathChanged := false
-	if !h.config.EphemeralState && r.Method == http.MethodGet && !isAssetRequest {
+	if h.persistable != nil && r.Method == http.MethodGet && !isAssetRequest {
 		if prev, loaded := h.httpLastPaths.Load(groupID); loaded {
 			pathChanged = prev.(string) != currentPath
 		}
 	}
 
-	if h.config.EphemeralState {
-		// Ephemeral: always start fresh, never consult SessionStore.
-		// On GET, delete the cached template so the first render sends full statics.
-		// On POST, keep the cache so responses are incremental diffs (smaller payloads).
-		typedState, err = h.cloneStateTyped()
-		if err != nil {
-			slog.Error("Failed to clone state",
-				slog.String("component", "live_handler"),
-				slog.Any("error", err))
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-		if r.Method == http.MethodGet {
-			h.httpTemplates.Delete(groupID)
-		}
-	} else if storedState := h.config.SessionStore.Get(ctx, groupID); storedState == nil {
-		typedState, err = h.cloneStateTyped()
-		if err != nil {
-			slog.Error("Failed to clone state",
-				slog.String("component", "live_handler"),
-				slog.Any("error", err))
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-		isNewSession = true
-		h.httpTemplates.Delete(groupID)
-		slog.Info("Created new session group",
-			slog.String("component", "live_handler"),
-			slog.String("group_id", groupID))
-	} else if pathChanged {
-		// Path changed — use fresh state for the new URL.
+	if pathChanged {
+		// Path changed — use fresh state for the new URL (persist fields reset).
 		typedState, err = h.cloneStateTyped()
 		if err != nil {
 			slog.Error("Failed to clone per-request state",
@@ -981,13 +944,35 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			slog.String("component", "live_handler"),
 			slog.String("group_id", groupID),
 			slog.String("path", currentPath))
-	} else {
-		// Existing session, same URL - use stored state
+	} else if restored, ok := h.restorePersistedState(ctx, groupID); ok {
+		typedState = restored
 		slog.Debug("Using existing session group",
 			slog.String("component", "live_handler"),
 			slog.String("group_id", groupID))
-		// Clear transient fields (e.g., EditingID) so they don't persist across page reloads
-		typedState = ClearTransientFields(storedState)
+	} else {
+		// No stored state or no persist fields — start fresh
+		typedState, err = h.cloneStateTyped()
+		if err != nil {
+			slog.Error("Failed to clone state",
+				slog.String("component", "live_handler"),
+				slog.Any("error", err))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		if h.persistable == nil {
+			// No persist fields — ephemeral mode.
+			// On GET, delete cached template so first render sends full statics.
+			// On POST, keep cache so responses are incremental diffs.
+			if r.Method == http.MethodGet {
+				h.httpTemplates.Delete(groupID)
+			}
+		} else {
+			isNewSession = true
+			h.httpTemplates.Delete(groupID)
+			slog.Info("Created new session group",
+				slog.String("component", "live_handler"),
+				slog.String("group_id", groupID))
+		}
 	}
 
 	// Create connection state (messages are per-request)
@@ -1037,12 +1022,12 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		connSt.state = newState
 		// Persist after Mount on GET/new-session only. On POST the action handler
 		// will persist after the action succeeds, avoiding a redundant Set.
-		if !h.config.EphemeralState && (isNewSession || isHTTPGet) {
-			h.config.SessionStore.Set(ctx, groupID, connSt.state)
+		if isNewSession || isHTTPGet {
+			h.persistState(ctx, groupID, connSt.state)
 		}
 		// Commit path after successful Mount (not before, to allow retries).
-		// Skip in ephemeral mode — pathChanged is never checked so storing is wasteful.
-		if isHTTPGet && !h.config.EphemeralState {
+		// Skip when no persist fields — pathChanged is never checked.
+		if isHTTPGet && h.persistable != nil {
 			h.httpLastPaths.Store(groupID, currentPath)
 		}
 	}
@@ -1155,8 +1140,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		connSt.state = newState
 	}
 
-	if actionErr == nil && !h.config.EphemeralState {
-		h.config.SessionStore.Set(r.Context(), groupID, connSt.state)
+	if actionErr == nil {
+		h.persistState(r.Context(), groupID, connSt.state)
 	}
 
 	// Get or create cached template for this session group.
@@ -1182,7 +1167,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			entry = newEntry
 		}
 	}
-	if h.config.EphemeralState {
+	if h.persistable == nil {
 		entry.lastAccessed.Store(time.Now().Unix())
 	}
 	entry.mu.Lock()
@@ -1317,6 +1302,53 @@ func (h *liveHandler) cloneStateTyped() (interface{}, error) {
 	return newStatePtr.Elem().Interface(), nil
 }
 
+// persistState saves persist-tagged fields to the SessionStore.
+// No-op if the state has no persist fields.
+func (h *liveHandler) persistState(ctx context.Context, groupID string, state interface{}) {
+	if h.persistable == nil {
+		return
+	}
+	data, err := h.persistable.ExtractPersistFields(state)
+	if err != nil {
+		slog.Error("Failed to extract persist fields",
+			slog.String("component", "live_handler"),
+			slog.String("group_id", groupID),
+			slog.Any("error", err))
+		return
+	}
+	h.config.SessionStore.Set(ctx, groupID, data)
+}
+
+// restorePersistedState creates a state with persist fields restored from SessionStore.
+// Returns nil if no stored state exists or no persist fields are configured.
+func (h *liveHandler) restorePersistedState(ctx context.Context, groupID string) (interface{}, bool) {
+	if h.persistable == nil {
+		return nil, false
+	}
+	stored := h.config.SessionStore.Get(ctx, groupID)
+	if stored == nil {
+		return nil, false
+	}
+	// stored can be []byte (from MemorySessionStore or RedisSessionStore)
+	data, ok := stored.([]byte)
+	if !ok {
+		slog.Warn("Unexpected stored state type, ignoring",
+			slog.String("component", "live_handler"),
+			slog.String("group_id", groupID),
+			slog.String("type", fmt.Sprintf("%T", stored)))
+		return nil, false
+	}
+	state, err := h.persistable.InjectPersistFields(data)
+	if err != nil {
+		slog.Error("Failed to inject persist fields",
+			slog.String("component", "live_handler"),
+			slog.String("group_id", groupID),
+			slog.Any("error", err))
+		return nil, false
+	}
+	return state, true
+}
+
 // processBroadcastsAndSync dispatches pending broadcasts and auto-dispatches Sync
 // to peer connections if the controller implements it. Skips auto-Sync if the
 // controller already explicitly broadcast a "Sync" action.
@@ -1392,9 +1424,7 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 
 	connSt.state = newState
 	connection.Stores = connSt.state
-	if !h.config.EphemeralState {
-		h.config.SessionStore.Set(context.Background(), connSt.groupID, connSt.state)
-	}
+	h.persistState(context.Background(), connSt.groupID, connSt.state)
 
 	// Chained BroadcastAction calls from dispatched actions are intentionally
 	// not processed to prevent infinite broadcast storms.
@@ -1436,8 +1466,8 @@ func (h *liveHandler) httpTemplateSweepLoop() {
 func (h *liveHandler) sweepStaleHTTPTemplates() {
 	sweptSessions := make(map[string]struct{})
 
-	if h.config.EphemeralState {
-		// Ephemeral mode: no SessionStore to check. Evict entries idle for >30 minutes.
+	if h.persistable == nil {
+		// No persist fields: no SessionStore to check. Evict entries idle for >30 minutes.
 		cutoff := time.Now().Add(-ephemeralSweepTTL).Unix()
 		h.httpTemplates.Range(func(key, value any) bool {
 			groupID := key.(string)
@@ -1773,9 +1803,7 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 			slog.Int("groups_persisted", len(groupStates)))
 	}
 	for gid, st := range groupStates {
-		if !h.config.EphemeralState {
-			h.config.SessionStore.Set(context.Background(), gid, st)
-		}
+		h.persistState(context.Background(), gid, st)
 	}
 
 	if errCount > 0 {
