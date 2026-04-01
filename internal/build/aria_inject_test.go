@@ -107,6 +107,29 @@ func TestInjectAriaInvalid_FullDocument(t *testing.T) {
 	}
 }
 
+func TestInjectAriaInvalid_RadioCheckbox(t *testing.T) {
+	html := `<html><body><form><input type="radio" name="gender" value="m"><input type="checkbox" name="agree" value="yes"></form></body></html>`
+	errors := map[string]string{"agree": "Required"}
+	result := InjectAriaInvalid(html, errors)
+	// checkbox "agree" should get aria-invalid, radio "gender" should not
+	if !strings.Contains(result, `name="agree"`) || !strings.Contains(result, `aria-invalid="true"`) {
+		t.Errorf("expected aria-invalid on checkbox with error, got: %s", result)
+	}
+	if strings.Count(result, `aria-invalid="true"`) != 1 {
+		t.Errorf("expected exactly 1 aria-invalid (only on agree), got: %s", result)
+	}
+}
+
+func TestInjectAriaInvalid_NoInjectionNeeded(t *testing.T) {
+	// When all matching elements already have aria-invalid, no re-render needed
+	html := `<html><body><input name="title" aria-invalid="true" type="text"></body></html>`
+	errors := map[string]string{"title": "Required"}
+	result := InjectAriaInvalid(html, errors)
+	if result != html {
+		t.Errorf("expected unchanged HTML when no injection needed, got: %s", result)
+	}
+}
+
 func TestInjectAriaInvalid_HTMLCommentFragment(t *testing.T) {
 	// HTML comments starting with <! must not be treated as full documents
 	html := `<!-- comment --><div><input name="title" type="text"></div>`

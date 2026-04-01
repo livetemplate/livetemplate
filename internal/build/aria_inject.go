@@ -14,6 +14,8 @@ var formElements = map[string]bool{
 }
 
 // InjectAriaInvalid adds aria-invalid="true" to form elements whose name matches a field error.
+// This is a safety net for non-JS HTTP responses — templates should also use the
+// {{.lvt.AriaInvalid "field"}} helper which works for both HTTP and WebSocket paths.
 func InjectAriaInvalid(htmlStr string, fieldErrors map[string]string) string {
 	if len(fieldErrors) == 0 {
 		return htmlStr
@@ -24,17 +26,16 @@ func InjectAriaInvalid(htmlStr string, fieldErrors map[string]string) string {
 		return htmlStr
 	}
 
-	injectAriaInvalidWalk(doc, fieldErrors)
+	if !injectAriaInvalidWalk(doc, fieldErrors) {
+		return htmlStr
+	}
 
 	var buf strings.Builder
 
 	// html.Parse always produces a full document tree (<html><head><body>).
 	// For fragment input, render only body children to avoid adding a wrapper.
-	trimmed := strings.TrimSpace(htmlStr)
-	isFullDoc := (len(trimmed) >= 9 && strings.EqualFold(trimmed[:9], "<!doctype")) ||
-		(len(trimmed) >= 5 && strings.EqualFold(trimmed[:5], "<html"))
-
-	if isFullDoc {
+	// Detect full documents by checking for an <html> element in the parsed tree.
+	if hasHTMLElement(doc) {
 		if err := html.Render(&buf, doc); err != nil {
 			return htmlStr
 		}
@@ -53,7 +54,10 @@ func InjectAriaInvalid(htmlStr string, fieldErrors map[string]string) string {
 	return buf.String()
 }
 
-func injectAriaInvalidWalk(n *html.Node, fieldErrors map[string]string) {
+// injectAriaInvalidWalk walks the DOM tree and injects aria-invalid on matching
+// form elements. Returns true if any injection was performed.
+func injectAriaInvalidWalk(n *html.Node, fieldErrors map[string]string) bool {
+	injected := false
 	if n.Type == html.ElementNode && formElements[n.Data] {
 		var name string
 		hasAriaInvalid := false
@@ -68,12 +72,28 @@ func injectAriaInvalidWalk(n *html.Node, fieldErrors map[string]string) {
 		if name != "" && !hasAriaInvalid {
 			if hasFieldError(name, fieldErrors) {
 				n.Attr = append(n.Attr, html.Attribute{Key: "aria-invalid", Val: "true"})
+				injected = true
 			}
 		}
 	}
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		injectAriaInvalidWalk(c, fieldErrors)
+		if injectAriaInvalidWalk(c, fieldErrors) {
+			injected = true
+		}
 	}
+	return injected
+}
+
+// hasHTMLElement checks if the parsed tree has a DOCTYPE node, indicating the
+// input was a full HTML document (not a fragment). html.Parse always creates
+// an implicit <html> node, but only preserves DOCTYPE when present in the input.
+func hasHTMLElement(doc *html.Node) bool {
+	for c := doc.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type == html.DoctypeNode {
+			return true
+		}
+	}
+	return false
 }
 
 func hasFieldError(name string, fieldErrors map[string]string) bool {
