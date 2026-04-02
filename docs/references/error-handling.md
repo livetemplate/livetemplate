@@ -198,7 +198,7 @@ LiveTemplate provides template helpers for displaying errors.
 | `.lvt.Error "field"` | Get error message for field | `string` |
 | `.lvt.ErrorTag "field"` | Get error in `<small>` tag (or empty) | `template.HTML` |
 | `.lvt.AriaInvalid "field"` | Get `aria-invalid="true"` if error (or empty) | `template.HTMLAttr` |
-| `.lvt.AriaDisabled "field"` | Get `aria-disabled="true"` if error (or empty) | `template.HTMLAttr` |
+| `.lvt.AriaDisabled "field" ...` | Get `aria-disabled="true"` if any field has error (or empty) | `template.HTMLAttr` |
 | `.lvt.Errors` | Get all errors | `map[string]string` |
 
 ### Basic Error Display (Recommended)
@@ -218,16 +218,21 @@ LiveTemplate provides template helpers for displaying errors.
 
 **Always use `AriaInvalid` in your templates.** It is required for WebSocket (JS) updates, which is the primary LiveTemplate use case. As a safety net, non-JS form submissions also get automatic `aria-invalid` injection on the HTTP response — but this is a progressive enhancement fallback, not a replacement for the template helper.
 
-`AriaDisabled` is for related UI elements that should appear disabled *because* errors exist — not for the errored field itself. A field with a validation error is still interactive (the user must fix it), so applying `aria-disabled` to it would incorrectly signal that the element cannot be used. Use it on submit buttons or other controls that should be non-interactive while errors are present:
+`AriaDisabled` is for related UI elements that should appear disabled *because* errors exist — not for the errored field itself. A field with a validation error is still interactive (the user must fix it), so applying `aria-disabled` to it would incorrectly signal that the element cannot be used. It accepts multiple field names and returns `aria-disabled="true"` if any of them have errors:
 
 ```html
 <form method="POST">
     <input type="email" name="email" {{.lvt.AriaInvalid "email"}}>
     {{.lvt.ErrorTag "email"}}
 
-    <button type="submit" {{.lvt.AriaDisabled "email"}}>Save</button>
+    <input type="text" name="name" {{.lvt.AriaInvalid "name"}}>
+    {{.lvt.ErrorTag "name"}}
+
+    <button type="submit" {{.lvt.AriaDisabled "email" "name"}}>Save</button>
 </form>
 ```
+
+**Important:** `aria-disabled` signals a disabled state to assistive technology but does **not** prevent interaction. To actually block form submission, pair it with the HTML `disabled` attribute or use JavaScript. LiveTemplate's built-in loading states already handle `<fieldset disabled>` during submission.
 
 ### Explicit Error Display
 

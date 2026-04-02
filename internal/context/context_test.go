@@ -665,37 +665,61 @@ func TestTemplateContext_AriaDisabled(t *testing.T) {
 	tests := []struct {
 		name     string
 		messages map[string]string
-		field    string
+		fields   []string
 		want     template.HTMLAttr
 	}{
 		{
 			name:     "nil messages",
 			messages: nil,
-			field:    "email",
+			fields:   []string{"email"},
 			want:     "",
 		},
 		{
 			name:     "empty messages",
 			messages: map[string]string{},
-			field:    "email",
+			fields:   []string{"email"},
 			want:     "",
 		},
 		{
 			name:     "no error for field",
 			messages: map[string]string{"title": "Required"},
-			field:    "email",
+			fields:   []string{"email"},
 			want:     "",
 		},
 		{
 			name:     "error exists",
 			messages: map[string]string{"email": "Invalid"},
-			field:    "email",
+			fields:   []string{"email"},
 			want:     `aria-disabled="true"`,
 		},
 		{
 			name:     "flash key returns empty",
 			messages: map[string]string{"_flash:success": "OK"},
-			field:    "_flash:success",
+			fields:   []string{"_flash:success"},
+			want:     "",
+		},
+		{
+			name:     "multiple fields none with error",
+			messages: map[string]string{},
+			fields:   []string{"email", "name", "phone"},
+			want:     "",
+		},
+		{
+			name:     "multiple fields one with error",
+			messages: map[string]string{"name": "Required"},
+			fields:   []string{"email", "name", "phone"},
+			want:     `aria-disabled="true"`,
+		},
+		{
+			name:     "multiple fields all with errors",
+			messages: map[string]string{"email": "Invalid", "name": "Required"},
+			fields:   []string{"email", "name"},
+			want:     `aria-disabled="true"`,
+		},
+		{
+			name:     "no fields provided",
+			messages: map[string]string{"email": "Invalid"},
+			fields:   []string{},
 			want:     "",
 		},
 	}
@@ -703,9 +727,9 @@ func TestTemplateContext_AriaDisabled(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := NewTemplateContext(tt.messages, false)
-			got := ctx.AriaDisabled(tt.field)
+			got := ctx.AriaDisabled(tt.fields...)
 			if got != tt.want {
-				t.Errorf("AriaDisabled(%q) = %q, want %q", tt.field, got, tt.want)
+				t.Errorf("AriaDisabled(%v) = %q, want %q", tt.fields, got, tt.want)
 			}
 		})
 	}

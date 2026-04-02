@@ -84,7 +84,6 @@ func (t *TemplateContext) ErrorTag(field string) template.HTML {
 
 // AriaInvalid returns aria-invalid="true" as template.HTMLAttr if the field has an error.
 // Returns empty template.HTMLAttr if no error exists.
-// Uses HTMLAttr (not HTML) so Go's html/template treats it as safe in attribute context.
 func (t *TemplateContext) AriaInvalid(field string) template.HTMLAttr {
 	if t.HasError(field) {
 		return template.HTMLAttr(`aria-invalid="true"`)
@@ -92,16 +91,21 @@ func (t *TemplateContext) AriaInvalid(field string) template.HTMLAttr {
 	return ""
 }
 
-// AriaDisabled returns aria-disabled="true" as template.HTMLAttr if the field has an error.
-// Returns empty template.HTMLAttr if no error exists.
-// Uses HTMLAttr (not HTML) so Go's html/template treats it as safe in attribute context.
+// AriaDisabled returns aria-disabled="true" if any of the given fields have an error.
+// Returns empty template.HTMLAttr if no errors exist for any listed field.
 //
 // Use this on related UI elements (e.g. submit buttons) that should appear disabled
 // while validation errors are present — not on the errored field itself. For marking
 // errored fields, use AriaInvalid instead.
-func (t *TemplateContext) AriaDisabled(field string) template.HTMLAttr {
-	if t.HasError(field) {
-		return template.HTMLAttr(`aria-disabled="true"`)
+//
+// Note: aria-disabled signals a disabled state to assistive technology but does not
+// prevent interaction. Pair with the HTML disabled attribute or JavaScript to actually
+// block form submission.
+func (t *TemplateContext) AriaDisabled(fields ...string) template.HTMLAttr {
+	for _, field := range fields {
+		if t.HasError(field) {
+			return template.HTMLAttr(`aria-disabled="true"`)
+		}
 	}
 	return ""
 }
