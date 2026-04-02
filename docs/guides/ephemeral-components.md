@@ -10,9 +10,9 @@ This guide explains why these components should live **entirely on the client** 
 
 When a toast or alert is rendered in a LiveTemplate server template, it becomes part of the diff tree. That creates several problems:
 
-- **Wasteful diffs**: every update cycle sends toast HTML even when nothing changed
+- **Unnecessary diff traffic**: the toast HTML appears in every update cycle, even when it hasn't changed, because the server must track it in the tree
 - **Server-driven dismissal**: to close a toast, the client must round-trip to the server
-- **State leakage**: toast data persists in the session store alongside meaningful business state
+- **Stale DOM elements**: even with non-persistent fields (no `lvt:"persist"` tag), the DOM still carries stale toast elements between updates until the server explicitly clears them
 
 The right model: the server **signals** the client; the client **creates and manages** the DOM.
 
@@ -33,11 +33,13 @@ The server renders a single hidden `<span>` with a `data-pending` attribute cont
 
 After each DOM update, a client directive reads `data-pending`, creates the toast DOM, and handles auto-dismiss and click-outside — **no server round-trip needed**.
 
+> **HTML escaping safety**: `html/template` automatically escapes the JSON inside the `data-pending` attribute. Combined with the single-quote wrapping of the attribute value, entity-escaped characters in the JSON (e.g., `&amp;`, `&lt;`) are decoded correctly by the browser's HTML parser before `JSON.parse` sees the string. No manual escaping is needed.
+
 ---
 
 ## Server Side: The Component
 
-The `lvt/components/toast` package provides a `Container` that queues messages and serializes them on demand.
+The `github.com/livetemplate/lvt/components/toast` package provides a `Container` that queues messages and serializes them on demand.
 
 ### State
 
@@ -54,7 +56,7 @@ type AppState struct {
 
 ### Initialization
 
-Initialize the container in `Mount`, `OnConnect`, and `Sync` — the three lifecycle hooks that run on fresh state:
+Initialize the container wherever non-persistent fields may be nil — `Mount` (first connection), `OnConnect` (reconnection), and `Sync` (cross-connection state sync):
 
 ```go
 func initComponents(state AppState) AppState {
@@ -96,7 +98,7 @@ Use the provided component template to render the trigger span:
 {{ template "lvt:toast:container:v1" .Toasts }}
 ```
 
-This renders a hidden `<span data-toast-trigger="..." data-pending='...'>` when messages are queued. The pending JSON is drained atomically during rendering — safe because LiveTemplate evaluates templates once per action, with a built-in cache to handle its internal double-evaluation pattern.
+This renders a hidden `<span data-toast-trigger="..." data-pending='...'>` when messages are queued. The pending JSON is drained during rendering. Because LiveTemplate evaluates dynamic template expressions twice per action (once for HTML output, once for the diff tree), `TakePendingJSON()` must be explicitly idempotent — the first call drains and caches; the second returns the cached value.
 
 ---
 
@@ -156,7 +158,14 @@ Add the component to state as a non-persistent field. Provide `TakePendingJSON()
 // In your component:
 func (c *MyComponent) TakePendingJSON() string {
     if c.hasNewData {
-        b, _ := json.Marshal(c.data)
+        b, err := json.Marshal(c.data)
+        if err != nil {
+            // Log the error; return empty so the client directive is a no-op.
+            log.Printf("mycomponent: failed to marshal pending data: %v", err)
+            c.data = nil
+            c.hasNewData = false
+            return ""
+        }
         c.renderedJSON = string(b)
         c.data = nil
         c.hasNewData = false
@@ -167,6 +176,8 @@ func (c *MyComponent) TakePendingJSON() string {
     return result
 }
 ```
+
+> **Note**: Always handle the `json.Marshal` error. Silently discarding it (e.g., `b, _ := json.Marshal(...)`) can hide bugs — for example, a field with an unsupported type will produce empty output with no indication of failure.
 
 The `hasNewData` flag + `renderedJSON` cache ensures both the HTML pass and the diff-tree pass see the same value, so the diff is correct.
 
@@ -225,8 +236,8 @@ handleAlertDirectives(element);
 ## What NOT to Do
 
 | Anti-pattern | Why it fails |
-|---|---|
-| Render full toast HTML in the template | Wasteful diffs; server must be involved in dismissal |
+| --- | --- |
+| Render full toast HTML in the template | Unnecessary diff traffic; server must be involved in dismissal |
 | Call `TakePendingJSON()` only once | LiveTemplate double-evaluates; the diff tree sees empty string |
 | Store toast messages with `lvt:"persist"` | Toasts re-appear after page reload; stale state in session store |
 | Write custom JS in the app template | Breaks the framework's progressive-complexity contract |
