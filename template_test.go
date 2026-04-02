@@ -646,15 +646,15 @@ func TestTemplate_FlashTagIntegration(t *testing.T) {
 
 	type State struct{}
 
-	// With flash — should render <ins> tag
+	// With flash — should render <output> tag with role="status"
 	var buf bytes.Buffer
 	err = tmpl.Execute(&buf, State{}, map[string]string{"_flash:success": "Done!"})
 	if err != nil {
 		t.Fatalf("Execute() failed: %v", err)
 	}
 	output := buf.String()
-	if !strings.Contains(output, `<ins style="display:block;text-decoration:none" data-flash="success">Done!</ins>`) {
-		t.Errorf("expected <ins> flash tag, got: %s", output)
+	if !strings.Contains(output, `<output role="status" data-flash="success">Done!</output>`) {
+		t.Errorf("expected <output> flash tag, got: %s", output)
 	}
 
 	// Without flash — should render nothing for FlashTag
@@ -666,11 +666,11 @@ func TestTemplate_FlashTagIntegration(t *testing.T) {
 		t.Fatalf("Execute() failed: %v", err)
 	}
 	output2 := buf2.String()
-	if strings.Contains(output2, "<ins") {
-		t.Errorf("expected no <ins> tag without flash, got: %s", output2)
+	if strings.Contains(output2, "<output") {
+		t.Errorf("expected no <output> tag without flash, got: %s", output2)
 	}
 
-	// Error flash — should render <del> tag
+	// Error flash — should render <output> tag with role="alert"
 	tmpl3 := Must(New("test3"))
 	tmpl3, _ = tmpl3.Parse(`<div>{{.lvt.FlashTag "error"}}</div>`)
 	var buf3 bytes.Buffer
@@ -679,8 +679,8 @@ func TestTemplate_FlashTagIntegration(t *testing.T) {
 		t.Fatalf("Execute() failed: %v", err)
 	}
 	output3 := buf3.String()
-	if !strings.Contains(output3, `<del style="display:block;text-decoration:none" data-flash="error">Something failed</del>`) {
-		t.Errorf("expected <del> flash tag for error, got: %s", output3)
+	if !strings.Contains(output3, `<output role="alert" data-flash="error">Something failed</output>`) {
+		t.Errorf("expected <output role=\"alert\"> flash tag for error, got: %s", output3)
 	}
 }
 

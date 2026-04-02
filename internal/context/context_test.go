@@ -725,34 +725,34 @@ func TestTemplateContext_FlashTag(t *testing.T) {
 			want:     "",
 		},
 		{
-			name:     "success flash uses ins",
+			name:     "success flash uses output with status role",
 			messages: map[string]string{"_flash:success": "Saved!"},
 			key:      "success",
-			want:     `<ins style="display:block;text-decoration:none" data-flash="success">Saved!</ins>`,
+			want:     `<output role="status" data-flash="success">Saved!</output>`,
 		},
 		{
-			name:     "error flash uses del",
+			name:     "error flash uses output with alert role",
 			messages: map[string]string{"_flash:error": "Failed"},
 			key:      "error",
-			want:     `<del style="display:block;text-decoration:none" data-flash="error">Failed</del>`,
+			want:     `<output role="alert" data-flash="error">Failed</output>`,
 		},
 		{
-			name:     "warning flash uses ins",
+			name:     "warning flash uses output with status role",
 			messages: map[string]string{"_flash:warning": "Watch out"},
 			key:      "warning",
-			want:     `<ins style="display:block;text-decoration:none" data-flash="warning">Watch out</ins>`,
+			want:     `<output role="status" data-flash="warning">Watch out</output>`,
 		},
 		{
-			name:     "info flash uses ins",
+			name:     "info flash uses output with status role",
 			messages: map[string]string{"_flash:info": "FYI"},
 			key:      "info",
-			want:     `<ins style="display:block;text-decoration:none" data-flash="info">FYI</ins>`,
+			want:     `<output role="status" data-flash="info">FYI</output>`,
 		},
 		{
 			name:     "HTML chars escaped in message",
 			messages: map[string]string{"_flash:success": "<script>alert(1)</script>"},
 			key:      "success",
-			want:     `<ins style="display:block;text-decoration:none" data-flash="success">&lt;script&gt;alert(1)&lt;/script&gt;</ins>`,
+			want:     `<output role="status" data-flash="success">&lt;script&gt;alert(1)&lt;/script&gt;</output>`,
 		},
 		{
 			name:     "empty flash message returns empty",
@@ -761,10 +761,10 @@ func TestTemplateContext_FlashTag(t *testing.T) {
 			want:     "",
 		},
 		{
-			name:     "custom key uses ins",
+			name:     "custom key uses output with status role",
 			messages: map[string]string{"_flash:custom": "Hello"},
 			key:      "custom",
-			want:     `<ins style="display:block;text-decoration:none" data-flash="custom">Hello</ins>`,
+			want:     `<output role="status" data-flash="custom">Hello</output>`,
 		},
 	}
 

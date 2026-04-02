@@ -194,21 +194,21 @@ func (t *TemplateContext) AllFlash() map[string]string {
 	return result
 }
 
-// FlashTag returns the flash message wrapped in a semantic HTML element as template.HTML.
+// FlashTag returns the flash message wrapped in an <output> element as template.HTML.
 // Returns empty template.HTML if the key has no flash message.
-// Uses <del> for "error" key and <ins> for all other keys.
+// Uses role="alert" for "error" key and role="status" for all other keys.
 // The flash message text is HTML-escaped to prevent XSS.
 func (t *TemplateContext) FlashTag(key string) template.HTML {
 	msg := t.Flash(key)
 	if msg == "" {
 		return ""
 	}
-	tag := "ins"
+	role := "status"
 	if key == "error" {
-		tag = "del"
+		role = "alert"
 	}
-	return template.HTML("<" + tag + ` style="display:block;text-decoration:none" data-flash="` +
-		html.EscapeString(key) + `">` + html.EscapeString(msg) + "</" + tag + ">")
+	return template.HTML(`<output role="` + role + `" data-flash="` +
+		html.EscapeString(key) + `">` + html.EscapeString(msg) + "</output>")
 }
 
 // Uploads returns upload entries for a given upload name.
