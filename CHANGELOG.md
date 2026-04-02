@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<a name="v0.8.13"></a>
+## [v0.8.13] - 2026-04-02
+
+### Documentation
+
+- add ephemeral-components guide ([#316](https://github.com/livefir/livetemplate/issues/316))
+
+
 <a name="v0.8.12"></a>
 ## [v0.8.12] - 2026-04-01
 
@@ -662,7 +670,8 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.12...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.13...HEAD
+[v0.8.13]: https://github.com/livefir/livetemplate/compare/v0.8.12...v0.8.13
 [v0.8.12]: https://github.com/livefir/livetemplate/compare/v0.8.11...v0.8.12
 [v0.8.11]: https://github.com/livefir/livetemplate/compare/v0.8.10...v0.8.11
 [v0.8.10]: https://github.com/livefir/livetemplate/compare/v0.8.9...v0.8.10
