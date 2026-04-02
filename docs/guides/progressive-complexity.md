@@ -590,4 +590,4 @@ func (c *SearchController) ClearSearch(state SearchState, ctx *livetemplate.Cont
 
 ---
 
-See also: [Progressive Complexity Reference](../references/progressive-complexity-reference.md) for a quick-lookup table of HTML attributes and their framework behaviors, and [Client Attributes Reference](../references/client-attributes.md) for the complete `lvt-*` attribute listing.
+See also: [Progressive Complexity Reference](../references/progressive-complexity-reference.md) for a quick-lookup table of HTML attributes and their framework behaviors, [Client Attributes Reference](../references/client-attributes.md) for the complete `lvt-*` attribute listing, and [Ephemeral Components Guide](ephemeral-components.md) for implementing client-side toast/alert patterns.
