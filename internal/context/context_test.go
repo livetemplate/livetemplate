@@ -675,6 +675,12 @@ func TestTemplateContext_AriaDisabled(t *testing.T) {
 			want:     "",
 		},
 		{
+			name:     "empty messages",
+			messages: map[string]string{},
+			field:    "email",
+			want:     "",
+		},
+		{
 			name:     "no error for field",
 			messages: map[string]string{"title": "Required"},
 			field:    "email",

@@ -95,6 +95,10 @@ func (t *TemplateContext) AriaInvalid(field string) template.HTMLAttr {
 // AriaDisabled returns aria-disabled="true" as template.HTMLAttr if the field has an error.
 // Returns empty template.HTMLAttr if no error exists.
 // Uses HTMLAttr (not HTML) so Go's html/template treats it as safe in attribute context.
+//
+// Use this on related UI elements (e.g. submit buttons) that should appear disabled
+// while validation errors are present — not on the errored field itself. For marking
+// errored fields, use AriaInvalid instead.
 func (t *TemplateContext) AriaDisabled(field string) template.HTMLAttr {
 	if t.HasError(field) {
 		return template.HTMLAttr(`aria-disabled="true"`)

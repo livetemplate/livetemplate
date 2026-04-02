@@ -625,7 +625,10 @@ func TestTemplate_AriaDisabledHelper(t *testing.T) {
 
 	// Without error — no aria-disabled
 	tmpl2 := Must(New("test2"))
-	tmpl2, _ = tmpl2.Parse(`<div><input name="title" type="text" {{.lvt.AriaDisabled "title"}}></div>`)
+	tmpl2, err = tmpl2.Parse(`<div><input name="title" type="text" {{.lvt.AriaDisabled "title"}}></div>`)
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
 	var buf2 bytes.Buffer
 	err = tmpl2.Execute(&buf2, State{}, map[string]string{})
 	if err != nil {
@@ -659,7 +662,10 @@ func TestTemplate_FlashTagIntegration(t *testing.T) {
 
 	// Without flash — should render nothing for FlashTag
 	tmpl2 := Must(New("test2"))
-	tmpl2, _ = tmpl2.Parse(`<div>{{.lvt.FlashTag "success"}}</div>`)
+	tmpl2, err = tmpl2.Parse(`<div>{{.lvt.FlashTag "success"}}</div>`)
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
 	var buf2 bytes.Buffer
 	err = tmpl2.Execute(&buf2, State{}, map[string]string{})
 	if err != nil {
@@ -672,7 +678,10 @@ func TestTemplate_FlashTagIntegration(t *testing.T) {
 
 	// Error flash — should render <output> tag with role="alert"
 	tmpl3 := Must(New("test3"))
-	tmpl3, _ = tmpl3.Parse(`<div>{{.lvt.FlashTag "error"}}</div>`)
+	tmpl3, err = tmpl3.Parse(`<div>{{.lvt.FlashTag "error"}}</div>`)
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
 	var buf3 bytes.Buffer
 	err = tmpl3.Execute(&buf3, State{}, map[string]string{"_flash:error": "Something failed"})
 	if err != nil {
