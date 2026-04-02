@@ -54,6 +54,8 @@ type AppState struct {
 }
 ```
 
+> **Note on `AssertPureState`**: If your tests use `lvt/testing.AssertPureState[T](t)` to verify state contains no dependency types, `*toast.Container` will need to be excluded. Component containers are not external dependencies — they hold transient UI data, not connections or handles. Use `AssertPureState` with the `IgnoreFields` option, or structure your state so component fields live in a separate struct that is not checked.
+
 ### Initialization
 
 Initialize the container wherever non-persistent fields may be nil — `Mount` (first connection), `OnConnect` (reconnection), and `Sync` (cross-connection state sync):
@@ -74,7 +76,19 @@ func (c *Controller) Mount(state AppState, ctx *livetemplate.Context) (AppState,
     state = initComponents(state)
     return state, nil
 }
+
+func (c *Controller) OnConnect(state AppState, ctx *livetemplate.Context) (AppState, error) {
+    state = initComponents(state)
+    return state, nil
+}
+
+func (c *Controller) Sync(state AppState, ctx *livetemplate.Context) (AppState, error) {
+    state = initComponents(state)
+    return state, nil
+}
 ```
+
+All three hooks must call `initComponents` because non-persistent fields (like `*toast.Container`) are nil after deserialization. Missing any hook causes a nil-pointer panic on that code path.
 
 ### Adding Messages
 
@@ -127,22 +141,30 @@ Two consequences:
 
 1. **The toast stack (`[data-lvt-toast-stack]`) is removed on each server update.** The directive re-creates it every time there are pending messages — no problem.
 
-2. **CSS dynamically injected into `<head>` via JS is also removed on each server update**, because the injected `<style>` element is not in the server-rendered `<head>` and morphdom diffs it away.
+2. **In LiveTemplate's DOM update strategy, CSS dynamically injected into `<head>` via JS is also removed on each server update**, because the injected `<style>` element is not in the server-rendered `<head>` and the diffing algorithm removes it.
 
 **The solution**: CSS for client-managed elements belongs in the **component template**, not in the consuming app. The `container.tmpl` template already renders a `<style>` block alongside the trigger span:
 
 ```html
 {{define "lvt:toast:container:v1"}}
+{{- $c := . -}}
+{{- $pending := $c.TakePendingJSON -}}
 <style>
   [data-lvt-toast-stack] { position: fixed; top: 1rem; right: 1rem; ... }
   [data-lvt-toast-item] { ... }
   [data-lvt-toast-item] > button { width: auto; background: transparent; ... }
 </style>
-<span data-toast-trigger="..." hidden></span>
+<span
+  data-toast-trigger="{{$c.ID}}"
+  {{- if $pending}} data-pending='{{$pending}}'{{end}}
+  hidden aria-hidden="true"
+></span>
 {{end}}
 ```
 
-Because `container.tmpl` is included in every server render (it's called from the page template), morphdom sees the `<style>` on every response and keeps it. The consuming app template needs no CSS for the component.
+Because `container.tmpl` is included in every server render (it's called from the page template), the diffing algorithm sees the `<style>` on every response and keeps it. The consuming app template needs no CSS for the component.
+
+> **Source**: [`github.com/livetemplate/lvt/components/toast`](https://github.com/livetemplate/lvt/tree/main/components/toast) — the full `Container` API, message helpers, and template.
 
 ---
 
@@ -179,7 +201,10 @@ func (c *MyComponent) TakePendingJSON() string {
 
 > **Note**: Always handle the `json.Marshal` error. Silently discarding it (e.g., `b, _ := json.Marshal(...)`) can hide bugs — for example, a field with an unsupported type will produce empty output with no indication of failure.
 
-The `hasNewData` flag + `renderedJSON` cache ensures both the HTML pass and the diff-tree pass see the same value, so the diff is correct.
+The three-call contract:
+1. **First call** (HTML render pass): marshals data, caches the JSON, clears the queue, returns the JSON.
+2. **Second call** (diff-tree pass): returns the cached JSON and clears the cache. Both passes see the same value, so the diff is correct.
+3. **Any further call** (next action, no new data): returns `""` — the data has been consumed.
 
 ### 2. Template: emit CSS + trigger span
 
