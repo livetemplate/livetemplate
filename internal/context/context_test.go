@@ -251,7 +251,7 @@ func TestTemplateContext_AriaInvalid(t *testing.T) {
 		name     string
 		messages map[string]string
 		field    string
-		want     template.HTML
+		want     template.HTMLAttr
 	}{
 		{
 			name:     "nil messages",
@@ -656,6 +656,124 @@ func TestTemplateContext_AllFlash(t *testing.T) {
 			got2 := ctx.AllFlash()
 			if _, exists := got2["test_mutation"]; exists {
 				t.Error("Mutation of AllFlash() return value affected internal state")
+			}
+		})
+	}
+}
+
+func TestTemplateContext_AriaDisabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		messages map[string]string
+		field    string
+		want     template.HTMLAttr
+	}{
+		{
+			name:     "nil messages",
+			messages: nil,
+			field:    "email",
+			want:     "",
+		},
+		{
+			name:     "no error for field",
+			messages: map[string]string{"title": "Required"},
+			field:    "email",
+			want:     "",
+		},
+		{
+			name:     "error exists",
+			messages: map[string]string{"email": "Invalid"},
+			field:    "email",
+			want:     `aria-disabled="true"`,
+		},
+		{
+			name:     "flash key returns empty",
+			messages: map[string]string{"_flash:success": "OK"},
+			field:    "_flash:success",
+			want:     "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := NewTemplateContext(tt.messages, false)
+			got := ctx.AriaDisabled(tt.field)
+			if got != tt.want {
+				t.Errorf("AriaDisabled(%q) = %q, want %q", tt.field, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTemplateContext_FlashTag(t *testing.T) {
+	tests := []struct {
+		name     string
+		messages map[string]string
+		key      string
+		want     template.HTML
+	}{
+		{
+			name:     "nil messages",
+			messages: nil,
+			key:      "success",
+			want:     "",
+		},
+		{
+			name:     "key not in map",
+			messages: map[string]string{},
+			key:      "success",
+			want:     "",
+		},
+		{
+			name:     "success flash uses ins",
+			messages: map[string]string{"_flash:success": "Saved!"},
+			key:      "success",
+			want:     `<ins style="display:block;text-decoration:none" data-flash="success">Saved!</ins>`,
+		},
+		{
+			name:     "error flash uses del",
+			messages: map[string]string{"_flash:error": "Failed"},
+			key:      "error",
+			want:     `<del style="display:block;text-decoration:none" data-flash="error">Failed</del>`,
+		},
+		{
+			name:     "warning flash uses ins",
+			messages: map[string]string{"_flash:warning": "Watch out"},
+			key:      "warning",
+			want:     `<ins style="display:block;text-decoration:none" data-flash="warning">Watch out</ins>`,
+		},
+		{
+			name:     "info flash uses ins",
+			messages: map[string]string{"_flash:info": "FYI"},
+			key:      "info",
+			want:     `<ins style="display:block;text-decoration:none" data-flash="info">FYI</ins>`,
+		},
+		{
+			name:     "HTML chars escaped in message",
+			messages: map[string]string{"_flash:success": "<script>alert(1)</script>"},
+			key:      "success",
+			want:     `<ins style="display:block;text-decoration:none" data-flash="success">&lt;script&gt;alert(1)&lt;/script&gt;</ins>`,
+		},
+		{
+			name:     "empty flash message returns empty",
+			messages: map[string]string{"_flash:success": ""},
+			key:      "success",
+			want:     "",
+		},
+		{
+			name:     "custom key uses ins",
+			messages: map[string]string{"_flash:custom": "Hello"},
+			key:      "custom",
+			want:     `<ins style="display:block;text-decoration:none" data-flash="custom">Hello</ins>`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := NewTemplateContext(tt.messages, false)
+			got := ctx.FlashTag(tt.key)
+			if got != tt.want {
+				t.Errorf("FlashTag(%q) = %q, want %q", tt.key, got, tt.want)
 			}
 		})
 	}

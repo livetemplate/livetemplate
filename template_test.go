@@ -603,6 +603,87 @@ func TestTemplate_ErrorTagIntegration(t *testing.T) {
 	}
 }
 
+func TestTemplate_AriaDisabledHelper(t *testing.T) {
+	tmpl := Must(New("test"))
+	_, err := tmpl.Parse(`<div><input name="title" type="text" {{.lvt.AriaDisabled "title"}}></div>`)
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
+
+	type State struct{}
+
+	// With error — should output aria-disabled="true"
+	var buf bytes.Buffer
+	err = tmpl.Execute(&buf, State{}, map[string]string{"title": "Required"})
+	if err != nil {
+		t.Fatalf("Execute() failed: %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, `aria-disabled="true"`) {
+		t.Errorf("expected aria-disabled on input with error, got: %s", output)
+	}
+
+	// Without error — no aria-disabled
+	tmpl2 := Must(New("test2"))
+	tmpl2, _ = tmpl2.Parse(`<div><input name="title" type="text" {{.lvt.AriaDisabled "title"}}></div>`)
+	var buf2 bytes.Buffer
+	err = tmpl2.Execute(&buf2, State{}, map[string]string{})
+	if err != nil {
+		t.Fatalf("Execute() failed: %v", err)
+	}
+	output2 := buf2.String()
+	if strings.Contains(output2, "aria-disabled") {
+		t.Errorf("expected no aria-disabled without errors, got: %s", output2)
+	}
+}
+
+func TestTemplate_FlashTagIntegration(t *testing.T) {
+	tmpl := Must(New("test"))
+	_, err := tmpl.Parse(`<div>{{.lvt.FlashTag "success"}}</div>`)
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
+
+	type State struct{}
+
+	// With flash — should render <ins> tag
+	var buf bytes.Buffer
+	err = tmpl.Execute(&buf, State{}, map[string]string{"_flash:success": "Done!"})
+	if err != nil {
+		t.Fatalf("Execute() failed: %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, `<ins style="display:block;text-decoration:none" data-flash="success">Done!</ins>`) {
+		t.Errorf("expected <ins> flash tag, got: %s", output)
+	}
+
+	// Without flash — should render nothing for FlashTag
+	tmpl2 := Must(New("test2"))
+	tmpl2, _ = tmpl2.Parse(`<div>{{.lvt.FlashTag "success"}}</div>`)
+	var buf2 bytes.Buffer
+	err = tmpl2.Execute(&buf2, State{}, map[string]string{})
+	if err != nil {
+		t.Fatalf("Execute() failed: %v", err)
+	}
+	output2 := buf2.String()
+	if strings.Contains(output2, "<ins") {
+		t.Errorf("expected no <ins> tag without flash, got: %s", output2)
+	}
+
+	// Error flash — should render <del> tag
+	tmpl3 := Must(New("test3"))
+	tmpl3, _ = tmpl3.Parse(`<div>{{.lvt.FlashTag "error"}}</div>`)
+	var buf3 bytes.Buffer
+	err = tmpl3.Execute(&buf3, State{}, map[string]string{"_flash:error": "Something failed"})
+	if err != nil {
+		t.Fatalf("Execute() failed: %v", err)
+	}
+	output3 := buf3.String()
+	if !strings.Contains(output3, `<del style="display:block;text-decoration:none" data-flash="error">Something failed</del>`) {
+		t.Errorf("expected <del> flash tag for error, got: %s", output3)
+	}
+}
+
 func TestTemplate_CompileTimeTreeGeneration(t *testing.T) {
 	tests := []struct {
 		name                string

@@ -198,6 +198,7 @@ LiveTemplate provides template helpers for displaying errors.
 | `.lvt.Error "field"` | Get error message for field | `string` |
 | `.lvt.ErrorTag "field"` | Get error in `<small>` tag (or empty) | `template.HTML` |
 | `.lvt.AriaInvalid "field"` | Get `aria-invalid="true"` if error (or empty) | `template.HTML` |
+| `.lvt.AriaDisabled "field"` | Get `aria-disabled="true"` if error (or empty) | `template.HTML` |
 | `.lvt.Errors` | Get all errors | `map[string]string` |
 
 ### Basic Error Display (Recommended)
@@ -494,8 +495,20 @@ func (c *TodoController) BulkDelete(state TodoState, ctx *livetemplate.Context) 
 | `.lvt.Flash "key"` | Get flash message | `string` |
 | `.lvt.HasAnyFlash` | Check if any flash exists | `bool` |
 | `.lvt.AllFlash` | Get all flash messages | `map[string]string` |
+| `.lvt.FlashTag "key"` | Get flash in styled `<ins>`/`<del>` tag (or empty) | `template.HTML` |
 
 ### Template Examples
+
+**Concise flash rendering with FlashTag:**
+```html
+<!-- Instead of verbose {{if .lvt.HasFlash}}...{{end}} blocks: -->
+{{.lvt.FlashTag "success"}}
+{{.lvt.FlashTag "error"}}
+{{.lvt.FlashTag "warning"}}
+{{.lvt.FlashTag "info"}}
+```
+
+`FlashTag` renders `<ins>` for all keys except `"error"` which uses `<del>`. Both include `style="display:block;text-decoration:none"` and a `data-flash` attribute. Returns empty when no flash message exists for the key.
 
 **Success notification:**
 ```html

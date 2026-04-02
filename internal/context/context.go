@@ -82,11 +82,22 @@ func (t *TemplateContext) ErrorTag(field string) template.HTML {
 	return template.HTML("<small>" + html.EscapeString(msg) + "</small>")
 }
 
-// AriaInvalid returns aria-invalid="true" as template.HTML if the field has an error.
-// Returns empty template.HTML if no error exists.
-func (t *TemplateContext) AriaInvalid(field string) template.HTML {
+// AriaInvalid returns aria-invalid="true" as template.HTMLAttr if the field has an error.
+// Returns empty template.HTMLAttr if no error exists.
+// Uses HTMLAttr (not HTML) so Go's html/template treats it as safe in attribute context.
+func (t *TemplateContext) AriaInvalid(field string) template.HTMLAttr {
 	if t.HasError(field) {
-		return template.HTML(`aria-invalid="true"`)
+		return template.HTMLAttr(`aria-invalid="true"`)
+	}
+	return ""
+}
+
+// AriaDisabled returns aria-disabled="true" as template.HTMLAttr if the field has an error.
+// Returns empty template.HTMLAttr if no error exists.
+// Uses HTMLAttr (not HTML) so Go's html/template treats it as safe in attribute context.
+func (t *TemplateContext) AriaDisabled(field string) template.HTMLAttr {
+	if t.HasError(field) {
+		return template.HTMLAttr(`aria-disabled="true"`)
 	}
 	return ""
 }
@@ -181,6 +192,23 @@ func (t *TemplateContext) AllFlash() map[string]string {
 		}
 	}
 	return result
+}
+
+// FlashTag returns the flash message wrapped in a semantic HTML element as template.HTML.
+// Returns empty template.HTML if the key has no flash message.
+// Uses <del> for "error" key and <ins> for all other keys.
+// The flash message text is HTML-escaped to prevent XSS.
+func (t *TemplateContext) FlashTag(key string) template.HTML {
+	msg := t.Flash(key)
+	if msg == "" {
+		return ""
+	}
+	tag := "ins"
+	if key == "error" {
+		tag = "del"
+	}
+	return template.HTML("<" + tag + ` style="display:block;text-decoration:none" data-flash="` +
+		html.EscapeString(key) + `">` + html.EscapeString(msg) + "</" + tag + ">")
 }
 
 // Uploads returns upload entries for a given upload name.
