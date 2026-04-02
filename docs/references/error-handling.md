@@ -197,7 +197,8 @@ LiveTemplate provides template helpers for displaying errors.
 | `.lvt.HasError "field"` | Check if field has error | `bool` |
 | `.lvt.Error "field"` | Get error message for field | `string` |
 | `.lvt.ErrorTag "field"` | Get error in `<small>` tag (or empty) | `template.HTML` |
-| `.lvt.AriaInvalid "field"` | Get `aria-invalid="true"` if error (or empty) | `template.HTML` |
+| `.lvt.AriaInvalid "field"` | Get `aria-invalid="true"` if error (or empty) | `template.HTMLAttr` |
+| `.lvt.AriaDisabled "field" ...` | Get `aria-disabled="true"` if any field has error (or empty) | `template.HTMLAttr` |
 | `.lvt.Errors` | Get all errors | `map[string]string` |
 
 ### Basic Error Display (Recommended)
@@ -216,6 +217,22 @@ LiveTemplate provides template helpers for displaying errors.
 `AriaInvalid` outputs `aria-invalid="true"` when the field has an error, or nothing when it doesn't. `ErrorTag` renders `<small>error message</small>` or nothing. Together they replace the verbose `{{if .lvt.HasError}}...{{end}}` pattern.
 
 **Always use `AriaInvalid` in your templates.** It is required for WebSocket (JS) updates, which is the primary LiveTemplate use case. As a safety net, non-JS form submissions also get automatic `aria-invalid` injection on the HTTP response — but this is a progressive enhancement fallback, not a replacement for the template helper.
+
+`AriaDisabled` is for related UI elements that should appear disabled *because* errors exist — not for the errored field itself. A field with a validation error is still interactive (the user must fix it), so applying `aria-disabled` to it would incorrectly signal that the element cannot be used. It accepts multiple field names and returns `aria-disabled="true"` if any of them have errors:
+
+```html
+<form method="POST">
+    <input type="email" name="email" {{.lvt.AriaInvalid "email"}}>
+    {{.lvt.ErrorTag "email"}}
+
+    <input type="text" name="name" {{.lvt.AriaInvalid "name"}}>
+    {{.lvt.ErrorTag "name"}}
+
+    <button type="submit" {{.lvt.AriaDisabled "email" "name"}}>Save</button>
+</form>
+```
+
+**Important:** `aria-disabled` signals a disabled state to assistive technology but does **not** prevent interaction. To actually block form submission, pair it with the HTML `disabled` attribute or use JavaScript. LiveTemplate's built-in loading states already handle `<fieldset disabled>` during submission.
 
 ### Explicit Error Display
 
@@ -494,8 +511,20 @@ func (c *TodoController) BulkDelete(state TodoState, ctx *livetemplate.Context) 
 | `.lvt.Flash "key"` | Get flash message | `string` |
 | `.lvt.HasAnyFlash` | Check if any flash exists | `bool` |
 | `.lvt.AllFlash` | Get all flash messages | `map[string]string` |
+| `.lvt.FlashTag "key"` | Get flash in `<output>` tag with ARIA role (or empty) | `template.HTML` |
 
 ### Template Examples
+
+**Concise flash rendering with FlashTag:**
+```html
+<!-- Instead of verbose {{if .lvt.HasFlash}}...{{end}} blocks: -->
+{{.lvt.FlashTag "success"}}
+{{.lvt.FlashTag "error"}}
+{{.lvt.FlashTag "warning"}}
+{{.lvt.FlashTag "info"}}
+```
+
+`FlashTag` renders an `<output>` element with `role="status"` for all keys except `"error"` which uses `role="alert"`. The `data-flash` attribute identifies the flash type for CSS styling. Returns empty when no flash message exists for the key.
 
 **Success notification:**
 ```html

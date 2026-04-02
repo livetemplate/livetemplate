@@ -82,11 +82,30 @@ func (t *TemplateContext) ErrorTag(field string) template.HTML {
 	return template.HTML("<small>" + html.EscapeString(msg) + "</small>")
 }
 
-// AriaInvalid returns aria-invalid="true" as template.HTML if the field has an error.
-// Returns empty template.HTML if no error exists.
-func (t *TemplateContext) AriaInvalid(field string) template.HTML {
+// AriaInvalid returns aria-invalid="true" as template.HTMLAttr if the field has an error.
+// Returns empty template.HTMLAttr if no error exists.
+func (t *TemplateContext) AriaInvalid(field string) template.HTMLAttr {
 	if t.HasError(field) {
-		return template.HTML(`aria-invalid="true"`)
+		return template.HTMLAttr(`aria-invalid="true"`)
+	}
+	return ""
+}
+
+// AriaDisabled returns aria-disabled="true" if any of the given fields have an error.
+// Returns empty template.HTMLAttr if no errors exist for any listed field.
+//
+// Use this on related UI elements (e.g. submit buttons) that should appear disabled
+// while validation errors are present — not on the errored field itself. For marking
+// errored fields, use AriaInvalid instead.
+//
+// Note: aria-disabled signals a disabled state to assistive technology but does not
+// prevent interaction. Pair with the HTML disabled attribute or JavaScript to actually
+// block form submission.
+func (t *TemplateContext) AriaDisabled(fields ...string) template.HTMLAttr {
+	for _, field := range fields {
+		if t.HasError(field) {
+			return template.HTMLAttr(`aria-disabled="true"`)
+		}
 	}
 	return ""
 }
@@ -181,6 +200,23 @@ func (t *TemplateContext) AllFlash() map[string]string {
 		}
 	}
 	return result
+}
+
+// FlashTag returns the flash message wrapped in an <output> element as template.HTML.
+// Returns empty template.HTML if the key has no flash message.
+// Uses role="alert" for "error" key and role="status" for all other keys.
+// The flash message text is HTML-escaped to prevent XSS.
+func (t *TemplateContext) FlashTag(key string) template.HTML {
+	msg := t.Flash(key)
+	if msg == "" {
+		return ""
+	}
+	role := "status"
+	if key == "error" {
+		role = "alert"
+	}
+	return template.HTML(`<output role="` + role + `" data-flash="` +
+		html.EscapeString(key) + `">` + html.EscapeString(msg) + "</output>")
 }
 
 // Uploads returns upload entries for a given upload name.

@@ -251,7 +251,7 @@ func TestTemplateContext_AriaInvalid(t *testing.T) {
 		name     string
 		messages map[string]string
 		field    string
-		want     template.HTML
+		want     template.HTMLAttr
 	}{
 		{
 			name:     "nil messages",
@@ -656,6 +656,154 @@ func TestTemplateContext_AllFlash(t *testing.T) {
 			got2 := ctx.AllFlash()
 			if _, exists := got2["test_mutation"]; exists {
 				t.Error("Mutation of AllFlash() return value affected internal state")
+			}
+		})
+	}
+}
+
+func TestTemplateContext_AriaDisabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		messages map[string]string
+		fields   []string
+		want     template.HTMLAttr
+	}{
+		{
+			name:     "nil messages",
+			messages: nil,
+			fields:   []string{"email"},
+			want:     "",
+		},
+		{
+			name:     "empty messages",
+			messages: map[string]string{},
+			fields:   []string{"email"},
+			want:     "",
+		},
+		{
+			name:     "no error for field",
+			messages: map[string]string{"title": "Required"},
+			fields:   []string{"email"},
+			want:     "",
+		},
+		{
+			name:     "error exists",
+			messages: map[string]string{"email": "Invalid"},
+			fields:   []string{"email"},
+			want:     `aria-disabled="true"`,
+		},
+		{
+			name:     "flash key returns empty",
+			messages: map[string]string{"_flash:success": "OK"},
+			fields:   []string{"_flash:success"},
+			want:     "",
+		},
+		{
+			name:     "multiple fields none with error",
+			messages: map[string]string{},
+			fields:   []string{"email", "name", "phone"},
+			want:     "",
+		},
+		{
+			name:     "multiple fields one with error",
+			messages: map[string]string{"name": "Required"},
+			fields:   []string{"email", "name", "phone"},
+			want:     `aria-disabled="true"`,
+		},
+		{
+			name:     "multiple fields all with errors",
+			messages: map[string]string{"email": "Invalid", "name": "Required"},
+			fields:   []string{"email", "name"},
+			want:     `aria-disabled="true"`,
+		},
+		{
+			name:     "no fields provided",
+			messages: map[string]string{"email": "Invalid"},
+			fields:   []string{},
+			want:     "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := NewTemplateContext(tt.messages, false)
+			got := ctx.AriaDisabled(tt.fields...)
+			if got != tt.want {
+				t.Errorf("AriaDisabled(%v) = %q, want %q", tt.fields, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTemplateContext_FlashTag(t *testing.T) {
+	tests := []struct {
+		name     string
+		messages map[string]string
+		key      string
+		want     template.HTML
+	}{
+		{
+			name:     "nil messages",
+			messages: nil,
+			key:      "success",
+			want:     "",
+		},
+		{
+			name:     "key not in map",
+			messages: map[string]string{},
+			key:      "success",
+			want:     "",
+		},
+		{
+			name:     "success flash uses output with status role",
+			messages: map[string]string{"_flash:success": "Saved!"},
+			key:      "success",
+			want:     `<output role="status" data-flash="success">Saved!</output>`,
+		},
+		{
+			name:     "error flash uses output with alert role",
+			messages: map[string]string{"_flash:error": "Failed"},
+			key:      "error",
+			want:     `<output role="alert" data-flash="error">Failed</output>`,
+		},
+		{
+			name:     "warning flash uses output with status role",
+			messages: map[string]string{"_flash:warning": "Watch out"},
+			key:      "warning",
+			want:     `<output role="status" data-flash="warning">Watch out</output>`,
+		},
+		{
+			name:     "info flash uses output with status role",
+			messages: map[string]string{"_flash:info": "FYI"},
+			key:      "info",
+			want:     `<output role="status" data-flash="info">FYI</output>`,
+		},
+		{
+			name:     "HTML chars escaped in message",
+			messages: map[string]string{"_flash:success": "<script>alert(1)</script>"},
+			key:      "success",
+			want:     `<output role="status" data-flash="success">&lt;script&gt;alert(1)&lt;/script&gt;</output>`,
+		},
+		{
+			name:     "empty flash message returns empty",
+			messages: map[string]string{"_flash:success": ""},
+			key:      "success",
+			want:     "",
+		},
+		{
+			name:     "custom key uses output with status role",
+			messages: map[string]string{"_flash:custom": "Hello"},
+			key:      "custom",
+			want:     `<output role="status" data-flash="custom">Hello</output>`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := NewTemplateContext(tt.messages, false)
+			got := ctx.FlashTag(tt.key)
+			if got != tt.want {
+				t.Errorf("FlashTag(%q) = %q, want %q", tt.key, got, tt.want)
 			}
 		})
 	}
