@@ -332,7 +332,7 @@ The client reads `--lvt-scroll-behavior` and `--lvt-scroll-threshold` from compu
 
 ### Disable/Enable: 2 → 0
 
-`lvt-disable-on:{event}` and `lvt-enable-on:{event}` are syntactic sugar for `lvt-toggleAttr-on:{event}="disabled"`, which already exists:
+`lvt-disable-on:{event}` and `lvt-enable-on:{event}` are syntactic sugar for `lvt-el:toggleAttr:on:{event}="disabled"`, which already exists:
 
 **Before:**
 ```html
@@ -341,7 +341,7 @@ The client reads `--lvt-scroll-behavior` and `--lvt-scroll-threshold` from compu
 
 **After:**
 ```html
-<button lvt-toggleAttr-on:pending="disabled" lvt-toggleAttr-on:done="disabled">Save</button>
+<button lvt-el:toggleAttr:on:pending="disabled" lvt-el:toggleAttr:on:done="disabled">Save</button>
 ```
 
 No CSS dependency needed — this is pure attribute consolidation.
@@ -353,7 +353,7 @@ No CSS dependency needed — this is pure attribute consolidation.
 | `lvt-scroll`, `lvt-scroll-behavior`, `lvt-scroll-threshold` | `lvt-fx:scroll` + CSS custom properties | 3 → 1 |
 | `lvt-highlight`, `lvt-highlight-color`, `lvt-highlight-duration` | `lvt-fx:highlight` + CSS custom properties | 3 → 1 |
 | `lvt-animate`, `lvt-animate-duration` | `lvt-fx:animate` + CSS custom properties | 2 → 1 |
-| `lvt-disable-on:{event}`, `lvt-enable-on:{event}` | `lvt-toggleAttr-on:{event}="disabled"` | 2 → 0 |
+| `lvt-disable-on:{event}`, `lvt-enable-on:{event}` | `lvt-el:toggleAttr:on:{event}="disabled"` | 2 → 0 |
 
 **Impact: 7 attributes removed via consolidation.**
 
@@ -363,7 +363,7 @@ No CSS dependency needed — this is pure attribute consolidation.
 
 These behaviors cannot be expressed with standard HTML. They are the **essential `lvt-*` surface**.
 
-> **Note:** This section identifies the *behaviors* that must remain in Tier 2. Category 5 below consolidates many of these individual attribute names into the generic `lvt-on[:{type}][:{scope}]:{event}` pattern. Category 6 further groups the remaining flat attributes under `lvt-fx:`, `lvt-mod:`, and `lvt-form:` prefixes. The behaviors remain, but the attribute names change.
+> **Note:** This section identifies the *behaviors* that must remain in Tier 2. Category 5 below consolidates many of these individual attribute names into the generic `lvt-on[:{type}][:{scope}]:{event}` pattern. Category 6 groups the remaining flat attributes under `lvt-fx:`, `lvt-mod:`, and `lvt-form:` prefixes. Category 7 renames reactive DOM attributes under `lvt-el:`. The behaviors remain, but the attribute names change.
 
 ### Timing Control
 | Attribute | Why |
@@ -404,12 +404,12 @@ These behaviors cannot be expressed with standard HTML. They are the **essential
 ### Reactive DOM (lifecycle-driven, not DOM events)
 | Attribute | Why |
 |-----------|-----|
-| `lvt-addClass-on:{lifecycle}` | Add CSS class on pending/success/error/done |
-| `lvt-removeClass-on:{lifecycle}` | Remove CSS class on lifecycle event |
-| `lvt-toggleClass-on:{lifecycle}` | Toggle CSS class on lifecycle event |
-| `lvt-setAttr-on:{lifecycle}` | Set attribute on lifecycle event |
-| `lvt-toggleAttr-on:{lifecycle}` | Toggle boolean attribute (subsumes `disable-on`/`enable-on`) |
-| `lvt-reset-on:{lifecycle}` | Reset form on lifecycle event |
+| `lvt-addClass-on:{lifecycle}` → `lvt-el:addClass:on:{lifecycle}` | Add CSS class on pending/success/error/done |
+| `lvt-removeClass-on:{lifecycle}` → `lvt-el:removeClass:on:{lifecycle}` | Remove CSS class on lifecycle event |
+| `lvt-toggleClass-on:{lifecycle}` → `lvt-el:toggleClass:on:{lifecycle}` | Toggle CSS class on lifecycle event |
+| `lvt-setAttr-on:{lifecycle}` → `lvt-el:setAttr:on:{lifecycle}` | Set attribute on lifecycle event |
+| `lvt-toggleAttr-on:{lifecycle}` → `lvt-el:toggleAttr:on:{lifecycle}` | Toggle boolean attribute (subsumes `disable-on`/`enable-on`) |
+| `lvt-reset-on:{lifecycle}` → `lvt-el:reset:on:{lifecycle}` | Reset form on lifecycle event |
 
 ### Form Behavior
 | Attribute | Why |
@@ -528,7 +528,7 @@ Replaces all individual element-scoped event attributes:
 
 **Note:** `lvt-on:custom:click-away` uses the `custom` type prefix because `click-away` is not a native DOM event — it is dispatched as `new CustomEvent('click-away')` by the client's inverted-containment delegation logic. See [Grammar](#grammar-lvt-ontypescopeevent) above for the full dispatch pattern.
 
-**Note on namespace distinction:** `lvt-*-on:{lifecycle}` (reactive DOM) and `lvt-on:*` (event routing) share a colon separator but are semantically distinct. `lvt-addClass-on:pending` reacts to framework lifecycle states (pending/success/error/done), not DOM events, and does not use the type/scope system.
+**Note on namespace distinction:** `lvt-el:{method}:on:{lifecycle}` (reactive DOM) and `lvt-on:{event}` (event routing) both use `on` with colon separators but are semantically distinct. `lvt-el:addClass:on:pending` reacts to framework lifecycle states (pending/success/error/done) and manipulates the DOM client-side. `lvt-on:click` routes DOM events to server actions. The `lvt-el:` prefix disambiguates them.
 
 ### `lvt-on:window:{event}` — Window-Scoped Events (`Window` EventTarget)
 
@@ -686,25 +686,25 @@ Rationale: All three modify how the framework handles HTML forms — they are fo
 - **HTMX** uses flat names (`hx-get`, `hx-trigger`, `hx-target`) — simpler but less organized as the attribute count grows.
 - **Stimulus** uses `data-*` with controller namespacing — different pattern but similar goal of grouping.
 
-LiveTemplate already adopted the colon-delimited pattern for `lvt-on:*` and `lvt-*-on:*`. Extending it to effects, modifiers, and form behavior creates a consistent system.
+LiveTemplate already adopted the colon-delimited pattern for `lvt-on:*` and `lvt-el:*:on:*`. Extending it to effects, modifiers, and form behavior creates a consistent system.
 
 ### Recommendation: Adopt Prefixes
 
 **Adopt `lvt-fx:`, `lvt-mod:`, and `lvt-form:` prefixes.** The cognitive load reduction (12 → 7 concepts) and consistency with `lvt-on:*` outweigh the minor verbosity increase. The CSS escaping concern is already addressed by the `lvtSelector()` utility introduced for `lvt-on:*`.
 
-**Updated attribute taxonomy after consolidation:**
+**Updated attribute taxonomy after all consolidations (Categories 6–7):**
 
 | Prefix family | Pattern | Count | Purpose |
 |---------------|---------|-------|---------|
 | `lvt-on:` | `lvt-on[:{type}][:{scope}]:{event}` | 1 generic | Event routing to server actions |
-| `lvt-*-on:` | `lvt-addClass-on:{lifecycle}`, etc. | 6 named | Reactive DOM based on lifecycle states |
+| `lvt-el:` | `lvt-el:addClass:on:pending`, etc. | 6 named | Reactive DOM based on lifecycle states |
 | `lvt-fx:` | `lvt-fx:scroll`, `lvt-fx:highlight`, `lvt-fx:animate` | 3 named | Visual effects and DOM behaviors |
 | `lvt-mod:` | `lvt-mod:debounce`, `lvt-mod:throttle` | 2 named | Event timing modifiers |
 | `lvt-form:` | `lvt-form:preserve`, `lvt-form:disable-with`, `lvt-form:no-intercept` | 3 named | Form behavior overrides |
 | (flat) | `lvt-key` | 1 named | Key filter |
 | (flat) | `lvt-upload` | 1 named | Custom drop zones |
 
-**Total: 5 prefix families + 2 standalone = 7 attribute families (down from 12 concepts)**
+**Total: 5 prefix families + 2 standalone = 7 attribute concepts (down from 12)**
 
 ### Complete Example After All Consolidations
 
@@ -727,9 +727,9 @@ LiveTemplate already adopted the colon-delimited pattern for `lvt-on:*` and `lvt
 <input lvt-form:preserve>
 <button lvt-form:disable-with="Saving...">Save</button>
 
-<!-- Reactive DOM (lvt-*-on:) -->
-<button lvt-toggleAttr-on:pending="disabled"
-        lvt-addClass-on:pending="opacity-50">
+<!-- Reactive DOM (lvt-el:) -->
+<button lvt-el:toggleAttr:on:pending="disabled"
+        lvt-el:addClass:on:pending="opacity-50">
   Save
 </button>
 
@@ -749,16 +749,108 @@ LiveTemplate already adopted the colon-delimited pattern for `lvt-on:*` and `lvt
 | Scroll config | 3 (`lvt-scroll` + 2 config attrs) | 1 (`lvt-fx:scroll`) + CSS custom properties |
 | Highlight config | 3 (`lvt-highlight` + 2 config attrs) | 1 (`lvt-fx:highlight`) + CSS custom properties |
 | Animation config | 2 (`lvt-animate` + 1 config attr) | 1 (`lvt-fx:animate`) + CSS custom properties |
-| Enable/disable sugar | 2 | 0 (use `lvt-toggleAttr-on`) |
+| Enable/disable sugar | 2 | 0 (use `lvt-el:toggleAttr:on`) |
 | Upload | 1 | 1 (`lvt-upload`, narrowed: Tier 1 for basic uploads via standard HTML, Tier 2 for custom drop zones) |
 | Timing modifiers | 2 (`lvt-debounce`, `lvt-throttle`) | 2 (`lvt-mod:debounce`, `lvt-mod:throttle`) |
 | Key filter | 1 (`lvt-key`) | 1 (unchanged) |
-| Reactive DOM | 6 (`lvt-*-on:{lifecycle}`) | 6 (unchanged) |
+| Reactive DOM | 6 (`lvt-*-on:{lifecycle}`) | 6 (`lvt-el:{method}:on:{lifecycle}`) |
 | Form behavior | 3 (`lvt-preserve`, `lvt-disable-with`, `lvt-no-intercept`) | 3 (`lvt-form:preserve`, `lvt-form:disable-with`, `lvt-form:no-intercept`) |
+
+## Category 7: `lvt-el:` Prefix and Unified Grammar
+
+### Problem
+
+After Categories 1–6, the reactive DOM family is the only family using a wildcard-in-the-middle naming pattern: `lvt-{method}-on:{lifecycle}` (e.g., `lvt-addClass-on:pending`). Every other family uses the consistent `lvt-{family}:{member}` convention. This irregularity means:
+- The parser must pattern-match `lvt-*-on:*` wildcards instead of checking a prefix
+- The family is not enumerable by prefix (`querySelectorAll` cannot target all reactive DOM attrs at once)
+- The `-on:` hybrid (dash-colon) separator is inconsistent with the `:on:` colon-colon separator implied by the rest of the system
+
+### Solution: `lvt-el:` Prefix
+
+Rename all 6 reactive DOM attributes under a new `lvt-el:` family prefix:
+
+| Before | After |
+|--------|-------|
+| `lvt-addClass-on:{lifecycle}` | `lvt-el:addClass:on:{lifecycle}` |
+| `lvt-removeClass-on:{lifecycle}` | `lvt-el:removeClass:on:{lifecycle}` |
+| `lvt-toggleClass-on:{lifecycle}` | `lvt-el:toggleClass:on:{lifecycle}` |
+| `lvt-setAttr-on:{lifecycle}` | `lvt-el:setAttr:on:{lifecycle}` |
+| `lvt-toggleAttr-on:{lifecycle}` | `lvt-el:toggleAttr:on:{lifecycle}` |
+| `lvt-reset-on:{lifecycle}` | `lvt-el:reset:on:{lifecycle}` |
+
+**Why `lvt-el:`?** "el" = Element. All 6 methods are DOM Element operations (`classList.add()`, `setAttribute()`, `toggleAttribute()`, `HTMLFormElement.reset()`). Short, unambiguous, maps directly to DOM vocabulary.
+
+**camelCase note:** The method segment uses camelCase (`addClass`, not `add-class`) to match the DOM API naming convention. This is consistent with the existing attribute names — they already use camelCase.
+
+**Lifecycle events** (closed set): `pending`, `success`, `error`, `done`. These are LiveTemplate framework states representing the server action request-response lifecycle.
+
+### Unified Grammar
+
+With `lvt-el:` adopted, every attribute family follows the same structural pattern:
+
+```
+lvt-{family}:{member}[:on:{lifecycle}]="value"
+```
+
+| Family | Grammar | `:on:` trigger | Status |
+|--------|---------|---------------|--------|
+| `lvt-on:` | `lvt-on[:{type}][:{scope}]:{event}="action"` | IS the event (not a suffix) | v1 |
+| `lvt-el:` | `lvt-el:{method}:on:{lifecycle}="value"` | **Required** — specifies when to manipulate the element | v1 |
+| `lvt-fx:` | `lvt-fx:{effect}[="config"]` | Optional (see Future Extension) | v1 (without `:on:`) |
+| `lvt-mod:` | `lvt-mod:{modifier}="value"` | Not applicable — modifies sibling `lvt-on:*` | v1 |
+| `lvt-form:` | `lvt-form:{behavior}[="value"]` | Optional (see Future Extension) | v1 (without `:on:`) |
+
+The `:on:{lifecycle}` suffix is a universal **trigger mechanism**. It answers the question: "When should this behavior activate?" For `lvt-el:`, the trigger is always explicit and required. For other families, the trigger is currently implicit (effects activate on DOM update, form behaviors on submission).
+
+### Parser: `lvt-el:{method}:on:{lifecycle}`
+
+```
+methodKeywords = { 'addClass', 'removeClass', 'toggleClass', 'setAttr', 'toggleAttr', 'reset' }
+lifecycleKeywords = { 'pending', 'success', 'error', 'done' }
+
+// After matching "lvt-el:" prefix:
+segments = rest.split(':')                          // e.g. "addClass:on:pending" → ["addClass", "on", "pending"]
+method = segments[0]                                // "addClass"
+assert segments[1] == 'on'                          // literal ":on:" separator
+lifecycle = segments[2]                             // "pending"
+assert method in methodKeywords
+assert lifecycle in lifecycleKeywords
+```
+
+### Future Extension: `:on:` for `lvt-fx:` and `lvt-form:`
+
+The unified grammar is designed to be **forward-compatible** with optional `:on:{lifecycle}` suffixes on other families. This is NOT part of v1 but does not require future breaking changes to enable.
+
+**`lvt-fx:` with optional `:on:` (future):**
+
+Currently `lvt-fx:highlight="flash"` activates on every DOM content change. A future `:on:` suffix could make the trigger conditional:
+
+```html
+<!-- v1: highlight on any content change (implicit trigger) -->
+<div lvt-fx:highlight="flash">
+
+<!-- Future: highlight only on success lifecycle -->
+<div lvt-fx:highlight:on:success="flash">
+
+<!-- Future: different effects for different lifecycle states -->
+<div lvt-fx:highlight:on:success="flash" lvt-fx:highlight:on:error="shake">
+```
+
+**`lvt-form:` with optional `:on:` (future):**
+
+```html
+<!-- v1: always preserve form state (implicit trigger) -->
+<input lvt-form:preserve>
+
+<!-- Future: preserve only on error (reset on success) -->
+<input lvt-form:preserve:on:error>
+```
+
+**Why NOT `lvt-mod:` with `:on:`?** Event modifiers (debounce, throttle) are **adverbs** — they modify how an event handler dispatches, not when they activate. Debounce doesn't "fire on pending" — it alters the timing of event delivery. The modifier's target is the sibling `lvt-on:*` attribute on the same element, which is already implicit and unambiguous for the common case.
 
 ### Final Attribute Surface
 
-After all reductions (Categories 1–6), the complete `lvt-*` surface is:
+After all reductions (Categories 1–7), the complete `lvt-*` surface is:
 
 **Named attributes (16) in 5 prefix families + 2 standalone:**
 
@@ -767,12 +859,12 @@ After all reductions (Categories 1–6), the complete `lvt-*` surface is:
 | 1 | `lvt-mod:debounce` | `lvt-mod:` (event modifier) |
 | 2 | `lvt-mod:throttle` | `lvt-mod:` (event modifier) |
 | 3 | `lvt-key` | standalone (key filter) |
-| 4 | `lvt-addClass-on:{lifecycle}` | `lvt-*-on:` (reactive DOM) |
-| 5 | `lvt-removeClass-on:{lifecycle}` | `lvt-*-on:` (reactive DOM) |
-| 6 | `lvt-toggleClass-on:{lifecycle}` | `lvt-*-on:` (reactive DOM) |
-| 7 | `lvt-setAttr-on:{lifecycle}` | `lvt-*-on:` (reactive DOM) |
-| 8 | `lvt-toggleAttr-on:{lifecycle}` | `lvt-*-on:` (reactive DOM) |
-| 9 | `lvt-reset-on:{lifecycle}` | `lvt-*-on:` (reactive DOM) |
+| 4 | `lvt-el:addClass:on:{lifecycle}` | `lvt-el:` (reactive DOM) |
+| 5 | `lvt-el:removeClass:on:{lifecycle}` | `lvt-el:` (reactive DOM) |
+| 6 | `lvt-el:toggleClass:on:{lifecycle}` | `lvt-el:` (reactive DOM) |
+| 7 | `lvt-el:setAttr:on:{lifecycle}` | `lvt-el:` (reactive DOM) |
+| 8 | `lvt-el:toggleAttr:on:{lifecycle}` | `lvt-el:` (reactive DOM) |
+| 9 | `lvt-el:reset:on:{lifecycle}` | `lvt-el:` (reactive DOM) |
 | 10 | `lvt-form:preserve` | `lvt-form:` (form behavior) |
 | 11 | `lvt-form:disable-with` | `lvt-form:` (form behavior) |
 | 12 | `lvt-form:no-intercept` | `lvt-form:` (form behavior) |
@@ -791,9 +883,9 @@ After all reductions (Categories 1–6), the complete `lvt-*` surface is:
 
 ### Design Summary (Quick Reference for Implementors)
 
-This section recaps the key design decisions from Categories 1-5 so each implementation phase is self-contained.
+This section recaps the key design decisions from Categories 1-7 so each implementation phase is self-contained.
 
-**Grammar:** `lvt-on[:{type}][:{scope}]:{event}="action"`
+**Grammar:** `lvt-on[:{type}][:{scope}]:{event}="action"` (event routing) · `lvt-el:{method}:on:{lifecycle}="value"` (reactive DOM)
 
 | Segment | Values | Default |
 |---------|--------|---------|
@@ -847,8 +939,14 @@ event = segments.join(':')           // remainder is the event name
 | `lvt-preserve` | `lvt-form:preserve` |
 | `lvt-disable-with="X"` | `lvt-form:disable-with="X"` |
 | `lvt-no-intercept` | `lvt-form:no-intercept` |
+| `lvt-addClass-on:{lifecycle}` | `lvt-el:addClass:on:{lifecycle}` |
+| `lvt-removeClass-on:{lifecycle}` | `lvt-el:removeClass:on:{lifecycle}` |
+| `lvt-toggleClass-on:{lifecycle}` | `lvt-el:toggleClass:on:{lifecycle}` |
+| `lvt-setAttr-on:{lifecycle}` | `lvt-el:setAttr:on:{lifecycle}` |
+| `lvt-toggleAttr-on:{lifecycle}` | `lvt-el:toggleAttr:on:{lifecycle}` |
+| `lvt-reset-on:{lifecycle}` | `lvt-el:reset:on:{lifecycle}` |
 
-**CSS selector escaping:** Colons in `lvt-on:*`, `lvt-fx:*`, `lvt-mod:*`, and `lvt-form:*` must be escaped in CSS selectors. Use the `lvtSelector(attr, value?)` utility (Phase 1 Step 3) for all `querySelectorAll` calls.
+**CSS selector escaping:** Colons in `lvt-on:*`, `lvt-el:*`, `lvt-fx:*`, `lvt-mod:*`, and `lvt-form:*` must be escaped in CSS selectors. Use the `lvtSelector(attr, value?)` utility (Phase 1 Step 3) for all `querySelectorAll` calls.
 
 ### Path Convention
 
@@ -870,18 +968,21 @@ This plan skips the deprecation-warning phase from the original migration path. 
 
 ### CSS Selector Escaping Convention
 
-The `lvt-on:{event}`, `lvt-fx:{effect}`, `lvt-mod:{modifier}`, and `lvt-form:{behavior}` syntax introduces colons in HTML attribute names. Colons must be escaped in CSS selectors:
+The `lvt-on:{event}`, `lvt-el:{method}:on:{lifecycle}`, `lvt-fx:{effect}`, `lvt-mod:{modifier}`, and `lvt-form:{behavior}` syntax introduces colons in HTML attribute names. Colons must be escaped in CSS selectors:
 
 ```ts
 // Wrong — unescaped colons
 document.querySelectorAll('[lvt-on:click="X"]')
 document.querySelectorAll('[lvt-on:custom:click-away]')
+document.querySelectorAll('[lvt-el:addClass:on:pending]')
 document.querySelectorAll('[lvt-fx:scroll]')
 
 // Correct — escaped colons
 document.querySelectorAll('[lvt-on\\:click="X"]')
 document.querySelectorAll('[lvt-on\\:custom\\:click-away]')
 document.querySelectorAll('[lvt-on\\:window\\:keydown="X"]')
+document.querySelectorAll('[lvt-el\\:addClass\\:on\\:pending]')
+document.querySelectorAll('[lvt-el\\:toggleAttr\\:on\\:pending="disabled"]')
 document.querySelectorAll('[lvt-fx\\:scroll]')
 document.querySelectorAll('[lvt-mod\\:debounce]')
 document.querySelectorAll('[lvt-form\\:preserve]')
@@ -1033,7 +1134,7 @@ git worktree add .worktrees/attr-reduction -b attr-reduction
 
 2. **Update `utils/confirm.ts`.** Remove `checkLvtConfirm()`. If `extractLvtData()` is only used for `lvt-data-*` extraction, remove it too. Check all imports first.
 
-3. **Update `dom/reactive-attributes.ts`.** Remove `"disable"` and `"enable"` from the reactive action types. Users must use `lvt-toggleAttr-on:{event}="disabled"` instead.
+3. **Update `dom/reactive-attributes.ts`.** Remove `"disable"` and `"enable"` from the reactive action types. Rename all reactive attribute patterns from `lvt-{method}-on:{lifecycle}` → `lvt-el:{method}:on:{lifecycle}`. Users must use `lvt-el:toggleAttr:on:{event}="disabled"` instead of disable/enable sugar.
 
 4. **Update `dom/directives.ts`.** For each directive (scroll, highlight, animate):
    - Rename attribute selectors from `lvt-scroll` → `lvt-fx:scroll`, `lvt-highlight` → `lvt-fx:highlight`, `lvt-animate` → `lvt-fx:animate`
@@ -1065,6 +1166,7 @@ Add a step to rename the prefix-consolidated attributes:
 6. **Rename prefix-consolidated attributes.** Throughout the client codebase:
    - `lvt-debounce` → `lvt-mod:debounce`, `lvt-throttle` → `lvt-mod:throttle` (timing modifiers)
    - `lvt-preserve` → `lvt-form:preserve`, `lvt-disable-with` → `lvt-form:disable-with`, `lvt-no-intercept` → `lvt-form:no-intercept` (form behavior)
+   - `lvt-addClass-on:*` → `lvt-el:addClass:on:*`, and similarly for all 6 reactive DOM attrs (Category 7 renames)
    - Update all `querySelectorAll` calls, attribute reads, and constants to use the new prefixed names
    - Use `lvtSelector()` for all CSS selector queries involving colons
 
@@ -1100,6 +1202,7 @@ npm test
 - [ ] Client: `modal-manager.ts` deleted, no `lvt-modal-open/close` handling
 - [ ] Client: No `lvt-data-*`, `lvt-value-*`, `lvt-submit`, `lvt-confirm`, `lvt-change` handling
 - [ ] Client: `lvt-disable-on`/`lvt-enable-on` reactive actions removed
+- [ ] Client: Reactive DOM uses `lvt-el:*:on:*` prefix (`lvt-el:addClass:on:pending`, `lvt-el:toggleAttr:on:pending`, etc.)
 - [ ] Client: Directives use `lvt-fx:*` prefix, read from CSS custom properties, `livetemplate.css` ships with defaults
 - [ ] Client: Timing modifiers use `lvt-mod:*` prefix (`lvt-mod:debounce`, `lvt-mod:throttle`)
 - [ ] Client: Form behavior uses `lvt-form:*` prefix (`lvt-form:preserve`, `lvt-form:disable-with`, `lvt-form:no-intercept`)
@@ -1116,6 +1219,7 @@ BREAKING CHANGE: Replaces lvt-click, lvt-keydown, etc. with lvt-on:{event}.
 Renames lvt-scroll → lvt-fx:scroll, lvt-highlight → lvt-fx:highlight, lvt-animate → lvt-fx:animate.
 Renames lvt-debounce → lvt-mod:debounce, lvt-throttle → lvt-mod:throttle.
 Renames lvt-preserve → lvt-form:preserve, lvt-disable-with → lvt-form:disable-with, lvt-no-intercept → lvt-form:no-intercept.
+Renames lvt-addClass-on → lvt-el:addClass:on, etc. for all reactive DOM attrs.
 Removes lvt-submit, lvt-confirm, lvt-modal-*, lvt-data-*, lvt-value-*,
 lvt-change, lvt-disable-on, lvt-enable-on, and directive config attributes.
 Adds livetemplate.css with CSS custom property defaults."
@@ -1221,6 +1325,7 @@ GOWORK=off go test ./... -timeout=300s
 - Rename directive attributes: `lvt-scroll` → `lvt-fx:scroll`, `lvt-highlight` → `lvt-fx:highlight`, `lvt-animate` → `lvt-fx:animate`
 - Rename timing modifiers: `lvt-debounce` → `lvt-mod:debounce`, `lvt-throttle` → `lvt-mod:throttle`
 - Rename form behavior: `lvt-preserve` → `lvt-form:preserve`, `lvt-disable-with` → `lvt-form:disable-with`, `lvt-no-intercept` → `lvt-form:no-intercept`
+- Rename reactive DOM: `lvt-addClass-on:*` → `lvt-el:addClass:on:*`, and similarly for all 6 reactive DOM attrs (Category 7)
 - Replace individual event attribute entries with a single `lvt-on:{event}` section
 - Replace individual window event entries with a single `lvt-on:window:{event}` section
 - Remove `lvt-change` entry; add note that `Change()` convention handles this automatically
@@ -1230,7 +1335,7 @@ GOWORK=off go test ./... -timeout=300s
 
 - Update Section 13.1 (Event Bindings) to use `lvt-on:{event}` syntax
 - Update Section 13.3 (Keyboard Shortcuts) to use `lvt-on:window:keydown`
-- Update Section 13.4 (Reactive DOM) to remove `lvt-disable-on`/`lvt-enable-on` examples
+- Update Section 13.4 (Reactive DOM) to remove `lvt-disable-on`/`lvt-enable-on` examples; rename remaining attrs from `lvt-*-on:` to `lvt-el:*:on:` syntax
 - Update Section 13.5 (Directives) to show CSS custom properties instead of `lvt-*-behavior/color/duration` attributes
 
 **File:** `docs/references/progressive-complexity-reference.md`
@@ -1387,7 +1492,7 @@ git worktree add .worktrees/attr-reduction -b attr-reduction
 
 #### Step 3: Update Component Templates
 
-For each component in `components/*/templates/*.tmpl`, apply the **attribute replacement rules** from the [Design Summary](#design-summary-quick-reference-for-implementors) above. This includes both event router changes (`lvt-click` → `lvt-on:click`) and prefix consolidation (`lvt-debounce` → `lvt-mod:debounce`, `lvt-scroll` → `lvt-fx:scroll`, `lvt-preserve` → `lvt-form:preserve`, etc.).
+For each component in `components/*/templates/*.tmpl`, apply the **attribute replacement rules** from the [Design Summary](#design-summary-quick-reference-for-implementors) above. This includes event router changes (`lvt-click` → `lvt-on:click`), prefix consolidation (`lvt-debounce` → `lvt-mod:debounce`, `lvt-scroll` → `lvt-fx:scroll`, `lvt-preserve` → `lvt-form:preserve`, etc.), and reactive DOM renames (`lvt-addClass-on:*` → `lvt-el:addClass:on:*`, etc.).
 
 **High-impact components** (from initial exploration — verify during Phase 2 audit):
 - `components/modal/templates/default.tmpl` — `lvt-modal-close`, `lvt-keydown`
@@ -1486,7 +1591,7 @@ For chromedp selectors:
 | `[lvt-submit="X"]` | `[name="X"]` on button, or `form[name="X"]` |
 | `[lvt-modal-open="id"]` | `[commandfor="id"]` |
 
-**Note:** Colon in attribute selectors requires escaping in CSS: `[lvt-on\:click="X"]`. In Go strings, this becomes `[lvt-on\\:click="X"]`.
+**Note:** Colon in attribute selectors requires escaping in CSS: `[lvt-on\:click="X"]`. In Go strings, this becomes `[lvt-on\\:click="X"]`. This applies to all colon-delimited families: `lvt-on:*`, `lvt-el:*`, `lvt-fx:*`, `lvt-mod:*`, `lvt-form:*`. For reactive DOM attrs: `[lvt-el\\:addClass\\:on\\:pending="loading"]`.
 
 #### Step 3: Run Tests
 
@@ -1570,7 +1675,7 @@ cd $REPO_ROOT/tinkerdown
 ```
 
 1. **Go code that GENERATES lvt-* attributes:**
-   - Read `auto_tables.go` — find all `lvt-click`, `lvt-submit`, `lvt-confirm`, `lvt-data-*`, `lvt-reset-on:success` in string literals
+   - Read `auto_tables.go` — find all `lvt-click`, `lvt-submit`, `lvt-confirm`, `lvt-data-*`, `lvt-reset-on:success` (now `lvt-el:reset:on:success`) in string literals
    - Read `auto_tasks.go` — same analysis
    - Read `page.go` — find all generated `lvt-click`, `lvt-data-*` in table action buttons
    - These are the most critical files — they programmatically build HTML
@@ -1640,7 +1745,7 @@ git worktree add .worktrees/attr-reduction -b attr-reduction
 
 **File:** `auto_tables.go`
 
-This file generates CRUD table HTML with `lvt-click`, `lvt-submit`, `lvt-confirm`, `lvt-data-id`, `lvt-reset-on:success`. Update all string literals:
+This file generates CRUD table HTML with `lvt-click`, `lvt-submit`, `lvt-confirm`, `lvt-data-id`, `lvt-reset-on:success` (→ `lvt-el:reset:on:success`). Update all string literals:
 
 | Find in string literal | Replace |
 |------------------------|---------|
@@ -1652,7 +1757,7 @@ This file generates CRUD table HTML with `lvt-click`, `lvt-submit`, `lvt-confirm
 | `lvt-submit="Update"` | `name="Update"` (on button) |
 | `lvt-confirm="Delete this item?"` | `onclick="return confirm('Delete this item?')"` |
 | `lvt-data-id="{{.Id}}"` | `data-id="{{.Id}}"` |
-| `lvt-reset-on:success` | `lvt-reset-on:success` (unchanged — this is a reactive attribute, not deprecated) |
+| `lvt-reset-on:success` | `lvt-el:reset:on:success` (renamed per Category 7) |
 
 **File:** `auto_tasks.go`
 
@@ -1834,7 +1939,7 @@ cd $REPO_ROOT/examples
 ```
 
 1. Confirm which `lvt-*` attributes are in actual template files (not just docs):
-   - Expected: `lvt-fx:scroll`, `lvt-upload`, `lvt-form:preserve`, `lvt-form:no-intercept` (all Tier 2)
+   - Expected: `lvt-fx:scroll`, `lvt-upload`, `lvt-form:preserve`, `lvt-form:no-intercept`, `lvt-el:*:on:*` (all Tier 2)
    - Verify zero deprecated attributes in templates
 
 2. Check `go.mod` — dependency version
