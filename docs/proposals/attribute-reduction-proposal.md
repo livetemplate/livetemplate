@@ -440,19 +440,6 @@ These behaviors cannot be expressed with standard HTML. They are the **essential
 |-----------|-----|
 | `lvt-upload` (narrowed) | Tier 2-only: custom drop zones (`<div>` as drop target) and direct-to-S3 presigned uploads. Basic file uploads moved to Tier 1 via standard `<input type="file" name="...">` in a `<form>`. See [Tier 1 File Uploads Proposal](tier1-file-uploads-proposal.md). |
 
-## Category 4: Needs Discussion
-
-These attributes are technically needed but their real-world usage may be rare enough to not justify the surface area.
-
-| Attribute | Question |
-|-----------|----------|
-| `lvt-input` | Is it needed when `Change()` convention exists? Difference: `lvt-input` routes to a named action, `Change()` always routes to `Change`. Could `Change()` accept action name routing instead? |
-| `lvt-focus`, `lvt-blur` | How common are server-round-trip focus/blur handlers? If usage is rare across real apps, consider removing. |
-| `lvt-mouseenter`, `lvt-mouseleave` | Server round-trip on hover has latency concerns. May cause poor UX if network is slow. Consider whether these encourage bad patterns. |
-| `lvt-disable-with` | Could be replaced by CSS: `button[aria-busy="true"] { ... }` with `::after` for text. Less ergonomic but zero custom attributes. Worth the tradeoff? |
-
-**Resolution:** Category 5 below retains `lvt-input`, `lvt-focus`, `lvt-blur`, `lvt-mouseenter`, and `lvt-mouseleave` as valid event names within the generic `lvt-on:{event}` pattern — their cost drops to zero additional attribute names. `lvt-disable-with` is retained as-is; the CSS alternative is less ergonomic for the common case (button text swap during pending state).
-
 ## Category 5: Generic Event Router Consolidation
 
 Individual event-binding attributes (`lvt-click`, `lvt-keydown`, `lvt-mouseenter`, etc.) can be replaced by a single generic pattern. The client already uses a parameterized loop internally (`attrName = lvt-${eventType}`) — this change surfaces that generic infrastructure to users.
@@ -651,9 +638,91 @@ With the generic router, `lvt-click` is fully superseded:
 | Reactive DOM | 6 (`lvt-*-on:{lifecycle}`) | 6 (unchanged) |
 | Form behavior | 3 (`lvt-preserve`, `lvt-disable-with`, `lvt-no-intercept`) | 3 (unchanged) |
 
+### Final Attribute Surface
+
+After all reductions, the complete `lvt-*` surface is:
+
+**Named attributes (16):**
+
+| # | Attribute | Category |
+|---|-----------|----------|
+| 1 | `lvt-debounce` | Timing |
+| 2 | `lvt-throttle` | Timing |
+| 3 | `lvt-key` | Key filter |
+| 4 | `lvt-addClass-on:{lifecycle}` | Reactive DOM |
+| 5 | `lvt-removeClass-on:{lifecycle}` | Reactive DOM |
+| 6 | `lvt-toggleClass-on:{lifecycle}` | Reactive DOM |
+| 7 | `lvt-setAttr-on:{lifecycle}` | Reactive DOM |
+| 8 | `lvt-toggleAttr-on:{lifecycle}` | Reactive DOM |
+| 9 | `lvt-reset-on:{lifecycle}` | Reactive DOM |
+| 10 | `lvt-preserve` | Form behavior |
+| 11 | `lvt-disable-with` | Form behavior |
+| 12 | `lvt-no-intercept` | Form behavior |
+| 13 | `lvt-scroll` | Directive |
+| 14 | `lvt-highlight` | Directive |
+| 15 | `lvt-animate` | Directive |
+| 16 | `lvt-upload` | Upload |
+
+**Generic event pattern (1):**
+
+`lvt-on[:{type}][:{scope}]:{event}` — replaces 17 individual event attributes with 1 pattern supporting 3 scope variants (element, window, document) and custom event type.
+
 ---
 
 ## Implementation Plan
+
+### Design Summary (Quick Reference for Implementors)
+
+This section recaps the key design decisions from Categories 1-5 so each implementation phase is self-contained.
+
+**Grammar:** `lvt-on[:{type}][:{scope}]:{event}="action"`
+
+| Segment | Values | Default |
+|---------|--------|---------|
+| `type` | (omitted) = browser-dispatched, `custom` = `CustomEvent` | browser |
+| `scope` | (omitted) = element, `window`, `document` | element |
+| `event` | Any DOM event name or custom event name | — |
+
+**Parser algorithm** (ordered greedy consumption):
+```
+typeKeywords  = { 'custom' }
+scopeKeywords = { 'window', 'document' }
+segments = rest.split(':')           // rest = everything after "lvt-on:"
+if segments[0] in typeKeywords:  type  = segments.shift()
+if segments[0] in scopeKeywords: scope = segments.shift()
+event = segments.join(':')           // remainder is the event name
+```
+
+**Attribute replacement rules** (used in all phases):
+
+| Old attribute | Replacement |
+|---------------|-------------|
+| `lvt-click="X"` on `<button>` | `name="X"` (Tier 1 button routing) |
+| `lvt-click="X"` on non-button | `lvt-on:click="X"` |
+| `lvt-submit="X"` | Remove; use `<button name="X">` or `<form name="X">` |
+| `lvt-data-{key}="V"` | `data-{key}="V"` |
+| `lvt-value-{key}="V"` | `<input type="hidden" name="{key}" value="V">` |
+| `lvt-confirm="msg"` | `onsubmit="return confirm('msg')"` or `onclick="return confirm('msg')"` |
+| `lvt-modal-open="id"` | `command="show-modal" commandfor="id"` |
+| `lvt-modal-close="id"` | `command="close" commandfor="id"` (inside `<form method="dialog">`) |
+| `lvt-change="X"` | `lvt-on:change="X"` (select/checkbox) or `lvt-on:input="X"` (text) |
+| `lvt-input="X"` | `lvt-on:input="X"` |
+| `lvt-keydown="X"` | `lvt-on:keydown="X"` |
+| `lvt-keyup="X"` | `lvt-on:keyup="X"` |
+| `lvt-focus="X"` | `lvt-on:focus="X"` |
+| `lvt-blur="X"` | `lvt-on:blur="X"` |
+| `lvt-mouseenter="X"` | `lvt-on:mouseenter="X"` |
+| `lvt-mouseleave="X"` | `lvt-on:mouseleave="X"` |
+| `lvt-mouseover="X"` | `lvt-on:mouseover="X"` |
+| `lvt-click-away="X"` | `lvt-on:custom:click-away="X"` |
+| `lvt-window-keydown="X"` | `lvt-on:window:keydown="X"` |
+| `lvt-window-keyup="X"` | `lvt-on:window:keyup="X"` |
+| `lvt-window-scroll="X"` | `lvt-on:window:scroll="X"` |
+| `lvt-window-resize="X"` | `lvt-on:window:resize="X"` |
+| `lvt-window-focus="X"` | `lvt-on:window:focus="X"` |
+| `lvt-window-blur="X"` | `lvt-on:window:blur="X"` |
+
+**CSS selector escaping:** Colons in `lvt-on:*` must be escaped in CSS selectors. Use the `lvtSelector(attr, value?)` utility (Phase 1 Step 3) for all `querySelectorAll` calls.
 
 ### Path Convention
 
@@ -1043,28 +1112,7 @@ git worktree add .worktrees/attr-reduction -b attr-reduction
 
 #### Step 3: Update Component Templates
 
-For each component in `components/*/templates/*.tmpl`:
-
-**Attribute replacement rules:**
-| Find | Replace |
-|------|---------|
-| `lvt-click="X"` on `<button>` | `name="X"` (Tier 1 button routing) |
-| `lvt-click="X"` on non-button | `lvt-on:click="X"` |
-| `lvt-submit="X"` | Remove; use `<button name="X">` or `<form name="X">` |
-| `lvt-data-{key}="V"` | `data-{key}="V"` (standard HTML data attribute) |
-| `lvt-value-{key}="V"` | `<input type="hidden" name="{key}" value="V">` |
-| `lvt-confirm="msg"` | Form: `onsubmit="return confirm('msg')"`. Button: `onclick="return confirm('msg')"`. Message must be a constant or properly escaped. |
-| `lvt-modal-open="id"` | `command="show-modal" commandfor="id"` |
-| `lvt-modal-close="id"` | `command="close" commandfor="id"` (inside `<form method="dialog">`) |
-| `lvt-change="X"` | `lvt-on:change="X"` (for select elements) or `lvt-on:input="X"` (for text inputs) |
-| `lvt-input="X"` | `lvt-on:input="X"` |
-| `lvt-keydown="X"` | `lvt-on:keydown="X"` |
-| `lvt-focus="X"` | `lvt-on:focus="X"` |
-| `lvt-blur="X"` | `lvt-on:blur="X"` |
-| `lvt-mouseenter="X"` | `lvt-on:mouseenter="X"` |
-| `lvt-mouseleave="X"` | `lvt-on:mouseleave="X"` |
-| `lvt-mouseover="X"` | `lvt-on:mouseover="X"` |
-| `lvt-click-away="X"` | `lvt-on:custom:click-away="X"` |
+For each component in `components/*/templates/*.tmpl`, apply the **attribute replacement rules** from the [Design Summary](#design-summary-quick-reference-for-implementors) above.
 
 **High-impact components** (from initial exploration — verify during Phase 2 audit):
 - `components/modal/templates/default.tmpl` — `lvt-modal-close`, `lvt-keydown`
@@ -1507,15 +1555,12 @@ cd $REPO_ROOT/examples && git worktree remove .worktrees/attr-reduction
 ```
 Phase 1: client + livetemplate (core changes)
     |
-    ├──→ Phase 2: lvt (template migration)
-    |
-    └──→ Phase 3: tinkerdown (code + template migration)
-              |
-              v
-         Phase 4: examples (deps + final verification)
+    ├──→ Phase 2: lvt (template migration) ──────┐
+    |                                              ├──→ Phase 4: examples (deps + final verification)
+    └──→ Phase 3: tinkerdown (code + template) ──┘
 ```
 
-Phases 2 and 3 can proceed in parallel (lvt and tinkerdown don't depend on each other). Phase 4 depends on all prior phases being merged.
+Phases 2 and 3 can proceed in parallel (lvt and tinkerdown don't depend on each other). Phase 4 depends on Phases 1-3: `examples` imports `lvt/components` (Phase 2) and the final verification step runs all 5 repo test suites (requires Phase 3).
 
 ### PR Merge Order
 
