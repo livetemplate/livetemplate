@@ -1132,11 +1132,12 @@ document.querySelectorAll('[lvt-form\\:preserve]')
 |-----------|-------------|------|--------|----|
 | 1A | Client: generic event router + removals | `client` | NOT STARTED | — |
 | 1B | Server: remove `lvt-action` + update docs | `livetemplate` | NOT STARTED | — |
+| 2E | Examples: early migration + manual review | `examples` | NOT STARTED | — |
 | 2A | lvt: audit + template/Go migration | `lvt` | NOT STARTED | — |
 | 2B | lvt: golden files + e2e tests + PR | `lvt` | NOT STARTED | — |
 | 3A | tinkerdown: audit + Go/TS migration | `tinkerdown` | NOT STARTED | — |
 | 3B | tinkerdown: templates + docs + e2e + PR | `tinkerdown` | NOT STARTED | — |
-| 4 | examples: deps + final cross-repo verification | `examples` | NOT STARTED | — |
+| 4 | Final cross-repo verification + dep alignment | `examples` | NOT STARTED | — |
 
 **After completing each sub-phase:** Update Status to COMPLETE, fill in PR numbers, and commit this file.
 
@@ -2144,27 +2145,26 @@ cd $REPO_ROOT/tinkerdown && git worktree remove .worktrees/attr-reduction
 
 ---
 
-### Phase 4: Examples Repo + Final Verification
+### Phase 2E: Examples Repo — Early Migration + Manual Review
 
 > **Session Context**
 >
-> - **Prerequisites:** Phases 1A, 1B, 2B, and 3B must all be **merged** and published.
+> - **Prerequisites:** Phase 1B must be **merged** and tagged. Phase 1A must be **published** to npm.
 > - **Pre-flight checks:**
 >   ```bash
 >   npm view @livetemplate/client version  # Phase 1A version
 >   go list -m github.com/livetemplate/livetemplate@latest  # Phase 1B version
->   go list -m github.com/livetemplate/lvt@latest  # Phase 2B version
 >   ```
 > - **Starting point:** Create worktree `git worktree add .worktrees/attr-reduction -b attr-reduction` in `$REPO_ROOT/examples`
-> - **Scope:** Bump dependencies, update docs, run cross-repo verification
-> - **Key constraints:** The `examples` repo likely has zero deprecated attributes in templates (already uses Tier 1 patterns). Main work is dependency bumping and documentation updates.
-> - **Outputs:** All 5 repos passing tests. Final PR on `examples` repo.
+> - **Scope:** Bump dependencies, migrate any deprecated attrs, update docs — provides **early migration feedback** before lvt/tinkerdown phases
+> - **Key insight:** The `examples` repo depends only on `livetemplate` (Go library) — NOT on `lvt` or `tinkerdown`. It can be migrated right after Phase 1B, in parallel with Phases 2A/2B and 3A/3B.
+> - **Outputs:** Working examples on new attribute syntax. Manual review by maintainer before proceeding with lvt/tinkerdown.
 
-**Goal:** Update the examples repository (minimal changes) and verify all repos work together end-to-end.
+**Goal:** Migrate the examples repository early to get hands-on feedback on the new attribute syntax before tackling the larger lvt and tinkerdown codebases.
 
 **Repo:** `livetemplate/examples`
 
-**Dependency:** Phases 1A, 1B, 2B, and 3B must be merged.
+**Dependency:** Phase 1A (client published) + Phase 1B (server tagged). Does NOT depend on Phase 2 or 3.
 
 #### Step 1: Audit (MANDATORY — do this first)
 
@@ -2197,24 +2197,93 @@ git worktree add .worktrees/attr-reduction -b attr-reduction
 ```bash
 cd $REPO_ROOT/examples/.worktrees/attr-reduction
 go get github.com/livetemplate/livetemplate@latest
-go get github.com/livetemplate/lvt@latest
-go get github.com/livetemplate/lvt/components@latest
 go mod tidy
 ```
 
-#### Step 4: Update Documentation
+Note: `lvt` dependency bump (if any) happens later in Phase 4 after Phase 2B merges.
 
-Update `README.md` and any `CLAUDE.md` references to use the new attribute syntax in code examples.
+#### Step 4: Migrate Templates + Update Documentation
 
-#### Step 5: Run Tests
+- Replace any deprecated `lvt-*` attributes using the [attribute replacement rules](#design-summary-quick-reference-for-implementors)
+- Update `README.md` and any `CLAUDE.md` references to use the new attribute syntax in code examples
+
+#### Step 5: Run Tests + Manual Review
 
 ```bash
 GOWORK=off go test ./... -timeout=300s
 ```
 
-#### Step 6: Final Cross-Repo Verification
+Then **run each example application manually** and verify:
+- All actions still work (button clicks, form submissions)
+- Reactive DOM behavior (loading states, class toggling) functions correctly
+- No console errors in the browser
 
-With ALL worktrees (or merged changes), verify end-to-end:
+⚠️ **Pause here for maintainer review.** This is the first real-world test of the new syntax. Report any ergonomic issues, confusing patterns, or migration friction before proceeding with Phase 2/3.
+
+#### Step 6: Acceptance Criteria (Phase 2E)
+
+- [ ] `examples` `go.mod` points to Phase 1B livetemplate version
+- [ ] Zero deprecated attribute references in templates
+- [ ] All Go tests pass
+- [ ] Manual review completed — each example runs correctly in browser
+- [ ] Migration friction documented (if any) — feed back into Phase 2/3 approach
+
+#### Step 7: PR and Merge
+
+```bash
+cd $REPO_ROOT/examples/.worktrees/attr-reduction
+git add -u
+git commit -m "feat!: migrate to new lvt-on/lvt-el attribute syntax
+
+BREAKING CHANGE: Templates use lvt-on:{event} and lvt-el:* syntax."
+git push origin attr-reduction
+gh pr create --head attr-reduction --title "feat!: attribute reduction — early migration" \
+  --body "Phase 2E. Early examples migration for manual review feedback."
+```
+
+After merge:
+```bash
+cd $REPO_ROOT/examples && git worktree remove .worktrees/attr-reduction
+```
+
+**Update this progress tracker:** Set Phase 2E to COMPLETE, fill in PR number.
+
+---
+
+### Phase 4: Final Cross-Repo Verification
+
+> **Session Context**
+>
+> - **Prerequisites:** Phases 1A, 1B, 2B, 2E, and 3B must all be **merged** and published.
+> - **Pre-flight checks:**
+>   ```bash
+>   npm view @livetemplate/client version  # Phase 1A version
+>   go list -m github.com/livetemplate/livetemplate@latest  # Phase 1B version
+>   go list -m github.com/livetemplate/lvt@latest  # Phase 2B version
+>   ```
+> - **Scope:** Bump `lvt` dependency in examples (if needed), run cross-repo verification
+> - **Outputs:** All 5 repos passing tests. Migration complete.
+
+**Goal:** Final dependency alignment and cross-repo verification after all phases are merged.
+
+**Repo:** `livetemplate/examples` (final bump) + cross-repo
+
+**Dependency:** All previous phases merged.
+
+#### Step 1: Final Dependency Bump (if needed)
+
+If examples `go.mod` still references an old `lvt` version:
+
+```bash
+cd $REPO_ROOT/examples
+go get github.com/livetemplate/lvt@latest
+go get github.com/livetemplate/lvt/components@latest
+go mod tidy
+```
+
+#### Step 2: Cross-Repo Verification
+
+With ALL changes merged, verify end-to-end:
 
 ```bash
 # 1. Client tests
@@ -2235,27 +2304,22 @@ cd $REPO_ROOT/examples && GOWORK=off go test ./... -timeout=300s
 
 All 5 repos must have passing tests.
 
-#### Step 7: Acceptance Criteria
+#### Step 3: Acceptance Criteria (Final)
 
-- [ ] `examples` repo has zero deprecated attribute references in templates
-- [ ] `examples` `go.mod` points to latest livetemplate version
 - [ ] All 5 repos pass their test suites
+- [ ] `examples` `go.mod` points to latest livetemplate AND lvt versions
 - [ ] No remaining references to deprecated attributes across any repo (verify with grep)
+- [ ] Migration friction from Phase 2E has been addressed
 
-#### Step 8: PR and Merge
+#### Step 4: PR and Merge (if deps were bumped)
 
 ```bash
-cd $REPO_ROOT/examples/.worktrees/attr-reduction
+cd $REPO_ROOT/examples
 git add -u
-git commit -m "chore: bump dependencies for attribute reduction"
+git commit -m "chore: bump lvt dependency after attribute reduction"
 git push origin attr-reduction
-gh pr create --head attr-reduction --title "chore: bump deps for attribute reduction" \
-  --body "Phase 4. Updates dependencies. No template changes needed (examples already use Tier 1 patterns)."
-```
-
-After merge:
-```bash
-cd $REPO_ROOT/examples && git worktree remove .worktrees/attr-reduction
+gh pr create --head attr-reduction --title "chore: final dep bump for attribute reduction" \
+  --body "Phase 4. Final lvt dependency bump + cross-repo verification."
 ```
 
 **Update this progress tracker:** Set Phase 4 to COMPLETE, fill in PR number.
@@ -2269,26 +2333,30 @@ Phase 1A: client ──→ Phase 1B: livetemplate (server + docs)
     |                     |
     ├─────────────────────┤
     |                     |
-    ├──→ Phase 2A: lvt (audit + templates + Go) ──→ Phase 2B: lvt (golden + e2e + PR) ──┐
-    |                                                                                     ├──→ Phase 4
-    └──→ Phase 3A: tinkerdown (audit + Go + TS) ──→ Phase 3B: tinkerdown (docs + e2e) ──┘
+    ├──→ Phase 2E: examples (early migration + manual review) ─────────────────────────┐
+    |                                                                                   |
+    ├──→ Phase 2A: lvt (audit + templates + Go) ──→ Phase 2B: lvt (golden + e2e + PR) ─┤
+    |                                                                                   ├──→ Phase 4
+    └──→ Phase 3A: tinkerdown (audit + Go + TS) ──→ Phase 3B: tinkerdown (docs + e2e) ─┘
 ```
 
 **Parallelism:**
 - 1A → 1B is sequential (server needs client to be ready, but PRs can be prepared in parallel)
-- 2A/2B and 3A/3B can proceed in parallel (lvt and tinkerdown don't depend on each other)
+- 2E, 2A/2B, and 3A/3B can all proceed in parallel after 1B merges
+- 2E runs early to provide migration feedback before the larger lvt/tinkerdown efforts
 - Within each repo, A → B is sequential (B depends on A's changes)
-- Phase 4 depends on 2B + 3B being merged
+- Phase 4 depends on 2B + 2E + 3B being merged
 
-**Total: 7 sub-phases across ~7 LLM sessions** (1A, 1B, 2A, 2B, 3A, 3B, 4).
+**Total: 8 sub-phases across ~8 LLM sessions** (1A, 1B, 2E, 2A, 2B, 3A, 3B, 4).
 
 ### PR Merge Order
 
 1. **`client`** (Phase 1A) — merge and publish new npm version
 2. **`livetemplate`** (Phase 1B) — merge and tag new Go version
-3. **`lvt`** (Phase 2B) — depends on new client + server versions
-4. **`tinkerdown`** (Phase 3B) — depends on new client + server versions
-5. **`examples`** (Phase 4) — depends on all above
+3. **`examples`** (Phase 2E) — early migration for manual review (can merge immediately after 1B)
+4. **`lvt`** (Phase 2B) — depends on new client + server versions
+5. **`tinkerdown`** (Phase 3B) — depends on new client + server versions
+6. **`examples`** (Phase 4, if needed) — final lvt dep bump + cross-repo verification
 
 ### CI Considerations
 
