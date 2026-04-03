@@ -404,12 +404,12 @@ These behaviors cannot be expressed with standard HTML. They are the **essential
 ### Reactive DOM (lifecycle-driven, not DOM events)
 | Attribute | Why |
 |-----------|-----|
-| `lvt-addClass-on:{lifecycle}` → `lvt-el:addClass:on:{lifecycle}` | Add CSS class on pending/success/error/done |
-| `lvt-removeClass-on:{lifecycle}` → `lvt-el:removeClass:on:{lifecycle}` | Remove CSS class on lifecycle event |
-| `lvt-toggleClass-on:{lifecycle}` → `lvt-el:toggleClass:on:{lifecycle}` | Toggle CSS class on lifecycle event |
-| `lvt-setAttr-on:{lifecycle}` → `lvt-el:setAttr:on:{lifecycle}` | Set attribute on lifecycle event |
-| `lvt-toggleAttr-on:{lifecycle}` → `lvt-el:toggleAttr:on:{lifecycle}` | Toggle boolean attribute (subsumes `disable-on`/`enable-on`) |
-| `lvt-reset-on:{lifecycle}` → `lvt-el:reset:on:{lifecycle}` | Reset form on lifecycle event |
+| `lvt-addClass-on:{lifecycle}` → `lvt-el:addClass:on:[{action}:]{state}` | Add CSS class on pending/success/error/done — optionally scoped to a specific action |
+| `lvt-removeClass-on:{lifecycle}` → `lvt-el:removeClass:on:[{action}:]{state}` | Remove CSS class on action lifecycle state |
+| `lvt-toggleClass-on:{lifecycle}` → `lvt-el:toggleClass:on:[{action}:]{state}` | Toggle CSS class on action lifecycle state |
+| `lvt-setAttr-on:{lifecycle}` → `lvt-el:setAttr:on:[{action}:]{state}` | Set attribute on action lifecycle state |
+| `lvt-toggleAttr-on:{lifecycle}` → `lvt-el:toggleAttr:on:[{action}:]{state}` | Toggle boolean attribute (subsumes `disable-on`/`enable-on`) |
+| `lvt-reset-on:{lifecycle}` → `lvt-el:reset:on:[{action}:]{state}` | Reset form on action lifecycle state |
 
 ### Form Behavior
 | Attribute | Why |
@@ -778,12 +778,12 @@ Rename all 6 reactive DOM attributes under a new `lvt-el:` family prefix:
 
 | Before | After |
 |--------|-------|
-| `lvt-addClass-on:{lifecycle}` | `lvt-el:addClass:on:{lifecycle}` |
-| `lvt-removeClass-on:{lifecycle}` | `lvt-el:removeClass:on:{lifecycle}` |
-| `lvt-toggleClass-on:{lifecycle}` | `lvt-el:toggleClass:on:{lifecycle}` |
-| `lvt-setAttr-on:{lifecycle}` | `lvt-el:setAttr:on:{lifecycle}` |
-| `lvt-toggleAttr-on:{lifecycle}` | `lvt-el:toggleAttr:on:{lifecycle}` |
-| `lvt-reset-on:{lifecycle}` | `lvt-el:reset:on:{lifecycle}` |
+| `lvt-addClass-on:{lifecycle}` | `lvt-el:addClass:on:[{action}:]{state\|interaction}` |
+| `lvt-removeClass-on:{lifecycle}` | `lvt-el:removeClass:on:[{action}:]{state\|interaction}` |
+| `lvt-toggleClass-on:{lifecycle}` | `lvt-el:toggleClass:on:[{action}:]{state\|interaction}` |
+| `lvt-setAttr-on:{lifecycle}` | `lvt-el:setAttr:on:[{action}:]{state\|interaction}` |
+| `lvt-toggleAttr-on:{lifecycle}` | `lvt-el:toggleAttr:on:[{action}:]{state\|interaction}` |
+| `lvt-reset-on:{lifecycle}` | `lvt-el:reset:on:[{action}:]{state\|interaction}` |
 
 **Why `lvt-el:`?** "el" = Element. All 6 methods are DOM Element operations (`classList.add()`, `setAttribute()`, `toggleAttribute()`, `HTMLFormElement.reset()`). Short, unambiguous, maps directly to DOM vocabulary.
 
@@ -1067,12 +1067,19 @@ event = segments.join(':')           // remainder is the event name
 | `lvt-preserve` | `lvt-form:preserve` |
 | `lvt-disable-with="X"` | `lvt-form:disable-with="X"` |
 | `lvt-no-intercept` | `lvt-form:no-intercept` |
-| `lvt-addClass-on:{lifecycle}` | `lvt-el:addClass:on:{lifecycle}` |
-| `lvt-removeClass-on:{lifecycle}` | `lvt-el:removeClass:on:{lifecycle}` |
-| `lvt-toggleClass-on:{lifecycle}` | `lvt-el:toggleClass:on:{lifecycle}` |
-| `lvt-setAttr-on:{lifecycle}` | `lvt-el:setAttr:on:{lifecycle}` |
-| `lvt-toggleAttr-on:{lifecycle}` | `lvt-el:toggleAttr:on:{lifecycle}` |
-| `lvt-reset-on:{lifecycle}` | `lvt-el:reset:on:{lifecycle}` |
+| `lvt-addClass-on:{lifecycle}` | `lvt-el:addClass:on:[{action}:]{state}` |
+| `lvt-removeClass-on:{lifecycle}` | `lvt-el:removeClass:on:[{action}:]{state}` |
+| `lvt-toggleClass-on:{lifecycle}` | `lvt-el:toggleClass:on:[{action}:]{state}` |
+| `lvt-setAttr-on:{lifecycle}` | `lvt-el:setAttr:on:[{action}:]{state}` |
+| `lvt-toggleAttr-on:{lifecycle}` | `lvt-el:toggleAttr:on:[{action}:]{state}` |
+| `lvt-reset-on:{lifecycle}` | `lvt-el:reset:on:[{action}:]{state}` |
+| `lvt-disable-on:{event}` | Removed — use `lvt-el:toggleAttr:on:[{action}:]{state}="disabled"` |
+| `lvt-enable-on:{event}` | Removed — use `lvt-el:toggleAttr:on:[{action}:]{state}="disabled"` (inverse lifecycle state) |
+| `lvt-scroll-behavior` | Removed — use CSS custom property `--lvt-scroll-behavior` |
+| `lvt-scroll-threshold` | Removed — use CSS custom property `--lvt-scroll-threshold` |
+| `lvt-highlight-color` | Removed — use CSS custom property `--lvt-highlight-color` |
+| `lvt-highlight-duration` | Removed — use CSS custom property `--lvt-highlight-duration` |
+| `lvt-animate-duration` | Removed — use CSS custom property `--lvt-animate-duration` |
 
 **CSS selector escaping:** Colons in `lvt-on:*`, `lvt-el:*`, `lvt-fx:*`, `lvt-mod:*`, and `lvt-form:*` must be escaped in CSS selectors. Use the `lvtSelector(attr, value?)` utility (Phase 1 Step 3) for all `querySelectorAll` calls.
 
@@ -1096,7 +1103,7 @@ This plan skips the deprecation-warning phase from the original migration path. 
 
 ### CSS Selector Escaping Convention
 
-The `lvt-on:{event}`, `lvt-el:{method}:on:{lifecycle}`, `lvt-fx:{effect}`, `lvt-mod:{modifier}`, and `lvt-form:{behavior}` syntax introduces colons in HTML attribute names. Colons must be escaped in CSS selectors:
+The `lvt-on:{event}`, `lvt-el:{method}:on:[{action}:]{state|interaction}`, `lvt-fx:{effect}`, `lvt-mod:{modifier}`, and `lvt-form:{behavior}` syntax introduces colons in HTML attribute names. Colons must be escaped in CSS selectors:
 
 ```ts
 // Wrong — unescaped colons
@@ -1109,6 +1116,7 @@ document.querySelectorAll('[lvt-fx:scroll]')
 document.querySelectorAll('[lvt-on\\:click="X"]')
 document.querySelectorAll('[lvt-on\\:window\\:keydown="X"]')
 document.querySelectorAll('[lvt-el\\:addClass\\:on\\:pending]')
+document.querySelectorAll('[lvt-el\\:addClass\\:on\\:save\\:pending]')  // action-scoped
 document.querySelectorAll('[lvt-el\\:toggleAttr\\:on\\:pending="disabled"]')
 document.querySelectorAll('[lvt-el\\:removeClass\\:on\\:click-away="open"]')
 document.querySelectorAll('[lvt-fx\\:scroll]')
@@ -1569,18 +1577,31 @@ cd $REPO_ROOT/lvt
 
 1. **Count and list all occurrences** of each deprecated attribute across the repo:
    ```
+   # Category 1 eliminations
    grep -r "lvt-click" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
    grep -r "lvt-submit" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
    grep -r "lvt-data-" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
    grep -r "lvt-change" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
    grep -r "lvt-modal-" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
    grep -r "lvt-confirm" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
+   # Category 5 event router
    grep -r "lvt-input" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
    grep -r "lvt-focus" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
    grep -r "lvt-blur" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
    grep -r "lvt-keydown" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
-   grep -r "lvt-mouseenter\|lvt-mouseleave" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
+   grep -r "lvt-mouseenter\|lvt-mouseleave\|lvt-mouseover" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
    grep -r "lvt-click-away" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
+   # Category 2 consolidations
+   grep -r "lvt-scroll-behavior\|lvt-scroll-threshold" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
+   grep -r "lvt-highlight-color\|lvt-highlight-duration" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
+   grep -r "lvt-animate-duration" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
+   grep -r "lvt-disable-on\|lvt-enable-on" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
+   # Category 6 prefix renames (flat → prefixed)
+   grep -rw "lvt-scroll\b\|lvt-highlight\b\|lvt-animate\b" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
+   grep -r "lvt-debounce\|lvt-throttle" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
+   grep -r "lvt-preserve\|lvt-disable-with\|lvt-no-intercept" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
+   # Category 7 reactive DOM renames
+   grep -r "lvt-addClass-on\|lvt-removeClass-on\|lvt-toggleClass-on\|lvt-setAttr-on\|lvt-toggleAttr-on\|lvt-reset-on" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
    ```
 
 2. **Map the component template structure:**
@@ -1612,6 +1633,11 @@ cd $REPO_ROOT/lvt
    GOWORK=off go test ./... -timeout=300s
    ```
 
+8. **Identify components that could benefit from action-scoped triggers:**
+   - Which components have elements with multiple `lvt-on:` actions that need distinct reactive DOM behavior?
+   - Which templates use `lvt-reset-on:success` or similar reactive attrs that should become `lvt-el:reset:on:success`?
+   - Note which components could adopt multi-action bracket syntax (`lvt-el:*:on:[action1,action2]:state`) — the server-side Go library (Phase 1B) expands these to individual attributes before sending to the client
+
 #### Audit Findings (Phase 2)
 
 <!-- Fill this section during the audit. Phase 2B will read this. -->
@@ -1629,8 +1655,18 @@ cd $REPO_ROOT/lvt
 | `lvt-focus` | _TBD_ |
 | `lvt-blur` | _TBD_ |
 | `lvt-keydown` | _TBD_ |
-| `lvt-mouseenter/leave` | _TBD_ |
+| `lvt-mouseenter/leave/over` | _TBD_ |
 | `lvt-click-away` | _TBD_ |
+| `lvt-scroll-behavior/threshold` | _TBD_ |
+| `lvt-highlight-color/duration` | _TBD_ |
+| `lvt-animate-duration` | _TBD_ |
+| `lvt-disable-on/enable-on` | _TBD_ |
+| `lvt-scroll` (flat, → `lvt-fx:scroll`) | _TBD_ |
+| `lvt-highlight` (flat, → `lvt-fx:highlight`) | _TBD_ |
+| `lvt-animate` (flat, → `lvt-fx:animate`) | _TBD_ |
+| `lvt-debounce/throttle` (→ `lvt-mod:*`) | _TBD_ |
+| `lvt-preserve/disable-with/no-intercept` (→ `lvt-form:*`) | _TBD_ |
+| `lvt-addClass-on:*/removeClass-on:*` etc. (→ `lvt-el:*`) | _TBD_ |
 
 **Component template map:** _TBD_
 
@@ -1765,13 +1801,33 @@ GOWORK=off go test ./e2e/... -timeout=600s
 
 #### Step 4: Acceptance Criteria (Phase 2)
 
+**Category 1 eliminations:**
 - [ ] Zero occurrences of `lvt-click` in any `.tmpl` file (replaced by `name=` or `lvt-on:click`)
 - [ ] Zero occurrences of `lvt-submit` in any `.tmpl` file
 - [ ] Zero occurrences of `lvt-data-*` in any `.tmpl` file (replaced by `data-*`)
 - [ ] Zero occurrences of `lvt-confirm` in any `.tmpl` file
 - [ ] Zero occurrences of `lvt-modal-open` or `lvt-modal-close` in any `.tmpl` file
 - [ ] Zero occurrences of `lvt-change` in any `.tmpl` file (replaced by `lvt-on:change` or `lvt-on:input`)
-- [ ] All `lvt-input`, `lvt-keydown`, `lvt-focus`, `lvt-blur`, `lvt-mouseenter`, `lvt-mouseleave` replaced by `lvt-on:{event}` equivalents; `lvt-click-away` replaced by `lvt-el:*:on:click-away`
+
+**Category 2 consolidations:**
+- [ ] Zero occurrences of `lvt-scroll-behavior`, `lvt-scroll-threshold` (replaced by CSS `--lvt-scroll-*`)
+- [ ] Zero occurrences of `lvt-highlight-color`, `lvt-highlight-duration` (replaced by CSS `--lvt-highlight-*`)
+- [ ] Zero occurrences of `lvt-animate-duration` (replaced by CSS `--lvt-animate-duration`)
+- [ ] Zero occurrences of `lvt-disable-on:*`, `lvt-enable-on:*` (replaced by `lvt-el:toggleAttr:on:*`)
+
+**Category 5 event router:**
+- [ ] All `lvt-input`, `lvt-keydown`, `lvt-focus`, `lvt-blur`, `lvt-mouseenter`, `lvt-mouseleave`, `lvt-mouseover` replaced by `lvt-on:{event}` equivalents; `lvt-click-away` replaced by `lvt-el:*:on:click-away`
+
+**Category 6 prefix consolidation:**
+- [ ] Zero occurrences of flat `lvt-scroll`, `lvt-highlight`, `lvt-animate` (replaced by `lvt-fx:*`)
+- [ ] Zero occurrences of flat `lvt-debounce`, `lvt-throttle` (replaced by `lvt-mod:*`)
+- [ ] Zero occurrences of flat `lvt-preserve`, `lvt-disable-with`, `lvt-no-intercept` (replaced by `lvt-form:*`)
+
+**Category 7 reactive DOM renames + action-scoped triggers:**
+- [ ] Zero occurrences of `lvt-addClass-on:*`, `lvt-removeClass-on:*`, etc. (replaced by `lvt-el:*:on:*`)
+- [ ] Server-expanded multi-action bracket syntax (`lvt-el:*:on:[action1,action2]:state`) works if adopted in templates
+
+**Build verification:**
 - [ ] Golden files regenerated and matching
 - [ ] All Go tests pass: `GOWORK=off go test ./... -timeout=300s`
 - [ ] E2E tests pass: `GOWORK=off go test ./e2e/... -timeout=600s`
@@ -1836,6 +1892,8 @@ cd $REPO_ROOT/tinkerdown
    - Read `auto_tasks.go` — same analysis
    - Read `page.go` — find all generated `lvt-click`, `lvt-data-*` in table action buttons
    - These are the most critical files — they programmatically build HTML
+   - **Also search for:** `lvt-debounce`, `lvt-throttle` (→ `lvt-mod:*`); `lvt-scroll`, `lvt-highlight`, `lvt-animate` (→ `lvt-fx:*`); `lvt-preserve`, `lvt-disable-with`, `lvt-no-intercept` (→ `lvt-form:*`); `lvt-addClass-on:*` etc. (→ `lvt-el:*`); config attrs (`lvt-scroll-behavior`, etc.); `lvt-disable-on`, `lvt-enable-on`
+   - Identify any Go code generating HTML with reactive DOM attrs that could benefit from **action-scoped triggers** (e.g., `lvt-el:reset:on:add:success` to reset form only on successful Add, not Delete) or **multi-action bracket syntax** (e.g., `lvt-el:addClass:on:[add,update]:pending`). Server-side bracket expansion (Phase 1B) makes these available in templates.
 
 2. **TypeScript client:**
    - Read `client/src/blocks/interactive-block.ts` — how does it handle `lvt-click`, `lvt-submit`, `lvt-change`, `lvt-confirm`, `lvt-data-*`?
@@ -2032,11 +2090,30 @@ GOWORK=off go test ./... -timeout=300s
 
 #### Step 5: Acceptance Criteria (Phase 3)
 
+**Category 1 eliminations:**
 - [ ] Zero `lvt-click` in Go code string literals (replaced by `name=` on buttons)
 - [ ] Zero `lvt-submit` in Go code or templates (replaced by button/form `name`)
 - [ ] Zero `lvt-data-*` in Go code or templates (replaced by `data-*`)
 - [ ] Zero `lvt-confirm` in Go code or templates (replaced by `onclick`)
 - [ ] Zero `lvt-change` in templates (replaced by `lvt-on:change` or `lvt-on:input`)
+
+**Category 2 consolidations:**
+- [ ] Zero `lvt-scroll-behavior`, `lvt-scroll-threshold`, `lvt-highlight-color`, `lvt-highlight-duration`, `lvt-animate-duration` in Go code or templates
+- [ ] Zero `lvt-disable-on:*`, `lvt-enable-on:*` (replaced by `lvt-el:toggleAttr:on:*`)
+
+**Category 5 event router:**
+- [ ] All `lvt-input`, `lvt-keydown`, `lvt-focus`, `lvt-blur`, `lvt-mouseenter`, `lvt-mouseleave`, `lvt-mouseover` replaced by `lvt-on:{event}` equivalents
+
+**Category 6 prefix consolidation:**
+- [ ] Zero flat `lvt-scroll`, `lvt-highlight`, `lvt-animate` (replaced by `lvt-fx:*`)
+- [ ] Zero flat `lvt-debounce`, `lvt-throttle` (replaced by `lvt-mod:*`)
+- [ ] Zero flat `lvt-preserve`, `lvt-disable-with`, `lvt-no-intercept` (replaced by `lvt-form:*`)
+
+**Category 7 reactive DOM renames + action-scoped triggers:**
+- [ ] Zero `lvt-addClass-on:*`, `lvt-reset-on:*`, etc. (replaced by `lvt-el:*:on:*`) — e.g., `lvt-reset-on:success` → `lvt-el:reset:on:success`
+- [ ] Server-expanded multi-action bracket syntax works if adopted in Go-generated HTML
+
+**Scope guard + build verification:**
 - [ ] Tinkerdown-specific attributes (`lvt-source`, `lvt-columns`, etc.) UNCHANGED
 - [ ] `docs/reference/lvt-attributes.md` fully updated
 - [ ] TypeScript client handles new attribute syntax
