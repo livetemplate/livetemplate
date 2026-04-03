@@ -506,21 +506,25 @@ Replaces all individual element-scoped event attributes:
 <!-- Before: 5 different attribute names -->
 <div lvt-click-away="close">
   <input lvt-input="search" lvt-focus="open" lvt-blur="close" lvt-debounce="300">
+  {{if .DropdownOpen}}
   <ul>
     {{range .Results}}
       <li lvt-click="select" data-id="{{.ID}}">{{.Name}}</li>
     {{end}}
   </ul>
+  {{end}}
 </div>
 
-<!-- After: 1 attribute pattern -->
+<!-- After: 1 attribute pattern, Close() sets DropdownOpen=false and the dropdown disappears -->
 <div lvt-on:custom:click-away="close">
   <input lvt-on:input="search" lvt-on:focus="open" lvt-on:blur="close" lvt-mod:debounce="300">
+  {{if .DropdownOpen}}
   <ul>
     {{range .Results}}
       <li lvt-on:click="select" data-id="{{.ID}}">{{.Name}}</li>
     {{end}}
   </ul>
+  {{end}}
 </div>
 ```
 
