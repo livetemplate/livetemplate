@@ -1099,7 +1099,7 @@ export REPO_ROOT=/path/to/livetemplate  # e.g., ~/code/livetemplate
 
 ### No Deprecation Window (Deliberate Decision)
 
-This plan skips the deprecation-warning phase from the original migration path. The library and TypeScript client are consumed only by the `lvt`, `tinkerdown`, and `examples` repositories — all maintained in the same organization. All consuming repos are updated atomically in Phases 2-4. This eliminates the runtime warning phase, but does **not** eliminate semver and changelog obligations: the npm package (`@livetemplate/client`) requires a **major version bump** (e.g. `2.0.0`) and a **changelog entry** documenting every removed attribute. External npm dependents can pin to the previous version and migrate at their own pace. If the client gains significant external adoption before this executes, reinstate a deprecation phase before the next breaking change.
+This plan skips the deprecation-warning phase from the original migration path. The library and TypeScript client are consumed only by the `lvt`, `tinkerdown`, and `examples` repositories — all maintained in the same organization. All consuming repos are updated atomically in Phases 2-4. This eliminates the runtime warning phase. Since `@livetemplate/client` is **unreleased with no external consumers**, this is a **minor/patch version bump** — not a major semver break. A changelog entry documenting all attribute changes is still recommended for internal tracking. If the client gains significant external adoption before this executes, reinstate a deprecation phase before the next breaking change.
 
 ### CSS Selector Escaping Convention
 
