@@ -763,32 +763,40 @@ document.querySelectorAll('[lvt-on\\:window\\:keydown="X"]')
 
 ### Progress Tracker
 
-| Phase | Description | Repos | Status | PR(s) |
-|-------|-------------|-------|--------|-------|
-| 1 | Core library + client | `livetemplate`, `client` | NOT STARTED | — |
-| 2 | lvt repo migration | `lvt` | NOT STARTED | — |
-| 3 | tinkerdown repo migration | `tinkerdown` | NOT STARTED | — |
-| 4 | examples repo + final verification | `examples` | NOT STARTED | — |
+| Sub-phase | Description | Repo | Status | PR |
+|-----------|-------------|------|--------|----|
+| 1A | Client: generic event router + removals | `client` | NOT STARTED | — |
+| 1B | Server: remove `lvt-action` + update docs | `livetemplate` | NOT STARTED | — |
+| 2A | lvt: audit + template/Go migration | `lvt` | NOT STARTED | — |
+| 2B | lvt: golden files + e2e tests + PR | `lvt` | NOT STARTED | — |
+| 3A | tinkerdown: audit + Go/TS migration | `tinkerdown` | NOT STARTED | — |
+| 3B | tinkerdown: templates + docs + e2e + PR | `tinkerdown` | NOT STARTED | — |
+| 4 | examples: deps + final cross-repo verification | `examples` | NOT STARTED | — |
 
-**After completing each phase:** Update Status to COMPLETE, fill in PR numbers, and commit this file.
+**After completing each sub-phase:** Update Status to COMPLETE, fill in PR numbers, and commit this file.
 
 **PR merge order:** `client` → `livetemplate` → `lvt` → `tinkerdown` → `examples`. The client must be published first because `lvt` and `tinkerdown` e2e tests load the client library.
 
 ---
 
-### Phase 1: Core Library + Client
+### Phase 1A: Client — Generic Event Router + Removals
 
-**Goal:** Implement the generic event router in the TypeScript client, remove all deprecated attribute handling, update the Go server to remove `lvt-action` parsing, update all documentation, and ship CSS custom property support.
+> **Session Context**
+>
+> - **Prerequisites:** None (this is the first sub-phase)
+> - **Starting point:** Create worktree `git worktree add .worktrees/attr-reduction -b attr-reduction` in `$REPO_ROOT/client`
+> - **Scope:** Audit client codebase, implement `lvt-on:{event}` router, remove deprecated modules, create `livetemplate.css`, update tests
+> - **Key constraints:** Do NOT change `state/change-auto-wirer.ts` (Change() auto-wiring is orthogonal). The `lvt-on:{event}` parser uses ordered greedy consumption — see [Design Summary](#design-summary-quick-reference-for-implementors) for grammar and algorithm.
+> - **Outputs:** Committed branch `attr-reduction` on `client` repo with all client changes. PR created. **Do NOT merge yet** — Phase 1B server changes must also be ready.
 
-**Repos:** `livetemplate/livetemplate` (server), `livetemplate/client` (TypeScript client)
+**Goal:** Implement the generic event router in the TypeScript client, remove all deprecated attribute handling, and ship CSS custom property support.
 
-**Estimated effort:** 2 LLM sessions (1 client, 1 server).
+**Repo:** `livetemplate/client`
 
 #### Step 1: Audit (MANDATORY — do this first)
 
-Before making any changes, deep dive into the codebase to capture the full migration impact for this phase. Update this plan section with specific findings.
+Before making any changes, deep dive into the client codebase. Update the **Audit Findings** section below with specific findings.
 
-**Client audit:**
 ```
 cd $REPO_ROOT/client
 ```
@@ -810,30 +818,41 @@ cd $REPO_ROOT/client
 10. Inventory ALL `querySelectorAll` calls that use `lvt-*` attribute selectors — every one needs colon escaping for the new `lvt-on:` syntax
 11. List ALL test files and what they cover
 
-**Server audit:**
-```
-cd $REPO_ROOT/livetemplate
-```
+#### Audit Findings (Phase 1A)
 
-1. Grep for `lvt-action` in `internal/send/message.go` — exact line numbers
-2. Grep for `lvt-action` in `handle_test.go` — count and list all occurrences
-3. Grep for `lvt-action` in `internal/send/message_test.go` — exact test case names
-4. Grep for `lvt-` in `action.go`, `template.go` — list all comment references
-5. Run `GOWORK=off go test ./... -timeout=300s` to get baseline
+<!-- Fill this section during the audit. A future LLM session will read this. -->
 
-**Update this plan with:** Exact file:line mappings, import dependency graph for removed modules, baseline test counts.
+**Event delegation (`dom/event-delegation.ts`):**
+- `eventTypes` array location: _line TBD_
+- `lvt-data-*` extraction: _line TBD_
+- `lvt-value-*` extraction: _line TBD_
+- `lvt-submit` check: _line TBD_
+- `lvt-confirm` check: _file:line TBD_
+- `handleAction()` funnel: _line TBD_
+
+**Modal manager:** _exports and import sites TBD_
+
+**Directives (`dom/directives.ts`):**
+- Scroll attribute reads: _lines TBD_
+- Highlight attribute reads: _lines TBD_
+- Animate attribute reads: _lines TBD_
+
+**Reactive attributes:** `disable`/`enable` handling at _line TBD_
+
+**Click-away delegation:** `setupClickAwayDelegation()` at _file:line TBD_
+
+**querySelectorAll sites needing colon escaping:** _count TBD, list TBD_
+
+**Baseline test count:** _TBD_
 
 #### Step 2: Worktree Setup
 
 ```bash
 cd $REPO_ROOT/client
 git worktree add .worktrees/attr-reduction -b attr-reduction
-
-cd $REPO_ROOT/livetemplate
-git worktree add .worktrees/attr-reduction -b attr-reduction
 ```
 
-#### Step 3: Client — Implement Generic Event Router
+#### Step 3: Implement Generic Event Router
 
 **File:** `dom/event-delegation.ts`
 
@@ -862,7 +881,7 @@ git worktree add .worktrees/attr-reduction -b attr-reduction
    }
    ```
 
-   All `querySelectorAll` calls and chromedp selectors using `lvt-on:*` attributes must go through this utility. The Phase 1 audit inventories all query sites (audit item 10).
+   All `querySelectorAll` calls and chromedp selectors using `lvt-on:*` attributes must go through this utility. The audit inventories all query sites (audit item 10).
 
 3. **Route by scope.** In the event loop, after parsing the attribute, determine the `EventTarget`:
    - `scope === 'window'` → `window.addEventListener(event, handler)`
@@ -880,7 +899,7 @@ git worktree add .worktrees/attr-reduction -b attr-reduction
 
 7. **Remove `lvt-change` handling.** Remove the special case for `lvt-change` on forms and inputs. The `Change()` auto-wiring (in `state/change-auto-wirer.ts`) is orthogonal and untouched.
 
-#### Step 4: Client — Remove Deprecated Modules
+#### Step 4: Remove Deprecated Modules
 
 1. **Delete `dom/modal-manager.ts`.** Remove the entire file. Update `livetemplate-client.ts` to remove the import, instantiation, and any `setupModalDelegation()` calls.
 
@@ -911,7 +930,7 @@ git worktree add .worktrees/attr-reduction -b attr-reduction
    ```
    All examples and e2e tests that use scroll, highlight, or animate directives must import this file (or provide equivalent `:root` overrides).
 
-#### Step 5: Client — Update Tests
+#### Step 5: Update Tests
 
 Update all test files to use `lvt-on:{event}` syntax instead of `lvt-click`, `lvt-keydown`, etc.:
 
@@ -933,7 +952,90 @@ cd $REPO_ROOT/client/.worktrees/attr-reduction
 npm test
 ```
 
-#### Step 6: Server — Remove `lvt-action` Parsing
+#### Step 6: Acceptance Criteria (Phase 1A)
+
+- [ ] Client: `lvt-on:click`, `lvt-on:input`, `lvt-on:keydown`, etc. all route to server actions correctly
+- [ ] Client: `lvt-on:window:keydown` with `lvt-key` filter works
+- [ ] Client: `lvt-on:custom:click-away` inverted containment works (dispatches `CustomEvent`)
+- [ ] Client: `modal-manager.ts` deleted, no `lvt-modal-open/close` handling
+- [ ] Client: No `lvt-data-*`, `lvt-value-*`, `lvt-submit`, `lvt-confirm`, `lvt-change` handling
+- [ ] Client: `lvt-disable-on`/`lvt-enable-on` reactive actions removed
+- [ ] Client: Directives read from CSS custom properties, `livetemplate.css` ships with defaults
+- [ ] Client: All tests pass: `npm test`
+
+#### Step 7: Commit and Create PR
+
+```bash
+cd $REPO_ROOT/client/.worktrees/attr-reduction
+git add -u && git add livetemplate.css
+git commit -m "feat!: generic event router (lvt-on:{event}), remove deprecated attributes
+
+BREAKING CHANGE: Replaces lvt-click, lvt-keydown, etc. with lvt-on:{event}.
+Removes lvt-submit, lvt-confirm, lvt-modal-*, lvt-data-*, lvt-value-*,
+lvt-change, lvt-disable-on, lvt-enable-on, and directive config attributes.
+Adds livetemplate.css with CSS custom property defaults."
+git push origin attr-reduction
+gh pr create --head attr-reduction --title "feat!: generic event router + attribute reduction" \
+  --body "Phase 1A of attribute reduction. See livetemplate/livetemplate docs/proposals/attribute-reduction-proposal.md"
+```
+
+**⚠️ Do NOT merge this PR yet.** Phase 1B must also be ready. After both PRs are reviewed: merge client PR first → publish new npm version → then merge server PR.
+
+**Update this progress tracker:** Set Phase 1A to COMPLETE, fill in PR number. Record the published npm version: `@livetemplate/client@___`.
+
+---
+
+### Phase 1B: Server — Remove `lvt-action` + Update Docs
+
+> **Session Context**
+>
+> - **Prerequisites:** Phase 1A PR must exist (but not necessarily merged). Read the Phase 1A Audit Findings above for context on what changed in the client.
+> - **Starting point:** Create worktree `git worktree add .worktrees/attr-reduction -b attr-reduction` in `$REPO_ROOT/livetemplate`
+> - **Scope:** Audit server `lvt-action` usage, remove it, update all documentation files to new syntax
+> - **Key constraints:** Only `internal/send/message.go` and test files reference `lvt-action`. Documentation changes span 3 files. Do NOT modify template parsing — the server doesn't parse `lvt-on:*` attributes (that's client-side).
+> - **Outputs:** Committed branch `attr-reduction` on `livetemplate` repo with all server changes. PR created.
+
+**Goal:** Remove `lvt-action` form field parsing from the Go server and update all documentation to the new attribute syntax.
+
+**Repo:** `livetemplate/livetemplate`
+
+#### Step 1: Audit (MANDATORY — do this first)
+
+```
+cd $REPO_ROOT/livetemplate
+```
+
+1. Grep for `lvt-action` in `internal/send/message.go` — exact line numbers
+2. Grep for `lvt-action` in `handle_test.go` — count and list all occurrences
+3. Grep for `lvt-action` in `internal/send/message_test.go` — exact test case names
+4. Grep for `lvt-` in `action.go`, `template.go` — list all comment references
+5. Run `GOWORK=off go test ./... -timeout=300s` to get baseline
+
+#### Audit Findings (Phase 1B)
+
+<!-- Fill this section during the audit. -->
+
+**`internal/send/message.go`:**
+- `lvt-action` in `parseURLEncodedForm()`: _line TBD_
+- `lvt-action` in `parseMultipartForm()`: _line TBD_
+- `actionFields` set: _line TBD_
+
+**`handle_test.go`:** _N occurrences of `form.Set("lvt-action", ...)` at lines TBD_
+
+**`internal/send/message_test.go`:** _test case names TBD_
+
+**Doc comment references in `action.go`, `template.go`:** _lines TBD_
+
+**Baseline test count:** _TBD (all passing: yes/no)_
+
+#### Step 2: Worktree Setup
+
+```bash
+cd $REPO_ROOT/livetemplate
+git worktree add .worktrees/attr-reduction -b attr-reduction
+```
+
+#### Step 3: Remove `lvt-action` Parsing
 
 **File:** `internal/send/message.go`
 
@@ -961,7 +1063,7 @@ cd $REPO_ROOT/livetemplate/.worktrees/attr-reduction
 GOWORK=off go test ./... -timeout=300s
 ```
 
-#### Step 7: Server — Update Documentation
+#### Step 4: Update Documentation
 
 **File:** `docs/references/client-attributes.md`
 
@@ -989,39 +1091,16 @@ GOWORK=off go test ./... -timeout=300s
 - Remove `lvt-modal-open`/`lvt-modal-close` from Dialog Routing
 - Update event attribute examples to `lvt-on:{event}` syntax
 
-#### Step 8: Acceptance Criteria
+#### Step 5: Acceptance Criteria (Phase 1B)
 
-- [ ] Client: `lvt-on:click`, `lvt-on:input`, `lvt-on:keydown`, etc. all route to server actions correctly
-- [ ] Client: `lvt-on:window:keydown` with `lvt-key` filter works
-- [ ] Client: `lvt-on:custom:click-away` inverted containment works (dispatches `CustomEvent`)
-- [ ] Client: `modal-manager.ts` deleted, no `lvt-modal-open/close` handling
-- [ ] Client: No `lvt-data-*`, `lvt-value-*`, `lvt-submit`, `lvt-confirm`, `lvt-change` handling
-- [ ] Client: `lvt-disable-on`/`lvt-enable-on` reactive actions removed
-- [ ] Client: Directives read from CSS custom properties, `livetemplate.css` ships with defaults
-- [ ] Client: All tests pass: `npm test`
 - [ ] Server: `lvt-action` form field no longer parsed
 - [ ] Server: All tests pass: `GOWORK=off go test ./... -timeout=300s`
 - [ ] Server: `docs/references/client-attributes.md` updated with new syntax, deprecated entries removed
 - [ ] Server: `docs/guides/progressive-complexity.md` uses `lvt-on:{event}` syntax throughout
+- [ ] Server: `docs/references/progressive-complexity-reference.md` updated
 
-#### Step 9: PR and Merge
+#### Step 6: Commit and Create PR
 
-Client first:
-```bash
-cd $REPO_ROOT/client/.worktrees/attr-reduction
-git add -u && git add livetemplate.css
-git commit -m "feat!: generic event router (lvt-on:{event}), remove deprecated attributes
-
-BREAKING CHANGE: Replaces lvt-click, lvt-keydown, etc. with lvt-on:{event}.
-Removes lvt-submit, lvt-confirm, lvt-modal-*, lvt-data-*, lvt-value-*,
-lvt-change, lvt-disable-on, lvt-enable-on, and directive config attributes.
-Adds livetemplate.css with CSS custom property defaults."
-git push origin attr-reduction
-gh pr create --head attr-reduction --title "feat!: generic event router + attribute reduction" \
-  --body "Phase 1 of attribute reduction. See livetemplate/livetemplate docs/proposals/attribute-reduction-proposal.md"
-```
-
-Then server:
 ```bash
 cd $REPO_ROOT/livetemplate/.worktrees/attr-reduction
 git add -u
@@ -1030,7 +1109,7 @@ git commit -m "feat!: remove lvt-action parsing, update docs for attribute reduc
 BREAKING CHANGE: lvt-action form field no longer parsed. Use button name or action field."
 git push origin attr-reduction
 gh pr create --head attr-reduction --title "feat!: attribute reduction — server + docs (#288)" \
-  --body "Phase 1 server-side. Removes lvt-action parsing, updates all documentation."
+  --body "Phase 1B server-side. Removes lvt-action parsing, updates all documentation."
 ```
 
 **Merge order:** Client PR first → publish new client version → then server PR.
@@ -1041,19 +1120,34 @@ cd $REPO_ROOT/client && git worktree remove .worktrees/attr-reduction
 cd $REPO_ROOT/livetemplate && git worktree remove .worktrees/attr-reduction
 ```
 
-**Update this progress tracker:** Set Phase 1 to COMPLETE, fill in PR numbers.
+**Update this progress tracker:** Set Phase 1B to COMPLETE, fill in PR number. Record the published versions:
+- `@livetemplate/client@___` (npm)
+- `github.com/livetemplate/livetemplate@v___` (Go module)
 
 ---
 
-### Phase 2: lvt Repo Migration
+### Phase 2A: lvt — Audit + Template/Go Migration
 
-**Goal:** Update all component templates, generator templates, kit templates, golden files, and e2e tests in the `lvt` repository to use the new attribute syntax.
+> **Session Context**
+>
+> - **Prerequisites:** Phase 1A and 1B PRs must be **merged** and new versions published.
+> - **Pre-flight checks:** Run these before starting:
+>   ```bash
+>   # Verify client is published
+>   npm view @livetemplate/client version  # should be >= the Phase 1A version
+>   # Verify server module is tagged
+>   go list -m github.com/livetemplate/livetemplate@latest  # should be >= the Phase 1B version
+>   ```
+> - **Starting point:** Create worktree `git worktree add .worktrees/attr-reduction -b attr-reduction` in `$REPO_ROOT/lvt`
+> - **Scope:** Audit the lvt codebase, update all component/generator/kit templates and Go code. Do NOT update golden files or tests — that's Phase 2B.
+> - **Key constraints:** Apply the [attribute replacement rules](#design-summary-quick-reference-for-implementors) from the Design Summary. Determine the golden file update command during the audit (see audit item 4) and record it in Audit Findings for Phase 2B.
+> - **Outputs:** All template and Go code changes committed to the `attr-reduction` branch. Audit findings filled in below.
+
+**Goal:** Audit the lvt codebase and update all component templates, generator templates, kit templates, and Go code to use the new attribute syntax.
 
 **Repo:** `livetemplate/lvt`
 
-**Estimated effort:** 2 LLM sessions (1 for templates, 1 for tests).
-
-**Dependency:** Phase 1 must be merged and new client version published.
+**Dependency:** Phase 1A and 1B must be merged and new client version published.
 
 #### Step 1: Audit (MANDATORY — do this first)
 
@@ -1089,9 +1183,10 @@ cd $REPO_ROOT/lvt
    - List all files in `internal/kits/system/*/`
    - Note which attributes each uses
 
-4. **Map golden files:**
+4. **Map golden files and determine update command:**
    - List all `testdata/golden/*.golden` and `e2e/testdata/golden/*.golden`
-   - These will need regeneration after template changes
+   - Determine the golden file update mechanism: check for `-update` flag in test code, or `TestMain` with update logic
+   - Record the exact command in the Audit Findings section below
 
 5. **Check `components/base/action.go`:**
    - Does it extract `lvt-data-*` attributes?
@@ -1107,7 +1202,33 @@ cd $REPO_ROOT/lvt
    GOWORK=off go test ./... -timeout=300s
    ```
 
-**Update this plan with:** File-by-file migration map, golden file regeneration strategy, Go code changes needed.
+#### Audit Findings (Phase 2)
+
+<!-- Fill this section during the audit. Phase 2B will read this. -->
+
+**Deprecated attribute counts:**
+| Attribute | Files affected |
+|-----------|---------------|
+| `lvt-click` | _TBD_ |
+| `lvt-submit` | _TBD_ |
+| `lvt-data-*` | _TBD_ |
+| `lvt-change` | _TBD_ |
+| `lvt-modal-*` | _TBD_ |
+| `lvt-confirm` | _TBD_ |
+| `lvt-input` | _TBD_ |
+| `lvt-focus` | _TBD_ |
+| `lvt-blur` | _TBD_ |
+| `lvt-keydown` | _TBD_ |
+| `lvt-mouseenter/leave` | _TBD_ |
+| `lvt-click-away` | _TBD_ |
+
+**Component template map:** _TBD_
+
+**Go code generating HTML:** _files TBD_
+
+**Golden file update command:** _TBD_
+
+**Baseline test count:** _TBD_
 
 #### Step 2: Worktree Setup
 
@@ -1152,20 +1273,55 @@ If this file extracts `lvt-data-*` attributes, update to extract `data-*` attrib
 
 If Go code generates `lvt-confirm`, `lvt-modal-open`, or `lvt-modal-close` attributes in HTML strings, update to the replacement syntax.
 
-#### Step 6: Regenerate Golden Files
-
-Golden files in `testdata/golden/` and `e2e/testdata/golden/` will no longer match after template changes. Regenerate them:
+#### Step 6: Update go.mod
 
 ```bash
-# The exact command depends on the project's golden file update mechanism
-# Common patterns:
+cd $REPO_ROOT/lvt/.worktrees/attr-reduction
+go get github.com/livetemplate/livetemplate@latest
+go mod tidy
+```
+
+#### Step 7: Commit Progress
+
+Commit the template and Go code changes. Do NOT create a PR yet — golden files and tests are Phase 2B.
+
+```bash
+cd $REPO_ROOT/lvt/.worktrees/attr-reduction
+git add -u
+git commit -m "wip: migrate templates and Go code to new attribute syntax"
+```
+
+**Update this progress tracker:** Set Phase 2A to COMPLETE.
+
+---
+
+### Phase 2B: lvt — Golden Files + E2E Tests + PR
+
+> **Session Context**
+>
+> - **Prerequisites:** Phase 2A must be complete (template and Go changes committed to `attr-reduction` branch).
+> - **Starting point:** `cd $REPO_ROOT/lvt/.worktrees/attr-reduction` (worktree already exists from 2A)
+> - **Scope:** Regenerate golden files, update all e2e tests, verify all tests pass, create PR
+> - **Key constraints:** Read the **Audit Findings (Phase 2)** section above for the golden file update command and component map. Chromedp selectors with `lvt-on:*` attributes require **double backslash escaping** in Go strings: `[lvt-on\\:click="X"]`.
+> - **Outputs:** All tests passing, PR created on `lvt` repo.
+
+**Goal:** Regenerate golden files, update e2e tests, verify everything passes, and create the PR.
+
+**Repo:** `livetemplate/lvt`
+
+#### Step 1: Regenerate Golden Files
+
+Golden files in `testdata/golden/` and `e2e/testdata/golden/` will no longer match after template changes. Use the golden file update command recorded in the Phase 2 Audit Findings:
+
+```bash
+# Use the command determined during Phase 2A audit, e.g.:
 GOWORK=off go test ./... -update  # if tests have an -update flag
 # OR manually run the generator and compare
 ```
 
 If the project doesn't have auto-update for golden files, manually update each golden file to reflect the new attribute syntax.
 
-#### Step 7: Update E2E Tests
+#### Step 2: Update E2E Tests
 
 E2E test files that assert on HTML content or query elements by `lvt-*` attributes need updating:
 
@@ -1184,15 +1340,7 @@ For chromedp selectors:
 
 **Note:** Colon in attribute selectors requires escaping in CSS: `[lvt-on\:click="X"]`. In Go strings, this becomes `[lvt-on\\:click="X"]`.
 
-#### Step 8: Update go.mod
-
-```bash
-cd $REPO_ROOT/lvt/.worktrees/attr-reduction
-go get github.com/livetemplate/livetemplate@latest
-go mod tidy
-```
-
-#### Step 9: Run Tests
+#### Step 3: Run Tests
 
 ```bash
 cd $REPO_ROOT/lvt/.worktrees/attr-reduction
@@ -1201,11 +1349,11 @@ GOWORK=off go test ./... -timeout=300s
 
 For e2e tests (if they require the new client):
 ```bash
-# Ensure the new client version is available (published from Phase 1)
+# Ensure the new client version is available (published from Phase 1A)
 GOWORK=off go test ./e2e/... -timeout=600s
 ```
 
-#### Step 10: Acceptance Criteria
+#### Step 4: Acceptance Criteria (Phase 2)
 
 - [ ] Zero occurrences of `lvt-click` in any `.tmpl` file (replaced by `name=` or `lvt-on:click`)
 - [ ] Zero occurrences of `lvt-submit` in any `.tmpl` file
@@ -1219,7 +1367,7 @@ GOWORK=off go test ./e2e/... -timeout=600s
 - [ ] E2E tests pass: `GOWORK=off go test ./e2e/... -timeout=600s`
 - [ ] `go.mod` updated to latest livetemplate version
 
-#### Step 11: PR and Merge
+#### Step 5: PR and Merge
 
 ```bash
 cd $REPO_ROOT/lvt/.worktrees/attr-reduction
@@ -1238,19 +1386,32 @@ After merge:
 cd $REPO_ROOT/lvt && git worktree remove .worktrees/attr-reduction
 ```
 
-**Update this progress tracker:** Set Phase 2 to COMPLETE, fill in PR number.
+**Update this progress tracker:** Set Phase 2B to COMPLETE, fill in PR number.
 
 ---
 
-### Phase 3: tinkerdown Repo Migration
+### Phase 3A: tinkerdown — Audit + Go/TS Migration
 
-**Goal:** Update tinkerdown's Go code that generates HTML with `lvt-*` attributes, its TypeScript client, all example/scaffold templates, documentation, and e2e tests.
+> **Session Context**
+>
+> - **Prerequisites:** Phase 1A and 1B must be **merged** and published.
+> - **Pre-flight checks:**
+>   ```bash
+>   npm view @livetemplate/client version  # should be >= the Phase 1A version
+>   go list -m github.com/livetemplate/livetemplate@latest  # should be >= the Phase 1B version
+>   ```
+> - **Starting point:** Create worktree `git worktree add .worktrees/attr-reduction -b attr-reduction` in `$REPO_ROOT/tinkerdown`
+> - **Scope:** Audit tinkerdown, update Go code that generates HTML, update TypeScript client
+> - **Key constraints:** Apply the [attribute replacement rules](#design-summary-quick-reference-for-implementors).
+>
+> ⚠️ **DO NOT CHANGE these tinkerdown-specific attributes** — they are parsed by tinkerdown's own Go code, not the LiveTemplate client library:
+> `lvt-source`, `lvt-columns`, `lvt-field`, `lvt-actions`, `lvt-empty`, `lvt-datatable`
+
+**Goal:** Audit the tinkerdown codebase and update Go code that generates HTML and the TypeScript client.
 
 **Repo:** `livetemplate/tinkerdown`
 
-**Estimated effort:** 2 LLM sessions.
-
-**Dependency:** Phase 1 must be merged. Phase 2 is independent (tinkerdown doesn't depend on lvt).
+**Dependency:** Phase 1A and 1B must be merged. Phase 2 is independent (tinkerdown doesn't depend on lvt).
 
 #### Step 1: Audit (MANDATORY — do this first)
 
@@ -1299,7 +1460,26 @@ cd $REPO_ROOT/tinkerdown
    GOWORK=off go test ./... -timeout=300s
    ```
 
-**Update this plan with:** Complete file map, Go code change details, client migration strategy.
+#### Audit Findings (Phase 3)
+
+<!-- Fill this section during the audit. Phase 3B will read this. -->
+
+**Go code generating HTML:**
+- `auto_tables.go`: _attributes found TBD_
+- `auto_tasks.go`: _attributes found TBD_
+- `page.go`: _attributes found TBD_
+
+**TypeScript client (`interactive-block.ts`):**
+- Imports from `@livetemplate/client`: _TBD_
+- Own handling of `lvt-*`: _TBD_
+
+**Template/example count:** _N files with deprecated attrs TBD_
+
+**E2E test count:** _N files with `lvt-*` refs TBD_
+
+**Tinkerdown-specific attrs confirmed separate:** _yes/no_
+
+**Baseline test count:** _TBD_
 
 #### Step 2: Worktree Setup
 
@@ -1352,9 +1532,46 @@ Update event attribute detection:
 
 If this file imports `checkLvtConfirm` or `extractLvtData` from `@livetemplate/client`, those imports need updating or removing.
 
-#### Step 5: Update Templates and Examples
+#### Step 5: Update Dependencies
 
-Apply the same replacement rules to all:
+```bash
+cd $REPO_ROOT/tinkerdown/.worktrees/attr-reduction
+go get github.com/livetemplate/livetemplate@latest
+cd client && npm install @livetemplate/client@latest
+```
+
+#### Step 6: Commit Progress
+
+Commit the Go and TS changes. Templates, docs, and tests are Phase 3B.
+
+```bash
+cd $REPO_ROOT/tinkerdown/.worktrees/attr-reduction
+git add -u
+git commit -m "wip: migrate Go generators and TS client to new attribute syntax"
+```
+
+**Update this progress tracker:** Set Phase 3A to COMPLETE.
+
+---
+
+### Phase 3B: tinkerdown — Templates + Docs + E2E + PR
+
+> **Session Context**
+>
+> - **Prerequisites:** Phase 3A must be complete (Go and TS changes committed to `attr-reduction` branch).
+> - **Starting point:** `cd $REPO_ROOT/tinkerdown/.worktrees/attr-reduction` (worktree already exists from 3A)
+> - **Scope:** Update scaffold/example templates, rewrite docs, update e2e tests, create PR
+> - **Key constraints:** Read the **Audit Findings (Phase 3)** section above. Apply the [attribute replacement rules](#design-summary-quick-reference-for-implementors).
+>
+> ⚠️ **DO NOT CHANGE:** `lvt-source`, `lvt-columns`, `lvt-field`, `lvt-actions`, `lvt-empty`, `lvt-datatable` — these are tinkerdown-specific.
+
+**Goal:** Update all templates, documentation, and e2e tests, then create the PR.
+
+**Repo:** `livetemplate/tinkerdown`
+
+#### Step 1: Update Templates and Examples
+
+Apply the replacement rules to all:
 - `cmd/tinkerdown/commands/templates/*/index.md` — scaffold templates
 - `examples/*/index.md` — example applications
 
@@ -1366,7 +1583,7 @@ Key files:
 - `examples/expense-tracker/index.md` — full CRUD
 - All `lvt-source`, `lvt-columns` references remain UNCHANGED
 
-#### Step 6: Update Documentation
+#### Step 2: Update Documentation
 
 **File:** `docs/reference/lvt-attributes.md`
 
@@ -1380,7 +1597,7 @@ Rewrite to reflect:
 
 Update attribute references and examples throughout.
 
-#### Step 7: Update E2E Tests
+#### Step 3: Update E2E Tests
 
 All `*_e2e_test.go` files need attribute selector updates:
 - `auto_tables_e2e_test.go`
@@ -1396,22 +1613,14 @@ Selector replacement patterns:
 | `[lvt-click="X"]` | `button[name="X"]` or `[lvt-on\\:click="X"]` |
 | `[lvt-submit="X"]` | `button[name="X"]` or `form[name="X"]` |
 
-#### Step 8: Update Dependencies
-
-```bash
-cd $REPO_ROOT/tinkerdown/.worktrees/attr-reduction
-go get github.com/livetemplate/livetemplate@latest
-cd client && npm install @livetemplate/client@latest
-```
-
-#### Step 9: Run Tests
+#### Step 4: Run Tests
 
 ```bash
 cd $REPO_ROOT/tinkerdown/.worktrees/attr-reduction
 GOWORK=off go test ./... -timeout=300s
 ```
 
-#### Step 10: Acceptance Criteria
+#### Step 5: Acceptance Criteria (Phase 3)
 
 - [ ] Zero `lvt-click` in Go code string literals (replaced by `name=` on buttons)
 - [ ] Zero `lvt-submit` in Go code or templates (replaced by button/form `name`)
@@ -1425,7 +1634,7 @@ GOWORK=off go test ./... -timeout=300s
 - [ ] All e2e tests pass
 - [ ] Dependencies bumped to Phase 1 versions
 
-#### Step 11: PR and Merge
+#### Step 6: PR and Merge
 
 ```bash
 cd $REPO_ROOT/tinkerdown/.worktrees/attr-reduction
@@ -1444,19 +1653,31 @@ After merge:
 cd $REPO_ROOT/tinkerdown && git worktree remove .worktrees/attr-reduction
 ```
 
-**Update this progress tracker:** Set Phase 3 to COMPLETE, fill in PR number.
+**Update this progress tracker:** Set Phase 3B to COMPLETE, fill in PR number.
 
 ---
 
 ### Phase 4: Examples Repo + Final Verification
 
+> **Session Context**
+>
+> - **Prerequisites:** Phases 1A, 1B, 2B, and 3B must all be **merged** and published.
+> - **Pre-flight checks:**
+>   ```bash
+>   npm view @livetemplate/client version  # Phase 1A version
+>   go list -m github.com/livetemplate/livetemplate@latest  # Phase 1B version
+>   go list -m github.com/livetemplate/lvt@latest  # Phase 2B version
+>   ```
+> - **Starting point:** Create worktree `git worktree add .worktrees/attr-reduction -b attr-reduction` in `$REPO_ROOT/examples`
+> - **Scope:** Bump dependencies, update docs, run cross-repo verification
+> - **Key constraints:** The `examples` repo likely has zero deprecated attributes in templates (already uses Tier 1 patterns). Main work is dependency bumping and documentation updates.
+> - **Outputs:** All 5 repos passing tests. Final PR on `examples` repo.
+
 **Goal:** Update the examples repository (minimal changes) and verify all repos work together end-to-end.
 
 **Repo:** `livetemplate/examples`
 
-**Estimated effort:** 1 LLM session.
-
-**Dependency:** Phases 1-3 must be merged.
+**Dependency:** Phases 1A, 1B, 2B, and 3B must be merged.
 
 #### Step 1: Audit (MANDATORY — do this first)
 
@@ -1476,8 +1697,6 @@ cd $REPO_ROOT/examples
    ```
    GOWORK=off go test ./... -timeout=300s
    ```
-
-**Update this plan with:** Specific findings.
 
 #### Step 2: Worktree Setup
 
@@ -1559,22 +1778,30 @@ cd $REPO_ROOT/examples && git worktree remove .worktrees/attr-reduction
 ### Cross-Phase Dependency Graph
 
 ```
-Phase 1: client + livetemplate (core changes)
-    |
-    ├──→ Phase 2: lvt (template migration) ──────┐
-    |                                              ├──→ Phase 4: examples (deps + final verification)
-    └──→ Phase 3: tinkerdown (code + template) ──┘
+Phase 1A: client ──→ Phase 1B: livetemplate (server + docs)
+    |                     |
+    ├─────────────────────┤
+    |                     |
+    ├──→ Phase 2A: lvt (audit + templates + Go) ──→ Phase 2B: lvt (golden + e2e + PR) ──┐
+    |                                                                                     ├──→ Phase 4
+    └──→ Phase 3A: tinkerdown (audit + Go + TS) ──→ Phase 3B: tinkerdown (docs + e2e) ──┘
 ```
 
-Phases 2 and 3 can proceed in parallel (lvt and tinkerdown don't depend on each other). Phase 4 depends on Phases 1-3: `examples` imports `lvt/components` (Phase 2) and the final verification step runs all 5 repo test suites (requires Phase 3).
+**Parallelism:**
+- 1A → 1B is sequential (server needs client to be ready, but PRs can be prepared in parallel)
+- 2A/2B and 3A/3B can proceed in parallel (lvt and tinkerdown don't depend on each other)
+- Within each repo, A → B is sequential (B depends on A's changes)
+- Phase 4 depends on 2B + 3B being merged
+
+**Total: 7 sub-phases across ~7 LLM sessions** (1A, 1B, 2A, 2B, 3A, 3B, 4).
 
 ### PR Merge Order
 
-1. **`client`** — publish new npm version (e.g., 1.0.0)
-2. **`livetemplate`** — publish new Go version (e.g., v1.0.0)
-3. **`lvt`** — depends on new client + server versions
-4. **`tinkerdown`** — depends on new client + server versions
-5. **`examples`** — depends on all above
+1. **`client`** (Phase 1A) — merge and publish new npm version
+2. **`livetemplate`** (Phase 1B) — merge and tag new Go version
+3. **`lvt`** (Phase 2B) — depends on new client + server versions
+4. **`tinkerdown`** (Phase 3B) — depends on new client + server versions
+5. **`examples`** (Phase 4) — depends on all above
 
 ### CI Considerations
 
