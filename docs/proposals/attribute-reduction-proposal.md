@@ -369,6 +369,8 @@ No CSS dependency needed — this is pure attribute consolidation.
 
 **Impact: 7 attributes removed via consolidation.**
 
+> **Why not eliminate the main directive attributes too?** The main attributes (`lvt-scroll`, `lvt-highlight`, `lvt-animate`) serve as **discovery markers** — the client finds elements via `querySelectorAll('[lvt-scroll]')`. CSS custom properties cannot be queried this way; there is no selector for "elements with `--lvt-scroll` set." Scanning every DOM element with `getComputedStyle()` would be prohibitively expensive. The current split — HTML attribute for behavior declaration (discoverable), CSS custom properties for configuration (readable via `getComputedStyle`) — is the optimal abstraction boundary.
+
 ## Category 3: Behaviors That Require Tier 2
 
 These behaviors cannot be expressed with standard HTML. They are the **essential `lvt-*` surface**.
@@ -903,7 +905,11 @@ git worktree add .worktrees/attr-reduction -b attr-reduction
      --lvt-animate-duration: 300ms;
    }
    ```
-   Add to `package.json` `files` array.
+   Add to `package.json` `files` array. Document the import in the client README:
+   ```js
+   import '@livetemplate/client/livetemplate.css'  // CSS custom property defaults
+   ```
+   All examples and e2e tests that use scroll, highlight, or animate directives must import this file (or provide equivalent `:root` overrides).
 
 #### Step 5: Client — Update Tests
 
