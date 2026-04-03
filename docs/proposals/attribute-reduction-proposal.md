@@ -1141,16 +1141,18 @@ document.querySelectorAll('[lvt-form\\:preserve]')
 
 ### Progress Tracker
 
-| Sub-phase | Description | Repo | Status | PR |
-|-----------|-------------|------|--------|----|
-| 1A | Client: generic event router + removals | `client` | NOT STARTED | — |
-| 1B | Server: remove `lvt-action` + update docs | `livetemplate` | NOT STARTED | — |
-| 2E | Examples: early migration + manual review | `examples` | NOT STARTED | — |
-| 2A | lvt: audit + template/Go migration | `lvt` | NOT STARTED | — |
-| 2B | lvt: golden files + e2e tests + PR | `lvt` | NOT STARTED | — |
-| 3A | tinkerdown: audit + Go/TS migration | `tinkerdown` | NOT STARTED | — |
-| 3B | tinkerdown: templates + docs + e2e + PR | `tinkerdown` | NOT STARTED | — |
-| 4 | Final cross-repo verification + dep alignment | `examples` | NOT STARTED | — |
+> **Execution order:** The rows below are listed in the required execution sequence — **not** alphanumeric order. Each row depends on all rows above it being complete (unless the dependency graph below explicitly allows parallelism). See [Cross-Phase Dependency Graph](#cross-phase-dependency-graph) for which phases can run in parallel.
+
+| # | Sub-phase | Description | Repo | Status | PR |
+|---|-----------|-------------|------|--------|----|
+| 1 | 1A | Client: generic event router + removals | `client` | NOT STARTED | — |
+| 2 | 1B | Server: remove `lvt-action` + update docs | `livetemplate` | NOT STARTED | — |
+| 3 | 2E | Examples: early migration + manual review | `examples` | NOT STARTED | — |
+| 4 | 2A | lvt: audit + template/Go migration | `lvt` | NOT STARTED | — |
+| 5 | 2B | lvt: golden files + e2e tests + PR | `lvt` | NOT STARTED | — |
+| 6 | 3A | tinkerdown: audit + Go/TS migration | `tinkerdown` | NOT STARTED | — |
+| 7 | 3B | tinkerdown: templates + docs + e2e + PR | `tinkerdown` | NOT STARTED | — |
+| 8 | 4 | Final cross-repo verification + dep alignment | `examples` | NOT STARTED | — |
 
 **After completing each sub-phase:** Update Status to COMPLETE, fill in PR numbers, and commit this file.
 
