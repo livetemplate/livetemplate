@@ -468,6 +468,7 @@ Replaces all individual element-scoped event attributes:
 | `lvt-blur="hide"` | `lvt-on:blur="hide"` |
 | `lvt-mouseenter="preview"` | `lvt-on:mouseenter="preview"` |
 | `lvt-mouseleave="unpreview"` | `lvt-on:mouseleave="unpreview"` |
+| `lvt-mouseover="highlight"` | `lvt-on:mouseover="highlight"` |
 | `lvt-click-away="close"` | `lvt-on:click-away="close"` |
 
 **Example — autocomplete component:**
@@ -541,10 +542,10 @@ With the generic router, `lvt-click` is fully superseded:
 
 | Change | Attributes Removed |
 |--------|-------------------|
-| Element-scoped events → `lvt-on:{event}` | 9 (`lvt-click`, `lvt-input`, `lvt-keydown`, `lvt-keyup`, `lvt-focus`, `lvt-blur`, `lvt-mouseenter`, `lvt-mouseleave`, `lvt-click-away`) |
+| Element-scoped events → `lvt-on:{event}` | 10 (`lvt-click`, `lvt-input`, `lvt-keydown`, `lvt-keyup`, `lvt-focus`, `lvt-blur`, `lvt-mouseenter`, `lvt-mouseleave`, `lvt-mouseover`, `lvt-click-away`) |
 | Window-scoped events → `lvt-on:window:{event}` | 6 (`lvt-window-keydown`, `lvt-window-keyup`, `lvt-window-scroll`, `lvt-window-resize`, `lvt-window-focus`, `lvt-window-blur`) |
 | `lvt-change` deprecated entirely | 1 |
-| **Total** | **16 attribute names removed, replaced by 2 patterns** |
+| **Total** | **17 attribute names removed, replaced by 2 patterns** |
 
 ### Modifiers Unchanged
 
@@ -559,29 +560,42 @@ With the generic router, `lvt-click` is fully superseded:
 
 | Category | Before | After |
 |----------|--------|-------|
-| **Total `lvt-*` attributes** | ~51 | ~19 attribute names + 2 generic patterns |
+| **Total `lvt-*` attributes** | ~51 | ~18 attribute names + 2 generic patterns |
 | Event bindings (element) | 10 individual names | `lvt-on:{event}` (1 pattern) |
 | Event bindings (window) | 6 individual names | `lvt-on:window:{event}` (1 pattern) |
 | `lvt-change` | 1 | 0 (convention + `lvt-on:input`) |
 | Data passing | 2 patterns (`lvt-data-*`, `lvt-value-*`) | 0 (standard HTML) |
 | Modals | 2 | 0 (native `<dialog>`) |
 | Legacy routing | 2 (`lvt-submit`, `lvt-action`) | 0 (standard HTML) |
-| Confirmation | 1 | 0 (standard `onsubmit`) |
+| Confirmation | 1 | 0 (standard `onsubmit`/`onclick`) |
 | Scroll directives | 3 | 1 + CSS custom properties |
 | Highlight directives | 3 | 1 + CSS custom properties |
 | Animation directives | 2 | 1 + CSS custom properties |
 | Enable/disable sugar | 2 | 0 (use `lvt-toggleAttr-on`) |
-| Upload | 1 | Narrowed (Tier 1 for basic, Tier 2 for drop zones/S3) |
+| Upload | 1 | 1 (narrowed: Tier 1 for basic uploads via standard HTML, Tier 2 for drop zones/S3) |
 | Timing modifiers | 2 (`lvt-debounce`, `lvt-throttle`) | 2 (unchanged) |
 | Key filter | 1 (`lvt-key`) | 1 (unchanged) |
 | Reactive DOM | 6 | 6 (unchanged — `addClass-on`, `removeClass-on`, `toggleClass-on`, `setAttr-on`, `toggleAttr-on`, `reset-on`) |
 | Form behavior | 3 (`lvt-preserve`, `lvt-disable-with`, `lvt-no-intercept`) | 3 (unchanged) |
 | Directives | 3 (`lvt-scroll`, `lvt-highlight`, `lvt-animate`) | 3 (unchanged) |
-| Upload (Tier 2) | 1 | 1 (narrowed scope) |
 
 ---
 
 ## Implementation Plan
+
+### Path Convention
+
+All paths in this plan use the `$REPO_ROOT` prefix, which refers to the parent directory containing all LiveTemplate repositories:
+
+```bash
+export REPO_ROOT=/path/to/livetemplate  # e.g., ~/code/livetemplate
+# Expected layout:
+# $REPO_ROOT/livetemplate/  — Go server library (this repo)
+# $REPO_ROOT/client/        — TypeScript client
+# $REPO_ROOT/lvt/           — CLI tool + component library
+# $REPO_ROOT/tinkerdown/    — Tinkerdown
+# $REPO_ROOT/examples/      — Example applications
+```
 
 ### Progress Tracker
 
@@ -612,7 +626,7 @@ Before making any changes, deep dive into the codebase to capture the full migra
 
 **Client audit:**
 ```
-cd /Users/adnaan/code/livetemplate/client
+cd $REPO_ROOT/client
 ```
 
 1. Read `dom/event-delegation.ts` end-to-end. Map:
@@ -632,7 +646,7 @@ cd /Users/adnaan/code/livetemplate/client
 
 **Server audit:**
 ```
-cd /Users/adnaan/code/livetemplate/livetemplate
+cd $REPO_ROOT/livetemplate
 ```
 
 1. Grep for `lvt-action` in `internal/send/message.go` — exact line numbers
@@ -646,10 +660,10 @@ cd /Users/adnaan/code/livetemplate/livetemplate
 #### Step 2: Worktree Setup
 
 ```bash
-cd /Users/adnaan/code/livetemplate/client
+cd $REPO_ROOT/client
 git worktree add .worktrees/attr-reduction -b attr-reduction
 
-cd /Users/adnaan/code/livetemplate/livetemplate
+cd $REPO_ROOT/livetemplate
 git worktree add .worktrees/attr-reduction -b attr-reduction
 ```
 
@@ -714,7 +728,7 @@ Add new tests:
 - CSS custom property `--lvt-highlight-duration` is read by highlight directive
 
 ```bash
-cd /Users/adnaan/code/livetemplate/client/.worktrees/attr-reduction
+cd $REPO_ROOT/client/.worktrees/attr-reduction
 npm test
 ```
 
@@ -742,7 +756,7 @@ Update test cases:
 Update doc comments to remove `lvt-submit`, `lvt-action`, `lvt-data-*` references. Replace with standard HTML patterns.
 
 ```bash
-cd /Users/adnaan/code/livetemplate/livetemplate/.worktrees/attr-reduction
+cd $REPO_ROOT/livetemplate/.worktrees/attr-reduction
 GOWORK=off go test ./... -timeout=300s
 ```
 
@@ -793,7 +807,7 @@ GOWORK=off go test ./... -timeout=300s
 
 Client first:
 ```bash
-cd /Users/adnaan/code/livetemplate/client/.worktrees/attr-reduction
+cd $REPO_ROOT/client/.worktrees/attr-reduction
 git add -A
 git commit -m "feat!: generic event router (lvt-on:{event}), remove deprecated attributes
 
@@ -808,7 +822,7 @@ gh pr create --head attr-reduction --title "feat!: generic event router + attrib
 
 Then server:
 ```bash
-cd /Users/adnaan/code/livetemplate/livetemplate/.worktrees/attr-reduction
+cd $REPO_ROOT/livetemplate/.worktrees/attr-reduction
 git add -A
 git commit -m "feat!: remove lvt-action parsing, update docs for attribute reduction (#288)
 
@@ -822,8 +836,8 @@ gh pr create --head attr-reduction --title "feat!: attribute reduction — serve
 
 After both merge, clean up worktrees:
 ```bash
-cd /Users/adnaan/code/livetemplate/client && git worktree remove .worktrees/attr-reduction
-cd /Users/adnaan/code/livetemplate/livetemplate && git worktree remove .worktrees/attr-reduction
+cd $REPO_ROOT/client && git worktree remove .worktrees/attr-reduction
+cd $REPO_ROOT/livetemplate && git worktree remove .worktrees/attr-reduction
 ```
 
 **Update this progress tracker:** Set Phase 1 to COMPLETE, fill in PR numbers.
@@ -845,7 +859,7 @@ cd /Users/adnaan/code/livetemplate/livetemplate && git worktree remove .worktree
 Before making any changes, deep dive into the `lvt` codebase to capture the full migration impact.
 
 ```
-cd /Users/adnaan/code/livetemplate/lvt
+cd $REPO_ROOT/lvt
 ```
 
 1. **Count and list all occurrences** of each deprecated attribute across the repo:
@@ -897,7 +911,7 @@ cd /Users/adnaan/code/livetemplate/lvt
 #### Step 2: Worktree Setup
 
 ```bash
-cd /Users/adnaan/code/livetemplate/lvt
+cd $REPO_ROOT/lvt
 git worktree add .worktrees/attr-reduction -b attr-reduction
 ```
 
@@ -913,7 +927,7 @@ For each component in `components/*/templates/*.tmpl`:
 | `lvt-submit="X"` | Remove; use `<button name="X">` or `<form name="X">` |
 | `lvt-data-{key}="V"` | `data-{key}="V"` (standard HTML data attribute) |
 | `lvt-value-{key}="V"` | `<input type="hidden" name="{key}" value="V">` |
-| `lvt-confirm="msg"` | `onclick="return confirm('msg')"` on button |
+| `lvt-confirm="msg"` | Form: `onsubmit="return confirm('msg')"`. Button: `onclick="return confirm('msg')"`. Message must be a constant or properly escaped. |
 | `lvt-modal-open="id"` | `command="show-modal" commandfor="id"` |
 | `lvt-modal-close="id"` | `command="close" commandfor="id"` (inside `<form method="dialog">`) |
 | `lvt-change="X"` | `lvt-on:change="X"` (for select elements) or `lvt-on:input="X"` (for text inputs) |
@@ -923,6 +937,7 @@ For each component in `components/*/templates/*.tmpl`:
 | `lvt-blur="X"` | `lvt-on:blur="X"` |
 | `lvt-mouseenter="X"` | `lvt-on:mouseenter="X"` |
 | `lvt-mouseleave="X"` | `lvt-on:mouseleave="X"` |
+| `lvt-mouseover="X"` | `lvt-on:mouseover="X"` |
 | `lvt-click-away="X"` | `lvt-on:click-away="X"` |
 
 **High-impact components** (from audit):
@@ -992,7 +1007,7 @@ For chromedp selectors:
 #### Step 8: Update go.mod
 
 ```bash
-cd /Users/adnaan/code/livetemplate/lvt/.worktrees/attr-reduction
+cd $REPO_ROOT/lvt/.worktrees/attr-reduction
 go get github.com/livetemplate/livetemplate@latest
 go mod tidy
 ```
@@ -1000,7 +1015,7 @@ go mod tidy
 #### Step 9: Run Tests
 
 ```bash
-cd /Users/adnaan/code/livetemplate/lvt/.worktrees/attr-reduction
+cd $REPO_ROOT/lvt/.worktrees/attr-reduction
 GOWORK=off go test ./... -timeout=300s
 ```
 
@@ -1027,7 +1042,7 @@ GOWORK=off go test ./e2e/... -timeout=600s
 #### Step 11: PR and Merge
 
 ```bash
-cd /Users/adnaan/code/livetemplate/lvt/.worktrees/attr-reduction
+cd $REPO_ROOT/lvt/.worktrees/attr-reduction
 git add -A
 git commit -m "feat!: migrate to generic event router (lvt-on:{event}), remove deprecated attributes
 
@@ -1040,7 +1055,7 @@ gh pr create --head attr-reduction --title "feat!: attribute reduction — migra
 
 After merge:
 ```bash
-cd /Users/adnaan/code/livetemplate/lvt && git worktree remove .worktrees/attr-reduction
+cd $REPO_ROOT/lvt && git worktree remove .worktrees/attr-reduction
 ```
 
 **Update this progress tracker:** Set Phase 2 to COMPLETE, fill in PR number.
@@ -1062,7 +1077,7 @@ cd /Users/adnaan/code/livetemplate/lvt && git worktree remove .worktrees/attr-re
 Deep dive into the tinkerdown codebase to capture the full migration impact.
 
 ```
-cd /Users/adnaan/code/livetemplate/tinkerdown
+cd $REPO_ROOT/tinkerdown
 ```
 
 1. **Go code that GENERATES lvt-* attributes:**
@@ -1109,7 +1124,7 @@ cd /Users/adnaan/code/livetemplate/tinkerdown
 #### Step 2: Worktree Setup
 
 ```bash
-cd /Users/adnaan/code/livetemplate/tinkerdown
+cd $REPO_ROOT/tinkerdown
 git worktree add .worktrees/attr-reduction -b attr-reduction
 ```
 
@@ -1204,7 +1219,7 @@ Selector replacement patterns:
 #### Step 8: Update Dependencies
 
 ```bash
-cd /Users/adnaan/code/livetemplate/tinkerdown/.worktrees/attr-reduction
+cd $REPO_ROOT/tinkerdown/.worktrees/attr-reduction
 go get github.com/livetemplate/livetemplate@latest
 cd client && npm install @livetemplate/client@latest
 ```
@@ -1212,7 +1227,7 @@ cd client && npm install @livetemplate/client@latest
 #### Step 9: Run Tests
 
 ```bash
-cd /Users/adnaan/code/livetemplate/tinkerdown/.worktrees/attr-reduction
+cd $REPO_ROOT/tinkerdown/.worktrees/attr-reduction
 GOWORK=off go test ./... -timeout=300s
 ```
 
@@ -1233,7 +1248,7 @@ GOWORK=off go test ./... -timeout=300s
 #### Step 11: PR and Merge
 
 ```bash
-cd /Users/adnaan/code/livetemplate/tinkerdown/.worktrees/attr-reduction
+cd $REPO_ROOT/tinkerdown/.worktrees/attr-reduction
 git add -A
 git commit -m "feat!: migrate to generic event router, remove deprecated lvt-* attributes
 
@@ -1246,7 +1261,7 @@ gh pr create --head attr-reduction --title "feat!: attribute reduction migration
 
 After merge:
 ```bash
-cd /Users/adnaan/code/livetemplate/tinkerdown && git worktree remove .worktrees/attr-reduction
+cd $REPO_ROOT/tinkerdown && git worktree remove .worktrees/attr-reduction
 ```
 
 **Update this progress tracker:** Set Phase 3 to COMPLETE, fill in PR number.
@@ -1266,7 +1281,7 @@ cd /Users/adnaan/code/livetemplate/tinkerdown && git worktree remove .worktrees/
 #### Step 1: Audit (MANDATORY — do this first)
 
 ```
-cd /Users/adnaan/code/livetemplate/examples
+cd $REPO_ROOT/examples
 ```
 
 1. Confirm which `lvt-*` attributes are in actual template files (not just docs):
@@ -1287,14 +1302,14 @@ cd /Users/adnaan/code/livetemplate/examples
 #### Step 2: Worktree Setup
 
 ```bash
-cd /Users/adnaan/code/livetemplate/examples
+cd $REPO_ROOT/examples
 git worktree add .worktrees/attr-reduction -b attr-reduction
 ```
 
 #### Step 3: Update Dependencies
 
 ```bash
-cd /Users/adnaan/code/livetemplate/examples/.worktrees/attr-reduction
+cd $REPO_ROOT/examples/.worktrees/attr-reduction
 go get github.com/livetemplate/livetemplate@latest
 go get github.com/livetemplate/lvt@latest
 go get github.com/livetemplate/lvt/components@latest
@@ -1317,19 +1332,19 @@ With ALL worktrees (or merged changes), verify end-to-end:
 
 ```bash
 # 1. Client tests
-cd /Users/adnaan/code/livetemplate/client && npm test
+cd $REPO_ROOT/client && npm test
 
 # 2. Core library tests
-cd /Users/adnaan/code/livetemplate/livetemplate && GOWORK=off go test ./... -timeout=300s
+cd $REPO_ROOT/livetemplate && GOWORK=off go test ./... -timeout=300s
 
 # 3. lvt tests (including e2e)
-cd /Users/adnaan/code/livetemplate/lvt && GOWORK=off go test ./... -timeout=300s
+cd $REPO_ROOT/lvt && GOWORK=off go test ./... -timeout=300s
 
 # 4. tinkerdown tests (including e2e)
-cd /Users/adnaan/code/livetemplate/tinkerdown && GOWORK=off go test ./... -timeout=300s
+cd $REPO_ROOT/tinkerdown && GOWORK=off go test ./... -timeout=300s
 
 # 5. examples tests
-cd /Users/adnaan/code/livetemplate/examples && GOWORK=off go test ./... -timeout=300s
+cd $REPO_ROOT/examples && GOWORK=off go test ./... -timeout=300s
 ```
 
 All 5 repos must have passing tests.
@@ -1344,7 +1359,7 @@ All 5 repos must have passing tests.
 #### Step 8: PR and Merge
 
 ```bash
-cd /Users/adnaan/code/livetemplate/examples/.worktrees/attr-reduction
+cd $REPO_ROOT/examples/.worktrees/attr-reduction
 git add -A
 git commit -m "chore: bump dependencies for attribute reduction"
 git push origin attr-reduction
@@ -1354,7 +1369,7 @@ gh pr create --head attr-reduction --title "chore: bump deps for attribute reduc
 
 After merge:
 ```bash
-cd /Users/adnaan/code/livetemplate/examples && git worktree remove .worktrees/attr-reduction
+cd $REPO_ROOT/examples && git worktree remove .worktrees/attr-reduction
 ```
 
 **Update this progress tracker:** Set Phase 4 to COMPLETE, fill in PR number.
