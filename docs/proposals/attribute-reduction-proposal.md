@@ -369,9 +369,11 @@ No CSS dependency needed — this is pure attribute consolidation.
 
 **Impact: 7 attributes removed via consolidation.**
 
-## Category 3: Must Remain as Tier 2
+## Category 3: Behaviors That Require Tier 2
 
-These attributes express behaviors that standard HTML cannot. They are the **essential `lvt-*` surface**.
+These behaviors cannot be expressed with standard HTML. They are the **essential `lvt-*` surface**.
+
+> **Note:** This section identifies the *behaviors* that must remain in Tier 2. Category 5 below consolidates many of these individual attribute names into the generic `lvt-on[:{type}][:{scope}]:{event}` pattern — the behaviors remain, but the attribute names change.
 
 ### Timing Control
 | Attribute | Why |
@@ -387,8 +389,8 @@ These attributes express behaviors that standard HTML cannot. They are the **ess
 ### Event Routing (element-scoped)
 | Attribute | Why |
 |-----------|-----|
-| `lvt-click` (narrowed) | Non-button click → server action. Buttons use `name` instead. |
-| `lvt-change` (narrowed) | Named action other than `Change()`. Default case uses convention. |
+| `lvt-click` (narrowed) | Non-button click → server action. Buttons use `name` instead. *Consolidated to `lvt-on:click` in Category 5.* |
+| `lvt-change` (narrowed) | Named action other than `Change()`. Default case uses convention. *Deprecated entirely in Category 5; use `lvt-on:change` or `lvt-on:input`.* |
 | `lvt-input` | Per-keystroke server action (distinct from debounced `Change()`) |
 | `lvt-keydown` | Element keydown → server action |
 | `lvt-keyup` | Element keyup → server action |
@@ -396,7 +398,8 @@ These attributes express behaviors that standard HTML cannot. They are the **ess
 | `lvt-blur` | Blur → server action |
 | `lvt-mouseenter` | Mouse enter → server action |
 | `lvt-mouseleave` | Mouse leave → server action |
-| `lvt-click-away` | Click outside element — no HTML native |
+| `lvt-mouseover` | Mouse over → server action (distinct from `mouseenter`: fires on child elements too) |
+| `lvt-click-away` | Click outside element — no HTML native. *Consolidated to `lvt-on:custom:click-away` in Category 5.* |
 
 ### Event Routing (window-scoped)
 | Attribute | Why |
@@ -408,15 +411,15 @@ These attributes express behaviors that standard HTML cannot. They are the **ess
 | `lvt-window-focus` | Window focus → server |
 | `lvt-window-blur` | Window blur → server |
 
-### Reactive DOM (lifecycle-driven)
+### Reactive DOM (lifecycle-driven, not DOM events)
 | Attribute | Why |
 |-----------|-----|
-| `lvt-addClass-on:{event}` | Add CSS class on pending/success/error/done |
-| `lvt-removeClass-on:{event}` | Remove CSS class on lifecycle event |
-| `lvt-toggleClass-on:{event}` | Toggle CSS class on lifecycle event |
-| `lvt-setAttr-on:{event}` | Set attribute on lifecycle event |
-| `lvt-toggleAttr-on:{event}` | Toggle boolean attribute (subsumes `disable-on`/`enable-on`) |
-| `lvt-reset-on:{event}` | Reset form on lifecycle event |
+| `lvt-addClass-on:{lifecycle}` | Add CSS class on pending/success/error/done |
+| `lvt-removeClass-on:{lifecycle}` | Remove CSS class on lifecycle event |
+| `lvt-toggleClass-on:{lifecycle}` | Toggle CSS class on lifecycle event |
+| `lvt-setAttr-on:{lifecycle}` | Set attribute on lifecycle event |
+| `lvt-toggleAttr-on:{lifecycle}` | Toggle boolean attribute (subsumes `disable-on`/`enable-on`) |
+| `lvt-reset-on:{lifecycle}` | Reset form on lifecycle event |
 
 ### Form Behavior
 | Attribute | Why |
@@ -447,6 +450,8 @@ These attributes are technically needed but their real-world usage may be rare e
 | `lvt-focus`, `lvt-blur` | How common are server-round-trip focus/blur handlers? If usage is rare across real apps, consider removing. |
 | `lvt-mouseenter`, `lvt-mouseleave` | Server round-trip on hover has latency concerns. May cause poor UX if network is slow. Consider whether these encourage bad patterns. |
 | `lvt-disable-with` | Could be replaced by CSS: `button[aria-busy="true"] { ... }` with `::after` for text. Less ergonomic but zero custom attributes. Worth the tradeoff? |
+
+**Resolution:** Category 5 below retains `lvt-input`, `lvt-focus`, `lvt-blur`, `lvt-mouseenter`, and `lvt-mouseleave` as valid event names within the generic `lvt-on:{event}` pattern — their cost drops to zero additional attribute names. `lvt-disable-with` is retained as-is; the CSS alternative is less ergonomic for the common case (button text swap during pending state).
 
 ## Category 5: Generic Event Router Consolidation
 
@@ -544,7 +549,7 @@ Replaces all individual element-scoped event attributes:
 
 **Note:** `lvt-on:click` is only for non-button elements. Buttons use standard HTML `<button name="action">`.
 
-**Note:** `lvt-on:custom:click-away` uses the `custom` type prefix because `click-away` is not a native DOM event — it is dispatched as `new CustomEvent('click-away')` by the client's inverted-containment delegation logic. See [Grammar](#grammar-lvt-ontype-scope-event) above for the full dispatch pattern.
+**Note:** `lvt-on:custom:click-away` uses the `custom` type prefix because `click-away` is not a native DOM event — it is dispatched as `new CustomEvent('click-away')` by the client's inverted-containment delegation logic. See [Grammar](#grammar-lvt-ontypescopeevent) above for the full dispatch pattern.
 
 **Note on namespace distinction:** `lvt-*-on:{lifecycle}` (reactive DOM) and `lvt-on:*` (event routing) share a colon separator but are semantically distinct. `lvt-addClass-on:pending` reacts to framework lifecycle states (pending/success/error/done), not DOM events, and does not use the type/scope system.
 
@@ -614,7 +619,7 @@ With the generic router, `lvt-click` is fully superseded:
 | Element-scoped events → `lvt-on:{event}` or `lvt-on:custom:{event}` | 10 (`lvt-click`, `lvt-input`, `lvt-keydown`, `lvt-keyup`, `lvt-focus`, `lvt-blur`, `lvt-mouseenter`, `lvt-mouseleave`, `lvt-mouseover`, `lvt-click-away`) |
 | Window-scoped events → `lvt-on:window:{event}` | 6 (`lvt-window-keydown`, `lvt-window-keyup`, `lvt-window-scroll`, `lvt-window-resize`, `lvt-window-focus`, `lvt-window-blur`) |
 | `lvt-change` deprecated entirely | 1 |
-| **Total** | **17 attribute names removed, replaced by 2 patterns** |
+| **Total** | **17 attribute names removed, replaced by 1 generic pattern (`lvt-on[:{type}][:{scope}]:{event}`)** |
 
 ### Modifiers Unchanged
 
@@ -629,24 +634,22 @@ With the generic router, `lvt-click` is fully superseded:
 
 | Category | Before | After |
 |----------|--------|-------|
-| **Total `lvt-*` attributes** | ~51 | ~18 attribute names + 2 generic patterns |
-| Event bindings (element) | 10 individual names | `lvt-on:{event}` (1 pattern) |
-| Event bindings (window) | 6 individual names | `lvt-on:window:{event}` (1 pattern) |
-| `lvt-change` | 1 | 0 (convention + `lvt-on:input`) |
+| **Total `lvt-*` surface** | ~51 | ~16 named attributes + 1 generic event pattern |
+| Event bindings (element + window) | 16 individual names + 1 (`lvt-change`) | `lvt-on[:{type}][:{scope}]:{event}` (1 pattern, 3 scope variants) |
+| Event bindings (document) | 0 | `lvt-on:document:{event}` (new capability) |
 | Data passing | 2 patterns (`lvt-data-*`, `lvt-value-*`) | 0 (standard HTML) |
 | Modals | 2 | 0 (native `<dialog>`) |
 | Legacy routing | 2 (`lvt-submit`, `lvt-action`) | 0 (standard HTML) |
 | Confirmation | 1 | 0 (standard `onsubmit`/`onclick`) |
-| Scroll directives | 3 | 1 + CSS custom properties |
-| Highlight directives | 3 | 1 + CSS custom properties |
-| Animation directives | 2 | 1 + CSS custom properties |
+| Scroll config | 3 (`lvt-scroll` + 2 config attrs) | 1 (`lvt-scroll`) + CSS custom properties |
+| Highlight config | 3 (`lvt-highlight` + 2 config attrs) | 1 (`lvt-highlight`) + CSS custom properties |
+| Animation config | 2 (`lvt-animate` + 1 config attr) | 1 (`lvt-animate`) + CSS custom properties |
 | Enable/disable sugar | 2 | 0 (use `lvt-toggleAttr-on`) |
 | Upload | 1 | 1 (narrowed: Tier 1 for basic uploads via standard HTML, Tier 2 for drop zones/S3) |
 | Timing modifiers | 2 (`lvt-debounce`, `lvt-throttle`) | 2 (unchanged) |
 | Key filter | 1 (`lvt-key`) | 1 (unchanged) |
-| Reactive DOM | 6 | 6 (unchanged — `addClass-on`, `removeClass-on`, `toggleClass-on`, `setAttr-on`, `toggleAttr-on`, `reset-on`) |
+| Reactive DOM | 6 (`lvt-*-on:{lifecycle}`) | 6 (unchanged) |
 | Form behavior | 3 (`lvt-preserve`, `lvt-disable-with`, `lvt-no-intercept`) | 3 (unchanged) |
-| Directives | 3 (`lvt-scroll`, `lvt-highlight`, `lvt-animate`) | 3 (unchanged) |
 
 ---
 
@@ -685,7 +688,7 @@ document.querySelectorAll('[lvt-on\\:custom\\:click-away]')
 document.querySelectorAll('[lvt-on\\:window\\:keydown="X"]')
 ```
 
-**Required:** Phase 1 Step 3 creates a shared `lvtSelector(attr, value?)` utility in `utils/lvt-selector.ts`. All `querySelectorAll` calls and chromedp selectors using `lvt-on:*` attributes must go through this utility — see implementation in Step 3 above. The Phase 1 audit inventories all query sites (audit item 10).
+**Required:** Phase 1 Step 3 creates a shared `lvtSelector(attr, value?)` utility in `utils/lvt-selector.ts`. All `querySelectorAll` calls and chromedp selectors using `lvt-on:*` attributes must go through this utility — see implementation in Phase 1 Step 3 below. The Phase 1 audit inventories all query sites (audit item 10).
 
 ### Progress Tracker
 
@@ -763,7 +766,7 @@ git worktree add .worktrees/attr-reduction -b attr-reduction
 
 **File:** `dom/event-delegation.ts`
 
-1. **Implement type/scope/event parser.** Add a helper function that extracts `type`, `scope`, and `event` from an `lvt-on:*` attribute name using the reserved keyword algorithm (see [Grammar](#grammar-lvt-ontype-scope-event)):
+1. **Implement type/scope/event parser.** Add a helper function that extracts `type`, `scope`, and `event` from an `lvt-on:*` attribute name using the reserved keyword algorithm (see [Grammar](#grammar-lvt-ontypescopeevent)):
 
    ```ts
    const TYPE_KEYWORDS  = new Set(['custom'])
