@@ -21,15 +21,6 @@ An `lvt-*` attribute is justified **only** when all of the following are true:
 2. No Go template pattern achieves the same behavior
 3. The behavior cannot be expressed by combining existing Tier 1 conventions
 
-## Why Not `onclick` for Server Routing?
-
-The issue asks: "can't we use `onclick` attribute for custom routing?" The answer is **no**:
-
-1. **`onclick` executes JavaScript.** It runs arbitrary JS in the browser. LiveTemplate's action routing sends a message to a server-side Go method. These are fundamentally different semantics.
-2. **Convention-based `onclick`** (e.g., `onclick="lvt('delete')"`) would require exposing a global JS function, mixing declarative templates with imperative JS, and breaking the no-JS fallback model.
-3. **The right Tier 1 alternative is `<button name="action">`.** It's semantic HTML, works across all three transport levels (no-JS POST, fetch, WebSocket), and requires zero JavaScript.
-4. **For non-button elements**, `lvt-click` remains the only option. Standard HTML has no attribute that means "route this click to the server."
-
 ## Category 1: Can Be Eliminated
 
 These attributes have standard HTML or existing convention replacements.
@@ -60,7 +51,7 @@ Or via form name:
 </form>
 ```
 
-**Rationale:** `lvt-submit` is already the lowest-priority routing mechanism (action resolution order: button `name` > form `name` > default `"submit"`). Standard HTML covers all use cases. Keep for backward compatibility during deprecation period.
+**Rationale:** `lvt-submit` is already the lowest-priority routing mechanism (action resolution order: button `name` > form `name` > default `"submit"`). Standard HTML covers all use cases. Eliminate immediately — no deprecation period (see [rationale](#no-deprecation-window-deliberate-decision)).
 
 ### `lvt-action` (hidden input) — Deprecate
 
@@ -256,9 +247,6 @@ func (c *Controller) Submit(state State, ctx *livetemplate.Context) (State, erro
 ```html
 <!-- Custom drop zone (non-input element) — still needs lvt-upload -->
 <div lvt-upload="documents" class="drop-zone">Drop files here</div>
-
-<!-- Direct-to-S3 presigned uploads — still needs lvt-upload -->
-<input type="file" lvt-upload="large-file" data-strategy="presigned">
 ```
 
 ### Summary of Eliminations
@@ -274,7 +262,7 @@ func (c *Controller) Submit(state State, ctx *livetemplate.Context) (State, erro
 | `lvt-value-*` | Eliminate | Hidden `<input>` or button `value` |
 | `lvt-click` | Narrow | Keep only for non-button elements |
 | `lvt-change` | Narrow | Keep only for non-`Change()` routing |
-| `lvt-upload` | Narrow | Keep only for Tier 2 features (custom drop zones, presigned S3) |
+| `lvt-upload` | Narrow | Keep only for Tier 2 features (custom drop zones) |
 
 **Impact: 7 attributes eliminated, 3 narrowed in scope.**
 
@@ -309,7 +297,7 @@ Users override per-element or globally via their own CSS.
 
 **After:**
 ```html
-<div lvt-scroll="bottom-sticky"
+<div lvt-fx:scroll="bottom-sticky"
      style="--lvt-scroll-behavior: smooth; --lvt-scroll-threshold: 100px;">
 ```
 
@@ -326,7 +314,7 @@ The client reads `--lvt-scroll-behavior` and `--lvt-scroll-threshold` from compu
 
 **After:**
 ```html
-<div lvt-highlight="flash"
+<div lvt-fx:highlight="flash"
      style="--lvt-highlight-color: #ffc107; --lvt-highlight-duration: 500ms;">
 ```
 
@@ -339,7 +327,7 @@ The client reads `--lvt-scroll-behavior` and `--lvt-scroll-threshold` from compu
 
 **After:**
 ```html
-<div lvt-animate="fade" style="--lvt-animate-duration: 300ms;">
+<div lvt-fx:animate="fade" style="--lvt-animate-duration: 300ms;">
 ```
 
 ### Disable/Enable: 2 → 0
@@ -362,26 +350,26 @@ No CSS dependency needed — this is pure attribute consolidation.
 
 | Before | After | Reduction |
 |--------|-------|-----------|
-| `lvt-scroll`, `lvt-scroll-behavior`, `lvt-scroll-threshold` | `lvt-scroll` + CSS custom properties | 3 → 1 |
-| `lvt-highlight`, `lvt-highlight-color`, `lvt-highlight-duration` | `lvt-highlight` + CSS custom properties | 3 → 1 |
-| `lvt-animate`, `lvt-animate-duration` | `lvt-animate` + CSS custom properties | 2 → 1 |
+| `lvt-scroll`, `lvt-scroll-behavior`, `lvt-scroll-threshold` | `lvt-fx:scroll` + CSS custom properties | 3 → 1 |
+| `lvt-highlight`, `lvt-highlight-color`, `lvt-highlight-duration` | `lvt-fx:highlight` + CSS custom properties | 3 → 1 |
+| `lvt-animate`, `lvt-animate-duration` | `lvt-fx:animate` + CSS custom properties | 2 → 1 |
 | `lvt-disable-on:{event}`, `lvt-enable-on:{event}` | `lvt-toggleAttr-on:{event}="disabled"` | 2 → 0 |
 
 **Impact: 7 attributes removed via consolidation.**
 
-> **Why not eliminate the main directive attributes too?** The main attributes (`lvt-scroll`, `lvt-highlight`, `lvt-animate`) serve as **discovery markers** — the client finds elements via `querySelectorAll('[lvt-scroll]')`. CSS custom properties cannot be queried this way; there is no selector for "elements with `--lvt-scroll` set." Scanning every DOM element with `getComputedStyle()` would be prohibitively expensive. The current split — HTML attribute for behavior declaration (discoverable), CSS custom properties for configuration (readable via `getComputedStyle`) — is the optimal abstraction boundary.
+> **Why not eliminate the main directive attributes too?** The main attributes (`lvt-fx:scroll`, `lvt-fx:highlight`, `lvt-fx:animate`) serve as **discovery markers** — the client finds elements via `querySelectorAll('[lvt-fx\\:scroll]')`. CSS custom properties cannot be queried this way; there is no selector for "elements with `--lvt-scroll` set." Scanning every DOM element with `getComputedStyle()` would be prohibitively expensive. The current split — HTML attribute for behavior declaration (discoverable), CSS custom properties for configuration (readable via `getComputedStyle`) — is the optimal abstraction boundary.
 
 ## Category 3: Behaviors That Require Tier 2
 
 These behaviors cannot be expressed with standard HTML. They are the **essential `lvt-*` surface**.
 
-> **Note:** This section identifies the *behaviors* that must remain in Tier 2. Category 5 below consolidates many of these individual attribute names into the generic `lvt-on[:{type}][:{scope}]:{event}` pattern — the behaviors remain, but the attribute names change.
+> **Note:** This section identifies the *behaviors* that must remain in Tier 2. Category 5 below consolidates many of these individual attribute names into the generic `lvt-on[:{type}][:{scope}]:{event}` pattern. Category 6 further groups the remaining flat attributes under `lvt-fx:`, `lvt-mod:`, and `lvt-form:` prefixes. The behaviors remain, but the attribute names change.
 
 ### Timing Control
 | Attribute | Why |
 |-----------|-----|
-| `lvt-debounce` | Server-side debounce timing — no HTML equivalent |
-| `lvt-throttle` | Rate limiting — no HTML equivalent |
+| `lvt-debounce` → `lvt-mod:debounce` | Server-side debounce timing — no HTML equivalent |
+| `lvt-throttle` → `lvt-mod:throttle` | Rate limiting — no HTML equivalent |
 
 ### Keyboard Filtering
 | Attribute | Why |
@@ -426,21 +414,21 @@ These behaviors cannot be expressed with standard HTML. They are the **essential
 ### Form Behavior
 | Attribute | Why |
 |-----------|-----|
-| `lvt-preserve` | Prevent form auto-reset — opposite of default framework behavior |
-| `lvt-disable-with` | Button text swap + disable during pending — no HTML pattern |
-| `lvt-no-intercept` | Opt-out of SPA form interception — framework-specific concept |
+| `lvt-preserve` → `lvt-form:preserve` | Prevent form auto-reset — opposite of default framework behavior |
+| `lvt-disable-with` → `lvt-form:disable-with` | Button text swap + disable during pending — no HTML pattern |
+| `lvt-no-intercept` → `lvt-form:no-intercept` | Opt-out of SPA form interception — framework-specific concept |
 
 ### Directives
 | Attribute | Why |
 |-----------|-----|
-| `lvt-scroll` | Scroll position management (bottom, bottom-sticky, preserve) |
-| `lvt-highlight` | Temporary highlight effect on update |
-| `lvt-animate` | Entrance animation on insert |
+| `lvt-scroll` → `lvt-fx:scroll` | Scroll position management (bottom, bottom-sticky, preserve) |
+| `lvt-highlight` → `lvt-fx:highlight` | Temporary highlight effect on update |
+| `lvt-animate` → `lvt-fx:animate` | Entrance animation on insert |
 
 ### Upload
 | Attribute | Why |
 |-----------|-----|
-| `lvt-upload` (narrowed) | Tier 2-only: custom drop zones (`<div>` as drop target) and direct-to-S3 presigned uploads. Basic file uploads moved to Tier 1 via standard `<input type="file" name="...">` in a `<form>`. See [Tier 1 File Uploads Proposal](tier1-file-uploads-proposal.md). |
+| `lvt-upload` (narrowed) | Tier 2-only: custom drop zones (`<div>` as drop target). Basic file uploads moved to Tier 1 via standard `<input type="file" name="...">` in a `<form>`. See [Tier 1 File Uploads Proposal](tier1-file-uploads-proposal.md). |
 
 ## Category 5: Generic Event Router Consolidation
 
@@ -527,7 +515,7 @@ Replaces all individual element-scoped event attributes:
 
 <!-- After: 1 attribute pattern -->
 <div lvt-on:custom:click-away="close">
-  <input lvt-on:input="search" lvt-on:focus="open" lvt-on:blur="close" lvt-debounce="300">
+  <input lvt-on:input="search" lvt-on:focus="open" lvt-on:blur="close" lvt-mod:debounce="300">
   <ul>
     {{range .Results}}
       <li lvt-on:click="select" data-id="{{.ID}}">{{.Name}}</li>
@@ -601,6 +589,8 @@ With the generic router, `lvt-click` is fully superseded:
 - **On buttons:** Use `<button name="action">` (standard HTML, Tier 1)
 - **On non-button elements:** Use `lvt-on:click="action"` (generic router, Tier 2)
 
+> **Why not `onclick` instead?** The `onclick` attribute executes JavaScript in the browser. LiveTemplate's action routing sends a message to a server-side Go method — fundamentally different semantics. Convention-based `onclick` (e.g., `onclick="lvt('delete')"`) would require exposing a global JS function, mixing declarative templates with imperative JS, and breaking the no-JS fallback model. The correct Tier 1 alternative is `<button name="action">` — semantic HTML that works across all three transport levels (no-JS POST, fetch, WebSocket) with zero JavaScript.
+
 ### Impact Summary
 
 | Change | Attributes Removed |
@@ -615,55 +605,181 @@ With the generic router, `lvt-click` is fully superseded:
 `lvt-debounce`, `lvt-throttle`, and `lvt-key` continue to work alongside the generic router:
 
 ```html
-<input lvt-on:input="search" lvt-debounce="300">
+<input lvt-on:input="search" lvt-mod:debounce="300">
 <div lvt-on:window:keydown="shortcut" lvt-key="/">
 ```
 
-## Before and After
+## Category 6: Prefix Consolidation
+
+Categories 1–5 reduced the surface from ~51 to ~16 named attributes + 1 generic event pattern. This section explores whether the remaining 10 flat-named attributes can be further organized under colon-delimited prefixes, following the same pattern as `lvt-on:{event}`.
+
+### Current Flat Attributes (10)
+
+After Categories 1–5, these attributes remain as flat names with no structural prefix:
+
+| Attribute | Semantic role |
+|-----------|--------------|
+| `lvt-debounce` | Timing modifier for event routing |
+| `lvt-throttle` | Timing modifier for event routing |
+| `lvt-key` | Key filter for keyboard events |
+| `lvt-scroll` | Visual effect: scroll position management |
+| `lvt-highlight` | Visual effect: temporary highlight on update |
+| `lvt-animate` | Visual effect: entrance animation on insert |
+| `lvt-preserve` | Form behavior: prevent form auto-reset |
+| `lvt-disable-with` | Form behavior: button text swap + disable during pending |
+| `lvt-no-intercept` | Form behavior: opt-out of SPA form interception |
+| `lvt-upload` | Upload: custom drop zones for non-input elements |
+
+### Candidate Prefixes
+
+Three natural groups emerge, each with a candidate prefix:
+
+**`lvt-fx:` — Visual Effects (3 attributes)**
+
+| Before | After |
+|--------|-------|
+| `lvt-scroll="bottom-sticky"` | `lvt-fx:scroll="bottom-sticky"` |
+| `lvt-highlight="flash"` | `lvt-fx:highlight="flash"` |
+| `lvt-animate="fade"` | `lvt-fx:animate="fade"` |
+
+Rationale: All three apply visual/behavioral effects to DOM elements. The `fx` prefix (short for "effects") signals "this attribute triggers a client-side visual behavior." Future effects (e.g., `lvt-fx:parallax`, `lvt-fx:transition`) would naturally extend this prefix.
+
+**`lvt-mod:` — Event Modifiers (2 attributes)**
+
+| Before | After |
+|--------|-------|
+| `lvt-debounce="300"` | `lvt-mod:debounce="300"` |
+| `lvt-throttle="500"` | `lvt-mod:throttle="500"` |
+
+Rationale: Both modify how `lvt-on:*` events are dispatched — they don't trigger actions themselves but alter the timing of event delivery. The `mod` prefix (short for "modifier") signals "this attribute modifies a sibling event attribute." `lvt-key` is excluded: it filters which key triggers the event rather than modifying event timing, and is already concise.
+
+**`lvt-form:` — Form Behavior (3 attributes)**
+
+| Before | After |
+|--------|-------|
+| `lvt-preserve` | `lvt-form:preserve` |
+| `lvt-disable-with="Saving..."` | `lvt-form:disable-with="Saving..."` |
+| `lvt-no-intercept` | `lvt-form:no-intercept` |
+
+Rationale: All three modify how the framework handles HTML forms — they are form-scoped behavioral overrides. The `form` prefix signals "this attribute affects form processing." Future form behaviors would extend this prefix.
+
+**Not grouped:**
+- `lvt-key` — already concise, semantically distinct from timing modifiers
+- `lvt-upload` — standalone concern (custom drop zones only); doesn't fit cleanly into effects or form groups
+
+### Evaluation Matrix
+
+| Criterion | Without prefixes (status quo) | With prefixes (`lvt-fx:`, `lvt-mod:`, `lvt-form:`) |
+|-----------|------|------|
+| **Things to learn** | 2 patterns + 10 flat names = 12 concepts | 5 prefix groups + 2 flat = 7 concepts |
+| **Discoverability** | Developer must know exact name | Type `lvt-fx:` → IDE autocomplete shows all effects |
+| **Consistency** | `lvt-on:*` uses colons, others don't | All behavioral attributes use colon-delimited prefixes |
+| **CSS selector escaping** | No escaping for flat attrs | `[lvt-fx\:scroll]` needs escaping (mitigated by `lvtSelector()` utility) |
+| **Verbosity** | `lvt-scroll` (10 chars) | `lvt-fx:scroll` (14 chars) — +4 chars |
+| **Future extensibility** | Each new attr needs a globally unique name | New attrs slot into existing prefix families |
+| **Breaking change cost** | None (already decided) | Zero marginal cost — attributes are already being renamed in this proposal |
+| **Framework precedent** | HTMX (`hx-*` flat) | Alpine.js (`x-on:`, `x-bind:`, `x-transition:` — colon-delimited) |
+
+### Comparison with Other Frameworks
+
+- **Alpine.js** uses colon-delimited namespaces extensively: `x-on:click`, `x-bind:class`, `x-transition:enter`. This is the closest precedent for LiveTemplate's approach.
+- **HTMX** uses flat names (`hx-get`, `hx-trigger`, `hx-target`) — simpler but less organized as the attribute count grows.
+- **Stimulus** uses `data-*` with controller namespacing — different pattern but similar goal of grouping.
+
+LiveTemplate already adopted the colon-delimited pattern for `lvt-on:*` and `lvt-*-on:*`. Extending it to effects, modifiers, and form behavior creates a consistent system.
+
+### Recommendation: Adopt Prefixes
+
+**Adopt `lvt-fx:`, `lvt-mod:`, and `lvt-form:` prefixes.** The cognitive load reduction (12 → 7 concepts) and consistency with `lvt-on:*` outweigh the minor verbosity increase. The CSS escaping concern is already addressed by the `lvtSelector()` utility introduced for `lvt-on:*`.
+
+**Updated attribute taxonomy after consolidation:**
+
+| Prefix family | Pattern | Count | Purpose |
+|---------------|---------|-------|---------|
+| `lvt-on:` | `lvt-on[:{type}][:{scope}]:{event}` | 1 generic | Event routing to server actions |
+| `lvt-*-on:` | `lvt-addClass-on:{lifecycle}`, etc. | 6 named | Reactive DOM based on lifecycle states |
+| `lvt-fx:` | `lvt-fx:scroll`, `lvt-fx:highlight`, `lvt-fx:animate` | 3 named | Visual effects and DOM behaviors |
+| `lvt-mod:` | `lvt-mod:debounce`, `lvt-mod:throttle` | 2 named | Event timing modifiers |
+| `lvt-form:` | `lvt-form:preserve`, `lvt-form:disable-with`, `lvt-form:no-intercept` | 3 named | Form behavior overrides |
+| (flat) | `lvt-key` | 1 named | Key filter |
+| (flat) | `lvt-upload` | 1 named | Custom drop zones |
+
+**Total: 5 prefix families + 2 standalone = 7 attribute families (down from 12 concepts)**
+
+### Complete Example After All Consolidations
+
+```html
+<!-- Event routing (lvt-on:) -->
+<input lvt-on:input="search" lvt-mod:debounce="300">
+<div lvt-on:window:keydown="shortcut" lvt-key="/">
+<div lvt-on:custom:click-away="close">
+
+<!-- Visual effects (lvt-fx:) -->
+<div lvt-fx:scroll="bottom-sticky"
+     style="--lvt-scroll-behavior: smooth; --lvt-scroll-threshold: 100px;">
+<div lvt-fx:highlight="flash"
+     style="--lvt-highlight-color: #ffc107; --lvt-highlight-duration: 500ms;">
+<li lvt-fx:animate="fade"
+    style="--lvt-animate-duration: 300ms;">
+
+<!-- Form behavior (lvt-form:) -->
+<form lvt-form:no-intercept>
+<input lvt-form:preserve>
+<button lvt-form:disable-with="Saving...">Save</button>
+
+<!-- Reactive DOM (lvt-*-on:) -->
+<button lvt-toggleAttr-on:pending="disabled"
+        lvt-addClass-on:pending="opacity-50">
+  Save
+</button>
+
+<!-- Upload (standalone) -->
+<div lvt-upload="documents" class="drop-zone">Drop files here</div>
+```
 
 | Category | Before | After |
 |----------|--------|-------|
-| **Total `lvt-*` surface** | ~51 | ~16 named attributes + 1 generic event pattern |
+| **Total `lvt-*` surface** | ~51 | ~16 named attributes across 5 prefix families + 2 standalone + 1 generic event pattern |
 | Event bindings (element + window) | 16 individual names + 1 (`lvt-change`) | `lvt-on[:{type}][:{scope}]:{event}` (1 pattern, 3 scope variants) |
 | Event bindings (document) | 0 | `lvt-on:document:{event}` (new capability) |
 | Data passing | 2 patterns (`lvt-data-*`, `lvt-value-*`) | 0 (standard HTML) |
 | Modals | 2 | 0 (native `<dialog>`) |
 | Legacy routing | 2 (`lvt-submit`, `lvt-action`) | 0 (standard HTML) |
 | Confirmation | 1 | 0 (standard `onsubmit`/`onclick`) |
-| Scroll config | 3 (`lvt-scroll` + 2 config attrs) | 1 (`lvt-scroll`) + CSS custom properties |
-| Highlight config | 3 (`lvt-highlight` + 2 config attrs) | 1 (`lvt-highlight`) + CSS custom properties |
-| Animation config | 2 (`lvt-animate` + 1 config attr) | 1 (`lvt-animate`) + CSS custom properties |
+| Scroll config | 3 (`lvt-scroll` + 2 config attrs) | 1 (`lvt-fx:scroll`) + CSS custom properties |
+| Highlight config | 3 (`lvt-highlight` + 2 config attrs) | 1 (`lvt-fx:highlight`) + CSS custom properties |
+| Animation config | 2 (`lvt-animate` + 1 config attr) | 1 (`lvt-fx:animate`) + CSS custom properties |
 | Enable/disable sugar | 2 | 0 (use `lvt-toggleAttr-on`) |
-| Upload | 1 | 1 (narrowed: Tier 1 for basic uploads via standard HTML, Tier 2 for drop zones/S3) |
-| Timing modifiers | 2 (`lvt-debounce`, `lvt-throttle`) | 2 (unchanged) |
+| Upload | 1 | 1 (`lvt-upload`, narrowed: Tier 1 for basic uploads via standard HTML, Tier 2 for custom drop zones) |
+| Timing modifiers | 2 (`lvt-debounce`, `lvt-throttle`) | 2 (`lvt-mod:debounce`, `lvt-mod:throttle`) |
 | Key filter | 1 (`lvt-key`) | 1 (unchanged) |
 | Reactive DOM | 6 (`lvt-*-on:{lifecycle}`) | 6 (unchanged) |
-| Form behavior | 3 (`lvt-preserve`, `lvt-disable-with`, `lvt-no-intercept`) | 3 (unchanged) |
+| Form behavior | 3 (`lvt-preserve`, `lvt-disable-with`, `lvt-no-intercept`) | 3 (`lvt-form:preserve`, `lvt-form:disable-with`, `lvt-form:no-intercept`) |
 
 ### Final Attribute Surface
 
-After all reductions, the complete `lvt-*` surface is:
+After all reductions (Categories 1–6), the complete `lvt-*` surface is:
 
-**Named attributes (16):**
+**Named attributes (16) in 5 prefix families + 2 standalone:**
 
-| # | Attribute | Category |
-|---|-----------|----------|
-| 1 | `lvt-debounce` | Timing |
-| 2 | `lvt-throttle` | Timing |
-| 3 | `lvt-key` | Key filter |
-| 4 | `lvt-addClass-on:{lifecycle}` | Reactive DOM |
-| 5 | `lvt-removeClass-on:{lifecycle}` | Reactive DOM |
-| 6 | `lvt-toggleClass-on:{lifecycle}` | Reactive DOM |
-| 7 | `lvt-setAttr-on:{lifecycle}` | Reactive DOM |
-| 8 | `lvt-toggleAttr-on:{lifecycle}` | Reactive DOM |
-| 9 | `lvt-reset-on:{lifecycle}` | Reactive DOM |
-| 10 | `lvt-preserve` | Form behavior |
-| 11 | `lvt-disable-with` | Form behavior |
-| 12 | `lvt-no-intercept` | Form behavior |
-| 13 | `lvt-scroll` | Directive |
-| 14 | `lvt-highlight` | Directive |
-| 15 | `lvt-animate` | Directive |
-| 16 | `lvt-upload` | Upload |
+| # | Attribute | Family |
+|---|-----------|--------|
+| 1 | `lvt-mod:debounce` | `lvt-mod:` (event modifier) |
+| 2 | `lvt-mod:throttle` | `lvt-mod:` (event modifier) |
+| 3 | `lvt-key` | standalone (key filter) |
+| 4 | `lvt-addClass-on:{lifecycle}` | `lvt-*-on:` (reactive DOM) |
+| 5 | `lvt-removeClass-on:{lifecycle}` | `lvt-*-on:` (reactive DOM) |
+| 6 | `lvt-toggleClass-on:{lifecycle}` | `lvt-*-on:` (reactive DOM) |
+| 7 | `lvt-setAttr-on:{lifecycle}` | `lvt-*-on:` (reactive DOM) |
+| 8 | `lvt-toggleAttr-on:{lifecycle}` | `lvt-*-on:` (reactive DOM) |
+| 9 | `lvt-reset-on:{lifecycle}` | `lvt-*-on:` (reactive DOM) |
+| 10 | `lvt-form:preserve` | `lvt-form:` (form behavior) |
+| 11 | `lvt-form:disable-with` | `lvt-form:` (form behavior) |
+| 12 | `lvt-form:no-intercept` | `lvt-form:` (form behavior) |
+| 13 | `lvt-fx:scroll` | `lvt-fx:` (visual effect) |
+| 14 | `lvt-fx:highlight` | `lvt-fx:` (visual effect) |
+| 15 | `lvt-fx:animate` | `lvt-fx:` (visual effect) |
+| 16 | `lvt-upload` | standalone (upload) |
 
 **Generic event pattern (1):**
 
@@ -723,8 +839,16 @@ event = segments.join(':')           // remainder is the event name
 | `lvt-window-resize="X"` | `lvt-on:window:resize="X"` |
 | `lvt-window-focus="X"` | `lvt-on:window:focus="X"` |
 | `lvt-window-blur="X"` | `lvt-on:window:blur="X"` |
+| `lvt-scroll="X"` | `lvt-fx:scroll="X"` |
+| `lvt-highlight="X"` | `lvt-fx:highlight="X"` |
+| `lvt-animate="X"` | `lvt-fx:animate="X"` |
+| `lvt-debounce="X"` | `lvt-mod:debounce="X"` |
+| `lvt-throttle="X"` | `lvt-mod:throttle="X"` |
+| `lvt-preserve` | `lvt-form:preserve` |
+| `lvt-disable-with="X"` | `lvt-form:disable-with="X"` |
+| `lvt-no-intercept` | `lvt-form:no-intercept` |
 
-**CSS selector escaping:** Colons in `lvt-on:*` must be escaped in CSS selectors. Use the `lvtSelector(attr, value?)` utility (Phase 1 Step 3) for all `querySelectorAll` calls.
+**CSS selector escaping:** Colons in `lvt-on:*`, `lvt-fx:*`, `lvt-mod:*`, and `lvt-form:*` must be escaped in CSS selectors. Use the `lvtSelector(attr, value?)` utility (Phase 1 Step 3) for all `querySelectorAll` calls.
 
 ### Path Convention
 
@@ -746,20 +870,24 @@ This plan skips the deprecation-warning phase from the original migration path. 
 
 ### CSS Selector Escaping Convention
 
-The `lvt-on:{event}` syntax introduces colons in HTML attribute names. Colons must be escaped in CSS selectors:
+The `lvt-on:{event}`, `lvt-fx:{effect}`, `lvt-mod:{modifier}`, and `lvt-form:{behavior}` syntax introduces colons in HTML attribute names. Colons must be escaped in CSS selectors:
 
 ```ts
 // Wrong — unescaped colons
 document.querySelectorAll('[lvt-on:click="X"]')
 document.querySelectorAll('[lvt-on:custom:click-away]')
+document.querySelectorAll('[lvt-fx:scroll]')
 
 // Correct — escaped colons
 document.querySelectorAll('[lvt-on\\:click="X"]')
 document.querySelectorAll('[lvt-on\\:custom\\:click-away]')
 document.querySelectorAll('[lvt-on\\:window\\:keydown="X"]')
+document.querySelectorAll('[lvt-fx\\:scroll]')
+document.querySelectorAll('[lvt-mod\\:debounce]')
+document.querySelectorAll('[lvt-form\\:preserve]')
 ```
 
-**Required:** Phase 1 Step 3 creates a shared `lvtSelector(attr, value?)` utility in `utils/lvt-selector.ts`. All `querySelectorAll` calls and chromedp selectors using `lvt-on:*` attributes must go through this utility — see implementation in Phase 1 Step 3 below. The Phase 1 audit inventories all query sites (audit item 10).
+**Required:** Phase 1 Step 3 creates a shared `lvtSelector(attr, value?)` utility in `utils/lvt-selector.ts`. All `querySelectorAll` calls and chromedp selectors using colon-delimited `lvt-*` attributes must go through this utility — see implementation in Phase 1 Step 3 below. The Phase 1 audit inventories all query sites (audit item 10).
 
 ### Progress Tracker
 
@@ -908,11 +1036,13 @@ git worktree add .worktrees/attr-reduction -b attr-reduction
 3. **Update `dom/reactive-attributes.ts`.** Remove `"disable"` and `"enable"` from the reactive action types. Users must use `lvt-toggleAttr-on:{event}="disabled"` instead.
 
 4. **Update `dom/directives.ts`.** For each directive (scroll, highlight, animate):
+   - Rename attribute selectors from `lvt-scroll` → `lvt-fx:scroll`, `lvt-highlight` → `lvt-fx:highlight`, `lvt-animate` → `lvt-fx:animate`
    - Remove reads of `lvt-scroll-behavior`, `lvt-scroll-threshold` attributes
    - Remove reads of `lvt-highlight-color`, `lvt-highlight-duration` attributes
    - Remove reads of `lvt-animate-duration` attribute
    - Instead, read from CSS custom properties via `getComputedStyle(element).getPropertyValue('--lvt-*')`
    - Fall back to hardcoded defaults if CSS property is empty
+   - Use `lvtSelector()` for all `querySelectorAll` calls (colons need escaping)
 
 5. **Create `livetemplate.css`.** New file with `:root` defaults for all CSS custom properties:
    ```css
@@ -930,22 +1060,32 @@ git worktree add .worktrees/attr-reduction -b attr-reduction
    ```
    All examples and e2e tests that use scroll, highlight, or animate directives must import this file (or provide equivalent `:root` overrides).
 
+Add a step to rename the prefix-consolidated attributes:
+
+6. **Rename prefix-consolidated attributes.** Throughout the client codebase:
+   - `lvt-debounce` → `lvt-mod:debounce`, `lvt-throttle` → `lvt-mod:throttle` (timing modifiers)
+   - `lvt-preserve` → `lvt-form:preserve`, `lvt-disable-with` → `lvt-form:disable-with`, `lvt-no-intercept` → `lvt-form:no-intercept` (form behavior)
+   - Update all `querySelectorAll` calls, attribute reads, and constants to use the new prefixed names
+   - Use `lvtSelector()` for all CSS selector queries involving colons
+
 #### Step 5: Update Tests
 
-Update all test files to use `lvt-on:{event}` syntax instead of `lvt-click`, `lvt-keydown`, etc.:
+Update all test files to use new attribute syntax:
 
-- `tests/event-delegation.test.ts` — update attribute names in test fixtures
+- `tests/event-delegation.test.ts` — update from `lvt-click`, `lvt-keydown` → `lvt-on:{event}` syntax
 - `tests/modal-manager.test.ts` — delete this file
 - `tests/reactive-attributes.test.ts` — remove `disable`/`enable` test cases
-- `tests/directives.test.ts` — update to test CSS custom property reading, remove attribute-based config tests
+- `tests/directives.test.ts` — update to test `lvt-fx:*` attribute names + CSS custom property reading
 - Remove any test that depends on removed `lvt-submit`, `lvt-data-*`, `lvt-value-*`, `lvt-confirm`, `lvt-modal-*` handling
 
 Add new tests:
 - `lvt-on:click` routes to named action
 - `lvt-on:window:keydown` with `lvt-key` filter works
 - `lvt-on:custom:click-away` works (inverted containment, dispatches `CustomEvent`)
-- CSS custom property `--lvt-scroll-behavior` is read by scroll directive
-- CSS custom property `--lvt-highlight-duration` is read by highlight directive
+- CSS custom property `--lvt-scroll-behavior` is read by `lvt-fx:scroll` directive
+- CSS custom property `--lvt-highlight-duration` is read by `lvt-fx:highlight` directive
+- `lvt-mod:debounce` modifier applies to `lvt-on:*` events
+- `lvt-form:preserve` prevents form auto-reset
 
 ```bash
 cd $REPO_ROOT/client/.worktrees/attr-reduction
@@ -960,7 +1100,9 @@ npm test
 - [ ] Client: `modal-manager.ts` deleted, no `lvt-modal-open/close` handling
 - [ ] Client: No `lvt-data-*`, `lvt-value-*`, `lvt-submit`, `lvt-confirm`, `lvt-change` handling
 - [ ] Client: `lvt-disable-on`/`lvt-enable-on` reactive actions removed
-- [ ] Client: Directives read from CSS custom properties, `livetemplate.css` ships with defaults
+- [ ] Client: Directives use `lvt-fx:*` prefix, read from CSS custom properties, `livetemplate.css` ships with defaults
+- [ ] Client: Timing modifiers use `lvt-mod:*` prefix (`lvt-mod:debounce`, `lvt-mod:throttle`)
+- [ ] Client: Form behavior uses `lvt-form:*` prefix (`lvt-form:preserve`, `lvt-form:disable-with`, `lvt-form:no-intercept`)
 - [ ] Client: All tests pass: `npm test`
 
 #### Step 7: Commit and Create PR
@@ -968,14 +1110,17 @@ npm test
 ```bash
 cd $REPO_ROOT/client/.worktrees/attr-reduction
 git add -u && git add livetemplate.css
-git commit -m "feat!: generic event router (lvt-on:{event}), remove deprecated attributes
+git commit -m "feat!: generic event router + prefix consolidation + remove deprecated attributes
 
 BREAKING CHANGE: Replaces lvt-click, lvt-keydown, etc. with lvt-on:{event}.
+Renames lvt-scroll → lvt-fx:scroll, lvt-highlight → lvt-fx:highlight, lvt-animate → lvt-fx:animate.
+Renames lvt-debounce → lvt-mod:debounce, lvt-throttle → lvt-mod:throttle.
+Renames lvt-preserve → lvt-form:preserve, lvt-disable-with → lvt-form:disable-with, lvt-no-intercept → lvt-form:no-intercept.
 Removes lvt-submit, lvt-confirm, lvt-modal-*, lvt-data-*, lvt-value-*,
 lvt-change, lvt-disable-on, lvt-enable-on, and directive config attributes.
 Adds livetemplate.css with CSS custom property defaults."
 git push origin attr-reduction
-gh pr create --head attr-reduction --title "feat!: generic event router + attribute reduction" \
+gh pr create --head attr-reduction --title "feat!: generic event router + prefix consolidation + attribute reduction" \
   --body "Phase 1A of attribute reduction. See livetemplate/livetemplate docs/proposals/attribute-reduction-proposal.md"
 ```
 
@@ -1073,6 +1218,9 @@ GOWORK=off go test ./... -timeout=300s
 - Remove the Modals section (`lvt-modal-open`, `lvt-modal-close`)
 - Remove `lvt-disable-on` and `lvt-enable-on` from Reactive Attributes
 - Remove `lvt-scroll-behavior`, `lvt-scroll-threshold`, `lvt-highlight-color`, `lvt-highlight-duration`, `lvt-animate-duration` from Directives
+- Rename directive attributes: `lvt-scroll` → `lvt-fx:scroll`, `lvt-highlight` → `lvt-fx:highlight`, `lvt-animate` → `lvt-fx:animate`
+- Rename timing modifiers: `lvt-debounce` → `lvt-mod:debounce`, `lvt-throttle` → `lvt-mod:throttle`
+- Rename form behavior: `lvt-preserve` → `lvt-form:preserve`, `lvt-disable-with` → `lvt-form:disable-with`, `lvt-no-intercept` → `lvt-form:no-intercept`
 - Replace individual event attribute entries with a single `lvt-on:{event}` section
 - Replace individual window event entries with a single `lvt-on:window:{event}` section
 - Remove `lvt-change` entry; add note that `Change()` convention handles this automatically
@@ -1239,7 +1387,7 @@ git worktree add .worktrees/attr-reduction -b attr-reduction
 
 #### Step 3: Update Component Templates
 
-For each component in `components/*/templates/*.tmpl`, apply the **attribute replacement rules** from the [Design Summary](#design-summary-quick-reference-for-implementors) above.
+For each component in `components/*/templates/*.tmpl`, apply the **attribute replacement rules** from the [Design Summary](#design-summary-quick-reference-for-implementors) above. This includes both event router changes (`lvt-click` → `lvt-on:click`) and prefix consolidation (`lvt-debounce` → `lvt-mod:debounce`, `lvt-scroll` → `lvt-fx:scroll`, `lvt-preserve` → `lvt-form:preserve`, etc.).
 
 **High-impact components** (from initial exploration — verify during Phase 2 audit):
 - `components/modal/templates/default.tmpl` — `lvt-modal-close`, `lvt-keydown`
@@ -1302,7 +1450,7 @@ git commit -m "wip: migrate templates and Go code to new attribute syntax"
 > - **Prerequisites:** Phase 2A must be complete (template and Go changes committed to `attr-reduction` branch).
 > - **Starting point:** `cd $REPO_ROOT/lvt/.worktrees/attr-reduction` (worktree already exists from 2A)
 > - **Scope:** Regenerate golden files, update all e2e tests, verify all tests pass, create PR
-> - **Key constraints:** Read the **Audit Findings (Phase 2)** section above for the golden file update command and component map. Chromedp selectors with `lvt-on:*` attributes require **double backslash escaping** in Go strings: `[lvt-on\\:click="X"]`.
+> - **Key constraints:** Read the **Audit Findings (Phase 2)** section above for the golden file update command and component map. Chromedp selectors with colon-delimited attributes (`lvt-on:*`, `lvt-fx:*`, `lvt-mod:*`, `lvt-form:*`) require **double backslash escaping** in Go strings: `[lvt-on\\:click="X"]`.
 > - **Outputs:** All tests passing, PR created on `lvt` repo.
 
 **Goal:** Regenerate golden files, update e2e tests, verify everything passes, and create the PR.
@@ -1686,7 +1834,7 @@ cd $REPO_ROOT/examples
 ```
 
 1. Confirm which `lvt-*` attributes are in actual template files (not just docs):
-   - Expected: `lvt-scroll`, `lvt-upload`, `lvt-preserve`, `lvt-no-intercept` (all Tier 2/unchanged)
+   - Expected: `lvt-fx:scroll`, `lvt-upload`, `lvt-form:preserve`, `lvt-form:no-intercept` (all Tier 2)
    - Verify zero deprecated attributes in templates
 
 2. Check `go.mod` — dependency version
