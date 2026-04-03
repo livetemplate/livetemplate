@@ -517,7 +517,7 @@ Replaces all individual element-scoped event attributes:
 
 **Note:** `lvt-on:click` is only for non-button elements. Buttons use standard HTML `<button name="action">`.
 
-**Note on namespace distinction:** `lvt-el:{method}:on:{trigger}` (reactive DOM) and `lvt-on:{event}` (event routing) both use `on` with colon separators but are semantically distinct. `lvt-el:addClass:on:pending` reacts to framework lifecycle states (pending/success/error/done) or interaction events (click-away) and manipulates the DOM client-side. `lvt-on:click` routes native DOM events to server actions. The `lvt-el:` prefix disambiguates them.
+**Note on namespace distinction:** `lvt-el:{method}:on:[{action}:]{state|interaction}` (reactive DOM) and `lvt-on:{event}` (event routing) both use `on` with colon separators but are semantically distinct. `lvt-el:addClass:on:pending` (or `lvt-el:addClass:on:save:pending`) reacts to the server action request-response lifecycle and manipulates the DOM client-side. `lvt-on:click` routes native DOM events to server actions. The `lvt-el:` prefix disambiguates them.
 
 ### `lvt-on:window:{event}` — Window-Scoped Events (`Window` EventTarget)
 
@@ -687,7 +687,7 @@ LiveTemplate already adopted the colon-delimited pattern for `lvt-on:*` and `lvt
 | Prefix family | Pattern | Count | Purpose |
 |---------------|---------|-------|---------|
 | `lvt-on:` | `lvt-on[:{scope}]:{event}` | 1 generic | Event routing to server actions |
-| `lvt-el:` | `lvt-el:addClass:on:pending`, etc. | 6 named | Reactive DOM based on lifecycle states |
+| `lvt-el:` | `lvt-el:addClass:on:pending`, `lvt-el:addClass:on:save:pending`, etc. | 6 named | Reactive DOM — lifecycle states + interactions |
 | `lvt-fx:` | `lvt-fx:scroll`, `lvt-fx:highlight`, `lvt-fx:animate` | 3 named | Visual effects and DOM behaviors |
 | `lvt-mod:` | `lvt-mod:debounce`, `lvt-mod:throttle` | 2 named | Event timing modifiers |
 | `lvt-form:` | `lvt-form:preserve`, `lvt-form:disable-with`, `lvt-form:no-intercept` | 3 named | Form behavior overrides |
@@ -719,11 +719,26 @@ LiveTemplate already adopted the colon-delimited pattern for `lvt-on:*` and `lvt
 <input lvt-form:preserve>
 <button lvt-form:disable-with="Saving...">Save</button>
 
-<!-- Reactive DOM (lvt-el:) -->
-<button lvt-el:toggleAttr:on:pending="disabled"
+<!-- Reactive DOM (lvt-el:) — unscoped triggers (any action) -->
+<button lvt-on:click="save"
+        lvt-el:toggleAttr:on:pending="disabled"
         lvt-el:addClass:on:pending="opacity-50">
   Save
 </button>
+
+<!-- Reactive DOM (lvt-el:) — action-scoped triggers -->
+<div>
+  <button lvt-on:click="save">Save</button>
+  <button lvt-on:click="delete">Delete</button>
+  <span lvt-el:addClass:on:save:pending="saving">Saving...</span>
+  <span lvt-el:addClass:on:delete:pending="deleting">Deleting...</span>
+</div>
+
+<!-- Reactive DOM (lvt-el:) — multi-action shorthand (server-expanded) -->
+<div lvt-el:addClass:on:[save,delete]:pending="opacity-50">
+  <button lvt-on:click="save">Save</button>
+  <button lvt-on:click="delete">Delete</button>
+</div>
 
 <!-- Upload (standalone) -->
 <div lvt-upload="documents" class="drop-zone">Drop files here</div>
@@ -745,7 +760,7 @@ LiveTemplate already adopted the colon-delimited pattern for `lvt-on:*` and `lvt
 | Upload | 1 | 1 (`lvt-upload`, narrowed: Tier 1 for basic uploads via standard HTML, Tier 2 for custom drop zones) |
 | Timing modifiers | 2 (`lvt-debounce`, `lvt-throttle`) | 2 (`lvt-mod:debounce`, `lvt-mod:throttle`) |
 | Key filter | 1 (`lvt-key`) | 1 (unchanged) |
-| Reactive DOM | 6 (`lvt-*-on:{lifecycle}`) | 6 (`lvt-el:{method}:on:{trigger}`) — triggers include lifecycle (pending/success/error/done) and interaction (click-away) |
+| Reactive DOM | 6 (`lvt-*-on:{lifecycle}`) | 6 methods × triggers (`lvt-el:{method}:on:[{action}:]{state\|interaction}`) — states: pending/success/error/done; interactions: click-away |
 | Form behavior | 3 (`lvt-preserve`, `lvt-disable-with`, `lvt-no-intercept`) | 3 (`lvt-form:preserve`, `lvt-form:disable-with`, `lvt-form:no-intercept`) |
 
 ## Category 7: `lvt-el:` Prefix and Unified Grammar
@@ -774,32 +789,88 @@ Rename all 6 reactive DOM attributes under a new `lvt-el:` family prefix:
 
 **camelCase note:** The method segment uses camelCase (`addClass`, not `add-class`) to match the DOM API naming convention. This is consistent with the existing attribute names — they already use camelCase.
 
-**Trigger events** — two categories:
+**Trigger events** — three categories:
 
-| Category | Triggers | Source |
-|----------|----------|--------|
-| Lifecycle | `pending`, `success`, `error`, `done` | Framework (server action request-response cycle) |
-| Interaction | `click-away` | Client detection logic (not a native DOM event) |
+| Category | Pattern | Example | Scope |
+|----------|---------|---------|-------|
+| Unscoped lifecycle | `:on:{state}` | `lvt-el:addClass:on:pending` | Any `lvt-on:` action on this element |
+| Action-scoped lifecycle | `:on:{action}:{state}` | `lvt-el:addClass:on:save:pending` | Only the named action |
+| Multi-action lifecycle | `:on:[{a},{b}]:{state}` | `lvt-el:addClass:on:[save,delete]:pending` | Multiple named actions (server-expanded) |
+| Interaction | `:on:{interaction}` | `lvt-el:removeClass:on:click-away` | Client-side detection |
 
-Lifecycle events are LiveTemplate framework states. Interaction events are client-side behaviors that have no native DOM event equivalent and require custom detection logic.
+**State keywords** (closed set): `pending`, `success`, `error`, `done`
+**Interaction keywords** (closed set, extensible): `click-away`
+
+### Lifecycle Trigger Binding: What Is "Pending"?
+
+The lifecycle states (`pending`, `success`, `error`, `done`) represent the **server action request-response cycle**. When an `lvt-on:` event fires an action, the request goes through these phases:
+
+```
+User clicks button         →  "pending"   (request in flight)
+Server responds OK         →  "success"   (action completed successfully)
+Server responds with error →  "error"     (action failed)
+After success OR error     →  "done"      (request settled, regardless of outcome)
+```
+
+**Binding rule:** Lifecycle triggers observe the `lvt-on:` action on the **same element** (or the nearest ancestor with an `lvt-on:` action). The binding is implicit — no wiring needed:
+
+```html
+<!-- "pending" fires when the "save" action (from lvt-on:click) is in flight -->
+<button lvt-on:click="save"
+        lvt-el:addClass:on:pending="opacity-50"
+        lvt-el:toggleAttr:on:pending="disabled">
+  Save
+</button>
+```
+
+**Action-scoped triggers** make the binding explicit by naming the action:
+
+```html
+<!-- Only react to the "save" action, not other actions on this element -->
+<button lvt-on:click="save"
+        lvt-el:addClass:on:save:pending="opacity-50">
+
+<!-- Different indicators for different actions -->
+<div>
+  <button lvt-on:click="save">Save</button>
+  <button lvt-on:click="delete">Delete</button>
+  <span lvt-el:addClass:on:save:pending="saving-spinner">Saving...</span>
+  <span lvt-el:addClass:on:delete:pending="deleting-spinner">Deleting...</span>
+</div>
+```
+
+**Multi-action shorthand** — when the same DOM manipulation applies to multiple actions:
+
+```html
+<!-- Shorthand: applies to both save and delete -->
+<div lvt-el:addClass:on:[save,delete]:pending="opacity-50">
+
+<!-- Server expands to individual attributes before sending to browser: -->
+<div lvt-el:addClass:on:save:pending="opacity-50"
+     lvt-el:addClass:on:delete:pending="opacity-50">
+```
+
+The `[action1,action2]` bracket syntax is expanded **server-side** during template rendering. The TypeScript client only sees single-action attributes — no bracket parsing needed on the client. This keeps the wire format clean and the client simple.
+
+**Unscoped = wildcard:** Omitting the action name (`on:pending`) means "match any action on this element." This is the default and most common pattern — explicit action scoping is only needed when multiple actions share an element and need different reactive behavior.
 
 ### Unified Grammar
 
 With `lvt-el:` adopted, every attribute family follows the same structural pattern:
 
 ```
-lvt-{family}:{member}[:on:{trigger}]="value"
+lvt-{family}:{member}[:on:[{action}:]{trigger}]="value"
 ```
 
 | Family | Grammar | `:on:` trigger | Status |
 |--------|---------|---------------|--------|
 | `lvt-on:` | `lvt-on[:{scope}]:{event}="action"` | IS the event (not a suffix) | v1 |
-| `lvt-el:` | `lvt-el:{method}:on:{trigger}="value"` | **Required** — specifies when to manipulate the element | v1 |
+| `lvt-el:` | `lvt-el:{method}:on:[{action}:]{state\|interaction}="value"` | **Required** — specifies when to manipulate the element | v1 |
 | `lvt-fx:` | `lvt-fx:{effect}[="config"]` | Optional (see Future Extension) | v1 (without `:on:`) |
 | `lvt-mod:` | `lvt-mod:{modifier}="value"` | Not applicable — modifies sibling `lvt-on:*` | v1 |
 | `lvt-form:` | `lvt-form:{behavior}[="value"]` | Optional (see Future Extension) | v1 (without `:on:`) |
 
-The `:on:{trigger}` suffix is a universal **trigger mechanism**. It answers the question: "When should this behavior activate?" For `lvt-el:`, the trigger is always explicit and required. For other families, the trigger is currently implicit (effects activate on DOM update, form behaviors on submission).
+The `:on:` suffix is a universal **trigger mechanism**. It answers the question: "When should this behavior activate?" For `lvt-el:`, the trigger is always explicit and required — it can be a lifecycle state (`pending`/`success`/`error`/`done`), optionally scoped to a specific action name, or an interaction event (`click-away`). For other families, the trigger is currently implicit (effects activate on DOM update, form behaviors on submission).
 
 ### Click-Away as `lvt-el:` Trigger
 
@@ -834,20 +905,43 @@ The `:on:{trigger}` suffix is a universal **trigger mechanism**. It answers the 
 
 **If you need server-routed click-away:** Use `lvt-on:document:click` with client-side containment checking in the server action. This is an intentional escape hatch, not the default pattern.
 
-### Parser: `lvt-el:{method}:on:{trigger}`
+### Parser: `lvt-el:{method}:on:[{action}:]{state|interaction}`
 
 ```
-methodKeywords  = { 'addClass', 'removeClass', 'toggleClass', 'setAttr', 'toggleAttr', 'reset' }
-triggerKeywords = { 'pending', 'success', 'error', 'done', 'click-away' }
+methodKeywords      = { 'addClass', 'removeClass', 'toggleClass', 'setAttr', 'toggleAttr', 'reset' }
+stateKeywords       = { 'pending', 'success', 'error', 'done' }
+interactionKeywords = { 'click-away' }
 
 // After matching "lvt-el:" prefix:
-segments = rest.split(':')                          // e.g. "addClass:on:pending" → ["addClass", "on", "pending"]
+segments = rest.split(':')                          // e.g. "addClass:on:save:pending"
 method = segments[0]                                // "addClass"
 assert segments[1] == 'on'                          // literal ":on:" separator
-trigger = segments[2]                               // "pending" or "click-away"
 assert method in methodKeywords
-assert trigger in triggerKeywords
+
+remaining = segments[2:]                            // ["save", "pending"] or ["pending"] or ["click-away"]
+
+if remaining[0] in stateKeywords:
+    // Unscoped lifecycle — matches any action
+    action = '*'
+    state  = remaining[0]                           // "pending"
+elif remaining[0] in interactionKeywords:
+    // Interaction trigger — client-side only
+    interaction = remaining[0]                      // "click-away"
+else:
+    // Action-scoped lifecycle
+    action = remaining[0]                           // "save"
+    state  = remaining[1]                           // "pending"
+    assert state in stateKeywords
 ```
+
+**No ambiguity:** State keywords (`pending`, `success`, `error`, `done`), interaction keywords (`click-away`), and action names are all disjoint sets. Action names are developer-chosen Go method names — they cannot collide with reserved keywords.
+
+**Server-side bracket expansion:** Before the template reaches the client, the Go library expands multi-action attributes:
+```
+lvt-el:addClass:on:[save,delete]:pending="X"
+→ lvt-el:addClass:on:save:pending="X"  +  lvt-el:addClass:on:delete:pending="X"
+```
+This happens during HTML rendering, so the client parser never sees bracket syntax.
 
 ### Future Extension: `:on:` for `lvt-fx:` and `lvt-form:`
 
@@ -891,12 +985,12 @@ After all reductions (Categories 1–7), the complete `lvt-*` surface is:
 | 1 | `lvt-mod:debounce` | `lvt-mod:` (event modifier) |
 | 2 | `lvt-mod:throttle` | `lvt-mod:` (event modifier) |
 | 3 | `lvt-key` | standalone (key filter) |
-| 4 | `lvt-el:addClass:on:{trigger}` | `lvt-el:` (reactive DOM) |
-| 5 | `lvt-el:removeClass:on:{trigger}` | `lvt-el:` (reactive DOM) |
-| 6 | `lvt-el:toggleClass:on:{trigger}` | `lvt-el:` (reactive DOM) |
-| 7 | `lvt-el:setAttr:on:{trigger}` | `lvt-el:` (reactive DOM) |
-| 8 | `lvt-el:toggleAttr:on:{trigger}` | `lvt-el:` (reactive DOM) |
-| 9 | `lvt-el:reset:on:{trigger}` | `lvt-el:` (reactive DOM) |
+| 4 | `lvt-el:addClass:on:[{action}:]{state\|interaction}` | `lvt-el:` (reactive DOM) |
+| 5 | `lvt-el:removeClass:on:[{action}:]{state\|interaction}` | `lvt-el:` (reactive DOM) |
+| 6 | `lvt-el:toggleClass:on:[{action}:]{state\|interaction}` | `lvt-el:` (reactive DOM) |
+| 7 | `lvt-el:setAttr:on:[{action}:]{state\|interaction}` | `lvt-el:` (reactive DOM) |
+| 8 | `lvt-el:toggleAttr:on:[{action}:]{state\|interaction}` | `lvt-el:` (reactive DOM) |
+| 9 | `lvt-el:reset:on:[{action}:]{state\|interaction}` | `lvt-el:` (reactive DOM) |
 | 10 | `lvt-form:preserve` | `lvt-form:` (form behavior) |
 | 11 | `lvt-form:disable-with` | `lvt-form:` (form behavior) |
 | 12 | `lvt-form:no-intercept` | `lvt-form:` (form behavior) |
@@ -917,12 +1011,17 @@ After all reductions (Categories 1–7), the complete `lvt-*` surface is:
 
 This section recaps the key design decisions from Categories 1-7 so each implementation phase is self-contained.
 
-**Grammar:** `lvt-on[:{scope}]:{event}="action"` (event routing) · `lvt-el:{method}:on:{trigger}="value"` (reactive DOM)
+**Grammar:** `lvt-on[:{scope}]:{event}="action"` (event routing) · `lvt-el:{method}:on:[{action}:]{state|interaction}="value"` (reactive DOM)
 
 | Segment | Values | Default |
 |---------|--------|---------|
 | `scope` | (omitted) = element, `window`, `document` | element |
 | `event` | Any native DOM event name | — |
+| `action` | (omitted) = any action, or specific action name | any |
+| `state` | `pending`, `success`, `error`, `done` | — |
+| `interaction` | `click-away` | — |
+
+**`lvt-el:` trigger binding:** Lifecycle states (`pending`/`success`/`error`/`done`) observe the server action request-response cycle of the `lvt-on:` action on the same element (or nearest ancestor). Unscoped (`:on:pending`) matches any action; action-scoped (`:on:save:pending`) matches only the named action. Multi-action shorthand (`:on:[save,delete]:pending`) is expanded server-side to individual attributes.
 
 **Parser algorithm** (ordered greedy consumption):
 ```
@@ -1161,7 +1260,12 @@ git worktree add .worktrees/attr-reduction -b attr-reduction
 
 2. **Update `utils/confirm.ts`.** Remove `checkLvtConfirm()`. If `extractLvtData()` is only used for `lvt-data-*` extraction, remove it too. Check all imports first.
 
-3. **Update `dom/reactive-attributes.ts`.** Remove `"disable"` and `"enable"` from the reactive action types. Rename all reactive attribute patterns from `lvt-{method}-on:{lifecycle}` → `lvt-el:{method}:on:{lifecycle}`. Users must use `lvt-el:toggleAttr:on:{event}="disabled"` instead of disable/enable sugar.
+3. **Update `dom/reactive-attributes.ts`.** Remove `"disable"` and `"enable"` from the reactive action types. Rename all reactive attribute patterns from `lvt-{method}-on:{lifecycle}` → `lvt-el:{method}:on:[{action}:]{state}`. Implement the action-scoped trigger parser:
+   - Parse `:on:pending` as unscoped (any action)
+   - Parse `:on:save:pending` as action-scoped (only "save" action)
+   - State keywords: `pending`, `success`, `error`, `done`
+   - Interaction keywords: `click-away`
+   - Users must use `lvt-el:toggleAttr:on:{event}="disabled"` instead of disable/enable sugar.
 
 4. **Update `dom/directives.ts`.** For each directive (scroll, highlight, animate):
    - Rename attribute selectors from `lvt-scroll` → `lvt-fx:scroll`, `lvt-highlight` → `lvt-fx:highlight`, `lvt-animate` → `lvt-fx:animate`
@@ -1211,6 +1315,8 @@ Add new tests:
 - `lvt-on:click` routes to named action
 - `lvt-on:window:keydown` with `lvt-key` filter works
 - `lvt-el:removeClass:on:click-away` works (inverted containment, client-side class removal)
+- `lvt-el:addClass:on:pending` unscoped trigger fires for any action
+- `lvt-el:addClass:on:save:pending` action-scoped trigger fires only for "save" action
 - CSS custom property `--lvt-scroll-behavior` is read by `lvt-fx:scroll` directive
 - CSS custom property `--lvt-highlight-duration` is read by `lvt-fx:highlight` directive
 - `lvt-mod:debounce` modifier applies to `lvt-on:*` events
@@ -1229,7 +1335,7 @@ npm test
 - [ ] Client: `modal-manager.ts` deleted, no `lvt-modal-open/close` handling
 - [ ] Client: No `lvt-data-*`, `lvt-value-*`, `lvt-submit`, `lvt-confirm`, `lvt-change` handling
 - [ ] Client: `lvt-disable-on`/`lvt-enable-on` reactive actions removed
-- [ ] Client: Reactive DOM uses `lvt-el:*:on:*` prefix (`lvt-el:addClass:on:pending`, `lvt-el:toggleAttr:on:pending`, etc.)
+- [ ] Client: Reactive DOM uses `lvt-el:*:on:*` prefix with unscoped (`lvt-el:addClass:on:pending`) and action-scoped (`lvt-el:addClass:on:save:pending`) triggers
 - [ ] Client: Directives use `lvt-fx:*` prefix, read from CSS custom properties, `livetemplate.css` ships with defaults
 - [ ] Client: Timing modifiers use `lvt-mod:*` prefix (`lvt-mod:debounce`, `lvt-mod:throttle`)
 - [ ] Client: Form behavior uses `lvt-form:*` prefix (`lvt-form:preserve`, `lvt-form:disable-with`, `lvt-form:no-intercept`)
@@ -1339,7 +1445,30 @@ cd $REPO_ROOT/livetemplate/.worktrees/attr-reduction
 GOWORK=off go test ./... -timeout=300s
 ```
 
-#### Step 4: Update Documentation
+#### Step 4: Implement Multi-Action Bracket Expansion (Server-Side)
+
+The Go server library must expand `lvt-el:*:on:[action1,action2]:state` bracket syntax during HTML rendering so the client only sees single-action attributes.
+
+**Where:** In the template rendering pipeline, after HTML is generated but before it's sent to the client. This could be a post-processing step in `template.go` or `internal/render/html.go`.
+
+**Algorithm:**
+```go
+// For each attribute matching lvt-el:*:on:[*]:*
+// 1. Extract the bracket content: "save,delete"
+// 2. Split by comma: ["save", "delete"]
+// 3. For each action, emit a separate attribute:
+//    lvt-el:addClass:on:[save,delete]:pending="opacity-50"
+//    → lvt-el:addClass:on:save:pending="opacity-50"
+//    + lvt-el:addClass:on:delete:pending="opacity-50"
+```
+
+**Tests:**
+- `lvt-el:addClass:on:[save,delete]:pending="X"` expands to two attributes
+- `lvt-el:addClass:on:[a,b,c]:error="X"` expands to three attributes
+- `lvt-el:addClass:on:save:pending="X"` passes through unchanged (no brackets)
+- `lvt-el:addClass:on:pending="X"` passes through unchanged (unscoped)
+
+#### Step 5: Update Documentation
 
 **File:** `docs/references/client-attributes.md`
 
@@ -1371,15 +1500,16 @@ GOWORK=off go test ./... -timeout=300s
 - Remove `lvt-modal-open`/`lvt-modal-close` from Dialog Routing
 - Update event attribute examples to `lvt-on:{event}` syntax
 
-#### Step 5: Acceptance Criteria (Phase 1B)
+#### Step 6: Acceptance Criteria (Phase 1B)
 
 - [ ] Server: `lvt-action` form field no longer parsed
+- [ ] Server: Multi-action bracket expansion works (`lvt-el:*:on:[a,b]:pending` → two attributes)
 - [ ] Server: All tests pass: `GOWORK=off go test ./... -timeout=300s`
 - [ ] Server: `docs/references/client-attributes.md` updated with new syntax, deprecated entries removed
 - [ ] Server: `docs/guides/progressive-complexity.md` uses `lvt-on:{event}` syntax throughout
 - [ ] Server: `docs/references/progressive-complexity-reference.md` updated
 
-#### Step 6: Commit and Create PR
+#### Step 7: Commit and Create PR
 
 ```bash
 cd $REPO_ROOT/livetemplate/.worktrees/attr-reduction
