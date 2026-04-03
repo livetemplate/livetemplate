@@ -2158,6 +2158,7 @@ cd $REPO_ROOT/tinkerdown && git worktree remove .worktrees/attr-reduction
 > - **Starting point:** Create worktree `git worktree add .worktrees/attr-reduction -b attr-reduction` in `$REPO_ROOT/examples`
 > - **Scope:** Bump dependencies, migrate any deprecated attrs, update docs — provides **early migration feedback** before lvt/tinkerdown phases
 > - **Key insight:** The `examples` repo depends only on `livetemplate` (Go library) — NOT on `lvt` or `tinkerdown`. It can be migrated right after Phase 1B, in parallel with Phases 2A/2B and 3A/3B.
+> - **Skip:** Any example that imports `github.com/livetemplate/lvt/components` — that dependency won't be updated until Phase 2B. Migrate it in Phase 4 instead.
 > - **Outputs:** Working examples on new attribute syntax. Manual review by maintainer before proceeding with lvt/tinkerdown.
 
 **Goal:** Migrate the examples repository early to get hands-on feedback on the new attribute syntax before tackling the larger lvt and tinkerdown codebases.
@@ -2176,11 +2177,17 @@ cd $REPO_ROOT/examples
    - Expected: `lvt-fx:scroll`, `lvt-upload`, `lvt-form:preserve`, `lvt-form:no-intercept`, `lvt-el:*:on:*` (all Tier 2)
    - Verify zero deprecated attributes in templates
 
-2. Check `go.mod` — dependency version
+2. **Identify which examples import `lvt/components`:**
+   ```
+   grep -r "livetemplate/lvt/components" --include="*.go" -l
+   ```
+   These examples depend on the `lvt` component library and must be **skipped** in this phase — migrate them in Phase 4 after Phase 2B merges.
 
-3. Check docs/README for references to deprecated attributes
+3. Check `go.mod` — dependency version
 
-4. Run baseline tests:
+4. Check docs/README for references to deprecated attributes
+
+5. Run baseline tests:
    ```
    GOWORK=off go test ./... -timeout=300s
    ```
