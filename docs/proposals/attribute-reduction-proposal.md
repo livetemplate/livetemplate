@@ -452,9 +452,57 @@ These attributes are technically needed but their real-world usage may be rare e
 
 Individual event-binding attributes (`lvt-click`, `lvt-keydown`, `lvt-mouseenter`, etc.) can be replaced by a single generic pattern. The client already uses a parameterized loop internally (`attrName = lvt-${eventType}`) — this change surfaces that generic infrastructure to users.
 
-### `lvt-on:{event}` — Unified Element-Scoped Event Router
+### Grammar: `lvt-on[:{type}][:{scope}]:{event}`
 
-**Pattern:** `lvt-on[:{scope}]:{event}="action"`
+The full attribute syntax is `lvt-on[:{type}][:{scope}]:{event}="action"`. Both `type` and `scope` are optional prefixes; omitting them selects the defaults.
+
+**Scope** — the `EventTarget` to attach the listener to (DOM Living Standard names):
+
+| Scope keyword | `EventTarget` | Use cases |
+|---|---|---|
+| (omitted) | `Element` (default) | click, input, keydown, focus, blur — the common case |
+| `window` | `Window` | resize, scroll, global keyboard shortcuts |
+| `document` | `Document` | visibilitychange, selectionchange, fullscreenchange |
+
+**Type** — how the event is dispatched (DOM Living Standard event interfaces):
+
+| Type keyword | DOM interface | `isTrusted` | Use cases |
+|---|---|---|---|
+| (omitted) | `Event`/`MouseEvent`/`KeyboardEvent` etc. | `true` (browser) | All standard browser-dispatched events |
+| `custom` | `CustomEvent` | `false` (script) | Developer-defined events requiring special client-side delegation logic |
+
+**Why no explicit `native` keyword:** "Native" is not a DOM specification term. Browser-dispatched events are simply "events" in the DOM Living Standard — omitting the type prefix is the web-standard default. Adding a `native` keyword would be a non-standard invention.
+
+**Why `custom` maps to `CustomEvent`:** The DOM Living Standard's `CustomEvent` interface is specifically for developer-defined events. For `lvt-on:custom:click-away`, the client:
+1. Sets up its own detection logic (e.g. a document-level click listener checking `!element.contains(event.target)`)
+2. Fires `element.dispatchEvent(new CustomEvent('click-away'))` when detected
+3. The router's `addEventListener('click-away', handler)` on the element receives it normally
+
+This decouples detection logic from routing logic — cleaner than an embedded `setupClickAwayDelegation()` monolith.
+
+**Reserved keywords:** `custom`, `window`, `document` must not be used as bare event names within the `lvt-on:` namespace.
+
+**Parser algorithm** (ordered greedy consumption):
+
+```
+// Disjoint reserved sets — no ambiguity
+typeKeywords  = { 'custom' }
+scopeKeywords = { 'window', 'document' }
+
+segments = rest.split(':')   // rest = everything after "lvt-on:"
+type  = 'browser'            // default
+scope = 'element'            // default
+
+if segments[0] in typeKeywords:  type  = segments.shift()
+if segments[0] in scopeKeywords: scope = segments.shift()
+event = segments.join(':')       // remaining; join preserves hyphenated names
+```
+
+Examples: `lvt-on:click` → (browser, element, click) · `lvt-on:window:keydown` → (browser, window, keydown) · `lvt-on:custom:click-away` → (CustomEvent, element, click-away) · `lvt-on:document:visibilitychange` → (browser, document, visibilitychange)
+
+---
+
+### `lvt-on:{event}` — Element-Scoped Events
 
 Replaces all individual element-scoped event attributes:
 
@@ -469,7 +517,7 @@ Replaces all individual element-scoped event attributes:
 | `lvt-mouseenter="preview"` | `lvt-on:mouseenter="preview"` |
 | `lvt-mouseleave="unpreview"` | `lvt-on:mouseleave="unpreview"` |
 | `lvt-mouseover="highlight"` | `lvt-on:mouseover="highlight"` |
-| `lvt-click-away="close"` | `lvt-on:click-away="close"` |
+| `lvt-click-away="close"` | `lvt-on:custom:click-away="close"` |
 
 **Example — autocomplete component:**
 ```html
@@ -484,7 +532,7 @@ Replaces all individual element-scoped event attributes:
 </div>
 
 <!-- After: 1 attribute pattern -->
-<div lvt-on:click-away="close">
+<div lvt-on:custom:click-away="close">
   <input lvt-on:input="search" lvt-on:focus="open" lvt-on:blur="close" lvt-debounce="300">
   <ul>
     {{range .Results}}
@@ -496,9 +544,13 @@ Replaces all individual element-scoped event attributes:
 
 **Note:** `lvt-on:click` is only for non-button elements. Buttons use standard HTML `<button name="action">`.
 
-**Note:** `lvt-on:click-away` is a **synthetic event** — there is no native DOM `click-away` event. It requires inverted-containment delegation logic (the element must NOT contain the click target). Implementers cannot simply add `"click-away"` to the standard `eventTypes` array — the separate `setupClickAwayDelegation()` logic in `event-delegation.ts` must be preserved and adapted to the new attribute name.
+**Note:** `lvt-on:custom:click-away` uses the `custom` type prefix because `click-away` is not a native DOM event — it is dispatched as `new CustomEvent('click-away')` by the client's inverted-containment delegation logic. See [Grammar](#grammar-lvt-ontype-scope-event) above for the full dispatch pattern.
 
-### `lvt-on:window:{event}` — Unified Window-Scoped Event Router
+**Note on namespace distinction:** `lvt-*-on:{lifecycle}` (reactive DOM) and `lvt-on:*` (event routing) share a colon separator but are semantically distinct. `lvt-addClass-on:pending` reacts to framework lifecycle states (pending/success/error/done), not DOM events, and does not use the type/scope system.
+
+### `lvt-on:window:{event}` — Window-Scoped Events (`Window` EventTarget)
+
+Routes events on the `Window` object — global events that are not scoped to a specific element:
 
 | Before | After |
 |--------|-------|
@@ -516,7 +568,22 @@ Replaces all individual element-scoped event attributes:
 </div>
 ```
 
-The colon-separated namespace is consistent with the existing reactive attribute pattern (`lvt-addClass-on:pending`).
+### `lvt-on:document:{event}` — Document-Scoped Events (`Document` EventTarget)
+
+Routes events on the `Document` object. This is a new capability enabled by the grammar (no `lvt-window-document-*` equivalents exist today):
+
+| Attribute | Use case |
+|-----------|----------|
+| `lvt-on:document:visibilitychange="pause"` | Pause activity when tab is hidden |
+| `lvt-on:document:fullscreenchange="resize"` | React to fullscreen state changes |
+| `lvt-on:document:selectionchange="annotate"` | React to text selection changes |
+
+**Example — pause on tab hidden:**
+```html
+<div lvt-on:document:visibilitychange="pause">
+  <!-- Routes to Pause() whenever the tab becomes hidden or visible -->
+</div>
+```
 
 ### `lvt-change` — Deprecate Entirely
 
@@ -544,7 +611,7 @@ With the generic router, `lvt-click` is fully superseded:
 
 | Change | Attributes Removed |
 |--------|-------------------|
-| Element-scoped events → `lvt-on:{event}` | 10 (`lvt-click`, `lvt-input`, `lvt-keydown`, `lvt-keyup`, `lvt-focus`, `lvt-blur`, `lvt-mouseenter`, `lvt-mouseleave`, `lvt-mouseover`, `lvt-click-away`) |
+| Element-scoped events → `lvt-on:{event}` or `lvt-on:custom:{event}` | 10 (`lvt-click`, `lvt-input`, `lvt-keydown`, `lvt-keyup`, `lvt-focus`, `lvt-blur`, `lvt-mouseenter`, `lvt-mouseleave`, `lvt-mouseover`, `lvt-click-away`) |
 | Window-scoped events → `lvt-on:window:{event}` | 6 (`lvt-window-keydown`, `lvt-window-keyup`, `lvt-window-scroll`, `lvt-window-resize`, `lvt-window-focus`, `lvt-window-blur`) |
 | `lvt-change` deprecated entirely | 1 |
 | **Total** | **17 attribute names removed, replaced by 2 patterns** |
@@ -601,22 +668,24 @@ export REPO_ROOT=/path/to/livetemplate  # e.g., ~/code/livetemplate
 
 ### No Deprecation Window (Deliberate Decision)
 
-This plan skips the deprecation-warning phase from the original migration path. The library and TypeScript client are consumed only by the `lvt`, `tinkerdown`, and `examples` repositories — all maintained in the same organization. There are no external users to migrate. All consuming repos are updated atomically in Phases 2-4. If this changes (external adoption), reinstate a deprecation phase before the next breaking change.
+This plan skips the deprecation-warning phase from the original migration path. The library and TypeScript client are consumed only by the `lvt`, `tinkerdown`, and `examples` repositories — all maintained in the same organization. All consuming repos are updated atomically in Phases 2-4. This eliminates the runtime warning phase, but does **not** eliminate semver and changelog obligations: the npm package (`@livetemplate/client`) requires a **major version bump** (e.g. `2.0.0`) and a **changelog entry** documenting every removed attribute. External npm dependents can pin to the previous version and migrate at their own pace. If the client gains significant external adoption before this executes, reinstate a deprecation phase before the next breaking change.
 
 ### CSS Selector Escaping Convention
 
 The `lvt-on:{event}` syntax introduces colons in HTML attribute names. Colons must be escaped in CSS selectors:
 
 ```ts
-// Wrong — unescaped colon
+// Wrong — unescaped colons
 document.querySelectorAll('[lvt-on:click="X"]')
+document.querySelectorAll('[lvt-on:custom:click-away]')
 
-// Correct — escaped colon
+// Correct — escaped colons
 document.querySelectorAll('[lvt-on\\:click="X"]')
+document.querySelectorAll('[lvt-on\\:custom\\:click-away]')
 document.querySelectorAll('[lvt-on\\:window\\:keydown="X"]')
 ```
 
-**Recommendation:** Create a shared utility `lvtSelector(attr: string): string` in the client that handles escaping. All `querySelectorAll` and chromedp selector usage should go through this utility. The Phase 1 audit should inventory all query sites.
+**Required:** Phase 1 Step 3 creates a shared `lvtSelector(attr, value?)` utility in `utils/lvt-selector.ts`. All `querySelectorAll` calls and chromedp selectors using `lvt-on:*` attributes must go through this utility — see implementation in Step 3 above. The Phase 1 audit inventories all query sites (audit item 10).
 
 ### Progress Tracker
 
@@ -663,9 +732,9 @@ cd $REPO_ROOT/client
 6. Read `livetemplate-client.ts` — find all imports of modules being modified/removed
 7. Run `npm test` to get baseline test count and ensure all pass
 8. Search for ALL imports of `modal-manager`, `confirm`, `extractLvtData` across the codebase
-9. **Critical:** Map the `setupClickAwayDelegation()` logic — `click-away` is a synthetic event with inverted-containment delegation, NOT a native DOM event. It needs separate handling from the `eventTypes` array.
+9. **Critical:** Map the `setupClickAwayDelegation()` logic — `click-away` is a `CustomEvent` (not a native DOM event). The delegation detects outside-clicks and fires `element.dispatchEvent(new CustomEvent('click-away'))`. This logic must be preserved and adapted; the new attribute is `lvt-on:custom:click-away`.
 10. Inventory ALL `querySelectorAll` calls that use `lvt-*` attribute selectors — every one needs colon escaping for the new `lvt-on:` syntax
-9. List ALL test files and what they cover
+11. List ALL test files and what they cover
 
 **Server audit:**
 ```
@@ -694,17 +763,48 @@ git worktree add .worktrees/attr-reduction -b attr-reduction
 
 **File:** `dom/event-delegation.ts`
 
-1. **Change attribute lookup.** In the event loop where `attrName = lvt-${eventType}` is constructed, change to look for `lvt-on:${eventType}` instead. The attribute detection walks up the DOM tree from the event target — update the `element.getAttribute()` call.
+1. **Implement type/scope/event parser.** Add a helper function that extracts `type`, `scope`, and `event` from an `lvt-on:*` attribute name using the reserved keyword algorithm (see [Grammar](#grammar-lvt-ontype-scope-event)):
 
-2. **Window events.** In `setupWindowEventDelegation()`, change `attrName = lvt-window-${eventType}` to `attrName = lvt-on:window:${eventType}`.
+   ```ts
+   const TYPE_KEYWORDS  = new Set(['custom'])
+   const SCOPE_KEYWORDS = new Set(['window', 'document'])
 
-3. **Click-away.** In `setupClickAwayDelegation()`, change `[lvt-click-away]` selector to `[lvt-on\\:click-away]`. Note: colon in CSS selectors needs escaping with backslash.
+   function parseLvtOn(attr: string): { type: string; scope: string; event: string } {
+     const segs = attr.replace('lvt-on:', '').split(':')
+     let type  = 'browser', scope = 'element'
+     if (TYPE_KEYWORDS.has(segs[0]))  type  = segs.shift()!
+     if (SCOPE_KEYWORDS.has(segs[0])) scope = segs.shift()!
+     return { type, scope, event: segs.join(':') }
+   }
+   ```
 
-4. **Remove `lvt-submit` handling.** Remove the code that checks for `lvt-submit` on forms. Forms route via button `name`, form `name`, or default `"submit"`.
+2. **Create shared `lvtSelector` utility.** Add `utils/lvt-selector.ts`:
 
-5. **Remove `lvt-data-*` and `lvt-value-*` extraction.** Remove the loops that scan for `lvt-data-*` and `lvt-value-*` attributes on action elements. Data should come from `data-*` attributes or hidden inputs.
+   ```ts
+   /** Escapes colons in attribute names for use in CSS attribute selectors. */
+   export function lvtSelector(attr: string, value?: string): string {
+     const escaped = attr.replace(/:/g, '\\:')
+     return value !== undefined ? `[${escaped}="${value}"]` : `[${escaped}]`
+   }
+   ```
 
-6. **Remove `lvt-change` handling.** Remove the special case for `lvt-change` on forms and inputs. The `Change()` auto-wiring (in `state/change-auto-wirer.ts`) is orthogonal and untouched.
+   All `querySelectorAll` calls and chromedp selectors using `lvt-on:*` attributes must go through this utility. The Phase 1 audit inventories all query sites (audit item 10).
+
+3. **Route by scope.** In the event loop, after parsing the attribute, determine the `EventTarget`:
+   - `scope === 'window'` → `window.addEventListener(event, handler)`
+   - `scope === 'document'` → `document.addEventListener(event, handler)`
+   - `scope === 'element'` (default) → `element.addEventListener(event, handler)`
+
+4. **Route by type.** For `type === 'custom'`, the client dispatches a `CustomEvent` on the element after running its detection logic. For `click-away`:
+   - In `setupClickAwayDelegation()`, change `[lvt-click-away]` selector to `lvtSelector('lvt-on:custom:click-away')` (yields `[lvt-on\\:custom\\:click-away]`)
+   - The delegation callback fires `element.dispatchEvent(new CustomEvent('click-away'))`
+   - The router then listens via `element.addEventListener('click-away', handler)` normally
+
+5. **Remove `lvt-submit` handling.** Remove the code that checks for `lvt-submit` on forms. Forms route via button `name`, form `name`, or default `"submit"`.
+
+6. **Remove `lvt-data-*` and `lvt-value-*` extraction.** Remove the loops that scan for `lvt-data-*` and `lvt-value-*` attributes on action elements. Data should come from `data-*` attributes or hidden inputs.
+
+7. **Remove `lvt-change` handling.** Remove the special case for `lvt-change` on forms and inputs. The `Change()` auto-wiring (in `state/change-auto-wirer.ts`) is orthogonal and untouched.
 
 #### Step 4: Client — Remove Deprecated Modules
 
@@ -746,7 +846,7 @@ Update all test files to use `lvt-on:{event}` syntax instead of `lvt-click`, `lv
 Add new tests:
 - `lvt-on:click` routes to named action
 - `lvt-on:window:keydown` with `lvt-key` filter works
-- `lvt-on:click-away` works (inverted containment)
+- `lvt-on:custom:click-away` works (inverted containment, dispatches `CustomEvent`)
 - CSS custom property `--lvt-scroll-behavior` is read by scroll directive
 - CSS custom property `--lvt-highlight-duration` is read by highlight directive
 
@@ -815,7 +915,7 @@ GOWORK=off go test ./... -timeout=300s
 
 - [ ] Client: `lvt-on:click`, `lvt-on:input`, `lvt-on:keydown`, etc. all route to server actions correctly
 - [ ] Client: `lvt-on:window:keydown` with `lvt-key` filter works
-- [ ] Client: `lvt-on:click-away` inverted containment works
+- [ ] Client: `lvt-on:custom:click-away` inverted containment works (dispatches `CustomEvent`)
 - [ ] Client: `modal-manager.ts` deleted, no `lvt-modal-open/close` handling
 - [ ] Client: No `lvt-data-*`, `lvt-value-*`, `lvt-submit`, `lvt-confirm`, `lvt-change` handling
 - [ ] Client: `lvt-disable-on`/`lvt-enable-on` reactive actions removed
@@ -961,7 +1061,7 @@ For each component in `components/*/templates/*.tmpl`:
 | `lvt-mouseenter="X"` | `lvt-on:mouseenter="X"` |
 | `lvt-mouseleave="X"` | `lvt-on:mouseleave="X"` |
 | `lvt-mouseover="X"` | `lvt-on:mouseover="X"` |
-| `lvt-click-away="X"` | `lvt-on:click-away="X"` |
+| `lvt-click-away="X"` | `lvt-on:custom:click-away="X"` |
 
 **High-impact components** (from initial exploration — verify during Phase 2 audit):
 - `components/modal/templates/default.tmpl` — `lvt-modal-close`, `lvt-keydown`
@@ -1056,7 +1156,7 @@ GOWORK=off go test ./e2e/... -timeout=600s
 - [ ] Zero occurrences of `lvt-confirm` in any `.tmpl` file
 - [ ] Zero occurrences of `lvt-modal-open` or `lvt-modal-close` in any `.tmpl` file
 - [ ] Zero occurrences of `lvt-change` in any `.tmpl` file (replaced by `lvt-on:change` or `lvt-on:input`)
-- [ ] All `lvt-input`, `lvt-keydown`, `lvt-focus`, `lvt-blur`, `lvt-mouseenter`, `lvt-mouseleave`, `lvt-click-away` replaced by `lvt-on:{event}` equivalents
+- [ ] All `lvt-input`, `lvt-keydown`, `lvt-focus`, `lvt-blur`, `lvt-mouseenter`, `lvt-mouseleave` replaced by `lvt-on:{event}` equivalents; `lvt-click-away` replaced by `lvt-on:custom:click-away`
 - [ ] Golden files regenerated and matching
 - [ ] All Go tests pass: `GOWORK=off go test ./... -timeout=300s`
 - [ ] E2E tests pass: `GOWORK=off go test ./e2e/... -timeout=600s`
