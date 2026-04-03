@@ -496,6 +496,8 @@ Replaces all individual element-scoped event attributes:
 
 **Note:** `lvt-on:click` is only for non-button elements. Buttons use standard HTML `<button name="action">`.
 
+**Note:** `lvt-on:click-away` is a **synthetic event** — there is no native DOM `click-away` event. It requires inverted-containment delegation logic (the element must NOT contain the click target). Implementers cannot simply add `"click-away"` to the standard `eventTypes` array — the separate `setupClickAwayDelegation()` logic in `event-delegation.ts` must be preserved and adapted to the new attribute name.
+
 ### `lvt-on:window:{event}` — Unified Window-Scoped Event Router
 
 | Before | After |
@@ -521,7 +523,7 @@ The colon-separated namespace is consistent with the existing reactive attribute
 `lvt-change` is removed with no direct replacement:
 
 - **Default case (route to `Change()`):** Already handled by the `Change()` auto-wiring convention — no attribute needed. If a controller has a `Change()` method, inputs auto-wire to it.
-- **Named action case (route to a specific method):** Use `lvt-on:input="validateEmail"` instead of `lvt-change="validateEmail"`. The `input` event fires on every keystroke (more responsive); `change` only fires on blur.
+- **Named action case (route to a specific method):** Use the appropriate DOM event via the generic router. For text inputs, prefer `lvt-on:input="validateEmail"` (fires on every keystroke, more responsive). For select elements, checkboxes, and file inputs, use `lvt-on:change="sort"` (the `change` event is the correct semantic for these element types).
 
 | Before | After |
 |--------|-------|
@@ -597,6 +599,25 @@ export REPO_ROOT=/path/to/livetemplate  # e.g., ~/code/livetemplate
 # $REPO_ROOT/examples/      — Example applications
 ```
 
+### No Deprecation Window (Deliberate Decision)
+
+This plan skips the deprecation-warning phase from the original migration path. The library and TypeScript client are consumed only by the `lvt`, `tinkerdown`, and `examples` repositories — all maintained in the same organization. There are no external users to migrate. All consuming repos are updated atomically in Phases 2-4. If this changes (external adoption), reinstate a deprecation phase before the next breaking change.
+
+### CSS Selector Escaping Convention
+
+The `lvt-on:{event}` syntax introduces colons in HTML attribute names. Colons must be escaped in CSS selectors:
+
+```ts
+// Wrong — unescaped colon
+document.querySelectorAll('[lvt-on:click="X"]')
+
+// Correct — escaped colon
+document.querySelectorAll('[lvt-on\\:click="X"]')
+document.querySelectorAll('[lvt-on\\:window\\:keydown="X"]')
+```
+
+**Recommendation:** Create a shared utility `lvtSelector(attr: string): string` in the client that handles escaping. All `querySelectorAll` and chromedp selector usage should go through this utility. The Phase 1 audit should inventory all query sites.
+
 ### Progress Tracker
 
 | Phase | Description | Repos | Status | PR(s) |
@@ -642,6 +663,8 @@ cd $REPO_ROOT/client
 6. Read `livetemplate-client.ts` — find all imports of modules being modified/removed
 7. Run `npm test` to get baseline test count and ensure all pass
 8. Search for ALL imports of `modal-manager`, `confirm`, `extractLvtData` across the codebase
+9. **Critical:** Map the `setupClickAwayDelegation()` logic — `click-away` is a synthetic event with inverted-containment delegation, NOT a native DOM event. It needs separate handling from the `eventTypes` array.
+10. Inventory ALL `querySelectorAll` calls that use `lvt-*` attribute selectors — every one needs colon escaping for the new `lvt-on:` syntax
 9. List ALL test files and what they cover
 
 **Server audit:**
@@ -808,7 +831,7 @@ GOWORK=off go test ./... -timeout=300s
 Client first:
 ```bash
 cd $REPO_ROOT/client/.worktrees/attr-reduction
-git add -A
+git add -u && git add livetemplate.css
 git commit -m "feat!: generic event router (lvt-on:{event}), remove deprecated attributes
 
 BREAKING CHANGE: Replaces lvt-click, lvt-keydown, etc. with lvt-on:{event}.
@@ -823,7 +846,7 @@ gh pr create --head attr-reduction --title "feat!: generic event router + attrib
 Then server:
 ```bash
 cd $REPO_ROOT/livetemplate/.worktrees/attr-reduction
-git add -A
+git add -u
 git commit -m "feat!: remove lvt-action parsing, update docs for attribute reduction (#288)
 
 BREAKING CHANGE: lvt-action form field no longer parsed. Use button name or action field."
@@ -940,7 +963,7 @@ For each component in `components/*/templates/*.tmpl`:
 | `lvt-mouseover="X"` | `lvt-on:mouseover="X"` |
 | `lvt-click-away="X"` | `lvt-on:click-away="X"` |
 
-**High-impact components** (from audit):
+**High-impact components** (from initial exploration — verify during Phase 2 audit):
 - `components/modal/templates/default.tmpl` — `lvt-modal-close`, `lvt-keydown`
 - `components/dropdown/templates/*.tmpl` — `lvt-click-away`, `lvt-focus`, `lvt-change`
 - `components/autocomplete/templates/*.tmpl` — `lvt-input`, `lvt-focus`, `lvt-blur`, `lvt-click-away`
@@ -1043,7 +1066,7 @@ GOWORK=off go test ./e2e/... -timeout=600s
 
 ```bash
 cd $REPO_ROOT/lvt/.worktrees/attr-reduction
-git add -A
+git add -u
 git commit -m "feat!: migrate to generic event router (lvt-on:{event}), remove deprecated attributes
 
 BREAKING CHANGE: All component templates updated to use lvt-on:{event} syntax.
@@ -1249,7 +1272,7 @@ GOWORK=off go test ./... -timeout=300s
 
 ```bash
 cd $REPO_ROOT/tinkerdown/.worktrees/attr-reduction
-git add -A
+git add -u
 git commit -m "feat!: migrate to generic event router, remove deprecated lvt-* attributes
 
 BREAKING CHANGE: Auto-generated HTML uses standard button name routing and
@@ -1360,7 +1383,7 @@ All 5 repos must have passing tests.
 
 ```bash
 cd $REPO_ROOT/examples/.worktrees/attr-reduction
-git add -A
+git add -u
 git commit -m "chore: bump dependencies for attribute reduction"
 git push origin attr-reduction
 gh pr create --head attr-reduction --title "chore: bump deps for attribute reduction" \
