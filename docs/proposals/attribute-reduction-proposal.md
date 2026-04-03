@@ -332,7 +332,7 @@ The client reads `--lvt-scroll-behavior` and `--lvt-scroll-threshold` from compu
 
 ### Disable/Enable: 2 → 0
 
-`lvt-disable-on:{event}` and `lvt-enable-on:{event}` are syntactic sugar for `lvt-el:toggleAttr:on:{event}="disabled"`, which already exists:
+`lvt-disable-on:{lifecycle}` and `lvt-enable-on:{lifecycle}` are syntactic sugar for `lvt-el:toggleAttr:on:[{action}:]{state}="disabled"`, which already exists:
 
 **Before:**
 ```html
@@ -353,7 +353,7 @@ No CSS dependency needed — this is pure attribute consolidation.
 | `lvt-scroll`, `lvt-scroll-behavior`, `lvt-scroll-threshold` | `lvt-fx:scroll` + CSS custom properties | 3 → 1 |
 | `lvt-highlight`, `lvt-highlight-color`, `lvt-highlight-duration` | `lvt-fx:highlight` + CSS custom properties | 3 → 1 |
 | `lvt-animate`, `lvt-animate-duration` | `lvt-fx:animate` + CSS custom properties | 2 → 1 |
-| `lvt-disable-on:{event}`, `lvt-enable-on:{event}` | `lvt-el:toggleAttr:on:{event}="disabled"` | 2 → 0 |
+| `lvt-disable-on:{lifecycle}`, `lvt-enable-on:{lifecycle}` | `lvt-el:toggleAttr:on:[{action}:]{state}="disabled"` | 2 → 0 |
 
 **Impact: 7 attributes removed via consolidation.**
 
@@ -404,12 +404,12 @@ These behaviors cannot be expressed with standard HTML. They are the **essential
 ### Reactive DOM (lifecycle-driven, not DOM events)
 | Attribute | Why |
 |-----------|-----|
-| `lvt-addClass-on:{lifecycle}` → `lvt-el:addClass:on:[{action}:]{state}` | Add CSS class on pending/success/error/done — optionally scoped to a specific action |
-| `lvt-removeClass-on:{lifecycle}` → `lvt-el:removeClass:on:[{action}:]{state}` | Remove CSS class on action lifecycle state |
-| `lvt-toggleClass-on:{lifecycle}` → `lvt-el:toggleClass:on:[{action}:]{state}` | Toggle CSS class on action lifecycle state |
-| `lvt-setAttr-on:{lifecycle}` → `lvt-el:setAttr:on:[{action}:]{state}` | Set attribute on action lifecycle state |
-| `lvt-toggleAttr-on:{lifecycle}` → `lvt-el:toggleAttr:on:[{action}:]{state}` | Toggle boolean attribute (subsumes `disable-on`/`enable-on`) |
-| `lvt-reset-on:{lifecycle}` → `lvt-el:reset:on:[{action}:]{state}` | Reset form on action lifecycle state |
+| `lvt-addClass-on:{lifecycle}` → `lvt-el:addClass:on:[{action}:]{state\|interaction}` | Add CSS class on pending/success/error/done — optionally scoped to a specific action |
+| `lvt-removeClass-on:{lifecycle}` → `lvt-el:removeClass:on:[{action}:]{state\|interaction}` | Remove CSS class on action lifecycle state |
+| `lvt-toggleClass-on:{lifecycle}` → `lvt-el:toggleClass:on:[{action}:]{state\|interaction}` | Toggle CSS class on action lifecycle state |
+| `lvt-setAttr-on:{lifecycle}` → `lvt-el:setAttr:on:[{action}:]{state\|interaction}` | Set attribute on action lifecycle state |
+| `lvt-toggleAttr-on:{lifecycle}` → `lvt-el:toggleAttr:on:[{action}:]{state\|interaction}` | Toggle boolean attribute (subsumes `disable-on`/`enable-on`) |
+| `lvt-reset-on:{lifecycle}` → `lvt-el:reset:on:[{action}:]{state\|interaction}` | Reset form on action lifecycle state |
 
 ### Form Behavior
 | Attribute | Why |
@@ -592,7 +592,7 @@ With the generic router, `lvt-click` is fully superseded:
 
 ### Modifiers Unchanged
 
-`lvt-debounce`, `lvt-throttle`, and `lvt-key` continue to work alongside the generic router:
+`lvt-mod:debounce`, `lvt-mod:throttle`, and `lvt-key` continue to work alongside the generic router:
 
 ```html
 <input lvt-on:input="search" lvt-mod:debounce="300">
@@ -1086,8 +1086,8 @@ event = segments.join(':')           // remainder is the event name
 | `lvt-setAttr-on:{lifecycle}` | `lvt-el:setAttr:on:[{action}:]{state}` |
 | `lvt-toggleAttr-on:{lifecycle}` | `lvt-el:toggleAttr:on:[{action}:]{state}` |
 | `lvt-reset-on:{lifecycle}` | `lvt-el:reset:on:[{action}:]{state}` |
-| `lvt-disable-on:{event}` | Removed — use `lvt-el:toggleAttr:on:[{action}:]{state}="disabled"` |
-| `lvt-enable-on:{event}` | Removed — use `lvt-el:toggleAttr:on:[{action}:]{state}="disabled"` (inverse lifecycle state) |
+| `lvt-disable-on:{lifecycle}` | Removed — use `lvt-el:toggleAttr:on:[{action}:]{state}="disabled"` |
+| `lvt-enable-on:{lifecycle}` | Removed — use `lvt-el:toggleAttr:on:[{action}:]{state}="disabled"` (inverse lifecycle state) |
 | `lvt-scroll-behavior` | Removed — use CSS custom property `--lvt-scroll-behavior` |
 | `lvt-scroll-threshold` | Removed — use CSS custom property `--lvt-scroll-threshold` |
 | `lvt-highlight-color` | Removed — use CSS custom property `--lvt-highlight-color` |
@@ -1156,7 +1156,7 @@ document.querySelectorAll('[lvt-form\\:preserve]')
 
 **After completing each sub-phase:** Update Status to COMPLETE, fill in PR numbers, and commit this file.
 
-**PR merge order:** `client` → `livetemplate` → `lvt` → `tinkerdown` → `examples`. The client must be published first because `lvt` and `tinkerdown` e2e tests load the client library.
+**PR merge order:** `client` → `livetemplate` → `examples (2E)` → `lvt` → `tinkerdown` → `examples (4)`. See [PR Merge Order](#pr-merge-order) for details. The client must be published first because `lvt` and `tinkerdown` e2e tests load the client library.
 
 ---
 
@@ -1289,7 +1289,7 @@ git worktree add .worktrees/attr-reduction -b attr-reduction
    - Parse `:on:save:pending` as action-scoped (only "save" action)
    - State keywords: `pending`, `success`, `error`, `done`
    - Interaction keywords: `click-away`
-   - Users must use `lvt-el:toggleAttr:on:{event}="disabled"` instead of disable/enable sugar.
+   - Users must use `lvt-el:toggleAttr:on:[{action}:]{state}="disabled"` instead of disable/enable sugar.
 
 4. **Update `dom/directives.ts`.** For each directive (scroll, highlight, animate):
    - Rename attribute selectors from `lvt-scroll` → `lvt-fx:scroll`, `lvt-highlight` → `lvt-fx:highlight`, `lvt-animate` → `lvt-fx:animate`
@@ -1619,8 +1619,11 @@ cd $REPO_ROOT/lvt
    grep -r "lvt-focus" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
    grep -r "lvt-blur" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
    grep -r "lvt-keydown" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
+   grep -r "lvt-keyup" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
    grep -r "lvt-mouseenter\|lvt-mouseleave\|lvt-mouseover" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
    grep -r "lvt-click-away" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
+   # Window events (most caught by element-scoped greps above; lvt-window-resize has no element counterpart)
+   grep -r "lvt-window-resize" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
    # Category 2 consolidations
    grep -r "lvt-scroll-behavior\|lvt-scroll-threshold" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
    grep -r "lvt-highlight-color\|lvt-highlight-duration" --include="*.tmpl" --include="*.go" --include="*.golden" -l | wc -l
@@ -1846,7 +1849,8 @@ GOWORK=off go test ./e2e/... -timeout=600s
 - [ ] Zero occurrences of `lvt-disable-on:*`, `lvt-enable-on:*` (replaced by `lvt-el:toggleAttr:on:*`)
 
 **Category 5 event router:**
-- [ ] All `lvt-input`, `lvt-keydown`, `lvt-focus`, `lvt-blur`, `lvt-mouseenter`, `lvt-mouseleave`, `lvt-mouseover` replaced by `lvt-on:{event}` equivalents; `lvt-click-away` replaced by `lvt-el:*:on:click-away`
+- [ ] All `lvt-input`, `lvt-keydown`, `lvt-keyup`, `lvt-focus`, `lvt-blur`, `lvt-mouseenter`, `lvt-mouseleave`, `lvt-mouseover` replaced by `lvt-on:{event}` equivalents; `lvt-click-away` replaced by `lvt-el:*:on:click-away`
+- [ ] All `lvt-window-keydown`, `lvt-window-keyup`, `lvt-window-scroll`, `lvt-window-resize`, `lvt-window-focus`, `lvt-window-blur` replaced by `lvt-on:window:{event}` equivalents
 
 **Category 6 prefix consolidation:**
 - [ ] Zero occurrences of flat `lvt-scroll`, `lvt-highlight`, `lvt-animate` (replaced by `lvt-fx:*`)
@@ -2132,7 +2136,8 @@ GOWORK=off go test ./... -timeout=300s
 - [ ] Zero `lvt-disable-on:*`, `lvt-enable-on:*` (replaced by `lvt-el:toggleAttr:on:*`)
 
 **Category 5 event router:**
-- [ ] All `lvt-input`, `lvt-keydown`, `lvt-focus`, `lvt-blur`, `lvt-mouseenter`, `lvt-mouseleave`, `lvt-mouseover` replaced by `lvt-on:{event}` equivalents
+- [ ] All `lvt-input`, `lvt-keydown`, `lvt-keyup`, `lvt-focus`, `lvt-blur`, `lvt-mouseenter`, `lvt-mouseleave`, `lvt-mouseover` replaced by `lvt-on:{event}` equivalents
+- [ ] All `lvt-window-keydown`, `lvt-window-keyup`, `lvt-window-scroll`, `lvt-window-resize`, `lvt-window-focus`, `lvt-window-blur` replaced by `lvt-on:window:{event}` equivalents
 
 **Category 6 prefix consolidation:**
 - [ ] Zero flat `lvt-scroll`, `lvt-highlight`, `lvt-animate` (replaced by `lvt-fx:*`)
