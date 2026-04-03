@@ -866,11 +866,11 @@ lvt-{family}:{member}[:on:[{action}:]{trigger}]="value"
 |--------|---------|---------------|--------|
 | `lvt-on:` | `lvt-on[:{scope}]:{event}="action"` | IS the event (not a suffix) | v1 |
 | `lvt-el:` | `lvt-el:{method}:on:[{action}:]{state\|interaction}="value"` | **Required** — specifies when to manipulate the element | v1 |
-| `lvt-fx:` | `lvt-fx:{effect}[="config"]` | Optional (see Future Extension) | v1 (without `:on:`) |
+| `lvt-fx:` | `lvt-fx:{effect}[:on:[{action}:]{state}][="config"]` | **Optional** — without `:on:`, activates on every DOM content change (implicit trigger) | v1 |
 | `lvt-mod:` | `lvt-mod:{modifier}="value"` | Not applicable — modifies sibling `lvt-on:*` | v1 |
-| `lvt-form:` | `lvt-form:{behavior}[="value"]` | Optional (see Future Extension) | v1 (without `:on:`) |
+| `lvt-form:` | `lvt-form:{behavior}[:on:[{action}:]{state}][="value"]` | **Optional** — without `:on:`, always active (implicit trigger) | v1 |
 
-The `:on:` suffix is a universal **trigger mechanism**. It answers the question: "When should this behavior activate?" For `lvt-el:`, the trigger is always explicit and required — it can be a lifecycle state (`pending`/`success`/`error`/`done`), optionally scoped to a specific action name, or an interaction event (`click-away`). For other families, the trigger is currently implicit (effects activate on DOM update, form behaviors on submission).
+The `:on:` suffix is a universal **trigger mechanism**. It answers the question: "When should this behavior activate?" For `lvt-el:`, the trigger is always explicit and required — it can be a lifecycle state (`pending`/`success`/`error`/`done`), optionally scoped to a specific action name, or an interaction event (`click-away`). For `lvt-fx:` and `lvt-form:`, the trigger is optional — omitting it preserves backward-compatible implicit activation (effects on DOM update, form behaviors always on). When specified, the behavior becomes conditional on the named lifecycle state.
 
 ### Click-Away as `lvt-el:` Trigger
 
@@ -943,33 +943,46 @@ lvt-el:addClass:on:[save,delete]:pending="X"
 ```
 This happens during HTML rendering, so the client parser never sees bracket syntax.
 
-### Future Extension: `:on:` for `lvt-fx:` and `lvt-form:`
+### Optional `:on:` Triggers for `lvt-fx:` and `lvt-form:`
 
-The unified grammar is designed to be **forward-compatible** with optional `:on:{trigger}` suffixes on other families. This is NOT part of v1 but does not require future breaking changes to enable.
+The `:on:` trigger suffix works across `lvt-fx:` and `lvt-form:` families, making them reactive to action lifecycle states. Without `:on:`, the behavior uses its implicit trigger (backward compatible). With `:on:`, it becomes conditional.
 
-**`lvt-fx:` with optional `:on:` (future):**
-
-Currently `lvt-fx:highlight="flash"` activates on every DOM content change. A future `:on:` suffix could make the trigger conditional:
+**`lvt-fx:` with `:on:` — conditional effects:**
 
 ```html
-<!-- v1: highlight on any content change (implicit trigger) -->
+<!-- Default: highlight on any content change (implicit trigger) -->
 <div lvt-fx:highlight="flash">
 
-<!-- Future: highlight only on success lifecycle -->
+<!-- Highlight only on success lifecycle -->
 <div lvt-fx:highlight:on:success="flash">
 
-<!-- Future: different effects for different lifecycle states -->
+<!-- Action-scoped: highlight only when "save" succeeds -->
+<div lvt-fx:highlight:on:save:success="flash">
+
+<!-- Different effects for different lifecycle states -->
 <div lvt-fx:highlight:on:success="flash" lvt-fx:highlight:on:error="shake">
 ```
 
-**`lvt-form:` with optional `:on:` (future):**
+**`lvt-form:` with `:on:` — conditional form behavior:**
 
 ```html
-<!-- v1: always preserve form state (implicit trigger) -->
+<!-- Default: always preserve form state (implicit trigger) -->
 <input lvt-form:preserve>
 
-<!-- Future: preserve only on error (reset on success) -->
+<!-- Preserve only on error (form resets on success) -->
 <input lvt-form:preserve:on:error>
+
+<!-- Action-scoped: preserve only when "update" errors -->
+<input lvt-form:preserve:on:update:error>
+```
+
+**Server-expanded bracket syntax also works:**
+
+```html
+<!-- Highlight on success of either save or update -->
+<div lvt-fx:highlight:on:[save,update]:success="flash">
+<!-- Server expands to: -->
+<!-- lvt-fx:highlight:on:save:success="flash" lvt-fx:highlight:on:update:success="flash" -->
 ```
 
 **Why NOT `lvt-mod:` with `:on:`?** Event modifiers (debounce, throttle) are **adverbs** — they modify how an event handler dispatches, not when they activate. Debounce doesn't "fire on pending" — it alters the timing of event delivery. The modifier's target is the sibling `lvt-on:*` attribute on the same element, which is already implicit and unambiguous for the common case.
@@ -991,12 +1004,12 @@ After all reductions (Categories 1–7), the complete `lvt-*` surface is:
 | 7 | `lvt-el:setAttr:on:[{action}:]{state\|interaction}` | `lvt-el:` (reactive DOM) |
 | 8 | `lvt-el:toggleAttr:on:[{action}:]{state\|interaction}` | `lvt-el:` (reactive DOM) |
 | 9 | `lvt-el:reset:on:[{action}:]{state\|interaction}` | `lvt-el:` (reactive DOM) |
-| 10 | `lvt-form:preserve` | `lvt-form:` (form behavior) |
-| 11 | `lvt-form:disable-with` | `lvt-form:` (form behavior) |
-| 12 | `lvt-form:no-intercept` | `lvt-form:` (form behavior) |
-| 13 | `lvt-fx:scroll` | `lvt-fx:` (visual effect) |
-| 14 | `lvt-fx:highlight` | `lvt-fx:` (visual effect) |
-| 15 | `lvt-fx:animate` | `lvt-fx:` (visual effect) |
+| 10 | `lvt-form:preserve[:on:[{action}:]{state}]` | `lvt-form:` (form behavior) |
+| 11 | `lvt-form:disable-with[:on:[{action}:]{state}]` | `lvt-form:` (form behavior) |
+| 12 | `lvt-form:no-intercept[:on:[{action}:]{state}]` | `lvt-form:` (form behavior) |
+| 13 | `lvt-fx:scroll[:on:[{action}:]{state}]` | `lvt-fx:` (visual effect) |
+| 14 | `lvt-fx:highlight[:on:[{action}:]{state}]` | `lvt-fx:` (visual effect) |
+| 15 | `lvt-fx:animate[:on:[{action}:]{state}]` | `lvt-fx:` (visual effect) |
 | 16 | `lvt-upload` | standalone (upload) |
 
 **Generic event pattern (1):**
@@ -1011,7 +1024,7 @@ After all reductions (Categories 1–7), the complete `lvt-*` surface is:
 
 This section recaps the key design decisions from Categories 1-7 so each implementation phase is self-contained.
 
-**Grammar:** `lvt-on[:{scope}]:{event}="action"` (event routing) · `lvt-el:{method}:on:[{action}:]{state|interaction}="value"` (reactive DOM)
+**Grammar:** `lvt-on[:{scope}]:{event}="action"` (event routing) · `lvt-el:{method}:on:[{action}:]{state|interaction}="value"` (reactive DOM) · `lvt-fx:{effect}[:on:[{action}:]{state}][="config"]` (visual effects) · `lvt-form:{behavior}[:on:[{action}:]{state}][="value"]` (form behavior)
 
 | Segment | Values | Default |
 |---------|--------|---------|
@@ -1284,6 +1297,11 @@ git worktree add .worktrees/attr-reduction -b attr-reduction
    - Instead, read from CSS custom properties via `getComputedStyle(element).getPropertyValue('--lvt-*')`
    - Fall back to hardcoded defaults if CSS property is empty
    - Use `lvtSelector()` for all `querySelectorAll` calls (colons need escaping)
+   - **Implement optional `:on:` trigger parsing** for `lvt-fx:` attributes. The parser should:
+     - Match `lvt-fx:{effect}` (no `:on:`) → implicit trigger (activate on DOM content change, as before)
+     - Match `lvt-fx:{effect}:on:{state}` → activate only when lifecycle reaches that state
+     - Match `lvt-fx:{effect}:on:{action}:{state}` → activate only when named action reaches that state
+     - Reuse the same trigger state keywords as `lvt-el:`: `pending`, `success`, `error`, `done`
 
 5. **Create `livetemplate.css`.** New file with `:root` defaults for all CSS custom properties:
    ```css
@@ -1309,6 +1327,11 @@ Add a step to rename the prefix-consolidated attributes:
    - `lvt-addClass-on:*` → `lvt-el:addClass:on:*`, and similarly for all 6 reactive DOM attrs (Category 7 renames)
    - Update all `querySelectorAll` calls, attribute reads, and constants to use the new prefixed names
    - Use `lvtSelector()` for all CSS selector queries involving colons
+   - **Implement optional `:on:` trigger parsing** for `lvt-form:` attributes. The parser should:
+     - Match `lvt-form:{behavior}` (no `:on:`) → always active (implicit trigger, as before)
+     - Match `lvt-form:{behavior}:on:{state}` → active only in that lifecycle state
+     - Match `lvt-form:{behavior}:on:{action}:{state}` → active only for named action in that state
+     - Reuse the same trigger infrastructure as `lvt-el:` and `lvt-fx:`
 
 #### Step 5: Update Tests
 
@@ -1317,7 +1340,7 @@ Update all test files to use new attribute syntax:
 - `tests/event-delegation.test.ts` — update from `lvt-click`, `lvt-keydown` → `lvt-on:{event}` syntax
 - `tests/modal-manager.test.ts` — delete this file
 - `tests/reactive-attributes.test.ts` — remove `disable`/`enable` test cases
-- `tests/directives.test.ts` — update to test `lvt-fx:*` attribute names + CSS custom property reading
+- `tests/directives.test.ts` — update to test `lvt-fx:*` attribute names + CSS custom property reading + optional `:on:` trigger parsing (both implicit and explicit triggers)
 - Remove any test that depends on removed `lvt-submit`, `lvt-data-*`, `lvt-value-*`, `lvt-confirm`, `lvt-modal-*` handling
 
 Add new tests:
@@ -1346,8 +1369,10 @@ npm test
 - [ ] Client: `lvt-disable-on`/`lvt-enable-on` reactive actions removed
 - [ ] Client: Reactive DOM uses `lvt-el:*:on:*` prefix with unscoped (`lvt-el:addClass:on:pending`) and action-scoped (`lvt-el:addClass:on:save:pending`) triggers
 - [ ] Client: Directives use `lvt-fx:*` prefix, read from CSS custom properties, `livetemplate.css` ships with defaults
+- [ ] Client: `lvt-fx:` supports optional `:on:` triggers — implicit (no `:on:`, activates on content change) and explicit (`lvt-fx:highlight:on:success`, `lvt-fx:highlight:on:save:success`)
 - [ ] Client: Timing modifiers use `lvt-mod:*` prefix (`lvt-mod:debounce`, `lvt-mod:throttle`)
 - [ ] Client: Form behavior uses `lvt-form:*` prefix (`lvt-form:preserve`, `lvt-form:disable-with`, `lvt-form:no-intercept`)
+- [ ] Client: `lvt-form:` supports optional `:on:` triggers — implicit (no `:on:`, always active) and explicit (`lvt-form:preserve:on:error`, `lvt-form:preserve:on:update:error`)
 - [ ] Client: All tests pass: `npm test`
 
 #### Step 7: Commit and Create PR
@@ -1456,13 +1481,13 @@ GOWORK=off go test ./... -timeout=300s
 
 #### Step 4: Implement Multi-Action Bracket Expansion (Server-Side)
 
-The Go server library must expand `lvt-el:*:on:[action1,action2]:state` bracket syntax during HTML rendering so the client only sees single-action attributes.
+The Go server library must expand bracket syntax in `lvt-el:*`, `lvt-fx:*`, and `lvt-form:*` attributes during HTML rendering so the client only sees single-action attributes.
 
 **Where:** In the template rendering pipeline, after HTML is generated but before it's sent to the client. This could be a post-processing step in `template.go` or `internal/render/html.go`.
 
 **Algorithm:**
 ```go
-// For each attribute matching lvt-el:*:on:[*]:*
+// For any attribute matching lvt-{el|fx|form}:*:on:[*]:*
 // 1. Extract the bracket content: "save,delete"
 // 2. Split by comma: ["save", "delete"]
 // 3. For each action, emit a separate attribute:
@@ -1476,6 +1501,8 @@ The Go server library must expand `lvt-el:*:on:[action1,action2]:state` bracket 
 - `lvt-el:addClass:on:[a,b,c]:error="X"` expands to three attributes
 - `lvt-el:addClass:on:save:pending="X"` passes through unchanged (no brackets)
 - `lvt-el:addClass:on:pending="X"` passes through unchanged (unscoped)
+- `lvt-fx:highlight:on:[save,update]:success="flash"` expands to two attributes
+- `lvt-form:preserve:on:[create,edit]:error` expands to two attributes
 
 #### Step 5: Update Documentation
 
@@ -1512,7 +1539,7 @@ The Go server library must expand `lvt-el:*:on:[action1,action2]:state` bracket 
 #### Step 6: Acceptance Criteria (Phase 1B)
 
 - [ ] Server: `lvt-action` form field no longer parsed
-- [ ] Server: Multi-action bracket expansion works (`lvt-el:*:on:[a,b]:pending` → two attributes)
+- [ ] Server: Multi-action bracket expansion works for `lvt-el:*`, `lvt-fx:*`, and `lvt-form:*` (`on:[a,b]:state` → individual attributes)
 - [ ] Server: All tests pass: `GOWORK=off go test ./... -timeout=300s`
 - [ ] Server: `docs/references/client-attributes.md` updated with new syntax, deprecated entries removed
 - [ ] Server: `docs/guides/progressive-complexity.md` uses `lvt-on:{event}` syntax throughout
