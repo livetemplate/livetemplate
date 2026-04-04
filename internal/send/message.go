@@ -97,7 +97,8 @@ func parseURLEncodedForm(r *http.Request) (ActionMessage, error) {
 	// Get action from "action" form field
 	msg.Action = r.FormValue("action")
 
-	// Action routing fields to exclude from data
+	// Action routing fields to exclude from data.
+	// "action" is a reserved field name used for routing; it will not appear in ctx data.
 	actionFields := map[string]bool{"action": true}
 
 	// If no explicit action, detect button-name-as-action:

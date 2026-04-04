@@ -441,6 +441,34 @@ lvt-{action}-on:{actionName}:{lifecycle}="param"
 
 **Note:** When multiple reactive attributes target the same lifecycle event, all matching actions execute in DOM order. For example, `lvt-addClass-on:pending="loading"` and `lvt-addClass-on:pending="disabled"` will both add their respective classes.
 
+### Bracket Expansion (Multi-Action Shorthand)
+
+When the same reactive attribute applies to multiple actions, use bracket syntax to avoid repetition:
+
+```html
+<!-- Shorthand: bracket syntax -->
+<button
+    lvt-on:click="save"
+    lvt-el:addClass:on:[save,delete]:pending="opacity-50"
+    lvt-el:toggleAttr:on:[save,delete]:pending="disabled">
+    Save
+</button>
+
+<!-- Equivalent expanded form -->
+<button
+    lvt-on:click="save"
+    lvt-el:addClass:on:save:pending="opacity-50"
+    lvt-el:addClass:on:delete:pending="opacity-50"
+    lvt-el:toggleAttr:on:save:pending="disabled"
+    lvt-el:toggleAttr:on:delete:pending="disabled">
+    Save
+</button>
+```
+
+Bracket expansion works for `lvt-el:*`, `lvt-fx:*`, and `lvt-form:*` prefixes, including boolean attributes (no `="value"`).
+
+> **⚠️ Limitation:** Bracket expansion runs only on the initial HTTP render. Elements inside dynamic template blocks (`{{range}}`, `{{if}}`) that appear after the first render via WebSocket updates will receive the unexpanded bracket syntax, which the client ignores. Use individual attributes (not bracket syntax) for elements inside dynamic template blocks.
+
 ---
 
 ## Validation

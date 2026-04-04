@@ -93,9 +93,14 @@ func TestExpandBracketAttributes(t *testing.T) {
 			want:  `<div lvt-el:addClass:on:save:pending='opacity-50' lvt-el:addClass:on:delete:pending='opacity-50'>`,
 		},
 		{
-			name:  "script content not expanded",
+			name:  "no lvt prefix passthrough",
 			input: `<script>let cfg = { "on:[save]": true };</script>`,
 			want:  `<script>let cfg = { "on:[save]": true };</script>`,
+		},
+		{
+			name:  "hyphenated action names",
+			input: `<div lvt-el:addClass:on:[create-todo,delete-item]:pending="loading">`,
+			want:  `<div lvt-el:addClass:on:create-todo:pending="loading" lvt-el:addClass:on:delete-item:pending="loading">`,
 		},
 	}
 
