@@ -23,12 +23,12 @@
 // Actions are automatically dispatched to methods matching the action name
 // (e.g., "increment" → Increment, "add_item" → AddItem).
 //
-// Create a template with `lvt-*` attributes for event binding:
+// Create a template with `lvt-on:{event}` attributes for event binding:
 //
 //	<!-- counter.tmpl -->
 //	<h1>Counter: {{.Count}}</h1>
-//	<button lvt-click="increment">+</button>
-//	<button lvt-click="decrement">-</button>
+//	<button lvt-on:click="increment">+</button>
+//	<button lvt-on:click="decrement">-</button>
 //
 // Wire it up in your main function:
 //
@@ -107,6 +107,7 @@ import (
 	"github.com/livetemplate/livetemplate/internal/keys"
 	"github.com/livetemplate/livetemplate/internal/observe"
 	"github.com/livetemplate/livetemplate/internal/parse"
+	"github.com/livetemplate/livetemplate/internal/render"
 	"github.com/livetemplate/livetemplate/internal/send"
 	"github.com/livetemplate/livetemplate/internal/session"
 	uploadtypes "github.com/livetemplate/livetemplate/internal/uploadtypes"
@@ -667,13 +668,16 @@ func WithComponentTemplates(sets ...*TemplateSet) Option {
 //
 // Example form structure for progressive enhancement:
 //
-//	<form method="POST" lvt-submit="add">
-//	    <input type="hidden" name="lvt-action" value="add">
+//	<form method="POST">
 //	    <input type="text" name="title">
-//	    <button type="submit">Add</button>
+//	    <button name="action" value="add" type="submit">Add</button>
 //	</form>
 //
-// The form works with both JavaScript (via lvt-submit) and without (via method="POST").
+// Using an explicit action value avoids ambiguous POST parsing when other form
+// fields submit empty strings.
+//
+// The form works with both JavaScript (via WebSocket or fetch/JSON) and without
+// JavaScript (via method="POST").
 func WithProgressiveEnhancement(enabled bool) Option {
 	return func(c *Config) {
 		c.ProgressiveEnhancement = enabled
@@ -992,6 +996,12 @@ func (t *Template) parseInternal(text string, baseTemplate *template.Template, i
 		// This ensures updates use the flattened template
 		text = flattenedStr
 	}
+
+	// Expand multi-action bracket syntax before parsing.
+	// e.g. lvt-el:addClass:on:[save,delete]:pending="X" → individual attributes.
+	// Done at source level so both HTTP rendering (t.tmpl) and WebSocket tree
+	// generation (t.templateStr → buildTreeWithCache) see expanded attributes.
+	text = render.ExpandBracketAttributes(text)
 
 	// Now add wrapper to the (possibly flattened) template for execution
 	var templateContent string

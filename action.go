@@ -36,7 +36,7 @@ var (
 type message = send.ActionMessage
 
 // defaultFormAction is the conventional action name used when a form submits
-// without explicit routing (no lvt-submit, button name="action", or form name).
+// without explicit routing (no button name="action" or form name).
 // Maps to the Submit() method on the controller via methodNameToActions().
 const defaultFormAction = "submit"
 
@@ -151,13 +151,13 @@ func (a *ActionData) GetInt(key string) int {
 // Returns (0, false) if key doesn't exist or value cannot be parsed as int.
 //
 // This method handles both JSON numbers (float64) and string values from
-// lvt-data-* attributes, which are always transmitted as strings.
+// form fields and data-* attributes, which are always transmitted as strings.
 func (a *ActionData) GetIntOk(key string) (int, bool) {
 	// Handle float64 (JSON numbers)
 	if v, ok := a.raw[key].(float64); ok {
 		return int(v), true
 	}
-	// Handle string values from lvt-data-* attributes
+	// Handle string values from form fields and data-* attributes
 	if v, ok := a.raw[key].(string); ok {
 		if i, err := strconv.Atoi(v); err == nil {
 			return i, true
@@ -182,13 +182,13 @@ func (a *ActionData) GetFloat(key string) float64 {
 // Returns (0, false) if key doesn't exist or value cannot be parsed as float.
 //
 // This method handles both JSON numbers (float64) and string values from
-// lvt-data-* attributes, which are always transmitted as strings.
+// form fields and data-* attributes, which are always transmitted as strings.
 func (a *ActionData) GetFloatOk(key string) (float64, bool) {
 	// Handle float64 (JSON numbers)
 	if v, ok := a.raw[key].(float64); ok {
 		return v, true
 	}
-	// Handle string values from lvt-data-* attributes
+	// Handle string values from form fields and data-* attributes
 	if v, ok := a.raw[key].(string); ok {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			return f, true

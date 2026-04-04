@@ -52,16 +52,19 @@ type Context struct {
 	broadcasts  []broadcastRequest
 
 	// HTTP context (nil for WebSocket actions)
-	w http.ResponseWriter
-	r *http.Request
+	w          http.ResponseWriter
+	r          *http.Request
+	redirected *bool // shared across With*() copies so mount.go sees the flag
 }
 
 // NewContext creates a new Context for action handling.
 func NewContext(ctx context.Context, action string, data map[string]interface{}) *Context {
+	redirected := false
 	return &Context{
-		Context: ctx,
-		action:  action,
-		data:    newActionData(data),
+		Context:    ctx,
+		action:     action,
+		data:       newActionData(data),
+		redirected: &redirected,
 	}
 }
 
@@ -210,6 +213,9 @@ func (c *Context) Redirect(url string, code int) error {
 		return ErrInvalidRedirectURL
 	}
 	http.Redirect(c.w, c.r, url, code)
+	if c.redirected != nil {
+		*c.redirected = true
+	}
 	return nil
 }
 

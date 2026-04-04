@@ -20,8 +20,8 @@ Quick-reference for how standard HTML maps to LiveTemplate behavior. For the lea
 
 When a form is submitted, the action is resolved in this order (first match wins):
 
-1. `lvt-submit="X"` on the form (prefer button `name` or form `name` unless its needed for routing)
-2. Clicked button's `name` attribute
+1. Explicit `action` field — `<button name="action" value="save">` or `<input type="hidden" name="action" value="save">`
+2. Clicked button's `name` attribute (empty-value heuristic: works when only the clicked button submits an empty value)
 3. Form's `name` attribute
 4. Default: `"submit"` → `Submit()`
 
@@ -32,7 +32,7 @@ When a form is submitted, the action is resolved in this order (first match wins
 | Controller has `Change()` method | Server sends `capabilities: ["change"]`; client auto-wires debounced input events (300ms) |
 | `<input name="X" value="{{.X}}">` | Auto-bound when `Change()` exists (dynamic value detected) |
 | `<input name="X">` (no template expression) | NOT auto-bound (static only) |
-| `lvt-debounce="500"` on input | Overrides default 300ms debounce |
+| `lvt-mod:debounce="500"` on input | Overrides default 300ms debounce |
 | No `Change()` method | Form is submit-only, no auto-binding |
 
 ## Validation Inference
@@ -69,7 +69,7 @@ All `<a href>` links inside the LiveTemplate wrapper are auto-intercepted for SP
 | `<a href="/path">` | Yes — fetched via `fetch()`, DOM patched, `pushState` updated |
 | `<a href="/path" download>` | No — `download` attribute skips interception |
 | `<a href="https://external.com">` | No — different origin skips interception |
-| `<a href="/path" lvt-no-intercept>` | No — explicit opt-out |
+| `<a href="/path" lvt-form:no-intercept>` | No — explicit opt-out (applies to both links and forms) |
 
 ## Loading States (Automatic)
 
@@ -96,4 +96,14 @@ During form submission, the framework automatically manages loading indicators:
 
 ## Tier 2: `lvt-*` Attributes
 
-For behaviors that standard HTML cannot express — timing control, reactive DOM, keyboard shortcuts, scroll management — use `lvt-*` attributes. See the [Client Attributes Reference](client-attributes.md) for the complete listing.
+For behaviors that standard HTML cannot express — timing control, reactive DOM, keyboard shortcuts, scroll management — use `lvt-*` attributes. The attribute prefixes are:
+
+| Prefix | Purpose | Example |
+|---|---|---|
+| `lvt-on:` | Event bindings | `lvt-on:click="save"`, `lvt-on:window:keydown="close"` |
+| `lvt-el:` | Reactive DOM manipulation | `lvt-el:addClass:on:pending="loading"` |
+| `lvt-fx:` | Visual directives | `lvt-fx:scroll="bottom"`, `lvt-fx:highlight="flash"` |
+| `lvt-mod:` | Event modifiers | `lvt-mod:debounce="300"`, `lvt-mod:throttle="100"` |
+| `lvt-form:` | Form behavior | `lvt-form:preserve`, `lvt-form:disable-with="Saving..."` |
+
+See the [Client Attributes Reference](client-attributes.md) for the complete listing.

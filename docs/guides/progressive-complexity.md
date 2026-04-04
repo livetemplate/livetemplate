@@ -199,7 +199,7 @@ The framework fetches the page via `fetch()`, extracts the wrapper content, and 
 ```html
 <a href="/api/export.csv" download>Export</a>            <!-- download attr: skipped -->
 <a href="https://external.com">External</a>              <!-- different origin: skipped -->
-<a href="/legacy-page" lvt-no-intercept>Old Page</a>      <!-- explicit opt-out -->
+<a href="/legacy-page" lvt-form:no-intercept>Old Page</a>      <!-- explicit opt-out (works on links too) -->
 ```
 
 ---
@@ -283,10 +283,10 @@ func (c *Controller) Change(state State, ctx *livetemplate.Context) (State, erro
 
 **What happens:** The server detects the `Change()` method and sends `capabilities: ["change"]` in the initial render. The client auto-wires debounced input events (300ms default) on form fields with dynamic values. The preview updates live as the user types. If no `Change()` method exists, the form is submit-only.
 
-Override the default debounce per input with `lvt-debounce`:
+Override the default debounce per input with `lvt-mod:debounce`:
 
 ```html
-<input name="Name" value="{{.Name}}" lvt-debounce="500">
+<input name="Name" value="{{.Name}}" lvt-mod:debounce="500">
 ```
 
 ---
@@ -410,26 +410,19 @@ Use `lvt-*` attributes only when standard HTML cannot express the behavior. For 
 
 ### 13.1 Event Bindings Outside Forms
 
-For interactions outside the form submit lifecycle — hover effects, focus/blur tracking, click-away detection:
+For interactions outside the form submit lifecycle — hover effects, focus/blur tracking:
 
 ```html
 <!-- Server-rendered tooltip on hover (use CSS :hover for static tooltips instead) -->
-<div lvt-mouseenter="showTooltip" lvt-mouseleave="hideTooltip">
+<div lvt-on:mouseenter="showTooltip" lvt-on:mouseleave="hideTooltip">
     {{.Label}}
     {{if .TooltipVisible}}<span class="tooltip">{{.TooltipText}}</span>{{end}}
 </div>
-
-<!-- Close dropdown when clicking outside -->
-<div lvt-click-away="closeDropdown">
-    {{if .DropdownOpen}}
-        <ul>{{range .Options}}<li>{{.}}</li>{{end}}</ul>
-    {{end}}
-</div>
 ```
 
-> **Prefer Tier 1 when possible:** For buttons that trigger actions, use `<form>` + `<button name="action">` instead of `lvt-click`. See [Section 2](#2-multiple-actions-with-button-names).
+> **Prefer Tier 1 when possible:** For buttons that trigger actions, use `<form>` + `<button name="action" value="save">` instead of `lvt-on:click`. See [Section 2](#2-multiple-actions-with-button-names).
 
-See [Client Attributes Reference — Event Bindings](../references/client-attributes.md#event-bindings) for the full list: `lvt-click`, `lvt-input`, `lvt-change`, `lvt-focus`, `lvt-blur`, `lvt-mouseenter`, `lvt-mouseleave`, `lvt-click-away`.
+See [Client Attributes Reference — Event Bindings](../references/client-attributes.md#event-bindings) for the full list of `lvt-on:{event}` bindings.
 
 ### 13.2 Rate Limiting
 
@@ -437,10 +430,10 @@ HTML has no mechanism for debounce or throttle. **Debounce** waits until the use
 
 ```html
 <!-- Wait 300ms after user stops typing -->
-<input lvt-input="search" lvt-debounce="300" name="query" placeholder="Search...">
+<input lvt-on:input="search" lvt-mod:debounce="300" name="query" placeholder="Search...">
 
 <!-- Fire scroll handler at most once per 100ms -->
-<div lvt-window-scroll="loadMore" lvt-throttle="100">...</div>
+<div lvt-on:window:scroll="loadMore" lvt-mod:throttle="100">...</div>
 ```
 
 See [Client Attributes Reference — Rate Limiting](../references/client-attributes.md#rate-limiting) for details.
@@ -451,10 +444,10 @@ Filter events by key and listen at the window level for global shortcuts:
 
 ```html
 <!-- Submit search on Enter key only -->
-<input lvt-keydown="submitSearch" lvt-key="Enter" name="query">
+<input lvt-on:keydown="submitSearch" lvt-key="Enter" name="query">
 
 <!-- Global Escape key to close modal -->
-<div lvt-window-keydown="closeModal" lvt-key="Escape">
+<div lvt-on:window:keydown="closeModal" lvt-key="Escape">
     Modal content...
 </div>
 ```
@@ -468,51 +461,52 @@ Declarative DOM mutations tied to the action lifecycle (`pending`, `success`, `e
 ```html
 <!-- Button with loading state -->
 <button name="save"
-    lvt-disable-on:pending
-    lvt-addClass-on:pending="opacity-50"
-    lvt-enable-on:done
-    lvt-removeClass-on:done="opacity-50">
+    lvt-el:toggleAttr:on:pending="disabled"
+    lvt-el:addClass:on:pending="opacity-50"
+    lvt-el:removeClass:on:done="opacity-50">
     Save
 </button>
 
 <!-- Reset form after successful submission -->
-<form method="POST" lvt-reset-on:success>
+<form method="POST" lvt-el:reset:on:success>
     <input name="title" placeholder="New todo">
     <button type="submit">Add</button>
 </form>
 ```
 
-Available reactive actions: `lvt-disable-on`, `lvt-enable-on`, `lvt-addClass-on`, `lvt-removeClass-on`, `lvt-toggleClass-on`, `lvt-setAttr-on`, `lvt-toggleAttr-on`, `lvt-reset-on`.
+Available reactive actions: `lvt-el:addClass:on:*`, `lvt-el:removeClass:on:*`, `lvt-el:toggleClass:on:*`, `lvt-el:setAttr:on:*`, `lvt-el:toggleAttr:on:*`, `lvt-el:reset:on:*`.
 
 See [Client Attributes Reference — Reactive Attributes](../references/client-attributes.md#reactive-attributes) for the full pattern.
 
 ### 13.5 Directives
 
-Declarative UI behaviors for scroll management, visual feedback, and animations:
+Declarative UI behaviors for scroll management, visual feedback, and animations. Configuration uses CSS custom properties (defaults provided by `livetemplate.css`):
 
 ```html
 <!-- Chat messages: auto-scroll to bottom, stick if user is near bottom -->
-<div lvt-scroll="bottom-sticky" lvt-scroll-threshold="100" class="chat-messages">
+<div lvt-fx:scroll="bottom-sticky" style="--lvt-scroll-threshold: 100px" class="chat-messages">
     {{range .Messages}}
         <div>{{.Text}}</div>
     {{end}}
 </div>
 
 <!-- Preserve scroll position across updates (e.g., search results) -->
-<div lvt-scroll="preserve" class="results">
+<div lvt-fx:scroll="preserve" class="results">
     {{range .Results}}
         <div>{{.Title}}</div>
     {{end}}
 </div>
 
 <!-- Highlight updated items -->
-<div lvt-highlight="flash">{{.UpdatedContent}}</div>
+<div lvt-fx:highlight="flash">{{.UpdatedContent}}</div>
 
 <!-- Fade in new content -->
-<div lvt-animate="fade">{{.NewContent}}</div>
+<div lvt-fx:animate="fade">{{.NewContent}}</div>
 ```
 
 Scroll modes: `bottom` (always scroll to bottom), `bottom-sticky` (scroll only if user is near bottom), `top` (scroll to top), `preserve` (maintain current scroll position across updates).
+
+CSS custom properties: `--lvt-scroll-behavior`, `--lvt-scroll-threshold`, `--lvt-highlight-color`, `--lvt-highlight-duration`, `--lvt-animate-duration`.
 
 See [Client Attributes Reference — Directives](../references/client-attributes.md#directives) for all scroll, highlight, and animation options.
 
@@ -526,28 +520,28 @@ A search interface combining debounced input, loading states, keyboard shortcuts
 <h1>Search</h1>
 
 <!-- Global Escape key clears the search -->
-<div lvt-window-keydown="clearSearch" lvt-key="Escape">
+<div lvt-on:window:keydown="clearSearch" lvt-key="Escape">
 
-    <!-- lvt-input fires directly without a form — Tier 2 event binding -->
+    <!-- lvt-on:input fires directly without a form — Tier 2 event binding -->
     <input name="Query" value="{{.Query}}"
-        lvt-input="search" lvt-debounce="300"
-        lvt-addClass-on:pending="border-blue-500"
-        lvt-removeClass-on:done="border-blue-500"
+        lvt-on:input="search" lvt-mod:debounce="300"
+        lvt-el:addClass:on:pending="border-blue-500"
+        lvt-el:removeClass:on:done="border-blue-500"
         placeholder="Type to search...">
 
     <form method="POST">
         <button name="clearSearch"
-            lvt-disable-on:pending>
+            lvt-el:toggleAttr:on:pending="disabled">
             Clear
         </button>
     </form>
 
-    <div class="results" lvt-scroll="preserve">
+    <div class="results" lvt-fx:scroll="preserve">
         {{if .Query}}
             <p>{{len .Results}} results for "{{.Query}}"</p>
         {{end}}
         {{range .Results}}
-            <div data-key="{{.ID}}" lvt-animate="fade">
+            <div data-key="{{.ID}}" lvt-fx:animate="fade">
                 <h3>{{.Title}}</h3>
                 <p>{{.Summary}}</p>
             </div>

@@ -1182,6 +1182,16 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Check if we should return HTML for progressive enhancement
 	// Progressive enhancement is enabled AND client does not want JSON
 	if h.config.ProgressiveEnhancement && !wantsJSON(r) {
+		// If the action handler already sent a redirect (via ctx.Redirect()),
+		// skip the PRG redirect to avoid a superfluous redirect response.
+		// The action's redirect response is already sent to the client, so
+		// flash state in connSt is stale — clear it to prevent leakage into
+		// subsequent responses for this session/group.
+		if actionCtx.redirected != nil && *actionCtx.redirected {
+			connSt.clearFlash()
+			return
+		}
+
 		// Non-JS client: return HTML response using POST-Redirect-GET pattern
 		if connSt.hasErrors() {
 			// Validation errors: re-render page with errors inline (no redirect)
