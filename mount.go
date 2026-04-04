@@ -1184,10 +1184,9 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.config.ProgressiveEnhancement && !wantsJSON(r) {
 		// If the action handler already sent a redirect (via ctx.Redirect()),
 		// skip the PRG redirect to avoid a superfluous redirect response.
-		// Flash messages set during the action are intentionally discarded here:
-		// the handler's redirect bypasses the PRG cookie flow, so flash cannot
-		// be delivered via that mechanism. Clearing prevents stale flash from
-		// leaking into subsequent responses.
+		// The action's redirect response is already sent to the client, so
+		// flash state in connSt is stale — clear it to prevent leakage into
+		// subsequent responses for this session/group.
 		if actionCtx.redirected != nil && *actionCtx.redirected {
 			connSt.clearFlash()
 			return

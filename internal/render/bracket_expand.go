@@ -41,6 +41,9 @@ var bracketAttrPattern = regexp.MustCompile(
 // bracket patterns inside <script> or <style> content will also be expanded if they
 // match the regex. In practice, the lvt-el:/lvt-fx:/lvt-form: prefixes are specific
 // enough that false matches are unlikely outside HTML attribute contexts.
+//
+// Template expressions inside bracket action lists (e.g. [{{.Action}},delete]) are
+// detected and left unexpanded to avoid producing invalid attribute names.
 func ExpandBracketAttributes(html string) string {
 	// Fast path: skip regex when no bracket syntax is present.
 	if !strings.Contains(html, ":on:[") {
@@ -59,7 +62,7 @@ func ExpandBracketAttributes(html string) string {
 		prefix := parts[1]  // e.g. "lvt-el:addClass:on:"
 		actions := parts[2] // e.g. "save,delete"
 		suffix := parts[3]  // e.g. ":pending"
-		value := parts[4]   // e.g. `="opacity-50"` or empty string
+		value := parts[4]   // e.g. `="opacity-50"`, `='opacity-50'`, or empty string
 
 		actionList := strings.Split(actions, ",")
 		validActions := make([]string, 0, len(actionList))
@@ -67,6 +70,11 @@ func ExpandBracketAttributes(html string) string {
 			action = strings.TrimSpace(action)
 			if action == "" {
 				continue
+			}
+			// Template expressions (e.g. {{.Action}}) inside bracket lists would
+			// produce invalid attribute names. Return the match unchanged.
+			if strings.Contains(action, "{{") {
+				return match
 			}
 			validActions = append(validActions, action)
 		}

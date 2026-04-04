@@ -121,6 +121,20 @@ func TestExpandBracketAttributes(t *testing.T) {
 			input: `<script>let x = 'lvt-el:addClass:on:[a,b]:pending="X"';</script>`,
 			want:  `<script>let x = 'lvt-el:addClass:on:a:pending="X" lvt-el:addClass:on:b:pending="X"';</script>`,
 		},
+		{
+			// Template expressions as attribute values work correctly because
+			// Go template delimiters ({, }, .) are not quote characters.
+			name:  "template expression as attribute value",
+			input: `<div lvt-el:addClass:on:[save,delete]:pending="{{.CSSClass}}">`,
+			want:  `<div lvt-el:addClass:on:save:pending="{{.CSSClass}}" lvt-el:addClass:on:delete:pending="{{.CSSClass}}">`,
+		},
+		{
+			// Template expressions inside bracket action lists produce invalid
+			// attribute names, so expansion is skipped (match returned unchanged).
+			name:  "template expression in action list skipped",
+			input: `<div lvt-el:addClass:on:[{{.Action}},delete]:pending="X">`,
+			want:  `<div lvt-el:addClass:on:[{{.Action}},delete]:pending="X">`,
+		},
 	}
 
 	for _, tt := range tests {
