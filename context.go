@@ -52,8 +52,9 @@ type Context struct {
 	broadcasts  []broadcastRequest
 
 	// HTTP context (nil for WebSocket actions)
-	w http.ResponseWriter
-	r *http.Request
+	w          http.ResponseWriter
+	r          *http.Request
+	redirected bool // true if Redirect() was called by the action handler
 }
 
 // NewContext creates a new Context for action handling.
@@ -210,6 +211,7 @@ func (c *Context) Redirect(url string, code int) error {
 		return ErrInvalidRedirectURL
 	}
 	http.Redirect(c.w, c.r, url, code)
+	c.redirected = true
 	return nil
 }
 

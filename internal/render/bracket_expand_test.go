@@ -92,6 +92,11 @@ func TestExpandBracketAttributes(t *testing.T) {
 			input: `<div lvt-el:addClass:on:[save,delete]:pending='opacity-50'>`,
 			want:  `<div lvt-el:addClass:on:save:pending='opacity-50' lvt-el:addClass:on:delete:pending='opacity-50'>`,
 		},
+		{
+			name:  "script content not expanded",
+			input: `<script>let cfg = { "on:[save]": true };</script>`,
+			want:  `<script>let cfg = { "on:[save]": true };</script>`,
+		},
 	}
 
 	for _, tt := range tests {

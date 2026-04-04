@@ -1182,6 +1182,12 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Check if we should return HTML for progressive enhancement
 	// Progressive enhancement is enabled AND client does not want JSON
 	if h.config.ProgressiveEnhancement && !wantsJSON(r) {
+		// If the action handler already sent a redirect (via ctx.Redirect()),
+		// skip the PRG redirect to avoid "superfluous response.WriteHeader" errors.
+		if actionCtx.redirected {
+			return
+		}
+
 		// Non-JS client: return HTML response using POST-Redirect-GET pattern
 		if connSt.hasErrors() {
 			// Validation errors: re-render page with errors inline (no redirect)
