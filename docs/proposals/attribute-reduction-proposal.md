@@ -1145,7 +1145,7 @@ document.querySelectorAll('[lvt-form\\:preserve]')
 
 | # | Sub-phase | Description | Repo | Status | PR |
 |---|-----------|-------------|------|--------|----|
-| 1 | 1A | Client: generic event router + removals | `client` | NOT STARTED | — |
+| 1 | 1A | Client: generic event router + removals | `client` | COMPLETE | #44 |
 | 2 | 1B | Server: remove `lvt-action` + update docs | `livetemplate` | NOT STARTED | — |
 | 3 | 2E | Examples: early migration + manual review | `examples` | NOT STARTED | — |
 | 4 | 2A | lvt: audit + template/Go migration | `lvt` | NOT STARTED | — |
@@ -1363,19 +1363,19 @@ npm test
 
 #### Step 6: Acceptance Criteria (Phase 1A)
 
-- [ ] Client: `lvt-on:click`, `lvt-on:input`, `lvt-on:keydown`, etc. all route to server actions correctly
-- [ ] Client: `lvt-on:window:keydown` with `lvt-key` filter works
-- [ ] Client: `lvt-el:*:on:click-away` inverted containment works (client-side DOM manipulation, no server round-trip)
-- [ ] Client: `modal-manager.ts` deleted, no `lvt-modal-open/close` handling
-- [ ] Client: No `lvt-data-*`, `lvt-value-*`, `lvt-submit`, `lvt-confirm`, `lvt-change` handling
-- [ ] Client: `lvt-disable-on`/`lvt-enable-on` reactive actions removed
-- [ ] Client: Reactive DOM uses `lvt-el:*:on:*` prefix with unscoped (`lvt-el:addClass:on:pending`) and action-scoped (`lvt-el:addClass:on:save:pending`) triggers
-- [ ] Client: Directives use `lvt-fx:*` prefix, read from CSS custom properties, `livetemplate.css` ships with defaults
-- [ ] Client: `lvt-fx:` supports optional `:on:` triggers — implicit (no `:on:`, activates on content change) and explicit (`lvt-fx:highlight:on:success`, `lvt-fx:highlight:on:save:success`)
-- [ ] Client: Timing modifiers use `lvt-mod:*` prefix (`lvt-mod:debounce`, `lvt-mod:throttle`)
-- [ ] Client: Form behavior uses `lvt-form:*` prefix (`lvt-form:preserve`, `lvt-form:disable-with`, `lvt-form:no-intercept`)
-- [ ] Client: `lvt-form:` supports optional `:on:` triggers — implicit (no `:on:`, always active) and explicit (`lvt-form:preserve:on:error`, `lvt-form:preserve:on:update:error`)
-- [ ] Client: All tests pass: `npm test`
+- [x] Client: `lvt-on:click`, `lvt-on:input`, `lvt-on:keydown`, etc. all route to server actions correctly
+- [x] Client: `lvt-on:window:keydown` with `lvt-key` filter works
+- [x] Client: `lvt-el:*:on:click-away` inverted containment works (client-side DOM manipulation, no server round-trip)
+- [x] Client: `modal-manager.ts` deleted, no `lvt-modal-open/close` handling
+- [x] Client: No `lvt-data-*`, `lvt-value-*`, `lvt-submit`, `lvt-confirm`, `lvt-change` handling
+- [x] Client: `lvt-disable-on`/`lvt-enable-on` reactive actions removed
+- [x] Client: Reactive DOM uses `lvt-el:*:on:*` prefix with unscoped (`lvt-el:addClass:on:pending`) and action-scoped (`lvt-el:addClass:on:save:pending`) triggers
+- [x] Client: Directives use `lvt-fx:*` prefix, read from CSS custom properties, `livetemplate.css` ships with defaults
+- [x] Client: `lvt-fx:` supports optional `:on:` triggers — implicit (no `:on:`, activates on content change) and explicit (`lvt-fx:highlight:on:success`, `lvt-fx:highlight:on:save:success`)
+- [x] Client: Timing modifiers use `lvt-mod:*` prefix (`lvt-mod:debounce`, `lvt-mod:throttle`)
+- [x] Client: Form behavior uses `lvt-form:*` prefix (`lvt-form:preserve`, `lvt-form:disable-with`, `lvt-form:no-intercept`)
+- [x] Client: `lvt-form:` supports optional `:on:` triggers — implicit (no `:on:`, always active) and explicit (`lvt-form:preserve:on:error`, `lvt-form:preserve:on:update:error`)
+- [x] Client: All tests pass: `npm test`
 
 #### Step 7: Commit and Create PR
 
