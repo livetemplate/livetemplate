@@ -416,7 +416,8 @@ These behaviors cannot be expressed with standard HTML. They are the **essential
 |-----------|-----|
 | `lvt-preserve` → `lvt-form:preserve` | Prevent form auto-reset — opposite of default framework behavior |
 | `lvt-disable-with` → `lvt-form:disable-with` | Button text swap + disable during pending — no HTML pattern |
-| `lvt-no-intercept` → `lvt-form:no-intercept` | Opt-out of SPA form interception — framework-specific concept |
+| `lvt-no-intercept` → `lvt-form:no-intercept` (forms) / `lvt-nav:no-intercept` (links) | Opt-out of SPA interception — `lvt-form:` for forms, `lvt-nav:` for links |
+| (new) `lvt-form:action` | Explicit action routing attribute on `<form>` — replaces reserved `action` field |
 
 ### Directives
 | Attribute | Why |
@@ -643,18 +644,25 @@ Rationale: All three apply visual/behavioral effects to DOM elements. The `fx` p
 
 Rationale: Both modify how `lvt-on:*` events are dispatched — they don't trigger actions themselves but alter the timing of event delivery. The `mod` prefix (short for "modifier") signals "this attribute modifies a sibling event attribute." `lvt-key` is excluded: it filters which key triggers the event rather than modifying event timing, and is already concise.
 
-**`lvt-form:` — Form Behavior (3 attributes)**
+**`lvt-form:` — Form Behavior (4 attributes)**
 
 | Before | After |
 |--------|-------|
 | `lvt-preserve` | `lvt-form:preserve` |
 | `lvt-disable-with="Saving..."` | `lvt-form:disable-with="Saving..."` |
-| `lvt-no-intercept` | `lvt-form:no-intercept` |
+| `lvt-no-intercept` (on forms) | `lvt-form:no-intercept` |
+| (new) | `lvt-form:action="X"` — explicit action routing on `<form>`, highest priority |
 
-Rationale: All three modify how the framework handles HTML forms — they are form-scoped behavioral overrides. The `form` prefix signals "this attribute affects form processing." Future form behaviors would extend this prefix.
+**`lvt-nav:` — Navigation Behavior (1 attribute)**
+
+| Before | After |
+|--------|-------|
+| `lvt-no-intercept` (on links) | `lvt-nav:no-intercept` |
+
+Rationale: `lvt-no-intercept` was used on both `<form>` and `<a>` tags, but these are semantically different: form interception vs. link interception. The `lvt-form:` prefix signals form processing, while `lvt-nav:` signals navigation behavior. This prevents the confusion of seeing `lvt-form:no-intercept` on an anchor tag.
 
 **Not grouped:**
-- `lvt-key` — already concise, semantically distinct from timing modifiers
+- `lvt-key` — event filter, not a timing modifier. Unlike `lvt-mod:debounce`/`lvt-mod:throttle` (which modify *when/how often* an action fires), `lvt-key` determines *whether* the event fires at all (key filter). Semantically different from modifiers.
 - `lvt-upload` — standalone concern (custom drop zones only); doesn't fit cleanly into effects or form groups
 
 ### Evaluation Matrix
@@ -690,11 +698,12 @@ LiveTemplate already adopted the colon-delimited pattern for `lvt-on:*` and `lvt
 | `lvt-el:` | `lvt-el:addClass:on:pending`, `lvt-el:addClass:on:save:pending`, etc. | 6 named | Reactive DOM — lifecycle states + interactions |
 | `lvt-fx:` | `lvt-fx:scroll`, `lvt-fx:highlight`, `lvt-fx:animate` | 3 named | Visual effects and DOM behaviors |
 | `lvt-mod:` | `lvt-mod:debounce`, `lvt-mod:throttle` | 2 named | Event timing modifiers |
-| `lvt-form:` | `lvt-form:preserve`, `lvt-form:disable-with`, `lvt-form:no-intercept` | 3 named | Form behavior overrides |
+| `lvt-form:` | `lvt-form:action`, `lvt-form:preserve`, `lvt-form:disable-with`, `lvt-form:no-intercept` | 4 named | Form behavior overrides + routing |
+| `lvt-nav:` | `lvt-nav:no-intercept` | 1 named | Navigation interception opt-out |
 | (flat) | `lvt-key` | 1 named | Key filter |
 | (flat) | `lvt-upload` | 1 named | Custom drop zones |
 
-**Total: 5 prefix families + 2 standalone = 7 attribute concepts (down from 12)**
+**Total: 6 prefix families + 2 standalone = 8 attribute concepts (down from 12)**
 
 ### Complete Example After All Consolidations
 
@@ -715,9 +724,12 @@ LiveTemplate already adopted the colon-delimited pattern for `lvt-on:*` and `lvt
     style="--lvt-animate-duration: 300ms;">
 
 <!-- Form behavior (lvt-form:) -->
-<form lvt-form:no-intercept>
+<form lvt-form:action="checkout" lvt-form:no-intercept>
 <input lvt-form:preserve>
 <button lvt-form:disable-with="Saving...">Save</button>
+
+<!-- Navigation behavior (lvt-nav:) -->
+<a href="/legacy-page" lvt-nav:no-intercept>Legacy Page</a>
 
 <!-- Reactive DOM (lvt-el:) — unscoped triggers (any action) -->
 <button lvt-on:click="save"
@@ -761,7 +773,7 @@ LiveTemplate already adopted the colon-delimited pattern for `lvt-on:*` and `lvt
 | Timing modifiers | 2 (`lvt-debounce`, `lvt-throttle`) | 2 (`lvt-mod:debounce`, `lvt-mod:throttle`) |
 | Key filter | 1 (`lvt-key`) | 1 (unchanged) |
 | Reactive DOM | 6 (`lvt-*-on:{lifecycle}`) | 6 methods × triggers (`lvt-el:{method}:on:[{action}:]{state\|interaction}`) — states: pending/success/error/done; interactions: click-away |
-| Form behavior | 3 (`lvt-preserve`, `lvt-disable-with`, `lvt-no-intercept`) | 3 (`lvt-form:preserve`, `lvt-form:disable-with`, `lvt-form:no-intercept`) |
+| Form behavior | 3 (`lvt-preserve`, `lvt-disable-with`, `lvt-no-intercept`) | 4 (`lvt-form:action`, `lvt-form:preserve`, `lvt-form:disable-with`, `lvt-form:no-intercept`) + 1 (`lvt-nav:no-intercept`) |
 
 ## Category 7: `lvt-el:` Prefix and Unified Grammar
 
@@ -869,6 +881,7 @@ lvt-{family}:{member}[:on:[{action}:]{trigger}]="value"
 | `lvt-fx:` | `lvt-fx:{effect}[:on:[{action}:]{state}][="config"]` | **Optional** — without `:on:`, activates on every DOM content change (implicit trigger) | v1 |
 | `lvt-mod:` | `lvt-mod:{modifier}="value"` | Not applicable — modifies sibling `lvt-on:*` | v1 |
 | `lvt-form:` | `lvt-form:{behavior}[:on:[{action}:]{state}][="value"]` | **Optional** — without `:on:`, always active (implicit trigger) | v1 |
+| `lvt-nav:` | `lvt-nav:{behavior}` | Not applicable — opt-out flag | v1 |
 
 The `:on:` suffix is a universal **trigger mechanism**. It answers the question: "When should this behavior activate?" For `lvt-el:`, the trigger is always explicit and required — it can be a lifecycle state (`pending`/`success`/`error`/`done`), optionally scoped to a specific action name, or an interaction event (`click-away`). For `lvt-fx:` and `lvt-form:`, the trigger is optional — omitting it preserves backward-compatible implicit activation (effects on DOM update, form behaviors always on). When specified, the behavior becomes conditional on the named lifecycle state.
 
@@ -991,7 +1004,7 @@ The `:on:` trigger suffix works across `lvt-fx:` and `lvt-form:` families, makin
 
 After all reductions (Categories 1–7), the complete `lvt-*` surface is:
 
-**Named attributes (16) in 5 prefix families + 2 standalone:**
+**Named attributes (18) in 6 prefix families + 2 standalone:**
 
 | # | Attribute | Family |
 |---|-----------|--------|
@@ -1004,13 +1017,15 @@ After all reductions (Categories 1–7), the complete `lvt-*` surface is:
 | 7 | `lvt-el:setAttr:on:[{action}:]{state\|interaction}` | `lvt-el:` (reactive DOM) |
 | 8 | `lvt-el:toggleAttr:on:[{action}:]{state\|interaction}` | `lvt-el:` (reactive DOM) |
 | 9 | `lvt-el:reset:on:[{action}:]{state\|interaction}` | `lvt-el:` (reactive DOM) |
-| 10 | `lvt-form:preserve[:on:[{action}:]{state}]` | `lvt-form:` (form behavior) |
-| 11 | `lvt-form:disable-with[:on:[{action}:]{state}]` | `lvt-form:` (form behavior) |
-| 12 | `lvt-form:no-intercept[:on:[{action}:]{state}]` | `lvt-form:` (form behavior) |
-| 13 | `lvt-fx:scroll[:on:[{action}:]{state}]` | `lvt-fx:` (visual effect) |
-| 14 | `lvt-fx:highlight[:on:[{action}:]{state}]` | `lvt-fx:` (visual effect) |
-| 15 | `lvt-fx:animate[:on:[{action}:]{state}]` | `lvt-fx:` (visual effect) |
-| 16 | `lvt-upload` | standalone (upload) |
+| 10 | `lvt-form:action` | `lvt-form:` (form behavior) |
+| 11 | `lvt-form:preserve[:on:[{action}:]{state}]` | `lvt-form:` (form behavior) |
+| 12 | `lvt-form:disable-with[:on:[{action}:]{state}]` | `lvt-form:` (form behavior) |
+| 13 | `lvt-form:no-intercept[:on:[{action}:]{state}]` | `lvt-form:` (form behavior) |
+| 14 | `lvt-nav:no-intercept` | `lvt-nav:` (navigation) |
+| 15 | `lvt-fx:scroll[:on:[{action}:]{state}]` | `lvt-fx:` (visual effect) |
+| 16 | `lvt-fx:highlight[:on:[{action}:]{state}]` | `lvt-fx:` (visual effect) |
+| 17 | `lvt-fx:animate[:on:[{action}:]{state}]` | `lvt-fx:` (visual effect) |
+| 18 | `lvt-upload` | standalone (upload) |
 
 **Generic event pattern (1):**
 
@@ -1024,7 +1039,7 @@ After all reductions (Categories 1–7), the complete `lvt-*` surface is:
 
 This section recaps the key design decisions from Categories 1-7 so each implementation phase is self-contained.
 
-**Grammar:** `lvt-on[:{scope}]:{event}="action"` (event routing) · `lvt-el:{method}:on:[{action}:]{state|interaction}="value"` (reactive DOM) · `lvt-fx:{effect}[:on:[{action}:]{state}][="config"]` (visual effects) · `lvt-form:{behavior}[:on:[{action}:]{state}][="value"]` (form behavior)
+**Grammar:** `lvt-on[:{scope}]:{event}="action"` (event routing) · `lvt-el:{method}:on:[{action}:]{state|interaction}="value"` (reactive DOM) · `lvt-fx:{effect}[:on:[{action}:]{state}][="config"]` (visual effects) · `lvt-form:{behavior}[:on:[{action}:]{state}][="value"]` (form behavior) · `lvt-nav:{behavior}` (navigation)
 
 | Segment | Values | Default |
 |---------|--------|---------|
@@ -1079,7 +1094,8 @@ event = segments.join(':')           // remainder is the event name
 | `lvt-throttle="X"` | `lvt-mod:throttle="X"` |
 | `lvt-preserve` | `lvt-form:preserve` |
 | `lvt-disable-with="X"` | `lvt-form:disable-with="X"` |
-| `lvt-no-intercept` | `lvt-form:no-intercept` |
+| `lvt-no-intercept` (on forms) | `lvt-form:no-intercept` |
+| `lvt-no-intercept` (on links) | `lvt-nav:no-intercept` |
 | `lvt-addClass-on:{lifecycle}` | `lvt-el:addClass:on:[{action}:]{state}` |
 | `lvt-removeClass-on:{lifecycle}` | `lvt-el:removeClass:on:[{action}:]{state}` |
 | `lvt-toggleClass-on:{lifecycle}` | `lvt-el:toggleClass:on:[{action}:]{state}` |
@@ -1094,7 +1110,7 @@ event = segments.join(':')           // remainder is the event name
 | `lvt-highlight-duration` | Removed — use CSS custom property `--lvt-highlight-duration` |
 | `lvt-animate-duration` | Removed — use CSS custom property `--lvt-animate-duration` |
 
-**CSS selector escaping:** Colons in `lvt-on:*`, `lvt-el:*`, `lvt-fx:*`, `lvt-mod:*`, and `lvt-form:*` must be escaped in CSS selectors. Use the `lvtSelector(attr, value?)` utility (Phase 1 Step 3) for all `querySelectorAll` calls.
+**CSS selector escaping:** Colons in `lvt-on:*`, `lvt-el:*`, `lvt-fx:*`, `lvt-mod:*`, `lvt-form:*`, and `lvt-nav:*` must be escaped in CSS selectors. Use the `lvtSelector(attr, value?)` utility (Phase 1 Step 3) for all `querySelectorAll` calls.
 
 ### Path Convention
 
@@ -1325,7 +1341,7 @@ Add a step to rename the prefix-consolidated attributes:
 
 6. **Rename prefix-consolidated attributes.** Throughout the client codebase:
    - `lvt-debounce` → `lvt-mod:debounce`, `lvt-throttle` → `lvt-mod:throttle` (timing modifiers)
-   - `lvt-preserve` → `lvt-form:preserve`, `lvt-disable-with` → `lvt-form:disable-with`, `lvt-no-intercept` → `lvt-form:no-intercept` (form behavior)
+   - `lvt-preserve` → `lvt-form:preserve`, `lvt-disable-with` → `lvt-form:disable-with`, `lvt-no-intercept` → `lvt-form:no-intercept` (form behavior on forms), `lvt-no-intercept` → `lvt-nav:no-intercept` (link interception opt-out)
    - `lvt-addClass-on:*` → `lvt-el:addClass:on:*`, and similarly for all 6 reactive DOM attrs (Category 7 renames)
    - Update all `querySelectorAll` calls, attribute reads, and constants to use the new prefixed names
    - Use `lvtSelector()` for all CSS selector queries involving colons
@@ -1363,7 +1379,7 @@ npm test
 
 #### Step 6: Acceptance Criteria (Phase 1A)
 
-- [x] Client: `lvt-on:click`, `lvt-on:input`, `lvt-on:keydown`, etc. all route to server actions correctly
+- [x] Client: `lvt-on:click`, `lvt-on:input`, `lvt-on:change`, `lvt-on:keydown`, etc. all route to server actions correctly
 - [x] Client: `lvt-on:window:keydown` with `lvt-key` filter works
 - [x] Client: `lvt-el:*:on:click-away` inverted containment works (client-side DOM manipulation, no server round-trip)
 - [x] Client: `modal-manager.ts` deleted, no `lvt-modal-open/close` handling
@@ -1373,7 +1389,9 @@ npm test
 - [x] Client: Directives use `lvt-fx:*` prefix, read from CSS custom properties, `livetemplate.css` ships with defaults
 - [x] Client: `lvt-fx:` supports optional `:on:` triggers — implicit (no `:on:`, activates on content change) and explicit (`lvt-fx:highlight:on:success`, `lvt-fx:highlight:on:save:success`)
 - [x] Client: Timing modifiers use `lvt-mod:*` prefix (`lvt-mod:debounce`, `lvt-mod:throttle`)
-- [x] Client: Form behavior uses `lvt-form:*` prefix (`lvt-form:preserve`, `lvt-form:disable-with`, `lvt-form:no-intercept`)
+- [x] Client: Form behavior uses `lvt-form:*` prefix (`lvt-form:action`, `lvt-form:preserve`, `lvt-form:disable-with`, `lvt-form:no-intercept`)
+- [x] Client: Link interception opt-out uses `lvt-nav:no-intercept` (semantic separation from `lvt-form:no-intercept`)
+- [x] Client: `action` field is no longer reserved — flows through to ActionData as normal form data
 - [x] Client: `lvt-form:` supports optional `:on:` triggers — implicit (no `:on:`, always active) and explicit (`lvt-form:preserve:on:error`, `lvt-form:preserve:on:update:error`)
 - [x] Client: All tests pass: `npm test`
 
