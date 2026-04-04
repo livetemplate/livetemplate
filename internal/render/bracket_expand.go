@@ -9,6 +9,9 @@ import (
 // It captures the prefix before the bracket, the comma-separated actions inside brackets,
 // and the suffix after the bracket (state + optional ="value").
 //
+// Lifecycle states (pending, success, error, done) are the four core states defined by
+// the client protocol. If new states are added, update this regex to match.
+//
 // Known limitation: unquoted attribute values are not matched.
 var bracketAttrPattern = regexp.MustCompile(
 	`(lvt-(?:el|fx|form):[^=\s]*?:on:)\[([^\]]+)\](:(?:pending|success|error|done))` +
@@ -40,7 +43,9 @@ func ExpandBracketAttributes(html string) string {
 
 	return bracketAttrPattern.ReplaceAllStringFunc(html, func(match string) string {
 		parts := bracketAttrPattern.FindStringSubmatch(match)
-		if len(parts) < 4 {
+		// Safety: FindStringSubmatch always returns 5 elements (1 full match + 4 groups)
+		// when called inside ReplaceAllStringFunc, but guard defensively.
+		if len(parts) < 5 {
 			return match
 		}
 
