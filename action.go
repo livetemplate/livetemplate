@@ -157,7 +157,7 @@ func (a *ActionData) GetIntOk(key string) (int, bool) {
 	if v, ok := a.raw[key].(float64); ok {
 		return int(v), true
 	}
-	// Handle string values from form fields
+	// Handle string values from form fields and data-* attributes
 	if v, ok := a.raw[key].(string); ok {
 		if i, err := strconv.Atoi(v); err == nil {
 			return i, true
@@ -188,7 +188,7 @@ func (a *ActionData) GetFloatOk(key string) (float64, bool) {
 	if v, ok := a.raw[key].(float64); ok {
 		return v, true
 	}
-	// Handle string values from form fields
+	// Handle string values from form fields and data-* attributes
 	if v, ok := a.raw[key].(string); ok {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			return f, true

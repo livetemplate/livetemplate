@@ -467,6 +467,8 @@ When the same reactive attribute applies to multiple actions, use bracket syntax
 
 Bracket expansion works for `lvt-el:*`, `lvt-fx:*`, and `lvt-form:*` prefixes, including boolean attributes (no `="value"`). Bracket syntax works everywhere in templates, including inside `{{range}}` and `{{if}}` blocks.
 
+> **Note:** Attribute values must be quoted (`="..."` or `='...'`). Unquoted values like `lvt-el:addClass:on:[a,b]:pending=loading` will produce incorrect output. Bracket expansion operates on raw template source, so patterns inside `<script>` or `<style>` blocks would also be expanded if they match — though the `lvt-el:`/`lvt-fx:`/`lvt-form:` prefixes make false matches unlikely in practice.
+
 ---
 
 ## Validation
