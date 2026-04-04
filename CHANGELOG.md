@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<a name="v0.8.15"></a>
+## [v0.8.15] - 2026-04-04
+
+### Bug Fixes
+
+- unreserve action field, update tests to use lvt-action ([#321](https://github.com/livefir/livetemplate/issues/321))
+
+### Documentation
+
+- mark Phase 1B as complete in progress tracker ([#322](https://github.com/livefir/livetemplate/issues/322))
+- update client-attributes reference for action-fix changes
+- add lvt-form:action, lvt-nav: group, lvt-on:change to proposal
+- mark Phase 1A complete in attribute-reduction proposal
+- attribute reduction proposal — design + implementation plan ([#288](https://github.com/livefir/livetemplate/issues/288))
+
+
 <a name="v0.8.14"></a>
 ## [v0.8.14] - 2026-04-02
 
@@ -678,7 +694,8 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.14...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.15...HEAD
+[v0.8.15]: https://github.com/livefir/livetemplate/compare/v0.8.14...v0.8.15
 [v0.8.14]: https://github.com/livefir/livetemplate/compare/v0.8.13...v0.8.14
 [v0.8.13]: https://github.com/livefir/livetemplate/compare/v0.8.12...v0.8.13
 [v0.8.12]: https://github.com/livefir/livetemplate/compare/v0.8.11...v0.8.12
