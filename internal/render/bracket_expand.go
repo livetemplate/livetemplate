@@ -8,9 +8,11 @@ import (
 // bracketAttrPattern matches lvt-{el|fx|form}:*:on:[actions]:state="value" attributes.
 // It captures the prefix before the bracket, the comma-separated actions inside brackets,
 // and the suffix after the bracket (state + optional ="value").
+//
+// Known limitation: unquoted attribute values are not matched.
 var bracketAttrPattern = regexp.MustCompile(
 	`(lvt-(?:el|fx|form):[^=\s]*?:on:)\[([^\]]+)\](:(?:pending|success|error|done))` +
-		`(="[^"]*")?`,
+		`(="[^"]*"|='[^']*')?`,
 )
 
 // ExpandBracketAttributes expands multi-action bracket syntax in rendered HTML.
@@ -31,6 +33,11 @@ var bracketAttrPattern = regexp.MustCompile(
 // on initial HTTP render but not in subsequent WebSocket diff updates. Use individual
 // attributes (not bracket syntax) for elements inside dynamic template blocks.
 func ExpandBracketAttributes(html string) string {
+	// Fast path: skip regex when no bracket syntax is present.
+	if !strings.Contains(html, ":on:[") {
+		return html
+	}
+
 	return bracketAttrPattern.ReplaceAllStringFunc(html, func(match string) string {
 		parts := bracketAttrPattern.FindStringSubmatch(match)
 		if len(parts) < 4 {

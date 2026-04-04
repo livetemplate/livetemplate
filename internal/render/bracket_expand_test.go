@@ -81,9 +81,16 @@ func TestExpandBracketAttributes(t *testing.T) {
 			want:  `<div lvt-el:addClass:on:save:pending="X">`,
 		},
 		{
-			name:  "all empty actions returns match unchanged",
+			name: "all empty actions returns match unchanged",
+			// Degenerate syntax is preserved as-is rather than silently dropped,
+			// serving as a visible signal that the bracket list is malformed.
 			input: `<div lvt-el:addClass:on:[,,]:pending="X">`,
 			want:  `<div lvt-el:addClass:on:[,,]:pending="X">`,
+		},
+		{
+			name:  "single-quoted value expanded correctly",
+			input: `<div lvt-el:addClass:on:[save,delete]:pending='opacity-50'>`,
+			want:  `<div lvt-el:addClass:on:save:pending='opacity-50' lvt-el:addClass:on:delete:pending='opacity-50'>`,
 		},
 	}
 
