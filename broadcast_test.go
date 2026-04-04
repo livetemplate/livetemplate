@@ -149,7 +149,7 @@ func TestHTTPPost_BroadcastAction_DispatchesToWebSocket(t *testing.T) {
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		form := url.Values{}
-		form.Set("action", "increment")
+		form.Set("lvt-action", "increment")
 		resp, err := http.Post(server.URL+"/", "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
 		if err != nil {
 			t.Fatalf("HTTP POST failed: %v", err)

@@ -61,11 +61,8 @@ func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 		return msg, nil
 	}
 
-	// Try to get action from form value (supports both "action" and "lvt-action")
+	// Get action from lvt-action field (explicit routing for progressive enhancement)
 	msg.Action = r.FormValue("lvt-action")
-	if msg.Action == "" {
-		msg.Action = r.FormValue("action")
-	}
 
 	// Try to get data from JSON-encoded form field
 	if dataStr := r.FormValue("data"); dataStr != "" {
@@ -86,11 +83,14 @@ func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 // parseURLEncodedForm parses action from application/x-www-form-urlencoded (standard HTML forms).
 //
 // Action resolution order (first match wins):
-//  1. "lvt-action" form field (legacy explicit routing)
-//  2. "action" form field (standard HTML: <button name="action" value="X">)
-//  3. Button name routing: a form field with an empty string value is treated as a
+//  1. "lvt-action" form field (legacy explicit routing for progressive enhancement)
+//  2. Button name routing: a form field with an empty string value is treated as a
 //     submit button whose name is the action (standard HTML: <button name="increment">)
-//  4. Empty string (server defaults to "submit" via applyDefaultAction)
+//  3. Empty string (server defaults to "submit" via applyDefaultAction)
+//
+// Note: "action" is NOT reserved — it flows through as normal form data.
+// For explicit routing, use lvt-form:action attribute (client-side) or
+// lvt-action hidden field (server-side progressive enhancement).
 func parseURLEncodedForm(r *http.Request) (ActionMessage, error) {
 	var msg ActionMessage
 
@@ -98,14 +98,11 @@ func parseURLEncodedForm(r *http.Request) (ActionMessage, error) {
 		return ActionMessage{}, fmt.Errorf("failed to parse form: %w", err)
 	}
 
-	// Get action from lvt-action field (or fallback to action)
+	// Get action from lvt-action field (explicit routing for progressive enhancement)
 	msg.Action = r.FormValue("lvt-action")
-	if msg.Action == "" {
-		msg.Action = r.FormValue("action")
-	}
 
 	// Action routing fields to exclude from data
-	actionFields := map[string]bool{"lvt-action": true, "action": true}
+	actionFields := map[string]bool{"lvt-action": true}
 
 	// If no explicit action, detect button-name-as-action:
 	// A submit button with name="X" and no value submits "X=" in form data.
