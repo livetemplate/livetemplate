@@ -213,7 +213,9 @@ func (c *Context) Redirect(url string, code int) error {
 		return ErrInvalidRedirectURL
 	}
 	http.Redirect(c.w, c.r, url, code)
-	*c.redirected = true
+	if c.redirected != nil {
+		*c.redirected = true
+	}
 	return nil
 }
 

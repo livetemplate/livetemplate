@@ -49,7 +49,9 @@ func ExpandBracketAttributes(html string) string {
 
 	return bracketAttrPattern.ReplaceAllStringFunc(html, func(match string) string {
 		parts := bracketAttrPattern.FindStringSubmatch(match)
-		// unreachable in practice; guards against future regex changes
+		// FindStringSubmatch returns nil (no match) or exactly 5 elements
+		// (1 full match + 4 capture groups). ReplaceAllStringFunc only calls
+		// us on matches, so parts is always 5 here.
 		if len(parts) < 5 {
 			return match
 		}

@@ -20,7 +20,7 @@ Quick-reference for how standard HTML maps to LiveTemplate behavior. For the lea
 
 When a form is submitted, the action is resolved in this order (first match wins):
 
-1. Explicit `action` field (e.g. `<button name="action" value="save">`)
+1. Explicit `action` field — `<button name="action" value="save">` or `<input type="hidden" name="action" value="save">`
 2. Clicked button's `name` attribute (empty-value heuristic: works when only the clicked button submits an empty value)
 3. Form's `name` attribute
 4. Default: `"submit"` → `Submit()`
