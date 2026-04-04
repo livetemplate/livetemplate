@@ -18,7 +18,7 @@ var bracketAttrPattern = regexp.MustCompile(
 		`(="[^"]*"|='[^']*')?`,
 )
 
-// ExpandBracketAttributes expands multi-action bracket syntax in rendered HTML.
+// ExpandBracketAttributes expands multi-action bracket syntax in HTML or template source.
 // For example:
 //
 //	lvt-el:addClass:on:[save,delete]:pending="opacity-50"
@@ -30,11 +30,10 @@ var bracketAttrPattern = regexp.MustCompile(
 // This handles lvt-el:*, lvt-fx:*, and lvt-form:* prefixes.
 // Attributes without brackets pass through unchanged.
 //
-// NOTE: This runs only on the HTTP response path (renderHTML). The WebSocket tree
-// path (buildTree/buildTreeWithCache) builds from the template AST, not rendered
-// HTML. Bracket syntax inside dynamic elements ({{range}}, {{if}}) will be expanded
-// on initial HTTP render but not in subsequent WebSocket diff updates. Use individual
-// attributes (not bracket syntax) for elements inside dynamic template blocks.
+// Called at template parse time (in parseInternal) so both the HTTP response path
+// and the WebSocket tree path receive expanded attributes. Bracket syntax inside
+// dynamic template blocks ({{range}}, {{if}}) is correctly expanded since the
+// source is transformed before Go's template parser processes it.
 func ExpandBracketAttributes(html string) string {
 	// Fast path: skip regex when no bracket syntax is present.
 	if !strings.Contains(html, ":on:[") {

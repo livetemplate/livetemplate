@@ -997,6 +997,12 @@ func (t *Template) parseInternal(text string, baseTemplate *template.Template, i
 		text = flattenedStr
 	}
 
+	// Expand multi-action bracket syntax before parsing.
+	// e.g. lvt-el:addClass:on:[save,delete]:pending="X" → individual attributes.
+	// Done at source level so both HTTP rendering (t.tmpl) and WebSocket tree
+	// generation (t.templateStr → buildTreeWithCache) see expanded attributes.
+	text = render.ExpandBracketAttributes(text)
+
 	// Now add wrapper to the (possibly flattened) template for execution
 	var templateContent string
 	if isFullHTML {
@@ -1703,14 +1709,6 @@ func (t *Template) renderHTML(data interface{}, messages map[string]string) (str
 	}
 
 	result := string(htmlBytes)
-
-	// Expand multi-action bracket syntax in lvt-el:*, lvt-fx:*, lvt-form:* attributes.
-	// e.g. lvt-el:addClass:on:[save,delete]:pending="X" → individual attributes per action.
-	// NOTE: This only applies to the HTTP response path. The WebSocket tree path
-	// (buildTree → buildTreeWithCache) uses the template AST directly. Bracket syntax
-	// inside dynamic template blocks ({{range}}, {{if}}) should use individual attributes
-	// instead to ensure correct behavior on WebSocket updates.
-	result = render.ExpandBracketAttributes(result)
 
 	// Auto-inject aria-invalid="true" on form elements with validation errors.
 	// Only applied in the HTTP response path (renderHTML). The WebSocket tree path

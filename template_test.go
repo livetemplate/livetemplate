@@ -408,6 +408,60 @@ func TestTemplate_ExecuteUpdates(t *testing.T) {
 	}
 }
 
+func TestTemplate_BracketExpansionInTreeStatics(t *testing.T) {
+	// Bracket expansion should happen at parse time, so both HTTP and WebSocket
+	// paths see expanded attributes. This test verifies the tree (WebSocket path)
+	// contains expanded attributes in statics, especially inside {{range}} blocks.
+	type Item struct {
+		Name string
+	}
+
+	tmpl := Must(New("test"))
+	_, err := tmpl.Parse(`<ul>{{range .Items}}<li lvt-el:addClass:on:[save,delete]:pending="loading">{{.Name}}</li>{{end}}</ul>`)
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
+
+	// ExecuteUpdates produces the tree JSON sent via WebSocket
+	var buf bytes.Buffer
+	err = tmpl.ExecuteUpdates(&buf, map[string]interface{}{
+		"Items": []Item{{Name: "first"}},
+	})
+	if err != nil {
+		t.Fatalf("ExecuteUpdates() failed: %v", err)
+	}
+
+	output := buf.String()
+
+	// The tree statics should contain expanded attributes (not bracket syntax)
+	if strings.Contains(output, "on:[save,delete]") {
+		t.Errorf("tree statics should not contain unexpanded bracket syntax, got: %s", output)
+	}
+	if !strings.Contains(output, `on:save:pending`) {
+		t.Errorf("tree statics should contain expanded on:save:pending, got: %s", output)
+	}
+	if !strings.Contains(output, `on:delete:pending`) {
+		t.Errorf("tree statics should contain expanded on:delete:pending, got: %s", output)
+	}
+
+	// Also verify HTTP path (Execute) produces expanded output
+	var httpBuf bytes.Buffer
+	err = tmpl.Execute(&httpBuf, map[string]interface{}{
+		"Items": []Item{{Name: "first"}},
+	})
+	if err != nil {
+		t.Fatalf("Execute() failed: %v", err)
+	}
+
+	httpOutput := httpBuf.String()
+	if strings.Contains(httpOutput, "on:[save,delete]") {
+		t.Errorf("HTTP output should not contain unexpanded bracket syntax, got: %s", httpOutput)
+	}
+	if !strings.Contains(httpOutput, `on:save:pending="loading"`) {
+		t.Errorf("HTTP output should contain expanded on:save:pending, got: %s", httpOutput)
+	}
+}
+
 func TestTemplate_ExecuteUpdates_FlashMessages(t *testing.T) {
 	tmpl := Must(New("test"))
 	_, err := tmpl.Parse(`<div>{{if .lvt.HasFlash "success"}}<p>{{.lvt.Flash "success"}}</p>{{end}}</div>`)
