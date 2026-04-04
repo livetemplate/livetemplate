@@ -420,7 +420,7 @@ For interactions outside the form submit lifecycle — hover effects, focus/blur
 </div>
 ```
 
-> **Prefer Tier 1 when possible:** For buttons that trigger actions, use `<form>` + `<button name="action">` instead of `lvt-on:click`. See [Section 2](#2-multiple-actions-with-button-names).
+> **Prefer Tier 1 when possible:** For buttons that trigger actions, use `<form>` + `<button name="action" value="save">` instead of `lvt-on:click`. See [Section 2](#2-multiple-actions-with-button-names).
 
 See [Client Attributes Reference — Event Bindings](../references/client-attributes.md#event-bindings) for the full list of `lvt-on:{event}` bindings.
 

@@ -24,6 +24,12 @@ var bracketAttrPattern = regexp.MustCompile(
 //
 // This handles lvt-el:*, lvt-fx:*, and lvt-form:* prefixes.
 // Attributes without brackets pass through unchanged.
+//
+// NOTE: This runs only on the HTTP response path (renderHTML). The WebSocket tree
+// path (buildTree/buildTreeWithCache) builds from the template AST, not rendered
+// HTML. Bracket syntax inside dynamic elements ({{range}}, {{if}}) will be expanded
+// on initial HTTP render but not in subsequent WebSocket diff updates. Use individual
+// attributes (not bracket syntax) for elements inside dynamic template blocks.
 func ExpandBracketAttributes(html string) string {
 	return bracketAttrPattern.ReplaceAllStringFunc(html, func(match string) string {
 		parts := bracketAttrPattern.FindStringSubmatch(match)
@@ -34,15 +40,23 @@ func ExpandBracketAttributes(html string) string {
 		prefix := parts[1]  // e.g. "lvt-el:addClass:on:"
 		actions := parts[2] // e.g. "save,delete"
 		suffix := parts[3]  // e.g. ":pending"
-		value := ""
-		if len(parts) > 4 {
-			value = parts[4] // e.g. `="opacity-50"` or empty
-		}
+		value := parts[4]   // e.g. `="opacity-50"` or empty string
 
 		actionList := strings.Split(actions, ",")
-		expanded := make([]string, len(actionList))
-		for i, action := range actionList {
+		validActions := make([]string, 0, len(actionList))
+		for _, action := range actionList {
 			action = strings.TrimSpace(action)
+			if action == "" {
+				continue
+			}
+			validActions = append(validActions, action)
+		}
+		if len(validActions) == 0 {
+			return match
+		}
+
+		expanded := make([]string, len(validActions))
+		for i, action := range validActions {
 			expanded[i] = prefix + action + suffix + value
 		}
 		return strings.Join(expanded, " ")

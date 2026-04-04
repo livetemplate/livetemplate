@@ -70,6 +70,21 @@ func TestExpandBracketAttributes(t *testing.T) {
 			input: `<div lvt-el:toggleClass:on:[x,y]:success="active">`,
 			want:  `<div lvt-el:toggleClass:on:x:success="active" lvt-el:toggleClass:on:y:success="active">`,
 		},
+		{
+			name:  "empty action filtered out",
+			input: `<div lvt-el:addClass:on:[save,,delete]:pending="X">`,
+			want:  `<div lvt-el:addClass:on:save:pending="X" lvt-el:addClass:on:delete:pending="X">`,
+		},
+		{
+			name:  "trailing comma filtered",
+			input: `<div lvt-el:addClass:on:[save,]:pending="X">`,
+			want:  `<div lvt-el:addClass:on:save:pending="X">`,
+		},
+		{
+			name:  "all empty actions returns match unchanged",
+			input: `<div lvt-el:addClass:on:[,,]:pending="X">`,
+			want:  `<div lvt-el:addClass:on:[,,]:pending="X">`,
+		},
 	}
 
 	for _, tt := range tests {
