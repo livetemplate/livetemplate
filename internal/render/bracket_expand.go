@@ -13,8 +13,10 @@ import (
 // the client protocol. If new states are added, update this regex to match.
 //
 // Known limitation: unquoted attribute values are not matched.
+// The +? quantifier requires at least one character in the method segment,
+// rejecting malformed patterns like lvt-el::on:[save]:pending.
 var bracketAttrPattern = regexp.MustCompile(
-	`(lvt-(?:el|fx|form):[^=\s]*?:on:)\[([^\]]+)\](:(?:pending|success|error|done))` +
+	`(lvt-(?:el|fx|form):[^=\s]+?:on:)\[([^\]]+)\](:(?:pending|success|error|done))` +
 		`(="[^"]*"|='[^']*')?`,
 )
 

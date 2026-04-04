@@ -1184,7 +1184,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.config.ProgressiveEnhancement && !wantsJSON(r) {
 		// If the action handler already sent a redirect (via ctx.Redirect()),
 		// skip the PRG redirect to avoid "superfluous response.WriteHeader" errors.
-		if actionCtx.redirected {
+		if *actionCtx.redirected {
 			return
 		}
 
