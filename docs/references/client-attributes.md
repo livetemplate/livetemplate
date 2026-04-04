@@ -411,9 +411,7 @@ When the same reactive attribute applies to multiple actions, use bracket syntax
 </button>
 ```
 
-Bracket expansion works for `lvt-el:*`, `lvt-fx:*`, and `lvt-form:*` prefixes, including boolean attributes (no `="value"`).
-
-> **⚠️ Limitation:** Bracket expansion runs only on the initial HTTP render. Elements inside dynamic template blocks (`{{range}}`, `{{if}}`) that appear after the first render via WebSocket updates will receive the unexpanded bracket syntax, which the client ignores. Use individual attributes (not bracket syntax) for elements inside dynamic template blocks.
+Bracket expansion works for `lvt-el:*`, `lvt-fx:*`, and `lvt-form:*` prefixes, including boolean attributes (no `="value"`). Bracket syntax works everywhere in templates, including inside `{{range}}` and `{{if}}` blocks.
 
 ---
 
