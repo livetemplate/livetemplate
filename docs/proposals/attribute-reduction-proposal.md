@@ -1163,7 +1163,7 @@ document.querySelectorAll('[lvt-form\\:preserve]')
 |---|-----------|-------------|------|--------|----|
 | 1 | 1A | Client: generic event router + removals | `client` | COMPLETE | #44 |
 | 2 | 1B | Server: remove `lvt-action` + update docs | `livetemplate` | COMPLETE | #322 |
-| 3 | 2E | Examples: early migration + manual review | `examples` | NOT STARTED | — |
+| 3 | 2E | Examples: early migration + manual review | `examples` | COMPLETE | #53 |
 | 4 | 2A | lvt: audit + template/Go migration | `lvt` | NOT STARTED | — |
 | 5 | 2B | lvt: golden files + e2e tests + PR | `lvt` | NOT STARTED | — |
 | 6 | 3A | tinkerdown: audit + Go/TS migration | `tinkerdown` | NOT STARTED | — |
