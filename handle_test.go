@@ -263,7 +263,7 @@ func TestProgressiveEnhancement_NonJSFormWithErrors(t *testing.T) {
 
 	// POST without Accept: application/json (browser behavior)
 	form := url.Values{}
-	form.Set("lvt-action", "Add")
+	form.Set("action", "Add")
 	form.Set("title", "") // Empty title should cause validation error
 
 	req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
@@ -304,7 +304,7 @@ func TestProgressiveEnhancement_NonJSFormSuccess(t *testing.T) {
 
 	// POST without Accept: application/json
 	form := url.Values{}
-	form.Set("lvt-action", "Add")
+	form.Set("action", "Add")
 	form.Set("title", "Test item")
 
 	req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
@@ -349,7 +349,7 @@ func TestProgressiveEnhancement_JSClientStillGetsJSON(t *testing.T) {
 
 	// POST with Accept: application/json (JS client behavior)
 	form := url.Values{}
-	form.Set("lvt-action", "Add")
+	form.Set("action", "Add")
 	form.Set("title", "Test item")
 
 	req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
@@ -384,7 +384,7 @@ func TestProgressiveEnhancement_Disabled(t *testing.T) {
 
 	// POST without Accept: application/json
 	form := url.Values{}
-	form.Set("lvt-action", "Add")
+	form.Set("action", "Add")
 	form.Set("title", "Test item")
 
 	req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
@@ -420,7 +420,7 @@ func TestProgressiveEnhancement_FlashCookieConsumed(t *testing.T) {
 
 	// Step 1: POST to trigger action and get flash cookie
 	form := url.Values{}
-	form.Set("lvt-action", "Add")
+	form.Set("action", "Add")
 	form.Set("title", "Cookie test")
 
 	req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
@@ -565,7 +565,7 @@ func TestWebSocketDisabled_ResponseHeader(t *testing.T) {
 			var req *http.Request
 			if tt.method == "POST" {
 				form := url.Values{}
-				form.Set("lvt-action", "Increment")
+				form.Set("action", "Increment")
 				req = httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
 				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 				req.Header.Set("Accept", "application/json")
@@ -658,7 +658,7 @@ func TestWebSocketDisabled_POSTActionSuccess(t *testing.T) {
 	handler := newWSDisabledHandler(t)
 
 	form := url.Values{}
-	form.Set("lvt-action", "Add")
+	form.Set("action", "Add")
 	form.Set("title", "Test item")
 
 	req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
@@ -692,7 +692,7 @@ func TestWebSocketDisabled_POSTValidationError(t *testing.T) {
 	handler := newWSDisabledHandler(t)
 
 	form := url.Values{}
-	form.Set("lvt-action", "Add")
+	form.Set("action", "Add")
 	form.Set("title", "")
 
 	req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
@@ -716,7 +716,7 @@ func TestWebSocketDisabled_POSTReturnsJSONForJSClient(t *testing.T) {
 	handler := newWSDisabledHandler(t)
 
 	form := url.Values{}
-	form.Set("lvt-action", "Increment")
+	form.Set("action", "Increment")
 
 	req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -759,7 +759,7 @@ func TestWebSocketDisabled_StatePersistsAcrossRequests(t *testing.T) {
 
 	// Step 2: POST with cookie (Increment)
 	form := url.Values{}
-	form.Set("lvt-action", "Increment")
+	form.Set("action", "Increment")
 	req = httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "text/html")
@@ -797,7 +797,7 @@ func TestWebSocketDisabled_SessionIsolation(t *testing.T) {
 
 	// Session A: POST Increment
 	form := url.Values{}
-	form.Set("lvt-action", "Increment")
+	form.Set("action", "Increment")
 	reqA = httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
 	reqA.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	reqA.Header.Set("Accept", "text/html")
@@ -831,7 +831,7 @@ func TestWebSocketDisabled_WithPEDisabled(t *testing.T) {
 	handler := newWSDisabledHandler(t, WithProgressiveEnhancement(false))
 
 	form := url.Values{}
-	form.Set("lvt-action", "Increment")
+	form.Set("action", "Increment")
 
 	req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -866,7 +866,7 @@ func TestWebSocketDisabled_DiffOptimization(t *testing.T) {
 	// Step 2: First POST — should include statics ("s" key) since it's the
 	// first time the cached HTTP template renders via ExecuteUpdates
 	form := url.Values{}
-	form.Set("lvt-action", "Increment")
+	form.Set("action", "Increment")
 	req = httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
@@ -894,7 +894,7 @@ func TestWebSocketDisabled_DiffOptimization(t *testing.T) {
 
 	// Step 3: Second POST — should NOT include statics (diff only)
 	form = url.Values{}
-	form.Set("lvt-action", "Increment")
+	form.Set("action", "Increment")
 	req = httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
@@ -982,7 +982,7 @@ func TestWebSocketDisabled_MultiTabDiffCorrectness(t *testing.T) {
 	// Tab A: POST Increment (first action — response includes statics)
 	postWithCookie := func(action string) *httptest.ResponseRecorder {
 		form := url.Values{}
-		form.Set("lvt-action", action)
+		form.Set("action", action)
 		r := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		r.Header.Set("Accept", "application/json")
@@ -1076,7 +1076,7 @@ func TestHTTPTemplateSweep_CleansStaleEntries(t *testing.T) {
 
 	// Step 2: POST to populate httpTemplates cache
 	form := url.Values{}
-	form.Set("lvt-action", "Increment")
+	form.Set("action", "Increment")
 	req = httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
@@ -1130,7 +1130,7 @@ func TestHTTPTemplateSweep_PreservesActiveSessions(t *testing.T) {
 	// POST on both to populate cache
 	for _, cookie := range []*http.Cookie{cookie1, cookie2} {
 		form := url.Values{}
-		form.Set("lvt-action", "Increment")
+		form.Set("action", "Increment")
 		req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set("Accept", "application/json")
@@ -1222,7 +1222,7 @@ func TestWebSocketDisabled_ConcurrentPOSTsSameSession(t *testing.T) {
 	for i := 0; i < concurrency; i++ {
 		go func() {
 			form := url.Values{}
-			form.Set("lvt-action", "Increment")
+			form.Set("action", "Increment")
 			r := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
 			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			r.Header.Set("Accept", "application/json")
@@ -1282,7 +1282,7 @@ func TestWebSocketDisabled_POSTToDifferentPathDoesNotResetState(t *testing.T) {
 
 	// Step 2: POST /page-a — increment count
 	form := url.Values{}
-	form.Set("lvt-action", "Increment")
+	form.Set("action", "Increment")
 	req = httptest.NewRequest("POST", "/page-a", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "text/html")
@@ -1292,7 +1292,7 @@ func TestWebSocketDisabled_POSTToDifferentPathDoesNotResetState(t *testing.T) {
 
 	// Step 3: POST to /page-a/action (different path) — should NOT reset state
 	form = url.Values{}
-	form.Set("lvt-action", "Increment")
+	form.Set("action", "Increment")
 	req = httptest.NewRequest("POST", "/page-a/action", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "text/html")
@@ -1326,7 +1326,7 @@ func TestWebSocketDisabled_ConcurrentPathChanges(t *testing.T) {
 
 	// Increment count on /page-a
 	form := url.Values{}
-	form.Set("lvt-action", "Increment")
+	form.Set("action", "Increment")
 	req = httptest.NewRequest("POST", "/page-a", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "text/html")
@@ -1381,7 +1381,7 @@ func TestWebSocketDisabled_PathChangeResetsState(t *testing.T) {
 
 	// Step 2: POST /page-a — increment count
 	form := url.Values{}
-	form.Set("lvt-action", "Increment")
+	form.Set("action", "Increment")
 	req = httptest.NewRequest("POST", "/page-a", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "text/html")
@@ -1430,7 +1430,7 @@ func TestWebSocketDisabled_TrailingSlashDoesNotResetState(t *testing.T) {
 
 	// Step 2: POST /page-a — increment count
 	form := url.Values{}
-	form.Set("lvt-action", "Increment")
+	form.Set("action", "Increment")
 	req = httptest.NewRequest("POST", "/page-a", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "text/html")
@@ -1473,7 +1473,7 @@ func TestWebSocketDisabled_ErrorsDoNotLeakAcrossRoutes(t *testing.T) {
 
 	// Step 2: POST /page-a with empty title — triggers validation error
 	form := url.Values{}
-	form.Set("lvt-action", "Add")
+	form.Set("action", "Add")
 	form.Set("title", "")
 	req = httptest.NewRequest("POST", "/page-a", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -1555,7 +1555,7 @@ func TestWebSocketDisabled_ErrorsDoNotLeakAcrossRoutes_JSONClient(t *testing.T) 
 
 	// Step 2: POST /page-a with empty title (JSON) — should return errors in meta
 	form := url.Values{}
-	form.Set("lvt-action", "Add")
+	form.Set("action", "Add")
 	form.Set("title", "")
 	req = httptest.NewRequest("POST", "/page-a", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -1583,7 +1583,7 @@ func TestWebSocketDisabled_ErrorsDoNotLeakAcrossRoutes_JSONClient(t *testing.T) 
 
 	// Step 3: POST /page-a with valid title (JSON) — errors should clear
 	form = url.Values{}
-	form.Set("lvt-action", "Add")
+	form.Set("action", "Add")
 	form.Set("title", "hello")
 	req = httptest.NewRequest("POST", "/page-a", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -1680,7 +1680,7 @@ func TestWebSocketDisabled_PathChangeMountFailureRetry(t *testing.T) {
 	// This ensures stale state differs from fresh state, so the retry
 	// assertion can distinguish "Mount was called" from "used stale state".
 	form := url.Values{}
-	form.Set("lvt-action", "Increment")
+	form.Set("action", "Increment")
 	req = httptest.NewRequest("POST", "/page-a", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "text/html")
@@ -2558,7 +2558,7 @@ func TestEphemeral_HTTPGetAlwaysFresh(t *testing.T) {
 
 	// POST to increment
 	form := url.Values{}
-	form.Set("lvt-action", "Increment")
+	form.Set("action", "Increment")
 	req, _ := http.NewRequest("POST", server.URL+"/", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "text/html")
@@ -2612,7 +2612,7 @@ func TestEphemeral_HTTPPostWorks(t *testing.T) {
 
 	// POST with JSON (JS client mode) to get the response body directly
 	form := url.Values{}
-	form.Set("lvt-action", "Increment")
+	form.Set("action", "Increment")
 	req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
@@ -2642,7 +2642,7 @@ func TestMount_RunsOnHTTPPost(t *testing.T) {
 
 	// POST with JSON accept to get structured response
 	form := url.Values{}
-	form.Set("lvt-action", "Increment")
+	form.Set("action", "Increment")
 	req := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
@@ -2738,7 +2738,7 @@ func TestEphemeral_DispatchedActionNotPersisted(t *testing.T) {
 
 	// HTTP POST triggers Increment, which broadcasts RefreshCount to WS1
 	form := url.Values{}
-	form.Set("lvt-action", "Increment")
+	form.Set("action", "Increment")
 	req, _ := http.NewRequest("POST", server.URL+"/", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")

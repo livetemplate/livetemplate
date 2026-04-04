@@ -237,8 +237,8 @@ func TestParseActionFromHTTP_URLEncoded(t *testing.T) {
 		wantErr    bool
 	}{
 		{
-			name:       "basic form with lvt-action",
-			body:       "lvt-action=login&username=testuser&password=secret",
+			name:       "basic form with action field",
+			body:       "action=login&username=testuser&password=secret",
 			wantAction: "login",
 			wantData: map[string]interface{}{
 				"username": "testuser",
@@ -252,14 +252,6 @@ func TestParseActionFromHTTP_URLEncoded(t *testing.T) {
 			wantData:   map[string]interface{}{},
 		},
 		{
-			name:       "lvt-action takes precedence over action",
-			body:       "lvt-action=real&action=fallback&data=test",
-			wantAction: "real",
-			wantData: map[string]interface{}{
-				"data": "test",
-			},
-		},
-		{
 			name:       "empty form",
 			body:       "",
 			wantAction: "",
@@ -267,7 +259,7 @@ func TestParseActionFromHTTP_URLEncoded(t *testing.T) {
 		},
 		{
 			name:       "form with special characters",
-			body:       "lvt-action=update&email=test%40example.com&name=John+Doe",
+			body:       "action=update&email=test%40example.com&name=John+Doe",
 			wantAction: "update",
 			wantData: map[string]interface{}{
 				"email": "test@example.com",
@@ -349,7 +341,7 @@ func TestParseActionFromHTTP_URLEncoded(t *testing.T) {
 
 // TestParseActionFromHTTP_URLEncoded_MultipleValues tests multiple values for same field.
 func TestParseActionFromHTTP_URLEncoded_MultipleValues(t *testing.T) {
-	body := "lvt-action=update&tags=go&tags=web&tags=test"
+	body := "action=update&tags=go&tags=web&tags=test"
 	req := httptest.NewRequest("POST", "/", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 

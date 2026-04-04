@@ -8,13 +8,11 @@ Complete reference for LiveTemplate form handling and `lvt-*` HTML attributes.
 
 - [Standard HTML Form Routing](#standard-html-form-routing)
 - [Event Bindings](#event-bindings)
-- [Data Passing](#data-passing)
 - [Form Lifecycle Events](#form-lifecycle-events)
 - [Reactive Attributes](#reactive-attributes)
 - [Validation](#validation)
 - [Rate Limiting](#rate-limiting)
 - [Directives](#directives)
-- [Modals](#modals)
 - [File Uploads](#file-uploads)
 - [Form Behavior](#form-behavior)
 - [Attribute Reference](#attribute-reference)
@@ -94,17 +92,16 @@ Data can be passed via hidden inputs, button `value`, or `data-*` attributes:
 
 The client resolves the action name in this order (first match wins):
 
-1. `lvt-submit="X"` on the form → action is `X` (backward compatible, highest precedence)
-2. Clicked button's `name` attribute → action is the button name
-3. `form name="X"` → action is `X`
-4. None of the above → defaults to `"submit"` → routes to `Submit()`
+1. Clicked button's `name` attribute → action is the button name
+2. `form name="X"` → action is `X`
+3. None of the above → defaults to `"submit"` → routes to `Submit()`
 
 ### Opt-Out
 
 Forms that should NOT be auto-intercepted (external URLs, downloads):
 
 ```html
-<form action="/api/export" method="POST" lvt-no-intercept>
+<form action="/api/export" method="POST" lvt-form:no-intercept>
     <button type="submit">Export CSV</button>
 </form>
 ```
@@ -121,47 +118,47 @@ Forms that should NOT be auto-intercepted (external URLs, downloads):
 
 ## Event Bindings
 
-LiveTemplate uses `lvt-*` attributes to bind DOM events to server-side actions. These are for interactions that standard HTML forms cannot express.
+LiveTemplate uses `lvt-on:{event}` attributes to bind DOM events to server-side actions. These are for interactions that standard HTML forms cannot express.
+
+### Pattern
+
+```
+lvt-on:{event}="action"           (element scope)
+lvt-on:window:{event}="action"    (window scope)
+```
 
 ### Basic Events
 
 ```html
 <!-- Click events -->
-<button lvt-click="submit">Submit</button>
-<button lvt-click="delete" lvt-data-id="{{.ID}}">Delete</button>
-
-<!-- Form submission -->
-<form lvt-submit="save">
-    <input type="text" name="title" required>
-    <button type="submit">Save</button>
-</form>
+<button lvt-on:click="submit">Submit</button>
+<button lvt-on:click="delete" data-id="{{.ID}}">Delete</button>
 
 <!-- Input events -->
-<input lvt-change="validate" name="email">
-<input lvt-input="search" name="query">
+<input lvt-on:input="search" name="query">
 ```
 
 ### Mouse Events
 
 ```html
 <!-- Hover events -->
-<div lvt-mouseenter="showTooltip" lvt-mouseleave="hideTooltip">
+<div lvt-on:mouseenter="showTooltip" lvt-on:mouseleave="hideTooltip">
     Hover for tooltip
 </div>
 
 <!-- Click events -->
-<button lvt-click="handleClick">Click me</button>
+<button lvt-on:click="handleClick">Click me</button>
 ```
 
 ### Keyboard Events
 
 ```html
 <!-- Keydown events -->
-<input lvt-keydown="handleKey" name="search">
+<input lvt-on:keydown="handleKey" name="search">
 
 <!-- With key filtering -->
-<input lvt-keydown="submit" lvt-key="Enter" name="query">
-<div lvt-window-keydown="closeModal" lvt-key="Escape">
+<input lvt-on:keydown="submit" lvt-key="Enter" name="query">
+<div lvt-on:window:keydown="closeModal" lvt-key="Escape">
     Modal content
 </div>
 ```
@@ -170,63 +167,22 @@ LiveTemplate uses `lvt-*` attributes to bind DOM events to server-side actions. 
 
 ```html
 <!-- Global keyboard events -->
-<div lvt-window-keydown="handleShortcut" lvt-key="Escape">
+<div lvt-on:window:keydown="handleShortcut" lvt-key="Escape">
 
 <!-- Scroll events -->
-<div lvt-window-scroll="loadMore" lvt-throttle="100">
+<div lvt-on:window:scroll="loadMore" lvt-mod:throttle="100">
 ```
 
----
-
-## Data Passing
-
-Pass data from the DOM to your server-side action handlers using `lvt-data-*` attributes.
-
-### Simple Data
+### Focus Events
 
 ```html
-<button lvt-click="delete" lvt-data-id="{{.ID}}">
-    Delete
-</button>
+<input lvt-on:focus="highlight" name="email">
+<input lvt-on:blur="validate" name="email">
+
+<!-- Window focus/blur -->
+<div lvt-on:window:focus="refresh">
+<div lvt-on:window:blur="pause">
 ```
-
-### Multiple Data Attributes
-
-```html
-<button lvt-click="update"
-    lvt-data-id="{{.ID}}"
-    lvt-data-status="{{.Status}}"
-    lvt-data-priority="{{.Priority}}">
-    Update Item
-</button>
-```
-
-### Accessing Data in Go
-
-```go
-// Action "delete" with lvt-data-id
-func (c *Controller) Delete(state State, ctx *livetemplate.Context) (State, error) {
-    id := ctx.GetString("id")
-    // Delete item with id
-    return state, nil
-}
-
-// Action "update" with multiple lvt-data-* attributes
-func (c *Controller) Update(state State, ctx *livetemplate.Context) (State, error) {
-    id := ctx.GetString("id")
-    status := ctx.GetString("status")
-    priority := ctx.GetInt("priority")
-    // Update item
-    return state, nil
-}
-```
-
-**Available methods:**
-- `ctx.GetString(key string) string`
-- `ctx.GetInt(key string) int`
-- `ctx.GetFloat(key string) float64`
-- `ctx.GetBool(key string) bool`
-- `ctx.Has(key string) bool`
 
 ---
 
@@ -304,8 +260,8 @@ Reactive attributes allow declarative DOM manipulation in response to action lif
 ### Pattern
 
 ```
-lvt-{action}-on:{lifecycle}="param"
-lvt-{action}-on:{actionName}:{lifecycle}="param"
+lvt-el:{method}:on:{lifecycle}="param"
+lvt-el:{method}:on:{actionName}:{lifecycle}="param"
 ```
 
 ### Lifecycle Events
@@ -317,18 +273,18 @@ lvt-{action}-on:{actionName}:{lifecycle}="param"
 | `error` | Action completed with validation errors |
 | `done` | Action completed (regardless of success/error) |
 
-### Available Actions
+### Available Methods
 
-| Action | Description | Param |
+| Method | Description | Param |
 |--------|-------------|-------|
 | `reset` | Calls `form.reset()` | None |
-| `disable` | Sets `element.disabled = true` | None |
-| `enable` | Sets `element.disabled = false` | None |
 | `addClass` | Adds CSS class(es) | Space-separated classes |
 | `removeClass` | Removes CSS class(es) | Space-separated classes |
 | `toggleClass` | Toggles CSS class(es) | Space-separated classes |
 | `setAttr` | Sets an attribute | `name:value` format |
 | `toggleAttr` | Toggles a boolean attribute | Attribute name |
+
+**Note:** To disable/enable elements, use `lvt-el:toggleAttr:on:pending="disabled"` and `lvt-el:toggleAttr:on:done="disabled"`.
 
 ### Event Scope
 
@@ -336,7 +292,7 @@ lvt-{action}-on:{actionName}:{lifecycle}="param"
 
 ```html
 <!-- Reset form on any successful action -->
-<form lvt-submit="save" lvt-reset-on:success>
+<form name="save" method="POST" lvt-el:reset:on:success>
     <input name="title">
     <button type="submit">Save</button>
 </form>
@@ -346,7 +302,7 @@ lvt-{action}-on:{actionName}:{lifecycle}="param"
 
 ```html
 <!-- Reset form only when 'create-todo' succeeds -->
-<form lvt-submit="create-todo" lvt-reset-on:create-todo:success>
+<form name="create-todo" method="POST" lvt-el:reset:on:create-todo:success>
     <input name="title">
     <button type="submit">Add Todo</button>
 </form>
@@ -358,11 +314,11 @@ lvt-{action}-on:{actionName}:{lifecycle}="param"
 
 ```html
 <button
-    lvt-click="save"
-    lvt-disable-on:pending
-    lvt-addClass-on:pending="opacity-50 cursor-wait"
-    lvt-enable-on:done
-    lvt-removeClass-on:done="opacity-50 cursor-wait">
+    lvt-on:click="save"
+    lvt-el:toggleAttr:on:pending="disabled"
+    lvt-el:addClass:on:pending="opacity-50 cursor-wait"
+    lvt-el:toggleAttr:on:done="disabled"
+    lvt-el:removeClass:on:done="opacity-50 cursor-wait">
     Save
 </button>
 ```
@@ -370,7 +326,7 @@ lvt-{action}-on:{actionName}:{lifecycle}="param"
 **Form Reset on Success:**
 
 ```html
-<form lvt-submit="create-todo" lvt-reset-on:success>
+<form name="create-todo" method="POST" lvt-el:reset:on:success>
     <input type="text" name="title" placeholder="New todo">
     <button type="submit">Add</button>
 </form>
@@ -380,9 +336,9 @@ lvt-{action}-on:{actionName}:{lifecycle}="param"
 
 ```html
 <button
-    lvt-click="submit"
-    lvt-setAttr-on:pending="aria-busy:true"
-    lvt-setAttr-on:done="aria-busy:false">
+    lvt-on:click="submit"
+    lvt-el:setAttr:on:pending="aria-busy:true"
+    lvt-el:setAttr:on:done="aria-busy:false">
     Submit
 </button>
 ```
@@ -393,9 +349,9 @@ lvt-{action}-on:{actionName}:{lifecycle}="param"
 <!-- Visual feedback on form-level errors -->
 <!-- Note: For field-specific validation errors, use .lvt.HasError and .lvt.Error helpers -->
 <div
-    lvt-addClass-on:error="border-red-500"
-    lvt-removeClass-on:success="border-red-500">
-    <form lvt-submit="save">
+    lvt-el:addClass:on:error="border-red-500"
+    lvt-el:removeClass:on:success="border-red-500">
+    <form name="save" method="POST">
         <input name="email">
         <button type="submit">Save</button>
     </form>
@@ -409,26 +365,26 @@ lvt-{action}-on:{actionName}:{lifecycle}="param"
 <input
     type="email"
     name="email"
-    lvt-setAttr-on:error="aria-invalid:true"
-    lvt-setAttr-on:success="aria-invalid:false">
+    lvt-el:setAttr:on:error="aria-invalid:true"
+    lvt-el:setAttr:on:success="aria-invalid:false">
 ```
 
 **Multiple Actions on Same Element:**
 
 ```html
 <button
-    lvt-click="save"
-    lvt-disable-on:pending
-    lvt-enable-on:done
-    lvt-addClass-on:pending="loading"
-    lvt-removeClass-on:done="loading"
-    lvt-addClass-on:success="success"
-    lvt-addClass-on:error="error">
+    lvt-on:click="save"
+    lvt-el:toggleAttr:on:pending="disabled"
+    lvt-el:toggleAttr:on:done="disabled"
+    lvt-el:addClass:on:pending="loading"
+    lvt-el:removeClass:on:done="loading"
+    lvt-el:addClass:on:success="success"
+    lvt-el:addClass:on:error="error">
     Save
 </button>
 ```
 
-**Note:** When multiple reactive attributes target the same lifecycle event, all matching actions execute in DOM order. For example, `lvt-addClass-on:pending="loading"` and `lvt-addClass-on:pending="disabled"` will both add their respective classes.
+**Note:** When multiple reactive attributes target the same lifecycle event, all matching actions execute in DOM order. For example, `lvt-el:addClass:on:pending="loading"` and `lvt-el:addClass:on:pending="disabled"` will both add their respective classes.
 
 ---
 
@@ -462,7 +418,7 @@ func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoSt
 ### Template Error Display
 
 ```html
-<form lvt-submit="add">
+<form name="add" method="POST">
     <div>
         <label for="title">Title</label>
         <input
@@ -500,8 +456,8 @@ Wait for user to stop typing before triggering action.
 ```html
 <!-- Wait 300ms after user stops typing -->
 <input
-    lvt-input="search"
-    lvt-debounce="300"
+    lvt-on:input="search"
+    lvt-mod:debounce="300"
     name="query"
     placeholder="Search...">
 ```
@@ -514,7 +470,7 @@ Limit event frequency to at most once per interval.
 
 ```html
 <!-- Fire at most once every 100ms -->
-<div lvt-window-scroll="loadMore" lvt-throttle="100">
+<div lvt-on:window:scroll="loadMore" lvt-mod:throttle="100">
 ```
 
 **Use for:** Scroll events, resize events, mouse tracking
@@ -531,31 +487,38 @@ Control scroll behavior after DOM updates.
 
 ```html
 <!-- Scroll to bottom -->
-<div lvt-scroll="bottom" class="chat-messages">
+<div lvt-fx:scroll="bottom" class="chat-messages">
     {{range .Messages}}
         <div>{{.Text}}</div>
     {{end}}
 </div>
 
 <!-- Sticky scroll (only if user is near bottom) -->
-<div lvt-scroll="bottom-sticky" lvt-scroll-threshold="100">
+<div lvt-fx:scroll="bottom-sticky" style="--lvt-scroll-threshold: 100px">
     {{range .Logs}}
         <div>{{.}}</div>
     {{end}}
 </div>
 
 <!-- Scroll to top -->
-<div lvt-scroll="top">...</div>
+<div lvt-fx:scroll="top">...</div>
 
 <!-- Preserve scroll position -->
-<div lvt-scroll="preserve">...</div>
+<div lvt-fx:scroll="preserve">...</div>
 ```
 
 | Attribute | Description |
 |-----------|-------------|
-| `lvt-scroll` | Scroll mode: `bottom`, `bottom-sticky`, `top`, `preserve` |
-| `lvt-scroll-behavior` | Scroll behavior: `auto` (default), `smooth` |
-| `lvt-scroll-threshold` | Pixel threshold for sticky scroll (default: 100) |
+| `lvt-fx:scroll` | Scroll mode: `bottom`, `bottom-sticky`, `top`, `preserve` |
+
+Scroll behavior and threshold are configured via CSS custom properties:
+
+| CSS Custom Property | Description | Default |
+|---------------------|-------------|---------|
+| `--lvt-scroll-behavior` | Scroll behavior: `auto`, `smooth` | `auto` |
+| `--lvt-scroll-threshold` | Pixel threshold for sticky scroll | `100px` |
+
+Defaults are provided by importing `livetemplate.css`.
 
 ### Highlight Directives
 
@@ -563,16 +526,21 @@ Temporarily highlight elements after updates.
 
 ```html
 <!-- Highlight updated item -->
-<div lvt-highlight="flash" lvt-highlight-color="#ffc107" lvt-highlight-duration="500">
+<div lvt-fx:highlight="flash" style="--lvt-highlight-color: #ffc107; --lvt-highlight-duration: 500ms">
     {{.UpdatedContent}}
 </div>
 ```
 
 | Attribute | Description |
 |-----------|-------------|
-| `lvt-highlight` | Highlight mode: `flash` |
-| `lvt-highlight-color` | Background color (default: `#ffc107`) |
-| `lvt-highlight-duration` | Duration in ms (default: 500) |
+| `lvt-fx:highlight` | Highlight mode: `flash` |
+
+Highlight appearance is configured via CSS custom properties:
+
+| CSS Custom Property | Description | Default |
+|---------------------|-------------|---------|
+| `--lvt-highlight-color` | Background color | `#ffc107` |
+| `--lvt-highlight-duration` | Duration | `500ms` |
 
 ### Animation Directives
 
@@ -580,53 +548,24 @@ Apply entrance animations to elements.
 
 ```html
 <!-- Fade in -->
-<div lvt-animate="fade">New content</div>
+<div lvt-fx:animate="fade">New content</div>
 
 <!-- Slide in -->
-<div lvt-animate="slide" lvt-animate-duration="300">Slide content</div>
+<div lvt-fx:animate="slide" style="--lvt-animate-duration: 300ms">Slide content</div>
 
 <!-- Scale in -->
-<div lvt-animate="scale">Pop content</div>
+<div lvt-fx:animate="scale">Pop content</div>
 ```
 
 | Attribute | Description |
 |-----------|-------------|
-| `lvt-animate` | Animation type: `fade`, `slide`, `scale` |
-| `lvt-animate-duration` | Duration in ms (default: 300) |
+| `lvt-fx:animate` | Animation type: `fade`, `slide`, `scale` |
 
----
+Animation duration is configured via CSS custom properties:
 
-## Modals
-
-Open and close modals declaratively.
-
-### Opening Modals
-
-```html
-<button lvt-modal-open="edit-modal">Edit</button>
-
-<div id="edit-modal" role="dialog" hidden>
-    <form lvt-submit="save">
-        <input name="title">
-        <button type="submit">Save</button>
-        <button type="button" lvt-modal-close="edit-modal">Cancel</button>
-    </form>
-</div>
-```
-
-### Modal Attributes
-
-| Attribute | Description |
-|-----------|-------------|
-| `lvt-modal-open` | Opens modal with specified ID on click |
-| `lvt-modal-close` | Closes modal with specified ID on click |
-
-### Modal Behavior
-
-- Modals use `role="dialog"` for accessibility
-- Press `Escape` to close the topmost modal
-- Click backdrop to close (when using modal backdrop)
-- Focus is trapped within open modals
+| CSS Custom Property | Description | Default |
+|---------------------|-------------|---------|
+| `--lvt-animate-duration` | Duration | `300ms` |
 
 ---
 
@@ -637,7 +576,7 @@ Handle file uploads with progress tracking.
 ### Basic Upload
 
 ```html
-<form lvt-submit="save-profile">
+<form name="save-profile" method="POST">
     <input type="file" lvt-upload="avatar" name="avatar">
     <button type="submit">Save</button>
 </form>
@@ -663,10 +602,10 @@ Files are automatically uploaded when the form is submitted, with progress event
 
 ### Preserve Form Data
 
-By default, forms reset after successful submission. Use `lvt-preserve` to keep form values:
+By default, forms reset after successful submission. Use `lvt-form:preserve` to keep form values:
 
 ```html
-<form lvt-submit="search" lvt-preserve>
+<form name="search" method="POST" lvt-form:preserve>
     <input name="query">
     <button type="submit">Search</button>
 </form>
@@ -677,18 +616,10 @@ By default, forms reset after successful submission. Use `lvt-preserve` to keep 
 Show loading state on submit buttons:
 
 ```html
-<form lvt-submit="save">
+<form name="save" method="POST">
     <input name="title">
-    <button type="submit" lvt-disable-with="Saving...">Save</button>
+    <button type="submit" lvt-form:disable-with="Saving...">Save</button>
 </form>
-```
-
-### Confirm Delete
-
-Require confirmation for destructive actions:
-
-```html
-<button lvt-click="delete" lvt-confirm="Are you sure?">Delete</button>
 ```
 
 ---
@@ -701,83 +632,57 @@ Complete reference of all `lvt-*` attributes.
 
 | Attribute | Description | Example |
 |-----------|-------------|---------|
-| `lvt-click` | Click event on element | `<button lvt-click="save">` |
-| `lvt-submit` | Form submission | `<form lvt-submit="create">` |
-| `lvt-change` | Input change event | `<input lvt-change="validate">` |
-| `lvt-input` | Input event (every keystroke) | `<input lvt-input="search">` |
-| `lvt-keydown` | Keydown event | `<input lvt-keydown="submit">` |
-| `lvt-keyup` | Keyup event | `<input lvt-keyup="handle">` |
-| `lvt-focus` | Focus event | `<input lvt-focus="highlight">` |
-| `lvt-blur` | Blur event | `<input lvt-blur="validate">` |
-| `lvt-mouseenter` | Mouse enter event | `<div lvt-mouseenter="show">` |
-| `lvt-mouseleave` | Mouse leave event | `<div lvt-mouseleave="hide">` |
-| `lvt-click-away` | Click outside element | `<div lvt-click-away="close">` |
-| `lvt-window-keydown` | Global keydown | `<div lvt-window-keydown="close">` |
-| `lvt-window-keyup` | Global keyup | `<div lvt-window-keyup="handle">` |
-| `lvt-window-scroll` | Window scroll | `<div lvt-window-scroll="load">` |
-| `lvt-window-resize` | Window resize | `<div lvt-window-resize="adjust">` |
-| `lvt-window-focus` | Window focus | `<div lvt-window-focus="refresh">` |
-| `lvt-window-blur` | Window blur | `<div lvt-window-blur="pause">` |
-
-### Data Attributes
-
-| Attribute | Description | Example |
-|-----------|-------------|---------|
-| `lvt-data-<key>` | Pass data to action | `lvt-data-id="{{.ID}}"` |
-| `lvt-value-<key>` | Pass value to action | `lvt-value-count="{{.Count}}"` |
-
-**Note:** Both `lvt-data-*` and `lvt-value-*` attributes are accessible via `ctx.GetString()`, `ctx.GetInt()`, etc.
+| `lvt-on:click` | Click event on element | `<button lvt-on:click="save">` |
+| `lvt-on:input` | Input event (every keystroke) | `<input lvt-on:input="search">` |
+| `lvt-on:keydown` | Keydown event | `<input lvt-on:keydown="submit">` |
+| `lvt-on:keyup` | Keyup event | `<input lvt-on:keyup="handle">` |
+| `lvt-on:focus` | Focus event | `<input lvt-on:focus="highlight">` |
+| `lvt-on:blur` | Blur event | `<input lvt-on:blur="validate">` |
+| `lvt-on:mouseenter` | Mouse enter event | `<div lvt-on:mouseenter="show">` |
+| `lvt-on:mouseleave` | Mouse leave event | `<div lvt-on:mouseleave="hide">` |
+| `lvt-on:window:keydown` | Global keydown | `<div lvt-on:window:keydown="close">` |
+| `lvt-on:window:keyup` | Global keyup | `<div lvt-on:window:keyup="handle">` |
+| `lvt-on:window:scroll` | Window scroll | `<div lvt-on:window:scroll="load">` |
+| `lvt-on:window:resize` | Window resize | `<div lvt-on:window:resize="adjust">` |
+| `lvt-on:window:focus` | Window focus | `<div lvt-on:window:focus="refresh">` |
+| `lvt-on:window:blur` | Window blur | `<div lvt-on:window:blur="pause">` |
 
 ### Reactive Attributes
 
 | Attribute | Description | Example |
 |-----------|-------------|---------|
-| `lvt-reset-on:{event}` | Reset form on lifecycle event | `lvt-reset-on:success` |
-| `lvt-disable-on:{event}` | Disable element on event | `lvt-disable-on:pending` |
-| `lvt-enable-on:{event}` | Enable element on event | `lvt-enable-on:done` |
-| `lvt-addClass-on:{event}` | Add class(es) on event | `lvt-addClass-on:pending="loading"` |
-| `lvt-removeClass-on:{event}` | Remove class(es) on event | `lvt-removeClass-on:done="loading"` |
-| `lvt-toggleClass-on:{event}` | Toggle class(es) on event | `lvt-toggleClass-on:success="active"` |
-| `lvt-setAttr-on:{event}` | Set attribute on event | `lvt-setAttr-on:pending="aria-busy:true"` |
-| `lvt-toggleAttr-on:{event}` | Toggle boolean attr on event | `lvt-toggleAttr-on:pending="disabled"` |
+| `lvt-el:reset:on:{event}` | Reset form on lifecycle event | `lvt-el:reset:on:success` |
+| `lvt-el:addClass:on:{event}` | Add class(es) on event | `lvt-el:addClass:on:pending="loading"` |
+| `lvt-el:removeClass:on:{event}` | Remove class(es) on event | `lvt-el:removeClass:on:done="loading"` |
+| `lvt-el:toggleClass:on:{event}` | Toggle class(es) on event | `lvt-el:toggleClass:on:success="active"` |
+| `lvt-el:setAttr:on:{event}` | Set attribute on event | `lvt-el:setAttr:on:pending="aria-busy:true"` |
+| `lvt-el:toggleAttr:on:{event}` | Toggle boolean attr on event | `lvt-el:toggleAttr:on:pending="disabled"` |
 
-**Note:** `{event}` can be `pending`, `success`, `error`, or `done`. For action-specific: `lvt-reset-on:create-todo:success`.
+**Note:** `{event}` can be `pending`, `success`, `error`, or `done`. For action-specific: `lvt-el:reset:on:create-todo:success`.
 
 ### Modifier Attributes
 
 | Attribute | Description | Example |
 |-----------|-------------|---------|
 | `lvt-key` | Filter keyboard events by key | `lvt-key="Enter"` |
-| `lvt-debounce` | Debounce delay in milliseconds | `lvt-debounce="300"` |
-| `lvt-throttle` | Throttle interval in milliseconds | `lvt-throttle="100"` |
+| `lvt-mod:debounce` | Debounce delay in milliseconds | `lvt-mod:debounce="300"` |
+| `lvt-mod:throttle` | Throttle interval in milliseconds | `lvt-mod:throttle="100"` |
 
 ### Form Attributes
 
 | Attribute | Description | Example |
 |-----------|-------------|---------|
-| `lvt-preserve` | Keep form values after submit | `<form lvt-preserve>` |
-| `lvt-disable-with` | Button text during submit | `lvt-disable-with="Saving..."` |
-| `lvt-confirm` | Confirmation dialog | `lvt-confirm="Are you sure?"` |
-
-### Modal Attributes
-
-| Attribute | Description | Example |
-|-----------|-------------|---------|
-| `lvt-modal-open` | Open modal by ID | `lvt-modal-open="edit-modal"` |
-| `lvt-modal-close` | Close modal by ID | `lvt-modal-close="edit-modal"` |
+| `lvt-form:preserve` | Keep form values after submit | `<form lvt-form:preserve>` |
+| `lvt-form:disable-with` | Button text during submit | `lvt-form:disable-with="Saving..."` |
+| `lvt-form:no-intercept` | Opt out of auto-interception | `<form lvt-form:no-intercept>` |
 
 ### Directive Attributes
 
 | Attribute | Description | Example |
 |-----------|-------------|---------|
-| `lvt-scroll` | Scroll behavior | `lvt-scroll="bottom"` |
-| `lvt-scroll-behavior` | Scroll animation | `lvt-scroll-behavior="smooth"` |
-| `lvt-scroll-threshold` | Sticky scroll threshold (px) | `lvt-scroll-threshold="100"` |
-| `lvt-highlight` | Highlight effect | `lvt-highlight="flash"` |
-| `lvt-highlight-color` | Highlight background color | `lvt-highlight-color="#ffc107"` |
-| `lvt-highlight-duration` | Highlight duration (ms) | `lvt-highlight-duration="500"` |
-| `lvt-animate` | Entrance animation | `lvt-animate="fade"` |
-| `lvt-animate-duration` | Animation duration (ms) | `lvt-animate-duration="300"` |
+| `lvt-fx:scroll` | Scroll behavior | `lvt-fx:scroll="bottom"` |
+| `lvt-fx:highlight` | Highlight effect | `lvt-fx:highlight="flash"` |
+| `lvt-fx:animate` | Entrance animation | `lvt-fx:animate="fade"` |
 
 ### Upload Attributes
 
@@ -806,11 +711,11 @@ Prefer declarative reactive attributes over JavaScript for common UI patterns:
 ```html
 <!-- Good: Declarative loading state -->
 <button
-    lvt-click="save"
-    lvt-disable-on:pending
-    lvt-addClass-on:pending="opacity-50"
-    lvt-enable-on:done
-    lvt-removeClass-on:done="opacity-50">
+    lvt-on:click="save"
+    lvt-el:toggleAttr:on:pending="disabled"
+    lvt-el:addClass:on:pending="opacity-50"
+    lvt-el:toggleAttr:on:done="disabled"
+    lvt-el:removeClass:on:done="opacity-50">
     Save
 </button>
 
@@ -821,15 +726,15 @@ Prefer declarative reactive attributes over JavaScript for common UI patterns:
 
 ```html
 <input
-    lvt-input="search"
-    lvt-debounce="300"
+    lvt-on:input="search"
+    lvt-mod:debounce="300"
     name="query">
 ```
 
 ### 3. Use Throttle for Scroll
 
 ```html
-<div lvt-window-scroll="loadMore" lvt-throttle="100">
+<div lvt-on:window:scroll="loadMore" lvt-mod:throttle="100">
 ```
 
 ### 4. Show Validation Errors
@@ -849,7 +754,7 @@ Prefer declarative reactive attributes over JavaScript for common UI patterns:
 Use reactive attributes for automatic form reset:
 
 ```html
-<form lvt-submit="create-todo" lvt-reset-on:success>
+<form name="create-todo" method="POST" lvt-el:reset:on:success>
     <input name="title" placeholder="New todo">
     <button type="submit">Add</button>
 </form>
@@ -859,10 +764,10 @@ Use reactive attributes for automatic form reset:
 
 ```html
 <button
-    lvt-click="save"
-    lvt-setAttr-on:pending="aria-busy:true"
-    lvt-setAttr-on:done="aria-busy:false"
-    lvt-setAttr-on:error="aria-invalid:true">
+    lvt-on:click="save"
+    lvt-el:setAttr:on:pending="aria-busy:true"
+    lvt-el:setAttr:on:done="aria-busy:false"
+    lvt-el:setAttr:on:error="aria-invalid:true">
     Save
 </button>
 ```
