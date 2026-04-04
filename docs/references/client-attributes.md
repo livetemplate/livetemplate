@@ -635,6 +635,7 @@ Complete reference of all `lvt-*` attributes.
 |-----------|-------------|---------|
 | `lvt-on:click` | Click event on element | `<button lvt-on:click="save">` |
 | `lvt-on:input` | Input event (every keystroke) | `<input lvt-on:input="search">` |
+| `lvt-on:change` | Change event (on blur for text, immediate for select/checkbox/radio) | `<select lvt-on:change="filter">` |
 | `lvt-on:keydown` | Keydown event | `<input lvt-on:keydown="submit">` |
 | `lvt-on:keyup` | Keyup event | `<input lvt-on:keyup="handle">` |
 | `lvt-on:focus` | Focus event | `<input lvt-on:focus="highlight">` |
