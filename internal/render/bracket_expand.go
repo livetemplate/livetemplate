@@ -36,6 +36,11 @@ var bracketAttrPattern = regexp.MustCompile(
 // and the WebSocket tree path receive expanded attributes. Bracket syntax inside
 // dynamic template blocks ({{range}}, {{if}}) is correctly expanded since the
 // source is transformed before Go's template parser processes it.
+//
+// Note: expansion operates on raw template source text, not parsed HTML. This means
+// bracket patterns inside <script> or <style> content will also be expanded if they
+// match the regex. In practice, the lvt-el:/lvt-fx:/lvt-form: prefixes are specific
+// enough that false matches are unlikely outside HTML attribute contexts.
 func ExpandBracketAttributes(html string) string {
 	// Fast path: skip regex when no bracket syntax is present.
 	if !strings.Contains(html, ":on:[") {

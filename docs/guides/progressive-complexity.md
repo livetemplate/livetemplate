@@ -199,7 +199,7 @@ The framework fetches the page via `fetch()`, extracts the wrapper content, and 
 ```html
 <a href="/api/export.csv" download>Export</a>            <!-- download attr: skipped -->
 <a href="https://external.com">External</a>              <!-- different origin: skipped -->
-<a href="/legacy-page" lvt-form:no-intercept>Old Page</a>      <!-- explicit opt-out -->
+<a href="/legacy-page" lvt-form:no-intercept>Old Page</a>      <!-- explicit opt-out (works on links too) -->
 ```
 
 ---

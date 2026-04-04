@@ -102,6 +102,23 @@ func TestExpandBracketAttributes(t *testing.T) {
 			input: `<div lvt-el:addClass:on:[create-todo,delete-item]:pending="loading">`,
 			want:  `<div lvt-el:addClass:on:create-todo:pending="loading" lvt-el:addClass:on:delete-item:pending="loading">`,
 		},
+		{
+			// Unquoted attribute values are not captured by the regex value group
+			// (which requires ="..." or ='...'). The regex matches the prefix+bracket+state
+			// portion and expands it, leaving the unquoted =value attached to the last
+			// expansion. This produces mangled output — hence quoting is required.
+			name:  "unquoted value produces mangled output",
+			input: `<div lvt-el:addClass:on:[a,b]:pending=loading>`,
+			want:  `<div lvt-el:addClass:on:a:pending lvt-el:addClass:on:b:pending=loading>`,
+		},
+		{
+			// Bracket syntax inside <script> blocks IS expanded because the regex
+			// operates on raw template source. In practice, lvt-el:/lvt-fx:/lvt-form:
+			// prefixes are specific enough that this is unlikely outside attributes.
+			name:  "bracket syntax inside script tag is expanded",
+			input: `<script>let x = 'lvt-el:addClass:on:[a,b]:pending="X"';</script>`,
+			want:  `<script>let x = 'lvt-el:addClass:on:a:pending="X" lvt-el:addClass:on:b:pending="X"';</script>`,
+		},
 	}
 
 	for _, tt := range tests {

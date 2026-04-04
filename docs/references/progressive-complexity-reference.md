@@ -69,7 +69,7 @@ All `<a href>` links inside the LiveTemplate wrapper are auto-intercepted for SP
 | `<a href="/path">` | Yes — fetched via `fetch()`, DOM patched, `pushState` updated |
 | `<a href="/path" download>` | No — `download` attribute skips interception |
 | `<a href="https://external.com">` | No — different origin skips interception |
-| `<a href="/path" lvt-form:no-intercept>` | No — explicit opt-out |
+| `<a href="/path" lvt-form:no-intercept>` | No — explicit opt-out (applies to both links and forms) |
 
 ## Loading States (Automatic)
 

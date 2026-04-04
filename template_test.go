@@ -462,6 +462,32 @@ func TestTemplate_BracketExpansionInTreeStatics(t *testing.T) {
 	}
 }
 
+func TestTemplate_BracketExpansionInConditionalBlocks(t *testing.T) {
+	// Verify bracket expansion works inside {{if}} blocks in the WebSocket tree path.
+	tmpl := Must(New("test"))
+	_, err := tmpl.Parse(`<div>{{if .Show}}<span lvt-el:addClass:on:[save,delete]:pending="loading">hi</span>{{end}}</div>`)
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
+
+	var buf bytes.Buffer
+	err = tmpl.ExecuteUpdates(&buf, map[string]interface{}{"Show": true})
+	if err != nil {
+		t.Fatalf("ExecuteUpdates() failed: %v", err)
+	}
+
+	output := buf.String()
+	if strings.Contains(output, "on:[save,delete]") {
+		t.Errorf("tree statics should not contain unexpanded bracket syntax inside {{if}}, got: %s", output)
+	}
+	if !strings.Contains(output, `on:save:pending`) {
+		t.Errorf("tree statics should contain expanded on:save:pending, got: %s", output)
+	}
+	if !strings.Contains(output, `on:delete:pending`) {
+		t.Errorf("tree statics should contain expanded on:delete:pending, got: %s", output)
+	}
+}
+
 func TestTemplate_ExecuteUpdates_FlashMessages(t *testing.T) {
 	tmpl := Must(New("test"))
 	_, err := tmpl.Parse(`<div>{{if .lvt.HasFlash "success"}}<p>{{.lvt.Flash "success"}}</p>{{end}}</div>`)

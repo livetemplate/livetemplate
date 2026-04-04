@@ -1183,8 +1183,12 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Progressive enhancement is enabled AND client does not want JSON
 	if h.config.ProgressiveEnhancement && !wantsJSON(r) {
 		// If the action handler already sent a redirect (via ctx.Redirect()),
-		// skip the PRG redirect to avoid "superfluous response.WriteHeader" errors.
+		// skip the PRG redirect to avoid a panic from writing headers twice.
+		// Clear in-memory flash state so messages do not leak into subsequent
+		// responses for the same session/group. Direct redirects bypass the
+		// PRG flash-cookie flow.
 		if *actionCtx.redirected {
+			connSt.clearFlash()
 			return
 		}
 
