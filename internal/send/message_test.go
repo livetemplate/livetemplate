@@ -237,8 +237,8 @@ func TestParseActionFromHTTP_URLEncoded(t *testing.T) {
 		wantErr    bool
 	}{
 		{
-			name:       "basic form with lvt-action",
-			body:       "lvt-action=login&username=testuser&password=secret",
+			name:       "basic form with action field",
+			body:       "action=login&username=testuser&password=secret",
 			wantAction: "login",
 			wantData: map[string]interface{}{
 				"username": "testuser",
@@ -246,21 +246,10 @@ func TestParseActionFromHTTP_URLEncoded(t *testing.T) {
 			},
 		},
 		{
-			name:       "action field is normal data (not routing)",
+			name:       "form with action (fallback)",
 			body:       "action=logout",
-			wantAction: "",
-			wantData: map[string]interface{}{
-				"action": "logout",
-			},
-		},
-		{
-			name:       "lvt-action routes, action is data",
-			body:       "lvt-action=real&action=fallback&data=test",
-			wantAction: "real",
-			wantData: map[string]interface{}{
-				"action": "fallback",
-				"data":   "test",
-			},
+			wantAction: "logout",
+			wantData:   map[string]interface{}{},
 		},
 		{
 			name:       "empty form",
@@ -270,7 +259,7 @@ func TestParseActionFromHTTP_URLEncoded(t *testing.T) {
 		},
 		{
 			name:       "form with special characters",
-			body:       "lvt-action=update&email=test%40example.com&name=John+Doe",
+			body:       "action=update&email=test%40example.com&name=John+Doe",
 			wantAction: "update",
 			wantData: map[string]interface{}{
 				"email": "test@example.com",
@@ -292,24 +281,11 @@ func TestParseActionFromHTTP_URLEncoded(t *testing.T) {
 			wantData:   map[string]interface{}{},
 		},
 		{
-			// "action" with a value is normal data; "draft=" is the button-name
-			// candidate because it's the only empty-value field and "action" is
-			// excluded from the button-name scan to avoid routing ambiguity.
-			name:       "action is data, button name is routing",
+			name:       "action field takes precedence over button name",
 			body:       "action=save&draft=",
-			wantAction: "draft",
+			wantAction: "save",
 			wantData: map[string]interface{}{
-				"action": "save",
-			},
-		},
-		{
-			// Regression: empty action= must NOT be interpreted as button-name
-			// routing. The "action" key is excluded from the empty-value scan.
-			name:       "empty action field is normal data (not routing)",
-			body:       "action=",
-			wantAction: "",
-			wantData: map[string]interface{}{
-				"action": "",
+				"draft": "",
 			},
 		},
 		{
@@ -365,7 +341,7 @@ func TestParseActionFromHTTP_URLEncoded(t *testing.T) {
 
 // TestParseActionFromHTTP_URLEncoded_MultipleValues tests multiple values for same field.
 func TestParseActionFromHTTP_URLEncoded_MultipleValues(t *testing.T) {
-	body := "lvt-action=update&tags=go&tags=web&tags=test"
+	body := "action=update&tags=go&tags=web&tags=test"
 	req := httptest.NewRequest("POST", "/", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
