@@ -94,20 +94,31 @@ Data can be passed via hidden inputs, button `value`, or `data-*` attributes:
 
 The client resolves the action name in this order (first match wins):
 
-1. `lvt-submit="X"` on the form → action is `X` (backward compatible, highest precedence)
-2. Clicked button's `name` attribute → action is the button name
-3. `form name="X"` → action is `X`
-4. None of the above → defaults to `"submit"` → routes to `Submit()`
+1. `lvt-form:action="X"` on the form → action is `X` (explicit routing, highest precedence)
+2. `lvt-submit="X"` on the form → action is `X` (backward compatible)
+3. Clicked button's `name` attribute → action is the button name
+4. `form name="X"` → action is `X`
+5. None of the above → defaults to `"submit"` → routes to `Submit()`
+
+> **Note:** The form field name `action` is **not** reserved. A form field `<input name="action" value="approve">` flows through to `ActionData` as normal data. Use `lvt-form:action` on the `<form>` element for routing.
 
 ### Opt-Out
 
 Forms that should NOT be auto-intercepted (external URLs, downloads):
 
 ```html
-<form action="/api/export" method="POST" lvt-no-intercept>
+<form action="/api/export" method="POST" lvt-form:no-intercept>
     <button type="submit">Export CSV</button>
 </form>
 ```
+
+Links that should NOT be auto-intercepted (external pages, legacy routes):
+
+```html
+<a href="/legacy-page" lvt-nav:no-intercept>Legacy Page</a>
+```
+
+> **Note:** Use `lvt-form:no-intercept` on `<form>` elements and `lvt-nav:no-intercept` on `<a>` elements. These are semantically distinct: form interception vs. link/navigation interception.
 
 ### Transport Compatibility
 
@@ -703,8 +714,8 @@ Complete reference of all `lvt-*` attributes.
 |-----------|-------------|---------|
 | `lvt-click` | Click event on element | `<button lvt-click="save">` |
 | `lvt-submit` | Form submission | `<form lvt-submit="create">` |
-| `lvt-change` | Input change event | `<input lvt-change="validate">` |
-| `lvt-input` | Input event (every keystroke) | `<input lvt-input="search">` |
+| `lvt-change` | Input change event (→ `lvt-on:change`) | `<select lvt-change="sort">` |
+| `lvt-input` | Input event, every keystroke (→ `lvt-on:input`) | `<input lvt-input="search">` |
 | `lvt-keydown` | Keydown event | `<input lvt-keydown="submit">` |
 | `lvt-keyup` | Keyup event | `<input lvt-keyup="handle">` |
 | `lvt-focus` | Focus event | `<input lvt-focus="highlight">` |
@@ -747,16 +758,19 @@ Complete reference of all `lvt-*` attributes.
 
 | Attribute | Description | Example |
 |-----------|-------------|---------|
-| `lvt-key` | Filter keyboard events by key | `lvt-key="Enter"` |
-| `lvt-debounce` | Debounce delay in milliseconds | `lvt-debounce="300"` |
-| `lvt-throttle` | Throttle interval in milliseconds | `lvt-throttle="100"` |
+| `lvt-key` | Filter keyboard events by key (event filter, not a timing modifier) | `lvt-key="Enter"` |
+| `lvt-debounce` (→ `lvt-mod:debounce`) | Debounce delay in milliseconds | `lvt-mod:debounce="300"` |
+| `lvt-throttle` (→ `lvt-mod:throttle`) | Throttle interval in milliseconds | `lvt-mod:throttle="100"` |
 
 ### Form Attributes
 
 | Attribute | Description | Example |
 |-----------|-------------|---------|
-| `lvt-preserve` | Keep form values after submit | `<form lvt-preserve>` |
-| `lvt-disable-with` | Button text during submit | `lvt-disable-with="Saving..."` |
+| `lvt-form:action` | Explicit action routing on form | `<form lvt-form:action="checkout">` |
+| `lvt-preserve` (→ `lvt-form:preserve`) | Keep form values after submit | `<form lvt-form:preserve>` |
+| `lvt-disable-with` (→ `lvt-form:disable-with`) | Button text during submit | `lvt-form:disable-with="Saving..."` |
+| `lvt-form:no-intercept` | Opt-out of form interception | `<form lvt-form:no-intercept>` |
+| `lvt-nav:no-intercept` | Opt-out of link interception | `<a lvt-nav:no-intercept>` |
 | `lvt-confirm` | Confirmation dialog | `lvt-confirm="Are you sure?"` |
 
 ### Modal Attributes
