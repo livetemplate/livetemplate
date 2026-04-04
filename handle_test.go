@@ -1926,7 +1926,7 @@ func TestFaviconDoesNotResetState(t *testing.T) {
 
 	// 2. POST increment — updates state (Count becomes 1)
 	form := url.Values{}
-	form.Set("action", "increment")
+	form.Set("lvt-action", "increment")
 	resp, err = http.Post(server.URL+"/", "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
 	if err != nil {
 		t.Fatalf("POST failed: %v", err)

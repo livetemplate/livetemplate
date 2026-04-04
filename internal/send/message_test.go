@@ -246,17 +246,20 @@ func TestParseActionFromHTTP_URLEncoded(t *testing.T) {
 			},
 		},
 		{
-			name:       "form with action (fallback)",
+			name:       "action field is normal data (not routing)",
 			body:       "action=logout",
-			wantAction: "logout",
-			wantData:   map[string]interface{}{},
+			wantAction: "",
+			wantData: map[string]interface{}{
+				"action": "logout",
+			},
 		},
 		{
-			name:       "lvt-action takes precedence over action",
+			name:       "lvt-action routes, action is data",
 			body:       "lvt-action=real&action=fallback&data=test",
 			wantAction: "real",
 			wantData: map[string]interface{}{
-				"data": "test",
+				"action": "fallback",
+				"data":   "test",
 			},
 		},
 		{
@@ -289,11 +292,24 @@ func TestParseActionFromHTTP_URLEncoded(t *testing.T) {
 			wantData:   map[string]interface{}{},
 		},
 		{
-			name:       "action field takes precedence over button name",
+			// "action" with a value is normal data; "draft=" is the button-name
+			// candidate because it's the only empty-value field and "action" is
+			// excluded from the button-name scan to avoid routing ambiguity.
+			name:       "action is data, button name is routing",
 			body:       "action=save&draft=",
-			wantAction: "save",
+			wantAction: "draft",
 			wantData: map[string]interface{}{
-				"draft": "",
+				"action": "save",
+			},
+		},
+		{
+			// Regression: empty action= must NOT be interpreted as button-name
+			// routing. The "action" key is excluded from the empty-value scan.
+			name:       "empty action field is normal data (not routing)",
+			body:       "action=",
+			wantAction: "",
+			wantData: map[string]interface{}{
+				"action": "",
 			},
 		},
 		{
