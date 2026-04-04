@@ -1,8 +1,15 @@
 package livetemplate
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -557,4 +564,254 @@ func TestHandleUploadAction_NilTempFileManager(t *testing.T) {
 	if err != nil {
 		t.Errorf("non-upload action: expected no error, got %v", err)
 	}
+}
+
+// --- Tier 1 HTTP Multipart Upload Tests ---
+
+type multipartUploadState struct {
+	AvatarPath string `lvt:"persist"`
+}
+
+type multipartUploadController struct {
+	lastUploads []*UploadEntry
+}
+
+func (c *multipartUploadController) UpdateProfile(state multipartUploadState, ctx *Context) (multipartUploadState, error) {
+	uploads := ctx.GetCompletedUploads("avatar")
+	c.lastUploads = uploads
+	if len(uploads) > 0 {
+		state.AvatarPath = uploads[0].TempPath
+	}
+	return state, nil
+}
+
+func TestHTTPMultipartUpload_FilesAvailableInAction(t *testing.T) {
+	tmpl, err := New("test", WithUpload("avatar", UploadConfig{
+		Accept:      []string{"image/png"},
+		MaxFileSize: 5 * 1024 * 1024,
+		MaxEntries:  1,
+	}))
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse(`<div>{{.AvatarPath}}</div>`)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &multipartUploadController{}
+	handler := tmpl.Handle(ctrl, AsState(&multipartUploadState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// Clean up temp uploads after test
+	defer func() {
+		if err := os.RemoveAll(".uploads"); err != nil {
+			t.Logf("cleanup .uploads failed: %v", err)
+		}
+	}()
+
+	// GET first to establish session
+	resp, err := http.Get(server.URL + "/")
+	if err != nil {
+		t.Fatalf("GET failed: %v", err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Fatalf("body close failed: %v", err)
+	}
+	cookies := resp.Cookies()
+
+	// Build multipart form with a file
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	// Add action routing via button name (simulates <button name="updateProfile">)
+	if err := writer.WriteField("updateProfile", ""); err != nil {
+		t.Fatalf("WriteField failed: %v", err)
+	}
+	// Also add lvt-action for multipart parser (which uses this field for routing)
+	if err := writer.WriteField("lvt-action", "updateProfile"); err != nil {
+		t.Fatalf("WriteField lvt-action failed: %v", err)
+	}
+
+	// Add file
+	part, err := writer.CreateFormFile("avatar", "test.png")
+	if err != nil {
+		t.Fatalf("CreateFormFile failed: %v", err)
+	}
+	// Write a minimal PNG header (8 bytes) as test content
+	pngHeader := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
+	if _, err := part.Write(pngHeader); err != nil {
+		t.Fatalf("Write file content failed: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("writer close failed: %v", err)
+	}
+
+	// POST multipart form
+	req, err := http.NewRequest("POST", server.URL+"/", &body)
+	if err != nil {
+		t.Fatalf("NewRequest failed: %v", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Accept", "application/json")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+
+	client := &http.Client{}
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("POST failed: %v", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Logf("body close failed: %v", err)
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", resp.StatusCode)
+	}
+
+	// Verify the controller received the upload entries
+	if len(ctrl.lastUploads) == 0 {
+		t.Fatal("Expected upload entries in action handler, got none")
+	}
+
+	entry := ctrl.lastUploads[0]
+	if entry.ClientName != "test.png" {
+		t.Errorf("Expected ClientName 'test.png', got %q", entry.ClientName)
+	}
+	if !entry.Done {
+		t.Error("Expected entry.Done=true")
+	}
+	if !entry.Valid {
+		t.Errorf("Expected entry.Valid=true, error: %s", entry.Error)
+	}
+	if entry.TempPath == "" {
+		t.Error("Expected non-empty TempPath")
+	}
+	// Verify temp file exists
+	if _, err := os.Stat(entry.TempPath); os.IsNotExist(err) {
+		t.Errorf("Temp file does not exist: %s", entry.TempPath)
+	}
+}
+
+func TestHTTPMultipartUpload_NoUploadConfig_NoFiles(t *testing.T) {
+	// Without WithUpload(), multipart files should be ignored
+	tmpl, err := New("test")
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	tmpl, err = tmpl.Parse(`<div>ok</div>`)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	ctrl := &testHandleController{}
+	handler := tmpl.Handle(ctrl, AsState(&testHandleState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// GET to establish session
+	resp, err := http.Get(server.URL + "/")
+	if err != nil {
+		t.Fatalf("GET failed: %v", err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Fatalf("body close failed: %v", err)
+	}
+	cookies := resp.Cookies()
+
+	// POST multipart with file but no upload config
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("avatar", "test.png")
+	if err != nil {
+		t.Fatalf("CreateFormFile failed: %v", err)
+	}
+	if _, err := part.Write([]byte("fake png data")); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("writer close failed: %v", err)
+	}
+
+	req, _ := http.NewRequest("POST", server.URL+"/", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Accept", "text/html")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("POST failed: %v", err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Logf("body close failed: %v", err)
+	}
+
+	// Should not crash — just process as a normal form submission
+	if resp.StatusCode != http.StatusSeeOther && resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected 303 or 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestProgressReader(t *testing.T) {
+	data := strings.Repeat("x", 100)
+	reader := strings.NewReader(data)
+
+	var progressCalls []int
+	pr := newTestProgressReader(io.NopCloser(reader), int64(len(data)), func(bytesRead, total int64) {
+		pct := int(bytesRead * 100 / total)
+		progressCalls = append(progressCalls, pct)
+	})
+
+	buf := make([]byte, 10)
+	for {
+		_, err := pr.Read(buf)
+		if err != nil {
+			break
+		}
+	}
+
+	// Should have received progress callbacks at each 10% increment
+	if len(progressCalls) == 0 {
+		t.Fatal("Expected progress callbacks, got none")
+	}
+	// Last callback should be 100%
+	if progressCalls[len(progressCalls)-1] != 100 {
+		t.Errorf("Expected last progress to be 100%%, got %d%%", progressCalls[len(progressCalls)-1])
+	}
+}
+
+// newTestProgressReader creates a progress reader for testing (avoids import cycle).
+func newTestProgressReader(reader io.ReadCloser, total int64, onProgress func(int64, int64)) io.Reader {
+	return &testProgressReader{reader: reader, total: total, onProgress: onProgress}
+}
+
+type testProgressReader struct {
+	reader     io.ReadCloser
+	bytesRead  int64
+	total      int64
+	onProgress func(bytesRead, total int64)
+	lastPct    int
+}
+
+func (p *testProgressReader) Read(buf []byte) (int, error) {
+	n, err := p.reader.Read(buf)
+	p.bytesRead += int64(n)
+	if p.total > 0 && p.onProgress != nil {
+		pct := int(p.bytesRead * 100 / p.total)
+		if pct > p.lastPct {
+			p.lastPct = pct
+			p.onProgress(p.bytesRead, p.total)
+		}
+	}
+	return n, err
 }

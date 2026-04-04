@@ -1094,6 +1094,39 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Tier 1 file uploads: wrap request body with progress tracking before
+	// any multipart parsing occurs. ParseMultipartForm reads through this
+	// wrapper, giving us byte-level progress for WebSocket clients.
+	ct := r.Header.Get("Content-Type")
+	if strings.HasPrefix(ct, "multipart/form-data") && r.ContentLength > 0 && len(h.config.UploadConfigs) > 0 {
+		pr := upload.NewProgressReader(r.Body, r.ContentLength)
+		pr.OnProgress = func(bytesRead, total int64) {
+			conns := h.registry.GetByGroupExcept(groupID, nil)
+			if len(conns) == 0 {
+				return
+			}
+			pct := int(bytesRead * 100 / total)
+			progressMsg := &upload.UploadProgressMessage{
+				Type:       "upload_progress",
+				UploadName: "multipart",
+				Progress:   pct,
+				BytesRecv:  bytesRead,
+				BytesTotal: total,
+			}
+			progressBytes, err := upload.SerializeUploadProgressMessage(progressMsg)
+			if err != nil {
+				return
+			}
+			for _, conn := range conns {
+				if err := conn.Send(WSTextMessage, progressBytes); err != nil {
+					// Client may have disconnected — non-fatal for progress updates
+					continue
+				}
+			}
+		}
+		r.Body = pr
+	}
+
 	// Parse message
 	msg, err := parseActionFromHTTP(r)
 	if err != nil {
@@ -1103,9 +1136,51 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Route browser form submissions without explicit action to Submit().
 	// Only apply for form Content-Types, not JSON action requests.
-	ct := r.Header.Get("Content-Type")
 	if strings.HasPrefix(ct, "application/x-www-form-urlencoded") || strings.HasPrefix(ct, "multipart/form-data") {
 		applyDefaultAction(&msg)
+	}
+
+	// Tier 1 file uploads: extract multipart files into the upload registry.
+	// ParseMultipartForm was already called by parseActionFromHTTP above,
+	// so r.MultipartForm is populated. We iterate configured upload fields
+	// and extract matching files.
+	if strings.HasPrefix(ct, "multipart/form-data") && len(h.config.UploadConfigs) > 0 {
+		if registry, ok := uploadRegistry.(*upload.Registry); ok {
+			tempMgr, tempErr := upload.NewTempFileManager("")
+			if tempErr != nil {
+				slog.Warn("Failed to create temp file manager for multipart upload",
+					slog.String("component", "live_handler"),
+					slog.Any("error", tempErr))
+			} else {
+				for name := range h.config.UploadConfigs {
+					u := registry.GetUpload(name)
+					if u == nil {
+						continue
+					}
+					upl, ok := u.(*upload.Upload)
+					if !ok {
+						continue
+					}
+					entries, err := upload.ParseMultipartUpload(r, name, upl.Config, groupID, tempMgr)
+					if err != nil {
+						// No files for this field or parse error — not fatal
+						slog.Debug("Multipart upload parse",
+							slog.String("component", "live_handler"),
+							slog.String("upload_name", name),
+							slog.Any("result", err.Error()))
+						continue
+					}
+					for _, entry := range entries {
+						if err := upl.AddEntry(entry); err != nil {
+							slog.Debug("Multipart upload entry rejected",
+								slog.String("component", "live_handler"),
+								slog.String("upload_name", name),
+								slog.Any("error", err))
+						}
+					}
+				}
+			}
+		}
 	}
 
 	// Clear previous errors
