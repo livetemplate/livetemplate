@@ -292,11 +292,24 @@ func TestParseActionFromHTTP_URLEncoded(t *testing.T) {
 			wantData:   map[string]interface{}{},
 		},
 		{
+			// "action" with a value is normal data; "draft=" is the button-name
+			// candidate because it's the only empty-value field and "action" is
+			// excluded from the button-name scan to avoid routing ambiguity.
 			name:       "action is data, button name is routing",
 			body:       "action=save&draft=",
 			wantAction: "draft",
 			wantData: map[string]interface{}{
 				"action": "save",
+			},
+		},
+		{
+			// Regression: empty action= must NOT be interpreted as button-name
+			// routing. The "action" key is excluded from the empty-value scan.
+			name:       "empty action field is normal data (not routing)",
+			body:       "action=",
+			wantAction: "",
+			wantData: map[string]interface{}{
+				"action": "",
 			},
 		},
 		{
