@@ -670,10 +670,14 @@ func WithComponentTemplates(sets ...*TemplateSet) Option {
 //
 //	<form method="POST">
 //	    <input type="text" name="title">
-//	    <button name="add" type="submit">Add</button>
+//	    <button name="action" value="add" type="submit">Add</button>
 //	</form>
 //
-// The form works with both JavaScript (via WebSocket) and without (via method="POST").
+// Using an explicit action value avoids ambiguous POST parsing when other form
+// fields submit empty strings.
+//
+// The form works with both JavaScript (via WebSocket or fetch/JSON) and without
+// JavaScript (via method="POST").
 func WithProgressiveEnhancement(enabled bool) Option {
 	return func(c *Config) {
 		c.ProgressiveEnhancement = enabled
@@ -1702,6 +1706,10 @@ func (t *Template) renderHTML(data interface{}, messages map[string]string) (str
 
 	// Expand multi-action bracket syntax in lvt-el:*, lvt-fx:*, lvt-form:* attributes.
 	// e.g. lvt-el:addClass:on:[save,delete]:pending="X" → individual attributes per action.
+	// NOTE: This only applies to the HTTP response path. The WebSocket tree path
+	// (buildTree → buildTreeWithCache) uses the template AST directly. Bracket syntax
+	// inside dynamic template blocks ({{range}}, {{if}}) should use individual attributes
+	// instead to ensure correct behavior on WebSocket updates.
 	result = render.ExpandBracketAttributes(result)
 
 	// Auto-inject aria-invalid="true" on form elements with validation errors.

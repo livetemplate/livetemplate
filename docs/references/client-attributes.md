@@ -92,9 +92,10 @@ Data can be passed via hidden inputs, button `value`, or `data-*` attributes:
 
 The client resolves the action name in this order (first match wins):
 
-1. Clicked button's `name` attribute → action is the button name
-2. `form name="X"` → action is `X`
-3. None of the above → defaults to `"submit"` → routes to `Submit()`
+1. Explicit `action` field → `<button name="action" value="save">` routes to `Save()`
+2. Clicked button's `name` attribute → `<button name="save">` routes to `Save()` (uses empty-value heuristic; works when only the clicked button submits an empty value)
+3. `form name="X"` → action is `X`
+4. None of the above → defaults to `"submit"` → routes to `Submit()`
 
 ### Opt-Out
 
