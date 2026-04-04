@@ -20,8 +20,8 @@ type ActionMessage struct {
 // ParseActionFromHTTP parses an action message from HTTP POST request body (internal protocol).
 // Supports three content types:
 //   - application/json: {"action": "...", "data": {...}}
-//   - application/x-www-form-urlencoded: action=login&username=...&password=...
-//   - multipart/form-data: File uploads with optional action and data fields
+//   - application/x-www-form-urlencoded: lvt-action=login&username=...&password=...
+//   - multipart/form-data: File uploads with optional lvt-action and data fields
 func ParseActionFromHTTP(r *http.Request) (ActionMessage, error) {
 	var msg ActionMessage
 
@@ -51,6 +51,9 @@ func ParseActionFromHTTP(r *http.Request) (ActionMessage, error) {
 }
 
 // parseMultipartForm parses action from multipart/form-data (file uploads).
+// Note: Unlike parseURLEncodedForm, multipart forms only support routing via
+// the lvt-action field (no button-name detection). Data comes from a JSON-encoded
+// "data" form field, so lvt-action won't appear in msg.Data.
 func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 	var msg ActionMessage
 
@@ -61,8 +64,8 @@ func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 		return msg, nil
 	}
 
-	// Get action from "action" form field
-	msg.Action = r.FormValue("action")
+	// Get action from lvt-action field (explicit routing for progressive enhancement)
+	msg.Action = r.FormValue("lvt-action")
 
 	// Try to get data from JSON-encoded form field
 	if dataStr := r.FormValue("data"); dataStr != "" {
@@ -83,10 +86,14 @@ func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 // parseURLEncodedForm parses action from application/x-www-form-urlencoded (standard HTML forms).
 //
 // Action resolution order (first match wins):
-//  1. "action" form field (standard HTML: <button name="action" value="X">)
+//  1. "lvt-action" form field (legacy explicit routing for progressive enhancement)
 //  2. Button name routing: a form field with an empty string value is treated as a
 //     submit button whose name is the action (standard HTML: <button name="increment">)
 //  3. Empty string (server defaults to "submit" via applyDefaultAction)
+//
+// Note: "action" is NOT reserved — it flows through as normal form data.
+// For explicit routing, use lvt-form:action attribute (client-side) or
+// lvt-action hidden field (server-side progressive enhancement).
 func parseURLEncodedForm(r *http.Request) (ActionMessage, error) {
 	var msg ActionMessage
 
@@ -94,22 +101,24 @@ func parseURLEncodedForm(r *http.Request) (ActionMessage, error) {
 		return ActionMessage{}, fmt.Errorf("failed to parse form: %w", err)
 	}
 
-	// Get action from "action" form field
-	msg.Action = r.FormValue("action")
+	// Get action from lvt-action field (explicit routing for progressive enhancement)
+	msg.Action = r.FormValue("lvt-action")
 
-	// Action routing fields to exclude from data.
-	// "action" is a reserved field name used for routing; it will not appear in ctx data.
-	actionFields := map[string]bool{"action": true}
+	// Action routing fields to exclude from data
+	actionFields := map[string]bool{"lvt-action": true}
 
 	// If no explicit action, detect button-name-as-action:
 	// A submit button with name="X" and no value submits "X=" in form data.
 	// We detect this as the unique single-value field with an empty string.
 	// If multiple empty-value fields exist, we skip (ambiguous — can't determine which button).
+	// Note: "action" is explicitly excluded from this scan. While it's a normal
+	// data field, an empty action= would be ambiguous with the common HTML pattern
+	// <form action="/path"> which browsers don't submit, but could confuse routing.
 	if msg.Action == "" {
 		var candidate string
 		ambiguous := false
 		for key, values := range r.Form {
-			if key == "" || actionFields[key] {
+			if key == "" || key == "action" || actionFields[key] {
 				continue
 			}
 			if len(values) == 1 && values[0] == "" {
