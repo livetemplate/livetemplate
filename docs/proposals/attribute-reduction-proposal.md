@@ -359,7 +359,7 @@ The client reads `--lvt-scroll-behavior` and `--lvt-scroll-threshold` from compu
 
 No CSS dependency needed — this is pure attribute consolidation.
 
-> **Migration note:** `lvt-disable-on:*` and `lvt-enable-on:*` (and their renamed forms `lvt-el:disable:on:*` / `lvt-el:enable:on:*`) are removed with no alias. Use `lvt-el:toggleAttr:on:pending="disabled"` and `lvt-el:toggleAttr:on:done="disabled"` instead. The `toggleAttr` approach assumes the `disabled` attribute is absent initially — if the button starts disabled (server-rendered), the toggle fires in the wrong direction. For deterministic behavior on pre-disabled elements, use `lvt-el:setAttr:on:pending="disabled"` and `lvt-el:removeAttr:on:done="disabled"` (when available) instead of `toggleAttr`.
+> **Migration note:** `lvt-disable-on:*` and `lvt-enable-on:*` (and their renamed forms `lvt-el:disable:on:*` / `lvt-el:enable:on:*`) are removed with no alias. Use `lvt-el:toggleAttr:on:pending="disabled"` and `lvt-el:toggleAttr:on:done="disabled"` instead. The `toggleAttr` approach assumes the `disabled` attribute is absent initially — if the button starts disabled (server-rendered), the toggle fires in the wrong direction. For deterministic behavior on pre-disabled elements, `lvt-el:setAttr:on:pending="disabled"` and a future `lvt-el:removeAttr:on:done="disabled"` would be the correct approach. Currently, `setAttr` is implemented in the client but `removeAttr` is not — it is a planned addition (no tracking issue yet). Until `removeAttr` is available, avoid `toggleAttr` on elements that may already have the target attribute set.
 
 ### Summary of Consolidations
 
