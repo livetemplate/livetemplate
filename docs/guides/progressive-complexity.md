@@ -508,6 +508,16 @@ Scroll modes: `bottom` (always scroll to bottom), `bottom-sticky` (scroll only i
 
 CSS custom properties: `--lvt-scroll-behavior`, `--lvt-scroll-threshold`, `--lvt-highlight-color`, `--lvt-highlight-duration`, `--lvt-animate-duration`.
 
+Directives also support lifecycle and DOM event triggers via `:on:` syntax. Without `:on:`, the directive fires on every DOM content update. With `:on:{state}`, it fires on a lifecycle state. With `:on:{event}`, it fires on a native DOM event:
+
+```html
+<!-- Highlight on successful save action -->
+<div lvt-fx:highlight:on:save:success="flash">Save confirmed</div>
+
+<!-- Highlight on click (DOM event trigger, no server round-trip) -->
+<div lvt-fx:highlight:on:click="flash">Click to highlight</div>
+```
+
 See [Client Attributes Reference — Directives](../references/client-attributes.md#directives) for all scroll, highlight, and animation options.
 
 ### 13.6 Complete Tier 2 Example
