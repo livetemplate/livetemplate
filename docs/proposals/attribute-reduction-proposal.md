@@ -94,7 +94,7 @@ Or on a standalone button:
 
 **Rationale:** `confirm()` is a standard browser API. `onsubmit`/`onclick` with `return confirm(...)` is an established HTML pattern that works without any framework. The LiveTemplate client already respects the return value of inline event handlers — if `false`, the action is not sent.
 
-### `lvt-modal-open` / `lvt-modal-close` — Replace with Native `<dialog>`
+### `lvt-modal-open` / `lvt-modal-close` — Eliminate
 
 **Current:**
 ```html
@@ -268,7 +268,7 @@ func (c *Controller) Submit(state State, ctx *livetemplate.Context) (State, erro
 |-----------|--------|-------------|
 | `lvt-submit` | Deprecate | `<button name>` or `<form name>` |
 | `lvt-action` | Deprecate | `<button name>` |
-| `lvt-confirm` | Eliminate | `onsubmit="return confirm('...')"` (**CSP note:** inline handlers require `'unsafe-inline'` in `script-src`; see [#298](https://github.com/livetemplate/lvt/issues/298)) |
+| `lvt-confirm` | Eliminate | `onsubmit="return confirm('...')"` (**CSP note:** inline handlers require `'unsafe-inline'` in `script-src`. For strict-CSP apps, a CSP-safe alternative is not yet available — tracked in [#298](https://github.com/livetemplate/lvt/issues/298). Potential future approach: a framework directive like `lvt-form:confirm="message"` processed by the client script.) |
 | `lvt-modal-open` | Eliminate | `lvt-el:toggleAttr:on:click="hidden" data-lvt-target="#id"` (actual; `command`/`commandfor` requires Chrome 135+) |
 | `lvt-modal-close` | Eliminate | `lvt-el:toggleAttr:on:click="hidden" data-lvt-target="#id"` (actual) |
 | `lvt-data-*` | Eliminate | `data-*` on button or hidden `<input>` |
@@ -358,6 +358,8 @@ The client reads `--lvt-scroll-behavior` and `--lvt-scroll-threshold` from compu
 ```
 
 No CSS dependency needed — this is pure attribute consolidation.
+
+> **Migration note:** `lvt-disable-on:*` and `lvt-enable-on:*` (and their renamed forms `lvt-el:disable:on:*` / `lvt-el:enable:on:*`) are removed with no alias. Use `lvt-el:toggleAttr:on:pending="disabled"` and `lvt-el:toggleAttr:on:done="disabled"` instead. The `toggleAttr` approach assumes the `disabled` attribute is absent initially — if the button starts disabled (server-rendered), the toggle fires in the wrong direction. For deterministic behavior on pre-disabled elements, use `lvt-el:setAttr:on:pending="disabled"` and `lvt-el:removeAttr:on:done="disabled"` (when available) instead of `toggleAttr`.
 
 ### Summary of Consolidations
 
@@ -1048,7 +1050,7 @@ After all reductions (Categories 1–7), the complete `lvt-*` surface is:
 
 ## Implementation Plan
 
-> **Pre-requisite added during Phase 2A/2B:** The component open/close client-side refactor (replacing server-side `lvt-click-away` with `lvt-el:*:on:click` / `lvt-el:*:on:click-away` interaction triggers) was completed as part of lvt PR #292. This refactor was a pre-requisite for Phase 2A/2B because lvt components (dropdowns, comboboxes, etc.) relied on server-dispatched click-away events that needed to become client-side `lvt-el:` interactions. The client-side `lvt-el:` DOM event trigger support (including `click`, `mouseenter`, `focusin`, `focusout`, `click-away`, and any native DOM event) was implemented in client PR #44 (Phase 1A).
+> **Pre-requisite added during Phase 2A/2B:** The component open/close client-side refactor (replacing server-side `lvt-click-away` with `lvt-el:*:on:click` / `lvt-el:*:on:click-away` interaction triggers) was completed as part of lvt PR #292. This refactor was a pre-requisite for Phase 2A/2B because lvt components (dropdowns, comboboxes, etc.) relied on server-dispatched click-away events that needed to become client-side `lvt-el:` interactions. The client-side `lvt-el:` click-away interaction trigger was implemented in client PR #44 (Phase 1A). DOM event triggers (`on:click`, `on:mouseenter`, `on:focusin`, `on:focusout`, etc.) were added in client PR #49 (Phase 1A.1).
 >
 > **Additional client work during Phase 2A/2B:**
 > - Client PR [#49](https://github.com/livetemplate/client/pull/49): DOM event triggers for `lvt-el:` and `lvt-fx:` — extended client to support `on:click`, `on:mouseenter`, etc. as `lvt-el:` triggers
