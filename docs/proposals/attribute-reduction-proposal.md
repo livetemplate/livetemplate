@@ -1035,6 +1035,8 @@ After all reductions (Categories 1–7), the complete `lvt-*` surface is:
 
 ## Implementation Plan
 
+> **Pre-requisite added during Phase 2A/2B:** The component open/close client-side refactor (replacing server-side `lvt-click-away` with `lvt-el:*:on:click` / `lvt-el:*:on:click-away` interaction triggers) was completed as part of lvt PR #292. This refactor was a pre-requisite for Phase 2A/2B because lvt components (dropdowns, comboboxes, etc.) relied on server-dispatched click-away events that needed to become client-side `lvt-el:` interactions. The client-side `lvt-el:` DOM event trigger support (including `click`, `mouseenter`, `focusin`, `focusout`, `click-away`, and any native DOM event) was implemented in client PR #44 (Phase 1A).
+
 ### Design Summary (Quick Reference for Implementors)
 
 This section recaps the key design decisions from Categories 1-7 so each implementation phase is self-contained.
@@ -1164,8 +1166,8 @@ document.querySelectorAll('[lvt-form\\:preserve]')
 | 1 | 1A | Client: generic event router + removals | `client` | COMPLETE | #44 |
 | 2 | 1B | Server: remove `lvt-action` + update docs | `livetemplate` | COMPLETE | #322 |
 | 3 | 2E | Examples: early migration + manual review | `examples` | COMPLETE | #53 |
-| 4 | 2A | lvt: audit + template/Go migration | `lvt` | NOT STARTED | — |
-| 5 | 2B | lvt: golden files + e2e tests + PR | `lvt` | NOT STARTED | — |
+| 4 | 2A | lvt: audit + template/Go migration | `lvt` | COMPLETE | #292 |
+| 5 | 2B | lvt: golden files + e2e tests + PR | `lvt` | COMPLETE | #292 |
 | 6 | 3A | tinkerdown: audit + Go/TS migration | `tinkerdown` | NOT STARTED | — |
 | 7 | 3B | tinkerdown: templates + docs + e2e + PR | `tinkerdown` | NOT STARTED | — |
 | 8 | 4 | Final cross-repo verification + dep alignment | `examples` | NOT STARTED | — |

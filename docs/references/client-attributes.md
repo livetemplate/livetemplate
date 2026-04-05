@@ -310,14 +310,16 @@ form.addEventListener('lvt:success', (e) => {
 
 ## Reactive Attributes
 
-Reactive attributes allow declarative DOM manipulation in response to action lifecycle events, without writing JavaScript.
+Reactive attributes allow declarative DOM manipulation in response to action lifecycle events or native DOM events, without writing JavaScript.
 
 ### Pattern
 
 ```
-lvt-{action}-on:{lifecycle}="param"
-lvt-{action}-on:{actionName}:{lifecycle}="param"
+lvt-el:{method}:on:{trigger}="param"
+lvt-el:{method}:on:{action}:{trigger}="param"
 ```
+
+Where `{trigger}` is a lifecycle state **or** any native DOM event (see below).
 
 ### Lifecycle Events
 
@@ -328,13 +330,26 @@ lvt-{action}-on:{actionName}:{lifecycle}="param"
 | `error` | Action completed with validation errors |
 | `done` | Action completed (regardless of success/error) |
 
-### Available Actions
+### Interaction Triggers
 
-| Action | Description | Param |
+In addition to lifecycle states, `lvt-el:` supports native DOM events as triggers.
+These execute client-side with no server round-trip.
+
+| Trigger | DOM Event | Use case |
+|---------|-----------|----------|
+| `click` | `click` | Toggle visibility on click |
+| `focusin` | `focusin` | Open panel when focus enters (bubbles) |
+| `focusout` | `focusout` | Close panel when focus leaves (bubbles) |
+| `mouseenter` | `mouseenter` | Show on hover |
+| `mouseleave` | `mouseleave` | Hide on hover end |
+| `click-away` | (synthetic) | Close when clicking outside element |
+| Any other | Corresponding DOM event | Custom behavior |
+
+### Available Methods
+
+| Method | Description | Param |
 |--------|-------------|-------|
 | `reset` | Calls `form.reset()` | None |
-| `disable` | Sets `element.disabled = true` | None |
-| `enable` | Sets `element.disabled = false` | None |
 | `addClass` | Adds CSS class(es) | Space-separated classes |
 | `removeClass` | Removes CSS class(es) | Space-separated classes |
 | `toggleClass` | Toggles CSS class(es) | Space-separated classes |
@@ -347,7 +362,7 @@ lvt-{action}-on:{actionName}:{lifecycle}="param"
 
 ```html
 <!-- Reset form on any successful action -->
-<form lvt-submit="save" lvt-reset-on:success>
+<form name="save" method="POST" lvt-el:reset:on:success>
     <input name="title">
     <button type="submit">Save</button>
 </form>
@@ -357,7 +372,7 @@ lvt-{action}-on:{actionName}:{lifecycle}="param"
 
 ```html
 <!-- Reset form only when 'create-todo' succeeds -->
-<form lvt-submit="create-todo" lvt-reset-on:create-todo:success>
+<form name="create-todo" method="POST" lvt-el:reset:on:create-todo:success>
     <input name="title">
     <button type="submit">Add Todo</button>
 </form>
@@ -368,12 +383,11 @@ lvt-{action}-on:{actionName}:{lifecycle}="param"
 **Loading States:**
 
 ```html
-<button
-    lvt-click="save"
-    lvt-disable-on:pending
-    lvt-addClass-on:pending="opacity-50 cursor-wait"
-    lvt-enable-on:done
-    lvt-removeClass-on:done="opacity-50 cursor-wait">
+<button name="save"
+    lvt-el:toggleAttr:on:pending="disabled"
+    lvt-el:addClass:on:pending="opacity-50 cursor-wait"
+    lvt-el:toggleAttr:on:done="disabled"
+    lvt-el:removeClass:on:done="opacity-50 cursor-wait">
     Save
 </button>
 ```
@@ -381,7 +395,7 @@ lvt-{action}-on:{actionName}:{lifecycle}="param"
 **Form Reset on Success:**
 
 ```html
-<form lvt-submit="create-todo" lvt-reset-on:success>
+<form name="create-todo" method="POST" lvt-el:reset:on:success>
     <input type="text" name="title" placeholder="New todo">
     <button type="submit">Add</button>
 </form>
@@ -390,10 +404,9 @@ lvt-{action}-on:{actionName}:{lifecycle}="param"
 **Accessibility States:**
 
 ```html
-<button
-    lvt-click="submit"
-    lvt-setAttr-on:pending="aria-busy:true"
-    lvt-setAttr-on:done="aria-busy:false">
+<button name="submit"
+    lvt-el:setAttr:on:pending="aria-busy:true"
+    lvt-el:setAttr:on:done="aria-busy:false">
     Submit
 </button>
 ```
@@ -404,9 +417,9 @@ lvt-{action}-on:{actionName}:{lifecycle}="param"
 <!-- Visual feedback on form-level errors -->
 <!-- Note: For field-specific validation errors, use .lvt.HasError and .lvt.Error helpers -->
 <div
-    lvt-addClass-on:error="border-red-500"
-    lvt-removeClass-on:success="border-red-500">
-    <form lvt-submit="save">
+    lvt-el:addClass:on:error="border-red-500"
+    lvt-el:removeClass:on:success="border-red-500">
+    <form name="save" method="POST">
         <input name="email">
         <button type="submit">Save</button>
     </form>
@@ -420,26 +433,49 @@ lvt-{action}-on:{actionName}:{lifecycle}="param"
 <input
     type="email"
     name="email"
-    lvt-setAttr-on:error="aria-invalid:true"
-    lvt-setAttr-on:success="aria-invalid:false">
+    lvt-el:setAttr:on:error="aria-invalid:true"
+    lvt-el:setAttr:on:success="aria-invalid:false">
 ```
 
 **Multiple Actions on Same Element:**
 
 ```html
-<button
-    lvt-click="save"
-    lvt-disable-on:pending
-    lvt-enable-on:done
-    lvt-addClass-on:pending="loading"
-    lvt-removeClass-on:done="loading"
-    lvt-addClass-on:success="success"
-    lvt-addClass-on:error="error">
+<button name="save"
+    lvt-el:toggleAttr:on:pending="disabled"
+    lvt-el:toggleAttr:on:done="disabled"
+    lvt-el:addClass:on:pending="loading"
+    lvt-el:removeClass:on:done="loading"
+    lvt-el:addClass:on:success="success"
+    lvt-el:addClass:on:error="error">
     Save
 </button>
 ```
 
-**Note:** When multiple reactive attributes target the same lifecycle event, all matching actions execute in DOM order. For example, `lvt-addClass-on:pending="loading"` and `lvt-addClass-on:pending="disabled"` will both add their respective classes.
+**Note:** When multiple reactive attributes target the same lifecycle event, all matching methods execute in DOM order. For example, `lvt-el:addClass:on:pending="loading"` and `lvt-el:addClass:on:pending="disabled"` will both add their respective classes.
+
+### DOM Event Trigger Examples
+
+```html
+<!-- Toggle dropdown visibility on click -->
+<div lvt-el:toggleClass:on:click="open"
+     lvt-el:removeClass:on:click-away="open">
+  ...
+</div>
+
+<!-- Show tooltip on hover -->
+<div lvt-el:addClass:on:mouseenter="visible"
+     lvt-el:removeClass:on:mouseleave="visible">
+  ...
+</div>
+
+<!-- Open suggestions on focus, close on blur -->
+<div lvt-el:addClass:on:focusin="open"
+     lvt-el:removeClass:on:focusout="open"
+     lvt-el:removeClass:on:click-away="open">
+  <input type="text" ...>
+  <ul data-suggestions>...</ul>
+</div>
+```
 
 ### Bracket Expansion (Multi-Action Shorthand)
 
@@ -633,6 +669,32 @@ Apply entrance animations to elements.
 | `lvt-animate` | Animation type: `fade`, `slide`, `scale` |
 | `lvt-animate-duration` | Duration in ms (default: 300) |
 
+### Trigger Types
+
+`lvt-fx:` attributes support three trigger modes:
+
+**Implicit (no `:on:`)** -- fires on every DOM content update:
+
+```html
+<div lvt-fx:scroll="bottom-sticky">...</div>
+<div lvt-fx:highlight="flash">...</div>
+```
+
+**Lifecycle (`:on:{state}`)** -- fires on action lifecycle state:
+
+```html
+<div lvt-fx:highlight:on:success="flash">Saved!</div>
+<div lvt-fx:highlight:on:save:success="flash">Save confirmed</div>
+```
+
+**DOM Event (`:on:{event}`)** -- fires on any native DOM event:
+
+```html
+<div lvt-fx:highlight:on:click="flash">Click to highlight</div>
+<div lvt-fx:highlight:on:mouseenter="flash">Hover to highlight</div>
+<div lvt-fx:animate:on:click="fade">Click to animate</div>
+```
+
 ---
 
 ## Modals
@@ -750,7 +812,8 @@ Complete reference of all `lvt-*` attributes.
 | `lvt-blur` | Blur event | `<input lvt-blur="validate">` |
 | `lvt-mouseenter` | Mouse enter event | `<div lvt-mouseenter="show">` |
 | `lvt-mouseleave` | Mouse leave event | `<div lvt-mouseleave="hide">` |
-| `lvt-click-away` | Click outside element | `<div lvt-click-away="close">` |
+| `lvt-click-away` | Click outside element (server action) | `<div lvt-on:click-away="close">` |
+| `lvt-el:*:on:click-away` | Click outside element (client-side) | `<div lvt-el:removeClass:on:click-away="open">` |
 | `lvt-window-keydown` | Global keydown | `<div lvt-window-keydown="close">` |
 | `lvt-window-keyup` | Global keyup | `<div lvt-window-keyup="handle">` |
 | `lvt-window-scroll` | Window scroll | `<div lvt-window-scroll="load">` |
@@ -771,16 +834,14 @@ Complete reference of all `lvt-*` attributes.
 
 | Attribute | Description | Example |
 |-----------|-------------|---------|
-| `lvt-reset-on:{event}` | Reset form on lifecycle event | `lvt-reset-on:success` |
-| `lvt-disable-on:{event}` | Disable element on event | `lvt-disable-on:pending` |
-| `lvt-enable-on:{event}` | Enable element on event | `lvt-enable-on:done` |
-| `lvt-addClass-on:{event}` | Add class(es) on event | `lvt-addClass-on:pending="loading"` |
-| `lvt-removeClass-on:{event}` | Remove class(es) on event | `lvt-removeClass-on:done="loading"` |
-| `lvt-toggleClass-on:{event}` | Toggle class(es) on event | `lvt-toggleClass-on:success="active"` |
-| `lvt-setAttr-on:{event}` | Set attribute on event | `lvt-setAttr-on:pending="aria-busy:true"` |
-| `lvt-toggleAttr-on:{event}` | Toggle boolean attr on event | `lvt-toggleAttr-on:pending="disabled"` |
+| `lvt-el:reset:on:{trigger}` | Reset form on trigger | `lvt-el:reset:on:success` |
+| `lvt-el:addClass:on:{trigger}` | Add class(es) on trigger | `lvt-el:addClass:on:pending="loading"` |
+| `lvt-el:removeClass:on:{trigger}` | Remove class(es) on trigger | `lvt-el:removeClass:on:done="loading"` |
+| `lvt-el:toggleClass:on:{trigger}` | Toggle class(es) on trigger | `lvt-el:toggleClass:on:click="active"` |
+| `lvt-el:setAttr:on:{trigger}` | Set attribute on trigger | `lvt-el:setAttr:on:pending="aria-busy:true"` |
+| `lvt-el:toggleAttr:on:{trigger}` | Toggle boolean attr on trigger | `lvt-el:toggleAttr:on:pending="disabled"` |
 
-**Note:** `{event}` can be `pending`, `success`, `error`, or `done`. For action-specific: `lvt-reset-on:create-todo:success`.
+**Note:** `{trigger}` can be a lifecycle state (`pending`, `success`, `error`, `done`), any native DOM event (`click`, `focusin`, `focusout`, `mouseenter`, `mouseleave`, etc.), or the synthetic `click-away`. For action-specific: `lvt-el:reset:on:create-todo:success`.
 
 ### Modifier Attributes
 
@@ -847,12 +908,11 @@ Prefer declarative reactive attributes over JavaScript for common UI patterns:
 
 ```html
 <!-- Good: Declarative loading state -->
-<button
-    lvt-click="save"
-    lvt-disable-on:pending
-    lvt-addClass-on:pending="opacity-50"
-    lvt-enable-on:done
-    lvt-removeClass-on:done="opacity-50">
+<button name="save"
+    lvt-el:toggleAttr:on:pending="disabled"
+    lvt-el:addClass:on:pending="opacity-50"
+    lvt-el:toggleAttr:on:done="disabled"
+    lvt-el:removeClass:on:done="opacity-50">
     Save
 </button>
 
@@ -891,7 +951,7 @@ Prefer declarative reactive attributes over JavaScript for common UI patterns:
 Use reactive attributes for automatic form reset:
 
 ```html
-<form lvt-submit="create-todo" lvt-reset-on:success>
+<form name="create-todo" method="POST" lvt-el:reset:on:success>
     <input name="title" placeholder="New todo">
     <button type="submit">Add</button>
 </form>
@@ -900,11 +960,10 @@ Use reactive attributes for automatic form reset:
 ### 6. Accessibility with Reactive Attributes
 
 ```html
-<button
-    lvt-click="save"
-    lvt-setAttr-on:pending="aria-busy:true"
-    lvt-setAttr-on:done="aria-busy:false"
-    lvt-setAttr-on:error="aria-invalid:true">
+<button name="save"
+    lvt-el:setAttr:on:pending="aria-busy:true"
+    lvt-el:setAttr:on:done="aria-busy:false"
+    lvt-el:setAttr:on:error="aria-invalid:true">
     Save
 </button>
 ```
