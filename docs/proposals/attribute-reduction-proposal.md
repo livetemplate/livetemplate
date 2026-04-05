@@ -114,7 +114,7 @@ Or on a standalone button:
 </dialog>
 ```
 
-**Rationale:** The HTML Invoker Commands API (`command`/`commandfor`) handles modal open/close natively. Focus trapping, backdrop, and Escape key are all browser-native. Already documented in the progressive complexity guide as the preferred approach.
+**Rationale:** The HTML Invoker Commands API (`command`/`commandfor`) handles modal open/close natively when used with `<dialog>`. Focus trapping, backdrop, and Escape key are all browser-native with `<dialog>` + `showModal()`.
 
 > **Implementation Update (2026-04-05):** The `command`/`commandfor` approach was initially implemented in lvt PR #292 but caused 14 e2e test failures because the Invoker Commands API requires Chrome 135+, which CI Docker containers don't support. The actual implementation uses `data-lvt-target` cross-element targeting (client PR [#53](https://github.com/livetemplate/client/pull/53)):
 >
@@ -126,6 +126,8 @@ Or on a standalone button:
 > ```
 >
 > `data-lvt-target` is a general mechanism: any `lvt-el:` method can target another element via `#id` (by ID) or `closest:selector` (walk up ancestors). Falls back to self when absent. This solves both modal open/close and dropdown/popover toggle buttons with zero new methods.
+>
+> **Note:** The `<div hidden>` approach does **not** provide the browser-native features that `<dialog>` + `showModal()` offers: no automatic backdrop, focus trapping, Escape key handling, or top-layer stacking context. Applications requiring proper modal behavior should use `<dialog>` elements with a JS `lvt-hook` to call `.showModal()`, or wait for broader Invoker Commands API support. The `data-lvt-target` + `hidden` toggle is suitable for simple show/hide panels and the lvt component library's modal component (which uses its own CSS backdrop and JS focus management).
 
 ### `lvt-data-*` — Replace with Standard `data-*` or Hidden Inputs
 
@@ -266,7 +268,7 @@ func (c *Controller) Submit(state State, ctx *livetemplate.Context) (State, erro
 |-----------|--------|-------------|
 | `lvt-submit` | Deprecate | `<button name>` or `<form name>` |
 | `lvt-action` | Deprecate | `<button name>` |
-| `lvt-confirm` | Eliminate | `onsubmit="return confirm('...')"` |
+| `lvt-confirm` | Eliminate | `onsubmit="return confirm('...')"` (**CSP note:** inline handlers require `'unsafe-inline'` in `script-src`; see [#298](https://github.com/livetemplate/lvt/issues/298)) |
 | `lvt-modal-open` | Eliminate | `lvt-el:toggleAttr:on:click="hidden" data-lvt-target="#id"` (actual; `command`/`commandfor` requires Chrome 135+) |
 | `lvt-modal-close` | Eliminate | `lvt-el:toggleAttr:on:click="hidden" data-lvt-target="#id"` (actual) |
 | `lvt-data-*` | Eliminate | `data-*` on button or hidden `<input>` |
@@ -1183,8 +1185,8 @@ document.querySelectorAll('[lvt-form\\:preserve]')
 | # | Sub-phase | Description | Repo | Status | PR |
 |---|-----------|-------------|------|--------|----|
 | 1 | 1A | Client: generic event router + removals | `client` | COMPLETE | [#44](https://github.com/livetemplate/client/pull/44) |
-| — | 1A+ | Client: DOM event triggers for `lvt-el:` and `lvt-fx:` | `client` | COMPLETE | [#49](https://github.com/livetemplate/client/pull/49) |
-| — | 1A++ | Client: `data-lvt-target` cross-element targeting | `client` | COMPLETE | [#53](https://github.com/livetemplate/client/pull/53) |
+| 1.5 | 1A.1 | Client: DOM event triggers for `lvt-el:` and `lvt-fx:` (unplanned — needed for Phase 2 component migration) | `client` | COMPLETE | [#49](https://github.com/livetemplate/client/pull/49) |
+| 1.6 | 1A.2 | Client: `data-lvt-target` cross-element targeting (unplanned — replaced `command`/`commandfor` for modal open/close) | `client` | COMPLETE | [#53](https://github.com/livetemplate/client/pull/53) |
 | 2 | 1B | Server: remove `lvt-action` + update docs | `livetemplate` | COMPLETE | [#322](https://github.com/livetemplate/livetemplate/pull/322) |
 | 3 | 2E | Examples: early migration + manual review | `examples` | COMPLETE | [#53](https://github.com/livetemplate/examples/pull/53) |
 | 4 | 2A | lvt: audit + template/Go migration | `lvt` | COMPLETE | [#292](https://github.com/livetemplate/lvt/pull/292) |
@@ -1197,7 +1199,18 @@ document.querySelectorAll('[lvt-form\\:preserve]')
 
 **PR merge order:** `client` → `livetemplate` → `examples (2E)` → `lvt` → `tinkerdown` → `examples (4)`. See [PR Merge Order](#pr-merge-order) for details. The client must be published first because `lvt` and `tinkerdown` e2e tests load the client library.
 
-**Follow-up issues from Phase 2 review:** 17 issues ([#293](https://github.com/livetemplate/lvt/issues/293)–[#309](https://github.com/livetemplate/lvt/issues/309)) were created from Claude and Copilot bot reviews of lvt PR #292. Key items include: `hidden` attribute conflicts with CSS `.open` toggle on datepicker/timepicker panels (#293), autocomplete panel not closing after selection (#294), `ContextMenu.ShowAt()` no longer opening the menu (#295), `NewInline()` datepicker rendering hidden (#296), `aria-expanded` reset on server re-render (#297), CSP incompatibility from inline `onclick` handlers (#298), and `WithOpen(true)` no-op with no migration path (#299).
+**Known regressions (must fix before Phase 3):** These functional regressions were identified during Phase 2 review and should be resolved before proceeding with tinkerdown migration:
+
+| Issue | Description | Severity |
+|-------|-------------|----------|
+| [#293](https://github.com/livetemplate/lvt/issues/293) | `hidden` attribute on datepicker/timepicker panels conflicts with CSS `.open` toggle — panels never become visible | Bug |
+| [#294](https://github.com/livetemplate/lvt/issues/294) | Autocomplete panel doesn't close after suggestion selection | Bug |
+| [#295](https://github.com/livetemplate/lvt/issues/295) | `ContextMenu.ShowAt()` no longer opens the menu — silent breaking change | Bug |
+| [#296](https://github.com/livetemplate/lvt/issues/296) | `NewInline()` datepicker renders hidden by default | Bug |
+| [#298](https://github.com/livetemplate/lvt/issues/298) | Inline `onclick` handlers require `'unsafe-inline'` in CSP — regression for strict-CSP apps | Breaking |
+| [#299](https://github.com/livetemplate/lvt/issues/299) | `WithOpen(true)` is a no-op with no migration path — silent breaking change | Breaking |
+
+**Additional follow-up issues (lower priority):** 11 more issues ([#297](https://github.com/livetemplate/lvt/issues/297), [#300](https://github.com/livetemplate/lvt/issues/300)–[#309](https://github.com/livetemplate/lvt/issues/309)) were created covering accessibility (`aria-expanded` reset), code quality (stale docstrings, duplicate styles, godoc markers), and minor UX items (chevron indicators, tab-away behavior).
 
 ---
 
