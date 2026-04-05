@@ -1,7 +1,7 @@
 # Attribute Surface Reduction
 
-**Status:** Proposal
-**Date:** 2026-03-30
+**Status:** In Progress — Phases 1–2 Complete
+**Date:** 2026-03-30 (last updated: 2026-04-05)
 **Issue:** [#288](https://github.com/livetemplate/livetemplate/issues/288), [#271](https://github.com/livetemplate/livetemplate/issues/271)
 
 ## Summary
@@ -115,6 +115,17 @@ Or on a standalone button:
 ```
 
 **Rationale:** The HTML Invoker Commands API (`command`/`commandfor`) handles modal open/close natively. Focus trapping, backdrop, and Escape key are all browser-native. Already documented in the progressive complexity guide as the preferred approach.
+
+> **Implementation Update (2026-04-05):** The `command`/`commandfor` approach was initially implemented in lvt PR #292 but caused 14 e2e test failures because the Invoker Commands API requires Chrome 135+, which CI Docker containers don't support. The actual implementation uses `data-lvt-target` cross-element targeting (client PR [#53](https://github.com/livetemplate/client/pull/53)):
+>
+> ```html
+> <button lvt-el:toggleAttr:on:click="hidden" data-lvt-target="#edit-modal">Edit</button>
+> <div id="edit-modal" hidden role="dialog">
+>     <button lvt-el:toggleAttr:on:click="hidden" data-lvt-target="#edit-modal">Cancel</button>
+> </div>
+> ```
+>
+> `data-lvt-target` is a general mechanism: any `lvt-el:` method can target another element via `#id` (by ID) or `closest:selector` (walk up ancestors). Falls back to self when absent. This solves both modal open/close and dropdown/popover toggle buttons with zero new methods.
 
 ### `lvt-data-*` — Replace with Standard `data-*` or Hidden Inputs
 
@@ -256,8 +267,8 @@ func (c *Controller) Submit(state State, ctx *livetemplate.Context) (State, erro
 | `lvt-submit` | Deprecate | `<button name>` or `<form name>` |
 | `lvt-action` | Deprecate | `<button name>` |
 | `lvt-confirm` | Eliminate | `onsubmit="return confirm('...')"` |
-| `lvt-modal-open` | Eliminate | `command="show-modal" commandfor="id"` |
-| `lvt-modal-close` | Eliminate | `command="close" commandfor="id"` |
+| `lvt-modal-open` | Eliminate | `lvt-el:toggleAttr:on:click="hidden" data-lvt-target="#id"` (actual; `command`/`commandfor` requires Chrome 135+) |
+| `lvt-modal-close` | Eliminate | `lvt-el:toggleAttr:on:click="hidden" data-lvt-target="#id"` (actual) |
 | `lvt-data-*` | Eliminate | `data-*` on button or hidden `<input>` |
 | `lvt-value-*` | Eliminate | Hidden `<input>` or button `value` |
 | `lvt-click` | Narrow | Keep only for non-button elements |
@@ -762,7 +773,7 @@ LiveTemplate already adopted the colon-delimited pattern for `lvt-on:*` and `lvt
 | Event bindings (element + window) | 16 individual names + 1 (`lvt-change`) | `lvt-on[:{scope}]:{event}` (1 pattern, 3 scope variants) |
 | Event bindings (document) | 0 | `lvt-on:document:{event}` (new capability) |
 | Data passing | 2 patterns (`lvt-data-*`, `lvt-value-*`) | 0 (standard HTML) |
-| Modals | 2 | 0 (native `<dialog>`) |
+| Modals | 2 | 0 (`data-lvt-target` + `lvt-el:toggleAttr:on:click="hidden"`) |
 | Legacy routing | 2 (`lvt-submit`, `lvt-action`) | 0 (standard HTML) |
 | Confirmation | 1 | 0 (standard `onsubmit`/`onclick`) |
 | Scroll config | 3 (`lvt-scroll` + 2 config attrs) | 1 (`lvt-fx:scroll`) + CSS custom properties |
@@ -1036,6 +1047,14 @@ After all reductions (Categories 1–7), the complete `lvt-*` surface is:
 ## Implementation Plan
 
 > **Pre-requisite added during Phase 2A/2B:** The component open/close client-side refactor (replacing server-side `lvt-click-away` with `lvt-el:*:on:click` / `lvt-el:*:on:click-away` interaction triggers) was completed as part of lvt PR #292. This refactor was a pre-requisite for Phase 2A/2B because lvt components (dropdowns, comboboxes, etc.) relied on server-dispatched click-away events that needed to become client-side `lvt-el:` interactions. The client-side `lvt-el:` DOM event trigger support (including `click`, `mouseenter`, `focusin`, `focusout`, `click-away`, and any native DOM event) was implemented in client PR #44 (Phase 1A).
+>
+> **Additional client work during Phase 2A/2B:**
+> - Client PR [#49](https://github.com/livetemplate/client/pull/49): DOM event triggers for `lvt-el:` and `lvt-fx:` — extended client to support `on:click`, `on:mouseenter`, etc. as `lvt-el:` triggers
+> - Client PR [#53](https://github.com/livetemplate/client/pull/53): `data-lvt-target` cross-element targeting — general mechanism allowing any `lvt-el:` method to operate on a different element via `#id` or `closest:selector`. This replaced `command`/`commandfor` for modal open/close (Chrome 135+ not available in CI) and also eliminated all remaining `onclick` toggle handlers in dropdown/popover/datepicker/timepicker/menu components.
+>
+> **Design deviation — modals:** The proposal specified `command="show-modal" commandfor="id"` for modal open/close, but CI Docker containers don't support the Invoker Commands API (Chrome 135+). The actual implementation uses `lvt-el:toggleAttr:on:click="hidden" data-lvt-target="#modal-id"` — a framework-level solution that works on all browsers. See the [modal section above](#lvt-modal-open--lvt-modal-close--replace-with-native-dialog) for details.
+>
+> **Design deviation — delete confirm modals:** Server-managed 3-step delete flows (RequestDelete → ConfirmDelete → CancelDelete) were replaced entirely with browser-native `onclick="return confirm('...')"`. This eliminated ~760 lines of server state management code (PendingDeleteID, DeleteConfirm template rendering, confirm modal components).
 
 ### Design Summary (Quick Reference for Implementors)
 
@@ -1071,8 +1090,8 @@ event = segments.join(':')           // remainder is the event name
 | `lvt-data-{key}="V"` | `data-{key}="V"` |
 | `lvt-value-{key}="V"` | `<input type="hidden" name="{key}" value="V">` |
 | `lvt-confirm="msg"` | `onsubmit="return confirm('msg')"` or `onclick="return confirm('msg')"` |
-| `lvt-modal-open="id"` | `command="show-modal" commandfor="id"` |
-| `lvt-modal-close="id"` | `command="close" commandfor="id"` (inside `<form method="dialog">`) |
+| `lvt-modal-open="id"` | `lvt-el:toggleAttr:on:click="hidden" data-lvt-target="#id"` (actual impl; `command`/`commandfor` requires Chrome 135+) |
+| `lvt-modal-close="id"` | `lvt-el:toggleAttr:on:click="hidden" data-lvt-target="#id"` (actual impl; see implementation note above) |
 | `lvt-change="X"` | `lvt-on:change="X"` (select/checkbox) or `lvt-on:input="X"` (text) |
 | `lvt-input="X"` | `lvt-on:input="X"` |
 | `lvt-keydown="X"` | `lvt-on:keydown="X"` |
@@ -1163,11 +1182,13 @@ document.querySelectorAll('[lvt-form\\:preserve]')
 
 | # | Sub-phase | Description | Repo | Status | PR |
 |---|-----------|-------------|------|--------|----|
-| 1 | 1A | Client: generic event router + removals | `client` | COMPLETE | #44 |
-| 2 | 1B | Server: remove `lvt-action` + update docs | `livetemplate` | COMPLETE | #322 |
-| 3 | 2E | Examples: early migration + manual review | `examples` | COMPLETE | #53 |
-| 4 | 2A | lvt: audit + template/Go migration | `lvt` | COMPLETE | #292 |
-| 5 | 2B | lvt: golden files + e2e tests + PR | `lvt` | COMPLETE | #292 |
+| 1 | 1A | Client: generic event router + removals | `client` | COMPLETE | [#44](https://github.com/livetemplate/client/pull/44) |
+| — | 1A+ | Client: DOM event triggers for `lvt-el:` and `lvt-fx:` | `client` | COMPLETE | [#49](https://github.com/livetemplate/client/pull/49) |
+| — | 1A++ | Client: `data-lvt-target` cross-element targeting | `client` | COMPLETE | [#53](https://github.com/livetemplate/client/pull/53) |
+| 2 | 1B | Server: remove `lvt-action` + update docs | `livetemplate` | COMPLETE | [#322](https://github.com/livetemplate/livetemplate/pull/322) |
+| 3 | 2E | Examples: early migration + manual review | `examples` | COMPLETE | [#53](https://github.com/livetemplate/examples/pull/53) |
+| 4 | 2A | lvt: audit + template/Go migration | `lvt` | COMPLETE | [#292](https://github.com/livetemplate/lvt/pull/292) |
+| 5 | 2B | lvt: golden files + e2e tests + PR | `lvt` | COMPLETE | [#292](https://github.com/livetemplate/lvt/pull/292) |
 | 6 | 3A | tinkerdown: audit + Go/TS migration | `tinkerdown` | NOT STARTED | — |
 | 7 | 3B | tinkerdown: templates + docs + e2e + PR | `tinkerdown` | NOT STARTED | — |
 | 8 | 4 | Final cross-repo verification + dep alignment | `examples` | NOT STARTED | — |
@@ -1175,6 +1196,8 @@ document.querySelectorAll('[lvt-form\\:preserve]')
 **After completing each sub-phase:** Update Status to COMPLETE, fill in PR numbers, and commit this file.
 
 **PR merge order:** `client` → `livetemplate` → `examples (2E)` → `lvt` → `tinkerdown` → `examples (4)`. See [PR Merge Order](#pr-merge-order) for details. The client must be published first because `lvt` and `tinkerdown` e2e tests load the client library.
+
+**Follow-up issues from Phase 2 review:** 17 issues ([#293](https://github.com/livetemplate/lvt/issues/293)–[#309](https://github.com/livetemplate/lvt/issues/309)) were created from Claude and Copilot bot reviews of lvt PR #292. Key items include: `hidden` attribute conflicts with CSS `.open` toggle on datepicker/timepicker panels (#293), autocomplete panel not closing after selection (#294), `ContextMenu.ShowAt()` no longer opening the menu (#295), `NewInline()` datepicker rendering hidden (#296), `aria-expanded` reset on server re-render (#297), CSP incompatibility from inline `onclick` handlers (#298), and `WithOpen(true)` no-op with no migration path (#299).
 
 ---
 
@@ -1560,12 +1583,12 @@ The Go server library must expand bracket syntax in `lvt-el:*`, `lvt-fx:*`, and 
 
 #### Step 6: Acceptance Criteria (Phase 1B)
 
-- [ ] Server: `lvt-action` form field no longer parsed
-- [ ] Server: Multi-action bracket expansion works for `lvt-el:*`, `lvt-fx:*`, and `lvt-form:*` (`on:[a,b]:state` → individual attributes)
-- [ ] Server: All tests pass: `GOWORK=off go test ./... -timeout=300s`
-- [ ] Server: `docs/references/client-attributes.md` updated with new syntax, deprecated entries removed
-- [ ] Server: `docs/guides/progressive-complexity.md` uses `lvt-on:{event}` syntax throughout
-- [ ] Server: `docs/references/progressive-complexity-reference.md` updated
+- [x] Server: `lvt-action` form field no longer parsed
+- [x] Server: Multi-action bracket expansion works for `lvt-el:*`, `lvt-fx:*`, and `lvt-form:*` (`on:[a,b]:state` → individual attributes)
+- [x] Server: All tests pass: `GOWORK=off go test ./... -timeout=300s`
+- [x] Server: `docs/references/client-attributes.md` updated with new syntax, deprecated entries removed
+- [x] Server: `docs/guides/progressive-complexity.md` uses `lvt-on:{event}` syntax throughout
+- [x] Server: `docs/references/progressive-complexity-reference.md` updated
 
 #### Step 7: Commit and Create PR
 
@@ -1855,37 +1878,43 @@ GOWORK=off go test ./e2e/... -timeout=600s
 #### Step 4: Acceptance Criteria (Phase 2)
 
 **Category 1 eliminations:**
-- [ ] Zero occurrences of `lvt-click` in any `.tmpl` file (replaced by `name=` or `lvt-on:click`)
-- [ ] Zero occurrences of `lvt-submit` in any `.tmpl` file
-- [ ] Zero occurrences of `lvt-data-*` in any `.tmpl` file (replaced by `data-*`)
-- [ ] Zero occurrences of `lvt-confirm` in any `.tmpl` file
-- [ ] Zero occurrences of `lvt-modal-open` or `lvt-modal-close` in any `.tmpl` file
-- [ ] Zero occurrences of `lvt-change` in any `.tmpl` file (replaced by `lvt-on:change` or `lvt-on:input`)
+- [x] Zero occurrences of `lvt-click` in any `.tmpl` file (replaced by `name=` or `lvt-on:click`)
+- [x] Zero occurrences of `lvt-submit` in any `.tmpl` file
+- [x] Zero occurrences of `lvt-data-*` in any `.tmpl` file (replaced by `data-*`)
+- [x] Zero occurrences of `lvt-confirm` in any `.tmpl` file
+- [x] Zero occurrences of `lvt-modal-open` or `lvt-modal-close` in any `.tmpl` file
+- [x] Zero occurrences of `lvt-change` in any `.tmpl` file (replaced by `lvt-on:change` or `lvt-on:input`)
 
 **Category 2 consolidations:**
-- [ ] Zero occurrences of `lvt-scroll-behavior`, `lvt-scroll-threshold` (replaced by CSS `--lvt-scroll-*`)
-- [ ] Zero occurrences of `lvt-highlight-color`, `lvt-highlight-duration` (replaced by CSS `--lvt-highlight-*`)
-- [ ] Zero occurrences of `lvt-animate-duration` (replaced by CSS `--lvt-animate-duration`)
-- [ ] Zero occurrences of `lvt-disable-on:*`, `lvt-enable-on:*` (replaced by `lvt-el:toggleAttr:on:*`)
+- [x] Zero occurrences of `lvt-scroll-behavior`, `lvt-scroll-threshold` (replaced by CSS `--lvt-scroll-*`)
+- [x] Zero occurrences of `lvt-highlight-color`, `lvt-highlight-duration` (replaced by CSS `--lvt-highlight-*`)
+- [x] Zero occurrences of `lvt-animate-duration` (replaced by CSS `--lvt-animate-duration`)
+- [x] Zero occurrences of `lvt-disable-on:*`, `lvt-enable-on:*` (replaced by `lvt-el:toggleAttr:on:*`)
 
 **Category 5 event router:**
-- [ ] All `lvt-input`, `lvt-keydown`, `lvt-keyup`, `lvt-focus`, `lvt-blur`, `lvt-mouseenter`, `lvt-mouseleave`, `lvt-mouseover` replaced by `lvt-on:{event}` equivalents; `lvt-click-away` replaced by `lvt-el:*:on:click-away`
-- [ ] All `lvt-window-keydown`, `lvt-window-keyup`, `lvt-window-scroll`, `lvt-window-resize`, `lvt-window-focus`, `lvt-window-blur` replaced by `lvt-on:window:{event}` equivalents
+- [x] All `lvt-input`, `lvt-keydown`, `lvt-keyup`, `lvt-focus`, `lvt-blur`, `lvt-mouseenter`, `lvt-mouseleave`, `lvt-mouseover` replaced by `lvt-on:{event}` equivalents; `lvt-click-away` replaced by `lvt-el:*:on:click-away`
+- [x] All `lvt-window-keydown`, `lvt-window-keyup`, `lvt-window-scroll`, `lvt-window-resize`, `lvt-window-focus`, `lvt-window-blur` replaced by `lvt-on:window:{event}` equivalents
 
 **Category 6 prefix consolidation:**
-- [ ] Zero occurrences of flat `lvt-scroll`, `lvt-highlight`, `lvt-animate` (replaced by `lvt-fx:*`)
-- [ ] Zero occurrences of flat `lvt-debounce`, `lvt-throttle` (replaced by `lvt-mod:*`)
-- [ ] Zero occurrences of flat `lvt-preserve`, `lvt-disable-with`, `lvt-no-intercept` (replaced by `lvt-form:*`)
+- [x] Zero occurrences of flat `lvt-scroll`, `lvt-highlight`, `lvt-animate` (replaced by `lvt-fx:*`)
+- [x] Zero occurrences of flat `lvt-debounce`, `lvt-throttle` (replaced by `lvt-mod:*`)
+- [x] Zero occurrences of flat `lvt-preserve`, `lvt-disable-with`, `lvt-no-intercept` (replaced by `lvt-form:*`)
 
 **Category 7 reactive DOM renames + action-scoped triggers:**
-- [ ] Zero occurrences of `lvt-addClass-on:*`, `lvt-removeClass-on:*`, etc. (replaced by `lvt-el:*:on:*`)
-- [ ] Server-expanded multi-action bracket syntax (`lvt-el:*:on:[action1,action2]:state`) works if adopted in templates
+- [x] Zero occurrences of `lvt-addClass-on:*`, `lvt-removeClass-on:*`, etc. (replaced by `lvt-el:*:on:*`)
+- [x] Server-expanded multi-action bracket syntax (`lvt-el:*:on:[action1,action2]:state`) works if adopted in templates
 
 **Build verification:**
-- [ ] Golden files regenerated and matching
-- [ ] All Go tests pass: `GOWORK=off go test ./... -timeout=300s`
-- [ ] E2E tests pass: `GOWORK=off go test ./e2e/... -timeout=600s`
-- [ ] `go.mod` updated to latest livetemplate version
+- [x] Golden files regenerated and matching
+- [x] All Go tests pass: `GOWORK=off go test ./... -timeout=300s`
+- [x] E2E tests pass: `GOWORK=off go test ./e2e/... -timeout=600s`
+- [x] `go.mod` updated to latest livetemplate version
+
+**Additional work completed in Phase 2 (beyond original scope):**
+- [x] `command`/`commandfor` replaced with `data-lvt-target` + `lvt-el:toggleAttr:on:click="hidden"` for modals (Chrome 135+ not available in CI)
+- [x] All `onclick` toggle handlers in dropdown/popover/datepicker/timepicker/menu replaced with `lvt-el:toggleClass:on:click` + `data-lvt-target="closest:..."` 
+- [x] Server-managed delete confirm modals (RequestDelete/ConfirmDelete/CancelDelete) replaced with browser-native `confirm()` — ~760 lines removed
+- [x] 17 follow-up issues created from bot reviews (lvt [#293](https://github.com/livetemplate/lvt/issues/293)–[#309](https://github.com/livetemplate/lvt/issues/309))
 
 #### Step 5: PR and Merge
 
@@ -2283,11 +2312,11 @@ Then **run each example application manually** and verify:
 
 #### Step 6: Acceptance Criteria (Phase 2E)
 
-- [ ] `examples` `go.mod` points to Phase 1B livetemplate version
-- [ ] Zero deprecated attribute references in templates
-- [ ] All Go tests pass
-- [ ] Manual review completed — each example runs correctly in browser
-- [ ] Migration friction documented (if any) — feed back into Phase 2/3 approach
+- [x] `examples` `go.mod` points to Phase 1B livetemplate version
+- [x] Zero deprecated attribute references in templates
+- [x] All Go tests pass
+- [x] Manual review completed — each example runs correctly in browser
+- [x] Migration friction documented (if any) — feed back into Phase 2/3 approach
 
 #### Step 7: PR and Merge
 
