@@ -49,7 +49,10 @@ handler := tmpl.Handle(&ProfileController{}, livetemplate.AsState(&ProfileState{
 
 Access completed uploads and text fields via the Context. When a form with
 `enctype="multipart/form-data"` is submitted, both file uploads and text fields
-are available in the same action handler:
+are available in the same action handler.
+
+> **Note:** The field name `data` is reserved for the LiveTemplate client library's
+> JSON encoding. Avoid naming a plain text field `data` in multipart forms.
 
 ```go
 func (c *ProfileController) SaveProfile(state ProfileState, ctx *livetemplate.Context) (ProfileState, error) {
