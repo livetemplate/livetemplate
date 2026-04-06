@@ -70,18 +70,21 @@ func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 	// Get action from lvt-action field (explicit routing for progressive enhancement)
 	msg.Action = r.FormValue("lvt-action")
 
-	// Try to get data from JSON-encoded form field (client library format)
+	// Try to get data from JSON-encoded form field (client library format).
+	// When present, JSON data takes precedence over individual form fields.
+	jsonDataParsed := false
 	if dataStr := r.FormValue("data"); dataStr != "" {
 		var data map[string]interface{}
 		if err := jsonutil.API.Unmarshal([]byte(dataStr), &data); err == nil {
 			msg.Data = data
+			jsonDataParsed = true
 		}
 	}
 
-	// Fallback: read individual form fields when no JSON "data" blob is present.
+	// Fallback: read individual form fields when no JSON "data" blob was parsed.
 	// This handles browser-native multipart submissions where text fields are
 	// sent as separate form fields alongside file uploads.
-	if len(msg.Data) == 0 {
+	if !jsonDataParsed {
 		actionFields := map[string]bool{"lvt-action": true, "data": true}
 
 		// Button-name-as-action detection (same logic as parseURLEncodedForm)
@@ -124,11 +127,6 @@ func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 				}
 			}
 		}
-	}
-
-	// Initialize data map if not set
-	if msg.Data == nil {
-		msg.Data = make(map[string]interface{})
 	}
 
 	return msg, nil

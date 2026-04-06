@@ -504,6 +504,37 @@ func TestParseActionFromHTTP_Multipart_JSONDataTakesPrecedence(t *testing.T) {
 	}
 }
 
+// TestParseActionFromHTTP_Multipart_EmptyJSONDataNoFallback tests that when
+// data={} is sent (valid but empty JSON), the fallback to individual fields
+// does NOT activate — JSON data takes precedence even when empty.
+func TestParseActionFromHTTP_Multipart_EmptyJSONDataNoFallback(t *testing.T) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	multipartField(t, writer, "lvt-action", "updateProfile")
+	multipartField(t, writer, "data", `{}`)              // empty JSON object
+	multipartField(t, writer, "name", "ShouldBeIgnored") // individual field
+	closeMultipart(t, writer)
+
+	req := httptest.NewRequest("POST", "/", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	msg, err := ParseActionFromHTTP(req)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if msg.Action != "updateProfile" {
+		t.Errorf("Action = %q, want %q", msg.Action, "updateProfile")
+	}
+	// data={} was parsed successfully, so individual fields should NOT be read
+	if _, ok := msg.Data["name"]; ok {
+		t.Error("Individual field 'name' should not appear when JSON data={} was parsed")
+	}
+	if len(msg.Data) != 0 {
+		t.Errorf("Data should be empty (from JSON {}), got %v", msg.Data)
+	}
+}
+
 // TestParseActionFromHTTP_URLEncoded_MultipleValues tests multiple values for same field.
 func TestParseActionFromHTTP_URLEncoded_MultipleValues(t *testing.T) {
 	body := "lvt-action=update&tags=go&tags=web&tags=test"
