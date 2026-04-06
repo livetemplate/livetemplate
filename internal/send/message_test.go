@@ -2,6 +2,8 @@ package send
 
 import (
 	"bytes"
+	"fmt"
+	"mime/multipart"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -360,6 +362,248 @@ func TestParseActionFromHTTP_URLEncoded(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// multipartField writes a field to a multipart writer, failing the test on error.
+func multipartField(t *testing.T, w *multipart.Writer, key, value string) {
+	t.Helper()
+	if err := w.WriteField(key, value); err != nil {
+		t.Fatalf("Failed to write multipart field %q: %v", key, err)
+	}
+}
+
+// closeMultipart closes the multipart writer, failing the test on error.
+func closeMultipart(t *testing.T, w *multipart.Writer) {
+	t.Helper()
+	if err := w.Close(); err != nil {
+		t.Fatalf("Failed to close multipart writer: %v", err)
+	}
+}
+
+// TestParseActionFromHTTP_Multipart_IndividualFields tests that multipart forms
+// with individual form fields (not a JSON "data" blob) are parsed correctly.
+func TestParseActionFromHTTP_Multipart_IndividualFields(t *testing.T) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	multipartField(t, writer, "lvt-action", "updateProfile")
+	multipartField(t, writer, "name", "Jane Doe")
+	multipartField(t, writer, "email", "jane@example.com")
+	closeMultipart(t, writer)
+
+	req := httptest.NewRequest("POST", "/", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	msg, err := ParseActionFromHTTP(req)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if msg.Action != "updateProfile" {
+		t.Errorf("Action = %q, want %q", msg.Action, "updateProfile")
+	}
+	if msg.Data["name"] != "Jane Doe" {
+		t.Errorf("Data[name] = %q, want %q", msg.Data["name"], "Jane Doe")
+	}
+	if msg.Data["email"] != "jane@example.com" {
+		t.Errorf("Data[email] = %q, want %q", msg.Data["email"], "jane@example.com")
+	}
+	if _, ok := msg.Data["lvt-action"]; ok {
+		t.Error("lvt-action should not appear in data map")
+	}
+}
+
+// TestParseActionFromHTTP_Multipart_ButtonNameAction tests button-name-as-action
+// detection in multipart forms (e.g., <button name="save"> with empty value).
+func TestParseActionFromHTTP_Multipart_ButtonNameAction(t *testing.T) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	multipartField(t, writer, "updateProfile", "") // button name with empty value
+	multipartField(t, writer, "name", "Jane Doe")
+	multipartField(t, writer, "email", "jane@example.com")
+	closeMultipart(t, writer)
+
+	req := httptest.NewRequest("POST", "/", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	msg, err := ParseActionFromHTTP(req)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if msg.Action != "updateProfile" {
+		t.Errorf("Action = %q, want %q", msg.Action, "updateProfile")
+	}
+	if msg.Data["name"] != "Jane Doe" {
+		t.Errorf("Data[name] = %q, want %q", msg.Data["name"], "Jane Doe")
+	}
+	if _, ok := msg.Data["updateProfile"]; ok {
+		t.Error("Button name field should not appear in data map")
+	}
+}
+
+// TestParseActionFromHTTP_Multipart_WithFileAndFields tests that text fields
+// are parsed alongside file uploads in multipart forms.
+func TestParseActionFromHTTP_Multipart_WithFileAndFields(t *testing.T) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	multipartField(t, writer, "updateProfile", "") // button name
+	multipartField(t, writer, "name", "Jane Doe")
+	multipartField(t, writer, "email", "jane@example.com")
+	filePart, err := writer.CreateFormFile("avatar", "photo.png")
+	if err != nil {
+		t.Fatalf("Failed to create form file: %v", err)
+	}
+	if _, err := fmt.Fprint(filePart, "fake-png-data"); err != nil {
+		t.Fatalf("Failed to write file data: %v", err)
+	}
+	closeMultipart(t, writer)
+
+	req := httptest.NewRequest("POST", "/", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	msg, err := ParseActionFromHTTP(req)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if msg.Action != "updateProfile" {
+		t.Errorf("Action = %q, want %q", msg.Action, "updateProfile")
+	}
+	if msg.Data["name"] != "Jane Doe" {
+		t.Errorf("Data[name] = %q, want %q", msg.Data["name"], "Jane Doe")
+	}
+	if msg.Data["email"] != "jane@example.com" {
+		t.Errorf("Data[email] = %q, want %q", msg.Data["email"], "jane@example.com")
+	}
+}
+
+// TestParseActionFromHTTP_Multipart_JSONDataTakesPrecedence tests that
+// when a JSON "data" blob is present, it takes precedence over individual fields.
+func TestParseActionFromHTTP_Multipart_JSONDataTakesPrecedence(t *testing.T) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	multipartField(t, writer, "lvt-action", "updateProfile")
+	multipartField(t, writer, "data", `{"name":"FromJSON","extra":"value"}`)
+	multipartField(t, writer, "name", "FromField") // should be ignored
+	closeMultipart(t, writer)
+
+	req := httptest.NewRequest("POST", "/", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	msg, err := ParseActionFromHTTP(req)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if msg.Data["name"] != "FromJSON" {
+		t.Errorf("Data[name] = %q, want %q (JSON should take precedence)", msg.Data["name"], "FromJSON")
+	}
+	if msg.Data["extra"] != "value" {
+		t.Errorf("Data[extra] = %q, want %q", msg.Data["extra"], "value")
+	}
+}
+
+// TestParseActionFromHTTP_Multipart_EmptyJSONDataNoFallback tests that when
+// data={} is sent (valid but empty JSON), the fallback to individual fields
+// does NOT activate — JSON data takes precedence even when empty.
+func TestParseActionFromHTTP_Multipart_EmptyJSONDataNoFallback(t *testing.T) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	multipartField(t, writer, "lvt-action", "updateProfile")
+	multipartField(t, writer, "data", `{}`)              // empty JSON object
+	multipartField(t, writer, "name", "ShouldBeIgnored") // individual field
+	closeMultipart(t, writer)
+
+	req := httptest.NewRequest("POST", "/", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	msg, err := ParseActionFromHTTP(req)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if msg.Action != "updateProfile" {
+		t.Errorf("Action = %q, want %q", msg.Action, "updateProfile")
+	}
+	// data={} was parsed successfully, so individual fields should NOT be read
+	if _, ok := msg.Data["name"]; ok {
+		t.Error("Individual field 'name' should not appear when JSON data={} was parsed")
+	}
+	if len(msg.Data) != 0 {
+		t.Errorf("Data should be empty (from JSON {}), got %v", msg.Data)
+	}
+}
+
+// TestParseActionFromHTTP_Multipart_InvalidJSONFallback documents that invalid JSON
+// in the "data" field causes a silent fallback to individual field parsing. This is
+// the intended behavior: the "data" field is treated as a client library convention,
+// not a hard contract. Browser-native submissions may include a field named "data"
+// that isn't JSON.
+func TestParseActionFromHTTP_Multipart_InvalidJSONFallback(t *testing.T) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	multipartField(t, writer, "lvt-action", "save")
+	multipartField(t, writer, "data", "not-valid-json") // invalid JSON
+	multipartField(t, writer, "name", "Jane")
+	closeMultipart(t, writer)
+
+	req := httptest.NewRequest("POST", "/", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	msg, err := ParseActionFromHTTP(req)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if msg.Action != "save" {
+		t.Errorf("Action = %q, want %q", msg.Action, "save")
+	}
+	// Fallback activates: individual fields are read (excluding "data" itself)
+	if msg.Data["name"] != "Jane" {
+		t.Errorf("Data[name] = %q, want %q (fallback should read individual fields)", msg.Data["name"], "Jane")
+	}
+	if _, ok := msg.Data["data"]; ok {
+		t.Error("'data' field should be excluded from data map")
+	}
+}
+
+// TestParseActionFromHTTP_Multipart_MultiValueFields tests repeated form fields
+// (e.g., <select multiple> or repeated checkboxes) in multipart submissions.
+func TestParseActionFromHTTP_Multipart_MultiValueFields(t *testing.T) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	multipartField(t, writer, "lvt-action", "save")
+	multipartField(t, writer, "tags", "go")
+	multipartField(t, writer, "tags", "web")
+	multipartField(t, writer, "tags", "test")
+	multipartField(t, writer, "name", "Jane")
+	closeMultipart(t, writer)
+
+	req := httptest.NewRequest("POST", "/", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	msg, err := ParseActionFromHTTP(req)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if msg.Data["name"] != "Jane" {
+		t.Errorf("Data[name] = %q, want %q", msg.Data["name"], "Jane")
+	}
+
+	tags, ok := msg.Data["tags"].([]interface{})
+	if !ok {
+		t.Fatalf("Expected tags to be []interface{}, got %T", msg.Data["tags"])
+	}
+	if len(tags) != 3 {
+		t.Errorf("Expected 3 tags, got %d", len(tags))
+	}
+	expected := []string{"go", "web", "test"}
+	for i, want := range expected {
+		if got, ok := tags[i].(string); !ok || got != want {
+			t.Errorf("tags[%d] = %v, want %q", i, tags[i], want)
+		}
 	}
 }
 

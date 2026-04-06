@@ -51,9 +51,12 @@ func ParseActionFromHTTP(r *http.Request) (ActionMessage, error) {
 }
 
 // parseMultipartForm parses action from multipart/form-data (file uploads).
-// Note: Unlike parseURLEncodedForm, multipart forms only support routing via
-// the lvt-action field (no button-name detection). Data comes from a JSON-encoded
-// "data" form field, so lvt-action won't appear in msg.Data.
+// Supports two data formats:
+//  1. JSON-encoded "data" form field (client library sends this)
+//  2. Individual form fields (browser-native multipart submission)
+//
+// When a JSON "data" blob is present, it takes precedence. Otherwise,
+// individual form fields are read, matching parseURLEncodedForm behavior.
 func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 	var msg ActionMessage
 
@@ -67,17 +70,65 @@ func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 	// Get action from lvt-action field (explicit routing for progressive enhancement)
 	msg.Action = r.FormValue("lvt-action")
 
-	// Try to get data from JSON-encoded form field
+	// Try to get data from JSON-encoded form field (client library format).
+	// When present, JSON data takes precedence over individual form fields.
+	jsonDataParsed := false
 	if dataStr := r.FormValue("data"); dataStr != "" {
 		var data map[string]interface{}
 		if err := jsonutil.API.Unmarshal([]byte(dataStr), &data); err == nil {
 			msg.Data = data
+			jsonDataParsed = true
 		}
 	}
 
-	// Initialize data map if not set
-	if msg.Data == nil {
+	// Fallback: read individual form fields when no JSON "data" blob was parsed.
+	// This handles browser-native multipart submissions where text fields are
+	// sent as separate form fields alongside file uploads.
+	if !jsonDataParsed {
+		actionFields := map[string]bool{"lvt-action": true, "data": true}
+
+		// Button-name-as-action detection (same logic as parseURLEncodedForm)
+		if msg.Action == "" && r.MultipartForm != nil {
+			var candidate string
+			ambiguous := false
+			for key, values := range r.MultipartForm.Value {
+				// Skip "action" — it's a common HTML attribute (<form action="/path">)
+				// that browsers don't submit, but could cause false-positive routing.
+				if key == "" || key == "action" || actionFields[key] {
+					continue
+				}
+				if len(values) == 1 && values[0] == "" {
+					if candidate != "" {
+						ambiguous = true
+						break
+					}
+					candidate = key
+				}
+			}
+			if candidate != "" && !ambiguous {
+				msg.Action = candidate
+				actionFields[candidate] = true
+			}
+		}
+
+		// Read individual form fields into data map
 		msg.Data = make(map[string]interface{})
+		if r.MultipartForm != nil {
+			for key, values := range r.MultipartForm.Value {
+				if actionFields[key] {
+					continue
+				}
+				if len(values) == 1 {
+					msg.Data[key] = values[0]
+				} else if len(values) > 1 {
+					interfaceSlice := make([]interface{}, len(values))
+					for i, v := range values {
+						interfaceSlice[i] = v
+					}
+					msg.Data[key] = interfaceSlice
+				}
+			}
+		}
 	}
 
 	return msg, nil
