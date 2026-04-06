@@ -535,6 +535,78 @@ func TestParseActionFromHTTP_Multipart_EmptyJSONDataNoFallback(t *testing.T) {
 	}
 }
 
+// TestParseActionFromHTTP_Multipart_InvalidJSONFallback documents that invalid JSON
+// in the "data" field causes a silent fallback to individual field parsing. This is
+// the intended behavior: the "data" field is treated as a client library convention,
+// not a hard contract. Browser-native submissions may include a field named "data"
+// that isn't JSON.
+func TestParseActionFromHTTP_Multipart_InvalidJSONFallback(t *testing.T) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	multipartField(t, writer, "lvt-action", "save")
+	multipartField(t, writer, "data", "not-valid-json") // invalid JSON
+	multipartField(t, writer, "name", "Jane")
+	closeMultipart(t, writer)
+
+	req := httptest.NewRequest("POST", "/", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	msg, err := ParseActionFromHTTP(req)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if msg.Action != "save" {
+		t.Errorf("Action = %q, want %q", msg.Action, "save")
+	}
+	// Fallback activates: individual fields are read (excluding "data" itself)
+	if msg.Data["name"] != "Jane" {
+		t.Errorf("Data[name] = %q, want %q (fallback should read individual fields)", msg.Data["name"], "Jane")
+	}
+	if _, ok := msg.Data["data"]; ok {
+		t.Error("'data' field should be excluded from data map")
+	}
+}
+
+// TestParseActionFromHTTP_Multipart_MultiValueFields tests repeated form fields
+// (e.g., <select multiple> or repeated checkboxes) in multipart submissions.
+func TestParseActionFromHTTP_Multipart_MultiValueFields(t *testing.T) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	multipartField(t, writer, "lvt-action", "save")
+	multipartField(t, writer, "tags", "go")
+	multipartField(t, writer, "tags", "web")
+	multipartField(t, writer, "tags", "test")
+	multipartField(t, writer, "name", "Jane")
+	closeMultipart(t, writer)
+
+	req := httptest.NewRequest("POST", "/", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	msg, err := ParseActionFromHTTP(req)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if msg.Data["name"] != "Jane" {
+		t.Errorf("Data[name] = %q, want %q", msg.Data["name"], "Jane")
+	}
+
+	tags, ok := msg.Data["tags"].([]interface{})
+	if !ok {
+		t.Fatalf("Expected tags to be []interface{}, got %T", msg.Data["tags"])
+	}
+	if len(tags) != 3 {
+		t.Errorf("Expected 3 tags, got %d", len(tags))
+	}
+	expected := []string{"go", "web", "test"}
+	for i, want := range expected {
+		if got, ok := tags[i].(string); !ok || got != want {
+			t.Errorf("tags[%d] = %v, want %q", i, tags[i], want)
+		}
+	}
+}
+
 // TestParseActionFromHTTP_URLEncoded_MultipleValues tests multiple values for same field.
 func TestParseActionFromHTTP_URLEncoded_MultipleValues(t *testing.T) {
 	body := "lvt-action=update&tags=go&tags=web&tags=test"

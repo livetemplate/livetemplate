@@ -92,6 +92,8 @@ func parseMultipartForm(r *http.Request) (ActionMessage, error) {
 			var candidate string
 			ambiguous := false
 			for key, values := range r.MultipartForm.Value {
+				// Skip "action" — it's a common HTML attribute (<form action="/path">)
+				// that browsers don't submit, but could cause false-positive routing.
 				if key == "" || key == "action" || actionFields[key] {
 					continue
 				}
