@@ -376,7 +376,7 @@ livetemplate/
 **Files:**
 | File | Lines | Purpose |
 |------|-------|---------|
-| `message.go` | 185 | Parse actions from HTTP requests and WebSocket messages |
+| `message.go` | 272 | Parse actions from HTTP requests and WebSocket messages |
 | `response.go` | 55 | Update response wrapping |
 | `json.go` | 30 | Ordered JSON serialization |
 

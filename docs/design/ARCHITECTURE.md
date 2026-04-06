@@ -137,7 +137,7 @@ LiveTemplate is a reactive web framework for Go that uses tree-based DOM diffing
 **Responsibility:** Action message parsing, update serialization, and JSON encoding
 
 **Files:**
-- `message.go` (185) - Action message parsing from HTTP/WebSocket
+- `message.go` (272) - Action message parsing from HTTP/WebSocket
 - `response.go` (55) - Update response wrapping
 - `json.go` (30) - Ordered JSON serialization
 

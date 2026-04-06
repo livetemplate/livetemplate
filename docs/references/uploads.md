@@ -47,10 +47,17 @@ handler := tmpl.Handle(&ProfileController{}, livetemplate.AsState(&ProfileState{
 
 ### 3. Process Uploads in Action Handler
 
-Access completed uploads via the Context:
+Access completed uploads and text fields via the Context. When a form with
+`enctype="multipart/form-data"` is submitted, both file uploads and text fields
+are available in the same action handler:
 
 ```go
 func (c *ProfileController) SaveProfile(state ProfileState, ctx *livetemplate.Context) (ProfileState, error) {
+    // Text fields from the same form are available via ctx.GetString()
+    state.Name = ctx.GetString("name")
+    state.Email = ctx.GetString("email")
+
+    // File uploads are available via ctx.GetCompletedUploads()
     for _, entry := range ctx.GetCompletedUploads("avatar") {
         // entry.TempPath: server-side temporary file path
         // entry.ClientName: original filename
