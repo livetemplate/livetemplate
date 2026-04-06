@@ -1,7 +1,7 @@
 # Attribute Surface Reduction
 
-**Status:** In Progress — Phases 1–3 Complete
-**Date:** 2026-03-30 (last updated: 2026-04-05)
+**Status:** Complete
+**Date:** 2026-03-30 (last updated: 2026-04-06)
 **Issue:** [#288](https://github.com/livetemplate/livetemplate/issues/288), [#271](https://github.com/livetemplate/livetemplate/issues/271)
 
 ## Summary
@@ -1195,7 +1195,7 @@ document.querySelectorAll('[lvt-form\\:preserve]')
 | 5 | 2B | lvt: golden files + e2e tests + PR | `lvt` | COMPLETE | [#292](https://github.com/livetemplate/lvt/pull/292) |
 | 6 | 3A | tinkerdown: audit + Go/TS migration | `tinkerdown` | COMPLETE | [tinkerdown#225](https://github.com/livetemplate/tinkerdown/pull/225) |
 | 7 | 3B | tinkerdown: templates + docs + e2e + PR | `tinkerdown` | COMPLETE | [tinkerdown#225](https://github.com/livetemplate/tinkerdown/pull/225) |
-| 8 | 4 | Final cross-repo verification + dep alignment | `examples` | NOT STARTED | — |
+| 8 | 4 | Final cross-repo verification + dep alignment | `examples` | COMPLETE | — |
 
 **After completing each sub-phase:** Update Status to COMPLETE, fill in PR numbers, and commit this file.
 
@@ -2411,10 +2411,10 @@ All 5 repos must have passing tests.
 
 #### Step 3: Acceptance Criteria (Final)
 
-- [ ] All 5 repos pass their test suites
-- [ ] `examples` `go.mod` points to latest livetemplate AND lvt versions
-- [ ] No remaining references to deprecated attributes across any repo (verify with grep)
-- [ ] Migration friction from Phase 2E has been addressed
+- [x] All 5 repos pass their test suites
+- [x] `examples` `go.mod` points to latest livetemplate AND lvt versions
+- [x] No remaining references to deprecated attributes across any repo (verify with grep)
+- [x] Migration friction from Phase 2E has been addressed
 
 #### Step 4: PR and Merge (if deps were bumped)
 
