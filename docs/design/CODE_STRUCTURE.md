@@ -353,7 +353,7 @@ livetemplate/
 - `TreeMetadata` - Metadata annotations
 
 **Key Functions:**
-- `CalculateStructureFingerprint(tree *TreeNode) string` - MD5 hash of static structure
+- `CalculateStructureFingerprint(tree *TreeNode) string` - FNV-1a hash of static structure
 - `TreeNode.GetStructureFingerprint() string` - Cached fingerprint accessor
 
 ---

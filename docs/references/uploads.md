@@ -30,7 +30,7 @@ handler := tmpl.Handle(&ProfileController{}, livetemplate.AsState(&ProfileState{
 ### 2. Add Upload Input to Template
 
 ```html
-<form method="POST">
+<form method="POST" enctype="multipart/form-data">
     <input type="file" lvt-upload="avatar" accept="image/*" />
 
     {{range .lvt.Uploads "avatar"}}

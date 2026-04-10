@@ -191,7 +191,7 @@ LiveTemplate uses `lvt-*` attributes to bind DOM events to server-side actions. 
 
 ## Data Passing
 
-Pass data from the DOM to your server-side action handlers using `lvt-data-*` attributes.
+Pass data to Tier 2 event handlers using `lvt-data-*` attributes. For Tier 1 forms, use standard HTML instead: hidden inputs (`<input type="hidden" name="id" value="{{.ID}}">`), button `value`, or `data-*` attributes on buttons. See [Standard HTML — Data Passing](#data-passing-1) above.
 
 ### Simple Data
 
