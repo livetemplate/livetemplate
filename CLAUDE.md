@@ -12,11 +12,16 @@ LiveTemplate is a high-performance Go library for building reactive web applicat
 
 Controllers hold dependencies (singleton, never cloned). State holds pure data (cloned per session). Action methods: `func (c *Controller) Action(state State, ctx *Context) (State, error)`. Mount runs on every HTTP request and WebSocket connect.
 
+**Key caveats:**
+- **Mount() guard pattern:** Mount runs on POST too, so guard side effects: `if ctx.Action() == "" { trackPageView() }` — only fires on GET, not form submissions.
+- **BroadcastAction ordering:** `ctx.With*()` creates shallow copies. Call `ctx.BroadcastAction()` AFTER all `With*()` calls, or broadcasts queued before the copy won't propagate.
+- **AssertPureState[T]():** Use in tests to catch dependency types accidentally in state structs.
+
 See `docs/references/controller-pattern.md` for the full pattern guide with examples.
 
 ## Progressive Complexity
 
-Standard HTML (forms, buttons, dialogs) handles Tier 1. `lvt-*` attributes (`lvt-on:`, `lvt-el:`, `lvt-fx:`, `lvt-mod:`, `lvt-form:`) are reserved for Tier 2 behaviors HTML cannot express.
+Standard HTML (forms, buttons, dialogs) handles Tier 1. `lvt-*` attributes (`lvt-on:`, `lvt-el:`, `lvt-fx:`, `lvt-mod:`, `lvt-form:`, `lvt-nav:`) are reserved for Tier 2 behaviors HTML cannot express.
 
 See `docs/guides/progressive-complexity.md` for the full walkthrough.
 
