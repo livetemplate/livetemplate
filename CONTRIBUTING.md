@@ -32,7 +32,7 @@ This guide will help you get started with **core library contributions**.
 
 Before you begin, ensure you have the following installed:
 
-- **Go 1.21+** - Required for building and testing the core library
+- **Go 1.26+** - Required for building and testing the core library
 - **golangci-lint** - Required for linting (pre-commit hook)
   ```bash
   # macOS
@@ -185,40 +185,40 @@ The core library has automated CI checks that test LVT and examples against your
 
 ```
 livetemplate/
-├── template.go          # Main API - Template type and orchestrator
-├── tree.go              # Tree operations (private implementation)
-├── action.go            # Action protocol and data binding
-├── mount.go             # Controller+State pattern and HTTP/WebSocket handlers
+├── template.go          # Main API — Template type and orchestrator
+├── mount.go             # Controller+State pattern, HTTP/WebSocket handlers
 ├── context.go           # Unified Context type for action handlers
 ├── state.go             # State interface and AsState wrapper
-├── session.go           # Session management
-├── internal/            # Internal packages
-│   ├── parse/           # AST-based template parser
-│   │   ├── parser.go    # Main parser entry point
-│   │   ├── constructs.go# Construct type definitions
-│   │   ├── compile.go   # Compilation logic
-│   │   ├── hydrate.go   # Hydration logic
-│   │   └── helpers.go   # Utility functions
-│   ├── build/           # Tree building and operations
-│   │   ├── builder.go   # Tree construction
-│   │   ├── tree_ops.go  # Tree manipulation
-│   │   ├── fingerprint.go# Change detection
-│   │   └── types.go     # Core tree types
-│   ├── diff/            # Tree comparison
-│   │   ├── tree_compare.go # Main comparison logic
-│   │   ├── range_ops.go    # Range differential operations
-│   │   ├── prepare.go      # Wire format preparation
-│   │   └── helpers.go      # Comparison helpers
-│   └── observe/         # Observability
-│       ├── logger.go    # Structured logging (slog)
-│       ├── metrics.go   # Operational metrics
-│       └── context.go   # Context enrichment
-├── testdata/            # Test fixtures and golden files
-│   ├── e2e/
-│   └── fixtures/        # Shared test templates
+├── action.go            # Action data binding (ActionData, FieldError, MultiError)
+├── dispatch.go          # Reflection-based action method dispatch
+├── lifecycle.go         # Controller lifecycle method detection
+├── config.go            # Template and handler configuration
+├── auth.go              # Authenticator interface and implementations
+├── session_stores.go    # MemorySessionStore and RedisSessionStore
+├── health.go            # Kubernetes health check endpoints
+├── formvalidation.go    # Form schema extraction and validation
+├── ws.go                # WebSocket interface abstraction
+├── ws_gorilla.go        # Gorilla WebSocket implementation
+├── upload.go            # File upload public API
+├── testing.go           # AssertPureState test helper
+├── internal/            # Internal packages (5-phase architecture)
+│   ├── parse/           # Phase 1: Template parsing (AST evaluation)
+│   ├── build/           # Phase 2: Tree types, fingerprinting, wrapper injection
+│   ├── diff/            # Phase 3: Tree comparison and update generation
+│   ├── render/          # Phase 4: HTML rendering and minification
+│   ├── send/            # Phase 5: Message parsing and serialization
+│   ├── session/         # WebSocket connection registry
+│   ├── observe/         # Metrics and Prometheus export
+│   ├── keys/            # Range item key generation
+│   ├── upload/          # Upload infrastructure
+│   └── fuzz/            # Fuzz testing framework
+├── pubsub/              # Redis pub/sub for distributed broadcasting
+├── testdata/            # Test fixtures, golden files, fuzz corpus
 ├── docs/                # Documentation
 └── scripts/             # Development scripts
 ```
+
+For the complete file-by-file map with line counts and dependencies, see [docs/design/CODE_STRUCTURE.md](docs/design/CODE_STRUCTURE.md).
 
 **Note:** The client library, CLI tool, and examples are now in separate repositories:
 - Client: https://github.com/livetemplate/client

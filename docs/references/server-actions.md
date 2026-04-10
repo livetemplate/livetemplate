@@ -428,10 +428,6 @@ Background job completes
 
 In multi-instance deployments, `TriggerAction()` automatically publishes to Redis so all instances can update their local connections. See the [PubSub Reference](pubsub.md) for setup, channel schema, and subscription lifecycle.
 
-### Deprecated Interfaces
-
-> **Note:** The `Broadcaster` and `BroadcastAware` interfaces in `mount.go` are deprecated in favor of the `Session` interface and the `pubsub` package. Use `Session.TriggerAction()` for server-initiated updates and `pubsub.Broadcaster` for cross-instance messaging.
-
 ## See Also
 
 - [Controller+State Pattern](controller-pattern.md) - Core architecture pattern

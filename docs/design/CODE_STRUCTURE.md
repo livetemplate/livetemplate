@@ -180,7 +180,7 @@ livetemplate/
 **Purpose:** Unified context for lifecycle and action methods
 
 **Key Types:**
-- `Context` - Unified context replacing the old ActionContext
+- `Context` - Unified context for all lifecycle and action methods
 
 **Key Functions:**
 - `Action() string` - Get current action name
@@ -232,11 +232,52 @@ livetemplate/
 
 ---
 
+#### formvalidation.go (196 lines)
+**Purpose:** Form schema extraction and validation
+
+**Key Types:**
+- `FormRule` - Single validation rule from HTML
+- `FormSchema` - Collection of form rules
+
+**Key Functions:**
+- `ExtractFormSchema()` - Extract rules from template statics
+
+**Used By:** mount.go
+
+---
+
+#### ws.go (120 lines)
+**Purpose:** WebSocket interface abstraction
+
+**Key Types/Interfaces:**
+- `WSConn` - WebSocket connection (ReadMessage, WriteMessage, Close)
+- `WSUpgrader` - Upgrade HTTP to WebSocket
+- `WSCloseError` - WebSocket close error
+- Constants: `WSTextMessage`, `WSBinaryMessage`, close codes
+
+**Key Functions:**
+- `WSFormatCloseMessage()`, `WSIsUnexpectedCloseError()`, `WSIsUpgrade()`
+
+**Used By:** mount.go
+
+---
+
+#### ws_gorilla.go (120 lines)
+**Purpose:** Gorilla WebSocket implementation of WSUpgrader/WSConn interfaces
+
+**Key Types:**
+- `GorillaUpgrader` - gorilla/websocket implementation
+- `GorillaOption` - Configuration option
+
+**Used By:** template.go (default upgrader)
+
+---
+
 #### testing.go (87 lines)
 **Purpose:** Test helpers for library users
 
 **Key Functions:**
-- `AssertPureState[T](t) ` - Verify state struct contains no dependency types
+- `AssertPureState[T](t)` - Verify state struct contains no dependency types
 
 **Used By:** User test files
 
@@ -301,9 +342,10 @@ livetemplate/
 |------|-------|---------|
 | `types.go` | 580 | `TreeNode` struct, `RangeData`, tree operations |
 | `wrapper.go` | 263 | Wrapper div injection and extraction |
-| `fingerprint.go` | 97 | MD5-based structure fingerprinting |
+| `fingerprint.go` | 97 | FNV-1a structure fingerprinting |
 | `html_segmentation.go` | 94 | HTML segmentation for statics extraction |
 | `html_diff.go` | 56 | HTML-level diff utilities |
+| `aria_inject.go` | 113 | Aria attribute injection for accessibility |
 
 **Key Types:**
 - `TreeNode` (struct) - Core tree structure with statics and dynamics
@@ -311,7 +353,7 @@ livetemplate/
 - `TreeMetadata` - Metadata annotations
 
 **Key Functions:**
-- `CalculateStructureFingerprint(tree *TreeNode) string` - MD5 hash of static structure
+- `CalculateStructureFingerprint(tree *TreeNode) string` - FNV-1a hash of static structure
 - `TreeNode.GetStructureFingerprint() string` - Cached fingerprint accessor
 
 ---

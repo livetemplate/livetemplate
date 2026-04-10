@@ -30,7 +30,7 @@ handler := tmpl.Handle(controller, livetemplate.AsState(&TodoState{}))
 Actions are automatically dispatched to methods matching the action name:
 
 ```go
-// Template: <button name="action" value="add">  OR  lvt-click="add"
+// Template: <button name="add">  OR  lvt-on:click="add"
 // Dispatches to: Add() method
 
 func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
@@ -50,7 +50,7 @@ func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoSt
 
 LiveTemplate provides two conventional method names that are auto-routed without any explicit attributes:
 
-**`Submit()`** — Called when a form submits with no explicit action routing (`lvt-submit`, `button name="action"`, or `form name`):
+**`Submit()`** — Called when a form submits with no explicit action routing (`lvt-form:action`, `button name`, or `form name`):
 
 ```go
 // Template: <form method="POST"><button type="submit">Save</button></form>
@@ -87,8 +87,8 @@ Actions can be routed using standard HTML attributes instead of `lvt-*`:
 | `<form>` (no attributes) | `Submit()` |
 | `<button name="save">` | `Save()` |
 | `<form name="search">` | `Search()` (JS client only; `form.name` is not sent in a non-JS POST) |
-| `lvt-submit="create"` | `Create()` (backward compatible) |
-| `lvt-click="delete"` | `Delete()` (for non-form interactions) |
+| `lvt-form:action="create"` | `Create()` (explicit Tier 2 routing) |
+| `lvt-on:click="delete"` | `Delete()` (for non-form interactions) |
 
 ### Method Signature
 
@@ -120,7 +120,7 @@ LiveTemplate provides lifecycle hooks for initialization and connection manageme
 
 ### Mount
 
-Called once when a new session is created:
+Called on every HTTP request (GET and POST) and every WebSocket connect (new and reconnect):
 
 ```go
 func (c *TodoController) Mount(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
@@ -179,185 +179,11 @@ func (c *TodoController) OnDisconnect() {
 
 ## Context API
 
-The `*livetemplate.Context` provides access to action data and HTTP utilities.
-
-### Data Extraction
-
-| Method | Return Type | Description |
-|--------|-------------|-------------|
-| `Action()` | `string` | Get action name (empty for lifecycle methods like Mount/OnConnect) |
-| `Get(key)` | `interface{}` | Get raw value (for non-primitive types) |
-| `GetString(key)` | `string` | Get string value (empty if missing) |
-| `GetInt(key)` | `int` | Get integer value (0 if missing/invalid) |
-| `GetFloat(key)` | `float64` | Get float value (0 if missing/invalid) |
-| `GetBool(key)` | `bool` | Get boolean value (false if missing) |
-| `Has(key)` | `bool` | Check if key exists |
-| `Bind(v)` | `error` | Unmarshal action data into a struct |
-| `BindAndValidate(v, validate)` | `error` | Bind + validate using `*validator.Validate` from go-playground/validator |
-
-Example:
-
-```go
-func (c *Controller) UpdateSettings(state State, ctx *livetemplate.Context) (State, error) {
-    state.Theme = ctx.GetString("theme")
-    state.FontSize = ctx.GetInt("fontSize")
-    state.DarkMode = ctx.GetBool("darkMode")
-    return state, nil
-}
-```
-
-### Struct Binding
-
-Bind form data directly to a struct:
-
-```go
-type CreateUserInput struct {
-    Name  string `json:"name"`
-    Email string `json:"email"`
-    Age   int    `json:"age"`
-}
-
-func (c *Controller) CreateUser(state State, ctx *livetemplate.Context) (State, error) {
-    var input CreateUserInput
-    if err := ctx.Bind(&input); err != nil {
-        return state, err
-    }
-
-    // Use input.Name, input.Email, input.Age
-    return state, c.DB.CreateUser(input)
-}
-```
-
-### Validation
-
-Use with `go-playground/validator`:
-
-```go
-type RegisterInput struct {
-    Email    string `json:"email" validate:"required,email"`
-    Password string `json:"password" validate:"required,min=8"`
-    Name     string `json:"name" validate:"required"`
-}
-
-func (c *Controller) Register(state State, ctx *livetemplate.Context) (State, error) {
-    var input RegisterInput
-    validate := validator.New()
-
-    if err := ctx.BindAndValidate(&input, validate); err != nil {
-        return state, err // Returns field-specific error messages
-    }
-
-    return state, c.createAccount(input)
-}
-```
-
-### Session Access
-
-```go
-func (c *Controller) SendNotification(state State, ctx *livetemplate.Context) (State, error) {
-    session := ctx.Session()
-    if session != nil {
-        // Use session for server-initiated updates
-        go session.TriggerAction("notification", map[string]interface{}{
-            "message": "Update complete!",
-        })
-    }
-    return state, nil
-}
-```
-
-### HTTP Methods (HTTP POST only)
-
-For HTTP POST actions (not WebSocket), you can access HTTP primitives:
-
-```go
-func (c *Controller) Login(state State, ctx *livetemplate.Context) (State, error) {
-    if !ctx.IsHTTP() {
-        return state, errors.New("login requires HTTP")
-    }
-
-    // Set cookie
-    ctx.SetCookie(&http.Cookie{
-        Name:     "session_token",
-        Value:    token,
-        HttpOnly: true,
-        Secure:   true,
-        SameSite: http.SameSiteStrictMode,
-    })
-
-    // Redirect after login
-    return state, ctx.Redirect("/dashboard", http.StatusSeeOther)
-}
-```
-
-| Method | Description |
-|--------|-------------|
-| `IsHTTP()` | Check if HTTP context available |
-| `SetCookie(cookie)` | Set response cookie |
-| `GetCookie(name)` | Get request cookie |
-| `DeleteCookie(name)` | Delete cookie |
-| `Redirect(url, code)` | Redirect response |
+For the complete Context API (data extraction, HTTP operations, struct binding), see [API Reference — Context](api-reference.md#context).
 
 ## Error Handling
 
-### Field Errors
-
-Return a single field error:
-
-```go
-func (c *Controller) UpdateEmail(state State, ctx *livetemplate.Context) (State, error) {
-    email := ctx.GetString("email")
-
-    if !isValidEmail(email) {
-        return state, livetemplate.NewFieldError("email",
-            errors.New("please enter a valid email address"))
-    }
-
-    state.Email = email
-    return state, nil
-}
-```
-
-### Multiple Field Errors
-
-Return multiple field errors at once:
-
-```go
-func (c *Controller) Register(state State, ctx *livetemplate.Context) (State, error) {
-    var errs livetemplate.MultiError
-
-    email := ctx.GetString("email")
-    password := ctx.GetString("password")
-
-    if !isValidEmail(email) {
-        errs = append(errs, livetemplate.NewFieldError("email",
-            errors.New("invalid email format")))
-    }
-
-    if len(password) < 8 {
-        errs = append(errs, livetemplate.NewFieldError("password",
-            errors.New("password must be at least 8 characters")))
-    }
-
-    if len(errs) > 0 {
-        return state, errs
-    }
-
-    return state, c.createUser(email, password)
-}
-```
-
-### Template Error Display
-
-```html
-{{if .lvt.HasError "email"}}
-    <span class="error">{{.lvt.Error "email"}}</span>
-{{end}}
-
-{{if .lvt.Errors}}
-    <div class="alert">{{range .lvt.Errors}}{{.}}{{end}}</div>
-{{end}}
-```
+For validation errors, field errors, and template error display, see [Error Handling Reference](error-handling.md).
 
 ## Common Patterns
 
@@ -545,23 +371,7 @@ http.Handle("/", handler)
 
 ## Upload Access
 
-When templates are configured with `WithUpload(...)`, completed uploads are accessible via Context:
-
-```go
-func (c *Controller) SaveProfile(state State, ctx *livetemplate.Context) (State, error) {
-    if ctx.HasUploads("avatar") {
-        for _, entry := range ctx.GetCompletedUploads("avatar") {
-            state.AvatarPath = entry.TempPath
-        }
-    }
-    return state, nil
-}
-```
-
-| Method | Return Type | Description |
-|--------|-------------|-------------|
-| `HasUploads(name)` | `bool` | Check if uploads exist for field |
-| `GetCompletedUploads(name)` | `[]*UploadEntry` | Get completed upload entries |
+For file upload configuration and handling, see [Upload Reference](uploads.md).
 
 ## Testing
 

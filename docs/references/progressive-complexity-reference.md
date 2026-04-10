@@ -16,14 +16,15 @@ Quick-reference for how standard HTML maps to LiveTemplate behavior. For the lea
 | `<input type="hidden" name="id" value="{{.ID}}">` | Included in form data | `ctx.GetString("id")` |
 | `<button name="increment">` | Standalone button outside any form (JS client only) | `Increment()` |
 
-## Action Resolution Order
+## Action Resolution Order (Tier 1)
 
-When a form is submitted, the action is resolved in this order (first match wins):
+When a standard HTML form is submitted, the action is resolved in this order (first match wins):
 
-1. Explicit `action` field — `<button name="action" value="save">` or `<input type="hidden" name="action" value="save">`
-2. Clicked button's `name` attribute (empty-value heuristic: works when only the clicked button submits an empty value)
-3. Form's `name` attribute
-4. Default: `"submit"` → `Submit()`
+1. Clicked button's `name` attribute
+2. Form's `name` attribute
+3. Default: `"submit"` → `Submit()`
+
+For the full resolution order including `lvt-form:action` and other Tier 2 attributes, see [Client Attributes Reference — Action Resolution Order](client-attributes.md#action-resolution-order).
 
 ## Live Updates (Change Convention)
 
@@ -69,7 +70,7 @@ All `<a href>` links inside the LiveTemplate wrapper are auto-intercepted for SP
 | `<a href="/path">` | Yes — fetched via `fetch()`, DOM patched, `pushState` updated |
 | `<a href="/path" download>` | No — `download` attribute skips interception |
 | `<a href="https://external.com">` | No — different origin skips interception |
-| `<a href="/path" lvt-form:no-intercept>` | No — explicit opt-out (applies to both links and forms) |
+| `<a href="/path" lvt-nav:no-intercept>` | No — explicit opt-out for links (`lvt-form:no-intercept` for forms) |
 
 ## Loading States (Automatic)
 

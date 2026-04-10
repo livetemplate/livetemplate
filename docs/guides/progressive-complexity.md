@@ -11,7 +11,7 @@ This guide walks through Tier 1 from the simplest case to full-featured applicat
 
 ## 1. Your First Form
 
-A form inside a LiveTemplate handler just works. No `lvt-submit`, no hidden fields, no special attributes:
+A form inside a LiveTemplate handler just works. No `lvt-*` attributes, no hidden fields, no special setup:
 
 ```html
 <form method="POST">
@@ -199,7 +199,7 @@ The framework fetches the page via `fetch()`, extracts the wrapper content, and 
 ```html
 <a href="/api/export.csv" download>Export</a>            <!-- download attr: skipped -->
 <a href="https://external.com">External</a>              <!-- different origin: skipped -->
-<a href="/legacy-page" lvt-form:no-intercept>Old Page</a>      <!-- explicit opt-out (works on links too) -->
+<a href="/legacy-page" lvt-nav:no-intercept>Old Page</a>       <!-- explicit opt-out -->
 ```
 
 ---

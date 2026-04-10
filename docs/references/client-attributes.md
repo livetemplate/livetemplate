@@ -138,41 +138,41 @@ LiveTemplate uses `lvt-*` attributes to bind DOM events to server-side actions. 
 
 ```html
 <!-- Click events -->
-<button lvt-click="submit">Submit</button>
-<button lvt-click="delete" lvt-data-id="{{.ID}}">Delete</button>
+<button lvt-on:click="submit">Submit</button>
+<button lvt-on:click="delete" lvt-data-id="{{.ID}}">Delete</button>
 
 <!-- Form submission -->
-<form lvt-submit="save">
+<form lvt-form:action="save">
     <input type="text" name="title" required>
     <button type="submit">Save</button>
 </form>
 
 <!-- Input events -->
-<input lvt-change="validate" name="email">
-<input lvt-input="search" name="query">
+<input lvt-on:change="validate" name="email">
+<input lvt-on:input="search" name="query">
 ```
 
 ### Mouse Events
 
 ```html
 <!-- Hover events -->
-<div lvt-mouseenter="showTooltip" lvt-mouseleave="hideTooltip">
+<div lvt-on:mouseenter="showTooltip" lvt-on:mouseleave="hideTooltip">
     Hover for tooltip
 </div>
 
 <!-- Click events -->
-<button lvt-click="handleClick">Click me</button>
+<button lvt-on:click="handleClick">Click me</button>
 ```
 
 ### Keyboard Events
 
 ```html
 <!-- Keydown events -->
-<input lvt-keydown="handleKey" name="search">
+<input lvt-on:keydown="handleKey" name="search">
 
 <!-- With key filtering -->
-<input lvt-keydown="submit" lvt-key="Enter" name="query">
-<div lvt-window-keydown="closeModal" lvt-key="Escape">
+<input lvt-on:keydown="submit" lvt-key="Enter" name="query">
+<div lvt-on:window:keydown="closeModal" lvt-key="Escape">
     Modal content
 </div>
 ```
@@ -181,22 +181,22 @@ LiveTemplate uses `lvt-*` attributes to bind DOM events to server-side actions. 
 
 ```html
 <!-- Global keyboard events -->
-<div lvt-window-keydown="handleShortcut" lvt-key="Escape">
+<div lvt-on:window:keydown="handleShortcut" lvt-key="Escape">
 
 <!-- Scroll events -->
-<div lvt-window-scroll="loadMore" lvt-throttle="100">
+<div lvt-on:window:scroll="loadMore" lvt-mod:throttle="100">
 ```
 
 ---
 
 ## Data Passing
 
-Pass data from the DOM to your server-side action handlers using `lvt-data-*` attributes.
+Pass data to Tier 2 event handlers using `lvt-data-*` attributes. For Tier 1 forms, use standard HTML instead: hidden inputs (`<input type="hidden" name="id" value="{{.ID}}">`), button `value`, or `data-*` attributes on buttons. See [Standard HTML — Data Passing](#data-passing-1) above.
 
 ### Simple Data
 
 ```html
-<button lvt-click="delete" lvt-data-id="{{.ID}}">
+<button lvt-on:click="delete" lvt-data-id="{{.ID}}">
     Delete
 </button>
 ```
@@ -204,7 +204,7 @@ Pass data from the DOM to your server-side action handlers using `lvt-data-*` at
 ### Multiple Data Attributes
 
 ```html
-<button lvt-click="update"
+<button lvt-on:click="update"
     lvt-data-id="{{.ID}}"
     lvt-data-status="{{.Status}}"
     lvt-data-priority="{{.Priority}}">
@@ -537,7 +537,7 @@ func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoSt
 ### Template Error Display
 
 ```html
-<form lvt-submit="add">
+<form name="add" method="POST">
     <div>
         <label for="title">Title</label>
         <input
@@ -575,8 +575,8 @@ Wait for user to stop typing before triggering action.
 ```html
 <!-- Wait 300ms after user stops typing -->
 <input
-    lvt-input="search"
-    lvt-debounce="300"
+    lvt-on:input="search"
+    lvt-mod:debounce="300"
     name="query"
     placeholder="Search...">
 ```
@@ -589,7 +589,7 @@ Limit event frequency to at most once per interval.
 
 ```html
 <!-- Fire at most once every 100ms -->
-<div lvt-window-scroll="loadMore" lvt-throttle="100">
+<div lvt-on:window:scroll="loadMore" lvt-mod:throttle="100">
 ```
 
 **Use for:** Scroll events, resize events, mouse tracking
@@ -606,31 +606,31 @@ Control scroll behavior after DOM updates.
 
 ```html
 <!-- Scroll to bottom -->
-<div lvt-scroll="bottom" class="chat-messages">
+<div lvt-fx:scroll="bottom" class="chat-messages">
     {{range .Messages}}
         <div>{{.Text}}</div>
     {{end}}
 </div>
 
 <!-- Sticky scroll (only if user is near bottom) -->
-<div lvt-scroll="bottom-sticky" lvt-scroll-threshold="100">
+<div lvt-fx:scroll="bottom-sticky" style="--lvt-scroll-threshold: 100px">
     {{range .Logs}}
         <div>{{.}}</div>
     {{end}}
 </div>
 
 <!-- Scroll to top -->
-<div lvt-scroll="top">...</div>
+<div lvt-fx:scroll="top">...</div>
 
 <!-- Preserve scroll position -->
-<div lvt-scroll="preserve">...</div>
+<div lvt-fx:scroll="preserve">...</div>
 ```
 
 | Attribute | Description |
 |-----------|-------------|
-| `lvt-scroll` | Scroll mode: `bottom`, `bottom-sticky`, `top`, `preserve` |
-| `lvt-scroll-behavior` | Scroll behavior: `auto` (default), `smooth` |
-| `lvt-scroll-threshold` | Pixel threshold for sticky scroll (default: 100) |
+| `lvt-fx:scroll` | Scroll mode: `bottom`, `bottom-sticky`, `top`, `preserve` |
+| `--lvt-scroll-behavior` | CSS custom property: `auto` (default), `smooth` |
+| `--lvt-scroll-threshold` | CSS custom property: pixel threshold for sticky scroll (default: 100px) |
 
 ### Highlight Directives
 
@@ -638,16 +638,16 @@ Temporarily highlight elements after updates.
 
 ```html
 <!-- Highlight updated item -->
-<div lvt-highlight="flash" lvt-highlight-color="#ffc107" lvt-highlight-duration="500">
+<div lvt-fx:highlight="flash" style="--lvt-highlight-color: #ffc107; --lvt-highlight-duration: 500ms">
     {{.UpdatedContent}}
 </div>
 ```
 
 | Attribute | Description |
 |-----------|-------------|
-| `lvt-highlight` | Highlight mode: `flash` |
-| `lvt-highlight-color` | Background color (default: `#ffc107`) |
-| `lvt-highlight-duration` | Duration in ms (default: 500) |
+| `lvt-fx:highlight` | Highlight mode: `flash` |
+| `--lvt-highlight-color` | CSS custom property: background color (default: `#ffc107`) |
+| `--lvt-highlight-duration` | CSS custom property: duration (default: 500ms) |
 
 ### Animation Directives
 
@@ -655,19 +655,19 @@ Apply entrance animations to elements.
 
 ```html
 <!-- Fade in -->
-<div lvt-animate="fade">New content</div>
+<div lvt-fx:animate="fade">New content</div>
 
 <!-- Slide in -->
-<div lvt-animate="slide" lvt-animate-duration="300">Slide content</div>
+<div lvt-fx:animate="slide" style="--lvt-animate-duration: 300ms">Slide content</div>
 
 <!-- Scale in -->
-<div lvt-animate="scale">Pop content</div>
+<div lvt-fx:animate="scale">Pop content</div>
 ```
 
 | Attribute | Description |
 |-----------|-------------|
-| `lvt-animate` | Animation type: `fade`, `slide`, `scale` |
-| `lvt-animate-duration` | Duration in ms (default: 300) |
+| `lvt-fx:animate` | Animation type: `fade`, `slide`, `scale` |
+| `--lvt-animate-duration` | CSS custom property: duration (default: 300ms) |
 
 ### Trigger Types
 
@@ -699,35 +699,9 @@ Apply entrance animations to elements.
 
 ## Modals
 
-Open and close modals declaratively.
+Use the native `<dialog>` element with `command`/`commandfor` for modal dialogs. No `lvt-*` attributes needed — this is a Tier 1 pattern.
 
-### Opening Modals
-
-```html
-<button lvt-modal-open="edit-modal">Edit</button>
-
-<div id="edit-modal" role="dialog" hidden>
-    <form lvt-submit="save">
-        <input name="title">
-        <button type="submit">Save</button>
-        <button type="button" lvt-modal-close="edit-modal">Cancel</button>
-    </form>
-</div>
-```
-
-### Modal Attributes
-
-| Attribute | Description |
-|-----------|-------------|
-| `lvt-modal-open` | Opens modal with specified ID on click |
-| `lvt-modal-close` | Closes modal with specified ID on click |
-
-### Modal Behavior
-
-- Modals use `role="dialog"` for accessibility
-- Press `Escape` to close the topmost modal
-- Click backdrop to close (when using modal backdrop)
-- Focus is trapped within open modals
+See [Progressive Complexity Guide — Dialogs](../guides/progressive-complexity.md#5-dialogs) for usage.
 
 ---
 
@@ -738,9 +712,9 @@ Handle file uploads with progress tracking.
 ### Basic Upload
 
 ```html
-<form lvt-submit="save-profile">
+<form method="POST">
     <input type="file" lvt-upload="avatar" name="avatar">
-    <button type="submit">Save</button>
+    <button name="save-profile" type="submit">Save</button>
 </form>
 ```
 
@@ -764,10 +738,10 @@ Files are automatically uploaded when the form is submitted, with progress event
 
 ### Preserve Form Data
 
-By default, forms reset after successful submission. Use `lvt-preserve` to keep form values:
+By default, forms reset after successful submission. Use `lvt-form:preserve` to keep form values:
 
 ```html
-<form lvt-submit="search" lvt-preserve>
+<form name="search" method="POST" lvt-form:preserve>
     <input name="query">
     <button type="submit">Search</button>
 </form>
@@ -778,18 +752,20 @@ By default, forms reset after successful submission. Use `lvt-preserve` to keep 
 Show loading state on submit buttons:
 
 ```html
-<form lvt-submit="save">
+<form method="POST">
     <input name="title">
-    <button type="submit" lvt-disable-with="Saving...">Save</button>
+    <button name="save" type="submit" lvt-form:disable-with="Saving...">Save</button>
 </form>
 ```
 
 ### Confirm Delete
 
-Require confirmation for destructive actions:
+Use standard `onsubmit` for confirmation dialogs:
 
 ```html
-<button lvt-click="delete" lvt-confirm="Are you sure?">Delete</button>
+<form method="POST" onsubmit="return confirm('Are you sure?')">
+    <button name="delete">Delete</button>
+</form>
 ```
 
 ---
@@ -798,28 +774,26 @@ Require confirmation for destructive actions:
 
 Complete reference of all `lvt-*` attributes.
 
-### Event Attributes
+### Event Attributes (`lvt-on:`)
 
 | Attribute | Description | Example |
 |-----------|-------------|---------|
-| `lvt-click` | Click event on element | `<button lvt-click="save">` |
-| `lvt-submit` | Form submission | `<form lvt-submit="create">` |
-| `lvt-change` | Input change event (→ `lvt-on:change`) | `<select lvt-change="sort">` |
-| `lvt-input` | Input event, every keystroke (→ `lvt-on:input`) | `<input lvt-input="search">` |
-| `lvt-keydown` | Keydown event | `<input lvt-keydown="submit">` |
-| `lvt-keyup` | Keyup event | `<input lvt-keyup="handle">` |
-| `lvt-focus` | Focus event | `<input lvt-focus="highlight">` |
-| `lvt-blur` | Blur event | `<input lvt-blur="validate">` |
-| `lvt-mouseenter` | Mouse enter event | `<div lvt-mouseenter="show">` |
-| `lvt-mouseleave` | Mouse leave event | `<div lvt-mouseleave="hide">` |
-| `lvt-click-away` | Click outside element (server action) | `<div lvt-on:click-away="close">` |
-| `lvt-el:*:on:click-away` | Click outside element (client-side) | `<div lvt-el:removeClass:on:click-away="open">` |
-| `lvt-window-keydown` | Global keydown | `<div lvt-window-keydown="close">` |
-| `lvt-window-keyup` | Global keyup | `<div lvt-window-keyup="handle">` |
-| `lvt-window-scroll` | Window scroll | `<div lvt-window-scroll="load">` |
-| `lvt-window-resize` | Window resize | `<div lvt-window-resize="adjust">` |
-| `lvt-window-focus` | Window focus | `<div lvt-window-focus="refresh">` |
-| `lvt-window-blur` | Window blur | `<div lvt-window-blur="pause">` |
+| `lvt-on:click` | Click event | `<button lvt-on:click="save">` |
+| `lvt-on:change` | Input change event | `<select lvt-on:change="sort">` |
+| `lvt-on:input` | Input event (every keystroke) | `<input lvt-on:input="search">` |
+| `lvt-on:keydown` | Keydown event | `<input lvt-on:keydown="submit">` |
+| `lvt-on:keyup` | Keyup event | `<input lvt-on:keyup="handle">` |
+| `lvt-on:focus` | Focus event | `<input lvt-on:focus="highlight">` |
+| `lvt-on:blur` | Blur event | `<input lvt-on:blur="validate">` |
+| `lvt-on:mouseenter` | Mouse enter event | `<div lvt-on:mouseenter="show">` |
+| `lvt-on:mouseleave` | Mouse leave event | `<div lvt-on:mouseleave="hide">` |
+| `lvt-on:click-away` | Click outside element | `<div lvt-on:click-away="close">` |
+| `lvt-on:window:keydown` | Global keydown | `<div lvt-on:window:keydown="close">` |
+| `lvt-on:window:keyup` | Global keyup | `<div lvt-on:window:keyup="handle">` |
+| `lvt-on:window:scroll` | Window scroll | `<div lvt-on:window:scroll="load">` |
+| `lvt-on:window:resize` | Window resize | `<div lvt-on:window:resize="adjust">` |
+| `lvt-on:window:focus` | Window focus | `<div lvt-on:window:focus="refresh">` |
+| `lvt-on:window:blur` | Window blur | `<div lvt-on:window:blur="pause">` |
 
 ### Data Attributes
 
@@ -830,7 +804,7 @@ Complete reference of all `lvt-*` attributes.
 
 **Note:** Both `lvt-data-*` and `lvt-value-*` attributes are accessible via `ctx.GetString()`, `ctx.GetInt()`, etc.
 
-### Reactive Attributes
+### Reactive Attributes (`lvt-el:`)
 
 | Attribute | Description | Example |
 |-----------|-------------|---------|
@@ -843,44 +817,33 @@ Complete reference of all `lvt-*` attributes.
 
 **Note:** `{trigger}` can be a lifecycle state (`pending`, `success`, `error`, `done`), any native DOM event (`click`, `focusin`, `focusout`, `mouseenter`, `mouseleave`, etc.), or the synthetic `click-away`. For action-specific: `lvt-el:reset:on:create-todo:success`.
 
-### Modifier Attributes
+### Modifier Attributes (`lvt-mod:`)
 
 | Attribute | Description | Example |
 |-----------|-------------|---------|
-| `lvt-key` | Filter keyboard events by key (event filter, not a timing modifier) | `lvt-key="Enter"` |
-| `lvt-debounce` (→ `lvt-mod:debounce`) | Debounce delay in milliseconds | `lvt-mod:debounce="300"` |
-| `lvt-throttle` (→ `lvt-mod:throttle`) | Throttle interval in milliseconds | `lvt-mod:throttle="100"` |
+| `lvt-key` | Filter keyboard events by key | `lvt-key="Enter"` |
+| `lvt-mod:debounce` | Debounce delay in milliseconds | `lvt-mod:debounce="300"` |
+| `lvt-mod:throttle` | Throttle interval in milliseconds | `lvt-mod:throttle="100"` |
 
-### Form Attributes
+### Form Attributes (`lvt-form:`, `lvt-nav:`)
 
 | Attribute | Description | Example |
 |-----------|-------------|---------|
 | `lvt-form:action` | Explicit action routing on form | `<form lvt-form:action="checkout">` |
-| `lvt-preserve` (→ `lvt-form:preserve`) | Keep form values after submit | `<form lvt-form:preserve>` |
-| `lvt-disable-with` (→ `lvt-form:disable-with`) | Button text during submit | `lvt-form:disable-with="Saving..."` |
+| `lvt-form:preserve` | Keep form values after submit | `<form lvt-form:preserve>` |
+| `lvt-form:disable-with` | Button text during submit | `lvt-form:disable-with="Saving..."` |
 | `lvt-form:no-intercept` | Opt-out of form interception | `<form lvt-form:no-intercept>` |
 | `lvt-nav:no-intercept` | Opt-out of link interception | `<a lvt-nav:no-intercept>` |
-| `lvt-confirm` | Confirmation dialog | `lvt-confirm="Are you sure?"` |
 
-### Modal Attributes
-
-| Attribute | Description | Example |
-|-----------|-------------|---------|
-| `lvt-modal-open` | Open modal by ID | `lvt-modal-open="edit-modal"` |
-| `lvt-modal-close` | Close modal by ID | `lvt-modal-close="edit-modal"` |
-
-### Directive Attributes
+### Directive Attributes (`lvt-fx:`)
 
 | Attribute | Description | Example |
 |-----------|-------------|---------|
-| `lvt-scroll` | Scroll behavior | `lvt-scroll="bottom"` |
-| `lvt-scroll-behavior` | Scroll animation | `lvt-scroll-behavior="smooth"` |
-| `lvt-scroll-threshold` | Sticky scroll threshold (px) | `lvt-scroll-threshold="100"` |
-| `lvt-highlight` | Highlight effect | `lvt-highlight="flash"` |
-| `lvt-highlight-color` | Highlight background color | `lvt-highlight-color="#ffc107"` |
-| `lvt-highlight-duration` | Highlight duration (ms) | `lvt-highlight-duration="500"` |
-| `lvt-animate` | Entrance animation | `lvt-animate="fade"` |
-| `lvt-animate-duration` | Animation duration (ms) | `lvt-animate-duration="300"` |
+| `lvt-fx:scroll` | Scroll behavior | `lvt-fx:scroll="bottom"` |
+| `lvt-fx:highlight` | Highlight effect | `lvt-fx:highlight="flash"` |
+| `lvt-fx:animate` | Entrance animation | `lvt-fx:animate="fade"` |
+
+Directives use CSS custom properties for configuration: `--lvt-scroll-behavior`, `--lvt-scroll-threshold`, `--lvt-highlight-color`, `--lvt-highlight-duration`, `--lvt-animate-duration`.
 
 ### Upload Attributes
 
@@ -923,15 +886,15 @@ Prefer declarative reactive attributes over JavaScript for common UI patterns:
 
 ```html
 <input
-    lvt-input="search"
-    lvt-debounce="300"
+    lvt-on:input="search"
+    lvt-mod:debounce="300"
     name="query">
 ```
 
 ### 3. Use Throttle for Scroll
 
 ```html
-<div lvt-window-scroll="loadMore" lvt-throttle="100">
+<div lvt-on:window:scroll="loadMore" lvt-mod:throttle="100">
 ```
 
 ### 4. Show Validation Errors

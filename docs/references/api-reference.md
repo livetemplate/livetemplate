@@ -32,7 +32,7 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
-    tmpl.Parse(`<h1>Count: {{.Count}}</h1><button lvt-click="increment">+</button>`)
+    tmpl.Parse(`<h1>Count: {{.Count}}</h1><button name="increment">+</button>`)
 
     handler := tmpl.Handle(&AppController{}, livetemplate.AsState(&AppState{}))
     http.Handle("/", handler)
@@ -109,6 +109,8 @@ handler := tmpl.Handle(&TodoController{DB: db}, livetemplate.AsState(&TodoState{
 
 ## Controller+State Pattern
 
+For patterns, examples, and usage guide, see [Controller+State Pattern](controller-pattern.md).
+
 ### State Interface
 
 ```go
@@ -129,16 +131,12 @@ func AsState[T any](s *T) State
 
 Wraps a plain struct pointer to satisfy the `State` interface using JSON serialization.
 
-```go
-state := livetemplate.AsState(&TodoState{Items: []Todo{}})
-```
-
 ### Lifecycle Methods
 
 Controllers may implement these optional lifecycle methods:
 
 ```go
-// Called when a new session is created and on every HTTP GET request
+// Called on every HTTP request (GET and POST) and every WebSocket connect (new and reconnect)
 func (c *Controller) Mount(state S, ctx *livetemplate.Context) (S, error)
 
 // Called on each WebSocket connect (including reconnects)
@@ -159,14 +157,9 @@ Action methods handle user interactions. They receive the current state and retu
 func (c *Controller) ActionName(state S, ctx *livetemplate.Context) (S, error)
 ```
 
-Action dispatch is automatic: `lvt-click="addItem"` dispatches to `AddItem()`.
+Action dispatch is automatic: `<button name="addItem">` dispatches to `AddItem()`.
 
 ### Struct Tags
-
-> **Deprecated:** Struct tags are legacy from the pre-v0.7.0 API where controllers and state
-> were a single struct. In the current Controller+State pattern, use `AsState[T]()` to
-> designate the entire state struct — no field-level tags needed. These tags remain for
-> backward compatibility but will be removed in a future release.
 
 | Tag | Description |
 |-----|-------------|
@@ -178,13 +171,7 @@ Action dispatch is automatic: `lvt-click="addItem"` dispatches to `AddItem()`.
 func AssertPureState[T any](t *testing.T)
 ```
 
-Validates that a state type contains only serializable data. Catches accidental inclusion of `*sql.DB`, `*slog.Logger`, etc.
-
-```go
-func TestTodoState(t *testing.T) {
-    livetemplate.AssertPureState[TodoState](t)
-}
-```
+Validates that a state type contains only serializable data (no `*sql.DB`, `*slog.Logger`, etc.).
 
 ---
 
@@ -271,37 +258,9 @@ type Session interface {
 }
 ```
 
-Enables server-initiated actions for the current user's connections (all tabs/devices).
+Enables server-initiated actions for the current user's connections (all tabs/devices). Use cases: timers, background job notifications, webhook-triggered updates.
 
-Use cases: timers, background job notifications, webhook-triggered updates.
-
-Session is accessed by implementing the `SessionAware` interface on your controller. The `ctx.Session()` method exists on `*Context` but is not populated by the framework in action handlers — use `SessionAware.OnConnect` to receive a `Session` handle for background goroutines that need to trigger actions asynchronously.
-
-**Note:** The `SessionAware.OnConnect(ctx context.Context, session Session) error` method is distinct from the lifecycle `OnConnect(state S, ctx *Context) (S, error)`. The lifecycle version handles state updates on WebSocket connect. The `SessionAware` version provides a `Session` handle for background goroutines that need to trigger actions asynchronously. A controller can implement both.
-
-```go
-// Controller implements SessionAware to receive the session on connect
-type TimerController struct {
-    session livetemplate.Session
-}
-
-func (c *TimerController) OnConnect(ctx context.Context, session livetemplate.Session) error {
-    c.session = session
-    go func() {
-        ticker := time.NewTicker(time.Second)
-        defer ticker.Stop()
-        for {
-            select {
-            case <-ticker.C:
-                c.session.TriggerAction("tick", nil)
-            case <-ctx.Done():
-                return
-            }
-        }
-    }()
-    return nil
-}
-```
+Accessed by implementing `SessionAware` on your controller. The framework calls `SessionAware.OnConnect(ctx, session)` on each WebSocket connect, providing a `Session` handle for async action dispatch. See [Server Actions](server-actions.md) for examples.
 
 ---
 
@@ -340,27 +299,14 @@ Maps HTTP requests to user IDs and session groups.
 
 ### Built-in Authenticators
 
-**AnonymousAuthenticator** (default): Browser-based session grouping via persistent cookie. All tabs in the same browser share state.
-
-```go
-// Used by default - no configuration needed
-```
+**AnonymousAuthenticator** (default): Browser-based session grouping via persistent cookie. All tabs in the same browser share state. No configuration needed.
 
 **BasicAuthenticator**: HTTP Basic Auth with user-provided validation.
 
-> **Security:** Basic Auth transmits credentials in base64 (not encrypted). Always use HTTPS
-> in production. The BasicAuthenticator provides **no built-in rate limiting or account lockout**, so you must enforce brute-force protection (for example via a WAF, reverse proxy, or auth service) before using it in production.
-> Consider session-based auth for browser-facing applications.
+> **Security:** Always use HTTPS. No built-in rate limiting or account lockout -- enforce brute-force protection externally.
 
 ```go
 func NewBasicAuthenticator(validateFunc func(username, password string) (bool, error)) *BasicAuthenticator
-```
-
-```go
-auth := livetemplate.NewBasicAuthenticator(func(user, pass string) (bool, error) {
-    return db.ValidateUser(user, pass)
-})
-tmpl, _ := livetemplate.New("app", livetemplate.WithAuthenticator(auth))
 ```
 
 ---
@@ -401,13 +347,6 @@ func NewMemorySessionStore(opts ...SessionStoreOption) *MemorySessionStore
 | `WithCleanupTTL(ttl)` | 24h | TTL for inactive session groups |
 | `WithCleanupInterval(interval)` | 1h | Cleanup goroutine interval |
 
-```go
-store := livetemplate.NewMemorySessionStore(
-    livetemplate.WithCleanupTTL(1 * time.Hour),
-)
-defer store.Close()
-```
-
 ### RedisSessionStore
 
 Redis-backed store for distributed deployments. Supports Redis, Redis Cluster, Ring, and Sentinel.
@@ -422,14 +361,6 @@ func NewRedisSessionStore(client redis.UniversalClient, opts ...RedisSessionStor
 | `WithMaxRetries(n)` | 3 | Retry attempts with exponential backoff |
 | `WithRetryDelay(delay)` | 100ms | Base delay between retries |
 
-```go
-client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
-store := livetemplate.NewRedisSessionStore(client,
-    livetemplate.WithSessionTTL(24 * time.Hour),
-)
-defer store.Close()
-```
-
 Both implementations satisfy `SingleStoreSetter`.
 
 ---
@@ -438,19 +369,11 @@ Both implementations satisfy `SingleStoreSetter`.
 
 ### Environment Variables
 
-Load configuration from environment variables with `LVT_` prefix:
-
 ```go
 func LoadEnvConfig() (*EnvConfig, error)
 ```
 
-```go
-config, err := livetemplate.LoadEnvConfig()
-if err != nil {
-    log.Fatal(err)
-}
-tmpl, _ := livetemplate.New("app", config.ToOptions()...)
-```
+Load configuration from environment variables with `LVT_` prefix. Call `config.ToOptions()...` to convert to template options.
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
@@ -461,9 +384,6 @@ tmpl, _ := livetemplate.New("app", config.ToOptions()...)
 | `LVT_WEBSOCKET_DISABLED` | bool | false | HTTP-only mode |
 | `LVT_LOADING_DISABLED` | bool | false | Disable automatic loading indicator |
 | `LVT_TEMPLATE_BASE_DIR` | string | "" | Base directory for template discovery |
-| `LVT_SHUTDOWN_TIMEOUT` | duration | 30s | Graceful shutdown timeout (reserved, not yet applied) |
-| `LVT_LOG_LEVEL` | string | "info" | Log level (reserved, not yet applied) |
-| `LVT_METRICS_ENABLED` | bool | true | Enable Prometheus metrics (reserved, not yet applied) |
 | `LVT_PROGRESSIVE_ENHANCEMENT` | bool | true | Enable non-JS form submission |
 | `LVT_WS_BUFFER_SIZE` | int | 50 | WebSocket send buffer size per connection |
 
@@ -498,21 +418,6 @@ Options passed to `New()`:
 
 ## Uploads
 
-### WithUpload
-
-Configure upload fields at template creation:
-
-```go
-tmpl, _ := livetemplate.New("profile",
-    livetemplate.WithUpload("avatar", livetemplate.UploadConfig{
-        Accept:      []string{"image/*"},
-        MaxFileSize: 5 * 1024 * 1024, // 5MB
-        MaxEntries:  1,
-        AutoUpload:  true,
-    }),
-)
-```
-
 ### UploadConfig
 
 ```go
@@ -535,18 +440,14 @@ type UploadEntry struct {
     ClientType  string    // MIME type
     ClientSize  int64     // File size in bytes
     Progress    int       // 0-100
-    Valid       bool      // Passed validation
     Done        bool      // Upload completed
     Error       string    // Error message
     TempPath    string    // Server-side temp file (server uploads)
-    BytesRecv   int64     // Bytes received
     ExternalRef string    // Storage reference (external uploads)
-    CreatedAt   time.Time
-    CompletedAt time.Time
 }
 ```
 
-### External Uploads (S3)
+### Presigner
 
 ```go
 type Presigner interface {
@@ -561,25 +462,7 @@ type UploadMeta struct {
 }
 ```
 
-**S3Presigner (provided by `github.com/livetemplate/lvt/pkg/s3presigner`):**
-
-```go
-// package s3presigner
-
-func NewS3Presigner(cfg S3Config) (*S3Presigner, error)
-
-type S3Config struct {
-    Bucket          string
-    Region          string
-    AccessKeyID     string        // Optional: uses default chain if empty
-    SecretAccessKey string
-    Endpoint        string        // Custom endpoint (MinIO, LocalStack)
-    Expiry          time.Duration // Default: 15 minutes
-    KeyPrefix       string        // S3 key prefix
-}
-```
-
-For complete upload documentation, see [Upload Reference](uploads.md).
+For complete upload documentation including S3 configuration, see [Upload Reference](uploads.md).
 
 ---
 
@@ -591,16 +474,7 @@ For complete upload documentation, see [Upload Reference](uploads.md).
 func NewHealthHandler(timeout time.Duration) *HealthHandler
 ```
 
-Provides Kubernetes-ready health endpoints:
-
-```go
-health := livetemplate.NewHealthHandler(5 * time.Second)
-health.RegisterChecker("database", dbChecker)
-health.RegisterChecker("redis", livetemplate.NewRedisHealthChecker(redisStore))
-
-mux.HandleFunc("/health/live", health.Live)
-mux.HandleFunc("/health/ready", health.Ready)
-```
+Provides Kubernetes-ready `/health/live` and `/health/ready` endpoints. Register checkers via `health.RegisterChecker(name, checker)`.
 
 ### HealthChecker Interface
 
@@ -610,12 +484,7 @@ type HealthChecker interface {
 }
 ```
 
-### Built-in Checkers
-
-```go
-func NewSessionStoreHealthChecker(store SessionStore) *SessionStoreHealthChecker
-func NewRedisHealthChecker(store *RedisSessionStore) *RedisHealthChecker
-```
+Built-in: `NewSessionStoreHealthChecker(store)`, `NewRedisHealthChecker(store)`.
 
 ---
 

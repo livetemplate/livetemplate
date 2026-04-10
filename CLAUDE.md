@@ -8,321 +8,28 @@ LiveTemplate is a high-performance Go library for building reactive web applicat
 - **CLI Tool (lvt)**: Code generator and development server — maintained at `github.com/livetemplate/lvt`
 - **TypeScript Client**: Browser-side update handler — maintained at `github.com/livetemplate/client`
 
-## Version 0.7.0 - Controller+State Pattern
+## Controller+State Pattern
 
-**Breaking Change Notice:** v0.7.0 introduces the Controller+State pattern, separating dependencies from session data.
+Controllers hold dependencies (singleton, never cloned). State holds pure data (cloned per session). Action methods: `func (c *Controller) Action(state State, ctx *Context) (State, error)`. Mount runs on every HTTP request and WebSocket connect.
 
-### Why This Change?
+**Key caveats:**
+- **Mount() guard pattern:** Mount runs on POST too, so guard side effects: `if ctx.Action() == "" { trackPageView() }` — only fires on GET, not form submissions.
+- **BroadcastAction ordering:** `ctx.With*()` creates shallow copies. Call `ctx.BroadcastAction()` AFTER all `With*()` calls, or broadcasts queued before the copy won't propagate.
+- **AssertPureState[T]():** Use in tests to catch dependency types accidentally in state structs.
 
-The previous `cloneStore()` approach copied ALL exported fields, causing:
-- **Security issues**: Session-specific data (OAuth tokens, caches) accidentally shared across users
-- **Architectural ambiguity**: No clear contract for what gets cloned vs shared
-- **Developer footguns**: Easy to accidentally put dependencies in cloned state
+See `docs/references/controller-pattern.md` for the full pattern guide with examples.
 
-### New Pattern
+## Progressive Complexity
 
-```go
-// CONTROLLER: Singleton, holds dependencies, NEVER cloned
-type TodoController struct {
-    DB     *sql.DB
-    Logger *slog.Logger
-}
-
-// STATE: Pure data, cloned per session, serializable
-type TodoState struct {
-    Items  []Todo
-    Filter string
-}
-
-// Action methods receive state and return modified state
-func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
-    todo := c.DB.InsertTodo(ctx.GetString("title"))
-    state.Items = append(state.Items, todo)
-    return state, nil
-}
-
-// Mount handler with explicit separation
-handler := tmpl.Handle(controller, livetemplate.AsState(&TodoState{}))
-```
-
-### Key Concepts
-
-| Concept | Description |
-|---------|-------------|
-| **Controller** | Singleton holding dependencies (DB, Logger, API clients). Never cloned. |
-| **State** | Pure data struct cloned per session. Must be serializable (no pointers to dependencies). |
-| **AsState[T]()** | Generic wrapper that marks a struct as session state. Handles serialization automatically. |
-| **Context** | Unified context for all lifecycle and action methods. Replaces ActionContext. |
-
-### Lifecycle Methods
-
-```go
-// Called on every HTTP request (GET/POST) and every WebSocket connect
-func (c *Controller) Mount(state State, ctx *Context) (State, error)
-
-// Called on each WebSocket connect (optional)
-func (c *Controller) OnConnect(state State, ctx *Context) (State, error)
-
-// Called on peer connections after any action in the same session group (optional)
-func (c *Controller) Sync(state State, ctx *Context) (State, error)
-
-// Called on disconnect (optional)
-func (c *Controller) OnDisconnect()
-```
-
-### Migration from Old API
-
-| Old Pattern | New Pattern |
-|-------------|-------------|
-| `type Store struct { DB *sql.DB; Items []Todo }` | Separate into Controller (DB) and State (Items) |
-| `func (s *Store) Action(ctx *ActionContext) error` | `func (c *Controller) Action(state State, ctx *Context) (State, error)` |
-| `tmpl.Handle(&Store{})` | `tmpl.Handle(&Controller{}, AsState(&State{}))` |
-| `ctx.Action` | `ctx.Action()` |
-| `ctx.Data` | `ctx.GetString()`, `ctx.GetInt()`, `ctx.BindAndValidate()` |
-| `WithSharedState()` | Implement `Sync()` lifecycle method on controller |
-| `WithStatePersistence()` | Remove — use `lvt:"persist"` tag on state fields that should survive page refresh |
-
-**Mount() behavioral change (breaking):** `Mount()` now runs on every HTTP request (GET and POST) and every WebSocket connect (new and reconnect). Controllers with side effects in Mount that should only fire on page loads (not form submissions) must guard them:
-
-```go
-func (c *Controller) Mount(state State, ctx *livetemplate.Context) (State, error) {
-    if ctx.Action() == "" { // only on GET, not POST
-        trackPageView()
-    }
-    return loadFromDB(state), nil
-}
-```
-
-### BroadcastAction Note
-
-`ctx.BroadcastAction()` accumulates broadcasts on the Context. Since `ctx.With*()` methods create shallow copies, call `BroadcastAction` after all `With*()` calls in the same scope, or broadcasts queued before the copy may not propagate to the handler's view of the context.
-
-### Testing Helper
-
-Use `AssertPureState[T]()` in tests to catch common mistakes:
-
-```go
-func TestState(t *testing.T) {
-    // Fails if State contains dependency types (DB, Logger, etc.)
-    livetemplate.AssertPureState[TodoState](t)
-}
-```
-
-### Performance Considerations
-
-- **State serialization**: Every session clone involves JSON marshal/unmarshal. Keep state small.
-- **Method caching**: Reflection-based dispatch caches method lookups per type.
-- **First invocation**: Slightly slower due to cache population; subsequent calls are fast.
-
----
-
-## Progressive Complexity Model
-
-LiveTemplate follows a progressive complexity model where standard HTML handles simple to moderate UI and `lvt-*` attributes are reserved for behaviors HTML cannot express.
-
-### Template Tiers
-
-| Tier | What You Write | Examples |
-|------|---------------|---------|
-| **Tier 1: Standard HTML** | Forms, buttons, dialogs, links, validation — no `lvt-*` | `<button name="save">`, `<dialog>`, `<a href>`, `ctx.ValidateForm()` |
-| **Tier 2: `lvt-*` Attributes** | Custom attributes for non-HTML behaviors | `lvt-debounce`, `lvt-key`, `lvt-addClass-on:pending`, `lvt-hook` |
-
-### Tier 1 Capabilities
-
-- **Form auto-submit**: `<form>` → routes to `Submit()` by default
-- **Button name = action**: `<button name="save">` → routes to `Save()`
-- **Button value = data**: `<button name="delete" value="{{.ID}}">` → `ctx.GetString("value")`
-- **Form name = action**: `<form name="search">` → routes to `Search()`
-- **Validation inference**: HTML `required`, `pattern`, `min`, `max`, `type` → `ctx.ValidateForm()`
-- **Dialogs**: `<dialog>` + `command`/`commandfor` + `method="dialog"`
-- **Link interception**: `<a href>` auto-intercepted for SPA navigation
-- **Loading states**: `aria-busy` + `<fieldset disabled>` automatic during submission
-- **Error display**: Auto `aria-invalid="true"` on form elements with errors + `.lvt.ErrorTag "field"` helper
-- **Standalone buttons**: `<button name="action">` outside forms triggers named action directly (JS client only)
-
-### When to Use Tier 2 (`lvt-*`)
-
-Only for behaviors standard HTML cannot express:
-- `lvt-debounce`, `lvt-throttle` — timing control
-- `lvt-key` — keyboard key filtering
-- `lvt-addClass-on:pending` — lifecycle-driven reactive DOM
-- `lvt-window-keydown` — global event routing
-- `lvt-hook` — JS library integration
-- `lvt-scroll="bottom-sticky"` — threshold-based scroll
+Standard HTML (forms, buttons, dialogs) handles Tier 1. `lvt-*` attributes (`lvt-on:`, `lvt-el:`, `lvt-fx:`, `lvt-mod:`, `lvt-form:`, `lvt-nav:`) are reserved for Tier 2 behaviors HTML cannot express.
 
 See `docs/guides/progressive-complexity.md` for the full walkthrough.
 
----
+## Architecture
 
-## 5-Phase Architecture (Current)
+5 operational phases: **Parse -> Build -> Diff -> Render -> Send**, each in `internal/{phase}/`. Supporting packages: `internal/keys/`, `internal/session/`, `internal/observe/`, `internal/upload/`, `internal/fuzz/`.
 
-The library is organized into 5 operational phases: **Parse → Build → Diff → Render → Send**
-
-Each phase has its own internal package with clear responsibilities:
-- `internal/parse/` - Template parsing into tree structures
-- `internal/build/` - Tree construction, fingerprinting, operations
-- `internal/diff/` - Tree comparison and update generation
-- `internal/render/` - HTML rendering utilities
-- `internal/send/` - Message formatting and serialization
-
-Additional supporting packages:
-- `internal/keys/` - Key generation for range items (`Generator` type)
-- `internal/session/` - Connection registry and async WebSocket handling
-- `internal/observe/` - Logging and metrics
-
-## Core Architecture
-
-### Main Package Files (Public API)
-
-The main `livetemplate` package provides a clean, minimal public API:
-
-1. **Template Engine (`template.go`)**:
-   - Main entry point providing `html/template` compatible API
-   - Manages template parsing, execution, and update generation
-   - Handles wrapper ID injection for update targeting
-   - Orchestrates internal packages for parsing, building, and diffing
-
-2. **Mount Handler (`mount.go`)**:
-   - LiveHandler interface for HTTP/WebSocket handling
-   - Broadcaster and BroadcastAware interfaces for server-initiated updates
-   - WebSocket connection lifecycle management
-   - Per-connection state with automatic persistence to SessionStore. Cross-tab sync via `Sync()` lifecycle method (auto-dispatched when controller implements it)
-   - Dynamic pub/sub subscription via `DynamicSubscriber` type assertion during WebSocket setup
-
-3. **Session Stores (`session_stores.go`)**:
-   - SessionStore interface for session group management
-   - MemorySessionStore for single-instance deployments
-   - RedisSessionStore for distributed deployments
-   - Automatic cleanup and TTL management
-
-4. **Health Checks (`health.go`)**:
-   - HealthHandler for liveness and readiness probes
-   - HealthChecker interface for custom health checks
-   - Built-in session store and Redis health checkers
-   - Kubernetes-ready health endpoints
-
-5. **Types (`types.go`)**:
-   - TreeNode, RangeData, TreeMetadata type re-exports
-   - Clean public API for tree-based operations
-   - Backward-compatible type aliases
-
-6. **Context (`context.go`)**:
-   - Unified Context for all lifecycle and action methods
-   - ActionData for form/JSON data handling
-   - FieldError and MultiError for validation
-   - Methods: `Action()`, `UserID()`, `GetString()`, `GetInt()`, `BindAndValidate()`, `BroadcastAction()`
-
-7. **Authentication (`auth.go`)**:
-   - Authenticator interface for user identification
-   - DefaultAuthenticator with cookie-based sessions
-
-8. **Configuration (`config.go`)**:
-   - TemplateConfig for template customization
-   - DevMode, CompressHTML, and other options
-
-### Internal Packages (5-Phase Architecture)
-
-**Phase 1: Parse** (`internal/parse/`)
-- Parses Go templates into tree structures using a custom AST evaluator
-- Handles template constructs (fields, conditionals, ranges, with, template invokes)
-- Components: api.go, walker.go, eval.go, field.go, conditional.go, range.go, with.go, vars.go, keys.go, helpers.go, errors.go, flatten.go, types.go
-- Single unified AST walker with optional variable context
-
-**Phase 2: Build** (`internal/build/`)
-- Tree construction and operations
-- Components: fingerprint.go, html_diff.go, html_segmentation.go, types.go, wrapper.go
-- Handles tree creation, HTML diffing, segmentation, and change detection
-- Wrapper div injection and HTML content extraction
-
-**Phase 3: Diff** (`internal/diff/`)
-- Tree comparison and update generation
-- Components: tree_compare.go, range_ops.go, prepare.go, helpers_value.go, helpers_compare.go, helpers_keys.go, helpers_range.go, types.go
-- Architecture: Hierarchical delegation pattern
-  - Orchestrator: `CompareTreesAndGetChangesWithPath()` - entry point
-  - Delegators: `handle*()` functions for specialized cases
-  - Coordinator: `GenerateRangeDifferentialOperations()` for range ops
-
-**Phase 4: Render** (`internal/render/`)
-- HTML rendering utilities
-- Components: html.go, minify.go
-- Functions: `Node()`, `TreeToHTML()`, `IsVoidElement()`
-- Converts tree structures to HTML strings; includes HTML minification
-
-**Phase 5: Send** (`internal/send/`)
-- Message formatting and serialization
-- Components: json.go, message.go, response.go
-- Action message parsing (HTTP/WebSocket)
-- Update response wrapping, JSON serialization, and custom JSON encoding
-- Functions: `ParseActionFromHTTP()`, `PrepareUpdate()`, `SerializeUpdate()`
-
-**Supporting Packages:**
-
-9. **Key Generation (`internal/keys/`)**:
-   - Sequential key generation for range items
-   - Components: generator.go, loader.go
-   - Type: `Generator` (renamed from KeyGenerator)
-   - Thread-safe counter with overflow protection; loader for key persistence
-
-10. **Observability (`internal/observe/`)**:
-    - Operational metrics with Prometheus export
-    - Components: metrics.go, prometheus.go
-    - Exposed via public `handler.MetricsHandler()` API
-
-11. **Session Management (`internal/session/`)**: ⚡ **NEW: Async WebSocket Architecture**
-    - **Async Sending Infrastructure**: Channel-based message queuing with background writePump goroutines
-    - **Connection Types**: Connection, ConnectionRegistry, ConnectionLimits
-    - **WebSocket Concurrency**: Each connection has dedicated writePump goroutine for async sends
-    - **Dual Indexing**: By groupID (session groups) and userID (multi-device)
-    - **Graceful Shutdown**: 5-second drain timeout with sync.Once protection
-    - **Performance**: 165M concurrent sends/sec, 54.7M queued sends/sec
-    - **Memory**: ~980 bytes per connection (measured)
-    - **Backpressure**: Closes slow clients when buffer full (fail-fast)
-    - **Thread-safety**: Lock-free sends, mutex-protected registry operations
-
-    **Async Send Flow:**
-    ```
-    1. Send(messageType, data) → Queue message to buffered channel
-    2. writePump goroutine → Dequeue and write to WebSocket
-    3. Close() → Signal done → Wait for pump exit → Close WebSocket
-    ```
-
-    **Configuration:**
-    - Buffer size: `LVT_WS_BUFFER_SIZE` env var (default: 50)
-    - Config option: `WithWebSocketBufferSize(int)`
-    - Metrics: `wsBufferFull`, `wsSlowClientCloses`, `wsWriteErrors`, `wsSendBufferSize`
-
-12. **Execution Context (`internal/context/`)**:
-    - TemplateContext for error handling and dev mode
-    - Template execution utilities
-    - Error propagation to client
-
-13. **Compatibility (`internal/compat/`)**:
-    - Compatibility layer for tree structures
-    - Components: tree.go
-
-14. **Template Discovery (`internal/discovery/`)**:
-    - Automatic template file discovery
-    - Components: discovery.go
-
-15. **File Uploads (`internal/upload/`)**:
-    - File upload handling infrastructure
-    - Components: accessor.go, multipart.go, protocol.go, registry.go, tempfile.go, validate.go
-
-16. **Upload Types (`internal/uploadtypes/`)**:
-    - Upload type definitions shared across packages
-    - Components: types.go
-
-17. **Test Utilities (`internal/testutil/`)**:
-    - Shared test helpers (e.g., Redis test setup)
-    - Components: redis.go
-
-18. **String Utilities (`internal/util/`)**:
-    - General-purpose string utilities
-    - Components: strings.go
-
-19. **Fuzz Testing (`internal/fuzz/`)**:
-    - Fuzz testing infrastructure for tree invariant validation
-    - Subpackages: app/ (mutations, templates, types), generators/ (state, template), invariants/ (verifier, helpers, TS oracle), mutations/ (apply, types)
+See `docs/design/ARCHITECTURE.md` for design decisions and `docs/design/CODE_STRUCTURE.md` for the complete file-by-file map.
 
 ## Key Data Structures
 
@@ -339,26 +46,6 @@ type TreeNode struct {
 - Core structure for representing static/dynamic content
 - Custom JSON marshaling maintains wire format compatibility (numeric keys for dynamics)
 - Can be nested for complex templates
-
-### Template
-```go
-type Template struct {
-    name           string
-    templateStr    string
-    tmpl           *template.Template
-    wrapperID      string
-    funcs          template.FuncMap
-    mu             sync.RWMutex
-    lastData       interface{}
-    lastHTML       string
-    lastTree       *treeNode
-    initialTree    *treeNode
-    hasInitialTree bool
-    keyGen         *keyGenerator
-    config         Config
-    uploadRegistry interface{}
-}
-```
 
 ### Key Constructs
 - `FieldConstruct`: Simple field replacement `{{.Field}}`
@@ -413,7 +100,7 @@ go test -v ./... -timeout=30s
 4. **Maintain idiomatic Go** - Follow Go best practices
 
 ### Template Processing Flow
-1. **Parse**: Template string → Compiled template structure
+1. **Parse**: Template string -> Compiled template structure
 2. **Execute**: First render generates initial tree with statics and dynamics
 3. **Update**: Subsequent renders generate minimal update trees
 4. **Diff**: Compare trees to produce update operations
@@ -479,15 +166,15 @@ The system uses FNV-1a structure fingerprints to decide whether statics need to 
 **Decision flow** (`internal/diff/tree_compare.go`):
 ```go
 func ClientNeedsStatics(oldTree, newTree *TreeNode) bool {
-    // First render: no previous tree → must send statics
+    // First render: no previous tree -> must send statics
     if oldTree == nil { return true }
-    // Removal: new tree is gone → no statics needed
+    // Removal: new tree is gone -> no statics needed
     if newTree == nil { return false }
     // Compare structure fingerprints for non-nil trees
     oldFP := oldTree.GetStructureFingerprint()
     newFP := newTree.GetStructureFingerprint()
-    // Same fingerprint → client has statics cached → send dynamics only
-    // Different fingerprint → structure changed → send full tree with statics
+    // Same fingerprint -> client has statics cached -> send dynamics only
+    // Different fingerprint -> structure changed -> send full tree with statics
     return oldFP != newFP
 }
 ```
@@ -605,7 +292,7 @@ The TypeScript client is maintained in a separate repository at `github.com/live
 - Run tests with `go test -race` to detect race conditions
 
 **High Memory Usage:**
-- Each connection: ~980 bytes base + (buffer size × avg message size)
+- Each connection: ~980 bytes base + (buffer size x avg message size)
 - Default 50-buffer: ~1KB per connection + message overhead
 - Reduce buffer size for memory-constrained environments
 - Monitor `wsSendBufferSize` gauge metric
@@ -642,4 +329,3 @@ The TypeScript client is maintained in a separate repository at `github.com/live
 - Optimize memory usage for large trees
 - Add metrics and profiling hooks
 - Enhance client-side caching strategies
-
