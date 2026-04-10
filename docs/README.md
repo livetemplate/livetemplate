@@ -21,7 +21,7 @@ Complete API references, configuration, and specifications:
 - **[Session Management](references/session.md)** - State safety, session stores, and connection management
 - **[PubSub](references/pubsub.md)** - Distributed broadcasting, Redis channel schema, subscription lifecycle
 - **[Template Support Matrix](references/template-support-matrix.md)** - Supported Go template features
-- **[API Reference](references/api-reference.md)** - Kit manifest schemas and API reference
+- **[API Reference](references/api-reference.md)** - Go library API reference
 - **[Configuration](references/CONFIGURATION.md)** - Environment variables, connection limits, WebSocket settings
 - **[File Uploads](references/uploads.md)** - Phoenix LiveView-inspired upload system
 - **[Observability](guides/OBSERVABILITY.md)** - Structured logging (slog) and Prometheus metrics
@@ -30,11 +30,11 @@ Complete API references, configuration, and specifications:
 
 Step-by-step guides and tutorials:
 
-- **[New Contributor Walkthrough](guides/new-contributor-walkthrough.md)** - Comprehensive guide to the 5-phase architecture
+- **[Progressive Complexity Guide](guides/progressive-complexity.md)** - Standard HTML first, `lvt-*` only when needed
+- **[Ephemeral Components Guide](guides/ephemeral-components.md)** - Client-side toasts, banners, alerts
+- **[New Contributor Walkthrough](guides/new-contributor-walkthrough.md)** - 5-phase architecture walkthrough
 
 For `lvt` CLI documentation (code generation, auth, migrations), see the [lvt repository](https://github.com/livetemplate/lvt).
-
-Older guides are available in [`archive/guides/`](archive/guides/) for historical reference.
 
 ## Architecture & Design
 
@@ -73,6 +73,7 @@ Active feature proposals and RFCs:
 
 - **[Lifecycle Hooks](proposals/lifecycle-hooks-proposal.md)** - `lvt-hook` for JS library integration
 - **[Data Binding](proposals/lvt-bind-proposal.md)** - Two-way form data binding (`lvt-bind`) proposal
+- **[Tier 1 File Uploads](proposals/tier1-file-uploads-proposal.md)** - File uploads via standard HTML multipart forms
 
 ## Roadmap Tracking
 

@@ -10,8 +10,8 @@ import "reflect"
 // calls at specific points in the session/connection lifecycle:
 //
 // - Mount(state, ctx) -> (state, error)
-//   Called when a new session is created and on every HTTP GET request.
-//   Use for initial data loading from database.
+//   Called on every HTTP request (GET and POST) and every WebSocket connect
+//   (new and reconnect). Use for initial data loading from database.
 //
 // - OnConnect(state, ctx) -> (state, error)
 //   Called every time a WebSocket connects (including reconnects).

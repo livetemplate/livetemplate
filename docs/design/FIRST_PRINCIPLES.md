@@ -43,7 +43,7 @@
 **Start with standard HTML. Add `lvt-*` only when HTML can't express it.**
 
 - Standard HTML forms work without any `lvt-*` attributes (auto-intercept, auto-submit)
-- Action routing uses `button name="action"` and `form name` before `lvt-submit`
+- Action routing uses `button name` and `form name` before `lvt-form:action`
 - Template expressions (`{{.Field}}`) in `value=` attributes ARE binding declarations
 - `lvt-*` attributes reserved for non-HTML behaviors: debounce, reactive DOM, hooks, loading states
 - Three transport modes degrade gracefully: WebSocket → fetch → no-JS POST
