@@ -345,7 +345,7 @@ livetemplate/
 | `fingerprint.go` | 97 | FNV-1a structure fingerprinting |
 | `html_segmentation.go` | 94 | HTML segmentation for statics extraction |
 | `html_diff.go` | 56 | HTML-level diff utilities |
-| `aria_inject.go` | ~50 | Aria attribute injection for accessibility |
+| `aria_inject.go` | 113 | Aria attribute injection for accessibility |
 
 **Key Types:**
 - `TreeNode` (struct) - Core tree structure with statics and dynamics
