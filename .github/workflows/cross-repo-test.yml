@@ -192,6 +192,8 @@ jobs:
       run: |
         echo "Installing client dependencies..."
         npm ci
+        echo "Updating @livetemplate/client to latest published version..."
+        npm install @livetemplate/client@latest
         echo "Building client library..."
         npm run build
         echo "✓ Tinkerdown client built successfully"
