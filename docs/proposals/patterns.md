@@ -1772,13 +1772,15 @@ Future features identified during this proposal should be filed as GitHub issues
 
 **Session workflow:** Each session ends by creating a PR for the work done, updating this tracker (check off completed items), and pushing the updated proposal. The next session picks up from the tracker state.
 
-### Session 1: Scaffold + Forms & Editing
+### Session 1: Scaffold + Index Page + Forms & Editing
 
-**Scope:** App skeleton, shared layout, patterns #1–7
+**Scope:** App skeleton, shared layout, index page, patterns #1–7
 
 - [ ] Create `examples/patterns/` directory structure
 - [ ] `main.go` — router with all handler registrations
 - [ ] `templates/layout.tmpl` — shared HTML layout
+- [ ] `templates/index.tmpl` — categorized grid of all patterns with descriptions
+- [ ] Index handler with pattern metadata
 - [ ] `data.go` — in-memory sample data (contacts, users, items)
 - [ ] `state.go` — state structs for all patterns
 - [ ] Implement Click To Edit (#1)
@@ -1851,12 +1853,10 @@ Future features identified during this proposal should be filed as GitHub issues
 - [ ] E2E tests for patterns #26–31 (incl. UI_Standards + Visual_Check)
 - [ ] Create PR, update this tracker
 
-### Session 7: Index Page + Polish
+### Session 7: Polish + README + Final Review
 
-**Scope:** Main index page, final review
+**Scope:** README, final review, integration verification
 
-- [ ] `templates/index.tmpl` — categorized grid of all patterns with descriptions
-- [ ] Index handler with pattern metadata
 - [ ] `README.md` for the patterns example
 - [ ] Run `./test-all.sh` to verify all examples still pass
 - [ ] File GitHub issue for drag-and-drop feature (see [Future Features](#future-features))
