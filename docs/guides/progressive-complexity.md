@@ -173,10 +173,10 @@ Use the standard `<dialog>` element with `command`/`commandfor` for native modal
 </dialog>
 ```
 
-- `command="show-modal"` opens the dialog (native browser behavior)
-- `command="close"` closes it (native)
+- `command="show-modal"` opens the dialog via `.showModal()` — backdrop, focus trapping, and Escape key handling are all native to `<dialog>`
+- `command="close"` closes it via `.close()`
 - `method="dialog"` on the form closes the dialog AND routes the action to the server
-- Focus trapping, backdrop, and Escape key handling are all native
+- The LiveTemplate client polyfills `command`/`commandfor` for browsers that don't yet support the [Invoker Commands API](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes/command) natively (Firefox, Safari). The polyfill uses feature detection (`commandForElement`) and becomes a no-op when browsers add native support
 
 ---
 

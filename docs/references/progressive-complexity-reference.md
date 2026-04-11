@@ -57,9 +57,11 @@ HTML validation attributes are extracted by `ctx.ValidateForm()`:
 
 | HTML Pattern | Framework Behavior |
 |---|---|
-| `command="show-modal" commandfor="id"` | Opens `<dialog>` (native browser) |
-| `command="close" commandfor="id"` | Closes `<dialog>` (native browser) |
+| `command="show-modal" commandfor="id"` | Opens `<dialog>` via `.showModal()` (polyfilled by client for cross-browser support) |
+| `command="close" commandfor="id"` | Closes `<dialog>` via `.close()` (polyfilled by client) |
 | `<form method="dialog">` inside `<dialog>` | Closes dialog AND routes action to server |
+
+> **Browser support:** The [Invoker Commands API](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes/command) (`command`/`commandfor`) is natively supported in Chrome 135+. The LiveTemplate client includes a lightweight polyfill for Firefox and Safari, using feature detection (`commandForElement`) to become a no-op when native support lands.
 
 ## Navigation Interception
 

@@ -701,7 +701,24 @@ Apply entrance animations to elements.
 
 Use the native `<dialog>` element with `command`/`commandfor` for modal dialogs. No `lvt-*` attributes needed — this is a Tier 1 pattern.
 
-See [Progressive Complexity Guide — Dialogs](../guides/progressive-complexity.md#5-dialogs) for usage.
+The client polyfills the [Invoker Commands API](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes/command) for browsers that don't support it natively (Firefox, Safari as of April 2026). The polyfill calls `.showModal()` / `.close()` on the target `<dialog>`, providing backdrop, focus trapping, and Escape key handling across all browsers. Feature detection via `commandForElement` makes the polyfill a no-op when native support lands.
+
+### Supported commands
+
+| Button Attribute | Target | Effect |
+|---|---|---|
+| `command="show-modal" commandfor="dialog-id"` | `<dialog id="dialog-id">` | Calls `.showModal()` |
+| `command="close" commandfor="dialog-id"` | `<dialog id="dialog-id">` | Calls `.close()` |
+
+### `<form method="dialog">`
+
+A `<form method="dialog">` inside a `<dialog>` closes the dialog AND routes the form action to the server. Additionally, any form inside a `<dialog>` that completes successfully will have its parent dialog closed automatically.
+
+See [Progressive Complexity Guide — Dialogs](../guides/progressive-complexity.md#5-dialogs) for the full walkthrough.
+
+### Server-managed modals
+
+For modals whose visibility is controlled by server state (e.g., confirmation dialogs triggered by a server action), use the `lvt/components/modal` package. See the [todos example](https://github.com/livetemplate/examples/tree/main/todos).
 
 ---
 
