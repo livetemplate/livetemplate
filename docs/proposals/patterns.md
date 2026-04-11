@@ -335,7 +335,8 @@ func (c *Controller) Change(state InlineValidationState, ctx *livetemplate.Conte
     if ctx.Has("username") {
         state.Username = ctx.GetString("username")
     }
-    // Validate on every change
+    // Validate on every change — error is not returned because validation
+    // state is surfaced via .lvt.HasError/.lvt.Error in the template render
     _ = ctx.ValidateForm()
     return state, nil
 }
@@ -539,6 +540,23 @@ func (c *Controller) Submit(state FileUploadState, ctx *livetemplate.Context) (F
 
 **Also implemented in:** `shared-notepad/`
 
+```go
+type PreserveInputsState struct {
+    Title       string
+    Name        string
+    Description string
+}
+
+func (c *Controller) Submit(state PreserveInputsState, ctx *livetemplate.Context) (PreserveInputsState, error) {
+    state.Name = ctx.GetString("name")
+    state.Description = ctx.GetString("description")
+    if err := ctx.ValidateForm(); err != nil {
+        return state, err
+    }
+    return state, nil
+}
+```
+
 ```html
 {{define "content"}}
 <article>
@@ -589,7 +607,7 @@ type Item struct {
 
 func (c *Controller) Delete(state DeleteRowState, ctx *livetemplate.Context) (DeleteRowState, error) {
     id := ctx.GetString("id")
-    filtered := state.Items[:0]
+    filtered := make([]Item, 0, len(state.Items))
     for _, item := range state.Items {
         if item.ID != id {
             filtered = append(filtered, item)
@@ -749,6 +767,11 @@ type ValueSelectState struct {
     Model    string
 }
 
+func (c *Controller) Mount(state ValueSelectState, ctx *livetemplate.Context) (ValueSelectState, error) {
+    state.Makes = c.getAllMakes() // e.g., ["Audi", "BMW", "Toyota"]
+    return state, nil
+}
+
 func (c *Controller) Change(state ValueSelectState, ctx *livetemplate.Context) (ValueSelectState, error) {
     if ctx.Has("make") {
         state.Make = ctx.GetString("make")
@@ -858,12 +881,13 @@ type URLFiltersState struct {
 }
 
 func (c *Controller) Mount(state URLFiltersState, ctx *livetemplate.Context) (URLFiltersState, error) {
-    // Read filters from URL query params
-    if status := ctx.GetString("status"); status != "" {
-        state.Status = status
-    }
-    if sort := ctx.GetString("sort"); sort != "" {
-        state.Sort = sort
+    if ctx.Action() == "" { // Guard: only read query params on GET, not POST
+        if status := ctx.GetString("status"); status != "" {
+            state.Status = status
+        }
+        if sort := ctx.GetString("sort"); sort != "" {
+            state.Sort = sort
+        }
     }
     state.Items = c.filter(state.Status, state.Sort)
     return state, nil
@@ -925,6 +949,9 @@ func (c *Controller) Mount(state LazyLoadState, ctx *livetemplate.Context) (Lazy
     return state, nil
 }
 
+// Note: The goroutine runs independently. If the session disconnects,
+// TriggerAction returns an error (ignored here for simplicity).
+// Production code should use a context or done channel for cancellation.
 func (c *Controller) OnConnect(state LazyLoadState, ctx *livetemplate.Context) (LazyLoadState, error) {
     session := ctx.Session()
     go func() {
@@ -976,7 +1003,13 @@ type ProgressBarState struct {
     Done     bool
 }
 
+// Note: Guard against concurrent starts. The goroutine runs independently —
+// if the session disconnects, TriggerAction errors are ignored for simplicity.
+// Production code should use a context or done channel for cancellation.
 func (c *Controller) Start(state ProgressBarState, ctx *livetemplate.Context) (ProgressBarState, error) {
+    if state.Running {
+        return state, nil // already running
+    }
     state.Running = true
     state.Progress = 0
     state.Done = false
@@ -1039,6 +1072,9 @@ type AsyncState struct {
     Error   string
 }
 
+// Note: The goroutine runs independently. If the session disconnects,
+// TriggerAction returns an error (ignored here for simplicity).
+// Production code should use a context or done channel for cancellation.
 func (c *Controller) Fetch(state AsyncState, ctx *livetemplate.Context) (AsyncState, error) {
     state.Status = "loading"
     state.Result = ""
@@ -1097,6 +1133,18 @@ func (c *Controller) FetchResult(state AsyncState, ctx *livetemplate.Context) (A
 **LiveTemplate (Tier 1):** Native `<dialog>` element with `command`/`commandfor` attributes (polyfilled for Firefox/Safari). Focus trapping, backdrop, and Escape key are all browser-native with `showModal()`.
 
 **Also implemented in:** `todos/`
+
+```go
+type ModalState struct {
+    Title string
+    Name  string
+}
+
+func (c *Controller) Save(state ModalState, ctx *livetemplate.Context) (ModalState, error) {
+    state.Name = ctx.GetString("name")
+    return state, nil
+}
+```
 
 ```html
 {{define "content"}}
@@ -1184,12 +1232,14 @@ type TabsState struct {
 }
 
 func (c *Controller) Mount(state TabsState, ctx *livetemplate.Context) (TabsState, error) {
-    tab := ctx.GetString("tab")
-    if tab == "" {
-        tab = "tab1"
+    if ctx.Action() == "" {
+        tab := ctx.GetString("tab")
+        if tab == "" {
+            tab = "tab1"
+        }
+        state.ActiveTab = tab
     }
-    state.ActiveTab = tab
-    state.Content = c.getTabContent(tab)
+    state.Content = c.getTabContent(state.ActiveTab) // returns plain text
     return state, nil
 }
 ```
@@ -1643,7 +1693,7 @@ type LivePreviewState struct {
 func (c *Controller) Change(state LivePreviewState, ctx *livetemplate.Context) (LivePreviewState, error) {
     if ctx.Has("input") {
         state.Input = ctx.GetString("input")
-        state.Preview = c.renderPreview(state.Input) // e.g., markdown → HTML
+        state.Preview = "Hello, " + state.Input + "!" // plain text preview
     }
     return state, nil
 }
