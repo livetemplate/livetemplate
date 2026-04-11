@@ -37,7 +37,13 @@ examples/patterns/
   handlers_nav.go      # Category 5: Dialogs, Tabs & Navigation handlers
   handlers_feedback.go # Category 6: Visual Feedback handlers
   handlers_realtime.go # Category 7: Real-Time & Multi-User handlers
-  state.go             # State structs for all patterns
+  state_forms.go       # State structs: Forms & Editing
+  state_lists.go       # State structs: Lists & Data
+  state_search.go      # State structs: Search & Filtering
+  state_loading.go     # State structs: Loading & Progress
+  state_nav.go         # State structs: Dialogs, Tabs & Navigation
+  state_feedback.go    # State structs: Visual Feedback
+  state_realtime.go    # State structs: Real-Time & Multi-User
   data.go              # In-memory sample data
   templates/
     layout.tmpl        # Shared HTML layout (head, nav, footer)
@@ -80,7 +86,7 @@ examples/patterns/
       reconnection.tmpl
       live-preview.tmpl
       server-push.tmpl
-  main_test.go         # Chromedp E2E tests for all patterns
+  patterns_test.go     # Chromedp E2E tests (in examples repo, not lvt repo)
 ```
 
 ### Routing
@@ -350,8 +356,10 @@ func (c *Controller) Change(state InlineValidationState, ctx *livetemplate.Conte
     if ctx.Has("username") {
         state.Username = ctx.GetString("username")
     }
-    // Validate on every change — error is not returned because validation
-    // state is surfaced via .lvt.HasError/.lvt.Error in the template render
+    // ValidateForm() populates .lvt.HasError/.lvt.Error as a side effect.
+    // The returned error is discarded because Change() should not signal
+    // handler failure — validation feedback is rendered inline via the
+    // template helpers, not via an error response.
     _ = ctx.ValidateForm()
     return state, nil
 }
@@ -1283,7 +1291,8 @@ type TabsState struct {
 }
 
 func (c *Controller) Mount(state TabsState, ctx *livetemplate.Context) (TabsState, error) {
-    if ctx.Action() == "" {
+    if ctx.Action() == "" { // Tab switches are GET navigations (SPA link interception),
+        // so they correctly enter this branch. POST actions skip it.
         tab := ctx.GetString("tab")
         if tab == "" {
             tab = "tab1"
@@ -1586,8 +1595,12 @@ type SyncState struct {
     Counter int
 }
 
-// Sync is called automatically when another connection in the same session group
-// triggers an action. The state parameter contains the updated state.
+// Sync is called automatically on peer connections (other tabs in the same
+// session group) when any connection triggers an action. The state parameter
+// is the peer's LOCAL state — the framework passes it through Sync() so the
+// peer can update its own view. Returning state unchanged (as below) means
+// the peer re-renders with the same shared controller data, which reflects
+// the mutation made by the triggering connection.
 func (c *Controller) Sync(state SyncState, ctx *livetemplate.Context) (SyncState, error) {
     return state, nil
 }
@@ -1642,6 +1655,27 @@ func (c *Controller) NewMessage(state BroadcastState, ctx *livetemplate.Context)
     c.mu.RUnlock()
     return state, nil
 }
+```
+
+```html
+{{define "content"}}
+<article>
+    <h3>Broadcasting</h3>
+    <div class="messages">
+        {{range .Messages}}
+        <div class="message" data-key="{{.User}}-{{.Text}}">
+            <strong>{{.User}}:</strong> {{.Text}}
+        </div>
+        {{end}}
+    </div>
+    <form method="POST">
+        <fieldset role="group">
+            <input name="message" placeholder="Type a message..." required>
+            <button name="sendMessage">Send</button>
+        </fieldset>
+    </form>
+</article>
+{{end}}
 ```
 
 **Key features:** `ctx.BroadcastAction()`, shared controller state with mutex, cross-connection updates
@@ -1834,9 +1868,9 @@ func (c *Controller) Change(state LivePreviewState, ctx *livetemplate.Context) (
 **Also implemented in:** `login/`
 
 ```go
-// Note: The goroutine runs for a fixed duration. If the session disconnects,
-// TriggerAction calls will return errors (ignored here for simplicity).
-// Production code should use a context or done channel for early cancellation.
+// Goroutine cancellation pattern: exit early if TriggerAction returns an
+// error (session disconnected). The framework does not currently expose a
+// done channel, so checking TriggerAction errors is the recommended approach.
 func (c *Controller) StartTimer(state PushState, ctx *livetemplate.Context) (PushState, error) {
     if state.Running {
         return state, nil // Guard: prevent concurrent goroutines
@@ -1848,9 +1882,11 @@ func (c *Controller) StartTimer(state PushState, ctx *livetemplate.Context) (Pus
         defer ticker.Stop()
         for i := 0; i < 10; i++ {
             <-ticker.C
-            _ = session.TriggerAction("tick", map[string]interface{}{
+            if err := session.TriggerAction("tick", map[string]interface{}{
                 "elapsed": i + 1,
-            })
+            }); err != nil {
+                return // Session disconnected — stop the goroutine
+            }
         }
         _ = session.TriggerAction("timerDone", nil)
     }()
@@ -2047,6 +2083,8 @@ All patterns must have chromedp E2E tests following the [Examples CLAUDE.md](htt
 8. **Visual check** — each pattern page must include a `Visual_Check` subtest using `e2etest.ValidateScreenshotWithLLM(t, ctx, "description of expected layout")`. This captures a browser screenshot and sends it to the Claude CLI for automated visual analysis (alignment, spacing, layout, readability, error state styling). Runs when `LVT_VISUAL_CHECK=true` is set. See [live-preview example](https://github.com/livetemplate/examples/blob/main/live-preview/live_preview_test.go#L257) for the pattern.
 
 E2E tests must have access to: browser console logs, server logs, WebSocket messages, rendered HTML.
+
+> **Test location:** E2E tests live in the examples repo at `examples/patterns/patterns_test.go`, not in the lvt repo. The lvt repo's `e2e/livetemplate_core_test.go` tests the core library — example-specific tests live alongside each example, consistent with all other examples (`todos/todos_test.go`, `chat/chat_test.go`, etc.).
 
 ---
 
