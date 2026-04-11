@@ -523,7 +523,7 @@ func (c *Controller) Submit(state FileUploadState, ctx *livetemplate.Context) (F
 
     <h4>Tier 2: Chunked with Progress</h4>
     <form method="POST">
-        <input type="file" lvt-upload="document" name="document">
+        <input type="file" lvt-upload="chunked-doc" name="chunked-doc">
         <button type="submit">Upload</button>
     </form>
 
@@ -580,7 +580,7 @@ func (c *Controller) Submit(state PreserveInputsState, ctx *livetemplate.Context
         <button type="submit">Submit</button>
     </form>
     {{if .lvt.HasError "name"}}
-    <del style="display:block;text-decoration:none">{{.lvt.Error "name"}}</del>
+    <small>{{.lvt.Error "name"}}</small>
     {{end}}
 </article>
 {{end}}
@@ -752,7 +752,9 @@ func (c *Controller) LoadMore(state InfiniteScrollState, ctx *livetemplate.Conte
 {{end}}
 ```
 
-**Key features:** `scroll-sentinel` auto-triggers `load_more`, IntersectionObserver built into client
+**Key features:** `scroll-sentinel` auto-triggers `load_more` (source: `client/dom/observer-manager.ts`), IntersectionObserver built into client
+
+> **Limitation:** The client detects the sentinel by `id="scroll-sentinel"`, so only one infinite scroll list can exist per page. This is fine for the patterns app (one pattern per page).
 
 ---
 
@@ -861,7 +863,7 @@ func (c *Controller) Change(state ActiveSearchState, ctx *livetemplate.Context) 
         {{end}}
         </tbody>
     </table>
-    {{if and .Query (not .Results)}}<p><small>No results found.</small></p>{{end}}
+    {{if and .Query (eq (len .Results) 0)}}<p><small>No results found.</small></p>{{end}}
 </article>
 {{end}}
 ```
@@ -990,6 +992,8 @@ func (c *Controller) DataLoaded(state LazyLoadState, ctx *livetemplate.Context) 
 ```
 
 **Key features:** `session.TriggerAction()` from goroutine, server push, loading → loaded state machine
+
+> **Note:** `Mount()` sets loading state on the initial HTTP response (pre-WebSocket). The goroutine in `OnConnect()` only fires after WebSocket connects. If the client has JS disabled, the loading spinner renders but the data never loads. This is expected — `TriggerAction()` requires an active WebSocket.
 
 ---
 
@@ -1185,7 +1189,7 @@ func (c *Controller) Save(state ModalState, ctx *livetemplate.Context) (ModalSta
 
 **Key features:** Native `<dialog>`, `command`/`commandfor` (polyfilled), auto-close on form success
 
-> **Polyfill:** The Invoker Commands API polyfill is bundled in the LiveTemplate client library (`livetemplate-client.js`). No additional `<script>` tag is needed — the client detects `commandForElement` support and activates the polyfill automatically for Firefox and Safari.
+> **Polyfill:** The Invoker Commands API polyfill is bundled in the LiveTemplate client library (source: `client/dom/invoker-polyfill.ts`). No additional `<script>` tag is needed — the client detects `commandForElement` support and activates the polyfill automatically for Firefox and Safari.
 
 ---
 
@@ -1570,7 +1574,10 @@ func (c *Controller) SendMessage(state BroadcastState, ctx *livetemplate.Context
     c.messages = append(c.messages, Message{Text: msg, User: state.Username})
     state.Messages = c.copyMessages() // Update sender's view immediately
     c.mu.Unlock()
-    // Notify all other connections
+    // Notify all other connections.
+    // IMPORTANT: BroadcastAction must be called AFTER any ctx.With*() calls,
+    // because With*() creates shallow copies and broadcasts queued before
+    // the copy won't propagate. (See CLAUDE.md BroadcastAction ordering caveat.)
     ctx.BroadcastAction("NewMessage", nil)
     return state, nil
 }
@@ -1667,7 +1674,12 @@ func (c *PresenceController) PresenceChanged(state PresenceState, ctx *livetempl
 
 **Key features:** Explicit join/leave actions, `BroadcastAction()` for presence updates, shared controller state with mutex
 
-> **Note:** `OnDisconnect()` has no parameters (receiver only), so it cannot access the username to clean up. Users who close tabs without clicking Leave remain in the map. The chat example uses the same explicit Join/Leave pattern. For automatic cleanup, the controller could track connections by ID in `OnConnect()` and remove them in `OnDisconnect()`.
+> **Disconnect cleanup limitation:** `OnDisconnect()` receives only the controller receiver (no state or context), so it cannot identify which user disconnected. Users who close tabs without clicking Leave remain in `onlineUsers`. This is the same pattern used in the `chat/` example. To implement automatic cleanup, a connection→username map would be needed, but the framework does not currently expose a connection ID in `OnConnect()`. Two workarounds:
+>
+> 1. **Application-level heartbeat:** A periodic goroutine that prunes users who haven't sent an action within N seconds.
+> 2. **Framework enhancement:** A future `ctx.ConnectionID()` API in `OnConnect()` would allow tracking connections, with `OnDisconnect()` receiving the ID for cleanup.
+>
+> For this example, explicit Join/Leave is sufficient. The limitation should be noted in the implementation.
 
 ---
 
@@ -1675,7 +1687,7 @@ func (c *PresenceController) PresenceChanged(state PresenceState, ctx *livetempl
 
 **Source:** Phoenix LiveView (automatic reconnection with state recovery)
 
-**LiveTemplate (Tier 1):** State fields tagged with `lvt:"persist"` survive disconnection and reconnection. The client auto-reconnects and the framework restores persisted state.
+**LiveTemplate (Tier 1):** State fields tagged with `lvt:"persist"` survive disconnection and reconnection. The client auto-reconnects and the framework restores persisted state. This is an existing framework feature used across 13 examples (`counter/`, `todos/`, `chat/`, `login/`, `shared-notepad/`, `flash-messages/`, `progressive-enhancement/`, `ws-disabled/`, `avatar-upload/`, `live-preview/`).
 
 **Also implemented in:** —
 
@@ -1772,6 +1784,9 @@ func (c *Controller) Change(state LivePreviewState, ctx *livetemplate.Context) (
 // TriggerAction calls will return errors (ignored here for simplicity).
 // Production code should use a context or done channel for early cancellation.
 func (c *Controller) StartTimer(state PushState, ctx *livetemplate.Context) (PushState, error) {
+    if state.Running {
+        return state, nil // Guard: prevent concurrent goroutines
+    }
     state.Running = true
     session := ctx.Session()
     go func() {
