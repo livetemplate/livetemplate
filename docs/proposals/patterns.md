@@ -1751,20 +1751,26 @@ LiveTemplate re-renders the **entire template** server-side and diffs the tree. 
 
 ## Future Features
 
-### Drag-and-Drop / Sortable
+Future features identified during this proposal should be filed as GitHub issues for tracking. Create the following issue when implementation begins:
 
-**Scope:** Client repo (`github.com/livetemplate/client`) + possible core repo changes
+### Drag-and-Drop / Sortable — File as GitHub issue
+
+**Title:** `feat: add drag-and-drop event support (lvt-on:drag*)`
+**Repo:** `livetemplate/client` (primary), `livetemplate/livetemplate` (secondary)
+**Labels:** `enhancement`
 
 **Requirements:**
 - Client: Add `lvt-on:dragstart`, `lvt-on:dragover`, `lvt-on:drop` event support
 - Client: Serialize drag source/target data in action message
 - Core: Reorder protocol for range items (extend existing range operations)
 
-**Not blocking for the patterns example.** This is documented here for future implementation.
+**Not blocking for the patterns example.** The Sortable pattern is skipped until this issue is implemented.
 
 ---
 
 ## Implementation Plan
+
+**Session workflow:** Each session ends by creating a PR for the work done, updating this tracker (check off completed items), and pushing the updated proposal. The next session picks up from the tracker state.
 
 ### Session 1: Scaffold + Forms & Editing
 
@@ -1782,6 +1788,8 @@ LiveTemplate re-renders the **entire template** server-side and diffs the tree. 
 - [ ] Implement Reset User Input (#5)
 - [ ] Implement File Upload (#6)
 - [ ] Implement Preserving File Inputs (#7)
+- [ ] E2E tests for patterns #1–7 (incl. UI_Standards + Visual_Check)
+- [ ] Create PR, update this tracker
 
 ### Session 2: Lists & Data + Search & Filtering
 
@@ -1793,6 +1801,8 @@ LiveTemplate re-renders the **entire template** server-side and diffs the tree. 
 - [ ] Implement Value Select (#11)
 - [ ] Implement Active Search (#12)
 - [ ] Implement URL-Preserved Filters (#13)
+- [ ] E2E tests for patterns #8–13 (incl. UI_Standards + Visual_Check)
+- [ ] Create PR, update this tracker
 
 ### Session 3: Loading & Progress
 
@@ -1802,6 +1812,8 @@ LiveTemplate re-renders the **entire template** server-side and diffs the tree. 
 - [ ] Implement Progress Bar (#15)
 - [ ] Implement Async Operations (#16)
 - [ ] Verify goroutine cleanup on disconnect
+- [ ] E2E tests for patterns #14–16 (incl. UI_Standards + Visual_Check)
+- [ ] Create PR, update this tracker
 
 ### Session 4: Dialogs, Tabs & Navigation
 
@@ -1812,6 +1824,8 @@ LiveTemplate re-renders the **entire template** server-side and diffs the tree. 
 - [ ] Implement Tabs (HATEOAS) (#19)
 - [ ] Implement SPA Navigation (#20)
 - [ ] Implement Keyboard Shortcuts (#21)
+- [ ] E2E tests for patterns #17–21 (incl. UI_Standards + Visual_Check)
+- [ ] Create PR, update this tracker
 
 ### Session 5: Visual Feedback
 
@@ -1821,6 +1835,8 @@ LiveTemplate re-renders the **entire template** server-side and diffs the tree. 
 - [ ] Implement Loading States (#23)
 - [ ] Implement Highlight on Change (#24)
 - [ ] Implement Flash Messages (#25)
+- [ ] E2E tests for patterns #22–25 (incl. UI_Standards + Visual_Check)
+- [ ] Create PR, update this tracker
 
 ### Session 6: Real-Time & Multi-User
 
@@ -1832,23 +1848,20 @@ LiveTemplate re-renders the **entire template** server-side and diffs the tree. 
 - [ ] Implement Reconnection Recovery (#29)
 - [ ] Implement Live Preview (#30)
 - [ ] Implement Server Push (#31)
+- [ ] E2E tests for patterns #26–31 (incl. UI_Standards + Visual_Check)
+- [ ] Create PR, update this tracker
 
-### Session 7: Index Page + E2E Tests + Polish
+### Session 7: Index Page + Polish
 
-**Scope:** Main index page, chromedp test suite, final review
+**Scope:** Main index page, final review
 
 - [ ] `templates/index.tmpl` — categorized grid of all patterns with descriptions
 - [ ] Index handler with pattern metadata
-- [ ] E2E chromedp tests for all 31 patterns
-  - Exercise every controller method
-  - Assert full page state after mutations
-  - Use real browser interactions (not WebSocket bypass)
-  - Verify form field state after mutations
-  - Condition-based waits (not Sleep)
-  - Test error/validation paths
 - [ ] `README.md` for the patterns example
 - [ ] Run `./test-all.sh` to verify all examples still pass
+- [ ] File GitHub issue for drag-and-drop feature (see [Future Features](#future-features))
 - [ ] Final review and polish
+- [ ] Create PR, update this tracker
 
 ---
 
