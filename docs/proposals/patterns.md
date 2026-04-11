@@ -30,8 +30,14 @@ The app also demonstrates a key architectural advantage of LiveTemplate over htm
 ```
 examples/patterns/
   main.go              # Router, all handlers registered
-  handlers.go          # Pattern handler functions (organized by category)
-  state.go             # State structs for each pattern
+  handlers_forms.go    # Category 1: Forms & Editing handlers
+  handlers_lists.go    # Category 2: Lists & Data handlers
+  handlers_search.go   # Category 3: Search & Filtering handlers
+  handlers_loading.go  # Category 4: Loading & Progress handlers
+  handlers_nav.go      # Category 5: Dialogs, Tabs & Navigation handlers
+  handlers_feedback.go # Category 6: Visual Feedback handlers
+  handlers_realtime.go # Category 7: Real-Time & Multi-User handlers
+  state.go             # State structs for all patterns
   data.go              # In-memory sample data
   templates/
     layout.tmpl        # Shared HTML layout (head, nav, footer)
@@ -1082,11 +1088,18 @@ func (c *Controller) Fetch(state AsyncState, ctx *livetemplate.Context) (AsyncSt
     session := ctx.Session()
     go func() {
         time.Sleep(2 * time.Second)
-        // Simulate success or failure
-        _ = session.TriggerAction("fetchResult", map[string]interface{}{
-            "result":  "Data fetched successfully at " + time.Now().Format("15:04:05"),
-            "success": true,
-        })
+        // Simulate success or failure (alternate randomly for demonstration)
+        if time.Now().UnixNano()%3 == 0 {
+            _ = session.TriggerAction("fetchResult", map[string]interface{}{
+                "error":   "Connection timed out",
+                "success": false,
+            })
+        } else {
+            _ = session.TriggerAction("fetchResult", map[string]interface{}{
+                "result":  "Data fetched successfully at " + time.Now().Format("15:04:05"),
+                "success": true,
+            })
+        }
     }()
     return state, nil
 }
@@ -1631,6 +1644,8 @@ func (c *PresenceController) PresenceChanged(state PresenceState, ctx *livetempl
 ```
 
 **Key features:** Explicit join/leave actions, `BroadcastAction()` for presence updates, shared controller state with mutex
+
+> **Note:** `OnDisconnect()` has no parameters (receiver only), so it cannot access the username to clean up. Users who close tabs without clicking Leave remain in the map. The chat example uses the same explicit Join/Leave pattern. For automatic cleanup, the controller could track connections by ID in `OnConnect()` and remove them in `OnDisconnect()`.
 
 ---
 
