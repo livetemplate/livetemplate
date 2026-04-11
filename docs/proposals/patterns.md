@@ -1770,7 +1770,7 @@ Future features identified during this proposal should be filed as GitHub issues
 
 ## Implementation Plan
 
-**Session workflow:** Each session ends by creating a PR for the work done, updating this tracker (check off completed items), and pushing the updated proposal. The next session picks up from the tracker state.
+**Session workflow:** Each session ends by: (1) updating the index page with links to the newly implemented patterns, (2) creating a PR for the work done, (3) updating this tracker (check off completed items), and (4) pushing the updated proposal. The next session picks up from the tracker state.
 
 ### Session 1: Scaffold + Index Page + Forms & Editing
 
@@ -1804,6 +1804,7 @@ Future features identified during this proposal should be filed as GitHub issues
 - [ ] Implement Active Search (#12)
 - [ ] Implement URL-Preserved Filters (#13)
 - [ ] E2E tests for patterns #8–13 (incl. UI_Standards + Visual_Check)
+- [ ] Update index page with patterns #8–13
 - [ ] Create PR, update this tracker
 
 ### Session 3: Loading & Progress
@@ -1815,6 +1816,7 @@ Future features identified during this proposal should be filed as GitHub issues
 - [ ] Implement Async Operations (#16)
 - [ ] Verify goroutine cleanup on disconnect
 - [ ] E2E tests for patterns #14–16 (incl. UI_Standards + Visual_Check)
+- [ ] Update index page with patterns #14–16
 - [ ] Create PR, update this tracker
 
 ### Session 4: Dialogs, Tabs & Navigation
@@ -1827,6 +1829,7 @@ Future features identified during this proposal should be filed as GitHub issues
 - [ ] Implement SPA Navigation (#20)
 - [ ] Implement Keyboard Shortcuts (#21)
 - [ ] E2E tests for patterns #17–21 (incl. UI_Standards + Visual_Check)
+- [ ] Update index page with patterns #17–21
 - [ ] Create PR, update this tracker
 
 ### Session 5: Visual Feedback
@@ -1838,6 +1841,7 @@ Future features identified during this proposal should be filed as GitHub issues
 - [ ] Implement Highlight on Change (#24)
 - [ ] Implement Flash Messages (#25)
 - [ ] E2E tests for patterns #22–25 (incl. UI_Standards + Visual_Check)
+- [ ] Update index page with patterns #22–25
 - [ ] Create PR, update this tracker
 
 ### Session 6: Real-Time & Multi-User
@@ -1851,6 +1855,7 @@ Future features identified during this proposal should be filed as GitHub issues
 - [ ] Implement Live Preview (#30)
 - [ ] Implement Server Push (#31)
 - [ ] E2E tests for patterns #26–31 (incl. UI_Standards + Visual_Check)
+- [ ] Update index page with patterns #26–31
 - [ ] Create PR, update this tracker
 
 ### Session 7: Polish + README + Final Review
