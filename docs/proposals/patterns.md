@@ -102,7 +102,16 @@ func main() {
 }
 ```
 
-Each handler function returns an `http.Handler` by creating a `livetemplate.Template` and calling `.Handle(controller, state)`.
+Each handler function returns an `http.Handler` by creating a `livetemplate.Template` and calling `.Handle(controller, state)`. Each handler creates its own controller instance — there is no shared `Controller` singleton across patterns. Patterns that need shared state (e.g., real-time patterns #26–#28) define their own controller types with mutexes and shared data:
+
+```go
+func broadcastingHandler() http.Handler {
+    ctrl := &BroadcastController{messages: []Message{}}
+    state := &BroadcastState{Title: "Broadcasting"}
+    tmpl := livetemplate.Must(livetemplate.New("broadcasting", opts...))
+    return tmpl.Handle(ctrl, livetemplate.AsState(state))
+}
+```
 
 ### Shared Layout
 
@@ -522,6 +531,7 @@ func (c *Controller) Submit(state FileUploadState, ctx *livetemplate.Context) (F
     </form>
 
     <h4>Tier 2: Chunked with Progress</h4>
+    <!-- lvt-upload handles chunked transfer via WebSocket — no enctype needed -->
     <form method="POST">
         <input type="file" lvt-upload="chunked-doc" name="chunked-doc">
         <button type="submit">Upload</button>
@@ -908,13 +918,13 @@ func (c *Controller) Mount(state URLFiltersState, ctx *livetemplate.Context) (UR
     <h3>URL-Preserved Filters</h3>
     <nav>
         <ul>
-            <li><a href="?status=all&sort={{.Sort}}">All</a></li>
-            <li><a href="?status=active&sort={{.Sort}}">Active</a></li>
-            <li><a href="?status=completed&sort={{.Sort}}">Completed</a></li>
+            <li><a href="?status=all&amp;sort={{.Sort}}">All</a></li>
+            <li><a href="?status=active&amp;sort={{.Sort}}">Active</a></li>
+            <li><a href="?status=completed&amp;sort={{.Sort}}">Completed</a></li>
         </ul>
         <ul>
-            <li><a href="?status={{.Status}}&sort=name">By Name</a></li>
-            <li><a href="?status={{.Status}}&sort=date">By Date</a></li>
+            <li><a href="?status={{.Status}}&amp;sort=name">By Name</a></li>
+            <li><a href="?status={{.Status}}&amp;sort=date">By Date</a></li>
         </ul>
     </nav>
     <table>
@@ -961,6 +971,9 @@ func (c *Controller) Mount(state LazyLoadState, ctx *livetemplate.Context) (Lazy
 // TriggerAction returns an error (ignored here for simplicity).
 // Production code should use a context or done channel for cancellation.
 func (c *Controller) OnConnect(state LazyLoadState, ctx *livetemplate.Context) (LazyLoadState, error) {
+    if !state.Loading {
+        return state, nil // Guard: skip on reconnect if data already loaded
+    }
     session := ctx.Session()
     go func() {
         time.Sleep(2 * time.Second) // Simulate slow API call
@@ -1380,6 +1393,22 @@ func (c *Controller) Open(state ShortcutsState, ctx *livetemplate.Context) (Shor
 
 **Also implemented in:** `todos/`
 
+```go
+type AnimationsState struct {
+    Title string
+    Items []Item
+}
+
+func (c *Controller) AddItem(state AnimationsState, ctx *livetemplate.Context) (AnimationsState, error) {
+    state.Items = append(state.Items, Item{
+        ID:   fmt.Sprintf("item-%d", len(state.Items)+1),
+        Name: fmt.Sprintf("Item %d", len(state.Items)+1),
+        Time: time.Now().Format("15:04:05"),
+    })
+    return state, nil
+}
+```
+
 ```html
 {{define "content"}}
 <article>
@@ -1411,6 +1440,19 @@ func (c *Controller) Open(state ShortcutsState, ctx *livetemplate.Context) (Shor
 **LiveTemplate (Tier 1+2):** Automatic behavior: forms get `aria-busy="true"` and fieldsets get `disabled` during submission. For custom UX, `lvt-form:disable-with` changes button text, and `lvt-el:*:on:pending` adds reactive DOM changes.
 
 **Also implemented in:** —
+
+```go
+type LoadingStatesState struct {
+    Title string
+    Saved bool
+}
+
+func (c *Controller) SlowSave(state LoadingStatesState, ctx *livetemplate.Context) (LoadingStatesState, error) {
+    time.Sleep(2 * time.Second) // Simulate slow operation to demo loading UI
+    state.Saved = true
+    return state, nil
+}
+```
 
 ```html
 {{define "content"}}
@@ -1456,6 +1498,18 @@ func (c *Controller) Open(state ShortcutsState, ctx *livetemplate.Context) (Shor
 **LiveTemplate (Tier 2):** `lvt-fx:highlight="flash"` temporarily highlights elements after DOM updates. Color and duration configurable via CSS custom properties.
 
 **Also implemented in:** `todos/`
+
+```go
+type HighlightState struct {
+    Title   string
+    Counter int
+}
+
+func (c *Controller) Increment(state HighlightState, ctx *livetemplate.Context) (HighlightState, error) {
+    state.Counter++
+    return state, nil
+}
+```
 
 ```html
 {{define "content"}}
