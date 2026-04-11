@@ -496,7 +496,7 @@ func (c *Controller) Submit(state ResetInputState, ctx *livetemplate.Context) (R
 {{end}}
 ```
 
-**Key features:** Auto-reset on success (default), explicit `lvt-el:reset:on:success`
+**Key features:** Auto-reset on success (source: `client/state/form-lifecycle-manager.ts:67-69` — calls `form.reset()` unless `lvt-form:preserve` is set), explicit `lvt-el:reset:on:success`
 
 ---
 
@@ -975,9 +975,9 @@ func (c *Controller) Mount(state LazyLoadState, ctx *livetemplate.Context) (Lazy
     return state, nil
 }
 
-// Note: The goroutine runs independently. If the session disconnects,
-// TriggerAction returns an error (ignored here for simplicity).
-// Production code should use a context or done channel for cancellation.
+// Note: TriggerAction errors are ignored here for simplicity.
+// See Pattern #31 (Server Push) for the recommended cancellation
+// pattern using TriggerAction error checking.
 func (c *Controller) OnConnect(state LazyLoadState, ctx *livetemplate.Context) (LazyLoadState, error) {
     if !state.Loading {
         return state, nil // Guard: skip on reconnect if data already loaded
@@ -1034,9 +1034,9 @@ type ProgressBarState struct {
     Done     bool
 }
 
-// Note: Guard against concurrent starts. The goroutine runs independently —
-// if the session disconnects, TriggerAction errors are ignored for simplicity.
-// Production code should use a context or done channel for cancellation.
+// Note: Guard against concurrent starts. TriggerAction errors are ignored
+// here for simplicity. See Pattern #31 (Server Push) for the recommended
+// cancellation pattern using TriggerAction error checking.
 func (c *Controller) Start(state ProgressBarState, ctx *livetemplate.Context) (ProgressBarState, error) {
     if state.Running {
         return state, nil // already running
@@ -1103,9 +1103,9 @@ type AsyncState struct {
     Error   string
 }
 
-// Note: The goroutine runs independently. If the session disconnects,
-// TriggerAction returns an error (ignored here for simplicity).
-// Production code should use a context or done channel for cancellation.
+// Note: TriggerAction errors are ignored here for simplicity.
+// See Pattern #31 (Server Push) for the recommended cancellation
+// pattern using TriggerAction error checking.
 func (c *Controller) Fetch(state AsyncState, ctx *livetemplate.Context) (AsyncState, error) {
     state.Status = "loading"
     state.Result = ""
@@ -1359,6 +1359,11 @@ This pattern is demonstrated by the index page itself — clicking between patte
 **Also implemented in:** —
 
 ```go
+type ShortcutsState struct {
+    Title     string
+    PanelOpen bool
+}
+
 func (c *Controller) Close(state ShortcutsState, ctx *livetemplate.Context) (ShortcutsState, error) {
     state.PanelOpen = false
     return state, nil
@@ -1403,13 +1408,19 @@ func (c *Controller) Open(state ShortcutsState, ctx *livetemplate.Context) (Shor
 **Also implemented in:** `todos/`
 
 ```go
+type AnimationItem struct {
+    ID   string
+    Name string
+    Time string
+}
+
 type AnimationsState struct {
     Title string
-    Items []Item
+    Items []AnimationItem
 }
 
 func (c *Controller) AddItem(state AnimationsState, ctx *livetemplate.Context) (AnimationsState, error) {
-    state.Items = append(state.Items, Item{
+    state.Items = append(state.Items, AnimationItem{
         ID:   fmt.Sprintf("item-%d", len(state.Items)+1),
         Name: fmt.Sprintf("Item %d", len(state.Items)+1),
         Time: time.Now().Format("15:04:05"),
@@ -1551,6 +1562,10 @@ func (c *Controller) Increment(state HighlightState, ctx *livetemplate.Context) 
 **Also implemented in:** `flash-messages/`, `todos/`
 
 ```go
+type FlashState struct {
+    Title string
+}
+
 func (c *Controller) Save(state FlashState, ctx *livetemplate.Context) (FlashState, error) {
     name := ctx.GetString("name")
     if name == "" {
@@ -1590,6 +1605,11 @@ func (c *Controller) Save(state FlashState, ctx *livetemplate.Context) (FlashSta
 **Also implemented in:** `chat/`, `shared-notepad/`
 
 ```go
+type SyncController struct {
+    mu      sync.Mutex
+    counter int
+}
+
 type SyncState struct {
     Title   string
     Counter int
@@ -1597,16 +1617,20 @@ type SyncState struct {
 
 // Sync is called automatically on peer connections (other tabs in the same
 // session group) when any connection triggers an action. The state parameter
-// is the peer's LOCAL state — the framework passes it through Sync() so the
-// peer can update its own view. Returning state unchanged (as below) means
-// the peer re-renders with the same shared controller data, which reflects
-// the mutation made by the triggering connection.
-func (c *Controller) Sync(state SyncState, ctx *livetemplate.Context) (SyncState, error) {
+// is the peer's LOCAL state. The handler reads the shared counter from the
+// controller (singleton) so all peers see the same value.
+func (c *SyncController) Sync(state SyncState, ctx *livetemplate.Context) (SyncState, error) {
+    c.mu.Lock()
+    state.Counter = c.counter
+    c.mu.Unlock()
     return state, nil
 }
 
-func (c *Controller) Increment(state SyncState, ctx *livetemplate.Context) (SyncState, error) {
-    state.Counter++
+func (c *SyncController) Increment(state SyncState, ctx *livetemplate.Context) (SyncState, error) {
+    c.mu.Lock()
+    c.counter++
+    state.Counter = c.counter
+    c.mu.Unlock()
     return state, nil
 }
 ```
@@ -1638,7 +1662,8 @@ func (c *Controller) Increment(state SyncState, ctx *livetemplate.Context) (Sync
 func (c *Controller) SendMessage(state BroadcastState, ctx *livetemplate.Context) (BroadcastState, error) {
     msg := ctx.GetString("message")
     c.mu.Lock()
-    c.messages = append(c.messages, Message{Text: msg, User: state.Username})
+    c.msgID++
+    c.messages = append(c.messages, Message{ID: c.msgID, Text: msg, User: state.Username})
     state.Messages = c.copyMessages() // Update sender's view immediately
     c.mu.Unlock()
     // Notify all other connections.
@@ -1663,7 +1688,7 @@ func (c *Controller) NewMessage(state BroadcastState, ctx *livetemplate.Context)
     <h3>Broadcasting</h3>
     <div class="messages">
         {{range .Messages}}
-        <div class="message" data-key="{{.User}}-{{.Text}}">
+        <div class="message" data-key="{{.ID}}">
             <strong>{{.User}}:</strong> {{.Text}}
         </div>
         {{end}}
@@ -1809,6 +1834,8 @@ func (c *Controller) Increment(state ReconnectState, ctx *livetemplate.Context) 
 ```
 
 **Key features:** `lvt:"persist"` state tag, auto-reconnect, state recovery
+
+> **Why both `lvt:"persist"` and `lvt-form:preserve`?** They serve different purposes: `lvt:"persist"` (server-side) survives WebSocket reconnects by restoring state fields from the session store. `lvt-form:preserve` (client-side) retains unsaved input values in the DOM across re-renders triggered by other state changes. Using both on the Notes field means: the last-saved value survives reconnects, AND in-progress edits survive re-renders from other actions.
 
 ---
 
