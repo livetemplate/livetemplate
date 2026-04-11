@@ -163,19 +163,20 @@ Use the standard `<dialog>` element with `command`/`commandfor` for native modal
 
 <!-- Dialog with form -->
 <dialog id="edit-dialog">
-    <form method="dialog">
+    <form name="save">
         <h2>Edit Item</h2>
         <input name="title" value="{{.Title}}">
+        <input type="hidden" name="id" value="{{.ID}}">
 
-        <button name="save" value="{{.ID}}">Save</button>
-        <button command="close" commandfor="edit-dialog">Cancel</button>
+        <button type="submit">Save</button>
+        <button type="button" command="close" commandfor="edit-dialog">Cancel</button>
     </form>
 </dialog>
 ```
 
 - `command="show-modal"` opens the dialog via `.showModal()` — backdrop, focus trapping, and Escape key handling are all native to `<dialog>`
 - `command="close"` closes it via `.close()`
-- `method="dialog"` on the form closes the dialog AND routes the action to the server
+- The client automatically closes any parent `<dialog>` when a form submission succeeds — so the dialog stays open for validation errors but closes on success
 - The LiveTemplate client polyfills `command`/`commandfor` for browsers that don't yet support the [Invoker Commands API](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes/command) natively (Firefox, Safari). The polyfill uses feature detection (`commandForElement`) and becomes a no-op when browsers add native support
 
 ---

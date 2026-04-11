@@ -710,9 +710,11 @@ The client polyfills the [Invoker Commands API](https://developer.mozilla.org/en
 | `command="show-modal" commandfor="dialog-id"` | `<dialog id="dialog-id">` | Calls `.showModal()` |
 | `command="close" commandfor="dialog-id"` | `<dialog id="dialog-id">` | Calls `.close()` |
 
-### `<form method="dialog">`
+### Auto-close on success
 
-A `<form method="dialog">` inside a `<dialog>` closes the dialog AND routes the form action to the server. Additionally, any form inside a `<dialog>` that completes successfully will have its parent dialog closed automatically.
+Any form inside a `<dialog>` that completes successfully will have its parent dialog closed automatically. This means the dialog stays open for validation errors but closes on success — no extra attributes needed.
+
+A `<form method="dialog">` inside a `<dialog>` closes the dialog immediately on submit (before the server responds). Use this only when you don't need server-side validation feedback inside the dialog.
 
 See [Progressive Complexity Guide — Dialogs](../guides/progressive-complexity.md#5-dialogs) for the full walkthrough.
 
