@@ -861,7 +861,7 @@ func (c *Controller) Change(state ActiveSearchState, ctx *livetemplate.Context) 
         {{end}}
         </tbody>
     </table>
-    {{if not .Results}}<p><small>No results found.</small></p>{{end}}
+    {{if and .Query (not .Results)}}<p><small>No results found.</small></p>{{end}}
 </article>
 {{end}}
 ```
@@ -1184,6 +1184,8 @@ func (c *Controller) Save(state ModalState, ctx *livetemplate.Context) (ModalSta
 ```
 
 **Key features:** Native `<dialog>`, `command`/`commandfor` (polyfilled), auto-close on form success
+
+> **Polyfill:** The Invoker Commands API polyfill is bundled in the LiveTemplate client library (`livetemplate-client.js`). No additional `<script>` tag is needed — the client detects `commandForElement` support and activates the polyfill automatically for Firefox and Safari.
 
 ---
 
@@ -1547,6 +1549,7 @@ func (c *Controller) SendMessage(state BroadcastState, ctx *livetemplate.Context
     msg := ctx.GetString("message")
     c.mu.Lock()
     c.messages = append(c.messages, Message{Text: msg, User: state.Username})
+    state.Messages = c.copyMessages() // Update sender's view immediately
     c.mu.Unlock()
     // Notify all other connections
     ctx.BroadcastAction("NewMessage", nil)
