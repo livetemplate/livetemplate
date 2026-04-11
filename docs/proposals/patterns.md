@@ -279,14 +279,12 @@ func (c *Controller) Cancel(state EditRowState, ctx *livetemplate.Context) (Edit
         {{range .Contacts}}
         <tr data-key="{{.ID}}">
             {{if eq $.EditingID .ID}}
-            <td>
+            <td colspan="3">
                 <form method="POST" class="inline">
                     <input type="hidden" name="id" value="{{.ID}}">
-                    <input name="name" value="{{.Name}}">
-            </td>
-            <td><input name="email" value="{{.Email}}"></td>
-            <td>
                     <fieldset role="group">
+                        <input name="name" value="{{.Name}}">
+                        <input name="email" value="{{.Email}}">
                         <button name="save" class="compact">Save</button>
                         <button name="cancel" class="compact secondary">Cancel</button>
                     </fieldset>
@@ -686,7 +684,7 @@ func (c *Controller) LoadMore(state ClickToLoadState, ctx *livetemplate.Context)
 
 **htmx:** Uses `hx-get` with `hx-trigger="revealed"` and `hx-swap="afterend"` on the last row to auto-load on scroll.
 
-**LiveTemplate (Tier 1):** The client has built-in IntersectionObserver support. A `<div id="scroll-sentinel">` at the end of the list triggers the `load_more` action automatically when it becomes visible.
+**LiveTemplate (Tier 1):** The client has built-in IntersectionObserver support. A `<div id="scroll-sentinel">` at the end of the list triggers the `load_more` action automatically when it becomes visible. The framework routes `load_more` (snake_case) to the `LoadMore()` method.
 
 **Also implemented in:** —
 
@@ -698,6 +696,8 @@ type InfiniteScrollState struct {
     HasMore     bool
 }
 
+// LoadMore handles the "load_more" action triggered by the scroll sentinel.
+// The framework auto-routes snake_case actions to PascalCase methods.
 func (c *Controller) LoadMore(state InfiniteScrollState, ctx *livetemplate.Context) (InfiniteScrollState, error) {
     state.CurrentPage++
     newItems := c.getPage(state.CurrentPage, pageSize)
@@ -919,7 +919,9 @@ type LazyLoadState struct {
 }
 
 func (c *Controller) Mount(state LazyLoadState, ctx *livetemplate.Context) (LazyLoadState, error) {
-    state.Loading = true
+    if ctx.Action() == "" { // Guard: only on initial GET, not form POSTs
+        state.Loading = true
+    }
     return state, nil
 }
 
@@ -980,7 +982,7 @@ func (c *Controller) Start(state ProgressBarState, ctx *livetemplate.Context) (P
     state.Done = false
     session := ctx.Session()
     go func() {
-        for i := 1; i <= 100; i += 10 {
+        for i := 10; i <= 100; i += 10 {
             time.Sleep(500 * time.Millisecond)
             _ = session.TriggerAction("updateProgress", map[string]interface{}{
                 "progress": i,
@@ -1504,25 +1506,53 @@ func (c *Controller) NewMessage(state BroadcastState, ctx *livetemplate.Context)
 
 **Source:** Phoenix Presence (CRDTs for distributed presence)
 
-**LiveTemplate (Tier 1):** `OnConnect()` and `OnDisconnect()` lifecycle hooks track who's online. Broadcast updates to show live user counts.
+**LiveTemplate (Tier 1):** Users explicitly join/leave. `OnConnect()` tracks connection state. The controller maintains a user map with mutex protection. `BroadcastAction()` notifies all connections of presence changes.
 
 **Also implemented in:** `chat/`
 
 ```go
-func (c *Controller) OnConnect(state PresenceState, ctx *livetemplate.Context) (PresenceState, error) {
+type PresenceController struct {
+    mu          sync.RWMutex
+    onlineUsers map[string]bool
+}
+
+type PresenceState struct {
+    Title       string
+    Username    string
+    OnlineCount int
+    Joined      bool
+}
+
+func (c *PresenceController) Join(state PresenceState, ctx *livetemplate.Context) (PresenceState, error) {
+    username := ctx.GetString("username")
+    if username == "" {
+        return state, nil
+    }
     c.mu.Lock()
-    c.onlineUsers[state.Username] = true
+    state.Username = username
+    state.Joined = true
+    c.onlineUsers[username] = true
     state.OnlineCount = len(c.onlineUsers)
     c.mu.Unlock()
     ctx.BroadcastAction("PresenceChanged", nil)
     return state, nil
 }
 
-func (c *Controller) OnDisconnect() {
-    // Clean up on disconnect
+func (c *PresenceController) Leave(state PresenceState, ctx *livetemplate.Context) (PresenceState, error) {
+    if state.Username == "" {
+        return state, nil
+    }
+    c.mu.Lock()
+    delete(c.onlineUsers, state.Username)
+    state.Username = ""
+    state.Joined = false
+    state.OnlineCount = len(c.onlineUsers)
+    c.mu.Unlock()
+    ctx.BroadcastAction("PresenceChanged", nil)
+    return state, nil
 }
 
-func (c *Controller) PresenceChanged(state PresenceState, ctx *livetemplate.Context) (PresenceState, error) {
+func (c *PresenceController) PresenceChanged(state PresenceState, ctx *livetemplate.Context) (PresenceState, error) {
     c.mu.RLock()
     state.OnlineCount = len(c.onlineUsers)
     c.mu.RUnlock()
@@ -1535,11 +1565,22 @@ func (c *Controller) PresenceChanged(state PresenceState, ctx *livetemplate.Cont
 <article>
     <h3>Presence Tracking</h3>
     <p><mark>{{.OnlineCount}} user(s) online</mark></p>
+    {{if .Joined}}
+    <p>Logged in as: {{.Username}}</p>
+    <button name="leave" class="secondary">Leave</button>
+    {{else}}
+    <form method="POST">
+        <fieldset role="group">
+            <input name="username" placeholder="Enter username..." required>
+            <button name="join">Join</button>
+        </fieldset>
+    </form>
+    {{end}}
 </article>
 {{end}}
 ```
 
-**Key features:** `OnConnect()`/`OnDisconnect()`, `BroadcastAction()` for presence updates
+**Key features:** Explicit join/leave actions, `BroadcastAction()` for presence updates, shared controller state with mutex
 
 ---
 
@@ -1640,6 +1681,9 @@ func (c *Controller) Change(state LivePreviewState, ctx *livetemplate.Context) (
 **Also implemented in:** `login/`
 
 ```go
+// Note: The goroutine runs for a fixed duration. If the session disconnects,
+// TriggerAction calls will return errors (ignored here for simplicity).
+// Production code should use a context or done channel for early cancellation.
 func (c *Controller) StartTimer(state PushState, ctx *livetemplate.Context) (PushState, error) {
     state.Running = true
     session := ctx.Session()
