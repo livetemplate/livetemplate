@@ -1862,6 +1862,8 @@ All patterns must have chromedp E2E tests following the [Examples CLAUDE.md](htt
 4. **Verify form field state** — check input cleared/retained after mutations
 5. **Condition-based waits** — `e2etest.WaitFor()`/`e2etest.WaitForText()`, not `chromedp.Sleep`
 6. **Test error paths** — validation failures, empty inputs
+7. **UI standards check** — each pattern page must include a `UI_Standards` subtest that validates: no inline event handlers (`onclick`, `onchange`, etc.), no inline styles (except `<ins>`/`<del>` block pattern), `color-scheme` meta tag present, `lang="en"` set, container width <= 700px, Pico CSS conventions via `e2etest.ValidatePicoCSS()`, and shared CSS loading. See [live-preview example](https://github.com/livetemplate/examples/blob/main/live-preview/live_preview_test.go#L222) for the pattern.
+8. **Visual check** — each pattern page must include a `Visual_Check` subtest using `e2etest.ValidateScreenshotWithLLM(t, ctx, "description of expected layout")`. This captures a browser screenshot and sends it to the Claude CLI for automated visual analysis (alignment, spacing, layout, readability, error state styling). Runs when `LVT_VISUAL_CHECK=true` is set. See [live-preview example](https://github.com/livetemplate/examples/blob/main/live-preview/live_preview_test.go#L257) for the pattern.
 
 E2E tests must have access to: browser console logs, server logs, WebSocket messages, rendered HTML.
 
