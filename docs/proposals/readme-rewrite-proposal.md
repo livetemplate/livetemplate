@@ -103,7 +103,7 @@ The reader sees code within ~20 lines of scrolling, before any prose explanation
 
 ## Draft: New README.md
 
-```markdown
+````markdown
 # LiveTemplate
 
 Reactive web UIs in standard HTML and Go. No custom template language. No client-side framework. No persistent connection required.
@@ -251,7 +251,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 ## License
 
 MIT License — see [LICENSE](LICENSE) file for details.
-```
+````
 
 ---
 
@@ -259,7 +259,7 @@ MIT License — see [LICENSE](LICENSE) file for details.
 
 This new guide absorbs the philosophical content removed from the README.
 
-```markdown
+````markdown
 # Standard HTML Reactivity
 
 LiveTemplate makes standard HTML reactive by default. A plain `<form method="POST">`
@@ -314,10 +314,12 @@ The same HTML works identically across all three modes.
 For production form validation, use `ctx.BindAndValidate()` with Go struct tags:
 
 ```go
+// validate is a *validator.Validate from github.com/go-playground/validator/v10,
+// typically initialized once and stored on the controller.
 var input struct {
     Email string `validate:"required,email,min=5"`
 }
-if err := ctx.BindAndValidate(&input, validate); err != nil {
+if err := ctx.BindAndValidate(&input, c.validate); err != nil {
     return state, err // field errors sent to template automatically
 }
 ```
@@ -409,7 +411,7 @@ requires `lvt-debounce` because HTML has no timing mechanism:
 
 ```html
 <input name="Query" value="{{.Query}}"
-    lvt-input="search" lvt-debounce="300"
+    lvt-on:input="search" lvt-mod:debounce="300"
     placeholder="Search...">
 ```
 
@@ -422,7 +424,7 @@ See the [Progressive Complexity Guide](progressive-complexity.md) for the comple
 | Approach | Philosophy | Clarity | Flexibility |
 |----------|-----------|---------|-------------|
 | **Custom attributes** (htmx, Livewire, LiveView) | Explicit is better than implicit | High — clear what's reactive | High — opt-in reactivity |
-| **Standard HTML** (LiveTemplate) | Make the common case simple | Lower — everything is reactive | Lower — opt-out via `lvt-no-intercept` |
+| **Standard HTML** (LiveTemplate) | Make the common case simple | Lower — everything is reactive | Lower — opt-out via `lvt-form:no-intercept` / `lvt-nav:no-intercept` |
 
 **Advantages of LiveTemplate's approach:**
 - Standard HTML works at all transport levels (no-JS, fetch, WebSocket)
@@ -443,7 +445,7 @@ See the [Progressive Complexity Guide](progressive-complexity.md) for the comple
 - [Progressive Complexity Reference](../references/progressive-complexity-reference.md) — Quick-lookup table
 - [Controller+State Pattern](../references/controller-pattern.md) — Core architecture pattern
 - [Examples](https://github.com/livetemplate/examples) — Counter, Todos, Chat, and more
-```
+````
 
 ---
 
@@ -458,7 +460,7 @@ Content removed from the README doesn't disappear — it moves to existing docs 
 | Controller/State code example | Lines 92-118 | Already in `docs/references/controller-pattern.md` | No action |
 | Static/dynamic JSON examples | Lines 122-134 | Already in `docs/performance/performance-characteristics.md` | No action |
 | Error handling code example | Lines 136-163 | Already in `docs/references/error-handling.md` | No action |
-| Phoenix LiveView comparison table | Lines 178-193 | `docs/references/current-limitations.md` | Add new "Phoenix LiveView Feature Comparison" section at top |
+| Phoenix LiveView comparison table | Lines 178-193 | `docs/guides/standard-html-reactivity.md` | Add as "Feature Gap Comparison" section (framework comparison is a better fit here than in current-limitations.md) |
 | Benchmark metrics table | Lines 276-284 | `docs/performance/performance-characteristics.md` | Add "Summary" section at top |
 | Benchmark commands (`make bench`, etc.) | Lines 294-304 | `docs/performance/performance-characteristics.md` | Add to summary section |
 | "How It Works" numbered list | Lines 260-269 | `docs/guides/standard-html-reactivity.md` | Absorbed into guide |
@@ -495,7 +497,7 @@ When this proposal is approved and ready for implementation:
 
 1. [ ] Fix `assets/demo.svg` — 3 text edits
 2. [ ] Create `docs/guides/standard-html-reactivity.md`
-3. [ ] Add LiveView comparison table to `docs/references/current-limitations.md`
+3. [ ] Add LiveView feature gap comparison to `docs/guides/standard-html-reactivity.md`
 4. [ ] Add benchmark summary to `docs/performance/performance-characteristics.md`
 5. [ ] Update `docs/README.md` with new guide link
 6. [ ] Rewrite `README.md`
