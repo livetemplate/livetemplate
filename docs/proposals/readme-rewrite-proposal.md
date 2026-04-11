@@ -118,7 +118,7 @@ Reactive web UIs in standard HTML and Go. No custom template language. No client
 
 The HTML and Go behind a reactive todo list:
 
-​```html
+```html
 <form method="POST">
     <input type="text" name="title" required placeholder="What needs to be done?">
     <button name="add">Add Todo</button>
@@ -126,24 +126,21 @@ The HTML and Go behind a reactive todo list:
 <ul>
 {{range .Items}}<li>{{.Title}}</li>{{end}}
 </ul>
-​```
+```
 
-​```go
+```go
 func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
-    if err := ctx.ValidateForm(); err != nil {
-        return state, err
-    }
     state.Items = append(state.Items, Todo{Title: ctx.GetString("title")})
-    ctx.BroadcastAction("Refresh", nil) // other tabs see the change
+    ctx.BroadcastAction("Refresh", nil) // pushes update to other WS-connected tabs
     return state, nil
 }
-​```
+```
 
 The button's `name` IS the action — `<button name="add">` routes to `Add()`. No custom attributes, no JavaScript wiring. Without JS, the form POSTs normally. With the JS client, the DOM patches in place. Add a WebSocket and other tabs sync automatically. See [Standard HTML Reactivity](docs/guides/standard-html-reactivity.md) for how this compares to htmx, Livewire, and LiveView.
 
 ## How It Works
 
-​```mermaid
+```mermaid
 sequenceDiagram
     participant Browser
     participant Server
@@ -153,19 +150,19 @@ sequenceDiagram
     Note over Server: Tree diff calculated<br/>Only Counter changed → {"0": "6"}
     Server->>Browser: {"0": "6"}
     Note over Browser: DOM updated<br/>Counter: 6
-​```
+```
 
 When a user clicks a button, LiveTemplate calls a method on your Go struct, diffs the template output, and sends only what changed.
 
 ## Quick Start
 
-​```bash
+```bash
 go get github.com/livetemplate/livetemplate
-​```
+```
 
 **1. Define controller and state** ([full example](https://github.com/livetemplate/examples/blob/main/counter/main.go))
 
-​```go
+```go
 type CounterState struct {
     Counter int
 }
@@ -185,29 +182,31 @@ func (c *CounterController) Decrement(state CounterState, ctx *livetemplate.Cont
 func main() {
     controller := &CounterController{}
     state := &CounterState{Counter: 0}
-    tmpl := livetemplate.New("counter")
+    tmpl := livetemplate.Must(livetemplate.New("counter"))
     http.Handle("/", tmpl.Handle(controller, livetemplate.AsState(state)))
     http.ListenAndServe(":8080", nil)
 }
-​```
+```
+
+`New` auto-discovers `*.tmpl` files in the current directory — `counter.tmpl` is picked up automatically.
 
 **2. Write the template** ([counter.tmpl](https://github.com/livetemplate/examples/blob/main/counter/counter.tmpl))
 
-​```html
+```html
 <h1>Counter: {{.Counter}}</h1>
 <form method="POST" style="display:inline">
     <button name="increment">+</button>
     <button name="decrement">-</button>
 </form>
 
-<script src="https://cdn.jsdelivr.net/npm/@livetemplate/client@latest/dist/livetemplate-client.browser.js"></script>
-​```
+<script src="https://cdn.jsdelivr.net/npm/@livetemplate/client@0/dist/livetemplate-client.browser.js"></script>
+```
 
 **3. Run it**
 
-​```bash
+```bash
 go run main.go  # Open http://localhost:8080
-​```
+```
 
 ## Features
 
@@ -290,8 +289,10 @@ for core interactions.
 
 The `name` attribute on a button routes to a Go method:
 
-    <button name="add">Add</button>       <!-- routes to Add() -->
-    <button name="delete">Delete</button>  <!-- routes to Delete() -->
+```html
+<button name="add">Add</button>       <!-- routes to Add() -->
+<button name="delete">Delete</button>  <!-- routes to Delete() -->
+```
 
 This uses standard HTML semantics — the button `name` is included in form data on submit.
 LiveTemplate reads it and dispatches to the matching method. No custom attributes needed.
@@ -308,37 +309,52 @@ All `<form>` elements inside a LiveTemplate handler are automatically intercepte
 
 The same HTML works identically across all three modes.
 
-### Validation Inference
+### Validation
 
-HTML validation attributes become server-side rules:
+For production form validation, use `ctx.BindAndValidate()` with Go struct tags:
 
-    <input type="email" name="Email" required minlength="5">
+```go
+var input struct {
+    Email string `validate:"required,email,min=5"`
+}
+if err := ctx.BindAndValidate(&input, validate); err != nil {
+    return state, err // field errors sent to template automatically
+}
+```
 
-`ctx.ValidateForm()` checks these constraints server-side. For production use,
-`ctx.BindAndValidate()` with Go struct tags is the recommended approach.
+For simpler cases, `ctx.ValidateForm()` can infer rules from HTML attributes
+(`required`, `pattern`, `min`, `max`, `type="email"`, etc.) — but only when
+a form schema has been attached via `WithFormSchema(ExtractFormSchema(statics))`.
 
 ---
 
 ## Multi-User Broadcast
 
-When one user's action should be visible to others, use `BroadcastAction`:
+When one user's action should be visible to other WebSocket-connected tabs, use `BroadcastAction`.
+Note: `BroadcastAction` must be called AFTER all state mutations and `ctx.With*()` calls, because
+`With*()` creates shallow copies and broadcasts queued before the copy won't propagate.
 
-    func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
-        state.Items = append(state.Items, Todo{Title: ctx.GetString("title")})
-        ctx.BroadcastAction("Refresh", nil)
-        return state, nil
-    }
+```go
+func (c *TodoController) Add(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    state.Items = append(state.Items, Todo{Title: ctx.GetString("title")})
+    // BroadcastAction after all state changes — pushes to other WS-connected tabs
+    ctx.BroadcastAction("Refresh", nil)
+    return state, nil
+}
 
-    func (c *TodoController) Refresh(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
-        state.Items = c.loadItems()
-        return state, nil
-    }
+func (c *TodoController) Refresh(state TodoState, ctx *livetemplate.Context) (TodoState, error) {
+    state.Items = c.loadItems()
+    return state, nil
+}
+```
 
 Broadcast is scoped to the session group. For multi-instance deployments, add Redis pub/sub:
 
-    tmpl, _ := livetemplate.New("app",
-        livetemplate.WithPubSubBroadcaster(redisBroadcaster),
-    )
+```go
+tmpl, _ := livetemplate.New("app",
+    livetemplate.WithPubSubBroadcaster(redisBroadcaster),
+)
+```
 
 See [PubSub Reference](../references/pubsub.md) for details.
 
@@ -391,9 +407,11 @@ LiveTemplate follows a two-tier model:
 Tier 2 is only for behaviors standard HTML cannot express. For example, debounced search
 requires `lvt-debounce` because HTML has no timing mechanism:
 
-    <input name="Query" value="{{.Query}}"
-        lvt-input="search" lvt-debounce="300"
-        placeholder="Search...">
+```html
+<input name="Query" value="{{.Query}}"
+    lvt-input="search" lvt-debounce="300"
+    placeholder="Search...">
+```
 
 See the [Progressive Complexity Guide](progressive-complexity.md) for the complete walkthrough.
 
