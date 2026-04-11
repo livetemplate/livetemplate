@@ -44,7 +44,7 @@ examples/patterns/
   state_nav.go         # State structs: Dialogs, Tabs & Navigation
   state_feedback.go    # State structs: Visual Feedback
   state_realtime.go    # State structs: Real-Time & Multi-User
-  data.go              # In-memory sample data
+  data.go              # In-memory sample data + shared domain types (Contact, Item)
   templates/
     layout.tmpl        # Shared HTML layout (head, nav, footer)
     index.tmpl         # Main index page with categorized pattern grid
@@ -514,11 +514,15 @@ type FileUploadState struct {
 }
 
 func (c *Controller) Submit(state FileUploadState, ctx *livetemplate.Context) (FileUploadState, error) {
-    if ctx.HasUploads("document") {
-        entries := ctx.GetCompletedUploads("document")
-        if len(entries) > 0 {
-            state.UploadName = entries[0].ClientName
-            state.Uploaded = true
+    // Check both Tier 1 (standard multipart) and Tier 2 (chunked) uploads
+    for _, name := range []string{"document", "chunked-doc"} {
+        if ctx.HasUploads(name) {
+            entries := ctx.GetCompletedUploads(name)
+            if len(entries) > 0 {
+                state.UploadName = entries[0].ClientName
+                state.Uploaded = true
+                return state, nil
+            }
         }
     }
     return state, nil
@@ -1047,9 +1051,11 @@ func (c *Controller) Start(state ProgressBarState, ctx *livetemplate.Context) (P
     go func() {
         for i := 10; i <= 100; i += 10 {
             time.Sleep(500 * time.Millisecond)
-            _ = session.TriggerAction("updateProgress", map[string]interface{}{
+            if err := session.TriggerAction("updateProgress", map[string]interface{}{
                 "progress": i,
-            })
+            }); err != nil {
+                return // Session disconnected — stop the goroutine
+            }
         }
     }()
     return state, nil
@@ -1441,9 +1447,9 @@ func (c *Controller) AddItem(state AnimationsState, ctx *livetemplate.Context) (
     {{end}}
 
     <h4>Animation Types</h4>
-    <div lvt-fx:animate="fade">Fade In (default)</div>
+    <div lvt-fx:animate="fade">Fade In (default 300ms)</div>
     <div lvt-fx:animate="slide">Slide In</div>
-    <div lvt-fx:animate="scale" style="--lvt-animate-duration: 500ms">Scale In (500ms)</div>
+    <div lvt-fx:animate="scale">Scale In</div>
 </article>
 {{end}}
 ```
@@ -1540,9 +1546,8 @@ func (c *Controller) Increment(state HighlightState, ctx *livetemplate.Context) 
     </div>
 
     <h4>Custom Highlight</h4>
-    <div lvt-fx:highlight="flash"
-         style="--lvt-highlight-color: #4caf50; --lvt-highlight-duration: 1000ms">
-        <p>Custom color + duration: {{.Counter}}</p>
+    <div lvt-fx:highlight="flash">
+        <p>Another counter display: {{.Counter}}</p>
     </div>
 </article>
 {{end}}
