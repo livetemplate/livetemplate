@@ -1926,7 +1926,7 @@ Future features identified during this proposal should be filed as GitHub issues
 
 ## Implementation Plan
 
-**Session workflow:** Each session ends by: (1) updating the index page with links to the newly implemented patterns, (2) creating a PR for the work done, (3) updating this tracker (check off completed items), and (4) pushing the updated proposal. The next session picks up from the tracker state.
+**Session workflow:** Each session ends by: (1) updating the index page with links to the newly implemented patterns, (2) running the app locally for manual review — wait for signoff on UI and code before proceeding, (3) creating a PR for the work done, (4) updating this tracker (check off completed items), and (5) pushing the updated proposal. The next session picks up from the tracker state.
 
 ### Session 1: Scaffold + Index Page + Forms & Editing
 
@@ -1947,6 +1947,7 @@ Future features identified during this proposal should be filed as GitHub issues
 - [ ] Implement File Upload (#6)
 - [ ] Implement Preserving File Inputs (#7)
 - [ ] E2E tests for patterns #1–7 (incl. UI_Standards + Visual_Check)
+- [ ] Run app locally, wait for manual review signoff
 - [ ] Create PR, update this tracker
 
 ### Session 2: Lists & Data + Search & Filtering
@@ -1961,6 +1962,7 @@ Future features identified during this proposal should be filed as GitHub issues
 - [ ] Implement URL-Preserved Filters (#13)
 - [ ] E2E tests for patterns #8–13 (incl. UI_Standards + Visual_Check)
 - [ ] Update index page with patterns #8–13
+- [ ] Run app locally, wait for manual review signoff
 - [ ] Create PR, update this tracker
 
 ### Session 3: Loading & Progress
@@ -1973,6 +1975,7 @@ Future features identified during this proposal should be filed as GitHub issues
 - [ ] Verify goroutine cleanup on disconnect
 - [ ] E2E tests for patterns #14–16 (incl. UI_Standards + Visual_Check)
 - [ ] Update index page with patterns #14–16
+- [ ] Run app locally, wait for manual review signoff
 - [ ] Create PR, update this tracker
 
 ### Session 4: Dialogs, Tabs & Navigation
@@ -1986,6 +1989,7 @@ Future features identified during this proposal should be filed as GitHub issues
 - [ ] Implement Keyboard Shortcuts (#21)
 - [ ] E2E tests for patterns #17–21 (incl. UI_Standards + Visual_Check)
 - [ ] Update index page with patterns #17–21
+- [ ] Run app locally, wait for manual review signoff
 - [ ] Create PR, update this tracker
 
 ### Session 5: Visual Feedback
@@ -1998,6 +2002,7 @@ Future features identified during this proposal should be filed as GitHub issues
 - [ ] Implement Flash Messages (#25)
 - [ ] E2E tests for patterns #22–25 (incl. UI_Standards + Visual_Check)
 - [ ] Update index page with patterns #22–25
+- [ ] Run app locally, wait for manual review signoff
 - [ ] Create PR, update this tracker
 
 ### Session 6: Real-Time & Multi-User
@@ -2012,6 +2017,7 @@ Future features identified during this proposal should be filed as GitHub issues
 - [ ] Implement Server Push (#31)
 - [ ] E2E tests for patterns #26–31 (incl. UI_Standards + Visual_Check)
 - [ ] Update index page with patterns #26–31
+- [ ] Run app locally, wait for manual review signoff
 - [ ] Create PR, update this tracker
 
 ### Session 7: Polish + README + Final Review
@@ -2022,6 +2028,7 @@ Future features identified during this proposal should be filed as GitHub issues
 - [ ] Run `./test-all.sh` to verify all examples still pass
 - [ ] File GitHub issue for drag-and-drop feature (see [Future Features](#future-features))
 - [ ] Final review and polish
+- [ ] Run app locally, wait for manual review signoff
 - [ ] Create PR, update this tracker
 
 ---
