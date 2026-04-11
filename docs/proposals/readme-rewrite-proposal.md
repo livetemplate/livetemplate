@@ -324,9 +324,8 @@ if err := ctx.BindAndValidate(&input, c.validate); err != nil {
 }
 ```
 
-For simpler cases, `ctx.ValidateForm()` can infer rules from HTML attributes
-(`required`, `pattern`, `min`, `max`, `type="email"`, etc.) — but only when
-a form schema has been attached via `WithFormSchema(ExtractFormSchema(statics))`.
+For HTML-attribute-based validation (`required`, `pattern`, `min`, `max`), see the
+[Error Handling reference](../references/error-handling.md) for the `ValidateForm` + `WithFormSchema` pattern.
 
 ---
 
@@ -469,15 +468,7 @@ Content removed from the README doesn't disappear — it moves to existing docs 
 
 ## SVG Fix: `assets/demo.svg`
 
-The demo SVG currently shows Tier 2 syntax that contradicts the "standard HTML" pitch:
-
-| Line | Current | Proposed |
-|------|---------|----------|
-| 241 | `<button lvt-click="increment">+</button>` | `<button name="increment">+</button>` |
-| 242 | `<button lvt-click="decrement">−</button>` | `<button name="decrement">−</button>` |
-| 292 | `"<button lvt-click=..."` | `"<button name=..."` |
-
-These are text edits inside SVG `<text>` elements. No layout change.
+The demo SVG currently shows Tier 2 syntax (`lvt-click="increment"`) that contradicts the "standard HTML" pitch. Replace `lvt-click="increment"` / `lvt-click="decrement"` with `name="increment"` / `name="decrement"` in both the template code panel and the statics payload preview. These are text edits inside SVG `<text>` elements — no layout change.
 
 ---
 
