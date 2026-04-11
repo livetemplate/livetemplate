@@ -356,10 +356,8 @@ func (c *Controller) Change(state InlineValidationState, ctx *livetemplate.Conte
     if ctx.Has("username") {
         state.Username = ctx.GetString("username")
     }
-    // ValidateForm() populates .lvt.HasError/.lvt.Error as a side effect.
-    // The returned error is discarded because Change() should not signal
-    // handler failure — validation feedback is rendered inline via the
-    // template helpers, not via an error response.
+    // Populates .lvt errors for template rendering; error intentionally
+    // discarded — Change() should not fail on inline validation.
     _ = ctx.ValidateForm()
     return state, nil
 }
@@ -739,7 +737,8 @@ type InfiniteScrollState struct {
 }
 
 // LoadMore handles the "load_more" action triggered by the scroll sentinel.
-// The framework auto-routes snake_case actions to PascalCase methods.
+// The framework auto-routes snake_case → PascalCase (see dispatch.go:50-54,
+// methodNameToActions converts LoadMore → ["loadMore", "load_more", "LoadMore"]).
 func (c *Controller) LoadMore(state InfiniteScrollState, ctx *livetemplate.Context) (InfiniteScrollState, error) {
     state.CurrentPage++
     newItems := c.getPage(state.CurrentPage, pageSize)
@@ -1034,12 +1033,12 @@ type ProgressBarState struct {
     Done     bool
 }
 
-// Note: Guard against concurrent starts. TriggerAction errors are ignored
-// here for simplicity. See Pattern #31 (Server Push) for the recommended
-// cancellation pattern using TriggerAction error checking.
+// Note: The Running guard is per-session state (prevents double-clicks in
+// one tab). Multi-tab concurrent starts would require a controller-level
+// mutex — omitted here for simplicity. See Pattern #31 for cancellation.
 func (c *Controller) Start(state ProgressBarState, ctx *livetemplate.Context) (ProgressBarState, error) {
     if state.Running {
-        return state, nil // already running
+        return state, nil // already running in this session
     }
     state.Running = true
     state.Progress = 0
@@ -1615,10 +1614,12 @@ type SyncState struct {
     Counter int
 }
 
-// Sync is called automatically on peer connections (other tabs in the same
-// session group) when any connection triggers an action. The state parameter
-// is the peer's LOCAL state. The handler reads the shared counter from the
-// controller (singleton) so all peers see the same value.
+// Sync is a reserved method name (mount.go:158, syncMethodName = "Sync").
+// The framework auto-dispatches it to peer connections in the same session
+// group after any action completes, without requiring an explicit
+// BroadcastAction call. The state parameter is the peer's LOCAL state.
+// The handler reads the shared counter from the controller (singleton)
+// so all peers see the same value.
 func (c *SyncController) Sync(state SyncState, ctx *livetemplate.Context) (SyncState, error) {
     c.mu.Lock()
     state.Counter = c.counter
@@ -2001,7 +2002,7 @@ Future features identified during this proposal should be filed as GitHub issues
 - [ ] `templates/index.tmpl` — categorized grid of all patterns with descriptions
 - [ ] Index handler with pattern metadata
 - [ ] `data.go` — in-memory sample data (contacts, users, items)
-- [ ] `state.go` — state structs for all patterns
+- [ ] Per-category state files (`state_forms.go`, `state_lists.go`, etc.)
 - [ ] Implement Click To Edit (#1)
 - [ ] Implement Edit Row (#2)
 - [ ] Implement Inline Validation (#3)
@@ -2045,6 +2046,7 @@ Future features identified during this proposal should be filed as GitHub issues
 
 **Scope:** Patterns #17–21
 
+- [ ] Verify invoker polyfill is active in current client build (Firefox/Safari)
 - [ ] Implement Modal Dialog (#17)
 - [ ] Implement Confirm Dialog (#18)
 - [ ] Implement Tabs (HATEOAS) (#19)
