@@ -1088,8 +1088,8 @@ func (c *Controller) Fetch(state AsyncState, ctx *livetemplate.Context) (AsyncSt
     session := ctx.Session()
     go func() {
         time.Sleep(2 * time.Second)
-        // Simulate success or failure (alternate randomly for demonstration)
-        if time.Now().UnixNano()%3 == 0 {
+        // Simulate success or failure (~33% failure rate for demonstration)
+        if rand.Intn(3) == 0 {
             _ = session.TriggerAction("fetchResult", map[string]interface{}{
                 "error":   "Connection timed out",
                 "success": false,
@@ -1196,6 +1196,25 @@ func (c *Controller) Save(state ModalState, ctx *livetemplate.Context) (ModalSta
 **LiveTemplate (Tier 1):** Uses `<dialog>` with `command`/`commandfor` for a CSP-compliant confirmation flow. The destructive action form lives inside the dialog. No inline JavaScript.
 
 **Also implemented in:** `todos/`
+
+```go
+type ConfirmDialogState struct {
+    Title string
+    Items []Item
+}
+
+func (c *Controller) Delete(state ConfirmDialogState, ctx *livetemplate.Context) (ConfirmDialogState, error) {
+    id := ctx.GetString("id")
+    filtered := make([]Item, 0, len(state.Items))
+    for _, item := range state.Items {
+        if item.ID != id {
+            filtered = append(filtered, item)
+        }
+    }
+    state.Items = filtered
+    return state, nil
+}
+```
 
 ```html
 {{define "content"}}
