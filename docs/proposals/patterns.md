@@ -2054,8 +2054,75 @@ Concrete, non-obvious patterns validated during earlier sessions. Apply these di
 
 **Cross-handler SPA navigation:**
 
-- Each pattern is its own handler with its own `data-lvt-id`. Client **v0.8.22+** handles the WebSocket disconnect/reconnect transparently — no workarounds needed.
+- Each pattern is its own handler with its own `data-lvt-id`. Client **v0.8.23+** handles WebSocket disconnect/reconnect AND per-handler state reset transparently — no workarounds needed. Earlier versions left `treeRenderer` state from the previous handler, causing visible cross-contamination ("index page content bleeds into the next pattern").
 - Use `@latest` CDN in templates (per project convention); do not pin a specific client version. This is an intentional tradeoff — the examples always demonstrate the current client, accepting the risk that a client release could break a demo until fixed. If a demo breaks after a client release, fix the demo (or the client), don't pin the version.
+- `TestCrossHandlerNavigation` must assert **absence of stale content**, not just presence of new content. Positive assertions alone miss the cross-contamination class of bugs. Add row-count / `<article>` count / `<h4>` count assertions after each cross-handler navigation.
+
+**Client version required:** Session 2 and later require **client v0.8.23+**. Prior versions contain three bugs that manifest in patterns: (1) `WebSocketManager.connect()` doesn't await `onopen`, so observers fire during CONNECTING and fall back to HTTP — producing duplicate rows on Infinite Scroll; (2) `loadMorePending` throttle was missing entirely — rapid observer re-fires stacked concurrent actions; (3) cross-handler navigation didn't reset `treeRenderer` — stale state bled between handlers. All three are fixed in v0.8.23. If tests fail with duplicate `data-key` entries after pagination, the client version is too old.
+
+**In-memory shared DB for mutable state:** Patterns like Delete Row that need server-side persistence across sessions (but NOT across process restarts) should use a `sync.Mutex + []T` in the **controller struct** — NOT `lvt:"persist"` tags. Controllers are singletons, so this is safe. Pattern:
+```go
+type DeleteRowController struct {
+    mu    sync.Mutex
+    items []Item
+}
+func (c *DeleteRowController) snapshot() []Item {
+    c.mu.Lock(); defer c.mu.Unlock()
+    return slices.Clone(c.items)
+}
+func (c *DeleteRowController) Mount(state DeleteRowState, ctx *Context) (DeleteRowState, error) {
+    c.mu.Lock(); defer c.mu.Unlock()
+    if c.items == nil { c.items = sampleListItems(5) }
+    state.Items = slices.Clone(c.items)
+    return state, nil
+}
+```
+State is pure data (`AssertPureState` still passes) and gets repopulated on every Mount from the controller's DB. This avoids the complexity of selective persistence and is the right pattern for demo-scale state.
+
+**Tier 1 row-scoped actions — button `value` attribute, not hidden inputs:** For actions like Delete/Edit/Save that need an ID, use `<button name="delete" value="{{.ID}}">` and read `ctx.GetString("value")`. Don't use `<input type="hidden" name="id">` + `<button name="delete">`. Shorter template, idiomatic HTML, no hidden inputs to forget. This is the documented Tier 1 pattern in `docs/references/progressive-complexity-reference.md`. Session 1's Edit Row used hidden inputs because Edit needs multiple fields (name + email + ID), which is the only legit use case.
+
+**Range-removal animation:** Use `lvt-fx:animate="slide"` (not `"fade"`) for row delete animations — slide is visibly distinctive. Default duration is 500ms in client v0.8.23+; override with `style="--lvt-animate-duration: 800ms"` if needed. The client treats `animatedElements` as a once-per-lifetime WeakSet, so re-renders of the same DOM node skip the animation (morphdom creates fresh nodes for new range items, which do animate).
+
+**Infinite Scroll dataset sizing:** With `listPageSize = 10`, use **25+ items** in the dataset. 25 produces 3 pages (10 + 10 + 5), which is enough to demonstrate auto-advance through multiple pages. Anything less than ~25 and the infinite-scroll effect isn't visible.
+
+**Sentinel must render only when `.HasMore`:** Always-rendering `<div id="scroll-sentinel">` causes an **infinite empty-load loop** after the last page — the sentinel stays visible, the observer fires, the server returns an empty page, rinse/repeat. Wrap it in `{{if .HasMore}}...{{end}}`.
+
+**Headless Chrome test limitations (and their fixes):**
+
+- `IntersectionObserver` doesn't fire in headless mode (no compositing). **Fix:** use `chromedp.Evaluate("window.liveTemplateClient.send({action:'load_more'})", nil)` as the trigger for `TestInfiniteScroll`. Add a comment explaining why. `examples/CLAUDE.md` carves out this case explicitly.
+- `chromedp.Click` on a `<select>` doesn't open the native dropdown. **Fix:** `chromedp.SetValue(selector, value)` + dispatch a synthetic `change` event via `chromedp.Evaluate`. Extract this into a test helper (`selectValueAndDispatchChange`) and reuse.
+- `chromedp.Click` doesn't reliably trigger event-delegation handlers. **Fix:** `document.querySelector(...).click()` via `chromedp.Evaluate`.
+
+**`Mount()` reading URL query params:** `Mount` runs on POST too, so guard URL reads with `if ctx.Action() == ""`. Also **validate** query param values against an allowed set — unknown values should silently fall back to the current state field (not 404, not flash error). Bookmarks with stale values shouldn't crash. Always call the filter function OUTSIDE the guard so initial render AND POSTs both populate the table:
+```go
+func (c *URLFiltersController) Mount(state URLFiltersState, ctx *Context) (URLFiltersState, error) {
+    if ctx.Action() == "" {
+        if s := ctx.QueryString("status"); validStatuses[s] { state.Status = s }
+        if s := ctx.QueryString("sort"); validSorts[s] { state.Sort = s }
+    }
+    state.Items = filterItems(state.Status, state.Sort) // always
+    return state, nil
+}
+```
+
+**`Change()` on `<select>` and `<input type="search">`:** Auto-wired via the client with a 300ms debounce. Tests must use `WaitForCount` / `WaitForText` — **NEVER `chromedp.Sleep`**. The wait functions naturally outlast the debounce.
+
+**Flash tag category coverage:** If a controller emits `FlashSuccess` OR `FlashInfo` OR `FlashError`, the template MUST render `FlashTag` for EVERY category the controller can emit. A missing `{{.lvt.FlashTag "info"}}` means the info flash is silently dropped and tests waiting for its text time out. Audit at template-write time, not after tests fail.
+
+**Counting actual changes in bulk-update flows:** `BulkUpdate` should track a `changed := 0` counter and emit `"Updated N users"` (N = actual changes). When `changed == 0`, emit `"No changes"` as an `info` flash. Using `len(state.Users)` as the count is wrong — it reports "Updated 4 users" even when nothing changed.
+
+**Parallel sample data for Session-pinned tests:** Session 1's `TestEditRow` pins on `sampleContacts()` returning exactly 4 entries. For Session 2's `TestActiveSearch` that needs 25 contacts, add a **parallel** `sampleContactDirectory()` — do NOT extend `sampleContacts()`, and do NOT modify its count. This preserves Session 1 test stability while letting Session 2 use a bigger dataset.
+
+**CSS `output[data-flash]` padding:** `FlashTag` renders `<output role="status" data-flash="success">`. Pico defaults `<output>` to inline with no spacing, which collides with preceding form controls. Add this to `livetemplate.css` (or override per-pattern):
+```css
+output[data-flash] {
+  display: block;
+  margin-top: 1rem;
+  padding: 0.5rem 0;
+}
+```
+
+**Cross-handler navigation smoke test:** `cross_handler_nav_test.go` should include a regression test for every Session 1 + Session 2 pattern discovered to have cross-contamination bugs (currently: `Index_To_Delete_Row_No_Stale_Dom`). Add new subtests there when a new cross-handler desync is found.
 
 **Local dev loop:**
 
@@ -2063,11 +2130,13 @@ Concrete, non-obvious patterns validated during earlier sessions. Apply these di
 - Run against a locally-built client: `LVT_LOCAL_CLIENT=/abs/path/to/client/dist/livetemplate-client.browser.js GOWORK=off go test -v ./patterns`
 - Run the app manually (Tier 1 fallback works even without JS): `GOWORK=off go run ./patterns`
 - Run visual checks: `LVT_VISUAL_CHECK=true GOWORK=off go test -v ./patterns -run Visual_Check`
+- **Test at least twice consecutively** before declaring a test "passing" — `TestActiveSearch/Clear_Query_Restores_All` surfaced as flaky in CI after appearing to pass locally. Running the full suite twice in a row catches order-dependent state leaks between tests sharing the same Chrome container.
 
 **Per-session workflow reminders** (complements the Session workflow paragraph above):
 
 - Always run the full `GOWORK=off go test -v -race ./patterns` suite locally before pushing — CI flakes happen, but local flakes should be investigated, not ignored.
 - Create a worktree under `.worktrees/<session-name>` in the examples repo; never work on `main` directly.
+- Always release a new client version BEFORE opening the examples PR if the patterns depend on a client bug fix. Otherwise CI fails against jsdelivr `@latest` (which still serves the old version) and needs re-running after the release propagates.
 - [`livetemplate/examples#62`](https://github.com/livetemplate/examples/issues/62)–[`#68`](https://github.com/livetemplate/examples/issues/68) are open follow-ups from Session 1 review — address them in later sessions if touching the affected files, otherwise leave for Session 7 polish.
 
 ### Session 1: Scaffold + Index Page + Forms & Editing
