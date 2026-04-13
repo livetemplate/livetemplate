@@ -1997,27 +1997,100 @@ Future features identified during this proposal should be filed as GitHub issues
 
 **Session workflow:** Each session ends by: (1) updating the index page with links to the newly implemented patterns, (2) running the app locally for manual review — wait for signoff on UI and code before proceeding, (3) creating a PR for the work done, (4) updating this tracker (check off completed items), and (5) pushing the updated proposal. The next session picks up from the tracker state.
 
+### Implementation Notes (accumulated from completed sessions)
+
+Concrete, non-obvious patterns validated during earlier sessions. Apply these directly — they are the bits that took iterations to discover. Items already covered in [`examples/CLAUDE.md`](https://github.com/livetemplate/examples/blob/main/CLAUDE.md) (Tier 1/2 table, E2E test rules, Pico/CSP boilerplate) and [`livetemplate/CLAUDE.md`](../../CLAUDE.md) (controller pattern, `data-key`) are **not** repeated here.
+
+**Template helpers (always prefer over manual patterns):**
+
+- `{{.lvt.FlashTag "success"}}` / `{{.lvt.FlashTag "error"}}` — renders `<output role="status" data-flash="success">…</output>` (errors use `role="alert"`). **E2E selector is `output[data-flash]`, NOT `<ins>`/`<del>`.**
+- `{{.lvt.ErrorTag "fieldname"}}` — renders the field-scoped error message (uses `<small>`).
+- `{{.lvt.AriaInvalid "fieldname"}}` — emits `aria-invalid="true"` when the field has an error. Use with `required` / `pattern` inputs.
+- `<ins>`/`<del>` with inline `style="display:block;text-decoration:none"` is a **separate** manual block-alert pattern used only when you need a non-flash inline status (e.g., the `inline-validation.tmpl` "Saved!" indicator) — don't confuse it with `FlashTag`.
+- `ctx.ValidateForm()` is the validation primitive — call it in `Change()` for live feedback and in `Submit()` for gate-keeping. Returned errors populate `ErrorTag` / `AriaInvalid` automatically.
+
+**State struct shape (layout depends on these):**
+
+- Every pattern's state struct MUST have `Title string` and `Category string` as the first two fields. `layout.tmpl` renders `<title>{{.Title}} — LiveTemplate Patterns</title>` and shows `{{.Category}}` in the breadcrumb.
+- Set `Title` to the bare pattern name ("Delete Row"), NOT "Delete Row — Patterns" and NOT "LiveTemplate Patterns" — the layout already appends ` — LiveTemplate Patterns`, so a redundant suffix produces `"Delete Row — LiveTemplate Patterns — LiveTemplate Patterns"` (filed as [`livetemplate/examples#62`](https://github.com/livetemplate/examples/issues/62)).
+
+**File layout convention:**
+
+- One `state_{category}.go` + `handlers_{category}.go` file per category. Session 2 should create `state_lists.go` / `handlers_lists.go` / `state_search.go` / `handlers_search.go` — NOT a single monolithic file.
+- Shared sample data goes in `data.go`. Add `sampleItems()` etc. alongside existing `sampleContacts()` / `sampleUsers()`.
+
+**Index page is data-driven:** `data.go :: allPatterns()` already declares all 31 patterns with `Implemented: false` for unimplemented entries. To "add" a pattern to the index, just flip `Implemented: true` on its `PatternLink` — the index template iterates `allPatterns()` automatically. **No `index.tmpl` edits needed per pattern.**
+
+**Accessibility non-negotiables (Copilot will flag these in review):**
+
+- Every input needs a visible `<label>` or explicit `aria-label`. Placeholder-only is a failure (see [`livetemplate/examples#63`](https://github.com/livetemplate/examples/issues/63), [`#64`](https://github.com/livetemplate/examples/issues/64), [`#65`](https://github.com/livetemplate/examples/issues/65)).
+- Every action button must be inside a `<form method="POST">` so Tier 1 no-JS fallback can route to the controller method. A bare `<button>` outside a form will be flagged (see [`livetemplate/examples#66`](https://github.com/livetemplate/examples/issues/66) for the Session 1 `click-to-edit.tmpl` miss).
+- Every range item in list patterns should use explicit `data-key="{{.ID}}"` for stable identity across delete/reorder operations.
+
+**E2E test helpers already built in `patterns_test.go` (reuse them):**
+
+- `setupTest(t)` — shared Chrome + server fixture returning `(ctx, cancel, serverPort)`. Use this for all new subtests; do NOT duplicate Chrome startup boilerplate.
+- `TestMain` is already wired with `e2etest.CleanupChromeContainers()` before and after. **Do NOT create a second `TestMain`.**
+- `attachFileViaDataTransfer(selector, filename, content, mimeType)` — the only reliable file-upload helper for Docker Chrome (`chromedp.SetUploadFiles` doesn't work there).
+- `runUIStandards` vs `runUIStandardsWithPico` — use `WithPico` for pages with `<fieldset role="group">` inline forms; plain for vertical labeled forms. The choice is non-obvious and is made per-pattern.
+- `cross_handler_nav_test.go` — smoke suite for cross-handler SPA navigation. Run it whenever navigation-adjacent code changes.
+
+**E2E waits:**
+
+- `e2etest.WaitFor(jsPredicate, timeout)` is legitimate when `jsPredicate` is a real DOM/JS check. **Never pass a constant-true expression** like `` e2etest.WaitFor(`true`, …) `` — that is a disguised sleep and will be flagged (see [`livetemplate/examples#67`](https://github.com/livetemplate/examples/issues/67), [`#68`](https://github.com/livetemplate/examples/issues/68)).
+- Prefer `WaitForText(selector, text, timeout)` / `WaitForCount(selector, n, timeout)` / `WaitForWebSocketReady(timeout)` when applicable — they encode the intent clearly.
+- `chromedp.Sleep` is always wrong.
+
+**Visual_Check subtests:**
+
+- Each pattern includes a `Visual_Check` subtest using `e2etest.ValidateScreenshotWithLLM(t, ctx, "description of expected layout")`. These are **skipped unless `LVT_VISUAL_CHECK=true`** is set.
+- The description string is load-bearing — the LLM uses it to judge layout drift. Write it at pattern-implementation time, not after.
+
+**File uploads (Session 1 scope, but worth noting for later sessions):**
+
+- Tier 1 multipart: must register with `livetemplate.WithUpload("fieldname", UploadConfig{MaxFileSize, MaxEntries})` in the handler — without this, multipart parsing silently fails and `ctx.HasUploads` always returns false.
+- Tier 2 chunked (`lvt-upload` attribute): use a small `ChunkSize: 1024` to make progress visible in demos (the default chunk size completes before the progress bar renders for small files).
+- Read entries: `if ctx.HasUploads(name) { entries := ctx.GetCompletedUploads(name); ... }`.
+
+**Cross-handler SPA navigation:**
+
+- Each pattern is its own handler with its own `data-lvt-id`. Client **v0.8.22+** handles the WebSocket disconnect/reconnect transparently — no workarounds needed.
+- Use `@latest` CDN in templates (per project convention); do not pin a specific client version.
+
+**Local dev loop:**
+
+- Run a specific pattern's tests: `GOWORK=off go test -v -race -timeout=10m ./patterns -run TestPatternName`
+- Run against a locally-built client: `LVT_LOCAL_CLIENT=/abs/path/to/client/dist/livetemplate-client.browser.js GOWORK=off go test -v ./patterns`
+- Run the app manually (Tier 1 fallback works even without JS): `GOWORK=off go run ./patterns`
+- Run visual checks: `LVT_VISUAL_CHECK=true GOWORK=off go test -v ./patterns -run Visual_Check`
+
+**Per-session workflow reminders** (complements the Session workflow paragraph above):
+
+- Always run the full `GOWORK=off go test -v -race ./patterns` suite locally before pushing — CI flakes happen, but local flakes should be investigated, not ignored.
+- Create a worktree under `.worktrees/<session-name>` in the examples repo; never work on `main` directly.
+- [`livetemplate/examples#62`](https://github.com/livetemplate/examples/issues/62)–[`#68`](https://github.com/livetemplate/examples/issues/68) are open follow-ups from Session 1 review — address them in later sessions if touching the affected files, otherwise leave for Session 7 polish.
+
 ### Session 1: Scaffold + Index Page + Forms & Editing
 
 **Scope:** App skeleton, shared layout, index page, patterns #1–7
 
-- [ ] Create `examples/patterns/` directory structure
-- [ ] `main.go` — router with all handler registrations
-- [ ] `templates/layout.tmpl` — shared HTML layout
-- [ ] `templates/index.tmpl` — categorized grid of all patterns with descriptions
-- [ ] Index handler with pattern metadata
-- [ ] `data.go` — in-memory sample data (contacts, users, items)
-- [ ] Per-category state files (`state_forms.go`, `state_lists.go`, etc.)
-- [ ] Implement Click To Edit (#1)
-- [ ] Implement Edit Row (#2)
-- [ ] Implement Inline Validation (#3)
-- [ ] Implement Bulk Update (#4)
-- [ ] Implement Reset User Input (#5)
-- [ ] Implement File Upload (#6)
-- [ ] Implement Preserving File Inputs (#7)
-- [ ] E2E tests for patterns #1–7 (incl. UI_Standards + Visual_Check)
-- [ ] Run app locally, wait for manual review signoff
-- [ ] Create PR, update this tracker
+- [x] Create `examples/patterns/` directory structure
+- [x] `main.go` — router with all handler registrations
+- [x] `templates/layout.tmpl` — shared HTML layout
+- [x] `templates/index.tmpl` — categorized grid of all patterns with descriptions
+- [x] Index handler with pattern metadata
+- [x] `data.go` — in-memory sample data (contacts, users, items)
+- [x] Per-category state files (`state_forms.go`, `state_lists.go`, etc.)
+- [x] Implement Click To Edit (#1)
+- [x] Implement Edit Row (#2)
+- [x] Implement Inline Validation (#3)
+- [x] Implement Bulk Update (#4)
+- [x] Implement Reset User Input (#5)
+- [x] Implement File Upload (#6)
+- [x] Implement Preserving File Inputs (#7)
+- [x] E2E tests for patterns #1–7 (incl. UI_Standards + Visual_Check)
+- [x] Run app locally, wait for manual review signoff
+- [x] Create PR (livetemplate/examples#59), update this tracker
 
 ### Session 2: Lists & Data + Search & Filtering
 
