@@ -2048,14 +2048,14 @@ Concrete, non-obvious patterns validated during earlier sessions. Apply these di
 
 **File uploads (Session 1 scope, but worth noting for later sessions):**
 
-- Tier 1 multipart: must register with `livetemplate.WithUpload("fieldname", UploadConfig{MaxFileSize, MaxEntries})` in the handler — without this, multipart parsing silently fails and `ctx.HasUploads` always returns false.
+- Tier 1 multipart: must register with `livetemplate.WithUpload("fieldname", livetemplate.UploadConfig{MaxFileSize: 10 << 20, MaxEntries: 1})` in the handler — without this, multipart parsing silently fails and `ctx.HasUploads` always returns false. (Always use named fields: `UploadConfig` has `Accept []string` as its first field, so positional init would not compile.)
 - Tier 2 chunked (`lvt-upload` attribute): use a small `ChunkSize: 1024` to make progress visible in demos (the default chunk size completes before the progress bar renders for small files).
 - Read entries: `if ctx.HasUploads(name) { entries := ctx.GetCompletedUploads(name); ... }`.
 
 **Cross-handler SPA navigation:**
 
 - Each pattern is its own handler with its own `data-lvt-id`. Client **v0.8.22+** handles the WebSocket disconnect/reconnect transparently — no workarounds needed.
-- Use `@latest` CDN in templates (per project convention); do not pin a specific client version.
+- Use `@latest` CDN in templates (per project convention); do not pin a specific client version. This is an intentional tradeoff — the examples always demonstrate the current client, accepting the risk that a client release could break a demo until fixed. If a demo breaks after a client release, fix the demo (or the client), don't pin the version.
 
 **Local dev loop:**
 
