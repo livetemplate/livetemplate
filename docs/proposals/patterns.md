@@ -2096,16 +2096,16 @@ Concrete, non-obvious patterns validated during earlier sessions. Apply these di
 
 **Scope:** Patterns #8–13
 
-- [ ] Implement Delete Row (#8)
-- [ ] Implement Click To Load (#9)
-- [ ] Implement Infinite Scroll (#10)
-- [ ] Implement Value Select (#11)
-- [ ] Implement Active Search (#12)
-- [ ] Implement URL-Preserved Filters (#13)
-- [ ] E2E tests for patterns #8–13 (incl. UI_Standards + Visual_Check)
-- [ ] Update index page with patterns #8–13
-- [ ] Run app locally, wait for manual review signoff
-- [ ] Create PR, update this tracker
+- [x] Implement Delete Row (#8)
+- [x] Implement Click To Load (#9)
+- [x] Implement Infinite Scroll (#10)
+- [x] Implement Value Select (#11)
+- [x] Implement Active Search (#12)
+- [x] Implement URL-Preserved Filters (#13)
+- [x] E2E tests for patterns #8–13 (incl. UI_Standards + Visual_Check)
+- [x] Update index page with patterns #8–13
+- [x] Run app locally, wait for manual review signoff
+- [x] Create PR (livetemplate/examples#69), update this tracker
 
 ### Session 3: Loading & Progress
 
