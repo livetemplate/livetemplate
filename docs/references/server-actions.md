@@ -9,7 +9,7 @@ LiveTemplate supports two types of updates:
 | Type | Trigger | Scope | Use Case |
 |------|---------|-------|----------|
 | **Client Action** | User interaction (click, submit) | Same session group | Form submissions, button clicks |
-| **Server Action** | Server-side code | All user's connections | Timers, webhooks, background jobs |
+| **Server Action** | Server-side code | Same session group | Timers, webhooks, background jobs |
 
 Server actions use the `Session` interface to trigger updates:
 
@@ -32,8 +32,10 @@ type Session interface {
 
 **Key Points:**
 - `TriggerAction()` calls your action method just like client-initiated actions
-- Updates are sent to ALL of the user's connections (all tabs/devices)
-- Scoped to the current user only - cannot target other users
+- Updates are sent to ALL connections in the current session group
+  (typically all tabs of the browser session; for authenticated flows
+  the group mapping depends on the `Authenticator` — see [API Reference](api-reference.md#session))
+- Scoped to a session group only — cannot target other groups or other users
 - Thread-safe - can be called from any goroutine
 
 ## Getting the Session Reference

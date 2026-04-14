@@ -156,12 +156,19 @@ func (a *ActionData) GetInt(key string) int {
 // support matters for Session.TriggerAction, where callers pass Go-native
 // values rather than JSON-unmarshaled ones.
 //
-// Unsigned integers that exceed math.MaxInt on the current platform are
-// rejected (returns (0, false)) rather than silently wrapping to a negative
-// int. This matters on 64-bit platforms for values in the range
-// (math.MaxInt64, math.MaxUint64] and on 32-bit platforms for values in
-// (math.MaxInt32, math.MaxUint32]. Similarly, int64 values are rejected on
-// 32-bit platforms when they exceed the 32-bit int range.
+// Overflow and bounds safety:
+//
+//   - Unsigned integers that exceed math.MaxInt on the current platform
+//     return (0, false) rather than silently wrapping to a negative int.
+//     This matters on 64-bit platforms for values in (math.MaxInt64,
+//     math.MaxUint64] and on 32-bit platforms for values in (math.MaxInt32,
+//     math.MaxUint32].
+//   - int64 values outside [math.MinInt, math.MaxInt] return (0, false);
+//     this only matters on 32-bit platforms.
+//   - float values that are NaN, infinite, out of the int range, or
+//     non-integer (e.g. 1.7) return (0, false). Silently truncating a
+//     float to an int would hide caller mistakes when a map entry meant
+//     for a string field or a float-typed field gets routed to GetInt.
 func (a *ActionData) GetIntOk(key string) (int, bool) {
 	switch v := a.raw[key].(type) {
 	case int:
@@ -187,7 +194,10 @@ func (a *ActionData) GetIntOk(key string) (int, bool) {
 	case uint16:
 		return int(v), true
 	case uint32:
-		if uint64(v) > math.MaxInt {
+		// On 64-bit platforms math.MaxInt == math.MaxInt64, and uint32's
+		// max (4_294_967_295) is always within range — this check only
+		// triggers on 32-bit builds, where uint32 can exceed math.MaxInt32.
+		if uint64(v) > uint64(math.MaxInt) {
 			return 0, false
 		}
 		return int(v), true
@@ -197,15 +207,27 @@ func (a *ActionData) GetIntOk(key string) (int, bool) {
 		}
 		return int(v), true
 	case float32:
-		return int(v), true
+		return floatToIntOk(float64(v))
 	case float64:
-		return int(v), true
+		return floatToIntOk(v)
 	case string:
 		if i, err := strconv.Atoi(v); err == nil {
 			return i, true
 		}
 	}
 	return 0, false
+}
+
+// floatToIntOk converts a float to int with strict bounds and integer
+// checks. Rejects NaN, ±Inf, values outside the platform int range, and
+// non-integer values (e.g. 1.7). See GetIntOk's doc comment for rationale.
+func floatToIntOk(v float64) (int, bool) {
+	// NaN takes the v != math.Trunc(v) branch (NaN != anything, including
+	// NaN itself) and is rejected. ±Inf is rejected by the bounds checks.
+	if v < math.MinInt || v > math.MaxInt || v != math.Trunc(v) {
+		return 0, false
+	}
+	return int(v), true
 }
 
 // GetFloat extracts a float64 value.

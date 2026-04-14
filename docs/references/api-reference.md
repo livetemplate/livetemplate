@@ -258,9 +258,27 @@ type Session interface {
 }
 ```
 
-Enables server-initiated actions for the current user's connections (all tabs/devices). Use cases: timers, background job notifications, webhook-triggered updates.
+Enables server-initiated actions for every connection in the current
+session group. Use cases: timers, background job notifications,
+webhook-triggered updates.
 
-Accessed via `ctx.Session()` inside your controller's `OnConnect(state, ctx)` lifecycle method (or any action method). The returned `Session` handle can be captured and used from background goroutines to trigger actions for all of the user's connections. See [Server Actions](server-actions.md) for examples.
+**Scope** — `Session.TriggerAction` targets a session group (groupID),
+not a user identity (userID). For the typical anonymous flow where each
+browser session maps to one group via cookie, this is equivalent to
+"all tabs of this browser". For authenticated flows the mapping depends
+on how the `Authenticator` assigns groupIDs:
+
+- If `GetSessionGroup` returns a stable groupID keyed on userID, all of
+  a user's devices share one group and `TriggerAction` fans out to all
+  of them.
+- If `GetSessionGroup` returns a per-session groupID, each device has
+  its own group and `TriggerAction` only fans out within a single
+  device's tabs.
+
+Accessed via `ctx.Session()` inside your controller's `OnConnect(state, ctx)`
+lifecycle method (or any action method). The returned `Session` handle
+can be captured and used from background goroutines. See
+[Server Actions](server-actions.md) for examples.
 
 ---
 

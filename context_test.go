@@ -86,10 +86,14 @@ func TestContext_GetInt_NativeTypes(t *testing.T) {
 // (0, false) for these cases so callers can detect the overflow.
 func TestContext_GetInt_UnsignedOverflow(t *testing.T) {
 	data := map[string]interface{}{
-		"max_int":       uint64(math.MaxInt),     // exactly fits
-		"overflow_u64":  uint64(math.MaxInt) + 1, // one past
-		"overflow_uint": uint(math.MaxInt64) + 1, // one past on 64-bit; always overflows
-		"int64_ok":      int64(math.MaxInt32),    // fits on any platform
+		"max_int":      uint64(math.MaxInt),     // exactly fits
+		"overflow_u64": uint64(math.MaxInt) + 1, // one past
+		// math.MaxUint is the full unsigned range on this platform — it
+		// is always strictly greater than math.MaxInt regardless of word
+		// size, so this case tests the uint overflow branch without
+		// relying on accidental wrap-around arithmetic.
+		"overflow_uint": uint(math.MaxUint),
+		"int64_ok":      int64(math.MaxInt32), // fits on any platform
 	}
 	ctx := NewContext(context.Background(), "test", data)
 	d := ctx.data
@@ -104,7 +108,7 @@ func TestContext_GetInt_UnsignedOverflow(t *testing.T) {
 		t.Errorf("GetIntOk(overflow_u64) = (%d, %v), want (0, false)", got, ok)
 	}
 
-	// Overflowing uint (platform-dependent but always overflows on 64-bit).
+	// Overflowing uint: returns (0, false).
 	if got, ok := d.GetIntOk("overflow_uint"); ok || got != 0 {
 		t.Errorf("GetIntOk(overflow_uint) = (%d, %v), want (0, false)", got, ok)
 	}
@@ -112,6 +116,55 @@ func TestContext_GetInt_UnsignedOverflow(t *testing.T) {
 	// In-range int64: should succeed.
 	if got, ok := d.GetIntOk("int64_ok"); !ok || got != math.MaxInt32 {
 		t.Errorf("GetIntOk(int64_ok) = (%d, %v), want (%d, true)", got, ok, math.MaxInt32)
+	}
+}
+
+// TestContext_GetInt_FloatRejection verifies that GetInt rejects floats
+// that cannot be losslessly converted to int: NaN, ±Inf, out-of-range
+// magnitudes, and non-integer values (e.g. 1.7). Silently truncating such
+// values would hide caller mistakes when a float meant for a string or
+// float field gets routed to GetInt.
+func TestContext_GetInt_FloatRejection(t *testing.T) {
+	data := map[string]interface{}{
+		"integer_float64": float64(42),
+		"integer_float32": float32(17),
+		"nan":             math.NaN(),
+		"pos_inf":         math.Inf(1),
+		"neg_inf":         math.Inf(-1),
+		"too_large_f64":   float64(1e20),
+		"too_small_f64":   float64(-1e20),
+		"non_integer_f64": float64(1.7),
+		"non_integer_f32": float32(2.5),
+		"max_int_as_f64":  float64(math.MaxInt32), // fits on any platform
+	}
+	ctx := NewContext(context.Background(), "test", data)
+	d := ctx.data
+
+	// Integer-valued floats convert cleanly.
+	if got, ok := d.GetIntOk("integer_float64"); !ok || got != 42 {
+		t.Errorf("GetIntOk(integer_float64) = (%d, %v), want (42, true)", got, ok)
+	}
+	if got, ok := d.GetIntOk("integer_float32"); !ok || got != 17 {
+		t.Errorf("GetIntOk(integer_float32) = (%d, %v), want (17, true)", got, ok)
+	}
+	if got, ok := d.GetIntOk("max_int_as_f64"); !ok || got != math.MaxInt32 {
+		t.Errorf("GetIntOk(max_int_as_f64) = (%d, %v), want (%d, true)", got, ok, math.MaxInt32)
+	}
+
+	// Non-convertible floats all return (0, false).
+	rejected := []string{
+		"nan",
+		"pos_inf",
+		"neg_inf",
+		"too_large_f64",
+		"too_small_f64",
+		"non_integer_f64",
+		"non_integer_f32",
+	}
+	for _, key := range rejected {
+		if got, ok := d.GetIntOk(key); ok || got != 0 {
+			t.Errorf("GetIntOk(%q) = (%d, %v), want (0, false)", key, got, ok)
+		}
 	}
 }
 

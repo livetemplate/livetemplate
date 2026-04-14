@@ -2,6 +2,7 @@ package livetemplate
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/livetemplate/livetemplate/internal/session"
 	"github.com/livetemplate/livetemplate/pubsub"
@@ -85,19 +86,48 @@ func (s *localSession) TriggerAction(action string, data map[string]interface{})
 		return fmt.Errorf("livetemplate: no connected sessions for group %q", s.groupID)
 	}
 
+	// Defensive shallow copy of the caller's data map. Dispatch happens
+	// asynchronously (via EnqueueDispatch and/or a Redis publish), so if
+	// the caller reused or mutated the same map after TriggerAction
+	// returned, the dispatched action handlers could observe torn reads
+	// or a mutated value. A one-time copy at this boundary makes the
+	// payload immutable from the framework's perspective.
+	var payload map[string]interface{}
+	if len(data) > 0 {
+		payload = make(map[string]interface{}, len(data))
+		for k, v := range data {
+			payload[k] = v
+		}
+	}
+
 	// Local fan-out: enqueue the dispatch onto each connection's event
 	// loop. The connection's own goroutine dequeues, runs the controller
 	// method, and sends the diff back over WebSocket.
 	for _, conn := range connections {
-		conn.EnqueueDispatch(&session.DispatchRequest{Action: action, Data: data})
+		conn.EnqueueDispatch(&session.DispatchRequest{Action: action, Data: payload})
 	}
 
 	// Remote fan-out: publish to Redis for other instances. The local
 	// instance filters its own messages, so local connections are not
 	// double-dispatched.
+	//
+	// Partial-success handling: if PubSub publishing fails after local
+	// enqueue has already happened, we log at Warn level and return nil
+	// instead of propagating the error. Returning an error would
+	// encourage callers to retry, which would double-enqueue the action
+	// on local connections. Logging + returning nil preserves
+	// at-least-once delivery for local connections while surfacing the
+	// remote-publish failure in operator logs. The goroutine-cancellation
+	// contract is unaffected: returning nil only happens when local
+	// delivery succeeded.
 	if hasRemote {
-		if err := gab.PublishGroupAction(s.groupID, action, data); err != nil {
-			return fmt.Errorf("livetemplate: pubsub publish failed: %w", err)
+		if err := gab.PublishGroupAction(s.groupID, action, payload); err != nil {
+			slog.Warn("livetemplate: Session.TriggerAction pubsub publish failed",
+				slog.String("component", "local_session"),
+				slog.String("group_id", s.groupID),
+				slog.String("action", action),
+				slog.Int("local_connections", len(connections)),
+				slog.Any("error", err))
 		}
 	}
 

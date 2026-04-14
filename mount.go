@@ -28,8 +28,11 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// Session allows stores to trigger server-initiated actions for connected clients.
-// Actions triggered via Session affect ALL connections for the current user (all tabs/devices).
+// Session allows controllers to trigger server-initiated actions for
+// connected clients. Actions triggered via Session affect every connection
+// in the same session group (all tabs sharing one browser session, plus
+// any additional devices that the configured Authenticator places in the
+// same group).
 //
 // This is the recommended way to implement:
 //   - Timers and ticks
@@ -37,15 +40,23 @@ import (
 //   - Webhook-triggered updates
 //   - Cross-tab synchronization
 //
-// Security: Session is scoped to the current user only. There is no way to
-// target other users, preventing unauthorized cross-user actions.
+// Scope: Session is scoped to a session group (groupID), not to a user
+// identity (userID). For the typical anonymous flow where each browser
+// session maps to one group via cookie, this is equivalent to "all tabs
+// of this browser". For authenticated flows the mapping depends on how
+// the Authenticator assigns groupIDs — a user with multiple devices may
+// share a group across devices (by returning a stable groupID keyed on
+// userID) or may have per-device groups (by returning a per-session
+// groupID). Session.TriggerAction always targets the group of the
+// Context it was obtained from, never other groups.
 type Session interface {
-	// TriggerAction dispatches the action to the matching store method,
-	// then sends the updated template to ALL connections for this user.
+	// TriggerAction dispatches the action to the matching controller
+	// method on every connection in the session group, then sends the
+	// updated template to each of those connections.
 	//
-	// This behaves identically to client-initiated actions - the action is
-	// dispatched to the matching method, errors are captured, and updates
-	// are broadcast to all of the user's connections (tabs/devices).
+	// This behaves identically to client-initiated actions: the action
+	// runs through the controller's action method, errors are captured,
+	// and diffs are sent over WebSocket to each connection.
 	//
 	// Example:
 	//   session.TriggerAction("tick", nil)
@@ -1443,6 +1454,16 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 	ctx := NewContext(context.Background(), req.Action, req.Data)
 	ctx = ctx.WithUserID(userID)
 	ctx = ctx.WithFlashSetter(connSt)
+	// Wire Session so dispatched actions (from BroadcastAction or
+	// Session.TriggerAction) can also call ctx.Session().TriggerAction
+	// for follow-on server pushes. pendingBroadcasts from ctx is still
+	// dropped below to prevent storm loops, but TriggerAction goes
+	// through a different queue (EnqueueDispatch directly) and is
+	// allowed — each hop runs through a connection event loop, so the
+	// only unbounded failure mode is a handler that recursively
+	// re-triggers itself, which is a caller bug rather than framework
+	// amplification.
+	ctx = ctx.WithSession(newLocalSession(h, connSt.groupID, userID))
 
 	newState, err := DispatchWithState(h.config.Controller, connSt.state, ctx)
 	if err != nil {
@@ -2332,6 +2353,9 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn WSConn, raw
 		// Create Context for action dispatch
 		actionCtx := NewContext(ctx, uploadAction, make(map[string]interface{}))
 		actionCtx = actionCtx.WithUploads(uploadRegistry)
+		actionCtx = actionCtx.WithUserID(connection.UserID)
+		actionCtx = actionCtx.WithFlashSetter(state)
+		actionCtx = actionCtx.WithSession(newLocalSession(h, connection.GroupID, connection.UserID))
 
 		// Dispatch action using Controller+State pattern
 		newState, actionErr := DispatchWithState(h.config.Controller, state.state, actionCtx)
