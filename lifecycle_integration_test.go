@@ -119,11 +119,24 @@ func TestOnDisconnect_FiresOnAbruptClose(t *testing.T) {
 		t.Fatalf("Underlying conn close failed: %v", err)
 	}
 
-	select {
-	case <-ctrl.disconnectCh:
-		// Success.
-	case <-time.After(5 * time.Second):
-		t.Fatal("OnDisconnect was not called within 5s after abrupt close")
+	// Abrupt-close detection depends on the server's read pump noticing
+	// the TCP EOF, which can take longer than a clean close under CI
+	// load. The t.Log markers below disambiguate a slow machine from a
+	// real regression in CI output.
+	deadline := time.After(5 * time.Second)
+	progress := time.NewTicker(1 * time.Second)
+	defer progress.Stop()
+	elapsed := 0
+	for {
+		select {
+		case <-ctrl.disconnectCh:
+			return
+		case <-progress.C:
+			elapsed++
+			t.Logf("OnDisconnect not yet received after %ds (server hasn't noticed TCP EOF yet)...", elapsed)
+		case <-deadline:
+			t.Fatal("OnDisconnect was not called within 5s after abrupt close")
+		}
 	}
 }
 

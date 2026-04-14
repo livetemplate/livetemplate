@@ -22,14 +22,13 @@ import (
 type localSession struct {
 	handler *liveHandler
 	groupID string
-	userID  string
 }
 
 // newLocalSession constructs a localSession scoped to a specific session
 // group. The returned value implements the Session interface and is safe
 // to store in a controller across goroutines.
-func newLocalSession(handler *liveHandler, groupID, userID string) *localSession {
-	return &localSession{handler: handler, groupID: groupID, userID: userID}
+func newLocalSession(handler *liveHandler, groupID string) *localSession {
+	return &localSession{handler: handler, groupID: groupID}
 }
 
 // TriggerAction dispatches a server-initiated action to every connection
@@ -59,15 +58,36 @@ func newLocalSession(handler *liveHandler, groupID, userID string) *localSession
 //     connections", not "the HTTP responder".
 //
 // Disconnect semantics:
+//
 //   - In single-instance mode, when the group has no local connections
 //     and no GroupActionBroadcaster is configured, TriggerAction returns
 //     an error. Background goroutines using the recommended cancellation
 //     pattern (`if err := session.TriggerAction(...); err != nil { return }`)
 //     will exit cleanly.
+//
 //   - In multi-instance mode (PubSub configured), TriggerAction returns
 //     nil even with zero local connections, because the user may be
 //     connected to another instance. Goroutines that need a hard lifetime
-//     bound in this mode should implement their own termination condition.
+//     bound in this mode should implement their own termination condition
+//     (a done channel, a context with cancellation, or a bounded
+//     iteration count).
+//
+// Important asymmetry for multi-instance users: a persistent PubSub
+// outage produces silent "pubsub publish failed" warnings (one per
+// call) and TriggerAction keeps returning nil. Goroutines that rely
+// on the error return as their only stop signal will loop forever in
+// this scenario. If you care about goroutine cleanup under a broken
+// PubSub, do not depend on the return value — use a context you
+// control, or the hard iteration bound pattern:
+//
+//	for i := 0; i < 100; i++ {
+//	    select {
+//	    case <-ctx.Done():
+//	        return
+//	    case <-time.After(interval):
+//	    }
+//	    _ = session.TriggerAction("tick", nil)
+//	}
 func (s *localSession) TriggerAction(action string, data map[string]interface{}) error {
 	// Callers obtain a Session via ctx.Session(), which returns a nil
 	// interface when WithSession was never called (and panics at the

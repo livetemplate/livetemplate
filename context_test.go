@@ -168,6 +168,59 @@ func TestContext_GetInt_FloatRejection(t *testing.T) {
 	}
 }
 
+// TestContext_GetFloat_Uint64PrecisionLoss documents the known precision
+// boundary for GetFloat when reading large uint64 values. float64 has a
+// 53-bit mantissa, so integer values above 2^53 cannot be represented
+// exactly. This matches Go's standard float64(uint64) semantics — the
+// test exists so a future refactor doesn't accidentally tighten the
+// contract without also updating the doc comment in GetFloatOk.
+//
+// Callers that need exact large-integer round-trips should use GetInt.
+func TestContext_GetFloat_Uint64PrecisionLoss(t *testing.T) {
+	// 2^53 is the largest integer exactly representable in float64.
+	// 2^53 + 1 cannot be represented — it rounds to 2^53.
+	const exact = uint64(1 << 53)
+	const beyond = uint64(1<<53) + 1
+
+	data := map[string]interface{}{
+		"exact":  exact,
+		"beyond": beyond,
+	}
+	ctx := NewContext(context.Background(), "test", data)
+	d := ctx.data
+
+	// The 2^53 boundary converts exactly.
+	if got, ok := d.GetFloatOk("exact"); !ok || got != float64(exact) {
+		t.Errorf("GetFloatOk(exact) = (%v, %v), want (%v, true)", got, ok, float64(exact))
+	}
+
+	// Beyond 2^53: the uint64 value cannot be represented exactly in
+	// float64. GetFloatOk still returns (value, true) — the rounded
+	// float — and the contract is that the caller knows they're
+	// reading a float, not a lossless integer.
+	got, ok := d.GetFloatOk("beyond")
+	if !ok {
+		t.Fatalf("GetFloatOk(beyond) unexpectedly returned ok=false")
+	}
+
+	// Demonstrate the precision loss by round-tripping through uint64.
+	// The float64 approximation of (2^53 + 1) rounds to (2^53), so
+	// converting back to uint64 gives 2^53, not the original 2^53+1.
+	// A comparison like `got == float64(beyond)` does NOT demonstrate
+	// precision loss — the compiler evaluates float64(beyond) at
+	// compile time and produces the same rounded value, so the
+	// equality is trivially true. Round-tripping through uint64 is
+	// the only way to observe that the exact integer identity was
+	// lost during conversion.
+	recovered := uint64(got)
+	if recovered == beyond {
+		t.Errorf("Expected precision loss at 2^53+1, but round-trip uint64(float64(%d)) == %d (no loss observed)", beyond, recovered)
+	}
+	if recovered != exact {
+		t.Errorf("Expected round-trip to round down to 2^53 (%d), got %d", exact, recovered)
+	}
+}
+
 // TestContext_GetFloat_NativeTypes mirrors TestContext_GetInt_NativeTypes
 // for the float path. Verifies that all Go numeric types convert cleanly
 // to float64 via GetFloat.

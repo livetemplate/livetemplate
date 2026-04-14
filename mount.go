@@ -503,7 +503,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	lifecycleCtx := NewContext(context.Background(), "", wsQueryData)
 	lifecycleCtx = lifecycleCtx.WithUserID(userID)
 	lifecycleCtx = lifecycleCtx.WithFlashSetter(connSt)
-	lifecycleCtx = lifecycleCtx.WithSession(newLocalSession(h, groupID, userID))
+	lifecycleCtx = lifecycleCtx.WithSession(newLocalSession(h, groupID))
 
 	// Call Mount on every WebSocket connect (new session AND reconnect).
 	// Mount() refreshes state from the database, ensuring actions always
@@ -679,7 +679,7 @@ eventLoop:
 			actionCtx = actionCtx.WithUserID(userID)
 			actionCtx = actionCtx.WithUploads(uploadRegistry)
 			actionCtx = actionCtx.WithFlashSetter(connSt)
-			actionCtx = actionCtx.WithSession(newLocalSession(h, groupID, userID))
+			actionCtx = actionCtx.WithSession(newLocalSession(h, groupID))
 
 			// Dispatch action using Controller+State pattern
 			newState, actionErr := DispatchWithState(h.config.Controller, connSt.state, actionCtx)
@@ -945,7 +945,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	lifecycleCtx := NewContext(ctx, "", queryData)
 	lifecycleCtx = lifecycleCtx.WithUserID(userID)
 	lifecycleCtx = lifecycleCtx.WithFlashSetter(connSt)
-	lifecycleCtx = lifecycleCtx.WithSession(newLocalSession(h, groupID, userID))
+	lifecycleCtx = lifecycleCtx.WithSession(newLocalSession(h, groupID))
 
 	// Read flash messages from cookie (set by POST redirect)
 	if flashCookie, err := r.Cookie("lvt-flash"); err == nil && flashCookie.Value != "" {
@@ -1154,7 +1154,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	actionCtx = actionCtx.WithHTTP(w, r)
 	actionCtx = actionCtx.WithUploads(uploadRegistry)
 	actionCtx = actionCtx.WithFlashSetter(connSt)
-	actionCtx = actionCtx.WithSession(newLocalSession(h, groupID, userID))
+	actionCtx = actionCtx.WithSession(newLocalSession(h, groupID))
 
 	// Dispatch action using Controller+State pattern
 	newState, actionErr := DispatchWithState(h.config.Controller, connSt.state, actionCtx)
@@ -1463,7 +1463,7 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 	// only unbounded failure mode is a handler that recursively
 	// re-triggers itself, which is a caller bug rather than framework
 	// amplification.
-	ctx = ctx.WithSession(newLocalSession(h, connSt.groupID, userID))
+	ctx = ctx.WithSession(newLocalSession(h, connSt.groupID))
 
 	newState, err := DispatchWithState(h.config.Controller, connSt.state, ctx)
 	if err != nil {
@@ -1812,7 +1812,7 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 		actionCtx := NewContext(ctx, msg.Action, msg.Data)
 		actionCtx = actionCtx.WithUserID(msg.UserID)
 		actionCtx = actionCtx.WithFlashSetter(state)
-		actionCtx = actionCtx.WithSession(newLocalSession(h, conn.GroupID, msg.UserID))
+		actionCtx = actionCtx.WithSession(newLocalSession(h, conn.GroupID))
 
 		// Dispatch action using Controller+State pattern
 		newState, actionErr := DispatchWithState(h.config.Controller, state.state, actionCtx)
@@ -2355,7 +2355,7 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn WSConn, raw
 		actionCtx = actionCtx.WithUploads(uploadRegistry)
 		actionCtx = actionCtx.WithUserID(connection.UserID)
 		actionCtx = actionCtx.WithFlashSetter(state)
-		actionCtx = actionCtx.WithSession(newLocalSession(h, connection.GroupID, connection.UserID))
+		actionCtx = actionCtx.WithSession(newLocalSession(h, connection.GroupID))
 
 		// Dispatch action using Controller+State pattern
 		newState, actionErr := DispatchWithState(h.config.Controller, state.state, actionCtx)

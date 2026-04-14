@@ -1,6 +1,7 @@
 package livetemplate
 
 import (
+	"context"
 	"fmt"
 	"net/http/httptest"
 	"strings"
@@ -19,6 +20,12 @@ type triggerActionTestState struct {
 // triggerActionTestController exercises the OnConnect -> goroutine ->
 // TriggerAction -> action handler pipeline end-to-end. It captures the
 // TriggerAction error return so tests can assert disconnect semantics.
+//
+// The goroutine spawned in OnConnect honours a cancel context so that
+// test teardown (via t.Fatal or normal exit) cancels the sleep and
+// skips the TriggerAction call. Without this, a test failure before
+// the sleep elapses would leave the goroutine asleep while defers
+// tore down the server, producing a race under `go test -race`.
 type triggerActionTestController struct {
 	mu           sync.Mutex
 	triggered    int
@@ -26,6 +33,7 @@ type triggerActionTestController struct {
 	gotSession   bool
 	done         chan struct{}
 	connectDelay time.Duration
+	cancelCtx    context.Context
 }
 
 func (c *triggerActionTestController) OnConnect(state triggerActionTestState, ctx *Context) (triggerActionTestState, error) {
@@ -40,7 +48,16 @@ func (c *triggerActionTestController) OnConnect(state triggerActionTestState, ct
 		return state, nil
 	}
 	go func() {
-		time.Sleep(c.connectDelay)
+		select {
+		case <-time.After(c.connectDelay):
+		case <-c.cancelCtx.Done():
+			// Test is tearing down — skip TriggerAction on the stale
+			// server and signal completion so the test drain can exit.
+			if c.done != nil {
+				close(c.done)
+			}
+			return
+		}
 		err := sess.TriggerAction("dataLoaded", map[string]interface{}{
 			"data": "hello from goroutine",
 		})
@@ -81,9 +98,16 @@ func TestLocalSession_TriggerActionFromOnConnect(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
+	// Cancel context that the spawned OnConnect goroutine honours so
+	// test teardown aborts the TriggerAction call instead of racing
+	// against server.Close().
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
 	ctrl := &triggerActionTestController{
 		done:         make(chan struct{}),
 		connectDelay: 100 * time.Millisecond,
+		cancelCtx:    cancelCtx,
 	}
 	handler := tmpl.Handle(ctrl, AsState(&triggerActionTestState{}))
 
@@ -150,7 +174,16 @@ func TestLocalSession_TriggerActionDisconnectedReturnsError(t *testing.T) {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	handler := tmpl.Handle(&triggerActionTestController{done: make(chan struct{})}, AsState(&triggerActionTestState{}))
+	// cancelCtx is unused in this test (no OnConnect goroutine is
+	// spawned because no WebSocket is ever connected), but must be
+	// non-nil to avoid panicking if OnConnect is accidentally called.
+	handler := tmpl.Handle(
+		&triggerActionTestController{
+			done:      make(chan struct{}),
+			cancelCtx: context.Background(),
+		},
+		AsState(&triggerActionTestState{}),
+	)
 
 	// Cast to *liveHandler so we can construct a localSession directly —
 	// the same code path that runs inside OnConnect.
@@ -158,7 +191,7 @@ func TestLocalSession_TriggerActionDisconnectedReturnsError(t *testing.T) {
 	if !ok {
 		t.Fatalf("Handle() returned unexpected concrete type %T", handler)
 	}
-	sess := newLocalSession(h, "never-connected-group", "disconnect-user")
+	sess := newLocalSession(h, "never-connected-group")
 
 	// No WebSocket has ever connected for this group, and there's no
 	// PubSubBroadcaster, so local+remote delivery both have nothing to do.
