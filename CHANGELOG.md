@@ -6,8 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<a name="v0.8.18"></a>
+## [v0.8.18] - 2026-04-14
+
+### Bug Fixes
+
+- wire Session.TriggerAction into lifecycle contexts ([#336](https://github.com/livefir/livetemplate/issues/336))
+- **ci:** update [@livetemplate](https://github.com/livetemplate)/client to latest in cross-repo tests ([#328](https://github.com/livefir/livetemplate/issues/328))
+
+### Documentation
+
+- patterns example proposal ([#333](https://github.com/livefir/livetemplate/issues/333))
+- update dialog routing with polyfill context ([#331](https://github.com/livefir/livetemplate/issues/331))
+- README rewrite proposal ([#268](https://github.com/livefir/livetemplate/issues/268)) ([#332](https://github.com/livefir/livetemplate/issues/332))
+- comprehensive documentation overhaul ([#329](https://github.com/livefir/livetemplate/issues/329))
+- **proposals:** patterns session 2 tracker ([#335](https://github.com/livefir/livetemplate/issues/335))
+- **proposals:** patterns session 1 tracker + implementation notes ([#334](https://github.com/livefir/livetemplate/issues/334))
+
+
 <a name="v0.8.17"></a>
-## [v0.8.17] - 2026-04-06
+## [v0.8.17] - 2026-04-10
 
 ### Bug Fixes
 
@@ -718,7 +736,8 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.17...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.18...HEAD
+[v0.8.18]: https://github.com/livefir/livetemplate/compare/v0.8.17...v0.8.18
 [v0.8.17]: https://github.com/livefir/livetemplate/compare/v0.8.16...v0.8.17
 [v0.8.16]: https://github.com/livefir/livetemplate/compare/v0.8.15...v0.8.16
 [v0.8.15]: https://github.com/livefir/livetemplate/compare/v0.8.14...v0.8.15
