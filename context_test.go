@@ -2,6 +2,7 @@ package livetemplate
 
 import (
 	"context"
+	"math"
 	"testing"
 )
 
@@ -75,6 +76,74 @@ func TestContext_GetInt_NativeTypes(t *testing.T) {
 	for key, want := range cases {
 		if got := ctx.GetInt(key); got != want {
 			t.Errorf("GetInt(%q) = %d, want %d", key, got, want)
+		}
+	}
+}
+
+// TestContext_GetInt_UnsignedOverflow verifies that GetInt rejects unsigned
+// integers that exceed math.MaxInt on the current platform rather than
+// silently wrapping to a negative value. The GetIntOk variant must return
+// (0, false) for these cases so callers can detect the overflow.
+func TestContext_GetInt_UnsignedOverflow(t *testing.T) {
+	data := map[string]interface{}{
+		"max_int":       uint64(math.MaxInt),     // exactly fits
+		"overflow_u64":  uint64(math.MaxInt) + 1, // one past
+		"overflow_uint": uint(math.MaxInt64) + 1, // one past on 64-bit; always overflows
+		"int64_ok":      int64(math.MaxInt32),    // fits on any platform
+	}
+	ctx := NewContext(context.Background(), "test", data)
+	d := ctx.data
+
+	// Exact-fit uint64: should succeed.
+	if got, ok := d.GetIntOk("max_int"); !ok || got != math.MaxInt {
+		t.Errorf("GetIntOk(max_int) = (%d, %v), want (%d, true)", got, ok, math.MaxInt)
+	}
+
+	// Overflowing uint64: should return (0, false), NOT a wrapped negative.
+	if got, ok := d.GetIntOk("overflow_u64"); ok || got != 0 {
+		t.Errorf("GetIntOk(overflow_u64) = (%d, %v), want (0, false)", got, ok)
+	}
+
+	// Overflowing uint (platform-dependent but always overflows on 64-bit).
+	if got, ok := d.GetIntOk("overflow_uint"); ok || got != 0 {
+		t.Errorf("GetIntOk(overflow_uint) = (%d, %v), want (0, false)", got, ok)
+	}
+
+	// In-range int64: should succeed.
+	if got, ok := d.GetIntOk("int64_ok"); !ok || got != math.MaxInt32 {
+		t.Errorf("GetIntOk(int64_ok) = (%d, %v), want (%d, true)", got, ok, math.MaxInt32)
+	}
+}
+
+// TestContext_GetFloat_NativeTypes mirrors TestContext_GetInt_NativeTypes
+// for the float path. Verifies that all Go numeric types convert cleanly
+// to float64 via GetFloat.
+func TestContext_GetFloat_NativeTypes(t *testing.T) {
+	data := map[string]interface{}{
+		"native_int":     int(10),
+		"native_int32":   int32(20),
+		"native_int64":   int64(30),
+		"native_uint":    uint(40),
+		"native_uint32":  uint32(45),
+		"native_float32": float32(50.5),
+		"native_float64": float64(60.25),
+		"numeric_string": "70.5",
+	}
+	ctx := NewContext(context.Background(), "test", data)
+
+	cases := map[string]float64{
+		"native_int":     10,
+		"native_int32":   20,
+		"native_int64":   30,
+		"native_uint":    40,
+		"native_uint32":  45,
+		"native_float32": 50.5,
+		"native_float64": 60.25,
+		"numeric_string": 70.5,
+	}
+	for key, want := range cases {
+		if got := ctx.GetFloat(key); got != want {
+			t.Errorf("GetFloat(%q) = %v, want %v", key, got, want)
 		}
 	}
 }

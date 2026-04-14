@@ -188,8 +188,11 @@ func TestBroadcastAction_PeerCanSetFlash(t *testing.T) {
 	ws2 := connectWS(t, wsURL)
 	defer func() { _ = ws2.Close() }()
 
-	// Small settle delay so ws2 is fully registered before ws1 sends the action.
-	time.Sleep(100 * time.Millisecond)
+	// No explicit settle delay is required: connectWS blocks until the
+	// initial render arrives on the socket, which only happens after the
+	// server has completed the mount handshake and registered the
+	// connection in the group. By the time the second connectWS returns,
+	// both connections are guaranteed to be in the registry.
 
 	// Trigger Bump on ws1. This should produce:
 	//   - ws1 response with state.Counter=1 and flash success="bump complete on sender"

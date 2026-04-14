@@ -45,6 +45,18 @@ func newLocalSession(handler *liveHandler, groupID, userID string) *localSession
 //     instances. The RedisBroadcaster filters messages from its own
 //     instance ID, so local connections are not double-dispatched.
 //
+// Origin of the Session handle:
+//   - A Session obtained via ctx.Session() inside OnConnect (the typical
+//     path) targets the WebSocket connections in the current group.
+//   - A Session obtained via ctx.Session() inside an HTTP POST action
+//     handler is also valid: it identifies the session group of the
+//     HTTP request (e.g. via cookie) and will fan out to any WebSocket
+//     connections registered in that same group. Callers should be
+//     aware that TriggerAction from an HTTP context may have no effect
+//     if the same browser tab made the POST without an open WebSocket
+//     in the same group — the fan-out target is "peer WebSocket
+//     connections", not "the HTTP responder".
+//
 // Disconnect semantics:
 //   - In single-instance mode, when the group has no local connections
 //     and no GroupActionBroadcaster is configured, TriggerAction returns

@@ -1775,7 +1775,19 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 		// Create context with timeout for server-initiated actions
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 
-		// Create Context for action dispatch
+		// Create Context for action dispatch.
+		//
+		// Asymmetry note: this actionCtx has a live Session attached, so
+		// a server-action handler can chain session.TriggerAction(...) to
+		// re-enqueue more dispatches. The pendingBroadcasts() drop below
+		// only catches ctx.BroadcastAction calls — it does not intercept
+		// chained TriggerAction calls, which bypass the broadcast queue
+		// entirely and go straight to EnqueueDispatch. In practice this
+		// is not a footgun because chained TriggerAction requires explicit
+		// caller intent and each hop still runs through the per-connection
+		// event loop (no unbounded recursion on a single goroutine), but
+		// handlers that recursively trigger themselves will loop until the
+		// session disconnects.
 		actionCtx := NewContext(ctx, msg.Action, msg.Data)
 		actionCtx = actionCtx.WithUserID(msg.UserID)
 		actionCtx = actionCtx.WithFlashSetter(state)

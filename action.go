@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -154,6 +155,13 @@ func (a *ActionData) GetInt(key string) int {
 // and numeric strings from form fields and data-* attributes. Native numeric
 // support matters for Session.TriggerAction, where callers pass Go-native
 // values rather than JSON-unmarshaled ones.
+//
+// Unsigned integers that exceed math.MaxInt on the current platform are
+// rejected (returns (0, false)) rather than silently wrapping to a negative
+// int. This matters on 64-bit platforms for values in the range
+// (math.MaxInt64, math.MaxUint64] and on 32-bit platforms for values in
+// (math.MaxInt32, math.MaxUint32]. Similarly, int64 values are rejected on
+// 32-bit platforms when they exceed the 32-bit int range.
 func (a *ActionData) GetIntOk(key string) (int, bool) {
 	switch v := a.raw[key].(type) {
 	case int:
@@ -165,16 +173,28 @@ func (a *ActionData) GetIntOk(key string) (int, bool) {
 	case int32:
 		return int(v), true
 	case int64:
+		if v > math.MaxInt || v < math.MinInt {
+			return 0, false
+		}
 		return int(v), true
 	case uint:
+		if v > math.MaxInt {
+			return 0, false
+		}
 		return int(v), true
 	case uint8:
 		return int(v), true
 	case uint16:
 		return int(v), true
 	case uint32:
+		if uint64(v) > math.MaxInt {
+			return 0, false
+		}
 		return int(v), true
 	case uint64:
+		if v > math.MaxInt {
+			return 0, false
+		}
 		return int(v), true
 	case float32:
 		return int(v), true
