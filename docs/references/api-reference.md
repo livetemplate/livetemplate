@@ -260,7 +260,7 @@ type Session interface {
 
 Enables server-initiated actions for the current user's connections (all tabs/devices). Use cases: timers, background job notifications, webhook-triggered updates.
 
-Accessed by implementing `SessionAware` on your controller. The framework calls `SessionAware.OnConnect(ctx, session)` on each WebSocket connect, providing a `Session` handle for async action dispatch. See [Server Actions](server-actions.md) for examples.
+Accessed via `ctx.Session()` inside your controller's `OnConnect(state, ctx)` lifecycle method (or any action method). The returned `Session` handle can be captured and used from background goroutines to trigger actions for all of the user's connections. See [Server Actions](server-actions.md) for examples.
 
 ---
 

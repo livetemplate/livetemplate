@@ -48,6 +48,37 @@ func TestContext_GetInt(t *testing.T) {
 	}
 }
 
+// TestContext_GetInt_NativeTypes verifies that GetInt accepts native Go
+// numeric types. This matters for Session.TriggerAction, which passes
+// Go-native values rather than JSON-unmarshaled ones.
+func TestContext_GetInt_NativeTypes(t *testing.T) {
+	data := map[string]interface{}{
+		"native_int":     int(10),
+		"native_int32":   int32(20),
+		"native_int64":   int64(30),
+		"native_uint":    uint(40),
+		"native_float32": float32(50),
+		"native_float64": float64(60),
+		"numeric_string": "70",
+	}
+	ctx := NewContext(context.Background(), "test", data)
+
+	cases := map[string]int{
+		"native_int":     10,
+		"native_int32":   20,
+		"native_int64":   30,
+		"native_uint":    40,
+		"native_float32": 50,
+		"native_float64": 60,
+		"numeric_string": 70,
+	}
+	for key, want := range cases {
+		if got := ctx.GetInt(key); got != want {
+			t.Errorf("GetInt(%q) = %d, want %d", key, got, want)
+		}
+	}
+}
+
 func TestContext_GetBool(t *testing.T) {
 	data := map[string]interface{}{"active": true}
 	ctx := NewContext(context.Background(), "test", data)

@@ -150,15 +150,37 @@ func (a *ActionData) GetInt(key string) int {
 // Returns (value, true) if key exists and value is a number or numeric string.
 // Returns (0, false) if key doesn't exist or value cannot be parsed as int.
 //
-// This method handles both JSON numbers (float64) and string values from
-// form fields and data-* attributes, which are always transmitted as strings.
+// Accepts native Go numeric types (int, int32, int64, float32, float64, etc.)
+// and numeric strings from form fields and data-* attributes. Native numeric
+// support matters for Session.TriggerAction, where callers pass Go-native
+// values rather than JSON-unmarshaled ones.
 func (a *ActionData) GetIntOk(key string) (int, bool) {
-	// Handle float64 (JSON numbers)
-	if v, ok := a.raw[key].(float64); ok {
+	switch v := a.raw[key].(type) {
+	case int:
+		return v, true
+	case int8:
 		return int(v), true
-	}
-	// Handle string values from form fields and data-* attributes
-	if v, ok := a.raw[key].(string); ok {
+	case int16:
+		return int(v), true
+	case int32:
+		return int(v), true
+	case int64:
+		return int(v), true
+	case uint:
+		return int(v), true
+	case uint8:
+		return int(v), true
+	case uint16:
+		return int(v), true
+	case uint32:
+		return int(v), true
+	case uint64:
+		return int(v), true
+	case float32:
+		return int(v), true
+	case float64:
+		return int(v), true
+	case string:
 		if i, err := strconv.Atoi(v); err == nil {
 			return i, true
 		}
@@ -181,15 +203,37 @@ func (a *ActionData) GetFloat(key string) float64 {
 // Returns (value, true) if key exists and value is a number or numeric string.
 // Returns (0, false) if key doesn't exist or value cannot be parsed as float.
 //
-// This method handles both JSON numbers (float64) and string values from
-// form fields and data-* attributes, which are always transmitted as strings.
+// Accepts native Go numeric types (int, int32, int64, float32, float64, etc.)
+// and numeric strings from form fields and data-* attributes. Native numeric
+// support matters for Session.TriggerAction, where callers pass Go-native
+// values rather than JSON-unmarshaled ones.
 func (a *ActionData) GetFloatOk(key string) (float64, bool) {
-	// Handle float64 (JSON numbers)
-	if v, ok := a.raw[key].(float64); ok {
+	switch v := a.raw[key].(type) {
+	case float64:
 		return v, true
-	}
-	// Handle string values from form fields and data-* attributes
-	if v, ok := a.raw[key].(string); ok {
+	case float32:
+		return float64(v), true
+	case int:
+		return float64(v), true
+	case int8:
+		return float64(v), true
+	case int16:
+		return float64(v), true
+	case int32:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case uint:
+		return float64(v), true
+	case uint8:
+		return float64(v), true
+	case uint16:
+		return float64(v), true
+	case uint32:
+		return float64(v), true
+	case uint64:
+		return float64(v), true
+	case string:
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			return f, true
 		}

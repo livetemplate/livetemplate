@@ -479,22 +479,3 @@ func TestSession_Interface(t *testing.T) {
 	// Verify Session interface exists
 	var _ = (Session)(nil)
 }
-
-func TestSessionAware_Interface(t *testing.T) {
-	// Verify SessionAware interface exists
-	var _ SessionAware = (*testSessionAwareStore)(nil)
-}
-
-// testSessionAwareStore implements SessionAware for testing
-type testSessionAwareStore struct {
-	session Session
-}
-
-func (s *testSessionAwareStore) OnConnect(ctx context.Context, sess Session) error {
-	s.session = sess
-	return nil
-}
-
-func (s *testSessionAwareStore) OnDisconnect() {
-	s.session = nil
-}
