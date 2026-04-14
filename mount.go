@@ -28,8 +28,11 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// Session allows stores to trigger server-initiated actions for connected clients.
-// Actions triggered via Session affect ALL connections for the current user (all tabs/devices).
+// Session allows controllers to trigger server-initiated actions for
+// connected clients. Actions triggered via Session affect every connection
+// in the same session group (all tabs sharing one browser session, plus
+// any additional devices that the configured Authenticator places in the
+// same group).
 //
 // This is the recommended way to implement:
 //   - Timers and ticks
@@ -37,15 +40,23 @@ import (
 //   - Webhook-triggered updates
 //   - Cross-tab synchronization
 //
-// Security: Session is scoped to the current user only. There is no way to
-// target other users, preventing unauthorized cross-user actions.
+// Scope: Session is scoped to a session group (groupID), not to a user
+// identity (userID). For the typical anonymous flow where each browser
+// session maps to one group via cookie, this is equivalent to "all tabs
+// of this browser". For authenticated flows the mapping depends on how
+// the Authenticator assigns groupIDs — a user with multiple devices may
+// share a group across devices (by returning a stable groupID keyed on
+// userID) or may have per-device groups (by returning a per-session
+// groupID). Session.TriggerAction always targets the group of the
+// Context it was obtained from, never other groups.
 type Session interface {
-	// TriggerAction dispatches the action to the matching store method,
-	// then sends the updated template to ALL connections for this user.
+	// TriggerAction dispatches the action to the matching controller
+	// method on every connection in the session group, then sends the
+	// updated template to each of those connections.
 	//
-	// This behaves identically to client-initiated actions - the action is
-	// dispatched to the matching method, errors are captured, and updates
-	// are broadcast to all of the user's connections (tabs/devices).
+	// This behaves identically to client-initiated actions: the action
+	// runs through the controller's action method, errors are captured,
+	// and diffs are sent over WebSocket to each connection.
 	//
 	// Example:
 	//   session.TriggerAction("tick", nil)
@@ -53,68 +64,13 @@ type Session interface {
 	TriggerAction(action string, data map[string]interface{}) error
 }
 
-// SessionAware is implemented by stores that need server-initiated actions.
-// When a WebSocket connection is established, OnConnect is called with a Session
-// handle that can be used to trigger actions from background goroutines.
-//
-// Example usage:
-//
-//	type TimerStore struct {
-//	    Seconds int
-//	    session livetemplate.Session
-//	}
-//
-//	func (s *TimerStore) OnConnect(ctx context.Context, session livetemplate.Session) error {
-//	    s.session = session
-//	    go s.runTimer(ctx)
-//	    return nil
-//	}
-//
-//	func (s *TimerStore) runTimer(ctx context.Context) {
-//	    ticker := time.NewTicker(time.Second)
-//	    defer ticker.Stop()
-//	    for {
-//	        select {
-//	        case <-ctx.Done():
-//	            return
-//	        case <-ticker.C:
-//	            s.session.TriggerAction("tick", nil)
-//	        }
-//	    }
-//	}
-//
-//	func (s *TimerStore) OnDisconnect() {
-//	    // Cleanup if needed
-//	}
-//
-//	func (s *TimerStore) Tick(state TimerState, ctx *livetemplate.Context) (TimerState, error) {
-//	    state.Seconds++
-//	    return state, nil
-//	}
-type SessionAware interface {
-	OnConnect(ctx context.Context, session Session) error
-	OnDisconnect()
-}
-
-// Deprecated: Broadcaster is deprecated. Use Session instead.
-// Broadcaster allows stores to push updates to connected clients without user interaction.
-type Broadcaster interface {
-	Send() error // Re-renders template and sends update to this connection
-}
-
-// Deprecated: BroadcastAware is deprecated. Use SessionAware instead.
-// BroadcastAware is implemented by stores that need server-initiated updates.
-type BroadcastAware interface {
-	OnConnect(ctx context.Context, b Broadcaster) error
-	OnDisconnect()
-}
-
 // LiveHandler is the interface returned by Template.Handle()
 // It provides HTTP handling and lifecycle management for live template connections.
 //
-// For server-initiated actions, use the Session interface provided to stores
-// via SessionAware.OnConnect(). Session.TriggerAction() is the recommended way
-// to push updates from the server.
+// For server-initiated actions, implement an OnConnect(state, ctx) lifecycle
+// method on your controller and call ctx.Session() to obtain a Session handle
+// that can be used to trigger actions from background goroutines. See the
+// Session interface above and docs/references/server-actions.md for details.
 type LiveHandler interface {
 	http.Handler
 
@@ -547,6 +503,7 @@ func (h *liveHandler) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	lifecycleCtx := NewContext(context.Background(), "", wsQueryData)
 	lifecycleCtx = lifecycleCtx.WithUserID(userID)
 	lifecycleCtx = lifecycleCtx.WithFlashSetter(connSt)
+	lifecycleCtx = lifecycleCtx.WithSession(newLocalSession(h, groupID))
 
 	// Call Mount on every WebSocket connect (new session AND reconnect).
 	// Mount() refreshes state from the database, ensuring actions always
@@ -722,6 +679,7 @@ eventLoop:
 			actionCtx = actionCtx.WithUserID(userID)
 			actionCtx = actionCtx.WithUploads(uploadRegistry)
 			actionCtx = actionCtx.WithFlashSetter(connSt)
+			actionCtx = actionCtx.WithSession(newLocalSession(h, groupID))
 
 			// Dispatch action using Controller+State pattern
 			newState, actionErr := DispatchWithState(h.config.Controller, connSt.state, actionCtx)
@@ -987,6 +945,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	lifecycleCtx := NewContext(ctx, "", queryData)
 	lifecycleCtx = lifecycleCtx.WithUserID(userID)
 	lifecycleCtx = lifecycleCtx.WithFlashSetter(connSt)
+	lifecycleCtx = lifecycleCtx.WithSession(newLocalSession(h, groupID))
 
 	// Read flash messages from cookie (set by POST redirect)
 	if flashCookie, err := r.Cookie("lvt-flash"); err == nil && flashCookie.Value != "" {
@@ -1195,6 +1154,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	actionCtx = actionCtx.WithHTTP(w, r)
 	actionCtx = actionCtx.WithUploads(uploadRegistry)
 	actionCtx = actionCtx.WithFlashSetter(connSt)
+	actionCtx = actionCtx.WithSession(newLocalSession(h, groupID))
 
 	// Dispatch action using Controller+State pattern
 	newState, actionErr := DispatchWithState(h.config.Controller, connSt.state, actionCtx)
@@ -1494,6 +1454,16 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 	ctx := NewContext(context.Background(), req.Action, req.Data)
 	ctx = ctx.WithUserID(userID)
 	ctx = ctx.WithFlashSetter(connSt)
+	// Wire Session so dispatched actions (from BroadcastAction or
+	// Session.TriggerAction) can also call ctx.Session().TriggerAction
+	// for follow-on server pushes. pendingBroadcasts from ctx is still
+	// dropped below to prevent storm loops, but TriggerAction goes
+	// through a different queue (EnqueueDispatch directly) and is
+	// allowed — each hop runs through a connection event loop, so the
+	// only unbounded failure mode is a handler that recursively
+	// re-triggers itself, which is a caller bug rather than framework
+	// amplification.
+	ctx = ctx.WithSession(newLocalSession(h, connSt.groupID))
 
 	newState, err := DispatchWithState(h.config.Controller, connSt.state, ctx)
 	if err != nil {
@@ -1826,10 +1796,23 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 		// Create context with timeout for server-initiated actions
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 
-		// Create Context for action dispatch
+		// Create Context for action dispatch.
+		//
+		// Asymmetry note: this actionCtx has a live Session attached, so
+		// a server-action handler can chain session.TriggerAction(...) to
+		// re-enqueue more dispatches. The pendingBroadcasts() drop below
+		// only catches ctx.BroadcastAction calls — it does not intercept
+		// chained TriggerAction calls, which bypass the broadcast queue
+		// entirely and go straight to EnqueueDispatch. In practice this
+		// is not a footgun because chained TriggerAction requires explicit
+		// caller intent and each hop still runs through the per-connection
+		// event loop (no unbounded recursion on a single goroutine), but
+		// handlers that recursively trigger themselves will loop until the
+		// session disconnects.
 		actionCtx := NewContext(ctx, msg.Action, msg.Data)
 		actionCtx = actionCtx.WithUserID(msg.UserID)
 		actionCtx = actionCtx.WithFlashSetter(state)
+		actionCtx = actionCtx.WithSession(newLocalSession(h, conn.GroupID))
 
 		// Dispatch action using Controller+State pattern
 		newState, actionErr := DispatchWithState(h.config.Controller, state.state, actionCtx)
@@ -1859,6 +1842,20 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 			state.state = newState
 			conn.Stores = newState
 			groupStates[conn.GroupID] = newState
+		}
+
+		// Chained BroadcastAction calls from server-initiated actions are
+		// intentionally not processed. Server actions already fan out to all
+		// the user's connections via this loop, and chaining BroadcastAction
+		// on top would cause duplicate fan-out plus storm risk — matching
+		// the behavior of handleDispatchedAction above. Log them so the
+		// failure is observable instead of silent (the pre-fix behavior).
+		if dropped := actionCtx.pendingBroadcasts(); len(dropped) > 0 {
+			slog.Error("BroadcastAction calls inside a server-initiated action are ignored (prevents fan-out amplification and broadcast storms)",
+				slog.String("component", "pubsub_handler"),
+				slog.String("action", msg.Action),
+				slog.String("user_id", msg.UserID),
+				slog.Int("dropped_count", len(dropped)))
 		}
 
 		// Send update to this connection (with flash messages)
@@ -2356,6 +2353,9 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn WSConn, raw
 		// Create Context for action dispatch
 		actionCtx := NewContext(ctx, uploadAction, make(map[string]interface{}))
 		actionCtx = actionCtx.WithUploads(uploadRegistry)
+		actionCtx = actionCtx.WithUserID(connection.UserID)
+		actionCtx = actionCtx.WithFlashSetter(state)
+		actionCtx = actionCtx.WithSession(newLocalSession(h, connection.GroupID))
 
 		// Dispatch action using Controller+State pattern
 		newState, actionErr := DispatchWithState(h.config.Controller, state.state, actionCtx)

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -150,20 +151,83 @@ func (a *ActionData) GetInt(key string) int {
 // Returns (value, true) if key exists and value is a number or numeric string.
 // Returns (0, false) if key doesn't exist or value cannot be parsed as int.
 //
-// This method handles both JSON numbers (float64) and string values from
-// form fields and data-* attributes, which are always transmitted as strings.
+// Accepts native Go numeric types (int, int32, int64, float32, float64, etc.)
+// and numeric strings from form fields and data-* attributes. Native numeric
+// support matters for Session.TriggerAction, where callers pass Go-native
+// values rather than JSON-unmarshaled ones.
+//
+// Overflow and bounds safety:
+//
+//   - Unsigned integers that exceed math.MaxInt on the current platform
+//     return (0, false) rather than silently wrapping to a negative int.
+//     This matters on 64-bit platforms for values in (math.MaxInt64,
+//     math.MaxUint64] and on 32-bit platforms for values in (math.MaxInt32,
+//     math.MaxUint32].
+//   - int64 values outside [math.MinInt, math.MaxInt] return (0, false);
+//     this only matters on 32-bit platforms.
+//   - float values that are NaN, infinite, out of the int range, or
+//     non-integer (e.g. 1.7) return (0, false). Silently truncating a
+//     float to an int would hide caller mistakes when a map entry meant
+//     for a string field or a float-typed field gets routed to GetInt.
 func (a *ActionData) GetIntOk(key string) (int, bool) {
-	// Handle float64 (JSON numbers)
-	if v, ok := a.raw[key].(float64); ok {
+	switch v := a.raw[key].(type) {
+	case int:
+		return v, true
+	case int8:
 		return int(v), true
-	}
-	// Handle string values from form fields and data-* attributes
-	if v, ok := a.raw[key].(string); ok {
+	case int16:
+		return int(v), true
+	case int32:
+		return int(v), true
+	case int64:
+		if v > math.MaxInt || v < math.MinInt {
+			return 0, false
+		}
+		return int(v), true
+	case uint:
+		if v > math.MaxInt {
+			return 0, false
+		}
+		return int(v), true
+	case uint8:
+		return int(v), true
+	case uint16:
+		return int(v), true
+	case uint32:
+		// On 64-bit platforms math.MaxInt == math.MaxInt64, and uint32's
+		// max (4_294_967_295) is always within range — this check only
+		// triggers on 32-bit builds, where uint32 can exceed math.MaxInt32.
+		if uint64(v) > uint64(math.MaxInt) {
+			return 0, false
+		}
+		return int(v), true
+	case uint64:
+		if v > math.MaxInt {
+			return 0, false
+		}
+		return int(v), true
+	case float32:
+		return floatToIntOk(float64(v))
+	case float64:
+		return floatToIntOk(v)
+	case string:
 		if i, err := strconv.Atoi(v); err == nil {
 			return i, true
 		}
 	}
 	return 0, false
+}
+
+// floatToIntOk converts a float to int with strict bounds and integer
+// checks. Rejects NaN, ±Inf, values outside the platform int range, and
+// non-integer values (e.g. 1.7). See GetIntOk's doc comment for rationale.
+func floatToIntOk(v float64) (int, bool) {
+	// NaN takes the v != math.Trunc(v) branch (NaN != anything, including
+	// NaN itself) and is rejected. ±Inf is rejected by the bounds checks.
+	if v < math.MinInt || v > math.MaxInt || v != math.Trunc(v) {
+		return 0, false
+	}
+	return int(v), true
 }
 
 // GetFloat extracts a float64 value.
@@ -181,15 +245,43 @@ func (a *ActionData) GetFloat(key string) float64 {
 // Returns (value, true) if key exists and value is a number or numeric string.
 // Returns (0, false) if key doesn't exist or value cannot be parsed as float.
 //
-// This method handles both JSON numbers (float64) and string values from
-// form fields and data-* attributes, which are always transmitted as strings.
+// Accepts native Go numeric types (int, int32, int64, float32, float64, etc.)
+// and numeric strings from form fields and data-* attributes. Native numeric
+// support matters for Session.TriggerAction, where callers pass Go-native
+// values rather than JSON-unmarshaled ones.
+//
+// Precision note: float64 has a 53-bit mantissa, so integer values larger
+// than 2^53 (int64 and uint64) lose precision during conversion. Callers
+// needing exact large integer round-trips should use GetInt instead.
 func (a *ActionData) GetFloatOk(key string) (float64, bool) {
-	// Handle float64 (JSON numbers)
-	if v, ok := a.raw[key].(float64); ok {
+	switch v := a.raw[key].(type) {
+	case float64:
 		return v, true
-	}
-	// Handle string values from form fields and data-* attributes
-	if v, ok := a.raw[key].(string); ok {
+	case float32:
+		return float64(v), true
+	case int:
+		return float64(v), true
+	case int8:
+		return float64(v), true
+	case int16:
+		return float64(v), true
+	case int32:
+		return float64(v), true
+	case int64:
+		// Values outside [-2^53, 2^53] lose precision. See doc comment.
+		return float64(v), true
+	case uint:
+		return float64(v), true
+	case uint8:
+		return float64(v), true
+	case uint16:
+		return float64(v), true
+	case uint32:
+		return float64(v), true
+	case uint64:
+		// Values above 2^53 lose precision. See doc comment.
+		return float64(v), true
+	case string:
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			return f, true
 		}

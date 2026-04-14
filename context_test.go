@@ -2,6 +2,7 @@ package livetemplate
 
 import (
 	"context"
+	"math"
 	"testing"
 )
 
@@ -45,6 +46,211 @@ func TestContext_GetInt(t *testing.T) {
 
 	if got := ctx.GetInt("missing"); got != 0 {
 		t.Errorf("GetInt(missing) = %d, want 0", got)
+	}
+}
+
+// TestContext_GetInt_NativeTypes verifies that GetInt accepts native Go
+// numeric types. This matters for Session.TriggerAction, which passes
+// Go-native values rather than JSON-unmarshaled ones.
+func TestContext_GetInt_NativeTypes(t *testing.T) {
+	data := map[string]interface{}{
+		"native_int":     int(10),
+		"native_int32":   int32(20),
+		"native_int64":   int64(30),
+		"native_uint":    uint(40),
+		"native_float32": float32(50),
+		"native_float64": float64(60),
+		"numeric_string": "70",
+	}
+	ctx := NewContext(context.Background(), "test", data)
+
+	cases := map[string]int{
+		"native_int":     10,
+		"native_int32":   20,
+		"native_int64":   30,
+		"native_uint":    40,
+		"native_float32": 50,
+		"native_float64": 60,
+		"numeric_string": 70,
+	}
+	for key, want := range cases {
+		if got := ctx.GetInt(key); got != want {
+			t.Errorf("GetInt(%q) = %d, want %d", key, got, want)
+		}
+	}
+}
+
+// TestContext_GetInt_UnsignedOverflow verifies that GetInt rejects unsigned
+// integers that exceed math.MaxInt on the current platform rather than
+// silently wrapping to a negative value. The GetIntOk variant must return
+// (0, false) for these cases so callers can detect the overflow.
+func TestContext_GetInt_UnsignedOverflow(t *testing.T) {
+	data := map[string]interface{}{
+		"max_int":      uint64(math.MaxInt),     // exactly fits
+		"overflow_u64": uint64(math.MaxInt) + 1, // one past
+		// math.MaxUint is the full unsigned range on this platform — it
+		// is always strictly greater than math.MaxInt regardless of word
+		// size, so this case tests the uint overflow branch without
+		// relying on accidental wrap-around arithmetic.
+		"overflow_uint": uint(math.MaxUint),
+		"int64_ok":      int64(math.MaxInt32), // fits on any platform
+	}
+	ctx := NewContext(context.Background(), "test", data)
+	d := ctx.data
+
+	// Exact-fit uint64: should succeed.
+	if got, ok := d.GetIntOk("max_int"); !ok || got != math.MaxInt {
+		t.Errorf("GetIntOk(max_int) = (%d, %v), want (%d, true)", got, ok, math.MaxInt)
+	}
+
+	// Overflowing uint64: should return (0, false), NOT a wrapped negative.
+	if got, ok := d.GetIntOk("overflow_u64"); ok || got != 0 {
+		t.Errorf("GetIntOk(overflow_u64) = (%d, %v), want (0, false)", got, ok)
+	}
+
+	// Overflowing uint: returns (0, false).
+	if got, ok := d.GetIntOk("overflow_uint"); ok || got != 0 {
+		t.Errorf("GetIntOk(overflow_uint) = (%d, %v), want (0, false)", got, ok)
+	}
+
+	// In-range int64: should succeed.
+	if got, ok := d.GetIntOk("int64_ok"); !ok || got != math.MaxInt32 {
+		t.Errorf("GetIntOk(int64_ok) = (%d, %v), want (%d, true)", got, ok, math.MaxInt32)
+	}
+}
+
+// TestContext_GetInt_FloatRejection verifies that GetInt rejects floats
+// that cannot be losslessly converted to int: NaN, ±Inf, out-of-range
+// magnitudes, and non-integer values (e.g. 1.7). Silently truncating such
+// values would hide caller mistakes when a float meant for a string or
+// float field gets routed to GetInt.
+func TestContext_GetInt_FloatRejection(t *testing.T) {
+	data := map[string]interface{}{
+		"integer_float64": float64(42),
+		"integer_float32": float32(17),
+		"nan":             math.NaN(),
+		"pos_inf":         math.Inf(1),
+		"neg_inf":         math.Inf(-1),
+		"too_large_f64":   float64(1e20),
+		"too_small_f64":   float64(-1e20),
+		"non_integer_f64": float64(1.7),
+		"non_integer_f32": float32(2.5),
+		"max_int_as_f64":  float64(math.MaxInt32), // fits on any platform
+	}
+	ctx := NewContext(context.Background(), "test", data)
+	d := ctx.data
+
+	// Integer-valued floats convert cleanly.
+	if got, ok := d.GetIntOk("integer_float64"); !ok || got != 42 {
+		t.Errorf("GetIntOk(integer_float64) = (%d, %v), want (42, true)", got, ok)
+	}
+	if got, ok := d.GetIntOk("integer_float32"); !ok || got != 17 {
+		t.Errorf("GetIntOk(integer_float32) = (%d, %v), want (17, true)", got, ok)
+	}
+	if got, ok := d.GetIntOk("max_int_as_f64"); !ok || got != math.MaxInt32 {
+		t.Errorf("GetIntOk(max_int_as_f64) = (%d, %v), want (%d, true)", got, ok, math.MaxInt32)
+	}
+
+	// Non-convertible floats all return (0, false).
+	rejected := []string{
+		"nan",
+		"pos_inf",
+		"neg_inf",
+		"too_large_f64",
+		"too_small_f64",
+		"non_integer_f64",
+		"non_integer_f32",
+	}
+	for _, key := range rejected {
+		if got, ok := d.GetIntOk(key); ok || got != 0 {
+			t.Errorf("GetIntOk(%q) = (%d, %v), want (0, false)", key, got, ok)
+		}
+	}
+}
+
+// TestContext_GetFloat_Uint64PrecisionLoss documents the known precision
+// boundary for GetFloat when reading large uint64 values. float64 has a
+// 53-bit mantissa, so integer values above 2^53 cannot be represented
+// exactly. This matches Go's standard float64(uint64) semantics — the
+// test exists so a future refactor doesn't accidentally tighten the
+// contract without also updating the doc comment in GetFloatOk.
+//
+// Callers that need exact large-integer round-trips should use GetInt.
+func TestContext_GetFloat_Uint64PrecisionLoss(t *testing.T) {
+	// 2^53 is the largest integer exactly representable in float64.
+	// 2^53 + 1 cannot be represented — it rounds to 2^53.
+	const exact = uint64(1 << 53)
+	const beyond = uint64(1<<53) + 1
+
+	data := map[string]interface{}{
+		"exact":  exact,
+		"beyond": beyond,
+	}
+	ctx := NewContext(context.Background(), "test", data)
+	d := ctx.data
+
+	// The 2^53 boundary converts exactly.
+	if got, ok := d.GetFloatOk("exact"); !ok || got != float64(exact) {
+		t.Errorf("GetFloatOk(exact) = (%v, %v), want (%v, true)", got, ok, float64(exact))
+	}
+
+	// Beyond 2^53: the uint64 value cannot be represented exactly in
+	// float64. GetFloatOk still returns (value, true) — the rounded
+	// float — and the contract is that the caller knows they're
+	// reading a float, not a lossless integer.
+	got, ok := d.GetFloatOk("beyond")
+	if !ok {
+		t.Fatalf("GetFloatOk(beyond) unexpectedly returned ok=false")
+	}
+
+	// Demonstrate the precision loss by round-tripping through uint64.
+	// The float64 approximation of (2^53 + 1) rounds to (2^53), so
+	// converting back to uint64 gives 2^53, not the original 2^53+1.
+	// A comparison like `got == float64(beyond)` does NOT demonstrate
+	// precision loss — the compiler evaluates float64(beyond) at
+	// compile time and produces the same rounded value, so the
+	// equality is trivially true. Round-tripping through uint64 is
+	// the only way to observe that the exact integer identity was
+	// lost during conversion.
+	recovered := uint64(got)
+	if recovered == beyond {
+		t.Errorf("Expected precision loss at 2^53+1, but round-trip uint64(float64(%d)) == %d (no loss observed)", beyond, recovered)
+	}
+	if recovered != exact {
+		t.Errorf("Expected round-trip to round down to 2^53 (%d), got %d", exact, recovered)
+	}
+}
+
+// TestContext_GetFloat_NativeTypes mirrors TestContext_GetInt_NativeTypes
+// for the float path. Verifies that all Go numeric types convert cleanly
+// to float64 via GetFloat.
+func TestContext_GetFloat_NativeTypes(t *testing.T) {
+	data := map[string]interface{}{
+		"native_int":     int(10),
+		"native_int32":   int32(20),
+		"native_int64":   int64(30),
+		"native_uint":    uint(40),
+		"native_uint32":  uint32(45),
+		"native_float32": float32(50.5),
+		"native_float64": float64(60.25),
+		"numeric_string": "70.5",
+	}
+	ctx := NewContext(context.Background(), "test", data)
+
+	cases := map[string]float64{
+		"native_int":     10,
+		"native_int32":   20,
+		"native_int64":   30,
+		"native_uint":    40,
+		"native_uint32":  45,
+		"native_float32": 50.5,
+		"native_float64": 60.25,
+		"numeric_string": 70.5,
+	}
+	for key, want := range cases {
+		if got := ctx.GetFloat(key); got != want {
+			t.Errorf("GetFloat(%q) = %v, want %v", key, got, want)
+		}
 	}
 }
 
