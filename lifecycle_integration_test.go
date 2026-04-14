@@ -62,8 +62,11 @@ func TestOnDisconnect_FiresOnWebSocketClose(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
 
-	// Open the WebSocket and read the initial render so we know the server
-	// has fully set up the connection (OnConnect has run, event loop active).
+	// Open the WebSocket. connectWSRaw blocks until the initial render
+	// frame is delivered, which means the server has already completed
+	// Mount + OnConnect and entered its event loop. Discarding the frame
+	// bytes is safe — the test doesn't care about the initial render
+	// contents, only about triggering OnDisconnect on the subsequent close.
 	ws, _ := connectWSRaw(t, wsURL)
 
 	// Close the connection cleanly and wait for OnDisconnect.
@@ -104,6 +107,10 @@ func TestOnDisconnect_FiresOnAbruptClose(t *testing.T) {
 	defer server.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+	// connectWSRaw blocks on the initial render so the server has
+	// finished OnConnect by the time it returns. The initial frame
+	// bytes are discarded because the test only cares about the
+	// disconnect hook firing on the subsequent abrupt close.
 	ws, _ := connectWSRaw(t, wsURL)
 
 	// Close the underlying TCP connection without sending a close frame.

@@ -249,6 +249,10 @@ func (a *ActionData) GetFloat(key string) float64 {
 // and numeric strings from form fields and data-* attributes. Native numeric
 // support matters for Session.TriggerAction, where callers pass Go-native
 // values rather than JSON-unmarshaled ones.
+//
+// Precision note: float64 has a 53-bit mantissa, so integer values larger
+// than 2^53 (int64 and uint64) lose precision during conversion. Callers
+// needing exact large integer round-trips should use GetInt instead.
 func (a *ActionData) GetFloatOk(key string) (float64, bool) {
 	switch v := a.raw[key].(type) {
 	case float64:
@@ -264,6 +268,7 @@ func (a *ActionData) GetFloatOk(key string) (float64, bool) {
 	case int32:
 		return float64(v), true
 	case int64:
+		// Values outside [-2^53, 2^53] lose precision. See doc comment.
 		return float64(v), true
 	case uint:
 		return float64(v), true
@@ -274,6 +279,7 @@ func (a *ActionData) GetFloatOk(key string) (float64, bool) {
 	case uint32:
 		return float64(v), true
 	case uint64:
+		// Values above 2^53 lose precision. See doc comment.
 		return float64(v), true
 	case string:
 		if f, err := strconv.ParseFloat(v, 64); err == nil {

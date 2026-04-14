@@ -69,14 +69,19 @@ func newLocalSession(handler *liveHandler, groupID, userID string) *localSession
 //     connected to another instance. Goroutines that need a hard lifetime
 //     bound in this mode should implement their own termination condition.
 func (s *localSession) TriggerAction(action string, data map[string]interface{}) error {
-	if s == nil || s.handler == nil {
-		return fmt.Errorf("livetemplate: session not initialized")
+	// Callers obtain a Session via ctx.Session(), which returns a nil
+	// interface when WithSession was never called (and panics at the
+	// interface dispatch site, not here). The framework's wiring always
+	// passes a fully-constructed *localSession to WithSession, so by the
+	// time we enter this method, s and s.handler are guaranteed non-nil.
+	// The only input-level validation that belongs here is action/group
+	// emptiness — the framework can't cause those either, but they're
+	// cheap to check and document the contract.
+	if action == "" {
+		return fmt.Errorf("livetemplate: action cannot be empty")
 	}
 	if s.groupID == "" {
 		return fmt.Errorf("livetemplate: session has no groupID")
-	}
-	if action == "" {
-		return fmt.Errorf("livetemplate: action cannot be empty")
 	}
 
 	connections := s.handler.registry.GetByGroup(s.groupID)
