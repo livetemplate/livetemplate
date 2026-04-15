@@ -332,7 +332,7 @@ The TypeScript client is maintained in a separate repository at `github.com/live
 
 ## AI Code Review Workflow
 
-The Claude review bot runs on every push to open PRs and posts a fresh review as a PR comment. The rules below are maintainer reflections based on observed behavior across multiple sessions of patterns work — not generated self-assessment by the bot itself.
+The Claude review bot runs on every push to open PRs and posts a fresh review as a PR comment. The rules below are distilled from observed patterns across multiple PR review cycles (including the one that produced this section) and reviewed by the maintainer before landing. They are not the bot's own self-assessment, but they were written with Claude Code assistance — so treat them as operational heuristics to test against your own observations, not as a formal specification of the bot's behavior.
 
 *Rules 1–3 apply to whoever is driving the PR (human or agent). Rule 4 is a reminder about the review bot's own behavior.*
 
