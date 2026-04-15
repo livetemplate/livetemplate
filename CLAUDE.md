@@ -226,6 +226,21 @@ The repository has a pre-commit hook that:
 3. Blocks commits if tests fail
 4. Automatically stages formatted files
 
+## AI Code Review Workflow
+
+The Claude review bot runs on every push to open PRs and posts a fresh review as a PR comment. A few non-obvious workflow rules surfaced across multiple sessions:
+
+- **Bot review loop convergence.** The bot re-runs end-to-end on every push, which means cosmetic-only suggestions can iterate indefinitely (each round lightly rewords the previous suggestion). **Two consecutive rounds of purely cosmetic feedback** — comment wording tweaks, CLAUDE.md phrasing iterations, "would be nicer to trim this sentence" — is the signal that the PR has functionally converged. Further pushes just trigger new variants of the same cosmetic suggestions. Recognize the pattern and stop pushing.
+
+- **Decline with a PR reply, never silently.** When declining a bot suggestion, post a PR comment explaining the rationale with a reference to project guidance (e.g., "don't DRY this 5-line goroutine — duplication teaches the canonical cancellation pattern; see CLAUDE.md 'don't create helpers for one-time operations'"). Silent decline causes the same suggestion to reappear in the next review round under different framing; explicit decline breaks the cycle because the bot reads prior comments before writing its next review.
+
+- **Project guidance trumps bot suggestions when they conflict.** The bot generally favors DRY, explicit constants, and extracted helpers. Project guidance favors pedagogical clarity in examples and minimal abstractions in small helper code. When the two conflict in an examples-repo PR, cite the project rule and decline the bot. Common recurring conflicts:
+  - Duplicated goroutine bodies in patterns examples are pedagogical, not DRY violations.
+  - Small string enums (e.g., `Status` with 4 valid values in one file) don't need `const` declarations.
+  - Inline template comments documenting a deliberate deviation are better than no comment — the comment is the deviation record.
+
+- **Factual claims in docs get fact-checked.** The bot verifies file paths, function names, error strings, call site counts, and `go.mod` versions cited in doc changes. Keep assertions precise or phrase them temporally ("the fix at the time of writing") to avoid future drift failures.
+
 ## Common Tasks
 
 ### Adding New Template Construct
