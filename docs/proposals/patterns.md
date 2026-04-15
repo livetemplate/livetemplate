@@ -2100,7 +2100,7 @@ Concrete, non-obvious patterns validated during earlier sessions. Apply these di
 
 - **Multi-instance caveat — the error-return pattern silently loops forever under PubSub.** `TriggerAction` only returns the no-connections error when there is no `GroupActionBroadcaster` configured (trace with `grep -n "hasRemote" session_impl.go`). If a broadcaster is configured (e.g., Redis PubSub), `TriggerAction` returns `nil` even with zero local connections, because the user may be connected to a peer instance. An **unbounded** `err != nil` loop will therefore loop forever in any multi-instance deployment — and worse, under a persistent PubSub outage it will loop forever while emitting "pubsub publish failed" warnings on every call. The full lifecycle contract (including the bounded-loop workaround) lives in the doc comment preceding the function definition; find it with `grep -n "Disconnect semantics" session_impl.go`.
   
-  **Session 3's three patterns are all bounded by design** and do not exhibit this bug: LazyLoad uses a single 2s sleep, ProgressBar's loop iterates from `progressStep` to `100` in `progressStep`-sized increments (10 × 500ms = 5s max — grep `progressStep` in the examples repo's loading handlers to verify), AsyncOps uses a single 2s sleep. The warning below is for **future** patterns that need to work in both single-instance and multi-instance modes and would otherwise copy the `err != nil` pattern into an unbounded loop without realizing it. Future unbounded-loop patterns MUST use one of:
+  **Session 3's three patterns are all bounded by design** and do not exhibit this bug: LazyLoad uses a single 2s sleep, ProgressBar's loop iterates from `progressStep` to `100` in `progressStep`-sized increments (grep `progressStep` in the examples repo's loading handlers to verify the current bound), AsyncOps uses a single 2s sleep. The warning below is for **future** patterns that need to work in both single-instance and multi-instance modes and would otherwise copy the `err != nil` pattern into an unbounded loop without realizing it. Future unbounded-loop patterns MUST use one of:
   - A **hard iteration bound**: `for i := 0; i < 100; i++ { ... }` — matches the ProgressBar shape. Safe for finite work.
   - A **done channel** or **external context**: track a `stopCh chan struct{}` in the controller struct, close it on `OnDisconnect`, and `select { case <-stopCh: return; case <-time.After(tick): }` in the loop. Safe for indefinite work.
   
@@ -2113,7 +2113,9 @@ Concrete, non-obvious patterns validated during earlier sessions. Apply these di
   
   **Consequence:** patterns like `ProgressBar` and `AsyncOps` do NOT need an `OnConnect` recovery path — the "stuck state after reconnect" scenario cannot manifest in ephemeral mode. Document this with an in-code comment so review bots don't flag the absence of `OnConnect` as a bug. The comment should explicitly cite the `cloneStateTyped()` path so the reasoning is legible.
 
-- **Patterns that DO need `OnConnect`:** Only patterns where the initial render is the "pre-goroutine" state (like `LazyLoad`'s spinner) need an `OnConnect` recovery path — otherwise the user reconnects to a spinner with nothing driving it. The shape is:
+- **Patterns that DO need `OnConnect`:** Only patterns where the initial render is the "pre-goroutine" state (like `LazyLoad`'s spinner) need an `OnConnect` recovery path — otherwise the user reconnects to a spinner with nothing driving it. The lifecycle shape is: the framework calls `Mount` first on every WebSocket connect/reconnect, then passes the returned state to `OnConnect`.
+
+  **`Mount`:**
   ```go
   func (c *LazyLoadController) Mount(state State, ctx *Context) (State, error) {
       if ctx.Action() == "" { // Only reset on non-action calls (initial GET or WS connect);
@@ -2124,21 +2126,31 @@ Concrete, non-obvious patterns validated during earlier sessions. Apply these di
       }
       return state, nil
   }
+  ```
+
+  **`OnConnect`:**
+  ```go
   func (c *LazyLoadController) OnConnect(state State, ctx *Context) (State, error) {
-      // The `!state.Loading` check only skips re-spawn AFTER completion
-      // (DataLoaded has run and set Loading=false). It does NOT prevent
-      // spawning a second goroutine while the first is still in-flight:
-      // on a reconnect mid-sleep, `state.Loading` is still true, so
-      // OnConnect re-enters the spawn path and a second goroutine exists
-      // alongside the first. Both will race to dispatch `dataLoaded`;
-      // this is safe ONLY because DataLoaded is idempotent (it just
-      // overwrites state.Data). Non-idempotent patterns — anything that
-      // increments a counter, appends to a list, or triggers a side
-      // effect — must use an in-flight request ID guard instead. See
-      // the "Reconnect-during-loading double-fire" section below.
+      // Defensive guard. With the Mount shape above, Mount ALWAYS sets
+      // Loading=true on a WS (re)connect before OnConnect runs, so in
+      // practice this check is unreachable — state.Loading will always
+      // be true here. The guard exists for future Mount changes that
+      // might preserve already-completed state (e.g., `if state.Data == ""`
+      // added to Mount's reset condition), at which point reconnecting
+      // after completion would arrive here with Loading=false and we
+      // would want to skip the re-spawn. Keep it for forward-compat.
       if !state.Loading { return state, nil }
       session := ctx.Session()
       if session == nil { return state, nil }
+      // Reconnect race: if the client disconnects and reconnects WHILE a
+      // goroutine from the previous connect is still sleeping, OnConnect
+      // will spawn a second goroutine and both will eventually race to
+      // dispatch `dataLoaded`. That's safe ONLY because DataLoaded is
+      // idempotent (it just overwrites state.Data). Non-idempotent
+      // patterns — anything that increments a counter, appends to a
+      // list, or triggers a side effect — must use an in-flight request
+      // ID guard instead. See the "Reconnect-during-loading double-fire"
+      // section below for the full analysis.
       go func() { /* ... TriggerAction("dataLoaded", ...) ... */ }()
       return state, nil
   }
