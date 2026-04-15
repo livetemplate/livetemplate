@@ -2065,7 +2065,7 @@ Concrete, non-obvious patterns validated during earlier sessions. Apply these di
 
 **Server-push patterns (goroutine → `session.TriggerAction`):** Session 3 established the canonical shape for patterns that run a background goroutine and push updates via the WebSocket. Apply these rules verbatim when writing any new goroutine-pushing pattern.
 
-- **Action handler shape: re-entrancy guard → session nil-check → mutate → spawn.** The ordering is load-bearing. This example matches Session 3's `ProgressBarController.Start` — intentionally bounded by a **hard iteration count** so it is safe in both single-instance and multi-instance deployments. The bound is safe because `maxTicks` is a fixed integer, not a wall-clock duration: in multi-instance mode `TriggerAction` never returns an error, so only the iteration count stops the loop. A timeout-bounded loop of the shape `for time.Since(start) < 30*time.Second` is **not** safe for this purpose — `time.Since` can drift, and under a wedged scheduler or clock-skew scenario the loop could still run well beyond the intended wall-clock bound. Use integer iteration counts, not durations.
+- **Action handler shape: re-entrancy guard → session nil-check → mutate → spawn.** The ordering is load-bearing. This example matches Session 3's `ProgressBarController.Start` — intentionally bounded by a **hard iteration count** (`i < maxTicks`) so it is safe in both single-instance and multi-instance deployments. Why the hard count matters: in multi-instance mode `TriggerAction` never returns an error (see the caveat below), so the `if err != nil { return }` inside the loop body cannot be relied on as the exit condition. The `i < maxTicks` ceiling is what actually guarantees termination. A done channel (closed on `OnDisconnect`) is the other acceptable pattern for indefinite-work loops. Either way: the exit condition must be something the loop body controls directly, not something that depends on `TriggerAction`'s return value.
   ```go
   func (c *Controller) Start(state State, ctx *Context) (State, error) {
       // 1. Re-entrancy guard: direct WS messages can bypass a template-disabled button.
@@ -2104,7 +2104,7 @@ Concrete, non-obvious patterns validated during earlier sessions. Apply these di
   - A **hard iteration bound**: `for i := 0; i < 100; i++ { ... }` — matches the ProgressBar shape. Safe for finite work.
   - A **done channel** or **external context**: track a `stopCh chan struct{}` in the controller struct, close it on `OnDisconnect`, and `select { case <-stopCh: return; case <-time.After(tick): }` in the loop. Safe for indefinite work.
   
-  Do NOT reach for `context.Context` from `r.Context()` (the HTTP request context) — as of `livetemplate v0.8.18`, the framework does not thread a cancellable request context through `Session`. A **controller-stored** `context.Context` or `done chan struct{}`, created in the action handler and closed in `OnDisconnect`, IS the correct pattern for indefinite-work goroutines — see the bounded-loop example in the doc comment preceding `localSession.TriggerAction` (`grep -n "Disconnect semantics" session_impl.go`) which uses exactly this shape. **Note on that example**: the `ctx` variable in it is a controller-stored context (created and owned by the caller's controller), not `r.Context()`. The example is illustrative of the `select { case <-ctx.Done(): ... }` loop *structure*; when copying it, create the context in your action handler and close it on `OnDisconnect`, not via `r.Context()`. See `livetemplate/livetemplate#303` (open tracking issue) for the work that would eventually let the request context itself flow through `Session`.
+  Do NOT reach for `context.Context` from `r.Context()` (the HTTP request context) — as of `livetemplate v0.8.18`, the framework does not thread a cancellable request context through `Session` (see `livetemplate/livetemplate#303` for the open tracking issue). A **controller-stored** `context.Context` or `done chan struct{}`, created in the action handler and closed in `OnDisconnect`, IS the correct pattern for indefinite-work goroutines. The doc comment preceding `localSession.TriggerAction` (`grep -n "Disconnect semantics" session_impl.go`) shows the canonical shape with a `select { case <-ctx.Done(): ... }` loop — note that `ctx` in that example is controller-stored, not `r.Context()`. Copy the loop structure, create your own context in the action handler.
 
 - **Ephemeral state = natural self-healing on reconnect.** State structs WITHOUT `lvt:"persist"` tags are freshly cloned on every WebSocket connect. Trace the path from the `livetemplate/` repo root with `grep -n "restorePersistedState\|cloneStateTyped" mount.go`: `restorePersistedState` returns `(nil, false)` when `persistable == nil`, and the call site falls through to `cloneStateTyped()` which returns zero-value state. Concretely:
   1. WebSocket disconnects mid-goroutine → `registry.Unregister` removes the connection.
@@ -2151,7 +2151,14 @@ Concrete, non-obvious patterns validated during earlier sessions. Apply these di
       // list, or triggers a side effect — must use an in-flight request
       // ID guard instead. See the "Reconnect-during-loading double-fire"
       // section below for the full analysis.
-      go func() { /* ... TriggerAction("dataLoaded", ...) ... */ }()
+      go func() {
+          time.Sleep(lazyLoadDelay)
+          if err := session.TriggerAction("dataLoaded", map[string]any{
+              "data": "Content loaded lazily at " + time.Now().Format("15:04:05"),
+          }); err != nil {
+              return // Session disconnected — stop cleanly (single-instance).
+          }
+      }()
       return state, nil
   }
   ```
