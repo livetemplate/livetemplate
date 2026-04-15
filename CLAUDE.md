@@ -332,11 +332,11 @@ The TypeScript client is maintained in a separate repository at `github.com/live
 
 ## AI Code Review Workflow
 
-The Claude review bot runs on every push to open PRs and posts a fresh review as a PR comment. A few non-obvious workflow rules surfaced across multiple sessions.
+The Claude review bot runs on every push to open PRs and posts a fresh review as a PR comment. The rules below are maintainer reflections based on observed behavior across multiple sessions of patterns work — not generated self-assessment by the bot itself.
 
 *Rules 1–3 apply to whoever is driving the PR (human or agent). Rule 4 is a reminder about the review bot's own behavior.*
 
-- **Bot review loop convergence** *(for the PR author)*. The bot re-runs end-to-end on every push, which means cosmetic-only suggestions can iterate indefinitely (each round lightly rewords the previous suggestion). **Two consecutive rounds of purely cosmetic feedback** — comment wording tweaks, CLAUDE.md phrasing iterations, "would be nicer to trim this sentence" — is the signal that the PR has functionally converged. Further pushes just trigger new variants of the same cosmetic suggestions. Recognize the pattern and stop pushing.
+- **Bot review loop convergence** *(for the PR author)*. The bot re-runs end-to-end on every push, which means review rounds can iterate indefinitely if each round only rewords previous suggestions. **The convergence signal is "successive rounds aren't identifying any new functional issue"** — only style, phrasing, or wording alternatives on content that was already accepted. As a rough heuristic, two consecutive rounds of that shape is usually enough to stop, but the underlying criterion is "no new functional issue," not a fixed count; a single round of clearly-substantive new feedback is not a convergence signal even if surrounded by cosmetic ones. Recognize the pattern and stop pushing; address remaining cosmetic nits by reply rather than by push.
 
 - **Decline with a PR reply, never silently** *(for the PR author)*. When declining a bot suggestion, post a PR comment explaining the rationale with a reference to project guidance (e.g., "don't DRY this 5-line goroutine — duplication teaches the canonical cancellation pattern; see CLAUDE.md 'don't create helpers for one-time operations'"). Silent decline causes the same suggestion to reappear in the next review round under different framing; explicit decline breaks the cycle because the bot reads prior comments before writing its next review.
 

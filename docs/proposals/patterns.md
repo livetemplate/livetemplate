@@ -2119,7 +2119,18 @@ Concrete, non-obvious patterns validated during earlier sessions. Apply these di
       return state, nil
   }
   func (c *LazyLoadController) OnConnect(state State, ctx *Context) (State, error) {
-      if !state.Loading { return state, nil } // Skip re-spawn after completion
+      // The `!state.Loading` check only skips re-spawn AFTER completion
+      // (DataLoaded has run and set Loading=false). It does NOT prevent
+      // spawning a second goroutine while the first is still in-flight:
+      // on a reconnect mid-sleep, `state.Loading` is still true, so
+      // OnConnect re-enters the spawn path and a second goroutine exists
+      // alongside the first. Both will race to dispatch `dataLoaded`;
+      // this is safe ONLY because DataLoaded is idempotent (it just
+      // overwrites state.Data). Non-idempotent patterns — anything that
+      // increments a counter, appends to a list, or triggers a side
+      // effect — must use an in-flight request ID guard instead. See
+      // the "Reconnect-during-loading double-fire" section below.
+      if !state.Loading { return state, nil }
       session := ctx.Session()
       if session == nil { return state, nil }
       go func() { /* ... TriggerAction("dataLoaded", ...) ... */ }()
