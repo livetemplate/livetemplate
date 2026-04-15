@@ -334,7 +334,7 @@ The TypeScript client is maintained in a separate repository at `github.com/live
 
 The Claude review bot runs on every push to open PRs and posts a fresh review as a PR comment. A few non-obvious workflow rules surfaced across multiple sessions.
 
-*The first three rules below are addressed to the human PR author (Claude Code, the agent driving the work). The fourth rule is a reminder about the bot's own behavior — namely that it fact-checks factual claims — and is addressed to both audiences.*
+*Rules 1–3 apply to whoever is driving the PR (human or agent). Rule 4 is a reminder about the review bot's own behavior.*
 
 - **Bot review loop convergence** *(for the PR author)*. The bot re-runs end-to-end on every push, which means cosmetic-only suggestions can iterate indefinitely (each round lightly rewords the previous suggestion). **Two consecutive rounds of purely cosmetic feedback** — comment wording tweaks, CLAUDE.md phrasing iterations, "would be nicer to trim this sentence" — is the signal that the PR has functionally converged. Further pushes just trigger new variants of the same cosmetic suggestions. Recognize the pattern and stop pushing.
 
@@ -345,4 +345,4 @@ The Claude review bot runs on every push to open PRs and posts a fresh review as
   - Small string enums (e.g., `Status` with 4 valid values in one file) don't need `const` declarations.
   - Inline template comments documenting a deliberate deviation are better than no comment — the comment is the deviation record.
 
-- **Factual claims in docs get fact-checked** *(reminder for both audiences)*. The bot verifies file paths, function names, error strings, call site counts, and `go.mod` versions cited in doc changes. Keep assertions precise or phrase them temporally ("the fix at the time of writing") to avoid future drift failures.
+- **Factual claims in docs get bot-verified (with caveats)** *(reminder about the bot's behavior)*. The bot attempts to verify file paths, function names, error strings, call site counts, and `go.mod` versions cited in doc changes — and has caught genuine drift in past reviews. Its verifications are not infallible (it can hallucinate line numbers and occasionally miss a call site), but it is reliable enough that authors should keep assertions precise or phrase them temporally ("as of v0.8.18", "at the time of writing") to avoid drift failures. **Prefer grep anchors over hardcoded line numbers in code references** — grep anchors are self-updating, line numbers silently drift when the file changes.
