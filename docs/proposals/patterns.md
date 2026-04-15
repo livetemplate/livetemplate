@@ -2092,7 +2092,7 @@ Concrete, non-obvious patterns validated during earlier sessions. Apply these di
 
 - **Canonical goroutine cancellation:** `if err := session.TriggerAction(...); err != nil { return }` in every loop. `TriggerAction` returns `"no connected sessions for group"` when `registry.GetByGroup(groupID)` finds no connections — that's how the goroutine learns the WebSocket is gone and exits cleanly. **Do not use `context.Context` for cancellation** — the framework does not thread a cancellable context through `Session`.
 
-- **Ephemeral state = natural self-healing on reconnect.** State structs WITHOUT `lvt:"persist"` tags are freshly cloned on every WebSocket connect (see `mount.go` → `restorePersistedState` returning `(nil, false)` when `persistable == nil`, falling through to `cloneStateTyped()`). Concretely:
+- **Ephemeral state = natural self-healing on reconnect.** State structs WITHOUT `lvt:"persist"` tags are freshly cloned on every WebSocket connect. Trace the path with `grep -n "restorePersistedState\|cloneStateTyped" livetemplate/mount.go`: `restorePersistedState` returns `(nil, false)` when `persistable == nil`, and the call site falls through to `cloneStateTyped()` which returns zero-value state. Concretely:
   1. WebSocket disconnects mid-goroutine → `registry.Unregister` removes the connection.
   2. Goroutine wakes → `TriggerAction` → `GetByGroup` returns empty → error → goroutine exits cleanly.
   3. WebSocket reconnects → `Mount` fires → state is zero-valued (`Running=false`, `Status=""`) → user sees the clickable button.
@@ -2102,7 +2102,9 @@ Concrete, non-obvious patterns validated during earlier sessions. Apply these di
 - **Patterns that DO need `OnConnect`:** Only patterns where the initial render is the "pre-goroutine" state (like `LazyLoad`'s spinner) need an `OnConnect` recovery path — otherwise the user reconnects to a spinner with nothing driving it. The shape is:
   ```go
   func (c *LazyLoadController) Mount(state State, ctx *Context) (State, error) {
-      if ctx.Action() == "" { // GET only — POST actions must not reset state
+      if ctx.Action() == "" { // Only reset on non-action calls (initial GET or WS connect);
+                              // skip when a POST action is being dispatched, so the action's
+                              // own state changes aren't clobbered mid-flight.
           state.Loading = true
           state.Data = ""
       }
