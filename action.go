@@ -40,6 +40,27 @@ type message = send.ActionMessage
 // Maps to the Submit() method on the controller via methodNameToActions().
 const defaultFormAction = "submit"
 
+// actionNavigate is a reserved action name. When the client sends
+// {action: "__navigate__", data: {k: v, ...}} over an existing WebSocket
+// connection, the event loop re-runs Mount on the controller with the
+// given data as query params — without reconnecting the WebSocket. This
+// is the in-band equivalent of Phoenix LiveView's live_patch /
+// handle_params: query-param changes on the SAME handler don't tear down
+// the socket, they re-run the Mount-time projection.
+//
+// Rationale: the WebSocket's connection identity is handler-path based,
+// not (path+query) based. Query params are Mount-time input data, not
+// part of the handler address. Without this message, changing the query
+// string on a same-handler SPA navigation left the server's connSt.state
+// pinned to the initial query params and every subsequent server-driven
+// refresh clobbered the DOM with stale data.
+//
+// Controllers cannot define a method named Navigate that takes this
+// reserved action — the event loop intercepts it before DispatchWithState
+// ever runs. If a controller does define such a method, the event loop
+// short-circuit takes precedence.
+const actionNavigate = "__navigate__"
+
 // applyDefaultAction sets the action to defaultFormAction for forms that
 // submitted without explicit action routing. Called only for browser form
 // submissions (not JSON action requests).

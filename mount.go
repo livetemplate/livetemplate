@@ -723,8 +723,32 @@ eventLoop:
 			actionCtx = actionCtx.WithUploads(uploadRegistry)
 			actionCtx = actionCtx.WithFlashSetter(connSt)
 
-			// Dispatch action using Controller+State pattern
-			newState, actionErr := DispatchWithState(h.config.Controller, connSt.state, actionCtx)
+			// Dispatch action using Controller+State pattern.
+			//
+			// Reserved action actionNavigate ("__navigate__") re-runs
+			// Mount on the existing connection with fresh query data
+			// passed in msg.Data. This is the in-band equivalent of
+			// Phoenix LiveView's live_patch / handle_params: query-param
+			// changes on the SAME handler do NOT reconnect the WebSocket
+			// — the server just re-projects state from the new data via
+			// the controller's Mount method. Controllers that read
+			// `ctx.GetString("...")` in Mount transparently pick up the
+			// new params without needing to know the navigate came over
+			// an open socket.
+			//
+			// We reuse actionCtx (with the action name cleared via
+			// WithAction("")) so flash/broadcast plumbing routes through
+			// one context for both dispatch paths. The empty action name
+			// matches the convention used by the initial connect-time
+			// Mount at mount.go:503 so controllers can uniformly write
+			// `if ctx.Action() == "" { /* GET or nav */ }`.
+			var newState interface{}
+			var actionErr error
+			if msg.Action == actionNavigate {
+				newState, actionErr = callMount(h.config.Controller, connSt.state, actionCtx.WithAction(""))
+			} else {
+				newState, actionErr = DispatchWithState(h.config.Controller, connSt.state, actionCtx)
+			}
 			if actionErr != nil {
 				// Handle errors
 				switch e := actionErr.(type) {
