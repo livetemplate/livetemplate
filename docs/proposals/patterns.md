@@ -2065,7 +2065,7 @@ Concrete, non-obvious patterns validated during earlier sessions. Apply these di
 
 **Server-push patterns (goroutine → `session.TriggerAction`):** Session 3 established the canonical shape for patterns that run a background goroutine and push updates via the WebSocket. Apply these rules verbatim when writing any new goroutine-pushing pattern.
 
-- **Action handler shape: re-entrancy guard → session nil-check → mutate → spawn.** The ordering is load-bearing:
+- **Action handler shape: re-entrancy guard → session nil-check → mutate → spawn.** The ordering is load-bearing. This example matches Session 3's `ProgressBarController.Start` — intentionally bounded so it is safe in both single-instance and multi-instance deployments:
   ```go
   func (c *Controller) Start(state State, ctx *Context) (State, error) {
       // 1. Re-entrancy guard: direct WS messages can bypass a template-disabled button.
@@ -2077,11 +2077,17 @@ Concrete, non-obvious patterns validated during earlier sessions. Apply these di
       if session == nil { return state, nil }
       // 3. Mutate.
       state.Running = true
-      // 4. Spawn with canonical cancellation.
+      // 4. Spawn with a BOUNDED loop (critical — see multi-instance caveat below).
+      //    Unbounded `for { ... }` loops using only `err != nil` as the exit
+      //    condition will silently run forever under PubSub, because
+      //    TriggerAction returns nil when a broadcaster is configured. Always
+      //    bound the iteration count, OR use a done channel — never rely on
+      //    the error return as the sole stop signal in an unbounded loop.
       go func() {
-          for { /* ... */
+          for i := 0; i < maxTicks; i++ {
+              time.Sleep(tickInterval)
               if err := session.TriggerAction("update", data); err != nil {
-                  return // Session disconnected — stop cleanly.
+                  return // Session disconnected — stop cleanly (single-instance).
               }
           }
       }()
