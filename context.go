@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/livetemplate/livetemplate/internal/uploadtypes"
@@ -19,11 +20,14 @@ type UploadAccessor interface {
 // Flash messages are page-level notifications (success, info, warning, error)
 // that don't affect ResponseMetadata.Success (unlike field validation errors).
 //
-// The setFlash method is intentionally unexported to ensure flash messages
-// are only set through the Context.SetFlash() public API, maintaining
-// consistent behavior and preventing direct message map manipulation.
+// FlashSetter is the internal interface for flash message operations.
+// The methods are intentionally unexported to ensure flash messages
+// are only managed through the Context.SetFlash() / ClearFlash() public
+// API, maintaining consistent behavior and preventing direct message
+// map manipulation.
 type FlashSetter interface {
-	setFlash(key, message string)
+	setFlash(key, message string, expiry time.Duration)
+	clearFlashKey(key string)
 }
 
 // broadcastRequest represents a deferred broadcast action to be dispatched
@@ -296,10 +300,37 @@ func (c *Context) WithFlashSetter(setter FlashSetter) *Context {
 	return &newCtx
 }
 
+// FlashOption configures optional behavior for SetFlash.
+type FlashOption func(*flashConfig)
+
+type flashConfig struct {
+	expiry time.Duration // 0 = no auto-expiry, persist until ClearFlash
+}
+
+// FlashExpiry sets an auto-expiry duration for the flash message. After
+// the duration elapses, the message is pruned from the flash store on
+// the next render. Use this for transient feedback ("Settings saved")
+// that doesn't need explicit acknowledgement. Messages without an
+// expiry persist until explicitly cleared via ClearFlash.
+//
+// Example:
+//
+//	ctx.SetFlash("success", "Saved!", livetemplate.FlashExpiry(5*time.Second))
+func FlashExpiry(d time.Duration) FlashOption {
+	return func(c *flashConfig) { c.expiry = d }
+}
+
 // SetFlash sets a flash message that will be available in templates via .lvt.Flash(key).
 // Flash messages are page-level notifications (success, info, warning, error).
 // Unlike field errors, flash messages don't affect ResponseMetadata.Success.
-// Flash messages are cleared after each render, so they appear only once.
+//
+// Flash messages persist until explicitly cleared via ClearFlash or until
+// their optional expiry duration elapses. This matches the Phoenix LiveView
+// model where flash is a separate namespace from assigns — background
+// updates (TriggerAction / scan-loop Refresh) that modify state fields
+// do not touch flash messages. Use ClearFlash in your action handlers
+// when the user has acknowledged the message (e.g., after a navigation
+// or a follow-up action).
 //
 // Common keys: "success", "error", "info", "warning"
 //
@@ -312,9 +343,33 @@ func (c *Context) WithFlashSetter(setter FlashSetter) *Context {
 //
 //	ctx.SetFlash("success", "Changes saved successfully!")
 //	ctx.SetFlash("error", "Failed to process your request.")
-func (c *Context) SetFlash(key, message string) {
+//	ctx.SetFlash("info", "Uploading...", livetemplate.FlashExpiry(3*time.Second))
+func (c *Context) SetFlash(key, message string, opts ...FlashOption) {
+	if c.flashSetter == nil {
+		return
+	}
+	var cfg flashConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	c.flashSetter.setFlash(key, message, cfg.expiry)
+}
+
+// ClearFlash explicitly removes a flash message by key. Use this when
+// the user has acknowledged the message (e.g., after navigating away
+// or completing a follow-up action). Flash messages without an expiry
+// persist until ClearFlash is called — the framework does not auto-clear
+// them after render.
+//
+// Example:
+//
+//	func (c *MyController) Acknowledge(state MyState, ctx *livetemplate.Context) (MyState, error) {
+//	    ctx.ClearFlash("error")
+//	    return state, nil
+//	}
+func (c *Context) ClearFlash(key string) {
 	if c.flashSetter != nil {
-		c.flashSetter.setFlash(key, message)
+		c.flashSetter.clearFlashKey(key)
 	}
 }
 
