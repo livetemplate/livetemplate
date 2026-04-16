@@ -218,10 +218,11 @@ type wsReadMessage struct {
 }
 
 type connState struct {
-	state      interface{}       // Typed state (cloned per session)
-	messages   map[string]string // Unified map: field errors + flash (prefixed with "_flash:")
-	messagesMu sync.RWMutex      // Mutex for thread-safe message access
-	groupID    string            // Session/group ID for this connection
+	state       interface{}          // Typed state (cloned per session)
+	messages    map[string]string    // Unified map: field errors + flash (prefixed with "_flash:")
+	flashExpiry map[string]time.Time // Optional per-key expiry for flash (key WITHOUT prefix)
+	messagesMu  sync.RWMutex         // Mutex for thread-safe message access
+	groupID     string               // Session/group ID for this connection
 }
 
 func (c *connState) setError(field, message string) {
@@ -256,7 +257,7 @@ func (c *connState) getMessages() map[string]string {
 	return result
 }
 
-func (c *connState) setFlash(key, message string) {
+func (c *connState) setFlash(key, message string, expiry time.Duration) {
 	// Validate key: reject keys with ":" or starting with "_"
 	if strings.Contains(key, ":") || strings.HasPrefix(key, "_") {
 		slog.Warn("Invalid flash key ignored",
@@ -269,19 +270,48 @@ func (c *connState) setFlash(key, message string) {
 	c.messagesMu.Lock()
 	defer c.messagesMu.Unlock()
 	c.messages[lvtcontext.FlashPrefix+key] = message
+	if expiry > 0 {
+		if c.flashExpiry == nil {
+			c.flashExpiry = make(map[string]time.Time)
+		}
+		c.flashExpiry[key] = time.Now().Add(expiry)
+	} else {
+		// No expiry — persist until ClearFlash. Remove any prior expiry.
+		delete(c.flashExpiry, key)
+	}
 }
 
-func (c *connState) clearFlash() {
+// clearFlashKey removes a single flash message by key. Called by
+// Context.ClearFlash — the explicit clearing path for flash messages
+// that persist until acknowledged.
+func (c *connState) clearFlashKey(key string) {
 	c.messagesMu.Lock()
 	defer c.messagesMu.Unlock()
-	// Only clear flash messages (preserve errors)
-	newMessages := make(map[string]string)
-	for k, v := range c.messages {
-		if !strings.HasPrefix(k, lvtcontext.FlashPrefix) {
-			newMessages[k] = v
+	delete(c.messages, lvtcontext.FlashPrefix+key)
+	delete(c.flashExpiry, key)
+}
+
+// pruneExpiredFlash removes only flash messages whose expiry has
+// passed. Flash messages without an expiry (expiry == zero time) are
+// NOT removed — they persist until explicitly cleared via ClearFlash.
+//
+// This replaces the old clearFlash() which removed ALL flash messages
+// after each render. The new model matches Phoenix LiveView: flash
+// is a separate namespace that survives renders and background updates
+// until the developer (or an expiry timer) explicitly clears it.
+func (c *connState) pruneExpiredFlash() {
+	c.messagesMu.Lock()
+	defer c.messagesMu.Unlock()
+	if len(c.flashExpiry) == 0 {
+		return
+	}
+	now := time.Now()
+	for key, exp := range c.flashExpiry {
+		if now.After(exp) {
+			delete(c.messages, lvtcontext.FlashPrefix+key)
+			delete(c.flashExpiry, key)
 		}
 	}
-	c.messages = newMessages
 }
 
 // getFlashValues returns all flash messages as url.Values for cookie encoding.
@@ -815,7 +845,7 @@ eventLoop:
 			}
 
 			// Clear flash messages after successful render (flash shows once per action)
-			connSt.clearFlash()
+			connSt.pruneExpiredFlash()
 
 		case req := <-connection.DispatchChan:
 			h.handleDispatchedAction(connSt, connection, req, userID)
@@ -1017,7 +1047,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		if flashValues, err := url.ParseQuery(flashCookie.Value); err == nil {
 			for key, values := range flashValues {
 				if len(values) > 0 {
-					connSt.setFlash(key, values[0])
+					connSt.setFlash(key, values[0], 0)
 				}
 			}
 		}
@@ -1287,7 +1317,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		// flash state in connSt is stale — clear it to prevent leakage into
 		// subsequent responses for this session/group.
 		if actionCtx.redirected != nil && *actionCtx.redirected {
-			connSt.clearFlash()
+			connSt.pruneExpiredFlash()
 			return
 		}
 
@@ -1331,7 +1361,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
-		connSt.clearFlash()
+		connSt.pruneExpiredFlash()
 		http.Redirect(w, r, redirectURL, http.StatusSeeOther) // 303 See Other
 		return
 	}
@@ -1365,7 +1395,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Clear flash messages after successful render (flash shows once per action)
-	connSt.clearFlash()
+	connSt.pruneExpiredFlash()
 }
 
 // newUploadRegistry creates a new upload registry instance.
@@ -1551,7 +1581,7 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 			slog.Any("error", err))
 	}
 
-	connSt.clearFlash()
+	connSt.pruneExpiredFlash()
 }
 
 // httpTemplateSweepLoop periodically removes cached HTTP templates to prevent
@@ -1897,7 +1927,7 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 		}
 
 		// Clear flash messages after successful send
-		state.clearFlash()
+		state.pruneExpiredFlash()
 	}
 
 	// Persist once per distinct groupID (avoids N writes for multi-tab users
@@ -2405,7 +2435,7 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn WSConn, raw
 	}
 
 	// Clear flash messages after successful send
-	state.clearFlash()
+	state.pruneExpiredFlash()
 
 	// Dispatch Sync to peer connections for upload completion visibility
 	h.dispatchBroadcastToGroup(state.groupID, connection, syncMethodName, nil)
