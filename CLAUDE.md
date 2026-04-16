@@ -329,3 +329,20 @@ The TypeScript client is maintained in a separate repository at `github.com/live
 - Optimize memory usage for large trees
 - Add metrics and profiling hooks
 - Enhance client-side caching strategies
+
+## AI Code Review Workflow
+
+The Claude review bot runs on every push to open PRs and posts a fresh review as a PR comment. The rules below are distilled from observed patterns across multiple PR review cycles and reviewed by the maintainer before landing — apply them directly when working on PRs.
+
+*Rules 1–3 apply to whoever is driving the PR (human or agent). Rule 4 is a reminder about the review bot's own behavior.*
+
+- **Bot review loop convergence** *(for the PR author)*. The bot re-runs end-to-end on every push, which means review rounds can iterate indefinitely if each round only rewords previous suggestions. **The convergence signal is "successive rounds aren't identifying any new functional issue"** — only style, phrasing, or wording alternatives on content that was already accepted. As a rough heuristic, two consecutive rounds of that shape is usually enough to stop, but the underlying criterion is "no new functional issue," not a fixed count; a single round of clearly-substantive new feedback is not a convergence signal even if surrounded by cosmetic ones. Recognize the pattern and stop pushing; address remaining cosmetic nits by reply rather than by push.
+
+- **Decline with a PR reply, never silently** *(for the PR author)*. When declining a bot suggestion, post a PR comment explaining the rationale with a reference to project guidance (e.g., "don't DRY this 5-line goroutine — duplication teaches the canonical cancellation pattern; see CLAUDE.md 'don't create helpers for one-time operations'"). Silent decline causes the same suggestion to reappear in the next review round under different framing; explicit decline breaks the cycle because the bot reads prior comments before writing its next review.
+
+- **Project guidance trumps bot suggestions when they conflict** *(for the PR author)*. The bot generally favors DRY, explicit constants, and extracted helpers. Project guidance favors pedagogical clarity in examples and minimal abstractions in small helper code. When the two conflict, cite the project rule and decline the bot. **Important: the "decline" examples below apply specifically to examples-repo patterns code — they are NOT license to dismiss DRY or const-declaration suggestions in library (`internal/`, `mount.go`, and other core library) PRs, where the bot's defaults are usually correct.** Common recurring conflicts in examples-repo work:
+  - Duplicated goroutine bodies **in patterns examples** are pedagogical, not DRY violations.
+  - Small string enums **in a single examples file** (e.g., `Status` with 4 valid values used only in that file) don't need `const` declarations.
+  - Inline template comments documenting a deliberate deviation are better than no comment — the comment is the deviation record.
+
+- **Factual claims in docs get bot-verified (with caveats)** *(reminder about the bot's behavior)*. The bot attempts to verify file paths, function names, error strings, call site counts, and `go.mod` versions cited in doc changes — and has caught genuine drift in past reviews. Its verifications are not infallible (it can hallucinate line numbers and occasionally miss a call site), but it is reliable enough that authors should keep assertions precise or phrase them temporally ("as of v0.8.18", "at the time of writing") to avoid drift failures. **Prefer grep anchors over hardcoded line numbers in code references** — grep anchors are self-updating, line numbers silently drift when the file changes.

@@ -2058,7 +2058,120 @@ Concrete, non-obvious patterns validated during earlier sessions. Apply these di
 - Use `@latest` CDN in templates (per project convention); do not pin a specific client version. This is an intentional tradeoff — the examples always demonstrate the current client, accepting the risk that a client release could break a demo until fixed. If a demo breaks after a client release, fix the demo (or the client), don't pin the version.
 - `TestCrossHandlerNavigation` must assert **absence of stale content**, not just presence of new content. Positive assertions alone miss the cross-contamination class of bugs. Add row-count / `<article>` count / `<h4>` count assertions after each cross-handler navigation.
 
-**Client version required:** Session 2 and later require **client v0.8.23+**. Prior versions contain three bugs that manifest in patterns: (1) `WebSocketManager.connect()` doesn't await `onopen`, so observers fire during CONNECTING and fall back to HTTP — producing duplicate rows on Infinite Scroll; (2) `loadMorePending` throttle was missing entirely — rapid observer re-fires stacked concurrent actions; (3) cross-handler navigation didn't reset `treeRenderer` — stale state bled between handlers. All three are fixed in v0.8.23. If tests fail with duplicate `data-key` entries after pagination, the client version is too old.
+**Framework version requirements (both repos):**
+
+- **Client v0.8.23+** is required for Session 2+. Prior versions contain three bugs that manifest in patterns: (1) `WebSocketManager.connect()` doesn't await `onopen`, so observers fire during CONNECTING and fall back to HTTP — producing duplicate rows on Infinite Scroll; (2) `loadMorePending` throttle was missing entirely — rapid observer re-fires stacked concurrent actions; (3) cross-handler navigation didn't reset `treeRenderer` — stale state bled between handlers. All three are fixed in v0.8.23. If tests fail with duplicate `data-key` entries after pagination, the client version is too old.
+- **Library v0.8.18+** is required for Session 3+ (any pattern using `session.TriggerAction` from a goroutine). Prior versions had NO concrete `Session` implementation wired into `Mount`/lifecycle contexts — `ctx.Session()` returned `nil` because `WithSession(...)` was never called at any lifecycle call site, leaving the context's session field as a nil interface value. Goroutine pushes invoking the nil session silently no-op'd or panicked at the interface-dispatch site, depending on the call path. The fix (`livetemplate/livetemplate#336`) added a concrete `localSession` type and wired it through `WithSession(newLocalSession(...))` at every relevant Mount / OnConnect / action-dispatch / broadcast-dispatch call site in `mount.go` — search for `WithSession(newLocalSession` to see the current set. If you're writing a goroutine-push pattern and it doesn't appear to push anything, verify `go.mod` is at v0.8.18+ BEFORE debugging the controller. Same release also fixed `ctx.GetInt`/`ctx.GetFloat` to handle native Go numeric types (int, int8-64, uint8-64, float32/64) with NaN/Inf/overflow checks — prior versions silently returned 0 for a goroutine passing a Go `int` via `TriggerAction`. The delegation chain is `ctx.GetInt()` (in `context.go`, a thin wrapper) → `ActionData.GetIntOk()` (in `action.go`, the actual type switch); verify the numeric-type switch is present in your version with `grep -n "int8\|int16\|int32\|int64" action.go` (it should match the type-switch branches in `GetIntOk`/`GetFloatOk`).
+
+**Server-push patterns (goroutine → `session.TriggerAction`):** Session 3 established the canonical shape for patterns that run a background goroutine and push updates via the WebSocket. Apply these rules verbatim when writing any new goroutine-pushing pattern.
+
+- **Action handler shape: re-entrancy guard → session nil-check → mutate → spawn.** The ordering is load-bearing. This example matches Session 3's `ProgressBarController.Start` — intentionally bounded by a **hard iteration count** (`i < maxTicks`) so it is safe in both single-instance and multi-instance deployments. Why the hard count matters: in multi-instance mode `TriggerAction` never returns an error (see the caveat below), so the `if err != nil { return }` inside the loop body cannot be relied on as the exit condition. The `i < maxTicks` ceiling is what actually guarantees termination. A done channel (closed on `OnDisconnect`) is the other acceptable pattern for indefinite-work loops. Either way: the exit condition must be something the loop body controls directly, not something that depends on `TriggerAction`'s return value.
+  ```go
+  func (c *Controller) Start(state State, ctx *Context) (State, error) {
+      // 1. Re-entrancy guard: direct WS messages can bypass a template-disabled button.
+      if state.Running { return state, nil }
+      // 2. Session check BEFORE mutation: if session is nil, mutation would leave
+      //    Running=true with no goroutine to clear it, and the guard above would
+      //    permanently block recovery.
+      session := ctx.Session()
+      if session == nil { return state, nil }
+      // 3. Mutate.
+      state.Running = true
+      // 4. Spawn with a BOUNDED loop (critical — see multi-instance caveat below).
+      //    Unbounded `for { ... }` loops using only `err != nil` as the exit
+      //    condition will silently run forever under PubSub, because
+      //    TriggerAction returns nil when a broadcaster is configured. Always
+      //    bound the iteration count, OR use a done channel — never rely on
+      //    the error return as the sole stop signal in an unbounded loop.
+      go func() {
+          for i := 0; i < maxTicks; i++ {
+              time.Sleep(tickInterval)
+              if err := session.TriggerAction("update", data); err != nil {
+                  return // Session disconnected — stop cleanly (single-instance).
+              }
+          }
+      }()
+      return state, nil
+  }
+  ```
+  The re-entrancy guard is NOT optional even when the template hides the action button — `liveTemplateClient.send({action:"start"})` via a direct WebSocket message bypasses the rendered UI, and the `Concurrent_Fetch_Reaches_Single_Result` test in `patterns_test.go` proves this matters.
+
+- **Canonical goroutine cancellation (single-instance mode):** `if err := session.TriggerAction(...); err != nil { return }` in every loop. In single-instance mode (no PubSub broadcaster configured), `TriggerAction` returns an error with the prefix `livetemplate: no connected sessions for group` when `registry.GetByGroup(groupID)` finds no connections and `!hasRemote` — that's how the goroutine learns the WebSocket is gone and exits cleanly.
+
+- **Multi-instance caveat — indefinite-work loops MUST use a hard bound or done channel, not the error-return pattern.** `TriggerAction` only returns the no-connections error when there is no `GroupActionBroadcaster` configured (trace with `grep -n "hasRemote" session_impl.go`). If a broadcaster is configured (e.g., Redis PubSub), `TriggerAction` returns `nil` even with zero local connections, because the user may be connected to a peer instance. An **unbounded** `err != nil` loop will therefore loop forever in any multi-instance deployment — and worse, under a persistent PubSub outage it will loop forever while emitting "pubsub publish failed" warnings on every call. The full lifecycle contract (including the bounded-loop workaround) lives in the doc comment preceding the function definition; find it with `grep -n "Disconnect semantics" session_impl.go`.
+  
+  **Session 3's three patterns are all bounded by design** and do not exhibit this bug: LazyLoad uses a single 2s sleep, ProgressBar's loop iterates from `progressStep` to `100` in `progressStep`-sized increments (the constants live in the **examples repo** at `patterns/handlers_loading.go` — grep `progressStep` there to verify the current bound, which is not visible from this repo), AsyncOps uses a single 2s sleep. The warning below is for **future** patterns that need to work in both single-instance and multi-instance modes and would otherwise copy the `err != nil` pattern into an unbounded loop without realizing it. Future unbounded-loop patterns MUST use one of:
+  - A **hard iteration bound**: `for i := 0; i < 100; i++ { ... }` — matches the ProgressBar shape. Safe for finite work.
+  - A **done channel** or **external context**: track a `stopCh chan struct{}` in the controller struct, close it on `OnDisconnect`, and `select { case <-stopCh: return; case <-time.After(tick): }` in the loop. Safe for indefinite work.
+  
+  Do NOT reach for `context.Context` from `r.Context()` (the HTTP request context) — as of `livetemplate v0.8.18`, the framework does not thread a cancellable request context through `Session` (see `livetemplate/livetemplate#303` for the open tracking issue). A **controller-stored** `context.Context` or `done chan struct{}`, created in the action handler and closed in `OnDisconnect`, IS the correct pattern for indefinite-work goroutines. The doc comment preceding `localSession.TriggerAction` (`grep -n "Disconnect semantics" session_impl.go`) shows the canonical shape with a `select { case <-ctx.Done(): ... }` loop — note that `ctx` in that example is controller-stored, not `r.Context()`. Copy the loop structure, create your own context in the action handler.
+
+- **Ephemeral state = natural self-healing on reconnect.** State structs WITHOUT `lvt:"persist"` tags are freshly cloned on every WebSocket connect. Trace the path from the `livetemplate/` repo root with `grep -n "restorePersistedState\|cloneStateTyped" mount.go`: `restorePersistedState` returns `(nil, false)` when `persistable == nil`, and the call site falls through to `cloneStateTyped()` which returns zero-value state. Concretely:
+  1. WebSocket disconnects mid-goroutine → `registry.Unregister` removes the connection.
+  2. Goroutine wakes → `TriggerAction` → `GetByGroup` returns empty → error → goroutine exits cleanly.
+  3. WebSocket reconnects → `Mount` fires → state is zero-valued (`Running=false`, `Status=""`) → user sees the clickable button.
+  
+  **Consequence:** patterns like `ProgressBar` and `AsyncOps` do NOT need an `OnConnect` recovery path — the "stuck state after reconnect" scenario cannot manifest in ephemeral mode. Document this with an in-code comment so review bots don't flag the absence of `OnConnect` as a bug. The comment should explicitly cite the `cloneStateTyped()` path so the reasoning is legible.
+
+- **Patterns that DO need `OnConnect`:** Only patterns where the initial render is the "pre-goroutine" state (like `LazyLoad`'s spinner) need an `OnConnect` recovery path — otherwise the user reconnects to a spinner with nothing driving it. The lifecycle shape is: the framework calls `Mount` first on every WebSocket connect/reconnect, then passes the returned state to `OnConnect`.
+
+  **`Mount`:**
+  ```go
+  func (c *LazyLoadController) Mount(state State, ctx *Context) (State, error) {
+      if ctx.Action() == "" { // Only reset on non-action calls (initial GET or WS connect);
+                              // skip when a POST action is being dispatched, so the action's
+                              // own state changes aren't clobbered mid-flight.
+          state.Loading = true
+          state.Data = ""
+      }
+      return state, nil
+  }
+  ```
+
+  **`OnConnect`:**
+  ```go
+  func (c *LazyLoadController) OnConnect(state State, ctx *Context) (State, error) {
+      // Load-bearing safety net. Today, Mount ALWAYS sets Loading=true on
+      // a WS (re)connect before OnConnect runs, so this check doesn't fire
+      // with the current Mount shape. But if Mount ever gains a condition
+      // that preserves already-completed state (e.g., `if state.Data == ""`
+      // added to Mount's reset condition — a reasonable future change to
+      // avoid re-fetching already-loaded data on reconnect), this guard
+      // becomes the active safety net: reconnecting after completion would
+      // arrive here with Loading=false, and without the check, OnConnect
+      // would re-spawn the goroutine and overwrite already-loaded data.
+      // Do NOT remove when refactoring Mount.
+      if !state.Loading { return state, nil }
+      session := ctx.Session()
+      if session == nil { return state, nil }
+      // Reconnect race: if the client disconnects and reconnects WHILE a
+      // goroutine from the previous connect is still sleeping, OnConnect
+      // will spawn a second goroutine and both will eventually race to
+      // dispatch `dataLoaded`. That's safe ONLY because DataLoaded is
+      // idempotent (it just overwrites state.Data). Non-idempotent
+      // patterns — anything that increments a counter, appends to a
+      // list, or triggers a side effect — must use an in-flight request
+      // ID guard instead. See the "Reconnect-during-loading double-fire"
+      // section below for the full analysis.
+      go func() {
+          time.Sleep(lazyLoadDelay)
+          if err := session.TriggerAction("dataLoaded", map[string]any{
+              "data": "Content loaded lazily at " + time.Now().Format("15:04:05"),
+          }); err != nil {
+              return // Session disconnected — stop cleanly (single-instance).
+          }
+      }()
+      return state, nil
+  }
+  ```
+
+- **Reconnect-during-loading double-fire is a real race, and the framework does NOT invalidate old sessions.** If the client disconnects + reconnects within a goroutine's sleep window, `OnConnect` spawns a second goroutine while the first is still asleep. Both goroutines look up the session via `registry.GetByGroup(groupID)`, and **`groupID` is stable across reconnects** (it's cookie-bound). Outcome depends on timing:
+  - (a) Goroutine wakes during the dead-connection gap → `GetByGroup` empty → error → exits cleanly.
+  - (b) Goroutine wakes after reconnect → both goroutines dispatch successfully to the new connection. For `LazyLoad`'s `DataLoaded`, the second call overwrites `state.Data` with a slightly different timestamp — harmless.
+  
+  **Every goroutine-push pattern in the examples repo MUST be idempotent by construction** — result handlers must produce the same final state regardless of whether the dispatch arrives once or twice. For Session 3, this is true by structure: `DataLoaded` just sets a string, `UpdateProgress` writes a monotonic value, `FetchResult` is a terminal transition. A future non-idempotent pattern (e.g., "increment a counter on each tick") would need an explicit in-flight request ID tracked in state — but do not write such a pattern without first filing an issue against the library's `TriggerAction` reconnect-gap work (see `livetemplate/livetemplate#342`). **Do NOT claim "framework session invalidation" semantics in comments** — that is not a thing. The groupID lookup is deterministic, and an earlier version of this proposal's example comments made that false claim before a review caught it.
+
+- **Flash scoping in branched templates is load-bearing.** When a controller emits a flash only on a state transition (e.g., `UpdateProgress` calls `ctx.SetFlash("success", "Job complete")` only when `Progress >= 100`), the `{{.lvt.FlashTag "success"}}` MUST live inside the branch that renders after that transition — not at the always-rendered top of the article. Flashes are ephemeral (consumed on first render); placing the tag outside the transition branch causes it to be consumed during an earlier `Running`/idle render before the user ever sees it. Comment the placement inline so a future maintainer doesn't "simplify" the tag out of its scoped position.
 
 **In-memory shared DB for mutable state:** Patterns like Delete Row that need server-side persistence across sessions (but NOT across process restarts) should use a `sync.Mutex + []T` in the **controller struct** — NOT `lvt:"persist"` tags. Controllers are singletons, so this is safe. Pattern:
 ```go
@@ -2135,8 +2248,9 @@ output[data-flash] {
 **Per-session workflow reminders** (complements the Session workflow paragraph above):
 
 - Always run the full `GOWORK=off go test -v -race ./patterns` suite locally before pushing — CI flakes happen, but local flakes should be investigated, not ignored.
-- Create a worktree under `.worktrees/<session-name>` in the examples repo; never work on `main` directly.
-- Always release a new client version BEFORE opening the examples PR if the patterns depend on a client bug fix. Otherwise CI fails against jsdelivr `@latest` (which still serves the old version) and needs re-running after the release propagates.
+- Create a worktree under `.worktrees/<session-name>` in **both repos if the session needs library or client changes**. Session 3 required parallel worktrees (examples + livetemplate) because the Session.TriggerAction wiring gap was discovered mid-session. From the `livetemplate/` repo root, run `grep -n "WithSession(newLocalSession" mount.go` at the START of any server-push session to verify the framework plumbing exists before writing patterns.
+- **Always release any new library or client version BEFORE opening the examples PR** if the patterns depend on a fresh fix in either repo. CI fetches `@latest` from jsdelivr for the client and the `go.mod`-pinned version from the Go proxy for the library; neither will see an unreleased fix, so the PR will be DOA until the release propagates. Session 3 shipped `livetemplate v0.8.18` first, then opened the examples PR against it — that sequencing is required.
+- AI code review workflow guidance (bot review loop convergence, explicit-decline pattern, "project guidance trumps bot suggestions") lives in [`livetemplate/CLAUDE.md`](../../CLAUDE.md) under the "AI Code Review Workflow" section — it's tooling-level workflow that applies to every PR in both repos, not patterns-specific technical guidance.
 - [`livetemplate/examples#62`](https://github.com/livetemplate/examples/issues/62)–[`#68`](https://github.com/livetemplate/examples/issues/68) are open follow-ups from Session 1 review — address them in later sessions if touching the affected files, otherwise leave for Session 7 polish.
 
 ### Session 1: Scaffold + Index Page + Forms & Editing
@@ -2180,14 +2294,14 @@ output[data-flash] {
 
 **Scope:** Patterns #14–16
 
-- [ ] Implement Lazy Loading (#14)
-- [ ] Implement Progress Bar (#15)
-- [ ] Implement Async Operations (#16)
-- [ ] Verify goroutine cleanup on disconnect
-- [ ] E2E tests for patterns #14–16 (incl. UI_Standards + Visual_Check)
-- [ ] Update index page with patterns #14–16
-- [ ] Run app locally, wait for manual review signoff
-- [ ] Create PR, update this tracker
+- [x] Implement Lazy Loading (#14)
+- [x] Implement Progress Bar (#15)
+- [x] Implement Async Operations (#16)
+- [x] Verify goroutine cleanup on disconnect
+- [x] E2E tests for patterns #14–16 (incl. UI_Standards + Visual_Check)
+- [x] Update index page with patterns #14–16
+- [x] Run app locally, wait for manual review signoff
+- [x] Create PR, update this tracker — merged as livetemplate/examples#70 (plus library fix livetemplate/livetemplate#336 for Session.TriggerAction wiring)
 
 ### Session 4: Dialogs, Tabs & Navigation
 
