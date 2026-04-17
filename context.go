@@ -336,11 +336,13 @@ func FlashExpiry(d time.Duration) FlashOption {
 // cleared after each render (one-shot). Flash now persists on WebSocket
 // connections until ClearFlash is explicitly called or FlashExpiry elapses.
 // Existing handlers that relied on the auto-clear behavior and do not call
-// ClearFlash will accumulate flash across re-renders. Add an explicit
-// ClearFlash call (or FlashExpiry) to preserve one-shot behavior:
+// ClearFlash will accumulate flash across re-renders. To restore one-shot
+// behavior, either call ClearFlash in the next handler, or use FlashExpiry:
 //
-//	ctx.SetFlash("success", "Saved!", livetemplate.FlashExpiry(0)) // one-shot: use ClearFlash in next handler
-//	ctx.SetFlash("success", "Saved!", livetemplate.FlashExpiry(5*time.Second)) // auto-expire after 5s
+//	// Option A: persist and clear explicitly in the follow-up handler
+//	ctx.SetFlash("success", "Saved!") // call ctx.ClearFlash("success") in the next handler
+//	// Option B: auto-expire after a fixed duration (e.g., after 5 seconds)
+//	ctx.SetFlash("success", "Saved!", livetemplate.FlashExpiry(5*time.Second))
 //
 // Transport lifetime note: On WebSocket connections the flash store survives
 // across renders — messages persist until ClearFlash is called. On HTTP

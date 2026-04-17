@@ -78,7 +78,9 @@ const defaultFormAction = "submit"
 // Mount call — the original connection query string is not merged. If
 // your Mount reads multiple params (e.g., ?tab=settings&s=alpha), you
 // must include all of them in every navigate payload or Mount will see
-// missing keys as empty strings.
+// missing keys as empty strings. Sending __navigate__ with no data field
+// (or an empty data map) is equivalent to navigating to the base path
+// with no query params — all ctx.GetString / GetInt calls return zero values.
 const actionNavigate = "__navigate__"
 
 // applyDefaultAction sets the action to defaultFormAction for forms that

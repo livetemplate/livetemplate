@@ -141,6 +141,31 @@ func TestNavigateActionNotRoutedThroughDispatchWithState(t *testing.T) {
 	}
 }
 
+// TestNavigateActionEmptyDataResetsQueryParams documents and pins the
+// "no data = all-empty params" behavior. Sending __navigate__ with no
+// data field (or an empty map) gives Mount ctx.GetString/GetInt zero
+// values for all keys — the original connection query string is NOT
+// preserved. This test guards against a future regression where someone
+// tries to "merge" the original params into a nil-data navigate.
+func TestNavigateActionEmptyDataResetsQueryParams(t *testing.T) {
+	server, wsURL := setupNavigateTestServer(t)
+	defer server.Close()
+
+	ws := connectWS(t, wsURL)
+	defer func() {
+		if err := ws.Close(); err != nil {
+			t.Logf("ws close: %v", err)
+		}
+	}()
+
+	// Connect with ?s=alpha — initial Selected is "alpha".
+	// Send navigate with NO data — Mount should see s="" (not "alpha").
+	sendWSAction(t, ws, actionNavigate, nil)
+	resp := readWSUpdate(t, ws, 2*time.Second)
+	// Slot 0 = Selected — must be empty string, not the original "alpha".
+	assertTreeSlot(t, "empty-data navigate", resp, "0", "")
+}
+
 // sendWSAction sends an action message over the WebSocket, matching the
 // wire format the client uses.
 func sendWSAction(t *testing.T, ws *websocket.Conn, action string, data map[string]interface{}) {
