@@ -60,6 +60,19 @@ const defaultFormAction = "submit"
 // reserved action — the event loop intercepts it before DispatchWithState
 // ever runs. If a controller does define such a method, the event loop
 // short-circuit takes precedence.
+//
+// State note: Mount receives the current session state, not a fresh
+// zero-value state. This preserves unrelated per-connection fields (e.g.,
+// pagination cursors, expanded panels) across navigations. To reset
+// specific fields on navigate, zero them explicitly inside Mount.
+//
+// Reconnect note: the WebSocket's connection identity is based on the
+// handler path, not the query string. After a navigate action, if the
+// socket disconnects and reconnects, the client reconnects to the original
+// URL — Mount re-runs with the initial query params, not the navigated-to
+// params. The client is responsible for updating window.location and
+// using the updated URL on reconnect so that post-reconnect Mounts see
+// the latest query params.
 const actionNavigate = "__navigate__"
 
 // applyDefaultAction sets the action to defaultFormAction for forms that

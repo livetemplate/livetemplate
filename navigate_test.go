@@ -2,6 +2,7 @@ package livetemplate
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -69,11 +70,10 @@ func setupNavigateTestServer(t *testing.T) (*httptest.Server, string) {
 // data:{s:"beta"}} message and confirms state.Selected flips to "beta"
 // on the SAME WebSocket connection — without any reconnect.
 //
-// Uses raw substring assertions on the tree response bytes rather than
-// trying to walk the static/dynamic tree shape — livetemplate's tree
-// format is an implementation detail that may change, and what matters
-// for this test is that the new query param's value reaches the render
-// output.
+// Navigate responses are tree UPDATES: the client already has the statics
+// cached from the initial render, so subsequent responses contain only the
+// changed dynamic slot values. assertTreeSlot parses the JSON tree and
+// checks specific slots by position (slot "0" = Selected, slot "1" = MountCount).
 func TestNavigateActionReMountsWithNewQueryData(t *testing.T) {
 	server, wsURL := setupNavigateTestServer(t)
 	defer server.Close()
@@ -87,30 +87,23 @@ func TestNavigateActionReMountsWithNewQueryData(t *testing.T) {
 
 	// Fire the navigate action with new query data. The response is
 	// the tree update for the re-mounted state.
+	//
+	// Navigate responses are tree UPDATES: statics are already cached
+	// client-side, so the wire format contains only changed dynamic slot
+	// values (no HTML, no fingerprints). Parse the JSON tree to assert
+	// specific slot values rather than using fragile substring matching.
 	sendWSAction(t, ws, actionNavigate, map[string]interface{}{"s": "beta"})
-	bytesAfter := readWSBytes(t, ws, 2*time.Second)
-	if !strings.Contains(string(bytesAfter), "beta") {
-		t.Errorf("after navigate, response missing 'beta':\n%s", bytesAfter)
-	}
-	// MountCount=2: one from initial connect, one from the navigate.
-	// Navigate responses are tree UPDATES (statics already cached client-side),
-	// so the raw bytes contain only dynamic slot values like `"1":"2"` —
-	// no statics, no fingerprints. `"2"` here is the rendered count value
-	// and is unambiguous in this response shape.
-	if !strings.Contains(string(bytesAfter), `"2"`) {
-		t.Errorf("after navigate, response missing mount count '2':\n%s", bytesAfter)
-	}
+	resp1 := readWSUpdate(t, ws, 2*time.Second)
+	assertTreeSlot(t, "after first navigate", resp1, "0", "beta")
+	// Slot 1 = MountCount: 2 after initial connect + one navigate.
+	assertTreeSlot(t, "after first navigate", resp1, "1", "2")
 
 	// One more navigate to a third value confirms we can re-nav
 	// multiple times on the same connection.
 	sendWSAction(t, ws, actionNavigate, map[string]interface{}{"s": "gamma"})
-	bytesAfter2 := readWSBytes(t, ws, 2*time.Second)
-	if !strings.Contains(string(bytesAfter2), "gamma") {
-		t.Errorf("after second navigate, response missing 'gamma':\n%s", bytesAfter2)
-	}
-	if !strings.Contains(string(bytesAfter2), `"3"`) {
-		t.Errorf("after second navigate, response missing mount count '3':\n%s", bytesAfter2)
-	}
+	resp2 := readWSUpdate(t, ws, 2*time.Second)
+	assertTreeSlot(t, "after second navigate", resp2, "0", "gamma")
+	assertTreeSlot(t, "after second navigate", resp2, "1", "3")
 }
 
 // TestNavigateActionNotRoutedThroughDispatchWithState verifies that the
@@ -179,4 +172,20 @@ func readWSBytes(t *testing.T, ws *websocket.Conn, timeout time.Duration) []byte
 		t.Fatalf("ws read: %v", err)
 	}
 	return data
+}
+
+// assertTreeSlot checks that the parsed WS update response has the given
+// value at tree slot key. Navigate responses are tree UPDATES containing
+// only changed dynamic slot values, so this is the correct way to verify
+// specific field values without fragile substring matching.
+func assertTreeSlot(t *testing.T, context string, resp map[string]any, slotKey, wantValue string) {
+	t.Helper()
+	tree, ok := resp["tree"].(map[string]any)
+	if !ok {
+		t.Fatalf("%s: response has no tree: %#v", context, resp)
+	}
+	got := fmt.Sprintf("%v", tree[slotKey])
+	if got != wantValue {
+		t.Errorf("%s: tree[%q] = %q, want %q", context, slotKey, got, wantValue)
+	}
 }

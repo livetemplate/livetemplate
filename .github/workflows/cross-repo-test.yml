@@ -61,7 +61,7 @@ jobs:
         npm ci
         echo "Building client library..."
         npm run build
-        echo "✓ Client library built successfully"
+        echo "OK: Client library built successfully"
         ls -la dist/
 
     - name: Run core library unit tests (with race detector)
@@ -88,7 +88,7 @@ jobs:
         echo "Adding replace directive to use local core library..."
         go mod edit -replace=github.com/livetemplate/livetemplate=../livetemplate
         go mod tidy
-        echo "✓ Replace directive added"
+        echo "OK: Replace directive added"
 
     - name: Run LVT unit tests
       working-directory: lvt
@@ -153,7 +153,7 @@ jobs:
         npm ci
         echo "Building client library..."
         npm run build
-        echo "✓ Client library built successfully"
+        echo "OK: Client library built successfully"
         ls -la dist/
 
     - name: Install sqlc
@@ -168,7 +168,7 @@ jobs:
         go mod edit -replace=github.com/livetemplate/livetemplate=../livetemplate
         go mod edit -replace=github.com/livetemplate/lvt/components=../lvt/components
         go mod tidy
-        echo "✓ Replace directives added"
+        echo "OK: Replace directives added"
 
     - name: Run examples test suite
       working-directory: examples
@@ -220,7 +220,7 @@ jobs:
         npm install @livetemplate/client@latest
         echo "Building client library..."
         npm run build
-        echo "✓ Tinkerdown client built successfully"
+        echo "OK: Tinkerdown client built successfully"
 
     - name: Add replace directives to Tinkerdown
       working-directory: tinkerdown
@@ -229,7 +229,7 @@ jobs:
         go mod edit -replace=github.com/livetemplate/livetemplate=../livetemplate
         go mod edit -replace=github.com/livetemplate/lvt/components=../lvt/components
         go mod tidy
-        echo "✓ Replace directives added"
+        echo "OK: Replace directives added"
 
     - name: Build Tinkerdown binary
       working-directory: tinkerdown
@@ -256,7 +256,7 @@ jobs:
         # Verify the binary is an executable, not an archive
         file tinkerdown
         if file tinkerdown | grep -q "ELF"; then
-          echo "✓ Binary is ELF executable"
+          echo "OK: Binary is ELF executable"
         else
           echo "ERROR: Binary is not an ELF executable!"
           file tinkerdown
@@ -272,7 +272,7 @@ jobs:
             echo "  → Created symlink in $dir"
           fi
         done
-        echo "✓ Binary installed and symlinked"
+        echo "OK: Binary installed and symlinked"
 
     - name: Run Tinkerdown unit tests
       working-directory: tinkerdown
