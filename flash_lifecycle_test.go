@@ -222,3 +222,88 @@ func TestFlashSurvivesSubsequentWSAction(t *testing.T) {
 		t.Errorf("Increment diff contains flash slot: got %q — flash was incorrectly cleared between renders (regression: old clearFlash bug)", flashVal)
 	}
 }
+
+// flashNavTestState is per-connection state for the navigate + flash interaction
+// test. Selected is set by Mount from the "s" query param.
+type flashNavTestState struct {
+	Selected string
+}
+
+type flashNavTestController struct{}
+
+func (c *flashNavTestController) Mount(state flashNavTestState, ctx *Context) (flashNavTestState, error) {
+	if s := ctx.GetString("s"); s != "" {
+		state.Selected = s
+	}
+	return state, nil
+}
+
+func (c *flashNavTestController) ShowFlash(state flashNavTestState, ctx *Context) (flashNavTestState, error) {
+	ctx.SetFlash("info", "persistent")
+	return state, nil
+}
+
+// TestFlashSurvivesNavigateAction verifies that flash set before a
+// __navigate__ action survives the navigate's callMount path. The navigate
+// path is a distinct code branch from DispatchWithState (it calls callMount
+// directly), so it needs its own coverage.
+//
+// Test flow:
+//  1. "ShowFlash" action stores flash "info"="persistent" in connSt.
+//  2. "__navigate__" fires → callMount runs, Selected changes "alpha"→"beta".
+//  3. The navigate diff must include slot 1 (Selected changed) and must NOT
+//     include slot 0 (flash unchanged). A slot-0 entry in the navigate diff
+//     would mean flash was cleared by the navigate path — the regression.
+func TestFlashSurvivesNavigateAction(t *testing.T) {
+	auth := &fixedGroupAuth{groupID: "flash-nav-group"}
+	tmpl, err := New("test", WithAuthenticator(auth))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	// Template slot 0 = Flash("info"), slot 1 = Selected.
+	tmpl, err = tmpl.Parse(`<span class="flash">{{.lvt.Flash "info"}}</span><span class="sel">{{.Selected}}</span>`)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	handler := tmpl.Handle(&flashNavTestController{}, AsState(&flashNavTestState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/?s=alpha"
+	ws := connectWS(t, wsURL)
+	defer func() {
+		if err := ws.Close(); err != nil {
+			t.Logf("ws close: %v", err)
+		}
+	}()
+
+	// Step 1: ShowFlash — flash "info" = "persistent" stored in connSt.
+	sendWSAction(t, ws, "ShowFlash", nil)
+	resp1 := readWSUpdate(t, ws, 2*time.Second)
+	tree1, ok := resp1["tree"].(map[string]any)
+	if !ok {
+		t.Fatalf("ShowFlash response has no tree: %#v", resp1)
+	}
+	if v := fmt.Sprintf("%v", tree1["0"]); v != "persistent" {
+		t.Fatalf("ShowFlash: flash slot = %q, want %q", v, "persistent")
+	}
+
+	// Step 2: Navigate with new param. callMount runs, Selected changes.
+	// Flash must survive the navigate's callMount path unchanged.
+	sendWSAction(t, ws, actionNavigate, map[string]any{"s": "beta"})
+	resp2 := readWSUpdate(t, ws, 2*time.Second)
+	tree2, ok := resp2["tree"].(map[string]any)
+	if !ok {
+		t.Fatalf("navigate response has no tree: %#v", resp2)
+	}
+	// Selected slot must show the navigated-to value.
+	if v := fmt.Sprintf("%v", tree2["1"]); v != "beta" {
+		t.Errorf("navigate: Selected slot = %q, want %q", v, "beta")
+	}
+	// Flash slot must be absent (unchanged). Its presence means flash was
+	// cleared by the navigate's callMount path — the regression.
+	if flashVal, present := tree2["0"]; present {
+		t.Errorf("navigate diff contains flash slot: got %q — flash was incorrectly cleared by navigate (callMount path regression)", flashVal)
+	}
+}
