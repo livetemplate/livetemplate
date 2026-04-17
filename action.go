@@ -73,6 +73,12 @@ const defaultFormAction = "submit"
 // params. The client is responsible for updating window.location and
 // using the updated URL on reconnect so that post-reconnect Mounts see
 // the latest query params.
+//
+// Query param note: msg.Data fully replaces the query params for the
+// Mount call — the original connection query string is not merged. If
+// your Mount reads multiple params (e.g., ?tab=settings&s=alpha), you
+// must include all of them in every navigate payload or Mount will see
+// missing keys as empty strings.
 const actionNavigate = "__navigate__"
 
 // applyDefaultAction sets the action to defaultFormAction for forms that
