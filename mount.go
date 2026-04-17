@@ -724,16 +724,20 @@ eventLoop:
 			// new params without needing to know the navigate came over
 			// an open socket.
 			//
-			// We reuse actionCtx (with the action name cleared via
-			// WithAction("")) so flash/broadcast plumbing routes through
-			// one context for both dispatch paths. The empty action name
-			// matches the convention used by the initial connect-time
-			// Mount at mount.go:503 so controllers can uniformly write
-			// `if ctx.Action() == "" { /* GET or nav */ }`.
+			// We rebind actionCtx itself (not a discarded copy) with the
+			// action name cleared so that any BroadcastAction calls inside
+			// Mount are queued on the same *Context that processBroadcastsAndSync
+			// reads via actionCtx.pendingBroadcasts() below. WithAction returns
+			// a shallow copy — if callMount appended to a discarded copy,
+			// pendingBroadcasts() on the original actionCtx would see nothing.
+			// The empty action name matches the convention used by the initial
+			// connect-time Mount at mount.go:503 so controllers can uniformly
+			// write `if ctx.Action() == "" { /* GET or nav */ }`.
 			var newState interface{}
 			var actionErr error
 			if msg.Action == actionNavigate {
-				newState, actionErr = callMount(h.config.Controller, connSt.state, actionCtx.WithAction(""))
+				actionCtx = actionCtx.WithAction("")
+				newState, actionErr = callMount(h.config.Controller, connSt.state, actionCtx)
 			} else {
 				newState, actionErr = DispatchWithState(h.config.Controller, connSt.state, actionCtx)
 			}
@@ -802,7 +806,8 @@ eventLoop:
 				break eventLoop
 			}
 
-			// Clear flash messages after successful render (flash shows once per action)
+			// Prune flash messages whose expiry has elapsed; non-expiry flash
+			// persists until ClearFlash is called.
 			connSt.pruneExpiredFlash()
 
 		case req := <-connection.DispatchChan:
@@ -1273,9 +1278,10 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.config.ProgressiveEnhancement && !wantsJSON(r) {
 		// If the action handler already sent a redirect (via ctx.Redirect()),
 		// skip the PRG redirect to avoid a superfluous redirect response.
-		// The action's redirect response is already sent to the client, so
-		// flash state in connSt is stale — clear it to prevent leakage into
-		// subsequent responses for this session/group.
+		// The action's redirect response is already sent to the client. For
+		// HTTP (per-request connSt), flash set before the redirect is lost
+		// because no flash cookie is written here; pruneExpiredFlash removes
+		// any flash whose expiry has elapsed, and the connSt is GC'd.
 		if actionCtx.redirected != nil && *actionCtx.redirected {
 			connSt.pruneExpiredFlash()
 			return
@@ -1354,7 +1360,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Clear flash messages after successful render (flash shows once per action)
+	// Prune flash messages whose expiry has elapsed; non-expiry flash
+	// persists until ClearFlash is called.
 	connSt.pruneExpiredFlash()
 }
 

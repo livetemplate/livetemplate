@@ -332,6 +332,17 @@ func FlashExpiry(d time.Duration) FlashOption {
 // when the user has acknowledged the message (e.g., after a navigation
 // or a follow-up action).
 //
+// Transport lifetime note: On WebSocket connections the flash store survives
+// across renders — messages persist until ClearFlash is called. On HTTP
+// connections (form submissions with progressive enhancement) the flash
+// store is per-request, so flash is inherently one-shot regardless of
+// whether ClearFlash is called.
+//
+// Redirect note: Flash set in a handler that also calls ctx.Redirect()
+// does not survive the redirect — no flash cookie is written before the
+// redirect response, so the message is lost. Use session-backed flash
+// (or a query param) if you need flash to survive an HTTP redirect.
+//
 // Common keys: "success", "error", "info", "warning"
 //
 // Key conventions:

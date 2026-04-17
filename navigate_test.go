@@ -93,6 +93,10 @@ func TestNavigateActionReMountsWithNewQueryData(t *testing.T) {
 		t.Errorf("after navigate, response missing 'beta':\n%s", bytesAfter)
 	}
 	// MountCount=2: one from initial connect, one from the navigate.
+	// Navigate responses are tree UPDATES (statics already cached client-side),
+	// so the raw bytes contain only dynamic slot values like `"1":"2"` —
+	// no statics, no fingerprints. `"2"` here is the rendered count value
+	// and is unambiguous in this response shape.
 	if !strings.Contains(string(bytesAfter), `"2"`) {
 		t.Errorf("after navigate, response missing mount count '2':\n%s", bytesAfter)
 	}
