@@ -160,20 +160,6 @@ func sendWSAction(t *testing.T, ws *websocket.Conn, action string, data map[stri
 	}
 }
 
-// readWSBytes reads one WebSocket frame and returns the raw bytes.
-// Useful for assertions that don't care about the internal tree shape.
-func readWSBytes(t *testing.T, ws *websocket.Conn, timeout time.Duration) []byte {
-	t.Helper()
-	if err := ws.SetReadDeadline(time.Now().Add(timeout)); err != nil {
-		t.Fatalf("SetReadDeadline: %v", err)
-	}
-	_, data, err := ws.ReadMessage()
-	if err != nil {
-		t.Fatalf("ws read: %v", err)
-	}
-	return data
-}
-
 // assertTreeSlot checks that the parsed WS update response has the given
 // value at tree slot key. Navigate responses are tree UPDATES containing
 // only changed dynamic slot values, so this is the correct way to verify
