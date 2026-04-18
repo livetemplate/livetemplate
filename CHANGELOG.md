@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<a name="v0.8.19"></a>
+## [v0.8.19] - 2026-04-18
+
+### Documentation
+
+- **proposals:** Session 3 complete + server-push pattern lessons ([#338](https://github.com/livefir/livetemplate/issues/338))
+
+### Features
+
+- __navigate__ action + flash persist-until-cleared lifecycle ([#344](https://github.com/livefir/livetemplate/issues/344))
+
+
 <a name="v0.8.18"></a>
 ## [v0.8.18] - 2026-04-14
 
@@ -736,7 +748,8 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.18...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.19...HEAD
+[v0.8.19]: https://github.com/livefir/livetemplate/compare/v0.8.18...v0.8.19
 [v0.8.18]: https://github.com/livefir/livetemplate/compare/v0.8.17...v0.8.18
 [v0.8.17]: https://github.com/livefir/livetemplate/compare/v0.8.16...v0.8.17
 [v0.8.16]: https://github.com/livefir/livetemplate/compare/v0.8.15...v0.8.16

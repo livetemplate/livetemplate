@@ -324,4 +324,3 @@ func TestNavigateActionNoMountMethodIsNoOpRerender(t *testing.T) {
 		t.Errorf("no-Mount navigate: unexpected errors: %#v", errs)
 	}
 }
-
