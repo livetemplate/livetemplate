@@ -233,6 +233,7 @@ func (c *connState) setFlash(key, message string, expiry time.Duration) {
 		c.flashExpiry[key] = time.Now().Add(expiry)
 	} else {
 		// No expiry — persist until ClearFlash. Remove any prior expiry.
+		// delete on a nil map is a safe no-op in Go, so no nil guard needed.
 		delete(c.flashExpiry, key)
 	}
 }
@@ -268,7 +269,9 @@ func (c *connState) pruneExpiredFlash() {
 	c.messagesMu.Lock()
 	defer c.messagesMu.Unlock()
 	// Re-check under the write lock: another goroutine may have emptied
-	// flashExpiry between the read-unlock and the write-lock above.
+	// flashExpiry between the read-unlock and the write-lock above. A goroutine
+	// that added entries is also fine to miss — newly-set flash can't be expired
+	// yet, so skipping one prune cycle for new entries is safe.
 	if len(c.flashExpiry) == 0 {
 		return
 	}
