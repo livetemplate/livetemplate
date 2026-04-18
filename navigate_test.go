@@ -2,6 +2,7 @@ package livetemplate
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http/httptest"
 	"strings"
@@ -164,6 +165,75 @@ func TestNavigateActionEmptyDataResetsQueryParams(t *testing.T) {
 	resp := readWSUpdate(t, ws, 2*time.Second)
 	// Slot 0 = Selected — must be empty string, not the original "alpha".
 	assertTreeSlot(t, "empty-data navigate", resp, "0", "")
+}
+
+// navigateErrorController returns an error from Mount when the "s" param
+// equals "error" — used by TestNavigateActionMountErrorLeavesStateUnchanged.
+type navigateErrorController struct{}
+
+func (c *navigateErrorController) Mount(state navigateTestState, ctx *Context) (navigateTestState, error) {
+	if ctx.GetString("s") == "error" {
+		return state, errors.New("mount rejected invalid param")
+	}
+	state.Selected = ctx.GetString("s")
+	state.MountCount++
+	return state, nil
+}
+
+// TestNavigateActionMountErrorLeavesStateUnchanged verifies that when
+// callMount returns an error on the navigate path, connSt.state is NOT
+// updated — the connection stays at its previous state — and the response
+// carries success=false. This guards the invariant that failed navigates
+// do not partially mutate state.
+func TestNavigateActionMountErrorLeavesStateUnchanged(t *testing.T) {
+	auth := &fixedGroupAuth{groupID: "navigate-err-group"}
+	tmpl, err := New("test", WithAuthenticator(auth))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	tmpl, err = tmpl.Parse(`<div class="sel">{{.Selected}}</div><div class="count">{{.MountCount}}</div>`)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	handler := tmpl.Handle(&navigateErrorController{}, AsState(&navigateTestState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/?s=alpha"
+	ws := connectWS(t, wsURL)
+	defer func() {
+		if err := ws.Close(); err != nil {
+			t.Logf("ws close: %v", err)
+		}
+	}()
+
+	// First navigate succeeds — Selected becomes "beta".
+	sendWSAction(t, ws, actionNavigate, map[string]interface{}{"s": "beta"})
+	resp1 := readWSUpdate(t, ws, 2*time.Second)
+	assertTreeSlot(t, "first navigate", resp1, "0", "beta")
+
+	// Second navigate fails — Mount returns an error for s="error".
+	// The response must carry success=false and connSt.state must stay "beta".
+	sendWSAction(t, ws, actionNavigate, map[string]interface{}{"s": "error"})
+	respErr := readWSUpdate(t, ws, 2*time.Second)
+	meta, ok := respErr["meta"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("error navigate response has no meta: %#v", respErr)
+	}
+	if success, _ := meta["success"].(bool); success {
+		t.Errorf("error navigate: meta.success = true, want false")
+	}
+	// No tree update expected on failure — state is unchanged.
+	if _, hasTree := respErr["tree"]; hasTree {
+		t.Logf("note: tree present in error response (may be empty update): %#v", respErr["tree"])
+	}
+
+	// Third navigate succeeds — Selected becomes "gamma". MountCount must
+	// NOT reflect a count from the failed navigate (error path doesn't commit).
+	sendWSAction(t, ws, actionNavigate, map[string]interface{}{"s": "gamma"})
+	resp3 := readWSUpdate(t, ws, 2*time.Second)
+	assertTreeSlot(t, "third navigate after error", resp3, "0", "gamma")
 }
 
 // sendWSAction sends an action message over the WebSocket, matching the

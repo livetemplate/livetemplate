@@ -61,6 +61,13 @@ const defaultFormAction = "submit"
 // ever runs. If a controller does define such a method, the event loop
 // short-circuit takes precedence.
 //
+// ctx.Action() == "" guard: the navigate path uses actionCtx.WithAction("")
+// so Mount's if ctx.Action() == "" { ... } guard fires on navigate — same
+// as the initial HTTP connect. This is intentional: navigate is a re-mount,
+// not a form action. Existing controllers that guard analytics or one-time
+// side-effects with ctx.Action() == "" will fire on every navigate. If you
+// need initial-connect-only behaviour, use OnConnect instead of Mount.
+//
 // State note: Mount receives the current session state, not a fresh
 // zero-value state. This preserves unrelated per-connection fields (e.g.,
 // pagination cursors, expanded panels) across navigations. To reset
