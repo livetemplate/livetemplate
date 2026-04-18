@@ -54,6 +54,9 @@ const defaultFormAction = "submit"
 //     nil data means all ctx.GetString / GetInt calls return zero values.
 //  3. Mount receives the current session state, not a zero-value state —
 //     unrelated fields are preserved across navigations.
+//  4. ctx.Redirect() inside Mount on a WebSocket connection always returns
+//     ErrNoHTTPContext — the redirect has no effect and the response is a
+//     normal tree update.
 const actionNavigate = "__navigate__"
 
 // applyDefaultAction sets the action to defaultFormAction for forms that

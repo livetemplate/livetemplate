@@ -74,7 +74,9 @@ func TestFlashExpiryPrunesAfterDeadline(t *testing.T) {
 		t.Fatal("flash not set")
 	}
 
-	// Backdate the expiry to force it to be past-due.
+	// Backdate the expiry to force it to be past-due. Direct map write is safe
+	// here: these are sequential single-goroutine tests; setFlash initialized
+	// the map above so the nil-map panic path is excluded.
 	cs.flashExpiry["info"] = time.Now().Add(-1 * time.Second)
 
 	cs.pruneExpiredFlash()
@@ -91,7 +93,7 @@ func TestFlashExpiryDoesNotAffectNonExpiredMessages(t *testing.T) {
 	cs.setFlash("success", "Done!", 0)               // no expiry — persists forever
 	cs.setFlash("info", "Transient...", time.Minute) // expires in 1 minute (not yet)
 
-	// Manually backdate only the "info" key to be past-due.
+	// Manually backdate only the "info" key to be past-due (sequential test, safe).
 	cs.flashExpiry["info"] = time.Now().Add(-1 * time.Second)
 
 	cs.pruneExpiredFlash()
