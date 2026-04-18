@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/livetemplate/livetemplate/internal/uploadtypes"
@@ -19,11 +20,14 @@ type UploadAccessor interface {
 // Flash messages are page-level notifications (success, info, warning, error)
 // that don't affect ResponseMetadata.Success (unlike field validation errors).
 //
-// The setFlash method is intentionally unexported to ensure flash messages
-// are only set through the Context.SetFlash() public API, maintaining
-// consistent behavior and preventing direct message map manipulation.
+// FlashSetter is the interface implemented by connState for flash message
+// operations. The methods are intentionally unexported to ensure flash
+// messages are only managed through the Context.SetFlash() / ClearFlash()
+// public API, maintaining consistent behavior and preventing direct message
+// map manipulation.
 type FlashSetter interface {
-	setFlash(key, message string)
+	setFlash(key, message string, expiry time.Duration)
+	clearFlashKey(key string)
 }
 
 // broadcastRequest represents a deferred broadcast action to be dispatched
@@ -296,10 +300,72 @@ func (c *Context) WithFlashSetter(setter FlashSetter) *Context {
 	return &newCtx
 }
 
+// FlashOption configures optional behavior for SetFlash.
+type FlashOption func(*flashConfig)
+
+type flashConfig struct {
+	expiry time.Duration // 0 = no auto-expiry, persist until ClearFlash
+}
+
+// FlashExpiry sets an auto-expiry duration for the flash message. After
+// the duration elapses, the message is pruned on the next action or server
+// push that triggers a render — there is no background timer. Use this for
+// transient feedback ("Settings saved") that doesn't need explicit
+// acknowledgement. Messages without an expiry persist until explicitly
+// cleared via ClearFlash.
+//
+// A duration of 0 or less disables auto-expiry — the message behaves as if
+// FlashExpiry were not provided and persists until ClearFlash is called.
+//
+// Note: FlashExpiry has no observable effect on HTTP connections — HTTP
+// flash is inherently one-shot (per-request connSt is GC'd after the
+// handler returns) regardless of the expiry duration set here.
+//
+// Note: The expiry timer is only checked before successful renders. If
+// a connection receives only error responses after the expiry elapses,
+// the expired flash remains visible until the next successful render.
+//
+// Example:
+//
+//	ctx.SetFlash("success", "Saved!", livetemplate.FlashExpiry(5*time.Second))
+func FlashExpiry(d time.Duration) FlashOption {
+	return func(c *flashConfig) { c.expiry = d }
+}
+
 // SetFlash sets a flash message that will be available in templates via .lvt.Flash(key).
 // Flash messages are page-level notifications (success, info, warning, error).
 // Unlike field errors, flash messages don't affect ResponseMetadata.Success.
-// Flash messages are cleared after each render, so they appear only once.
+//
+// Flash messages persist until explicitly cleared via ClearFlash or until
+// their optional expiry duration elapses. This matches the Phoenix LiveView
+// model where flash is a separate namespace from assigns — background
+// updates (TriggerAction / scan-loop Refresh) that modify state fields
+// do not touch flash messages. Use ClearFlash in your action handlers
+// when the user has acknowledged the message (e.g., after a navigation
+// or a follow-up action).
+//
+// Migration note (v0.8 → v0.9): In earlier releases, flash was automatically
+// cleared after each render (one-shot). Flash now persists on WebSocket
+// connections until ClearFlash is explicitly called or FlashExpiry elapses.
+// Existing handlers that relied on the auto-clear behavior and do not call
+// ClearFlash will accumulate flash across re-renders. To restore one-shot
+// behavior, either call ClearFlash in the next handler, or use FlashExpiry:
+//
+//	// Option A: persist and clear explicitly in the follow-up handler
+//	ctx.SetFlash("success", "Saved!") // call ctx.ClearFlash("success") in the next handler
+//	// Option B: auto-expire after a fixed duration (e.g., after 5 seconds)
+//	ctx.SetFlash("success", "Saved!", livetemplate.FlashExpiry(5*time.Second))
+//
+// Transport lifetime note: On WebSocket connections the flash store survives
+// across renders — messages persist until ClearFlash is called. On HTTP
+// connections (form submissions with progressive enhancement) the flash
+// store is per-request, so flash is inherently one-shot regardless of
+// whether ClearFlash is called.
+//
+// Redirect note: Flash set in a handler that also calls ctx.Redirect()
+// does not survive the redirect — no flash cookie is written before the
+// redirect response, so the message is lost. Use session-backed flash
+// (or a query param) if you need flash to survive an HTTP redirect.
 //
 // Common keys: "success", "error", "info", "warning"
 //
@@ -312,9 +378,33 @@ func (c *Context) WithFlashSetter(setter FlashSetter) *Context {
 //
 //	ctx.SetFlash("success", "Changes saved successfully!")
 //	ctx.SetFlash("error", "Failed to process your request.")
-func (c *Context) SetFlash(key, message string) {
+//	ctx.SetFlash("info", "Uploading...", livetemplate.FlashExpiry(3*time.Second))
+func (c *Context) SetFlash(key, message string, opts ...FlashOption) {
+	if c.flashSetter == nil {
+		return
+	}
+	var cfg flashConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	c.flashSetter.setFlash(key, message, cfg.expiry)
+}
+
+// ClearFlash explicitly removes a flash message by key. Use this when
+// the user has acknowledged the message (e.g., after navigating away
+// or completing a follow-up action). Flash messages without an expiry
+// persist until ClearFlash is called — the framework does not auto-clear
+// them after render.
+//
+// Example:
+//
+//	func (c *MyController) Acknowledge(state MyState, ctx *livetemplate.Context) (MyState, error) {
+//	    ctx.ClearFlash("error")
+//	    return state, nil
+//	}
+func (c *Context) ClearFlash(key string) {
 	if c.flashSetter != nil {
-		c.flashSetter.setFlash(key, message)
+		c.flashSetter.clearFlashKey(key)
 	}
 }
 

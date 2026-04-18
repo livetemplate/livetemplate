@@ -174,10 +174,11 @@ type wsReadMessage struct {
 }
 
 type connState struct {
-	state      interface{}       // Typed state (cloned per session)
-	messages   map[string]string // Unified map: field errors + flash (prefixed with "_flash:")
-	messagesMu sync.RWMutex      // Mutex for thread-safe message access
-	groupID    string            // Session/group ID for this connection
+	state       interface{}          // Typed state (cloned per session)
+	messages    map[string]string    // keys: field errors (plain) + flash (prefixed with "_flash:"); note: flashExpiry below uses bare keys
+	flashExpiry map[string]time.Time // keys: bare flash key WITHOUT "_flash:" prefix (unlike messages above)
+	messagesMu  sync.RWMutex         // Mutex for thread-safe message access
+	groupID     string               // Session/group ID for this connection
 }
 
 func (c *connState) setError(field, message string) {
@@ -212,7 +213,7 @@ func (c *connState) getMessages() map[string]string {
 	return result
 }
 
-func (c *connState) setFlash(key, message string) {
+func (c *connState) setFlash(key, message string, expiry time.Duration) {
 	// Validate key: reject keys with ":" or starting with "_"
 	if strings.Contains(key, ":") || strings.HasPrefix(key, "_") {
 		slog.Warn("Invalid flash key ignored",
@@ -225,19 +226,63 @@ func (c *connState) setFlash(key, message string) {
 	c.messagesMu.Lock()
 	defer c.messagesMu.Unlock()
 	c.messages[lvtcontext.FlashPrefix+key] = message
+	if expiry > 0 {
+		if c.flashExpiry == nil {
+			c.flashExpiry = make(map[string]time.Time)
+		}
+		c.flashExpiry[key] = time.Now().Add(expiry)
+	} else {
+		// No expiry — persist until ClearFlash. Remove any prior expiry.
+		// delete on a nil map is a safe no-op in Go, so no nil guard needed.
+		delete(c.flashExpiry, key)
+	}
 }
 
-func (c *connState) clearFlash() {
+// clearFlashKey removes a single flash message by key. Called by
+// Context.ClearFlash — the explicit clearing path for flash messages
+// that persist until acknowledged.
+func (c *connState) clearFlashKey(key string) {
 	c.messagesMu.Lock()
 	defer c.messagesMu.Unlock()
-	// Only clear flash messages (preserve errors)
-	newMessages := make(map[string]string)
-	for k, v := range c.messages {
-		if !strings.HasPrefix(k, lvtcontext.FlashPrefix) {
-			newMessages[k] = v
+	delete(c.messages, lvtcontext.FlashPrefix+key)
+	// delete on a nil map is a safe no-op in Go, so no nil guard needed here.
+	delete(c.flashExpiry, key)
+}
+
+// pruneExpiredFlash removes only flash messages whose expiry has
+// passed. Flash messages without an expiry (expiry == zero time) are
+// NOT removed — they persist until explicitly cleared via ClearFlash.
+//
+// This replaces the old clearFlash() which removed ALL flash messages
+// after each render. The new model matches Phoenix LiveView: flash
+// is a separate namespace that survives renders and background updates
+// until the developer (or an expiry timer) explicitly clears it.
+func (c *connState) pruneExpiredFlash() {
+	// Fast path: skip write lock when no expiry entries exist (common case
+	// for controllers that don't use FlashExpiry). The read lock avoids
+	// unnecessary write-lock contention on every render site.
+	c.messagesMu.RLock()
+	empty := len(c.flashExpiry) == 0
+	c.messagesMu.RUnlock()
+	if empty {
+		return
+	}
+	c.messagesMu.Lock()
+	defer c.messagesMu.Unlock()
+	// Re-check under the write lock: another goroutine may have emptied
+	// flashExpiry between the read-unlock and the write-lock above. A goroutine
+	// that added entries is also fine to miss — newly-set flash can't be expired
+	// yet, so skipping one prune cycle for new entries is safe.
+	if len(c.flashExpiry) == 0 {
+		return
+	}
+	now := time.Now()
+	for key, exp := range c.flashExpiry {
+		if now.After(exp) {
+			delete(c.messages, lvtcontext.FlashPrefix+key)
+			delete(c.flashExpiry, key)
 		}
 	}
-	c.messages = newMessages
 }
 
 // getFlashValues returns all flash messages as url.Values for cookie encoding.
@@ -681,8 +726,17 @@ eventLoop:
 			actionCtx = actionCtx.WithFlashSetter(connSt)
 			actionCtx = actionCtx.WithSession(newLocalSession(h, groupID))
 
-			// Dispatch action using Controller+State pattern
-			newState, actionErr := DispatchWithState(h.config.Controller, connSt.state, actionCtx)
+			// actionNavigate re-runs Mount with msg.Data as query params. Rebind
+			// actionCtx itself (not a discarded copy) so BroadcastAction calls
+			// inside Mount land on the context that processBroadcastsAndSync reads.
+			var newState interface{}
+			var actionErr error
+			if msg.Action == actionNavigate {
+				actionCtx = actionCtx.WithAction("") // ctx.Action()=="" matches connect-time Mount
+				newState, actionErr = callMount(h.config.Controller, connSt.state, actionCtx)
+			} else {
+				newState, actionErr = DispatchWithState(h.config.Controller, connSt.state, actionCtx)
+			}
 			if actionErr != nil {
 				// Handle errors
 				switch e := actionErr.(type) {
@@ -748,8 +802,14 @@ eventLoop:
 				break eventLoop
 			}
 
-			// Clear flash messages after successful render (flash shows once per action)
-			connSt.clearFlash()
+			// Prune flash messages whose expiry has elapsed; non-expiry flash
+			// persists until ClearFlash is called. Guarded by actionErr == nil
+			// so error renders (validation errors, method-not-found, etc.) do
+			// NOT prune expiry flash — expired entries survive until the next
+			// successful render (non-expiry flash is unaffected by error paths).
+			if actionErr == nil {
+				connSt.pruneExpiredFlash()
+			}
 
 		case req := <-connection.DispatchChan:
 			h.handleDispatchedAction(connSt, connection, req, userID)
@@ -952,7 +1012,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		if flashValues, err := url.ParseQuery(flashCookie.Value); err == nil {
 			for key, values := range flashValues {
 				if len(values) > 0 {
-					connSt.setFlash(key, values[0])
+					connSt.setFlash(key, values[0], 0)
 				}
 			}
 		}
@@ -1145,6 +1205,14 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Clear previous errors
 	connSt.clearErrors()
 
+	// __navigate__ is a WebSocket-only reserved action. Reject early so HTTP
+	// clients get a clear "wrong transport" error instead of a confusing
+	// ErrMethodNotFound response.
+	if msg.Action == actionNavigate {
+		http.Error(w, "action __navigate__ is only supported over WebSocket", http.StatusBadRequest)
+		return
+	}
+
 	// Merge query params with form data (form data takes precedence)
 	mergedData := send.MergeData(queryData, msg.Data)
 
@@ -1219,11 +1287,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.config.ProgressiveEnhancement && !wantsJSON(r) {
 		// If the action handler already sent a redirect (via ctx.Redirect()),
 		// skip the PRG redirect to avoid a superfluous redirect response.
-		// The action's redirect response is already sent to the client, so
-		// flash state in connSt is stale — clear it to prevent leakage into
-		// subsequent responses for this session/group.
+		// Flash set before the redirect is lost — no cookie is written here.
 		if actionCtx.redirected != nil && *actionCtx.redirected {
-			connSt.clearFlash()
 			return
 		}
 
@@ -1267,7 +1332,6 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
-		connSt.clearFlash()
 		http.Redirect(w, r, redirectURL, http.StatusSeeOther) // 303 See Other
 		return
 	}
@@ -1300,8 +1364,6 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Clear flash messages after successful render (flash shows once per action)
-	connSt.clearFlash()
 }
 
 // newUploadRegistry creates a new upload registry instance.
@@ -1497,7 +1559,8 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 			slog.Any("error", err))
 	}
 
-	connSt.clearFlash()
+	// Only reached on dispatch success (err != nil returns early above).
+	connSt.pruneExpiredFlash()
 }
 
 // httpTemplateSweepLoop periodically removes cached HTTP templates to prevent
@@ -1869,8 +1932,8 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 			continue
 		}
 
-		// Clear flash messages after successful send
-		state.clearFlash()
+		// Only reached after sendUpdate succeeds (continue on error above).
+		state.pruneExpiredFlash()
 	}
 
 	// Persist once per distinct groupID (avoids N writes for multi-tab users
@@ -2380,8 +2443,9 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn WSConn, raw
 		return nil // Don't fail the upload, just skip the update
 	}
 
-	// Clear flash messages after successful send
-	state.clearFlash()
+	// Prune flash messages whose expiry has elapsed; non-expiry flash
+	// persists until ClearFlash is called.
+	state.pruneExpiredFlash()
 
 	// Dispatch Sync to peer connections for upload completion visibility
 	h.dispatchBroadcastToGroup(state.groupID, connection, syncMethodName, nil)

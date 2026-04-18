@@ -41,6 +41,11 @@ type message = send.ActionMessage
 // Maps to the Submit() method on the controller via methodNameToActions().
 const defaultFormAction = "submit"
 
+// actionNavigate is a reserved WebSocket-only action name. The event loop
+// re-runs Mount with msg.Data as query params instead of routing through
+// DispatchWithState, so no controller method named "__navigate__" is required.
+const actionNavigate = "__navigate__"
+
 // applyDefaultAction sets the action to defaultFormAction for forms that
 // submitted without explicit action routing. Called only for browser form
 // submissions (not JSON action requests).
