@@ -185,6 +185,11 @@ func (c *flashIntegController) FailAction(state flashIntegState, _ *Context) (fl
 	return state, errors.New("intentional error for testing")
 }
 
+func (c *flashIntegController) ClearFlashAction(state flashIntegState, ctx *Context) (flashIntegState, error) {
+	ctx.ClearFlash("info")
+	return state, nil
+}
+
 // TestFlashExpiryNotPrunedOnErrorRender verifies the "success-path-only"
 // pruning invariant: when an action returns an error, pruneExpiredFlash is
 // NOT called, so expired flash survives the error render and persists until
@@ -483,5 +488,66 @@ func TestFlashExpiryThroughPublicAPI(t *testing.T) {
 	}
 	if flashVal, present := tree2["0"]; present {
 		t.Errorf("flash slot present after 1ms expiry: got %q — FlashExpiry not enforced through public ctx.SetFlash API", flashVal)
+	}
+}
+
+// TestClearFlashThroughPublicAPI verifies the full path from ctx.ClearFlash(key)
+// through the WS event loop to the diff engine. TestClearFlashRemovesMessage
+// calls connState.clearFlashKey directly; this test exercises the public API
+// wiring (flashSetter must be set, ClearFlash must route to clearFlashKey).
+//
+// Flow: ShowFlash sets flash → slot 0 appears in diff.
+// ClearFlashAction calls ctx.ClearFlash("info") → slot 0 appears as "" (cleared).
+func TestClearFlashThroughPublicAPI(t *testing.T) {
+	tmpl, err := New("test")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	// Slot 0 = Flash("info"), slot 1 = Counter. Template defined inline — positions stable.
+	tmpl, err = tmpl.Parse(`<span class="flash">{{.lvt.Flash "info"}}</span><span class="count">{{.Counter}}</span>`)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	handler := tmpl.Handle(&flashIntegController{}, AsState(&flashIntegState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+	ws := connectWS(t, wsURL)
+	defer func() {
+		if err := ws.Close(); err != nil {
+			t.Logf("ws close: %v", err)
+		}
+	}()
+
+	// Step 1: ShowFlash — flash "info" = "persistent" set in connSt.
+	sendWSAction(t, ws, "ShowFlash", nil)
+	resp1 := readWSUpdate(t, ws, 2*time.Second)
+	tree1, ok := resp1["tree"].(map[string]any)
+	if !ok {
+		t.Fatalf("ShowFlash response has no tree: %#v", resp1)
+	}
+	if v := fmt.Sprintf("%v", tree1["0"]); v != "persistent" {
+		t.Fatalf("ShowFlash: flash slot = %q, want %q", v, "persistent")
+	}
+
+	// Step 2: ClearFlashAction calls ctx.ClearFlash("info").
+	// Flash becomes "" — a change from "persistent" — so slot 0 must appear in
+	// the diff. If ctx.ClearFlash is silently no-oping (e.g. nil flashSetter),
+	// flash stays "persistent" and slot 0 is absent from the diff (test fails).
+	sendWSAction(t, ws, "ClearFlashAction", nil)
+	resp2 := readWSUpdate(t, ws, 2*time.Second)
+	tree2, ok := resp2["tree"].(map[string]any)
+	if !ok {
+		t.Fatalf("ClearFlashAction response has no tree: %#v", resp2)
+	}
+	v, present := tree2["0"]
+	if !present {
+		t.Error("ClearFlashAction: flash slot absent from diff — ctx.ClearFlash had no effect (wiring bug: flashSetter may be nil)")
+		return
+	}
+	if got := fmt.Sprintf("%v", v); got != "" {
+		t.Errorf("ClearFlashAction: flash slot = %q, want %q (empty after clear)", got, "")
 	}
 }
