@@ -1327,6 +1327,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
+		// HTTP: connSt is per-request (GC'd after response); pruneExpiredFlash is
+		// a no-op here unless an expiry-based message has already lapsed this request.
 		connSt.pruneExpiredFlash()
 		http.Redirect(w, r, redirectURL, http.StatusSeeOther) // 303 See Other
 		return
@@ -1360,8 +1362,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Prune flash messages whose expiry has elapsed; non-expiry flash
-	// persists until ClearFlash is called.
+	// HTTP: connSt is per-request (GC'd after response); pruneExpiredFlash is
+	// a no-op here unless an expiry-based message has already lapsed this request.
 	connSt.pruneExpiredFlash()
 }
 
@@ -1930,7 +1932,8 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 			continue
 		}
 
-		// Clear flash messages after successful send
+		// Prune flash messages whose expiry has elapsed; non-expiry flash
+		// persists until ClearFlash is called.
 		state.pruneExpiredFlash()
 	}
 
@@ -2441,7 +2444,8 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn WSConn, raw
 		return nil // Don't fail the upload, just skip the update
 	}
 
-	// Clear flash messages after successful send
+	// Prune flash messages whose expiry has elapsed; non-expiry flash
+	// persists until ClearFlash is called.
 	state.pruneExpiredFlash()
 
 	// Dispatch Sync to peer connections for upload completion visibility

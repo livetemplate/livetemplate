@@ -104,6 +104,7 @@ func TestNavigateActionReMountsWithNewQueryData(t *testing.T) {
 	sendWSAction(t, ws, actionNavigate, map[string]interface{}{"s": "gamma"})
 	resp2 := readWSUpdate(t, ws, 2*time.Second)
 	assertTreeSlot(t, "after second navigate", resp2, "0", "gamma")
+	// Slot 1 = MountCount: 3 after initial connect + two navigates.
 	assertTreeSlot(t, "after second navigate", resp2, "1", "3")
 }
 

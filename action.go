@@ -43,51 +43,17 @@ const defaultFormAction = "submit"
 
 // actionNavigate is a reserved action name. When the client sends
 // {action: "__navigate__", data: {k: v, ...}} over an existing WebSocket
-// connection, the event loop re-runs Mount on the controller with the
-// given data as query params — without reconnecting the WebSocket. This
-// is the in-band equivalent of Phoenix LiveView's live_patch /
-// handle_params: query-param changes on the SAME handler don't tear down
-// the socket, they re-run the Mount-time projection.
+// connection, the event loop re-runs Mount with the given data as query
+// params — without reconnecting. Intercepted before DispatchWithState, so
+// no controller method-name collision is possible.
 //
-// Rationale: the WebSocket's connection identity is handler-path based,
-// not (path+query) based. Query params are Mount-time input data, not
-// part of the handler address. Without this message, changing the query
-// string on a same-handler SPA navigation left the server's connSt.state
-// pinned to the initial query params and every subsequent server-driven
-// refresh clobbered the DOM with stale data.
-//
-// Controllers cannot define a method named Navigate that takes this
-// reserved action — the event loop intercepts it before DispatchWithState
-// ever runs. If a controller does define such a method, the event loop
-// short-circuit takes precedence.
-//
-// ctx.Action() == "" guard: the navigate path uses actionCtx.WithAction("")
-// so Mount's if ctx.Action() == "" { ... } guard fires on navigate — same
-// as the initial HTTP connect. This is intentional: navigate is a re-mount,
-// not a form action. Existing controllers that guard analytics or one-time
-// side-effects with ctx.Action() == "" will fire on every navigate. If you
-// need initial-connect-only behaviour, use OnConnect instead of Mount.
-//
-// State note: Mount receives the current session state, not a fresh
-// zero-value state. This preserves unrelated per-connection fields (e.g.,
-// pagination cursors, expanded panels) across navigations. To reset
-// specific fields on navigate, zero them explicitly inside Mount.
-//
-// Reconnect note: the WebSocket's connection identity is based on the
-// handler path, not the query string. After a navigate action, if the
-// socket disconnects and reconnects, the client reconnects to the original
-// URL — Mount re-runs with the initial query params, not the navigated-to
-// params. The client is responsible for updating window.location and
-// using the updated URL on reconnect so that post-reconnect Mounts see
-// the latest query params.
-//
-// Query param note: msg.Data fully replaces the query params for the
-// Mount call — the original connection query string is not merged. If
-// your Mount reads multiple params (e.g., ?tab=settings&s=alpha), you
-// must include all of them in every navigate payload or Mount will see
-// missing keys as empty strings. Sending __navigate__ with no data field
-// (or an empty data map) is equivalent to navigating to the base path
-// with no query params — all ctx.GetString / GetInt calls return zero values.
+// Three non-obvious invariants:
+//  1. ctx.Action() == "" fires on navigate (uses WithAction("")) — use
+//     OnConnect instead of Mount for initial-connect-only side-effects.
+//  2. msg.Data fully replaces query params (no merge with original URL);
+//     nil data means all ctx.GetString / GetInt calls return zero values.
+//  3. Mount receives the current session state, not a zero-value state —
+//     unrelated fields are preserved across navigations.
 const actionNavigate = "__navigate__"
 
 // applyDefaultAction sets the action to defaultFormAction for forms that
