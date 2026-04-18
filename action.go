@@ -47,7 +47,7 @@ const defaultFormAction = "submit"
 // params — without reconnecting. Intercepted before DispatchWithState, so
 // no controller method-name collision is possible.
 //
-// Three non-obvious invariants:
+// Four non-obvious invariants:
 //  1. ctx.Action() == "" fires on navigate (uses WithAction("")) — use
 //     OnConnect instead of Mount for initial-connect-only side-effects.
 //  2. msg.Data fully replaces query params (no merge with original URL);

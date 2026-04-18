@@ -176,7 +176,7 @@ type wsReadMessage struct {
 type connState struct {
 	state       interface{}          // Typed state (cloned per session)
 	messages    map[string]string    // Unified map: field errors + flash (prefixed with "_flash:")
-	flashExpiry map[string]time.Time // Optional per-key expiry for flash (key WITHOUT prefix)
+	flashExpiry map[string]time.Time // Per-key expiry for flash; keys WITHOUT FlashPrefix (unlike the messages map)
 	messagesMu  sync.RWMutex         // Mutex for thread-safe message access
 	groupID     string               // Session/group ID for this connection
 }
@@ -256,8 +256,19 @@ func (c *connState) clearFlashKey(key string) {
 // is a separate namespace that survives renders and background updates
 // until the developer (or an expiry timer) explicitly clears it.
 func (c *connState) pruneExpiredFlash() {
+	// Fast path: skip write lock when no expiry entries exist (common case
+	// for controllers that don't use FlashExpiry). The read lock avoids
+	// unnecessary write-lock contention on every render site.
+	c.messagesMu.RLock()
+	empty := len(c.flashExpiry) == 0
+	c.messagesMu.RUnlock()
+	if empty {
+		return
+	}
 	c.messagesMu.Lock()
 	defer c.messagesMu.Unlock()
+	// Re-check under the write lock: another goroutine may have emptied
+	// flashExpiry between the read-unlock and the write-lock above.
 	if len(c.flashExpiry) == 0 {
 		return
 	}
