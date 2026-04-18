@@ -1327,8 +1327,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
-		// HTTP: connSt is per-request (GC'd after response); pruneExpiredFlash is
-		// a no-op here unless an expiry-based message has already lapsed this request.
+		// HTTP: connSt is per-request and GC'd after this handler returns;
+		// pruneExpiredFlash is a no-op with no observable effect here.
 		connSt.pruneExpiredFlash()
 		http.Redirect(w, r, redirectURL, http.StatusSeeOther) // 303 See Other
 		return

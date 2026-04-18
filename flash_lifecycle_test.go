@@ -14,7 +14,8 @@ import (
 // messages map initialised, ready for flash lifecycle tests.
 func newFlashState() *connState {
 	return &connState{
-		messages: make(map[string]string),
+		messages:    make(map[string]string),
+		flashExpiry: make(map[string]time.Time),
 	}
 }
 
@@ -149,6 +150,11 @@ func (c *flashIntegController) ShowFlash(state flashIntegState, ctx *Context) (f
 
 func (c *flashIntegController) Increment(state flashIntegState, ctx *Context) (flashIntegState, error) {
 	state.Counter++
+	return state, nil
+}
+
+func (c *flashIntegController) SetTransientFlash(state flashIntegState, ctx *Context) (flashIntegState, error) {
+	ctx.SetFlash("status", "transient", FlashExpiry(time.Millisecond))
 	return state, nil
 }
 
@@ -305,5 +311,65 @@ func TestFlashSurvivesNavigateAction(t *testing.T) {
 	// cleared by the navigate's callMount path — the regression.
 	if flashVal, present := tree2["0"]; present {
 		t.Errorf("navigate diff contains flash slot: got %q — flash was incorrectly cleared by navigate (callMount path regression)", flashVal)
+	}
+}
+
+// TestFlashExpiryThroughPublicAPI exercises the full path from
+// ctx.SetFlash(key, msg, FlashExpiry(d)) through the event loop to the diff
+// engine. Unit tests in this file call connState.setFlash() directly; this
+// test verifies that FlashExpiry flows correctly through the public API and
+// that pruneExpiredFlash removes the flash entry before the next render.
+//
+// Test flow:
+//  1. "SetTransientFlash" action sets flash "status"="transient" with 1ms expiry.
+//     The first render includes slot 0 = "transient".
+//  2. After the 1ms expiry elapses, "Increment" changes state (Counter 0→1).
+//     pruneExpiredFlash removes the lapsed flash; slot 0 is absent from the diff.
+func TestFlashExpiryThroughPublicAPI(t *testing.T) {
+	tmpl, err := New("test")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	// Template slot 0 = Flash("status"), slot 1 = Counter.
+	tmpl, err = tmpl.Parse(`<span class="flash">{{.lvt.Flash "status"}}</span><span class="count">{{.Counter}}</span>`)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	handler := tmpl.Handle(&flashIntegController{}, AsState(&flashIntegState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+	ws := connectWS(t, wsURL)
+	defer func() {
+		if err := ws.Close(); err != nil {
+			t.Logf("ws close: %v", err)
+		}
+	}()
+
+	// Step 1: SetTransientFlash via ctx.SetFlash(..., FlashExpiry(1ms)).
+	// The first render includes the flash slot.
+	sendWSAction(t, ws, "SetTransientFlash", nil)
+	resp1 := readWSUpdate(t, ws, 2*time.Second)
+	tree1, ok := resp1["tree"].(map[string]any)
+	if !ok {
+		t.Fatalf("SetTransientFlash response has no tree: %#v", resp1)
+	}
+	if v := fmt.Sprintf("%v", tree1["0"]); v != "transient" {
+		t.Fatalf("SetTransientFlash: flash slot = %q, want %q", v, "transient")
+	}
+
+	// Step 2: Increment — Counter changes (0→1), expiry has elapsed.
+	// pruneExpiredFlash removes the lapsed flash before the render,
+	// so slot 0 must be absent from the diff.
+	sendWSAction(t, ws, "Increment", nil)
+	resp2 := readWSUpdate(t, ws, 2*time.Second)
+	tree2, ok := resp2["tree"].(map[string]any)
+	if !ok {
+		t.Fatalf("Increment response has no tree: %#v", resp2)
+	}
+	if flashVal, present := tree2["0"]; present {
+		t.Errorf("flash slot present after 1ms expiry: got %q — FlashExpiry not enforced through public ctx.SetFlash API", flashVal)
 	}
 }
