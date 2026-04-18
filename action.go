@@ -55,10 +55,11 @@ const defaultFormAction = "submit"
 // pinned to the initial query params and every subsequent server-driven
 // refresh clobbered the DOM with stale data.
 //
-// Controllers cannot define a method named Navigate that takes this
-// reserved action — the event loop intercepts it before DispatchWithState
-// ever runs. If a controller does define such a method, the event loop
-// short-circuit takes precedence.
+// This reserved action name is intercepted by the event loop before
+// DispatchWithState runs. The literal action "__navigate__" does not map
+// to controller method names produced by normal action dispatch (for
+// example, a Navigate method maps to "navigate"/"Navigate", not
+// "__navigate__").
 const actionNavigate = "__navigate__"
 
 // applyDefaultAction sets the action to defaultFormAction for forms that

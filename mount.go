@@ -844,7 +844,7 @@ eventLoop:
 				break eventLoop
 			}
 
-			// Clear flash messages after successful render (flash shows once per action)
+			// Prune expired flash messages after successful render; persistent flash remains until explicitly cleared.
 			connSt.pruneExpiredFlash()
 
 		case req := <-connection.DispatchChan:
@@ -1314,8 +1314,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		// If the action handler already sent a redirect (via ctx.Redirect()),
 		// skip the PRG redirect to avoid a superfluous redirect response.
 		// The action's redirect response is already sent to the client, so
-		// flash state in connSt is stale — clear it to prevent leakage into
-		// subsequent responses for this session/group.
+		// just prune any expired flash before returning here. Non-expiring
+		// flash is preserved for subsequent responses for this session/group.
 		if actionCtx.redirected != nil && *actionCtx.redirected {
 			connSt.pruneExpiredFlash()
 			return
@@ -1394,7 +1394,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Clear flash messages after successful render (flash shows once per action)
+	// Remove only expired flash messages after a successful render; non-expired
+	// flash persists until ClearFlash is called or the flash entry expires.
 	connSt.pruneExpiredFlash()
 }
 
