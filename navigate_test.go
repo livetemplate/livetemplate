@@ -1,15 +1,11 @@
 package livetemplate
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/gorilla/websocket"
 )
 
 // navigateTestState is the per-connection state for the navigate action
@@ -241,37 +237,55 @@ func TestNavigateActionMountErrorLeavesStateUnchanged(t *testing.T) {
 	assertTreeSlot(t, "third navigate after error", resp3, "0", "gamma")
 }
 
-// sendWSAction sends an action message over the WebSocket, matching the
-// wire format the client uses.
-func sendWSAction(t *testing.T, ws *websocket.Conn, action string, data map[string]interface{}) {
-	t.Helper()
-	msg := map[string]interface{}{
-		"action": action,
-	}
-	if data != nil {
-		msg["data"] = data
-	}
-	b, err := json.Marshal(msg)
+// noMountController has no Mount method. Used by
+// TestNavigateActionNoMountMethodIsNoOpRerender to pin the "no Mount → no-op
+// re-render" invariant documented in the actionNavigate constant.
+type noMountController struct{}
+
+func (c *noMountController) Ping(state navigateTestState, _ *Context) (navigateTestState, error) {
+	return state, nil
+}
+
+// TestNavigateActionNoMountMethodIsNoOpRerender pins the invariant: when the
+// controller defines no Mount method, __navigate__ produces a success=true
+// response without changing state. This verifies that callMount's no-method
+// path (lifecycle.go) works correctly end-to-end for the navigate action.
+func TestNavigateActionNoMountMethodIsNoOpRerender(t *testing.T) {
+	tmpl, err := New("test")
 	if err != nil {
-		t.Fatalf("marshal action: %v", err)
+		t.Fatalf("New: %v", err)
 	}
-	if err := ws.WriteMessage(websocket.TextMessage, b); err != nil {
-		t.Fatalf("ws write: %v", err)
+	tmpl, err = tmpl.Parse(`<div>{{.Selected}}</div>`)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	handler := tmpl.Handle(&noMountController{}, AsState(&navigateTestState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+	ws := connectWS(t, wsURL)
+	defer func() {
+		if err := ws.Close(); err != nil {
+			t.Logf("ws close: %v", err)
+		}
+	}()
+
+	// Navigate on a controller with no Mount method: must succeed (success=true)
+	// and must NOT produce an ErrMethodNotFound error.
+	sendWSAction(t, ws, actionNavigate, map[string]interface{}{"s": "anything"})
+	resp := readWSUpdate(t, ws, 2*time.Second)
+
+	meta, ok := resp["meta"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("response has no meta: %#v", resp)
+	}
+	if success, _ := meta["success"].(bool); !success {
+		t.Errorf("no-Mount navigate: meta.success = false, want true; meta = %#v", meta)
+	}
+	if errs, hasErrs := meta["errors"].(map[string]interface{}); hasErrs && len(errs) > 0 {
+		t.Errorf("no-Mount navigate: unexpected errors: %#v", errs)
 	}
 }
 
-// assertTreeSlot checks that the parsed WS update response has the given
-// value at tree slot key. Navigate responses are tree UPDATES containing
-// only changed dynamic slot values, so this is the correct way to verify
-// specific field values without fragile substring matching.
-func assertTreeSlot(t *testing.T, context string, resp map[string]any, slotKey, wantValue string) {
-	t.Helper()
-	tree, ok := resp["tree"].(map[string]any)
-	if !ok {
-		t.Fatalf("%s: response has no tree: %#v", context, resp)
-	}
-	got := fmt.Sprintf("%v", tree[slotKey])
-	if got != wantValue {
-		t.Errorf("%s: tree[%q] = %q, want %q", context, slotKey, got, wantValue)
-	}
-}

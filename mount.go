@@ -175,8 +175,8 @@ type wsReadMessage struct {
 
 type connState struct {
 	state       interface{}          // Typed state (cloned per session)
-	messages    map[string]string    // Unified map: field errors + flash (prefixed with "_flash:")
-	flashExpiry map[string]time.Time // Per-key expiry for flash; keys WITHOUT FlashPrefix (unlike the messages map)
+	messages    map[string]string    // Unified map: field errors + flash (prefixed with "_flash:"); note: flashExpiry uses bare keys (no prefix)
+	flashExpiry map[string]time.Time // Per-key expiry for flash; keys WITHOUT FlashPrefix (unlike the messages map above)
 	messagesMu  sync.RWMutex         // Mutex for thread-safe message access
 	groupID     string               // Session/group ID for this connection
 }
@@ -1290,10 +1290,7 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		// If the action handler already sent a redirect (via ctx.Redirect()),
 		// skip the PRG redirect to avoid a superfluous redirect response.
 		// Flash set before the redirect is lost — no cookie is written here.
-		// HTTP: connSt is per-request and GC'd after this handler returns;
-		// pruneExpiredFlash is a no-op with no observable effect here.
 		if actionCtx.redirected != nil && *actionCtx.redirected {
-			connSt.pruneExpiredFlash()
 			return
 		}
 
@@ -1337,9 +1334,6 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
-		// HTTP: connSt is per-request and GC'd after this handler returns;
-		// pruneExpiredFlash is a no-op with no observable effect here.
-		connSt.pruneExpiredFlash()
 		http.Redirect(w, r, redirectURL, http.StatusSeeOther) // 303 See Other
 		return
 	}
@@ -1372,9 +1366,6 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// HTTP: connSt is per-request and GC'd after this handler returns;
-	// pruneExpiredFlash is a no-op with no observable effect here.
-	connSt.pruneExpiredFlash()
 }
 
 // newUploadRegistry creates a new upload registry instance.
