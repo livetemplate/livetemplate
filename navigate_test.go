@@ -42,9 +42,9 @@ func (c *navigateTestController) Noop(state navigateTestState, _ *Context) (navi
 func setupNavigateTestServer(t *testing.T) (*httptest.Server, string) {
 	t.Helper()
 
-	// All connections share a single session group so we can reason
-	// about a single WebSocket's state transitions across messages.
-	auth := &fixedGroupAuth{groupID: "navigate-test-group"}
+	// Each test gets a unique group ID derived from its name, preventing
+	// state bleed if tests ever run in parallel against a shared session store.
+	auth := &fixedGroupAuth{groupID: t.Name()}
 
 	tmpl, err := New("test", WithAuthenticator(auth))
 	if err != nil {

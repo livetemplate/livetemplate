@@ -314,6 +314,9 @@ type flashConfig struct {
 // acknowledgement. Messages without an expiry persist until explicitly
 // cleared via ClearFlash.
 //
+// A duration of 0 or less disables auto-expiry — the message behaves as if
+// FlashExpiry were not provided and persists until ClearFlash is called.
+//
 // Note: FlashExpiry has no observable effect on HTTP connections — HTTP
 // flash is inherently one-shot (per-request connSt is GC'd after the
 // handler returns) regardless of the expiry duration set here.

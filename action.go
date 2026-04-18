@@ -57,6 +57,9 @@ const defaultFormAction = "submit"
 //  4. ctx.Redirect() inside Mount on a WebSocket connection always returns
 //     ErrNoHTTPContext — the redirect has no effect and the response is a
 //     normal tree update.
+//
+// If the controller has no Mount method, __navigate__ is a no-op re-render
+// (state unchanged, success=true response).
 const actionNavigate = "__navigate__"
 
 // applyDefaultAction sets the action to defaultFormAction for forms that

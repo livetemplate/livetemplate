@@ -1289,10 +1289,9 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.config.ProgressiveEnhancement && !wantsJSON(r) {
 		// If the action handler already sent a redirect (via ctx.Redirect()),
 		// skip the PRG redirect to avoid a superfluous redirect response.
-		// The action's redirect response is already sent to the client. For
-		// HTTP (per-request connSt), flash set before the redirect is lost
-		// because no flash cookie is written here; pruneExpiredFlash removes
-		// any flash whose expiry has elapsed, and the connSt is GC'd.
+		// Flash set before the redirect is lost — no cookie is written here.
+		// HTTP: connSt is per-request and GC'd after this handler returns;
+		// pruneExpiredFlash is a no-op with no observable effect here.
 		if actionCtx.redirected != nil && *actionCtx.redirected {
 			connSt.pruneExpiredFlash()
 			return
@@ -1373,8 +1372,8 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// HTTP: connSt is per-request (GC'd after response); pruneExpiredFlash is
-	// a no-op here unless an expiry-based message has already lapsed this request.
+	// HTTP: connSt is per-request and GC'd after this handler returns;
+	// pruneExpiredFlash is a no-op with no observable effect here.
 	connSt.pruneExpiredFlash()
 }
 
