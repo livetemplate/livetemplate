@@ -747,6 +747,8 @@ eventLoop:
 			var newState interface{}
 			var actionErr error
 			if msg.Action == actionNavigate {
+				// msg.Data flows through actionCtx as query params: ctx.GetString/GetInt
+				// reads from actionCtx.data, so no explicit param-injection step is needed.
 				actionCtx = actionCtx.WithAction("")
 				newState, actionErr = callMount(h.config.Controller, connSt.state, actionCtx)
 			} else {

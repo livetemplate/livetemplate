@@ -135,6 +135,26 @@ func TestFlashSetThenClearThenSetAgain(t *testing.T) {
 	}
 }
 
+// TestFlashExpiryOverwrittenByNoExpiry guards against a stale-deadline bug:
+// if setFlash("key", msg, d) is called with d>0 and then the same key is
+// overwritten with setFlash("key", msg2, 0) (no expiry), the prior deadline
+// must be removed from flashExpiry. A rogue deadline would cause the key to
+// be pruned on the next pruneExpiredFlash call even though the latest setFlash
+// call intended for it to persist until ClearFlash.
+func TestFlashExpiryOverwrittenByNoExpiry(t *testing.T) {
+	cs := newFlashState()
+	cs.setFlash("key", "first", time.Hour)
+	// Backdate the expiry to force it to appear past-due. Direct map write is
+	// safe here: sequential single-goroutine test, map initialised above.
+	cs.flashExpiry["key"] = time.Now().Add(-1 * time.Second)
+	// Overwrite with no expiry — prior deadline must be deleted from flashExpiry.
+	cs.setFlash("key", "updated", 0)
+	cs.pruneExpiredFlash()
+	if !flashPresent(cs, "key") {
+		t.Error("flash incorrectly pruned after expiry was overwritten with no-expiry setFlash")
+	}
+}
+
 // flashIntegState is the per-connection state for the flash event loop
 // integration test. It carries a Counter so that Increment always produces a
 // state change — forcing the diff engine to emit a tree update that would
