@@ -60,6 +60,9 @@ const defaultFormAction = "submit"
 //
 // If the controller has no Mount method, __navigate__ is a no-op re-render
 // (state unchanged, success=true response).
+//
+// HTTP note: sending __navigate__ over HTTP (progressive enhancement or JSON
+// form submission) returns 400 Bad Request — it is a WebSocket-only action.
 const actionNavigate = "__navigate__"
 
 // applyDefaultAction sets the action to defaultFormAction for forms that

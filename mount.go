@@ -1224,6 +1224,14 @@ func (h *liveHandler) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Clear previous errors
 	connSt.clearErrors()
 
+	// __navigate__ is a WebSocket-only reserved action. Reject early so HTTP
+	// clients get a clear "wrong transport" error instead of a confusing
+	// ErrMethodNotFound response.
+	if msg.Action == actionNavigate {
+		http.Error(w, "action __navigate__ is only supported over WebSocket", http.StatusBadRequest)
+		return
+	}
+
 	// Merge query params with form data (form data takes precedence)
 	mergedData := send.MergeData(queryData, msg.Data)
 
