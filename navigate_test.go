@@ -224,9 +224,13 @@ func TestNavigateActionMountErrorLeavesStateUnchanged(t *testing.T) {
 	if success, _ := meta["success"].(bool); success {
 		t.Errorf("error navigate: meta.success = true, want false")
 	}
-	// No tree update expected on failure — state is unchanged.
-	if _, hasTree := respErr["tree"]; hasTree {
-		t.Logf("note: tree present in error response (may be empty update): %#v", respErr["tree"])
+	// The error path may emit an empty tree {} (a no-op diff). What must
+	// NOT appear is a non-empty tree with slot changes — that would mean
+	// the failed navigate emitted a diff that mutates client state.
+	if tree, hasTree := respErr["tree"]; hasTree {
+		if treeMap, ok := tree.(map[string]any); ok && len(treeMap) > 0 {
+			t.Errorf("error navigate: response contains non-empty tree (failed navigate must not mutate client state): %#v", tree)
+		}
 	}
 
 	// Third navigate succeeds — Selected becomes "gamma". MountCount must

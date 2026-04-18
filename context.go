@@ -313,6 +313,10 @@ type flashConfig struct {
 // that doesn't need explicit acknowledgement. Messages without an
 // expiry persist until explicitly cleared via ClearFlash.
 //
+// Note: FlashExpiry has no observable effect on HTTP connections — HTTP
+// flash is inherently one-shot (per-request connSt is GC'd after the
+// handler returns) regardless of the expiry duration set here.
+//
 // Example:
 //
 //	ctx.SetFlash("success", "Saved!", livetemplate.FlashExpiry(5*time.Second))
