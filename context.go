@@ -20,10 +20,10 @@ type UploadAccessor interface {
 // Flash messages are page-level notifications (success, info, warning, error)
 // that don't affect ResponseMetadata.Success (unlike field validation errors).
 //
-// FlashSetter is the internal interface for flash message operations.
-// The methods are intentionally unexported to ensure flash messages
-// are only managed through the Context.SetFlash() / ClearFlash() public
-// API, maintaining consistent behavior and preventing direct message
+// FlashSetter is the interface implemented by connState for flash message
+// operations. The methods are intentionally unexported to ensure flash
+// messages are only managed through the Context.SetFlash() / ClearFlash()
+// public API, maintaining consistent behavior and preventing direct message
 // map manipulation.
 type FlashSetter interface {
 	setFlash(key, message string, expiry time.Duration)

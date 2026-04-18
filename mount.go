@@ -750,6 +750,8 @@ eventLoop:
 				// msg.Data flows through actionCtx as query params: ctx.GetString/GetInt
 				// reads from actionCtx.data, so no explicit param-injection step is needed.
 				actionCtx = actionCtx.WithAction("")
+				// callMount receives connSt.state as a read-only input; newState is the
+				// returned copy. If actionErr != nil, connSt.state is NOT updated below.
 				newState, actionErr = callMount(h.config.Controller, connSt.state, actionCtx)
 			} else {
 				newState, actionErr = DispatchWithState(h.config.Controller, connSt.state, actionCtx)
@@ -820,7 +822,9 @@ eventLoop:
 			}
 
 			// Prune flash messages whose expiry has elapsed; non-expiry flash
-			// persists until ClearFlash is called.
+			// persists until ClearFlash is called. Only reached on the success
+			// path — on error, expired entries remain until the next successful
+			// render (non-expiry flash is unaffected by error paths).
 			connSt.pruneExpiredFlash()
 
 		case req := <-connection.DispatchChan:
