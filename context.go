@@ -321,6 +321,10 @@ type flashConfig struct {
 // flash is inherently one-shot (per-request connSt is GC'd after the
 // handler returns) regardless of the expiry duration set here.
 //
+// Note: The expiry timer is only checked before successful renders. If
+// a connection receives only error responses after the expiry elapses,
+// the expired flash remains visible until the next successful render.
+//
 // Example:
 //
 //	ctx.SetFlash("success", "Saved!", livetemplate.FlashExpiry(5*time.Second))

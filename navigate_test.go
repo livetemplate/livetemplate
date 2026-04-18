@@ -139,6 +139,47 @@ func TestNavigateActionNotRoutedThroughDispatchWithState(t *testing.T) {
 	}
 }
 
+// TestNonNavigateActionRoutedThroughDispatchWithState verifies that the Noop
+// action (a regular controller method, not __navigate__) routes through
+// DispatchWithState and NOT through Mount. After the initial connect, Mount
+// has run once (MountCount=1). Calling Noop must not increment MountCount —
+// if it did, it would mean DispatchWithState is incorrectly routing Noop
+// through Mount's path.
+func TestNonNavigateActionRoutedThroughDispatchWithState(t *testing.T) {
+	server, wsURL := setupNavigateTestServer(t)
+	defer server.Close()
+
+	ws := connectWS(t, wsURL)
+	defer func() {
+		if err := ws.Close(); err != nil {
+			t.Logf("ws close: %v", err)
+		}
+	}()
+
+	// Send a regular (non-navigate) action. Noop returns state unchanged,
+	// so the diff will contain no tree slot changes — but the meta must show
+	// success=true (Noop dispatched correctly via DispatchWithState).
+	sendWSAction(t, ws, "Noop", nil)
+	resp := readWSUpdate(t, ws, 2*time.Second)
+	meta, ok := resp["meta"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("Noop response has no meta: %#v", resp)
+	}
+	if success, _ := meta["success"].(bool); !success {
+		t.Errorf("Noop: meta.success = false, want true; meta = %#v", meta)
+	}
+	// MountCount slot must NOT appear in the diff — state didn't change,
+	// so no tree update is emitted for the MountCount slot.
+	// This proves Noop went through DispatchWithState, not callMount.
+	if tree, hasTree := resp["tree"]; hasTree {
+		if treeMap, ok := tree.(map[string]any); ok {
+			if _, hasMountCount := treeMap["1"]; hasMountCount {
+				t.Errorf("Noop: MountCount slot present in diff — Mount was called unexpectedly; tree = %#v", tree)
+			}
+		}
+	}
+}
+
 // TestNavigateActionEmptyDataResetsQueryParams documents and pins the
 // "no data = all-empty params" behavior. Sending __navigate__ with no
 // data field (or an empty map) gives Mount ctx.GetString/GetInt zero

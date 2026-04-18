@@ -1567,6 +1567,8 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 			slog.Any("error", err))
 	}
 
+	// Prune flash messages whose expiry has elapsed; non-expiry flash
+	// persists until ClearFlash is called.
 	connSt.pruneExpiredFlash()
 }
 
