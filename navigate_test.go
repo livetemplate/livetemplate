@@ -279,13 +279,8 @@ func TestNavigateActionMountErrorLeavesStateUnchanged(t *testing.T) {
 }
 
 // noMountController has no Mount method. Used by
-// TestNavigateActionNoMountMethodIsNoOpRerender to pin the "no Mount → no-op
-// re-render" invariant documented in the actionNavigate constant.
+// TestNavigateActionNoMountMethodIsNoOpRerender.
 type noMountController struct{}
-
-func (c *noMountController) Ping(state navigateTestState, _ *Context) (navigateTestState, error) {
-	return state, nil
-}
 
 // TestNavigateActionNoMountMethodIsNoOpRerender pins the invariant: when the
 // controller defines no Mount method, __navigate__ produces a success=true

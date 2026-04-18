@@ -726,36 +726,13 @@ eventLoop:
 			actionCtx = actionCtx.WithFlashSetter(connSt)
 			actionCtx = actionCtx.WithSession(newLocalSession(h, groupID))
 
-			// Dispatch action using Controller+State pattern.
-			//
-			// Reserved action actionNavigate ("__navigate__") re-runs
-			// Mount on the existing connection with fresh query data
-			// passed in msg.Data. This is the in-band equivalent of
-			// Phoenix LiveView's live_patch / handle_params: query-param
-			// changes on the SAME handler do NOT reconnect the WebSocket
-			// — the server just re-projects state from the new data via
-			// the controller's Mount method. Controllers that read
-			// `ctx.GetString("...")` in Mount transparently pick up the
-			// new params without needing to know the navigate came over
-			// an open socket.
-			//
-			// We rebind actionCtx itself (not a discarded copy) with the
-			// action name cleared so that any BroadcastAction calls inside
-			// Mount are queued on the same *Context that processBroadcastsAndSync
-			// reads via actionCtx.pendingBroadcasts() below. WithAction returns
-			// a shallow copy — if callMount appended to a discarded copy,
-			// pendingBroadcasts() on the original actionCtx would see nothing.
-			// The empty action name matches the convention used by the initial
-			// connect-time Mount at mount.go:503 so controllers can uniformly
-			// write `if ctx.Action() == "" { /* GET or nav */ }`.
+			// actionNavigate re-runs Mount with msg.Data as query params. Rebind
+			// actionCtx itself (not a discarded copy) so BroadcastAction calls
+			// inside Mount land on the context that processBroadcastsAndSync reads.
 			var newState interface{}
 			var actionErr error
 			if msg.Action == actionNavigate {
-				// msg.Data flows through actionCtx as query params: ctx.GetString/GetInt
-				// reads from actionCtx.data, so no explicit param-injection step is needed.
-				actionCtx = actionCtx.WithAction("")
-				// callMount receives connSt.state as a read-only input; newState is the
-				// returned copy. If actionErr != nil, connSt.state is NOT updated below.
+				actionCtx = actionCtx.WithAction("") // ctx.Action()=="" matches connect-time Mount
 				newState, actionErr = callMount(h.config.Controller, connSt.state, actionCtx)
 			} else {
 				newState, actionErr = DispatchWithState(h.config.Controller, connSt.state, actionCtx)
@@ -1582,8 +1559,7 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 			slog.Any("error", err))
 	}
 
-	// Prune flash messages whose expiry has elapsed; non-expiry flash
-	// persists until ClearFlash is called.
+	// Only reached on dispatch success (err != nil returns early above).
 	connSt.pruneExpiredFlash()
 }
 
@@ -1956,8 +1932,7 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 			continue
 		}
 
-		// Prune flash messages whose expiry has elapsed; non-expiry flash
-		// persists until ClearFlash is called.
+		// Only reached after sendUpdate succeeds (continue on error above).
 		state.pruneExpiredFlash()
 	}
 

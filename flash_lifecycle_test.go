@@ -207,7 +207,8 @@ func TestFlashExpiryNotPrunedOnErrorRender(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	// Template slot 0 = Flash("status"), slot 1 = Counter.
+	// Slot 0 = Flash("status"), slot 1 = Counter. Positions are stable because
+	// the template string is defined inline here and won't drift independently.
 	tmpl, err = tmpl.Parse(`<span class="flash">{{.lvt.Flash "status"}}</span><span class="count">{{.Counter}}</span>`)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)

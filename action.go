@@ -41,28 +41,9 @@ type message = send.ActionMessage
 // Maps to the Submit() method on the controller via methodNameToActions().
 const defaultFormAction = "submit"
 
-// actionNavigate is a reserved action name. When the client sends
-// {action: "__navigate__", data: {k: v, ...}} over an existing WebSocket
-// connection, the event loop re-runs Mount with the given data as query
-// params — without reconnecting. Intercepted before DispatchWithState, so
-// no controller method-name collision is possible.
-//
-// Four non-obvious invariants:
-//  1. ctx.Action() == "" fires on navigate (uses WithAction("")) — use
-//     OnConnect instead of Mount for initial-connect-only side-effects.
-//  2. msg.Data fully replaces query params (no merge with original URL);
-//     nil data means all ctx.GetString / GetInt calls return zero values.
-//  3. Mount receives the current session state, not a zero-value state —
-//     unrelated fields are preserved across navigations.
-//  4. ctx.Redirect() inside Mount on a WebSocket connection always returns
-//     ErrNoHTTPContext — the redirect has no effect and the response is a
-//     normal tree update.
-//
-// If the controller has no Mount method, __navigate__ is a no-op re-render
-// (state unchanged, success=true response).
-//
-// HTTP note: sending __navigate__ over HTTP (progressive enhancement or JSON
-// form submission) returns 400 Bad Request — it is a WebSocket-only action.
+// actionNavigate is a reserved WebSocket-only action name. The event loop
+// re-runs Mount with msg.Data as query params instead of routing through
+// DispatchWithState, so no controller method named "__navigate__" is required.
 const actionNavigate = "__navigate__"
 
 // applyDefaultAction sets the action to defaultFormAction for forms that
