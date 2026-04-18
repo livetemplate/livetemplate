@@ -1,6 +1,7 @@
 package livetemplate
 
 import (
+	"errors"
 	"fmt"
 	"net/http/httptest"
 	"strings"
@@ -178,6 +179,90 @@ func (c *flashIntegController) Increment(state flashIntegState, ctx *Context) (f
 func (c *flashIntegController) SetTransientFlash(state flashIntegState, ctx *Context) (flashIntegState, error) {
 	ctx.SetFlash("status", "transient", FlashExpiry(time.Millisecond))
 	return state, nil
+}
+
+func (c *flashIntegController) FailAction(state flashIntegState, _ *Context) (flashIntegState, error) {
+	return state, errors.New("intentional error for testing")
+}
+
+// TestFlashExpiryNotPrunedOnErrorRender verifies the "success-path-only"
+// pruning invariant: when an action returns an error, pruneExpiredFlash is
+// NOT called, so expired flash survives the error render and persists until
+// the next SUCCESSFUL render.
+//
+// Test flow:
+//  1. "SetTransientFlash" sets flash "status"="transient" with 1ms expiry.
+//     The first render includes slot 0 = "transient".
+//  2. Sleep 10ms to guarantee the 1ms expiry has elapsed.
+//  3. "FailAction" returns an error → error render (meta.success=false).
+//     pruneExpiredFlash is NOT called, so flash stays in connSt.messages.
+//  4. "Increment" succeeds → render. Flash is still "transient" (unchanged
+//     from the error render in step 3), so slot 0 is ABSENT from the diff.
+//     If flash were pruned in step 3, slot 0 would appear as "" (changed).
+//
+// This test catches a regression where pruneExpiredFlash is called
+// unconditionally after every render instead of only on success renders.
+func TestFlashExpiryNotPrunedOnErrorRender(t *testing.T) {
+	tmpl, err := New("test")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	// Template slot 0 = Flash("status"), slot 1 = Counter.
+	tmpl, err = tmpl.Parse(`<span class="flash">{{.lvt.Flash "status"}}</span><span class="count">{{.Counter}}</span>`)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	handler := tmpl.Handle(&flashIntegController{}, AsState(&flashIntegState{}))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
+	ws := connectWS(t, wsURL)
+	defer func() {
+		if err := ws.Close(); err != nil {
+			t.Logf("ws close: %v", err)
+		}
+	}()
+
+	// Step 1: Set transient flash with 1ms expiry.
+	sendWSAction(t, ws, "SetTransientFlash", nil)
+	resp1 := readWSUpdate(t, ws, 2*time.Second)
+	tree1, ok := resp1["tree"].(map[string]any)
+	if !ok {
+		t.Fatalf("SetTransientFlash response has no tree: %#v", resp1)
+	}
+	if v := fmt.Sprintf("%v", tree1["0"]); v != "transient" {
+		t.Fatalf("SetTransientFlash: flash slot = %q, want %q", v, "transient")
+	}
+
+	// Step 2: Wait for the 1ms expiry to definitely elapse.
+	time.Sleep(10 * time.Millisecond)
+
+	// Step 3: Trigger an error render. pruneExpiredFlash must NOT fire here.
+	sendWSAction(t, ws, "FailAction", nil)
+	respErr := readWSUpdate(t, ws, 2*time.Second)
+	meta, ok := respErr["meta"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("FailAction response has no meta: %#v", respErr)
+	}
+	if success, _ := meta["success"].(bool); success {
+		t.Fatalf("FailAction: meta.success = true, want false")
+	}
+
+	// Step 4: Succeed action. Flash survives because step 3 did not prune it.
+	// Slot 0 must be ABSENT (flash unchanged: "transient" in both step 3 and step 4
+	// renders). If pruneExpiredFlash had fired in step 3, flash would be "" here —
+	// a change from "transient" — and slot 0 would appear in the diff.
+	sendWSAction(t, ws, "Increment", nil)
+	resp4 := readWSUpdate(t, ws, 2*time.Second)
+	tree4, ok := resp4["tree"].(map[string]any)
+	if !ok {
+		t.Fatalf("Increment response has no tree: %#v", resp4)
+	}
+	if flashVal, present := tree4["0"]; present {
+		t.Errorf("flash slot appeared in diff after error render: got %q — pruneExpiredFlash was incorrectly called on the error render (flash should survive until the next successful render)", flashVal)
+	}
 }
 
 // TestFlashSurvivesSubsequentWSAction is a full-stack regression test for the

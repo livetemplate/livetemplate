@@ -245,6 +245,7 @@ func (c *connState) clearFlashKey(key string) {
 	c.messagesMu.Lock()
 	defer c.messagesMu.Unlock()
 	delete(c.messages, lvtcontext.FlashPrefix+key)
+	// delete on a nil map is a safe no-op in Go, so no nil guard needed here.
 	delete(c.flashExpiry, key)
 }
 
@@ -825,10 +826,13 @@ eventLoop:
 			}
 
 			// Prune flash messages whose expiry has elapsed; non-expiry flash
-			// persists until ClearFlash is called. Only reached on the success
-			// path — on error, expired entries remain until the next successful
-			// render (non-expiry flash is unaffected by error paths).
-			connSt.pruneExpiredFlash()
+			// persists until ClearFlash is called. Guarded by actionErr == nil
+			// so error renders (validation errors, method-not-found, etc.) do
+			// NOT prune expiry flash — expired entries survive until the next
+			// successful render (non-expiry flash is unaffected by error paths).
+			if actionErr == nil {
+				connSt.pruneExpiredFlash()
+			}
 
 		case req := <-connection.DispatchChan:
 			h.handleDispatchedAction(connSt, connection, req, userID)
