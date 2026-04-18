@@ -183,7 +183,7 @@ func (c *navigateErrorController) Mount(state navigateTestState, ctx *Context) (
 // carries success=false. This guards the invariant that failed navigates
 // do not partially mutate state.
 func TestNavigateActionMountErrorLeavesStateUnchanged(t *testing.T) {
-	auth := &fixedGroupAuth{groupID: "navigate-err-group"}
+	auth := &fixedGroupAuth{groupID: t.Name()}
 	tmpl, err := New("test", WithAuthenticator(auth))
 	if err != nil {
 		t.Fatalf("New: %v", err)

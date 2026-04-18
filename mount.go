@@ -175,8 +175,8 @@ type wsReadMessage struct {
 
 type connState struct {
 	state       interface{}          // Typed state (cloned per session)
-	messages    map[string]string    // Unified map: field errors + flash (prefixed with "_flash:"); note: flashExpiry uses bare keys (no prefix)
-	flashExpiry map[string]time.Time // Per-key expiry for flash; keys WITHOUT FlashPrefix (unlike the messages map above)
+	messages    map[string]string    // keys: field errors (plain) + flash (prefixed with "_flash:"); note: flashExpiry below uses bare keys
+	flashExpiry map[string]time.Time // keys: bare flash key WITHOUT "_flash:" prefix (unlike messages above)
 	messagesMu  sync.RWMutex         // Mutex for thread-safe message access
 	groupID     string               // Session/group ID for this connection
 }

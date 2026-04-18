@@ -263,7 +263,7 @@ func (c *flashNavTestController) ShowFlash(state flashNavTestState, ctx *Context
 //     include slot 0 (flash unchanged). A slot-0 entry in the navigate diff
 //     would mean flash was cleared by the navigate path — the regression.
 func TestFlashSurvivesNavigateAction(t *testing.T) {
-	auth := &fixedGroupAuth{groupID: "flash-nav-group"}
+	auth := &fixedGroupAuth{groupID: t.Name()}
 	tmpl, err := New("test", WithAuthenticator(auth))
 	if err != nil {
 		t.Fatalf("New: %v", err)
