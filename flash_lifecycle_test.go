@@ -383,10 +383,10 @@ func TestFlashExpiryThroughPublicAPI(t *testing.T) {
 	}
 
 	// Step 2: Increment — Counter changes (0→1), expiry has elapsed.
-	// Sleep 5ms to guarantee the 1ms expiry has elapsed even on a loaded CI
-	// machine; the WS round-trip alone is usually sufficient, but this makes
-	// the test reliable under -race and heavy load without a meaningful slowdown.
-	time.Sleep(5 * time.Millisecond)
+	// Sleep 10ms to guarantee the 1ms expiry has elapsed even on a loaded CI
+	// machine under -race; the WS round-trip alone is usually sufficient, but
+	// 10x margin makes the test reliable without a meaningful slowdown.
+	time.Sleep(10 * time.Millisecond)
 	// pruneExpiredFlash removes the lapsed flash before the render,
 	// so slot 0 must be absent from the diff.
 	sendWSAction(t, ws, "Increment", nil)
