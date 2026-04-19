@@ -724,6 +724,71 @@ For modals whose visibility is controlled by server state (e.g., confirmation di
 
 ---
 
+## Automatic Client-Side State Preservation
+
+The client automatically preserves certain client-side state across server-pushed DOM updates. These behaviors require no attributes — they are built into the morphdom diffing pass.
+
+### Checkbox and Radio Buttons
+
+User-toggled `checked` state on `<input type="checkbox">` and `<input type="radio">` survives DOM updates. The client copies the live DOM's `.checked` property onto the incoming virtual element before morphdom compares them, so morphdom sees no diff and leaves the element alone.
+
+```html
+<!-- User checks this box; a server refresh won't uncheck it -->
+<input type="checkbox" name="select" value="item-1">
+```
+
+**Radio group caveat:** Browser mutual exclusion fires synchronously during the morphdom pass. If you need to force-reset a radio group from the server, add `data-lvt-force-update` to *all* radios in the group, not just the one being checked.
+
+### Dialog Open State
+
+When a `<dialog>` is opened via `showModal()` or `.show()`, the `open` attribute is set by client-side JavaScript. Since the server template never includes `open`, morphdom would normally strip it on every update, closing the dialog. The client prevents this by copying the `open` attribute from the live DOM to the incoming virtual element.
+
+```html
+<!-- Dialog stays open across server refreshes -->
+<dialog id="settings">
+  <form method="post" name="SaveSettings">
+    <input name="theme">
+    <button type="submit">Save</button>
+  </form>
+</dialog>
+```
+
+### Datalist Dropdown
+
+Native `<datalist>` dropdowns are fragile — touching the element dismisses the popup, and unlike checkbox state, dropdown-open has no DOM representation that can be copied. The client skips the morphdom update for any `<datalist>` whose connected `<input>` (via the `list` attribute) is currently focused.
+
+```html
+<input type="text" list="suggestions" name="query">
+<datalist id="suggestions">
+  <option value="alpha">
+  <option value="beta">
+</datalist>
+```
+
+When the user blurs the input, the next server update will apply any pending changes to the `<datalist>` options.
+
+### Focused Input Elements
+
+Any form element that currently has focus is skipped during morphdom updates, preserving in-progress user input. This is handled by the focus manager and predates the above behaviors.
+
+### Overriding with `data-lvt-force-update`
+
+All automatic preservation behaviors can be overridden by adding `data-lvt-force-update` to the element in the server template. When present, the server's value wins over the client-side state. The attribute is removed after processing so it doesn't persist across updates.
+
+```html
+<!-- Server always controls this checkbox -->
+<input type="checkbox" name="locked" data-lvt-force-update {{if .Locked}}checked{{end}}>
+```
+
+| Preserved State | Mechanism | Override |
+|---|---|---|
+| Checkbox/radio `checked` | Property copied to virtual DOM | `data-lvt-force-update` on the input |
+| Dialog `open` | Attribute copied to virtual DOM | `data-lvt-force-update` on the dialog |
+| Datalist options | morphdom update skipped while input focused | `data-lvt-force-update` on the datalist |
+| Focused input value | morphdom update skipped | `data-lvt-force-update` on the input |
+
+---
+
 ## File Uploads
 
 Handle file uploads with progress tracking.
@@ -869,6 +934,18 @@ Directives use CSS custom properties for configuration: `--lvt-scroll-behavior`,
 | Attribute | Description | Example |
 |-----------|-------------|---------|
 | `lvt-upload` | File upload identifier | `lvt-upload="avatar"` |
+
+### Preservation Attributes
+
+| Attribute | Description | Example |
+|-----------|-------------|---------|
+| `data-lvt-force-update` | Override automatic state preservation; server value wins | `<input type="checkbox" data-lvt-force-update>` |
+
+### Identity Attributes
+
+| Attribute | Description | Example |
+|-----------|-------------|---------|
+| `data-key` | Stable identity for morphdom element matching; ensures elements are updated in-place rather than removed and re-added when siblings change | `<dialog data-key="settings-dialog">` |
 
 ### Valid Key Values
 
