@@ -772,12 +772,14 @@ When the user blurs the input, the deferred morphdom pass runs, applying all pen
 
 ### Focused Input Elements
 
-Any form element that currently has focus is skipped during morphdom updates, preserving in-progress user input.
+Any form element that currently has focus is skipped during morphdom updates, preserving in-progress user input. Once the element loses focus, the next server update reconciles its value with the current server state.
 
 ```html
 <!-- User typing here won't be interrupted by server updates -->
 <input type="text" name="search" value="{{.Query}}">
 ```
+
+To override this for a specific input — e.g., when a server-controlled value must always win — add `data-lvt-force-update` to the element.
 
 ### Overriding with `data-lvt-force-update`
 
