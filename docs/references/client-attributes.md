@@ -15,6 +15,7 @@ Complete reference for LiveTemplate form handling and `lvt-*` HTML attributes.
 - [Rate Limiting](#rate-limiting)
 - [Directives](#directives)
 - [Modals](#modals)
+- [Automatic Client-Side State Preservation](#automatic-client-side-state-preservation)
 - [File Uploads](#file-uploads)
 - [Form Behavior](#form-behavior)
 - [Attribute Reference](#attribute-reference)
@@ -724,6 +725,90 @@ For modals whose visibility is controlled by server state (e.g., confirmation di
 
 ---
 
+## Automatic Client-Side State Preservation
+
+The client automatically preserves certain client-side state across server-pushed DOM updates. These behaviors require no attributes — they are built into the morphdom diffing pass.
+
+### Checkbox and Radio Buttons
+
+User-toggled `checked` state on `<input type="checkbox">` and `<input type="radio">` survives DOM updates. The client copies the live DOM's `.checked` property onto the incoming virtual element before morphdom compares them, so morphdom sees no diff and leaves the element alone.
+
+```html
+<!-- User checks this box; a server-pushed update won't uncheck it -->
+<label><input type="checkbox" name="select" value="item-1"> Item 1</label>
+```
+
+**Radio group caveat:** Browser mutual exclusion fires synchronously during the morphdom pass. If you need to force-reset a radio group from the server, add `data-lvt-force-update` to *all* radios in the group, not just the one being checked.
+
+### Dialog Open State
+
+When a `<dialog>` is opened via `showModal()`, the browser adds it to the top layer — a special rendering context above all other content. The `open` attribute alone doesn't preserve this state; morphdom's attribute sync and child reconciliation can disrupt the top-layer positioning even when `open` is retained. The client prevents this by skipping the entire dialog element and its subtree while `open` is present. The server continues sending updates while the dialog is open, but the client skips the dialog subtree during morphdom (the rest of the page still updates normally). After the dialog closes, the next server update reconciles the dialog's DOM with the current server state.
+
+Adding `data-lvt-force-update` to the `<dialog>` overrides this skip: the client applies morphdom to the dialog's content while it remains open, allowing the server to update dialog contents in real time (e.g., live validation feedback inside a modal form).
+
+```html
+<!-- Dialog stays open across server refreshes -->
+<dialog id="settings">
+  <form method="POST" name="SaveSettings">
+    <input name="theme">
+    <button type="submit">Save</button>
+  </form>
+</dialog>
+```
+
+### Datalist Dropdown
+
+Native `<datalist>` dropdowns are fragile — ANY DOM mutation on the page (not just to the datalist itself) dismisses the popup, and unlike checkbox state, dropdown-open has no DOM representation. The client defers the entire morphdom pass while `document.activeElement` is an `<input>` connected to a `<datalist>` via the `list` attribute.
+
+```html
+<input type="text" list="suggestions" name="query">
+<datalist id="suggestions">
+  <option value="alpha">
+  <option value="beta">
+</datalist>
+```
+
+When the user blurs the input, the deferred morphdom pass runs, applying all pending changes (not just to the datalist, but to the entire page). Adding `data-lvt-force-update` to the connected `<input>` overrides this deferral, allowing the morphdom pass to proceed immediately even while the datalist dropdown is open.
+
+### Focused Input Elements
+
+Any form element that currently has focus is skipped during morphdom updates, preserving in-progress user input. Once the element loses focus, the next server update reconciles its value with the current server state.
+
+```html
+<!-- User typing here won't be interrupted by server updates -->
+<input type="text" name="search" value="{{.Query}}">
+```
+
+To override this for a specific input — e.g., when a server-controlled value must always win — add `data-lvt-force-update` to the element.
+
+### Overriding with `data-lvt-force-update`
+
+All automatic preservation behaviors can be overridden by adding `data-lvt-force-update` to the element in the server template. When present, the server's value wins over the client-side state. The client strips the attribute from the live DOM after applying the update; because it lives in the server template, the server re-sends it on every render, so it continuously forces the server value.
+
+```html
+<!-- Server always controls this checkbox -->
+<input type="checkbox" name="locked" data-lvt-force-update {{if .Locked}}checked{{end}}>
+```
+
+| Preserved State | Mechanism | Override |
+|-----------|-------------|---------|
+| Checkbox/radio `checked` | Property copied to virtual DOM | `data-lvt-force-update` on the input |
+| Dialog `open` | morphdom update skipped while dialog is open | `data-lvt-force-update` on the dialog |
+| Datalist dropdown | Entire morphdom pass deferred while datalist input focused | `data-lvt-force-update` on the connected `<input>` (overrides deferral for the entire pass) |
+| Focused input elements | morphdom update skipped | `data-lvt-force-update` on the input |
+
+### Manual Preservation with `lvt-ignore`
+
+For cases where automatic preservation doesn't cover your needs, two attributes provide explicit control:
+
+- **`lvt-ignore`** — Skips the element and its entire subtree during morphdom diff. Use this for third-party widgets (maps, rich-text editors) whose DOM is managed by external JavaScript. Checked on the live DOM element, so it can be set from templates or client JS. Equivalent to Phoenix LiveView's `phx-update="ignore"`.
+
+- **`lvt-ignore-attrs`** — Skips attribute diffing but still diffs children. Use this when client-set attributes (e.g., `open` on `<details>`) need to survive server updates while child content remains server-managed.
+
+Both can be overridden by `data-lvt-force-update` when the server needs to take control — adding it to an `lvt-ignore` element re-enables morphdom for that subtree for the current update.
+
+---
+
 ## File Uploads
 
 Handle file uploads with progress tracking.
@@ -791,7 +876,7 @@ Use standard `onsubmit` for confirmation dialogs:
 
 ## Attribute Reference
 
-Complete reference of all `lvt-*` attributes.
+Complete reference of all `lvt-*` and `data-*` template attributes.
 
 ### Event Attributes (`lvt-on:`)
 
@@ -870,9 +955,23 @@ Directives use CSS custom properties for configuration: `--lvt-scroll-behavior`,
 |-----------|-------------|---------|
 | `lvt-upload` | File upload identifier | `lvt-upload="avatar"` |
 
+### Preservation Attributes
+
+| Attribute | Description | Example |
+|-----------|-------------|---------|
+| `lvt-ignore` | Skip this element and its entire subtree during morphdom diff. Checked on the live DOM (`fromEl`), usable from both templates and client JS. Equivalent to Phoenix LiveView's `phx-update="ignore"` | `<div lvt-ignore class="map-widget">` |
+| `lvt-ignore-attrs` | Skip attribute diffing but still diff children. Preserves client-set attributes (e.g. `open` on `<details>`) while keeping child content server-managed | `<details lvt-ignore-attrs>` |
+| `data-lvt-force-update` | Override all preservation (automatic, `lvt-ignore`, and `lvt-ignore-attrs`); server value wins. Client strips it after processing; server re-sends it each render | `<input type="checkbox" data-lvt-force-update>` |
+
+### Identity Attributes
+
+| Attribute | Description | Example |
+|-----------|-------------|---------|
+| `data-key` | Stable element identity for the diff engine and morphdom matching. In `{{range}}` templates, controls which items are updated in-place vs. removed/inserted. On singleton elements, helps morphdom match nodes across updates. Hardcoded keys are valid for singletons; use template expressions (`{{.ID}}`) in lists | `<dialog data-key="settings-dialog">` |
+
 ### Valid Key Values
 
-For `lvt-key` attribute:
+**For `lvt-key` attribute** (not `data-key`):
 
 - Letter keys: `"a"`, `"b"`, `"c"`, etc.
 - Special keys: `"Enter"`, `"Escape"`, `"Space"`, `"Tab"`, `"Backspace"`, `"Delete"`
