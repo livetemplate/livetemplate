@@ -741,7 +741,7 @@ User-toggled `checked` state on `<input type="checkbox">` and `<input type="radi
 
 ### Dialog Open State
 
-When a `<dialog>` is opened via `showModal()` or `.show()`, the `open` attribute is set by client-side JavaScript. Since the server template never includes `open`, morphdom would normally strip it on every update, closing the dialog. The client prevents this by copying the `open` attribute from the live DOM to the incoming virtual element.
+When a `<dialog>` is opened via `showModal()`, the browser adds it to the top layer — a special rendering context above all other content. The `open` attribute alone doesn't preserve this state; morphdom's attribute sync and child reconciliation can disrupt the top-layer positioning even when `open` is retained. The client prevents this by skipping the entire dialog element and its subtree while `open` is present. Any pending server changes apply on the next update after the dialog is closed.
 
 ```html
 <!-- Dialog stays open across server refreshes -->
@@ -783,7 +783,7 @@ All automatic preservation behaviors can be overridden by adding `data-lvt-force
 | Preserved State | Mechanism | Override |
 |---|---|---|
 | Checkbox/radio `checked` | Property copied to virtual DOM | `data-lvt-force-update` on the input |
-| Dialog `open` | Attribute copied to virtual DOM | `data-lvt-force-update` on the dialog |
+| Dialog `open` | morphdom update skipped while dialog is open | `data-lvt-force-update` on the dialog |
 | Datalist options | morphdom update skipped while input focused | `data-lvt-force-update` on the datalist |
 | Focused input value | morphdom update skipped | `data-lvt-force-update` on the input |
 
