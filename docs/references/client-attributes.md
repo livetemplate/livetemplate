@@ -734,7 +734,7 @@ The client automatically preserves certain client-side state across server-pushe
 User-toggled `checked` state on `<input type="checkbox">` and `<input type="radio">` survives DOM updates. The client copies the live DOM's `.checked` property onto the incoming virtual element before morphdom compares them, so morphdom sees no diff and leaves the element alone.
 
 ```html
-<!-- User checks this box; a server refresh won't uncheck it -->
+<!-- User checks this box; a server-pushed update won't uncheck it -->
 <label><input type="checkbox" name="select" value="item-1"> Item 1</label>
 ```
 
@@ -789,10 +789,10 @@ All automatic preservation behaviors can be overridden by adding `data-lvt-force
 ```
 
 | Preserved State | Mechanism | Override |
-|---|---|---|
+|-----------|-------------|---------|
 | Checkbox/radio `checked` | Property copied to virtual DOM | `data-lvt-force-update` on the input |
 | Dialog `open` | morphdom update skipped while dialog is open | `data-lvt-force-update` on the dialog |
-| Datalist dropdown | Entire morphdom pass deferred while input focused | `data-lvt-force-update` on the connected `<input>` (overrides deferral for the entire pass) |
+| Datalist dropdown | Entire morphdom pass deferred while datalist input focused | `data-lvt-force-update` on the connected `<input>` (overrides deferral for the entire pass) |
 | Focused input elements | morphdom update skipped | `data-lvt-force-update` on the input |
 
 ### Manual Preservation with `lvt-ignore`
@@ -959,7 +959,7 @@ Directives use CSS custom properties for configuration: `--lvt-scroll-behavior`,
 |-----------|-------------|---------|
 | `lvt-ignore` | Skip this element and its entire subtree during morphdom diff. Checked on the live DOM (`fromEl`), usable from both templates and client JS. Equivalent to Phoenix LiveView's `phx-update="ignore"` | `<div lvt-ignore class="map-widget">` |
 | `lvt-ignore-attrs` | Skip attribute diffing but still diff children. Preserves client-set attributes (e.g. `open` on `<details>`) while keeping child content server-managed | `<details lvt-ignore-attrs>` |
-| `data-lvt-force-update` | Override all preservation (automatic and `lvt-ignore`); server value wins. Client strips it after processing; server re-sends it each render | `<input type="checkbox" data-lvt-force-update>` |
+| `data-lvt-force-update` | Override all preservation (automatic, `lvt-ignore`, and `lvt-ignore-attrs`); server value wins. Client strips it after processing; server re-sends it each render | `<input type="checkbox" data-lvt-force-update>` |
 
 ### Identity Attributes
 
@@ -969,7 +969,7 @@ Directives use CSS custom properties for configuration: `--lvt-scroll-behavior`,
 
 ### Valid Key Values
 
-For `lvt-key` attribute:
+**For `lvt-key` attribute** (not `data-key`):
 
 - Letter keys: `"a"`, `"b"`, `"c"`, etc.
 - Special keys: `"Enter"`, `"Escape"`, `"Space"`, `"Tab"`, `"Backspace"`, `"Delete"`
