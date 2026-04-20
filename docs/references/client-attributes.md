@@ -973,7 +973,7 @@ Directives use CSS custom properties for configuration: `--lvt-scroll-behavior`,
 
 | Attribute | Description | Example |
 |-----------|-------------|---------|
-| `lvt-scroll-sentinel` | Marks an element as the infinite scroll sentinel. The client's `IntersectionObserver` watches this element; when it enters the viewport (with 200px rootMargin), the client dispatches `load_more` automatically. Only the first matching element per page is observed. Wrap in `{{if .HasMore}}...{{end}}` to prevent infinite empty-load loops | `<div lvt-scroll-sentinel>Loading more...</div>` |
+| `lvt-scroll-sentinel` | Marks an element as the infinite scroll sentinel. The client's `IntersectionObserver` watches this element; when it enters the viewport (200px rootMargin, see `client/dom/observer-manager.ts`), the client dispatches `load_more` automatically. Only the first matching element per wrapper is observed. Wrap in `{{if .HasMore}}...{{end}}` to prevent infinite empty-load loops | `<div lvt-scroll-sentinel>Loading more...</div>` |
 
 ### Valid Key Values
 

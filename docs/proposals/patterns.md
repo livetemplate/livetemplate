@@ -773,7 +773,7 @@ func (c *Controller) LoadMore(state InfiniteScrollState, ctx *livetemplate.Conte
 {{end}}
 ```
 
-**Key features:** `lvt-scroll-sentinel` attribute auto-triggers `load_more` (source: `client/dom/observer-manager.ts`), IntersectionObserver built into client
+**Key features:** `lvt-scroll-sentinel` attribute auto-triggers `load_more`; IntersectionObserver support is built into the client
 
 > **Limitation:** The client detects the sentinel by `[lvt-scroll-sentinel]` attribute (`querySelector` selects the first match), so only one infinite scroll list can exist per page. This is fine for the patterns app (one pattern per page).
 
