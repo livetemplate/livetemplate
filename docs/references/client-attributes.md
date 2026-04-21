@@ -708,7 +708,7 @@ DOM event triggers resolve `data-lvt-target` before applying the effect. This le
         aria-label="Scroll to bottom">↓</button>
 ```
 
-The button scrolls `#chat-log` to the bottom on click. Without `data-lvt-target`, the effect applies to the trigger element itself. `data-lvt-target` supports `#id` and `closest:selector` resolution.
+The button scrolls `#chat-log` to the bottom on click. Without `data-lvt-target`, the effect applies to the trigger element itself. `data-lvt-target` supports `#id` resolution and `closest:selector` (walks up the DOM from the trigger element, equivalent to `element.closest(selector)`).
 
 `data-lvt-target` is also used by [`lvt-scroll-away`](#scroll-away-visibility) to identify which scrollable container to observe.
 
@@ -730,7 +730,7 @@ Triggers a `load_more` action when the element scrolls into view, enabling infin
 
 The action name `load_more` is hardcoded and not configurable. It maps to a `LoadMore()` handler on the server via livetemplate's standard snake_case-to-PascalCase action routing. The handler increments a page counter and returns more items. Conditionally render the sentinel with `{{if .HasMore}}` so it disappears when all items are loaded. The observer automatically cascades — if the sentinel is still visible after new items load, it fires again.
 
-The `data-key="sentinel"` ensures stable identity across re-renders so morphdom patches correctly when surrounding content changes.
+The `data-key="sentinel"` ensures stable identity across re-renders so morphdom patches correctly when surrounding content changes. One sentinel per page is the expected use case — the action name is not configurable.
 
 ### Scroll-Away Visibility
 
@@ -748,7 +748,7 @@ Show or hide an element based on scroll position of a target container. When the
 |-----------|-------------|
 | `lvt-scroll-away` | Edge to watch: `bottom` |
 | `data-lvt-target` | Scrollable container to observe (required). See [Target Resolution](#target-resolution) |
-| `--lvt-scroll-threshold` | CSS custom property: pixel distance from edge to toggle visibility (default: `200`, vs `100` for `lvt-fx:scroll`). Same property name, applied independently per element. Parsed as an integer; `px` suffix is accepted but optional |
+| `--lvt-scroll-threshold` | CSS custom property: pixel distance from edge to toggle visibility (default: `200`). The CSS property is read independently by each directive — `lvt-fx:scroll` defaults to `100` and `lvt-scroll-away` defaults to `200` when the property is absent. Parsed as an integer; `px` suffix is accepted but optional |
 
 The directive toggles a `visible` class on the element — your CSS controls the actual show/hide:
 
