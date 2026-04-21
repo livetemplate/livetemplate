@@ -157,4 +157,4 @@ How the attributes compose:
 | `lvt-scroll-away="bottom"` | Shows button only when scrolled away from bottom |
 | `data-key` on chat-log | Session switches replace the element, resetting the sticky scroll marker |
 
-Backend: `LoadMore()` increments a page counter; the handler slices messages from the tail of the full list. `lvt-scroll-sentinel` is conditionally rendered with `{{if .HasMore}}` to stop loading when all messages are shown.
+Backend: `LoadMore()` increments a page counter; the handler returns the most recent `page × N` messages from the full log (growing the visible window upward). `lvt-scroll-sentinel` is conditionally rendered with `{{if .HasMore}}` to stop loading when all messages are shown.

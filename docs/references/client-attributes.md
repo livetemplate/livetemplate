@@ -635,6 +635,8 @@ Control scroll behavior after DOM updates.
 
 **`bottom-sticky` first-run behavior:** On the first encounter (fresh element), `bottom-sticky` scrolls to bottom unconditionally using `scrollTo()` with `behavior: "instant"` (a [valid Web API value](https://developer.mozilla.org/en-US/docs/Web/API/Element/scrollTo) that jumps without animation). Subsequent updates only scroll if the user is within the threshold. Use `data-key` on the scrollable element to reset this when content changes (e.g., switching chat sessions).
 
+> `data-lvt-target` resolution for scroll effects triggered by DOM events is described in [Target Resolution](#target-resolution).
+
 ### Highlight Directives
 
 Temporarily highlight elements after updates.
