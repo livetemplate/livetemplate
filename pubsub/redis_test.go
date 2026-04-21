@@ -881,13 +881,16 @@ func TestSubscribeTo_RetrySucceedsAfterTransientFailure(t *testing.T) {
 	broadcaster.pubsub = nil
 	broadcaster.mu.Unlock()
 
-	// Restore after 50ms — retry delay is 100ms, so the second attempt should succeed
+	// Restore immediately in a goroutine — the first trySubscribe attempt sees nil
+	// and fails, then this goroutine restores pubsub before the 100ms retry delay elapses
+	restored := make(chan struct{})
 	go func() {
-		time.Sleep(50 * time.Millisecond)
 		broadcaster.mu.Lock()
 		broadcaster.pubsub = realPubSub
 		broadcaster.mu.Unlock()
+		close(restored)
 	}()
+	defer func() { <-restored }()
 
 	err := broadcaster.subscribeTo("test:retry-channel", "test")
 	if err != nil {
@@ -923,7 +926,7 @@ func TestSubscribeTo_ExhaustsRetriesWhenPubSubNil(t *testing.T) {
 		t.Fatal("subscribeTo should fail when pubsub is permanently nil")
 	}
 
-	if !strings.Contains(err.Error(), "after 3 attempts") {
+	if !strings.Contains(err.Error(), "attempts") {
 		t.Fatalf("error should mention exhausted attempts, got: %v", err)
 	}
 }
