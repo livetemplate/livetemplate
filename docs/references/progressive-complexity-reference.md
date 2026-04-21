@@ -109,6 +109,13 @@ For behaviors that standard HTML cannot express — timing control, reactive DOM
 | `lvt-mod:` | Event modifiers | `lvt-mod:debounce="300"`, `lvt-mod:throttle="100"` |
 | `lvt-form:` | Form behavior | `lvt-form:preserve`, `lvt-form:disable-with="Saving..."` |
 
+Some `lvt-*` attributes are standalone (not prefixed):
+
+| Attribute | Purpose | Example |
+|---|---|---|
+| `lvt-scroll-sentinel` | Infinite scroll trigger | `<div lvt-scroll-sentinel>Loading…</div>` |
+| `lvt-scroll-away` | Scroll-position visibility | `<button lvt-scroll-away="bottom" data-lvt-target="#log">↓</button>` |
+
 See the [Client Attributes Reference](client-attributes.md) for the complete listing.
 
 ### Recipe: Chat with Infinite Scroll
@@ -118,7 +125,7 @@ Compose multiple `lvt-*` attributes for a chat UI with upward infinite scroll, a
 ```html
 <div class="chat-scroll-wrap">
   <div class="chat-log" id="chat-log" lvt-fx:scroll="bottom-sticky"
-       style="--lvt-scroll-threshold: 80;" data-key="chat-{{.SessionID}}">
+       style="--lvt-scroll-threshold: 80" data-key="chat-{{.SessionID}}">
     {{if .HasMore}}
     <div lvt-scroll-sentinel data-key="sentinel">
       <small aria-busy="true">Loading older messages…</small>
