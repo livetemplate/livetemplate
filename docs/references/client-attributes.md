@@ -726,7 +726,7 @@ Triggers a `load_more` action when the element scrolls into view, enabling infin
 
 | Attribute | Description |
 |-----------|-------------|
-| `lvt-scroll-sentinel` | Marks the element as an infinite-scroll trigger. When it enters the viewport, the client sends a `load_more` action to the server |
+| `lvt-scroll-sentinel` | Marks the element as an infinite-scroll trigger. When it enters the viewport, the client sends a hardcoded `load_more` action to the server (maps to a `LoadMore()` handler) |
 
 The server handler (e.g., `LoadMore()`) increments a page counter and returns more items. Conditionally render the sentinel with `{{if .HasMore}}` so it disappears when all items are loaded. The observer automatically cascades — if the sentinel is still visible after new items load, it fires again.
 
@@ -748,7 +748,7 @@ Show or hide an element based on scroll position of a target container. When the
 |-----------|-------------|
 | `lvt-scroll-away` | Edge to watch: `bottom` |
 | `data-lvt-target` | Scrollable container to observe (required). See [Target Resolution](#target-resolution) |
-| `--lvt-scroll-threshold` | CSS custom property: pixel distance from edge to toggle visibility (default: `200`). Same property as `lvt-fx:scroll` but applied independently per element. Parsed as an integer; `px` suffix is accepted but optional |
+| `--lvt-scroll-threshold` | CSS custom property: pixel distance from edge to toggle visibility (default: `200`, vs `100` for `lvt-fx:scroll`). Same property name, applied independently per element. Parsed as an integer; `px` suffix is accepted but optional |
 
 The directive toggles a `visible` class on the element — your CSS controls the actual show/hide:
 

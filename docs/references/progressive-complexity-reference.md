@@ -113,7 +113,7 @@ Some `lvt-*` attributes are standalone (not prefixed):
 
 | Attribute | Purpose | Example |
 |---|---|---|
-| `lvt-scroll-sentinel` | Infinite scroll trigger | `<div lvt-scroll-sentinel>Loading…</div>` |
+| `lvt-scroll-sentinel` | Infinite scroll trigger | `<div lvt-scroll-sentinel data-key="sentinel">Loading…</div>` |
 | `lvt-scroll-away` | Scroll-position visibility | `<button lvt-scroll-away="bottom" data-lvt-target="#log">↓</button>` |
 
 See the [Client Attributes Reference](client-attributes.md) for the complete listing.
