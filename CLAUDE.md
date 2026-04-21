@@ -317,6 +317,11 @@ The TypeScript client is maintained in a separate repository at `github.com/live
 - Check Redis connectivity; all instances must use the same Redis
 - Subscriptions are created automatically during WebSocket setup via `DynamicSubscriber` type assertion
 
+**Server hangs at startup (Handle() never returns):**
+- `Subscribe()` blocks until Redis confirms the subscription
+- If Redis is unreachable and the client has no `DialTimeout`, this blocks indefinitely
+- Fix: configure `DialTimeout` on the Redis client (e.g. `&redis.Options{DialTimeout: 5 * time.Second}`)
+
 **Subscriptions lost after Redis reconnection:**
 - Should auto-recover: `reconnect()` replays all tracked channels from `subscribedChannels` map
 - Check logs for `"Reconnected successfully"` with `dynamic_channels` count

@@ -1,6 +1,7 @@
 package pubsub
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -851,5 +852,148 @@ func TestRedisBroadcaster_UnsubscribedGroupNotReceived(t *testing.T) {
 	}
 	if received[0].GroupID != "group-A" {
 		t.Errorf("Expected GroupID='group-A', got '%s'", received[0].GroupID)
+	}
+}
+
+func TestSubscribeTo_RetrySucceedsAfterTransientFailure(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
+
+	broadcaster := NewRedisBroadcaster(client)
+	defer func() {
+		if err := broadcaster.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster: %v", err)
+		}
+	}()
+
+	handler := func(msg *BroadcastMessage) error { return nil }
+	if err := broadcaster.Subscribe(handler); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
+
+	// Save the real pubsub, then nil it out to simulate transient failure
+	broadcaster.mu.Lock()
+	realPubSub := broadcaster.pubsub
+	broadcaster.pubsub = nil
+	broadcaster.mu.Unlock()
+
+	// Restore immediately in a goroutine — the first trySubscribe attempt sees nil
+	// and fails, then this goroutine restores pubsub before the 100ms retry delay elapses
+	restored := make(chan struct{})
+	go func() {
+		broadcaster.mu.Lock()
+		broadcaster.pubsub = realPubSub
+		broadcaster.mu.Unlock()
+		close(restored)
+	}()
+	defer func() { <-restored }()
+
+	err := broadcaster.subscribeTo("test:retry-channel", "test")
+	if err != nil {
+		t.Fatalf("subscribeTo should have succeeded on retry, got: %v", err)
+	}
+
+	broadcaster.mu.RLock()
+	_, subscribed := broadcaster.subscribedChannels["test:retry-channel"]
+	broadcaster.mu.RUnlock()
+	if !subscribed {
+		t.Fatal("channel should be tracked in subscribedChannels after successful retry")
+	}
+}
+
+func TestSubscribeTo_ExhaustsRetriesWhenPubSubNil(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
+
+	broadcaster := NewRedisBroadcaster(client)
+	defer func() {
+		if err := broadcaster.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster: %v", err)
+		}
+	}()
+
+	// Don't call Subscribe — pubsub stays nil, all 3 attempts should fail
+	err := broadcaster.subscribeTo("test:fail-channel", "test")
+	if err == nil {
+		t.Fatal("subscribeTo should fail when pubsub is permanently nil")
+	}
+
+	if !strings.Contains(err.Error(), "attempts") {
+		t.Fatalf("error should mention exhausted attempts, got: %v", err)
+	}
+}
+
+func TestSubscribeTo_RespectsContextCancellation(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
+
+	broadcaster := NewRedisBroadcaster(client)
+	defer func() {
+		if err := broadcaster.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster: %v", err)
+		}
+	}()
+
+	// Cancel context immediately so the retry wait exits early
+	broadcaster.cancel()
+
+	start := time.Now()
+	err := broadcaster.subscribeTo("test:cancel-channel", "test")
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("subscribeTo should fail when context is cancelled")
+	}
+
+	if !strings.Contains(err.Error(), "context cancelled") {
+		t.Fatalf("error should mention context cancellation, got: %v", err)
+	}
+
+	// Should exit quickly — not wait for all retry delays
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("context cancellation should short-circuit retries, took %v", elapsed)
+	}
+}
+
+func TestSubscribeTo_DeduplicatesAlreadySubscribed(t *testing.T) {
+	client := getTestRedisClient(t)
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Failed to close client: %v", err)
+		}
+	}()
+
+	broadcaster := NewRedisBroadcaster(client)
+	defer func() {
+		if err := broadcaster.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster: %v", err)
+		}
+	}()
+
+	handler := func(msg *BroadcastMessage) error { return nil }
+	if err := broadcaster.Subscribe(handler); err != nil {
+		t.Fatalf("Subscribe failed: %v", err)
+	}
+
+	channel := "test:dedup-channel"
+	if err := broadcaster.subscribeTo(channel, "test"); err != nil {
+		t.Fatalf("first subscribeTo failed: %v", err)
+	}
+
+	// Second call should succeed immediately (dedup)
+	if err := broadcaster.subscribeTo(channel, "test"); err != nil {
+		t.Fatalf("duplicate subscribeTo should succeed (dedup), got: %v", err)
 	}
 }

@@ -609,6 +609,9 @@ func WithUpload(name string, config uploadtypes.UploadConfig) Option {
 //	tmpl := livetemplate.New("app",
 //	    livetemplate.WithPubSubBroadcaster(broadcaster),
 //	)
+//
+// Redis must be reachable when Handle() is called; configure a DialTimeout
+// on the Redis client to bound startup blocking.
 func WithPubSubBroadcaster(broadcaster pubsub.Broadcaster) Option {
 	return func(c *Config) {
 		c.PubSubBroadcaster = broadcaster
@@ -1564,15 +1567,18 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 	// Start periodic sweep of stale HTTP template cache entries
 	go handler.httpTemplateSweepLoop()
 
-	// Start pub/sub subscriber if broadcaster is configured
+	// Start pub/sub subscriber if broadcaster is configured.
+	// Subscribe() must return only after the broadcaster is ready to accept
+	// dynamic per-connection SubscribeTo* calls, so calling it synchronously
+	// here avoids races before WebSocket connections begin using pub/sub.
+	// If the backing store (e.g. Redis) is unreachable, this blocks until
+	// the client's configured dial timeout fires.
 	if mountCfg.PubSubBroadcaster != nil {
-		go func() {
-			slog.Info("Starting pub/sub subscriber")
-			if err := mountCfg.PubSubBroadcaster.Subscribe(handler.handlePubSubMessage); err != nil {
-				slog.Error("Pub/sub subscriber error",
-					slog.Any("error", err))
-			}
-		}()
+		slog.Info("Starting pub/sub subscriber")
+		if err := mountCfg.PubSubBroadcaster.Subscribe(handler.handlePubSubMessage); err != nil {
+			slog.Error("Pub/sub subscriber error",
+				slog.Any("error", err))
+		}
 
 		if err := mountCfg.PubSubBroadcaster.SubscribeServerActions(handler.handleServerActionMessage); err != nil {
 			slog.Error("Failed to subscribe to server actions",

@@ -207,7 +207,10 @@ func (b *RedisBroadcaster) publishJSON(channel string, msg interface{}) error {
 // The handler will be called for each received message and should fan out
 // the message to relevant local connections.
 //
-// This method blocks until Close() is called or an error occurs.
+// Subscribe confirms the Redis subscription (blocking until Redis responds),
+// then starts a background goroutine for message processing and returns.
+// If Redis is unreachable and the client has no DialTimeout configured,
+// this blocks indefinitely. Always configure a DialTimeout on the Redis client.
 func (b *RedisBroadcaster) Subscribe(handler MessageHandler) error {
 	if handler == nil {
 		return fmt.Errorf("handler cannot be nil")
@@ -227,6 +230,11 @@ func (b *RedisBroadcaster) Subscribe(handler MessageHandler) error {
 
 	// Wait for subscription confirmation
 	if _, err := b.pubsub.Receive(b.ctx); err != nil {
+		b.mu.Lock()
+		_ = b.pubsub.Close()
+		b.pubsub = nil
+		b.handler = nil
+		b.mu.Unlock()
 		return fmt.Errorf("failed to subscribe: %w", err)
 	}
 
@@ -340,8 +348,45 @@ func (b *RedisBroadcaster) SubscribeToGroupAction(groupID string) error {
 	return b.subscribeTo(channelGroupAction+groupID, "group action")
 }
 
-// subscribeTo subscribes to a Redis channel with dedup. Caller must validate the ID is non-empty.
+// subscribeTo subscribes to a Redis channel with dedup and retry.
+//
+// Retries handle transient Redis failures. The lock is released between
+// attempts so reconnect() can complete and install a fresh b.pubsub —
+// the next attempt then succeeds against the new connection.
 func (b *RedisBroadcaster) subscribeTo(channel, label string) error {
+	const maxAttempts = 3
+	const retryDelay = 100 * time.Millisecond
+
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-b.ctx.Done():
+				return fmt.Errorf("context cancelled while retrying %s channel subscribe: %w", label, b.ctx.Err())
+			case <-time.After(retryDelay):
+			}
+		}
+
+		err := b.trySubscribe(channel, label)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+
+		if attempt < maxAttempts-1 {
+			slog.Warn("Subscribe attempt failed, retrying",
+				slog.String("component", "redis_broadcaster"),
+				slog.String("channel", channel),
+				slog.Int("attempt", attempt+1),
+				slog.Int("max_attempts", maxAttempts),
+				slog.Any("error", err))
+		}
+	}
+
+	return fmt.Errorf("failed to subscribe to %s channel after %d attempts: %w", label, maxAttempts, lastErr)
+}
+
+func (b *RedisBroadcaster) trySubscribe(channel, label string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
