@@ -2316,9 +2316,6 @@ func TestPerConnectionState_ServerActionPersists(t *testing.T) {
 		t.Fatalf("Expected initial Count=0, got dynamic 0=%q", v)
 	}
 
-	// Wait for PubSub subscription to be established
-	time.Sleep(500 * time.Millisecond)
-
 	// 2. Publish a server action that increments the counter
 	if err := publisher.PublishServerAction("test-user", "increment", nil); err != nil {
 		t.Fatalf("PublishServerAction failed: %v", err)

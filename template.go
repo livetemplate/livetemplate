@@ -1564,15 +1564,16 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 	// Start periodic sweep of stale HTTP template cache entries
 	go handler.httpTemplateSweepLoop()
 
-	// Start pub/sub subscriber if broadcaster is configured
+	// Start pub/sub subscriber if broadcaster is configured.
+	// Subscribe() returns after confirming the subscription and starting
+	// its internal message-processing goroutine — calling it synchronously
+	// guarantees b.pubsub is set before any WebSocket connection arrives.
 	if mountCfg.PubSubBroadcaster != nil {
-		go func() {
-			slog.Info("Starting pub/sub subscriber")
-			if err := mountCfg.PubSubBroadcaster.Subscribe(handler.handlePubSubMessage); err != nil {
-				slog.Error("Pub/sub subscriber error",
-					slog.Any("error", err))
-			}
-		}()
+		slog.Info("Starting pub/sub subscriber")
+		if err := mountCfg.PubSubBroadcaster.Subscribe(handler.handlePubSubMessage); err != nil {
+			slog.Error("Pub/sub subscriber error",
+				slog.Any("error", err))
+		}
 
 		if err := mountCfg.PubSubBroadcaster.SubscribeServerActions(handler.handleServerActionMessage); err != nil {
 			slog.Error("Failed to subscribe to server actions",

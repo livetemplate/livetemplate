@@ -207,7 +207,8 @@ func (b *RedisBroadcaster) publishJSON(channel string, msg interface{}) error {
 // The handler will be called for each received message and should fan out
 // the message to relevant local connections.
 //
-// This method blocks until Close() is called or an error occurs.
+// Subscribe confirms the Redis subscription and starts a background goroutine
+// for message processing, then returns. It does not block.
 func (b *RedisBroadcaster) Subscribe(handler MessageHandler) error {
 	if handler == nil {
 		return fmt.Errorf("handler cannot be nil")
