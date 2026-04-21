@@ -633,6 +633,8 @@ Control scroll behavior after DOM updates.
 | `--lvt-scroll-behavior` | CSS custom property: `auto` (default), `smooth` |
 | `--lvt-scroll-threshold` | CSS custom property: pixel threshold for sticky scroll (default: 100px) |
 
+**`bottom-sticky` first-run behavior:** On the first encounter (fresh element), `bottom-sticky` scrolls to bottom unconditionally with `behavior: "instant"`. Subsequent updates only scroll if the user is within the threshold. Use `data-key` on the scrollable element to reset this when content changes (e.g., switching chat sessions).
+
 ### Highlight Directives
 
 Temporarily highlight elements after updates.
@@ -694,6 +696,49 @@ Apply entrance animations to elements.
 <div lvt-fx:highlight:on:click="flash">Click to highlight</div>
 <div lvt-fx:highlight:on:mouseenter="flash">Hover to highlight</div>
 <div lvt-fx:animate:on:click="fade">Click to animate</div>
+```
+
+**Target resolution:** DOM event triggers resolve `data-lvt-target` before applying the effect. This lets a button control a different element:
+
+```html
+<button lvt-fx:scroll:on:click="bottom"
+        data-lvt-target="#chat-log"
+        aria-label="Scroll to bottom">↓</button>
+```
+
+The button scrolls `#chat-log` to the bottom on click. Without `data-lvt-target`, the effect applies to the trigger element itself. Supports `#id` and `closest:selector` resolution (same as reactive attributes).
+
+### Scroll-Away Visibility
+
+Show or hide an element based on scroll position of a target container. When the user scrolls away from the specified edge beyond a threshold, the element gains a `visible` class; when they return, it's removed.
+
+```html
+<button class="scroll-bottom-btn"
+        lvt-scroll-away="bottom"
+        data-lvt-target="#chat-log"
+        style="--lvt-scroll-threshold: 200"
+        aria-label="Scroll to bottom">↓</button>
+```
+
+| Attribute | Description |
+|-----------|-------------|
+| `lvt-scroll-away` | Edge to watch: `bottom` |
+| `data-lvt-target` | Scrollable container to observe (required) |
+| `--lvt-scroll-threshold` | CSS custom property: pixel distance from edge to toggle visibility (default: 200) |
+
+The element starts hidden. CSS controls the visual:
+
+```css
+.scroll-bottom-btn { display: none; }
+.scroll-bottom-btn.visible { display: flex; }
+```
+
+Pairs naturally with `lvt-fx:scroll:on:click="bottom"` on the same element:
+
+```html
+<button lvt-fx:scroll:on:click="bottom"
+        lvt-scroll-away="bottom"
+        data-lvt-target="#chat-log">↓</button>
 ```
 
 ---
@@ -946,8 +991,9 @@ Complete reference of all `lvt-*` and `data-*` template attributes.
 | `lvt-fx:scroll` | Scroll behavior | `lvt-fx:scroll="bottom"` |
 | `lvt-fx:highlight` | Highlight effect | `lvt-fx:highlight="flash"` |
 | `lvt-fx:animate` | Entrance animation | `lvt-fx:animate="fade"` |
+| `lvt-scroll-away` | Show/hide based on scroll position | `lvt-scroll-away="bottom"` |
 
-Directives use CSS custom properties for configuration: `--lvt-scroll-behavior`, `--lvt-scroll-threshold`, `--lvt-highlight-color`, `--lvt-highlight-duration`, `--lvt-animate-duration`.
+Directives use CSS custom properties for configuration: `--lvt-scroll-behavior`, `--lvt-scroll-threshold`, `--lvt-highlight-color`, `--lvt-highlight-duration`, `--lvt-animate-duration`. DOM event triggers resolve `data-lvt-target` to apply effects to a different element.
 
 ### Upload Attributes
 

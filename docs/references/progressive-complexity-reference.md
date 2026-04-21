@@ -110,3 +110,43 @@ For behaviors that standard HTML cannot express — timing control, reactive DOM
 | `lvt-form:` | Form behavior | `lvt-form:preserve`, `lvt-form:disable-with="Saving..."` |
 
 See the [Client Attributes Reference](client-attributes.md) for the complete listing.
+
+### Recipe: Chat with Infinite Scroll
+
+Compose multiple `lvt-*` attributes for a chat UI with upward infinite scroll, auto-scroll on new messages, and a scroll-to-bottom button — all without custom JavaScript:
+
+```html
+<div class="chat-scroll-wrap">
+  <div class="chat-log" id="chat-log" lvt-fx:scroll="bottom-sticky"
+       style="--lvt-scroll-threshold: 80;" data-key="chat-{{.SessionID}}">
+    {{if .HasMore}}
+    <div lvt-scroll-sentinel data-key="sentinel">
+      <small aria-busy="true">Loading older messages…</small>
+    </div>
+    {{end}}
+    {{range .Messages}}
+    <div class="chat-row {{.Role}}" data-key="{{.Key}}">
+      <div class="chat-bubble">{{.Text}}</div>
+    </div>
+    {{end}}
+  </div>
+  <button type="button" class="scroll-bottom-btn"
+          lvt-fx:scroll:on:click="bottom"
+          lvt-scroll-away="bottom"
+          data-lvt-target="#chat-log"
+          aria-label="Scroll to bottom">↓</button>
+</div>
+```
+
+How the attributes compose:
+
+| Attribute | Role |
+|-----------|------|
+| `lvt-fx:scroll="bottom-sticky"` | Auto-scrolls on new messages if user is near bottom; scrolls to bottom on first load |
+| `lvt-scroll-sentinel` | IntersectionObserver triggers `LoadMore()` when sentinel enters viewport |
+| `data-key` on rows | Differential DOM updates — only new/changed rows are sent over the wire |
+| `lvt-fx:scroll:on:click="bottom"` | Scrolls target to bottom on button click |
+| `lvt-scroll-away="bottom"` | Shows button only when scrolled away from bottom |
+| `data-key` on chat-log | Session switches replace the element, resetting the sticky scroll marker |
+
+Backend: `LoadMore()` increments a page counter; the handler slices messages from the tail of the full list. `lvt-scroll-sentinel` is conditionally rendered with `{{if .HasMore}}` to stop loading when all messages are shown.
