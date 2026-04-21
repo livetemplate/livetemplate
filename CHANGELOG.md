@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<a name="v0.8.20"></a>
+## [v0.8.20] - 2026-04-20
+
+### Documentation
+
+- update scroll-sentinel to lvt-scroll-sentinel attribute ([#352](https://github.com/livefir/livetemplate/issues/352))
+- automatic client-side state preservation ([#351](https://github.com/livefir/livetemplate/issues/351))
+
+
 <a name="v0.8.19"></a>
 ## [v0.8.19] - 2026-04-18
 
@@ -748,7 +757,8 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.19...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.20...HEAD
+[v0.8.20]: https://github.com/livefir/livetemplate/compare/v0.8.19...v0.8.20
 [v0.8.19]: https://github.com/livefir/livetemplate/compare/v0.8.18...v0.8.19
 [v0.8.18]: https://github.com/livefir/livetemplate/compare/v0.8.17...v0.8.18
 [v0.8.17]: https://github.com/livefir/livetemplate/compare/v0.8.16...v0.8.17
