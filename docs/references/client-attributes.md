@@ -726,9 +726,9 @@ Triggers a `load_more` action when the element scrolls into view, enabling infin
 
 | Attribute | Description |
 |-----------|-------------|
-| `lvt-scroll-sentinel` | Marks the element as an infinite-scroll trigger. When it enters the viewport, the client sends a hardcoded `load_more` action to the server (maps to a `LoadMore()` handler) |
+| `lvt-scroll-sentinel` | Marks the element as an infinite-scroll trigger. When it enters the viewport, the client sends a `load_more` action to the server |
 
-The server handler (e.g., `LoadMore()`) increments a page counter and returns more items. Conditionally render the sentinel with `{{if .HasMore}}` so it disappears when all items are loaded. The observer automatically cascades — if the sentinel is still visible after new items load, it fires again.
+The action name `load_more` is hardcoded and not configurable. It maps to a `LoadMore()` handler on the server via livetemplate's standard snake_case-to-PascalCase action routing. The handler increments a page counter and returns more items. Conditionally render the sentinel with `{{if .HasMore}}` so it disappears when all items are loaded. The observer automatically cascades — if the sentinel is still visible after new items load, it fires again.
 
 The `data-key="sentinel"` ensures stable identity across re-renders so morphdom patches correctly when surrounding content changes.
 
@@ -1015,9 +1015,15 @@ Complete reference of all `lvt-*` and `data-*` template attributes.
 | `lvt-fx:scroll` | Scroll behavior | `lvt-fx:scroll="bottom"` |
 | `lvt-fx:highlight` | Highlight effect | `lvt-fx:highlight="flash"` |
 | `lvt-fx:animate` | Entrance animation | `lvt-fx:animate="fade"` |
-| `lvt-scroll-away` | Show/hide based on scroll position | `lvt-scroll-away="bottom"` |
 
 Directives use CSS custom properties for configuration: `--lvt-scroll-behavior`, `--lvt-scroll-threshold`, `--lvt-highlight-color`, `--lvt-highlight-duration`, `--lvt-animate-duration`. DOM event triggers resolve `data-lvt-target` to apply effects to a different element.
+
+### Standalone Directive Attributes
+
+| Attribute | Description | Example |
+|-----------|-------------|---------|
+| `lvt-scroll-sentinel` | Infinite-scroll trigger (IntersectionObserver sends hardcoded `load_more` action) | `<div lvt-scroll-sentinel>` |
+| `lvt-scroll-away` | Show/hide based on scroll position | `lvt-scroll-away="bottom"` |
 
 ### Upload Attributes
 

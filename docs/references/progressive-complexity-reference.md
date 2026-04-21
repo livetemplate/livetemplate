@@ -126,6 +126,7 @@ Compose multiple `lvt-*` attributes for a chat UI with upward infinite scroll, a
 <div class="chat-scroll-wrap">
   <div class="chat-log" id="chat-log" lvt-fx:scroll="bottom-sticky"
        style="--lvt-scroll-threshold: 80" data-key="chat-{{.SessionID}}">
+       <!-- threshold 80: scroll more eagerly than the default 100 -->
     {{if .HasMore}}
     <div lvt-scroll-sentinel data-key="sentinel">
       <small aria-busy="true">Loading older messages…</small>
