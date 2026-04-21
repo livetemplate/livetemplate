@@ -341,8 +341,44 @@ func (b *RedisBroadcaster) SubscribeToGroupAction(groupID string) error {
 	return b.subscribeTo(channelGroupAction+groupID, "group action")
 }
 
-// subscribeTo subscribes to a Redis channel with dedup. Caller must validate the ID is non-empty.
+// subscribeTo subscribes to a Redis channel with dedup and retry.
+//
+// Retries handle transient Redis failures. The lock is released between
+// attempts so reconnect() can complete and install a fresh b.pubsub —
+// the next attempt then succeeds against the new connection.
 func (b *RedisBroadcaster) subscribeTo(channel, label string) error {
+	const maxAttempts = 3
+	const retryDelay = 100 * time.Millisecond
+
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-b.ctx.Done():
+				return fmt.Errorf("context cancelled while retrying %s channel subscribe: %w", label, b.ctx.Err())
+			case <-time.After(retryDelay):
+			}
+		}
+
+		err := b.trySubscribe(channel, label)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+
+		if attempt < maxAttempts-1 {
+			slog.Warn("Subscribe attempt failed, retrying",
+				slog.String("component", "redis_broadcaster"),
+				slog.String("channel", channel),
+				slog.Int("attempt", attempt+1),
+				slog.Any("error", err))
+		}
+	}
+
+	return fmt.Errorf("failed to subscribe to %s channel after %d attempts: %w", label, maxAttempts, lastErr)
+}
+
+func (b *RedisBroadcaster) trySubscribe(channel, label string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
