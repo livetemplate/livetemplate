@@ -1565,9 +1565,10 @@ func (t *Template) Handle(controller interface{}, state State, opts ...HandleOpt
 	go handler.httpTemplateSweepLoop()
 
 	// Start pub/sub subscriber if broadcaster is configured.
-	// Subscribe() returns after confirming the subscription and starting
-	// its internal message-processing goroutine — calling it synchronously
-	// guarantees b.pubsub is set before any WebSocket connection arrives.
+	// Subscribe() confirms the Redis subscription synchronously (blocks until
+	// Redis responds), then starts a background goroutine for messages.
+	// This guarantees b.pubsub is set before any WebSocket connection arrives.
+	// If Redis is unreachable, Handle() blocks until the client's timeout fires.
 	if mountCfg.PubSubBroadcaster != nil {
 		slog.Info("Starting pub/sub subscriber")
 		if err := mountCfg.PubSubBroadcaster.Subscribe(handler.handlePubSubMessage); err != nil {

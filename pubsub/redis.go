@@ -228,6 +228,11 @@ func (b *RedisBroadcaster) Subscribe(handler MessageHandler) error {
 
 	// Wait for subscription confirmation
 	if _, err := b.pubsub.Receive(b.ctx); err != nil {
+		b.mu.Lock()
+		_ = b.pubsub.Close()
+		b.pubsub = nil
+		b.handler = nil
+		b.mu.Unlock()
 		return fmt.Errorf("failed to subscribe: %w", err)
 	}
 
@@ -371,6 +376,7 @@ func (b *RedisBroadcaster) subscribeTo(channel, label string) error {
 				slog.String("component", "redis_broadcaster"),
 				slog.String("channel", channel),
 				slog.Int("attempt", attempt+1),
+				slog.Int("max_attempts", maxAttempts),
 				slog.Any("error", err))
 		}
 	}
