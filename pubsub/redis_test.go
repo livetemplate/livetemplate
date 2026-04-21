@@ -937,6 +937,11 @@ func TestSubscribeTo_RespectsContextCancellation(t *testing.T) {
 	}()
 
 	broadcaster := NewRedisBroadcaster(client)
+	defer func() {
+		if err := broadcaster.Close(); err != nil {
+			t.Errorf("Failed to close broadcaster: %v", err)
+		}
+	}()
 
 	// Cancel context immediately so the retry wait exits early
 	broadcaster.cancel()
