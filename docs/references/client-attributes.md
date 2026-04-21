@@ -614,7 +614,7 @@ Control scroll behavior after DOM updates.
 </div>
 
 <!-- Sticky scroll (only if user is near bottom) -->
-<div lvt-fx:scroll="bottom-sticky" style="--lvt-scroll-threshold: 100px">
+<div lvt-fx:scroll="bottom-sticky" style="--lvt-scroll-threshold: 100">
     {{range .Logs}}
         <div>{{.}}</div>
     {{end}}
@@ -631,7 +631,11 @@ Control scroll behavior after DOM updates.
 |-----------|-------------|
 | `lvt-fx:scroll` | Scroll mode: `bottom`, `bottom-sticky`, `top`, `preserve` |
 | `--lvt-scroll-behavior` | CSS custom property: `auto` (default), `smooth` |
-| `--lvt-scroll-threshold` | CSS custom property: pixel threshold for sticky scroll (default: 100px) |
+| `--lvt-scroll-threshold` | CSS custom property: pixel threshold for sticky scroll (default: `100`). Parsed as an integer; `px` suffix is accepted but optional |
+
+**`bottom-sticky` first-run behavior:** On the first encounter (fresh element), `bottom-sticky` scrolls to bottom unconditionally using `scrollTo()` with `behavior: "instant"` (a [valid Web API value](https://developer.mozilla.org/en-US/docs/Web/API/Element/scrollTo) that jumps without animation). Subsequent updates only scroll if the user is within the threshold. Use `data-key` on the scrollable element to reset this when content changes (e.g., switching chat sessions).
+
+> `data-lvt-target` resolution for scroll effects triggered by DOM events is described in [Target Resolution](#target-resolution).
 
 ### Highlight Directives
 
@@ -694,6 +698,73 @@ Apply entrance animations to elements.
 <div lvt-fx:highlight:on:click="flash">Click to highlight</div>
 <div lvt-fx:highlight:on:mouseenter="flash">Hover to highlight</div>
 <div lvt-fx:animate:on:click="fade">Click to animate</div>
+```
+
+#### Target Resolution
+
+DOM event triggers resolve `data-lvt-target` before applying the effect. This lets a button control a different element:
+
+```html
+<button lvt-fx:scroll:on:click="bottom"
+        data-lvt-target="#chat-log"
+        aria-label="Scroll to bottom">↓</button>
+```
+
+The button scrolls `#chat-log` to the bottom on click. Without `data-lvt-target`, the effect applies to the trigger element itself. `data-lvt-target` supports `#id` resolution and `closest:selector` (walks up the DOM from the trigger element, equivalent to `element.closest(selector)`).
+
+`data-lvt-target` is also used by [`lvt-scroll-away`](#scroll-away-visibility) to identify which scrollable container to observe.
+
+### Scroll Sentinel (Infinite Scroll)
+
+Triggers a `load_more` action when the element scrolls into view, enabling infinite scroll without custom JavaScript. Uses an IntersectionObserver internally.
+
+```html
+{{if .HasMore}}
+<div lvt-scroll-sentinel data-key="sentinel">
+  <small aria-busy="true">Loading older messages…</small>
+</div>
+{{end}}
+```
+
+| Attribute | Description |
+|-----------|-------------|
+| `lvt-scroll-sentinel` | Marks the element as an infinite-scroll trigger. When it enters the viewport, the client sends a `load_more` action to the server |
+
+The action name `load_more` is hardcoded and not configurable. It maps to a `LoadMore()` handler on the server via livetemplate's standard snake_case-to-PascalCase action routing. The handler increments a page counter and returns more items. Conditionally render the sentinel with `{{if .HasMore}}` so it disappears when all items are loaded. The observer automatically cascades — if the sentinel is still visible after new items load, it fires again.
+
+The `data-key="sentinel"` ensures stable identity across re-renders so morphdom patches correctly when surrounding content changes. One sentinel per page is the expected use case — the action name is not configurable.
+
+### Scroll-Away Visibility
+
+Show or hide an element based on scroll position of a target container. When the user scrolls away from the specified edge beyond a threshold, the element gains a `visible` class; when they return, it's removed.
+
+```html
+<button class="scroll-bottom-btn"
+        lvt-scroll-away="bottom"
+        data-lvt-target="#chat-log"
+        style="--lvt-scroll-threshold: 200"
+        aria-label="Scroll to bottom">↓</button>
+```
+
+| Attribute | Description |
+|-----------|-------------|
+| `lvt-scroll-away` | Edge to watch: `bottom` |
+| `data-lvt-target` | Scrollable container to observe (required). See [Target Resolution](#target-resolution) |
+| `--lvt-scroll-threshold` | CSS custom property: pixel distance from edge to toggle visibility (default: `200`). The CSS property is read independently by each directive — `lvt-fx:scroll` defaults to `100` and `lvt-scroll-away` defaults to `200` when the property is absent. Parsed as an integer; `px` suffix is accepted but optional |
+
+The directive toggles a `visible` class on the element — your CSS controls the actual show/hide:
+
+```css
+.scroll-bottom-btn { display: none; }
+.scroll-bottom-btn.visible { display: flex; }
+```
+
+Pairs naturally with `lvt-fx:scroll:on:click="bottom"` on the same element:
+
+```html
+<button lvt-fx:scroll:on:click="bottom"
+        lvt-scroll-away="bottom"
+        data-lvt-target="#chat-log">↓</button>
 ```
 
 ---
@@ -947,7 +1018,14 @@ Complete reference of all `lvt-*` and `data-*` template attributes.
 | `lvt-fx:highlight` | Highlight effect | `lvt-fx:highlight="flash"` |
 | `lvt-fx:animate` | Entrance animation | `lvt-fx:animate="fade"` |
 
-Directives use CSS custom properties for configuration: `--lvt-scroll-behavior`, `--lvt-scroll-threshold`, `--lvt-highlight-color`, `--lvt-highlight-duration`, `--lvt-animate-duration`.
+Directives use CSS custom properties for configuration: `--lvt-scroll-behavior`, `--lvt-scroll-threshold`, `--lvt-highlight-color`, `--lvt-highlight-duration`, `--lvt-animate-duration`. DOM event triggers resolve `data-lvt-target` to apply effects to a different element.
+
+### Standalone Directive Attributes
+
+| Attribute | Description | Example |
+|-----------|-------------|---------|
+| `lvt-scroll-sentinel` | Infinite-scroll trigger (IntersectionObserver sends hardcoded `load_more` action) | `<div lvt-scroll-sentinel>` |
+| `lvt-scroll-away` | Show/hide based on scroll position | `lvt-scroll-away="bottom"` |
 
 ### Upload Attributes
 
