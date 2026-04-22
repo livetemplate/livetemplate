@@ -728,7 +728,7 @@ func (c *Controller) LoadMore(state ClickToLoadState, ctx *livetemplate.Context)
 
 **htmx:** Uses `hx-get` with `hx-trigger="revealed"` and `hx-swap="afterend"` on the last row to auto-load on scroll.
 
-**LiveTemplate (Tier 1):** The client has built-in IntersectionObserver support. A `<div id="scroll-sentinel">` at the end of the list triggers the `load_more` action automatically when it becomes visible. The framework routes `load_more` (snake_case) to the `LoadMore()` method.
+**LiveTemplate (Tier 1):** The client has built-in IntersectionObserver support. A `<div lvt-scroll-sentinel>` at the end of the list triggers the `load_more` action automatically when it becomes visible. The framework routes `load_more` (snake_case) to the `LoadMore()` method.
 
 **Also implemented in:** —
 
@@ -767,15 +767,15 @@ func (c *Controller) LoadMore(state InfiniteScrollState, ctx *livetemplate.Conte
         </tbody>
     </table>
     {{if .HasMore}}
-    <div id="scroll-sentinel"><small>Loading more...</small></div>
+    <div lvt-scroll-sentinel><small>Loading more...</small></div>
     {{end}}
 </article>
 {{end}}
 ```
 
-**Key features:** `scroll-sentinel` auto-triggers `load_more` (source: `client/dom/observer-manager.ts`), IntersectionObserver built into client
+**Key features:** `lvt-scroll-sentinel` attribute auto-triggers `load_more`; IntersectionObserver support is built into the client
 
-> **Limitation:** The client detects the sentinel by `id="scroll-sentinel"`, so only one infinite scroll list can exist per page. This is fine for the patterns app (one pattern per page).
+> **Limitation:** The client detects the sentinel by `[lvt-scroll-sentinel]` attribute (`querySelector` selects the first match), so only one infinite scroll list can exist per wrapper. This is fine for the patterns app (one list per page).
 
 ---
 
@@ -2198,7 +2198,7 @@ State is pure data (`AssertPureState` still passes) and gets repopulated on ever
 
 **Infinite Scroll dataset sizing:** With `listPageSize = 10`, use **25+ items** in the dataset. 25 produces 3 pages (10 + 10 + 5), which is enough to demonstrate auto-advance through multiple pages. Anything less than ~25 and the infinite-scroll effect isn't visible.
 
-**Sentinel must render only when `.HasMore`:** Always-rendering `<div id="scroll-sentinel">` causes an **infinite empty-load loop** after the last page — the sentinel stays visible, the observer fires, the server returns an empty page, rinse/repeat. Wrap it in `{{if .HasMore}}...{{end}}`.
+**Sentinel must render only when `.HasMore`:** Always-rendering `<div lvt-scroll-sentinel>` causes an **infinite empty-load loop** after the last page — the sentinel stays visible, the observer fires, the server returns an empty page, rinse/repeat. Wrap it in `{{if .HasMore}}...{{end}}`.
 
 **Headless Chrome test limitations (and their fixes):**
 

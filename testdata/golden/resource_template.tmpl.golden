@@ -198,7 +198,7 @@
         Loading more...
       </div>
     {{end}}
-    <div id="scroll-sentinel" style="height: 1px;"></div>
+    <div lvt-scroll-sentinel style="height: 1px;"></div>
   {{end}}
 {{end}}
 

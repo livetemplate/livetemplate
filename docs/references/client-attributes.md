@@ -1047,6 +1047,12 @@ Directives use CSS custom properties for configuration: `--lvt-scroll-behavior`,
 |-----------|-------------|---------|
 | `data-key` | Stable element identity for the diff engine and morphdom matching. In `{{range}}` templates, controls which items are updated in-place vs. removed/inserted. On singleton elements, helps morphdom match nodes across updates. Hardcoded keys are valid for singletons; use template expressions (`{{.ID}}`) in lists | `<dialog data-key="settings-dialog">` |
 
+### Infinite Scroll
+
+| Attribute | Description | Example |
+|-----------|-------------|---------|
+| `lvt-scroll-sentinel` | Marks an element as the infinite scroll sentinel. The client's `IntersectionObserver` watches this element; when it enters the viewport (default 200px rootMargin; see observer module in `livetemplate/client`), the client dispatches `load_more` automatically. Only the first matching element per wrapper is observed. Wrap in `{{if .HasMore}}...{{end}}` to prevent infinite empty-load loops | `<div lvt-scroll-sentinel>Loading more...</div>` |
+
 ### Valid Key Values
 
 **For `lvt-key` attribute** (not `data-key`):
