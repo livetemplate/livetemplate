@@ -952,7 +952,7 @@ func (c *Controller) Mount(state URLFiltersState, ctx *livetemplate.Context) (UR
 
 **Key features:** `__navigate__` in-band navigation (same-pathname filter links use WebSocket, not HTTP fetch — v0.8.26+), `Mount()` reads query params, bookmarkable URLs
 
-> **`__navigate__` transport:** Since all filter links are same-pathname query-param changes (`?status=active&sort=name`), client v0.8.26+ routes them through the WebSocket `__navigate__` action. The server re-runs `Mount()` with the new query params on the existing connection — the Go code works unchanged (same `ctx.QueryString()` calls), the only difference is the transport.
+> **`__navigate__` transport:** Since all filter links are same-pathname query-param changes (`?status=active&sort=name`), client v0.8.26+ routes them through the WebSocket `__navigate__` action. The server re-runs `Mount()` with the new query params on the existing connection — the Go code works unchanged (same `ctx.GetString()`/`ctx.GetInt()` calls in `Mount()`), the only difference is the transport.
 
 ---
 
@@ -1571,29 +1571,23 @@ func (c *Controller) Increment(state HighlightState, ctx *livetemplate.Context) 
 
 **Source:** Phoenix LiveView (`put_flash` / temporary assigns)
 
-**LiveTemplate (Tier 1):** `ctx.SetFlash()` stores messages that persist on WebSocket connections until explicitly cleared via `ctx.ClearFlash(key)` or auto-expired via `FlashExpiry(duration)`. On HTTP connections, flash is inherently one-shot (per-request). The `{{.lvt.FlashTag}}` template helper renders flash as `<output role="status" data-flash="...">` elements.
+**LiveTemplate (Tier 1):** `ctx.SetFlash()` stores messages that persist on WebSocket connections until explicitly cleared via `ctx.ClearFlash(key)` or auto-expired via `FlashExpiry(duration)`. On HTTP connections, flash is inherently one-shot (per-request). The `{{.lvt.FlashTag}}` template helper renders flash as `<output>` elements — `role="alert"` for the `"error"` key, `role="status"` for all others.
 
 **Also implemented in:** `flash-messages/`, `todos/`
 
 ```go
 type FlashState struct {
-    Title    string
-    Category string
+    Title string
 }
 
 func (c *Controller) Save(state FlashState, ctx *livetemplate.Context) (FlashState, error) {
     name := ctx.GetString("name")
     if name == "" {
-        // Clear any lingering success flash before showing error.
-        // Without this, a previous success flash would persist alongside
-        // the new error flash — both would render simultaneously.
-        ctx.ClearFlash("success")
+        ctx.ClearFlash("success") // clear opposing flash before setting new one
         ctx.SetFlash("error", "Name is required")
         return state, nil
     }
-    // Clear any lingering error flash before showing success.
-    // Auto-expire the success message after 5 seconds.
-    ctx.ClearFlash("error")
+    ctx.ClearFlash("error") // clear opposing flash; auto-expire success after 5s
     ctx.SetFlash("success", "Saved: "+name, livetemplate.FlashExpiry(5*time.Second))
     return state, nil
 }
@@ -1619,7 +1613,7 @@ func (c *Controller) Save(state FlashState, ctx *livetemplate.Context) (FlashSta
 
 **Key features:** `ctx.SetFlash()` with `FlashExpiry` for auto-dismiss, `ctx.ClearFlash()` for explicit clearing, `{{.lvt.FlashTag}}` helper, persistent flash on WebSocket / one-shot on HTTP
 
-> **Flash lifecycle (v0.8.19+):** This pattern demonstrates the three core flash operations: `SetFlash` (create), `ClearFlash` (remove), and `FlashExpiry` (auto-remove after duration). On WebSocket connections, flash persists across re-renders — if the handler doesn't clear the opposing category, both success and error flash can render simultaneously. On HTTP connections (no-JS fallback), flash is inherently one-shot because the per-request `connState` is GC'd after the response, so `ClearFlash` is a no-op but harmless. The `FlashTag` helper renders `<output role="status" data-flash="success">` (success/info) or `<output role="alert" data-flash="error">` (error/warning). E2E test selector is `output[data-flash]`.
+> **Flash lifecycle (v0.8.19+):** This pattern demonstrates the three core flash operations: `SetFlash` (create), `ClearFlash` (remove), and `FlashExpiry` (auto-remove after duration). On WebSocket connections, flash persists across re-renders — if the handler doesn't clear the opposing category, both success and error flash can render simultaneously. On HTTP connections (no-JS fallback), flash is inherently one-shot because the per-request `connState` is GC'd after the response — `ClearFlash` still executes (it can affect the current response), but is typically unnecessary since flash doesn't persist across requests. The `FlashTag` helper renders `<output role="alert" data-flash="error">` for the `"error"` key and `<output role="status" data-flash="...">` for all other keys (including `"warning"`). E2E test selector is `output[data-flash]`.
 
 ---
 
@@ -2198,7 +2192,7 @@ Concrete, non-obvious patterns validated during earlier sessions. Apply these di
   
   **Every goroutine-push pattern in the examples repo MUST be idempotent by construction** — result handlers must produce the same final state regardless of whether the dispatch arrives once or twice. For Session 3, this is true by structure: `DataLoaded` just sets a string, `UpdateProgress` writes a monotonic value, `FetchResult` is a terminal transition. A future non-idempotent pattern (e.g., "increment a counter on each tick") would need an explicit in-flight request ID tracked in state — but do not write such a pattern without first filing an issue against the library's `TriggerAction` reconnect-gap work (see `livetemplate/livetemplate#342`). **Do NOT claim "framework session invalidation" semantics in comments** — that is not a thing. The groupID lookup is deterministic, and an earlier version of this proposal's example comments made that false claim before a review caught it.
 
-- **Flash scoping in branched templates is load-bearing.** When a controller emits a flash only on a state transition (e.g., `UpdateProgress` calls `ctx.SetFlash("success", "Job complete")` only when `Progress >= 100`), the `{{.lvt.FlashTag "success"}}` MUST live inside the branch that renders after that transition — not at the always-rendered top of the article. Under the persistent flash model (v0.8.19+), flash on WebSocket connections persists until explicitly cleared via `ClearFlash` or auto-expired via `FlashExpiry`; placing the tag in an always-rendered location causes the flash to appear prematurely and **persist visibly** across subsequent renders of the wrong branch. For transient feedback inside branched templates, use `FlashExpiry` to auto-dismiss, and place the tag in the correct branch so it only renders when relevant. Comment the placement inline so a future maintainer doesn't "simplify" the tag out of its scoped position.
+- **Flash scoping in branched templates is load-bearing.** When a controller emits a flash only on a state transition (e.g., `UpdateProgress` calls `ctx.SetFlash("success", "Job complete")` only when `Progress >= 100`), the `{{.lvt.FlashTag "success"}}` MUST live inside the branch that renders after that transition — not at the always-rendered top of the article. Under the persistent flash model (v0.8.19+), flash on WebSocket connections persists until explicitly cleared via `ClearFlash` or auto-expired via `FlashExpiry`; placing the tag in an always-rendered location causes the flash to appear prematurely and **persist visibly** across subsequent renders of the wrong branch. For transient feedback inside branched templates, use `FlashExpiry` to auto-dismiss or `ClearFlash` for mutually exclusive categories, and place the tag in the correct branch so it only renders when relevant. Comment the placement inline so a future maintainer doesn't "simplify" the tag out of its scoped position.
 
 **In-memory shared DB for mutable state:** Patterns like Delete Row that need server-side persistence across sessions (but NOT across process restarts) should use a `sync.Mutex + []T` in the **controller struct** — NOT `lvt:"persist"` tags. Controllers are singletons, so this is safe. Pattern:
 ```go
@@ -2290,9 +2284,9 @@ output[data-flash] {
 2. **Explicit clear (for replacing one flash with another):** `ctx.ClearFlash("error")` before `ctx.SetFlash("success", "Done!")`. Always clear the opposing category before setting a new flash to avoid both success and error showing simultaneously.
 3. **No expiry (for persistent status):** `ctx.SetFlash("warning", "Unsaved changes")` — stays visible until the controller explicitly calls `ctx.ClearFlash("warning")`.
 
-Verify: `grep -n "FlashExpiry\|ClearFlash\|setFlash\|clearFlashKey" context.go` should show the full API surface (`SetFlash`, `ClearFlash`, `FlashExpiry`, `FlashOption` types).
+Verify: `grep -n "FlashExpiry\|ClearFlash" context.go` (should show both public methods).
 
-**`__navigate__` reserved action (v0.8.19 server, v0.8.26 client):** Same-pathname link clicks (query-param-only changes) are now routed through the WebSocket `__navigate__` action instead of an HTTP fetch. The client sends `{action: "__navigate__", data: {key: value}}` and the server re-runs `Mount()` with the data as query parameters — no controller method required. `ctx.Action()` returns `""` inside the re-run Mount, so existing `if ctx.Action() == ""` guards work correctly. HTTP requests reject `__navigate__` with 400 (wrong transport). Patterns that benefit: #13 (URL-Preserved Filters), #19 (Tabs). Both use same-pathname `<a href="?param=value">` links. Cross-pathname links (Pattern #20 SPA Navigation) still use HTTP fetch + WebSocket reconnect. Verify: `grep -n "actionNavigate" mount.go action.go` shows the server-side handling.
+**`__navigate__` reserved action (v0.8.19 server, v0.8.26 client):** Same-pathname link clicks (query-param-only changes) are now routed through the WebSocket `__navigate__` action instead of an HTTP fetch. The client sends `{action: "__navigate__", data: {tab: "tab2"}}` and the server re-runs `Mount()` with the data as query parameters — no controller method required. `ctx.Action()` returns `""` inside the re-run Mount, so existing `if ctx.Action() == ""` guards work correctly. HTTP requests reject `__navigate__` with 400 (wrong transport). Patterns that benefit: #13 (URL-Preserved Filters), #19 (Tabs). Both use same-pathname `<a href="?param=value">` links. Cross-pathname links (Pattern #20 SPA Navigation) still use HTTP fetch + WebSocket reconnect. Verify: `grep -n "actionNavigate" mount.go action.go` shows the server-side handling.
 
 **Client v0.8.33+ changelog (v0.8.23→v0.8.33, 10 patch releases):** Summary of client changes relevant to Sessions 4+:
 - v0.8.21: Invoker Commands polyfill (`command`/`commandfor`) for Firefox/Safari dialog support
