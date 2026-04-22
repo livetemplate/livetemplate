@@ -950,7 +950,9 @@ func (c *Controller) Mount(state URLFiltersState, ctx *livetemplate.Context) (UR
 {{end}}
 ```
 
-**Key features:** Link interception + pushState, `Mount()` reads query params, bookmarkable URLs
+**Key features:** `__navigate__` in-band navigation (same-pathname filter links use WebSocket, not HTTP fetch — v0.8.26+), `Mount()` reads query params, bookmarkable URLs
+
+> **`__navigate__` transport:** Since all filter links are same-pathname query-param changes (`?status=active&sort=name`), client v0.8.26+ routes them through the WebSocket `__navigate__` action. The server re-runs `Mount()` with the new query params on the existing connection — the Go code works unchanged (same `ctx.QueryString()` calls), the only difference is the transport.
 
 ---
 
@@ -1173,7 +1175,7 @@ func (c *Controller) FetchResult(state AsyncState, ctx *livetemplate.Context) (A
 
 **htmx:** Uses `hx-get` to fetch modal HTML into a target container, then opens it with Bootstrap/UIKit JS.
 
-**LiveTemplate (Tier 1):** Native `<dialog>` element with `command`/`commandfor` attributes (polyfilled for Firefox/Safari). Focus trapping, backdrop, and Escape key are all browser-native with `showModal()`.
+**LiveTemplate (Tier 1):** Native `<dialog>` element with `command`/`commandfor` attributes (polyfilled for Firefox/Safari). Hash-driven deep linking (v0.8.30+) also allows opening the dialog via `<a href="#edit-dialog">`, browser Back/Forward, and direct URL sharing. Focus trapping, backdrop, and Escape key are all browser-native with `showModal()`.
 
 **Also implemented in:** `todos/`
 
@@ -1213,9 +1215,13 @@ func (c *Controller) Save(state ModalState, ctx *livetemplate.Context) (ModalSta
 {{end}}
 ```
 
-**Key features:** Native `<dialog>`, `command`/`commandfor` (polyfilled), auto-close on form success
+**Key features:** Native `<dialog>`, `command`/`commandfor` (polyfilled), hash-driven deep linking (`<a href="#edit-dialog">` — v0.8.30+), auto-close on form success, dialog child updates survive morphdom (v0.8.33+)
 
 > **Polyfill:** The Invoker Commands API polyfill is bundled in the LiveTemplate client library (source: `client/dom/invoker-polyfill.ts`). No additional `<script>` tag is needed — the client detects `commandForElement` support and activates the polyfill automatically for Firefox and Safari.
+
+> **Hash-driven deep linking (v0.8.30+):** The dialog can also be opened via `<a href="#edit-dialog">` or by navigating directly to `/patterns/navigation/modal-dialog#edit-dialog`. The client activates `<dialog>`, `[popover]`, and `<details>` elements matching the URL hash, using `history.pushState` (not `location.hash`). Browser Back/Forward buttons close/reopen the dialog. This works alongside `command`/`commandfor` — both approaches are valid. Source: `client/dom/hash-link.ts`.
+
+> **Dialog child updates (v0.8.33+):** Prior to v0.8.33, morphdom skipped the entire subtree of an open `<dialog>`. v0.8.33 allows child updates inside open dialogs, so form values and validation errors update in real-time while the dialog remains open. This means inline validation (Pattern #3 style) works correctly inside modal forms.
 
 ---
 
@@ -1276,7 +1282,9 @@ func (c *Controller) Delete(state ConfirmDialogState, ctx *livetemplate.Context)
 {{end}}
 ```
 
-**Key features:** `command`/`commandfor` (no inline JS), `<dialog>` auto-close on success, CSP-compliant
+**Key features:** `command`/`commandfor` (no inline JS), `<dialog>` auto-close on success, CSP-compliant, hash-driven deep linking (v0.8.30+), dialog stays open during re-renders (v0.8.33+)
+
+> **Per-item deep linking:** Since confirm dialogs are per-item (`id="confirm-{{.ID}}"`), the URL hash can directly link to a specific item's confirmation dialog (e.g., `#confirm-item3`). The dialog stays open during re-renders triggered by other actions (e.g., another user modifying the list via `BroadcastAction`), because v0.8.33 allows child updates inside open dialogs while preserving the dialog's open/top-layer state.
 
 ---
 
@@ -1284,7 +1292,7 @@ func (c *Controller) Delete(state ConfirmDialogState, ctx *livetemplate.Context)
 
 **htmx:** Uses `hx-get` with `hx-trigger="load"` and `hx-swap="innerHTML"` to load tab content server-side. Server returns full tab markup with selected state.
 
-**LiveTemplate (Tier 1):** SPA navigation via `<a href>` link interception. The server renders the active tab based on URL path. No JavaScript tab management — the server decides what's active.
+**LiveTemplate (Tier 1):** In-band `__navigate__` navigation via `<a href>` links. Since all tab links are same-pathname query-param changes (`?tab=tab1`), client v0.8.26+ routes them through the WebSocket `__navigate__` action instead of an HTTP fetch. The server re-runs `Mount()` with the new query params on the existing connection — zero HTTP round-trips for tab switches. No JavaScript tab management — the server decides what's active.
 
 **Also implemented in:** —
 
@@ -1325,7 +1333,9 @@ func (c *Controller) Mount(state TabsState, ctx *livetemplate.Context) (TabsStat
 {{end}}
 ```
 
-**Key features:** SPA navigation, server-driven tab state via query params, `aria-current` for active tab
+**Key features:** `__navigate__` in-band navigation (zero HTTP round-trips), server-driven tab state via query params, `aria-current` for active tab
+
+> **`__navigate__` mechanism:** The `__navigate__` action is a reserved framework action (defined in `action.go`). The client sends `{action: "__navigate__", data: {tab: "tab2"}}` over WebSocket. The server re-runs `Mount()` with `{tab: "tab2"}` as query parameters, and `ctx.Action()` returns `""` so the existing `if ctx.Action() == ""` guard works correctly. No controller method named `__navigate__` is required — the framework handles it directly in the event loop (`mount.go`). HTTP requests reject `__navigate__` with 400 (since HTTP inherently does a full request). The Go code above works unchanged — the only difference is the transport: WebSocket instead of HTTP fetch.
 
 ---
 
@@ -1333,7 +1343,7 @@ func (c *Controller) Mount(state TabsState, ctx *livetemplate.Context) (TabsStat
 
 **Source:** Phoenix LiveView (`push_patch` / `push_navigate`)
 
-**LiveTemplate (Tier 1):** All `<a href>` links inside the LiveTemplate wrapper are auto-intercepted for SPA navigation. The page is fetched via `fetch()`, DOM is patched, and `pushState` updates the URL — no full page reload.
+**LiveTemplate (Tier 1):** All `<a href>` links inside the LiveTemplate wrapper are auto-intercepted for SPA navigation. **Same-pathname links** (query-param-only changes) use the WebSocket `__navigate__` action for zero-HTTP-round-trip navigation (v0.8.26+). **Cross-pathname links** trigger a full WebSocket reconnect — the page is fetched via `fetch()`, DOM is patched, `pushState` updates the URL, and the WebSocket reconnects to the new handler. This cross-pathname reconnect is a v0.8.26 breaking change — previously, routes sharing the same `data-lvt-id` could do in-place swaps without reconnecting.
 
 **Also implemented in:** —
 
@@ -1351,7 +1361,7 @@ This pattern is demonstrated by the index page itself — clicking between patte
 <a href="https://htmx.org/examples/" lvt-nav:no-intercept>htmx.org</a>
 ```
 
-**Key features:** Auto link interception, `pushState`, `lvt-nav:no-intercept` for opt-out
+**Key features:** Auto link interception, `pushState`, cross-pathname reconnect (v0.8.26+), same-pathname `__navigate__` (v0.8.26+), `lvt-nav:no-intercept` for opt-out
 
 ---
 
@@ -1561,22 +1571,30 @@ func (c *Controller) Increment(state HighlightState, ctx *livetemplate.Context) 
 
 **Source:** Phoenix LiveView (`put_flash` / temporary assigns)
 
-**LiveTemplate (Tier 1):** `ctx.SetFlash()` stores messages that render as toasts. The toast component handles auto-dismiss and positioning.
+**LiveTemplate (Tier 1):** `ctx.SetFlash()` stores messages that persist on WebSocket connections until explicitly cleared via `ctx.ClearFlash(key)` or auto-expired via `FlashExpiry(duration)`. On HTTP connections, flash is inherently one-shot (per-request). The `{{.lvt.FlashTag}}` template helper renders flash as `<output role="status" data-flash="...">` elements.
 
 **Also implemented in:** `flash-messages/`, `todos/`
 
 ```go
 type FlashState struct {
-    Title string
+    Title    string
+    Category string
 }
 
 func (c *Controller) Save(state FlashState, ctx *livetemplate.Context) (FlashState, error) {
     name := ctx.GetString("name")
     if name == "" {
+        // Clear any lingering success flash before showing error.
+        // Without this, a previous success flash would persist alongside
+        // the new error flash — both would render simultaneously.
+        ctx.ClearFlash("success")
         ctx.SetFlash("error", "Name is required")
         return state, nil
     }
-    ctx.SetFlash("success", "Saved: "+name)
+    // Clear any lingering error flash before showing success.
+    // Auto-expire the success message after 5 seconds.
+    ctx.ClearFlash("error")
+    ctx.SetFlash("success", "Saved: "+name, livetemplate.FlashExpiry(5*time.Second))
     return state, nil
 }
 ```
@@ -1586,15 +1604,22 @@ func (c *Controller) Save(state FlashState, ctx *livetemplate.Context) (FlashSta
 <article>
     <h3>Flash Messages</h3>
     <form method="POST">
-        <input name="name" placeholder="Enter name...">
+        <label>Name
+            <input name="name" placeholder="Enter name...">
+        </label>
         <button name="save">Save</button>
     </form>
-    <p><small>Try submitting empty for error, or with a name for success.</small></p>
+    {{.lvt.FlashTag "success"}}
+    {{.lvt.FlashTag "error"}}
+    <p><small>Try submitting empty for error, or with a name for success.
+    Success auto-expires after 5s. Error persists until a successful save clears it.</small></p>
 </article>
 {{end}}
 ```
 
-**Key features:** `ctx.SetFlash()`, toast component, auto-dismiss
+**Key features:** `ctx.SetFlash()` with `FlashExpiry` for auto-dismiss, `ctx.ClearFlash()` for explicit clearing, `{{.lvt.FlashTag}}` helper, persistent flash on WebSocket / one-shot on HTTP
+
+> **Flash lifecycle (v0.8.19+):** This pattern demonstrates the three core flash operations: `SetFlash` (create), `ClearFlash` (remove), and `FlashExpiry` (auto-remove after duration). On WebSocket connections, flash persists across re-renders — if the handler doesn't clear the opposing category, both success and error flash can render simultaneously. On HTTP connections (no-JS fallback), flash is inherently one-shot because the per-request `connState` is GC'd after the response, so `ClearFlash` is a no-op but harmless. The `FlashTag` helper renders `<output role="status" data-flash="success">` (success/info) or `<output role="alert" data-flash="error">` (error/warning). E2E test selector is `output[data-flash]`.
 
 ---
 
@@ -2062,6 +2087,8 @@ Concrete, non-obvious patterns validated during earlier sessions. Apply these di
 
 - **Client v0.8.23+** is required for Session 2+. Prior versions contain three bugs that manifest in patterns: (1) `WebSocketManager.connect()` doesn't await `onopen`, so observers fire during CONNECTING and fall back to HTTP — producing duplicate rows on Infinite Scroll; (2) `loadMorePending` throttle was missing entirely — rapid observer re-fires stacked concurrent actions; (3) cross-handler navigation didn't reset `treeRenderer` — stale state bled between handlers. All three are fixed in v0.8.23. If tests fail with duplicate `data-key` entries after pagination, the client version is too old.
 - **Library v0.8.18+** is required for Session 3+ (any pattern using `session.TriggerAction` from a goroutine). Prior versions had NO concrete `Session` implementation wired into `Mount`/lifecycle contexts — `ctx.Session()` returned `nil` because `WithSession(...)` was never called at any lifecycle call site, leaving the context's session field as a nil interface value. Goroutine pushes invoking the nil session silently no-op'd or panicked at the interface-dispatch site, depending on the call path. The fix (`livetemplate/livetemplate#336`) added a concrete `localSession` type and wired it through `WithSession(newLocalSession(...))` at every relevant Mount / OnConnect / action-dispatch / broadcast-dispatch call site in `mount.go` — search for `WithSession(newLocalSession` to see the current set. If you're writing a goroutine-push pattern and it doesn't appear to push anything, verify `go.mod` is at v0.8.18+ BEFORE debugging the controller. Same release also fixed `ctx.GetInt`/`ctx.GetFloat` to handle native Go numeric types (int, int8-64, uint8-64, float32/64) with NaN/Inf/overflow checks — prior versions silently returned 0 for a goroutine passing a Go `int` via `TriggerAction`. The delegation chain is `ctx.GetInt()` (in `context.go`, a thin wrapper) → `ActionData.GetIntOk()` (in `action.go`, the actual type switch); verify the numeric-type switch is present in your version with `grep -n "int8\|int16\|int32\|int64" action.go` (it should match the type-switch branches in `GetIntOk`/`GetFloatOk`).
+- **Client v0.8.33+** is required for Session 4+. Key features accumulated across v0.8.23→v0.8.33: (1) Invoker Commands polyfill for `command`/`commandfor` on Firefox/Safari (v0.8.21); (2) `__navigate__` in-band SPA navigation — same-pathname link clicks use WebSocket instead of HTTP fetch (v0.8.26); (3) `lvt-ignore`/`lvt-ignore-attrs` morphdom escape hatches (v0.8.26); (4) **cross-pathname navigation always reconnects** — BREAKING change, previously shared `data-lvt-id` allowed in-place swap (v0.8.26); (5) multiple same-name checkboxes send `[value1, value2]` array instead of boolean (v0.8.28); (6) checkbox/radio checked state preserved across morphdom updates (v0.8.29); (7) hash-driven deep linking — URL fragments activate `<dialog>`, `[popover]`, `<details>` elements (v0.8.30); (8) datalist preservation while input focused (v0.8.31); (9) WebSocket resilience — proper promise settlement, handler detach on disconnect (v0.8.32); (10) `lvt-scroll-sentinel` attribute replaces `id="scroll-sentinel"` (v0.8.33); (11) dialog child updates inside open dialogs — morphdom no longer skips entire subtree (v0.8.33); (12) `lvt-scroll-away` for scroll-to-top buttons (v0.8.33). If Session 4 tests fail with dialogs not updating while open, same-pathname links falling back to HTTP fetch, or `command`/`commandfor` not working in Firefox, the client version is too old.
+- **Library v0.8.19+** is required for Session 5+ (any pattern using `ctx.SetFlash` with `FlashExpiry` or `ClearFlash`). The flash message lifecycle was overhauled: flash on WebSocket connections now **persists across re-renders** until explicitly cleared via `ctx.ClearFlash(key)` or auto-expired via `ctx.SetFlash(key, msg, livetemplate.FlashExpiry(duration))`. HTTP connections remain one-shot (per-request). The `__navigate__` reserved action server-side handling is also in this release but is transparent to controllers — `Mount()` receives the data as query params without any controller code changes. If flash messages persist unexpectedly or `ClearFlash` is not recognized, verify `go.mod` is at v0.8.19+ BEFORE debugging the controller. Verify with: `grep -n "FlashExpiry\|ClearFlash" context.go` (should show both public methods).
 
 **Server-push patterns (goroutine → `session.TriggerAction`):** Session 3 established the canonical shape for patterns that run a background goroutine and push updates via the WebSocket. Apply these rules verbatim when writing any new goroutine-pushing pattern.
 
@@ -2171,7 +2198,7 @@ Concrete, non-obvious patterns validated during earlier sessions. Apply these di
   
   **Every goroutine-push pattern in the examples repo MUST be idempotent by construction** — result handlers must produce the same final state regardless of whether the dispatch arrives once or twice. For Session 3, this is true by structure: `DataLoaded` just sets a string, `UpdateProgress` writes a monotonic value, `FetchResult` is a terminal transition. A future non-idempotent pattern (e.g., "increment a counter on each tick") would need an explicit in-flight request ID tracked in state — but do not write such a pattern without first filing an issue against the library's `TriggerAction` reconnect-gap work (see `livetemplate/livetemplate#342`). **Do NOT claim "framework session invalidation" semantics in comments** — that is not a thing. The groupID lookup is deterministic, and an earlier version of this proposal's example comments made that false claim before a review caught it.
 
-- **Flash scoping in branched templates is load-bearing.** When a controller emits a flash only on a state transition (e.g., `UpdateProgress` calls `ctx.SetFlash("success", "Job complete")` only when `Progress >= 100`), the `{{.lvt.FlashTag "success"}}` MUST live inside the branch that renders after that transition — not at the always-rendered top of the article. Flashes are ephemeral (consumed on first render); placing the tag outside the transition branch causes it to be consumed during an earlier `Running`/idle render before the user ever sees it. Comment the placement inline so a future maintainer doesn't "simplify" the tag out of its scoped position.
+- **Flash scoping in branched templates is load-bearing.** When a controller emits a flash only on a state transition (e.g., `UpdateProgress` calls `ctx.SetFlash("success", "Job complete")` only when `Progress >= 100`), the `{{.lvt.FlashTag "success"}}` MUST live inside the branch that renders after that transition — not at the always-rendered top of the article. Under the persistent flash model (v0.8.19+), flash on WebSocket connections persists until explicitly cleared via `ClearFlash` or auto-expired via `FlashExpiry`; placing the tag in an always-rendered location causes the flash to appear prematurely and **persist visibly** across subsequent renders of the wrong branch. For transient feedback inside branched templates, use `FlashExpiry` to auto-dismiss, and place the tag in the correct branch so it only renders when relevant. Comment the placement inline so a future maintainer doesn't "simplify" the tag out of its scoped position.
 
 **In-memory shared DB for mutable state:** Patterns like Delete Row that need server-side persistence across sessions (but NOT across process restarts) should use a `sync.Mutex + []T` in the **controller struct** — NOT `lvt:"persist"` tags. Controllers are singletons, so this is safe. Pattern:
 ```go
@@ -2222,7 +2249,12 @@ func (c *URLFiltersController) Mount(state URLFiltersState, ctx *Context) (URLFi
 
 **Flash tag category coverage:** If a controller emits `FlashSuccess` OR `FlashInfo` OR `FlashError`, the template MUST render `FlashTag` for EVERY category the controller can emit. A missing `{{.lvt.FlashTag "info"}}` means the info flash is silently dropped and tests waiting for its text time out. Audit at template-write time, not after tests fail.
 
-**Counting actual changes in bulk-update flows:** `BulkUpdate` should track a `changed := 0` counter and emit `"Updated N users"` (N = actual changes). When `changed == 0`, emit `"No changes"` as an `info` flash. Using `len(state.Users)` as the count is wrong — it reports "Updated 4 users" even when nothing changed.
+**Counting actual changes in bulk-update flows:** `BulkUpdate` should track a `changed := 0` counter and emit `"Updated N users"` (N = actual changes). When `changed == 0`, emit `"No changes"` as an `info` flash. Using `len(state.Users)` as the count is wrong — it reports "Updated 4 users" even when nothing changed. Under the persistent flash model (v0.8.19+), use `FlashExpiry` for both categories so flashes auto-dismiss:
+```go
+ctx.SetFlash("success", fmt.Sprintf("Updated %d users", changed), livetemplate.FlashExpiry(5*time.Second))
+// or when nothing changed:
+ctx.SetFlash("info", "No changes", livetemplate.FlashExpiry(5*time.Second))
+```
 
 **Parallel sample data for Session-pinned tests:** Session 1's `TestEditRow` pins on `sampleContacts()` returning exactly 4 entries. For Session 2's `TestActiveSearch` that needs 25 contacts, add a **parallel** `sampleContactDirectory()` — do NOT extend `sampleContacts()`, and do NOT modify its count. This preserves Session 1 test stability while letting Session 2 use a bigger dataset.
 
@@ -2252,6 +2284,37 @@ output[data-flash] {
 - **Always release any new library or client version BEFORE opening the examples PR** if the patterns depend on a fresh fix in either repo. CI fetches `@latest` from jsdelivr for the client and the `go.mod`-pinned version from the Go proxy for the library; neither will see an unreleased fix, so the PR will be DOA until the release propagates. Session 3 shipped `livetemplate v0.8.18` first, then opened the examples PR against it — that sequencing is required.
 - AI code review workflow guidance (bot review loop convergence, explicit-decline pattern, "project guidance trumps bot suggestions") lives in [`livetemplate/CLAUDE.md`](../../CLAUDE.md) under the "AI Code Review Workflow" section — it's tooling-level workflow that applies to every PR in both repos, not patterns-specific technical guidance.
 - [`livetemplate/examples#62`](https://github.com/livetemplate/examples/issues/62)–[`#68`](https://github.com/livetemplate/examples/issues/68) are open follow-ups from Session 1 review — address them in later sessions if touching the affected files, otherwise leave for Session 7 polish.
+
+**Flash lifecycle — persistent until cleared (v0.8.19+):** Flash messages on WebSocket connections now persist across re-renders until explicitly cleared via `ctx.ClearFlash(key)` or auto-expired via `ctx.SetFlash(key, msg, livetemplate.FlashExpiry(duration))`. This is a breaking change from the pre-v0.8.19 behavior where flash auto-cleared after every render. HTTP connections remain one-shot regardless (per-request `connState` is GC'd after the handler returns). Three patterns for managing flash under the new model:
+1. **Auto-expire (preferred for transient feedback):** `ctx.SetFlash("success", "Saved!", livetemplate.FlashExpiry(5*time.Second))` — the message is pruned on the next render after the expiry elapses.
+2. **Explicit clear (for replacing one flash with another):** `ctx.ClearFlash("error")` before `ctx.SetFlash("success", "Done!")`. Always clear the opposing category before setting a new flash to avoid both success and error showing simultaneously.
+3. **No expiry (for persistent status):** `ctx.SetFlash("warning", "Unsaved changes")` — stays visible until the controller explicitly calls `ctx.ClearFlash("warning")`.
+
+Verify: `grep -n "FlashExpiry\|ClearFlash\|setFlash\|clearFlashKey" context.go` should show the full API surface (`SetFlash`, `ClearFlash`, `FlashExpiry`, `FlashOption` types).
+
+**`__navigate__` reserved action (v0.8.19 server, v0.8.26 client):** Same-pathname link clicks (query-param-only changes) are now routed through the WebSocket `__navigate__` action instead of an HTTP fetch. The client sends `{action: "__navigate__", data: {key: value}}` and the server re-runs `Mount()` with the data as query parameters — no controller method required. `ctx.Action()` returns `""` inside the re-run Mount, so existing `if ctx.Action() == ""` guards work correctly. HTTP requests reject `__navigate__` with 400 (wrong transport). Patterns that benefit: #13 (URL-Preserved Filters), #19 (Tabs). Both use same-pathname `<a href="?param=value">` links. Cross-pathname links (Pattern #20 SPA Navigation) still use HTTP fetch + WebSocket reconnect. Verify: `grep -n "actionNavigate" mount.go action.go` shows the server-side handling.
+
+**Client v0.8.33+ changelog (v0.8.23→v0.8.33, 10 patch releases):** Summary of client changes relevant to Sessions 4+:
+- v0.8.21: Invoker Commands polyfill (`command`/`commandfor`) for Firefox/Safari dialog support
+- v0.8.26: `__navigate__` in-band SPA navigation, `lvt-ignore`/`lvt-ignore-attrs` morphdom escape hatches, DOMParser fallback for `<script>` tags, **cross-pathname navigation always reconnects** (BREAKING)
+- v0.8.28: Multiple same-name checkboxes send `[value1, value2]` array instead of boolean
+- v0.8.29: Checkbox/radio checked state preserved across morphdom updates; override with `data-lvt-force-update`
+- v0.8.30: Hash-driven deep linking — URL fragments activate `<dialog>`, `[popover]`, `<details>` via `history.pushState`; supports browser Back/Forward
+- v0.8.31: Datalist preservation (defers morphdom while connected input has focus)
+- v0.8.32: WebSocket resilience — proper promise settlement on CONNECTING/CLOSING/CLOSED, handler detach before socket close on disconnect
+- v0.8.33: `lvt-scroll-sentinel` attribute replaces `id="scroll-sentinel"`, dialog child updates inside open dialogs (morphdom no longer skips entire subtree), `lvt-scroll-away` for scroll-to-top buttons, `data-lvt-target` for scroll effect targeting
+
+**Hash-driven deep linking (client v0.8.30+):** URL fragments (`#id`) automatically activate `<dialog>` (via `showModal`), `[popover]` (via `showPopover`), and `<details>` (via `open` attribute) elements matching the hash. Supports invoker buttons, `<a href="#id">` links, and browser Back/Forward. Uses `history.pushState` (not `location.hash` assignment) to avoid double-activation errors. Source: `client/dom/hash-link.ts`. Patterns #17 (Modal Dialog) and #18 (Confirm Dialog) can be opened via direct URL like `/patterns/navigation/modal-dialog#edit-dialog`. The hash is cleared when the element deactivates (e.g., dialog close).
+
+**`lvt-ignore` / `lvt-ignore-attrs` (client v0.8.26+):** Morphdom escape hatches. `lvt-ignore` skips the element and its entire subtree during diffing — use for third-party widgets (maps, rich-text editors) whose DOM is externally managed. `lvt-ignore-attrs` skips attribute diffing but still diffs children — use when client-set attributes (e.g., `open` on `<details>`) need to survive server updates. Both are checked on `fromEl` (live DOM), so both server templates and client JS can apply them. Override with `data-lvt-force-update` on the server template to resume diffing. See the full reference in `docs/references/client-attributes.md` under "Automatic Client-Side State Preservation."
+
+**Dialog child updates (client v0.8.33+):** Prior to v0.8.33, morphdom skipped the entire subtree of an open `<dialog>` element. This meant form validation errors, input values, and other dynamic content inside an open dialog would not update until the dialog was closed and reopened. v0.8.33 fixes this by allowing child updates inside open dialogs while preserving the dialog's open/top-layer state. This is directly relevant to Patterns #17 (Modal Dialog) and #18 (Confirm Dialog) where forms inside dialogs need real-time validation feedback. Source: client PR #93.
+
+**Checkbox array values (client v0.8.28+):** Multiple same-name checkboxes now send an array `[value1, value2]` instead of a boolean. Single checkboxes remain boolean (backward compatible). This affects Pattern #4 (Bulk Update) only if it uses same-name checkboxes — the current implementation uses per-user-ID names (`active-{id}`), which are unique per checkbox and therefore unaffected. If a future pattern groups checkboxes under a single name (e.g., `name="selectedIds"` for bulk selection), the server receives an array.
+
+**`lvt-scroll-sentinel` attribute (client v0.8.33+):** Replaces `id="scroll-sentinel"` for infinite scroll sentinel detection. The attribute-based approach is preferred because it is declarative (no magic ID) and consistent with other `lvt-*` attributes. The old `id`-based approach continues to work for backward compatibility. Pattern #10 (Infinite Scroll) already uses `<div lvt-scroll-sentinel>` (migrated in PR #352/#353). The `load_more` action dispatch remains the same regardless of detection method. Source: client PR #92, `client/dom/observer-manager.ts`.
+
+**`lvt-scroll-away` for scroll-to-top buttons (client v0.8.33+):** The `lvt-scroll-away` attribute toggles a `.visible` CSS class based on scroll distance from the top. Threshold is configurable via `--lvt-scroll-threshold` CSS custom property (default: 100px). Useful for "scroll to top" buttons on long list patterns. Combined with `data-lvt-target`, the scroll target can be specified. Consider adding a scroll-to-top button to Pattern #10 (Infinite Scroll) during Session 7 polish. Source: `client/dom/scroll-away.ts`.
 
 ### Session 1: Scaffold + Index Page + Forms & Editing
 
@@ -2307,7 +2370,11 @@ output[data-flash] {
 
 **Scope:** Patterns #17–21
 
-- [ ] Verify invoker polyfill is active in current client build (Firefox/Safari)
+- [ ] Verify invoker polyfill is active in current client build (Firefox/Safari) — confirmed working since client v0.8.21
+- [ ] Verify hash-driven deep linking works for dialogs (client v0.8.30+) — `<a href="#edit-dialog">` should open modal
+- [ ] Test dialog child updates inside open dialogs (client v0.8.33 fix) — form validation inside open dialog should update in real-time
+- [ ] Verify `__navigate__` in-band navigation for Tabs pattern (library v0.8.19+, client v0.8.26+) — tab switches should use WebSocket, not HTTP fetch
+- [ ] Test cross-pathname navigation reconnect behavior for SPA Navigation pattern (client v0.8.26+ breaking change)
 - [ ] Implement Modal Dialog (#17)
 - [ ] Implement Confirm Dialog (#18)
 - [ ] Implement Tabs (HATEOAS) (#19)
@@ -2322,6 +2389,7 @@ output[data-flash] {
 
 **Scope:** Patterns #22–25
 
+- [ ] Verify library v0.8.19+ for `FlashExpiry`/`ClearFlash` API (required for Flash Messages pattern #25)
 - [ ] Implement Animations (#22)
 - [ ] Implement Loading States (#23)
 - [ ] Implement Highlight on Change (#24)
@@ -2352,6 +2420,8 @@ output[data-flash] {
 
 - [ ] `README.md` for the patterns example
 - [ ] Run `./test-all.sh` to verify all examples still pass
+- [ ] Audit all patterns using `ctx.SetFlash()` for correct `FlashExpiry`/`ClearFlash` usage under persistent flash model (v0.8.19+)
+- [ ] Consider adding `lvt-scroll-away` scroll-to-top button to Pattern #10 (Infinite Scroll)
 - [ ] File GitHub issue for drag-and-drop feature (see [Future Features](#future-features))
 - [ ] Final review and polish
 - [ ] Run app locally, wait for manual review signoff
