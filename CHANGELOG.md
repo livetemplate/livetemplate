@@ -6,8 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+<a name="v0.8.21"></a>
+## [v0.8.21] - 2026-04-22
+
+### Bug Fixes
+
+- eliminate race in Redis pub/sub init and add subscription retry ([#355](https://github.com/livefir/livetemplate/issues/355))
+
+### Documentation
+
+- scroll effect targeting, lvt-scroll-away, and chat recipe ([#356](https://github.com/livefir/livetemplate/issues/356))
+- **proposals:** update patterns for v0.8.19 + v0.8.33 ([#358](https://github.com/livefir/livetemplate/issues/358))
+
+
 <a name="v0.8.20"></a>
-## [v0.8.20] - 2026-04-20
+## [v0.8.20] - 2026-04-21
 
 ### Documentation
 
@@ -757,7 +770,8 @@ Note: Only one pre-existing test failure (TestTemplateGenerateTreeWithFuncMap)
 - **lvt:** add lvt gen auth command - Complete (Phases 1-6) ([#15](https://github.com/livefir/livetemplate/issues/15))
 
 
-[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.20...HEAD
+[Unreleased]: https://github.com/livefir/livetemplate/compare/v0.8.21...HEAD
+[v0.8.21]: https://github.com/livefir/livetemplate/compare/v0.8.20...v0.8.21
 [v0.8.20]: https://github.com/livefir/livetemplate/compare/v0.8.19...v0.8.20
 [v0.8.19]: https://github.com/livefir/livetemplate/compare/v0.8.18...v0.8.19
 [v0.8.18]: https://github.com/livefir/livetemplate/compare/v0.8.17...v0.8.18
