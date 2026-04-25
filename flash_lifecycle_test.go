@@ -26,6 +26,28 @@ func flashPresent(cs *connState, key string) bool {
 	return ok
 }
 
+// TestExpiredFlashAbsentFromGetMessagesSnapshot verifies that getMessages
+// prunes expired flash before returning a snapshot — i.e. an expired flash
+// is NOT visible to template renderers. Regression guard: prior behavior
+// pruned only after sendUpdate, so the render that ran after expiry still
+// included the expired entry. Users observed flash that "stayed one extra
+// interaction past its 5-second deadline."
+func TestExpiredFlashAbsentFromGetMessagesSnapshot(t *testing.T) {
+	cs := newFlashState()
+	cs.setFlash("success", "Saved!", time.Hour)
+	if !flashPresent(cs, "success") {
+		t.Fatal("flash not set")
+	}
+	// Backdate the deadline to simulate expiry having elapsed since SetFlash.
+	cs.flashExpiry["success"] = time.Now().Add(-1 * time.Second)
+
+	// getMessages must NOT include the expired entry — it prunes before
+	// snapshotting so the next render walks a clean slate.
+	if flashPresent(cs, "success") {
+		t.Error("expired flash present in getMessages snapshot, want it pruned")
+	}
+}
+
 // TestFlashPersistsAcrossRenders verifies that non-expiry flash survives
 // repeated pruneExpiredFlash calls. This guards against the regression where
 // background Refresh ticks cleared flash by calling the old clearFlash()
