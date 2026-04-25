@@ -2345,6 +2345,12 @@ This was Session 4's Keyboard Shortcuts pattern. The bot review flagged it 4 tim
 
 **Local-Docker chromedp WS frame delivery quirk.** When running E2E tests locally against `chromedp/headless-shell` in Docker, **small WebSocket frames sent immediately after a larger initial render can take 5–6 seconds to reach the client**. Specifically: server `Connection.WriteMessage` returns instantly, but the client's `onmessage` doesn't fire until ~6s later. Tests like `TestLazyLoading/Data_Arrives_Via_Server_Push` time out locally but pass on GitHub Actions CI (where `Test All Examples` historically completes the same scenario in ~2s). If a goroutine-push pattern test times out locally, **don't dig into the framework** — it's almost certainly the Docker bridge (likely TCP slow-start / quickack interaction with small frames after a quiet idle gap). Run the same test on a host Chrome (not Docker) to confirm: with host chrome the server-push path completes in <50ms.
 
+**FlashExpiry pruning runs before the render snapshot, not after.** Library v0.8.22+ (released as part of Session 5; see [livetemplate/livetemplate#359](https://github.com/livetemplate/livetemplate/pull/359)) moved `pruneExpiredFlash()` from a post-`sendUpdate` call site into the start of `getMessages()` — the single funnel every render path hits. Pre-v0.8.22 a flash with `FlashExpiry(d)` got one extra render after the deadline before being evicted from `connState.messages`, so users observed e.g. a 5-second auto-dismiss flash "staying one extra interaction past its deadline." The Session 5 Flash Messages pattern surfaced the bug by exercising the canonical pitch ("save, wait 5s, success disappears") end-to-end. Workaround on older library versions: trigger any second action after the deadline to re-snapshot. **Don't write demo text claiming "auto-expires after Ns" if your `go.mod` is below v0.8.22** — the user-visible behavior won't match. Verify with `grep -n "pruneExpiredFlash" mount.go`: under v0.8.22+ the only call is inside `getMessages()`; pre-v0.8.22 you'll see four post-`sendUpdate` call sites instead. Also: error renders now also prune (intentional — the deadline is a deadline regardless of whether the next action succeeded).
+
+**`lvt-fx:highlight` leaves an empty `style=""` attribute after cleanup.** The animate directive's `animationend` handler at `client/dom/directives.ts:230-232` calls `removeAttribute('style')` when `style.length === 0`; the highlight branch (lines 178-189) does not. After a highlight cycle (50ms delay + duration), `style.backgroundColor` and `style.transition` are reset to empty strings, but the `style` attribute itself lingers as `style=""`. Functionally a no-op for CSS rendering, but strict validators (`runUIStandards` at `lvt/testing/chrome.go:67-71`, `ValidatePicoCSS` at `chrome.go:993-998`) reject any `[style]` regardless of content. The Session 5 `Highlight on Change` pattern works around this by intentionally **skipping `UI_Standards` for that test** (the pattern's whole premise is inline styling — the rule isn't a meaningful guarantee). Filed as [livetemplate/client#100](https://github.com/livetemplate/client/issues/100). When that ships, the `runStandardSubtests(t, ctx, false, ...)` skip in `TestHighlightOnChange` can be replaced with the standard `runStandardSubtests(...)` call.
+
+**Don't assert `!hasAttribute('style')` for animate cleanup — assert `style.animation === ""` instead.** The animationend handler's `removeAttribute('style')` only fires when `style.length === 0`. Morphdom can transiently add or hold other style declarations on `<li data-key="...">` elements during a render, leaving `style` non-empty even after the animation property is cleared. The semantically correct end-of-animation signal is `style.animation === ""` directly. CI's "Test All Examples" job (a slower environment) caught this on the Session 5 PR — the local-Docker chromedp variant happened to clear the attribute fast enough that the brittle assertion passed. Session 5 fixed `Existing_Rows_Do_Not_Re_animate` to use the direct check; mirror that in any future animate-cleanup test.
+
 **AI review loop convergence — "real bugs by round 4" heuristic.** Session 4's PR #74 went 11 rounds with the Claude review bot. The trajectory:
 
 | Round | Real fixes | Style/docs | Declined repeats |
@@ -2430,15 +2436,15 @@ Round 4's real bugs were the Tier-1 fallback regression (4 forms missing `method
 
 **Scope:** Patterns #22–25
 
-- [ ] Verify library v0.8.19+ for `FlashExpiry`/`ClearFlash` API (required for Flash Messages pattern #25)
-- [ ] Implement Animations (#22)
-- [ ] Implement Loading States (#23)
-- [ ] Implement Highlight on Change (#24)
-- [ ] Implement Flash Messages (#25)
-- [ ] E2E tests for patterns #22–25 (incl. UI_Standards + Visual_Check)
-- [ ] Update index page with patterns #22–25
-- [ ] Run app locally, wait for manual review signoff
-- [ ] Create PR, update this tracker
+- [x] Verify library v0.8.19+ for `FlashExpiry`/`ClearFlash` API — bumped to v0.8.22 partway through; the Flash Messages pattern surfaced a real bug in v0.8.21's prune timing (see Implementation Notes below) and we shipped the fix upstream first.
+- [x] Implement Animations (#22) — `lvt-fx:animate="fade|slide|scale"` with mode select; `AnimationItem.Mode` stored per-item so each row's `lvt-fx:animate` attribute reflects the mode it was added with (not the current select value).
+- [x] Implement Loading States (#23) — three forms in one page: Tier 1 (auto `aria-busy` + fieldset disable), Tier 2a (`lvt-form:disable-with`), Tier 2b (`lvt-el:setAttr:on:pending`/`on:done`). All three submit the same `slowSave` action so users see the three presentations side-by-side.
+- [x] Implement Highlight on Change (#24) — two `<div lvt-fx:highlight="flash">` cards sharing one counter to demonstrate the per-element-per-render-touching-subtree firing model. UI_Standards is intentionally skipped for this pattern (see Implementation Notes).
+- [x] Implement Flash Messages (#25) — full lifecycle: `Save` (success with `FlashExpiry(5s)` or persistent error), `Notify` (persistent info), `DismissNotify` (`ClearFlash`). Demonstrates auto-expiry, manual clear, and the "clear opposing flash" pattern from `examples/flash-messages`.
+- [x] E2E tests for patterns #22–25 (incl. UI_Standards + Visual_Check) — `TestAnimations`, `TestLoadingStates`, `TestHighlightOnChange`, `TestFlashMessages` with form-field state assertions per CLAUDE.md.
+- [x] Update index page with patterns #22–25
+- [x] Run app locally, wait for manual review signoff
+- [x] Create PR, update this tracker — merged as [livetemplate/examples#79](https://github.com/livetemplate/examples/pull/79). Companion library fix [livetemplate/livetemplate#359](https://github.com/livetemplate/livetemplate/pull/359) released as v0.8.22. Follow-up: [livetemplate/client#100](https://github.com/livetemplate/client/issues/100) for `lvt-fx:highlight` cleanup parity with `lvt-fx:animate`.
 
 ### Session 6: Real-Time & Multi-User
 
