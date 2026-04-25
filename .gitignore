@@ -55,3 +55,4 @@ cmd/lvt/commands/internal/
 go.work
 go.work.sum
 .uploads/
+.claude/scheduled_tasks.lock
