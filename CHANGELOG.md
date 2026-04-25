@@ -5,6 +5,16 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.8.22] - 2026-04-25
+
+### Changes
+
+- chore: ignore .claude/scheduled_tasks.lock (Claude Code transient state) (b6cb4f52)
+- fix: prune expired flash before render (not after sendUpdate) (#359) (ad5f1071)
+- docs(proposals): patterns Session 4 complete + 6 implementation notes (747aedce)
+
+
+
 
 <a name="v0.8.21"></a>
 ## [v0.8.21] - 2026-04-22
