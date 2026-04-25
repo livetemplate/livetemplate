@@ -202,6 +202,9 @@ func (c *connState) clearErrors() {
 }
 
 func (c *connState) getMessages() map[string]string {
+	// Prune before snapshot so renderers never observe expired entries.
+	c.pruneExpiredFlash()
+
 	c.messagesMu.RLock()
 	defer c.messagesMu.RUnlock()
 
@@ -801,15 +804,6 @@ eventLoop:
 					slog.String("component", "live_handler"),
 					slog.Any("error", err))
 				break eventLoop
-			}
-
-			// Prune flash messages whose expiry has elapsed; non-expiry flash
-			// persists until ClearFlash is called. Guarded by actionErr == nil
-			// so error renders (validation errors, method-not-found, etc.) do
-			// NOT prune expiry flash — expired entries survive until the next
-			// successful render (non-expiry flash is unaffected by error paths).
-			if actionErr == nil {
-				connSt.pruneExpiredFlash()
 			}
 
 		case req := <-connection.DispatchChan:
@@ -1559,9 +1553,6 @@ func (h *liveHandler) handleDispatchedAction(connSt *connState, connection *sess
 			slog.String("action", req.Action),
 			slog.Any("error", err))
 	}
-
-	// Only reached on dispatch success (err != nil returns early above).
-	connSt.pruneExpiredFlash()
 }
 
 // httpTemplateSweepLoop periodically removes cached HTTP templates to prevent
@@ -1932,9 +1923,6 @@ func (h *liveHandler) handleServerActionMessage(msg *pubsub.ServerActionMessage)
 			errCount++
 			continue
 		}
-
-		// Only reached after sendUpdate succeeds (continue on error above).
-		state.pruneExpiredFlash()
 	}
 
 	// Persist once per distinct groupID (avoids N writes for multi-tab users
@@ -2443,10 +2431,6 @@ func (h *liveHandler) handleUploadComplete(ctx context.Context, conn WSConn, raw
 			slog.Any("error", err))
 		return nil // Don't fail the upload, just skip the update
 	}
-
-	// Prune flash messages whose expiry has elapsed; non-expiry flash
-	// persists until ClearFlash is called.
-	state.pruneExpiredFlash()
 
 	// Dispatch Sync to peer connections for upload completion visibility
 	h.dispatchBroadcastToGroup(state.groupID, connection, syncMethodName, nil)

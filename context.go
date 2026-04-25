@@ -308,8 +308,9 @@ type flashConfig struct {
 }
 
 // FlashExpiry sets an auto-expiry duration for the flash message. After
-// the duration elapses, the message is pruned on the next action or server
-// push that triggers a render — there is no background timer. Use this for
+// the duration elapses, the message is pruned on the next render that walks
+// flash state — there is no background timer. The render that the user
+// triggers post-expiry is rendered without the expired flash. Use this for
 // transient feedback ("Settings saved") that doesn't need explicit
 // acknowledgement. Messages without an expiry persist until explicitly
 // cleared via ClearFlash.
@@ -320,10 +321,6 @@ type flashConfig struct {
 // Note: FlashExpiry has no observable effect on HTTP connections — HTTP
 // flash is inherently one-shot (per-request connSt is GC'd after the
 // handler returns) regardless of the expiry duration set here.
-//
-// Note: The expiry timer is only checked before successful renders. If
-// a connection receives only error responses after the expiry elapses,
-// the expired flash remains visible until the next successful render.
 //
 // Example:
 //
