@@ -198,8 +198,14 @@ func (c *flashIntegController) Increment(state flashIntegState, ctx *Context) (f
 	return state, nil
 }
 
+// transientFlashExpiry is the deadline used by SetTransientFlash. Long enough
+// that step 1's own render (which now runs pruneExpiredFlash before the
+// snapshot — see getMessages) reliably observes the flash as still-live, and
+// short enough that subsequent test steps can sleep past it cheaply.
+const transientFlashExpiry = 100 * time.Millisecond
+
 func (c *flashIntegController) SetTransientFlash(state flashIntegState, ctx *Context) (flashIntegState, error) {
-	ctx.SetFlash("status", "transient", FlashExpiry(time.Millisecond))
+	ctx.SetFlash("status", "transient", FlashExpiry(transientFlashExpiry))
 	return state, nil
 }
 
@@ -212,24 +218,26 @@ func (c *flashIntegController) ClearFlashAction(state flashIntegState, ctx *Cont
 	return state, nil
 }
 
-// TestFlashExpiryNotPrunedOnErrorRender verifies the "success-path-only"
-// pruning invariant: when an action returns an error, pruneExpiredFlash is
-// NOT called, so expired flash survives the error render and persists until
-// the next SUCCESSFUL render.
+// TestFlashExpiryPrunedBeforeErrorRender verifies that an expired flash is
+// removed before the error render's tree is built — the deadline fires whether
+// or not the next action succeeds.
+//
+// Earlier behaviour preserved expired flash across error paths (pruneExpiredFlash
+// was guarded by actionErr == nil), so an expired flash survived the error
+// render and disappeared only on the next successful one. The current
+// invariant — pruning at the getMessages boundary — runs uniformly for every
+// render and matches user intent: an explicit timeout fires when it elapses.
 //
 // Test flow:
-//  1. "SetTransientFlash" sets flash "status"="transient" with 1ms expiry.
-//     The first render includes slot 0 = "transient".
-//  2. Sleep 10ms to guarantee the 1ms expiry has elapsed.
-//  3. "FailAction" returns an error → error render (meta.success=false).
-//     pruneExpiredFlash is NOT called, so flash stays in connSt.messages.
-//  4. "Increment" succeeds → render. Flash is still "transient" (unchanged
-//     from the error render in step 3), so slot 0 is ABSENT from the diff.
-//     If flash were pruned in step 3, slot 0 would appear as "" (changed).
-//
-// This test catches a regression where pruneExpiredFlash is called
-// unconditionally after every render instead of only on success renders.
-func TestFlashExpiryNotPrunedOnErrorRender(t *testing.T) {
+//  1. "SetTransientFlash" sets flash with FlashExpiry(transientFlashExpiry).
+//     The first render's tree slot 0 = "transient" (deadline still in the future).
+//  2. Sleep past the deadline.
+//  3. "FailAction" returns an error. The error render's getMessages prunes the
+//     expired flash; slot 0 in the error tree must show as "" (a change from
+//     "transient" → "", positively asserting the prune fired).
+//  4. "Increment" succeeds. Flash was already evicted in step 3, so slot 0 in
+//     the success tree is ABSENT (no change to emit).
+func TestFlashExpiryPrunedBeforeErrorRender(t *testing.T) {
 	tmpl, err := New("test")
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -253,7 +261,7 @@ func TestFlashExpiryNotPrunedOnErrorRender(t *testing.T) {
 		}
 	}()
 
-	// Step 1: Set transient flash with 1ms expiry.
+	// Step 1: Set transient flash; first render carries slot 0 = "transient".
 	sendWSAction(t, ws, "SetTransientFlash", nil)
 	resp1 := readWSUpdate(t, ws, 2*time.Second)
 	tree1, ok := resp1["tree"].(map[string]any)
@@ -264,24 +272,35 @@ func TestFlashExpiryNotPrunedOnErrorRender(t *testing.T) {
 		t.Fatalf("SetTransientFlash: flash slot = %q, want %q", v, "transient")
 	}
 
-	// Step 2: Wait for the 1ms expiry to definitely elapse.
-	time.Sleep(10 * time.Millisecond)
+	// Step 2: Wait past the deadline.
+	time.Sleep(transientFlashExpiry + 50*time.Millisecond)
 
-	// Step 3: Trigger an error render. pruneExpiredFlash must NOT fire here.
+	// Step 3: Error render. getMessages prunes before snapshotting, so the
+	// error tree must show slot 0 as "" — positive evidence that the prune
+	// fired on the error path. Without the new invariant, slot 0 would be
+	// absent (unchanged "transient").
 	sendWSAction(t, ws, "FailAction", nil)
 	respErr := readWSUpdate(t, ws, 2*time.Second)
-	meta, ok := respErr["meta"].(map[string]interface{})
+	meta, ok := respErr["meta"].(map[string]any)
 	if !ok {
 		t.Fatalf("FailAction response has no meta: %#v", respErr)
 	}
 	if success, _ := meta["success"].(bool); success {
 		t.Fatalf("FailAction: meta.success = true, want false")
 	}
+	tree3, ok := respErr["tree"].(map[string]any)
+	if !ok {
+		t.Fatalf("FailAction response has no tree: %#v", respErr)
+	}
+	flashVal3, present3 := tree3["0"]
+	if !present3 {
+		t.Errorf("error render did not emit slot 0 — expected slot 0 = %q (transient → \"\" after expiry pruned in error render's getMessages)", "")
+	} else if v := fmt.Sprintf("%v", flashVal3); v != "" {
+		t.Errorf("error render slot 0 = %q, want %q (flash should be pruned to empty)", v, "")
+	}
 
-	// Step 4: Succeed action. Flash survives because step 3 did not prune it.
-	// Slot 0 must be ABSENT (flash unchanged: "transient" in both step 3 and step 4
-	// renders). If pruneExpiredFlash had fired in step 3, flash would be "" here —
-	// a change from "transient" — and slot 0 would appear in the diff.
+	// Step 4: Success render. Flash was already evicted in step 3, so slot 0
+	// is unchanged ("" → "") — no diff entry.
 	sendWSAction(t, ws, "Increment", nil)
 	resp4 := readWSUpdate(t, ws, 2*time.Second)
 	tree4, ok := resp4["tree"].(map[string]any)
@@ -289,7 +308,7 @@ func TestFlashExpiryNotPrunedOnErrorRender(t *testing.T) {
 		t.Fatalf("Increment response has no tree: %#v", resp4)
 	}
 	if flashVal, present := tree4["0"]; present {
-		t.Errorf("flash slot appeared in diff after error render: got %q — pruneExpiredFlash was incorrectly called on the error render (flash should survive until the next successful render)", flashVal)
+		t.Errorf("success render emitted slot 0 = %q, want absent (flash was already evicted in step 3)", flashVal)
 	}
 }
 
@@ -453,13 +472,18 @@ func TestFlashSurvivesNavigateAction(t *testing.T) {
 // ctx.SetFlash(key, msg, FlashExpiry(d)) through the event loop to the diff
 // engine. Unit tests in this file call connState.setFlash() directly; this
 // test verifies that FlashExpiry flows correctly through the public API and
-// that pruneExpiredFlash removes the flash entry before the next render.
+// that pruneExpiredFlash removes the flash entry before the snapshot used for
+// the next render.
 //
 // Test flow:
-//  1. "SetTransientFlash" action sets flash "status"="transient" with 1ms expiry.
-//     The first render includes slot 0 = "transient".
-//  2. After the 1ms expiry elapses, "Increment" changes state (Counter 0→1).
-//     pruneExpiredFlash removes the lapsed flash; slot 0 is absent from the diff.
+//  1. "SetTransientFlash" action sets flash "status"="transient" via the
+//     public ctx.SetFlash(..., FlashExpiry(d)) API. The first render includes
+//     slot 0 = "transient".
+//  2. After the deadline elapses, "Increment" changes state (Counter 0→1).
+//     getMessages prunes the lapsed flash before snapshotting, so slot 0
+//     changes from "transient" → "" in the second diff. The test asserts the
+//     change is positively emitted (slot 0 = ""), proving the public API
+//     wired the expiry through to the prune path.
 func TestFlashExpiryThroughPublicAPI(t *testing.T) {
 	tmpl, err := New("test")
 	if err != nil {
@@ -495,21 +519,23 @@ func TestFlashExpiryThroughPublicAPI(t *testing.T) {
 		t.Fatalf("SetTransientFlash: flash slot = %q, want %q", v, "transient")
 	}
 
-	// Step 2: Increment — Counter changes (0→1), expiry has elapsed.
-	// Sleep 10ms to guarantee the 1ms expiry has elapsed even on a loaded CI
-	// machine under -race; the WS round-trip alone is usually sufficient, but
-	// 10x margin makes the test reliable without a meaningful slowdown.
-	time.Sleep(10 * time.Millisecond)
-	// pruneExpiredFlash removes the lapsed flash before the render,
-	// so slot 0 must be absent from the diff.
+	// Step 2: Sleep past the deadline, then Increment. Counter changes 0→1,
+	// AND the expired flash is pruned in getMessages before the second
+	// render's snapshot is taken. The diff must include slot 0 = "" — the
+	// transition from "transient" to empty proves the prune fired through
+	// the public API.
+	time.Sleep(transientFlashExpiry + 50*time.Millisecond)
 	sendWSAction(t, ws, "Increment", nil)
 	resp2 := readWSUpdate(t, ws, 2*time.Second)
 	tree2, ok := resp2["tree"].(map[string]any)
 	if !ok {
 		t.Fatalf("Increment response has no tree: %#v", resp2)
 	}
-	if flashVal, present := tree2["0"]; present {
-		t.Errorf("flash slot present after 1ms expiry: got %q — FlashExpiry not enforced through public ctx.SetFlash API", flashVal)
+	flashVal, present := tree2["0"]
+	if !present {
+		t.Errorf("flash slot absent in second render — expected slot 0 = %q (transient → empty after FlashExpiry fired through public ctx.SetFlash API)", "")
+	} else if v := fmt.Sprintf("%v", flashVal); v != "" {
+		t.Errorf("flash slot = %q in second render, want %q (FlashExpiry should have pruned it to empty)", v, "")
 	}
 }
 
