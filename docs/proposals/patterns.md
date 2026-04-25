@@ -2310,6 +2310,53 @@ Verify: `grep -n "FlashExpiry\|ClearFlash" context.go` (should show both public 
 
 **`lvt-scroll-away` for scroll-to-top buttons (client v0.8.33+):** The `lvt-scroll-away` attribute toggles a `.visible` CSS class based on scroll distance from the top. Threshold is configurable via `--lvt-scroll-threshold` CSS custom property (default: 100px). Useful for "scroll to top" buttons on long list patterns. Combined with `data-lvt-target`, the scroll target can be specified. Consider adding a scroll-to-top button to Pattern #10 (Infinite Scroll) during Session 7 polish. Source: `client/dom/scroll-away.ts`.
 
+**Forms inside `<dialog>` — use `BindAndValidate`, not `ctx.ValidateForm`.** As of livetemplate v0.8.21, `ctx.ValidateForm()` reads its schema from `c.formSchema`, which is populated by `ExtractFormSchema(statics)` walking the template. Forms nested inside `<dialog>` elements aren't surfaced reliably by that walk — calling `ctx.ValidateForm()` returns `nil` and validation silently no-ops, so `{{.lvt.ErrorTag}}` and `{{.lvt.AriaInvalid}}` never trigger. Use the explicit struct shape that `examples/dialog-patterns` and Session 4's Modal Dialog use instead:
+```go
+var validate = validator.New()  // package-level singleton
+type input struct {
+    Name  string `json:"name"  validate:"required,min=3"`
+    Email string `json:"email" validate:"required,email"`
+}
+func (c *Controller) Save(state State, ctx *Context) (State, error) {
+    var in input
+    if err := ctx.BindAndValidate(&in, validate); err != nil { return state, err }
+    // ... mutate state from validated `in` ...
+}
+```
+The framework's `BindAndValidate` populates field errors regardless of where the form is in the DOM. If you switch a non-dialog Session 4+ form from `BindAndValidate` to `ctx.ValidateForm`, **verify the field-error path empirically** — the schema-walk has subtle rules that aren't documented in the API.
+
+**Button `name` shadows form `name` in action resolution.** When a form has `<form name="X">` and a submit button has `<button name="Y">`, the button's name wins (the framework dispatches action `Y`, not `X`). Two safe shapes:
+- Pick a single canonical name: `<form name="delete"><button name="delete" value="{{.ID}}">…` (form name decorative-but-honest, button drives routing).
+- Drop the form name entirely: `<form method="POST"><button name="delete" value="{{.ID}}">…` (no shadow at all).
+
+Both ship in this codebase. The bot review in Session 4 PR #74 cycled between the two — pick one and stick with it per pattern.
+
+**`t.Cleanup`-based restore for fetch-mock subtests.** When a subtest patches `window.fetch` (or any browser-global) to count HTTP hits — the canonical way to assert an in-band `__navigate__` action didn't fall back to HTTP — register the restore in `t.Cleanup`, NOT inline after the assertion. If a chromedp step fails mid-subtest, the inline restore never runs and the mocked `fetch` leaks into later subtests, producing cascading false failures. See `TestTabs/Tab_Switch_Uses_WebSocket_Not_HTTP` in `examples/patterns/patterns_test.go` for the canonical shape.
+
+**Conditional event-listener placement (`lvt-on:window:keydown`).** Re-entrancy guards in the controller (`if state.Running { return state, nil }`) keep stray firings *correct*, but each firing still costs a WebSocket round-trip, server re-render, and morphdom diff. For state-dependent listeners — e.g. "/" opens a panel only when it's closed — render the binding only on the relevant template branch:
+```html
+{{if .PanelOpen}}
+<article lvt-on:window:keydown="close" lvt-key="Escape">
+{{else}}
+<article lvt-on:window:keydown="open" lvt-key="/">
+{{end}}
+```
+This was Session 4's Keyboard Shortcuts pattern. The bot review flagged it 4 times across rounds before being conceded; the cleanup is a 5-line template change for a meaningful saving.
+
+**Local-Docker chromedp WS frame delivery quirk.** When running E2E tests locally against `chromedp/headless-shell` in Docker, **small WebSocket frames sent immediately after a larger initial render can take 5–6 seconds to reach the client**. Specifically: server `Connection.WriteMessage` returns instantly, but the client's `onmessage` doesn't fire until ~6s later. Tests like `TestLazyLoading/Data_Arrives_Via_Server_Push` time out locally but pass on GitHub Actions CI (where `Test All Examples` historically completes the same scenario in ~2s). If a goroutine-push pattern test times out locally, **don't dig into the framework** — it's almost certainly the Docker bridge (likely TCP slow-start / quickack interaction with small frames after a quiet idle gap). Run the same test on a host Chrome (not Docker) to confirm: with host chrome the server-push path completes in <50ms.
+
+**AI review loop convergence — "real bugs by round 4" heuristic.** Session 4's PR #74 went 11 rounds with the Claude review bot. The trajectory:
+
+| Round | Real fixes | Style/docs | Declined repeats |
+|-------|------------|-----------|------------------|
+| 1     | 6          | 0         | 2                |
+| 2     | 5          | 3         | 1                |
+| 3     | 0          | 3         | 1                |
+| 4     | 2 real bugs | 0        | 3                |
+| 5–11  | 0          | 1–3 each  | 3–7 each (mostly repeats) |
+
+Round 4's real bugs were the Tier-1 fallback regression (4 forms missing `method="POST"`) and the form-state assertion gap. After that, the bot generated reviews indefinitely on each push, surfacing only style nits, doc clarifications, and the occasional flip-flop on its own prior advice (round 6 said "rename form names to match buttons"; round 11 said "drop one of the matching names"). **The signal: if 2+ consecutive rounds produce zero new functional issues, stop.** Continuing past that yields churn, not convergence. Decline-with-PR-reply is the correct response — the bot reads prior comments before generating its next review, so a clear decline breaks the cycle.
+
 ### Session 1: Scaffold + Index Page + Forms & Editing
 
 **Scope:** App skeleton, shared layout, index page, patterns #1–7
@@ -2364,20 +2411,20 @@ Verify: `grep -n "FlashExpiry\|ClearFlash" context.go` (should show both public 
 
 **Scope:** Patterns #17–21
 
-- [ ] Verify invoker polyfill is active in current client build (Firefox/Safari) — confirmed working since client v0.8.21
-- [ ] Verify hash-driven deep linking works for dialogs (client v0.8.30+) — `<a href="#edit-dialog">` should open modal
-- [ ] Test dialog child updates inside open dialogs (client v0.8.33 fix) — form validation inside open dialog should update in real-time
-- [ ] Verify `__navigate__` in-band navigation for Tabs pattern (library v0.8.19+, client v0.8.26+) — tab switches should use WebSocket, not HTTP fetch
-- [ ] Test cross-pathname navigation reconnect behavior for SPA Navigation pattern (client v0.8.26+ breaking change)
-- [ ] Implement Modal Dialog (#17)
-- [ ] Implement Confirm Dialog (#18)
-- [ ] Implement Tabs (HATEOAS) (#19)
-- [ ] Implement SPA Navigation (#20)
-- [ ] Implement Keyboard Shortcuts (#21)
-- [ ] E2E tests for patterns #17–21 (incl. UI_Standards + Visual_Check)
-- [ ] Update index page with patterns #17–21
-- [ ] Run app locally, wait for manual review signoff
-- [ ] Create PR, update this tracker
+- [x] Verify invoker polyfill is active in current client build (Firefox/Safari) — confirmed working since client v0.8.21
+- [x] Verify hash-driven deep linking works for dialogs (client v0.8.30+) — `<a href="#edit-dialog">` opens modal; `Open_Via_Hash_Link` subtest asserts `location.hash === "#edit-dialog"` after the link click, and `Browser_Back_Closes_Dialog` confirms `handlePopstate` correctly sweeps the open dialog when the hash unwinds.
+- [x] Test dialog child updates inside open dialogs (client v0.8.33 fix) — `Submit_Invalid_Form_Stays_Open_With_Field_Errors` is the keystone subtest: empty submit → server returns field-level error → `{{.lvt.ErrorTag}}` + `aria-invalid="true"` render inside the still-open dialog.
+- [x] Verify `__navigate__` in-band navigation for Tabs pattern (library v0.8.19+, client v0.8.26+) — `Tab_Switch_Uses_WebSocket_Not_HTTP` patches `window.fetch` and asserts zero HTTP hits during a `?tab=…` link click.
+- [x] Test cross-pathname navigation reconnect behavior for SPA Navigation pattern (client v0.8.26+ breaking change) — `SPA_Navigation_Cross_Pathname_Reconnects` asserts the `data-lvt-id` wrapper attribute changes after a cross-handler link click (proving a fresh handler/wrapper, not in-place swap).
+- [x] Implement Modal Dialog (#17)
+- [x] Implement Confirm Dialog (#18)
+- [x] Implement Tabs (HATEOAS) (#19)
+- [x] Implement SPA Navigation (#20)
+- [x] Implement Keyboard Shortcuts (#21)
+- [x] E2E tests for patterns #17–21 (incl. UI_Standards + Visual_Check)
+- [x] Update index page with patterns #17–21
+- [x] Run app locally, wait for manual review signoff
+- [x] Create PR, update this tracker — merged as [livetemplate/examples#74](https://github.com/livetemplate/examples/pull/74). Follow-ups filed: [examples#75](https://github.com/livetemplate/examples/issues/75) (couple `spaNavMaxStep` with template), [#76](https://github.com/livetemplate/examples/issues/76) (full ARIA tablist semantics), [#77](https://github.com/livetemplate/examples/issues/77) (XHR fallback in fetch-mock tests), [#78](https://github.com/livetemplate/examples/issues/78) (wire decorative search input).
 
 ### Session 5: Visual Feedback
 
