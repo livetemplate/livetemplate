@@ -202,11 +202,7 @@ func (c *connState) clearErrors() {
 }
 
 func (c *connState) getMessages() map[string]string {
-	// Prune at the snapshot boundary so renderers never see an expired entry.
-	// The expiry then fires in the render that follows the deadline rather than
-	// one render later (the previous post-sendUpdate prune leaked one extra
-	// frame, visible to users as "the success message stayed one extra
-	// interaction past its 5-second deadline").
+	// Prune before snapshot so renderers never observe expired entries.
 	c.pruneExpiredFlash()
 
 	c.messagesMu.RLock()
