@@ -2363,6 +2363,26 @@ This was Session 4's Keyboard Shortcuts pattern. The bot review flagged it 4 tim
 
 Round 4's real bugs were the Tier-1 fallback regression (4 forms missing `method="POST"`) and the form-state assertion gap. After that, the bot generated reviews indefinitely on each push, surfacing only style nits, doc clarifications, and the occasional flip-flop on its own prior advice (round 6 said "rename form names to match buttons"; round 11 said "drop one of the matching names"). **The signal: if 2+ consecutive rounds produce zero new functional issues, stop.** Continuing past that yields churn, not convergence. Decline-with-PR-reply is the correct response — the bot reads prior comments before generating its next review, so a clear decline breaks the cycle.
 
+**Headless Chrome resource limits + Chrome backgrounding heuristics together caused server-pushed-render flakes for ~all of Session 5 and Session 3 (latent).** Session 6's first reproducer found that any pattern using `session.TriggerAction(...)` from a goroutine (Server Push, Live Preview, Lazy Loading, Async Operations, Progress Bar — and intermittently any TriggerAction-driven render after the initial action's response) had server-pushed renders queue silently for ~7s and then burst, because:
+
+1. `lvt/testing/chrome.go`'s `docker run --cpus 0.5` was below the threshold needed for headless Chrome to keep up with WS message processing AND morphdom application on test pages, AND
+2. headless mode's renderer is never visible, so default Chrome treats every tab as backgrounded and applies aggressive WS/timer throttling on top.
+
+A `MutationObserver` attached to `<article>` during a `chromedp.Sleep` showed the burst clearly on the Server Push 10-tick demo:
+
+```
+with --cpus 0.5 (the broken state):     t=27ms click, then GAP, t=7894-7900 burst of 7 ticks
+without --cpus + throttle-disable flags: t=27ms click, t=4022 t=5022 t=6022 ... 1Hz cadence
+```
+
+Fix: drop `--cpus 0.5`, add `--shm-size 256m` and `--disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows --disable-features=IntensiveWakeUpThrottling`. Released as [livetemplate/lvt#314](https://github.com/livetemplate/lvt/pull/314) → **lvt v0.1.4**. After bumping `examples/go.mod`, the Session 5 PR #79's flaky "Test All Examples" CI is also fixed (it was failing for the same root cause). When designing future `TriggerAction`-driven patterns, no test workaround is needed at v0.1.4+; before the bump, the only viable workaround was `chromedp.Sleep` + `Evaluate` (which the AI review explicitly rejects).
+
+**`Sync()` auto-dispatch fires after EVERY action, not just broadcast fan-out.** Verified at `livetemplate/mount.go:1466-1468`: `processBroadcastsAndSync` runs after every action's render and unconditionally dispatches `Sync` to peer connections when `HasSync && !syncExplicitlyBroadcast`, regardless of whether the action queued any broadcasts. Pattern #26 (Multi-User Sync) relies on this: `Increment` never calls `BroadcastAction`, but peers still get `Sync` and re-pull the shared counter from the controller. This is the simplest correct way to express "any peer state changed" without an explicit broadcast.
+
+**`lvt:"persist"` semantics: storage is keyed by SESSION GROUP, not connection.** Two tabs in the same browser share the group cookie → share persisted state. Pattern #28 (Presence) intentionally does NOT persist `Username`/`Joined` so two tabs joined as different users can coexist; Pattern #27 (Broadcasting) similarly leaves `Username` un-persisted. Pattern #29 (Reconnection Recovery) DOES persist `Counter`/`Notes` because that's the canonical demo. The decision is documented in `state_realtime.go` per-field comments — useful pedagogical contrast for readers learning the framework.
+
+**`lvt-fx:highlight`'s ~550ms transition window survives chromedp polling at lvt v0.1.4 — barely.** With the chrome-throttling fix in place, the polled `WaitFor` for `style.transition.includes('background-color')` lands inside the directive's [50ms..550ms] window reliably in single-test runs but flakes ~10-20% under full-suite concurrency. The earlier `client#100` follow-up (skip-UI_Standards-for-highlight) is still open; once `directives.ts` adds the `removeAttribute('style')` cleanup parity with animate, the highlight test can also rely on a polled `WaitFor` that observes the cleaned state (rather than catching the brief transition window). Until then, treat occasional `TestHighlightOnChange` flakes in CI as known and re-run.
+
 ### Session 1: Scaffold + Index Page + Forms & Editing
 
 **Scope:** App skeleton, shared layout, index page, patterns #1–7
@@ -2450,16 +2470,16 @@ Round 4's real bugs were the Tier-1 fallback regression (4 forms missing `method
 
 **Scope:** Patterns #26–31
 
-- [ ] Implement Multi-User Sync (#26)
-- [ ] Implement Broadcasting (#27)
-- [ ] Implement Presence Tracking (#28)
-- [ ] Implement Reconnection Recovery (#29)
-- [ ] Implement Live Preview (#30)
-- [ ] Implement Server Push (#31)
-- [ ] E2E tests for patterns #26–31 (incl. UI_Standards + Visual_Check)
-- [ ] Update index page with patterns #26–31
-- [ ] Run app locally, wait for manual review signoff
-- [ ] Create PR, update this tracker
+- [x] Implement Multi-User Sync (#26) — reserved `Sync()` method auto-dispatches after every action's render to peers in same session group (`mount.go:1466-1468`); `Mount()` seeds late-joiners from shared controller state; `Increment` does not call `BroadcastAction`.
+- [x] Implement Broadcasting (#27) — `ctx.BroadcastAction("NewMessage", nil)` after lock release (deadlock prevention with connection registry mutex); `Mount()` snapshots `c.messages` for new connections; `Username` intentionally not `lvt:"persist"` so two tabs in one browser stay independent.
+- [x] Implement Presence Tracking (#28) — Join/Leave + `BroadcastAction("PresenceChanged")`; `Mount()` seeds `OnlineCount` for late-joining tabs; documented limitations: close-tab leak (no `OnDisconnect` state/ctx) + same-username collision (map keys on username).
+- [x] Implement Reconnection Recovery (#29) — `Counter` and `Notes` tagged `lvt:"persist"`; full page reload restores via session-group cookie. Template explainer covers `lvt:"persist"` (server-side, survives reconnect) vs `lvt-form:preserve` (client-side, survives in-DOM during other re-renders).
+- [x] Implement Live Preview (#30) — `Change()` auto-binding (300ms debounce). Mirrors `live-preview/main.go`: `Change` does NOT write back to `state.Input` (cursor-reset prevention); separate `Submit` action commits the value.
+- [x] Implement Server Push (#31) — `session.TriggerAction(...)` from background goroutine; checking the error return is the documented goroutine-cancellation pattern (no done channel needed). `Running` not persisted: post-reconnect the goroutine continues and the UI pops directly to "Last completed" rather than risking a stuck Running view.
+- [x] E2E tests for patterns #26–31 — multi-tab tests (#26-28) use `chromedp.NewContext(parent)` for cookie-shared peer tabs. Empty-input guard tests use the "guard message" idiom (fire empty + known-good action, wait for known-good's effect) instead of wall-clock Sleep. `Late_Joiner_Sees_Current_Counter_On_Mount` regresses the `Mount()` necessity.
+- [x] Update index page with patterns #26–31 — Category 7 entries flipped to `Implemented: true` in `data.go`.
+- [x] Run app locally, wait for manual review signoff — user confirmed via /loop driving the Session 6 work.
+- [x] Create PR, update this tracker — merged as [livetemplate/examples#80](https://github.com/livetemplate/examples/pull/80) at `56c14d1`. Companion test-infra fix [livetemplate/lvt#314](https://github.com/livetemplate/lvt/pull/314) released as **lvt v0.1.4** — drops `--cpus 0.5` from `StartDockerChrome`'s docker run + adds `--shm-size 256m` and Chrome backgrounding-disable flags. Without this, server-pushed renders queued silently for ~7s and burst, breaking any test using `session.TriggerAction`. AI-review loop converged at rounds 12-13 ("Approve with minor suggestions").
 
 ### Session 7: Polish + README + Final Review
 
