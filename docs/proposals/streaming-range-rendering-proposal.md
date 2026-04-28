@@ -66,7 +66,17 @@ type RangeData struct {
 }
 ```
 
-After the first stream-mode render, the diff path sets `RangeData.StreamState` from the rendered items, then nils `RangeData.Items` so the retention bill is paid only by `StreamState`. The het-range fallback continues to populate `Items` and leaves `StreamState` nil — `nil` here is the unambiguous signal "this range is on the legacy full-tree path."
+After the first stream-mode render, the diff path sets `RangeData.StreamState` from the rendered items, then nils `RangeData.Items` so the retention bill is paid only by `StreamState`. The het-range fallback continues to populate `Items` and leaves `StreamState` nil.
+
+`nil StreamState` is **not** an unambiguous "het-range" signal — it has three legitimate states the diff path must distinguish:
+
+| Phase | `StreamState` | `Items` | Diff path behaviour |
+|---|---|---|---|
+| First render of a stream-capable range | `nil` (not yet built) | populated | Build full tree (initial render); after emit, populate `StreamState` from rendered items and nil `Items` |
+| Subsequent renders of a stream-capable range | non-`nil` | `nil` | Stream-mode diff against `StreamState` |
+| Heterogeneous range, every render | `nil` | populated | Legacy full-tree fallback via existing `ClientNeedsStatics` check |
+
+The disambiguation between phase 1 and phase 3 is "did the structural-fingerprint check pass?" — exactly the existing `ClientNeedsStatics` predicate. Phase 1 → phase 2 is a one-way transition that fires once per range per connection. The implementation's first render must not skip the `StreamState` population step, or every subsequent render falls back to legacy behaviour silently.
 
 ### 5b. Stream diff procedure
 
@@ -91,7 +101,9 @@ If keysets are equal but order differs:
     emit ["o", newKeys]
 ```
 
-`hashItemContent(item)` is computed over the JSON-serialised dynamics map of the item's rendered TreeNode (not the raw Go struct), aligning with the existing fingerprint primitive in `internal/build/fingerprint.go`. See Open Questions for hash placement.
+`hashItemContent(item)` is computed over the JSON-serialised dynamics map of the item's rendered TreeNode (not the raw Go struct), aligning with the existing fingerprint primitive in `internal/build/fingerprint.go`. Go's `encoding/json` sorts map keys deterministically, so the serialisation is stable across renders without an explicit sort step.
+
+Insertion classification (`["a"]` for tail-only appends, `["p"]` for head-only prepends, `["i", afterKey, item]` for arbitrary mid-list inserts, with fallback to full-tree replacement when ≥4 unique insertion points are detected) is delegated to the existing `handleIncrementalInsertionsCtx` and `handleIndividualInsertionsCtx` helpers in `internal/diff/range_ops.go`. They take a `*rangeContext` today; the implementation will adapt them to source insertion classification from `RangeStreamState.Keys` rather than `oldItems`.
 
 **Worked example.** A list with five items, identified by `data-key="t1".."t5"`. Between renders, item `t3` changes its body; a new item `t6` is appended. The new slice is `[t1, t2, t3', t4, t5, t6]`. The diff procedure:
 
@@ -170,10 +182,11 @@ Client reconnect re-runs `Mount` via the existing `mount.go` callMount path (`ca
 |---|---|
 | `internal/build/types.go` | Add `RangeStreamState`. Add `StreamState *RangeStreamState` field on `RangeData`. The diff path nils `RangeData.Items` once `StreamState` is populated; the het-range fallback leaves `StreamState` nil and uses `Items`. |
 | `internal/build/fingerprint.go` | Add `HashItemContent(*TreeNode) uint64` using the full 64-bit FNV-1a (`fnv.New64a`). Document the collision budget in code; the soak-test result becomes the documented number. |
-| `internal/diff/range_ops.go` | Replace `newRangeContext`'s reliance on `oldItems` with `RangeStreamState`-driven lookup. Adjust `generateRemovalOps`/`generateUpdateOps`/`generateInsertionOps` to source comparisons from `Hashes`. `generateUpdateOps` now emits the full dynamics map for changed items, with `""` for absent positions per §5c. The heterogeneous-range branch (returning `nil` for full-tree fallback) is preserved. |
+| `internal/diff/range_ops.go` | Replace `newRangeContext`'s reliance on `oldItems` with `RangeStreamState`-driven lookup. Adjust `generateRemovalOps`/`generateUpdateOps`/`generateInsertionOps` to source comparisons from `Hashes`. `generateUpdateOps` now emits the full dynamics map for changed items, with `""` for absent positions per §5c. Adapt `handleIncrementalInsertionsCtx` and `handleIndividualInsertionsCtx` to consume `StreamState.Keys` rather than `oldItems` for insertion-point classification. The heterogeneous-range branch (returning `nil` for full-tree fallback) is preserved. |
 | `internal/diff/tree_compare.go` | `ClientNeedsStatics` flow is unchanged. |
-| `template.go` | `Template.compareTreesAndGetChangesWithContext` is the integration point that learns about `["u"]` shape changes. `t.lastTree` continues to retain the post-render tree; for ranges, `Range.StreamState` carries the cache between renders and `Range.Items` is nilled on stream renders. |
+| `template.go` | `Template.compareTreesAndGetChanges` (the wrapper at line ~1418, which delegates to `compareTreesAndGetChangesWithContext`) is the integration point that learns about `["u"]` shape changes. `t.lastTree` continues to retain the post-render tree; for ranges, `Range.StreamState` carries the cache between renders and `Range.Items` is nilled on stream renders. |
 | `docs/specifications/tree-update-specification.md` | Update the `["u", itemId, changes]` description (line 377) to reflect the relaxed payload contract. |
+| `e2e_update_spec_test.go`, `testdata/golden/` | Regenerate any golden files that assert the old "minimal-delta" `["u"]` payload form; the implementation PR must land golden updates atomically with the diff-engine change, otherwise the test suite will fail on the same commit that flips the payload shape. |
 
 No public-API surface changes. No new options on `livetemplate.New(...)`. No new tags on state structs. No new methods on `*Context`. No safety-hatch flag.
 
@@ -181,14 +194,14 @@ No public-API surface changes. No new options on `livetemplate.New(...)`. No new
 
 The implementation must add the following coverage. This list is the acceptance bar — a reviewer can use it as a checklist.
 
-1. **Unit tests, `internal/diff/range_ops_test.go` (extend).** Diff-output goldens for each op (`a`, `p`, `i`, `r`, `u`, `o`) under the new key+hash strategy. Cover insert-at-head, insert-at-tail, mid-list insert, scattered inserts (heterogeneous fallback), pure reorder, mixed reorder + update, mass delete, mass replace. Add explicit goldens for the §5c invariant: `["u"]` payloads include every dynamic position, with `""` encoding clears.
+1. **Unit tests, `internal/diff/range_ops_test.go` (extend).** Diff-output goldens for each op (`a`, `p`, `i`, `r`, `u`, `o`) under the new key+hash strategy. Cover insert-at-head, insert-at-tail, mid-list insert, scattered inserts (heterogeneous fallback), pure reorder, mixed reorder + update, mass delete, mass replace. Add explicit goldens for the §5c invariant: `["u"]` payloads include every dynamic position, with `""` encoding clears. Add a first-render golden (no prior `StreamState`) to lock in the "first render emits full tree, not stream ops" invariant from §5a's three-state lifecycle table.
 2. **Memory regression, `internal/diff/range_memory_test.go` (new).** Construct ranges of N ∈ {10, 100, 1k, 10k} items, render twice, measure heap delta retained in `lastTree` after the second render via `runtime.ReadMemStats`. Assert per-item retained bytes drop by ≥4× vs the legacy baseline (captured as a golden number). Skip in `-short`.
-3. **Hash collision soak, `internal/build/fingerprint_test.go` (extend).** Generate N = 1M synthetic items with deliberately similar dynamic payloads; assert collision count ≤ a documented ceiling. The result becomes the documented FNV-1a 64-bit collision budget for `HashItemContent` (replacing the order-of-magnitude estimate in §5c).
+3. **Hash collision soak, `internal/build/fingerprint_test.go` (extend).** Generate N = 1M synthetic items with deliberately similar dynamic payloads; assert collision count ≤ **1** (provisional ceiling — the implementation PR may revise downward based on observed soak results, but not upward). The result becomes the documented FNV-1a 64-bit collision budget for `HashItemContent` (replacing the order-of-magnitude estimate in §5c).
 4. **Reconnect resync, `template_test.go` (extend).** Simulate "render → drop `lastTree` → render again with same state"; assert the second render emits a full initial tree, not stream ops. Locks in the "client re-runs Mount on reconnect" contract.
 5. **Heterogeneous-range fallback, `internal/diff/range_ops_test.go`.** Range over items where some include an extra `{{if}}` branch; assert the diff falls back to full-tree replacement (`StreamState` is nil, `Items` is populated) and the resulting tree is structurally correct.
-6. **Wire-format compat, `e2e_update_spec_test.go` (extend).** Existing spec tests must pass. Tests asserting a partial `["u", key, {0: "..."}]` payload are updated to assert a full dynamics map (with `""` for absent positions), *or* repurposed as regression tests for the heterogeneous-range fallback. Add a new test enforcing the §5c invariant: every position present.
+6. **Wire-format compat, `e2e_update_spec_test.go` (extend).** Existing spec tests *other than* `["u"]`-shape assertions must pass unchanged (this proves op-code compat). Tests asserting a partial `["u", key, {0: "..."}]` payload are updated to assert a full dynamics map (with `""` for absent positions), *or* repurposed as regression tests for the heterogeneous-range fallback. Add a new test enforcing the §5c invariant: every position present.
 7. **Browser E2E, `lvt` repo (`livetemplate_core_test.go`, extend).** Existing range-op tests must pass without modification (proves wire compat for the op codes). Add one new browser test that scripts append/delete/reorder against a 5k-row table and asserts patch latency under a documented ceiling. Confirm that whole-item `["u"]` payloads with `""` clears correctly remove text in the rendered DOM.
-8. **Benchmarks, `internal/diff/range_ops_bench_test.go` (new).** `BenchmarkRangeDiff_Stream_{Append,Update,Reorder}_{Small,Medium,Large}` at N ∈ {10, 100, 10k}. The numbers in the "Memory & Performance" table above must be replaced with real benchmark output before this proposal is marked Implemented.
+8. **Benchmarks, `internal/diff/range_ops_bench_test.go` (new).** `BenchmarkRangeDiff_Stream_{Append,Update,Reorder}_{Small,Medium,Large}` at N ∈ {10, 100, 10k}. The numbers in the "Memory & Performance" table above are replaced with real benchmark output **as part of the implementation PR, not a follow-up**. Estimates do not survive the implementation PR — that is the gate before this proposal is marked Implemented.
 
 ## Patterns Example
 
@@ -203,9 +216,14 @@ The implementation must ship a new pattern under the [livetemplate/examples](htt
 
 ## Open Questions
 
-1. **Hash function placement.** The existing primitives are `fnv.New128a()` in `internal/build/fingerprint.go` (used for structure fingerprinting) and `fnv.New64a()` *truncated to 12 hex chars / 48 bits* in `internal/keys/hash.go` (used for auto-keys, `HashPrefixLength = 12`). Neither directly fits the proposal's need for a *full* 64-bit per-item content hash. Recommendation: add a new `HashItemContent(*TreeNode) uint64` in `internal/build/fingerprint.go` using `fnv.New64a()` at full width — matching the test plan's collision budget and avoiding the 48-bit truncation. Should the structure fingerprint also be standardised on 64-bit, or kept at 128-bit-truncated-to-string for backward compat with golden files?
-2. **Heterogeneous-range fallback long-term.** The proposal keeps the legacy full-tree path as the het-range branch indefinitely. Is that acceptable, or should stream mode be extended to handle structure changes via per-item statics included in the op (`["u", key, dynamics, statics?]`)?
-3. **Volatile-field workloads.** A live counter on every row of a 10k-row dashboard is the worst case for whole-item updates: many updates per second, single field changing per update, large number of fields per item. Do we ship a future targeted-field op (e.g., `["uf", key, fieldIdx, value]`) as an explicit opt-in for that workload, or is `permessage-deflate` sufficient in practice? Punt to a follow-up; flag now so it isn't forgotten.
+1. **Heterogeneous-range fallback long-term.** The proposal keeps the legacy full-tree path as the het-range branch indefinitely. Is that acceptable, or should stream mode be extended to handle structure changes via per-item statics included in the op (`["u", key, dynamics, statics?]`)?
+2. **Volatile-field workloads.** A live counter on every row of a 10k-row dashboard is the worst case for whole-item updates: many updates per second, single field changing per update, large number of fields per item. Do we ship a future targeted-field op (e.g., `["uf", key, fieldIdx, value]`) as an explicit opt-in for that workload, or is `permessage-deflate` sufficient in practice? Punt to a follow-up; flag now so it isn't forgotten.
+
+### Resolved during review
+
+- **Hash function placement (closed).** Add a new `HashItemContent(*TreeNode) uint64` in `internal/build/fingerprint.go` using `fnv.New64a()` at full 64-bit width. Keep the existing 128-bit `CalculateStructureFingerprint` as-is — its width is irrelevant to correctness (it's stored as a string and compared with `==`), and changing it would force a golden-file rewrite for no functional gain.
+- **Migration safety hatch (closed).** No `WithLegacyRangeDiff(true)` shim. Hard cutover, with recovery-by-revert. See §8 Migration.
+- **`StreamState` nil ambiguity (closed).** §5a now spells out the three-state lifecycle (first render / subsequent stream renders / het-range) explicitly.
 
 ## References
 
