@@ -62,9 +62,14 @@ type RangeStreamState struct {
 }
 
 type RangeData struct {
-    Items       []interface{}     // populated on first render and on the het-range fallback path; nil on subsequent stream renders
+    Items       []interface{}     // see lifecycle states below: populated (non-nil, non-empty) on
+                                  // a stream-capable range's first render and on the het-range
+                                  // fallback path; empty (`[]interface{}{}`) on the empty-range
+                                  // deferral path; nil on subsequent stream renders after the
+                                  // phase-1→phase-2 transition fires.
     Statics     []string          // shared item-template statics (unchanged)
-    StreamState *RangeStreamState // populated by stream-mode renders
+    StreamState *RangeStreamState // nil before phase-1→phase-2 transition; populated thereafter
+                                  // for homogeneous ranges; remains nil for het-range fallbacks.
 }
 ```
 
@@ -298,7 +303,7 @@ Deliverable: stream mode is the default for homogeneous ranges; legacy path is r
 
 - Wire the dispatch in `internal/diff/tree_compare.go` at both call sites — `handleMatchedRanges` (top-level) and `handleRangeMatch` (nested): if `oldNode.Range.StreamState != nil` → `GenerateRangeStreamOperations`, else legacy `GenerateRangeDifferentialOperations`. `template.go`'s `compareTreesAndGetChangesWithContext` is the surrounding caller but does no dispatch — it provides the `t.mu` lock under which the phase-1→phase-2 transition runs.
 - Implement the phase-1→phase-2 transition (atomic under `t.mu`): after first render, check homogeneous-statics fingerprint, populate `StreamState`, nil `Items`. Empty-range deferral stays in legacy path.
-- Update `internal/keys/loader.go` `LoadExistingKeyMappings` for `Items==nil && StreamState!=nil` (consult auto-key generator's issued-keys set, *not* blind `strconv.Atoi`).
+- Update `internal/keys/loader.go` `LoadExistingKeyMappings` for `Items==nil && StreamState!=nil`: walk `StreamState.Keys`, attempt `strconv.Atoi` on each entry, track the max numeric value (skip non-numeric keys), set the counter to `max + 1`. Same `strconv.Atoi` + max-counter pattern as the existing `LoadExistingKeys`; the only difference is the source of keys (the slice vs the items array). See the §10 `internal/keys/loader.go` row for the rationale and the "surprising-but-correct numeric-data-key interaction" note.
 - Update `internal/fuzz/invariants/verifier.go` `buildIDKeyMap` and the related range-iteration site; add fuzz corpus entries for stream-mode trees.
 - Test plan items 2 (memory regression), 4 (reconnect resync), 8 (`extractRangeData` regression gate), 9 (wire-format compat), 10 (browser E2E) land here.
 
@@ -309,7 +314,8 @@ Deliverable: stream mode is the default for homogeneous ranges; legacy path is r
 Deliverable: no stale exports, spec doc reflects the new contract.
 
 - Delete `CompareRangeItemsForChanges` and `compareRangeItemsWithKeyPos` (and `TestCompareRangeItemsForChanges_*` tests).
-- Update `docs/specifications/tree-update-specification.md` (`grep "Only changed fields"`).
+- Update `docs/specifications/tree-update-specification.md` (`grep "Only changed fields"`) — relax the producer-side contract per §5c.
+- **Add the consumer-side contract** to the same spec section: "The receiver MUST treat `["u"]` as a full snapshot — replace the item's dynamics, do not merge only the keys present in the payload." This is the missing half of the wire contract; without it, third-party clients reading only the producer change will silently mis-handle clears (see §6 and §8).
 - Regenerate any remaining golden files in `e2e_update_spec_test.go` and `testdata/golden/`; verify `fuzz_diff_test.go` stays green.
 
 **Audit checkpoint:** `grep CompareRangeItemsForChanges` and `grep compareRangeItemsWithKeyPos` return no hits. Spec doc diff matches the §5c/§8 language exactly. CI green across all suites.
