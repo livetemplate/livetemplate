@@ -126,6 +126,8 @@ return merged;
 
 **Revisit trigger (recorded for the future):** if observability ever surfaces long-lived (>1h) sessions stuck on the het-range fallback at a measurable rate. No specific threshold today — there is no telemetry pipeline for this signal yet, so committing to a number would be premature precision.
 
+**Revisit cadence (no external tracking issue needed):** Each subsequent phase appends its audit checkpoint to this same audit doc (per the proposal's §15 audit-history thread). Gate 2 is reviewed at every phase checkpoint — Phases 1, 2, 3, 4, 5 — by the phase author, even if only as a one-line "Gate 2 trigger remains unmet" note. If the trigger remains unmet at the Phase 5 checkpoint, Gate 2 is closed at that checkpoint as "resolved by stable absence of triggering signal" — definitive resolution rather than indefinite-pending. This makes the OQ1 decision non-immortal without requiring an external issue tracker.
+
 ---
 
 ## Gate 3 — Open Question 2 (volatile-field op) — DEFERRED
@@ -148,7 +150,7 @@ The proposal explicitly defers this to `LargeTableController.UpdateRandomRow` me
 
 This handles both nil and empty-initialized slices uniformly (Go's `len(nil) == 0`). Per §5a's "Empty-range edge case" paragraph: a first render with zero items defers the phase 1 → phase 2 transition, leaves `StreamState=nil, Items=[]`, takes the legacy path (which correctly emits an empty range tree), and re-evaluates on the next non-empty render.
 
-**Test coverage:** §11 test 12 ("Empty-range deferral golden") exercises this directly — render 1 produces zero items, asserts `Range.StreamState == nil && Range.Items != nil` post-render; render 2 produces ≥1 items, asserts the homogeneity check fires and `StreamState` is now populated, `Items` is now nil.
+**Test coverage (Phase 1 deliverable, not yet written):** §11 test 12 ("Empty-range deferral golden") will exercise this directly once authored — render 1 produces zero items, asserts `Range.StreamState == nil && Range.Items != nil` post-render; render 2 produces ≥1 items, asserts the homogeneity check fires and `StreamState` is now populated, `Items` is now nil.
 
 ---
 
@@ -199,7 +201,7 @@ Per §15: "Test files don't need entries in the implementation table, but they d
 | `tree_test.go` | 3 | `len(rangeNode.Range.Items) != N` invariant checks. **Audit during Phase 3.** |
 | `internal/parse/stdlib_parity_test.go` | 1 | `for _, item := range tree.Range.Items` iteration. |
 | `internal/diff/tree_compare_test.go` | 1 | Line 175: `if changes.HasRange() && len(changes.Range.Items) > 0` — also reading the changes-tree direction; unchanged by stream mode. |
-| `internal/diff/loadmore_test.go` | 1 | Line 141: asserts "full range sent (not differential)." **Likely needs re-targeting** — under stream mode, the "full range sent" behaviour is a het-range fallback path; the test fixture may need to construct a heterogeneous range to keep the assertion meaningful. |
+| `internal/diff/loadmore_test.go` | 1 | Line 141: asserts "full range sent (not differential)." **Likely needs re-targeting** — under stream mode, the "full range sent" behaviour fires *only* on the het-range fallback path. Concretely: reconstruct the fixture as a heterogeneous range (items with mixed structure types — e.g., a list where some items render `<span>...</span>` and others render `<del>...</del>`) so the "full range sent" assertion still validates real fallback behaviour rather than passing trivially against an unused stream-mode emission shape. Phase 3 owns this re-targeting. |
 
 **Audit verdict:** the test-side queue is enumerated (63 hits across 10 files, sum verified); no PR opens to change them in this audit phase. Phase 3's "CI green across all suites" gate catches them in the implementation PR.
 
