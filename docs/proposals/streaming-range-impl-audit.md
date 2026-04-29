@@ -35,15 +35,15 @@ The `livetemplate/examples` repo is not pinned at this phase — Phase 6 (Patter
 
 ### Function locations
 
-- `mergeRangeItem` — `client/state/tree-renderer.ts:905-907` (3-line wrapper).
-- `deepMergeTreeNodes` — `client/state/tree-renderer.ts:189-270` (the actual merge implementation).
-- `shouldFullReplace` — `client/state/tree-renderer.ts:95` (structure-transition detector).
+- `mergeRangeItem` — `state/tree-renderer.ts:899-907` (3-line wrapper at 905-907; lines 899-904 are the leading doc comment shown in the code block below).
+- `deepMergeTreeNodes` — `state/tree-renderer.ts:189-270` (the actual merge implementation).
+- `shouldFullReplace` — `state/tree-renderer.ts:95` (structure-transition detector).
 - Call sites that dispatch to `mergeRangeItem`: lines 355 and 674 (the `case "u":` handlers in `applyDifferentialOpsToRange` and the nested helper).
 
 ### `mergeRangeItem` body (verbatim)
 
 ```typescript
-// client/state/tree-renderer.ts:899-907
+// state/tree-renderer.ts:899-907
 /**
  * Merges changes into a range item using deep merge to preserve statics.
  * When the server sends partial updates like {"5": {"0": "new text"}},
@@ -137,6 +137,8 @@ return merged;
 The proposal explicitly defers this to `LargeTableController.UpdateRandomRow` measurement at 10k rows (combined with `BenchmarkRangeDiff_Stream_Update` at N ∈ {10, 100, 10k}). The audit confirms the deferral with one constraint: the wire-cost ceiling that would *trigger* a `["uf"]` follow-up issue is to be set when Phase 5 numbers land — picking a number before the data exists would be theatre.
 
 **Acceptance criterion for closing OQ2:** Phase 5's audit checkpoint must include either (a) a written "no `["uf"]` follow-up needed; observed wire cost is acceptable" note, or (b) a tracking issue filed for the `["uf"]` op with the measured ceiling and the workloads that exceeded it.
+
+**Maximum acceptable wire-cost ratio for closing OQ2 without filing `["uf"]`:** _____ × the equivalent legacy `["u"]` op for the same single-field update on a multi-field item. (TBD — Phase 5 reviewer fills in the observed ratio at the Phase 5 audit checkpoint, then chooses option (a) if the ratio is at or below the placeholder, or option (b) if above.)
 
 ---
 
