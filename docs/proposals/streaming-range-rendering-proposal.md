@@ -231,6 +231,96 @@ Client reconnect re-runs `Mount` via the existing `mount.go` callMount path (`ca
 
 No public-API surface changes. No new options on `livetemplate.New(...)`. No new tags on state structs. No new methods on `*Context`. No safety-hatch flag.
 
+### Implementation phases
+
+Each phase below is one implementer PR. Phases are sequential — phase N depends on phase N-1's audit checkpoint passing. **No phase begins until the previous phase's audit is closed in writing.** This forces open questions and subtle adaptations to be resolved on paper before code lands, rather than discovered mid-implementation.
+
+#### Phase 0 — Pre-implementation audit (no code)
+
+Deliverable: a Markdown audit doc (in the implementation PR description, or a separate `docs/proposals/streaming-range-impl-audit.md`) that closes every gate listed below. No PR opens against `internal/` until phase 0 is signed off.
+
+- [ ] **§6 client verification gate.** Grep `state/tree-renderer.ts` in `livetemplate/client` at a pinned commit. Paste the `mergeRangeItem` body, confirm key-wise merge with `""`-as-clear semantics. Confirm the partial-delta path is also tolerated for the het-range fallback.
+- [ ] **Open Question 1 (het-range long-term).** Decide: indefinite legacy fallback (current proposal) vs. extend stream mode with per-item statics in `["u"]`. If staying with the proposal, write "decision: indefinite fallback, revisit when X observed" and move on.
+- [ ] **Open Question 2 (volatile-field op).** Confirm deferred to `LargeTableController.UpdateRandomRow` benchmark numbers from phase 5; note the wire-cost ceiling that would *trigger* a `["uf"]` follow-up so the bar is concrete.
+- [ ] **Empty-range condition.** Lock the predicate as `len(newItems) == 0` (handles both `nil` and empty-initialized slices uniformly). One-line decision; record it.
+- [ ] **`Range.Items` reader sweep.** Run `grep -rn "Range\\.Items\\|rangeData\\.Items" --include='*.go'` across the repo. Cross-check every hit against the §10 implementation table; if any hit is *not* listed (read-only debug code, observability metrics, etc.), add it to the table or document why it's safe under `Items==nil`. The bot review surfaced four such call sites round-by-round (`extractRangeData`, `LoadExistingKeyMappings`, `buildIDKeyMap`, `MarshalJSON` two paths) — the sweep ensures none are missed at implementation time.
+- [ ] **`oldByKey` semantic decision.** Confirm `map[string]struct{}` (presence-only) is the agreed shape and it's populated from `StreamState.Keys` on the stream path. Document the rationale (legacy path's value-typed map is not used by the helpers).
+
+**Audit checkpoint:** all six items checked. Any item that can't be checked blocks phase 1.
+
+#### Phase 1 — Foundational types (data structures only; no behavioural change)
+
+Deliverable: types compile, all existing tests still pass; `StreamState` is never populated yet, so observable behaviour is unchanged.
+
+- Add `RangeStreamState` and `RangeData.StreamState` in `internal/build/types.go`.
+- Extend `TreeNode.Clone()` to deep-copy `StreamState.Keys` and `StreamState.Hashes`.
+- Update both `MarshalJSON` emission sites to omit `"d"` when `Items==nil && StreamState!=nil` (still unreachable at this phase, but the test-7 fixtures verify the shape is correct).
+- Add `keys.ItemHashUint64(dynamics []interface{}) uint64` to `internal/keys/hash.go` with godoc covering nil-skip + nil-vs-`""` divergence.
+- Test plan items 6 (Clone), 7 (MarshalJSON), 3 (collision soak with fixed seed) land here.
+
+**Audit checkpoint:** existing test suite green (no regression); new tests assert shape-only invariants. Reviewer confirms `RangeData.Items` is still the source of truth on every render path — no caller has been switched yet.
+
+#### Phase 2 — Stream diff entry point (callable, not yet wired)
+
+Deliverable: `GenerateRangeStreamOperations` exists and is exercised by goldens, but no production caller invokes it.
+
+- Add `GenerateRangeStreamOperations(streamState *RangeStreamState, newItems []interface{}, statics interface{}, metadata map[string]interface{}, stripStatics bool) []interface{}` in `internal/diff/range_ops.go`.
+- Extend `rangeContext` with `fromStream bool` flag and presence-only `oldByKey map[string]struct{}` populated from `StreamState.Keys` on the stream path.
+- Adapt `isComplexInsertionPatternCtx`, `areAllItemsAtStartCtx`, `areAllItemsAtEndCtx`: replace `len(ctx.oldItems) == 0` with `len(ctx.oldByKey) == 0`.
+- Adapt `handleIncrementalInsertionsCtx` and `handleIndividualInsertionsCtx`.
+- Implement the §5b emission loop (whole-item `["u"]` with `""` for absent positions, op ordering r→u→a/p/i→o).
+- Test plan item 1 goldens (per-op + scattered-insert fallback + N≥4 tail-append + mixed-op + first-render) and item 5 (het-range fallback) land here.
+
+**Audit checkpoint:** every test in item 1 is exercised by a direct call to `GenerateRangeStreamOperations`, no production code path reaches it yet. Reviewer confirms helper adaptations match the §10 spec (in particular, that `oldByKey` is non-empty on the stream path — Round 12's regression check).
+
+#### Phase 3 — Caller integration (cutover; behaviour changes here)
+
+Deliverable: stream mode is the default for homogeneous ranges; legacy path is reached only by het-range fallback.
+
+- Wire the dispatch in `template.go` `compareTreesAndGetChangesWithContext`: if `oldNode.Range.StreamState != nil` → `GenerateRangeStreamOperations`, else legacy `GenerateRangeDifferentialOperations`.
+- Implement the phase-1→phase-2 transition (atomic under `t.mu`): after first render, check homogeneous-statics fingerprint, populate `StreamState`, nil `Items`. Empty-range deferral stays in legacy path.
+- Update `internal/keys/loader.go` `LoadExistingKeyMappings` for `Items==nil && StreamState!=nil` (consult auto-key generator's issued-keys set, *not* blind `strconv.Atoi`).
+- Update `internal/fuzz/invariants/verifier.go` `buildIDKeyMap` and the related range-iteration site; add fuzz corpus entries for stream-mode trees.
+- Test plan items 2 (memory regression), 4 (reconnect resync), 8 (`extractRangeData` regression gate), 9 (wire-format compat), 10 (browser E2E) land here.
+
+**Audit checkpoint:** memory regression test shows ≥4× per-item retained-byte reduction; `extractRangeData` regression gate green; reconnect test confirms first render after `lastTree` drop emits a full tree, not stream ops; existing E2E specs pass with regenerated `["u"]` goldens.
+
+#### Phase 4 — Cleanup and spec update
+
+Deliverable: no stale exports, spec doc reflects the new contract.
+
+- Delete `CompareRangeItemsForChanges` and `compareRangeItemsWithKeyPos` (and `TestCompareRangeItemsForChanges_*` tests).
+- Update `docs/specifications/tree-update-specification.md` (`grep "Only changed fields"`).
+- Regenerate any remaining golden files in `e2e_update_spec_test.go` and `testdata/golden/`; verify `fuzz_diff_test.go` stays green.
+
+**Audit checkpoint:** `grep CompareRangeItemsForChanges` and `grep compareRangeItemsWithKeyPos` return no hits. Spec doc diff matches the §5c/§8 language exactly. CI green across all suites.
+
+#### Phase 5 — Benchmark gate (replace estimates with measured numbers)
+
+Deliverable: the §7 Memory & Performance table in this proposal is rewritten with real benchmark output, and the proposal moves from "Proposed" to "Implemented".
+
+- Add `internal/diff/range_ops_bench_test.go` with `BenchmarkRangeDiff_Stream_{Append,Update,Reorder}_{Small,Medium,Large}` at N ∈ {10, 100, 10k}.
+- Run the memory regression test and capture the per-item retained-byte numbers.
+- Update §7 in this proposal with measured values; mark the proposal status `Implemented` in the header.
+
+**Audit checkpoint:** every estimate in §7 is replaced. The "Memory & Performance" section no longer contains the word "estimate".
+
+#### Phase 6 — Patterns example (visible payoff)
+
+Deliverable: a 10k-row demo a reviewer can drive in a browser to see the win.
+
+- Add `LargeTableController` + `large-table.tmpl` + 10k-row seed in the `livetemplate/examples` repo per §12.
+- Add `e2etest.RecordWSFrames(ctx)` helper for bounded-WS-size assertions.
+- `TestLargeTable_*` E2E subtests for filter / sort / append / update / delete / reset.
+- Manual UX testing on iPhone over Tailscale per the project's manual-testing convention.
+- Capture `LargeTableController.UpdateRandomRow` benchmark output and use it to close Open Question 2 (does the volatile-field op need a follow-up, or is the whole-item path sufficient at this scale?).
+
+**Audit checkpoint:** the demo runs at 10k rows with subjectively acceptable interaction latency; OQ2 closes with a written decision (file follow-up issue OR mark deferred).
+
+### Why this sequencing
+
+Phase 0 forces the unknowns to close on paper. Phases 1 and 2 are reversible (no production caller reaches the new code), so any second-thoughts during phase 3 can be folded back without unwinding. Phase 3 is the only behavioural cutover and is gated by the strongest acceptance bar. Phases 4–6 are purely additive after the cutover stabilises. The sequencing matches the hard-cutover policy in §8: each phase's audit replaces the runtime safety hatch the proposal explicitly declines to ship.
+
 ## Test Plan
 
 The implementation must add the following coverage. This list is the acceptance bar — a reviewer can use it as a checklist.
