@@ -167,8 +167,8 @@ This handles both nil and empty-initialized slices uniformly (Go's `len(nil) == 
 | `internal/diff/range_ops.go` | 2 | `internal/diff/range_ops.go` row (`extractRangeData` assignments at lines 127, 147) |
 | `internal/diff/tree_compare.go` | 2 | `internal/diff/tree_compare.go` row (`handleMatchedRanges` no-op branch at lines 125-126) |
 | `internal/diff/prepare.go` | 1 | `internal/diff/prepare.go` row (line 53) |
-| `internal/diff/helpers_compare.go` | 1 | `internal/diff/helpers_compare.go` row (line 85) |
-| `internal/diff/helpers_value.go` | 1 | `internal/diff/helpers_value.go` row (line 97) |
+| `internal/diff/helpers_compare.go` | 1 | `internal/diff/helpers_compare.go` row — grep `rangeItemsEqual(a.Range.Items` |
+| `internal/diff/helpers_value.go` | 1 | `internal/diff/helpers_value.go` row — grep `len(node.Range.Items) > 0` |
 | `internal/diff/diff_bench_test.go` | 4 | `internal/diff/diff_bench_test.go` row (test-fixture mutations at lines 110, 167, 180, 192) |
 | `internal/keys/loader.go` | 1 | `internal/keys/loader.go` row (line 33) |
 | `internal/fuzz/invariants/helpers.go` | 2 | `internal/fuzz/invariants/helpers.go` row (lines 28-29) |
@@ -207,11 +207,24 @@ Per §15: "Test files don't need entries in the implementation table, but they d
 
 ## Gate 6 — `oldByKey` semantics — LOCKED
 
-**Decision:** `map[string]struct{}` (presence-only), populated from `StreamState.Keys` on the stream path.
+**Decision:** Add a NEW field `ctx.oldKeySet map[string]struct{}` to `rangeContext` for the three shared presence-only helpers; keep the existing `ctx.oldByKey map[string]interface{}` unchanged for the three legacy-only callers that read item bodies. Populate `oldKeySet` on **both** paths; populate `oldByKey` **only on the legacy path**.
 
-**Rationale:** The three helpers that consume `oldByKey` — `isComplexInsertionPatternCtx`, `areAllItemsAtStartCtx`, `areAllItemsAtEndCtx` (`internal/diff/helpers_range.go`) — only check key *presence* (`_, exists := ctx.oldByKey[itemKey]`), never read item bodies. The legacy path's value-typed `map[string]interface{}` is overkill; the stream path has no item bodies to put there anyway.
+**Rationale.** Five callers consume `ctx.oldByKey` in current `main`; not all of them are presence-only:
 
-**Implementation note (per §10's `helpers_range.go` row):** populate `ctx.oldByKey` on **both** paths (legacy and stream). The "uniform population" rule prevents the regression where `areAllItemsAtEndCtx`'s `len(ctx.oldByKey) == 0` early-return would fire spuriously on every stream render and silently break N≥4 tail-append workloads (the regression flagged in §10).
+| Caller | Access pattern | Path |
+|---|---|---|
+| `isComplexInsertionPatternCtx` (`internal/diff/helpers_range.go`) | presence (`_, exists := ctx.oldByKey[itemKey]`) | shared (both paths) |
+| `areAllItemsAtStartCtx` (`internal/diff/helpers_range.go`) | presence | shared (both paths) |
+| `areAllItemsAtEndCtx` (grep `func areAllItemsAtEndCtx`) | presence | shared (both paths) |
+| `isPureReorderingCtx` (grep `func isPureReorderingCtx`) | **value** — type-asserts to `*TreeNode`, reads `.Dynamics` to detect position-field-only changes | legacy only |
+| `generateUpdateOps` (grep `func generateUpdateOps`) | **value** — passes `oldItem` to `compareRangeItemsWithKeyPos` for partial-delta computation | legacy only |
+| `DetectPositionField(ctx.oldByKey)` (`internal/diff/helpers_range.go`) | reads keys to detect position-field name | legacy only |
+
+The three shared presence-only helpers switch to `ctx.oldKeySet`. The three legacy-only callers continue to read `ctx.oldByKey` (value-typed) — they are never reached on the stream path because `GenerateRangeStreamOperations` (the new top-level entry per §10) does its own update/reorder logic from `StreamState.Hashes` instead of dispatching to `generateUpdateOps` or `isPureReorderingCtx`.
+
+**Why not just change `oldByKey` to `map[string]struct{}` everywhere?** That was the earlier (incorrect) sketch. It would silently break `isPureReorderingCtx`'s `oldItem.(*TreeNode)` type assertion and `generateUpdateOps`'s `compareRangeItemsWithKeyPos(oldItem, newItem, ...)` call — both compile errors at minimum, behavior changes in any reflection-style callsites that survived. Adding the second field is the safer split.
+
+**Implementation note.** Populate `ctx.oldKeySet` on **both** paths (from `oldKeys` on the legacy path, from `StreamState.Keys` on the stream path). The "uniform population" rule prevents the regression where `areAllItemsAtEndCtx`'s `len(ctx.oldKeySet) == 0` early-return would fire spuriously on every stream render and silently break N≥4 tail-append workloads (the regression flagged in §10's `helpers_range.go` row).
 
 ---
 
