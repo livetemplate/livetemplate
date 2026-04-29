@@ -182,7 +182,7 @@ This handles both nil and empty-initialized slices uniformly (Go's `len(nil) == 
 
 While verifying the table, one labeling issue surfaced:
 
-- **§10 `internal/build/types.go` row** characterizes `TreeNode.MarshalJSON` as having "two emission sites for `"d"`." Reality: ONE site in `TreeNode.MarshalJSON` (`internal/build/types.go:479`); the SECOND site is in `TreeNode.ToMap` (`internal/build/types.go:614-618`, via the `convertValueToMap` helper called per item). The fix policy (omit `"d"` when `Items==nil && StreamState!=nil`) applies to both, but they live in two distinct methods — not two sites in one method.
+- **§10 `internal/build/types.go` row** characterizes `TreeNode.MarshalJSON` as having "two emission sites for `"d"`." Reality: ONE site in `TreeNode.MarshalJSON` (grep `result\["d"\] = tn\.Range\.Items` in `internal/build/types.go`); the SECOND site is in `TreeNode.ToMap` (grep `convertedItems := make` in the same file, via the `convertValueToMap` helper called per item). The fix policy (omit `"d"` when `Items==nil && StreamState!=nil`) applies to both, but they live in two distinct methods — not two sites in one method.
 
 The proposal is being amended in the same PR as this audit doc to use precise method names. Affected lines in the proposal: 240 (§10 row body), 246 (cross-reference), 248 (cross-reference), 270 (§15 audit checklist), 281 (Phase 1 deliverable), 359 (§11 test-7).
 
@@ -211,18 +211,18 @@ Per §15: "Test files don't need entries in the implementation table, but they d
 
 **Decision:** Add a NEW field `ctx.oldKeySet map[string]struct{}` to `rangeContext` for the three shared presence-only helpers; keep the existing `ctx.oldByKey map[string]interface{}` unchanged for the three legacy-only callers that read item bodies. Populate `oldKeySet` on **both** paths; populate `oldByKey` **only on the legacy path**.
 
-**Rationale.** Five callers consume `ctx.oldByKey` in current `main`; not all of them are presence-only:
+**Rationale.** Four functions actually consume `ctx.oldByKey` in current `main`; not all of them are presence-only:
 
 | Caller | Access pattern | Path |
 |---|---|---|
-| `isComplexInsertionPatternCtx` (`internal/diff/helpers_range.go`) | presence (`_, exists := ctx.oldByKey[itemKey]`) | shared (both paths) |
-| `areAllItemsAtStartCtx` (`internal/diff/helpers_range.go`) | presence | shared (both paths) |
-| `areAllItemsAtEndCtx` (grep `func areAllItemsAtEndCtx`) | presence | shared (both paths) |
-| `isPureReorderingCtx` (grep `func isPureReorderingCtx`) | **value** — type-asserts to `*TreeNode`, reads `.Dynamics` to detect position-field-only changes | legacy only |
+| `isComplexInsertionPatternCtx` (grep `func isComplexInsertionPatternCtx`) | presence (`_, inOld := ctx.oldByKey[keyStr]`) | shared (both paths) |
+| `areAllItemsAtEndCtx` (grep `func areAllItemsAtEndCtx`) | presence (`_, exists := ctx.oldByKey[itemKey]`) at the inner loop | shared (both paths) |
+| `isPureReorderingCtx` (grep `func isPureReorderingCtx`) | **value** — type-asserts to `*TreeNode`, reads `.Dynamics` to detect position-field-only changes; also calls `DetectPositionField(ctx.oldByKey)` to read keys | legacy only |
 | `generateUpdateOps` (grep `func generateUpdateOps`) | **value** — passes `oldItem` to `compareRangeItemsWithKeyPos` for partial-delta computation | legacy only |
-| `DetectPositionField(ctx.oldByKey)` (`internal/diff/helpers_range.go`) | reads keys to detect position-field name | legacy only |
 
-The three shared presence-only helpers switch to `ctx.oldKeySet`. The three legacy-only callers continue to read `ctx.oldByKey` (value-typed) — they are never reached on the stream path because `GenerateRangeStreamOperations` (the new top-level entry per §10) does its own update/reorder logic from `StreamState.Hashes` instead of dispatching to `generateUpdateOps` or `isPureReorderingCtx`.
+The two shared presence-only helpers (`isComplexInsertionPatternCtx`, `areAllItemsAtEndCtx`) switch to `ctx.oldKeySet`. The two legacy-only callers continue to read `ctx.oldByKey` (value-typed) — they are never reached on the stream path because `GenerateRangeStreamOperations` (the new top-level entry per §10) does its own update/reorder logic from `StreamState.Hashes` instead of dispatching to `generateUpdateOps` or `isPureReorderingCtx`.
+
+**Note on `areAllItemsAtStartCtx` (called by `isComplexInsertionPatternCtx` as an early-return check).** This helper is *not* an `oldByKey` consumer — it iterates only `ctx.addedKeys` and `ctx.newItems` (no `oldByKey[itemKey]` access, no `len(ctx.oldItems)` guard; its only early-return is `len(ctx.addedKeys) == 0`). It still needs stream-mode adaptation, but the adaptation falls out *upstream* of the helper itself: when `ctx.addedKeys` is correctly derived from `StreamState.Keys` (rather than from `oldItems`/`newItems` differencing), `areAllItemsAtStartCtx` works unchanged on the stream path. No function-body edit is required.
 
 **Why not just change `oldByKey` to `map[string]struct{}` everywhere?** That was the earlier (incorrect) sketch. It would silently break `isPureReorderingCtx`'s `oldItem.(*TreeNode)` type assertion and `generateUpdateOps`'s `compareRangeItemsWithKeyPos(oldItem, newItem, ...)` call — both compile errors at minimum, behavior changes in any reflection-style callsites that survived. Adding the second field is the safer split.
 
