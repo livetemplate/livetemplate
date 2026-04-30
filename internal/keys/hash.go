@@ -58,6 +58,10 @@ func GenerateItemHashFromSlice(dynamics []interface{}) string {
 // `0:""`), while the nil entry is skipped entirely. A transition from
 // "field set to empty" to "field omitted entirely" is correctly detected
 // as a content change.
+//
+// empty/nil input: an empty or nil dynamics slice produces FNV-1a's
+// offset-basis constant (0xcbf29ce484222325) — a stable, non-zero,
+// distinguishable hash for the "empty range item" case.
 func ItemHashUint64(dynamics []interface{}) uint64 {
 	content := strings.Join(buildHashParts(dynamics), "|")
 	hasher := fnv.New64a()

@@ -241,13 +241,13 @@ The two shared presence-only helpers (`isComplexInsertionPatternCtx`, `areAllIte
 | File | Change |
 |---|---|
 | `internal/build/types.go` | Add `RangeStreamState` type + `RangeData.StreamState` field; preserve nil `Items` in `Clone`; add stream-mode deep-copy block in `Clone`; add omit-`"d"` guard in `MarshalJSON` and `ToMap`. |
-| `internal/build/types_test.go` | 9 new tests: `TestTreeNode_Clone_PreservesNilItems`, `TestRangeStreamState_DeepClone`, `TestTreeNode_MarshalJSON_OmitsD_StreamMode` + `_EmitsD_LegacyMode` + `_PreservesStatics_StreamMode` (regression guard against tying "s" emission to "d") + `_EmitsNullD_LegacyEmptyMode` (boundary: Items==nil && StreamState==nil preserves prior null shape), `TestTreeNode_ToMap_OmitsD_StreamMode` + `_EmitsD_LegacyMode` + `_EmitsEmptyD_LegacyEmptyMode` (ToMap parallel, preserves pre-existing "d": [] shape for the same boundary). |
+| `internal/build/types_test.go` | 10 new tests: `TestRangeData_IsStreamMode` (table-driven across legacy/legacy-empty/stream/transitional cases for the new `IsStreamMode()` helper), `TestTreeNode_Clone_PreservesNilItems`, `TestRangeStreamState_DeepClone`, `TestTreeNode_MarshalJSON_OmitsD_StreamMode` + `_EmitsD_LegacyMode` + `_PreservesStatics_StreamMode` (regression guard against tying "s" emission to "d") + `_EmitsNullD_LegacyEmptyMode` (boundary: Items==nil && StreamState==nil preserves prior null shape), `TestTreeNode_ToMap_OmitsD_StreamMode` + `_EmitsD_LegacyMode` + `_EmitsEmptyD_LegacyEmptyMode` (ToMap parallel, preserves pre-existing "d": [] shape for the same boundary). |
 | `internal/keys/hash.go` | Add `ItemHashUint64(dynamics []interface{}) uint64` after `GenerateItemHashFromSlice`. Godoc covers nil-skip + nil-vs-`""` divergence. |
 | `internal/keys/hash_test.go` | 5 new tests: `TestItemHashUint64_Deterministic`, `_NilVsEmptyString`, `_PositionMatters`, `_NilEntriesSkipped`, `_CollisionStress_NoDupesIn10k` (10k synthetic dynamics, all hashes unique). |
 
 ### Test results
 
-- **14 new tests** (9 in `types_test.go` + 5 in `hash_test.go`) — all pass.
+- **15 new tests** (10 in `types_test.go` + 5 in `hash_test.go`) — all pass.
 - **Full test suite** (`GOWORK=off go test ./...`) — green; zero regressions across the 17 internal/* packages, the root `livetemplate` package, or `pubsub`.
 - **Build sanity** — `go build` clean; pre-existing `interface{} → any` linter hints are unchanged from the base commit.
 

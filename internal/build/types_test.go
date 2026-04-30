@@ -711,6 +711,29 @@ func TestTreeNode_MarshalJSON_EmitsNullD_LegacyEmptyMode(t *testing.T) {
 	}
 }
 
+// IsStreamMode covers the 2x2 grid of (Items present/nil) x (StreamState
+// present/nil); only Items==nil && StreamState!=nil counts as stream mode.
+func TestRangeData_IsStreamMode(t *testing.T) {
+	tests := []struct {
+		name string
+		rd   *RangeData
+		want bool
+	}{
+		{"nil receiver", nil, false},
+		{"legacy non-empty", &RangeData{Items: []interface{}{"x"}}, false},
+		{"legacy empty", &RangeData{Items: nil}, false},
+		{"stream mode", &RangeData{Items: nil, StreamState: &RangeStreamState{Keys: []string{"k"}}}, true},
+		{"transitional both set (illegal but defensive)", &RangeData{Items: []interface{}{"x"}, StreamState: &RangeStreamState{}}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.rd.IsStreamMode(); got != tt.want {
+				t.Errorf("IsStreamMode() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // ToMap parallel of EmitsNullD_LegacyEmptyMode. ToMap pre-Phase-1 emits
 // "d": [] (not "d": null) because of the convertedItems := make(...) deep-
 // convert path — that pre-existing shape is preserved by the omit guard.

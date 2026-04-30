@@ -112,6 +112,15 @@ type RangeData struct {
 	StreamState *RangeStreamState
 }
 
+// IsStreamMode reports whether this RangeData is in stream mode: Items has
+// been dropped from the retained tree and StreamState carries the per-range
+// snapshot. Centralises the condition checked by MarshalJSON/ToMap (and by
+// every Phase 2+ call site that needs to branch on stream-mode shape) so the
+// three-place check can never silently diverge.
+func (rd *RangeData) IsStreamMode() bool {
+	return rd != nil && rd.Items == nil && rd.StreamState != nil
+}
+
 // RangeStreamState holds the per-range snapshot used by stream-mode range
 // diffing in place of full per-item TreeNodes: the item keys in render order,
 // the per-item content hashes parallel to those keys, and a homogeneity
@@ -497,8 +506,8 @@ func (tn *TreeNode) MarshalJSON() ([]byte, error) {
 
 	// Add range data if present
 	if tn.Range != nil {
-		// Omit "d" in stream mode (Items==nil && StreamState!=nil); see RangeStreamState.
-		if tn.Range.Items != nil || tn.Range.StreamState == nil {
+		// Omit "d" in stream mode; see RangeStreamState.
+		if !tn.Range.IsStreamMode() {
 			result["d"] = tn.Range.Items
 		}
 		// Include statics for range items
@@ -634,8 +643,8 @@ func (tn *TreeNode) ToMap() map[string]interface{} {
 
 	// Add range data
 	if tn.Range != nil {
-		// Omit "d" in stream mode (Items==nil && StreamState!=nil); see RangeStreamState.
-		if tn.Range.Items != nil || tn.Range.StreamState == nil {
+		// Omit "d" in stream mode; see RangeStreamState.
+		if !tn.Range.IsStreamMode() {
 			// Recursively convert any nested TreeNodes in range items
 			convertedItems := make([]interface{}, len(tn.Range.Items))
 			for i, item := range tn.Range.Items {
