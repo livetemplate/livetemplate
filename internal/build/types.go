@@ -120,14 +120,10 @@ type RangeStreamState struct {
 	// Keys holds the item keys in render order; parallel to Hashes.
 	Keys []string
 
-	// Hashes holds the per-item content hash (FNV-1a 64-bit of the item's
-	// JSON-serialised dynamics); parallel to Keys.
+	// Hashes is the per-item FNV-1a 64-bit content hash; parallel to Keys.
 	Hashes []uint64
 
-	// Fingerprint is the structure-fingerprint snapshot taken at the first
-	// stream-mode render of this range. Compared against the new render's
-	// item-template fingerprint each diff to detect a homogeneity transition;
-	// mismatch triggers het-range fallback.
+	// Fingerprint is the homogeneity-check snapshot; mismatch on a later render triggers het-range fallback.
 	Fingerprint string
 }
 
@@ -719,11 +715,13 @@ func (tn *TreeNode) Clone() *TreeNode {
 			clone.Range.StreamState = &RangeStreamState{
 				Fingerprint: tn.Range.StreamState.Fingerprint,
 			}
-			if len(tn.Range.StreamState.Keys) > 0 {
+			// Use != nil (not len > 0) for consistency with Items above —
+			// preserves empty-but-non-nil slices through clone.
+			if tn.Range.StreamState.Keys != nil {
 				clone.Range.StreamState.Keys = make([]string, len(tn.Range.StreamState.Keys))
 				copy(clone.Range.StreamState.Keys, tn.Range.StreamState.Keys)
 			}
-			if len(tn.Range.StreamState.Hashes) > 0 {
+			if tn.Range.StreamState.Hashes != nil {
 				clone.Range.StreamState.Hashes = make([]uint64, len(tn.Range.StreamState.Hashes))
 				copy(clone.Range.StreamState.Hashes, tn.Range.StreamState.Hashes)
 			}

@@ -509,9 +509,8 @@ func TestContext_WithPath(t *testing.T) {
 	}
 }
 
-// TestTreeNode_Clone_PreservesNilItems verifies that cloning a TreeNode with
-// Range.Items==nil leaves the clone's Items==nil rather than promoting it to
-// an empty slice — stream-mode detection downstream relies on the nil-ness.
+// Items==nil must stay nil through clone — stream-mode detection downstream
+// relies on the nil-ness.
 func TestTreeNode_Clone_PreservesNilItems(t *testing.T) {
 	original := &TreeNode{
 		Range: &RangeData{
@@ -533,7 +532,6 @@ func TestTreeNode_Clone_PreservesNilItems(t *testing.T) {
 	}
 }
 
-// TestRangeStreamState_DeepClone tests deep cloning of RangeStreamState.
 func TestRangeStreamState_DeepClone(t *testing.T) {
 	original := &TreeNode{
 		Range: &RangeData{
@@ -571,8 +569,7 @@ func TestRangeStreamState_DeepClone(t *testing.T) {
 	}
 }
 
-// TestTreeNode_MarshalJSON_OmitsD_StreamMode verifies stream-mode trees omit "d".
-// (Items==nil && StreamState!=nil emits {} not {"d": null}.)
+// Items==nil && StreamState!=nil emits {} not {"d": null}.
 func TestTreeNode_MarshalJSON_OmitsD_StreamMode(t *testing.T) {
 	node := &TreeNode{
 		Range: &RangeData{
@@ -600,8 +597,6 @@ func TestTreeNode_MarshalJSON_OmitsD_StreamMode(t *testing.T) {
 	}
 }
 
-// TestTreeNode_MarshalJSON_EmitsD_LegacyMode is the regression guard: legacy
-// trees (non-nil Items) still emit "d" exactly as today.
 func TestTreeNode_MarshalJSON_EmitsD_LegacyMode(t *testing.T) {
 	node := &TreeNode{
 		Range: &RangeData{
@@ -686,5 +681,55 @@ func TestTreeNode_MarshalJSON_PreservesStatics_StreamMode(t *testing.T) {
 	}
 	if _, hasS := result["s"]; !hasS {
 		t.Errorf("Stream-mode tree SHOULD have 's' key for cached client statics, got %v", result)
+	}
+}
+
+// Boundary case: Items==nil && StreamState==nil (legacy-empty) — the omit
+// guard must NOT fire here; pre-Phase-1 wire output emitted "d": null and
+// that behaviour is preserved.
+func TestTreeNode_MarshalJSON_EmitsNullD_LegacyEmptyMode(t *testing.T) {
+	node := &TreeNode{
+		Range: &RangeData{Items: nil},
+	}
+
+	data, err := json.Marshal(node)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	v, hasD := result["d"]
+	if !hasD {
+		t.Errorf("Legacy-empty tree should still have 'd' key (preserves prior behaviour), got %v", result)
+	}
+	if v != nil {
+		t.Errorf("Legacy-empty 'd' should be null, got %v (%T)", v, v)
+	}
+}
+
+// ToMap parallel of EmitsNullD_LegacyEmptyMode. ToMap pre-Phase-1 emits
+// "d": [] (not "d": null) because of the convertedItems := make(...) deep-
+// convert path — that pre-existing shape is preserved by the omit guard.
+func TestTreeNode_ToMap_EmitsEmptyD_LegacyEmptyMode(t *testing.T) {
+	node := &TreeNode{
+		Range: &RangeData{Items: nil},
+	}
+
+	m := node.ToMap()
+
+	v, hasD := m["d"]
+	if !hasD {
+		t.Errorf("Legacy-empty ToMap should still have 'd' key, got %v", m)
+	}
+	items, ok := v.([]interface{})
+	if !ok {
+		t.Fatalf("Legacy-empty ToMap 'd' should be []interface{}, got %T (%v)", v, v)
+	}
+	if len(items) != 0 {
+		t.Errorf("Legacy-empty ToMap 'd' should be empty slice, got len=%d", len(items))
 	}
 }
