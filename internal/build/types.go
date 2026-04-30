@@ -104,6 +104,36 @@ type RangeData struct {
 	// For heterogeneous ranges (items with different statics), the fingerprint-based
 	// diff will detect structure changes and trigger a full tree send.
 	Statics []string
+
+	// StreamState, when non-nil, indicates this RangeData is in stream mode:
+	// Items is nil (the retained tree no longer holds per-item dynamics) and
+	// stream-mode diffing uses StreamState.Hashes to detect content changes.
+	// nil StreamState means legacy mode (Items is the source of truth).
+	StreamState *RangeStreamState
+}
+
+// IsStreamMode reports whether this RangeData is in stream mode: Items has
+// been dropped from the retained tree and StreamState carries the per-range
+// snapshot. Centralises the condition checked by MarshalJSON/ToMap (and by
+// every Phase 2+ call site that needs to branch on stream-mode shape) so the
+// three-place check can never silently diverge.
+func (rd *RangeData) IsStreamMode() bool {
+	return rd != nil && rd.Items == nil && rd.StreamState != nil
+}
+
+// RangeStreamState holds the per-range snapshot used by stream-mode range
+// diffing in place of full per-item TreeNodes: the item keys in render order,
+// the per-item content hashes parallel to those keys, and a homogeneity
+// fingerprint to detect het-range fallback.
+type RangeStreamState struct {
+	// Keys holds the item keys in render order; parallel to Hashes.
+	Keys []string
+
+	// Hashes is the per-item FNV-1a 64-bit content hash; parallel to Keys.
+	Hashes []uint64
+
+	// Fingerprint is the homogeneity-check snapshot; mismatch on a later render triggers het-range fallback.
+	Fingerprint string
 }
 
 // TreeMetadata contains metadata about the tree node.
@@ -476,7 +506,10 @@ func (tn *TreeNode) MarshalJSON() ([]byte, error) {
 
 	// Add range data if present
 	if tn.Range != nil {
-		result["d"] = tn.Range.Items
+		// Omit "d" in stream mode; see RangeStreamState.
+		if !tn.Range.IsStreamMode() {
+			result["d"] = tn.Range.Items
+		}
 		// Include statics for range items
 		if len(tn.Range.Statics) > 0 {
 			result["s"] = tn.Range.Statics
@@ -610,12 +643,15 @@ func (tn *TreeNode) ToMap() map[string]interface{} {
 
 	// Add range data
 	if tn.Range != nil {
-		// Recursively convert any nested TreeNodes in range items
-		convertedItems := make([]interface{}, len(tn.Range.Items))
-		for i, item := range tn.Range.Items {
-			convertedItems[i] = convertValueToMap(item)
+		// Omit "d" in stream mode; see RangeStreamState.
+		if !tn.Range.IsStreamMode() {
+			// Recursively convert any nested TreeNodes in range items
+			convertedItems := make([]interface{}, len(tn.Range.Items))
+			for i, item := range tn.Range.Items {
+				convertedItems[i] = convertValueToMap(item)
+			}
+			result["d"] = convertedItems
 		}
-		result["d"] = convertedItems
 	}
 
 	// Add metadata
@@ -673,13 +709,31 @@ func (tn *TreeNode) Clone() *TreeNode {
 
 	// Clone range data
 	if tn.Range != nil {
-		clone.Range = &RangeData{
-			Items: make([]interface{}, len(tn.Range.Items)),
+		clone.Range = &RangeData{}
+		// Preserve nil-ness of Items: stream-mode trees have Items == nil and
+		// must not be promoted to an empty slice during clone.
+		if tn.Range.Items != nil {
+			clone.Range.Items = make([]interface{}, len(tn.Range.Items))
+			copy(clone.Range.Items, tn.Range.Items)
 		}
-		copy(clone.Range.Items, tn.Range.Items)
 		if len(tn.Range.Statics) > 0 {
 			clone.Range.Statics = make([]string, len(tn.Range.Statics))
 			copy(clone.Range.Statics, tn.Range.Statics)
+		}
+		if tn.Range.StreamState != nil {
+			clone.Range.StreamState = &RangeStreamState{
+				Fingerprint: tn.Range.StreamState.Fingerprint,
+			}
+			// Use != nil (not len > 0) for consistency with Items above —
+			// preserves empty-but-non-nil slices through clone.
+			if tn.Range.StreamState.Keys != nil {
+				clone.Range.StreamState.Keys = make([]string, len(tn.Range.StreamState.Keys))
+				copy(clone.Range.StreamState.Keys, tn.Range.StreamState.Keys)
+			}
+			if tn.Range.StreamState.Hashes != nil {
+				clone.Range.StreamState.Hashes = make([]uint64, len(tn.Range.StreamState.Hashes))
+				copy(clone.Range.StreamState.Hashes, tn.Range.StreamState.Hashes)
+			}
 		}
 	}
 

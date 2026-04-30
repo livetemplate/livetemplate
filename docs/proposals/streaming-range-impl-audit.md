@@ -230,6 +230,48 @@ The two shared presence-only helpers (`isComplexInsertionPatternCtx`, `areAllIte
 
 ---
 
+## Phase 1 audit checkpoint
+
+**Date:** 2026-04-29  
+**Branch:** `phase1/streaming-range-types` (worktree `.worktrees/streaming-range-phase1/`)  
+**Base commit:** `f075d7b5` (PR #361 audit-doc merge into `main`)
+
+### Files touched
+
+| File | Change |
+|---|---|
+| `internal/build/types.go` | Add `RangeStreamState` type + `RangeData.StreamState` field; preserve nil `Items` in `Clone`; add stream-mode deep-copy block in `Clone`; add omit-`"d"` guard in `MarshalJSON` and `ToMap`. |
+| `internal/build/types_test.go` | 10 new tests: `TestRangeData_IsStreamMode` (table-driven across legacy/legacy-empty/stream/transitional cases for the new `IsStreamMode()` helper), `TestTreeNode_Clone_PreservesNilItems`, `TestRangeStreamState_DeepClone`, `TestTreeNode_MarshalJSON_OmitsD_StreamMode` + `_EmitsD_LegacyMode` + `_PreservesStatics_StreamMode` (regression guard against tying "s" emission to "d") + `_EmitsNullD_LegacyEmptyMode` (boundary: Items==nil && StreamState==nil preserves prior null shape), `TestTreeNode_ToMap_OmitsD_StreamMode` + `_EmitsD_LegacyMode` + `_EmitsEmptyD_LegacyEmptyMode` (ToMap parallel, preserves pre-existing "d": [] shape for the same boundary). |
+| `internal/keys/hash.go` | Add `ItemHashUint64(dynamics []interface{}) uint64` after `GenerateItemHashFromSlice`. Godoc covers nil-skip + nil-vs-`""` divergence. |
+| `internal/keys/hash_test.go` | 5 new tests: `TestItemHashUint64_Deterministic`, `_NilVsEmptyString`, `_PositionMatters`, `_NilEntriesSkipped`, `_CollisionStress_NoDupesIn10k` (10k synthetic dynamics, all hashes unique). |
+
+### Test results
+
+- **15 new tests** (10 in `types_test.go` + 5 in `hash_test.go`) — all pass.
+- **Full test suite** (`GOWORK=off go test ./...`) — green; zero regressions across the 17 internal/* packages, the root `livetemplate` package, or `pubsub`.
+- **Build sanity** — `go build` clean; pre-existing `interface{} → any` linter hints are unchanged from the base commit.
+
+### Per Phase 1 audit checkpoint requirement
+
+> Per proposal §11 Phase 1 audit checkpoint: "existing test suite green (no regression); new tests assert shape-only invariants. Reviewer confirms `RangeData.Items` is still the source of truth on every render path — no caller has been switched yet."
+
+`grep -rn "StreamState" internal/ --include='*.go'` returns matches in exactly four locations, all expected:
+
+1. **Type definition** — `internal/build/types.go` (the `RangeData.StreamState` field + `RangeStreamState` struct itself).
+2. **`Clone` deep-copy block** — `internal/build/types.go` (handles the field IF present; never reached on production trees today).
+3. **`MarshalJSON` / `ToMap` omit-`"d"` guards** — `internal/build/types.go` (the guard only fires when `Items==nil && StreamState!=nil`, a configuration no production caller produces today).
+4. **Test files** + **godoc cross-reference** in `internal/keys/hash.go` (documentation only, no executable read).
+
+**Confirmed: zero production callers construct or read `StreamState`.** All existing render paths continue to populate `RangeData.Items` and read from it; the new field is dormant until Phase 2 wires `GenerateRangeStreamOperations` to populate it.
+
+### Phase 2 unblocked
+
+Phase 2 deliverable per proposal §11: `GenerateRangeStreamOperations(streamState *RangeStreamState, newItems []interface{}, statics interface{}, metadata map[string]interface{}, stripStatics bool) []interface{}` plus the `rangeContext.oldKeySet` field and the helper-by-helper adaptations cataloged across §10's full implementation table — including `range_ops.go`, `tree_compare.go`, `helpers_range.go`, `prepare.go` (the wire-format path silently drops `StreamState` today; needs `StreamState` preservation), `helpers_compare.go` (`rangeItemsEqual` compares only `Items`; two stream-mode trees differing in `StreamState.Hashes` would compare equal), `helpers_value.go` (`HasRangeItems` returns false for stream-mode trees), `keys/loader.go` (`LoadExistingKeyMappings` reads only `Items`), and the fuzz-invariant sites — plus Gate 6. None of these depend on additional Phase 1 work; the foundational types are now in place.
+
+**Phase 2 invariant note: `IsStreamMode()` transitional case.** The helper currently returns `false` (legacy mode wins) when `Items != nil && StreamState != nil` — a state Phase 2's StreamState producer must never create. Phase 2 should consider promoting this branch from a silent fallback to a `panic`/`log.Warn` so producer-side invariant violations surface during development rather than silently falling back to legacy emission.
+
+---
+
 ## Audit sign-off
 
 All six §15 gates close as recorded. Phase 1 (foundational types) is unblocked under the proposal's audit-checkpoint sequencing. The two open questions retain explicit owners (OQ1 closed by decision; OQ2 owned by Phase 5 measurement).
