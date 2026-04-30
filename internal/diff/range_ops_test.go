@@ -1851,8 +1851,9 @@ func TestCompareRangeItemsForChanges_ConditionalBranchChange_LoadingToError(t *t
 }
 
 // streamStateFor builds a RangeStreamState snapshot from a slice of items, as
-// the Phase 3 producer will do. Items must share a structural fingerprint
-// (homogeneous range); the helper picks the first item's fingerprint.
+// the Phase 3 producer will do. ASSUMES homogeneous items: the helper takes
+// the first item's statics fingerprint as canonical and never re-checks. Tests
+// that need heterogeneous setups must build the streamState manually.
 func streamStateFor(items []*TreeNode, keyPos int) *RangeStreamState {
 	state := &RangeStreamState{
 		Keys:   make([]string, len(items)),

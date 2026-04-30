@@ -144,11 +144,14 @@ func GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 // whose retained "old side" is a RangeStreamState snapshot (keys + per-item
 // content hashes + structure-fingerprint), not a slice of cached item bodies.
 //
-// Returns nil when the diff cannot be expressed as stream operations and the
-// caller must fall back to full-tree replacement: streamState is nil, an item
-// has no extractable key, an item's structural fingerprint diverges from
-// streamState.Fingerprint (heterogeneous-range case per proposal §5d), or the
-// insertion pattern is too scattered (≥4 distinct insertion points).
+// Return semantics: nil signals "stream mode not applicable, caller must fall
+// back to GenerateRangeDifferentialOperations" (streamState is nil or has
+// inconsistent Keys/Hashes lengths, an item lacks an extractable key, an
+// item's statics fingerprint diverges from streamState.Fingerprint per §5d,
+// or the insertion pattern is too scattered ≥4 distinct points). An empty
+// non-nil slice signals "stream mode produced no ops" (every item unchanged).
+// Phase 3 callers MUST check ops != nil before treating an empty slice as a
+// no-op.
 //
 // Update payloads carry the full per-item dynamics map (with "" for absent
 // positions) per proposal §5c; absence means "this position is empty/cleared",
