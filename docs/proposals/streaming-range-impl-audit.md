@@ -230,6 +230,46 @@ The two shared presence-only helpers (`isComplexInsertionPatternCtx`, `areAllIte
 
 ---
 
+## Phase 1 audit checkpoint
+
+**Date:** 2026-04-29  
+**Branch:** `phase1/streaming-range-types` (worktree `.worktrees/streaming-range-phase1/`)  
+**Base commit:** `f075d7b5` (PR #361 audit-doc merge into `main`)
+
+### Files touched
+
+| File | Change |
+|---|---|
+| `internal/build/types.go` | Add `RangeStreamState` type + `RangeData.StreamState` field; preserve nil `Items` in `Clone`; add stream-mode deep-copy block in `Clone`; add omit-`"d"` guard in `MarshalJSON` and `ToMap`. |
+| `internal/build/types_test.go` | 7 new tests: `TestTreeNode_Clone_PreservesNilItems`, `TestRangeStreamState_DeepClone`, `TestTreeNode_MarshalJSON_OmitsD_StreamMode` + `_EmitsD_LegacyMode` + `_PreservesStatics_StreamMode` (regression guard against tying "s" emission to "d"), `TestTreeNode_ToMap_OmitsD_StreamMode` + `_EmitsD_LegacyMode`. |
+| `internal/keys/hash.go` | Add `ItemHashUint64(dynamics []interface{}) uint64` after `GenerateItemHashFromSlice`. Godoc covers nil-skip + nil-vs-`""` divergence. |
+| `internal/keys/hash_test.go` | 5 new tests: `TestItemHashUint64_Deterministic`, `_NilVsEmptyString`, `_PositionMatters`, `_NilEntriesSkipped`, `_CollisionStress_NoDupesIn10k` (10k synthetic dynamics, all hashes unique). |
+
+### Test results
+
+- **12 new tests** (7 in `types_test.go` + 5 in `hash_test.go`) — all pass.
+- **Full test suite** (`GOWORK=off go test ./...`) — green; zero regressions across the 17 internal/* packages, the root `livetemplate` package, or `pubsub`.
+- **Build sanity** — `go build` clean; pre-existing `interface{} → any` linter hints are unchanged from the base commit.
+
+### Per Phase 1 audit checkpoint requirement
+
+> Per proposal §11 Phase 1 audit checkpoint: "existing test suite green (no regression); new tests assert shape-only invariants. Reviewer confirms `RangeData.Items` is still the source of truth on every render path — no caller has been switched yet."
+
+`grep -rn "StreamState" internal/ --include='*.go'` returns matches in exactly four locations, all expected:
+
+1. **Type definition** — `internal/build/types.go` (the `RangeData.StreamState` field + `RangeStreamState` struct itself).
+2. **`Clone` deep-copy block** — `internal/build/types.go` (handles the field IF present; never reached on production trees today).
+3. **`MarshalJSON` / `ToMap` omit-`"d"` guards** — `internal/build/types.go` (the guard only fires when `Items==nil && StreamState!=nil`, a configuration no production caller produces today).
+4. **Test files** + **godoc cross-reference** in `internal/keys/hash.go` (documentation only, no executable read).
+
+**Confirmed: zero production callers construct or read `StreamState`.** All existing render paths continue to populate `RangeData.Items` and read from it; the new field is dormant until Phase 2 wires `GenerateRangeStreamOperations` to populate it.
+
+### Phase 2 unblocked
+
+Phase 2 deliverable per proposal §11: `GenerateRangeStreamOperations(streamState *RangeStreamState, newItems []interface{}, statics interface{}, metadata map[string]interface{}, stripStatics bool) []interface{}` plus the `rangeContext.oldKeySet` field and the helper-by-helper adaptations cataloged in §10's `helpers_range.go` row + Gate 6. None of these depend on additional Phase 1 work; the foundational types are now in place.
+
+---
+
 ## Audit sign-off
 
 All six §15 gates close as recorded. Phase 1 (foundational types) is unblocked under the proposal's audit-checkpoint sequencing. The two open questions retain explicit owners (OQ1 closed by decision; OQ2 owned by Phase 5 measurement).

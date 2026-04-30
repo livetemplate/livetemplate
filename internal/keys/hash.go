@@ -51,6 +51,38 @@ func GenerateItemHashFromSlice(dynamics []interface{}) string {
 	return hashParts(parts)
 }
 
+// ItemHashUint64 hashes the given dynamics slice with FNV-1a 64-bit and returns
+// the raw uint64. Used by Phase 2 stream-mode range diffing to populate
+// RangeStreamState.Hashes — the per-item content hash that lets the diff path
+// detect changes without retaining full per-item TreeNodes.
+//
+// Mirrors GenerateItemHashFromSlice's value-formatting (same formatHashPart
+// helper, same skip-nil rule), but returns the raw uint64 instead of the
+// 12-char hex prefix.
+//
+// nil-skip: nil entries are skipped — only non-nil entries' positions are
+// encoded into the hash. A trailing-nil and a missing-trailing-position
+// produce the same hash (consistent with the existing hashing rule).
+//
+// nil-vs-"" divergence: [nil, "x"] hashes to a different value than
+// ["", "x"] because the empty-string entry IS included (formatted as
+// `0:""`), while the nil entry is skipped entirely. A transition from
+// "field set to empty" to "field omitted entirely" is correctly detected
+// as a content change.
+func ItemHashUint64(dynamics []interface{}) uint64 {
+	var parts []string
+	for i, val := range dynamics {
+		if val == nil {
+			continue
+		}
+		parts = append(parts, formatHashPart(strconv.Itoa(i), val))
+	}
+	content := strings.Join(parts, "|")
+	hasher := fnv.New64a()
+	hasher.Write([]byte(content))
+	return hasher.Sum64()
+}
+
 func formatHashPart(key string, val interface{}) string {
 	valJSON, err := json.Marshal(val)
 	if err != nil {

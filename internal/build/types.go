@@ -104,6 +104,31 @@ type RangeData struct {
 	// For heterogeneous ranges (items with different statics), the fingerprint-based
 	// diff will detect structure changes and trigger a full tree send.
 	Statics []string
+
+	// StreamState, when non-nil, indicates this RangeData is in stream mode:
+	// Items is nil (the retained tree no longer holds per-item dynamics) and
+	// stream-mode diffing uses StreamState.Hashes to detect content changes.
+	// nil StreamState means legacy mode (Items is the source of truth).
+	StreamState *RangeStreamState
+}
+
+// RangeStreamState caches the per-range data needed by stream-mode diffing
+// in place of retaining full per-item TreeNodes. Populated by the diff path
+// on the first stream-mode render of a range; cleared/repopulated on each
+// subsequent stream-mode render of the same range.
+type RangeStreamState struct {
+	// Keys holds the item keys in render order; parallel to Hashes.
+	Keys []string
+
+	// Hashes holds the per-item content hash (FNV-1a 64-bit of the item's
+	// JSON-serialised dynamics); parallel to Keys.
+	Hashes []uint64
+
+	// Fingerprint is the structure-fingerprint snapshot taken at the first
+	// stream-mode render of this range. Compared against the new render's
+	// item-template fingerprint each diff to detect a homogeneity transition;
+	// mismatch triggers het-range fallback.
+	Fingerprint string
 }
 
 // TreeMetadata contains metadata about the tree node.
@@ -476,7 +501,10 @@ func (tn *TreeNode) MarshalJSON() ([]byte, error) {
 
 	// Add range data if present
 	if tn.Range != nil {
-		result["d"] = tn.Range.Items
+		// Omit "d" in stream mode (Items==nil && StreamState!=nil); see RangeStreamState.
+		if tn.Range.Items != nil || tn.Range.StreamState == nil {
+			result["d"] = tn.Range.Items
+		}
 		// Include statics for range items
 		if len(tn.Range.Statics) > 0 {
 			result["s"] = tn.Range.Statics
@@ -610,12 +638,15 @@ func (tn *TreeNode) ToMap() map[string]interface{} {
 
 	// Add range data
 	if tn.Range != nil {
-		// Recursively convert any nested TreeNodes in range items
-		convertedItems := make([]interface{}, len(tn.Range.Items))
-		for i, item := range tn.Range.Items {
-			convertedItems[i] = convertValueToMap(item)
+		// Omit "d" in stream mode (Items==nil && StreamState!=nil); see RangeStreamState.
+		if tn.Range.Items != nil || tn.Range.StreamState == nil {
+			// Recursively convert any nested TreeNodes in range items
+			convertedItems := make([]interface{}, len(tn.Range.Items))
+			for i, item := range tn.Range.Items {
+				convertedItems[i] = convertValueToMap(item)
+			}
+			result["d"] = convertedItems
 		}
-		result["d"] = convertedItems
 	}
 
 	// Add metadata
@@ -673,13 +704,29 @@ func (tn *TreeNode) Clone() *TreeNode {
 
 	// Clone range data
 	if tn.Range != nil {
-		clone.Range = &RangeData{
-			Items: make([]interface{}, len(tn.Range.Items)),
+		clone.Range = &RangeData{}
+		// Preserve nil-ness of Items: stream-mode trees have Items == nil and
+		// must not be promoted to an empty slice during clone.
+		if tn.Range.Items != nil {
+			clone.Range.Items = make([]interface{}, len(tn.Range.Items))
+			copy(clone.Range.Items, tn.Range.Items)
 		}
-		copy(clone.Range.Items, tn.Range.Items)
 		if len(tn.Range.Statics) > 0 {
 			clone.Range.Statics = make([]string, len(tn.Range.Statics))
 			copy(clone.Range.Statics, tn.Range.Statics)
+		}
+		if tn.Range.StreamState != nil {
+			clone.Range.StreamState = &RangeStreamState{
+				Fingerprint: tn.Range.StreamState.Fingerprint,
+			}
+			if len(tn.Range.StreamState.Keys) > 0 {
+				clone.Range.StreamState.Keys = make([]string, len(tn.Range.StreamState.Keys))
+				copy(clone.Range.StreamState.Keys, tn.Range.StreamState.Keys)
+			}
+			if len(tn.Range.StreamState.Hashes) > 0 {
+				clone.Range.StreamState.Hashes = make([]uint64, len(tn.Range.StreamState.Hashes))
+				copy(clone.Range.StreamState.Hashes, tn.Range.StreamState.Hashes)
+			}
 		}
 	}
 

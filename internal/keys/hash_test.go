@@ -1,6 +1,7 @@
 package keys
 
 import (
+	"strconv"
 	"testing"
 )
 
@@ -152,5 +153,59 @@ func TestGenerateItemHashFromSlice_Nil(t *testing.T) {
 	hash := GenerateItemHashFromSlice(nil)
 	if hash == "" {
 		t.Error("Nil slice should return a non-empty hash")
+	}
+}
+
+func TestItemHashUint64_Deterministic(t *testing.T) {
+	dynamics := []interface{}{"title", "content"}
+	h1 := ItemHashUint64(dynamics)
+	h2 := ItemHashUint64(dynamics)
+	if h1 != h2 {
+		t.Errorf("Hash should be deterministic, got: %d and %d", h1, h2)
+	}
+}
+
+func TestItemHashUint64_NilVsEmptyString(t *testing.T) {
+	// Per godoc: nil entries are SKIPPED; "" entries are INCLUDED. So
+	// [nil, "x"] and ["", "x"] must produce DIFFERENT hashes — proves the
+	// nil-vs-"" divergence promise (a transition from "field set to empty"
+	// to "field omitted entirely" is detected as a content change).
+	withNil := []interface{}{nil, "x"}
+	withEmpty := []interface{}{"", "x"}
+	if ItemHashUint64(withNil) == ItemHashUint64(withEmpty) {
+		t.Error("[nil, \"x\"] and [\"\", \"x\"] should produce DIFFERENT hashes")
+	}
+}
+
+func TestItemHashUint64_PositionMatters(t *testing.T) {
+	h1 := ItemHashUint64([]interface{}{"a", "b"})
+	h2 := ItemHashUint64([]interface{}{"b", "a"})
+	if h1 == h2 {
+		t.Error("Different positional orderings should produce different hashes")
+	}
+}
+
+func TestItemHashUint64_NilEntriesSkipped(t *testing.T) {
+	// nil is skipped but position is preserved by formatHashPart's index key.
+	// [nil, "x"] formats as `1:"x"`; [nil, nil, "x"] formats as `2:"x"`.
+	// Different position keys → different hashes.
+	h1 := ItemHashUint64([]interface{}{nil, "x"})
+	h2 := ItemHashUint64([]interface{}{nil, nil, "x"})
+	if h1 == h2 {
+		t.Error("Position of non-nil entry should affect hash even when prior entries are all nil")
+	}
+}
+
+func TestItemHashUint64_CollisionStress_NoDupesIn10k(t *testing.T) {
+	// Mirrors TestFingerprintStress_NoDuplicatesIn10kStructures pattern:
+	// 10k synthetic dynamics with one varying field, all hashes must be unique.
+	const count = 10000
+	seen := make(map[uint64]int, count)
+	for i := 0; i < count; i++ {
+		h := ItemHashUint64([]interface{}{"item-" + strconv.Itoa(i), "x"})
+		if prev, exists := seen[h]; exists {
+			t.Fatalf("collision: input %d and input %d both hash to %d", prev, i, h)
+		}
+		seen[h] = i
 	}
 }

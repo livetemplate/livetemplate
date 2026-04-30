@@ -508,3 +508,183 @@ func TestContext_WithPath(t *testing.T) {
 		t.Error("Original context should be unchanged")
 	}
 }
+
+// TestTreeNode_Clone_PreservesNilItems verifies that cloning a TreeNode with
+// Range.Items==nil leaves the clone's Items==nil rather than promoting it to
+// an empty slice — stream-mode detection downstream relies on the nil-ness.
+func TestTreeNode_Clone_PreservesNilItems(t *testing.T) {
+	original := &TreeNode{
+		Range: &RangeData{
+			Items:   nil,
+			Statics: []string{"<li>", "</li>"},
+		},
+	}
+
+	clone := original.Clone()
+
+	if clone.Range == nil {
+		t.Fatal("Clone Range should not be nil")
+	}
+	if clone.Range.Items != nil {
+		t.Errorf("Clone Range.Items should be nil, got %v", clone.Range.Items)
+	}
+	if !reflect.DeepEqual(clone.Range.Statics, original.Range.Statics) {
+		t.Errorf("Clone Range.Statics = %v, want %v", clone.Range.Statics, original.Range.Statics)
+	}
+}
+
+// TestRangeStreamState_DeepClone tests deep cloning of RangeStreamState.
+func TestRangeStreamState_DeepClone(t *testing.T) {
+	original := &TreeNode{
+		Range: &RangeData{
+			StreamState: &RangeStreamState{
+				Keys:        []string{"k1", "k2"},
+				Hashes:      []uint64{0xdeadbeef, 0xcafebabe},
+				Fingerprint: "fp123",
+			},
+		},
+	}
+
+	clone := original.Clone()
+
+	if clone.Range == nil || clone.Range.StreamState == nil {
+		t.Fatal("Clone Range.StreamState should not be nil")
+	}
+	if !reflect.DeepEqual(clone.Range.StreamState.Keys, original.Range.StreamState.Keys) {
+		t.Errorf("Clone Keys = %v, want %v", clone.Range.StreamState.Keys, original.Range.StreamState.Keys)
+	}
+	if !reflect.DeepEqual(clone.Range.StreamState.Hashes, original.Range.StreamState.Hashes) {
+		t.Errorf("Clone Hashes = %v, want %v", clone.Range.StreamState.Hashes, original.Range.StreamState.Hashes)
+	}
+	if clone.Range.StreamState.Fingerprint != original.Range.StreamState.Fingerprint {
+		t.Errorf("Clone Fingerprint = %v, want %v", clone.Range.StreamState.Fingerprint, original.Range.StreamState.Fingerprint)
+	}
+
+	// Mutate clone, confirm original unchanged
+	clone.Range.StreamState.Keys[0] = "mutated"
+	if original.Range.StreamState.Keys[0] == "mutated" {
+		t.Error("Mutating clone Keys should not affect original")
+	}
+	clone.Range.StreamState.Hashes[0] = 0xff
+	if original.Range.StreamState.Hashes[0] == 0xff {
+		t.Error("Mutating clone Hashes should not affect original")
+	}
+}
+
+// TestTreeNode_MarshalJSON_OmitsD_StreamMode verifies stream-mode trees omit "d".
+// (Items==nil && StreamState!=nil emits {} not {"d": null}.)
+func TestTreeNode_MarshalJSON_OmitsD_StreamMode(t *testing.T) {
+	node := &TreeNode{
+		Range: &RangeData{
+			Items: nil,
+			StreamState: &RangeStreamState{
+				Keys:        []string{"k1"},
+				Hashes:      []uint64{0x1},
+				Fingerprint: "fp",
+			},
+		},
+	}
+
+	data, err := json.Marshal(node)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if _, hasD := result["d"]; hasD {
+		t.Errorf("Stream-mode tree should NOT have 'd' key, got %v", result)
+	}
+}
+
+// TestTreeNode_MarshalJSON_EmitsD_LegacyMode is the regression guard: legacy
+// trees (non-nil Items) still emit "d" exactly as today.
+func TestTreeNode_MarshalJSON_EmitsD_LegacyMode(t *testing.T) {
+	node := &TreeNode{
+		Range: &RangeData{
+			Items: []interface{}{"item1"},
+		},
+	}
+
+	data, err := json.Marshal(node)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if _, hasD := result["d"]; !hasD {
+		t.Errorf("Legacy-mode tree should have 'd' key, got %v", result)
+	}
+}
+
+// TestTreeNode_ToMap_OmitsD_StreamMode mirrors MarshalJSON_OmitsD_StreamMode for ToMap.
+func TestTreeNode_ToMap_OmitsD_StreamMode(t *testing.T) {
+	node := &TreeNode{
+		Range: &RangeData{
+			Items: nil,
+			StreamState: &RangeStreamState{
+				Keys: []string{"k1"},
+			},
+		},
+	}
+
+	m := node.ToMap()
+
+	if _, hasD := m["d"]; hasD {
+		t.Errorf("Stream-mode tree's ToMap() should NOT have 'd' key, got %v", m)
+	}
+}
+
+// TestTreeNode_ToMap_EmitsD_LegacyMode mirrors MarshalJSON_EmitsD_LegacyMode for ToMap.
+func TestTreeNode_ToMap_EmitsD_LegacyMode(t *testing.T) {
+	node := &TreeNode{
+		Range: &RangeData{
+			Items: []interface{}{"item1"},
+		},
+	}
+
+	m := node.ToMap()
+
+	if _, hasD := m["d"]; !hasD {
+		t.Errorf("Legacy-mode tree's ToMap() should have 'd' key, got %v", m)
+	}
+}
+
+// TestTreeNode_MarshalJSON_PreservesStatics_StreamMode guards against tying
+// "s" emission to "d" emission: stream-mode trees omit "d" but must still
+// emit "s" so the client can render items from cached statics.
+func TestTreeNode_MarshalJSON_PreservesStatics_StreamMode(t *testing.T) {
+	node := &TreeNode{
+		Range: &RangeData{
+			Items:   nil,
+			Statics: []string{"<li>", "</li>"},
+			StreamState: &RangeStreamState{
+				Keys: []string{"k1"},
+			},
+		},
+	}
+
+	data, err := json.Marshal(node)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if _, hasD := result["d"]; hasD {
+		t.Errorf("Stream-mode tree should NOT have 'd' key, got %v", result)
+	}
+	if _, hasS := result["s"]; !hasS {
+		t.Errorf("Stream-mode tree SHOULD have 's' key for cached client statics, got %v", result)
+	}
+}
