@@ -12,12 +12,15 @@ import (
 // rangeContext holds pre-computed data for a single range diff operation,
 // avoiding redundant key extraction, map creation, and statics parsing.
 type rangeContext struct {
-	oldItems  []interface{}
-	newItems  []interface{}
-	statics   interface{}
-	metadata  map[string]interface{}
-	oldKeys   []string
-	newKeys   []string
+	oldItems []interface{}
+	newItems []interface{}
+	statics  interface{}
+	metadata map[string]interface{}
+	oldKeys  []string
+	newKeys  []string
+	// INVARIANT: oldByKey is nil on the stream path. Helpers that need only
+	// presence read oldKeySet instead. Phase 3+ helpers added here MUST NOT
+	// assume oldByKey is populated when fromStream is conceptually true.
 	oldByKey  map[string]interface{}
 	newByKey  map[string]interface{}
 	oldKeySet map[string]struct{}
@@ -276,6 +279,8 @@ func dynamicsToUpdatePayload(dynamics []interface{}, keyPos int) map[string]inte
 		case nil:
 			payload[fieldKey] = ""
 		case *TreeNode:
+			// statics guaranteed cached: stream-mode entry verified
+			// homogeneous fingerprint before reaching this point.
 			payload[fieldKey] = PrepareTreeForClient(v, true)
 		default:
 			payload[fieldKey] = v
