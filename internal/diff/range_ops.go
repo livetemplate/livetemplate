@@ -65,7 +65,6 @@ func newRangeContext(oldItems, newItems []interface{}, statics interface{}, meta
 	return ctx
 }
 
-// newStreamRangeContext: oldItems/oldByKey unused on stream path; presence-only helpers read oldKeySet instead.
 func newStreamRangeContext(oldKeys []string, newItems []interface{}, statics interface{}, metadata map[string]interface{}) *rangeContext {
 	ctx := &rangeContext{
 		newItems:  newItems,
@@ -279,8 +278,7 @@ func dynamicsToUpdatePayload(dynamics []interface{}, keyPos int) map[string]inte
 		case nil:
 			payload[fieldKey] = ""
 		case *TreeNode:
-			// statics guaranteed cached: stream-mode entry verified
-			// homogeneous fingerprint before reaching this point.
+			// clientHasStatics=true: fingerprint check above guarantees homogeneous statics.
 			payload[fieldKey] = PrepareTreeForClient(v, true)
 		default:
 			payload[fieldKey] = v

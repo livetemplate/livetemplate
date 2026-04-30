@@ -2142,6 +2142,31 @@ func TestGenerateRangeStreamOperations_ScatteredInsertFallback(t *testing.T) {
 	}
 }
 
+func TestGenerateRangeStreamOperations_AllItemsRemoved(t *testing.T) {
+	// Common production scenario: clearing a list. Every old key emits ['r'],
+	// no insertions, no reorder. Result should be a non-nil ops slice.
+	statics := []string{`<li data-key="`, `">`, `</li>`}
+	item1 := &TreeNode{Dynamics: []interface{}{"id1", "Name 1"}}
+	item2 := &TreeNode{Dynamics: []interface{}{"id2", "Name 2"}}
+
+	streamState := streamStateFor([]*TreeNode{item1, item2}, 0)
+	newItems := []interface{}{} // all removed
+
+	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
+	if ops == nil {
+		t.Fatal("Expected non-nil ops (every removal emitted), got nil (fallback)")
+	}
+	if len(ops) != 2 {
+		t.Fatalf("Expected 2 'r' ops (one per removed key), got %d: %v", len(ops), ops)
+	}
+	for _, op := range ops {
+		opArr := op.([]interface{})
+		if opArr[0] != "r" {
+			t.Errorf("Expected ['r', key], got %v", opArr)
+		}
+	}
+}
+
 func TestGenerateRangeStreamOperations_KeyHashLengthMismatch_ReturnsNil(t *testing.T) {
 	// Defensive guard: RangeStreamState documents Keys/Hashes as parallel slices
 	// but doesn't enforce it as an invariant. A mismatch (e.g., from a

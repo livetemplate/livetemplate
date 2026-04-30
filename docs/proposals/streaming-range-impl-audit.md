@@ -321,7 +321,13 @@ Phase 3 deliverable per proposal §11: wire the dispatch in `internal/diff/tree_
 
 Other Phase 3 risk sites confirmed unchanged in Phase 2 (forward-documented in Phase 1 checkpoint, still pending): `prepare.go` (StreamState preservation in `PrepareTreeForClient`), `helpers_compare.go` (`rangeItemsEqual` extension), `helpers_value.go` (`HasRangeItems` extension), `keys/loader.go` (`LoadExistingKeyMappings` for stream mode), `internal/fuzz/invariants/verifier.go` (`buildIDKeyMap` + range-iteration sites + new fuzz corpus entries), and the no-ops golden in `tree_compare.go`'s empty-diff branch (per §10 `tree_compare.go` row).
 
-The two helpers `handleIncrementalInsertionsCtx` and `handleIndividualInsertionsCtx` (mentioned in proposal §11 Phase 2 deliverable as "adapt") required no function-body edits — they only read `ctx.addedKeys`, `ctx.newByKey`, and `ctx.newItems`, all of which the new `newStreamRangeContext` populates correctly.
+Three helpers from proposal §11 Phase 2's "adapt" list required no function-body edits, all for the same reason — they read only fields that `newStreamRangeContext` populates correctly:
+
+- `areAllItemsAtStartCtx` — iterates `ctx.addedKeys` and `ctx.newItems` positions; never touches `ctx.oldItems` or `ctx.oldByKey`. The prepend optimisation fires correctly on the stream path because `addedKeys` is correctly derived from `streamState.Keys` upstream.
+- `handleIncrementalInsertionsCtx` — only dispatches to `areAllItemsAtStartCtx`/`areAllItemsAtEndCtx`/`handleIndividualInsertionsCtx`, no direct reads.
+- `handleIndividualInsertionsCtx` — reads `ctx.addedKeys`, `ctx.newByKey`, `ctx.newItems`; the legacy-only fields stay nil and are never accessed.
+
+A future Phase 3+ helper added here MUST audit which `ctx` fields it reads — `oldItems` and `oldByKey` are nil on the stream path (the struct-field `INVARIANT` comment in `range_ops.go` enforces this in code).
 
 ---
 
