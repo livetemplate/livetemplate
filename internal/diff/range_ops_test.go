@@ -2142,6 +2142,26 @@ func TestGenerateRangeStreamOperations_ScatteredInsertFallback(t *testing.T) {
 	}
 }
 
+func TestGenerateRangeStreamOperations_KeyHashLengthMismatch_ReturnsNil(t *testing.T) {
+	// Defensive guard: RangeStreamState documents Keys/Hashes as parallel slices
+	// but doesn't enforce it as an invariant. A mismatch (e.g., from a
+	// deserialisation bug) must return nil (legacy fallback), not panic.
+	statics := []string{`<li data-key="`, `">`, `</li>`}
+	streamState := &RangeStreamState{
+		Keys:        []string{"id1", "id2"},
+		Hashes:      []uint64{42}, // shorter than Keys
+		Fingerprint: "anything",
+	}
+	newItems := []interface{}{
+		&TreeNode{Dynamics: []interface{}{"id1", "Name 1"}},
+	}
+
+	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
+	if ops != nil {
+		t.Errorf("Expected nil (mismatched Keys/Hashes lengths), got: %v", ops)
+	}
+}
+
 func TestGenerateRangeStreamOperations_HetRangeFallback(t *testing.T) {
 	// One new item has a divergent structural fingerprint (different Statics) → return nil.
 	statics := []string{`<li data-key="`, `">`, `</li>`}

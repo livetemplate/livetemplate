@@ -12,18 +12,17 @@ import (
 // rangeContext holds pre-computed data for a single range diff operation,
 // avoiding redundant key extraction, map creation, and statics parsing.
 type rangeContext struct {
-	oldItems   []interface{}
-	newItems   []interface{}
-	statics    interface{}
-	metadata   map[string]interface{}
-	oldKeys    []string
-	newKeys    []string
-	oldByKey   map[string]interface{}
-	newByKey   map[string]interface{}
-	oldKeySet  map[string]struct{}
-	keyPos     int
-	addedKeys  []string
-	fromStream bool
+	oldItems  []interface{}
+	newItems  []interface{}
+	statics   interface{}
+	metadata  map[string]interface{}
+	oldKeys   []string
+	newKeys   []string
+	oldByKey  map[string]interface{}
+	newByKey  map[string]interface{}
+	oldKeySet map[string]struct{}
+	keyPos    int
+	addedKeys []string
 }
 
 func newRangeContext(oldItems, newItems []interface{}, statics interface{}, metadata map[string]interface{}) *rangeContext {
@@ -63,22 +62,16 @@ func newRangeContext(oldItems, newItems []interface{}, statics interface{}, meta
 	return ctx
 }
 
-// newStreamRangeContext builds a rangeContext for the stream-mode diff path.
-// oldItems and oldByKey are intentionally empty: the stream path never reads
-// item bodies from the old side (those callers — isPureReorderingCtx,
-// generateUpdateOps, DetectPositionField — are legacy-only). The presence-only
-// helpers (isComplexInsertionPatternCtx, areAllItemsAtEndCtx) read oldKeySet
-// instead, which is populated from the StreamState.Keys snapshot.
+// newStreamRangeContext: oldItems/oldByKey unused on stream path; presence-only helpers read oldKeySet instead.
 func newStreamRangeContext(oldKeys []string, newItems []interface{}, statics interface{}, metadata map[string]interface{}) *rangeContext {
 	ctx := &rangeContext{
-		newItems:   newItems,
-		statics:    statics,
-		metadata:   metadata,
-		oldKeys:    oldKeys,
-		newByKey:   make(map[string]interface{}, len(newItems)),
-		newKeys:    make([]string, 0, len(newItems)),
-		oldKeySet:  make(map[string]struct{}, len(oldKeys)),
-		fromStream: true,
+		newItems:  newItems,
+		statics:   statics,
+		metadata:  metadata,
+		oldKeys:   oldKeys,
+		newByKey:  make(map[string]interface{}, len(newItems)),
+		newKeys:   make([]string, 0, len(newItems)),
+		oldKeySet: make(map[string]struct{}, len(oldKeys)),
 	}
 	ctx.keyPos = FindKeyPositionFromStatics(statics)
 
@@ -168,6 +161,9 @@ func GenerateRangeStreamOperations(
 	if streamState == nil {
 		return nil
 	}
+	if len(streamState.Hashes) != len(streamState.Keys) {
+		return nil
+	}
 
 	keyPos := FindKeyPositionFromStatics(statics)
 	newKeys := make([]string, 0, len(newItems))
@@ -196,7 +192,8 @@ func GenerateRangeStreamOperations(
 		oldHashByKey[k] = streamState.Hashes[i]
 	}
 
-	if sameKeySet(streamState.Keys, newKeys) && HasReordering(streamState.Keys, newKeys) {
+	hasReorder := sameKeySet(streamState.Keys, newKeys) && HasReordering(streamState.Keys, newKeys)
+	if hasReorder {
 		anyHashChanged := false
 		for i, k := range newKeys {
 			if oldHashByKey[k] != newHashes[i] {
@@ -218,7 +215,7 @@ func GenerateRangeStreamOperations(
 	operations = generateStreamUpdateOps(newItems, newKeys, newHashes, oldHashByKey, ctx.keyPos, operations)
 	operations = generateInsertionOps(ctx, operations)
 
-	if sameKeySet(streamState.Keys, newKeys) && HasReordering(streamState.Keys, newKeys) {
+	if hasReorder {
 		operations = append(operations, []interface{}{"o", newKeys})
 	}
 
@@ -229,8 +226,7 @@ func GenerateRangeStreamOperations(
 	return operations
 }
 
-// generateStreamRemovalOps emits ["r", key] for each old key absent from newByKey.
-// Sorted for determinism, mirroring generateRemovalOps' sort policy.
+// generateStreamRemovalOps: sorted for determinism (mirrors generateRemovalOps).
 func generateStreamRemovalOps(oldKeys []string, newByKey map[string]interface{}, operations []interface{}) []interface{} {
 	sortedOldKeys := make([]string, len(oldKeys))
 	copy(sortedOldKeys, oldKeys)
@@ -244,13 +240,7 @@ func generateStreamRemovalOps(oldKeys []string, newByKey map[string]interface{},
 	return operations
 }
 
-// generateStreamUpdateOps emits ["u", key, fullDynamicsPayload] for each new key
-// whose hash differs from its retained streamState hash. Iterates in insertion
-// order (the new natural order); ["u"] ops are order-agnostic on the client.
-//
-// Per proposal §5c the payload is the WHOLE per-item dynamics map with "" for
-// absent positions — not a partial diff. Phase 4 will relax the producer-side
-// "only changed fields" contract in the spec to match this emission shape.
+// generateStreamUpdateOps emits whole-item dynamics on hash mismatch (proposal §5c).
 func generateStreamUpdateOps(
 	newItems []interface{},
 	newKeys []string,
@@ -274,21 +264,7 @@ func generateStreamUpdateOps(
 	return operations
 }
 
-// dynamicsToUpdatePayload converts a TreeNode's positional Dynamics slice into
-// the wire-format payload map used by ["u"] stream-mode ops.
-//
-// Per proposal §5c, the payload carries every dynamic position the item owns:
-//   - The key position is omitted (the key is encoded in op[1]).
-//   - A nil entry encodes as "" (the wire signal for "this position is cleared").
-//   - A nested *TreeNode is sent stripped of statics — the client has them cached
-//     because the range is in stream mode, which guarantees homogeneous statics.
-//   - Other values pass through unchanged (strings, numbers, etc.).
-//
-// Homogeneity invariant: stream mode requires all items in the range to share
-// the same template (same Statics → same Dynamics slice length). The payload
-// mirrors the new item's slice exactly; positions present in the previous
-// snapshot but absent in the new item rely on Phase 4's spec update making the
-// "['u'] is a full snapshot" semantic explicit on the receiver side.
+// dynamicsToUpdatePayload encodes per proposal §5c: nil → "", nested *TreeNode → stripped, key position omitted.
 func dynamicsToUpdatePayload(dynamics []interface{}, keyPos int) map[string]interface{} {
 	payload := make(map[string]interface{}, len(dynamics))
 	for i, val := range dynamics {
