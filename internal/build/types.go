@@ -112,10 +112,10 @@ type RangeData struct {
 	StreamState *RangeStreamState
 }
 
-// RangeStreamState caches the per-range data needed by stream-mode diffing
-// in place of retaining full per-item TreeNodes. Populated by the diff path
-// on the first stream-mode render of a range; cleared/repopulated on each
-// subsequent stream-mode render of the same range.
+// RangeStreamState holds the per-range snapshot used by stream-mode range
+// diffing in place of full per-item TreeNodes: the item keys in render order,
+// the per-item content hashes parallel to those keys, and a homogeneity
+// fingerprint to detect het-range fallback.
 type RangeStreamState struct {
 	// Keys holds the item keys in render order; parallel to Hashes.
 	Keys []string

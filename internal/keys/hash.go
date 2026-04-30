@@ -52,13 +52,9 @@ func GenerateItemHashFromSlice(dynamics []interface{}) string {
 }
 
 // ItemHashUint64 hashes the given dynamics slice with FNV-1a 64-bit and returns
-// the raw uint64. Used by Phase 2 stream-mode range diffing to populate
-// RangeStreamState.Hashes — the per-item content hash that lets the diff path
-// detect changes without retaining full per-item TreeNodes.
-//
-// Mirrors GenerateItemHashFromSlice's value-formatting (same formatHashPart
-// helper, same skip-nil rule), but returns the raw uint64 instead of the
-// 12-char hex prefix.
+// the raw uint64. Mirrors GenerateItemHashFromSlice's value-formatting (same
+// formatHashPart helper, same skip-nil rule), but returns the raw uint64
+// instead of the 12-char hex prefix.
 //
 // nil-skip: nil entries are skipped — only non-nil entries' positions are
 // encoded into the hash. A trailing-nil and a missing-trailing-position
