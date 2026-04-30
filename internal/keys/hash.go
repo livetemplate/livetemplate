@@ -41,14 +41,7 @@ func GenerateItemHash(dynamics map[string]interface{}) string {
 // This avoids the overhead of converting []interface{} to map[string]interface{}
 // when the dynamics are already in slice form. Nil entries are skipped.
 func GenerateItemHashFromSlice(dynamics []interface{}) string {
-	var parts []string
-	for i, val := range dynamics {
-		if val == nil {
-			continue
-		}
-		parts = append(parts, formatHashPart(strconv.Itoa(i), val))
-	}
-	return hashParts(parts)
+	return hashParts(buildHashParts(dynamics))
 }
 
 // ItemHashUint64 hashes the given dynamics slice with FNV-1a 64-bit and returns
@@ -66,14 +59,7 @@ func GenerateItemHashFromSlice(dynamics []interface{}) string {
 // "field set to empty" to "field omitted entirely" is correctly detected
 // as a content change.
 func ItemHashUint64(dynamics []interface{}) uint64 {
-	var parts []string
-	for i, val := range dynamics {
-		if val == nil {
-			continue
-		}
-		parts = append(parts, formatHashPart(strconv.Itoa(i), val))
-	}
-	content := strings.Join(parts, "|")
+	content := strings.Join(buildHashParts(dynamics), "|")
 	hasher := fnv.New64a()
 	hasher.Write([]byte(content))
 	return hasher.Sum64()
@@ -97,4 +83,18 @@ func hashParts(parts []string) string {
 		return hash[:HashPrefixLength]
 	}
 	return hash
+}
+
+// buildHashParts formats the dynamics slice into ordered hash parts (skipping
+// nil entries). Shared by GenerateItemHashFromSlice and ItemHashUint64 so the
+// two hash functions can never silently diverge in their input encoding.
+func buildHashParts(dynamics []interface{}) []string {
+	var parts []string
+	for i, val := range dynamics {
+		if val == nil {
+			continue
+		}
+		parts = append(parts, formatHashPart(strconv.Itoa(i), val))
+	}
+	return parts
 }
