@@ -13,5 +13,8 @@ type TreeNode = build.TreeNode
 // RangeData is an alias for build.RangeData for convenience.
 type RangeData = build.RangeData
 
+// RangeStreamState is an alias for build.RangeStreamState for convenience.
+type RangeStreamState = build.RangeStreamState
+
 // TreeMetadata is an alias for build.TreeMetadata for convenience.
 type TreeMetadata = build.TreeMetadata

@@ -165,7 +165,7 @@ func areAllItemsAtStartCtx(ctx *rangeContext) bool {
 }
 
 func areAllItemsAtEndCtx(ctx *rangeContext) bool {
-	if len(ctx.addedKeys) == 0 || len(ctx.oldItems) == 0 {
+	if len(ctx.addedKeys) == 0 || len(ctx.oldKeySet) == 0 {
 		return false
 	}
 
@@ -176,7 +176,7 @@ func areAllItemsAtEndCtx(ctx *rangeContext) bool {
 			return false
 		}
 		if itemKey, ok := ctx.getItemKey(ctx.newItems[i]); ok {
-			if _, exists := ctx.oldByKey[itemKey]; !exists {
+			if _, exists := ctx.oldKeySet[itemKey]; !exists {
 				return false
 			}
 		} else {
@@ -215,7 +215,7 @@ func isComplexInsertionPatternCtx(ctx *rangeContext) bool {
 	insertionPoints := make(map[string]bool, len(ctx.addedKeys))
 	for i, item := range ctx.newItems {
 		if keyStr, ok := ctx.getItemKey(item); ok {
-			if _, inOld := ctx.oldByKey[keyStr]; !inOld {
+			if _, inOld := ctx.oldKeySet[keyStr]; !inOld {
 				var insertionPoint string
 				if i > 0 {
 					if prevKeyStr, ok := ctx.getItemKey(ctx.newItems[i-1]); ok {

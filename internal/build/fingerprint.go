@@ -106,3 +106,79 @@ func hashStructureWithCircularDetection(tree *TreeNode, hasher hash.Hash, visitP
 		hasher.Write(fpClose)
 	}
 }
+
+// CalculateStaticsFingerprint hashes only the static-template shape: outer
+// Statics, nested *TreeNode Statics (recursively), and Range.Statics. Unlike
+// CalculateStructureFingerprint, it ignores scalar dynamic positions entirely
+// — a position holding "x" and a position holding nil produce the same hash
+// because both are content, not structure.
+//
+// Used by the stream-mode range-diff path to detect heterogeneous-template
+// items per proposal §5b: items rendering from the same template (sharing
+// outer Statics + nested-template shape) are homogeneous; conditional
+// branches that swap a scalar for a TreeNode (or vice versa) are not.
+//
+// Invariant: always returns a non-empty string for non-nil input.
+func CalculateStaticsFingerprint(tree *TreeNode) string {
+	if tree == nil {
+		return ""
+	}
+
+	hasher := fnv.New128a()
+	visitPath := make(map[*TreeNode]struct{})
+	hashStaticsWithCircularDetection(tree, hasher, visitPath)
+
+	return hex.EncodeToString(hasher.Sum(nil))[:16]
+}
+
+// hashStaticsWithCircularDetection mirrors hashStructureWithCircularDetection
+// but skips scalar dynamic positions — only nested *TreeNode positions
+// contribute to the hash (their statics are recursively included).
+func hashStaticsWithCircularDetection(tree *TreeNode, hasher hash.Hash, visitPath map[*TreeNode]struct{}) {
+	if _, found := visitPath[tree]; found {
+		hasher.Write(fpCircular)
+		return
+	}
+
+	visitPath[tree] = struct{}{}
+	defer delete(visitPath, tree)
+
+	var intBuf [20]byte
+
+	if tree.HasStatics() {
+		hasher.Write(fpStatPfx)
+		hasher.Write(strconv.AppendInt(intBuf[:0], int64(len(tree.Statics)), 10))
+		hasher.Write(fpColon)
+		for _, s := range tree.Statics {
+			hasher.Write([]byte(s))
+			hasher.Write(fpSep)
+		}
+	}
+
+	for i, v := range tree.Dynamics {
+		nestedTree, ok := v.(*TreeNode)
+		if !ok {
+			continue
+		}
+		hasher.Write(fpDynPfx)
+		hasher.Write(strconv.AppendInt(intBuf[:0], int64(i), 10))
+		hasher.Write(fpColon)
+		hasher.Write(fpTreeOpen)
+		hashStaticsWithCircularDetection(nestedTree, hasher, visitPath)
+		hasher.Write(fpClose)
+	}
+
+	if tree.Range != nil {
+		hasher.Write(fpRngOpen)
+		if len(tree.Range.Statics) > 0 {
+			hasher.Write(fpRngPfx)
+			hasher.Write(strconv.AppendInt(intBuf[:0], int64(len(tree.Range.Statics)), 10))
+			hasher.Write(fpColon)
+			for _, s := range tree.Range.Statics {
+				hasher.Write([]byte(s))
+				hasher.Write(fpSep)
+			}
+		}
+		hasher.Write(fpClose)
+	}
+}
