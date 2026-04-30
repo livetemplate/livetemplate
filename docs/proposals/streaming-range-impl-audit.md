@@ -268,6 +268,8 @@ The two shared presence-only helpers (`isComplexInsertionPatternCtx`, `areAllIte
 
 Phase 2 deliverable per proposal §11: `GenerateRangeStreamOperations(streamState *RangeStreamState, newItems []interface{}, statics interface{}, metadata map[string]interface{}, stripStatics bool) []interface{}` plus the `rangeContext.oldKeySet` field and the helper-by-helper adaptations cataloged across §10's full implementation table — including `range_ops.go`, `tree_compare.go`, `helpers_range.go`, `prepare.go` (the wire-format path silently drops `StreamState` today; needs `StreamState` preservation), `helpers_compare.go` (`rangeItemsEqual` compares only `Items`; two stream-mode trees differing in `StreamState.Hashes` would compare equal), `helpers_value.go` (`HasRangeItems` returns false for stream-mode trees), `keys/loader.go` (`LoadExistingKeyMappings` reads only `Items`), and the fuzz-invariant sites — plus Gate 6. None of these depend on additional Phase 1 work; the foundational types are now in place.
 
+**Phase 2 invariant note: `IsStreamMode()` transitional case.** The helper currently returns `false` (legacy mode wins) when `Items != nil && StreamState != nil` — a state Phase 2's StreamState producer must never create. Phase 2 should consider promoting this branch from a silent fallback to a `panic`/`log.Warn` so producer-side invariant violations surface during development rather than silently falling back to legacy emission.
+
 ---
 
 ## Audit sign-off
