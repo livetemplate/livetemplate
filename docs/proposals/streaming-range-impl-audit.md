@@ -266,7 +266,7 @@ The two shared presence-only helpers (`isComplexInsertionPatternCtx`, `areAllIte
 
 ### Phase 2 unblocked
 
-Phase 2 deliverable per proposal §11: `GenerateRangeStreamOperations(streamState *RangeStreamState, newItems []interface{}, statics interface{}, metadata map[string]interface{}, stripStatics bool) []interface{}` plus the `rangeContext.oldKeySet` field and the helper-by-helper adaptations cataloged in §10's `helpers_range.go` row + Gate 6. None of these depend on additional Phase 1 work; the foundational types are now in place.
+Phase 2 deliverable per proposal §11: `GenerateRangeStreamOperations(streamState *RangeStreamState, newItems []interface{}, statics interface{}, metadata map[string]interface{}, stripStatics bool) []interface{}` plus the `rangeContext.oldKeySet` field and the helper-by-helper adaptations cataloged across §10's full implementation table — including `range_ops.go`, `tree_compare.go`, `helpers_range.go`, `prepare.go` (the wire-format path silently drops `StreamState` today; needs `StreamState` preservation), `helpers_compare.go` (`rangeItemsEqual` compares only `Items`; two stream-mode trees differing in `StreamState.Hashes` would compare equal), `helpers_value.go` (`HasRangeItems` returns false for stream-mode trees), `keys/loader.go` (`LoadExistingKeyMappings` reads only `Items`), and the fuzz-invariant sites — plus Gate 6. None of these depend on additional Phase 1 work; the foundational types are now in place.
 
 ---
 
