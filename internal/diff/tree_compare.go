@@ -102,35 +102,38 @@ func handleTopLevelRange(
 }
 
 // handleMatchedRanges generates differential operations for matched range constructs.
-// Uses fingerprint comparison to determine if client needs range statics.
+// The IsStreamMode dispatch MUST run BEFORE any read of Range.Items —
+// otherwise a Phase-2 retained tree (Items==nil) falls through extractRangeData
+// to handleEmptyToItemsTransition, emitting a phantom ["a", items] op.
 func handleMatchedRanges(oldTree, newTree *TreeNode, changes *TreeNode) bool {
+	if oldTree.Range != nil && oldTree.Range.IsStreamMode() {
+		return handleStreamModeRange(oldTree, newTree, changes)
+	}
+
 	// Use fingerprint comparison to determine if client has range statics cached.
 	// If the structure fingerprints match, client already has the statics.
 	clientHasRangeStatics := !ClientNeedsStatics(oldTree, newTree)
 
-	// Strip statics if client already has them cached
+	// Strip statics if client already has them cached.
+	// nil signals "cannot express; full-tree fallback"; empty (non-nil) means no-change.
 	diffOps := GenerateRangeDifferentialOperations(oldTree, newTree, clientHasRangeStatics)
 
-	if len(diffOps) > 0 {
-		// Return the operations directly - the entire tree is the range
-		changes.Range = &RangeData{Items: diffOps}
-
-		// Only include root-level statics if client needs them (structure changed)
-		if !clientHasRangeStatics {
-			changes.Statics = newTree.Statics
-		}
-		return true
-	} else {
-		// No operations generated - check for empty range cases
+	if diffOps == nil {
 		if (newTree.Range == nil || len(newTree.Range.Items) == 0) &&
 			(oldTree.Range == nil || len(oldTree.Range.Items) == 0) {
-			// Both empty, no change
 			return true
 		}
-		// Fallback: return the new tree
 		*changes = *newTree
 		return true
 	}
+
+	if len(diffOps) > 0 {
+		changes.Range = &RangeData{Items: diffOps}
+		if !clientHasRangeStatics {
+			changes.Statics = newTree.Statics
+		}
+	}
+	return true
 }
 
 // compareDynamicSegments compares all dynamic fields between old and new trees.
@@ -332,8 +335,15 @@ func handleChangedField(
 }
 
 // handleRangeMatch handles changes in matched range constructs.
-// Uses fingerprint comparison to determine if client needs range statics.
+// The IsStreamMode dispatch reaches stream mode only when the nested range
+// is itself a top-level range of a different lastTree slot (the recursive case).
 func handleRangeMatch(k int, oldValue, newValue interface{}, changes *TreeNode) {
+	if oldNode, ok := oldValue.(*TreeNode); ok &&
+		oldNode.Range != nil && oldNode.Range.IsStreamMode() {
+		handleStreamModeRangeMatch(k, oldNode, newValue, changes)
+		return
+	}
+
 	// Use fingerprint comparison to determine if client has range statics cached.
 	clientHasRangeStatics := !clientNeedsStaticsForValue(oldValue, newValue)
 

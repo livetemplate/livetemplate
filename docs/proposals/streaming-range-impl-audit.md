@@ -331,6 +331,101 @@ A future Phase 3+ helper added here MUST audit which `ctx` fields it reads — `
 
 ---
 
+## Phase 3 audit checkpoint
+
+**Date**: 2026-05-01
+**Branch**: `phase3/streaming-range-cutover` → PR pending
+**Base commit**: `c07977d9` (post-Phase-2 merge on `main`)
+
+### Files touched
+
+| File | Change |
+|---|---|
+| `internal/diff/tree_compare.go` | `handleMatchedRanges` + `handleRangeMatch` stream-mode dispatch at top of function (BEFORE any read of `oldTree.Range.Items`); no-op fallback predicate at line 125-126 extended to recognise stream-mode-empty (`Items==nil` with non-nil StreamState) so a stream-mode no-op render doesn't fall into `*changes = *newTree` |
+| `internal/diff/range_ops.go` | Two adapter helpers: `handleStreamModeRange` (top-level) + `handleStreamModeRangeMatch` (nested) — extract new-side via new helper `extractNewSideRange`, call `GenerateRangeStreamOperations`, write ops into changes (or full-tree replacement on het-fingerprint nil return) |
+| `internal/diff/transition.go` (NEW) | `TransitionToStreamMode(*build.TreeNode)` — top-level walker that runs the homogeneity check via `CalculateStaticsFingerprint` (Phase 2-driven), populates `RangeStreamState`, nils `Items`. Idempotent, nil-safe, top-level only per §5a |
+| `internal/diff/transition_test.go` (NEW) | 7 unit tests: homogeneous fires, heterogeneous defers, empty defers, single-item fires, idempotent re-entry, nested ranges NOT transitioned, nil tree safe |
+| `internal/diff/helpers_value.go` | `HasRangeItems` extended via existing `IsStreamMode()` predicate — answers the *logical* "does the range render anything" question for stream-mode trees |
+| `internal/keys/generator.go` | New `LoadExistingKeysFromSlice([]string)` — same numeric-max-tracking as `LoadExistingKeys` but reads keys directly from the slice (used by stream-mode loader path) |
+| `internal/keys/loader.go` | `LoadExistingKeyMappings` branches on `Range.StreamState != nil` → `LoadExistingKeysFromSlice(StreamState.Keys)` else legacy `LoadExistingKeys(Items)` |
+| `internal/fuzz/invariants/verifier.go` | `buildIDKeyMap` adapted for stream-mode trees — collapses ID and key to the same value (since the only retained identifier is `StreamState.Keys[i]`); `verifyTreeStructureRecursive` no-ops cleanly on stream-mode (Items is nil, no per-item recursion needed — homogeneity already verified at transition time) |
+| `internal/fuzz/invariants/helpers.go` | `convertValue` skips `result["d"]` assignment for stream-mode trees — matches the omitted-`"d"` wire shape Phase 1's MarshalJSON enforces (avoids producing `"d": []` shape that would diverge from production wire) |
+| `template.go` | Single transition site at TOP of `buildTree` (after key-generator init, BEFORE `LoadExistingKeyMappings`) — fires on the previous render's `lastTree`, which is the SAFE slot per §5a's "after the first stream-mode render" timing. Placement BEFORE `LoadExistingKeyMappings` exercises the `LoadExistingKeysFromSlice` path on every stream-mode render. The transition is NOT placed at the `lastTree =` assignment sites (lines 1358, 1388) because that would mutate the wire output on the first render |
+| `e2e_update_spec_test.go` | `TestUserJourney_TodoApp/add_multiple` validate function broadened to accept both forms: granular ops (`"i"`/`"a"`) when stream mode active OR full-tree replacement when het-fallback fires (TodoApp template's `{{if .Done}}` makes items heterogeneous once Done values mix — proposal §5d behavior) |
+| `streaming_range_phase3_test.go` (NEW) | 5 root-package integration tests: stream mode fires on second render (wire-shape proof); reconnect resync emits full tree; full-dynamics-map invariant (§5c); het-range fallback (§5d); memory regression at N ∈ {10, 100, 1k, 10k} |
+
+### Memory regression numbers (test plan item 2)
+
+Captured by `TestStreamMode_MemoryRegression` (`go test -v -run TestStreamMode_MemoryRegression ./`):
+
+| N | heap with Items | heap after transition | delta | bytes/item |
+|---|---|---|---|---|
+| 10 | 2,472,672 | 2,458,936 | 13,736 | 1,373.6 |
+| 100 | 2,497,800 | 2,460,688 | 37,112 | 371.1 |
+| 1,000 | 2,742,576 | 2,462,456 | 280,120 | 280.1 |
+| 10,000 | 5,208,400 | 2,469,816 | 2,738,584 | 273.9 |
+
+The per-item delta stabilises at ~273 bytes/item at large N (where allocator noise is amortised). Stream-mode `RangeStreamState` per item is one string key (~24 bytes header + bytes) + one uint64 hash (8 bytes) + amortised `Fingerprint` string (one per range, not per item) ≈ ~32 bytes/item. So legacy retains ~273 + 32 = ~305 bytes/item; stream mode retains ~32 bytes/item. **~9.5× reduction**, well above the proposal's ≥4× target.
+
+The N=10 row is dominated by allocator coarsening (heap pages allocate in 8KB chunks; small N rounds up). At N=1k+ the per-item number is the meaningful measurement.
+
+### Per Phase 3 audit checkpoint requirement
+
+> Per proposal §11 Phase 3 audit checkpoint: "memory regression test shows ≥4× per-item retained-byte reduction; `extractRangeData` regression gate green; reconnect test confirms first render after `lastTree` drop emits a full tree, not stream ops; existing E2E specs pass with regenerated `["u"]` goldens; `grep -rn "t\.mu\.\(Lock\|Unlock\)" template.go` confirms the call chain from `t.mu.Lock()` (Execute, ~line 1651) through `compareTreesAndGetChangesWithContext` to the `Items=nil` assignment never drops the lock — the phase-1→phase-2 transition is naturally protected, but the audit verifies it."
+
+- **Memory regression ≥4×**: confirmed (~9.5× at N=1k+, see table above).
+- **`extractRangeData` regression gate**: implicitly verified by the full suite green run plus `TestStreamMode_FiresOnSecondRender` — on the second render, the output contains stream-mode `["u","key",...]` ops with whole-dynamics-map payloads (§5c shape), proving the dispatch routed to `GenerateRangeStreamOperations` and NOT through `extractRangeData` → `handleEmptyToItemsTransition`. A direct call-count assertion was not added because the wire-shape proof is already authoritative.
+- **Reconnect resync**: confirmed via `TestStreamMode_ReconnectResyncEmitsFullTree` — drops `lastTree` + resets `hasInitialTree`, asserts the next render emits full statics and contains NO stream-mode update ops. PASS.
+- **Existing E2E specs pass with regenerated goldens**: full suite green; the only test that needed migration was `TestUserJourney_TodoApp/add_multiple` (because the TodoApp template has `{{if .Done}}` inside the range, making it heterogeneous once Done values mix). The migration accepted both stream-mode ops and het-fallback full-tree replacement — both satisfy the test's intent. **No goldens needed regeneration** — the spec tests in `e2e_update_spec_test.go` that assert specific wire payloads continue to use legacy templates that don't trigger stream mode (no homogeneous range with ≥1 item) or use templates that fall back via §5d.
+- **`t.mu` lock chain**: verified manually. `template.go:1651` acquires `t.mu.Lock()` (deferred unlock). The transition call at line 1660 (`diff.TransitionToStreamMode(t.lastTree)`) runs UNDER the lock. `LoadExistingKeyMappings` (line 1664) and the full diff path (`compareTreesAndGetChanges` at line 1382, `t.lastTree =` at lines 1358/1388) all run under the same lock. `grep -n "t\.mu\." template.go` shows no intermediate `Unlock()` calls between line 1651 and the function return. The transition is naturally protected.
+
+### Test count delta
+
+- 7 new unit tests in `internal/diff/transition_test.go` (TransitionToStreamMode_*)
+- 5 new integration tests in `streaming_range_phase3_test.go` (TestStreamMode_*)
+- 1 test migrated in `e2e_update_spec_test.go` (`TestUserJourney_TodoApp/add_multiple` validate fn broadened)
+- 0 deleted tests
+- 0 goldens regenerated
+
+**Total: 12 new tests + 1 migrated.**
+
+### Verification commands re-run
+
+```
+GOWORK=off go build ./...                                          # clean
+GOWORK=off go test -count=1 ./...                                  # green (98s)
+GOWORK=off go test -race -count=1 ./internal/diff/... ./internal/keys/... ./internal/build/... ./internal/fuzz/...   # race-clean
+GOWORK=off go test -race -count=1 ./                               # race-clean (root pkg, 457s)
+GOWORK=off gofmt -l internal/ template.go *.go                     # empty (Phase 3 files clean)
+```
+
+The root-package race run is the load-bearing verification for the `t.mu` chain — it covers the transition's mutation of `t.lastTree.Range.Items = nil` running under the same lock as the diff and the wire serialization. Internal-pkg race runs alone don't cover this. Confirmed clean.
+
+The pre-existing `e2e/docker/multi_instance_test.go` gofmt nit is NOT a Phase 3 regression (that file is untouched).
+
+### Phase 3 follow-ups
+
+- **`prepare.go` StreamState propagation + `helpers_compare.go::rangeItemsEqual` extension**: deferred. Both were planned per §10 but determined to be defensive code (the call paths today never see populated StreamState on a tree headed through these functions). Per project guidance "no code for scenarios that can't happen", they are NOT shipped here. Reinstate in Phase 4+ if a real call site materialises (e.g., a broadcast path that prepares a post-transition tree).
+- **Test plan item 10 (browser E2E in `lvt` repo)**: out of scope for this PR — Phase 3 ships without coordinated `lvt`-repo changes. The Go-side wire-format invariants (full-dynamics-map, stream-mode op codes) are tested in this repo via `TestStreamMode_FullDynamicsMapInvariant`. The browser-side rendering of those payloads is exercised by `lvt`'s existing range-ops E2E (which continues to pass because the op codes themselves are unchanged — only the `["u"]` payload contract is relaxed per §5c, and the existing client `mergeRangeItem` already accepts whole-item maps).
+- **Spec doc update** (`docs/specifications/tree-update-specification.md`): Phase 4 deliverable.
+- **Deletion of `CompareRangeItemsForChanges` and `compareRangeItemsWithKeyPos`**: Phase 4 deliverable.
+- **Stream-mode benchmarks** (`BenchmarkRangeDiff_Stream_*`): Phase 5 deliverable. Phase 3 confirmed `diff_bench_test.go` is unaffected by the cutover (benchmarks bypass the dispatch by calling `GenerateRangeDifferentialOperations` directly — they never trigger transition).
+- **`LargeTableController` example**: Phase 6 deliverable.
+- **`IsStreamMode()` panic upgrade**: Phase 1/2 audits flagged as a Phase 3 *option*; deferred to Phase 4+ where the producer can also enforce the invariant. Adding error paths in Phase 3 would be premature without the corresponding producer-side enforcement.
+
+### Phase 4 unblocked
+
+Phase 4 deliverable per proposal §11: delete `CompareRangeItemsForChanges` and `compareRangeItemsWithKeyPos` (and their tests), update `docs/specifications/tree-update-specification.md` per §5c (relax producer-side "only changed fields"; add consumer-side "treat ['u'] as full snapshot" contract), regenerate any remaining goldens, verify `fuzz_diff_test.go` stays green.
+
+The dispatch is wired and the cutover is observable end-to-end. The legacy `GenerateRangeDifferentialOperations` is now reached only by:
+- The first render of a stream-capable range (before transition).
+- The second render of a heterogeneous range (where transition deferred to legacy).
+- The Phase-2-style direct test invocations.
+
+Phase 4's cleanup audit can verify "no production caller of `compareRangeItemsWithKeyPos` other than `generateUpdateOps`" (the legacy diff helper), confirming the legacy path is reachable only through the explicit het-range fallback.
+
+---
+
 ## Audit sign-off
 
 All six §15 gates close as recorded. Phase 1 (foundational types) is unblocked under the proposal's audit-checkpoint sequencing. The two open questions retain explicit owners (OQ1 closed by decision; OQ2 owned by Phase 5 measurement).

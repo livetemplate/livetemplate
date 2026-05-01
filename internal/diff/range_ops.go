@@ -114,6 +114,13 @@ func GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 
 	ctx := newRangeContext(oldItems, newItems, statics, metadata)
 
+	// If items exist but none yield extractable keys (e.g., map items rather
+	// than *TreeNode), the diff engine cannot produce ops — signal fallback.
+	if (len(oldItems) > 0 && len(ctx.oldKeys) == 0) ||
+		(len(newItems) > 0 && len(ctx.newKeys) == 0) {
+		return nil
+	}
+
 	if isPureReorderingCtx(ctx) {
 		return []interface{}{[]interface{}{"o", ctx.newKeys}}
 	}
@@ -288,6 +295,75 @@ func dynamicsToUpdatePayload(dynamics []interface{}, keyPos int) map[string]inte
 		}
 	}
 	return payload
+}
+
+// dispatchStreamMode runs the shared stream-mode diff. (nil, false) signals fallback; empty ops mean no-change.
+func dispatchStreamMode(streamState *RangeStreamState, newValue interface{}, clientHasRangeStatics bool) ([]interface{}, bool) {
+	newItems, statics, metadata := extractNewSideRange(newValue)
+	if newItems == nil {
+		return nil, false
+	}
+	ops := GenerateRangeStreamOperations(streamState, newItems, statics, metadata, clientHasRangeStatics)
+	if ops == nil {
+		return nil, false
+	}
+	return ops, true
+}
+
+func handleStreamModeRange(oldTree, newTree *TreeNode, changes *TreeNode) bool {
+	clientHasRangeStatics := !ClientNeedsStatics(oldTree, newTree)
+	diffOps, ok := dispatchStreamMode(oldTree.Range.StreamState, newTree, clientHasRangeStatics)
+	if !ok {
+		*changes = *newTree
+		return true
+	}
+	if len(diffOps) > 0 {
+		changes.Range = &RangeData{Items: diffOps}
+		if !clientHasRangeStatics {
+			changes.Statics = newTree.Statics
+		}
+	}
+	return true
+}
+
+func handleStreamModeRangeMatch(k int, oldNode *TreeNode, newValue interface{}, changes *TreeNode) {
+	clientHasRangeStatics := !clientNeedsStaticsForValue(oldNode, newValue)
+	diffOps, ok := dispatchStreamMode(oldNode.Range.StreamState, newValue, clientHasRangeStatics)
+	if !ok {
+		// Het-fallback or extraction failure — emit full new value at position k,
+		// mirroring the top-level path's *changes = *newTree fallback.
+		changes.SetDynamic(k, newValue)
+		return
+	}
+	if len(diffOps) > 0 {
+		changes.SetDynamic(k, diffOps)
+	}
+}
+
+// extractNewSideRange returns the new-side range data for stream-mode
+// dispatch. Mirrors the new-side branch of extractRangeData. Returns nil
+// items if newValue is not a valid range.
+func extractNewSideRange(newValue interface{}) (
+	newItems []interface{},
+	statics interface{},
+	metadata map[string]interface{},
+) {
+	newNode, ok := newValue.(*TreeNode)
+	if !ok || !newNode.HasRange() || newNode.Range == nil {
+		return nil, nil, nil
+	}
+	newItems = newNode.Range.Items
+	if newNode.Range.Statics != nil {
+		statics = newNode.Range.Statics
+	} else {
+		statics = newNode.Statics
+	}
+	if newNode.Metadata != nil {
+		metadata = map[string]interface{}{
+			"idKey": newNode.Metadata.IDKey,
+		}
+	}
+	return
 }
 
 // extractRangeData extracts items, statics, and metadata from old and new range values.

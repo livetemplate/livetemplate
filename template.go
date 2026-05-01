@@ -1656,6 +1656,12 @@ func (t *Template) buildTree(data interface{}, messages map[string]string) (*tre
 		t.keyGen = compat.NewKeyGenerator()
 	}
 
+	// Transition the previous render's retained tree at the START of this
+	// render. Doing it at the lastTree assignment sites would alias the wire
+	// output on the first render. Placement before LoadExistingKeyMappings
+	// lets the loader exercise the stream-mode key path.
+	diff.TransitionToStreamMode(t.lastTree)
+
 	// Load existing key mappings if available
 	if t.lastTree != nil {
 		if err := keys.LoadExistingKeyMappings(t.keyGen, t.lastTree); err != nil {

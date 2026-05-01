@@ -168,6 +168,19 @@ func (kg *Generator) LoadExistingKeys(oldRangeData []interface{}) error {
 	return nil
 }
 
+// LoadExistingKeysFromSlice mirrors LoadExistingKeys but reads keys directly from a slice (stream-mode source).
+func (kg *Generator) LoadExistingKeysFromSlice(existingKeys []string) error {
+	kg.mu.Lock()
+	defer kg.mu.Unlock()
+
+	for _, keyStr := range existingKeys {
+		if keyInt, err := strconv.Atoi(keyStr); err == nil && keyInt > kg.counter {
+			kg.counter = keyInt
+		}
+	}
+	return nil
+}
+
 // DetectIDKey detects which position in the dynamics contains the item ID
 // by scanning the statics array for key attribute patterns.
 // Returns the position as a string-formatted index (e.g., "0", "1", "2")
