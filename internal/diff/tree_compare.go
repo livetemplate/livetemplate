@@ -114,29 +114,25 @@ func handleMatchedRanges(oldTree, newTree *TreeNode, changes *TreeNode) bool {
 	// If the structure fingerprints match, client already has the statics.
 	clientHasRangeStatics := !ClientNeedsStatics(oldTree, newTree)
 
-	// Strip statics if client already has them cached
+	// Strip statics if client already has them cached.
+	// nil signals "cannot express; full-tree fallback"; empty (non-nil) means no-change.
 	diffOps := GenerateRangeDifferentialOperations(oldTree, newTree, clientHasRangeStatics)
 
-	if len(diffOps) > 0 {
-		// Return the operations directly - the entire tree is the range
-		changes.Range = &RangeData{Items: diffOps}
+	if diffOps == nil {
+		if (newTree.Range == nil || len(newTree.Range.Items) == 0) &&
+			(oldTree.Range == nil || len(oldTree.Range.Items) == 0) {
+			return true
+		}
+		*changes = *newTree
+		return true
+	}
 
-		// Only include root-level statics if client needs them (structure changed)
+	if len(diffOps) > 0 {
+		changes.Range = &RangeData{Items: diffOps}
 		if !clientHasRangeStatics {
 			changes.Statics = newTree.Statics
 		}
-		return true
 	}
-
-	// No operations generated - check for empty range cases. The old side
-	// must NOT be stream-mode here (those routed through the dispatch above).
-	if (newTree.Range == nil || len(newTree.Range.Items) == 0) &&
-		(oldTree.Range == nil ||
-			(len(oldTree.Range.Items) == 0 && oldTree.Range.StreamState == nil)) {
-		return true
-	}
-	// Fallback: return the new tree
-	*changes = *newTree
 	return true
 }
 

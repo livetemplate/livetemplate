@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/livetemplate/livetemplate/internal/build"
@@ -34,7 +35,7 @@ func homoItemRangeTree(count int) *build.TreeNode {
 }
 
 func keyForIdx(i int) string {
-	return string(rune('a' + i))
+	return strconv.Itoa(i)
 }
 
 func TestTransitionToStreamMode_HomogeneousFires(t *testing.T) {

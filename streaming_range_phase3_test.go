@@ -11,8 +11,7 @@ import (
 	"github.com/livetemplate/livetemplate/internal/build"
 )
 
-// homoTodo is a homogeneous range item — no conditional inside, so all items
-// share the same statics fingerprint after the transition.
+// homoTodo is a homogeneous range item (no conditional inside).
 type homoTodo struct {
 	ID   string
 	Text string
@@ -24,8 +23,7 @@ type homoTodoState struct {
 
 const homoTodoTemplate = `<ul>{{range .Todos}}<li data-key="{{.ID}}">{{.Text}}</li>{{end}}</ul>`
 
-// renderTwice renders the template twice with the given states and returns
-// the JSON of the second render (the changes tree).
+// renderTwice renders twice and returns the second render's JSON.
 func renderTwice(t *testing.T, tmpl *Template, s1, s2 interface{}) string {
 	t.Helper()
 	var buf bytes.Buffer
@@ -39,11 +37,7 @@ func renderTwice(t *testing.T, tmpl *Template, s1, s2 interface{}) string {
 	return buf.String()
 }
 
-// TestStreamMode_FiresOnSecondRender verifies that after a homogeneous first
-// render, the second render's diff routes through stream mode rather than the
-// legacy GenerateRangeDifferentialOperations path. Asserts via the wire shape
-// of an update op (stream mode emits whole-item dynamics; legacy emits partial
-// deltas).
+// TestStreamMode_FiresOnSecondRender — after a homogeneous first render, the second render must route through stream mode.
 func TestStreamMode_FiresOnSecondRender(t *testing.T) {
 	tmpl := Must(New("stream-fires"))
 	if _, err := tmpl.Parse(homoTodoTemplate); err != nil {
@@ -72,9 +66,7 @@ func TestStreamMode_FiresOnSecondRender(t *testing.T) {
 	}
 }
 
-// TestStreamMode_ReconnectResyncEmitsFullTree (test plan item 4) — simulates
-// connection drop by clearing lastTree, then renders again. Result MUST be a
-// full tree (statics + items), not stream-mode update ops.
+// TestStreamMode_ReconnectResyncEmitsFullTree (item 4) — clear lastTree, render again, expect full tree (not stream ops).
 func TestStreamMode_ReconnectResyncEmitsFullTree(t *testing.T) {
 	tmpl := Must(New("reconnect"))
 	if _, err := tmpl.Parse(homoTodoTemplate); err != nil {
@@ -181,11 +173,7 @@ func TestStreamMode_FullDynamicsMapInvariant(t *testing.T) {
 	}
 }
 
-// TestStreamMode_HetRangeFallback verifies that a range with a conditional
-// inside (which produces structurally heterogeneous items) does NOT emit
-// stream-mode ops once item structures diverge. Per proposal §5d, the diff
-// path falls back to a full-tree replacement — the dispatch routes through
-// handleEmptyRangeDiff, which emits the new range tree at the dynamic position.
+// TestStreamMode_HetRangeFallback — once item structures diverge ({{if}} inside range), §5d fallback emits the full new range tree.
 func TestStreamMode_HetRangeFallback(t *testing.T) {
 	const tmplSrc = `<ul>{{range .Items}}<li data-key="{{.ID}}">{{.Text}}{{if .Flagged}}<span>!</span>{{end}}</li>{{end}}</ul>`
 	type item struct {
@@ -230,11 +218,18 @@ func TestStreamMode_HetRangeFallback(t *testing.T) {
 }
 
 // findRangeOps walks the parsed wire tree looking for a position whose value
-// is a JSON array (stream-mode op array). Returns the ops slice or nil.
+// is an op-array (each element is itself a []interface{} op tuple). Skips
+// reserved wire keys ("s" statics, "f" fingerprint, "m" metadata) — Go map
+// iteration is randomized, so the candidate must be shape-validated.
 func findRangeOps(node map[string]interface{}) []interface{} {
-	for _, v := range node {
-		if arr, ok := v.([]interface{}); ok {
-			return arr
+	for k, v := range node {
+		if k == "s" || k == "f" || k == "m" {
+			continue
+		}
+		if arr, ok := v.([]interface{}); ok && len(arr) > 0 {
+			if _, isOpTuple := arr[0].([]interface{}); isOpTuple {
+				return arr
+			}
 		}
 		if nested, ok := v.(map[string]interface{}); ok {
 			if found := findRangeOps(nested); found != nil {

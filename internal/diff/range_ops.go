@@ -114,6 +114,13 @@ func GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 
 	ctx := newRangeContext(oldItems, newItems, statics, metadata)
 
+	// If items exist but none yield extractable keys (e.g., map items rather
+	// than *TreeNode), the diff engine cannot produce ops — signal fallback.
+	if (len(oldItems) > 0 && len(ctx.oldKeys) == 0) ||
+		(len(newItems) > 0 && len(ctx.newKeys) == 0) {
+		return nil
+	}
+
 	if isPureReorderingCtx(ctx) {
 		return []interface{}{[]interface{}{"o", ctx.newKeys}}
 	}
@@ -290,10 +297,7 @@ func dynamicsToUpdatePayload(dynamics []interface{}, keyPos int) map[string]inte
 	return payload
 }
 
-// dispatchStreamMode runs the shared stream-mode diff. Returns (ops, true) on
-// success — empty ops mean no-change. Returns (nil, false) when extraction
-// fails or stream mode declines (het-range fingerprint mismatch); the caller
-// applies its own fallback.
+// dispatchStreamMode runs the shared stream-mode diff. (nil, false) signals fallback; empty ops mean no-change.
 func dispatchStreamMode(streamState *RangeStreamState, newValue interface{}, clientHasRangeStatics bool) ([]interface{}, bool) {
 	newItems, statics, idKey := extractStreamModeNewSide(newValue)
 	if newItems == nil {
@@ -326,7 +330,9 @@ func handleStreamModeRangeMatch(k int, oldNode *TreeNode, newValue interface{}, 
 	clientHasRangeStatics := !clientNeedsStaticsForValue(oldNode, newValue)
 	diffOps, ok := dispatchStreamMode(oldNode.Range.StreamState, newValue, clientHasRangeStatics)
 	if !ok {
-		handleEmptyRangeDiff(k, oldNode, newValue, changes)
+		// Het-fallback or extraction failure — emit full new value at position k,
+		// mirroring the top-level path's *changes = *newTree fallback.
+		changes.SetDynamic(k, newValue)
 		return
 	}
 	if len(diffOps) > 0 {

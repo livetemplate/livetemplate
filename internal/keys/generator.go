@@ -168,13 +168,7 @@ func (kg *Generator) LoadExistingKeys(oldRangeData []interface{}) error {
 	return nil
 }
 
-// LoadExistingKeysFromSlice loads existing keys from a stream-mode RangeStreamState.Keys
-// slice and updates the counter. Same numeric-key-max-tracking logic as
-// LoadExistingKeys but reads keys directly from the slice instead of extracting
-// them from per-item dynamics. Non-numeric keys are skipped.
-//
-// Used by LoadExistingKeyMappings on stream-mode trees where Range.Items is nil
-// and the canonical key list lives on Range.StreamState.Keys.
+// LoadExistingKeysFromSlice mirrors LoadExistingKeys but reads keys directly from a slice (stream-mode source).
 func (kg *Generator) LoadExistingKeysFromSlice(existingKeys []string) error {
 	kg.mu.Lock()
 	defer kg.mu.Unlock()

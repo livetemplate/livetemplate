@@ -49,7 +49,10 @@ func TransitionToStreamMode(tree *build.TreeNode) {
 		keysList := make([]string, len(rd.Items))
 		hashes := make([]uint64, len(rd.Items))
 		for i, item := range rd.Items {
-			itemNode := item.(*build.TreeNode)
+			itemNode, ok := item.(*build.TreeNode)
+			if !ok {
+				continue
+			}
 			if keyStr, ok := getItemKeyWithPos(itemNode, keyPos); ok {
 				keysList[i] = keyStr
 			}
