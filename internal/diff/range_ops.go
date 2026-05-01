@@ -299,7 +299,7 @@ func dynamicsToUpdatePayload(dynamics []interface{}, keyPos int) map[string]inte
 
 // dispatchStreamMode runs the shared stream-mode diff. (nil, false) signals fallback; empty ops mean no-change.
 func dispatchStreamMode(streamState *RangeStreamState, newValue interface{}, clientHasRangeStatics bool) ([]interface{}, bool) {
-	newItems, statics, idKey := extractStreamModeNewSide(newValue)
+	newItems, statics, idKey := extractNewSideRange(newValue)
 	if newItems == nil {
 		return nil, false
 	}
@@ -340,10 +340,10 @@ func handleStreamModeRangeMatch(k int, oldNode *TreeNode, newValue interface{}, 
 	}
 }
 
-// extractStreamModeNewSide returns the new-side range data for stream-mode
+// extractNewSideRange returns the new-side range data for stream-mode
 // dispatch. Mirrors the new-side branch of extractRangeData. Returns nil
 // items if newValue is not a valid range.
-func extractStreamModeNewSide(newValue interface{}) (
+func extractNewSideRange(newValue interface{}) (
 	newItems []interface{},
 	statics interface{},
 	metadata map[string]interface{},

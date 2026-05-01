@@ -209,11 +209,23 @@ func TestStreamMode_HetRangeFallback(t *testing.T) {
 	out := buf.String()
 
 	// Het-fallback wire shape: the changes tree carries the new range as a
-	// nested tree at the range's dynamic position (NOT a `["a"]`/`["i"]` op
-	// array). Look for the new item's text "b" inside the payload — it must
-	// appear because the fallback emits the full new range, including all items.
-	if !strings.Contains(out, `"b"`) {
-		t.Errorf("het-fallback should include the new item's text in full-tree payload; got: %s", out)
+	// nested tree at the range's dynamic position — NOT granular `["a"]`/`["u"]`
+	// ops. The retained tree's range position must hold a *TreeNode (the full
+	// new range) whose Range.Items includes an entry with key "2" and Text "b".
+	rangeNode := tmpl.lastTree.Dynamics[0].(*build.TreeNode)
+	if rangeNode.Range == nil || len(rangeNode.Range.Items) != 2 {
+		t.Fatalf("retained range should have 2 items after het-fallback; got: %#v", rangeNode.Range)
+	}
+	item2 := rangeNode.Range.Items[1].(*build.TreeNode)
+	if got := item2.Dynamics[0]; got != "2" {
+		t.Errorf("item[1] key should be %q, got %q", "2", got)
+	}
+	if got := item2.Dynamics[1]; got != "b" {
+		t.Errorf("item[1] text should be %q, got %q", "b", got)
+	}
+	// Wire output: no granular range ops emitted.
+	if strings.Contains(out, `["u",`) || strings.Contains(out, `["a",`) || strings.Contains(out, `["i",`) {
+		t.Errorf("het-fallback must NOT emit granular range ops; got: %s", out)
 	}
 }
 
