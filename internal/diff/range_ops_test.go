@@ -188,8 +188,8 @@ func TestGenerateRangeDifferentialOperations_Insertion(t *testing.T) {
 // TestGenerateRangeDifferentialOperations_Mixed verifies that a render combining
 // structural changes (id1/id3 removed, id4 added) with a kept-item content change
 // (id2: "Old Name" → "New Name") signals nil-return so the caller emits a full-tree
-// replacement. Per Phase 4 (proposal §5d), kept-item content changes can no longer
-// be encoded as differential ops.
+// replacement. Kept-item content changes cannot be encoded as differential ops
+// (spec §5d).
 func TestGenerateRangeDifferentialOperations_Mixed(t *testing.T) {
 	item1 := &TreeNode{Dynamics: []interface{}{"id1", "Name 1"}}
 	item2Old := &TreeNode{Dynamics: []interface{}{"id2", "Old Name"}}
@@ -626,9 +626,8 @@ func TestGenerateRangeDifferentialOperations_NilRangeData(t *testing.T) {
 }
 
 // TestGenerateRangeDifferentialOperations_KeptItemContentChange_FallsBack
-// covers a single item present on both renders whose content changed. Phase 4
-// removed the per-item ["u"] producer, so the diff engine must signal nil-return
-// to trigger full-tree replacement.
+// covers a single item present on both renders whose Dynamics changed. The
+// diff engine signals nil-return so the caller emits a full-tree replacement.
 func TestGenerateRangeDifferentialOperations_KeptItemContentChange_FallsBack(t *testing.T) {
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 	oldValue := &TreeNode{
@@ -669,7 +668,8 @@ func TestGenerateRangeDifferentialOperations_StructuralAndContent_FallsBack(t *t
 
 // TestGenerateRangeDifferentialOperations_PureStructural_StillEmitsOps locks in
 // the wire-size win for het ranges that change only structurally — pure-add of
-// new items with no kept-item content drift must still emit a compact ['a'] op.
+// new items with no kept-item content drift must still emit a compact ['a']/['i']
+// op carrying the new key.
 func TestGenerateRangeDifferentialOperations_PureStructural_StillEmitsOps(t *testing.T) {
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 	oldValue := &TreeNode{
@@ -689,18 +689,67 @@ func TestGenerateRangeDifferentialOperations_PureStructural_StillEmitsOps(t *tes
 		t.Fatal("Expected ops for pure-structural change, got nil-fallback")
 	}
 
-	hasAppend := false
+	foundID2 := false
 	for _, op := range ops {
 		opArr, ok := op.([]interface{})
 		if !ok || len(opArr) < 2 {
 			continue
 		}
-		if opArr[0] == "a" || opArr[0] == "i" || opArr[0] == "p" {
-			hasAppend = true
+		switch opArr[0] {
+		case "a", "p":
+			items, ok := opArr[1].([]interface{})
+			if !ok {
+				continue
+			}
+			for _, item := range items {
+				if node, ok := item.(*TreeNode); ok && len(node.Dynamics) > 0 && node.Dynamics[0] == "id2" {
+					foundID2 = true
+				}
+			}
+		case "i":
+			if len(opArr) >= 3 {
+				if node, ok := opArr[2].(*TreeNode); ok && len(node.Dynamics) > 0 && node.Dynamics[0] == "id2" {
+					foundID2 = true
+				}
+			}
 		}
 	}
-	if !hasAppend {
-		t.Errorf("Expected an append/insert op, got: %v", ops)
+	if !foundID2 {
+		t.Errorf("Expected an append/insert op carrying id2, got: %v", ops)
+	}
+}
+
+// TestGenerateRangeDifferentialOperations_StaticsOnlyChange_FallsBack covers the
+// conditional-branch flip pattern: a kept item's nested TreeNode flips Statics
+// (e.g. {{if .Done}}<s>{{end}}) with no Dynamics change. The hash check alone
+// would miss this (empty Dynamics → identical hash) — the statics fingerprint
+// comparison catches it and forces full-tree fallback.
+func TestGenerateRangeDifferentialOperations_StaticsOnlyChange_FallsBack(t *testing.T) {
+	itemStatics := []string{`<li data-key="`, `">`, "</li>"}
+	rangeStatics := []string{"<ul>", "</ul>"}
+	oldValue := &TreeNode{
+		Statics: rangeStatics,
+		Range: &RangeData{
+			Statics: itemStatics,
+			Items: []interface{}{&TreeNode{
+				Statics:  itemStatics,
+				Dynamics: []interface{}{"task-1", &TreeNode{Statics: []string{"<s>", "</s>"}}},
+			}},
+		},
+	}
+	newValue := &TreeNode{
+		Statics: rangeStatics,
+		Range: &RangeData{
+			Statics: itemStatics,
+			Items: []interface{}{&TreeNode{
+				Statics:  itemStatics,
+				Dynamics: []interface{}{"task-1", &TreeNode{Statics: []string{""}}},
+			}},
+		},
+	}
+
+	if ops := GenerateRangeDifferentialOperations(oldValue, newValue, false); ops != nil {
+		t.Errorf("Expected nil-return for statics-only kept-item change, got: %v", ops)
 	}
 }
 

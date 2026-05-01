@@ -121,9 +121,9 @@ func GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 		return nil
 	}
 
-	// Phase 4 (proposal §5c/§5d): partial-delta ["u"] ops are no longer on the
-	// wire — content-only changes for kept items must signal full-tree replacement
-	// via nil-return. handleMatchedRanges falls through to *changes = *newTree.
+	// Per spec §5c/§5d, kept-item changes (content or statics) cannot be encoded
+	// as differential ops — signal nil-return so the caller emits a full-tree
+	// replacement (handleMatchedRanges falls through to *changes = *newTree).
 	if hasKeptItemContentChanged(ctx) {
 		return nil
 	}
@@ -456,10 +456,14 @@ func generateRemovalOps(ctx *rangeContext, operations []interface{}) []interface
 }
 
 // hasKeptItemContentChanged reports whether any item present in both renders
-// has a different content hash. The legacy per-item ["u"] producer was deleted
-// in Phase 4; with no path to encode kept-item content changes as differential
-// ops, the diff engine signals nil-return on any such change so the caller
-// emits a full-tree replacement (proposal §5d).
+// has a different content hash OR a different statics fingerprint. The diff
+// engine has no per-item ["u"] producer for het ranges, so any kept-item
+// change must signal nil-return to trigger full-tree replacement.
+//
+// Statics fingerprint covers conditional-branch flips inside the item (e.g.,
+// {{if .Done}}<s>{{end}} toggling between empty and `<s>...</s>`), which leave
+// Dynamics identical but change the rendered structure. Hash covers content
+// changes within the same structure.
 //
 // Non-*TreeNode items default to "changed" — the safety bias is toward fallback.
 func hasKeptItemContentChanged(ctx *rangeContext) bool {
@@ -472,6 +476,9 @@ func hasKeptItemContentChanged(ctx *rangeContext) bool {
 		oldNode, oldOk := oldItem.(*TreeNode)
 		newNode, newOk := newItem.(*TreeNode)
 		if !oldOk || !newOk {
+			return true
+		}
+		if build.CalculateStaticsFingerprint(oldNode) != build.CalculateStaticsFingerprint(newNode) {
 			return true
 		}
 		if keys.ItemHashUint64(oldNode.Dynamics) != keys.ItemHashUint64(newNode.Dynamics) {

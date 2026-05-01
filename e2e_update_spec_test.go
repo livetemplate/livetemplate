@@ -377,12 +377,10 @@ func TestUpdateSpecification_RangeOperations(t *testing.T) {
 				}
 			},
 		},
-		// "update_single" + "mixed_operations" subtests removed in Phase 4: the
-		// per-item ["u"] producer was deleted, so kept-item content changes now
-		// take the full-tree fallback. Coverage moved to internal/diff:
+		// Kept-item content changes take the full-tree fallback (no per-item ["u"]
+		// producer for het ranges). Coverage in internal/diff:
 		// TestGenerateRangeDifferentialOperations_KeptItemContentChange_FallsBack
-		// and TestGenerateRangeDifferentialOperations_StructuralAndContent_FallsBack,
-		// plus TestStreamMode_HetRangeFallback in streaming_range_phase3_test.go.
+		// and TestGenerateRangeDifferentialOperations_StructuralAndContent_FallsBack.
 		{
 			name: "reorder",
 			initial: []Item{

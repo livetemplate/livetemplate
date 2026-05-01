@@ -11,7 +11,7 @@ import (
 // "Top-level" covers two cases: the root tree may itself be a Range (when the
 // template is just `{{range}}` with no wrapper element), or a Range may sit
 // directly inside the root tree's Dynamics. Both are at depth ≤ 1 and qualify
-// per proposal §5a — nested ranges deeper than that stay legacy.
+// per spec §5a — nested ranges deeper than that stay legacy.
 //
 // Uses CalculateStaticsFingerprint (not GetStructureFingerprint) for the
 // homogeneity check — the latter over-captures scalar position-presence,
@@ -32,9 +32,10 @@ func TransitionToStreamMode(tree *build.TreeNode) {
 	}
 }
 
-// transitionRangeIfHomogeneous applies the §5a homogeneity check to a single
-// RangeData and, if all items share a statics fingerprint, swaps Items for a
-// RangeStreamState snapshot. No-op for nil/empty/already-transitioned ranges.
+// transitionRangeIfHomogeneous applies the spec §5a homogeneity check to a
+// single RangeData and, if all items share a statics fingerprint, swaps Items
+// for a RangeStreamState snapshot. No-op for nil/empty/already-transitioned
+// ranges.
 func transitionRangeIfHomogeneous(rd *build.RangeData) {
 	if rd == nil || rd.StreamState != nil || len(rd.Items) == 0 {
 		return

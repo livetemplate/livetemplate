@@ -186,9 +186,9 @@ func TestTransitionToStreamMode_NilTreeSafe(t *testing.T) {
 
 // TestTransitionToStreamMode_RootRangeFires covers the case where the root
 // tree itself is a Range (template `{{range .Items}}<x/>{{end}}` with no
-// wrapper element). The root range counts as top-level per §5a and must
-// transition. Phase 3 walked Dynamics only and silently missed this shape;
-// Phase 4 closes the gap so wrapper-less templates also stream-mode.
+// wrapper element). The root range counts as top-level per spec §5a and must
+// transition. Without this case, wrapper-less templates silently fall through
+// to the legacy diff path even when their range is homogeneous.
 func TestTransitionToStreamMode_RootRangeFires(t *testing.T) {
 	itemStatics := []string{`<li data-key="`, `">`, `</li>`}
 	tree := &build.TreeNode{
