@@ -299,11 +299,11 @@ func dynamicsToUpdatePayload(dynamics []interface{}, keyPos int) map[string]inte
 
 // dispatchStreamMode runs the shared stream-mode diff. (nil, false) signals fallback; empty ops mean no-change.
 func dispatchStreamMode(streamState *RangeStreamState, newValue interface{}, clientHasRangeStatics bool) ([]interface{}, bool) {
-	newItems, statics, idKey := extractNewSideRange(newValue)
+	newItems, statics, metadata := extractNewSideRange(newValue)
 	if newItems == nil {
 		return nil, false
 	}
-	ops := GenerateRangeStreamOperations(streamState, newItems, statics, idKey, clientHasRangeStatics)
+	ops := GenerateRangeStreamOperations(streamState, newItems, statics, metadata, clientHasRangeStatics)
 	if ops == nil {
 		return nil, false
 	}

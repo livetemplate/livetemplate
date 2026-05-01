@@ -342,7 +342,7 @@ A future Phase 3+ helper added here MUST audit which `ctx` fields it reads — `
 | File | Change |
 |---|---|
 | `internal/diff/tree_compare.go` | `handleMatchedRanges` + `handleRangeMatch` stream-mode dispatch at top of function (BEFORE any read of `oldTree.Range.Items`); no-op fallback predicate at line 125-126 extended to recognise stream-mode-empty (`Items==nil` with non-nil StreamState) so a stream-mode no-op render doesn't fall into `*changes = *newTree` |
-| `internal/diff/range_ops.go` | Two adapter helpers: `handleStreamModeRange` (top-level) + `handleStreamModeRangeMatch` (nested) — extract new-side via new helper `extractStreamModeNewSide`, call `GenerateRangeStreamOperations`, write ops into changes (or full-tree replacement on het-fingerprint nil return) |
+| `internal/diff/range_ops.go` | Two adapter helpers: `handleStreamModeRange` (top-level) + `handleStreamModeRangeMatch` (nested) — extract new-side via new helper `extractNewSideRange`, call `GenerateRangeStreamOperations`, write ops into changes (or full-tree replacement on het-fingerprint nil return) |
 | `internal/diff/transition.go` (NEW) | `TransitionToStreamMode(*build.TreeNode)` — top-level walker that runs the homogeneity check via `CalculateStaticsFingerprint` (Phase 2-driven), populates `RangeStreamState`, nils `Items`. Idempotent, nil-safe, top-level only per §5a |
 | `internal/diff/transition_test.go` (NEW) | 7 unit tests: homogeneous fires, heterogeneous defers, empty defers, single-item fires, idempotent re-entry, nested ranges NOT transitioned, nil tree safe |
 | `internal/diff/helpers_value.go` | `HasRangeItems` extended via existing `IsStreamMode()` predicate — answers the *logical* "does the range render anything" question for stream-mode trees |

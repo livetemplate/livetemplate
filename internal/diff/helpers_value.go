@@ -95,7 +95,7 @@ func IsRangeConstruct(value interface{}) bool {
 // logical question. Stream-mode trees count via StreamState.Keys length.
 func HasRangeItems(value interface{}) bool {
 	if node, ok := value.(*TreeNode); ok {
-		if !node.HasRange() || node.Range == nil {
+		if !node.HasRange() {
 			return false
 		}
 		if len(node.Range.Items) > 0 {
