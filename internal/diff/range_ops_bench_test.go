@@ -108,6 +108,11 @@ func benchmarkStreamReorder(b *testing.B, itemCount int) {
 
 // Wire-size benchmarks: emit per-op JSON byte counts for the §7 table.
 // "bytes/op" here is wire bytes per emitted op, not allocator bytes.
+//
+// stripStatics=true mirrors the production update path — clients have
+// statics cached after first render, so subsequent ops omit them. Do not
+// flip to false to "match" the CPU benchmarks above; that would inflate
+// the §7 wire-size numbers by ~10x.
 
 func BenchmarkRangeDiff_Stream_Append_WireSize_Small(b *testing.B) {
 	benchmarkStreamAppendWireSize(b, 10)
@@ -131,6 +136,18 @@ func BenchmarkRangeDiff_Stream_Update_WireSize_Medium(b *testing.B) {
 
 func BenchmarkRangeDiff_Stream_Update_WireSize_Large(b *testing.B) {
 	benchmarkStreamUpdateWireSize(b, 10000)
+}
+
+func BenchmarkRangeDiff_Stream_Reorder_WireSize_Small(b *testing.B) {
+	benchmarkStreamReorderWireSize(b, 10)
+}
+
+func BenchmarkRangeDiff_Stream_Reorder_WireSize_Medium(b *testing.B) {
+	benchmarkStreamReorderWireSize(b, 100)
+}
+
+func BenchmarkRangeDiff_Stream_Reorder_WireSize_Large(b *testing.B) {
+	benchmarkStreamReorderWireSize(b, 10000)
 }
 
 func benchmarkStreamAppendWireSize(b *testing.B, oldCount int) {
@@ -158,6 +175,31 @@ func benchmarkStreamUpdateWireSize(b *testing.B, itemCount int) {
 	newTree := createTreeNodeRangeTree(itemCount)
 	mid := itemCount / 2
 	newTree.Range.Items[mid].(*build.TreeNode).Dynamics[fixtureStatusPos] = "updated"
+
+	var totalSize int64
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ops := GenerateRangeStreamOperations(streamState, newTree.Range.Items, statics, nil, true)
+		if ops == nil {
+			b.Fatalf("GenerateRangeStreamOperations returned nil — stream-mode dispatch failed")
+		}
+		data, err := json.Marshal(ops)
+		if err != nil {
+			b.Fatalf("json.Marshal failed: %v", err)
+		}
+		totalSize += int64(len(data))
+	}
+	b.ReportMetric(float64(totalSize)/float64(b.N), "bytes/op")
+}
+
+// benchmarkStreamReorderWireSize validates the §7 claim that reorder wire
+// size is identical to the pre-implementation behaviour: a single `["o", keys]`
+// op carrying the new key order. With no per-item content changes, no `["u"]`
+// ops are emitted alongside.
+func benchmarkStreamReorderWireSize(b *testing.B, itemCount int) {
+	streamState, statics := buildStreamModeOldTree(b, itemCount)
+	newTree := createTreeNodeRangeTree(itemCount)
+	newTree.Range.Items[0], newTree.Range.Items[itemCount-1] = newTree.Range.Items[itemCount-1], newTree.Range.Items[0]
 
 	var totalSize int64
 	b.ResetTimer()

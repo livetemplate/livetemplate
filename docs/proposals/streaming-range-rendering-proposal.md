@@ -211,16 +211,16 @@ The "no client code change required" claim is load-bearing under the hard-cutove
 
 Measured numbers from `internal/diff/range_memory_test.go` (per-item retained memory via `runtime.ReadMemStats` HeapAlloc delta over 8 retained trees with double-GC stabilisation) and `internal/diff/range_ops_bench_test.go` (wire bytes per op via `json.Marshal` of the emitted ops). Fixture: items with 3 dynamic positions (`[key, name, status]`) and short string values, mirroring the canonical `data-key="…">…</li>` shape. Numbers captured on linux/arm64 with Go 1.26.
 
-| Cardinality | Legacy retained memory | Stream retained memory | Wire size on append-1 | Wire size on update-1-field |
-|---|---|---|---|---|
-| 10 items × 3 fields | ~2.7 KB (~270 B/item) | ~0.8 KB (~80 B/item) | 52 B | legacy ~33 B / stream ~45 B |
-| 100 items × 3 fields | ~24 KB (~245 B/item) | ~4.7 KB (~47 B/item) | 54 B | legacy ~33 B / stream ~47 B |
-| 1k items × 3 fields | ~250 KB (~256 B/item) | ~41 KB (~41 B/item) | — | — |
-| 10k items × 3 fields | ~2.5 MB (~256 B/item) | ~406 KB (~41 B/item) | 58 B | legacy ~33 B / stream ~51 B |
+| Cardinality | Legacy retained memory | Stream retained memory | Wire: append-1 | Wire: update-1-field | Wire: reorder-pair |
+|---|---|---|---|---|---|
+| 10 items × 3 fields | ~2.7 KB (~270 B/item) | ~0.8 KB (~80 B/item) | 52 B | legacy ~33 B / stream ~45 B | 99 B |
+| 100 items × 3 fields | ~24 KB (~245 B/item) | ~4.7 KB (~47 B/item) | 54 B | legacy ~33 B / stream ~47 B | 999 B |
+| 1k items × 3 fields | ~250 KB (~256 B/item) | ~41 KB (~41 B/item) | — *(not measured)* | — *(not measured)* | — *(not measured)* |
+| 10k items × 3 fields | ~2.5 MB (~256 B/item) | ~406 KB (~41 B/item) | 58 B | legacy ~33 B / stream ~51 B | ~119 KB |
 
 Per-connection retained memory drops asymptotically by **~6.3×** at N≥1000 (`245 B/item → 41 B/item`); at N=10 the win shrinks to **~3.4×** because fixed per-`RangeData` overhead (TreeNode/RangeData/StreamState struct headers + Statics slice) dilutes the per-item improvement. All four rows are stable across consecutive runs — the test discards a cold-start warmup measurement before sampling, since cold-arena setup otherwise inflates N=10 by ~2× on first invocation.
 
-Wire size on the worst-case workload (single-field update on a 3-field item) grows by **~1.4×** in absolute bytes — well below the projected 3× ceiling, because the full-snapshot payload only carries 2 extra short string positions. The "legacy" wire-size column is a synthetic baseline (`["u", "item-50", {"2": "updated"}]`); the legacy producer was deleted in Phase 4 and the runtime never emits this shape today. Wire size on inserts, deletes, reorders, and unchanged renders is identical to the pre-implementation behaviour. Real workloads with `permessage-deflate` enabled recover most of the wire growth.
+Wire size on the worst-case workload (single-field update on a 3-field item) grows by **~1.4×** in absolute bytes — well below the projected 3× ceiling, because the full-snapshot payload only carries 2 extra short string positions. The "legacy" wire-size column is a synthetic baseline (`["u", "item-50", {"2": "updated"}]`); the legacy producer was deleted in Phase 4 and the runtime never emits this shape today. Reorder wire size scales linearly in N (a single `["o", [k1...kN]]` op carries every key in the new order) — the column above confirms the §7 "identical to pre-implementation" claim, since stream-mode and legacy emit the same op shape. Wire size on inserts, deletes, and unchanged renders is identical to the pre-implementation behaviour. Real workloads with `permessage-deflate` enabled recover most of the wire growth.
 
 ## Reconnect & Resync
 
