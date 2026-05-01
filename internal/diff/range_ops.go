@@ -6,33 +6,39 @@ import (
 	"sort"
 
 	"github.com/livetemplate/livetemplate/internal/build"
+	"github.com/livetemplate/livetemplate/internal/keys"
 )
 
 // rangeContext holds pre-computed data for a single range diff operation,
 // avoiding redundant key extraction, map creation, and statics parsing.
 type rangeContext struct {
-	oldItems  []interface{}
-	newItems  []interface{}
-	statics   interface{}
-	metadata  map[string]interface{}
-	oldKeys   []string
-	newKeys   []string
+	oldItems []interface{}
+	newItems []interface{}
+	statics  interface{}
+	metadata map[string]interface{}
+	oldKeys  []string
+	newKeys  []string
+	// INVARIANT: oldByKey is nil on the stream path. Helpers that need only
+	// presence read oldKeySet instead. Phase 3+ helpers added here MUST NOT
+	// assume oldByKey is populated when fromStream is conceptually true.
 	oldByKey  map[string]interface{}
 	newByKey  map[string]interface{}
+	oldKeySet map[string]struct{}
 	keyPos    int
 	addedKeys []string
 }
 
 func newRangeContext(oldItems, newItems []interface{}, statics interface{}, metadata map[string]interface{}) *rangeContext {
 	ctx := &rangeContext{
-		oldItems: oldItems,
-		newItems: newItems,
-		statics:  statics,
-		metadata: metadata,
-		oldByKey: make(map[string]interface{}, len(oldItems)),
-		newByKey: make(map[string]interface{}, len(newItems)),
-		oldKeys:  make([]string, 0, len(oldItems)),
-		newKeys:  make([]string, 0, len(newItems)),
+		oldItems:  oldItems,
+		newItems:  newItems,
+		statics:   statics,
+		metadata:  metadata,
+		oldByKey:  make(map[string]interface{}, len(oldItems)),
+		newByKey:  make(map[string]interface{}, len(newItems)),
+		oldKeys:   make([]string, 0, len(oldItems)),
+		newKeys:   make([]string, 0, len(newItems)),
+		oldKeySet: make(map[string]struct{}, len(oldItems)),
 	}
 	ctx.keyPos = FindKeyPositionFromStatics(statics)
 
@@ -40,6 +46,7 @@ func newRangeContext(oldItems, newItems []interface{}, statics interface{}, meta
 		if key, ok := getItemKeyWithPos(item, ctx.keyPos); ok {
 			ctx.oldKeys = append(ctx.oldKeys, key)
 			ctx.oldByKey[key] = item
+			ctx.oldKeySet[key] = struct{}{}
 		}
 	}
 	for _, item := range newItems {
@@ -49,13 +56,38 @@ func newRangeContext(oldItems, newItems []interface{}, statics interface{}, meta
 		}
 	}
 
-	// Compute added keys (in new but not in old)
-	oldKeySet := make(map[string]struct{}, len(ctx.oldKeys))
-	for _, k := range ctx.oldKeys {
-		oldKeySet[k] = struct{}{}
+	for _, k := range ctx.newKeys {
+		if _, exists := ctx.oldKeySet[k]; !exists {
+			ctx.addedKeys = append(ctx.addedKeys, k)
+		}
+	}
+
+	return ctx
+}
+
+func newStreamRangeContext(oldKeys []string, newItems []interface{}, statics interface{}, metadata map[string]interface{}) *rangeContext {
+	ctx := &rangeContext{
+		newItems:  newItems,
+		statics:   statics,
+		metadata:  metadata,
+		oldKeys:   oldKeys,
+		newByKey:  make(map[string]interface{}, len(newItems)),
+		newKeys:   make([]string, 0, len(newItems)),
+		oldKeySet: make(map[string]struct{}, len(oldKeys)),
+	}
+	ctx.keyPos = FindKeyPositionFromStatics(statics)
+
+	for _, k := range oldKeys {
+		ctx.oldKeySet[k] = struct{}{}
+	}
+	for _, item := range newItems {
+		if key, ok := getItemKeyWithPos(item, ctx.keyPos); ok {
+			ctx.newKeys = append(ctx.newKeys, key)
+			ctx.newByKey[key] = item
+		}
 	}
 	for _, k := range ctx.newKeys {
-		if _, exists := oldKeySet[k]; !exists {
+		if _, exists := ctx.oldKeySet[k]; !exists {
 			ctx.addedKeys = append(ctx.addedKeys, k)
 		}
 	}
@@ -106,6 +138,156 @@ func GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 	}
 
 	return operations
+}
+
+// GenerateRangeStreamOperations generates differential operations for a range
+// whose retained "old side" is a RangeStreamState snapshot (keys + per-item
+// content hashes + structure-fingerprint), not a slice of cached item bodies.
+//
+// Return semantics: nil signals "stream mode not applicable, caller must fall
+// back to GenerateRangeDifferentialOperations" (streamState is nil or has
+// inconsistent Keys/Hashes lengths, an item lacks an extractable key, an
+// item's statics fingerprint diverges from streamState.Fingerprint per §5d,
+// or the insertion pattern is too scattered ≥4 distinct points). An empty
+// non-nil slice signals "stream mode produced no ops" (every item unchanged).
+// Phase 3 callers MUST check ops != nil before treating an empty slice as a
+// no-op.
+//
+// Update payloads carry the full per-item dynamics map (with "" for absent
+// positions) per proposal §5c; absence means "this position is empty/cleared",
+// not "this position is unchanged".
+func GenerateRangeStreamOperations(
+	streamState *build.RangeStreamState,
+	newItems []interface{},
+	statics interface{},
+	metadata map[string]interface{},
+	stripStatics bool,
+) []interface{} {
+	if streamState == nil {
+		return nil
+	}
+	if len(streamState.Hashes) != len(streamState.Keys) {
+		return nil
+	}
+
+	keyPos := FindKeyPositionFromStatics(statics)
+	newKeys := make([]string, 0, len(newItems))
+	newHashes := make([]uint64, 0, len(newItems))
+
+	for _, item := range newItems {
+		itemNode, ok := item.(*TreeNode)
+		if !ok {
+			return nil
+		}
+		if build.CalculateStaticsFingerprint(itemNode) != streamState.Fingerprint {
+			return nil
+		}
+		key, ok := getItemKeyWithPos(item, keyPos)
+		if !ok {
+			return nil
+		}
+		newKeys = append(newKeys, key)
+		newHashes = append(newHashes, keys.ItemHashUint64(itemNode.Dynamics))
+	}
+
+	ctx := newStreamRangeContext(streamState.Keys, newItems, statics, metadata)
+
+	oldHashByKey := make(map[string]uint64, len(streamState.Keys))
+	for i, k := range streamState.Keys {
+		oldHashByKey[k] = streamState.Hashes[i]
+	}
+
+	hasReorder := sameKeySet(streamState.Keys, newKeys) && HasReordering(streamState.Keys, newKeys)
+	if hasReorder {
+		anyHashChanged := false
+		for i, k := range newKeys {
+			if oldHashByKey[k] != newHashes[i] {
+				anyHashChanged = true
+				break
+			}
+		}
+		if !anyHashChanged {
+			return []interface{}{[]interface{}{"o", newKeys}}
+		}
+	}
+
+	if len(ctx.addedKeys) > 0 && isComplexInsertionPatternCtx(ctx) {
+		return nil
+	}
+
+	operations := make([]interface{}, 0, 4)
+	operations = generateStreamRemovalOps(streamState.Keys, ctx.newByKey, operations)
+	operations = generateStreamUpdateOps(newItems, newKeys, newHashes, oldHashByKey, ctx.keyPos, operations)
+	operations = generateInsertionOps(ctx, operations)
+
+	if hasReorder {
+		operations = append(operations, []interface{}{"o", newKeys})
+	}
+
+	if stripStatics {
+		operations = stripStaticsFromOperations(operations)
+	}
+
+	return operations
+}
+
+// generateStreamRemovalOps: sorted for determinism (mirrors generateRemovalOps).
+func generateStreamRemovalOps(oldKeys []string, newByKey map[string]interface{}, operations []interface{}) []interface{} {
+	sortedOldKeys := make([]string, len(oldKeys))
+	copy(sortedOldKeys, oldKeys)
+	sort.Strings(sortedOldKeys)
+
+	for _, key := range sortedOldKeys {
+		if _, exists := newByKey[key]; !exists {
+			operations = append(operations, []interface{}{"r", key})
+		}
+	}
+	return operations
+}
+
+// generateStreamUpdateOps emits whole-item dynamics on hash mismatch (proposal §5c).
+func generateStreamUpdateOps(
+	newItems []interface{},
+	newKeys []string,
+	newHashes []uint64,
+	oldHashByKey map[string]uint64,
+	keyPos int,
+	operations []interface{},
+) []interface{} {
+	for i, key := range newKeys {
+		oldHash, exists := oldHashByKey[key]
+		if !exists || oldHash == newHashes[i] {
+			continue
+		}
+		itemNode, ok := newItems[i].(*TreeNode)
+		if !ok {
+			continue
+		}
+		payload := dynamicsToUpdatePayload(itemNode.Dynamics, keyPos)
+		operations = append(operations, []interface{}{"u", key, payload})
+	}
+	return operations
+}
+
+// dynamicsToUpdatePayload encodes per proposal §5c: nil → "", nested *TreeNode → stripped, key position omitted.
+func dynamicsToUpdatePayload(dynamics []interface{}, keyPos int) map[string]interface{} {
+	payload := make(map[string]interface{}, len(dynamics))
+	for i, val := range dynamics {
+		if i == keyPos {
+			continue
+		}
+		fieldKey := build.PositionKey(i)
+		switch v := val.(type) {
+		case nil:
+			payload[fieldKey] = ""
+		case *TreeNode:
+			// clientHasStatics=true: fingerprint check above guarantees homogeneous statics.
+			payload[fieldKey] = PrepareTreeForClient(v, true)
+		default:
+			payload[fieldKey] = v
+		}
+	}
+	return payload
 }
 
 // extractRangeData extracts items, statics, and metadata from old and new range values.
@@ -215,7 +397,7 @@ func generateInsertionOps(ctx *rangeContext, operations []interface{}) []interfa
 		return operations
 	}
 
-	if len(ctx.oldItems) == 0 {
+	if len(ctx.oldKeySet) == 0 {
 		return handleEmptyToItemsTransition(ctx.newItems, ctx.statics, ctx.metadata, operations)
 	}
 

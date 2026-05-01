@@ -3,6 +3,8 @@ package keys
 import (
 	"strconv"
 	"testing"
+
+	"github.com/livetemplate/livetemplate/internal/build"
 )
 
 func TestGenerateItemHash_Deterministic(t *testing.T) {
@@ -207,5 +209,33 @@ func TestItemHashUint64_CollisionStress_NoDupesIn10k(t *testing.T) {
 			t.Fatalf("collision: input %d and input %d both hash to %d", prev, i, h)
 		}
 		seen[h] = i
+	}
+}
+
+// TestItemHashUint64_NestedTreeNode locks in the load-bearing assumption that
+// formatHashPart's json.Marshal correctly captures nested *TreeNode content.
+// The stream-mode range diff (proposal §5b) hashes whole items via
+// ItemHashUint64; if a TreeNode value were stringified as a pointer or struct
+// header, content-equivalent items would hash differently and the algorithm
+// would emit spurious updates on every render. Phase 1 backfill — was in the
+// original Phase 1 plan but dropped during execution; advisor flagged it as
+// load-bearing for Phase 2 correctness.
+func TestItemHashUint64_NestedTreeNode(t *testing.T) {
+	makeNested := func(value string) *build.TreeNode {
+		return &build.TreeNode{
+			Statics:  []string{"<span>", "</span>"},
+			Dynamics: []interface{}{value},
+		}
+	}
+
+	dyn1 := []interface{}{"id1", makeNested("inner")}
+	dyn2 := []interface{}{"id1", makeNested("inner")}
+	if ItemHashUint64(dyn1) != ItemHashUint64(dyn2) {
+		t.Error("Two structurally-identical items with same nested content must hash equal")
+	}
+
+	dyn3 := []interface{}{"id1", makeNested("changed")}
+	if ItemHashUint64(dyn1) == ItemHashUint64(dyn3) {
+		t.Error("Items differing only in nested-TreeNode content must hash differently")
 	}
 }

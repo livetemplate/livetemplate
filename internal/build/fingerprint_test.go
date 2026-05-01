@@ -592,3 +592,103 @@ func TestFingerprintStress_NoDuplicatesIn10kStructures(t *testing.T) {
 		seen[fp] = i
 	}
 }
+
+// TestCalculateStaticsFingerprint_ScalarValuesIgnored is the key contract:
+// outer Statics + nested-tree Statics determine the hash; scalar dynamic
+// values (including nil-vs-non-nil presence) do NOT. This is what makes
+// the stream-mode het-range check work for the proposal §5b nil↔""
+// phantom-update case — items differ in scalar content, same template.
+func TestCalculateStaticsFingerprint_ScalarValuesIgnored(t *testing.T) {
+	statics := []string{"<li>", "</li>"}
+	tree1 := &TreeNode{Statics: statics, Dynamics: []interface{}{"x"}}
+	tree2 := &TreeNode{Statics: statics, Dynamics: []interface{}{"y"}}
+	tree3 := &TreeNode{Statics: statics, Dynamics: []interface{}{nil}}
+	tree4 := &TreeNode{Statics: statics, Dynamics: []interface{}{""}}
+
+	fp1 := CalculateStaticsFingerprint(tree1)
+	for _, other := range []*TreeNode{tree2, tree3, tree4} {
+		if CalculateStaticsFingerprint(other) != fp1 {
+			t.Errorf("Same Statics + scalar-only Dynamics must hash equal regardless of value; tree1=%q vs other=%q",
+				fp1, CalculateStaticsFingerprint(other))
+		}
+	}
+}
+
+// TestCalculateStaticsFingerprint_NestedTreeVsScalarDiffers is the het-range
+// trigger: a position holding a nested *TreeNode is structurally distinct
+// from the same position holding a scalar (or nil). This is the conditional
+// branch case (§5d) — once an item swaps a scalar for a subtree, the range
+// is no longer homogeneous.
+func TestCalculateStaticsFingerprint_NestedTreeVsScalarDiffers(t *testing.T) {
+	statics := []string{"<li>", "</li>"}
+	scalar := &TreeNode{Statics: statics, Dynamics: []interface{}{"x"}}
+	nested := &TreeNode{
+		Statics: statics,
+		Dynamics: []interface{}{
+			&TreeNode{Statics: []string{"<span>", "</span>"}, Dynamics: []interface{}{"x"}},
+		},
+	}
+	if CalculateStaticsFingerprint(scalar) == CalculateStaticsFingerprint(nested) {
+		t.Error("Position holding scalar vs nested *TreeNode must produce different fingerprints")
+	}
+}
+
+// TestCalculateStaticsFingerprint_NestedTreeStaticsCaptured: two items with
+// the same outer Statics but different INNER (nested-tree) Statics must
+// fingerprint differently — the recursion captures nested template shape.
+func TestCalculateStaticsFingerprint_NestedTreeStaticsCaptured(t *testing.T) {
+	outer := []string{"<li>", "</li>"}
+	tree1 := &TreeNode{
+		Statics: outer,
+		Dynamics: []interface{}{
+			&TreeNode{Statics: []string{"<a>", "</a>"}, Dynamics: []interface{}{"x"}},
+		},
+	}
+	tree2 := &TreeNode{
+		Statics: outer,
+		Dynamics: []interface{}{
+			&TreeNode{Statics: []string{"<b>", "</b>"}, Dynamics: []interface{}{"x"}},
+		},
+	}
+	if CalculateStaticsFingerprint(tree1) == CalculateStaticsFingerprint(tree2) {
+		t.Error("Different nested-tree Statics must produce different outer fingerprints")
+	}
+}
+
+// TestCalculateStaticsFingerprint_RangeStaticsCaptured covers Range.Statics
+// (the per-item template), which mirrors the existing
+// CalculateStructureFingerprint test for ranges.
+func TestCalculateStaticsFingerprint_RangeStaticsCaptured(t *testing.T) {
+	tree1 := &TreeNode{
+		Statics: []string{"<ul>", "</ul>"},
+		Range:   &RangeData{Statics: []string{"<li>", "</li>"}},
+	}
+	tree2 := &TreeNode{
+		Statics: []string{"<ul>", "</ul>"},
+		Range:   &RangeData{Statics: []string{"<div>", "</div>"}},
+	}
+	if CalculateStaticsFingerprint(tree1) == CalculateStaticsFingerprint(tree2) {
+		t.Error("Different Range.Statics must produce different fingerprints")
+	}
+}
+
+// TestCalculateStaticsFingerprint_NilTree: nil → empty string (sentinel).
+func TestCalculateStaticsFingerprint_NilTree(t *testing.T) {
+	if CalculateStaticsFingerprint(nil) != "" {
+		t.Errorf("nil tree should produce empty string, got %q", CalculateStaticsFingerprint(nil))
+	}
+}
+
+// TestCalculateStaticsFingerprint_Deterministic confirms the function is a
+// pure hash — same input always produces the same output.
+func TestCalculateStaticsFingerprint_Deterministic(t *testing.T) {
+	tree := &TreeNode{
+		Statics:  []string{"<li>", "</li>"},
+		Dynamics: []interface{}{"x"},
+	}
+	first := CalculateStaticsFingerprint(tree)
+	second := CalculateStaticsFingerprint(tree)
+	if first != second {
+		t.Errorf("Same tree must hash equal across calls; got %q then %q", first, second)
+	}
+}

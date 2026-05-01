@@ -272,6 +272,65 @@ Phase 2 deliverable per proposal §11: `GenerateRangeStreamOperations(streamStat
 
 ---
 
+## Phase 2 audit checkpoint
+
+**Date:** 2026-04-30  
+**Branch:** `phase2/streaming-range-diff` (worktree `.worktrees/streaming-range-phase2/`)  
+**Base commit:** `2a28b70d` (PR #362 Phase 1 merge into `main`)
+
+### Files touched
+
+| File | Change |
+|---|---|
+| `internal/diff/range_ops.go` | Add `oldKeySet map[string]struct{}` field to `rangeContext`; populate in `newRangeContext` (promoted from local). Add `newStreamRangeContext` constructor (oldByKey + oldItems intentionally nil — never read on stream path; struct field carries an INVARIANT comment). Swap `generateInsertionOps`'s empty-vs-incremental dispatch from `len(ctx.oldItems) == 0` to `len(ctx.oldKeySet) == 0` (functionally equivalent on legacy path; required for stream path). Add `GenerateRangeStreamOperations` (top-level entry): defensive guards (nil streamState, mismatched Keys/Hashes lengths), per-item key/hash/fingerprint extraction with early-bail on het-fingerprint or non-TreeNode, pure-reorder fast path, complex-insertion fallback, r→u→a/p/i→o emission per §5b. Add `generateStreamRemovalOps`, `generateStreamUpdateOps`, `dynamicsToUpdatePayload` helpers. (Proposal §11 mentioned a `fromStream bool` flag; turned out unused — every helper that needed discrimination uses `oldKeySet` directly. Dropped per CLAUDE.md "don't add features beyond what the task requires".) |
+| `internal/diff/helpers_range.go` | `isComplexInsertionPatternCtx`: `ctx.oldByKey[keyStr]` → `ctx.oldKeySet[keyStr]`. `areAllItemsAtEndCtx`: `len(ctx.oldItems) == 0` → `len(ctx.oldKeySet) == 0` AND `ctx.oldByKey[itemKey]` → `ctx.oldKeySet[itemKey]`. `areAllItemsAtStartCtx` unchanged per §11 spec. |
+| `internal/diff/types.go` | Add `RangeStreamState = build.RangeStreamState` alias for ergonomic test code (mirrors existing `TreeNode` / `RangeData` / `TreeMetadata` aliases). |
+| `internal/diff/range_ops_test.go` | 14 new tests: 13 `TestGenerateRangeStreamOperations_*` (NoChange, Update_FullDynamicsPayload, UpdateClearsAbsentPositions, NilToEmptyStringPhantomUpdate, Removal, TailAppend4Items, HeadPrepend, MidInsert, PureReorder, MixedUpdateAndReorder, ScatteredInsertFallback, HetRangeFallback, StripStatics) plus `TestGenerateRangeDifferentialOperations_EmptyToItems_LegacyOldKeySetEquivalent` (legacy regression for the predicate swap). Adds `streamStateFor` test helper. |
+| `internal/build/fingerprint.go` | Phase 2-driven addition: `CalculateStaticsFingerprint(*TreeNode) string` plus `hashStaticsWithCircularDetection`. Mirror of `CalculateStructureFingerprint`'s shape, but skips scalar dynamic positions entirely — only outer Statics, nested *TreeNode statics (recursively), and Range.Statics contribute. No cached method on TreeNode (the function is called once per item per render in stream mode; lazy-cache wrapper would be premature optimization). Phase 3+ can promote to a cached method if a hot-path caller emerges. |
+| `internal/build/fingerprint_test.go` | 6 direct tests for `CalculateStaticsFingerprint` — `TestCalculateStaticsFingerprint_ScalarValuesIgnored` (the key contract: same template + scalar differences → same hash, including nil-vs-non-nil), `_NestedTreeVsScalarDiffers` (the het-range trigger), `_NestedTreeStaticsCaptured` (recursion into inner Statics), `_RangeStaticsCaptured`, `_NilTree` (sentinel), `_Deterministic` (pure-function check). |
+| `internal/keys/hash_test.go` | Phase 1 backfill: `TestItemHashUint64_NestedTreeNode` — locks in the load-bearing `formatHashPart`-via-`json.Marshal` semantics for nested *TreeNode values that the stream-mode algorithm depends on. |
+
+### Test results
+
+- **21 new tests** (14 in `range_ops_test.go` + 1 in `keys/hash_test.go` + 6 in `build/fingerprint_test.go`) — all pass.
+- **Full test suite** (`GOWORK=off go test ./...`) — green; zero regressions across all 17 internal/* packages, root `livetemplate` package, or `pubsub`.
+- **Race detector** (`GOWORK=off go test -race ./internal/diff/... ./internal/keys/... ./internal/build/...`) — clean.
+- **Build sanity** — `go build` clean; `gofmt -l` empty.
+
+### Per Phase 2 audit checkpoint requirement
+
+> Per proposal §11 Phase 2 audit checkpoint: "every test in item 1 is exercised by a direct call to `GenerateRangeStreamOperations`, no production code path reaches it yet. Reviewer confirms helper adaptations match the §10 spec (in particular, that `oldKeySet` is non-empty on the stream path)."
+
+`grep -rn "GenerateRangeStreamOperations" internal/ --include='*.go' | grep -v _test.go` returns matches in exactly one location: the function definition + godoc in `internal/diff/range_ops.go`. **ZERO production callers** in `tree_compare.go`, `template.go`, `prepare.go`, or any other file. Every test invocation is a direct call from `range_ops_test.go`.
+
+`grep -rn "StreamState" internal/ --include='*.go' | grep -v _test.go` confirms the only NEW production read site is the `streamState *build.RangeStreamState` parameter in `GenerateRangeStreamOperations` itself. No production reads added in `prepare.go`, `helpers_compare.go`, `helpers_value.go`, or `keys/loader.go` — all Phase 3 work.
+
+`oldKeySet` is populated on both paths: `newRangeContext` (legacy) populates from `oldKeys` (the keys extracted from `oldItems`); `newStreamRangeContext` (stream) populates from `streamState.Keys`. The Round 12 regression check (per §10's `helpers_range.go` row) is satisfied — `len(ctx.oldKeySet) > 0` on stream renders with non-empty StreamState, so `areAllItemsAtEndCtx` doesn't early-return on tail-append workloads. This is exercised by `TestGenerateRangeStreamOperations_TailAppend4Items` (4-item tail-append → single `["a", 4items, statics]` op, NOT four individual `["i"]` ops).
+
+### Phase 1 follow-up landed in this PR
+
+**`TestItemHashUint64_NestedTreeNode` (`internal/keys/hash_test.go`)** — was originally in the Phase 1 plan but dropped during execution. Phase 2's algorithm load-bears on `formatHashPart`'s `json.Marshal` correctly capturing nested `*TreeNode` content (via `TreeNode.MarshalJSON`). Without the test, a future "simplify the hash" refactor could silently break the stream-mode update detection. Test asserts (a) two structurally-identical items with same nested content hash equal, and (b) items differing only in nested-TreeNode content hash differently.
+
+### Phase 2-driven build-package addition
+
+**`CalculateStaticsFingerprint` (`internal/build/fingerprint.go`)** — proposal §5b references "static fingerprint" as the homogeneity check, but the existing `CalculateStructureFingerprint` over-captures: it treats scalar dynamic-position-presence as structural (a position transitioning from `"x"` to `nil` produces a different structure fingerprint, even though both are content states of the same template). This breaks proposal test plan item 11's nil↔"" phantom-update contract: the algorithm would falsely classify same-template items as het-range whenever a scalar position cleared. The new `CalculateStaticsFingerprint` mirrors the existing fingerprint shape but skips scalar positions entirely — only outer Statics, nested *TreeNode statics, and Range.Statics contribute. Same `*TreeNode` template with different scalar content produces the same statics fingerprint; a conditional swapping a scalar for a nested *TreeNode produces different fingerprints (correctly classified as het). Used by `GenerateRangeStreamOperations` and the `streamStateFor` test helper. Function-only (no cached method on TreeNode) — the lazy-cache wrapper would be premature optimization for a one-call-per-item-per-render pattern.
+
+### Phase 3 unblocked
+
+Phase 3 deliverable per proposal §11: wire the dispatch in `internal/diff/tree_compare.go` at both `handleMatchedRanges` (top-level) and `handleRangeMatch` (nested) — `if oldNode.Range.StreamState != nil` → `GenerateRangeStreamOperations`, else `GenerateRangeDifferentialOperations`. Plus the phase-1→phase-2 transition (atomic under `t.mu` in `template.go`'s `compareTreesAndGetChangesWithContext`): after first non-empty render, check the homogeneous-statics fingerprint (now via `GetStaticsFingerprint`), populate `StreamState`, nil `Items`. Empty-range deferral stays in legacy path.
+
+Other Phase 3 risk sites confirmed unchanged in Phase 2 (forward-documented in Phase 1 checkpoint, still pending): `prepare.go` (StreamState preservation in `PrepareTreeForClient`), `helpers_compare.go` (`rangeItemsEqual` extension), `helpers_value.go` (`HasRangeItems` extension), `keys/loader.go` (`LoadExistingKeyMappings` for stream mode), `internal/fuzz/invariants/verifier.go` (`buildIDKeyMap` + range-iteration sites + new fuzz corpus entries), and the no-ops golden in `tree_compare.go`'s empty-diff branch (per §10 `tree_compare.go` row).
+
+Three helpers from proposal §11 Phase 2's "adapt" list required no function-body edits, all for the same reason — they read only fields that `newStreamRangeContext` populates correctly:
+
+- `areAllItemsAtStartCtx` — iterates `ctx.addedKeys` and `ctx.newItems` positions; never touches `ctx.oldItems` or `ctx.oldByKey`. The prepend optimisation fires correctly on the stream path because `addedKeys` is correctly derived from `streamState.Keys` upstream.
+- `handleIncrementalInsertionsCtx` — only dispatches to `areAllItemsAtStartCtx`/`areAllItemsAtEndCtx`/`handleIndividualInsertionsCtx`, no direct reads.
+- `handleIndividualInsertionsCtx` — reads `ctx.addedKeys`, `ctx.newByKey`, `ctx.newItems`; the legacy-only fields stay nil and are never accessed.
+
+A future Phase 3+ helper added here MUST audit which `ctx` fields it reads — `oldItems` and `oldByKey` are nil on the stream path (the struct-field `INVARIANT` comment in `range_ops.go` enforces this in code).
+
+---
+
 ## Audit sign-off
 
 All six §15 gates close as recorded. Phase 1 (foundational types) is unblocked under the proposal's audit-checkpoint sequencing. The two open questions retain explicit owners (OQ1 closed by decision; OQ2 owned by Phase 5 measurement).

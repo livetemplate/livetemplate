@@ -1,8 +1,12 @@
 package diff
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
+
+	"github.com/livetemplate/livetemplate/internal/build"
+	"github.com/livetemplate/livetemplate/internal/keys"
 )
 
 // NOTE: Tests in this file use explicit data-key attributes in statics to test key-based diffing.
@@ -1843,5 +1847,414 @@ func TestCompareRangeItemsForChanges_ConditionalBranchChange_LoadingToError(t *t
 	// Verify new statics are included (error wrapper)
 	if len(changeTree.Statics) < 2 || changeTree.Statics[0] != `<span class="error">` {
 		t.Errorf("Expected error statics, got %v", changeTree.Statics)
+	}
+}
+
+// streamStateFor builds a RangeStreamState snapshot from a slice of items, as
+// the Phase 3 producer will do. ASSUMES homogeneous items: the helper takes
+// the first item's statics fingerprint as canonical and never re-checks. Tests
+// that need heterogeneous setups must build the streamState manually.
+func streamStateFor(items []*TreeNode, keyPos int) *RangeStreamState {
+	state := &RangeStreamState{
+		Keys:   make([]string, len(items)),
+		Hashes: make([]uint64, len(items)),
+	}
+	if len(items) > 0 {
+		state.Fingerprint = build.CalculateStaticsFingerprint(items[0])
+	}
+	for i, item := range items {
+		if keyPos >= 0 && keyPos < len(item.Dynamics) {
+			if keyStr, ok := item.Dynamics[keyPos].(string); ok {
+				state.Keys[i] = keyStr
+			}
+		}
+		state.Hashes[i] = keys.ItemHashUint64(item.Dynamics)
+	}
+	return state
+}
+
+func TestGenerateRangeStreamOperations_NoChange(t *testing.T) {
+	statics := []string{`<li data-key="`, `">`, `</li>`}
+	item1 := &TreeNode{Dynamics: []interface{}{"id1", "Name 1"}}
+	item2 := &TreeNode{Dynamics: []interface{}{"id2", "Name 2"}}
+
+	streamState := streamStateFor([]*TreeNode{item1, item2}, 0)
+	newItems := []interface{}{item1, item2}
+
+	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
+	if len(ops) != 0 {
+		t.Errorf("Expected no operations, got %d: %v", len(ops), ops)
+	}
+}
+
+func TestGenerateRangeStreamOperations_Update_FullDynamicsPayload(t *testing.T) {
+	statics := []string{`<li data-key="`, `">`, `</li>`}
+	oldItem := &TreeNode{Dynamics: []interface{}{"id1", "Old Name"}}
+	newItem := &TreeNode{Dynamics: []interface{}{"id1", "New Name"}}
+
+	streamState := streamStateFor([]*TreeNode{oldItem}, 0)
+	newItems := []interface{}{newItem}
+
+	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
+	if len(ops) != 1 {
+		t.Fatalf("Expected 1 update op, got %d: %v", len(ops), ops)
+	}
+	opArr := ops[0].([]interface{})
+	if opArr[0] != "u" || opArr[1] != "id1" {
+		t.Fatalf("Expected ['u', 'id1', payload], got %v", opArr)
+	}
+	payload, ok := opArr[2].(map[string]interface{})
+	if !ok {
+		t.Fatalf("Payload should be map[string]interface{}, got %T", opArr[2])
+	}
+	if payload["1"] != "New Name" {
+		t.Errorf("payload['1'] = %v, want 'New Name'", payload["1"])
+	}
+	// Key position must be excluded from payload (key is in op[1]).
+	if _, hasKey := payload["0"]; hasKey {
+		t.Errorf("Key position 0 should not appear in payload, got %v", payload)
+	}
+}
+
+func TestGenerateRangeStreamOperations_UpdateClearsAbsentPositions(t *testing.T) {
+	// 3 dynamic positions: key, name, status.
+	statics := []string{`<li data-key="`, `">`, `:`, `</li>`}
+	oldItem := &TreeNode{Dynamics: []interface{}{"id1", "Name", "active"}}
+	// Position 2 (status) clears to nil — wire payload must encode "" per §5c.
+	newItem := &TreeNode{Dynamics: []interface{}{"id1", "Name", nil}}
+
+	streamState := streamStateFor([]*TreeNode{oldItem}, 0)
+	newItems := []interface{}{newItem}
+
+	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
+	if len(ops) != 1 {
+		t.Fatalf("Expected 1 update op, got %d: %v", len(ops), ops)
+	}
+	payload := ops[0].([]interface{})[2].(map[string]interface{})
+	if payload["2"] != "" {
+		t.Errorf("Cleared position should encode as '', got %v (type %T)", payload["2"], payload["2"])
+	}
+}
+
+func TestGenerateRangeStreamOperations_NilToEmptyStringPhantomUpdate(t *testing.T) {
+	// Test plan item 11: nil→"" hashes-mismatch (nil is skipped; "" hashes as `1:""`),
+	// so an update IS emitted even though the rendered output is identical.
+	statics := []string{`<li data-key="`, `">`, `</li>`}
+	oldItem := &TreeNode{Dynamics: []interface{}{"id1", nil}}
+	newItem := &TreeNode{Dynamics: []interface{}{"id1", ""}}
+
+	streamState := streamStateFor([]*TreeNode{oldItem}, 0)
+	newItems := []interface{}{newItem}
+
+	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
+	if len(ops) != 1 {
+		t.Fatalf("Expected 1 update op (nil→\"\" is a hash mismatch), got %d: %v", len(ops), ops)
+	}
+	payload := ops[0].([]interface{})[2].(map[string]interface{})
+	if payload["1"] != "" {
+		t.Errorf("payload['1'] = %v, want \"\"", payload["1"])
+	}
+}
+
+func TestGenerateRangeStreamOperations_Removal(t *testing.T) {
+	statics := []string{`<li data-key="`, `">`, `</li>`}
+	item1 := &TreeNode{Dynamics: []interface{}{"id1", "Name 1"}}
+	item2 := &TreeNode{Dynamics: []interface{}{"id2", "Name 2"}}
+	item3 := &TreeNode{Dynamics: []interface{}{"id3", "Name 3"}}
+
+	streamState := streamStateFor([]*TreeNode{item1, item2, item3}, 0)
+	newItems := []interface{}{item1, item3} // item2 removed
+
+	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
+	found := false
+	for _, op := range ops {
+		opArr, ok := op.([]interface{})
+		if ok && len(opArr) == 2 && opArr[0] == "r" && opArr[1] == "id2" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected removal op ['r', 'id2'], ops: %v", ops)
+	}
+}
+
+func TestGenerateRangeStreamOperations_TailAppend4Items(t *testing.T) {
+	// 5 → 9 items via 4 tail appends; expect SINGLE ['a', 4items, statics] op,
+	// NOT 4 individual ['i'] ops, NOT a full-tree fallback.
+	// Regression for areAllItemsAtEndCtx via oldKeySet (proposal §11 test plan).
+	statics := []string{`<li data-key="`, `">`, `</li>`}
+	oldItems := make([]*TreeNode, 5)
+	for i := 0; i < 5; i++ {
+		oldItems[i] = &TreeNode{Dynamics: []interface{}{
+			fmt.Sprintf("id%d", i),
+			fmt.Sprintf("Name %d", i),
+		}}
+	}
+	streamState := streamStateFor(oldItems, 0)
+
+	newItems := make([]interface{}, 9)
+	for i := 0; i < 5; i++ {
+		newItems[i] = oldItems[i]
+	}
+	for i := 5; i < 9; i++ {
+		newItems[i] = &TreeNode{Dynamics: []interface{}{
+			fmt.Sprintf("id%d", i),
+			fmt.Sprintf("Name %d", i),
+		}}
+	}
+
+	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
+	if len(ops) != 1 {
+		t.Fatalf("Expected SINGLE 'a' op for tail-append, got %d: %v", len(ops), ops)
+	}
+	opArr := ops[0].([]interface{})
+	if opArr[0] != "a" {
+		t.Fatalf("Expected ['a', items, statics], got %v", opArr)
+	}
+	items := opArr[1].([]interface{})
+	if len(items) != 4 {
+		t.Errorf("Expected 4 appended items, got %d", len(items))
+	}
+}
+
+func TestGenerateRangeStreamOperations_HeadPrepend(t *testing.T) {
+	statics := []string{`<li data-key="`, `">`, `</li>`}
+	item1 := &TreeNode{Dynamics: []interface{}{"id1", "Name 1"}}
+	item2 := &TreeNode{Dynamics: []interface{}{"id2", "Name 2"}}
+	item0 := &TreeNode{Dynamics: []interface{}{"id0", "Name 0"}}
+
+	streamState := streamStateFor([]*TreeNode{item1, item2}, 0)
+	newItems := []interface{}{item0, item1, item2}
+
+	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
+	if len(ops) != 1 {
+		t.Fatalf("Expected SINGLE 'p' op for head-prepend, got %d: %v", len(ops), ops)
+	}
+	opArr := ops[0].([]interface{})
+	if opArr[0] != "p" {
+		t.Errorf("Expected ['p', ...], got %v", opArr)
+	}
+}
+
+func TestGenerateRangeStreamOperations_MidInsert(t *testing.T) {
+	statics := []string{`<li data-key="`, `">`, `</li>`}
+	item1 := &TreeNode{Dynamics: []interface{}{"id1", "Name 1"}}
+	item2 := &TreeNode{Dynamics: []interface{}{"id2", "Name 2"}}
+	itemMid := &TreeNode{Dynamics: []interface{}{"idMid", "Mid"}}
+
+	streamState := streamStateFor([]*TreeNode{item1, item2}, 0)
+	newItems := []interface{}{item1, itemMid, item2}
+
+	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
+	found := false
+	for _, op := range ops {
+		opArr, ok := op.([]interface{})
+		if ok && len(opArr) >= 2 && opArr[0] == "i" && opArr[1] == "id1" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected ['i', 'id1', item], ops: %v", ops)
+	}
+}
+
+func TestGenerateRangeStreamOperations_PureReorder(t *testing.T) {
+	statics := []string{`<li data-key="`, `">`, `</li>`}
+	item1 := &TreeNode{Dynamics: []interface{}{"id1", "Name 1"}}
+	item2 := &TreeNode{Dynamics: []interface{}{"id2", "Name 2"}}
+
+	streamState := streamStateFor([]*TreeNode{item1, item2}, 0)
+	newItems := []interface{}{item2, item1} // reordered, identical content
+
+	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
+	if len(ops) != 1 {
+		t.Fatalf("Expected SINGLE 'o' op (pure-reorder fast path), got %d: %v", len(ops), ops)
+	}
+	opArr := ops[0].([]interface{})
+	if opArr[0] != "o" {
+		t.Errorf("Expected ['o', keys], got %v", opArr)
+	}
+	gotKeys := opArr[1].([]string)
+	if !reflect.DeepEqual(gotKeys, []string{"id2", "id1"}) {
+		t.Errorf("Keys = %v, want [id2 id1]", gotKeys)
+	}
+}
+
+func TestGenerateRangeStreamOperations_MixedUpdateAndReorder(t *testing.T) {
+	statics := []string{`<li data-key="`, `">`, `</li>`}
+	item1Old := &TreeNode{Dynamics: []interface{}{"id1", "Name 1"}}
+	item2Old := &TreeNode{Dynamics: []interface{}{"id2", "Name 2"}}
+	item1New := &TreeNode{Dynamics: []interface{}{"id1", "Name 1 UPDATED"}}
+
+	streamState := streamStateFor([]*TreeNode{item1Old, item2Old}, 0)
+	newItems := []interface{}{item2Old, item1New} // reordered AND id1 content changed
+
+	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
+	if len(ops) < 2 {
+		t.Fatalf("Expected at least 2 ops (update + reorder), got %d: %v", len(ops), ops)
+	}
+
+	uIdx, oIdx := -1, -1
+	for i, op := range ops {
+		opArr := op.([]interface{})
+		switch opArr[0] {
+		case "u":
+			uIdx = i
+		case "o":
+			oIdx = i
+		}
+	}
+	if uIdx == -1 || oIdx == -1 {
+		t.Fatalf("Expected both 'u' and 'o' ops, got %v", ops)
+	}
+	if uIdx >= oIdx {
+		t.Errorf("Per §5b ordering, 'u' must precede 'o'; got u@%d, o@%d", uIdx, oIdx)
+	}
+}
+
+func TestGenerateRangeStreamOperations_ScatteredInsertFallback(t *testing.T) {
+	// ≥4 distinct insertion points triggers complex-pattern fallback (returns nil).
+	statics := []string{`<li data-key="`, `">`, `</li>`}
+	oldItems := []*TreeNode{
+		{Dynamics: []interface{}{"a", "A"}},
+		{Dynamics: []interface{}{"b", "B"}},
+		{Dynamics: []interface{}{"c", "C"}},
+		{Dynamics: []interface{}{"d", "D"}},
+	}
+	streamState := streamStateFor(oldItems, 0)
+
+	// Insert N1 before a, N2 between a&b, N3 between b&c, N4 between c&d (4 unique points).
+	newItems := []interface{}{
+		&TreeNode{Dynamics: []interface{}{"n1", "New 1"}},
+		oldItems[0],
+		&TreeNode{Dynamics: []interface{}{"n2", "New 2"}},
+		oldItems[1],
+		&TreeNode{Dynamics: []interface{}{"n3", "New 3"}},
+		oldItems[2],
+		&TreeNode{Dynamics: []interface{}{"n4", "New 4"}},
+		oldItems[3],
+	}
+
+	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
+	if ops != nil {
+		t.Errorf("Expected nil (complex-insertion fallback), got: %v", ops)
+	}
+}
+
+func TestGenerateRangeStreamOperations_AllItemsRemoved(t *testing.T) {
+	// Common production scenario: clearing a list. Every old key emits ['r'],
+	// no insertions, no reorder. Result should be a non-nil ops slice.
+	statics := []string{`<li data-key="`, `">`, `</li>`}
+	item1 := &TreeNode{Dynamics: []interface{}{"id1", "Name 1"}}
+	item2 := &TreeNode{Dynamics: []interface{}{"id2", "Name 2"}}
+
+	streamState := streamStateFor([]*TreeNode{item1, item2}, 0)
+	newItems := []interface{}{} // all removed
+
+	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
+	if ops == nil {
+		t.Fatal("Expected non-nil ops (every removal emitted), got nil (fallback)")
+	}
+	if len(ops) != 2 {
+		t.Fatalf("Expected 2 'r' ops (one per removed key), got %d: %v", len(ops), ops)
+	}
+	for _, op := range ops {
+		opArr := op.([]interface{})
+		if opArr[0] != "r" {
+			t.Errorf("Expected ['r', key], got %v", opArr)
+		}
+	}
+}
+
+func TestGenerateRangeStreamOperations_KeyHashLengthMismatch_ReturnsNil(t *testing.T) {
+	// Defensive guard: RangeStreamState documents Keys/Hashes as parallel slices
+	// but doesn't enforce it as an invariant. A mismatch (e.g., from a
+	// deserialisation bug) must return nil (legacy fallback), not panic.
+	statics := []string{`<li data-key="`, `">`, `</li>`}
+	streamState := &RangeStreamState{
+		Keys:        []string{"id1", "id2"},
+		Hashes:      []uint64{42}, // shorter than Keys
+		Fingerprint: "anything",
+	}
+	newItems := []interface{}{
+		&TreeNode{Dynamics: []interface{}{"id1", "Name 1"}},
+	}
+
+	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
+	if ops != nil {
+		t.Errorf("Expected nil (mismatched Keys/Hashes lengths), got: %v", ops)
+	}
+}
+
+func TestGenerateRangeStreamOperations_HetRangeFallback(t *testing.T) {
+	// One new item has a divergent structural fingerprint (different Statics) → return nil.
+	statics := []string{`<li data-key="`, `">`, `</li>`}
+	oldItem := &TreeNode{Dynamics: []interface{}{"id1", "Name 1"}}
+	streamState := streamStateFor([]*TreeNode{oldItem}, 0)
+
+	// New item has Statics → different fingerprint than the empty-Statics baseline.
+	newItem := &TreeNode{
+		Statics:  []string{`<DIFFERENT>`, `</DIFFERENT>`},
+		Dynamics: []interface{}{"id1", "Name 1"},
+	}
+	newItems := []interface{}{newItem}
+
+	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, false)
+	if ops != nil {
+		t.Errorf("Expected nil (het-range fingerprint fallback), got: %v", ops)
+	}
+}
+
+func TestGenerateRangeStreamOperations_StripStatics(t *testing.T) {
+	// stripStatics=true should remove the trailing statics from 'a' ops.
+	statics := []string{`<li data-key="`, `">`, `</li>`}
+	item1 := &TreeNode{Dynamics: []interface{}{"id1", "Name 1"}}
+	item2New := &TreeNode{Dynamics: []interface{}{"id2", "Name 2"}}
+
+	streamState := streamStateFor([]*TreeNode{item1}, 0)
+	newItems := []interface{}{item1, item2New}
+
+	ops := GenerateRangeStreamOperations(streamState, newItems, statics, nil, true)
+	if len(ops) != 1 {
+		t.Fatalf("Expected 1 'a' op, got %d: %v", len(ops), ops)
+	}
+	opArr := ops[0].([]interface{})
+	if opArr[0] != "a" {
+		t.Fatalf("Expected ['a', ...], got %v", opArr)
+	}
+	if len(opArr) != 2 {
+		t.Errorf("Expected stripped 'a' op to have len 2 (no statics), got len %d: %v", len(opArr), opArr)
+	}
+}
+
+func TestGenerateRangeDifferentialOperations_EmptyToItems_LegacyOldKeySetEquivalent(t *testing.T) {
+	// Regression guard: legacy path with len(oldItems)==0 still dispatches to
+	// handleEmptyToItemsTransition after the predicate swap to len(oldKeySet)==0.
+	// Locks in the equivalence so a future change can't silently flip behavior.
+	statics := []string{`<li data-key="`, `">`, `</li>`}
+
+	oldValue := &TreeNode{
+		Statics: statics,
+		Range: &RangeData{
+			Items: []interface{}{},
+		},
+	}
+	item1 := &TreeNode{Dynamics: []interface{}{"id1", "Name 1"}}
+	newValue := &TreeNode{
+		Statics: statics,
+		Range: &RangeData{
+			Items: []interface{}{item1},
+		},
+	}
+
+	ops := GenerateRangeDifferentialOperations(oldValue, newValue, false)
+	if len(ops) != 1 {
+		t.Fatalf("Expected single 'a' op for empty-to-items transition, got %d: %v", len(ops), ops)
+	}
+	opArr := ops[0].([]interface{})
+	if opArr[0] != "a" {
+		t.Errorf("Expected ['a', items, statics], got %v", opArr)
 	}
 }
