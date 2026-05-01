@@ -183,3 +183,35 @@ func TestTransitionToStreamMode_NilTreeSafe(t *testing.T) {
 	// Must not panic on nil input.
 	TransitionToStreamMode(nil)
 }
+
+// TestTransitionToStreamMode_RootRangeFires covers the case where the root
+// tree itself is a Range (template `{{range .Items}}<x/>{{end}}` with no
+// wrapper element). The root range counts as top-level per spec §5a and must
+// transition. Without this case, wrapper-less templates silently fall through
+// to the legacy diff path even when their range is homogeneous.
+func TestTransitionToStreamMode_RootRangeFires(t *testing.T) {
+	itemStatics := []string{`<li data-key="`, `">`, `</li>`}
+	tree := &build.TreeNode{
+		Statics: itemStatics,
+		Range: &build.RangeData{
+			Statics: itemStatics,
+			Items: []interface{}{
+				&build.TreeNode{Statics: itemStatics, Dynamics: []interface{}{"a", "alpha"}},
+				&build.TreeNode{Statics: itemStatics, Dynamics: []interface{}{"b", "beta"}},
+			},
+		},
+	}
+
+	TransitionToStreamMode(tree)
+
+	if tree.Range.Items != nil {
+		t.Errorf("Items should be nil after root-range transition, got %v", tree.Range.Items)
+	}
+	if tree.Range.StreamState == nil {
+		t.Fatalf("StreamState should be populated for root-range transition")
+	}
+	ss := tree.Range.StreamState
+	if len(ss.Keys) != 2 || ss.Keys[0] != "a" || ss.Keys[1] != "b" {
+		t.Errorf("Expected keys [a, b], got %v", ss.Keys)
+	}
+}

@@ -143,57 +143,6 @@ func TestGenerateRangeDifferentialOperations_Removal(t *testing.T) {
 	}
 }
 
-// TestGenerateRangeDifferentialOperations_Update tests item update operations.
-func TestGenerateRangeDifferentialOperations_Update(t *testing.T) {
-	item1Old := &TreeNode{
-		Dynamics: []interface{}{"id1", "Old Name"},
-	}
-	item1New := &TreeNode{
-		Dynamics: []interface{}{"id1", "New Name"},
-	}
-
-	statics := []string{`<li data-key="`, `">`, `</li>`}
-
-	oldValue := &TreeNode{
-		Statics: statics,
-		Range: &RangeData{
-			Items: []interface{}{item1Old},
-		},
-	}
-
-	newValue := &TreeNode{
-		Statics: statics,
-		Range: &RangeData{
-			Items: []interface{}{item1New},
-		},
-	}
-
-	ops := GenerateRangeDifferentialOperations(oldValue, newValue, false)
-
-	// Should have one update operation
-	found := false
-	for _, op := range ops {
-		opArray, ok := op.([]interface{})
-		if ok && len(opArray) >= 2 && opArray[0] == "u" && opArray[1] == "id1" {
-			found = true
-			// Check that changes are included
-			if len(opArray) > 2 {
-				changes, ok := opArray[2].(map[string]interface{})
-				if !ok {
-					t.Errorf("Changes should be map, got %T", opArray[2])
-				} else if changes["1"] != "New Name" {
-					t.Errorf("Changes['1'] = %v, want 'New Name'", changes["1"])
-				}
-			}
-			break
-		}
-	}
-
-	if !found {
-		t.Errorf("Expected update operation ['u', 'id1', changes], operations: %v", ops)
-	}
-}
-
 // TestGenerateRangeDifferentialOperations_Insertion tests item insertion (append).
 func TestGenerateRangeDifferentialOperations_Insertion(t *testing.T) {
 	item1 := &TreeNode{
@@ -236,74 +185,32 @@ func TestGenerateRangeDifferentialOperations_Insertion(t *testing.T) {
 	}
 }
 
-// TestGenerateRangeDifferentialOperations_Mixed tests mixed operations (removal + update + insertion).
+// TestGenerateRangeDifferentialOperations_Mixed verifies that a render combining
+// structural changes (id1/id3 removed, id4 added) with a kept-item content change
+// (id2: "Old Name" → "New Name") signals nil-return so the caller emits a full-tree
+// replacement. Kept-item content changes cannot be encoded as differential ops
+// (spec §5d).
 func TestGenerateRangeDifferentialOperations_Mixed(t *testing.T) {
-	item1 := &TreeNode{
-		Dynamics: []interface{}{"id1", "Name 1"},
-	}
-	item2Old := &TreeNode{
-		Dynamics: []interface{}{"id2", "Old Name"},
-	}
-	item2New := &TreeNode{
-		Dynamics: []interface{}{"id2", "New Name"},
-	}
-	item3 := &TreeNode{
-		Dynamics: []interface{}{"id3", "Name 3"},
-	}
-	item4 := &TreeNode{
-		Dynamics: []interface{}{"id4", "Name 4"},
-	}
+	item1 := &TreeNode{Dynamics: []interface{}{"id1", "Name 1"}}
+	item2Old := &TreeNode{Dynamics: []interface{}{"id2", "Old Name"}}
+	item2New := &TreeNode{Dynamics: []interface{}{"id2", "New Name"}}
+	item3 := &TreeNode{Dynamics: []interface{}{"id3", "Name 3"}}
+	item4 := &TreeNode{Dynamics: []interface{}{"id4", "Name 4"}}
 
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 
 	oldValue := &TreeNode{
 		Statics: statics,
-		Range: &RangeData{
-			Items: []interface{}{item1, item2Old, item3},
-		},
+		Range:   &RangeData{Items: []interface{}{item1, item2Old, item3}},
 	}
-
 	newValue := &TreeNode{
 		Statics: statics,
-		Range: &RangeData{
-			Items: []interface{}{item2New, item4}, // id1 removed, id2 updated, id3 removed, id4 added
-		},
+		Range:   &RangeData{Items: []interface{}{item2New, item4}},
 	}
 
 	ops := GenerateRangeDifferentialOperations(oldValue, newValue, false)
-
-	// Should have: 2 removals, 1 update, 1 append/insert
-	hasRemoval := false
-	hasUpdate := false
-	hasInsertion := false
-
-	for _, op := range ops {
-		opArray, ok := op.([]interface{})
-		if !ok {
-			continue
-		}
-		if len(opArray) < 2 {
-			continue
-		}
-
-		switch opArray[0] {
-		case "r":
-			hasRemoval = true
-		case "u":
-			hasUpdate = true
-		case "a", "p", "i":
-			hasInsertion = true
-		}
-	}
-
-	if !hasRemoval {
-		t.Error("Expected at least one removal operation")
-	}
-	if !hasUpdate {
-		t.Error("Expected update operation")
-	}
-	if !hasInsertion {
-		t.Error("Expected insertion operation")
+	if ops != nil {
+		t.Errorf("Expected nil-return (full-tree fallback signal), got ops: %v", ops)
 	}
 }
 
@@ -561,46 +468,6 @@ func TestGenerateRemovalOperations(t *testing.T) {
 	}
 }
 
-// TestGenerateUpdateOperations tests update operation generation.
-func TestGenerateUpdateOperations(t *testing.T) {
-	oldItems := []interface{}{
-		&TreeNode{Dynamics: []interface{}{"id1", "Old"}},
-	}
-
-	newItems := []interface{}{
-		&TreeNode{Dynamics: []interface{}{"id1", "New"}},
-	}
-
-	statics := []string{`<li data-key="`, `">`, `</li>`}
-	operations := []interface{}{}
-
-	ctx := newRangeContext(oldItems, newItems, statics, nil)
-	ops := generateUpdateOps(ctx, operations)
-
-	// Should generate one update operation
-	if len(ops) != 1 {
-		t.Fatalf("Expected 1 update operation, got %d: %v", len(ops), ops)
-	}
-
-	opArray, ok := ops[0].([]interface{})
-	if !ok || len(opArray) < 3 {
-		t.Fatalf("Expected ['u', 'id1', changes], got %v", ops[0])
-	}
-
-	if opArray[0] != "u" || opArray[1] != "id1" {
-		t.Errorf("Operation = %v, want ['u', 'id1', ...]", opArray)
-	}
-
-	changes, ok := opArray[2].(map[string]interface{})
-	if !ok {
-		t.Fatalf("Changes should be map, got %T", opArray[2])
-	}
-
-	if changes["1"] != "New" {
-		t.Errorf("changes['1'] = %v, want 'New'", changes["1"])
-	}
-}
-
 // TestGenerateInsertionOperations_Prepend tests prepend insertion.
 func TestGenerateInsertionOperations_Prepend(t *testing.T) {
 	oldItems := []interface{}{
@@ -696,25 +563,6 @@ func TestGenerateInsertionOperations_Complex(t *testing.T) {
 	}
 }
 
-// TestCompareRangeItemsForChanges_NoDiff tests no changes between items.
-func TestCompareRangeItemsForChanges_NoDiff(t *testing.T) {
-	oldItem := &TreeNode{
-		Dynamics: []interface{}{"id1", "Name"},
-	}
-
-	newItem := &TreeNode{
-		Dynamics: []interface{}{"id1", "Name"},
-	}
-
-	statics := []string{`<li data-key="`, `">`, `</li>`}
-
-	changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
-
-	if len(changes) != 0 {
-		t.Errorf("Expected no changes, got: %v", changes)
-	}
-}
-
 // TestGenerateRangeDifferentialOperations_NilInputs tests handling of nil inputs.
 func TestGenerateRangeDifferentialOperations_NilInputs(t *testing.T) {
 	tests := []struct {
@@ -777,303 +625,148 @@ func TestGenerateRangeDifferentialOperations_NilRangeData(t *testing.T) {
 	}
 }
 
-// TestCompareRangeItemsForChanges_NilInputs tests nil input handling.
-func TestCompareRangeItemsForChanges_NilInputs(t *testing.T) {
-	statics := []string{`<li data-key="`, `">`, `</li>`}
+// TestHasKeptItemChanged_NonTreeNodeReturnsTrue locks in the safety bias: if a
+// kept-key resolves to a non-*TreeNode on either side, the function returns
+// true (force fallback) rather than silently emit a no-op for unrenderable
+// state. The path is unreachable through GenerateRangeDifferentialOperations
+// today because key extraction itself requires *TreeNode, but the bias remains
+// load-bearing for any future caller that constructs a context manually.
+func TestHasKeptItemChanged_NonTreeNodeReturnsTrue(t *testing.T) {
+	ctx := &rangeContext{
+		newKeys:  []string{"id1"},
+		oldByKey: map[string]interface{}{"id1": "raw-string"},
+		newByKey: map[string]interface{}{"id1": &TreeNode{Dynamics: []interface{}{"id1", "x"}}},
+	}
+	if !hasKeptItemChanged(ctx) {
+		t.Error("Expected true for non-*TreeNode old value (safety bias), got false")
+	}
+}
 
-	tests := []struct {
-		name     string
-		oldItem  interface{}
-		newItem  interface{}
-		expected int
-	}{
-		{"both nil", nil, nil, 0},
-		{"old nil", nil, &TreeNode{Dynamics: []interface{}{"id1"}}, 0},
-		{"new nil", &TreeNode{Dynamics: []interface{}{"id1"}}, nil, 0},
-		{"non-TreeNode old", "not a tree", &TreeNode{Dynamics: []interface{}{"id1"}}, 0},
-		{"non-TreeNode new", &TreeNode{Dynamics: []interface{}{"id1"}}, "not a tree", 0},
+// TestGenerateRangeDifferentialOperations_KeptItemContentChange_FallsBack
+// covers a single item present on both renders whose Dynamics changed. The
+// diff engine signals nil-return so the caller emits a full-tree replacement.
+func TestGenerateRangeDifferentialOperations_KeptItemContentChange_FallsBack(t *testing.T) {
+	statics := []string{`<li data-key="`, `">`, `</li>`}
+	oldValue := &TreeNode{
+		Statics: statics,
+		Range:   &RangeData{Items: []interface{}{&TreeNode{Dynamics: []interface{}{"id1", "Old"}}}},
+	}
+	newValue := &TreeNode{
+		Statics: statics,
+		Range:   &RangeData{Items: []interface{}{&TreeNode{Dynamics: []interface{}{"id1", "New"}}}},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			changes := CompareRangeItemsForChanges(tt.oldItem, tt.newItem, statics)
-			if len(changes) != tt.expected {
-				t.Errorf("Expected %d changes, got %d: %v", tt.expected, len(changes), changes)
+	if ops := GenerateRangeDifferentialOperations(oldValue, newValue, false); ops != nil {
+		t.Errorf("Expected nil-return for kept-item content change, got: %v", ops)
+	}
+}
+
+// TestGenerateRangeDifferentialOperations_StructuralAndContent_FallsBack covers
+// a render that adds an item AND mutates an existing item's content. The
+// content-change signal wins — full-tree replacement carries both correctly.
+func TestGenerateRangeDifferentialOperations_StructuralAndContent_FallsBack(t *testing.T) {
+	statics := []string{`<li data-key="`, `">`, `</li>`}
+	oldValue := &TreeNode{
+		Statics: statics,
+		Range:   &RangeData{Items: []interface{}{&TreeNode{Dynamics: []interface{}{"id1", "Old"}}}},
+	}
+	newValue := &TreeNode{
+		Statics: statics,
+		Range: &RangeData{Items: []interface{}{
+			&TreeNode{Dynamics: []interface{}{"id1", "New"}},
+			&TreeNode{Dynamics: []interface{}{"id2", "Fresh"}},
+		}},
+	}
+
+	if ops := GenerateRangeDifferentialOperations(oldValue, newValue, false); ops != nil {
+		t.Errorf("Expected nil-return for combined structural+content change, got: %v", ops)
+	}
+}
+
+// TestGenerateRangeDifferentialOperations_PureStructural_StillEmitsOps locks in
+// the wire-size win for het ranges that change only structurally — pure-add of
+// new items with no kept-item content drift must still emit a compact ['a']/['i']
+// op carrying the new key.
+func TestGenerateRangeDifferentialOperations_PureStructural_StillEmitsOps(t *testing.T) {
+	statics := []string{`<li data-key="`, `">`, `</li>`}
+	oldValue := &TreeNode{
+		Statics: statics,
+		Range:   &RangeData{Items: []interface{}{&TreeNode{Dynamics: []interface{}{"id1", "A"}}}},
+	}
+	newValue := &TreeNode{
+		Statics: statics,
+		Range: &RangeData{Items: []interface{}{
+			&TreeNode{Dynamics: []interface{}{"id1", "A"}},
+			&TreeNode{Dynamics: []interface{}{"id2", "B"}},
+		}},
+	}
+
+	ops := GenerateRangeDifferentialOperations(oldValue, newValue, false)
+	if ops == nil {
+		t.Fatal("Expected ops for pure-structural change, got nil-fallback")
+	}
+
+	foundID2 := false
+	for _, op := range ops {
+		opArr, ok := op.([]interface{})
+		if !ok || len(opArr) < 2 {
+			continue
+		}
+		switch opArr[0] {
+		case "a", "p":
+			items, ok := opArr[1].([]interface{})
+			if !ok {
+				continue
 			}
-		})
+			for _, item := range items {
+				if node, ok := item.(*TreeNode); ok && len(node.Dynamics) > 0 && node.Dynamics[0] == "id2" {
+					foundID2 = true
+				}
+			}
+		case "i":
+			if len(opArr) >= 3 {
+				if node, ok := opArr[2].(*TreeNode); ok && len(node.Dynamics) > 0 && node.Dynamics[0] == "id2" {
+					foundID2 = true
+				}
+			}
+		}
+	}
+	if !foundID2 {
+		t.Errorf("Expected an append/insert op carrying id2, got: %v", ops)
 	}
 }
 
-// TestCompareRangeItemsForChanges_Changed tests detecting changes between items.
-func TestCompareRangeItemsForChanges_Changed(t *testing.T) {
-	oldItem := &TreeNode{
-		Dynamics: []interface{}{"id1", "Old Name", "Old Value"},
+// TestGenerateRangeDifferentialOperations_StaticsOnlyChange_FallsBack covers the
+// conditional-branch flip pattern: a kept item's nested TreeNode flips Statics
+// (e.g. {{if .Done}}<s>{{end}}) with no Dynamics change. The hash check alone
+// would miss this (empty Dynamics → identical hash) — the statics fingerprint
+// comparison catches it and forces full-tree fallback.
+func TestGenerateRangeDifferentialOperations_StaticsOnlyChange_FallsBack(t *testing.T) {
+	itemStatics := []string{`<li data-key="`, `">`, "</li>"}
+	rangeStatics := []string{"<ul>", "</ul>"}
+	oldValue := &TreeNode{
+		Statics: rangeStatics,
+		Range: &RangeData{
+			Statics: itemStatics,
+			Items: []interface{}{&TreeNode{
+				Statics:  itemStatics,
+				Dynamics: []interface{}{"task-1", &TreeNode{Statics: []string{"<s>", "</s>"}}},
+			}},
+		},
+	}
+	newValue := &TreeNode{
+		Statics: rangeStatics,
+		Range: &RangeData{
+			Statics: itemStatics,
+			Items: []interface{}{&TreeNode{
+				Statics:  itemStatics,
+				Dynamics: []interface{}{"task-1", &TreeNode{Statics: []string{""}}},
+			}},
+		},
 	}
 
-	newItem := &TreeNode{
-		Dynamics: []interface{}{"id1", "New Name", "Old Value"}, // Unchanged
-	}
-
-	statics := []string{`<li data-key="`, `">`, `</li>`}
-
-	changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
-
-	// Should detect change in position "1" only
-	if len(changes) != 1 {
-		t.Errorf("Expected 1 change, got %d: %v", len(changes), changes)
-	}
-
-	if changes["1"] != "New Name" {
-		t.Errorf("changes['1'] = %v, want 'New Name'", changes["1"])
-	}
-
-	// Position "0" (key) should be skipped
-	if _, hasKey := changes["0"]; hasKey {
-		t.Error("Key field should not be in changes")
-	}
-
-	// Position "2" (unchanged) should not be in changes
-	if _, has2 := changes["2"]; has2 {
-		t.Error("Unchanged field should not be in changes")
-	}
-}
-
-// TestCompareRangeItemsForChanges_NonTreeNodeToTreeNode tests transition from
-// non-TreeNode value (e.g., empty string) to TreeNode with statics.
-// This is the case for checkbox toggles: "" -> {"s":["checked"]}
-func TestCompareRangeItemsForChanges_NonTreeNodeToTreeNode(t *testing.T) {
-	// Old item has an empty string for the checkbox field
-	oldItem := &TreeNode{
-		Dynamics: []interface{}{"task1", "", "Task text"},
-	}
-
-	// New item has a TreeNode with statics for the checkbox field
-	newItem := &TreeNode{
-		Dynamics: []interface{}{"task1", &TreeNode{Statics: []string{"checked"}}, "Task text"},
-	}
-
-	statics := []string{"<li>", "<input ", ">", "</li>"}
-
-	changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
-
-	// Should have 1 change for field "1"
-	if len(changes) != 1 {
-		t.Fatalf("Expected 1 change, got %d: %v", len(changes), changes)
-	}
-
-	// The change should include the full TreeNode with statics (not stripped)
-	change1, ok := changes["1"]
-	if !ok {
-		t.Fatal("Expected change for field '1'")
-	}
-
-	// PrepareTreeForClient returns *TreeNode when clientHasStatics=false
-	changeTree, ok := change1.(*TreeNode)
-	if !ok {
-		t.Fatalf("Expected *TreeNode for change, got %T: %v", change1, change1)
-	}
-
-	// Statics should be preserved (["checked"])
-	if len(changeTree.Statics) != 1 || changeTree.Statics[0] != "checked" {
-		t.Errorf("Expected statics ['checked'], got %v", changeTree.Statics)
-	}
-}
-
-// TestCompareRangeItemsForChanges_NonExistentToTreeNode tests transition from
-// non-existent field to TreeNode with statics.
-func TestCompareRangeItemsForChanges_NonExistentToTreeNode(t *testing.T) {
-	// Old item doesn't have the field at all
-	oldItem := &TreeNode{
-		Dynamics: []interface{}{"task1"},
-	}
-
-	// New item has a TreeNode with statics for the field
-	newItem := &TreeNode{
-		Dynamics: []interface{}{"task1", &TreeNode{Statics: []string{"checked"}}},
-	}
-
-	statics := []string{"<li>", "<input ", ">", "</li>"}
-
-	changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
-
-	// Should have 1 change for field "1"
-	if len(changes) != 1 {
-		t.Fatalf("Expected 1 change, got %d: %v", len(changes), changes)
-	}
-
-	// The change should include the full TreeNode with statics
-	change1, ok := changes["1"]
-	if !ok {
-		t.Fatal("Expected change for field '1'")
-	}
-
-	// PrepareTreeForClient returns *TreeNode when clientHasStatics=false
-	changeTree, ok := change1.(*TreeNode)
-	if !ok {
-		t.Fatalf("Expected *TreeNode for change, got %T: %v", change1, change1)
-	}
-
-	// Statics should be preserved (["checked"])
-	if len(changeTree.Statics) != 1 || changeTree.Statics[0] != "checked" {
-		t.Errorf("Expected statics ['checked'], got %v", changeTree.Statics)
-	}
-}
-
-// TestCompareRangeItemsForChanges_StaticsDiffer tests detecting changes when
-// both old and new TreeNodes strip to empty but have different statics.
-// This is the core checkbox toggle scenario:
-// Old: {"s":["checked"]} -> strips to empty
-// New: {"s":[]} -> strips to empty
-// But they are visually different, so this IS a meaningful change.
-func TestCompareRangeItemsForChanges_StaticsDiffer(t *testing.T) {
-	// Old item has a checked checkbox (TreeNode with statics ["checked"])
-	oldItem := &TreeNode{
-		Dynamics: []interface{}{"task1", &TreeNode{Statics: []string{"checked"}}, "Task text"},
-	}
-
-	// New item has unchecked checkbox (TreeNode with empty statics)
-	newItem := &TreeNode{
-		Dynamics: []interface{}{"task1", &TreeNode{Statics: []string{}}, "Task text"},
-	}
-
-	statics := []string{"<li>", "<input ", ">", "</li>"}
-
-	changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
-
-	// Should have 1 change for field "1" - the statics differ!
-	if len(changes) != 1 {
-		t.Fatalf("Expected 1 change (statics differ), got %d: %v", len(changes), changes)
-	}
-
-	// The change should be a TreeNode with the new statics so client can update structure
-	change1, ok := changes["1"]
-	if !ok {
-		t.Fatal("Expected change for field '1'")
-	}
-
-	// When statics differ, we send the full TreeNode with new statics so client can update
-	// This is the correct behavior - the client needs to see the new statics to render correctly
-	changeTree, isTree := change1.(*TreeNode)
-	if !isTree {
-		t.Fatalf("Expected *TreeNode for change, got %T: %v", change1, change1)
-	}
-
-	// The new statics should be empty (unchecked state)
-	if len(changeTree.Statics) != 0 {
-		t.Errorf("Expected empty statics for unchecked state, got %v", changeTree.Statics)
-	}
-}
-
-// TestCompareRangeItemsForChanges_StaticsSameNoChange tests that no change is
-// detected when both old and new TreeNodes have identical statics.
-func TestCompareRangeItemsForChanges_StaticsSameNoChange(t *testing.T) {
-	// Both have the same statics - no change should be detected
-	oldItem := &TreeNode{
-		Dynamics: []interface{}{"task1", &TreeNode{Statics: []string{"checked"}}, "Task text"},
-	}
-
-	newItem := &TreeNode{
-		Dynamics: []interface{}{"task1", &TreeNode{Statics: []string{"checked"}}, "Task text"},
-	}
-
-	statics := []string{"<li>", "<input ", ">", "</li>"}
-
-	changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
-
-	// Should have no changes - statics are identical
-	if len(changes) != 0 {
-		t.Errorf("Expected no changes (statics same), got %d: %v", len(changes), changes)
-	}
-}
-
-// TestCompareRangeItemsForChanges_FieldRemoved tests detecting when a field
-// exists in old item but is removed from new item.
-// This handles cases like unchecking a checkbox where the "checked" attribute
-// field exists in old but is absent from new.
-func TestCompareRangeItemsForChanges_FieldRemoved(t *testing.T) {
-	// Old item has a field "1" with a TreeNode value
-	oldItem := &TreeNode{
-		Dynamics: []interface{}{"task1", &TreeNode{Statics: []string{"checked"}}, "Task text"},
-	}
-
-	// New item doesn't have field "1" at all (nil at position 1)
-	newItem := &TreeNode{
-		Dynamics: []interface{}{"task1", nil, "Task text"},
-	}
-
-	statics := []string{"<li>", "<input ", ">", "</li>"}
-
-	changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
-
-	// Should have 1 change for field "1" - it was removed
-	if len(changes) != 1 {
-		t.Fatalf("Expected 1 change (field removed), got %d: %v", len(changes), changes)
-	}
-
-	// The change should be empty string to indicate removal
-	change1, ok := changes["1"]
-	if !ok {
-		t.Fatal("Expected change for field '1'")
-	}
-
-	if change1 != "" {
-		t.Errorf("Expected empty string for removed field, got %T: %v", change1, change1)
-	}
-}
-
-// TestCompareRangeItemsForChanges_FieldRemovedWithStringValue tests detecting
-// when a field with a string value is removed from new item.
-func TestCompareRangeItemsForChanges_FieldRemovedWithStringValue(t *testing.T) {
-	// Old item has a field "1" with a string value
-	oldItem := &TreeNode{
-		Dynamics: []interface{}{"task1", "some value", "Task text"},
-	}
-
-	// New item doesn't have field "1" at all (nil at position 1)
-	newItem := &TreeNode{
-		Dynamics: []interface{}{"task1", nil, "Task text"},
-	}
-
-	statics := []string{"<li>", "", "", "</li>"}
-
-	changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
-
-	// Should have 1 change for field "1" - it was removed
-	if len(changes) != 1 {
-		t.Fatalf("Expected 1 change (field removed), got %d: %v", len(changes), changes)
-	}
-
-	// The change should be empty string to indicate removal
-	change1, ok := changes["1"]
-	if !ok {
-		t.Fatal("Expected change for field '1'")
-	}
-
-	if change1 != "" {
-		t.Errorf("Expected empty string for removed field, got %T: %v", change1, change1)
-	}
-}
-
-// TestCompareRangeItemsForChanges_EmptyFieldNotReported tests that removing
-// an already-empty field doesn't generate a spurious change.
-func TestCompareRangeItemsForChanges_EmptyFieldNotReported(t *testing.T) {
-	// Old item has a field "1" with empty string
-	oldItem := &TreeNode{
-		Dynamics: []interface{}{"task1", "", "Task text"},
-	}
-
-	// New item doesn't have field "1" at all (nil at position 1)
-	newItem := &TreeNode{
-		Dynamics: []interface{}{"task1", nil, "Task text"},
-	}
-
-	statics := []string{"<li>", "", "", "</li>"}
-
-	changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
-
-	// Should have no changes - empty string to absent is not meaningful
-	if len(changes) != 0 {
-		t.Errorf("Expected no changes (empty to absent), got %d: %v", len(changes), changes)
+	if ops := GenerateRangeDifferentialOperations(oldValue, newValue, false); ops != nil {
+		t.Errorf("Expected nil-return for statics-only kept-item change, got: %v", ops)
 	}
 }
 
@@ -1421,166 +1114,60 @@ func TestSameKeySet(t *testing.T) {
 // This was the core bug discovered during Phase 2 fuzz testing.
 // =============================================================================
 
-// TestGenerateRangeDifferentialOperations_UpdateAndReorder tests the case where
-// items change content AND change order simultaneously. This is the core bug
-// that was discovered during Phase 2 fuzz testing - previously only updates
-// were generated, missing the reorder operation.
+// TestGenerateRangeDifferentialOperations_UpdateAndReorder verifies content+reorder
+// renders take the full-tree fallback. Phase 4 removed the per-item ["u"] producer,
+// so the reorder cannot be emitted in isolation when kept items also changed content
+// — full-tree replacement carries both correctly.
 func TestGenerateRangeDifferentialOperations_UpdateAndReorder(t *testing.T) {
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 
-	item1Old := &TreeNode{
-		Dynamics: []interface{}{"id1", "Alpha"},
-	}
-	item2 := &TreeNode{
-		Dynamics: []interface{}{"id2", "Beta"},
-	}
-	item3 := &TreeNode{
-		Dynamics: []interface{}{"id3", "Charlie"},
-	}
-	item1New := &TreeNode{
-		Dynamics: []interface{}{"id1", "Alpha Updated"}, // Content changed
-	}
-
 	oldValue := &TreeNode{
 		Statics: statics,
-		Range: &RangeData{
-			Items: []interface{}{item1Old, item2, item3}, // Order: id1, id2, id3
-		},
+		Range: &RangeData{Items: []interface{}{
+			&TreeNode{Dynamics: []interface{}{"id1", "Alpha"}},
+			&TreeNode{Dynamics: []interface{}{"id2", "Beta"}},
+			&TreeNode{Dynamics: []interface{}{"id3", "Charlie"}},
+		}},
 	}
-
 	newValue := &TreeNode{
 		Statics: statics,
-		Range: &RangeData{
-			Items: []interface{}{item2, item1New, item3}, // Order: id2, id1, id3 (reordered + id1 updated)
-		},
+		Range: &RangeData{Items: []interface{}{
+			&TreeNode{Dynamics: []interface{}{"id2", "Beta"}},
+			&TreeNode{Dynamics: []interface{}{"id1", "Alpha Updated"}},
+			&TreeNode{Dynamics: []interface{}{"id3", "Charlie"}},
+		}},
 	}
 
-	ops := GenerateRangeDifferentialOperations(oldValue, newValue, false)
-
-	// Should have BOTH update AND reorder operations
-	hasUpdate := false
-	hasReorder := false
-
-	for _, op := range ops {
-		opArray, ok := op.([]interface{})
-		if !ok {
-			continue
-		}
-		switch opArray[0] {
-		case "u":
-			hasUpdate = true
-			// Verify update is for id1
-			if opArray[1] != "id1" {
-				t.Errorf("Expected update for 'id1', got %v", opArray[1])
-			}
-		case "o":
-			hasReorder = true
-			// Verify reorder has correct new order
-			newOrder := opArray[1].([]string)
-			expectedOrder := []string{"id2", "id1", "id3"}
-			if !reflect.DeepEqual(newOrder, expectedOrder) {
-				t.Errorf("Reorder keys = %v, want %v", newOrder, expectedOrder)
-			}
-		}
-	}
-
-	if !hasUpdate {
-		t.Error("Expected update operation for changed content")
-	}
-	if !hasReorder {
-		t.Error("Expected reorder operation for changed order - THIS IS THE BUG FIX")
+	if ops := GenerateRangeDifferentialOperations(oldValue, newValue, false); ops != nil {
+		t.Errorf("Expected nil-return for content+reorder change, got: %v", ops)
 	}
 }
 
-// TestGenerateRangeDifferentialOperations_MultipleUpdatesAndReorder tests
-// multiple items updating while also reordering.
+// TestGenerateRangeDifferentialOperations_MultipleUpdatesAndReorder same shape as
+// _UpdateAndReorder but with multiple kept-item content changes — also takes the
+// full-tree fallback per Phase 4.
 func TestGenerateRangeDifferentialOperations_MultipleUpdatesAndReorder(t *testing.T) {
 	statics := []string{`<li data-key="`, `">`, `</li>`}
 
-	item1Old := &TreeNode{Dynamics: []interface{}{"id1", "One"}}
-	item2Old := &TreeNode{Dynamics: []interface{}{"id2", "Two"}}
-	item3Old := &TreeNode{Dynamics: []interface{}{"id3", "Three"}}
-
-	item1New := &TreeNode{Dynamics: []interface{}{"id1", "One Updated"}}
-	item2New := &TreeNode{Dynamics: []interface{}{"id2", "Two Updated"}}
-	item3New := &TreeNode{Dynamics: []interface{}{"id3", "Three"}} // Unchanged
-
 	oldValue := &TreeNode{
 		Statics: statics,
-		Range:   &RangeData{Items: []interface{}{item1Old, item2Old, item3Old}},
+		Range: &RangeData{Items: []interface{}{
+			&TreeNode{Dynamics: []interface{}{"id1", "One"}},
+			&TreeNode{Dynamics: []interface{}{"id2", "Two"}},
+			&TreeNode{Dynamics: []interface{}{"id3", "Three"}},
+		}},
 	}
-
 	newValue := &TreeNode{
 		Statics: statics,
-		Range:   &RangeData{Items: []interface{}{item3New, item2New, item1New}}, // Reversed order
+		Range: &RangeData{Items: []interface{}{
+			&TreeNode{Dynamics: []interface{}{"id3", "Three"}},
+			&TreeNode{Dynamics: []interface{}{"id2", "Two Updated"}},
+			&TreeNode{Dynamics: []interface{}{"id1", "One Updated"}},
+		}},
 	}
 
-	ops := GenerateRangeDifferentialOperations(oldValue, newValue, false)
-
-	// Count operation types
-	updateCount := 0
-	hasReorder := false
-
-	for _, op := range ops {
-		opArray := op.([]interface{})
-		switch opArray[0] {
-		case "u":
-			updateCount++
-		case "o":
-			hasReorder = true
-		}
-	}
-
-	// Should have 2 updates (id1 and id2 changed) and 1 reorder
-	if updateCount != 2 {
-		t.Errorf("Expected 2 update operations, got %d", updateCount)
-	}
-	if !hasReorder {
-		t.Error("Expected reorder operation - THIS IS THE BUG FIX")
-	}
-}
-
-// TestGenerateRangeDifferentialOperations_UpdateNoReorder tests that no reorder
-// is generated when items update but order stays the same.
-func TestGenerateRangeDifferentialOperations_UpdateNoReorder(t *testing.T) {
-	statics := []string{`<li data-key="`, `">`, `</li>`}
-
-	item1Old := &TreeNode{Dynamics: []interface{}{"id1", "Old"}}
-	item2 := &TreeNode{Dynamics: []interface{}{"id2", "Same"}}
-
-	item1New := &TreeNode{Dynamics: []interface{}{"id1", "New"}}
-
-	oldValue := &TreeNode{
-		Statics: statics,
-		Range:   &RangeData{Items: []interface{}{item1Old, item2}},
-	}
-
-	newValue := &TreeNode{
-		Statics: statics,
-		Range:   &RangeData{Items: []interface{}{item1New, item2}}, // Same order
-	}
-
-	ops := GenerateRangeDifferentialOperations(oldValue, newValue, false)
-
-	// Should only have update, no reorder
-	hasUpdate := false
-	hasReorder := false
-
-	for _, op := range ops {
-		opArray := op.([]interface{})
-		switch opArray[0] {
-		case "u":
-			hasUpdate = true
-		case "o":
-			hasReorder = true
-		}
-	}
-
-	if !hasUpdate {
-		t.Error("Expected update operation")
-	}
-	if hasReorder {
-		t.Error("Should NOT have reorder operation when order is unchanged")
+	if ops := GenerateRangeDifferentialOperations(oldValue, newValue, false); ops != nil {
+		t.Errorf("Expected nil-return for multi-content+reorder change, got: %v", ops)
 	}
 }
 
@@ -1667,186 +1254,6 @@ func TestGenerateRangeDifferentialOperations_InsertionNoReorder(t *testing.T) {
 	}
 	if hasReorder {
 		t.Error("Should NOT have reorder when key sets differ (items were added)")
-	}
-}
-
-// =============================================================================
-// CONDITIONAL BRANCH CHANGE TESTS
-// Tests for the Phase 6 bug fix where conditionals change within range items,
-// requiring both statics AND dynamics to be sent.
-// =============================================================================
-
-// TestCompareRangeItemsForChanges_ConditionalBranchChange tests the case where
-// a conditional branch changes within a range item, causing both statics AND
-// dynamics to change. The old behavior sent only dynamics (bug), the fix sends
-// full tree with statics.
-//
-// Example template:
-// {{if .HasError}}<span class="error-message">{{.Error}}</span>{{else}}<span class="status">Pending</span>{{end}}
-//
-// When HasError changes from false to true:
-// Old: {"s":["<span class=\"status\">","</span>"], "0":"Pending"}
-// New: {"s":["<span class=\"error-message\">","</span>"], "0":"Error message"}
-func TestCompareRangeItemsForChanges_ConditionalBranchChange(t *testing.T) {
-	// Old item: showing status (HasError=false)
-	oldItem := &TreeNode{
-		Dynamics: []interface{}{"task1", &TreeNode{
-			Statics:  []string{`<span class="status">`, `</span>`},
-			Dynamics: []interface{}{"Pending"},
-		}},
-	}
-
-	// New item: showing error (HasError=true) - DIFFERENT statics AND dynamics
-	newItem := &TreeNode{
-		Dynamics: []interface{}{"task1", &TreeNode{
-			Statics:  []string{`<span class="error-message">`, `</span>`},
-			Dynamics: []interface{}{"Permission denied"},
-		}},
-	}
-
-	statics := []string{"<li>", "", "</li>"}
-
-	changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
-
-	// Should have 1 change for field "1"
-	if len(changes) != 1 {
-		t.Fatalf("Expected 1 change, got %d: %v", len(changes), changes)
-	}
-
-	change1, ok := changes["1"]
-	if !ok {
-		t.Fatal("Expected change for field '1'")
-	}
-
-	// The change should be a TreeNode WITH statics (not stripped)
-	changeTree, isTree := change1.(*TreeNode)
-	if !isTree {
-		t.Fatalf("Expected *TreeNode for conditional branch change, got %T: %v", change1, change1)
-	}
-
-	// Verify statics are included (the new error message wrapper)
-	if len(changeTree.Statics) != 2 {
-		t.Errorf("Expected 2 statics (error-message wrapper), got %d: %v", len(changeTree.Statics), changeTree.Statics)
-	}
-
-	if changeTree.Statics[0] != `<span class="error-message">` {
-		t.Errorf("Expected error-message statics, got %v", changeTree.Statics)
-	}
-
-	// Verify dynamics are also included
-	if changeTree.Dynamics[0] != "Permission denied" {
-		t.Errorf("Expected dynamics with error message, got %v", changeTree.Dynamics)
-	}
-}
-
-// TestCompareRangeItemsForChanges_SameStructureDifferentContent tests that when
-// structure is the same (same statics) but content differs, only dynamics are sent.
-// This is the normal case - no statics needed because client has them cached.
-func TestCompareRangeItemsForChanges_SameStructureDifferentContent(t *testing.T) {
-	// Old item: status showing "Pending"
-	oldItem := &TreeNode{
-		Dynamics: []interface{}{"task1", &TreeNode{
-			Statics:  []string{`<span class="status">`, `</span>`},
-			Dynamics: []interface{}{"Pending"},
-		}},
-	}
-
-	// New item: status showing "Done" - SAME statics, different dynamics
-	newItem := &TreeNode{
-		Dynamics: []interface{}{"task1", &TreeNode{
-			Statics:  []string{`<span class="status">`, `</span>`},
-			Dynamics: []interface{}{"Done"},
-		}},
-	}
-
-	statics := []string{"<li>", "", "</li>"}
-
-	changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
-
-	// Should have 1 change for field "1"
-	if len(changes) != 1 {
-		t.Fatalf("Expected 1 change, got %d: %v", len(changes), changes)
-	}
-
-	change1, ok := changes["1"]
-	if !ok {
-		t.Fatal("Expected change for field '1'")
-	}
-
-	// The change should be stripped (dynamics only, no statics)
-	// PrepareTreeForClient with clientHasStatics=true returns map[string]interface{}
-	changeMap, isMap := change1.(map[string]interface{})
-	if !isMap {
-		// Could also be *TreeNode with no statics - check that
-		if changeTree, isTree := change1.(*TreeNode); isTree {
-			if len(changeTree.Statics) > 0 {
-				t.Errorf("Expected NO statics when structure unchanged, got %v", changeTree.Statics)
-			}
-		} else {
-			t.Fatalf("Expected map or TreeNode without statics, got %T: %v", change1, change1)
-		}
-	} else {
-		// Verify it's stripped (no "s" key for statics)
-		if _, hasStatics := changeMap["s"]; hasStatics {
-			t.Errorf("Expected NO statics in change when structure unchanged, got %v", changeMap)
-		}
-		// Verify dynamics are present
-		if changeMap["0"] != "Done" {
-			t.Errorf("Expected dynamics with new content, got %v", changeMap)
-		}
-	}
-}
-
-// TestCompareRangeItemsForChanges_ConditionalBranchChange_LoadingToError tests
-// a more complex scenario: item transitions from loading spinner to error message.
-// This is a realistic async loading pattern.
-func TestCompareRangeItemsForChanges_ConditionalBranchChange_LoadingToError(t *testing.T) {
-	// Old item: showing loading spinner
-	oldItem := &TreeNode{
-		Dynamics: []interface{}{"item-1", &TreeNode{
-			Statics:  []string{`<span class="spinner">`, `</span>`},
-			Dynamics: []interface{}{"⏳"},
-		}, "Item Title"},
-	}
-
-	// New item: showing error (loading finished with error)
-	newItem := &TreeNode{
-		Dynamics: []interface{}{"item-1", &TreeNode{
-			Statics:  []string{`<span class="error">`, `</span>`},
-			Dynamics: []interface{}{"Network timeout"},
-		}, "Item Title"},
-	}
-
-	statics := []string{"<li id=\"", "\">", "", "", "</li>"}
-
-	changes := CompareRangeItemsForChanges(oldItem, newItem, statics)
-
-	// Should have 1 change for field "1" (the conditional part)
-	if len(changes) != 1 {
-		t.Fatalf("Expected 1 change, got %d: %v", len(changes), changes)
-	}
-
-	// Field "0" (key) should not be in changes
-	if _, hasKey := changes["0"]; hasKey {
-		t.Error("Key field should not be in changes")
-	}
-
-	// Field "2" (title) should not be in changes
-	if _, hasTitle := changes["2"]; hasTitle {
-		t.Error("Unchanged field should not be in changes")
-	}
-
-	change1 := changes["1"]
-
-	// The change should be a TreeNode WITH statics
-	changeTree, isTree := change1.(*TreeNode)
-	if !isTree {
-		t.Fatalf("Expected *TreeNode with new statics, got %T: %v", change1, change1)
-	}
-
-	// Verify new statics are included (error wrapper)
-	if len(changeTree.Statics) < 2 || changeTree.Statics[0] != `<span class="error">` {
-		t.Errorf("Expected error statics, got %v", changeTree.Statics)
 	}
 }
 

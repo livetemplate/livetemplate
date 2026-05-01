@@ -377,27 +377,10 @@ func TestUpdateSpecification_RangeOperations(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "update_single",
-			initial: []Item{
-				{ID: "1", Text: "Original"},
-			},
-			update: []Item{
-				{ID: "1", Text: "Updated"},
-			},
-			validateOp: func(t *testing.T, ops []interface{}) {
-				if len(ops) != 1 {
-					t.Fatalf("Expected 1 operation, got %d", len(ops))
-				}
-				op := ops[0].([]interface{})
-				if op[0] != "u" {
-					t.Errorf("Expected update 'u', got %v", op[0])
-				}
-				if op[1] != "1" {
-					t.Errorf("Expected to update ID '1', got %v", op[1])
-				}
-			},
-		},
+		// Kept-item content changes take the full-tree fallback (no per-item ["u"]
+		// producer for het ranges). Coverage in internal/diff:
+		// TestGenerateRangeDifferentialOperations_KeptItemContentChange_FallsBack
+		// and TestGenerateRangeDifferentialOperations_StructuralAndContent_FallsBack.
 		{
 			name: "reorder",
 			initial: []Item{
@@ -424,47 +407,6 @@ func TestUpdateSpecification_RangeOperations(t *testing.T) {
 				}
 				if order[0] != "3" || order[1] != "1" || order[2] != "2" {
 					t.Errorf("Incorrect order: %v", order)
-				}
-			},
-		},
-		{
-			name: "mixed_operations",
-			initial: []Item{
-				{ID: "1", Text: "First"},
-				{ID: "2", Text: "Second"},
-			},
-			update: []Item{
-				{ID: "1", Text: "Updated First"},
-				{ID: "3", Text: "Third"},
-			},
-			validateOp: func(t *testing.T, ops []interface{}) {
-				// Should have remove and update/insert operations
-				if len(ops) < 2 {
-					t.Fatalf("Expected at least 2 operations, got %d", len(ops))
-				}
-
-				foundRemove := false
-				foundInsert := false
-				foundUpdate := false
-
-				for _, op := range ops {
-					opArray := op.([]interface{})
-					opType := opArray[0].(string)
-					switch opType {
-					case "r":
-						foundRemove = true
-					case "i":
-						foundInsert = true
-					case "u":
-						foundUpdate = true
-					}
-				}
-
-				if !foundRemove {
-					t.Error("Expected remove operation not found")
-				}
-				if !foundInsert && !foundUpdate {
-					t.Error("Expected insert or update operation not found")
 				}
 			},
 		},
