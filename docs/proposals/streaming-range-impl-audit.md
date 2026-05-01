@@ -470,12 +470,12 @@ Het ranges with kept-item content changes now emit full-tree replacement instead
 ### Test count delta
 
 - 1 new unit test in `internal/diff/transition_test.go` (`TestTransitionToStreamMode_RootRangeFires`)
-- 3 new unit tests in `internal/diff/range_ops_test.go` (`_KeptItemContentChange_FallsBack`, `_StructuralAndContent_FallsBack`, `_PureStructural_StillEmitsOps`)
+- 5 new unit tests in `internal/diff/range_ops_test.go` (`_KeptItemContentChange_FallsBack`, `_StructuralAndContent_FallsBack`, `_PureStructural_StillEmitsOps`, `_StaticsOnlyChange_FallsBack`, `TestHasKeptItemChanged_NonTreeNodeReturnsTrue`)
 - 3 migrated tests in `internal/diff/range_ops_test.go` (`_Mixed`, `_UpdateAndReorder`, `_MultipleUpdatesAndReorder` — assert nil-return)
 - 16 deleted tests in `internal/diff/range_ops_test.go` (13 `TestCompareRangeItemsForChanges_*`, `TestGenerateUpdateOperations`, `TestGenerateRangeDifferentialOperations_Update`, `_UpdateNoReorder`)
 - 2 deleted subtests in `e2e_update_spec_test.go` (`update_single`, `mixed_operations`)
 
-**Net: 4 new + 3 migrated − 18 deleted = −11 tests.**
+**Net: 6 new + 3 migrated − 18 deleted = −9 tests.**
 
 The deletion delta is intentional: per-item ["u"] ops no longer exist as a wire shape, so tests that asserted them have no behavior left to verify. New tests cover the surviving fallback contract.
 

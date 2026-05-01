@@ -121,10 +121,8 @@ func GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 		return nil
 	}
 
-	// Per spec §5c/§5d, kept-item changes (content or statics) cannot be encoded
-	// as differential ops — signal nil-return so the caller emits a full-tree
-	// replacement (handleMatchedRanges falls through to *changes = *newTree).
-	if hasKeptItemContentChanged(ctx) {
+	// Kept-item changes can't be encoded as differential ops; full-tree fallback (spec §5c/§5d).
+	if hasKeptItemChanged(ctx) {
 		return nil
 	}
 
@@ -455,18 +453,12 @@ func generateRemovalOps(ctx *rangeContext, operations []interface{}) []interface
 	return operations
 }
 
-// hasKeptItemContentChanged reports whether any item present in both renders
-// has a different content hash OR a different statics fingerprint. The diff
-// engine has no per-item ["u"] producer for het ranges, so any kept-item
-// change must signal nil-return to trigger full-tree replacement.
-//
-// Statics fingerprint covers conditional-branch flips inside the item (e.g.,
-// {{if .Done}}<s>{{end}} toggling between empty and `<s>...</s>`), which leave
-// Dynamics identical but change the rendered structure. Hash covers content
-// changes within the same structure.
-//
-// Non-*TreeNode items default to "changed" — the safety bias is toward fallback.
-func hasKeptItemContentChanged(ctx *rangeContext) bool {
+// hasKeptItemChanged reports whether any item present in both renders has a
+// different statics fingerprint or content hash. Both checks matter: statics
+// catch conditional-branch flips (e.g. {{if .Done}}<s>{{end}}) that leave
+// Dynamics identical; hash catches content changes within the same structure.
+// Non-*TreeNode items default to true (safety-biased fallback).
+func hasKeptItemChanged(ctx *rangeContext) bool {
 	for _, key := range ctx.newKeys {
 		oldItem, exists := ctx.oldByKey[key]
 		if !exists {

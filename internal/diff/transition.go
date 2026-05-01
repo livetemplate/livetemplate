@@ -6,12 +6,9 @@ import (
 )
 
 // TransitionToStreamMode replaces Range.Items with a RangeStreamState snapshot
-// for top-level homogeneous ranges. Caller must hold the lock that protects tree.
-//
-// "Top-level" covers two cases: the root tree may itself be a Range (when the
-// template is just `{{range}}` with no wrapper element), or a Range may sit
-// directly inside the root tree's Dynamics. Both are at depth ≤ 1 and qualify
-// per spec §5a — nested ranges deeper than that stay legacy.
+// for top-level homogeneous ranges (the root tree's Range and any direct-child
+// Range in Dynamics — depth ≤ 1 per spec §5a). Caller must hold the lock that
+// protects tree.
 //
 // Uses CalculateStaticsFingerprint (not GetStructureFingerprint) for the
 // homogeneity check — the latter over-captures scalar position-presence,

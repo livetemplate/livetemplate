@@ -625,6 +625,23 @@ func TestGenerateRangeDifferentialOperations_NilRangeData(t *testing.T) {
 	}
 }
 
+// TestHasKeptItemChanged_NonTreeNodeReturnsTrue locks in the safety bias: if a
+// kept-key resolves to a non-*TreeNode on either side, the function returns
+// true (force fallback) rather than silently emit a no-op for unrenderable
+// state. The path is unreachable through GenerateRangeDifferentialOperations
+// today because key extraction itself requires *TreeNode, but the bias remains
+// load-bearing for any future caller that constructs a context manually.
+func TestHasKeptItemChanged_NonTreeNodeReturnsTrue(t *testing.T) {
+	ctx := &rangeContext{
+		newKeys:  []string{"id1"},
+		oldByKey: map[string]interface{}{"id1": "raw-string"},
+		newByKey: map[string]interface{}{"id1": &TreeNode{Dynamics: []interface{}{"id1", "x"}}},
+	}
+	if !hasKeptItemChanged(ctx) {
+		t.Error("Expected true for non-*TreeNode old value (safety bias), got false")
+	}
+}
+
 // TestGenerateRangeDifferentialOperations_KeptItemContentChange_FallsBack
 // covers a single item present on both renders whose Dynamics changed. The
 // diff engine signals nil-return so the caller emits a full-tree replacement.
