@@ -16,27 +16,6 @@ func IsEmpty(v interface{}) bool {
 	}
 }
 
-// isMeaningfulValue checks if a value is meaningful (not empty/nil) and should
-// be reported when removed. This is used in CompareRangeItemsForChanges to
-// determine if removing a field should generate a change notification.
-func isMeaningfulValue(v interface{}) bool {
-	if v == nil {
-		return false
-	}
-	switch val := v.(type) {
-	case string:
-		return val != ""
-	case *TreeNode:
-		return true
-	case map[string]interface{}:
-		return len(val) > 0
-	case []interface{}:
-		return len(val) > 0
-	default:
-		return true
-	}
-}
-
 // hasDynamicsChanged checks if the set of dynamic positions differs between oldTree and newTree.
 func hasDynamicsChanged(oldTree, newTree *TreeNode) bool {
 	oldHasDynamics := oldTree != nil && oldTree.HasDynamics()

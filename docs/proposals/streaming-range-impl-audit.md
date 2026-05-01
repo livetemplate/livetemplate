@@ -426,6 +426,90 @@ Phase 4's cleanup audit can verify "no production caller of `compareRangeItemsWi
 
 ---
 
+## Phase 4 audit checkpoint
+
+**Date**: 2026-05-01
+**Branch**: `phase4/streaming-range-cleanup` → PR pending
+**Base commit**: `6d46c35e` (Phase 3 merge on `main`)
+
+### Files touched
+
+| File | Change |
+|---|---|
+| `internal/diff/range_ops.go` | Deleted `generateUpdateOps`, `CompareRangeItemsForChanges`, `compareRangeItemsWithKeyPos`, `handleNestedTreeNodeChange` (~120 lines). Removed `operations = generateUpdateOps(ctx, operations)` call site. Added new helper `hasKeptItemContentChanged(ctx)` and an early-return guard in `GenerateRangeDifferentialOperations` that signals nil-return on any kept-item content hash mismatch — `handleMatchedRanges` then falls through to `*changes = *newTree` per §5d |
+| `internal/diff/helpers_value.go` | Deleted `isMeaningfulValue` (~20 lines, sole caller was the deleted `compareRangeItemsWithKeyPos`) |
+| `internal/diff/transition.go` | **Phase 3 coverage gap closed**: `TransitionToStreamMode` now transitions root-level ranges in addition to direct-child ranges in Dynamics. Templates without wrapper elements (e.g., `{{range .Items}}<li>...{{end}}` rendered standalone) now stream-mode correctly. Extracted `transitionRangeIfHomogeneous` helper for both call sites |
+| `internal/diff/transition_test.go` | Added `TestTransitionToStreamMode_RootRangeFires` covering the new root-range path |
+| `internal/diff/range_ops_test.go` | Deleted 13 `TestCompareRangeItemsForChanges_*` tests, `TestGenerateUpdateOperations`, `TestGenerateRangeDifferentialOperations_Update`. Migrated `_Mixed`, `_UpdateAndReorder`, `_MultipleUpdatesAndReorder` to assert nil-return (full-tree fallback signal). Deleted `_UpdateNoReorder` (covered by new `_KeptItemContentChange_FallsBack`). Added 3 new tests: `_KeptItemContentChange_FallsBack`, `_StructuralAndContent_FallsBack`, `_PureStructural_StillEmitsOps` |
+| `e2e_update_spec_test.go` | Removed `update_single` and `mixed_operations` subtests of `TestUpdateSpecification_RangeOperations` — both asserted partial-delta `["u"]` shapes that no longer exist on the wire. Behavior covered by the new internal/diff tests above |
+| `docs/specifications/tree-update-specification.md` | Replaced "Only changed fields are included in the changes object." (line 377) with the §5c full-snapshot contract + the §232 consumer-side replace-not-merge contract. Added one example showing `""` encoding for cleared fields |
+| `docs/proposals/streaming-range-impl-audit.md` | Appended this Phase 4 checkpoint section |
+
+### Behavioral changes
+
+- **Het-range content updates**: pre-Phase-4, kept-item content changes for het ranges emitted partial-delta `["u", key, {changed-fields-only}]` ops via `generateUpdateOps`. Post-Phase-4, those changes signal nil-return → `handleMatchedRanges` falls through to `*changes = *newTree` (full-tree replacement). This matches the §5d contract that het ranges are handled by full-tree emission.
+- **Het-range pure-structural changes**: unchanged — pure adds/removes/reorders without kept-item content drift still emit compact `["a"]`/`["i"]`/`["r"]`/`["o"]` ops via the surviving `generateRemovalOps`/`generateInsertionOps`/reorder path. Approach A from the plan preserves this wire-size win.
+- **Wrapper-less template streams correctly**: pre-Phase-4, templates whose root tree IS the range (no wrapper element) silently went through the legacy partial-delta path because `TransitionToStreamMode` only walked `tree.Dynamics`. Post-Phase-4, root ranges transition like any other top-level range and emit stream-mode `["u"]` ops with full snapshots.
+
+### Wire regression accepted
+
+Het ranges with kept-item content changes now emit full-tree replacement instead of partial-delta `["u"]` ops. Pure-structural changes to het ranges (add-only, remove-only, reorder-only) still emit compact ops via the surviving structural path — Approach A from the plan preserves this wire-size win. Homogeneous ranges are unaffected: they transition to stream mode on render 2 and emit compact `["u"]` with full snapshots per §5c. The wire regression is bounded to the het-range subset and is acceptable per §5d's "het ranges always full-tree" contract.
+
+### Per Phase 4 audit checkpoint requirement
+
+> Per proposal §323 Phase 4 audit checkpoint: "`grep CompareRangeItemsForChanges` and `grep compareRangeItemsWithKeyPos` return no hits. Spec doc diff matches the §5c/§8 language exactly. CI green across all suites."
+
+- **`grep CompareRangeItemsForChanges`**: zero hits (`grep -rn "CompareRangeItemsForChanges" .worktrees/streaming-range-phase4 --include="*.go"` returns empty).
+- **`grep compareRangeItemsWithKeyPos`**: zero hits.
+- **`grep handleNestedTreeNodeChange`**: zero hits (cascade deletion).
+- **`grep isMeaningfulValue`**: zero hits (cascade deletion).
+- **`grep generateUpdateOps`**: zero hits (cascade deletion).
+- **Spec doc diff**: replaces "Only changed fields are included in the changes object." with the §5c producer contract ("MAY include unchanged fields, MUST include every dynamic position present on either the old or new item") plus the §232 consumer contract ("the receiver MUST treat `['u']` as a full snapshot — replace, do not merge"). Both verbatim from the proposal.
+- **CI green**: full suite green; race detector clean (root pkg ~526s, internal/diff ~1.7s); examples sibling-repo green; lvt and tinkerdown failures are pre-existing environment issues (`sqlc not installed`, missing local script files) unrelated to Phase 4.
+
+### Test count delta
+
+- 1 new unit test in `internal/diff/transition_test.go` (`TestTransitionToStreamMode_RootRangeFires`)
+- 3 new unit tests in `internal/diff/range_ops_test.go` (`_KeptItemContentChange_FallsBack`, `_StructuralAndContent_FallsBack`, `_PureStructural_StillEmitsOps`)
+- 3 migrated tests in `internal/diff/range_ops_test.go` (`_Mixed`, `_UpdateAndReorder`, `_MultipleUpdatesAndReorder` — assert nil-return)
+- 16 deleted tests in `internal/diff/range_ops_test.go` (13 `TestCompareRangeItemsForChanges_*`, `TestGenerateUpdateOperations`, `TestGenerateRangeDifferentialOperations_Update`, `_UpdateNoReorder`)
+- 2 deleted subtests in `e2e_update_spec_test.go` (`update_single`, `mixed_operations`)
+
+**Net: 4 new + 3 migrated − 18 deleted = −11 tests.**
+
+The deletion delta is intentional: per-item ["u"] ops no longer exist as a wire shape, so tests that asserted them have no behavior left to verify. New tests cover the surviving fallback contract.
+
+### Verification commands re-run
+
+```
+GOWORK=off go test -count=1 ./...                                  # green (108s root pkg, all internal pkgs <1s)
+GOWORK=off go test -race -count=1 ./internal/diff/... ./internal/keys/... ./internal/build/... ./internal/fuzz/...   # race-clean
+GOWORK=off go test -race -count=1 ./                               # race-clean (root pkg, 526s)
+grep -rn "CompareRangeItemsForChanges\|compareRangeItemsWithKeyPos\|handleNestedTreeNodeChange\|isMeaningfulValue\|generateUpdateOps" internal/ --include="*.go"   # zero hits
+```
+
+Sibling-repo verification (with `go.work` temporarily pointing at the worktree):
+- `examples` via `go test ./...`: all 13 packages green (counter, todos, patterns at 231s, chat, dialog-patterns, flash-messages, live-preview, login, progressive-enhancement, shared-notepad, ws-disabled, avatar-upload). The `patterns` and `todos` packages exercise chromedp E2E via `e2etest.StartDockerChrome()`.
+- `examples` via `bash test-all.sh`: all 12 working examples green WITH `-race` flag (same coverage as `go test ./...` but race-checked).
+- `lvt`: 4 failures all `sqlc not installed` — pre-existing environment issue, not Phase 4 regressions.
+- `tinkerdown`: 2 failures both missing local script files (`./env.sh`, `./empty_lines.sh`) — pre-existing environment issues, not Phase 4 regressions.
+- `livetemplate/e2e/docker/multi_instance_test.go`: pre-existing infra gap — Dockerfile pins `golang:1.24-alpine` but the project's `go.mod` requires `go 1.26.0` (since before Phase 1). Test fails on `main` for the same reason. Not a Phase 4 regression; gated by a Dockerfile bump that's out of scope.
+
+### Phase 4 follow-ups
+
+- **Stream-mode benchmarks** (`BenchmarkRangeDiff_Stream_*`): Phase 5 deliverable.
+- **`LargeTableController` example**: Phase 6 deliverable.
+- **`fuzz_diff_test.go` regeneration**: not needed — full suite (including `internal/fuzz/invariants` and root-pkg fuzz tests) is green.
+- **Browser E2E in `lvt` repo**: not needed for Phase 4 — no new wire shapes were introduced; the `["u"]` op contract change shipped in Phase 3 and the Phase 3 audit verified client compatibility.
+
+### Phase 5 unblocked
+
+Phase 5 deliverable per proposal §325: add `internal/diff/range_ops_bench_test.go` with `BenchmarkRangeDiff_Stream_{Append,Update,Reorder}_{Small,Medium,Large}` benchmarks at N ∈ {10, 100, 10k}; capture the per-item retained-byte numbers via the existing `TestStreamMode_MemoryRegression` helper; update §7 in the proposal with measured values; mark the proposal status `Implemented` in the header.
+
+The cleanup is complete; the wire contract is consistent end-to-end; all stale partial-delta producers are gone. Phase 5 can begin measuring.
+
+---
+
 ## Audit sign-off
 
 All six §15 gates close as recorded. Phase 1 (foundational types) is unblocked under the proposal's audit-checkpoint sequencing. The two open questions retain explicit owners (OQ1 closed by decision; OQ2 owned by Phase 5 measurement).

@@ -374,11 +374,23 @@ Example:
 #### Update Operation
 Format: `["u", itemId, changes]`
 
-Only changed fields are included in the changes object.
+The `changes` object MAY include unchanged fields and MUST include every dynamic
+position present on either the old or new item. Absent positions are encoded as
+the empty string `""`.
 
-Example:
+**Consumer contract:** the receiver MUST treat `["u"]` as a full snapshot —
+replace the item's dynamics with the `changes` object, do not merge only the
+keys present in the payload. A partial-merge implementation will display stale
+values on positions that should have been cleared.
+
+Example (full-snapshot form):
 ```json
-["u", "item-1", {"2": "Updated Text"}]
+["u", "item-1", {"0": "id-1", "1": "Author A", "2": "Updated Text"}]
+```
+
+Example (with cleared field encoded as `""`):
+```json
+["u", "item-1", {"0": "id-1", "1": "", "2": "Updated Text"}]
 ```
 
 #### Reorder Operation

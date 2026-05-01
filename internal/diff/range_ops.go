@@ -121,6 +121,13 @@ func GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 		return nil
 	}
 
+	// Phase 4 (proposal §5c/§5d): partial-delta ["u"] ops are no longer on the
+	// wire — content-only changes for kept items must signal full-tree replacement
+	// via nil-return. handleMatchedRanges falls through to *changes = *newTree.
+	if hasKeptItemContentChanged(ctx) {
+		return nil
+	}
+
 	if isPureReorderingCtx(ctx) {
 		return []interface{}{[]interface{}{"o", ctx.newKeys}}
 	}
@@ -133,7 +140,6 @@ func GenerateRangeDifferentialOperations(oldValue, newValue interface{}, stripSt
 
 	operations := make([]interface{}, 0, 4)
 	operations = generateRemovalOps(ctx, operations)
-	operations = generateUpdateOps(ctx, operations)
 	operations = generateInsertionOps(ctx, operations)
 
 	if sameKeySet(ctx.oldKeys, ctx.newKeys) && HasReordering(ctx.oldKeys, ctx.newKeys) {
@@ -449,23 +455,30 @@ func generateRemovalOps(ctx *rangeContext, operations []interface{}) []interface
 	return operations
 }
 
-func generateUpdateOps(ctx *rangeContext, operations []interface{}) []interface{} {
-	sortedNewKeys := make([]string, len(ctx.newKeys))
-	copy(sortedNewKeys, ctx.newKeys)
-	sort.Strings(sortedNewKeys)
-
-	for _, key := range sortedNewKeys {
+// hasKeptItemContentChanged reports whether any item present in both renders
+// has a different content hash. The legacy per-item ["u"] producer was deleted
+// in Phase 4; with no path to encode kept-item content changes as differential
+// ops, the diff engine signals nil-return on any such change so the caller
+// emits a full-tree replacement (proposal §5d).
+//
+// Non-*TreeNode items default to "changed" — the safety bias is toward fallback.
+func hasKeptItemContentChanged(ctx *rangeContext) bool {
+	for _, key := range ctx.newKeys {
+		oldItem, exists := ctx.oldByKey[key]
+		if !exists {
+			continue
+		}
 		newItem := ctx.newByKey[key]
-		if oldItem, exists := ctx.oldByKey[key]; exists {
-			changes := compareRangeItemsWithKeyPos(oldItem, newItem, ctx.keyPos)
-			if len(changes) > 0 {
-				// Include all changes, even empty strings — they signal field removal
-				// (e.g., removing "checked" attribute when toggling a checkbox off).
-				operations = append(operations, []interface{}{"u", key, changes})
-			}
+		oldNode, oldOk := oldItem.(*TreeNode)
+		newNode, newOk := newItem.(*TreeNode)
+		if !oldOk || !newOk {
+			return true
+		}
+		if keys.ItemHashUint64(oldNode.Dynamics) != keys.ItemHashUint64(newNode.Dynamics) {
+			return true
 		}
 	}
-	return operations
+	return false
 }
 
 func generateInsertionOps(ctx *rangeContext, operations []interface{}) []interface{} {
@@ -579,127 +592,6 @@ func handleIndividualInsertionsCtx(ctx *rangeContext, operations []interface{}) 
 		}
 	}
 	return operations
-}
-
-// CompareRangeItemsForChanges compares two range items and returns a map of field changes.
-func CompareRangeItemsForChanges(oldItem, newItem interface{}, statics interface{}) map[string]interface{} {
-	keyPos := FindKeyPositionFromStatics(statics)
-	return compareRangeItemsWithKeyPos(oldItem, newItem, keyPos)
-}
-
-func compareRangeItemsWithKeyPos(oldItem, newItem interface{}, keyPos int) map[string]interface{} {
-	changes := make(map[string]interface{})
-
-	oldItemNode, ok1 := oldItem.(*TreeNode)
-	newItemNode, ok2 := newItem.(*TreeNode)
-
-	if !ok1 || !ok2 {
-		return changes
-	}
-
-	for i, newValue := range newItemNode.Dynamics {
-		if newValue == nil {
-			continue
-		}
-		if keyPos >= 0 && i == keyPos {
-			continue
-		}
-
-		fieldKey := build.PositionKey(i)
-		oldValue, exists := oldItemNode.GetDynamic(i)
-		if !exists || !DeepEqual(oldValue, newValue) {
-			if newTreeNode, ok := newValue.(*TreeNode); ok {
-				handleNestedTreeNodeChange(fieldKey, oldValue, newTreeNode, exists, changes)
-			} else {
-				changes[fieldKey] = newValue
-			}
-		}
-	}
-
-	// Check for fields removed (in old but not in new), e.g. unchecking a checkbox.
-	for i, oldValue := range oldItemNode.Dynamics {
-		if oldValue == nil {
-			continue
-		}
-		if keyPos >= 0 && i == keyPos {
-			continue
-		}
-		// Check if the position exists and is non-nil in new
-		var newExists bool
-		if i < len(newItemNode.Dynamics) && newItemNode.Dynamics[i] != nil {
-			newExists = true
-		}
-		if !newExists {
-			if isMeaningfulValue(oldValue) {
-				changes[build.PositionKey(i)] = ""
-			}
-		}
-	}
-
-	return changes
-}
-
-// handleNestedTreeNodeChange handles changes in nested TreeNode fields.
-// Uses fingerprint comparison to detect static structure changes.
-func handleNestedTreeNodeChange(
-	fieldKey string,
-	oldValue interface{},
-	newTreeNode *TreeNode,
-	exists bool,
-	changes map[string]interface{},
-) {
-	// Check if old value is also a TreeNode
-	oldTreeNode, oldIsTree := oldValue.(*TreeNode)
-
-	// If old value is NOT a TreeNode (e.g., empty string "", nil, or non-existent),
-	// but new value IS a TreeNode, we need to send the full new TreeNode WITH statics,
-	// because the client doesn't have these statics cached for this field.
-	// This handles transitions like:
-	// - "" -> {"s":["checked"]} (empty string to TreeNode)
-	// - nil -> {"s":["checked"]} (non-existent field to TreeNode)
-	if !oldIsTree {
-		// Transition from non-TreeNode (or non-existent) to TreeNode - send full new value with statics
-		changes[fieldKey] = PrepareTreeForClient(newTreeNode, false)
-		return
-	}
-
-	stripped := PrepareTreeForClient(newTreeNode, true)
-
-	// If stripping results in empty, check if this is a meaningful change
-	if IsEmpty(stripped) {
-		// Check if old value would also strip to empty
-		if exists && oldIsTree {
-			oldStripped := PrepareTreeForClient(oldTreeNode, true)
-			if IsEmpty(oldStripped) {
-				// Both old and new strip to empty (static-only).
-				// Use fingerprint comparison to detect if statics changed.
-				// e.g., old: {"s":["checked"]} vs new: {"s":[]}
-				// Both strip to empty but the visual output is different.
-				if ClientNeedsStatics(oldTreeNode, newTreeNode) {
-					// Structure fingerprints differ - statics changed.
-					// Send the full new TreeNode WITH statics so client can update structure.
-					// This handles cases like conditional branch changes within range items.
-					changes[fieldKey] = PrepareTreeForClient(newTreeNode, false)
-				}
-				// If fingerprints are the same, truly no change - skip it
-				return
-			}
-		}
-		// Old doesn't exist or had dynamics, send empty string to indicate removal of dynamics
-		changes[fieldKey] = ""
-	} else {
-		// Check if structure changed (different statics needed) even when dynamics exist.
-		// This handles conditional branch changes within range items where both the
-		// structure (statics) AND content (dynamics) change simultaneously.
-		// e.g., {{if .HasError}}<span class="error-message">{{.Error}}</span>{{else}}<span class="status">Pending</span>{{end}}
-		// When HasError changes, we need to send new statics, not just new dynamics.
-		if oldIsTree && ClientNeedsStatics(oldTreeNode, newTreeNode) {
-			// Statics changed - send full tree with new statics
-			changes[fieldKey] = PrepareTreeForClient(newTreeNode, false)
-		} else {
-			changes[fieldKey] = stripped
-		}
-	}
 }
 
 // stripStaticsFromOperations removes statics from all operations.
