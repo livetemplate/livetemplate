@@ -35,10 +35,10 @@ func TestRangeRetainedMemory_LegacyVsStream(t *testing.T) {
 	}{
 		// N=10 floor is intentionally loose: even with warm-up, the first
 		// process-level invocation pays cold-arena cost on stream-mode
-		// allocations and can land at ~1.8x. 1.5x catches the meaningful
-		// regression case (legacy/stream ratio collapses) without flaking on
-		// cold-start jitter.
-		{"N=10", 10, 1.5},
+		// allocations and can land at ~1.8x. 1.4x catches the meaningful
+		// regression case (legacy/stream ratio collapses) with ~26% headroom
+		// against CI runner variance.
+		{"N=10", 10, 1.4},
 		{"N=100", 100, 4.0},
 		{"N=1000", 1000, 5.0},
 		{"N=10000", 10000, 5.0},

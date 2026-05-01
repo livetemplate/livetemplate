@@ -18,6 +18,13 @@ import (
 // that has already transitioned to stream mode. Panics if TransitionToStreamMode
 // silently no-ops (e.g., fixture became heterogeneous) — without the check,
 // benchmarks would measure the het-range fallback path instead of stream mode.
+//
+// Reusing the same streamState across all b.N iterations is safe because
+// GenerateRangeStreamOperations reads streamState.{Keys,Hashes,Fingerprint}
+// without mutation (verified: zero writes or method calls on streamState in
+// range_ops.go). If this invariant ever breaks, all benchmarks here become
+// invalid — iteration 1 measures the diff path, iterations 2..N measure
+// no-op detection.
 func buildStreamModeOldTree(b *testing.B, itemCount int) (*build.RangeStreamState, []string) {
 	b.Helper()
 	tree := createTreeNodeRangeTree(itemCount)
@@ -156,6 +163,7 @@ func benchmarkStreamAppendWireSize(b *testing.B, oldCount int) {
 
 	var totalSize int64
 	b.ResetTimer()
+	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		ops := GenerateRangeStreamOperations(streamState, newTree.Range.Items, statics, nil, true)
 		if ops == nil {
@@ -178,6 +186,7 @@ func benchmarkStreamUpdateWireSize(b *testing.B, itemCount int) {
 
 	var totalSize int64
 	b.ResetTimer()
+	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		ops := GenerateRangeStreamOperations(streamState, newTree.Range.Items, statics, nil, true)
 		if ops == nil {
@@ -203,6 +212,7 @@ func benchmarkStreamReorderWireSize(b *testing.B, itemCount int) {
 
 	var totalSize int64
 	b.ResetTimer()
+	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		ops := GenerateRangeStreamOperations(streamState, newTree.Range.Items, statics, nil, true)
 		if ops == nil {
@@ -220,9 +230,13 @@ func benchmarkStreamReorderWireSize(b *testing.B, itemCount int) {
 // BenchmarkRangeDiff_LegacyPartialDelta_Update_WireSize synthesises the
 // pre-Phase-4 partial-delta `["u", key, {pos: val}]` shape for the §7 wire-size
 // comparison column. The legacy producer was deleted in Phase 4, so this op is
-// constructed directly rather than emitted from the diff path. The hardcoded
-// "item-50" key matches the mid-list update benchmarks above so the synthetic
-// baseline is comparable byte-for-byte.
+// constructed directly rather than emitted from the diff path.
+//
+// "item-50" is fixed across N — at N=100 it matches benchmarkStreamUpdate's
+// mid-list key byte-for-byte; at N=10 the actual mid would be "item-5" and at
+// N=10000 it would be "item-5000". The §7 table reports a constant 33 B for
+// the legacy column because this synthetic key has constant length, not
+// because the real legacy emission would have produced 33 B at every N.
 func BenchmarkRangeDiff_LegacyPartialDelta_Update_WireSize(b *testing.B) {
 	op := []interface{}{
 		"u",
@@ -232,6 +246,7 @@ func BenchmarkRangeDiff_LegacyPartialDelta_Update_WireSize(b *testing.B) {
 
 	var totalSize int64
 	b.ResetTimer()
+	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		data, err := json.Marshal([]interface{}{op})
 		if err != nil {
