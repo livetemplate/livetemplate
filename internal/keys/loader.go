@@ -30,7 +30,11 @@ func LoadExistingKeyMappings(gen *Generator, lastTree *build.TreeNode) error {
 		// Check if this is a TreeNode with Range data
 		if node, ok := value.(*build.TreeNode); ok {
 			if node.HasRange() && node.Range != nil {
-				if err := gen.LoadExistingKeys(node.Range.Items); err != nil {
+				if node.Range.IsStreamMode() {
+					if err := gen.LoadExistingKeysFromSlice(node.Range.StreamState.Keys); err != nil {
+						return fmt.Errorf("loadExistingKeyMappings (stream): %w", err)
+					}
+				} else if err := gen.LoadExistingKeys(node.Range.Items); err != nil {
 					return fmt.Errorf("loadExistingKeyMappings: %w", err)
 				}
 			}

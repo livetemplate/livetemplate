@@ -290,6 +290,76 @@ func dynamicsToUpdatePayload(dynamics []interface{}, keyPos int) map[string]inte
 	return payload
 }
 
+// dispatchStreamMode runs the shared stream-mode diff. Returns (ops, true) on
+// success — empty ops mean no-change. Returns (nil, false) when extraction
+// fails or stream mode declines (het-range fingerprint mismatch); the caller
+// applies its own fallback.
+func dispatchStreamMode(streamState *RangeStreamState, newValue interface{}, clientHasRangeStatics bool) ([]interface{}, bool) {
+	newItems, statics, idKey := extractStreamModeNewSide(newValue)
+	if newItems == nil {
+		return nil, false
+	}
+	ops := GenerateRangeStreamOperations(streamState, newItems, statics, idKey, clientHasRangeStatics)
+	if ops == nil {
+		return nil, false
+	}
+	return ops, true
+}
+
+func handleStreamModeRange(oldTree, newTree *TreeNode, changes *TreeNode) bool {
+	clientHasRangeStatics := !ClientNeedsStatics(oldTree, newTree)
+	diffOps, ok := dispatchStreamMode(oldTree.Range.StreamState, newTree, clientHasRangeStatics)
+	if !ok {
+		*changes = *newTree
+		return true
+	}
+	if len(diffOps) > 0 {
+		changes.Range = &RangeData{Items: diffOps}
+		if !clientHasRangeStatics {
+			changes.Statics = newTree.Statics
+		}
+	}
+	return true
+}
+
+func handleStreamModeRangeMatch(k int, oldNode *TreeNode, newValue interface{}, changes *TreeNode) {
+	clientHasRangeStatics := !clientNeedsStaticsForValue(oldNode, newValue)
+	diffOps, ok := dispatchStreamMode(oldNode.Range.StreamState, newValue, clientHasRangeStatics)
+	if !ok {
+		handleEmptyRangeDiff(k, oldNode, newValue, changes)
+		return
+	}
+	if len(diffOps) > 0 {
+		changes.SetDynamic(k, diffOps)
+	}
+}
+
+// extractStreamModeNewSide returns the new-side range data for stream-mode
+// dispatch. Mirrors the new-side branch of extractRangeData. Returns nil
+// items if newValue is not a valid range.
+func extractStreamModeNewSide(newValue interface{}) (
+	newItems []interface{},
+	statics interface{},
+	metadata map[string]interface{},
+) {
+	newNode, ok := newValue.(*TreeNode)
+	if !ok || !newNode.HasRange() || newNode.Range == nil {
+		return nil, nil, nil
+	}
+	newItems = newNode.Range.Items
+	if newNode.Range.Statics != nil {
+		statics = newNode.Range.Statics
+	} else {
+		statics = newNode.Statics
+	}
+	if newNode.Metadata != nil {
+		metadata = map[string]interface{}{
+			"idKey": newNode.Metadata.IDKey,
+		}
+	}
+	return
+}
+
 // extractRangeData extracts items, statics, and metadata from old and new range values.
 func extractRangeData(oldValue, newValue interface{}) (
 	oldItems, newItems []interface{},

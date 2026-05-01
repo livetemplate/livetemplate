@@ -91,10 +91,17 @@ func IsRangeConstruct(value interface{}) bool {
 	return false
 }
 
-// HasRangeItems checks if a range construct has any items in its data array.
+// HasRangeItems reports whether a range value has at least one item — the
+// logical question. Stream-mode trees count via StreamState.Keys length.
 func HasRangeItems(value interface{}) bool {
 	if node, ok := value.(*TreeNode); ok {
-		return node.HasRange() && len(node.Range.Items) > 0
+		if !node.HasRange() || node.Range == nil {
+			return false
+		}
+		if len(node.Range.Items) > 0 {
+			return true
+		}
+		return node.Range.IsStreamMode() && len(node.Range.StreamState.Keys) > 0
 	}
 	if valueMap, ok := value.(map[string]interface{}); ok {
 		if d, hasD := valueMap["d"]; hasD {

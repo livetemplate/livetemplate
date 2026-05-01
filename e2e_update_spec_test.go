@@ -639,22 +639,32 @@ func TestUserJourney_TodoApp(t *testing.T) {
 				},
 			},
 			validate: func(t *testing.T, tree *build.TreeNode, isFirst bool) {
-				// Should have range operations for adding items (insert "i" or append "a")
-				foundRangeOps := false
+				// Should communicate the new todos to the client. Two acceptable forms:
+				//   1. Granular ops ("i" insert / "a" append): emitted when stream mode is
+				//      active AND the new items remain homogeneous with the streamState.
+				//   2. Full-tree replacement (Range with Items): the het-range fallback per
+				//      proposal §5d. The TodoApp template has {{if .Done}} inside the range,
+				//      which makes items structurally heterogeneous when Done values mix.
+				//      Once one item is Done=true and others are Done=false, the per-item
+				//      statics fingerprint differs and stream mode falls back. Both forms
+				//      satisfy the "new todos arrive on the wire" intent.
+				foundUpdate := false
 				for _, v := range tree.Dynamics {
 					if ops, ok := v.([]interface{}); ok {
 						for _, op := range ops {
 							if opArr, ok := op.([]interface{}); ok && len(opArr) > 0 {
-								// Accept both "i" (insert) and "a" (append) as valid granular operations
 								if opArr[0] == "i" || opArr[0] == "a" {
-									foundRangeOps = true
+									foundUpdate = true
 								}
 							}
 						}
 					}
+					if node, ok := v.(*build.TreeNode); ok && node.HasRange() && node.Range != nil && len(node.Range.Items) > 0 {
+						foundUpdate = true
+					}
 				}
-				if !foundRangeOps {
-					t.Error("Expected insert or append operations for new todos")
+				if !foundUpdate {
+					t.Error("Expected new todos to arrive via insert/append ops or full-tree replacement")
 				}
 			},
 		},

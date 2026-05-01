@@ -24,12 +24,15 @@ func TreeToMap(tree *build.TreeNode) map[string]any {
 	}
 
 	if tree.HasRange() && tree.Range != nil {
-		// Convert range items recursively
-		convertedItems := make([]any, len(tree.Range.Items))
-		for i, item := range tree.Range.Items {
-			convertedItems[i] = convertValue(item)
+		// Stream-mode trees omit "d" entirely (see TreeNode.MarshalJSON);
+		// emitting "d": [] would diverge from the wire shape.
+		if tree.Range.Items != nil {
+			convertedItems := make([]any, len(tree.Range.Items))
+			for i, item := range tree.Range.Items {
+				convertedItems[i] = convertValue(item)
+			}
+			result["d"] = convertedItems
 		}
-		result["d"] = convertedItems
 		if tree.Range.Statics != nil {
 			result["s"] = tree.Range.Statics
 		}

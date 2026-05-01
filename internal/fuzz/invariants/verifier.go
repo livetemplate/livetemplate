@@ -227,7 +227,7 @@ func verifyTreeStructureRecursive(tree *build.TreeNode, path string, v *Verifier
 		}
 	}
 
-	// Check range items
+	// Check range items. Stream-mode ranges have nil Items, so the loop is a no-op.
 	if tree.HasRange() && tree.Range != nil {
 		for i, item := range tree.Range.Items {
 			if itemTree, ok := item.(*build.TreeNode); ok {
@@ -392,11 +392,21 @@ func extractAllRanges(tree *build.TreeNode, path string) map[string]*build.Range
 	return ranges
 }
 
-// buildIDKeyMap builds a map from item IDs to their keys.
+// buildIDKeyMap builds a map from item IDs to their keys. For stream-mode
+// trees, the key column IS the identifier, so id and key collapse.
 func buildIDKeyMap(rangeData *build.RangeData) map[string]string {
 	idToKey := make(map[string]string)
 
 	if rangeData == nil {
+		return idToKey
+	}
+
+	if rangeData.IsStreamMode() {
+		for _, k := range rangeData.StreamState.Keys {
+			if k != "" {
+				idToKey[k] = k
+			}
+		}
 		return idToKey
 	}
 
