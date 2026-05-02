@@ -184,6 +184,44 @@ func TestTransitionToStreamMode_NilTreeSafe(t *testing.T) {
 	TransitionToStreamMode(nil)
 }
 
+// Range nested under a conditional must transition — without recursive
+// descent into Dynamics, the wrapped range never reached the homogeneity
+// check.
+func TestTransitionToStreamMode_RangeWrappedInConditionalFires(t *testing.T) {
+	itemStatics := []string{`<li data-key="`, `">`, `</li>`}
+	rangeNode := &build.TreeNode{
+		Statics: []string{"<ul>", "</ul>"},
+		Range: &build.RangeData{
+			Statics: itemStatics,
+			Items: []interface{}{
+				&build.TreeNode{Statics: itemStatics, Dynamics: []interface{}{"a", "alpha"}},
+				&build.TreeNode{Statics: itemStatics, Dynamics: []interface{}{"b", "beta"}},
+			},
+		},
+	}
+	conditionalBranch := &build.TreeNode{
+		Statics:  []string{"<div>", "</div>"},
+		Dynamics: []interface{}{rangeNode},
+	}
+	tree := &build.TreeNode{
+		Statics:  []string{"<article>", "</article>"},
+		Dynamics: []interface{}{conditionalBranch},
+	}
+
+	TransitionToStreamMode(tree)
+
+	if rangeNode.Range.StreamState == nil {
+		t.Fatalf("Range nested under a conditional MUST transition (regression: silent fallback to legacy path)")
+	}
+	if rangeNode.Range.Items != nil {
+		t.Errorf("Items should be nil post-transition, got %v", rangeNode.Range.Items)
+	}
+	ss := rangeNode.Range.StreamState
+	if len(ss.Keys) != 2 || ss.Keys[0] != "a" || ss.Keys[1] != "b" {
+		t.Errorf("Expected keys [a, b], got %v", ss.Keys)
+	}
+}
+
 // TestTransitionToStreamMode_RootRangeFires covers the case where the root
 // tree itself is a Range (template `{{range .Items}}<x/>{{end}}` with no
 // wrapper element). The root range counts as top-level per spec §5a and must

@@ -5,14 +5,13 @@ import (
 	"github.com/livetemplate/livetemplate/internal/keys"
 )
 
-// TransitionToStreamMode replaces Range.Items with a RangeStreamState snapshot
-// for top-level homogeneous ranges (the root tree's Range and any direct-child
-// Range in Dynamics — depth ≤ 1 per spec §5a). Caller must hold the lock that
-// protects tree.
-//
-// Uses CalculateStaticsFingerprint (not GetStructureFingerprint) for the
-// homogeneity check — the latter over-captures scalar position-presence,
-// falsely classifying [id, "x"] vs [id, nil] as heterogeneous.
+// TransitionToStreamMode replaces Range.Items with a RangeStreamState
+// snapshot for every homogeneous range reachable through the static tree
+// (root plus any TreeNode in Dynamics, including conditional and with
+// branches). Never descends into Range.Items, keeping nested-range-in-item
+// on the legacy path (spec §5a). Caller must hold the lock that protects
+// tree. Uses CalculateStaticsFingerprint (not GetStructureFingerprint) —
+// the latter falsely classifies [id, "x"] vs [id, nil] as heterogeneous.
 func TransitionToStreamMode(tree *build.TreeNode) {
 	if tree == nil {
 		return
@@ -22,10 +21,10 @@ func TransitionToStreamMode(tree *build.TreeNode) {
 	}
 	for _, value := range tree.Dynamics {
 		node, ok := value.(*build.TreeNode)
-		if !ok || !node.HasRange() {
+		if !ok {
 			continue
 		}
-		transitionRangeIfHomogeneous(node.Range)
+		TransitionToStreamMode(node)
 	}
 }
 

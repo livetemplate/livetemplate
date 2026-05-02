@@ -23,6 +23,10 @@ type homoTodoState struct {
 
 const homoTodoTemplate = `<ul>{{range .Todos}}<li data-key="{{.ID}}">{{.Text}}</li>{{end}}</ul>`
 
+// Range wrapped in {{if}} — its TreeNode sits under the conditional branch's
+// Dynamics rather than at the root. Locks in the recursive transition.
+const homoTodoConditionalTemplate = `<ul>{{if gt (len .Todos) 0}}{{range .Todos}}<li data-key="{{.ID}}">{{.Text}}</li>{{end}}{{end}}</ul>`
+
 // renderTwice renders twice and returns the second render's JSON.
 func renderTwice(t *testing.T, tmpl *Template, s1, s2 interface{}) string {
 	t.Helper()
@@ -35,6 +39,35 @@ func renderTwice(t *testing.T, tmpl *Template, s1, s2 interface{}) string {
 		t.Fatalf("second render: %v", err)
 	}
 	return buf.String()
+}
+
+// Integration regression: a homogeneous range wrapped in {{if}} must still
+// emit stream-mode ["u"] on the second render, not the legacy "d":[…] shape.
+func TestStreamMode_FiresOnConditionalWrappedRange(t *testing.T) {
+	tmpl := Must(New("stream-fires-conditional"))
+	if _, err := tmpl.Parse(homoTodoConditionalTemplate); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	s1 := homoTodoState{Todos: []homoTodo{
+		{ID: "1", Text: "first"},
+		{ID: "2", Text: "second"},
+	}}
+	s2 := homoTodoState{Todos: []homoTodo{
+		{ID: "1", Text: "FIRST"},
+		{ID: "2", Text: "second"},
+	}}
+
+	out := renderTwice(t, tmpl, s1, s2)
+
+	if !strings.Contains(out, `["u","1",`) {
+		t.Fatalf("expected stream-mode [\"u\", \"1\", ...] op for wrapped range; got: %s", out)
+	}
+	// `"d":[` would mean the range came back as a full items array — the
+	// Phase 1 / het-fallback shape this fix was specifically removing for
+	// conditional-wrapped homogeneous ranges.
+	if strings.Contains(out, `"d":[`) {
+		t.Errorf("conditional-wrapped homogeneous range fell back to legacy full-items shape; got: %s", out)
+	}
 }
 
 // TestStreamMode_FiresOnSecondRender — after a homogeneous first render, the second render must route through stream mode.
