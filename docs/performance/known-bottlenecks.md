@@ -2,9 +2,10 @@
 
 **Last CPU Profiled:** 2026-03-19
 **Last Memory Profiled:** 2026-03-23
+**Last Range-Diff Benchmarked:** 2026-05-01 (Phase 5 streaming-range)
 **Go Version (profiles):** 1.26.0
 **Go Version (benchmarks):** 1.26.0
-**Architecture:** arm64 (Apple M2)
+**Architecture:** arm64 (Apple M2 for profiles; linux/arm64 for Phase 5 benchmarks)
 
 ## Profiling Methodology
 
@@ -147,16 +148,43 @@ Showing top allocators (44.6 GB total across all benchmark iterations)
 - Bytes allocated: ~5.2 KB/op
 - Example: BenchmarkTemplateExecuteUpdates/large-update-8 (6789 ns/op, 5187 B/op, 123 allocs/op)
 
-**Range Operations:**
-- Add items: 222 allocs/op, 9.4 KB/op
-- Remove items: 124 allocs/op, 5.5 KB/op
-- Reorder items: 157 allocs/op, 6.8 KB/op
-- Update items: 157 allocs/op, 6.8 KB/op
+**Range Diff Operations (per-call, N=100 items, refreshed 2026-05-01):**
+
+Legacy map-based (`BenchmarkRangeDiffUpdate/Insert/Remove`, items as `map[string]interface{}`):
+- Update / Insert / Remove: ~19 allocs/op, ~17.6 KB/op, ~11 µs/op
+
+Legacy TreeNode-based (`BenchmarkRangeDiff_TreeNode_*`, items as `*TreeNode`, het-range fallback path):
+- Update: 2056 allocs/op, 57.9 KB/op, 269 µs/op
+- Reorder: 4023 allocs/op, 103 KB/op, 514 µs/op
+- LargeList (N=1000) Update: 20065 allocs/op, 660 KB/op, 2.9 ms/op
+
+Stream-mode (`BenchmarkRangeDiff_Stream_*`, post-Phase-3 default for homogeneous ranges):
+- Append-1 / Update / Reorder at N=100: ~2030 allocs/op, ~60 KB/op, ~280 µs/op
+- Append-1 / Update / Reorder at N=10000: ~200k allocs/op, ~6.3 MB/op, ~28 ms/op
+
+Per-call allocation profiles for stream-mode and legacy-TreeNode are similar (both walk N items to build the new-side `rangeContext`); the **Phase 5 win is in retained memory between renders, not per-call diff cost** — see "Streaming Range Retention" below.
 
 **Complex User Journey (E2E):**
 - Total allocations: ~5,083 allocs/op
 - Bytes allocated: ~252 KB/op
 - Example: BenchmarkE2EUserJourney-8 (256978 ns/op, 251941 B/op, 5083 allocs/op)
+
+### Streaming Range Retention (Phase 5, 2026-05-01)
+
+Per the [streaming range rendering proposal](../proposals/streaming-range-rendering-proposal.md), homogeneous ranges now retain a per-range snapshot (`RangeStreamState{Keys, Hashes, Fingerprint}`) instead of the full per-item `*TreeNode` slice. Measured by `internal/diff/range_memory_test.go` via `runtime.ReadMemStats` HeapAlloc delta over 8 retained trees with double-GC + warm-up:
+
+| N | Legacy retained (B/item) | Stream retained (B/item) | Drop |
+|---|---|---|---|
+| 10 | ~270 | ~80 | ~3.4× |
+| 100 | ~245 | ~47 | ~5.2× |
+| 1000 | ~256 | ~41 | ~6.2× |
+| 10000 | ~256 | ~41 | ~6.3× |
+
+**Strategic impact:** for a 10k-row table held by 100 concurrent connections, retained memory drops from ~250 MB to ~40 MB. This is the single largest memory win shipped since the 2026-03 PR #219/220/224 cluster, and it does not show up in the benchmark allocation tables above (which measure per-call diff cost, not retained `lastTree` cost).
+
+**CI gate:** `TestRangeRetainedMemory_LegacyVsStream` enforces per-N ratio floors (1.8× at N=10, 4× at N=100, 5× at N≥1k). Skipped under `-short`. Catches regressions in the retention path before they merge.
+
+**Wire cost trade-off:** worst-case single-field update on a 3-field item grows from synthetic legacy ~33 B to ~45-51 B on the wire (~1.4×, well below the projected 3× ceiling). Inserts/deletes/reorders are unchanged.
 
 ### Cache Memory Usage
 
@@ -304,6 +332,11 @@ Based on profiling data:
   - Approach: `rangeContext` pre-computes key maps and positions once per range diff. DeepEqual fast paths for string, int, float64, bool. Package-level compiled regex for position field detection.
   - Actual Impact: 59% faster (5332→2205 ns/op), 54% fewer allocs (37→17). E2E range operations improved 5-6x.
 
+- [x] **Streaming Range Rendering — Per-Connection Retention Drop** *(Completed 2026-05-01, PRs #361-365)*
+  - Location: `internal/diff/range_ops.go`, `internal/diff/transition.go`, `internal/build/types.go`, Phase 3 (Diff) + Phase 2 (Build)
+  - Approach: Replaced retained `RangeData.Items []*TreeNode` (per-item dynamics-only TreeNodes) with `RangeStreamState{Keys, Hashes, Fingerprint}` snapshot for homogeneous ranges. Stream-mode diff path uses FNV-1a 64-bit per-item content hashes for change detection; full-snapshot `["u"]` payloads on the wire (consumer replaces, does not merge).
+  - Actual Impact: Per-item retained heap drops 3.4-6.3× across N ∈ {10, 100, 1k, 10k} — for a 10k-row table held by 100 connections, retained memory drops from ~250 MB to ~40 MB. Wire-size cost: ~1.4× on worst-case single-field updates, identical on inserts/deletes/reorders. CI gate: `internal/diff/range_memory_test.go`.
+
 - [ ] **Reduce HTML Parsing Fallback Frequency**
   - Location: `internal/parse/parser.go`, Phase 1 (Parse)
   - Goal: Further reduce 1.4 GB allocations in `html.NewTokenizerFragment` fallback (3.05%, down from 29.52% after PR #219)
@@ -313,12 +346,12 @@ Based on profiling data:
 
 ### Monitoring & Validation Tasks
 
-- [ ] **Establish Performance Regression Tests**
-  - Location: `.github/workflows/benchmark.yml`
+- [~] **Establish Performance Regression Tests**
+  - Location: `.github/workflows/benchmark.yml`, `internal/diff/range_memory_test.go` (Phase 5)
   - Goal: Automatically detect performance regressions in CI
-  - Approach: Already implemented, but add stricter thresholds (>5% warning, >10% failure)
+  - Approach: Benchmark workflow exists; Phase 5 added `TestRangeRetainedMemory_LegacyVsStream` as a per-N memory-ratio gate that runs in the standard test suite (not a separate workflow). Stricter benchmark thresholds (>5% warning, >10% failure) still pending.
   - Expected Impact: Prevents performance degradation over time
-  - Verification: PR builds show benchmark comparison results
+  - Verification: PR builds show benchmark comparison results; memory regression catches stream-retention regressions at test time
 
 - [ ] **Add Allocation Budget Tests**
   - Location: `*_test.go` files
@@ -338,8 +371,8 @@ Based on profiling data:
 
 Update this section as tasks are completed:
 
-**Last Updated:** 2026-03-23
-**Completed Tasks:** 8/15 (1 investigated and rejected)
+**Last Updated:** 2026-05-01
+**Completed Tasks:** 9/16 (1 investigated and rejected; 1 partially shipped)
 **In Progress:** 0
 **Blocked:** 0
 
@@ -367,7 +400,7 @@ When completing a task:
 ### Phase 3: Diff
 - **Primary Bottleneck:** Tree comparison and range construct matching
 - **Allocations:** ~1.8 GB (4.1% of total) — CompareTreesAndGetChangesWithPath 2.33%, FindRangeConstructMatches 1.77%
-- **Status:** Range diff operations 59% faster after `rangeContext` (commit b9faf28). Pass-through result map in findRangeConstructsRecursive (PR #224).
+- **Status:** Range diff operations 59% faster after `rangeContext` (commit b9faf28). Pass-through result map in findRangeConstructsRecursive (PR #224). Streaming-range refactor (PRs #361-365, 2026-05-01) drops retained per-connection range memory by 3.4-6.3× without changing per-call diff allocs.
 - **Recommendation:** Optimize comparison algorithms for deeply nested trees
 
 ### Phase 4: Render

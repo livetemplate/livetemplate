@@ -510,6 +510,78 @@ The cleanup is complete; the wire contract is consistent end-to-end; all stale p
 
 ---
 
+## Phase 5 audit checkpoint
+
+**Date**: 2026-05-01
+**Branch**: `phase5/benchmark-gate` → PR pending
+**Base commit**: `45756b72` (Phase 4 merge on `main`)
+
+### Files touched
+
+| File | Change |
+|---|---|
+| `internal/diff/range_ops_bench_test.go` | New file. Nine stream-mode CPU benchmarks (`BenchmarkRangeDiff_Stream_{Append,Update,Reorder}_{Small,Medium,Large}` at N ∈ {10, 100, 10000}) calling `GenerateRangeStreamOperations` directly, plus seven wire-size benchmarks (`BenchmarkRangeDiff_Stream_{Append,Update}_WireSize_{Small,Medium,Large}` and `BenchmarkRangeDiff_LegacyPartialDelta_Update_WireSize`) using `b.ReportMetric(..., "bytes/op")` to publish per-op JSON byte counts. Stream-mode fixtures built by calling `TransitionToStreamMode` on a fresh tree, mirroring the production transition path. |
+| `internal/diff/range_memory_test.go` | New file. CI regression gate `TestRangeRetainedMemory_LegacyVsStream` at N ∈ {10, 100, 1000, 10000}. Methodology: `runtime.ReadMemStats` HeapAlloc delta over 8 retained trees with double-GC stabilisation. Per-N thresholds (1.8× at N=10, 4× at N=100, 5× at N=1k+) reflect the asymptote — fixed `RangeData/StreamState` overhead dilutes the per-item win at small N. Skipped under `-short`. |
+| `docs/proposals/streaming-range-rendering-proposal.md` | §1 header status `Proposed` → `Implemented`. §7 "Memory & Performance" table replaced with measured values; lead sentence "Estimates, to be replaced…" deleted entirely. Methodology paragraph added explaining ReadMemStats + double-GC + json.Marshal approach. New 1k-item row added between 100 and 10k for asymptote visibility. |
+| `docs/proposals/streaming-range-impl-audit.md` | Appended this Phase 5 checkpoint section. |
+
+### Measured numbers (replacing §7 estimates)
+
+Per-item retained heap bytes (warmed-up single sample per run; the helper discards a cold-start measurement to avoid arena setup skewing the small-N case — verified stable across 10 consecutive runs):
+
+| N | Legacy B/item | Stream B/item | Ratio |
+|---|---|---|---|
+| 10 | ~270 | ~80 | ~3.4× |
+| 100 | ~245 | ~47 | ~5.2× |
+| 1000 | ~256 | ~41 | ~6.2× |
+| 10000 | ~256 | ~41 | ~6.3× |
+
+Wire bytes per op (`json.Marshal` of stream-mode op output, statics stripped):
+
+| N | Append-1 | Update-1-field | Legacy synthetic update-1-field |
+|---|---|---|---|
+| 10 | 52 B | 45 B | 33 B |
+| 100 | 54 B | 47 B | 33 B |
+| 10000 | 58 B | 51 B | 33 B |
+
+The stream-mode update wire-size grows by **~1.4×** vs the synthetic legacy partial-delta — well below the proposal's projected 3× ceiling. Inserts/deletes/reorders are unchanged. Real-world `permessage-deflate` recovers most of the absolute growth.
+
+### Per Phase 5 audit checkpoint requirement
+
+> Per proposal §333 Phase 5 audit checkpoint: "every estimate in §7 is replaced. The 'Memory & Performance' section no longer contains the word 'estimate'."
+
+- **`grep -n "estimate" §7`**: `awk '/^## Memory & Performance/,/^## Reconnect/' docs/proposals/streaming-range-rendering-proposal.md | grep -ni "estimate"` returns empty.
+- **Status header**: line 3 changed `Proposed` → `Implemented`.
+- **All §7 numbers measured**: per-item retained bytes from `range_memory_test.go`; wire bytes from `range_ops_bench_test.go` `b.ReportMetric` output. Both reproducible from the worktree with `GOWORK=off go test -v -run TestRangeRetainedMemory ./internal/diff/` and `GOWORK=off go test -bench=BenchmarkRangeDiff_Stream -benchtime=1000x ./internal/diff/`.
+
+### Open Question 2 partially answered
+
+Per §383, OQ2 ("volatile-field workloads — do we need a future `["uf"]` targeted-field op?") is owned by combined data from item 13 (these benchmarks) and §12 (`LargeTableController.UpdateRandomRow`, Phase 6 deliverable).
+
+Item-13 contribution: a single-field update on a 3-field item costs **45–51 B** on the wire (vs synthetic legacy 33 B). The 1.4× growth is well below the 3× ceiling that would justify shipping a targeted-field op. Final decision deferred to Phase 6 once `UpdateRandomRow` numbers exist for the multi-field worst-case workload.
+
+### Verification commands
+
+```bash
+GOWORK=off go test -v -run TestRangeRetainedMemory_LegacyVsStream -count=3 ./internal/diff/    # 3 runs, all pass
+GOWORK=off go test -bench='BenchmarkRangeDiff_Stream' -benchtime=100x -benchmem ./internal/diff/   # CPU + alloc benchmarks
+GOWORK=off go test -bench='BenchmarkRangeDiff_Stream.*WireSize|BenchmarkRangeDiff_LegacyPartialDelta' -benchtime=1000x ./internal/diff/   # wire-size benchmarks
+GOWORK=off go test -count=1 ./...                                                              # full suite
+GOWORK=off go test -race -count=1 ./internal/diff/...                                          # race-clean
+awk '/^## Memory & Performance/,/^## Reconnect/' docs/proposals/streaming-range-rendering-proposal.md | grep -ni "estimate"   # zero hits
+```
+
+### Phase 5 follow-ups
+
+- **`LargeTableController` example + `UpdateRandomRow` benchmark**: Phase 6 deliverable. Closes OQ2 once the multi-field volatile-field workload has measured wire cost.
+- **Cross-platform numbers**: §7 numbers were captured on linux/arm64 with Go 1.26. Absolute byte counts will vary across architectures and Go versions; ratios (legacy/stream) are expected to be more stable than absolutes but were not separately verified on amd64.
+
+### Methodology deviation from §11 item 2
+
+§11 item 2 calls for "render twice, measure heap delta retained in `lastTree`" — i.e., go through `Template.Execute` twice and measure what survives. The implementation instead constructs the retained shape directly via `createTreeNodeRangeTree` + `TransitionToStreamMode`, then measures heap delta over a slice of 8 retained trees. Same measurement target (per-item bytes attributable to the retained range shape), shorter setup (no parser/binder/render path noise). The §7 numbers describe the same property the proposal asks for; the deviation is a methodology shortcut, not a correctness gap.
+
+---
+
 ## Audit sign-off
 
 All six §15 gates close as recorded. Phase 1 (foundational types) is unblocked under the proposal's audit-checkpoint sequencing. The two open questions retain explicit owners (OQ1 closed by decision; OQ2 owned by Phase 5 measurement).
