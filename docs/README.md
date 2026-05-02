@@ -18,6 +18,7 @@ Complete API references, configuration, and specifications:
 - **[Error Handling](references/error-handling.md)** - Validation errors, field errors, and error display
 - **[Authentication](references/authentication.md)** - Authentication system and custom authenticators
 - **[Server Actions](references/server-actions.md)** - Server-initiated actions (TriggerAction API)
+- **[Navigate Action](references/navigate.md)** - `__navigate__` reserved action invariants and Mount semantics
 - **[Session Management](references/session.md)** - State safety, session stores, and connection management
 - **[PubSub](references/pubsub.md)** - Distributed broadcasting, Redis channel schema, subscription lifecycle
 - **[Template Support Matrix](references/template-support-matrix.md)** - Supported Go template features
@@ -30,6 +31,7 @@ Complete API references, configuration, and specifications:
 
 Step-by-step guides and tutorials:
 
+- **[Standard HTML Reactivity](guides/standard-html-reactivity.md)** - Why standard HTML is LiveTemplate's key differentiator vs htmx, Livewire, LiveView
 - **[Progressive Complexity Guide](guides/progressive-complexity.md)** - Standard HTML first, `lvt-*` only when needed
 - **[Ephemeral Components Guide](guides/ephemeral-components.md)** - Client-side toasts, banners, alerts
 - **[New Contributor Walkthrough](guides/new-contributor-walkthrough.md)** - 5-phase architecture walkthrough

@@ -1,5 +1,36 @@
 # LiveTemplate Performance Characteristics
 
+## Summary
+
+| Operation | Latency | Bandwidth Savings |
+|-----------|---------|-------------------|
+| Initial Render | ~20-65µs | — |
+| Small Update (1-2 fields) | ~18-20µs | 85% vs full render |
+| Large Update (5+ fields) | ~65µs | 65% vs full render |
+| Range Operations | ~30-65µs | 80% vs full render |
+
+Numbers from baseline (Go 1.26, Apple M1/M2). Full results in [`testdata/benchmarks/baseline.txt`](../../testdata/benchmarks/baseline.txt).
+
+**How updates stay small:** The first render ships full HTML and the client caches the static parts. Subsequent renders ship only the changed dynamic values — the statics never travel again until the template structure itself changes (detected by an FNV-1a fingerprint).
+
+### Running Benchmarks
+
+```bash
+# Run all benchmarks
+make bench
+
+# Compare against baseline
+make bench-compare
+
+# Generate performance profiles
+make profile-cpu
+make profile-mem
+```
+
+For statistically confident timing comparisons, use `make bench-10x` with `benchstat` — single-run timings can swing 2-4x due to thermal and GC noise.
+
+---
+
 > **Benchmark Environment:** Go 1.26.0, arm64 (Apple M2). Numbers updated 2026-03-22.
 > These are single-run results (`make bench-save`); ns/op timings can vary significantly
 > between runs (2-4x swings observed) due to system load, thermal throttling, and GC timing.
