@@ -58,6 +58,14 @@ func TestDetectIDKey_NoKey(t *testing.T) {
 	if got != "0" {
 		t.Errorf("Expected '0' (default), got: %v", got)
 	}
+
+	// Empty-statics branch: distinct from "non-empty statics with no key
+	// attribute" — exercises the early-return at the top of
+	// detectIDKeyInternal.
+	gotEmpty := DetectIDKey([]string{})
+	if gotEmpty != "0" {
+		t.Errorf("Expected '0' (default for empty statics), got: %v", gotEmpty)
+	}
 }
 
 // TestDetectIDKeyWithAttributes_CustomAttributes tests custom attribute detection.
