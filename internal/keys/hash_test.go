@@ -1,6 +1,7 @@
 package keys
 
 import (
+	"encoding/json"
 	"strconv"
 	"testing"
 
@@ -237,5 +238,54 @@ func TestItemHashUint64_NestedTreeNode(t *testing.T) {
 	dyn3 := []interface{}{"id1", makeNested("changed")}
 	if ItemHashUint64(dyn1) == ItemHashUint64(dyn3) {
 		t.Error("Items differing only in nested-TreeNode content must hash differently")
+	}
+}
+
+// TestFormatHashPart_ByteEquivalentToJSON locks the wire-stable contract that
+// formatHashPart's output is `{key}:{json.Marshal(val)}` for every supported
+// type. The Phase 7 type-direct hash optimization (replacing reflective
+// json.Marshal with strconv-based fast paths for common types) MUST preserve
+// this byte-for-byte. Any divergence flips RangeStreamState.Hashes for that
+// type, breaking stream-mode transition fingerprints across upgrades.
+func TestFormatHashPart_ByteEquivalentToJSON(t *testing.T) {
+	cases := []struct {
+		name string
+		val  interface{}
+	}{
+		{"empty_string", ""},
+		{"ascii_string", "hello"},
+		{"largetable_id", "row-00001"},
+		{"largetable_name", "User 00001"},
+		{"largetable_email", "user00001@example.com"},
+		{"int_zero", 0},
+		{"int_positive", 42},
+		{"int_negative", -7},
+		{"int_max", int(^uint(0) >> 1)},
+		{"int64_positive", int64(1234567890123)},
+		{"int32_positive", int32(99)},
+		{"bool_true", true},
+		{"bool_false", false},
+		{"string_with_double_quote", `say "hi"`},
+		{"string_with_backslash", `back\slash`},
+		{"string_with_newline", "line1\nline2"},
+		{"string_with_html_chars", `<a href="x">&amp;</a>`},
+		{"string_with_unicode", "日本語"},
+		{"string_with_tab", "col1\tcol2"},
+		{"slice_fallback", []int{1, 2, 3}},
+		{"map_fallback", map[string]int{"a": 1, "b": 2}},
+		{"float64_simple", 3.14},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := formatHashPart("k", tc.val)
+			jsonBytes, err := json.Marshal(tc.val)
+			if err != nil {
+				t.Fatalf("baseline json.Marshal(%T) failed: %v", tc.val, err)
+			}
+			want := "k:" + string(jsonBytes)
+			if got != want {
+				t.Errorf("formatHashPart drift for %T(%v):\n  got  %q\n  want %q", tc.val, tc.val, got, want)
+			}
+		})
 	}
 }

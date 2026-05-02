@@ -121,7 +121,7 @@ func TestStreamMode_ReconnectResyncEmitsFullTree(t *testing.T) {
 	// Simulate reconnect: drop lastTree + reset hasInitialTree.
 	tmpl.mu.Lock()
 	tmpl.lastTree = nil
-	tmpl.hasInitialTree = false
+	tmpl.hasInitialTree.Store(false)
 	tmpl.mu.Unlock()
 
 	buf.Reset()

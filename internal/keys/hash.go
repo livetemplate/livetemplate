@@ -70,11 +70,91 @@ func ItemHashUint64(dynamics []interface{}) uint64 {
 }
 
 func formatHashPart(key string, val interface{}) string {
-	valJSON, err := json.Marshal(val)
-	if err != nil {
-		return fmt.Sprintf("%s:<unhashable:%T>", key, val)
+	buf := make([]byte, 0, len(key)+1+16)
+	buf = append(buf, key...)
+	buf = append(buf, ':')
+	buf = appendJSONValue(buf, val)
+	return string(buf)
+}
+
+// appendJSONValue appends a byte-equivalent encoding of val to buf, matching
+// what encoding/json.Marshal would produce for every supported type. The fast
+// paths cover the LargeTable hot types (string, int variants, bool); the
+// fallback defers to json.Marshal so unknown types stay byte-stable.
+//
+// Wire-stability invariant: changing this function without preserving exact
+// byte output for any type silently flips RangeStreamState.Hashes for that
+// type, breaking stream-mode transition fingerprints across upgrades. The
+// regression gate is TestFormatHashPart_ByteEquivalentToJSON.
+func appendJSONValue(buf []byte, val interface{}) []byte {
+	switch v := val.(type) {
+	case string:
+		return appendJSONString(buf, v)
+	case int:
+		return strconv.AppendInt(buf, int64(v), 10)
+	case int64:
+		return strconv.AppendInt(buf, v, 10)
+	case int32:
+		return strconv.AppendInt(buf, int64(v), 10)
+	case int16:
+		return strconv.AppendInt(buf, int64(v), 10)
+	case int8:
+		return strconv.AppendInt(buf, int64(v), 10)
+	case uint:
+		return strconv.AppendUint(buf, uint64(v), 10)
+	case uint64:
+		return strconv.AppendUint(buf, v, 10)
+	case uint32:
+		return strconv.AppendUint(buf, uint64(v), 10)
+	case uint16:
+		return strconv.AppendUint(buf, uint64(v), 10)
+	case uint8:
+		return strconv.AppendUint(buf, uint64(v), 10)
+	case bool:
+		if v {
+			return append(buf, "true"...)
+		}
+		return append(buf, "false"...)
 	}
-	return fmt.Sprintf("%s:%s", key, string(valJSON))
+	// Fallback: defer to json.Marshal (preserves byte-stability for slices,
+	// maps, structs, floats, *TreeNode, and any unknown user type).
+	jsonBytes, err := json.Marshal(val)
+	if err != nil {
+		return append(buf, fmt.Sprintf("<unhashable:%T>", val)...)
+	}
+	return append(buf, jsonBytes...)
+}
+
+// appendJSONString writes a JSON-encoded string to buf. Fast path for ASCII
+// strings with no chars that json.Marshal would escape (~99% of LargeTable
+// row content); falls back to json.Marshal for anything containing `"`, `\`,
+// `<`, `>`, `&`, control bytes, or non-ASCII.
+func appendJSONString(buf []byte, s string) []byte {
+	if needsJSONEscape(s) {
+		jsonBytes, _ := json.Marshal(s)
+		return append(buf, jsonBytes...)
+	}
+	buf = append(buf, '"')
+	buf = append(buf, s...)
+	buf = append(buf, '"')
+	return buf
+}
+
+// needsJSONEscape reports whether s contains any byte json.Marshal would
+// escape with its default HTML-safe encoder. Conservative: any non-printable,
+// any HTML-special, any non-ASCII triggers the fallback.
+func needsJSONEscape(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		// Control chars (< 0x20), DEL (0x7F), or any non-ASCII (>= 0x80,
+		// includes  /  which json escapes); the JSON-special
+		// chars `"` and `\`; and the HTML-special chars `<` `>` `&` that
+		// json.Marshal's default encoder escapes to < etc.
+		if c < 0x20 || c == '"' || c == '\\' || c == '<' || c == '>' || c == '&' || c >= 0x7F {
+			return true
+		}
+	}
+	return false
 }
 
 func hashParts(parts []string) string {

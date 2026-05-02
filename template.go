@@ -97,6 +97,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/livetemplate/livetemplate/internal/build"
@@ -229,7 +230,14 @@ type Template struct {
 	mu                     sync.RWMutex // Protects mutable state fields below
 	lastHTML               string
 	lastTree               *treeNode // Store previous tree segments for comparison
-	hasInitialTree         bool
+	// hasInitialTree is the latch flipped from false→true exactly once when
+	// the first AST-built tree lands (generateInitialTreeWithoutRegistry).
+	// Stored as atomic.Bool so buildTree can read it BEFORE acquiring t.mu —
+	// that read gates whether to call the (~110 ms at N=10k) html/template
+	// render, which is dead work on the steady-state main path. Lock-free
+	// read is safe because the latch is monotonic; a stale "false" only
+	// causes one extra dead render at most, never wrong output.
+	hasInitialTree         atomic.Bool
 	keyGen                 *keyGenerator   // Per-template key generation for wrapper approach
 	config                 Config          // Template configuration
 	uploadRegistry         interface{}     // Upload registry for this connection (*upload.Registry)
@@ -1350,7 +1358,7 @@ func (t *Template) generateInitialTreeWithoutRegistry(data interface{}, extracte
 		// Don't set hasInitialTree — subsequent renders must use the HTML fallback
 		// path (AnalyzeChangeAndCreateTree) since the AST path will fail again.
 	} else {
-		t.hasInitialTree = true
+		t.hasInitialTree.Store(true)
 		t.lastHTML = "" // Free initial HTML — no longer needed once AST path is active
 	}
 
@@ -1365,7 +1373,7 @@ func (t *Template) generateInitialTreeWithoutRegistry(data interface{}, extracte
 // NOTE: This method modifies template state. Caller must hold t.mu write lock.
 func (t *Template) generateDiffBasedTree(oldHTML, newHTML string, newData interface{}) (*treeNode, error) {
 	// Generate new complete tree for comparison
-	if t.hasInitialTree {
+	if t.hasInitialTree.Load() {
 		// MAIN PATH: tree generation uses t.templateStr (template source), not extracted
 		// rendered HTML. No html.Parse() extraction needed on this path.
 		// Note: t.lastHTML is intentionally not updated here — it holds stale data from
@@ -1635,10 +1643,24 @@ func (t *Template) buildTree(data interface{}, messages map[string]string) (*tre
 	// renderHTML (via ExecuteTemplateWithContext) and AddLvtToData.
 	dataWithLvt := context.BuildDataMap(data, messages, t.config.DevMode, t.uploadRegistry)
 
-	// Phase 4: Render HTML using pre-built data map (no reflection)
-	currentHTML, err := t.renderHTMLWithData(dataWithLvt)
-	if err != nil {
-		return nil, err
+	// Phase 4: Render HTML using pre-built data map (no reflection).
+	//
+	// Phase 8 fast path: once hasInitialTree is true, the steady-state
+	// subsequent-render path (generateDiffBasedTree → buildTreeWithCache)
+	// does NOT consume currentHTML — it builds the new tree directly from
+	// the parsed AST + data via parse.BuildTree, with HTML escaping handled
+	// by valueToString in eval.go. The render here was costing ~110 ms at
+	// N=10k for nothing. Skip it on the steady-state path; keep it for the
+	// first render (where contentToCache is needed) and for the fallback
+	// path (hasInitialTree==false), which is the recovery branch when AST
+	// build failed on the first render.
+	var currentHTML string
+	if !t.hasInitialTree.Load() {
+		var err error
+		currentHTML, err = t.renderHTMLWithData(dataWithLvt)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Note: We don't invalidate the expression cache here because:
@@ -1669,7 +1691,7 @@ func (t *Template) buildTree(data interface{}, messages map[string]string) (*tre
 		}
 	}
 
-	isFirstRender := !t.hasInitialTree
+	isFirstRender := !t.hasInitialTree.Load()
 
 	// Build tree based on render type
 	var tree *treeNode
