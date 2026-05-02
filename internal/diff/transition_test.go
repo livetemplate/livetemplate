@@ -184,19 +184,9 @@ func TestTransitionToStreamMode_NilTreeSafe(t *testing.T) {
 	TransitionToStreamMode(nil)
 }
 
-// TestTransitionToStreamMode_RangeWrappedInConditionalFires covers the
-// pattern `{{if .Cond}}{{range .Items}}...{{end}}{{end}}` — a homogeneous
-// range nested under a conditional branch. The conditional's TreeNode is
-// a direct child of the root's Dynamics; the range is a child of THAT
-// TreeNode's Dynamics. Without recursive descent the range would never
-// transition and every render would silently fall back to the legacy
-// per-item path.
-//
-// Discovered via the LargeTable Phase 6 demo: an `{{if gt (len .Items) 0}}`
-// wrapper around a range produced 30KB updates instead of 200B because
-// stream mode never activated. The fix: TransitionToStreamMode recurses
-// through Dynamics children (statics-only descent — Range.Items are not
-// visited, preserving the §5a nested-range-in-item legacy contract).
+// Range nested under a conditional must transition — without recursive
+// descent into Dynamics, the wrapped range never reached the homogeneity
+// check.
 func TestTransitionToStreamMode_RangeWrappedInConditionalFires(t *testing.T) {
 	itemStatics := []string{`<li data-key="`, `">`, `</li>`}
 	rangeNode := &build.TreeNode{

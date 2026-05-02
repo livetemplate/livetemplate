@@ -7,22 +7,11 @@ import (
 
 // TransitionToStreamMode replaces Range.Items with a RangeStreamState
 // snapshot for every homogeneous range reachable through the static tree
-// (root, plus any range inside a TreeNode reachable via Dynamics —
-// including conditional and with branches). Caller must hold the lock
-// that protects tree.
-//
-// The walk descends through Dynamics children but never enters a Range's
-// Items: a range nested as items inside another range stays on the legacy
-// per-item path (spec §5a "nested ranges always take legacy serialization"),
-// because the inner range has no retained lastTree slot of its own. So the
-// recursion preserves that wire-format invariant while fixing the silent
-// fallback that occurred when a homogeneous range was wrapped in {{if}}
-// or {{with}} — the conditional branch is a TreeNode in Dynamics, and
-// without recursion the wrapped range never reached the homogeneity check.
-//
-// Uses CalculateStaticsFingerprint (not GetStructureFingerprint) for the
-// homogeneity check — the latter over-captures scalar position-presence,
-// falsely classifying [id, "x"] vs [id, nil] as heterogeneous.
+// (root plus any TreeNode in Dynamics, including conditional and with
+// branches). Never descends into Range.Items, keeping nested-range-in-item
+// on the legacy path (spec §5a). Caller must hold the lock that protects
+// tree. Uses CalculateStaticsFingerprint (not GetStructureFingerprint) —
+// the latter falsely classifies [id, "x"] vs [id, nil] as heterogeneous.
 func TransitionToStreamMode(tree *build.TreeNode) {
 	if tree == nil {
 		return

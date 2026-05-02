@@ -23,10 +23,8 @@ type homoTodoState struct {
 
 const homoTodoTemplate = `<ul>{{range .Todos}}<li data-key="{{.ID}}">{{.Text}}</li>{{end}}</ul>`
 
-// homoTodoConditionalTemplate wraps the range in `{{if}}` so its TreeNode is
-// nested under a conditional branch instead of sitting at the root. The
-// streaming-range Phase 6 fix made TransitionToStreamMode recurse so this
-// pattern still activates stream mode; the test below pins the contract.
+// Range wrapped in {{if}} — its TreeNode sits under the conditional branch's
+// Dynamics rather than at the root. Locks in the recursive transition.
 const homoTodoConditionalTemplate = `<ul>{{if gt (len .Todos) 0}}{{range .Todos}}<li data-key="{{.ID}}">{{.Text}}</li>{{end}}{{end}}</ul>`
 
 // renderTwice renders twice and returns the second render's JSON.
@@ -43,12 +41,8 @@ func renderTwice(t *testing.T, tmpl *Template, s1, s2 interface{}) string {
 	return buf.String()
 }
 
-// TestStreamMode_FiresOnConditionalWrappedRange — Phase 6 regression gate.
-// A range wrapped in `{{if}}` must still transition to stream mode on the
-// second render. Pre-fix, TransitionToStreamMode walked only the root and
-// direct-child Dynamics; the wrapped range sat at depth 2 and was silently
-// skipped, so every subsequent render emitted a full `"d"` array (the legacy
-// per-item shape), 2-3 orders of magnitude larger than the stream-mode op.
+// Integration regression: a homogeneous range wrapped in {{if}} must still
+// emit stream-mode ["u"] on the second render, not the legacy "d":[…] shape.
 func TestStreamMode_FiresOnConditionalWrappedRange(t *testing.T) {
 	tmpl := Must(New("stream-fires-conditional"))
 	if _, err := tmpl.Parse(homoTodoConditionalTemplate); err != nil {
