@@ -5,6 +5,27 @@ All notable changes to LiveTemplate will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.8.23] - 2026-05-02
+
+### Changes
+
+- refactor: streaming range Phase 8.5 — remove dead keyGen plumbing (#370) (2ef24d11)
+- perf: streaming range Phase 7 — type-direct hash + parallel build (#369) (24950bf9)
+- feat: streaming range Phase 6 — recursive transition + LargeTable demo (#368) (900d1da8)
+- feat: streaming range Phase 5 — benchmark gate + measured §7 numbers (#366) (73cff639)
+- feat: streaming range Phase 4 — cleanup + spec update (#365) (45756b72)
+- feat: streaming range Phase 3 — caller integration (cutover) (#364) (6d46c35e)
+- feat: streaming range Phase 2 — diff entry point (callable, unwired) (#363) (c07977d9)
+- feat: streaming range Phase 1 — foundational types (no-op) (#362) (2a28b70d)
+- docs(proposals): Phase 0 audit for streaming range rendering (#361) (f075d7b5)
+- docs(proposals): streaming range rendering (#360) (89688276)
+- docs(proposals): record lvt-scroll-away top edge ship + Pattern #10 status (a5a5b4bc)
+- docs(proposals): tick Session 7 boxes + Implementation Notes (895865f1)
+- docs(proposals): tick Session 6 boxes + Session 6 implementation notes (83226ab2)
+- docs(proposals): patterns Session 5 complete + 3 implementation notes (d6efdacc)
+
+
+
 ## [v0.8.22] - 2026-04-25
 
 ### Changes
