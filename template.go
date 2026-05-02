@@ -1654,8 +1654,15 @@ func (t *Template) buildTree(data interface{}, messages map[string]string) (*tre
 	// first render (where contentToCache is needed) and for the fallback
 	// path (hasInitialTree==false), which is the recovery branch when AST
 	// build failed on the first render.
+	// Single load — used both here for the dead-render skip decision and
+	// later (under t.mu) for the first-render dispatch. Reading once
+	// eliminates the TOCTOU window where a concurrent first render could
+	// flip the latch between the two reads, leaving currentHTML and
+	// isFirstRender out of sync.
+	hasInitial := t.hasInitialTree.Load()
+
 	var currentHTML string
-	if !t.hasInitialTree.Load() {
+	if !hasInitial {
 		var err error
 		currentHTML, err = t.renderHTMLWithData(dataWithLvt)
 		if err != nil {
@@ -1691,7 +1698,12 @@ func (t *Template) buildTree(data interface{}, messages map[string]string) (*tre
 		}
 	}
 
-	isFirstRender := !t.hasInitialTree.Load()
+	// Reuse the relaxed read from the top of buildTree. After the latch
+	// flips false→true (exactly once per Template lifetime), every
+	// subsequent buildTree call sees true; a stale-but-soon-to-flip read
+	// here costs at most one extra dead render in renderHTMLWithData, never
+	// wrong output (recovery comes through the AST-fail fallback path).
+	isFirstRender := !hasInitial
 
 	// Build tree based on render type
 	var tree *treeNode

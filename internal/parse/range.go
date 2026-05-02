@@ -115,6 +115,14 @@ func iterateSlice(node *parse.RangeNode, collection reflect.Value, eval *evaluat
 // order without merge work. Reflect Index calls are pre-extracted into a
 // flat []interface{} on the main goroutine to avoid concurrent reflect
 // access on the same reflect.Value.
+//
+// The keyGen parameter is shared across workers but never invoked from
+// inside walkAST today (verified by grep — `.Next()` returns zero hits in
+// internal/parse/...). The whole keyGen plumbing is dead code and is
+// removed in the immediately-following Phase 8.5 PR. If a future change
+// needs to call keyGen.Next() from a path reachable inside a range item,
+// this function must serialize that call (or be made not-parallel) — the
+// current behavior is safe only because nothing calls it.
 func iterateSliceParallel(node *parse.RangeNode, collection reflect.Value, eval *evaluator, data interface{}, parentVarCtx *varContext, hasVarDecls bool, keyGen KeyGenerator, ctx *Context, n int) (*TreeNode, error) {
 	itemValues := make([]interface{}, n)
 	for i := 0; i < n; i++ {
