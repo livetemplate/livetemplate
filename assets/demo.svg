@@ -238,8 +238,8 @@
   <!-- Template code in browser (always visible) -->
   <text style="fill: #484f58; font-family: ui-monospace, monospace; font-size: 9.5px;" x="44" y="168">// counter.tmpl</text>
   <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 9.5px;" x="44" y="182">&lt;h1&gt;Counter: <tspan fill="#58a6ff">{{.Counter}}</tspan>&lt;/h1&gt;</text>
-  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 9.5px;" x="44" y="196">&lt;button <tspan fill="#d2a8ff">lvt-click="increment"</tspan>&gt;+&lt;/button&gt;</text>
-  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 9.5px;" x="44" y="210">&lt;button <tspan fill="#d2a8ff">lvt-click="decrement"</tspan>&gt;−&lt;/button&gt;</text>
+  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 9.5px;" x="44" y="196">&lt;button <tspan fill="#d2a8ff">name="increment"</tspan>&gt;+&lt;/button&gt;</text>
+  <text style="fill: #8b949e; font-family: ui-monospace, monospace; font-size: 9.5px;" x="44" y="210">&lt;button <tspan fill="#d2a8ff">name="decrement"</tspan>&gt;−&lt;/button&gt;</text>
 
   <!-- ==================== SERVER (right) ==================== -->
   <rect class="server-box" x="410" y="20" width="280" height="200" />
@@ -289,7 +289,7 @@
       <tspan class="payload-dim">: [</tspan>
       <tspan class="payload-static">"&lt;h1&gt;Counter: "</tspan>
       <tspan class="payload-dim">, </tspan>
-      <tspan class="payload-static">"&lt;/h1&gt;&lt;button lvt-click=..."</tspan>
+      <tspan class="payload-static">"&lt;/h1&gt;&lt;button name=..."</tspan>
       <tspan class="payload-dim">], </tspan>
       <tspan class="payload-key">"0"</tspan>
       <tspan class="payload-dim">: </tspan>

@@ -1,6 +1,6 @@
 # LiveTemplate Roadmap
 
-**Current version:** v0.8.17
+**Current version:** v0.8.23
 
 This roadmap shows what's actively being worked on, what's coming next, and what's on the horizon. For known limitations and workarounds, see [Current Limitations](docs/references/current-limitations.md). For detailed feature proposals, see `docs/proposals/`. For completed historical plans, see `docs/archive/implementation-plans/`.
 
@@ -87,6 +87,8 @@ See [docs/roadmap/html-fallback-coverage.md](docs/roadmap/html-fallback-coverage
 
 ## Completed
 
+- **Streaming Range Rendering** — Phases 5-8.5 shipped in v0.8.21–v0.8.23: benchmark gate with measured numbers (#366), recursive transition + LargeTable demo (#368), type-direct hash + parallel build (#369), dead `keyGen` plumbing removed (#370). Proposal: [streaming-range-rendering-proposal.md](docs/proposals/streaming-range-rendering-proposal.md).
+- **Navigate action + flash persistence (PR #344)** — `__navigate__` reserved WS action for same-handler SPA nav; flash messages persist until `ClearFlash` or `FlashExpiry`. Reference: [navigate.md](docs/references/navigate.md).
 - **M1: Production Foundation** — Health checks, connection limits, graceful shutdown, Prometheus metrics, env-based configuration, production examples (28/35 tasks, remaining are docs listed above)
 - **M2: Horizontal Scaling** — Redis session store, distributed pub/sub, client reconnection with exponential backoff and jitter (18/21 tasks, remaining listed above)
 - **Architecture Improvements Phases 1-5** — Stateful structure bug fix (82% payload reduction), server-side ID metadata, unified range operations, type-safe TreeNode, optimized fingerprinting
