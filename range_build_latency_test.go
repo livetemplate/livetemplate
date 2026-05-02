@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"testing"
 	"time"
@@ -33,11 +34,16 @@ const latencyTemplate = `<table><tbody>{{range .Items}}<tr data-key="{{.ID}}"><t
 // regression that would silently undo the work if a future change reverted
 // the parallel dispatch or re-introduced JSON-marshal in the hash path.
 //
-// Skipped under -short (each case forces multiple full Execute/ExecuteUpdates
-// cycles and the N=10k case allocates ~90 MB per iteration before GC).
+// Skipped under -short and on CI runners (the wall-clock ceilings are
+// calibrated for an 8-core linux/arm64 dev box; shared CI runners have
+// variable performance and cause spurious failures). Run locally to
+// validate Phase 7+8 didn't regress.
 func TestRangeBuildLatency_PostPhase7(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipped under -short; allocates ~90MB at N=10000")
+	}
+	if os.Getenv("CI") != "" {
+		t.Skip("skipped on CI; wall-clock ceilings are calibrated for 8-core dev hardware. Run locally to validate.")
 	}
 
 	cases := []struct {
