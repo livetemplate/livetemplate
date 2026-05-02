@@ -44,70 +44,15 @@ func RenderTreeToHTML(tree map[string]interface{}) (string, error) {
 	return render.TreeToHTML(tree)
 }
 
-// Key generation wrappers for backward compatibility
-
-// KeyGenerator is a type alias for keys.Generator.
-// This is exported for internal compatibility only - external users should not depend on this type.
-// Used by Template and test code that previously accessed the public keyGenerator type.
-type KeyGenerator = keys.Generator
-
-// NewKeyGenerator wraps internal/keys.NewGenerator for backward compatibility.
-// This is exported for internal compatibility only - external users should not depend on this function.
-func NewKeyGenerator() *KeyGenerator {
-	return keys.NewGenerator()
-}
-
-// keyGeneratorAdapter adapts keyGenerator to parse.KeyGenerator interface.
-//
-// Trade-off: This adapter panics on error instead of propagating errors because
-// the parse.KeyGenerator interface doesn't support error returns. This is acceptable
-// because:
-// 1. Key generation errors only occur on counter overflow (after 2^63-1 keys on 64-bit systems)
-// 2. This is effectively impossible in practice - would require generating billions of keys per second for decades
-// 3. Updating the interface would break backward compatibility in v0.2.0
-//
-// Future consideration: If error handling is critical for your use case, the parse.KeyGenerator
-// interface could be updated in a future major version to return (string, error).
-type keyGeneratorAdapter struct {
-	kg *KeyGenerator
-}
-
-// Next implements parse.KeyGenerator interface.
-// Panics on key generation failure (counter overflow), which should never occur in practice.
-func (kga *keyGeneratorAdapter) Next() string {
-	key, err := kga.kg.NextKey()
-	if err != nil {
-		// Counter overflow - extremely unlikely (requires 2^63-1 keys)
-		// Panic since interface doesn't support error returns
-		panic(fmt.Sprintf("key generation failed: %v", err))
-	}
-	return key
-}
-
 // detectIDKey wraps internal/keys.DetectIDKey for backward compatibility
 func DetectIDKey(statics []string) string {
 	return keys.DetectIDKey(statics)
 }
 
-// generateWrapperKey generates a wrapper key using the key generator.
-//
-// Trade-off: Panics on error for backward compatibility with callers expecting
-// a simple string return. Key generation errors only occur on counter overflow
-// (after 2^63-1 keys), which is effectively impossible in real-world usage.
-func GenerateWrapperKey(keyGen *KeyGenerator) string {
-	key, err := keyGen.NextKey()
-	if err != nil {
-		// Counter overflow - extremely unlikely (requires 2^63-1 keys)
-		// Panic for backward compatibility with existing callers
-		panic(fmt.Sprintf("key generation failed: %v", err))
-	}
-	return key
-}
-
 // parseTemplateToTree parses a template using the internal/parse package
 // templateName is used for expression caching
 // ctx is optional - if nil, defaults to first-render context (includes statics)
-func ParseTemplateToTree(templateName, templateStr string, data interface{}, keyGen *KeyGenerator, ctx ...*build.Context) (tree *build.TreeNode, err error) {
+func ParseTemplateToTree(templateName, templateStr string, data interface{}, ctx ...*build.Context) (tree *build.TreeNode, err error) {
 	// Get or create context
 	var genCtx *build.Context
 	if len(ctx) > 0 {
@@ -136,10 +81,7 @@ func ParseTemplateToTree(templateName, templateStr string, data interface{}, key
 		return nil, err
 	}
 
-	// Build tree using internal/parse package
-	// Create adapter for keyGenerator to match parse.KeyGenerator interface
-	keyGenAdapter := &keyGeneratorAdapter{kg: keyGen}
-	return parse.BuildTree(tmpl, data, keyGenAdapter, genCtx)
+	return parse.BuildTree(tmpl, data, genCtx)
 }
 
 // ParseAndCacheTemplate parses a template string into a reusable *parse.Template
@@ -150,7 +92,7 @@ func ParseAndCacheTemplate(templateStr string, funcMap htmltemplate.FuncMap) (*p
 
 // BuildTreeFromCached builds a tree from a previously parsed template, skipping
 // the parse step entirely. This avoids re-parsing the same template on every render.
-func BuildTreeFromCached(tmpl *parse.Template, data interface{}, keyGen *KeyGenerator, ctx *build.Context) (tree *build.TreeNode, err error) {
+func BuildTreeFromCached(tmpl *parse.Template, data interface{}, ctx *build.Context) (tree *build.TreeNode, err error) {
 	genCtx := ctx
 	if genCtx == nil {
 		genCtx = build.NewContext()
@@ -164,6 +106,5 @@ func BuildTreeFromCached(tmpl *parse.Template, data interface{}, keyGen *KeyGene
 		}()
 	}
 
-	keyGenAdapter := &keyGeneratorAdapter{kg: keyGen}
-	return parse.BuildTree(tmpl, data, keyGenAdapter, genCtx)
+	return parse.BuildTree(tmpl, data, genCtx)
 }

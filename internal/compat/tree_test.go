@@ -6,23 +6,6 @@ import (
 	"github.com/livetemplate/livetemplate/internal/build"
 )
 
-// TestNewKeyGenerator verifies the wrapper creates a valid key generator
-func TestNewKeyGenerator(t *testing.T) {
-	kg := NewKeyGenerator()
-	if kg == nil {
-		t.Fatal("NewKeyGenerator returned nil")
-	}
-
-	// Verify it can generate keys
-	key, err := kg.NextKey()
-	if err != nil {
-		t.Fatalf("NextKey failed: %v", err)
-	}
-	if key == "" {
-		t.Error("NextKey returned empty string")
-	}
-}
-
 // TestGenerateRandomID verifies random ID generation
 func TestGenerateRandomID(t *testing.T) {
 	id1 := GenerateRandomID()
@@ -105,9 +88,8 @@ func TestRenderTreeToHTML(t *testing.T) {
 func TestParseTemplateToTree(t *testing.T) {
 	tmpl := "<div>{{.Value}}</div>"
 	data := map[string]interface{}{"Value": "test"}
-	kg := NewKeyGenerator()
 
-	tree, err := ParseTemplateToTree("test", tmpl, data, kg)
+	tree, err := ParseTemplateToTree("test", tmpl, data)
 	if err != nil {
 		t.Fatalf("ParseTemplateToTree failed: %v", err)
 	}
@@ -124,23 +106,5 @@ func TestDetectIDKey(t *testing.T) {
 	statics := []string{"<div id=\"{{.ID}}\">", "</div>"}
 
 	key := DetectIDKey(statics)
-	// Should detect "ID" or return empty if not found
-	// This is a smoke test - actual behavior is implementation-dependent
-	_ = key // Just verify it doesn't panic
-}
-
-// TestGenerateWrapperKey verifies wrapper key generation
-func TestGenerateWrapperKey(t *testing.T) {
-	kg := NewKeyGenerator()
-
-	key := GenerateWrapperKey(kg)
-	if key == "" {
-		t.Error("GenerateWrapperKey returned empty string")
-	}
-
-	// Verify sequential keys
-	key2 := GenerateWrapperKey(kg)
-	if key == key2 {
-		t.Error("GenerateWrapperKey returned same key twice")
-	}
+	_ = key // smoke test — verify it doesn't panic
 }

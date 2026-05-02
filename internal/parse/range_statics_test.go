@@ -28,9 +28,8 @@ func TestRangeStaticsAlwaysPopulated(t *testing.T) {
 	// First render (with statics)
 	ctx := build.NewContext()
 	ctx.TemplateName = "test"
-	keyGen := newMockKeyGen()
 
-	tree1, err := BuildTree(tmpl, data, keyGen, ctx)
+	tree1, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("First render failed: %v", err)
 	}
@@ -47,9 +46,8 @@ func TestRangeStaticsAlwaysPopulated(t *testing.T) {
 
 	ctx2 := build.NewUpdateContext(nil)
 	ctx2.TemplateName = "test"
-	keyGen2 := newMockKeyGen()
 
-	tree2, err := BuildTree(tmpl, data, keyGen2, ctx2)
+	tree2, err := BuildTree(tmpl, data, ctx2)
 	if err != nil {
 		t.Fatalf("Update render failed: %v", err)
 	}
@@ -84,9 +82,8 @@ func TestRangeStaticsEmptyToItems(t *testing.T) {
 	data := struct{ Items []Item }{Items: nil}
 	ctx := build.NewContext()
 	ctx.TemplateName = "test"
-	keyGen := newMockKeyGen()
 
-	tree1, err := BuildTree(tmpl, data, keyGen, ctx)
+	tree1, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("Empty render failed: %v", err)
 	}
@@ -97,9 +94,8 @@ func TestRangeStaticsEmptyToItems(t *testing.T) {
 	data.Items = []Item{{ID: "1", Text: "First"}}
 	ctx2 := build.NewUpdateContext(nil)
 	ctx2.TemplateName = "test"
-	keyGen2 := newMockKeyGen()
 
-	tree2, err := BuildTree(tmpl, data, keyGen2, ctx2)
+	tree2, err := BuildTree(tmpl, data, ctx2)
 	if err != nil {
 		t.Fatalf("Update with items failed: %v", err)
 	}
@@ -135,9 +131,8 @@ func TestTodosScenario(t *testing.T) {
 	data := struct{ Items []Item }{Items: nil}
 	ctx := build.NewContext()
 	ctx.TemplateName = "test"
-	keyGen := newMockKeyGen()
 
-	tree1, err := BuildTree(tmpl, data, keyGen, ctx)
+	tree1, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("Empty render failed: %v", err)
 	}
@@ -147,9 +142,8 @@ func TestTodosScenario(t *testing.T) {
 	data.Items = []Item{{ID: "1", Text: "First"}}
 	ctx2 := build.NewUpdateContext(nil)
 	ctx2.TemplateName = "test"
-	keyGen2 := newMockKeyGen()
 
-	tree2, err := BuildTree(tmpl, data, keyGen2, ctx2)
+	tree2, err := BuildTree(tmpl, data, ctx2)
 	if err != nil {
 		t.Fatalf("Update with items failed: %v", err)
 	}

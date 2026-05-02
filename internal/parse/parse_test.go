@@ -70,7 +70,7 @@ func TestBuildTree_SimpleField(t *testing.T) {
 	data := map[string]interface{}{"Name": "John"}
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := BuildTree(tmpl, data, newMockKeyGen(), ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree failed: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestBuildTree_NestedFields(t *testing.T) {
 	}
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := BuildTree(tmpl, data, newMockKeyGen(), ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree failed: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestWalkAST_TextNode(t *testing.T) {
 
 	ctx := &Context{IncludeStatics: true}
 	eval := newEvaluator(ctx.FuncMap)
-	tree, err := walkAST(tmpl.Tree.Root, eval, nil, nil, newMockKeyGen(), ctx)
+	tree, err := walkAST(tmpl.Tree.Root, eval, nil, nil, ctx)
 	if err != nil {
 		t.Fatalf("walkAST failed: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestWalkAST_ActionNode(t *testing.T) {
 	ctx := &Context{IncludeStatics: true}
 	eval := newEvaluator(ctx.FuncMap)
 
-	tree, err := walkAST(tmpl.Tree.Root, eval, data, nil, newMockKeyGen(), ctx)
+	tree, err := walkAST(tmpl.Tree.Root, eval, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("walkAST failed: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestWalkAST_CommentNode(t *testing.T) {
 
 	ctx := &Context{IncludeStatics: true}
 	eval := newEvaluator(ctx.FuncMap)
-	tree, err := walkAST(tmpl.Tree.Root, eval, nil, nil, newMockKeyGen(), ctx)
+	tree, err := walkAST(tmpl.Tree.Root, eval, nil, nil, ctx)
 	if err != nil {
 		t.Fatalf("walkAST failed: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestWalkList_SingleNode(t *testing.T) {
 	ctx := &Context{IncludeStatics: true}
 	eval := newEvaluator(ctx.FuncMap)
 
-	tree, err := walkList(tmpl.Tree.Root, eval, data, nil, newMockKeyGen(), ctx)
+	tree, err := walkList(tmpl.Tree.Root, eval, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("walkList failed: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestWalkList_MultipleNodes(t *testing.T) {
 	ctx := &Context{IncludeStatics: true}
 	eval := newEvaluator(ctx.FuncMap)
 
-	tree, err := walkList(tmpl.Tree.Root, eval, data, nil, newMockKeyGen(), ctx)
+	tree, err := walkList(tmpl.Tree.Root, eval, data, nil, ctx)
 	if err != nil {
 		t.Fatalf("walkList failed: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestWalkList_MultipleNodes(t *testing.T) {
 func TestWalkList_EmptyList(t *testing.T) {
 	ctx := &Context{IncludeStatics: true}
 	eval := newEvaluator(ctx.FuncMap)
-	tree, err := walkList(nil, eval, nil, nil, newMockKeyGen(), ctx)
+	tree, err := walkList(nil, eval, nil, nil, ctx)
 	if err != nil {
 		t.Fatalf("walkList failed: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestEvalPipe_Simple(t *testing.T) {
 	data := map[string]interface{}{"Name": "John"}
 	ctx := &Context{IncludeStatics: true}
 
-	tree, err := BuildTree(tmpl, data, newMockKeyGen(), ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree failed: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestEvalPipe_Complex(t *testing.T) {
 	}
 	ctx := &Context{IncludeStatics: true, FuncMap: funcMap}
 
-	tree, err := BuildTree(tmpl, data, newMockKeyGen(), ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree failed: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestEvalPipe_WithFuncs(t *testing.T) {
 	data := map[string]interface{}{"Name": "John"}
 	ctx := &Context{IncludeStatics: true, FuncMap: funcMap}
 
-	tree, err := BuildTree(tmpl, data, newMockKeyGen(), ctx)
+	tree, err := BuildTree(tmpl, data, ctx)
 	if err != nil {
 		t.Fatalf("BuildTree failed: %v", err)
 	}
@@ -359,7 +359,7 @@ func TestWalkList_ErrorContext(t *testing.T) {
 	ctx := &Context{IncludeStatics: true}
 	eval := newEvaluator(ctx.FuncMap)
 
-	_, err = walkList(tmpl.Tree.Root, eval, data, nil, newMockKeyGen(), ctx)
+	_, err = walkList(tmpl.Tree.Root, eval, data, nil, ctx)
 	if err == nil {
 		t.Error("Expected error for template invocation")
 	}

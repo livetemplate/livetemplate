@@ -6,7 +6,7 @@ import (
 )
 
 // handleWith processes {{with}}...{{else}}...{{end}} constructs.
-func handleWith(node *parse.WithNode, eval *evaluator, data interface{}, varCtx *varContext, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+func handleWith(node *parse.WithNode, eval *evaluator, data interface{}, varCtx *varContext, ctx *Context) (*TreeNode, error) {
 	d := dot(data, varCtx)
 	newContext, err := eval.evalPipe(node.Pipe, d, varCtx)
 	if err != nil {
@@ -20,11 +20,11 @@ func handleWith(node *parse.WithNode, eval *evaluator, data interface{}, varCtx 
 	contextValue := reflect.ValueOf(newContext)
 	if !contextValue.IsValid() || isZeroValue(contextValue) {
 		if node.ElseList != nil {
-			return walkAST(node.ElseList, eval, data, varCtx, keyGen, ctx)
+			return walkAST(node.ElseList, eval, data, varCtx, ctx)
 		}
 		return createEmptyTree(ctx), nil
 	}
 
 	bodyVarCtx := createWithBodyVarCtx(data, varCtx, newContext)
-	return walkAST(node.List, eval, data, bodyVarCtx, keyGen, ctx)
+	return walkAST(node.List, eval, data, bodyVarCtx, ctx)
 }

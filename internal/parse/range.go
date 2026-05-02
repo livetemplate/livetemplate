@@ -18,7 +18,7 @@ import (
 const parallelIterateThreshold = 256
 
 // handleRange processes {{range}}...{{end}} constructs.
-func handleRange(node *parse.RangeNode, eval *evaluator, data interface{}, varCtx *varContext, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+func handleRange(node *parse.RangeNode, eval *evaluator, data interface{}, varCtx *varContext, ctx *Context) (*TreeNode, error) {
 	collection, err := extractCollection(node, eval, data, varCtx)
 	if err != nil {
 		return nil, err
@@ -26,7 +26,7 @@ func handleRange(node *parse.RangeNode, eval *evaluator, data interface{}, varCt
 
 	collectionValue := reflect.ValueOf(collection)
 	if isEmpty(collectionValue) {
-		return handleEmptyRange(node, eval, data, varCtx, keyGen, ctx)
+		return handleEmptyRange(node, eval, data, varCtx, ctx)
 	}
 
 	kind := collectionValue.Kind()
@@ -40,9 +40,9 @@ func handleRange(node *parse.RangeNode, eval *evaluator, data interface{}, varCt
 	hasVarDecls := len(node.Pipe.Decl) > 0
 
 	if kind == reflect.Map {
-		return iterateMap(node, collectionValue, eval, data, varCtx, hasVarDecls, keyGen, ctx)
+		return iterateMap(node, collectionValue, eval, data, varCtx, hasVarDecls, ctx)
 	}
-	return iterateSlice(node, collectionValue, eval, data, varCtx, hasVarDecls, keyGen, ctx)
+	return iterateSlice(node, collectionValue, eval, data, varCtx, hasVarDecls, ctx)
 }
 
 // extractCollection extracts the collection expression from a range node.
@@ -69,9 +69,9 @@ func isEmpty(v reflect.Value) bool {
 }
 
 // handleEmptyRange handles empty collections or else branches.
-func handleEmptyRange(node *parse.RangeNode, eval *evaluator, data interface{}, varCtx *varContext, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+func handleEmptyRange(node *parse.RangeNode, eval *evaluator, data interface{}, varCtx *varContext, ctx *Context) (*TreeNode, error) {
 	if node.ElseList != nil {
-		return walkAST(node.ElseList, eval, data, varCtx, keyGen, ctx)
+		return walkAST(node.ElseList, eval, data, varCtx, ctx)
 	}
 	emptyRange := NewTreeNode()
 	if ctx.ShouldIncludeStatics() {
@@ -87,10 +87,10 @@ func handleEmptyRange(node *parse.RangeNode, eval *evaluator, data interface{}, 
 // The walker, evaluator, parsed AST, and Context are all read-only after
 // construction; each item gets its own varContext so no shared mutable
 // state crosses goroutines.
-func iterateSlice(node *parse.RangeNode, collection reflect.Value, eval *evaluator, data interface{}, parentVarCtx *varContext, hasVarDecls bool, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+func iterateSlice(node *parse.RangeNode, collection reflect.Value, eval *evaluator, data interface{}, parentVarCtx *varContext, hasVarDecls bool, ctx *Context) (*TreeNode, error) {
 	n := collection.Len()
 	if n >= parallelIterateThreshold {
-		return iterateSliceParallel(node, collection, eval, data, parentVarCtx, hasVarDecls, keyGen, ctx, n)
+		return iterateSliceParallel(node, collection, eval, data, parentVarCtx, hasVarDecls, ctx, n)
 	}
 	itemsWithStatics := make([]rangeItemWithStatics, 0, n)
 	itemCtx := contextWithStatics(ctx)
@@ -99,7 +99,7 @@ func iterateSlice(node *parse.RangeNode, collection reflect.Value, eval *evaluat
 		item := collection.Index(i).Interface()
 		itemVarCtx := buildRangeItemVarCtx(node, i, item, data, parentVarCtx, hasVarDecls)
 
-		itemTree, err := walkAST(node.List, eval, data, itemVarCtx, keyGen, itemCtx)
+		itemTree, err := walkAST(node.List, eval, data, itemVarCtx, itemCtx)
 		if err != nil {
 			return nil, fmt.Errorf("range item %d error: %w", i, err)
 		}
@@ -115,14 +115,7 @@ func iterateSlice(node *parse.RangeNode, collection reflect.Value, eval *evaluat
 // order without merge work. Reflect Index calls are pre-extracted into a
 // flat []interface{} on the main goroutine to avoid concurrent reflect
 // access on the same reflect.Value.
-//
-// The keyGen parameter is shared across workers but never invoked from
-// inside walkAST (verified by grep — `.Next()` returns zero hits in
-// internal/parse/). If a future change adds a keyGen.Next() call on a
-// path reachable from a range item body, this function must serialize
-// that call or fall back to the sequential path; the current behaviour
-// is safe only because nothing calls it.
-func iterateSliceParallel(node *parse.RangeNode, collection reflect.Value, eval *evaluator, data interface{}, parentVarCtx *varContext, hasVarDecls bool, keyGen KeyGenerator, ctx *Context, n int) (*TreeNode, error) {
+func iterateSliceParallel(node *parse.RangeNode, collection reflect.Value, eval *evaluator, data interface{}, parentVarCtx *varContext, hasVarDecls bool, ctx *Context, n int) (*TreeNode, error) {
 	itemValues := make([]interface{}, n)
 	for i := 0; i < n; i++ {
 		itemValues[i] = collection.Index(i).Interface()
@@ -153,7 +146,7 @@ func iterateSliceParallel(node *parse.RangeNode, collection reflect.Value, eval 
 			defer wg.Done()
 			for i := start; i < end; i++ {
 				itemVarCtx := buildRangeItemVarCtx(node, i, itemValues[i], data, parentVarCtx, hasVarDecls)
-				itemTree, err := walkAST(node.List, eval, data, itemVarCtx, keyGen, itemCtx)
+				itemTree, err := walkAST(node.List, eval, data, itemVarCtx, itemCtx)
 				if err != nil {
 					errs[workerIdx] = fmt.Errorf("range item %d error: %w", i, err)
 					return
@@ -174,7 +167,7 @@ func iterateSliceParallel(node *parse.RangeNode, collection reflect.Value, eval 
 }
 
 // iterateMap handles map range iteration.
-func iterateMap(node *parse.RangeNode, collection reflect.Value, eval *evaluator, data interface{}, parentVarCtx *varContext, hasVarDecls bool, keyGen KeyGenerator, ctx *Context) (*TreeNode, error) {
+func iterateMap(node *parse.RangeNode, collection reflect.Value, eval *evaluator, data interface{}, parentVarCtx *varContext, hasVarDecls bool, ctx *Context) (*TreeNode, error) {
 	keys := collection.MapKeys()
 	itemsWithStatics := make([]rangeItemWithStatics, 0, len(keys))
 	itemCtx := contextWithStatics(ctx)
@@ -183,7 +176,7 @@ func iterateMap(node *parse.RangeNode, collection reflect.Value, eval *evaluator
 		item := collection.MapIndex(key).Interface()
 		itemVarCtx := buildRangeItemVarCtx(node, key.Interface(), item, data, parentVarCtx, hasVarDecls)
 
-		itemTree, err := walkAST(node.List, eval, data, itemVarCtx, keyGen, itemCtx)
+		itemTree, err := walkAST(node.List, eval, data, itemVarCtx, itemCtx)
 		if err != nil {
 			return nil, fmt.Errorf("range item %d error: %w", i, err)
 		}

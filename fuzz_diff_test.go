@@ -93,7 +93,6 @@ func runFuzzSessionWithWeights(t *testing.T, rng *rand.Rand, seed int64, numMuta
 	// Create template (matching existing test pattern)
 	tmpl := &Template{
 		templateStr: templateStr,
-		keyGen:      compat.NewKeyGenerator(),
 	}
 
 	// Parse template
@@ -110,7 +109,7 @@ func runFuzzSessionWithWeights(t *testing.T, rng *rand.Rand, seed int64, numMuta
 	// Diff correctness is validated by TypeScript oracle tests
 
 	// First render - use compat.ParseTemplateToTree for consistency with subsequent renders
-	prevTree, err := compat.ParseTemplateToTree("test", templateStr, state, tmpl.keyGen)
+	prevTree, err := compat.ParseTemplateToTree("test", templateStr, state)
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -147,7 +146,7 @@ func runFuzzSessionWithWeights(t *testing.T, rng *rand.Rand, seed int64, numMuta
 		state = newState
 
 		// Parse new tree
-		newTree, err := compat.ParseTemplateToTree("test", templateStr, state, tmpl.keyGen)
+		newTree, err := compat.ParseTemplateToTree("test", templateStr, state)
 		if err != nil {
 			t.Fatalf("Render failed after mutation %d (%s): %v\nState: %+v",
 				i, mutation.String(), err, state)
@@ -1611,7 +1610,6 @@ func runAppFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numMutations in
 	// Create template
 	tmpl := &Template{
 		templateStr: templateStr,
-		keyGen:      compat.NewKeyGenerator(),
 	}
 
 	if _, err := tmpl.Parse(templateStr); err != nil {
@@ -1626,7 +1624,7 @@ func runAppFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numMutations in
 	// Diff correctness is validated by TypeScript oracle tests
 
 	// First render
-	prevTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+	prevTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -1652,7 +1650,7 @@ func runAppFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numMutations in
 		}
 
 		// Render new tree
-		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 		if err != nil {
 			t.Fatalf("Render failed after mutation %d (%s): %v\nState: %+v",
 				i, mutation.String(), err, state)
@@ -1864,7 +1862,6 @@ func runNestedRangeFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numMuta
 	// Create template
 	tmpl := &Template{
 		templateStr: templateStr,
-		keyGen:      compat.NewKeyGenerator(),
 	}
 
 	if _, err := tmpl.Parse(templateStr); err != nil {
@@ -1879,7 +1876,7 @@ func runNestedRangeFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numMuta
 	// Diff correctness is validated by TypeScript oracle tests
 
 	// First render
-	prevTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+	prevTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -1905,7 +1902,7 @@ func runNestedRangeFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numMuta
 		}
 
 		// Render new tree
-		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 		if err != nil {
 			t.Fatalf("Render failed after mutation %d (%s): %v\nState: %+v",
 				i, mutation.String(), err, state)
@@ -2059,7 +2056,6 @@ func runBurstAppFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numRenderC
 	// Create template
 	tmpl := &Template{
 		templateStr: templateStr,
-		keyGen:      compat.NewKeyGenerator(),
 	}
 
 	if _, err := tmpl.Parse(templateStr); err != nil {
@@ -2074,7 +2070,7 @@ func runBurstAppFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numRenderC
 	// Diff correctness is validated by TypeScript oracle tests
 
 	// First render
-	prevTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+	prevTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -2108,7 +2104,7 @@ func runBurstAppFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numRenderC
 		}
 
 		// Now render after the burst
-		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 		if err != nil {
 			t.Fatalf("Render failed after burst at cycle %d: %v\nApplied %d mutations",
 				cycle, err, len(appliedMutations))
@@ -2141,7 +2137,6 @@ func runBurstFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numRenderCycl
 
 	tmpl := &Template{
 		templateStr: templateStr,
-		keyGen:      compat.NewKeyGenerator(),
 	}
 
 	if _, err := tmpl.Parse(templateStr); err != nil {
@@ -2152,7 +2147,7 @@ func runBurstFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numRenderCycl
 	verifier := invariants.NewVerifier(seed)
 	// Diff correctness is validated by TypeScript oracle tests
 
-	prevTree, err := compat.ParseTemplateToTree("test", templateStr, state, tmpl.keyGen)
+	prevTree, err := compat.ParseTemplateToTree("test", templateStr, state)
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -2185,7 +2180,7 @@ func runBurstFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numRenderCycl
 			continue
 		}
 
-		newTree, err := compat.ParseTemplateToTree("test", templateStr, state, tmpl.keyGen)
+		newTree, err := compat.ParseTemplateToTree("test", templateStr, state)
 		if err != nil {
 			t.Fatalf("Render failed after burst at cycle %d: %v", cycle, err)
 		}
@@ -2319,7 +2314,6 @@ func runUndoRedoSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int)
 
 	tmpl := &Template{
 		templateStr: templateStr,
-		keyGen:      compat.NewKeyGenerator(),
 	}
 
 	if _, err := tmpl.Parse(templateStr); err != nil {
@@ -2330,7 +2324,7 @@ func runUndoRedoSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int)
 	verifier := invariants.NewVerifier(seed)
 	// Diff correctness is validated by TypeScript oracle tests
 
-	prevTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+	prevTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -2362,7 +2356,7 @@ func runUndoRedoSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int)
 		}
 
 		// Render
-		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 		if err != nil {
 			t.Fatalf("Render failed at cycle %d: %v", cycle, err)
 		}
@@ -2417,7 +2411,6 @@ func runPaginationFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycle
 	// Create template
 	tmpl := &Template{
 		templateStr: templateStr,
-		keyGen:      compat.NewKeyGenerator(),
 	}
 
 	if _, err := tmpl.Parse(templateStr); err != nil {
@@ -2431,7 +2424,7 @@ func runPaginationFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycle
 	verifier := invariants.NewVerifier(seed)
 	// Diff correctness is validated by TypeScript oracle tests
 
-	initialTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+	initialTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -2452,7 +2445,7 @@ func runPaginationFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycle
 		}
 		app.DeriveVisibleItems(state)
 
-		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 		if err != nil {
 			t.Fatalf("Render failed at cycle %d: %v", cycle, err)
 		}
@@ -2531,7 +2524,6 @@ func runModalFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int
 	// Create template
 	tmpl := &Template{
 		templateStr: templateStr,
-		keyGen:      compat.NewKeyGenerator(),
 	}
 
 	if _, err := tmpl.Parse(templateStr); err != nil {
@@ -2544,7 +2536,7 @@ func runModalFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int
 	verifier := invariants.NewVerifier(seed)
 	// Diff correctness is validated by TypeScript oracle tests
 
-	initialTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+	initialTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -2564,7 +2556,7 @@ func runModalFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int
 			continue
 		}
 
-		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 		if err != nil {
 			t.Fatalf("Render failed at cycle %d: %v", cycle, err)
 		}
@@ -2664,7 +2656,6 @@ func runFormFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int,
 	// Create template
 	tmpl := &Template{
 		templateStr: templateStr,
-		keyGen:      compat.NewKeyGenerator(),
 	}
 
 	if _, err := tmpl.Parse(templateStr); err != nil {
@@ -2677,7 +2668,7 @@ func runFormFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int,
 	verifier := invariants.NewVerifier(seed)
 	// Diff correctness is validated by TypeScript oracle tests
 
-	initialTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+	initialTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -2697,7 +2688,7 @@ func runFormFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int,
 			continue
 		}
 
-		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 		if err != nil {
 			t.Fatalf("Render failed at cycle %d: %v", cycle, err)
 		}
@@ -2777,7 +2768,6 @@ func runAsyncFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int
 	// Create template
 	tmpl := &Template{
 		templateStr: templateStr,
-		keyGen:      compat.NewKeyGenerator(),
 	}
 
 	if _, err := tmpl.Parse(templateStr); err != nil {
@@ -2790,7 +2780,7 @@ func runAsyncFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int
 	verifier := invariants.NewVerifier(seed)
 	// Diff correctness is validated by TypeScript oracle tests
 
-	initialTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+	initialTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -2810,7 +2800,7 @@ func runAsyncFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int
 			continue
 		}
 
-		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 		if err != nil {
 			t.Fatalf("Render failed at cycle %d: %v", cycle, err)
 		}
@@ -2866,7 +2856,6 @@ func runNotificationFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCyc
 	// Create template
 	tmpl := &Template{
 		templateStr: templateStr,
-		keyGen:      compat.NewKeyGenerator(),
 	}
 
 	if _, err := tmpl.Parse(templateStr); err != nil {
@@ -2879,7 +2868,7 @@ func runNotificationFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCyc
 	verifier := invariants.NewVerifier(seed)
 	// Diff correctness is validated by TypeScript oracle tests
 
-	initialTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+	initialTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -2899,7 +2888,7 @@ func runNotificationFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCyc
 			continue
 		}
 
-		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 		if err != nil {
 			t.Fatalf("Render failed at cycle %d: %v", cycle, err)
 		}
@@ -2978,7 +2967,6 @@ func runBulkFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int,
 	// Create template
 	tmpl := &Template{
 		templateStr: templateStr,
-		keyGen:      compat.NewKeyGenerator(),
 	}
 
 	if _, err := tmpl.Parse(templateStr); err != nil {
@@ -2991,7 +2979,7 @@ func runBulkFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int,
 	verifier := invariants.NewVerifier(seed)
 	// Diff correctness is validated by TypeScript oracle tests
 
-	initialTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+	initialTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 	if err != nil {
 		t.Fatalf("Initial render failed: %v", err)
 	}
@@ -3011,7 +2999,7 @@ func runBulkFuzzSession(t *testing.T, rng *rand.Rand, seed int64, numCycles int,
 			continue
 		}
 
-		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap(), tmpl.keyGen)
+		newTree, err := compat.ParseTemplateToTree("test", templateStr, state.ToMap())
 		if err != nil {
 			t.Fatalf("Render failed at cycle %d: %v", cycle, err)
 		}

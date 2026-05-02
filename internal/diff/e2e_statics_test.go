@@ -8,20 +8,6 @@ import (
 	"github.com/livetemplate/livetemplate/internal/parse"
 )
 
-// mockKeyGen implements parse.KeyGenerator for testing
-type mockKeyGen struct {
-	counter int
-}
-
-func newMockKeyGen() *mockKeyGen {
-	return &mockKeyGen{}
-}
-
-func (m *mockKeyGen) Next() string {
-	m.counter++
-	return string(rune('a' + m.counter - 1))
-}
-
 // TestE2E_EmptyToItems_Statics tests the full flow from template parsing
 // through tree building to diff generation, verifying statics are preserved
 func TestE2E_EmptyToItems_Statics(t *testing.T) {
@@ -42,9 +28,8 @@ func TestE2E_EmptyToItems_Statics(t *testing.T) {
 	dataEmpty := struct{ Items []Item }{Items: nil}
 	ctx := build.NewContext()
 	ctx.TemplateName = "test"
-	keyGen := newMockKeyGen()
 
-	tree1, err := parse.BuildTree(tmpl, dataEmpty, keyGen, ctx)
+	tree1, err := parse.BuildTree(tmpl, dataEmpty, ctx)
 	if err != nil {
 		t.Fatalf("Empty render failed: %v", err)
 	}
@@ -57,9 +42,8 @@ func TestE2E_EmptyToItems_Statics(t *testing.T) {
 	}
 	ctx2 := build.NewUpdateContext(nil)
 	ctx2.TemplateName = "test"
-	keyGen2 := newMockKeyGen()
 
-	tree2, err := parse.BuildTree(tmpl, dataWithItems, keyGen2, ctx2)
+	tree2, err := parse.BuildTree(tmpl, dataWithItems, ctx2)
 	if err != nil {
 		t.Fatalf("Update render failed: %v", err)
 	}

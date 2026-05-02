@@ -104,7 +104,6 @@ import (
 	"github.com/livetemplate/livetemplate/internal/context"
 	"github.com/livetemplate/livetemplate/internal/diff"
 	"github.com/livetemplate/livetemplate/internal/discovery"
-	"github.com/livetemplate/livetemplate/internal/keys"
 	"github.com/livetemplate/livetemplate/internal/observe"
 	"github.com/livetemplate/livetemplate/internal/parse"
 	"github.com/livetemplate/livetemplate/internal/render"
@@ -135,10 +134,6 @@ import (
 // treeNode is an internal alias for build.TreeNode.
 // Used internally by Template for tree caching and comparison.
 type treeNode = build.TreeNode
-
-// keyGenerator is an internal alias for keys.Generator.
-// Used internally by Template for sequential key generation.
-type keyGenerator = keys.Generator
 
 // =============================================================================
 // Configuration
@@ -230,7 +225,6 @@ type Template struct {
 	lastHTML               string
 	lastTree               *treeNode // Store previous tree segments for comparison
 	hasInitialTree         bool
-	keyGen                 *keyGenerator   // Per-template key generation for wrapper approach
 	config                 Config          // Template configuration
 	uploadRegistry         interface{}     // Upload registry for this connection (*upload.Registry)
 	cachedParseTemplate    *parse.Template // Cached AST to avoid re-parsing on every render
@@ -862,7 +856,6 @@ func New(name string, opts ...Option) (*Template, error) {
 
 	tmpl := &Template{
 		name:   name,
-		keyGen: compat.NewKeyGenerator(),
 		config: config,
 	}
 
@@ -930,7 +923,7 @@ func (t *Template) Clone() (*Template, error) {
 		tmpl:                   tmpl, // Share parsed template (concurrent Execute is safe)
 		wrapperID:              wrapperID,
 		funcs:                  funcs,       // Share FuncMap (read-only after Parse)
-		config:                 config,      // keyGen allocated lazily on first buildTree (nil-safe at line 1582)
+		config:                 config,
 		cachedParseTemplate:    cachedParse, // Share parsed AST + builtins
 		cachedBodyContent:      bodyContent, // Share extracted body content
 		cachedBodyContentValid: bodyContentValid,
@@ -1331,7 +1324,7 @@ func (t *Template) buildTreeWithCache(data interface{}, ctx *build.Context) (*tr
 	}
 	// ctx.FuncMap is set by callers but not used here — builtins were pre-computed
 	// at parse time and stored on cachedParseTemplate (see PrecomputeBuiltins).
-	return compat.BuildTreeFromCached(t.cachedParseTemplate, data, t.keyGen, ctx)
+	return compat.BuildTreeFromCached(t.cachedParseTemplate, data, ctx)
 }
 
 // generateInitialTreeWithoutRegistry creates tree with statics and dynamics for first render.
@@ -1651,23 +1644,10 @@ func (t *Template) buildTree(data interface{}, messages map[string]string) (*tre
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	// Initialize key generator if needed (defensive check)
-	if t.keyGen == nil {
-		t.keyGen = compat.NewKeyGenerator()
-	}
-
 	// Transition the previous render's retained tree at the START of this
 	// render. Doing it at the lastTree assignment sites would alias the wire
-	// output on the first render. Placement before LoadExistingKeyMappings
-	// lets the loader exercise the stream-mode key path.
+	// output on the first render.
 	diff.TransitionToStreamMode(t.lastTree)
-
-	// Load existing key mappings if available
-	if t.lastTree != nil {
-		if err := keys.LoadExistingKeyMappings(t.keyGen, t.lastTree); err != nil {
-			return nil, fmt.Errorf("failed to load existing key mappings: %w", err)
-		}
-	}
 
 	isFirstRender := !t.hasInitialTree
 

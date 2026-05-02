@@ -19,9 +19,3 @@ var (
 	NewRangeData           = build.NewRangeData
 	NewTreeMetadata        = build.NewTreeMetadata
 )
-
-// KeyGenerator generates unique keys for range items.
-// This interface is specific to the parse package and used during tree building.
-type KeyGenerator interface {
-	Next() string
-}
