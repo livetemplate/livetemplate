@@ -25,11 +25,18 @@ func createEmptyTree(ctx *Context) *TreeNode {
 	return NewTreeNode()
 }
 
-// contextWithStatics returns a context that always includes statics for internal use.
-// Range items ALWAYS need statics collected internally for:
-// - detectIDKey() to find key attribute position in statics
-// - Range.Statics for diff operations
-// - handleEmptyToItemsTransition to send statics to client
+// contextWithStatics returns a context that always includes statics for
+// internal use. Range items ALWAYS need statics collected internally for
+// detectIDKey, Range.Statics, and handleEmptyToItemsTransition.
+//
+// The returned *Context is treated as immutable by walkAST and all parse-
+// layer callees: every ctx-field access is a read of ctx.ShouldIncludeStatics
+// (verified by grep of internal/parse/*.go). This is what makes it safe to
+// share the same *Context across goroutines in iterateSliceParallel —
+// even when the function returns the original ctx pointer (when statics are
+// already enabled) or a shallow copy that aliases the underlying maps. If
+// any future caller starts writing to a Context field, iterateSliceParallel
+// must be reverted to per-worker copies or fall back to the sequential path.
 func contextWithStatics(ctx *Context) *Context {
 	if ctx == nil {
 		return &Context{

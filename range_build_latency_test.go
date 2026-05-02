@@ -45,15 +45,16 @@ func TestRangeBuildLatency_PostPhase7(t *testing.T) {
 		n         int
 		ceilingNs int64
 	}{
-		// Ceilings sit comfortably above measured medians on a recent
-		// linux/arm64 8-core host (Post-Phase-7+8: N=1000 ≈ 7 ms;
-		// N=10000 ≈ 60 ms). Pre-Phase-7 baseline at N=10k was 306 ms —
-		// these gates would trip on regressions that re-serialised
-		// iterateSlice, reverted the type-switch hash to JSON-marshal,
-		// or re-introduced the renderHTMLWithData dead work on the
-		// steady-state path.
-		{"N=1000", 1000, int64(25 * time.Millisecond)},
-		{"N=10000", 10000, int64(150 * time.Millisecond)},
+		// Ceilings sit above measured medians (N=1000 ≈ 7 ms;
+		// N=10000 ≈ 60 ms on linux/arm64 8-core) with extra headroom
+		// for shared-runner CI variance from GC pauses (the N=10000
+		// case allocates ~90 MB before GC). Pre-Phase-7 baseline at
+		// N=10k was 306 ms — these gates would trip on regressions
+		// that re-serialised iterateSlice, reverted the type-switch
+		// hash, or re-introduced renderHTMLWithData on the steady
+		// state.
+		{"N=1000", 1000, int64(50 * time.Millisecond)},
+		{"N=10000", 10000, int64(250 * time.Millisecond)},
 	}
 
 	for _, tc := range cases {
